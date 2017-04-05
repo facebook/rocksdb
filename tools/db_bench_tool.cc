@@ -2192,7 +2192,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
   std::unique_ptr<Iterator> truth_iter(truth_db.db->NewIterator(ro));
   std::unique_ptr<Iterator> db_iter(db_.db->NewIterator(ro));
   // Verify that all the key/values in truth_db are retrivable in db with ::Get
-  fprintf(stderr, "Verifying db <= truth_db...\n");
+  fprintf(stderr, "Verifying db >= truth_db with ::Get...\n");
   for (truth_iter->SeekToFirst(); truth_iter->Valid(); truth_iter->Next()) {
       std::string value;
       s = db_.db->Get(ro, truth_iter->key(), &value);
@@ -2201,7 +2201,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       assert(Slice(value) == truth_iter->value());
   }
   // Verify that the db iterator does not give any extra key/value
-  fprintf(stderr, "Verifying db >= truth_db...\n");
+  fprintf(stderr, "Verifying db == truth_db...\n");
   for (db_iter->SeekToFirst(), truth_iter->SeekToFirst(); db_iter->Valid(); db_iter->Next(), truth_iter->Next()) {
     assert(truth_iter->Valid());
     assert(truth_iter->value() == db_iter->value());
