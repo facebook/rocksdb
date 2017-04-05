@@ -126,8 +126,8 @@ class PosixEnv : public Env {
   PosixEnv();
 
   virtual ~PosixEnv() {
-    for (const auto tid : threads_to_join_) {
-      pthread_join(tid, nullptr);
+    for (auto& t : threads_to_join_) {
+      t.join();
     }
     for (int pool_id = 0; pool_id < Env::Priority::TOTAL; ++pool_id) {
       thread_pools_[pool_id].JoinAllThreads();
@@ -822,8 +822,8 @@ class PosixEnv : public Env {
   size_t page_size_;
 
   std::vector<ThreadPoolImpl> thread_pools_;
-  pthread_mutex_t mu_;
-  std::vector<pthread_t> threads_to_join_;
+  mutable std::mutex mu_;
+  std::vector<std::thread> threads_to_join_;
 };
 
 PosixEnv::PosixEnv()
@@ -831,7 +831,6 @@ PosixEnv::PosixEnv()
       forceMmapOff_(false),
       page_size_(getpagesize()),
       thread_pools_(Priority::TOTAL) {
-  ThreadPoolImpl::PthreadCall("mutex_init", pthread_mutex_init(&mu_, nullptr));
   for (int pool_id = 0; pool_id < Env::Priority::TOTAL; ++pool_id) {
     thread_pools_[pool_id].SetThreadPriority(
         static_cast<Env::Priority>(pool_id));
@@ -869,20 +868,21 @@ static void* StartThreadWrapper(void* arg) {
 }
 
 void PosixEnv::StartThread(void (*function)(void* arg), void* arg) {
-  pthread_t t;
   StartThreadState* state = new StartThreadState;
   state->user_function = function;
   state->arg = arg;
-  ThreadPoolImpl::PthreadCall(
-      "start thread", pthread_create(&t, nullptr, &StartThreadWrapper, state));
-  ThreadPoolImpl::PthreadCall("lock", pthread_mutex_lock(&mu_));
-  threads_to_join_.push_back(t);
-  ThreadPoolImpl::PthreadCall("unlock", pthread_mutex_unlock(&mu_));
+  try {
+    std::thread t(&StartThreadWrapper, state);
+    std::lock_guard<std::mutex> lg(mu_);
+    threads_to_join_.push_back(std::move(t));
+  } catch (const std::system_error& ex) {
+    ThreadPoolImpl::PthreadCall("start thread", ex.code());
+  }
 }
 
 void PosixEnv::WaitForJoin() {
-  for (const auto tid : threads_to_join_) {
-    pthread_join(tid, nullptr);
+  for (auto& t : threads_to_join_) {
+    t.join();
   }
   threads_to_join_.clear();
 }

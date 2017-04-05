@@ -13,9 +13,9 @@
 
 #include <memory>
 #include <functional>
+#include <system_error>
 
 namespace rocksdb {
-
 
 class ThreadPoolImpl : public ThreadPool {
  public:
@@ -83,7 +83,7 @@ class ThreadPoolImpl : public ThreadPool {
   // Set the thread priority.
   void SetThreadPriority(Env::Priority priority);
 
-  static void PthreadCall(const char* label, int result);
+  static void PthreadCall(const char* label, std::error_code result);
 
   struct Impl;
 
