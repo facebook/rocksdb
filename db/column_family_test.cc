@@ -1731,7 +1731,7 @@ TEST_F(ColumnFamilyTest, SameCFManualAutomaticCompactionsLevel) {
 
   one.num_levels = 1;
   // trigger compaction if there are >= 4 files
-  one.level0_file_num_compaction_trigger = 4;
+  one.level0_file_num_compaction_trigger = 3;
   one.write_buffer_size = 120000;
 
   Reopen({default_cf, one});

@@ -66,6 +66,7 @@ class RocksLuaTest : public testing::Test {
     options_ = Options();
     options_.create_if_missing = true;
     options_.compaction_filter_factory = factory;
+    options_.disable_auto_compactions = true;
     options_.max_bytes_for_level_base =
         (kKeySize + kValueSize) * kKeysPerFlush * 2;
     options_.max_bytes_for_level_multiplier = 2;

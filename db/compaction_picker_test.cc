@@ -197,7 +197,7 @@ TEST_F(CompactionPickerTest, LevelMaxScore) {
   mutable_cf_options_.target_file_size_base = 10000000;
   mutable_cf_options_.target_file_size_multiplier = 10;
   mutable_cf_options_.max_bytes_for_level_base = 10 * 1024 * 1024;
-  Add(0, 1U, "150", "200", 1000000000U);
+  Add(0, 1U, "150", "200", 1000000U);
   // Level 1 score 1.2
   Add(1, 66U, "150", "200", 6000000U);
   Add(1, 88U, "201", "300", 6000000U);

@@ -9,6 +9,7 @@
 
 ### New Features
 * Memtable flush can be avoided during checkpoint creation if total log file size is smaller than a threshold specified by the user.
+* Introduce level-based L0->L0 compactions to reduce file count, so write delays are incurred less often.
 
 ## 5.3.0 (03/08/2017)
 ### Public API Change

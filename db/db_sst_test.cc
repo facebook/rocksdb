@@ -210,7 +210,9 @@ TEST_F(DBSSTTest, DeleteObsoleteFilesPendingOutputs) {
   blocking_thread.WakeUp();
   blocking_thread.WaitUntilDone();
   dbfull()->TEST_WaitForFlushMemTable();
-  ASSERT_EQ("1,0,0,0,1", FilesPerLevel(0));
+  // File just flushed is too big for L0 and L1 so gets moved to L2.
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ("0,0,1,0,1", FilesPerLevel(0));
 
   metadata.clear();
   db_->GetLiveFilesMetaData(&metadata);
