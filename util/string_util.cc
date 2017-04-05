@@ -14,6 +14,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <algorithm>
 #include <cmath>
 #include <sstream>
 #include <string>
@@ -22,6 +23,8 @@
 #include "rocksdb/slice.h"
 
 namespace rocksdb {
+
+const std::string kNullptrString = "nullptr";
 
 std::vector<std::string> StringSplit(const std::string& arg, char delim) {
   std::vector<std::string> splits;
@@ -166,6 +169,195 @@ bool ConsumeDecimalNumber(Slice* in, uint64_t* val) {
   }
   *val = v;
   return (digits > 0);
+}
+
+bool isSpecialChar(const char c) {
+  if (c == '\\' || c == '#' || c == ':' || c == '\r' || c == '\n') {
+    return true;
+  }
+  return false;
+}
+
+namespace {
+using CharMap = std::pair<char, char>;
+}
+
+char UnescapeChar(const char c) {
+  static const CharMap convert_map[] = {{'r', '\r'}, {'n', '\n'}};
+
+  auto iter = std::find_if(std::begin(convert_map), std::end(convert_map),
+                           [c](const CharMap& p) { return p.first == c; });
+
+  if (iter == std::end(convert_map)) {
+    return c;
+  }
+  return iter->second;
+}
+
+char EscapeChar(const char c) {
+  static const CharMap convert_map[] = {{'\n', 'n'}, {'\r', 'r'}};
+
+  auto iter = std::find_if(std::begin(convert_map), std::end(convert_map),
+                           [c](const CharMap& p) { return p.first == c; });
+
+  if (iter == std::end(convert_map)) {
+    return c;
+  }
+  return iter->second;
+}
+
+std::string EscapeOptionString(const std::string& raw_string) {
+  std::string output;
+  for (auto c : raw_string) {
+    if (isSpecialChar(c)) {
+      output += '\\';
+      output += EscapeChar(c);
+    } else {
+      output += c;
+    }
+  }
+
+  return output;
+}
+
+std::string UnescapeOptionString(const std::string& escaped_string) {
+  bool escaped = false;
+  std::string output;
+
+  for (auto c : escaped_string) {
+    if (escaped) {
+      output += UnescapeChar(c);
+      escaped = false;
+    } else {
+      if (c == '\\') {
+        escaped = true;
+        continue;
+      }
+      output += c;
+    }
+  }
+  return output;
+}
+
+std::string trim(const std::string& str) {
+  if (str.empty()) return std::string();
+  size_t start = 0;
+  size_t end = str.size() - 1;
+  while (isspace(str[start]) != 0 && start <= end) {
+    ++start;
+  }
+  while (isspace(str[end]) != 0 && start <= end) {
+    --end;
+  }
+  if (start <= end) {
+    return str.substr(start, end - start + 1);
+  }
+  return std::string();
+}
+
+bool ParseBoolean(const std::string& type, const std::string& value) {
+  if (value == "true" || value == "1") {
+    return true;
+  } else if (value == "false" || value == "0") {
+    return false;
+  }
+  throw std::invalid_argument(type);
+}
+
+int ParseInt(const std::string& value) {
+  size_t endchar;
+#ifndef CYGWIN
+  int num = std::stoi(value.c_str(), &endchar);
+#else
+  char* endptr;
+  int num = std::strtoul(value.c_str(), &endptr, 0);
+  endchar = endptr - value.c_str();
+#endif
+
+  if (endchar < value.length()) {
+    char c = value[endchar];
+    if (c == 'k' || c == 'K')
+      num <<= 10;
+    else if (c == 'm' || c == 'M')
+      num <<= 20;
+    else if (c == 'g' || c == 'G')
+      num <<= 30;
+  }
+
+  return num;
+}
+
+uint64_t ParseUint64(const std::string& value) {
+  size_t endchar;
+#ifndef CYGWIN
+  uint64_t num = std::stoull(value.c_str(), &endchar);
+#else
+  char* endptr;
+  uint64_t num = std::strtoul(value.c_str(), &endptr, 0);
+  endchar = endptr - value.c_str();
+#endif
+
+  if (endchar < value.length()) {
+    char c = value[endchar];
+    if (c == 'k' || c == 'K')
+      num <<= 10LL;
+    else if (c == 'm' || c == 'M')
+      num <<= 20LL;
+    else if (c == 'g' || c == 'G')
+      num <<= 30LL;
+    else if (c == 't' || c == 'T')
+      num <<= 40LL;
+  }
+
+  return num;
+}
+
+uint32_t ParseUint32(const std::string& value) {
+  uint64_t num = ParseUint64(value);
+  if ((num >> 32LL) == 0) {
+    return static_cast<uint32_t>(num);
+  } else {
+    throw std::out_of_range(value);
+  }
+}
+
+double ParseDouble(const std::string& value) {
+#ifndef CYGWIN
+  return std::stod(value);
+#else
+  return std::strtod(value.c_str(), 0);
+#endif
+}
+
+size_t ParseSizeT(const std::string& value) {
+  return static_cast<size_t>(ParseUint64(value));
+}
+
+std::vector<int> ParseVectorInt(const std::string& value) {
+  std::vector<int> result;
+  size_t start = 0;
+  while (start < value.size()) {
+    size_t end = value.find(':', start);
+    if (end == std::string::npos) {
+      result.push_back(ParseInt(value.substr(start)));
+      break;
+    } else {
+      result.push_back(ParseInt(value.substr(start, end - start)));
+      start = end + 1;
+    }
+  }
+  return result;
+}
+
+bool SerializeIntVector(const std::vector<int>& vec, std::string* value) {
+  *value = "";
+  for (size_t i = 0; i < vec.size(); ++i) {
+    if (i > 0) {
+      *value += ":";
+    }
+    *value += ToString(vec[i]);
+  }
+  return true;
 }
 
 }  // namespace rocksdb

@@ -8,6 +8,7 @@
 
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace rocksdb {
@@ -65,5 +66,61 @@ extern std::string EscapeString(const Slice& value);
 // numeric value.  Otherwise, returns false and leaves *in in an
 // unspecified state.
 extern bool ConsumeDecimalNumber(Slice* in, uint64_t* val);
+
+// Returns true if the input char "c" is considered as a special character
+// that will be escaped when EscapeOptionString() is called.
+//
+// @param c the input char
+// @return true if the input char "c" is considered as a special character.
+// @see EscapeOptionString
+bool isSpecialChar(const char c);
+
+// If the input char is an escaped char, it will return the its
+// associated raw-char.  Otherwise, the function will simply return
+// the original input char.
+char UnescapeChar(const char c);
+
+// If the input char is a control char, it will return the its
+// associated escaped char.  Otherwise, the function will simply return
+// the original input char.
+char EscapeChar(const char c);
+
+// Converts a raw string to an escaped string.  Escaped-characters are
+// defined via the isSpecialChar() function.  When a char in the input
+// string "raw_string" is classified as a special characters, then it
+// will be prefixed by '\' in the output.
+//
+// It's inverse function is UnescapeOptionString().
+// @param raw_string the input string
+// @return the '\' escaped string of the input "raw_string"
+// @see isSpecialChar, UnescapeOptionString
+std::string EscapeOptionString(const std::string& raw_string);
+
+// The inverse function of EscapeOptionString.  It converts
+// an '\' escaped string back to a raw string.
+//
+// @param escaped_string the input '\' escaped string
+// @return the raw string of the input "escaped_string"
+std::string UnescapeOptionString(const std::string& escaped_string);
+
+std::string trim(const std::string& str);
+
+bool ParseBoolean(const std::string& type, const std::string& value);
+
+int ParseInt(const std::string& value);
+
+uint64_t ParseUint64(const std::string& value);
+
+uint32_t ParseUint32(const std::string& value);
+
+double ParseDouble(const std::string& value);
+
+size_t ParseSizeT(const std::string& value);
+
+std::vector<int> ParseVectorInt(const std::string& value);
+
+bool SerializeIntVector(const std::vector<int>& vec, std::string* value);
+
+extern const std::string kNullptrString;
 
 }  // namespace rocksdb
