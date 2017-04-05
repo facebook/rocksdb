@@ -694,9 +694,9 @@ endforeach(sourcefile ${BENCHMARKS})
 set(TESTUTIL_SOURCE
     db/db_test_util.cc
     env/mock_env.cc
+    monitoring/thread_status_updater_debug.cc
     table/mock_table.cc
     util/fault_injection_test_env.cc
-    util/thread_status_updater_debug.cc
 )
 # test utilities are only build in debug
 enable_testing()

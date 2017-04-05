@@ -179,7 +179,7 @@ void StatisticsImpl::measureTime(uint32_t histogramType, uint64_t value) {
 namespace {
 
 // a buffer size used for temp string buffers
-const int kBufferSize = 200;
+const int kTmpStrBufferSize = 200;
 
 } // namespace
 
@@ -188,19 +188,19 @@ std::string StatisticsImpl::ToString() const {
   res.reserve(20000);
   for (const auto& t : TickersNameMap) {
     if (t.first < TICKER_ENUM_MAX || enable_internal_stats_) {
-      char buffer[kBufferSize];
-      snprintf(buffer, kBufferSize, "%s COUNT : %" PRIu64 "\n",
+      char buffer[kTmpStrBufferSize];
+      snprintf(buffer, kTmpStrBufferSize, "%s COUNT : %" PRIu64 "\n",
                t.second.c_str(), getTickerCount(t.first));
       res.append(buffer);
     }
   }
   for (const auto& h : HistogramsNameMap) {
     if (h.first < HISTOGRAM_ENUM_MAX || enable_internal_stats_) {
-      char buffer[kBufferSize];
+      char buffer[kTmpStrBufferSize];
       HistogramData hData;
       histogramData(h.first, &hData);
       snprintf(
-          buffer, kBufferSize,
+          buffer, kTmpStrBufferSize,
           "%s statistics Percentiles :=> 50 : %f 95 : %f 99 : %f 100 : %f\n",
           h.second.c_str(), hData.median, hData.percentile95,
           hData.percentile99, hData.max);
