@@ -3,7 +3,7 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 //
-#include "db/inlineskiplist.h"
+#include "memtable/inlineskiplist.h"
 #include "db/memtable.h"
 #include "rocksdb/memtablerep.h"
 #include "util/arena.h"

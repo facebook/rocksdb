@@ -16,6 +16,7 @@
 #include "rocksdb/write_batch.h"
 #include "port/port.h"
 #include "util/logging.h"
+#include "util/random.h"
 #include "util/sync_point.h"
 #include "util/testharness.h"
 

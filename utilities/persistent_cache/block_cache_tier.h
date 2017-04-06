@@ -26,7 +26,7 @@
 #include "utilities/persistent_cache/block_cache_tier_metadata.h"
 #include "utilities/persistent_cache/persistent_cache_util.h"
 
-#include "db/skiplist.h"
+#include "memtable/skiplist.h"
 #include "monitoring/histogram.h"
 #include "port/port.h"
 #include "util/arena.h"

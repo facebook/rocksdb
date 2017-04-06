@@ -316,7 +316,6 @@ set(SOURCES
         db/log_writer.cc
         db/managed_iterator.cc
         db/memtable.cc
-        db/memtable_allocator.cc
         db/memtable_list.cc
         db/merge_helper.cc
         db/merge_operator.cc
@@ -341,6 +340,7 @@ set(SOURCES
         memtable/hash_cuckoo_rep.cc
         memtable/hash_linklist_rep.cc
         memtable/hash_skiplist_rep.cc
+        memtable/memtable_allocator.cc
         memtable/skiplistrep.cc
         memtable/vectorrep.cc
         monitoring/histogram.cc
@@ -590,7 +590,6 @@ set(TESTS
         db/file_indexer_test.cc
         db/filename_test.cc
         db/flush_job_test.cc
-        db/inlineskiplist_test.cc
         db/listener_test.cc
         db/log_test.cc
         db/manual_compaction_test.cc
@@ -602,7 +601,6 @@ set(TESTS
         db/plain_table_db_test.cc
         db/prefix_test.cc
         db/repair_test.cc
-        db/skiplist_test.cc
         db/table_properties_collector_test.cc
         db/version_builder_test.cc
         db/version_edit_test.cc
@@ -614,6 +612,8 @@ set(TESTS
         env/env_basic_test.cc
         env/env_test.cc
         env/mock_env_test.cc
+        memtable/inlineskiplist_test.cc
+        memtable/skiplist_test.cc
         monitoring/histogram_test.cc
         monitoring/iostats_context_test.cc
         monitoring/statistics_test.cc
@@ -674,10 +674,10 @@ if(WITH_LIBRADOS)
 endif()
 
 set(BENCHMARKS
+  cache/cache_bench.cc
+  memtable/memtablerep_bench.cc
   tools/db_bench.cc
   table/table_reader_bench.cc
-  cache/cache_bench.cc
-  db/memtablerep_bench.cc
   utilities/column_aware_encoding_exp.cc
   utilities/persistent_cache/hash_table_bench.cc)
 add_library(testharness OBJECT util/testharness.cc)

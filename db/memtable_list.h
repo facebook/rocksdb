@@ -14,7 +14,6 @@
 #include "db/dbformat.h"
 #include "db/memtable.h"
 #include "db/range_del_aggregator.h"
-#include "db/skiplist.h"
 #include "monitoring/instrumented_mutex.h"
 #include "rocksdb/db.h"
 #include "rocksdb/iterator.h"
