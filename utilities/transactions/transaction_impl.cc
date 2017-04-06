@@ -399,7 +399,7 @@ Status TransactionImpl::LockBatch(WriteBatch* batch,
         break;
       }
       TrackKey(keys_to_unlock, cfh_id, std::move(key), kMaxSequenceNumber,
-               false);
+               false, true /* exclusive */);
     }
 
     if (!s.ok()) {
@@ -425,6 +425,7 @@ Status TransactionImpl::TryLock(ColumnFamilyHandle* column_family,
   uint32_t cfh_id = GetColumnFamilyID(column_family);
   std::string key_str = key.ToString();
   bool previously_locked;
+  bool lock_upgrade = false;
   Status s;
 
   // lock this key if this transactions hasn't already locked it
@@ -440,13 +441,17 @@ Status TransactionImpl::TryLock(ColumnFamilyHandle* column_family,
     if (iter == tracked_keys_cf->second.end()) {
       previously_locked = false;
     } else {
+      if (!iter->second.exclusive && exclusive) {
+        lock_upgrade = true;
+      }
       previously_locked = true;
       current_seqno = iter->second.seq;
     }
   }
 
-  // lock this key if this transactions hasn't already locked it
-  if (!previously_locked) {
+  // Lock this key if this transactions hasn't already locked it or we require
+  // an upgrade.
+  if (!previously_locked || lock_upgrade) {
     s = txn_db_impl_->TryLock(this, cfh_id, key_str, exclusive);
   }
 
@@ -480,7 +485,13 @@ Status TransactionImpl::TryLock(ColumnFamilyHandle* column_family,
         // Failed to validate key
         if (!previously_locked) {
           // Unlock key we just locked
-          txn_db_impl_->UnLock(this, cfh_id, key.ToString());
+          if (lock_upgrade) {
+            s = txn_db_impl_->TryLock(this, cfh_id, key_str,
+                                      false /* exclusive */);
+            assert(s.ok());
+          } else {
+            txn_db_impl_->UnLock(this, cfh_id, key.ToString());
+          }
         }
       }
     }
@@ -488,7 +499,7 @@ Status TransactionImpl::TryLock(ColumnFamilyHandle* column_family,
 
   if (s.ok()) {
     // Let base class know we've conflict checked this key.
-    TrackKey(cfh_id, key_str, new_seqno, read_only);
+    TrackKey(cfh_id, key_str, new_seqno, read_only, exclusive);
   }
 
   return s;
