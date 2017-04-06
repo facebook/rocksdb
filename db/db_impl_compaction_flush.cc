@@ -425,7 +425,7 @@ Status DBImpl::CompactFilesImpl(
   }
 
   for (auto inputs : input_files) {
-    if (cfd->compaction_picker()->IfFilesInCompaction(inputs.files)) {
+    if (cfd->compaction_picker()->AreFilesInCompaction(inputs.files)) {
       return Status::Aborted(
           "Some of the necessary compaction input "
           "files are already being compacted");

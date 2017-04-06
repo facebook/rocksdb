@@ -84,7 +84,7 @@ class CompactionPicker {
   void ReleaseCompactionFiles(Compaction* c, Status status);
 
   // Returns true if any one of the specified files are being compacted
-  bool IfFilesInCompaction(const std::vector<FileMetaData*>& files);
+  bool AreFilesInCompaction(const std::vector<FileMetaData*>& files);
 
   // Takes a list of CompactionInputFiles and returns a (manual) Compaction
   // object.
@@ -116,25 +116,22 @@ class CompactionPicker {
   // Stores the minimal range that covers all entries in inputs in
   // *smallest, *largest.
   // REQUIRES: inputs is not empty
-  void GetRangeFromInputs(const CompactionInputFiles& inputs,
-                          InternalKey* smallest, InternalKey* largest) const;
+  void GetRange(const CompactionInputFiles& inputs, InternalKey* smallest,
+                InternalKey* largest) const;
 
   // Stores the minimal range that covers all entries in inputs1 and inputs2
   // in *smallest, *largest.
   // REQUIRES: inputs is not empty
-  void GetCombinedRangeFromInputs(const CompactionInputFiles& inputs1,
-                                  const CompactionInputFiles& inputs2,
-                                  InternalKey* smallest,
-                                  InternalKey* largest) const;
+  void GetRange(const CompactionInputFiles& inputs1,
+                const CompactionInputFiles& inputs2, InternalKey* smallest,
+                InternalKey* largest) const;
 
   // Stores the minimal range that covers all entries in inputs
   // in *smallest, *largest.
   // REQUIRES: inputs is not empty (at least on entry have one file)
-  void GetCombinedRangeFromInputs(
-      const std::vector<CompactionInputFiles>& inputs, InternalKey* smallest,
-      InternalKey* largest) const;
+  void GetRange(const std::vector<CompactionInputFiles>& inputs,
+                InternalKey* smallest, InternalKey* largest) const;
 
- protected:
   int NumberLevels() const { return ioptions_.num_levels; }
 
   // Add more files to the inputs on "level" to make sure that
@@ -173,6 +170,20 @@ class CompactionPicker {
                        const CompactionInputFiles& output_level_inputs,
                        std::vector<FileMetaData*>* grandparents);
 
+  // Register this compaction in the set of running compactions
+  void RegisterCompaction(Compaction* c);
+
+  // Remove this compaction from the set of running compactions
+  void UnregisterCompaction(Compaction* c);
+
+  std::set<Compaction*>* level0_compactions_in_progress() {
+    return &level0_compactions_in_progress_;
+  }
+  std::unordered_set<Compaction*>* compactions_in_progress() {
+    return &compactions_in_progress_;
+  }
+
+ protected:
   const ImmutableCFOptions& ioptions_;
 
 // A helper function to SanitizeCompactionInputFiles() that
@@ -182,12 +193,6 @@ class CompactionPicker {
       std::unordered_set<uint64_t>* input_files,
       const ColumnFamilyMetaData& cf_meta, const int output_level) const;
 #endif  // ROCKSDB_LITE
-
-  // Register this compaction in the set of running compactions
-  void RegisterCompaction(Compaction* c);
-
-  // Remove this compaction from the set of running compactions
-  void UnregisterCompaction(Compaction* c);
 
   // Keeps track of all compactions that are running on Level0.
   // Protected by DB mutex
@@ -212,44 +217,6 @@ class LevelCompactionPicker : public CompactionPicker {
 
   virtual bool NeedsCompaction(
       const VersionStorageInfo* vstorage) const override;
-
-  // Pick a path ID to place a newly generated file, with its level
-  static uint32_t GetPathId(const ImmutableCFOptions& ioptions,
-                            const MutableCFOptions& mutable_cf_options,
-                            int level);
-
- private:
-  // For the specfied level, pick a file that we want to compact.
-  // Returns false if there is no file to compact.
-  // If it returns true, inputs->files.size() will be exactly one.
-  // If level is 0 and there is already a compaction on that level, this
-  // function will return false.
-  bool PickFileToCompact(VersionStorageInfo* vstorage, int level,
-                         int output_level, CompactionInputFiles* inputs,
-                         int* parent_index, int* base_index);
-
-  // For L0->L0, picks the longest span of files that aren't currently
-  // undergoing compaction for which work-per-deleted-file decreases. The span
-  // always starts from the newest L0 file.
-  //
-  // Intra-L0 compaction is independent of all other files, so it can be
-  // performed even when L0->base_level compactions are blocked.
-  //
-  // Returns true if `inputs` is populated with a span of files to be compacted;
-  // otherwise, returns false.
-  bool PickIntraL0Compaction(VersionStorageInfo* vstorage,
-                             const MutableCFOptions& mutable_cf_options,
-                             CompactionInputFiles* inputs);
-
-  // If there is any file marked for compaction, put put it into inputs.
-  // This is still experimental. It will return meaningful results only if
-  // clients call experimental feature SuggestCompactRange()
-  void PickFilesMarkedForCompaction(const std::string& cf_name,
-                                    VersionStorageInfo* vstorage,
-                                    CompactionInputFiles* inputs, int* level,
-                                    int* output_level);
-
-  static const int kMinFilesForIntraL0Compaction = 4;
 };
 
 #ifndef ROCKSDB_LITE
