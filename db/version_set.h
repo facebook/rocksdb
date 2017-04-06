@@ -611,6 +611,7 @@ class Version {
 class VersionSet {
  public:
   VersionSet(const std::string& dbname, const ImmutableDBOptions* db_options,
+             const MutableDBOptions* mutable_db_options,
              const EnvOptions& env_options, Cache* table_cache,
              WriteBufferManager* write_buffer_manager,
              WriteController* write_controller);
@@ -794,6 +795,7 @@ class VersionSet {
   Env* const env_;
   const std::string dbname_;
   const ImmutableDBOptions* const db_options_;
+  const MutableDBOptions* mutable_db_options_;
   std::atomic<uint64_t> next_file_number_;
   uint64_t manifest_file_number_;
   uint64_t options_file_number_;

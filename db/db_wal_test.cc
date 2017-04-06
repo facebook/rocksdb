@@ -687,6 +687,7 @@ class RecoveryTestHelper {
   static void FillData(DBWALTest* test, const Options& options,
                        const size_t wal_count, size_t* count) {
     const ImmutableDBOptions db_options(options);
+    const MutableDBOptions mutable_db_options(options);
 
     *count = 0;
 
@@ -698,9 +699,9 @@ class RecoveryTestHelper {
     unique_ptr<WalManager> wal_manager;
     WriteController write_controller;
 
-    versions.reset(new VersionSet(test->dbname_, &db_options, env_options,
-                                  table_cache.get(), &write_buffer_manager,
-                                  &write_controller));
+    versions.reset(new VersionSet(
+        test->dbname_, &db_options, &mutable_db_options, env_options,
+        table_cache.get(), &write_buffer_manager, &write_controller));
 
     wal_manager.reset(new WalManager(db_options, env_options));
 

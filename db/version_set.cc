@@ -1120,7 +1120,7 @@ void Version::UpdateAccumulatedStats(bool update_stats) {
           // when option "max_open_files" is -1, all the file metadata has
           // already been read, so MaybeInitializeFileMetaData() won't incur
           // any I/O cost.
-          if (vset_->db_options_->max_open_files == -1) {
+          if (vset_->mutable_db_options_->max_open_files == -1) {
             continue;
           }
           if (++init_count >= kMaxInitCount) {
@@ -2193,6 +2193,7 @@ struct VersionSet::ManifestWriter {
 
 VersionSet::VersionSet(const std::string& dbname,
                        const ImmutableDBOptions* db_options,
+                       const MutableDBOptions* mutable_db_options,
                        const EnvOptions& storage_options, Cache* table_cache,
                        WriteBufferManager* write_buffer_manager,
                        WriteController* write_controller)
@@ -2202,6 +2203,7 @@ VersionSet::VersionSet(const std::string& dbname,
       env_(db_options->env),
       dbname_(dbname),
       db_options_(db_options),
+      mutable_db_options_(mutable_db_options),
       next_file_number_(2),
       manifest_file_number_(0),  // Filled by Recover()
       pending_manifest_file_number_(0),
@@ -2369,7 +2371,7 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
 
     TEST_SYNC_POINT("VersionSet::LogAndApply:WriteManifest");
     if (!w.edit_list.front()->IsColumnFamilyManipulation() &&
-        db_options_->max_open_files == -1) {
+        mutable_db_options_->max_open_files == -1) {
       // unlimited table cache. Pre-load table handle now.
       // Need to do it out of the mutex.
       builder_guard->version_builder()->LoadTableHandlers(
@@ -2815,7 +2817,7 @@ Status VersionSet::Recover(
       assert(builders_iter != builders.end());
       auto* builder = builders_iter->second->version_builder();
 
-      if (db_options_->max_open_files == -1) {
+      if (mutable_db_options_->max_open_files == -1) {
         // unlimited table cache. Pre-load table handle now.
         // Need to do it out of the mutex.
         builder->LoadTableHandlers(
@@ -2949,12 +2951,14 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
   }
 
   ImmutableDBOptions db_options(*options);
+  MutableDBOptions mutable_db_options(*options);
   ColumnFamilyOptions cf_options(*options);
-  std::shared_ptr<Cache> tc(NewLRUCache(options->max_open_files - 10,
+  std::shared_ptr<Cache> tc(NewLRUCache(mutable_db_options.max_open_files - 10,
                                         options->table_cache_numshardbits));
   WriteController wc(options->delayed_write_rate);
   WriteBufferManager wb(options->db_write_buffer_size);
-  VersionSet versions(dbname, &db_options, env_options, tc.get(), &wb, &wc);
+  VersionSet versions(dbname, &db_options, &mutable_db_options, env_options,
+                      tc.get(), &wb, &wc);
   Status status;
 
   std::vector<ColumnFamilyDescriptor> dummy;

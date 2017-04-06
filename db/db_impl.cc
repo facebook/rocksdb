@@ -104,6 +104,9 @@ namespace rocksdb {
 
 const std::string kDefaultColumnFamilyName("default");
 
+const int kMaxOpenFilesUnlimited(0x400000);
+const int kReservedOpenFiles(10);
+
 void DumpRocksDBBuildVersion(Logger * log);
 
 struct DBImpl::WriteContext {
@@ -365,15 +368,16 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
 
   // Reserve ten files or so for other uses and give the rest to TableCache.
   // Give a large number for setting of "infinite" open files.
-  const int table_cache_size = (immutable_db_options_.max_open_files == -1)
-                                   ? 4194304
-                                   : immutable_db_options_.max_open_files - 10;
+  const int table_cache_size =
+      (mutable_db_options_.max_open_files == -1)
+          ? kMaxOpenFilesUnlimited
+          : mutable_db_options_.max_open_files - kReservedOpenFiles;
   table_cache_ = NewLRUCache(table_cache_size,
                              immutable_db_options_.table_cache_numshardbits);
 
-  versions_.reset(new VersionSet(dbname_, &immutable_db_options_, env_options_,
-                                 table_cache_.get(), write_buffer_manager_,
-                                 &write_controller_));
+  versions_.reset(new VersionSet(
+      dbname_, &immutable_db_options_, &mutable_db_options_, env_options_,
+      table_cache_.get(), write_buffer_manager_, &write_controller_));
   column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(versions_->GetColumnFamilySet()));
 
@@ -2542,6 +2546,12 @@ Status DBImpl::SetDBOptions(
       if (total_log_size_ > GetMaxTotalWalSize()) {
         MaybeFlushColumnFamilies();
       }
+
+      // make table_cache_ reflect max_open_files
+      table_cache_.get()->SetCapacity(mutable_db_options_.max_open_files == -1
+                                          ? kMaxOpenFilesUnlimited
+                                          : mutable_db_options_.max_open_files -
+                                                kReservedOpenFiles);
 
       persist_options_status = PersistOptions();
     }
