@@ -159,7 +159,7 @@ class PosixEnv : public Env {
 #ifdef ROCKSDB_LITE
       return Status::IOError(fname, "Direct I/O not supported in RocksDB lite");
 #endif  // !ROCKSDB_LITE
-#ifndef OS_MACOSX
+#if !defined(OS_MACOSX) && !defined(OS_OPENBSD)
       flags |= O_DIRECT;
 #endif
     }
@@ -206,7 +206,7 @@ class PosixEnv : public Env {
 #ifdef ROCKSDB_LITE
       return Status::IOError(fname, "Direct I/O not supported in RocksDB lite");
 #endif  // !ROCKSDB_LITE
-#ifndef OS_MACOSX
+#if !defined(OS_MACOSX) && !defined(OS_OPENBSD)
       flags |= O_DIRECT;
       TEST_SYNC_POINT_CALLBACK("NewRandomAccessFile:O_DIRECT", &flags);
 #endif
@@ -271,7 +271,7 @@ class PosixEnv : public Env {
       return Status::IOError(fname, "Direct I/O not supported in RocksDB lite");
 #endif  // ROCKSDB_LITE
       flags |= O_WRONLY;
-#ifndef OS_MACOSX
+#if !defined(OS_MACOSX) && !defined(OS_OPENBSD)
       flags |= O_DIRECT;
 #endif
       TEST_SYNC_POINT_CALLBACK("NewWritableFile:O_DIRECT", &flags);
@@ -338,7 +338,7 @@ class PosixEnv : public Env {
       return Status::IOError(fname, "Direct I/O not supported in RocksDB lite");
 #endif  // !ROCKSDB_LITE
       flags |= O_WRONLY;
-#ifndef OS_MACOSX
+#if !defined(OS_MACOSX) && !defined(OS_OPENBSD)
       flags |= O_DIRECT;
 #endif
       TEST_SYNC_POINT_CALLBACK("NewWritableFile:O_DIRECT", &flags);
