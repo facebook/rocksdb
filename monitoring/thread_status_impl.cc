@@ -8,7 +8,7 @@
 
 #include "rocksdb/env.h"
 #include "rocksdb/thread_status.h"
-#include "util/logging.h"
+#include "util/string_util.h"
 #include "util/thread_operation.h"
 
 namespace rocksdb {

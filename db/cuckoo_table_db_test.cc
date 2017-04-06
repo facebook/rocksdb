@@ -8,9 +8,10 @@
 #include "db/db_impl.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
-#include "table/meta_blocks.h"
 #include "table/cuckoo_table_factory.h"
 #include "table/cuckoo_table_reader.h"
+#include "table/meta_blocks.h"
+#include "util/string_util.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 

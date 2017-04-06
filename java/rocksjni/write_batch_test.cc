@@ -22,7 +22,7 @@
 #include "rocksdb/write_buffer_manager.h"
 #include "rocksjni/portal.h"
 #include "table/scoped_arena_iterator.h"
-#include "util/logging.h"
+#include "util/string_util.h"
 #include "util/testharness.h"
 
 /*
