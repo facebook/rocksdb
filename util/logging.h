@@ -79,6 +79,10 @@ extern std::string NumberToString(uint64_t num);
 // for num >= 10.000.000.000, prints "xxG"
 extern std::string NumberToHumanString(int64_t num);
 
+// Return a human-readable version of bytes
+// ex: 1048576 -> 1.00 GB
+extern std::string BytesToHumanString(uint64_t bytes);
+
 // Return a human-readable version of "value".
 // Escapes any non-printable characters found in "value".
 extern std::string EscapeString(const Slice& value);

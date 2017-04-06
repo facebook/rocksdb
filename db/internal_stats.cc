@@ -31,20 +31,20 @@ const std::map<LevelStatType, LevelStat> InternalStats::compaction_level_stats =
         {LevelStatType::NUM_FILES, LevelStat{"NumFiles", "Files"}},
         {LevelStatType::COMPACTED_FILES,
          LevelStat{"CompactedFiles", "CompactedFiles"}},
-        {LevelStatType::SIZE_MB, LevelStat{"SizeMB", "Size(MB}"}},
+        {LevelStatType::SIZE_BYTES, LevelStat{"SizeBytes", "Size"}},
         {LevelStatType::SCORE, LevelStat{"Score", "Score"}},
-        {LevelStatType::READ_GB, LevelStat{"ReadGB", "Read(GB}"}},
-        {LevelStatType::RN_GB, LevelStat{"RnGB", "Rn(GB}"}},
-        {LevelStatType::RNP1_GB, LevelStat{"Rnp1GB", "Rnp1(GB}"}},
-        {LevelStatType::WRITE_GB, LevelStat{"WriteGB", "Write(GB}"}},
-        {LevelStatType::W_NEW_GB, LevelStat{"WnewGB", "Wnew(GB}"}},
-        {LevelStatType::MOVED_GB, LevelStat{"MovedGB", "Moved(GB}"}},
+        {LevelStatType::READ_GB, LevelStat{"ReadGB", "Read(GB)"}},
+        {LevelStatType::RN_GB, LevelStat{"RnGB", "Rn(GB)"}},
+        {LevelStatType::RNP1_GB, LevelStat{"Rnp1GB", "Rnp1(GB)"}},
+        {LevelStatType::WRITE_GB, LevelStat{"WriteGB", "Write(GB)"}},
+        {LevelStatType::W_NEW_GB, LevelStat{"WnewGB", "Wnew(GB)"}},
+        {LevelStatType::MOVED_GB, LevelStat{"MovedGB", "Moved(GB)"}},
         {LevelStatType::WRITE_AMP, LevelStat{"WriteAmp", "W-Amp"}},
-        {LevelStatType::READ_MBPS, LevelStat{"ReadMBps", "Rd(MB/s}"}},
-        {LevelStatType::WRITE_MBPS, LevelStat{"WriteMBps", "Wr(MB/s}"}},
-        {LevelStatType::COMP_SEC, LevelStat{"CompSec", "Comp(sec}"}},
-        {LevelStatType::COMP_COUNT, LevelStat{"CompCount", "Comp(cnt}"}},
-        {LevelStatType::AVG_SEC, LevelStat{"AvgSec", "Avg(sec}"}},
+        {LevelStatType::READ_MBPS, LevelStat{"ReadMBps", "Rd(MB/s)"}},
+        {LevelStatType::WRITE_MBPS, LevelStat{"WriteMBps", "Wr(MB/s)"}},
+        {LevelStatType::COMP_SEC, LevelStat{"CompSec", "Comp(sec)"}},
+        {LevelStatType::COMP_COUNT, LevelStat{"CompCount", "Comp(cnt)"}},
+        {LevelStatType::AVG_SEC, LevelStat{"AvgSec", "Avg(sec)"}},
         {LevelStatType::KEY_IN, LevelStat{"KeyIn", "KeyIn"}},
         {LevelStatType::KEY_DROP, LevelStat{"KeyDrop", "KeyDrop"}},
 };
@@ -62,9 +62,9 @@ void PrintLevelStatsHeader(char* buf, size_t len, const std::string& cf_name) {
   };
   int line_size = snprintf(
       buf + written_size, len - written_size,
-      "Level    %s   %s %s %s  %s %s %s %s %s %s %s %s %s %s %s %s %s\n",
+      "Level    %s   %s     %s %s  %s %s %s %s %s %s %s %s %s %s %s %s %s\n",
       // Note that we skip COMPACTED_FILES and merge it with Files column
-      hdr(LevelStatType::NUM_FILES), hdr(LevelStatType::SIZE_MB),
+      hdr(LevelStatType::NUM_FILES), hdr(LevelStatType::SIZE_BYTES),
       hdr(LevelStatType::SCORE), hdr(LevelStatType::READ_GB),
       hdr(LevelStatType::RN_GB), hdr(LevelStatType::RNP1_GB),
       hdr(LevelStatType::WRITE_GB), hdr(LevelStatType::W_NEW_GB),
@@ -91,7 +91,7 @@ void PrepareLevelStats(std::map<LevelStatType, double>* level_stats,
 
   (*level_stats)[LevelStatType::NUM_FILES] = num_files;
   (*level_stats)[LevelStatType::COMPACTED_FILES] = being_compacted;
-  (*level_stats)[LevelStatType::SIZE_MB] = total_file_size / kMB;
+  (*level_stats)[LevelStatType::SIZE_BYTES] = total_file_size;
   (*level_stats)[LevelStatType::SCORE] = score;
   (*level_stats)[LevelStatType::READ_GB] = bytes_read / kGB;
   (*level_stats)[LevelStatType::RN_GB] =
@@ -117,25 +117,30 @@ void PrepareLevelStats(std::map<LevelStatType, double>* level_stats,
 void PrintLevelStats(char* buf, size_t len, const std::string& name,
                      const std::map<LevelStatType, double>& stat_value) {
   snprintf(buf, len,
-           "%4s %6d/%-3d %8.2f %5.1f " /*  Level, Files, Size(MB), Score */
-           "%8.1f "                    /*  Read(GB) */
-           "%7.1f "                    /*  Rn(GB) */
-           "%8.1f "                    /*  Rnp1(GB) */
-           "%9.1f "                    /*  Write(GB) */
-           "%8.1f "                    /*  Wnew(GB) */
-           "%9.1f "                    /*  Moved(GB) */
-           "%5.1f "                    /*  W-Amp */
-           "%8.1f "                    /*  Rd(MB/s) */
-           "%8.1f "                    /*  Wr(MB/s) */
-           "%9.0f "                    /*  Comp(sec) */
-           "%9d "                      /*  Comp(cnt) */
-           "%8.3f "                    /*  Avg(sec) */
-           "%7s "                      /*  KeyIn */
-           "%6s\n",                    /*  KeyDrop */
+           "%4s "      /*  Level */
+           "%6d/%-3d " /*  Files */
+           "%8s "      /*  Size */
+           "%5.1f "    /*  Score */
+           "%8.1f "    /*  Read(GB) */
+           "%7.1f "    /*  Rn(GB) */
+           "%8.1f "    /*  Rnp1(GB) */
+           "%9.1f "    /*  Write(GB) */
+           "%8.1f "    /*  Wnew(GB) */
+           "%9.1f "    /*  Moved(GB) */
+           "%5.1f "    /*  W-Amp */
+           "%8.1f "    /*  Rd(MB/s) */
+           "%8.1f "    /*  Wr(MB/s) */
+           "%9.0f "    /*  Comp(sec) */
+           "%9d "      /*  Comp(cnt) */
+           "%8.3f "    /*  Avg(sec) */
+           "%7s "      /*  KeyIn */
+           "%6s\n",    /*  KeyDrop */
            name.c_str(),
            static_cast<int>(stat_value.at(LevelStatType::NUM_FILES)),
            static_cast<int>(stat_value.at(LevelStatType::COMPACTED_FILES)),
-           stat_value.at(LevelStatType::SIZE_MB),
+           BytesToHumanString(
+               static_cast<uint64_t>(stat_value.at(LevelStatType::SIZE_BYTES)))
+               .c_str(),
            stat_value.at(LevelStatType::SCORE),
            stat_value.at(LevelStatType::READ_GB),
            stat_value.at(LevelStatType::RN_GB),
@@ -978,6 +983,7 @@ void InternalStats::DumpCFStats(std::string* value) {
       value->append(buf);
     }
   }
+
   // Print sum of level stats
   PrintLevelStats(buf, sizeof(buf), "Sum", levels_stats[-1]);
   value->append(buf);
