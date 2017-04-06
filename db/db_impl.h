@@ -38,6 +38,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
+#include "rocksdb/status.h"
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/scoped_arena_iterator.h"
@@ -1149,6 +1150,10 @@ extern Options SanitizeOptions(const std::string& db,
 
 extern DBOptions SanitizeOptions(const std::string& db, const DBOptions& src);
 
+extern CompressionType GetCompressionFlush(
+    const ImmutableCFOptions& ioptions,
+    const MutableCFOptions& mutable_cf_options);
+ 
 // Fix user-supplied options to be reasonable
 template <class T, class V>
 static void ClipToRange(T* ptr, V minvalue, V maxvalue) {
