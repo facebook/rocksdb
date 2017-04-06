@@ -19,6 +19,7 @@
 
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
+#include "options/cf_options.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
@@ -34,7 +35,6 @@
 #include "table/meta_blocks.h"
 #include "table/plain_table_factory.h"
 #include "table/table_reader.h"
-#include "util/cf_options.h"
 #include "util/compression.h"
 #include "util/random.h"
 

@@ -6,9 +6,9 @@
 
 #include <string>
 
+#include "monitoring/statistics.h"
 #include "table/format.h"
 #include "table/persistent_cache_options.h"
-#include "util/statistics.h"
 
 namespace rocksdb {
 

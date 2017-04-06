@@ -12,8 +12,8 @@
 #include <string>
 #include <thread>
 
+#include "monitoring/instrumented_mutex.h"
 #include "port/port.h"
-#include "util/instrumented_mutex.h"
 
 #include "rocksdb/status.h"
 

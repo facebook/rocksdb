@@ -13,6 +13,7 @@
 #include <string>
 
 #include "db/db_impl.h"
+#include "env/env_chroot.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/rate_limiter.h"
@@ -20,7 +21,6 @@
 #include "rocksdb/types.h"
 #include "rocksdb/utilities/backupable_db.h"
 #include "rocksdb/utilities/options_util.h"
-#include "util/env_chroot.h"
 #include "util/file_reader_writer.h"
 #include "util/filename.h"
 #include "util/mutexlock.h"

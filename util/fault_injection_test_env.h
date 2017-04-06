@@ -19,10 +19,10 @@
 #include <string>
 
 #include "db/version_set.h"
+#include "env/mock_env.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "util/filename.h"
-#include "util/mock_env.h"
 #include "util/mutexlock.h"
 
 namespace rocksdb {

@@ -17,6 +17,7 @@
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
 #include "db/pinned_iterators_manager.h"
+#include "monitoring/perf_context_imp.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
@@ -27,7 +28,6 @@
 #include "util/filename.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
-#include "util/perf_context_imp.h"
 #include "util/string_util.h"
 
 namespace rocksdb {

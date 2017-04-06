@@ -15,12 +15,12 @@
 #include <vector>
 
 #include "db/write_callback.h"
+#include "monitoring/instrumented_mutex.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
 #include "rocksdb/write_batch.h"
 #include "util/autovector.h"
-#include "util/instrumented_mutex.h"
 
 namespace rocksdb {
 
