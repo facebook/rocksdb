@@ -30,7 +30,7 @@
 #include "table/block_based_table_factory.h"
 #include "util/autovector.h"
 #include "util/compression.h"
-#include "util/options_helper.h"
+#include "options/options_helper.h"
 #include "util/thread_status_util.h"
 
 namespace rocksdb {

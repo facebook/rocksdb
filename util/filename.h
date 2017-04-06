@@ -20,7 +20,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "rocksdb/transaction_log.h"
-#include "util/db_options.h"
+#include "options/db_options.h"
 
 namespace rocksdb {
 

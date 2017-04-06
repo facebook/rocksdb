@@ -16,7 +16,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/sst_file_writer.h"
 #include "util/autovector.h"
-#include "util/db_options.h"
+#include "options/db_options.h"
 
 namespace rocksdb {
 

@@ -22,7 +22,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
 #include "table/table_reader.h"
-#include "util/cf_options.h"
+#include "options/cf_options.h"
 
 namespace rocksdb {
 

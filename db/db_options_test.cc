@@ -15,7 +15,7 @@
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/convenience.h"
-#include "util/options_helper.h"
+#include "options/options_helper.h"
 #include "util/random.h"
 #include "util/sync_point.h"
 #include "util/testutil.h"

@@ -41,7 +41,7 @@
 #include "db/write_controller.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
-#include "util/db_options.h"
+#include "options/db_options.h"
 #include "util/instrumented_mutex.h"
 
 namespace rocksdb {

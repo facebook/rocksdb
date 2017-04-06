@@ -17,7 +17,7 @@
 #include "table/meta_blocks.h"
 #include "table/plain_table_factory.h"
 #include "table/table_builder.h"
-#include "util/cf_options.h"
+#include "options/cf_options.h"
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
 #include "util/testharness.h"

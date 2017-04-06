@@ -18,7 +18,7 @@
 #include "rocksdb/table_properties.h"
 #include "rocksdb/types.h"
 #include "table/scoped_arena_iterator.h"
-#include "util/cf_options.h"
+#include "options/cf_options.h"
 #include "util/event_logger.h"
 
 namespace rocksdb {

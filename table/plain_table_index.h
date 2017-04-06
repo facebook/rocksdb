@@ -13,7 +13,7 @@
 #include "db/dbformat.h"
 #include "rocksdb/options.h"
 #include "util/arena.h"
-#include "util/cf_options.h"
+#include "options/cf_options.h"
 #include "util/hash.h"
 #include "util/histogram.h"
 #include "util/murmurhash.h"

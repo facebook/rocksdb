@@ -56,6 +56,12 @@ LIB_SOURCES =                                                   \
   memtable/hash_skiplist_rep.cc                                 \
   memtable/skiplistrep.cc                                       \
   memtable/vectorrep.cc                                         \
+  options/cf_options.cc                                         \
+  options/db_options.cc                                         \
+  options/options.cc                                            \
+  options/options_helper.cc                                     \
+  options/options_parser.cc                                     \
+  options/options_sanity_check.cc                               \
   port/stack_trace.cc                                           \
   port/port_posix.cc                                            \
   table/adaptive_table_factory.cc                               \
@@ -93,14 +99,12 @@ LIB_SOURCES =                                                   \
   util/auto_roll_logger.cc                                      \
   util/bloom.cc                                                 \
   util/build_version.cc                                         \
-  util/cf_options.cc                                            \
   util/clock_cache.cc                                           \
   util/coding.cc                                                \
   util/comparator.cc                                            \
   util/compaction_job_stats_impl.cc                             \
   util/concurrent_arena.cc                                      \
   util/crc32c.cc                                                \
-  util/db_options.cc                                            \
   util/delete_scheduler.cc                                      \
   util/dynamic_bloom.cc                                         \
   util/env.cc                                                   \
@@ -123,10 +127,6 @@ LIB_SOURCES =                                                   \
   util/lru_cache.cc                                             \
   util/memenv.cc                                                \
   util/murmurhash.cc                                            \
-  util/options.cc                                               \
-  util/options_helper.cc                                        \
-  util/options_parser.cc                                        \
-  util/options_sanity_check.cc                                  \
   util/perf_context.cc                                          \
   util/perf_level.cc                                            \
   util/random.cc                                                \
@@ -272,6 +272,7 @@ MAIN_SOURCES =                                                    \
   db/write_batch_test.cc                                                \
   db/write_controller_test.cc                                           \
   db/write_callback_test.cc                                             \
+  options/options_test.cc                                               \
   table/block_based_filter_block_test.cc                                \
   table/block_test.cc                                                   \
   table/cuckoo_table_builder_test.cc                                    \
@@ -309,7 +310,7 @@ MAIN_SOURCES =                                                    \
   utilities/geodb/geodb_test.cc                                         \
   utilities/memory/memory_test.cc                                       \
   utilities/merge_operators/string_append/stringappend_test.cc          \
-  utilities/option_change_migration/option_change_migration_test.cc           \
+  utilities/option_change_migration/option_change_migration_test.cc     \
   utilities/options/options_util_test.cc                                \
   utilities/redis/redis_lists_test.cc                                   \
   utilities/simulator_cache/sim_cache_test.cc                           \
@@ -325,7 +326,6 @@ MAIN_SOURCES =                                                    \
   util/iostats_context_test.cc                                          \
   util/log_write_bench.cc                                               \
   util/mock_env_test.cc                                                 \
-  util/options_test.cc                                                  \
   util/event_logger_test.cc                                             \
   util/rate_limiter_test.cc                                             \
   util/slice_transform_test.cc                                          \

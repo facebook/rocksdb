@@ -11,7 +11,7 @@
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "util/fault_injection_test_env.h"
-#include "util/options_helper.h"
+#include "options/options_helper.h"
 #include "util/sync_point.h"
 
 namespace rocksdb {
