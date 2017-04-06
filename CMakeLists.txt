@@ -413,7 +413,6 @@ set(SOURCES
         util/filter_policy.cc
         util/hash.cc
         util/log_buffer.cc
-        util/logging.cc
         util/murmurhash.cc
         util/random.cc
         util/rate_limiter.cc
