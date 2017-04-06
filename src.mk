@@ -1,8 +1,8 @@
 # These are the sources from which librocksdb.a is built:
 LIB_SOURCES =                                                   \
-  cache/clock_cache.cc                                           \
-  cache/lru_cache.cc                                             \
-  cache/sharded_cache.cc                                         \
+  cache/clock_cache.cc                                          \
+  cache/lru_cache.cc                                            \
+  cache/sharded_cache.cc                                        \
   db/builder.cc                                                 \
   db/c.cc                                                       \
   db/column_family.cc                                           \
@@ -15,9 +15,9 @@ LIB_SOURCES =                                                   \
   db/db_filesnapshot.cc                                         \
   db/db_impl.cc                                                 \
   db/db_impl_write.cc                                           \
-  db/db_impl_compaction_flush.cc                                                 \
+  db/db_impl_compaction_flush.cc                                \
   db/db_impl_files.cc                                           \
-  db/db_impl_open.cc                                           \
+  db/db_impl_open.cc                                            \
   db/db_impl_debug.cc                                           \
   db/db_impl_experimental.cc                                    \
   db/db_impl_readonly.cc                                        \
@@ -36,7 +36,6 @@ LIB_SOURCES =                                                   \
   db/log_writer.cc                                              \
   db/managed_iterator.cc                                        \
   db/memtable.cc                                                \
-  db/memtable_allocator.cc                                      \
   db/memtable_list.cc                                           \
   db/merge_helper.cc                                            \
   db/merge_operator.cc                                          \
@@ -54,35 +53,36 @@ LIB_SOURCES =                                                   \
   db/write_batch_base.cc                                        \
   db/write_controller.cc                                        \
   db/write_thread.cc                                            \
-  env/env.cc                                                   \
-  env/env_chroot.cc                                            \
-  env/env_hdfs.cc                                              \
-  env/env_posix.cc                                             \
-  env/io_posix.cc                                              \
-  env/memenv.cc                                                \
+  env/env.cc                                                    \
+  env/env_chroot.cc                                             \
+  env/env_hdfs.cc                                               \
+  env/env_posix.cc                                              \
+  env/io_posix.cc                                               \
+  env/memenv.cc                                                 \
   memtable/hash_cuckoo_rep.cc                                   \
   memtable/hash_linklist_rep.cc                                 \
   memtable/hash_skiplist_rep.cc                                 \
+  memtable/memtable_allocator.cc                                \
   memtable/skiplistrep.cc                                       \
   memtable/vectorrep.cc                                         \
-  monitoring/histogram.cc                                             \
-  monitoring/histogram_windowing.cc                                   \
-  monitoring/instrumented_mutex.cc                                    \
-  monitoring/iostats_context.cc                                       \
-  monitoring/perf_context.cc                                          \
-  monitoring/perf_level.cc                                            \
-  monitoring/statistics.cc                                            \
-  monitoring/thread_status_impl.cc                                    \
-  monitoring/thread_status_updater.cc                                 \
-  monitoring/thread_status_updater_debug.cc                           \
-  monitoring/thread_status_util.cc                                    \
-  monitoring/thread_status_util_debug.cc                              \
-  options/cf_options.cc                                                 \
-  options/db_options.cc                                                 \
-  options/options.cc                                                    \
-  options/options_helper.cc                                             \
-  options/options_parser.cc                                             \
-  options/options_sanity_check.cc                                       \
+  monitoring/histogram.cc                                       \
+  monitoring/histogram_windowing.cc                             \
+  monitoring/instrumented_mutex.cc                              \
+  monitoring/iostats_context.cc                                 \
+  monitoring/perf_context.cc                                    \
+  monitoring/perf_level.cc                                      \
+  monitoring/statistics.cc                                      \
+  monitoring/thread_status_impl.cc                              \
+  monitoring/thread_status_updater.cc                           \
+  monitoring/thread_status_updater_debug.cc                     \
+  monitoring/thread_status_util.cc                              \
+  monitoring/thread_status_util_debug.cc                        \
+  options/cf_options.cc                                         \
+  options/db_options.cc                                         \
+  options/options.cc                                            \
+  options/options_helper.cc                                     \
+  options/options_parser.cc                                     \
+  options/options_sanity_check.cc                               \
   port/port_posix.cc                                            \
   port/stack_trace.cc                                           \
   table/adaptive_table_factory.cc                               \
@@ -254,17 +254,14 @@ MAIN_SOURCES =                                                    \
   db/file_indexer_test.cc                                               \
   db/filename_test.cc                                                   \
   db/flush_job_test.cc                                                  \
-  db/inlineskiplist_test.cc                                             \
   db/listener_test.cc                                                   \
   db/log_test.cc                                                        \
   db/manual_compaction_test.cc                                          \
-  db/memtablerep_bench.cc                                               \
   db/merge_test.cc                                                      \
   db/options_file_test.cc                                               \
   db/perf_context_test.cc                                               \
   db/plain_table_db_test.cc                                             \
   db/prefix_test.cc                                                     \
-  db/skiplist_test.cc                                                   \
   db/table_properties_collector_test.cc                                 \
   db/version_builder_test.cc                                            \
   db/version_edit_test.cc                                               \
@@ -273,13 +270,16 @@ MAIN_SOURCES =                                                    \
   db/write_batch_test.cc                                                \
   db/write_callback_test.cc                                             \
   db/write_controller_test.cc                                           \
-  env/env_basic_test.cc                                                \
-  env/env_test.cc                                                      \
-  env/mock_env_test.cc                                                 \
-  monitoring/histogram_test.cc                                                \
-  monitoring/iostats_context_test.cc                                          \
-  monitoring/statistics_test.cc                                               \
-  options/options_test.cc                                                  \
+  env/env_basic_test.cc                                                 \
+  env/env_test.cc                                                       \
+  env/mock_env_test.cc                                                  \
+  memtable/inlineskiplist_test.cc                                       \
+  memtable/memtablerep_bench.cc                                         \
+  memtable/skiplist_test.cc                                             \
+  monitoring/histogram_test.cc                                          \
+  monitoring/iostats_context_test.cc                                    \
+  monitoring/statistics_test.cc                                         \
+  options/options_test.cc                                               \
   table/block_based_filter_block_test.cc                                \
   table/block_test.cc                                                   \
   table/cuckoo_table_builder_test.cc                                    \

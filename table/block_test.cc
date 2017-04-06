@@ -12,8 +12,8 @@
 #include <vector>
 
 #include "db/dbformat.h"
-#include "db/memtable.h"
 #include "db/write_batch_internal.h"
+#include "db/memtable.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
