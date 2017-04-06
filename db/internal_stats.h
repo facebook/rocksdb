@@ -53,7 +53,7 @@ enum class LevelStatType {
   INVALID = 0,
   NUM_FILES,
   COMPACTED_FILES,
-  SIZE_MB,
+  SIZE_BYTES,
   SCORE,
   READ_GB,
   RN_GB,
