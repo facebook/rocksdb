@@ -1,8 +1,8 @@
 # These are the sources from which librocksdb.a is built:
 LIB_SOURCES =                                                   \
-  cache/clock_cache.cc                                           \
-  cache/lru_cache.cc                                             \
-  cache/sharded_cache.cc                                         \
+  cache/clock_cache.cc                                          \
+  cache/lru_cache.cc                                            \
+  cache/sharded_cache.cc                                        \
   db/builder.cc                                                 \
   db/c.cc                                                       \
   db/column_family.cc                                           \
@@ -11,13 +11,14 @@ LIB_SOURCES =                                                   \
   db/compaction_iterator.cc                                     \
   db/compaction_job.cc                                          \
   db/compaction_picker.cc                                       \
+  db/compaction_picker_universal.cc                             \
   db/convenience.cc                                             \
   db/db_filesnapshot.cc                                         \
   db/db_impl.cc                                                 \
   db/db_impl_write.cc                                           \
-  db/db_impl_compaction_flush.cc                                                 \
+  db/db_impl_compaction_flush.cc                                \
   db/db_impl_files.cc                                           \
-  db/db_impl_open.cc                                           \
+  db/db_impl_open.cc                                            \
   db/db_impl_debug.cc                                           \
   db/db_impl_experimental.cc                                    \
   db/db_impl_readonly.cc                                        \

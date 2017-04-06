@@ -84,15 +84,15 @@ class CompactionPicker {
   void ReleaseCompactionFiles(Compaction* c, Status status);
 
   // Returns true if any one of the specified files are being compacted
-  bool FilesInCompaction(const std::vector<FileMetaData*>& files);
+  bool IfFilesInCompaction(const std::vector<FileMetaData*>& files);
 
   // Takes a list of CompactionInputFiles and returns a (manual) Compaction
   // object.
-  Compaction* FormCompaction(
-      const CompactionOptions& compact_options,
-      const std::vector<CompactionInputFiles>& input_files, int output_level,
-      VersionStorageInfo* vstorage, const MutableCFOptions& mutable_cf_options,
-      uint32_t output_path_id);
+  Compaction* CompactFiles(const CompactionOptions& compact_options,
+                           const std::vector<CompactionInputFiles>& input_files,
+                           int output_level, VersionStorageInfo* vstorage,
+                           const MutableCFOptions& mutable_cf_options,
+                           uint32_t output_path_id);
 
   // Converts a set of compaction input file numbers into
   // a list of CompactionInputFiles.
@@ -101,12 +101,6 @@ class CompactionPicker {
       std::unordered_set<uint64_t>* input_set,
       const VersionStorageInfo* vstorage,
       const CompactionOptions& compact_options) const;
-
-  // Used in universal compaction when the enabled_trivial_move
-  // option is set. Checks whether there are any overlapping files
-  // in the input. Returns true if the input files are non
-  // overlapping.
-  bool IsInputNonOverlapping(Compaction* c);
 
   // Is there currently a compaction involving level 0 taking place
   bool IsLevel0CompactionInProgress() const {
@@ -122,21 +116,23 @@ class CompactionPicker {
   // Stores the minimal range that covers all entries in inputs in
   // *smallest, *largest.
   // REQUIRES: inputs is not empty
-  void GetRange(const CompactionInputFiles& inputs, InternalKey* smallest,
-                InternalKey* largest) const;
+  void GetRangeFromInputs(const CompactionInputFiles& inputs,
+                          InternalKey* smallest, InternalKey* largest) const;
 
   // Stores the minimal range that covers all entries in inputs1 and inputs2
   // in *smallest, *largest.
   // REQUIRES: inputs is not empty
-  void GetRange(const CompactionInputFiles& inputs1,
-                const CompactionInputFiles& inputs2, InternalKey* smallest,
-                InternalKey* largest) const;
+  void GetCombinedRangeFromInputs(const CompactionInputFiles& inputs1,
+                                  const CompactionInputFiles& inputs2,
+                                  InternalKey* smallest,
+                                  InternalKey* largest) const;
 
   // Stores the minimal range that covers all entries in inputs
   // in *smallest, *largest.
   // REQUIRES: inputs is not empty (at least on entry have one file)
-  void GetRange(const std::vector<CompactionInputFiles>& inputs,
-                InternalKey* smallest, InternalKey* largest) const;
+  void GetCombinedRangeFromInputs(
+      const std::vector<CompactionInputFiles>& inputs, InternalKey* smallest,
+      InternalKey* largest) const;
 
  protected:
   int NumberLevels() const { return ioptions_.num_levels; }
@@ -151,14 +147,14 @@ class CompactionPicker {
   // populated.
   //
   // Will return false if it is impossible to apply this compaction.
-  bool ExpandWhileOverlapping(const std::string& cf_name,
+  bool ExpandInputsToCleanCut(const std::string& cf_name,
                               VersionStorageInfo* vstorage,
                               CompactionInputFiles* inputs);
 
   // Returns true if any one of the parent files are being compacted
-  bool RangeInCompaction(VersionStorageInfo* vstorage,
-                         const InternalKey* smallest,
-                         const InternalKey* largest, int level, int* index);
+  bool IsRangeInCompaction(VersionStorageInfo* vstorage,
+                           const InternalKey* smallest,
+                           const InternalKey* largest, int level, int* index);
 
   // Returns true if the key range that `inputs` files cover overlap with the
   // key range of a currently running compaction.
@@ -228,9 +224,9 @@ class LevelCompactionPicker : public CompactionPicker {
   // If it returns true, inputs->files.size() will be exactly one.
   // If level is 0 and there is already a compaction on that level, this
   // function will return false.
-  bool PickCompactionBySize(VersionStorageInfo* vstorage, int level,
-                            int output_level, CompactionInputFiles* inputs,
-                            int* parent_index, int* base_index);
+  bool PickFileToCompact(VersionStorageInfo* vstorage, int level,
+                         int output_level, CompactionInputFiles* inputs,
+                         int* parent_index, int* base_index);
 
   // For L0->L0, picks the longest span of files that aren't currently
   // undergoing compaction for which work-per-deleted-file decreases. The span
@@ -248,84 +244,15 @@ class LevelCompactionPicker : public CompactionPicker {
   // If there is any file marked for compaction, put put it into inputs.
   // This is still experimental. It will return meaningful results only if
   // clients call experimental feature SuggestCompactRange()
-  void PickFilesMarkedForCompactionExperimental(const std::string& cf_name,
-                                                VersionStorageInfo* vstorage,
-                                                CompactionInputFiles* inputs,
-                                                int* level, int* output_level);
+  void PickFilesMarkedForCompaction(const std::string& cf_name,
+                                    VersionStorageInfo* vstorage,
+                                    CompactionInputFiles* inputs, int* level,
+                                    int* output_level);
 
   static const int kMinFilesForIntraL0Compaction = 4;
 };
 
 #ifndef ROCKSDB_LITE
-class UniversalCompactionPicker : public CompactionPicker {
- public:
-  UniversalCompactionPicker(const ImmutableCFOptions& ioptions,
-                            const InternalKeyComparator* icmp)
-      : CompactionPicker(ioptions, icmp) {}
-  virtual Compaction* PickCompaction(const std::string& cf_name,
-                                     const MutableCFOptions& mutable_cf_options,
-                                     VersionStorageInfo* vstorage,
-                                     LogBuffer* log_buffer) override;
-
-  virtual int MaxOutputLevel() const override { return NumberLevels() - 1; }
-
-  virtual bool NeedsCompaction(
-      const VersionStorageInfo* vstorage) const override;
-
- private:
-  struct SortedRun {
-    SortedRun(int _level, FileMetaData* _file, uint64_t _size,
-              uint64_t _compensated_file_size, bool _being_compacted)
-        : level(_level),
-          file(_file),
-          size(_size),
-          compensated_file_size(_compensated_file_size),
-          being_compacted(_being_compacted) {
-      assert(compensated_file_size > 0);
-      assert(level != 0 || file != nullptr);
-    }
-
-    void Dump(char* out_buf, size_t out_buf_size,
-              bool print_path = false) const;
-
-    // sorted_run_count is added into the string to print
-    void DumpSizeInfo(char* out_buf, size_t out_buf_size,
-                      size_t sorted_run_count) const;
-
-    int level;
-    // `file` Will be null for level > 0. For level = 0, the sorted run is
-    // for this file.
-    FileMetaData* file;
-    // For level > 0, `size` and `compensated_file_size` are sum of sizes all
-    // files in the level. `being_compacted` should be the same for all files
-    // in a non-zero level. Use the value here.
-    uint64_t size;
-    uint64_t compensated_file_size;
-    bool being_compacted;
-  };
-
-  // Pick Universal compaction to limit read amplification
-  Compaction* PickCompactionUniversalReadAmp(
-      const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
-      VersionStorageInfo* vstorage, double score, unsigned int ratio,
-      unsigned int num_files, const std::vector<SortedRun>& sorted_runs,
-      LogBuffer* log_buffer);
-
-  // Pick Universal compaction to limit space amplification.
-  Compaction* PickCompactionUniversalSizeAmp(
-      const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
-      VersionStorageInfo* vstorage, double score,
-      const std::vector<SortedRun>& sorted_runs, LogBuffer* log_buffer);
-
-  static std::vector<SortedRun> CalculateSortedRuns(
-      const VersionStorageInfo& vstorage, const ImmutableCFOptions& ioptions);
-
-  // Pick a path ID to place a newly generated file, with its estimated file
-  // size.
-  static uint32_t GetPathId(const ImmutableCFOptions& ioptions,
-                            uint64_t file_size);
-};
-
 class FIFOCompactionPicker : public CompactionPicker {
  public:
   FIFOCompactionPicker(const ImmutableCFOptions& ioptions,
