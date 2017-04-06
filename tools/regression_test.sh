@@ -240,7 +240,7 @@ function run_db_bench {
   ps_cmd="ps aux"
   if ! [ -z "$REMOTE_USER_AT_HOST" ]; then
     echo "Running benchmark remotely on $REMOTE_USER_AT_HOST"
-    db_bench_cmd="$SSH $REMOTE_USER_AT_HOST $db_bench_cmd"
+    db_bench_cmd="$SSH $REMOTE_USER_AT_HOST \"$db_bench_cmd\""
     ps_cmd="$SSH $REMOTE_USER_AT_HOST $ps_cmd"
   fi
 
