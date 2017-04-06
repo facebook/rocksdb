@@ -14,12 +14,12 @@
 #include <inttypes.h>
 
 #include "db/builder.h"
-#include "util/iostats_context_imp.h"
-#include "util/perf_context_imp.h"
+#include "monitoring/iostats_context_imp.h"
+#include "monitoring/perf_context_imp.h"
 #include "util/sst_file_manager_impl.h"
 #include "util/sync_point.h"
-#include "util/thread_status_updater.h"
-#include "util/thread_status_util.h"
+#include "monitoring/thread_status_updater.h"
+#include "monitoring/thread_status_util.h"
 
 namespace rocksdb {
 Status DBImpl::SyncClosedLogs(JobContext* job_context) {

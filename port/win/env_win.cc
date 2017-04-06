@@ -28,10 +28,10 @@
 #include "port/win/win_logger.h"
 #include "port/win/io_win.h"
 
-#include "util/iostats_context_imp.h"
+#include "monitoring/iostats_context_imp.h"
 
-#include "util/thread_status_updater.h"
-#include "util/thread_status_util.h"
+#include "monitoring/thread_status_updater.h"
+#include "monitoring/thread_status_util.h"
 
 #include <Rpc.h>  // For UUID generation
 #include <Windows.h>

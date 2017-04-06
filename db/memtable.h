@@ -20,14 +20,14 @@
 #include "db/range_del_aggregator.h"
 #include "db/skiplist.h"
 #include "db/version_edit.h"
+#include "monitoring/instrumented_mutex.h"
+#include "options/cf_options.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
-#include "util/cf_options.h"
 #include "util/concurrent_arena.h"
 #include "util/dynamic_bloom.h"
 #include "util/hash.h"
-#include "util/instrumented_mutex.h"
 
 namespace rocksdb {
 

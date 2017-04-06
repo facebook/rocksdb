@@ -45,10 +45,10 @@
 #include "db/merge_context.h"
 #include "db/snapshot_impl.h"
 #include "db/write_batch_internal.h"
+#include "monitoring/perf_context_imp.h"
+#include "monitoring/statistics.h"
 #include "rocksdb/merge_operator.h"
 #include "util/coding.h"
-#include "util/perf_context_imp.h"
-#include "util/statistics.h"
 #include "util/string_util.h"
 
 namespace rocksdb {

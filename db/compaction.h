@@ -9,9 +9,9 @@
 
 #pragma once
 #include "db/version_set.h"
+#include "options/cf_options.h"
 #include "util/arena.h"
 #include "util/autovector.h"
-#include "util/cf_options.h"
 
 namespace rocksdb {
 

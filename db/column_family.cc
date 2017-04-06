@@ -27,11 +27,11 @@
 #include "db/version_set.h"
 #include "db/write_controller.h"
 #include "memtable/hash_skiplist_rep.h"
+#include "monitoring/thread_status_util.h"
+#include "options/options_helper.h"
 #include "table/block_based_table_factory.h"
 #include "util/autovector.h"
 #include "util/compression.h"
-#include "util/options_helper.h"
-#include "util/thread_status_util.h"
 
 namespace rocksdb {
 

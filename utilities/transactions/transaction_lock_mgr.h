@@ -12,10 +12,10 @@
 #include <utility>
 #include <vector>
 
+#include "monitoring/instrumented_mutex.h"
 #include "rocksdb/utilities/transaction.h"
 #include "util/autovector.h"
 #include "util/hash_map.h"
-#include "util/instrumented_mutex.h"
 #include "util/thread_local.h"
 #include "utilities/transactions/transaction_impl.h"
 

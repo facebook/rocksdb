@@ -20,6 +20,8 @@
 #include "db/merge_helper.h"
 #include "db/table_cache.h"
 #include "db/version_edit.h"
+#include "monitoring/iostats_context_imp.h"
+#include "monitoring/thread_status_util.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
@@ -29,9 +31,7 @@
 #include "table/internal_iterator.h"
 #include "util/file_reader_writer.h"
 #include "util/filename.h"
-#include "util/iostats_context_imp.h"
 #include "util/stop_watch.h"
-#include "util/thread_status_util.h"
 
 namespace rocksdb {
 

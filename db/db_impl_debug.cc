@@ -10,7 +10,7 @@
 #ifndef NDEBUG
 
 #include "db/db_impl.h"
-#include "util/thread_status_updater.h"
+#include "monitoring/thread_status_updater.h"
 
 namespace rocksdb {
 
