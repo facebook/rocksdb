@@ -125,7 +125,11 @@ public:
 
   size_t Read(char* dest, size_t offset, size_t read_size) const {
     assert(offset < cursize_);
-    size_t to_read = std::min(cursize_ - offset, read_size);
+
+    size_t to_read = 0;
+    if(offset < cursize_) {
+      to_read = std::min(cursize_ - offset, read_size);
+    }
     if (to_read > 0) {
       memcpy(dest, bufstart_ + offset, to_read);
     }

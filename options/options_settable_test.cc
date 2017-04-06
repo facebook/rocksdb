@@ -45,7 +45,7 @@ namespace rocksdb {
 // settable through string on limited platforms as it depends on behavior of
 // compilers.
 #ifndef ROCKSDB_LITE
-#ifdef OS_LINUX
+#if defined OS_LINUX || defined OS_WIN
 #ifndef __clang__
 
 class OptionsSettableTest : public testing::Test {
@@ -54,7 +54,7 @@ class OptionsSettableTest : public testing::Test {
 };
 
 const char kSpecialChar = 'z';
-typedef std::vector<std::pair<int, size_t>> OffsetGap;
+typedef std::vector<std::pair<size_t, size_t>> OffsetGap;
 
 void FillWithSpecialChar(char* start_ptr, size_t total_size,
                          const OffsetGap& blacklist) {
@@ -446,7 +446,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   delete[] new_options_ptr;
 }
 #endif  // !__clang__
-#endif  // OS_LINUX
+#endif  // OS_LINUX || OS_WIN
 #endif  // !ROCKSDB_LITE
 
 }  // namespace rocksdb

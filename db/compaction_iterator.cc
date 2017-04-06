@@ -6,6 +6,7 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 
 #include "db/compaction_iterator.h"
+#include "rocksdb/listener.h"
 #include "table/internal_iterator.h"
 
 namespace rocksdb {

@@ -435,16 +435,12 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
       : file_(std::move(file)),
         alignment_(file_->GetRequiredBufferAlignment()),
         readahead_size_(Roundup(readahead_size, alignment_)),
-        forward_calls_(file_->ShouldForwardRawRequest()),
         buffer_(),
         buffer_offset_(0),
         buffer_len_(0) {
-    if (!forward_calls_) {
-      buffer_.Alignment(alignment_);
-      buffer_.AllocateNewBuffer(readahead_size_);
-    } else if (readahead_size_ > 0) {
-      file_->EnableReadAhead();
-    }
+
+    buffer_.Alignment(alignment_);
+    buffer_.AllocateNewBuffer(readahead_size_);
   }
 
  ReadaheadRandomAccessFile(const ReadaheadRandomAccessFile&) = delete;
@@ -453,15 +449,37 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
 
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
                       char* scratch) const override {
-    if (n + alignment_ >= readahead_size_) {
-      return file_->Read(offset, n, result, scratch);
-    }
 
-    // On Windows in unbuffered mode this will lead to double buffering
-    // and double locking so we avoid that.
-    // In normal mode Windows caches so much data from disk that we do
-    // not need readahead.
-    if (forward_calls_) {
+    if (n + alignment_ >= readahead_size_) {
+
+      // Must use the aligned buffer on direct IO
+      if (file_->use_direct_io() &&
+         !AlignedBuffer::isAligned(scratch, alignment_)) {
+
+        uint64_t first_page_start = TruncateToPageBoundary(alignment_, offset);
+        uint64_t last_page_end = TruncateToPageBoundary(alignment_, offset + n)
+          + alignment_;
+
+        uint64_t bytes_to_read = last_page_end - first_page_start;
+
+        AlignedBuffer buffer;
+        buffer.Alignment(alignment_);
+        buffer.AllocateNewBuffer(bytes_to_read);
+
+        Slice aligned_result;
+        Status s = file_->Read(first_page_start, bytes_to_read, &aligned_result,
+          buffer.BufferStart());
+
+        if (s.ok() && aligned_result.size() > 0) {
+          size_t buffer_offset = offset - first_page_start;
+          size_t bytes_read = buffer.Read(scratch, buffer_offset, n);
+          *result = Slice(scratch, bytes_read);
+        } else {
+          *result = aligned_result;
+        }
+        return s;
+      }
+
       return file_->Read(offset, n, result, scratch);
     }
 
@@ -469,7 +487,7 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
 
     size_t cached_len = 0;
     // Check if there is a cache hit, means that [offset, offset + n) is either
-    // complitely or partially in the buffer
+    // completely or partially in the buffer
     // If it's completely cached, including end of file case when offset + n is
     // greater than EOF, return
     if (TryReadFromCache(offset, n, &cached_len, scratch) &&
@@ -558,7 +576,6 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
   std::unique_ptr<RandomAccessFile> file_;
   const size_t alignment_;
   size_t               readahead_size_;
-  const bool           forward_calls_;
 
   mutable std::mutex lock_;
   mutable AlignedBuffer buffer_;
