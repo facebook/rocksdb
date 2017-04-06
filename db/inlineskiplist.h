@@ -211,7 +211,7 @@ class InlineSkipList {
 
   // Return true if key is greater than the data stored in "n".  Null n
   // is considered infinite.  n should not be head_.
-  bool KeyIsAfterNode(const char* key, Node* n) const;
+  inline bool KeyIsAfterNode(const char* key, Node* n) const;
 
   // Returns the earliest node with a key >= key.
   // Return nullptr if there is no such node.

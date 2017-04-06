@@ -158,6 +158,14 @@ extern __declspec(thread) PerfContext perf_context;
 extern __thread PerfContext perf_context;
 #endif
 
-}
+#if defined(NPERF_CONTEXT) || defined(IOS_CROSS_COMPILE)
+#define PERF_COUNTER_ADD(metric, value)
+#else
+// Increase metric value
+#define PERF_COUNTER_ADD(metric, value)     \
+  perf_context.metric += value;
+#endif
+
+}  // namespace rocksdb
 
 #endif

@@ -80,15 +80,6 @@ struct MemTablePostProcessInfo {
 // written to (aka the 'immutable memtables').
 class MemTable {
  public:
-  struct KeyComparator : public MemTableRep::KeyComparator {
-    const InternalKeyComparator comparator;
-    explicit KeyComparator(const InternalKeyComparator& c) : comparator(c) { }
-    virtual int operator()(const char* prefix_len_key1,
-                           const char* prefix_len_key2) const override;
-    virtual int operator()(const char* prefix_len_key,
-                           const Slice& key) const override;
-  };
-
   // MemTables are reference counted.  The initial reference count
   // is zero and the caller must call Ref() at least once.
   //
@@ -344,7 +335,7 @@ class MemTable {
   port::RWMutex* GetLock(const Slice& key);
 
   const InternalKeyComparator& GetInternalKeyComparator() const {
-    return comparator_.comparator;
+    return dynamic_cast<const InternalKeyComparator&>(comparator_.comparator());
   }
 
   const MemTableOptions* GetMemTableOptions() const { return &moptions_; }
@@ -356,7 +347,7 @@ class MemTable {
   friend class MemTableBackwardIterator;
   friend class MemTableList;
 
-  KeyComparator comparator_;
+  const MemTableRep::KeyComparator comparator_;
   const MemTableOptions moptions_;
   int refs_;
   const size_t kArenaBlockSize;

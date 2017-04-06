@@ -14,6 +14,7 @@
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksdb/internal_comparator.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
@@ -112,12 +113,6 @@ extern void AppendInternalKeyFooter(std::string* result, SequenceNumber s,
 extern bool ParseInternalKey(const Slice& internal_key,
                              ParsedInternalKey* result);
 
-// Returns the user key portion of an internal key.
-inline Slice ExtractUserKey(const Slice& internal_key) {
-  assert(internal_key.size() >= 8);
-  return Slice(internal_key.data(), internal_key.size() - 8);
-}
-
 inline ValueType ExtractValueType(const Slice& internal_key) {
   assert(internal_key.size() >= 8);
   const size_t n = internal_key.size();
@@ -126,30 +121,6 @@ inline ValueType ExtractValueType(const Slice& internal_key) {
   return static_cast<ValueType>(c);
 }
 
-// A comparator for internal keys that uses a specified comparator for
-// the user key portion and breaks ties by decreasing sequence number.
-class InternalKeyComparator : public Comparator {
- private:
-  const Comparator* user_comparator_;
-  std::string name_;
- public:
-  explicit InternalKeyComparator(const Comparator* c) : user_comparator_(c),
-    name_("rocksdb.InternalKeyComparator:" +
-          std::string(user_comparator_->Name())) {
-  }
-  virtual ~InternalKeyComparator() {}
-
-  virtual const char* Name() const override;
-  virtual int Compare(const Slice& a, const Slice& b) const override;
-  virtual void FindShortestSeparator(std::string* start,
-                                     const Slice& limit) const override;
-  virtual void FindShortSuccessor(std::string* key) const override;
-
-  const Comparator* user_comparator() const { return user_comparator_; }
-
-  int Compare(const InternalKey& a, const InternalKey& b) const;
-  int Compare(const ParsedInternalKey& a, const ParsedInternalKey& b) const;
-};
 
 // Modules in this directory should keep internal keys wrapped inside
 // the following class instead of plain strings so that we do not
@@ -214,11 +185,6 @@ class InternalKey {
 
   std::string DebugString(bool hex = false) const;
 };
-
-inline int InternalKeyComparator::Compare(
-    const InternalKey& a, const InternalKey& b) const {
-  return Compare(a.Encode(), b.Encode());
-}
 
 inline bool ParseInternalKey(const Slice& internal_key,
                              ParsedInternalKey* result) {

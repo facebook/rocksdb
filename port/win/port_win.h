@@ -113,7 +113,7 @@ const size_t kMaxSizet = UINT_MAX;
 
 #endif //_MSC_VER
 
-const bool kLittleEndian = true;
+extern const bool kLittleEndian;
 
 class CondVar;
 
