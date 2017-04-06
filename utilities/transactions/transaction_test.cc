@@ -332,6 +332,43 @@ TEST_P(TransactionTest, SharedLocks) {
   txn2->Rollback();
   txn3->Rollback();
 
+  // Test txn1 and txn2 sharing a lock and txn2 trying to upgrade lock.
+  s = txn1->GetForUpdate(read_options, "foo", nullptr, false /* exclusive */);
+  ASSERT_OK(s);
+
+  s = txn2->GetForUpdate(read_options, "foo", nullptr, false /* exclusive */);
+  ASSERT_OK(s);
+
+  s = txn2->GetForUpdate(read_options, "foo", nullptr);
+  ASSERT_TRUE(s.IsTimedOut());
+  ASSERT_EQ(s.ToString(), "Operation timed out: Timeout waiting to lock key");
+
+  txn1->UndoGetForUpdate("foo");
+  s = txn2->GetForUpdate(read_options, "foo", nullptr);
+  ASSERT_OK(s);
+
+  txn1->Rollback();
+  txn2->Rollback();
+
+  // Test txn1 trying to downgrade its lock.
+  s = txn1->GetForUpdate(read_options, "foo", nullptr, true /* exclusive */);
+  ASSERT_OK(s);
+
+  s = txn2->GetForUpdate(read_options, "foo", nullptr, false /* exclusive */);
+  ASSERT_TRUE(s.IsTimedOut());
+  ASSERT_EQ(s.ToString(), "Operation timed out: Timeout waiting to lock key");
+
+  // Should still fail after "downgrading".
+  s = txn1->GetForUpdate(read_options, "foo", nullptr, false /* exclusive */);
+  ASSERT_OK(s);
+
+  s = txn2->GetForUpdate(read_options, "foo", nullptr, false /* exclusive */);
+  ASSERT_TRUE(s.IsTimedOut());
+  ASSERT_EQ(s.ToString(), "Operation timed out: Timeout waiting to lock key");
+
+  txn1->Rollback();
+  txn2->Rollback();
+
   // Test txn1 holding an exclusive lock and txn2 trying to obtain shared
   // access.
   s = txn1->GetForUpdate(read_options, "foo", nullptr);
