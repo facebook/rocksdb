@@ -401,8 +401,12 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
   EnvOptions soptions;
 
   CloudEnvImpl* cenv = static_cast<CloudEnvImpl*>(options.env);
+  if (cenv->GetCloudType() == CloudType::kNone) {
+    // We don't need to SanitizeDirectory()
+    return Status::OK();
+  }
   if (cenv->GetCloudType() != CloudType::kAws) {
-    return Status::InvalidArgument("SanitizeDirectory: Invalid Type");
+    return Status::NotSupported("We only support AWS for now.");
   }
   // acquire the local env
   Env* env = cenv->GetBaseEnv();
