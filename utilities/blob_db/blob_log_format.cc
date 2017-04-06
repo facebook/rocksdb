@@ -64,7 +64,10 @@ Status BlobLogFooter::DecodeFrom(Slice* input) {
       !GetFixed32(input, &temp_ttl.second)) {
     return Status::Corruption("Invalid Blob Footer: ttl_range");
   }
-  if (has_ttl) ttl_range_.reset(new ttlrange_t(temp_ttl));
+  if (has_ttl) {
+    printf("has ttl\n");
+    ttl_range_.reset(new ttlrange_t(temp_ttl));
+  }
 
   if (!GetFixed64(input, &sn_range_.first) ||
       !GetFixed64(input, &sn_range_.second)) {

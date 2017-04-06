@@ -202,8 +202,8 @@ void DBImpl::NotifyOnFlushBegin(ColumnFamilyData* cfd, FileMetaData* file_meta,
     }
   }
   mutex_.Lock();
-  // no need to signal bg_cv_ as it will be signaled at the end of the
-  // flush process.
+// no need to signal bg_cv_ as it will be signaled at the end of the
+// flush process.
 #endif  // ROCKSDB_LITE
 }
 

@@ -78,22 +78,34 @@ class BlobReconcileWalFilter : public WalFilter {
   BlobDBImpl* impl_;
 };
 
-class EvictAllVersionsCompactionListener : public CompactionEventListener {
-  friend class BlobDBImpl;
+class EvictAllVersionsCompactionListener : public EventListener {
+ public:
+  class InternalListener : public CompactionEventListener {
+    friend class BlobDBImpl;
+
+   public:
+    virtual void OnCompaction(int level, const Slice& key,
+                              CompactionListenerValueType value_type,
+                              const Slice& existing_value,
+                              const SequenceNumber& sn, bool is_new) override;
+
+    void SetImplPtr(BlobDBImpl* p) { impl_ = p; }
+
+   private:
+    BlobDBImpl* impl_;
+  };
+
+  explicit EvictAllVersionsCompactionListener()
+      : internal_listener_(new InternalListener()) {}
+
+  virtual CompactionEventListener* GetCompactionEventListener() override {
+    return internal_listener_.get();
+  }
+
+  void SetImplPtr(BlobDBImpl* p) { internal_listener_->SetImplPtr(p); }
 
  private:
-  BlobDBImpl* impl_;
-
- public:
-  explicit EvictAllVersionsCompactionListener() : impl_(nullptr) {}
-
-  void SetImplPtr(BlobDBImpl* p) { impl_ = p; }
-
-  virtual void OnCompaction(int level, const Slice& key,
-                            CompactionListenerValueType value_type,
-                            const Slice& existing_value,
-                            const SequenceNumber& sn,
-                            bool is_new) const override;
+  std::unique_ptr<InternalListener> internal_listener_;
 };
 
 #if 0

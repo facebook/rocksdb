@@ -6,8 +6,9 @@
 #ifndef ROCKSDB_LITE
 
 #include "utilities/blob_db/blob_db.h"
-#include "db/filename.h"
 #include "db/write_batch_internal.h"
+#include "monitoring/instrumented_mutex.h"
+#include "options/cf_options.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/env.h"
@@ -16,10 +17,9 @@
 #include "table/block.h"
 #include "table/block_based_table_builder.h"
 #include "table/block_builder.h"
-#include "util/cf_options.h"
 #include "util/crc32c.h"
 #include "util/file_reader_writer.h"
-#include "util/instrumented_mutex.h"
+#include "util/filename.h"
 #include "utilities/blob_db/blob_db_impl.h"
 
 namespace rocksdb {

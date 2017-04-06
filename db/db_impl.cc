@@ -1578,7 +1578,6 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
 }
 
 bool DBImpl::HasActiveSnapshotLaterThanSN(SequenceNumber sn) {
-
   InstrumentedMutexLock l(&mutex_);
   if (snapshots_.empty()) {
     return false;

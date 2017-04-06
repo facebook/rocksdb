@@ -9,7 +9,7 @@
 #include <memory>
 #include "utilities/blob_db/blob_db_impl.h"
 
-#include "db/filename.h"
+#include "util/filename.h"
 
 namespace rocksdb {
 

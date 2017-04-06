@@ -357,14 +357,6 @@ class EventListener {
   virtual ~EventListener() {}
 };
 
-class CompactionEventListener : public EventListener {
- public:
-  virtual void OnCompaction(int level, const Slice& key,
-                            CompactionListenerValueType value_type,
-                            const Slice& existing_value,
-                            const SequenceNumber& sn, bool is_new) const = 0;
-};
-
 #else
 
 class EventListener {

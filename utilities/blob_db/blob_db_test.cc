@@ -510,7 +510,7 @@ TEST_F(BlobDBTest, GCTest) {
   Env::Default()->SleepForMicroseconds(240 * 1000 * 1000);
 }
 
-TEST_F(BlobDBTest, MultipleWriters) {
+TEST_F(BlobDBTest, DISABLED_MultipleWriters) {
   BlobDBOptionsImpl bdboptions;
   Reopen1(bdboptions);
 

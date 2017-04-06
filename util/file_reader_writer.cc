@@ -73,8 +73,6 @@ Status SequentialFileReader::Skip(uint64_t n) {
   return file_->Skip(n);
 }
 
-void SequentialFileReader::Rewind() { file_->Rewind(); }
-
 Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
                                     char* scratch) const {
   Status s;

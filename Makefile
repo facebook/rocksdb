@@ -399,7 +399,6 @@ TESTS = \
 	ttl_test \
 	date_tiered_test \
 	backupable_db_test \
-	blob_db_test \
 	document_db_test \
 	json_document_test \
 	sim_cache_test \

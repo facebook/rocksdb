@@ -120,9 +120,19 @@ class BlobLogFooter {
 
   uint64_t GetBlobCount() const { return blob_count_; }
 
-  const ttlrange_t& GetTTLRange() const { return *(ttl_range_.get()); }
+  ttlrange_t GetTTLRange() const {
+    if (ttl_range_) {
+      *ttl_range_;
+    }
+    return {0, 0};
+  }
 
-  const tsrange_t& GetTimeRange() const { return *(ts_range_.get()); }
+  tsrange_t GetTimeRange() const {
+    if (ts_range_) {
+      return *ts_range_;
+    }
+    return {0, 0};
+  }
 
   const snrange_t& GetSNRange() const { return sn_range_; }
 
