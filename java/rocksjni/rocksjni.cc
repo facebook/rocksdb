@@ -1959,8 +1959,8 @@ bool rocksdb_compactrange_helper(JNIEnv* env, rocksdb::DB* db,
     s = db->CompactRange(compact_options, &begin_slice, &end_slice);
   }
 
-  env->ReleaseByteArrayElements(jend, begin, JNI_ABORT);
-  env->ReleaseByteArrayElements(jbegin, end, JNI_ABORT);
+  env->ReleaseByteArrayElements(jend, end, JNI_ABORT);
+  env->ReleaseByteArrayElements(jbegin, begin, JNI_ABORT);
 
   if (s.ok()) {
     return true;
