@@ -10,7 +10,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "port/win/xpress_win.h"
-#include <Windows.h>
+#include <windows.h>
 
 #include <cassert>
 #include <memory>
