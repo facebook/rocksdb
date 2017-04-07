@@ -742,16 +742,16 @@ InternalIterator* DBImpl::NewInternalIterator(
   return NewInternalIterator(roptions, cfd, super_version, arena,
                              range_del_agg);
 }
-  
+
 void DBImpl::SchedulePurge() {
   mutex_.AssertHeld();
   assert(opened_successfully_);
-  
+
   // Purge operations are put into High priority queue
   bg_purge_scheduled_++;
   env_->Schedule(&DBImpl::BGWorkPurge, this, Env::Priority::HIGH, nullptr);
-}  
- 
+}
+
 void DBImpl::BackgroundCallPurge() {
   mutex_.Lock();
 
@@ -2201,7 +2201,7 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
       }
     }
 
-    // ignore case where no archival directory is present.
+    // ignore case where no archival directory is present
     env->DeleteDir(archivedir);
 
     env->UnlockFile(lock);  // Ignore error since state is already gone
