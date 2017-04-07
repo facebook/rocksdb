@@ -309,7 +309,7 @@ function update_report {
   perc[3]=${BASH_REMATCH[4]}  # p99.9
   perc[4]=${BASH_REMATCH[5]}  # p99.99
 
-  # parse the output of the time command
+  # Parse the output of the time command
   real_sec=`tail -3 $2 | grep real | awk '{print $2}'`
   user_sec=`tail -3 $2 | grep user | awk '{print $2}'`
   sys_sec=`tail -3 $2 | grep sys | awk '{print $2}'`
