@@ -27,6 +27,8 @@ env:
   - JOB_NAME=java_test
   # Build ROCKSDB_LITE
   - JOB_NAME=lite_build
+  # Build examples
+  - JOB_NAME=examples
 
 matrix:
   exclude:
@@ -53,6 +55,7 @@ script:
   - if [[ "${TEST_GROUP}" == '2' ]]; then OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=comparator_db_test make -j4 check_some; fi
   - if [[ "${JOB_NAME}" == 'java_test' ]]; then OPT=-DTRAVIS V=1 make clean jclean rocksdbjava jtest; fi
   - if [[ "${JOB_NAME}" == 'lite_build' ]]; then OPT="-DTRAVIS -DROCKSDB_LITE" V=1 make -j4 static_lib; fi
+  - if [[ "${JOB_NAME}" == 'examples' ]]; then OPT=-DTRAVIS V=1 make -j4 static_lib; cd examples; make -j4; fi
 notifications:
     email:
       - leveldb@fb.com
