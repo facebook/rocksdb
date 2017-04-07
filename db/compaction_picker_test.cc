@@ -3,11 +3,12 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
-#include "db/compaction.h"
 #include "db/compaction_picker.h"
 #include <limits>
 #include <string>
 #include <utility>
+#include "db/compaction.h"
+#include "db/compaction_picker_universal.h"
 
 #include "util/logging.h"
 #include "util/string_util.h"

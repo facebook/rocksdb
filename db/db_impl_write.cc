@@ -12,8 +12,8 @@
 #define __STDC_FORMAT_MACROS
 #endif
 #include <inttypes.h>
-#include "options/options_helper.h"
 #include "monitoring/perf_context_imp.h"
+#include "options/options_helper.h"
 #include "util/sync_point.h"
 
 namespace rocksdb {

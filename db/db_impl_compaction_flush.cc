@@ -16,10 +16,10 @@
 #include "db/builder.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/perf_context_imp.h"
-#include "util/sst_file_manager_impl.h"
-#include "util/sync_point.h"
 #include "monitoring/thread_status_updater.h"
 #include "monitoring/thread_status_util.h"
+#include "util/sst_file_manager_impl.h"
+#include "util/sync_point.h"
 
 namespace rocksdb {
 Status DBImpl::SyncClosedLogs(JobContext* job_context) {
@@ -425,7 +425,7 @@ Status DBImpl::CompactFilesImpl(
   }
 
   for (auto inputs : input_files) {
-    if (cfd->compaction_picker()->FilesInCompaction(inputs.files)) {
+    if (cfd->compaction_picker()->AreFilesInCompaction(inputs.files)) {
       return Status::Aborted(
           "Some of the necessary compaction input "
           "files are already being compacted");
@@ -437,7 +437,7 @@ Status DBImpl::CompactFilesImpl(
 
   unique_ptr<Compaction> c;
   assert(cfd->compaction_picker());
-  c.reset(cfd->compaction_picker()->FormCompaction(
+  c.reset(cfd->compaction_picker()->CompactFiles(
       compact_options, input_files, output_level, version->storage_info(),
       *cfd->GetLatestMutableCFOptions(), output_path_id));
   if (!c) {
