@@ -772,9 +772,9 @@ Status PosixWritableFile::Close() {
     fstat(fd_, &file_stats);
     // After ftruncate, we check whether ftruncate has the correct behavior.
     // If not, we should hack it with FALLOC_FL_PUNCH_HOLE
-    if ((file_stats.st_size == 0 && file_stats.st_blocks != 0) ||
-        (file_stats.st_size - 1) / file_stats.st_blksize + 1 !=
-            file_stats.st_blocks / (file_stats.st_blksize / 512)) {
+    if ((file_stats.st_size + file_stats.st_blksize - 1) /
+            file_stats.st_blksize !=
+        file_stats.st_blocks / (file_stats.st_blksize / 512)) {
       fprintf(stderr,
               "Your kernel is buggy and does not free preallocated"
               "blocks on truncate. Hacking around it, but you should upgrade!"
