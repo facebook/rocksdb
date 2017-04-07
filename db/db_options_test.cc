@@ -15,6 +15,7 @@
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/convenience.h"
+#include "util/lru_cache.h"
 #include "util/options_helper.h"
 #include "util/random.h"
 #include "util/sync_point.h"
@@ -380,6 +381,24 @@ TEST_F(DBOptionsTest, DeleteObsoleteFilesPeriodChange) {
   env.addon_time_.store(21);
   assert_candidate_files_empty(dbfull(), false);
 
+  Close();
+}
+
+TEST_F(DBOptionsTest, MaxOpenFilesChange) {
+  SpecialEnv env(env_);
+  Options options;
+  options.max_open_files = -1;
+
+  Reopen(options);
+
+  LRUCache* tc = static_cast<LRUCache*>(dbfull()->TEST_table_cache());
+
+  ASSERT_EQ(-1, dbfull()->GetDBOptions().max_open_files);
+  ASSERT_LT(2000, tc->GetCapacity());
+  ASSERT_OK(dbfull()->SetDBOptions({{"max_open_files", "1024"}}));
+  ASSERT_EQ(1024, dbfull()->GetDBOptions().max_open_files);
+  // examine the table cache (actual size should be 1014)
+  ASSERT_GT(1500, tc->GetCapacity());
   Close();
 }
 
