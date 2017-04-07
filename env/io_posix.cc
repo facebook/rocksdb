@@ -768,10 +768,22 @@ Status PosixWritableFile::Close() {
     // of the file, but it does. Simple strace report will show that.
     // While we work with Travis-CI team to figure out if this is a
     // quirk of Docker/AUFS, we will comment this out.
-    IOSTATS_TIMER_GUARD(allocate_nanos);
-    if (allow_fallocate_) {
-      fallocate(fd_, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE, filesize_,
-                block_size * last_allocated_block - filesize_);
+    struct stat file_stats;
+    fstat(fd_, &file_stats);
+    // After ftruncate, we check whether ftruncate has the correct behavior.
+    // If not, we should hack it with FALLOC_FL_PUNCH_HOLE
+    if ((file_stats.st_size + file_stats.st_blksize - 1) /
+            file_stats.st_blksize !=
+        file_stats.st_blocks / (file_stats.st_blksize / 512)) {
+      fprintf(stderr,
+              "Your kernel is buggy (<= 4.0.x) and does not free preallocated"
+              "blocks on truncate. Hacking around it, but you should upgrade!"
+              "\n");
+      IOSTATS_TIMER_GUARD(allocate_nanos);
+      if (allow_fallocate_) {
+        fallocate(fd_, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE, filesize_,
+                  block_size * last_allocated_block - filesize_);
+      }
     }
 #endif
   }
