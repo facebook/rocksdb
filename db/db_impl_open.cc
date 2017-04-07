@@ -14,8 +14,8 @@
 #include <inttypes.h>
 
 #include "db/builder.h"
-#include "rocksdb/wal_filter.h"
 #include "options/options_helper.h"
+#include "rocksdb/wal_filter.h"
 #include "util/sst_file_manager_impl.h"
 #include "util/sync_point.h"
 
