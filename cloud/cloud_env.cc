@@ -38,6 +38,9 @@ Status CloudEnv::NewAwsEnv(Env* base_env, const std::string& src_cloud_storage,
                            const std::string& dest_cloud_object_prefix,
                            const CloudEnvOptions& options,
                            std::shared_ptr<Logger> logger, CloudEnv** cenv) {
+  // Dump out cloud env options
+  options.Dump(logger.get());
+
   // If the src bucket is not specified, then this is a pass-through cloud env.
   if (src_cloud_storage.empty() && dest_cloud_storage.empty()) {
     *cenv = new CloudEnvWrapper(base_env);

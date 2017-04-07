@@ -71,6 +71,9 @@ class CloudEnvOptions {
     assert(manifest_durable_periodicity_millis == 0 ||
            keep_local_log_files == true);
   }
+
+  // print out all options to the log
+  void Dump(Logger* log) const;
 };
 
 typedef std::map<std::string, std::string> DbidList;
