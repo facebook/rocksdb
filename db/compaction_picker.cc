@@ -1154,7 +1154,7 @@ bool LevelCompactionBuilder::SetupOtherInputsIfNeeded() {
     if (!compaction_picker_->SetupOtherInputs(
             cf_name_, mutable_cf_options_, vstorage_, &start_level_inputs_,
             &output_level_inputs_, &parent_index_, base_index_)) {
-      return nullptr;
+      return false;
     }
 
     compaction_inputs_.push_back(start_level_inputs_);
