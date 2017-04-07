@@ -1243,11 +1243,11 @@ public:
 Status WriteBatchInternal::InsertInto(
     const autovector<WriteThread::Writer*>& writers, SequenceNumber sequence,
     ColumnFamilyMemTables* memtables, FlushScheduler* flush_scheduler,
-    bool ignore_missing_column_families, uint64_t log_number, DB* db,
+    bool ignore_missing_column_families, uint64_t recovery_log_number, DB* db,
     bool concurrent_memtable_writes) {
   MemTableInserter inserter(sequence, memtables, flush_scheduler,
-                            ignore_missing_column_families, log_number, db,
-                            concurrent_memtable_writes);
+                            ignore_missing_column_families, recovery_log_number,
+                            db, concurrent_memtable_writes);
   for (size_t i = 0; i < writers.size(); i++) {
     auto w = writers[i];
     if (!w->ShouldWriteToMemtable()) {
