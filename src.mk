@@ -205,7 +205,6 @@ TOOL_LIB_SOURCES = \
   utilities/blob_db/blob_dump_tool.cc                            \
 
 MOCK_LIB_SOURCES = \
-  env/mock_env.cc \
   table/mock_table.cc \
   util/fault_injection_test_env.cc
 

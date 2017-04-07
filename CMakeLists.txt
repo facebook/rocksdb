@@ -744,7 +744,6 @@ endforeach(sourcefile ${BENCHMARKS})
 # and linked to tests. Add test only code that is not #ifdefed for Release here.
 set(TESTUTIL_SOURCE
     db/db_test_util.cc
-    env/mock_env.cc
     monitoring/thread_status_updater_debug.cc
     table/mock_table.cc
     util/fault_injection_test_env.cc
