@@ -269,16 +269,17 @@ DEFINE_string(db, "", "Use the db with the following name.");
 DEFINE_bool(verify_checksum, false,
             "Verify checksum for every block read from storage");
 
-DEFINE_bool(mmap_read, rocksdb::EnvOptions().use_mmap_reads,
+DEFINE_bool(mmap_read, rocksdb::Options().allow_mmap_reads,
             "Allow reads to occur via mmap-ing files");
 
-DEFINE_bool(mmap_write, rocksdb::EnvOptions().use_mmap_writes,
+DEFINE_bool(mmap_write, rocksdb::Options().allow_mmap_writes,
             "Allow writes to occur via mmap-ing files");
 
-DEFINE_bool(use_direct_reads, rocksdb::EnvOptions().use_direct_reads,
+DEFINE_bool(use_direct_reads, rocksdb::Options().use_direct_reads,
             "Use O_DIRECT for reading data");
 
-DEFINE_bool(use_direct_writes, rocksdb::EnvOptions().use_direct_writes,
+DEFINE_bool(use_direct_io_for_flush_and_compaction,
+            rocksdb::Options().use_direct_io_for_flush_and_compaction,
             "Use O_DIRECT for writing data");
 
 // Database statistics
@@ -2156,7 +2157,8 @@ class StressTest {
     options_.allow_mmap_reads = FLAGS_mmap_read;
     options_.allow_mmap_writes = FLAGS_mmap_write;
     options_.use_direct_reads = FLAGS_use_direct_reads;
-    options_.use_direct_writes = FLAGS_use_direct_writes;
+    options_.use_direct_io_for_flush_and_compaction =
+        FLAGS_use_direct_io_for_flush_and_compaction;
     options_.target_file_size_base = FLAGS_target_file_size_base;
     options_.target_file_size_multiplier = FLAGS_target_file_size_multiplier;
     options_.max_bytes_for_level_base = FLAGS_max_bytes_for_level_base;

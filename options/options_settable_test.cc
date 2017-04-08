@@ -274,7 +274,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "allow_fallocate=true;"
                              "allow_mmap_reads=false;"
                              "use_direct_reads=false;"
-                             "use_direct_writes=false;"
+                             "use_direct_io_for_flush_and_compaction=false;"
                              "max_log_file_size=4607;"
                              "random_access_max_buffer_size=1048576;"
                              "advise_random_on_open=true;"
