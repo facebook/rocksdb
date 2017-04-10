@@ -101,35 +101,32 @@ class DBIter: public Iterator {
     uint64_t bytes_read_;
   };
 
-  DBIter(Env* env, const ImmutableCFOptions& ioptions, const Comparator* cmp,
+  DBIter(Env* env, const ReadOptions& read_options,
+         const ImmutableCFOptions& cf_options, const Comparator* cmp,
          InternalIterator* iter, SequenceNumber s, bool arena_mode,
-         uint64_t max_sequential_skip_in_iterations, uint64_t version_number,
-         const Slice* iterate_upper_bound = nullptr,
-         bool prefix_same_as_start = false, bool pin_data = false,
-         bool total_order_seek = false,
-         uint64_t max_skippable_internal_keys = 0)
+         uint64_t max_sequential_skip_in_iterations, uint64_t version_number)
       : arena_mode_(arena_mode),
         env_(env),
-        logger_(ioptions.info_log),
+        logger_(cf_options.info_log),
         user_comparator_(cmp),
-        merge_operator_(ioptions.merge_operator),
+        merge_operator_(cf_options.merge_operator),
         iter_(iter),
         sequence_(s),
         direction_(kForward),
         valid_(false),
         current_entry_is_merged_(false),
-        statistics_(ioptions.statistics),
+        statistics_(cf_options.statistics),
         version_number_(version_number),
-        iterate_upper_bound_(iterate_upper_bound),
-        prefix_same_as_start_(prefix_same_as_start),
-        pin_thru_lifetime_(pin_data),
-        total_order_seek_(total_order_seek),
-        range_del_agg_(ioptions.internal_comparator, s,
+        iterate_upper_bound_(read_options.iterate_upper_bound),
+        prefix_same_as_start_(read_options.prefix_same_as_start),
+        pin_thru_lifetime_(read_options.pin_data),
+        total_order_seek_(read_options.total_order_seek),
+        range_del_agg_(cf_options.internal_comparator, s,
                        true /* collapse_deletions */) {
     RecordTick(statistics_, NO_ITERATORS);
-    prefix_extractor_ = ioptions.prefix_extractor;
+    prefix_extractor_ = cf_options.prefix_extractor;
     max_skip_ = max_sequential_skip_in_iterations;
-    max_skippable_internal_keys_ = max_skippable_internal_keys;
+    max_skippable_internal_keys_ = read_options.max_skippable_internal_keys;
     if (pin_thru_lifetime_) {
       pinned_iters_mgr_.StartPinning();
     }
@@ -1153,18 +1150,16 @@ void DBIter::SeekToLast() {
   }
 }
 
-Iterator* NewDBIterator(
-    Env* env, const ImmutableCFOptions& ioptions,
-    const Comparator* user_key_comparator, InternalIterator* internal_iter,
-    const SequenceNumber& sequence, uint64_t max_sequential_skip_in_iterations,
-    uint64_t version_number, const Slice* iterate_upper_bound,
-    bool prefix_same_as_start, bool pin_data, bool total_order_seek,
-    uint64_t max_skippable_internal_keys) {
-  DBIter* db_iter =
-      new DBIter(env, ioptions, user_key_comparator, internal_iter, sequence,
-                 false, max_sequential_skip_in_iterations, version_number,
-                 iterate_upper_bound, prefix_same_as_start, pin_data,
-                 total_order_seek, max_skippable_internal_keys);
+Iterator* NewDBIterator(Env* env, const ReadOptions& read_options,
+                        const ImmutableCFOptions& cf_options,
+                        const Comparator* user_key_comparator,
+                        InternalIterator* internal_iter,
+                        const SequenceNumber& sequence,
+                        uint64_t max_sequential_skip_in_iterations,
+                        uint64_t version_number) {
+  DBIter* db_iter = new DBIter(
+      env, read_options, cf_options, user_key_comparator, internal_iter,
+      sequence, false, max_sequential_skip_in_iterations, version_number);
   return db_iter;
 }
 
@@ -1204,19 +1199,16 @@ void ArenaWrappedDBIter::RegisterCleanup(CleanupFunction function, void* arg1,
 }
 
 ArenaWrappedDBIter* NewArenaWrappedDbIterator(
-    Env* env, const ImmutableCFOptions& ioptions,
-    const Comparator* user_key_comparator, const SequenceNumber& sequence,
-    uint64_t max_sequential_skip_in_iterations, uint64_t version_number,
-    const Slice* iterate_upper_bound, bool prefix_same_as_start, bool pin_data,
-    bool total_order_seek, uint64_t max_skippable_internal_keys) {
+    Env* env, const ReadOptions& read_options,
+    const ImmutableCFOptions& cf_options, const Comparator* user_key_comparator,
+    const SequenceNumber& sequence, uint64_t max_sequential_skip_in_iterations,
+    uint64_t version_number) {
   ArenaWrappedDBIter* iter = new ArenaWrappedDBIter();
   Arena* arena = iter->GetArena();
   auto mem = arena->AllocateAligned(sizeof(DBIter));
-  DBIter* db_iter =
-      new (mem) DBIter(env, ioptions, user_key_comparator, nullptr, sequence,
-                       true, max_sequential_skip_in_iterations, version_number,
-                       iterate_upper_bound, prefix_same_as_start, pin_data,
-                       total_order_seek, max_skippable_internal_keys);
+  DBIter* db_iter = new (mem)
+      DBIter(env, read_options, cf_options, user_key_comparator, nullptr,
+             sequence, true, max_sequential_skip_in_iterations, version_number);
 
   iter->SetDBIter(db_iter);
 
