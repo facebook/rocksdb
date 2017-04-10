@@ -185,7 +185,7 @@ jbyteArray Java_org_rocksdb_Slice_data0(
   }
   
   env->SetByteArrayRegion(data, 0, len,
-    reinterpret_cast<const jbyte*>(slice->data()));
+    const_cast<jbyte*>(reinterpret_cast<const jbyte*>(slice->data())));
   if(env->ExceptionCheck()) {
     // exception thrown: ArrayIndexOutOfBoundsException
     env->DeleteLocalRef(data);

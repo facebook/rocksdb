@@ -217,58 +217,60 @@ class CheckpointTest : public testing::Test {
 };
 
 TEST_F(CheckpointTest, GetSnapshotLink) {
-  Options options;
-  const std::string snapshot_name = test::TmpDir(env_) + "/snapshot";
-  DB* snapshotDB;
-  ReadOptions roptions;
-  std::string result;
-  Checkpoint* checkpoint;
+  for (uint64_t log_size_for_fush : {0, 1000000}) {
+    Options options;
+    const std::string snapshot_name = test::TmpDir(env_) + "/snapshot";
+    DB* snapshotDB;
+    ReadOptions roptions;
+    std::string result;
+    Checkpoint* checkpoint;
 
-  options = CurrentOptions();
-  delete db_;
-  db_ = nullptr;
-  ASSERT_OK(DestroyDB(dbname_, options));
-  ASSERT_OK(DestroyDB(snapshot_name, options));
-  env_->DeleteDir(snapshot_name);
+    options = CurrentOptions();
+    delete db_;
+    db_ = nullptr;
+    ASSERT_OK(DestroyDB(dbname_, options));
+    ASSERT_OK(DestroyDB(snapshot_name, options));
+    env_->DeleteDir(snapshot_name);
 
-  // Create a database
-  Status s;
-  options.create_if_missing = true;
-  ASSERT_OK(DB::Open(options, dbname_, &db_));
-  std::string key = std::string("foo");
-  ASSERT_OK(Put(key, "v1"));
-  // Take a snapshot
-  ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
-  ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name));
-  ASSERT_OK(Put(key, "v2"));
-  ASSERT_EQ("v2", Get(key));
-  ASSERT_OK(Flush());
-  ASSERT_EQ("v2", Get(key));
-  // Open snapshot and verify contents while DB is running
-  options.create_if_missing = false;
-  ASSERT_OK(DB::Open(options, snapshot_name, &snapshotDB));
-  ASSERT_OK(snapshotDB->Get(roptions, key, &result));
-  ASSERT_EQ("v1", result);
-  delete snapshotDB;
-  snapshotDB = nullptr;
-  delete db_;
-  db_ = nullptr;
+    // Create a database
+    Status s;
+    options.create_if_missing = true;
+    ASSERT_OK(DB::Open(options, dbname_, &db_));
+    std::string key = std::string("foo");
+    ASSERT_OK(Put(key, "v1"));
+    // Take a snapshot
+    ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+    ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name, log_size_for_fush));
+    ASSERT_OK(Put(key, "v2"));
+    ASSERT_EQ("v2", Get(key));
+    ASSERT_OK(Flush());
+    ASSERT_EQ("v2", Get(key));
+    // Open snapshot and verify contents while DB is running
+    options.create_if_missing = false;
+    ASSERT_OK(DB::Open(options, snapshot_name, &snapshotDB));
+    ASSERT_OK(snapshotDB->Get(roptions, key, &result));
+    ASSERT_EQ("v1", result);
+    delete snapshotDB;
+    snapshotDB = nullptr;
+    delete db_;
+    db_ = nullptr;
 
-  // Destroy original DB
-  ASSERT_OK(DestroyDB(dbname_, options));
+    // Destroy original DB
+    ASSERT_OK(DestroyDB(dbname_, options));
 
-  // Open snapshot and verify contents
-  options.create_if_missing = false;
-  dbname_ = snapshot_name;
-  ASSERT_OK(DB::Open(options, dbname_, &db_));
-  ASSERT_EQ("v1", Get(key));
-  delete db_;
-  db_ = nullptr;
-  ASSERT_OK(DestroyDB(dbname_, options));
-  delete checkpoint;
+    // Open snapshot and verify contents
+    options.create_if_missing = false;
+    dbname_ = snapshot_name;
+    ASSERT_OK(DB::Open(options, dbname_, &db_));
+    ASSERT_EQ("v1", Get(key));
+    delete db_;
+    db_ = nullptr;
+    ASSERT_OK(DestroyDB(dbname_, options));
+    delete checkpoint;
 
-  // Restore DB name
-  dbname_ = test::TmpDir(env_) + "/db_test";
+    // Restore DB name
+    dbname_ = test::TmpDir(env_) + "/db_test";
+  }
 }
 
 TEST_F(CheckpointTest, CheckpointCF) {
@@ -338,6 +340,71 @@ TEST_F(CheckpointTest, CheckpointCF) {
   ASSERT_OK(snapshotDB->Get(roptions, cphandles[2], "two", &result));
   for (auto h : cphandles) {
       delete h;
+  }
+  cphandles.clear();
+  delete snapshotDB;
+  snapshotDB = nullptr;
+  ASSERT_OK(DestroyDB(snapshot_name, options));
+}
+
+TEST_F(CheckpointTest, CheckpointCFNoFlush) {
+  Options options = CurrentOptions();
+  CreateAndReopenWithCF({"one", "two", "three", "four", "five"}, options);
+
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(Put(0, "Default", "Default"));
+  ASSERT_OK(Put(1, "one", "one"));
+  Flush();
+  ASSERT_OK(Put(2, "two", "two"));
+
+  const std::string snapshot_name = test::TmpDir(env_) + "/snapshot";
+  DB* snapshotDB;
+  ReadOptions roptions;
+  std::string result;
+  std::vector<ColumnFamilyHandle*> cphandles;
+
+  ASSERT_OK(DestroyDB(snapshot_name, options));
+  env_->DeleteDir(snapshot_name);
+
+  Status s;
+  // Take a snapshot
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCallFlush:start", [&](void* arg) {
+        // Flush should never trigger.
+        ASSERT_TRUE(false);
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  Checkpoint* checkpoint;
+  ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+  ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name, 1000000));
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+
+  delete checkpoint;
+  ASSERT_OK(Put(1, "one", "two"));
+  ASSERT_OK(Flush(1));
+  ASSERT_OK(Put(2, "two", "twentytwo"));
+  Close();
+  EXPECT_OK(DestroyDB(dbname_, options));
+
+  // Open snapshot and verify contents while DB is running
+  options.create_if_missing = false;
+  std::vector<std::string> cfs;
+  cfs = {kDefaultColumnFamilyName, "one", "two", "three", "four", "five"};
+  std::vector<ColumnFamilyDescriptor> column_families;
+  for (size_t i = 0; i < cfs.size(); ++i) {
+    column_families.push_back(ColumnFamilyDescriptor(cfs[i], options));
+  }
+  ASSERT_OK(DB::Open(options, snapshot_name, column_families, &cphandles,
+                     &snapshotDB));
+  ASSERT_OK(snapshotDB->Get(roptions, cphandles[0], "Default", &result));
+  ASSERT_EQ("Default", result);
+  ASSERT_OK(snapshotDB->Get(roptions, cphandles[1], "one", &result));
+  ASSERT_EQ("one", result);
+  ASSERT_OK(snapshotDB->Get(roptions, cphandles[2], "two", &result));
+  ASSERT_EQ("two", result);
+  for (auto h : cphandles) {
+    delete h;
   }
   cphandles.clear();
   delete snapshotDB;

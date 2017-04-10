@@ -26,11 +26,12 @@
 #include "db/db_impl.h"
 #include "db/db_test_util.h"
 #include "db/dbformat.h"
-#include "db/filename.h"
 #include "db/job_context.h"
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
+#include "env/mock_env.h"
 #include "memtable/hash_linklist_rep.h"
+#include "monitoring/thread_status_util.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/cache.h"
@@ -57,16 +58,15 @@
 #include "table/scoped_arena_iterator.h"
 #include "util/compression.h"
 #include "util/file_reader_writer.h"
+#include "util/filename.h"
 #include "util/hash.h"
 #include "util/logging.h"
-#include "util/mock_env.h"
 #include "util/mutexlock.h"
 #include "util/rate_limiter.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
-#include "util/thread_status_util.h"
 #include "utilities/merge_operators.h"
 
 namespace rocksdb {
@@ -2158,7 +2158,7 @@ TEST_F(DBTest, GroupCommitTest) {
     ASSERT_TRUE(!itr->Valid());
     delete itr;
 
-    HistogramData hist_data = {0, 0, 0, 0, 0};
+    HistogramData hist_data;
     options.statistics->histogramData(DB_WRITE, &hist_data);
     ASSERT_GT(hist_data.average, 0.0);
   } while (ChangeOptions(kSkipNoSeekToLast));
@@ -2212,7 +2212,7 @@ class ModelDB : public DB {
   }
   using DB::Get;
   virtual Status Get(const ReadOptions& options, ColumnFamilyHandle* cf,
-                     const Slice& key, std::string* value) override {
+                     const Slice& key, PinnableSlice* value) override {
     return Status::NotSupported(key);
   }
 
@@ -2815,15 +2815,15 @@ TEST_F(DBTest, RateLimitingTest) {
     ASSERT_OK(
         Put(RandomString(&rnd, 32), RandomString(&rnd, (1 << 10) + 1), wo));
   }
-  elapsed = env_->NowMicros() - start;
   rate_limiter_drains =
       TestGetTickerCount(options, NUMBER_RATE_LIMITER_DRAINS) -
       rate_limiter_drains;
+  elapsed = env_->NowMicros() - start;
   Close();
   ASSERT_EQ(options.rate_limiter->GetTotalBytesThrough(), env_->bytes_written_);
   // Most intervals should've been drained (interval time is 100ms, elapsed is
   // micros)
-  ASSERT_GT(rate_limiter_drains, elapsed / 100000 / 2);
+  ASSERT_GT(rate_limiter_drains, 0);
   ASSERT_LE(rate_limiter_drains, elapsed / 100000 + 1);
   double ratio = env_->bytes_written_ * 1000000 / elapsed / raw_rate;
   fprintf(stderr, "write rate ratio = %.2lf, expected 0.7\n", ratio);
@@ -2965,7 +2965,6 @@ TEST_F(DBTest, DynamicMemtableOptions) {
   const uint64_t k64KB = 1 << 16;
   const uint64_t k128KB = 1 << 17;
   const uint64_t k5KB = 5 * 1024;
-  const int kNumPutsBeforeWaitForFlush = 64;
   Options options;
   options.env = env_;
   options.create_if_missing = true;
@@ -2980,7 +2979,8 @@ TEST_F(DBTest, DynamicMemtableOptions) {
   options.level0_stop_writes_trigger = 1024;
   DestroyAndReopen(options);
 
-  auto gen_l0_kb = [this, kNumPutsBeforeWaitForFlush](int size) {
+  auto gen_l0_kb = [this](int size) {
+    const int kNumPutsBeforeWaitForFlush = 64;
     Random rnd(301);
     for (int i = 0; i < size; i++) {
       ASSERT_OK(Put(Key(i), RandomString(&rnd, 1024)));
@@ -4087,7 +4087,7 @@ TEST_F(DBTest, DynamicMiscOptions) {
   // sanity check
   ASSERT_OK(dbfull()->TEST_GetLatestMutableCFOptions(handles_[1],
                                                      &mutable_cf_options));
-  ASSERT_EQ(true, mutable_cf_options.report_bg_io_stats);
+  ASSERT_TRUE(mutable_cf_options.report_bg_io_stats);
   // Test compression
   // sanity check
   ASSERT_OK(dbfull()->SetOptions({{"compression", "kNoCompression"}}));
@@ -4104,7 +4104,7 @@ TEST_F(DBTest, DynamicMiscOptions) {
       dbfull()->SetOptions(handles_[1], {{"paranoid_file_checks", "true"}}));
   ASSERT_OK(dbfull()->TEST_GetLatestMutableCFOptions(handles_[1],
                                                      &mutable_cf_options));
-  ASSERT_EQ(true, mutable_cf_options.report_bg_io_stats);
+  ASSERT_TRUE(mutable_cf_options.report_bg_io_stats);
 }
 #endif  // ROCKSDB_LITE
 
@@ -5208,13 +5208,13 @@ TEST_F(DBTest, PauseBackgroundWorkTest) {
   });
   env_->SleepForMicroseconds(200000);
   // make sure the thread is not done
-  ASSERT_EQ(false, done.load());
+  ASSERT_FALSE(done.load());
   db_->ContinueBackgroundWork();
   for (auto& t : threads) {
     t.join();
   }
   // now it's done
-  ASSERT_EQ(true, done.load());
+  ASSERT_TRUE(done.load());
 }
 
 }  // namespace rocksdb

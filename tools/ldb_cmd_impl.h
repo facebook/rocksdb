@@ -448,6 +448,23 @@ class CheckConsistencyCommand : public LDBCommand {
   static void Help(std::string& ret);
 };
 
+class CheckPointCommand : public LDBCommand {
+ public:
+  static std::string Name() { return "checkpoint"; }
+
+  CheckPointCommand(const std::vector<std::string>& params,
+                const std::map<std::string, std::string>& options,
+                const std::vector<std::string>& flags);
+
+  virtual void DoCommand() override;
+
+  static void Help(std::string& ret);
+
+  std::string checkpoint_dir_;
+ private:
+  static const std::string ARG_CHECKPOINT_DIR;
+};
+
 class RepairCommand : public LDBCommand {
  public:
   static std::string Name() { return "repair"; }
@@ -503,4 +520,5 @@ class RestoreCommand : public BackupableCommand {
   virtual bool NoDBOpen() override { return true; }
   static void Help(std::string& ret);
 };
+
 }  // namespace rocksdb

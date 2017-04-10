@@ -16,6 +16,11 @@ public class SstFileWriter extends RocksObject {
         envOptions.nativeHandle_, options.nativeHandle_, comparator.getNativeHandle()));
   }
 
+  public SstFileWriter(final EnvOptions envOptions, final Options options) {
+    super(newSstFileWriter(
+        envOptions.nativeHandle_, options.nativeHandle_));
+  }
+
   public void open(final String filePath) throws RocksDBException {
     open(nativeHandle_, filePath);
   }
@@ -34,6 +39,9 @@ public class SstFileWriter extends RocksObject {
 
   private native static long newSstFileWriter(
       final long envOptionsHandle, final long optionsHandle, final long userComparatorHandle);
+
+  private native static long newSstFileWriter(final long envOptionsHandle,
+      final long optionsHandle);
 
   private native void open(final long handle, final String filePath) throws RocksDBException;
 

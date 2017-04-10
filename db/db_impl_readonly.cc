@@ -11,7 +11,7 @@
 #include "db/db_iter.h"
 #include "db/merge_context.h"
 #include "db/range_del_aggregator.h"
-#include "util/perf_context_imp.h"
+#include "monitoring/perf_context_imp.h"
 
 namespace rocksdb {
 
@@ -20,8 +20,8 @@ namespace rocksdb {
 DBImplReadOnly::DBImplReadOnly(const DBOptions& db_options,
                                const std::string& dbname)
     : DBImpl(db_options, dbname) {
-  Log(INFO_LEVEL, immutable_db_options_.info_log,
-      "Opening the db in read only mode");
+  ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                 "Opening the db in read only mode");
   LogFlush(immutable_db_options_.info_log);
 }
 
@@ -31,7 +31,8 @@ DBImplReadOnly::~DBImplReadOnly() {
 // Implementations of the DB interface
 Status DBImplReadOnly::Get(const ReadOptions& read_options,
                            ColumnFamilyHandle* column_family, const Slice& key,
-                           std::string* value) {
+                           PinnableSlice* pinnable_val) {
+  assert(pinnable_val != nullptr);
   Status s;
   SequenceNumber snapshot = versions_->LastSequence();
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
@@ -40,12 +41,13 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
   MergeContext merge_context;
   RangeDelAggregator range_del_agg(cfd->internal_comparator(), snapshot);
   LookupKey lkey(key, snapshot);
-  if (super_version->mem->Get(lkey, value, &s, &merge_context, &range_del_agg,
-                              read_options)) {
+  if (super_version->mem->Get(lkey, pinnable_val->GetSelf(), &s, &merge_context,
+                              &range_del_agg, read_options)) {
+    pinnable_val->PinSelf();
   } else {
     PERF_TIMER_GUARD(get_from_output_files_time);
-    super_version->current->Get(read_options, lkey, value, &s, &merge_context,
-                                &range_del_agg);
+    super_version->current->Get(read_options, lkey, pinnable_val, &s,
+                                &merge_context, &range_del_agg);
   }
   return s;
 }
@@ -63,7 +65,9 @@ Iterator* DBImplReadOnly::NewIterator(const ReadOptions& read_options,
                  ->number_
            : latest_snapshot),
       super_version->mutable_cf_options.max_sequential_skip_in_iterations,
-      super_version->version_number);
+      super_version->version_number, read_options.iterate_upper_bound,
+      read_options.prefix_same_as_start, read_options.pin_data,
+      read_options.total_order_seek, read_options.max_skippable_internal_keys);
   auto internal_iter =
       NewInternalIterator(read_options, cfd, super_version, db_iter->GetArena(),
                           db_iter->GetRangeDelAggregator());
@@ -92,7 +96,10 @@ Status DBImplReadOnly::NewIterators(
                    ->number_
              : latest_snapshot),
         sv->mutable_cf_options.max_sequential_skip_in_iterations,
-        sv->version_number);
+        sv->version_number, read_options.iterate_upper_bound,
+        read_options.prefix_same_as_start, read_options.pin_data,
+        read_options.total_order_seek,
+        read_options.max_skippable_internal_keys);
     auto* internal_iter =
         NewInternalIterator(read_options, cfd, sv, db_iter->GetArena(),
                             db_iter->GetRangeDelAggregator());

@@ -5,8 +5,8 @@
 
 #include "rocksdb/utilities/sim_cache.h"
 #include <atomic>
+#include "monitoring/statistics.h"
 #include "port/port.h"
-#include "util/statistics.h"
 
 namespace rocksdb {
 

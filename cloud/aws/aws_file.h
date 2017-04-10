@@ -8,9 +8,9 @@
 #include <iostream>
 #include "cloud/aws/aws_env.h"
 #include "cloud/filename.h"
-#include "db/filename.h"
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
+#include "util/filename.h"
 
 #include <aws/core/Aws.h>
 #include <aws/core/utils/DateTime.h>

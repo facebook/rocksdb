@@ -322,7 +322,7 @@ void CuckooTableIterator::PrepareKVAtCurrIdx() {
     curr_key_.SetInternalKey(Slice(offset, reader_->user_key_length_),
                              0, kTypeValue);
   } else {
-    curr_key_.SetKey(Slice(offset, reader_->key_length_));
+    curr_key_.SetInternalKey(Slice(offset, reader_->key_length_));
   }
   curr_value_ = Slice(offset + reader_->key_length_, reader_->value_length_);
 }
@@ -352,7 +352,7 @@ void CuckooTableIterator::Prev() {
 
 Slice CuckooTableIterator::key() const {
   assert(Valid());
-  return curr_key_.GetKey();
+  return curr_key_.GetInternalKey();
 }
 
 Slice CuckooTableIterator::value() const {

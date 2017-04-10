@@ -53,7 +53,7 @@ enum class LevelStatType {
   INVALID = 0,
   NUM_FILES,
   COMPACTED_FILES,
-  SIZE_MB,
+  SIZE_BYTES,
   SCORE,
   READ_GB,
   RN_GB,
@@ -402,6 +402,9 @@ class InternalStats {
   bool HandleEstimateLiveDataSize(uint64_t* value, DBImpl* db,
                                   Version* version);
   bool HandleMinLogNumberToKeep(uint64_t* value, DBImpl* db, Version* version);
+  bool HandleActualDelayedWriteRate(uint64_t* value, DBImpl* db,
+                                    Version* version);
+  bool HandleIsWriteStopped(uint64_t* value, DBImpl* db, Version* version);
 
   // Total number of background errors encountered. Every time a flush task
   // or compaction task fails, this counter is incremented. The failure can

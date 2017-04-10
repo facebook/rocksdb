@@ -5,12 +5,12 @@
 #include "cloud/aws/aws_env.h"
 #include "cloud/db_cloud_impl.h"
 #include "cloud/filename.h"
-#include "db/auto_roll_logger.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/persistent_cache.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
+#include "util/auto_roll_logger.h"
 
 namespace rocksdb {
 

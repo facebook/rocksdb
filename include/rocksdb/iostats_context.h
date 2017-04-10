@@ -47,7 +47,7 @@ struct IOStatsContext {
 };
 
 #ifndef IOS_CROSS_COMPILE
-# ifdef _WIN32
+# ifdef _MSC_VER
 extern __declspec(thread) IOStatsContext iostats_context;
 # else
 extern __thread IOStatsContext iostats_context;

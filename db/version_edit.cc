@@ -10,10 +10,11 @@
 #include "db/version_edit.h"
 
 #include "db/version_set.h"
+#include "rocksdb/slice.h"
 #include "util/coding.h"
 #include "util/event_logger.h"
+#include "util/string_util.h"
 #include "util/sync_point.h"
-#include "rocksdb/slice.h"
 
 namespace rocksdb {
 

@@ -63,6 +63,8 @@ struct CompactionOptionsFIFO {
   uint64_t max_table_files_size;
 
   CompactionOptionsFIFO() : max_table_files_size(1 * 1024 * 1024 * 1024) {}
+  CompactionOptionsFIFO(uint64_t _max_table_files_size) :
+          max_table_files_size(_max_table_files_size) {}
 };
 
 // Compression options for different compression algorithms like Zlib
@@ -529,13 +531,13 @@ struct AdvancedColumnFamilyOptions {
   // Create ColumnFamilyOptions from Options
   explicit AdvancedColumnFamilyOptions(const Options& options);
 
-  // ---------------- DEPRECATED OPTIONS ----------------
+  // ---------------- OPTIONS NOT SUPPORTED ANYMORE ----------------
 
-  // DEPRECATED
+  // NOT SUPPORTED ANYMORE
   // This does not do anything anymore.
   int max_mem_compaction_level;
 
-  // DEPRECATED -- this options is no longer used
+  // NOT SUPPORTED ANYMORE -- this options is no longer used
   // Puts are delayed to options.delayed_write_rate when any level has a
   // compaction score that exceeds soft_rate_limit. This is ignored when == 0.0.
   //
@@ -544,13 +546,13 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   double soft_rate_limit = 0.0;
 
-  // DEPRECATED -- this options is no longer used
+  // NOT SUPPORTED ANYMORE -- this options is no longer used
   double hard_rate_limit = 0.0;
 
-  // DEPRECATED -- this options is no longer used
+  // NOT SUPPORTED ANYMORE -- this options is no longer used
   unsigned int rate_limit_delay_max_milliseconds = 100;
 
-  // DEPREACTED
+  // NOT SUPPORTED ANYMORE
   // Does not have any effect.
   bool purge_redundant_kvs_while_flush = true;
 };

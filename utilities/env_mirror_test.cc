@@ -6,7 +6,7 @@
 #ifndef ROCKSDB_LITE
 
 #include "rocksdb/utilities/env_mirror.h"
-#include "util/mock_env.h"
+#include "env/mock_env.h"
 #include "util/testharness.h"
 
 namespace rocksdb {

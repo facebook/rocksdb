@@ -204,15 +204,16 @@ endif
 
 ifndef DISABLE_JEMALLOC
 	ifdef JEMALLOC
-		PLATFORM_CXXFLAGS += "-DROCKSDB_JEMALLOC"
-		PLATFORM_CCFLAGS +=  "-DROCKSDB_JEMALLOC"
+		PLATFORM_CXXFLAGS += -DROCKSDB_JEMALLOC -DJEMALLOC_NO_DEMANGLE
+		PLATFORM_CCFLAGS  += -DROCKSDB_JEMALLOC -DJEMALLOC_NO_DEMANGLE
 	endif
 	EXEC_LDFLAGS := $(JEMALLOC_LIB) $(EXEC_LDFLAGS)
 	PLATFORM_CXXFLAGS += $(JEMALLOC_INCLUDE)
 	PLATFORM_CCFLAGS += $(JEMALLOC_INCLUDE)
 endif
 
-export GTEST_THROW_ON_FAILURE=1 GTEST_HAS_EXCEPTIONS=1
+export GTEST_THROW_ON_FAILURE=1
+export GTEST_HAS_EXCEPTIONS=1
 GTEST_DIR = ./third-party/gtest-1.7.0/fused-src
 PLATFORM_CCFLAGS += -isystem $(GTEST_DIR)
 PLATFORM_CXXFLAGS += -isystem $(GTEST_DIR)
@@ -355,6 +356,7 @@ TESTS = \
 	file_reader_writer_test \
 	block_based_filter_block_test \
 	full_filter_block_test \
+	partitioned_filter_block_test \
 	hash_table_test \
 	histogram_test \
 	log_test \
@@ -426,6 +428,7 @@ TESTS = \
 	lru_cache_test \
 	object_registry_test \
 	repair_test \
+	env_timed_test \
 
 PARALLEL_TEST = \
 	backupable_db_test \
@@ -892,20 +895,20 @@ $(TOOLS_LIBRARY): $(BENCH_LIB_SOURCES:.cc=.o) $(TOOL_LIB_SOURCES:.cc=.o) $(LIB_S
 	$(AM_V_AR)rm -f $@
 	$(AM_V_at)$(AR) $(ARFLAGS) $@ $^
 
-librocksdb_env_basic_test.a: util/env_basic_test.o $(LIBOBJECTS) $(TESTHARNESS)
+librocksdb_env_basic_test.a: env/env_basic_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_V_AR)rm -f $@
 	$(AM_V_at)$(AR) $(ARFLAGS) $@ $^
 
 db_bench: tools/db_bench.o $(BENCHTOOLOBJECTS)
 	$(AM_LINK)
 
-cache_bench: util/cache_bench.o $(LIBOBJECTS) $(TESTUTIL)
+cache_bench: cache/cache_bench.o $(LIBOBJECTS) $(TESTUTIL)
 	$(AM_LINK)
 
 persistent_cache_bench: utilities/persistent_cache/persistent_cache_bench.o $(LIBOBJECTS) $(TESTUTIL)
 	$(AM_LINK)
 
-memtablerep_bench: db/memtablerep_bench.o $(LIBOBJECTS) $(TESTUTIL)
+memtablerep_bench: memtable/memtablerep_bench.o $(LIBOBJECTS) $(TESTUTIL)
 	$(AM_LINK)
 
 db_stress: tools/db_stress.o $(LIBOBJECTS) $(TESTUTIL)
@@ -941,7 +944,7 @@ dynamic_bloom_test: util/dynamic_bloom_test.o $(LIBOBJECTS) $(TESTHARNESS)
 c_test: db/c_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-cache_test: util/cache_test.o $(LIBOBJECTS) $(TESTHARNESS)
+cache_test: cache/cache_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 coding_test: util/coding_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -959,7 +962,7 @@ redis_test: utilities/redis/redis_lists_test.o $(LIBOBJECTS) $(TESTHARNESS)
 hash_table_test: utilities/persistent_cache/hash_table_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-histogram_test: util/histogram_test.o $(LIBOBJECTS) $(TESTHARNESS)
+histogram_test: monitoring/histogram_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 thread_local_test: util/thread_local_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -1094,6 +1097,9 @@ spatial_db_test: utilities/spatialdb/spatial_db_test.o $(LIBOBJECTS) $(TESTHARNE
 env_mirror_test: utilities/env_mirror_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+env_timed_test: utilities/env_timed_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 ifdef ROCKSDB_USE_LIBRADOS
 env_librados_test: utilities/env_librados_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_V_CCLD)$(CXX) $^ $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
@@ -1132,10 +1138,10 @@ wal_manager_test: db/wal_manager_test.o $(LIBOBJECTS) $(TESTHARNESS)
 dbformat_test: db/dbformat_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-env_basic_test: util/env_basic_test.o $(LIBOBJECTS) $(TESTHARNESS)
+env_basic_test: env/env_basic_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-env_test: util/env_test.o $(LIBOBJECTS) $(TESTHARNESS)
+env_test: env/env_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 fault_injection_test: db/fault_injection_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -1159,6 +1165,9 @@ block_based_filter_block_test: table/block_based_filter_block_test.o $(LIBOBJECT
 full_filter_block_test: table/full_filter_block_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+partitioned_filter_block_test: table/partitioned_filter_block_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 log_test: db/log_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
@@ -1171,10 +1180,10 @@ table_test: table/table_test.o $(LIBOBJECTS) $(TESTHARNESS)
 block_test: table/block_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-inlineskiplist_test: db/inlineskiplist_test.o $(LIBOBJECTS) $(TESTHARNESS)
+inlineskiplist_test: memtable/inlineskiplist_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-skiplist_test: db/skiplist_test.o $(LIBOBJECTS) $(TESTHARNESS)
+skiplist_test: memtable/skiplist_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 version_edit_test: db/version_edit_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -1249,10 +1258,10 @@ thread_list_test: util/thread_list_test.o $(LIBOBJECTS) $(TESTHARNESS)
 compact_files_test: db/compact_files_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-options_test: util/options_test.o $(LIBOBJECTS) $(TESTHARNESS)
+options_test: options/options_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-options_settable_test: util/options_settable_test.o $(LIBOBJECTS) $(TESTHARNESS)
+options_settable_test: options/options_settable_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 options_util_test: utilities/options/options_util_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -1273,7 +1282,7 @@ column_aware_encoding_test: utilities/column_aware_encoding_test.o $(TESTHARNESS
 optimistic_transaction_test: utilities/transactions/optimistic_transaction_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-mock_env_test : util/mock_env_test.o $(LIBOBJECTS) $(TESTHARNESS)
+mock_env_test : env/mock_env_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 manual_compaction_test: db/manual_compaction_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -1282,7 +1291,7 @@ manual_compaction_test: db/manual_compaction_test.o $(LIBOBJECTS) $(TESTHARNESS)
 filelock_test: util/filelock_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-auto_roll_logger_test: db/auto_roll_logger_test.o $(LIBOBJECTS) $(TESTHARNESS)
+auto_roll_logger_test: util/auto_roll_logger_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 memtable_list_test: db/memtable_list_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -1315,16 +1324,16 @@ ldb: tools/ldb.o $(LIBOBJECTS)
 db_cloud_test: cloud/db_cloud_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-iostats_context_test: util/iostats_context_test.o $(LIBOBJECTS) $(TESTHARNESS)
+iostats_context_test: monitoring/iostats_context_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_V_CCLD)$(CXX) $^ $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)
 
 persistent_cache_test: utilities/persistent_cache/persistent_cache_test.o  db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-statistics_test: util/statistics_test.o $(LIBOBJECTS) $(TESTHARNESS)
+statistics_test: monitoring/statistics_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-lru_cache_test: util/lru_cache_test.o $(LIBOBJECTS) $(TESTHARNESS)
+lru_cache_test: cache/lru_cache_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 lua_test: utilities/lua/rocks_lua_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -1380,7 +1389,12 @@ ifeq ($(PLATFORM), OS_SOLARIS)
 else
 	ARCH := $(shell getconf LONG_BIT)
 endif
-ROCKSDBJNILIB = librocksdbjni-linux$(ARCH).so
+
+ifeq (,$(findstring ppc,$(MACHINE)))
+        ROCKSDBJNILIB = librocksdbjni-linux$(ARCH).so
+else
+        ROCKSDBJNILIB = librocksdbjni-linux-$(MACHINE).so
+endif
 ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-linux$(ARCH).jar
 ROCKSDB_JAR_ALL = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH).jar
 ROCKSDB_JAVADOCS_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-javadoc.jar

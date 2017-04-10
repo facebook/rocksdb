@@ -9,8 +9,8 @@
 
 #include "util/threadpool_imp.h"
 
+#include "monitoring/thread_status_util.h"
 #include "port/port.h"
-#include "util/thread_status_util.h"
 
 #ifndef OS_WIN
 #  include <unistd.h>

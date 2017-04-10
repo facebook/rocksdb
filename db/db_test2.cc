@@ -183,19 +183,32 @@ TEST_P(DBTestSharedWriteBufferAcrossCFs, SharedWriteBufferAcrossCFs) {
   options.write_buffer_size = 500000;  // this is never hit
   CreateAndReopenWithCF({"pikachu", "dobrynia", "nikitich"}, options);
 
-  // Trigger a flush on CF "nikitich"
-  ASSERT_OK(Put(0, Key(1), DummyString(1)));
-  ASSERT_OK(Put(1, Key(1), DummyString(1)));
-  ASSERT_OK(Put(3, Key(1), DummyString(90000)));
-  ASSERT_OK(Put(2, Key(2), DummyString(20000)));
-  ASSERT_OK(Put(2, Key(1), DummyString(1)));
+  WriteOptions wo;
+  wo.disableWAL = true;
+
+  // Create some data and flush "default" and "nikitich" so that they
+  // are newer CFs created.
+  ASSERT_OK(Put(3, Key(1), DummyString(1), wo));
+  Flush(3);
+  ASSERT_OK(Put(3, Key(1), DummyString(1), wo));
+  ASSERT_OK(Put(0, Key(1), DummyString(1), wo));
+  Flush(0);
+  ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
+            static_cast<uint64_t>(1));
+  ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
+            static_cast<uint64_t>(1));
+
+  ASSERT_OK(Put(3, Key(1), DummyString(30000), wo));
+  ASSERT_OK(Put(0, Key(1), DummyString(60000), wo));
+  ASSERT_OK(Put(2, Key(1), DummyString(1), wo));
+  // No flush should trigger
   dbfull()->TEST_WaitForFlushMemTable(handles_[0]);
   dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
   dbfull()->TEST_WaitForFlushMemTable(handles_[2]);
   dbfull()->TEST_WaitForFlushMemTable(handles_[3]);
   {
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
-              static_cast<uint64_t>(0));
+              static_cast<uint64_t>(1));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"),
               static_cast<uint64_t>(0));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"),
@@ -204,98 +217,84 @@ TEST_P(DBTestSharedWriteBufferAcrossCFs, SharedWriteBufferAcrossCFs) {
               static_cast<uint64_t>(1));
   }
 
-  // "dobrynia": 20KB
-  // Flush 'dobrynia'
-  ASSERT_OK(Put(3, Key(2), DummyString(40000)));
-  ASSERT_OK(Put(2, Key(2), DummyString(70000)));
-  ASSERT_OK(Put(0, Key(1), DummyString(1)));
-  dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
-  dbfull()->TEST_WaitForFlushMemTable(handles_[2]);
-  dbfull()->TEST_WaitForFlushMemTable(handles_[3]);
-  {
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
-              static_cast<uint64_t>(0));
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"),
-              static_cast<uint64_t>(0));
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"),
-              static_cast<uint64_t>(1));
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
-              static_cast<uint64_t>(1));
-  }
-
-  // "nikitich" still has data of 80KB
-  // Inserting Data in "dobrynia" triggers "nikitich" flushing.
-  ASSERT_OK(Put(3, Key(2), DummyString(40000)));
-  ASSERT_OK(Put(2, Key(2), DummyString(40000)));
-  ASSERT_OK(Put(0, Key(1), DummyString(1)));
-  dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
-  dbfull()->TEST_WaitForFlushMemTable(handles_[2]);
-  dbfull()->TEST_WaitForFlushMemTable(handles_[3]);
-  {
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
-              static_cast<uint64_t>(0));
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"),
-              static_cast<uint64_t>(0));
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"),
-              static_cast<uint64_t>(1));
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
-              static_cast<uint64_t>(2));
-  }
-
-  // "dobrynia" still has 40KB
-  ASSERT_OK(Put(1, Key(2), DummyString(20000)));
-  ASSERT_OK(Put(0, Key(1), DummyString(10000)));
-  ASSERT_OK(Put(0, Key(1), DummyString(1)));
+  // Trigger a flush. Flushing "nikitich".
+  ASSERT_OK(Put(3, Key(2), DummyString(30000), wo));
+  ASSERT_OK(Put(0, Key(1), DummyString(1), wo));
   dbfull()->TEST_WaitForFlushMemTable(handles_[0]);
   dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
   dbfull()->TEST_WaitForFlushMemTable(handles_[2]);
   dbfull()->TEST_WaitForFlushMemTable(handles_[3]);
-  // This should triggers no flush
   {
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
-              static_cast<uint64_t>(0));
+              static_cast<uint64_t>(1));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"),
               static_cast<uint64_t>(0));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"),
-              static_cast<uint64_t>(1));
+              static_cast<uint64_t>(0));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
               static_cast<uint64_t>(2));
   }
 
-  // "default": 10KB, "pikachu": 20KB, "dobrynia": 40KB
-  ASSERT_OK(Put(1, Key(2), DummyString(40000)));
-  ASSERT_OK(Put(0, Key(1), DummyString(1)));
+  // Without hitting the threshold, no flush should trigger.
+  ASSERT_OK(Put(2, Key(1), DummyString(30000), wo));
+  ASSERT_OK(Put(2, Key(1), DummyString(1), wo));
+  ASSERT_OK(Put(2, Key(1), DummyString(1), wo));
   dbfull()->TEST_WaitForFlushMemTable(handles_[0]);
   dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
   dbfull()->TEST_WaitForFlushMemTable(handles_[2]);
   dbfull()->TEST_WaitForFlushMemTable(handles_[3]);
-  // This should triggers flush of "pikachu"
   {
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
-              static_cast<uint64_t>(0));
+              static_cast<uint64_t>(1));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"),
-              static_cast<uint64_t>(1));
+              static_cast<uint64_t>(0));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"),
-              static_cast<uint64_t>(1));
+              static_cast<uint64_t>(0));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
               static_cast<uint64_t>(2));
   }
 
-  // "default": 10KB, "dobrynia": 40KB
-  // Some remaining writes so 'default', 'dobrynia' and 'nikitich' flush on
-  // closure.
-  ASSERT_OK(Put(3, Key(1), DummyString(1)));
-  ReopenWithColumnFamilies({"default", "pikachu", "dobrynia", "nikitich"},
-                           options);
+  // Hit the write buffer limit again. "default"
+  // will have been flushed.
+  ASSERT_OK(Put(2, Key(2), DummyString(10000), wo));
+  ASSERT_OK(Put(3, Key(1), DummyString(1), wo));
+  ASSERT_OK(Put(0, Key(1), DummyString(1), wo));
+  ASSERT_OK(Put(0, Key(1), DummyString(1), wo));
+  ASSERT_OK(Put(0, Key(1), DummyString(1), wo));
+  dbfull()->TEST_WaitForFlushMemTable(handles_[0]);
+  dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
+  dbfull()->TEST_WaitForFlushMemTable(handles_[2]);
+  dbfull()->TEST_WaitForFlushMemTable(handles_[3]);
   {
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
-              static_cast<uint64_t>(1));
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"),
-              static_cast<uint64_t>(1));
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"),
               static_cast<uint64_t>(2));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"),
+              static_cast<uint64_t>(0));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"),
+              static_cast<uint64_t>(0));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
-              static_cast<uint64_t>(3));
+              static_cast<uint64_t>(2));
+  }
+
+  // Trigger another flush. This time "dobrynia". "pikachu" should not
+  // be flushed, althrough it was never flushed.
+  ASSERT_OK(Put(1, Key(1), DummyString(1), wo));
+  ASSERT_OK(Put(2, Key(1), DummyString(80000), wo));
+  ASSERT_OK(Put(1, Key(1), DummyString(1), wo));
+  ASSERT_OK(Put(2, Key(1), DummyString(1), wo));
+  dbfull()->TEST_WaitForFlushMemTable(handles_[0]);
+  dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
+  dbfull()->TEST_WaitForFlushMemTable(handles_[2]);
+  dbfull()->TEST_WaitForFlushMemTable(handles_[3]);
+  {
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
+              static_cast<uint64_t>(2));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"),
+              static_cast<uint64_t>(0));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"),
+              static_cast<uint64_t>(1));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
+              static_cast<uint64_t>(2));
   }
 }
 
@@ -314,23 +313,38 @@ TEST_F(DBTest2, SharedWriteBufferLimitAcrossDB) {
   ASSERT_OK(DB::Open(options, dbname2, &db2));
 
   WriteOptions wo;
+  wo.disableWAL = true;
 
   // Trigger a flush on cf2
-  ASSERT_OK(Put(0, Key(1), DummyString(1)));
-  ASSERT_OK(Put(1, Key(1), DummyString(1)));
-  ASSERT_OK(Put(2, Key(1), DummyString(90000)));
+  ASSERT_OK(Put(2, Key(1), DummyString(70000), wo));
+  ASSERT_OK(Put(0, Key(1), DummyString(20000), wo));
 
   // Insert to DB2
   ASSERT_OK(db2->Put(wo, Key(2), DummyString(20000)));
 
-  ASSERT_OK(Put(2, Key(1), DummyString(1)));
+  ASSERT_OK(Put(2, Key(1), DummyString(1), wo));
   dbfull()->TEST_WaitForFlushMemTable(handles_[0]);
   dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
   dbfull()->TEST_WaitForFlushMemTable(handles_[2]);
   static_cast<DBImpl*>(db2)->TEST_WaitForFlushMemTable();
   {
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default") +
+                  GetNumberOfSstFilesForColumnFamily(db_, "cf1") +
+                  GetNumberOfSstFilesForColumnFamily(db_, "cf2"),
+              static_cast<uint64_t>(1));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db2, "default"),
               static_cast<uint64_t>(0));
+  }
+
+  // Triggering to flush another CF in DB1
+  ASSERT_OK(db2->Put(wo, Key(2), DummyString(70000)));
+  ASSERT_OK(Put(2, Key(1), DummyString(1), wo));
+  dbfull()->TEST_WaitForFlushMemTable(handles_[0]);
+  dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
+  dbfull()->TEST_WaitForFlushMemTable(handles_[2]);
+  {
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
+              static_cast<uint64_t>(1));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "cf1"),
               static_cast<uint64_t>(0));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "cf2"),
@@ -339,9 +353,8 @@ TEST_F(DBTest2, SharedWriteBufferLimitAcrossDB) {
               static_cast<uint64_t>(0));
   }
 
-  // db2: 20KB
-  ASSERT_OK(db2->Put(wo, Key(2), DummyString(40000)));
-  ASSERT_OK(db2->Put(wo, Key(3), DummyString(70000)));
+  // Triggering flush in DB2.
+  ASSERT_OK(db2->Put(wo, Key(3), DummyString(40000)));
   ASSERT_OK(db2->Put(wo, Key(1), DummyString(1)));
   dbfull()->TEST_WaitForFlushMemTable(handles_[0]);
   dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
@@ -349,31 +362,11 @@ TEST_F(DBTest2, SharedWriteBufferLimitAcrossDB) {
   static_cast<DBImpl*>(db2)->TEST_WaitForFlushMemTable();
   {
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
-              static_cast<uint64_t>(0));
+              static_cast<uint64_t>(1));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "cf1"),
               static_cast<uint64_t>(0));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "cf2"),
               static_cast<uint64_t>(1));
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db2, "default"),
-              static_cast<uint64_t>(1));
-  }
-
-  //
-  // Inserting Data in db2 and db_ triggers flushing in db_.
-  ASSERT_OK(db2->Put(wo, Key(3), DummyString(70000)));
-  ASSERT_OK(Put(2, Key(2), DummyString(45000)));
-  ASSERT_OK(Put(0, Key(1), DummyString(1)));
-  dbfull()->TEST_WaitForFlushMemTable(handles_[0]);
-  dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
-  dbfull()->TEST_WaitForFlushMemTable(handles_[2]);
-  static_cast<DBImpl*>(db2)->TEST_WaitForFlushMemTable();
-  {
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
-              static_cast<uint64_t>(0));
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "cf1"),
-              static_cast<uint64_t>(0));
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "cf2"),
-              static_cast<uint64_t>(2));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db2, "default"),
               static_cast<uint64_t>(1));
   }
@@ -1228,7 +1221,7 @@ class PinL0IndexAndFilterBlocksTest : public DBTestBase,
   PinL0IndexAndFilterBlocksTest() : DBTestBase("/db_pin_l0_index_bloom_test") {}
   virtual void SetUp() override { infinite_max_files_ = GetParam(); }
 
-  void CreateTwoLevels(Options* options) {
+  void CreateTwoLevels(Options* options, bool close_afterwards) {
     if (infinite_max_files_) {
       options->max_open_files = -1;
     }
@@ -1256,6 +1249,9 @@ class PinL0IndexAndFilterBlocksTest : public DBTestBase,
     Put(1, "z2", "end2");
     ASSERT_OK(Flush(1));
 
+    if (close_afterwards) {
+      Close();  // This ensures that there is no ref to block cache entries
+    }
     table_options.block_cache->EraseUnRefEntries();
   }
 
@@ -1310,7 +1306,7 @@ TEST_P(PinL0IndexAndFilterBlocksTest,
 TEST_P(PinL0IndexAndFilterBlocksTest,
        MultiLevelIndexAndFilterBlocksCachedWithPinning) {
   Options options = CurrentOptions();
-  PinL0IndexAndFilterBlocksTest::CreateTwoLevels(&options);
+  PinL0IndexAndFilterBlocksTest::CreateTwoLevels(&options, false);
   // get base cache values
   uint64_t fm = TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS);
   uint64_t fh = TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT);
@@ -1339,7 +1335,10 @@ TEST_P(PinL0IndexAndFilterBlocksTest,
 
 TEST_P(PinL0IndexAndFilterBlocksTest, DisablePrefetchingNonL0IndexAndFilter) {
   Options options = CurrentOptions();
-  PinL0IndexAndFilterBlocksTest::CreateTwoLevels(&options);
+  // This ensures that db does not ref anything in the block cache, so
+  // EraseUnRefEntries could clear them up.
+  bool close_afterwards = true;
+  PinL0IndexAndFilterBlocksTest::CreateTwoLevels(&options, close_afterwards);
 
   // Get base cache values
   uint64_t fm = TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS);

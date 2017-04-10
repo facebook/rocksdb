@@ -134,6 +134,7 @@ class ShortenedIndexBuilder : public IndexBuilder {
     index_block_builder_.Add(*last_key_in_current_block, handle_encoding);
   }
 
+  using IndexBuilder::Finish;
   virtual Status Finish(
       IndexBlocks* index_blocks,
       const BlockHandle& last_partition_block_handle) override {
@@ -144,6 +145,8 @@ class ShortenedIndexBuilder : public IndexBuilder {
   virtual size_t EstimatedSize() const override {
     return index_block_builder_.CurrentSizeEstimate();
   }
+
+  friend class PartitionedIndexBuilder;
 
  private:
   BlockBuilder index_block_builder_;
@@ -305,24 +308,26 @@ class PartitionedIndexBuilder : public IndexBuilder {
     return false;
   }
 
-  std::string& GetPartitionKey() { return entries_.back().key; }
+  std::string& GetPartitionKey() { return sub_index_last_key_; }
 
  private:
-  static const BlockBasedTableOptions::IndexType sub_type_ =
-      BlockBasedTableOptions::kBinarySearch;
+  void MakeNewSubIndexBuilder();
+
   struct Entry {
     std::string key;
-    std::unique_ptr<IndexBuilder> value;
+    std::unique_ptr<ShortenedIndexBuilder> value;
   };
   std::list<Entry> entries_;  // list of partitioned indexes and their keys
   BlockBuilder index_block_builder_;  // top-level index builder
-  IndexBuilder* sub_index_builder_;   // the active partition index builder
-  uint64_t num_indexes = 0;
-  bool finishing_indexes =
-      false;  // true if Finish is called once but not complete yet.
+  // the active partition index builder
+  ShortenedIndexBuilder* sub_index_builder_;
+  // the last key in the active partition index builder
+  std::string sub_index_last_key_;
+  std::unique_ptr<FlushBlockPolicy> flush_policy_;
+  // true if Finish is called once but not complete yet.
+  bool finishing_indexes = false;
   const BlockBasedTableOptions& table_opt_;
-  // Filter data
-  bool cut_filter_block =
-      false;  // true if it should cut the next filter partition block
+  // true if it should cut the next filter partition block
+  bool cut_filter_block = false;
 };
 }  // namespace rocksdb

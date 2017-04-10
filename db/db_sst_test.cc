@@ -210,7 +210,9 @@ TEST_F(DBSSTTest, DeleteObsoleteFilesPendingOutputs) {
   blocking_thread.WakeUp();
   blocking_thread.WaitUntilDone();
   dbfull()->TEST_WaitForFlushMemTable();
-  ASSERT_EQ("1,0,0,0,1", FilesPerLevel(0));
+  // File just flushed is too big for L0 and L1 so gets moved to L2.
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ("0,0,1,0,1", FilesPerLevel(0));
 
   metadata.clear();
   db_->GetLiveFilesMetaData(&metadata);
@@ -328,9 +330,10 @@ TEST_F(DBSSTTest, RateLimitedDelete) {
   std::string trash_dir = test::TmpDir(env_) + "/trash";
   int64_t rate_bytes_per_sec = 1024 * 10;  // 10 Kbs / Sec
   Status s;
-  options.sst_file_manager.reset(NewSstFileManager(
-      env_, nullptr, trash_dir, rate_bytes_per_sec, false, &s));
+  options.sst_file_manager.reset(
+      NewSstFileManager(env_, nullptr, trash_dir, 0, false, &s));
   ASSERT_OK(s);
+  options.sst_file_manager->SetDeleteRateBytesPerSecond(rate_bytes_per_sec);
   auto sfm = static_cast<SstFileManagerImpl*>(options.sst_file_manager.get());
 
   ASSERT_OK(TryReopen(options));

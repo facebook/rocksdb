@@ -55,6 +55,10 @@ class FlushBlockBySizePolicyFactory : public FlushBlockPolicyFactory {
   virtual FlushBlockPolicy* NewFlushBlockPolicy(
       const BlockBasedTableOptions& table_options,
       const BlockBuilder& data_block_builder) const override;
+
+  static FlushBlockPolicy* NewFlushBlockPolicy(
+      const uint64_t size, const int deviation,
+      const BlockBuilder& data_block_builder);
 };
 
 }  // rocksdb

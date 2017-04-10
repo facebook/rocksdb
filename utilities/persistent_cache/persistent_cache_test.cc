@@ -324,14 +324,14 @@ void PersistentCacheDBTest::RunTest(
     BlockBasedTableOptions table_options;
     table_options.cache_index_and_filter_blocks = true;
 
-    const uint64_t uint64_max = std::numeric_limits<uint64_t>::max();
+    const size_t size_max = std::numeric_limits<size_t>::max();
 
     switch (iter) {
       case 0:
         // page cache, block cache, no-compressed cache
         pcache = new_pcache(/*is_compressed=*/true);
         table_options.persistent_cache = pcache;
-        table_options.block_cache = NewLRUCache(uint64_max);
+        table_options.block_cache = NewLRUCache(size_max);
         table_options.block_cache_compressed = nullptr;
         options.table_factory.reset(NewBlockBasedTableFactory(table_options));
         break;
@@ -339,8 +339,8 @@ void PersistentCacheDBTest::RunTest(
         // page cache, block cache, compressed cache
         pcache = new_pcache(/*is_compressed=*/true);
         table_options.persistent_cache = pcache;
-        table_options.block_cache = NewLRUCache(uint64_max);
-        table_options.block_cache_compressed = NewLRUCache(uint64_max);
+        table_options.block_cache = NewLRUCache(size_max);
+        table_options.block_cache_compressed = NewLRUCache(size_max);
         options.table_factory.reset(NewBlockBasedTableFactory(table_options));
         break;
       case 2:
@@ -349,8 +349,8 @@ void PersistentCacheDBTest::RunTest(
         // also, make block cache sizes bigger, to trigger block cache hits
         pcache = new_pcache(/*is_compressed=*/true);
         table_options.persistent_cache = pcache;
-        table_options.block_cache = NewLRUCache(uint64_max);
-        table_options.block_cache_compressed = NewLRUCache(uint64_max);
+        table_options.block_cache = NewLRUCache(size_max);
+        table_options.block_cache_compressed = NewLRUCache(size_max);
         options.table_factory.reset(NewBlockBasedTableFactory(table_options));
         options.compression = kNoCompression;
         break;

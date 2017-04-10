@@ -13,10 +13,10 @@
 #include <string>
 #include <vector>
 
+#include "monitoring/histogram.h"
 #include "rocksdb/env.h"
 #include "rocksdb/persistent_cache.h"
 #include "rocksdb/status.h"
-#include "util/histogram.h"
 
 // Persistent Cache
 //

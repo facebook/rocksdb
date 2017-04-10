@@ -18,7 +18,7 @@
 
 #include "db/column_family.h"
 #include "rocksdb/compaction_filter.h"
-#include "util/logging.h"
+#include "util/string_util.h"
 #include "util/sync_point.h"
 
 namespace rocksdb {
@@ -450,7 +450,7 @@ bool Compaction::ShouldFormSubcompactions() const {
     return false;
   }
   if (cfd_->ioptions()->compaction_style == kCompactionStyleLevel) {
-    return start_level_ == 0 && !IsOutputLevelEmpty();
+    return start_level_ == 0 && output_level_ > 0 && !IsOutputLevelEmpty();
   } else if (cfd_->ioptions()->compaction_style == kCompactionStyleUniversal) {
     return number_levels_ > 1 && output_level_ > 0;
   } else {

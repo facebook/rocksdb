@@ -47,6 +47,30 @@ TEST_F(CleanableTest, Register) {
   }
   // ~Cleanable
   ASSERT_EQ(6, res);
+
+  // Test the Reset does cleanup
+  res = 1;
+  {
+    Cleanable c1;
+    c1.RegisterCleanup(Multiplier, &res, &n2);  // res = 2;
+    c1.RegisterCleanup(Multiplier, &res, &n3);  // res = 2 * 3;
+    c1.Reset();
+    ASSERT_EQ(6, res);
+  }
+  // ~Cleanable
+  ASSERT_EQ(6, res);
+
+  // Test Clenable is usable after Reset
+  res = 1;
+  {
+    Cleanable c1;
+    c1.RegisterCleanup(Multiplier, &res, &n2);  // res = 2;
+    c1.Reset();
+    ASSERT_EQ(2, res);
+    c1.RegisterCleanup(Multiplier, &res, &n3);  // res = 2 * 3;
+  }
+  // ~Cleanable
+  ASSERT_EQ(6, res);
 }
 
 // the first Cleanup is on stack and the rest on heap,
@@ -172,6 +196,76 @@ TEST_F(CleanableTest, Delegation) {
   }
   // ~Cleanable
   ASSERT_EQ(5, res);
+}
+
+static void ReleaseStringHeap(void* s, void*) {
+  delete reinterpret_cast<const std::string*>(s);
+}
+
+class PinnableSlice4Test : public PinnableSlice {
+ public:
+  void TestStringIsRegistered(std::string* s) {
+    ASSERT_TRUE(cleanup_.function == ReleaseStringHeap);
+    ASSERT_EQ(cleanup_.arg1, s);
+    ASSERT_EQ(cleanup_.arg2, nullptr);
+    ASSERT_EQ(cleanup_.next, nullptr);
+  }
+};
+
+// Putting the PinnableSlice tests here due to similarity to Cleanable tests
+TEST_F(CleanableTest, PinnableSlice) {
+  int n2 = 2;
+  int res = 1;
+  const std::string const_str = "123";
+
+  {
+    res = 1;
+    PinnableSlice4Test value;
+    Slice slice(const_str);
+    value.PinSlice(slice, Multiplier, &res, &n2);
+    std::string str;
+    str.assign(value.data(), value.size());
+    ASSERT_EQ(const_str, str);
+  }
+  // ~Cleanable
+  ASSERT_EQ(2, res);
+
+  {
+    res = 1;
+    PinnableSlice4Test value;
+    Slice slice(const_str);
+    {
+      Cleanable c1;
+      c1.RegisterCleanup(Multiplier, &res, &n2);  // res = 2;
+      value.PinSlice(slice, &c1);
+    }
+    // ~Cleanable
+    ASSERT_EQ(1, res);  // cleanups must have be delegated to value
+    std::string str;
+    str.assign(value.data(), value.size());
+    ASSERT_EQ(const_str, str);
+  }
+  // ~Cleanable
+  ASSERT_EQ(2, res);
+
+  {
+    PinnableSlice4Test value;
+    Slice slice(const_str);
+    value.PinSelf(slice);
+    std::string str;
+    str.assign(value.data(), value.size());
+    ASSERT_EQ(const_str, str);
+  }
+
+  {
+    PinnableSlice4Test value;
+    std::string* self_str_ptr = value.GetSelf();
+    self_str_ptr->assign(const_str);
+    value.PinSelf();
+    std::string str;
+    str.assign(value.data(), value.size());
+    ASSERT_EQ(const_str, str);
+  }
 }
 
 }  // namespace rocksdb

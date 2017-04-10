@@ -27,7 +27,14 @@ class Checkpoint {
   // (2) a copied manifest files and other files
   // The directory should not already exist and will be created by this API.
   // The directory will be an absolute path
-  virtual Status CreateCheckpoint(const std::string& checkpoint_dir);
+  // log_size_for_flush: if the total log file size is equal or larger than
+  // this value, then a flush is triggered for all the column families. The
+  // default value is 0, which means flush is always triggered. If you move
+  // away from the default, the checkpoint may not contain up-to-date data
+  // if WAL writing is not always enabled.
+  // Flush will always trigger if it is 2PC.
+  virtual Status CreateCheckpoint(const std::string& checkpoint_dir,
+                                  uint64_t log_size_for_flush = 0);
 
   virtual ~Checkpoint() {}
 };

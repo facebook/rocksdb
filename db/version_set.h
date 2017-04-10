@@ -39,10 +39,10 @@
 #include "db/version_builder.h"
 #include "db/version_edit.h"
 #include "db/write_controller.h"
+#include "monitoring/instrumented_mutex.h"
+#include "options/db_options.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
-#include "util/db_options.h"
-#include "util/instrumented_mutex.h"
 
 namespace rocksdb {
 
@@ -477,7 +477,7 @@ class Version {
   // for the key if a key was found.
   //
   // REQUIRES: lock is not held
-  void Get(const ReadOptions&, const LookupKey& key, std::string* val,
+  void Get(const ReadOptions&, const LookupKey& key, PinnableSlice* value,
            Status* status, MergeContext* merge_context,
            RangeDelAggregator* range_del_agg, bool* value_found = nullptr,
            bool* key_exists = nullptr, SequenceNumber* seq = nullptr);

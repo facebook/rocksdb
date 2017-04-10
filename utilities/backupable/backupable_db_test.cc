@@ -13,7 +13,7 @@
 #include <string>
 
 #include "db/db_impl.h"
-#include "db/filename.h"
+#include "env/env_chroot.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/rate_limiter.h"
@@ -21,8 +21,8 @@
 #include "rocksdb/types.h"
 #include "rocksdb/utilities/backupable_db.h"
 #include "rocksdb/utilities/options_util.h"
-#include "util/env_chroot.h"
 #include "util/file_reader_writer.h"
+#include "util/filename.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
 #include "util/stderr_logger.h"
@@ -1126,22 +1126,42 @@ TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsTransition) {
 }
 
 TEST_F(BackupableDBTest, DeleteTmpFiles) {
-  OpenDBAndBackupEngine();
-  CloseDBAndBackupEngine();
-  std::string shared_tmp = backupdir_ + "/shared/00006.sst.tmp";
-  std::string private_tmp_dir = backupdir_ + "/private/10.tmp";
-  std::string private_tmp_file = private_tmp_dir + "/00003.sst";
-  file_manager_->WriteToFile(shared_tmp, "tmp");
-  file_manager_->CreateDir(private_tmp_dir);
-  file_manager_->WriteToFile(private_tmp_file, "tmp");
-  ASSERT_OK(file_manager_->FileExists(private_tmp_dir));
-  OpenDBAndBackupEngine();
-  // Need to call this explicitly to delete tmp files
-  (void)backup_engine_->GarbageCollect();
-  CloseDBAndBackupEngine();
-  ASSERT_EQ(Status::NotFound(), file_manager_->FileExists(shared_tmp));
-  ASSERT_EQ(Status::NotFound(), file_manager_->FileExists(private_tmp_file));
-  ASSERT_EQ(Status::NotFound(), file_manager_->FileExists(private_tmp_dir));
+  for (bool shared_checksum : {false, true}) {
+    if (shared_checksum) {
+      OpenDBAndBackupEngineShareWithChecksum(
+          false /* destroy_old_data */, false /* dummy */,
+          true /* share_table_files */, true /* share_with_checksums */);
+    } else {
+      OpenDBAndBackupEngine();
+    }
+    CloseDBAndBackupEngine();
+    std::string shared_tmp = backupdir_;
+    if (shared_checksum) {
+      shared_tmp += "/shared_checksum";
+    } else {
+      shared_tmp += "/shared";
+    }
+    shared_tmp += "/00006.sst.tmp";
+    std::string private_tmp_dir = backupdir_ + "/private/10.tmp";
+    std::string private_tmp_file = private_tmp_dir + "/00003.sst";
+    file_manager_->WriteToFile(shared_tmp, "tmp");
+    file_manager_->CreateDir(private_tmp_dir);
+    file_manager_->WriteToFile(private_tmp_file, "tmp");
+    ASSERT_OK(file_manager_->FileExists(private_tmp_dir));
+    if (shared_checksum) {
+      OpenDBAndBackupEngineShareWithChecksum(
+          false /* destroy_old_data */, false /* dummy */,
+          true /* share_table_files */, true /* share_with_checksums */);
+    } else {
+      OpenDBAndBackupEngine();
+    }
+    // Need to call this explicitly to delete tmp files
+    (void)backup_engine_->GarbageCollect();
+    CloseDBAndBackupEngine();
+    ASSERT_EQ(Status::NotFound(), file_manager_->FileExists(shared_tmp));
+    ASSERT_EQ(Status::NotFound(), file_manager_->FileExists(private_tmp_file));
+    ASSERT_EQ(Status::NotFound(), file_manager_->FileExists(private_tmp_dir));
+  }
 }
 
 TEST_F(BackupableDBTest, KeepLogFiles) {

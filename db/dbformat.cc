@@ -14,9 +14,10 @@
 
 #include <inttypes.h>
 #include <stdio.h>
+#include "monitoring/perf_context_imp.h"
 #include "port/port.h"
 #include "util/coding.h"
-#include "util/perf_context_imp.h"
+#include "util/string_util.h"
 
 namespace rocksdb {
 
@@ -55,7 +56,7 @@ void AppendInternalKeyFooter(std::string* result, SequenceNumber s,
 
 std::string ParsedInternalKey::DebugString(bool hex) const {
   char buf[50];
-  snprintf(buf, sizeof(buf), "' @ %" PRIu64 ": %d", sequence,
+  snprintf(buf, sizeof(buf), "' seq:%" PRIu64 ", type:%d", sequence,
            static_cast<int>(type));
   std::string result = "'";
   result += user_key.ToString(hex);

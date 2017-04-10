@@ -82,15 +82,34 @@ class FilterBlockReader {
   virtual ~FilterBlockReader() {}
 
   virtual bool IsBlockBased() = 0;  // If is blockbased filter
-  virtual bool KeyMayMatch(const Slice& key,
-                           uint64_t block_offset = kNotValid) = 0;
+  /**
+   * If no_io is set, then it returns true if it cannot answer the query without
+   * reading data from disk. This is used in PartitionedFilterBlockReader to
+   * avoid reading partitions that are not in block cache already
+   *
+   * Normally filters are built on only the user keys and the InternalKey is not
+   * needed for a query. The index in PartitionedFilterBlockReader however is
+   * built upon InternalKey and must be provided via const_ikey_ptr when running
+   * queries.
+   */
+  virtual bool KeyMayMatch(const Slice& key, uint64_t block_offset = kNotValid,
+                           const bool no_io = false,
+                           const Slice* const const_ikey_ptr = nullptr) = 0;
+  /**
+   * no_io and const_ikey_ptr here means the same as in KeyMayMatch
+   */
   virtual bool PrefixMayMatch(const Slice& prefix,
-                              uint64_t block_offset = kNotValid) = 0;
+                              uint64_t block_offset = kNotValid,
+                              const bool no_io = false,
+                              const Slice* const const_ikey_ptr = nullptr) = 0;
   virtual size_t ApproximateMemoryUsage() const = 0;
   virtual size_t size() const { return size_; }
   virtual Statistics* statistics() const { return statistics_; }
 
   bool whole_key_filtering() const { return whole_key_filtering_; }
+
+  int GetLevel() const { return level_; }
+  void SetLevel(int level) { level_ = level; }
 
   // convert this object to a human readable form
   virtual std::string ToString() const {
@@ -107,6 +126,7 @@ class FilterBlockReader {
   void operator=(const FilterBlockReader&);
   size_t size_;
   Statistics* statistics_;
+  int level_ = -1;
 };
 
 }  // namespace rocksdb

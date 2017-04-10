@@ -102,6 +102,32 @@ public class ReadOptionsTest {
   }
 
   @Test
+  public void backgroundPurgeOnIteratorCleanup() {
+    try (final ReadOptions opt = new ReadOptions()) {
+      opt.setBackgroundPurgeOnIteratorCleanup(true);
+      assertThat(opt.backgroundPurgeOnIteratorCleanup()).isTrue();
+    }
+  }
+
+  @Test
+  public void readaheadSize() {
+    try (final ReadOptions opt = new ReadOptions()) {
+      final Random rand = new Random();
+      final long longValue = rand.nextLong();
+      opt.setReadaheadSize(longValue);
+      assertThat(opt.readaheadSize()).isEqualTo(longValue);
+    }
+  }
+
+  @Test
+  public void ignoreRangeDeletions() {
+    try (final ReadOptions opt = new ReadOptions()) {
+      opt.setIgnoreRangeDeletions(true);
+      assertThat(opt.ignoreRangeDeletions()).isTrue();
+    }
+  }
+
+  @Test
   public void failSetVerifyChecksumUninitialized() {
     try (final ReadOptions readOptions =
              setupUninitializedReadOptions(exception)) {

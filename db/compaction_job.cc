@@ -28,7 +28,6 @@
 #include "db/db_iter.h"
 #include "db/dbformat.h"
 #include "db/event_helpers.h"
-#include "db/filename.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
 #include "db/memtable.h"
@@ -36,6 +35,9 @@
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
 #include "db/version_set.h"
+#include "monitoring/iostats_context_imp.h"
+#include "monitoring/perf_context_imp.h"
+#include "monitoring/thread_status_util.h"
 #include "port/likely.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
@@ -49,16 +51,15 @@
 #include "table/table_builder.h"
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
-#include "util/iostats_context_imp.h"
+#include "util/filename.h"
 #include "util/log_buffer.h"
 #include "util/logging.h"
-#include "util/sst_file_manager_impl.h"
 #include "util/mutexlock.h"
-#include "util/perf_context_imp.h"
+#include "util/random.h"
+#include "util/sst_file_manager_impl.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
-#include "util/thread_status_util.h"
 
 namespace rocksdb {
 
@@ -600,7 +601,7 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
     write_amp = stats.bytes_written /
                 static_cast<double>(stats.bytes_read_non_output_levels);
   }
-  LogToBuffer(
+  ROCKS_LOG_BUFFER(
       log_buffer_,
       "[%s] compacted to: %s, MB/sec: %.1f rd, %.1f wr, level %d, "
       "files in(%d, %d) out(%d) "
@@ -733,7 +734,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   if (start != nullptr) {
     IterKey start_iter;
     start_iter.SetInternalKey(*start, kMaxSequenceNumber, kValueTypeForSeek);
-    input->Seek(start_iter.GetKey());
+    input->Seek(start_iter.GetInternalKey());
   } else {
     input->SeekToFirst();
   }
@@ -1091,12 +1092,12 @@ Status CompactionJob::FinishCompactionOutputFile(
       tp = sub_compact->builder->GetTableProperties();
       sub_compact->current_output()->table_properties =
           std::make_shared<TableProperties>(tp);
-      Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
-          "[%s] [JOB %d] Generated table #%" PRIu64 ": %" PRIu64
-          " keys, %" PRIu64 " bytes%s",
-          cfd->GetName().c_str(), job_id_, output_number, current_entries,
-          current_bytes,
-          meta->marked_for_compaction ? " (need compaction)" : "");
+      ROCKS_LOG_INFO(db_options_.info_log,
+                     "[%s] [JOB %d] Generated table #%" PRIu64 ": %" PRIu64
+                     " keys, %" PRIu64 " bytes%s",
+                     cfd->GetName().c_str(), job_id_, output_number,
+                     current_entries, current_bytes,
+                     meta->marked_for_compaction ? " (need compaction)" : "");
     }
   }
   std::string fname = TableFileName(db_options_.db_paths, meta->fd.GetNumber(),
@@ -1142,17 +1143,16 @@ Status CompactionJob::InstallCompactionResults(
   if (!versions_->VerifyCompactionFileConsistency(compaction)) {
     Compaction::InputLevelSummaryBuffer inputs_summary;
 
-    Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
-        "[%s] [JOB %d] Compaction %s aborted",
-        compaction->column_family_data()->GetName().c_str(), job_id_,
-        compaction->InputLevelSummary(&inputs_summary));
+    ROCKS_LOG_ERROR(db_options_.info_log, "[%s] [JOB %d] Compaction %s aborted",
+                    compaction->column_family_data()->GetName().c_str(),
+                    job_id_, compaction->InputLevelSummary(&inputs_summary));
     return Status::Corruption("Compaction input files inconsistent");
   }
 
   {
     Compaction::InputLevelSummaryBuffer inputs_summary;
-    Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
-        "[%s] [JOB %d] Compacted %s => %" PRIu64 " bytes",
+    ROCKS_LOG_INFO(
+        db_options_.info_log, "[%s] [JOB %d] Compacted %s => %" PRIu64 " bytes",
         compaction->column_family_data()->GetName().c_str(), job_id_,
         compaction->InputLevelSummary(&inputs_summary), compact_->total_bytes);
   }
@@ -1200,7 +1200,8 @@ Status CompactionJob::OpenCompactionOutputFile(
   unique_ptr<WritableFile> writable_file;
   Status s = NewWritableFile(env_, fname, &writable_file, env_options_);
   if (!s.ok()) {
-    Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
+    ROCKS_LOG_ERROR(
+        db_options_.info_log,
         "[%s] [JOB %d] OpenCompactionOutputFiles for table #%" PRIu64
         " fails at NewWritableFile with status %s",
         sub_compact->compaction->column_family_data()->GetName().c_str(),
@@ -1376,14 +1377,14 @@ void CompactionJob::LogCompaction() {
   // we're not logging
   if (db_options_.info_log_level <= InfoLogLevel::INFO_LEVEL) {
     Compaction::InputLevelSummaryBuffer inputs_summary;
-    Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
-        "[%s] [JOB %d] Compacting %s, score %.2f", cfd->GetName().c_str(),
-        job_id_, compaction->InputLevelSummary(&inputs_summary),
-        compaction->score());
+    ROCKS_LOG_INFO(
+        db_options_.info_log, "[%s] [JOB %d] Compacting %s, score %.2f",
+        cfd->GetName().c_str(), job_id_,
+        compaction->InputLevelSummary(&inputs_summary), compaction->score());
     char scratch[2345];
     compaction->Summary(scratch, sizeof(scratch));
-    Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
-        "[%s] Compaction start summary: %s\n", cfd->GetName().c_str(), scratch);
+    ROCKS_LOG_INFO(db_options_.info_log, "[%s] Compaction start summary: %s\n",
+                   cfd->GetName().c_str(), scratch);
     // build event logger report
     auto stream = event_logger_->Log();
     stream << "job" << job_id_ << "event"

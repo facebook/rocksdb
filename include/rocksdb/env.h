@@ -1093,6 +1093,11 @@ Env* NewMemEnv(Env* base_env);
 // This is a factory method for HdfsEnv declared in hdfs/env_hdfs.h
 Status NewHdfsEnv(Env** hdfs_env, const std::string& fsname);
 
+// Returns a new environment that measures function call times for filesystem
+// operations, reporting results to variables in PerfContext.
+// This is a factory method for TimedEnv defined in utilities/env_timed.cc.
+Env* NewTimedEnv(Env* base_env);
+
 }  // namespace rocksdb
 
 #endif  // STORAGE_ROCKSDB_INCLUDE_ENV_H_

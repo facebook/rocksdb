@@ -28,10 +28,10 @@
 #include "port/win/win_logger.h"
 #include "port/win/io_win.h"
 
-#include "util/iostats_context_imp.h"
+#include "monitoring/iostats_context_imp.h"
 
-#include "util/thread_status_updater.h"
-#include "util/thread_status_util.h"
+#include "monitoring/thread_status_updater.h"
+#include "monitoring/thread_status_util.h"
 
 #include <Rpc.h>  // For UUID generation
 #include <Windows.h>
@@ -647,7 +647,7 @@ uint64_t WinEnvIO::NowMicros() {
   if (GetSystemTimePreciseAsFileTime_ != NULL) {
     // all std::chrono clocks on windows proved to return
     // values that may repeat that is not good enough for some uses.
-    const int64_t c_UnixEpochStartTicks = 116444736000000000i64;
+    const int64_t c_UnixEpochStartTicks = 116444736000000000LL;
     const int64_t c_FtToMicroSec = 10;
 
     // This interface needs to return system time and not

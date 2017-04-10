@@ -17,6 +17,8 @@
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
 #include "db/pinned_iterators_manager.h"
+#include "monitoring/perf_context_imp.h"
+#include "monitoring/statistics.h"
 #include "port/port.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
@@ -33,8 +35,6 @@
 #include "util/memory_usage.h"
 #include "util/murmurhash.h"
 #include "util/mutexlock.h"
-#include "util/perf_context_imp.h"
-#include "util/statistics.h"
 #include "util/stop_watch.h"
 
 namespace rocksdb {
@@ -61,7 +61,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
                    const ImmutableCFOptions& ioptions,
                    const MutableCFOptions& mutable_cf_options,
                    WriteBufferManager* write_buffer_manager,
-                   SequenceNumber earliest_seq)
+                   SequenceNumber latest_seq)
     : comparator_(cmp),
       moptions_(ioptions, mutable_cf_options),
       refs_(0),
@@ -83,7 +83,8 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       flush_completed_(false),
       file_number_(0),
       first_seqno_(0),
-      earliest_seqno_(earliest_seq),
+      earliest_seqno_(latest_seq),
+      creation_seq_(latest_seq),
       mem_next_logfile_number_(0),
       min_prep_log_referenced_(0),
       locks_(moptions_.inplace_update_support

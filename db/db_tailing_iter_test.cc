@@ -126,6 +126,7 @@ TEST_F(DBTestTailingIterator, TailingIteratorTrimSeekToNext) {
   options.write_buffer_size = k150KB;
   options.max_write_buffer_number = 3;
   options.min_write_buffer_number_to_merge = 2;
+  options.env = env_;
   CreateAndReopenWithCF({"pikachu"}, options);
   ReadOptions read_options;
   read_options.tailing = true;
@@ -298,7 +299,6 @@ TEST_F(DBTestTailingIterator, TailingIteratorPrefixSeek) {
   read_options.tailing = true;
 
   Options options = CurrentOptions();
-  options.env = env_;
   options.create_if_missing = true;
   options.disable_auto_compactions = true;
   options.prefix_extractor.reset(NewFixedPrefixTransform(2));
@@ -616,7 +616,6 @@ TEST_F(DBTestTailingIterator, ManagedTailingIteratorPrefixSeek) {
   read_options.managed = true;
 
   Options options = CurrentOptions();
-  options.env = env_;
   options.create_if_missing = true;
   options.disable_auto_compactions = true;
   options.prefix_extractor.reset(NewFixedPrefixTransform(2));

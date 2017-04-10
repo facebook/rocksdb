@@ -426,7 +426,7 @@ class LDBTestCase(unittest.TestCase):
         # Pattern to expect from manifest_dump.
         num = "[0-9]+"
         st = ".*"
-        subpat = st + " @ " + num + ": " + num
+        subpat = st + " seq:" + num + ", type:" + num
         regex = num + ":" + num + "\[" + subpat + ".." + subpat + "\]"
         expected_pattern = re.compile(regex)
         cmd = "manifest_dump --db=%s"

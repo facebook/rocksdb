@@ -54,8 +54,7 @@ class ExternalSSTFileTest : public DBTestBase {
       data.resize(uniq_iter - data.begin());
     }
     std::string file_path = sst_files_dir_ + ToString(file_id);
-    SstFileWriter sst_file_writer(EnvOptions(), options, options.comparator,
-                                  cfh);
+    SstFileWriter sst_file_writer(EnvOptions(), options, cfh);
 
     Status s = sst_file_writer.Open(file_path);
     if (!s.ok()) {
@@ -139,7 +138,7 @@ TEST_F(ExternalSSTFileTest, Basic) {
   do {
     Options options = CurrentOptions();
 
-    SstFileWriter sst_file_writer(EnvOptions(), options, options.comparator);
+    SstFileWriter sst_file_writer(EnvOptions(), options);
 
     // Current file size should be 0 after sst_file_writer init and before open a file.
     ASSERT_EQ(sst_file_writer.FileSize(), 0);
@@ -376,7 +375,7 @@ TEST_F(ExternalSSTFileTest, AddList) {
     options.table_properties_collector_factories.emplace_back(abc_collector);
     options.table_properties_collector_factories.emplace_back(xyz_collector);
 
-    SstFileWriter sst_file_writer(EnvOptions(), options, options.comparator);
+    SstFileWriter sst_file_writer(EnvOptions(), options);
 
     // file1.sst (0 => 99)
     std::string file1 = sst_files_dir_ + "file1.sst";
@@ -565,7 +564,7 @@ TEST_F(ExternalSSTFileTest, AddListAtomicity) {
   do {
     Options options = CurrentOptions();
 
-    SstFileWriter sst_file_writer(EnvOptions(), options, options.comparator);
+    SstFileWriter sst_file_writer(EnvOptions(), options);
 
     // files[0].sst (0 => 99)
     // files[1].sst (100 => 199)
@@ -608,7 +607,7 @@ TEST_F(ExternalSSTFileTest, AddListAtomicity) {
 // This situation may result in deleting the file while it's being added.
 TEST_F(ExternalSSTFileTest, PurgeObsoleteFilesBug) {
   Options options = CurrentOptions();
-  SstFileWriter sst_file_writer(EnvOptions(), options, options.comparator);
+  SstFileWriter sst_file_writer(EnvOptions(), options);
 
   // file1.sst (0 => 500)
   std::string sst_file_path = sst_files_dir_ + "file1.sst";
@@ -653,7 +652,7 @@ TEST_F(ExternalSSTFileTest, PurgeObsoleteFilesBug) {
 TEST_F(ExternalSSTFileTest, SkipSnapshot) {
   Options options = CurrentOptions();
 
-  SstFileWriter sst_file_writer(EnvOptions(), options, options.comparator);
+  SstFileWriter sst_file_writer(EnvOptions(), options);
 
   // file1.sst (0 => 99)
   std::string file1 = sst_files_dir_ + "file1.sst";
@@ -744,7 +743,7 @@ TEST_F(ExternalSSTFileTest, MultiThreaded) {
       int range_start = file_idx * keys_per_file;
       int range_end = range_start + keys_per_file;
 
-      SstFileWriter sst_file_writer(EnvOptions(), options, options.comparator);
+      SstFileWriter sst_file_writer(EnvOptions(), options);
 
       ASSERT_OK(sst_file_writer.Open(file_names[file_idx]));
 
@@ -842,7 +841,7 @@ TEST_F(ExternalSSTFileTest, OverlappingRanges) {
     Options options = CurrentOptions();
     DestroyAndReopen(options);
 
-    SstFileWriter sst_file_writer(EnvOptions(), options, options.comparator);
+    SstFileWriter sst_file_writer(EnvOptions(), options);
 
     printf("Option config = %d\n", option_config_);
     std::vector<std::pair<int, int>> key_ranges;
@@ -1252,7 +1251,7 @@ TEST_F(ExternalSSTFileTest, AddExternalSstFileWithCustomCompartor) {
   options.comparator = ReverseBytewiseComparator();
   DestroyAndReopen(options);
 
-  SstFileWriter sst_file_writer(EnvOptions(), options, options.comparator);
+  SstFileWriter sst_file_writer(EnvOptions(), options);
 
   // Generate files with these key ranges
   // {14  -> 0}
@@ -1354,7 +1353,7 @@ TEST_F(ExternalSSTFileTest, SstFileWriterNonSharedKeys) {
   Options options = CurrentOptions();
   DestroyAndReopen(options);
   std::string file_path = sst_files_dir_ + "/not_shared";
-  SstFileWriter sst_file_writer(EnvOptions(), options, options.comparator);
+  SstFileWriter sst_file_writer(EnvOptions(), options);
 
   std::string suffix(100, 'X');
   ASSERT_OK(sst_file_writer.Open(file_path));
@@ -1636,14 +1635,12 @@ TEST_F(ExternalSSTFileTest, DirtyExit) {
   std::unique_ptr<SstFileWriter> sst_file_writer;
 
   // Destruct SstFileWriter without calling Finish()
-  sst_file_writer.reset(
-      new SstFileWriter(EnvOptions(), options, options.comparator));
+  sst_file_writer.reset(new SstFileWriter(EnvOptions(), options));
   ASSERT_OK(sst_file_writer->Open(file_path));
   sst_file_writer.reset();
 
   // Destruct SstFileWriter with a failing Finish
-  sst_file_writer.reset(
-      new SstFileWriter(EnvOptions(), options, options.comparator));
+  sst_file_writer.reset(new SstFileWriter(EnvOptions(), options));
   ASSERT_OK(sst_file_writer->Open(file_path));
   ASSERT_NOK(sst_file_writer->Finish());
 }
@@ -1652,11 +1649,10 @@ TEST_F(ExternalSSTFileTest, FileWithCFInfo) {
   Options options = CurrentOptions();
   CreateAndReopenWithCF({"koko", "toto"}, options);
 
-  SstFileWriter sfw_default(EnvOptions(), options, options.comparator,
-                            handles_[0]);
-  SstFileWriter sfw_cf1(EnvOptions(), options, options.comparator, handles_[1]);
-  SstFileWriter sfw_cf2(EnvOptions(), options, options.comparator, handles_[2]);
-  SstFileWriter sfw_unknown(EnvOptions(), options, options.comparator);
+  SstFileWriter sfw_default(EnvOptions(), options, handles_[0]);
+  SstFileWriter sfw_cf1(EnvOptions(), options, handles_[1]);
+  SstFileWriter sfw_cf2(EnvOptions(), options, handles_[2]);
+  SstFileWriter sfw_unknown(EnvOptions(), options);
 
   // default_cf.sst
   const std::string cf_default_sst = sst_files_dir_ + "/default_cf.sst";
@@ -1774,7 +1770,7 @@ TEST_F(ExternalSSTFileTest, SnapshotInconsistencyBug) {
 
   // Overwrite all keys using IngestExternalFile
   std::string sst_file_path = sst_files_dir_ + "file1.sst";
-  SstFileWriter sst_file_writer(EnvOptions(), options, options.comparator);
+  SstFileWriter sst_file_writer(EnvOptions(), options);
   ASSERT_OK(sst_file_writer.Open(sst_file_path));
   for (int i = 0; i < kNumKeys; i++) {
     ASSERT_OK(sst_file_writer.Add(Key(i), Key(i) + "_V2"));

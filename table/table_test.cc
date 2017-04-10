@@ -21,6 +21,7 @@
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
 #include "memtable/stl_wrappers.h"
+#include "monitoring/statistics.h"
 #include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/db.h"
@@ -45,7 +46,6 @@
 #include "table/sst_file_writer_collectors.h"
 #include "util/compression.h"
 #include "util/random.h"
-#include "util/statistics.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
 #include "util/testharness.h"
@@ -1187,9 +1187,9 @@ TEST_F(BlockBasedTableTest, RangeDelBlock) {
       // iterator can still access its metablock's range tombstones.
       c.ResetTableReader();
     }
-    ASSERT_EQ(false, iter->Valid());
+    ASSERT_FALSE(iter->Valid());
     iter->SeekToFirst();
-    ASSERT_EQ(true, iter->Valid());
+    ASSERT_TRUE(iter->Valid());
     for (int i = 0; i < 2; i++) {
       ASSERT_TRUE(iter->Valid());
       ParsedInternalKey parsed_key;
@@ -1657,10 +1657,12 @@ TEST_F(TableTest, HashIndexTest) {
 
 TEST_F(TableTest, PartitionIndexTest) {
   const int max_index_keys = 5;
-  for (int i = 1; i <= max_index_keys + 1; i++) {
+  const int est_max_index_key_value_size = 32;
+  const int est_max_index_size = max_index_keys * est_max_index_key_value_size;
+  for (int i = 1; i <= est_max_index_size + 1; i++) {
     BlockBasedTableOptions table_options;
     table_options.index_type = BlockBasedTableOptions::kTwoLevelIndexSearch;
-    table_options.index_per_partition = i;
+    table_options.metadata_block_size = i;
     IndexTest(table_options);
   }
 }
@@ -1994,12 +1996,12 @@ TEST_F(BlockBasedTableTest, FilterBlockInBlockCache) {
   ASSERT_OK(c3.Reopen(ioptions4));
   reader = dynamic_cast<BlockBasedTable*>(c3.GetTableReader());
   ASSERT_TRUE(!reader->TEST_filter_block_preloaded());
-  std::string value;
+  PinnableSlice value;
   GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                          GetContext::kNotFound, user_key, &value, nullptr,
                          nullptr, nullptr, nullptr);
   ASSERT_OK(reader->Get(ReadOptions(), user_key, &get_context));
-  ASSERT_EQ(value, "hello");
+  ASSERT_STREQ(value.data(), "hello");
   BlockCachePropertiesSnapshot props(options.statistics.get());
   props.AssertFilterBlockStat(0, 0);
   c3.ResetTableReader();
@@ -2077,7 +2079,7 @@ TEST_F(BlockBasedTableTest, BlockReadCountTest) {
       c.Finish(options, ioptions, table_options,
                GetPlainInternalComparator(options.comparator), &keys, &kvmap);
       auto reader = c.GetTableReader();
-      std::string value;
+      PinnableSlice value;
       GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                              GetContext::kNotFound, user_key, &value, nullptr,
                              nullptr, nullptr, nullptr);
@@ -2091,13 +2093,14 @@ TEST_F(BlockBasedTableTest, BlockReadCountTest) {
         ASSERT_EQ(perf_context.block_read_count, 1);
       }
       ASSERT_EQ(get_context.State(), GetContext::kFound);
-      ASSERT_EQ(value, "hello");
+      ASSERT_STREQ(value.data(), "hello");
 
       // Get non-existing key
       user_key = "does-not-exist";
       internal_key = InternalKey(user_key, 0, kTypeValue);
       encoded_key = internal_key.Encode().ToString();
 
+      value.Reset();
       get_context = GetContext(options.comparator, nullptr, nullptr, nullptr,
                                GetContext::kNotFound, user_key, &value, nullptr,
                                nullptr, nullptr, nullptr);

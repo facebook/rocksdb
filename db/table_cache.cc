@@ -10,18 +10,18 @@
 #include "db/table_cache.h"
 
 #include "db/dbformat.h"
-#include "db/filename.h"
 #include "db/version_edit.h"
+#include "util/filename.h"
 
+#include "monitoring/perf_context_imp.h"
 #include "rocksdb/statistics.h"
+#include "table/get_context.h"
 #include "table/internal_iterator.h"
 #include "table/iterator_wrapper.h"
 #include "table/table_builder.h"
 #include "table/table_reader.h"
-#include "table/get_context.h"
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
-#include "util/perf_context_imp.h"
 #include "util/stop_watch.h"
 #include "util/sync_point.h"
 
@@ -286,7 +286,7 @@ Status TableCache::Get(const ReadOptions& options,
                              user_key.size());
 
     if (auto row_handle =
-            ioptions_.row_cache->Lookup(row_cache_key.GetKey())) {
+            ioptions_.row_cache->Lookup(row_cache_key.GetUserKey())) {
       auto found_row_cache_entry = static_cast<const std::string*>(
           ioptions_.row_cache->Value(row_handle));
       replayGetContextLog(*found_row_cache_entry, user_key, get_context);
@@ -343,7 +343,7 @@ Status TableCache::Get(const ReadOptions& options,
     size_t charge =
         row_cache_key.Size() + row_cache_entry->size() + sizeof(std::string);
     void* row_ptr = new std::string(std::move(*row_cache_entry));
-    ioptions_.row_cache->Insert(row_cache_key.GetKey(), row_ptr, charge,
+    ioptions_.row_cache->Insert(row_cache_key.GetUserKey(), row_ptr, charge,
                                 &DeleteEntry<std::string>);
   }
 #endif  // ROCKSDB_LITE

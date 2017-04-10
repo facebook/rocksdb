@@ -5,9 +5,9 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <rados/librados.hpp>
 #include "rocksdb/utilities/env_librados.h"
-#include "util/mock_env.h"
+#include <rados/librados.hpp>
+#include "env/mock_env.h"
 #include "util/testharness.h"
 
 #include "rocksdb/db.h"

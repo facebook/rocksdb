@@ -13,9 +13,9 @@ int main() {
 
 #include <gflags/gflags.h>
 
+#include "monitoring/histogram.h"
 #include "rocksdb/env.h"
 #include "util/file_reader_writer.h"
-#include "util/histogram.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 
