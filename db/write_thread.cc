@@ -5,7 +5,6 @@
 
 #include "db/write_thread.h"
 #include <chrono>
-#include <limits>
 #include <thread>
 #include "db/column_family.h"
 #include "port/port.h"
@@ -195,7 +194,9 @@ void WriteThread::LinkOne(Writer* w, bool* linked_as_leader) {
         // debugging and is checked by an assert in WriteImpl
         w->state.store(STATE_GROUP_LEADER, std::memory_order_relaxed);
       }
+      // Then we are the head of the queue and hence definiltly the leader
       *linked_as_leader = (writers == nullptr);
+      // Otherwise we will wait for previous leader to define our status
       return;
     }
   }
@@ -223,6 +224,13 @@ void WriteThread::JoinBatchGroup(Writer* w) {
   TEST_SYNC_POINT_CALLBACK("WriteThread::JoinBatchGroup:Wait", w);
 
   if (!linked_as_leader) {
+    /**
+     * Wait util:
+     * 1) An existing leader pick us as the new leader when it finishes
+     * 2) An exisitng leader pick us as its follewer and
+     * 2.1) finishes the memtable writes on our behalf
+     * 2.2) Or tell us to finish the memtable writes it in pralallel
+     */
     AwaitState(w,
                STATE_GROUP_LEADER | STATE_PARALLEL_FOLLOWER | STATE_COMPLETED,
                &ctx);
@@ -316,19 +324,22 @@ void WriteThread::LaunchParallelFollowers(ParallelGroup* pg,
   Writer* w = pg->leader;
   w->sequence = sequence;
 
+  // Initialize and wake up the others
   while (w != pg->last_writer) {
     // Writers that won't write don't get sequence allotment
     if (!w->CallbackFailed() && w->ShouldWriteToMemtable()) {
+      // There is a sequence number of each written key
       sequence += WriteBatchInternal::Count(w->batch);
     }
     w = w->link_newer;
 
-    w->sequence = sequence;
+    w->sequence = sequence;  // sequence number for the first key in the batch
     w->parallel_group = pg;
     SetState(w, STATE_PARALLEL_FOLLOWER);
   }
 }
 
+// This method is called by both the leader and parallel followers
 bool WriteThread::CompleteParallelWorker(Writer* w) {
   static AdaptationContext ctx("CompleteParallelWorker");
 
@@ -352,6 +363,7 @@ bool WriteThread::CompleteParallelWorker(Writer* w) {
   }
   // else we're the last parallel worker
 
+  // Errors (if there is any) must be handled by leader before waking up others
   if (w == leader || (early_exit_allowed && pg->status.ok())) {
     // this thread should perform exit duties
     w->status = pg->status;
@@ -434,6 +446,7 @@ void WriteThread::EnterUnbatched(Writer* w, InstrumentedMutex* mu) {
   if (!linked_as_leader) {
     mu->Unlock();
     TEST_SYNC_POINT("WriteThread::EnterUnbatched:Wait");
+    // Last leader will not pick us as a follower since our batch is nullptr
     AwaitState(w, STATE_GROUP_LEADER, &ctx);
     mu->Lock();
   }

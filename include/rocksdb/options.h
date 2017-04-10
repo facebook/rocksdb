@@ -412,6 +412,8 @@ struct DBOptions {
   // This parameter should be set to true while storing data to
   // filesystem like ext3 that can lose files after a reboot.
   // Default: false
+  // Note: on many platforms fdatasync is defined as fsync, so this parameter
+  // would make no difference. Refer to fdatasync definition in this code base.
   bool use_fsync = false;
 
   // A list of paths where SST files can be put into, with its target size.
