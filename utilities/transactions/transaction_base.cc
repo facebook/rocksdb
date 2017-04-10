@@ -470,20 +470,22 @@ uint64_t TransactionBaseImpl::GetNumKeys() const {
 }
 
 void TransactionBaseImpl::TrackKey(uint32_t cfh_id, const std::string& key,
-                                   SequenceNumber seq, bool read_only) {
+                                   SequenceNumber seq, bool read_only,
+                                   bool exclusive) {
   // Update map of all tracked keys for this transaction
-  TrackKey(&tracked_keys_, cfh_id, key, seq, read_only);
+  TrackKey(&tracked_keys_, cfh_id, key, seq, read_only, exclusive);
 
   if (save_points_ != nullptr && !save_points_->empty()) {
     // Update map of tracked keys in this SavePoint
-    TrackKey(&save_points_->top().new_keys_, cfh_id, key, seq, read_only);
+    TrackKey(&save_points_->top().new_keys_, cfh_id, key, seq, read_only,
+             exclusive);
   }
 }
 
 // Add a key to the given TransactionKeyMap
 void TransactionBaseImpl::TrackKey(TransactionKeyMap* key_map, uint32_t cfh_id,
                                    const std::string& key, SequenceNumber seq,
-                                   bool read_only) {
+                                   bool read_only, bool exclusive) {
   auto& cf_key_map = (*key_map)[cfh_id];
   auto iter = cf_key_map.find(key);
   if (iter == cf_key_map.end()) {
@@ -499,6 +501,7 @@ void TransactionBaseImpl::TrackKey(TransactionKeyMap* key_map, uint32_t cfh_id,
   } else {
     iter->second.num_writes++;
   }
+  iter->second.exclusive |= exclusive;
 }
 
 std::unique_ptr<TransactionKeyMap>
@@ -529,7 +532,7 @@ TransactionBaseImpl::GetTrackedKeysSinceSavePoint() {
           // All the reads/writes to this key were done in the last savepoint.
           bool read_only = (num_writes == 0);
           TrackKey(result, column_family_id, key, key_iter.second.seq,
-                   read_only);
+                   read_only, key_iter.second.exclusive);
         }
       }
     }
