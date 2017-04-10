@@ -117,7 +117,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   // when it finds suitable, and finish them in the same write batch.
   // This is how a write job could be done by the other writer.
   WriteContext write_context;
-  WriteThread::Writer* last_writer = &w; // Dummy intial value
+  WriteThread::Writer* last_writer = &w;  // Dummy intial value
   autovector<WriteThread::Writer*> write_group;
   bool logs_getting_synced = false;
 
@@ -346,7 +346,8 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
   if (status.ok() && need_log_sync) {
     // Wait until the parallel syncs are finished. Any sync process has to sync
     // the front log too so it is enough to check the status of front()
-    // We do a while loop since log_sync_cv_ is signalled when any sync is finished
+    // We do a while loop since log_sync_cv_ is signalled when any sync is
+    // finished
     // Note: there does not seem to be a reason to wait for parallel sync at
     // this early step but it is not important since parallel sync (SyncWAL) and
     // need_log_sync are usually not used together.

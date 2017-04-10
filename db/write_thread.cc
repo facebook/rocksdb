@@ -5,7 +5,6 @@
 
 #include "db/write_thread.h"
 #include <chrono>
-#include <limits>
 #include <thread>
 #include "db/column_family.h"
 #include "port/port.h"
@@ -334,7 +333,7 @@ void WriteThread::LaunchParallelFollowers(ParallelGroup* pg,
     }
     w = w->link_newer;
 
-    w->sequence = sequence; // sequence number for the first key in the batch
+    w->sequence = sequence;  // sequence number for the first key in the batch
     w->parallel_group = pg;
     SetState(w, STATE_PARALLEL_FOLLOWER);
   }
