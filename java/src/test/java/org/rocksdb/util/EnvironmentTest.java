@@ -89,7 +89,7 @@ public class EnvironmentTest {
     assertThat(Environment.getJniLibraryExtension()).
         isEqualTo(".so");
     assertThat(Environment.getJniLibraryFileName("rocksdb")).
-        isEqualTo("librocksdbjni-linuxAMD64.so");
+        isEqualTo("librocksdbjni-linux64.so");
     assertThat(Environment.getSharedLibraryFileName("rocksdb")).
         isEqualTo("librocksdbjni.so");
     // UNIX
@@ -98,7 +98,7 @@ public class EnvironmentTest {
     assertThat(Environment.getJniLibraryExtension()).
         isEqualTo(".so");
     assertThat(Environment.getJniLibraryFileName("rocksdb")).
-        isEqualTo("librocksdbjni-linuxAMD64.so");
+        isEqualTo("librocksdbjni-linux64.so");
     assertThat(Environment.getSharedLibraryFileName("rocksdb")).
         isEqualTo("librocksdbjni.so");
     // AIX
@@ -125,19 +125,7 @@ public class EnvironmentTest {
     assertThat(Environment.getJniLibraryExtension()).
       isEqualTo(".dll");
     assertThat(Environment.getJniLibraryFileName("rocksdb")).
-      isEqualTo("librocksdbjni-windowsAMD64.dll");
-    assertThat(Environment.getSharedLibraryFileName("rocksdb")).
-      isEqualTo("librocksdbjni.dll");
-  }
-
-  @Test
-  public void win32(){
-    setEnvironmentClassFields("win", "32");
-    assertThat(Environment.isWindows()).isTrue();
-    assertThat(Environment.getJniLibraryExtension()).
-      isEqualTo(".dll");
-    assertThat(Environment.getJniLibraryFileName("rocksdb")).
-      isEqualTo("librocksdbjni-windows32.dll");
+      isEqualTo("librocksdbjni-win64.dll");
     assertThat(Environment.getSharedLibraryFileName("rocksdb")).
       isEqualTo("librocksdbjni.dll");
   }
