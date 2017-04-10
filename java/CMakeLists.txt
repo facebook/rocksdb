@@ -57,7 +57,6 @@ set(NATIVE_JAVA_CLASSES
         org.rocksdb.ExternalSstFileInfo
         org.rocksdb.FlushOptions
         org.rocksdb.Filter
-        org.rocksdb.GenericRateLimiterConfig
         org.rocksdb.HashLinkedListMemTableConfig
         org.rocksdb.HashSkipListMemTableConfig
         org.rocksdb.Logger
