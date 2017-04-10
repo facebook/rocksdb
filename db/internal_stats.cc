@@ -195,6 +195,9 @@ static const std::string compression_ratio_at_level_prefix =
 static const std::string allstats = "stats";
 static const std::string sstables = "sstables";
 static const std::string cfstats = "cfstats";
+static const std::string cfstats_no_file_histogram =
+    "cfstats-no-file-histogram";
+static const std::string cf_file_histogram = "cf-file-histogram";
 static const std::string dbstats = "dbstats";
 static const std::string levelstats = "levelstats";
 static const std::string num_immutable_mem_table = "num-immutable-mem-table";
@@ -248,6 +251,10 @@ const std::string DB::Properties::kCompressionRatioAtLevelPrefix =
 const std::string DB::Properties::kStats = rocksdb_prefix + allstats;
 const std::string DB::Properties::kSSTables = rocksdb_prefix + sstables;
 const std::string DB::Properties::kCFStats = rocksdb_prefix + cfstats;
+const std::string DB::Properties::kCFStatsNoFileHistogram =
+    rocksdb_prefix + cfstats_no_file_histogram;
+const std::string DB::Properties::kCFFileHistogram =
+    rocksdb_prefix + cf_file_histogram;
 const std::string DB::Properties::kDBStats = rocksdb_prefix + dbstats;
 const std::string DB::Properties::kLevelStats = rocksdb_prefix + levelstats;
 const std::string DB::Properties::kNumImmutableMemTable =
@@ -324,6 +331,11 @@ const std::unordered_map<std::string, DBPropertyInfo>
         {DB::Properties::kCFStats,
          {false, &InternalStats::HandleCFStats, nullptr,
           &InternalStats::HandleCFMapStats}},
+        {DB::Properties::kCFStatsNoFileHistogram,
+         {false, &InternalStats::HandleCFStatsNoFileHistogram, nullptr,
+          nullptr}},
+        {DB::Properties::kCFFileHistogram,
+         {false, &InternalStats::HandleCFFileHistogram, nullptr, nullptr}},
         {DB::Properties::kDBStats,
          {false, &InternalStats::HandleDBStats, nullptr, nullptr}},
         {DB::Properties::kSSTables,
@@ -509,6 +521,17 @@ bool InternalStats::HandleCFMapStats(std::map<std::string, double>* cf_stats) {
 
 bool InternalStats::HandleCFStats(std::string* value, Slice suffix) {
   DumpCFStats(value);
+  return true;
+}
+
+bool InternalStats::HandleCFStatsNoFileHistogram(std::string* value,
+                                                 Slice suffix) {
+  DumpCFStatsNoFileHistogram(value);
+  return true;
+}
+
+bool InternalStats::HandleCFFileHistogram(std::string* value, Slice suffix) {
+  DumpCFFileHistogram(value);
   return true;
 }
 
@@ -855,16 +878,6 @@ void InternalStats::DumpDBStats(std::string* value) {
                10000.0 / std::max(interval_seconds_up, 0.001));
   value->append(buf);
 
-  for (int level = 0; level < number_levels_; level++) {
-    if (!file_read_latency_[level].Empty()) {
-      char buf2[5000];
-      snprintf(buf2, sizeof(buf2),
-               "** Level %d read latency histogram (micros):\n%s\n", level,
-               file_read_latency_[level].ToString().c_str());
-      value->append(buf2);
-    }
-  }
-
   db_stats_snapshot_.seconds_up = seconds_up;
   db_stats_snapshot_.ingest_bytes = user_bytes_written;
   db_stats_snapshot_.write_other = write_other;
@@ -968,6 +981,11 @@ void InternalStats::DumpCFMapStats(
 }
 
 void InternalStats::DumpCFStats(std::string* value) {
+  DumpCFStatsNoFileHistogram(value);
+  DumpCFFileHistogram(value);
+}
+
+void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
   char buf[2000];
   // Per-ColumnFamily stats
   PrintLevelStatsHeader(buf, sizeof(buf), cfd_->GetName());
@@ -1126,6 +1144,23 @@ void InternalStats::DumpCFStats(std::string* value) {
   cf_stats_snapshot_.stall_count = total_stall_count;
 }
 
+void InternalStats::DumpCFFileHistogram(std::string* value) {
+  char buf[2000];
+  snprintf(buf, sizeof(buf),
+           "\n** File Read Latency Histogram By Level [%s] **\n",
+           cfd_->GetName().c_str());
+  value->append(buf);
+
+  for (int level = 0; level < number_levels_; level++) {
+    if (!file_read_latency_[level].Empty()) {
+      char buf2[5000];
+      snprintf(buf2, sizeof(buf2),
+               "** Level %d read latency histogram (micros):\n%s\n", level,
+               file_read_latency_[level].ToString().c_str());
+      value->append(buf2);
+    }
+  }
+}
 
 #else
 
