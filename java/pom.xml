@@ -77,7 +77,7 @@
 									<type>dll</type>
 									<overWrite>true</overWrite>
 									<outputDirectory>${project.build.outputDirectory}</outputDirectory>
-									<destFileName>librocksdbjni-windowsAMD64.dll</destFileName>
+									<destFileName>librocksdbjni-win64.dll</destFileName>
 								</artifactItem>
 								<artifactItem>
 									<groupId>${project.groupId}</groupId>
@@ -97,7 +97,7 @@
 									<type>so</type>
 									<overWrite>true</overWrite>
 									<outputDirectory>${project.build.outputDirectory}</outputDirectory>
-									<destFileName>librocksdbjni-linuxAMD64.so</destFileName>
+									<destFileName>librocksdbjni-linux64.so</destFileName>
 								</artifactItem>
 								<artifactItem>
 									<groupId>${project.groupId}</groupId>
@@ -117,7 +117,7 @@
 									<type>so</type>
 									<overWrite>true</overWrite>
 									<outputDirectory>${project.build.outputDirectory}</outputDirectory>
-									<destFileName>librocksdbjni-solarisSparc64.so</destFileName>
+									<destFileName>librocksdbjni-solaris64.so</destFileName>
 								</artifactItem>
 								<artifactItem>
 									<groupId>${project.groupId}</groupId>
