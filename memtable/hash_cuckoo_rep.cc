@@ -305,13 +305,13 @@ void HashCuckooRep::Get(const LookupKey& key, void* callback_args,
       Slice bucket_user_key = UserKey(bucket);
       if (user_key == bucket_user_key) {
         callback_func(callback_args, bucket);
-        break;
+        return;
       }
     } else {
       // as Put() always stores at the vacant bucket located by the
       // hash function with the smallest possible id, when we first
       // find a vacant bucket in Get(), that means a miss.
-      break;
+      return;
     }
   }
   MemTableRep* backup_table = backup_table_.get();
