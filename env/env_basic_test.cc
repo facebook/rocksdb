@@ -94,7 +94,7 @@ INSTANTIATE_TEST_CASE_P(MockEnv, EnvBasicTestWithParam,
 
 #ifdef USE_AWS
 // Register an AWS env
-Env* CreateAwsEnv(const std::string& dbpath,
+void CreateAwsEnv(const std::string& dbpath,
                   std::unique_ptr<rocksdb::Env>* result) {
   std::shared_ptr<rocksdb::Logger> info_log;
   info_log.reset(new rocksdb::StderrLogger(rocksdb::InfoLogLevel::DEBUG_LEVEL));
@@ -105,7 +105,7 @@ Env* CreateAwsEnv(const std::string& dbpath,
       &aws_access_key_id, &aws_secret_access_key, &aws_region);
   if (!st.ok()) {
     Log(InfoLogLevel::DEBUG_LEVEL, info_log, st.ToString().c_str());
-    return nullptr;
+    return;
   }
   rocksdb::CloudEnvOptions coptions;
   coptions.credentials.access_key_id = aws_access_key_id;
@@ -119,7 +119,7 @@ Env* CreateAwsEnv(const std::string& dbpath,
   assert(st.ok());
   if (!st.ok()) {
     Log(InfoLogLevel::DEBUG_LEVEL, info_log, st.ToString().c_str());
-    return nullptr;
+    return;
   }
   // If we are keeping wal in cloud storage, then tail it as well.
   // so that our unit tests can run to completion.
@@ -127,8 +127,7 @@ Env* CreateAwsEnv(const std::string& dbpath,
     AwsEnv* aws = static_cast<AwsEnv*>(s);
     aws->CreateTailer();
   }
-  result->reset(s);
-  return new NormalizingEnvWrapper(s);  // XXX when does this get freed?
+  result->reset(new NormalizingEnvWrapper(s));
 }
 static rocksdb::Registrar<rocksdb::Env> s3_reg(
     "s3://.*",
