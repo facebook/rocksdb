@@ -35,6 +35,7 @@
   #else
     #define PLATFORM_IS_LITTLE_ENDIAN false
   #endif
+  #include <alloca.h>
 #elif defined(OS_AIX)
   #include <sys/types.h>
   #include <arpa/nameser_compat.h>
