@@ -1335,13 +1335,10 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
     SuperVersion* sv = cfd->GetReferencedSuperVersion(&mutex_);
     auto iter = new ForwardIterator(this, read_options, cfd, sv);
     return NewDBIterator(
-        env_, *cfd->ioptions(), cfd->user_comparator(), iter,
+        env_, read_options, *cfd->ioptions(), cfd->user_comparator(), iter,
         kMaxSequenceNumber,
         sv->mutable_cf_options.max_sequential_skip_in_iterations,
-        sv->version_number, read_options.iterate_upper_bound,
-        read_options.prefix_same_as_start, read_options.pin_data,
-        read_options.total_order_seek,
-        read_options.max_skippable_internal_keys);
+        sv->version_number);
 #endif
   } else {
     SequenceNumber latest_snapshot = versions_->LastSequence();
@@ -1396,12 +1393,9 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
     // likely that any iterator pointer is close to the iterator it points to so
     // that they are likely to be in the same cache line and/or page.
     ArenaWrappedDBIter* db_iter = NewArenaWrappedDbIterator(
-        env_, *cfd->ioptions(), cfd->user_comparator(), snapshot,
+        env_, read_options, *cfd->ioptions(), cfd->user_comparator(), snapshot,
         sv->mutable_cf_options.max_sequential_skip_in_iterations,
-        sv->version_number, read_options.iterate_upper_bound,
-        read_options.prefix_same_as_start, read_options.pin_data,
-        read_options.total_order_seek,
-        read_options.max_skippable_internal_keys);
+        sv->version_number);
 
     InternalIterator* internal_iter =
         NewInternalIterator(read_options, cfd, sv, db_iter->GetArena(),
@@ -1450,12 +1444,10 @@ Status DBImpl::NewIterators(
       SuperVersion* sv = cfd->GetReferencedSuperVersion(&mutex_);
       auto iter = new ForwardIterator(this, read_options, cfd, sv);
       iterators->push_back(NewDBIterator(
-          env_, *cfd->ioptions(), cfd->user_comparator(), iter,
+          env_, read_options, *cfd->ioptions(), cfd->user_comparator(), iter,
           kMaxSequenceNumber,
           sv->mutable_cf_options.max_sequential_skip_in_iterations,
-          sv->version_number, nullptr, false, read_options.pin_data,
-          read_options.total_order_seek,
-          read_options.max_skippable_internal_keys));
+          sv->version_number));
     }
 #endif
   } else {
@@ -1473,11 +1465,9 @@ Status DBImpl::NewIterators(
               : latest_snapshot;
 
       ArenaWrappedDBIter* db_iter = NewArenaWrappedDbIterator(
-          env_, *cfd->ioptions(), cfd->user_comparator(), snapshot,
-          sv->mutable_cf_options.max_sequential_skip_in_iterations,
-          sv->version_number, nullptr, false, read_options.pin_data,
-          read_options.total_order_seek,
-          read_options.max_skippable_internal_keys);
+          env_, read_options, *cfd->ioptions(), cfd->user_comparator(),
+          snapshot, sv->mutable_cf_options.max_sequential_skip_in_iterations,
+          sv->version_number);
       InternalIterator* internal_iter =
           NewInternalIterator(read_options, cfd, sv, db_iter->GetArena(),
                               db_iter->GetRangeDelAggregator());

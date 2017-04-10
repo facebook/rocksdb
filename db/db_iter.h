@@ -27,13 +27,13 @@ class InternalIterator;
 // Return a new iterator that converts internal keys (yielded by
 // "*internal_iter") that were live at the specified "sequence" number
 // into appropriate user keys.
-extern Iterator* NewDBIterator(
-    Env* env, const ImmutableCFOptions& options,
-    const Comparator* user_key_comparator, InternalIterator* internal_iter,
-    const SequenceNumber& sequence, uint64_t max_sequential_skip_in_iterations,
-    uint64_t version_number, const Slice* iterate_upper_bound = nullptr,
-    bool prefix_same_as_start = false, bool pin_data = false,
-    bool total_order_seek = false, uint64_t max_skippable_internal_keys = 0);
+extern Iterator* NewDBIterator(Env* env, const ReadOptions& read_options,
+                               const ImmutableCFOptions& cf_options,
+                               const Comparator* user_key_comparator,
+                               InternalIterator* internal_iter,
+                               const SequenceNumber& sequence,
+                               uint64_t max_sequential_skip_in_iterations,
+                               uint64_t version_number);
 
 // A wrapper iterator which wraps DB Iterator and the arena, with which the DB
 // iterator is supposed be allocated. This class is used as an entry point of
@@ -77,11 +77,9 @@ class ArenaWrappedDBIter : public Iterator {
 
 // Generate the arena wrapped iterator class.
 extern ArenaWrappedDBIter* NewArenaWrappedDbIterator(
-    Env* env, const ImmutableCFOptions& options,
-    const Comparator* user_key_comparator, const SequenceNumber& sequence,
-    uint64_t max_sequential_skip_in_iterations, uint64_t version_number,
-    const Slice* iterate_upper_bound = nullptr,
-    bool prefix_same_as_start = false, bool pin_data = false,
-    bool total_order_seek = false, uint64_t max_skippable_internal_keys = 0);
+    Env* env, const ReadOptions& read_options,
+    const ImmutableCFOptions& cf_options, const Comparator* user_key_comparator,
+    const SequenceNumber& sequence, uint64_t max_sequential_skip_in_iterations,
+    uint64_t version_number);
 
 }  // namespace rocksdb
