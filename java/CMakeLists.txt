@@ -107,7 +107,9 @@ set(NATIVE_JAVA_CLASSES
         org.rocksdb.VectorMemTableConfig
         org.rocksdb.WBWIRocksIterator
         org.rocksdb.WriteBatch
+        org.rocksdb.WriteBatch.Handler
         org.rocksdb.WriteBatchTest
+        org.rocksdb.WriteBatchTestInternalHelper
         org.rocksdb.WriteBatchWithIndex
         org.rocksdb.WriteOptions
 )
