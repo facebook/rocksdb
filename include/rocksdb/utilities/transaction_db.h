@@ -100,6 +100,9 @@ struct TransactionOptions {
 
   // The number of traversals to make during deadlock detection.
   int64_t deadlock_detect_depth = 50;
+
+  // The maximum number of bytes used for the write batch. 0 means no limit.
+  size_t max_write_batch_size = 0;
 };
 
 struct KeyLockInfo {

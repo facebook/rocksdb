@@ -68,44 +68,44 @@ class WriteBatchInternal {
   static const size_t kHeader = 12;
 
   // WriteBatch methods with column_family_id instead of ColumnFamilyHandle*
-  static void Put(WriteBatch* batch, uint32_t column_family_id,
-                  const Slice& key, const Slice& value);
-
-  static void Put(WriteBatch* batch, uint32_t column_family_id,
-                  const SliceParts& key, const SliceParts& value);
-
-  static void Delete(WriteBatch* batch, uint32_t column_family_id,
-                     const SliceParts& key);
-
-  static void Delete(WriteBatch* batch, uint32_t column_family_id,
-                     const Slice& key);
-
-  static void SingleDelete(WriteBatch* batch, uint32_t column_family_id,
-                           const SliceParts& key);
-
-  static void SingleDelete(WriteBatch* batch, uint32_t column_family_id,
-                           const Slice& key);
-
-  static void DeleteRange(WriteBatch* b, uint32_t column_family_id,
-                          const Slice& begin_key, const Slice& end_key);
-
-  static void DeleteRange(WriteBatch* b, uint32_t column_family_id,
-                          const SliceParts& begin_key,
-                          const SliceParts& end_key);
-
-  static void Merge(WriteBatch* batch, uint32_t column_family_id,
+  static Status Put(WriteBatch* batch, uint32_t column_family_id,
                     const Slice& key, const Slice& value);
 
-  static void Merge(WriteBatch* batch, uint32_t column_family_id,
+  static Status Put(WriteBatch* batch, uint32_t column_family_id,
                     const SliceParts& key, const SliceParts& value);
 
-  static void MarkEndPrepare(WriteBatch* batch, const Slice& xid);
+  static Status Delete(WriteBatch* batch, uint32_t column_family_id,
+                       const SliceParts& key);
 
-  static void MarkRollback(WriteBatch* batch, const Slice& xid);
+  static Status Delete(WriteBatch* batch, uint32_t column_family_id,
+                       const Slice& key);
 
-  static void MarkCommit(WriteBatch* batch, const Slice& xid);
+  static Status SingleDelete(WriteBatch* batch, uint32_t column_family_id,
+                             const SliceParts& key);
 
-  static void InsertNoop(WriteBatch* batch);
+  static Status SingleDelete(WriteBatch* batch, uint32_t column_family_id,
+                             const Slice& key);
+
+  static Status DeleteRange(WriteBatch* b, uint32_t column_family_id,
+                            const Slice& begin_key, const Slice& end_key);
+
+  static Status DeleteRange(WriteBatch* b, uint32_t column_family_id,
+                            const SliceParts& begin_key,
+                            const SliceParts& end_key);
+
+  static Status Merge(WriteBatch* batch, uint32_t column_family_id,
+                      const Slice& key, const Slice& value);
+
+  static Status Merge(WriteBatch* batch, uint32_t column_family_id,
+                      const SliceParts& key, const SliceParts& value);
+
+  static Status MarkEndPrepare(WriteBatch* batch, const Slice& xid);
+
+  static Status MarkRollback(WriteBatch* batch, const Slice& xid);
+
+  static Status MarkCommit(WriteBatch* batch, const Slice& xid);
+
+  static Status InsertNoop(WriteBatch* batch);
 
   // Return the number of entries in the batch.
   static int Count(const WriteBatch* batch);
@@ -132,7 +132,7 @@ class WriteBatchInternal {
     return batch->rep_.size();
   }
 
-  static void SetContents(WriteBatch* batch, const Slice& contents);
+  static Status SetContents(WriteBatch* batch, const Slice& contents);
 
   // Inserts batches[i] into memtable, for i in 0..num_batches-1 inclusive.
   //
@@ -177,12 +177,51 @@ class WriteBatchInternal {
                            uint64_t log_number = 0, DB* db = nullptr,
                            bool concurrent_memtable_writes = false);
 
-  static void Append(WriteBatch* dst, const WriteBatch* src,
-                     const bool WAL_only = false);
+  static Status Append(WriteBatch* dst, const WriteBatch* src,
+                       const bool WAL_only = false);
 
   // Returns the byte size of appending a WriteBatch with ByteSize
   // leftByteSize and a WriteBatch with ByteSize rightByteSize
   static size_t AppendedByteSize(size_t leftByteSize, size_t rightByteSize);
+};
+
+// LocalSavePoint is similar to a scope guard
+class LocalSavePoint {
+ public:
+  explicit LocalSavePoint(WriteBatch* batch)
+      : batch_(batch),
+        savepoint_(batch->GetDataSize(), batch->Count(),
+                   batch->content_flags_.load(std::memory_order_relaxed))
+#ifndef NDEBUG
+        ,
+        committed_(false)
+#endif
+  {
+  }
+
+#ifndef NDEBUG
+  ~LocalSavePoint() { assert(committed_); }
+#endif
+  Status commit() {
+#ifndef NDEBUG
+    committed_ = true;
+#endif
+    if (batch_->max_bytes_ && batch_->rep_.size() > batch_->max_bytes_) {
+      batch_->rep_.resize(savepoint_.size);
+      WriteBatchInternal::SetCount(batch_, savepoint_.count);
+      batch_->content_flags_.store(savepoint_.content_flags,
+                                   std::memory_order_relaxed);
+      return Status::MemoryLimit();
+    }
+    return Status::OK();
+  }
+
+ private:
+  WriteBatch* batch_;
+  SavePoint savepoint_;
+#ifndef NDEBUG
+  bool committed_;
+#endif
 };
 
 }  // namespace rocksdb
