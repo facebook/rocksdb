@@ -30,6 +30,7 @@ Status DBCloud::Open(const Options& options, const std::string& dbname,
       ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
   std::vector<ColumnFamilyHandle*> handles;
   DBCloud* dbcloud = nullptr;
+  std::string dbid;
   Status s = DBCloud::Open(options, dbname, column_families, "", 0, &handles,
                            &dbcloud);
   if (s.ok()) {
@@ -38,7 +39,11 @@ Status DBCloud::Open(const Options& options, const std::string& dbname,
     // default column family
     delete handles[0];
     *dbptr = dbcloud;
+    dbcloud->GetDbIdentity(dbid);
   }
+  Log(InfoLogLevel::INFO_LEVEL, options.info_log,
+      "Opened cloud db with local dir %s dbid %d. %s", dbname.c_str(),
+      dbid.c_str(), s.ToString().c_str());
   return s;
 }
 
@@ -90,6 +95,7 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
   }
 
   DB* db;
+  std::string dbid;
   if (read_only) {
     st = DB::OpenForReadOnly(options, local_dbname, column_families, handles,
                              &db);
@@ -98,7 +104,11 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
   }
   if (st.ok()) {
     *dbptr = new DBCloudImpl(db);
+    db->GetDbIdentity(dbid);
   }
+  Log(InfoLogLevel::INFO_LEVEL, options.info_log,
+      "Opened cloud db with local dir %s dbid %s. %s", local_dbname.c_str(),
+      dbid.c_str(), st.ToString().c_str());
   return st;
 }
 
