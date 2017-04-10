@@ -2584,6 +2584,8 @@ TEST_P(DBCompactionDirectIOTest, DirectIO) {
   ASSERT_EQ("1,1,1", FilesPerLevel(1));
   Compact(1, "p1", "p9");
   ASSERT_EQ("0,0,1", FilesPerLevel(1));
+  Destroy(options);
+  delete options.env;
 }
 
 INSTANTIATE_TEST_CASE_P(DBCompactionDirectIOTest, DBCompactionDirectIOTest,

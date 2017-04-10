@@ -109,6 +109,8 @@ TEST_P(DBFlushDirectIOTest, DirectIO) {
   FlushOptions flush_options;
   flush_options.wait = true;
   ASSERT_OK(dbfull()->Flush(flush_options));
+  Destroy(options);
+  delete options.env;
 }
 
 INSTANTIATE_TEST_CASE_P(DBFlushDirectIOTest, DBFlushDirectIOTest,
