@@ -1,25 +1,31 @@
 cmake_minimum_required(VERSION 2.6)
 
 set(JNI_NATIVE_SOURCES
-        rocksjni/backupenginejni.cc
         rocksjni/backupablejni.cc
+        rocksjni/backupenginejni.cc
         rocksjni/checkpoint.cc
+        rocksjni/clock_cache.cc
         rocksjni/columnfamilyhandle.cc
         rocksjni/compaction_filter.cc
+        rocksjni/compaction_options_fifo.cc
+        rocksjni/compaction_options_universal.cc
         rocksjni/comparator.cc
         rocksjni/comparatorjnicallback.cc
+        rocksjni/compression_options.cc
         rocksjni/env.cc
         rocksjni/env_options.cc
         rocksjni/external_sst_file_info.cc
         rocksjni/filter.cc
         rocksjni/iterator.cc
         rocksjni/loggerjnicallback.cc
+        rocksjni/lru_cache.cc
         rocksjni/memtablejni.cc
         rocksjni/merge_operator.cc
         rocksjni/options.cc
         rocksjni/ratelimiterjni.cc
         rocksjni/remove_emptyvalue_compactionfilterjni.cc
         rocksjni/restorejni.cc
+        rocksjni/rocksdb_exception_test.cc
         rocksjni/rocksjni.cc
         rocksjni/slice.cc
         rocksjni/snapshot.cc
@@ -29,38 +35,50 @@ set(JNI_NATIVE_SOURCES
         rocksjni/transaction_log.cc
         rocksjni/ttl.cc
         rocksjni/write_batch.cc
-        rocksjni/writebatchhandlerjnicallback.cc
-        rocksjni/write_batch_with_index.cc
         rocksjni/write_batch_test.cc
-        rocksjni/rocksdb_exception_test.cc
+        rocksjni/write_batch_with_index.cc
+        rocksjni/writebatchhandlerjnicallback.cc
 )
 
 set(NATIVE_JAVA_CLASSES
         org.rocksdb.AbstractCompactionFilter
         org.rocksdb.AbstractComparator
+        org.rocksdb.AbstractImmutableNativeReference
+        org.rocksdb.AbstractNativeReference
+        org.rocksdb.AbstractRocksIterator
         org.rocksdb.AbstractSlice
-        org.rocksdb.BackupEngine
+        org.rocksdb.AbstractWriteBatch
         org.rocksdb.BackupableDB
         org.rocksdb.BackupableDBOptions
+        org.rocksdb.BackupEngine
+        org.rocksdb.BackupEngineTest
         org.rocksdb.BlockBasedTableConfig
         org.rocksdb.BloomFilter
+        org.rocksdb.Cache
         org.rocksdb.Checkpoint
+        org.rocksdb.ClockCache
         org.rocksdb.ColumnFamilyHandle
         org.rocksdb.ColumnFamilyOptions
+        org.rocksdb.CompactionOptionsFIFO
+        org.rocksdb.CompactionOptionsUniversal
         org.rocksdb.Comparator
         org.rocksdb.ComparatorOptions
+        org.rocksdb.CompressionOptions
         org.rocksdb.DBOptions
         org.rocksdb.DirectComparator
         org.rocksdb.DirectSlice
         org.rocksdb.Env
         org.rocksdb.EnvOptions
         org.rocksdb.ExternalSstFileInfo
-        org.rocksdb.FlushOptions
         org.rocksdb.Filter
+        org.rocksdb.FlushOptions
         org.rocksdb.HashLinkedListMemTableConfig
         org.rocksdb.HashSkipListMemTableConfig
         org.rocksdb.Logger
+        org.rocksdb.LRUCache
+        org.rocksdb.MemTableConfig
         org.rocksdb.MergeOperator
+        org.rocksdb.NativeLibraryLoader
         org.rocksdb.Options
         org.rocksdb.PlainTableConfig
         org.rocksdb.RateLimiter
@@ -69,26 +87,29 @@ set(NATIVE_JAVA_CLASSES
         org.rocksdb.RestoreBackupableDB
         org.rocksdb.RestoreOptions
         org.rocksdb.RocksDB
+        org.rocksdb.RocksDBExceptionTest
         org.rocksdb.RocksEnv
         org.rocksdb.RocksIterator
+        org.rocksdb.RocksIteratorInterface
         org.rocksdb.RocksMemEnv
+        org.rocksdb.RocksMutableObject
+        org.rocksdb.RocksObject
         org.rocksdb.SkipListMemTableConfig
         org.rocksdb.Slice
+        org.rocksdb.Snapshot
+        org.rocksdb.SnapshotTest
         org.rocksdb.SstFileWriter
         org.rocksdb.Statistics
+        org.rocksdb.StringAppendOperator
+        org.rocksdb.TableFormatConfig
         org.rocksdb.TransactionLogIterator
         org.rocksdb.TtlDB
         org.rocksdb.VectorMemTableConfig
-        org.rocksdb.Snapshot
-        org.rocksdb.StringAppendOperator
-        org.rocksdb.WriteBatch
-        org.rocksdb.WriteBatch.Handler
-        org.rocksdb.WriteOptions
-        org.rocksdb.WriteBatchWithIndex
         org.rocksdb.WBWIRocksIterator
+        org.rocksdb.WriteBatch
         org.rocksdb.WriteBatchTest
-        org.rocksdb.WriteBatchTestInternalHelper
-        org.rocksdb.RocksDBExceptionTest
+        org.rocksdb.WriteBatchWithIndex
+        org.rocksdb.WriteOptions
 )
 
 include_directories($ENV{JAVA_HOME}/include)
