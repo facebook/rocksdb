@@ -760,7 +760,9 @@ Status PosixWritableFile::Allocate(uint64_t offset, uint64_t len) {
     return IOError(filename_, errno);
   }
 }
+#endif
 
+#ifdef ROCKSDB_RANGESYNC_PRESENT
 Status PosixWritableFile::RangeSync(uint64_t offset, uint64_t nbytes) {
   assert(offset <= std::numeric_limits<off_t>::max());
   assert(nbytes <= std::numeric_limits<off_t>::max());
@@ -771,7 +773,9 @@ Status PosixWritableFile::RangeSync(uint64_t offset, uint64_t nbytes) {
     return IOError(filename_, errno);
   }
 }
+#endif
 
+#ifdef OS_LINUX
 size_t PosixWritableFile::GetUniqueId(char* id, size_t max_size) const {
   return PosixHelper::GetUniqueIdFromFile(fd_, id, max_size);
 }

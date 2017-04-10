@@ -113,7 +113,11 @@ class PosixWritableFile : public WritableFile {
   virtual Status InvalidateCache(size_t offset, size_t length) override;
 #ifdef ROCKSDB_FALLOCATE_PRESENT
   virtual Status Allocate(uint64_t offset, uint64_t len) override;
+#endif
+#ifdef ROCKSDB_RANGESYNC_PRESENT
   virtual Status RangeSync(uint64_t offset, uint64_t nbytes) override;
+#endif
+#ifdef OS_LINUX
   virtual size_t GetUniqueId(char* id, size_t max_size) const override;
 #endif
 };
