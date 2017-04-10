@@ -21,8 +21,8 @@
 
 #include "rocksdb/env.h"
 
+#include "monitoring/iostats_context_imp.h"
 #include "port/sys_time.h"
-#include "util/iostats_context_imp.h"
 
 namespace rocksdb {
 
@@ -31,12 +31,12 @@ namespace port {
 WinLogger::WinLogger(uint64_t (*gettid)(), Env* env, HANDLE file,
                      const InfoLogLevel log_level)
     : Logger(log_level),
+      file_(file),
       gettid_(gettid),
       log_size_(0),
       last_flush_micros_(0),
       env_(env),
-      flush_pending_(false),
-      file_(file) {}
+      flush_pending_(false) {}
 
 void WinLogger::DebugWriter(const char* str, int len) {
   DWORD bytesWritten = 0;

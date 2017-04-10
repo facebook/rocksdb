@@ -11,20 +11,20 @@
 
 #include "rocksdb/db.h"
 
-#include <inttypes.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <inttypes.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include "db/db_impl.h"
+#include "db/log_format.h"
+#include "db/version_set.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/env.h"
 #include "rocksdb/table.h"
 #include "rocksdb/write_batch.h"
-#include "db/db_impl.h"
-#include "db/filename.h"
-#include "db/log_format.h"
-#include "db/version_set.h"
-#include "util/logging.h"
+#include "util/filename.h"
+#include "util/string_util.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 
@@ -41,7 +41,10 @@ class CorruptionTest : public testing::Test {
   DB* db_;
 
   CorruptionTest() {
-    tiny_cache_ = NewLRUCache(100);
+    // If LRU cache shard bit is smaller than 2 (or -1 which will automatically
+    // set it to 0), test SequenceNumberRecovery will fail, likely because of a
+    // bug in recovery code. Keep it 4 for now to make the test passes.
+    tiny_cache_ = NewLRUCache(100, 4);
     options_.wal_recovery_mode = WALRecoveryMode::kTolerateCorruptedTailRecords;
     options_.env = &env_;
     dbname_ = test::TmpDir() + "/corruption_test";

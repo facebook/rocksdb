@@ -119,12 +119,7 @@ public class WriteBatchHandlerTest {
    * Enumeration of Write Batch
    * event actions
    */
-  private enum Action {
-    PUT,
-    MERGE,
-    DELETE,
-    LOG
-  }
+  private enum Action { PUT, MERGE, DELETE, DELETE_RANGE, LOG }
 
   /**
    * A simple WriteBatch Handler which adds a record
@@ -158,6 +153,11 @@ public class WriteBatchHandlerTest {
     public void delete(final byte[] key) {
       events.add(new Tuple<>(Action.DELETE,
           new Tuple<byte[], byte[]>(key, null)));
+    }
+
+    @Override
+    public void deleteRange(final byte[] beginKey, final byte[] endKey) {
+      events.add(new Tuple<>(Action.DELETE_RANGE, new Tuple<byte[], byte[]>(beginKey, endKey)));
     }
 
     @Override

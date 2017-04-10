@@ -16,15 +16,13 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include <algorithm>
+#include <climits>
 #include <map>
 #include <set>
-#include <climits>
+#include <string>
 #include <unordered_map>
 #include <vector>
-#include <string>
-
 #include "db/compaction.h"
-#include "db/filename.h"
 #include "db/internal_stats.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
@@ -34,22 +32,23 @@
 #include "db/pinned_iterators_manager.h"
 #include "db/table_cache.h"
 #include "db/version_builder.h"
+#include "monitoring/perf_context_imp.h"
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/format.h"
 #include "table/get_context.h"
 #include "table/internal_iterator.h"
-#include "table/merger.h"
+#include "table/merging_iterator.h"
 #include "table/meta_blocks.h"
 #include "table/plain_table_factory.h"
 #include "table/table_reader.h"
 #include "table/two_level_iterator.h"
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
-#include "util/logging.h"
-#include "util/perf_context_imp.h"
+#include "util/filename.h"
 #include "util/stop_watch.h"
+#include "util/string_util.h"
 #include "util/sync_point.h"
 
 namespace rocksdb {
@@ -928,7 +927,7 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
       version_number_(version_number) {}
 
 void Version::Get(const ReadOptions& read_options, const LookupKey& k,
-                  std::string* value, Status* status,
+                  PinnableSlice* value, Status* status,
                   MergeContext* merge_context,
                   RangeDelAggregator* range_del_agg, bool* value_found,
                   bool* key_exists, SequenceNumber* seq) {
@@ -1005,9 +1004,13 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     }
     // merge_operands are in saver and we hit the beginning of the key history
     // do a final merge of nullptr and operands;
-    *status = MergeHelper::TimedFullMerge(merge_operator_, user_key, nullptr,
-                                          merge_context->GetOperands(), value,
-                                          info_log_, db_statistics_, env_);
+    std::string* str_value = value != nullptr ? value->GetSelf() : nullptr;
+    *status = MergeHelper::TimedFullMerge(
+        merge_operator_, user_key, nullptr, merge_context->GetOperands(),
+        str_value, info_log_, db_statistics_, env_);
+    if (LIKELY(value != nullptr)) {
+      value->PinSelf();
+    }
   } else {
     if (key_exists != nullptr) {
       *key_exists = false;
@@ -1053,9 +1056,10 @@ bool Version::MaybeInitializeFileMetaData(FileMetaData* file_meta) {
   Status s = GetTableProperties(&tp, file_meta);
   file_meta->init_stats_from_file = true;
   if (!s.ok()) {
-    Log(InfoLogLevel::ERROR_LEVEL, vset_->db_options_->info_log,
-        "Unable to load table properties for file %" PRIu64 " --- %s\n",
-        file_meta->fd.GetNumber(), s.ToString().c_str());
+    ROCKS_LOG_ERROR(vset_->db_options_->info_log,
+                    "Unable to load table properties for file %" PRIu64
+                    " --- %s\n",
+                    file_meta->fd.GetNumber(), s.ToString().c_str());
     return false;
   }
   if (tp.get() == nullptr) return false;
@@ -1306,6 +1310,14 @@ void VersionStorageInfo::ComputeCompactionScore(
       } else {
         score = static_cast<double>(num_sorted_runs) /
                 mutable_cf_options.level0_file_num_compaction_trigger;
+        if (compaction_style_ == kCompactionStyleLevel && num_levels() > 1) {
+          // Level-based involves L0->L0 compactions that can lead to oversized
+          // L0 files. Take into account size as well to avoid later giant
+          // compactions to the base level.
+          uint64_t base_level_max_bytes = MaxBytesForLevel(base_level());
+          score = std::max(
+              score, static_cast<double>(total_size) / base_level_max_bytes);
+        }
       }
     } else {
       // Compute the ratio of current size to size limit.
@@ -1533,13 +1545,13 @@ void VersionStorageInfo::UpdateFilesByCompactionPri(
         break;
       case kOldestLargestSeqFirst:
         std::sort(temp.begin(), temp.end(),
-                  [this](const Fsize& f1, const Fsize& f2) -> bool {
+                  [](const Fsize& f1, const Fsize& f2) -> bool {
                     return f1.file->largest_seqno < f2.file->largest_seqno;
                   });
         break;
       case kOldestSmallestSeqFirst:
         std::sort(temp.begin(), temp.end(),
-                  [this](const Fsize& f1, const Fsize& f2) -> bool {
+                  [](const Fsize& f1, const Fsize& f2) -> bool {
                     return f1.file->smallest_seqno < f2.file->smallest_seqno;
                   });
         break;
@@ -1640,10 +1652,11 @@ void VersionStorageInfo::GetOverlappingInputs(
   }
   const Comparator* user_cmp = user_comparator_;
   if (begin != nullptr && end != nullptr && level > 0) {
-    GetOverlappingInputsBinarySearch(level, user_begin, user_end, inputs,
-      hint_index, file_index);
+    GetOverlappingInputsRangeBinarySearch(level, user_begin, user_end, inputs,
+                                          hint_index, file_index);
     return;
   }
+
   for (size_t i = 0; i < level_files_brief_[level].num_files; ) {
     FdWithKeyRange* f = &(level_files_brief_[level].files[i++]);
     const Slice file_start = ExtractUserKey(f->smallest_key);
@@ -1674,13 +1687,49 @@ void VersionStorageInfo::GetOverlappingInputs(
   }
 }
 
+// Store in "*inputs" files in "level" that within range [begin,end]
+// Guarantee a "clean cut" boundary between the files in inputs
+// and the surrounding files and the maxinum number of files.
+// This will ensure that no parts of a key are lost during compaction.
+// If hint_index is specified, then it points to a file in the range.
+// The file_index returns a pointer to any file in an overlapping range.
+void VersionStorageInfo::GetCleanInputsWithinInterval(
+    int level, const InternalKey* begin, const InternalKey* end,
+    std::vector<FileMetaData*>* inputs, int hint_index, int* file_index) const {
+  if (level >= num_non_empty_levels_) {
+    // this level is empty, no inputs within range
+    return;
+  }
+
+  inputs->clear();
+  Slice user_begin, user_end;
+  if (begin != nullptr) {
+    user_begin = begin->user_key();
+  }
+  if (end != nullptr) {
+    user_end = end->user_key();
+  }
+  if (file_index) {
+    *file_index = -1;
+  }
+  if (begin != nullptr && end != nullptr && level > 0) {
+    GetOverlappingInputsRangeBinarySearch(level, user_begin, user_end, inputs,
+                                          hint_index, file_index,
+                                          true /* within_interval */);
+  }
+}
+
 // Store in "*inputs" all files in "level" that overlap [begin,end]
 // Employ binary search to find at least one file that overlaps the
 // specified range. From that file, iterate backwards and
 // forwards to find all overlapping files.
-void VersionStorageInfo::GetOverlappingInputsBinarySearch(
+// if within_range is set, then only store the maximum clean inputs
+// within range [begin, end]. "clean" means there is a boudnary
+// between the files in "*inputs" and the surrounding files
+void VersionStorageInfo::GetOverlappingInputsRangeBinarySearch(
     int level, const Slice& user_begin, const Slice& user_end,
-    std::vector<FileMetaData*>* inputs, int hint_index, int* file_index) const {
+    std::vector<FileMetaData*>* inputs, int hint_index, int* file_index,
+    bool within_interval) const {
   assert(level > 0);
   int min = 0;
   int mid = 0;
@@ -1700,9 +1749,13 @@ void VersionStorageInfo::GetOverlappingInputsBinarySearch(
     FdWithKeyRange* f = &(level_files_brief_[level].files[mid]);
     const Slice file_start = ExtractUserKey(f->smallest_key);
     const Slice file_limit = ExtractUserKey(f->largest_key);
-    if (user_cmp->Compare(file_limit, user_begin) < 0) {
+    if ((!within_interval && user_cmp->Compare(file_limit, user_begin) < 0) ||
+        (within_interval && user_cmp->Compare(file_start, user_begin) < 0)) {
       min = mid + 1;
-    } else if (user_cmp->Compare(user_end, file_start) < 0) {
+    } else if ((!within_interval &&
+                user_cmp->Compare(user_end, file_start) < 0) ||
+               (within_interval &&
+                user_cmp->Compare(user_end, file_limit) < 0)) {
       max = mid - 1;
     } else {
       foundOverlap = true;
@@ -1718,24 +1771,38 @@ void VersionStorageInfo::GetOverlappingInputsBinarySearch(
   if (file_index) {
     *file_index = mid;
   }
-  ExtendOverlappingInputs(level, user_begin, user_end, inputs, mid);
+
+  int start_index, end_index;
+  if (within_interval) {
+    ExtendFileRangeWithinInterval(level, user_begin, user_end, mid, &start_index,
+                                  &end_index);
+  } else {
+    ExtendFileRangeOverlappingInterval(level, user_begin, user_end, mid,
+                                       &start_index, &end_index);
+  }
+  assert(end_index >= start_index);
+  // insert overlapping files into vector
+  for (int i = start_index; i <= end_index; i++) {
+    inputs->push_back(files_[level][i]);
+  }
 }
 
-// Store in "*inputs" all files in "level" that overlap [begin,end]
-// The midIndex specifies the index of at least one file that
+// Store in *start_index and *end_index the range of all files in
+// "level" that overlap [begin,end]
+// The mid_index specifies the index of at least one file that
 // overlaps the specified range. From that file, iterate backward
 // and forward to find all overlapping files.
 // Use FileLevel in searching, make it faster
-void VersionStorageInfo::ExtendOverlappingInputs(
+void VersionStorageInfo::ExtendFileRangeOverlappingInterval(
     int level, const Slice& user_begin, const Slice& user_end,
-    std::vector<FileMetaData*>* inputs, unsigned int midIndex) const {
+    unsigned int mid_index, int* start_index, int* end_index) const {
   const Comparator* user_cmp = user_comparator_;
   const FdWithKeyRange* files = level_files_brief_[level].files;
 #ifndef NDEBUG
   {
-    // assert that the file at midIndex overlaps with the range
-    assert(midIndex < level_files_brief_[level].num_files);
-    const FdWithKeyRange* f = &files[midIndex];
+    // assert that the file at mid_index overlaps with the range
+    assert(mid_index < level_files_brief_[level].num_files);
+    const FdWithKeyRange* f = &files[mid_index];
     const Slice fstart = ExtractUserKey(f->smallest_key);
     const Slice flimit = ExtractUserKey(f->largest_key);
     if (user_cmp->Compare(fstart, user_begin) >= 0) {
@@ -1745,91 +1812,105 @@ void VersionStorageInfo::ExtendOverlappingInputs(
     }
   }
 #endif
-  int startIndex = midIndex + 1;
-  int endIndex = midIndex;
+  *start_index = mid_index + 1;
+  *end_index = mid_index;
   int count __attribute__((unused)) = 0;
 
   // check backwards from 'mid' to lower indices
-  for (int i = midIndex; i >= 0 ; i--) {
+  for (int i = mid_index; i >= 0 ; i--) {
     const FdWithKeyRange* f = &files[i];
     const Slice file_limit = ExtractUserKey(f->largest_key);
     if (user_cmp->Compare(file_limit, user_begin) >= 0) {
-      startIndex = i;
+      *start_index = i;
       assert((count++, true));
     } else {
       break;
     }
   }
   // check forward from 'mid+1' to higher indices
-  for (unsigned int i = midIndex+1;
+  for (unsigned int i = mid_index+1;
        i < level_files_brief_[level].num_files; i++) {
     const FdWithKeyRange* f = &files[i];
     const Slice file_start = ExtractUserKey(f->smallest_key);
     if (user_cmp->Compare(file_start, user_end) <= 0) {
       assert((count++, true));
-      endIndex = i;
+      *end_index = i;
     } else {
       break;
     }
   }
-  assert(count == endIndex - startIndex + 1);
-
-  // insert overlapping files into vector
-  for (int i = startIndex; i <= endIndex; i++) {
-    FileMetaData* f = files_[level][i];
-    inputs->push_back(f);
-  }
+  assert(count == *end_index - *start_index + 1);
 }
 
-// Returns true iff the first or last file in inputs contains
-// an overlapping user key to the file "just outside" of it (i.e.
-// just after the last file, or just before the first file)
-// REQUIRES: "*inputs" is a sorted list of non-overlapping files
-bool VersionStorageInfo::HasOverlappingUserKey(
-    const std::vector<FileMetaData*>* inputs, int level) {
-
-  // If inputs empty, there is no overlap.
-  // If level == 0, it is assumed that all needed files were already included.
-  if (inputs->empty() || level == 0){
-    return false;
-  }
-
+// Store in *start_index and *end_index the clean range of all files in
+// "level" within [begin,end]
+// The mid_index specifies the index of at least one file within
+// the specified range. From that file, iterate backward
+// and forward to find all overlapping files and then "shrink" to
+// the clean range required.
+// Use FileLevel in searching, make it faster
+void VersionStorageInfo::ExtendFileRangeWithinInterval(
+    int level, const Slice& user_begin, const Slice& user_end,
+    unsigned int mid_index, int* start_index, int* end_index) const {
+  assert(level != 0);
   const Comparator* user_cmp = user_comparator_;
-  const rocksdb::LevelFilesBrief& file_level = level_files_brief_[level];
   const FdWithKeyRange* files = level_files_brief_[level].files;
-  const size_t kNumFiles = file_level.num_files;
-
-  // Check the last file in inputs against the file after it
-  size_t last_file = FindFile(*internal_comparator_, file_level,
-                              inputs->back()->largest.Encode());
-  assert(last_file < kNumFiles);  // File should exist!
-  if (last_file < kNumFiles-1) {                    // If not the last file
-    const Slice last_key_in_input = ExtractUserKey(
-        files[last_file].largest_key);
-    const Slice first_key_after = ExtractUserKey(
-        files[last_file+1].smallest_key);
-    if (user_cmp->Equal(last_key_in_input, first_key_after)) {
-      // The last user key in input overlaps with the next file's first key
-      return true;
+#ifndef NDEBUG
+  {
+    // assert that the file at mid_index is within the range
+    assert(mid_index < level_files_brief_[level].num_files);
+    const FdWithKeyRange* f = &files[mid_index];
+    const Slice fstart = ExtractUserKey(f->smallest_key);
+    const Slice flimit = ExtractUserKey(f->largest_key);
+    assert(user_cmp->Compare(fstart, user_begin) >= 0 &&
+           user_cmp->Compare(flimit, user_end) <= 0);
+  }
+#endif
+  ExtendFileRangeOverlappingInterval(level, user_begin, user_end, mid_index,
+                                     start_index, end_index);
+  int left = *start_index;
+  int right = *end_index;
+  // shrink from left to right
+  while (left <= right) {
+    const Slice& first_key_in_range = ExtractUserKey(files[left].smallest_key);
+    if (user_cmp->Compare(first_key_in_range, user_begin) < 0) {
+      left++;
+      continue;
     }
+    if (left > 0) {  // If not first file
+      const Slice& last_key_before =
+          ExtractUserKey(files[left - 1].largest_key);
+      if (user_cmp->Equal(first_key_in_range, last_key_before)) {
+        // The first user key in range overlaps with the previous file's last
+        // key
+        left++;
+        continue;
+      }
+    }
+    break;
+  }
+  // shrink from right to left
+  while (left <= right) {
+    const Slice last_key_in_range = ExtractUserKey(files[right].largest_key);
+    if (user_cmp->Compare(last_key_in_range, user_end) > 0) {
+      right--;
+      continue;
+    }
+    if (right < static_cast<int>(level_files_brief_[level].num_files) -
+                    1) {  // If not the last file
+      const Slice first_key_after =
+          ExtractUserKey(files[right + 1].smallest_key);
+      if (user_cmp->Equal(last_key_in_range, first_key_after)) {
+        // The last user key in range overlaps with the next file's first key
+        right--;
+        continue;
+      }
+    }
+    break;
   }
 
-  // Check the first file in inputs against the file just before it
-  size_t first_file = FindFile(*internal_comparator_, file_level,
-                               inputs->front()->smallest.Encode());
-  assert(first_file <= last_file);   // File should exist!
-  if (first_file > 0) {                                 // If not first file
-    const Slice& first_key_in_input = ExtractUserKey(
-        files[first_file].smallest_key);
-    const Slice& last_key_before = ExtractUserKey(
-        files[first_file-1].largest_key);
-    if (user_cmp->Equal(first_key_in_input, last_key_before)) {
-      // The first user key in input overlaps with the previous file's last key
-      return true;
-    }
-  }
-
-  return false;
+  *start_index = left;
+  *end_index = right;
 }
 
 uint64_t VersionStorageInfo::NumLevelBytes(int level) const {
@@ -2001,9 +2082,9 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableCFOptions& ioptions,
         // base_bytes_min. We set it be base_bytes_min.
         base_level_size = base_bytes_min + 1U;
         base_level_ = first_non_empty_level;
-        Warn(ioptions.info_log,
-             "More existing levels in DB than needed. "
-             "max_bytes_for_level_multiplier may not be guaranteed.");
+        ROCKS_LOG_WARN(ioptions.info_log,
+                       "More existing levels in DB than needed. "
+                       "max_bytes_for_level_multiplier may not be guaranteed.");
       } else {
         // Find base level (where L0 data is compacted to).
         base_level_ = first_non_empty_level;
@@ -2309,8 +2390,8 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
     // only one thread can be here at the same time
     if (new_descriptor_log) {
       // create manifest file
-      Log(InfoLogLevel::INFO_LEVEL, db_options_->info_log,
-          "Creating manifest %" PRIu64 "\n", pending_manifest_file_number_);
+      ROCKS_LOG_INFO(db_options_->info_log, "Creating manifest %" PRIu64 "\n",
+                     pending_manifest_file_number_);
       unique_ptr<WritableFile> descriptor_file;
       EnvOptions opt_env_opts = env_->OptimizeForManifestWrite(env_options_);
       s = NewWritableFile(
@@ -2353,17 +2434,16 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
         s = SyncManifest(env_, db_options_, descriptor_log_->file());
       }
       if (!s.ok()) {
-        Log(InfoLogLevel::ERROR_LEVEL, db_options_->info_log,
-            "MANIFEST write: %s\n", s.ToString().c_str());
+        ROCKS_LOG_ERROR(db_options_->info_log, "MANIFEST write: %s\n",
+                        s.ToString().c_str());
       }
     }
 
     // If we just created a new descriptor file, install it by writing a
     // new CURRENT file that points to it.
     if (s.ok() && new_descriptor_log) {
-      s = SetCurrentFile(
-          env_, dbname_, pending_manifest_file_number_,
-          db_options_->disable_data_sync ? nullptr : db_directory);
+      s = SetCurrentFile(env_, dbname_, pending_manifest_file_number_,
+                         db_directory);
     }
 
     if (s.ok()) {
@@ -2425,15 +2505,16 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
     for (auto& e : batch_edits) {
       version_edits = version_edits + "\n" + e->DebugString(true);
     }
-    Log(InfoLogLevel::ERROR_LEVEL, db_options_->info_log,
+    ROCKS_LOG_ERROR(
+        db_options_->info_log,
         "[%s] Error in committing version edit to MANIFEST: %s",
         column_family_data ? column_family_data->GetName().c_str() : "<null>",
         version_edits.c_str());
     delete v;
     if (new_descriptor_log) {
-      Log(InfoLogLevel::INFO_LEVEL, db_options_->info_log,
-        "Deleting manifest %" PRIu64 " current manifest %" PRIu64 "\n",
-        manifest_file_number_, pending_manifest_file_number_);
+      ROCKS_LOG_INFO(db_options_->info_log, "Deleting manifest %" PRIu64
+                                            " current manifest %" PRIu64 "\n",
+                     manifest_file_number_, pending_manifest_file_number_);
       descriptor_log_.reset();
       env_->DeleteFile(
           DescriptorFileName(dbname_, pending_manifest_file_number_));
@@ -2523,9 +2604,8 @@ Status VersionSet::Recover(
     return Status::Corruption("CURRENT file corrupted");
   }
 
-  Log(InfoLogLevel::INFO_LEVEL, db_options_->info_log,
-      "Recovering from manifest file: %s\n",
-      manifest_filename.c_str());
+  ROCKS_LOG_INFO(db_options_->info_log, "Recovering from manifest file: %s\n",
+                 manifest_filename.c_str());
 
   manifest_filename = dbname_ + "/" + manifest_filename;
   unique_ptr<SequentialFileReader> manifest_file_reader;
@@ -2663,7 +2743,8 @@ Status VersionSet::Recover(
       if (cfd != nullptr) {
         if (edit.has_log_number_) {
           if (cfd->GetLogNumber() > edit.log_number_) {
-            Log(InfoLogLevel::WARN_LEVEL, db_options_->info_log,
+            ROCKS_LOG_WARN(
+                db_options_->info_log,
                 "MANIFEST corruption detected, but ignored - Log numbers in "
                 "records NOT monotonically increasing");
           } else {
@@ -2764,7 +2845,8 @@ Status VersionSet::Recover(
     last_sequence_ = last_sequence;
     prev_log_number_ = previous_log_number;
 
-    Log(InfoLogLevel::INFO_LEVEL, db_options_->info_log,
+    ROCKS_LOG_INFO(
+        db_options_->info_log,
         "Recovered from manifest file:%s succeeded,"
         "manifest_file_number is %lu, next_file_number is %lu, "
         "last_sequence is %lu, log_number is %lu,"
@@ -2779,9 +2861,9 @@ Status VersionSet::Recover(
       if (cfd->IsDropped()) {
         continue;
       }
-      Log(InfoLogLevel::INFO_LEVEL, db_options_->info_log,
-          "Column family [%s] (ID %u), log number is %" PRIu64 "\n",
-          cfd->GetName().c_str(), cfd->GetID(), cfd->GetLogNumber());
+      ROCKS_LOG_INFO(db_options_->info_log,
+                     "Column family [%s] (ID %u), log number is %" PRIu64 "\n",
+                     cfd->GetName().c_str(), cfd->GetID(), cfd->GetLogNumber());
     }
   }
 
@@ -3364,8 +3446,7 @@ InternalIterator* VersionSet::MakeInputIterator(
     const Compaction* c, RangeDelAggregator* range_del_agg) {
   auto cfd = c->column_family_data();
   ReadOptions read_options;
-  read_options.verify_checksums =
-    c->mutable_cf_options()->verify_checksums_in_compaction;
+  read_options.verify_checksums = true;
   read_options.fill_cache = false;
   if (c->ShouldFormSubcompactions()) {
     read_options.total_order_seek = true;
@@ -3422,7 +3503,8 @@ bool VersionSet::VerifyCompactionFileConsistency(Compaction* c) {
   Version* version = c->column_family_data()->current();
   const VersionStorageInfo* vstorage = version->storage_info();
   if (c->input_version() != version) {
-    Log(InfoLogLevel::INFO_LEVEL, db_options_->info_log,
+    ROCKS_LOG_INFO(
+        db_options_->info_log,
         "[%s] compaction output being applied to a different base version from"
         " input version",
         c->column_family_data()->GetName().c_str());

@@ -30,6 +30,8 @@
 
 #include <stdint.h>
 
+#include "port/win/win_thread.h"
+
 #include "rocksdb/options.h"
 
 #undef min
@@ -45,7 +47,9 @@
 #undef GetCurrentTime
 #undef DeleteFile
 
+#ifndef _SSIZE_T_DEFINED
 typedef SSIZE_T ssize_t;
+#endif
 
 // size_t printf formatting named in the manner of C99 standard formatting
 // strings such as PRIu64
@@ -54,12 +58,15 @@ typedef SSIZE_T ssize_t;
 #define ROCKSDB_PRIszt "Iu"
 #endif
 
+#ifdef _MSC_VER
 #define __attribute__(A)
 
 // Thread local storage on Linux
 // There is thread_local in C++11
 #ifndef __thread
 #define __thread __declspec(thread)
+#endif
+
 #endif
 
 #ifndef PLATFORM_IS_LITTLE_ENDIAN
@@ -206,6 +213,9 @@ class CondVar {
   Mutex* mu_;
 };
 
+// Wrapper around the platform efficient
+// or otherwise preferrable implementation
+using Thread = WindowsThread;
 
 // OnceInit type helps emulate
 // Posix semantics with initialization

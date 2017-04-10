@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "port/win/env_win.h"
+#include "port/win/win_thread.h"
 #include <algorithm>
 #include <ctime>
 #include <thread>
@@ -27,10 +28,10 @@
 #include "port/win/win_logger.h"
 #include "port/win/io_win.h"
 
-#include "util/iostats_context_imp.h"
+#include "monitoring/iostats_context_imp.h"
 
-#include "util/thread_status_updater.h"
-#include "util/thread_status_util.h"
+#include "monitoring/thread_status_updater.h"
+#include "monitoring/thread_status_util.h"
 
 #include <Rpc.h>  // For UUID generation
 #include <Windows.h>
@@ -119,13 +120,20 @@ Status WinEnvIO::NewSequentialFile(const std::string& fname,
   // while they are still open with another handle. For that reason we
   // allow share_write and delete(allows rename).
   HANDLE hFile = INVALID_HANDLE_VALUE;
+
+  DWORD fileFlags = FILE_ATTRIBUTE_READONLY;
+
+  if (options.use_direct_reads && !options.use_mmap_reads) {
+    fileFlags |= FILE_FLAG_NO_BUFFERING;
+  }
+
   {
     IOSTATS_TIMER_GUARD(open_nanos);
     hFile = CreateFileA(
       fname.c_str(), GENERIC_READ,
       FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
       OPEN_EXISTING,  // Original fopen mode is "rb"
-      FILE_ATTRIBUTE_NORMAL, NULL);
+      fileFlags, NULL);
   }
 
   if (INVALID_HANDLE_VALUE == hFile) {
@@ -639,7 +647,7 @@ uint64_t WinEnvIO::NowMicros() {
   if (GetSystemTimePreciseAsFileTime_ != NULL) {
     // all std::chrono clocks on windows proved to return
     // values that may repeat that is not good enough for some uses.
-    const int64_t c_UnixEpochStartTicks = 116444736000000000i64;
+    const int64_t c_UnixEpochStartTicks = 116444736000000000LL;
     const int64_t c_FtToMicroSec = 10;
 
     // This interface needs to return system time and not
@@ -830,7 +838,7 @@ void WinEnvThreads::StartThread(void(*function)(void* arg), void* arg) {
   state->arg = arg;
   try {
 
-    std::thread th(&StartThreadWrapper, state.get());
+    rocksdb::port::WindowsThread th(&StartThreadWrapper, state.get());
     state.release();
 
     std::lock_guard<std::mutex> lg(mu_);

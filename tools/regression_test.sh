@@ -36,6 +36,13 @@
 #       ./tools/regression_test.sh
 #
 # = Regression test environmental parameters =
+#   DEBUG: If true, then the script will not checkout master and build db_bench
+#       if db_bench already exists
+#       Default: 0
+#   TEST_MODE: If 1, run fillseqdeterminstic and benchmarks both
+#       if 0, only run fillseqdeterministc
+#       if 2, only run benchmarks
+#       Default: 1
 #   TEST_PATH: the root directory of the regression test.
 #       Default: "/tmp/rocksdb/regression_test"
 #   RESULT_PATH: the directory where the regression results will be generated.
@@ -83,27 +90,61 @@
 #   SEED:  random seed that controls the randomness of the benchmark.
 #       Default: $( date +%s )
 
+#==============================================================================
+#  CONSTANT
+#==============================================================================
+TITLE_FORMAT="%40s,%25s,%30s,%7s,%9s,%8s,"
+TITLE_FORMAT+="%10s,%13s,%14s,%11s,%12s,"
+TITLE_FORMAT+="%7s,%11s,"
+TITLE_FORMAT+="%9s,%10s,%10s,%10s,%10s,%10s,%5s"
+TITLE_FORMAT+="\n"
+
+DATA_FORMAT="%40s,%25s,%30s,%7s,%9s,%8s,"
+DATA_FORMAT+="%10s,%13.0f,%14s,%11s,%12s,"
+DATA_FORMAT+="%7s,%11s,"
+DATA_FORMAT+="%9.0f,%10.0f,%10.0f,%10.0f,%10.0f,%10.0f,%5.0f"
+DATA_FORMAT+="\n"
+
+MAIN_PATTERN="$1""[[:blank:]]+:.*[[:blank:]]+([0-9\.]+)[[:blank:]]+ops/sec"
+PERC_PATTERN="Percentiles: P50: ([0-9\.]+) P75: ([0-9\.]+) "
+PERC_PATTERN+="P99: ([0-9\.]+) P99.9: ([0-9\.]+) P99.99: ([0-9\.]+)"
+#==============================================================================
+
 function main {
   commit=${1:-"origin/master"}
   test_root_dir=${TEST_PATH:-"/tmp/rocksdb/regression_test"}
-
   init_arguments $test_root_dir
 
-  checkout_rocksdb $commit
-  build_db_bench
+  if [ $DEBUG -eq 0 ]; then
+      checkout_rocksdb $commit
+      build_db_bench_and_ldb
+  elif [[ ! -f db_bench ]] || [[ ! -f ldb ]]; then
+      build_db_bench_and_ldb
+  fi
 
   setup_test_directory
-
-  # an additional dot indicates we share same env variables
-  run_db_bench "fillseqdeterministic" $NUM_KEYS 1 0
-  run_db_bench "readrandom"
-  run_db_bench "readwhilewriting"
-  run_db_bench "deleterandom" $((NUM_KEYS / 10 / $NUM_THREADS))
-  run_db_bench "seekrandom"
-  run_db_bench "seekrandomwhilewriting"
+  if [ $TEST_MODE -le 1 ]; then
+      tmp=$DB_PATH
+      DB_PATH=$ORIGIN_PATH
+      test_remote "test -d $DB_PATH"
+      if [[ $? -ne 0 ]] || [[ $(run_remote 'date +%u') -eq 7 &&
+      $(run_remote 'echo $(( $(date +"%s") - $(stat -c "%Y" '"$DB_PATH"') ))') -gt "86400" ]]; then
+          run_remote "rm -rf $DB_PATH"
+          echo "Building DB..."
+          run_db_bench "fillseqdeterministic" $NUM_KEYS 1 0
+      fi
+      DB_PATH=$tmp
+  fi
+  if [ $TEST_MODE -ge 1 ]; then
+      build_checkpoint
+      run_db_bench "readrandom"
+      run_db_bench "readwhilewriting"
+      run_db_bench "deleterandom" $((NUM_KEYS / 10 / $NUM_THREADS))
+      run_db_bench "seekrandom"
+      run_db_bench "seekrandomwhilewriting"
+  fi
 
   cleanup_test_directory $test_root_dir
-
   echo ""
   echo "Benchmark completed!  Results are available in $RESULT_PATH"
 }
@@ -120,6 +161,7 @@ function init_arguments {
   SUMMARY_FILE="$RESULT_PATH/SUMMARY.csv"
 
   DB_PATH=${3:-"$1/db"}
+  ORIGIN_PATH=${ORIGIN_PATH:-"$(dirname $(dirname $DB_PATH))/db"}
   WAL_PATH=${4:-""}
   if [ -z "$REMOTE_USER_AT_HOST" ]; then
     DB_BENCH_DIR=${5:-"."}
@@ -127,6 +169,8 @@ function init_arguments {
     DB_BENCH_DIR=${5:-"$1/db_bench"}
   fi
 
+  DEBUG=${DEBUG:-0}
+  TEST_MODE=${TEST_MODE:-1}
   SCP=${SCP:-"scp"}
   SSH=${SSH:-"ssh"}
   NUM_THREADS=${NUM_THREADS:-16}
@@ -190,19 +234,11 @@ function run_db_bench {
       --num_multi_db=$NUM_MULTI_DB \
       --max_background_compactions=$MAX_BACKGROUND_COMPACTIONS \
       --seed=$SEED 2>&1"
-  kill_db_bench_cmd="pkill db_bench"
   ps_cmd="ps aux"
   if ! [ -z "$REMOTE_USER_AT_HOST" ]; then
     echo "Running benchmark remotely on $REMOTE_USER_AT_HOST"
-    kill_db_bench_cmd="$SSH $REMOTE_USER_AT_HOST $kill_db_bench_cmd"
     db_bench_cmd="$SSH $REMOTE_USER_AT_HOST $db_bench_cmd"
     ps_cmd="$SSH $REMOTE_USER_AT_HOST $ps_cmd"
-  fi
-
-  ## kill existing db_bench processes
-  eval "$kill_db_bench_cmd"
-  if [ $? -eq 0 ]; then
-    echo "Killed all currently running db_bench"
   fi
 
   ## make sure no db_bench is running
@@ -218,7 +254,7 @@ function run_db_bench {
   if [ "$grep_output" != "" ]; then
     echo "Stopped regression_test.sh as there're still db_bench processes running:"
     echo $grep_output
-    exit 1
+    exit 2
   fi
 
   ## run the db_bench
@@ -229,6 +265,20 @@ function run_db_bench {
   exit_on_error $db_bench_error
 
   update_report "$1" "$RESULT_PATH/$1" $ops $threads
+}
+
+function build_checkpoint {
+    cmd_prefix=""
+    if ! [ -z "$REMOTE_USER_AT_HOST" ]; then
+        cmd_prefix="$SSH $REMOTE_USER_AT_HOST "
+    fi
+    dirs=$($cmd_prefix find $ORIGIN_PATH -type d -links 2)
+    for dir in $dirs; do
+        db_index=$(basename $dir)
+        echo "Building checkpoint: $ORIGIN_PATH/$db_index -> $DB_PATH/$db_index ..."
+        $cmd_prefix $DB_BENCH_DIR/ldb checkpoint --checkpoint_dir=$DB_PATH/$db_index \
+                      --db=$ORIGIN_PATH/$db_index 2>&1
+    done
 }
 
 function multiply {
@@ -244,31 +294,30 @@ function update_report {
   exit_on_error $?
 
   # Obtain micros / op
-  main_pattern="$1"'[[:blank:]]+:[[:blank:]]+([0-9\.]+)[[:blank:]]+micros/op'
-  [[ $main_result =~ $main_pattern ]]
-  micros_op=${BASH_REMATCH[1]}
+
+  [[ $main_result =~ $MAIN_PATTERN ]]
+  ops_per_s=${BASH_REMATCH[1]}
 
   # Obtain percentile information
-  perc_pattern='Percentiles: P50: ([0-9\.]+) P75: ([0-9\.]+) P99: ([0-9\.]+) P99.9: ([0-9\.]+) P99.99: ([0-9\.]+)'
-  [[ $perc_statement =~ $perc_pattern ]]
-
+  [[ $perc_statement =~ $PERC_PATTERN ]]
   perc[0]=${BASH_REMATCH[1]}  # p50
   perc[1]=${BASH_REMATCH[2]}  # p75
   perc[2]=${BASH_REMATCH[3]}  # p99
   perc[3]=${BASH_REMATCH[4]}  # p99.9
   perc[4]=${BASH_REMATCH[5]}  # p99.99
 
-  (printf "$COMMIT_ID,%25s,%30s,%7s,%9s,%8s,%10s,%13.0f,%14s,%11s,%12s,%7s,%11s,%9.0f,%10.0f,%10.0f,%10.0f,%10.0f,%10.0f\n" \
-    $1 $REMOTE_USER_AT_HOST $NUM_MULTI_DB $NUM_KEYS $KEY_SIZE $VALUE_SIZE \
+  (printf "$DATA_FORMAT" \
+    $COMMIT_ID $1 $REMOTE_USER_AT_HOST $NUM_MULTI_DB $NUM_KEYS $KEY_SIZE $VALUE_SIZE \
        $(multiply $COMPRESSION_RATIO 100) \
        $3 $4 $CACHE_SIZE \
        $MAX_BACKGROUND_FLUSHES $MAX_BACKGROUND_COMPACTIONS \
-       $(multiply $micros_op 1000) \
+       $ops_per_s \
        $(multiply ${perc[0]} 1000) \
        $(multiply ${perc[1]} 1000) \
        $(multiply ${perc[2]} 1000) \
        $(multiply ${perc[3]} 1000) \
        $(multiply ${perc[4]} 1000) \
+       $DEBUG \
        >> $SUMMARY_FILE)
   exit_on_error $?
 }
@@ -296,25 +345,28 @@ function checkout_rocksdb {
   exit_on_error $?
 }
 
-function build_db_bench {
-  echo "Building db_bench ..."
+function build_db_bench_and_ldb {
+  echo "Building db_bench & ldb ..."
 
   make clean
   exit_on_error $?
 
-  DEBUG_LEVEL=0 make db_bench -j32
+  DEBUG_LEVEL=0 make db_bench ldb -j32
   exit_on_error $?
 }
 
 function run_remote {
-  if ! [ -z "$REMOTE_USER_AT_HOST" ]; then
-    cmd="$SSH $REMOTE_USER_AT_HOST $1"
-  else
-    cmd="$1"
-  fi
+  test_remote "$1"
+  exit_on_error $? "$1"
+}
 
+function test_remote {
+  if ! [ -z "$REMOTE_USER_AT_HOST" ]; then
+      cmd="$SSH $REMOTE_USER_AT_HOST '$1'"
+  else
+      cmd="$1"
+  fi
   eval "$cmd"
-  exit_on_error $? "$cmd"
 }
 
 function run_local {
@@ -353,17 +405,17 @@ function setup_test_directory {
   run_remote "ls -l $DB_BENCH_DIR"
 
   if ! [ -z "$REMOTE_USER_AT_HOST" ]; then
-    run_local "$SCP ./db_bench $REMOTE_USER_AT_HOST:$DB_BENCH_DIR/db_bench"
+      run_local "$SCP ./db_bench $REMOTE_USER_AT_HOST:$DB_BENCH_DIR/db_bench"
+      run_local "$SCP ./ldb $REMOTE_USER_AT_HOST:$DB_BENCH_DIR/ldb"
   fi
 
   run_local "mkdir -p $RESULT_PATH"
 
-  (printf "%40s,%25s,%30s,%7s,%9s,%8s,%10s,%13s,%14s,%11s,%12s,%7s,%11s,%9s,%10s,%10s,%10s,%10s,%10s\n" \
-      "commit id" "benchmark" "user@host" "num-dbs" \
-      "key-range" "key-size" "value-size" "compress-rate" \
-      "ops-per-thread" "num-threads" "cache-size" \
+  (printf $TITLE_FORMAT \
+      "commit id" "benchmark" "user@host" "num-dbs" "key-range" "key-size" \
+      "value-size" "compress-rate" "ops-per-thread" "num-threads" "cache-size" \
       "flushes" "compactions" \
-      "us-per-op" "p50" "p75" "p99" "p99.9" "p99.99" \
+      "ops-per-s" "p50" "p75" "p99" "p99.9" "p99.99" "debug" \
       >> $SUMMARY_FILE)
   exit_on_error $?
 }
@@ -378,6 +430,10 @@ function cleanup_test_directory {
       run_remote "rm -rf $DB_BENCH_DIR"
     fi
     run_remote "rm -rf $1"
+  else
+    echo "------------ DEBUG MODE ------------"
+    echo "DB  PATH: $DB_PATH"
+    echo "WAL PATH: $WAL_PATH"
   fi
 }
 

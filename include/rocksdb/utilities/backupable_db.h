@@ -227,6 +227,12 @@ class BackupEngineReadOnly {
 
   // checks that each file exists and that the size of the file matches our
   // expectations. it does not check file checksum.
+  //
+  // If this BackupEngine created the backup, it compares the files' current
+  // sizes against the number of bytes written to them during creation.
+  // Otherwise, it compares the files' current sizes against their sizes when
+  // the BackupEngine was opened.
+  //
   // Returns Status::OK() if all checks are good
   virtual Status VerifyBackup(BackupID backup_id) = 0;
 };

@@ -27,6 +27,8 @@
 #include "db/version_edit.h"
 #include "db/write_controller.h"
 #include "db/write_thread.h"
+#include "monitoring/instrumented_mutex.h"
+#include "options/db_options.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
@@ -34,9 +36,7 @@
 #include "rocksdb/transaction_log.h"
 #include "table/scoped_arena_iterator.h"
 #include "util/autovector.h"
-#include "util/db_options.h"
 #include "util/event_logger.h"
-#include "util/instrumented_mutex.h"
 #include "util/stop_watch.h"
 #include "util/thread_local.h"
 
@@ -67,9 +67,11 @@ class FlushJob {
 
   ~FlushJob();
 
-  // Require db_mutex held
+  // Require db_mutex held.
+  // Once PickMemTable() is called, either Run() or Cancel() has to be call.
   void PickMemTable();
   Status Run(FileMetaData* file_meta = nullptr);
+  void Cancel();
   TableProperties GetTableProperties() const { return table_properties_; }
 
  private:

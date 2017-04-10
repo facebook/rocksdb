@@ -5,7 +5,9 @@
 
 package org.rocksdb;
 
+import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Random;
 
@@ -162,29 +164,11 @@ public class OptionsTest {
   }
 
   @Test
-  public void softRateLimit() {
-    try (final Options opt = new Options()) {
-      final double doubleValue = rand.nextDouble();
-      opt.setSoftRateLimit(doubleValue);
-      assertThat(opt.softRateLimit()).isEqualTo(doubleValue);
-    }
-  }
-
-  @Test
   public void softPendingCompactionBytesLimit() {
     try (final Options opt = new Options()) {
       final long longValue = rand.nextLong();
       opt.setSoftPendingCompactionBytesLimit(longValue);
       assertThat(opt.softPendingCompactionBytesLimit()).isEqualTo(longValue);
-    }
-  }
-
-  @Test
-  public void hardRateLimit() {
-    try (final Options opt = new Options()) {
-      final double doubleValue = rand.nextDouble();
-      opt.setHardRateLimit(doubleValue);
-      assertThat(opt.hardRateLimit()).isEqualTo(doubleValue);
     }
   }
 
@@ -225,15 +209,6 @@ public class OptionsTest {
   }
 
   @Test
-  public void rateLimitDelayMaxMilliseconds() {
-    try (final Options opt = new Options()) {
-      final int intValue = rand.nextInt();
-      opt.setRateLimitDelayMaxMilliseconds(intValue);
-      assertThat(opt.rateLimitDelayMaxMilliseconds()).isEqualTo(intValue);
-    }
-  }
-
-  @Test
   public void arenaBlockSize() throws RocksDBException {
     try (final Options opt = new Options()) {
       final long longValue = rand.nextLong();
@@ -248,24 +223,6 @@ public class OptionsTest {
       final boolean boolValue = rand.nextBoolean();
       opt.setDisableAutoCompactions(boolValue);
       assertThat(opt.disableAutoCompactions()).isEqualTo(boolValue);
-    }
-  }
-
-  @Test
-  public void purgeRedundantKvsWhileFlush() {
-    try (final Options opt = new Options()) {
-      final boolean boolValue = rand.nextBoolean();
-      opt.setPurgeRedundantKvsWhileFlush(boolValue);
-      assertThat(opt.purgeRedundantKvsWhileFlush()).isEqualTo(boolValue);
-    }
-  }
-
-  @Test
-  public void verifyChecksumsInCompaction() {
-    try (final Options opt = new Options()) {
-      final boolean boolValue = rand.nextBoolean();
-      opt.setVerifyChecksumsInCompaction(boolValue);
-      assertThat(opt.verifyChecksumsInCompaction()).isEqualTo(boolValue);
     }
   }
 
@@ -329,15 +286,6 @@ public class OptionsTest {
       final long longValue = rand.nextLong();
       opt.setMaxSuccessiveMerges(longValue);
       assertThat(opt.maxSuccessiveMerges()).isEqualTo(longValue);
-    }
-  }
-
-  @Test
-  public void minPartialMergeOperands() {
-    try (final Options opt = new Options()) {
-      final int intValue = rand.nextInt();
-      opt.setMinPartialMergeOperands(intValue);
-      assertThat(opt.minPartialMergeOperands()).isEqualTo(intValue);
     }
   }
 
@@ -409,12 +357,11 @@ public class OptionsTest {
   }
 
   @Test
-  public void disableDataSync() {
+  public void maxFileOpeningThreads() {
     try (final Options opt = new Options()) {
-      final boolean boolValue = rand.nextBoolean();
-      opt.setDisableDataSync(boolValue);
-      assertThat(opt.disableDataSync()).
-          isEqualTo(boolValue);
+      final int intValue = rand.nextInt();
+      opt.setMaxFileOpeningThreads(intValue);
+      assertThat(opt.maxFileOpeningThreads()).isEqualTo(intValue);
     }
   }
 
@@ -424,6 +371,22 @@ public class OptionsTest {
       final boolean boolValue = rand.nextBoolean();
       opt.setUseFsync(boolValue);
       assertThat(opt.useFsync()).isEqualTo(boolValue);
+    }
+  }
+
+  @Test
+  public void dbPaths() {
+    final List<DbPath> dbPaths = new ArrayList<>();
+    dbPaths.add(new DbPath(Paths.get("/a"), 10));
+    dbPaths.add(new DbPath(Paths.get("/b"), 100));
+    dbPaths.add(new DbPath(Paths.get("/c"), 1000));
+
+    try (final Options opt = new Options()) {
+      assertThat(opt.dbPaths()).isEqualTo(Collections.emptyList());
+
+      opt.setDbPaths(dbPaths);
+
+      assertThat(opt.dbPaths()).isEqualTo(dbPaths);
     }
   }
 
@@ -524,6 +487,15 @@ public class OptionsTest {
   }
 
   @Test
+  public void recycleLogFileNum() throws RocksDBException {
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
+      opt.setRecycleLogFileNum(longValue);
+      assertThat(opt.recycleLogFileNum()).isEqualTo(longValue);
+    }
+  }
+
+  @Test
   public void maxManifestFileSize() {
     try (final Options opt = new Options()) {
       final long longValue = rand.nextLong();
@@ -590,6 +562,15 @@ public class OptionsTest {
   }
 
   @Test
+  public void allowFAllocate() {
+    try (final Options opt = new Options()) {
+      final boolean boolValue = rand.nextBoolean();
+      opt.setAllowFAllocate(boolValue);
+      assertThat(opt.allowFAllocate()).isEqualTo(boolValue);
+    }
+  }
+
+  @Test
   public void allowMmapReads() {
     try (final Options opt = new Options()) {
       final boolean boolValue = rand.nextBoolean();
@@ -635,6 +616,60 @@ public class OptionsTest {
   }
 
   @Test
+  public void dbWriteBufferSize() {
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
+      opt.setDbWriteBufferSize(longValue);
+      assertThat(opt.dbWriteBufferSize()).isEqualTo(longValue);
+    }
+  }
+
+  @Test
+  public void accessHintOnCompactionStart() {
+    try (final Options opt = new Options()) {
+      final AccessHint accessHint = AccessHint.SEQUENTIAL;
+      opt.setAccessHintOnCompactionStart(accessHint);
+      assertThat(opt.accessHintOnCompactionStart()).isEqualTo(accessHint);
+    }
+  }
+
+  @Test
+  public void newTableReaderForCompactionInputs() {
+    try (final Options opt = new Options()) {
+      final boolean boolValue = rand.nextBoolean();
+      opt.setNewTableReaderForCompactionInputs(boolValue);
+      assertThat(opt.newTableReaderForCompactionInputs()).isEqualTo(boolValue);
+    }
+  }
+
+  @Test
+  public void compactionReadaheadSize() {
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
+      opt.setCompactionReadaheadSize(longValue);
+      assertThat(opt.compactionReadaheadSize()).isEqualTo(longValue);
+    }
+  }
+
+  @Test
+  public void randomAccessMaxBufferSize() {
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
+      opt.setRandomAccessMaxBufferSize(longValue);
+      assertThat(opt.randomAccessMaxBufferSize()).isEqualTo(longValue);
+    }
+  }
+
+  @Test
+  public void writableFileMaxBufferSize() {
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
+      opt.setWritableFileMaxBufferSize(longValue);
+      assertThat(opt.writableFileMaxBufferSize()).isEqualTo(longValue);
+    }
+  }
+
+  @Test
   public void useAdaptiveMutex() {
     try (final Options opt = new Options()) {
       final boolean boolValue = rand.nextBoolean();
@@ -649,6 +684,33 @@ public class OptionsTest {
       final long longValue = rand.nextLong();
       opt.setBytesPerSync(longValue);
       assertThat(opt.bytesPerSync()).isEqualTo(longValue);
+    }
+  }
+
+  @Test
+  public void walBytesPerSync() {
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
+      opt.setWalBytesPerSync(longValue);
+      assertThat(opt.walBytesPerSync()).isEqualTo(longValue);
+    }
+  }
+
+  @Test
+  public void enableThreadTracking() {
+    try (final Options opt = new Options()) {
+      final boolean boolValue = rand.nextBoolean();
+      opt.setEnableThreadTracking(boolValue);
+      assertThat(opt.enableThreadTracking()).isEqualTo(boolValue);
+    }
+  }
+
+  @Test
+  public void delayedWriteRate() {
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
+      opt.setDelayedWriteRate(longValue);
+      assertThat(opt.delayedWriteRate()).isEqualTo(longValue);
     }
   }
 
@@ -689,6 +751,87 @@ public class OptionsTest {
   }
 
   @Test
+  public void skipStatsUpdateOnDbOpen() {
+    try (final Options opt = new Options()) {
+      final boolean boolValue = rand.nextBoolean();
+      opt.setSkipStatsUpdateOnDbOpen(boolValue);
+      assertThat(opt.skipStatsUpdateOnDbOpen()).isEqualTo(boolValue);
+    }
+  }
+
+  @Test
+  public void walRecoveryMode() {
+    try (final Options opt = new Options()) {
+      for (final WALRecoveryMode walRecoveryMode : WALRecoveryMode.values()) {
+        opt.setWalRecoveryMode(walRecoveryMode);
+        assertThat(opt.walRecoveryMode()).isEqualTo(walRecoveryMode);
+      }
+    }
+  }
+
+  @Test
+  public void allow2pc() {
+    try (final Options opt = new Options()) {
+      final boolean boolValue = rand.nextBoolean();
+      opt.setAllow2pc(boolValue);
+      assertThat(opt.allow2pc()).isEqualTo(boolValue);
+    }
+  }
+
+  @Test
+  public void rowCache() {
+    try (final Options opt = new Options()) {
+      assertThat(opt.rowCache()).isNull();
+
+      try(final Cache lruCache = new LRUCache(1000)) {
+        opt.setRowCache(lruCache);
+        assertThat(opt.rowCache()).isEqualTo(lruCache);
+      }
+
+      try(final Cache clockCache = new ClockCache(1000)) {
+        opt.setRowCache(clockCache);
+        assertThat(opt.rowCache()).isEqualTo(clockCache);
+      }
+    }
+  }
+
+  @Test
+  public void failIfOptionsFileError() {
+    try (final Options opt = new Options()) {
+      final boolean boolValue = rand.nextBoolean();
+      opt.setFailIfOptionsFileError(boolValue);
+      assertThat(opt.failIfOptionsFileError()).isEqualTo(boolValue);
+    }
+  }
+
+  @Test
+  public void dumpMallocStats() {
+    try (final Options opt = new Options()) {
+      final boolean boolValue = rand.nextBoolean();
+      opt.setDumpMallocStats(boolValue);
+      assertThat(opt.dumpMallocStats()).isEqualTo(boolValue);
+    }
+  }
+
+  @Test
+  public void avoidFlushDuringRecovery() {
+    try (final Options opt = new Options()) {
+      final boolean boolValue = rand.nextBoolean();
+      opt.setAvoidFlushDuringRecovery(boolValue);
+      assertThat(opt.avoidFlushDuringRecovery()).isEqualTo(boolValue);
+    }
+  }
+
+  @Test
+  public void avoidFlushDuringShutdown() {
+    try (final Options opt = new Options()) {
+      final boolean boolValue = rand.nextBoolean();
+      opt.setAvoidFlushDuringShutdown(boolValue);
+      assertThat(opt.avoidFlushDuringShutdown()).isEqualTo(boolValue);
+    }
+  }
+
+  @Test
   public void env() {
     try (final Options options = new Options();
          final Env env = Env.getDefault()) {
@@ -705,6 +848,7 @@ public class OptionsTest {
       options.optimizeLevelStyleCompaction();
       options.optimizeLevelStyleCompaction(3000);
       options.optimizeForPointLookup(10);
+      options.optimizeForSmallDb();
       options.prepareForBulkLoad();
     }
   }
@@ -725,16 +869,15 @@ public class OptionsTest {
 
   @Test
   public void compressionPerLevel() {
-    try (final ColumnFamilyOptions columnFamilyOptions =
-             new ColumnFamilyOptions()) {
-      assertThat(columnFamilyOptions.compressionPerLevel()).isEmpty();
+    try (final Options options = new Options()) {
+      assertThat(options.compressionPerLevel()).isEmpty();
       List<CompressionType> compressionTypeList =
           new ArrayList<>();
-      for (int i = 0; i < columnFamilyOptions.numLevels(); i++) {
+      for (int i = 0; i < options.numLevels(); i++) {
         compressionTypeList.add(CompressionType.NO_COMPRESSION);
       }
-      columnFamilyOptions.setCompressionPerLevel(compressionTypeList);
-      compressionTypeList = columnFamilyOptions.compressionPerLevel();
+      options.setCompressionPerLevel(compressionTypeList);
+      compressionTypeList = options.compressionPerLevel();
       for (final CompressionType compressionType : compressionTypeList) {
         assertThat(compressionType).isEqualTo(
             CompressionType.NO_COMPRESSION);
@@ -744,19 +887,18 @@ public class OptionsTest {
 
   @Test
   public void differentCompressionsPerLevel() {
-    try (final ColumnFamilyOptions columnFamilyOptions =
-             new ColumnFamilyOptions()) {
-      columnFamilyOptions.setNumLevels(3);
+    try (final Options options = new Options()) {
+      options.setNumLevels(3);
 
-      assertThat(columnFamilyOptions.compressionPerLevel()).isEmpty();
+      assertThat(options.compressionPerLevel()).isEmpty();
       List<CompressionType> compressionTypeList = new ArrayList<>();
 
       compressionTypeList.add(CompressionType.BZLIB2_COMPRESSION);
       compressionTypeList.add(CompressionType.SNAPPY_COMPRESSION);
       compressionTypeList.add(CompressionType.LZ4_COMPRESSION);
 
-      columnFamilyOptions.setCompressionPerLevel(compressionTypeList);
-      compressionTypeList = columnFamilyOptions.compressionPerLevel();
+      options.setCompressionPerLevel(compressionTypeList);
+      compressionTypeList = options.compressionPerLevel();
 
       assertThat(compressionTypeList.size()).isEqualTo(3);
       assertThat(compressionTypeList).
@@ -765,6 +907,34 @@ public class OptionsTest {
               CompressionType.SNAPPY_COMPRESSION,
               CompressionType.LZ4_COMPRESSION);
 
+    }
+  }
+
+  @Test
+  public void bottommostCompressionType() {
+    try (final Options options = new Options()) {
+      assertThat(options.bottommostCompressionType())
+          .isEqualTo(CompressionType.DISABLE_COMPRESSION_OPTION);
+
+      for (final CompressionType compressionType : CompressionType.values()) {
+        options.setBottommostCompressionType(compressionType);
+        assertThat(options.bottommostCompressionType())
+            .isEqualTo(compressionType);
+      }
+    }
+  }
+
+  @Test
+  public void compressionOptions() {
+    try (final Options options = new Options();
+         final CompressionOptions compressionOptions = new CompressionOptions()
+             .setMaxDictBytes(123)) {
+
+      options.setCompressionOptions(compressionOptions);
+      assertThat(options.compressionOptions())
+          .isEqualTo(compressionOptions);
+      assertThat(options.compressionOptions().maxDictBytes())
+          .isEqualTo(123);
     }
   }
 
@@ -796,25 +966,11 @@ public class OptionsTest {
   }
 
   @Test
-  public void rateLimiterConfig() {
-    try (final Options options = new Options();
-         final Options anotherOptions = new Options()) {
-      final RateLimiterConfig rateLimiterConfig =
-          new GenericRateLimiterConfig(1000, 100 * 1000, 1);
-      options.setRateLimiterConfig(rateLimiterConfig);
-      // Test with parameter initialization
-
-      anotherOptions.setRateLimiterConfig(
-          new GenericRateLimiterConfig(1000));
-    }
-  }
-
-  @Test
   public void rateLimiter() {
     try (final Options options = new Options();
-         final Options anotherOptions = new Options()) {
-      final RateLimiter rateLimiter =
-          new RateLimiter(1000, 100 * 1000, 1);
+         final Options anotherOptions = new Options();
+         final RateLimiter rateLimiter =
+             new RateLimiter(1000, 100 * 1000, 1)) {
       options.setRateLimiter(rateLimiter);
       // Test with parameter initialization
       anotherOptions.setRateLimiter(
@@ -837,7 +993,6 @@ public class OptionsTest {
       options.useCappedPrefixExtractor(10);
     }
   }
-
 
   @Test
   public void shouldTestMemTableFactoryName()
@@ -863,6 +1018,77 @@ public class OptionsTest {
         statistics = anotherOptions.statisticsPtr();
         assertThat(statistics).isNotNull();
       }
+    }
+  }
+
+  @Test
+  public void maxWriteBufferNumberToMaintain() {
+    try (final Options options = new Options()) {
+      int intValue = rand.nextInt();
+      // Size has to be positive
+      intValue = (intValue < 0) ? -intValue : intValue;
+      intValue = (intValue == 0) ? intValue + 1 : intValue;
+      options.setMaxWriteBufferNumberToMaintain(intValue);
+      assertThat(options.maxWriteBufferNumberToMaintain()).
+          isEqualTo(intValue);
+    }
+  }
+
+  @Test
+  public void compactionPriorities() {
+    try (final Options options = new Options()) {
+      for (final CompactionPriority compactionPriority :
+          CompactionPriority.values()) {
+        options.setCompactionPriority(compactionPriority);
+        assertThat(options.compactionPriority()).
+            isEqualTo(compactionPriority);
+      }
+    }
+  }
+
+  @Test
+  public void reportBgIoStats() {
+    try (final Options options = new Options()) {
+      final boolean booleanValue = true;
+      options.setReportBgIoStats(booleanValue);
+      assertThat(options.reportBgIoStats()).
+          isEqualTo(booleanValue);
+    }
+  }
+
+  @Test
+  public void compactionOptionsUniversal() {
+    try (final Options options = new Options();
+         final CompactionOptionsUniversal optUni = new CompactionOptionsUniversal()
+             .setCompressionSizePercent(7)) {
+      options.setCompactionOptionsUniversal(optUni);
+      assertThat(options.compactionOptionsUniversal()).
+          isEqualTo(optUni);
+      assertThat(options.compactionOptionsUniversal().compressionSizePercent())
+          .isEqualTo(7);
+    }
+  }
+
+  @Test
+  public void compactionOptionsFIFO() {
+    try (final Options options = new Options();
+         final CompactionOptionsFIFO optFifo = new CompactionOptionsFIFO()
+             .setMaxTableFilesSize(2000)) {
+      options.setCompactionOptionsFIFO(optFifo);
+      assertThat(options.compactionOptionsFIFO()).
+          isEqualTo(optFifo);
+      assertThat(options.compactionOptionsFIFO().maxTableFilesSize())
+          .isEqualTo(2000);
+    }
+  }
+
+  @Test
+  public void forceConsistencyChecks() {
+    try (final Options options = new Options()) {
+      final boolean booleanValue = true;
+      options.setForceConsistencyChecks(booleanValue);
+      assertThat(options.forceConsistencyChecks()).
+          isEqualTo(booleanValue);
     }
   }
 }

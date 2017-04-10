@@ -75,5 +75,7 @@ jlong Java_org_rocksdb_RocksMemEnv_createMemEnv(
  */
 void Java_org_rocksdb_RocksMemEnv_disposeInternal(
     JNIEnv* env, jobject jobj, jlong jhandle) {
-  delete reinterpret_cast<rocksdb::Env*>(jhandle);
+  auto* e = reinterpret_cast<rocksdb::Env*>(jhandle);
+  assert(e != nullptr);
+  delete e;
 }

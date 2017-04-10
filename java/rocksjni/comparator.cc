@@ -27,7 +27,9 @@
  */
 void Java_org_rocksdb_AbstractComparator_disposeInternal(
     JNIEnv* env, jobject jobj, jlong handle) {
-  delete reinterpret_cast<rocksdb::BaseComparatorJniCallback*>(handle);
+  auto* bcjc = reinterpret_cast<rocksdb::BaseComparatorJniCallback*>(handle);
+  assert(bcjc != nullptr);
+  delete bcjc;
 }
 // </editor-fold>
 

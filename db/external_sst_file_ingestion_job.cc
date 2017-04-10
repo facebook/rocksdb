@@ -3,6 +3,8 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
+#ifndef ROCKSDB_LITE
+
 #include "db/external_sst_file_ingestion_job.h"
 
 #ifndef __STDC_FORMAT_MACROS
@@ -15,7 +17,7 @@
 #include <vector>
 
 #include "db/version_edit.h"
-#include "table/merger.h"
+#include "table/merging_iterator.h"
 #include "table/scoped_arena_iterator.h"
 #include "table/sst_file_writer_collectors.h"
 #include "table/table_builder.h"
@@ -120,9 +122,9 @@ Status ExternalSstFileIngestionJob::Prepare(
       }
       Status s = env_->DeleteFile(f.internal_file_path);
       if (!s.ok()) {
-        Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
-            "AddFile() clean up for file %s failed : %s",
-            f.internal_file_path.c_str(), s.ToString().c_str());
+        ROCKS_LOG_WARN(db_options_.info_log,
+                       "AddFile() clean up for file %s failed : %s",
+                       f.internal_file_path.c_str(), s.ToString().c_str());
       }
     }
   }
@@ -212,7 +214,8 @@ void ExternalSstFileIngestionJob::UpdateStats() {
     if (f.picked_level == 0) {
       total_l0_files += 1;
     }
-    Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+    ROCKS_LOG_INFO(
+        db_options_.info_log,
         "[AddFile] External SST file %s was ingested in L%d with path %s "
         "(global_seqno=%" PRIu64 ")\n",
         f.external_file_path.c_str(), f.picked_level,
@@ -233,9 +236,9 @@ void ExternalSstFileIngestionJob::Cleanup(const Status& status) {
     for (IngestedFileInfo& f : files_to_ingest_) {
       Status s = env_->DeleteFile(f.internal_file_path);
       if (!s.ok()) {
-        Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
-            "AddFile() clean up for file %s failed : %s",
-            f.internal_file_path.c_str(), s.ToString().c_str());
+        ROCKS_LOG_WARN(db_options_.info_log,
+                       "AddFile() clean up for file %s failed : %s",
+                       f.internal_file_path.c_str(), s.ToString().c_str());
       }
     }
   } else if (status.ok() && ingestion_options_.move_files) {
@@ -243,7 +246,8 @@ void ExternalSstFileIngestionJob::Cleanup(const Status& status) {
     for (IngestedFileInfo& f : files_to_ingest_) {
       Status s = env_->DeleteFile(f.external_file_path);
       if (!s.ok()) {
-        Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
+        ROCKS_LOG_WARN(
+            db_options_.info_log,
             "%s was added to DB successfully but failed to remove original "
             "file link : %s",
             f.external_file_path.c_str(), s.ToString().c_str());
@@ -308,8 +312,17 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
     if (file_to_ingest->global_seqno_offset == 0) {
       return Status::Corruption("Was not able to find file global seqno field");
     }
+  } else if (file_to_ingest->version == 1) {
+    // SST file V1 should not have global seqno field
+    assert(seqno_iter == uprops.end());
+    file_to_ingest->original_seqno = 0;
+    if (ingestion_options_.allow_blocking_flush ||
+            ingestion_options_.allow_global_seqno) {
+      return Status::InvalidArgument(
+            "External SST file V1 does not support global seqno");
+    }
   } else {
-    return Status::InvalidArgument("external file version is not supported");
+    return Status::InvalidArgument("External file version is not supported");
   }
   // Get number of entries in table
   file_to_ingest->num_entries = props->num_entries;
@@ -518,3 +531,5 @@ bool ExternalSstFileIngestionJob::IngestedFileFitInLevel(
 }
 
 }  // namespace rocksdb
+
+#endif  // !ROCKSDB_LITE

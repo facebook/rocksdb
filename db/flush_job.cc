@@ -22,15 +22,17 @@
 #include "db/db_iter.h"
 #include "db/dbformat.h"
 #include "db/event_helpers.h"
-#include "db/filename.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
-#include "db/memtable.h"
 #include "db/memtable_list.h"
 #include "db/merge_context.h"
 #include "db/version_set.h"
+#include "monitoring/iostats_context_imp.h"
+#include "monitoring/perf_context_imp.h"
+#include "monitoring/thread_status_util.h"
 #include "port/likely.h"
 #include "port/port.h"
+#include "db/memtable.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/statistics.h"
@@ -38,20 +40,18 @@
 #include "rocksdb/table.h"
 #include "table/block.h"
 #include "table/block_based_table_factory.h"
-#include "table/merger.h"
+#include "table/merging_iterator.h"
 #include "table/table_builder.h"
 #include "table/two_level_iterator.h"
 #include "util/coding.h"
 #include "util/event_logger.h"
 #include "util/file_util.h"
-#include "util/iostats_context_imp.h"
+#include "util/filename.h"
 #include "util/log_buffer.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
-#include "util/perf_context_imp.h"
 #include "util/stop_watch.h"
 #include "util/sync_point.h"
-#include "util/thread_status_util.h"
 
 namespace rocksdb {
 
@@ -158,8 +158,8 @@ Status FlushJob::Run(FileMetaData* file_meta) {
   AutoThreadOperationStageUpdater stage_run(
       ThreadStatus::STAGE_FLUSH_RUN);
   if (mems_.empty()) {
-    LogToBuffer(log_buffer_, "[%s] Nothing in memtable to flush",
-                cfd_->GetName().c_str());
+    ROCKS_LOG_BUFFER(log_buffer_, "[%s] Nothing in memtable to flush",
+                     cfd_->GetName().c_str());
     return Status::OK();
   }
 
@@ -230,6 +230,12 @@ Status FlushJob::Run(FileMetaData* file_meta) {
   return s;
 }
 
+void FlushJob::Cancel() {
+  db_mutex_->AssertHeld();
+  assert(base_ != nullptr);
+  base_->Unref();
+}
+
 Status FlushJob::WriteLevel0Table() {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_FLUSH_WRITE_L0);
@@ -252,7 +258,8 @@ Status FlushJob::WriteLevel0Table() {
     uint64_t total_num_entries = 0, total_num_deletes = 0;
     size_t total_memory_usage = 0;
     for (MemTable* m : mems_) {
-      Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+      ROCKS_LOG_INFO(
+          db_options_.info_log,
           "[%s] [JOB %d] Flushing memtable with next log file: %" PRIu64 "\n",
           cfd_->GetName().c_str(), job_context_->job_id, m->GetNextLogNumber());
       memtables.push_back(m->NewIterator(ro, &arena));
@@ -280,9 +287,10 @@ Status FlushJob::WriteLevel0Table() {
           &cfd_->internal_comparator(),
           range_del_iters.empty() ? nullptr : &range_del_iters[0],
           static_cast<int>(range_del_iters.size())));
-      Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
-          "[%s] [JOB %d] Level-0 flush table #%" PRIu64 ": started",
-          cfd_->GetName().c_str(), job_context_->job_id, meta_.fd.GetNumber());
+      ROCKS_LOG_INFO(db_options_.info_log,
+                     "[%s] [JOB %d] Level-0 flush table #%" PRIu64 ": started",
+                     cfd_->GetName().c_str(), job_context_->job_id,
+                     meta_.fd.GetNumber());
 
       TEST_SYNC_POINT_CALLBACK("FlushJob::WriteLevel0Table:output_compression",
                                &output_compression_);
@@ -299,15 +307,16 @@ Status FlushJob::WriteLevel0Table() {
           Env::IO_HIGH, &table_properties_, 0 /* level */);
       LogFlush(db_options_.info_log);
     }
-    Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
-        "[%s] [JOB %d] Level-0 flush table #%" PRIu64 ": %" PRIu64
-        " bytes %s"
-        "%s",
-        cfd_->GetName().c_str(), job_context_->job_id, meta_.fd.GetNumber(),
-        meta_.fd.GetFileSize(), s.ToString().c_str(),
-        meta_.marked_for_compaction ? " (needs compaction)" : "");
+    ROCKS_LOG_INFO(db_options_.info_log,
+                   "[%s] [JOB %d] Level-0 flush table #%" PRIu64 ": %" PRIu64
+                   " bytes %s"
+                   "%s",
+                   cfd_->GetName().c_str(), job_context_->job_id,
+                   meta_.fd.GetNumber(), meta_.fd.GetFileSize(),
+                   s.ToString().c_str(),
+                   meta_.marked_for_compaction ? " (needs compaction)" : "");
 
-    if (!db_options_.disable_data_sync && output_file_directory_ != nullptr) {
+    if (output_file_directory_ != nullptr) {
       output_file_directory_->Fsync();
     }
     TEST_SYNC_POINT("FlushJob::WriteLevel0Table");

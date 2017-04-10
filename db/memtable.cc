@@ -17,6 +17,8 @@
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
 #include "db/pinned_iterators_manager.h"
+#include "monitoring/perf_context_imp.h"
+#include "monitoring/statistics.h"
 #include "port/port.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
@@ -26,15 +28,13 @@
 #include "rocksdb/write_buffer_manager.h"
 #include "table/internal_iterator.h"
 #include "table/iterator_wrapper.h"
-#include "table/merger.h"
+#include "table/merging_iterator.h"
 #include "util/arena.h"
 #include "util/autovector.h"
 #include "util/coding.h"
 #include "util/memory_usage.h"
 #include "util/murmurhash.h"
 #include "util/mutexlock.h"
-#include "util/perf_context_imp.h"
-#include "util/statistics.h"
 #include "util/stop_watch.h"
 
 namespace rocksdb {
@@ -61,7 +61,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
                    const ImmutableCFOptions& ioptions,
                    const MutableCFOptions& mutable_cf_options,
                    WriteBufferManager* write_buffer_manager,
-                   SequenceNumber earliest_seq)
+                   SequenceNumber latest_seq)
     : comparator_(cmp),
       moptions_(ioptions, mutable_cf_options),
       refs_(0),
@@ -83,7 +83,8 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       flush_completed_(false),
       file_number_(0),
       first_seqno_(0),
-      earliest_seqno_(earliest_seq),
+      earliest_seqno_(latest_seq),
+      creation_seq_(latest_seq),
       mem_next_logfile_number_(0),
       min_prep_log_referenced_(0),
       locks_(moptions_.inplace_update_support
@@ -390,16 +391,16 @@ port::RWMutex* MemTable::GetLock(const Slice& key) {
   return &locks_[hash(key) % locks_.size()];
 }
 
-uint64_t MemTable::ApproximateSize(const Slice& start_ikey,
-                                   const Slice& end_ikey) {
+MemTable::MemTableStats MemTable::ApproximateStats(const Slice& start_ikey,
+                                                   const Slice& end_ikey) {
   uint64_t entry_count = table_->ApproximateNumEntries(start_ikey, end_ikey);
   entry_count += range_del_table_->ApproximateNumEntries(start_ikey, end_ikey);
   if (entry_count == 0) {
-    return 0;
+    return {0, 0};
   }
   uint64_t n = num_entries_.load(std::memory_order_relaxed);
   if (n == 0) {
-    return 0;
+    return {0, 0};
   }
   if (entry_count > n) {
     // (range_del_)table_->ApproximateNumEntries() is just an estimate so it can
@@ -408,7 +409,7 @@ uint64_t MemTable::ApproximateSize(const Slice& start_ikey,
     entry_count = n;
   }
   uint64_t data_size = data_size_.load(std::memory_order_relaxed);
-  return entry_count * (data_size / n);
+  return {entry_count * (data_size / n), entry_count};
 }
 
 void MemTable::Add(SequenceNumber s, ValueType type,
@@ -560,7 +561,7 @@ static bool SaveValue(void* arg, const char* entry) {
     ValueType type;
     UnPackSequenceAndType(tag, &s->seq, &type);
 
-    if ((type == kTypeValue || type == kTypeDeletion) &&
+    if ((type == kTypeValue || type == kTypeMerge) &&
         range_del_agg->ShouldDelete(Slice(key_ptr, key_length))) {
       type = kTypeRangeDeletion;
     }

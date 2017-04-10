@@ -3,6 +3,8 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 //
+#include <ratio>
+
 #include "db/write_controller.h"
 
 #include "rocksdb/env.h"
@@ -16,7 +18,7 @@ class TimeSetEnv : public EnvWrapper {
  public:
   explicit TimeSetEnv() : EnvWrapper(nullptr) {}
   uint64_t now_micros_ = 6666;
-  virtual uint64_t NowMicros() override { return now_micros_; }
+  virtual uint64_t NowNanos() override { return now_micros_ * std::milli::den; }
 };
 
 TEST_F(WriteControllerTest, ChangeDelayRateTest) {

@@ -59,8 +59,20 @@ public class WriteBatch extends AbstractWriteBatch {
    * @param nativeHandle address of native instance.
    */
   WriteBatch(final long nativeHandle) {
+    this(nativeHandle, false);
+  }
+
+  /**
+   * <p>Private WriteBatch constructor which is used to construct
+   * WriteBatch instances. </p>
+   *
+   * @param nativeHandle address of native instance.
+   * @param owningNativeHandle whether to own this reference from the C++ side or not
+   */
+  WriteBatch(final long nativeHandle, final boolean owningNativeHandle) {
     super(nativeHandle);
-    disOwnNativeHandle();
+    if(!owningNativeHandle)
+      disOwnNativeHandle();
   }
 
   @Override protected final native void disposeInternal(final long handle);
@@ -79,6 +91,12 @@ public class WriteBatch extends AbstractWriteBatch {
       final int keyLen);
   @Override final native void remove(final long handle, final byte[] key,
       final int keyLen, final long cfHandle);
+  @Override
+  final native void deleteRange(final long handle, final byte[] beginKey, final int beginKeyLen,
+      final byte[] endKey, final int endKeyLen);
+  @Override
+  final native void deleteRange(final long handle, final byte[] beginKey, final int beginKeyLen,
+      final byte[] endKey, final int endKeyLen, final long cfHandle);
   @Override final native void putLogData(final long handle,
       final byte[] blob, final int blobLen);
   @Override final native void clear0(final long handle);
@@ -104,6 +122,7 @@ public class WriteBatch extends AbstractWriteBatch {
     public abstract void put(byte[] key, byte[] value);
     public abstract void merge(byte[] key, byte[] value);
     public abstract void delete(byte[] key);
+    public abstract void deleteRange(byte[] beginKey, byte[] endKey);
     public abstract void logData(byte[] blob);
 
     /**

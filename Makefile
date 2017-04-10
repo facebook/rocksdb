@@ -17,16 +17,6 @@ MACHINE ?= $(shell uname -m)
 ARFLAGS = ${EXTRA_ARFLAGS} rs
 STRIPFLAGS = -S -x
 
-# 3rd party libraries
-LIBZ_VERSION?=1.2.11
-LIBZ_DOWNLOAD_BASE?=http://zlib.net
-BZIP2_VERSION?=1.0.6
-BZIP2_DOWNLOAD_BASE?=http://www.bzip.org/${BZIP2_VERSION}
-SNAPPY_VERSION?=1.1.3
-SNAPPY_DOWNLOAD_BASE?=https://github.com/google/snappy/releases/download/1.1.3/${SNAPPY_VERSION}
-LZ4_VERSION?=r127
-LZ4_DOWNLOAD_BASE?=https://codeload.github.com/Cyan4973/lz4/tar.gz/${LZ4_VERSION}
-
 # Transform parallel LOG output into something more readable.
 perl_command = perl -n \
   -e '@a=split("\t",$$_,-1); $$t=$$a[8];'				\
@@ -227,15 +217,16 @@ endif
 
 ifndef DISABLE_JEMALLOC
 	ifdef JEMALLOC
-		PLATFORM_CXXFLAGS += "-DROCKSDB_JEMALLOC"
-		PLATFORM_CCFLAGS +=  "-DROCKSDB_JEMALLOC"
+		PLATFORM_CXXFLAGS += -DROCKSDB_JEMALLOC -DJEMALLOC_NO_DEMANGLE
+		PLATFORM_CCFLAGS  += -DROCKSDB_JEMALLOC -DJEMALLOC_NO_DEMANGLE
 	endif
 	EXEC_LDFLAGS := $(JEMALLOC_LIB) $(EXEC_LDFLAGS)
 	PLATFORM_CXXFLAGS += $(JEMALLOC_INCLUDE)
 	PLATFORM_CCFLAGS += $(JEMALLOC_INCLUDE)
 endif
 
-export GTEST_THROW_ON_FAILURE=1 GTEST_HAS_EXCEPTIONS=1
+export GTEST_THROW_ON_FAILURE=1
+export GTEST_HAS_EXCEPTIONS=1
 GTEST_DIR = ./third-party/gtest-1.7.0/fused-src
 # AIX: pre-defined system headers are surrounded by an extern "C" block
 ifeq ($(PLATFORM), OS_AIX)
@@ -328,9 +319,26 @@ BENCHTOOLOBJECTS = $(BENCH_LIB_SOURCES:.cc=.o) $(LIBOBJECTS) $(TESTUTIL)
 EXPOBJECTS = $(EXP_LIB_SOURCES:.cc=.o) $(LIBOBJECTS) $(TESTUTIL)
 
 TESTS = \
-	db_test \
+	db_basic_test \
 	db_test2 \
+	external_sst_file_basic_test \
+	auto_roll_logger_test \
+	bloom_test \
+	dynamic_bloom_test \
+	c_test \
+	checkpoint_test \
+	crc32c_test \
+	coding_test \
+	inlineskiplist_test \
+	env_basic_test \
+	env_test \
+	thread_local_test \
+	rate_limiter_test \
+	perf_context_test \
+	iostats_context_test \
+	db_wal_test \
 	db_block_cache_test \
+	db_test \
 	db_bloom_filter_test \
 	db_iter_test \
 	db_log_iter_test \
@@ -345,10 +353,8 @@ TESTS = \
 	db_options_test \
 	db_range_del_test \
 	db_sst_test \
-	external_sst_file_test \
 	db_tailing_iter_test \
 	db_universal_compaction_test \
-	db_wal_test \
 	db_io_failure_test \
 	db_properties_test \
 	db_table_properties_test \
@@ -357,29 +363,20 @@ TESTS = \
 	column_family_test \
 	table_properties_collector_test \
 	arena_test \
-	auto_roll_logger_test \
 	block_test \
-	bloom_test \
-	dynamic_bloom_test \
-	c_test \
 	cache_test \
-	checkpoint_test \
-	coding_test \
 	corruption_test \
-	crc32c_test \
 	slice_transform_test \
 	dbformat_test \
-	env_basic_test \
-	env_test \
 	fault_injection_test \
 	filelock_test \
 	filename_test \
 	file_reader_writer_test \
 	block_based_filter_block_test \
 	full_filter_block_test \
+	partitioned_filter_block_test \
 	hash_table_test \
 	histogram_test \
-	inlineskiplist_test \
 	log_test \
 	manual_compaction_test \
 	mock_env_test \
@@ -394,6 +391,7 @@ TESTS = \
 	reduce_levels_test \
 	plain_table_db_test \
 	comparator_db_test \
+	external_sst_file_test \
 	prefix_test \
 	skiplist_test \
 	stringappend_test \
@@ -415,9 +413,7 @@ TESTS = \
 	write_controller_test\
 	deletefile_test \
 	table_test \
-	thread_local_test \
 	geodb_test \
-	rate_limiter_test \
 	delete_scheduler_test \
 	options_test \
 	options_settable_test \
@@ -435,7 +431,6 @@ TESTS = \
 	sst_dump_test \
 	column_aware_encoding_test \
 	compact_files_test \
-	perf_context_test \
 	optimistic_transaction_test \
 	write_callback_test \
 	heap_test \
@@ -444,12 +439,14 @@ TESTS = \
 	option_change_migration_test \
 	transaction_test \
 	ldb_cmd_test \
-	iostats_context_test \
 	persistent_cache_test \
 	statistics_test \
 	lua_test \
 	range_del_aggregator_test \
 	lru_cache_test \
+	object_registry_test \
+	repair_test \
+	env_timed_test \
 
 PARALLEL_TEST = \
 	backupable_db_test \
@@ -698,6 +695,8 @@ check_0:
 	  | grep -E '$(tests-regexp)'					\
 	  | build_tools/gnu_parallel -j$(J) --plain --joblog=LOG $$eta --gnu '{} >& t/log-{/}'
 
+valgrind-blacklist-regexp = InlineSkipTest.ConcurrentInsert|TransactionTest.DeadlockStress|DBCompactionTest.SuggestCompactRangeNoTwoLevel0Compactions|BackupableDBTest.RateLimiting|DBTest.CloseSpeedup|DBTest.ThreadStatusFlush|DBTest.RateLimitingTest|DBTest.EncodeDecompressedBlockSizeTest|FaultInjectionTest.UninstalledCompaction|HarnessTest.Randomized|ExternalSSTFileTest.CompactDuringAddFileRandom|ExternalSSTFileTest.IngestFileWithGlobalSeqnoRandomized
+
 .PHONY: valgrind_check_0
 valgrind_check_0:
 	$(AM_V_GEN)export TEST_TMPDIR=$(TMPD);				\
@@ -711,6 +710,7 @@ valgrind_check_0:
 	}								\
 	  | $(prioritize_long_running_tests)				\
 	  | grep -E '$(tests-regexp)'					\
+	  | grep -E -v '$(valgrind-blacklist-regexp)'					\
 	  | build_tools/gnu_parallel -j$(J) --plain --joblog=LOG $$eta --gnu \
 	  '(if [[ "{}" == "./"* ]] ; then $(DRIVER) {}; else {}; fi) ' \
 	  '>& t/valgrind_log-{/}'
@@ -916,20 +916,20 @@ $(TOOLS_LIBRARY): $(BENCH_LIB_SOURCES:.cc=.o) $(TOOL_LIB_SOURCES:.cc=.o) $(LIB_S
 	$(AM_V_AR)rm -f $@
 	$(AM_V_at)$(AR) $(ARFLAGS) $@ $^
 
-librocksdb_env_basic_test.a: util/env_basic_test.o $(LIBOBJECTS) $(TESTHARNESS)
+librocksdb_env_basic_test.a: env/env_basic_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_V_AR)rm -f $@
 	$(AM_V_at)$(AR) $(ARFLAGS) $@ $^
 
 db_bench: tools/db_bench.o $(BENCHTOOLOBJECTS)
 	$(AM_LINK)
 
-cache_bench: util/cache_bench.o $(LIBOBJECTS) $(TESTUTIL)
+cache_bench: cache/cache_bench.o $(LIBOBJECTS) $(TESTUTIL)
 	$(AM_LINK)
 
 persistent_cache_bench: utilities/persistent_cache/persistent_cache_bench.o $(LIBOBJECTS) $(TESTUTIL)
 	$(AM_LINK)
 
-memtablerep_bench: db/memtablerep_bench.o $(LIBOBJECTS) $(TESTUTIL)
+memtablerep_bench: memtable/memtablerep_bench.o $(LIBOBJECTS) $(TESTUTIL)
 	$(AM_LINK)
 
 db_stress: tools/db_stress.o $(LIBOBJECTS) $(TESTUTIL)
@@ -965,7 +965,7 @@ dynamic_bloom_test: util/dynamic_bloom_test.o $(LIBOBJECTS) $(TESTHARNESS)
 c_test: db/c_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-cache_test: util/cache_test.o $(LIBOBJECTS) $(TESTHARNESS)
+cache_test: cache/cache_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 coding_test: util/coding_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -983,7 +983,7 @@ redis_test: utilities/redis/redis_lists_test.o $(LIBOBJECTS) $(TESTHARNESS)
 hash_table_test: utilities/persistent_cache/hash_table_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-histogram_test: util/histogram_test.o $(LIBOBJECTS) $(TESTHARNESS)
+histogram_test: monitoring/histogram_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 thread_local_test: util/thread_local_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -996,6 +996,9 @@ crc32c_test: util/crc32c_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 slice_transform_test: util/slice_transform_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+db_basic_test: db/db_basic_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 db_test: db/db_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -1044,6 +1047,9 @@ db_range_del_test: db/db_range_del_test.o db/db_test_util.o $(LIBOBJECTS) $(TEST
 	$(AM_LINK)
 
 db_sst_test: db/db_sst_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+external_sst_file_basic_test: db/external_sst_file_basic_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 external_sst_file_test: db/external_sst_file_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -1112,12 +1118,15 @@ spatial_db_test: utilities/spatialdb/spatial_db_test.o $(LIBOBJECTS) $(TESTHARNE
 env_mirror_test: utilities/env_mirror_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+env_timed_test: utilities/env_timed_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 ifdef ROCKSDB_USE_LIBRADOS
 env_librados_test: utilities/env_librados_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_V_CCLD)$(CXX) $^ $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 endif
 
-env_registry_test: utilities/env_registry_test.o $(LIBOBJECTS) $(TESTHARNESS)
+object_registry_test: utilities/object_registry_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 ttl_test: utilities/ttl/ttl_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -1150,10 +1159,10 @@ wal_manager_test: db/wal_manager_test.o $(LIBOBJECTS) $(TESTHARNESS)
 dbformat_test: db/dbformat_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-env_basic_test: util/env_basic_test.o $(LIBOBJECTS) $(TESTHARNESS)
+env_basic_test: env/env_basic_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-env_test: util/env_test.o $(LIBOBJECTS) $(TESTHARNESS)
+env_test: env/env_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 fault_injection_test: db/fault_injection_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -1177,6 +1186,9 @@ block_based_filter_block_test: table/block_based_filter_block_test.o $(LIBOBJECT
 full_filter_block_test: table/full_filter_block_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+partitioned_filter_block_test: table/partitioned_filter_block_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 log_test: db/log_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
@@ -1189,10 +1201,10 @@ table_test: table/table_test.o $(LIBOBJECTS) $(TESTHARNESS)
 block_test: table/block_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-inlineskiplist_test: db/inlineskiplist_test.o $(LIBOBJECTS) $(TESTHARNESS)
+inlineskiplist_test: memtable/inlineskiplist_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-skiplist_test: db/skiplist_test.o $(LIBOBJECTS) $(TESTHARNESS)
+skiplist_test: memtable/skiplist_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 version_edit_test: db/version_edit_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -1267,10 +1279,10 @@ thread_list_test: util/thread_list_test.o $(LIBOBJECTS) $(TESTHARNESS)
 compact_files_test: db/compact_files_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-options_test: util/options_test.o $(LIBOBJECTS) $(TESTHARNESS)
+options_test: options/options_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-options_settable_test: util/options_settable_test.o $(LIBOBJECTS) $(TESTHARNESS)
+options_settable_test: options/options_settable_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 options_util_test: utilities/options/options_util_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -1291,7 +1303,7 @@ column_aware_encoding_test: utilities/column_aware_encoding_test.o $(TESTHARNESS
 optimistic_transaction_test: utilities/transactions/optimistic_transaction_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-mock_env_test : util/mock_env_test.o $(LIBOBJECTS) $(TESTHARNESS)
+mock_env_test : env/mock_env_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 manual_compaction_test: db/manual_compaction_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -1300,7 +1312,7 @@ manual_compaction_test: db/manual_compaction_test.o $(LIBOBJECTS) $(TESTHARNESS)
 filelock_test: util/filelock_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-auto_roll_logger_test: db/auto_roll_logger_test.o $(LIBOBJECTS) $(TESTHARNESS)
+auto_roll_logger_test: util/auto_roll_logger_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 memtable_list_test: db/memtable_list_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -1330,16 +1342,16 @@ ldb_cmd_test: tools/ldb_cmd_test.o $(LIBOBJECTS) $(TESTHARNESS)
 ldb: tools/ldb.o $(LIBOBJECTS)
 	$(AM_LINK)
 
-iostats_context_test: util/iostats_context_test.o $(LIBOBJECTS) $(TESTHARNESS)
+iostats_context_test: monitoring/iostats_context_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_V_CCLD)$(CXX) $^ $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)
 
 persistent_cache_test: utilities/persistent_cache/persistent_cache_test.o  db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-statistics_test: util/statistics_test.o $(LIBOBJECTS) $(TESTHARNESS)
+statistics_test: monitoring/statistics_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-lru_cache_test: util/lru_cache_test.o $(LIBOBJECTS) $(TESTHARNESS)
+lru_cache_test: cache/lru_cache_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 lua_test: utilities/lua/rocks_lua_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -1395,16 +1407,35 @@ ifeq ($(PLATFORM), OS_SOLARIS)
 else
 	ARCH := $(shell getconf LONG_BIT)
 endif
-ROCKSDBJNILIB = librocksdbjni-linux$(ARCH).so
+
+ifeq (,$(findstring ppc,$(MACHINE)))
+        ROCKSDBJNILIB = librocksdbjni-linux$(ARCH).so
+else
+        ROCKSDBJNILIB = librocksdbjni-linux-$(MACHINE).so
+endif
 ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-linux$(ARCH).jar
 ROCKSDB_JAR_ALL = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH).jar
 ROCKSDB_JAVADOCS_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-javadoc.jar
 ROCKSDB_SOURCES_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-sources.jar
-EXTRACT_SOURCES = tar xvzf TAR_GZ
+SHA256_CMD = sha256sum
+
+ZLIB_VER ?= 1.2.11
+ZLIB_SHA256 ?= c3e5e9fdd5004dcb542feda5ee4f0ff0744628baf8ed2dd5d66f8ca1197cb1a1
+ZLIB_DOWNLOAD_BASE ?= http://zlib.net
+BZIP2_VER ?= 1.0.6
+BZIP2_SHA256 ?= a2848f34fcd5d6cf47def00461fcb528a0484d8edef8208d6d2e2909dc61d9cd
+BZIP2_DOWNLOAD_BASE ?= http://www.bzip.org
+SNAPPY_VER ?= 1.1.4
+SNAPPY_SHA256 ?= 134bfe122fd25599bb807bb8130e7ba6d9bdb851e0b16efcb83ac4f5d0b70057
+SNAPPY_DOWNLOAD_BASE ?= https://github.com/google/snappy/releases/download
+LZ4_VER ?= 1.7.5
+LZ4_SHA256 ?= 0190cacd63022ccb86f44fa5041dc6c3804407ad61550ca21c382827319e7e7e
+LZ4_DOWNLOAD_BASE ?= https://github.com/lz4/lz4/archive
 
 ifeq ($(PLATFORM), OS_MACOSX)
 	ROCKSDBJNILIB = librocksdbjni-osx.jnilib
 	ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-osx.jar
+	SHA256_CMD = openssl sha256 -r
 ifneq ("$(wildcard $(JAVA_HOME)/include/darwin)","")
 	JAVA_INCLUDE = -I$(JAVA_HOME)/include -I $(JAVA_HOME)/include/darwin
 else
@@ -1420,48 +1451,71 @@ ifeq ($(PLATFORM), OS_SOLARIS)
 	ROCKSDBJNILIB = librocksdbjni-solaris$(ARCH).so
 	ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-solaris$(ARCH).jar
 	JAVA_INCLUDE = -I$(JAVA_HOME)/include/ -I$(JAVA_HOME)/include/solaris
+	SHA256_CMD = digest -a sha256
 endif
 ifeq ($(PLATFORM), OS_AIX)
 	JAVA_INCLUDE = -I$(JAVA_HOME)/include/ -I$(JAVA_HOME)/include/aix
 	ROCKSDBJNILIB = librocksdbjni-aix.so
 	EXTRACT_SOURCES = gunzip < TAR_GZ | tar xvf -
+	SNAPPY_MAKE_TARGET = libsnappy.la
 endif
 
 libz.a:
-	-rm -rf zlib-$(LIBZ_VERSION)
-	curl -O -L $(LIBZ_DOWNLOAD_BASE)/zlib-$(LIBZ_VERSION).tar.gz
-	$(EXTRACT_SOURCES:TAR_GZ=zlib-$(LIBZ_VERSION).tar.gz)
-	cd zlib-$(LIBZ_VERSION) && CFLAGS='-fPIC ${EXTRA_CFLAGS}' LDFLAGS='${EXTRA_LDFLAGS}' ./configure --static && make
-	cp zlib-$(LIBZ_VERSION)/libz.a .
+	-rm -rf zlib-$(ZLIB_VER)
+	curl -O -L ${ZLIB_DOWNLOAD_BASE}/zlib-$(ZLIB_VER).tar.gz
+	ZLIB_SHA256_ACTUAL=`$(SHA256_CMD) zlib-$(ZLIB_VER).tar.gz | cut -d ' ' -f 1`; \
+	if [ "$(ZLIB_SHA256)" != "$$ZLIB_SHA256_ACTUAL" ]; then \
+		echo zlib-$(ZLIB_VER).tar.gz checksum mismatch, expected=\"$(ZLIB_SHA256)\" actual=\"$$ZLIB_SHA256_ACTUAL\"; \
+		exit 1; \
+	fi
+	tar xvzf zlib-$(ZLIB_VER).tar.gz
+	cd zlib-$(ZLIB_VER) && CFLAGS='-fPIC ${EXTRA_CFLAGS}' LDFLAGS='${EXTRA_LDFLAGS}' ./configure --static && make
+	cp zlib-$(ZLIB_VER)/libz.a .
 
 libbz2.a:
-	-rm -rf bzip2-${BZIP2_VERSION}
-	curl -O -L $(BZIP2_DOWNLOAD_BASE)/bzip2-${BZIP2_VERSION}.tar.gz
-	$(EXTRACT_SOURCES:TAR_GZ=bzip2-${BZIP2_VERSION}.tar.gz)
-	cd bzip2-${BZIP2_VERSION} && make CFLAGS='-fPIC -O2 -g -D_FILE_OFFSET_BITS=64 ${EXTRA_CFLAGS}' AR='ar ${EXTRA_ARFLAGS}'
-	cp bzip2-${BZIP2_VERSION}/libbz2.a .
+	-rm -rf bzip2-$(BZIP2_VER)
+	curl -O -L ${BZIP2_DOWNLOAD_BASE}/$(BZIP2_VER)/bzip2-$(BZIP2_VER).tar.gz
+	BZIP2_SHA256_ACTUAL=`$(SHA256_CMD) bzip2-$(BZIP2_VER).tar.gz | cut -d ' ' -f 1`; \
+	if [ "$(BZIP2_SHA256)" != "$$BZIP2_SHA256_ACTUAL" ]; then \
+		echo bzip2-$(BZIP2_VER).tar.gz checksum mismatch, expected=\"$(BZIP2_SHA256)\" actual=\"$$BZIP2_SHA256_ACTUAL\"; \
+		exit 1; \
+	fi
+	tar xvzf bzip2-$(BZIP2_VER).tar.gz
+	cd bzip2-$(BZIP2_VER) && make CFLAGS='-fPIC -O2 -g -D_FILE_OFFSET_BITS=64 ${EXTRA_CFLAGS}' AR='ar ${EXTRA_ARFLAGS}'
+	cp bzip2-$(BZIP2_VER)/libbz2.a .
 
 libsnappy.a:
-	-rm -rf snappy-${SNAPPY_VERSION}
-	curl -O -L ${SNAPPY_DOWNLOAD_BASE}/snappy-${SNAPPY_VERSION}.tar.gz
-	$(EXTRACT_SOURCES:TAR_GZ=snappy-${SNAPPY_VERSION}.tar.gz)
-	cd snappy-${SNAPPY_VERSION} && CFLAGS='${EXTRA_CFLAGS}' CXXFLAGS='${EXTRA_CXXFLAGS}' LDFLAGS='${EXTRA_LDFLAGS}' ./configure --with-pic --enable-static --disable-shared
-	cd snappy-${SNAPPY_VERSION} && make libsnappy.la
-	cp snappy-${SNAPPY_VERSION}/.libs/libsnappy.a .
+	-rm -rf snappy-$(SNAPPY_VER)
+	curl -O -L ${SNAPPY_DOWNLOAD_BASE}/$(SNAPPY_VER)/snappy-$(SNAPPY_VER).tar.gz
+	SNAPPY_SHA256_ACTUAL=`$(SHA256_CMD) snappy-$(SNAPPY_VER).tar.gz | cut -d ' ' -f 1`; \
+	if [ "$(SNAPPY_SHA256)" != "$$SNAPPY_SHA256_ACTUAL" ]; then \
+		echo snappy-$(SNAPPY_VER).tar.gz checksum mismatch, expected=\"$(SNAPPY_SHA256)\" actual=\"$$SNAPPY_SHA256_ACTUAL\"; \
+		exit 1; \
+	fi
+	tar xvzf snappy-$(SNAPPY_VER).tar.gz
+	cd snappy-$(SNAPPY_VER) && CFLAGS='${EXTRA_CFLAGS}' CXXFLAGS='${EXTRA_CXXFLAGS}' LDFLAGS='${EXTRA_LDFLAGS}' ./configure --with-pic --enable-static --disable-shared
+	cd snappy-$(SNAPPY_VER) && make ${SNAPPY_MAKE_TARGET}
+	cp snappy-$(SNAPPY_VER)/.libs/libsnappy.a .
 
 liblz4.a:
-	-rm -rf lz4-${LZ4_VERSION}
-	curl -O -L ${LZ4_DOWNLOAD_BASE}/lz4-${LZ4_VERSION}.tar.gz
-	$(EXTRACT_SOURCES:TAR_GZ=lz4-${LZ4_VERSION}.tar.gz)
-	cd lz4-${LZ4_VERSION}/lib && make CFLAGS='-fPIC ${EXTRA_CFLAGS}' all
-	cp lz4-${LZ4_VERSION}/lib/liblz4.a .
+	-rm -rf lz4-$(LZ4_VER)
+	curl -O -L ${LZ4_DOWNLOAD_BASE}/v$(LZ4_VER).tar.gz
+	mv v$(LZ4_VER).tar.gz lz4-$(LZ4_VER).tar.gz
+	LZ4_SHA256_ACTUAL=`$(SHA256_CMD) lz4-$(LZ4_VER).tar.gz | cut -d ' ' -f 1`; \
+	if [ "$(LZ4_SHA256)" != "$$LZ4_SHA256_ACTUAL" ]; then \
+		echo lz4-$(LZ4_VER).tar.gz checksum mismatch, expected=\"$(LZ4_SHA256)\" actual=\"$$LZ4_SHA256_ACTUAL\"; \
+		exit 1; \
+	fi
+	tar xvzf lz4-$(LZ4_VER).tar.gz
+	cd lz4-$(LZ4_VER)/lib && make CFLAGS='-fPIC ${EXTRA_CFLAGS}' all
+	cp lz4-$(LZ4_VER)/lib/liblz4.a .
 
 # A version of each $(LIBOBJECTS) compiled with -fPIC and a fixed set of static compression libraries
 java_static_libobjects = $(patsubst %,jls/%,$(LIBOBJECTS))
 CLEAN_FILES += jls
 
 JAVA_STATIC_FLAGS = -DZLIB -DBZIP2 -DSNAPPY -DLZ4
-JAVA_STATIC_INCLUDES = -I./zlib-$(LIBZ_VERSION) -I./bzip2-1.0.6 -I./snappy-1.1.3 -I./lz4-r127/lib
+JAVA_STATIC_INCLUDES = -I./zlib-$(ZLIB_VER) -I./bzip2-$(BZIP2_VER) -I./snappy-$(SNAPPY_VER) -I./lz4-$(LZ4_VER)/lib
 
 $(java_static_libobjects): jls/%.o: %.cc libz.a libbz2.a libsnappy.a liblz4.a
 	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES) -fPIC -c $< -o $@ $(COVERAGEFLAGS)
@@ -1531,13 +1585,6 @@ commit_prereq: build_tools/rocksdb-lego-determinator \
                build_tools/precommit_checker.py
 	J=$(J) build_tools/precommit_checker.py unit unit_481 clang_unit release release_481 clang_release tsan asan ubsan lite unit_non_shm
 	$(MAKE) clean && $(MAKE) jclean && $(MAKE) rocksdbjava;
-
-xfunc:
-	for xftest in $(XFUNC_TESTS); do \
-		echo "===== Running xftest $$xftest"; \
-		make check ROCKSDB_XFUNC_TEST="$$xftest" tests-regexp="DBTest" ;\
-	done
-
 
 # ---------------------------------------------------------------------------
 #  	Platform-specific compilation

@@ -4,12 +4,12 @@
 
 #ifndef ROCKSDB_LITE
 
+#include <map>
 #include <memory>
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/utilities/db_ttl.h"
+#include "util/string_util.h"
 #include "util/testharness.h"
-#include "util/logging.h"
-#include <map>
 #ifndef OS_WIN
 #include <unistd.h>
 #endif

@@ -118,16 +118,16 @@ public class EnvOptionsTest {
   }
 
   @Test
-  public void rateLimiterConfig() {
-    try (final EnvOptions envOptions = new EnvOptions()) {
-      final RateLimiterConfig rateLimiterConfig1 =
-          new GenericRateLimiterConfig(1000, 100 * 1000, 1);
-      envOptions.setRateLimiterConfig(rateLimiterConfig1);
-      assertThat(envOptions.rateLimiterConfig()).isEqualTo(rateLimiterConfig1);
+  public void rateLimiter() {
+    try (final EnvOptions envOptions = new EnvOptions();
+      final RateLimiter rateLimiter1 = new RateLimiter(1000, 100 * 1000, 1)) {
+      envOptions.setRateLimiter(rateLimiter1);
+      assertThat(envOptions.rateLimiter()).isEqualTo(rateLimiter1);
 
-      final RateLimiterConfig rateLimiterConfig2 = new GenericRateLimiterConfig(1000);
-      envOptions.setRateLimiterConfig(rateLimiterConfig2);
-      assertThat(envOptions.rateLimiterConfig()).isEqualTo(rateLimiterConfig2);
+      try(final RateLimiter rateLimiter2 = new RateLimiter(1000)) {
+        envOptions.setRateLimiter(rateLimiter2);
+        assertThat(envOptions.rateLimiter()).isEqualTo(rateLimiter2);
+      }
     }
   }
 }

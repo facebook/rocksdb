@@ -14,11 +14,11 @@
 #include "db/db_impl.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
-#include "db/skiplist.h"
+#include "memtable/skiplist.h"
+#include "options/db_options.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
 #include "util/arena.h"
-#include "util/db_options.h"
 #include "utilities/write_batch_with_index/write_batch_with_index_internal.h"
 
 namespace rocksdb {
@@ -570,7 +570,7 @@ WriteBatchWithIndex::WriteBatchWithIndex(
     bool overwrite_key)
     : rep(new Rep(default_index_comparator, reserved_bytes, overwrite_key)) {}
 
-WriteBatchWithIndex::~WriteBatchWithIndex() { delete rep; }
+WriteBatchWithIndex::~WriteBatchWithIndex() {}
 
 WriteBatch* WriteBatchWithIndex::GetWriteBatch() { return &rep->write_batch; }
 

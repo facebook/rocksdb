@@ -20,6 +20,7 @@
 #include <limits>
 
 #include "db/compaction_picker.h"
+#include "db/compaction_picker_universal.h"
 #include "db/db_impl.h"
 #include "db/internal_stats.h"
 #include "db/job_context.h"
@@ -27,12 +28,11 @@
 #include "db/version_set.h"
 #include "db/write_controller.h"
 #include "memtable/hash_skiplist_rep.h"
+#include "monitoring/thread_status_util.h"
+#include "options/options_helper.h"
 #include "table/block_based_table_factory.h"
 #include "util/autovector.h"
 #include "util/compression.h"
-#include "util/options_helper.h"
-#include "util/thread_status_util.h"
-#include "util/xfunc.h"
 
 namespace rocksdb {
 
@@ -182,14 +182,6 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
   } else if (result.memtable_prefix_bloom_size_ratio < 0) {
     result.memtable_prefix_bloom_size_ratio = 0;
   }
-  XFUNC_TEST("memtablelist_history", "transaction_xftest_SanitizeOptions",
-             xf_transaction_set_memtable_history1,
-             xf_transaction_set_memtable_history,
-             &result.max_write_buffer_number_to_maintain);
-  XFUNC_TEST("memtablelist_history_clear", "transaction_xftest_SanitizeOptions",
-             xf_transaction_clear_memtable_history1,
-             xf_transaction_clear_memtable_history,
-             &result.max_write_buffer_number_to_maintain);
 
   if (!result.prefix_extractor) {
     assert(result.memtable_factory);
@@ -214,8 +206,8 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
   }
 
   if (result.level0_file_num_compaction_trigger == 0) {
-    Warn(db_options.info_log.get(),
-         "level0_file_num_compaction_trigger cannot be 0");
+    ROCKS_LOG_WARN(db_options.info_log.get(),
+                   "level0_file_num_compaction_trigger cannot be 0");
     result.level0_file_num_compaction_trigger = 1;
   }
 
@@ -223,14 +215,14 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
           result.level0_slowdown_writes_trigger ||
       result.level0_slowdown_writes_trigger <
           result.level0_file_num_compaction_trigger) {
-    Warn(db_options.info_log.get(),
-         "This condition must be satisfied: "
-         "level0_stop_writes_trigger(%d) >= "
-         "level0_slowdown_writes_trigger(%d) >= "
-         "level0_file_num_compaction_trigger(%d)",
-         result.level0_stop_writes_trigger,
-         result.level0_slowdown_writes_trigger,
-         result.level0_file_num_compaction_trigger);
+    ROCKS_LOG_WARN(db_options.info_log.get(),
+                   "This condition must be satisfied: "
+                   "level0_stop_writes_trigger(%d) >= "
+                   "level0_slowdown_writes_trigger(%d) >= "
+                   "level0_file_num_compaction_trigger(%d)",
+                   result.level0_stop_writes_trigger,
+                   result.level0_slowdown_writes_trigger,
+                   result.level0_file_num_compaction_trigger);
     if (result.level0_slowdown_writes_trigger <
         result.level0_file_num_compaction_trigger) {
       result.level0_slowdown_writes_trigger =
@@ -240,14 +232,14 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
         result.level0_slowdown_writes_trigger) {
       result.level0_stop_writes_trigger = result.level0_slowdown_writes_trigger;
     }
-    Warn(db_options.info_log.get(),
-         "Adjust the value to "
-         "level0_stop_writes_trigger(%d)"
-         "level0_slowdown_writes_trigger(%d)"
-         "level0_file_num_compaction_trigger(%d)",
-         result.level0_stop_writes_trigger,
-         result.level0_slowdown_writes_trigger,
-         result.level0_file_num_compaction_trigger);
+    ROCKS_LOG_WARN(db_options.info_log.get(),
+                   "Adjust the value to "
+                   "level0_stop_writes_trigger(%d)"
+                   "level0_slowdown_writes_trigger(%d)"
+                   "level0_file_num_compaction_trigger(%d)",
+                   result.level0_stop_writes_trigger,
+                   result.level0_slowdown_writes_trigger,
+                   result.level0_file_num_compaction_trigger);
   }
 
   if (result.soft_pending_compaction_bytes_limit == 0) {
@@ -370,7 +362,8 @@ ColumnFamilyData::ColumnFamilyData(
       column_family_set_(column_family_set),
       pending_flush_(false),
       pending_compaction_(false),
-      prev_compaction_needed_bytes_(0) {
+      prev_compaction_needed_bytes_(0),
+      allow_2pc_(db_options.allow_2pc) {
   Ref();
 
   // Convert user defined table properties collector factories to internal ones.
@@ -394,27 +387,27 @@ ColumnFamilyData::ColumnFamilyData(
     } else if (ioptions_.compaction_style == kCompactionStyleNone) {
       compaction_picker_.reset(new NullCompactionPicker(
           ioptions_, &internal_comparator_));
-      Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
-          "Column family %s does not use any background compaction. "
-          "Compactions can only be done via CompactFiles\n",
-          GetName().c_str());
+      ROCKS_LOG_WARN(ioptions_.info_log,
+                     "Column family %s does not use any background compaction. "
+                     "Compactions can only be done via CompactFiles\n",
+                     GetName().c_str());
 #endif  // !ROCKSDB_LITE
     } else {
-      Log(InfoLogLevel::ERROR_LEVEL, ioptions_.info_log,
-          "Unable to recognize the specified compaction style %d. "
-          "Column family %s will use kCompactionStyleLevel.\n",
-          ioptions_.compaction_style, GetName().c_str());
+      ROCKS_LOG_ERROR(ioptions_.info_log,
+                      "Unable to recognize the specified compaction style %d. "
+                      "Column family %s will use kCompactionStyleLevel.\n",
+                      ioptions_.compaction_style, GetName().c_str());
       compaction_picker_.reset(
           new LevelCompactionPicker(ioptions_, &internal_comparator_));
     }
 
     if (column_family_set_->NumberOfColumnFamilies() < 10) {
-      Log(InfoLogLevel::INFO_LEVEL, ioptions_.info_log,
-          "--------------- Options for column family [%s]:\n", name.c_str());
+      ROCKS_LOG_INFO(ioptions_.info_log,
+                     "--------------- Options for column family [%s]:\n",
+                     name.c_str());
       initial_cf_options_.Dump(ioptions_.info_log);
     } else {
-      Log(InfoLogLevel::INFO_LEVEL, ioptions_.info_log,
-          "\t(skipping printing options)\n");
+      ROCKS_LOG_INFO(ioptions_.info_log, "\t(skipping printing options)\n");
     }
   }
 
@@ -490,6 +483,25 @@ void ColumnFamilyData::SetDropped() {
 
 ColumnFamilyOptions ColumnFamilyData::GetLatestCFOptions() const {
   return BuildColumnFamilyOptions(initial_cf_options_, mutable_cf_options_);
+}
+
+uint64_t ColumnFamilyData::OldestLogToKeep() {
+  auto current_log = GetLogNumber();
+
+  if (allow_2pc_) {
+    auto imm_prep_log = imm()->GetMinLogContainingPrepSection();
+    auto mem_prep_log = mem()->GetMinLogContainingPrepSection();
+
+    if (imm_prep_log > 0 && imm_prep_log < current_log) {
+      current_log = imm_prep_log;
+    }
+
+    if (mem_prep_log > 0 && mem_prep_log < current_log) {
+      current_log = mem_prep_log;
+    }
+  }
+
+  return current_log;
 }
 
 const double kIncSlowdownRatio = 0.8;
@@ -609,7 +621,8 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
     if (imm()->NumNotFlushed() >= mutable_cf_options.max_write_buffer_number) {
       write_controller_token_ = write_controller->GetStopToken();
       internal_stats_->AddCFStats(InternalStats::MEMTABLE_COMPACTION, 1);
-      Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
+      ROCKS_LOG_WARN(
+          ioptions_.info_log,
           "[%s] Stopping writes because we have %d immutable memtables "
           "(waiting for flush), max_write_buffer_number is set to %d",
           name_.c_str(), imm()->NumNotFlushed(),
@@ -623,9 +636,9 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
         internal_stats_->AddCFStats(
             InternalStats::LEVEL0_NUM_FILES_WITH_COMPACTION, 1);
       }
-      Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
-          "[%s] Stopping writes because we have %d level-0 files",
-          name_.c_str(), vstorage->l0_delay_trigger_count());
+      ROCKS_LOG_WARN(ioptions_.info_log,
+                     "[%s] Stopping writes because we have %d level-0 files",
+                     name_.c_str(), vstorage->l0_delay_trigger_count());
     } else if (!mutable_cf_options.disable_auto_compactions &&
                mutable_cf_options.hard_pending_compaction_bytes_limit > 0 &&
                compaction_needed_bytes >=
@@ -633,7 +646,8 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
       write_controller_token_ = write_controller->GetStopToken();
       internal_stats_->AddCFStats(
           InternalStats::HARD_PENDING_COMPACTION_BYTES_LIMIT, 1);
-      Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
+      ROCKS_LOG_WARN(
+          ioptions_.info_log,
           "[%s] Stopping writes because of estimated pending compaction "
           "bytes %" PRIu64,
           name_.c_str(), compaction_needed_bytes);
@@ -645,7 +659,8 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
                      prev_compaction_needed_bytes_, was_stopped,
                      mutable_cf_options.disable_auto_compactions);
       internal_stats_->AddCFStats(InternalStats::MEMTABLE_SLOWDOWN, 1);
-      Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
+      ROCKS_LOG_WARN(
+          ioptions_.info_log,
           "[%s] Stalling writes because we have %d immutable memtables "
           "(waiting for flush), max_write_buffer_number is set to %d "
           "rate %" PRIu64,
@@ -668,11 +683,11 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
         internal_stats_->AddCFStats(
             InternalStats::LEVEL0_SLOWDOWN_WITH_COMPACTION, 1);
       }
-      Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
-          "[%s] Stalling writes because we have %d level-0 files "
-          "rate %" PRIu64,
-          name_.c_str(), vstorage->l0_delay_trigger_count(),
-          write_controller->delayed_write_rate());
+      ROCKS_LOG_WARN(ioptions_.info_log,
+                     "[%s] Stalling writes because we have %d level-0 files "
+                     "rate %" PRIu64,
+                     name_.c_str(), vstorage->l0_delay_trigger_count(),
+                     write_controller->delayed_write_rate());
     } else if (!mutable_cf_options.disable_auto_compactions &&
                mutable_cf_options.soft_pending_compaction_bytes_limit > 0 &&
                vstorage->estimated_compaction_needed_bytes() >=
@@ -694,7 +709,8 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
                      mutable_cf_options.disable_auto_compactions);
       internal_stats_->AddCFStats(
           InternalStats::SOFT_PENDING_COMPACTION_BYTES_LIMIT, 1);
-      Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
+      ROCKS_LOG_WARN(
+          ioptions_.info_log,
           "[%s] Stalling writes because of estimated pending compaction "
           "bytes %" PRIu64 " rate %" PRIu64,
           name_.c_str(), vstorage->estimated_compaction_needed_bytes(),
@@ -706,7 +722,8 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
               mutable_cf_options.level0_slowdown_writes_trigger)) {
         write_controller_token_ =
             write_controller->GetCompactionPressureToken();
-        Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
+        ROCKS_LOG_WARN(
+            ioptions_.info_log,
             "[%s] Increasing compaction threads because we have %d level-0 "
             "files ",
             name_.c_str(), vstorage->l0_delay_trigger_count());
@@ -719,7 +736,8 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
         write_controller_token_ =
             write_controller->GetCompactionPressureToken();
         if (mutable_cf_options.soft_pending_compaction_bytes_limit > 0) {
-          Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
+          ROCKS_LOG_WARN(
+              ioptions_.info_log,
               "[%s] Increasing compaction threads because of estimated pending "
               "compaction "
               "bytes %" PRIu64,

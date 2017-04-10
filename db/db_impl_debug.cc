@@ -10,13 +10,19 @@
 #ifndef NDEBUG
 
 #include "db/db_impl.h"
-#include "util/thread_status_updater.h"
+#include "monitoring/thread_status_updater.h"
 
 namespace rocksdb {
 
 uint64_t DBImpl::TEST_GetLevel0TotalSize() {
   InstrumentedMutexLock l(&mutex_);
   return default_cf_handle_->cfd()->current()->storage_info()->NumLevelBytes(0);
+}
+
+void DBImpl::TEST_HandleWALFull() {
+  WriteContext write_context;
+  InstrumentedMutexLock l(&mutex_);
+  HandleWALFull(&write_context);
 }
 
 int64_t DBImpl::TEST_MaxNextLevelOverlappingBytes(

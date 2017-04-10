@@ -16,7 +16,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/statistics.h"
 #include "table/iterator_wrapper.h"
-#include "table/merger.h"
+#include "table/merging_iterator.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
 #include "util/testharness.h"
@@ -871,6 +871,378 @@ TEST_F(DBIteratorTest, DBIteratorUseSkip) {
 
       db_iter->Prev();
       ASSERT_TRUE(!db_iter->Valid());
+    }
+  }
+}
+
+TEST_F(DBIteratorTest, DBIteratorSkipInternalKeys) {
+  Options options;
+  ReadOptions ro;
+
+  // Basic test case ... Make sure explicityly passing the default value works.
+  // Skipping internal keys is disabled by default, when the value is 0.
+  {
+    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+    internal_iter->AddPut("a", "val_a");
+    internal_iter->AddDeletion("b");
+    internal_iter->AddDeletion("b");
+    internal_iter->AddPut("c", "val_c");
+    internal_iter->AddPut("c", "val_c");
+    internal_iter->AddDeletion("c");
+    internal_iter->AddPut("d", "val_d");
+    internal_iter->Finish();
+
+    ro.max_skippable_internal_keys = 0;
+    std::unique_ptr<Iterator> db_iter(NewDBIterator(
+        env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+        10, options.max_sequential_skip_in_iterations, 0, nullptr, false, false,
+        false, ro.max_skippable_internal_keys));
+
+    db_iter->SeekToFirst();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "a");
+    ASSERT_EQ(db_iter->value().ToString(), "val_a");
+
+    db_iter->Next();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "d");
+    ASSERT_EQ(db_iter->value().ToString(), "val_d");
+
+    db_iter->Next();
+    ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_TRUE(db_iter->status().ok());
+
+    db_iter->SeekToLast();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "d");
+    ASSERT_EQ(db_iter->value().ToString(), "val_d");
+
+    db_iter->Prev();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "a");
+    ASSERT_EQ(db_iter->value().ToString(), "val_a");
+
+    db_iter->Prev();
+    ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_TRUE(db_iter->status().ok());
+  }
+
+  // Test to make sure that the request will *not* fail as incomplete if
+  // num_internal_keys_skipped is *equal* to max_skippable_internal_keys
+  // threshold. (It will fail as incomplete only when the threshold is
+  // exceeded.)
+  {
+    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+    internal_iter->AddPut("a", "val_a");
+    internal_iter->AddDeletion("b");
+    internal_iter->AddDeletion("b");
+    internal_iter->AddPut("c", "val_c");
+    internal_iter->Finish();
+
+    ro.max_skippable_internal_keys = 2;
+    std::unique_ptr<Iterator> db_iter(NewDBIterator(
+        env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+        10, options.max_sequential_skip_in_iterations, 0, nullptr, false, false,
+        false, ro.max_skippable_internal_keys));
+
+    db_iter->SeekToFirst();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "a");
+    ASSERT_EQ(db_iter->value().ToString(), "val_a");
+
+    db_iter->Next();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "c");
+    ASSERT_EQ(db_iter->value().ToString(), "val_c");
+
+    db_iter->Next();
+    ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_TRUE(db_iter->status().ok());
+
+    db_iter->SeekToLast();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "c");
+    ASSERT_EQ(db_iter->value().ToString(), "val_c");
+
+    db_iter->Prev();
+    ASSERT_EQ(db_iter->key().ToString(), "a");
+    ASSERT_EQ(db_iter->value().ToString(), "val_a");
+
+    db_iter->Prev();
+    ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_TRUE(db_iter->status().ok());
+  }
+
+  // Fail the request as incomplete when num_internal_keys_skipped >
+  // max_skippable_internal_keys
+  {
+    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+    internal_iter->AddPut("a", "val_a");
+    internal_iter->AddDeletion("b");
+    internal_iter->AddDeletion("b");
+    internal_iter->AddDeletion("b");
+    internal_iter->AddPut("c", "val_c");
+    internal_iter->Finish();
+
+    ro.max_skippable_internal_keys = 2;
+    std::unique_ptr<Iterator> db_iter(NewDBIterator(
+        env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+        10, options.max_sequential_skip_in_iterations, 0, nullptr, false, false,
+        false, ro.max_skippable_internal_keys));
+
+    db_iter->SeekToFirst();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "a");
+    ASSERT_EQ(db_iter->value().ToString(), "val_a");
+
+    db_iter->Next();
+    ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_TRUE(db_iter->status().IsIncomplete());
+
+    db_iter->SeekToLast();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "c");
+    ASSERT_EQ(db_iter->value().ToString(), "val_c");
+
+    db_iter->Prev();
+    ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_TRUE(db_iter->status().IsIncomplete());
+  }
+
+  // Test that the num_internal_keys_skipped counter resets after a successful
+  // read.
+  {
+    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+    internal_iter->AddPut("a", "val_a");
+    internal_iter->AddDeletion("b");
+    internal_iter->AddDeletion("b");
+    internal_iter->AddPut("c", "val_c");
+    internal_iter->AddDeletion("d");
+    internal_iter->AddDeletion("d");
+    internal_iter->AddDeletion("d");
+    internal_iter->AddPut("e", "val_e");
+    internal_iter->Finish();
+
+    ro.max_skippable_internal_keys = 2;
+    std::unique_ptr<Iterator> db_iter(NewDBIterator(
+        env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+        10, options.max_sequential_skip_in_iterations, 0, nullptr, false, false,
+        false, ro.max_skippable_internal_keys));
+
+    db_iter->SeekToFirst();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "a");
+    ASSERT_EQ(db_iter->value().ToString(), "val_a");
+
+    db_iter->Next();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "c");
+    ASSERT_EQ(db_iter->value().ToString(), "val_c");
+
+    db_iter->Next();  // num_internal_keys_skipped counter resets here.
+    ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_TRUE(db_iter->status().IsIncomplete());
+  }
+
+  // Test that the num_internal_keys_skipped counter resets after a successful
+  // read.
+  // Reverse direction
+  {
+    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+    internal_iter->AddPut("a", "val_a");
+    internal_iter->AddDeletion("b");
+    internal_iter->AddDeletion("b");
+    internal_iter->AddDeletion("b");
+    internal_iter->AddPut("c", "val_c");
+    internal_iter->AddDeletion("d");
+    internal_iter->AddDeletion("d");
+    internal_iter->AddPut("e", "val_e");
+    internal_iter->Finish();
+
+    ro.max_skippable_internal_keys = 2;
+    std::unique_ptr<Iterator> db_iter(NewDBIterator(
+        env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+        10, options.max_sequential_skip_in_iterations, 0, nullptr, false, false,
+        false, ro.max_skippable_internal_keys));
+
+    db_iter->SeekToLast();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "e");
+    ASSERT_EQ(db_iter->value().ToString(), "val_e");
+
+    db_iter->Prev();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "c");
+    ASSERT_EQ(db_iter->value().ToString(), "val_c");
+
+    db_iter->Prev();  // num_internal_keys_skipped counter resets here.
+    ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_TRUE(db_iter->status().IsIncomplete());
+  }
+
+  // Test that skipping separate keys is handled
+  {
+    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+    internal_iter->AddPut("a", "val_a");
+    internal_iter->AddDeletion("b");
+    internal_iter->AddDeletion("c");
+    internal_iter->AddDeletion("d");
+    internal_iter->AddPut("e", "val_e");
+    internal_iter->Finish();
+
+    ro.max_skippable_internal_keys = 2;
+    std::unique_ptr<Iterator> db_iter(NewDBIterator(
+        env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+        10, options.max_sequential_skip_in_iterations, 0, nullptr, false, false,
+        false, ro.max_skippable_internal_keys));
+
+    db_iter->SeekToFirst();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "a");
+    ASSERT_EQ(db_iter->value().ToString(), "val_a");
+
+    db_iter->Next();
+    ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_TRUE(db_iter->status().IsIncomplete());
+
+    db_iter->SeekToLast();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "e");
+    ASSERT_EQ(db_iter->value().ToString(), "val_e");
+
+    db_iter->Prev();
+    ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_TRUE(db_iter->status().IsIncomplete());
+  }
+
+  // Test if alternating puts and deletes of the same key are handled correctly.
+  {
+    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+    internal_iter->AddPut("a", "val_a");
+    internal_iter->AddPut("b", "val_b");
+    internal_iter->AddDeletion("b");
+    internal_iter->AddPut("c", "val_c");
+    internal_iter->AddDeletion("c");
+    internal_iter->AddPut("d", "val_d");
+    internal_iter->AddDeletion("d");
+    internal_iter->AddPut("e", "val_e");
+    internal_iter->Finish();
+
+    ro.max_skippable_internal_keys = 2;
+    std::unique_ptr<Iterator> db_iter(NewDBIterator(
+        env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+        10, options.max_sequential_skip_in_iterations, 0, nullptr, false, false,
+        false, ro.max_skippable_internal_keys));
+
+    db_iter->SeekToFirst();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "a");
+    ASSERT_EQ(db_iter->value().ToString(), "val_a");
+
+    db_iter->Next();
+    ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_TRUE(db_iter->status().IsIncomplete());
+
+    db_iter->SeekToLast();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "e");
+    ASSERT_EQ(db_iter->value().ToString(), "val_e");
+
+    db_iter->Prev();
+    ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_TRUE(db_iter->status().IsIncomplete());
+  }
+
+  // Test for large number of skippable internal keys with *default*
+  // max_sequential_skip_in_iterations.
+  {
+    for (size_t i = 1; i <= 200; ++i) {
+      TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+      internal_iter->AddPut("a", "val_a");
+      for (size_t j = 1; j <= i; ++j) {
+        internal_iter->AddPut("b", "val_b");
+        internal_iter->AddDeletion("b");
+      }
+      internal_iter->AddPut("c", "val_c");
+      internal_iter->Finish();
+
+      ro.max_skippable_internal_keys = i;
+      std::unique_ptr<Iterator> db_iter(NewDBIterator(
+          env_, ImmutableCFOptions(options), BytewiseComparator(),
+          internal_iter, 2 * i + 1, options.max_sequential_skip_in_iterations,
+          0, nullptr, false, false, false, ro.max_skippable_internal_keys));
+
+      db_iter->SeekToFirst();
+      ASSERT_TRUE(db_iter->Valid());
+      ASSERT_EQ(db_iter->key().ToString(), "a");
+      ASSERT_EQ(db_iter->value().ToString(), "val_a");
+
+      db_iter->Next();
+      if ((options.max_sequential_skip_in_iterations + 1) >=
+          ro.max_skippable_internal_keys) {
+        ASSERT_TRUE(!db_iter->Valid());
+        ASSERT_TRUE(db_iter->status().IsIncomplete());
+      } else {
+        ASSERT_TRUE(db_iter->Valid());
+        ASSERT_EQ(db_iter->key().ToString(), "c");
+        ASSERT_EQ(db_iter->value().ToString(), "val_c");
+      }
+
+      db_iter->SeekToLast();
+      ASSERT_TRUE(db_iter->Valid());
+      ASSERT_EQ(db_iter->key().ToString(), "c");
+      ASSERT_EQ(db_iter->value().ToString(), "val_c");
+
+      db_iter->Prev();
+      if ((options.max_sequential_skip_in_iterations + 1) >=
+          ro.max_skippable_internal_keys) {
+        ASSERT_TRUE(!db_iter->Valid());
+        ASSERT_TRUE(db_iter->status().IsIncomplete());
+      } else {
+        ASSERT_TRUE(db_iter->Valid());
+        ASSERT_EQ(db_iter->key().ToString(), "a");
+        ASSERT_EQ(db_iter->value().ToString(), "val_a");
+      }
+    }
+  }
+
+  // Test for large number of skippable internal keys with a *non-default*
+  // max_sequential_skip_in_iterations.
+  {
+    for (size_t i = 1; i <= 200; ++i) {
+      TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+      internal_iter->AddPut("a", "val_a");
+      for (size_t j = 1; j <= i; ++j) {
+        internal_iter->AddPut("b", "val_b");
+        internal_iter->AddDeletion("b");
+      }
+      internal_iter->AddPut("c", "val_c");
+      internal_iter->Finish();
+
+      options.max_sequential_skip_in_iterations = 1000;
+      ro.max_skippable_internal_keys = i;
+      std::unique_ptr<Iterator> db_iter(NewDBIterator(
+          env_, ImmutableCFOptions(options), BytewiseComparator(),
+          internal_iter, 2 * i + 1, options.max_sequential_skip_in_iterations,
+          0, nullptr, false, false, false, ro.max_skippable_internal_keys));
+
+      db_iter->SeekToFirst();
+      ASSERT_TRUE(db_iter->Valid());
+      ASSERT_EQ(db_iter->key().ToString(), "a");
+      ASSERT_EQ(db_iter->value().ToString(), "val_a");
+
+      db_iter->Next();
+      ASSERT_TRUE(!db_iter->Valid());
+      ASSERT_TRUE(db_iter->status().IsIncomplete());
+
+      db_iter->SeekToLast();
+      ASSERT_TRUE(db_iter->Valid());
+      ASSERT_EQ(db_iter->key().ToString(), "c");
+      ASSERT_EQ(db_iter->value().ToString(), "val_c");
+
+      db_iter->Prev();
+      ASSERT_TRUE(!db_iter->Valid());
+      ASSERT_TRUE(db_iter->status().IsIncomplete());
     }
   }
 }
@@ -1895,6 +2267,66 @@ TEST_F(DBIteratorTest, DBIterator12) {
   ASSERT_EQ(db_iter->value().ToString(), "1");
   db_iter->Prev();
   ASSERT_FALSE(db_iter->Valid());
+}
+
+TEST_F(DBIteratorTest, DBIterator13) {
+  Options options;
+  options.merge_operator = nullptr;
+
+  std::string key;
+  key.resize(9);
+  key.assign(9, static_cast<char>(0));
+  key[0] = 'b';
+
+  TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+  internal_iter->AddPut(key, "0");
+  internal_iter->AddPut(key, "1");
+  internal_iter->AddPut(key, "2");
+  internal_iter->AddPut(key, "3");
+  internal_iter->AddPut(key, "4");
+  internal_iter->AddPut(key, "5");
+  internal_iter->AddPut(key, "6");
+  internal_iter->AddPut(key, "7");
+  internal_iter->AddPut(key, "8");
+  internal_iter->Finish();
+
+  std::unique_ptr<Iterator> db_iter(
+      NewDBIterator(env_, ImmutableCFOptions(options), BytewiseComparator(),
+                    internal_iter, 2, 3, 0));
+  db_iter->Seek("b");
+  ASSERT_TRUE(db_iter->Valid());
+  ASSERT_EQ(db_iter->key().ToString(), key);
+  ASSERT_EQ(db_iter->value().ToString(), "2");
+}
+
+TEST_F(DBIteratorTest, DBIterator14) {
+  Options options;
+  options.merge_operator = nullptr;
+
+  std::string key("b");
+  TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+  internal_iter->AddPut("b", "0");
+  internal_iter->AddPut("b", "1");
+  internal_iter->AddPut("b", "2");
+  internal_iter->AddPut("b", "3");
+  internal_iter->AddPut("a", "4");
+  internal_iter->AddPut("a", "5");
+  internal_iter->AddPut("a", "6");
+  internal_iter->AddPut("c", "7");
+  internal_iter->AddPut("c", "8");
+  internal_iter->AddPut("c", "9");
+  internal_iter->Finish();
+
+  std::unique_ptr<Iterator> db_iter(
+      NewDBIterator(env_, ImmutableCFOptions(options), BytewiseComparator(),
+                    internal_iter, 4, 1, 0));
+  db_iter->Seek("b");
+  ASSERT_TRUE(db_iter->Valid());
+  ASSERT_EQ(db_iter->key().ToString(), "b");
+  ASSERT_EQ(db_iter->value().ToString(), "3");
+  db_iter->SeekToFirst();
+  ASSERT_EQ(db_iter->key().ToString(), "a");
+  ASSERT_EQ(db_iter->value().ToString(), "4");
 }
 
 class DBIterWithMergeIterTest : public testing::Test {

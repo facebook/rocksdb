@@ -64,6 +64,9 @@ class SstFileManagerImpl : public SstFileManager {
   // Return delete rate limit in bytes per second.
   virtual int64_t GetDeleteRateBytesPerSecond() override;
 
+  // Update the delete rate limit in bytes per second.
+  virtual void SetDeleteRateBytesPerSecond(int64_t delete_rate) override;
+
   // Move file to trash directory and schedule it's deletion.
   virtual Status ScheduleFileDeletion(const std::string& file_path);
 

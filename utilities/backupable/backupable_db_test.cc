@@ -13,7 +13,7 @@
 #include <string>
 
 #include "db/db_impl.h"
-#include "db/filename.h"
+#include "env/env_chroot.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/rate_limiter.h"
@@ -21,8 +21,8 @@
 #include "rocksdb/types.h"
 #include "rocksdb/utilities/backupable_db.h"
 #include "rocksdb/utilities/options_util.h"
-#include "util/env_chroot.h"
 #include "util/file_reader_writer.h"
+#include "util/filename.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
 #include "util/stderr_logger.h"
@@ -196,6 +196,9 @@ class TestEnv : public EnvWrapper {
 
   virtual Status DeleteFile(const std::string& fname) override {
     MutexLock l(&mutex_);
+    if (fail_delete_files_) {
+      return Status::IOError();
+    }
     EXPECT_GT(limit_delete_files_, 0U);
     limit_delete_files_--;
     return EnvWrapper::DeleteFile(fname);
@@ -222,6 +225,11 @@ class TestEnv : public EnvWrapper {
   void SetLimitDeleteFiles(uint64_t limit) {
     MutexLock l(&mutex_);
     limit_delete_files_ = limit;
+  }
+
+  void SetDeleteFileFailure(bool fail) {
+    MutexLock l(&mutex_);
+    fail_delete_files_ = fail;
   }
 
   void SetDummySequentialFile(bool dummy_sequential_file) {
@@ -286,6 +294,7 @@ class TestEnv : public EnvWrapper {
   std::vector<std::string> filenames_for_mocked_attrs_;
   uint64_t limit_written_files_ = 1000000;
   uint64_t limit_delete_files_ = 1000000;
+  bool fail_delete_files_ = false;
 
   bool get_children_failure_ = false;
   bool create_dir_if_missing_failure_ = false;
@@ -923,6 +932,32 @@ TEST_F(BackupableDBTest, CorruptionsTest) {
   AssertBackupConsistency(2, 0, keys_iteration * 2, keys_iteration * 5);
 }
 
+TEST_F(BackupableDBTest, InterruptCreationTest) {
+  // Interrupt backup creation by failing new writes and failing cleanup of the
+  // partial state. Then verify a subsequent backup can still succeed.
+  const int keys_iteration = 5000;
+  Random rnd(6);
+
+  OpenDBAndBackupEngine(true /* destroy_old_data */);
+  FillDB(db_.get(), 0, keys_iteration);
+  test_backup_env_->SetLimitWrittenFiles(2);
+  test_backup_env_->SetDeleteFileFailure(true);
+  // should fail creation
+  ASSERT_FALSE(
+      backup_engine_->CreateNewBackup(db_.get(), !!(rnd.Next() % 2)).ok());
+  CloseDBAndBackupEngine();
+  // should also fail cleanup so the tmp directory stays behind
+  ASSERT_OK(backup_chroot_env_->FileExists(backupdir_ + "/private/1.tmp/"));
+
+  OpenDBAndBackupEngine(false /* destroy_old_data */);
+  test_backup_env_->SetLimitWrittenFiles(1000000);
+  test_backup_env_->SetDeleteFileFailure(false);
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), !!(rnd.Next() % 2)));
+  // latest backup should have all the keys
+  CloseDBAndBackupEngine();
+  AssertBackupConsistency(0, 0, keys_iteration);
+}
+
 inline std::string OptionsPath(std::string ret, int backupID) {
   ret += "/private/";
   ret += std::to_string(backupID);
@@ -1091,22 +1126,42 @@ TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsTransition) {
 }
 
 TEST_F(BackupableDBTest, DeleteTmpFiles) {
-  OpenDBAndBackupEngine();
-  CloseDBAndBackupEngine();
-  std::string shared_tmp = backupdir_ + "/shared/00006.sst.tmp";
-  std::string private_tmp_dir = backupdir_ + "/private/10.tmp";
-  std::string private_tmp_file = private_tmp_dir + "/00003.sst";
-  file_manager_->WriteToFile(shared_tmp, "tmp");
-  file_manager_->CreateDir(private_tmp_dir);
-  file_manager_->WriteToFile(private_tmp_file, "tmp");
-  ASSERT_OK(file_manager_->FileExists(private_tmp_dir));
-  OpenDBAndBackupEngine();
-  // Need to call this explicitly to delete tmp files
-  (void)backup_engine_->GarbageCollect();
-  CloseDBAndBackupEngine();
-  ASSERT_EQ(Status::NotFound(), file_manager_->FileExists(shared_tmp));
-  ASSERT_EQ(Status::NotFound(), file_manager_->FileExists(private_tmp_file));
-  ASSERT_EQ(Status::NotFound(), file_manager_->FileExists(private_tmp_dir));
+  for (bool shared_checksum : {false, true}) {
+    if (shared_checksum) {
+      OpenDBAndBackupEngineShareWithChecksum(
+          false /* destroy_old_data */, false /* dummy */,
+          true /* share_table_files */, true /* share_with_checksums */);
+    } else {
+      OpenDBAndBackupEngine();
+    }
+    CloseDBAndBackupEngine();
+    std::string shared_tmp = backupdir_;
+    if (shared_checksum) {
+      shared_tmp += "/shared_checksum";
+    } else {
+      shared_tmp += "/shared";
+    }
+    shared_tmp += "/00006.sst.tmp";
+    std::string private_tmp_dir = backupdir_ + "/private/10.tmp";
+    std::string private_tmp_file = private_tmp_dir + "/00003.sst";
+    file_manager_->WriteToFile(shared_tmp, "tmp");
+    file_manager_->CreateDir(private_tmp_dir);
+    file_manager_->WriteToFile(private_tmp_file, "tmp");
+    ASSERT_OK(file_manager_->FileExists(private_tmp_dir));
+    if (shared_checksum) {
+      OpenDBAndBackupEngineShareWithChecksum(
+          false /* destroy_old_data */, false /* dummy */,
+          true /* share_table_files */, true /* share_with_checksums */);
+    } else {
+      OpenDBAndBackupEngine();
+    }
+    // Need to call this explicitly to delete tmp files
+    (void)backup_engine_->GarbageCollect();
+    CloseDBAndBackupEngine();
+    ASSERT_EQ(Status::NotFound(), file_manager_->FileExists(shared_tmp));
+    ASSERT_EQ(Status::NotFound(), file_manager_->FileExists(private_tmp_file));
+    ASSERT_EQ(Status::NotFound(), file_manager_->FileExists(private_tmp_dir));
+  }
 }
 
 TEST_F(BackupableDBTest, KeepLogFiles) {
@@ -1326,7 +1381,7 @@ TEST_F(BackupableDBTest, ChangeManifestDuringBackupCreation) {
   });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
-  std::thread flush_thread{[this]() { ASSERT_OK(db_->Flush(FlushOptions())); }};
+  rocksdb::port::Thread flush_thread{[this]() { ASSERT_OK(db_->Flush(FlushOptions())); }};
 
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
 

@@ -10,6 +10,8 @@
 #include <utility>
 #include <vector>
 
+#include "port/port.h"
+#include "util/logging.h"
 #include "util/stop_watch.h"
 #include "util/sync_point.h"
 #include "utilities/persistent_cache/block_cache_tier_file.h"
@@ -45,7 +47,7 @@ Status BlockCacheTier::Open() {
   // Create base/<cache dir> directory
   status = opt_.env->CreateDir(GetCachePath());
   if (!status.ok()) {
-    // directory already exisits, clean it up
+    // directory already exists, clean it up
     status = CleanupCacheFolder(GetCachePath());
     assert(status.ok());
     if (!status.ok()) {
@@ -68,7 +70,7 @@ Status BlockCacheTier::Open() {
 
   if (opt_.pipeline_writes) {
     assert(!insert_th_.joinable());
-    insert_th_ = std::thread(&BlockCacheTier::InsertMain, this);
+    insert_th_ = port::Thread(&BlockCacheTier::InsertMain, this);
   }
 
   return Status::OK();
@@ -108,7 +110,7 @@ Status BlockCacheTier::CleanupCacheFolder(const std::string& folder) {
         return status;
       }
     } else {
-      Debug(opt_.log, "Skipping file %s", file.c_str());
+      ROCKS_LOG_DEBUG(opt_.log, "Skipping file %s", file.c_str());
     }
   }
   return Status::OK();
@@ -226,14 +228,14 @@ Status BlockCacheTier::InsertImpl(const Slice& key, const Slice& data) {
 
   LBA lba;
   if (metadata_.Lookup(key, &lba)) {
-    // the key already exisits, this is duplicate insert
+    // the key already exists, this is duplicate insert
     return Status::OK();
   }
 
   while (!cache_file_->Append(key, data, &lba)) {
     if (!cache_file_->Eof()) {
-      Debug(opt_.log, "Error inserting to cache file %d",
-            cache_file_->cacheid());
+      ROCKS_LOG_DEBUG(opt_.log, "Error inserting to cache file %d",
+                      cache_file_->cacheid());
       stats_.write_latency_.Add(timer.ElapsedNanos() / 1000);
       return Status::TryAgain();
     }

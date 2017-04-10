@@ -12,10 +12,11 @@ namespace rocksdb {
 
 LDBOptions::LDBOptions() {}
 
-void LDBCommandRunner::PrintHelp(const char* exec_name) {
+void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
+                                 const char* exec_name) {
   std::string ret;
 
-  ret.append("ldb - LevelDB Tool");
+  ret.append(ldb_options.print_help_header);
   ret.append("\n\n");
   ret.append("commands MUST specify --" + LDBCommand::ARG_DB +
              "=<full_path_to_db_directory> when necessary\n");
@@ -29,15 +30,15 @@ void LDBCommandRunner::PrintHelp(const char* exec_name) {
              " : Values are input/output as hex\n");
   ret.append("  --" + LDBCommand::ARG_HEX +
              " : Both keys and values are input/output as hex\n");
-  ret.append(
-      "  --" + LDBCommand::ARG_CF_NAME +
-      " : name of the column family to operate on. default: default column "
-      "family\n");
   ret.append("\n");
 
   ret.append(
       "The following optional parameters control the database "
       "internals:\n");
+  ret.append(
+      "  --" + LDBCommand::ARG_CF_NAME +
+      "=<string> : name of the column family to operate on. default: default "
+      "column family\n");
   ret.append("  --" + LDBCommand::ARG_TTL +
              " with 'put','get','scan','dump','query','batchput'"
              " : DB supports ttl and value is internally timestamp-suffixed\n");
@@ -82,6 +83,7 @@ void LDBCommandRunner::PrintHelp(const char* exec_name) {
   RepairCommand::Help(ret);
   BackupCommand::Help(ret);
   RestoreCommand::Help(ret);
+  CheckPointCommand::Help(ret);
 
   fprintf(stderr, "%s\n", ret.c_str());
 }
@@ -90,7 +92,7 @@ void LDBCommandRunner::RunCommand(
     int argc, char** argv, Options options, const LDBOptions& ldb_options,
     const std::vector<ColumnFamilyDescriptor>* column_families) {
   if (argc <= 2) {
-    PrintHelp(argv[0]);
+    PrintHelp(ldb_options, argv[0]);
     exit(1);
   }
 
@@ -98,7 +100,7 @@ void LDBCommandRunner::RunCommand(
       argc, argv, options, ldb_options, column_families);
   if (cmdObj == nullptr) {
     fprintf(stderr, "Unknown command\n");
-    PrintHelp(argv[0]);
+    PrintHelp(ldb_options, argv[0]);
     exit(1);
   }
 

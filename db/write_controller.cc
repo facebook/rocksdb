@@ -7,6 +7,7 @@
 
 #include <atomic>
 #include <cassert>
+#include <ratio>
 #include "rocksdb/env.h"
 
 namespace rocksdb {
@@ -43,7 +44,7 @@ uint64_t WriteController::GetDelay(Env* env, uint64_t num_bytes) {
   if (total_stopped_ > 0) {
     return 0;
   }
-  if (total_delayed_ == 0) {
+  if (total_delayed_.load() == 0) {
     return 0;
   }
 
@@ -56,7 +57,7 @@ uint64_t WriteController::GetDelay(Env* env, uint64_t num_bytes) {
   }
   // The frequency to get time inside DB mutex is less than one per refill
   // interval.
-  auto time_now = env->NowMicros();
+  auto time_now = NowMicrosMonotonic(env);
 
   uint64_t sleep_debt = 0;
   uint64_t time_since_last_refill = 0;
@@ -103,6 +104,10 @@ uint64_t WriteController::GetDelay(Env* env, uint64_t num_bytes) {
   return sleep_amount;
 }
 
+uint64_t WriteController::NowMicrosMonotonic(Env* env) {
+  return env->NowNanos() / std::milli::den;
+}
+
 StopWriteToken::~StopWriteToken() {
   assert(controller_->total_stopped_ >= 1);
   --controller_->total_stopped_;
@@ -110,7 +115,7 @@ StopWriteToken::~StopWriteToken() {
 
 DelayWriteToken::~DelayWriteToken() {
   controller_->total_delayed_--;
-  assert(controller_->total_delayed_ >= 0);
+  assert(controller_->total_delayed_.load() >= 0);
 }
 
 CompactionPressureToken::~CompactionPressureToken() {

@@ -39,8 +39,10 @@ class Cache;
 // is set, insert to the cache will fail when cache is full. User can also
 // set percentage of the cache reserves for high priority entries via
 // high_pri_pool_pct.
+// num_shard_bits = -1 means it is automatically determined: every shard
+// will be at least 512KB and number of shard bits will not exceed 6.
 extern std::shared_ptr<Cache> NewLRUCache(size_t capacity,
-                                          int num_shard_bits = 6,
+                                          int num_shard_bits = -1,
                                           bool strict_capacity_limit = false,
                                           double high_pri_pool_ratio = 0.0);
 
@@ -50,7 +52,7 @@ extern std::shared_ptr<Cache> NewLRUCache(size_t capacity,
 //
 // Return nullptr if it is not supported.
 extern std::shared_ptr<Cache> NewClockCache(size_t capacity,
-                                            int num_shard_bits = 6,
+                                            int num_shard_bits = -1,
                                             bool strict_capacity_limit = false);
 
 class Cache {

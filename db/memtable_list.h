@@ -12,16 +12,15 @@
 #include <deque>
 
 #include "db/dbformat.h"
-#include "db/filename.h"
 #include "db/memtable.h"
 #include "db/range_del_aggregator.h"
-#include "db/skiplist.h"
+#include "monitoring/instrumented_mutex.h"
 #include "rocksdb/db.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/types.h"
 #include "util/autovector.h"
-#include "util/instrumented_mutex.h"
+#include "util/filename.h"
 #include "util/log_buffer.h"
 
 namespace rocksdb {
@@ -95,7 +94,8 @@ class MemTableListVersion {
 
   uint64_t GetTotalNumDeletes() const;
 
-  uint64_t ApproximateSize(const Slice& start_ikey, const Slice& end_ikey);
+  MemTable::MemTableStats ApproximateStats(const Slice& start_ikey,
+                                           const Slice& end_ikey);
 
   // Returns the value of MemTable::GetEarliestSequenceNumber() on the most
   // recent MemTable in this list or kMaxSequenceNumber if the list is empty.
@@ -220,6 +220,8 @@ class MemTableList {
   // parameter). This flush request will persist until the next time
   // PickMemtablesToFlush() is called.
   void FlushRequested() { flush_requested_ = true; }
+
+  bool HasFlushRequested() { return flush_requested_; }
 
   // Copying allowed
   // MemTableList(const MemTableList&);

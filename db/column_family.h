@@ -19,11 +19,11 @@
 #include "db/table_properties_collector.h"
 #include "db/write_batch_internal.h"
 #include "db/write_controller.h"
+#include "options/cf_options.h"
 #include "rocksdb/compaction_job_stats.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
-#include "util/cf_options.h"
 #include "util/thread_local.h"
 
 namespace rocksdb {
@@ -239,6 +239,9 @@ class ColumnFamilyData {
   uint64_t GetTotalSstFilesSize() const;  // REQUIRE: DB mutex held
   void SetMemtable(MemTable* new_mem) { mem_ = new_mem; }
 
+  // calculate the oldest log needed for the durability of this column family
+  uint64_t OldestLogToKeep();
+
   // See Memtable constructor for explanation of earliest_seq param.
   MemTable* ConstructNewMemtable(const MutableCFOptions& mutable_cf_options,
                                  SequenceNumber earliest_seq);
@@ -404,6 +407,9 @@ class ColumnFamilyData {
   bool pending_compaction_;
 
   uint64_t prev_compaction_needed_bytes_;
+
+  // if the database was opened with 2pc enabled
+  bool allow_2pc_;
 };
 
 // ColumnFamilySet has interesting thread-safety requirements

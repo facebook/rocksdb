@@ -51,8 +51,10 @@ struct Params {
 };
 
 class IDChecker : public ThreadLocalPtr {
- public:
-  static uint32_t PeekId() { return Instance()->PeekId(); }
+public:
+  static uint32_t PeekId() {
+    return TEST_PeekId();
+  }
 };
 
 }  // anonymous namespace
@@ -561,7 +563,7 @@ TEST_F(ThreadLocalTest, DISABLED_MainThreadDiesFirst) {
 #ifndef ROCKSDB_LITE
   try {
 #endif  // ROCKSDB_LITE
-    std::thread th(&AccessThreadLocal, nullptr);
+    rocksdb::port::Thread th(&AccessThreadLocal, nullptr);
     th.detach();
     TEST_SYNC_POINT("MainThreadDiesFirst:End");
 #ifndef ROCKSDB_LITE

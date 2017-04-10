@@ -16,13 +16,13 @@
 
 #include "db/dbformat.h"
 #include "db/range_del_aggregator.h"
+#include "options/cf_options.h"
 #include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
 #include "table/table_reader.h"
-#include "util/cf_options.h"
 
 namespace rocksdb {
 

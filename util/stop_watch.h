@@ -4,8 +4,8 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 //
 #pragma once
+#include "monitoring/statistics.h"
 #include "rocksdb/env.h"
-#include "util/statistics.h"
 
 namespace rocksdb {
 // Auto-scoped.
@@ -39,6 +39,8 @@ class StopWatch {
                                   (env_->NowMicros() - start_time_));
     }
   }
+
+  uint64_t start_time() const { return start_time_; }
 
  private:
   Env* const env_;

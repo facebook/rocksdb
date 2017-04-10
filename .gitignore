@@ -1,4 +1,3 @@
-TARGETS
 make_config.mk
 
 *.a
@@ -71,3 +70,4 @@ db_logs/
 tp2/
 fbcode/
 fbcode
+buckifier/*.pyc

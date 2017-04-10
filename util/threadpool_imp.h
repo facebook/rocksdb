@@ -8,104 +8,100 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
 
-#ifdef OS_WIN
-#  define ROCKSDB_STD_THREADPOOL
-#endif
-
-#include "rocksdb/env.h"
 #include "rocksdb/threadpool.h"
-#include "util/thread_status_util.h"
+#include "rocksdb/env.h"
 
-#ifdef ROCKSDB_STD_THREADPOOL
-#  include <thread>
-#  include <mutex>
-#  include <condition_variable>
-#endif
-
-#include <atomic>
-#include <vector>
+#include <memory>
+#include <functional>
 
 namespace rocksdb {
+
 
 class ThreadPoolImpl : public ThreadPool {
  public:
   ThreadPoolImpl();
   ~ThreadPoolImpl();
 
+  ThreadPoolImpl(ThreadPoolImpl&&) = delete;
+  ThreadPoolImpl& operator=(ThreadPoolImpl&&) = delete;
+
+  // Implement ThreadPool interfaces
+
+  // Wait for all threads to finish.
+  // Discards all the the jobs that did not
+  // start executing and waits for those running
+  // to complete
   void JoinAllThreads() override;
-  void LowerIOPriority();
-  void BGThread(size_t thread_id);
-  void WakeUpAllThreads();
-  void IncBackgroundThreadsIfNeeded(int num);
+
+  // Set the number of background threads that will be executing the
+  // scheduled jobs.
   void SetBackgroundThreads(int num) override;
-  void StartBGThreads();
+  // Get the number of jobs scheduled in the ThreadPool queue.
+  unsigned int GetQueueLen() const override;
+
+  // Waits for all jobs to complete those
+  // that already started running and those that did not
+  // start yet
+  void WaitForJobsAndJoinAllThreads() override;
+
+  // Make threads to run at a lower kernel priority
+  // Currently only has effect on Linux
+  void LowerIOPriority();
+
+  // Ensure there is at aleast num threads in the pool
+  // but do not kill threads if there are more
+  void IncBackgroundThreadsIfNeeded(int num);
+
+  // Submit a fire and forget job
+  // These jobs can not be unscheduled
+
+  // This allows to submit the same job multiple times
+  void SubmitJob(const std::function<void()>&) override;
+  // This moves the function in for efficiency
+  void SubmitJob(std::function<void()>&&) override;
+
+  // Schedule a job with an unschedule tag and unschedule function
+  // Can be used to filter and unschedule jobs by a tag
+  // that are still in the queue and did not start running
   void Schedule(void (*function)(void* arg1), void* arg, void* tag,
                 void (*unschedFunction)(void* arg));
-  int UnSchedule(void* arg);
 
-  unsigned int GetQueueLen() const override {
-    return queue_len_.load(std::memory_order_relaxed);
-  }
+  // Filter jobs that are still in a queue and match
+  // the given tag. Remove them from a queue if any
+  // and for each such job execute an unschedule function
+  // if such was given at scheduling time.
+  int UnSchedule(void* tag);
 
-  void SetHostEnv(Env* env) { env_ = env; }
-  Env* GetHostEnv() const { return env_; }
+  void SetHostEnv(Env* env);
 
-  // Return true if there is at least one thread needs to terminate.
-  bool HasExcessiveThread() const {
-    return static_cast<int>(bgthreads_.size()) > total_threads_limit_;
-  }
-
-  // Return true iff the current thread is the excessive thread to terminate.
-  // Always terminate the running thread that is added last, even if there are
-  // more than one thread to terminate.
-  bool IsLastExcessiveThread(size_t thread_id) const {
-    return HasExcessiveThread() && thread_id == bgthreads_.size() - 1;
-  }
-
-  // Is one of the threads to terminate.
-  bool IsExcessiveThread(size_t thread_id) const {
-    return static_cast<int>(thread_id) >= total_threads_limit_;
-  }
+  Env* GetHostEnv() const;
 
   // Return the thread priority.
   // This would allow its member-thread to know its priority.
-  Env::Priority GetThreadPriority() const { return priority_; }
+  Env::Priority GetThreadPriority() const;
 
   // Set the thread priority.
-  void SetThreadPriority(Env::Priority priority) { priority_ = priority; }
+  void SetThreadPriority(Env::Priority priority);
 
   static void PthreadCall(const char* label, int result);
 
+  struct Impl;
+
  private:
-  // Entry per Schedule() call
-  struct BGItem {
-    void* arg;
-    void (*function)(void*);
-    void* tag;
-    void (*unschedFunction)(void*);
-  };
 
-  typedef std::deque<BGItem> BGQueue;
-
-  int total_threads_limit_;
-
-#ifdef ROCKSDB_STD_THREADPOOL
-  std::mutex mu_;
-  std::condition_variable bgsignal_;
-  std::vector<std::thread> bgthreads_;
-#else
-  pthread_mutex_t mu_;
-  pthread_cond_t bgsignal_;
-  std::vector<pthread_t> bgthreads_;
-#endif
-  BGQueue queue_;
-  std::atomic_uint queue_len_;  // Queue length. Used for stats reporting
-  bool exit_all_threads_;
-  bool low_io_priority_;
-  Env::Priority priority_;
-  Env* env_;
-
-  void SetBackgroundThreadsInternal(int num, bool allow_reduce);
+   // Current public virtual interface does not provide usable
+   // functionality and thus can not be used internally to
+   // facade different implementations.
+   //
+   // We propose a pimpl idiom in order to easily replace the thread pool impl
+   // w/o touching the header file but providing a different .cc potentially
+   // CMake option driven.
+   //
+   // Another option is to introduce a Env::MakeThreadPool() virtual interface
+   // and override the environment. This would require refactoring ThreadPool usage.
+   //
+   // We can also combine these two approaches
+   std::unique_ptr<Impl>   impl_;
 };
 
 }  // namespace rocksdb

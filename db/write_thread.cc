@@ -9,6 +9,7 @@
 #include <thread>
 #include "db/column_family.h"
 #include "port/port.h"
+#include "util/random.h"
 #include "util/sync_point.h"
 
 namespace rocksdb {
@@ -274,7 +275,7 @@ size_t WriteThread::EnterAsBatchGroupLeader(
       break;
     }
 
-    if (!w->disableWAL && leader->disableWAL) {
+    if (!w->disable_wal && leader->disable_wal) {
       // Do not include a write that needs WAL into a batch that has
       // WAL disabled.
       break;
@@ -317,7 +318,7 @@ void WriteThread::LaunchParallelFollowers(ParallelGroup* pg,
 
   while (w != pg->last_writer) {
     // Writers that won't write don't get sequence allotment
-    if (!w->CallbackFailed()) {
+    if (!w->CallbackFailed() && w->ShouldWriteToMemtable()) {
       sequence += WriteBatchInternal::Count(w->batch);
     }
     w = w->link_newer;

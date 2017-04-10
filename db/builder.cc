@@ -16,11 +16,12 @@
 #include "db/compaction_iterator.h"
 #include "db/dbformat.h"
 #include "db/event_helpers.h"
-#include "db/filename.h"
 #include "db/internal_stats.h"
 #include "db/merge_helper.h"
 #include "db/table_cache.h"
 #include "db/version_edit.h"
+#include "monitoring/iostats_context_imp.h"
+#include "monitoring/thread_status_util.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
@@ -29,9 +30,8 @@
 #include "table/block_based_table_builder.h"
 #include "table/internal_iterator.h"
 #include "util/file_reader_writer.h"
-#include "util/iostats_context_imp.h"
+#include "util/filename.h"
 #include "util/stop_watch.h"
-#include "util/thread_status_util.h"
 
 namespace rocksdb {
 
@@ -112,7 +112,8 @@ Status BuildTable(
       }
       file->SetIOPriority(io_priority);
 
-      file_writer.reset(new WritableFileWriter(std::move(file), env_options));
+      file_writer.reset(new WritableFileWriter(std::move(file), env_options,
+                                               ioptions.statistics));
 
       builder = NewTableBuilder(
           ioptions, internal_comparator, int_tbl_prop_collector_factories,
@@ -122,7 +123,6 @@ Status BuildTable(
 
     MergeHelper merge(env, internal_comparator.user_comparator(),
                       ioptions.merge_operator, nullptr, ioptions.info_log,
-                      mutable_cf_options.min_partial_merge_operands,
                       true /* internal key corruption is not ok */,
                       snapshots.empty() ? 0 : snapshots.back());
 
@@ -170,7 +170,7 @@ Status BuildTable(
     delete builder;
 
     // Finish and check for file errors
-    if (s.ok() && !empty && !ioptions.disable_data_sync) {
+    if (s.ok() && !empty) {
       StopWatch sw(env, ioptions.statistics, TABLE_SYNC_MICROS);
       file_writer->Sync(ioptions.use_fsync);
     }

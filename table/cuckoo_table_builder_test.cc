@@ -124,7 +124,7 @@ class CuckooBuilderTest : public testing::Test {
   std::string GetInternalKey(Slice user_key, bool zero_seqno) {
     IterKey ikey;
     ikey.SetInternalKey(user_key, zero_seqno ? 0 : 1000, kTypeValue);
-    return ikey.GetKey().ToString();
+    return ikey.GetInternalKey().ToString();
   }
 
   uint64_t NextPowOf2(uint64_t num) {

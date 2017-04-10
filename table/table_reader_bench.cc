@@ -13,18 +13,18 @@ int main() {
 
 #include <gflags/gflags.h>
 
+#include "db/db_impl.h"
+#include "db/dbformat.h"
+#include "monitoring/histogram.h"
 #include "rocksdb/db.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
-#include "db/db_impl.h"
-#include "db/dbformat.h"
 #include "table/block_based_table_factory.h"
+#include "table/get_context.h"
 #include "table/internal_iterator.h"
 #include "table/plain_table_factory.h"
 #include "table/table_builder.h"
-#include "table/get_context.h"
 #include "util/file_reader_writer.h"
-#include "util/histogram.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 
@@ -166,7 +166,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
           std::string key = MakeKey(r1, r2, through_db);
           uint64_t start_time = Now(env, measured_by_nanosecond);
           if (!through_db) {
-            std::string value;
+            PinnableSlice value;
             MergeContext merge_context;
             RangeDelAggregator range_del_agg(ikc, {} /* snapshots */);
             GetContext get_context(ioptions.user_comparator,

@@ -13,13 +13,14 @@ public class RocksDBColumnFamilySample {
     RocksDB.loadLibrary();
   }
 
-  public static void main(String[] args) throws RocksDBException {
+  public static void main(final String[] args) throws RocksDBException {
     if (args.length < 1) {
       System.out.println(
           "usage: RocksDBColumnFamilySample db_path");
-      return;
+      System.exit(-1);
     }
-    String db_path = args[0];
+
+    final String db_path = args[0];
 
     System.out.println("RocksDBColumnFamilySample");
     try(final Options options = new Options().setCreateIfMissing(true);
@@ -54,8 +55,6 @@ public class RocksDBColumnFamilySample {
         // put and get from non-default column family
         db.put(columnFamilyHandles.get(0), new WriteOptions(),
             "key".getBytes(), "value".getBytes());
-        String value = new String(db.get(columnFamilyHandles.get(0),
-            "key".getBytes()));
 
         // atomic write
         try (final WriteBatch wb = new WriteBatch()) {

@@ -9,6 +9,13 @@ require('RocksDBCommonHelper.php');
 define("DIFF_COMMAND", "diff");
 
 class FacebookArcanistConfiguration extends ArcanistConfiguration {
+  public function getCustomArgumentsForCommand($command) {
+    if ($command == "land") {
+      return array(
+          'async' => array('help' => 'Just to make tools happy'));
+    }
+    return array();
+  }
 
   public function didRunWorkflow($command,
                                  ArcanistWorkflow $workflow,

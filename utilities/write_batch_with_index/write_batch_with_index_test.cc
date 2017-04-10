@@ -14,6 +14,7 @@
 #include "db/column_family.h"
 #include "port/stack_trace.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
+#include "util/random.h"
 #include "util/string_util.h"
 #include "util/testharness.h"
 #include "utilities/merge_operators.h"

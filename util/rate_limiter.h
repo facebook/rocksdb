@@ -33,7 +33,9 @@ class GenericRateLimiter : public RateLimiter {
   // Request for token to write bytes. If this request can not be satisfied,
   // the call is blocked. Caller is responsible to make sure
   // bytes <= GetSingleBurstBytes()
-  virtual void Request(const int64_t bytes, const Env::IOPriority pri) override;
+  using RateLimiter::Request;
+  virtual void Request(const int64_t bytes, const Env::IOPriority pri,
+                       Statistics* stats) override;
 
   virtual int64_t GetSingleBurstBytes() const override {
     return refill_bytes_per_period_.load(std::memory_order_relaxed);
@@ -61,6 +63,9 @@ class GenericRateLimiter : public RateLimiter {
  private:
   void Refill();
   int64_t CalculateRefillBytesPerPeriod(int64_t rate_bytes_per_sec);
+  uint64_t NowMicrosMonotonic(Env* env) {
+    return env->NowNanos() / std::milli::den;
+  }
 
   // This mutex guard all internal states
   mutable port::Mutex request_mutex_;

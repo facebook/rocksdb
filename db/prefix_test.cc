@@ -19,6 +19,7 @@ int main() {
 
 #include <gflags/gflags.h>
 #include "db/db_impl.h"
+#include "monitoring/histogram.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/filter_policy.h"
@@ -26,7 +27,6 @@ int main() {
 #include "rocksdb/perf_context.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
-#include "util/histogram.h"
 #include "util/random.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"

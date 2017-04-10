@@ -8,16 +8,17 @@
 #include <thread>
 #include <vector>
 
+#include "monitoring/histogram.h"
+#include "monitoring/instrumented_mutex.h"
+#include "monitoring/thread_status_util.h"
+#include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/slice_transform.h"
-#include "util/histogram.h"
-#include "util/instrumented_mutex.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/testharness.h"
-#include "util/thread_status_util.h"
 #include "utilities/merge_operators.h"
 
 bool FLAGS_random_key = false;
@@ -561,7 +562,7 @@ TEST_F(PerfContextTest, DBMutexLockCounter) {
     for (int c = 0; c < 2; ++c) {
     InstrumentedMutex mutex(nullptr, Env::Default(), stats_code[c]);
     mutex.Lock();
-    std::thread child_thread([&] {
+    rocksdb::port::Thread child_thread([&] {
       SetPerfLevel(perf_level);
       perf_context.Reset();
       ASSERT_EQ(perf_context.db_mutex_lock_nanos, 0);

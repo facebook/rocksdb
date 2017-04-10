@@ -136,7 +136,7 @@ size_t FixedLengthColBufDecoder::Decode(const char* src, char** dest) {
       col_compression_type_ == kColRleDeltaVarint) {
     // does not support 64 bit
 
-    uint64_t mask = (write_val & 1) ? (~0UL) : 0;
+    uint64_t mask = (write_val & 1) ? (~uint64_t(0)) : 0;
     int64_t delta = (write_val >> 1) ^ mask;
     write_val = last_val_ + delta;
 

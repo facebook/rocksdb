@@ -22,9 +22,9 @@ int main() { fprintf(stderr, "Please install gflags to run tools\n"); }
 #include "utilities/persistent_cache/persistent_cache_tier.h"
 #include "utilities/persistent_cache/volatile_tier_impl.h"
 
-#include "port/port_posix.h"
+#include "monitoring/histogram.h"
+#include "port/port.h"
 #include "table/block_builder.h"
-#include "util/histogram.h"
 #include "util/mutexlock.h"
 #include "util/stop_watch.h"
 
@@ -121,7 +121,7 @@ class CacheTierBenchmark {
     stats_.Clear();
 
     // Start IO threads
-    std::list<std::thread> threads;
+    std::list<port::Thread> threads;
     Spawn(FLAGS_nthread_write, &threads,
           std::bind(&CacheTierBenchmark::Write, this));
     Spawn(FLAGS_nthread_read, &threads,
@@ -257,7 +257,7 @@ class CacheTierBenchmark {
   }
 
   // spawn threads
-  void Spawn(const size_t n, std::list<std::thread>* threads,
+  void Spawn(const size_t n, std::list<port::Thread>* threads,
              const std::function<void()>& fn) {
     for (size_t i = 0; i < n; ++i) {
       threads->emplace_back(fn);
@@ -265,7 +265,7 @@ class CacheTierBenchmark {
   }
 
   // join threads
-  void Join(std::list<std::thread>* threads) {
+  void Join(std::list<port::Thread>* threads) {
     for (auto& th : *threads) {
       th.join();
     }
