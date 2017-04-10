@@ -531,10 +531,11 @@ public class DBOptions
   }
 
   @Override
-  public DBOptions setSseDirectIoForFlushAndCompaction(
+  public DBOptions setUseDirectIoForFlushAndCompaction(
       final boolean useDirectIoForFlushAndCompaction) {
     assert(isOwningHandle());
-    setUseDirectIoForFlushAndCompaction(nativeHandle_, useDirectIoForFlushAndCompaction);
+    setUseDirectIoForFlushAndCompaction(nativeHandle_,
+        useDirectIoForFlushAndCompaction);
     return this;
   }
 
