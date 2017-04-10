@@ -4471,6 +4471,35 @@ TEST_P(TransactionTest, TransactionStressTest) {
   ASSERT_OK(s);
 }
 
+TEST_P(TransactionTest, MemoryLimitTest) {
+  TransactionOptions txn_options;
+  // Header (12 bytes) + NOOP (1 byte) + 2 * 8 bytes for data.
+  txn_options.max_write_batch_size = 29;
+  string value;
+  Status s;
+
+  Transaction* txn = db->BeginTransaction(WriteOptions(), txn_options);
+  ASSERT_TRUE(txn);
+
+  ASSERT_EQ(0, txn->GetNumPuts());
+  ASSERT_LE(0, txn->GetID());
+
+  s = txn->Put(Slice("a"), Slice("...."));
+  ASSERT_OK(s);
+  ASSERT_EQ(1, txn->GetNumPuts());
+
+  s = txn->Put(Slice("b"), Slice("...."));
+  ASSERT_OK(s);
+  ASSERT_EQ(2, txn->GetNumPuts());
+
+  s = txn->Put(Slice("b"), Slice("...."));
+  ASSERT_TRUE(s.IsMemoryLimit());
+  ASSERT_EQ(2, txn->GetNumPuts());
+
+  txn->Rollback();
+  delete txn;
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
