@@ -12,6 +12,7 @@
 #ifdef USE_AWS
 
 #include "cloud/aws/aws_file.h"
+#include "cloud/aws/aws_retry.h"
 #include "cloud/db_cloud_impl.h"
 
 namespace rocksdb {
@@ -54,6 +55,10 @@ AwsEnv::AwsEnv(Env* underlying_env, const std::string& src_bucket_prefix,
   Aws::Client::ClientConfiguration config;
   config.connectTimeoutMs = 30000;
   config.requestTimeoutMs = 600000;
+
+  // Setup how retries need to be done
+  config.retryStrategy =
+      std::make_shared<AwsRetryStrategy>(cloud_env_options, info_log_);
 
   // Use specified region if any
   if (cloud_env_options.region.empty()) {
