@@ -163,10 +163,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
           parallel = parallel && !writer->batch->HasMerge();
         }
 
-        if (writer->ShouldWriteToWAL()) {
-          total_byte_size = WriteBatchInternal::AppendedByteSize(
-              total_byte_size, WriteBatchInternal::ByteSize(writer->batch));
-        }
+        total_byte_size = WriteBatchInternal::AppendedByteSize(
+            total_byte_size, WriteBatchInternal::ByteSize(writer->batch));
       }
     }
 
