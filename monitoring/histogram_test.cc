@@ -29,33 +29,31 @@ void PopulateHistogram(Histogram& histogram,
 }
 
 void BasicOperation(Histogram& histogram) {
-  PopulateHistogram(histogram, 1, 100, 10);
+  PopulateHistogram(histogram, 1, 115, 10); // fill up to bucket [76, 115)
 
   HistogramData data;
   histogram.Data(&data);
 
-  ASSERT_LE(fabs(histogram.Percentile(100.0) - 100.0), kIota);
-  ASSERT_LE(fabs(data.percentile99 - 99.0), kIota);
-  ASSERT_LE(fabs(data.percentile95 - 95.0), kIota);
-  ASSERT_LE(fabs(data.median - 50.0), kIota);
-  ASSERT_EQ(data.average, 50.5);               // avg is acurately calculated.
-  ASSERT_LT(fabs(data.standard_deviation- 28.86), kIota); //sd is ~= 28.86
+  ASSERT_LE(fabs(histogram.Percentile(100.0) - 115.0), kIota);
+  ASSERT_LE(fabs(data.percentile99 - 113.85), kIota);  // 99 * 115 / 100
+  ASSERT_LE(fabs(data.percentile95 - 109.25), kIota);  // 95 * 115 / 100
+  ASSERT_LE(fabs(data.median - 57.5), kIota);  // 50 * 115 / 100
+  ASSERT_EQ(data.average, 58.0);  // (1 + 115) / 2
 }
 
 void MergeHistogram(Histogram& histogram, Histogram& other) {
   PopulateHistogram(histogram, 1, 100);
-  PopulateHistogram(other, 101, 200);
+  PopulateHistogram(other, 101, 259);
   histogram.Merge(other);
 
   HistogramData data;
   histogram.Data(&data);
 
-  ASSERT_LE(fabs(histogram.Percentile(100.0) - 200.0), kIota);
-  ASSERT_LE(fabs(data.percentile99 - 198.0), kIota);
-  ASSERT_LE(fabs(data.percentile95 - 190.0), kIota);
-  ASSERT_LE(fabs(data.median - 100.0), kIota);
-  ASSERT_EQ(data.average, 100.5);                // avg is acurately calculated.
-  ASSERT_LT(fabs(data.standard_deviation - 57.73), kIota); //sd is ~= 57.73
+  ASSERT_LE(fabs(histogram.Percentile(100.0) - 259.0), kIota);
+  ASSERT_LE(fabs(data.percentile99 - 256.41), kIota);  // 99 * 259 / 100
+  ASSERT_LE(fabs(data.percentile95 - 246.05), kIota);  // 95 * 259 / 100
+  ASSERT_LE(fabs(data.median - 129.5), kIota);  // 50 * 259 / 100
+  ASSERT_EQ(data.average, 130);  // (1 + 259) / 2
 }
 
 void EmptyHistogram(Histogram& histogram) {
