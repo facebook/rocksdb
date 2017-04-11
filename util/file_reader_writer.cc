@@ -441,7 +441,7 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
         buffer_len_(0) {
     if (!forward_calls_) {
       buffer_.Alignment(alignment_);
-      buffer_.AllocateNewBuffer(readahead_size_ + alignment_);
+      buffer_.AllocateNewBuffer(readahead_size_);
     } else if (readahead_size_ > 0) {
       file_->EnableReadAhead();
     }
@@ -453,7 +453,7 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
 
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
                       char* scratch) const override {
-    if (n >= readahead_size_) {
+    if (n + alignment_ >= readahead_size_) {
       return file_->Read(offset, n, result, scratch);
     }
 
@@ -475,7 +475,7 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
     if (TryReadFromCache_(offset, n, &cached_len, scratch) &&
         (cached_len == n ||
          // End of file
-         buffer_len_ < readahead_size_ + alignment_)) {
+         buffer_len_ < readahead_size_)) {
       *result = Slice(scratch, cached_len);
       return Status::OK();
     }
@@ -484,8 +484,8 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
     // chunk_offset equals to advanced_offset
     size_t chunk_offset = TruncateToPageBoundary(alignment_, advanced_offset);
     Slice readahead_result;
-    Status s = file_->Read(chunk_offset, readahead_size_ + alignment_,
-                           &readahead_result, buffer_.BufferStart());
+    Status s = file_->Read(chunk_offset, readahead_size_, &readahead_result,
+                           buffer_.BufferStart());
     if (!s.ok()) {
       return s;
     }
