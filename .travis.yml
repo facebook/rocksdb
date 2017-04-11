@@ -15,8 +15,8 @@ cache:
 
 addons:
    apt:
-      sources: ['ubuntu-toolchain-r-test', 'llvm-toolchain-precise-3.6']
-      packages: ['clang-3.6' , 'g++-6', 'zlib1g-dev', 'libbz2-dev', 'libsnappy-dev', 'curl', 'libgflags-dev', 'mingw-w64']
+      sources: ['ubuntu-toolchain-r-test', 'llvm-toolchain-trusty-4.0']
+      packages: ['clang-4.0' , 'g++-6', 'zlib1g-dev', 'libbz2-dev', 'libsnappy-dev', 'curl', 'libgflags-dev', 'mingw-w64']
 env:
   - TEST_GROUP=platform_dependent1
   - TEST_GROUP=platform_dependent2
@@ -47,7 +47,7 @@ matrix:
     compiler: clang
 
 before_script:
-  - if [[ "${TRAVIS_OS_NAME}" == 'linux' && "${CXX}" == 'clang++' ]]; then CXX=clang++-3.6; fi
+  - if [[ "${TRAVIS_OS_NAME}" == 'linux' && "${CXX}" == 'clang++' ]]; then CXX=clang++-4.0; fi
   # test one linux g++ build with g++-6
   - if [[ "${TRAVIS_OS_NAME}" == 'linux' && "${CXX}" == 'g++' && "${JOB_NAME}" == 'unittests' ]]; then CXX=g++-6; fi
   # Limit the maximum number of open file descriptors to 8192
