@@ -23,7 +23,9 @@ class DBCloud : public StackableDB {
   // options.env is an object of type rocksdb::CloudEnv and the cloud
   // buckets are specified there.
   static Status Open(const Options& options, const std::string& name,
-                     DB** dbptr);
+                     const std::string& persistent_cache_path,
+                     const uint64_t persistent_cache_size_gb, DBCloud** dbptr,
+                     bool read_only = false);
 
   // This is for advanced users who can comprehend column families.
   // If you want sst files from S3 to be cached in local SSD/disk, then

@@ -23,27 +23,25 @@ DBCloudImpl::~DBCloudImpl() {
 }
 
 Status DBCloud::Open(const Options& options, const std::string& dbname,
-                     DB** dbptr) {
+                     const std::string& persistent_cache_path,
+                     const uint64_t persistent_cache_size_gb, DBCloud** dbptr,
+                     bool read_only) {
   ColumnFamilyOptions cf_options(options);
   std::vector<ColumnFamilyDescriptor> column_families;
   column_families.push_back(
       ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
   std::vector<ColumnFamilyHandle*> handles;
   DBCloud* dbcloud = nullptr;
-  std::string dbid;
-  Status s = DBCloud::Open(options, dbname, column_families, "", 0, &handles,
-                           &dbcloud);
+  Status s =
+      DBCloud::Open(options, dbname, column_families, persistent_cache_path,
+                    persistent_cache_size_gb, &handles, &dbcloud, read_only);
   if (s.ok()) {
     assert(handles.size() == 1);
     // i can delete the handle since DBImpl is always holding a reference to
     // default column family
     delete handles[0];
     *dbptr = dbcloud;
-    dbcloud->GetDbIdentity(dbid);
   }
-  Log(InfoLogLevel::INFO_LEVEL, options.info_log,
-      "Opened cloud db with local dir %s dbid %d. %s", dbname.c_str(),
-      dbid.c_str(), s.ToString().c_str());
   return s;
 }
 
