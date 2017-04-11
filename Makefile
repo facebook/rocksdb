@@ -1482,10 +1482,14 @@ liblz4.a:
 java_static_libobjects = $(patsubst %,jls/%,$(LIBOBJECTS))
 CLEAN_FILES += jls
 
+ifneq ($(ROCKSDB_JAVA_NO_COMPRESSION), 1)
+JAVA_COMPRESSIONS = libz.a libbz2.a libsnappy.a liblz4.a
+endif
+
 JAVA_STATIC_FLAGS = -DZLIB -DBZIP2 -DSNAPPY -DLZ4
 JAVA_STATIC_INCLUDES = -I./zlib-$(ZLIB_VER) -I./bzip2-$(BZIP2_VER) -I./snappy-$(SNAPPY_VER) -I./lz4-$(LZ4_VER)/lib
 
-$(java_static_libobjects): jls/%.o: %.cc libz.a libbz2.a libsnappy.a liblz4.a
+$(java_static_libobjects): jls/%.o: %.cc $(JAVA_COMPRESSIONS)
 	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES) -fPIC -c $< -o $@ $(COVERAGEFLAGS)
 
 rocksdbjavastatic: $(java_static_libobjects)
@@ -1494,7 +1498,7 @@ rocksdbjavastatic: $(java_static_libobjects)
 	$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC \
 	  -o ./java/target/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) \
 	  $(java_static_libobjects) $(COVERAGEFLAGS) \
-	  libz.a libbz2.a libsnappy.a liblz4.a $(JAVA_STATIC_LDFLAGS)
+	  $(JAVA_COMPRESSIONS) $(JAVA_STATIC_LDFLAGS)
 	cd java/target;strip -S -x $(ROCKSDBJNILIB)
 	cd java;jar -cf target/$(ROCKSDB_JAR) HISTORY*.md
 	cd java/target;jar -uf $(ROCKSDB_JAR) $(ROCKSDBJNILIB)
