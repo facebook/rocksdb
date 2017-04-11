@@ -4,6 +4,7 @@ language: cpp
 os:
   - linux
   - osx
+osx_image: xcode8.3
 jdk:
   - oraclejdk7
 cache:
