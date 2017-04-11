@@ -432,12 +432,16 @@ void DBImpl::MaybeDumpStats() {
     std::string stats;
     {
       InstrumentedMutexLock l(&mutex_);
-      for (auto cfd : *versions_->GetColumnFamilySet()) {
-        cfd->internal_stats()->GetStringProperty(
-            *cf_property_info, DB::Properties::kCFStats, &stats);
-      }
       default_cf_internal_stats_->GetStringProperty(
           *db_property_info, DB::Properties::kDBStats, &stats);
+      for (auto cfd : *versions_->GetColumnFamilySet()) {
+        cfd->internal_stats()->GetStringProperty(
+            *cf_property_info, DB::Properties::kCFStatsNoFileHistogram, &stats);
+      }
+      for (auto cfd : *versions_->GetColumnFamilySet()) {
+        cfd->internal_stats()->GetStringProperty(
+            *cf_property_info, DB::Properties::kCFFileHistogram, &stats);
+      }
     }
     ROCKS_LOG_WARN(immutable_db_options_.info_log,
                    "------- DUMPING STATS -------");

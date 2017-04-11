@@ -277,6 +277,8 @@ class InternalStats {
       std::map<int, std::map<LevelStatType, double>>* level_stats,
       CompactionStats* compaction_stats_sum);
   void DumpCFStats(std::string* value);
+  void DumpCFStatsNoFileHistogram(std::string* value);
+  void DumpCFFileHistogram(std::string* value);
 
   // Per-DB stats
   std::atomic<uint64_t> db_stats_[INTERNAL_DB_STATS_ENUM_MAX];
@@ -358,6 +360,8 @@ class InternalStats {
   bool HandleStats(std::string* value, Slice suffix);
   bool HandleCFMapStats(std::map<std::string, double>* compaction_stats);
   bool HandleCFStats(std::string* value, Slice suffix);
+  bool HandleCFStatsNoFileHistogram(std::string* value, Slice suffix);
+  bool HandleCFFileHistogram(std::string* value, Slice suffix);
   bool HandleDBStats(std::string* value, Slice suffix);
   bool HandleSsTables(std::string* value, Slice suffix);
   bool HandleAggregatedTableProperties(std::string* value, Slice suffix);
