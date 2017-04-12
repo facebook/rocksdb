@@ -376,17 +376,17 @@ class Env {
   virtual EnvOptions OptimizeForManifestWrite(
       const EnvOptions& env_options) const;
 
-  // OptimizeForTableWrite will create a new EnvOptions object that is a copy
+  // OptimizeForCompactionTableWrite will create a new EnvOptions object that is a copy
   // of the EnvOptions in the parameters, but is optimized for writing table
   // files. Default implementation returns the copy of the same object.
-  virtual EnvOptions OptimizeForTableWrite(
+  virtual EnvOptions OptimizeForCompactionTableWrite(
       const EnvOptions& env_options,
       const ImmutableDBOptions& db_options) const;
 
-  // OptimizeForTableWrite will create a new EnvOptions object that is a copy
+  // OptimizeForCompactionTableWrite will create a new EnvOptions object that is a copy
   // of the EnvOptions in the parameters, but is optimized for reading table
   // files. Default implementation returns the copy of the same object.
-  virtual EnvOptions OptimizeForTableRead(
+  virtual EnvOptions OptimizeForCompactionTableRead(
       const EnvOptions& env_options,
       const ImmutableDBOptions& db_options) const;
 

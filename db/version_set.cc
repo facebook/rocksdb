@@ -2219,7 +2219,7 @@ VersionSet::VersionSet(const std::string& dbname,
       manifest_file_size_(0),
       env_options_(storage_options),
       env_options_compactions_(
-          env_->OptimizeForTableRead(env_options_, *db_options_)) {}
+          env_->OptimizeForCompactionTableRead(env_options_, *db_options_)) {}
 
 void CloseTables(void* ptr, size_t) {
   TableReader* table_reader = reinterpret_cast<TableReader*>(ptr);

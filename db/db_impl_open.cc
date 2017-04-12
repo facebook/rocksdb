@@ -827,7 +827,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
           snapshots_.GetAll(&earliest_write_conflict_snapshot);
 
       EnvOptions optimized_env_options =
-          env_->OptimizeForTableWrite(env_options_, immutable_db_options_);
+          env_->OptimizeForCompactionTableWrite(env_options_, immutable_db_options_);
       s = BuildTable(
           dbname_, env_, *cfd->ioptions(), mutable_cf_options,
           optimized_env_options, cfd->table_cache(), iter.get(),

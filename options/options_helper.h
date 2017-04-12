@@ -162,6 +162,8 @@ static std::unordered_map<std::string, OptionTypeInfo> db_options_type_info = {
     {"use_direct_reads",
      {offsetof(struct DBOptions, use_direct_reads), OptionType::kBoolean,
       OptionVerificationType::kNormal, false, 0}},
+    {"use_direct_writes",
+     {0, OptionType::kBoolean, OptionVerificationType::kDeprecated, false, 0}},
     {"use_direct_io_for_flush_and_compaction",
      {offsetof(struct DBOptions, use_direct_io_for_flush_and_compaction),
       OptionType::kBoolean, OptionVerificationType::kNormal, false, 0}},

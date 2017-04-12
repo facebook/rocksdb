@@ -378,7 +378,7 @@ class Repairer {
       Arena arena;
       ScopedArenaIterator iter(mem->NewIterator(ro, &arena));
       EnvOptions optimized_env_options =
-          env_->OptimizeForTableWrite(env_options_, immutable_db_options_);
+          env_->OptimizeForCompactionTableWrite(env_options_, immutable_db_options_);
       status = BuildTable(
           dbname_, env_, *cfd->ioptions(), *cfd->GetLatestMutableCFOptions(),
           optimized_env_options, table_cache_, iter.get(),
