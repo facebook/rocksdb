@@ -514,6 +514,31 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
     return Status::OK();
   }
 
+  virtual Status ReadaheadBackwards(uint64_t offset) {
+    Status s;
+    size_t prefetch_offset = Roundup(offset, alignment_);
+    if (prefetch_offset < prefetch_bytes) {
+      prefetch_offset = 0;
+    } else {
+      prefetch_offset -= prefetch_bytes;
+    }
+    if (prefetch_offset == buffer_offset_) {
+      return s;
+    }
+    Slice readahead_result;
+    s = file_->Read(prefetch_offset, prefetch_bytes, &readahead_result,
+                    buffer_.BufferStart());
+    if (s.ok()) {
+      if (readahead_result.data() == buffer_.BufferStart()) {
+        buffer_offset_ = prefetch_offset;
+        buffer_len_ = readahead_result.size();
+      } else {
+        buffer_len_ = 0;
+      }
+    }
+    return s;
+  }
+
   virtual size_t GetUniqueId(char* id, size_t max_size) const override {
     return file_->GetUniqueId(id, max_size);
   }

@@ -92,6 +92,10 @@ class RandomAccessFileReader {
 
   Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const;
 
+  Status ReadaheadBackwards(uint64_t offset) const {
+    return file_->ReadaheadBackwards(offset);
+  }
+
   RandomAccessFile* file() { return file_.get(); }
 
   bool use_direct_io() const { return file_->use_direct_io(); }

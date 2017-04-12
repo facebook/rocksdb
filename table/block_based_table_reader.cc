@@ -530,7 +530,14 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
   table_reader->reset();
 
   Footer footer;
-  auto s = ReadFooterFromFile(file.get(), file_size, &footer,
+
+  // Before read footer, readahead backwards to prefetch data
+  Status s = file->ReadaheadBackwards(file_size);
+  if (!s.ok()) {
+    return s;
+  }
+
+  s = ReadFooterFromFile(file.get(), file_size, &footer,
                               kBlockBasedTableMagicNumber);
   if (!s.ok()) {
     return s;
@@ -541,8 +548,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
         "version of RocksDB?");
   }
 
-  // We've successfully read the footer and the index block: we're
-  // ready to serve requests.
+  // We've successfully read the footer. We are ready to serve requests.
   // Better not mutate rep_ after the creation. eg. internal_prefix_transform
   // raw pointer will be used to create HashIndexReader, whose reset may
   // access a dangling pointer.
