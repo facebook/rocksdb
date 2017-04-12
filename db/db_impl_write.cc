@@ -117,7 +117,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   // when it finds suitable, and finish them in the same write batch.
   // This is how a write job could be done by the other writer.
   WriteContext write_context;
-  WriteThread::Writer* last_writer = &w;
+  WriteThread::Writer* last_writer = &w;  // Dummy intial value
   autovector<WriteThread::Writer*> write_group;
   bool logs_getting_synced = false;
 
@@ -127,7 +127,6 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   bool need_log_dir_sync = need_log_sync && !log_dir_synced_;
   status = PreprocessWrite(write_options, need_log_sync, &logs_getting_synced,
                            &write_context);
-  uint64_t last_sequence = versions_->LastSequence();
   log::Writer* cur_log_writer = logs_.back().writer;
 
   mutex_.Unlock();
@@ -145,15 +144,13 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     // Rules for when we can update the memtable concurrently
     // 1. supported by memtable
     // 2. Puts are not okay if inplace_update_support
-    // 3. Deletes or SingleDeletes are not okay if filtering deletes
-    //    (controlled by both batch and memtable setting)
-    // 4. Merges are not okay
+    // 3. Merges are not okay
     //
-    // Rules 1..3 are enforced by checking the options
+    // Rules 1..2 are enforced by checking the options
     // during startup (CheckConcurrentWritesSupported), so if
     // options.allow_concurrent_memtable_write is true then they can be
-    // assumed to be true.  Rule 4 is checked for each batch.  We could
-    // relax rules 2 and 3 if we could prevent write batches from referring
+    // assumed to be true.  Rule 3 is checked for each batch.  We could
+    // relax rules 2 if we could prevent write batches from referring
     // more than once to a particular key.
     bool parallel = immutable_db_options_.allow_concurrent_memtable_write &&
                     write_group.size() > 1;
@@ -173,6 +170,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       }
     }
 
+    uint64_t last_sequence = versions_->LastSequence();
     const SequenceNumber current_sequence = last_sequence + 1;
     last_sequence += total_count;
 
@@ -218,7 +216,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         status = WriteBatchInternal::InsertInto(
             write_group, current_sequence, column_family_memtables_.get(),
             &flush_scheduler_, write_options.ignore_missing_column_families,
-            0 /*log_number*/, this);
+            0 /*recovery_log_number*/, this);
 
         if (status.ok()) {
           // There were no write failures. Set leader's status
@@ -236,8 +234,9 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
                          std::memory_order_relaxed);
         write_thread_.LaunchParallelFollowers(&pg, current_sequence);
 
+        // Each parallel follower is doing each own writes. The leader should
+        // also do its own.
         if (w.ShouldWriteToMemtable()) {
-          // do leader write
           ColumnFamilyMemTablesImpl column_family_memtables(
               versions_->GetColumnFamilySet());
           assert(w.sequence == current_sequence);
@@ -270,8 +269,12 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       //
       // Is setting bg_error_ enough here?  This will at least stop
       // compaction and fail any further writes.
-      if (!status.ok() && bg_error_.ok() && !w.CallbackFailed()) {
-        bg_error_ = status;
+      if (!status.ok() && !w.CallbackFailed()) {
+        mutex_.Lock();
+        if (bg_error_.ok()) {
+          bg_error_ = status;  // stop compaction & fail any further writes
+        }
+        mutex_.Unlock();
       }
     }
   }
@@ -341,11 +344,23 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
   }
 
   if (status.ok() && need_log_sync) {
+    // Wait until the parallel syncs are finished. Any sync process has to sync
+    // the front log too so it is enough to check the status of front()
+    // We do a while loop since log_sync_cv_ is signalled when any sync is
+    // finished
+    // Note: there does not seem to be a reason to wait for parallel sync at
+    // this early step but it is not important since parallel sync (SyncWAL) and
+    // need_log_sync are usually not used together.
     while (logs_.front().getting_synced) {
       log_sync_cv_.Wait();
     }
     for (auto& log : logs_) {
       assert(!log.getting_synced);
+      // This is just to prevent the logs to be synced by a parallel SyncWAL
+      // call. We will do the actual syncing later after we will write to the
+      // WAL.
+      // Note: there does not seem to be a reason to set this early before we
+      // actually write to the WAL
       log.getting_synced = true;
     }
     *logs_getting_synced = true;

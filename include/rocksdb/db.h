@@ -400,15 +400,24 @@ class DB {
     //      SST files.
     static const std::string kSSTables;
 
-    //  "rocksdb.cfstats" - returns a multi-line string with general column
-    //      family stats per-level over db's lifetime ("L<n>"), aggregated over
-    //      db's lifetime ("Sum"), and aggregated over the interval since the
-    //      last retrieval ("Int").
+    //  "rocksdb.cfstats" - Both of "rocksdb.cfstats-no-file-histogram" and
+    //      "rocksdb.cf-file-histogram" together. See below for description
+    //      of the two.
+    static const std::string kCFStats;
+
+    //  "rocksdb.cfstats-no-file-histogram" - returns a multi-line string with
+    //      general columm family stats per-level over db's lifetime ("L<n>"),
+    //      aggregated over db's lifetime ("Sum"), and aggregated over the
+    //      interval since the last retrieval ("Int").
     //  It could also be used to return the stats in the format of the map.
     //  In this case there will a pair of string to array of double for
     //  each level as well as for "Sum". "Int" stats will not be affected
     //  when this form of stats are retrived.
-    static const std::string kCFStats;
+    static const std::string kCFStatsNoFileHistogram;
+
+    //  "rocksdb.cf-file-histogram" - print out how many file reads to every
+    //      level, as well as the histogram of latency of single requests.
+    static const std::string kCFFileHistogram;
 
     //  "rocksdb.dbstats" - returns a multi-line string with general database
     //      stats, both cumulative (over the db's lifetime) and interval (since

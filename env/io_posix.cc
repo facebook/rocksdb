@@ -772,13 +772,17 @@ Status PosixWritableFile::Close() {
     fstat(fd_, &file_stats);
     // After ftruncate, we check whether ftruncate has the correct behavior.
     // If not, we should hack it with FALLOC_FL_PUNCH_HOLE
-    if ((file_stats.st_size + file_stats.st_blksize - 1) /
+    static bool buggy = false;
+    if (!buggy && (file_stats.st_size + file_stats.st_blksize - 1) /
             file_stats.st_blksize !=
         file_stats.st_blocks / (file_stats.st_blksize / 512)) {
       fprintf(stderr,
-              "Your kernel is buggy (<= 4.0.x) and does not free preallocated"
-              "blocks on truncate. Hacking around it, but you should upgrade!"
-              "\n");
+              "WARNING: Your kernel is buggy (<= 4.0.x) and does not free"
+              "preallocated blocks on truncate. Hacking around it, but you"
+              "should upgrade!\n");
+      buggy = true;
+    }
+    if (buggy) {
       IOSTATS_TIMER_GUARD(allocate_nanos);
       if (allow_fallocate_) {
         fallocate(fd_, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE, filesize_,

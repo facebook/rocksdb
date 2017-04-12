@@ -90,7 +90,7 @@ class WriteThread {
     bool made_waitable;          // records lazy construction of mutex and cv
     std::atomic<uint8_t> state;  // write under StateMutex() or pre-link
     ParallelGroup* parallel_group;
-    SequenceNumber sequence;  // the sequence number to use
+    SequenceNumber sequence;  // the sequence number to use for the first key
     Status status;            // status of memtable inserter
     Status callback_status;   // status returned by callback->Callback()
     std::aligned_storage<sizeof(std::mutex)>::type state_mutex_bytes;
