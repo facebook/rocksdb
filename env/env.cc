@@ -70,8 +70,6 @@ SequentialFile::~SequentialFile() {
 RandomAccessFile::~RandomAccessFile() {
 }
 
-size_t RandomAccessFile::prefetch_bytes = 512 * 1024;
-
 WritableFile::~WritableFile() {
 }
 

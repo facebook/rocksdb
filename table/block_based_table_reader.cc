@@ -532,7 +532,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
   Footer footer;
 
   // Before read footer, readahead backwards to prefetch data
-  Status s = file->ReadaheadBackwards(file_size);
+  Status s = file->Prefetch(file_size, 512 * 1024 /* 512 KB prefetching */);
   if (!s.ok()) {
     return s;
   }
