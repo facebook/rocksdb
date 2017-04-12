@@ -777,7 +777,7 @@ Status PosixWritableFile::Close() {
             file_stats.st_blksize !=
         file_stats.st_blocks / (file_stats.st_blksize / 512)) {
       fprintf(stderr,
-              "WARNING: Your kernel is buggy (<= 4.0.x) and does not free"
+              "WARNING: Your kernel is buggy (<= 4.0.x) and does not free "
               "preallocated blocks on truncate. Hacking around it, but you"
               "should upgrade!\n");
       buggy = true;
