@@ -553,9 +553,6 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
     }
     Slice result;
     Status s = file_->Read(offset, n, &result, buffer_.BufferStart());
-    if (result.data() != buffer_.BufferStart()) {
-      fprintf(stderr, "hahha\n");
-    }
     if (s.ok()) {
       buffer_offset_ = offset;
       buffer_len_ = result.size();
