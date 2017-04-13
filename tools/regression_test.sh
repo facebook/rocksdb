@@ -214,7 +214,7 @@ function run_db_bench {
   options_file_arg=$(setup_options_file)
   echo "$options_file_arg"
   # use `which time` to avoid using bash's internal time command
-  db_bench_cmd="("'`which time`'" -p $DB_BENCH_DIR/db_bench \
+  db_bench_cmd="("'$(which time)'" -p $DB_BENCH_DIR/db_bench \
       --benchmarks=$1 --db=$DB_PATH --wal_dir=$WAL_PATH \
       --use_existing_db=$USE_EXISTING_DB \
       --disable_auto_compactions \
