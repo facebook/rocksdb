@@ -1494,8 +1494,6 @@ TEST_F(BackupableDBTest, LimitBackupsOpened) {
   ASSERT_EQ(2, backup_infos.size());
   ASSERT_EQ(2, backup_infos[0].backup_id);
   ASSERT_EQ(4, backup_infos[1].backup_id);
-  for (int i = 0; i < 2; i++) {
-  }
   CloseDBAndBackupEngine();
   DestroyDB(dbname_, options_);
 }
