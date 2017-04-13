@@ -216,7 +216,9 @@ extern Status ReadBlockContents(
     RandomAccessFileReader* file, const Footer& footer,
     const ReadOptions& options, const BlockHandle& handle,
     BlockContents* contents, const ImmutableCFOptions &ioptions,
-    bool do_uncompress = true, const Slice& compression_dict = Slice(),
+    bool do_uncompress = true,
+    bool with_block_trailer = true, /* denotes the block has trailer */
+    const Slice& compression_dict = Slice(),
     const PersistentCacheOptions& cache_options = PersistentCacheOptions());
 
 // The 'data' points to the raw block contents read in from file.

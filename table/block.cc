@@ -389,7 +389,7 @@ bool BlockIter::PrefixSeek(const Slice& target, uint32_t* index) {
 }
 
 uint32_t Block::NumRestarts() const {
-  assert(size_ >= 2*sizeof(uint32_t));
+  assert(size_ >= 2*sizeof(uint32_t) && contents_.compression_type == kNoCompression);
   return DecodeFixed32(data_ + size_ - sizeof(uint32_t));
 }
 
@@ -401,7 +401,7 @@ Block::Block(BlockContents&& contents, SequenceNumber _global_seqno,
       global_seqno_(_global_seqno) {
   if (size_ < sizeof(uint32_t)) {
     size_ = 0;  // Error marker
-  } else {
+  } else if (contents_.compression_type == kNoCompression) {
     restart_offset_ =
         static_cast<uint32_t>(size_) - (1 + NumRestarts()) * sizeof(uint32_t);
     if (restart_offset_ > size_ - sizeof(uint32_t)) {
@@ -418,6 +418,7 @@ Block::Block(BlockContents&& contents, SequenceNumber _global_seqno,
 
 InternalIterator* Block::NewIterator(const Comparator* cmp, BlockIter* iter,
                                      bool total_order_seek, Statistics* stats) {
+  assert(contents_.compression_type == kNoCompression);
   if (size_ < 2*sizeof(uint32_t)) {
     if (iter != nullptr) {
       iter->SetStatus(Status::Corruption("bad block contents"));
@@ -459,10 +460,12 @@ InternalIterator* Block::NewIterator(const Comparator* cmp, BlockIter* iter,
 }
 
 void Block::SetBlockPrefixIndex(BlockPrefixIndex* prefix_index) {
+  assert(contents_.compression_type == kNoCompression);
   prefix_index_.reset(prefix_index);
 }
 
 size_t Block::ApproximateMemoryUsage() const {
+  assert(contents_.compression_type == kNoCompression);
   size_t usage = usable_size();
   if (prefix_index_) {
     usage += prefix_index_->ApproximateMemoryUsage();

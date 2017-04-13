@@ -79,8 +79,11 @@ Status ReadBlockFromFile(RandomAccessFileReader* file, const Footer& footer,
                          SequenceNumber global_seqno,
                          size_t read_amp_bytes_per_bit) {
   BlockContents contents;
-  Status s = ReadBlockContents(file, footer, options, handle, &contents, ioptions,
-                               do_uncompress, compression_dict, cache_options);
+  Status s = ReadBlockContents(file, footer, options, handle, &contents,
+                               ioptions, do_uncompress, 
+                               true /* denotes the has block trailer */,
+                               compression_dict,
+                               cache_options);
   if (s.ok()) {
     result->reset(new Block(std::move(contents), global_seqno,
                             read_amp_bytes_per_bit, ioptions.statistics));
@@ -333,6 +336,7 @@ class HashIndexReader : public IndexReader {
     BlockContents prefixes_contents;
     s = ReadBlockContents(file, footer, ReadOptions(), prefixes_handle,
                           &prefixes_contents, ioptions, true /* decompress */,
+                          true /* denotes has block trailer*/,
                           Slice() /*compression dict*/, cache_options);
     if (!s.ok()) {
       return s;
@@ -340,6 +344,7 @@ class HashIndexReader : public IndexReader {
     BlockContents prefixes_meta_contents;
     s = ReadBlockContents(file, footer, ReadOptions(), prefixes_meta_handle,
                           &prefixes_meta_contents, ioptions, true /* decompress */,
+                          true /* denotes has block trailer*/,
                           Slice() /*compression dict*/, cache_options);
     if (!s.ok()) {
       // TODO: log error
@@ -1021,7 +1026,9 @@ FilterBlockReader* BlockBasedTable::ReadFilter(
   BlockContents block;
   if (!ReadBlockContents(rep->file.get(), rep->footer, ReadOptions(),
                          filter_handle, &block, rep->ioptions,
-                         false /* decompress */, Slice() /*compression dict*/,
+                         false /* decompress */, 
+                         true /* denotes has block trailer*/,
+                         Slice() /*compression dict*/,
                          rep->persistent_cache_options)
            .ok()) {
     // Error reading the block
@@ -1995,6 +2002,7 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
         if (ReadBlockContents(
                 rep_->file.get(), rep_->footer, ReadOptions(), handle, &block,
                 rep_->ioptions, false /*decompress*/,
+                true /* denotes has block trailer*/,
                 Slice() /*compression dict*/, rep_->persistent_cache_options)
                 .ok()) {
           rep_->filter.reset(new BlockBasedFilterBlockReader(

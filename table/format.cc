@@ -257,22 +257,24 @@ namespace {
 // According to the implementation of file->Read, contents may not point to buf
 Status ReadBlock(RandomAccessFileReader* file, const Footer& footer,
                  const ReadOptions& options, const BlockHandle& handle,
-                 Slice* contents, /* result of reading */ char* buf) {
-  size_t n = static_cast<size_t>(handle.size());
+                 Slice* contents, /* result of reading */ char* buf,
+                 bool with_block_trailer = true) {
+  size_t n = static_cast<size_t>(handle.size()),
+         total_size = with_block_trailer? n + kBlockTrailerSize: n;
   Status s;
 
   {
     PERF_TIMER_GUARD(block_read_time);
-    s = file->Read(handle.offset(), n + kBlockTrailerSize, contents, buf);
+    s = file->Read(handle.offset(), total_size, contents, buf);
   }
 
   PERF_COUNTER_ADD(block_read_count, 1);
-  PERF_COUNTER_ADD(block_read_byte, n + kBlockTrailerSize);
+  PERF_COUNTER_ADD(block_read_byte, total_size);
 
   if (!s.ok()) {
     return s;
   }
-  if (contents->size() != n + kBlockTrailerSize) {
+  if (contents->size() != total_size) {
     return Status::Corruption("truncated block read");
   }
 
@@ -310,11 +312,13 @@ Status ReadBlockContents(RandomAccessFileReader* file, const Footer& footer,
                          const BlockHandle& handle, BlockContents* contents,
                          const ImmutableCFOptions &ioptions,
                          bool decompression_requested,
+                         bool with_block_trailer,
                          const Slice& compression_dict,
                          const PersistentCacheOptions& cache_options) {
   Status status;
   Slice slice;
-  size_t n = static_cast<size_t>(handle.size());
+  size_t n = static_cast<size_t>(handle.size()),
+         total_size = with_block_trailer? n + kBlockTrailerSize: n;
   std::unique_ptr<char[]> heap_buf;
   char stack_buf[DefaultStackBufferSize];
   char* used_buf = nullptr;
@@ -342,7 +346,7 @@ Status ReadBlockContents(RandomAccessFileReader* file, const Footer& footer,
       cache_options.persistent_cache->IsCompressed()) {
     // lookup uncompressed cache mode p-cache
     status = PersistentCacheHelper::LookupRawPage(
-        cache_options, handle, &heap_buf, n + kBlockTrailerSize);
+          cache_options, handle, &heap_buf, total_size);
   } else {
     status = Status::NotFound();
   }
@@ -359,23 +363,23 @@ Status ReadBlockContents(RandomAccessFileReader* file, const Footer& footer,
                      status.ToString().c_str());
     }
     // cache miss read from device
-    if (decompression_requested &&
-        n + kBlockTrailerSize < DefaultStackBufferSize) {
+    if (decompression_requested && total_size < DefaultStackBufferSize) {
       // If we've got a small enough hunk of data, read it in to the
       // trivially allocated stack buffer instead of needing a full malloc()
       used_buf = &stack_buf[0];
     } else {
-      heap_buf = std::unique_ptr<char[]>(new char[n + kBlockTrailerSize]);
+      heap_buf = std::unique_ptr<char[]>(new char[total_size]);
       used_buf = heap_buf.get();
     }
 
-    status = ReadBlock(file, footer, read_options, handle, &slice, used_buf);
+    status = ReadBlock(file, footer, read_options, handle, 
+                       &slice, used_buf, with_block_trailer);
     if (status.ok() && read_options.fill_cache &&
         cache_options.persistent_cache &&
         cache_options.persistent_cache->IsCompressed()) {
       // insert to raw cache
       PersistentCacheHelper::InsertRawPage(cache_options, handle, used_buf,
-                                           n + kBlockTrailerSize);
+                                           total_size);
     }
   }
 
@@ -385,7 +389,11 @@ Status ReadBlockContents(RandomAccessFileReader* file, const Footer& footer,
 
   PERF_TIMER_GUARD(block_decompress_time);
 
-  compression_type = static_cast<rocksdb::CompressionType>(slice.data()[n]);
+  if (with_block_trailer) {
+    compression_type = static_cast<rocksdb::CompressionType>(slice.data()[n]);
+  } else {
+    compression_type = CompressionType::kNoCompression;
+  }
 
   if (decompression_requested && compression_type != kNoCompression) {
     // compressed page, uncompress, update cache

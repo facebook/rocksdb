@@ -153,6 +153,19 @@ bool NotifyCollectTableCollectorsOnFinish(
   return all_succeeded;
 }
 
+extern const uint64_t kPlainTableMagicNumber;
+extern const uint64_t kLegacyPlainTableMagicNumber;
+extern const uint64_t kBlockBasedTableMagicNumber;
+extern const uint64_t kLegacyBlockBasedTableMagicNumber;
+extern const uint64_t kCuckooTableMagicNumber;
+namespace {
+bool has_block_trailer(const Footer &footer) {
+  auto magic_num = footer.table_magic_number();
+  return (magic_num == kBlockBasedTableMagicNumber ||
+          magic_num == kLegacyBlockBasedTableMagicNumber);
+}
+}  // namespace
+
 Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
                       const Footer& footer, const ImmutableCFOptions& ioptions,
                       TableProperties** table_properties) {
@@ -164,12 +177,13 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
     return Status::InvalidArgument("Failed to decode properties block handle");
   }
 
+  bool with_trailer = has_block_trailer(footer);
   BlockContents block_contents;
   ReadOptions read_options;
   read_options.verify_checksums = false;
   Status s;
   s = ReadBlockContents(file, footer, read_options, handle, &block_contents,
-                        ioptions, false /* decompress */);
+                        ioptions, false /* decompress */, with_trailer);
 
   if (!s.ok()) {
     return s;
@@ -275,8 +289,10 @@ Status ReadTableProperties(RandomAccessFileReader* file, uint64_t file_size,
   BlockContents metaindex_contents;
   ReadOptions read_options;
   read_options.verify_checksums = false;
+  bool with_trailer = has_block_trailer(footer);
   s = ReadBlockContents(file, footer, read_options, metaindex_handle,
-                        &metaindex_contents, ioptions, false /* decompress */);
+                        &metaindex_contents, ioptions, false /* decompress */,
+                        with_trailer);
   if (!s.ok()) {
     return s;
   }
@@ -326,12 +342,14 @@ Status FindMetaBlock(RandomAccessFileReader* file, uint64_t file_size,
     return s;
   }
 
+  bool with_trailer = has_block_trailer(footer);
   auto metaindex_handle = footer.metaindex_handle();
   BlockContents metaindex_contents;
   ReadOptions read_options;
   read_options.verify_checksums = false;
   s = ReadBlockContents(file, footer, read_options, metaindex_handle,
-                        &metaindex_contents, ioptions, false /* do decompression */);
+                        &metaindex_contents, ioptions, false /* do decompression */,
+                        with_trailer);
   if (!s.ok()) {
     return s;
   }
@@ -359,11 +377,13 @@ Status ReadMetaBlock(RandomAccessFileReader* file, uint64_t file_size,
   // Reading metaindex block
   auto metaindex_handle = footer.metaindex_handle();
   BlockContents metaindex_contents;
+  bool with_trailer = has_block_trailer(footer);
   ReadOptions read_options;
   read_options.verify_checksums = false;
   status = ReadBlockContents(file, footer, read_options, metaindex_handle,
                              &metaindex_contents, ioptions,
-                             false /* decompress */);
+                             false /* decompress */,
+                             with_trailer);
   if (!status.ok()) {
     return status;
   }
