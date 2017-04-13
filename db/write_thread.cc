@@ -349,36 +349,17 @@ bool WriteThread::CompleteParallelWorker(Writer* w) {
     pg->status = w->status;
   }
 
-  auto leader = pg->leader;
-  auto early_exit_allowed = pg->early_exit_allowed;
-
   if (pg->running.load(std::memory_order_acquire) > 1 && pg->running-- > 1) {
     // we're not the last one
     AwaitState(w, STATE_COMPLETED, &ctx);
-
-    // Caller only needs to perform exit duties if early exit doesn't
-    // apply and this is the leader.  Can't touch pg here.  Whoever set
-    // our state to STATE_COMPLETED copied pg->status to w.status for us.
-    return w == leader && !(early_exit_allowed && w->status.ok());
-  }
-  // else we're the last parallel worker
-
-  // Errors (if there is any) must be handled by leader before waking up others
-  if (w == leader || (early_exit_allowed && pg->status.ok())) {
-    // this thread should perform exit duties
-    w->status = pg->status;
-    return true;
-  } else {
-    // We're the last parallel follower but early commit is not
-    // applicable.  Wake up the leader and then wait for it to exit.
-    assert(w->state == STATE_PARALLEL_FOLLOWER);
-    SetState(leader, STATE_COMPLETED);
-    AwaitState(w, STATE_COMPLETED, &ctx);
     return false;
   }
+  // else we're the last parallel worker and should perform exit duties.
+  w->status = pg->status;
+  return true;
 }
 
-void WriteThread::EarlyExitParallelGroup(Writer* w) {
+void WriteThread::ExitAsBatchGroupFollower(Writer* w) {
   auto* pg = w->parallel_group;
 
   assert(w->state == STATE_PARALLEL_FOLLOWER);
