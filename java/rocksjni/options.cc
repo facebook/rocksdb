@@ -1052,24 +1052,26 @@ void Java_org_rocksdb_Options_setUseDirectReads(JNIEnv* env, jobject jobj,
 
 /*
  * Class:     org_rocksdb_Options
- * Method:    useDirectWrites
+ * Method:    useDirectIoForFlushAndCompaction
  * Signature: (J)Z
  */
-jboolean Java_org_rocksdb_Options_useDirectWrites(JNIEnv* env, jobject jobj,
-                                                  jlong jhandle) {
-  return reinterpret_cast<rocksdb::Options*>(jhandle)->use_direct_writes;
+jboolean Java_org_rocksdb_Options_useDirectIoForFlushAndCompaction(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::Options*>(jhandle)
+      ->use_direct_io_for_flush_and_compaction;
 }
 
 /*
  * Class:     org_rocksdb_Options
- * Method:    setUseDirectReads
+ * Method:    setUseDirectIoForFlushAndCompaction
  * Signature: (JZ)V
  */
-void Java_org_rocksdb_Options_setUseDirectWrites(JNIEnv* env, jobject jobj,
-                                                 jlong jhandle,
-                                                 jboolean use_direct_writes) {
-  reinterpret_cast<rocksdb::Options*>(jhandle)->use_direct_writes =
-      static_cast<bool>(use_direct_writes);
+void Java_org_rocksdb_Options_setUseDirectIoForFlushAndCompaction(
+    JNIEnv* env, jobject jobj, jlong jhandle,
+    jboolean use_direct_io_for_flush_and_compaction) {
+  reinterpret_cast<rocksdb::Options*>(jhandle)
+      ->use_direct_io_for_flush_and_compaction =
+      static_cast<bool>(use_direct_io_for_flush_and_compaction);
 }
 
 /*
@@ -4920,12 +4922,13 @@ void Java_org_rocksdb_DBOptions_setUseDirectReads(JNIEnv* env, jobject jobj,
 
 /*
  * Class:     org_rocksdb_DBOptions
- * Method:    useDirectWrites
+ * Method:    useDirectIoForFlushAndCompaction
  * Signature: (J)Z
  */
-jboolean Java_org_rocksdb_DBOptions_useDirectWrites(JNIEnv* env, jobject jobj,
-                                                    jlong jhandle) {
-  return reinterpret_cast<rocksdb::DBOptions*>(jhandle)->use_direct_writes;
+jboolean Java_org_rocksdb_DBOptions_useDirectIoForFlushAndCompaction(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::DBOptions*>(jhandle)
+      ->use_direct_io_for_flush_and_compaction;
 }
 
 /*
@@ -4933,11 +4936,12 @@ jboolean Java_org_rocksdb_DBOptions_useDirectWrites(JNIEnv* env, jobject jobj,
  * Method:    setUseDirectReads
  * Signature: (JZ)V
  */
-void Java_org_rocksdb_DBOptions_setUseDirectWrites(JNIEnv* env, jobject jobj,
-                                                   jlong jhandle,
-                                                   jboolean use_direct_writes) {
-  reinterpret_cast<rocksdb::DBOptions*>(jhandle)->use_direct_writes =
-      static_cast<bool>(use_direct_writes);
+void Java_org_rocksdb_DBOptions_setUseDirectIoForFlushAndCompaction(
+    JNIEnv* env, jobject jobj, jlong jhandle,
+    jboolean use_direct_io_for_flush_and_compaction) {
+  reinterpret_cast<rocksdb::DBOptions*>(jhandle)
+      ->use_direct_io_for_flush_and_compaction =
+      static_cast<bool>(use_direct_io_for_flush_and_compaction);
 }
 
 /*

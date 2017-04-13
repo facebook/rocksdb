@@ -40,6 +40,12 @@ class DBCompactionTestWithParam
   bool exclusive_manual_compaction_;
 };
 
+class DBCompactionDirectIOTest : public DBCompactionTest,
+                                 public ::testing::WithParamInterface<bool> {
+ public:
+  DBCompactionDirectIOTest() : DBCompactionTest() {}
+};
+
 namespace {
 
 class FlushedFileCollector : public EventListener {
@@ -2551,6 +2557,39 @@ INSTANTIATE_TEST_CASE_P(DBCompactionTestWithParam, DBCompactionTestWithParam,
                                           std::make_tuple(1, false),
                                           std::make_tuple(4, true),
                                           std::make_tuple(4, false)));
+
+TEST_P(DBCompactionDirectIOTest, DirectIO) {
+  Options options = CurrentOptions();
+  Destroy(options);
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+  options.use_direct_io_for_flush_and_compaction = GetParam();
+  options.env = new MockEnv(Env::Default());
+  Reopen(options);
+  SyncPoint::GetInstance()->SetCallBack(
+      "TableCache::NewIterator:for_compaction", [&](void* arg) {
+        bool* use_direct_reads = static_cast<bool*>(arg);
+        ASSERT_EQ(*use_direct_reads,
+                  options.use_direct_io_for_flush_and_compaction);
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::OpenCompactionOutputFile", [&](void* arg) {
+        bool* use_direct_writes = static_cast<bool*>(arg);
+        ASSERT_EQ(*use_direct_writes,
+                  options.use_direct_io_for_flush_and_compaction);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  CreateAndReopenWithCF({"pikachu"}, options);
+  MakeTables(3, "p", "q", 1);
+  ASSERT_EQ("1,1,1", FilesPerLevel(1));
+  Compact(1, "p1", "p9");
+  ASSERT_EQ("0,0,1", FilesPerLevel(1));
+  Destroy(options);
+  delete options.env;
+}
+
+INSTANTIATE_TEST_CASE_P(DBCompactionDirectIOTest, DBCompactionDirectIOTest,
+                        testing::Bool());
 
 class CompactionPriTest : public DBTestBase,
                           public testing::WithParamInterface<uint32_t> {

@@ -8,6 +8,7 @@
 * DB::Get in place of std::string accepts PinnableSlice, which avoids the extra memcpy of value to std::string in most of cases.
     * PinnableSlice releases the pinned resources that contain the value when it is destructed or when ::Reset() is called on it.
     * The old API that accepts std::string, although discouraged, is still supported.
+* Replace Options::use_direct_writes with Options::use_direct_io_for_flush_and_compaction. Read Direct IO wiki for details.
 
 ### New Features
 * Memtable flush can be avoided during checkpoint creation if total log file size is smaller than a threshold specified by the user.

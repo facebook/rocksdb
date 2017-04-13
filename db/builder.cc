@@ -32,6 +32,7 @@
 #include "util/file_reader_writer.h"
 #include "util/filename.h"
 #include "util/stop_watch.h"
+#include "util/sync_point.h"
 
 namespace rocksdb {
 
@@ -103,6 +104,10 @@ Status BuildTable(
     unique_ptr<WritableFileWriter> file_writer;
     {
       unique_ptr<WritableFile> file;
+#ifndef NDEBUG
+      bool use_direct_writes = env_options.use_direct_writes;
+      TEST_SYNC_POINT_CALLBACK("BuildTable:create_file", &use_direct_writes);
+#endif  // !NDEBUG
       s = NewWritableFile(env, fname, &file, env_options);
       if (!s.ok()) {
         EventHelpers::LogAndNotifyTableFileCreationFinished(
@@ -180,6 +185,11 @@ Status BuildTable(
 
     if (s.ok() && !empty) {
       // Verify that the table is usable
+      // We set for_compaction to false and don't OptimizeForCompactionTableRead
+      // here because this is a special case after we finish the table building
+      // No matter whether use_direct_io_for_flush_and_compaction is true,
+      // we will regrad this verification as user reads since the goal is
+      // to cache it here for further user reads
       std::unique_ptr<InternalIterator> it(table_cache->NewIterator(
           ReadOptions(), env_options, internal_comparator, meta->fd,
           nullptr /* range_del_agg */, nullptr,

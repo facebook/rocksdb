@@ -2218,7 +2218,8 @@ VersionSet::VersionSet(const std::string& dbname,
       current_version_number_(0),
       manifest_file_size_(0),
       env_options_(storage_options),
-      env_options_compactions_(env_options_) {}
+      env_options_compactions_(
+          env_->OptimizeForCompactionTableRead(env_options_, *db_options_)) {}
 
 void CloseTables(void* ptr, size_t) {
   TableReader* table_reader = reinterpret_cast<TableReader*>(ptr);
@@ -3477,7 +3478,7 @@ InternalIterator* VersionSet::MakeInputIterator(
         // Create concatenating iterator for the files from this level
         list[num++] = NewTwoLevelIterator(
             new LevelFileIteratorState(
-                cfd->table_cache(), read_options, env_options_,
+                cfd->table_cache(), read_options, env_options_compactions_,
                 cfd->internal_comparator(),
                 nullptr /* no per level latency histogram */,
                 true /* for_compaction */, false /* prefix enabled */,

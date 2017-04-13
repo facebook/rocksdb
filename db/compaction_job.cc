@@ -1072,6 +1072,11 @@ Status CompactionJob::FinishCompactionOutputFile(
   TableProperties tp;
   if (s.ok() && current_entries > 0) {
     // Verify that the table is usable
+    // We set for_compaction to false and don't OptimizeForCompactionTableRead
+    // here because this is a special case after we finish the table building
+    // No matter whether use_direct_io_for_flush_and_compaction is true,
+    // we will regrad this verification as user reads since the goal is
+    // to cache it here for further user reads
     InternalIterator* iter = cfd->table_cache()->NewIterator(
         ReadOptions(), env_options_, cfd->internal_comparator(), meta->fd,
         nullptr /* range_del_agg */, nullptr,
@@ -1198,7 +1203,11 @@ Status CompactionJob::OpenCompactionOutputFile(
 #endif  // !ROCKSDB_LITE
   // Make the output file
   unique_ptr<WritableFile> writable_file;
-  Status s = NewWritableFile(env_, fname, &writable_file, env_options_);
+  EnvOptions opt_env_opts =
+      env_->OptimizeForCompactionTableWrite(env_options_, db_options_);
+  TEST_SYNC_POINT_CALLBACK("CompactionJob::OpenCompactionOutputFile",
+                           &opt_env_opts.use_direct_writes);
+  Status s = NewWritableFile(env_, fname, &writable_file, opt_env_opts);
   if (!s.ok()) {
     ROCKS_LOG_ERROR(
         db_options_.info_log,
