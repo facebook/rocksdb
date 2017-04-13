@@ -97,4 +97,16 @@ for test_cfg in ROCKS_TESTS:
       deps = [":" + test_bin],
       command = [TEST_RUNNER, BUCK_BINS + test_bin]
     )
+
+custom_unittest(
+    name = "make_rocksdbjavastatic",
+    type = "simple",
+    command = ["internal_repo_rocksdb/make_rocksdbjavastatic.sh"],
+)
+
+custom_unittest(
+    name = "make_rocksdb_lite_release",
+    type = "simple",
+    command = ["internal_repo_rocksdb/make_rocksdb_lite_release.sh"],
+)
 """
