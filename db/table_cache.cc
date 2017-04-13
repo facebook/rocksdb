@@ -184,6 +184,11 @@ InternalIterator* TableCache::NewIterator(
     }
     size_t readahead = 0;
     if (for_compaction) {
+#ifndef NDEBUG
+      bool use_direct_reads_for_compaction = env_options.use_direct_reads;
+      TEST_SYNC_POINT_CALLBACK("TableCache::NewIterator:for_compaction",
+                               &use_direct_reads_for_compaction);
+#endif  // !NDEBUG
       if (ioptions_.new_table_reader_for_compaction_inputs) {
         readahead = ioptions_.compaction_readahead_size;
         create_new_table_reader = true;

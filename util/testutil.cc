@@ -242,7 +242,7 @@ void RandomInitDBOptions(DBOptions* db_opt, Random* rnd) {
   db_opt->allow_mmap_reads = rnd->Uniform(2);
   db_opt->allow_mmap_writes = rnd->Uniform(2);
   db_opt->use_direct_reads = rnd->Uniform(2);
-  db_opt->use_direct_writes = rnd->Uniform(2);
+  db_opt->use_direct_io_for_flush_and_compaction = rnd->Uniform(2);
   db_opt->create_if_missing = rnd->Uniform(2);
   db_opt->create_missing_column_families = rnd->Uniform(2);
   db_opt->enable_thread_tracking = rnd->Uniform(2);

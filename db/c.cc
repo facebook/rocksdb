@@ -2121,9 +2121,9 @@ void rocksdb_options_set_use_direct_reads(rocksdb_options_t* opt,
   opt->rep.use_direct_reads = v;
 }
 
-void rocksdb_options_set_use_direct_writes(rocksdb_options_t* opt,
-                                           unsigned char v) {
-  opt->rep.use_direct_writes = v;
+void rocksdb_options_set_use_direct_io_for_flush_and_compaction(
+    rocksdb_options_t* opt, unsigned char v) {
+  opt->rep.use_direct_io_for_flush_and_compaction = v;
 }
 
 void rocksdb_options_set_allow_mmap_reads(

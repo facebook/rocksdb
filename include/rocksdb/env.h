@@ -44,6 +44,7 @@ class WritableFile;
 class RandomRWFile;
 class Directory;
 struct DBOptions;
+struct ImmutableDBOptions;
 class RateLimiter;
 class ThreadStatusUpdater;
 struct ThreadStatus;
@@ -374,6 +375,20 @@ class Env {
   // files. Default implementation returns the copy of the same object.
   virtual EnvOptions OptimizeForManifestWrite(
       const EnvOptions& env_options) const;
+
+  // OptimizeForCompactionTableWrite will create a new EnvOptions object that is a copy
+  // of the EnvOptions in the parameters, but is optimized for writing table
+  // files. Default implementation returns the copy of the same object.
+  virtual EnvOptions OptimizeForCompactionTableWrite(
+      const EnvOptions& env_options,
+      const ImmutableDBOptions& db_options) const;
+
+  // OptimizeForCompactionTableWrite will create a new EnvOptions object that is a copy
+  // of the EnvOptions in the parameters, but is optimized for reading table
+  // files. Default implementation returns the copy of the same object.
+  virtual EnvOptions OptimizeForCompactionTableRead(
+      const EnvOptions& env_options,
+      const ImmutableDBOptions& db_options) const;
 
   // Returns the status of all threads that belong to the current Env.
   virtual Status GetThreadList(std::vector<ThreadStatus>* thread_list) {

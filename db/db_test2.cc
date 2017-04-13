@@ -1995,7 +1995,8 @@ TEST_F(DBTest2, DirectIO) {
     return;
   }
   Options options = CurrentOptions();
-  options.use_direct_reads = options.use_direct_writes = true;
+  options.use_direct_reads = options.use_direct_io_for_flush_and_compaction =
+      true;
   options.allow_mmap_reads = options.allow_mmap_writes = false;
   DestroyAndReopen(options);
 

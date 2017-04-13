@@ -593,16 +593,17 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setUseDirectWrites(final boolean useDirectWrites) {
+  public Options setUseDirectIoForFlushAndCompaction(
+      final boolean useDirectIoForFlushAndCompaction) {
     assert(isOwningHandle());
-    setUseDirectWrites(nativeHandle_, useDirectWrites);
+    setUseDirectIoForFlushAndCompaction(nativeHandle_, useDirectIoForFlushAndCompaction);
     return this;
   }
 
   @Override
-  public boolean useDirectWrites() {
+  public boolean useDirectIoForFlushAndCompaction() {
     assert(isOwningHandle());
-    return useDirectWrites(nativeHandle_);
+    return useDirectIoForFlushAndCompaction(nativeHandle_);
   }
 
   @Override
@@ -1621,8 +1622,9 @@ public class Options extends RocksObject
   private native long manifestPreallocationSize(long handle);
   private native void setUseDirectReads(long handle, boolean useDirectReads);
   private native boolean useDirectReads(long handle);
-  private native void setUseDirectWrites(long handle, boolean useDirectWrites);
-  private native boolean useDirectWrites(long handle);
+  private native void setUseDirectIoForFlushAndCompaction(
+      long handle, boolean useDirectIoForFlushAndCompaction);
+  private native boolean useDirectIoForFlushAndCompaction(long handle);
   private native void setAllowFAllocate(final long handle,
       final boolean allowFAllocate);
   private native boolean allowFAllocate(final long handle);
