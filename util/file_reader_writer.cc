@@ -506,7 +506,7 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
     return s;
   }
 
-  virtual Status Prefetch(uint64_t offset, size_t n) {
+  virtual Status Prefetch(uint64_t offset, size_t n) override {
     size_t prefetch_offset = TruncateToPageBoundary(alignment_, offset);
     if (prefetch_offset == buffer_offset_) {
       return Status::OK();
