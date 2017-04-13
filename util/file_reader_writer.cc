@@ -507,16 +507,11 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
   }
 
   virtual Status Prefetch(uint64_t offset, size_t n) {
-    size_t prefetch_offset = Roundup(offset, alignment_);
-    if (prefetch_offset < n) {
-      prefetch_offset = 0;
-    } else {
-      prefetch_offset -= n;
-    }
+    size_t prefetch_offset = TruncateToPageBoundary(alignment_, offset);
     if (prefetch_offset == buffer_offset_) {
       return Status::OK();
     }
-    return ReadIntoBuffer(prefetch_offset, n);
+    return ReadIntoBuffer(prefetch_offset, offset - prefetch_offset + n);
   }
 
   virtual size_t GetUniqueId(char* id, size_t max_size) const override {

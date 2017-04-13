@@ -474,8 +474,7 @@ class RandomAccessFile {
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
                       char* scratch) const = 0;
 
-  // Readahead from the file backwards from offset - 1 by n bytes for caching.
-  // Implementation details are up to subclasses
+  // Readahead the file starting from offset by n bytes for caching.
   virtual Status Prefetch(uint64_t offset, size_t n) {
     return Status::OK();
   }
