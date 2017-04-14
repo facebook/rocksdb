@@ -535,10 +535,6 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
   Status s =
       file->Prefetch((file_size < 512 * 1024 ? 0 : file_size - 512 * 1024),
                      512 * 1024 /* 512 KB prefetching */);
-  if (!s.ok()) {
-    return s;
-  }
-
   s = ReadFooterFromFile(file.get(), file_size, &footer,
                               kBlockBasedTableMagicNumber);
   if (!s.ok()) {
