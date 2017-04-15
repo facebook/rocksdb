@@ -472,7 +472,7 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
     // complitely or partially in the buffer
     // If it's completely cached, including end of file case when offset + n is
     // greater than EOF, return
-    if (TryReadFromCache_(offset, n, &cached_len, scratch) &&
+    if (TryReadFromCache(offset, n, &cached_len, scratch) &&
         (cached_len == n ||
          // End of file
          buffer_len_ < readahead_size_)) {
@@ -484,34 +484,34 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
     // chunk_offset equals to advanced_offset
     size_t chunk_offset = TruncateToPageBoundary(alignment_, advanced_offset);
     Slice readahead_result;
-    Status s = file_->Read(chunk_offset, readahead_size_, &readahead_result,
-                           buffer_.BufferStart());
-    if (!s.ok()) {
-      return s;
-    }
-    // In the case of cache miss, i.e. when cached_len equals 0, an offset can
-    // exceed the file end position, so the following check is required
-    if (advanced_offset < chunk_offset + readahead_result.size()) {
-      // In the case of cache miss, the first chunk_padding bytes in buffer_ are
-      // stored for alignment only and must be skipped
-      size_t chunk_padding = advanced_offset - chunk_offset;
-      auto remaining_len =
-          std::min(readahead_result.size() - chunk_padding, n - cached_len);
-      memcpy(scratch + cached_len, readahead_result.data() + chunk_padding,
-             remaining_len);
-      *result = Slice(scratch, cached_len + remaining_len);
-    } else {
-      *result = Slice(scratch, cached_len);
-    }
 
-    if (readahead_result.data() == buffer_.BufferStart()) {
-      buffer_offset_ = chunk_offset;
-      buffer_len_ = readahead_result.size();
-    } else {
-      buffer_len_ = 0;
+    Status s = ReadIntoBuffer(chunk_offset, readahead_size_);
+    if (s.ok()) {
+      // In the case of cache miss, i.e. when cached_len equals 0, an offset can
+      // exceed the file end position, so the following check is required
+      if (advanced_offset < chunk_offset + buffer_len_) {
+        // In the case of cache miss, the first chunk_padding bytes in buffer_
+        // are
+        // stored for alignment only and must be skipped
+        size_t chunk_padding = advanced_offset - chunk_offset;
+        auto remaining_len =
+            std::min(buffer_len_ - chunk_padding, n - cached_len);
+        memcpy(scratch + cached_len, buffer_.BufferStart() + chunk_padding,
+               remaining_len);
+        *result = Slice(scratch, cached_len + remaining_len);
+      } else {
+        *result = Slice(scratch, cached_len);
+      }
     }
+    return s;
+  }
 
-    return Status::OK();
+  virtual Status Prefetch(uint64_t offset, size_t n) override {
+    size_t prefetch_offset = TruncateToPageBoundary(alignment_, offset);
+    if (prefetch_offset == buffer_offset_) {
+      return Status::OK();
+    }
+    return ReadIntoBuffer(prefetch_offset, offset - prefetch_offset + n);
   }
 
   virtual size_t GetUniqueId(char* id, size_t max_size) const override {
@@ -529,7 +529,7 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
   }
 
  private:
-  bool TryReadFromCache_(uint64_t offset, size_t n, size_t* cached_len,
+  bool TryReadFromCache(uint64_t offset, size_t n, size_t* cached_len,
                          char* scratch) const {
     if (offset < buffer_offset_ || offset >= buffer_offset_ + buffer_len_) {
       *cached_len = 0;
@@ -542,15 +542,28 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
     return true;
   }
 
+  Status ReadIntoBuffer(uint64_t offset, size_t n) const {
+    if (n > buffer_.Capacity()) {
+      n = buffer_.Capacity();
+    }
+    Slice result;
+    Status s = file_->Read(offset, n, &result, buffer_.BufferStart());
+    if (s.ok()) {
+      buffer_offset_ = offset;
+      buffer_len_ = result.size();
+    }
+    return s;
+  }
+
   std::unique_ptr<RandomAccessFile> file_;
   const size_t alignment_;
   size_t               readahead_size_;
   const bool           forward_calls_;
 
-  mutable std::mutex   lock_;
+  mutable std::mutex lock_;
   mutable AlignedBuffer buffer_;
-  mutable uint64_t     buffer_offset_;
-  mutable size_t       buffer_len_;
+  mutable uint64_t buffer_offset_;
+  mutable size_t buffer_len_;
 };
 }  // namespace
 
