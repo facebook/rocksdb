@@ -620,6 +620,8 @@ DEFINE_string(
 
 DEFINE_uint64(fifo_compaction_max_table_files_size_mb, 0,
               "The limit of total table file sizes to trigger FIFO compaction");
+DEFINE_bool(fifo_compaction_allow_compaction, true,
+            "Allow compaction in FIFO compaction.");
 #endif  // ROCKSDB_LITE
 
 DEFINE_bool(report_bg_io_stats, false,
@@ -2823,7 +2825,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         FLAGS_use_direct_io_for_flush_and_compaction;
 #ifndef ROCKSDB_LITE
     options.compaction_options_fifo = CompactionOptionsFIFO(
-       FLAGS_fifo_compaction_max_table_files_size_mb * 1024 * 1024);
+        FLAGS_fifo_compaction_max_table_files_size_mb * 1024 * 1024,
+        FLAGS_fifo_compaction_allow_compaction);
 #endif  // ROCKSDB_LITE
     if (FLAGS_prefix_size != 0) {
       options.prefix_extractor.reset(

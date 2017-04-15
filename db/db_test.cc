@@ -2767,6 +2767,48 @@ TEST_P(DBTestWithParam, FIFOCompactionTest) {
     }
   }
 }
+
+TEST_F(DBTest, FIFOCompactionTestWithCompaction) {
+  Options options;
+  options.compaction_style = kCompactionStyleFIFO;
+  options.write_buffer_size = 20 << 10;  // 20K
+  options.arena_block_size = 4096;
+  options.compaction_options_fifo.max_table_files_size = 1500 << 10;  // 1MB
+  options.compaction_options_fifo.allow_compaction = true;
+  options.level0_file_num_compaction_trigger = 6;
+  options.compression = kNoCompression;
+  options.create_if_missing = true;
+  options = CurrentOptions(options);
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  for (int i = 0; i < 60; i++) {
+    // Generate and flush a file about 20KB.
+    for (int j = 0; j < 20; j++) {
+      ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
+    }
+    Flush();
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  }
+  // It should be compacted to 10 files.
+  ASSERT_EQ(NumTableFilesAtLevel(0), 10);
+
+  for (int i = 0; i < 60; i++) {
+    // Generate and flush a file about 10KB.
+    for (int j = 0; j < 20; j++) {
+      ASSERT_OK(Put(ToString(i * 20 + j + 2000), RandomString(&rnd, 980)));
+    }
+    Flush();
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  }
+
+  // It should be compacted to no more than 20 files.
+  ASSERT_GT(NumTableFilesAtLevel(0), 10);
+  ASSERT_LT(NumTableFilesAtLevel(0), 18);
+  // Size limit is still guaranteed.
+  ASSERT_LE(SizeAtLevel(0),
+            options.compaction_options_fifo.max_table_files_size);
+}
 #endif  // ROCKSDB_LITE
 
 #ifndef ROCKSDB_LITE

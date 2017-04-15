@@ -1312,6 +1312,13 @@ void VersionStorageInfo::ComputeCompactionScore(
         score =
             static_cast<double>(total_size) /
             immutable_cf_options.compaction_options_fifo.max_table_files_size;
+        if (immutable_cf_options.compaction_options_fifo.allow_compaction) {
+          score = std::max(
+              static_cast<double>(num_sorted_runs) /
+                  mutable_cf_options.level0_file_num_compaction_trigger,
+              score);
+        }
+
       } else {
         score = static_cast<double>(num_sorted_runs) /
                 mutable_cf_options.level0_file_num_compaction_trigger;
