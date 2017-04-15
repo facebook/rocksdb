@@ -472,6 +472,7 @@ class SequentialFile {
 // A file abstraction for randomly reading the contents of a file.
 class RandomAccessFile {
  public:
+
   RandomAccessFile() { }
   virtual ~RandomAccessFile();
 
@@ -487,6 +488,11 @@ class RandomAccessFile {
   // If Direct I/O enabled, offset, n, and scratch should be aligned properly.
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
                       char* scratch) const = 0;
+
+  // Readahead the file starting from offset by n bytes for caching.
+  virtual Status Prefetch(uint64_t offset, size_t n) {
+    return Status::OK();
+  }
 
   // Used by the file_reader_writer to decide if the ReadAhead wrapper
   // should simply forward the call and do not enact buffering or locking.
