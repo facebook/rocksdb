@@ -1480,7 +1480,7 @@ liblz4.a:
 		exit 1; \
 	fi
 	tar xvzf lz4-$(LZ4_VER).tar.gz
-	cd lz4-$(LZ4_VER)/lib && make CFLAGS='-fPIC' all
+	cd lz4-$(LZ4_VER)/lib && make CFLAGS='-fPIC -O2' all
 	cp lz4-$(LZ4_VER)/lib/liblz4.a .
 
 # A version of each $(LIBOBJECTS) compiled with -fPIC and a fixed set of static compression libraries
