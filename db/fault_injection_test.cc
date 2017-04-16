@@ -412,6 +412,7 @@ TEST_P(FaultInjectionTest, WriteOptionSyncTest) {
   write_options.sync = true;
   ASSERT_OK(
       db_->Put(write_options, Key(2, &key_space), Value(2, &value_space)));
+  db_->FlushWAL(false);
 
   env_->SetFilesystemActive(false);
   NoWriteTestReopenWithFault(kResetDropAndDeleteUnsynced);
@@ -496,7 +497,7 @@ TEST_P(FaultInjectionTest, ManualLogSyncTest) {
   ASSERT_OK(db_->Flush(flush_options));
   ASSERT_OK(
       db_->Put(write_options, Key(2, &key_space), Value(2, &value_space)));
-  ASSERT_OK(db_->SyncWAL());
+  ASSERT_OK(db_->FlushWAL(true));
 
   env_->SetFilesystemActive(false);
   NoWriteTestReopenWithFault(kResetDropAndDeleteUnsynced);

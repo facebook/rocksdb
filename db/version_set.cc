@@ -2286,6 +2286,7 @@ VersionSet::VersionSet(const std::string& dbname,
       manifest_file_number_(0),  // Filled by Recover()
       pending_manifest_file_number_(0),
       last_sequence_(0),
+      last_to_be_written_sequence_(0),
       prev_log_number_(0),
       current_version_number_(0),
       manifest_file_size_(0),
@@ -2917,6 +2918,7 @@ Status VersionSet::Recover(
 
     manifest_file_size_ = current_manifest_file_size;
     next_file_number_.store(next_file + 1);
+    last_to_be_written_sequence_ = last_sequence;
     last_sequence_ = last_sequence;
     prev_log_number_ = previous_log_number;
 
@@ -3285,6 +3287,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
     }
 
     next_file_number_.store(next_file + 1);
+    last_to_be_written_sequence_ = last_sequence;
     last_sequence_ = last_sequence;
     prev_log_number_ = previous_log_number;
 

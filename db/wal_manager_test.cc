@@ -69,6 +69,7 @@ class WalManagerTest : public testing::Test {
     batch.Put(key, value);
     WriteBatchInternal::SetSequence(&batch, seq);
     current_log_writer_->AddRecord(WriteBatchInternal::Contents(&batch));
+    versions_->SetLastToBeWrittenSequence(seq);
     versions_->SetLastSequence(seq);
   }
 

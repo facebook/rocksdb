@@ -303,6 +303,7 @@ class ColumnFamilyTest : public testing::Test {
         ASSERT_OK(Put(cf, key, RandomString(&rnd_, key_value_size - 10)));
       }
     }
+    db_->FlushWAL(false);
   }
 
 #ifndef ROCKSDB_LITE  // TEST functions in DB are not supported in lite
@@ -558,6 +559,7 @@ TEST_P(FlushEmptyCFTestWithParam, FlushEmptyCFTest) {
   Flush(0);
   ASSERT_OK(Put(1, "bar", "v3"));  // seqID 4
   ASSERT_OK(Put(1, "foo", "v4"));  // seqID 5
+  db_->FlushWAL(false);
 
   // Preserve file system state up to here to simulate a crash condition.
   fault_env->SetFilesystemActive(false);
@@ -620,6 +622,7 @@ TEST_P(FlushEmptyCFTestWithParam, FlushEmptyCFTest2) {
   // Write to log file D
   ASSERT_OK(Put(1, "bar", "v4"));  // seqID 7
   ASSERT_OK(Put(1, "bar", "v5"));  // seqID 8
+  db_->FlushWAL(false);
   // Preserve file system state up to here to simulate a crash condition.
   fault_env->SetFilesystemActive(false);
   std::vector<std::string> names;

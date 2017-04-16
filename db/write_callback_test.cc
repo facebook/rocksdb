@@ -125,8 +125,9 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
       {false, false, true, false, true},
   };
 
-  for (auto& allow_parallel : {true, false}) {
-    for (auto& allow_batching : {true, false}) {
+  for (auto& two_queues : {true, false}) {
+    for (auto& allow_parallel : {true, false}) {
+      for (auto& allow_batching : {true, false}) {
       for (auto& enable_WAL : {true, false}) {
         for (auto& enable_pipelined_write : {true, false}) {
           for (auto& write_group : write_scenarios) {
@@ -134,6 +135,7 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
             options.create_if_missing = true;
             options.allow_concurrent_memtable_write = allow_parallel;
             options.enable_pipelined_write = enable_pipelined_write;
+            options.separate_queue_for_memtable_writes = two_queues;
 
             ReadOptions read_options;
             DB* db;

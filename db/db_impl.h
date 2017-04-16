@@ -199,6 +199,7 @@ class DBImpl : public DB {
   using DB::Flush;
   virtual Status Flush(const FlushOptions& options,
                        ColumnFamilyHandle* column_family) override;
+  virtual Status FlushWAL(bool sync) override;
   virtual Status SyncWAL() override;
 
   virtual SequenceNumber GetLatestSequenceNumber() const override;
@@ -620,6 +621,9 @@ class DBImpl : public DB {
                             WriteCallback* callback = nullptr,
                             uint64_t* log_used = nullptr, uint64_t log_ref = 0,
                             bool disable_memtable = false);
+  Status WriteImplIn2PCPrepare(const WriteOptions& options, WriteBatch* updates,
+                   WriteCallback* callback = nullptr,
+                   uint64_t* log_used = nullptr, uint64_t log_ref = 0);
 
   uint64_t FindMinLogContainingOutstandingPrep();
   uint64_t FindMinPrepLogReferencedByMemTable();
@@ -746,9 +750,10 @@ class DBImpl : public DB {
   Status PreprocessWrite(const WriteOptions& write_options, bool* need_log_sync,
                          WriteContext* write_context);
 
-  Status WriteToWAL(const WriteThread::WriteGroup& write_group,
-                    log::Writer* log_writer, bool need_log_sync,
-                    bool need_log_dir_sync, SequenceNumber sequence);
+  Status WriteToWAL(const autovector<WriteThread::Writer*>& write_group,
+                    uint64_t* log_used, bool need_log_sync,
+                    bool need_log_dir_sync, SequenceNumber* last_sequence,
+                    int total_count, bool concurrent);
 
   // Used by WriteImpl to update bg_error_ if paranoid check is enabled.
   void ParanoidCheck(const Status& status);
@@ -827,10 +832,12 @@ class DBImpl : public DB {
   // Lock over the persistent DB state.  Non-nullptr iff successfully acquired.
   FileLock* db_lock_;
 
-  // The mutex for options file related operations.
-  // NOTE: should never acquire options_file_mutex_ and mutex_ at the
-  //       same time.
-  InstrumentedMutex options_files_mutex_;
+  // It is used to concurrently update stats in the write threads
+  InstrumentedMutex stat_mutex_;
+  // It protects the back() of logs_ and alive_log_files_. Any push_back to
+  // these must be under log_write_mutex_ and any access that requires the
+  // back() to remain the same must also lock log_write_mutex_.
+  InstrumentedMutex log_write_mutex_;
   // State below is protected by mutex_
   mutable InstrumentedMutex mutex_;
 
@@ -891,6 +898,8 @@ class DBImpl : public DB {
   //  - back() and items with getting_synced=true are not popped,
   //  - it follows that write thread with unlocked mutex_ can safely access
   //    back() and items with getting_synced=true.
+  //  - When concurrent write threads is enabled, back() and push_back() must be
+  //  called within log_write_mutex_
   std::deque<LogWriterNumber> logs_;
   // Signaled when getting_synced becomes false for some of the logs_.
   InstrumentedCondVar log_sync_cv_;
@@ -939,8 +948,9 @@ class DBImpl : public DB {
   WriteBufferManager* write_buffer_manager_;
 
   WriteThread write_thread_;
-
-  WriteBatch tmp_batch_;
+  // The write thread when the writers have no memtable write. This will be used
+  // in 2PC to batch the prepares separately from the serial commit.
+  WriteThread nonmem_write_thread_;
 
   WriteController write_controller_;
 
@@ -1190,6 +1200,9 @@ class DBImpl : public DB {
   bool MCOverlap(ManualCompaction* m, ManualCompaction* m1);
 
   size_t GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
+
+  const bool concurrent_writes_;
+  const bool manual_wal_flush_;
 };
 
 extern Options SanitizeOptions(const std::string& db,
