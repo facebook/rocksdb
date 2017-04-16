@@ -1,0 +1,5 @@
+#!/bin/bash
+
+swig -c++ -ruby -o rocksby.cc src/rocksby.i
+ln -s ../../librocksdb.so 2>/dev/null
+ruby extconf.rb  --with-rocksdb-dir=../..
