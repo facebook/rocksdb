@@ -415,6 +415,8 @@ struct DBOptions {
   // This parameter should be set to true while storing data to
   // filesystem like ext3 that can lose files after a reboot.
   // Default: false
+  // Note: on many platforms fdatasync is defined as fsync, so this parameter
+  // would make no difference. Refer to fdatasync definition in this code base.
   bool use_fsync = false;
 
   // A list of paths where SST files can be put into, with its target size.
@@ -582,15 +584,16 @@ struct DBOptions {
   // bufferized. The hardware buffer of the devices may however still
   // be used. Memory mapped files are not impacted by these parameters.
 
-  // Use O_DIRECT for reading file
+  // Use O_DIRECT for user reads
   // Default: false
   // Not supported in ROCKSDB_LITE mode!
   bool use_direct_reads = false;
 
-  // Use O_DIRECT for writing file
+  // Use O_DIRECT for both reads and writes in background flush and compactions
+  // When true, we also force new_table_reader_for_compaction_inputs to true.
   // Default: false
   // Not supported in ROCKSDB_LITE mode!
-  bool use_direct_writes = false;
+  bool use_direct_io_for_flush_and_compaction = false;
 
   // If false, fallocate() calls are bypassed
   bool allow_fallocate = true;

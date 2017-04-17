@@ -553,11 +553,11 @@ public class OptionsTest {
   }
 
   @Test
-  public void useDirectWrites() {
+  public void useDirectIoForFlushAndCompaction() {
     try(final Options opt = new Options()) {
       final boolean boolValue = rand.nextBoolean();
-      opt.setUseDirectWrites(boolValue);
-      assertThat(opt.useDirectWrites()).isEqualTo(boolValue);
+      opt.setUseDirectIoForFlushAndCompaction(boolValue);
+      assertThat(opt.useDirectIoForFlushAndCompaction()).isEqualTo(boolValue);
     }
   }
 

@@ -804,21 +804,24 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
   boolean useDirectReads();
 
   /**
-   * Enable the OS to use direct I/O for writing sst tables.
+   * Enable the OS to use direct reads and writes in flush and
+   * compaction
    * Default: false
    *
-   * @param useDirectWrites if true, then direct write is enabled
+   * @param useDirectIoForFlushAndCompaction if true, then direct
+   *        I/O will be enabled for background flush and compactions
    * @return the instance of the current object.
    */
-  T setUseDirectWrites(boolean useDirectWrites);
+  T setUseDirectIoForFlushAndCompaction(boolean useDirectIoForFlushAndCompaction);
 
   /**
-   * Enable the OS to use direct I/O for writing sst tables.
-   * Default: false
+   * Enable the OS to use direct reads and writes in flush and
+   * compaction
    *
-   * @return if true, then direct writes are enabled
+   * @return if true, then direct I/O is enabled for flush and
+   *         compaction
    */
-  boolean useDirectWrites();
+  boolean useDirectIoForFlushAndCompaction();
 
   /**
    * Whether fallocate calls are allowed

@@ -70,7 +70,6 @@ class WriteThread {
     Writer* leader;
     Writer* last_writer;
     SequenceNumber last_sequence;
-    bool early_exit_allowed;
     // before running goes to zero, status needs leader->StateMutex()
     Status status;
     std::atomic<uint32_t> running;
@@ -90,7 +89,7 @@ class WriteThread {
     bool made_waitable;          // records lazy construction of mutex and cv
     std::atomic<uint8_t> state;  // write under StateMutex() or pre-link
     ParallelGroup* parallel_group;
-    SequenceNumber sequence;  // the sequence number to use
+    SequenceNumber sequence;  // the sequence number to use for the first key
     Status status;            // status of memtable inserter
     Status callback_status;   // status returned by callback->Callback()
     std::aligned_storage<sizeof(std::mutex)>::type state_mutex_bytes;
@@ -248,10 +247,8 @@ class WriteThread {
   // someone else has already taken responsibility for that.
   bool CompleteParallelWorker(Writer* w);
 
-  // This method performs an early completion of a parallel write group,
-  // where the cleanup work of the leader is performed by a follower who
-  // happens to be the last parallel worker to complete.
-  void EarlyExitParallelGroup(Writer* w);
+  // Exit batch group on behalf of batch group leader.
+  void ExitAsBatchGroupFollower(Writer* w);
 
   // Unlinks the Writer-s in a batch group, wakes up the non-leaders,
   // and wakes up the next leader (if any).

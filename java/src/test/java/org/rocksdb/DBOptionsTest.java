@@ -331,11 +331,11 @@ public class DBOptionsTest {
   }
 
   @Test
-  public void useDirectWrites() {
+  public void useDirectIoForFlushAndCompaction() {
     try(final DBOptions opt = new DBOptions()) {
       final boolean boolValue = rand.nextBoolean();
-      opt.setUseDirectWrites(boolValue);
-      assertThat(opt.useDirectWrites()).isEqualTo(boolValue);
+      opt.setUseDirectIoForFlushAndCompaction(boolValue);
+      assertThat(opt.useDirectIoForFlushAndCompaction()).isEqualTo(boolValue);
     }
   }
 

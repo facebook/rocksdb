@@ -861,6 +861,18 @@ TEST_F(WriteBatchTest, SavePointTest) {
   ASSERT_EQ("", PrintContents(&batch2));
 }
 
+TEST_F(WriteBatchTest, MemoryLimitTest) {
+  Status s;
+  // The header size is 12 bytes. The two Puts take 8 bytes which gives total
+  // of 12 + 8 * 2 = 28 bytes.
+  WriteBatch batch(0, 28);
+
+  ASSERT_OK(batch.Put("a", "...."));
+  ASSERT_OK(batch.Put("b", "...."));
+  s = batch.Put("c", "....");
+  ASSERT_TRUE(s.IsMemoryLimit());
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

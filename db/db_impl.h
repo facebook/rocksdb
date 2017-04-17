@@ -704,6 +704,10 @@ class DBImpl : public DB {
                     log::Writer* log_writer, bool need_log_sync,
                     bool need_log_dir_sync, SequenceNumber sequence);
 
+  // Used by WriteImpl to update bg_error_ when encountering memtable insert
+  // error.
+  void UpdateBackgroundError(const Status& memtable_insert_status);
+
 #ifndef ROCKSDB_LITE
 
   Status CompactFilesImpl(const CompactionOptions& compact_options,
