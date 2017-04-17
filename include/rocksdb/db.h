@@ -611,6 +611,12 @@ class DB {
     return GetIntProperty(DefaultColumnFamily(), property, value);
   }
 
+  // Reset internal stats for DB and all column families.
+  // Note this doesn't reset options.statistics.
+  virtual Status ResetInternalStats() {
+    return Status::NotSupported("Not implemented");
+  }
+
   // Same as GetIntProperty(), but this one returns the aggregated int
   // property from all column families.
   virtual bool GetAggregatedIntProperty(const Slice& property,
