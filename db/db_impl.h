@@ -557,6 +557,10 @@ class DBImpl : public DB {
   Status RenameTempFileToOptionsFile(const std::string& file_name);
   Status DeleteObsoleteOptionsFiles();
 
+  void NotifyOnFlushBegin(ColumnFamilyData* cfd, FileMetaData* file_meta,
+                          const MutableCFOptions& mutable_cf_options,
+                          int job_id, TableProperties prop);
+
   void NotifyOnFlushCompleted(ColumnFamilyData* cfd, FileMetaData* file_meta,
                               const MutableCFOptions& mutable_cf_options,
                               int job_id, TableProperties prop);
@@ -1094,13 +1098,6 @@ class DBImpl : public DB {
   // No copying allowed
   DBImpl(const DBImpl&);
   void operator=(const DBImpl&);
-
-  // Return the earliest snapshot where seqno is visible.
-  // Store the snapshot right before that, if any, in prev_snapshot
-  inline SequenceNumber findEarliestVisibleSnapshot(
-    SequenceNumber in,
-    std::vector<SequenceNumber>& snapshots,
-    SequenceNumber* prev_snapshot);
 
   // Background threads call this function, which is just a wrapper around
   // the InstallSuperVersion() function. Background threads carry

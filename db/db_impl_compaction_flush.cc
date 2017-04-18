@@ -90,6 +90,12 @@ Status DBImpl::FlushMemTableToOutputFile(
 
   flush_job.PickMemTable();
 
+#ifndef ROCKSDB_LITE
+  // may temporarily unlock and lock the mutex.
+  NotifyOnFlushBegin(cfd, &file_meta, mutable_cf_options, job_context->job_id,
+                     flush_job.GetTableProperties());
+#endif  // ROCKSDB_LITE
+
   Status s;
   if (logfile_number_ > 0 &&
       versions_->GetColumnFamilySet()->NumberOfColumnFamilies() > 0) {
@@ -154,6 +160,49 @@ Status DBImpl::FlushMemTableToOutputFile(
 #endif  // ROCKSDB_LITE
   }
   return s;
+}
+
+void DBImpl::NotifyOnFlushBegin(ColumnFamilyData* cfd, FileMetaData* file_meta,
+                                const MutableCFOptions& mutable_cf_options,
+                                int job_id, TableProperties prop) {
+#ifndef ROCKSDB_LITE
+  if (immutable_db_options_.listeners.size() == 0U) {
+    return;
+  }
+  mutex_.AssertHeld();
+  if (shutting_down_.load(std::memory_order_acquire)) {
+    return;
+  }
+  bool triggered_writes_slowdown =
+      (cfd->current()->storage_info()->NumLevelFiles(0) >=
+       mutable_cf_options.level0_slowdown_writes_trigger);
+  bool triggered_writes_stop =
+      (cfd->current()->storage_info()->NumLevelFiles(0) >=
+       mutable_cf_options.level0_stop_writes_trigger);
+  // release lock while notifying events
+  mutex_.Unlock();
+  {
+    FlushJobInfo info;
+    info.cf_name = cfd->GetName();
+    // TODO(yhchiang): make db_paths dynamic in case flush does not
+    //                 go to L0 in the future.
+    info.file_path = MakeTableFileName(immutable_db_options_.db_paths[0].path,
+                                       file_meta->fd.GetNumber());
+    info.thread_id = env_->GetThreadID();
+    info.job_id = job_id;
+    info.triggered_writes_slowdown = triggered_writes_slowdown;
+    info.triggered_writes_stop = triggered_writes_stop;
+    info.smallest_seqno = file_meta->smallest_seqno;
+    info.largest_seqno = file_meta->largest_seqno;
+    info.table_properties = prop;
+    for (auto listener : immutable_db_options_.listeners) {
+      listener->OnFlushBegin(this, info);
+    }
+  }
+  mutex_.Lock();
+// no need to signal bg_cv_ as it will be signaled at the end of the
+// flush process.
+#endif  // ROCKSDB_LITE
 }
 
 void DBImpl::NotifyOnFlushCompleted(ColumnFamilyData* cfd,
