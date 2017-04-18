@@ -108,9 +108,7 @@ makes use of SSE4, add 'USE_SSE=1' before your make commands, like this: `USE_SS
   * Read and follow the instructions at CMakeLists.txt
 
 * **AIX 6.1**
-    * Install GCC 4.8.3 and higher.
-    * To have build passing correctly have to install all common utilities like grep, make, ... from opensource. Makefiles are using some options that are not supported in native AIX tools. We have compiled successfully using RPMs from http://www.perzl.org/aix/index.php?n=Main.Gcc
-    * "at" tool (assembler) had some regression in later version. We were successful with version bos.adt.base 6.1.6.15 and had to downgrade it.
+    * Install AIX Toolbox rpms with gcc
     * Use these environment variables:
   
              export PORTABLE=1
@@ -121,8 +119,8 @@ makes use of SSE4, add 'USE_SSE=1' before your make commands, like this: `USE_SS
              export EXTRA_CXXFLAGS=-maix64
              export PLATFORM_LDFLAGS="-static-libstdc++ -static-libgcc"
              export LIBPATH=/opt/freeware/lib
-             export PATH=/opt/freeware/bin:/usr/bin:/etc:/usr/sbin:/usr/ucb:/usr/bin/X11:/sbin:/usr/ibm-java-ppc64-70/jre/bin:/usr/ibm-java-ppc64-70/bin
-             export JAVA_HOME=/usr/ibm-java-ppc64-70
+             export JAVA_HOME=/usr/java8_64
+             export PATH=/opt/freeware/bin:$PATH
   
 * **Solaris Sparc**
     * Install GCC 4.8.2 and higher.
