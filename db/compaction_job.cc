@@ -740,7 +740,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   }
 
   // we allow only 1 compaction event listener. Used by blob storage
-  std::shared_ptr<CompactionEventListener> comp_event_listener = nullptr;
+  CompactionEventListener* comp_event_listener = nullptr;
   for (auto& celitr : cfd->ioptions()->listeners) {
     comp_event_listener = celitr->GetCompactionEventListener();
     if (comp_event_listener != nullptr) {
@@ -753,7 +753,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       input.get(), cfd->user_comparator(), &merge, versions_->LastSequence(),
       &existing_snapshots_, earliest_write_conflict_snapshot_, env_, false,
       range_del_agg.get(), sub_compact->compaction, compaction_filter,
-      comp_event_listener.get(), shutting_down_));
+      comp_event_listener, shutting_down_));
   auto c_iter = sub_compact->c_iter.get();
   c_iter->SeekToFirst();
   if (c_iter->Valid() &&

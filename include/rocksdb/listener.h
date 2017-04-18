@@ -346,9 +346,9 @@ class EventListener {
   virtual void OnExternalFileIngested(
       DB* /*db*/, const ExternalFileIngestionInfo& /*info*/) {}
 
-  // Factory method to return CompactionEventListener.
-  virtual std::shared_ptr<CompactionEventListener>
-  GetCompactionEventListener() {
+  // Factory method to return CompactionEventListener. If multiple listeners
+  // provides CompactionEventListner, only the first one will be used.
+  virtual CompactionEventListener* GetCompactionEventListener() {
     return nullptr;
   }
 
