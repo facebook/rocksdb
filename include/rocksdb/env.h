@@ -44,6 +44,7 @@ class WritableFile;
 class RandomRWFile;
 class Directory;
 struct DBOptions;
+struct ImmutableDBOptions;
 class RateLimiter;
 class ThreadStatusUpdater;
 struct ThreadStatus;
@@ -375,6 +376,20 @@ class Env {
   virtual EnvOptions OptimizeForManifestWrite(
       const EnvOptions& env_options) const;
 
+  // OptimizeForCompactionTableWrite will create a new EnvOptions object that is a copy
+  // of the EnvOptions in the parameters, but is optimized for writing table
+  // files. Default implementation returns the copy of the same object.
+  virtual EnvOptions OptimizeForCompactionTableWrite(
+      const EnvOptions& env_options,
+      const ImmutableDBOptions& db_options) const;
+
+  // OptimizeForCompactionTableWrite will create a new EnvOptions object that is a copy
+  // of the EnvOptions in the parameters, but is optimized for reading table
+  // files. Default implementation returns the copy of the same object.
+  virtual EnvOptions OptimizeForCompactionTableRead(
+      const EnvOptions& env_options,
+      const ImmutableDBOptions& db_options) const;
+
   // Returns the status of all threads that belong to the current Env.
   virtual Status GetThreadList(std::vector<ThreadStatus>* thread_list) {
     return Status::NotSupported("Not supported.");
@@ -457,6 +472,7 @@ class SequentialFile {
 // A file abstraction for randomly reading the contents of a file.
 class RandomAccessFile {
  public:
+
   RandomAccessFile() { }
   virtual ~RandomAccessFile();
 
@@ -472,6 +488,11 @@ class RandomAccessFile {
   // If Direct I/O enabled, offset, n, and scratch should be aligned properly.
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
                       char* scratch) const = 0;
+
+  // Readahead the file starting from offset by n bytes for caching.
+  virtual Status Prefetch(uint64_t offset, size_t n) {
+    return Status::OK();
+  }
 
   // Used by the file_reader_writer to decide if the ReadAhead wrapper
   // should simply forward the call and do not enact buffering or locking.

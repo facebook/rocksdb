@@ -92,6 +92,10 @@ class RandomAccessFileReader {
 
   Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const;
 
+  Status Prefetch(uint64_t offset, size_t n) const {
+    return file_->Prefetch(offset, n);
+  }
+
   RandomAccessFile* file() { return file_.get(); }
 
   bool use_direct_io() const { return file_->use_direct_io(); }

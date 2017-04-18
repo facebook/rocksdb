@@ -294,9 +294,11 @@ Status FlushJob::WriteLevel0Table() {
 
       TEST_SYNC_POINT_CALLBACK("FlushJob::WriteLevel0Table:output_compression",
                                &output_compression_);
+      EnvOptions optimized_env_options =
+          db_options_.env->OptimizeForCompactionTableWrite(env_options_, db_options_);
       s = BuildTable(
           dbname_, db_options_.env, *cfd_->ioptions(), mutable_cf_options_,
-          env_options_, cfd_->table_cache(), iter.get(),
+          optimized_env_options, cfd_->table_cache(), iter.get(),
           std::move(range_del_iter), &meta_, cfd_->internal_comparator(),
           cfd_->int_tbl_prop_collector_factories(), cfd_->GetID(),
           cfd_->GetName(), existing_snapshots_,

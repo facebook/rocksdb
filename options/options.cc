@@ -153,7 +153,8 @@ DBOptions::DBOptions(const Options& options)
       allow_mmap_reads(options.allow_mmap_reads),
       allow_mmap_writes(options.allow_mmap_writes),
       use_direct_reads(options.use_direct_reads),
-      use_direct_writes(options.use_direct_writes),
+      use_direct_io_for_flush_and_compaction(
+          options.use_direct_io_for_flush_and_compaction),
       allow_fallocate(options.allow_fallocate),
       is_fd_close_on_exec(options.is_fd_close_on_exec),
       skip_log_error_on_recovery(options.skip_log_error_on_recovery),

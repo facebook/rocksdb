@@ -10,9 +10,9 @@
 #include "rocksdb/env.h"
 
 #include <thread>
+#include "options/db_options.h"
 #include "port/port.h"
 #include "port/sys_time.h"
-
 #include "rocksdb/options.h"
 #include "util/arena.h"
 #include "util/autovector.h"
@@ -316,7 +316,6 @@ void AssignEnvOptions(EnvOptions* env_options, const DBOptions& options) {
   env_options->use_mmap_reads = options.allow_mmap_reads;
   env_options->use_mmap_writes = options.allow_mmap_writes;
   env_options->use_direct_reads = options.use_direct_reads;
-  env_options->use_direct_writes = options.use_direct_writes;
   env_options->set_fd_cloexec = options.is_fd_close_on_exec;
   env_options->bytes_per_sync = options.bytes_per_sync;
   env_options->compaction_readahead_size = options.compaction_readahead_size;
@@ -339,6 +338,22 @@ EnvOptions Env::OptimizeForLogWrite(const EnvOptions& env_options,
 
 EnvOptions Env::OptimizeForManifestWrite(const EnvOptions& env_options) const {
   return env_options;
+}
+
+EnvOptions Env::OptimizeForCompactionTableWrite(
+    const EnvOptions& env_options, const ImmutableDBOptions& db_options) const {
+  EnvOptions optimized_env_options(env_options);
+  optimized_env_options.use_direct_writes =
+      db_options.use_direct_io_for_flush_and_compaction;
+  return optimized_env_options;
+}
+
+EnvOptions Env::OptimizeForCompactionTableRead(
+    const EnvOptions& env_options, const ImmutableDBOptions& db_options) const {
+  EnvOptions optimized_env_options(env_options);
+  optimized_env_options.use_direct_reads =
+      db_options.use_direct_io_for_flush_and_compaction;
+  return optimized_env_options;
 }
 
 EnvOptions::EnvOptions(const DBOptions& options) {

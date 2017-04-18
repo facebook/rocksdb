@@ -101,7 +101,8 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
     result.compaction_readahead_size = 1024 * 1024 * 2;
   }
 
-  if (result.compaction_readahead_size > 0) {
+  if (result.compaction_readahead_size > 0 ||
+      result.use_direct_io_for_flush_and_compaction) {
     result.new_table_reader_for_compaction_inputs = true;
   }
 
@@ -165,10 +166,12 @@ static Status ValidateOptions(
         "then direct I/O reads (use_direct_reads) must be disabled. ");
   }
 
-  if (db_options.allow_mmap_writes && db_options.use_direct_writes) {
+  if (db_options.allow_mmap_writes &&
+      db_options.use_direct_io_for_flush_and_compaction) {
     return Status::NotSupported(
         "If memory mapped writes (allow_mmap_writes) are enabled "
-        "then direct I/O writes (use_direct_writes) must be disabled. ");
+        "then direct I/O writes (use_direct_io_for_flush_and_compaction) must "
+        "be disabled. ");
   }
 
   if (db_options.keep_log_file_num == 0) {
@@ -823,9 +826,11 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
       std::vector<SequenceNumber> snapshot_seqs =
           snapshots_.GetAll(&earliest_write_conflict_snapshot);
 
+      EnvOptions optimized_env_options =
+          env_->OptimizeForCompactionTableWrite(env_options_, immutable_db_options_);
       s = BuildTable(
-          dbname_, env_, *cfd->ioptions(), mutable_cf_options, env_options_,
-          cfd->table_cache(), iter.get(),
+          dbname_, env_, *cfd->ioptions(), mutable_cf_options,
+          optimized_env_options, cfd->table_cache(), iter.get(),
           std::unique_ptr<InternalIterator>(mem->NewRangeTombstoneIterator(ro)),
           &meta, cfd->internal_comparator(),
           cfd->int_tbl_prop_collector_factories(), cfd->GetID(), cfd->GetName(),
