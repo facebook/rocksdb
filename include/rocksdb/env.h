@@ -163,6 +163,20 @@ class Env {
                                  unique_ptr<WritableFile>* result,
                                  const EnvOptions& options) = 0;
 
+  // Create an object that writes to a new file with the specified
+  // name.  Deletes any existing file with the same name and creates a
+  // new file.  On success, stores a pointer to the new file in
+  // *result and returns OK.  On failure stores nullptr in *result and
+  // returns non-OK.
+  //
+  // The returned file will only be accessed by one thread at a time.
+  virtual Status ReopenWritableFile(const std::string& fname,
+                                    unique_ptr<WritableFile>* result,
+                                    const EnvOptions& options) {
+    Status s;
+    return s;
+  }
+
   // Reuse an existing file by renaming it and opening it as writable.
   virtual Status ReuseWritableFile(const std::string& fname,
                                    const std::string& old_fname,
@@ -453,6 +467,8 @@ class SequentialFile {
   // Use the returned alignment value to allocate
   // aligned buffer for Direct I/O
   virtual size_t GetRequiredBufferAlignment() const { return kDefaultPageSize; }
+
+  virtual void Rewind() {}
 
   // Remove any kind of caching of data from the offset to offset+length
   // of this file. If the length is 0, then it refers to the end of file.
@@ -917,6 +933,11 @@ class EnvWrapper : public Env {
   Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r,
                          const EnvOptions& options) override {
     return target_->NewWritableFile(f, r, options);
+  }
+  Status ReopenWritableFile(const std::string& fname,
+                            unique_ptr<WritableFile>* result,
+                            const EnvOptions& options) override {
+    return target_->ReopenWritableFile(fname, result, options);
   }
   Status ReuseWritableFile(const std::string& fname,
                            const std::string& old_fname,
