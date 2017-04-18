@@ -155,6 +155,9 @@ struct BlockBasedTableOptions {
   // separately
   uint64_t metadata_block_size = 4096;
 
+  // Deprecated
+  uint64_t index_per_partition = 1024;
+
   // Note: currently this option requires kTwoLevelIndexSearch to be set as
   // well.
   // TODO(myabandeh): remove the note above once the limitation is lifted
