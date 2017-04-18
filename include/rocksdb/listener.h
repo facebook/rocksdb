@@ -183,6 +183,28 @@ struct ExternalFileIngestionInfo {
   TableProperties table_properties;
 };
 
+// A call-back function to RocksDB which will be called when the compaction
+// iterator is compacting values. It is mean to be returned from
+// EventListner::GetCompactionEventListner() at the beginning of compaction
+// job.
+class CompactionEventListener {
+ public:
+  enum CompactionListenerValueType {
+    kValue,
+    kMergeOperand,
+    kDelete,
+    kSingleDelete,
+    kRangeDelete,
+    kInvalid,
+  };
+
+  virtual void OnCompaction(int level, const Slice& key,
+                            CompactionListenerValueType value_type,
+                            const Slice& existing_value,
+                            const SequenceNumber& sn, bool is_new) = 0;
+
+  virtual ~CompactionEventListener() = default;
+};
 
 // EventListener class contains a set of call-back functions that will
 // be called when specific RocksDB event happens such as flush.  It can
@@ -224,6 +246,16 @@ class EventListener {
   // returns.  Otherwise, RocksDB may be blocked.
   virtual void OnFlushCompleted(DB* /*db*/,
                                 const FlushJobInfo& /*flush_job_info*/) {}
+
+  // A call-back function to RocksDB which will be called before a
+  // RocksDB starts to flush memtables.  The default implementation is
+  // no-op.
+  //
+  // Note that the this function must be implemented in a way such that
+  // it should not run for an extended period of time before the function
+  // returns.  Otherwise, RocksDB may be blocked.
+  virtual void OnFlushBegin(DB* /*db*/,
+                            const FlushJobInfo& /*flush_job_info*/) {}
 
   // A call-back function for RocksDB which will be called whenever
   // a SST file is deleted.  Different from OnCompactionCompleted and
@@ -313,6 +345,12 @@ class EventListener {
   // will be blocked from finishing.
   virtual void OnExternalFileIngested(
       DB* /*db*/, const ExternalFileIngestionInfo& /*info*/) {}
+
+  // Factory method to return CompactionEventListener. If multiple listeners
+  // provides CompactionEventListner, only the first one will be used.
+  virtual CompactionEventListener* GetCompactionEventListener() {
+    return nullptr;
+  }
 
   virtual ~EventListener() {}
 };
