@@ -6,7 +6,7 @@ description: This is the base template for building rockdb component.
 container:
   resources:
     mem_mib: 4000
-    cpu_cores: 1.5
+    cpu_cores: 4.5
   image: get.applatix.io/rockdb-build:v1.1
   docker_options: "-e CC=%%build_env_cc%% -e CXX=%%build_env_gpp%% -e JOB_NAME=%%build_env_job_name%% -e USE_AWS=%%build_env_use_aws%% -e J=%%build_parallel%% -e TRAVIS_BUILD_DIR=%%build_env_travis_build_dir%% %%build_env_tests%%" 
 #  command: bash -c 'cd /src/build_tools && %%build_sec_env%% %%build_sec_env2%% ./ax_build.sh'
@@ -63,7 +63,7 @@ steps:
       template: rockdb-build-base
       parameters:
         checkout_artifact: "%%steps.checkout.code%%"
-        build_env_tests: $$[-e ROCKSDBTESTS_END=db_block_cache_test, -e ROCKSDBTESTS_START=db_block_cache_test -e ROCKSDBTESTS_END=comparator_db_test, -e ROCKSDBTESTS_START=comparator_db_test]$$
+        build_env_tests: $$[-e ROCKSDB_CLOUD_TEST_BUCKET_NAME=appone ROCKSDBTESTS_START=db_cloud_test -e ROCKSDBTESTS_END=db_block_cache_test, -e ROCKSDB_CLOUD_TEST_BUCKET_NAME=apptwo ROCKSDBTESTS_START=db_block_cache_test -e ROCKSDBTESTS_END=db_dynamic_level_test, -e ROCKSDB_CLOUD_TEST_BUCKET_NAME=appthr ROCKSDBTESTS_START=db_dynamic_level_test -e ROCKSDBTESTS_END=db_sst_test, -e ROCKSDB_CLOUD_TEST_BUCKET_NAME=appfor ROCKSDBTESTS_START=db_sst_test -e ROCKSDBTESTS_END=db_universal_compaction_test, -e ROCKSDB_CLOUD_TEST_BUCKET_NAME=appfiv ROCKSDBTESTS_START=db_universal_compaction_test -e ROCKSDBTESTS_END=comparator_db_test, -e ROCKSDB_CLOUD_TEST_BUCKET_NAME=appsix ROCKSDBTESTS_START=comparator_db_test]$$
 
 termination_policy:
   time_seconds: 7200
