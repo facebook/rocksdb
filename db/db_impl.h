@@ -193,6 +193,8 @@ class DBImpl : public DB {
   virtual SequenceNumber GetLatestSequenceNumber() const override;
 
 #ifndef ROCKSDB_LITE
+  using DB::ResetStats;
+  virtual Status ResetStats() override;
   virtual Status DisableFileDeletions() override;
   virtual Status EnableFileDeletions(bool force) override;
   virtual int IsFileDeletionsEnabled() const;

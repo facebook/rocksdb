@@ -1,5 +1,7 @@
 # Rocksdb Change Log
 ## Unreleased
+### New Features
+* DB::ResetStats() to reset internal stats.
 
 ## 5.4.0 (04/11/2017)
 ### Public API Change

@@ -1666,6 +1666,16 @@ bool DBImpl::GetIntPropertyInternal(ColumnFamilyData* cfd,
   }
 }
 
+#ifndef ROCKSDB_LITE
+Status DBImpl::ResetStats() {
+  InstrumentedMutexLock l(&mutex_);
+  for (auto* cfd : *versions_->GetColumnFamilySet()) {
+    cfd->internal_stats()->Clear();
+  }
+  return Status::OK();
+}
+#endif  // ROCKSDB_LITE
+
 bool DBImpl::GetAggregatedIntProperty(const Slice& property,
                                       uint64_t* aggregated_value) {
   const DBPropertyInfo* property_info = GetPropertyInfo(property);
