@@ -63,7 +63,7 @@ steps:
       template: rockdb-build-base
       parameters:
         checkout_artifact: "%%steps.checkout.code%%"
-        build_env_tests: $$[-e ROCKSDB_CLOUD_TEST_BUCKET_NAME=appone ROCKSDBTESTS_START=db_cloud_test -e ROCKSDBTESTS_END=db_block_cache_test, -e ROCKSDB_CLOUD_TEST_BUCKET_NAME=apptwo ROCKSDBTESTS_START=db_block_cache_test -e ROCKSDBTESTS_END=db_dynamic_level_test, -e ROCKSDB_CLOUD_TEST_BUCKET_NAME=appthr ROCKSDBTESTS_START=db_dynamic_level_test -e ROCKSDBTESTS_END=db_sst_test, -e ROCKSDB_CLOUD_TEST_BUCKET_NAME=appfor ROCKSDBTESTS_START=db_sst_test -e ROCKSDBTESTS_END=db_universal_compaction_test, -e ROCKSDB_CLOUD_TEST_BUCKET_NAME=appfiv ROCKSDBTESTS_START=db_universal_compaction_test -e ROCKSDBTESTS_END=comparator_db_test, -e ROCKSDB_CLOUD_TEST_BUCKET_NAME=appsix ROCKSDBTESTS_START=comparator_db_test]$$
+        build_env_tests: $$[-e ROCKSDB_CLOUD_TEST_BUCKET_NAME=appone -e ROCKSDBTESTS_START=db_cloud_test -e ROCKSDBTESTS_END=db_block_cache_test, -e ROCKSDB_CLOUD_TEST_BUCKET_NAME=apptwo -e ROCKSDBTESTS_START=db_block_cache_test -e ROCKSDBTESTS_END=db_dynamic_level_test, -e ROCKSDB_CLOUD_TEST_BUCKET_NAME=appthr -e ROCKSDBTESTS_START=db_dynamic_level_test -e ROCKSDBTESTS_END=db_sst_test, -e ROCKSDB_CLOUD_TEST_BUCKET_NAME=appfor -e ROCKSDBTESTS_START=db_sst_test -e ROCKSDBTESTS_END=db_universal_compaction_test, -e ROCKSDB_CLOUD_TEST_BUCKET_NAME=appfiv -e ROCKSDBTESTS_START=db_universal_compaction_test -e ROCKSDBTESTS_END=comparator_db_test, -e ROCKSDB_CLOUD_TEST_BUCKET_NAME=appsix -e ROCKSDBTESTS_START=comparator_db_test]$$
 
 termination_policy:
   time_seconds: 7200
