@@ -266,10 +266,11 @@ void CompactionIterator::NextFromInput() {
         }
       }
     } else {
-      if (compaction_listener_)
+      if (compaction_listener_) {
         compaction_listener_->OnCompaction(compaction_->level(), ikey_.user_key,
                                            fromInternalValueType(ikey_.type),
                                            value_, ikey_.sequence, false);
+      }
 
       // Update the current key to reflect the new sequence number/type without
       // copying the user key.
