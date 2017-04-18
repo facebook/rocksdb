@@ -427,7 +427,7 @@ TEST_F(DBPropertiesTest, ReadLatencyHistogramByLevel) {
   ASSERT_EQ(std::string::npos, prop.find("** Level 2 read latency histogram"));
 
   // Clear internal stats
-  dbfull()->ResetInternalStats();
+  dbfull()->ResetStats();
   ASSERT_TRUE(dbfull()->GetProperty("rocksdb.cfstats", &prop));
   ASSERT_EQ(std::string::npos, prop.find("** Level 0 read latency histogram"));
   ASSERT_EQ(std::string::npos, prop.find("** Level 1 read latency histogram"));

@@ -5017,10 +5017,10 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 
   void ResetStats() {
     if (db_.db != nullptr) {
-      db_.db->ResetInternalStats();
+      db_.db->ResetStats();
     }
     for (const auto& db_with_cfh : multi_dbs_) {
-      db_with_cfh.db->ResetInternalStats();
+      db_with_cfh.db->ResetStats();
     }
   }
 
