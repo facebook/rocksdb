@@ -341,6 +341,19 @@ class InternalStats {
     uint64_t ingest_l0_files_addfile;  // Total number of files ingested to L0
     uint64_t ingest_keys_addfile;      // Total number of keys ingested
 
+    CFStatsSnapshot()
+        : comp_stats(0),
+          ingest_bytes_flush(0),
+          stall_count(0),
+          compact_bytes_write(0),
+          compact_bytes_read(0),
+          compact_micros(0),
+          seconds_up(0),
+          ingest_bytes_addfile(0),
+          ingest_files_addfile(0),
+          ingest_l0_files_addfile(0),
+          ingest_keys_addfile(0) {}
+
     void Clear() {
       comp_stats.Clear();
       ingest_bytes_flush = 0;
@@ -354,19 +367,6 @@ class InternalStats {
       ingest_l0_files_addfile = 0;
       ingest_keys_addfile = 0;
     }
-
-    CFStatsSnapshot()
-        : comp_stats(0),
-          ingest_bytes_flush(0),
-          stall_count(0),
-          compact_bytes_write(0),
-          compact_bytes_read(0),
-          compact_micros(0),
-          seconds_up(0),
-          ingest_bytes_addfile(0),
-          ingest_files_addfile(0),
-          ingest_l0_files_addfile(0),
-          ingest_keys_addfile(0) {}
   } cf_stats_snapshot_;
 
   struct DBStatsSnapshot {
@@ -388,6 +388,17 @@ class InternalStats {
     uint64_t write_stall_micros;
     double seconds_up;
 
+    DBStatsSnapshot()
+        : ingest_bytes(0),
+          wal_bytes(0),
+          wal_synced(0),
+          write_with_wal(0),
+          write_other(0),
+          write_self(0),
+          num_keys_written(0),
+          write_stall_micros(0),
+          seconds_up(0) {}
+
     void Clear() {
       ingest_bytes = 0;
       wal_bytes = 0;
@@ -399,17 +410,6 @@ class InternalStats {
       write_stall_micros = 0;
       seconds_up = 0;
     }
-
-    DBStatsSnapshot()
-        : ingest_bytes(0),
-          wal_bytes(0),
-          wal_synced(0),
-          write_with_wal(0),
-          write_other(0),
-          write_self(0),
-          num_keys_written(0),
-          write_stall_micros(0),
-          seconds_up(0) {}
   } db_stats_snapshot_;
 
   // Handler functions for getting property values. They use "value" as a value-

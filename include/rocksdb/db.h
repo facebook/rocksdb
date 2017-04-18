@@ -612,8 +612,9 @@ class DB {
   }
 
   // Reset internal stats for DB and all column families.
-  // Note this doesn't reset options.statistics.
-  virtual Status ResetInternalStats() {
+  // Note this doesn't reset options.statistics as it is not owned by
+  // DB.
+  virtual Status ResetStats() {
     return Status::NotSupported("Not implemented");
   }
 

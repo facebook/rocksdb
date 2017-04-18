@@ -1667,7 +1667,7 @@ bool DBImpl::GetIntPropertyInternal(ColumnFamilyData* cfd,
 }
 
 #ifndef ROCKSDB_LITE
-Status DBImpl::ResetInternalStats() {
+Status DBImpl::ResetStats() {
   InstrumentedMutexLock l(&mutex_);
   for (auto* cfd : *versions_->GetColumnFamilySet()) {
     cfd->internal_stats()->Clear();
