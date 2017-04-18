@@ -9,7 +9,7 @@ container:
     cpu_cores: 1.5
   image: get.applatix.io/rockdb-build:v1.1
   docker_options: "-e CC=%%build_env_cc%% -e CXX=%%build_env_gpp%% -e JOB_NAME=%%build_env_job_name%% -e USE_AWS=%%build_env_use_aws%% -e TRAVIS_BUILD_DIR=%%build_env_travis_build_dir%% %%build_env_tests%%" 
-  command: bash -c 'cd /src/build_tools && %%build_sec_env%% ./ax_build.sh'
+  command: bash -c 'cd /src/build_tools && %%build_sec_env%% %%build_sec_env2%% ./ax_build.sh'
 inputs:
   artifacts:
   - from: "%%checkout_artifact%%"
@@ -23,6 +23,7 @@ inputs:
     build_env_travis_build_dir:
     build_env_tests:
     build_sec_env:
+    build_sec_env2:
 outputs:
 
 ---
@@ -47,7 +48,9 @@ inputs:
     build_env_travis_build_dir:
       default: '/src'
     build_sec_env:
-      default: '%%secrets.==$1$key=default$text$e4T6VuNeoeES1Y1uyNe/wKC3g4ZWUnHjE/5J58WcRzZ1MyEZuo0sbrJ6qxns5EhqdnHGjwtBqSzCbOUTYUacDThSKcZun7nWKtpbToK9sr4BGSDY382Mv+3bp9BGzghK4XiAmFnj1Fu7fBeCmSZeiSRli/9gmBX4cEe1Rm+XRpM===%%'
+      default: '%%secrets.==$1$key=default$text$BqmWKIVl6BMbPHIVSB7WCK7gHR5BdvuQBEgT++p5zAwS4v1IslTM7PhPOw4vKlUdmBif2n9Z8JIo0+Iat8wok3gzDFDP1/LGwaxuQTkFz5aJDmpJmmeCcKyHplUWmowq2T3V1LCEn0wbkU3TIiwXCJ2W1MKr8Lk1vbmg/QarB9w===%%'
+    build_sec_env2:
+      default: '%%secrets.==$1$key=default$text$YsiFPasvel5dK2kas8/gU1vawhvoSRuC7fwwGImoMDfY5iI/LXGGZ9RwzrNIbQpXaqGYyXeOmXrFP6YAvcL29tEkXu7Ayd+mM5fak/CdLx40EmBZY2j9oLl82c8rUz+Ln76fReHuetWzNJhSv0K/v5FQ1PJ5IKNE8b8G/TQBNEI===%%'
 
 steps:
   - checkout:
