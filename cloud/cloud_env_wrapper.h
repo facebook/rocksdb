@@ -22,33 +22,33 @@ class CloudEnvWrapper : public CloudEnvImpl {
 
   virtual ~CloudEnvWrapper();
 
-  virtual Status EmptyBucket(const std::string& bucket) { return notsup_; }
+  virtual Status EmptyBucket(const std::string& bucket) override { return notsup_; }
   virtual Status NewSequentialFileCloud(const std::string& bucket_prefix,
                                         const std::string& fname,
                                         unique_ptr<SequentialFile>* result,
-                                        const EnvOptions& options) {
+                                        const EnvOptions& options) override {
     return notsup_;
   }
-  virtual Status SaveDbid(const std::string& dbid, const std::string& dirname) {
+  virtual Status SaveDbid(const std::string& dbid, const std::string& dirname) override {
     return notsup_;
   }
   virtual Status GetPathForDbid(const std::string& bucket_prefix,
-                                const std::string& dbid, std::string* dirname) {
+                                const std::string& dbid, std::string* dirname) override {
     return notsup_;
   }
   virtual Status GetDbidList(const std::string& bucket_prefix,
-                             DbidList* dblist) {
+                             DbidList* dblist) override {
     return notsup_;
   }
   virtual Status DeleteDbid(const std::string& bucket_prefix,
-                            const std::string& dbid) {
+                            const std::string& dbid) override {
     return notsup_;
   }
 
-  virtual const std::string& GetSrcBucketPrefix() { return empty_; }
-  virtual const std::string& GetSrcObjectPrefix() { return empty_; }
-  virtual const std::string& GetDestBucketPrefix() { return empty_; }
-  virtual const std::string& GetDestObjectPrefix() { return empty_; }
+  virtual const std::string& GetSrcBucketPrefix() override { return empty_; }
+  virtual const std::string& GetSrcObjectPrefix() override { return empty_; }
+  virtual const std::string& GetDestBucketPrefix() override { return empty_; }
+  virtual const std::string& GetDestObjectPrefix() override { return empty_; }
 
   // Ability to read a file directly from cloud storage
   virtual Status NewSequentialFileCloud(const std::string& fname,
