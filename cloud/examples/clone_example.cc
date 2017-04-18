@@ -3,8 +3,8 @@
 #include <iostream>
 #include <string>
 
-#include "rocksdb/options.h"
 #include "rocksdb/cloud/db_cloud.h"
+#include "rocksdb/options.h"
 
 using namespace rocksdb;
 
@@ -31,32 +31,26 @@ std::string kBucketSuffix = "cloud.clone.example.";
 //
 // Creates and Opens a clone
 //
-Status CloneDB(const std::string& clone_name,
-               const std::string& src_bucket,
-	       const std::string& src_object_path,
-	       const std::string& dest_bucket,
-	       const std::string& dest_object_path,
-	       const CloudEnvOptions& cloud_env_options,
-	       std::unique_ptr<DB>* cloud_db,
-	       std::unique_ptr<CloudEnv>* cloud_env) {
-
+Status CloneDB(const std::string& clone_name, const std::string& src_bucket,
+               const std::string& src_object_path,
+               const std::string& dest_bucket,
+               const std::string& dest_object_path,
+               const CloudEnvOptions& cloud_env_options,
+               std::unique_ptr<DB>* cloud_db,
+               std::unique_ptr<CloudEnv>* cloud_env) {
   // The local directory where the clone resides
-  std::string cname =  kClonePath + "/" + clone_name;
+  std::string cname = kClonePath + "/" + clone_name;
 
   // Create new AWS env
   CloudEnv* cenv;
-  Status st = CloudEnv::NewAwsEnv(Env::Default(),
-			          src_bucket,
-			          src_object_path,
-			          dest_bucket,
-			          dest_object_path,
-		                  cloud_env_options,
-				  nullptr,
-				  &cenv);
+  Status st = CloudEnv::NewAwsEnv(Env::Default(), src_bucket, src_object_path,
+                                  dest_bucket, dest_object_path,
+                                  cloud_env_options, nullptr, &cenv);
   if (!st.ok()) {
-    fprintf(stderr, "Unable to create an AWS environment with "
+    fprintf(stderr,
+            "Unable to create an AWS environment with "
             "bucket %s",
-	    src_bucket.c_str());
+            src_bucket.c_str());
     return st;
   }
   cloud_env->reset(cenv);
@@ -81,7 +75,8 @@ int main() {
   // cloud environment config options here
   CloudEnvOptions cloud_env_options;
 
-  // Store a reference to a cloud env. A new cloud env object should be associated
+  // Store a reference to a cloud env. A new cloud env object should be
+  // associated
   // with every new cloud-db.
   std::unique_ptr<CloudEnv> cloud_env;
 
@@ -89,8 +84,10 @@ int main() {
   char* keyid = getenv("AWS_ACCESS_KEY_ID");
   char* secret = getenv("AWS_SECRET_ACCESS_KEY");
   if (keyid == nullptr || secret == nullptr) {
-    fprintf(stderr, "Please set env variables "
-            "AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY with cloud credentials");
+    fprintf(
+        stderr,
+        "Please set env variables "
+        "AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY with cloud credentials");
     return -1;
   }
   cloud_env_options.credentials.access_key_id.assign(keyid);
@@ -105,14 +102,9 @@ int main() {
 
   // Create a new AWS cloud env Status
   CloudEnv* cenv;
-  Status s = CloudEnv::NewAwsEnv(Env::Default(),
-                                 kBucketSuffix,
-                                 kDBPath,
-                                 kBucketSuffix,
-                                 kDBPath,
-                                 cloud_env_options,
-                                 nullptr,
-                                 &cenv);
+  Status s =
+      CloudEnv::NewAwsEnv(Env::Default(), kBucketSuffix, kDBPath, kBucketSuffix,
+                          kDBPath, cloud_env_options, nullptr, &cenv);
   if (!s.ok()) {
     fprintf(stderr, "Unable to create cloud env bucket suffix %s. %s\n",
             kBucketSuffix.c_str(), s.ToString().c_str());
@@ -151,14 +143,8 @@ int main() {
   std::unique_ptr<DB> clone_db;
   std::unique_ptr<CloudEnv> clone_env;
 
-  s = CloneDB("clone1",
-               kBucketSuffix,
-	       kDBPath,
-	       kBucketSuffix,
-	       kClonePath,
-	       cloud_env_options,
-	       &clone_db,
-	       &clone_env);
+  s = CloneDB("clone1", kBucketSuffix, kDBPath, kBucketSuffix, kClonePath,
+              cloud_env_options, &clone_db, &clone_env);
   if (!s.ok()) {
     fprintf(stderr, "Unable to clone db at path %s with bucket %s. %s\n",
             kDBPath.c_str(), kBucketSuffix.c_str(), s.ToString().c_str());
@@ -169,7 +155,6 @@ int main() {
   s = clone_db->Put(WriteOptions(), "name", "dhruba");
   assert(s.ok());
 
-
   // assert that values from the main db appears in the clone
   s = clone_db->Get(ReadOptions(), "key1", &value);
   assert(s.ok());
@@ -178,7 +163,7 @@ int main() {
   // assert that the write to the clone does not appear in the main db
   s = db->Get(ReadOptions(), "name", &value);
   assert(s.IsNotFound());
-	       
+
   // Flush all data from clone db to sst files. Release clone.
   clone_db->Flush(FlushOptions());
   clone_db.release();

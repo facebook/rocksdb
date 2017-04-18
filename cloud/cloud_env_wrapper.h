@@ -22,18 +22,22 @@ class CloudEnvWrapper : public CloudEnvImpl {
 
   virtual ~CloudEnvWrapper();
 
-  virtual Status EmptyBucket(const std::string& bucket) override { return notsup_; }
+  virtual Status EmptyBucket(const std::string& bucket) override {
+    return notsup_;
+  }
   virtual Status NewSequentialFileCloud(const std::string& bucket_prefix,
                                         const std::string& fname,
                                         unique_ptr<SequentialFile>* result,
                                         const EnvOptions& options) override {
     return notsup_;
   }
-  virtual Status SaveDbid(const std::string& dbid, const std::string& dirname) override {
+  virtual Status SaveDbid(const std::string& dbid,
+                          const std::string& dirname) override {
     return notsup_;
   }
   virtual Status GetPathForDbid(const std::string& bucket_prefix,
-                                const std::string& dbid, std::string* dirname) override {
+                                const std::string& dbid,
+                                std::string* dirname) override {
     return notsup_;
   }
   virtual Status GetDbidList(const std::string& bucket_prefix,

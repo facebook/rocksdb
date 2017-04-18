@@ -3,8 +3,8 @@
 #include <iostream>
 #include <string>
 
-#include "rocksdb/options.h"
 #include "rocksdb/cloud/db_cloud.h"
+#include "rocksdb/options.h"
 
 using namespace rocksdb;
 
@@ -22,7 +22,8 @@ int main() {
   // cloud environment config options here
   CloudEnvOptions cloud_env_options;
 
-  // Store a reference to a cloud env. A new cloud env object should be associated
+  // Store a reference to a cloud env. A new cloud env object should be
+  // associated
   // with every new cloud-db.
   std::unique_ptr<CloudEnv> cloud_env;
 
@@ -30,8 +31,10 @@ int main() {
   char* keyid = getenv("AWS_ACCESS_KEY_ID");
   char* secret = getenv("AWS_SECRET_ACCESS_KEY");
   if (keyid == nullptr || secret == nullptr) {
-    fprintf(stderr, "Please set env variables "
-            "AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY with cloud credentials");
+    fprintf(
+        stderr,
+        "Please set env variables "
+        "AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY with cloud credentials");
     return -1;
   }
   cloud_env_options.credentials.access_key_id.assign(keyid);
@@ -46,14 +49,9 @@ int main() {
 
   // Create a new AWS cloud env Status
   CloudEnv* cenv;
-  Status s = CloudEnv::NewAwsEnv(Env::Default(),
-                                 kBucketSuffix,
-                                 kDBPath,
-                                 kBucketSuffix,
-                                 kDBPath,
-                                 cloud_env_options,
-                                 nullptr,
-                                 &cenv);
+  Status s =
+      CloudEnv::NewAwsEnv(Env::Default(), kBucketSuffix, kDBPath, kBucketSuffix,
+                          kDBPath, cloud_env_options, nullptr, &cenv);
   if (!s.ok()) {
     fprintf(stderr, "Unable to create cloud env bucket suffix %s. %s\n",
             kBucketSuffix.c_str(), s.ToString().c_str());
