@@ -2,21 +2,21 @@
 //
 
 #pragma once
-#include <algorithm>
 #include <stdio.h>
 #include <time.h>
+#include <algorithm>
 #include <iostream>
-#include "port/sys_time.h"
 #include "cloud/cloud_env_impl.h"
+#include "port/sys_time.h"
 
 #ifdef USE_AWS
 
 #include <aws/core/Aws.h>
 #include <aws/core/auth/AWSCredentialsProvider.h>
 #include <aws/core/utils/Outcome.h>
+#include <aws/kinesis/KinesisClient.h>
 #include <aws/s3/S3Client.h>
 #include <aws/s3/model/BucketLocationConstraint.h>
-#include <aws/kinesis/KinesisClient.h>
 
 namespace rocksdb {
 
@@ -40,30 +40,28 @@ class KinesisSystem;
 //
 // If you access multiple rocksdb-cloud instances, create a separate instance
 // of AwsEnv for each of those rocksdb-cloud instances. This is required because
-// the cloud-configuration needed to operate on an individual instance of rocksdb
+// the cloud-configuration needed to operate on an individual instance of
+// rocksdb
 // is associated with a specific instance of AwsEnv. All AwsEnv internally share
 // Env::Posix() for sharing common resources like background threads, etc.
 //
 class AwsEnv : public CloudEnvImpl {
  public:
   // A factory method for creating S3 envs
-  static  Status NewAwsEnv(Env* env,
-		           const std::string& src_cloud_storage,
-		           const std::string& src_cloud_object_prefix,
-			   const std::string& dest_cloud_storage,
-			   const std::string& dest_cloud_object_prefix,
-			   const CloudEnvOptions& env_options,
-                           std::shared_ptr<Logger> info_log,
-			   CloudEnv** cenv);
+  static Status NewAwsEnv(Env* env, const std::string& src_cloud_storage,
+                          const std::string& src_cloud_object_prefix,
+                          const std::string& dest_cloud_storage,
+                          const std::string& dest_cloud_object_prefix,
+                          const CloudEnvOptions& env_options,
+                          std::shared_ptr<Logger> info_log, CloudEnv** cenv);
 
   virtual ~AwsEnv();
 
-  // We cannot invoke Aws::ShutdownAPI from the destructor because there could be
+  // We cannot invoke Aws::ShutdownAPI from the destructor because there could
+  // be
   // multiple AwsEnv's ceated by a process and Aws::ShutdownAPI should be called
   // only once by the entire process when all AwsEnvs are destroyed.
-  static void Shutdown() {
-    Aws::ShutdownAPI(Aws::SDKOptions());
-  }
+  static void Shutdown() { Aws::ShutdownAPI(Aws::SDKOptions()); }
 
   // If you do not specify a region, then S3 buckets are created in the
   // standard-region which might not satisfy read-your-own-writes. So,
@@ -75,9 +73,9 @@ class AwsEnv : public CloudEnvImpl {
                                    const EnvOptions& options) override;
 
   virtual Status NewSequentialFileCloud(const std::string& bucket_prefix,
-		                   const std::string& fname,
-                                   std::unique_ptr<SequentialFile>* result,
-                                   const EnvOptions& options) override;
+                                        const std::string& fname,
+                                        std::unique_ptr<SequentialFile>* result,
+                                        const EnvOptions& options) override;
 
   virtual Status NewRandomAccessFile(const std::string& fname,
                                      std::unique_ptr<RandomAccessFile>* result,
@@ -108,10 +106,12 @@ class AwsEnv : public CloudEnvImpl {
   virtual Status GetFileModificationTime(const std::string& fname,
                                          uint64_t* file_mtime) override;
 
-  virtual Status RenameFile(const std::string& src, const std::string& target) override;
+  virtual Status RenameFile(const std::string& src,
+                            const std::string& target) override;
 
-  virtual Status LinkFile(const std::string& src, const std::string& target) override {
-    return Status::NotSupported(); // not supported
+  virtual Status LinkFile(const std::string& src,
+                          const std::string& target) override {
+    return Status::NotSupported();  // not supported
   }
 
   virtual Status LockFile(const std::string& fname, FileLock** lock) override;
@@ -122,7 +122,8 @@ class AwsEnv : public CloudEnvImpl {
                            std::shared_ptr<Logger>* result) override;
 
   virtual void Schedule(void (*function)(void* arg), void* arg,
-                        Priority pri = LOW, void* tag = nullptr, void (*unschedFunction)(void* arg) = 0) override {
+                        Priority pri = LOW, void* tag = nullptr,
+                        void (*unschedFunction)(void* arg) = 0) override {
     base_env_->Schedule(function, arg, pri, tag, unschedFunction);
   }
 
@@ -136,8 +137,8 @@ class AwsEnv : public CloudEnvImpl {
 
   virtual void WaitForJoin() override { base_env_->WaitForJoin(); }
 
-  virtual unsigned int GetThreadPoolQueueLen(Priority pri = LOW) const
-      override {
+  virtual unsigned int GetThreadPoolQueueLen(
+      Priority pri = LOW) const override {
     return base_env_->GetThreadPoolQueueLen(pri);
   }
 
@@ -145,9 +146,7 @@ class AwsEnv : public CloudEnvImpl {
     return base_env_->GetTestDirectory(path);
   }
 
-  virtual uint64_t NowMicros() override {
-    return base_env_->NowMicros();
-  }
+  virtual uint64_t NowMicros() override { return base_env_->NowMicros(); }
 
   virtual void SleepForMicroseconds(int micros) override {
     base_env_->SleepForMicroseconds(micros);
@@ -162,7 +161,7 @@ class AwsEnv : public CloudEnvImpl {
   }
 
   virtual Status GetAbsolutePath(const std::string& db_path,
-      std::string* output_path) override {
+                                 std::string* output_path) override {
     return base_env_->GetAbsolutePath(db_path, output_path);
   }
 
@@ -183,9 +182,7 @@ class AwsEnv : public CloudEnvImpl {
     return (uint64_t)pthread_self();
   }
 
-  virtual uint64_t GetThreadID() const override {
-    return AwsEnv::gettid();
-  }
+  virtual uint64_t GetThreadID() const override { return AwsEnv::gettid(); }
 
   virtual Status EmptyBucket(const std::string& bucket_prefix) override;
 
@@ -201,10 +198,10 @@ class AwsEnv : public CloudEnvImpl {
 
   const CloudEnvOptions& GetCloudEnvOptions() { return cloud_env_options; }
 
-  std::shared_ptr<Logger> info_log_;    // informational messages
+  std::shared_ptr<Logger> info_log_;  // informational messages
 
   // The S3 client
-  std::shared_ptr<Aws::S3::S3Client>  s3client_;
+  std::shared_ptr<Aws::S3::S3Client> s3client_;
 
   // The Kinesis client
   std::shared_ptr<Aws::Kinesis::KinesisClient> kinesis_client_;
@@ -216,8 +213,8 @@ class AwsEnv : public CloudEnvImpl {
   // Get credentials for running unit tests
   //
   static Status GetTestCredentials(std::string* aws_access_key_id,
-		                   std::string* aws_secret_access_key,
-				   std::string* region);
+                                   std::string* aws_secret_access_key,
+                                   std::string* region);
 
   // Create a specific bucketname suffix so that all unit tests can
   // use a single bucket.
@@ -228,28 +225,25 @@ class AwsEnv : public CloudEnvImpl {
   Status CreateTailer();
 
   // Saves and retrieves the dbid->dirname mapping in S3
-  Status SaveDbid(const std::string& dbid,
-		  const std::string& dirname) override;
+  Status SaveDbid(const std::string& dbid, const std::string& dirname) override;
   Status GetPathForDbid(const std::string& bucket_prefix,
-		        const std::string& dbid,
-		        std::string *dirname) override;
+                        const std::string& dbid, std::string* dirname) override;
   Status GetDbidList(const std::string& bucket_prefix,
-		     DbidList* dblist) override;
+                     DbidList* dblist) override;
   Status DeleteDbid(const std::string& bucket_prefix,
-		    const std::string& dbid) override;
+                    const std::string& dbid) override;
 
  private:
   //
   // The AWS credentials are specified to the constructor via
   // access_key_id and secret_key.
-  //  
-  explicit AwsEnv(Env* underlying_env,
-                  const std::string& src_bucket_prefix,
+  //
+  explicit AwsEnv(Env* underlying_env, const std::string& src_bucket_prefix,
                   const std::string& src_object_prefix,
                   const std::string& dest_bucket_prefix,
                   const std::string& dest_object_prefix,
-		  const CloudEnvOptions& cloud_options,
-		  std::shared_ptr<Logger> info_log = nullptr);
+                  const CloudEnvOptions& cloud_options,
+                  std::shared_ptr<Logger> info_log = nullptr);
 
   // The pathname that contains a list of all db's inside a bucket.
   static constexpr const char* dbid_registry_ = "/.rockset/dbid/";
@@ -282,16 +276,16 @@ class AwsEnv : public CloudEnvImpl {
 
   // Check if the specified pathname exists
   Status PathExistsInS3(const std::string& fname,
-		        const std::string& bucket_prefix, bool isfile);
+                        const std::string& bucket_prefix, bool isfile);
 
   // Delete the specified path from S3
   Status DeletePathInS3(const std::string& bucket_prefix,
-		        const std::string& fname);
+                        const std::string& fname);
 
   // Get size and modtime of file in S3
   Status GetFileInfoInS3(const std::string& bucket_prefix,
-		         const std::string& fname, uint64_t* size,
-		         uint64_t* modtime);
+                         const std::string& fname, uint64_t* size,
+                         uint64_t* modtime);
 
   // Validate options
   Status CheckOption(const EnvOptions& options);
@@ -301,19 +295,17 @@ class AwsEnv : public CloudEnvImpl {
   // 2. filename ends with .log or starts with MANIFEST is a logfile
   // 3. filename starts with MANIFEST is a manifest file
   // 3. filename starts with IDENTITY is a ID file
-  void GetFileType(const std::string& fname,
-                   bool* sstFile, bool* logfile,
-		   bool* manifest = nullptr,
-		   bool* identity = nullptr);
+  void GetFileType(const std::string& fname, bool* sstFile, bool* logfile,
+                   bool* manifest = nullptr, bool* identity = nullptr);
 
   // Return the list of children of the specified path
   Status GetChildrenFromS3(const std::string& path,
-		           const std::string& bucket_prefix,
-		           std::vector<std::string>* result);
+                           const std::string& bucket_prefix,
+                           std::vector<std::string>* result);
 
   // Save IDENTITY file to S3. Update dbid registry.
   Status SaveIdentitytoS3(const std::string& localfile,
-		          const std::string& target_idfile);
+                          const std::string& target_idfile);
 
   // Converts a local pathname to an object name in the src bucket
   std::string srcname(const std::string& localname);
@@ -327,28 +319,24 @@ class AwsEnv : public CloudEnvImpl {
 
 }  // namespace rocksdb
 
-#else // USE_AWS
-
+#else  // USE_AWS
 
 namespace rocksdb {
 
 static const Status s3_notsup;
 
 class AwsEnv : public CloudEnvImpl {
-
  public:
-  explicit AwsEnv(Env* underlying_env,
-		  const std::string& bucket_prefix,
-		  const CloudEnvOptions& cloud_options,
-		  std::shared_ptr<Logger> info_log = nullptr) :
-	  CloudEnvImpl(CloudType::kAws, underlying_env) {
+  explicit AwsEnv(Env* underlying_env, const std::string& bucket_prefix,
+                  const CloudEnvOptions& cloud_options,
+                  std::shared_ptr<Logger> info_log = nullptr)
+      : CloudEnvImpl(CloudType::kAws, underlying_env) {
     fprintf(stderr, "You have not build rocksdb with AWS support\n");
     fprintf(stderr, "Please see cloud/README.md for details\n");
     abort();
   }
 
-  virtual ~AwsEnv() {
-  }
+  virtual ~AwsEnv() {}
 
   virtual Status NewSequentialFile(const std::string& fname,
                                    unique_ptr<SequentialFile>* result,
@@ -384,13 +372,17 @@ class AwsEnv : public CloudEnvImpl {
     return s3_notsup;
   }
 
-  virtual Status CreateDir(const std::string& name) override { return s3_notsup; }
+  virtual Status CreateDir(const std::string& name) override {
+    return s3_notsup;
+  }
 
   virtual Status CreateDirIfMissing(const std::string& name) override {
     return s3_notsup;
   }
 
-  virtual Status DeleteDir(const std::string& name) override { return s3_notsup; }
+  virtual Status DeleteDir(const std::string& name) override {
+    return s3_notsup;
+  }
 
   virtual Status GetFileSize(const std::string& fname,
                              uint64_t* size) override {
@@ -438,7 +430,9 @@ class AwsEnv : public CloudEnvImpl {
     return 0;
   }
 
-  virtual Status GetTestDirectory(std::string* path) override { return s3_notsup; }
+  virtual Status GetTestDirectory(std::string* path) override {
+    return s3_notsup;
+  }
 
   virtual uint64_t NowMicros() override { return 0; }
 
@@ -448,7 +442,9 @@ class AwsEnv : public CloudEnvImpl {
     return s3_notsup;
   }
 
-  virtual Status GetCurrentTime(int64_t* unix_time) override { return s3_notsup; }
+  virtual Status GetCurrentTime(int64_t* unix_time) override {
+    return s3_notsup;
+  }
 
   virtual Status GetAbsolutePath(const std::string& db_path,
                                  std::string* outputpath) override {
@@ -460,48 +456,44 @@ class AwsEnv : public CloudEnvImpl {
   }
   virtual std::string TimeToString(uint64_t number) override { return ""; }
 
-  virtual uint64_t GetThreadID() const override {
-    return 0;
-  }
+  virtual uint64_t GetThreadID() const override { return 0; }
 
-  virtual Status EmptyBucket(const std::string& bucket_prefix) {
-      return s3_notsup;
+  virtual Status EmptyBucket(const std::string& bucket_prefix) override {
+    return s3_notsup;
   }
 
   virtual Status SaveDbid(const std::string& dbid,
-		          const std::string& dirname) override {
-      return s3_notsup;
+                          const std::string& dirname) override {
+    return s3_notsup;
   }
 
   virtual Status GetPathForDbid(const std::string& bucket_prefix,
-		                const std::string& dbid,
-		                std::string *dirname) override {
-      return s3_notsup;
+                                const std::string& dbid,
+                                std::string* dirname) override {
+    return s3_notsup;
   }
   virtual Status GetDbidList(const std::string& bucket_prefix,
-		             DbidList* dblist) override {
-      return s3_notsup;
+                             DbidList* dblist) override {
+    return s3_notsup;
   }
   virtual Status DeleteDbid(const std::string& bucket_prefix,
-		            const std::string& dbid) override {
-      return s3_notsup;
+                            const std::string& dbid) override {
+    return s3_notsup;
   }
 
-  static Status NewAwsEnv(Env* env,
-		          const std::string& src_cloud_storage,
-		          const std::string& src_cloud_object_prefix,
-			  const std::string& dest_cloud_storage,
-			  const std::string& dest_cloud_object_prefix,
-			  const CloudEnvOptions& cloud_options,
-		          std::shared_ptr<Logger> info_log,
-			  CloudEnv** cenv) {
-      return s3_notsup;
+  static Status NewAwsEnv(Env* env, const std::string& src_cloud_storage,
+                          const std::string& src_cloud_object_prefix,
+                          const std::string& dest_cloud_storage,
+                          const std::string& dest_cloud_object_prefix,
+                          const CloudEnvOptions& cloud_options,
+                          std::shared_ptr<Logger> info_log, CloudEnv** cenv) {
+    return s3_notsup;
   }
   static Status GetTestCredentials(std::string* aws_access_key_id,
-		                   std::string* aws_secret_access_key) {
+                                   std::string* aws_secret_access_key) {
     return s3_notsup;
   }
 };
 }
 
-#endif // USE_AWS
+#endif  // USE_AWS
