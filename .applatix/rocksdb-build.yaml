@@ -9,8 +9,7 @@ container:
     cpu_cores: 1.5
   image: get.applatix.io/rockdb-build:v1.1
   docker_options: "-e CC=%%build_env_cc%% -e CXX=%%build_env_gpp%% -e JOB_NAME=%%build_env_job_name%% -e USE_AWS=%%build_env_use_aws%% -e J=%%build_parallel%% -e TRAVIS_BUILD_DIR=%%build_env_travis_build_dir%% %%build_env_tests%%" 
-#  command: bash -c 'cd /src/build_tools && %%build_sec_env%% %%build_sec_env2%% ./ax_build.sh'
-  command: bash -c 'cd /src/build_tools && ./ax_build.sh'
+  command: bash -c 'cd /src/build_tools && %%build_sec_env%% %%build_sec_env2%% ./ax_build.sh'
 inputs:
   artifacts:
   - from: "%%checkout_artifact%%"
