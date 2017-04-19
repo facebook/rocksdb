@@ -139,7 +139,6 @@ class DBLoaderCommand : public LDBCommand {
   virtual Options PrepareOptionsForOpenDB() override;
 
  private:
-  bool create_if_missing_;
   bool disable_wal_;
   bool bulk_load_;
   bool compact_;
