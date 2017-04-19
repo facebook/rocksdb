@@ -318,12 +318,19 @@ public:
 };
 
 struct Customer {
+
+  using Ctx = async::RandomFileReadContext;
+
   HANDLE           hEvent_ = NULL;
-  std::unique_ptr<async::RandomFileReadContext> ra_context_;
+  std::aligned_storage<sizeof(Ctx)>::type ra_context_;
   AlignedBuffer  buffer_;
   Slice          result_;
   uint64_t       offset_;
   size_t         n_;
+
+  Ctx& GetCtxRef() {
+    return *reinterpret_cast<Ctx*>(&ra_context_);
+  }
 
   Customer(RandomAccessFileReader* reader, uint64_t offset, size_t n,
           bool create_event = true) :
@@ -338,19 +345,25 @@ struct Customer {
     buffer_.Alignment(reader->file()->GetRequiredBufferAlignment());
     buffer_.AllocateNewBuffer(n);
 
-    ra_context_ = reader->GetReadContext();
-    ra_context_->PrepareRead(offset, n, &result_, buffer_.BufferStart());
+    auto data = reader->GetReadContextData();
 
+    new (&ra_context_) Ctx(reader->file(), data.env_, data.stats_,
+      data.file_read_hist_, data.hist_type_, reader->use_direct_io(),
+      reader->file()->GetRequiredBufferAlignment());
+
+    GetCtxRef().PrepareRead(offset, n, &result_, buffer_.BufferStart());
   }
 
   Status RequestRead() {
-    return ra_context_->RequestRandomRead(GetCallback());
+    return GetCtxRef().RequestRandomRead(GetCallback());
   }
 
   ~Customer() {
     if (hEvent_ != NULL) {
       CloseHandle(hEvent_);
     }
+
+    GetCtxRef().~Ctx();
   }
 
   Slice* GetResult() {
@@ -370,27 +383,29 @@ struct Customer {
     ResetEvent(hEvent_);
   }
 
-  async::Callable<void, Status&&, const Slice&>
+  async::Callable<Status, const Status&, const Slice&>
   GetCallback() {
-    async::CallableFactory<Customer, void, Status&&, const Slice&>
+    async::CallableFactory<Customer, Status, const Status&, const Slice&>
       factory(this);
     return factory.GetCallable<&Customer::OnIOCompletion>();
   }
 
   // IO Completion callback
-  void OnIOCompletion(Status&& status, const Slice& slice) {
+  Status OnIOCompletion(const Status& status, const Slice& slice) {
 
-    ra_context_->OnRandomReadComplete(status, slice);
+    GetCtxRef().OnRandomReadComplete(status, slice);
 
     std::cout << "Async Bytes on offset: " << offset_ <<
     " requested size: " << n_ << " bytes read: " << slice.size() <<
       " status: " << status.ToString() << std::endl;
 
-    ASSERT_EQ(result_.size(), n_);
+    assert(result_.size() == n_);
     // We are expecting to point to our buffer here
-    ASSERT_EQ(result_.data(), buffer_.BufferStart());
+    assert(result_.data() == buffer_.BufferStart());
 
     SetEvent(hEvent_);
+
+    return status;
   }
 };
 

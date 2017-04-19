@@ -509,6 +509,11 @@ class SequentialFile {
 // A file abstraction for randomly reading the contents of a file.
 class RandomAccessFile {
  public:
+
+  using
+  RandomAccessCallback = async::Callable<Status, const Status&, const Slice&>;
+
+
   RandomAccessFile() { }
   virtual ~RandomAccessFile();
 
@@ -529,7 +534,8 @@ class RandomAccessFile {
   // return Status code will indicate OK and the data will be made available as
   // with the above sync version.
   // However, if Status::IOPending is returned, this means that a
-  virtual Status Read(const async::Callable<void, Status&&, const Slice&>& cb,
+  // supplied callback will be invoked on completion
+  virtual Status Read(const RandomAccessCallback& cb,
     uint64_t offset, size_t n, Slice* result, char* scratch) const {
     return Status::NotSupported();
   }

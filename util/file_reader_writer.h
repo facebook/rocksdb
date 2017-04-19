@@ -97,7 +97,17 @@ class RandomAccessFileReader {
 
   Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const;
 
-  std::unique_ptr<async::RandomFileReadContext> GetReadContext();
+  struct RandomReadContextData {
+    Env*              env_;
+    Statistics*       stats_;
+    HistogramImpl*    file_read_hist_;
+    uint32_t          hist_type_;
+  };
+
+  RandomReadContextData GetReadContextData() const {
+    return{ env_, stats_, file_read_hist_, hist_type_ };
+  }
+
 
   Status Prefetch(uint64_t offset, size_t n) const {
     return file_->Prefetch(offset, n);

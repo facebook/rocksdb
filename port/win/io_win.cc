@@ -710,7 +710,7 @@ Status WinRandomAccessImpl::ReadImpl(uint64_t offset, size_t n, Slice* result,
 struct WinIOOverlapped : public OVERLAPPED {
 
   using
-  RequestCallback = async::Callable<void, Status&&, const Slice&>;
+  RequestCallback = RandomAccessFile::RandomAccessCallback;
 
   RequestCallback     cb_;
   char*               buffer_;
@@ -736,8 +736,7 @@ struct WinIOOverlapped : public OVERLAPPED {
   }
 };
 
-Status WinRandomAccessImpl::ReadImpl(const async::Callable<void, Status&&,
-  const Slice&>& cb, uint64_t offset, size_t n, Slice * result,
+Status WinRandomAccessImpl::ReadImpl(const RandomAccessFile::RandomAccessCallback& cb, uint64_t offset, size_t n, Slice * result,
   char * scratch) const {
 
   assert(iocompl_ != nullptr);
@@ -830,7 +829,7 @@ void WinRandomAccessImpl::OnAsyncReadCompletion(
   overlapped.reset();
 
   // Invoke callback and further processing continues on this thread
-  cb.Invoke(std::move(status), slice);
+  cb.Invoke(status, slice);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -851,8 +850,7 @@ Status WinRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
   return ReadImpl(offset, n, result, scratch);
 }
 
-Status WinRandomAccessFile::Read(const async::Callable<void, Status&&,
-  const Slice&>& cb, uint64_t offset, size_t n, Slice * result,
+Status WinRandomAccessFile::Read(const RandomAccessCallback& cb, uint64_t offset, size_t n, Slice * result,
   char * scratch) const {
   return ReadImpl(cb, offset, n, result, scratch);
 }

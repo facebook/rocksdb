@@ -62,6 +62,9 @@ Status SequentialFileReader::Skip(uint64_t n) {
   return file_->Skip(n);
 }
 
+/////////////////////////////////////////////////////////////////////////
+/// RandomFileReadContext
+
 void async::RandomFileReadContext::PrepareRead(uint64_t offset, size_t n,
                                                Slice* result, char * buffer) {
 
@@ -184,16 +187,6 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
   req_ctx.OnRandomReadComplete(s, *result);
 
   return s;
-}
-
-std::unique_ptr<async::RandomFileReadContext> RandomAccessFileReader::GetReadContext() {
-
-  std::unique_ptr<async::RandomFileReadContext> result (
-    new async::RandomFileReadContext(file_.get(), env_, stats_, file_read_hist_,
-                                     hist_type_, use_direct_io(),
-                                     file_->GetRequiredBufferAlignment()));
-
-  return result;
 }
 
 Status WritableFileWriter::Append(const Slice& data) {

@@ -15,6 +15,8 @@
 #include "util/perf_context_imp.h"
 #include "util/stop_watch.h"
 
+#include <type_traits>
+
 namespace rocksdb {
 
 class Env;
@@ -26,7 +28,7 @@ class Statistics;
 namespace async {
 
 using
-RandomAccessCallback = async::Callable<void, Status&&, const Slice&>;
+RandomAccessCallback = RandomAccessFile::RandomAccessCallback;
 
 class RandomFileReadContext {
 
@@ -45,16 +47,16 @@ class RandomFileReadContext {
   uint64_t          offset_advance_; // offset in the direct_io buffer if used
   size_t            read_size_;  // how much to read
   size_t            n_;          // actual requested read size
-                              // Needed as intermediate for direct reads only
+  // Needed as intermediate for direct reads only
   AlignedBuffer     buf_;
 
-public:
+ public:
 
   // Constructor argument values come from the reader class
   RandomFileReadContext(RandomAccessFile* file, Env* env, Statistics* stats,
-    HistogramImpl* hist, uint32_t hist_type,
-    bool direct_io,
-    size_t alignment) :
+                        HistogramImpl* hist, uint32_t hist_type,
+                        bool direct_io,
+                        size_t alignment) :
     ra_file_(file),
     stats_(stats),
     hist_(hist),
@@ -98,54 +100,60 @@ public:
 // the file since it is expected to be cached
 // with a newly created TableReader
 class RandomReadContext {
-public:
+ public:
 
   RandomReadContext(const RandomReadContext&) = delete;
   RandomReadContext& operator-(const RandomReadContext&) = delete;
 
-private:
+ private:
 
-  std::unique_ptr<RandomFileReadContext> ra_context_;
+  std::aligned_storage<sizeof(RandomFileReadContext)>::type ra_context_;
 
-protected:
+  RandomFileReadContext& GetCtxRef() {
+    return *reinterpret_cast<RandomFileReadContext*>(&ra_context_);
+  }
 
-  RandomReadContext(RandomAccessFileReader* file, 
+ protected:
+
+  RandomReadContext(RandomAccessFileReader* file,
                     uint64_t offset, size_t n,
                     Slice* result, char* buf);
 
-  const Slice& GetResult() const {
-    return ra_context_->GetResult();
+  // Helpers for containing or derived class use only
+  const Slice& GetResult() {
+    return GetCtxRef().GetResult();
   }
 
-  size_t GetRequestedSize() const {
-    return ra_context_->GetRequestedSize();
+  size_t GetRequestedSize() {
+    return GetCtxRef().GetRequestedSize();
   }
-
 
   Status RequestRead(const RandomAccessCallback& iocb) {
-    return ra_context_->RequestRandomRead(iocb);
+    return GetCtxRef().RequestRandomRead(iocb);
   }
 
   Status Read() {
-    return ra_context_->RandomRead();
+    return GetCtxRef().RandomRead();
   }
 
+
   void  OnRandomReadComplete(const Status& status, const Slice& slice) {
-    ra_context_->OnRandomReadComplete(status, slice);
+    GetCtxRef().OnRandomReadComplete(status, slice);
   }
 
   // Non-virtual because protected
   // we want to be lightweight
   ~RandomReadContext()  {
+    GetCtxRef().~RandomFileReadContext();
   }
 };
 
 class ReadFooterContext : protected RandomReadContext {
-public:
+ public:
   using
-  FooterReadCallback = async::Callable<void, Status&&>;
+  FooterReadCallback = async::Callable<Status, const Status&>;
 
-protected:
+ protected:
 
   Slice& GetFooterInput() {
     return footer_input_;
@@ -154,8 +162,8 @@ protected:
   Status OnReadFooterComplete(const Status& s, const Slice& slice);
 
   ReadFooterContext(const FooterReadCallback& footer_cb,
-    RandomAccessFileReader* file, uint64_t offset,
-    Footer* footer, uint64_t enforce_table_magic_number) :
+                    RandomAccessFileReader* file, uint64_t offset,
+                    Footer* footer, uint64_t enforce_table_magic_number) :
     RandomReadContext(file, offset, Footer::kMaxEncodedLength,
                       &footer_input_, footer_space_),
     footer_cb_(footer_cb),
@@ -164,48 +172,48 @@ protected:
   }
 
 
-public:
+ public:
 
   ReadFooterContext(const ReadFooterContext&) = delete;
   ReadFooterContext& operator=(const ReadFooterContext&) = delete;
 
   static
-  Status RequestFooterRead(const FooterReadCallback& footer_cb, 
+  Status RequestFooterRead(const FooterReadCallback& footer_cb,
                            RandomAccessFileReader* file, uint64_t file_size,
                            Footer* footer, uint64_t enforce_table_magic_number) {
 
-      if (file_size < Footer::kMinEncodedLength) {
-        return Status::Corruption("file is too short to be an sstable");
-      }
+    if (file_size < Footer::kMinEncodedLength) {
+      return Status::Corruption("file is too short to be an sstable");
+    }
 
     size_t read_offset =
-      (file_size > Footer::kMaxEncodedLength) ? 
+      (file_size > Footer::kMaxEncodedLength) ?
       static_cast<size_t>(file_size - Footer::kMaxEncodedLength)
       : 0;
 
-      std::unique_ptr<ReadFooterContext> context(new ReadFooterContext(footer_cb,
-                                                 file,
-                                                 read_offset, footer,
-                                                 enforce_table_magic_number));
+    std::unique_ptr<ReadFooterContext> context(new ReadFooterContext(footer_cb,
+        file,
+        read_offset, footer,
+        enforce_table_magic_number));
 
-      auto iocb = context->GetIOCallback();
-      Status s = context->RequestRead(iocb);
+    auto iocb = context->GetIOCallback();
+    Status s = context->RequestRead(iocb);
 
-      if (s.IsIOPending()) {
-        context.release();
-        return s;
-      }
+    if (s.IsIOPending()) {
+      context.release();
+      return s;
+    }
 
-      return context->OnReadFooterComplete(s, context->GetFooterInput());
+    return context->OnReadFooterComplete(s, context->GetFooterInput());
   }
 
   static
   Status ReadFooter(RandomAccessFileReader * file, uint64_t file_size,
-    Footer * footer, uint64_t enforce_table_magic_number) {
+                    Footer * footer, uint64_t enforce_table_magic_number) {
 
-      if (file_size < Footer::kMinEncodedLength) {
-        return Status::Corruption("file is too short to be an sstable");
-      }
+    if (file_size < Footer::kMinEncodedLength) {
+      return Status::Corruption("file is too short to be an sstable");
+    }
 
     size_t read_offset =
       (file_size > Footer::kMaxEncodedLength)
@@ -219,14 +227,15 @@ public:
   }
 
 
-private:
+ private:
 
   RandomAccessCallback GetIOCallback() {
-    async::CallableFactory<ReadFooterContext, void, Status&&, const Slice&> fac(this);
+    async::CallableFactory<ReadFooterContext, Status, const Status&,
+          const Slice&> fac(this);
     return fac.GetCallable<&ReadFooterContext::OnIOCompletion>();
   }
 
-  void OnIOCompletion(Status&&, const Slice&);
+  Status OnIOCompletion(const Status&, const Slice&);
 
   FooterReadCallback footer_cb_;
   Footer*            footer_;     // Pointer to class to decode to
@@ -237,26 +246,33 @@ private:
 
 // This class specialized on read an entire block
 class ReadBlockContext : protected RandomReadContext {
-public:
+ public:
   using
-  ReadBlockCallback = async::Callable<void, Status&&, const Slice&>;
-
-protected:
+  ReadBlockCallback = async::Callable<Status, const Status&, const Slice&>;
 
   ReadBlockContext(const ReadBlockCallback& client_cb,
-    RandomAccessFileReader* file, ChecksumType checksum_type,
-    bool verify_check_sum, uint64_t offset, size_t n, Slice* result, char* buf) :
-    RandomReadContext(file, offset, n, result, buf),
+                   RandomAccessFileReader* file, ChecksumType checksum_type,
+                   bool verify_check_sum, const BlockHandle& handle, Slice* result, char* buf) :
+    RandomReadContext(file, handle.offset(), static_cast<size_t>(handle.size())
+                      + kBlockTrailerSize,
+                      result, buf),
     PERF_TIMER_INIT(block_read_time),
     checksum_type_(checksum_type),
     verify_checksums_(verify_check_sum) {
     PERF_TIMER_START(block_read_time);
   }
 
+  // Expose protected members for the benefit of containing classes
+  Status Read() {
+    return RandomReadContext::Read();
+  }
+
+  Status RequestRead(const RandomAccessCallback& iocb) {
+    return RandomReadContext::RequestRead(iocb);
+  }
+
   // Performs after read tasks in both sync and async cases
   Status OnReadBlockComplete(const Status& s, const Slice&);
-
-public:
 
   ReadBlockContext(const ReadBlockContext&) = delete;
   ReadBlockContext& operator=(const ReadBlockContext&) = delete;
@@ -274,20 +290,20 @@ public:
   // Sync version of the API
   static
   Status ReadBlock(RandomAccessFileReader* file, const Footer& footer,
-                  const ReadOptions& options, const BlockHandle& handle,
-                  Slice* contents, /* result of reading */ char* buf);
+                   const ReadOptions& options, const BlockHandle& handle,
+                   Slice* contents, /* result of reading */ char* buf);
 
-private:
+ private:
 
   // This is invoked only if this class represents
   // the concrete class and is to be destroyed after the callback
   // completes. Derived classes supply their own callback where they
   // dictate their own policies but can reuse the logic of this class
-  void OnIoCompletion(Status&&, const Slice&);
+  Status OnIoCompletion(const Status&, const Slice&);
 
   RandomAccessCallback GetIOCallback() {
-    async::CallableFactory<ReadBlockContext, void, Status&&, const Slice&>
-     factory(this);
+    async::CallableFactory<ReadBlockContext, Status, const Status&, const Slice&>
+    factory(this);
     return factory.GetCallable<&ReadBlockContext::OnIoCompletion>();
   }
 
@@ -295,6 +311,139 @@ private:
   PERF_TIMER_DECL(block_read_time);
   ChecksumType       checksum_type_;
   bool               verify_checksums_;
+};
+
+class ReadBlockContentsContext {
+ public:
+
+  // BlockContents pointer will be populated
+  using
+  ReadBlockContCallback = async::Callable<Status, const Status&>;
+
+  ReadBlockContentsContext(
+    const ReadBlockContCallback& client_cb,
+    const Footer& footer,
+    const ReadOptions& read_options,
+    const BlockHandle& handle, BlockContents* contents,
+    const ImmutableCFOptions &ioptions,
+    bool decompression_requested,
+    const Slice& compression_dict,
+    const PersistentCacheOptions& cache_options) :
+    client_cb_(client_cb),
+    footer_(&footer),
+    read_options_(&read_options),
+    handle_(handle),
+    ioptions_(&ioptions),
+    decompression_requested_(decompression_requested),
+    compression_dict_(compression_dict),
+    cache_options_(&cache_options),
+    contents_(contents),
+    is_read_block_(false) {
+  }
+
+  ~ReadBlockContentsContext() {
+    if (is_read_block_) {
+      GetReadBlock()->~ReadBlockContext();
+    }
+  }
+
+  ReadBlockContentsContext(const ReadBlockContentsContext&) = delete;
+  ReadBlockContentsContext& operator=(const ReadBlockContentsContext&) = delete;
+
+ public:
+
+  static
+  Status RequestContentstRead(
+    const ReadBlockContCallback& client_cb_,
+    RandomAccessFileReader* file, const Footer& footer,
+    const ReadOptions& read_options,
+    const BlockHandle& handle, BlockContents* contents,
+    const ImmutableCFOptions &ioptions,
+    bool decompression_requested,
+    const Slice& compression_dict,
+    const PersistentCacheOptions& cache_options);
+
+  static
+  Status ReadContents(RandomAccessFileReader* file, const Footer& footer,
+                      const ReadOptions& read_options,
+                      const BlockHandle& handle, BlockContents* contents,
+                      const ImmutableCFOptions &ioptions,
+                      bool decompression_requested,
+                      const Slice& compression_dict,
+                      const PersistentCacheOptions& cache_options);
+
+ private:
+
+  // Status::OK() or Status::NotFound()
+  Status CheckPersistentCache(bool& need_decompression);
+
+  Status OnReadBlockContentsComplete(const Status& s, const Slice& slice);
+
+  Status OnIoCompletion(const Status&, const Slice&);
+
+  RandomAccessCallback GetIOCallback() {
+    async::CallableFactory<ReadBlockContentsContext, Status, const Status&, const Slice&>
+    fac(this);
+    return fac.GetCallable<&ReadBlockContentsContext::OnIoCompletion>();
+  }
+
+  Status Read() {
+    assert(is_read_block_);
+    return GetReadBlock()->Read();
+  }
+
+  Status RequestRead(const RandomAccessCallback& iocb) {
+    assert(is_read_block_);
+    return GetReadBlock()->RequestRead(iocb);
+  }
+
+  ReadBlockContext* GetReadBlock() {
+    assert(is_read_block_);
+    return reinterpret_cast<ReadBlockContext*>(&read_block_);
+  }
+
+  void ConstructReadBlockContext(RandomAccessFileReader* reader) {
+
+    // Figure out if we can use in-class buffer
+    char* used_buf = nullptr;
+    size_t n = GetN();
+
+    if (decompression_requested_ &&
+        n + kBlockTrailerSize < DefaultStackBufferSize) {
+      used_buf = inclass_buf_;
+    } else {
+      heap_buf_.reset(new char[n + kBlockTrailerSize]);
+      used_buf = heap_buf_.get();
+    }
+
+    new (&read_block_) ReadBlockContext(ReadBlockContext::ReadBlockCallback(), reader,
+                                        footer_->checksum(), read_options_->verify_checksums, handle_,
+                                        &result_, used_buf);
+    is_read_block_ = true;
+  }
+
+  size_t GetN() const {
+    return static_cast<size_t>(handle_.size());
+  }
+
+  ReadBlockContCallback         client_cb_;
+  const Footer*                 footer_;
+  const ReadOptions*            read_options_;
+  BlockHandle                   handle_;
+  const ImmutableCFOptions*     ioptions_;
+  bool                          decompression_requested_;
+  Slice                         compression_dict_;
+  const PersistentCacheOptions* cache_options_;
+  // This is the out parameter
+  BlockContents*                contents_;
+  Slice                         result_;
+  // We attempt to avoid extra allocation and reserve
+  // some space within the class for reading
+  bool                          is_read_block_;
+  std::unique_ptr<char[]>       heap_buf_;
+  char                          inclass_buf_[DefaultStackBufferSize];
+  // Construct this only if needed
+  std::aligned_storage<sizeof(ReadBlockContext)>::type read_block_;
 };
 
 } // namespace async

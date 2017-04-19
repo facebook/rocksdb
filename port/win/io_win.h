@@ -238,6 +238,7 @@ class WinMmapFile : private WinFileData, public WritableFile {
 
 class WinRandomAccessImpl {
 protected:
+
   WinFileData*    file_base_;
   size_t          alignment_;
   std::unique_ptr<IOCompletion> iocompl_;
@@ -255,7 +256,7 @@ protected:
   Status ReadImpl(uint64_t offset, size_t n, Slice* result,
                   char* scratch) const;
 
-  Status ReadImpl(const async::Callable<void, Status&&, const Slice&>& cb,
+  Status ReadImpl(const RandomAccessFile::RandomAccessCallback& cb,
     uint64_t offset, size_t n, Slice* result, char* scratch) const;
 
   size_t GetAlignment() const { return alignment_; }
@@ -290,7 +291,7 @@ class WinRandomAccessFile
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
                       char* scratch) const override;
 
-  Status Read(const async::Callable<void, Status&&, const Slice&>& cb,
+  Status Read(const RandomAccessCallback& cb,
     uint64_t offset, size_t n, Slice* result, char* scratch) const override;
 
   virtual size_t GetUniqueId(char* id, size_t max_size) const override;

@@ -25,6 +25,20 @@ class StopWatch {
         start_time_((stats_enabled_ || elapsed != nullptr) ? env->NowMicros()
                                                            : 0) {}
 
+  StopWatch(Env* const env, Statistics* statistics, const uint32_t hist_type,
+    bool dont_start, uint64_t* elapsed = nullptr)
+    : env_(env),
+    statistics_(statistics),
+    hist_type_(hist_type),
+    elapsed_(elapsed),
+    overwrite_(true),
+    stats_enabled_(statistics && statistics->HistEnabledForType(hist_type)),
+    start_time_(((stats_enabled_ || elapsed != nullptr) && !dont_start) ? env->NowMicros()
+      : 0) {
+    }
+
+  void Start() { start_time_ = env_->NowMicros(); }
+
   bool StatsEnabled() const { return stats_enabled_; }
 
   void ElapsedAndDisarm() {
@@ -61,7 +75,7 @@ class StopWatch {
   uint64_t* elapsed_;
   bool overwrite_;
   bool stats_enabled_;
-  const uint64_t start_time_;
+  uint64_t start_time_;
 };
 
 // a nano second precision stopwatch

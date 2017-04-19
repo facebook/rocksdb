@@ -22,6 +22,7 @@
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
+#include "table/block.h"
 #include "table/filter_block.h"
 #include "table/format.h"
 #include "table/persistent_cache_helper.h"
@@ -33,7 +34,6 @@
 
 namespace rocksdb {
 
-class Block;
 class BlockIter;
 class BlockHandle;
 class Cache;
@@ -52,6 +52,16 @@ struct EnvOptions;
 struct ReadOptions;
 class GetContext;
 class InternalIterator;
+
+namespace async {
+class CreateIndexReaderContext;
+class GetFilterHelper;
+class MaybeLoadDataBlockToCacheHelper;
+class NewIndexIteratorContext;
+class ReadFilterHelper;
+class TableReadMetaBlocksContext;
+class TableOpenRequestContext;
+} // namespac async
 
 using std::unique_ptr;
 
@@ -194,6 +204,13 @@ class BlockBasedTable : public TableReader {
 
   class BlockEntryIteratorState;
 
+  friend class async::CreateIndexReaderContext;
+  friend class async::GetFilterHelper;
+  friend class async::ReadFilterHelper;
+  friend class async::TableOpenRequestContext;
+  friend class async::TableReadMetaBlocksContext;
+  friend class async::MaybeLoadDataBlockToCacheHelper;
+  friend class async::NewIndexIteratorContext;
   friend class PartitionIndexReader;
 
  protected:
@@ -322,6 +339,27 @@ class BlockBasedTable : public TableReader {
     RandomAccessFile* file, char* buffer, size_t* size);
   static void GenerateCachePrefix(Cache* cc,
     WritableFile* file, char* buffer, size_t* size);
+
+  static bool IsFeatureSupported(const TableProperties& table_properties,
+      const std::string& user_prop_name, Logger* info_log);
+
+  static SequenceNumber GetGlobalSequenceNumber(const TableProperties& table_properties,
+    Logger* info_log);
+
+  static Cache::Handle* GetEntryFromCache(Cache* block_cache, const Slice& key,
+    Tickers block_cache_miss_ticker,
+    Tickers block_cache_hit_ticker,
+    Statistics* statistics);
+
+  static Slice GetCacheKeyFromOffset(const char* cache_key_prefix,
+    size_t cache_key_prefix_size, uint64_t offset,
+    char* cache_key);
+
+  static void ReleaseCachedEntry(void* arg, void* h);
+
+  static void DeleteCachedFilterEntry(const Slice& key, void* value);
+  static void DeleteCachedIndexEntry(const Slice& key, void* value);
+
 
   // Helper functions for DumpTable()
   Status DumpIndexBlock(WritableFile* out_file);
@@ -465,6 +503,147 @@ struct BlockBasedTable::Rep {
   // A value of kDisableGlobalSequenceNumber means that this feature is disabled
   // and every key have it's own seqno.
   SequenceNumber global_seqno;
+};
+
+// Index that allows binary search lookup in a two-level index structure.
+class PartitionIndexReader : public BlockBasedTable::IndexReader, public Cleanable {
+public:
+  // Read the partition index from the file and create an instance for
+  // `PartitionIndexReader`.
+  // On success, index_reader will be populated; otherwise it will remain
+  // unmodified.
+  static Status Create(BlockBasedTable* table, RandomAccessFileReader* file,
+    const Footer& footer, const BlockHandle& index_handle,
+    const ImmutableCFOptions& ioptions,
+    const Comparator* comparator, IndexReader** index_reader,
+    const PersistentCacheOptions& cache_options,
+    const int level);
+
+  static void Create(BlockBasedTable* table, const Comparator* comparator,
+    std::unique_ptr<Block>&& index_block, Statistics* stats,
+    const int level, IndexReader** index_reader) {
+    *index_reader = new PartitionIndexReader(table, comparator, std::move(index_block),
+      stats, level);
+  }
+
+  // return a two-level iterator: first level is on the partition index
+  virtual InternalIterator* NewIterator(BlockIter* iter = nullptr,
+    bool dont_care = true) override;
+
+  virtual size_t size() const override;
+  virtual size_t usable_size() const override;
+
+  virtual size_t ApproximateMemoryUsage() const override;
+
+  ~PartitionIndexReader();
+
+private:
+
+  PartitionIndexReader(BlockBasedTable* table, const Comparator* comparator,
+    std::unique_ptr<Block>&& index_block, Statistics* stats,
+    const int level)
+    : IndexReader(comparator, stats),
+    table_(table),
+    index_block_(std::move(index_block)),
+    level_(level) {
+    assert(index_block_ != nullptr);
+  }
+  BlockBasedTable* table_;
+  std::unique_ptr<Block> index_block_;
+  int level_;
+};
+
+// Index that allows binary search lookup for the first key of each block.
+// This class can be viewed as a thin wrapper for `Block` class which already
+// supports binary search.
+class BinarySearchIndexReader : public BlockBasedTable::IndexReader {
+public:
+  // Read index from the file and create an intance for
+  // `BinarySearchIndexReader`.
+  // On success, index_reader will be populated; otherwise it will remain
+  // unmodified.
+  static Status Create(RandomAccessFileReader* file, const Footer& footer,
+    const BlockHandle& index_handle,
+    const ImmutableCFOptions &ioptions,
+    const Comparator* comparator, IndexReader** index_reader,
+    const PersistentCacheOptions& cache_options);
+
+  static void Create(const Comparator* comparator, std::unique_ptr<Block>&& index_block,
+    Statistics* stats, IndexReader** index_reader) {
+    *index_reader = new BinarySearchIndexReader(comparator, std::move(index_block), stats);
+  }
+
+  virtual InternalIterator* NewIterator(BlockIter* iter = nullptr,
+    bool dont_care = true) override;
+
+  virtual size_t size() const override;
+
+  virtual size_t usable_size() const override;
+
+  virtual size_t ApproximateMemoryUsage() const override;
+
+  ~BinarySearchIndexReader();
+
+private:
+  BinarySearchIndexReader(const Comparator* comparator,
+    std::unique_ptr<Block>&& index_block,
+    Statistics* stats)
+    : IndexReader(comparator, stats), index_block_(std::move(index_block)) {
+    assert(index_block_ != nullptr);
+  }
+  std::unique_ptr<Block> index_block_;
+};
+
+class BlockPrefixIndex;
+
+// Index that leverages an internal hash table to quicken the lookup for a given
+// key.
+class HashIndexReader : public BlockBasedTable::IndexReader {
+public:
+
+  // This just creates a reader but optional prefix blocks
+  // will still need to be read async
+  static void Create(const Comparator* comparator,
+    std::unique_ptr<Block>&& index_block,
+    Statistics* stats,
+    IndexReader** index_reader) {
+    *index_reader = new HashIndexReader(comparator,
+      std::move(index_block),
+      stats);
+  }
+
+  static Status Create(const SliceTransform* hash_key_extractor,
+    const Footer& footer, RandomAccessFileReader* file,
+    const ImmutableCFOptions& ioptions,
+    const Comparator* comparator,
+    const BlockHandle& index_handle,
+    InternalIterator* meta_index_iter,
+    IndexReader** index_reader,
+    bool hash_index_allow_collision,
+    const PersistentCacheOptions& cache_options);
+
+  void SetBlockPrefixIndex(BlockPrefixIndex* prefix_index);
+
+  virtual InternalIterator* NewIterator(BlockIter* iter = nullptr,
+    bool total_order_seek = true) override;
+
+  virtual size_t size() const override;
+
+  virtual size_t usable_size() const override;
+
+  virtual size_t ApproximateMemoryUsage() const override;
+
+  ~HashIndexReader();
+
+private:
+  HashIndexReader(const Comparator* comparator,
+    std::unique_ptr<Block>&& index_block, Statistics* stats)
+    : IndexReader(comparator, stats), index_block_(std::move(index_block)) {
+    assert(index_block_ != nullptr);
+  }
+
+  std::unique_ptr<Block> index_block_;
+  BlockContents prefixes_contents_;
 };
 
 }  // namespace rocksdb
