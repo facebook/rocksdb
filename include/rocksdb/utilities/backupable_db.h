@@ -108,8 +108,8 @@ struct BackupableDBOptions {
   // Default: 4194304
   uint64_t callback_trigger_interval_size;
 
-  // When Open() is called, it will open at most this many of the latest non-corrupted backups.
-  // If 0, it will open all available backups.
+  // When Open() is called, it will open at most this many of the latest
+  // non-corrupted backups. If 0, it will open all available backups.
   // Default: 0
   int max_valid_backups_to_open;
 

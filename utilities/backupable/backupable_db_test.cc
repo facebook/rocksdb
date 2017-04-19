@@ -1467,15 +1467,16 @@ TEST_F(BackupableDBTest, MetadataTooLarge) {
 }
 
 TEST_F(BackupableDBTest, LimitBackupsOpened) {
-  // Verify the specified max backups are opened, including skipping over corrupted backups.
+  // Verify the specified max backups are opened, including skipping over
+  // corrupted backups.
   //
   // Setup:
   // - backups 1, 2, and 4 are valid
   // - backup 3 is corrupt
   // - max_valid_backups_to_open == 2
   //
-  // Expectation: the engine opens backups 4 and 2 since those are latest two non-corrupt
-  // backups.
+  // Expectation: the engine opens backups 4 and 2 since those are latest two
+  // non-corrupt backups.
   const int kNumKeys = 5000;
   OpenDBAndBackupEngine(true);
   for (int i = 1; i <= 4; ++i) {
