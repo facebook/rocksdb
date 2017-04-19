@@ -1465,6 +1465,40 @@ TEST_F(BackupableDBTest, MetadataTooLarge) {
   CloseDBAndBackupEngine();
   DestroyDB(dbname_, options_);
 }
+
+TEST_F(BackupableDBTest, LimitBackupsOpened) {
+  // Verify the specified max backups are opened, including skipping over
+  // corrupted backups.
+  //
+  // Setup:
+  // - backups 1, 2, and 4 are valid
+  // - backup 3 is corrupt
+  // - max_valid_backups_to_open == 2
+  //
+  // Expectation: the engine opens backups 4 and 2 since those are latest two
+  // non-corrupt backups.
+  const int kNumKeys = 5000;
+  OpenDBAndBackupEngine(true);
+  for (int i = 1; i <= 4; ++i) {
+    FillDB(db_.get(), kNumKeys * i, kNumKeys * (i + 1));
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+    if (i == 3) {
+      ASSERT_OK(file_manager_->CorruptFile(backupdir_ + "/meta/3", 3));
+    }
+  }
+  CloseDBAndBackupEngine();
+
+  backupable_options_->max_valid_backups_to_open = 2;
+  OpenDBAndBackupEngine();
+  std::vector<BackupInfo> backup_infos;
+  backup_engine_->GetBackupInfo(&backup_infos);
+  ASSERT_EQ(2, backup_infos.size());
+  ASSERT_EQ(2, backup_infos[0].backup_id);
+  ASSERT_EQ(4, backup_infos[1].backup_id);
+  CloseDBAndBackupEngine();
+  DestroyDB(dbname_, options_);
+}
+
 }  // anon namespace
 
 } //  namespace rocksdb
