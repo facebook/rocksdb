@@ -252,8 +252,10 @@ class ClockCacheShard : public CacheShard {
   //
   // Not necessary to hold mutex_ before being called.
   virtual bool Ref(Cache::Handle* handle) override;
-  virtual void Release(Cache::Handle* handle) override;
+  virtual bool Release(Cache::Handle* handle,
+                       bool force_erase = false) override;
   virtual void Erase(const Slice& key, uint32_t hash) override;
+  bool EraseAndConfirm(const Slice& key, uint32_t hash);
   virtual size_t GetUsage() const override;
   virtual size_t GetPinnedUsage() const override;
   virtual void EraseUnRefEntries() override;
@@ -618,14 +620,24 @@ Cache::Handle* ClockCacheShard::Lookup(const Slice& key, uint32_t hash) {
   return reinterpret_cast<Cache::Handle*>(handle);
 }
 
-void ClockCacheShard::Release(Cache::Handle* h) {
+bool ClockCacheShard::Release(Cache::Handle* h, bool force_erase) {
   CleanupContext context;
   CacheHandle* handle = reinterpret_cast<CacheHandle*>(h);
   Unref(handle, true, &context);
   Cleanup(context);
+  auto erased = context.to_delete_value.size() > 0;
+  if (!force_erase || erased) {
+    return erased;
+  } else {
+    return EraseAndConfirm(handle->key, handle->hash);
+  }
 }
 
 void ClockCacheShard::Erase(const Slice& key, uint32_t hash) {
+  EraseAndConfirm(key, hash);
+}
+
+bool ClockCacheShard::EraseAndConfirm(const Slice& key, uint32_t hash) {
   CleanupContext context;
   {
     MutexLock l(&mutex_);
@@ -637,6 +649,7 @@ void ClockCacheShard::Erase(const Slice& key, uint32_t hash) {
     }
   }
   Cleanup(context);
+  return context.to_delete_value.size() > 0;
 }
 
 void ClockCacheShard::EraseUnRefEntries() {
