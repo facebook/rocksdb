@@ -14,7 +14,11 @@ namespace rocksdb {
 #elif defined(_MSC_VER)
   __declspec(thread) PerfContext perf_context;
 #else
-  __thread PerfContext perf_context;
+  #if defined(OS_SOLARIS)
+    __thread PerfContext perf_context_;
+  #else
+    __thread PerfContext perf_context;
+  #endif
 #endif
 
 void PerfContext::Reset() {
@@ -161,5 +165,11 @@ std::string PerfContext::ToString(bool exclude_zero_counters) const {
   return ss.str();
 #endif
 }
+
+#if defined(OS_SOLARIS)
+PerfContext *getPerfContext() {
+  return &perf_context_;
+}
+#endif
 
 }
