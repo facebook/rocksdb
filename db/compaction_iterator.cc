@@ -10,6 +10,7 @@
 
 namespace rocksdb {
 
+#ifndef ROCKSDB_LITE
 CompactionEventListener::CompactionListenerValueType fromInternalValueType(
     ValueType vt) {
   switch (vt) {
@@ -30,6 +31,7 @@ CompactionEventListener::CompactionListenerValueType fromInternalValueType(
       return CompactionEventListener::CompactionListenerValueType::kInvalid;
   }
 }
+#endif  // ROCKSDB_LITE
 
 CompactionIterator::CompactionIterator(
     InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
@@ -213,11 +215,13 @@ void CompactionIterator::NextFromInput() {
       current_user_key_sequence_ = kMaxSequenceNumber;
       current_user_key_snapshot_ = 0;
 
+#ifndef ROCKSDB_LITE
       if (compaction_listener_) {
         compaction_listener_->OnCompaction(compaction_->level(), ikey_.user_key,
                                            fromInternalValueType(ikey_.type),
                                            value_, ikey_.sequence, true);
       }
+#endif  // ROCKSDB_LITE
 
       // apply the compaction filter to the first occurrence of the user key
       if (compaction_filter_ != nullptr && ikey_.type == kTypeValue &&
@@ -266,11 +270,13 @@ void CompactionIterator::NextFromInput() {
         }
       }
     } else {
+#ifndef ROCKSDB_LITE
       if (compaction_listener_) {
         compaction_listener_->OnCompaction(compaction_->level(), ikey_.user_key,
                                            fromInternalValueType(ikey_.type),
                                            value_, ikey_.sequence, false);
       }
+#endif  // ROCKSDB_LITE
 
       // Update the current key to reflect the new sequence number/type without
       // copying the user key.
