@@ -522,7 +522,7 @@ Status PlainTableReader::Next(PlainTableKeyDecoder* decoder, uint32_t* offset,
     return Status::Corruption("Offset is out of file size");
   }
 
-  uint32_t bytes_read;
+  uint32_t bytes_read = 0;
   Status s = decoder->NextKey(*offset, parsed_key, internal_key, value,
                               &bytes_read, seekable);
   if (!s.ok()) {
