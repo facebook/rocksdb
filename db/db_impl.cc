@@ -579,6 +579,9 @@ Status DBImpl::SetDBOptions(
       }
 
       write_controller_.set_max_delayed_write_rate(new_options.delayed_write_rate);
+      table_cache_.get()->SetCapacity(new_options.max_open_files == -1
+                                    ? 0x400000
+                                    : new_options.max_open_files - 10);
 
       mutable_db_options_ = new_options;
 
