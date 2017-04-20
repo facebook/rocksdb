@@ -2,6 +2,7 @@
 ## Unreleased
 ### New Features
 * DB::ResetStats() to reset internal stats.
+* Support dynamically change `max_open_files` option via SetDBOptions()
 
 ## 5.4.0 (04/11/2017)
 ### Public API Change
