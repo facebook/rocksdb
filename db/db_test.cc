@@ -2777,7 +2777,7 @@ TEST_P(DBTestWithParam, FIFOCompactionTest) {
 /*
  * This test is not reliable enough as it heavily depends on disk behavior.
  */
-#ifndef AWS_ENV
+#ifdef AWS_DO_NOT_RUN
 TEST_F(DBTest, RateLimitingTest) {
   Options options = CurrentOptions();
   options.write_buffer_size = 1 << 20;  // 1MB
@@ -2862,7 +2862,7 @@ TEST_F(DBTest, RateLimitingTest) {
   fprintf(stderr, "write rate ratio = %.2lf, expected 0.5\n", ratio);
   ASSERT_LT(ratio, 0.6);
 }
-#endif /* AWS_ENV */
+#endif /* AWS_DO_NOT_RUN */
 
 TEST_F(DBTest, TableOptionsSanitizeTest) {
   Options options = CurrentOptions();
