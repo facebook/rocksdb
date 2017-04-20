@@ -848,7 +848,7 @@ struct DBOptions {
   // Dynamically changeable through SetDBOptions() API.
   bool avoid_flush_during_shutdown = false;
 
-  // By default CompactionIterator will try to zero out sequence numbers
+  // By default compactions will try to zero out sequence numbers
   // when it can for better compression. Only disable it when you intend
   // to ingest behind (IngestExternalFile() skipping keys that already exist),
   // as this feature depends on existing files not having 0 sequence numbers.
