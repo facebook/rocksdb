@@ -402,7 +402,6 @@ TEST_F(DBOptionsTest, MaxOpenFilesChange) {
   Close();
 }
 
-
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb
