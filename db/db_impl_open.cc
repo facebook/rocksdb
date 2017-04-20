@@ -38,7 +38,7 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
   if (result.max_open_files != -1) {
     int max_max_open_files = port::GetMaxOpenFiles();
     if (max_max_open_files == -1) {
-      max_max_open_files = 1000000;
+      max_max_open_files = 0x400000;
     }
     ClipToRange(&result.max_open_files, 20, max_max_open_files);
   }

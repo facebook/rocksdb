@@ -32,7 +32,6 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       sst_file_manager(options.sst_file_manager),
       info_log(options.info_log),
       info_log_level(options.info_log_level),
-      max_open_files(options.max_open_files),
       max_file_opening_threads(options.max_file_opening_threads),
       statistics(options.statistics),
       use_fsync(options.use_fsync),
@@ -99,8 +98,6 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    env);
   ROCKS_LOG_HEADER(log, "                               Options.info_log: %p",
                    info_log.get());
-  ROCKS_LOG_HEADER(log, "                         Options.max_open_files: %d",
-                   max_open_files);
   ROCKS_LOG_HEADER(log, "               Options.max_file_opening_threads: %d",
                    max_file_opening_threads);
   ROCKS_LOG_HEADER(log, "                              Options.use_fsync: %d",
@@ -224,7 +221,8 @@ MutableDBOptions::MutableDBOptions()
       delayed_write_rate(2 * 1024U * 1024U),
       max_total_wal_size(0),
       delete_obsolete_files_period_micros(6ULL * 60 * 60 * 1000000),
-      stats_dump_period_sec(600) {}
+      stats_dump_period_sec(600),
+      max_open_files(-1) {}
 
 MutableDBOptions::MutableDBOptions(const DBOptions& options)
     : base_background_compactions(options.base_background_compactions),
@@ -234,7 +232,8 @@ MutableDBOptions::MutableDBOptions(const DBOptions& options)
       max_total_wal_size(options.max_total_wal_size),
       delete_obsolete_files_period_micros(
           options.delete_obsolete_files_period_micros),
-      stats_dump_period_sec(options.stats_dump_period_sec) {}
+      stats_dump_period_sec(options.stats_dump_period_sec),
+      max_open_files(options.max_open_files) {}
 
 void MutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log, "            Options.base_background_compactions: %d",
@@ -252,6 +251,8 @@ void MutableDBOptions::Dump(Logger* log) const {
       delete_obsolete_files_period_micros);
   ROCKS_LOG_HEADER(log, "                  Options.stats_dump_period_sec: %u",
                    stats_dump_period_sec);
+  ROCKS_LOG_HEADER(log, "                         Options.max_open_files: %d",
+                   max_open_files);
 }
 
 }  // namespace rocksdb

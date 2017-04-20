@@ -192,9 +192,9 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
 
   // Reserve ten files or so for other uses and give the rest to TableCache.
   // Give a large number for setting of "infinite" open files.
-  const int table_cache_size = (immutable_db_options_.max_open_files == -1)
-                                   ? 4194304
-                                   : immutable_db_options_.max_open_files - 10;
+  const int table_cache_size = (mutable_db_options_.max_open_files == -1)
+                                   ? 0x400000
+                                   : mutable_db_options_.max_open_files - 10;
   table_cache_ = NewLRUCache(table_cache_size,
                              immutable_db_options_.table_cache_numshardbits);
 
