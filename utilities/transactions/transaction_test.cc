@@ -136,6 +136,8 @@ TEST_P(TransactionTest, DoubleEmptyWrite) {
 }
 
 TEST_P(TransactionTest, SuccessTest) {
+  ASSERT_OK(db->ResetStats());
+
   WriteOptions write_options;
   ReadOptions read_options;
   string value;
