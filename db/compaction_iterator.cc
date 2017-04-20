@@ -82,7 +82,7 @@ CompactionIterator::CompactionIterator(
   if (snapshots_->size() == 0) {
     // optimize for fast path if there are no snapshots
     visible_at_tip_ = true;
-    earliest_snapshot_ = last_sequence;
+    earliest_snapshot_ = kMaxSequenceNumber;
     latest_snapshot_ = 0;
   } else {
     visible_at_tip_ = false;
@@ -543,7 +543,7 @@ void CompactionIterator::PrepareOutput() {
 
   // This is safe for TransactionDB write-conflict checking since transactions
   // only care about sequence number larger than any active snapshots.
-  if (bottommost_level_ && valid_ && ikey_.sequence < earliest_snapshot_ &&
+  if (bottommost_level_ && valid_ && ikey_.sequence <= earliest_snapshot_ &&
       ikey_.type != kTypeMerge &&
       !cmp_->Equal(compaction_->GetLargestUserKey(), ikey_.user_key)) {
     assert(ikey_.type != kTypeDeletion && ikey_.type != kTypeSingleDeletion);
