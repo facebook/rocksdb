@@ -495,15 +495,13 @@ Env* DBTestBase::CreateNewAwsEnv() {
     Log(InfoLogLevel::DEBUG_LEVEL, info_log_, st.ToString().c_str());
     assert(st.ok());
   } else {
-    std::string random = Env::Default()->GenerateUniqueId();
     st = AwsEnv::NewAwsEnv(Env::Default(),
                            "dbtest." + AwsEnv::GetTestBucketSuffix(),
-                           random,  // src object prefix
+                           "",  // src object prefix
                            "dbtest." + AwsEnv::GetTestBucketSuffix(),
-                           random,  // dest object prefix
+                           "",  // dest object prefix
                            coptions, info_log_, &cenv);
-    ROCKS_LOG_DEBUG(info_log_, "Created new aws env with path %s",
-                    random.c_str());
+    ROCKS_LOG_DEBUG(info_log_, "Created new aws env with empty path");
     assert(st.ok() && cenv);
     // If we are keeping wal in cloud storage, then tail it as well.
     // so that our unit tests can run to completion.
@@ -586,10 +584,11 @@ void DBTestBase::Destroy(const Options& options) {
   Close();
   ASSERT_OK(DestroyDB(dbname_, options));
 #ifdef USE_AWS
-  // recreate the AWS env because the bucket paths should not be
-  // the same as before.
-  delete s3_env_;
-  s3_env_ = CreateNewAwsEnv();
+  if (s3_env_) {
+    AwsEnv* aenv = static_cast<AwsEnv *>(s3_env_);
+    Status st = aenv->EmptyBucket("dbtest." + AwsEnv::GetTestBucketSuffix());
+    ASSERT_TRUE(st.ok() || st.IsNotFound());
+  }
 #endif
 }
 

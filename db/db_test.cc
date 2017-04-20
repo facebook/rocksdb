@@ -408,13 +408,7 @@ TEST_F(DBTest, ReadFromPersistedTier) {
       ASSERT_TRUE(statuses[2].ok());
       ASSERT_EQ("hello", multiget_values[2]);
       if (wopt.disableWAL == 0) {
-        // Destroying the DB gets rid of all the data. It also destroys the
-        // cloud env because the cloud env has the bucket paths associated
-        // with it.
-        Destroy(options);
-        // Reinitialize the cloud env with new bucket paths
-        options = CurrentOptions();
-        ASSERT_OK(TryReopen(options));
+        DestroyAndReopen(options);
       }
     }
   } while (ChangeOptions(kSkipHashCuckoo));
