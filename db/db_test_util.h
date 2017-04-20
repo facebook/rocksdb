@@ -663,6 +663,11 @@ class DBTestBase : public testing::Test {
     kSkipMmapReads = 256,
   };
 
+#ifdef USE_AWS
+  Env* CreateNewAwsEnv();
+  std::shared_ptr<Logger> info_log_;
+#endif
+
   explicit DBTestBase(const std::string path);
 
   ~DBTestBase();

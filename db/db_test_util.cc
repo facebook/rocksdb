@@ -51,38 +51,9 @@ DBTestBase::DBTestBase(const std::string path)
       s3_env_(nullptr) {
 
 #ifdef USE_AWS
-  std::shared_ptr<Logger> info_log;
-  env_->NewLogger(test::TmpDir(env_) + "/rocksdb-cloud.log", &info_log);
-  info_log->SetInfoLogLevel(InfoLogLevel::DEBUG_LEVEL);
-
-  // get AWS credentials
-  rocksdb::CloudEnvOptions coptions;
-  Status st = AwsEnv::GetTestCredentials(
-                &coptions.credentials.access_key_id,
-		&coptions.credentials.secret_key,
-		&coptions.region);
-  if (!st.ok()) {
-    Log(InfoLogLevel::DEBUG_LEVEL, info_log, st.ToString().c_str());
-    assert(st.ok());
-  } else {
-    CloudEnv* cenv;
-    st = AwsEnv::NewAwsEnv(Env::Default(),
-		           "dbtest." + AwsEnv::GetTestBucketSuffix(),
-			   "", // src object prefix
-		           "dbtest." + AwsEnv::GetTestBucketSuffix(),
-			   "", // src object prefix
-			   coptions,
-			   info_log,
-			   &cenv);
-    assert(st.ok() && cenv);
-    s3_env_ = cenv;
-    // If we are keeping wal in cloud storage, then tail it as well.
-    // so that our unit tests can run to completion.
-    if (!coptions.keep_local_log_files) {
-      AwsEnv* aws = static_cast<AwsEnv *>(s3_env_);
-      aws->CreateTailer();
-    }
-  }
+  env_->NewLogger(test::TmpDir(env_) + "/rocksdb-cloud.log", &info_log_);
+  info_log_->SetInfoLogLevel(InfoLogLevel::DEBUG_LEVEL);
+  s3_env_ = CreateNewAwsEnv();
 #endif
   env_->SetBackgroundThreads(1, Env::LOW);
   env_->SetBackgroundThreads(1, Env::HIGH);
@@ -512,6 +483,39 @@ Options DBTestBase::CurrentOptions(
   return options;
 }
 
+#ifdef USE_AWS
+Env* DBTestBase::CreateNewAwsEnv() {
+  // get AWS credentials
+  rocksdb::CloudEnvOptions coptions;
+  CloudEnv* cenv = nullptr;
+  Status st = AwsEnv::GetTestCredentials(&coptions.credentials.access_key_id,
+                                         &coptions.credentials.secret_key,
+                                         &coptions.region);
+  if (!st.ok()) {
+    Log(InfoLogLevel::DEBUG_LEVEL, info_log_, st.ToString().c_str());
+    assert(st.ok());
+  } else {
+    std::string random = Env::Default()->GenerateUniqueId();
+    st = AwsEnv::NewAwsEnv(Env::Default(),
+                           "dbtest." + AwsEnv::GetTestBucketSuffix(),
+                           random,  // src object prefix
+                           "dbtest." + AwsEnv::GetTestBucketSuffix(),
+                           random,  // dest object prefix
+                           coptions, info_log_, &cenv);
+    ROCKS_LOG_DEBUG(info_log_, "Created new aws env with path %s",
+                    random.c_str());
+    assert(st.ok() && cenv);
+    // If we are keeping wal in cloud storage, then tail it as well.
+    // so that our unit tests can run to completion.
+    if (!coptions.keep_local_log_files) {
+      AwsEnv* aws = static_cast<AwsEnv*>(cenv);
+      aws->CreateTailer();
+    }
+  }
+  return cenv;
+}
+#endif
+
 void DBTestBase::CreateColumnFamilies(const std::vector<std::string>& cfs,
                                       const Options& options) {
   ColumnFamilyOptions cf_opts(options);
@@ -581,6 +585,12 @@ void DBTestBase::DestroyAndReopen(const Options& options) {
 void DBTestBase::Destroy(const Options& options) {
   Close();
   ASSERT_OK(DestroyDB(dbname_, options));
+#ifdef USE_AWS
+  // recreate the AWS env because the bucket paths should not be
+  // the same as before.
+  delete s3_env_;
+  s3_env_ = CreateNewAwsEnv();
+#endif
 }
 
 Status DBTestBase::ReadOnlyReopen(const Options& options) {
