@@ -21,7 +21,7 @@ Vagrant.configure("2") do |config|
     box.vm.synced_folder ".", "/vagrant", :nfs => true, id: "vagrant-root"
     box.vm.network "private_network", ip: "10.0.1.10"
 
-    # build everything after creating VM, skip using --no-provision
+    # build everything after creating VM ,skip using --no-provision
     box.vm.provision "shell", inline: <<-SCRIPT
       pkg install -y gmake clang35
       export CXX=/usr/local/bin/clang++35
@@ -30,5 +30,4 @@ Vagrant.configure("2") do |config|
       gmake all OPT=-g
     SCRIPT
   end
-
 end
