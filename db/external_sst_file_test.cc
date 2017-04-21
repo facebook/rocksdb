@@ -732,7 +732,6 @@ TEST_F(ExternalSSTFileTest, MultiThreaded) {
 
   do {
     Options options = CurrentOptions();
-    fprintf(stderr, "%u  === \n", option_config_);
     std::atomic<int> thread_num(0);
     std::function<void()> write_file_func = [&]() {
       int file_idx = thread_num.fetch_add(1);
