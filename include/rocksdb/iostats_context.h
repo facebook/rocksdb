@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <string>
 
+#include "port/port.h"
 #include "rocksdb/perf_level.h"
 
 // A thread local context for gathering io-stats efficiently and transparently.
@@ -46,12 +47,8 @@ struct IOStatsContext {
   uint64_t logger_nanos;
 };
 
-#ifndef IOS_CROSS_COMPILE
-# ifdef _MSC_VER
-extern __declspec(thread) IOStatsContext iostats_context;
-# else
+#ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
 extern __thread IOStatsContext iostats_context;
-# endif
-#endif  // IOS_CROSS_COMPILE
+#endif
 
 }  // namespace rocksdb

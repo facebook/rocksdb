@@ -22,8 +22,7 @@
 
 #if !defined(ROCKSDB_LITE) && \
     !defined(NROCKSDB_THREAD_STATUS) && \
-    !defined(OS_MACOSX) && \
-    !defined(IOS_CROSS_COMPILE)
+    defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
 #define ROCKSDB_USING_THREAD_STATUS
 #endif
 

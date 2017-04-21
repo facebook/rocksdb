@@ -146,6 +146,18 @@ elseif(FORCE_SSE42)
   message(FATAL_ERROR "FORCE_SSE42=ON but unable to compile with SSE4.2 enabled")
 endif()
 
+CHECK_CXX_SOURCE_COMPILES("
+#if defined(_MSC_VER) && !defined(__thread)
+#define __thread __declspec(thread)
+#endif
+int main() {
+  static __thread int tls;
+}
+" HAVE_THREAD_LOCAL)
+if(HAVE_THREAD_LOCAL)
+  add_definitions(-DROCKSDB_SUPPORT_THREAD_LOCAL)
+endif()
+
 set(BUILD_VERSION_CC ${CMAKE_BINARY_DIR}/build_version.cc)
 configure_file(util/build_version.cc.in ${BUILD_VERSION_CC} @ONLY)
 add_library(build_version OBJECT ${BUILD_VERSION_CC})

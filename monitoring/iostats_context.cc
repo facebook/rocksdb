@@ -9,13 +9,9 @@
 
 namespace rocksdb {
 
-#ifndef IOS_CROSS_COMPILE
-# ifdef _MSC_VER
-__declspec(thread) IOStatsContext iostats_context;
-# else
+#ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
 __thread IOStatsContext iostats_context;
-# endif
-#endif  // IOS_CROSS_COMPILE
+#endif
 
 void IOStatsContext::Reset() {
   thread_pool_id = Env::Priority::TOTAL;

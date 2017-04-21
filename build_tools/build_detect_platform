@@ -458,6 +458,23 @@ elif test "$USE_SSE"; then
   echo "warning: USE_SSE specified but compiler could not use SSE intrinsics, disabling"
 fi
 
+# iOS doesn't support thread-local storage, but this check would erroneously
+# succeed because the cross-compiler flags are added by the Makefile, not this
+# script.
+if [ "$PLATFORM" != IOS ]; then
+  $CXX $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null <<EOF
+  #if defined(_MSC_VER) && !defined(__thread)
+  #define __thread __declspec(thread)
+  #endif
+  int main() {
+    static __thread int tls;
+  }
+EOF
+  if [ "$?" = 0 ]; then
+    COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_SUPPORT_THREAD_LOCAL"
+  fi
+fi
+
 PLATFORM_CCFLAGS="$PLATFORM_CCFLAGS $COMMON_FLAGS"
 PLATFORM_CXXFLAGS="$PLATFORM_CXXFLAGS $COMMON_FLAGS"
 
