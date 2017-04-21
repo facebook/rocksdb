@@ -138,7 +138,9 @@ class WritableFileWriter {
         rate_limiter_(options.rate_limiter),
         stats_(stats) {
     buf_.Alignment(writable_file_->GetRequiredBufferAlignment());
-    buf_.AllocateNewBuffer(std::min((size_t)65536, max_buffer_size_));
+    buf_.AllocateNewBuffer(use_direct_io()
+                               ? max_buffer_size_
+                               : std::min((size_t)65536, max_buffer_size_));
   }
 
   WritableFileWriter(const WritableFileWriter&) = delete;
