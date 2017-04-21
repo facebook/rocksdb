@@ -383,6 +383,7 @@ TEST_F(CloudTest, DbidRegistry) {
 //
 // Verify that we can cache data from S3 in persistent cache.
 //
+#ifdef AWS_DO_NOT_RUN
 TEST_F(CloudTest, PersistentCache) {
   std::string pcache = test::TmpDir() + "/persistent_cache";
   SetPersistentCache(pcache, 1);
@@ -402,6 +403,7 @@ TEST_F(CloudTest, PersistentCache) {
   ASSERT_EQ(value, "World");
   CloseDB();
 }
+#endif /* AWS_DO_NOT_RUN */
 
 }  //  namespace rocksdb
 

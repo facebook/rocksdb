@@ -301,6 +301,7 @@ TEST_F(DBTest, PutSingleDeleteGet) {
                          kSkipUniversalCompaction | kSkipMergePut));
 }
 
+#ifdef AWS_DO_NOT_RUN
 TEST_F(DBTest, ReadFromPersistedTier) {
   do {
     Random rnd(301);
@@ -413,6 +414,7 @@ TEST_F(DBTest, ReadFromPersistedTier) {
     }
   } while (ChangeOptions(kSkipHashCuckoo));
 }
+#endif
 
 TEST_F(DBTest, SingleDeleteFlush) {
   // Test to check whether flushing preserves a single delete hidden
