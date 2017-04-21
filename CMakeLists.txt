@@ -635,6 +635,16 @@ else()
   message(STATUS "JNI library is disabled")
 endif()
 
+# Installation and packaging for Linux
+include(GNUInstallDirs)
+install(TARGETS ${ROCKSDB_STATIC_LIB} COMPONENT devel ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+install(TARGETS ${ROCKSDB_SHARED_LIB} COMPONENT runtime DESTINATION ${CMAKE_INSTALL_LIBDIR})
+install(DIRECTORY include/rocksdb COMPONENT devel DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+if(${CMAKE_INSTALL_PREFIX} STREQUAL /usr/local)
+  # Change default installation prefix on Linux to /usr
+  set(CMAKE_INSTALL_PREFIX /usr)
+endif()
+
 set(TESTS
         cache/cache_test.cc
         cache/lru_cache_test.cc
@@ -847,13 +857,3 @@ foreach(sourcefile ${C_TEST_EXES})
     add_dependencies(check ${exename}${ARTIFACT_SUFFIX})
 endforeach(sourcefile ${C_TEST_EXES})
 add_subdirectory(tools)
-
-# Installation and packaging for Linux
-include(GNUInstallDirs)
-install(TARGETS ${ROCKSDB_STATIC_LIB} COMPONENT devel ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
-install(TARGETS ${ROCKSDB_SHARED_LIB} COMPONENT runtime DESTINATION ${CMAKE_INSTALL_LIBDIR})
-install(DIRECTORY include/rocksdb COMPONENT devel DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
-if(${CMAKE_INSTALL_PREFIX} STREQUAL /usr/local)
-  # Change default installation prefix on Linux to /usr
-  set(CMAKE_INSTALL_PREFIX /usr)
-endif()
