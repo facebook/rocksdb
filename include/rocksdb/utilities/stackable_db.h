@@ -307,6 +307,9 @@ class StackableDB : public DB {
     return db_->SetDBOptions(new_options);
   }
 
+  using DB::ResetStats;
+  virtual Status ResetStats() override { return db_->ResetStats(); }
+
   using DB::GetPropertiesOfAllTables;
   virtual Status GetPropertiesOfAllTables(
       ColumnFamilyHandle* column_family,

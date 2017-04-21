@@ -612,18 +612,28 @@ Status BackupEngineImpl::Initialize() {
       const auto abs_dir = GetAbsolutePath(rel_dir);
       InsertPathnameToSizeBytes(abs_dir, backup_env_, &abs_path_to_size);
     }
-    // load the backups if any
-    for (auto& backup : backups_) {
+    // load the backups if any, until valid_backups_to_open of the latest
+    // non-corrupted backups have been successfully opened.
+    int valid_backups_to_open;
+    if (options_.max_valid_backups_to_open == 0) {
+      valid_backups_to_open = INT_MAX;
+    } else {
+      valid_backups_to_open = options_.max_valid_backups_to_open;
+    }
+    for (auto backup_iter = backups_.rbegin();
+         backup_iter != backups_.rend() && valid_backups_to_open > 0;
+         ++backup_iter) {
       InsertPathnameToSizeBytes(
-          GetAbsolutePath(GetPrivateFileRel(backup.first)), backup_env_,
+          GetAbsolutePath(GetPrivateFileRel(backup_iter->first)), backup_env_,
           &abs_path_to_size);
-      Status s =
-          backup.second->LoadFromFile(options_.backup_dir, abs_path_to_size);
+      Status s = backup_iter->second->LoadFromFile(options_.backup_dir,
+                                                   abs_path_to_size);
       if (s.IsCorruption()) {
         ROCKS_LOG_INFO(options_.info_log, "Backup %u corrupted -- %s",
-                       backup.first, s.ToString().c_str());
-        corrupt_backups_.insert(std::make_pair(
-              backup.first, std::make_pair(s, std::move(backup.second))));
+                       backup_iter->first, s.ToString().c_str());
+        corrupt_backups_.insert(
+            std::make_pair(backup_iter->first,
+                           std::make_pair(s, std::move(backup_iter->second))));
       } else if (!s.ok()) {
         // Distinguish corruption errors from errors in the backup Env.
         // Errors in the backup Env (i.e., this code path) will cause Open() to
@@ -631,13 +641,28 @@ Status BackupEngineImpl::Initialize() {
         return s;
       } else {
         ROCKS_LOG_INFO(options_.info_log, "Loading backup %" PRIu32 " OK:\n%s",
-                       backup.first, backup.second->GetInfoString().c_str());
-        latest_backup_id_ = std::max(latest_backup_id_, backup.first);
+                       backup_iter->first,
+                       backup_iter->second->GetInfoString().c_str());
+        latest_backup_id_ = std::max(latest_backup_id_, backup_iter->first);
+        --valid_backups_to_open;
       }
     }
 
     for (const auto& corrupt : corrupt_backups_) {
       backups_.erase(backups_.find(corrupt.first));
+    }
+    // erase the backups before max_valid_backups_to_open
+    int num_unopened_backups;
+    if (options_.max_valid_backups_to_open == 0) {
+      num_unopened_backups = 0;
+    } else {
+      num_unopened_backups =
+          std::max(0, static_cast<int>(backups_.size()) -
+                          options_.max_valid_backups_to_open);
+    }
+    for (int i = 0; i < num_unopened_backups; ++i) {
+      assert(backups_.begin()->second->Empty());
+      backups_.erase(backups_.begin());
     }
   }
 

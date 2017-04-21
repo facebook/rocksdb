@@ -20,6 +20,8 @@
 
 namespace rocksdb {
 
+class CompactionEventListener;
+
 class CompactionIterator {
  public:
   // A wrapper around Compaction. Has a much smaller interface, only what
@@ -60,6 +62,7 @@ class CompactionIterator {
                      RangeDelAggregator* range_del_agg,
                      const Compaction* compaction = nullptr,
                      const CompactionFilter* compaction_filter = nullptr,
+                     CompactionEventListener* compaction_listener = nullptr,
                      const std::atomic<bool>* shutting_down = nullptr);
 
   // Constructor with custom CompactionProxy, used for tests.
@@ -71,6 +74,7 @@ class CompactionIterator {
                      RangeDelAggregator* range_del_agg,
                      std::unique_ptr<CompactionProxy> compaction,
                      const CompactionFilter* compaction_filter = nullptr,
+                     CompactionEventListener* compaction_listener = nullptr,
                      const std::atomic<bool>* shutting_down = nullptr);
 
   ~CompactionIterator();
@@ -124,6 +128,7 @@ class CompactionIterator {
   RangeDelAggregator* range_del_agg_;
   std::unique_ptr<CompactionProxy> compaction_;
   const CompactionFilter* compaction_filter_;
+  CompactionEventListener* compaction_listener_;
   const std::atomic<bool>* shutting_down_;
   bool bottommost_level_;
   bool valid_ = false;

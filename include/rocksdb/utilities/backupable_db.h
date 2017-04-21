@@ -108,6 +108,11 @@ struct BackupableDBOptions {
   // Default: 4194304
   uint64_t callback_trigger_interval_size;
 
+  // When Open() is called, it will open at most this many of the latest
+  // non-corrupted backups. If 0, it will open all available backups.
+  // Default: 0
+  int max_valid_backups_to_open;
+
   void Dump(Logger* logger) const;
 
   explicit BackupableDBOptions(
@@ -116,7 +121,8 @@ struct BackupableDBOptions {
       bool _sync = true, bool _destroy_old_data = false,
       bool _backup_log_files = true, uint64_t _backup_rate_limit = 0,
       uint64_t _restore_rate_limit = 0, int _max_background_operations = 1,
-      uint64_t _callback_trigger_interval_size = 4 * 1024 * 1024)
+      uint64_t _callback_trigger_interval_size = 4 * 1024 * 1024,
+      int _max_valid_backups_to_open = 0)
       : backup_dir(_backup_dir),
         backup_env(_backup_env),
         share_table_files(_share_table_files),
@@ -128,7 +134,8 @@ struct BackupableDBOptions {
         restore_rate_limit(_restore_rate_limit),
         share_files_with_checksum(false),
         max_background_operations(_max_background_operations),
-        callback_trigger_interval_size(_callback_trigger_interval_size) {
+        callback_trigger_interval_size(_callback_trigger_interval_size),
+        max_valid_backups_to_open(_max_valid_backups_to_open) {
     assert(share_table_files || !share_files_with_checksum);
   }
 };

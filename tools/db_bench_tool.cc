@@ -176,6 +176,7 @@ DEFINE_string(
     "Meta operations:\n"
     "\tcompact     -- Compact the entire DB\n"
     "\tstats       -- Print DB stats\n"
+    "\tresetstats  -- Reset DB stats\n"
     "\tlevelstats  -- Print the number of files and bytes per level\n"
     "\tsstables    -- Print sstable info\n"
     "\theapprofile -- Dump a heap profile (if supported by this"
@@ -2430,6 +2431,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         method = &Benchmark::TimeSeries;
       } else if (name == "stats") {
         PrintStats("rocksdb.stats");
+      } else if (name == "resetstats") {
+        ResetStats();
       } else if (name == "verify") {
         VerifyDBFromDB(FLAGS_truth_db);
       } else if (name == "levelstats") {
@@ -5010,6 +5013,15 @@ void VerifyDBFromDB(std::string& truth_db_name) {
   void Compact(ThreadState* thread) {
     DB* db = SelectDB(thread);
     db->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  }
+
+  void ResetStats() {
+    if (db_.db != nullptr) {
+      db_.db->ResetStats();
+    }
+    for (const auto& db_with_cfh : multi_dbs_) {
+      db_with_cfh.db->ResetStats();
+    }
   }
 
   void PrintStats(const char* key) {

@@ -1314,9 +1314,9 @@ void VersionStorageInfo::ComputeCompactionScore(
           // Level-based involves L0->L0 compactions that can lead to oversized
           // L0 files. Take into account size as well to avoid later giant
           // compactions to the base level.
-          uint64_t base_level_max_bytes = MaxBytesForLevel(base_level());
           score = std::max(
-              score, static_cast<double>(total_size) / base_level_max_bytes);
+              score, static_cast<double>(total_size) /
+                     mutable_cf_options.max_bytes_for_level_base);
         }
       }
     } else {

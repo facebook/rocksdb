@@ -38,13 +38,16 @@ enum FileType {
   kInfoLogFile,  // Either the current one, or an old one
   kMetaDatabase,
   kIdentityFile,
-  kOptionsFile
+  kOptionsFile,
+  kBlobFile
 };
 
 // Return the name of the log file with the specified number
 // in the db named by "dbname".  The result will be prefixed with
 // "dbname".
 extern std::string LogFileName(const std::string& dbname, uint64_t number);
+
+extern std::string BlobFileName(const std::string& bdirname, uint64_t number);
 
 static const std::string ARCHIVAL_DIR = "archive";
 
