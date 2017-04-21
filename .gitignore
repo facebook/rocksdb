@@ -41,6 +41,7 @@ package/
 .phutil_module_cache
 unity.a
 tags
+etags
 rocksdb_dump
 rocksdb_undump
 db_test2
