@@ -4,6 +4,11 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 //
 #ifndef ROCKSDB_LITE
+
+#ifndef GFLAGS
+#include <cstdio>
+int main() { fprintf(stderr, "Please install gflags to run tools\n"); }
+#else
 #include <gflags/gflags.h>
 #include <atomic>
 #include <functional>
@@ -349,6 +354,7 @@ int main(int argc, char** argv) {
 
   return 0;
 }
+#endif  // #ifndef GFLAGS
 #else
 int main(int, char**) { return 0; }
 #endif

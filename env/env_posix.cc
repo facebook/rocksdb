@@ -159,7 +159,7 @@ class PosixEnv : public Env {
 #ifdef ROCKSDB_LITE
       return Status::IOError(fname, "Direct I/O not supported in RocksDB lite");
 #endif  // !ROCKSDB_LITE
-#if !defined(OS_MACOSX) && !defined(OS_OPENBSD)
+#if !defined(OS_MACOSX) && !defined(OS_OPENBSD) && !defined(OS_SOLARIS)
       flags |= O_DIRECT;
 #endif
     }
@@ -206,7 +206,7 @@ class PosixEnv : public Env {
 #ifdef ROCKSDB_LITE
       return Status::IOError(fname, "Direct I/O not supported in RocksDB lite");
 #endif  // !ROCKSDB_LITE
-#if !defined(OS_MACOSX) && !defined(OS_OPENBSD)
+#if !defined(OS_MACOSX) && !defined(OS_OPENBSD) && !defined(OS_SOLARIS)
       flags |= O_DIRECT;
       TEST_SYNC_POINT_CALLBACK("NewRandomAccessFile:O_DIRECT", &flags);
 #endif
@@ -271,7 +271,7 @@ class PosixEnv : public Env {
       return Status::IOError(fname, "Direct I/O not supported in RocksDB lite");
 #endif  // ROCKSDB_LITE
       flags |= O_WRONLY;
-#if !defined(OS_MACOSX) && !defined(OS_OPENBSD)
+#if !defined(OS_MACOSX) && !defined(OS_OPENBSD) && !defined(OS_SOLARIS)
       flags |= O_DIRECT;
 #endif
       TEST_SYNC_POINT_CALLBACK("NewWritableFile:O_DIRECT", &flags);
@@ -312,6 +312,14 @@ class PosixEnv : public Env {
         s = IOError(fname, errno);
         return s;
       }
+#elif defined(OS_SOLARIS)
+      if (directio(fd, DIRECTIO_ON) == -1) {
+        if (errno != ENOTTY) { // ZFS filesystems don't support DIRECTIO_ON
+          close(fd);
+          s = IOError(fname, errno);
+          return s;
+        }
+      }
 #endif
       result->reset(new PosixWritableFile(fname, fd, options));
     } else {
@@ -338,7 +346,7 @@ class PosixEnv : public Env {
       return Status::IOError(fname, "Direct I/O not supported in RocksDB lite");
 #endif  // !ROCKSDB_LITE
       flags |= O_WRONLY;
-#if !defined(OS_MACOSX) && !defined(OS_OPENBSD)
+#if !defined(OS_MACOSX) && !defined(OS_OPENBSD) && !defined(OS_SOLARIS)
       flags |= O_DIRECT;
 #endif
       TEST_SYNC_POINT_CALLBACK("NewWritableFile:O_DIRECT", &flags);
@@ -384,6 +392,14 @@ class PosixEnv : public Env {
         close(fd);
         s = IOError(fname, errno);
         return s;
+      }
+#elif defined(OS_SOLARIS)
+      if (directio(fd, DIRECTIO_ON) == -1) {
+        if (errno != ENOTTY) { // ZFS filesystems don't support DIRECTIO_ON
+          close(fd);
+          s = IOError(fname, errno);
+          return s;
+        }
       }
 #endif
       result->reset(new PosixWritableFile(fname, fd, options));
@@ -668,10 +684,12 @@ class PosixEnv : public Env {
   }
 
   virtual uint64_t NowNanos() override {
-#if defined(OS_LINUX) || defined(OS_FREEBSD)
+#if defined(OS_LINUX) || defined(OS_FREEBSD) || defined(OS_AIX)
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return static_cast<uint64_t>(ts.tv_sec) * 1000000000 + ts.tv_nsec;
+#elif defined(OS_SOLARIS)
+    return gethrtime();
 #elif defined(__MACH__)
     clock_serv_t cclock;
     mach_timespec_t ts;

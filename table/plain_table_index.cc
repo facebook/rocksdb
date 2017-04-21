@@ -44,7 +44,7 @@ Status PlainTableIndex::InitFromRawData(Slice data) {
 PlainTableIndex::IndexSearchResult PlainTableIndex::GetOffset(
     uint32_t prefix_hash, uint32_t* bucket_value) const {
   int bucket = GetBucketIdFromHash(prefix_hash, index_size_);
-  *bucket_value = index_[bucket];
+  GetUnaligned(index_ + bucket, bucket_value);
   if ((*bucket_value & kSubIndexMask) == kSubIndexMask) {
     *bucket_value ^= kSubIndexMask;
     return kSubindex;
@@ -175,15 +175,15 @@ Slice PlainTableIndexBuilder::FillIndexes(
     switch (num_keys_for_bucket) {
       case 0:
         // No key for bucket
-        index[i] = PlainTableIndex::kMaxFileSize;
+        PutUnaligned(index + i, (uint32_t)PlainTableIndex::kMaxFileSize);
         break;
       case 1:
         // point directly to the file offset
-        index[i] = hash_to_offsets[i]->offset;
+        PutUnaligned(index + i, hash_to_offsets[i]->offset);
         break;
       default:
         // point to second level indexes.
-        index[i] = sub_index_offset | PlainTableIndex::kSubIndexMask;
+        PutUnaligned(index + i, sub_index_offset | PlainTableIndex::kSubIndexMask);
         char* prev_ptr = &sub_index[sub_index_offset];
         char* cur_ptr = EncodeVarint32(prev_ptr, num_keys_for_bucket);
         sub_index_offset += static_cast<uint32_t>(cur_ptr - prev_ptr);

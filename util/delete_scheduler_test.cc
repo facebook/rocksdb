@@ -91,7 +91,7 @@ TEST_F(DeleteSchedulerTest, BasicRateLimiting) {
   std::vector<uint64_t> penalties;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DeleteScheduler::BackgroundEmptyTrash:Wait",
-      [&](void* arg) { penalties.push_back(*(static_cast<int*>(arg))); });
+      [&](void* arg) { penalties.push_back(*(static_cast<uint64_t*>(arg))); });
 
   int num_files = 100;  // 100 files
   uint64_t file_size = 1024;  // every file is 1 kb
@@ -158,7 +158,7 @@ TEST_F(DeleteSchedulerTest, RateLimitingMultiThreaded) {
   std::vector<uint64_t> penalties;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DeleteScheduler::BackgroundEmptyTrash:Wait",
-      [&](void* arg) { penalties.push_back(*(static_cast<int*>(arg))); });
+      [&](void* arg) { penalties.push_back(*(static_cast<uint64_t*>(arg))); });
 
   int thread_cnt = 10;
   int num_files = 10;  // 10 files per thread
