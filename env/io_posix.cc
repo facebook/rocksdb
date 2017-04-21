@@ -30,6 +30,7 @@
 #include "monitoring/iostats_context_imp.h"
 #include "port/port.h"
 #include "rocksdb/slice.h"
+#include "util/aligned_buffer.h"
 #include "util/coding.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
@@ -333,6 +334,18 @@ Status PosixRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
     s = IOError(filename_, errno);
   }
   *result = Slice(scratch, (r < 0) ? 0 : n - left);
+  return s;
+}
+
+Status PosixRandomAccessFile::Prefetch(uint64_t offset, size_t n) {
+  Status s;
+  if (!use_direct_io()) {
+    size_t prefetch_offset =
+        TruncateToPageBoundary(GetRequiredBufferAlignment(), offset);
+    if (readahead(fd_, prefetch_offset, offset - prefetch_offset + n) == -1) {
+      s = IOError(filename_, errno);
+    }
+  }
   return s;
 }
 
