@@ -51,9 +51,9 @@ inputs:
     build_env_travis_build_dir:
       default: '/src'
     build_sec_env:
-      default: '%%secrets.==$1$key=default$text$BqmWKIVl6BMbPHIVSB7WCK7gHR5BdvuQBEgT++p5zAwS4v1IslTM7PhPOw4vKlUdmBif2n9Z8JIo0+Iat8wok3gzDFDP1/LGwaxuQTkFz5aJDmpJmmeCcKyHplUWmowq2T3V1LCEn0wbkU3TIiwXCJ2W1MKr8Lk1vbmg/QarB9w===%%'
+      default: '%%secrets.==$1$key=default$text$AP0JF/mIdE1c1ygnRpC70u2RNY+sQNbWC2x5x56imS7FMsI9nQvgnTnj5vVnq8aCI3Ldt4YvsOcVsVk0Qs9v6vsQzojvn6Gdv+IkwVZ9IDwQZXz8lxUklEFDR14K9gkae4RcOfigTy6ELgDocVKvRU8M8xZkGpFM1CzYGgw32ZoAG7zfZWvTNoIgRn9hawS9YjsjX1LvQoJbK6JoLdQCTGEGgofEC2XW92EiD+K7o0Oo99tZOVUtgaiZ0liztBHqQqKxPPnsYUP4RU0n7WB1RXkQVNoqyCua2bB5VkffxbLHcA84rj5xWAJrlt6JoMS/FivODJ5/n55vqW9ZXiuz0r688OWegn6jtvCcigxOodJxax4qEAfXkYe317XjSN2bhjA/usZysDmaS48KsWG0T8HC2g5dH4S1IyV69+MAiMvhaw====%%'
     build_sec_env2:
-      default: '%%secrets.==$1$key=default$text$YsiFPasvel5dK2kas8/gU1vawhvoSRuC7fwwGImoMDfY5iI/LXGGZ9RwzrNIbQpXaqGYyXeOmXrFP6YAvcL29tEkXu7Ayd+mM5fak/CdLx40EmBZY2j9oLl82c8rUz+Ln76fReHuetWzNJhSv0K/v5FQ1PJ5IKNE8b8G/TQBNEI===%%'
+      default: '%%secrets.==$1$key=default$text$ATcbh4pK0xFvbnT9GpikmurIWpoQ84Xa/QzDawHg38mGaVOQ790hupceyfoIN16VAXYxgzB1YedSIDWCf6va9rfQEvkuKCKmYv/172RG6gCXVvoJ1sN7pjXa1SMjuvubODZ73zg82r/Y1rN092wLqnyrmtN5Ll7mojusRBMlh3ocbok8t4X38aTy6byDuEh9TSk2e1ClET5QADWTgJhX3Z5CfIUfDNQtFi8rJOqrZ0pVMp5rnmV6h4o1zNklnjNkvIYAdEbGMZfcpdv7aL68hwFaoDMwjVNTNaUTHYdHLbmI04rsr/CgHuOrIihatDLu81XSa7S9k3SZqqgvm8gGcQusc7SN3dvXObNG0HVssChqyVmAhr+y2nWOHzpMV9h3kzER4XfQegjJd/On8oXtDwzb7MgbaZyOL7iICZrJORCnKQ====%%'
 
 steps:
   - checkout:
