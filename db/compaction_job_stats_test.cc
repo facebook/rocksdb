@@ -656,7 +656,6 @@ TEST_P(CompactionJobStatsTest, CompactionJobStatsTest) {
   Options options;
   options.listeners.emplace_back(stats_checker);
   options.create_if_missing = true;
-  options.max_background_flushes = 0;
   // just enough setting to hold off auto-compaction.
   options.level0_file_num_compaction_trigger = kTestScale + 1;
   options.num_levels = 3;
@@ -878,7 +877,6 @@ TEST_P(CompactionJobStatsTest, DeletionStatsTest) {
   Options options;
   options.listeners.emplace_back(stats_checker);
   options.create_if_missing = true;
-  options.max_background_flushes = 0;
   options.level0_file_num_compaction_trigger = kTestScale+1;
   options.num_levels = 3;
   options.compression = kNoCompression;

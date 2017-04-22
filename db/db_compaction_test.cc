@@ -1977,7 +1977,6 @@ TEST_P(DBCompactionTestWithParam, ManualCompaction) {
 
     if (iter == 0) {
       options = CurrentOptions();
-      options.max_background_flushes = 0;
       options.num_levels = 3;
       options.create_if_missing = true;
       options.statistics = rocksdb::CreateDBStatistics();
