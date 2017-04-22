@@ -267,7 +267,7 @@ size_t PosixHelper::GetUniqueIdFromFile(int fd, char* id, size_t max_size) {
 }
 #endif
 
-#if defined(OS_MACOSX)
+#if defined(OS_MACOSX) || defined(OS_AIX)
 size_t PosixHelper::GetUniqueIdFromFile(int fd, char* id, size_t max_size) {
   if (max_size < kMaxVarint64Length * 3) {
     return 0;
@@ -336,7 +336,7 @@ Status PosixRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
   return s;
 }
 
-#if defined(OS_LINUX) || defined(OS_MACOSX)
+#if defined(OS_LINUX) || defined(OS_MACOSX) || defined(OS_AIX)
 size_t PosixRandomAccessFile::GetUniqueId(char* id, size_t max_size) const {
   return PosixHelper::GetUniqueIdFromFile(fd_, id, max_size);
 }
@@ -848,7 +848,7 @@ Status PosixWritableFile::Allocate(uint64_t offset, uint64_t len) {
 }
 #endif
 
-#ifdef OS_LINUX
+#ifdef ROCKSDB_RANGESYNC_PRESENT
 Status PosixWritableFile::RangeSync(uint64_t offset, uint64_t nbytes) {
   assert(offset <= std::numeric_limits<off_t>::max());
   assert(nbytes <= std::numeric_limits<off_t>::max());
@@ -859,7 +859,9 @@ Status PosixWritableFile::RangeSync(uint64_t offset, uint64_t nbytes) {
     return IOError(filename_, errno);
   }
 }
+#endif
 
+#ifdef OS_LINUX
 size_t PosixWritableFile::GetUniqueId(char* id, size_t max_size) const {
   return PosixHelper::GetUniqueIdFromFile(fd_, id, max_size);
 }
@@ -961,9 +963,11 @@ Status PosixRandomRWFile::Close() {
 PosixDirectory::~PosixDirectory() { close(fd_); }
 
 Status PosixDirectory::Fsync() {
+#ifndef OS_AIX
   if (fsync(fd_) == -1) {
     return IOError("directory", errno);
   }
+#endif
   return Status::OK();
 }
 }  // namespace rocksdb

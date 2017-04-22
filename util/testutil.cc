@@ -94,9 +94,13 @@ class Uint64ComparatorImpl : public Comparator {
     assert(a.size() == sizeof(uint64_t) && b.size() == sizeof(uint64_t));
     const uint64_t* left = reinterpret_cast<const uint64_t*>(a.data());
     const uint64_t* right = reinterpret_cast<const uint64_t*>(b.data());
-    if (*left == *right) {
+    uint64_t leftValue;
+    uint64_t rightValue;
+    GetUnaligned(left, &leftValue);
+    GetUnaligned(right, &rightValue);
+    if (leftValue == rightValue) {
       return 0;
-    } else if (*left < *right) {
+    } else if (leftValue < rightValue) {
       return -1;
     } else {
       return 1;

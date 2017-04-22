@@ -633,18 +633,33 @@ TEST_F(PerfContextTest, MergeOperatorTime) {
   SetPerfLevel(kEnableTime);
   perf_context.Reset();
   ASSERT_OK(db->Get(ReadOptions(), "k1", &val));
+#ifdef OS_SOLARIS
+  for (int i = 0; i < 100; i++) {
+    ASSERT_OK(db->Get(ReadOptions(), "k1", &val));
+  }
+#endif
   EXPECT_GT(perf_context.merge_operator_time_nanos, 0);
 
   ASSERT_OK(db->Flush(FlushOptions()));
 
   perf_context.Reset();
   ASSERT_OK(db->Get(ReadOptions(), "k1", &val));
+#ifdef OS_SOLARIS
+  for (int i = 0; i < 100; i++) {
+    ASSERT_OK(db->Get(ReadOptions(), "k1", &val));
+  }
+#endif
   EXPECT_GT(perf_context.merge_operator_time_nanos, 0);
 
   ASSERT_OK(db->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
   perf_context.Reset();
   ASSERT_OK(db->Get(ReadOptions(), "k1", &val));
+#ifdef OS_SOLARIS
+  for (int i = 0; i < 100; i++) {
+    ASSERT_OK(db->Get(ReadOptions(), "k1", &val));
+  }
+#endif
   EXPECT_GT(perf_context.merge_operator_time_nanos, 0);
 
   delete db;

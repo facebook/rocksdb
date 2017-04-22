@@ -15,7 +15,7 @@
 
 // For non linux platform, the following macros are used only as place
 // holder.
-#if !(defined OS_LINUX) && !(defined CYGWIN)
+#if !(defined OS_LINUX) && !(defined CYGWIN) && !(defined OS_AIX)
 #define POSIX_FADV_NORMAL 0     /* [MC1] no further special treatment */
 #define POSIX_FADV_RANDOM 1     /* [MC1] expect random page refs */
 #define POSIX_FADV_SEQUENTIAL 2 /* [MC1] expect sequential page refs */
@@ -79,7 +79,7 @@ class PosixRandomAccessFile : public RandomAccessFile {
 
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
                       char* scratch) const override;
-#if defined(OS_LINUX) || defined(OS_MACOSX)
+#if defined(OS_LINUX) || defined(OS_MACOSX) || defined(OS_AIX)
   virtual size_t GetUniqueId(char* id, size_t max_size) const override;
 #endif
   virtual void Hint(AccessPattern pattern) override;
@@ -126,8 +126,10 @@ class PosixWritableFile : public WritableFile {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
   virtual Status Allocate(uint64_t offset, uint64_t len) override;
 #endif
-#ifdef OS_LINUX
+#ifdef ROCKSDB_RANGESYNC_PRESENT
   virtual Status RangeSync(uint64_t offset, uint64_t nbytes) override;
+#endif
+#ifdef OS_LINUX
   virtual size_t GetUniqueId(char* id, size_t max_size) const override;
 #endif
 };

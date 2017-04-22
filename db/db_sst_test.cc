@@ -297,7 +297,7 @@ TEST_F(DBSSTTest, RateLimitedDelete) {
   std::vector<uint64_t> penalties;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DeleteScheduler::BackgroundEmptyTrash:Wait",
-      [&](void* arg) { penalties.push_back(*(static_cast<int*>(arg))); });
+      [&](void* arg) { penalties.push_back(*(static_cast<uint64_t*>(arg))); });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "InstrumentedCondVar::TimedWaitInternal", [&](void* arg) {
         // Turn timed wait into a simulated sleep

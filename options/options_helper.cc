@@ -320,10 +320,10 @@ bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
       *reinterpret_cast<uint32_t*>(opt_address) = ParseUint32(value);
       break;
     case OptionType::kUInt64T:
-      *reinterpret_cast<uint64_t*>(opt_address) = ParseUint64(value);
+      PutUnaligned(reinterpret_cast<uint64_t*>(opt_address), ParseUint64(value));
       break;
     case OptionType::kSizeT:
-      *reinterpret_cast<size_t*>(opt_address) = ParseSizeT(value);
+      PutUnaligned(reinterpret_cast<size_t*>(opt_address), ParseSizeT(value));
       break;
     case OptionType::kString:
       *reinterpret_cast<std::string*>(opt_address) = value;
@@ -404,10 +404,18 @@ bool SerializeSingleOptionHelper(const char* opt_address,
       *value = ToString(*(reinterpret_cast<const uint32_t*>(opt_address)));
       break;
     case OptionType::kUInt64T:
-      *value = ToString(*(reinterpret_cast<const uint64_t*>(opt_address)));
+      {
+        uint64_t v;
+        GetUnaligned(reinterpret_cast<const uint64_t*>(opt_address), &v);
+        *value = ToString(v);
+      }
       break;
     case OptionType::kSizeT:
-      *value = ToString(*(reinterpret_cast<const size_t*>(opt_address)));
+      {
+        size_t v;
+        GetUnaligned(reinterpret_cast<const size_t*>(opt_address), &v);
+        *value = ToString(v);
+      }
       break;
     case OptionType::kDouble:
       *value = ToString(*(reinterpret_cast<const double*>(opt_address)));

@@ -9,7 +9,11 @@
 
 #pragma once
 
+#ifdef OS_AIX
+#include "gtest/gtest.h"
+#else
 #include <gtest/gtest.h>
+#endif
 
 #include <string>
 #include "rocksdb/env.h"

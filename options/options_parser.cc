@@ -528,11 +528,19 @@ bool AreEqualOptions(
       return (*reinterpret_cast<const uint32_t*>(offset1) ==
               *reinterpret_cast<const uint32_t*>(offset2));
     case OptionType::kUInt64T:
-      return (*reinterpret_cast<const uint64_t*>(offset1) ==
-              *reinterpret_cast<const uint64_t*>(offset2));
+      {
+        uint64_t v1, v2;
+        GetUnaligned(reinterpret_cast<const uint64_t*>(offset1), &v1);
+        GetUnaligned(reinterpret_cast<const uint64_t*>(offset2), &v2);
+        return (v1 == v2);
+      }
     case OptionType::kSizeT:
-      return (*reinterpret_cast<const size_t*>(offset1) ==
-              *reinterpret_cast<const size_t*>(offset2));
+      {
+        size_t v1, v2;
+        GetUnaligned(reinterpret_cast<const size_t*>(offset1), &v1);
+        GetUnaligned(reinterpret_cast<const size_t*>(offset2), &v2);
+        return (v1 == v2);
+      }
     case OptionType::kString:
       return (*reinterpret_cast<const std::string*>(offset1) ==
               *reinterpret_cast<const std::string*>(offset2));

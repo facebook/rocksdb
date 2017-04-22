@@ -49,6 +49,7 @@ struct DBPropertyInfo {
 extern const DBPropertyInfo* GetPropertyInfo(const Slice& property);
 
 #ifndef ROCKSDB_LITE
+#undef SCORE
 enum class LevelStatType {
   INVALID = 0,
   NUM_FILES,

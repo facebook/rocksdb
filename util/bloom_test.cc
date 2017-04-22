@@ -33,7 +33,9 @@ namespace rocksdb {
 static const int kVerbose = 1;
 
 static Slice Key(int i, char* buffer) {
-  memcpy(buffer, &i, sizeof(i));
+  std::string s;
+  PutFixed32(&s, static_cast<uint32_t>(i));
+  memcpy(buffer, s.c_str(), sizeof(i));
   return Slice(buffer, sizeof(i));
 }
 

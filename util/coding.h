@@ -21,6 +21,11 @@
 #include "rocksdb/write_batch.h"
 #include "port/port.h"
 
+// Some processors does not allow unaligned access to memory
+#if defined(__sparc)
+  #define PLATFORM_UNALIGNED_ACCESS_NOT_ALLOWED
+#endif
+
 namespace rocksdb {
 
 // The maximum length of a varint in bytes for 64-bit.
@@ -127,52 +132,52 @@ inline const char* GetVarint32Ptr(const char* p,
 
 // -- Implementation of the functions declared above
 inline void EncodeFixed32(char* buf, uint32_t value) {
-#if __BYTE_ORDER == __LITTLE_ENDIAN
-  memcpy(buf, &value, sizeof(value));
-#else
-  buf[0] = value & 0xff;
-  buf[1] = (value >> 8) & 0xff;
-  buf[2] = (value >> 16) & 0xff;
-  buf[3] = (value >> 24) & 0xff;
-#endif
+  if (port::kLittleEndian) {
+    memcpy(buf, &value, sizeof(value));
+  } else {
+    buf[0] = value & 0xff;
+    buf[1] = (value >> 8) & 0xff;
+    buf[2] = (value >> 16) & 0xff;
+    buf[3] = (value >> 24) & 0xff;
+  }
 }
 
 inline void EncodeFixed64(char* buf, uint64_t value) {
-#if __BYTE_ORDER == __LITTLE_ENDIAN
-  memcpy(buf, &value, sizeof(value));
-#else
-  buf[0] = value & 0xff;
-  buf[1] = (value >> 8) & 0xff;
-  buf[2] = (value >> 16) & 0xff;
-  buf[3] = (value >> 24) & 0xff;
-  buf[4] = (value >> 32) & 0xff;
-  buf[5] = (value >> 40) & 0xff;
-  buf[6] = (value >> 48) & 0xff;
-  buf[7] = (value >> 56) & 0xff;
-#endif
+  if (port::kLittleEndian) {
+    memcpy(buf, &value, sizeof(value));
+  } else {
+    buf[0] = value & 0xff;
+    buf[1] = (value >> 8) & 0xff;
+    buf[2] = (value >> 16) & 0xff;
+    buf[3] = (value >> 24) & 0xff;
+    buf[4] = (value >> 32) & 0xff;
+    buf[5] = (value >> 40) & 0xff;
+    buf[6] = (value >> 48) & 0xff;
+    buf[7] = (value >> 56) & 0xff;
+  }
 }
 
 // Pull the last 8 bits and cast it to a character
 inline void PutFixed32(std::string* dst, uint32_t value) {
-#if __BYTE_ORDER__ == __LITTLE_ENDIAN__
-  dst->append(const_cast<const char*>(reinterpret_cast<char*>(&value)),
-    sizeof(value));
-#else
-  char buf[sizeof(value)];
-  EncodeFixed32(buf, value);
-  dst->append(buf, sizeof(buf));
-#endif
+  if (port::kLittleEndian) {
+    dst->append(const_cast<const char*>(reinterpret_cast<char*>(&value)),
+      sizeof(value));
+  } else {
+    char buf[sizeof(value)];
+    EncodeFixed32(buf, value);
+    dst->append(buf, sizeof(buf));
+  }
 }
 
 inline void PutFixed64(std::string* dst, uint64_t value) {
-#if __BYTE_ORDER__ == __LITTLE_ENDIAN__
-  dst->append(const_cast<const char*>(reinterpret_cast<char*>(&value)),
-    sizeof(value));
-#else
-  char buf[sizeof(value)];
-  EncodeFixed64(buf, value);
-  dst->append(buf, sizeof(buf));
-#endif
+  if (port::kLittleEndian) {
+    dst->append(const_cast<const char*>(reinterpret_cast<char*>(&value)),
+      sizeof(value));
+  } else {
+    char buf[sizeof(value)];
+    EncodeFixed64(buf, value);
+    dst->append(buf, sizeof(buf));
+  }
 }
 
 inline void PutVarint32(std::string* dst, uint32_t v) {
@@ -344,6 +349,26 @@ inline Slice GetSliceUntil(Slice* slice, char delimiter) {
   Slice ret(slice->data(), len);
   slice->remove_prefix(len + ((len < slice->size()) ? 1 : 0));
   return ret;
+}
+
+template<class T>
+inline void PutUnaligned(T *memory, const T &value) {
+#if defined(PLATFORM_UNALIGNED_ACCESS_NOT_ALLOWED)
+  char *nonAlignedMemory = reinterpret_cast<char*>(memory);
+  memcpy(nonAlignedMemory, reinterpret_cast<const char*>(&value), sizeof(T));
+#else
+  *memory = value;
+#endif
+}
+
+template<class T>
+inline void GetUnaligned(const T *memory, T *value) {
+#if defined(PLATFORM_UNALIGNED_ACCESS_NOT_ALLOWED)
+  char *nonAlignedMemory = reinterpret_cast<char*>(value);
+  memcpy(nonAlignedMemory, reinterpret_cast<const char*>(memory), sizeof(T));
+#else
+  *value = *memory;
+#endif
 }
 
 }  // namespace rocksdb
