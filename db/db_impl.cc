@@ -2532,7 +2532,8 @@ Status DBImpl::IngestExternalFile(
     if (status.ok()) {
       bool need_flush = false;
       status = ingestion_job.NeedsFlush(&need_flush);
-
+      TEST_SYNC_POINT_CALLBACK("DBImpl::IngestExternalFile:NeedFlush",
+                               &need_flush);
       if (status.ok() && need_flush) {
         mutex_.Unlock();
         status = FlushMemTable(cfd, FlushOptions(), true /* writes_stopped */);

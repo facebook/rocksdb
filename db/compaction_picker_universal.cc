@@ -342,8 +342,6 @@ Compaction* UniversalCompactionPicker::PickCompaction(
       assert(f->smallest_seqno <= f->largest_seqno);
       if (is_first) {
         is_first = false;
-      } else {
-        assert(prev_smallest_seqno > f->largest_seqno);
       }
       prev_smallest_seqno = f->smallest_seqno;
     }
