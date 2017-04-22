@@ -1032,7 +1032,8 @@ std::string ParseBlockBasedTableOption(const std::string& name,
     return "Unrecognized option";
   }
   const auto& opt_info = iter->second;
-  if (!ParseOptionHelper(reinterpret_cast<char*>(new_options) + opt_info.offset,
+  if (opt_info.verification != OptionVerificationType::kDeprecated &&
+      !ParseOptionHelper(reinterpret_cast<char*>(new_options) + opt_info.offset,
                          opt_info.type, value)) {
     return "Invalid value";
   }
@@ -1041,7 +1042,7 @@ std::string ParseBlockBasedTableOption(const std::string& name,
 
 std::string ParsePlainTableOptions(const std::string& name,
                                    const std::string& org_value,
-                                   PlainTableOptions* new_option,
+                                   PlainTableOptions* new_options,
                                    bool input_strings_escaped = false) {
   const std::string& value =
       input_strings_escaped ? UnescapeOptionString(org_value) : org_value;
@@ -1050,7 +1051,8 @@ std::string ParsePlainTableOptions(const std::string& name,
     return "Unrecognized option";
   }
   const auto& opt_info = iter->second;
-  if (!ParseOptionHelper(reinterpret_cast<char*>(new_option) + opt_info.offset,
+  if (opt_info.verification != OptionVerificationType::kDeprecated &&
+      !ParseOptionHelper(reinterpret_cast<char*>(new_options) + opt_info.offset,
                          opt_info.type, value)) {
     return "Invalid value";
   }
