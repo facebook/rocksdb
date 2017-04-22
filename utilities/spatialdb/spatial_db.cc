@@ -698,7 +698,6 @@ DBOptions GetDBOptionsFromSpatialDBOptions(const SpatialDBOptions& options) {
   db_options.statistics = CreateDBStatistics();
   if (options.bulk_load) {
     db_options.stats_dump_period_sec = 600;
-    db_options.disableDataSync = true;
   } else {
     db_options.stats_dump_period_sec = 1800;  // 30min
   }

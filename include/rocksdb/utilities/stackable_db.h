@@ -56,7 +56,7 @@ class StackableDB : public DB {
   using DB::Get;
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
-                     std::string* value) override {
+                     PinnableSlice* value) override {
     return db_->Get(options, column_family, key, value);
   }
 
@@ -306,6 +306,9 @@ class StackableDB : public DB {
       override {
     return db_->SetDBOptions(new_options);
   }
+
+  using DB::ResetStats;
+  virtual Status ResetStats() override { return db_->ResetStats(); }
 
   using DB::GetPropertiesOfAllTables;
   virtual Status GetPropertiesOfAllTables(

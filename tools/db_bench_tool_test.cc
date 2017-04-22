@@ -8,8 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "rocksdb/db_bench_tool.h"
+#include "options/options_parser.h"
 #include "rocksdb/utilities/options_util.h"
-#include "util/options_parser.h"
 #include "util/random.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
@@ -200,9 +200,7 @@ const std::string options_file_content = R"OPTIONS_FILE(
   is_fd_close_on_exec=true
   bytes_per_sync=1048576
   enable_thread_tracking=true
-  disable_data_sync=false
   recycle_log_file_num=0
-  disableDataSync=false
   create_missing_column_families=false
   log_file_time_to_roll=0
   max_background_flushes=1
@@ -213,7 +211,7 @@ const std::string options_file_content = R"OPTIONS_FILE(
   allow_mmap_reads=false
   allow_mmap_writes=false
   use_direct_reads=false
-  use_direct_writes=false
+  use_direct_io_for_flush_and_compaction=false
   stats_dump_period_sec=600
   allow_fallocate=true
   max_log_file_size=83886080

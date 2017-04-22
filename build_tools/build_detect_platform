@@ -128,9 +128,16 @@ case "$TARGET_OS" in
         ;;
     SunOS)
         PLATFORM=OS_SOLARIS
-        COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp -D_REENTRANT -DOS_SOLARIS"
-        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread -lrt"
+        COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp -D_REENTRANT -DOS_SOLARIS -m64"
+        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread -lrt -static-libstdc++ -static-libgcc -m64"
         # PORT_FILES=port/sunos/sunos_specific.cc
+        ;;
+    AIX)
+        PLATFORM=OS_AIX
+        CC=gcc
+        COMMON_FLAGS="$COMMON_FLAGS -maix64 -pthread -fno-builtin-memcmp -D_REENTRANT -DOS_AIX -D__STDC_FORMAT_MACROS"
+        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -pthread -lpthread -lrt -maix64 -static-libstdc++ -static-libgcc"
+        # PORT_FILES=port/aix/aix_specific.cc
         ;;
     FreeBSD)
         PLATFORM=OS_FREEBSD
@@ -382,6 +389,18 @@ EOF
     if [ "$?" = 0 ]; then
         PROFILING_FLAGS=-pg
     fi
+
+    # Test whether sync_file_range is supported for compatibility with an old glibc
+    $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+      #include <fcntl.h>
+      int main() {
+        int fd = open("/dev/null", 0);
+        sync_file_range(fd, 0, 1024, SYNC_FILE_RANGE_WRITE);
+      }
+EOF
+    if [ "$?" = 0 ]; then
+        COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_RANGESYNC_PRESENT"
+    fi
 fi
 
 # TODO(tec): Fix -Wshorten-64-to-32 errors on FreeBSD and enable the warning.
@@ -427,7 +446,7 @@ elif test -z "$PORTABLE"; then
     COMMON_FLAGS="$COMMON_FLAGS -mcpu=$POWER -mtune=$POWER "
   elif test -n "`echo $TARGET_ARCHITECTURE | grep ^s390x`"; then
     COMMON_FLAGS="$COMMON_FLAGS -march=z10 "
-  else
+  elif [ "$TARGET_OS" != AIX ] && [ "$TARGET_OS" != SunOS ]; then
     COMMON_FLAGS="$COMMON_FLAGS -march=native "
   fi
 fi

@@ -5,13 +5,13 @@
 
 #include "utilities/ttl/db_ttl_impl.h"
 
-#include "db/filename.h"
 #include "db/write_batch_internal.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/utilities/db_ttl.h"
 #include "util/coding.h"
+#include "util/filename.h"
 
 namespace rocksdb {
 
@@ -170,6 +170,17 @@ bool DBWithTTLImpl::IsStale(const Slice& value, int32_t ttl, Env* env) {
   return (timestamp_value + ttl) < curtime;
 }
 
+// Strips the TS from the end of the slice
+Status DBWithTTLImpl::StripTS(PinnableSlice* pinnable_val) {
+  Status st;
+  if (pinnable_val->size() < kTSLength) {
+    return Status::Corruption("Bad timestamp in key-value");
+  }
+  // Erasing characters which hold the TS
+  pinnable_val->remove_suffix(kTSLength);
+  return st;
+}
+
 // Strips the TS from the end of the string
 Status DBWithTTLImpl::StripTS(std::string* str) {
   Status st;
@@ -191,7 +202,7 @@ Status DBWithTTLImpl::Put(const WriteOptions& options,
 
 Status DBWithTTLImpl::Get(const ReadOptions& options,
                           ColumnFamilyHandle* column_family, const Slice& key,
-                          std::string* value) {
+                          PinnableSlice* value) {
   Status st = db_->Get(options, column_family, key, value);
   if (!st.ok()) {
     return st;

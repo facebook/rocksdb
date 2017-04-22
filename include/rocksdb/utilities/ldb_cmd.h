@@ -39,6 +39,7 @@ class LDBCommand {
   static const std::string ARG_TTL_START;
   static const std::string ARG_TTL_END;
   static const std::string ARG_TIMESTAMP;
+  static const std::string ARG_TRY_LOAD_OPTIONS;
   static const std::string ARG_FROM;
   static const std::string ARG_TO;
   static const std::string ARG_MAX_KEYS;
@@ -143,6 +144,11 @@ class LDBCommand {
   // If true, the kvs are output with their insert/modify timestamp in a ttl db
   bool timestamp_;
 
+  // If true, try to construct options from DB's option files.
+  bool try_load_options_;
+
+  bool create_if_missing_;
+
   /**
    * Map of options passed on the command-line.
    */
@@ -239,7 +245,7 @@ class LDBCommand {
 
 class LDBCommandRunner {
  public:
-  static void PrintHelp(const char* exec_name);
+  static void PrintHelp(const LDBOptions& ldb_options, const char* exec_name);
 
   static void RunCommand(
       int argc, char** argv, Options options, const LDBOptions& ldb_options,

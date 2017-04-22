@@ -89,7 +89,7 @@ TEST_F(HashTableTest, TestInsert) {
   // verify
   for (uint64_t k = 0; k < max_keys; ++k) {
     Node val;
-    port::RWMutex* rlock;
+    port::RWMutex* rlock = nullptr;
     assert(map_.Find(Node(k), &val, &rlock));
     rlock->ReadUnlock();
     assert(val.val_ == std::string(1000, k % 255));

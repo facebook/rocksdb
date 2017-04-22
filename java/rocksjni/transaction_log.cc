@@ -67,12 +67,5 @@ jobject Java_org_rocksdb_TransactionLogIterator_getBatch(
     JNIEnv* env, jobject jobj, jlong handle) {
   rocksdb::BatchResult batch_result =
       reinterpret_cast<rocksdb::TransactionLogIterator*>(handle)->GetBatch();
-  jclass jclazz = env->FindClass(
-      "org/rocksdb/TransactionLogIterator$BatchResult");
-  assert(jclazz != nullptr);
-  jmethodID mid = env->GetMethodID(
-      jclazz, "<init>", "(Lorg/rocksdb/TransactionLogIterator;JJ)V");
-  assert(mid != nullptr);
-  return env->NewObject(jclazz, mid, jobj,
-      batch_result.sequence, batch_result.writeBatchPtr.release());
+  return rocksdb::BatchResultJni::construct(env, batch_result);
 }

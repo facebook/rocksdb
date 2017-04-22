@@ -9,10 +9,12 @@ fi
 # Check clang-format-diff.py
 if ! which $CLANG_FORMAT_DIFF &> /dev/null
 then
-  echo "You didn't have clang-format-diff.py available in your computer!"
-  echo "You can download it by running: "
+  echo "You didn't have clang-format-diff.py and/or clang-format available in your computer!"
+  echo "You can download clang-format-diff.py by running: "
   echo "    curl --location http://goo.gl/iUW1u2 -o ${CLANG_FORMAT_DIFF}"
-  echo "and move ${CLANG_FORMAT_DIFF} to some directory within PATH=${PATH}"
+  echo "You can download clang-format by running: "
+  echo "    brew install clang-format"
+  echo "Then, move both files (i.e. ${CLANG_FORMAT_DIFF} and clang-format) to some directory within PATH=${PATH}"
   exit 128
 fi
 

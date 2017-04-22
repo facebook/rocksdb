@@ -9,11 +9,10 @@
 
 #include "port/win/io_win.h"
 
-#include "util/sync_point.h"
-#include "util/coding.h"
-#include "util/iostats_context_imp.h"
+#include "monitoring/iostats_context_imp.h"
 #include "util/aligned_buffer.h"
-
+#include "util/coding.h"
+#include "util/sync_point.h"
 
 namespace rocksdb {
 namespace port {
@@ -723,12 +722,9 @@ WinRandomAccessImpl::WinRandomAccessImpl(WinFileData* file_base,
 
   assert(!options.use_mmap_reads);
 
-  // Direct access, use internal buffer for reads
-  if (file_base_->use_direct_io()) {
-    // Do not allocate the buffer either until the first request or
-    // until there is a call to allocate a read-ahead buffer
-    buffer_.Alignment(alignment);
-  }
+  // Do not allocate the buffer either until the first request or
+  // until there is a call to allocate a read-ahead buffer
+  buffer_.Alignment(alignment);
 }
 
 inline

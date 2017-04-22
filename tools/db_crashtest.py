@@ -22,7 +22,6 @@ default_params = {
     "use_clock_cache": "false",
     "delpercent": 5,
     "destroy_db_initially": 0,
-    "disable_data_sync": 0,
     "disable_wal": 0,
     "allow_concurrent_memtable_write": 0,
     "iterpercent": 10,
@@ -89,7 +88,6 @@ simple_default_params = {
     "column_families": 1,
     "delpercent": 5,
     "destroy_db_initially": 0,
-    "disable_data_sync": 0,
     "disable_wal": 0,
     "allow_concurrent_memtable_write": lambda: random.randint(0, 1),
     "iterpercent": 10,
@@ -222,9 +220,10 @@ def blackbox_crash_main(args):
 
         while True:
             line = child.stderr.readline().strip()
-            if line != '':
+            if line != '' and not line.startswith('WARNING'):
                 run_had_errors = True
-                print('***' + line + '^')
+                print('stderr has error message:')
+                print('***' + line + '***')
             else:
                 break
 

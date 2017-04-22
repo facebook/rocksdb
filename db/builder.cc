@@ -16,11 +16,12 @@
 #include "db/compaction_iterator.h"
 #include "db/dbformat.h"
 #include "db/event_helpers.h"
-#include "db/filename.h"
 #include "db/internal_stats.h"
 #include "db/merge_helper.h"
 #include "db/table_cache.h"
 #include "db/version_edit.h"
+#include "monitoring/iostats_context_imp.h"
+#include "monitoring/thread_status_util.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
@@ -29,9 +30,9 @@
 #include "table/block_based_table_builder.h"
 #include "table/internal_iterator.h"
 #include "util/file_reader_writer.h"
-#include "util/iostats_context_imp.h"
+#include "util/filename.h"
 #include "util/stop_watch.h"
-#include "util/thread_status_util.h"
+#include "util/sync_point.h"
 
 namespace rocksdb {
 
@@ -103,6 +104,10 @@ Status BuildTable(
     unique_ptr<WritableFileWriter> file_writer;
     {
       unique_ptr<WritableFile> file;
+#ifndef NDEBUG
+      bool use_direct_writes = env_options.use_direct_writes;
+      TEST_SYNC_POINT_CALLBACK("BuildTable:create_file", &use_direct_writes);
+#endif  // !NDEBUG
       s = NewWritableFile(env, fname, &file, env_options);
       if (!s.ok()) {
         EventHelpers::LogAndNotifyTableFileCreationFinished(
@@ -112,7 +117,8 @@ Status BuildTable(
       }
       file->SetIOPriority(io_priority);
 
-      file_writer.reset(new WritableFileWriter(std::move(file), env_options));
+      file_writer.reset(new WritableFileWriter(std::move(file), env_options,
+                                               ioptions.statistics));
 
       builder = NewTableBuilder(
           ioptions, internal_comparator, int_tbl_prop_collector_factories,
@@ -122,7 +128,6 @@ Status BuildTable(
 
     MergeHelper merge(env, internal_comparator.user_comparator(),
                       ioptions.merge_operator, nullptr, ioptions.info_log,
-                      mutable_cf_options.min_partial_merge_operands,
                       true /* internal key corruption is not ok */,
                       snapshots.empty() ? 0 : snapshots.back());
 
@@ -170,7 +175,7 @@ Status BuildTable(
     delete builder;
 
     // Finish and check for file errors
-    if (s.ok() && !empty && !ioptions.disable_data_sync) {
+    if (s.ok() && !empty) {
       StopWatch sw(env, ioptions.statistics, TABLE_SYNC_MICROS);
       file_writer->Sync(ioptions.use_fsync);
     }
@@ -180,6 +185,11 @@ Status BuildTable(
 
     if (s.ok() && !empty) {
       // Verify that the table is usable
+      // We set for_compaction to false and don't OptimizeForCompactionTableRead
+      // here because this is a special case after we finish the table building
+      // No matter whether use_direct_io_for_flush_and_compaction is true,
+      // we will regrad this verification as user reads since the goal is
+      // to cache it here for further user reads
       std::unique_ptr<InternalIterator> it(table_cache->NewIterator(
           ReadOptions(), env_options, internal_comparator, meta->fd,
           nullptr /* range_del_agg */, nullptr,

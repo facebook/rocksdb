@@ -520,11 +520,11 @@ public class RocksDB extends RocksObject {
    * to make this lighter weight is to avoid doing any IOs.
    *
    * @param key byte array of a key to search for
-   * @param value StringBuffer instance which is a out parameter if a value is
+   * @param value StringBuilder instance which is a out parameter if a value is
    *    found in block-cache.
    * @return boolean value indicating if key does not exist or might exist.
    */
-  public boolean keyMayExist(final byte[] key, final StringBuffer value) {
+  public boolean keyMayExist(final byte[] key, final StringBuilder value) {
     return keyMayExist(nativeHandle_, key, 0, key.length, value);
   }
 
@@ -537,12 +537,12 @@ public class RocksDB extends RocksObject {
    *
    * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
    * @param key byte array of a key to search for
-   * @param value StringBuffer instance which is a out parameter if a value is
+   * @param value StringBuilder instance which is a out parameter if a value is
    *    found in block-cache.
    * @return boolean value indicating if key does not exist or might exist.
    */
   public boolean keyMayExist(final ColumnFamilyHandle columnFamilyHandle,
-      final byte[] key, final StringBuffer value) {
+      final byte[] key, final StringBuilder value) {
     return keyMayExist(nativeHandle_, key, 0, key.length,
         columnFamilyHandle.nativeHandle_, value);
   }
@@ -556,12 +556,12 @@ public class RocksDB extends RocksObject {
    *
    * @param readOptions {@link ReadOptions} instance
    * @param key byte array of a key to search for
-   * @param value StringBuffer instance which is a out parameter if a value is
+   * @param value StringBuilder instance which is a out parameter if a value is
    *    found in block-cache.
    * @return boolean value indicating if key does not exist or might exist.
    */
   public boolean keyMayExist(final ReadOptions readOptions,
-      final byte[] key, final StringBuffer value) {
+      final byte[] key, final StringBuilder value) {
     return keyMayExist(nativeHandle_, readOptions.nativeHandle_,
         key, 0, key.length, value);
   }
@@ -576,13 +576,13 @@ public class RocksDB extends RocksObject {
    * @param readOptions {@link ReadOptions} instance
    * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
    * @param key byte array of a key to search for
-   * @param value StringBuffer instance which is a out parameter if a value is
+   * @param value StringBuilder instance which is a out parameter if a value is
    *    found in block-cache.
    * @return boolean value indicating if key does not exist or might exist.
    */
   public boolean keyMayExist(final ReadOptions readOptions,
       final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
-      final StringBuffer value) {
+      final StringBuilder value) {
     return keyMayExist(nativeHandle_, readOptions.nativeHandle_,
         key, 0, key.length, columnFamilyHandle.nativeHandle_,
         value);
@@ -684,6 +684,9 @@ public class RocksDB extends RocksObject {
         key, 0, key.length, value, 0, value.length,
         columnFamilyHandle.nativeHandle_);
   }
+
+  // TODO(AR) we should improve the #get() API, returning -1 (RocksDB.NOT_FOUND) is not very nice
+  // when we could communicate better status into, also the C++ code show that -2 could be returned
 
   /**
    * Get the value associated with the specified key within column family*
@@ -1335,6 +1338,104 @@ public class RocksDB extends RocksObject {
   }
 
   /**
+   * Removes the database entries in the range ["beginKey", "endKey"), i.e.,
+   * including "beginKey" and excluding "endKey". a non-OK status on error. It
+   * is not an error if no keys exist in the range ["beginKey", "endKey").
+   *
+   * Delete the database entry (if any) for "key". Returns OK on success, and a
+   * non-OK status on error. It is not an error if "key" did not exist in the
+   * database.
+   *
+   * @param beginKey
+   *          First key to delete within database (included)
+   * @param endKey
+   *          Last key to delete within database (excluded)
+   *
+   * @throws RocksDBException
+   *           thrown if error happens in underlying native library.
+   */
+  public void deleteRange(final byte[] beginKey, final byte[] endKey) throws RocksDBException {
+    deleteRange(nativeHandle_, beginKey, 0, beginKey.length, endKey, 0, endKey.length);
+  }
+
+  /**
+   * Removes the database entries in the range ["beginKey", "endKey"), i.e.,
+   * including "beginKey" and excluding "endKey". a non-OK status on error. It
+   * is not an error if no keys exist in the range ["beginKey", "endKey").
+   *
+   * Delete the database entry (if any) for "key". Returns OK on success, and a
+   * non-OK status on error. It is not an error if "key" did not exist in the
+   * database.
+   *
+   * @param columnFamilyHandle
+   *          {@link org.rocksdb.ColumnFamilyHandle} instance
+   * @param beginKey
+   *          First key to delete within database (included)
+   * @param endKey
+   *          Last key to delete within database (excluded)
+   *
+   * @throws RocksDBException
+   *           thrown if error happens in underlying native library.
+   */
+  public void deleteRange(final ColumnFamilyHandle columnFamilyHandle, final byte[] beginKey,
+      final byte[] endKey) throws RocksDBException {
+    deleteRange(nativeHandle_, beginKey, 0, beginKey.length, endKey, 0, endKey.length,
+        columnFamilyHandle.nativeHandle_);
+  }
+
+  /**
+   * Removes the database entries in the range ["beginKey", "endKey"), i.e.,
+   * including "beginKey" and excluding "endKey". a non-OK status on error. It
+   * is not an error if no keys exist in the range ["beginKey", "endKey").
+   *
+   * Delete the database entry (if any) for "key". Returns OK on success, and a
+   * non-OK status on error. It is not an error if "key" did not exist in the
+   * database.
+   *
+   * @param writeOpt
+   *          WriteOptions to be used with delete operation
+   * @param beginKey
+   *          First key to delete within database (included)
+   * @param endKey
+   *          Last key to delete within database (excluded)
+   *
+   * @throws RocksDBException
+   *           thrown if error happens in underlying native library.
+   */
+  public void deleteRange(final WriteOptions writeOpt, final byte[] beginKey, final byte[] endKey)
+      throws RocksDBException {
+    deleteRange(nativeHandle_, writeOpt.nativeHandle_, beginKey, 0, beginKey.length, endKey, 0,
+        endKey.length);
+  }
+
+  /**
+   * Removes the database entries in the range ["beginKey", "endKey"), i.e.,
+   * including "beginKey" and excluding "endKey". a non-OK status on error. It
+   * is not an error if no keys exist in the range ["beginKey", "endKey").
+   *
+   * Delete the database entry (if any) for "key". Returns OK on success, and a
+   * non-OK status on error. It is not an error if "key" did not exist in the
+   * database.
+   *
+   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
+   *     instance
+   * @param writeOpt
+   *          WriteOptions to be used with delete operation
+   * @param beginKey
+   *          First key to delete within database (included)
+   * @param endKey
+   *          Last key to delete within database (excluded)
+   *
+   * @throws RocksDBException
+   *           thrown if error happens in underlying native library.
+   */
+  public void deleteRange(final ColumnFamilyHandle columnFamilyHandle, final WriteOptions writeOpt,
+      final byte[] beginKey, final byte[] endKey) throws RocksDBException {
+    deleteRange(nativeHandle_, writeOpt.nativeHandle_, beginKey, 0, beginKey.length, endKey, 0,
+        endKey.length, columnFamilyHandle.nativeHandle_);
+  }
+
+  /**
    * DB implementations can export properties about their state
    * via this method.  If "property" is a valid property understood by this
    * DB implementation, fills "*value" with its current value and returns
@@ -1917,6 +2018,8 @@ public class RocksDB extends RocksObject {
    * This function will wait until all currently running background processes
    * finish. After it returns, no background process will be run until
    * {@link #continueBackgroundWork()} is called
+   *
+   * @throws RocksDBException If an error occurs when pausing background work
    */
   public void pauseBackgroundWork() throws RocksDBException {
     pauseBackgroundWork(nativeHandle_);
@@ -1925,6 +2028,8 @@ public class RocksDB extends RocksObject {
   /**
    * Resumes backround work which was suspended by
    * previously calling {@link #pauseBackgroundWork()}
+   *
+   * @throws RocksDBException If an error occurs when resuming background work
    */
   public void continueBackgroundWork() throws RocksDBException {
     continueBackgroundWork(nativeHandle_);
@@ -2182,17 +2287,17 @@ public class RocksDB extends RocksObject {
       long wbwiHandle) throws RocksDBException;
   protected native boolean keyMayExist(final long handle, final byte[] key,
       final int keyOffset, final int keyLength,
-      final StringBuffer stringBuffer);
+      final StringBuilder stringBuilder);
   protected native boolean keyMayExist(final long handle, final byte[] key,
       final int keyOffset, final int keyLength, final long cfHandle,
-      final StringBuffer stringBuffer);
+      final StringBuilder stringBuilder);
   protected native boolean keyMayExist(final long handle,
       final long optionsHandle, final byte[] key, final int keyOffset,
-      final int keyLength, final StringBuffer stringBuffer);
+      final int keyLength, final StringBuilder stringBuilder);
   protected native boolean keyMayExist(final long handle,
       final long optionsHandle, final byte[] key, final int keyOffset,
       final int keyLength, final long cfHandle,
-      final StringBuffer stringBuffer);
+      final StringBuilder stringBuilder);
   protected native void merge(long handle, byte[] key, int keyOffset,
       int keyLength, byte[] value, int valueOffset, int valueLength)
       throws RocksDBException;
@@ -2254,6 +2359,18 @@ public class RocksDB extends RocksObject {
   protected native void singleDelete(
       long handle, long writeOptHandle,
       byte[] key, int keyLen, long cfHandle) throws RocksDBException;
+  protected native void deleteRange(long handle, byte[] beginKey, int beginKeyOffset,
+      int beginKeyLength, byte[] endKey, int endKeyOffset, int endKeyLength)
+      throws RocksDBException;
+  protected native void deleteRange(long handle, byte[] beginKey, int beginKeyOffset,
+      int beginKeyLength, byte[] endKey, int endKeyOffset, int endKeyLength, long cfHandle)
+      throws RocksDBException;
+  protected native void deleteRange(long handle, long writeOptHandle, byte[] beginKey,
+      int beginKeyOffset, int beginKeyLength, byte[] endKey, int endKeyOffset, int endKeyLength)
+      throws RocksDBException;
+  protected native void deleteRange(long handle, long writeOptHandle, byte[] beginKey,
+      int beginKeyOffset, int beginKeyLength, byte[] endKey, int endKeyOffset, int endKeyLength,
+      long cfHandle) throws RocksDBException;
   protected native String getProperty0(long nativeHandle,
       String property, int propertyLength) throws RocksDBException;
   protected native String getProperty0(long nativeHandle, long cfHandle,

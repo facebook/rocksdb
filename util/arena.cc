@@ -18,14 +18,15 @@
 #ifndef OS_WIN
 #include <sys/mman.h>
 #endif
-#include "port/port.h"
 #include <algorithm>
+#include "port/port.h"
 #include "rocksdb/env.h"
+#include "util/logging.h"
 
 namespace rocksdb {
 
 // MSVC complains that it is already defined since it is static in the header.
-#ifndef OS_WIN
+#ifndef _MSC_VER
 const size_t Arena::kInlineSize;
 #endif
 
@@ -152,8 +153,9 @@ char* Arena::AllocateAligned(size_t bytes, size_t huge_page_size,
 
     char* addr = AllocateFromHugePage(reserved_size);
     if (addr == nullptr) {
-      Warn(logger, "AllocateAligned fail to allocate huge TLB pages: %s",
-           strerror(errno));
+      ROCKS_LOG_WARN(logger,
+                     "AllocateAligned fail to allocate huge TLB pages: %s",
+                     strerror(errno));
       // fail back to malloc
     } else {
       return addr;

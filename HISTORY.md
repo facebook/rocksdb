@@ -1,20 +1,51 @@
 # Rocksdb Change Log
 ## Unreleased
+### New Features
+* DB::ResetStats() to reset internal stats.
+* ldb add option --try_load_options, which will open DB with its own option file.
+
+## 5.4.0 (04/11/2017)
+### Public API Change
+* Support dynamically change `stats_dump_period_sec` option via SetDBOptions().
+* Added ReadOptions::max_skippable_internal_keys to set a threshold to fail a request as incomplete when too many keys are being skipped when using iterators.
+* DB::Get in place of std::string accepts PinnableSlice, which avoids the extra memcpy of value to std::string in most of cases.
+    * PinnableSlice releases the pinned resources that contain the value when it is destructed or when ::Reset() is called on it.
+    * The old API that accepts std::string, although discouraged, is still supported.
+* Replace Options::use_direct_writes with Options::use_direct_io_for_flush_and_compaction. Read Direct IO wiki for details.
+* Added CompactionEventListener and EventListener::OnFlushBegin interfaces.
+
+### New Features
+* Memtable flush can be avoided during checkpoint creation if total log file size is smaller than a threshold specified by the user.
+* Introduce level-based L0->L0 compactions to reduce file count, so write delays are incurred less often.
+* (Experimental) Partitioning filters which creates an index on the partitions. The feature can be enabled by setting partition_filters when using kFullFilter. Currently the feature also requires two-level indexing to be enabled. Number of partitions is the same as the number of partitions for indexes, which is controlled by metadata_block_size.
+
+## 5.3.0 (03/08/2017)
+### Public API Change
+* Remove disableDataSync option.
+* Remove timeout_hint_us option from WriteOptions. The option has been deprecated and has no effect since 3.13.0.
+* Remove option min_partial_merge_operands. Partial merge operands will always be merged in flush or compaction if there are more than one.
+* Remove option verify_checksums_in_compaction. Compaction will always verify checksum.
+
+### Bug Fixes
+* Fix the bug that iterator may skip keys
 
 ## 5.2.0 (02/08/2017)
 ### Public API Change
 * NewLRUCache() will determine number of shard bits automatically based on capacity, if the user doesn't pass one. This also impacts the default block cache when the user doesn't explict provide one.
 * Change the default of delayed slowdown value to 16MB/s and further increase the L0 stop condition to 36 files.
+* Options::use_direct_writes and Options::use_direct_reads are now ready to use.
 * (Experimental) Two-level indexing that partition the index and creates a 2nd level index on the partitions. The feature can be enabled by setting kTwoLevelIndexSearch as IndexType and configuring index_per_partition.
 
 ### New Features
 * Added new overloaded function GetApproximateSizes that allows to specify if memtable stats should be computed only without computing SST files' stats approximations.
 * Added new function GetApproximateMemTableStats that approximates both number of records and size of memtables.
+* Add Direct I/O mode for SST file I/O
 
 ### Bug Fixes
 * RangeSync() should work if ROCKSDB_FALLOCATE_PRESENT is not set
 * Fix wrong results in a data race case in Get()
 * Some fixes related to 2PC.
+* Fix bugs of data corruption in direct I/O
 
 ## 5.1.0 (01/13/2017)
 * Support dynamically change `delete_obsolete_files_period_micros` option via SetDBOptions().

@@ -15,7 +15,6 @@
 #include <set>
 
 #include "db/db_impl.h"
-#include "db/filename.h"
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
 #include "rocksdb/cache.h"
@@ -25,12 +24,13 @@
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
-#include "table/meta_blocks.h"
 #include "table/bloom_block.h"
-#include "table/table_builder.h"
+#include "table/meta_blocks.h"
 #include "table/plain_table_factory.h"
 #include "table/plain_table_key_coding.h"
 #include "table/plain_table_reader.h"
+#include "table/table_builder.h"
+#include "util/filename.h"
 #include "util/hash.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"

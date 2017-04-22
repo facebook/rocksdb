@@ -44,6 +44,7 @@ class WritableFile;
 class RandomRWFile;
 class Directory;
 struct DBOptions;
+struct ImmutableDBOptions;
 class RateLimiter;
 class ThreadStatusUpdater;
 struct ThreadStatus;
@@ -161,6 +162,20 @@ class Env {
   virtual Status NewWritableFile(const std::string& fname,
                                  unique_ptr<WritableFile>* result,
                                  const EnvOptions& options) = 0;
+
+  // Create an object that writes to a new file with the specified
+  // name.  Deletes any existing file with the same name and creates a
+  // new file.  On success, stores a pointer to the new file in
+  // *result and returns OK.  On failure stores nullptr in *result and
+  // returns non-OK.
+  //
+  // The returned file will only be accessed by one thread at a time.
+  virtual Status ReopenWritableFile(const std::string& fname,
+                                    unique_ptr<WritableFile>* result,
+                                    const EnvOptions& options) {
+    Status s;
+    return s;
+  }
 
   // Reuse an existing file by renaming it and opening it as writable.
   virtual Status ReuseWritableFile(const std::string& fname,
@@ -318,15 +333,16 @@ class Env {
   virtual Status NewLogger(const std::string& fname,
                            shared_ptr<Logger>* result) = 0;
 
-  // Returns the number of micro-seconds since some fixed point in time. Only
-  // useful for computing deltas of time.
-  // However, it is often used as system time such as in GenericRateLimiter
+  // Returns the number of micro-seconds since some fixed point in time.
+  // It is often used as system time such as in GenericRateLimiter
   // and other places so a port needs to return system time in order to work.
   virtual uint64_t NowMicros() = 0;
 
   // Returns the number of nano-seconds since some fixed point in time. Only
   // useful for computing deltas of time in one run.
-  // Default implementation simply relies on NowMicros
+  // Default implementation simply relies on NowMicros.
+  // In platform-specific implementations, NowNanos() should return time points
+  // that are MONOTONIC.
   virtual uint64_t NowNanos() {
     return NowMicros() * 1000;
   }
@@ -373,6 +389,20 @@ class Env {
   // files. Default implementation returns the copy of the same object.
   virtual EnvOptions OptimizeForManifestWrite(
       const EnvOptions& env_options) const;
+
+  // OptimizeForCompactionTableWrite will create a new EnvOptions object that is a copy
+  // of the EnvOptions in the parameters, but is optimized for writing table
+  // files. Default implementation returns the copy of the same object.
+  virtual EnvOptions OptimizeForCompactionTableWrite(
+      const EnvOptions& env_options,
+      const ImmutableDBOptions& db_options) const;
+
+  // OptimizeForCompactionTableWrite will create a new EnvOptions object that is a copy
+  // of the EnvOptions in the parameters, but is optimized for reading table
+  // files. Default implementation returns the copy of the same object.
+  virtual EnvOptions OptimizeForCompactionTableRead(
+      const EnvOptions& env_options,
+      const ImmutableDBOptions& db_options) const;
 
   // Returns the status of all threads that belong to the current Env.
   virtual Status GetThreadList(std::vector<ThreadStatus>* thread_list) {
@@ -438,6 +468,8 @@ class SequentialFile {
   // aligned buffer for Direct I/O
   virtual size_t GetRequiredBufferAlignment() const { return kDefaultPageSize; }
 
+  virtual void Rewind() {}
+
   // Remove any kind of caching of data from the offset to offset+length
   // of this file. If the length is 0, then it refers to the end of file.
   // If the system is not caching the file contents, then this is a noop.
@@ -456,6 +488,7 @@ class SequentialFile {
 // A file abstraction for randomly reading the contents of a file.
 class RandomAccessFile {
  public:
+
   RandomAccessFile() { }
   virtual ~RandomAccessFile();
 
@@ -471,6 +504,11 @@ class RandomAccessFile {
   // If Direct I/O enabled, offset, n, and scratch should be aligned properly.
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
                       char* scratch) const = 0;
+
+  // Readahead the file starting from offset by n bytes for caching.
+  virtual Status Prefetch(uint64_t offset, size_t n) {
+    return Status::OK();
+  }
 
   // Used by the file_reader_writer to decide if the ReadAhead wrapper
   // should simply forward the call and do not enact buffering or locking.
@@ -896,6 +934,11 @@ class EnvWrapper : public Env {
                          const EnvOptions& options) override {
     return target_->NewWritableFile(f, r, options);
   }
+  Status ReopenWritableFile(const std::string& fname,
+                            unique_ptr<WritableFile>* result,
+                            const EnvOptions& options) override {
+    return target_->ReopenWritableFile(fname, result, options);
+  }
   Status ReuseWritableFile(const std::string& fname,
                            const std::string& old_fname,
                            unique_ptr<WritableFile>* r,
@@ -982,6 +1025,7 @@ class EnvWrapper : public Env {
     return target_->NewLogger(fname, result);
   }
   uint64_t NowMicros() override { return target_->NowMicros(); }
+
   void SleepForMicroseconds(int micros) override {
     target_->SleepForMicroseconds(micros);
   }
@@ -1090,6 +1134,11 @@ Env* NewMemEnv(Env* base_env);
 // Returns a new environment that is used for HDFS environment.
 // This is a factory method for HdfsEnv declared in hdfs/env_hdfs.h
 Status NewHdfsEnv(Env** hdfs_env, const std::string& fsname);
+
+// Returns a new environment that measures function call times for filesystem
+// operations, reporting results to variables in PerfContext.
+// This is a factory method for TimedEnv defined in utilities/env_timed.cc.
+Env* NewTimedEnv(Env* base_env);
 
 }  // namespace rocksdb
 

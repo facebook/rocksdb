@@ -4,6 +4,8 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 #pragma once
 
+#ifndef ROCKSDB_LITE
+
 #ifndef  OS_WIN
 #include <unistd.h>
 #endif // ! OS_WIN
@@ -24,12 +26,12 @@
 #include "utilities/persistent_cache/block_cache_tier_metadata.h"
 #include "utilities/persistent_cache/persistent_cache_util.h"
 
-#include "db/skiplist.h"
+#include "memtable/skiplist.h"
+#include "monitoring/histogram.h"
 #include "port/port.h"
 #include "util/arena.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
-#include "util/histogram.h"
 #include "util/mutexlock.h"
 
 namespace rocksdb {
@@ -149,3 +151,5 @@ class BlockCacheTier : public PersistentCacheTier {
 };
 
 }  // namespace rocksdb
+
+#endif

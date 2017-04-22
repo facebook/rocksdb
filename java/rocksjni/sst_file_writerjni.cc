@@ -22,7 +22,7 @@
  * Method:    newSstFileWriter
  * Signature: (JJJ)J
  */
-jlong Java_org_rocksdb_SstFileWriter_newSstFileWriter(JNIEnv *env, jclass jcls,
+jlong Java_org_rocksdb_SstFileWriter_newSstFileWriter__JJJ(JNIEnv *env, jclass jcls,
                                                       jlong jenvoptions,
                                                       jlong joptions,
                                                       jlong jcomparator) {
@@ -37,12 +37,32 @@ jlong Java_org_rocksdb_SstFileWriter_newSstFileWriter(JNIEnv *env, jclass jcls,
 
 /*
  * Class:     org_rocksdb_SstFileWriter
+ * Method:    newSstFileWriter
+ * Signature: (JJ)J
+ */
+jlong Java_org_rocksdb_SstFileWriter_newSstFileWriter__JJ(JNIEnv *env, jclass jcls,
+                                                      jlong jenvoptions,
+                                                      jlong joptions) {
+  auto *env_options =
+      reinterpret_cast<const rocksdb::EnvOptions *>(jenvoptions);
+  auto *options = reinterpret_cast<const rocksdb::Options *>(joptions);
+  rocksdb::SstFileWriter *sst_file_writer =
+      new rocksdb::SstFileWriter(*env_options, *options);
+  return reinterpret_cast<jlong>(sst_file_writer);
+}
+
+/*
+ * Class:     org_rocksdb_SstFileWriter
  * Method:    open
  * Signature: (JLjava/lang/String;)V
  */
 void Java_org_rocksdb_SstFileWriter_open(JNIEnv *env, jobject jobj,
                                          jlong jhandle, jstring jfile_path) {
-  const char *file_path = env->GetStringUTFChars(jfile_path, NULL);
+  const char *file_path = env->GetStringUTFChars(jfile_path, nullptr);
+  if(file_path == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return;
+  }
   rocksdb::Status s =
       reinterpret_cast<rocksdb::SstFileWriter *>(jhandle)->Open(file_path);
   env->ReleaseStringUTFChars(jfile_path, file_path);
@@ -62,8 +82,9 @@ void Java_org_rocksdb_SstFileWriter_add(JNIEnv *env, jobject jobj,
                                         jlong jvalue_handle) {
   auto *key_slice = reinterpret_cast<rocksdb::Slice *>(jkey_handle);
   auto *value_slice = reinterpret_cast<rocksdb::Slice *>(jvalue_handle);
-  rocksdb::Status s = reinterpret_cast<rocksdb::SstFileWriter *>(jhandle)->Add(
-      *key_slice, *value_slice);
+  rocksdb::Status s =
+      reinterpret_cast<rocksdb::SstFileWriter *>(jhandle)->Add(*key_slice,
+          *value_slice);
   if (!s.ok()) {
     rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
   }

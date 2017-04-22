@@ -269,6 +269,100 @@ public class ReadOptions extends RocksObject {
     return this;
   }
 
+  /**
+   * If true, when PurgeObsoleteFile is called in CleanupIteratorState, we
+   * schedule a background job in the flush job queue and delete obsolete files
+   * in background.
+   *
+   * Default: false
+   *
+   * @return true when PurgeObsoleteFile is called in CleanupIteratorState
+   */
+  public boolean backgroundPurgeOnIteratorCleanup() {
+    assert(isOwningHandle());
+    return backgroundPurgeOnIteratorCleanup(nativeHandle_);
+  }
+
+  /**
+   * If true, when PurgeObsoleteFile is called in CleanupIteratorState, we
+   * schedule a background job in the flush job queue and delete obsolete files
+   * in background.
+   *
+   * Default: false
+   *
+   * @param backgroundPurgeOnIteratorCleanup true when PurgeObsoleteFile is
+   *     called in CleanupIteratorState
+   * @return the reference to the current ReadOptions.
+   */
+  public ReadOptions setBackgroundPurgeOnIteratorCleanup(
+      final boolean backgroundPurgeOnIteratorCleanup) {
+    assert(isOwningHandle());
+    setBackgroundPurgeOnIteratorCleanup(nativeHandle_,
+        backgroundPurgeOnIteratorCleanup);
+    return this;
+  }
+
+  /**
+   * If non-zero, NewIterator will create a new table reader which
+   * performs reads of the given size. Using a large size (&gt; 2MB) can
+   * improve the performance of forward iteration on spinning disks.
+   *
+   * Default: 0
+   *
+   * @return The readahead size is bytes
+   */
+  public long readaheadSize() {
+    assert(isOwningHandle());
+    return readaheadSize(nativeHandle_);
+  }
+
+  /**
+   * If non-zero, NewIterator will create a new table reader which
+   * performs reads of the given size. Using a large size (&gt; 2MB) can
+   * improve the performance of forward iteration on spinning disks.
+   *
+   * Default: 0
+   *
+   * @param readaheadSize The readahead size is bytes
+   * @return the reference to the current ReadOptions.
+   */
+  public ReadOptions setReadaheadSize(final long readaheadSize) {
+    assert(isOwningHandle());
+    setReadaheadSize(nativeHandle_, readaheadSize);
+    return this;
+  }
+
+  /**
+   * If true, keys deleted using the DeleteRange() API will be visible to
+   * readers until they are naturally deleted during compaction. This improves
+   * read performance in DBs with many range deletions.
+   *
+   * Default: false
+   *
+   * @return true if keys deleted using the DeleteRange() API will be visible
+   */
+  public boolean ignoreRangeDeletions() {
+    assert(isOwningHandle());
+    return ignoreRangeDeletions(nativeHandle_);
+  }
+
+  /**
+   * If true, keys deleted using the DeleteRange() API will be visible to
+   * readers until they are naturally deleted during compaction. This improves
+   * read performance in DBs with many range deletions.
+   *
+   * Default: false
+   *
+   * @param ignoreRangeDeletions true if keys deleted using the DeleteRange()
+   *     API should be visible
+   * @return the reference to the current ReadOptions.
+   */
+  public ReadOptions setIgnoreRangeDeletions(final boolean ignoreRangeDeletions) {
+    assert(isOwningHandle());
+    setIgnoreRangeDeletions(nativeHandle_, ignoreRangeDeletions);
+    return this;
+  }
+
   private native static long newReadOptions();
   private native boolean verifyChecksums(long handle);
   private native void setVerifyChecksums(long handle, boolean verifyChecksums);
@@ -288,6 +382,15 @@ public class ReadOptions extends RocksObject {
   private native void setPrefixSameAsStart(long handle, boolean prefixSameAsStart);
   private native boolean pinData(long handle);
   private native void setPinData(long handle, boolean pinData);
+  private native boolean backgroundPurgeOnIteratorCleanup(final long handle);
+  private native void setBackgroundPurgeOnIteratorCleanup(final long handle,
+      final boolean backgroundPurgeOnIteratorCleanup);
+  private native long readaheadSize(final long handle);
+  private native void setReadaheadSize(final long handle,
+      final long readaheadSize);
+  private native boolean ignoreRangeDeletions(final long handle);
+  private native void setIgnoreRangeDeletions(final long handle,
+      final boolean ignoreRangeDeletions);
 
   @Override protected final native void disposeInternal(final long handle);
 

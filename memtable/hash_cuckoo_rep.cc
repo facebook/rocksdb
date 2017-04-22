@@ -16,7 +16,7 @@
 #include <vector>
 
 #include "db/memtable.h"
-#include "db/skiplist.h"
+#include "memtable/skiplist.h"
 #include "memtable/stl_wrappers.h"
 #include "port/port.h"
 #include "rocksdb/memtablerep.h"

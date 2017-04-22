@@ -478,7 +478,7 @@ TEST_F(WriteBatchTest, DISABLED_LargeKeyValue) {
   // Insert key and value of 3GB and push total batch size to 12GB.
   static const size_t kKeyValueSize = 3221225472u;
   std::string raw(kKeyValueSize, 'A');
-  WriteBatch batch(12884901888u + 1024u);
+  WriteBatch batch(size_t(12884901888ull + 1024u));
   for (char i = 0; i < 2; i++) {
     raw[0] = 'A' + i;
     raw[raw.length() - 1] = 'A' - i;
@@ -859,6 +859,18 @@ TEST_F(WriteBatchTest, SavePointTest) {
   s = batch2.RollbackToSavePoint();
   ASSERT_TRUE(s.IsNotFound());
   ASSERT_EQ("", PrintContents(&batch2));
+}
+
+TEST_F(WriteBatchTest, MemoryLimitTest) {
+  Status s;
+  // The header size is 12 bytes. The two Puts take 8 bytes which gives total
+  // of 12 + 8 * 2 = 28 bytes.
+  WriteBatch batch(0, 28);
+
+  ASSERT_OK(batch.Put("a", "...."));
+  ASSERT_OK(batch.Put("b", "...."));
+  s = batch.Put("c", "....");
+  ASSERT_TRUE(s.IsMemoryLimit());
 }
 
 }  // namespace rocksdb

@@ -310,7 +310,7 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
             seek_to_first ||
             // prev_key_ > internal_key
             cfd_->internal_comparator().InternalKeyComparator::Compare(
-                prev_key_.GetKey(), internal_key) > 0)) {
+                prev_key_.GetInternalKey(), internal_key) > 0)) {
       // Some iterators are trimmed. Need to rebuild.
       RebuildIterators(true);
       // Already seeked mutable iter, so seek again
@@ -410,7 +410,7 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
     if (seek_to_first) {
       is_prev_set_ = false;
     } else {
-      prev_key_.SetKey(internal_key);
+      prev_key_.SetInternalKey(internal_key);
       is_prev_set_ = true;
       is_prev_inclusive_ = true;
     }
@@ -449,15 +449,15 @@ void ForwardIterator::Next() {
     if (is_prev_set_ && prefix_extractor_) {
       // advance prev_key_ to current_ only if they share the same prefix
       update_prev_key =
-        prefix_extractor_->Transform(prev_key_.GetKey()).compare(
-          prefix_extractor_->Transform(current_->key())) == 0;
+          prefix_extractor_->Transform(prev_key_.GetUserKey())
+              .compare(prefix_extractor_->Transform(current_->key())) == 0;
     } else {
       update_prev_key = true;
     }
 
 
     if (update_prev_key) {
-      prev_key_.SetKey(current_->key());
+      prev_key_.SetInternalKey(current_->key());
       is_prev_set_ = true;
       is_prev_inclusive_ = false;
     }
@@ -476,7 +476,7 @@ void ForwardIterator::Next() {
         current_ = nullptr;
       }
       if (update_prev_key) {
-        mutable_iter_->Seek(prev_key_.GetKey());
+        mutable_iter_->Seek(prev_key_.GetInternalKey());
       }
     }
   }
@@ -776,7 +776,7 @@ bool ForwardIterator::NeedToSeekImmutable(const Slice& target) {
   if (!valid_ || !current_ || !is_prev_set_ || !immutable_status_.ok()) {
     return true;
   }
-  Slice prev_key = prev_key_.GetKey();
+  Slice prev_key = prev_key_.GetInternalKey();
   if (prefix_extractor_ && prefix_extractor_->Transform(target).compare(
     prefix_extractor_->Transform(prev_key)) != 0) {
     return true;

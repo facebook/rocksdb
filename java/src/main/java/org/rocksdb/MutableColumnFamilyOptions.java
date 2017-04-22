@@ -49,6 +49,10 @@ public class MutableColumnFamilyOptions {
    * For int[] values, each int should be separated by a comma, e.g.
    *
    * key1=value1;intArrayKey1=1,2,3
+   *
+   * @param str The string representation of the mutable column family options
+   *
+   * @return A builder for the mutable column family options
    */
   public static MutableColumnFamilyOptionsBuilder parse(final String str) {
     Objects.requireNonNull(str);
@@ -108,7 +112,8 @@ public class MutableColumnFamilyOptions {
     LONG,
     INT,
     BOOLEAN,
-    INT_ARRAY
+    INT_ARRAY,
+    ENUM
   }
 
   public enum MemtableOption implements MutableColumnFamilyOptionKey {
@@ -148,8 +153,7 @@ public class MutableColumnFamilyOptions {
     target_file_size_multiplier(ValueType.INT),
     max_bytes_for_level_base(ValueType.LONG),
     max_bytes_for_level_multiplier(ValueType.INT),
-    max_bytes_for_level_multiplier_additional(ValueType.INT_ARRAY),
-    verify_checksums_in_compaction(ValueType.BOOLEAN);
+    max_bytes_for_level_multiplier_additional(ValueType.INT_ARRAY);
 
     private final ValueType valueType;
     CompactionOption(final ValueType valueType) {
@@ -164,7 +168,9 @@ public class MutableColumnFamilyOptions {
 
   public enum MiscOption implements MutableColumnFamilyOptionKey {
     max_sequential_skip_in_iterations(ValueType.LONG),
-    paranoid_file_checks(ValueType.BOOLEAN);
+    paranoid_file_checks(ValueType.BOOLEAN),
+    report_bg_io_stats(ValueType.BOOLEAN),
+    compression_type(ValueType.ENUM);
 
     private final ValueType valueType;
     MiscOption(final ValueType valueType) {
@@ -195,6 +201,7 @@ public class MutableColumnFamilyOptions {
     abstract boolean asBoolean() throws IllegalStateException;
     abstract int[] asIntArray() throws IllegalStateException;
     abstract String asString();
+    abstract T asObject();
   }
 
   private static class MutableColumnFamilyOptionStringValue
@@ -230,6 +237,11 @@ public class MutableColumnFamilyOptions {
 
     @Override
     String asString() {
+      return value;
+    }
+
+    @Override
+    String asObject() {
       return value;
     }
   }
@@ -277,6 +289,11 @@ public class MutableColumnFamilyOptions {
     @Override
     String asString() {
       return Double.toString(value);
+    }
+
+    @Override
+    Double asObject() {
+      return value;
     }
   }
 
@@ -328,6 +345,11 @@ public class MutableColumnFamilyOptions {
     String asString() {
       return Long.toString(value);
     }
+
+    @Override
+    Long asObject() {
+      return value;
+    }
   }
 
   private static class MutableColumnFamilyOptionIntValue
@@ -368,6 +390,11 @@ public class MutableColumnFamilyOptions {
     String asString() {
       return Integer.toString(value);
     }
+
+    @Override
+    Integer asObject() {
+      return value;
+    }
   }
 
   private static class MutableColumnFamilyOptionBooleanValue
@@ -404,6 +431,11 @@ public class MutableColumnFamilyOptions {
     @Override
     String asString() {
       return Boolean.toString(value);
+    }
+
+    @Override
+    Boolean asObject() {
+      return value;
     }
   }
 
@@ -448,6 +480,54 @@ public class MutableColumnFamilyOptions {
         }
       }
       return builder.toString();
+    }
+
+    @Override
+    int[] asObject() {
+      return value;
+    }
+  }
+
+  private static class MutableColumnFamilyOptionEnumValue<T extends Enum<T>>
+      extends MutableColumnFamilyOptionValue<T> {
+
+    MutableColumnFamilyOptionEnumValue(final T value) {
+      super(value);
+    }
+
+    @Override
+    double asDouble() throws NumberFormatException {
+      throw new NumberFormatException("Enum is not applicable as double");
+    }
+
+    @Override
+    long asLong() throws NumberFormatException {
+      throw new NumberFormatException("Enum is not applicable as long");
+    }
+
+    @Override
+    int asInt() throws NumberFormatException {
+      throw new NumberFormatException("Enum is not applicable as int");
+    }
+
+    @Override
+    boolean asBoolean() throws IllegalStateException {
+      throw new NumberFormatException("Enum is not applicable as boolean");
+    }
+
+    @Override
+    int[] asIntArray() throws IllegalStateException {
+      throw new NumberFormatException("Enum is not applicable as int[]");
+    }
+
+    @Override
+    String asString() {
+      return value.name();
+    }
+
+    @Override
+    T asObject() {
+      return value;
     }
   }
 
@@ -578,6 +658,31 @@ public class MutableColumnFamilyOptions {
         throw new NoSuchElementException(key.name() + " has not been set");
       }
       return value.asIntArray();
+    }
+
+    private <T extends Enum<T>> MutableColumnFamilyOptionsBuilder setEnum(
+        final MutableColumnFamilyOptionKey key, final T value) {
+      if(key.getValueType() != ValueType.ENUM) {
+        throw new IllegalArgumentException(
+            key + " does not accept a Enum value");
+      }
+      options.put(key, new MutableColumnFamilyOptionEnumValue<T>(value));
+      return this;
+
+    }
+
+    private <T extends Enum<T>> T getEnum(final MutableColumnFamilyOptionKey key)
+        throws NoSuchElementException, NumberFormatException {
+      final MutableColumnFamilyOptionValue<?> value = options.get(key);
+      if(value == null) {
+        throw new NoSuchElementException(key.name() + " has not been set");
+      }
+
+      if(!(value instanceof MutableColumnFamilyOptionEnumValue)) {
+        throw new NoSuchElementException(key.name() + " is not of Enum type");
+      }
+
+      return ((MutableColumnFamilyOptionEnumValue<T>)value).asObject();
     }
 
     public MutableColumnFamilyOptionsBuilder fromString(final String keyStr,
@@ -713,17 +818,6 @@ public class MutableColumnFamilyOptions {
     }
 
     @Override
-    public MutableColumnFamilyOptionsBuilder setSoftRateLimit(
-        final double softRateLimit) {
-      return setDouble(CompactionOption.soft_rate_limit, softRateLimit);
-    }
-
-    @Override
-    public double softRateLimit() {
-      return getDouble(CompactionOption.soft_rate_limit);
-    }
-
-    @Override
     public MutableColumnFamilyOptionsBuilder setSoftPendingCompactionBytesLimit(
         final long softPendingCompactionBytesLimit) {
       return setLong(CompactionOption.soft_pending_compaction_bytes_limit,
@@ -733,17 +827,6 @@ public class MutableColumnFamilyOptions {
     @Override
     public long softPendingCompactionBytesLimit() {
       return getLong(CompactionOption.soft_pending_compaction_bytes_limit);
-    }
-
-    @Override
-    public MutableColumnFamilyOptionsBuilder setHardRateLimit(
-        final double hardRateLimit) {
-      return setDouble(CompactionOption.hard_rate_limit, hardRateLimit);
-    }
-
-    @Override
-    public double hardRateLimit() {
-      return getDouble(CompactionOption.hard_rate_limit);
     }
 
     @Override
@@ -867,18 +950,6 @@ public class MutableColumnFamilyOptions {
     }
 
     @Override
-    public MutableColumnFamilyOptionsBuilder setVerifyChecksumsInCompaction(
-        final boolean verifyChecksumsInCompaction) {
-      return setBoolean(CompactionOption.verify_checksums_in_compaction,
-          verifyChecksumsInCompaction);
-    }
-
-    @Override
-    public boolean verifyChecksumsInCompaction() {
-      return getBoolean(CompactionOption.verify_checksums_in_compaction);
-    }
-
-    @Override
     public MutableColumnFamilyOptionsBuilder setMaxSequentialSkipInIterations(
         final long maxSequentialSkipInIterations) {
       return setLong(MiscOption.max_sequential_skip_in_iterations,
@@ -899,6 +970,28 @@ public class MutableColumnFamilyOptions {
     @Override
     public boolean paranoidFileChecks() {
       return getBoolean(MiscOption.paranoid_file_checks);
+    }
+
+    @Override
+    public MutableColumnFamilyOptionsBuilder setCompressionType(
+        final CompressionType compressionType) {
+      return setEnum(MiscOption.compression_type, compressionType);
+    }
+
+    @Override
+    public CompressionType compressionType() {
+      return (CompressionType)getEnum(MiscOption.compression_type);
+    }
+
+    @Override
+    public MutableColumnFamilyOptionsBuilder setReportBgIoStats(
+        final boolean reportBgIoStats) {
+      return setBoolean(MiscOption.report_bg_io_stats, reportBgIoStats);
+    }
+
+    @Override
+    public boolean reportBgIoStats() {
+      return getBoolean(MiscOption.report_bg_io_stats);
     }
   }
 }

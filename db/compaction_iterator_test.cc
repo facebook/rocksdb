@@ -182,14 +182,14 @@ class CompactionIteratorTest : public testing::Test {
     }
 
     merge_helper_.reset(new MergeHelper(Env::Default(), cmp_, merge_op, filter,
-                                        nullptr, 0U, false, 0, 0, nullptr,
+                                        nullptr, false, 0, 0, nullptr,
                                         &shutting_down_));
     iter_.reset(new LoggingForwardVectorIterator(ks, vs));
     iter_->SeekToFirst();
     c_iter_.reset(new CompactionIterator(
         iter_.get(), cmp_, merge_helper_.get(), last_sequence, &snapshots_,
         kMaxSequenceNumber, Env::Default(), false, range_del_agg_.get(),
-        std::move(compaction), filter, &shutting_down_));
+        std::move(compaction), filter, nullptr, &shutting_down_));
   }
 
   void AddSnapshot(SequenceNumber snapshot) { snapshots_.push_back(snapshot); }

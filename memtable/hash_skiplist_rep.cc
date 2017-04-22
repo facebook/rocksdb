@@ -16,7 +16,7 @@
 #include "port/port.h"
 #include "util/murmurhash.h"
 #include "db/memtable.h"
-#include "db/skiplist.h"
+#include "memtable/skiplist.h"
 
 namespace rocksdb {
 namespace {

@@ -40,6 +40,7 @@ class WinLogger : public rocksdb::Logger {
 
   void Flush() override;
 
+  using rocksdb::Logger::Logv;
   void Logv(const char* format, va_list ap) override;
 
   size_t GetLogFileSize() const override;

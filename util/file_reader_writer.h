@@ -92,6 +92,10 @@ class RandomAccessFileReader {
 
   Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const;
 
+  Status Prefetch(uint64_t offset, size_t n) const {
+    return file_->Prefetch(offset, n);
+  }
+
   RandomAccessFile* file() { return file_.get(); }
 
   bool use_direct_io() const { return file_->use_direct_io(); }
@@ -115,25 +119,24 @@ class WritableFileWriter {
   // so we need to go back and write that page again
   uint64_t                next_write_offset_;
   bool                    pending_sync_;
-  const bool              direct_io_;
   uint64_t                last_sync_size_;
   uint64_t                bytes_per_sync_;
   RateLimiter*            rate_limiter_;
+  Statistics* stats_;
 
  public:
   WritableFileWriter(std::unique_ptr<WritableFile>&& file,
-                     const EnvOptions& options)
+                     const EnvOptions& options, Statistics* stats = nullptr)
       : writable_file_(std::move(file)),
         buf_(),
         max_buffer_size_(options.writable_file_max_buffer_size),
         filesize_(0),
         next_write_offset_(0),
         pending_sync_(false),
-        direct_io_(writable_file_->use_direct_io()),
         last_sync_size_(0),
         bytes_per_sync_(options.bytes_per_sync),
-        rate_limiter_(options.rate_limiter) {
-
+        rate_limiter_(options.rate_limiter),
+        stats_(stats) {
     buf_.Alignment(writable_file_->GetRequiredBufferAlignment());
     buf_.AllocateNewBuffer(std::min((size_t)65536, max_buffer_size_));
   }
@@ -170,7 +173,9 @@ class WritableFileWriter {
  private:
   // Used when os buffering is OFF and we are writing
   // DMA such as in Direct I/O mode
+#ifndef ROCKSDB_LITE
   Status WriteDirect();
+#endif  // !ROCKSDB_LITE
   // Normal write
   Status WriteBuffered(const char* data, size_t size);
   Status RangeSync(uint64_t offset, uint64_t nbytes);

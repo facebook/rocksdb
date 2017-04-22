@@ -18,14 +18,14 @@
 #include <inttypes.h>
 #include <algorithm>
 #include <string>
-#include "db/filename.h"
 #include "db/wal_manager.h"
+#include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/transaction_log.h"
 #include "util/file_util.h"
+#include "util/filename.h"
 #include "util/sync_point.h"
-#include "port/port.h"
 
 namespace rocksdb {
 
@@ -42,7 +42,8 @@ class CheckpointImpl : public Checkpoint {
   // The directory should not already exist and will be created by this API.
   // The directory will be an absolute path
   using Checkpoint::CreateCheckpoint;
-  virtual Status CreateCheckpoint(const std::string& checkpoint_dir) override;
+  virtual Status CreateCheckpoint(const std::string& checkpoint_dir,
+                                  uint64_t log_size_for_flush) override;
 
  private:
   DB* db_;
@@ -53,12 +54,14 @@ Status Checkpoint::Create(DB* db, Checkpoint** checkpoint_ptr) {
   return Status::OK();
 }
 
-Status Checkpoint::CreateCheckpoint(const std::string& checkpoint_dir) {
+Status Checkpoint::CreateCheckpoint(const std::string& checkpoint_dir,
+                                    uint64_t log_size_for_flush) {
   return Status::NotSupported("");
 }
 
 // Builds an openable snapshot of RocksDB
-Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir) {
+Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
+                                        uint64_t log_size_for_flush) {
   Status s;
   std::vector<std::string> live_files;
   uint64_t manifest_file_size = 0;
@@ -77,9 +80,32 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir) {
   }
 
   s = db_->DisableFileDeletions();
+  bool flush_memtable = true;
   if (s.ok()) {
+    if (!db_options.allow_2pc) {
+      // If out standing log files are small, we skip the flush.
+      s = db_->GetSortedWalFiles(live_wal_files);
+
+      if (!s.ok()) {
+        db_->EnableFileDeletions(false);
+        return s;
+      }
+
+      // Don't flush column families if total log size is smaller than
+      // log_size_for_flush. We copy the log files instead.
+      // We may be able to cover 2PC case too.
+      uint64_t total_wal_size = 0;
+      for (auto& wal : live_wal_files) {
+        total_wal_size += wal->SizeFileBytes();
+      }
+      if (total_wal_size < log_size_for_flush) {
+        flush_memtable = false;
+      }
+      live_wal_files.clear();
+    }
+
     // this will return live_files prefixed with "/"
-    s = db_->GetLiveFiles(live_files, &manifest_file_size);
+    s = db_->GetLiveFiles(live_files, &manifest_file_size, flush_memtable);
 
     if (s.ok() && db_options.allow_2pc) {
       // If 2PC is enabled, we need to get minimum log number after the flush.
@@ -122,7 +148,8 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir) {
   }
 
   size_t wal_size = live_wal_files.size();
-  Log(db_options.info_log,
+  ROCKS_LOG_INFO(
+      db_options.info_log,
       "Started the snapshot process -- creating snapshot in directory %s",
       checkpoint_dir.c_str());
 
@@ -161,7 +188,7 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir) {
     // * if it's kDescriptorFile, limit the size to manifest_file_size
     // * always copy if cross-device link
     if ((type == kTableFile) && same_fs) {
-      Log(db_options.info_log, "Hard Linking %s", src_fname.c_str());
+      ROCKS_LOG_INFO(db_options.info_log, "Hard Linking %s", src_fname.c_str());
       s = db_->GetEnv()->LinkFile(db_->GetName() + src_fname,
                                   full_private_path + src_fname);
       if (s.IsNotSupported()) {
@@ -170,7 +197,7 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir) {
       }
     }
     if ((type != kTableFile) || (!same_fs)) {
-      Log(db_options.info_log, "Copying %s", src_fname.c_str());
+      ROCKS_LOG_INFO(db_options.info_log, "Copying %s", src_fname.c_str());
       s = CopyFile(db_->GetEnv(), db_->GetName() + src_fname,
                    full_private_path + src_fname,
                    (type == kDescriptorFile) ? manifest_file_size : 0,
@@ -181,18 +208,19 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir) {
     s = CreateFile(db_->GetEnv(), full_private_path + current_fname,
                    manifest_fname.substr(1) + "\n");
   }
-  Log(db_options.info_log, "Number of log files %" ROCKSDB_PRIszt,
-      live_wal_files.size());
+  ROCKS_LOG_INFO(db_options.info_log, "Number of log files %" ROCKSDB_PRIszt,
+                 live_wal_files.size());
 
   // Link WAL files. Copy exact size of last one because it is the only one
   // that has changes after the last flush.
   for (size_t i = 0; s.ok() && i < wal_size; ++i) {
     if ((live_wal_files[i]->Type() == kAliveLogFile) &&
-        (live_wal_files[i]->StartSequence() >= sequence_number ||
+        (!flush_memtable ||
+         live_wal_files[i]->StartSequence() >= sequence_number ||
          live_wal_files[i]->LogNumber() >= min_log_num)) {
       if (i + 1 == wal_size) {
-        Log(db_options.info_log, "Copying %s",
-            live_wal_files[i]->PathName().c_str());
+        ROCKS_LOG_INFO(db_options.info_log, "Copying %s",
+                       live_wal_files[i]->PathName().c_str());
         s = CopyFile(db_->GetEnv(),
                      db_options.wal_dir + live_wal_files[i]->PathName(),
                      full_private_path + live_wal_files[i]->PathName(),
@@ -201,8 +229,8 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir) {
       }
       if (same_fs) {
         // we only care about live log files
-        Log(db_options.info_log, "Hard Linking %s",
-            live_wal_files[i]->PathName().c_str());
+        ROCKS_LOG_INFO(db_options.info_log, "Hard Linking %s",
+                       live_wal_files[i]->PathName().c_str());
         s = db_->GetEnv()->LinkFile(
             db_options.wal_dir + live_wal_files[i]->PathName(),
             full_private_path + live_wal_files[i]->PathName());
@@ -212,8 +240,8 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir) {
         }
       }
       if (!same_fs) {
-        Log(db_options.info_log, "Copying %s",
-            live_wal_files[i]->PathName().c_str());
+        ROCKS_LOG_INFO(db_options.info_log, "Copying %s",
+                       live_wal_files[i]->PathName().c_str());
         s = CopyFile(db_->GetEnv(),
                      db_options.wal_dir + live_wal_files[i]->PathName(),
                      full_private_path + live_wal_files[i]->PathName(), 0,
@@ -239,27 +267,28 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir) {
 
   if (!s.ok()) {
     // clean all the files we might have created
-    Log(db_options.info_log, "Snapshot failed -- %s", s.ToString().c_str());
+    ROCKS_LOG_INFO(db_options.info_log, "Snapshot failed -- %s",
+                   s.ToString().c_str());
     // we have to delete the dir and all its children
     std::vector<std::string> subchildren;
     db_->GetEnv()->GetChildren(full_private_path, &subchildren);
     for (auto& subchild : subchildren) {
       std::string subchild_path = full_private_path + "/" + subchild;
       Status s1 = db_->GetEnv()->DeleteFile(subchild_path);
-      Log(db_options.info_log, "Delete file %s -- %s", subchild_path.c_str(),
-          s1.ToString().c_str());
+      ROCKS_LOG_INFO(db_options.info_log, "Delete file %s -- %s",
+                     subchild_path.c_str(), s1.ToString().c_str());
     }
     // finally delete the private dir
     Status s1 = db_->GetEnv()->DeleteDir(full_private_path);
-    Log(db_options.info_log, "Delete dir %s -- %s", full_private_path.c_str(),
-        s1.ToString().c_str());
+    ROCKS_LOG_INFO(db_options.info_log, "Delete dir %s -- %s",
+                   full_private_path.c_str(), s1.ToString().c_str());
     return s;
   }
 
   // here we know that we succeeded and installed the new snapshot
-  Log(db_options.info_log, "Snapshot DONE. All is good");
-  Log(db_options.info_log, "Snapshot sequence number: %" PRIu64,
-      sequence_number);
+  ROCKS_LOG_INFO(db_options.info_log, "Snapshot DONE. All is good");
+  ROCKS_LOG_INFO(db_options.info_log, "Snapshot sequence number: %" PRIu64,
+                 sequence_number);
 
   return s;
 }

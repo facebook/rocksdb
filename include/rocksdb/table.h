@@ -144,9 +144,25 @@ struct BlockBasedTableOptions {
   // Same as block_restart_interval but used for the index block.
   int index_block_restart_interval = 1;
 
-  // Number of index keys per partition of indexes in a multi-level index
-  // i.e., the number of data blocks covered by each index partition
-  uint64_t index_per_partition = 1024;
+  // Block size for partitioned metadata. Currently applied to indexes when
+  // kTwoLevelIndexSearch is used and to filters when partition_filters is used.
+  // Note: Since in the current implementation the filters and index partitions
+  // are aligned, an index/filter block is created when eitehr index or filter
+  // block size reaches the specified limit.
+  // Note: this limit is currently applied to only index blocks; a filter
+  // partition is cut right after an index block is cut
+  // TODO(myabandeh): remove the note above when filter partitions are cut
+  // separately
+  uint64_t metadata_block_size = 4096;
+
+  // Note: currently this option requires kTwoLevelIndexSearch to be set as
+  // well.
+  // TODO(myabandeh): remove the note above once the limitation is lifted
+  // TODO(myabandeh): this feature is in experimental phase and shall not be
+  // used in production; either remove the feature or remove this comment if
+  // it is ready to be used in production.
+  // Use partitioned full filters for each SST file
+  bool partition_filters = false;
 
   // Use delta encoding to compress keys in blocks.
   // ReadOptions::pin_data requires this option to be disabled.
@@ -162,20 +178,6 @@ struct BlockBasedTableOptions {
   // If true, place whole keys in the filter (not just prefixes).
   // This must generally be true for gets to be efficient.
   bool whole_key_filtering = true;
-
-  // If true, block will not be explicitly flushed to disk during building
-  // a SstTable. Instead, buffer in WritableFileWriter will take
-  // care of the flushing when it is full.
-  //
-  // This option helps a lot when direct I/O writes
-  // (use_direct_writes = true) is used, since it avoids small
-  // direct disk write.
-  //
-  // User may also adjust writable_file_max_buffer_size to optimize disk I/O
-  // size.
-  //
-  // Default: false
-  bool skip_table_builder_flush = false;
 
   // Verify that decompressing the compressed block gives back the input. This
   // is a verification mode that we use to detect bugs in compression

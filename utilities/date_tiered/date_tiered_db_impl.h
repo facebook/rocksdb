@@ -10,10 +10,10 @@
 #include <string>
 #include <vector>
 
+#include "monitoring/instrumented_mutex.h"
+#include "options/cf_options.h"
 #include "rocksdb/db.h"
 #include "rocksdb/utilities/date_tiered_db.h"
-#include "util/cf_options.h"
-#include "util/instrumented_mutex.h"
 
 namespace rocksdb {
 

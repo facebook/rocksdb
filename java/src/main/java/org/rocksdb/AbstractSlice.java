@@ -58,6 +58,20 @@ public abstract class AbstractSlice<T> extends RocksMutableObject {
   protected abstract T data0(long handle);
 
   /**
+   * Drops the specified {@code n}
+   * number of bytes from the start
+   * of the backing slice
+   *
+   * @param n The number of bytes to drop
+   */
+  public abstract void removePrefix(final int n);
+
+  /**
+   * Clears the backing slice
+   */
+  public abstract void clear();
+
+  /**
    * Return the length (in bytes) of the data.
    *
    * @return The length in bytes.

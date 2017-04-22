@@ -13,8 +13,9 @@
 #include <memory>
 #include <vector>
 
-#include "util/crc32c.h"
 #include "port/port.h"
+#include "util/crc32c.h"
+#include "util/logging.h"
 
 namespace rocksdb {
 
@@ -201,14 +202,17 @@ bool RandomAccessCacheFile::Open(const bool enable_direct_reads) {
 bool RandomAccessCacheFile::OpenImpl(const bool enable_direct_reads) {
   rwlock_.AssertHeld();
 
-  Debug(log_, "Opening cache file %s", Path().c_str());
+  ROCKS_LOG_DEBUG(log_, "Opening cache file %s", Path().c_str());
 
-  Status status = NewRandomAccessCacheFile(env_, Path(), &file_);
+  std::unique_ptr<RandomAccessFile> file;
+  Status status =
+      NewRandomAccessCacheFile(env_, Path(), &file, enable_direct_reads);
   if (!status.ok()) {
     Error(log_, "Error opening random access file %s. %s", Path().c_str(),
           status.ToString().c_str());
     return false;
   }
+  freader_.reset(new RandomAccessFileReader(std::move(file), env_));
 
   return true;
 }
@@ -219,12 +223,12 @@ bool RandomAccessCacheFile::Read(const LBA& lba, Slice* key, Slice* val,
 
   assert(lba.cache_id_ == cache_id_);
 
-  if (!file_) {
+  if (!freader_) {
     return false;
   }
 
   Slice result;
-  Status s = file_->Read(lba.off_, lba.size_, &result, scratch);
+  Status s = freader_->Read(lba.off_, lba.size_, &result, scratch);
   if (!s.ok()) {
     Error(log_, "Error reading from file %s. %s", Path().c_str(),
           s.ToString().c_str());
@@ -279,19 +283,19 @@ bool WriteableCacheFile::Create(const bool enable_direct_writes,
 
   enable_direct_reads_ = enable_direct_reads;
 
-  Debug(log_, "Creating new cache %s (max size is %d B)", Path().c_str(),
-        max_size_);
+  ROCKS_LOG_DEBUG(log_, "Creating new cache %s (max size is %d B)",
+                  Path().c_str(), max_size_);
 
   Status s = env_->FileExists(Path());
   if (s.ok()) {
-    Warn(log_, "File %s already exists. %s", Path().c_str(),
-         s.ToString().c_str());
+    ROCKS_LOG_WARN(log_, "File %s already exists. %s", Path().c_str(),
+                   s.ToString().c_str());
   }
 
   s = NewWritableCacheFile(env_, Path(), &file_);
   if (!s.ok()) {
-    Warn(log_, "Unable to create file %s. %s", Path().c_str(),
-         s.ToString().c_str());
+    ROCKS_LOG_WARN(log_, "Unable to create file %s. %s", Path().c_str(),
+                   s.ToString().c_str());
     return false;
   }
 
@@ -314,7 +318,7 @@ bool WriteableCacheFile::Append(const Slice& key, const Slice& val, LBA* lba) {
 
   if (!ExpandBuffer(rec_size)) {
     // unable to expand the buffer
-    Debug(log_, "Error expanding buffers. size=%d", rec_size);
+    ROCKS_LOG_DEBUG(log_, "Error expanding buffers. size=%d", rec_size);
     return false;
   }
 
@@ -357,7 +361,7 @@ bool WriteableCacheFile::ExpandBuffer(const size_t size) {
   while (free < size) {
     CacheWriteBuffer* const buf = alloc_->Allocate();
     if (!buf) {
-      Debug(log_, "Unable to allocate buffers");
+      ROCKS_LOG_DEBUG(log_, "Unable to allocate buffers");
       return false;
     }
 
