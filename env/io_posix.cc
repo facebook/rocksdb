@@ -37,10 +37,20 @@
 namespace rocksdb {
 
 // A wrapper for fadvise, if the platform doesn't support fadvise,
-// it will simply return Status::NotSupport.
+// it will simply return 0.
 int Fadvise(int fd, off_t offset, size_t len, int advice) {
 #ifdef OS_LINUX
   return posix_fadvise(fd, offset, len, advice);
+#else
+  return 0;  // simply do nothing.
+#endif
+}
+
+// A wrapper for readahead, if the platform doesn't support readahead,
+// it will simply return 0.
+ssize_t Readahead(int fd, off64_t offset, size_t count) {
+#ifdef OS_LINUX
+  return readahead(fd, offset, count);
 #else
   return 0;  // simply do nothing.
 #endif
@@ -339,7 +349,7 @@ Status PosixRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
 Status PosixRandomAccessFile::Prefetch(uint64_t offset, size_t n) {
   Status s;
   if (!use_direct_io()) {
-    if (readahead(fd_, offset, n) == -1) {
+    if (Readahead(fd_, offset, n) == -1) {
       s = IOError(filename_, errno);
     }
   }
