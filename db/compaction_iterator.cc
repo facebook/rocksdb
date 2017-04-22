@@ -433,8 +433,8 @@ void CompactionIterator::NextFromInput() {
         at_next_ = true;
       }
     } else if (last_snapshot == current_user_key_snapshot_) {
-      // If the earliest snapshot is which this key is visible in
-      // is the same as the visibility of a previous instance of the
+      // If the earliest snapshot in which this key is visible is
+      // the same as the visibility of a previous instance of the
       // same key, then this kv is not visible in any snapshot.
       // Hidden by an newer entry for same user key
       // TODO(noetzli): why not > ?

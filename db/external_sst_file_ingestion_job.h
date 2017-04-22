@@ -15,6 +15,7 @@
 #include "options/db_options.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
+#include "rocksdb/options.h"
 #include "rocksdb/sst_file_writer.h"
 #include "util/autovector.h"
 

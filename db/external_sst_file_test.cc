@@ -315,8 +315,7 @@ TEST_F(ExternalSSTFileTest, Basic) {
       ASSERT_EQ(Get(Key(k)), value);
     }
     DestroyAndRecreateExternalSSTFilesDir();
-  } while (ChangeOptions(kSkipPlainTable | kSkipUniversalCompaction |
-                         kSkipFIFOCompaction));
+  } while (ChangeOptions(kSkipPlainTable | kSkipFIFOCompaction));
 }
 class SstFileWriterCollector : public TablePropertiesCollector {
  public:
@@ -368,7 +367,6 @@ class SstFileWriterCollectorFactory : public TablePropertiesCollectorFactory {
 TEST_F(ExternalSSTFileTest, AddList) {
   do {
     Options options = CurrentOptions();
-
     auto abc_collector = std::make_shared<SstFileWriterCollectorFactory>("abc");
     auto xyz_collector = std::make_shared<SstFileWriterCollectorFactory>("xyz");
 
@@ -556,8 +554,7 @@ TEST_F(ExternalSSTFileTest, AddList) {
       ASSERT_EQ(Get(Key(k)), value);
     }
     DestroyAndRecreateExternalSSTFilesDir();
-  } while (ChangeOptions(kSkipPlainTable | kSkipUniversalCompaction |
-                         kSkipFIFOCompaction));
+  } while (ChangeOptions(kSkipPlainTable | kSkipFIFOCompaction));
 }
 
 TEST_F(ExternalSSTFileTest, AddListAtomicity) {
@@ -599,8 +596,7 @@ TEST_F(ExternalSSTFileTest, AddListAtomicity) {
       ASSERT_EQ(Get(Key(k)), value);
     }
     DestroyAndRecreateExternalSSTFilesDir();
-  } while (ChangeOptions(kSkipPlainTable | kSkipUniversalCompaction |
-                         kSkipFIFOCompaction));
+  } while (ChangeOptions(kSkipPlainTable | kSkipFIFOCompaction));
 }
 // This test reporduce a bug that can happen in some cases if the DB started
 // purging obsolete files when we are adding an external sst file.
@@ -736,7 +732,6 @@ TEST_F(ExternalSSTFileTest, MultiThreaded) {
 
   do {
     Options options = CurrentOptions();
-
     std::atomic<int> thread_num(0);
     std::function<void()> write_file_func = [&]() {
       int file_idx = thread_num.fetch_add(1);
@@ -831,8 +826,7 @@ TEST_F(ExternalSSTFileTest, MultiThreaded) {
 
     fprintf(stderr, "Verified %d values\n", num_files * keys_per_file);
     DestroyAndRecreateExternalSSTFilesDir();
-  } while (ChangeOptions(kSkipPlainTable | kSkipUniversalCompaction |
-                         kSkipFIFOCompaction));
+  } while (ChangeOptions(kSkipPlainTable | kSkipFIFOCompaction));
 }
 
 TEST_F(ExternalSSTFileTest, OverlappingRanges) {
@@ -930,8 +924,7 @@ TEST_F(ExternalSSTFileTest, OverlappingRanges) {
     }
     printf("keys/values verified\n");
     DestroyAndRecreateExternalSSTFilesDir();
-  } while (ChangeOptions(kSkipPlainTable | kSkipUniversalCompaction |
-                         kSkipFIFOCompaction));
+  } while (ChangeOptions(kSkipPlainTable | kSkipFIFOCompaction));
 }
 
 TEST_F(ExternalSSTFileTest, PickedLevel) {

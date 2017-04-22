@@ -90,29 +90,6 @@ SmallestKeyHeap create_level_heap(Compaction* c, const Comparator* ucmp) {
   return smallest_key_priority_q;
 }
 
-#ifndef NDEBUG
-// smallest_seqno and largest_seqno are set iff. `files` is not empty.
-void GetSmallestLargestSeqno(const std::vector<FileMetaData*>& files,
-                             SequenceNumber* smallest_seqno,
-                             SequenceNumber* largest_seqno) {
-  bool is_first = true;
-  for (FileMetaData* f : files) {
-    assert(f->smallest_seqno <= f->largest_seqno);
-    if (is_first) {
-      is_first = false;
-      *smallest_seqno = f->smallest_seqno;
-      *largest_seqno = f->largest_seqno;
-    } else {
-      if (f->smallest_seqno < *smallest_seqno) {
-        *smallest_seqno = f->smallest_seqno;
-      }
-      if (f->largest_seqno > *largest_seqno) {
-        *largest_seqno = f->largest_seqno;
-      }
-    }
-  }
-}
-#endif
 }  // namespace
 
 // Algorithm that checks to see if there are any overlapping
@@ -331,45 +308,6 @@ Compaction* UniversalCompactionPicker::PickCompaction(
     c->set_is_trivial_move(IsInputFilesNonOverlapping(c));
   }
 
-// validate that all the chosen files of L0 are non overlapping in time
-#ifndef NDEBUG
-  SequenceNumber prev_smallest_seqno = 0U;
-  bool is_first = true;
-
-  size_t level_index = 0U;
-  if (c->start_level() == 0) {
-    for (auto f : *c->inputs(0)) {
-      assert(f->smallest_seqno <= f->largest_seqno);
-      if (is_first) {
-        is_first = false;
-      } else {
-        assert(prev_smallest_seqno > f->largest_seqno);
-      }
-      prev_smallest_seqno = f->smallest_seqno;
-    }
-    level_index = 1U;
-  }
-  for (; level_index < c->num_input_levels(); level_index++) {
-    if (c->num_input_files(level_index) != 0) {
-      SequenceNumber smallest_seqno = 0U;
-      SequenceNumber largest_seqno = 0U;
-      GetSmallestLargestSeqno(*(c->inputs(level_index)), &smallest_seqno,
-                              &largest_seqno);
-      if (is_first) {
-        is_first = false;
-      } else if (prev_smallest_seqno > 0) {
-        // A level is considered as the bottommost level if there are
-        // no files in higher levels or if files in higher levels do
-        // not overlap with the files being compacted. Sequence numbers
-        // of files in bottommost level can be set to 0 to help
-        // compression. As a result, the following assert may not hold
-        // if the prev_smallest_seqno is 0.
-        assert(prev_smallest_seqno > largest_seqno);
-      }
-      prev_smallest_seqno = smallest_seqno;
-    }
-  }
-#endif
   // update statistics
   MeasureTime(ioptions_.statistics, NUM_FILES_IN_SINGLE_COMPACTION,
               c->inputs(0)->size());
