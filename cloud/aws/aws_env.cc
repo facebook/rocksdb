@@ -1283,6 +1283,7 @@ Status AwsEnv::NewAwsEnv(Env* base_env, const std::string& src_bucket_prefix,
                          const CloudEnvOptions& cloud_options,
                          std::shared_ptr<Logger> info_log, CloudEnv** cenv) {
   Status status;
+  *cenv = nullptr;
   // If underlying env is not defined, then use PosixEnv
   if (!base_env) {
     base_env = Env::Default();
