@@ -1441,7 +1441,6 @@ TEST_F(DBTest, UnremovableSingleDelete) {
 #ifndef ROCKSDB_LITE
 TEST_F(DBTest, DeletionMarkers1) {
   Options options = CurrentOptions();
-  env_->SetBackgroundThreads(0, Env::HIGH);
   CreateAndReopenWithCF({"pikachu"}, options);
   Put(1, "foo", "v1");
   ASSERT_OK(Flush(1));
@@ -3359,7 +3358,6 @@ TEST_P(DBTestWithParam, ThreadStatusSingleCompaction) {
 
 TEST_P(DBTestWithParam, PreShutdownManualCompaction) {
   Options options = CurrentOptions();
-  env_->SetBackgroundThreads(0, Env::HIGH);
   options.max_subcompactions = max_subcompactions_;
   CreateAndReopenWithCF({"pikachu"}, options);
 
@@ -3408,7 +3406,6 @@ TEST_P(DBTestWithParam, PreShutdownManualCompaction) {
 
 TEST_F(DBTest, PreShutdownFlush) {
   Options options = CurrentOptions();
-  env_->SetBackgroundThreads(0, Env::HIGH);
   CreateAndReopenWithCF({"pikachu"}, options);
   ASSERT_OK(Put(1, "key", "value"));
   CancelAllBackgroundWork(db_);

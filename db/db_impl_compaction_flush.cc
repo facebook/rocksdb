@@ -983,8 +983,9 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     // DB is being deleted; no more background compactions
     return;
   }
-
-  while (unscheduled_flushes_ > 0 &&
+  bool is_flush_pool_empty =
+    env_->GetBackgroundThreads(Env::Priority::HIGH) == 0;
+  while (!is_flush_pool_empty && unscheduled_flushes_ > 0 &&
          bg_flush_scheduled_ < immutable_db_options_.max_background_flushes) {
     unscheduled_flushes_--;
     bg_flush_scheduled_++;
@@ -995,7 +996,7 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
 
   // special case -- if high-pri (flush) thread pool is empty, then schedule
   // flushes in low-pri (compaction) thread pool.
-  if (env_->GetBackgroundThreads(Env::Priority::HIGH) == 0) {
+  if (is_flush_pool_empty) {
     while (unscheduled_flushes_ > 0 &&
            bg_flush_scheduled_ + bg_compaction_scheduled_ <
                bg_compactions_allowed) {
