@@ -3075,11 +3075,6 @@ TEST_F(DBTest, DynamicMemtableOptions) {
   // Start from scratch and disable compaction/flush. Flush can only happen
   // during compaction but trigger is pretty high
   options.disable_auto_compactions = true;
-  // TODO(ajkr): below line is a hack such that opening DB doesn't trigger a
-  // flush when it increases the high-pri thread pool's size via calling
-  // IncBackgroundThreadsIfNeeded(max_background_flushes). Should remove it once
-  // max_background_flushes is fully deprecated.
-  options.max_background_flushes = 0;
   DestroyAndReopen(options);
   env_->SetBackgroundThreads(0, Env::HIGH);
 

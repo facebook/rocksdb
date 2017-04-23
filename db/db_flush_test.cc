@@ -113,7 +113,6 @@ TEST_F(DBFlushTest, FlushInLowPriThreadPool) {
       });
   SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BGWorkCompaction", [&](void* arg) {
-        ASSERT_NE(tid, std::thread::id());
         ASSERT_EQ(tid, std::this_thread::get_id());
         ++num_compactions;
       });
