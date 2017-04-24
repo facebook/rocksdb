@@ -222,8 +222,9 @@ void ImmutableDBOptions::Dump(Logger* log) const {
 }
 
 MutableDBOptions::MutableDBOptions()
-    : base_background_compactions(1),
-      max_background_compactions(1),
+    : max_background_jobs(2),
+      base_background_compactions(-1),
+      max_background_compactions(-1),
       avoid_flush_during_shutdown(false),
       delayed_write_rate(2 * 1024U * 1024U),
       max_total_wal_size(0),
@@ -232,7 +233,8 @@ MutableDBOptions::MutableDBOptions()
       max_open_files(-1) {}
 
 MutableDBOptions::MutableDBOptions(const DBOptions& options)
-    : base_background_compactions(options.base_background_compactions),
+    : max_background_jobs(options.max_background_jobs),
+      base_background_compactions(options.base_background_compactions),
       max_background_compactions(options.max_background_compactions),
       avoid_flush_during_shutdown(options.avoid_flush_during_shutdown),
       delayed_write_rate(options.delayed_write_rate),
@@ -243,8 +245,8 @@ MutableDBOptions::MutableDBOptions(const DBOptions& options)
       max_open_files(options.max_open_files) {}
 
 void MutableDBOptions::Dump(Logger* log) const {
-  ROCKS_LOG_HEADER(log, "            Options.base_background_compactions: %d",
-                   base_background_compactions);
+  ROCKS_LOG_HEADER(log, "            Options.max_background_jobs: %d",
+                   max_background_jobs);
   ROCKS_LOG_HEADER(log, "            Options.max_background_compactions: %d",
                    max_background_compactions);
   ROCKS_LOG_HEADER(log, "            Options.avoid_flush_during_shutdown: %d",

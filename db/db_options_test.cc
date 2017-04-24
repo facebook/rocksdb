@@ -255,14 +255,12 @@ TEST_F(DBOptionsTest, SetOptionsMayTriggerCompaction) {
 TEST_F(DBOptionsTest, SetBackgroundCompactionThreads) {
   Options options;
   options.create_if_missing = true;
-  options.base_background_compactions = 1;  // default value
   options.max_background_compactions = 1;   // default value
   options.env = env_;
   Reopen(options);
   ASSERT_EQ(1, dbfull()->TEST_BGCompactionsAllowed());
-  ASSERT_OK(dbfull()->SetDBOptions({{"base_background_compactions", "2"},
-                                    {"max_background_compactions", "3"}}));
-  ASSERT_EQ(2, dbfull()->TEST_BGCompactionsAllowed());
+  ASSERT_OK(dbfull()->SetDBOptions({{"max_background_compactions", "3"}}));
+  ASSERT_EQ(1, dbfull()->TEST_BGCompactionsAllowed());
   auto stop_token = dbfull()->TEST_write_controler().GetStopToken();
   ASSERT_EQ(3, dbfull()->TEST_BGCompactionsAllowed());
 }

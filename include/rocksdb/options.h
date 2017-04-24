@@ -463,24 +463,27 @@ struct DBOptions {
   // regardless of this setting
   uint64_t delete_obsolete_files_period_micros = 6ULL * 60 * 60 * 1000000;
 
-  // Suggested number of concurrent background compaction jobs, submitted to
-  // the default LOW priority thread pool.
-  //
-  // Default: 1
-  int base_background_compactions = 1;
+  // Maximum number of concurrent background jobs (compactions and flushes).
+  int max_background_jobs = 2;
 
+  // NOT SUPPORTED ANYMORE: RocksDB automatically decides this based on the
+  // value of max_background_jobs. This option is ignored.
+  int base_background_compactions = -1;
+
+  // NOT SUPPORTED ANYMORE: RocksDB automatically decides this based on the
+  // value of max_background_jobs. For backwards compatibility we will set
+  // `max_background_jobs = max_background_compactions + max_background_flushes`
+  // in the case where user sets at least one of `max_background_compactions` or
+  // `max_background_flushes` (we replace -1 by 1 in case one option is unset).
+  //
   // Maximum number of concurrent background compaction jobs, submitted to
   // the default LOW priority thread pool.
-  // We first try to schedule compactions based on
-  // `base_background_compactions`. If the compaction cannot catch up , we
-  // will increase number of compaction threads up to
-  // `max_background_compactions`.
   //
   // If you're increasing this, also consider increasing number of threads in
   // LOW priority thread pool. For more information, see
   // Env::SetBackgroundThreads
-  // Default: 1
-  int max_background_compactions = 1;
+  // Default: -1
+  int max_background_compactions = -1;
 
   // This value represents the maximum number of threads that will
   // concurrently perform a compaction job by breaking it into multiple,
@@ -488,22 +491,27 @@ struct DBOptions {
   // Default: 1 (i.e. no subcompactions)
   uint32_t max_subcompactions = 1;
 
-  // Maximum number of concurrent background memtable flush jobs, submitted to
-  // the HIGH priority thread pool.
+  // NOT SUPPORTED ANYMORE: RocksDB automatically decides this based on the
+  // value of max_background_jobs. For backwards compatibility we will set
+  // `max_background_jobs = max_background_compactions + max_background_flushes`
+  // in the case where user sets at least one of `max_background_compactions` or
+  // `max_background_flushes`.
   //
-  // By default, all background jobs (major compaction and memtable flush) go
-  // to the LOW priority pool. If this option is set to a positive number,
-  // memtable flush jobs will be submitted to the HIGH priority pool.
-  // It is important when the same Env is shared by multiple db instances.
-  // Without a separate pool, long running major compaction jobs could
-  // potentially block memtable flush jobs of other db instances, leading to
-  // unnecessary Put stalls.
+  // Maximum number of concurrent background memtable flush jobs, submitted by
+  // default to the HIGH priority thread pool. If the HIGH priority thread pool
+  // is configured to have zero threads, flush jobs will share the LOW priority
+  // thread pool with compaction jobs.
+  //
+  // It is important to use both thread pools when the same Env is shared by
+  // multiple db instances. Without a separate pool, long running compaction
+  // jobs could potentially block memtable flush jobs of other db instances,
+  // leading to unnecessary Put stalls.
   //
   // If you're increasing this, also consider increasing number of threads in
   // HIGH priority thread pool. For more information, see
   // Env::SetBackgroundThreads
-  // Default: 1
-  int max_background_flushes = 1;
+  // Default: -1
+  int max_background_flushes = -1;
 
   // Specify the maximal size of the info log file. If the log file
   // is larger than `max_log_file_size`, a new info log file will

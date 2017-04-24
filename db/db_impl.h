@@ -404,9 +404,12 @@ class DBImpl : public DB {
 
 #endif  // NDEBUG
 
-  // Return maximum background compaction allowed to be scheduled based on
-  // compaction status.
-  int BGCompactionsAllowed() const;
+  struct BGJobLimits {
+    int max_flushes;
+    int max_compactions;
+  };
+  // Returns maximum background flushes and compactions allowed to be scheduled
+  BGJobLimits GetBGJobLimits() const;
 
   // move logs pending closing from job_context to the DB queue and
   // schedule a purge
@@ -1186,7 +1189,7 @@ extern DBOptions SanitizeOptions(const std::string& db, const DBOptions& src);
 extern CompressionType GetCompressionFlush(
     const ImmutableCFOptions& ioptions,
     const MutableCFOptions& mutable_cf_options);
- 
+
 // Fix user-supplied options to be reasonable
 template <class T, class V>
 static void ClipToRange(T* ptr, V minvalue, V maxvalue) {

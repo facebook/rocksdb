@@ -188,7 +188,7 @@ Status DBImpl::TEST_GetLatestMutableCFOptions(
 
 int DBImpl::TEST_BGCompactionsAllowed() const {
   InstrumentedMutexLock l(&mutex_);
-  return BGCompactionsAllowed();
+  return GetBGJobLimits().max_compactions;
 }
 
 }  // namespace rocksdb
