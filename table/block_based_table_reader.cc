@@ -2064,25 +2064,13 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
 
 void BlockBasedTable::Close() {
   const bool force_erase = true;
-  // The filter_entry could have a pointer to the table and must be deleted
-  // before the table is closed
-  rep_->filter_entry.Release(rep_->table_options.block_cache.get(),
-                             force_erase);
-  rep_->index_entry.Release(rep_->table_options.block_cache.get());
-  rep_->range_del_entry.Release(rep_->table_options.block_cache.get());
-  // cleanup index and filter blocks to avoid accessing dangling pointer
-  if (!rep_->table_options.no_block_cache) {
-    char cache_key[kMaxCacheKeyPrefixSize + kMaxVarint64Length];
-    // Get the filter block key
-    auto key = GetCacheKey(rep_->cache_key_prefix, rep_->cache_key_prefix_size,
-                           rep_->footer.metaindex_handle(), cache_key);
-    rep_->table_options.block_cache.get()->Erase(key);
-    // Get the index block key
-    key = GetCacheKeyFromOffset(rep_->cache_key_prefix,
-                                rep_->cache_key_prefix_size,
-                                rep_->dummy_index_reader_offset, cache_key);
-    rep_->table_options.block_cache.get()->Erase(key);
-  }
+  auto block_cache = rep_->table_options.block_cache.get();
+  // The filter_entry and inde_entry could have a pointer to the table and must
+  // be deleted before the table is closed
+  rep_->filter_entry.Release(block_cache, force_erase);
+  rep_->index_entry.Release(block_cache, force_erase);
+  // range_del_entry's lifetime does not need to be longer than table's
+  rep_->range_del_entry.Release(block_cache, force_erase);
 }
 
 Status BlockBasedTable::DumpIndexBlock(WritableFile* out_file) {
