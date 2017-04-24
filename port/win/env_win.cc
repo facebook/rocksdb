@@ -1061,7 +1061,7 @@ void  WinEnv::SetBackgroundThreads(int num, Env::Priority pri) {
   return winenv_threads_.SetBackgroundThreads(num, pri);
 }
 
-void  WinEnv::GetBackgroundThreads(Env::Priority pri) {
+int WinEnv::GetBackgroundThreads(Env::Priority pri) {
   return winenv_threads_.GetBackgroundThreads(pri);
 }
 
