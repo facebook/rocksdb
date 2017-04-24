@@ -51,9 +51,9 @@ inputs:
     build_env_travis_build_dir:
       default: '/src'
     build_sec_env:
-      default: '%%secrets.==$1$key=default$text$AP0JF/mIdE1c1ygnRpC70u2RNY+sQNbWC2x5x56imS7FMsI9nQvgnTnj5vVnq8aCI3Ldt4YvsOcVsVk0Qs9v6vsQzojvn6Gdv+IkwVZ9IDwQZXz8lxUklEFDR14K9gkae4RcOfigTy6ELgDocVKvRU8M8xZkGpFM1CzYGgw32ZoAG7zfZWvTNoIgRn9hawS9YjsjX1LvQoJbK6JoLdQCTGEGgofEC2XW92EiD+K7o0Oo99tZOVUtgaiZ0liztBHqQqKxPPnsYUP4RU0n7WB1RXkQVNoqyCua2bB5VkffxbLHcA84rj5xWAJrlt6JoMS/FivODJ5/n55vqW9ZXiuz0r688OWegn6jtvCcigxOodJxax4qEAfXkYe317XjSN2bhjA/usZysDmaS48KsWG0T8HC2g5dH4S1IyV69+MAiMvhaw====%%'
+      default: '%%secrets.==$1$key=default$text$AW9bz6MhQSad6tzptweonKmTkIi5BL5UB0fcKSTr/3T7qbR8G9sgjQXZUH4AOO9/s3c+r4wPNRgvzERjv8WV2g0cCi0IoOGumIhpn3J30OdQHZ6fJvAYe/YlMt2yRUh4mGJPj8t3u/C657oAZNGsNNXVotzOdc08YSq5Qc+b4tmPC1WlzvdYQnNAXabLg12B/y0SpZh1c2fAKJhgydcvYBWnS7vlOf33nC5fNFz94NSVynziq0setrHh2qa9v5Ke3lDRvak+H47mAJbJ2rVDS73hpwaVmR4iOPJVFLfUkcvsU2N9Hjq1tVR+kgZgJf9AS2NMuWcsUxzs2bjoGQZF33DYMD6tb10fMgsL2eRW7Vi/dJpSdPhQwwrhdXEKADwnSK6V6wSvlSpXUh80qo+qXNlaix8oR0RTbaUYB6NYZEWy6A====%%'
     build_sec_env2:
-      default: '%%secrets.==$1$key=default$text$ATcbh4pK0xFvbnT9GpikmurIWpoQ84Xa/QzDawHg38mGaVOQ790hupceyfoIN16VAXYxgzB1YedSIDWCf6va9rfQEvkuKCKmYv/172RG6gCXVvoJ1sN7pjXa1SMjuvubODZ73zg82r/Y1rN092wLqnyrmtN5Ll7mojusRBMlh3ocbok8t4X38aTy6byDuEh9TSk2e1ClET5QADWTgJhX3Z5CfIUfDNQtFi8rJOqrZ0pVMp5rnmV6h4o1zNklnjNkvIYAdEbGMZfcpdv7aL68hwFaoDMwjVNTNaUTHYdHLbmI04rsr/CgHuOrIihatDLu81XSa7S9k3SZqqgvm8gGcQusc7SN3dvXObNG0HVssChqyVmAhr+y2nWOHzpMV9h3kzER4XfQegjJd/On8oXtDwzb7MgbaZyOL7iICZrJORCnKQ====%%'
+      default: '%%secrets.==$1$key=default$text$ADWJapL+FeC+eYeltCkugbs7y8G7EI6XvtgYWj+2ZR/cnxHK3fLMSMQeJLuF4YVd+CA1/PhpO4R4uZG8keYYq9wJr62RH//oeg3FulbjrQpK97k+m/TGhEy8O2Dl1lZSpqnGOGcUgTdu5Db3Aj/iElVKDD2rNQA3/mLDPCogEU6nLf+Aja8Y4KM1ugf3O/DDppYqXjue2yiauJQ4yYhdfABdl/3KYKC+eav1FGGZffILY8SDO7oplJN3HI9LCNjzaaICyqUykWthgo431K1xYJFzTgACDZBB02vw82VOJ75TKZ9cd8ZxTufhpHfw8ksUlANbnYQW67aFYtg8sgXbIKG6hl4ddCX0D0she4ugn0Wic3Su6nbT8QkuxpRveL5UMuYmm+FXWRTvHajaqITY90tNuzP/Z0Y7QoM+2BV8u/8XNg====%%'
 
 steps:
   - checkout:
