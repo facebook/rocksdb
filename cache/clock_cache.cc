@@ -26,7 +26,6 @@ std::shared_ptr<Cache> NewClockCache(size_t capacity, int num_shard_bits,
 #include <assert.h>
 #include <atomic>
 #include <deque>
-#include <limits>
 
 #include "tbb/concurrent_hash_map.h"
 
@@ -252,8 +251,11 @@ class ClockCacheShard : public CacheShard {
   //
   // Not necessary to hold mutex_ before being called.
   virtual bool Ref(Cache::Handle* handle) override;
-  virtual void Release(Cache::Handle* handle) override;
+  virtual bool Release(Cache::Handle* handle,
+                       bool force_erase = false) override;
   virtual void Erase(const Slice& key, uint32_t hash) override;
+  bool EraseAndConfirm(const Slice& key, uint32_t hash,
+                       CleanupContext* context);
   virtual size_t GetUsage() const override;
   virtual size_t GetPinnedUsage() const override;
   virtual void EraseUnRefEntries() override;
@@ -274,13 +276,17 @@ class ClockCacheShard : public CacheShard {
   // Decrease reference count of the entry. If this decreases the count to 0,
   // recycle the entry. If set_usage is true, also set the usage bit.
   //
+  // returns true if a value is erased.
+  //
   // Not necessary to hold mutex_ before being called.
-  void Unref(CacheHandle* handle, bool set_usage, CleanupContext* context);
+  bool Unref(CacheHandle* handle, bool set_usage, CleanupContext* context);
 
   // Unset in-cache bit of the entry. Recycle the handle if necessary.
   //
+  // returns true if a value is erased.
+  //
   // Has to hold mutex_ before being called.
-  void UnsetInCache(CacheHandle* handle, CleanupContext* context);
+  bool UnsetInCache(CacheHandle* handle, CleanupContext* context);
 
   // Put the handle back to recycle_ list, and put the value associated with
   // it into to-be-deleted list. It doesn't cleanup the key as it might be
@@ -432,7 +438,7 @@ bool ClockCacheShard::Ref(Cache::Handle* h) {
   return false;
 }
 
-void ClockCacheShard::Unref(CacheHandle* handle, bool set_usage,
+bool ClockCacheShard::Unref(CacheHandle* handle, bool set_usage,
                             CleanupContext* context) {
   if (set_usage) {
     handle->flags.fetch_or(kUsageBit, std::memory_order_relaxed);
@@ -451,9 +457,10 @@ void ClockCacheShard::Unref(CacheHandle* handle, bool set_usage,
       RecycleHandle(handle, context);
     }
   }
+  return context->to_delete_value.size();
 }
 
-void ClockCacheShard::UnsetInCache(CacheHandle* handle,
+bool ClockCacheShard::UnsetInCache(CacheHandle* handle,
                                    CleanupContext* context) {
   mutex_.AssertHeld();
   // Use acquire-release semantics as previous operations on the cache entry
@@ -465,6 +472,7 @@ void ClockCacheShard::UnsetInCache(CacheHandle* handle,
   if (InCache(flags) && CountRefs(flags) == 0) {
     RecycleHandle(handle, context);
   }
+  return context->to_delete_value.size();
 }
 
 bool ClockCacheShard::TryEvict(CacheHandle* handle, CleanupContext* context) {
@@ -618,25 +626,34 @@ Cache::Handle* ClockCacheShard::Lookup(const Slice& key, uint32_t hash) {
   return reinterpret_cast<Cache::Handle*>(handle);
 }
 
-void ClockCacheShard::Release(Cache::Handle* h) {
+bool ClockCacheShard::Release(Cache::Handle* h, bool force_erase) {
   CleanupContext context;
   CacheHandle* handle = reinterpret_cast<CacheHandle*>(h);
-  Unref(handle, true, &context);
+  bool erased = Unref(handle, true, &context);
+  if (force_erase && !erased) {
+    erased = EraseAndConfirm(handle->key, handle->hash, &context);
+  }
   Cleanup(context);
+  return erased;
 }
 
 void ClockCacheShard::Erase(const Slice& key, uint32_t hash) {
   CleanupContext context;
-  {
-    MutexLock l(&mutex_);
-    HashTable::accessor accessor;
-    if (table_.find(accessor, CacheKey(key, hash))) {
-      CacheHandle* handle = accessor->second;
-      table_.erase(accessor);
-      UnsetInCache(handle, &context);
-    }
-  }
+  EraseAndConfirm(key, hash, &context);
   Cleanup(context);
+}
+
+bool ClockCacheShard::EraseAndConfirm(const Slice& key, uint32_t hash,
+                                      CleanupContext* context) {
+  MutexLock l(&mutex_);
+  HashTable::accessor accessor;
+  bool erased = false;
+  if (table_.find(accessor, CacheKey(key, hash))) {
+    CacheHandle* handle = accessor->second;
+    table_.erase(accessor);
+    erased = UnsetInCache(handle, context);
+  }
+  return erased;
 }
 
 void ClockCacheShard::EraseUnRefEntries() {

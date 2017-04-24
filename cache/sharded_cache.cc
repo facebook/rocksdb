@@ -63,9 +63,9 @@ bool ShardedCache::Ref(Handle* handle) {
   return GetShard(Shard(hash))->Ref(handle);
 }
 
-void ShardedCache::Release(Handle* handle) {
+bool ShardedCache::Release(Handle* handle, bool force_erase) {
   uint32_t hash = GetHash(handle);
-  GetShard(Shard(hash))->Release(handle);
+  return GetShard(Shard(hash))->Release(handle, force_erase);
 }
 
 void ShardedCache::Erase(const Slice& key) {

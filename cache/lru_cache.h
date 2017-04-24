@@ -178,7 +178,8 @@ class LRUCacheShard : public CacheShard {
                         Cache::Priority priority) override;
   virtual Cache::Handle* Lookup(const Slice& key, uint32_t hash) override;
   virtual bool Ref(Cache::Handle* handle) override;
-  virtual void Release(Cache::Handle* handle) override;
+  virtual bool Release(Cache::Handle* handle,
+                       bool force_erase = false) override;
   virtual void Erase(const Slice& key, uint32_t hash) override;
 
   // Although in some platforms the update of size_t is atomic, to make sure
