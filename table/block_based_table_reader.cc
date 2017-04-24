@@ -2063,7 +2063,11 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
 }
 
 void BlockBasedTable::Close() {
-  rep_->filter_entry.Release(rep_->table_options.block_cache.get());
+  const bool force_erase = true;
+  // The filter_entry could have a pointer to the table and must be deleted
+  // before the table is closed
+  rep_->filter_entry.Release(rep_->table_options.block_cache.get(),
+                             force_erase);
   rep_->index_entry.Release(rep_->table_options.block_cache.get());
   rep_->range_del_entry.Release(rep_->table_options.block_cache.get());
   // cleanup index and filter blocks to avoid accessing dangling pointer
