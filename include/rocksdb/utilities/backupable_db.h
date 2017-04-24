@@ -256,12 +256,14 @@ class BackupEngine {
                      BackupEngine** backup_engine_ptr);
 
   // same as CreateNewBackup, but stores extra application metadata
+  // Flush will always trigger if 2PC is enabled.
   virtual Status CreateNewBackupWithMetadata(
       DB* db, const std::string& app_metadata, bool flush_before_backup = false,
       std::function<void()> progress_callback = []() {}) = 0;
 
   // Captures the state of the database in the latest backup
   // NOT a thread safe call
+  // Flush will always trigger if 2PC is enabled.
   virtual Status CreateNewBackup(DB* db, bool flush_before_backup = false,
                                  std::function<void()> progress_callback =
                                      []() {}) {
