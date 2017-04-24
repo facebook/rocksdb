@@ -451,35 +451,6 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
                       char* scratch) const override {
 
     if (n + alignment_ >= readahead_size_) {
-
-      // Must use the aligned buffer on direct IO
-      if (file_->use_direct_io() &&
-         !AlignedBuffer::isAligned(scratch, alignment_)) {
-
-        uint64_t first_page_start = TruncateToPageBoundary(alignment_, offset);
-        uint64_t last_page_end = TruncateToPageBoundary(alignment_, offset + n)
-          + alignment_;
-
-        uint64_t bytes_to_read = last_page_end - first_page_start;
-
-        AlignedBuffer buffer;
-        buffer.Alignment(alignment_);
-        buffer.AllocateNewBuffer(bytes_to_read);
-
-        Slice aligned_result;
-        Status s = file_->Read(first_page_start, bytes_to_read, &aligned_result,
-          buffer.BufferStart());
-
-        if (s.ok() && aligned_result.size() > 0) {
-          size_t buffer_offset = offset - first_page_start;
-          size_t bytes_read = buffer.Read(scratch, buffer_offset, n);
-          *result = Slice(scratch, bytes_read);
-        } else {
-          *result = aligned_result;
-        }
-        return s;
-      }
-
       return file_->Read(offset, n, result, scratch);
     }
 
