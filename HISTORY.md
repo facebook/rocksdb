@@ -2,6 +2,7 @@
 ## Unreleased
 ### Public API Change
 * Scheduling flushes and compactions in the same thread pool is no longer supported by setting `max_background_flushes=0`. Instead, users can achieve this by configuring their high-pri thread pool to have zero threads.
+* Replace `Options::max_background_flushes`, `Options::max_background_compactions`, and `Options::base_background_compactions` all with `Options::max_background_jobs`, which automatically decides how many threads to allocate towards flush/compaction.
 * options.delayed_write_rate by default take the value of options.rate_limiter rate.
 
 ### New Features
