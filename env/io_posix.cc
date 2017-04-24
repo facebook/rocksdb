@@ -46,16 +46,6 @@ int Fadvise(int fd, off_t offset, size_t len, int advice) {
 #endif
 }
 
-// A wrapper for readahead, if the platform doesn't support readahead,
-// it will simply return 0.
-ssize_t Readahead(int fd, off64_t offset, size_t count) {
-#ifdef OS_LINUX
-  return readahead(fd, offset, count);
-#else
-  return 0;  // simply do nothing.
-#endif
-}
-
 namespace {
 size_t GetLogicalBufferSize(int __attribute__((__unused__)) fd) {
 #ifdef OS_LINUX
@@ -349,7 +339,17 @@ Status PosixRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
 Status PosixRandomAccessFile::Prefetch(uint64_t offset, size_t n) {
   Status s;
   if (!use_direct_io()) {
-    if (Readahead(fd_, offset, n) == -1) {
+    int r = 0;
+#ifdef OS_LINUX
+    r = readahead(fd_, offset, n);
+#endif
+#ifdef OS_MACOSX
+    radvisory advice;
+    advice.ra_offset = static_cast<off_t>(offset);
+    advice.ra_count = static_cast<int>(n);
+    r = fcntl(fd, F_RDADVISE, &advice);
+#endif
+    if (r == -1) {
       s = IOError(filename_, errno);
     }
   }
