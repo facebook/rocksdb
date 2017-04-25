@@ -2069,8 +2069,7 @@ void BlockBasedTable::Close() {
   // be deleted before the table is closed
   rep_->filter_entry.Release(block_cache, force_erase);
   rep_->index_entry.Release(block_cache, force_erase);
-  // range_del_entry's lifetime does not need to be longer than table's
-  rep_->range_del_entry.Release(block_cache, force_erase);
+  rep_->range_del_entry.Release(block_cache);
 }
 
 Status BlockBasedTable::DumpIndexBlock(WritableFile* out_file) {
