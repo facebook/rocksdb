@@ -1310,8 +1310,16 @@ Status AwsEnv::GetTestCredentials(std::string* aws_access_key_id,
                                   std::string* aws_secret_access_key,
                                   std::string* region) {
   Status st;
-  if (getenv("AWS_ACCESS_KEY_ID") == nullptr ||
-      getenv("AWS_SECRET_ACCESS_KEY") == nullptr) {
+  char* id = getenv("AWS_ACCESS_KEY_ID");
+  if (id == nullptr) {
+    id = getenv("aws_access_key_id");
+  }
+  char* secret = getenv("AWS_SECRET_ACCESS_KEY");
+  if (secret == nullptr) {
+    secret = getenv("aws_secret_access_key");
+  }
+
+  if (id == nullptr || secret == nullptr) {
     std::string msg =
         "Skipping AWS tests. "
         "AWS credentials should be set "
@@ -1319,10 +1327,16 @@ Status AwsEnv::GetTestCredentials(std::string* aws_access_key_id,
         "AWS_SECRET_ACCESS_KEY";
     return Status::IOError(msg);
   }
-  aws_access_key_id->assign(getenv("AWS_ACCESS_KEY_ID"));
-  aws_secret_access_key->assign(getenv("AWS_SECRET_ACCESS_KEY"));
-  if (getenv("AWS_DEFAULT_REGION") != nullptr) {
-    region->assign(getenv("AWS_DEFAULT_REGION"));
+  aws_access_key_id->assign(id);
+  aws_secret_access_key->assign(secret);
+
+  char* reg = getenv("AWS_DEFAULT_REGION");
+  if (reg == nullptr) {
+    reg = getenv("aws_default_region");
+  }
+
+  if (reg != nullptr) {
+    region->assign(reg);
   } else {
     region->assign("us-west-2");
   }
