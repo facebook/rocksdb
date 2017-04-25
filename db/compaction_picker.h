@@ -148,7 +148,8 @@ class CompactionPicker {
   // Will return false if it is impossible to apply this compaction.
   bool ExpandInputsToCleanCut(const std::string& cf_name,
                               VersionStorageInfo* vstorage,
-                              CompactionInputFiles* inputs);
+                              CompactionInputFiles* inputs,
+                              bool is_input_level);
 
   // Returns true if any one of the parent files are being compacted
   bool IsRangeInCompaction(VersionStorageInfo* vstorage,
@@ -185,6 +186,13 @@ class CompactionPicker {
     return &compactions_in_progress_;
   }
 
+  std::unordered_set<Compaction*>* depending_compactions() {
+    return &depending_compactions_;
+  }
+  Status* depending_status() {
+    return &depending_status_;
+  }
+
  protected:
   const ImmutableCFOptions& ioptions_;
 
@@ -204,6 +212,11 @@ class CompactionPicker {
   // Protected by DB mutex
   std::unordered_set<Compaction*> compactions_in_progress_;
 
+  // In level compaction, Keeps track of all L1 compactions that
+  // are running and depended by a L0->L1 compaction
+  // Protected by DB mutex
+  std::unordered_set<Compaction*> depending_compactions_;
+  Status depending_status_;
   const InternalKeyComparator* const icmp_;
 };
 

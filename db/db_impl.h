@@ -845,6 +845,7 @@ class DBImpl : public DB {
   // * whenever there is an error in background purge, flush or compaction
   // * whenever num_running_ingest_file_ goes to 0.
   InstrumentedCondVar bg_cv_;
+  InstrumentedCondVar l0_to_l1_cv_;
   uint64_t logfile_number_;
   std::deque<uint64_t>
       log_recycle_files;  // a list of log files that we can recycle
@@ -1185,6 +1186,10 @@ class DBImpl : public DB {
   bool HasExclusiveManualCompaction();
   void AddManualCompaction(ManualCompaction* m);
   void RemoveManualCompaction(ManualCompaction* m);
+  void WaitForDependingCompactionsDone(ColumnFamilyData* cfd, Compaction* c,
+                                       Status* status);
+  void CheckAndRemoveCompactionDependency(ColumnFamilyData* cfd, Compaction* c,
+                                          const Status& status);
   bool ShouldntRunManualCompaction(ManualCompaction* m);
   bool HaveManualCompaction(ColumnFamilyData* cfd);
   bool MCOverlap(ManualCompaction* m, ManualCompaction* m1);

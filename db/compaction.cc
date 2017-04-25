@@ -252,7 +252,6 @@ bool Compaction::IsTrivialMove() const {
           InputCompressionMatchesOutput())) {
     return false;
   }
-
   // assert inputs_.size() == 1
 
   for (const auto& file : inputs_.front().files) {
@@ -316,6 +315,7 @@ void Compaction::MarkFilesBeingCompacted(bool mark_as_compacted) {
       assert(mark_as_compacted ? !inputs_[i][j]->being_compacted
                                : inputs_[i][j]->being_compacted);
       inputs_[i][j]->being_compacted = mark_as_compacted;
+      inputs_[i][j]->compaction = (mark_as_compacted ? this : nullptr);
     }
   }
 }
