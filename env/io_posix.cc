@@ -21,11 +21,11 @@
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
-#include <sys/sysmacros.h>
 #include <sys/types.h>
 #ifdef OS_LINUX
 #include <sys/statfs.h>
 #include <sys/syscall.h>
+#include <sys/sysmacros.h>
 #endif
 #include "env/posix_logger.h"
 #include "monitoring/iostats_context_imp.h"
