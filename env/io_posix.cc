@@ -339,7 +339,7 @@ Status PosixRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
 Status PosixRandomAccessFile::Prefetch(uint64_t offset, size_t n) {
   Status s;
   if (!use_direct_io()) {
-    int r = 0;
+    ssize_t r = 0;
 #ifdef OS_LINUX
     r = readahead(fd_, offset, n);
 #endif
@@ -347,7 +347,7 @@ Status PosixRandomAccessFile::Prefetch(uint64_t offset, size_t n) {
     radvisory advice;
     advice.ra_offset = static_cast<off_t>(offset);
     advice.ra_count = static_cast<int>(n);
-    r = fcntl(fd, F_RDADVISE, &advice);
+    r = fcntl(fd_, F_RDADVISE, &advice);
 #endif
     if (r == -1) {
       s = IOError(filename_, errno);
