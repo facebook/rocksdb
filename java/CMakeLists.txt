@@ -48,7 +48,6 @@ set(NATIVE_JAVA_CLASSES
         org.rocksdb.AbstractRocksIterator
         org.rocksdb.AbstractSlice
         org.rocksdb.AbstractWriteBatch
-        org.rocksdb.BackupableDB
         org.rocksdb.BackupableDBOptions
         org.rocksdb.BackupEngine
         org.rocksdb.BackupEngineTest
@@ -84,7 +83,6 @@ set(NATIVE_JAVA_CLASSES
         org.rocksdb.RateLimiter
         org.rocksdb.ReadOptions
         org.rocksdb.RemoveEmptyValueCompactionFilter
-        org.rocksdb.RestoreBackupableDB
         org.rocksdb.RestoreOptions
         org.rocksdb.RocksDB
         org.rocksdb.RocksDBExceptionTest

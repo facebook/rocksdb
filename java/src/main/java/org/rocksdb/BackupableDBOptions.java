@@ -9,12 +9,12 @@ import java.io.File;
 
 /**
  * <p>BackupableDBOptions to control the behavior of a backupable database.
- * It will be used during the creation of a {@link org.rocksdb.BackupableDB}.
+ * It will be used during the creation of a {@link org.rocksdb.BackupEngine}.
  * </p>
  * <p>Note that dispose() must be called before an Options instance
  * become out-of-scope to release the allocated memory in c++.</p>
  *
- * @see org.rocksdb.BackupableDB
+ * @see org.rocksdb.BackupEngine
  */
 public class BackupableDBOptions extends RocksObject {
 
@@ -375,8 +375,8 @@ public class BackupableDBOptions extends RocksObject {
 
   /**
    * Up to this many background threads will copy files for
-   * {@link BackupableDB#createNewBackup(boolean)} and
-   * {@link RestoreBackupableDB#restoreDBFromBackup(long, String, String, RestoreOptions)}
+   * {@link BackupEngine#createNewBackup(RocksDB, boolean)} and
+   * {@link BackupEngine#restoreDbFromBackup(int, String, String, RestoreOptions)}
    *
    * Default: 1
    *
@@ -392,8 +392,8 @@ public class BackupableDBOptions extends RocksObject {
 
   /**
    * Up to this many background threads will copy files for
-   * {@link BackupableDB#createNewBackup(boolean)} and
-   * {@link RestoreBackupableDB#restoreDBFromBackup(long, String, String, RestoreOptions)}
+   * {@link BackupEngine#createNewBackup(RocksDB, boolean)} and
+   * {@link BackupEngine#restoreDbFromBackup(int, String, String, RestoreOptions)}
    *
    * Default: 1
    *
