@@ -2770,8 +2770,9 @@ TEST_P(DBTestWithParam, FIFOCompactionTest) {
 #ifndef ROCKSDB_LITE
 /*
  * This test is not reliable enough as it heavily depends on disk behavior.
+ * Disable as it is flaky.
  */
-TEST_F(DBTest, RateLimitingTest) {
+TEST_F(DBTest, DISABLED_RateLimitingTest) {
   Options options = CurrentOptions();
   options.write_buffer_size = 1 << 20;  // 1MB
   options.level0_file_num_compaction_trigger = 2;
