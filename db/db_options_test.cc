@@ -265,6 +265,34 @@ TEST_F(DBOptionsTest, SetBackgroundCompactionThreads) {
   ASSERT_EQ(3, dbfull()->TEST_BGCompactionsAllowed());
 }
 
+TEST_F(DBOptionsTest, SetBackgroundJobs) {
+  Options options;
+  options.create_if_missing = true;
+  options.max_background_jobs = 8;
+  options.env = env_;
+  Reopen(options);
+
+  for (int i = 0; i < 2; ++i) {
+    if (i > 0) {
+      options.max_background_jobs = 12;
+      ASSERT_OK(dbfull()->SetDBOptions(
+          {{"max_background_jobs",
+            std::to_string(options.max_background_jobs)}}));
+    }
+
+    ASSERT_EQ(options.max_background_jobs / 4,
+              dbfull()->TEST_BGFlushesAllowed());
+    ASSERT_EQ(1, dbfull()->TEST_BGCompactionsAllowed());
+
+    auto stop_token = dbfull()->TEST_write_controler().GetStopToken();
+
+    ASSERT_EQ(options.max_background_jobs / 4,
+              dbfull()->TEST_BGFlushesAllowed());
+    ASSERT_EQ(3 * options.max_background_jobs / 4,
+              dbfull()->TEST_BGCompactionsAllowed());
+  }
+}
+
 TEST_F(DBOptionsTest, AvoidFlushDuringShutdown) {
   Options options;
   options.create_if_missing = true;

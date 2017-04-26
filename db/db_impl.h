@@ -401,6 +401,7 @@ class DBImpl : public DB {
   uint64_t TEST_FindMinPrepLogReferencedByMemTable();
 
   int TEST_BGCompactionsAllowed() const;
+  int TEST_BGFlushesAllowed() const;
 
 #endif  // NDEBUG
 

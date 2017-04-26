@@ -191,5 +191,10 @@ int DBImpl::TEST_BGCompactionsAllowed() const {
   return GetBGJobLimits().max_compactions;
 }
 
+int DBImpl::TEST_BGFlushesAllowed() const {
+  InstrumentedMutexLock l(&mutex_);
+  return GetBGJobLimits().max_flushes;
+}
+
 }  // namespace rocksdb
 #endif  // NDEBUG
