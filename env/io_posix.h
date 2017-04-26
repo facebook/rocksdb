@@ -79,7 +79,10 @@ class PosixRandomAccessFile : public RandomAccessFile {
 
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
                       char* scratch) const override;
-#if defined(OS_LINUX) || defined(OS_MACOSX)
+
+  virtual Status Prefetch(uint64_t offset, size_t n) override;
+
+#if defined(OS_LINUX) || defined(OS_MACOSX) || defined(OS_AIX)
   virtual size_t GetUniqueId(char* id, size_t max_size) const override;
 #endif
   virtual void Hint(AccessPattern pattern) override;
