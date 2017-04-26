@@ -45,6 +45,7 @@ class StatisticsImpl : public Statistics {
   virtual void recordTick(uint32_t ticker_type, uint64_t count) override;
   virtual void measureTime(uint32_t histogram_type, uint64_t value) override;
 
+  virtual Status Reset() override;
   virtual std::string ToString() const override;
   virtual bool HistEnabledForType(uint32_t type) const override;
 
@@ -52,8 +53,8 @@ class StatisticsImpl : public Statistics {
   std::shared_ptr<Statistics> stats_shared_;
   Statistics* stats_;
   bool enable_internal_stats_;
-  // Synchronizes setTickerCount()/getTickerCount() operations so partially
-  // completed setTickerCount() won't be visible.
+  // Synchronizes anything that operates on other threads' thread-specific data
+  // such that operations like Reset() can be performed atomically.
   mutable port::Mutex aggregate_lock_;
 
   // Holds data maintained by each thread for implementing tickers.
@@ -125,6 +126,11 @@ class StatisticsImpl : public Statistics {
     // previously merged ones).
     std::unique_ptr<HistogramImpl> getMergedHistogram() const;
   };
+
+  uint64_t getTickerCountLocked(uint32_t ticker_type) const;
+  void histogramDataLocked(uint32_t histogram_type,
+                           HistogramData* const data) const;
+  void setTickerCountLocked(uint32_t ticker_type, uint64_t count);
 
   // Returns the info for this tickerType/thread. It sets a new info with zeroed
   // counter if none exists.
