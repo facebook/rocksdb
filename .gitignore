@@ -59,7 +59,7 @@ rocksdb.h
 unity.cc
 java/crossbuild/.vagrant
 .vagrant/
-java/**.asc
+java/**/*.asc
 java/javadoc
 
 scan_build_report/
