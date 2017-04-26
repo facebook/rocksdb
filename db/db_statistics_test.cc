@@ -115,6 +115,31 @@ TEST_F(DBStatisticsTest, MutexWaitStats) {
   ThreadStatusUtil::TEST_SetStateDelay(ThreadStatus::STATE_MUTEX_WAIT, 0);
 }
 
+TEST_F(DBStatisticsTest, ResetStats) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.statistics = rocksdb::CreateDBStatistics();
+  DestroyAndReopen(options);
+  for (int i = 0; i < 2; ++i) {
+    // pick arbitrary ticker and histogram. On first iteration they're zero
+    // because db is unused. On second iteration they're zero due to Reset().
+    ASSERT_EQ(0, TestGetTickerCount(options, NUMBER_KEYS_WRITTEN));
+    HistogramData histogram_data;
+    options.statistics->histogramData(DB_WRITE, &histogram_data);
+    ASSERT_EQ(0.0, histogram_data.max);
+
+    if (i == 0) {
+      // The Put() makes some of the ticker/histogram stats nonzero until we
+      // Reset().
+      ASSERT_OK(Put("hello", "rocksdb"));
+      ASSERT_EQ(1, TestGetTickerCount(options, NUMBER_KEYS_WRITTEN));
+      options.statistics->histogramData(DB_WRITE, &histogram_data);
+      ASSERT_GT(histogram_data.max, 0.0);
+      options.statistics->Reset();
+    }
+  }
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
