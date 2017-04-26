@@ -6,6 +6,8 @@
 #include <string>
 
 #include "db/db_test_util.h"
+#include "monitoring/thread_status_util.h"
+#include "port/stack_trace.h"
 #include "rocksdb/statistics.h"
 
 namespace rocksdb {
@@ -72,7 +74,7 @@ TEST_F(DBStatisticsTest, GetApproximateMemTableStats) {
 
 #endif  // ROCKSDB_LITE
 
-TEST_F(DBTest, CompressionStatsTest) {
+TEST_F(DBStatisticsTest, CompressionStatsTest) {
   CompressionType type;
 
   if (Snappy_Supported()) {
@@ -143,7 +145,7 @@ TEST_F(DBTest, CompressionStatsTest) {
             - currentDecompressions, 0);
 }
 
-TEST_F(DBTest, MutexWaitStatsDisabledByDefault) {
+TEST_F(DBStatisticsTest, MutexWaitStatsDisabledByDefault) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
   options.statistics = rocksdb::CreateDBStatistics();
@@ -156,7 +158,7 @@ TEST_F(DBTest, MutexWaitStatsDisabledByDefault) {
   ThreadStatusUtil::TEST_SetStateDelay(ThreadStatus::STATE_MUTEX_WAIT, 0);
 }
 
-TEST_F(DBTest, MutexWaitStats) {
+TEST_F(DBStatisticsTest, MutexWaitStats) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
   options.statistics = rocksdb::CreateDBStatistics();
@@ -171,3 +173,9 @@ TEST_F(DBTest, MutexWaitStats) {
 }
 
 }  // namespace rocksdb
+
+int main(int argc, char** argv) {
+  rocksdb::port::InstallStackTraceHandler();
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
+}
