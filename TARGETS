@@ -444,7 +444,8 @@ ROCKS_TESTS = [['merger_test', 'table/merger_test.cc', 'serial'],
  ['version_edit_test', 'db/version_edit_test.cc', 'serial'],
  ['skiplist_test', 'memtable/skiplist_test.cc', 'serial'],
  ['lru_cache_test', 'cache/lru_cache_test.cc', 'serial'],
- ['plain_table_db_test', 'db/plain_table_db_test.cc', 'serial']]
+ ['plain_table_db_test', 'db/plain_table_db_test.cc', 'serial'],
+ ['db_statistics_test', 'db/db_statistics_test.cc', 'serial']]
 
 
 # Generate a test rule for each entry in ROCKS_TESTS

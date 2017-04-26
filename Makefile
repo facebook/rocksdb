@@ -358,6 +358,7 @@ TESTS = \
 	db_io_failure_test \
 	db_properties_test \
 	db_table_properties_test \
+	db_statistics_test \
 	autovector_test \
 	cleanable_test \
 	column_family_test \
