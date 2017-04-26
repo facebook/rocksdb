@@ -2,13 +2,12 @@ sudo: required
 dist: trusty
 language: cpp
 os:
-  - linux
+- linux
 compiler:
-  - gcc
+- gcc
 cache:
-  - ccache
-  - apt
-
+  directories:
+  - "$BUILD_DIR/aws"
 addons:
   apt:
     sources:
@@ -24,58 +23,48 @@ addons:
     - libgflags-dev
     - libsnappy-dev
     - zlib1g-dev
-
 env:
-  # Run dbtest tests without AWS env
-  - JOB_NAME=unittests BUILD_DIR=travis-build ROCKSDBTESTS_START=db_test ROCKSDBTESTS_END=db_block_cache_test
-  - JOB_NAME=unittests USE_AWS=1 BUILD_DIR=travis-build J=1 ROCKSDB_CLOUD_TEST_BUCKET_NAME=one ROCKSDBTESTS_START=db_cloud_test ROCKSDBTESTS_END=db_block_cache_test
-  - JOB_NAME=unittests USE_AWS=1 BUILD_DIR=travis-build J=1 ROCKSDB_CLOUD_TEST_BUCKET_NAME=two ROCKSDBTESTS_START=db_block_cache_test ROCKSDBTESTS_END=db_dynamic_level_test
-  - JOB_NAME=unittests USE_AWS=1 BUILD_DIR=travis-build J=1 ROCKSDB_CLOUD_TEST_BUCKET_NAME=thr ROCKSDBTESTS_START=db_dynamic_level_test ROCKSDBTESTS_END=db_sst_test
-  - JOB_NAME=unittests USE_AWS=1 BUILD_DIR=travis-build J=1 ROCKSDB_CLOUD_TEST_BUCKET_NAME=for ROCKSDBTESTS_START=db_sst_test ROCKSDBTESTS_END=db_universal_compaction_test
-  - JOB_NAME=unittests USE_AWS=1 BUILD_DIR=travis-build J=1 ROCKSDB_CLOUD_TEST_BUCKET_NAME=fiv ROCKSDBTESTS_START=db_universal_compaction_test ROCKSDBTESTS_END=comparator_db_test
-  - JOB_NAME=unittests USE_AWS=1 BUILD_DIR=travis-build J=1 ROCKSDB_CLOUD_TEST_BUCKET_NAME=six ROCKSDBTESTS_START=comparator_db_test
-
+- JOB_NAME=unittests BUILD_DIR=travis-build ROCKSDBTESTS_START=db_test ROCKSDBTESTS_END=db_block_cache_test
+- JOB_NAME=unittests USE_AWS=1 BUILD_DIR=travis-build J=1 ROCKSDB_CLOUD_TEST_BUCKET_NAME=one
+  ROCKSDBTESTS_START=db_cloud_test ROCKSDBTESTS_END=db_block_cache_test
+- JOB_NAME=unittests USE_AWS=1 BUILD_DIR=travis-build J=1 ROCKSDB_CLOUD_TEST_BUCKET_NAME=two
+  ROCKSDBTESTS_START=db_block_cache_test ROCKSDBTESTS_END=db_dynamic_level_test
+- JOB_NAME=unittests USE_AWS=1 BUILD_DIR=travis-build J=1 ROCKSDB_CLOUD_TEST_BUCKET_NAME=thr
+  ROCKSDBTESTS_START=db_dynamic_level_test ROCKSDBTESTS_END=db_sst_test
+- JOB_NAME=unittests USE_AWS=1 BUILD_DIR=travis-build J=1 ROCKSDB_CLOUD_TEST_BUCKET_NAME=for
+  ROCKSDBTESTS_START=db_sst_test ROCKSDBTESTS_END=db_universal_compaction_test
+- JOB_NAME=unittests USE_AWS=1 BUILD_DIR=travis-build J=1 ROCKSDB_CLOUD_TEST_BUCKET_NAME=fiv
+  ROCKSDBTESTS_START=db_universal_compaction_test ROCKSDBTESTS_END=comparator_db_test
+- JOB_NAME=unittests USE_AWS=1 BUILD_DIR=travis-build J=1 ROCKSDB_CLOUD_TEST_BUCKET_NAME=six
+  ROCKSDBTESTS_START=comparator_db_test
 branches:
   only:
   - master
   - staging
-
-cache:
-  directories:
-  - $BUILD_DIR/aws
-
 before_install:
-  - mkdir $BUILD_DIR || true
-
+- mkdir $BUILD_DIR || true
 install:
-  # install AWWS CPP SDK
-  - mkdir $BUILD_DIR/aws || true
-  - pushd $BUILD_DIR/aws
-  - git clone https://github.com/aws/aws-sdk-cpp.git || true
-  - pushd aws-sdk-cpp/ && git checkout tags/1.0.69 && popd
-  - cmake -DCMAKE_BUILD_TYPE=Release -DBUILD_ONLY="s3;kinesis" aws-sdk-cpp/
-  - make -j 8
-  - sudo make install
-  - sudo ldconfig
-  - popd
-
+- mkdir $BUILD_DIR/aws || true
+- pushd $BUILD_DIR/aws
+- git clone https://github.com/aws/aws-sdk-cpp.git || true
+- pushd aws-sdk-cpp/ && git checkout tags/1.0.69 && popd
+- cmake -DCMAKE_BUILD_TYPE=Release -DBUILD_ONLY="s3;kinesis" aws-sdk-cpp/
+- make -j 8
+- sudo make install
+- sudo ldconfig
+- popd
 before_script:
-  # Limit the maximum number of open file descriptors to 8192
-  - ulimit -n 8192 || true
-
+- ulimit -n 8192 || true
 script:
-  - ${CXX} --version
-  - OPT=-DTRAVIS J=200% V=1 make -j 8 check_some
-
+- "${CXX} --version"
+- OPT=-DTRAVIS J=200% V=1 make -j 8 check_some
 after_failure:
-  - export ALL_LOG_FILES=$(find /tmp/rocks* -name LOG)
-  - export RECENT_LOG_FILES=$(ls -1rt $ALL_LOG_FILES | tail -4)
-  - grep -e '[[:print:]*]' $RECENT_LOG_FILES
-
+- export ALL_LOG_FILES=$(find /tmp/rocks* -name LOG)
+- export RECENT_LOG_FILES=$(ls -1rt $ALL_LOG_FILES | tail -4)
+- grep -e '[[:print:]*]' $RECENT_LOG_FILES
 notifications:
   slack:
     rooms:
-      secure: p6EX9WiIlPAdfdjJdluiOr41rXE2egjaRQQKPrBIMKUmwLs8iPWl0bkUJrlozvcuF5k2ed4pJ8vyAFpYwezMp+g691tZdHirrlzR/6HY4ZpsLKBlDbV6alREgFVr7ptA2+C9KnILIDaqJyiCxhPrnzKbXjuf78m95VNZnH5o7XlY/yfphHFBlsRltu9iFWRixCI1kx5Ch8eIIhYs7n22S1mJlcBrjsaCIVugnXiztaUlgdmwDBiT1LWfWbHwfUegaZWkygoPRiVmz3Xd61oJlssyKoEic74MPUXysLm4dovj+yg+YHEZr4JVlATUs1/FlJIhKDL53WnefXvYlA7hiPnUxzaJKbqSopqKMGY9c4YgyHaOzMb7EkzD8t8F2LidUC/I0dXah02wS+UDe/NSAOJ5ExPfEILsneMeZAWEHi6z4rXK0GNEZntUZrhmFLYVIB+eK98DGNOQDnVRZX7dI+70D+P4EAGbzDfy2/VIKrwgn7Ui2m0fofmpgp23KTATAdG8zKT8rvl487QNBIzxaIUAcVXGRSeNMrF3d2BynsNEGsHzxoWRcm5UDWwvPr/nu/KAAGur3r61Zc45OcsP+pGndDmEva41sg+Xg39dwWwl5PVAfRXp5ZsPlFNCtP6VWjb+wVKQa+aZAadl/n4BDN4+PonBqgd3zRZcgcs6kXw=
+      secure: uq/N3oixvz9hwX1VeLAFsXb5P7DnMk7eZIhzoSgsVWP/pVL26YPRzLamKUwUOCTW8HStQ20FHIjwidNuj28OaOS1maOAgJzG2SEgaer/LkbhmEwpKD4ik4Wqd5CKIDAZRYiVWe3PS1UYPGn7Ys0X9zsyewnPTMN6adwZr3PxiJUKl0Ce5jq35P7n+IYnklsJMoczj7yH/nssu7B0lgRcZrDl29JCYe8OaJZVOoBnmBJB/x1p9tHVGZo247yrYd2OTeR1ISFPWDiq0rQyFgTqXiLoq0ZyLO/DRLozegc39ljwcjQ5eiKOaQkwbHMWDc968Y/TsAQcSccMT80juIIdw2bVN3zPthMHosw/v9YyWGVPztFDyHIh2UcxfV/T2fGZN2pSMQ1g7yYYqla2qTOGXBGkIa4c0QqxukQhwZ3wV2Wx2cFhK/oOT+xtVqoW4vy20f1bbbcUoLR0lLxZRk902g1jot72z1NwdGGsCtH6x097xHs+M2PfB2Dt4ICaAqsI+NR1s1hmfaQ4G8PuYSzuT2j3fIDRMbioeutfxMGJSYQ/R3w0ue7rjYecIDh3H+OGk5HSjD1nO1LV3UTWm5MPfsZcfwwGbSe2KMUtftghsSKRNg9WiUzApnZdrj5IdSoOw/A6Jgm29DEPJCtQDO8okU7oE+4lBuUh34PwMIQ+zfw=
     on_success: always
     on_failure: always
-
