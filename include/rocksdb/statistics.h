@@ -13,6 +13,8 @@
 #include <memory>
 #include <vector>
 
+#include "rocksdb/status.h"
+
 namespace rocksdb {
 
 /**
@@ -442,6 +444,11 @@ class Statistics {
   virtual void setTickerCount(uint32_t tickerType, uint64_t count) = 0;
   virtual uint64_t getAndResetTickerCount(uint32_t tickerType) = 0;
   virtual void measureTime(uint32_t histogramType, uint64_t time) = 0;
+
+  // Resets all ticker and histogram stats
+  virtual Status Reset() {
+    return Status::NotSupported("Not implemented");
+  }
 
   // String representation of the statistic object.
   virtual std::string ToString() const {

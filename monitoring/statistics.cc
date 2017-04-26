@@ -33,6 +33,10 @@ StatisticsImpl::~StatisticsImpl() {}
 
 uint64_t StatisticsImpl::getTickerCount(uint32_t tickerType) const {
   MutexLock lock(&aggregate_lock_);
+  return getTickerCountLocked(tickerType);
+}
+
+uint64_t StatisticsImpl::getTickerCountLocked(uint32_t tickerType) const {
   assert(
     enable_internal_stats_ ?
       tickerType < INTERNAL_TICKER_ENUM_MAX :
@@ -68,6 +72,12 @@ StatisticsImpl::HistogramInfo::getMergedHistogram() const {
 
 void StatisticsImpl::histogramData(uint32_t histogramType,
                                    HistogramData* const data) const {
+  MutexLock lock(&aggregate_lock_);
+  histogramDataLocked(histogramType, data);
+}
+
+void StatisticsImpl::histogramDataLocked(uint32_t histogramType,
+                                         HistogramData* const data) const {
   assert(
     enable_internal_stats_ ?
       histogramType < INTERNAL_HISTOGRAM_ENUM_MAX :
@@ -76,6 +86,7 @@ void StatisticsImpl::histogramData(uint32_t histogramType,
 }
 
 std::string StatisticsImpl::getHistogramString(uint32_t histogramType) const {
+  MutexLock lock(&aggregate_lock_);
   assert(enable_internal_stats_ ? histogramType < INTERNAL_HISTOGRAM_ENUM_MAX
                                 : histogramType < HISTOGRAM_ENUM_MAX);
   return histograms_[histogramType].getMergedHistogram()->ToString();
@@ -108,20 +119,24 @@ StatisticsImpl::ThreadHistogramInfo* StatisticsImpl::getThreadHistogramInfo(
 void StatisticsImpl::setTickerCount(uint32_t tickerType, uint64_t count) {
   {
     MutexLock lock(&aggregate_lock_);
-    assert(enable_internal_stats_ ? tickerType < INTERNAL_TICKER_ENUM_MAX
-                                  : tickerType < TICKER_ENUM_MAX);
-    if (tickerType < TICKER_ENUM_MAX || enable_internal_stats_) {
-      tickers_[tickerType].thread_value->Fold(
-          [](void* curr_ptr, void* res) {
-            static_cast<std::atomic<uint64_t>*>(curr_ptr)->store(
-                0, std::memory_order_relaxed);
-          },
-          nullptr /* res */);
-      tickers_[tickerType].merged_sum.store(count, std::memory_order_relaxed);
-    }
+    setTickerCountLocked(tickerType, count);
   }
   if (stats_ && tickerType < TICKER_ENUM_MAX) {
     stats_->setTickerCount(tickerType, count);
+  }
+}
+
+void StatisticsImpl::setTickerCountLocked(uint32_t tickerType, uint64_t count) {
+  assert(enable_internal_stats_ ? tickerType < INTERNAL_TICKER_ENUM_MAX
+                                : tickerType < TICKER_ENUM_MAX);
+  if (tickerType < TICKER_ENUM_MAX || enable_internal_stats_) {
+    tickers_[tickerType].thread_value->Fold(
+        [](void* curr_ptr, void* res) {
+          static_cast<std::atomic<uint64_t>*>(curr_ptr)->store(
+              0, std::memory_order_relaxed);
+        },
+        nullptr /* res */);
+    tickers_[tickerType].merged_sum.store(count, std::memory_order_relaxed);
   }
 }
 
@@ -176,6 +191,21 @@ void StatisticsImpl::measureTime(uint32_t histogramType, uint64_t value) {
   }
 }
 
+Status StatisticsImpl::Reset() {
+  MutexLock lock(&aggregate_lock_);
+  for (uint32_t i = 0; i < TICKER_ENUM_MAX; ++i) {
+    setTickerCountLocked(i, 0);
+  }
+  for (uint32_t i = 0; i < HISTOGRAM_ENUM_MAX; ++i) {
+    histograms_[i].thread_value->Fold(
+        [](void* curr_ptr, void* res) {
+          static_cast<HistogramImpl*>(curr_ptr)->Clear();
+        },
+        nullptr /* res */);
+  }
+  return Status::OK();
+}
+
 namespace {
 
 // a buffer size used for temp string buffers
@@ -184,13 +214,14 @@ const int kTmpStrBufferSize = 200;
 } // namespace
 
 std::string StatisticsImpl::ToString() const {
+  MutexLock lock(&aggregate_lock_);
   std::string res;
   res.reserve(20000);
   for (const auto& t : TickersNameMap) {
     if (t.first < TICKER_ENUM_MAX || enable_internal_stats_) {
       char buffer[kTmpStrBufferSize];
       snprintf(buffer, kTmpStrBufferSize, "%s COUNT : %" PRIu64 "\n",
-               t.second.c_str(), getTickerCount(t.first));
+               t.second.c_str(), getTickerCountLocked(t.first));
       res.append(buffer);
     }
   }
@@ -198,7 +229,7 @@ std::string StatisticsImpl::ToString() const {
     if (h.first < HISTOGRAM_ENUM_MAX || enable_internal_stats_) {
       char buffer[kTmpStrBufferSize];
       HistogramData hData;
-      histogramData(h.first, &hData);
+      histogramDataLocked(h.first, &hData);
       snprintf(
           buffer, kTmpStrBufferSize,
           "%s statistics Percentiles :=> 50 : %f 95 : %f 99 : %f 100 : %f\n",
