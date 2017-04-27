@@ -21,7 +21,7 @@ void CancelAllBackgroundWork(DB* db, bool wait) {
 
 Status DeleteFilesInRange(DB* db, ColumnFamilyHandle* column_family,
                           const Slice* begin, const Slice* end) {
-  return (dynamic_cast<DBImpl*>(db))
+  return (dynamic_cast<DBImpl*>(db->GetRootDB()))
       ->DeleteFilesInRange(column_family, begin, end);
 }
 
