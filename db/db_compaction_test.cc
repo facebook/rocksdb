@@ -1158,7 +1158,8 @@ TEST_P(DBCompactionTestWithParam, ManualCompactionPartial) {
   }
 }
 
-TEST_F(DBCompactionTest, ManualPartialFill) {
+// Disable as the test is flaky.
+TEST_F(DBCompactionTest, DISABLED_ManualPartialFill) {
   int32_t trivial_move = 0;
   int32_t non_trivial_move = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
