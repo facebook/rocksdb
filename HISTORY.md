@@ -7,6 +7,8 @@
 
 ## 5.4.0 (04/11/2017)
 ### Public API Change
+* random_access_max_buffer_size no longer has any effect
+* Removed Env::EnableReadAhead(), Env::ShouldForwardRawRequest()
 * Support dynamically change `stats_dump_period_sec` option via SetDBOptions().
 * Added ReadOptions::max_skippable_internal_keys to set a threshold to fail a request as incomplete when too many keys are being skipped when using iterators.
 * DB::Get in place of std::string accepts PinnableSlice, which avoids the extra memcpy of value to std::string in most of cases.
