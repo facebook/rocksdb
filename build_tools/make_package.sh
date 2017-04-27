@@ -99,6 +99,7 @@ function main() {
 
   make static_lib
   make install INSTALL_PATH=package
+  cd package
   fpm \
     -s dir \
     -t $FPM_OUTPUT \
@@ -110,7 +111,7 @@ function main() {
     --license BSD \
     --vendor Facebook \
     --description "RocksDB is an embeddable persistent key-value store for fast storage." \
-    package
+    include lib
 }
 
 main $@
