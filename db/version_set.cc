@@ -2383,6 +2383,7 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
       // Need to do it out of the mutex.
       builder_guard->version_builder()->LoadTableHandlers(
           column_family_data->internal_stats(),
+          db_options_->max_open_files,
           column_family_data->ioptions()->optimize_filters_for_hits,
           true /* prefetch_index_and_filter_in_cache */);
     }
@@ -2824,13 +2825,12 @@ Status VersionSet::Recover(
       assert(builders_iter != builders.end());
       auto* builder = builders_iter->second->version_builder();
 
-      if (db_options_->max_open_files == -1) {
-        // unlimited table cache. Pre-load table handle now.
-        // Need to do it out of the mutex.
-        builder->LoadTableHandlers(
-            cfd->internal_stats(), db_options_->max_file_opening_threads,
-            false /* prefetch_index_and_filter_in_cache */);
-      }
+      // Pre-load as-many table handle as possible for now.
+      // Need to do it out of the mutex.
+      builder->LoadTableHandlers(
+          cfd->internal_stats(), db_options_->max_file_opening_threads,
+          db_options_->max_open_files,
+          false /* prefetch_index_and_filter_in_cache */);
 
       Version* v = new Version(cfd, this, current_version_number_++);
       builder->SaveTo(v->storage_info());
