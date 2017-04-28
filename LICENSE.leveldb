@@ -1,10 +1,4 @@
-BSD License
-
-For rocksdb software
-
-Copyright (c) 2011-present, Facebook, Inc.
-All rights reserved.
----------------------------------------------------------------------
+This contains code that is from LevelDB, and that code is under the following license:
 
 Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 
