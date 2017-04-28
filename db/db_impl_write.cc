@@ -420,18 +420,18 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
 
   assert(!single_column_family_mode_ ||
          versions_->GetColumnFamilySet()->NumberOfColumnFamilies() == 1);
-  if (UNLIKELY(!single_column_family_mode_ &&
+  if (UNLIKELY(status.ok() && !single_column_family_mode_ &&
                total_log_size_ > GetMaxTotalWalSize())) {
-    HandleWALFull();
+    status = HandleWALFull(write_context);
   }
 
-  if (write_buffer_manager_->ShouldFlush()) {
+  if (UNLIKELY(status.ok() && write_buffer_manager_->ShouldFlush())) {
     // Before a new memtable is added in SwitchMemtable(),
     // write_buffer_manager_->ShouldFlush() will keep returning true. If another
     // thread is writing to another DB with the same write buffer, they may also
     // be flushed. We may end up with flushing much more DBs than needed. It's
     // suboptimal but still correct.
-    HandleWriteBufferFull();
+    status = HandleWriteBufferFull(write_context);
   }
 
   if (UNLIKELY(status.ok() && !bg_error_.ok())) {
@@ -559,12 +559,13 @@ Status DBImpl::WriteToWAL(const WriteThread::WriteGroup& write_group,
   return status;
 }
 
-void DBImpl::HandleWALFull() {
+Status DBImpl::HandleWALFull(WriteContext* write_context) {
   mutex_.AssertHeld();
+  assert(write_context != nullptr);
   Status status;
 
   if (alive_log_files_.begin()->getting_flushed) {
-    return;
+    return status;
   }
 
   auto oldest_alive_log = alive_log_files_.begin()->number;
@@ -578,7 +579,7 @@ void DBImpl::HandleWALFull() {
         // the oldest alive log but the log still contained uncommited transactions.
         // the oldest alive log STILL contains uncommited transaction so there
         // is still nothing that we can do.
-        return;
+        return status;
     } else {
       ROCKS_LOG_WARN(
           immutable_db_options_.info_log,
@@ -604,17 +605,22 @@ void DBImpl::HandleWALFull() {
     if (cfd->IsDropped()) {
       continue;
     }
-    if (cfd->OldestLogToKeep() <= oldest_alive_log &&
-        cfd->mem()->MarkFlushScheduled(true)) {
-      flush_scheduler_.ScheduleFlush(cfd);
+    if (cfd->OldestLogToKeep() <= oldest_alive_log) {
+      status = SwitchMemtable(cfd, write_context);
+      if (!status.ok()) {
+        break;
+      }
       cfd->imm()->FlushRequested();
+      SchedulePendingFlush(cfd);
     }
   }
   MaybeScheduleFlushOrCompaction();
+  return status;
 }
 
-void DBImpl::HandleWriteBufferFull() {
+Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
   mutex_.AssertHeld();
+  assert(write_context != nullptr);
   Status status;
 
   // Before a new memtable is added in SwitchMemtable(),
@@ -647,10 +653,15 @@ void DBImpl::HandleWriteBufferFull() {
       }
     }
   }
-  if (cfd_picked != nullptr && cfd_picked->mem()->MarkFlushScheduled(true)) {
-    flush_scheduler_.ScheduleFlush(cfd_picked);
-    cfd_picked->imm()->FlushRequested();
+  if (cfd_picked != nullptr) {
+    status = SwitchMemtable(cfd_picked, write_context);
+    if (status.ok()) {
+      cfd_picked->imm()->FlushRequested();
+      SchedulePendingFlush(cfd_picked);
+      MaybeScheduleFlushOrCompaction();
+    }
   }
+  return status;
 }
 
 uint64_t DBImpl::GetMaxTotalWalSize() const {
