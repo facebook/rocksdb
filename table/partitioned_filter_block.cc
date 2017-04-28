@@ -82,16 +82,19 @@ PartitionedFilterBlockReader::PartitionedFilterBlockReader(
     : FilterBlockReader(contents.data.size(), stats, _whole_key_filtering),
       prefix_extractor_(prefix_extractor),
       comparator_(comparator),
-      table_(table) {
+      table_(table),
+      block_cache_(table_->rep_->table_options.block_cache.get()){
   idx_on_fltr_blk_.reset(new Block(std::move(contents),
                                    kDisableGlobalSequenceNumber,
                                    0 /* read_amp_bytes_per_bit */, stats));
 }
 
 PartitionedFilterBlockReader::~PartitionedFilterBlockReader() {
+  // The destructor migh be called via cache evict after the table is deleted.
+  // We should avoid using table_ pointer in destructor then.
   ReadLock rl(&mu_);
   for (auto it = handle_list_.begin(); it != handle_list_.end(); ++it) {
-    table_->rep_->table_options.block_cache.get()->Release(*it);
+    block_cache_->Release(*it);
   }
 }
 
