@@ -1930,7 +1930,7 @@ TEST_F(BlockBasedTableTest, FilterBlockInBlockCache) {
   }
   // release the iterator so that the block cache can reset correctly.
   iter.reset();
-
+  table_options.block_cache->EraseUnRefEntries();
   c.ResetTableReader();
 
   // -- PART 2: Open with very small block cache
@@ -1973,6 +1973,7 @@ TEST_F(BlockBasedTableTest, FilterBlockInBlockCache) {
     ASSERT_EQ(props.GetCacheBytesRead(), 0);
   }
   iter.reset();
+  table_options.block_cache->EraseUnRefEntries();
   c.ResetTableReader();
 
   // -- PART 3: Open table with bloom filter enabled but not in SST file
@@ -1988,6 +1989,7 @@ TEST_F(BlockBasedTableTest, FilterBlockInBlockCache) {
   // Generate table without filter policy
   c3.Finish(options, ioptions3, table_options,
             GetPlainInternalComparator(options.comparator), &keys, &kvmap);
+  table_options.block_cache->EraseUnRefEntries();
   c3.ResetTableReader();
 
   // Open table with filter policy
@@ -2006,6 +2008,7 @@ TEST_F(BlockBasedTableTest, FilterBlockInBlockCache) {
   ASSERT_STREQ(value.data(), "hello");
   BlockCachePropertiesSnapshot props(options.statistics.get());
   props.AssertFilterBlockStat(0, 0);
+  table_options.block_cache->EraseUnRefEntries();
   c3.ResetTableReader();
 }
 
