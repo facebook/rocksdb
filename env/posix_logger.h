@@ -41,7 +41,7 @@ class PosixLogger : public Logger {
   const static uint64_t flush_every_seconds_ = 5;
   std::atomic_uint_fast64_t last_flush_micros_;
   Env* env_;
-  bool flush_pending_;
+  std::atomic<bool> flush_pending_;
  public:
   PosixLogger(FILE* f, uint64_t (*gettid)(), Env* env,
               const InfoLogLevel log_level = InfoLogLevel::ERROR_LEVEL)
