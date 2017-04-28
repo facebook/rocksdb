@@ -333,8 +333,6 @@ class DBImpl : public DB {
 
   void TEST_HandleWALFull();
 
-  Status TEST_ScheduleFlushes();
-
   bool TEST_UnableToFlushOldestLog() {
     return unable_to_flush_oldest_log_;
   }
@@ -728,10 +726,10 @@ class DBImpl : public DB {
   Status WaitForFlushMemTable(ColumnFamilyData* cfd);
 
   // REQUIRES: mutex locked
-  void HandleWALFull();
+  Status HandleWALFull(WriteContext* write_context);
 
   // REQUIRES: mutex locked
-  void HandleWriteBufferFull();
+  Status HandleWriteBufferFull(WriteContext* write_context);
 
   // REQUIRES: mutex locked
   Status PreprocessWrite(const WriteOptions& write_options, bool* need_log_sync,

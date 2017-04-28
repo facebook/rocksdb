@@ -22,14 +22,9 @@ uint64_t DBImpl::TEST_GetLevel0TotalSize() {
 }
 
 void DBImpl::TEST_HandleWALFull() {
-  InstrumentedMutexLock l(&mutex_);
-  HandleWALFull();
-}
-
-Status DBImpl::TEST_ScheduleFlushes() {
   WriteContext write_context;
   InstrumentedMutexLock l(&mutex_);
-  return ScheduleFlushes(&write_context);
+  HandleWALFull(&write_context);
 }
 
 int64_t DBImpl::TEST_MaxNextLevelOverlappingBytes(

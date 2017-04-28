@@ -590,12 +590,11 @@ Status DBImpl::SetDBOptions(
 
       write_thread_->EnterUnbatched(&w, &mutex_);
       if (total_log_size_ > GetMaxTotalWalSize()) {
-        HandleWALFull();
-        Status flush_status = ScheduleFlushes(&write_context);
-        if (!flush_status.ok()) {
+        Status purge_wal_status = HandleWALFull(&write_context);
+        if (!purge_wal_status.ok()) {
           ROCKS_LOG_WARN(immutable_db_options_.info_log,
                          "Unable to purge WAL files in SetDBOptions() -- %s",
-                         flush_status.ToString().c_str());
+                         purge_wal_status.ToString().c_str());
         }
       }
       persist_options_status = WriteOptionsFile(
