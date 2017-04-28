@@ -2,6 +2,8 @@
 ## 5.4.1 (04/28/2017)
 ### Buf Fxies
 * Fix WriteBatchWithIndex address use after scope error.
+* Fix WritableFile buffer size in direct IO.
+* Add prefetch to PosixRandomAccessFile in buffered io.
 
 ## 5.4.0 (04/11/2017)
 ### Public API Change
