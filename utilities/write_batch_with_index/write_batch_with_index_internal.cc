@@ -150,7 +150,7 @@ WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
   // TODO(agiardullo): consider adding support for reverse iteration
   iter->Seek(key);
   while (iter->Valid()) {
-    const WriteEntry& entry = iter->Entry();
+    const WriteEntry entry = iter->Entry();
     if (cmp->CompareKey(cf_id, entry.key, key) != 0) {
       break;
     }
@@ -171,7 +171,7 @@ WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
 
   Slice entry_value;
   while (iter->Valid()) {
-    WriteEntry entry = iter->Entry();
+    const WriteEntry entry = iter->Entry();
     if (cmp->CompareKey(cf_id, entry.key, key) != 0) {
       // Unexpected error or we've reached a different next key
       break;
