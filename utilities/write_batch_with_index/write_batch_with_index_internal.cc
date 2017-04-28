@@ -152,7 +152,7 @@ WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
   // TODO(agiardullo): consider adding support for reverse iteration
   iter->Seek(key);
   while (iter->Valid()) {
-    const WriteEntry& entry = iter->Entry();
+    const WriteEntry entry = iter->Entry();
     if (cmp->CompareKey(cf_id, entry.key, key) != 0) {
       break;
     }
@@ -171,9 +171,9 @@ WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
     iter->Prev();
   }
 
-  const Slice* entry_value = nullptr;
+  Slice entry_value;
   while (iter->Valid()) {
-    const WriteEntry& entry = iter->Entry();
+    const WriteEntry entry = iter->Entry();
     if (cmp->CompareKey(cf_id, entry.key, key) != 0) {
       // Unexpected error or we've reached a different next key
       break;
@@ -182,7 +182,7 @@ WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
     switch (entry.type) {
       case kPutRecord: {
         result = WriteBatchWithIndexInternal::Result::kFound;
-        entry_value = &entry.value;
+        entry_value = entry.value;
         break;
       }
       case kMergeRecord: {
@@ -244,7 +244,7 @@ WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
         Logger* logger = immuable_db_options.info_log.get();
 
         if (merge_operator) {
-          *s = MergeHelper::TimedFullMerge(merge_operator, key, entry_value,
+          *s = MergeHelper::TimedFullMerge(merge_operator, key, &entry_value,
                                            merge_context->GetOperands(), value,
                                            logger, statistics, env);
         } else {
@@ -257,7 +257,7 @@ WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
         }
       } else {  // nothing to merge
         if (result == WriteBatchWithIndexInternal::Result::kFound) {  // PUT
-          value->assign(entry_value->data(), entry_value->size());
+          value->assign(entry_value.data(), entry_value.size());
         }
       }
     }
