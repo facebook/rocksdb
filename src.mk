@@ -160,6 +160,7 @@ LIB_SOURCES =                                                   \
   utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc    \
   utilities/convenience/info_log_finder.cc                      \
   utilities/date_tiered/date_tiered_db_impl.cc                  \
+  utilities/debug.cc                                        	\
   utilities/document/document_db.cc                             \
   utilities/document/json_document.cc                           \
   utilities/document/json_document_builder.cc                   \
