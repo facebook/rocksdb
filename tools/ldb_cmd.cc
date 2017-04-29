@@ -1216,7 +1216,7 @@ void InternalDumpCommand::DoCommand() {
   std::vector<KeyVersion> key_versions;
   Status st = GetAllKeyVersions(db_, from_, to_, &key_versions);
   if (!st.ok()) {
-    fprintf(stderr, "Error: %s\n", st.ToString().c_str());
+    exec_state_ = LDBCommandExecuteResult::Failed(st.ToString());
     return;
   }
   std::string rtype1, rtype2, row, val;

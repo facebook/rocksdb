@@ -32,7 +32,6 @@ Status GetAllKeyVersions(DB* db, Slice begin_key, Slice end_key,
     iter->SeekToFirst();
   }
 
-  std::vector<KeyVersion> res;
   for (; iter->Valid(); iter->Next()) {
     ParsedInternalKey ikey;
     if (!ParseInternalKey(iter->key(), &ikey)) {
