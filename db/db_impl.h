@@ -741,7 +741,7 @@ class DBImpl : public DB {
 
   // Used by WriteImpl to update bg_error_ if paranoid check is enabled.
   void ParanoidCheck(const Status& status);
-  
+
   // Used by WriteImpl to update bg_error_ in case of memtable insert error.
   void MemTableInsertStatusCheck(const Status& memtable_insert_status);
 
