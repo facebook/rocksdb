@@ -182,7 +182,6 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
 void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
                          GetContext* get_context) {
 #ifndef ROCKSDB_LITE
-  static Cleanable nonToClean;
   Slice s = replay_log;
   while (s.size()) {
     auto type = static_cast<ValueType>(*s.data());
@@ -195,8 +194,7 @@ void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
     // Since SequenceNumber is not stored and unknown, we will use
     // kMaxSequenceNumber.
     get_context->SaveValue(
-        ParsedInternalKey(user_key, kMaxSequenceNumber, type), value,
-        &nonToClean);
+        ParsedInternalKey(user_key, kMaxSequenceNumber, type), value, nullptr);
   }
 #else   // ROCKSDB_LITE
   assert(false);
