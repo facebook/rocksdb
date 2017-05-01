@@ -2065,11 +2065,16 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
 void BlockBasedTable::Close() {
   const bool force_erase = true;
   auto block_cache = rep_->table_options.block_cache.get();
-  // The filter_entry and inde_entry could have a pointer to the table and must
-  // be deleted before the table is closed
-  rep_->filter_entry.Release(block_cache, force_erase);
-  rep_->index_entry.Release(block_cache, force_erase);
-  rep_->range_del_entry.Release(block_cache);
+  if (block_cache) {
+    // The filter_entry and inde_entry's lifetime ends with table's and is
+    // forced to be released.
+    // Note that if the xxx_entry is not set then the cached entry might remian
+    // in the  cache for some more time. The destrcutor hence must take int
+    // account that the table object migth no longer be available.
+    rep_->filter_entry.Release(block_cache, force_erase);
+    rep_->index_entry.Release(block_cache, force_erase);
+    rep_->range_del_entry.Release(block_cache);
+  }
 }
 
 Status BlockBasedTable::DumpIndexBlock(WritableFile* out_file) {
