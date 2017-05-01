@@ -764,7 +764,7 @@ struct DBOptions {
   // commit.
   //
   // Default: false
-  bool enable_pipelined_write = true;
+  bool enable_pipelined_write = false;
 
   // If true, allow multi-writers to update mem tables in parallel.
   // Only some memtable_factory-s support concurrent writes; currently it
