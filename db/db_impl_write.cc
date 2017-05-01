@@ -104,7 +104,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       // we're responsible for exit batch group
       auto last_sequence = w.write_group->last_sequence;
       versions_->SetLastSequence(last_sequence);
-      UpdateBackgroundError(w.status);
+      MemTableInsertStatusCheck(w.status);
       write_thread->ExitAsBatchGroupFollower(&w);
     }
     assert(w.state == WriteThread::STATE_COMPLETED);
@@ -245,16 +245,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   }
   PERF_TIMER_START(write_pre_and_post_process_time);
 
-  //
-  // Is setting bg_error_ enough here?  This will at least stop
-  // compaction and fail any further writes.
-  if (immutable_db_options_.paranoid_checks && !status.ok() &&
-      !w.CallbackFailed() && !status.IsBusy() && !status.IsIncomplete()) {
-    mutex_.Lock();
-    if (bg_error_.ok()) {
-      bg_error_ = status;  // stop compaction & fail any further writes
-    }
-    mutex_.Unlock();
+  if (!w.CallbackFailed()) {
+    ParanoidCheck(status);
   }
 
   if (need_log_sync) {
@@ -271,14 +263,13 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   }
   if (should_exit_batch_group) {
     versions_->SetLastSequence(last_sequence);
-    UpdateBackgroundError(w.status);
+    MemTableInsertStatusCheck(w.status);
     write_thread->ExitAsBatchGroupLeader(write_group, w.status);
   }
 
   if (status.ok()) {
     status = w.FinalStatus();
   }
-
   return status;
 }
 
@@ -305,9 +296,7 @@ Status DBImpl::PipelineWriteImpl(const WriteOptions& write_options,
       wal_write_group.leader = &w;
       wal_write_group.last_writer = &w;
       wal_write_group.size = 1;
-    }
-
-    if (w.status.ok()) {
+    } else {
       mutex_.Lock();
       bool need_log_sync = !write_options.disableWAL && write_options.sync;
       bool need_log_dir_sync = need_log_sync && !log_dir_synced_;
@@ -321,6 +310,7 @@ Status DBImpl::PipelineWriteImpl(const WriteOptions& write_options,
       const SequenceNumber current_sequence =
           write_pipeline->UpdateLastSequence(versions_->LastSequence()) + 1;
       size_t total_count = 0;
+      size_t total_byte_size = 0;
 
       if (w.status.ok()) {
         SequenceNumber next_sequence = current_sequence;
@@ -331,23 +321,38 @@ Status DBImpl::PipelineWriteImpl(const WriteOptions& write_options,
             next_sequence += count;
             total_count += count;
           }
+          total_byte_size = WriteBatchInternal::AppendedByteSize(
+              total_byte_size, WriteBatchInternal::ByteSize(writer->batch));
         }
         if (w.disable_wal) {
           has_unpersisted_data_.store(true, std::memory_order_relaxed);
         }
         write_pipeline->UpdateLastSequence(current_sequence + total_count - 1);
       }
+    
+      auto stats = default_cf_internal_stats_;
+      stats->AddDBStats(InternalStats::NUMBER_KEYS_WRITTEN, total_count);
+      RecordTick(stats_, NUMBER_KEYS_WRITTEN, total_count);
+      stats->AddDBStats(InternalStats::BYTES_WRITTEN, total_byte_size);
+      RecordTick(stats_, BYTES_WRITTEN, total_byte_size);
 
       PERF_TIMER_STOP(write_pre_and_post_process_time);
 
       if (w.ShouldWriteToWAL()) {
         PERF_TIMER_GUARD(write_wal_time);
+        stats->AddDBStats(InternalStats::WRITE_DONE_BY_SELF, 1);
         RecordTick(stats_, WRITE_DONE_BY_SELF, 1);
         if (wal_write_group.size > 1) {
+          stats->AddDBStats(InternalStats::WRITE_DONE_BY_OTHER,
+                            wal_write_group.size - 1);
           RecordTick(stats_, WRITE_DONE_BY_OTHER, wal_write_group.size - 1);
         }
         w.status = WriteToWAL(wal_write_group, cur_log_writer, need_log_sync,
                               need_log_dir_sync, current_sequence);
+      }
+
+      if (!w.CallbackFailed()) {
+        ParanoidCheck(w.status);
       }
 
       if (need_log_sync) {
@@ -387,26 +392,42 @@ Status DBImpl::PipelineWriteImpl(const WriteOptions& write_options,
         write_options.ignore_missing_column_families, 0 /*log_number*/, this,
         true /*concurrent_memtable_writes*/);
     if (write_pipeline->CompleteParallelMemTableWriter(&w)) {
+      MemTableInsertStatusCheck(w.status);
       write_pipeline->ExitAsMemTableWriter(&w, *w.write_group, versions_.get());
     }
   }
+
   assert(w.state == WritePipeline::STATE_COMPLETED);
   if (log_used != nullptr) {
     *log_used = w.log_used;
   }
+
   return w.FinalStatus();
 }
 
-void DBImpl::UpdateBackgroundError(const Status& memtable_insert_status) {
+void DBImpl::ParanoidCheck(const Status& status) {
+  // Is setting bg_error_ enough here?  This will at least stop
+  // compaction and fail any further writes.
+  if (immutable_db_options_.paranoid_checks && !status.ok() &&
+      !status.IsBusy() && !status.IsIncomplete()) {
+    mutex_.Lock();
+    if (bg_error_.ok()) {
+      bg_error_ = status;  // stop compaction & fail any further writes
+    }
+    mutex_.Unlock();
+  }
+}
+
+void DBImpl::MemTableInsertStatusCheck(const Status& status) {
   // A non-OK status here indicates that the state implied by the
   // WAL has diverged from the in-memory state.  This could be
   // because of a corrupt write_batch (very bad), or because the
   // client specified an invalid column family and didn't specify
   // ignore_missing_column_families.
-  if (!memtable_insert_status.ok()) {
+  if (!status.ok()) {
     mutex_.Lock();
     assert(bg_error_.ok());
-    bg_error_ = memtable_insert_status;
+    bg_error_ = status;
     mutex_.Unlock();
   }
 }

@@ -739,9 +739,11 @@ class DBImpl : public DB {
                     log::Writer* log_writer, bool need_log_sync,
                     bool need_log_dir_sync, SequenceNumber sequence);
 
-  // Used by WriteImpl to update bg_error_ when encountering memtable insert
-  // error.
-  void UpdateBackgroundError(const Status& memtable_insert_status);
+  // Used by WriteImpl to update bg_error_ if paranoid check is enabled.
+  void ParanoidCheck(const Status& status);
+  
+  // Used by WriteImpl to update bg_error_ in case of memtable insert error.
+  void MemTableInsertStatusCheck(const Status& memtable_insert_status);
 
 #ifndef ROCKSDB_LITE
 

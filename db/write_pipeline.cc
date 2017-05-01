@@ -366,7 +366,8 @@ bool WritePipeline::CompleteParallelMemTableWriter(Writer* w) {
     AwaitState(w, STATE_COMPLETED, &ctx);
     return false;
   }
-
+  
+  w->status = write_group->status;
   return true;
 }
 
