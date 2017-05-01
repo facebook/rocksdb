@@ -499,19 +499,136 @@ Status WinEnvIO::GetFileModificationTime(const std::string& fname,
   return s;
 }
 
+static BOOL DeleteDirRecursively(const char* dir) 
+{
+    HANDLE hFind;
+    WIN32_FIND_DATA findFileData;
+
+    char path[MAX_PATH];
+    char name[MAX_PATH];
+
+    strcpy(path, dir);
+    strcat(path, "\\*");
+    strcpy(name, dir);
+    strcat(name, "\\");
+
+    hFind = FindFirstFileA(path, &findFileData);
+    if (hFind == INVALID_HANDLE_VALUE) 
+        return FALSE;
+
+    strcpy(path, name);
+    while (true)
+    {
+        if (FindNextFileA(hFind, &findFileData)) 
+        {
+            if (strcmp(findFileData.cFileName, ".") == 0
+                || strcmp(findFileData.cFileName, "..") == 0)
+                continue;
+
+            strcat(name, findFileData.cFileName);
+
+            // if dir
+            if ((findFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) 
+            {
+                if (!DeleteDirRecursively(name) || !RemoveDirectoryA(name) )
+                {
+                    auto err = ::GetLastError();
+                    FindClose(hFind);
+                    ::SetLastError(err);
+                    return FALSE;
+                }
+            }
+
+            // else file
+            else 
+            {
+                if (findFileData.dwFileAttributes & FILE_ATTRIBUTE_READONLY)
+                    _chmod(name, _S_IWRITE); // change read-only file mode
+                
+                if (!DeleteFileA(name)) 
+                {
+                    auto err = ::GetLastError();
+                    FindClose(hFind);
+                    ::SetLastError(err);
+                    return FALSE;
+                }
+            }
+
+            strcpy(name, path);
+        }
+        else
+        {
+            auto err = ::GetLastError();
+            if (err == ERROR_NO_MORE_FILES)
+                break;
+            else 
+            {
+                FindClose(hFind);
+                ::SetLastError(err);
+                return FALSE;
+            }
+        }
+
+    }
+
+    FindClose(hFind);
+    return RemoveDirectoryA(dir);
+}
+
 Status WinEnvIO::RenameFile(const std::string& src,
   const std::string& target) {
   Status result;
-
+    
   // rename() is not capable of replacing the existing file as on Linux
   // so use OS API directly
-  if (!MoveFileExA(src.c_str(), target.c_str(), MOVEFILE_REPLACE_EXISTING)) {
-    DWORD lastError = GetLastError();
+  // however, MOVEFILE_REPLACE_EXISTING for MoveFileEx is not usable when src/target are dirs
+  // we therefore have to do this in multiple steps when for dirs
+  
+  // if target exist
+  struct _stat64 st;
+  if (::_stat64(target.c_str(), &st) == 0)
+  {
+      // if file
+      if ((st.st_mode & S_IFMT) == S_IFREG)
+      {
+          if (!MoveFileExA(src.c_str(), target.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+              DWORD lastError = GetLastError();
 
-    std::string text("Failed to rename: ");
-    text.append(src).append(" to: ").append(target);
+              std::string text("Failed to rename: ");
+              text.append(src).append(" to: ").append(target);
 
-    result = IOErrorFromWindowsError(text, lastError);
+              result = IOErrorFromWindowsError(text, lastError);
+          }
+
+          return result;
+      }
+
+      // else directory
+      else
+      {
+          if (!DeleteDirRecursively(target.c_str()))
+          {
+              DWORD lastError = GetLastError();
+
+              std::string text("Failed to remove: ");
+              text.append(target);
+
+              result = IOErrorFromWindowsError(text, lastError);
+
+              return result;
+          }
+      }
+  }
+
+  // target does not exist or target is dir (which is deleted already)
+  if (!MoveFileA(src.c_str(), target.c_str()))
+  {
+      DWORD lastError = GetLastError();
+
+      std::string text("Failed to rename: ");
+      text.append(src).append(" to: ").append(target);
+
+      result = IOErrorFromWindowsError(text, lastError);
   }
 
   return result;

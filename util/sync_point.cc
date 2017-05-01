@@ -10,6 +10,7 @@
 #include <thread>
 #include "port/port.h"
 #include "util/random.h"
+#include <mutex>
 
 int rocksdb_kill_odds = 0;
 std::vector<std::string> rocksdb_kill_prefix_blacklist;
@@ -39,8 +40,13 @@ void TestKillRandom(std::string kill_point, int odds,
 }
 
 SyncPoint* SyncPoint::GetInstance() {
-  static SyncPoint sync_point;
-  return &sync_point;
+  static std::once_flag flag;
+  static SyncPoint *psync_point = nullptr;
+  std::call_once(flag, [&]()
+  {
+    psync_point = new SyncPoint();
+  });
+  return psync_point;
 }
 
 void SyncPoint::LoadDependency(const std::vector<SyncPointPair>& dependencies) {
