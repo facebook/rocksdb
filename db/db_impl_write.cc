@@ -329,7 +329,7 @@ Status DBImpl::PipelineWriteImpl(const WriteOptions& write_options,
         }
         write_pipeline->UpdateLastSequence(current_sequence + total_count - 1);
       }
-    
+
       auto stats = default_cf_internal_stats_;
       stats->AddDBStats(InternalStats::NUMBER_KEYS_WRITTEN, total_count);
       RecordTick(stats_, NUMBER_KEYS_WRITTEN, total_count);

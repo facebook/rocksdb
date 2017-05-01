@@ -5,7 +5,6 @@
 //  This source code is also licensed under the GPLv2 license found in the
 //  COPYING file in the root directory of this source tree.
 
-
 #include "db/db_impl_readonly.h"
 
 #include "db/compacted_db_impl.h"
