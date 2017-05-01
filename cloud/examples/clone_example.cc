@@ -59,9 +59,12 @@ Status CloneDB(const std::string& clone_name, const std::string& src_bucket,
   Options options;
   options.env = cloud_env->get();
 
+  // No persistent cache
+  std::string persistent_cache = "";
+
   // open clone
-  DB* db;
-  st = DBCloud::Open(options, kClonePath, &db);
+  DBCloud* db;
+  st = DBCloud::Open(options, kClonePath, persistent_cache, 0, &db);
   if (!st.ok()) {
     fprintf(stderr, "Unable to open clone at path %s with bucket %s. %s\n",
             kClonePath.c_str(), kBucketSuffix.c_str(), st.ToString().c_str());
@@ -95,7 +98,7 @@ int main() {
   cloud_env_options.region = "us-west-2";
 
   // Append the user name to the bucket name in an attempt to make it
-  // globally unique. S3 bucket-namess need to be goblly unique.
+  // globally unique. S3 bucket-namess need to be globlly unique.
   // If you want to rerun this example, then unique user-name suffix here.
   char* user = getenv("USER");
   kBucketSuffix.append(user);
@@ -117,9 +120,12 @@ int main() {
   options.env = cloud_env.get();
   options.create_if_missing = true;
 
-  // open DB
-  DB* db;
-  s = DBCloud::Open(options, kDBPath, &db);
+  // No persistent cache
+  std::string persistent_cache = "";
+
+  // Create and Open DB
+  DBCloud* db;
+  s = DBCloud::Open(options, kDBPath, persistent_cache, 0, &db);
   if (!s.ok()) {
     fprintf(stderr, "Unable to open db at path %s with bucket %s. %s\n",
             kDBPath.c_str(), kBucketSuffix.c_str(), s.ToString().c_str());
@@ -139,7 +145,9 @@ int main() {
   // Flush all data from main db to sst files.
   db->Flush(FlushOptions());
 
-  // create a clone of the db and and verify that all's well
+  // Create a clone of the db and and verify that all's well.
+  // In real applications, a Clone would typically be created
+  // by a separate process.
   std::unique_ptr<DB> clone_db;
   std::unique_ptr<CloudEnv> clone_env;
 

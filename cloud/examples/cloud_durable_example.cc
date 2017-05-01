@@ -42,7 +42,7 @@ int main() {
   cloud_env_options.region = "us-west-2";
 
   // Append the user name to the bucket name in an attempt to make it
-  // globally unique. S3 bucket-namess need to be goblly unique.
+  // globally unique. S3 bucket-namess need to be groblly unique.
   // If you want to rerun this example, then unique user-name suffix here.
   char* user = getenv("USER");
   kBucketSuffix.append(user);
@@ -64,9 +64,12 @@ int main() {
   options.env = cloud_env.get();
   options.create_if_missing = true;
 
+  // No persistent read-cache
+  std::string persistent_cache = "";
+
   // open DB
-  DB* db;
-  s = DBCloud::Open(options, kDBPath, &db);
+  DBCloud* db;
+  s = DBCloud::Open(options, kDBPath, persistent_cache, 0, &db);
   if (!s.ok()) {
     fprintf(stderr, "Unable to open db at path %s with bucket %s. %s\n",
             kDBPath.c_str(), kBucketSuffix.c_str(), s.ToString().c_str());
