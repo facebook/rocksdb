@@ -27,23 +27,13 @@ public class SstFileWriterTest {
 
   @Rule public TemporaryFolder parentFolder = new TemporaryFolder();
 
-  private File newSstFile(final TreeMap<String, String> keyValues,
-      boolean useJavaBytewiseComparator)
+  private File newSstFile(final TreeMap<String, String> keyValues)
       throws IOException, RocksDBException {
     final EnvOptions envOptions = new EnvOptions();
-    final Options options = new Options();
-    SstFileWriter sstFileWriter = null;
-    ComparatorOptions comparatorOptions = null;
-    BytewiseComparator comparator = null;
-    if (useJavaBytewiseComparator) {
-      comparatorOptions = new ComparatorOptions();
-      comparator = new BytewiseComparator(comparatorOptions);
-      options.setComparator(comparator);
-      sstFileWriter = new SstFileWriter(envOptions, options, comparator);
-    } else {
-      sstFileWriter = new SstFileWriter(envOptions, options);
-    }
-
+    final ComparatorOptions comparatorOptions = new ComparatorOptions();
+    final BytewiseComparator comparator = new BytewiseComparator(comparatorOptions);
+    final Options options = new Options().setComparator(comparator);
+    final SstFileWriter sstFileWriter = new SstFileWriter(envOptions, options, comparator);
     final File sstFile = parentFolder.newFile(SST_FILE_NAME);
     try {
       sstFileWriter.open(sstFile.getAbsolutePath());
@@ -60,30 +50,18 @@ public class SstFileWriterTest {
       sstFileWriter.close();
       options.close();
       envOptions.close();
-      if (comparatorOptions != null) {
-        comparatorOptions.close();
-      }
-      if (comparator != null) {
-        comparator.close();
-      }
+      comparatorOptions.close();
+      comparator.close();
     }
     return sstFile;
   }
 
   @Test
-  public void generateSstFileWithJavaComparator() throws RocksDBException, IOException {
+  public void generateSstFile() throws RocksDBException, IOException {
     final TreeMap<String, String> keyValues = new TreeMap<>();
     keyValues.put("key1", "value1");
     keyValues.put("key2", "value2");
-    newSstFile(keyValues, true);
-  }
-
-  @Test
-  public void generateSstFileWithNativeComparator() throws RocksDBException, IOException {
-    final TreeMap<String, String> keyValues = new TreeMap<>();
-    keyValues.put("key1", "value1");
-    keyValues.put("key2", "value2");
-    newSstFile(keyValues, false);
+    newSstFile(keyValues);
   }
 
   @Test
@@ -91,7 +69,7 @@ public class SstFileWriterTest {
     final TreeMap<String, String> keyValues = new TreeMap<>();
     keyValues.put("key1", "value1");
     keyValues.put("key2", "value2");
-    final File sstFile = newSstFile(keyValues, false);
+    final File sstFile = newSstFile(keyValues);
     final File dbFolder = parentFolder.newFolder(DB_DIRECTORY_NAME);
     final Options options = new Options().setCreateIfMissing(true);
     final RocksDB db = RocksDB.open(options, dbFolder.getAbsolutePath());
