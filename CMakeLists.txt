@@ -500,6 +500,8 @@ set(SOURCES
         utilities/memory/memory_util.cc
         utilities/merge_operators/max.cc
         utilities/merge_operators/put.cc
+        utilities/merge_operators/cassandra/format.cc
+        utilities/merge_operators/cassandra/merge_operator.cc
         utilities/merge_operators/string_append/stringappend.cc
         utilities/merge_operators/string_append/stringappend2.cc
         utilities/merge_operators/uint64add.cc
@@ -710,6 +712,10 @@ set(TESTS
         utilities/geodb/geodb_test.cc
         utilities/lua/rocks_lua_test.cc
         utilities/memory/memory_test.cc
+        utilities/merge_operators/cassandra/cassandra_merge_test.cc
+        utilities/merge_operators/cassandra/format_test.cc
+        utilities/merge_operators/cassandra/row_merge_test.cc
+        utilities/merge_operators/cassandra/serialize_test.cc
         utilities/merge_operators/string_append/stringappend_test.cc
         utilities/object_registry_test.cc
         utilities/option_change_migration/option_change_migration_test.cc
@@ -750,6 +756,7 @@ set(TESTUTIL_SOURCE
     monitoring/thread_status_updater_debug.cc
     table/mock_table.cc
     util/fault_injection_test_env.cc
+    utilities/merge_operators/cassandra/test_utils.cc
 )
 # test utilities are only build in debug
 enable_testing()
