@@ -54,7 +54,7 @@ class TableCache {
   // @param level The level this table is at, -1 for "not set / don't know"
   InternalIterator* NewIterator(
       const ReadOptions& options, const EnvOptions& toptions,
-      const InternalKeyComparator& internal_comparator,
+      const InternalKeyComparator* internal_comparator,
       const FileDescriptor& file_fd, RangeDelAggregator* range_del_agg,
       TableReader** table_reader_ptr = nullptr,
       HistogramImpl* file_read_hist = nullptr, bool for_compaction = false,

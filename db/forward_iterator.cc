@@ -74,8 +74,9 @@ class LevelIterator : public InternalIterator {
     RangeDelAggregator range_del_agg(
         cfd_->internal_comparator(), {} /* snapshots */);
     file_iter_ = cfd_->table_cache()->NewIterator(
-        read_options_, *(cfd_->soptions()), cfd_->internal_comparator(),
-        files_[file_index_]->fd, read_options_.ignore_range_deletions ? nullptr : &range_del_agg,
+        read_options_, *(cfd_->soptions()), &cfd_->internal_comparator(),
+        files_[file_index_]->fd,
+        read_options_.ignore_range_deletions ? nullptr : &range_del_agg,
         nullptr /* table_reader_ptr */, nullptr, false);
     file_iter_->SetPinnedItersMgr(pinned_iters_mgr_);
     if (!range_del_agg.IsEmpty()) {
@@ -591,7 +592,7 @@ void ForwardIterator::RebuildIterators(bool refresh_sv) {
       continue;
     }
     l0_iters_.push_back(cfd_->table_cache()->NewIterator(
-        read_options_, *cfd_->soptions(), cfd_->internal_comparator(), l0->fd,
+        read_options_, *cfd_->soptions(), &cfd_->internal_comparator(), l0->fd,
         read_options_.ignore_range_deletions ? nullptr : &range_del_agg));
   }
   BuildLevelIterators(vstorage);
@@ -660,7 +661,7 @@ void ForwardIterator::RenewIterators() {
       continue;
     }
     l0_iters_new.push_back(cfd_->table_cache()->NewIterator(
-        read_options_, *cfd_->soptions(), cfd_->internal_comparator(),
+        read_options_, *cfd_->soptions(), &cfd_->internal_comparator(),
         l0_files_new[inew]->fd,
         read_options_.ignore_range_deletions ? nullptr : &range_del_agg));
   }
@@ -718,7 +719,7 @@ void ForwardIterator::ResetIncompleteIterators() {
     }
     DeleteIterator(l0_iters_[i]);
     l0_iters_[i] = cfd_->table_cache()->NewIterator(
-        read_options_, *cfd_->soptions(), cfd_->internal_comparator(),
+        read_options_, *cfd_->soptions(), &cfd_->internal_comparator(),
         l0_files[i]->fd, nullptr /* range_del_agg */);
     l0_iters_[i]->SetPinnedItersMgr(pinned_iters_mgr_);
   }
