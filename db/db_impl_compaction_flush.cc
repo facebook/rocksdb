@@ -828,6 +828,7 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
   TEST_SYNC_POINT_CALLBACK("DBImpl::RunManualCompaction:NotScheduled", &mutex_);
   if (exclusive) {
     while (bg_compaction_scheduled_ > 0) {
+      TEST_SYNC_POINT("DBImpl::RunManualCompaction:WaitScheduled");
       ROCKS_LOG_INFO(
           immutable_db_options_.info_log,
           "[%s] Manual compaction waiting for all other scheduled background "
@@ -1394,6 +1395,16 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                : m->manual_end->DebugString().c_str()));
     }
   } else if (!compaction_queue_.empty()) {
+    if (HaveManualCompaction(compaction_queue_.front())) {
+      // Can't compact right now, but try again later
+      TEST_SYNC_POINT("DBImpl::BackgroundCompaction()::Conflict");
+
+      // Stay in the compaciton queue.
+      unscheduled_compactions_++;
+
+      return Status::OK();
+    }
+
     // cfd is referenced here
     auto cfd = PopFirstFromCompactionQueue();
     // We unreference here because the following code will take a Ref() on
@@ -1405,12 +1416,6 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       delete cfd;
       // This was the last reference of the column family, so no need to
       // compact.
-      return Status::OK();
-    }
-
-    if (HaveManualCompaction(cfd)) {
-      // Can't compact right now, but try again later
-      TEST_SYNC_POINT("DBImpl::BackgroundCompaction()::Conflict");
       return Status::OK();
     }
 
