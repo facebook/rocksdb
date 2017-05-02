@@ -1,5 +1,8 @@
 # Rocksdb Change Log
 ## Unreleased
+### Public API Change
+* Introduce WriteBatch::PopSavePoint to pop the most recent save point explicitly.
+
 ### New Features
 * DB::ResetStats() to reset internal stats.
 * Statistics::Reset() to reset user stats.
