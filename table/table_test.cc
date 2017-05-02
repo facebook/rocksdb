@@ -9,6 +9,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <inttypes.h>
 #include <stdio.h>
 
 #include <algorithm>
@@ -1849,10 +1850,7 @@ TEST_F(BlockBasedTableTest, FilterBlockInBlockCache) {
   // -- Table construction
   Options options;
   options.create_if_missing = true;
-  // Keep a ref to statistic to prevent it from being destructed before
-  // block cache gets cleaned up upon next table_factory.reset
-  auto statistics = CreateDBStatistics();
-  options.statistics = statistics;
+  options.statistics = CreateDBStatistics();
 
   // Enable the cache for index/filter blocks
   BlockBasedTableOptions table_options;
@@ -1932,17 +1930,15 @@ TEST_F(BlockBasedTableTest, FilterBlockInBlockCache) {
   }
   // release the iterator so that the block cache can reset correctly.
   iter.reset();
+
   c.ResetTableReader();
 
   // -- PART 2: Open with very small block cache
   // In this test, no block will ever get hit since the block cache is
   // too small to fit even one entry.
   table_options.block_cache = NewLRUCache(1, 4);
+  options.statistics = CreateDBStatistics();
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
-  // Keep a ref to statistic to prevent it from being destructed before
-  // block cache gets cleaned up upon next table_factory.reset
-  statistics = CreateDBStatistics();
-  options.statistics = statistics;
   const ImmutableCFOptions ioptions2(options);
   c.Reopen(ioptions2);
   {
@@ -1997,10 +1993,7 @@ TEST_F(BlockBasedTableTest, FilterBlockInBlockCache) {
   // Open table with filter policy
   table_options.filter_policy.reset(NewBloomFilterPolicy(1));
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
-  // Keep a ref to statistic to prevent it from being destructed before
-  // block cache gets cleaned up upon next table_factory.reset
-  statistics = CreateDBStatistics();
-  options.statistics = statistics;
+  options.statistics = CreateDBStatistics();
   ImmutableCFOptions ioptions4(options);
   ASSERT_OK(c3.Reopen(ioptions4));
   reader = dynamic_cast<BlockBasedTable*>(c3.GetTableReader());

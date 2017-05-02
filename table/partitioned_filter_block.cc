@@ -82,21 +82,16 @@ PartitionedFilterBlockReader::PartitionedFilterBlockReader(
     : FilterBlockReader(contents.data.size(), stats, _whole_key_filtering),
       prefix_extractor_(prefix_extractor),
       comparator_(comparator),
-      table_(table),
-      block_cache_(table_->rep_->table_options.block_cache.get()){
+      table_(table) {
   idx_on_fltr_blk_.reset(new Block(std::move(contents),
                                    kDisableGlobalSequenceNumber,
                                    0 /* read_amp_bytes_per_bit */, stats));
 }
 
 PartitionedFilterBlockReader::~PartitionedFilterBlockReader() {
-  // The destructor migh be called via cache evict after the table is deleted.
-  // We should avoid using table_ pointer in destructor then.
-  if (block_cache_) {
-    ReadLock rl(&mu_);
-    for (auto it = handle_list_.begin(); it != handle_list_.end(); ++it) {
-      block_cache_->Release(*it);
-    }
+  ReadLock rl(&mu_);
+  for (auto it = handle_list_.begin(); it != handle_list_.end(); ++it) {
+    table_->rep_->table_options.block_cache.get()->Release(*it);
   }
 }
 
@@ -127,7 +122,7 @@ bool PartitionedFilterBlockReader::KeyMayMatch(
     return res;
   }
   if (LIKELY(filter_partition.IsSet())) {
-    filter_partition.Release(block_cache_);
+    filter_partition.Release(table_->rep_->table_options.block_cache.get());
   } else {
     delete filter_partition.value;
   }
@@ -159,7 +154,7 @@ bool PartitionedFilterBlockReader::PrefixMayMatch(
     return res;
   }
   if (LIKELY(filter_partition.IsSet())) {
-    filter_partition.Release(block_cache_);
+    filter_partition.Release(table_->rep_->table_options.block_cache.get());
   } else {
     delete filter_partition.value;
   }
@@ -187,7 +182,8 @@ PartitionedFilterBlockReader::GetFilterPartition(Slice* handle_value,
   auto s = fltr_blk_handle.DecodeFrom(handle_value);
   assert(s.ok());
   const bool is_a_filter_partition = true;
-  if (LIKELY(block_cache_ != nullptr)) {
+  auto block_cache = table_->rep_->table_options.block_cache.get();
+  if (LIKELY(block_cache != nullptr)) {
     bool pin_cached_filters =
         GetLevel() == 0 &&
         table_->rep_->table_options.pin_l0_filter_and_index_blocks_in_cache;
