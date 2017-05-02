@@ -2063,21 +2063,17 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
 }
 
 void BlockBasedTable::Close() {
-  rep_->filter_entry.Release(rep_->table_options.block_cache.get());
-  rep_->index_entry.Release(rep_->table_options.block_cache.get());
-  rep_->range_del_entry.Release(rep_->table_options.block_cache.get());
-  // cleanup index and filter blocks to avoid accessing dangling pointer
-  if (!rep_->table_options.no_block_cache) {
-    char cache_key[kMaxCacheKeyPrefixSize + kMaxVarint64Length];
-    // Get the filter block key
-    auto key = GetCacheKey(rep_->cache_key_prefix, rep_->cache_key_prefix_size,
-                           rep_->footer.metaindex_handle(), cache_key);
-    rep_->table_options.block_cache.get()->Erase(key);
-    // Get the index block key
-    key = GetCacheKeyFromOffset(rep_->cache_key_prefix,
-                                rep_->cache_key_prefix_size,
-                                rep_->dummy_index_reader_offset, cache_key);
-    rep_->table_options.block_cache.get()->Erase(key);
+  const bool force_erase = true;
+  auto block_cache = rep_->table_options.block_cache.get();
+  if (block_cache) {
+    // The filter_entry and inde_entry's lifetime ends with table's and is
+    // forced to be released.
+    // Note that if the xxx_entry is not set then the cached entry might remian
+    // in the  cache for some more time. The destrcutor hence must take int
+    // account that the table object migth no longer be available.
+    rep_->filter_entry.Release(block_cache, force_erase);
+    rep_->index_entry.Release(block_cache, force_erase);
+    rep_->range_del_entry.Release(block_cache);
   }
 }
 
