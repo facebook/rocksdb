@@ -4,6 +4,7 @@
 * Fix WriteBatchWithIndex address use after scope error.
 * Fix WritableFile buffer size in direct IO.
 * Add prefetch to PosixRandomAccessFile in buffered io.
+* Fix PinnableSlice access invalid address when row cache is enabled.
 
 ## 5.4.0 (04/11/2017)
 ### Public API Change
