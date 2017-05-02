@@ -1432,11 +1432,15 @@ bool BlockBasedTable::BlockEntryIteratorState::PrefixMayMatch(
 
 bool BlockBasedTable::BlockEntryIteratorState::KeyReachedUpperBound(
     const Slice& internal_key) {
-  return read_options_.iterate_upper_bound == nullptr || icomparator_ == nullptr
-             ? false
-             : icomparator_->user_comparator()->Compare(
-                   ExtractUserKey(internal_key),
-                   *read_options_.iterate_upper_bound) >= 0;
+  bool reached_upper_bound = read_options_.iterate_upper_bound != nullptr &&
+                             icomparator_ != nullptr &&
+                             icomparator_->user_comparator()->Compare(
+                                 ExtractUserKey(internal_key),
+                                 *read_options_.iterate_upper_bound) >= 0;
+  TEST_SYNC_POINT_CALLBACK(
+      "BlockBasedTable::BlockEntryIteratorState::KeyReachedUpperBound",
+      &reached_upper_bound);
+  return reached_upper_bound;
 }
 
 // This will be broken if the user specifies an unusual implementation
