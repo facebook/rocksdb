@@ -1852,6 +1852,47 @@ TEST_F(DBCompactionTest, L0_CompactionBug_Issue44_b) {
   } while (ChangeCompactOptions());
 }
 
+TEST_F(DBCompactionTest, ManualAutoRace) {
+  CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::BGWorkCompaction", "DBCompactionTest::ManualAutoRace:1"},
+       {"DBImpl::RunManualCompaction:WaitScheduled",
+        "BackgroundCallCompaction:0"}});
+
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  Put(1, "foo", "");
+  Put(1, "bar", "");
+  Flush(1);
+  Put(1, "foo", "");
+  Put(1, "bar", "");
+  // Generate four files in CF 0, which should trigger an auto compaction
+  Put("foo", "");
+  Put("bar", "");
+  Flush();
+  Put("foo", "");
+  Put("bar", "");
+  Flush();
+  Put("foo", "");
+  Put("bar", "");
+  Flush();
+  Put("foo", "");
+  Put("bar", "");
+  Flush();
+
+  // The auto compaction is scheduled but waited until here
+  TEST_SYNC_POINT("DBCompactionTest::ManualAutoRace:1");
+  // The auto compaction will wait until the the manual compaction is registerd
+  // before processing so that it will be cancelled.
+  dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr, nullptr);
+  ASSERT_EQ("0,1", FilesPerLevel(1));
+
+  // Eventually the cancelled compaction will be rescheduled and executed.
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ("0,1", FilesPerLevel(0));
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
 TEST_P(DBCompactionTestWithParam, ManualCompaction) {
   Options options = CurrentOptions();
   options.max_subcompactions = max_subcompactions_;
