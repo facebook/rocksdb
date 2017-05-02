@@ -101,11 +101,6 @@ Status BlockBasedTableFactory::SanitizeOptions(
         "Unsupported BlockBasedTable format_version. Please check "
         "include/rocksdb/table.h for more info");
   }
-  if (table_options_.block_cache &&
-      table_options_.no_block_cache) {
-    return Status::InvalidArgument("Block cache is initialized"
-        ", but it is disabled");
-  }
   return Status::OK();
 }
 
