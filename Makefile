@@ -485,7 +485,8 @@ TOOLS = \
 	ldb \
 	db_repl_stress \
 	rocksdb_dump \
-	rocksdb_undump
+	rocksdb_undump \
+	blob_dump \
 
 TEST_LIBS = \
 	librocksdb_env_basic_test.a
@@ -1341,6 +1342,9 @@ transaction_test: utilities/transactions/transaction_test.o $(LIBOBJECTS) $(TEST
 	$(AM_LINK)
 
 sst_dump: tools/sst_dump.o $(LIBOBJECTS)
+	$(AM_LINK)
+
+blob_dump: tools/blob_dump.o $(LIBOBJECTS)
 	$(AM_LINK)
 
 column_aware_encoding_exp: utilities/column_aware_encoding_exp.o $(EXPOBJECTS)
