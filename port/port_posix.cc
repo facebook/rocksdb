@@ -142,11 +142,18 @@ int PhysicalCoreID() {
   // if you ever find that this function is hot on Linux, you can go from
   // ~200 nanos to ~20 nanos by adding the machinery to use __vdso_getcpu
   unsigned eax, ebx = 0, ecx, edx;
-  __get_cpuid(1, &eax, &ebx, &ecx, &edx);
+  if (!__get_cpuid(1, &eax, &ebx, &ecx, &edx)) {
+    return -1;
+  }
   return ebx >> 24;
 #else
-  // getcpu or sched_getcpu could work here
-  return -1;
+  int cpuno = sched_getcpu();
+  if (cpuno < 0) {
+    return -1;
+  }
+  else {
+    return cpuno;
+  }
 #endif
 }
 
