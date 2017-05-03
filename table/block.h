@@ -29,7 +29,8 @@
 #include "rocksdb/statistics.h"
 #include "table/block_prefix_index.h"
 #include "table/internal_iterator.h"
-
+#include "util/random.h"
+#include "util/sync_point.h"
 #include "format.h"
 
 namespace rocksdb {
@@ -46,7 +47,9 @@ class BlockReadAmpBitmap {
  public:
   explicit BlockReadAmpBitmap(size_t block_size, size_t bytes_per_bit,
                               Statistics* statistics)
-      : bitmap_(nullptr), bytes_per_bit_pow_(0), statistics_(statistics) {
+      : bitmap_(nullptr), bytes_per_bit_pow_(0), statistics_(statistics),
+        rnd_(Random::GetTLSInstance()->Uniform(bytes_per_bit)){
+    TEST_SYNC_POINT_CALLBACK("BlockReadAmpBitmap", &rnd_);
     assert(block_size > 0 && bytes_per_bit > 0);
 
     // convert bytes_per_bit to be a power of 2
@@ -60,6 +63,7 @@ class BlockReadAmpBitmap {
         (block_size % (static_cast<size_t>(1)
                        << static_cast<size_t>(bytes_per_bit_pow_)) !=
          0);
+    last_bit_ = num_bits_needed - 1;
 
     // bitmap_size = ceil(num_bits_needed / kBitsPerEntry)
     size_t bitmap_size = (num_bits_needed / kBitsPerEntry) +
@@ -80,10 +84,23 @@ class BlockReadAmpBitmap {
 
     // Every new bit we set will bump this counter
     uint32_t new_useful_bytes = 0;
-    // Index of first bit in mask (start_offset / bytes_per_bit)
-    uint32_t start_bit = start_offset >> bytes_per_bit_pow_;
-    // Index of last bit in mask (end_offset / bytes_per_bit)
-    uint32_t end_bit = end_offset >> bytes_per_bit_pow_;
+    // Index of first bit in mask
+    uint32_t start_bit =
+      (start_offset >> bytes_per_bit_pow_ == last_bit_
+             ? last_bit_
+             : (start_offset + (1 << bytes_per_bit_pow_) - rnd_ - 1) >>
+                   bytes_per_bit_pow_);
+    // Index of last bit in mask + 1
+    uint32_t exclusive_end_bit =
+      (end_offset >> bytes_per_bit_pow_ == last_bit_
+             ? last_bit_ + 1
+             : (end_offset + (1 << bytes_per_bit_pow_) - rnd_) >>
+                   bytes_per_bit_pow_);
+    if (start_bit >= exclusive_end_bit) {
+      return;
+    }
+    assert(exclusive_end_bit > 0);
+    uint32_t end_bit = exclusive_end_bit - 1;
     // Index of middle bit (unique to this range)
     uint32_t mid_bit = start_bit + 1;
 
@@ -141,6 +158,7 @@ class BlockReadAmpBitmap {
   // Bitmap used to record the bytes that we read, use atomic to protect
   // against multiple threads updating the same bit
   std::atomic<uint32_t>* bitmap_;
+  uint32_t last_bit_;
   // (1 << bytes_per_bit_pow_) is bytes_per_bit. Use power of 2 to optimize
   // muliplication and division
   uint8_t bytes_per_bit_pow_;
@@ -148,6 +166,7 @@ class BlockReadAmpBitmap {
   // this pointer maybe invalid, but the DB will update it to a valid pointer
   // by using SetStatistics() before calling Mark()
   std::atomic<Statistics*> statistics_;
+  uint32_t rnd_;
 };
 
 class Block {
