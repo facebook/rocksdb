@@ -832,6 +832,10 @@ Status WriteBatchWithIndex::RollbackToSavePoint() {
   return s;
 }
 
+Status WriteBatchWithIndex::PopSavePoint() {
+  return rep->write_batch.PopSavePoint();
+}
+
 void WriteBatchWithIndex::SetMaxBytes(size_t max_bytes) {
   rep->write_batch.SetMaxBytes(max_bytes);
 }

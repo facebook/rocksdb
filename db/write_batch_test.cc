@@ -861,6 +861,19 @@ TEST_F(WriteBatchTest, SavePointTest) {
   s = batch2.RollbackToSavePoint();
   ASSERT_TRUE(s.IsNotFound());
   ASSERT_EQ("", PrintContents(&batch2));
+
+  WriteBatch batch3;
+
+  s = batch3.PopSavePoint();
+  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_EQ("", PrintContents(&batch3));
+
+  batch3.SetSavePoint();
+  batch3.Delete("A");
+
+  s = batch3.PopSavePoint();
+  ASSERT_OK(s);
+  ASSERT_EQ("Delete(A)@0", PrintContents(&batch3));
 }
 
 TEST_F(WriteBatchTest, MemoryLimitTest) {

@@ -457,6 +457,8 @@ extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_set_save_point(
     rocksdb_writebatch_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_rollback_to_save_point(
     rocksdb_writebatch_t*, char** errptr);
+extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_pop_save_point(
+    rocksdb_writebatch_t*, char** errptr);
 
 /* Write batch with index */
 

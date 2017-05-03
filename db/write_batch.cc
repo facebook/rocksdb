@@ -803,6 +803,17 @@ Status WriteBatch::RollbackToSavePoint() {
   return Status::OK();
 }
 
+Status WriteBatch::PopSavePoint() {
+  if (save_points_ == nullptr || save_points_->stack.size() == 0) {
+    return Status::NotFound();
+  }
+
+  // Pop the most recent savepoint off the stack
+  save_points_->stack.pop();
+
+  return Status::OK();
+}
+
 class MemTableInserter : public WriteBatch::Handler {
 
   SequenceNumber sequence_;

@@ -1362,6 +1362,10 @@ void rocksdb_writebatch_rollback_to_save_point(rocksdb_writebatch_t* b,
   SaveError(errptr, b->rep.RollbackToSavePoint());
 }
 
+void rocksdb_writebatch_pop_save_point(rocksdb_writebatch_t* b, char** errptr) {
+  SaveError(errptr, b->rep.PopSavePoint());
+}
+
 rocksdb_writebatch_wi_t* rocksdb_writebatch_wi_create(size_t reserved_bytes, unsigned char overwrite_key) {
   rocksdb_writebatch_wi_t* b = new rocksdb_writebatch_wi_t;
   b->rep = new WriteBatchWithIndex(BytewiseComparator(), reserved_bytes, overwrite_key);
