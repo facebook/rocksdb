@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #include "rocksdb/utilities/sim_cache.h"
 #include <atomic>
@@ -66,7 +68,9 @@ class SimCacheImpl : public SimCache {
 
   virtual bool Ref(Handle* handle) override { return cache_->Ref(handle); }
 
-  virtual void Release(Handle* handle) override { cache_->Release(handle); }
+  virtual bool Release(Handle* handle, bool force_erase = false) override {
+    return cache_->Release(handle, force_erase);
+  }
 
   virtual void Erase(const Slice& key) override {
     cache_->Erase(key);

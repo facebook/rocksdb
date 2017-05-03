@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -2770,8 +2772,9 @@ TEST_P(DBTestWithParam, FIFOCompactionTest) {
 #ifndef ROCKSDB_LITE
 /*
  * This test is not reliable enough as it heavily depends on disk behavior.
+ * Disable as it is flaky.
  */
-TEST_F(DBTest, RateLimitingTest) {
+TEST_F(DBTest, DISABLED_RateLimitingTest) {
   Options options = CurrentOptions();
   options.write_buffer_size = 1 << 20;  // 1MB
   options.level0_file_num_compaction_trigger = 2;
@@ -4191,104 +4194,6 @@ TEST_F(DBTest, EncodeDecompressedBlockSizeTest) {
       }
     }
   }
-}
-
-TEST_F(DBTest, CompressionStatsTest) {
-  CompressionType type;
-
-  if (Snappy_Supported()) {
-    type = kSnappyCompression;
-    fprintf(stderr, "using snappy\n");
-  } else if (Zlib_Supported()) {
-    type = kZlibCompression;
-    fprintf(stderr, "using zlib\n");
-  } else if (BZip2_Supported()) {
-    type = kBZip2Compression;
-    fprintf(stderr, "using bzip2\n");
-  } else if (LZ4_Supported()) {
-    type = kLZ4Compression;
-    fprintf(stderr, "using lz4\n");
-  } else if (XPRESS_Supported()) {
-    type = kXpressCompression;
-    fprintf(stderr, "using xpress\n");
-  } else if (ZSTD_Supported()) {
-    type = kZSTD;
-    fprintf(stderr, "using ZSTD\n");
-  } else {
-    fprintf(stderr, "skipping test, compression disabled\n");
-    return;
-  }
-
-  Options options = CurrentOptions();
-  options.compression = type;
-  options.statistics = rocksdb::CreateDBStatistics();
-  options.statistics->stats_level_ = StatsLevel::kExceptTimeForMutex;
-  DestroyAndReopen(options);
-
-  int kNumKeysWritten = 100000;
-
-  // Check that compressions occur and are counted when compression is turned on
-  Random rnd(301);
-  for (int i = 0; i < kNumKeysWritten; ++i) {
-    // compressible string
-    ASSERT_OK(Put(Key(i), RandomString(&rnd, 128) + std::string(128, 'a')));
-  }
-  ASSERT_OK(Flush());
-  ASSERT_GT(options.statistics->getTickerCount(NUMBER_BLOCK_COMPRESSED), 0);
-
-  for (int i = 0; i < kNumKeysWritten; ++i) {
-    auto r = Get(Key(i));
-  }
-  ASSERT_GT(options.statistics->getTickerCount(NUMBER_BLOCK_DECOMPRESSED), 0);
-
-  options.compression = kNoCompression;
-  DestroyAndReopen(options);
-  uint64_t currentCompressions =
-            options.statistics->getTickerCount(NUMBER_BLOCK_COMPRESSED);
-  uint64_t currentDecompressions =
-            options.statistics->getTickerCount(NUMBER_BLOCK_DECOMPRESSED);
-
-  // Check that compressions do not occur when turned off
-  for (int i = 0; i < kNumKeysWritten; ++i) {
-    // compressible string
-    ASSERT_OK(Put(Key(i), RandomString(&rnd, 128) + std::string(128, 'a')));
-  }
-  ASSERT_OK(Flush());
-  ASSERT_EQ(options.statistics->getTickerCount(NUMBER_BLOCK_COMPRESSED)
-            - currentCompressions, 0);
-
-  for (int i = 0; i < kNumKeysWritten; ++i) {
-    auto r = Get(Key(i));
-  }
-  ASSERT_EQ(options.statistics->getTickerCount(NUMBER_BLOCK_DECOMPRESSED)
-            - currentDecompressions, 0);
-}
-
-TEST_F(DBTest, MutexWaitStatsDisabledByDefault) {
-  Options options = CurrentOptions();
-  options.create_if_missing = true;
-  options.statistics = rocksdb::CreateDBStatistics();
-  CreateAndReopenWithCF({"pikachu"}, options);
-  const uint64_t kMutexWaitDelay = 100;
-  ThreadStatusUtil::TEST_SetStateDelay(ThreadStatus::STATE_MUTEX_WAIT,
-                                       kMutexWaitDelay);
-  ASSERT_OK(Put("hello", "rocksdb"));
-  ASSERT_EQ(TestGetTickerCount(options, DB_MUTEX_WAIT_MICROS), 0);
-  ThreadStatusUtil::TEST_SetStateDelay(ThreadStatus::STATE_MUTEX_WAIT, 0);
-}
-
-TEST_F(DBTest, MutexWaitStats) {
-  Options options = CurrentOptions();
-  options.create_if_missing = true;
-  options.statistics = rocksdb::CreateDBStatistics();
-  options.statistics->stats_level_ = StatsLevel::kAll;
-  CreateAndReopenWithCF({"pikachu"}, options);
-  const uint64_t kMutexWaitDelay = 100;
-  ThreadStatusUtil::TEST_SetStateDelay(ThreadStatus::STATE_MUTEX_WAIT,
-                                       kMutexWaitDelay);
-  ASSERT_OK(Put("hello", "rocksdb"));
-  ASSERT_GE(TestGetTickerCount(options, DB_MUTEX_WAIT_MICROS), kMutexWaitDelay);
-  ThreadStatusUtil::TEST_SetStateDelay(ThreadStatus::STATE_MUTEX_WAIT, 0);
 }
 
 TEST_F(DBTest, CloseSpeedup) {

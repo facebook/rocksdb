@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -25,6 +27,7 @@
 #ifdef OS_LINUX
 #include <sys/statfs.h>
 #include <sys/syscall.h>
+#include <sys/sysmacros.h>
 #endif
 #include "env/posix_logger.h"
 #include "monitoring/iostats_context_imp.h"
@@ -37,7 +40,7 @@
 namespace rocksdb {
 
 // A wrapper for fadvise, if the platform doesn't support fadvise,
-// it will simply return Status::NotSupport.
+// it will simply return 0.
 int Fadvise(int fd, off_t offset, size_t len, int advice) {
 #ifdef OS_LINUX
   return posix_fadvise(fd, offset, len, advice);
@@ -267,7 +270,7 @@ size_t PosixHelper::GetUniqueIdFromFile(int fd, char* id, size_t max_size) {
 }
 #endif
 
-#if defined(OS_MACOSX)
+#if defined(OS_MACOSX) || defined(OS_AIX)
 size_t PosixHelper::GetUniqueIdFromFile(int fd, char* id, size_t max_size) {
   if (max_size < kMaxVarint64Length * 3) {
     return 0;
@@ -336,7 +339,27 @@ Status PosixRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
   return s;
 }
 
-#if defined(OS_LINUX) || defined(OS_MACOSX)
+Status PosixRandomAccessFile::Prefetch(uint64_t offset, size_t n) {
+  Status s;
+  if (!use_direct_io()) {
+    ssize_t r = 0;
+#ifdef OS_LINUX
+    r = readahead(fd_, offset, n);
+#endif
+#ifdef OS_MACOSX
+    radvisory advice;
+    advice.ra_offset = static_cast<off_t>(offset);
+    advice.ra_count = static_cast<int>(n);
+    r = fcntl(fd_, F_RDADVISE, &advice);
+#endif
+    if (r == -1) {
+      s = IOError(filename_, errno);
+    }
+  }
+  return s;
+}
+
+#if defined(OS_LINUX) || defined(OS_MACOSX) || defined(OS_AIX)
 size_t PosixRandomAccessFile::GetUniqueId(char* id, size_t max_size) const {
   return PosixHelper::GetUniqueIdFromFile(fd_, id, max_size);
 }
@@ -848,7 +871,7 @@ Status PosixWritableFile::Allocate(uint64_t offset, uint64_t len) {
 }
 #endif
 
-#ifdef OS_LINUX
+#ifdef ROCKSDB_RANGESYNC_PRESENT
 Status PosixWritableFile::RangeSync(uint64_t offset, uint64_t nbytes) {
   assert(offset <= std::numeric_limits<off_t>::max());
   assert(nbytes <= std::numeric_limits<off_t>::max());
@@ -859,7 +882,9 @@ Status PosixWritableFile::RangeSync(uint64_t offset, uint64_t nbytes) {
     return IOError(filename_, errno);
   }
 }
+#endif
 
+#ifdef OS_LINUX
 size_t PosixWritableFile::GetUniqueId(char* id, size_t max_size) const {
   return PosixHelper::GetUniqueIdFromFile(fd_, id, max_size);
 }
@@ -961,9 +986,11 @@ Status PosixRandomRWFile::Close() {
 PosixDirectory::~PosixDirectory() { close(fd_); }
 
 Status PosixDirectory::Fsync() {
+#ifndef OS_AIX
   if (fsync(fd_) == -1) {
     return IOError("directory", errno);
   }
+#endif
   return Status::OK();
 }
 }  // namespace rocksdb

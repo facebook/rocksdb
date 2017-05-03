@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -1516,6 +1518,7 @@ class MockPersistentCache : public PersistentCache {
   const size_t max_size_ = 10 * 1024;  // 10KiB
 };
 
+#ifndef OS_SOLARIS // GetUniqueIdFromFile is not implemented
 TEST_F(DBTest2, PersistentCache) {
   int num_iter = 80;
 
@@ -1579,6 +1582,7 @@ TEST_F(DBTest2, PersistentCache) {
     }
   }
 }
+#endif // !OS_SOLARIS
 
 namespace {
 void CountSyncPoint() {
@@ -1702,6 +1706,7 @@ TEST_F(DBTest2, ReadAmpBitmap) {
             options.statistics->getTickerCount(READ_AMP_TOTAL_READ_BYTES));
 }
 
+#ifndef OS_SOLARIS // GetUniqueIdFromFile is not implemented
 TEST_F(DBTest2, ReadAmpBitmapLiveInCacheAfterDBClose) {
   if (dbname_.find("dev/shm") != std::string::npos) {
     // /dev/shm dont support getting a unique file id, this mean that
@@ -1786,6 +1791,7 @@ TEST_F(DBTest2, ReadAmpBitmapLiveInCacheAfterDBClose) {
   ASSERT_EQ(total_useful_bytes_iter1 + total_useful_bytes_iter2,
             total_loaded_bytes_iter1 + total_loaded_bytes_iter2);
 }
+#endif // !OS_SOLARIS
 
 #ifndef ROCKSDB_LITE
 TEST_F(DBTest2, AutomaticCompactionOverlapManualCompaction) {

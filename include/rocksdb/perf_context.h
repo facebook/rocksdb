@@ -155,7 +155,12 @@ extern PerfContext perf_context;
 #elif defined(_MSC_VER)
 extern __declspec(thread) PerfContext perf_context;
 #else
-extern __thread PerfContext perf_context;
+  #if defined(OS_SOLARIS)
+    PerfContext *getPerfContext();
+    #define perf_context (*getPerfContext())
+  #else
+    extern __thread PerfContext perf_context;
+  #endif
 #endif
 
 }

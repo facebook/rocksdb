@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -61,6 +63,10 @@ class DummyDB : public StackableDB {
     return options_;
   }
 
+  virtual DBOptions GetDBOptions() const override {
+    return DBOptions(options_);
+  }
+
   virtual Status EnableFileDeletions(bool force) override {
     EXPECT_TRUE(!deletions_enabled_);
     deletions_enabled_ = true;
@@ -106,9 +112,9 @@ class DummyDB : public StackableDB {
     }
 
     virtual SequenceNumber StartSequence() const override {
-      // backupabledb should not need this method
-      EXPECT_TRUE(false);
-      return 0;
+      // this seqnum guarantees the dummy file will be included in the backup
+      // as long as it is alive.
+      return kMaxSequenceNumber;
     }
 
     virtual uint64_t SizeFileBytes() const override {
@@ -204,6 +210,14 @@ class TestEnv : public EnvWrapper {
     return EnvWrapper::DeleteFile(fname);
   }
 
+  virtual Status DeleteDir(const std::string& dirname) override {
+    MutexLock l(&mutex_);
+    if (fail_delete_files_) {
+      return Status::IOError();
+    }
+    return EnvWrapper::DeleteDir(dirname);
+  }
+
   void AssertWrittenFiles(std::vector<std::string>& should_have_written) {
     MutexLock l(&mutex_);
     std::sort(should_have_written.begin(), should_have_written.end());
@@ -265,6 +279,19 @@ class TestEnv : public EnvWrapper {
       return Status::OK();
     }
     return EnvWrapper::GetChildrenFileAttributes(dir, r);
+  }
+  Status GetFileSize(const std::string& path, uint64_t* size_bytes) override {
+    if (filenames_for_mocked_attrs_.size() > 0) {
+      auto fname = path.substr(path.find_last_of('/'));
+      auto filename_iter = std::find(filenames_for_mocked_attrs_.begin(),
+                                     filenames_for_mocked_attrs_.end(), fname);
+      if (filename_iter != filenames_for_mocked_attrs_.end()) {
+        *size_bytes = 10;
+        return Status::OK();
+      }
+      return Status::NotFound(fname);
+    }
+    return EnvWrapper::GetFileSize(path, size_bytes);
   }
 
   void SetCreateDirIfMissingFailure(bool fail) {
@@ -1374,10 +1401,10 @@ TEST_F(BackupableDBTest, ChangeManifestDuringBackupCreation) {
   FillDB(db_.get(), 0, 100);
 
   rocksdb::SyncPoint::GetInstance()->LoadDependency({
-      {"BackupEngineImpl::CreateNewBackup:SavedLiveFiles1",
+      {"CheckpointImpl::CreateCheckpoint:SavedLiveFiles1",
        "VersionSet::LogAndApply:WriteManifest"},
       {"VersionSet::LogAndApply:WriteManifestDone",
-       "BackupEngineImpl::CreateNewBackup:SavedLiveFiles2"},
+       "CheckpointImpl::CreateCheckpoint:SavedLiveFiles2"},
   });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 

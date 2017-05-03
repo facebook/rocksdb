@@ -106,3 +106,30 @@ makes use of SSE4, add 'USE_SSE=1' before your make commands, like this: `USE_SS
 * **Windows**:
   * For building with MS Visual Studio 13 you will need Update 4 installed.
   * Read and follow the instructions at CMakeLists.txt
+
+* **AIX 6.1**
+    * Install AIX Toolbox rpms with gcc
+    * Use these environment variables:
+  
+             export PORTABLE=1
+             export CC=gcc
+             export AR="ar -X64"
+             export EXTRA_ARFLAGS=-X64
+             export EXTRA_CFLAGS=-maix64
+             export EXTRA_CXXFLAGS=-maix64
+             export PLATFORM_LDFLAGS="-static-libstdc++ -static-libgcc"
+             export LIBPATH=/opt/freeware/lib
+             export JAVA_HOME=/usr/java8_64
+             export PATH=/opt/freeware/bin:$PATH
+  
+* **Solaris Sparc**
+    * Install GCC 4.8.2 and higher.
+    * Use these environment variables:
+
+             export CC=gcc
+             export EXTRA_CFLAGS=-m64
+             export EXTRA_CXXFLAGS=-m64
+             export EXTRA_LDFLAGS=-m64
+             export PORTABLE=1
+             export PLATFORM_LDFLAGS="-static-libstdc++ -static-libgcc"
+

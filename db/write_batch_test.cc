@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -859,6 +861,19 @@ TEST_F(WriteBatchTest, SavePointTest) {
   s = batch2.RollbackToSavePoint();
   ASSERT_TRUE(s.IsNotFound());
   ASSERT_EQ("", PrintContents(&batch2));
+
+  WriteBatch batch3;
+
+  s = batch3.PopSavePoint();
+  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_EQ("", PrintContents(&batch3));
+
+  batch3.SetSavePoint();
+  batch3.Delete("A");
+
+  s = batch3.PopSavePoint();
+  ASSERT_OK(s);
+  ASSERT_EQ("Delete(A)@0", PrintContents(&batch3));
 }
 
 TEST_F(WriteBatchTest, MemoryLimitTest) {

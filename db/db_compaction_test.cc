@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -1158,7 +1160,8 @@ TEST_P(DBCompactionTestWithParam, ManualCompactionPartial) {
   }
 }
 
-TEST_F(DBCompactionTest, ManualPartialFill) {
+// Disable as the test is flaky.
+TEST_F(DBCompactionTest, DISABLED_ManualPartialFill) {
   int32_t trivial_move = 0;
   int32_t non_trivial_move = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
@@ -1847,6 +1850,47 @@ TEST_F(DBCompactionTest, L0_CompactionBug_Issue44_b) {
     env_->SleepForMicroseconds(1000000);  // Wait for compaction to finish
     ASSERT_EQ("(->)(c->cv)", Contents(1));
   } while (ChangeCompactOptions());
+}
+
+TEST_F(DBCompactionTest, ManualAutoRace) {
+  CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::BGWorkCompaction", "DBCompactionTest::ManualAutoRace:1"},
+       {"DBImpl::RunManualCompaction:WaitScheduled",
+        "BackgroundCallCompaction:0"}});
+
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  Put(1, "foo", "");
+  Put(1, "bar", "");
+  Flush(1);
+  Put(1, "foo", "");
+  Put(1, "bar", "");
+  // Generate four files in CF 0, which should trigger an auto compaction
+  Put("foo", "");
+  Put("bar", "");
+  Flush();
+  Put("foo", "");
+  Put("bar", "");
+  Flush();
+  Put("foo", "");
+  Put("bar", "");
+  Flush();
+  Put("foo", "");
+  Put("bar", "");
+  Flush();
+
+  // The auto compaction is scheduled but waited until here
+  TEST_SYNC_POINT("DBCompactionTest::ManualAutoRace:1");
+  // The auto compaction will wait until the the manual compaction is registerd
+  // before processing so that it will be cancelled.
+  dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr, nullptr);
+  ASSERT_EQ("0,1", FilesPerLevel(1));
+
+  // Eventually the cancelled compaction will be rescheduled and executed.
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ("0,1", FilesPerLevel(0));
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_P(DBCompactionTestWithParam, ManualCompaction) {

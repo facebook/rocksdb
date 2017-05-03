@@ -66,8 +66,8 @@ else()
 endif()
 
 if(WIN32)
-  execute_process(COMMAND powershell -Command "Get-Date -format MM_dd_yyyy" OUTPUT_VARIABLE DATE)
-  execute_process(COMMAND powershell -Command "Get-Date -format HH:mm:ss" OUTPUT_VARIABLE TIME)
+  execute_process(COMMAND powershell -noprofile -Command "Get-Date -format MM_dd_yyyy" OUTPUT_VARIABLE DATE)
+  execute_process(COMMAND powershell -noprofile -Command "Get-Date -format HH:mm:ss" OUTPUT_VARIABLE TIME)
   string(REGEX REPLACE "(..)_(..)_..(..).*" "\\1/\\2/\\3" DATE "${DATE}")
   string(REGEX REPLACE "(..):(.....).*" " \\1:\\2" TIME "${TIME}")
   set(GIT_DATE_TIME "${DATE} ${TIME}")
@@ -113,6 +113,15 @@ if(WIN32)
       set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:AVX2")
     else()
       set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx2")
+    endif()
+  endif()
+
+  option(WITH_MD_LIBRARY "build with MD" ON)
+  if(MSVC)
+    if(WITH_MD_LIBRARY)
+      set(RUNTIME_LIBRARY "MD")
+    else()
+      set(RUNTIME_LIBRARY "MT")
     endif()
   endif()
 else()
@@ -200,11 +209,11 @@ endif()
 if(MSVC)
   if((${OPTIMIZE_DEBUG} EQUAL 1))
     message(STATUS "Debug optimization is enabled")
-    set(CMAKE_CXX_FLAGS_DEBUG "/Oxt /MDd")
+    set(CMAKE_CXX_FLAGS_DEBUG "/Oxt /${RUNTIME_LIBRARY}d")
   else()
-    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Od /RTC1 /Gm /MDd")
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Od /RTC1 /Gm /${RUNTIME_LIBRARY}d")
   endif()
-  set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /Oxt /Zp8 /Gm- /Gy /MD")
+  set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /Oxt /Zp8 /Gm- /Gy /${RUNTIME_LIBRARY}")
 
   set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} /DEBUG")
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /DEBUG")
@@ -437,7 +446,7 @@ set(SOURCES
         util/xxhash.cc
         utilities/backupable/backupable_db.cc
         utilities/blob_db/blob_db.cc
-        utilities/checkpoint/checkpoint.cc
+        utilities/checkpoint/checkpoint_impl.cc
         utilities/col_buf_decoder.cc
         utilities/col_buf_encoder.cc
         utilities/column_aware_encoding_util.cc
@@ -583,6 +592,7 @@ set(TESTS
         db/db_properties_test.cc
         db/db_range_del_test.cc
         db/db_sst_test.cc
+        db/db_statistics_test.cc
         db/db_table_properties_test.cc
         db/db_tailing_iter_test.cc
         db/db_test.cc

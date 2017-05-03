@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -63,9 +65,9 @@ bool ShardedCache::Ref(Handle* handle) {
   return GetShard(Shard(hash))->Ref(handle);
 }
 
-void ShardedCache::Release(Handle* handle) {
+bool ShardedCache::Release(Handle* handle, bool force_erase) {
   uint32_t hash = GetHash(handle);
-  GetShard(Shard(hash))->Release(handle);
+  return GetShard(Shard(hash))->Release(handle, force_erase);
 }
 
 void ShardedCache::Erase(const Slice& key) {

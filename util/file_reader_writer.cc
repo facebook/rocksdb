@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -435,16 +437,12 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
       : file_(std::move(file)),
         alignment_(file_->GetRequiredBufferAlignment()),
         readahead_size_(Roundup(readahead_size, alignment_)),
-        forward_calls_(file_->ShouldForwardRawRequest()),
         buffer_(),
         buffer_offset_(0),
         buffer_len_(0) {
-    if (!forward_calls_) {
-      buffer_.Alignment(alignment_);
-      buffer_.AllocateNewBuffer(readahead_size_);
-    } else if (readahead_size_ > 0) {
-      file_->EnableReadAhead();
-    }
+
+    buffer_.Alignment(alignment_);
+    buffer_.AllocateNewBuffer(readahead_size_);
   }
 
  ReadaheadRandomAccessFile(const ReadaheadRandomAccessFile&) = delete;
@@ -453,15 +451,8 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
 
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
                       char* scratch) const override {
-    if (n + alignment_ >= readahead_size_) {
-      return file_->Read(offset, n, result, scratch);
-    }
 
-    // On Windows in unbuffered mode this will lead to double buffering
-    // and double locking so we avoid that.
-    // In normal mode Windows caches so much data from disk that we do
-    // not need readahead.
-    if (forward_calls_) {
+    if (n + alignment_ >= readahead_size_) {
       return file_->Read(offset, n, result, scratch);
     }
 
@@ -469,7 +460,7 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
 
     size_t cached_len = 0;
     // Check if there is a cache hit, means that [offset, offset + n) is either
-    // complitely or partially in the buffer
+    // completely or partially in the buffer
     // If it's completely cached, including end of file case when offset + n is
     // greater than EOF, return
     if (TryReadFromCache(offset, n, &cached_len, scratch) &&
@@ -558,7 +549,6 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
   std::unique_ptr<RandomAccessFile> file_;
   const size_t alignment_;
   size_t               readahead_size_;
-  const bool           forward_calls_;
 
   mutable std::mutex lock_;
   mutable AlignedBuffer buffer_;

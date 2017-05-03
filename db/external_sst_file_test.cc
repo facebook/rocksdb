@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #ifndef ROCKSDB_LITE
 
@@ -315,8 +317,7 @@ TEST_F(ExternalSSTFileTest, Basic) {
       ASSERT_EQ(Get(Key(k)), value);
     }
     DestroyAndRecreateExternalSSTFilesDir();
-  } while (ChangeOptions(kSkipPlainTable | kSkipUniversalCompaction |
-                         kSkipFIFOCompaction));
+  } while (ChangeOptions(kSkipPlainTable | kSkipFIFOCompaction));
 }
 class SstFileWriterCollector : public TablePropertiesCollector {
  public:
@@ -556,8 +557,7 @@ TEST_F(ExternalSSTFileTest, AddList) {
       ASSERT_EQ(Get(Key(k)), value);
     }
     DestroyAndRecreateExternalSSTFilesDir();
-  } while (ChangeOptions(kSkipPlainTable | kSkipUniversalCompaction |
-                         kSkipFIFOCompaction));
+  } while (ChangeOptions(kSkipPlainTable | kSkipFIFOCompaction));
 }
 
 TEST_F(ExternalSSTFileTest, AddListAtomicity) {
@@ -599,8 +599,7 @@ TEST_F(ExternalSSTFileTest, AddListAtomicity) {
       ASSERT_EQ(Get(Key(k)), value);
     }
     DestroyAndRecreateExternalSSTFilesDir();
-  } while (ChangeOptions(kSkipPlainTable | kSkipUniversalCompaction |
-                         kSkipFIFOCompaction));
+  } while (ChangeOptions(kSkipPlainTable | kSkipFIFOCompaction));
 }
 // This test reporduce a bug that can happen in some cases if the DB started
 // purging obsolete files when we are adding an external sst file.
@@ -831,12 +830,31 @@ TEST_F(ExternalSSTFileTest, MultiThreaded) {
 
     fprintf(stderr, "Verified %d values\n", num_files * keys_per_file);
     DestroyAndRecreateExternalSSTFilesDir();
-  } while (ChangeOptions(kSkipPlainTable | kSkipUniversalCompaction |
-                         kSkipFIFOCompaction));
+  } while (ChangeOptions(kSkipPlainTable | kSkipFIFOCompaction));
 }
 
 TEST_F(ExternalSSTFileTest, OverlappingRanges) {
   Random rnd(301);
+  int picked_level = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+    "ExternalSstFileIngestionJob::Run", [&picked_level](void* arg) {
+      ASSERT_TRUE(arg != nullptr);
+      picked_level = *(static_cast<int*>(arg));
+    });
+  bool need_flush = false;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+    "DBImpl::IngestExternalFile:NeedFlush", [&need_flush](void* arg) {
+      ASSERT_TRUE(arg != nullptr);
+      need_flush = *(static_cast<bool*>(arg));
+    });
+  bool overlap_with_db = false;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile",
+      [&overlap_with_db](void* arg) {
+        ASSERT_TRUE(arg != nullptr);
+        overlap_with_db = *(static_cast<bool*>(arg));
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   do {
     Options options = CurrentOptions();
     DestroyAndReopen(options);
@@ -889,15 +907,27 @@ TEST_F(ExternalSSTFileTest, OverlappingRanges) {
 
         // Insert the generated file
         s = DeprecatedAddFile({file_name});
-
         auto it = true_data.lower_bound(Key(range_start));
-        if (it != true_data.end() && it->first <= Key(range_end)) {
-          // This range overlap with data already exist in DB
-          ASSERT_NOK(s);
-          failed_add_file++;
+        if (option_config_ != kUniversalCompaction &&
+            option_config_ != kUniversalCompactionMultiLevel) {
+          if (it != true_data.end() && it->first <= Key(range_end)) {
+            // This range overlap with data already exist in DB
+            ASSERT_NOK(s);
+            failed_add_file++;
+          } else {
+            ASSERT_OK(s);
+            success_add_file++;
+          }
         } else {
-          ASSERT_OK(s);
-          success_add_file++;
+          if ((it != true_data.end() && it->first <= Key(range_end)) ||
+              need_flush || picked_level > 0 || overlap_with_db) {
+            // This range overlap with data already exist in DB
+            ASSERT_NOK(s);
+            failed_add_file++;
+          } else {
+            ASSERT_OK(s);
+            success_add_file++;
+          }
         }
       }
 
@@ -930,8 +960,7 @@ TEST_F(ExternalSSTFileTest, OverlappingRanges) {
     }
     printf("keys/values verified\n");
     DestroyAndRecreateExternalSSTFilesDir();
-  } while (ChangeOptions(kSkipPlainTable | kSkipUniversalCompaction |
-                         kSkipFIFOCompaction));
+  } while (ChangeOptions(kSkipPlainTable | kSkipFIFOCompaction));
 }
 
 TEST_F(ExternalSSTFileTest, PickedLevel) {

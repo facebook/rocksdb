@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -140,11 +142,18 @@ int PhysicalCoreID() {
   // if you ever find that this function is hot on Linux, you can go from
   // ~200 nanos to ~20 nanos by adding the machinery to use __vdso_getcpu
   unsigned eax, ebx = 0, ecx, edx;
-  __get_cpuid(1, &eax, &ebx, &ecx, &edx);
+  if (!__get_cpuid(1, &eax, &ebx, &ecx, &edx)) {
+    return -1;
+  }
   return ebx >> 24;
 #else
-  // getcpu or sched_getcpu could work here
-  return -1;
+  int cpuno = sched_getcpu();
+  if (cpuno < 0) {
+    return -1;
+  }
+  else {
+    return cpuno;
+  }
 #endif
 }
 

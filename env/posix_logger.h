@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -39,7 +41,7 @@ class PosixLogger : public Logger {
   const static uint64_t flush_every_seconds_ = 5;
   std::atomic_uint_fast64_t last_flush_micros_;
   Env* env_;
-  bool flush_pending_;
+  std::atomic<bool> flush_pending_;
  public:
   PosixLogger(FILE* f, uint64_t (*gettid)(), Env* env,
               const InfoLogLevel log_level = InfoLogLevel::ERROR_LEVEL)

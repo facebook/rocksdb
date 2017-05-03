@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -256,12 +258,14 @@ class BackupEngine {
                      BackupEngine** backup_engine_ptr);
 
   // same as CreateNewBackup, but stores extra application metadata
+  // Flush will always trigger if 2PC is enabled.
   virtual Status CreateNewBackupWithMetadata(
       DB* db, const std::string& app_metadata, bool flush_before_backup = false,
       std::function<void()> progress_callback = []() {}) = 0;
 
   // Captures the state of the database in the latest backup
   // NOT a thread safe call
+  // Flush will always trigger if 2PC is enabled.
   virtual Status CreateNewBackup(DB* db, bool flush_before_backup = false,
                                  std::function<void()> progress_callback =
                                      []() {}) {

@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -474,6 +476,37 @@ void deleter(const Slice& key, void* value) {
   delete static_cast<Value *>(value);
 }
 }  // namespace
+
+TEST_P(CacheTest, ReleaseAndErase) {
+  std::shared_ptr<Cache> cache = NewCache(5, 0, false);
+  Cache::Handle* handle;
+  Status s = cache->Insert(EncodeKey(100), EncodeValue(100), 1,
+                           &CacheTest::Deleter, &handle);
+  ASSERT_TRUE(s.ok());
+  ASSERT_EQ(5U, cache->GetCapacity());
+  ASSERT_EQ(1U, cache->GetUsage());
+  ASSERT_EQ(0U, deleted_keys_.size());
+  auto erased = cache->Release(handle, true);
+  ASSERT_TRUE(erased);
+  // This tests that deleter has been called
+  ASSERT_EQ(1U, deleted_keys_.size());
+}
+
+TEST_P(CacheTest, ReleaseWithoutErase) {
+  std::shared_ptr<Cache> cache = NewCache(5, 0, false);
+  Cache::Handle* handle;
+  Status s = cache->Insert(EncodeKey(100), EncodeValue(100), 1,
+                           &CacheTest::Deleter, &handle);
+  ASSERT_TRUE(s.ok());
+  ASSERT_EQ(5U, cache->GetCapacity());
+  ASSERT_EQ(1U, cache->GetUsage());
+  ASSERT_EQ(0U, deleted_keys_.size());
+  auto erased = cache->Release(handle);
+  ASSERT_FALSE(erased);
+  // This tests that deleter is not called. When cache has free capacity it is
+  // not expected to immediately erase the released items.
+  ASSERT_EQ(0U, deleted_keys_.size());
+}
 
 TEST_P(CacheTest, SetCapacity) {
   // test1: increase capacity

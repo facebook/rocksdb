@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -35,6 +37,12 @@
   #else
     #define PLATFORM_IS_LITTLE_ENDIAN false
   #endif
+  #include <alloca.h>
+#elif defined(OS_AIX)
+  #include <sys/types.h>
+  #include <arpa/nameser_compat.h>
+  #define PLATFORM_IS_LITTLE_ENDIAN (BYTE_ORDER == LITTLE_ENDIAN)
+  #include <alloca.h>
 #elif defined(OS_FREEBSD) || defined(OS_OPENBSD) || defined(OS_NETBSD) || \
     defined(OS_DRAGONFLYBSD) || defined(OS_ANDROID)
   #include <sys/endian.h>
@@ -56,7 +64,7 @@
 
 #if defined(OS_MACOSX) || defined(OS_SOLARIS) || defined(OS_FREEBSD) ||\
     defined(OS_NETBSD) || defined(OS_OPENBSD) || defined(OS_DRAGONFLYBSD) ||\
-    defined(OS_ANDROID) || defined(CYGWIN)
+    defined(OS_ANDROID) || defined(CYGWIN) || defined(OS_AIX)
 // Use fread/fwrite/fflush on platforms without _unlocked variants
 #define fread_unlocked fread
 #define fwrite_unlocked fwrite

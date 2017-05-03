@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #include <map>
 
@@ -56,7 +58,7 @@ class PartitionedFilterBlockTest : public testing::Test {
     int num_keys = sizeof(keys) / sizeof(*keys);
     uint64_t max_key_size = 0;
     for (int i = 1; i < num_keys; i++) {
-      max_key_size = std::max(max_key_size, keys[i].size());
+      max_key_size = std::max(max_key_size, static_cast<uint64_t>(keys[i].size()));
     }
     uint64_t max_index_size = num_keys * (max_key_size + 8 /*handle*/);
     return max_index_size;

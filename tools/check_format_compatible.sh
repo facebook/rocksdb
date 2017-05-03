@@ -58,7 +58,7 @@ generate_db()
 compare_db()
 {
     set +e
-    $script_copy_dir/verify_random_db.sh $1 $2 $3
+    $script_copy_dir/verify_random_db.sh $1 $2 $3 $4
     if [ $? -ne 0 ]; then
         echo ==== Read different content from $1 and $2 or error happened. ====
         exit 1
@@ -76,7 +76,7 @@ https_proxy="fwdproxy:8080" git fetch github_origin
 for checkout_obj in "${checkout_objs[@]}"
 do
    echo == Generating DB from "$checkout_obj" ...
-   git checkout origin/$checkout_obj
+   git checkout $checkout_obj
    make clean
    make ldb -j32
    generate_db $input_data_path $test_dir/$checkout_obj
@@ -95,16 +95,16 @@ generate_db $input_data_path $compare_base_db_dir
 for checkout_obj in "${checkout_objs[@]}"
 do
    echo == Opening DB from "$checkout_obj" using debug build of $checkout_flag ...
-   compare_db $test_dir/$checkout_obj $compare_base_db_dir db_dump.txt
+   compare_db $test_dir/$checkout_obj $compare_base_db_dir db_dump.txt 1
 done
 
 for checkout_obj in "${forward_compatible_checkout_objs[@]}"
 do
    echo == Build "$checkout_obj" and try to open DB generated using $checkout_flag...
-   git checkout origin/$checkout_obj
+   git checkout $checkout_obj
    make clean
    make ldb -j32
-   compare_db $test_dir/$checkout_obj $compare_base_db_dir forward_${checkout_obj}_dump.txt
+   compare_db $test_dir/$checkout_obj $compare_base_db_dir forward_${checkout_obj}_dump.txt 0
 done
 
 echo ==== Compatibility Test PASSED ====

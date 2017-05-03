@@ -2,12 +2,16 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #ifndef ROCKSDB_LITE
 
 #include "db/external_sst_file_ingestion_job.h"
 
+#ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
+#endif
 
 #include <inttypes.h>
 #include <algorithm>
@@ -154,34 +158,34 @@ Status ExternalSstFileIngestionJob::Run() {
 
   bool consumed_seqno = false;
   bool force_global_seqno = false;
-  const SequenceNumber last_seqno = versions_->LastSequence();
+
   if (ingestion_options_.snapshot_consistency && !db_snapshots_->empty()) {
     // We need to assign a global sequence number to all the files even
     // if the dont overlap with any ranges since we have snapshots
     force_global_seqno = true;
   }
-
+  const SequenceNumber last_seqno = versions_->LastSequence();
   SuperVersion* super_version = cfd_->GetSuperVersion();
   edit_.SetColumnFamily(cfd_->GetID());
   // The levels that the files will be ingested into
+
   for (IngestedFileInfo& f : files_to_ingest_) {
-    bool overlap_with_db = false;
-    status = AssignLevelForIngestedFile(super_version, &f, &overlap_with_db);
+    SequenceNumber assigned_seqno = 0;
+    status = AssignLevelAndSeqnoForIngestedFile(
+        super_version, force_global_seqno, cfd_->ioptions()->compaction_style,
+        &f, &assigned_seqno);
     if (!status.ok()) {
       return status;
     }
-
-    if (overlap_with_db || force_global_seqno) {
-      status = AssignGlobalSeqnoForIngestedFile(&f, last_seqno + 1);
+    status = AssignGlobalSeqnoForIngestedFile(&f, assigned_seqno);
+    TEST_SYNC_POINT_CALLBACK("ExternalSstFileIngestionJob::Run",
+                             &assigned_seqno);
+    if (assigned_seqno == last_seqno + 1) {
       consumed_seqno = true;
-    } else {
-      status = AssignGlobalSeqnoForIngestedFile(&f, 0);
     }
-
     if (!status.ok()) {
       return status;
     }
-
     edit_.AddFile(f.picked_level, f.fd.GetNumber(), f.fd.GetPathId(),
                   f.fd.GetFileSize(), f.smallest_internal_key(),
                   f.largest_internal_key(), f.assigned_seqno, f.assigned_seqno,
@@ -386,15 +390,25 @@ Status ExternalSstFileIngestionJob::IngestedFilesOverlapWithMemtables(
   return status;
 }
 
-Status ExternalSstFileIngestionJob::AssignLevelForIngestedFile(
-    SuperVersion* sv, IngestedFileInfo* file_to_ingest, bool* overlap_with_db) {
-  *overlap_with_db = false;
+Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
+    SuperVersion* sv, bool force_global_seqno, CompactionStyle compaction_style,
+    IngestedFileInfo* file_to_ingest, SequenceNumber* assigned_seqno) {
+  Status status;
+  *assigned_seqno = 0;
+  const SequenceNumber last_seqno = versions_->LastSequence();
+  if (force_global_seqno) {
+    *assigned_seqno = last_seqno + 1;
+    if (compaction_style == kCompactionStyleUniversal) {
+      file_to_ingest->picked_level = 0;
+      return status;
+    }
+  }
 
+  bool overlap_with_db = false;
   Arena arena;
   ReadOptions ro;
   ro.total_order_seek = true;
 
-  Status status;
   int target_level = 0;
   auto* vstorage = cfd_->current()->storage_info();
   for (int lvl = 0; lvl < cfd_->NumberLevels(); lvl++) {
@@ -421,24 +435,46 @@ Status ExternalSstFileIngestionJob::AssignLevelForIngestedFile(
       if (!status.ok()) {
         return status;
       }
-
       if (overlap_with_level) {
         // We must use L0 or any level higher than `lvl` to be able to overwrite
         // the keys that we overlap with in this level, We also need to assign
         // this file a seqno to overwrite the existing keys in level `lvl`
-        *overlap_with_db = true;
+        overlap_with_db = true;
         break;
       }
+
+      if (compaction_style == kCompactionStyleUniversal && lvl != 0) {
+        const std::vector<FileMetaData*>& level_files =
+            vstorage->LevelFiles(lvl);
+        const SequenceNumber level_largest_seqno =
+            (*max_element(level_files.begin(), level_files.end(),
+                          [](FileMetaData* f1, FileMetaData* f2) {
+                            return f1->largest_seqno < f2->largest_seqno;
+                          }))
+                ->largest_seqno;
+        if (level_largest_seqno != 0) {
+          *assigned_seqno = level_largest_seqno;
+        } else {
+          continue;
+        }
+      }
+    } else if (compaction_style == kCompactionStyleUniversal) {
+      continue;
     }
 
     // We dont overlap with any keys in this level, but we still need to check
     // if our file can fit in it
-
     if (IngestedFileFitInLevel(file_to_ingest, lvl)) {
       target_level = lvl;
     }
   }
+ TEST_SYNC_POINT_CALLBACK(
+      "ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile",
+      &overlap_with_db);
   file_to_ingest->picked_level = target_level;
+  if (overlap_with_db && *assigned_seqno == 0) {
+    *assigned_seqno = last_seqno + 1;
+  }
   return status;
 }
 

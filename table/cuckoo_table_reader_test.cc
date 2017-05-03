@@ -544,9 +544,15 @@ TEST_F(CuckooReaderTest, TestReadPerformance) {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  ::testing::InitGoogleTest(&argc, argv);
-  ParseCommandLineFlags(&argc, &argv, true);
-  return RUN_ALL_TESTS();
+  if (rocksdb::port::kLittleEndian) {
+    ::testing::InitGoogleTest(&argc, argv);
+    ParseCommandLineFlags(&argc, &argv, true);
+    return RUN_ALL_TESTS();
+  }
+  else {
+    fprintf(stderr, "SKIPPED as Cuckoo table doesn't support Big Endian\n");
+    return 0;
+  }
 }
 
 #endif  // GFLAGS.

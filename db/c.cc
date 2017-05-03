@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -1358,6 +1360,10 @@ void rocksdb_writebatch_set_save_point(rocksdb_writebatch_t* b) {
 void rocksdb_writebatch_rollback_to_save_point(rocksdb_writebatch_t* b,
                                                char** errptr) {
   SaveError(errptr, b->rep.RollbackToSavePoint());
+}
+
+void rocksdb_writebatch_pop_save_point(rocksdb_writebatch_t* b, char** errptr) {
+  SaveError(errptr, b->rep.PopSavePoint());
 }
 
 rocksdb_writebatch_wi_t* rocksdb_writebatch_wi_create(size_t reserved_bytes, unsigned char overwrite_key) {

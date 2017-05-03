@@ -166,6 +166,12 @@ class WriteBatch : public WriteBatchBase {
   // Otherwise returns Status::OK().
   Status RollbackToSavePoint() override;
 
+  // Pop the most recent save point.
+  // If there is no previous call to SetSavePoint(), Status::NotFound()
+  // will be returned.
+  // Otherwise returns Status::OK().
+  Status PopSavePoint() override;
+
   // Support for iterating over the contents of a batch.
   class Handler {
    public:

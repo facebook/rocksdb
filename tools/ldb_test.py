@@ -52,7 +52,6 @@ class LDBTestCase(unittest.TestCase):
         Allows full flexibility in testing; for example: missing db param.
 
         """
-
         output = my_check_output("./ldb %s |grep -v \"Created bg thread\"" %
                             params, shell=True)
         if not unexpected:
@@ -508,7 +507,7 @@ class LDBTestCase(unittest.TestCase):
         dbPath = os.path.join(self.TMP_DIR, self.DB_NAME)
         self.assertRunOK("put cf1_1 1 --create_if_missing", "OK")
         self.assertRunOK("put cf1_2 2 --create_if_missing", "OK")
-        self.assertRunOK("put cf1_3 3", "OK")
+        self.assertRunOK("put cf1_3 3 --try_load_options", "OK")
         # Given non-default column family to single CF DB.
         self.assertRunFAIL("get cf1_1 --column_family=two")
         self.assertRunOK("create_column_family two", "OK")
@@ -524,6 +523,8 @@ class LDBTestCase(unittest.TestCase):
             "OK")
         self.assertRunOK("get cf1_1 --column_family=default", "1")
         self.assertRunOK("dump --column_family=two",
+                         "cf2_1 ==> 1\nKeys in range: 1")
+        self.assertRunOK("dump --column_family=two --try_load_options",
                          "cf2_1 ==> 1\nKeys in range: 1")
         self.assertRunOK("dump",
                          "cf1_1 ==> 1\ncf1_3 ==> 3\nKeys in range: 2")

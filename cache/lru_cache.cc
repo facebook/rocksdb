@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -273,9 +275,9 @@ void LRUCacheShard::SetHighPriorityPoolRatio(double high_pri_pool_ratio) {
   MaintainPoolSize();
 }
 
-void LRUCacheShard::Release(Cache::Handle* handle) {
+bool LRUCacheShard::Release(Cache::Handle* handle, bool force_erase) {
   if (handle == nullptr) {
-    return;
+    return false;
   }
   LRUHandle* e = reinterpret_cast<LRUHandle*>(handle);
   bool last_reference = false;
@@ -287,10 +289,10 @@ void LRUCacheShard::Release(Cache::Handle* handle) {
     }
     if (e->refs == 1 && e->InCache()) {
       // The item is still in cache, and nobody else holds a reference to it
-      if (usage_ > capacity_) {
+      if (usage_ > capacity_ || force_erase) {
         // the cache is full
         // The LRU list must be empty since the cache is full
-        assert(lru_.next == &lru_);
+        assert(!(usage_ > capacity_) || lru_.next == &lru_);
         // take this opportunity and remove the item
         table_.Remove(e->key(), e->hash);
         e->SetInCache(false);
@@ -308,6 +310,7 @@ void LRUCacheShard::Release(Cache::Handle* handle) {
   if (last_reference) {
     e->Free();
   }
+  return last_reference;
 }
 
 Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,

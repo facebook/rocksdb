@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -958,7 +960,7 @@ TEST_P(EnvPosixTestWithParam, InvalidateCache) {
     // Create file.
     {
       unique_ptr<WritableFile> wfile;
-#if !defined(OS_MACOSX) && !defined(OS_WIN)
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && !defined(OS_AIX)
       if (soptions.use_direct_writes) {
         soptions.use_direct_writes = false;
       }
@@ -974,7 +976,7 @@ TEST_P(EnvPosixTestWithParam, InvalidateCache) {
       unique_ptr<RandomAccessFile> file;
       auto scratch = NewAligned(kSectorSize, 0);
       Slice result;
-#if !defined(OS_MACOSX) && !defined(OS_WIN)
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && !defined(OS_AIX)
       if (soptions.use_direct_reads) {
         soptions.use_direct_reads = false;
       }
@@ -991,7 +993,7 @@ TEST_P(EnvPosixTestWithParam, InvalidateCache) {
       unique_ptr<SequentialFile> file;
       auto scratch = NewAligned(kSectorSize, 0);
       Slice result;
-#if !defined(OS_MACOSX) && !defined(OS_WIN)
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && !defined(OS_AIX)
       if (soptions.use_direct_reads) {
         soptions.use_direct_reads = false;
       }
@@ -1136,7 +1138,7 @@ TEST_P(EnvPosixTestWithParam, Preallocation) {
     unique_ptr<WritableFile> srcfile;
     EnvOptions soptions;
     soptions.use_direct_reads = soptions.use_direct_writes = direct_io_;
-#if !defined(OS_MACOSX) && !defined(OS_WIN)
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && !defined(OS_AIX)
     if (soptions.use_direct_writes) {
       rocksdb::SyncPoint::GetInstance()->SetCallBack(
           "NewWritableFile:O_DIRECT", [&](void* arg) {
@@ -1198,7 +1200,7 @@ TEST_P(EnvPosixTestWithParam, ConsistentChildrenAttributes) {
       oss << test::TmpDir(env_) << "/testfile_" << i;
       const std::string path = oss.str();
       unique_ptr<WritableFile> file;
-#if !defined(OS_MACOSX) && !defined(OS_WIN)
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && !defined(OS_AIX)
       if (soptions.use_direct_writes) {
         rocksdb::SyncPoint::GetInstance()->SetCallBack(
             "NewWritableFile:O_DIRECT", [&](void* arg) {
