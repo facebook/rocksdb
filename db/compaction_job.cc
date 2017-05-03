@@ -1091,7 +1091,7 @@ Status CompactionJob::FinishCompactionOutputFile(
     // we will regrad this verification as user reads since the goal is
     // to cache it here for further user reads
     InternalIterator* iter = cfd->table_cache()->NewIterator(
-        ReadOptions(), env_options_, &cfd->internal_comparator(), meta->fd,
+        ReadOptions(), env_options_, cfd->internal_comparator(), meta->fd,
         nullptr /* range_del_agg */, nullptr,
         cfd->internal_stats()->GetFileReadHist(
             compact_->compaction->output_level()),

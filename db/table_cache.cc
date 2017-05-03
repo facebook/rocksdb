@@ -170,7 +170,7 @@ Status TableCache::FindTable(const EnvOptions& env_options,
 
 InternalIterator* TableCache::NewIterator(
     const ReadOptions& options, const EnvOptions& env_options,
-    const InternalKeyComparator* icomparator, const FileDescriptor& fd,
+    const InternalKeyComparator& icomparator, const FileDescriptor& fd,
     RangeDelAggregator* range_del_agg, TableReader** table_reader_ptr,
     HistogramImpl* file_read_hist, bool for_compaction, Arena* arena,
     bool skip_filters, int level) {
@@ -203,7 +203,7 @@ InternalIterator* TableCache::NewIterator(
     if (create_new_table_reader) {
       unique_ptr<TableReader> table_reader_unique_ptr;
       s = GetTableReader(
-          env_options, *icomparator, fd, true /* sequential_mode */, readahead,
+          env_options, icomparator, fd, true /* sequential_mode */, readahead,
           !for_compaction /* record stats */, nullptr, &table_reader_unique_ptr,
           false /* skip_filters */, level);
       if (s.ok()) {
@@ -212,7 +212,7 @@ InternalIterator* TableCache::NewIterator(
     } else {
       table_reader = fd.table_reader;
       if (table_reader == nullptr) {
-        s = FindTable(env_options, *icomparator, fd, &handle,
+        s = FindTable(env_options, icomparator, fd, &handle,
                       options.read_tier == kBlockCacheTier /* no_io */,
                       !for_compaction /* record read_stats */, file_read_hist,
                       skip_filters, level);
@@ -225,7 +225,7 @@ InternalIterator* TableCache::NewIterator(
   InternalIterator* result = nullptr;
   if (s.ok()) {
     result =
-      table_reader->NewIterator(options, arena, icomparator, skip_filters);
+      table_reader->NewIterator(options, arena, &icomparator, skip_filters);
     if (create_new_table_reader) {
       assert(handle == nullptr);
       result->RegisterCleanup(&DeleteTableReader, table_reader, nullptr);
