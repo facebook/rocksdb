@@ -117,6 +117,10 @@ typedef struct rocksdb_ratelimiter_t     rocksdb_ratelimiter_t;
 extern ROCKSDB_LIBRARY_API rocksdb_t* rocksdb_open(
     const rocksdb_options_t* options, const char* name, char** errptr);
 
+extern ROCKSDB_LIBRARY_API rocksdb_t* rocksdb_with_ttl_open(
+    const rocksdb_options_t* options, const char* name, int32_t ttl,
+    unsigned char read_only, char** errptr);
+
 extern ROCKSDB_LIBRARY_API rocksdb_t* rocksdb_open_for_read_only(
     const rocksdb_options_t* options, const char* name,
     unsigned char error_if_log_file_exist, char** errptr);

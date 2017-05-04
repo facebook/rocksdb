@@ -33,6 +33,7 @@
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
 #include "rocksdb/rate_limiter.h"
+#include "rocksdb/utilities/db_ttl.h"
 #include "rocksdb/utilities/backupable_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "utilities/merge_operators.h"
@@ -51,6 +52,7 @@ using rocksdb::CompressionType;
 using rocksdb::WALRecoveryMode;
 using rocksdb::DB;
 using rocksdb::DBOptions;
+using rocksdb::DBWithTTL;
 using rocksdb::Env;
 using rocksdb::EnvOptions;
 using rocksdb::InfoLogLevel;
@@ -429,6 +431,21 @@ rocksdb_t* rocksdb_open(
     char** errptr) {
   DB* db;
   if (SaveError(errptr, DB::Open(options->rep, std::string(name), &db))) {
+    return nullptr;
+  }
+  rocksdb_t* result = new rocksdb_t;
+  result->rep = db;
+  return result;
+}
+
+rocksdb_t* rocksdb_with_ttl_open(
+    const rocksdb_options_t* options,
+    const char* name,
+    int32_t ttl,
+    unsigned char read_only,
+    char** errptr) {
+  DBWithTTL* db;
+  if (SaveError(errptr, DBWithTTL::Open(options->rep, std::string(name), &db, ttl, read_only))) {
     return nullptr;
   }
   rocksdb_t* result = new rocksdb_t;
