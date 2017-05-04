@@ -96,7 +96,7 @@ PartitionedFilterBlockReader::~PartitionedFilterBlockReader() {
     }
   }
   char cache_key[BlockBasedTable::kMaxCacheKeyPrefixSize + kMaxVarint64Length];
-  for (auto it = filter_block_list_.begin(); it != filter_block_list_.end();
+  for (auto it = filter_block_set_.begin(); it != filter_block_set_.end();
        ++it) {
     auto key = BlockBasedTable::GetCacheKey(table_->rep_->cache_key_prefix,
                                             table_->rep_->cache_key_prefix_size,
@@ -116,8 +116,6 @@ bool PartitionedFilterBlockReader::KeyMayMatch(
   if (UNLIKELY(idx_on_fltr_blk_->size() == 0)) {
     return true;
   }
-  // This is the user key vs. the full key in the partition index. We assume
-  // that user key <= full key
   auto filter_handle = GetFilterPartitionHandle(*const_ikey_ptr);
   if (UNLIKELY(filter_handle.size() == 0)) {  // key is out of range
     return false;
@@ -209,7 +207,7 @@ PartitionedFilterBlockReader::GetFilterPartition(Slice* handle_value,
     auto filter =
         table_->GetFilter(fltr_blk_handle, is_a_filter_partition, no_io);
     if (filter.IsSet()) {
-      filter_block_list_.push_back(fltr_blk_handle);
+      filter_block_set_.insert(fltr_blk_handle);
       if (pin_cached_filters) {
         WriteLock wl(&mu_);
         std::pair<uint64_t, FilterBlockReader*> pair(fltr_blk_handle.offset(),
