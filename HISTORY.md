@@ -5,7 +5,6 @@
 
 ### New Features
 * DB::ResetStats() to reset internal stats.
-* Support dynamically change `max_open_files` option via SetDBOptions()
 * Statistics::Reset() to reset user stats.
 * ldb add option --try_load_options, which will open DB with its own option file.
 * Support dynamically change `max_open_files` option via SetDBOptions()
