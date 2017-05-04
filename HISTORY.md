@@ -1,13 +1,13 @@
 # Rocksdb Change Log
 ## Unreleased
-### Public API Change
-* Introduce WriteBatch::PopSavePoint to pop the most recent save point explicitly
 ### New Features
 * FIFO compaction to support Intra L0 compaction too with CompactionOptionsFIFO.allow_compaction=true.
 * DB::ResetStats() to reset internal stats.
 * Statistics::Reset() to reset user stats.
 * ldb add option --try_load_options, which will open DB with its own option file.
+* Introduce WriteBatch::PopSavePoint to pop the most recent save point explicitly.
 * Support dynamically change `max_open_files` option via SetDBOptions()
+* Added DB::CreateColumnFamilie() and DB::DropColumnFamilies() to bulk create/drop column families.
 
 ## 5.4.0 (04/11/2017)
 ### Public API Change
