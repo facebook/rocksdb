@@ -1123,9 +1123,9 @@ void Version::UpdateAccumulatedStats(bool update_stats) {
           // already been read, so MaybeInitializeFileMetaData() won't incur
           // any I/O cost. "max_open_files=-1" means that the table cache passed
           // to the VersionSet and then to the ColumnFamilySet has a size of
-          // 0x400000
+          // TableCache::kInfiniteCapacity
           if (vset_->GetColumnFamilySet()->get_table_cache()->GetCapacity() ==
-              0x400000) {
+              TableCache::kInfiniteCapacity) {
             continue;
           }
           if (++init_count >= kMaxInitCount) {
@@ -2384,7 +2384,7 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
     TEST_SYNC_POINT("VersionSet::LogAndApply:WriteManifest");
     if (!w.edit_list.front()->IsColumnFamilyManipulation() &&
         this->GetColumnFamilySet()->get_table_cache()->GetCapacity() ==
-            0x400000) {
+            TableCache::kInfiniteCapacity) {
       // unlimited table cache. Pre-load table handle now.
       // Need to do it out of the mutex.
       builder_guard->version_builder()->LoadTableHandlers(
@@ -2830,7 +2830,8 @@ Status VersionSet::Recover(
       assert(builders_iter != builders.end());
       auto* builder = builders_iter->second->version_builder();
 
-      if (GetColumnFamilySet()->get_table_cache()->GetCapacity() == 0x400000) {
+      if (GetColumnFamilySet()->get_table_cache()->GetCapacity() ==
+          TableCache::kInfiniteCapacity) {
         // unlimited table cache. Pre-load table handle now.
         // Need to do it out of the mutex.
         builder->LoadTableHandlers(
