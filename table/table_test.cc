@@ -9,7 +9,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include <inttypes.h>
 #include <stdio.h>
 
 #include <algorithm>
@@ -2140,7 +2139,7 @@ class MockCache : public LRUCache {
   virtual Status Insert(const Slice& key, void* value, size_t charge,
                         void (*deleter)(const Slice& key, void* value),
                         Handle** handle = nullptr,
-                        Priority priority = Priority::LOW) {
+                        Priority priority = Priority::LOW) override {
     // Replace the deleter with our own so that we keep track of data blocks
     // erased from the cache
     deleters_[key.ToString()] = deleter;
@@ -2148,11 +2147,12 @@ class MockCache : public LRUCache {
                                 priority);
   }
   // This is called by the application right after inserting a data block
-  virtual void TEST_mark_as_data_block(const Slice& key, size_t charge) {
+  virtual void TEST_mark_as_data_block(const Slice& key,
+                                       size_t charge) override {
     marked_data_in_cache_[key.ToString()] = charge;
     marked_size_ += charge;
   }
-  typedef void (*DeleterFunc)(const Slice& key, void* value);
+  using DeleterFunc = void (*)(const Slice& key, void* value);
   static std::map<std::string, DeleterFunc> deleters_;
   static std::map<std::string, size_t> marked_data_in_cache_;
   static size_t marked_size_;
