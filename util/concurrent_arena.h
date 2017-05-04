@@ -16,6 +16,7 @@
 #include "port/likely.h"
 #include "util/allocator.h"
 #include "util/arena.h"
+#include "util/core_local.h"
 #include "util/mutexlock.h"
 #include "util/thread_local.h"
 
@@ -65,9 +66,7 @@ class ConcurrentArena : public Allocator {
 
   size_t ApproximateMemoryUsage() const {
     std::unique_lock<SpinMutex> lock(arena_mutex_, std::defer_lock);
-    if (index_mask_ != 0) {
-      lock.lock();
-    }
+    lock.lock();
     return arena_.ApproximateMemoryUsage() - ShardAllocatedAndUnused();
   }
 
@@ -106,9 +105,7 @@ class ConcurrentArena : public Allocator {
 
   size_t shard_block_size_;
 
-  // shards_[i & index_mask_] is valid
-  size_t index_mask_;
-  std::unique_ptr<Shard[]> shards_;
+  CoreLocalArray<Shard> shards_;
 
   Arena arena_;
   mutable SpinMutex arena_mutex_;
@@ -122,8 +119,9 @@ class ConcurrentArena : public Allocator {
 
   size_t ShardAllocatedAndUnused() const {
     size_t total = 0;
-    for (size_t i = 0; i <= index_mask_; ++i) {
-      total += shards_[i].allocated_and_unused_.load(std::memory_order_relaxed);
+    for (size_t i = 0; i < shards_.Size(); ++i) {
+      total += shards_.AccessAtCore(i)->allocated_and_unused_.load(
+          std::memory_order_relaxed);
     }
     return total;
   }
@@ -139,7 +137,8 @@ class ConcurrentArena : public Allocator {
     std::unique_lock<SpinMutex> arena_lock(arena_mutex_, std::defer_lock);
     if (bytes > shard_block_size_ / 4 || force_arena ||
         ((cpu = tls_cpuid) == 0 &&
-         !shards_[0].allocated_and_unused_.load(std::memory_order_relaxed) &&
+         !shards_.AccessAtCore(0)->allocated_and_unused_.load(
+             std::memory_order_relaxed) &&
          arena_lock.try_lock())) {
       if (!arena_lock.owns_lock()) {
         arena_lock.lock();
@@ -150,7 +149,7 @@ class ConcurrentArena : public Allocator {
     }
 
     // pick a shard from which to allocate
-    Shard* s = &shards_[cpu & index_mask_];
+    Shard* s = shards_.AccessAtCore(cpu & (shards_.Size() - 1));
     if (!s->mutex.try_lock()) {
       s = Repick();
       s->mutex.lock();
