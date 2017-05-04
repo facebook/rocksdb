@@ -45,6 +45,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <fstream>
 
 namespace rocksdb {
 
