@@ -89,9 +89,19 @@ PartitionedFilterBlockReader::PartitionedFilterBlockReader(
 }
 
 PartitionedFilterBlockReader::~PartitionedFilterBlockReader() {
-  ReadLock rl(&mu_);
-  for (auto it = handle_list_.begin(); it != handle_list_.end(); ++it) {
-    table_->rep_->table_options.block_cache.get()->Release(*it);
+  {
+    ReadLock rl(&mu_);
+    for (auto it = handle_list_.begin(); it != handle_list_.end(); ++it) {
+      table_->rep_->table_options.block_cache.get()->Release(*it);
+    }
+  }
+  char cache_key[BlockBasedTable::kMaxCacheKeyPrefixSize + kMaxVarint64Length];
+  for (auto it = filter_block_list_.begin(); it != filter_block_list_.end();
+       ++it) {
+    auto key = BlockBasedTable::GetCacheKey(table_->rep_->cache_key_prefix,
+                                            table_->rep_->cache_key_prefix_size,
+                                            *it, cache_key);
+    table_->rep_->table_options.block_cache.get()->Erase(key);
   }
 }
 
@@ -198,15 +208,18 @@ PartitionedFilterBlockReader::GetFilterPartition(Slice* handle_value,
     }
     auto filter =
         table_->GetFilter(fltr_blk_handle, is_a_filter_partition, no_io);
-    if (pin_cached_filters && filter.IsSet()) {
-      WriteLock wl(&mu_);
-      std::pair<uint64_t, FilterBlockReader*> pair(fltr_blk_handle.offset(),
-                                                   filter.value);
-      auto succ = filter_cache_.insert(pair).second;
-      if (succ) {
-        handle_list_.push_back(filter.cache_handle);
-      }  // Otherwise it is already inserted by a concurrent thread
-      *cached = true;
+    if (filter.IsSet()) {
+      filter_block_list_.push_back(fltr_blk_handle);
+      if (pin_cached_filters) {
+        WriteLock wl(&mu_);
+        std::pair<uint64_t, FilterBlockReader*> pair(fltr_blk_handle.offset(),
+                                                     filter.value);
+        auto succ = filter_cache_.insert(pair).second;
+        if (succ) {
+          handle_list_.push_back(filter.cache_handle);
+        }  // Otherwise it is already inserted by a concurrent thread
+        *cached = true;
+      }
     }
     return filter;
   } else {

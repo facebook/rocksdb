@@ -187,6 +187,8 @@ class Cache {
 
   virtual std::string GetPrintableOptions() const { return ""; }
 
+  virtual void TEST_mark_as_data_block(const Slice& key, size_t charge) {}
+
  private:
   // No copying allowed
   Cache(const Cache&);

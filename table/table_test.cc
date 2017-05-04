@@ -19,6 +19,7 @@
 #include <string>
 #include <vector>
 
+#include "cache/lru_cache.h"
 #include "db/dbformat.h"
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
@@ -2125,6 +2126,107 @@ TEST_F(BlockBasedTableTest, BlockReadCountTest) {
       }
     }
   }
+}
+
+class MockCache : public LRUCache {
+ public:
+  MockCache(size_t capacity, int num_shard_bits, bool strict_capacity_limit,
+            double high_pri_pool_ratio)
+      : LRUCache(capacity, num_shard_bits, strict_capacity_limit,
+                 high_pri_pool_ratio) {}
+  virtual Status Insert(const Slice& key, void* value, size_t charge,
+                        void (*deleter)(const Slice& key, void* value),
+                        Handle** handle = nullptr,
+                        Priority priority = Priority::LOW) {
+    deleters[key.ToString()] = deleter;
+    return ShardedCache::Insert(key, value, charge, &MockDeleter, handle,
+                                priority);
+  }
+  virtual void TEST_mark_as_data_block(const Slice& key, size_t charge) {
+    marked_data_in_cache_[key.ToString()] = charge;
+    marked_size_ += charge;
+  }
+  struct CmpBySlice {
+    bool operator()(const Slice& a, const Slice& b) const {
+      return a.compare(b) < 0;
+    }
+  };
+  typedef void (*DeleterFunc)(const Slice& key, void* value);
+  static std::map<std::string, DeleterFunc> deleters;
+  static std::map<std::string, size_t> marked_data_in_cache_;
+  static size_t marked_size_;
+  static void MockDeleter(const Slice& key, void* value) {
+    if (marked_data_in_cache_.find(key.ToString()) !=
+        marked_data_in_cache_.end()) {
+      marked_size_ -= marked_data_in_cache_[key.ToString()];
+    }
+    assert(deleters.find(key.ToString()) != deleters.end());
+    auto deleter = deleters[key.ToString()];
+    deleter(key, value);
+  }
+};
+
+size_t MockCache::marked_size_ = 0;
+std::map<std::string, MockCache::DeleterFunc> MockCache::deleters;
+std::map<std::string, size_t> MockCache::marked_data_in_cache_;
+
+TEST_F(BlockBasedTableTest, XXX) {
+  Options opt;
+  unique_ptr<InternalKeyComparator> ikc;
+  ikc.reset(new test::PlainInternalKeyComparator(opt.comparator));
+  opt.compression = kNoCompression;
+  BlockBasedTableOptions table_options;
+  table_options.block_size = 1024;
+  table_options.index_type =
+      BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+  table_options.partition_filters = true;
+  table_options.cache_index_and_filter_blocks = true;
+  // big enough so we don't ever lose cached values.
+  table_options.block_cache = std::shared_ptr<rocksdb::Cache>(
+      new MockCache(16 * 1024 * 1024, 4, false, 0.0));
+  table_options.filter_policy.reset(rocksdb::NewBloomFilterPolicy(10, false));
+  opt.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  TableConstructor c(BytewiseComparator());
+  std::string user_key = "k01";
+  InternalKey internal_key(user_key, 0, kTypeValue);
+  c.Add(internal_key.Encode().ToString(), "hello");
+  std::vector<std::string> keys;
+  stl_wrappers::KVMap kvmap;
+  const ImmutableCFOptions ioptions(opt);
+  c.Finish(opt, ioptions, table_options, *ikc, &keys, &kvmap);
+
+  auto u = table_options.block_cache->GetUsage();
+  auto pu = table_options.block_cache->GetPinnedUsage();
+  printf("usage %zu pusage %zu marked_size %zu\n", u, pu,
+         MockCache::marked_size_);
+
+  auto table_reader = dynamic_cast<BlockBasedTable*>(c.GetTableReader());
+  PinnableSlice value;
+  GetContext get_context(opt.comparator, nullptr, nullptr, nullptr,
+                         GetContext::kNotFound, user_key, &value, nullptr,
+                         nullptr, nullptr, nullptr);
+  InternalKey ikey(user_key, 0, kTypeValue);
+  auto s = table_reader->Get(ReadOptions(), internal_key.Encode().ToString(),
+                             &get_context);
+  ASSERT_EQ(get_context.State(), GetContext::kFound);
+  ASSERT_STREQ(value.data(), "hello");
+
+  u = table_options.block_cache->GetUsage();
+  pu = table_options.block_cache->GetPinnedUsage();
+  printf("usage %zu pusage %zu marked_size %zu\n", u, pu,
+         MockCache::marked_size_);
+
+  c.ResetTableReader();
+  u = table_options.block_cache->GetUsage();
+  pu = table_options.block_cache->GetPinnedUsage();
+  printf("usage %zu pusage %zu marked_size %zu\n", u, pu,
+         MockCache::marked_size_);
+  ASSERT_EQ(u, MockCache::marked_size_);
+  ASSERT_GT(pu, 0);
+  value.Reset();
+  pu = table_options.block_cache->GetPinnedUsage();
+  ASSERT_EQ(pu, 0);
 }
 
 TEST_F(BlockBasedTableTest, BlockCacheLeak) {
