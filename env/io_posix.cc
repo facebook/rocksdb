@@ -118,18 +118,13 @@ size_t GetLogicalBufferSize(int __attribute__((__unused__)) fd) {
  */
 #ifndef NDEBUG
 namespace {
-#ifdef OS_LINUX
-const size_t kPageSize = sysconf(_SC_PAGESIZE);
-#else
-const size_t kPageSize = 4 * 1024;
-#endif
 
 bool IsSectorAligned(const size_t off, size_t sector_size) {
   return off % sector_size == 0;
 }
 
-static bool IsPageAligned(const void* ptr) {
-  return uintptr_t(ptr) % (kPageSize) == 0;
+bool IsSectorAligned(const void* ptr, size_t sector_size) {
+  return uintptr_t(ptr) % sector_size == 0;
 }
 
 }
@@ -185,6 +180,11 @@ Status PosixSequentialFile::Read(size_t n, Slice* result, char* scratch) {
 
 Status PosixSequentialFile::PositionedRead(uint64_t offset, size_t n,
                                            Slice* result, char* scratch) {
+  if (use_direct_io()) {
+    assert(IsSectorAligned(offset, GetRequiredBufferAlignment()));
+    assert(IsSectorAligned(n, GetRequiredBufferAlignment()));
+    assert(IsSectorAligned(scratch, GetRequiredBufferAlignment()));
+  }
   Status s;
   ssize_t r = -1;
   size_t left = n;
@@ -309,6 +309,11 @@ PosixRandomAccessFile::~PosixRandomAccessFile() { close(fd_); }
 
 Status PosixRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
                                    char* scratch) const {
+  if (use_direct_io()) {
+    assert(IsSectorAligned(offset, GetRequiredBufferAlignment()));
+    assert(IsSectorAligned(n, GetRequiredBufferAlignment()));
+    assert(IsSectorAligned(scratch, GetRequiredBufferAlignment()));
+  }
   Status s;
   ssize_t r = -1;
   size_t left = n;
@@ -707,9 +712,10 @@ PosixWritableFile::~PosixWritableFile() {
 }
 
 Status PosixWritableFile::Append(const Slice& data) {
-  assert(!use_direct_io() ||
-         (IsSectorAligned(data.size(), GetRequiredBufferAlignment()) &&
-          IsPageAligned(data.data())));
+  if (use_direct_io()) {
+    assert(IsSectorAligned(data.size(), GetRequiredBufferAlignment()));
+    assert(IsSectorAligned(data.data(), GetRequiredBufferAlignment()));
+  }
   const char* src = data.data();
   size_t left = data.size();
   while (left != 0) {
@@ -728,10 +734,11 @@ Status PosixWritableFile::Append(const Slice& data) {
 }
 
 Status PosixWritableFile::PositionedAppend(const Slice& data, uint64_t offset) {
-  assert(use_direct_io() &&
-         IsSectorAligned(offset, GetRequiredBufferAlignment()) &&
-         IsSectorAligned(data.size(), GetRequiredBufferAlignment()) &&
-         IsPageAligned(data.data()));
+  if (use_direct_io()) {
+    assert(IsSectorAligned(offset, GetRequiredBufferAlignment()));
+    assert(IsSectorAligned(data.size(), GetRequiredBufferAlignment()));
+    assert(IsSectorAligned(data.data(), GetRequiredBufferAlignment()));
+  }
   assert(offset <= std::numeric_limits<off_t>::max());
   const char* src = data.data();
   size_t left = data.size();
