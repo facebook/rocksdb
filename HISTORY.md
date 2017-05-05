@@ -1,7 +1,8 @@
 # Rocksdb Change Log
 ## Unreleased
 ### Public API Change
-* Introduce WriteBatch::PopSavePoint to pop the most recent save point explicitly
+* Introduce WriteBatch::PopSavePoint to pop the most recent save point explicitly.
+* Introduce C rocksdb_pin_get/rocksdb_pin_get_cf API to get value with PinnableSlice.
 ### New Features
 * FIFO compaction to support Intra L0 compaction too with CompactionOptionsFIFO.allow_compaction=true.
 * DB::ResetStats() to reset internal stats.
