@@ -13,7 +13,7 @@
 
 #include <assert.h>
 #include <process.h> // __beginthreadex
-#include <Windows.h>
+#include <windows.h>
 
 #include <stdexcept>
 #include <system_error>

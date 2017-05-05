@@ -16,7 +16,7 @@ cache:
 addons:
    apt:
       sources: ['ubuntu-toolchain-r-test', 'llvm-toolchain-precise-3.6']
-      packages: ['clang-3.6' , 'g++-6', 'zlib1g-dev', 'libbz2-dev', 'libsnappy-dev', 'curl', 'libgflags-dev']
+      packages: ['clang-3.6' , 'g++-6', 'zlib1g-dev', 'libbz2-dev', 'libsnappy-dev', 'curl', 'libgflags-dev', 'mingw-w64']
 env:
   - TEST_GROUP=platform_dependent1
   - TEST_GROUP=platform_dependent2
@@ -30,6 +30,7 @@ env:
   # Build examples
   - JOB_NAME=examples
   - JOB_NAME=cmake
+  - JOB_NAME=cmake-mingw
 
 matrix:
   exclude:
@@ -39,6 +40,11 @@ matrix:
     env: TEST_GROUP=1
   - os: osx
     env: TEST_GROUP=2
+  - os : osx
+    env: JOB_NAME=cmake-mingw
+  - os: linux
+    env: JOB_NAME=cmake-mingw
+    compiler: clang
 
 before_script:
   - if [[ "${TRAVIS_OS_NAME}" == 'linux' && "${CXX}" == 'clang++' ]]; then CXX=clang++-3.6; fi
@@ -58,6 +64,7 @@ script:
   - if [[ "${JOB_NAME}" == 'lite_build' ]]; then OPT="-DTRAVIS -DROCKSDB_LITE" V=1 make -j4 static_lib; fi
   - if [[ "${JOB_NAME}" == 'examples' ]]; then OPT=-DTRAVIS V=1 make -j4 static_lib; cd examples; make -j4; fi
   - if [[ "${JOB_NAME}" == 'cmake' ]]; then mkdir build && cd build && cmake .. && make -j4 rocksdb; fi
+  - if [[ "${JOB_NAME}" == 'cmake-mingw' ]]; then mkdir build && cd build && cmake .. -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ -DCMAKE_SYSTEM_NAME=Windows && make -j4 rocksdb; fi
 notifications:
     email:
       - leveldb@fb.com

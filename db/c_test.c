@@ -20,7 +20,7 @@
 // Can not use port/port.h macros as this is a c file
 #ifdef OS_WIN
 
-#include <Windows.h>
+#include <windows.h>
 
 #define snprintf _snprintf
 

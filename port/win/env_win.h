@@ -21,7 +21,7 @@
 #include "util/threadpool_imp.h"
 
 #include <stdint.h>
-#include <Windows.h>
+#include <windows.h>
 
 #include <mutex>
 #include <vector>

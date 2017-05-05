@@ -19,7 +19,7 @@
 #include "rocksdb/env.h"
 
 #include <stdint.h>
-#include <Windows.h>
+#include <windows.h>
 
 namespace rocksdb {
 
