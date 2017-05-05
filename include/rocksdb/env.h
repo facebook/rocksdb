@@ -703,14 +703,12 @@ class WritableFile {
     }
   }
 
- protected:
-  /*
-   * Pre-allocate space for a file.
-   */
+  // Pre-allocates space for a file.
   virtual Status Allocate(uint64_t offset, uint64_t len) {
     return Status::OK();
   }
 
+ protected:
   size_t preallocation_block_size() { return preallocation_block_size_; }
 
  private:
