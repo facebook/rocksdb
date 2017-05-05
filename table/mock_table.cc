@@ -30,7 +30,9 @@ stl_wrappers::KVMap MakeMockFile(
   return stl_wrappers::KVMap(l, stl_wrappers::LessOfComparator(&icmp_));
 }
 
-InternalIterator* MockTableReader::NewIterator(const ReadOptions&, Arena* arena,
+InternalIterator* MockTableReader::NewIterator(const ReadOptions&,
+                                               Arena* arena,
+                                               const InternalKeyComparator*,
                                                bool skip_filters) {
   return new MockTableIterator(table_);
 }

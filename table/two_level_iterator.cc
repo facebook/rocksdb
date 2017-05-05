@@ -180,13 +180,13 @@ void TwoLevelIterator::Prev() {
   SkipEmptyDataBlocksBackward();
 }
 
-
 void TwoLevelIterator::SkipEmptyDataBlocksForward() {
   while (second_level_iter_.iter() == nullptr ||
          (!second_level_iter_.Valid() &&
-         !second_level_iter_.status().IsIncomplete())) {
+          !second_level_iter_.status().IsIncomplete())) {
     // Move to next block
-    if (!first_level_iter_.Valid()) {
+    if (!first_level_iter_.Valid() ||
+        state_->KeyReachedUpperBound(first_level_iter_.key())) {
       SetSecondLevelIterator(nullptr);
       return;
     }
@@ -201,7 +201,7 @@ void TwoLevelIterator::SkipEmptyDataBlocksForward() {
 void TwoLevelIterator::SkipEmptyDataBlocksBackward() {
   while (second_level_iter_.iter() == nullptr ||
          (!second_level_iter_.Valid() &&
-         !second_level_iter_.status().IsIncomplete())) {
+          !second_level_iter_.status().IsIncomplete())) {
     // Move to next block
     if (!first_level_iter_.Valid()) {
       SetSecondLevelIterator(nullptr);

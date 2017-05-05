@@ -53,7 +53,7 @@ class BytewiseComparatorImpl : public Comparator {
     } else {
       uint8_t start_byte = static_cast<uint8_t>((*start)[diff_index]);
       uint8_t limit_byte = static_cast<uint8_t>(limit[diff_index]);
-      if (start_byte >= limit_byte || (diff_index == start->size() - 1)) {
+      if (start_byte >= limit_byte) {
         // Cannot shorten since limit is smaller than start or start is
         // already the shortest possible.
         return;

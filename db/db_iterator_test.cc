@@ -24,6 +24,34 @@ class DBIteratorTest : public DBTestBase {
   DBIteratorTest() : DBTestBase("/db_iterator_test") {}
 };
 
+class FlushBlockEveryKeyPolicy : public FlushBlockPolicy {
+ public:
+  virtual bool Update(const Slice& key, const Slice& value) override {
+    if (!start_) {
+      start_ = true;
+      return false;
+    }
+    return true;
+  }
+ private:
+  bool start_ = false;
+};
+
+class FlushBlockEveryKeyPolicyFactory : public FlushBlockPolicyFactory {
+ public:
+  explicit FlushBlockEveryKeyPolicyFactory() {}
+
+  const char* Name() const override {
+    return "FlushBlockEveryKeyPolicyFactory";
+  }
+
+  FlushBlockPolicy* NewFlushBlockPolicy(
+    const BlockBasedTableOptions& table_options,
+    const BlockBuilder& data_block_builder) const override {
+    return new FlushBlockEveryKeyPolicy;
+  }
+};
+
 TEST_F(DBIteratorTest, IteratorProperty) {
   // The test needs to be changed if kPersistedTier is supported in iterator.
   Options options = CurrentOptions();
@@ -977,6 +1005,50 @@ TEST_F(DBIteratorTest, DBIteratorBoundTest) {
   }
 }
 
+TEST_F(DBIteratorTest, DBIteratorBoundOptimizationTest) {
+  int upper_bound_hits = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "BlockBasedTable::BlockEntryIteratorState::KeyReachedUpperBound",
+      [&upper_bound_hits](void* arg) {
+        assert(arg != nullptr);
+        upper_bound_hits += (*static_cast<bool*>(arg) ? 1 : 0);
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  options.prefix_extractor = nullptr;
+  BlockBasedTableOptions table_options;
+  table_options.flush_block_policy_factory =
+    std::make_shared<FlushBlockEveryKeyPolicyFactory>();
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("foo1", "bar1"));
+  ASSERT_OK(Put("foo2", "bar2"));
+  ASSERT_OK(Put("foo4", "bar4"));
+  ASSERT_OK(Flush());
+
+  Slice ub("foo3");
+  ReadOptions ro;
+  ro.iterate_upper_bound = &ub;
+
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
+
+  iter->Seek("foo");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().compare(Slice("foo1")), 0);
+  ASSERT_EQ(upper_bound_hits, 0);
+
+  iter->Next();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().compare(Slice("foo2")), 0);
+  ASSERT_EQ(upper_bound_hits, 0);
+
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_EQ(upper_bound_hits, 1);
+}
 // TODO(3.13): fix the issue of Seek() + Prev() which might not necessary
 //             return the biggest key which is smaller than the seek key.
 TEST_F(DBIteratorTest, PrevAfterAndNextAfterMerge) {
