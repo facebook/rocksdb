@@ -38,6 +38,39 @@ uint64_t TotalCompensatedFileSize(const std::vector<FileMetaData*>& files) {
   }
   return sum;
 }
+
+bool FindIntraL0Compaction(const std::vector<FileMetaData*>& level_files,
+                           size_t min_files_to_compact,
+                           uint64_t max_compact_bytes_per_del_file,
+                           CompactionInputFiles* comp_inputs) {
+  size_t compact_bytes = level_files[0]->fd.file_size;
+  size_t compact_bytes_per_del_file = port::kMaxSizet;
+  // compaction range will be [0, span_len).
+  size_t span_len;
+  // pull in files until the amount of compaction work per deleted file begins
+  // increasing.
+  size_t new_compact_bytes_per_del_file = 0;
+  for (span_len = 1; span_len < level_files.size(); ++span_len) {
+    compact_bytes += level_files[span_len]->fd.file_size;
+    new_compact_bytes_per_del_file = compact_bytes / span_len;
+    if (level_files[span_len]->being_compacted ||
+        new_compact_bytes_per_del_file > compact_bytes_per_del_file) {
+      break;
+    }
+    compact_bytes_per_del_file = new_compact_bytes_per_del_file;
+  }
+
+  if (span_len >= min_files_to_compact &&
+      new_compact_bytes_per_del_file < max_compact_bytes_per_del_file) {
+    assert(comp_inputs != nullptr);
+    comp_inputs->level = 0;
+    for (size_t i = 0; i < span_len; ++i) {
+      comp_inputs->files.push_back(level_files[i]);
+    }
+    return true;
+  }
+  return false;
+}
 }  // anonymous namespace
 
 // Determine compression type, based on user options, level of the output
@@ -1348,31 +1381,8 @@ bool LevelCompactionBuilder::PickIntraL0Compaction() {
     // resort to L0->L0 compaction yet.
     return false;
   }
-
-  size_t compact_bytes = level_files[0]->fd.file_size;
-  size_t compact_bytes_per_del_file = port::kMaxSizet;
-  // compaction range will be [0, span_len).
-  size_t span_len;
-  // pull in files until the amount of compaction work per deleted file begins
-  // increasing.
-  for (span_len = 1; span_len < level_files.size(); ++span_len) {
-    compact_bytes += level_files[span_len]->fd.file_size;
-    size_t new_compact_bytes_per_del_file = compact_bytes / span_len;
-    if (level_files[span_len]->being_compacted ||
-        new_compact_bytes_per_del_file > compact_bytes_per_del_file) {
-      break;
-    }
-    compact_bytes_per_del_file = new_compact_bytes_per_del_file;
-  }
-
-  if (span_len >= kMinFilesForIntraL0Compaction) {
-    start_level_inputs_.level = 0;
-    for (size_t i = 0; i < span_len; ++i) {
-      start_level_inputs_.files.push_back(level_files[i]);
-    }
-    return true;
-  }
-  return false;
+  return FindIntraL0Compaction(level_files, kMinFilesForIntraL0Compaction,
+                               port::kMaxUint64, &start_level_inputs_);
 }
 }  // namespace
 
@@ -1405,6 +1415,27 @@ Compaction* FIFOCompactionPicker::PickCompaction(
   if (total_size <= ioptions_.compaction_options_fifo.max_table_files_size ||
       level_files.size() == 0) {
     // total size not exceeded
+    if (ioptions_.compaction_options_fifo.allow_compaction &&
+        level_files.size() > 0) {
+      CompactionInputFiles comp_inputs;
+      if (FindIntraL0Compaction(
+              level_files,
+              mutable_cf_options
+                  .level0_file_num_compaction_trigger /* min_files_to_compact */,
+              mutable_cf_options.write_buffer_size, &comp_inputs)) {
+        Compaction* c = new Compaction(
+            vstorage, ioptions_, mutable_cf_options, {comp_inputs}, 0,
+            16 * 1024 * 1024 /* output file size limit */,
+            0 /* max compaction bytes, not applicable */,
+            0 /* output path ID */, mutable_cf_options.compression, {},
+            /* is manual */ false, vstorage->CompactionScore(0),
+            /* is deletion compaction */ false,
+            CompactionReason::kFIFOReduceNumFiles);
+        RegisterCompaction(c);
+        return c;
+      }
+    }
+
     ROCKS_LOG_BUFFER(log_buffer,
                      "[%s] FIFO compaction: nothing to do. Total size %" PRIu64
                      ", max size %" PRIu64 "\n",
