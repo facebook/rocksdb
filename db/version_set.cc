@@ -2113,7 +2113,11 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableCFOptions& ioptions,
           level_size = MultiplyCheckOverflow(
               level_size, options.max_bytes_for_level_multiplier);
         }
-        level_max_bytes_[i] = level_size;
+        // Don't set any level below base_bytes_max. Otherwise, the LSM can
+        // assume an hourglass shape where L1+ sizes are smaller than L0. This
+        // causes compaction scoring, which depends on level sizes, to favor L1+
+        // at the expense of L0, which may fill up and stall.
+        level_max_bytes_[i] = std::max(level_size, base_bytes_max);
       }
     }
   }
