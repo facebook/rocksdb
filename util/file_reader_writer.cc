@@ -502,7 +502,8 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
     if (prefetch_offset == buffer_offset_) {
       return Status::OK();
     }
-    return ReadIntoBuffer(prefetch_offset, offset - prefetch_offset + n);
+    return ReadIntoBuffer(prefetch_offset,
+                          Roundup(offset + n, alignment_) - prefetch_offset);
   }
 
   virtual size_t GetUniqueId(char* id, size_t max_size) const override {
