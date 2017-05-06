@@ -913,6 +913,8 @@ Status BlockBasedTable::GetDataBlockFromCache(
       s = block_cache->Insert(
           block_cache_key, block->value, block->value->usable_size(),
           &DeleteCachedEntry<Block>, &(block->cache_handle));
+      block_cache->TEST_mark_as_data_block(block_cache_key,
+                                           block->value->usable_size());
       if (s.ok()) {
         RecordTick(statistics, BLOCK_CACHE_ADD);
         if (is_index) {
@@ -994,6 +996,8 @@ Status BlockBasedTable::PutDataBlockToCache(
     s = block_cache->Insert(
         block_cache_key, block->value, block->value->usable_size(),
         &DeleteCachedEntry<Block>, &(block->cache_handle), priority);
+    block_cache->TEST_mark_as_data_block(block_cache_key,
+                                         block->value->usable_size());
     if (s.ok()) {
       assert(block->cache_handle != nullptr);
       RecordTick(statistics, BLOCK_CACHE_ADD);
@@ -2090,7 +2094,7 @@ void BlockBasedTable::Close() {
     char cache_key[kMaxCacheKeyPrefixSize + kMaxVarint64Length];
     // Get the filter block key
     auto key = GetCacheKey(rep_->cache_key_prefix, rep_->cache_key_prefix_size,
-                           rep_->footer.metaindex_handle(), cache_key);
+                           rep_->filter_handle, cache_key);
     rep_->table_options.block_cache.get()->Erase(key);
     // Get the index block key
     key = GetCacheKeyFromOffset(rep_->cache_key_prefix,

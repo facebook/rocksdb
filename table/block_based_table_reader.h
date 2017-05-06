@@ -376,9 +376,9 @@ struct BlockBasedTable::CachableEntry {
   CachableEntry(TValue* _value, Cache::Handle* _cache_handle)
       : value(_value), cache_handle(_cache_handle) {}
   CachableEntry() : CachableEntry(nullptr, nullptr) {}
-  void Release(Cache* cache) {
+  void Release(Cache* cache, bool force_erase = false) {
     if (cache_handle) {
-      cache->Release(cache_handle);
+      cache->Release(cache_handle, force_erase);
       value = nullptr;
       cache_handle = nullptr;
     }
