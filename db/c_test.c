@@ -132,7 +132,7 @@ static void CheckPinGet(rocksdb_t* db, const rocksdb_readoptions_t* options,
   size_t val_len;
   const char* val;
   rocksdb_pinnableslice_t* p;
-  p = rocksdb_pin_get(db, options, key, strlen(key), &err);
+  p = rocksdb_get_pinned(db, options, key, strlen(key), &err);
   CheckNoError(err);
   val = rocksdb_pinnableslice_value(p, &val_len);
   CheckEqual(expected, val, val_len);
@@ -146,7 +146,7 @@ static void CheckPinGetCF(rocksdb_t* db, const rocksdb_readoptions_t* options,
   size_t val_len;
   const char* val;
   rocksdb_pinnableslice_t* p;
-  p = rocksdb_pin_get_cf(db, options, handle, key, strlen(key), &err);
+  p = rocksdb_get_pinned_cf(db, options, handle, key, strlen(key), &err);
   CheckNoError(err);
   val = rocksdb_pinnableslice_value(p, &val_len);
   CheckEqual(expected, val, val_len);

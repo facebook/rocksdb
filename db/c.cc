@@ -3092,10 +3092,9 @@ void rocksdb_delete_file_in_range_cf(
 
 void rocksdb_free(void* ptr) { free(ptr); }
 
-rocksdb_pinnableslice_t* rocksdb_pin_get(rocksdb_t* db,
-                                         const rocksdb_readoptions_t* options,
-                                         const char* key, size_t keylen,
-                                         char** errptr) {
+rocksdb_pinnableslice_t* rocksdb_get_pinned(
+    rocksdb_t* db, const rocksdb_readoptions_t* options, const char* key,
+    size_t keylen, char** errptr) {
   rocksdb_pinnableslice_t* v = new (rocksdb_pinnableslice_t);
   Status s = db->rep->Get(options->rep, db->rep->DefaultColumnFamily(),
                           Slice(key, keylen), &v->rep);
@@ -3109,7 +3108,7 @@ rocksdb_pinnableslice_t* rocksdb_pin_get(rocksdb_t* db,
   return v;
 }
 
-rocksdb_pinnableslice_t* rocksdb_pin_get_cf(
+rocksdb_pinnableslice_t* rocksdb_get_pinned_cf(
     rocksdb_t* db, const rocksdb_readoptions_t* options,
     rocksdb_column_family_handle_t* column_family, const char* key,
     size_t keylen, char** errptr) {
