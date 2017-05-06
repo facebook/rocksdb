@@ -47,8 +47,11 @@ class BlockReadAmpBitmap {
  public:
   explicit BlockReadAmpBitmap(size_t block_size, size_t bytes_per_bit,
                               Statistics* statistics)
-      : bitmap_(nullptr), bytes_per_bit_pow_(0), statistics_(statistics),
-        rnd_(Random::GetTLSInstance()->Uniform(bytes_per_bit)){
+      : bitmap_(nullptr),
+        bytes_per_bit_pow_(0),
+        statistics_(statistics),
+        rnd_(Random::GetTLSInstance()->Uniform(
+            static_cast<int>(bytes_per_bit))) {
     TEST_SYNC_POINT_CALLBACK("BlockReadAmpBitmap", &rnd_);
     assert(block_size > 0 && bytes_per_bit > 0);
 
@@ -63,7 +66,8 @@ class BlockReadAmpBitmap {
         (block_size % (static_cast<size_t>(1)
                        << static_cast<size_t>(bytes_per_bit_pow_)) !=
          0);
-    last_bit_ = num_bits_needed - 1;
+    assert(num_bits_needed > 0);
+    last_bit_ = static_cast<int>(num_bits_needed - 1);
 
     // bitmap_size = ceil(num_bits_needed / kBitsPerEntry)
     size_t bitmap_size = (num_bits_needed / kBitsPerEntry) +
