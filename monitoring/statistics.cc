@@ -63,7 +63,7 @@ std::unique_ptr<HistogramImpl> StatisticsImpl::getHistogramImplLocked(
     res_hist->Merge(
         per_core_stats_.AccessAtCore(core_idx)->histograms_[histogramType]);
   }
-  return std::move(res_hist);
+  return res_hist;
 }
 
 std::string StatisticsImpl::getHistogramString(uint32_t histogramType) const {
