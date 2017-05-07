@@ -179,10 +179,11 @@ class DB {
                                     const std::string& column_family_name,
                                     ColumnFamilyHandle** handle);
 
-  // Bulk create column families the same column family options.
+  // Bulk create column families with the same column family options.
   // Return the handles of the column families through the argument handles.
-  // In case of error, the request may success partially, and handles will
-  // contain column family handles that it managed to create.
+  // In case of error, the request may succeed partially, and handles will
+  // contain column family handles that it managed to create, and have size
+  // equal to the number of created column families.
   virtual Status CreateColumnFamilies(
       const ColumnFamilyOptions& options,
       const std::vector<std::string>& column_family_names,
@@ -190,8 +191,9 @@ class DB {
 
   // Bulk create column families.
   // Return the handles of the column families through the argument handles.
-  // In case of error, the request may success partially, and handles will
-  // contain column family handles that it managed to create.
+  // In case of error, the request may succeed partially, and handles will
+  // contain column family handles that it managed to create, and have size
+  // equal to the number of created column families.
   virtual Status CreateColumnFamilies(
       const std::vector<ColumnFamilyDescriptor>& column_families,
       std::vector<ColumnFamilyHandle*>* handles);
@@ -203,7 +205,7 @@ class DB {
 
   // Bulk drop column families. This call only records drop records in the
   // manifest and prevents the column families from flushing and compacting.
-  // In case of error, the request may success partially. User may call
+  // In case of error, the request may succeed partially. User may call
   // ListColumnFamilies to check the result.
   virtual Status DropColumnFamilies(
       const std::vector<ColumnFamilyHandle*>& column_families);
