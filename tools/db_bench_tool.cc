@@ -709,6 +709,8 @@ DEFINE_string(env_uri, "", "URI for registry Env lookup. Mutually exclusive"
 DEFINE_string(aws_access_id, "", "Access id for AWS");
 DEFINE_string(aws_secret_key, "", "Secret key for AWS");
 DEFINE_string(aws_region, "", "AWS region");
+DEFINE_bool(keep_local_sst_files , true ,
+            "Keep all files in local storage as well as cloud storage");
 #endif  // ROCKSDB_LITE
 DEFINE_string(hdfs, "", "Name of hdfs environment. Mutually exclusive with"
               " --env_uri.");
@@ -918,6 +920,7 @@ rocksdb::Env* CreateAwsEnv(const std::string& dbpath,
     coptions.credentials.secret_key = FLAGS_aws_secret_key;
     coptions.region = FLAGS_aws_region;
   }
+  coptions.keep_local_sst_files = FLAGS_keep_local_sst_files;
   rocksdb::CloudEnv* s;
   rocksdb::Status st = rocksdb::AwsEnv::NewAwsEnv(rocksdb::Env::Default(),
 		         "dbbench." + rocksdb::AwsEnv::GetTestBucketSuffix(),

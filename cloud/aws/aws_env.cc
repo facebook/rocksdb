@@ -691,14 +691,13 @@ Status AwsEnv::DeleteFile(const std::string& fname) {
   if (has_dest_bucket_ && (sstfile || manifest || identity)) {
     st = DeletePathInS3(GetDestBucketPrefix(), destname(fname));
     if (!st.ok() && !st.IsNotFound()) {
-      Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-          "[s3] DeleteFile file %s error %s", fname.c_str(),
+      Log(InfoLogLevel::ERROR_LEVEL, info_log_,
+          "[s3] DeleteFile DeletePathInS3 file %s error %s", fname.c_str(),
           st.ToString().c_str());
       return st;
     }
     // delete from local
     st = base_env_->DeleteFile(fname);
-
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
     // read from Kinesis
     assert(tailer_->status().ok());
@@ -747,10 +746,13 @@ Status AwsEnv::DeletePathInS3(const std::string& bucket_prefix,
         s3err == Aws::S3::S3Errors::NO_SUCH_KEY ||
         s3err == Aws::S3::S3Errors::RESOURCE_NOT_FOUND) {
       Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-          "[s3] S3WritableFile bucket %s error in deleting non-existent %s %",
+          "[s3] S3WritableFile bucket %s error in deleting non-existent %s %s",
           bucket.c_str(), fname.c_str(), errmsg.c_str());
       return Status::NotFound(fname, errmsg.c_str());
     }
+    Log(InfoLogLevel::ERROR_LEVEL, info_log_,
+        "[s3] S3WritableFile bucket %s error in deleting %s %s",
+        bucket.c_str(), fname.c_str(), errmsg.c_str());
     return Status::IOError(fname, errmsg.c_str());
   }
   return Status::OK();
