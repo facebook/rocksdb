@@ -37,8 +37,26 @@ class StackableDB : public DB {
     return db_->CreateColumnFamily(options, column_family_name, handle);
   }
 
+  virtual Status CreateColumnFamilies(
+      const ColumnFamilyOptions& options,
+      const std::vector<std::string>& column_family_names,
+      std::vector<ColumnFamilyHandle*>* handles) override {
+    return db_->CreateColumnFamilies(options, column_family_names, handles);
+  }
+
+  virtual Status CreateColumnFamilies(
+      const std::vector<ColumnFamilyDescriptor>& column_families,
+      std::vector<ColumnFamilyHandle*>* handles) override {
+    return db_->CreateColumnFamilies(column_families, handles);
+  }
+
   virtual Status DropColumnFamily(ColumnFamilyHandle* column_family) override {
     return db_->DropColumnFamily(column_family);
+  }
+
+  virtual Status DropColumnFamilies(
+      const std::vector<ColumnFamilyHandle*>& column_families) override {
+    return db_->DropColumnFamilies(column_families);
   }
 
   virtual Status DestroyColumnFamilyHandle(

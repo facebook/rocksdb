@@ -1,6 +1,14 @@
 # Rocksdb Change Log
-## 5.4.1 (04/28/2017)
-### Buf Fxies
+## 5.4.4 (05/11/2017)
+### New Features
+* Added DB::CreateColumnFamilie() and DB::DropColumnFamilies() to bulk create/drop column families.
+
+## 5.4.3 (05/10/2017)
+
+## 5.4.2 (05/08/2017)
+
+## 5.4.1 (05/02/2017)
+### Bug Fxies
 * Fix WriteBatchWithIndex address use after scope error.
 * Fix WritableFile buffer size in direct IO.
 * Add prefetch to PosixRandomAccessFile in buffered io.
