@@ -119,12 +119,12 @@ Status S3ReadableFile::Read(uint64_t offset, size_t n, Slice* result,
         s3err == Aws::S3::S3Errors::NO_SUCH_KEY ||
         s3err == Aws::S3::S3Errors::RESOURCE_NOT_FOUND ||
         errmsg.find("Response code: 404") != std::string::npos) {
-      Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+      Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
           "[s3] S3ReadableFile error in reading not-existent %s %s",
           fname_.c_str(), errmsg.c_str());
       return Status::NotFound(fname_, errmsg.c_str());
     }
-    Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+    Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
         "[s3] S3ReadableFile error in reading %s %ld %s %s", fname_.c_str(),
         offset, buffer, error.GetMessage().c_str());
     return Status::IOError(fname_, errmsg.c_str());
@@ -202,12 +202,12 @@ Status S3ReadableFile::GetFileInfo() {
         s3err == Aws::S3::S3Errors::NO_SUCH_KEY ||
         s3err == Aws::S3::S3Errors::RESOURCE_NOT_FOUND ||
         errmsg.find("Response code: 404") != std::string::npos) {
-      Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+      Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
           "[s3] S3GetFileInfo error not-existent %s %s", fname_.c_str(),
           errmsg.c_str());
       return Status::NotFound(fname_, errmsg.c_str());
     }
-    Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+    Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
         "[s3] S3GetFileInfo error %s %s", fname_.c_str(), errmsg.c_str());
     return Status::IOError(fname_, errmsg.c_str());
   }
@@ -276,7 +276,7 @@ S3WritableFile::S3WritableFile(AwsEnv* env, const std::string& local_fname,
   // when the file is closed.
   Status s = env_->GetPosixEnv()->NewWritableFile(fname_, &temp_file_, options);
   if (!s.ok()) {
-    Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+    Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
         "[s3] NewWritableFile src %s %s", fname_.c_str(), s.ToString().c_str());
     status_ = s;
   }
@@ -294,7 +294,7 @@ Status S3WritableFile::Close() {
   // close local file
   Status st = temp_file_->Close();
   if (!st.ok()) {
-    Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+    Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
         "[s3] S3WritableFile closing error on local %s\n", fname_.c_str());
     return st;
   }
@@ -309,7 +309,7 @@ Status S3WritableFile::Close() {
   uint64_t file_size;
   st = env_->GetPosixEnv()->GetFileSize(fname_, &file_size);
   if (!st.ok()) {
-    Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+    Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
         "[s3] S3WritableFile closing error in getting filesize %s %s",
         fname_.c_str(), st.ToString().c_str());
     return st;
@@ -319,7 +319,7 @@ Status S3WritableFile::Close() {
   assert(IsSstFile(fname_));
   st = CopyToS3(env_, fname_, s3_bucket_, s3_object_);
   if (!st.ok()) {
-    Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+    Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
         "[s3] S3WritableFile closing CopyToS3 failed on local file %s",
         fname_.c_str());
     return st;
@@ -329,7 +329,7 @@ Status S3WritableFile::Close() {
   if (!env_->cloud_env_options.keep_local_sst_files) {
     st = env_->GetPosixEnv()->DeleteFile(fname_);
     if (!st.ok()) {
-      Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+      Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
           "[s3] S3WritableFile closing delete failed on local file %s",
           fname_.c_str());
       return st;

@@ -906,11 +906,18 @@ rocksdb::Env* CreateAwsEnv(const std::string& dbpath,
                             std::unique_ptr<rocksdb::Env>* result) {
   std::shared_ptr<rocksdb::Logger> info_log;
   info_log.reset(new rocksdb::StderrLogger(
-		     rocksdb::InfoLogLevel::DEBUG_LEVEL));
+		     rocksdb::InfoLogLevel::WARN_LEVEL));
   rocksdb::CloudEnvOptions coptions;
-  coptions.credentials.access_key_id = FLAGS_aws_access_id;
-  coptions.credentials.secret_key = FLAGS_aws_secret_key;
-  coptions.region = FLAGS_aws_region;
+  if (FLAGS_aws_access_id.size() == 0) {
+      rocksdb::Status st = rocksdb::AwsEnv::GetTestCredentials(&coptions.credentials.access_key_id,
+                                                      &coptions.credentials.secret_key,
+                                                      &coptions.region);
+      assert(st.ok());
+  } else {
+    coptions.credentials.access_key_id = FLAGS_aws_access_id;
+    coptions.credentials.secret_key = FLAGS_aws_secret_key;
+    coptions.region = FLAGS_aws_region;
+  }
   rocksdb::CloudEnv* s;
   rocksdb::Status st = rocksdb::AwsEnv::NewAwsEnv(rocksdb::Env::Default(),
 		         "dbbench." + rocksdb::AwsEnv::GetTestBucketSuffix(),
@@ -5129,12 +5136,6 @@ int db_bench_tool(int argc, char** argv) {
     fprintf(stderr, "Cannot provide both --hdfs and --env_uri.\n");
     exit(1);
   } else if (!FLAGS_env_uri.empty()) {
-    if (FLAGS_env_uri.substr(0,5).compare("s3://") == 0) {
-      if (FLAGS_aws_access_id.size() == 0 || FLAGS_aws_secret_key.size() == 0) {
-        fprintf(stderr, "AWS S3 needs --aws_access_id and --aws_secret_key\n");
-        exit(1);
-      }
-    }
     FLAGS_env = NewCustomObject<Env>(FLAGS_env_uri, &custom_env_guard);
     if (FLAGS_env == nullptr) {
       fprintf(stderr, "No Env registered for URI: %s\n", FLAGS_env_uri.c_str());
