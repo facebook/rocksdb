@@ -38,23 +38,23 @@ class CoreLocalArray {
 
  private:
   std::unique_ptr<T[]> data_;
-  size_t size_;
+  size_t size_shift_;
 };
 
 template<typename T>
 CoreLocalArray<T>::CoreLocalArray() {
   unsigned int num_cpus = std::thread::hardware_concurrency();
   // find a power of two >= num_cpus and >= 8
-  size_ = 1 << 3;
-  while (size_ < num_cpus) {
-    size_ <<= 1;
+  size_shift_ = 3;
+  while (1u << size_shift_ < num_cpus) {
+    ++size_shift_;
   }
-  data_.reset(new T[size_]);
+  data_.reset(new T[1 << size_shift_]);
 }
 
 template<typename T>
 size_t CoreLocalArray<T>::Size() const {
-  return size_;
+  return 1u << size_shift_;
 }
 
 template<typename T>
@@ -68,17 +68,16 @@ std::pair<T*, size_t> CoreLocalArray<T>::AccessElementAndIndex() const {
   size_t core_idx;
   if (UNLIKELY(cpuid < 0)) {
     // cpu id unavailable, just pick randomly
-    core_idx =
-        Random::GetTLSInstance()->Uniform(static_cast<int>(size_));
+    core_idx = Random::GetTLSInstance()->Uniform(1 << size_shift_);
   } else {
-    core_idx = static_cast<size_t>(cpuid) % size_;
+    core_idx = static_cast<size_t>(cpuid & ((1 << size_shift_) - 1));
   }
   return {AccessAtCore(core_idx), core_idx};
 }
 
 template<typename T>
 T* CoreLocalArray<T>::AccessAtCore(size_t core_idx) const {
-  assert(core_idx < size_);
+  assert(core_idx < 1u << size_shift_);
   return &data_[core_idx];
 }
 
