@@ -18,7 +18,7 @@ sudo yum -y install openssl java-1.7.0-openjdk-devel.$ARCH zlib-devel bzip2-deve
 
 # install gcc/g++ 4.8.2 via CERN (http://linux.web.cern.ch/linux/devtoolset/)
 sudo wget -O /etc/yum.repos.d/slc5-devtoolset.repo http://linuxsoft.cern.ch/cern/devtoolset/slc5-devtoolset.repo
-sudo wget -O /etc/pki/rpm-gpg/RPM-GPG-KEY-cern http://ftp.mirrorservice.org/sites/ftp.scientificlinux.org/linux/scientific/51/i386/RPM-GPG-KEYs/RPM-GPG-KEY-cern
+sudo wget -O /etc/pki/rpm-gpg/RPM-GPG-KEY-cern http://ftp.mirrorservice.org/sites/ftp.scientificlinux.org/linux/scientific/obsolete/51/i386/RPM-GPG-KEYs/RPM-GPG-KEY-cern
 sudo yum -y install devtoolset-2
 
 # install gflags
