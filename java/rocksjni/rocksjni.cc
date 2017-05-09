@@ -424,7 +424,7 @@ jboolean key_may_exist_helper(JNIEnv* env, rocksdb::DB* db,
   }
 
   rocksdb::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
-  
+
   std::string value;
   bool value_found = false;
   bool keyMayExist;
@@ -727,7 +727,7 @@ inline void multi_get_helper_release_keys(JNIEnv* env,
  * cf multi get
  *
  * @return byte[][] of values or nullptr if an exception occurs
- */ 
+ */
 jobjectArray multi_get_helper(JNIEnv* env, jobject jdb, rocksdb::DB* db,
     const rocksdb::ReadOptions& rOpt, jobjectArray jkeys,
     jintArray jkey_offs, jintArray jkey_lens,
@@ -1373,7 +1373,7 @@ bool rocksdb_merge_helper(JNIEnv* env, rocksdb::DB* db,
   }
   rocksdb::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
 
-  jbyte* value = new jbyte[jkey_len];
+  jbyte* value = new jbyte[jval_len];
   env->GetByteArrayRegion(jval, jval_off, jval_len, value);
   if(env->ExceptionCheck()) {
     // exception thrown: ArrayIndexOutOfBoundsException
@@ -2199,4 +2199,3 @@ void Java_org_rocksdb_RocksDB_addFile__JJ_3Ljava_lang_String_2IZ(
     rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
   }
 }
-
