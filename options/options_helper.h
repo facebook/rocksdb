@@ -37,6 +37,11 @@ static std::map<CompactionPri, std::string> compaction_pri_to_string = {
     {kOldestSmallestSeqFirst, "kOldestSmallestSeqFirst"},
     {kMinOverlappingRatio, "kMinOverlappingRatio"}};
 
+static std::map<CompactionStopStyle, std::string>
+    compaction_stop_style_to_string = {
+        {kCompactionStopStyleSimilarSize, "kCompactionStopStyleSimilarSize"},
+        {kCompactionStopStyleTotalSize, "kCompactionStopStyleTotalSize"}};
+
 #ifndef ROCKSDB_LITE
 
 Status GetMutableOptionsFromStrings(
