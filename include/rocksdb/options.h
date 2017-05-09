@@ -1063,6 +1063,14 @@ struct ReadOptions {
   // Default: false
   bool ignore_range_deletions;
 
+  // A callback to determine whether relevant keys for this scan exist in a
+  // given table based on the table's properties. The callback is passed the
+  // properties of each table during iteration. If the callback returns false,
+  // the table will not be scanned. This option only affects Iterators and has
+  // no impact on point lookups.
+  // Default: empty (every table will be scanned)
+  std::function<bool(const TableProperties&)> table_filter;
+
   ReadOptions();
   ReadOptions(bool cksum, bool cache);
 };
