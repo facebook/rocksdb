@@ -81,7 +81,8 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
         if (st.ok()) {
           tableopt->persistent_cache = pcache;
           Log(InfoLogLevel::INFO_LEVEL, options.info_log,
-              "Created persistent cache %s", persistent_cache_path.c_str());
+              "Created persistent cache %s with size %ld GB", persistent_cache_path.c_str(),
+              persistent_cache_size_gb);
         } else {
           Log(InfoLogLevel::INFO_LEVEL, options.info_log,
               "Unable to create persistent cache %s. %s",
