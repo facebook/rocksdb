@@ -1701,9 +1701,11 @@ TEST_F(DBTest2, ReadAmpBitmap) {
   }
   delete iter;
 
-  // Read amp is 100% since we read all what we loaded in memory
-  ASSERT_EQ(options.statistics->getTickerCount(READ_AMP_ESTIMATE_USEFUL_BYTES),
-            options.statistics->getTickerCount(READ_AMP_TOTAL_READ_BYTES));
+  // Read amp is on average 100% since we read all what we loaded in memory
+  ASSERT_GE(options.statistics->getTickerCount(READ_AMP_ESTIMATE_USEFUL_BYTES) *
+                1.0f /
+                options.statistics->getTickerCount(READ_AMP_TOTAL_READ_BYTES),
+            0.99);
 }
 
 #ifndef OS_SOLARIS // GetUniqueIdFromFile is not implemented

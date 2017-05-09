@@ -51,11 +51,8 @@ class BlockReadAmpBitmap {
         bytes_per_bit_pow_(0),
         statistics_(statistics),
         rnd_(
-            Random::GetTLSInstance()->Uniform(static_cast<int>(bytes_per_bit))),
-        last_rnd_(rnd_ * ((block_size - 1) % bytes_per_bit + 1) /
-                  bytes_per_bit) {
+            Random::GetTLSInstance()->Uniform(static_cast<int>(bytes_per_bit))) {
     TEST_SYNC_POINT_CALLBACK("BlockReadAmpBitmap:rnd", &rnd_);
-    TEST_SYNC_POINT_CALLBACK("BlockReadAmpBitmap:last_rnd", &last_rnd_);
     assert(block_size > 0 && bytes_per_bit > 0);
 
     // convert bytes_per_bit to be a power of 2
@@ -67,7 +64,6 @@ class BlockReadAmpBitmap {
     size_t num_bits_needed =
       ((block_size - 1) >> bytes_per_bit_pow_) + 1;
     assert(num_bits_needed > 0);
-    last_bit_ = static_cast<int>(num_bits_needed - 1);
 
     // bitmap_size = ceil(num_bits_needed / kBitsPerEntry)
     size_t bitmap_size = (num_bits_needed - 1) / kBitsPerEntry + 1;
@@ -76,8 +72,7 @@ class BlockReadAmpBitmap {
     bitmap_ = new std::atomic<uint32_t>[bitmap_size];
     memset(bitmap_, 0, bitmap_size * kBytesPersEntry);
 
-    RecordTick(GetStatistics(), READ_AMP_TOTAL_READ_BYTES,
-               num_bits_needed << bytes_per_bit_pow_);
+    RecordTick(GetStatistics(), READ_AMP_TOTAL_READ_BYTES, block_size);
   }
 
   ~BlockReadAmpBitmap() { delete[] bitmap_; }
@@ -86,15 +81,11 @@ class BlockReadAmpBitmap {
     assert(end_offset >= start_offset);
     // Index of first bit in mask
     uint32_t start_bit =
-        (start_offset + (1 << bytes_per_bit_pow_) -
-         (start_offset >> bytes_per_bit_pow_ == last_bit_ ? last_rnd_ : rnd_) -
-         1) >>
+        (start_offset + (1 << bytes_per_bit_pow_) - rnd_ - 1) >>
         bytes_per_bit_pow_;
     // Index of last bit in mask + 1
     uint32_t exclusive_end_bit =
-        (end_offset + (1 << bytes_per_bit_pow_) -
-         (end_offset >> bytes_per_bit_pow_ == last_bit_ ? last_rnd_ : rnd_)) >>
-        bytes_per_bit_pow_;
+        (end_offset + (1 << bytes_per_bit_pow_) - rnd_) >> bytes_per_bit_pow_;
     if (start_bit >= exclusive_end_bit) {
       return;
     }

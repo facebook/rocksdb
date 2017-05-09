@@ -246,15 +246,11 @@ class BlockReadAmpBitmapSlowAndAccurate {
 };
 
 TEST_F(BlockTest, BlockReadAmpBitmap) {
-  uint32_t pin_offset = 0, last_pin_offset = 0;
+  uint32_t pin_offset = 0;
   SyncPoint::GetInstance()->SetCallBack(
     "BlockReadAmpBitmap:rnd", [&pin_offset](void* arg) {
       pin_offset = *(static_cast<uint32_t*>(arg));
     });
-  SyncPoint::GetInstance()->SetCallBack(
-      "BlockReadAmpBitmap:last_rnd", [&last_pin_offset](void* arg) {
-        last_pin_offset = *(static_cast<uint32_t*>(arg));
-      });
   SyncPoint::GetInstance()->EnableProcessing();
   std::vector<size_t> block_sizes = {
       1,                 // 1 byte
@@ -289,8 +285,7 @@ TEST_F(BlockTest, BlockReadAmpBitmap) {
       bitmap_size++;
     }
 
-    ASSERT_EQ(stats->getTickerCount(READ_AMP_TOTAL_READ_BYTES),
-              needed_bits * kBytesPerBit);
+    ASSERT_EQ(stats->getTickerCount(READ_AMP_TOTAL_READ_BYTES), block_size);
 
     // Generate some random entries
     std::vector<size_t> random_entry_offsets;
@@ -326,8 +321,7 @@ TEST_F(BlockTest, BlockReadAmpBitmap) {
       size_t total_bits = 0;
       for (size_t bit_idx = 0; bit_idx < needed_bits; bit_idx++) {
         total_bits += read_amp_slow_and_accurate.IsPinMarked(
-            bit_idx * kBytesPerBit +
-            (bit_idx + 1 == needed_bits ? last_pin_offset : pin_offset));
+          bit_idx * kBytesPerBit + pin_offset);
       }
       size_t expected_estimate_useful = total_bits * kBytesPerBit;
       size_t got_estimate_useful =
