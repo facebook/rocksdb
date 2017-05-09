@@ -1477,14 +1477,13 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key) {
   Status s;
 
   // First, try check with full filter
-  const bool no_io = true;
-  auto filter_entry = GetFilter(no_io);
+  auto filter_entry = GetFilter();
   FilterBlockReader* filter = filter_entry.value;
   if (filter != nullptr) {
     if (!filter->IsBlockBased()) {
       const Slice* const const_ikey_ptr = &internal_key;
       may_match =
-          filter->PrefixMayMatch(prefix, kNotValid, no_io, const_ikey_ptr);
+          filter->PrefixMayMatch(prefix, kNotValid, false, const_ikey_ptr);
     } else {
       InternalKey internal_key_prefix(prefix, kMaxSequenceNumber, kTypeValue);
       auto internal_prefix = internal_key_prefix.Encode();

@@ -707,6 +707,8 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_db_write_buffer_size(
     rocksdb_options_t*, size_t);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_max_open_files(
     rocksdb_options_t*, int);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_max_file_opening_threads(
+    rocksdb_options_t*, int);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_max_total_wal_size(
     rocksdb_options_t* opt, uint64_t n);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_compression_options(

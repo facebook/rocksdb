@@ -185,7 +185,9 @@ typedef pthread_once_t OnceType;
 #define LEVELDB_ONCE_INIT PTHREAD_ONCE_INIT
 extern void InitOnce(OnceType* once, void (*initializer)());
 
+#ifndef CACHE_LINE_SIZE
 #define CACHE_LINE_SIZE 64U
+#endif
 
 #define PREFETCH(addr, rw, locality) __builtin_prefetch(addr, rw, locality)
 
