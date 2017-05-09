@@ -1,4 +1,12 @@
 #!/usr/bin/env bash
+
+# CentOS 5 is now end of life so we need to switch its repos over to the vault
+sed -i -e '/^mirrorlist=/d' -e 's%^#baseurl=http://mirror.centos.org/centos/$releasever/%baseurl=http://vault.centos.org/5.11/%g' /etc/yum.repos.d/CentOS-Base.repo
+sed -i -e '/^mirrorlist=/d' -e 's%^#baseurl=http://mirror.centos.org/centos/$releasever/%baseurl=http://vault.centos.org/5.11/%g' /etc/yum.repos.d/CentOS-fasttrack.repo
+if [ -f /etc/yum.repos.d/libselinux.repo ]; then
+	sed -i -e '/^mirrorlist=/d' -e 's%^#baseurl=http://mirror.centos.org/centos/$releasever/%baseurl=http://vault.centos.org/5.11/%g' /etc/yum.repos.d/libselinux.repo
+fi
+
 # install all required packages for rocksdb that are available through yum
 ARCH=$(uname -i)
 sudo yum -y install openssl java-1.7.0-openjdk-devel.$ARCH 
