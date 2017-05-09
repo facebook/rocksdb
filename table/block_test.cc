@@ -230,16 +230,6 @@ class BlockReadAmpBitmapSlowAndAccurate {
     assert(end_offset >= start_offset);
     marked_ranges_.emplace(end_offset, start_offset);
   }
-  // Return true if any byte in this range was Marked
-  bool IsAnyInRangeMarked(size_t start_offset, size_t end_offset) {
-  auto it = marked_ranges_.lower_bound(
-      std::make_pair(start_offset, static_cast<size_t>(0)));
-    if (it == marked_ranges_.end()) {
-      return false;
-    }
-    fprintf(stderr, "hhh %lu %lu\n", it->first, it->second);
-    return start_offset <= it->first && end_offset >= it->second;
-  }
 
   // Return true if any byte in this range was Marked
   bool IsPinMarked(size_t offset) {
@@ -256,11 +246,15 @@ class BlockReadAmpBitmapSlowAndAccurate {
 };
 
 TEST_F(BlockTest, BlockReadAmpBitmap) {
-  uint32_t pin_offset = 0;
+  uint32_t pin_offset = 0, last_pin_offset = 0;
   SyncPoint::GetInstance()->SetCallBack(
-    "BlockReadAmpBitmap", [&pin_offset](void* arg) {
+    "BlockReadAmpBitmap:rnd", [&pin_offset](void* arg) {
       pin_offset = *(static_cast<uint32_t*>(arg));
     });
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlockReadAmpBitmap:last_rnd", [&last_pin_offset](void* arg) {
+        last_pin_offset = *(static_cast<uint32_t*>(arg));
+      });
   SyncPoint::GetInstance()->EnableProcessing();
   std::vector<size_t> block_sizes = {
       1,                 // 1 byte
@@ -331,13 +325,9 @@ TEST_F(BlockTest, BlockReadAmpBitmap) {
 
       size_t total_bits = 0;
       for (size_t bit_idx = 0; bit_idx < needed_bits; bit_idx++) {
-        if (bit_idx + 1 == needed_bits) {
-          total_bits += read_amp_slow_and_accurate.IsAnyInRangeMarked(
-            bit_idx * kBytesPerBit, (bit_idx + 1) * kBytesPerBit - 1);
-        } else {
-          total_bits += read_amp_slow_and_accurate.IsPinMarked(
-              bit_idx * kBytesPerBit + pin_offset);
-        }
+        total_bits += read_amp_slow_and_accurate.IsPinMarked(
+            bit_idx * kBytesPerBit +
+            (bit_idx + 1 == needed_bits ? last_pin_offset : pin_offset));
       }
       size_t expected_estimate_useful = total_bits * kBytesPerBit;
       size_t got_estimate_useful =
