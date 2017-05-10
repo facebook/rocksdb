@@ -548,7 +548,7 @@ void CompactionIterator::PrepareOutput() {
 
   // This is safe for TransactionDB write-conflict checking since transactions
   // only care about sequence number larger than any active snapshots.
-  if ((compaction_ != nullptr && compaction_->use_seqno_zero_out()) &&
+  if ((compaction_ != nullptr && !compaction_->allow_ingest_behind()) &&
       bottommost_level_ && valid_ && ikey_.sequence <= earliest_snapshot_ &&
       ikey_.type != kTypeMerge &&
       !cmp_->Equal(compaction_->GetLargestUserKey(), ikey_.user_key)) {

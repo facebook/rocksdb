@@ -1909,7 +1909,7 @@ TEST_F(ExternalSSTFileTest, IngestBehind) {
                                                    file_data, -1, false,
                                                    &true_data));
 
-  options.use_seqno_zero_out = false;
+  options.allow_ingest_behind = true;
   DestroyAndReopen(options);
   // Can't ingest because auto compactions are still enabled
   ASSERT_NOK(GenerateAndAddExternalFileIngestBehind(options, ifo,

@@ -49,8 +49,8 @@ class CompactionIterator {
     virtual Slice GetLargestUserKey() const {
       return compaction_->GetLargestUserKey();
     }
-    virtual bool use_seqno_zero_out() const {
-      return compaction_->immutable_cf_options()->use_seqno_zero_out;
+    virtual bool allow_ingest_behind() const {
+      return compaction_->immutable_cf_options()->allow_ingest_behind;
     }
 
    protected:

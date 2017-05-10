@@ -191,7 +191,7 @@ DBOptions::DBOptions(const Options& options)
       dump_malloc_stats(options.dump_malloc_stats),
       avoid_flush_during_recovery(options.avoid_flush_during_recovery),
       avoid_flush_during_shutdown(options.avoid_flush_during_shutdown),
-      use_seqno_zero_out(options.use_seqno_zero_out) {
+      allow_ingest_behind(options.allow_ingest_behind) {
 }
 
 void DBOptions::Dump(Logger* log) const {

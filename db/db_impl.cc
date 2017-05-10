@@ -2615,12 +2615,12 @@ Status DBImpl::IngestExternalFile(
   auto cfd = cfh->cfd();
 
   // Ingest should immediately fail if ingest_behind is requested, but
-  // db is open with sequence zero-out turned on, or auto compactions
+  // db doesn't support it, or auto compactions
   // are not disabled, want to check conditions separately
   if (ingestion_options.ingest_behind) {
-    if (immutable_db_options_.use_seqno_zero_out) {
+    if (immutable_db_options_.allow_ingest_behind) {
       return Status::InvalidArgument(
-        "Can't ingest_behind file in DB with use_seqno_zero_out=true");
+        "Can't ingest_behind file in DB with allow_ingest_behind=false");
     }
     if (!cfd->GetLatestMutableCFOptions()->disable_auto_compactions) {
       return Status::InvalidArgument(

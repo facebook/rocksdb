@@ -336,10 +336,10 @@ static std::unordered_map<std::string, OptionTypeInfo> db_options_type_info = {
      {offsetof(struct DBOptions, avoid_flush_during_shutdown),
       OptionType::kBoolean, OptionVerificationType::kNormal, true,
       offsetof(struct MutableDBOptions, avoid_flush_during_shutdown)}},
-    {"use_seqno_zero_out",
-     {offsetof(struct DBOptions, use_seqno_zero_out),
-      OptionType::kBoolean, OptionVerificationType::kNormal, true,
-      offsetof(struct ImmutableDBOptions, use_seqno_zero_out)}}};
+    {"allow_ingest_behind",
+     {offsetof(struct DBOptions, allow_ingest_behind),
+      OptionType::kBoolean, OptionVerificationType::kNormal, false,
+      offsetof(struct ImmutableDBOptions, allow_ingest_behind)}}};
 
 // offset_of is used to get the offset of a class data member
 // ex: offset_of(&ColumnFamilyOptions::num_levels)

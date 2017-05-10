@@ -292,7 +292,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "allow_2pc=false;"
                              "avoid_flush_during_recovery=false;"
                              "avoid_flush_during_shutdown=false;"
-                             "use_seqno_zero_out=true;",
+                             "allow_ingest_behind=false;",
                              new_options));
 
   ASSERT_EQ(unset_bytes_base, NumUnsetBytes(new_options_ptr, sizeof(DBOptions),

@@ -85,7 +85,7 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       fail_if_options_file_error(options.fail_if_options_file_error),
       dump_malloc_stats(options.dump_malloc_stats),
       avoid_flush_during_recovery(options.avoid_flush_during_recovery),
-      use_seqno_zero_out(options.use_seqno_zero_out) {
+      allow_ingest_behind(options.allow_ingest_behind) {
 }
 
 void ImmutableDBOptions::Dump(Logger* log) const {
@@ -214,8 +214,8 @@ void ImmutableDBOptions::Dump(Logger* log) const {
 
   ROCKS_LOG_HEADER(log, "            Options.avoid_flush_during_recovery: %d",
                    avoid_flush_during_recovery);
-  ROCKS_LOG_HEADER(log, "            Options.use_seqno_zero_out: %d",
-                   use_seqno_zero_out);
+  ROCKS_LOG_HEADER(log, "            Options.allow_ingest_behind: %d",
+                   allow_ingest_behind);
 }
 
 MutableDBOptions::MutableDBOptions()
