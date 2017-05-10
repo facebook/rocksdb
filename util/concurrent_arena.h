@@ -96,9 +96,9 @@ class ConcurrentArena : public Allocator {
   };
 
 #ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
-  static __thread uint32_t tls_cpuid;
+  static __thread size_t tls_cpuid;
 #else
-  enum ZeroFirstEnum : uint32_t { tls_cpuid = 0 };
+  enum ZeroFirstEnum : size_t { tls_cpuid = 0 };
 #endif
 
   char padding0[56] ROCKSDB_FIELD_UNUSED;
@@ -128,7 +128,7 @@ class ConcurrentArena : public Allocator {
 
   template <typename Func>
   char* AllocateImpl(size_t bytes, bool force_arena, const Func& func) {
-    uint32_t cpu;
+    size_t cpu;
 
     // Go directly to the arena if the allocation is too large, or if
     // we've never needed to Repick() and the arena mutex is available

@@ -18,7 +18,7 @@
 namespace rocksdb {
 
 #ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
-__thread uint32_t ConcurrentArena::tls_cpuid = 0;
+__thread size_t ConcurrentArena::tls_cpuid = 0;
 #endif
 
 ConcurrentArena::ConcurrentArena(size_t block_size, size_t huge_page_size)
