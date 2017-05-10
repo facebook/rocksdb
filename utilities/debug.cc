@@ -44,11 +44,10 @@ Status GetAllKeyVersions(DB* db, Slice begin_key, Slice end_key,
       break;
     }
 
-    key_versions->emplace_back();
-    key_versions->back().user_key = ikey.user_key.ToString();
-    key_versions->back().value = iter->value().ToString();
-    key_versions->back().sequence = ikey.sequence;
-    key_versions->back().type = static_cast<int>(ikey.type);
+    key_versions->emplace_back(ikey.user_key.ToString() /* _user_key */,
+                               iter->value().ToString() /* _value */,
+                               ikey.sequence /* _sequence */,
+                               static_cast<int>(ikey.type) /* _type */);
   }
   return Status::OK();
 }
