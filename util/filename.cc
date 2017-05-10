@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -27,6 +29,7 @@ namespace rocksdb {
 
 static const std::string kRocksDbTFileExt = "sst";
 static const std::string kLevelDbTFileExt = "ldb";
+static const std::string kRocksDBBlobFileExt = "blob";
 
 // Given a path, flatten the path name by replacing all chars not in
 // {[0-9,a-z,A-Z,-,_,.]} with _. And append '_LOG\0' at the end.
@@ -72,6 +75,11 @@ static std::string MakeFileName(const std::string& name, uint64_t number,
 std::string LogFileName(const std::string& name, uint64_t number) {
   assert(number > 0);
   return MakeFileName(name, number, "log");
+}
+
+std::string BlobFileName(const std::string& blobdirname, uint64_t number) {
+  assert(number > 0);
+  return MakeFileName(blobdirname, number, kRocksDBBlobFileExt.c_str());
 }
 
 std::string ArchivalDirectory(const std::string& dir) {
@@ -220,7 +228,7 @@ std::string IdentityFileName(const std::string& dbname) {
 //    dbname/<info_log_name_prefix>
 //    dbname/<info_log_name_prefix>.old.[0-9]+
 //    dbname/MANIFEST-[0-9]+
-//    dbname/[0-9]+.(log|sst)
+//    dbname/[0-9]+.(log|sst|blob)
 //    dbname/METADB-[0-9]+
 //    dbname/OPTIONS-[0-9]+
 //    dbname/OPTIONS-[0-9]+.dbtmp
@@ -335,6 +343,8 @@ bool ParseFileName(const std::string& fname, uint64_t* number,
     } else if (suffix == Slice(kRocksDbTFileExt) ||
                suffix == Slice(kLevelDbTFileExt)) {
       *type = kTableFile;
+    } else if (suffix == Slice(kRocksDBBlobFileExt)) {
+      *type = kBlobFile;
     } else if (suffix == Slice(kTempFileNameSuffix)) {
       *type = kTempFile;
     } else {

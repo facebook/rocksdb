@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 
 #include <sstream>
@@ -14,7 +16,11 @@ namespace rocksdb {
 #elif defined(_MSC_VER)
   __declspec(thread) PerfContext perf_context;
 #else
-  __thread PerfContext perf_context;
+  #if defined(OS_SOLARIS)
+    __thread PerfContext perf_context_;
+  #else
+    __thread PerfContext perf_context;
+  #endif
 #endif
 
 void PerfContext::Reset() {
@@ -161,5 +167,11 @@ std::string PerfContext::ToString(bool exclude_zero_counters) const {
   return ss.str();
 #endif
 }
+
+#if defined(OS_SOLARIS)
+PerfContext *getPerfContext() {
+  return &perf_context_;
+}
+#endif
 
 }

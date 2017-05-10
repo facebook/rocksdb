@@ -110,10 +110,19 @@ class Cache {
   // REQUIRES: handle must have been returned by a method on *this.
   virtual bool Ref(Handle* handle) = 0;
 
-  // Release a mapping returned by a previous Lookup().
+  /**
+   * Release a mapping returned by a previous Lookup(). A released entry might
+   * still  remain in cache in case it is later looked up by others. If
+   * force_erase is set then it also erase it from the cache if there is no
+   * other reference to  it. Erasing it should call the deleter function that
+   * was provided when the
+   * entry was inserted.
+   *
+   * Returns true if the entry was also erased.
+   */
   // REQUIRES: handle must not have been released yet.
   // REQUIRES: handle must have been returned by a method on *this.
-  virtual void Release(Handle* handle) = 0;
+  virtual bool Release(Handle* handle, bool force_erase = false) = 0;
 
   // Return the value encapsulated in a handle returned by a
   // successful Lookup().
@@ -177,6 +186,10 @@ class Cache {
   virtual void EraseUnRefEntries() = 0;
 
   virtual std::string GetPrintableOptions() const { return ""; }
+
+  // Mark the last inserted object as being a raw data block. This will be used
+  // in tests. The default implementation does nothing.
+  virtual void TEST_mark_as_data_block(const Slice& key, size_t charge) {}
 
  private:
   // No copying allowed

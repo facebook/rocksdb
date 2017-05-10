@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -49,6 +51,7 @@ struct DBPropertyInfo {
 extern const DBPropertyInfo* GetPropertyInfo(const Slice& property);
 
 #ifndef ROCKSDB_LITE
+#undef SCORE
 enum class LevelStatType {
   INVALID = 0,
   NUM_FILES,
@@ -189,6 +192,20 @@ class InternalStats {
           num_dropped_records(c.num_dropped_records),
           count(c.count) {}
 
+    void Clear() {
+      this->micros = 0;
+      this->bytes_read_non_output_levels = 0;
+      this->bytes_read_output_level = 0;
+      this->bytes_written = 0;
+      this->bytes_moved = 0;
+      this->num_input_files_in_non_output_levels = 0;
+      this->num_input_files_in_output_level = 0;
+      this->num_output_files = 0;
+      this->num_input_records = 0;
+      this->num_dropped_records = 0;
+      this->count = 0;
+    }
+
     void Add(const CompactionStats& c) {
       this->micros += c.micros;
       this->bytes_read_non_output_levels += c.bytes_read_non_output_levels;
@@ -221,6 +238,26 @@ class InternalStats {
       this->count -= c.count;
     }
   };
+
+  void Clear() {
+    for (int i = 0; i < INTERNAL_DB_STATS_ENUM_MAX; i++) {
+      db_stats_[i].store(0);
+    }
+    for (int i = 0; i < INTERNAL_CF_STATS_ENUM_MAX; i++) {
+      cf_stats_count_[i] = 0;
+      cf_stats_value_[i] = 0;
+    }
+    for (auto& comp_stat : comp_stats_) {
+      comp_stat.Clear();
+    }
+    for (auto& h : file_read_latency_) {
+      h.Clear();
+    }
+    cf_stats_snapshot_.Clear();
+    db_stats_snapshot_.Clear();
+    bg_error_count_ = 0;
+    started_at_ = env_->NowMicros();
+  }
 
   void AddCompactionStats(int level, const CompactionStats& stats) {
     comp_stats_[level].Add(stats);
@@ -319,6 +356,20 @@ class InternalStats {
           ingest_files_addfile(0),
           ingest_l0_files_addfile(0),
           ingest_keys_addfile(0) {}
+
+    void Clear() {
+      comp_stats.Clear();
+      ingest_bytes_flush = 0;
+      stall_count = 0;
+      compact_bytes_write = 0;
+      compact_bytes_read = 0;
+      compact_micros = 0;
+      seconds_up = 0;
+      ingest_bytes_addfile = 0;
+      ingest_files_addfile = 0;
+      ingest_l0_files_addfile = 0;
+      ingest_keys_addfile = 0;
+    }
   } cf_stats_snapshot_;
 
   struct DBStatsSnapshot {
@@ -350,6 +401,18 @@ class InternalStats {
           num_keys_written(0),
           write_stall_micros(0),
           seconds_up(0) {}
+
+    void Clear() {
+      ingest_bytes = 0;
+      wal_bytes = 0;
+      wal_synced = 0;
+      write_with_wal = 0;
+      write_other = 0;
+      write_self = 0;
+      num_keys_written = 0;
+      write_stall_micros = 0;
+      seconds_up = 0;
+    }
   } db_stats_snapshot_;
 
   // Handler functions for getting property values. They use "value" as a value-
@@ -420,7 +483,7 @@ class InternalStats {
   const int number_levels_;
   Env* env_;
   ColumnFamilyData* cfd_;
-  const uint64_t started_at_;
+  uint64_t started_at_;
 };
 
 #else

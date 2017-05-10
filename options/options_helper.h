@@ -37,6 +37,11 @@ static std::map<CompactionPri, std::string> compaction_pri_to_string = {
     {kOldestSmallestSeqFirst, "kOldestSmallestSeqFirst"},
     {kMinOverlappingRatio, "kMinOverlappingRatio"}};
 
+static std::map<CompactionStopStyle, std::string>
+    compaction_stop_style_to_string = {
+        {kCompactionStopStyleSimilarSize, "kCompactionStopStyleSimilarSize"},
+        {kCompactionStopStyleTotalSize, "kCompactionStopStyleTotalSize"}};
+
 #ifndef ROCKSDB_LITE
 
 Status GetMutableOptionsFromStrings(
@@ -234,7 +239,8 @@ static std::unordered_map<std::string, OptionTypeInfo> db_options_type_info = {
       OptionVerificationType::kNormal, false, 0}},
     {"max_open_files",
      {offsetof(struct DBOptions, max_open_files), OptionType::kInt,
-      OptionVerificationType::kNormal, false, 0}},
+      OptionVerificationType::kNormal, true,
+      offsetof(struct MutableDBOptions, max_open_files)}},
     {"table_cache_numshardbits",
      {offsetof(struct DBOptions, table_cache_numshardbits), OptionType::kInt,
       OptionVerificationType::kNormal, false, 0}},
@@ -600,6 +606,9 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"index_block_restart_interval",
          {offsetof(struct BlockBasedTableOptions, index_block_restart_interval),
           OptionType::kInt, OptionVerificationType::kNormal, false, 0}},
+        {"index_per_partition",
+         {0, OptionType::kUInt64T, OptionVerificationType::kDeprecated, false,
+          0}},
         {"metadata_block_size",
          {offsetof(struct BlockBasedTableOptions, metadata_block_size),
           OptionType::kUInt64T, OptionVerificationType::kNormal, false, 0}},

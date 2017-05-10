@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 #ifndef ROCKSDB_LITE
 
@@ -59,9 +61,9 @@ TEST_P(ColumnAwareEncodingTestWithSize, NoCompressionEncodeDecode) {
   const char* encoded_data_ptr = encoded_data.c_str();
   uint64_t expected_encoded_val;
   if (col_size == 8) {
-    expected_encoded_val = 0x0807060504030201;
+    expected_encoded_val = port::kLittleEndian ? 0x0807060504030201 : 0x0102030405060708;
   } else if (col_size == 4) {
-    expected_encoded_val = 0x08070605;
+    expected_encoded_val = port::kLittleEndian ? 0x08070605 : 0x0102030400000000;
   }
   uint64_t encoded_val = 0;
   for (int i = 0; i < row_count; ++i) {
@@ -122,9 +124,9 @@ TEST_P(ColumnAwareEncodingTestWithSize, RleEncodeDecode) {
   memcpy(&encoded_val, encoded_data_ptr, col_size);
   uint64_t expected_encoded_val;
   if (col_size == 8) {
-    expected_encoded_val = 0x0807060504030201;
+    expected_encoded_val = port::kLittleEndian ? 0x0807060504030201 : 0x0102030405060708;
   } else if (col_size == 4) {
-    expected_encoded_val = 0x08070605;
+    expected_encoded_val = port::kLittleEndian ? 0x08070605 : 0x0102030400000000;
   }
   // Check correctness of encoded value
   ASSERT_EQ(expected_encoded_val, encoded_val);
@@ -158,8 +160,8 @@ TEST_P(ColumnAwareEncodingTestWithSize, DeltaEncodeDecode) {
   std::unique_ptr<ColBufEncoder> col_buf_encoder(
       new FixedLengthColBufEncoder(col_size, kColDeltaVarint, false, true));
   std::string str_buf;
-  uint64_t base_val1 = 0x0102030405060708;
-  uint64_t base_val2 = 0x0202030405060708;
+  uint64_t base_val1 = port::kLittleEndian ? 0x0102030405060708 : 0x0807060504030201;
+  uint64_t base_val2 = port::kLittleEndian ? 0x0202030405060708 : 0x0807060504030202;
   uint64_t val1 = 0, val2 = 0;
   memcpy(&val1, &base_val1, col_size);
   memcpy(&val2, &base_val2, col_size);
@@ -180,7 +182,7 @@ TEST_P(ColumnAwareEncodingTestWithSize, DeltaEncodeDecode) {
   if (col_size == 8) {
     varint_len = 9;
   } else if (col_size == 4) {
-    varint_len = 5;
+    varint_len = port::kLittleEndian ? 5 : 9;
   }
   // Check encoded string length: first value is original one (val - 0), the
   // coming three are encoded as 1, -1, 1, so they should take 1 byte in varint.

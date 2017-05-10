@@ -6,14 +6,13 @@ package org.rocksdb;
 
 /**
  * Instances of this class describe a Backup made by
- * {@link org.rocksdb.BackupableDB}.
+ * {@link org.rocksdb.BackupEngine}.
  */
 public class BackupInfo {
 
   /**
    * Package private constructor used to create instances
-   * of BackupInfo by {@link org.rocksdb.BackupableDB} and
-   * {@link org.rocksdb.RestoreBackupableDB}.
+   * of BackupInfo by {@link org.rocksdb.BackupEngine}
    *
    * @param backupId id of backup
    * @param timestamp timestamp of backup

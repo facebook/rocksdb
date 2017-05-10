@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -21,6 +23,7 @@
 #include "util/logging.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
+#include "utilities/checkpoint/checkpoint_impl.h"
 
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
@@ -612,18 +615,28 @@ Status BackupEngineImpl::Initialize() {
       const auto abs_dir = GetAbsolutePath(rel_dir);
       InsertPathnameToSizeBytes(abs_dir, backup_env_, &abs_path_to_size);
     }
-    // load the backups if any
-    for (auto& backup : backups_) {
+    // load the backups if any, until valid_backups_to_open of the latest
+    // non-corrupted backups have been successfully opened.
+    int valid_backups_to_open;
+    if (options_.max_valid_backups_to_open == 0) {
+      valid_backups_to_open = INT_MAX;
+    } else {
+      valid_backups_to_open = options_.max_valid_backups_to_open;
+    }
+    for (auto backup_iter = backups_.rbegin();
+         backup_iter != backups_.rend() && valid_backups_to_open > 0;
+         ++backup_iter) {
       InsertPathnameToSizeBytes(
-          GetAbsolutePath(GetPrivateFileRel(backup.first)), backup_env_,
+          GetAbsolutePath(GetPrivateFileRel(backup_iter->first)), backup_env_,
           &abs_path_to_size);
-      Status s =
-          backup.second->LoadFromFile(options_.backup_dir, abs_path_to_size);
+      Status s = backup_iter->second->LoadFromFile(options_.backup_dir,
+                                                   abs_path_to_size);
       if (s.IsCorruption()) {
         ROCKS_LOG_INFO(options_.info_log, "Backup %u corrupted -- %s",
-                       backup.first, s.ToString().c_str());
-        corrupt_backups_.insert(std::make_pair(
-              backup.first, std::make_pair(s, std::move(backup.second))));
+                       backup_iter->first, s.ToString().c_str());
+        corrupt_backups_.insert(
+            std::make_pair(backup_iter->first,
+                           std::make_pair(s, std::move(backup_iter->second))));
       } else if (!s.ok()) {
         // Distinguish corruption errors from errors in the backup Env.
         // Errors in the backup Env (i.e., this code path) will cause Open() to
@@ -631,13 +644,28 @@ Status BackupEngineImpl::Initialize() {
         return s;
       } else {
         ROCKS_LOG_INFO(options_.info_log, "Loading backup %" PRIu32 " OK:\n%s",
-                       backup.first, backup.second->GetInfoString().c_str());
-        latest_backup_id_ = std::max(latest_backup_id_, backup.first);
+                       backup_iter->first,
+                       backup_iter->second->GetInfoString().c_str());
+        latest_backup_id_ = std::max(latest_backup_id_, backup_iter->first);
+        --valid_backups_to_open;
       }
     }
 
     for (const auto& corrupt : corrupt_backups_) {
       backups_.erase(backups_.find(corrupt.first));
+    }
+    // erase the backups before max_valid_backups_to_open
+    int num_unopened_backups;
+    if (options_.max_valid_backups_to_open == 0) {
+      num_unopened_backups = 0;
+    } else {
+      num_unopened_backups =
+          std::max(0, static_cast<int>(backups_.size()) -
+                          options_.max_valid_backups_to_open);
+    }
+    for (int i = 0; i < num_unopened_backups; ++i) {
+      assert(backups_.begin()->second->Empty());
+      backups_.erase(backups_.begin());
     }
   }
 
@@ -677,28 +705,6 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
   if (app_metadata.size() > kMaxAppMetaSize) {
     return Status::InvalidArgument("App metadata too large");
   }
-  Status s;
-  std::vector<std::string> live_files;
-  VectorLogPtr live_wal_files;
-  uint64_t manifest_file_size = 0;
-  uint64_t sequence_number = db->GetLatestSequenceNumber();
-
-  s = db->DisableFileDeletions();
-  if (s.ok()) {
-    // this will return live_files prefixed with "/"
-    s = db->GetLiveFiles(live_files, &manifest_file_size, flush_before_backup);
-  }
-  // if we didn't flush before backup, we need to also get WAL files
-  if (s.ok() && !flush_before_backup && options_.backup_log_files) {
-    // returns file names prefixed with "/"
-    s = db->GetSortedWalFiles(live_wal_files);
-  }
-  if (!s.ok()) {
-    db->EnableFileDeletions(false);
-    return s;
-  }
-  TEST_SYNC_POINT("BackupEngineImpl::CreateNewBackup:SavedLiveFiles1");
-  TEST_SYNC_POINT("BackupEngineImpl::CreateNewBackup:SavedLiveFiles2");
 
   BackupID new_backup_id = latest_backup_id_ + 1;
 
@@ -710,7 +716,6 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
   assert(ret.second == true);
   auto& new_backup = ret.first->second;
   new_backup->RecordTimestamp();
-  new_backup->SetSequenceNumber(sequence_number);
   new_backup->SetAppMetadata(app_metadata);
 
   auto start_backup = backup_env_-> NowMicros();
@@ -720,7 +725,7 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
                  new_backup_id);
 
   auto private_tmp_dir = GetAbsolutePath(GetPrivateFileRel(new_backup_id, true));
-  s = backup_env_->FileExists(private_tmp_dir);
+  Status s = backup_env_->FileExists(private_tmp_dir);
   if (s.ok()) {
     // maybe last backup failed and left partial state behind, clean it up
     s = GarbageCollect();
@@ -742,81 +747,53 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
   // This is used to check whether a live files shares a dst_path with another
   // live file.
   std::unordered_set<std::string> live_dst_paths;
-  live_dst_paths.reserve(live_files.size() + live_wal_files.size());
-
-  // Pre-fetch sizes for data files
-  std::unordered_map<std::string, uint64_t> data_path_to_size;
-  if (s.ok()) {
-    s = InsertPathnameToSizeBytes(db->GetName(), db_env_, &data_path_to_size);
-  }
 
   std::vector<BackupAfterCopyOrCreateWorkItem> backup_items_to_finish;
   // Add a CopyOrCreateWorkItem to the channel for each live file
-  std::string manifest_fname, current_fname;
-  for (size_t i = 0; s.ok() && i < live_files.size(); ++i) {
-    uint64_t number;
-    FileType type;
-    bool ok = ParseFileName(live_files[i], &number, &type);
-    if (!ok) {
-      assert(false);
-      return Status::Corruption("Can't parse file name. This is very bad");
-    }
-    // we should only get sst, manifest and current files here
-    assert(type == kTableFile || type == kDescriptorFile ||
-           type == kCurrentFile || type == kOptionsFile);
-
-    if (type == kCurrentFile) {
-      // We will craft the current file manually to ensure it's consistent with
-      // the manifest number. This is necessary because current's file contents
-      // can change during backup.
-      current_fname = live_files[i];
-      continue;
-    } else if (type == kDescriptorFile) {
-      manifest_fname = live_files[i];
-    }
-
-    auto data_path_to_size_iter =
-        data_path_to_size.find(db->GetName() + live_files[i]);
-    uint64_t size_bytes = data_path_to_size_iter == data_path_to_size.end()
-                              ? port::kMaxUint64
-                              : data_path_to_size_iter->second;
-
-    // rules:
-    // * if it's kTableFile, then it's shared
-    // * if it's kDescriptorFile, limit the size to manifest_file_size
-    s = AddBackupFileWorkItem(
-        live_dst_paths, backup_items_to_finish, new_backup_id,
-        options_.share_table_files && type == kTableFile, db->GetName(),
-        live_files[i], rate_limiter, size_bytes,
-        (type == kDescriptorFile) ? manifest_file_size : 0,
-        options_.share_files_with_checksum && type == kTableFile,
-        progress_callback);
-  }
-  if (s.ok() && !current_fname.empty() && !manifest_fname.empty()) {
-    // Write the current file with the manifest filename as its contents.
-    s = AddBackupFileWorkItem(
-        live_dst_paths, backup_items_to_finish, new_backup_id,
-        false /* shared */, "" /* src_dir */, CurrentFileName(""), rate_limiter,
-        manifest_fname.size(), 0 /* size_limit */, false /* shared_checksum */,
-        progress_callback, manifest_fname.substr(1) + "\n");
-  }
-  ROCKS_LOG_INFO(options_.info_log,
-                 "begin add wal files for backup -- %" ROCKSDB_PRIszt,
-                 live_wal_files.size());
-  // Add a CopyOrCreateWorkItem to the channel for each WAL file
-  for (size_t i = 0; s.ok() && i < live_wal_files.size(); ++i) {
-    uint64_t size_bytes = live_wal_files[i]->SizeFileBytes();
-    if (live_wal_files[i]->Type() == kAliveLogFile) {
-      ROCKS_LOG_INFO(options_.info_log,
-                     "add wal file for backup %s -- %" PRIu64,
-                     live_wal_files[i]->PathName().c_str(), size_bytes);
-      // we only care about live log files
-      // copy the file into backup_dir/files/<new backup>/
-      s = AddBackupFileWorkItem(live_dst_paths, backup_items_to_finish,
-                                new_backup_id, false, /* not shared */
-                                db->GetOptions().wal_dir,
-                                live_wal_files[i]->PathName(), rate_limiter,
-                                size_bytes, size_bytes);
+  db->DisableFileDeletions();
+  if (s.ok()) {
+    CheckpointImpl checkpoint(db);
+    uint64_t sequence_number = 0;
+    s = checkpoint.CreateCustomCheckpoint(
+        db->GetDBOptions(),
+        [&](const std::string& src_dirname, const std::string& fname,
+            FileType) {
+          // custom checkpoint will switch to calling copy_file_cb after it sees
+          // NotSupported returned from link_file_cb.
+          return Status::NotSupported();
+        } /* link_file_cb */,
+        [&](const std::string& src_dirname, const std::string& fname,
+            uint64_t size_limit_bytes, FileType type) {
+          if (type == kLogFile && !options_.backup_log_files) {
+            return Status::OK();
+          }
+          Log(options_.info_log, "add file for backup %s", fname.c_str());
+          uint64_t size_bytes = 0;
+          Status st;
+          if (type == kTableFile) {
+            st = db_env_->GetFileSize(src_dirname + fname, &size_bytes);
+          }
+          if (st.ok()) {
+            st = AddBackupFileWorkItem(
+                live_dst_paths, backup_items_to_finish, new_backup_id,
+                options_.share_table_files && type == kTableFile, src_dirname,
+                fname, rate_limiter, size_bytes, size_limit_bytes,
+                options_.share_files_with_checksum && type == kTableFile,
+                progress_callback);
+          }
+          return st;
+        } /* copy_file_cb */,
+        [&](const std::string& fname, const std::string& contents, FileType) {
+          Log(options_.info_log, "add file for backup %s", fname.c_str());
+          return AddBackupFileWorkItem(
+              live_dst_paths, backup_items_to_finish, new_backup_id,
+              false /* shared */, "" /* src_dir */, fname, rate_limiter,
+              contents.size(), 0 /* size_limit */, false /* shared_checksum */,
+              progress_callback, contents);
+        } /* create_file_cb */,
+        &sequence_number, flush_before_backup ? 0 : port::kMaxUint64);
+    if (s.ok()) {
+      new_backup->SetSequenceNumber(sequence_number);
     }
   }
   ROCKS_LOG_INFO(options_.info_log, "add files for backup done, wait finish.");

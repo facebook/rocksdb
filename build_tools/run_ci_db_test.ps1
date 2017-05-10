@@ -276,7 +276,7 @@ if($RunAll) {
       continue
     }
 
-    if($RunOnly.Contains($e)) {
+    if($RunOnly.Contains($bare_name)) {
       MakeAndAdd -token $e -HashTable $TestExes
     } else {
       $ListOfSuites += $bare_name

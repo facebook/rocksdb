@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -30,7 +32,7 @@ class CacheShard {
                         Cache::Handle** handle, Cache::Priority priority) = 0;
   virtual Cache::Handle* Lookup(const Slice& key, uint32_t hash) = 0;
   virtual bool Ref(Cache::Handle* handle) = 0;
-  virtual void Release(Cache::Handle* handle) = 0;
+  virtual bool Release(Cache::Handle* handle, bool force_erase = false) = 0;
   virtual void Erase(const Slice& key, uint32_t hash) = 0;
   virtual void SetCapacity(size_t capacity) = 0;
   virtual void SetStrictCapacityLimit(bool strict_capacity_limit) = 0;
@@ -65,7 +67,7 @@ class ShardedCache : public Cache {
                         Handle** handle, Priority priority) override;
   virtual Handle* Lookup(const Slice& key, Statistics* stats) override;
   virtual bool Ref(Handle* handle) override;
-  virtual void Release(Handle* handle) override;
+  virtual bool Release(Handle* handle, bool force_erase = false) override;
   virtual void Erase(const Slice& key) override;
   virtual uint64_t NewId() override;
   virtual size_t GetCapacity() const override;

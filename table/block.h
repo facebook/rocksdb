@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -27,7 +29,8 @@
 #include "rocksdb/statistics.h"
 #include "table/block_prefix_index.h"
 #include "table/internal_iterator.h"
-
+#include "util/random.h"
+#include "util/sync_point.h"
 #include "format.h"
 
 namespace rocksdb {
@@ -44,7 +47,12 @@ class BlockReadAmpBitmap {
  public:
   explicit BlockReadAmpBitmap(size_t block_size, size_t bytes_per_bit,
                               Statistics* statistics)
-      : bitmap_(nullptr), bytes_per_bit_pow_(0), statistics_(statistics) {
+      : bitmap_(nullptr),
+        bytes_per_bit_pow_(0),
+        statistics_(statistics),
+        rnd_(
+            Random::GetTLSInstance()->Uniform(static_cast<int>(bytes_per_bit))) {
+    TEST_SYNC_POINT_CALLBACK("BlockReadAmpBitmap:rnd", &rnd_);
     assert(block_size > 0 && bytes_per_bit > 0);
 
     // convert bytes_per_bit to be a power of 2
@@ -54,62 +62,38 @@ class BlockReadAmpBitmap {
 
     // num_bits_needed = ceil(block_size / bytes_per_bit)
     size_t num_bits_needed =
-        (block_size >> static_cast<size_t>(bytes_per_bit_pow_)) +
-        (block_size % (static_cast<size_t>(1)
-                       << static_cast<size_t>(bytes_per_bit_pow_)) !=
-         0);
+      ((block_size - 1) >> bytes_per_bit_pow_) + 1;
+    assert(num_bits_needed > 0);
 
     // bitmap_size = ceil(num_bits_needed / kBitsPerEntry)
-    size_t bitmap_size = (num_bits_needed / kBitsPerEntry) +
-                         (num_bits_needed % kBitsPerEntry != 0);
+    size_t bitmap_size = (num_bits_needed - 1) / kBitsPerEntry + 1;
 
     // Create bitmap and set all the bits to 0
     bitmap_ = new std::atomic<uint32_t>[bitmap_size];
     memset(bitmap_, 0, bitmap_size * kBytesPersEntry);
 
-    RecordTick(GetStatistics(), READ_AMP_TOTAL_READ_BYTES,
-               num_bits_needed << bytes_per_bit_pow_);
+    RecordTick(GetStatistics(), READ_AMP_TOTAL_READ_BYTES, block_size);
   }
 
   ~BlockReadAmpBitmap() { delete[] bitmap_; }
 
   void Mark(uint32_t start_offset, uint32_t end_offset) {
     assert(end_offset >= start_offset);
-
-    // Every new bit we set will bump this counter
-    uint32_t new_useful_bytes = 0;
-    // Index of first bit in mask (start_offset / bytes_per_bit)
-    uint32_t start_bit = start_offset >> bytes_per_bit_pow_;
-    // Index of last bit in mask (end_offset / bytes_per_bit)
-    uint32_t end_bit = end_offset >> bytes_per_bit_pow_;
-    // Index of middle bit (unique to this range)
-    uint32_t mid_bit = start_bit + 1;
-
-    // It's guaranteed that ranges sent to Mark() wont overlap, this mean that
-    // we dont need to set the middle bits, we can simply set only one bit of
-    // the middle bits, and check this bit if we want to know if the whole
-    // range is set or not.
-    if (mid_bit < end_bit) {
-      if (GetAndSet(mid_bit) == 0) {
-        new_useful_bytes += (end_bit - mid_bit) << bytes_per_bit_pow_;
-      } else {
-        // If the middle bit is set, it's guaranteed that start and end bits
-        // are also set
-        return;
-      }
-    } else {
-      // This range dont have a middle bit, the whole range fall in 1 or 2 bits
+    // Index of first bit in mask
+    uint32_t start_bit =
+        (start_offset + (1 << bytes_per_bit_pow_) - rnd_ - 1) >>
+        bytes_per_bit_pow_;
+    // Index of last bit in mask + 1
+    uint32_t exclusive_end_bit =
+        (end_offset + (1 << bytes_per_bit_pow_) - rnd_) >> bytes_per_bit_pow_;
+    if (start_bit >= exclusive_end_bit) {
+      return;
     }
+    assert(exclusive_end_bit > 0);
 
     if (GetAndSet(start_bit) == 0) {
-      new_useful_bytes += (1 << bytes_per_bit_pow_);
-    }
-
-    if (GetAndSet(end_bit) == 0) {
-      new_useful_bytes += (1 << bytes_per_bit_pow_);
-    }
-
-    if (new_useful_bytes > 0) {
+      uint32_t new_useful_bytes = (exclusive_end_bit - start_bit)
+                                  << bytes_per_bit_pow_;
       RecordTick(GetStatistics(), READ_AMP_ESTIMATE_USEFUL_BYTES,
                  new_useful_bytes);
     }
@@ -146,6 +130,7 @@ class BlockReadAmpBitmap {
   // this pointer maybe invalid, but the DB will update it to a valid pointer
   // by using SetStatistics() before calling Mark()
   std::atomic<Statistics*> statistics_;
+  uint32_t rnd_;
 };
 
 class Block {

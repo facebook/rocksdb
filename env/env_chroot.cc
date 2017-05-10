@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #if !defined(ROCKSDB_LITE) && !defined(OS_WIN)
 
@@ -24,11 +26,18 @@ class ChrootEnv : public EnvWrapper {
  public:
   ChrootEnv(Env* base_env, const std::string& chroot_dir)
       : EnvWrapper(base_env) {
+#if defined(OS_AIX)
+    char resolvedName[PATH_MAX];
+    char* real_chroot_dir = realpath(chroot_dir.c_str(), resolvedName);
+#else
     char* real_chroot_dir = realpath(chroot_dir.c_str(), nullptr);
+#endif
     // chroot_dir must exist so realpath() returns non-nullptr.
     assert(real_chroot_dir != nullptr);
     chroot_dir_ = real_chroot_dir;
+#if !defined(OS_AIX)
     free(real_chroot_dir);
+#endif
   }
 
   virtual Status NewSequentialFile(const std::string& fname,
@@ -258,7 +267,12 @@ class ChrootEnv : public EnvWrapper {
     }
     std::pair<Status, std::string> res;
     res.second = chroot_dir_ + path;
+#if defined(OS_AIX)
+    char resolvedName[PATH_MAX];
+    char* normalized_path = realpath(res.second.c_str(), resolvedName);
+#else
     char* normalized_path = realpath(res.second.c_str(), nullptr);
+#endif
     if (normalized_path == nullptr) {
       res.first = Status::NotFound(res.second, strerror(errno));
     } else if (strlen(normalized_path) < chroot_dir_.size() ||
@@ -269,7 +283,9 @@ class ChrootEnv : public EnvWrapper {
     } else {
       res.first = Status::OK();
     }
+#if !defined(OS_AIX)
     free(normalized_path);
+#endif
     return res;
   }
 

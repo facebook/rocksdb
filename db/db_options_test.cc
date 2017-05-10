@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -15,6 +17,7 @@
 #include "db/db_test_util.h"
 #include "options/options_helper.h"
 #include "port/stack_trace.h"
+#include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
 #include "util/random.h"
 #include "util/sync_point.h"
@@ -380,6 +383,24 @@ TEST_F(DBOptionsTest, DeleteObsoleteFilesPeriodChange) {
   env.addon_time_.store(21);
   assert_candidate_files_empty(dbfull(), false);
 
+  Close();
+}
+
+TEST_F(DBOptionsTest, MaxOpenFilesChange) {
+  SpecialEnv env(env_);
+  Options options;
+  options.max_open_files = -1;
+
+  Reopen(options);
+
+  Cache* tc = dbfull()->TEST_table_cache();
+
+  ASSERT_EQ(-1, dbfull()->GetDBOptions().max_open_files);
+  ASSERT_LT(2000, tc->GetCapacity());
+  ASSERT_OK(dbfull()->SetDBOptions({{"max_open_files", "1024"}}));
+  ASSERT_EQ(1024, dbfull()->GetDBOptions().max_open_files);
+  // examine the table cache (actual size should be 1014)
+  ASSERT_GT(1500, tc->GetCapacity());
   Close();
 }
 

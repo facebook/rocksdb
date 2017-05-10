@@ -2,8 +2,15 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 #ifndef ROCKSDB_LITE
+
+#ifndef GFLAGS
+#include <cstdio>
+int main() { fprintf(stderr, "Please install gflags to run tools\n"); }
+#else
 #include <gflags/gflags.h>
 #include <atomic>
 #include <functional>
@@ -349,6 +356,7 @@ int main(int argc, char** argv) {
 
   return 0;
 }
+#endif  // #ifndef GFLAGS
 #else
 int main(int, char**) { return 0; }
 #endif

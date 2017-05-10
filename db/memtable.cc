@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -724,9 +726,9 @@ void MemTable::Update(SequenceNumber seq,
         uint32_t new_size = static_cast<uint32_t>(value.size());
 
         // Update value, if new value size  <= previous value size
-        if (new_size <= prev_size ) {
-          char* p = EncodeVarint32(const_cast<char*>(key_ptr) + key_length,
-                                   new_size);
+        if (new_size <= prev_size) {
+          char* p =
+              EncodeVarint32(const_cast<char*>(key_ptr) + key_length, new_size);
           WriteLock wl(GetLock(lkey.user_key()));
           memcpy(p, value.data(), value.size());
           assert((unsigned)((p + value.size()) - entry) ==

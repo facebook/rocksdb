@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -797,6 +799,17 @@ Status WriteBatch::RollbackToSavePoint() {
     WriteBatchInternal::SetCount(this, savepoint.count);
     content_flags_.store(savepoint.content_flags, std::memory_order_relaxed);
   }
+
+  return Status::OK();
+}
+
+Status WriteBatch::PopSavePoint() {
+  if (save_points_ == nullptr || save_points_->stack.size() == 0) {
+    return Status::NotFound();
+  }
+
+  // Pop the most recent savepoint off the stack
+  save_points_->stack.pop();
 
   return Status::OK();
 }

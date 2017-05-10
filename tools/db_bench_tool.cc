@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -177,6 +179,7 @@ DEFINE_string(
     "Meta operations:\n"
     "\tcompact     -- Compact the entire DB\n"
     "\tstats       -- Print DB stats\n"
+    "\tresetstats  -- Reset DB stats\n"
     "\tlevelstats  -- Print the number of files and bytes per level\n"
     "\tsstables    -- Print sstable info\n"
     "\theapprofile -- Dump a heap profile (if supported by this"
@@ -618,6 +621,8 @@ DEFINE_string(
 
 DEFINE_uint64(fifo_compaction_max_table_files_size_mb, 0,
               "The limit of total table file sizes to trigger FIFO compaction");
+DEFINE_bool(fifo_compaction_allow_compaction, true,
+            "Allow compaction in FIFO compaction.");
 #endif  // ROCKSDB_LITE
 
 DEFINE_bool(report_bg_io_stats, false,
@@ -2483,6 +2488,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         method = &Benchmark::TimeSeries;
       } else if (name == "stats") {
         PrintStats("rocksdb.stats");
+      } else if (name == "resetstats") {
+        ResetStats();
       } else if (name == "verify") {
         VerifyDBFromDB(FLAGS_truth_db);
       } else if (name == "levelstats") {
@@ -2871,7 +2878,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         FLAGS_use_direct_io_for_flush_and_compaction;
 #ifndef ROCKSDB_LITE
     options.compaction_options_fifo = CompactionOptionsFIFO(
-       FLAGS_fifo_compaction_max_table_files_size_mb * 1024 * 1024);
+        FLAGS_fifo_compaction_max_table_files_size_mb * 1024 * 1024,
+        FLAGS_fifo_compaction_allow_compaction);
 #endif  // ROCKSDB_LITE
     if (FLAGS_prefix_size != 0) {
       options.prefix_extractor.reset(
@@ -5063,6 +5071,15 @@ void VerifyDBFromDB(std::string& truth_db_name) {
   void Compact(ThreadState* thread) {
     DB* db = SelectDB(thread);
     db->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  }
+
+  void ResetStats() {
+    if (db_.db != nullptr) {
+      db_.db->ResetStats();
+    }
+    for (const auto& db_with_cfh : multi_dbs_) {
+      db_with_cfh.db->ResetStats();
+    }
   }
 
   void PrintStats(const char* key) {

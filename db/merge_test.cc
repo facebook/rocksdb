@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 #include <assert.h>
 #include <memory>
@@ -141,7 +143,9 @@ class Counters {
   // mapped to a levedb Put
   bool set(const std::string& key, uint64_t value) {
     // just treat the internal rep of int64 as the string
-    Slice slice((char *)&value, sizeof(value));
+    char buf[sizeof(value)];
+    EncodeFixed64(buf, value);
+    Slice slice(buf, sizeof(value));
     auto s = db_->Put(put_option_, key, slice);
 
     if (s.ok()) {
@@ -375,7 +379,9 @@ void testSingleBatchSuccessiveMerge(DB* db, size_t max_num_merges,
 
   Slice key("BatchSuccessiveMerge");
   uint64_t merge_value = 1;
-  Slice merge_value_slice((char *)&merge_value, sizeof(merge_value));
+  char buf[sizeof(merge_value)];
+  EncodeFixed64(buf, merge_value);
+  Slice merge_value_slice(buf, sizeof(merge_value));
 
   // Create the batch
   WriteBatch batch;

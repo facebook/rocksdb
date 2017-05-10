@@ -4,11 +4,37 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #include "db/compaction_iterator.h"
+#include "rocksdb/listener.h"
 #include "table/internal_iterator.h"
 
 namespace rocksdb {
+
+#ifndef ROCKSDB_LITE
+CompactionEventListener::CompactionListenerValueType fromInternalValueType(
+    ValueType vt) {
+  switch (vt) {
+    case kTypeDeletion:
+      return CompactionEventListener::CompactionListenerValueType::kDelete;
+    case kTypeValue:
+      return CompactionEventListener::CompactionListenerValueType::kValue;
+    case kTypeMerge:
+      return CompactionEventListener::CompactionListenerValueType::
+          kMergeOperand;
+    case kTypeSingleDeletion:
+      return CompactionEventListener::CompactionListenerValueType::
+          kSingleDelete;
+    case kTypeRangeDeletion:
+      return CompactionEventListener::CompactionListenerValueType::kRangeDelete;
+    default:
+      assert(false);
+      return CompactionEventListener::CompactionListenerValueType::kInvalid;
+  }
+}
+#endif  // ROCKSDB_LITE
 
 CompactionIterator::CompactionIterator(
     InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
@@ -16,6 +42,7 @@ CompactionIterator::CompactionIterator(
     SequenceNumber earliest_write_conflict_snapshot, Env* env,
     bool expect_valid_internal_key, RangeDelAggregator* range_del_agg,
     const Compaction* compaction, const CompactionFilter* compaction_filter,
+    CompactionEventListener* compaction_listener,
     const std::atomic<bool>* shutting_down)
     : CompactionIterator(
           input, cmp, merge_helper, last_sequence, snapshots,
@@ -23,7 +50,7 @@ CompactionIterator::CompactionIterator(
           range_del_agg,
           std::unique_ptr<CompactionProxy>(
               compaction ? new CompactionProxy(compaction) : nullptr),
-          compaction_filter, shutting_down) {}
+          compaction_filter, compaction_listener, shutting_down) {}
 
 CompactionIterator::CompactionIterator(
     InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
@@ -32,6 +59,7 @@ CompactionIterator::CompactionIterator(
     bool expect_valid_internal_key, RangeDelAggregator* range_del_agg,
     std::unique_ptr<CompactionProxy> compaction,
     const CompactionFilter* compaction_filter,
+    CompactionEventListener* compaction_listener,
     const std::atomic<bool>* shutting_down)
     : input_(input),
       cmp_(cmp),
@@ -43,7 +71,9 @@ CompactionIterator::CompactionIterator(
       range_del_agg_(range_del_agg),
       compaction_(std::move(compaction)),
       compaction_filter_(compaction_filter),
+      compaction_listener_(compaction_listener),
       shutting_down_(shutting_down),
+      ignore_snapshots_(false),
       merge_out_iter_(merge_helper_) {
   assert(compaction_filter_ == nullptr || compaction_ != nullptr);
   bottommost_level_ =
@@ -55,15 +85,15 @@ CompactionIterator::CompactionIterator(
   if (snapshots_->size() == 0) {
     // optimize for fast path if there are no snapshots
     visible_at_tip_ = true;
-    earliest_snapshot_ = last_sequence;
+    earliest_snapshot_ = kMaxSequenceNumber;
     latest_snapshot_ = 0;
   } else {
     visible_at_tip_ = false;
     earliest_snapshot_ = snapshots_->at(0);
     latest_snapshot_ = snapshots_->back();
   }
-  if (compaction_filter_ != nullptr && compaction_filter_->IgnoreSnapshots()) {
-    ignore_snapshots_ = true;
+  if (compaction_filter_ != nullptr) {
+    if (compaction_filter_->IgnoreSnapshots()) ignore_snapshots_ = true;
   } else {
     ignore_snapshots_ = false;
   }
@@ -188,6 +218,14 @@ void CompactionIterator::NextFromInput() {
       current_user_key_sequence_ = kMaxSequenceNumber;
       current_user_key_snapshot_ = 0;
 
+#ifndef ROCKSDB_LITE
+      if (compaction_listener_) {
+        compaction_listener_->OnCompaction(compaction_->level(), ikey_.user_key,
+                                           fromInternalValueType(ikey_.type),
+                                           value_, ikey_.sequence, true);
+      }
+#endif  // ROCKSDB_LITE
+
       // apply the compaction filter to the first occurrence of the user key
       if (compaction_filter_ != nullptr && ikey_.type == kTypeValue &&
           (visible_at_tip_ || ikey_.sequence > latest_snapshot_ ||
@@ -235,6 +273,14 @@ void CompactionIterator::NextFromInput() {
         }
       }
     } else {
+#ifndef ROCKSDB_LITE
+      if (compaction_listener_) {
+        compaction_listener_->OnCompaction(compaction_->level(), ikey_.user_key,
+                                           fromInternalValueType(ikey_.type),
+                                           value_, ikey_.sequence, false);
+      }
+#endif  // ROCKSDB_LITE
+
       // Update the current key to reflect the new sequence number/type without
       // copying the user key.
       // TODO(rven): Compaction filter does not process keys in this path
@@ -394,7 +440,7 @@ void CompactionIterator::NextFromInput() {
       // is the same as the visibility of a previous instance of the
       // same key, then this kv is not visible in any snapshot.
       // Hidden by an newer entry for same user key
-      // TODO: why not > ?
+      // TODO(noetzli): why not > ?
       //
       // Note: Dropping this key will not affect TransactionDB write-conflict
       // checking since there has already been a record returned for this key
@@ -500,7 +546,7 @@ void CompactionIterator::PrepareOutput() {
 
   // This is safe for TransactionDB write-conflict checking since transactions
   // only care about sequence number larger than any active snapshots.
-  if (bottommost_level_ && valid_ && ikey_.sequence < earliest_snapshot_ &&
+  if (bottommost_level_ && valid_ && ikey_.sequence <= earliest_snapshot_ &&
       ikey_.type != kTypeMerge &&
       !cmp_->Equal(compaction_->GetLargestUserKey(), ikey_.user_key)) {
     assert(ikey_.type != kTypeDeletion && ikey_.type != kTypeSingleDeletion);

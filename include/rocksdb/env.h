@@ -163,6 +163,20 @@ class Env {
                                  unique_ptr<WritableFile>* result,
                                  const EnvOptions& options) = 0;
 
+  // Create an object that writes to a new file with the specified
+  // name.  Deletes any existing file with the same name and creates a
+  // new file.  On success, stores a pointer to the new file in
+  // *result and returns OK.  On failure stores nullptr in *result and
+  // returns non-OK.
+  //
+  // The returned file will only be accessed by one thread at a time.
+  virtual Status ReopenWritableFile(const std::string& fname,
+                                    unique_ptr<WritableFile>* result,
+                                    const EnvOptions& options) {
+    Status s;
+    return s;
+  }
+
   // Reuse an existing file by renaming it and opening it as writable.
   virtual Status ReuseWritableFile(const std::string& fname,
                                    const std::string& old_fname,
@@ -454,6 +468,8 @@ class SequentialFile {
   // aligned buffer for Direct I/O
   virtual size_t GetRequiredBufferAlignment() const { return kDefaultPageSize; }
 
+  virtual void Rewind() {}
+
   // Remove any kind of caching of data from the offset to offset+length
   // of this file. If the length is 0, then it refers to the end of file.
   // If the system is not caching the file contents, then this is a noop.
@@ -493,16 +509,6 @@ class RandomAccessFile {
   virtual Status Prefetch(uint64_t offset, size_t n) {
     return Status::OK();
   }
-
-  // Used by the file_reader_writer to decide if the ReadAhead wrapper
-  // should simply forward the call and do not enact buffering or locking.
-  virtual bool ShouldForwardRawRequest() const {
-    return false;
-  }
-
-  // For cases when read-ahead is implemented in the platform dependent
-  // layer
-  virtual void EnableReadAhead() {}
 
   // Tries to get an unique ID for this file that will be the same each time
   // the file is opened (and will stay the same while the file is open).
@@ -697,14 +703,12 @@ class WritableFile {
     }
   }
 
- protected:
-  /*
-   * Pre-allocate space for a file.
-   */
+  // Pre-allocates space for a file.
   virtual Status Allocate(uint64_t offset, uint64_t len) {
     return Status::OK();
   }
 
+ protected:
   size_t preallocation_block_size() { return preallocation_block_size_; }
 
  private:
@@ -734,17 +738,6 @@ class RandomRWFile {
   // Use the returned alignment value to allocate
   // aligned buffer for Direct I/O
   virtual size_t GetRequiredBufferAlignment() const { return kDefaultPageSize; }
-
-  // Used by the file_reader_writer to decide if the ReadAhead wrapper
-  // should simply forward the call and do not enact read_ahead buffering or locking.
-  // The implementation below takes care of reading ahead
-  virtual bool ShouldForwardRawRequest() const {
-    return false;
-  }
-
-  // For cases when read-ahead is implemented in the platform dependent
-  // layer. This is when ShouldForwardRawRequest() returns true.
-  virtual void EnableReadAhead() {}
 
   // Write bytes in `data` at  offset `offset`, Returns Status::OK() on success.
   // Pass aligned buffer when use_direct_io() returns true.
@@ -917,6 +910,11 @@ class EnvWrapper : public Env {
   Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r,
                          const EnvOptions& options) override {
     return target_->NewWritableFile(f, r, options);
+  }
+  Status ReopenWritableFile(const std::string& fname,
+                            unique_ptr<WritableFile>* result,
+                            const EnvOptions& options) override {
+    return target_->ReopenWritableFile(fname, result, options);
   }
   Status ReuseWritableFile(const std::string& fname,
                            const std::string& old_fname,

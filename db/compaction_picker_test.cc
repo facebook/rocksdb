@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #include "db/compaction_picker.h"
 #include <limits>
@@ -1011,7 +1013,8 @@ TEST_F(CompactionPickerTest, EstimateCompactionBytesNeededDynamicLevel) {
 
   // Set Last level size 50000
   // num_levels - 1 target 5000
-  // num_levels - 2 is base level with taret 500
+  // num_levels - 2 is base level with target 1000 (rounded up to
+  // max_bytes_for_level_base).
   Add(num_levels - 1, 10U, "400", "500", 50000);
 
   Add(0, 1U, "150", "200", 200);
@@ -1020,16 +1023,16 @@ TEST_F(CompactionPickerTest, EstimateCompactionBytesNeededDynamicLevel) {
   Add(0, 5U, "150", "200", 200);
   Add(0, 6U, "150", "200", 200);
   // num_levels - 3 is over target by 100 + 1000
-  Add(num_levels - 3, 7U, "400", "500", 300);
-  Add(num_levels - 3, 8U, "600", "700", 300);
+  Add(num_levels - 3, 7U, "400", "500", 550);
+  Add(num_levels - 3, 8U, "600", "700", 550);
   // num_levels - 2 is over target by 1100 + 200
   Add(num_levels - 2, 9U, "150", "200", 5200);
 
   UpdateVersionStorageInfo();
 
-  // Merging to the second last level: (5200 / 1600 + 1) * 1100
+  // Merging to the second last level: (5200 / 2100 + 1) * 1100
   // Merging to the last level: (50000 / 6300 + 1) * 1300
-  ASSERT_EQ(1600u + 4675u + 11617u,
+  ASSERT_EQ(2100u + 3823u + 11617u,
             vstorage_->estimated_compaction_needed_bytes());
 }
 

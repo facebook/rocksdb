@@ -2,12 +2,13 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include <inttypes.h>
 #include <stdio.h>
 
 #include <algorithm>
@@ -17,6 +18,7 @@
 #include <string>
 #include <vector>
 
+#include "cache/lru_cache.h"
 #include "db/dbformat.h"
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
@@ -2120,6 +2122,137 @@ TEST_F(BlockBasedTableTest, BlockReadCountTest) {
         // filter is already in memory and it figures out that the key doesn't
         // exist
         ASSERT_EQ(perf_context.block_read_count, 0);
+      }
+    }
+  }
+}
+
+// A wrapper around LRICache that also keeps track of data blocks (in contrast
+// with the objects) in the cache. The class is very simple and can be used only
+// for trivial tests.
+class MockCache : public LRUCache {
+ public:
+  MockCache(size_t capacity, int num_shard_bits, bool strict_capacity_limit,
+            double high_pri_pool_ratio)
+      : LRUCache(capacity, num_shard_bits, strict_capacity_limit,
+                 high_pri_pool_ratio) {}
+  virtual Status Insert(const Slice& key, void* value, size_t charge,
+                        void (*deleter)(const Slice& key, void* value),
+                        Handle** handle = nullptr,
+                        Priority priority = Priority::LOW) override {
+    // Replace the deleter with our own so that we keep track of data blocks
+    // erased from the cache
+    deleters_[key.ToString()] = deleter;
+    return ShardedCache::Insert(key, value, charge, &MockDeleter, handle,
+                                priority);
+  }
+  // This is called by the application right after inserting a data block
+  virtual void TEST_mark_as_data_block(const Slice& key,
+                                       size_t charge) override {
+    marked_data_in_cache_[key.ToString()] = charge;
+    marked_size_ += charge;
+  }
+  using DeleterFunc = void (*)(const Slice& key, void* value);
+  static std::map<std::string, DeleterFunc> deleters_;
+  static std::map<std::string, size_t> marked_data_in_cache_;
+  static size_t marked_size_;
+  static void MockDeleter(const Slice& key, void* value) {
+    // If the item was marked for being data block, decrease its usage from  the
+    // total data block usage of the cache
+    if (marked_data_in_cache_.find(key.ToString()) !=
+        marked_data_in_cache_.end()) {
+      marked_size_ -= marked_data_in_cache_[key.ToString()];
+    }
+    // Then call the origianl deleter
+    assert(deleters_.find(key.ToString()) != deleters_.end());
+    auto deleter = deleters_[key.ToString()];
+    deleter(key, value);
+  }
+};
+
+size_t MockCache::marked_size_ = 0;
+std::map<std::string, MockCache::DeleterFunc> MockCache::deleters_;
+std::map<std::string, size_t> MockCache::marked_data_in_cache_;
+
+// Block cache can contain raw data blocks as well as general objects. If an
+// object depends on the table to be live, it then must be destructed before the
+// table is closed. This test makese sure that the only items remains in the
+// cache after the table is closed are raw data blocks.
+TEST_F(BlockBasedTableTest, NoObjectInCacheAfterTableClose) {
+  for (auto index_type :
+       {BlockBasedTableOptions::IndexType::kBinarySearch,
+        BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch}) {
+    for (bool block_based_filter : {true, false}) {
+      for (bool partition_filter : {true, false}) {
+        if (partition_filter &&
+            (block_based_filter ||
+             index_type !=
+                 BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch)) {
+          continue;
+        }
+        for (bool index_and_filter_in_cache : {true, false}) {
+          for (bool pin_l0 : {true, false}) {
+            if (pin_l0 && !index_and_filter_in_cache) {
+              continue;
+            }
+            // Create a table
+            Options opt;
+            unique_ptr<InternalKeyComparator> ikc;
+            ikc.reset(new test::PlainInternalKeyComparator(opt.comparator));
+            opt.compression = kNoCompression;
+            BlockBasedTableOptions table_options;
+            table_options.block_size = 1024;
+            table_options.index_type =
+                BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+            table_options.pin_l0_filter_and_index_blocks_in_cache = pin_l0;
+            table_options.partition_filters = partition_filter;
+            table_options.cache_index_and_filter_blocks =
+                index_and_filter_in_cache;
+            // big enough so we don't ever lose cached values.
+            table_options.block_cache = std::shared_ptr<rocksdb::Cache>(
+                new MockCache(16 * 1024 * 1024, 4, false, 0.0));
+            table_options.filter_policy.reset(
+                rocksdb::NewBloomFilterPolicy(10, block_based_filter));
+            opt.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+            TableConstructor c(BytewiseComparator());
+            std::string user_key = "k01";
+            std::string key =
+                InternalKey(user_key, 0, kTypeValue).Encode().ToString();
+            c.Add(key, "hello");
+            std::vector<std::string> keys;
+            stl_wrappers::KVMap kvmap;
+            const ImmutableCFOptions ioptions(opt);
+            c.Finish(opt, ioptions, table_options, *ikc, &keys, &kvmap);
+
+            // Doing a read to make index/filter loaded into the cache
+            auto table_reader =
+                dynamic_cast<BlockBasedTable*>(c.GetTableReader());
+            PinnableSlice value;
+            GetContext get_context(opt.comparator, nullptr, nullptr, nullptr,
+                                   GetContext::kNotFound, user_key, &value,
+                                   nullptr, nullptr, nullptr, nullptr);
+            InternalKey ikey(user_key, 0, kTypeValue);
+            auto s = table_reader->Get(ReadOptions(), key, &get_context);
+            ASSERT_EQ(get_context.State(), GetContext::kFound);
+            ASSERT_STREQ(value.data(), "hello");
+
+            // Close the table
+            c.ResetTableReader();
+
+            auto usage = table_options.block_cache->GetUsage();
+            auto pinned_usage = table_options.block_cache->GetPinnedUsage();
+            // The only usage must be for marked data blocks
+            ASSERT_EQ(usage, MockCache::marked_size_);
+            // There must be some pinned data since PinnableSlice has not
+            // released them yet
+            ASSERT_GT(pinned_usage, 0);
+            // Release pinnable slice reousrces
+            value.Reset();
+            pinned_usage = table_options.block_cache->GetPinnedUsage();
+            ASSERT_EQ(pinned_usage, 0);
+          }
+        }
       }
     }
   }

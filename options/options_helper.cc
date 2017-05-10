@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 #include "options/options_helper.h"
 
 #include <cassert>
@@ -39,7 +41,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.sst_file_manager = immutable_db_options.sst_file_manager;
   options.info_log = immutable_db_options.info_log;
   options.info_log_level = immutable_db_options.info_log_level;
-  options.max_open_files = immutable_db_options.max_open_files;
+  options.max_open_files = mutable_db_options.max_open_files;
   options.max_file_opening_threads =
       immutable_db_options.max_file_opening_threads;
   options.max_total_wal_size = mutable_db_options.max_total_wal_size;
@@ -320,10 +322,10 @@ bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
       *reinterpret_cast<uint32_t*>(opt_address) = ParseUint32(value);
       break;
     case OptionType::kUInt64T:
-      *reinterpret_cast<uint64_t*>(opt_address) = ParseUint64(value);
+      PutUnaligned(reinterpret_cast<uint64_t*>(opt_address), ParseUint64(value));
       break;
     case OptionType::kSizeT:
-      *reinterpret_cast<size_t*>(opt_address) = ParseSizeT(value);
+      PutUnaligned(reinterpret_cast<size_t*>(opt_address), ParseSizeT(value));
       break;
     case OptionType::kString:
       *reinterpret_cast<std::string*>(opt_address) = value;
@@ -404,10 +406,18 @@ bool SerializeSingleOptionHelper(const char* opt_address,
       *value = ToString(*(reinterpret_cast<const uint32_t*>(opt_address)));
       break;
     case OptionType::kUInt64T:
-      *value = ToString(*(reinterpret_cast<const uint64_t*>(opt_address)));
+      {
+        uint64_t v;
+        GetUnaligned(reinterpret_cast<const uint64_t*>(opt_address), &v);
+        *value = ToString(v);
+      }
       break;
     case OptionType::kSizeT:
-      *value = ToString(*(reinterpret_cast<const size_t*>(opt_address)));
+      {
+        size_t v;
+        GetUnaligned(reinterpret_cast<const size_t*>(opt_address), &v);
+        *value = ToString(v);
+      }
       break;
     case OptionType::kDouble:
       *value = ToString(*(reinterpret_cast<const double*>(opt_address)));
@@ -1032,7 +1042,8 @@ std::string ParseBlockBasedTableOption(const std::string& name,
     return "Unrecognized option";
   }
   const auto& opt_info = iter->second;
-  if (!ParseOptionHelper(reinterpret_cast<char*>(new_options) + opt_info.offset,
+  if (opt_info.verification != OptionVerificationType::kDeprecated &&
+      !ParseOptionHelper(reinterpret_cast<char*>(new_options) + opt_info.offset,
                          opt_info.type, value)) {
     return "Invalid value";
   }
@@ -1041,7 +1052,7 @@ std::string ParseBlockBasedTableOption(const std::string& name,
 
 std::string ParsePlainTableOptions(const std::string& name,
                                    const std::string& org_value,
-                                   PlainTableOptions* new_option,
+                                   PlainTableOptions* new_options,
                                    bool input_strings_escaped = false) {
   const std::string& value =
       input_strings_escaped ? UnescapeOptionString(org_value) : org_value;
@@ -1050,7 +1061,8 @@ std::string ParsePlainTableOptions(const std::string& name,
     return "Unrecognized option";
   }
   const auto& opt_info = iter->second;
-  if (!ParseOptionHelper(reinterpret_cast<char*>(new_option) + opt_info.offset,
+  if (opt_info.verification != OptionVerificationType::kDeprecated &&
+      !ParseOptionHelper(reinterpret_cast<char*>(new_options) + opt_info.offset,
                          opt_info.type, value)) {
     return "Invalid value";
   }

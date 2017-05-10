@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -114,6 +116,10 @@ class TableCache {
 
   // Release the handle from a cache
   void ReleaseHandle(Cache::Handle* handle);
+
+  // Capacity of the backing Cache that indicates inifinite TableCache capacity.
+  // For example when max_open_files is -1 we set the backing Cache to this.
+  static const int kInfiniteCapacity = 0x400000;
 
  private:
   // Build a table reader

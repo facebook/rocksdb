@@ -20,7 +20,7 @@
 // Can not use port/port.h macros as this is a c file
 #ifdef OS_WIN
 
-#include <Windows.h>
+#include <windows.h>
 
 #define snprintf _snprintf
 
@@ -587,10 +587,13 @@ int main(int argc, char** argv) {
   {
     rocksdb_writebatch_t* wb = rocksdb_writebatch_create();
     rocksdb_writebatch_set_save_point(wb);
+    rocksdb_writebatch_set_save_point(wb);
     const char* k_list[2] = {"z", "ap"};
     const size_t k_sizes[2] = {1, 2};
     const char* v_list[3] = {"x", "y", "z"};
     const size_t v_sizes[3] = {1, 1, 1};
+    rocksdb_writebatch_pop_save_point(wb, &err);
+    CheckNoError(err);
     rocksdb_writebatch_putv(wb, 2, k_list, k_sizes, 3, v_list, v_sizes);
     rocksdb_writebatch_rollback_to_save_point(wb, &err);
     CheckNoError(err);

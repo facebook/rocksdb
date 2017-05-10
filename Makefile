@@ -14,7 +14,8 @@ CFLAGS += ${EXTRA_CFLAGS}
 CXXFLAGS += ${EXTRA_CXXFLAGS}
 LDFLAGS += $(EXTRA_LDFLAGS)
 MACHINE ?= $(shell uname -m)
-ARFLAGS = rs
+ARFLAGS = ${EXTRA_ARFLAGS} rs
+STRIPFLAGS = -S -x
 
 # Transform parallel LOG output into something more readable.
 perl_command = perl -n \
@@ -154,12 +155,19 @@ missing_make_config_paths := $(shell				\
 $(foreach path, $(missing_make_config_paths), \
 	$(warning Warning: $(path) dont exist))
 
-ifneq ($(PLATFORM), IOS)
+ifeq ($(PLATFORM), OS_AIX)
+# no debug info
+else ifneq ($(PLATFORM), IOS)
 CFLAGS += -g
 CXXFLAGS += -g
 else
 # no debug info for IOS, that will make our library big
 OPT += -DNDEBUG
+endif
+
+ifeq ($(PLATFORM), OS_AIX)
+ARFLAGS = -X64 rs
+STRIPFLAGS = -X64 -x
 endif
 
 ifeq ($(PLATFORM), OS_SOLARIS)
@@ -194,6 +202,11 @@ ifdef COMPILE_WITH_TSAN
 	LUA_PATH =
 endif
 
+# AIX doesn't work with -pg
+ifeq ($(PLATFORM), OS_AIX)
+	PROFILING_FLAGS =
+endif
+
 # USAN doesn't work well with jemalloc. If we're compiling with USAN, we should use regular malloc.
 ifdef COMPILE_WITH_UBSAN
 	DISABLE_JEMALLOC=1
@@ -215,8 +228,14 @@ endif
 export GTEST_THROW_ON_FAILURE=1
 export GTEST_HAS_EXCEPTIONS=1
 GTEST_DIR = ./third-party/gtest-1.7.0/fused-src
-PLATFORM_CCFLAGS += -isystem $(GTEST_DIR)
-PLATFORM_CXXFLAGS += -isystem $(GTEST_DIR)
+# AIX: pre-defined system headers are surrounded by an extern "C" block
+ifeq ($(PLATFORM), OS_AIX)
+	PLATFORM_CCFLAGS += -I$(GTEST_DIR)
+	PLATFORM_CXXFLAGS += -I$(GTEST_DIR)
+else
+	PLATFORM_CCFLAGS += -isystem $(GTEST_DIR)
+	PLATFORM_CXXFLAGS += -isystem $(GTEST_DIR)
+endif
 
 # This (the first rule) must depend on "all".
 default: all
@@ -261,6 +280,9 @@ CXXFLAGS += $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CXXFLAGS) $(OPT) -Woverl
 
 LDFLAGS += $(PLATFORM_LDFLAGS)
 
+# If NO_UPDATE_BUILD_VERSION is set we don't update util/build_version.cc, but
+# the file needs to already exist or else the build will fail
+ifndef NO_UPDATE_BUILD_VERSION
 date := $(shell date +%F)
 ifdef FORCE_GIT_SHA
 	git_sha := $(FORCE_GIT_SHA)
@@ -274,7 +296,6 @@ gen_build_version = sed -e s/@@GIT_SHA@@/$(git_sha)/ -e s/@@GIT_DATE_TIME@@/$(da
 # as a regular source file as part of the compilation process.
 # One can run "strings executable_filename | grep _build_" to find
 # the version of the source that we used to build the executable file.
-CLEAN_FILES += util/build_version.cc:
 FORCE:
 util/build_version.cc: FORCE
 	$(AM_V_GEN)rm -f $@-t
@@ -282,6 +303,8 @@ util/build_version.cc: FORCE
 	$(AM_V_at)if test -f $@; then					\
 	  cmp -s $@-t $@ && rm -f $@-t || mv -f $@-t $@;		\
 	else mv -f $@-t $@; fi
+endif
+CLEAN_FILES += util/build_version.cc
 
 LIBOBJECTS = $(LIB_SOURCES:.cc=.o)
 LIBOBJECTS += $(TOOL_LIB_SOURCES:.cc=.o)
@@ -340,6 +363,7 @@ TESTS = \
 	db_io_failure_test \
 	db_properties_test \
 	db_table_properties_test \
+	db_statistics_test \
 	autovector_test \
 	cleanable_test \
 	column_family_test \
@@ -572,7 +596,8 @@ ifneq (,$(filter check parallel_check,$(MAKECMDGOALS)),)
 # and create a randomly-named rocksdb.XXXX directory therein.
 # We'll use that directory in the "make check" rules.
 ifeq ($(TMPD),)
-TMPD := $(shell f=/dev/shm; test -k $$f || f=/tmp;			\
+TMPDIR := $(shell echo $${TMPDIR:-/tmp})
+TMPD := $(shell f=/dev/shm; test -k $$f || f=$(TMPDIR);     \
   perl -le 'use File::Temp "tempdir";'					\
     -e 'print tempdir("'$$f'/rocksdb.XXXX", CLEANUP => 0)')
 endif
@@ -727,9 +752,11 @@ check: all
 	      echo "===== Running $$t"; ./$$t || exit 1; done;          \
 	fi
 	rm -rf $(TMPD)
+ifneq ($(PLATFORM), OS_AIX)
 ifeq ($(filter -DROCKSDB_LITE,$(OPT)),)
 	python tools/ldb_test.py
 	sh tools/rocksdb_dump_test.sh
+endif
 endif
 
 # TODO add ldb_tests
@@ -1031,6 +1058,9 @@ db_range_del_test: db/db_range_del_test.o db/db_test_util.o $(LIBOBJECTS) $(TEST
 	$(AM_LINK)
 
 db_sst_test: db/db_sst_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+db_statistics_test: db/db_statistics_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 external_sst_file_basic_test: db/external_sst_file_basic_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -1406,14 +1436,18 @@ ROCKSDB_JAVADOCS_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PA
 ROCKSDB_SOURCES_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-sources.jar
 SHA256_CMD = sha256sum
 
-ZLIB_VER = 1.2.11
-ZLIB_SHA256 = c3e5e9fdd5004dcb542feda5ee4f0ff0744628baf8ed2dd5d66f8ca1197cb1a1
-BZIP2_VER = 1.0.6
-BZIP2_SHA256 = a2848f34fcd5d6cf47def00461fcb528a0484d8edef8208d6d2e2909dc61d9cd
-SNAPPY_VER = 1.1.4
-SNAPPY_SHA256 = 134bfe122fd25599bb807bb8130e7ba6d9bdb851e0b16efcb83ac4f5d0b70057
-LZ4_VER = 1.7.5
-LZ4_SHA256 = 0190cacd63022ccb86f44fa5041dc6c3804407ad61550ca21c382827319e7e7e
+ZLIB_VER ?= 1.2.11
+ZLIB_SHA256 ?= c3e5e9fdd5004dcb542feda5ee4f0ff0744628baf8ed2dd5d66f8ca1197cb1a1
+ZLIB_DOWNLOAD_BASE ?= http://zlib.net
+BZIP2_VER ?= 1.0.6
+BZIP2_SHA256 ?= a2848f34fcd5d6cf47def00461fcb528a0484d8edef8208d6d2e2909dc61d9cd
+BZIP2_DOWNLOAD_BASE ?= http://www.bzip.org
+SNAPPY_VER ?= 1.1.4
+SNAPPY_SHA256 ?= 134bfe122fd25599bb807bb8130e7ba6d9bdb851e0b16efcb83ac4f5d0b70057
+SNAPPY_DOWNLOAD_BASE ?= https://github.com/google/snappy/releases/download
+LZ4_VER ?= 1.7.5
+LZ4_SHA256 ?= 0190cacd63022ccb86f44fa5041dc6c3804407ad61550ca21c382827319e7e7e
+LZ4_DOWNLOAD_BASE ?= https://github.com/lz4/lz4/archive
 
 ifeq ($(PLATFORM), OS_MACOSX)
 	ROCKSDBJNILIB = librocksdbjni-osx.jnilib
@@ -1436,47 +1470,53 @@ ifeq ($(PLATFORM), OS_SOLARIS)
 	JAVA_INCLUDE = -I$(JAVA_HOME)/include/ -I$(JAVA_HOME)/include/solaris
 	SHA256_CMD = digest -a sha256
 endif
+ifeq ($(PLATFORM), OS_AIX)
+	JAVA_INCLUDE = -I$(JAVA_HOME)/include/ -I$(JAVA_HOME)/include/aix
+	ROCKSDBJNILIB = librocksdbjni-aix.so
+	EXTRACT_SOURCES = gunzip < TAR_GZ | tar xvf -
+	SNAPPY_MAKE_TARGET = libsnappy.la
+endif
 
 libz.a:
 	-rm -rf zlib-$(ZLIB_VER)
-	curl -O -L http://zlib.net/zlib-$(ZLIB_VER).tar.gz
+	curl -O -L ${ZLIB_DOWNLOAD_BASE}/zlib-$(ZLIB_VER).tar.gz
 	ZLIB_SHA256_ACTUAL=`$(SHA256_CMD) zlib-$(ZLIB_VER).tar.gz | cut -d ' ' -f 1`; \
 	if [ "$(ZLIB_SHA256)" != "$$ZLIB_SHA256_ACTUAL" ]; then \
 		echo zlib-$(ZLIB_VER).tar.gz checksum mismatch, expected=\"$(ZLIB_SHA256)\" actual=\"$$ZLIB_SHA256_ACTUAL\"; \
 		exit 1; \
 	fi
 	tar xvzf zlib-$(ZLIB_VER).tar.gz
-	cd zlib-$(ZLIB_VER) && CFLAGS='-fPIC' ./configure --static && make
+	cd zlib-$(ZLIB_VER) && CFLAGS='-fPIC ${EXTRA_CFLAGS}' LDFLAGS='${EXTRA_LDFLAGS}' ./configure --static && make
 	cp zlib-$(ZLIB_VER)/libz.a .
 
 libbz2.a:
 	-rm -rf bzip2-$(BZIP2_VER)
-	curl -O -L http://www.bzip.org/$(BZIP2_VER)/bzip2-$(BZIP2_VER).tar.gz
+	curl -O -L ${BZIP2_DOWNLOAD_BASE}/$(BZIP2_VER)/bzip2-$(BZIP2_VER).tar.gz
 	BZIP2_SHA256_ACTUAL=`$(SHA256_CMD) bzip2-$(BZIP2_VER).tar.gz | cut -d ' ' -f 1`; \
 	if [ "$(BZIP2_SHA256)" != "$$BZIP2_SHA256_ACTUAL" ]; then \
 		echo bzip2-$(BZIP2_VER).tar.gz checksum mismatch, expected=\"$(BZIP2_SHA256)\" actual=\"$$BZIP2_SHA256_ACTUAL\"; \
 		exit 1; \
 	fi
 	tar xvzf bzip2-$(BZIP2_VER).tar.gz
-	cd bzip2-$(BZIP2_VER) && make CFLAGS='-fPIC -O2 -g -D_FILE_OFFSET_BITS=64'
+	cd bzip2-$(BZIP2_VER) && make CFLAGS='-fPIC -O2 -g -D_FILE_OFFSET_BITS=64 ${EXTRA_CFLAGS}' AR='ar ${EXTRA_ARFLAGS}'
 	cp bzip2-$(BZIP2_VER)/libbz2.a .
 
 libsnappy.a:
 	-rm -rf snappy-$(SNAPPY_VER)
-	curl -O -L https://github.com/google/snappy/releases/download/$(SNAPPY_VER)/snappy-$(SNAPPY_VER).tar.gz
+	curl -O -L ${SNAPPY_DOWNLOAD_BASE}/$(SNAPPY_VER)/snappy-$(SNAPPY_VER).tar.gz
 	SNAPPY_SHA256_ACTUAL=`$(SHA256_CMD) snappy-$(SNAPPY_VER).tar.gz | cut -d ' ' -f 1`; \
 	if [ "$(SNAPPY_SHA256)" != "$$SNAPPY_SHA256_ACTUAL" ]; then \
 		echo snappy-$(SNAPPY_VER).tar.gz checksum mismatch, expected=\"$(SNAPPY_SHA256)\" actual=\"$$SNAPPY_SHA256_ACTUAL\"; \
 		exit 1; \
 	fi
 	tar xvzf snappy-$(SNAPPY_VER).tar.gz
-	cd snappy-$(SNAPPY_VER) && ./configure --with-pic --enable-static
-	cd snappy-$(SNAPPY_VER) && make
+	cd snappy-$(SNAPPY_VER) && CFLAGS='${EXTRA_CFLAGS}' CXXFLAGS='${EXTRA_CXXFLAGS}' LDFLAGS='${EXTRA_LDFLAGS}' ./configure --with-pic --enable-static --disable-shared
+	cd snappy-$(SNAPPY_VER) && make ${SNAPPY_MAKE_TARGET}
 	cp snappy-$(SNAPPY_VER)/.libs/libsnappy.a .
 
 liblz4.a:
 	-rm -rf lz4-$(LZ4_VER)
-	curl -O -L https://github.com/lz4/lz4/archive/v$(LZ4_VER).tar.gz
+	curl -O -L ${LZ4_DOWNLOAD_BASE}/v$(LZ4_VER).tar.gz
 	mv v$(LZ4_VER).tar.gz lz4-$(LZ4_VER).tar.gz
 	LZ4_SHA256_ACTUAL=`$(SHA256_CMD) lz4-$(LZ4_VER).tar.gz | cut -d ' ' -f 1`; \
 	if [ "$(LZ4_SHA256)" != "$$LZ4_SHA256_ACTUAL" ]; then \
@@ -1484,7 +1524,7 @@ liblz4.a:
 		exit 1; \
 	fi
 	tar xvzf lz4-$(LZ4_VER).tar.gz
-	cd lz4-$(LZ4_VER)/lib && make CFLAGS='-fPIC -O2' all
+	cd lz4-$(LZ4_VER)/lib && make CFLAGS='-fPIC -O2 ${EXTRA_CFLAGS}' all
 	cp lz4-$(LZ4_VER)/lib/liblz4.a .
 
 # A version of each $(LIBOBJECTS) compiled with -fPIC and a fixed set of static compression libraries
@@ -1508,7 +1548,7 @@ rocksdbjavastatic: $(java_static_libobjects)
 	  -o ./java/target/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) \
 	  $(java_static_libobjects) $(COVERAGEFLAGS) \
 	  $(JAVA_COMPRESSIONS) $(JAVA_STATIC_LDFLAGS)
-	cd java/target;strip -S -x $(ROCKSDBJNILIB)
+	cd java/target;strip $(STRIPFLAGS) $(ROCKSDBJNILIB)
 	cd java;jar -cf target/$(ROCKSDB_JAR) HISTORY*.md
 	cd java/target;jar -uf $(ROCKSDB_JAR) $(ROCKSDBJNILIB)
 	cd java/target/classes;jar -uf ../$(ROCKSDB_JAR) org/rocksdb/*.class org/rocksdb/util/*.class

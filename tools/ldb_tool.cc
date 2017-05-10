@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 #ifndef ROCKSDB_LITE
 #include "rocksdb/ldb_tool.h"
@@ -42,6 +44,8 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
   ret.append("  --" + LDBCommand::ARG_TTL +
              " with 'put','get','scan','dump','query','batchput'"
              " : DB supports ttl and value is internally timestamp-suffixed\n");
+  ret.append("  --" + LDBCommand::ARG_TRY_LOAD_OPTIONS +
+             " : Try to load option file from DB.\n");
   ret.append("  --" + LDBCommand::ARG_BLOOM_BITS + "=<int,e.g.:14>\n");
   ret.append("  --" + LDBCommand::ARG_FIX_PREFIX_LEN + "=<int,e.g.:14>\n");
   ret.append("  --" + LDBCommand::ARG_COMPRESSION_TYPE +

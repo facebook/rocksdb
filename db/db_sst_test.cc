@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -297,7 +299,7 @@ TEST_F(DBSSTTest, RateLimitedDelete) {
   std::vector<uint64_t> penalties;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DeleteScheduler::BackgroundEmptyTrash:Wait",
-      [&](void* arg) { penalties.push_back(*(static_cast<int*>(arg))); });
+      [&](void* arg) { penalties.push_back(*(static_cast<uint64_t*>(arg))); });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "InstrumentedCondVar::TimedWaitInternal", [&](void* arg) {
         // Turn timed wait into a simulated sleep

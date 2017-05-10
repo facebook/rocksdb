@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 #pragma once
 
@@ -39,6 +41,7 @@ class LDBCommand {
   static const std::string ARG_TTL_START;
   static const std::string ARG_TTL_END;
   static const std::string ARG_TIMESTAMP;
+  static const std::string ARG_TRY_LOAD_OPTIONS;
   static const std::string ARG_FROM;
   static const std::string ARG_TO;
   static const std::string ARG_MAX_KEYS;
@@ -142,6 +145,11 @@ class LDBCommand {
 
   // If true, the kvs are output with their insert/modify timestamp in a ttl db
   bool timestamp_;
+
+  // If true, try to construct options from DB's option files.
+  bool try_load_options_;
+
+  bool create_if_missing_;
 
   /**
    * Map of options passed on the command-line.

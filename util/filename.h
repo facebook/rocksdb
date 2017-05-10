@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -38,13 +40,16 @@ enum FileType {
   kInfoLogFile,  // Either the current one, or an old one
   kMetaDatabase,
   kIdentityFile,
-  kOptionsFile
+  kOptionsFile,
+  kBlobFile
 };
 
 // Return the name of the log file with the specified number
 // in the db named by "dbname".  The result will be prefixed with
 // "dbname".
 extern std::string LogFileName(const std::string& dbname, uint64_t number);
+
+extern std::string BlobFileName(const std::string& bdirname, uint64_t number);
 
 static const std::string ARCHIVAL_DIR = "archive";
 

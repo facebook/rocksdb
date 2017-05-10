@@ -62,9 +62,19 @@ struct CompactionOptionsFIFO {
   // Default: 1GB
   uint64_t max_table_files_size;
 
+  // If true, try to do compaction to compact smaller files into larger ones.
+  // Minimum files to compact follows options.level0_file_num_compaction_trigger
+  // and compaction won't trigger if average compact bytes per del file is
+  // larger than options.write_buffer_size. This is to protect large files
+  // from being compacted again.
+  // Default: false;
+  bool allow_compaction = false;
+
   CompactionOptionsFIFO() : max_table_files_size(1 * 1024 * 1024 * 1024) {}
-  CompactionOptionsFIFO(uint64_t _max_table_files_size) :
-          max_table_files_size(_max_table_files_size) {}
+  CompactionOptionsFIFO(uint64_t _max_table_files_size,
+                        uint64_t _allow_compaction)
+      : max_table_files_size(_max_table_files_size),
+        allow_compaction(_allow_compaction) {}
 };
 
 // Compression options for different compression algorithms like Zlib

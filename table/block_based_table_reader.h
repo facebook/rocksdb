@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -100,8 +102,10 @@ class BlockBasedTable : public TableReader {
   // The result of NewIterator() is initially invalid (caller must
   // call one of the Seek methods on the iterator before using it).
   // @param skip_filters Disables loading/accessing the filter block
-  InternalIterator* NewIterator(const ReadOptions&, Arena* arena = nullptr,
-                                bool skip_filters = false) override;
+  InternalIterator* NewIterator(
+      const ReadOptions&, Arena* arena = nullptr,
+      const InternalKeyComparator* icomparator = nullptr,
+      bool skip_filters = false) override;
 
   InternalIterator* NewRangeTombstoneIterator(
       const ReadOptions& read_options) override;
@@ -149,8 +153,9 @@ class BlockBasedTable : public TableReader {
   // access.
   class IndexReader {
    public:
-    explicit IndexReader(const Comparator* comparator, Statistics* stats)
-        : comparator_(comparator), statistics_(stats) {}
+    explicit IndexReader(const InternalKeyComparator* icomparator,
+                         Statistics* stats)
+        : icomparator_(icomparator), statistics_(stats) {}
 
     virtual ~IndexReader() {}
 
@@ -178,7 +183,7 @@ class BlockBasedTable : public TableReader {
     virtual size_t ApproximateMemoryUsage() const = 0;
 
    protected:
-    const Comparator* comparator_;
+    const InternalKeyComparator* icomparator_;
 
    private:
     Statistics* statistics_;
@@ -341,16 +346,19 @@ class BlockBasedTable : public TableReader {
 class BlockBasedTable::BlockEntryIteratorState : public TwoLevelIteratorState {
  public:
   BlockEntryIteratorState(BlockBasedTable* table,
-                          const ReadOptions& read_options, bool skip_filters,
-                          bool is_index = false,
+                          const ReadOptions& read_options,
+                          const InternalKeyComparator* icomparator,
+                          bool skip_filters, bool is_index = false,
                           Cleanable* block_cache_cleaner = nullptr);
   InternalIterator* NewSecondaryIterator(const Slice& index_value) override;
   bool PrefixMayMatch(const Slice& internal_key) override;
+  bool KeyReachedUpperBound(const Slice& internal_key) override;
 
  private:
   // Don't own table_
   BlockBasedTable* table_;
   const ReadOptions read_options_;
+  const InternalKeyComparator* icomparator_;
   bool skip_filters_;
   // true if the 2nd level iterator is on indexes instead of on user data.
   bool is_index_;
@@ -368,9 +376,9 @@ struct BlockBasedTable::CachableEntry {
   CachableEntry(TValue* _value, Cache::Handle* _cache_handle)
       : value(_value), cache_handle(_cache_handle) {}
   CachableEntry() : CachableEntry(nullptr, nullptr) {}
-  void Release(Cache* cache) {
+  void Release(Cache* cache, bool force_erase = false) {
     if (cache_handle) {
-      cache->Release(cache_handle);
+      cache->Release(cache_handle, force_erase);
       value = nullptr;
       cache_handle = nullptr;
     }

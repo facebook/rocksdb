@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -739,12 +741,23 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     input->SeekToFirst();
   }
 
+  // we allow only 1 compaction event listener. Used by blob storage
+  CompactionEventListener* comp_event_listener = nullptr;
+#ifndef ROCKSDB_LITE
+  for (auto& celitr : cfd->ioptions()->listeners) {
+    comp_event_listener = celitr->GetCompactionEventListener();
+    if (comp_event_listener != nullptr) {
+      break;
+    }
+  }
+#endif  // ROCKSDB_LITE
+
   Status status;
   sub_compact->c_iter.reset(new CompactionIterator(
       input.get(), cfd->user_comparator(), &merge, versions_->LastSequence(),
       &existing_snapshots_, earliest_write_conflict_snapshot_, env_, false,
       range_del_agg.get(), sub_compact->compaction, compaction_filter,
-      shutting_down_));
+      comp_event_listener, shutting_down_));
   auto c_iter = sub_compact->c_iter.get();
   c_iter->SeekToFirst();
   if (c_iter->Valid() &&
