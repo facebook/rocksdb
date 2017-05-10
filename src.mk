@@ -150,6 +150,12 @@ LIB_SOURCES =                                                   \
   util/xxhash.cc                                                \
   utilities/backupable/backupable_db.cc                         \
   utilities/blob_db/blob_db.cc                                  \
+  utilities/blob_db/blob_db_impl.cc                             \
+  utilities/blob_db/blob_db_options_impl.cc                     \
+  utilities/blob_db/blob_file.cc                                \
+  utilities/blob_db/blob_log_reader.cc                          \
+  utilities/blob_db/blob_log_writer.cc                          \
+  utilities/blob_db/blob_log_format.cc                          \
   utilities/checkpoint/checkpoint_impl.cc                       \
   utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc    \
   utilities/convenience/info_log_finder.cc                      \
@@ -308,6 +314,7 @@ MAIN_SOURCES =                                                    \
   util/log_write_bench.cc                                               \
   util/rate_limiter_test.cc                                             \
   util/slice_transform_test.cc                                          \
+  util/timer_queue_test.cc                                             \
   util/thread_list_test.cc                                              \
   util/thread_local_test.cc                                             \
   utilities/backupable/backupable_db_test.cc                            \

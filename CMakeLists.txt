@@ -446,6 +446,10 @@ set(SOURCES
         util/xxhash.cc
         utilities/backupable/backupable_db.cc
         utilities/blob_db/blob_db.cc
+        utilities/blob_db/blob_db_impl.cc
+        utilities/blob_db/blob_log_reader.cc
+        utilities/blob_db/blob_log_writer.cc
+        utilities/blob_db/blob_log_format.cc
         utilities/checkpoint/checkpoint_impl.cc
         utilities/col_buf_decoder.cc
         utilities/col_buf_encoder.cc
@@ -658,6 +662,7 @@ set(TESTS
         util/heap_test.cc
         util/rate_limiter_test.cc
         util/slice_transform_test.cc
+        util/timer_queue_test.cc
         util/thread_list_test.cc
         util/thread_local_test.cc
         utilities/backupable/backupable_db_test.cc

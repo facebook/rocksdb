@@ -93,7 +93,9 @@ CompactionIterator::CompactionIterator(
     latest_snapshot_ = snapshots_->back();
   }
   if (compaction_filter_ != nullptr) {
-    if (compaction_filter_->IgnoreSnapshots()) ignore_snapshots_ = true;
+    if (compaction_filter_->IgnoreSnapshots()) {
+      ignore_snapshots_ = true;
+    }
   } else {
     ignore_snapshots_ = false;
   }
