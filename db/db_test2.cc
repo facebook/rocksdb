@@ -1728,82 +1728,93 @@ TEST_F(DBTest2, ReadAmpBitmapLiveInCacheAfterDBClose) {
     // the blocks again regardless of them being already in the cache
     return;
   }
+  uint32_t bytes_per_bit[2] = {1, 16};
+  for (size_t k = 0; k < 2; k++) {
+    std::shared_ptr<Cache> lru_cache = NewLRUCache(1024 * 1024 * 1024);
+    std::shared_ptr<Statistics> stats = rocksdb::CreateDBStatistics();
 
-  std::shared_ptr<Cache> lru_cache = NewLRUCache(1024 * 1024 * 1024);
-  std::shared_ptr<Statistics> stats = rocksdb::CreateDBStatistics();
+    Options options = CurrentOptions();
+    BlockBasedTableOptions bbto;
+    // Disable delta encoding to make it easier to calculate read amplification
+    bbto.use_delta_encoding = false;
+    // Huge block cache to make it easier to calculate read amplification
+    bbto.block_cache = lru_cache;
+    bbto.read_amp_bytes_per_bit = bytes_per_bit[k];
+    options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+    options.statistics = stats;
+    DestroyAndReopen(options);
 
-  Options options = CurrentOptions();
-  BlockBasedTableOptions bbto;
-  // Disable delta encoding to make it easier to calculate read amplification
-  bbto.use_delta_encoding = false;
-  // Huge block cache to make it easier to calculate read amplification
-  bbto.block_cache = lru_cache;
-  bbto.read_amp_bytes_per_bit = 16;
-  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-  options.statistics = stats;
-  DestroyAndReopen(options);
+    const int kNumEntries = 10000;
 
-  const int kNumEntries = 10000;
+    Random rnd(301);
+    for (int i = 0; i < kNumEntries; i++) {
+      ASSERT_OK(Put(Key(i), RandomString(&rnd, 100)));
+    }
+    ASSERT_OK(Flush());
 
-  Random rnd(301);
-  for (int i = 0; i < kNumEntries; i++) {
-    ASSERT_OK(Put(Key(i), RandomString(&rnd, 100)));
-  }
-  ASSERT_OK(Flush());
+    Close();
+    Reopen(options);
 
-  Close();
-  Reopen(options);
+    uint64_t total_useful_bytes = 0;
+    std::set<int> read_keys;
+    std::string value;
+    // Iter1: Read half the DB, Read even keys
+    // Key(0), Key(2), Key(4), Key(6), Key(8), ...
+    for (int i = 0; i < kNumEntries; i += 2) {
+      std::string key = Key(i);
+      ASSERT_OK(db_->Get(ReadOptions(), key, &value));
 
-  uint64_t total_useful_bytes = 0;
-  std::set<int> read_keys;
-  std::string value;
-  // Iter1: Read half the DB, Read even keys
-  // Key(0), Key(2), Key(4), Key(6), Key(8), ...
-  for (int i = 0; i < kNumEntries; i += 2) {
-    std::string k = Key(i);
-    ASSERT_OK(db_->Get(ReadOptions(), k, &value));
+      if (read_keys.find(i) == read_keys.end()) {
+        auto internal_key = InternalKey(key, 0, ValueType::kTypeValue);
+        total_useful_bytes +=
+            GetEncodedEntrySize(internal_key.size(), value.size());
+        read_keys.insert(i);
+      }
+    }
 
-    if (read_keys.find(i) == read_keys.end()) {
-      auto ik = InternalKey(k, 0, ValueType::kTypeValue);
-      total_useful_bytes += GetEncodedEntrySize(ik.size(), value.size());
-      read_keys.insert(i);
+    size_t total_useful_bytes_iter1 =
+        options.statistics->getTickerCount(READ_AMP_ESTIMATE_USEFUL_BYTES);
+    size_t total_loaded_bytes_iter1 =
+        options.statistics->getTickerCount(READ_AMP_TOTAL_READ_BYTES);
+
+    Close();
+    std::shared_ptr<Statistics> new_statistics = rocksdb::CreateDBStatistics();
+    // Destroy old statistics obj that the blocks in lru_cache are pointing to
+    options.statistics.reset();
+    // Use the statistics object that we just created
+    options.statistics = new_statistics;
+    Reopen(options);
+
+    // Iter2: Read half the DB, Read odd keys
+    // Key(1), Key(3), Key(5), Key(7), Key(9), ...
+    for (int i = 1; i < kNumEntries; i += 2) {
+      std::string key = Key(i);
+      ASSERT_OK(db_->Get(ReadOptions(), key, &value));
+
+      if (read_keys.find(i) == read_keys.end()) {
+        auto internal_key = InternalKey(key, 0, ValueType::kTypeValue);
+        total_useful_bytes +=
+            GetEncodedEntrySize(internal_key.size(), value.size());
+        read_keys.insert(i);
+      }
+    }
+
+    size_t total_useful_bytes_iter2 =
+        options.statistics->getTickerCount(READ_AMP_ESTIMATE_USEFUL_BYTES);
+    size_t total_loaded_bytes_iter2 =
+        options.statistics->getTickerCount(READ_AMP_TOTAL_READ_BYTES);
+
+
+    // Read amp is on average 100% since we read all what we loaded in memory
+    if (k == 0) {
+      ASSERT_EQ(total_useful_bytes_iter1 + total_useful_bytes_iter2,
+                total_loaded_bytes_iter1 + total_loaded_bytes_iter2);
+    } else {
+      ASSERT_NEAR((total_useful_bytes_iter1 + total_useful_bytes_iter2) * 1.0f /
+                      (total_loaded_bytes_iter1 + total_loaded_bytes_iter2),
+                  1, .01);
     }
   }
-
-  size_t total_useful_bytes_iter1 =
-      options.statistics->getTickerCount(READ_AMP_ESTIMATE_USEFUL_BYTES);
-  size_t total_loaded_bytes_iter1 =
-      options.statistics->getTickerCount(READ_AMP_TOTAL_READ_BYTES);
-
-  Close();
-  std::shared_ptr<Statistics> new_statistics = rocksdb::CreateDBStatistics();
-  // Destroy old statistics obj that the blocks in lru_cache are pointing to
-  options.statistics.reset();
-  // Use the statistics object that we just created
-  options.statistics = new_statistics;
-  Reopen(options);
-
-  // Iter2: Read half the DB, Read odd keys
-  // Key(1), Key(3), Key(5), Key(7), Key(9), ...
-  for (int i = 1; i < kNumEntries; i += 2) {
-    std::string k = Key(i);
-    ASSERT_OK(db_->Get(ReadOptions(), k, &value));
-
-    if (read_keys.find(i) == read_keys.end()) {
-      auto ik = InternalKey(k, 0, ValueType::kTypeValue);
-      total_useful_bytes += GetEncodedEntrySize(ik.size(), value.size());
-      read_keys.insert(i);
-    }
-  }
-
-  size_t total_useful_bytes_iter2 =
-      options.statistics->getTickerCount(READ_AMP_ESTIMATE_USEFUL_BYTES);
-  size_t total_loaded_bytes_iter2 =
-      options.statistics->getTickerCount(READ_AMP_TOTAL_READ_BYTES);
-
-  // We reached read_amp of 100% because we read all the keys in the DB
-  ASSERT_EQ(total_useful_bytes_iter1 + total_useful_bytes_iter2,
-            total_loaded_bytes_iter1 + total_loaded_bytes_iter2);
 }
 #endif // !OS_SOLARIS
 
