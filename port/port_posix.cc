@@ -137,16 +137,7 @@ void RWMutex::ReadUnlock() { PthreadCall("read unlock", pthread_rwlock_unlock(&m
 
 void RWMutex::WriteUnlock() { PthreadCall("write unlock", pthread_rwlock_unlock(&mu_)); }
 
-int PhysicalCoreID() {
-#if defined(__i386__) || defined(__x86_64__)
-  // if you ever find that this function is hot on Linux, you can go from
-  // ~200 nanos to ~20 nanos by adding the machinery to use __vdso_getcpu
-  unsigned eax, ebx = 0, ecx, edx;
-  if (!__get_cpuid(1, &eax, &ebx, &ecx, &edx)) {
-    return -1;
-  }
-  return ebx >> 24;
-#else
+int GetCPUID() {
   int cpuno = sched_getcpu();
   if (cpuno < 0) {
     return -1;
@@ -154,6 +145,20 @@ int PhysicalCoreID() {
   else {
     return cpuno;
   }
+}
+
+int PhysicalCoreID() {
+#if defined(__i386__) || defined(__x86_64__)
+#if defined(__x86_64__) && (__GNUC__ > 2 || (__GNUC__ == 2 && __GNUC_MINOR__ >= 22))
+  return GetCPUID();
+#endif
+  unsigned eax, ebx = 0, ecx, edx;
+  if (!__get_cpuid(1, &eax, &ebx, &ecx, &edx)) {
+    return -1;
+  }
+  return ebx >> 24;
+#else
+  return GetCPUID();
 #endif
 }
 
