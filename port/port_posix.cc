@@ -16,6 +16,7 @@
 #include <cpuid.h>
 #endif
 #include <errno.h>
+#include <sched.h>
 #include <signal.h>
 #include <stdio.h>
 #include <string.h>
@@ -137,28 +138,26 @@ void RWMutex::ReadUnlock() { PthreadCall("read unlock", pthread_rwlock_unlock(&m
 
 void RWMutex::WriteUnlock() { PthreadCall("write unlock", pthread_rwlock_unlock(&mu_)); }
 
-int GetCPUID() {
+int PhysicalCoreID() {
+#if defined(ROCKSDB_SCHED_GETCPU_PRESENT) && defined(__x86_64__) && \
+    (__GNUC__ > 2 || (__GNUC__ == 2 && __GNUC_MINOR__ >= 22))
+  // sched_getcpu uses VDSO getcpu() syscall since 2.22. I believe Linux offers VDSO
+  // support only on x86_64. This is the fastest/preferred method if available.
   int cpuno = sched_getcpu();
   if (cpuno < 0) {
     return -1;
   }
-  else {
-    return cpuno;
-  }
-}
-
-int PhysicalCoreID() {
-#if defined(__i386__) || defined(__x86_64__)
-#if defined(__x86_64__) && (__GNUC__ > 2 || (__GNUC__ == 2 && __GNUC_MINOR__ >= 22))
-  return GetCPUID();
-#endif
+  return cpuno;
+#elif defined(__x86_64__) || defined(__i386__)
+  // clang/gcc both provide cpuid.h, which defines __get_cpuid(), for x86_64 and i386.
   unsigned eax, ebx = 0, ecx, edx;
   if (!__get_cpuid(1, &eax, &ebx, &ecx, &edx)) {
     return -1;
   }
   return ebx >> 24;
 #else
-  return GetCPUID();
+  // give up, the caller can generate a random number or something.
+  return -1;
 #endif
 }
 
