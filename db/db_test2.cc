@@ -1644,7 +1644,7 @@ size_t GetEncodedEntrySize(size_t key_size, size_t value_size) {
 TEST_F(DBTest2, ReadAmpBitmap) {
   Options options = CurrentOptions();
   BlockBasedTableOptions bbto;
-  size_t bytes_per_bit[2] = {1, 16};
+  uint32_t bytes_per_bit[2] = {1, 16};
   for (size_t k = 0; k < 2; k++) {
     // Disable delta encoding to make it easier to calculate read amplification
     bbto.use_delta_encoding = false;
