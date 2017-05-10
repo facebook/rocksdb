@@ -94,10 +94,8 @@ class BlockReadAmpBitmap {
     if (GetAndSet(start_bit) == 0) {
       uint32_t new_useful_bytes = (exclusive_end_bit - start_bit)
                                   << bytes_per_bit_pow_;
-      if (new_useful_bytes > 0) {
-        RecordTick(GetStatistics(), READ_AMP_ESTIMATE_USEFUL_BYTES,
-                   new_useful_bytes);
-      }
+      RecordTick(GetStatistics(), READ_AMP_ESTIMATE_USEFUL_BYTES,
+                 new_useful_bytes);
     }
   }
 
@@ -125,7 +123,6 @@ class BlockReadAmpBitmap {
   // Bitmap used to record the bytes that we read, use atomic to protect
   // against multiple threads updating the same bit
   std::atomic<uint32_t>* bitmap_;
-  uint32_t last_bit_;
   // (1 << bytes_per_bit_pow_) is bytes_per_bit. Use power of 2 to optimize
   // muliplication and division
   uint8_t bytes_per_bit_pow_;
@@ -134,7 +131,6 @@ class BlockReadAmpBitmap {
   // by using SetStatistics() before calling Mark()
   std::atomic<Statistics*> statistics_;
   uint32_t rnd_;
-  uint32_t last_rnd_;
 };
 
 class Block {
