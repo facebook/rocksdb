@@ -12,10 +12,10 @@
 #include <string>
 #include <inttypes.h>
 
+#include "async/random_read_context.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
 #include "rocksdb/env.h"
-#include "async/random_read_context.h"
 #include "table/block.h"
 #include "table/block_based_table_reader.h"
 #include "table/persistent_cache_helper.h"
@@ -399,7 +399,8 @@ namespace async {
 /////////////////////////////////////////////////////////////////////////////////
 /// ReadBlockContentsContext
 
-Status ReadBlockContentsContext::CheckPersistentCache(bool& need_decompression) {
+Status ReadBlockContentsContext::CheckPersistentCache(bool&
+    need_decompression) {
 
   size_t n = GetN();
   Status status;
@@ -447,7 +448,8 @@ Status ReadBlockContentsContext::CheckPersistentCache(bool& need_decompression) 
   return status;
 }
 
-Status ReadBlockContentsContext::RequestContentstRead(const ReadBlockContCallback& client_cb_,
+Status ReadBlockContentsContext::RequestContentstRead(const
+    ReadBlockContCallback& client_cb_,
     RandomAccessFileReader* file,
     const Footer& footer,
     const ReadOptions& read_options,
@@ -459,8 +461,10 @@ Status ReadBlockContentsContext::RequestContentstRead(const ReadBlockContCallbac
     const PersistentCacheOptions& cache_options) {
 
 
-  std::unique_ptr<ReadBlockContentsContext> context(new ReadBlockContentsContext(client_cb_, footer,
-      read_options, handle, contents, ioptions, decompression_requested, compression_dict, cache_options));
+  std::unique_ptr<ReadBlockContentsContext> context(new ReadBlockContentsContext(
+        client_cb_, footer,
+        read_options, handle, contents, ioptions, decompression_requested,
+        compression_dict, cache_options));
 
   bool need_decompression = false;
   Status status = context->CheckPersistentCache(need_decompression);
@@ -537,9 +541,18 @@ Status ReadBlockContentsContext::OnReadBlockContentsComplete(const Status& s,
   char* used_buf = (heap_buf_) ? heap_buf_.get() : inclass_buf_;
   assert(used_buf != nullptr);
 
+  if (read_options_->fill_cache &&
+      cache_options_->persistent_cache &&
+      cache_options_->persistent_cache->IsCompressed()) {
+    // insert to raw cache
+    PersistentCacheHelper::InsertRawPage(*cache_options_, handle_, used_buf,
+                                         n + kBlockTrailerSize);
+  }
+
   PERF_TIMER_GUARD(block_decompress_time);
 
-  rocksdb::CompressionType compression_type = static_cast<rocksdb::CompressionType>(slice.data()[n]);
+  rocksdb::CompressionType compression_type =
+    static_cast<rocksdb::CompressionType>(slice.data()[n]);
 
   if (decompression_requested_ && compression_type != kNoCompression) {
     // compressed page, uncompress, update cache
@@ -569,7 +582,8 @@ Status ReadBlockContentsContext::OnReadBlockContentsComplete(const Status& s,
   return status;
 }
 
-Status ReadBlockContentsContext::OnIoCompletion(const Status& status, const Slice& slice) {
+Status ReadBlockContentsContext::OnIoCompletion(const Status& status,
+    const Slice& slice) {
 
   std::unique_ptr<ReadBlockContentsContext> self(this);
   Status s = OnReadBlockContentsComplete(status, result_);
@@ -587,7 +601,8 @@ Status ReadBlockContents(RandomAccessFileReader* file, const Footer& footer,
                          const Slice& compression_dict,
                          const PersistentCacheOptions& cache_options) {
 
-  return async::ReadBlockContentsContext::ReadContents(file, footer, read_options,
+  return async::ReadBlockContentsContext::ReadContents(file, footer,
+         read_options,
          handle, contents, ioptions, decompression_requested, compression_dict,
          cache_options);
 }

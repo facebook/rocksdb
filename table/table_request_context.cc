@@ -820,37 +820,39 @@ Status CreateIndexReaderContext::OnIndexBlockReadComplete(const Status& status) 
 
   case BlockBasedTableOptions::kHashSearch: {
 
-    HashIndexReader::Create(&table_->rep_->internal_comparator,
-                            std::move(index_block_),
-                            table_->rep_->ioptions.statistics,
-                            &index_reader_);
+    if (preloaded_meta_index_iter_ == nullptr) {
+      // Request meta block read then
+      if (cb_) {
+        // Get the callback
+        async::CallableFactory<CreateIndexReaderContext, Status, const Status&>
+        factory(this);
+        auto meta_cb =
+          factory.GetCallable<&CreateIndexReaderContext::OnMetaBlockReadComplete>();
 
-    BlockHandle prefixes_handle;
-    // Seek prefix blocks
-    // Get prefixes block
-    s = FindMetaBlock(preloaded_meta_index_iter_, kHashIndexPrefixesBlock,
-                      &prefixes_handle);
+        s = ReadBlockContentsContext::RequestContentstRead(meta_cb,
+            table_->rep_->file.get(),
+            table_->rep_->footer, *readoptions_, table_->rep_->footer.metaindex_handle(),
+            &meta_cont_, table_->rep_->ioptions, true /* decompress */,
+            Slice(), table_->rep_->persistent_cache_options);
 
-    // We need both blocks to be successful if one is not found
-    // or errors out we do not continue. However, this is not a
-    // terminal error
-    BlockHandle prefixes_meta_handle;
-    if (s.ok()) {
-      s = FindMetaBlock(preloaded_meta_index_iter_, kHashIndexPrefixesMetadataBlock,
-                        &prefixes_meta_handle);
-    }
+        // If async or error return
+        if (s.IsIOPending()) {
+          return s;
+        }
+      } else {
+        s = ReadBlockContentsContext::ReadContents(table_->rep_->file.get(),
+            table_->rep_->footer, *readoptions_, table_->rep_->footer.metaindex_handle(),
+            &meta_cont_, table_->rep_->ioptions, true /* decompress */,
+            Slice(), table_->rep_->persistent_cache_options);
+      }
 
-    // Fire up reading blocks in parallel
-    if (s.ok()) {
-      // This will invoke callbacks both
-      // sync and async
-      return ReadPrefixIndex(prefixes_handle, prefixes_meta_handle);
+      return OnMetaBlockReadComplete(s);
+
     } else {
-      s = Status::OK();
+      return CreateHashIndexReader();
     }
   }
   break;
-
   // Invalid case
   default: {
     std::string error_message =
@@ -860,6 +862,82 @@ Status CreateIndexReaderContext::OnIndexBlockReadComplete(const Status& status) 
   }
 
   // Finish on sync completion
+  return OnComplete(s);
+}
+
+Status CreateIndexReaderContext::OnMetaBlockReadComplete(const Status& status) {
+
+  ROCKS_LOG_DEBUG(
+    table_->rep_->ioptions.info_log,
+    "CreateIndexReaderContext::OnMetaBlockReadComplete completion: %s",
+    status.ToString().c_str());
+
+  // This function is called after we read a metablock in case
+  // the iterator to it was not supplied.
+  assert(index_block_);
+  assert(index_reader_ == nullptr);
+
+  // If we failed to read the metablock
+  // then we fall-back to binary search index
+  // using the same index block
+  if (!status.ok()) {
+
+    ROCKS_LOG_DEBUG(
+      table_->rep_->ioptions.info_log,
+      "CreateIndexReaderContext::OnMetaBlockReadComplete completion: %s",
+      status.ToString().c_str());
+
+    BinarySearchIndexReader::Create(&table_->rep_->internal_comparator,
+                                    std::move(index_block_),
+                                    table_->rep_->ioptions.statistics,
+                                    &index_reader_);
+    return OnComplete(Status::OK());
+  }
+
+  meta_block_.reset(new Block(std::move(meta_cont_),
+    kDisableGlobalSequenceNumber, 0 /* read_amp_bytes_per_bit */,
+    table_->rep_->ioptions.statistics));
+
+  meta_iter_.reset(meta_block_->NewIterator(BytewiseComparator()));
+  preloaded_meta_index_iter_ = meta_iter_.get();
+
+  return CreateHashIndexReader();
+}
+
+Status CreateIndexReaderContext::CreateHashIndexReader() {
+
+  assert(index_reader_ == nullptr);
+  assert(preloaded_meta_index_iter_);
+
+  HashIndexReader::Create(&table_->rep_->internal_comparator,
+    std::move(index_block_),
+    table_->rep_->ioptions.statistics,
+    &index_reader_);
+
+  BlockHandle prefixes_handle;
+  // Seek prefix blocks
+  // Get prefixes block
+  Status s = FindMetaBlock(preloaded_meta_index_iter_, kHashIndexPrefixesBlock,
+    &prefixes_handle);
+
+  // We need both blocks to be successful if one is not found
+  // or errors out we do not continue. However, this is not a
+  // terminal error
+  BlockHandle prefixes_meta_handle;
+  if (s.ok()) {
+    s = FindMetaBlock(preloaded_meta_index_iter_, kHashIndexPrefixesMetadataBlock,
+      &prefixes_meta_handle);
+  }
+
+  // Fire up reading blocks in parallel
+  if (s.ok()) {
+    // This will invoke callbacks both
+    // sync and async
+    return ReadPrefixIndex(prefixes_handle, prefixes_meta_handle);
+  } else {
+    s = Status::OK();
+  }
+
   return OnComplete(s);
 }
 
@@ -953,16 +1031,13 @@ Status CreateIndexReaderContext::OnPrefixIndexComplete(const Status& s) {
   // Always report OK at this stage
   Status s_ok;
 
-  bool thisFailed = false;
-
   if (!s.ok()) {
     failed_.store(true, std::memory_order_relaxed);
-    thisFailed = true;
   }
 
   if (DecCount()) {
     // We are the last block to complete loading
-    if (thisFailed || !failed_.load(std::memory_order_relaxed)) {
+    if (!failed_.load(std::memory_order_relaxed)) {
       BlockPrefixIndex* prefix_index = nullptr;
       Status st = BlockPrefixIndex::Create(table_->rep_->internal_prefix_transform.get(),
                                            prefixes_cont_.data,
@@ -1297,6 +1372,23 @@ TableOpenRequestContext::TableOpenRequestContext(const TableOpenCallback& client
     new InternalKeySliceTransform(rep->ioptions.prefix_extractor));
   BlockBasedTable::SetupCacheKeyPrefix(rep, file_size);
   new_table_.reset(new BlockBasedTable(rep));
+
+  // page cache options
+  rep->persistent_cache_options =
+    PersistentCacheOptions(rep->table_options.persistent_cache,
+      std::string(rep->persistent_cache_key_prefix,
+        rep->persistent_cache_key_prefix_size),
+      rep->ioptions.statistics);
+
+  // XXX:: dmitrism
+  // This is not implemented on windows but this will block on Linux populating
+  // page cache
+  // This has two implications: 1) this call will block so needs to be async
+  // 2) The rest of the calls will likely not block
+
+  // Before read footer, readahead backwards to prefetch data
+  rep->file->Prefetch((file_size < 512 * 1024 ? 0 : file_size - 512 * 1024),
+      512 * 1024 /* 512 KB prefetching */);
 }
 
 Status TableOpenRequestContext::Open(const ImmutableCFOptions& ioptions,

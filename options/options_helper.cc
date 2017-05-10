@@ -25,8 +25,6 @@
 
 namespace rocksdb {
 
-const std::string kNullptrString = "nullptr";
-
 DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
                          const MutableDBOptions& mutable_db_options) {
   DBOptions options;

@@ -85,12 +85,11 @@ class MaybeLoadDataBlockToCacheHelper {
                          const Slice& compression_dict,
                          BlockBasedTable::CachableEntry<Block>* entry);
 
+  bool                                   is_index_;
+  StopWatch                              sw_;
 
   char cache_key_[BlockBasedTable::kMaxCacheKeyPrefixSize + kMaxVarint64Length];
   char compressed_cache_key_[BlockBasedTable::kMaxCacheKeyPrefixSize + kMaxVarint64Length];
-
-  bool                                   is_index_;
-  StopWatch                              sw_;
   Slice                                  key_;
   Slice                                  ckey_;
 };
@@ -242,10 +241,11 @@ class ReadFilterHelper {
 
   BlockBasedTable*         table_;
   bool                     is_a_filter_partition_;
-  // We read here to move into the reader block
-  BlockContents            block_;
   // The end result
   FilterBlockReader*       block_reader_;
+
+  // We read here to move into the reader block
+  BlockContents            block_;
 };
 
 
@@ -275,7 +275,8 @@ class GetFilterHelper {
     filter_blk_handle_(filter_blk_handle),
     no_io_(no_io),
     PERF_TIMER_INIT(read_filter_block_nanos),
-    was_read_(false) {
+    was_read_(false),
+    cache_handle_(nullptr) {
   }
 
   Status GetFilter(const GetFilterCallback& client_cb);
@@ -362,13 +363,27 @@ class CreateIndexReaderContext {
     preloaded_meta_index_iter_(preloaded_meta_index_iter),
     level_(level),
     index_type_on_file_(BlockBasedTableOptions::kBinarySearch),
-    failed_(false) {
+    index_reader_(nullptr),
+    failed_(false),
+    pref_block_reads_(0) {
   }
 
   Status CreateIndexReader();
 
-  // Once we
+  // Once we read the index block we attempt to
+  // instantiate the the actual index reader
+  // However, for kHashSearch we attempt to load the meta
+  // block if the iterator passed to use is nullptr
+  // During table openining the iterator is usually there
+  // but it may not be so otherwise
   Status OnIndexBlockReadComplete(const Status&);
+
+  // This is when we succeeded loading the metablock
+  // and can now search for prefix_meta_handle and
+  // prefix_handle
+  Status OnMetaBlockReadComplete(const Status&);
+
+  Status CreateHashIndexReader();
 
   // Tryng reading prefix and prefix_meta blocks
   Status ReadPrefixIndex(const BlockHandle& prefix_handle,
@@ -386,25 +401,27 @@ class CreateIndexReaderContext {
   // Returns true when it is time to invoke the
   // uuser supplied callback if async
   bool DecCount() {
+    assert(pref_block_reads_.load(std::memory_order_relaxed) > 0U);
     return pref_block_reads_.fetch_sub(1U, std::memory_order_acq_rel)
            == 1;
   }
 
-  CreateIndexCallback  cb_;
+  CreateIndexCallback     cb_;
   // table we are building
-  BlockBasedTable*     table_;
-  const ReadOptions*   readoptions_;
-
-  // Read the index block
-  BlockContents          index_block_cont_;
-  std::unique_ptr<Block> index_block_;
+  BlockBasedTable*        table_;
+  const ReadOptions*      readoptions_;
   // Iterator to the meta block loaded earlier
   InternalIterator*       preloaded_meta_index_iter_;
   int                     level_;
-
   BlockBasedTableOptions::IndexType index_type_on_file_;
   // The result of this class
   IndexReader*            index_reader_;
+
+  // Optional, in case no preloaded_meta_index_iter_
+  // was provided
+  BlockContents                     meta_cont_;
+  std::unique_ptr<Block>            meta_block_;
+  std::unique_ptr<InternalIterator> meta_iter_;
 
   // Reading prefix and prefix_meta blocks to
   // create BlockPrefixIndex if both blocks present
@@ -413,6 +430,10 @@ class CreateIndexReaderContext {
   // the table
   std::atomic_uint64_t    pref_block_reads_;
   std::atomic_bool        failed_; // Set if any of the reads failed
+
+  // Read the index block
+  BlockContents           index_block_cont_;
+  std::unique_ptr<Block>  index_block_;
   BlockContents           prefixes_cont_;
   BlockContents           prefixes_meta_cont_;
 };
@@ -474,7 +495,8 @@ class NewIndexIteratorContext {
       input_iter_(input_iter),
       index_entry_(index_entry),
       PERF_TIMER_INIT(read_index_block_nanos),
-      result_(nullptr) {
+      result_(nullptr),
+      cache_handle_(nullptr) {
   }
 
   // Returns error, OK() or NotFound()
@@ -501,15 +523,16 @@ class NewIndexIteratorContext {
   BlockBasedTable::CachableEntry<IndexReader>* index_entry_;
   PERF_TIMER_DECL(read_index_block_nanos);
 
-  char cache_key_[BlockBasedTable::kMaxCacheKeyPrefixSize + kMaxVarint64Length];
-  Slice             key_;
-
-  Cache::Handle*    cache_handle_;
   // End result, this is either passed out
   // to the caller supplied cache or registered
   // as cleanable so we never destroy it
   // or never create
   InternalIterator*  result_;
+
+  char cache_key_[BlockBasedTable::kMaxCacheKeyPrefixSize + kMaxVarint64Length];
+  Slice             key_;
+
+  Cache::Handle*    cache_handle_;
 };
 
 // This class facilitate opening a new
