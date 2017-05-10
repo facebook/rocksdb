@@ -46,6 +46,8 @@ class SequentialFileReader {
 
   Status Skip(uint64_t n);
 
+  void Rewind();
+
   SequentialFile* file() { return file_.get(); }
 
   bool use_direct_io() const { return file_->use_direct_io(); }
