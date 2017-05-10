@@ -5,12 +5,142 @@
 
 #include "rocksdb/utilities/sim_cache.h"
 #include <atomic>
+#include "monitoring/instrumented_mutex.h"
 #include "monitoring/statistics.h"
 #include "port/port.h"
+#include "rocksdb/env.h"
+#include "util/file_reader_writer.h"
+#include "util/mutexlock.h"
+#include "util/string_util.h"
 
 namespace rocksdb {
 
 namespace {
+
+class CacheActivityLogger {
+ public:
+  CacheActivityLogger()
+      : activity_logging_enabled_(false), max_logging_size_(0) {}
+
+  ~CacheActivityLogger() {
+    InstrumentedMutexLock l(&mutex_);
+
+    StopLoggingInternal();
+  }
+
+  Status StartLogging(const std::string& activity_log_file, Env* env,
+                      uint64_t max_logging_size = 0) {
+    assert(activity_log_file != "");
+    assert(env != nullptr);
+
+    Status status;
+    EnvOptions env_opts;
+    std::unique_ptr<WritableFile> log_file;
+
+    InstrumentedMutexLock l(&mutex_);
+
+    // Stop existing logging if any
+    StopLoggingInternal();
+
+    // Open log file
+    status = env->NewWritableFile(activity_log_file, &log_file, env_opts);
+    if (!status.ok()) {
+      return status;
+    }
+    file_writer_.reset(new WritableFileWriter(std::move(log_file), env_opts));
+
+    max_logging_size_ = max_logging_size;
+    activity_logging_enabled_.store(true);
+
+    return status;
+  }
+
+  void StopLogging() {
+    InstrumentedMutexLock l(&mutex_);
+
+    StopLoggingInternal();
+  }
+
+  void ReportLookup(const Slice& key) {
+    if (!activity_logging_enabled_) {
+      return;
+    }
+
+    std::string log_line = "LOOKUP - " + key.ToString(true) + "\n";
+
+    // line format: "LOOKUP - <KEY>"
+    InstrumentedMutexLock l(&mutex_);
+    Status s = file_writer_->Append(log_line);
+    if (!s.ok() && bg_status_.ok()) {
+      bg_status_ = s;
+    }
+    if (MaxLoggingSizeReached()) {
+      StopLoggingInternal();
+    }
+  }
+
+  void ReportAdd(const Slice& key, size_t size) {
+    if (!activity_logging_enabled_) {
+      return;
+    }
+
+    std::string log_line = "ADD - ";
+    log_line += key.ToString(true);
+    log_line += " - ";
+    AppendNumberTo(&log_line, size);
+		log_line += "\n";
+
+    // line format: "ADD - <KEY> - <KEY-SIZE>"
+    InstrumentedMutexLock l(&mutex_);
+    Status s = file_writer_->Append(log_line);
+    if (!s.ok() && bg_status_.ok()) {
+      bg_status_ = s;
+    }
+    if (MaxLoggingSizeReached()) {
+      StopLoggingInternal();
+    }
+  }
+
+  Status& bg_status() {
+    InstrumentedMutexLock l(&mutex_);
+    return bg_status_;
+  }
+
+ private:
+  bool MaxLoggingSizeReached() {
+    mutex_.AssertHeld();
+
+    return (max_logging_size_ > 0 &&
+            file_writer_->GetFileSize() >= max_logging_size_);
+  }
+
+  void StopLoggingInternal() {
+    mutex_.AssertHeld();
+
+    if (!activity_logging_enabled_) {
+      return;
+    }
+
+    activity_logging_enabled_.store(false);
+    Status s = file_writer_->Close();
+    if (!s.ok() && bg_status_.ok()) {
+      bg_status_ = s;
+    }
+  }
+
+  // Mutex to sync writes to file_writer, and all following
+  // class data members
+  InstrumentedMutex mutex_;
+  // Indicates if logging is currently enabled
+  // atomic to allow reads without mutex
+  std::atomic<bool> activity_logging_enabled_;
+  // When reached, we will stop logging and close the file
+  // Value of 0 means unlimited
+  uint64_t max_logging_size_;
+  std::unique_ptr<WritableFileWriter> file_writer_;
+  Status bg_status_;
+};
+
 // SimCacheImpl definition
 class SimCacheImpl : public SimCache {
  public:
@@ -48,6 +178,9 @@ class SimCacheImpl : public SimCache {
     } else {
       key_only_cache_->Release(h);
     }
+
+    cache_activity_logger_.ReportAdd(key, charge);
+
     return cache_->Insert(key, value, charge, deleter, handle, priority);
   }
 
@@ -61,6 +194,9 @@ class SimCacheImpl : public SimCache {
       inc_miss_counter();
       RecordTick(stats, SIM_BLOCK_CACHE_MISS);
     }
+
+    cache_activity_logger_.ReportLookup(key);
+
     return cache_->Lookup(key, stats);
   }
 
@@ -158,12 +294,29 @@ class SimCacheImpl : public SimCache {
     return ret;
   }
 
+  virtual Status StartActivityLogging(const std::string& activity_log_file,
+                                      Env* env,
+                                      uint64_t max_logging_size = 0) override {
+    return cache_activity_logger_.StartLogging(activity_log_file, env,
+                                               max_logging_size);
+  }
+
+  virtual void StopActivityLogging() override {
+    cache_activity_logger_.StopLogging();
+  }
+
+  virtual Status GetActivityLoggingStatus() override {
+    return cache_activity_logger_.bg_status();
+  }
+
  private:
   std::shared_ptr<Cache> cache_;
   std::shared_ptr<Cache> key_only_cache_;
   std::atomic<uint64_t> miss_times_;
   std::atomic<uint64_t> hit_times_;
   Statistics* stats_;
+  CacheActivityLogger cache_activity_logger_;
+
   void inc_miss_counter() {
     miss_times_.fetch_add(1, std::memory_order_relaxed);
   }
