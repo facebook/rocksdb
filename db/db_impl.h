@@ -731,16 +731,18 @@ class DBImpl : public DB {
   Status HandleWriteBufferFull(WriteContext* write_context);
 
   // REQUIRES: mutex locked
-  Status PreprocessWrite(const WriteOptions& write_options, bool need_log_sync,
-                         bool* logs_getting_syned, WriteContext* write_context);
+  Status PreprocessWrite(const WriteOptions& write_options, bool* need_log_sync,
+                         WriteContext* write_context);
 
-  Status WriteToWAL(const autovector<WriteThread::Writer*>& write_group,
+  Status WriteToWAL(const WriteThread::WriteGroup& write_group,
                     log::Writer* log_writer, bool need_log_sync,
                     bool need_log_dir_sync, SequenceNumber sequence);
 
-  // Used by WriteImpl to update bg_error_ when encountering memtable insert
-  // error.
-  void UpdateBackgroundError(const Status& memtable_insert_status);
+  // Used by WriteImpl to update bg_error_ if paranoid check is enabled.
+  void ParanoidCheck(const Status& status);
+
+  // Used by WriteImpl to update bg_error_ in case of memtable insert error.
+  void MemTableInsertStatusCheck(const Status& memtable_insert_status);
 
 #ifndef ROCKSDB_LITE
 
@@ -924,7 +926,7 @@ class DBImpl : public DB {
 
   WriteBufferManager* write_buffer_manager_;
 
-  WriteThreadImpl write_thread_;
+  WriteThread write_thread_;
 
   WriteBatch tmp_batch_;
 
