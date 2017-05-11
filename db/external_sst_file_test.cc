@@ -1882,6 +1882,7 @@ TEST_F(ExternalSSTFileTest, SnapshotInconsistencyBug) {
 
 TEST_F(ExternalSSTFileTest, IngestBehind) {
   Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
   options.num_levels = 3;
   options.disable_auto_compactions = false;
   DestroyAndReopen(options);
@@ -1904,7 +1905,7 @@ TEST_F(ExternalSSTFileTest, IngestBehind) {
   ifo.allow_global_seqno = true;
   ifo.ingest_behind = true;
 
-  // Can't ingest behind since seqno zero-out is on
+  // Can't ingest behind since allow_ingest_behind isn't set to true
   ASSERT_NOK(GenerateAndAddExternalFileIngestBehind(options, ifo,
                                                    file_data, -1, false,
                                                    &true_data));
@@ -1923,10 +1924,22 @@ TEST_F(ExternalSSTFileTest, IngestBehind) {
     ASSERT_OK(Put(Key(i), "memtable"));
     true_data[Key(i)] = "memtable";
   }
+  db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  // Universal picker should go at second from the bottom level
+  ASSERT_EQ("0,1", FilesPerLevel());
   ASSERT_OK(GenerateAndAddExternalFileIngestBehind(options, ifo,
                                                    file_data, -1, false,
                                                    &true_data));
-  ASSERT_EQ("0,0,1", FilesPerLevel());
+  ASSERT_EQ("0,1,1", FilesPerLevel());
+  // this time ingest should fail as the file doesn't fit to the bottom level
+  ASSERT_NOK(GenerateAndAddExternalFileIngestBehind(options, ifo,
+                                                   file_data, -1, false,
+                                                   &true_data));
+  ASSERT_EQ("0,1,1", FilesPerLevel());
+  db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  // bottom level should be empty
+  ASSERT_EQ("0,1", FilesPerLevel());
+
   size_t kcnt = 0;
   VerifyDBFromMap(true_data, &kcnt, false);
 }

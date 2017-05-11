@@ -2618,7 +2618,7 @@ Status DBImpl::IngestExternalFile(
   // db doesn't support it, or auto compactions
   // are not disabled, want to check conditions separately
   if (ingestion_options.ingest_behind) {
-    if (immutable_db_options_.allow_ingest_behind) {
+    if (!immutable_db_options_.allow_ingest_behind) {
       return Status::InvalidArgument(
         "Can't ingest_behind file in DB with allow_ingest_behind=false");
     }
