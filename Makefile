@@ -1405,6 +1405,9 @@ SNAPPY_VER = 1.1.4
 SNAPPY_SHA256 = 134bfe122fd25599bb807bb8130e7ba6d9bdb851e0b16efcb83ac4f5d0b70057
 LZ4_VER = 1.7.5
 LZ4_SHA256 = 0190cacd63022ccb86f44fa5041dc6c3804407ad61550ca21c382827319e7e7e
+ZSTD_VER ?= 1.2.0
+ZSTD_SHA256 ?= 4a7e4593a3638276ca7f2a09dc4f38e674d8317bbea51626393ca73fc047cbfb
+ZSTD_DOWNLOAD_BASE ?= https://github.com/facebook/zstd/archive
 
 ifeq ($(PLATFORM), OS_MACOSX)
 	ROCKSDBJNILIB = librocksdbjni-osx.jnilib
@@ -1478,12 +1481,25 @@ liblz4.a:
 	cd lz4-$(LZ4_VER)/lib && make CFLAGS='-fPIC' all
 	cp lz4-$(LZ4_VER)/lib/liblz4.a .
 
+libzstd.a:
+	-rm -rf zstd-$(ZSTD_VER)
+	curl -O -L ${ZSTD_DOWNLOAD_BASE}/v$(ZSTD_VER).tar.gz
+	mv v$(ZSTD_VER).tar.gz zstd-$(ZSTD_VER).tar.gz
+	ZSTD_SHA256_ACTUAL=`$(SHA256_CMD) zstd-$(ZSTD_VER).tar.gz | cut -d ' ' -f 1`; \
+	if [ "$(ZSTD_SHA256)" != "$$ZSTD_SHA256_ACTUAL" ]; then \
+		echo zstd-$(ZSTD_VER).tar.gz checksum mismatch, expected=\"$(ZSTD_SHA256)\" actual=\"$$ZSTD_SHA256_ACTUAL\"; \
+		exit 1; \
+	fi
+	tar xvzf zstd-$(ZSTD_VER).tar.gz
+	cd zstd-$(ZSTD_VER)/lib && make CFLAGS='-fPIC -O2 ${EXTRA_CFLAGS}' all
+	cp zstd-$(ZSTD_VER)/lib/libzstd.a .
+
 # A version of each $(LIBOBJECTS) compiled with -fPIC and a fixed set of static compression libraries
 java_static_libobjects = $(patsubst %,jls/%,$(LIBOBJECTS))
 CLEAN_FILES += jls
 
 ifneq ($(ROCKSDB_JAVA_NO_COMPRESSION), 1)
-JAVA_COMPRESSIONS = libz.a libbz2.a libsnappy.a liblz4.a
+JAVA_COMPRESSIONS = libz.a libbz2.a libsnappy.a liblz4.a libzstd.a
 endif
 
 JAVA_STATIC_FLAGS = -DZLIB -DBZIP2 -DSNAPPY -DLZ4
