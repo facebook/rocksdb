@@ -34,7 +34,6 @@
 #include "db/version_edit.h"
 #include "db/wal_manager.h"
 #include "db/write_controller.h"
-#include "db/write_pipeline.h"
 #include "db/write_thread.h"
 #include "memtable_list.h"
 #include "monitoring/instrumented_mutex.h"
@@ -927,7 +926,7 @@ class DBImpl : public DB {
 
   WriteBufferManager* write_buffer_manager_;
 
-  std::unique_ptr<WriteThread> write_thread_;
+  WriteThread write_thread_;
 
   WriteBatch tmp_batch_;
 

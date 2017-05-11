@@ -159,6 +159,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       max_total_in_memory_state_(0),
       is_snapshot_supported_(true),
       write_buffer_manager_(immutable_db_options_.write_buffer_manager.get()),
+      write_thread_(immutable_db_options_),
       write_controller_(mutable_db_options_.delayed_write_rate),
       last_batch_group_size_(0),
       unscheduled_flushes_(0),
@@ -199,19 +200,6 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
                                  &write_controller_));
   column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(versions_->GetColumnFamilySet()));
-
-  uint64_t max_yield_usec =
-      immutable_db_options_.enable_write_thread_adaptive_yield
-          ? immutable_db_options_.write_thread_max_yield_usec
-          : 0;
-  uint64_t slow_yield_usec = immutable_db_options_.write_thread_slow_yield_usec;
-  if (immutable_db_options_.enable_pipelined_write) {
-    write_thread_.reset(new WritePipeline(
-        max_yield_usec, slow_yield_usec,
-        immutable_db_options_.allow_concurrent_memtable_write));
-  } else {
-    write_thread_.reset(new WriteThreadImpl(max_yield_usec, slow_yield_usec));
-  }
 
   DumpRocksDBBuildVersion(immutable_db_options_.info_log.get());
   DumpDBFileSummary(immutable_db_options_, dbname_);
@@ -588,7 +576,7 @@ Status DBImpl::SetDBOptions(
 
       mutable_db_options_ = new_options;
 
-      write_thread_->EnterUnbatched(&w, &mutex_);
+      write_thread_.EnterUnbatched(&w, &mutex_);
       if (total_log_size_ > GetMaxTotalWalSize()) {
         Status purge_wal_status = HandleWALFull(&write_context);
         if (!purge_wal_status.ok()) {
@@ -599,7 +587,7 @@ Status DBImpl::SetDBOptions(
       }
       persist_options_status = WriteOptionsFile(
           false /*need_mutex_lock*/, false /*need_enter_write_thread*/);
-      write_thread_->ExitUnbatched(&w);
+      write_thread_.ExitUnbatched(&w);
     }
   }
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "SetDBOptions(), inputs:");
@@ -1228,13 +1216,13 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
     // ColumnFamilyData object
     {  // write thread
       WriteThread::Writer w;
-      write_thread_->EnterUnbatched(&w, &mutex_);
+      write_thread_.EnterUnbatched(&w, &mutex_);
       // LogAndApply will both write the creation in MANIFEST and create
       // ColumnFamilyData object
       s = versions_->LogAndApply(nullptr, MutableCFOptions(cf_options), &edit,
                                  &mutex_, directories_.GetDbDir(), false,
                                  &cf_options);
-      write_thread_->ExitUnbatched(&w);
+      write_thread_.ExitUnbatched(&w);
     }
     if (s.ok()) {
       single_column_family_mode_ = false;
@@ -1320,10 +1308,10 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
     if (s.ok()) {
       // we drop column family from a single write thread
       WriteThread::Writer w;
-      write_thread_->EnterUnbatched(&w, &mutex_);
+      write_thread_.EnterUnbatched(&w, &mutex_);
       s = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
                                  &edit, &mutex_);
-      write_thread_->ExitUnbatched(&w);
+      write_thread_.ExitUnbatched(&w);
     }
 
     if (!cf_support_snapshot) {
@@ -2661,7 +2649,7 @@ Status DBImpl::IngestExternalFile(
 
     // Stop writes to the DB
     WriteThread::Writer w;
-    write_thread_->EnterUnbatched(&w, &mutex_);
+    write_thread_.EnterUnbatched(&w, &mutex_);
 
     num_running_ingest_file_++;
 
@@ -2702,7 +2690,7 @@ Status DBImpl::IngestExternalFile(
     }
 
     // Resume writes to the DB
-    write_thread_->ExitUnbatched(&w);
+    write_thread_.ExitUnbatched(&w);
 
     // Update stats
     if (status.ok()) {
