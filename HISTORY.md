@@ -3,9 +3,19 @@
 ### New Features
 * Added DB::CreateColumnFamilie() and DB::DropColumnFamilies() to bulk create/drop column families.
 
+### Bug Fixes
+* Fix a manual / auto compaction data race.
+* Fix CentOS 5 cross-building of RocksJava.
+
 ## 5.4.3 (05/10/2017)
+### Bug Fixes
+* Fix memory alignment with logical sector size.
+* Fix alignment in ReadaheadRandomAccessFile.
+* Fix bias with read amplification stats (READ_AMP_ESTIMATE_USEFUL_BYTES and READ_AMP_TOTAL_READ_BYTES).
 
 ## 5.4.2 (05/08/2017)
+### Bug Fixes
+* Fix huge fallocate calls fail and make XFS unhappy.
 
 ## 5.4.1 (05/02/2017)
 ### Bug Fxies
