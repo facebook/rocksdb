@@ -692,6 +692,9 @@ TEST_F(ColumnFamilyTest, BulkAddDrop) {
   }
   ASSERT_OK(db_->DropColumnFamilies(cf_handles));
   std::vector<ColumnFamilyDescriptor> cf_descriptors;
+  for (auto* handle : cf_handles) {
+    delete handle;
+  }
   cf_handles.clear();
   for (int i = 1; i <= kNumCF; i++) {
     cf_descriptors.emplace_back("cf2-" + ToString(i), ColumnFamilyOptions());
@@ -701,6 +704,9 @@ TEST_F(ColumnFamilyTest, BulkAddDrop) {
     ASSERT_OK(db_->Put(write_options, cf_handles[i - 1], "foo", "bar"));
   }
   ASSERT_OK(db_->DropColumnFamilies(cf_handles));
+  for (auto* handle : cf_handles) {
+    delete handle;
+  }
   Close();
   std::vector<std::string> families;
   ASSERT_OK(DB::ListColumnFamilies(db_options_, dbname_, &families));
