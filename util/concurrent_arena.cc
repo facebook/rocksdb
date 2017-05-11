@@ -18,35 +18,24 @@
 namespace rocksdb {
 
 #ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
-__thread uint32_t ConcurrentArena::tls_cpuid = 0;
+__thread size_t ConcurrentArena::tls_cpuid = 0;
 #endif
 
 ConcurrentArena::ConcurrentArena(size_t block_size, size_t huge_page_size)
-    : shard_block_size_(block_size / 8), arena_(block_size, huge_page_size) {
-  // find a power of two >= num_cpus and >= 8
-  auto num_cpus = std::thread::hardware_concurrency();
-  index_mask_ = 7;
-  while (index_mask_ + 1 < num_cpus) {
-    index_mask_ = index_mask_ * 2 + 1;
-  }
-
-  shards_.reset(new Shard[index_mask_ + 1]);
+    : shard_block_size_(block_size / 8),
+      shards_(),
+      arena_(block_size, huge_page_size) {
   Fixup();
 }
 
 ConcurrentArena::Shard* ConcurrentArena::Repick() {
-  int cpuid = port::PhysicalCoreID();
-  if (UNLIKELY(cpuid < 0)) {
-    // cpu id unavailable, just pick randomly
-    cpuid =
-        Random::GetTLSInstance()->Uniform(static_cast<int>(index_mask_) + 1);
-  }
+  auto shard_and_index = shards_.AccessElementAndIndex();
 #ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
   // even if we are cpu 0, use a non-zero tls_cpuid so we can tell we
   // have repicked
-  tls_cpuid = cpuid | (static_cast<int>(index_mask_) + 1);
+  tls_cpuid = shard_and_index.second | shards_.Size();
 #endif
-  return &shards_[cpuid & index_mask_];
+  return shard_and_index.first;
 }
 
 }  // namespace rocksdb
