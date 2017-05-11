@@ -179,10 +179,37 @@ class DB {
                                     const std::string& column_family_name,
                                     ColumnFamilyHandle** handle);
 
+  // Bulk create column families with the same column family options.
+  // Return the handles of the column families through the argument handles.
+  // In case of error, the request may succeed partially, and handles will
+  // contain column family handles that it managed to create, and have size
+  // equal to the number of created column families.
+  virtual Status CreateColumnFamilies(
+      const ColumnFamilyOptions& options,
+      const std::vector<std::string>& column_family_names,
+      std::vector<ColumnFamilyHandle*>* handles);
+
+  // Bulk create column families.
+  // Return the handles of the column families through the argument handles.
+  // In case of error, the request may succeed partially, and handles will
+  // contain column family handles that it managed to create, and have size
+  // equal to the number of created column families.
+  virtual Status CreateColumnFamilies(
+      const std::vector<ColumnFamilyDescriptor>& column_families,
+      std::vector<ColumnFamilyHandle*>* handles);
+
   // Drop a column family specified by column_family handle. This call
   // only records a drop record in the manifest and prevents the column
   // family from flushing and compacting.
   virtual Status DropColumnFamily(ColumnFamilyHandle* column_family);
+
+  // Bulk drop column families. This call only records drop records in the
+  // manifest and prevents the column families from flushing and compacting.
+  // In case of error, the request may succeed partially. User may call
+  // ListColumnFamilies to check the result.
+  virtual Status DropColumnFamilies(
+      const std::vector<ColumnFamilyHandle*>& column_families);
+
   // Close a column family specified by column_family handle and destroy
   // the column family handle specified to avoid double deletion. This call
   // deletes the column family handle by default. Use this method to

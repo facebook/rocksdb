@@ -75,7 +75,8 @@ class LevelIterator : public InternalIterator {
         cfd_->internal_comparator(), {} /* snapshots */);
     file_iter_ = cfd_->table_cache()->NewIterator(
         read_options_, *(cfd_->soptions()), cfd_->internal_comparator(),
-        files_[file_index_]->fd, read_options_.ignore_range_deletions ? nullptr : &range_del_agg,
+        files_[file_index_]->fd,
+        read_options_.ignore_range_deletions ? nullptr : &range_del_agg,
         nullptr /* table_reader_ptr */, nullptr, false);
     file_iter_->SetPinnedItersMgr(pinned_iters_mgr_);
     if (!range_del_agg.IsEmpty()) {

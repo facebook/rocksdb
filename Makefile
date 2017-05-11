@@ -280,6 +280,9 @@ CXXFLAGS += $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CXXFLAGS) $(OPT) -Woverl
 
 LDFLAGS += $(PLATFORM_LDFLAGS)
 
+# If NO_UPDATE_BUILD_VERSION is set we don't update util/build_version.cc, but
+# the file needs to already exist or else the build will fail
+ifndef NO_UPDATE_BUILD_VERSION
 date := $(shell date +%F)
 ifdef FORCE_GIT_SHA
 	git_sha := $(FORCE_GIT_SHA)
@@ -293,7 +296,6 @@ gen_build_version = sed -e s/@@GIT_SHA@@/$(git_sha)/ -e s/@@GIT_DATE_TIME@@/$(da
 # as a regular source file as part of the compilation process.
 # One can run "strings executable_filename | grep _build_" to find
 # the version of the source that we used to build the executable file.
-CLEAN_FILES += util/build_version.cc:
 FORCE:
 util/build_version.cc: FORCE
 	$(AM_V_GEN)rm -f $@-t
@@ -301,6 +303,8 @@ util/build_version.cc: FORCE
 	$(AM_V_at)if test -f $@; then					\
 	  cmp -s $@-t $@ && rm -f $@-t || mv -f $@-t $@;		\
 	else mv -f $@-t $@; fi
+endif
+CLEAN_FILES += util/build_version.cc
 
 LIBOBJECTS = $(LIB_SOURCES:.cc=.o)
 LIBOBJECTS += $(TOOL_LIB_SOURCES:.cc=.o)
@@ -399,7 +403,6 @@ TESTS = \
 	ttl_test \
 	date_tiered_test \
 	backupable_db_test \
-	blob_db_test \
 	document_db_test \
 	json_document_test \
 	sim_cache_test \
@@ -420,6 +423,7 @@ TESTS = \
 	options_settable_test \
 	options_util_test \
 	event_logger_test \
+	timer_queue_test \
 	cuckoo_table_builder_test \
 	cuckoo_table_reader_test \
 	cuckoo_table_db_test \
@@ -1301,6 +1305,9 @@ db_bench_tool_test: tools/db_bench_tool_test.o $(BENCHTOOLOBJECTS) $(TESTHARNESS
 	$(AM_LINK)
 
 event_logger_test: util/event_logger_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+timer_queue_test: util/timer_queue_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 sst_dump_test: tools/sst_dump_test.o $(LIBOBJECTS) $(TESTHARNESS)

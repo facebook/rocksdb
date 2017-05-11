@@ -798,36 +798,19 @@ TEST_P(BloomStatsTestWithParam, BloomStatsTestWithIter) {
   ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ(value1, iter->value().ToString());
-  if (partition_filters_) {
-    ASSERT_EQ(0, perf_context.bloom_sst_hit_count);   // no_io
-    ASSERT_EQ(0, perf_context.bloom_sst_miss_count);  // no_io
-  } else {
-    ASSERT_EQ(1, perf_context.bloom_sst_hit_count);
-  }
+  ASSERT_EQ(1, perf_context.bloom_sst_hit_count);
 
   iter->Seek(key3);
   ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ(value3, iter->value().ToString());
-  if (partition_filters_) {
-    ASSERT_EQ(0, perf_context.bloom_sst_hit_count);   // no_io
-    ASSERT_EQ(0, perf_context.bloom_sst_miss_count);  // no_io
-  } else {
-    ASSERT_EQ(2, perf_context.bloom_sst_hit_count);
-  }
+  ASSERT_EQ(2, perf_context.bloom_sst_hit_count);
 
   iter->Seek(key2);
   ASSERT_OK(iter->status());
-  if (partition_filters_) {
-    // iter is still valid since filter did not reject the key2
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ(0, perf_context.bloom_sst_hit_count);   // no_io
-    ASSERT_EQ(0, perf_context.bloom_sst_miss_count);  // no_io
-  } else {
-    ASSERT_TRUE(!iter->Valid());
-    ASSERT_EQ(1, perf_context.bloom_sst_miss_count);
-    ASSERT_EQ(2, perf_context.bloom_sst_hit_count);
-  }
+  ASSERT_TRUE(!iter->Valid());
+  ASSERT_EQ(1, perf_context.bloom_sst_miss_count);
+  ASSERT_EQ(2, perf_context.bloom_sst_hit_count);
 }
 
 INSTANTIATE_TEST_CASE_P(BloomStatsTestWithParam, BloomStatsTestWithParam,

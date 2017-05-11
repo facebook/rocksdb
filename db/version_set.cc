@@ -528,6 +528,13 @@ class LevelFileIteratorState : public TwoLevelIteratorState {
     return true;
   }
 
+  bool KeyReachedUpperBound(const Slice& internal_key) override {
+    return read_options_.iterate_upper_bound != nullptr &&
+           icomparator_.user_comparator()->Compare(
+               ExtractUserKey(internal_key),
+               *read_options_.iterate_upper_bound) >= 0;
+  }
+
  private:
   TableCache* table_cache_;
   const ReadOptions read_options_;

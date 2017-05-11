@@ -237,7 +237,9 @@ struct OnceType {
 #define LEVELDB_ONCE_INIT port::OnceType::Init()
 extern void InitOnce(OnceType* once, void (*initializer)());
 
+#ifndef CACHE_LINE_SIZE
 #define CACHE_LINE_SIZE 64U
+#endif
 
 static inline void AsmVolatilePause() {
 #if defined(_M_IX86) || defined(_M_X64)

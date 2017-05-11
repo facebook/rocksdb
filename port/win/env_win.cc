@@ -35,8 +35,8 @@
 #include "monitoring/thread_status_updater.h"
 #include "monitoring/thread_status_util.h"
 
-#include <Rpc.h>  // For UUID generation
-#include <Windows.h>
+#include <rpc.h>  // for uuid generation
+#include <windows.h>
 
 namespace rocksdb {
 

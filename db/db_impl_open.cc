@@ -99,7 +99,9 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
     result.db_paths.emplace_back(dbname, std::numeric_limits<uint64_t>::max());
   }
 
-  if (result.use_direct_reads && result.compaction_readahead_size == 0) {
+  if (result.use_direct_io_for_flush_and_compaction &&
+      result.compaction_readahead_size == 0) {
+    TEST_SYNC_POINT_CALLBACK("SanitizeOptions:direct_io", nullptr);
     result.compaction_readahead_size = 1024 * 1024 * 2;
   }
 
@@ -1032,7 +1034,8 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
   if (s.ok()) {
     // Persist RocksDB Options before scheduling the compaction.
     // The WriteOptionsFile() will release and lock the mutex internally.
-    persist_options_status = impl->WriteOptionsFile();
+    persist_options_status = impl->WriteOptionsFile(
+        false /*need_mutex_lock*/, false /*need_enter_write_thread*/);
 
     *dbptr = impl;
     impl->opened_successfully_ = true;
@@ -1065,14 +1068,9 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
     ROCKS_LOG_INFO(impl->immutable_db_options_.info_log, "DB pointer %p", impl);
     LogFlush(impl->immutable_db_options_.info_log);
     if (!persist_options_status.ok()) {
-      if (db_options.fail_if_options_file_error) {
-        s = Status::IOError(
-            "DB::Open() failed --- Unable to persist Options file",
-            persist_options_status.ToString());
-      }
-      ROCKS_LOG_WARN(impl->immutable_db_options_.info_log,
-                     "Unable to persist options in DB::Open() -- %s",
-                     persist_options_status.ToString().c_str());
+      s = Status::IOError(
+          "DB::Open() failed --- Unable to persist Options file",
+          persist_options_status.ToString());
     }
   }
   if (!s.ok()) {

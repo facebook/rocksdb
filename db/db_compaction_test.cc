@@ -2645,6 +2645,7 @@ TEST_P(DBCompactionDirectIOTest, DirectIO) {
   options.use_direct_io_for_flush_and_compaction = GetParam();
   options.env = new MockEnv(Env::Default());
   Reopen(options);
+  bool readahead = false;
   SyncPoint::GetInstance()->SetCallBack(
       "TableCache::NewIterator:for_compaction", [&](void* arg) {
         bool* use_direct_reads = static_cast<bool*>(arg);
@@ -2657,11 +2658,18 @@ TEST_P(DBCompactionDirectIOTest, DirectIO) {
         ASSERT_EQ(*use_direct_writes,
                   options.use_direct_io_for_flush_and_compaction);
       });
+  if (options.use_direct_io_for_flush_and_compaction) {
+    SyncPoint::GetInstance()->SetCallBack(
+        "SanitizeOptions:direct_io", [&](void* arg) {
+          readahead = true;
+        });
+  }
   SyncPoint::GetInstance()->EnableProcessing();
   CreateAndReopenWithCF({"pikachu"}, options);
   MakeTables(3, "p", "q", 1);
   ASSERT_EQ("1,1,1", FilesPerLevel(1));
   Compact(1, "p1", "p9");
+  ASSERT_FALSE(readahead ^ options.use_direct_io_for_flush_and_compaction);
   ASSERT_EQ("0,0,1", FilesPerLevel(1));
   Destroy(options);
   delete options.env;
