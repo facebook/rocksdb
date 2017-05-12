@@ -38,23 +38,23 @@ class CoreLocalArray {
 
  private:
   std::unique_ptr<T[]> data_;
-  size_t size_shift_;
+  int size_shift_;
 };
 
 template<typename T>
 CoreLocalArray<T>::CoreLocalArray() {
-  unsigned int num_cpus = std::thread::hardware_concurrency();
+  int num_cpus = static_cast<int>(std::thread::hardware_concurrency());
   // find a power of two >= num_cpus and >= 8
   size_shift_ = 3;
-  while (1u << size_shift_ < num_cpus) {
+  while (1 << size_shift_ < num_cpus) {
     ++size_shift_;
   }
-  data_.reset(new T[1 << size_shift_]);
+  data_.reset(new T[static_cast<size_t>(1) << size_shift_]);
 }
 
 template<typename T>
 size_t CoreLocalArray<T>::Size() const {
-  return 1u << size_shift_;
+  return static_cast<size_t>(1) << size_shift_;
 }
 
 template<typename T>
@@ -77,7 +77,7 @@ std::pair<T*, size_t> CoreLocalArray<T>::AccessElementAndIndex() const {
 
 template<typename T>
 T* CoreLocalArray<T>::AccessAtCore(size_t core_idx) const {
-  assert(core_idx < 1u << size_shift_);
+  assert(core_idx < static_cast<size_t>(1) << size_shift_);
   return &data_[core_idx];
 }
 
