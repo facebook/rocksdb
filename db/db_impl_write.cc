@@ -230,7 +230,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         write_group.last_sequence = last_sequence;
         write_group.running.store(static_cast<uint32_t>(write_group.size),
                                   std::memory_order_relaxed);
-        write_thread_.LaunchParallelMemTableWriters(write_group);
+        write_thread_.LaunchParallelMemTableWriters(&write_group);
         in_parallel_group = true;
 
         // Each parallel follower is doing each own writes. The leader should
@@ -371,7 +371,7 @@ Status DBImpl::PipelineWriteImpl(const WriteOptions& write_options,
     write_thread_.EnterAsMemTableWriter(&w, &memtable_write_group);
     if (memtable_write_group.size > 1 &&
         immutable_db_options_.allow_concurrent_memtable_write) {
-      write_thread_.LaunchParallelMemTableWriters(memtable_write_group);
+      write_thread_.LaunchParallelMemTableWriters(&memtable_write_group);
     } else {
       memtable_write_group.status = WriteBatchInternal::InsertInto(
           memtable_write_group, w.sequence, column_family_memtables_.get(),
@@ -383,6 +383,7 @@ Status DBImpl::PipelineWriteImpl(const WriteOptions& write_options,
   }
 
   if (w.state == WriteThread::STATE_PARALLEL_MEMTABLE_WRITER) {
+    assert(w.ShouldWriteToMemtable());
     WriteBatchInternal::SetSequence(w.batch, w.sequence);
     ColumnFamilyMemTablesImpl column_family_memtables(
         versions_->GetColumnFamilySet());
@@ -784,7 +785,9 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
 
   // In case of pipelined write is enabled, wait for all pending memtable
   // writers.
-  write_thread_.WaitForMemTableWriters();
+  if (immutable_db_options_.enable_pipelined_write) {
+    write_thread_.WaitForMemTableWriters();
+  }
 
   // Attempt to switch to a new memtable and trigger flush of old.
   // Do this without holding the dbmutex lock.

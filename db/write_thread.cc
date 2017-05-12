@@ -22,7 +22,10 @@ WriteThread::WriteThread(const ImmutableDBOptions& db_options)
       slow_yield_usec_(db_options.write_thread_slow_yield_usec),
       allow_concurrent_memtable_write_(
           db_options.allow_concurrent_memtable_write),
-      enable_pipelined_write_(db_options.enable_pipelined_write) {}
+      enable_pipelined_write_(db_options.enable_pipelined_write),
+      newest_writer_(nullptr),
+      newest_memtable_writer_(nullptr),
+      last_sequence_(0) {}
 
 uint8_t WriteThread::BlockingAwaitState(Writer* w, uint8_t goal_mask) {
   // We're going to block.  Lazily create the mutex.  We guarantee
@@ -188,21 +191,21 @@ void WriteThread::SetState(Writer* w, uint8_t new_state) {
   }
 }
 
-bool WriteThread::LinkOne(Writer* w, std::atomic<Writer*>& newest_writer) {
+bool WriteThread::LinkOne(Writer* w, std::atomic<Writer*>* newest_writer) {
+  assert(newest_writer != nullptr);
   assert(w->state == STATE_INIT);
-  Writer* writers = newest_writer.load(std::memory_order_relaxed);
+  Writer* writers = newest_writer->load(std::memory_order_relaxed);
   while (true) {
     w->link_older = writers;
-    if (newest_writer.compare_exchange_weak(writers, w)) {
-      if (&newest_writer == &newest_memtable_writer_) {
-      }
+    if (newest_writer->compare_exchange_weak(writers, w)) {
       return (writers == nullptr);
     }
   }
 }
 
 bool WriteThread::LinkGroup(WriteGroup& write_group,
-                            std::atomic<Writer*>& newest_writer) {
+                            std::atomic<Writer*>* newest_writer) {
+  assert(newest_writer != nullptr);
   autovector<Writer*> writers = write_group.ToVector();
   Writer* leader = write_group.leader;
   Writer* last_writer = write_group.last_writer;
@@ -213,10 +216,10 @@ bool WriteThread::LinkGroup(WriteGroup& write_group,
     w->link_newer = nullptr;
     w->write_group = nullptr;
   }
-  Writer* newest = newest_writer.load(std::memory_order_relaxed);
+  Writer* newest = newest_writer->load(std::memory_order_relaxed);
   while (true) {
     leader->link_older = newest;
-    if (newest_writer.compare_exchange_weak(newest, last_writer))
+    if (newest_writer->compare_exchange_weak(newest, last_writer))
       return (newest == nullptr);
   }
 }
@@ -266,7 +269,7 @@ void WriteThread::JoinBatchGroup(Writer* w) {
   static AdaptationContext ctx("JoinBatchGroup");
 
   assert(w->batch != nullptr);
-  bool linked_as_leader = LinkOne(w, newest_writer_);
+  bool linked_as_leader = LinkOne(w, &newest_writer_);
 
   TEST_SYNC_POINT_CALLBACK("WriteThread::JoinBatchGroup:Wait", w);
 
@@ -278,7 +281,13 @@ void WriteThread::JoinBatchGroup(Writer* w) {
      * 1) An existing leader pick us as the new leader when it finishes
      * 2) An existing leader pick us as its follewer and
      * 2.1) finishes the memtable writes on our behalf
-     * 2.2) Or tell us to finish the memtable writes it in pralallel
+     * 2.2) Or tell us to finish the memtable writes in pralallel
+     * 3) (pipelined write) An existing leader pick us as its follower and
+     *    finish book-keeping and WAL write for us, enqueue us as pending
+     *    memtable writer, and
+     * 3.1) we become memtable writer group leader, or
+     * 3.2) an existing memtable writer group leader tell us to finish memtable
+     *      writes in parallel.
      */
     AwaitState(w, STATE_GROUP_LEADER | STATE_MEMTABLE_WRITER_LEADER |
                       STATE_PARALLEL_MEMTABLE_WRITER | STATE_COMPLETED,
@@ -449,21 +458,11 @@ void WriteThread::ExitAsMemTableWriter(Writer* self, WriteGroup& write_group) {
   SetState(leader, STATE_COMPLETED);
 }
 
-void WriteThread::LaunchParallelMemTableWriters(WriteGroup& write_group) {
-  // EnterAsBatchGroupLeader already created the links from leader to
-  // newer writers in the group
-  // Initialize and wake up the others
-  size_t num_writers = 0;
-  for (auto w : write_group) {
-    if (w->ShouldWriteToMemtable()) {
-      num_writers++;
-    }
-  }
-  write_group.running.store(num_writers);
-  for (auto w : write_group) {
-    if (w->ShouldWriteToMemtable()) {
-      SetState(w, STATE_PARALLEL_MEMTABLE_WRITER);
-    }
+void WriteThread::LaunchParallelMemTableWriters(WriteGroup* write_group) {
+  assert(write_group != nullptr);
+  write_group->running.store(write_group->size);
+  for (auto w : *write_group) {
+    SetState(w, STATE_PARALLEL_MEMTABLE_WRITER);
   }
 }
 
@@ -534,7 +533,7 @@ void WriteThread::ExitAsBatchGroupLeader(WriteGroup& write_group,
     }
     // Link the ramaining of the group to memtable writer list.
     if (write_group.size > 0) {
-      if (LinkGroup(write_group, newest_memtable_writer_)) {
+      if (LinkGroup(write_group, &newest_memtable_writer_)) {
         // The leader can now be different from current writer.
         SetState(write_group.leader, STATE_MEMTABLE_WRITER_LEADER);
       }
@@ -605,10 +604,9 @@ void WriteThread::ExitAsBatchGroupLeader(WriteGroup& write_group,
 
 void WriteThread::EnterUnbatched(Writer* w, InstrumentedMutex* mu) {
   static AdaptationContext ctx("EnterUnbatched");
-
-  assert(w->batch == nullptr);
+  assert(w != nullptr && w->batch == nullptr);
   mu->Unlock();
-  bool linked_as_leader = LinkOne(w, newest_writer_);
+  bool linked_as_leader = LinkOne(w, &newest_writer_);
   if (!linked_as_leader) {
     TEST_SYNC_POINT("WriteThread::EnterUnbatched:Wait");
     // Last leader will not pick us as a follower since our batch is nullptr
@@ -621,6 +619,7 @@ void WriteThread::EnterUnbatched(Writer* w, InstrumentedMutex* mu) {
 }
 
 void WriteThread::ExitUnbatched(Writer* w) {
+  assert(w != nullptr);
   Writer* newest_writer = w;
   if (!newest_writer_.compare_exchange_strong(newest_writer, nullptr)) {
     CreateMissingNewerLinks(newest_writer);
@@ -633,15 +632,12 @@ void WriteThread::ExitUnbatched(Writer* w) {
 
 void WriteThread::WaitForMemTableWriters() {
   static AdaptationContext ctx("WaitForMemTableWriters");
-
-  if (!enable_pipelined_write_) {
-    return;
-  }
+  assert(enable_pipelined_write_);
   if (newest_memtable_writer_.load() == nullptr) {
     return;
   }
   Writer w;
-  if (!LinkOne(&w, newest_memtable_writer_)) {
+  if (!LinkOne(&w, &newest_memtable_writer_)) {
     AwaitState(&w, STATE_MEMTABLE_WRITER_LEADER, &ctx);
   }
   newest_memtable_writer_.store(nullptr);

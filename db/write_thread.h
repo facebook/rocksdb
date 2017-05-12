@@ -309,7 +309,7 @@ class WriteThread {
   // before waking them up.
   //
   // WriteGroup* write_group: Extra state used to coordinate the parallel add
-  void LaunchParallelMemTableWriters(WriteGroup& write_group);
+  void LaunchParallelMemTableWriters(WriteGroup* write_group);
 
   // Reports the completion of w's batch to the parallel group leader, and
   // waits for the rest of the parallel batch to complete.  Returns true
@@ -380,12 +380,12 @@ class WriteThread {
   // Links w into the newest_writer list. Return true if w was linked directly
   // into the leader position.  Safe to call from multiple threads without
   // external locking.
-  bool LinkOne(Writer* w, std::atomic<Writer*>& newest_writer);
+  bool LinkOne(Writer* w, std::atomic<Writer*>* newest_writer);
 
   // Link write group into the newest_writer list as a whole, while keeping the
   // order of the writers unchanged. Return true if the group was linked
   // directly into the leader position.
-  bool LinkGroup(WriteGroup& write_group, std::atomic<Writer*>& newest_writer);
+  bool LinkGroup(WriteGroup& write_group, std::atomic<Writer*>* newest_writer);
 
   // Computes any missing link_newer links.  Should not be called
   // concurrently with itself.
