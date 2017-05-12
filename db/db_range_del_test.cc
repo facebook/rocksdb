@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
@@ -324,6 +326,7 @@ TEST_F(DBRangeDelTest, CompactionRemovesCoveredKeys) {
 TEST_F(DBRangeDelTest, ValidLevelSubcompactionBoundaries) {
   const int kNumPerFile = 100, kNumFiles = 4, kFileBytes = 100 << 10;
   Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
   options.level0_file_num_compaction_trigger = kNumFiles;
   options.max_bytes_for_level_base = 2 * kFileBytes;
   options.max_subcompactions = 4;
@@ -361,7 +364,14 @@ TEST_F(DBRangeDelTest, ValidLevelSubcompactionBoundaries) {
         // new L1 files must be generated with non-overlapping key ranges even
         // though multiple subcompactions see the same ranges deleted, else an
         // assertion will fail.
+        //
+        // Only enable auto-compactions when we're ready; otherwise, the
+        // oversized L0 (relative to base_level) causes the compaction to run
+        // earlier.
+        ASSERT_OK(db_->EnableAutoCompaction({db_->DefaultColumnFamily()}));
         dbfull()->TEST_WaitForCompact();
+        ASSERT_OK(db_->SetOptions(db_->DefaultColumnFamily(),
+                                  {{"disable_auto_compactions", "true"}}));
         ASSERT_EQ(NumTableFilesAtLevel(0), 0);
         ASSERT_GT(NumTableFilesAtLevel(1), 0);
         ASSERT_GT(NumTableFilesAtLevel(2), 0);

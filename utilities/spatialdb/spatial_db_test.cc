@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #ifndef ROCKSDB_LITE
 
@@ -94,7 +96,7 @@ TEST_F(SpatialDBTest, FeatureSetSerializeTest) {
   ASSERT_EQ(deserialized.Get("m").get_double(), 3.25);
 
   // corrupted serialization
-  serialized = serialized.substr(0, serialized.size() - 3);
+  serialized = serialized.substr(0, serialized.size() - 4);
   deserialized.Clear();
   ASSERT_TRUE(!deserialized.Deserialize(serialized));
 }

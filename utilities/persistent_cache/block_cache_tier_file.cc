@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 #ifndef ROCKSDB_LITE
 
 #include "utilities/persistent_cache/block_cache_tier_file.h"
@@ -13,8 +15,9 @@
 #include <memory>
 #include <vector>
 
-#include "util/crc32c.h"
 #include "port/port.h"
+#include "util/crc32c.h"
+#include "util/logging.h"
 
 namespace rocksdb {
 
@@ -201,7 +204,7 @@ bool RandomAccessCacheFile::Open(const bool enable_direct_reads) {
 bool RandomAccessCacheFile::OpenImpl(const bool enable_direct_reads) {
   rwlock_.AssertHeld();
 
-  Debug(log_, "Opening cache file %s", Path().c_str());
+  ROCKS_LOG_DEBUG(log_, "Opening cache file %s", Path().c_str());
 
   std::unique_ptr<RandomAccessFile> file;
   Status status =
@@ -282,19 +285,19 @@ bool WriteableCacheFile::Create(const bool enable_direct_writes,
 
   enable_direct_reads_ = enable_direct_reads;
 
-  Debug(log_, "Creating new cache %s (max size is %d B)", Path().c_str(),
-        max_size_);
+  ROCKS_LOG_DEBUG(log_, "Creating new cache %s (max size is %d B)",
+                  Path().c_str(), max_size_);
 
   Status s = env_->FileExists(Path());
   if (s.ok()) {
-    Warn(log_, "File %s already exists. %s", Path().c_str(),
-         s.ToString().c_str());
+    ROCKS_LOG_WARN(log_, "File %s already exists. %s", Path().c_str(),
+                   s.ToString().c_str());
   }
 
   s = NewWritableCacheFile(env_, Path(), &file_);
   if (!s.ok()) {
-    Warn(log_, "Unable to create file %s. %s", Path().c_str(),
-         s.ToString().c_str());
+    ROCKS_LOG_WARN(log_, "Unable to create file %s. %s", Path().c_str(),
+                   s.ToString().c_str());
     return false;
   }
 
@@ -317,7 +320,7 @@ bool WriteableCacheFile::Append(const Slice& key, const Slice& val, LBA* lba) {
 
   if (!ExpandBuffer(rec_size)) {
     // unable to expand the buffer
-    Debug(log_, "Error expanding buffers. size=%d", rec_size);
+    ROCKS_LOG_DEBUG(log_, "Error expanding buffers. size=%d", rec_size);
     return false;
   }
 
@@ -360,7 +363,7 @@ bool WriteableCacheFile::ExpandBuffer(const size_t size) {
   while (free < size) {
     CacheWriteBuffer* const buf = alloc_->Allocate();
     if (!buf) {
-      Debug(log_, "Unable to allocate buffers");
+      ROCKS_LOG_DEBUG(log_, "Unable to allocate buffers");
       return false;
     }
 

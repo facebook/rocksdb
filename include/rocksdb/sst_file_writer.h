@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #ifndef ROCKSDB_LITE
 
@@ -51,6 +53,13 @@ class SstFileWriter {
   // the column_family is unknown.
   // If invalidate_page_cache is set to true, SstFileWriter will give the OS a
   // hint that this file pages is not needed everytime we write 1MB to the file
+  SstFileWriter(const EnvOptions& env_options, const Options& options,
+                ColumnFamilyHandle* column_family = nullptr,
+                bool invalidate_page_cache = true)
+      : SstFileWriter(env_options, options, options.comparator, column_family,
+                      invalidate_page_cache) {}
+
+  // Deprecated API
   SstFileWriter(const EnvOptions& env_options, const Options& options,
                 const Comparator* user_comparator,
                 ColumnFamilyHandle* column_family = nullptr,

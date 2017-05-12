@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #include "db/merge_helper.h"
 
@@ -9,12 +11,12 @@
 #include <string>
 
 #include "db/dbformat.h"
+#include "monitoring/perf_context_imp.h"
+#include "monitoring/statistics.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/merge_operator.h"
 #include "table/internal_iterator.h"
-#include "util/perf_context_imp.h"
-#include "util/statistics.h"
 
 namespace rocksdb {
 

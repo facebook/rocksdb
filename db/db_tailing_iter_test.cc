@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -126,6 +128,7 @@ TEST_F(DBTestTailingIterator, TailingIteratorTrimSeekToNext) {
   options.write_buffer_size = k150KB;
   options.max_write_buffer_number = 3;
   options.min_write_buffer_number_to_merge = 2;
+  options.env = env_;
   CreateAndReopenWithCF({"pikachu"}, options);
   ReadOptions read_options;
   read_options.tailing = true;
@@ -298,7 +301,6 @@ TEST_F(DBTestTailingIterator, TailingIteratorPrefixSeek) {
   read_options.tailing = true;
 
   Options options = CurrentOptions();
-  options.env = env_;
   options.create_if_missing = true;
   options.disable_auto_compactions = true;
   options.prefix_extractor.reset(NewFixedPrefixTransform(2));
@@ -616,7 +618,6 @@ TEST_F(DBTestTailingIterator, ManagedTailingIteratorPrefixSeek) {
   read_options.managed = true;
 
   Options options = CurrentOptions();
-  options.env = env_;
   options.create_if_missing = true;
   options.disable_auto_compactions = true;
   options.prefix_extractor.reset(NewFixedPrefixTransform(2));

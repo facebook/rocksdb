@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 
 #ifndef ROCKSDB_LITE
@@ -9,15 +11,15 @@
 
 #include <algorithm>
 #include <atomic>
+#include "db/memtable.h"
+#include "memtable/skiplist.h"
+#include "monitoring/histogram.h"
+#include "port/port.h"
 #include "rocksdb/memtablerep.h"
-#include "util/arena.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
-#include "port/port.h"
-#include "util/histogram.h"
+#include "util/arena.h"
 #include "util/murmurhash.h"
-#include "db/memtable.h"
-#include "db/skiplist.h"
 
 namespace rocksdb {
 namespace {
@@ -433,7 +435,7 @@ class HashLinkListRep : public MemTableRep {
         } else {
           IterKey encoded_key;
           encoded_key.EncodeLengthPrefixedKey(k);
-          skip_list_iter_->Seek(encoded_key.GetKey().data());
+          skip_list_iter_->Seek(encoded_key.GetUserKey().data());
         }
       } else {
         // The bucket is organized as a linked list

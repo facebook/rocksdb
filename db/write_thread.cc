@@ -2,13 +2,15 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #include "db/write_thread.h"
 #include <chrono>
-#include <limits>
 #include <thread>
 #include "db/column_family.h"
 #include "port/port.h"
+#include "util/random.h"
 #include "util/sync_point.h"
 
 namespace rocksdb {
@@ -194,7 +196,9 @@ void WriteThread::LinkOne(Writer* w, bool* linked_as_leader) {
         // debugging and is checked by an assert in WriteImpl
         w->state.store(STATE_GROUP_LEADER, std::memory_order_relaxed);
       }
+      // Then we are the head of the queue and hence definiltly the leader
       *linked_as_leader = (writers == nullptr);
+      // Otherwise we will wait for previous leader to define our status
       return;
     }
   }
@@ -222,6 +226,13 @@ void WriteThread::JoinBatchGroup(Writer* w) {
   TEST_SYNC_POINT_CALLBACK("WriteThread::JoinBatchGroup:Wait", w);
 
   if (!linked_as_leader) {
+    /**
+     * Wait util:
+     * 1) An existing leader pick us as the new leader when it finishes
+     * 2) An exisitng leader pick us as its follewer and
+     * 2.1) finishes the memtable writes on our behalf
+     * 2.2) Or tell us to finish the memtable writes it in pralallel
+     */
     AwaitState(w,
                STATE_GROUP_LEADER | STATE_PARALLEL_FOLLOWER | STATE_COMPLETED,
                &ctx);
@@ -274,7 +285,7 @@ size_t WriteThread::EnterAsBatchGroupLeader(
       break;
     }
 
-    if (!w->disableWAL && leader->disableWAL) {
+    if (!w->disable_wal && leader->disable_wal) {
       // Do not include a write that needs WAL into a batch that has
       // WAL disabled.
       break;
@@ -315,19 +326,22 @@ void WriteThread::LaunchParallelFollowers(ParallelGroup* pg,
   Writer* w = pg->leader;
   w->sequence = sequence;
 
+  // Initialize and wake up the others
   while (w != pg->last_writer) {
     // Writers that won't write don't get sequence allotment
     if (!w->CallbackFailed() && w->ShouldWriteToMemtable()) {
+      // There is a sequence number of each written key
       sequence += WriteBatchInternal::Count(w->batch);
     }
     w = w->link_newer;
 
-    w->sequence = sequence;
+    w->sequence = sequence;  // sequence number for the first key in the batch
     w->parallel_group = pg;
     SetState(w, STATE_PARALLEL_FOLLOWER);
   }
 }
 
+// This method is called by both the leader and parallel followers
 bool WriteThread::CompleteParallelWorker(Writer* w) {
   static AdaptationContext ctx("CompleteParallelWorker");
 
@@ -337,35 +351,17 @@ bool WriteThread::CompleteParallelWorker(Writer* w) {
     pg->status = w->status;
   }
 
-  auto leader = pg->leader;
-  auto early_exit_allowed = pg->early_exit_allowed;
-
   if (pg->running.load(std::memory_order_acquire) > 1 && pg->running-- > 1) {
     // we're not the last one
     AwaitState(w, STATE_COMPLETED, &ctx);
-
-    // Caller only needs to perform exit duties if early exit doesn't
-    // apply and this is the leader.  Can't touch pg here.  Whoever set
-    // our state to STATE_COMPLETED copied pg->status to w.status for us.
-    return w == leader && !(early_exit_allowed && w->status.ok());
-  }
-  // else we're the last parallel worker
-
-  if (w == leader || (early_exit_allowed && pg->status.ok())) {
-    // this thread should perform exit duties
-    w->status = pg->status;
-    return true;
-  } else {
-    // We're the last parallel follower but early commit is not
-    // applicable.  Wake up the leader and then wait for it to exit.
-    assert(w->state == STATE_PARALLEL_FOLLOWER);
-    SetState(leader, STATE_COMPLETED);
-    AwaitState(w, STATE_COMPLETED, &ctx);
     return false;
   }
+  // else we're the last parallel worker and should perform exit duties.
+  w->status = pg->status;
+  return true;
 }
 
-void WriteThread::EarlyExitParallelGroup(Writer* w) {
+void WriteThread::ExitAsBatchGroupFollower(Writer* w) {
   auto* pg = w->parallel_group;
 
   assert(w->state == STATE_PARALLEL_FOLLOWER);
@@ -433,6 +429,7 @@ void WriteThread::EnterUnbatched(Writer* w, InstrumentedMutex* mu) {
   if (!linked_as_leader) {
     mu->Unlock();
     TEST_SYNC_POINT("WriteThread::EnterUnbatched:Wait");
+    // Last leader will not pick us as a follower since our batch is nullptr
     AwaitState(w, STATE_GROUP_LEADER, &ctx);
     mu->Lock();
   }

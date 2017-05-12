@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 #ifndef ROCKSDB_LITE
 #include "rocksdb/ldb_tool.h"
@@ -12,10 +14,11 @@ namespace rocksdb {
 
 LDBOptions::LDBOptions() {}
 
-void LDBCommandRunner::PrintHelp(const char* exec_name) {
+void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
+                                 const char* exec_name) {
   std::string ret;
 
-  ret.append("ldb - LevelDB Tool");
+  ret.append(ldb_options.print_help_header);
   ret.append("\n\n");
   ret.append("commands MUST specify --" + LDBCommand::ARG_DB +
              "=<full_path_to_db_directory> when necessary\n");
@@ -41,6 +44,8 @@ void LDBCommandRunner::PrintHelp(const char* exec_name) {
   ret.append("  --" + LDBCommand::ARG_TTL +
              " with 'put','get','scan','dump','query','batchput'"
              " : DB supports ttl and value is internally timestamp-suffixed\n");
+  ret.append("  --" + LDBCommand::ARG_TRY_LOAD_OPTIONS +
+             " : Try to load option file from DB.\n");
   ret.append("  --" + LDBCommand::ARG_BLOOM_BITS + "=<int,e.g.:14>\n");
   ret.append("  --" + LDBCommand::ARG_FIX_PREFIX_LEN + "=<int,e.g.:14>\n");
   ret.append("  --" + LDBCommand::ARG_COMPRESSION_TYPE +
@@ -82,6 +87,7 @@ void LDBCommandRunner::PrintHelp(const char* exec_name) {
   RepairCommand::Help(ret);
   BackupCommand::Help(ret);
   RestoreCommand::Help(ret);
+  CheckPointCommand::Help(ret);
 
   fprintf(stderr, "%s\n", ret.c_str());
 }
@@ -90,7 +96,7 @@ void LDBCommandRunner::RunCommand(
     int argc, char** argv, Options options, const LDBOptions& ldb_options,
     const std::vector<ColumnFamilyDescriptor>* column_families) {
   if (argc <= 2) {
-    PrintHelp(argv[0]);
+    PrintHelp(ldb_options, argv[0]);
     exit(1);
   }
 
@@ -98,7 +104,7 @@ void LDBCommandRunner::RunCommand(
       argc, argv, options, ldb_options, column_families);
   if (cmdObj == nullptr) {
     fprintf(stderr, "Unknown command\n");
-    PrintHelp(argv[0]);
+    PrintHelp(ldb_options, argv[0]);
     exit(1);
   }
 

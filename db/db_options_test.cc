@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -13,9 +15,10 @@
 #include "db/column_family.h"
 #include "db/db_impl.h"
 #include "db/db_test_util.h"
+#include "options/options_helper.h"
 #include "port/stack_trace.h"
+#include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
-#include "util/options_helper.h"
 #include "util/random.h"
 #include "util/sync_point.h"
 #include "util/testutil.h"
@@ -62,6 +65,7 @@ class DBOptionsTest : public DBTestBase {
   std::unordered_map<std::string, std::string> GetRandomizedMutableCFOptionsMap(
       Random* rnd) {
     Options options;
+    options.env = env_;
     ImmutableDBOptions db_options(options);
     test::RandomInitCFOptions(&options, rnd);
     auto sanitized_options = SanitizeOptions(db_options, options);
@@ -87,6 +91,7 @@ TEST_F(DBOptionsTest, GetLatestDBOptions) {
   // GetOptions should be able to get latest option changed by SetOptions.
   Options options;
   options.create_if_missing = true;
+  options.env = env_;
   Random rnd(228);
   Reopen(options);
   auto new_options = GetRandomizedMutableDBOptionsMap(&rnd);
@@ -98,6 +103,7 @@ TEST_F(DBOptionsTest, GetLatestCFOptions) {
   // GetOptions should be able to get latest option changed by SetOptions.
   Options options;
   options.create_if_missing = true;
+  options.env = env_;
   Random rnd(228);
   Reopen(options);
   CreateColumnFamilies({"foo"}, options);
@@ -118,6 +124,7 @@ TEST_F(DBOptionsTest, SetOptionsAndReopen) {
   ASSERT_OK(dbfull()->SetOptions(rand_opts));
   // Verify if DB can be reopen after setting options.
   Options options;
+  options.env = env_;
   ASSERT_OK(TryReopen(options));
 }
 
@@ -137,6 +144,7 @@ TEST_F(DBOptionsTest, EnableAutoCompactionAndTriggerStall) {
           std::numeric_limits<uint64_t>::max();
       options.soft_pending_compaction_bytes_limit =
           std::numeric_limits<uint64_t>::max();
+      options.env = env_;
 
       DestroyAndReopen(options);
       int i = 0;
@@ -228,6 +236,7 @@ TEST_F(DBOptionsTest, SetOptionsMayTriggerCompaction) {
   Options options;
   options.create_if_missing = true;
   options.level0_file_num_compaction_trigger = 1000;
+  options.env = env_;
   Reopen(options);
   for (int i = 0; i < 3; i++) {
     // Need to insert two keys to avoid trivial move.
@@ -247,6 +256,7 @@ TEST_F(DBOptionsTest, SetBackgroundCompactionThreads) {
   options.create_if_missing = true;
   options.base_background_compactions = 1;  // default value
   options.max_background_compactions = 1;   // default value
+  options.env = env_;
   Reopen(options);
   ASSERT_EQ(1, dbfull()->TEST_BGCompactionsAllowed());
   ASSERT_OK(dbfull()->SetDBOptions({{"base_background_compactions", "2"},
@@ -260,6 +270,7 @@ TEST_F(DBOptionsTest, AvoidFlushDuringShutdown) {
   Options options;
   options.create_if_missing = true;
   options.disable_auto_compactions = true;
+  options.env = env_;
   WriteOptions write_without_wal;
   write_without_wal.disableWAL = true;
 
@@ -282,6 +293,7 @@ TEST_F(DBOptionsTest, SetDelayedWriteRateOption) {
   Options options;
   options.create_if_missing = true;
   options.delayed_write_rate = 2 * 1024U * 1024U;
+  options.env = env_;
   Reopen(options);
   ASSERT_EQ(2 * 1024U * 1024U, dbfull()->TEST_write_controler().max_delayed_write_rate());
 
@@ -297,6 +309,7 @@ TEST_F(DBOptionsTest, MaxTotalWalSizeChange) {
 
   Options options;
   options.create_if_missing = true;
+  options.env = env_;
   CreateColumnFamilies({"1", "2", "3"}, options);
   ReopenWithColumnFamilies({"default", "1", "2", "3"}, options);
 
@@ -316,6 +329,22 @@ TEST_F(DBOptionsTest, MaxTotalWalSizeChange) {
   }
 }
 
+TEST_F(DBOptionsTest, SetStatsDumpPeriodSec) {
+  Options options;
+  options.create_if_missing = true;
+  options.stats_dump_period_sec = 5;
+  options.env = env_;
+  Reopen(options);
+  ASSERT_EQ(5, dbfull()->GetDBOptions().stats_dump_period_sec);
+
+  for (int i = 0; i < 20; i++) {
+    int num = rand() % 5000 + 1;
+    ASSERT_OK(dbfull()->SetDBOptions(
+        {{"stats_dump_period_sec", std::to_string(num)}}));
+    ASSERT_EQ(num, dbfull()->GetDBOptions().stats_dump_period_sec);
+  }
+}
+
 static void assert_candidate_files_empty(DBImpl* dbfull, const bool empty) {
   dbfull->TEST_LockMutex();
   JobContext job_context(0);
@@ -326,7 +355,7 @@ static void assert_candidate_files_empty(DBImpl* dbfull, const bool empty) {
 }
 
 TEST_F(DBOptionsTest, DeleteObsoleteFilesPeriodChange) {
-  SpecialEnv env(Env::Default());
+  SpecialEnv env(env_);
   env.time_elapse_only_sleep_ = true;
   Options options;
   options.env = &env;
@@ -354,6 +383,24 @@ TEST_F(DBOptionsTest, DeleteObsoleteFilesPeriodChange) {
   env.addon_time_.store(21);
   assert_candidate_files_empty(dbfull(), false);
 
+  Close();
+}
+
+TEST_F(DBOptionsTest, MaxOpenFilesChange) {
+  SpecialEnv env(env_);
+  Options options;
+  options.max_open_files = -1;
+
+  Reopen(options);
+
+  Cache* tc = dbfull()->TEST_table_cache();
+
+  ASSERT_EQ(-1, dbfull()->GetDBOptions().max_open_files);
+  ASSERT_LT(2000, tc->GetCapacity());
+  ASSERT_OK(dbfull()->SetDBOptions({{"max_open_files", "1024"}}));
+  ASSERT_EQ(1024, dbfull()->GetDBOptions().max_open_files);
+  // examine the table cache (actual size should be 1014)
+  ASSERT_GT(1500, tc->GetCapacity());
   Close();
 }
 

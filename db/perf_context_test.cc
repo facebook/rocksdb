@@ -2,23 +2,25 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 #include <algorithm>
 #include <iostream>
 #include <thread>
 #include <vector>
 
+#include "monitoring/histogram.h"
+#include "monitoring/instrumented_mutex.h"
+#include "monitoring/thread_status_util.h"
+#include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/slice_transform.h"
-#include "port/port.h"
-#include "util/histogram.h"
-#include "util/instrumented_mutex.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/testharness.h"
-#include "util/thread_status_util.h"
 #include "utilities/merge_operators.h"
 
 bool FLAGS_random_key = false;
@@ -633,18 +635,33 @@ TEST_F(PerfContextTest, MergeOperatorTime) {
   SetPerfLevel(kEnableTime);
   perf_context.Reset();
   ASSERT_OK(db->Get(ReadOptions(), "k1", &val));
+#ifdef OS_SOLARIS
+  for (int i = 0; i < 100; i++) {
+    ASSERT_OK(db->Get(ReadOptions(), "k1", &val));
+  }
+#endif
   EXPECT_GT(perf_context.merge_operator_time_nanos, 0);
 
   ASSERT_OK(db->Flush(FlushOptions()));
 
   perf_context.Reset();
   ASSERT_OK(db->Get(ReadOptions(), "k1", &val));
+#ifdef OS_SOLARIS
+  for (int i = 0; i < 100; i++) {
+    ASSERT_OK(db->Get(ReadOptions(), "k1", &val));
+  }
+#endif
   EXPECT_GT(perf_context.merge_operator_time_nanos, 0);
 
   ASSERT_OK(db->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
   perf_context.Reset();
   ASSERT_OK(db->Get(ReadOptions(), "k1", &val));
+#ifdef OS_SOLARIS
+  for (int i = 0; i < 100; i++) {
+    ASSERT_OK(db->Get(ReadOptions(), "k1", &val));
+  }
+#endif
   EXPECT_GT(perf_context.merge_operator_time_nanos, 0);
 
   delete db;

@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -18,14 +20,15 @@
 #ifndef OS_WIN
 #include <sys/mman.h>
 #endif
-#include "port/port.h"
 #include <algorithm>
+#include "port/port.h"
 #include "rocksdb/env.h"
+#include "util/logging.h"
 
 namespace rocksdb {
 
 // MSVC complains that it is already defined since it is static in the header.
-#ifndef OS_WIN
+#ifndef _MSC_VER
 const size_t Arena::kInlineSize;
 #endif
 
@@ -152,8 +155,9 @@ char* Arena::AllocateAligned(size_t bytes, size_t huge_page_size,
 
     char* addr = AllocateFromHugePage(reserved_size);
     if (addr == nullptr) {
-      Warn(logger, "AllocateAligned fail to allocate huge TLB pages: %s",
-           strerror(errno));
+      ROCKS_LOG_WARN(logger,
+                     "AllocateAligned fail to allocate huge TLB pages: %s",
+                     strerror(errno));
       // fail back to malloc
     } else {
       return addr;

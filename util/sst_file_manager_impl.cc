@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #include "util/sst_file_manager_impl.h"
 
@@ -87,6 +89,10 @@ int64_t SstFileManagerImpl::GetDeleteRateBytesPerSecond() {
   return delete_scheduler_.GetRateBytesPerSecond();
 }
 
+void SstFileManagerImpl::SetDeleteRateBytesPerSecond(int64_t delete_rate) {
+  return delete_scheduler_.SetRateBytesPerSecond(delete_rate);
+}
+
 Status SstFileManagerImpl::ScheduleFileDeletion(const std::string& file_path) {
   return delete_scheduler_.DeleteFile(file_path);
 }
@@ -127,7 +133,7 @@ SstFileManager* NewSstFileManager(Env* env, std::shared_ptr<Logger> info_log,
       new SstFileManagerImpl(env, info_log, trash_dir, rate_bytes_per_sec);
 
   Status s;
-  if (trash_dir != "" && rate_bytes_per_sec > 0) {
+  if (trash_dir != "") {
     s = env->CreateDirIfMissing(trash_dir);
     if (s.ok() && delete_existing_trash) {
       std::vector<std::string> files_in_trash;

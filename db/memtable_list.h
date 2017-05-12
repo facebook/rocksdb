@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 #pragma once
 
@@ -12,16 +14,15 @@
 #include <deque>
 
 #include "db/dbformat.h"
-#include "db/filename.h"
 #include "db/memtable.h"
 #include "db/range_del_aggregator.h"
-#include "db/skiplist.h"
+#include "monitoring/instrumented_mutex.h"
 #include "rocksdb/db.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/types.h"
 #include "util/autovector.h"
-#include "util/instrumented_mutex.h"
+#include "util/filename.h"
 #include "util/log_buffer.h"
 
 namespace rocksdb {

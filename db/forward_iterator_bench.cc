@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
@@ -331,7 +333,7 @@ int main(int argc, char** argv) {
   options.compaction_style = rocksdb::CompactionStyle::kCompactionStyleNone;
   options.level0_slowdown_writes_trigger = 99999;
   options.level0_stop_writes_trigger = 99999;
-  options.use_direct_writes = true;
+  options.use_direct_io_for_flush_and_compaction = true;
   options.write_buffer_size = FLAGS_memtable_size;
   rocksdb::BlockBasedTableOptions table_options;
   table_options.block_cache = rocksdb::NewLRUCache(FLAGS_block_cache_size);

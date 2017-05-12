@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -16,18 +18,17 @@
 #include <unordered_map>
 #include <vector>
 #include "db/dbformat.h"
-#include "db/memtable_allocator.h"
 #include "db/range_del_aggregator.h"
-#include "db/skiplist.h"
 #include "db/version_edit.h"
+#include "memtable/memtable_allocator.h"
+#include "monitoring/instrumented_mutex.h"
+#include "options/cf_options.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
-#include "util/cf_options.h"
 #include "util/concurrent_arena.h"
 #include "util/dynamic_bloom.h"
 #include "util/hash.h"
-#include "util/instrumented_mutex.h"
 
 namespace rocksdb {
 
@@ -286,6 +287,12 @@ class MemTable {
     return earliest_seqno_.load(std::memory_order_relaxed);
   }
 
+  // DB's latest sequence ID when the memtable is created. This number
+  // may be updated to a more recent one before any key is inserted.
+  SequenceNumber GetCreationSeq() const { return creation_seq_; }
+
+  void SetCreationSeq(SequenceNumber sn) { creation_seq_ = sn; }
+
   // Returns the next active logfile number when this memtable is about to
   // be flushed to storage
   // REQUIRES: external synchronization to prevent simultaneous
@@ -380,6 +387,8 @@ class MemTable {
   // The db sequence number at the time of creation or kMaxSequenceNumber
   // if not set.
   std::atomic<SequenceNumber> earliest_seqno_;
+
+  SequenceNumber creation_seq_;
 
   // The log files earlier than this number can be deleted.
   uint64_t mem_next_logfile_number_;

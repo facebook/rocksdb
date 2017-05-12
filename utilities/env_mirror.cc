@@ -86,11 +86,6 @@ class RandomAccessFileMirror : public RandomAccessFile {
     return as;
   }
 
-  bool ShouldForwardRawRequest() const {
-    // NOTE: not verified
-    return a_->ShouldForwardRawRequest();
-  }
-
   size_t GetUniqueId(char* id, size_t max_size) const {
     // NOTE: not verified
     return a_->GetUniqueId(id, max_size);

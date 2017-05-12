@@ -41,8 +41,8 @@ with open('${input_data[$i]}', 'w') as f:
 EOF
 done
 
-declare -a checkout_objs=("2.2.fb.branch" "2.3.fb.branch" "2.4.fb.branch" "2.5.fb.branch" "2.6.fb.branch" "2.7.fb.branch" "2.8.1.fb" "3.0.fb.branch" "3.1.fb" "3.2.fb" "3.3.fb" "3.4.fb" "3.5.fb" "3.6.fb" "3.7.fb" "3.8.fb" "3.9.fb" "3.10.fb" "3.11.fb" "3.12.fb" "3.13.fb" "4.0.fb" "4.1.fb" "4.2.fb" "4.3.fb" "4.4.fb" "4.5.fb" "4.6.fb" "4.7.fb" "4.8.fb" "4.9.fb" "4.10.fb" "4.11.fb" "4.12.fb")
-declare -a forward_compatible_checkout_objs=("3.10.fb" "3.11.fb" "3.12.fb" "3.13.fb" "4.0.fb" "4.1.fb" "4.2.fb" "4.3.fb" "4.4.fb" "4.5.fb" "4.6.fb" "4.7.fb" "4.8.fb" "4.9.fb" "4.10.fb" "4.11.fb" "4.12.fb")
+declare -a checkout_objs=("2.2.fb.branch" "2.3.fb.branch" "2.4.fb.branch" "2.5.fb.branch" "2.6.fb.branch" "2.7.fb.branch" "2.8.1.fb" "3.0.fb.branch" "3.1.fb" "3.2.fb" "3.3.fb" "3.4.fb" "3.5.fb" "3.6.fb" "3.7.fb" "3.8.fb" "3.9.fb" "3.10.fb" "3.11.fb" "3.12.fb" "3.13.fb" "4.0.fb" "4.1.fb" "4.2.fb" "4.3.fb" "4.4.fb" "4.5.fb" "4.6.fb" "4.7.fb" "4.8.fb" "4.9.fb" "4.10.fb" "4.11.fb" "4.12.fb" "4.13.fb" "5.0.fb" "5.1.fb" "5.2.fb" "5.3.fb" "5.4.fb")
+declare -a forward_compatible_checkout_objs=("3.10.fb" "3.11.fb" "3.12.fb" "3.13.fb" "4.0.fb" "4.1.fb" "4.2.fb" "4.3.fb" "4.4.fb" "4.5.fb" "4.6.fb" "4.7.fb" "4.8.fb" "4.9.fb" "4.10.fb" "4.11.fb" "4.12.fb" "4.13.fb" "5.0.fb" "5.1.fb" "5.2.fb" "5.3.fb" "5.4.fb")
 
 generate_db()
 {
@@ -58,7 +58,7 @@ generate_db()
 compare_db()
 {
     set +e
-    $script_copy_dir/verify_random_db.sh $1 $2 $3
+    $script_copy_dir/verify_random_db.sh $1 $2 $3 $4
     if [ $? -ne 0 ]; then
         echo ==== Read different content from $1 and $2 or error happened. ====
         exit 1
@@ -95,7 +95,7 @@ generate_db $input_data_path $compare_base_db_dir
 for checkout_obj in "${checkout_objs[@]}"
 do
    echo == Opening DB from "$checkout_obj" using debug build of $checkout_flag ...
-   compare_db $test_dir/$checkout_obj $compare_base_db_dir db_dump.txt
+   compare_db $test_dir/$checkout_obj $compare_base_db_dir db_dump.txt 1
 done
 
 for checkout_obj in "${forward_compatible_checkout_objs[@]}"
@@ -104,7 +104,7 @@ do
    git checkout $checkout_obj
    make clean
    make ldb -j32
-   compare_db $test_dir/$checkout_obj $compare_base_db_dir forward_${checkout_obj}_dump.txt
+   compare_db $test_dir/$checkout_obj $compare_base_db_dir forward_${checkout_obj}_dump.txt 0
 done
 
 echo ==== Compatibility Test PASSED ====

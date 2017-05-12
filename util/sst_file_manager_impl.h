@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #pragma once
 
@@ -63,6 +65,9 @@ class SstFileManagerImpl : public SstFileManager {
 
   // Return delete rate limit in bytes per second.
   virtual int64_t GetDeleteRateBytesPerSecond() override;
+
+  // Update the delete rate limit in bytes per second.
+  virtual void SetDeleteRateBytesPerSecond(int64_t delete_rate) override;
 
   // Move file to trash directory and schedule it's deletion.
   virtual Status ScheduleFileDeletion(const std::string& file_path);

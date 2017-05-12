@@ -424,7 +424,7 @@ jboolean key_may_exist_helper(JNIEnv* env, rocksdb::DB* db,
   }
 
   rocksdb::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
-  
+
   std::string value;
   bool value_found = false;
   bool keyMayExist;
@@ -702,7 +702,7 @@ jint rocksdb_get_helper(JNIEnv* env, rocksdb::DB* db,
   const jint length = std::min(jval_len, cvalue_len);
 
   env->SetByteArrayRegion(jval, jval_off, length,
-                          reinterpret_cast<const jbyte*>(cvalue.c_str()));
+                          const_cast<jbyte*>(reinterpret_cast<const jbyte*>(cvalue.c_str())));
   if(env->ExceptionCheck()) {
     // exception thrown: OutOfMemoryError
     *has_exception = true;
@@ -727,7 +727,7 @@ inline void multi_get_helper_release_keys(JNIEnv* env,
  * cf multi get
  *
  * @return byte[][] of values or nullptr if an exception occurs
- */ 
+ */
 jobjectArray multi_get_helper(JNIEnv* env, jobject jdb, rocksdb::DB* db,
     const rocksdb::ReadOptions& rOpt, jobjectArray jkeys,
     jintArray jkey_offs, jintArray jkey_lens,
@@ -843,7 +843,7 @@ jobjectArray multi_get_helper(JNIEnv* env, jobject jdb, rocksdb::DB* db,
       }
 
       env->SetByteArrayRegion(jentry_value, 0, static_cast<jsize>(jvalue_len),
-          reinterpret_cast<const jbyte*>(value->c_str()));
+          const_cast<jbyte*>(reinterpret_cast<const jbyte*>(value->c_str())));
       if(env->ExceptionCheck()) {
         // exception thrown: ArrayIndexOutOfBoundsException
         env->DeleteLocalRef(jentry_value);
@@ -1373,7 +1373,7 @@ bool rocksdb_merge_helper(JNIEnv* env, rocksdb::DB* db,
   }
   rocksdb::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
 
-  jbyte* value = new jbyte[jkey_len];
+  jbyte* value = new jbyte[jval_len];
   env->GetByteArrayRegion(jval, jval_off, jval_len, value);
   if(env->ExceptionCheck()) {
     // exception thrown: ArrayIndexOutOfBoundsException
@@ -1608,7 +1608,7 @@ jlongArray Java_org_rocksdb_RocksDB_iterators(
     for (std::vector<rocksdb::Iterator*>::size_type i = 0;
         i < iterators.size(); i++) {
       env->SetLongArrayRegion(jLongArray, static_cast<jsize>(i), 1,
-                              reinterpret_cast<const jlong*>(&iterators[i]));
+                              const_cast<jlong*>(reinterpret_cast<const jlong*>(&iterators[i])));
       if(env->ExceptionCheck()) {
         // exception thrown: ArrayIndexOutOfBoundsException
         env->DeleteLocalRef(jLongArray);
@@ -1959,8 +1959,8 @@ bool rocksdb_compactrange_helper(JNIEnv* env, rocksdb::DB* db,
     s = db->CompactRange(compact_options, &begin_slice, &end_slice);
   }
 
-  env->ReleaseByteArrayElements(jend, begin, JNI_ABORT);
-  env->ReleaseByteArrayElements(jbegin, end, JNI_ABORT);
+  env->ReleaseByteArrayElements(jend, end, JNI_ABORT);
+  env->ReleaseByteArrayElements(jbegin, begin, JNI_ABORT);
 
   if (s.ok()) {
     return true;
@@ -2199,4 +2199,3 @@ void Java_org_rocksdb_RocksDB_addFile__JJ_3Ljava_lang_String_2IZ(
     rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
   }
 }
-

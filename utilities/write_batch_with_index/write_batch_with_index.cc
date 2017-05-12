@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #ifndef ROCKSDB_LITE
 
@@ -14,11 +16,11 @@
 #include "db/db_impl.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
-#include "db/skiplist.h"
+#include "memtable/skiplist.h"
+#include "options/db_options.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
 #include "util/arena.h"
-#include "util/db_options.h"
 #include "utilities/write_batch_with_index/write_batch_with_index_internal.h"
 
 namespace rocksdb {
@@ -386,8 +388,8 @@ class WBWIIteratorImpl : public WBWIIterator {
 
 struct WriteBatchWithIndex::Rep {
   Rep(const Comparator* index_comparator, size_t reserved_bytes = 0,
-      bool _overwrite_key = false)
-      : write_batch(reserved_bytes),
+      size_t max_bytes = 0, bool _overwrite_key = false)
+      : write_batch(reserved_bytes, max_bytes),
         comparator(index_comparator, &write_batch),
         skip_list(comparator, &arena),
         overwrite_key(_overwrite_key),
@@ -565,17 +567,18 @@ void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id) {
     return s;
   }
 
-WriteBatchWithIndex::WriteBatchWithIndex(
-    const Comparator* default_index_comparator, size_t reserved_bytes,
-    bool overwrite_key)
-    : rep(new Rep(default_index_comparator, reserved_bytes, overwrite_key)) {}
+  WriteBatchWithIndex::WriteBatchWithIndex(
+      const Comparator* default_index_comparator, size_t reserved_bytes,
+      bool overwrite_key, size_t max_bytes)
+      : rep(new Rep(default_index_comparator, reserved_bytes, max_bytes,
+                    overwrite_key)) {}
 
-WriteBatchWithIndex::~WriteBatchWithIndex() {}
+  WriteBatchWithIndex::~WriteBatchWithIndex() {}
 
-WriteBatch* WriteBatchWithIndex::GetWriteBatch() { return &rep->write_batch; }
+  WriteBatch* WriteBatchWithIndex::GetWriteBatch() { return &rep->write_batch; }
 
-WBWIIterator* WriteBatchWithIndex::NewIterator() {
-  return new WBWIIteratorImpl(0, &(rep->skip_list), &rep->write_batch);
+  WBWIIterator* WriteBatchWithIndex::NewIterator() {
+    return new WBWIIteratorImpl(0, &(rep->skip_list), &rep->write_batch);
 }
 
 WBWIIterator* WriteBatchWithIndex::NewIterator(
@@ -604,75 +607,105 @@ Iterator* WriteBatchWithIndex::NewIteratorWithBase(Iterator* base_iterator) {
                                rep->comparator.default_comparator());
 }
 
-void WriteBatchWithIndex::Put(ColumnFamilyHandle* column_family,
-                              const Slice& key, const Slice& value) {
-  rep->SetLastEntryOffset();
-  rep->write_batch.Put(column_family, key, value);
-  rep->AddOrUpdateIndex(column_family, key);
-}
-
-void WriteBatchWithIndex::Put(const Slice& key, const Slice& value) {
-  rep->SetLastEntryOffset();
-  rep->write_batch.Put(key, value);
-  rep->AddOrUpdateIndex(key);
-}
-
-void WriteBatchWithIndex::Delete(ColumnFamilyHandle* column_family,
-                                 const Slice& key) {
-  rep->SetLastEntryOffset();
-  rep->write_batch.Delete(column_family, key);
-  rep->AddOrUpdateIndex(column_family, key);
-}
-
-void WriteBatchWithIndex::Delete(const Slice& key) {
-  rep->SetLastEntryOffset();
-  rep->write_batch.Delete(key);
-  rep->AddOrUpdateIndex(key);
-}
-
-void WriteBatchWithIndex::SingleDelete(ColumnFamilyHandle* column_family,
-                                       const Slice& key) {
-  rep->SetLastEntryOffset();
-  rep->write_batch.SingleDelete(column_family, key);
-  rep->AddOrUpdateIndex(column_family, key);
-}
-
-void WriteBatchWithIndex::SingleDelete(const Slice& key) {
-  rep->SetLastEntryOffset();
-  rep->write_batch.SingleDelete(key);
-  rep->AddOrUpdateIndex(key);
-}
-
-void WriteBatchWithIndex::DeleteRange(ColumnFamilyHandle* column_family,
-                                      const Slice& begin_key,
-                                      const Slice& end_key) {
-  rep->SetLastEntryOffset();
-  rep->write_batch.DeleteRange(column_family, begin_key, end_key);
-  rep->AddOrUpdateIndex(column_family, begin_key);
-}
-
-void WriteBatchWithIndex::DeleteRange(const Slice& begin_key,
-                                      const Slice& end_key) {
-  rep->SetLastEntryOffset();
-  rep->write_batch.DeleteRange(begin_key, end_key);
-  rep->AddOrUpdateIndex(begin_key);
-}
-
-void WriteBatchWithIndex::Merge(ColumnFamilyHandle* column_family,
+Status WriteBatchWithIndex::Put(ColumnFamilyHandle* column_family,
                                 const Slice& key, const Slice& value) {
   rep->SetLastEntryOffset();
-  rep->write_batch.Merge(column_family, key, value);
-  rep->AddOrUpdateIndex(column_family, key);
+  auto s = rep->write_batch.Put(column_family, key, value);
+  if (s.ok()) {
+    rep->AddOrUpdateIndex(column_family, key);
+  }
+  return s;
 }
 
-void WriteBatchWithIndex::Merge(const Slice& key, const Slice& value) {
+Status WriteBatchWithIndex::Put(const Slice& key, const Slice& value) {
   rep->SetLastEntryOffset();
-  rep->write_batch.Merge(key, value);
-  rep->AddOrUpdateIndex(key);
+  auto s = rep->write_batch.Put(key, value);
+  if (s.ok()) {
+    rep->AddOrUpdateIndex(key);
+  }
+  return s;
 }
 
-void WriteBatchWithIndex::PutLogData(const Slice& blob) {
-  rep->write_batch.PutLogData(blob);
+Status WriteBatchWithIndex::Delete(ColumnFamilyHandle* column_family,
+                                   const Slice& key) {
+  rep->SetLastEntryOffset();
+  auto s = rep->write_batch.Delete(column_family, key);
+  if (s.ok()) {
+    rep->AddOrUpdateIndex(column_family, key);
+  }
+  return s;
+}
+
+Status WriteBatchWithIndex::Delete(const Slice& key) {
+  rep->SetLastEntryOffset();
+  auto s = rep->write_batch.Delete(key);
+  if (s.ok()) {
+    rep->AddOrUpdateIndex(key);
+  }
+  return s;
+}
+
+Status WriteBatchWithIndex::SingleDelete(ColumnFamilyHandle* column_family,
+                                         const Slice& key) {
+  rep->SetLastEntryOffset();
+  auto s = rep->write_batch.SingleDelete(column_family, key);
+  if (s.ok()) {
+    rep->AddOrUpdateIndex(column_family, key);
+  }
+  return s;
+}
+
+Status WriteBatchWithIndex::SingleDelete(const Slice& key) {
+  rep->SetLastEntryOffset();
+  auto s = rep->write_batch.SingleDelete(key);
+  if (s.ok()) {
+    rep->AddOrUpdateIndex(key);
+  }
+  return s;
+}
+
+Status WriteBatchWithIndex::DeleteRange(ColumnFamilyHandle* column_family,
+                                        const Slice& begin_key,
+                                        const Slice& end_key) {
+  rep->SetLastEntryOffset();
+  auto s = rep->write_batch.DeleteRange(column_family, begin_key, end_key);
+  if (s.ok()) {
+    rep->AddOrUpdateIndex(column_family, begin_key);
+  }
+  return s;
+}
+
+Status WriteBatchWithIndex::DeleteRange(const Slice& begin_key,
+                                        const Slice& end_key) {
+  rep->SetLastEntryOffset();
+  auto s = rep->write_batch.DeleteRange(begin_key, end_key);
+  if (s.ok()) {
+    rep->AddOrUpdateIndex(begin_key);
+  }
+  return s;
+}
+
+Status WriteBatchWithIndex::Merge(ColumnFamilyHandle* column_family,
+                                  const Slice& key, const Slice& value) {
+  rep->SetLastEntryOffset();
+  auto s = rep->write_batch.Merge(column_family, key, value);
+  if (s.ok()) {
+    rep->AddOrUpdateIndex(column_family, key);
+  }
+  return s;
+}
+
+Status WriteBatchWithIndex::Merge(const Slice& key, const Slice& value) {
+  rep->SetLastEntryOffset();
+  auto s = rep->write_batch.Merge(key, value);
+  if (s.ok()) {
+    rep->AddOrUpdateIndex(key);
+  }
+  return s;
+}
+
+Status WriteBatchWithIndex::PutLogData(const Slice& blob) {
+  return rep->write_batch.PutLogData(blob);
 }
 
 void WriteBatchWithIndex::Clear() { rep->Clear(); }
@@ -797,6 +830,14 @@ Status WriteBatchWithIndex::RollbackToSavePoint() {
   }
 
   return s;
+}
+
+Status WriteBatchWithIndex::PopSavePoint() {
+  return rep->write_batch.PopSavePoint();
+}
+
+void WriteBatchWithIndex::SetMaxBytes(size_t max_bytes) {
+  rep->write_batch.SetMaxBytes(max_bytes);
 }
 
 }  // namespace rocksdb

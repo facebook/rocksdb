@@ -14,9 +14,6 @@
 
 #include <fcntl.h>
 #include <inttypes.h>
-#ifndef OS_WIN
-#include <unistd.h>
-#endif
 
 #include <algorithm>
 #include <map>
@@ -29,7 +26,7 @@
 
 #include "db/db_impl.h"
 #include "db/dbformat.h"
-#include "db/filename.h"
+#include "env/mock_env.h"
 #include "memtable/hash_linklist_rep.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
@@ -48,7 +45,7 @@
 #include "table/plain_table_factory.h"
 #include "table/scoped_arena_iterator.h"
 #include "util/compression.h"
-#include "util/mock_env.h"
+#include "util/filename.h"
 #include "util/mutexlock.h"
 
 #include "util/string_util.h"
@@ -112,6 +109,11 @@ class AtomicCounter {
 
 struct OptionsOverride {
   std::shared_ptr<const FilterPolicy> filter_policy = nullptr;
+  // These will be used only if filter_policy is set
+  bool partition_filters = false;
+  uint64_t metadata_block_size = 1024;
+  BlockBasedTableOptions::IndexType index_type =
+      BlockBasedTableOptions::IndexType::kBinarySearch;
 
   // Used as a bit mask of individual enums in which to skip an XF test point
   int skip_policy = 0;
@@ -274,6 +276,9 @@ class SpecialEnv : public EnvWrapper {
       }
       bool use_direct_io() const override {
         return base_->use_direct_io();
+      }
+      Status Allocate(uint64_t offset, uint64_t len) override {
+        return base_->Allocate(offset, len);
       }
     };
     class ManifestFile : public WritableFile {
@@ -620,6 +625,7 @@ class DBTestBase : public testing::Test {
     kUniversalSubcompactions = 32,
     kBlockBasedTableWithIndexRestartInterval = 33,
     kBlockBasedTableWithPartitionedIndex = 34,
+    kPartitionedFilterWithNewTableReaderForCompactions = 35,
   };
   int option_config_;
 

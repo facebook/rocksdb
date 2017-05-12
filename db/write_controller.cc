@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #include "db/write_controller.h"
 
@@ -44,7 +46,7 @@ uint64_t WriteController::GetDelay(Env* env, uint64_t num_bytes) {
   if (total_stopped_ > 0) {
     return 0;
   }
-  if (total_delayed_ == 0) {
+  if (total_delayed_.load() == 0) {
     return 0;
   }
 
@@ -115,7 +117,7 @@ StopWriteToken::~StopWriteToken() {
 
 DelayWriteToken::~DelayWriteToken() {
   controller_->total_delayed_--;
-  assert(controller_->total_delayed_ >= 0);
+  assert(controller_->total_delayed_.load() >= 0);
 }
 
 CompactionPressureToken::~CompactionPressureToken() {

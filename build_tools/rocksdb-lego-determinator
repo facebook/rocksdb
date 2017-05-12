@@ -81,6 +81,7 @@ PARALLELISM="$PARALLEL_J $PARALLEL_j"
 
 DEBUG="OPT=-g"
 SHM="TEST_TMPDIR=/dev/shm/rocksdb"
+NON_SHM="TMPD=/tmp/rocksdb_test_tmp"
 GCC_481="ROCKSDB_FBCODE_BUILD_WITH_481=1"
 ASAN="COMPILE_WITH_ASAN=1"
 CLANG="USE_CLANG=1"
@@ -191,7 +192,7 @@ UNIT_TEST_NON_SHM_COMMANDS="[
             {
                 'name':'Build and test RocksDB debug version',
                 'timeout': 86400,
-                'shell':'$DEBUG make $PARALLELISM check || $CONTRUN_NAME=non_shm_check $TASK_CREATION_TOOL',
+                'shell':'$NON_SHM $DEBUG make $PARALLELISM check || $CONTRUN_NAME=non_shm_check $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
             },

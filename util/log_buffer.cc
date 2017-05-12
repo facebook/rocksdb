@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #include "util/log_buffer.h"
 
@@ -60,11 +62,12 @@ void LogBuffer::FlushBufferToLog() {
   for (BufferedLog* log : logs_) {
     const time_t seconds = log->now_tv.tv_sec;
     struct tm t;
-    localtime_r(&seconds, &t);
-    Log(log_level_, info_log_,
-        "(Original Log Time %04d/%02d/%02d-%02d:%02d:%02d.%06d) %s",
-        t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, t.tm_hour, t.tm_min,
-        t.tm_sec, static_cast<int>(log->now_tv.tv_usec), log->message);
+    if (localtime_r(&seconds, &t) != nullptr) {
+      Log(log_level_, info_log_,
+          "(Original Log Time %04d/%02d/%02d-%02d:%02d:%02d.%06d) %s",
+          t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, t.tm_hour, t.tm_min,
+          t.tm_sec, static_cast<int>(log->now_tv.tv_usec), log->message);
+    }
   }
   logs_.clear();
 }

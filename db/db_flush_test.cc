@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -19,12 +21,19 @@ class DBFlushTest : public DBTestBase {
   DBFlushTest() : DBTestBase("/db_flush_test") {}
 };
 
+class DBFlushDirectIOTest : public DBFlushTest,
+                            public ::testing::WithParamInterface<bool> {
+ public:
+  DBFlushDirectIOTest() : DBFlushTest() {}
+};
+
 // We had issue when two background threads trying to flush at the same time,
 // only one of them get committed. The test verifies the issue is fixed.
 TEST_F(DBFlushTest, FlushWhileWritingManifest) {
   Options options;
   options.disable_auto_compactions = true;
   options.max_background_flushes = 2;
+  options.env = env_;
   Reopen(options);
   FlushOptions no_wait;
   no_wait.wait = false;
@@ -50,7 +59,7 @@ TEST_F(DBFlushTest, FlushWhileWritingManifest) {
 
 TEST_F(DBFlushTest, SyncFail) {
   std::unique_ptr<FaultInjectionTestEnv> fault_injection_env(
-      new FaultInjectionTestEnv(Env::Default()));
+      new FaultInjectionTestEnv(env_));
   Options options;
   options.disable_auto_compactions = true;
   options.env = fault_injection_env.get();
@@ -81,6 +90,33 @@ TEST_F(DBFlushTest, SyncFail) {
   ASSERT_EQ(refs_before, cfd->current()->TEST_refs());
   Destroy(options);
 }
+
+TEST_P(DBFlushDirectIOTest, DirectIO) {
+  Options options;
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+  options.max_background_flushes = 2;
+  options.use_direct_io_for_flush_and_compaction = GetParam();
+  options.env = new MockEnv(Env::Default());
+  SyncPoint::GetInstance()->SetCallBack(
+      "BuildTable:create_file", [&](void* arg) {
+        bool* use_direct_writes = static_cast<bool*>(arg);
+        ASSERT_EQ(*use_direct_writes,
+                  options.use_direct_io_for_flush_and_compaction);
+      });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+  Reopen(options);
+  ASSERT_OK(Put("foo", "v"));
+  FlushOptions flush_options;
+  flush_options.wait = true;
+  ASSERT_OK(dbfull()->Flush(flush_options));
+  Destroy(options);
+  delete options.env;
+}
+
+INSTANTIATE_TEST_CASE_P(DBFlushDirectIOTest, DBFlushDirectIOTest,
+                        testing::Bool());
 
 }  // namespace rocksdb
 

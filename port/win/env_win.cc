@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -28,13 +30,13 @@
 #include "port/win/win_logger.h"
 #include "port/win/io_win.h"
 
-#include "util/iostats_context_imp.h"
+#include "monitoring/iostats_context_imp.h"
 
-#include "util/thread_status_updater.h"
-#include "util/thread_status_util.h"
+#include "monitoring/thread_status_updater.h"
+#include "monitoring/thread_status_util.h"
 
-#include <Rpc.h>  // For UUID generation
-#include <Windows.h>
+#include <rpc.h>  // for uuid generation
+#include <windows.h>
 
 namespace rocksdb {
 
@@ -647,7 +649,7 @@ uint64_t WinEnvIO::NowMicros() {
   if (GetSystemTimePreciseAsFileTime_ != NULL) {
     // all std::chrono clocks on windows proved to return
     // values that may repeat that is not good enough for some uses.
-    const int64_t c_UnixEpochStartTicks = 116444736000000000i64;
+    const int64_t c_UnixEpochStartTicks = 116444736000000000LL;
     const int64_t c_FtToMicroSec = 10;
 
     // This interface needs to return system time and not

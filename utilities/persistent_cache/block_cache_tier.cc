@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 #ifndef ROCKSDB_LITE
 
 #include "utilities/persistent_cache/block_cache_tier.h"
@@ -11,6 +13,7 @@
 #include <vector>
 
 #include "port/port.h"
+#include "util/logging.h"
 #include "util/stop_watch.h"
 #include "util/sync_point.h"
 #include "utilities/persistent_cache/block_cache_tier_file.h"
@@ -109,7 +112,7 @@ Status BlockCacheTier::CleanupCacheFolder(const std::string& folder) {
         return status;
       }
     } else {
-      Debug(opt_.log, "Skipping file %s", file.c_str());
+      ROCKS_LOG_DEBUG(opt_.log, "Skipping file %s", file.c_str());
     }
   }
   return Status::OK();
@@ -233,8 +236,8 @@ Status BlockCacheTier::InsertImpl(const Slice& key, const Slice& data) {
 
   while (!cache_file_->Append(key, data, &lba)) {
     if (!cache_file_->Eof()) {
-      Debug(opt_.log, "Error inserting to cache file %d",
-            cache_file_->cacheid());
+      ROCKS_LOG_DEBUG(opt_.log, "Error inserting to cache file %d",
+                      cache_file_->cacheid());
       stats_.write_latency_.Add(timer.ElapsedNanos() / 1000);
       return Status::TryAgain();
     }

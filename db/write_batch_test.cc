@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -478,7 +480,7 @@ TEST_F(WriteBatchTest, DISABLED_LargeKeyValue) {
   // Insert key and value of 3GB and push total batch size to 12GB.
   static const size_t kKeyValueSize = 3221225472u;
   std::string raw(kKeyValueSize, 'A');
-  WriteBatch batch(12884901888u + 1024u);
+  WriteBatch batch(size_t(12884901888ull + 1024u));
   for (char i = 0; i < 2; i++) {
     raw[0] = 'A' + i;
     raw[raw.length() - 1] = 'A' - i;
@@ -859,6 +861,31 @@ TEST_F(WriteBatchTest, SavePointTest) {
   s = batch2.RollbackToSavePoint();
   ASSERT_TRUE(s.IsNotFound());
   ASSERT_EQ("", PrintContents(&batch2));
+
+  WriteBatch batch3;
+
+  s = batch3.PopSavePoint();
+  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_EQ("", PrintContents(&batch3));
+
+  batch3.SetSavePoint();
+  batch3.Delete("A");
+
+  s = batch3.PopSavePoint();
+  ASSERT_OK(s);
+  ASSERT_EQ("Delete(A)@0", PrintContents(&batch3));
+}
+
+TEST_F(WriteBatchTest, MemoryLimitTest) {
+  Status s;
+  // The header size is 12 bytes. The two Puts take 8 bytes which gives total
+  // of 12 + 8 * 2 = 28 bytes.
+  WriteBatch batch(0, 28);
+
+  ASSERT_OK(batch.Put("a", "...."));
+  ASSERT_OK(batch.Put("b", "...."));
+  s = batch.Put("c", "....");
+  ASSERT_TRUE(s.IsMemoryLimit());
 }
 
 }  // namespace rocksdb

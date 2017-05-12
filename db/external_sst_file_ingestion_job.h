@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #pragma once
 #include <string>
@@ -12,11 +14,11 @@
 #include "db/dbformat.h"
 #include "db/internal_stats.h"
 #include "db/snapshot_impl.h"
+#include "options/db_options.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/sst_file_writer.h"
 #include "util/autovector.h"
-#include "util/db_options.h"
 
 namespace rocksdb {
 
@@ -114,12 +116,14 @@ class ExternalSstFileIngestionJob {
   // REQUIRES: Mutex held
   Status IngestedFilesOverlapWithMemtables(SuperVersion* sv, bool* overlap);
 
-  // Assign `file_to_ingest` the lowest possible level that it can
-  // be ingested to.
+  // Assign `file_to_ingest` the appropriate sequence number and  the lowest
+  // possible level that it can be ingested to according to compaction_style.
   // REQUIRES: Mutex held
-  Status AssignLevelForIngestedFile(SuperVersion* sv,
-                                    IngestedFileInfo* file_to_ingest,
-                                    bool* overlap_with_db);
+  Status AssignLevelAndSeqnoForIngestedFile(SuperVersion* sv,
+                                            bool force_global_seqno,
+                                            CompactionStyle compaction_style,
+                                            IngestedFileInfo* file_to_ingest,
+                                            SequenceNumber* assigned_seqno);
 
   // Set the file global sequence number to `seqno`
   Status AssignGlobalSeqnoForIngestedFile(IngestedFileInfo* file_to_ingest,

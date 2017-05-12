@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -12,14 +14,24 @@
 #include <algorithm>
 #include <mutex>
 
+#include "monitoring/histogram.h"
+#include "monitoring/iostats_context_imp.h"
 #include "port/port.h"
-#include "util/histogram.h"
-#include "util/iostats_context_imp.h"
 #include "util/random.h"
 #include "util/rate_limiter.h"
 #include "util/sync_point.h"
 
 namespace rocksdb {
+
+#ifndef NDEBUG
+namespace {
+
+bool IsSectorAligned(const size_t off, size_t sector_size) {
+  return off % sector_size == 0;
+}
+
+}
+#endif
 
 Status SequentialFileReader::Read(size_t n, Slice* result, char* scratch) {
   Status s;
@@ -115,7 +127,7 @@ Status WritableFileWriter::Append(const Slice& data) {
   }
 
   // Flush only when buffered I/O
-  if (!direct_io_ && (buf_.Capacity() - buf_.CurrentSize()) < left) {
+  if (!use_direct_io() && (buf_.Capacity() - buf_.CurrentSize()) < left) {
     if (buf_.CurrentSize() > 0) {
       s = Flush();
       if (!s.ok()) {
@@ -134,7 +146,7 @@ Status WritableFileWriter::Append(const Slice& data) {
   // We never write directly to disk with direct I/O on.
   // or we simply use it for its original purpose to accumulate many small
   // chunks
-  if (direct_io_ || (buf_.Capacity() >= left)) {
+  if (use_direct_io() || (buf_.Capacity() >= left)) {
     while (left > 0) {
       size_t appended = buf_.Append(src, left);
       left -= appended;
@@ -184,11 +196,14 @@ Status WritableFileWriter::Close() {
 
   s = Flush();  // flush cache to OS
 
+  Status interim;
   // In direct I/O mode we write whole pages so
   // we need to let the file know where data ends.
-  Status interim = writable_file_->Truncate(filesize_);
-  if (!interim.ok() && s.ok()) {
-    s = interim;
+  if (use_direct_io()) {
+    interim = writable_file_->Truncate(filesize_);
+    if (!interim.ok() && s.ok()) {
+      s = interim;
+    }
   }
 
   TEST_KILL_RANDOM("WritableFileWriter::Close:0", rocksdb_kill_odds);
@@ -211,7 +226,7 @@ Status WritableFileWriter::Flush() {
                    rocksdb_kill_odds * REDUCE_ODDS2);
 
   if (buf_.CurrentSize() > 0) {
-    if (direct_io_) {
+    if (use_direct_io()) {
 #ifndef ROCKSDB_LITE
       s = WriteDirect();
 #endif  // !ROCKSDB_LITE
@@ -240,7 +255,7 @@ Status WritableFileWriter::Flush() {
   //     the page.
   // Xfs does neighbor page flushing outside of the specified ranges. We
   // need to make sure sync range is far from the write offset.
-  if (!direct_io_ && bytes_per_sync_) {
+  if (!use_direct_io() && bytes_per_sync_) {
     const uint64_t kBytesNotSyncRange = 1024 * 1024;  // recent 1MB is not synced.
     const uint64_t kBytesAlignWhenSync = 4 * 1024;    // Align 4KB.
     if (filesize_ > kBytesNotSyncRange) {
@@ -264,7 +279,7 @@ Status WritableFileWriter::Sync(bool use_fsync) {
     return s;
   }
   TEST_KILL_RANDOM("WritableFileWriter::Sync:0", rocksdb_kill_odds);
-  if (!direct_io_ && pending_sync_) {
+  if (!use_direct_io() && pending_sync_) {
     s = SyncInternal(use_fsync);
     if (!s.ok()) {
       return s;
@@ -328,7 +343,7 @@ size_t WritableFileWriter::RequestToken(size_t bytes, bool align) {
 // limiter if available
 Status WritableFileWriter::WriteBuffered(const char* data, size_t size) {
   Status s;
-  assert(!direct_io_);
+  assert(!use_direct_io());
   const char* src = data;
   size_t left = size;
 
@@ -365,9 +380,8 @@ Status WritableFileWriter::WriteBuffered(const char* data, size_t size) {
 // offsets.
 #ifndef ROCKSDB_LITE
 Status WritableFileWriter::WriteDirect() {
+  assert(use_direct_io());
   Status s;
-
-  assert(direct_io_);
   const size_t alignment = buf_.Alignment();
   assert((next_write_offset_ % alignment) == 0);
 
@@ -433,16 +447,12 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
       : file_(std::move(file)),
         alignment_(file_->GetRequiredBufferAlignment()),
         readahead_size_(Roundup(readahead_size, alignment_)),
-        forward_calls_(file_->ShouldForwardRawRequest()),
         buffer_(),
         buffer_offset_(0),
         buffer_len_(0) {
-    if (!forward_calls_) {
-      buffer_.Alignment(alignment_);
-      buffer_.AllocateNewBuffer(readahead_size_ + alignment_);
-    } else if (readahead_size_ > 0) {
-      file_->EnableReadAhead();
-    }
+
+    buffer_.Alignment(alignment_);
+    buffer_.AllocateNewBuffer(readahead_size_);
   }
 
  ReadaheadRandomAccessFile(const ReadaheadRandomAccessFile&) = delete;
@@ -451,15 +461,8 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
 
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
                       char* scratch) const override {
-    if (n >= readahead_size_) {
-      return file_->Read(offset, n, result, scratch);
-    }
 
-    // On Windows in unbuffered mode this will lead to double buffering
-    // and double locking so we avoid that.
-    // In normal mode Windows caches so much data from disk that we do
-    // not need readahead.
-    if (forward_calls_) {
+    if (n + alignment_ >= readahead_size_) {
       return file_->Read(offset, n, result, scratch);
     }
 
@@ -467,13 +470,13 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
 
     size_t cached_len = 0;
     // Check if there is a cache hit, means that [offset, offset + n) is either
-    // complitely or partially in the buffer
+    // completely or partially in the buffer
     // If it's completely cached, including end of file case when offset + n is
     // greater than EOF, return
-    if (TryReadFromCache_(offset, n, &cached_len, scratch) &&
+    if (TryReadFromCache(offset, n, &cached_len, scratch) &&
         (cached_len == n ||
          // End of file
-         buffer_len_ < readahead_size_ + alignment_)) {
+         buffer_len_ < readahead_size_)) {
       *result = Slice(scratch, cached_len);
       return Status::OK();
     }
@@ -482,34 +485,35 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
     // chunk_offset equals to advanced_offset
     size_t chunk_offset = TruncateToPageBoundary(alignment_, advanced_offset);
     Slice readahead_result;
-    Status s = file_->Read(chunk_offset, readahead_size_ + alignment_,
-                           &readahead_result, buffer_.BufferStart());
-    if (!s.ok()) {
-      return s;
-    }
-    // In the case of cache miss, i.e. when cached_len equals 0, an offset can
-    // exceed the file end position, so the following check is required
-    if (advanced_offset < chunk_offset + readahead_result.size()) {
-      // In the case of cache miss, the first chunk_padding bytes in buffer_ are
-      // stored for alignment only and must be skipped
-      size_t chunk_padding = advanced_offset - chunk_offset;
-      auto remaining_len =
-          std::min(readahead_result.size() - chunk_padding, n - cached_len);
-      memcpy(scratch + cached_len, readahead_result.data() + chunk_padding,
-             remaining_len);
-      *result = Slice(scratch, cached_len + remaining_len);
-    } else {
-      *result = Slice(scratch, cached_len);
-    }
 
-    if (readahead_result.data() == buffer_.BufferStart()) {
-      buffer_offset_ = chunk_offset;
-      buffer_len_ = readahead_result.size();
-    } else {
-      buffer_len_ = 0;
+    Status s = ReadIntoBuffer(chunk_offset, readahead_size_);
+    if (s.ok()) {
+      // In the case of cache miss, i.e. when cached_len equals 0, an offset can
+      // exceed the file end position, so the following check is required
+      if (advanced_offset < chunk_offset + buffer_len_) {
+        // In the case of cache miss, the first chunk_padding bytes in buffer_
+        // are
+        // stored for alignment only and must be skipped
+        size_t chunk_padding = advanced_offset - chunk_offset;
+        auto remaining_len =
+            std::min(buffer_len_ - chunk_padding, n - cached_len);
+        memcpy(scratch + cached_len, buffer_.BufferStart() + chunk_padding,
+               remaining_len);
+        *result = Slice(scratch, cached_len + remaining_len);
+      } else {
+        *result = Slice(scratch, cached_len);
+      }
     }
+    return s;
+  }
 
-    return Status::OK();
+  virtual Status Prefetch(uint64_t offset, size_t n) override {
+    size_t prefetch_offset = TruncateToPageBoundary(alignment_, offset);
+    if (prefetch_offset == buffer_offset_) {
+      return Status::OK();
+    }
+    return ReadIntoBuffer(prefetch_offset,
+                          Roundup(offset + n, alignment_) - prefetch_offset);
   }
 
   virtual size_t GetUniqueId(char* id, size_t max_size) const override {
@@ -527,7 +531,7 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
   }
 
  private:
-  bool TryReadFromCache_(uint64_t offset, size_t n, size_t* cached_len,
+  bool TryReadFromCache(uint64_t offset, size_t n, size_t* cached_len,
                          char* scratch) const {
     if (offset < buffer_offset_ || offset >= buffer_offset_ + buffer_len_) {
       *cached_len = 0;
@@ -540,15 +544,29 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
     return true;
   }
 
+  Status ReadIntoBuffer(uint64_t offset, size_t n) const {
+    if (n > buffer_.Capacity()) {
+      n = buffer_.Capacity();
+    }
+    assert(IsSectorAligned(offset, alignment_));
+    assert(IsSectorAligned(n, alignment_));
+    Slice result;
+    Status s = file_->Read(offset, n, &result, buffer_.BufferStart());
+    if (s.ok()) {
+      buffer_offset_ = offset;
+      buffer_len_ = result.size();
+    }
+    return s;
+  }
+
   std::unique_ptr<RandomAccessFile> file_;
   const size_t alignment_;
   size_t               readahead_size_;
-  const bool           forward_calls_;
 
-  mutable std::mutex   lock_;
+  mutable std::mutex lock_;
   mutable AlignedBuffer buffer_;
-  mutable uint64_t     buffer_offset_;
-  mutable size_t       buffer_len_;
+  mutable uint64_t buffer_offset_;
+  mutable size_t buffer_len_;
 };
 }  // namespace
 

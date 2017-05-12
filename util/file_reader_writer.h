@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -45,6 +47,8 @@ class SequentialFileReader {
   Status Read(size_t n, Slice* result, char* scratch);
 
   Status Skip(uint64_t n);
+
+  void Rewind();
 
   SequentialFile* file() { return file_.get(); }
 
@@ -92,6 +96,10 @@ class RandomAccessFileReader {
 
   Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const;
 
+  Status Prefetch(uint64_t offset, size_t n) const {
+    return file_->Prefetch(offset, n);
+  }
+
   RandomAccessFile* file() { return file_.get(); }
 
   bool use_direct_io() const { return file_->use_direct_io(); }
@@ -115,7 +123,6 @@ class WritableFileWriter {
   // so we need to go back and write that page again
   uint64_t                next_write_offset_;
   bool                    pending_sync_;
-  const bool              direct_io_;
   uint64_t                last_sync_size_;
   uint64_t                bytes_per_sync_;
   RateLimiter*            rate_limiter_;
@@ -130,13 +137,14 @@ class WritableFileWriter {
         filesize_(0),
         next_write_offset_(0),
         pending_sync_(false),
-        direct_io_(writable_file_->use_direct_io()),
         last_sync_size_(0),
         bytes_per_sync_(options.bytes_per_sync),
         rate_limiter_(options.rate_limiter),
         stats_(stats) {
     buf_.Alignment(writable_file_->GetRequiredBufferAlignment());
-    buf_.AllocateNewBuffer(std::min((size_t)65536, max_buffer_size_));
+    buf_.AllocateNewBuffer(use_direct_io()
+                               ? max_buffer_size_
+                               : std::min((size_t)65536, max_buffer_size_));
   }
 
   WritableFileWriter(const WritableFileWriter&) = delete;

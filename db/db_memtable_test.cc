@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #include <memory>
 #include <string>
@@ -123,6 +125,7 @@ TEST_F(DBMemTableTest, InsertWithHint) {
   options.memtable_factory.reset(new MockMemTableRepFactory());
   options.memtable_insert_with_hint_prefix_extractor.reset(
       new TestPrefixExtractor());
+  options.env = env_;
   Reopen(options);
   MockMemTableRep* rep =
       reinterpret_cast<MockMemTableRepFactory*>(options.memtable_factory.get())

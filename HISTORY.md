@@ -1,5 +1,30 @@
 # Rocksdb Change Log
 ## Unreleased
+### New Features
+* FIFO compaction to support Intra L0 compaction too with CompactionOptionsFIFO.allow_compaction=true.
+* DB::ResetStats() to reset internal stats.
+* Statistics::Reset() to reset user stats.
+* ldb add option --try_load_options, which will open DB with its own option file.
+* Introduce WriteBatch::PopSavePoint to pop the most recent save point explicitly.
+* Support dynamically change `max_open_files` option via SetDBOptions()
+* Added DB::CreateColumnFamilie() and DB::DropColumnFamilies() to bulk create/drop column families.
+
+## 5.4.0 (04/11/2017)
+### Public API Change
+* random_access_max_buffer_size no longer has any effect
+* Removed Env::EnableReadAhead(), Env::ShouldForwardRawRequest()
+* Support dynamically change `stats_dump_period_sec` option via SetDBOptions().
+* Added ReadOptions::max_skippable_internal_keys to set a threshold to fail a request as incomplete when too many keys are being skipped when using iterators.
+* DB::Get in place of std::string accepts PinnableSlice, which avoids the extra memcpy of value to std::string in most of cases.
+    * PinnableSlice releases the pinned resources that contain the value when it is destructed or when ::Reset() is called on it.
+    * The old API that accepts std::string, although discouraged, is still supported.
+* Replace Options::use_direct_writes with Options::use_direct_io_for_flush_and_compaction. Read Direct IO wiki for details.
+* Added CompactionEventListener and EventListener::OnFlushBegin interfaces.
+
+### New Features
+* Memtable flush can be avoided during checkpoint creation if total log file size is smaller than a threshold specified by the user.
+* Introduce level-based L0->L0 compactions to reduce file count, so write delays are incurred less often.
+* (Experimental) Partitioning filters which creates an index on the partitions. The feature can be enabled by setting partition_filters when using kFullFilter. Currently the feature also requires two-level indexing to be enabled. Number of partitions is the same as the number of partitions for indexes, which is controlled by metadata_block_size.
 
 ## 5.3.0 (03/08/2017)
 ### Public API Change
@@ -7,6 +32,9 @@
 * Remove timeout_hint_us option from WriteOptions. The option has been deprecated and has no effect since 3.13.0.
 * Remove option min_partial_merge_operands. Partial merge operands will always be merged in flush or compaction if there are more than one.
 * Remove option verify_checksums_in_compaction. Compaction will always verify checksum.
+
+### Bug Fixes
+* Fix the bug that iterator may skip keys
 
 ## 5.2.0 (02/08/2017)
 ### Public API Change

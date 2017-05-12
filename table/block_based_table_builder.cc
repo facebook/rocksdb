@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -338,7 +340,8 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
   BlockBasedTableOptions sanitized_table_options(table_options);
   if (sanitized_table_options.format_version == 0 &&
       sanitized_table_options.checksum != kCRC32c) {
-    Log(InfoLogLevel::WARN_LEVEL, ioptions.info_log,
+    ROCKS_LOG_WARN(
+        ioptions.info_log,
         "Silently converting format_version to 1 because checksum is "
         "non-default");
     // silently convert format_version to 1 to keep consistent with current
@@ -489,8 +492,8 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
         if (!compressed_ok) {
           // The result of the compression was invalid. abort.
           abort_compression = true;
-          Log(InfoLogLevel::ERROR_LEVEL, r->ioptions.info_log,
-              "Decompressed block did not match raw block");
+          ROCKS_LOG_ERROR(r->ioptions.info_log,
+                          "Decompressed block did not match raw block");
           r->status =
               Status::Corruption("Decompressed block did not match raw block");
         }

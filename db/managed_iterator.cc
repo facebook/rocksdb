@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #ifndef ROCKSDB_LITE
 
@@ -196,12 +198,12 @@ void ManagedIterator::Next() {
 
 Slice ManagedIterator::key() const {
   assert(valid_);
-  return cached_key_.GetKey();
+  return cached_key_.GetUserKey();
 }
 
 Slice ManagedIterator::value() const {
   assert(valid_);
-  return cached_value_.GetKey();
+  return cached_value_.GetUserKey();
 }
 
 Status ManagedIterator::status() const { return status_; }
@@ -221,8 +223,8 @@ void ManagedIterator::UpdateCurrent() {
   }
 
   status_ = Status::OK();
-  cached_key_.SetKey(mutable_iter_->key());
-  cached_value_.SetKey(mutable_iter_->value());
+  cached_key_.SetUserKey(mutable_iter_->key());
+  cached_value_.SetUserKey(mutable_iter_->value());
 }
 
 void ManagedIterator::ReleaseIter(bool only_old) {

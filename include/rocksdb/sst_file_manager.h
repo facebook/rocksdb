@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #pragma once
 
@@ -50,6 +52,11 @@ class SstFileManager {
   // Return delete rate limit in bytes per second.
   // thread-safe
   virtual int64_t GetDeleteRateBytesPerSecond() = 0;
+
+  // Update the delete rate limit in bytes per second.
+  // zero means disable delete rate limiting and delete files immediately
+  // thread-safe
+  virtual void SetDeleteRateBytesPerSecond(int64_t delete_rate) = 0;
 };
 
 // Create a new SstFileManager that can be shared among multiple RocksDB

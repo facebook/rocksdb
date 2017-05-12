@@ -10,13 +10,13 @@
 #include <string>
 #include <vector>
 
+#include "options/db_options.h"
 #include "port/port.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
-#include "util/db_options.h"
 
 namespace rocksdb {
 
@@ -54,8 +54,8 @@ struct WriteBatchIndexEntry {
 
 class ReadableWriteBatch : public WriteBatch {
  public:
-  explicit ReadableWriteBatch(size_t reserved_bytes = 0)
-      : WriteBatch(reserved_bytes) {}
+  explicit ReadableWriteBatch(size_t reserved_bytes = 0, size_t max_bytes = 0)
+      : WriteBatch(reserved_bytes, max_bytes) {}
   // Retrieve some information from a write entry in the write batch, given
   // the start offset of the write entry.
   Status GetEntryFromDataOffset(size_t data_offset, WriteType* type, Slice* Key,

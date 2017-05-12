@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #pragma once
 #ifndef ROCKSDB_LITE
@@ -100,6 +102,9 @@ struct TransactionOptions {
 
   // The number of traversals to make during deadlock detection.
   int64_t deadlock_detect_depth = 50;
+
+  // The maximum number of bytes used for the write batch. 0 means no limit.
+  size_t max_write_batch_size = 0;
 };
 
 struct KeyLockInfo {

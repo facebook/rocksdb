@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #include <stdio.h>
 
@@ -66,6 +68,7 @@ class RocksLuaTest : public testing::Test {
     options_ = Options();
     options_.create_if_missing = true;
     options_.compaction_filter_factory = factory;
+    options_.disable_auto_compactions = true;
     options_.max_bytes_for_level_base =
         (kKeySize + kValueSize) * kKeysPerFlush * 2;
     options_.max_bytes_for_level_multiplier = 2;

@@ -179,10 +179,37 @@ class DB {
                                     const std::string& column_family_name,
                                     ColumnFamilyHandle** handle);
 
+  // Bulk create column families with the same column family options.
+  // Return the handles of the column families through the argument handles.
+  // In case of error, the request may succeed partially, and handles will
+  // contain column family handles that it managed to create, and have size
+  // equal to the number of created column families.
+  virtual Status CreateColumnFamilies(
+      const ColumnFamilyOptions& options,
+      const std::vector<std::string>& column_family_names,
+      std::vector<ColumnFamilyHandle*>* handles);
+
+  // Bulk create column families.
+  // Return the handles of the column families through the argument handles.
+  // In case of error, the request may succeed partially, and handles will
+  // contain column family handles that it managed to create, and have size
+  // equal to the number of created column families.
+  virtual Status CreateColumnFamilies(
+      const std::vector<ColumnFamilyDescriptor>& column_families,
+      std::vector<ColumnFamilyHandle*>* handles);
+
   // Drop a column family specified by column_family handle. This call
   // only records a drop record in the manifest and prevents the column
   // family from flushing and compacting.
   virtual Status DropColumnFamily(ColumnFamilyHandle* column_family);
+
+  // Bulk drop column families. This call only records drop records in the
+  // manifest and prevents the column families from flushing and compacting.
+  // In case of error, the request may succeed partially. User may call
+  // ListColumnFamilies to check the result.
+  virtual Status DropColumnFamilies(
+      const std::vector<ColumnFamilyHandle*>& column_families);
+
   // Close a column family specified by column_family handle and destroy
   // the column family handle specified to avoid double deletion. This call
   // deletes the column family handle by default. Use this method to
@@ -280,9 +307,21 @@ class DB {
   // a status for which Status::IsNotFound() returns true.
   //
   // May return some other Status on an error.
+  virtual inline Status Get(const ReadOptions& options,
+                            ColumnFamilyHandle* column_family, const Slice& key,
+                            std::string* value) {
+    assert(value != nullptr);
+    PinnableSlice pinnable_val(value);
+    assert(!pinnable_val.IsPinned());
+    auto s = Get(options, column_family, key, &pinnable_val);
+    if (s.ok() && pinnable_val.IsPinned()) {
+      value->assign(pinnable_val.data(), pinnable_val.size());
+    }  // else value is already assigned
+    return s;
+  }
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
-                     std::string* value) = 0;
+                     PinnableSlice* value) = 0;
   virtual Status Get(const ReadOptions& options, const Slice& key, std::string* value) {
     return Get(options, DefaultColumnFamily(), key, value);
   }
@@ -388,15 +427,24 @@ class DB {
     //      SST files.
     static const std::string kSSTables;
 
-    //  "rocksdb.cfstats" - returns a multi-line string with general column
-    //      family stats per-level over db's lifetime ("L<n>"), aggregated over
-    //      db's lifetime ("Sum"), and aggregated over the interval since the
-    //      last retrieval ("Int").
+    //  "rocksdb.cfstats" - Both of "rocksdb.cfstats-no-file-histogram" and
+    //      "rocksdb.cf-file-histogram" together. See below for description
+    //      of the two.
+    static const std::string kCFStats;
+
+    //  "rocksdb.cfstats-no-file-histogram" - returns a multi-line string with
+    //      general columm family stats per-level over db's lifetime ("L<n>"),
+    //      aggregated over db's lifetime ("Sum"), and aggregated over the
+    //      interval since the last retrieval ("Int").
     //  It could also be used to return the stats in the format of the map.
     //  In this case there will a pair of string to array of double for
     //  each level as well as for "Sum". "Int" stats will not be affected
     //  when this form of stats are retrived.
-    static const std::string kCFStats;
+    static const std::string kCFStatsNoFileHistogram;
+
+    //  "rocksdb.cf-file-histogram" - print out how many file reads to every
+    //      level, as well as the histogram of latency of single requests.
+    static const std::string kCFFileHistogram;
 
     //  "rocksdb.dbstats" - returns a multi-line string with general database
     //      stats, both cumulative (over the db's lifetime) and interval (since
@@ -527,6 +575,13 @@ class DB {
     //      one but only returns the aggregated table properties of the
     //      specified level "N" at the target column family.
     static const std::string kAggregatedTablePropertiesAtLevel;
+
+    //  "rocksdb.actual-delayed-write-rate" - returns the current actual delayed
+    //      write rate. 0 means no delay.
+    static const std::string kActualDelayedWriteRate;
+
+    //  "rocksdb.is-write-stopped" - Return 1 if write has been stopped.
+    static const std::string kIsWriteStopped;
   };
 #endif /* ROCKSDB_LITE */
 
@@ -575,10 +630,19 @@ class DB {
   //  "rocksdb.estimate-pending-compaction-bytes"
   //  "rocksdb.num-running-compactions"
   //  "rocksdb.num-running-flushes"
+  //  "rocksdb.actual-delayed-write-rate"
+  //  "rocksdb.is-write-stopped"
   virtual bool GetIntProperty(ColumnFamilyHandle* column_family,
                               const Slice& property, uint64_t* value) = 0;
   virtual bool GetIntProperty(const Slice& property, uint64_t* value) {
     return GetIntProperty(DefaultColumnFamily(), property, value);
+  }
+
+  // Reset internal stats for DB and all column families.
+  // Note this doesn't reset options.statistics as it is not owned by
+  // DB.
+  virtual Status ResetStats() {
+    return Status::NotSupported("Not implemented");
   }
 
   // Same as GetIntProperty(), but this one returns the aggregated int
@@ -586,7 +650,7 @@ class DB {
   virtual bool GetAggregatedIntProperty(const Slice& property,
                                         uint64_t* value) = 0;
 
-  // Flags for DB::GetSizeApproximation that specify whether memtable 
+  // Flags for DB::GetSizeApproximation that specify whether memtable
   // stats should be included, or file stats approximation or both
   enum SizeApproximationFlags : uint8_t {
     NONE = 0,

@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #pragma once
 
@@ -12,8 +14,8 @@
 #include <string>
 #include <thread>
 
+#include "monitoring/instrumented_mutex.h"
 #include "port/port.h"
-#include "util/instrumented_mutex.h"
 
 #include "rocksdb/status.h"
 
@@ -39,7 +41,12 @@ class DeleteScheduler {
   ~DeleteScheduler();
 
   // Return delete rate limit in bytes per second
-  int64_t GetRateBytesPerSecond() { return rate_bytes_per_sec_; }
+  int64_t GetRateBytesPerSecond() { return rate_bytes_per_sec_.load(); }
+
+  // Set delete rate limit in bytes per second
+  void SetRateBytesPerSecond(int64_t bytes_per_sec) {
+    return rate_bytes_per_sec_.store(bytes_per_sec);
+  }
 
   // Move file to trash directory and schedule it's deletion
   Status DeleteFile(const std::string& fname);
@@ -64,7 +71,7 @@ class DeleteScheduler {
   // Path to the trash directory
   std::string trash_dir_;
   // Maximum number of bytes that should be deleted per second
-  int64_t rate_bytes_per_sec_;
+  std::atomic<int64_t> rate_bytes_per_sec_;
   // Mutex to protect queue_, pending_files_, bg_errors_, closing_
   InstrumentedMutex mu_;
   // Queue of files in trash that need to be deleted

@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -12,6 +14,7 @@
 #include <cctype>
 #include <sstream>
 
+#include "db/memtable_list.h"
 #include "port/port.h"
 #include "util/file_reader_writer.h"
 
@@ -93,9 +96,13 @@ class Uint64ComparatorImpl : public Comparator {
     assert(a.size() == sizeof(uint64_t) && b.size() == sizeof(uint64_t));
     const uint64_t* left = reinterpret_cast<const uint64_t*>(a.data());
     const uint64_t* right = reinterpret_cast<const uint64_t*>(b.data());
-    if (*left == *right) {
+    uint64_t leftValue;
+    uint64_t rightValue;
+    GetUnaligned(left, &leftValue);
+    GetUnaligned(right, &rightValue);
+    if (leftValue == rightValue) {
       return 0;
-    } else if (*left < *right) {
+    } else if (leftValue < rightValue) {
       return -1;
     } else {
       return 1;
@@ -241,7 +248,7 @@ void RandomInitDBOptions(DBOptions* db_opt, Random* rnd) {
   db_opt->allow_mmap_reads = rnd->Uniform(2);
   db_opt->allow_mmap_writes = rnd->Uniform(2);
   db_opt->use_direct_reads = rnd->Uniform(2);
-  db_opt->use_direct_writes = rnd->Uniform(2);
+  db_opt->use_direct_io_for_flush_and_compaction = rnd->Uniform(2);
   db_opt->create_if_missing = rnd->Uniform(2);
   db_opt->create_missing_column_families = rnd->Uniform(2);
   db_opt->enable_thread_tracking = rnd->Uniform(2);

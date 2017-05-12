@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 
 #include "db/db_impl_readonly.h"
@@ -11,7 +13,7 @@
 #include "db/db_iter.h"
 #include "db/merge_context.h"
 #include "db/range_del_aggregator.h"
-#include "util/perf_context_imp.h"
+#include "monitoring/perf_context_imp.h"
 
 namespace rocksdb {
 
@@ -20,8 +22,8 @@ namespace rocksdb {
 DBImplReadOnly::DBImplReadOnly(const DBOptions& db_options,
                                const std::string& dbname)
     : DBImpl(db_options, dbname) {
-  Log(INFO_LEVEL, immutable_db_options_.info_log,
-      "Opening the db in read only mode");
+  ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                 "Opening the db in read only mode");
   LogFlush(immutable_db_options_.info_log);
 }
 
@@ -31,7 +33,8 @@ DBImplReadOnly::~DBImplReadOnly() {
 // Implementations of the DB interface
 Status DBImplReadOnly::Get(const ReadOptions& read_options,
                            ColumnFamilyHandle* column_family, const Slice& key,
-                           std::string* value) {
+                           PinnableSlice* pinnable_val) {
+  assert(pinnable_val != nullptr);
   Status s;
   SequenceNumber snapshot = versions_->LastSequence();
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
@@ -40,12 +43,13 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
   MergeContext merge_context;
   RangeDelAggregator range_del_agg(cfd->internal_comparator(), snapshot);
   LookupKey lkey(key, snapshot);
-  if (super_version->mem->Get(lkey, value, &s, &merge_context, &range_del_agg,
-                              read_options)) {
+  if (super_version->mem->Get(lkey, pinnable_val->GetSelf(), &s, &merge_context,
+                              &range_del_agg, read_options)) {
+    pinnable_val->PinSelf();
   } else {
     PERF_TIMER_GUARD(get_from_output_files_time);
-    super_version->current->Get(read_options, lkey, value, &s, &merge_context,
-                                &range_del_agg);
+    super_version->current->Get(read_options, lkey, pinnable_val, &s,
+                                &merge_context, &range_del_agg);
   }
   return s;
 }
@@ -57,7 +61,7 @@ Iterator* DBImplReadOnly::NewIterator(const ReadOptions& read_options,
   SuperVersion* super_version = cfd->GetSuperVersion()->Ref();
   SequenceNumber latest_snapshot = versions_->LastSequence();
   auto db_iter = NewArenaWrappedDbIterator(
-      env_, *cfd->ioptions(), cfd->user_comparator(),
+      env_, read_options, *cfd->ioptions(), cfd->user_comparator(),
       (read_options.snapshot != nullptr
            ? reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)
                  ->number_
@@ -86,7 +90,7 @@ Status DBImplReadOnly::NewIterators(
     auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
     auto* sv = cfd->GetSuperVersion()->Ref();
     auto* db_iter = NewArenaWrappedDbIterator(
-        env_, *cfd->ioptions(), cfd->user_comparator(),
+        env_, read_options, *cfd->ioptions(), cfd->user_comparator(),
         (read_options.snapshot != nullptr
              ? reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)
                    ->number_

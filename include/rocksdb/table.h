@@ -144,9 +144,16 @@ struct BlockBasedTableOptions {
   // Same as block_restart_interval but used for the index block.
   int index_block_restart_interval = 1;
 
-  // Number of index keys per partition of indexes in a multi-level index
-  // i.e., the number of data blocks covered by each index partition
-  uint64_t index_per_partition = 1024;
+  // Block size for partitioned metadata. Currently applied to indexes when
+  // kTwoLevelIndexSearch is used and to filters when partition_filters is used.
+  // Note: Since in the current implementation the filters and index partitions
+  // are aligned, an index/filter block is created when eitehr index or filter
+  // block size reaches the specified limit.
+  // Note: this limit is currently applied to only index blocks; a filter
+  // partition is cut right after an index block is cut
+  // TODO(myabandeh): remove the note above when filter partitions are cut
+  // separately
+  uint64_t metadata_block_size = 4096;
 
   // Note: currently this option requires kTwoLevelIndexSearch to be set as
   // well.

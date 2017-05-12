@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -303,15 +305,26 @@ inline LookupKey::~LookupKey() {
 class IterKey {
  public:
   IterKey()
-      : buf_(space_), buf_size_(sizeof(space_)), key_(buf_), key_size_(0) {}
+      : buf_(space_),
+        buf_size_(sizeof(space_)),
+        key_(buf_),
+        key_size_(0),
+        is_user_key_(true) {}
 
   ~IterKey() { ResetBuffer(); }
 
-  Slice GetKey() const { return Slice(key_, key_size_); }
+  Slice GetInternalKey() const {
+    assert(!IsUserKey());
+    return Slice(key_, key_size_);
+  }
 
   Slice GetUserKey() const {
-    assert(key_size_ >= 8);
-    return Slice(key_, key_size_ - 8);
+    if (IsUserKey()) {
+      return Slice(key_, key_size_);
+    } else {
+      assert(key_size_ >= 8);
+      return Slice(key_, key_size_ - 8);
+    }
   }
 
   size_t Size() const { return key_size_; }
@@ -349,27 +362,22 @@ class IterKey {
     key_size_ = total_size;
   }
 
-  Slice SetKey(const Slice& key, bool copy = true) {
-    size_t size = key.size();
-    if (copy) {
-      // Copy key to buf_
-      EnlargeBufferIfNeeded(size);
-      memcpy(buf_, key.data(), size);
-      key_ = buf_;
-    } else {
-      // Update key_ to point to external memory
-      key_ = key.data();
-    }
-    key_size_ = size;
-    return Slice(key_, key_size_);
+  Slice SetUserKey(const Slice& key, bool copy = true) {
+    is_user_key_ = true;
+    return SetKeyImpl(key, copy);
+  }
+
+  Slice SetInternalKey(const Slice& key, bool copy = true) {
+    is_user_key_ = false;
+    return SetKeyImpl(key, copy);
   }
 
   // Copies the content of key, updates the reference to the user key in ikey
   // and returns a Slice referencing the new copy.
-  Slice SetKey(const Slice& key, ParsedInternalKey* ikey) {
+  Slice SetInternalKey(const Slice& key, ParsedInternalKey* ikey) {
     size_t key_n = key.size();
     assert(key_n >= 8);
-    SetKey(key);
+    SetInternalKey(key);
     ikey->user_key = Slice(key_, key_n - 8);
     return Slice(key_, key_n);
   }
@@ -408,6 +416,7 @@ class IterKey {
 
     key_ = buf_;
     key_size_ = psize + usize + sizeof(uint64_t);
+    is_user_key_ = false;
   }
 
   void SetInternalKey(const Slice& user_key, SequenceNumber s,
@@ -436,7 +445,10 @@ class IterKey {
     char* ptr = EncodeVarint32(buf_, static_cast<uint32_t>(size));
     memcpy(ptr, key.data(), size);
     key_ = buf_;
+    is_user_key_ = true;
   }
+
+  bool IsUserKey() const { return is_user_key_; }
 
  private:
   char* buf_;
@@ -444,6 +456,22 @@ class IterKey {
   const char* key_;
   size_t key_size_;
   char space_[32];  // Avoid allocation for short keys
+  bool is_user_key_;
+
+  Slice SetKeyImpl(const Slice& key, bool copy) {
+    size_t size = key.size();
+    if (copy) {
+      // Copy key to buf_
+      EnlargeBufferIfNeeded(size);
+      memcpy(buf_, key.data(), size);
+      key_ = buf_;
+    } else {
+      // Update key_ to point to external memory
+      key_ = key.data();
+    }
+    key_size_ = size;
+    return Slice(key_, key_size_);
+  }
 
   void ResetBuffer() {
     if (buf_ != space_) {

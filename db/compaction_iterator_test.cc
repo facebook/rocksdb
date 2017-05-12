@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #include "db/compaction_iterator.h"
 
@@ -189,7 +191,7 @@ class CompactionIteratorTest : public testing::Test {
     c_iter_.reset(new CompactionIterator(
         iter_.get(), cmp_, merge_helper_.get(), last_sequence, &snapshots_,
         kMaxSequenceNumber, Env::Default(), false, range_del_agg_.get(),
-        std::move(compaction), filter, &shutting_down_));
+        std::move(compaction), filter, nullptr, &shutting_down_));
   }
 
   void AddSnapshot(SequenceNumber snapshot) { snapshots_.push_back(snapshot); }

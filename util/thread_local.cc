@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -180,7 +182,7 @@ pthread_key_t thread_local_key = -1;
 void NTAPI WinOnThreadExit(PVOID module, DWORD reason, PVOID reserved) {
   // We decided to punt on PROCESS_EXIT
   if (DLL_THREAD_DETACH == reason) {
-    if (thread_local_key != -1 && thread_local_inclass_routine != nullptr) {
+    if (thread_local_key != pthread_key_t(-1) && thread_local_inclass_routine != nullptr) {
       void* tls = pthread_getspecific(thread_local_key);
       if (tls != nullptr) {
         thread_local_inclass_routine(tls);
@@ -191,22 +193,11 @@ void NTAPI WinOnThreadExit(PVOID module, DWORD reason, PVOID reserved) {
 
 }  // wintlscleanup
 
-#ifdef _WIN64
-
-#pragma comment(linker, "/include:_tls_used")
-#pragma comment(linker, "/include:p_thread_callback_on_exit")
-
-#else  // _WIN64
-
-#pragma comment(linker, "/INCLUDE:__tls_used")
-#pragma comment(linker, "/INCLUDE:_p_thread_callback_on_exit")
-
-#endif  // _WIN64
-
 // extern "C" suppresses C++ name mangling so we know the symbol name for the
 // linker /INCLUDE:symbol pragma above.
 extern "C" {
 
+#ifdef _MSC_VER
 // The linker must not discard thread_callback_on_exit.  (We force a reference
 // to this variable with a linker /include:symbol pragma to ensure that.) If
 // this variable is discarded, the OnThreadExit function will never be called.
@@ -222,6 +213,9 @@ const PIMAGE_TLS_CALLBACK p_thread_callback_on_exit =
 // Reset the default section.
 #pragma const_seg()
 
+#pragma comment(linker, "/include:_tls_used")
+#pragma comment(linker, "/include:p_thread_callback_on_exit")
+
 #else  // _WIN64
 
 #pragma data_seg(".CRT$XLB")
@@ -229,8 +223,19 @@ PIMAGE_TLS_CALLBACK p_thread_callback_on_exit = wintlscleanup::WinOnThreadExit;
 // Reset the default section.
 #pragma data_seg()
 
+#pragma comment(linker, "/INCLUDE:__tls_used")
+#pragma comment(linker, "/INCLUDE:_p_thread_callback_on_exit")
+
 #endif  // _WIN64
 
+#else
+// https://github.com/couchbase/gperftools/blob/master/src/windows/port.cc
+BOOL WINAPI DllMain(HINSTANCE h, DWORD dwReason, PVOID pv) {
+  if (dwReason == DLL_THREAD_DETACH)
+    wintlscleanup::WinOnThreadExit(h, dwReason, pv);
+  return TRUE;
+}
+#endif
 }  // extern "C"
 
 #endif  // OS_WIN
@@ -246,7 +251,7 @@ ThreadLocalPtr::StaticMeta* ThreadLocalPtr::Instance() {
   //
   // Note that here we decide to make "inst" a static pointer w/o deleting
   // it at the end instead of a static variable.  This is to avoid the following
-  // destruction order desester happens when a child thread using ThreadLocalPtr
+  // destruction order disaster happens when a child thread using ThreadLocalPtr
   // dies AFTER the main thread dies:  When a child thread happens to use
   // ThreadLocalPtr, it will try to delete its thread-local data on its
   // OnThreadExit when the child thread dies.  However, OnThreadExit depends

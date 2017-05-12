@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #ifndef ROCKSDB_LITE
 
@@ -12,17 +14,17 @@
 #include "rocksdb/write_batch.h"
 #include "rocksdb/write_buffer_manager.h"
 
-#include "db/wal_manager.h"
-#include "db/log_writer.h"
 #include "db/column_family.h"
+#include "db/db_impl.h"
+#include "db/log_writer.h"
 #include "db/version_set.h"
+#include "db/wal_manager.h"
+#include "env/mock_env.h"
+#include "table/mock_table.h"
 #include "util/file_reader_writer.h"
-#include "util/mock_env.h"
 #include "util/string_util.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
-#include "table/mock_table.h"
-#include "db/db_impl.h"
 
 namespace rocksdb {
 

@@ -2,13 +2,15 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #include "table/full_filter_block.h"
 
-#include "rocksdb/filter_policy.h"
+#include "monitoring/perf_context_imp.h"
 #include "port/port.h"
+#include "rocksdb/filter_policy.h"
 #include "util/coding.h"
-#include "util/perf_context_imp.h"
 
 namespace rocksdb {
 
@@ -73,8 +75,9 @@ FullFilterBlockReader::FullFilterBlockReader(
   block_contents_ = std::move(contents);
 }
 
-bool FullFilterBlockReader::KeyMayMatch(const Slice& key,
-                                        uint64_t block_offset) {
+bool FullFilterBlockReader::KeyMayMatch(const Slice& key, uint64_t block_offset,
+                                        const bool no_io,
+                                        const Slice* const const_ikey_ptr) {
   assert(block_offset == kNotValid);
   if (!whole_key_filtering_) {
     return true;
@@ -83,7 +86,9 @@ bool FullFilterBlockReader::KeyMayMatch(const Slice& key,
 }
 
 bool FullFilterBlockReader::PrefixMayMatch(const Slice& prefix,
-                                           uint64_t block_offset) {
+                                           uint64_t block_offset,
+                                           const bool no_io,
+                                           const Slice* const const_ikey_ptr) {
   assert(block_offset == kNotValid);
   if (!prefix_extractor_) {
     return true;

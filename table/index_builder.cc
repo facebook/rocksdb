@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -15,6 +17,7 @@
 #include <string>
 
 #include "rocksdb/comparator.h"
+#include "rocksdb/flush_block_policy.h"
 #include "table/format.h"
 #include "table/partitioned_filter_block.h"
 
@@ -60,32 +63,60 @@ PartitionedIndexBuilder::PartitionedIndexBuilder(
     const BlockBasedTableOptions& table_opt)
     : IndexBuilder(comparator),
       index_block_builder_(table_opt.index_block_restart_interval),
-      table_opt_(table_opt) {
-  sub_index_builder_ = IndexBuilder::CreateIndexBuilder(sub_type_, comparator_,
-                                                        nullptr, table_opt_);
-}
+      sub_index_builder_(nullptr),
+      table_opt_(table_opt) {}
 
 PartitionedIndexBuilder::~PartitionedIndexBuilder() {
   delete sub_index_builder_;
 }
 
+void PartitionedIndexBuilder::MakeNewSubIndexBuilder() {
+  assert(sub_index_builder_ == nullptr);
+  sub_index_builder_ = new ShortenedIndexBuilder(
+      comparator_, table_opt_.index_block_restart_interval);
+  flush_policy_.reset(FlushBlockBySizePolicyFactory::NewFlushBlockPolicy(
+      table_opt_.metadata_block_size, table_opt_.block_size_deviation,
+      sub_index_builder_->index_block_builder_));
+}
+
 void PartitionedIndexBuilder::AddIndexEntry(
     std::string* last_key_in_current_block,
     const Slice* first_key_in_next_block, const BlockHandle& block_handle) {
-  sub_index_builder_->AddIndexEntry(last_key_in_current_block,
-                                    first_key_in_next_block, block_handle);
-  num_indexes++;
+  // Note: to avoid two consecuitive flush in the same method call, we do not
+  // check flush policy when adding the last key
   if (UNLIKELY(first_key_in_next_block == nullptr)) {  // no more keys
-    entries_.push_back({std::string(*last_key_in_current_block),
-                        std::unique_ptr<IndexBuilder>(sub_index_builder_)});
+    if (sub_index_builder_ == nullptr) {
+      MakeNewSubIndexBuilder();
+    }
+    sub_index_builder_->AddIndexEntry(last_key_in_current_block,
+                                      first_key_in_next_block, block_handle);
+    sub_index_last_key_ = std::string(*last_key_in_current_block);
+    entries_.push_back(
+        {sub_index_last_key_,
+         std::unique_ptr<ShortenedIndexBuilder>(sub_index_builder_)});
     sub_index_builder_ = nullptr;
     cut_filter_block = true;
-  } else if (num_indexes % table_opt_.index_per_partition == 0) {
-    entries_.push_back({std::string(*last_key_in_current_block),
-                        std::unique_ptr<IndexBuilder>(sub_index_builder_)});
-    sub_index_builder_ = IndexBuilder::CreateIndexBuilder(
-        sub_type_, comparator_, nullptr, table_opt_);
-    cut_filter_block = true;
+  } else {
+    // apply flush policy only to non-empty sub_index_builder_
+    if (sub_index_builder_ != nullptr) {
+      std::string handle_encoding;
+      block_handle.EncodeTo(&handle_encoding);
+      bool do_flush =
+          flush_policy_->Update(*last_key_in_current_block, handle_encoding);
+      if (do_flush) {
+        entries_.push_back(
+            {sub_index_last_key_,
+             std::unique_ptr<ShortenedIndexBuilder>(sub_index_builder_)});
+        cut_filter_block = true;
+        sub_index_builder_ = nullptr;
+      }
+    }
+    if (sub_index_builder_ == nullptr) {
+      MakeNewSubIndexBuilder();
+    }
+    sub_index_builder_->AddIndexEntry(last_key_in_current_block,
+                                      first_key_in_next_block, block_handle);
+    sub_index_last_key_ = std::string(*last_key_in_current_block);
   }
 }
 

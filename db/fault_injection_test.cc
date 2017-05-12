@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright 2014 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -12,17 +14,17 @@
 // file data (or entire files) not protected by a "sync".
 
 #include "db/db_impl.h"
-#include "db/filename.h"
 #include "db/log_format.h"
 #include "db/version_set.h"
+#include "env/mock_env.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/table.h"
 #include "rocksdb/write_batch.h"
 #include "util/fault_injection_test_env.h"
+#include "util/filename.h"
 #include "util/logging.h"
-#include "util/mock_env.h"
 #include "util/mutexlock.h"
 #include "util/sync_point.h"
 #include "util/testharness.h"

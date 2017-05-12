@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -10,17 +12,18 @@
 #ifndef ROCKSDB_LITE
 
 #include "rocksdb/utilities/backupable_db.h"
-#include "db/filename.h"
+#include "port/port.h"
+#include "rocksdb/rate_limiter.h"
+#include "rocksdb/transaction_log.h"
 #include "util/channel.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/file_reader_writer.h"
+#include "util/filename.h"
 #include "util/logging.h"
 #include "util/string_util.h"
-#include "rocksdb/rate_limiter.h"
-#include "rocksdb/transaction_log.h"
-#include "port/port.h"
 #include "util/sync_point.h"
+#include "utilities/checkpoint/checkpoint_impl.h"
 
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
@@ -66,21 +69,24 @@ std::string BackupStatistics::ToString() const {
 }
 
 void BackupableDBOptions::Dump(Logger* logger) const {
-  Log(logger, "               Options.backup_dir: %s", backup_dir.c_str());
-  Log(logger, "               Options.backup_env: %p", backup_env);
-  Log(logger, "        Options.share_table_files: %d",
-      static_cast<int>(share_table_files));
-  Log(logger, "                 Options.info_log: %p", info_log);
-  Log(logger, "                     Options.sync: %d", static_cast<int>(sync));
-  Log(logger, "         Options.destroy_old_data: %d",
-      static_cast<int>(destroy_old_data));
-  Log(logger, "         Options.backup_log_files: %d",
-      static_cast<int>(backup_log_files));
-  Log(logger, "        Options.backup_rate_limit: %" PRIu64, backup_rate_limit);
-  Log(logger, "       Options.restore_rate_limit: %" PRIu64,
-      restore_rate_limit);
-  Log(logger, "Options.max_background_operations: %d",
-      max_background_operations);
+  ROCKS_LOG_INFO(logger, "               Options.backup_dir: %s",
+                 backup_dir.c_str());
+  ROCKS_LOG_INFO(logger, "               Options.backup_env: %p", backup_env);
+  ROCKS_LOG_INFO(logger, "        Options.share_table_files: %d",
+                 static_cast<int>(share_table_files));
+  ROCKS_LOG_INFO(logger, "                 Options.info_log: %p", info_log);
+  ROCKS_LOG_INFO(logger, "                     Options.sync: %d",
+                 static_cast<int>(sync));
+  ROCKS_LOG_INFO(logger, "         Options.destroy_old_data: %d",
+                 static_cast<int>(destroy_old_data));
+  ROCKS_LOG_INFO(logger, "         Options.backup_log_files: %d",
+                 static_cast<int>(backup_log_files));
+  ROCKS_LOG_INFO(logger, "        Options.backup_rate_limit: %" PRIu64,
+                 backup_rate_limit);
+  ROCKS_LOG_INFO(logger, "       Options.restore_rate_limit: %" PRIu64,
+                 restore_rate_limit);
+  ROCKS_LOG_INFO(logger, "Options.max_background_operations: %d",
+                 max_background_operations);
 }
 
 // -------- BackupEngineImpl class ---------
@@ -520,7 +526,7 @@ Status BackupEngineImpl::Initialize() {
   assert(!initialized_);
   initialized_ = true;
   if (read_only_) {
-    Log(options_.info_log, "Starting read_only backup engine");
+    ROCKS_LOG_INFO(options_.info_log, "Starting read_only backup engine");
   }
   options_.Dump(options_.info_log);
 
@@ -568,15 +574,16 @@ Status BackupEngineImpl::Initialize() {
     if (file == "." || file == "..") {
       continue;
     }
-    Log(options_.info_log, "Detected backup %s", file.c_str());
+    ROCKS_LOG_INFO(options_.info_log, "Detected backup %s", file.c_str());
     BackupID backup_id = 0;
     sscanf(file.c_str(), "%u", &backup_id);
     if (backup_id == 0 || file != rocksdb::ToString(backup_id)) {
       if (!read_only_) {
         // invalid file name, delete that
         auto s = backup_env_->DeleteFile(GetBackupMetaDir() + "/" + file);
-        Log(options_.info_log, "Unrecognized meta file %s, deleting -- %s",
-            file.c_str(), s.ToString().c_str());
+        ROCKS_LOG_INFO(options_.info_log,
+                       "Unrecognized meta file %s, deleting -- %s",
+                       file.c_str(), s.ToString().c_str());
       }
       continue;
     }
@@ -590,7 +597,8 @@ Status BackupEngineImpl::Initialize() {
   latest_backup_id_ = 0;
   if (options_.destroy_old_data) {  // Destroy old data
     assert(!read_only_);
-    Log(options_.info_log,
+    ROCKS_LOG_INFO(
+        options_.info_log,
         "Backup Engine started with destroy_old_data == true, deleting all "
         "backups");
     auto s = PurgeOldBackups(0);
@@ -607,41 +615,71 @@ Status BackupEngineImpl::Initialize() {
       const auto abs_dir = GetAbsolutePath(rel_dir);
       InsertPathnameToSizeBytes(abs_dir, backup_env_, &abs_path_to_size);
     }
-    // load the backups if any
-    for (auto& backup : backups_) {
+    // load the backups if any, until valid_backups_to_open of the latest
+    // non-corrupted backups have been successfully opened.
+    int valid_backups_to_open;
+    if (options_.max_valid_backups_to_open == 0) {
+      valid_backups_to_open = INT_MAX;
+    } else {
+      valid_backups_to_open = options_.max_valid_backups_to_open;
+    }
+    for (auto backup_iter = backups_.rbegin();
+         backup_iter != backups_.rend() && valid_backups_to_open > 0;
+         ++backup_iter) {
       InsertPathnameToSizeBytes(
-          GetAbsolutePath(GetPrivateFileRel(backup.first)), backup_env_,
+          GetAbsolutePath(GetPrivateFileRel(backup_iter->first)), backup_env_,
           &abs_path_to_size);
-      Status s =
-          backup.second->LoadFromFile(options_.backup_dir, abs_path_to_size);
+      Status s = backup_iter->second->LoadFromFile(options_.backup_dir,
+                                                   abs_path_to_size);
       if (s.IsCorruption()) {
-        Log(options_.info_log, "Backup %u corrupted -- %s", backup.first,
-            s.ToString().c_str());
-        corrupt_backups_.insert(std::make_pair(
-              backup.first, std::make_pair(s, std::move(backup.second))));
+        ROCKS_LOG_INFO(options_.info_log, "Backup %u corrupted -- %s",
+                       backup_iter->first, s.ToString().c_str());
+        corrupt_backups_.insert(
+            std::make_pair(backup_iter->first,
+                           std::make_pair(s, std::move(backup_iter->second))));
       } else if (!s.ok()) {
         // Distinguish corruption errors from errors in the backup Env.
         // Errors in the backup Env (i.e., this code path) will cause Open() to
         // fail, whereas corruption errors would not cause Open() failures.
         return s;
       } else {
-        Log(options_.info_log, "Loading backup %" PRIu32 " OK:\n%s",
-            backup.first, backup.second->GetInfoString().c_str());
-        latest_backup_id_ = std::max(latest_backup_id_, backup.first);
+        ROCKS_LOG_INFO(options_.info_log, "Loading backup %" PRIu32 " OK:\n%s",
+                       backup_iter->first,
+                       backup_iter->second->GetInfoString().c_str());
+        latest_backup_id_ = std::max(latest_backup_id_, backup_iter->first);
+        --valid_backups_to_open;
       }
     }
 
     for (const auto& corrupt : corrupt_backups_) {
       backups_.erase(backups_.find(corrupt.first));
     }
+    // erase the backups before max_valid_backups_to_open
+    int num_unopened_backups;
+    if (options_.max_valid_backups_to_open == 0) {
+      num_unopened_backups = 0;
+    } else {
+      num_unopened_backups =
+          std::max(0, static_cast<int>(backups_.size()) -
+                          options_.max_valid_backups_to_open);
+    }
+    for (int i = 0; i < num_unopened_backups; ++i) {
+      assert(backups_.begin()->second->Empty());
+      backups_.erase(backups_.begin());
+    }
   }
 
-  Log(options_.info_log, "Latest backup is %u", latest_backup_id_);
+  ROCKS_LOG_INFO(options_.info_log, "Latest backup is %u", latest_backup_id_);
 
   // set up threads perform copies from files_to_copy_or_create_ in the
   // background
   for (int t = 0; t < options_.max_background_operations; t++) {
     threads_.emplace_back([this]() {
+#if defined(_GNU_SOURCE) && defined(__GLIBC_PREREQ)
+#if __GLIBC_PREREQ(2, 12)
+      pthread_setname_np(pthread_self(), "backup_engine");
+#endif
+#endif
       CopyOrCreateWorkItem work_item;
       while (files_to_copy_or_create_.read(work_item)) {
         CopyOrCreateResult result;
@@ -654,8 +692,7 @@ Status BackupEngineImpl::Initialize() {
       }
     });
   }
-
-  Log(options_.info_log, "Initialized BackupEngine");
+  ROCKS_LOG_INFO(options_.info_log, "Initialized BackupEngine");
 
   return Status::OK();
 }
@@ -668,28 +705,6 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
   if (app_metadata.size() > kMaxAppMetaSize) {
     return Status::InvalidArgument("App metadata too large");
   }
-  Status s;
-  std::vector<std::string> live_files;
-  VectorLogPtr live_wal_files;
-  uint64_t manifest_file_size = 0;
-  uint64_t sequence_number = db->GetLatestSequenceNumber();
-
-  s = db->DisableFileDeletions();
-  if (s.ok()) {
-    // this will return live_files prefixed with "/"
-    s = db->GetLiveFiles(live_files, &manifest_file_size, flush_before_backup);
-  }
-  // if we didn't flush before backup, we need to also get WAL files
-  if (s.ok() && !flush_before_backup && options_.backup_log_files) {
-    // returns file names prefixed with "/"
-    s = db->GetSortedWalFiles(live_wal_files);
-  }
-  if (!s.ok()) {
-    db->EnableFileDeletions(false);
-    return s;
-  }
-  TEST_SYNC_POINT("BackupEngineImpl::CreateNewBackup:SavedLiveFiles1");
-  TEST_SYNC_POINT("BackupEngineImpl::CreateNewBackup:SavedLiveFiles2");
 
   BackupID new_backup_id = latest_backup_id_ + 1;
 
@@ -701,16 +716,16 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
   assert(ret.second == true);
   auto& new_backup = ret.first->second;
   new_backup->RecordTimestamp();
-  new_backup->SetSequenceNumber(sequence_number);
   new_backup->SetAppMetadata(app_metadata);
 
   auto start_backup = backup_env_-> NowMicros();
 
-  Log(options_.info_log, "Started the backup process -- creating backup %u",
-      new_backup_id);
+  ROCKS_LOG_INFO(options_.info_log,
+                 "Started the backup process -- creating backup %u",
+                 new_backup_id);
 
   auto private_tmp_dir = GetAbsolutePath(GetPrivateFileRel(new_backup_id, true));
-  s = backup_env_->FileExists(private_tmp_dir);
+  Status s = backup_env_->FileExists(private_tmp_dir);
   if (s.ok()) {
     // maybe last backup failed and left partial state behind, clean it up
     s = GarbageCollect();
@@ -732,82 +747,56 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
   // This is used to check whether a live files shares a dst_path with another
   // live file.
   std::unordered_set<std::string> live_dst_paths;
-  live_dst_paths.reserve(live_files.size() + live_wal_files.size());
-
-  // Pre-fetch sizes for data files
-  std::unordered_map<std::string, uint64_t> data_path_to_size;
-  if (s.ok()) {
-    s = InsertPathnameToSizeBytes(db->GetName(), db_env_, &data_path_to_size);
-  }
 
   std::vector<BackupAfterCopyOrCreateWorkItem> backup_items_to_finish;
   // Add a CopyOrCreateWorkItem to the channel for each live file
-  std::string manifest_fname, current_fname;
-  for (size_t i = 0; s.ok() && i < live_files.size(); ++i) {
-    uint64_t number;
-    FileType type;
-    bool ok = ParseFileName(live_files[i], &number, &type);
-    if (!ok) {
-      assert(false);
-      return Status::Corruption("Can't parse file name. This is very bad");
-    }
-    // we should only get sst, manifest and current files here
-    assert(type == kTableFile || type == kDescriptorFile ||
-           type == kCurrentFile || type == kOptionsFile);
-
-    if (type == kCurrentFile) {
-      // We will craft the current file manually to ensure it's consistent with
-      // the manifest number. This is necessary because current's file contents
-      // can change during backup.
-      current_fname = live_files[i];
-      continue;
-    } else if (type == kDescriptorFile) {
-      manifest_fname = live_files[i];
-    }
-
-    auto data_path_to_size_iter =
-        data_path_to_size.find(db->GetName() + live_files[i]);
-    uint64_t size_bytes = data_path_to_size_iter == data_path_to_size.end()
-                              ? port::kMaxUint64
-                              : data_path_to_size_iter->second;
-
-    // rules:
-    // * if it's kTableFile, then it's shared
-    // * if it's kDescriptorFile, limit the size to manifest_file_size
-    s = AddBackupFileWorkItem(
-        live_dst_paths, backup_items_to_finish, new_backup_id,
-        options_.share_table_files && type == kTableFile, db->GetName(),
-        live_files[i], rate_limiter, size_bytes,
-        (type == kDescriptorFile) ? manifest_file_size : 0,
-        options_.share_files_with_checksum && type == kTableFile,
-        progress_callback);
-  }
-  if (s.ok() && !current_fname.empty() && !manifest_fname.empty()) {
-    // Write the current file with the manifest filename as its contents.
-    s = AddBackupFileWorkItem(
-        live_dst_paths, backup_items_to_finish, new_backup_id,
-        false /* shared */, "" /* src_dir */, CurrentFileName(""), rate_limiter,
-        manifest_fname.size(), 0 /* size_limit */, false /* shared_checksum */,
-        progress_callback, manifest_fname.substr(1) + "\n");
-  }
-  Log(options_.info_log, "begin add wal files for backup -- %" ROCKSDB_PRIszt,
-      live_wal_files.size());
-  // Add a CopyOrCreateWorkItem to the channel for each WAL file
-  for (size_t i = 0; s.ok() && i < live_wal_files.size(); ++i) {
-    uint64_t size_bytes = live_wal_files[i]->SizeFileBytes();
-    if (live_wal_files[i]->Type() == kAliveLogFile) {
-      Log(options_.info_log, "add wal file for backup %s -- %" PRIu64,
-          live_wal_files[i]->PathName().c_str(), size_bytes);
-      // we only care about live log files
-      // copy the file into backup_dir/files/<new backup>/
-      s = AddBackupFileWorkItem(live_dst_paths, backup_items_to_finish,
-                                new_backup_id, false, /* not shared */
-                                db->GetOptions().wal_dir,
-                                live_wal_files[i]->PathName(), rate_limiter,
-                                size_bytes, size_bytes);
+  db->DisableFileDeletions();
+  if (s.ok()) {
+    CheckpointImpl checkpoint(db);
+    uint64_t sequence_number = 0;
+    s = checkpoint.CreateCustomCheckpoint(
+        db->GetDBOptions(),
+        [&](const std::string& src_dirname, const std::string& fname,
+            FileType) {
+          // custom checkpoint will switch to calling copy_file_cb after it sees
+          // NotSupported returned from link_file_cb.
+          return Status::NotSupported();
+        } /* link_file_cb */,
+        [&](const std::string& src_dirname, const std::string& fname,
+            uint64_t size_limit_bytes, FileType type) {
+          if (type == kLogFile && !options_.backup_log_files) {
+            return Status::OK();
+          }
+          Log(options_.info_log, "add file for backup %s", fname.c_str());
+          uint64_t size_bytes = 0;
+          Status st;
+          if (type == kTableFile) {
+            st = db_env_->GetFileSize(src_dirname + fname, &size_bytes);
+          }
+          if (st.ok()) {
+            st = AddBackupFileWorkItem(
+                live_dst_paths, backup_items_to_finish, new_backup_id,
+                options_.share_table_files && type == kTableFile, src_dirname,
+                fname, rate_limiter, size_bytes, size_limit_bytes,
+                options_.share_files_with_checksum && type == kTableFile,
+                progress_callback);
+          }
+          return st;
+        } /* copy_file_cb */,
+        [&](const std::string& fname, const std::string& contents, FileType) {
+          Log(options_.info_log, "add file for backup %s", fname.c_str());
+          return AddBackupFileWorkItem(
+              live_dst_paths, backup_items_to_finish, new_backup_id,
+              false /* shared */, "" /* src_dir */, fname, rate_limiter,
+              contents.size(), 0 /* size_limit */, false /* shared_checksum */,
+              progress_callback, contents);
+        } /* create_file_cb */,
+        &sequence_number, flush_before_backup ? 0 : port::kMaxUint64);
+    if (s.ok()) {
+      new_backup->SetSequenceNumber(sequence_number);
     }
   }
-  Log(options_.info_log, "add files for backup done, wait finish.");
+  ROCKS_LOG_INFO(options_.info_log, "add files for backup done, wait finish.");
   Status item_status;
   for (auto& item : backup_items_to_finish) {
     item.result.wait();
@@ -833,7 +822,8 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
 
   if (s.ok()) {
     // move tmp private backup to real backup folder
-    Log(options_.info_log,
+    ROCKS_LOG_INFO(
+        options_.info_log,
         "Moving tmp backup directory to the real one: %s -> %s\n",
         GetAbsolutePath(GetPrivateFileRel(new_backup_id, true)).c_str(),
         GetAbsolutePath(GetPrivateFileRel(new_backup_id, false)).c_str());
@@ -876,9 +866,10 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
   if (!s.ok()) {
     backup_statistics_.IncrementNumberFailBackup();
     // clean all the files we might have created
-    Log(options_.info_log, "Backup failed -- %s", s.ToString().c_str());
-    Log(options_.info_log, "Backup Statistics %s\n",
-        backup_statistics_.ToString().c_str());
+    ROCKS_LOG_INFO(options_.info_log, "Backup failed -- %s",
+                   s.ToString().c_str());
+    ROCKS_LOG_INFO(options_.info_log, "Backup Statistics %s\n",
+                   backup_statistics_.ToString().c_str());
     // delete files that we might have already written
     DeleteBackup(new_backup_id);
     GarbageCollect();
@@ -888,27 +879,28 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
   // here we know that we succeeded and installed the new backup
   // in the LATEST_BACKUP file
   latest_backup_id_ = new_backup_id;
-  Log(options_.info_log, "Backup DONE. All is good");
+  ROCKS_LOG_INFO(options_.info_log, "Backup DONE. All is good");
 
   // backup_speed is in byte/second
   double backup_speed = new_backup->GetSize() / (1.048576 * backup_time);
-  Log(options_.info_log, "Backup number of files: %u",
-      new_backup->GetNumberFiles());
+  ROCKS_LOG_INFO(options_.info_log, "Backup number of files: %u",
+                 new_backup->GetNumberFiles());
   char human_size[16];
   AppendHumanBytes(new_backup->GetSize(), human_size, sizeof(human_size));
-  Log(options_.info_log, "Backup size: %s", human_size);
-  Log(options_.info_log, "Backup time: %" PRIu64 " microseconds", backup_time);
-  Log(options_.info_log, "Backup speed: %.3f MB/s", backup_speed);
-  Log(options_.info_log, "Backup Statistics %s",
-      backup_statistics_.ToString().c_str());
+  ROCKS_LOG_INFO(options_.info_log, "Backup size: %s", human_size);
+  ROCKS_LOG_INFO(options_.info_log, "Backup time: %" PRIu64 " microseconds",
+                 backup_time);
+  ROCKS_LOG_INFO(options_.info_log, "Backup speed: %.3f MB/s", backup_speed);
+  ROCKS_LOG_INFO(options_.info_log, "Backup Statistics %s",
+                 backup_statistics_.ToString().c_str());
   return s;
 }
 
 Status BackupEngineImpl::PurgeOldBackups(uint32_t num_backups_to_keep) {
   assert(initialized_);
   assert(!read_only_);
-  Log(options_.info_log, "Purging old backups, keeping %u",
-      num_backups_to_keep);
+  ROCKS_LOG_INFO(options_.info_log, "Purging old backups, keeping %u",
+                 num_backups_to_keep);
   std::vector<BackupID> to_delete;
   auto itr = backups_.begin();
   while ((backups_.size() - to_delete.size()) > num_backups_to_keep) {
@@ -927,7 +919,7 @@ Status BackupEngineImpl::PurgeOldBackups(uint32_t num_backups_to_keep) {
 Status BackupEngineImpl::DeleteBackup(BackupID backup_id) {
   assert(initialized_);
   assert(!read_only_);
-  Log(options_.info_log, "Deleting backup %u", backup_id);
+  ROCKS_LOG_INFO(options_.info_log, "Deleting backup %u", backup_id);
   auto backup = backups_.find(backup_id);
   if (backup != backups_.end()) {
     auto s = backup->second->Delete();
@@ -951,8 +943,8 @@ Status BackupEngineImpl::DeleteBackup(BackupID backup_id) {
   for (auto& itr : backuped_file_infos_) {
     if (itr.second->refs == 0) {
       Status s = backup_env_->DeleteFile(GetAbsolutePath(itr.first));
-      Log(options_.info_log, "Deleting %s -- %s", itr.first.c_str(),
-          s.ToString().c_str());
+      ROCKS_LOG_INFO(options_.info_log, "Deleting %s -- %s", itr.first.c_str(),
+                     s.ToString().c_str());
       to_delete.push_back(itr.first);
     }
   }
@@ -964,8 +956,8 @@ Status BackupEngineImpl::DeleteBackup(BackupID backup_id) {
   // if they are not empty
   std::string private_dir = GetPrivateFileRel(backup_id);
   Status s = backup_env_->DeleteDir(GetAbsolutePath(private_dir));
-  Log(options_.info_log, "Deleting private dir %s -- %s",
-      private_dir.c_str(), s.ToString().c_str());
+  ROCKS_LOG_INFO(options_.info_log, "Deleting private dir %s -- %s",
+                 private_dir.c_str(), s.ToString().c_str());
   return Status::OK();
 }
 
@@ -1008,9 +1000,9 @@ Status BackupEngineImpl::RestoreDBFromBackup(
     return Status::NotFound("Backup not found");
   }
 
-  Log(options_.info_log, "Restoring backup id %u\n", backup_id);
-  Log(options_.info_log, "keep_log_files: %d\n",
-      static_cast<int>(restore_options.keep_log_files));
+  ROCKS_LOG_INFO(options_.info_log, "Restoring backup id %u\n", backup_id);
+  ROCKS_LOG_INFO(options_.info_log, "keep_log_files: %d\n",
+                 static_cast<int>(restore_options.keep_log_files));
 
   // just in case. Ignore errors
   db_env_->CreateDirIfMissing(db_dir);
@@ -1028,8 +1020,9 @@ Status BackupEngineImpl::RestoreDBFromBackup(
       FileType type;
       bool ok = ParseFileName(f, &number, &type);
       if (ok && type == kLogFile) {
-        Log(options_.info_log, "Moving log file from archive/ to wal_dir: %s",
-            f.c_str());
+        ROCKS_LOG_INFO(options_.info_log,
+                       "Moving log file from archive/ to wal_dir: %s",
+                       f.c_str());
         Status s =
             db_env_->RenameFile(archive_dir + "/" + f, wal_dir + "/" + f);
         if (!s.ok()) {
@@ -1079,7 +1072,8 @@ Status BackupEngineImpl::RestoreDBFromBackup(
     dst = ((type == kLogFile) ? wal_dir : db_dir) +
       "/" + dst;
 
-    Log(options_.info_log, "Restoring %s to %s\n", file.c_str(), dst.c_str());
+    ROCKS_LOG_INFO(options_.info_log, "Restoring %s to %s\n", file.c_str(),
+                   dst.c_str());
     CopyOrCreateWorkItem copy_or_create_work_item(
         GetAbsolutePath(file), dst, "" /* contents */, backup_env_, db_env_,
         false, rate_limiter, 0 /* size_limit */);
@@ -1106,7 +1100,8 @@ Status BackupEngineImpl::RestoreDBFromBackup(
     }
   }
 
-  Log(options_.info_log, "Restoring done -- %s\n", s.ToString().c_str());
+  ROCKS_LOG_INFO(options_.info_log, "Restoring done -- %s\n",
+                 s.ToString().c_str());
   return s;
 }
 
@@ -1127,7 +1122,7 @@ Status BackupEngineImpl::VerifyBackup(BackupID backup_id) {
     return Status::NotFound();
   }
 
-  Log(options_.info_log, "Verifying backup id %u\n", backup_id);
+  ROCKS_LOG_INFO(options_.info_log, "Verifying backup id %u\n", backup_id);
 
   std::unordered_map<std::string, uint64_t> curr_abs_path_to_size;
   for (const auto& rel_dir : {GetPrivateFileRel(backup_id), GetSharedFileRel(),
@@ -1302,14 +1297,15 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
   } else if (shared && (same_path || file_exists)) {
     need_to_copy = false;
     if (shared_checksum) {
-      Log(options_.info_log,
-          "%s already present, with checksum %u and size %" PRIu64,
-          fname.c_str(), checksum_value, size_bytes);
+      ROCKS_LOG_INFO(options_.info_log,
+                     "%s already present, with checksum %u and size %" PRIu64,
+                     fname.c_str(), checksum_value, size_bytes);
     } else if (backuped_file_infos_.find(dst_relative) ==
                backuped_file_infos_.end() && !same_path) {
       // file already exists, but it's not referenced by any backup. overwrite
       // the file
-      Log(options_.info_log,
+      ROCKS_LOG_INFO(
+          options_.info_log,
           "%s already present, but not referenced by any backup. We will "
           "overwrite the file.",
           fname.c_str());
@@ -1317,8 +1313,8 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
       backup_env_->DeleteFile(dst_path);
     } else {
       // the file is present and referenced by a backup
-      Log(options_.info_log, "%s already present, calculate checksum",
-          fname.c_str());
+      ROCKS_LOG_INFO(options_.info_log,
+                     "%s already present, calculate checksum", fname.c_str());
       s = CalculateChecksum(src_dir + fname, db_env_, size_limit,
                             &checksum_value);
     }
@@ -1326,8 +1322,8 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
   live_dst_paths.insert(dst_path);
 
   if (!contents.empty() || need_to_copy) {
-    Log(options_.info_log, "Copying %s to %s", fname.c_str(),
-        dst_path_tmp.c_str());
+    ROCKS_LOG_INFO(options_.info_log, "Copying %s to %s", fname.c_str(),
+                   dst_path_tmp.c_str());
     CopyOrCreateWorkItem copy_or_create_work_item(
         src_dir.empty() ? "" : src_dir + fname, dst_path_tmp, contents, db_env_,
         backup_env_, options_.sync, rate_limiter, size_limit,
@@ -1433,13 +1429,18 @@ Status BackupEngineImpl::InsertPathnameToSizeBytes(
 
 Status BackupEngineImpl::GarbageCollect() {
   assert(!read_only_);
-  Log(options_.info_log, "Starting garbage collection");
+  ROCKS_LOG_INFO(options_.info_log, "Starting garbage collection");
 
   if (options_.share_table_files) {
     // delete obsolete shared files
     std::vector<std::string> shared_children;
     {
-      auto shared_path = GetAbsolutePath(GetSharedFileRel());
+      std::string shared_path;
+      if (options_.share_files_with_checksum) {
+        shared_path = GetAbsolutePath(GetSharedFileWithChecksumRel());
+      } else {
+        shared_path = GetAbsolutePath(GetSharedFileRel());
+      }
       auto s = backup_env_->FileExists(shared_path);
       if (s.ok()) {
         s = backup_env_->GetChildren(shared_path, &shared_children);
@@ -1451,7 +1452,12 @@ Status BackupEngineImpl::GarbageCollect() {
       }
     }
     for (auto& child : shared_children) {
-      std::string rel_fname = GetSharedFileRel(child);
+      std::string rel_fname;
+      if (options_.share_files_with_checksum) {
+        rel_fname = GetSharedFileWithChecksumRel(child);
+      } else {
+        rel_fname = GetSharedFileRel(child);
+      }
       auto child_itr = backuped_file_infos_.find(rel_fname);
       // if it's not refcounted, delete it
       if (child_itr == backuped_file_infos_.end() ||
@@ -1459,8 +1465,8 @@ Status BackupEngineImpl::GarbageCollect() {
         // this might be a directory, but DeleteFile will just fail in that
         // case, so we're good
         Status s = backup_env_->DeleteFile(GetAbsolutePath(rel_fname));
-        Log(options_.info_log, "Deleting %s -- %s", rel_fname.c_str(),
-            s.ToString().c_str());
+        ROCKS_LOG_INFO(options_.info_log, "Deleting %s -- %s",
+                       rel_fname.c_str(), s.ToString().c_str());
         backuped_file_infos_.erase(rel_fname);
       }
     }
@@ -1491,13 +1497,14 @@ Status BackupEngineImpl::GarbageCollect() {
     backup_env_->GetChildren(full_private_path, &subchildren);
     for (auto& subchild : subchildren) {
       Status s = backup_env_->DeleteFile(full_private_path + subchild);
-      Log(options_.info_log, "Deleting %s -- %s",
-          (full_private_path + subchild).c_str(), s.ToString().c_str());
+      ROCKS_LOG_INFO(options_.info_log, "Deleting %s -- %s",
+                     (full_private_path + subchild).c_str(),
+                     s.ToString().c_str());
     }
     // finally delete the private dir
     Status s = backup_env_->DeleteDir(full_private_path);
-    Log(options_.info_log, "Deleting dir %s -- %s", full_private_path.c_str(),
-        s.ToString().c_str());
+    ROCKS_LOG_INFO(options_.info_log, "Deleting dir %s -- %s",
+                   full_private_path.c_str(), s.ToString().c_str());
   }
 
   return Status::OK();

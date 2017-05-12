@@ -16,17 +16,23 @@ public class Environment {
     return (OS.contains("mac"));
   }
 
+  public static boolean isAix() {
+    return OS.contains("aix");
+  }
+  
   public static boolean isUnix() {
-    return (OS.contains("nix") ||
-        OS.contains("nux") ||
-        OS.contains("aix"));
+    return OS.contains("nix") ||
+        OS.contains("nux");
   }
 
   public static boolean isSolaris() {
-     return OS.contains("sunos");
+    return OS.contains("sunos");
   }
 
   public static boolean is64Bit() {
+    if (ARCH.indexOf("sparcv9") >= 0) {
+      return true;
+    }
     return (ARCH.indexOf("64") > 0);
   }
 
@@ -42,12 +48,14 @@ public class Environment {
     if (isUnix()) {
       final String arch = is64Bit() ? "64" : "32";
       if(isPowerPC()) {
-        return String.format("%sjni-linux-ppc%s", name, arch);
+        return String.format("%sjni-linux-%s", name, ARCH);
       } else {
         return String.format("%sjni-linux%s", name, arch);
       }
     } else if (isMac()) {
       return String.format("%sjni-osx", name);
+    } else if (isAix() && is64Bit()) {
+      return String.format("%sjni-aix64", name);
     } else if (isSolaris()) {
       final String arch = is64Bit() ? "64" : "32";
       return String.format("%sjni-solaris%s", name, arch);
@@ -63,7 +71,7 @@ public class Environment {
   }
 
   private static String appendLibOsSuffix(final String libraryFileName, final boolean shared) {
-    if (isUnix() || isSolaris()) {
+    if (isUnix() || isAix() || isSolaris()) {
       return libraryFileName + ".so";
     } else if (isMac()) {
       return libraryFileName + (shared ? ".dylib" : ".jnilib");
