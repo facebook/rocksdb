@@ -54,7 +54,7 @@ CoreLocalArray<T>::CoreLocalArray() {
 
 template<typename T>
 size_t CoreLocalArray<T>::Size() const {
-  return static_cast<size_t>(1 << size_shift_);
+  return static_cast<size_t>(1) << size_shift_;
 }
 
 template<typename T>
