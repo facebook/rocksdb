@@ -66,12 +66,7 @@ class StatisticsImpl : public Statistics {
   //
   // Alignment attributes expand to nothing depending on the platform
   __declspec(align(64)) struct StatisticsData {
-    StatisticsData() {
-      for (uint32_t i = 0; i < INTERNAL_TICKER_ENUM_MAX; ++i) {
-        std::atomic_init(&tickers_[i], static_cast<uint64_t>(0));
-      }
-    }
-    std::atomic_uint_fast64_t tickers_[INTERNAL_TICKER_ENUM_MAX];
+    std::atomic_uint_fast64_t tickers_[INTERNAL_TICKER_ENUM_MAX] = {{0}};
     HistogramImpl histograms_[INTERNAL_HISTOGRAM_ENUM_MAX];
   } __attribute__((__aligned__(64)));
 
