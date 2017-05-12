@@ -924,7 +924,7 @@ class DBImpl : public DB {
 
   WriteBufferManager* write_buffer_manager_;
 
-  WriteThreadImpl write_thread_;
+  WriteThread write_thread_;
 
   WriteBatch tmp_batch_;
 

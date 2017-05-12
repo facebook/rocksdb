@@ -201,51 +201,7 @@ class WriteThread {
     }
   };
 
-  struct AdaptationContext {
-    const char* name;
-    std::atomic<int32_t> value;
-
-    explicit AdaptationContext(const char* name0) : name(name0), value(0) {}
-  };
-
   WriteThread(uint64_t max_yield_usec, uint64_t slow_yield_usec);
-
-  virtual ~WriteThread() = default;
-
-  // Waits for w->state & goal_mask using w->StateMutex().  Returns
-  // the state that satisfies goal_mask.
-  uint8_t BlockingAwaitState(Writer* w, uint8_t goal_mask);
-
-  // Blocks until w->state & goal_mask, returning the state value
-  // that satisfied the predicate.  Uses ctx to adaptively use
-  // std::this_thread::yield() to avoid mutex overheads.  ctx should be
-  // a context-dependent static.
-  uint8_t AwaitState(Writer* w, uint8_t goal_mask, AdaptationContext* ctx);
-
-  void SetState(Writer* w, uint8_t new_state);
-
-  // Waits for all preceding writers (unlocking mu while waiting), then
-  // registers w as the currently proceeding writer.
-  //
-  // Writer* w:              A Writer not eligible for batching
-  // InstrumentedMutex* mu:  The db mutex, to unlock while waiting
-  // REQUIRES: db mutex held
-  virtual void EnterUnbatched(Writer* w, InstrumentedMutex* mu) = 0;
-
-  // Completes a Writer begun with EnterUnbatched, unblocking subsequent
-  // writers.
-  virtual void ExitUnbatched(Writer* w) = 0;
-
- private:
-  uint64_t max_yield_usec_;
-  uint64_t slow_yield_usec_;
-};
-
-class WriteThreadImpl : public WriteThread {
- public:
-  WriteThreadImpl(uint64_t max_yield_usec, uint64_t slow_yield_usec);
-
-  virtual ~WriteThreadImpl() = default;
 
   // IMPORTANT: None of the methods in this class rely on the db mutex
   // for correctness. All of the methods except JoinBatchGroup and
@@ -305,14 +261,44 @@ class WriteThreadImpl : public WriteThread {
   void ExitAsBatchGroupLeader(Writer* leader, Writer* last_writer,
                               Status status);
 
-  virtual void EnterUnbatched(Writer* w, InstrumentedMutex* mu) override;
+  // Waits for all preceding writers (unlocking mu while waiting), then
+  // registers w as the currently proceeding writer.
+  //
+  // Writer* w:              A Writer not eligible for batching
+  // InstrumentedMutex* mu:  The db mutex, to unlock while waiting
+  // REQUIRES: db mutex held
+  void EnterUnbatched(Writer* w, InstrumentedMutex* mu);
 
-  virtual void ExitUnbatched(Writer* w) override;
+  // Completes a Writer begun with EnterUnbatched, unblocking subsequent
+  // writers.
+  void ExitUnbatched(Writer* w);
+
+  struct AdaptationContext {
+    const char* name;
+    std::atomic<int32_t> value;
+
+    explicit AdaptationContext(const char* name0) : name(name0), value(0) {}
+  };
 
  private:
+  uint64_t max_yield_usec_;
+  uint64_t slow_yield_usec_;
+
   // Points to the newest pending Writer.  Only leader can remove
   // elements, adding can be done lock-free by anybody
   std::atomic<Writer*> newest_writer_;
+
+  // Waits for w->state & goal_mask using w->StateMutex().  Returns
+  // the state that satisfies goal_mask.
+  uint8_t BlockingAwaitState(Writer* w, uint8_t goal_mask);
+
+  // Blocks until w->state & goal_mask, returning the state value
+  // that satisfied the predicate.  Uses ctx to adaptively use
+  // std::this_thread::yield() to avoid mutex overheads.  ctx should be
+  // a context-dependent static.
+  uint8_t AwaitState(Writer* w, uint8_t goal_mask, AdaptationContext* ctx);
+
+  void SetState(Writer* w, uint8_t new_state);
 
   // Links w into the newest_writer_ list. Sets *linked_as_leader to
   // true if w was linked directly into the leader position.  Safe to
