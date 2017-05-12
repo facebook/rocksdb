@@ -751,6 +751,21 @@ struct DBOptions {
   // Default: 16MB/s
   uint64_t delayed_write_rate = 16 * 1024U * 1024U;
 
+  // By default, a single write thread queue is maintained. The thread gets
+  // to the head of the queue becomes write batch group leader and responsible
+  // for writing to WAL and memtable for the batch group.
+  //
+  // If enable_pipelined_write is true, separate write thread queue is
+  // maintained for WAL write and memtable write. A write thread first enter WAL
+  // writer queue and then memtable writer queue. Pending thread on the WAL
+  // writer queue thus only have to wait for previous writers to finish thier
+  // WAL writing but not the memtable writing. Enabling the feature may improve
+  // write throughput and reduce latency of the prepare phase of two-phase
+  // commit.
+  //
+  // Default: false
+  bool enable_pipelined_write = false;
+
   // If true, allow multi-writers to update mem tables in parallel.
   // Only some memtable_factory-s support concurrent writes; currently it
   // is implemented only for SkipListFactory.  Concurrent memtable writes

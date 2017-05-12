@@ -607,6 +607,11 @@ class DBImpl : public DB {
                    uint64_t* log_used = nullptr, uint64_t log_ref = 0,
                    bool disable_memtable = false);
 
+  Status PipelineWriteImpl(const WriteOptions& options, WriteBatch* updates,
+                           WriteCallback* callback = nullptr,
+                           uint64_t* log_used = nullptr, uint64_t log_ref = 0,
+                           bool disable_memtable = false);
+
   uint64_t FindMinLogContainingOutstandingPrep();
   uint64_t FindMinPrepLogReferencedByMemTable();
 
