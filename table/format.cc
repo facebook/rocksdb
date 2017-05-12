@@ -259,6 +259,9 @@ Status ReadFooterContext::OnReadFooterComplete(const Status& status, const Slice
 Status ReadFooterContext::OnIOCompletion(const Status& s, const Slice& slice) {
   std::unique_ptr<ReadFooterContext> self(this);
   Status status = OnReadFooterComplete(s, slice);
+  // In these classes OnIOComplletion is only invoked when async
+  // simply enforce this
+  status.async(true);
   footer_cb_.Invoke(status);
   return status;
 }
@@ -371,6 +374,9 @@ Status ReadBlockContext::OnIoCompletion(const Status& status, const Slice& raw_s
 
   std::unique_ptr<ReadBlockContext> self(this);
   Status s = OnReadBlockComplete(status, raw_slice);
+  // In these classes OnIOComplletion is only invoked when async
+  // simply enforce this
+  s.async(true);
   client_cb_.Invoke(s, GetResult());
   return s;
 }
@@ -586,7 +592,10 @@ Status ReadBlockContentsContext::OnIoCompletion(const Status& status,
     const Slice& slice) {
 
   std::unique_ptr<ReadBlockContentsContext> self(this);
-  Status s = OnReadBlockContentsComplete(status, result_);
+  Status s = OnReadBlockContentsComplete(status, slice);
+  // In these classes OnIOComplletion is only invoked when async
+  // simply enforce this
+  s.async(true);
   client_cb_.Invoke(s);
   return s;
 }

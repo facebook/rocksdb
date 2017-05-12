@@ -9,13 +9,22 @@
 #include <rocksdb/async/callables.h>
 #include <rocksdb/iterator.h>
 
+#include "async/block_based_table_request.h"
 #include "ms_internal/ms_threadpool.h"
 #include "ms_internal/ms_taskpoolhandle.h"
 
-#include "util/random.h"
+
+
 #include "port/stack_trace.h"
 #include "port/win/io_win.h"
 #include "port/win/iocompletion.h"
+
+#include "table/block_based_table_builder.h"
+#include "table/block_based_table_factory.h"
+#include "table/block_based_table_reader.h"
+#include "table/sst_file_writer_collectors.h"
+
+#include "util/random.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 
@@ -375,6 +384,8 @@ public:
 
 struct Customer {
   HANDLE hEvent_;
+  std::unique_ptr<TableReader> table_reader_;
+
   Customer() {
     hEvent_ = CreateEvent(NULL, TRUE, FALSE, NULL);
     assert(NULL != hEvent_);
@@ -396,7 +407,7 @@ struct Customer {
   }
 
   async::Callable<void, const Status&, const Slice&>
-  GetCallback() {
+  GetIOCallback() {
     async::CallableFactory<Customer,void, const Status&, const Slice&>
       factory(this);
     return factory.GetCallable<&Customer::OnIOCompletion>();
@@ -405,8 +416,21 @@ struct Customer {
   // IO COmpletion callback
   void OnIOCompletion(const Status& status, const Slice& slice) {
     std::cout << "Async Bytes read: " << slice.size() <<
-      " status: " << status.ToString() << std::endl;
+              " status: " << status.ToString() << std::endl;
     SetEvent(hEvent_);
+  }
+
+  Status OnTableOpen(const Status& status,
+                     std::unique_ptr<TableReader>&& table_reader) {
+    std::cout << "OnTableOpen: async: " << std::boolalpha << status.async() <<
+              " status: " << status.ToString() << " reader: " << ((table_reader) ?
+                  "not null" : "null") <<
+              std::endl;
+
+    assert(!table_reader_);
+    table_reader_ = std::move(table_reader);
+    SetEvent(hEvent_);
+    return status;
   }
 };
 
@@ -465,7 +489,7 @@ TEST_F(AsyncTest, IOCompletionTest) {
     Customer customer;
     char buffer[4096 * 2];
     Slice result;
-    Status status = fileIO.Read(customer.GetCallback(),
+    Status status = fileIO.Read(customer.GetIOCallback(),
       4096U, sizeof(buffer), buffer, &result);
 
     if (status.IsIOPending()) {
@@ -480,6 +504,96 @@ TEST_F(AsyncTest, IOCompletionTest) {
 
   remove(fileName.c_str());
 }
+
+TEST_F(AsyncTest, BlockBasedTableOpen) {
+
+  Env* env = Env::Default();
+  std::string folderName = test::TmpDir() + "/async_blocktable_open";
+  ASSERT_OK(env->CreateDirIfMissing(folderName));
+
+  const EnvOptions envDefault;
+  std::string fileName = folderName + "/async_open_test.sst";
+  std::unique_ptr<WritableFile> file;
+  ASSERT_OK(NewWritableFile(env, fileName, &file, envDefault));
+  std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+        std::move(file), envDefault));
+
+  Options options;
+  BlockBasedTableOptions bbto;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+
+  const ImmutableCFOptions ioptions(options);
+  InternalKeyComparator ikc(options.comparator);
+
+  std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
+    int_tbl_prop_collector_factories;
+  int_tbl_prop_collector_factories.emplace_back(
+    new SstFileWriterPropertiesCollectorFactory(2 /* version */,
+      0 /* global_seqno*/));
+
+  std::string column_family_name;
+  std::unique_ptr<TableBuilder> builder(options.table_factory->NewTableBuilder(
+    TableBuilderOptions(ioptions, ikc, &int_tbl_prop_collector_factories,
+      kNoCompression, CompressionOptions(),
+      nullptr /* compression_dict */,
+      false /* skip_filters */, column_family_name, -1),
+    TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
+    file_writer.get()));
+
+  for (char c = 'a'; c <= 'z'; ++c) {
+    std::string key(8, c);
+    std::string value = key;
+    InternalKey ik(key, 0, kTypeValue);
+
+    builder->Add(ik.Encode(), value);
+  }
+  ASSERT_OK(builder->Finish());
+  ASSERT_OK(file_writer->Flush());
+  ASSERT_OK(file_writer->Close());
+
+  builder.reset();
+  file_writer.reset();
+
+  // This test attempts to do basic Async open for
+  // the BlockBased table
+  // The basic scenario is that the main thread creates an
+  // event which is signalled by a callback when table opens completes
+  // We get back BlockBasedTableReader pointer
+  {
+    using namespace port;
+    VistaThreadPool threadPool(MemoryArenaId(), 5, 10);
+    TaskPoolHandle taskPool = threadPool.CreateTaskPool();
+    auto asyncTp = env->CreateAsyncThreadPool(&taskPool);
+
+    EnvOptions env_options;
+    env_options.use_async_reads = true;
+    env_options.async_threadpool = asyncTp.get();
+
+    std::unique_ptr<RandomAccessFile> ra_file;
+    ASSERT_OK(env->NewRandomAccessFile(fileName, &ra_file, env_options));
+    std::unique_ptr<RandomAccessFileReader> ra_reader(new RandomAccessFileReader(std::move(ra_file)));
+    uint64_t file_size = 0;
+    ASSERT_OK(env->GetFileSize(fileName, &file_size));
+
+    Customer c;
+    // This will receive result in case of sync completion
+    std::unique_ptr<TableReader> table_reader;
+    using namespace async;
+    CallableFactory<Customer, Status, const Status&, std::unique_ptr<TableReader>&&> f(&c);
+    auto on_table_create_cb = f.GetCallable<&Customer::OnTableOpen>();
+    Status s = async::TableOpenRequestContext::RequestOpen(on_table_create_cb, ioptions, env_options, bbto,
+      ikc, std::move(ra_reader), file_size, &table_reader, true, false, -1);
+
+    if (s.IsIOPending()) {
+      c.Wait();
+    } else {
+      std::cout << "TableReader creation has completed sync. Status: " << s.ToString() << std::endl;
+      std::cout << "Reader ptr is: " << ((table_reader) ? "not null" : "null") << std::endl;
+    }
+  }
+
+}
+
 } // namespace rocksdb
 
 int main(int argc, char** argv) {

@@ -829,6 +829,7 @@ void WinRandomAccessImpl::OnAsyncReadCompletion(
   overlapped.reset();
 
   // Invoke callback and further processing continues on this thread
+  status.async(true);
   cb.Invoke(status, slice);
 }
 

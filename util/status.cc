@@ -22,7 +22,7 @@ const char* Status::CopyState(const char* state) {
 }
 
 Status::Status(Code _code, SubCode _subcode, const Slice& msg, const Slice& msg2)
-    : code_(_code), subcode_(_subcode) {
+    : code_(_code), subcode_(_subcode), async_(false) {
   assert(code_ != kOk);
   assert(subcode_ != kMaxSubCode);
   const size_t len1 = msg.size();
@@ -89,13 +89,14 @@ std::string Status::ToString() const {
       break;
     default:
       snprintf(tmp, sizeof(tmp), "Unknown code(%d): ",
-               static_cast<int>(code()));
+               static_cast<int32_t>(code()));
       type = tmp;
       break;
   }
   std::string result(type);
   if (subcode_ != kNone) {
-    uint32_t index = static_cast<int32_t>(subcode_);
+    int32_t index = static_cast<int32_t>(subcode_);
+    assert(index > 0);
     assert(sizeof(msgs) > index);
     result.append(msgs[index]);
   }
@@ -103,6 +104,7 @@ std::string Status::ToString() const {
   if (state_ != nullptr) {
     result.append(state_);
   }
+
   return result;
 }
 

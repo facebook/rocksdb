@@ -57,7 +57,9 @@ namespace async {
 class CreateIndexReaderContext;
 class GetFilterHelper;
 class MaybeLoadDataBlockToCacheHelper;
+class NewDataBlockIteratorHelper;
 class NewIndexIteratorContext;
+class NewRangeTombstoneIterContext;
 class ReadFilterHelper;
 class TableReadMetaBlocksContext;
 class TableOpenRequestContext;
@@ -210,7 +212,9 @@ class BlockBasedTable : public TableReader {
   friend class async::TableOpenRequestContext;
   friend class async::TableReadMetaBlocksContext;
   friend class async::MaybeLoadDataBlockToCacheHelper;
+  friend class async::NewDataBlockIteratorHelper;
   friend class async::NewIndexIteratorContext;
+  friend class async::NewRangeTombstoneIterContext;
   friend class PartitionIndexReader;
 
  protected:
@@ -289,7 +293,14 @@ class BlockBasedTable : public TableReader {
   // This method will perform decompression against raw_block if needed and then
   // populate the block caches.
   // On success, Status::OK will be returned; also @block will be populated with
-  // uncompressed block and its cache handle.
+  // uncompressed block and its cache handle. Both raw_block and uncompressed_block
+  // will be nullptr. The block content in that case is available via block which represents
+  // a uncompressed cache entry.
+  //
+  // However, if decompression succeeds but we fail to insert the block into the
+  // caches the uncompressed_block is still available and can be re-used for other
+  // purposes to prevent unwarranted double reads from happening just because
+  // the cache has no space.
   //
   // REQUIRES: raw_block is heap-allocated. PutDataBlockToCache() will be
   // responsible for releasing its memory if error occurs.
@@ -299,7 +310,8 @@ class BlockBasedTable : public TableReader {
       const Slice& block_cache_key, const Slice& compressed_block_cache_key,
       Cache* block_cache, Cache* block_cache_compressed,
       const ReadOptions& read_options, const ImmutableCFOptions& ioptions,
-      CachableEntry<Block>* block, Block* raw_block, uint32_t format_version,
+      CachableEntry<Block>* block, std::unique_ptr<Block>& raw_block, 
+      std::unique_ptr<Block>& uncompressed_block, uint32_t format_version,
       const Slice& compression_dict, size_t read_amp_bytes_per_bit,
       bool is_index = false, Cache::Priority pri = Cache::Priority::LOW);
 
@@ -645,5 +657,11 @@ private:
   std::unique_ptr<Block> index_block_;
   BlockContents prefixes_contents_;
 };
+
+// Delete the resource that is held by the iterator.
+template <class ResourceType>
+void DeleteHeldResource(void* arg, void* ignored) {
+  delete reinterpret_cast<ResourceType*>(arg);
+}
 
 }  // namespace rocksdb

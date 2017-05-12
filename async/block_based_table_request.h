@@ -9,6 +9,7 @@
 #include <memory>
 #include <thread>
 
+#include "async/async_status_capture.h"
 #include "async/random_read_context.h"
 #include "rocksdb/async/callables.h"
 #include "rocksdb/options.h"
@@ -32,6 +33,19 @@ class  TableReader;
 namespace async {
 
 // Abstract to a separate class for reuse
+// This class is only practical to use if either
+// of the two table caches are enabled. Compressed or
+// uncompressed. If neither is available which should be
+// checked by IsCacheAvaiable() method then one can skip the rest.
+// If either caches are available then
+// -- GetBlockFromCache() if Success we are done
+//  - If not Found from cache then calls ShouldRead() to see if read is
+//    warranted
+// - otherwise RequestCachebableBlock(). If empty callback is provided
+//   then the read is sync.
+// - When the call returns call OnBlockReadComplete() regardless of the status
+//   returned by Read request. The return on this function is the status of the
+//  whole operation
 class MaybeLoadDataBlockToCacheHelper {
  public:
 
@@ -40,17 +54,39 @@ class MaybeLoadDataBlockToCacheHelper {
 
   MaybeLoadDataBlockToCacheHelper(bool is_index, BlockBasedTable::Rep* rep) :
     is_index_(is_index),
-    sw_(rep->ioptions.env, rep->ioptions.statistics, READ_BLOCK_GET_MICROS, true) {}
+    sw_(rep->ioptions.env, rep->ioptions.statistics, READ_BLOCK_GET_MICROS, true)
+    {}
 
   MaybeLoadDataBlockToCacheHelper(
     const MaybeLoadDataBlockToCacheHelper&) = delete;
   MaybeLoadDataBlockToCacheHelper& operator=(
     const MaybeLoadDataBlockToCacheHelper&) = delete;
 
+  // if neither caches are enabled then nothing to do
+  static
+  bool IsCacheEnabled(const BlockBasedTable::Rep* rep) {
+    return rep->table_options.block_cache ||
+      rep->table_options.block_cache_compressed;
+  }
+
+  // Returns true if reading from disk
+  // is undesirable
+  static
+  bool IsNoIo(const ReadOptions& ro) {
+    return (ro.read_tier == kBlockCacheTier);
+  }
+
+  // Assumes the block was not found in cache
+  // and we need to know if reading is needed
+  static
+  bool ShouldRead(const ReadOptions& ro) {
+    return !IsNoIo(ro) && ro.fill_cache;
+  }
+
   // Check if the block can be fetched from cache
-  // if cache is enabled withih the table reader
-  // The class is no-op if neither uncompressed or compressed
-  // caches are present within the table
+  // if cache is enabled within the table reader
+  // The class should not be used if neither uncompressed or compressed
+  // caches are present within the table IsCacheEnbled() == false
   // Returns NoFound if not found
   Status GetBlockFromCache(
     BlockBasedTable::Rep* rep,
@@ -62,7 +98,7 @@ class MaybeLoadDataBlockToCacheHelper {
   // Reading a raw block
   // This performs both sync and async depending on the presents
   // of the callback.
-  // The caller must invoke PutBlockToCache either directly
+  // The caller must invoke OnBlockReadComplete either directly
   // after sync completion or via a specified callback
   Status RequestCachebableBlock(const BlockContCallback& cb,
                                 BlockBasedTable::Rep* rep,
@@ -77,6 +113,15 @@ class MaybeLoadDataBlockToCacheHelper {
                              const Slice& compression_dict,
                              BlockBasedTable::CachableEntry<Block>* entry);
 
+  bool IsIndex() const {
+    return is_index_;
+  }
+
+  // Returns nullptr if block is not available
+  Block* GetUncompressedBlock() {
+    return uncompressed_block_.release();
+  }
+
  private:
 
   Status PutBlockToCache(BlockBasedTable::Rep* rep,
@@ -89,9 +134,16 @@ class MaybeLoadDataBlockToCacheHelper {
   StopWatch                              sw_;
 
   char cache_key_[BlockBasedTable::kMaxCacheKeyPrefixSize + kMaxVarint64Length];
-  char compressed_cache_key_[BlockBasedTable::kMaxCacheKeyPrefixSize + kMaxVarint64Length];
+  char compressed_cache_key_[BlockBasedTable::kMaxCacheKeyPrefixSize +
+                                                                     kMaxVarint64Length];
   Slice                                  key_;
   Slice                                  ckey_;
+  // This becomes available in case we read the block, decompress it
+  // and then fail to insert into cache. NewDataBlockIterator() then can
+  // still re-use the block so no more reading is required.
+  // However, if decompression fails then the block read the block
+  // is not available
+  std::unique_ptr<Block>                 uncompressed_block_;
 };
 
 // This class attempts to load in parallel 3 things
@@ -99,14 +151,17 @@ class MaybeLoadDataBlockToCacheHelper {
 // - Compression Dictionary if present
 // - Range of tombstones if present
 // All of the above are separate block reads
-// The last one completing calls the parent context callback
-// This class guarantees to invoke the callback and destroy
-// itself whether sync or async
-class TableReadMetaBlocksContext : public MaybeLoadDataBlockToCacheHelper  {
+// The context is destroyed automatically by the last
+// invocation of OnComplete(). If the last invocation
+// is synchronous the call back is not invoked and the
+// call is considered to complete sync. Thus, the client code
+// must ensure continuation. On sync completion the status
+// is still IOPending with subcode is kOnComplete
+class TableReadMetaBlocksContext {
  public:
   // Client callback when all is done
   using
-  ReadMetaBlocksCallback = async::Callable<Status>;
+  ReadMetaBlocksCallback = async::Callable<Status, const Status&>;
 
   // Flags
   enum MetaKinds : uint32_t {
@@ -117,8 +172,8 @@ class TableReadMetaBlocksContext : public MaybeLoadDataBlockToCacheHelper  {
   };
 
   TableReadMetaBlocksContext(BlockBasedTable* table, bool is_index) :
-    MaybeLoadDataBlockToCacheHelper(is_index, table->rep_),
     table_(table),
+    cache_helper_(is_index, table->rep_),
     ro_nochecksum_(),
     ro_default_(),
     op_count_(0) {
@@ -167,12 +222,15 @@ class TableReadMetaBlocksContext : public MaybeLoadDataBlockToCacheHelper  {
 
   ReadMetaBlocksCallback  cb_;
   BlockBasedTable*        table_;
+  MaybeLoadDataBlockToCacheHelper  cache_helper_;
+
   // No checksum for Properties and CompressionDict
   ReadOptions             ro_nochecksum_;
   // Read range_del_block
   ReadOptions             ro_default_;
   // Number of operations to complete
   std::atomic_uint64_t    op_count_;
+
 
   // Properties data
   BlockHandle              prop_handle_;
@@ -198,7 +256,7 @@ class ReadFilterHelper {
   ReadFilterHelper(const ReadFilterHelper&) = delete;
   ReadFilterHelper& operator=(const ReadFilterHelper&) = delete;
 
-  ReadFilterHelper(BlockBasedTable* table,
+  ReadFilterHelper(const BlockBasedTable* table,
                    bool is_a_filter_partition) :
     table_(table),
     is_a_filter_partition_ (is_a_filter_partition),
@@ -217,7 +275,7 @@ class ReadFilterHelper {
   // if the actual read take place
   Status OnFilterReadComplete(const Status&);
 
-  BlockBasedTable* GetTable() {
+  const BlockBasedTable* GetTable() {
     return table_;
   }
 
@@ -239,7 +297,7 @@ class ReadFilterHelper {
 
  private:
 
-  BlockBasedTable*         table_;
+  const BlockBasedTable*   table_;
   bool                     is_a_filter_partition_;
   // The end result
   FilterBlockReader*       block_reader_;
@@ -267,7 +325,7 @@ class GetFilterHelper {
                     no_io) {
   }
 
-  GetFilterHelper(BlockBasedTable* table,
+  GetFilterHelper(const BlockBasedTable* table,
                   const BlockHandle& filter_blk_handle,
                   bool is_a_filter_partition,
                   bool no_io) :
@@ -279,6 +337,17 @@ class GetFilterHelper {
     cache_handle_(nullptr) {
   }
 
+  // This interface invokes ReadFilter helper if
+  // the desired filter is not found in cache
+  // The presence of the non-empty callback will determine
+  // if the read would execute sync or async.
+  // If no-io is true then GetFilter returns Incomplete in which case
+  // no futher action is necessary
+  // This is a helper so the client is responsible
+  // for invoking OnGetFilterComplete(). It can be done
+  // directly in case of the sync execution or indirectly
+  // via a supplied callback for async.
+  // In case the read was invoked async it will return IOPending
   Status GetFilter(const GetFilterCallback& client_cb);
 
   // The client must call this either via callback
@@ -310,7 +379,7 @@ class GetFilterHelper {
 // are found. We will do so in parallel.
 // However, if the index_block and its iterator are not readily
 // available we will need to read the block for kHashSearch
-class CreateIndexReaderContext {
+class CreateIndexReaderContext : protected AsyncStatusCapture {
  public:
 
   using
@@ -337,6 +406,7 @@ class CreateIndexReaderContext {
                                     BlockBasedTable* table,
                                     const ReadOptions& readoptions,
                                     InternalIterator* preloaded_meta_index_iter,
+                                    IndexReader** index_reader,
                                     int level);
 
   ~CreateIndexReaderContext() {
@@ -442,7 +512,7 @@ class CreateIndexReaderContext {
 // based on the IndexReader. It first checks the
 // cache if not found it creates a new Index reader
 // after reading the index block if needed
-class NewIndexIteratorContext {
+class NewIndexIteratorContext : protected AsyncStatusCapture {
  public:
 
   using
@@ -450,7 +520,7 @@ class NewIndexIteratorContext {
 
   using
   IndexIterCallback = async::Callable<Status, const Status&,
-  InternalIterator*>;
+                                      InternalIterator*>;
 
   NewIndexIteratorContext(const NewIndexIteratorContext&) = delete;
   NewIndexIteratorContext& operator=(const NewIndexIteratorContext&) = delete;
@@ -537,24 +607,15 @@ class NewIndexIteratorContext {
 
 // This class facilitate opening a new
 // table and multiple disk IO in a async manner
-class TableOpenRequestContext {
+class TableOpenRequestContext : protected AsyncStatusCapture {
  public:
 
   using
   IndexReader = BlockBasedTable::IndexReader;
 
   using
-  TableOpenCallback = async::Callable<Status, const Status&, TableReader*>;
-
-  TableOpenRequestContext(const TableOpenCallback& client_cb,
-                          const ImmutableCFOptions& ioptions,
-                          const EnvOptions& env_options,
-                          const BlockBasedTableOptions& table_options,
-                          const InternalKeyComparator& internal_comparator,
-                          std::unique_ptr<RandomAccessFileReader>&& file,
-                          uint64_t file_size,
-                          const bool prefetch_index_and_filter_in_cache,
-                          const bool skip_filters, int level);
+  TableOpenCallback = async::Callable<Status, const Status&,
+              std::unique_ptr<TableReader>&&>;
 
   static
   Status Open(const ImmutableCFOptions& ioptions,
@@ -575,6 +636,7 @@ class TableOpenRequestContext {
                      const InternalKeyComparator& internal_comparator,
                      std::unique_ptr<RandomAccessFileReader>&& file,
                      uint64_t file_size,
+                     std::unique_ptr<TableReader>* table_reader,
                      const bool prefetch_index_and_filter_in_cache,
                      const bool skip_filters, const int level);
 
@@ -585,6 +647,16 @@ class TableOpenRequestContext {
 
  private:
 
+   TableOpenRequestContext(const TableOpenCallback& client_cb,
+     const ImmutableCFOptions& ioptions,
+     const EnvOptions& env_options,
+     const BlockBasedTableOptions& table_options,
+     const InternalKeyComparator& internal_comparator,
+     std::unique_ptr<RandomAccessFileReader>&& file,
+     uint64_t file_size,
+     const bool prefetch_index_and_filter_in_cache,
+     const bool skip_filters, int level);
+
   // Capture the footer block
   Status OnFooterReadComplete(const Status&);
 
@@ -594,7 +666,7 @@ class TableOpenRequestContext {
 
   // Callback on reading prop, comp_dict and
   // range_del in parallel if any of them present
-  Status OnMetasReadComplete();
+  Status OnMetasReadComplete(const Status&);
 
   // Create index reader
   Status OnCreateIndexReader(const Status&, IndexReader*
@@ -633,6 +705,172 @@ class TableOpenRequestContext {
   // Optional
   std::unique_ptr<GetFilterHelper>  get_filter_helper_;
   std::unique_ptr<ReadFilterHelper> read_filter_helper_;
+};
+
+// This is a helper class that implements
+// NewDataBlockIterator functionality in both sync
+// and async manner
+// If the input iterator pointer is not null then
+// we update that iterator either with status or
+// create a new state within it
+// In any case the result is stored within instance
+// that is pointed to by input_iter_
+// The caller must determine if the result returned
+// matches the ptr that was pointed to and act accordingly
+class NewDataBlockIteratorHelper {
+public:
+
+  using
+  ReadDataBlockCallback = ReadBlockContentsContext::ReadBlockContCallback;
+
+  NewDataBlockIteratorHelper(BlockBasedTable::Rep* rep, const ReadOptions& ro,
+                             bool is_index = false) :
+    rep_(rep),
+    ro_(&ro),
+    mb_helper_(is_index, rep),
+    input_iter_(nullptr),
+    new_iterator_(),
+    PERF_TIMER_INIT(new_table_block_iter_nanos),
+    action_(aNone) {
+  }
+
+  // This Attempts to do the following:
+  // If cache is enabled, it will query DataBlock from cache
+  // if io is allowed and fill cache option is set it then will
+  // read the block and put it into cache
+  // otherwise it will simply read the block
+  // and create an iterator on top of it
+  // If the callback passed in is empty the reads are performed
+  // synchronously, otherwise, reads are dispatched in async manner
+  //
+  // The function returns IOPending() when reads are dispatched
+  // async.
+  //
+  // After Create() returns you need to call OnCreateComplete()
+  // before calling GetResult(). On Async invocation it must be called
+  // from your callback
+  //
+  Status Create(const ReadDataBlockCallback&,
+                const BlockHandle&,
+                BlockIter* input_iter);
+
+  Status OnCreateComplete(const Status& s);
+
+  // Call this to obtain the pointer
+  // that is either newed or allocated on the heap.
+  // If the pointer doesn't match the one you passed
+  // then the result is on the heap and you are responsible
+  // for releasing it
+  InternalIterator* GetResult() {
+    if (new_iterator_) {
+      return new_iterator_.release();
+    }
+    return input_iter_;
+  }
+
+  void StatusToIterator(BlockIter* input_iter, const Status& s) {
+    input_iter_ = input_iter;
+    StatusToIterator(s);
+  }
+
+  BlockBasedTable::Rep* GetTableRep() {
+    return rep_;
+  }
+
+private:
+
+  // This enum specifies the actions
+  // that were performed in Create() so
+  // OnCreateComplete() can act accordingly
+  enum Action {
+    aNone = 0,
+    aCache = 1,
+    aCachableRead = 2,
+    aDirectRead = 3
+  }; 
+
+  void StatusToIterator(const Status& s);
+
+  BlockBasedTable::Rep*                 rep_;
+  const ReadOptions*                    ro_;
+  MaybeLoadDataBlockToCacheHelper       mb_helper_;
+  PERF_TIMER_DECL(new_table_block_iter_nanos);
+  // If this is not nullptr then the result will be assigned
+  // to the instance that is pointed to. Otherwise,
+  // the result will be allocated on the heap
+  BlockIter*                            input_iter_;
+  Action                                action_;
+  // Block becomes available either from MaybeLoad
+  // or the actual BlockRead
+  BlockContents                          block_cont_;
+  BlockBasedTable::CachableEntry<Block>  entry_;
+  std::unique_ptr<InternalIterator>      new_iterator_;
+};
+
+class NewRangeTombstoneIterContext : protected AsyncStatusCapture {
+public:
+
+   using
+   Callback = async::Callable<Status, const Status&, InternalIterator*>;
+
+  NewRangeTombstoneIterContext(const NewRangeTombstoneIterContext&) = delete;
+  NewRangeTombstoneIterContext& operator=(const NewRangeTombstoneIterContext&) =
+    delete;
+
+  // Check if the range_del_block exists. If not
+  // no need to instantiate the context
+  static bool IsPresent(const BlockBasedTable::Rep* rep) {
+    return !rep->range_del_handle.IsNull();
+  }
+
+  // returns OK
+  // On Error returns error
+  // The result is output in iterator and it can be nullptr
+  // if no RangeDel present in the table
+  static Status CreateIterator(BlockBasedTable::Rep*,
+                               const ReadOptions& read_options,
+                               InternalIterator** iterator);
+
+  // This is an async version of the API.
+  // It may return OK() on success which means that the API
+  // has completed synchronously either due to the cache
+  // OR because the IO completed sync in which case
+  // the result is stored in the *iterator
+  // otherwise returns either IOPendning or an error
+  static Status RequestCreateIterator(const Callback&,
+                                      BlockBasedTable::Rep*,
+                                      const ReadOptions&,
+                                      InternalIterator** iterator);
+
+ private:
+
+   InternalIterator* GetResult() {
+     return db_iter_helper_.GetResult();
+   }
+
+   const bool is_index_false = false;
+
+   NewRangeTombstoneIterContext(const Callback& cb,
+                                BlockBasedTable::Rep* rep,
+                                const ReadOptions& ro) :
+     cb_(cb),
+     db_iter_helper_(rep, ro, is_index_false) {
+   }
+
+   static Status GetFromCache(BlockBasedTable::Rep* rep,
+                              InternalIterator** iterator);
+
+  // Create the iterator sync or async
+  Status RequestRead();
+
+  // Need to be passed to the db_iter_helper for
+  // async call
+  Status OnReadBlockComplete(const Status&);
+
+  Status OnComplete(const Status&);
+
+  Callback                   cb_;
+  NewDataBlockIteratorHelper db_iter_helper_;
 };
 
 } // namepsace async

@@ -3,7 +3,7 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
-#include "async/table_request_context.h"
+#include "async/block_based_table_request.h"
 #include "async/random_read_context.h"
 
 #include "table/block.h"
@@ -20,38 +20,37 @@ extern const uint64_t kBlockBasedTableMagicNumber;
 namespace async {
 /////////////////////////////////////////////////////////////////////////////////////////
 // MaybeLoadDataBlockToCacheHelper
+
 Status MaybeLoadDataBlockToCacheHelper::GetBlockFromCache(BlockBasedTable::Rep* rep,
     const ReadOptions& ro,
     const BlockHandle& handle,
     const Slice& compression_dict,
     BlockBasedTable::CachableEntry<Block>* entry) {
 
+  assert(IsCacheEnabled(rep));
+
   Cache* block_cache = rep->table_options.block_cache.get();
   Cache* block_cache_compressed =
     rep->table_options.block_cache_compressed.get();
 
-  // If either block cache is enabled, we'll try to read from it.
-  Status s;
-  if (block_cache != nullptr || block_cache_compressed != nullptr) {
-    Statistics* statistics = rep->ioptions.statistics;
+  // create key for block cache
+  if (block_cache != nullptr) {
+    key_ = BlockBasedTable::GetCacheKey(rep->cache_key_prefix, rep->cache_key_prefix_size,
+                                        handle, cache_key_);
+  }
 
-    // create key for block cache
-    if (block_cache != nullptr) {
-      key_ = BlockBasedTable::GetCacheKey(rep->cache_key_prefix, rep->cache_key_prefix_size,
-                                          handle, cache_key_);
-    }
+  if (block_cache_compressed != nullptr) {
+    ckey_ = BlockBasedTable::GetCacheKey(rep->compressed_cache_key_prefix,
+                                          rep->compressed_cache_key_prefix_size, handle,
+                                          compressed_cache_key_);
+  }
 
-    if (block_cache_compressed != nullptr) {
-      ckey_ = BlockBasedTable::GetCacheKey(rep->compressed_cache_key_prefix,
-                                           rep->compressed_cache_key_prefix_size, handle,
-                                           compressed_cache_key_);
-    }
+  Status s = BlockBasedTable::GetDataBlockFromCache(
+        key_, ckey_, block_cache, block_cache_compressed, rep->ioptions, ro,
+        entry, rep->table_options.format_version, compression_dict,
+        rep->table_options.read_amp_bytes_per_bit, is_index_);
 
-    s = BlockBasedTable::GetDataBlockFromCache(
-          key_, ckey_, block_cache, block_cache_compressed, rep->ioptions, ro,
-          entry, rep->table_options.format_version, compression_dict,
-          rep->table_options.read_amp_bytes_per_bit, is_index_);
-  } else {
+  if(entry->value == nullptr) {
     s = Status::NotFound();
   }
 
@@ -65,6 +64,9 @@ Status MaybeLoadDataBlockToCacheHelper::RequestCachebableBlock(
   const BlockHandle& block_handle,
   BlockContents* result,
   bool do_uncompress) {
+
+  assert(IsCacheEnabled(rep));
+  assert(ShouldRead(ro));
 
   Status s;
 
@@ -113,31 +115,31 @@ Status MaybeLoadDataBlockToCacheHelper::PutBlockToCache(BlockBasedTable::Rep* re
     const Slice& compression_dict,
     BlockBasedTable::CachableEntry<Block>* entry) {
 
-  Status s;
+  assert(IsCacheEnabled(rep));
 
   Cache* block_cache = rep->table_options.block_cache.get();
   Cache* block_cache_compressed =
     rep->table_options.block_cache_compressed.get();
 
-  if (block_cache != nullptr || block_cache_compressed != nullptr) {
+  Status s;
 
-    auto read_block = new Block(std::move(block_cont),
-                                rep->global_seqno,
-                                rep->table_options.read_amp_bytes_per_bit,
-                                rep->ioptions.statistics);
+  std::unique_ptr<Block> read_block(new Block(std::move(block_cont),
+                              rep->global_seqno,
+                              rep->table_options.read_amp_bytes_per_bit,
+                              rep->ioptions.statistics));
 
-    // PutDataBlockToCache() deletes the block in case of failure
-    s = BlockBasedTable::PutDataBlockToCache(
-          key_, ckey_, block_cache, block_cache_compressed, ro, rep->ioptions,
-          entry, read_block, rep->table_options.format_version,
-          compression_dict, rep->table_options.read_amp_bytes_per_bit,
-          is_index_,
-          is_index_ &&
-          rep->table_options
-          .cache_index_and_filter_blocks_with_high_priority
-          ? Cache::Priority::HIGH
-          : Cache::Priority::LOW);
-  }
+  // PutDataBlockToCache() deletes the block in case of failure
+  s = BlockBasedTable::PutDataBlockToCache(
+        key_, ckey_, block_cache, block_cache_compressed, ro, rep->ioptions,
+        entry, read_block, uncompressed_block_, rep->table_options.format_version,
+        compression_dict, rep->table_options.read_amp_bytes_per_bit,
+        is_index_,
+        is_index_ &&
+        rep->table_options
+        .cache_index_and_filter_blocks_with_high_priority
+        ? Cache::Priority::HIGH
+        : Cache::Priority::LOW);
+
   return s;
 }
 
@@ -175,7 +177,8 @@ Status TableReadMetaBlocksContext::ReadProperties() {
         decomp_dict, table_->rep_->persistent_cache_options);
   }
 
-  ROCKS_LOG_DEBUG(table_->rep_->ioptions.info_log, "ReadProperties returning with: %s",
+  ROCKS_LOG_DEBUG(table_->rep_->ioptions.info_log,
+                  "ReadProperties returning with: %s",
                   s.ToString().c_str());
 
 
@@ -183,6 +186,8 @@ Status TableReadMetaBlocksContext::ReadProperties() {
 }
 
 Status TableReadMetaBlocksContext::OnPropertiesReadComplete(const Status& status) {
+
+  bool async = status.async();
 
   Status s;
 
@@ -290,6 +295,7 @@ Status TableReadMetaBlocksContext::OnPropertiesReadComplete(const Status& status
                    s.ToString().c_str());
   }
 
+  s.async(async);
   return OnComplete(s);
 }
 
@@ -341,6 +347,7 @@ Status TableReadMetaBlocksContext::OnCompDicReadComplete(const Status& s) {
     table_->rep_->compression_dict_block = std::move(com_dict_block_);
   }
 
+  // Async status propagates
   return OnComplete(s);
 }
 
@@ -356,56 +363,58 @@ Status TableReadMetaBlocksContext::ReadRangeDel() {
 
   Rep* rep = table_->rep_;
 
-  Cache* block_cache = rep->table_options.block_cache.get();
-  Cache* block_cache_compressed =
-    rep->table_options.block_cache_compressed.get();
-
   // Cache is not enabled nothing to do
-  if (block_cache == nullptr && block_cache_compressed == nullptr) {
+  if (!cache_helper_.IsCacheEnabled(rep)) {
     return OnComplete(s);
   }
 
-  s = MaybeLoadDataBlockToCacheHelper::GetBlockFromCache(rep,
-      ro_default_,
-      rep->range_del_handle,
-      Slice(),
-      &rep->range_del_entry); // compression_dict
+  s = cache_helper_.GetBlockFromCache(rep,
+                                      ro_default_,
+                                      rep->range_del_handle,
+                                      Slice(),
+                                      &rep->range_del_entry); // compression_dict
 
   // We got this from cache nothing to do
-  if(s.ok()) {
+  if(s.ok() && rep->range_del_entry.value != nullptr) {
     return OnComplete(s);
+  }
+
+  if (!cache_helper_.ShouldRead(ro_default_)) {
+    return OnComplete(Status::OK());
   }
 
   // We uncompress if compressed cache is nullptr
-  const bool do_uncompress = (nullptr == rep->table_options.block_cache_compressed);
+  const bool do_uncompress = (nullptr ==
+                              rep->table_options.block_cache_compressed);
 
-  if(cb_) {
+  MaybeLoadDataBlockToCacheHelper::BlockContCallback on_rangedel_cb;
+
+  if (cb_) {
     CallableFactory<TableReadMetaBlocksContext, Status, const Status&> fac(this);
-    auto cb = fac.GetCallable<&TableReadMetaBlocksContext::OnRangeDelReadComplete>();
-    s = MaybeLoadDataBlockToCacheHelper::RequestCachebableBlock(cb, rep,
-        ro_default_, rep->range_del_handle, &range_del_block_, do_uncompress);
+    on_rangedel_cb =
+      fac.GetCallable<&TableReadMetaBlocksContext::OnRangeDelReadComplete>();
+  }
 
-    if (s.IsIOPending()) {
-      return s;
-    }
+  s = cache_helper_.RequestCachebableBlock(on_rangedel_cb, rep,
+      ro_default_, rep->range_del_handle, &range_del_block_, do_uncompress);
 
-  } else {
-    s = MaybeLoadDataBlockToCacheHelper::RequestCachebableBlock(
-          MaybeLoadDataBlockToCacheHelper::BlockContCallback(), table_->rep_,
-          ro_default_, rep->range_del_handle, &range_del_block_, do_uncompress);
+  if (s.IsIOPending()) {
+    return s;
   }
 
   return OnRangeDelReadComplete(s);
 }
 
-Status TableReadMetaBlocksContext::OnRangeDelReadComplete(const Status& status) {
+Status TableReadMetaBlocksContext::OnRangeDelReadComplete(
+  const Status& status) {
 
+  bool async = status.async();
   Status s(status);
 
   if(status.ok()) {
-    s = MaybeLoadDataBlockToCacheHelper::OnBlockReadComplete(status, table_->rep_, ro_default_,
-        std::move(range_del_block_),
-        Slice(), &table_->rep_->range_del_entry);
+    s = cache_helper_.OnBlockReadComplete(status, table_->rep_, ro_default_,
+                                          std::move(range_del_block_),
+                                          Slice(), &table_->rep_->range_del_entry);
   }
 
   if (!s.ok() && !s.IsNotFound()) {
@@ -415,31 +424,41 @@ Status TableReadMetaBlocksContext::OnRangeDelReadComplete(const Status& status) 
       s.ToString().c_str());
   }
 
+  s.async(async);
   return OnComplete(s);
 }
 
 Status TableReadMetaBlocksContext::OnComplete(const Status& s) {
 
-  if (cb_) {
+  bool lastOnComplete = DecCount();
+
+  if (cb_ && s.async()) {
 
     ROCKS_LOG_DEBUG(
       table_->rep_->ioptions.info_log,
       "TableReadMetaBlocksContext async completion: %s",
       s.ToString().c_str());
 
-    if(DecCount()) {
-      cb_.Invoke();
-      delete this;
-      return Status::IOPending();
+    if (lastOnComplete) {
+      cb_.Invoke(s);
     }
 
-    return s;
+  } else {
+
+    ROCKS_LOG_DEBUG(
+      table_->rep_->ioptions.info_log,
+      "TableReadMetaBlocksContext sync completion: %s",
+      s.ToString().c_str());
   }
 
-  ROCKS_LOG_DEBUG(
-    table_->rep_->ioptions.info_log,
-    "TableReadMetaBlocksContext sync completion: %s",
-    s.ToString().c_str());
+  // Both sync and async completions delete
+  // this context but only sync status
+  // if propagated back to the caller
+  // async invocation status is ignored
+  if (lastOnComplete) {
+    delete this;
+    return Status::IOPending(Status::kOnComplete);
+  }
 
   return s;
 }
@@ -685,20 +704,26 @@ Status CreateIndexReaderContext::RequestCreateReader(const CreateIndexCallback& 
     BlockBasedTable * table,
     const ReadOptions & readoptions,
     InternalIterator * preloaded_meta_index_iter,
+    IndexReader** index_reader,
     int level) {
 
+  // Context is gauaranteed to be destroyed
+  // by OnComplete since the client_cb is supplied
+  assert(client_cb);
   std::unique_ptr<CreateIndexReaderContext> ctx(new CreateIndexReaderContext(client_cb,
-      table, &readoptions,
-      preloaded_meta_index_iter, level));
+                                          table, &readoptions,
+                                          preloaded_meta_index_iter, level));
 
   Status s = ctx->CreateIndexReader();
 
-  // Pending is success
   if (s.IsIOPending()) {
     ctx.release();
+    return s;
   }
 
-  assert(!s.ok());
+  if (s.ok()) {
+    *index_reader = ctx->GetIndexReader();
+  }
 
   return s;
 }
@@ -778,6 +803,8 @@ Status CreateIndexReaderContext::CreateIndexReader() {
 }
 
 Status CreateIndexReaderContext::OnIndexBlockReadComplete(const Status& status) {
+
+  async(status);
 
   ROCKS_LOG_DEBUG(
     table_->rep_->ioptions.info_log,
@@ -866,6 +893,8 @@ Status CreateIndexReaderContext::OnIndexBlockReadComplete(const Status& status) 
 }
 
 Status CreateIndexReaderContext::OnMetaBlockReadComplete(const Status& status) {
+
+  async(status);
 
   ROCKS_LOG_DEBUG(
     table_->rep_->ioptions.info_log,
@@ -1023,6 +1052,8 @@ Status CreateIndexReaderContext::ReadPrefixIndex(const BlockHandle& prefixes_han
 
 Status CreateIndexReaderContext::OnPrefixIndexComplete(const Status& s) {
 
+  async(s);
+
   ROCKS_LOG_DEBUG(
     table_->rep_->ioptions.info_log,
     "OnPrefixIndexComplete completion: %s",
@@ -1049,6 +1080,7 @@ Status CreateIndexReaderContext::OnPrefixIndexComplete(const Status& s) {
         SetBlockPrefixIndex(prefix_index);
       }
     }
+    s_ok.async(s.async());
     return OnComplete(s_ok);
   }
 
@@ -1057,17 +1089,27 @@ Status CreateIndexReaderContext::OnPrefixIndexComplete(const Status& s) {
 
 Status CreateIndexReaderContext::OnComplete(const Status& status) {
 
-  if (cb_) {
+  if (cb_ && async()) {
 
     ROCKS_LOG_DEBUG(
       table_->rep_->ioptions.info_log,
       "CreateIndexReaderContext async completion: %s",
       status.ToString().c_str());
 
-    cb_.Invoke(status, index_reader_);
-    index_reader_ = nullptr;
+    // we want to make sure that the cb downstream
+    // receives our async status
+    auto index_reader = GetIndexReader();
+
+    if (status.async()) {
+      cb_.Invoke(status, index_reader);
+    } else {
+      Status s(status);
+      s.async(true);
+      cb_.Invoke(s, index_reader);
+    }
+
     delete this;
-    return Status::IOPending();
+    return status;
   }
 
   ROCKS_LOG_DEBUG(
@@ -1089,13 +1131,12 @@ Status NewIndexIteratorContext::Create(BlockBasedTable* table,
                                        InternalIterator** index_iterator) {
 
   assert(index_iterator != nullptr);
+  *index_iterator = nullptr;
 
   NewIndexIteratorContext ctx(table, read_options, preloaded_meta_index_iter,
                               input_iter, index_entry);
 
   Status s = ctx.GetFromCache();
-
-  assert(!s.IsIOPending());
 
   if (s.IsNotFound()) {
     s = ctx.RequestIndexRead(IndexIterCallback());
@@ -1103,7 +1144,6 @@ Status NewIndexIteratorContext::Create(BlockBasedTable* table,
 
   if (s.ok()) {
     *index_iterator = ctx.GetResult();
-    return s;
   }
 
   return s;
@@ -1115,34 +1155,29 @@ Status NewIndexIteratorContext::RequestCreate(const IndexIterCallback& client_cb
     InternalIterator* preloaded_meta_index_iter,
     BlockIter * input_iter,
     BlockBasedTable::CachableEntry<IndexReader>* index_entry,
-    InternalIterator** index_iterator) {
-
-  std::unique_ptr<NewIndexIteratorContext> ctx( new NewIndexIteratorContext(table, read_options,
-      preloaded_meta_index_iter, input_iter, index_entry));
-
+   InternalIterator** index_iterator) {
 
   assert(index_iterator != nullptr);
+  *index_iterator = nullptr;
+
+  std::unique_ptr<NewIndexIteratorContext> ctx(new NewIndexIteratorContext(table, read_options,
+      preloaded_meta_index_iter, input_iter, index_entry));
 
   Status s = ctx->GetFromCache();
 
-  assert(!s.IsIOPending());
+  if (s.IsNotFound()) {
+    s = ctx->RequestIndexRead(client_cb);
+  }
+
+  if (s.IsIOPending()) {
+    ctx.release();
+    return s;
+  }
 
   if (s.ok()) {
     *index_iterator = ctx->GetResult();
     return s;
   }
-
-  if (s.IsNotFound()) {
-    s = ctx->RequestIndexRead(client_cb);
-
-    // Except an immediate error
-    // we always expect IOPending
-    if (s.IsIOPending()) {
-      ctx.release();
-    }
-  }
-
-  assert(!s.ok());
 
   return s;
 }
@@ -1150,8 +1185,9 @@ Status NewIndexIteratorContext::RequestCreate(const IndexIterCallback& client_cb
 
 Status NewIndexIteratorContext::GetFromCache() {
 
-  Status s;
   BlockBasedTable::Rep* rep = table_->rep_;
+
+  Status s;
 
   // index reader has already been pre-populated.
   if (rep->index_reader) {
@@ -1199,7 +1235,9 @@ Status NewIndexIteratorContext::GetFromCache() {
 
   if (cache_handle_ != nullptr) {
     IndexReader* index_reader = reinterpret_cast<IndexReader*>(block_cache->Value(cache_handle_));
-    return ReaderToIterator(s, index_reader);
+    s = ReaderToIterator(s, index_reader);
+    PERF_TIMER_STOP(read_index_block_nanos);
+    return s;
   }
 
   return Status::NotFound();
@@ -1221,13 +1259,11 @@ Status NewIndexIteratorContext::RequestIndexRead(const IndexIterCallback& client
       f.GetCallable<&NewIndexIteratorContext::OnCreateComplete>();
 
     s = CreateIndexReaderContext::RequestCreateReader(on_create_cb, table_, *ro_,
-        preloaded_meta_index_iter_, -1);
+        preloaded_meta_index_iter_, &index_reader, -1);
 
     if (s.IsIOPending()) {
       return s;
     }
-
-    assert(!s.ok());
 
   } else {
 
@@ -1241,6 +1277,8 @@ Status NewIndexIteratorContext::RequestIndexRead(const IndexIterCallback& client
 }
 
 Status NewIndexIteratorContext::OnCreateComplete(const Status& status, IndexReader* index_reader) {
+
+  async(status);
 
   ROCKS_LOG_DEBUG(
     table_->rep_->ioptions.info_log,
@@ -1280,17 +1318,18 @@ Status NewIndexIteratorContext::OnCreateComplete(const Status& status, IndexRead
     delete index_reader;
 
     RecordTick(statistics, BLOCK_CACHE_ADD_FAILURES);
-    // make sure if something goes wrong, index_reader shall remain intact.
+
     if (input_iter_ != nullptr) {
       input_iter_->SetStatus(s);
       result_ = input_iter_;
     } else {
       result_ = NewErrorInternalIterator(s);
     }
-
-    PERF_TIMER_STOP(read_index_block_nanos);
   }
 
+  PERF_TIMER_STOP(read_index_block_nanos);
+
+  s.async(async());
   return OnComplete(s);
 }
 
@@ -1319,17 +1358,20 @@ Status NewIndexIteratorContext::ReaderToIterator(const Status& status, IndexRead
 }
 
 Status NewIndexIteratorContext::OnComplete(const Status& s) {
-  if (cb_) {
+
+  if (cb_ && async()) {
 
     ROCKS_LOG_DEBUG(
       table_->rep_->ioptions.info_log,
       "NewIndexIteratorContext async completion: %s",
       s.ToString().c_str());
 
-    cb_.Invoke(s, result_);
-    result_ = nullptr;
+    assert(s.async());
+    auto result = GetResult();
+    cb_.Invoke(s, result);
+
     delete this;
-    return Status::IOPending();
+    return s;
   }
 
   ROCKS_LOG_DEBUG(
@@ -1401,6 +1443,9 @@ Status TableOpenRequestContext::Open(const ImmutableCFOptions& ioptions,
                                      const bool prefetch_index_and_filter_in_cache,
                                      const bool skip_filters, const int level) {
 
+  assert(table_reader);
+  table_reader->reset();
+
   auto file_ptr = file.get();
 
   TableOpenCallback empty_cb;
@@ -1434,9 +1479,13 @@ Status TableOpenRequestContext::RequestOpen(const TableOpenCallback& client_cb,
     const InternalKeyComparator & internal_comparator,
     std::unique_ptr<RandomAccessFileReader>&& file,
     uint64_t file_size,
+    std::unique_ptr<TableReader>* table_reader,
     const bool prefetch_index_and_filter_in_cache,
     const bool skip_filters,
     const int level) {
+
+  assert(table_reader);
+  table_reader->reset();
 
   auto file_ptr = file.get();
 
@@ -1448,22 +1497,32 @@ Status TableOpenRequestContext::RequestOpen(const TableOpenCallback& client_cb,
       level));
 
   CallableFactory<TableOpenRequestContext, Status, const Status&> fac(context.get());
-  auto footer_cb = fac.GetCallable<&TableOpenRequestContext::OnFooterReadComplete>();
+  auto footer_cb =
+    fac.GetCallable<&TableOpenRequestContext::OnFooterReadComplete>();
 
   Status s = ReadFooterContext::RequestFooterRead(footer_cb, file_ptr, file_size,
              &context->footer_,
              kBlockBasedTableMagicNumber);
 
-  context.release();
-
   if (s.IsIOPending()) {
+    context.release();
     return s;
   }
 
-  return context->OnFooterReadComplete(s);
+  s = context->OnFooterReadComplete(s);
+
+  if (s.IsIOPending()) {
+    context.release();
+  } else if (s.ok()) {
+    *table_reader = std::move(context->GetTableReader());
+  }
+
+  return s;
 }
 
 Status TableOpenRequestContext::OnFooterReadComplete(const Status& status) {
+
+  async(status);
 
   Status s;
   BlockBasedTable::Rep* rep = new_table_->rep_;
@@ -1516,6 +1575,8 @@ Status TableOpenRequestContext::OnFooterReadComplete(const Status& status) {
 }
 
 Status TableOpenRequestContext::OnMetaBlockReadComplete(const Status& s) {
+
+  async(s);
 
   using Rep = BlockBasedTable::Rep;
   Rep* rep = new_table_->rep_;
@@ -1573,7 +1634,7 @@ Status TableOpenRequestContext::OnMetaBlockReadComplete(const Status& s) {
   uint32_t  metas_count = 0;
 
   const bool is_index_false = false;
-  std::unique_ptr<TableReadMetaBlocksContext> meta_context(new TableReadMetaBlocksContext(
+  TableReadMetaBlocksContext* meta_context(new TableReadMetaBlocksContext(
         new_table_.get(), is_index_false));
 
   bool found_properties_block = false; // XXX: original is true
@@ -1634,45 +1695,49 @@ Status TableOpenRequestContext::OnMetaBlockReadComplete(const Status& s) {
 
     // If we are async set callback
 
-    auto meta_ctx_ptr = meta_context.get();
-
     if (cb_) {
-      CallableFactory<TableOpenRequestContext, Status> fac(this);
+      CallableFactory<TableOpenRequestContext, Status, const Status&> fac(this);
       auto meta_cb = fac.GetCallable<&TableOpenRequestContext::OnMetasReadComplete>();
       meta_context->SetCB(meta_cb);
-      // Context will be destroyed by calllbacks
-      meta_context.release();
     }
 
+    // Whoever is the last one, sync or async, will destroy
+    // the
     size_t io_pending = 0;
+    // Indicates if a sync operation was the last one
+    // so we need to invoke the callback ourselves
+    size_t complete = 0;
 
     if((metas & TableReadMetaBlocksContext::mProperties) != 0) {
-      status = meta_ctx_ptr->ReadProperties();
+      status = meta_context->ReadProperties();
       io_pending += status.IsIOPending();
+      complete += (status.subcode() == Status::kOnComplete);
     }
 
     if ((metas & TableReadMetaBlocksContext::mCompDict) != 0) {
-      status = meta_ctx_ptr->ReadCompDict();
+      status = meta_context->ReadCompDict();
       io_pending += status.IsIOPending();
+      complete += (status.subcode() == Status::kOnComplete);
     }
 
     if ((metas & TableReadMetaBlocksContext::mRangDel) != 0) {
-      status = meta_ctx_ptr->ReadRangeDel();
+      status = meta_context->ReadRangeDel();
       io_pending += status.IsIOPending();
+      complete += (status.subcode() == Status::kOnComplete);
     }
 
-    // Each of the 3 Reads above invoke their completion
-    // on their own when they complete synchronously
-    // Otherwise return now
-    if (io_pending > 0) {
+    // If async operation is expected to be the last
+    if (io_pending > 0 && complete == 0) {
       return Status::IOPending();
     }
   }
 
-  return OnMetasReadComplete();
+  return OnMetasReadComplete(status);
 }
 
-Status TableOpenRequestContext::OnMetasReadComplete() {
+Status TableOpenRequestContext::OnMetasReadComplete(const Status& status) {
+
+  async(status);
 
   BlockBasedTable::Rep* rep = new_table_->rep_;
 
@@ -1738,14 +1803,8 @@ Status TableOpenRequestContext::OnMetasReadComplete() {
                                             nullptr, index_entry, &index_iterator);
       }
 
-      std::unique_ptr<InternalIterator> id_iter;
-      // We can get index_iterator here from cache in both
-      // cases but most likely from sync read
-      if (s.ok() && index_iterator->status().ok()) {
-        id_iter.reset(index_iterator);
-        // This will invoke Getting filter
-        s = OnNewIndexIterator(s, index_iterator);
-      }
+      // Really serves only to bring things into cache
+      return OnNewIndexIterator(s, index_iterator);
     }
 
   } else {
@@ -1765,7 +1824,7 @@ Status TableOpenRequestContext::OnMetasReadComplete() {
         f.GetCallable<&TableOpenRequestContext::OnCreateIndexReader>();
 
       s = CreateIndexReaderContext::RequestCreateReader(on_create_index_reader,
-          new_table_.get(), readoptions_, meta_iter_.get(), level_);
+          new_table_.get(), readoptions_, meta_iter_.get(), &index_reader, level_);
 
       if (s.IsIOPending()) {
         return s;
@@ -1775,10 +1834,7 @@ Status TableOpenRequestContext::OnMetasReadComplete() {
       s = CreateIndexReaderContext::CreateReader(new_table_.get(), readoptions_, meta_iter_.get(),
           &index_reader, level_);
     }
-
-    if (s.ok()) {
-      return OnCreateIndexReader(s, index_reader);
-    }
+    return OnCreateIndexReader(s, index_reader);
   }
 
   return OnComplete(s);
@@ -1787,12 +1843,16 @@ Status TableOpenRequestContext::OnMetasReadComplete() {
 Status TableOpenRequestContext::OnNewIndexIterator(const Status& status,
     InternalIterator* index_iterator) {
 
+  async(status);
+
   ROCKS_LOG_DEBUG(
     new_table_->rep_->ioptions.info_log,
     "OnNewIndexIterator: %s",
     status.ToString().c_str());
 
   Status s;
+
+  std::unique_ptr<InternalIterator> iter_guard(index_iterator);
 
   if (!status.ok()) {
     s = status;
@@ -1834,6 +1894,8 @@ Status TableOpenRequestContext::OnNewIndexIterator(const Status& status,
 
 Status TableOpenRequestContext::OnCreateIndexReader(const Status& status,
     BlockBasedTable::IndexReader * index_reader) {
+
+  async(status);
 
   ROCKS_LOG_DEBUG(
     new_table_->rep_->ioptions.info_log,
@@ -1885,6 +1947,8 @@ Status TableOpenRequestContext::OnCreateIndexReader(const Status& status,
 
 Status TableOpenRequestContext::OnGetFilter(const Status& status) {
 
+  async(status);
+
   Status s = get_filter_helper_->OnGetFilterComplete(status);
 
   ROCKS_LOG_DEBUG(
@@ -1914,6 +1978,8 @@ Status TableOpenRequestContext::OnGetFilter(const Status& status) {
 
 Status TableOpenRequestContext::OnReadFilter(const Status& status) {
 
+  async(status);
+
   Status s = read_filter_helper_->OnFilterReadComplete(status);
 
   ROCKS_LOG_DEBUG(
@@ -1935,25 +2001,332 @@ Status TableOpenRequestContext::OnReadFilter(const Status& status) {
 }
 
 Status TableOpenRequestContext::OnComplete(const Status& status) {
-  if (cb_) {
+
+  if (cb_ && async()) {
 
     ROCKS_LOG_DEBUG(
       new_table_->rep_->ioptions.info_log,
       "TableOpenRequestContext async completion: %s",
       status.ToString().c_str());
 
-    if (!status.ok()) {
-      new_table_.reset();
+    // It is possible that on error we have
+    // an instance of un-finished new_table_
+    // We must move it out into the callback
+    // we can not destroy it anywhere within the IO completion.
+    // as we can deadlock
+
+    // Make sure async status is passed
+    if (status.async()) {
+      cb_.Invoke(status, std::move(new_table_));
+    } else {
+      Status s(status);
+      s.async(true);
+      cb_.Invoke(s, std::move(new_table_));
     }
 
-    cb_.Invoke(status, new_table_.release());
-
     delete this;
-    return Status::IOPending();
+    return status;
   }
 
   ROCKS_LOG_DEBUG(
     new_table_->rep_->ioptions.info_log,
+    "TableOpenRequestContext sync completion: %s",
+    status.ToString().c_str());
+
+  return status;
+}
+
+///////////////////////////////////////////////////////////////////////
+/// NewBlockIteratorHelper
+Status NewDataBlockIteratorHelper::Create(const ReadDataBlockCallback& cb,
+    const BlockHandle& handle, BlockIter* input_iter) {
+
+  Status s;
+  input_iter_ = input_iter;
+
+  Slice compression_dict;
+  if (rep_->compression_dict_block) {
+    compression_dict = rep_->compression_dict_block->data;
+  }
+
+  PERF_TIMER_START(new_table_block_iter_nanos);
+
+  if (mb_helper_.IsCacheEnabled(rep_)) {
+
+    s = mb_helper_.GetBlockFromCache(rep_, *ro_, handle, compression_dict,
+                                     &entry_);
+
+    if (s.ok() && entry_.value != nullptr) {
+      action_ = aCache;
+      return s;
+    }
+
+    /// Not Found
+    if (mb_helper_.ShouldRead(*ro_)) {
+      // The result must be cached
+      action_ = aCachableRead;
+
+      const bool do_uncompress = (nullptr ==
+        rep_->table_options.block_cache_compressed);
+      return mb_helper_.RequestCachebableBlock(cb, rep_, *ro_, handle, &block_cont_,
+             do_uncompress);
+    }
+  }
+
+  // When we get there it means that either of the three things below
+  // -- Cache is not not enabled OR
+  //  - The item is not in the cache and either reads are disabled OR
+  //    fill_cache is false
+  if (mb_helper_.IsNoIo(*ro_)) {
+    s = Status::Incomplete("no blocking io");
+  } else {
+
+    action_ = aDirectRead;
+    const bool do_uncompress_true = true;
+
+    if (cb) {
+      s = ReadBlockContentsContext::RequestContentstRead(cb, rep_->file.get(),
+          rep_->footer, *ro_,
+          handle, &block_cont_, rep_->ioptions, do_uncompress_true, compression_dict,
+          rep_->persistent_cache_options);
+    } else {
+      s = ReadBlockContentsContext::ReadContents(rep_->file.get(), rep_->footer,
+          *ro_,
+          handle, &block_cont_, rep_->ioptions, do_uncompress_true, compression_dict,
+          rep_->persistent_cache_options);
+    }
+  }
+
+  return s;
+}
+
+Status NewDataBlockIteratorHelper::OnCreateComplete(const Status& status) {
+
+  Status s;
+
+  if (status.ok()) {
+
+    if (action_ == aCache) {
+      assert(entry_.value != nullptr);
+    } else if (action_ == aCachableRead) {
+
+      Slice compression_dict;
+      if (rep_->compression_dict_block) {
+        compression_dict = rep_->compression_dict_block->data;
+      }
+
+      s = mb_helper_.OnBlockReadComplete(status, rep_, *ro_, std::move(block_cont_),
+                                         compression_dict,
+                                         &entry_);
+    } else if(action_ == aDirectRead) {
+
+      entry_.value = new Block(std::move(block_cont_),
+                               rep_->global_seqno,
+                               rep_->table_options.read_amp_bytes_per_bit,
+                               rep_->ioptions.statistics);
+
+    } else {
+      assert(false);
+    }
+
+  } else {
+    s = status;
+  }
+
+  if (s.ok()) {
+
+    assert(entry_.value != nullptr);
+
+    auto iter = entry_.value->NewIterator(&rep_->internal_comparator, input_iter_,
+                                          true,
+                                          rep_->ioptions.statistics);
+
+    if (input_iter_ == nullptr) {
+      new_iterator_.reset(iter);
+    }
+
+    if (entry_.cache_handle != nullptr) {
+      Cache* block_cache = rep_->table_options.block_cache.get();
+      iter->RegisterCleanup(&BlockBasedTable::ReleaseCachedEntry, block_cache,
+                            entry_.cache_handle);
+    } else {
+      iter->RegisterCleanup(&DeleteHeldResource<Block>, entry_.value, nullptr);
+    }
+
+  } else {
+    assert(entry_.value == nullptr);
+    StatusToIterator(s);
+  }
+
+  PERF_TIMER_STOP(new_table_block_iter_nanos);
+
+  return s;
+}
+
+void NewDataBlockIteratorHelper::StatusToIterator(const Status& status) {
+
+  if (input_iter_ != nullptr) {
+    input_iter_->SetStatus(status);
+  } else {
+    new_iterator_.reset(NewErrorInternalIterator(status));
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// NewRangeTombstoneIterContext
+//
+Status NewRangeTombstoneIterContext::CreateIterator(BlockBasedTable::Rep* rep,
+    const ReadOptions & read_options, InternalIterator** iterator) {
+
+  assert(iterator != nullptr);
+  *iterator = nullptr;
+
+  Status s;
+
+  if (!IsPresent(rep)) {
+    return s;
+  }
+
+  s = GetFromCache(rep, iterator);
+
+  if (s.ok()) {
+    return s;
+  }
+
+  Callback empty_cb;
+  NewRangeTombstoneIterContext ctx(empty_cb, rep, read_options);
+
+  s = ctx.RequestRead();
+  assert(!s.IsIOPending());
+  s = ctx.OnReadBlockComplete(s);
+
+  if (s.ok()) {
+    *iterator = ctx.GetResult();
+  }
+
+  return s;
+}
+
+Status NewRangeTombstoneIterContext::RequestCreateIterator(const Callback& cb,
+    BlockBasedTable::Rep* rep, const ReadOptions& read_options,
+    InternalIterator** iterator) {
+
+  assert(iterator != nullptr);
+  *iterator = nullptr;
+
+  Status s;
+
+  if (!IsPresent(rep)) {
+    return s;
+  }
+
+  s = GetFromCache(rep, iterator);
+
+  if (s.ok()) {
+    return s;
+  }
+
+  std::unique_ptr<NewRangeTombstoneIterContext> ctx(new
+      NewRangeTombstoneIterContext(cb, rep, read_options));
+
+  s = ctx->RequestRead();
+
+  if (s.IsIOPending()) {
+    ctx.release();
+    return s;
+  }
+
+  s = ctx->OnReadBlockComplete(s);
+
+  if (s.ok()) {
+    *iterator = ctx->GetResult();
+  }
+
+  return s;
+}
+
+Status NewRangeTombstoneIterContext::GetFromCache(BlockBasedTable::Rep* rep,
+    InternalIterator** iterator) {
+
+  assert(iterator != nullptr);
+  *iterator = nullptr;
+
+  // should call IsPresent() before attempting to create
+  assert(!rep->range_del_handle.IsNull());
+
+  if (rep->range_del_entry.cache_handle != nullptr) {
+    // We have a handle to an uncompressed block cache entry that's held for
+    // this table's lifetime. Increment its refcount before returning an
+    // iterator based on it since the returned iterator may outlive this table
+    // reader.
+    assert(rep->range_del_entry.value != nullptr);
+    Cache* block_cache = rep->table_options.block_cache.get();
+    assert(block_cache != nullptr);
+    if (block_cache->Ref(rep->range_del_entry.cache_handle)) {
+      *iterator = rep->range_del_entry.value->NewIterator(
+                    &rep->internal_comparator, nullptr /* iter */,
+                    true /* total_order_seek */, rep->ioptions.statistics);
+      (*iterator)->RegisterCleanup(&BlockBasedTable::ReleaseCachedEntry, block_cache,
+                                   rep->range_del_entry.cache_handle);
+      return Status::OK();
+    }
+  }
+
+  return Status::NotFound();
+}
+
+Status NewRangeTombstoneIterContext::RequestRead() {
+
+  Status s;
+
+  BlockBasedTable::Rep* rep = db_iter_helper_.GetTableRep();
+
+  // should call IsPresent() before attempting to create
+  assert(!rep->range_del_handle.IsNull());
+
+  BlockIter* const null_input_iter = nullptr;
+  NewDataBlockIteratorHelper::ReadDataBlockCallback read_block_cb;
+
+  if (cb_) {
+    async::CallableFactory<NewRangeTombstoneIterContext, Status, const Status&> f(
+      this);
+    read_block_cb =
+      f.GetCallable<&NewRangeTombstoneIterContext::OnReadBlockComplete>();
+  }
+
+  s = db_iter_helper_.Create(read_block_cb, rep->range_del_handle,
+                             null_input_iter);
+  return s;
+}
+
+Status NewRangeTombstoneIterContext::OnReadBlockComplete(const Status& status) {
+  async(status);
+  Status s = db_iter_helper_.OnCreateComplete(status);
+  return OnComplete(s);
+}
+
+Status NewRangeTombstoneIterContext::OnComplete(const Status& status) {
+
+  BlockBasedTable::Rep* rep = db_iter_helper_.GetTableRep();
+
+  if (cb_ && async()) {
+
+    ROCKS_LOG_DEBUG(
+      rep->ioptions.info_log,
+      "TableOpenRequestContext async completion: %s",
+      status.ToString().c_str());
+
+    // Make sure async status is preserved
+    Status s(status);
+    s.async(true);
+    cb_.Invoke(s, db_iter_helper_.GetResult());
+
+    delete this;
+    return status;
+  }
+
+  ROCKS_LOG_DEBUG(
+    rep->ioptions.info_log,
     "TableOpenRequestContext sync completion: %s",
     status.ToString().c_str());
 

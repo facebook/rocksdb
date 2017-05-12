@@ -25,7 +25,7 @@ namespace rocksdb {
 class Status {
  public:
   // Create a success status.
-  Status() : code_(kOk), subcode_(kNone), state_(nullptr) {}
+  Status() : code_(kOk), subcode_(kNone), state_(nullptr), async_(false) {}
   ~Status() { delete[] state_; }
 
   // Copy the specified status.
@@ -44,7 +44,7 @@ class Status {
   bool operator==(const Status& rhs) const;
   bool operator!=(const Status& rhs) const;
 
-  enum Code {
+  enum Code : int32_t {
     kOk = 0,
     kNotFound = 1,
     kCorruption = 2,
@@ -64,7 +64,7 @@ class Status {
 
   Code code() const { return code_; }
 
-  enum SubCode {
+  enum SubCode : int32_t {
     kNone = 0,
     kMutexTimeout = 1,
     kLockTimeout = 2,
@@ -73,6 +73,7 @@ class Status {
     kDeadlock = 5,
     kStaleFile = 6,
     kMemoryLimit = 7,
+    kOnComplete = 8,
     kMaxSubCode
   };
 
@@ -80,6 +81,10 @@ class Status {
 
   // Returns a C style string indicating the message of the Status
   const char* getState() const { return state_; }
+
+  bool async() const { return async_;  }
+
+  void async(bool a) { async_ = a; }
 
   // Return a success status.
   static Status OK() { return Status(); }
@@ -258,11 +263,12 @@ class Status {
   Code code_;
   SubCode subcode_;
   const char* state_;
+  bool  async_; // Status originates with async op
 
   static const char* msgs[static_cast<int>(kMaxSubCode)];
 
   explicit Status(Code _code, SubCode _subcode = kNone)
-      : code_(_code), subcode_(_subcode), state_(nullptr) {}
+      : code_(_code), subcode_(_subcode), state_(nullptr), async_(false) {}
 
   Status(Code _code, SubCode _subcode, const Slice& msg, const Slice& msg2);
   Status(Code _code, const Slice& msg, const Slice& msg2)
@@ -271,8 +277,8 @@ class Status {
   static const char* CopyState(const char* s);
 };
 
-inline Status::Status(const Status& s) : code_(s.code_), subcode_(s.subcode_) {
-  state_ = (s.state_ == nullptr) ? nullptr : CopyState(s.state_);
+inline Status::Status(const Status& s) : Status() {
+  *this = s;
 }
 inline Status& Status::operator=(const Status& s) {
   // The following condition catches both aliasing (when this == &s),
@@ -282,6 +288,7 @@ inline Status& Status::operator=(const Status& s) {
     subcode_ = s.subcode_;
     delete[] state_;
     state_ = (s.state_ == nullptr) ? nullptr : CopyState(s.state_);
+    async_ = s.async_;
   }
   return *this;
 }
@@ -307,6 +314,8 @@ inline Status& Status::operator=(Status&& s)
     delete[] state_;
     state_ = nullptr;
     std::swap(state_, s.state_);
+    std::swap(async_, s.async_);
+    s.async_ = false;
   }
   return *this;
 }
