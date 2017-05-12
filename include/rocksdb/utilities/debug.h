@@ -31,7 +31,7 @@ struct KeyVersion {
 };
 
 // Returns listing of all versions of keys in the provided user key range.
-// The range is inclusive-exclusive, i.e., [`begin_key`, `end_key`).
+// The range is inclusive-inclusive, i.e., [`begin_key`, `end_key`].
 // The result is inserted into the provided vector, `key_versions`.
 Status GetAllKeyVersions(DB* db, Slice begin_key, Slice end_key,
                          std::vector<KeyVersion>* key_versions);

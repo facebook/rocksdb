@@ -18,7 +18,7 @@ Status GetAllKeyVersions(DB* db, Slice begin_key, Slice end_key,
   assert(key_versions != nullptr);
   key_versions->clear();
 
-  DBImpl* idb = dynamic_cast<DBImpl*>(db->GetRootDB());
+  DBImpl* idb = static_cast<DBImpl*>(db->GetRootDB());
   auto icmp = InternalKeyComparator(idb->GetOptions().comparator);
   RangeDelAggregator range_del_agg(icmp, {} /* snapshots */);
   Arena arena;
@@ -40,7 +40,7 @@ Status GetAllKeyVersions(DB* db, Slice begin_key, Slice end_key,
     }
 
     if (!end_key.empty() &&
-        icmp.user_comparator()->Compare(ikey.user_key, end_key) >= 0) {
+        icmp.user_comparator()->Compare(ikey.user_key, end_key) > 0) {
       break;
     }
 
