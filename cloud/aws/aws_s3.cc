@@ -74,7 +74,7 @@ Status S3ReadableFile::Read(uint64_t offset, size_t n, Slice* result,
   }
   *result = Slice();
 
-  if (offset > file_size_) {
+  if (offset >= file_size_) {
     Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
         "[s3] S3ReadableFile reading %s at offset %ld filesize %ld."
         " Nothing to do",
@@ -91,13 +91,17 @@ Status S3ReadableFile::Read(uint64_t offset, size_t n, Slice* result,
   }
 
   // create a range read request
+  // Ranges are inclusive, so we can't read 0 bytes; read 1 instead and
+  // drop it later.
+  size_t rangeLen = (n != 0 ? n : 1);
   char buffer[512];
   int ret =
-      snprintf(buffer, sizeof(buffer), "bytes=%ld-%ld", offset, offset + n - 1);
+      snprintf(buffer, sizeof(buffer), "bytes=%ld-%ld", offset,
+               offset + rangeLen - 1);
   if (ret < 0) {
     Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
-        "[s3] S3ReadableFile vsnprintf error %s offset %ld size %ld\n",
-        fname_.c_str(), offset, n);
+        "[s3] S3ReadableFile vsnprintf error %s offset %ld rangelen %ld\n",
+        fname_.c_str(), offset, rangeLen);
     return Status::IOError("S3ReadableFile vsnprintf ", fname_.c_str());
   }
   Aws::String range(buffer);
@@ -134,15 +138,12 @@ Status S3ReadableFile::Read(uint64_t offset, size_t n, Slice* result,
 
   // extract data payload
   Aws::IOStream& body = outcome.GetResult().GetBody();
-  ss << body.rdbuf();
-  const std::string& str = ss.str();
-  uint64_t size = str.size();
-
-  // copy bytes to user buffer
-  if (size > n) {
-    size = n;
+  uint64_t size = 0;
+  if (n != 0) {
+    body.read(scratch, n);
+    size = body.gcount();
+    assert(size <= n);
   }
-  memcpy(scratch, str.c_str(), size);
   *result = Slice(scratch, size);
 
   Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
