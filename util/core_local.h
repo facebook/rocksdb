@@ -77,7 +77,7 @@ std::pair<T*, size_t> CoreLocalArray<T>::AccessElementAndIndex() const {
 
 template<typename T>
 T* CoreLocalArray<T>::AccessAtCore(size_t core_idx) const {
-  assert(static_cast<int>(core_idx) < 1 << size_shift_);
+  assert(core_idx < static_cast<size_t>(1) << size_shift_);
   return &data_[core_idx];
 }
 
