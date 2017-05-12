@@ -458,6 +458,7 @@ set(SOURCES
         utilities/column_aware_encoding_util.cc
         utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc
         utilities/date_tiered/date_tiered_db_impl.cc
+        utilities/debug.cc
         utilities/document/document_db.cc
         utilities/document/json_document.cc
         utilities/document/json_document_builder.cc

@@ -8,6 +8,7 @@
 * Introduce WriteBatch::PopSavePoint to pop the most recent save point explicitly.
 * Support dynamically change `max_open_files` option via SetDBOptions()
 * Added DB::CreateColumnFamilie() and DB::DropColumnFamilies() to bulk create/drop column families.
+* Add debugging function `GetAllKeyVersions` to see internal versions of a range of keys.
 
 ## 5.4.0 (04/11/2017)
 ### Public API Change

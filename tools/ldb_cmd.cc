@@ -23,6 +23,7 @@
 #include "rocksdb/table_properties.h"
 #include "rocksdb/utilities/backupable_db.h"
 #include "rocksdb/utilities/checkpoint.h"
+#include "rocksdb/utilities/debug.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_util.h"
 #include "rocksdb/write_batch.h"
@@ -1212,56 +1213,33 @@ void InternalDumpCommand::DoCommand() {
   }
 
   // Cast as DBImpl to get internal iterator
-  DBImpl* idb = dynamic_cast<DBImpl*>(db_);
-  if (!idb) {
-    exec_state_ = LDBCommandExecuteResult::Failed("DB is not DBImpl");
+  std::vector<KeyVersion> key_versions;
+  Status st = GetAllKeyVersions(db_, from_, to_, &key_versions);
+  if (!st.ok()) {
+    exec_state_ = LDBCommandExecuteResult::Failed(st.ToString());
     return;
   }
   std::string rtype1, rtype2, row, val;
   rtype2 = "";
   uint64_t c=0;
   uint64_t s1=0,s2=0;
-  // Setup internal key iterator
-  Arena arena;
-  auto icmp = InternalKeyComparator(options_.comparator);
-  RangeDelAggregator range_del_agg(icmp, {} /* snapshots */);
-  ScopedArenaIterator iter(idb->NewInternalIterator(&arena, &range_del_agg));
-  Status st = iter->status();
-  if (!st.ok()) {
-    exec_state_ =
-        LDBCommandExecuteResult::Failed("Iterator error:" + st.ToString());
-  }
-
-  if (has_from_) {
-    InternalKey ikey;
-    ikey.SetMaxPossibleForUserKey(from_);
-    iter->Seek(ikey.Encode());
-  } else {
-    iter->SeekToFirst();
-  }
 
   long long count = 0;
-  for (; iter->Valid(); iter->Next()) {
-    ParsedInternalKey ikey;
-    if (!ParseInternalKey(iter->key(), &ikey)) {
-      fprintf(stderr, "Internal Key [%s] parse error!\n",
-              iter->key().ToString(true /* in hex*/).data());
-      // TODO: add error counter
-      continue;
-    }
-
-    // If end marker was specified, we stop before it
-    if (has_to_ && options_.comparator->Compare(ikey.user_key, to_) >= 0) {
+  for (auto& key_version : key_versions) {
+    InternalKey ikey(key_version.user_key, key_version.sequence,
+                     static_cast<ValueType>(key_version.type));
+    if (has_to_ && ikey.user_key() == to_) {
+      // GetAllKeyVersions() includes keys with user key `to_`, but idump has
+      // traditionally excluded such keys.
       break;
     }
-
     ++count;
     int k;
     if (count_delim_) {
       rtype1 = "";
       s1=0;
-      row = iter->key().ToString();
-      val = iter->value().ToString();
+      row = ikey.Encode().ToString();
+      val = key_version.value;
       for(k=0;row[k]!='\x01' && row[k]!='\0';k++)
         s1++;
       for(k=0;val[k]!='\x01' && val[k]!='\0';k++)
@@ -1278,12 +1256,12 @@ void InternalDumpCommand::DoCommand() {
         c++;
         s2+=s1;
         rtype2=rtype1;
+      }
     }
-  }
 
     if (!count_only_ && !count_delim_) {
       std::string key = ikey.DebugString(is_key_hex_);
-      std::string value = iter->value().ToString(is_value_hex_);
+      std::string value = Slice(key_version.value).ToString(is_value_hex_);
       std::cout << key << " => " << value << "\n";
     }
 
