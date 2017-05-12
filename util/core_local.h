@@ -49,7 +49,7 @@ CoreLocalArray<T>::CoreLocalArray() {
   while (1 << size_shift_ < num_cpus) {
     ++size_shift_;
   }
-  data_.reset(new T[1 << size_shift_]);
+  data_.reset(new T[static_cast<size_t>(1) << size_shift_]);
 }
 
 template<typename T>
