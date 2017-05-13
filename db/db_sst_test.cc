@@ -116,7 +116,7 @@ TEST_F(DBSSTTest, DontDeleteMovedFile) {
     }
     ASSERT_OK(Flush());
   }
-  // this should execute both L0->L1 and L1->(move)->L2 compactions
+  // this should execute both L0->base_level and L1->(move)->L2 compactions
   dbfull()->TEST_WaitForCompact();
   ASSERT_EQ("0,0,1", FilesPerLevel(0));
 
@@ -164,7 +164,7 @@ TEST_F(DBSSTTest, DeleteObsoleteFilesPendingOutputs) {
     }
     ASSERT_OK(Flush());
   }
-  // this should execute both L0->L1 and L1->(move)->L2 compactions
+  // this should execute both L0->base_level and L1->(move)->L2 compactions
   dbfull()->TEST_WaitForCompact();
   ASSERT_EQ("0,0,1", FilesPerLevel(0));
 

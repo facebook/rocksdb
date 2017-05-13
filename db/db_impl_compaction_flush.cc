@@ -1017,7 +1017,6 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     // compactions
     return;
   }
-
   while (bg_compaction_scheduled_ < bg_job_limits.max_compactions &&
          unscheduled_compactions_ > 0) {
     CompactionArg* ca = new CompactionArg;
@@ -1439,7 +1438,6 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 
       return Status::OK();
     }
-
     // cfd is referenced here
     cfd = PopFirstFromCompactionQueue();
     // We unreference here because the following code will take a Ref() on
@@ -1453,7 +1451,6 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       // compact and check dependency
       return Status::OK();
     }
-
     // Pick up latest mutable CF Options and use it throughout the
     // compaction job
     // Compaction makes a copy of the latest MutableCFOptions. It should be used
@@ -1553,7 +1550,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         moved_bytes += f->fd.GetFileSize();
       }
     }
-    // no need to unblock L0->L1 in level compaction because if this is
+    // no need to unblock L0->base_level in level compaction because if this is
     // a trivial move from L0 to L1, it should not have any dependency on
     // any L1 file
     status = versions_->LogAndApply(c->column_family_data(),
@@ -1610,7 +1607,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     mutex_.Lock();
 
     assert(cfd != nullptr);
-    // unblock L0->L1 in level compaction
+    // unblock L0->base_level in level compaction
     WaitForDependingCompactionsDone(cfd, c.get(), &status);
     if (status.ok()) {
       status = compaction_job.Install(*c->mutable_cf_options());

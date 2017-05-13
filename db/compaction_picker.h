@@ -213,7 +213,7 @@ class CompactionPicker {
   std::unordered_set<Compaction*> compactions_in_progress_;
 
   // In level compaction, Keeps track of all L1 compactions that
-  // are running and depended by a L0->L1 compaction
+  // are running and depended by a L0->base_level compaction
   // Protected by DB mutex
   std::unordered_set<Compaction*> depending_compactions_;
   Status depending_status_;
