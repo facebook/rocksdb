@@ -32,6 +32,10 @@ class DBCloudImpl : public DBCloud {
   CloudEnv* cenv_;
 
  private:
+
+  // Maximum manifest file size
+  static const uint64_t max_manifest_file_size = 4 * 1024L * 1024L;
+
   explicit DBCloudImpl(DB* db);
 
   // Does the dir need to be re-initialized?
