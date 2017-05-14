@@ -55,8 +55,10 @@ Status CloudEnv::NewAwsEnv(Env* base_env, const std::string& src_cloud_storage,
     CloudEnvImpl* cloud = static_cast<CloudEnvImpl*>(*cenv);
     cloud->info_log_ = logger;
 
-    // start the purge thread
-    cloud->purge_thread_ = std::thread([cloud] { cloud->Purger(); });
+    // start the purge thread only if there is a destination bucket
+    if (!dest_cloud_storage.empty()) {
+      cloud->purge_thread_ = std::thread([cloud] { cloud->Purger(); });
+    }
   }
   return st;
 }
