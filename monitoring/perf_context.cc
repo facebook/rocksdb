@@ -11,10 +11,8 @@
 
 namespace rocksdb {
 
-#if defined(NPERF_CONTEXT) || defined(IOS_CROSS_COMPILE)
+#if defined(NPERF_CONTEXT) || !defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
   PerfContext perf_context;
-#elif defined(_MSC_VER)
-  __declspec(thread) PerfContext perf_context;
 #else
   #if defined(OS_SOLARIS)
     __thread PerfContext perf_context_;
@@ -24,7 +22,7 @@ namespace rocksdb {
 #endif
 
 void PerfContext::Reset() {
-#if !defined(NPERF_CONTEXT) && !defined(IOS_CROSS_COMPILE)
+#if !defined(NPERF_CONTEXT) && defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
   user_key_comparison_count = 0;
   block_cache_hit_count = 0;
   block_read_count = 0;
@@ -98,7 +96,7 @@ void PerfContext::Reset() {
   }
 
 std::string PerfContext::ToString(bool exclude_zero_counters) const {
-#if defined(NPERF_CONTEXT) || defined(IOS_CROSS_COMPILE)
+#if defined(NPERF_CONTEXT) || !defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
   return "";
 #else
   std::ostringstream ss;

@@ -12,7 +12,7 @@
 
 namespace rocksdb {
 
-#if defined(NPERF_CONTEXT) || defined(IOS_CROSS_COMPILE)
+#if defined(NPERF_CONTEXT) || !defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
 
 #define PERF_TIMER_GUARD(metric)
 #define PERF_CONDITIONAL_TIMER_FOR_MUTEX_GUARD(metric, condition)

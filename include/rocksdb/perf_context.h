@@ -9,6 +9,7 @@
 #include <stdint.h>
 #include <string>
 
+#include "port/port.h"
 #include "rocksdb/perf_level.h"
 
 namespace rocksdb {
@@ -150,10 +151,8 @@ struct PerfContext {
   uint64_t env_new_logger_nanos;
 };
 
-#if defined(NPERF_CONTEXT) || defined(IOS_CROSS_COMPILE)
+#if defined(NPERF_CONTEXT) || !defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
 extern PerfContext perf_context;
-#elif defined(_MSC_VER)
-extern __declspec(thread) PerfContext perf_context;
 #else
   #if defined(OS_SOLARIS)
     PerfContext *getPerfContext();

@@ -442,14 +442,8 @@ if test "$USE_HDFS"; then
   JAVA_LDFLAGS="$JAVA_LDFLAGS $HDFS_LDFLAGS"
 fi
 
-if [ "$TARGET_OS" = FreeBSD -a "$TARGET_ARCHITECTURE" = i386 ]; then
-  # Intel SSE instructions breaks compilation on FreeBSD i386
-  unset USE_SSE
-fi
-
 if test "$USE_SSE"; then
-  # if Intel SSE instruction set is supported, set USE_SSE=1
-  COMMON_FLAGS="$COMMON_FLAGS -msse -msse4.2 "
+  COMMON_FLAGS="$COMMON_FLAGS -msse4.2"
 elif test -z "$PORTABLE"; then
   if test -n "`echo $TARGET_ARCHITECTURE | grep ^ppc64`"; then
     # Tune for this POWER processor, treating '+' models as base models
@@ -459,6 +453,36 @@ elif test -z "$PORTABLE"; then
     COMMON_FLAGS="$COMMON_FLAGS -march=z10 "
   elif [ "$TARGET_OS" != AIX ] && [ "$TARGET_OS" != SunOS ]; then
     COMMON_FLAGS="$COMMON_FLAGS -march=native "
+  fi
+fi
+
+$CXX $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null <<EOF
+  #include <cstdint>
+  #include <nmmintrin.h>
+  int main() {
+    volatile uint32_t x = _mm_crc32_u32(0, 0);
+  }
+EOF
+if [ "$?" = 0 ]; then
+  COMMON_FLAGS="$COMMON_FLAGS -DHAVE_SSE42"
+elif test "$USE_SSE"; then
+  echo "warning: USE_SSE specified but compiler could not use SSE intrinsics, disabling"
+fi
+
+# iOS doesn't support thread-local storage, but this check would erroneously
+# succeed because the cross-compiler flags are added by the Makefile, not this
+# script.
+if [ "$PLATFORM" != IOS ]; then
+  $CXX $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null <<EOF
+  #if defined(_MSC_VER) && !defined(__thread)
+  #define __thread __declspec(thread)
+  #endif
+  int main() {
+    static __thread int tls;
+  }
+EOF
+  if [ "$?" = 0 ]; then
+    COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_SUPPORT_THREAD_LOCAL"
   fi
 fi
 

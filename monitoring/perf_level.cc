@@ -7,16 +7,14 @@
 //
 
 #include <assert.h>
-#include <sstream>
 #include "monitoring/perf_level_imp.h"
-#include "port/port.h"
 
 namespace rocksdb {
 
-#if defined(IOS_CROSS_COMPILE)
-PerfLevel perf_level = kEnableCount;
-#else
+#ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
 __thread PerfLevel perf_level = kEnableCount;
+#else
+PerfLevel perf_level = kEnableCount;
 #endif
 
 void SetPerfLevel(PerfLevel level) {
