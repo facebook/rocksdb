@@ -1157,8 +1157,8 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
         "Calling FlushMemTableToOutputFile with column "
         "family [%s], flush slots available %d, compaction slots allowed %d, "
         "compaction slots scheduled %d",
-        cfd->GetName().c_str(), immutable_db_options_.max_background_flushes,
-        bg_flush_scheduled_, BGCompactionsAllowed() - bg_compaction_scheduled_);
+        cfd->GetName().c_str(), immutable_db_options_.max_background_flushes -
+        bg_flush_scheduled_, BGCompactionsAllowed(), bg_compaction_scheduled_);
     status = FlushMemTableToOutputFile(cfd, mutable_cf_options, made_progress,
                                        job_context, log_buffer);
     if (cfd->Unref()) {
