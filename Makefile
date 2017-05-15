@@ -1484,8 +1484,8 @@ libzstd.a:
 java_static_libobjects = $(patsubst %,jls/%,$(LIBOBJECTS))
 CLEAN_FILES += jls
 
-JAVA_STATIC_FLAGS = -DZLIB -DBZIP2 -DSNAPPY -DLZ4
-JAVA_STATIC_INCLUDES = -I./zlib-$(ZLIB_VER) -I./bzip2-$(BZIP2_VER) -I./snappy-$(SNAPPY_VER) -I./lz4-$(LZ4_VER)/lib
+JAVA_STATIC_FLAGS = -DZLIB -DBZIP2 -DSNAPPY -DLZ4 -DZSTD
+JAVA_STATIC_INCLUDES = -I./zlib-$(ZLIB_VER) -I./bzip2-$(BZIP2_VER) -I./snappy-$(SNAPPY_VER) -I./lz4-$(LZ4_VER)/lib -I./zstd-$(ZSTD_VER)/lib
 
 $(java_static_libobjects): jls/%.o: %.cc libz.a libbz2.a libsnappy.a liblz4.a libzstd.a
 	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES) -fPIC -c $< -o $@ $(COVERAGEFLAGS)
