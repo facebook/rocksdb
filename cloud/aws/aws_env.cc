@@ -1192,7 +1192,7 @@ Status AwsEnv::GetPathForDbid(const std::string& bucket_prefix,
     if (s3err == Aws::S3::S3Errors::NO_SUCH_BUCKET ||
         s3err == Aws::S3::S3Errors::NO_SUCH_KEY ||
         s3err == Aws::S3::S3Errors::RESOURCE_NOT_FOUND ||
-        errmsg.find("Response code: 404") != std::string::npos) {
+        s3err == Aws::S3::S3Errors::UNKNOWN) {
       Log(InfoLogLevel::ERROR_LEVEL, info_log_,
           "[s3] %s GetPathForDbid error non-existent dbid %s %s",
           bucket.c_str(), dbid.c_str(), errmsg.c_str());

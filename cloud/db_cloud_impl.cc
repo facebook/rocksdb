@@ -213,6 +213,7 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
         local_dir.c_str());
     return Status::OK();
   }
+  local_dbid = rtrim_if(trim(local_dbid), '\n');
   std::string src_bucket = cenv->GetSrcBucketPrefix();
   std::string dest_bucket = cenv->GetDestBucketPrefix();
 
@@ -225,11 +226,12 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
   if (!src_bucket.empty()) {
     st = cenv->GetPathForDbid(src_bucket, local_dbid, &src_object_path);
     if (!st.ok() && !st.IsNotFound()) {
+      // Unable to fetch data from S3. Fail Open request.
       Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
           "[db_cloud_impl] NeedsReinitialization: "
           "Local dbid is %s but unable to find src dbid",
           local_dbid.c_str());
-      return Status::OK();
+      return st;
     }
     Log(InfoLogLevel::INFO_LEVEL, options.info_log,
         "[db_cloud_impl] NeedsReinitialization: "
@@ -266,11 +268,12 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
   if (!dest_bucket.empty()) {
     st = cenv->GetPathForDbid(dest_bucket, local_dbid, &dest_object_path);
     if (!st.ok() && !st.IsNotFound()) {
+      // Unable to fetch data from S3. Fail Open request.
       Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
           "[db_cloud_impl] NeedsReinitialization: "
           "Local dbid is %s but unable to find dest dbid",
           local_dbid.c_str());
-      return Status::OK();
+      return st;
     }
     Log(InfoLogLevel::INFO_LEVEL, options.info_log,
         "[db_cloud_impl] NeedsReinitialization: "
@@ -695,7 +698,7 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
   } else {
     // There isn't a valid db in either the src or dest bucket.
     // Return with a success code so that a new DB can be created.
-    Log(InfoLogLevel::INFO_LEVEL, options.info_log,
+    Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
         "[db_cloud_impl] No valid dbs in src bucket %s src path %s "
         "or dest bucket %s dest path %s",
         cenv->GetSrcBucketPrefix().c_str(), cenv->GetSrcObjectPrefix().c_str(),
