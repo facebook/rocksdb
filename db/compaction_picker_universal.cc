@@ -571,6 +571,7 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSortedRuns(
   // last level is reserved for the files ingested behind
   if (ioptions_.allow_ingest_behind &&
       (output_level == vstorage->num_levels() - 1)) {
+    assert(output_level > 1);
     output_level--;
   }
 
@@ -729,6 +730,7 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSizeAmp(
   int output_level = vstorage->num_levels() - 1;
   // last level is reserved for the files ingested behind
   if (ioptions_.allow_ingest_behind) {
+    assert(output_level > 1);
     output_level--;
   }
 

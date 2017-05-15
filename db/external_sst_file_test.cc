@@ -1912,13 +1912,6 @@ TEST_F(ExternalSSTFileTest, IngestBehind) {
 
   options.allow_ingest_behind = true;
   DestroyAndReopen(options);
-  // Can't ingest because auto compactions are still enabled
-  ASSERT_NOK(GenerateAndAddExternalFileIngestBehind(options, ifo,
-                                                   file_data, -1, false,
-                                                   &true_data));
-
-  options.disable_auto_compactions = true;
-  DestroyAndReopen(options);
   // Insert 100 -> 200 into the memtable
   for (int i = 100; i <= 200; i++) {
     ASSERT_OK(Put(Key(i), "memtable"));

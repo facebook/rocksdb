@@ -854,6 +854,7 @@ struct DBOptions {
   // Setting this option to true will affect 2 things:
   // 1) Disable some internal optimizations around SST file compression
   // 2) Reserve bottom-most level for ingested files only.
+  // 3) Note that num_levels should be >= 3 if this option is turned on.
   //
   // DEFAULT: false
   // Immutable.
@@ -1141,10 +1142,8 @@ struct IngestExternalFileOptions {
   // to be skipped rather than overwriting existing data under that key.
   // Usecase: back-fill of some historical data in the database without
   // over-writing existing newer version of data.
-  // This option could only be used with the following constrains:
-  //  - DB must have been running with allow_ingest_behind=true since the
-  //    dawn of time;
-  //  - DB should be running with disable_auto_compactions=true.
+  // This option could only be used if the DB has been running
+  // with allow_ingest_behind=true since the dawn of time.
   // All files will be ingested at the bottommost level with seqno=0.
   bool ingest_behind = false;
 };

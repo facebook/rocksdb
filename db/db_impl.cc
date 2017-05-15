@@ -2614,17 +2614,12 @@ Status DBImpl::IngestExternalFile(
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
 
-  // Ingest should immediately fail if ingest_behind is requested, but
-  // db doesn't support it, or auto compactions
-  // are not disabled, want to check conditions separately
+  // Ingest should immediately fail if ingest_behind is requested,
+  // but the DB doesn't support it.
   if (ingestion_options.ingest_behind) {
     if (!immutable_db_options_.allow_ingest_behind) {
       return Status::InvalidArgument(
         "Can't ingest_behind file in DB with allow_ingest_behind=false");
-    }
-    if (!cfd->GetLatestMutableCFOptions()->disable_auto_compactions) {
-      return Status::InvalidArgument(
-        "Can't ingest_behind file in DB with disable_auto_compactions=false");
     }
   }
 

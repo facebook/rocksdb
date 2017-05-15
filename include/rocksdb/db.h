@@ -958,7 +958,8 @@ class DB {
   // (2) We will try to ingest the files to the lowest possible level
   //     even if the file compression dont match the level compression
   // (3) If IngestExternalFileOptions->ingest_behind is set to true,
-  //     we'll always create new level and ingest in it.
+  //     we always ingest at the bottommost level, which should be reserved
+  //     for this purpose (see DBOPtions::allow_ingest_behind flag).
   virtual Status IngestExternalFile(
       ColumnFamilyHandle* column_family,
       const std::vector<std::string>& external_files,
