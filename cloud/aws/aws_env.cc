@@ -91,7 +91,7 @@ AwsEnv::AwsEnv(Env* underlying_env, const std::string& src_bucket_prefix,
           "[aws] NewAwsEnv Buckets %s, %s in two different regions %, %s "
           "is not supported",
           src_bucket_prefix_.c_str(), dest_bucket_prefix_.c_str(),
-          src_bucket_region_, dest_bucket_region_);
+          src_bucket_region_.c_str(), dest_bucket_region_.c_str());
       return;
     }
   }
