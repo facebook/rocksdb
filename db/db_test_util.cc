@@ -487,10 +487,11 @@ Options DBTestBase::CurrentOptions(
 Env* DBTestBase::CreateNewAwsEnv() {
   // get AWS credentials
   rocksdb::CloudEnvOptions coptions;
+  std::string region;
   CloudEnv* cenv = nullptr;
   Status st = AwsEnv::GetTestCredentials(&coptions.credentials.access_key_id,
                                          &coptions.credentials.secret_key,
-                                         &coptions.region);
+                                         &region);
   if (!st.ok()) {
     Log(InfoLogLevel::DEBUG_LEVEL, info_log_, st.ToString().c_str());
     assert(st.ok());
@@ -498,8 +499,10 @@ Env* DBTestBase::CreateNewAwsEnv() {
     st = AwsEnv::NewAwsEnv(Env::Default(),
                            "dbtest." + AwsEnv::GetTestBucketSuffix(),
                            "",  // src object prefix
+                           region, // src region
                            "dbtest." + AwsEnv::GetTestBucketSuffix(),
                            "",  // dest object prefix
+                           region, // dest region
                            coptions, info_log_, &cenv);
     ROCKS_LOG_DEBUG(info_log_, "Created new aws env with empty path");
     assert(st.ok() && cenv);

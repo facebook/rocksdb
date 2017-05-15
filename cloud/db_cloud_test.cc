@@ -37,7 +37,7 @@ class CloudTest : public testing::Test {
     // Get cloud credentials
     AwsEnv::GetTestCredentials(&cloud_env_options_.credentials.access_key_id,
                                &cloud_env_options_.credentials.secret_key,
-                               &cloud_env_options_.region);
+                               &region_);
     Cleanup();
   }
 
@@ -46,8 +46,9 @@ class CloudTest : public testing::Test {
 
     // create a dummy aws env
     ASSERT_OK(CloudEnv::NewAwsEnv(
-        base_env_, src_bucket_prefix_, src_object_prefix_, dest_bucket_prefix_,
-        dest_object_prefix_, cloud_env_options_, options_.info_log, &aenv_));
+        base_env_, src_bucket_prefix_, src_object_prefix_, region_,
+        dest_bucket_prefix_, dest_object_prefix_, region_,
+        cloud_env_options_, options_.info_log, &aenv_));
     // delete all pre-existing contents from the bucket
     Status st = aenv_->EmptyBucket(src_bucket_prefix_);
     ASSERT_TRUE(st.ok() || st.IsNotFound());
@@ -78,8 +79,9 @@ class CloudTest : public testing::Test {
 
     // Create new AWS env
     ASSERT_OK(CloudEnv::NewAwsEnv(
-        base_env_, src_bucket_prefix_, src_object_prefix_, src_bucket_prefix_,
-        src_object_prefix_, cloud_env_options_, options_.info_log, &aenv_));
+        base_env_, src_bucket_prefix_, src_object_prefix_, region_,
+        src_bucket_prefix_, src_object_prefix_, region_,
+        cloud_env_options_, options_.info_log, &aenv_));
     options_.env = aenv_;
 
     // default column family
@@ -116,7 +118,9 @@ class CloudTest : public testing::Test {
 
     // Create new AWS env
     ASSERT_OK(CloudEnv::NewAwsEnv(
-        base_env_, src_bucket, src_object_path, dest_bucket, dest_object_path,
+        base_env_,
+        src_bucket, src_object_path, region_,
+        dest_bucket, dest_object_path, region_,
         cloud_env_options_, options_.info_log, &cenv));
 
     // sets the cloud env to be used by the env wrapper
@@ -171,6 +175,7 @@ class CloudTest : public testing::Test {
   std::string dest_bucket_prefix_;
   std::string dest_object_prefix_;
   CloudEnvOptions cloud_env_options_;
+  std::string region_;
   std::string dbid_;
   std::string persistent_cache_path_;
   uint64_t persistent_cache_size_gb_;

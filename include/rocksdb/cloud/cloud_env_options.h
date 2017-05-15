@@ -34,9 +34,6 @@ class CloudEnvOptions {
   // Access credentials
   CloudAccessCredentials credentials;
 
-  // The region where the service is located
-  std::string region;
-
   //
   // If true,  then sst files are stored locally. They are not uploaded to
   // cloud.
@@ -134,8 +131,10 @@ class CloudEnv : public Env {
   // data to cloud storage.
   static Status NewAwsEnv(Env* base_env, const std::string& src_bucket_name,
                           const std::string& src_object_prefix,
+                          const std::string& src_bucket_region,
                           const std::string& dest_bucket_name,
                           const std::string& dest_object_prefix,
+                          const std::string& dest_bucket_region,
                           const CloudEnvOptions& env_options,
                           std::shared_ptr<Logger> logger, CloudEnv** cenv);
 };

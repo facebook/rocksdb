@@ -23,8 +23,10 @@ namespace rocksdb {
 //
 AwsEnv::AwsEnv(Env* underlying_env, const std::string& src_bucket_prefix,
                const std::string& src_object_prefix,
+               const std::string& src_bucket_region,
                const std::string& dest_bucket_prefix,
                const std::string& dest_object_prefix,
+               const std::string& dest_bucket_region,
                const CloudEnvOptions& _cloud_env_options,
                std::shared_ptr<Logger> info_log)
     : CloudEnvImpl(CloudType::kAws, underlying_env),
@@ -32,16 +34,20 @@ AwsEnv::AwsEnv(Env* underlying_env, const std::string& src_bucket_prefix,
       cloud_env_options(_cloud_env_options),
       src_bucket_prefix_(src_bucket_prefix),
       src_object_prefix_(src_object_prefix),
+      src_bucket_region_(src_bucket_region),
       dest_bucket_prefix_(dest_bucket_prefix),
       dest_object_prefix_(dest_object_prefix),
+      dest_bucket_region_(dest_bucket_region),
       running_(true),
       has_src_bucket_(false),
       has_dest_bucket_(false),
       has_two_unique_buckets_(false) {
   src_bucket_prefix_ = trim(src_bucket_prefix_);
   src_object_prefix_ = trim(src_object_prefix_);
+  src_bucket_region_ = trim(src_bucket_region_);
   dest_bucket_prefix_ = trim(dest_bucket_prefix_);
   dest_object_prefix_ = trim(dest_object_prefix_);
+  dest_bucket_region_ = trim(dest_bucket_region_);
 
   base_env_ = underlying_env;
   Aws::InitAPI(Aws::SDKOptions());
@@ -60,18 +66,6 @@ AwsEnv::AwsEnv(Env* underlying_env, const std::string& src_bucket_prefix,
   config.retryStrategy =
       std::make_shared<AwsRetryStrategy>(cloud_env_options, info_log_);
 
-  // Use specified region if any
-  if (cloud_env_options.region.empty()) {
-    config.region = Aws::String(default_region);
-  } else {
-    config.region = Aws::String(cloud_env_options.region.c_str(),
-                                cloud_env_options.region.size());
-  }
-  bucket_location_ = Aws::S3::Model::BucketLocationConstraintMapper::
-      GetBucketLocationConstraintForName(config.region);
-
-  s3client_ = std::make_shared<Aws::S3::S3Client>(creds, config);
-
   if (!GetSrcBucketPrefix().empty()) {
     has_src_bucket_ = true;
   }
@@ -85,6 +79,34 @@ AwsEnv::AwsEnv(Env* underlying_env, const std::string& src_bucket_prefix,
        (GetSrcObjectPrefix() != GetDestObjectPrefix()))) {
     has_two_unique_buckets_ = true;
   }
+
+  // TODO: support buckets being in different regions
+  if (has_two_unique_buckets_) {
+    if (src_bucket_region_ == dest_bucket_region_) {
+      // alls good
+    } else {
+      create_bucket_status_ = Status::InvalidArgument(
+              "Two different regions not supported");
+      Log(InfoLogLevel::ERROR_LEVEL, info_log,
+          "[aws] NewAwsEnv Buckets %s, %s in two different regions %, %s "
+          "is not supported",
+          src_bucket_prefix_.c_str(), dest_bucket_prefix_.c_str(),
+          src_bucket_region_, dest_bucket_region_);
+      return;
+    }
+  }
+
+  // Use specified region if any
+  if (src_bucket_region_.empty()) {
+    config.region = Aws::String(default_region, strlen(default_region));
+  } else {
+    config.region = Aws::String(src_bucket_region_.c_str(),
+                                src_bucket_region_.size());
+  }
+  bucket_location_ = Aws::S3::Model::BucketLocationConstraintMapper::
+      GetBucketLocationConstraintForName(config.region);
+
+  s3client_ = std::make_shared<Aws::S3::S3Client>(creds, config);
 
   // create dest bucket if specified
   if (has_dest_bucket_) {
@@ -1280,8 +1302,10 @@ Status AwsEnv::NewLogger(const std::string& fname, shared_ptr<Logger>* result) {
 // The factory method for creating an S3 Env
 Status AwsEnv::NewAwsEnv(Env* base_env, const std::string& src_bucket_prefix,
                          const std::string& src_object_prefix,
+                         const std::string& src_bucket_region,
                          const std::string& dest_bucket_prefix,
                          const std::string& dest_object_prefix,
+                         const std::string& dest_bucket_region,
                          const CloudEnvOptions& cloud_options,
                          std::shared_ptr<Logger> info_log, CloudEnv** cenv) {
   Status status;
@@ -1291,7 +1315,8 @@ Status AwsEnv::NewAwsEnv(Env* base_env, const std::string& src_bucket_prefix,
     base_env = Env::Default();
   }
   AwsEnv* aenv = new AwsEnv(base_env, src_bucket_prefix, src_object_prefix,
-                            dest_bucket_prefix, dest_object_prefix,
+                            src_bucket_region,
+                            dest_bucket_prefix, dest_object_prefix, dest_bucket_region,
                             cloud_options, info_log);
   if (aenv == nullptr) {
     status = Status::IOError("No More memory");

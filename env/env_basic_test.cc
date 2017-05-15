@@ -110,12 +110,12 @@ void CreateAwsEnv(const std::string& dbpath,
   rocksdb::CloudEnvOptions coptions;
   coptions.credentials.access_key_id = aws_access_key_id;
   coptions.credentials.secret_key = aws_secret_access_key;
-  coptions.region = aws_region;
   rocksdb::CloudEnv* s;
   st = rocksdb::AwsEnv::NewAwsEnv(
-      Env::Default(), "envtest." + AwsEnv::GetTestBucketSuffix(), "",
-      "envtest." + AwsEnv::GetTestBucketSuffix(), "", coptions,
-      std::move(info_log), &s);
+      Env::Default(),
+      "envtest." + AwsEnv::GetTestBucketSuffix(), "", aws_region,
+      "envtest." + AwsEnv::GetTestBucketSuffix(), "", aws_region,
+      coptions, std::move(info_log), &s);
   assert(st.ok());
   if (!st.ok()) {
     Log(InfoLogLevel::DEBUG_LEVEL, info_log, st.ToString().c_str());

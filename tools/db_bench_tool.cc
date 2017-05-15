@@ -915,23 +915,26 @@ rocksdb::Env* CreateAwsEnv(const std::string& dbpath,
   info_log.reset(new rocksdb::StderrLogger(
 		     rocksdb::InfoLogLevel::WARN_LEVEL));
   rocksdb::CloudEnvOptions coptions;
+  std::string region;
   if (FLAGS_aws_access_id.size() == 0) {
       rocksdb::Status st = rocksdb::AwsEnv::GetTestCredentials(&coptions.credentials.access_key_id,
                                                       &coptions.credentials.secret_key,
-                                                      &coptions.region);
+                                                      &region);
       assert(st.ok());
   } else {
     coptions.credentials.access_key_id = FLAGS_aws_access_id;
     coptions.credentials.secret_key = FLAGS_aws_secret_key;
-    coptions.region = FLAGS_aws_region;
+    region = FLAGS_aws_region;
   }
   coptions.keep_local_sst_files = FLAGS_keep_local_sst_files;
   rocksdb::CloudEnv* s;
   rocksdb::Status st = rocksdb::AwsEnv::NewAwsEnv(rocksdb::Env::Default(),
 		         "dbbench." + rocksdb::AwsEnv::GetTestBucketSuffix(),
 			 "", // src object prefix
+                         region, // src region
 		         "dbbench." + rocksdb::AwsEnv::GetTestBucketSuffix(),
 			 "", // destination object prefix
+                         region, // dest region
 		         coptions,
 			 std::move(info_log),
 			 &s);

@@ -50,8 +50,10 @@ class AwsEnv : public CloudEnvImpl {
   // A factory method for creating S3 envs
   static Status NewAwsEnv(Env* env, const std::string& src_cloud_storage,
                           const std::string& src_cloud_object_prefix,
+                          const std::string& src_cloud_region,
                           const std::string& dest_cloud_storage,
                           const std::string& dest_cloud_object_prefix,
+                          const std::string& dest_cloud_region,
                           const CloudEnvOptions& env_options,
                           std::shared_ptr<Logger> info_log, CloudEnv** cenv);
 
@@ -240,8 +242,10 @@ class AwsEnv : public CloudEnvImpl {
   //
   explicit AwsEnv(Env* underlying_env, const std::string& src_bucket_prefix,
                   const std::string& src_object_prefix,
+                  const std::string& src_bucket_region,
                   const std::string& dest_bucket_prefix,
                   const std::string& dest_object_prefix,
+                  const std::string& dest_bucket_region,
                   const CloudEnvOptions& cloud_options,
                   std::shared_ptr<Logger> info_log = nullptr);
 
@@ -250,8 +254,10 @@ class AwsEnv : public CloudEnvImpl {
 
   std::string src_bucket_prefix_;
   std::string src_object_prefix_;
+  std::string src_bucket_region_;
   std::string dest_bucket_prefix_;
   std::string dest_object_prefix_;
+  std::string dest_bucket_region_;
 
   Status create_bucket_status_;
 
@@ -483,8 +489,10 @@ class AwsEnv : public CloudEnvImpl {
 
   static Status NewAwsEnv(Env* env, const std::string& src_cloud_storage,
                           const std::string& src_cloud_object_prefix,
+                          const std::string& src_cloud_region,
                           const std::string& dest_cloud_storage,
                           const std::string& dest_cloud_object_prefix,
+                          const std::string& dest_cloud_region,
                           const CloudEnvOptions& cloud_options,
                           std::shared_ptr<Logger> info_log, CloudEnv** cenv) {
     return s3_notsup;
