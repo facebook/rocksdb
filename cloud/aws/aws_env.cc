@@ -1198,7 +1198,7 @@ Status AwsEnv::GetPathForDbid(const std::string& bucket_prefix,
           bucket.c_str(), dbid.c_str(), errmsg.c_str());
       return Status::NotFound(dbid, errmsg.c_str());
     }
-    Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
+    Log(InfoLogLevel::ERROR_LEVEL, info_log_,
         "[s3] %s GetPathForDbid error dbid %s %s", bucket.c_str(), dbid.c_str(),
         errmsg.c_str());
     return Status::IOError(dbid, errmsg.c_str());
@@ -1217,7 +1217,7 @@ Status AwsEnv::GetPathForDbid(const std::string& bucket_prefix,
   } else {
     st = Status::NotFound("GetPathForDbid");
   }
-  Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
+  Log(InfoLogLevel::INFO_LEVEL, info_log_,
       "[s3] %s GetPathForDbid dbid %s %s", bucket.c_str(), dbid.c_str(),
       st.ToString().c_str());
   return st;

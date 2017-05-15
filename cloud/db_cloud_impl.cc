@@ -156,7 +156,7 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
                                           const Options& options,
                                           const std::string& local_dir,
                                           bool* do_reinit) {
-  Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+  Log(InfoLogLevel::INFO_LEVEL, options.info_log,
       "[db_cloud_impl] NeedsReinitialization: "
       "checking local dir %s src bucket %s src path %s "
       "dest bucket %s dest path %s",
@@ -166,7 +166,10 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
 
   // If no buckets are specified, then we cannot reinit anyways
   if (cenv->GetSrcBucketPrefix().empty() &&
-      cenv->GetSrcBucketPrefix().empty()) {
+      cenv->GetDestBucketPrefix().empty()) {
+    Log(InfoLogLevel::INFO_LEVEL, options.info_log,
+        "[db_cloud_impl] NeedsReinitialization: "
+        "Both src and dest buckets are empty");
     *do_reinit = false;
     return Status::OK();
   }
@@ -183,6 +186,10 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
 
   // If directory does not exist, then re-initialize
   if (!st.ok()) {
+    Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
+        "[db_cloud_impl] NeedsReinitialization: "
+        "local dir %s does not exist",
+        local_dir.c_str());
     return Status::OK();
   }
 
@@ -190,9 +197,9 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
   std::string idfilename = local_dir + "/IDENTITY";
   st = env->FileExists(idfilename);
   if (!st.ok()) {
-    Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+    Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
         "[db_cloud_impl] NeedsReinitialization: "
-        "local dir %s does not exist",
+        "local id %s does not exist",
         local_dir.c_str());
     return Status::OK();
   }
@@ -200,7 +207,7 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
   std::string local_dbid;
   st = ReadFileIntoString(env, idfilename, &local_dbid);
   if (!st.ok()) {
-    Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+    Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
         "[db_cloud_impl] NeedsReinitialization: "
         "local dir %s unable to read local dbid",
         local_dir.c_str());
@@ -218,13 +225,13 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
   if (!src_bucket.empty()) {
     st = cenv->GetPathForDbid(src_bucket, local_dbid, &src_object_path);
     if (!st.ok() && !st.IsNotFound()) {
-      Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+      Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
           "[db_cloud_impl] NeedsReinitialization: "
           "Local dbid is %s but unable to find src dbid",
           local_dbid.c_str());
       return Status::OK();
     }
-    Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+    Log(InfoLogLevel::INFO_LEVEL, options.info_log,
         "[db_cloud_impl] NeedsReinitialization: "
         "Local dbid is %s and src object path in registry is '%s'",
         local_dbid.c_str(), src_object_path.c_str());
@@ -237,7 +244,7 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
       // If the registered source path does not match the one specified in
       // our env, then fail the OpenDB  request.
       if (src_object_path != src_specified_path) {
-        Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+        Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
             "[db_cloud_impl] NeedsReinitialization: "
             "Local dbid %s src path specified in env is %s "
             " but src path in registry is %s",
@@ -247,7 +254,7 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
             "[db_cloud_impl] NeedsReinitialization: bad src path");
       }
     }
-    Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+    Log(InfoLogLevel::INFO_LEVEL, options.info_log,
         "[db_cloud_impl] NeedsReinitialization: "
         "Local dbid %d configured path %s matches the src dbid registry",
         local_dbid.c_str(), src_object_path.c_str());
@@ -259,13 +266,13 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
   if (!dest_bucket.empty()) {
     st = cenv->GetPathForDbid(dest_bucket, local_dbid, &dest_object_path);
     if (!st.ok() && !st.IsNotFound()) {
-      Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+      Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
           "[db_cloud_impl] NeedsReinitialization: "
           "Local dbid is %s but unable to find dest dbid",
           local_dbid.c_str());
       return Status::OK();
     }
-    Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+    Log(InfoLogLevel::INFO_LEVEL, options.info_log,
         "[db_cloud_impl] NeedsReinitialization: "
         "Local dbid is %s and dest object path in registry is '%s'",
         local_dbid.c_str(), dest_object_path.c_str());
@@ -278,7 +285,7 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
       // If the registered dest path does not match the one specified in
       // our env, then fail the OpenDB request.
       if (dest_object_path != dest_specified_path) {
-        Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+        Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
             "[db_cloud_impl] NeedsReinitialization: "
             "Local dbid %s dest path specified in env is %s "
             " but dest path in registry is %s",
@@ -288,7 +295,7 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
             "[db_cloud_impl] NeedsReinitialization: bad dest path");
       }
     }
-    Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+    Log(InfoLogLevel::INFO_LEVEL, options.info_log,
         "[db_cloud_impl] NeedsReinitialization: "
         "Local dbid %d configured path %s matches the dest dbid registry",
         local_dbid.c_str(), dest_object_path.c_str());
@@ -297,13 +304,13 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
   if (!src_dbid.empty()) {
     size_t pos = local_dbid.find(src_dbid);
     if (pos == std::string::npos) {
-      Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+      Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
           "[db_cloud_impl] NeedsReinitialization: "
           "dbid %s in src bucket %s is not a prefix of local dbid %s",
           src_dbid.c_str(), src_bucket.c_str(), local_dbid.c_str());
       return Status::OK();
     }
-    Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+    Log(InfoLogLevel::INFO_LEVEL, options.info_log,
         "[db_cloud_impl] NeedsReinitialization: "
         "dbid %s in src bucket %s is a prefix of local dbid %s",
         src_dbid.c_str(), src_bucket.c_str(), local_dbid.c_str());
@@ -311,13 +318,13 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
     // If the local dbid is an exact match with the src dbid, then ensure
     // that we cannot run in a 'clone' mode.
     if (local_dbid == src_dbid) {
-      Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+      Log(InfoLogLevel::INFO_LEVEL, options.info_log,
           "[db_cloud_impl] NeedsReinitialization: "
           "dbid %s in src bucket %s is same as local dbid",
           src_dbid.c_str(), src_bucket.c_str());
 
       if (!dest_bucket.empty() && src_bucket != dest_bucket) {
-        Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+        Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
             "[db_cloud_impl] NeedsReinitialization: "
             "local dbid %s in same as src dbid but clone mode specified",
             local_dbid.c_str());
@@ -330,13 +337,13 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
   if (!dest_dbid.empty()) {
     size_t pos = local_dbid.find(dest_dbid);
     if (pos == std::string::npos) {
-      Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+      Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
           "[db_cloud_impl] NeedsReinitialization: "
           "dbid %s in dest bucket %s is not a prefix of local dbid %s",
           dest_dbid.c_str(), dest_bucket.c_str(), local_dbid.c_str());
       return Status::OK();
     }
-    Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+    Log(InfoLogLevel::INFO_LEVEL, options.info_log,
         "[db_cloud_impl] NeedsReinitialization: "
         "dbid %s in dest bucket %s is a prefix of local dbid %s",
         dest_dbid.c_str(), dest_bucket.c_str(), local_dbid.c_str());
@@ -351,7 +358,7 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
           dest_dbid.c_str(), dest_bucket.c_str());
 
       if (!src_bucket.empty() && src_bucket != dest_bucket) {
-        Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+        Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
             "[db_cloud_impl] NeedsReinitialization: "
             "local dbid %s in same as dest dbid but clone mode specified",
             local_dbid.c_str());
@@ -361,7 +368,7 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
   }
   // We found a local dbid but we did not find this dbid mapping in the bucket.
   if (src_object_path.empty() && dest_object_path.empty()) {
-    Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+    Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
         "[db_cloud_impl] NeedsReinitialization: "
         "local dbid %s does not have a mapping in src bucket "
         "%s or dest bucket %s",
@@ -374,7 +381,7 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
   std::string manifest_name;
   st = ReadFileIntoString(env, local_dir + "/CURRENT", &manifest_name);
   if (!st.ok()) {
-    Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+    Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
         "[db_cloud_impl] NeedsReinitialization: "
         "Unable to read CURRENT file in local dir %s. %s",
         local_dir.c_str(), st.ToString().c_str());
@@ -382,18 +389,18 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
   }
   manifest_name = rtrim_if(trim(manifest_name), '/');
 
-  // Check to see that we have a non-zero MANIFEST xxx
+  // Check to see that we have a non-zero MANIFEST
   uint64_t size = 0;
   std::string mname = local_dir + "/" + manifest_name;
   st = env->GetFileSize(mname, &size);
   if (!st.ok() || size == 0) {
-    Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+    Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
         "[db_cloud_impl] NeedsReinitialization: "
         "Unable to read MANIFEST file '%s' in local dir %s. %s",
         mname.c_str(), local_dir.c_str(), st.ToString().c_str());
     return Status::OK();
   }
-  Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+  Log(InfoLogLevel::INFO_LEVEL, options.info_log,
       "[db_cloud_impl] NeedsReinitialization: "
       "Valid manifest file %s in local dir %s",
       manifest_name.c_str(), local_dir.c_str());
@@ -428,19 +435,19 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
   Status st =
       DBCloudImpl::NeedsReinitialization(cenv, options, local_name, &do_reinit);
   if (!st.ok()) {
-    Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+    Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
         "[db_cloud_impl] SanitizeDirectory error inspecting dir %s %s",
         local_name.c_str(), st.ToString().c_str());
     return st;
   }
 
   if (!do_reinit) {
-    Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+    Log(InfoLogLevel::INFO_LEVEL, options.info_log,
         "[db_cloud_impl] SanitizeDirectory local directory %s is good",
         local_name.c_str());
     return Status::OK();
   }
-  Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+  Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
       "[db_cloud_impl] SanitizeDirectory local directory %s cleanup needed",
       local_name.c_str());
 
@@ -462,7 +469,7 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
     if (!st.ok()) {
       return st;
     }
-    Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+    Log(InfoLogLevel::INFO_LEVEL, options.info_log,
         "[db_cloud_impl] SanitizeDirectory cleaned-up: '%s'", pathname.c_str());
   }
 
@@ -525,12 +532,12 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
     st = DBCloudImpl::CopyFile(cenv, env, cenv->GetSrcBucketPrefix(), cloudfile,
                                localfile);
     if (!st.ok()) {
-      Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+      Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
           "[db_cloud_impl] Unable to download MANIFEST file from "
           "bucket %s. %s",
           cenv->GetSrcBucketPrefix().c_str(), st.ToString().c_str());
     } else {
-      Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+      Log(InfoLogLevel::INFO_LEVEL, options.info_log,
           "[db_cloud_impl] Download MANIFEST file from "
           "src bucket %s. %s",
           cenv->GetSrcBucketPrefix().c_str(), st.ToString().c_str());
@@ -542,13 +549,12 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
     st = DBCloudImpl::CopyFile(cenv, env, cenv->GetSrcBucketPrefix(), cloudfile,
                                localfile);
     if (!st.ok()) {
-      Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+      Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
           "[db_cloud_impl] Unable to download IDENTITY file from "
           "bucket %s. %s",
           cenv->GetSrcBucketPrefix().c_str(), st.ToString().c_str());
     } else {
-      Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
-          "[db_cloud_impl] Download IDENTITY file from "
+      Log(InfoLogLevel::INFO_LEVEL, options.info_log, "[db_cloud_impl] Download IDENTITY file from "
           "src bucket %s. %s",
           cenv->GetSrcBucketPrefix().c_str(), st.ToString().c_str());
     }
@@ -564,7 +570,7 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
     st = env->RenameFile(local_name + "/IDENTITY.dest",
                          local_name + "/IDENTITY");
     if (!st.ok()) {
-      Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+      Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
           "[db_cloud_impl] Unable to rename IDENTITY.dest %s",
           st.ToString().c_str());
       return st;
@@ -572,26 +578,26 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
     st = env->RenameFile(local_name + "/MANIFEST.dest",
                          local_name + "/MANIFEST-000001");
     if (!st.ok()) {
-      Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+      Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
           "[db_cloud_impl] Unable to rename MANIFEST.dest %s",
           st.ToString().c_str());
       return st;
     }
     st = env->DeleteFile(local_name + "/IDENTITY.src");
     if (!st.ok()) {
-      Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+      Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
           "[db_cloud_impl] Unable to delete IDENTITY.src %s",
           st.ToString().c_str());
     }
     st = env->DeleteFile(local_name + "/MANIFEST.src");
     if (!st.ok()) {
-      Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+      Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
           "[db_cloud_impl] Unable to delete MANIFEST.src %s",
           st.ToString().c_str());
     }
   } else if (env->FileExists(local_name + "/IDENTITY.src").ok() &&
              env->FileExists(local_name + "/MANIFEST.src").ok()) {
-    Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+    Log(InfoLogLevel::INFO_LEVEL, options.info_log,
         "[db_cloud_impl] Downloaded IDENTITY and MANIFEST "
         "from src bucket are potential candidates");
 
@@ -601,7 +607,7 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
     std::string src_dbid;
     st = ReadFileToString(env, local_name + "/IDENTITY.src", &src_dbid);
     if (!st.ok()) {
-      Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+      Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
           "[db_cloud_impl] Unable to read IDENTITY.src %s",
           st.ToString().c_str());
       return st;
@@ -623,7 +629,7 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
       st = env->RenameFile(local_name + "/IDENTITY.src",
                            local_name + "/IDENTITY");
       if (!st.ok()) {
-        Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+        Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
             "[db_cloud_impl] Unable to rename IDENTITY.src %s",
             st.ToString().c_str());
         return st;
@@ -639,14 +645,14 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
         st = env->NewWritableFile(local_name + "/IDENTITY.tmp", &destfile,
                                   soptions);
         if (!st.ok()) {
-          Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+          Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
               "[db_cloud_impl] Unable to create local IDENTITY file to %s %s",
               local_name.c_str(), st.ToString().c_str());
           return st;
         }
         st = destfile->Append(Slice(new_dbid));
         if (!st.ok()) {
-          Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+          Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
               "[db_cloud_impl] Unable to write new dbid to local IDENTITY file "
               "%s %s",
               local_name.c_str(), st.ToString().c_str());
@@ -662,7 +668,7 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
       st = cenv->RenameFile(local_name + "/IDENTITY.tmp",
                             local_name + "/IDENTITY");
       if (!st.ok()) {
-        Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+        Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
             "[db_cloud_impl] Unable to rename newly created IDENTITY.tmp "
             " to IDENTITY. %S",
             st.ToString().c_str());
@@ -672,7 +678,7 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
       // delete unused ID file
       st = env->DeleteFile(local_name + "/IDENTITY.src");
       if (!st.ok()) {
-        Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+        Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
             "[db_cloud_impl] Unable to delete unneeded IDENTITY.src %s",
             st.ToString().c_str());
       }
@@ -681,7 +687,7 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
     st = env->RenameFile(local_name + "/MANIFEST.src",
                          local_name + "/MANIFEST-000001");
     if (!st.ok()) {
-      Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+      Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
           "[db_cloud_impl] Unable to rename IDENTITY.src %s",
           st.ToString().c_str());
       return st;
@@ -689,7 +695,7 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
   } else {
     // There isn't a valid db in either the src or dest bucket.
     // Return with a success code so that a new DB can be created.
-    Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+    Log(InfoLogLevel::INFO_LEVEL, options.info_log,
         "[db_cloud_impl] No valid dbs in src bucket %s src path %s "
         "or dest bucket %s dest path %s",
         cenv->GetSrcBucketPrefix().c_str(), cenv->GetSrcObjectPrefix().c_str(),
@@ -704,7 +710,7 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
     st =
         env->NewWritableFile(local_name + "/" + "CURRENT", &destfile, soptions);
     if (!st.ok()) {
-      Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+      Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
           "[db_cloud_impl] Unable to create local CURRENT file to %s %s",
           local_name.c_str(), st.ToString().c_str());
       return st;
@@ -713,7 +719,7 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
         "MANIFEST-000001\n";  // CURRENT file needs a newline
     st = destfile->Append(Slice(manifestfile));
     if (!st.ok()) {
-      Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+      Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
           "[db_cloud_impl] Unable to write local CURRENT file to %s %s",
           local_name.c_str(), st.ToString().c_str());
       return st;
