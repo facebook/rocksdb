@@ -109,14 +109,6 @@ class WriteThread {
 
     Iterator begin() const { return Iterator(leader, last_writer); }
     Iterator end() const { return Iterator(nullptr, nullptr); }
-
-    autovector<Writer*> ToVector() {
-      autovector<Writer*> v;
-      for (auto w : *this) {
-        v.push_back(w);
-      }
-      return v;
-    }
   };
 
   // Information kept for every waiting writer.

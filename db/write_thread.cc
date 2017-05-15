@@ -206,15 +206,18 @@ bool WriteThread::LinkOne(Writer* w, std::atomic<Writer*>* newest_writer) {
 bool WriteThread::LinkGroup(WriteGroup& write_group,
                             std::atomic<Writer*>* newest_writer) {
   assert(newest_writer != nullptr);
-  autovector<Writer*> writers = write_group.ToVector();
   Writer* leader = write_group.leader;
   Writer* last_writer = write_group.last_writer;
-  for (auto w : writers) {
-    assert(w == leader || w->link_older != nullptr);
+  Writer* w = last_writer;
+  while(true) {
     // Unset link_newer pointers to make sure when we call
     // CreateMissingNewerLinks later it create all missing links.
     w->link_newer = nullptr;
     w->write_group = nullptr;
+    if (w == leader) {
+      break;
+    }
+    w = w->link_older;
   }
   Writer* newest = newest_writer->load(std::memory_order_relaxed);
   while (true) {
@@ -444,17 +447,21 @@ void WriteThread::ExitAsMemTableWriter(Writer* self, WriteGroup& write_group) {
     next_leader->link_older = nullptr;
     SetState(next_leader, STATE_MEMTABLE_WRITER_LEADER);
   }
-  auto v = write_group.ToVector();
-  for (Writer* w : v) {
+  Writer* w = leader;
+  while (true) {
     if (!write_group.status.ok()) {
       w->status = write_group.status;
     }
-    // Leader has to wait for the operation finish, because it owns the write
-    // group.
+    Writer* next = w->link_newer;
     if (w != leader) {
       SetState(w, STATE_COMPLETED);
     }
+    if (w == last_writer) {
+      break;
+    }
+    w = next;
   }
+  // Note that leader has to exit last, since it owns the write group.
   SetState(leader, STATE_COMPLETED);
 }
 
