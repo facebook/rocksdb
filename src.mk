@@ -319,7 +319,6 @@ MAIN_SOURCES =                                                    \
   util/thread_list_test.cc                                              \
   util/thread_local_test.cc                                             \
   utilities/backupable/backupable_db_test.cc                            \
-  utilities/blob_db/blob_db_test.cc                                     \
   utilities/checkpoint/checkpoint_test.cc                               \
   utilities/column_aware_encoding_exp.cc                                \
   utilities/column_aware_encoding_test.cc                               \

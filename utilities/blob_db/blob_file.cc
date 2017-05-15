@@ -6,6 +6,7 @@
 
 #include <chrono>
 #include <cinttypes>
+#include <cstdio>
 #include <memory>
 #include "utilities/blob_db/blob_db_impl.h"
 
