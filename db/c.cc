@@ -139,11 +139,21 @@ struct rocksdb_ratelimiter_t     { RateLimiter*      rep; };
 struct rocksdb_pinnableslice_t {
   PinnableSlice rep;
 };
-struct rocksdb_transactiondb_options_t  { TransactionDBOptions  rep; };
-struct rocksdb_transactiondb_t   { TransactionDB*    rep; };
-struct rocksdb_transaction_options_t  { TransactionOptions  rep; };
-struct rocksdb_transaction_t     { Transaction*      rep; };
-struct rocksdb_checkpoint_t      { Checkpoint*       rep; };
+struct rocksdb_transactiondb_options_t {
+  TransactionDBOptions rep;
+};
+struct rocksdb_transactiondb_t {
+  TransactionDB* rep;
+};
+struct rocksdb_transaction_options_t {
+  TransactionOptions rep;
+};
+struct rocksdb_transaction_t {
+  Transaction* rep;
+};
+struct rocksdb_checkpoint_t {
+  Checkpoint* rep;
+};
 
 struct rocksdb_compactionfiltercontext_t {
   CompactionFilter::Context rep;
@@ -556,9 +566,8 @@ void rocksdb_backup_engine_close(rocksdb_backup_engine_t* be) {
   delete be;
 }
 
-rocksdb_checkpoint_t* rocksdb_checkpoint_object_create(
-    rocksdb_t* db,
-    char** errptr) {
+rocksdb_checkpoint_t* rocksdb_checkpoint_object_create(rocksdb_t* db,
+                                                       char** errptr) {
   Checkpoint* checkpoint;
   if (SaveError(errptr, Checkpoint::Create(db->rep, &checkpoint))) {
     return nullptr;
@@ -568,16 +577,16 @@ rocksdb_checkpoint_t* rocksdb_checkpoint_object_create(
   return result;
 }
 
-void rocksdb_checkpoint_create(
-    rocksdb_checkpoint_t* checkpoint,
-    const char* checkpoint_dir,
-    uint64_t log_size_for_flush,
-    char** errptr) {
-  SaveError(errptr, checkpoint->rep->CreateCheckpoint(std::string(checkpoint_dir), log_size_for_flush));
+void rocksdb_checkpoint_create(rocksdb_checkpoint_t* checkpoint,
+                               const char* checkpoint_dir,
+                               uint64_t log_size_for_flush, char** errptr) {
+  SaveError(errptr, checkpoint->rep->CreateCheckpoint(
+                        std::string(checkpoint_dir), log_size_for_flush));
 }
 
 void rocksdb_checkpoint_object_destroy(rocksdb_checkpoint_t* checkpoint) {
   delete checkpoint->rep;
+  delete checkpoint;
 }
 
 void rocksdb_close(rocksdb_t* db) {
@@ -3199,11 +3208,11 @@ void rocksdb_transaction_options_set_max_write_batch_size(
 
 rocksdb_transactiondb_t* rocksdb_transactiondb_open(
     const rocksdb_options_t* options,
-    const rocksdb_transactiondb_options_t* txn_db_options,
-    const char* name,
-    char** errptr){
+    const rocksdb_transactiondb_options_t* txn_db_options, const char* name,
+    char** errptr) {
   TransactionDB* txn_db;
-  if (SaveError(errptr, TransactionDB::Open(options->rep, txn_db_options->rep, std::string(name), &txn_db))) {
+  if (SaveError(errptr, TransactionDB::Open(options->rep, txn_db_options->rep,
+                                            std::string(name), &txn_db))) {
     return nullptr;
   }
   rocksdb_transactiondb_t* result = new rocksdb_transactiondb_t;
@@ -3219,8 +3228,7 @@ const rocksdb_snapshot_t* rocksdb_transactiondb_create_snapshot(
 }
 
 void rocksdb_transactiondb_release_snapshot(
-    rocksdb_transactiondb_t* txn_db,
-    const rocksdb_snapshot_t* snapshot) {
+    rocksdb_transactiondb_t* txn_db, const rocksdb_snapshot_t* snapshot) {
   txn_db->rep->ReleaseSnapshot(snapshot->rep);
   delete snapshot;
 }
@@ -3232,20 +3240,33 @@ rocksdb_transaction_t* rocksdb_transaction_begin(
     rocksdb_transaction_t* old_txn) {
   rocksdb_transaction_t* result = new rocksdb_transaction_t;
   if (old_txn == nullptr) {
-    result->rep = txn_db->rep->BeginTransaction(write_options->rep, txn_options->rep, nullptr);
-  } else { 
-    result->rep = txn_db->rep->BeginTransaction(write_options->rep, txn_options->rep, old_txn->rep);
+    result->rep = txn_db->rep->BeginTransaction(write_options->rep,
+                                                txn_options->rep, nullptr);
+  } else {
+    result->rep = txn_db->rep->BeginTransaction(write_options->rep,
+                                                txn_options->rep, old_txn->rep);
   }
   return result;
 }
 
+void rocksdb_transaction_commit(rocksdb_transaction_t* txn, char** errptr) {
+  SaveError(errptr, txn->rep->Commit());
+}
+
+void rocksdb_transaction_rollback(rocksdb_transaction_t* txn, char** errptr) {
+  SaveError(errptr, txn->rep->Rollback());
+}
+
+void rocksdb_transaction_destroy(rocksdb_transaction_t* txn) {
+  delete txn->rep;
+  delete txn;
+}
+
 //Read a key inside a transaction
-char* rocksdb_transaction_get(
-    rocksdb_transaction_t* txn,
-    const rocksdb_readoptions_t* options,
-    const char* key, size_t klen,
-    size_t* vlen,
-    char** errptr) {
+char* rocksdb_transaction_get(rocksdb_transaction_t* txn,
+                              const rocksdb_readoptions_t* options,
+                              const char* key, size_t klen, size_t* vlen,
+                              char** errptr) {
   char* result = nullptr;
   std::string tmp;
   Status s = txn->rep->Get(options->rep, Slice(key, klen), &tmp);
@@ -3284,60 +3305,40 @@ char* rocksdb_transactiondb_get(
 }
 
 // Put a key inside a transaction
-void rocksdb_transaction_put(
-    rocksdb_transaction_t* txn,
-    const char* key, size_t klen,
-    const char* val, size_t vlen,
-    char** errptr) {
+void rocksdb_transaction_put(rocksdb_transaction_t* txn, const char* key,
+                             size_t klen, const char* val, size_t vlen,
+                             char** errptr) {
   SaveError(errptr, txn->rep->Put(Slice(key, klen), Slice(val, vlen)));
 }
 
 //Put a key outside a transaction
-void rocksdb_transactiondb_put(
-    rocksdb_transactiondb_t* txn_db,
-    const rocksdb_writeoptions_t* options,
-    const char* key, size_t klen,
-    const char* val, size_t vlen,
-    char** errptr) {
-  SaveError(errptr, txn_db->rep->Put(options->rep, Slice(key, klen), Slice(val, vlen)));
+void rocksdb_transactiondb_put(rocksdb_transactiondb_t* txn_db,
+                               const rocksdb_writeoptions_t* options,
+                               const char* key, size_t klen, const char* val,
+                               size_t vlen, char** errptr) {
+  SaveError(errptr,
+            txn_db->rep->Put(options->rep, Slice(key, klen), Slice(val, vlen)));
 }
 
 // Delete a key inside a transaction
-void rocksdb_transaction_delete(
-    rocksdb_transaction_t* txn,
-    const char* key, size_t klen,
-    char** errptr) {
+void rocksdb_transaction_delete(rocksdb_transaction_t* txn, const char* key,
+                                size_t klen, char** errptr) {
   SaveError(errptr, txn->rep->Delete(Slice(key, klen)));
 }
 
 // Delete a key outside a transaction
-void rocksdb_transactiondb_delete(
-    rocksdb_transactiondb_t* txn_db,
-    const rocksdb_writeoptions_t* options,
-    const char* key, size_t klen,
-    char** errptr) {
+void rocksdb_transactiondb_delete(rocksdb_transactiondb_t* txn_db,
+                                  const rocksdb_writeoptions_t* options,
+                                  const char* key, size_t klen, char** errptr) {
   SaveError(errptr, txn_db->rep->Delete(options->rep, Slice(key, klen)));
 }
 
 // Create an iterator inside a transaction
 rocksdb_iterator_t* rocksdb_transaction_create_iterator(
-    rocksdb_transaction_t* txn,
-    const rocksdb_readoptions_t* options) {
+    rocksdb_transaction_t* txn, const rocksdb_readoptions_t* options) {
   rocksdb_iterator_t* result = new rocksdb_iterator_t;
   result->rep = txn->rep->GetIterator(options->rep);
   return result;
-}
-
-void rocksdb_transaction_commit(
-    rocksdb_transaction_t* txn,
-    char** errptr) {
-  SaveError(errptr, txn->rep->Commit());
-}
-
-void rocksdb_transaction_rollback(
-    rocksdb_transaction_t* txn,
-    char** errptr) {
-  SaveError(errptr, txn->rep->Rollback());
 }
 
 void rocksdb_transactiondb_close(rocksdb_transactiondb_t* txn_db) {
@@ -3346,8 +3347,7 @@ void rocksdb_transactiondb_close(rocksdb_transactiondb_t* txn_db) {
 }
 
 rocksdb_checkpoint_t* rocksdb_transactiondb_checkpoint_object_create(
-    rocksdb_transactiondb_t* txn_db,
-    char** errptr) {
+    rocksdb_transactiondb_t* txn_db, char** errptr) {
   Checkpoint* checkpoint;
   if (SaveError(errptr, Checkpoint::Create(txn_db->rep, &checkpoint))) {
     return nullptr;
