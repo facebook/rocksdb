@@ -4,9 +4,6 @@ language: cpp
 os:
   - linux
   - osx
-compiler:
-  - clang
-  - gcc
 jdk:
   - oraclejdk7
 cache:
@@ -15,8 +12,7 @@ cache:
 
 addons:
    apt:
-      sources: ['ubuntu-toolchain-r-test', 'llvm-toolchain-trusty-4.0']
-      packages: ['clang-4.0' , 'g++-6', 'zlib1g-dev', 'libbz2-dev', 'libsnappy-dev', 'curl', 'libgflags-dev', 'mingw-w64']
+      packages: ['zlib1g-dev', 'libbz2-dev', 'libsnappy-dev', 'curl', 'libgflags-dev', 'mingw-w64']
 env:
   - TEST_GROUP=platform_dependent # 16-18 minutes
   - TEST_GROUP=1 # 33-35 minutes
@@ -33,23 +29,23 @@ env:
 matrix:
   exclude:
   - os: osx
-    compiler: gcc
-  - os: osx
     env: TEST_GROUP=1
   - os: osx
     env: TEST_GROUP=2
   - os : osx
     env: JOB_NAME=cmake-mingw
-  - os: linux
-    env: JOB_NAME=cmake-mingw
-    compiler: clang
+
+# https://docs.travis-ci.com/user/caching/#ccache-cache
+install:
+  - if [ "${TRAVIS_OS_NAME}" == osx ]; then
+      brew install ccache;
+      PATH=$PATH:/usr/local/opt/ccache/libexec;
+    fi
 
 before_script:
-  - if [ "${TRAVIS_OS_NAME}" == 'linux' && "${CXX}" == 'clang++' ]; then CXX=clang++-4.0; fi
-  # test one linux g++ build with g++-6
-  - if [ "${TRAVIS_OS_NAME}" == 'linux' && "${CXX}" == 'g++' && "${JOB_NAME}" == 'platform_dependent' ]; then CXX=g++-6; fi
-  # Limit the maximum number of open file descriptors to 8192
-  - ulimit -n 8192 || true
+  # Increase the maximum number of open file descriptors, since some tests use
+  # more FDs than the default limit.
+  - ulimit -n 8192
 
 script:
   - ${CXX} --version
