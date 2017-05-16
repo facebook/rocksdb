@@ -847,7 +847,8 @@ class MemTableInserter : public WriteBatch::Handler {
       new (&mem_post_info_map_) MemPostInfoMap();
       post_info_created_ = true;
     }
-    return *reinterpret_cast<MemPostInfoMap*>(&mem_post_info_map_);
+    MemPostInfoMap* pmem_post_info_map = reinterpret_cast<MemPostInfoMap*>(&mem_post_info_map_);
+    return *pmem_post_info_map;
   }
 
 public:
@@ -874,8 +875,8 @@ public:
 
   ~MemTableInserter() {
     if (post_info_created_) {
-      reinterpret_cast<MemPostInfoMap*>
-        (&mem_post_info_map_)->~MemPostInfoMap();
+      MemPostInfoMap* pmem_post_info_map = reinterpret_cast<MemPostInfoMap*>(&mem_post_info_map_);
+      pmem_post_info_map->~MemPostInfoMap();
     }
   }
 
