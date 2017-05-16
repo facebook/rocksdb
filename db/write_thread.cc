@@ -512,20 +512,6 @@ void WriteThread::ExitAsBatchGroupLeader(WriteGroup& write_group,
   assert(leader->link_older == nullptr);
 
   if (enable_pipelined_write_) {
-    Writer* next_leader = nullptr;
-    // We attempt to put a dummy writer to the head of newest_writer_ list
-    // with a CAS operation, to block the next batch group leader.
-    // If the CAS operation fail, we know the next leader is in the list at
-    // this point. We simply don't wake it up until we are ready.
-    Writer dummy;
-    Writer* newest_writer = last_writer;
-    bool has_dummy =
-        newest_writer_.compare_exchange_strong(newest_writer, &dummy);
-    if (!has_dummy) {
-      CreateMissingNewerLinks(newest_writer);
-      next_leader = last_writer->link_newer;
-      assert(next_leader != nullptr);
-    }
     // Notify writers don't write to memtable to exit.
     for (Writer* w = last_writer; w != leader;) {
       Writer* next = w->link_older;
@@ -545,18 +531,14 @@ void WriteThread::ExitAsBatchGroupLeader(WriteGroup& write_group,
         SetState(write_group.leader, STATE_MEMTABLE_WRITER_LEADER);
       }
     }
-    // Remove the dummy writer. If the CAS operation fail, the next leader is
-    // next to the dummy writer in the list.
-    if (has_dummy) {
-      newest_writer = &dummy;
-      if (!newest_writer_.compare_exchange_strong(newest_writer, nullptr)) {
-        CreateMissingNewerLinks(newest_writer);
-        next_leader = dummy.link_newer;
+    // Reset newest_writer_ and wake up the next leader.
+    Writer* newest_writer = last_writer;
+    if (!newest_writer_.compare_exchange_strong(newest_writer, nullptr)) {
+      Writer* next_leader = newest_writer;
+      while (next_leader->link_older != last_writer) {
+        next_leader = next_leader->link_older;
         assert(next_leader != nullptr);
       }
-    }
-    // Wake up the next leader.
-    if (next_leader != nullptr) {
       next_leader->link_older = nullptr;
       SetState(next_leader, STATE_GROUP_LEADER);
     }
