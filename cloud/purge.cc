@@ -16,15 +16,16 @@ namespace rocksdb {
 void CloudEnvImpl::Purger() {
   uint64_t last_run = 0;
   // Run purge once every 10 minutes
+  uint64_t period = 10 * 60 * 1000000L;
 
   while (purger_is_running_) {
     uint64_t now = base_env_->NowMicros();
-    if (last_run + 600000 < now) {
+    if (last_run + period < now) {
       last_run = now;
       PurgeObsoleteDbid();
       PurgeObsoleteFiles();
     }
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    std::this_thread::sleep_for(std::chrono::seconds(10));
   }
 }
 
