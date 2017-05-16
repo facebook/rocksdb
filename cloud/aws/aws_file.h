@@ -220,7 +220,7 @@ class S3WritableFile : public WritableFile {
  public:
   // create S3 bucket
   static Status CreateBucketInS3(
-      std::shared_ptr<Aws::S3::S3Client> client,
+      std::shared_ptr<AwsS3ClientWrapper> client,
       const std::string& bucket_prefix,
       const Aws::S3::Model::BucketLocationConstraint& location);
 

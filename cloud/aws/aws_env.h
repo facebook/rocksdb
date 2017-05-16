@@ -22,6 +22,37 @@ namespace rocksdb {
 
 class KinesisSystem;
 
+class AwsS3ClientWrapper {
+ public:
+  AwsS3ClientWrapper(
+      std::unique_ptr<Aws::S3::S3Client> client,
+      std::shared_ptr<CloudRequestCallback> cloud_request_callback);
+
+  Aws::S3::Model::ListObjectsOutcome ListObjects(
+      const Aws::S3::Model::ListObjectsRequest& request);
+
+  Aws::S3::Model::CreateBucketOutcome CreateBucket(
+      const Aws::S3::Model::CreateBucketRequest& request);
+
+  Aws::S3::Model::DeleteObjectOutcome DeleteObject(
+      const Aws::S3::Model::DeleteObjectRequest& request);
+
+  Aws::S3::Model::GetObjectOutcome GetObject(
+      const Aws::S3::Model::GetObjectRequest& request);
+
+  Aws::S3::Model::PutObjectOutcome PutObject(
+      const Aws::S3::Model::PutObjectRequest& request);
+
+  Aws::S3::Model::HeadObjectOutcome HeadObject(
+      const Aws::S3::Model::HeadObjectRequest& request);
+
+ private:
+  std::unique_ptr<Aws::S3::S3Client> client_;
+  std::shared_ptr<CloudRequestCallback> cloud_request_callback_;
+
+  class Timer;
+};
+
 //
 // The S3 environment for rocksdb. This class overrides all the
 // file/dir access methods and delegates all other methods to the
@@ -203,7 +234,7 @@ class AwsEnv : public CloudEnvImpl {
   std::shared_ptr<Logger> info_log_;  // informational messages
 
   // The S3 client
-  std::shared_ptr<Aws::S3::S3Client> s3client_;
+  std::shared_ptr<AwsS3ClientWrapper> s3client_;
 
   // The Kinesis client
   std::shared_ptr<Aws::Kinesis::KinesisClient> kinesis_client_;

@@ -4,6 +4,9 @@
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
 
+#include <functional>
+#include <memory>
+
 namespace rocksdb {
 
 enum CloudType : unsigned char {
@@ -21,6 +24,17 @@ class CloudAccessCredentials {
   std::string access_key_id;
   std::string secret_key;
 };
+
+enum class CloudRequestOpType {
+  kReadOp,
+  kWriteOp,
+  kListOp,
+  kCreateOp,
+  kDeleteOp,
+  kInfoOp
+};
+using CloudRequestCallback =
+    std::function<void(CloudRequestOpType, uint64_t, uint64_t, bool)>;
 
 //
 // The cloud environment for rocksdb. It allows configuring the rocksdb
@@ -57,15 +71,23 @@ class CloudEnvOptions {
   // Default:  1 minute
   uint64_t manifest_durable_periodicity_millis;
 
-  CloudEnvOptions(CloudType _cloud_type = CloudType::kAws,
-                  bool _keep_local_sst_files = false,
-                  bool _keep_local_log_files = true,
-                  uint64_t _manifest_durable_periodicity_millis = 60 * 1000)
+  // if non-null, will be called *after* every cloud operation with some basic
+  // information about the operation. Use this to instrument your calls to the
+  // cloud.
+  // parameters: (op, size, latency in microseconds, is_success)
+  std::shared_ptr<CloudRequestCallback> cloud_request_callback;
+
+  CloudEnvOptions(
+      CloudType _cloud_type = CloudType::kAws,
+      bool _keep_local_sst_files = false, bool _keep_local_log_files = true,
+      uint64_t _manifest_durable_periodicity_millis = 60 * 1000,
+      std::shared_ptr<CloudRequestCallback> _cloud_request_callback = nullptr)
       : cloud_type(_cloud_type),
         keep_local_sst_files(_keep_local_sst_files),
         keep_local_log_files(_keep_local_log_files),
         manifest_durable_periodicity_millis(
-            _manifest_durable_periodicity_millis) {
+            _manifest_durable_periodicity_millis),
+        cloud_request_callback(_cloud_request_callback) {
     assert(manifest_durable_periodicity_millis == 0 ||
            keep_local_log_files == true);
   }

@@ -228,7 +228,7 @@ Status S3ReadableFile::GetFileInfo() {
 // Create bucket in S3 if it does not already exist.
 //
 Status S3WritableFile::CreateBucketInS3(
-    std::shared_ptr<Aws::S3::S3Client> client, const std::string& bucket_prefix,
+    std::shared_ptr<AwsS3ClientWrapper> client, const std::string& bucket_prefix,
     const Aws::S3::Model::BucketLocationConstraint& location) {
   // specify region for the bucket
   Aws::S3::Model::CreateBucketConfiguration conf;
