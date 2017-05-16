@@ -88,7 +88,7 @@ AwsEnv::AwsEnv(Env* underlying_env, const std::string& src_bucket_prefix,
       create_bucket_status_ = Status::InvalidArgument(
               "Two different regions not supported");
       Log(InfoLogLevel::ERROR_LEVEL, info_log,
-          "[aws] NewAwsEnv Buckets %s, %s in two different regions %, %s "
+          "[aws] NewAwsEnv Buckets %s, %s in two different regions %s, %s "
           "is not supported",
           src_bucket_prefix_.c_str(), dest_bucket_prefix_.c_str(),
           src_bucket_region_.c_str(), dest_bucket_region_.c_str());
