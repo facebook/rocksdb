@@ -3243,11 +3243,10 @@ rocksdb_transaction_t* rocksdb_transaction_begin(
     result->rep = txn_db->rep->BeginTransaction(write_options->rep,
                                                 txn_options->rep, nullptr);
     return result;
-  } else {
-    old_txn->rep = txn_db->rep->BeginTransaction(write_options->rep,
-                                                txn_options->rep, old_txn->rep);
-   return old_txn;
   }
+  old_txn->rep = txn_db->rep->BeginTransaction(write_options->rep,
+                                                txn_options->rep, old_txn->rep);
+  return old_txn;
 }
 
 void rocksdb_transaction_commit(rocksdb_transaction_t* txn, char** errptr) {
