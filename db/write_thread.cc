@@ -273,12 +273,13 @@ void WriteThread::JoinBatchGroup(Writer* w) {
 
   assert(w->batch != nullptr);
   bool linked_as_leader = LinkOne(w, &newest_writer_);
+  if (linked_as_leader) {
+    SetState(w, STATE_GROUP_LEADER);
+  }
 
   TEST_SYNC_POINT_CALLBACK("WriteThread::JoinBatchGroup:Wait", w);
 
-  if (linked_as_leader) {
-    SetState(w, STATE_GROUP_LEADER);
-  } else {
+  if (!linked_as_leader) {
     /**
      * Wait util:
      * 1) An existing leader pick us as the new leader when it finishes
