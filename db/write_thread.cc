@@ -209,7 +209,7 @@ bool WriteThread::LinkGroup(WriteGroup& write_group,
   Writer* leader = write_group.leader;
   Writer* last_writer = write_group.last_writer;
   Writer* w = last_writer;
-  while(true) {
+  while (true) {
     // Unset link_newer pointers to make sure when we call
     // CreateMissingNewerLinks later it create all missing links.
     w->link_newer = nullptr;

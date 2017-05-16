@@ -141,11 +141,7 @@ class MemTable {
 
   // Returns true if a flush should be scheduled and the caller should
   // be the one to schedule it
-  bool MarkFlushScheduled(bool force) {
-    if (force) {
-      return FLUSH_SCHEDULED !=
-             flush_state_.exchange(FLUSH_SCHEDULED, std::memory_order_relaxed);
-    }
+  bool MarkFlushScheduled() {
     auto before = FLUSH_REQUESTED;
     return flush_state_.compare_exchange_strong(before, FLUSH_SCHEDULED,
                                                 std::memory_order_relaxed,

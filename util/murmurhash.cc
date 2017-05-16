@@ -8,8 +8,7 @@
 /*
   Murmurhash from http://sites.google.com/site/murmurhash/
 
-  All code is released to the public domain. For business purposes, Murmurhash
-  is
+  All code is released to the public domain. For business purposes, Murmurhash is
   under the MIT license.
 */
 #include "murmurhash.h"

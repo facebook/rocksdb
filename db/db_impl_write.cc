@@ -67,8 +67,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   }
 
   if (immutable_db_options_.enable_pipelined_write) {
-    return PipelineWriteImpl(write_options, my_batch, callback, log_used,
-                             log_ref, disable_memtable);
+    return PipelinedWriteImpl(write_options, my_batch, callback, log_used,
+                              log_ref, disable_memtable);
   }
 
   Status status;
@@ -278,10 +278,10 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   return status;
 }
 
-Status DBImpl::PipelineWriteImpl(const WriteOptions& write_options,
-                                 WriteBatch* my_batch, WriteCallback* callback,
-                                 uint64_t* log_used, uint64_t log_ref,
-                                 bool disable_memtable) {
+Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
+                                  WriteBatch* my_batch, WriteCallback* callback,
+                                  uint64_t* log_used, uint64_t log_ref,
+                                  bool disable_memtable) {
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
   StopWatch write_sw(env_, immutable_db_options_.statistics.get(), DB_WRITE);
 

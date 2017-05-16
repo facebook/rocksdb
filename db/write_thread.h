@@ -242,8 +242,6 @@ class WriteThread {
   };
 
   WriteThread(const ImmutableDBOptions& db_options);
-  WriteThread(uint64_t max_yield_usec, uint64_t slow_yield_usec,
-              bool enable_pipelined_write);
 
   virtual ~WriteThread() = default;
 
