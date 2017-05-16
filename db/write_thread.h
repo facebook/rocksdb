@@ -192,7 +192,7 @@ class WriteThread {
     Status FinalStatus() {
       if (!status.ok()) {
         // a non-ok memtable write status takes presidence
-        // assert(callback == nullptr || callback_status.ok());
+        assert(callback == nullptr || callback_status.ok());
         return status;
       } else if (!callback_status.ok()) {
         // if the callback failed then that is the status we want
