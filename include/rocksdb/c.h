@@ -1223,16 +1223,17 @@ extern ROCKSDB_LIBRARY_API void rocksdb_delete_file_in_range_cf(
 // to free memory that was malloc()ed
 extern ROCKSDB_LIBRARY_API void rocksdb_free(void* ptr);
 
-extern rocksdb_pinnableslice_t* rocksdb_get_pinned(
+extern ROCKSDB_LIBRARY_API rocksdb_pinnableslice_t* rocksdb_get_pinned(
     rocksdb_t* db, const rocksdb_readoptions_t* options, const char* key,
     size_t keylen, char** errptr);
-extern rocksdb_pinnableslice_t* rocksdb_get_pinned_cf(
+extern ROCKSDB_LIBRARY_API rocksdb_pinnableslice_t* rocksdb_get_pinned_cf(
     rocksdb_t* db, const rocksdb_readoptions_t* options,
     rocksdb_column_family_handle_t* column_family, const char* key,
     size_t keylen, char** errptr);
-extern void rocksdb_pinnableslice_destroy(rocksdb_pinnableslice_t* v);
-extern const char* rocksdb_pinnableslice_value(const rocksdb_pinnableslice_t* t,
-                                               size_t* vlen);
+extern ROCKSDB_LIBRARY_API void rocksdb_pinnableslice_destroy(
+    rocksdb_pinnableslice_t* v);
+extern ROCKSDB_LIBRARY_API const char* rocksdb_pinnableslice_value(
+    const rocksdb_pinnableslice_t* t, size_t* vlen);
 
 #ifdef __cplusplus
 }  /* end extern "C" */
