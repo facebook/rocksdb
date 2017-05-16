@@ -1911,6 +1911,12 @@ TEST_F(ExternalSSTFileTest, IngestBehind) {
                                                    &true_data));
 
   options.allow_ingest_behind = true;
+  // check that we still can open the DB, as num_levels should be
+  // sanitized to 3
+  options.num_levels = 2;
+  DestroyAndReopen(options);
+
+  options.num_levels = 3;
   DestroyAndReopen(options);
   // Insert 100 -> 200 into the memtable
   for (int i = 100; i <= 200; i++) {
