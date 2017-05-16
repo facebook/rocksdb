@@ -111,6 +111,7 @@ typedef struct rocksdb_envoptions_t      rocksdb_envoptions_t;
 typedef struct rocksdb_ingestexternalfileoptions_t rocksdb_ingestexternalfileoptions_t;
 typedef struct rocksdb_sstfilewriter_t   rocksdb_sstfilewriter_t;
 typedef struct rocksdb_ratelimiter_t     rocksdb_ratelimiter_t;
+typedef struct rocksdb_pinnableslice_t rocksdb_pinnableslice_t;
 
 /* DB operations */
 
@@ -1221,6 +1222,17 @@ extern ROCKSDB_LIBRARY_API void rocksdb_delete_file_in_range_cf(
 // referring to convention (3), this should be used by client
 // to free memory that was malloc()ed
 extern ROCKSDB_LIBRARY_API void rocksdb_free(void* ptr);
+
+extern rocksdb_pinnableslice_t* rocksdb_get_pinned(
+    rocksdb_t* db, const rocksdb_readoptions_t* options, const char* key,
+    size_t keylen, char** errptr);
+extern rocksdb_pinnableslice_t* rocksdb_get_pinned_cf(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, const char* key,
+    size_t keylen, char** errptr);
+extern void rocksdb_pinnableslice_destroy(rocksdb_pinnableslice_t* v);
+extern const char* rocksdb_pinnableslice_value(const rocksdb_pinnableslice_t* t,
+                                               size_t* vlen);
 
 #ifdef __cplusplus
 }  /* end extern "C" */

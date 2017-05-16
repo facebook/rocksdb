@@ -89,6 +89,7 @@ using rocksdb::RestoreOptions;
 using rocksdb::CompactRangeOptions;
 using rocksdb::RateLimiter;
 using rocksdb::NewGenericRateLimiter;
+using rocksdb::PinnableSlice;
 
 using std::shared_ptr;
 
@@ -127,6 +128,9 @@ struct rocksdb_envoptions_t      { EnvOptions        rep; };
 struct rocksdb_ingestexternalfileoptions_t  { IngestExternalFileOptions rep; };
 struct rocksdb_sstfilewriter_t   { SstFileWriter*    rep; };
 struct rocksdb_ratelimiter_t     { RateLimiter*      rep; };
+struct rocksdb_pinnableslice_t {
+  PinnableSlice rep;
+};
 
 struct rocksdb_compactionfiltercontext_t {
   CompactionFilter::Context rep;
@@ -3092,6 +3096,51 @@ void rocksdb_delete_file_in_range_cf(
 
 void rocksdb_free(void* ptr) { free(ptr); }
 
+rocksdb_pinnableslice_t* rocksdb_get_pinned(
+    rocksdb_t* db, const rocksdb_readoptions_t* options, const char* key,
+    size_t keylen, char** errptr) {
+  rocksdb_pinnableslice_t* v = new (rocksdb_pinnableslice_t);
+  Status s = db->rep->Get(options->rep, db->rep->DefaultColumnFamily(),
+                          Slice(key, keylen), &v->rep);
+  if (!s.ok()) {
+    delete (v);
+    if (!s.IsNotFound()) {
+      SaveError(errptr, s);
+    }
+    return NULL;
+  }
+  return v;
+}
+
+rocksdb_pinnableslice_t* rocksdb_get_pinned_cf(
+    rocksdb_t* db, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, const char* key,
+    size_t keylen, char** errptr) {
+  rocksdb_pinnableslice_t* v = new (rocksdb_pinnableslice_t);
+  Status s = db->rep->Get(options->rep, column_family->rep, Slice(key, keylen),
+                          &v->rep);
+  if (!s.ok()) {
+    delete v;
+    if (!s.IsNotFound()) {
+      SaveError(errptr, s);
+    }
+    return NULL;
+  }
+  return v;
+}
+
+void rocksdb_pinnableslice_destroy(rocksdb_pinnableslice_t* v) { delete v; }
+
+const char* rocksdb_pinnableslice_value(const rocksdb_pinnableslice_t* v,
+                                        size_t* vlen) {
+  if (!v) {
+    *vlen = 0;
+    return NULL;
+  }
+
+  *vlen = v->rep.size();
+  return v->rep.data();
+}
 }  // end extern "C"
 
 #endif  // !ROCKSDB_LITE

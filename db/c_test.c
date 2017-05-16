@@ -126,6 +126,32 @@ static void CheckGetCF(
   Free(&val);
 }
 
+static void CheckPinGet(rocksdb_t* db, const rocksdb_readoptions_t* options,
+                        const char* key, const char* expected) {
+  char* err = NULL;
+  size_t val_len;
+  const char* val;
+  rocksdb_pinnableslice_t* p;
+  p = rocksdb_get_pinned(db, options, key, strlen(key), &err);
+  CheckNoError(err);
+  val = rocksdb_pinnableslice_value(p, &val_len);
+  CheckEqual(expected, val, val_len);
+  rocksdb_pinnableslice_destroy(p);
+}
+
+static void CheckPinGetCF(rocksdb_t* db, const rocksdb_readoptions_t* options,
+                          rocksdb_column_family_handle_t* handle,
+                          const char* key, const char* expected) {
+  char* err = NULL;
+  size_t val_len;
+  const char* val;
+  rocksdb_pinnableslice_t* p;
+  p = rocksdb_get_pinned_cf(db, options, handle, key, strlen(key), &err);
+  CheckNoError(err);
+  val = rocksdb_pinnableslice_value(p, &val_len);
+  CheckEqual(expected, val, val_len);
+  rocksdb_pinnableslice_destroy(p);
+}
 
 static void CheckIter(rocksdb_iterator_t* iter,
                       const char* key, const char* val) {
@@ -789,6 +815,13 @@ int main(int argc, char** argv) {
     }
   }
 
+  StartPhase("pin_get");
+  {
+    CheckPinGet(db, roptions, "box", "c");
+    CheckPinGet(db, roptions, "foo", "hello");
+    CheckPinGet(db, roptions, "notfound", NULL);
+  }
+
   StartPhase("approximate_sizes");
   {
     int i;
@@ -1000,11 +1033,13 @@ int main(int argc, char** argv) {
     CheckNoError(err);
 
     CheckGetCF(db, roptions, handles[1], "foo", "hello");
+    CheckPinGetCF(db, roptions, handles[1], "foo", "hello");
 
     rocksdb_delete_cf(db, woptions, handles[1], "foo", 3, &err);
     CheckNoError(err);
 
     CheckGetCF(db, roptions, handles[1], "foo", NULL);
+    CheckPinGetCF(db, roptions, handles[1], "foo", NULL);
 
     rocksdb_writebatch_t* wb = rocksdb_writebatch_create();
     rocksdb_writebatch_put_cf(wb, handles[1], "baz", 3, "a", 1);
@@ -1017,6 +1052,9 @@ int main(int argc, char** argv) {
     CheckGetCF(db, roptions, handles[1], "baz", NULL);
     CheckGetCF(db, roptions, handles[1], "bar", NULL);
     CheckGetCF(db, roptions, handles[1], "box", "c");
+    CheckPinGetCF(db, roptions, handles[1], "baz", NULL);
+    CheckPinGetCF(db, roptions, handles[1], "bar", NULL);
+    CheckPinGetCF(db, roptions, handles[1], "box", "c");
     rocksdb_writebatch_destroy(wb);
 
     const char* keys[3] = { "box", "box", "barfooxx" };
