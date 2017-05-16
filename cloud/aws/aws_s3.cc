@@ -406,7 +406,8 @@ Status S3WritableFile::CopyFromS3(AwsEnv* env, const std::string& bucket_prefix,
   Status s;
   unique_ptr<WritableFile> destfile;
   Env* localenv = env->GetBaseEnv();
-  s = localenv->NewWritableFile(destination_pathname, &destfile, soptions);
+  std::string tmp_destination = destination_pathname + ".tmp";
+  s = localenv->NewWritableFile(tmp_destination, &destfile, soptions);
 
   // copy 64K at a time
   char buffer[64 * 1024];
@@ -427,6 +428,10 @@ Status S3WritableFile::CopyFromS3(AwsEnv* env, const std::string& bucket_prefix,
   }
   if (s.ok() && do_sync) {
     s = destfile->Sync();
+  }
+  destfile.reset();
+  if (s.ok()) {
+    s = localenv->RenameFile(tmp_destination, destination_pathname);
   }
   return s;
 }

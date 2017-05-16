@@ -35,8 +35,9 @@ class CloudEnvOptions {
   CloudAccessCredentials credentials;
 
   //
-  // If true,  then sst files are stored locally. They are not uploaded to
-  // cloud.
+  // If true,  then sst files are stored locally and uploaded to the cloud in
+  // the background. On restart, all files from the cloud that are not present
+  // locally are downloaded.
   // If false, then local sst files are created, uploaded to cloud immediately,
   //           and local file is deleted. All reads are satisfied by fetching
   //           data from the cloud.

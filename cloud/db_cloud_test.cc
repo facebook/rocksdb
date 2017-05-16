@@ -11,6 +11,7 @@
 #include "rocksdb/status.h"
 #include "util/logging.h"
 #include "util/testharness.h"
+#include <algorithm>
 #ifndef OS_WIN
 #include <unistd.h>
 #endif
@@ -382,6 +383,37 @@ TEST_F(CloudTest, DbidRegistry) {
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
 
+  CloseDB();
+}
+
+TEST_F(CloudTest, KeepLocalFiles) {
+  cloud_env_options_.keep_local_sst_files = true;
+  // Create two files
+  OpenDB();
+  std::string value;
+  ASSERT_OK(db_->Put(WriteOptions(), "Hello", "World"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_OK(db_->Put(WriteOptions(), "Hello2", "World2"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  CloseDB();
+
+  DestroyDB(dbname_, Options());
+
+  OpenDB();
+
+  std::vector<std::string> files;
+  ASSERT_OK(Env::Default()->GetChildren(dbname_, &files));
+  int sst_files =
+      std::count_if(files.begin(), files.end(), [](const std::string& file) {
+        return file.find("sst") != std::string::npos;
+      });
+  ASSERT_EQ(sst_files, 2);
+
+  ASSERT_OK(db_->Get(ReadOptions(), "Hello", &value));
+  ASSERT_EQ(value, "World");
+  ASSERT_OK(db_->Get(ReadOptions(), "Hello2", &value));
+  ASSERT_EQ(value, "World2");
   CloseDB();
 }
 

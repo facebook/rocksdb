@@ -323,6 +323,27 @@ Status AwsEnv::NewRandomAccessFile(const std::string& fname,
     // Read from local storage and then from cloud storage.
     st = base_env_->NewRandomAccessFile(fname, result, options);
 
+    if (!st.ok() && !base_env_->FileExists(fname).IsNotFound()) {
+      // if status is not OK, but file does exist locally, something is wrong
+      return st;
+    }
+
+    if (!st.ok() && cloud_env_options.keep_local_sst_files) {
+      // copy the file to the local storage if keep_local_sst_files is true
+      if (has_dest_bucket_) {
+        st = S3WritableFile::CopyFromS3(this, GetDestBucketPrefix(),
+                                        destname(fname), fname);
+      }
+      if (!st.ok() && has_src_bucket_) {
+        st = S3WritableFile::CopyFromS3(this, GetSrcBucketPrefix(),
+                                        srcname(fname), fname);
+      }
+      if (st.ok()) {
+        // we successfully copied the file, try opening it locally now
+        st = base_env_->NewRandomAccessFile(fname, result, options);
+      }
+    }
+
     if (!st.ok()) {
       S3ReadableFile* f = nullptr;
       if (!st.ok() && has_dest_bucket_) {
