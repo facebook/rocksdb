@@ -232,7 +232,10 @@ Status S3WritableFile::CreateBucketInS3(
     const Aws::S3::Model::BucketLocationConstraint& location) {
   // specify region for the bucket
   Aws::S3::Model::CreateBucketConfiguration conf;
-  conf.SetLocationConstraint(location);
+  if (location != Aws::S3::Model::BucketLocationConstraint::NOT_SET) {
+    // only set the location constraint if it's not not set
+    conf.SetLocationConstraint(location);
+  }
 
   // create bucket
   Aws::String bucket = GetBucket(bucket_prefix);
