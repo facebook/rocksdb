@@ -17,7 +17,7 @@ class DB;
 
 class Checkpoint {
  public:
-  // Creates a Checkpoint object to be used for creating openable sbapshots
+  // Creates a Checkpoint object to be used for creating openable snapshots
   static Status Create(DB* db, Checkpoint** checkpoint_ptr);
 
   // Builds an openable snapshot of RocksDB on the same disk, which

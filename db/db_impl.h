@@ -389,7 +389,7 @@ class DBImpl : public DB {
   Status TEST_GetAllImmutableCFOptions(
       std::unordered_map<std::string, const ImmutableCFOptions*>* iopts_map);
 
-  // Return the lastest MutableCFOptions of of a column family
+  // Return the lastest MutableCFOptions of a column family
   Status TEST_GetLatestMutableCFOptions(ColumnFamilyHandle* column_family,
                                         MutableCFOptions* mutable_cf_opitons);
 
