@@ -192,7 +192,7 @@ endif
 # TSAN doesn't work well with jemalloc. If we're compiling with TSAN, we should use regular malloc.
 ifdef COMPILE_WITH_TSAN
 	DISABLE_JEMALLOC=1
-	EXEC_LDFLAGS += -fsanitize=thread -pie
+	EXEC_LDFLAGS += -fsanitize=thread
 	PLATFORM_CCFLAGS += -fsanitize=thread -fPIC -DROCKSDB_TSAN_RUN
 	PLATFORM_CXXFLAGS += -fsanitize=thread -fPIC -DROCKSDB_TSAN_RUN
         # Turn off -pg when enabling TSAN testing, because that induces
