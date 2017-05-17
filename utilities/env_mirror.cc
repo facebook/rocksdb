@@ -12,7 +12,7 @@
 
 namespace rocksdb {
 
-// An implementaiton of Env that mirrors all work over two backend
+// An implementation of Env that mirrors all work over two backend
 // Env's.  This is useful for debugging purposes.
 class SequentialFileMirror : public SequentialFile {
  public:

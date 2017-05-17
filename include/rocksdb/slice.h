@@ -122,7 +122,7 @@ class Slice {
  * A Slice that can be pinned with some cleanup tasks, which will be run upon
  * ::Reset() or object destruction, whichever is invoked first. This can be used
  * to avoid memcpy by having the PinnsableSlice object referring to the data
- * that is locked in the memory and release them after the data is consuned.
+ * that is locked in the memory and release them after the data is consumed.
  */
 class PinnableSlice : public Slice, public Cleanable {
  public:
