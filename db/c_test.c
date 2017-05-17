@@ -40,6 +40,7 @@ const char* phase = "";
 static char dbname[200];
 static char sstfilename[200];
 static char dbbackupname[200];
+static char dbcheckpointname[200];
 
 static void StartPhase(const char* name) {
   fprintf(stderr, "=== Test %s\n", name);
@@ -318,6 +319,34 @@ static char* MergeOperatorPartialMerge(
   return result;
 }
 
+static void CheckTxnGet(
+        rocksdb_transaction_t* txn,
+        const rocksdb_readoptions_t* options,
+        const char* key,
+        const char* expected) {
+        char* err = NULL;
+        size_t val_len;
+        char* val;
+        val = rocksdb_transaction_get(txn, options, key, strlen(key), &val_len, &err);
+        CheckNoError(err);
+        CheckEqual(expected, val, val_len);
+        Free(&val);
+}
+
+static void CheckTxnDBGet(
+        rocksdb_transactiondb_t* txn_db,
+        const rocksdb_readoptions_t* options,
+        const char* key,
+        const char* expected) {
+        char* err = NULL;
+        size_t val_len;
+        char* val;
+        val = rocksdb_transactiondb_get(txn_db, options, key, strlen(key), &val_len, &err);
+        CheckNoError(err);
+        CheckEqual(expected, val, val_len);
+        Free(&val);
+}
+
 int main(int argc, char** argv) {
   rocksdb_t* db;
   rocksdb_comparator_t* cmp;
@@ -329,6 +358,10 @@ int main(int argc, char** argv) {
   rocksdb_readoptions_t* roptions;
   rocksdb_writeoptions_t* woptions;
   rocksdb_ratelimiter_t* rate_limiter;
+  rocksdb_transactiondb_t* txn_db;
+  rocksdb_transactiondb_options_t* txn_db_options;
+  rocksdb_transaction_t* txn;
+  rocksdb_transaction_options_t* txn_options;
   char* err = NULL;
   int run = -1;
 
@@ -339,6 +372,11 @@ int main(int argc, char** argv) {
 
   snprintf(dbbackupname, sizeof(dbbackupname),
            "%s/rocksdb_c_test-%d-backup",
+           GetTempDir(),
+           ((int) geteuid()));
+
+  snprintf(dbcheckpointname, sizeof(dbcheckpointname),
+           "%s/rocksdb_c_test-%d-checkpoint",
            GetTempDir(),
            ((int) geteuid()));
 
@@ -455,6 +493,36 @@ int main(int argc, char** argv) {
     CheckGet(db, roptions, "foo", "hello");
 
     rocksdb_backup_engine_close(be);
+  }
+
+  StartPhase("checkpoint");
+  {
+    rocksdb_destroy_db(options, dbcheckpointname, &err);
+    CheckNoError(err);
+
+    rocksdb_checkpoint_t* checkpoint = rocksdb_checkpoint_object_create(db, &err);
+    CheckNoError(err);
+
+    rocksdb_checkpoint_create(checkpoint, dbcheckpointname, 0, &err);
+    CheckNoError(err);
+
+    // start a new database from the checkpoint
+    rocksdb_close(db);
+    rocksdb_options_set_error_if_exists(options, 0);
+    db = rocksdb_open(options, dbcheckpointname, &err);
+    CheckNoError(err);
+
+    CheckGet(db, roptions, "foo", "hello");
+
+    rocksdb_checkpoint_object_destroy(checkpoint);
+
+    rocksdb_close(db);
+    rocksdb_destroy_db(options, dbcheckpointname, &err);
+    CheckNoError(err);
+
+    db = rocksdb_open(options, dbname, &err);
+    CheckNoError(err);
+    rocksdb_options_set_error_if_exists(options, 1);
   }
 
   StartPhase("compactall");
@@ -1266,14 +1334,98 @@ int main(int argc, char** argv) {
     }
   }
 
-  // Simple sanity check that setting memtable rep works.
-  StartPhase("memtable_reps");
+  StartPhase("transactions");
   {
-    // Create database with vector memtable.
     rocksdb_close(db);
     rocksdb_destroy_db(options, dbname, &err);
     CheckNoError(err);
 
+    // open a TransactionDB
+    txn_db_options = rocksdb_transactiondb_options_create();
+    txn_options = rocksdb_transaction_options_create();
+    rocksdb_options_set_create_if_missing(options, 1);
+    txn_db = rocksdb_transactiondb_open(options, txn_db_options, dbname, &err);
+    CheckNoError(err);
+
+    // put outside a transaction
+    rocksdb_transactiondb_put(txn_db, woptions, "foo", 3, "hello", 5, &err);
+    CheckNoError(err);
+    CheckTxnDBGet(txn_db, roptions, "foo", "hello");
+
+    // delete from outside transaction
+    rocksdb_transactiondb_delete(txn_db, woptions, "foo", 3, &err);
+    CheckNoError(err);
+    CheckTxnDBGet(txn_db, roptions, "foo", NULL);
+
+    // begin a transaction
+    txn = rocksdb_transaction_begin(txn_db, woptions, txn_options, NULL);
+    // put
+    rocksdb_transaction_put(txn, "foo", 3, "hello", 5, &err);
+    CheckNoError(err);
+    CheckTxnGet(txn, roptions, "foo", "hello");
+    // delete
+    rocksdb_transaction_delete(txn, "foo", 3, &err);
+    CheckNoError(err);
+    CheckTxnGet(txn, roptions, "foo", NULL);
+
+    rocksdb_transaction_put(txn, "foo", 3, "hello", 5, &err);
+    CheckNoError(err);
+
+    // read from outside transaction, before commit
+    CheckTxnDBGet(txn_db, roptions, "foo", NULL);
+
+    // commit
+    rocksdb_transaction_commit(txn, &err);
+    CheckNoError(err);
+
+    // read from outside transaction, after commit
+    CheckTxnDBGet(txn_db, roptions, "foo", "hello");
+
+    // reuse old transaction
+    txn = rocksdb_transaction_begin(txn_db, woptions, txn_options, txn);
+
+    // snapshot
+    const rocksdb_snapshot_t* snapshot;
+    snapshot = rocksdb_transactiondb_create_snapshot(txn_db);
+    rocksdb_readoptions_set_snapshot(roptions, snapshot);
+  
+    rocksdb_transactiondb_put(txn_db, woptions, "foo", 3, "hey", 3,  &err);
+    CheckNoError(err);
+
+    CheckTxnDBGet(txn_db, roptions, "foo", "hello");
+    rocksdb_readoptions_set_snapshot(roptions, NULL);
+    rocksdb_transactiondb_release_snapshot(txn_db, snapshot);
+    CheckTxnDBGet(txn_db, roptions, "foo", "hey");
+
+    // iterate
+    rocksdb_transaction_put(txn, "bar", 3, "hi", 2, &err);
+    rocksdb_iterator_t* iter = rocksdb_transaction_create_iterator(txn, roptions);
+    CheckCondition(!rocksdb_iter_valid(iter));
+    rocksdb_iter_seek_to_first(iter);
+    CheckCondition(rocksdb_iter_valid(iter));
+    CheckIter(iter, "bar", "hi");
+    rocksdb_iter_get_error(iter, &err);
+    CheckNoError(err);
+    rocksdb_iter_destroy(iter);
+
+    // rollback
+    rocksdb_transaction_rollback(txn, &err);
+    CheckNoError(err);
+    CheckTxnDBGet(txn_db, roptions, "bar", NULL);
+
+    // close and destroy
+    rocksdb_transaction_destroy(txn);
+    rocksdb_transactiondb_close(txn_db);
+    rocksdb_destroy_db(options, dbname, &err);
+    CheckNoError(err);
+    rocksdb_transaction_options_destroy(txn_options);
+    rocksdb_transactiondb_options_destroy(txn_db_options);
+  }
+
+  // Simple sanity check that setting memtable rep works.
+  StartPhase("memtable_reps");
+  {
+    // Create database with vector memtable.
     rocksdb_options_set_memtable_vector_rep(options);
     db = rocksdb_open(options, dbname, &err);
     CheckNoError(err);
