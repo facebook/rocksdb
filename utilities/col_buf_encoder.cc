@@ -46,10 +46,12 @@ ColBufEncoder *ColBufEncoder::NewColBufEncoder(
   return nullptr;
 }
 
-#if __clang_major__ > 3 || (__clang_major__ == 3 && __clang_minor__ >= 9)
-__attribute__((__no_sanitize__("undefined")))
-#elif __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 9)
+#ifdef ROCKSDB_UBSAN_RUN
+#if defined(__clang__)
+__attribute__((__no_sanitize__("shift")))
+#elif defined(__GNUC__)
 __attribute__((__no_sanitize_undefined__))
+#endif
 #endif
 size_t FixedLengthColBufEncoder::Append(const char *buf) {
   if (nullable_) {

@@ -215,6 +215,7 @@ endif()
 
 option(WITH_UBSAN "build with UBSAN" OFF)
 if(WITH_UBSAN)
+  add_definitions(-DROCKSDB_UBSAN_RUN)
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=undefined")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=undefined")
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=undefined")

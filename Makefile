@@ -211,8 +211,8 @@ endif
 ifdef COMPILE_WITH_UBSAN
 	DISABLE_JEMALLOC=1
 	EXEC_LDFLAGS += -fsanitize=undefined
-	PLATFORM_CCFLAGS += -fsanitize=undefined
-	PLATFORM_CXXFLAGS += -fsanitize=undefined
+	PLATFORM_CCFLAGS += -fsanitize=undefined -DROCKSDB_UBSAN_RUN
+	PLATFORM_CXXFLAGS += -fsanitize=undefined -DROCKSDB_UBSAN_RUN
 endif
 
 ifndef DISABLE_JEMALLOC
