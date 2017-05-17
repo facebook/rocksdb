@@ -85,9 +85,9 @@ Aws::S3::Model::GetObjectOutcome AwsS3ClientWrapper::GetObject(
 }
 
 Aws::S3::Model::PutObjectOutcome AwsS3ClientWrapper::PutObject(
-    const Aws::S3::Model::PutObjectRequest& request) {
+    const Aws::S3::Model::PutObjectRequest& request, uint64_t size_hint) {
   Timer t(cloud_request_callback_.get(), CloudRequestOpType::kWriteOp,
-          request.GetContentLength());
+          size_hint);
   auto outcome = client_->PutObject(request);
   t.SetSuccess(outcome.IsSuccess());
   return outcome;
@@ -1222,7 +1222,7 @@ Status AwsEnv::SaveIdentitytoS3(const std::string& localfile,
   // Upload ID file to  S3
   if (st.ok()) {
     Aws::String target(idfile.c_str(), idfile.size());
-    st = S3WritableFile::CopyToS3(this, localfile, bucket, target);
+    st = S3WritableFile::CopyToS3(this, localfile, bucket, target, dbid.size());
   }
 
   // Save mapping from ID to dirname

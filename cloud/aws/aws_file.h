@@ -248,10 +248,11 @@ class S3WritableFile : public WritableFile {
 
   virtual Status Close();
 
-  virtual Status CopyManifestToS3(bool force = false);
+  virtual Status CopyManifestToS3(uint64_t size_hint, bool force = false);
   static Status CopyToS3(const AwsEnv* env, const std::string& fname,
                          const Aws::String& s3_bucket,
-                         const Aws::String& destination_object);
+                         const Aws::String& destination_object,
+                         uint64_t size_hint = 0);
   static Status CopyFromS3(AwsEnv* env, const std::string& bucket_prefix,
                            const std::string& source_object,
                            const std::string& destination_pathname,

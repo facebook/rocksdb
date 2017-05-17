@@ -41,7 +41,7 @@ class AwsS3ClientWrapper {
       const Aws::S3::Model::GetObjectRequest& request);
 
   Aws::S3::Model::PutObjectOutcome PutObject(
-      const Aws::S3::Model::PutObjectRequest& request);
+      const Aws::S3::Model::PutObjectRequest& request, uint64_t size_hint = 0);
 
   Aws::S3::Model::HeadObjectOutcome HeadObject(
       const Aws::S3::Model::HeadObjectRequest& request);
