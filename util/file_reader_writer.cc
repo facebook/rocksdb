@@ -25,11 +25,9 @@ namespace rocksdb {
 
 #ifndef NDEBUG
 namespace {
-
-bool IsSectorAligned(const size_t off, size_t sector_size) {
+bool IsFileSectorAligned(const size_t off, size_t sector_size) {
   return off % sector_size == 0;
 }
-
 }
 #endif
 
@@ -548,8 +546,8 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
     if (n > buffer_.Capacity()) {
       n = buffer_.Capacity();
     }
-    assert(IsSectorAligned(offset, alignment_));
-    assert(IsSectorAligned(n, alignment_));
+    assert(IsFileSectorAligned(offset, alignment_));
+    assert(IsFileSectorAligned(n, alignment_));
     Slice result;
     Status s = file_->Read(offset, n, &result, buffer_.BufferStart());
     if (s.ok()) {
