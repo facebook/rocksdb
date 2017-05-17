@@ -119,6 +119,8 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
       immutable_db_options.avoid_flush_during_recovery;
   options.avoid_flush_during_shutdown =
       mutable_db_options.avoid_flush_during_shutdown;
+  options.allow_ingest_behind =
+      immutable_db_options.allow_ingest_behind;
 
   return options;
 }

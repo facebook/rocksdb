@@ -284,10 +284,14 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
   if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal &&
       cfd->NumberLevels() > 1) {
     // Always compact all files together.
-    s = RunManualCompaction(cfd, ColumnFamilyData::kCompactAllLevels,
-                            cfd->NumberLevels() - 1, options.target_path_id,
-                            begin, end, exclusive);
     final_output_level = cfd->NumberLevels() - 1;
+    // if bottom most level is reserved
+    if (immutable_db_options_.allow_ingest_behind) {
+      final_output_level--;
+    }
+    s = RunManualCompaction(cfd, ColumnFamilyData::kCompactAllLevels,
+                            final_output_level, options.target_path_id,
+                            begin, end, exclusive);
   } else {
     for (int level = 0; level <= max_level_with_files; level++) {
       int output_level;

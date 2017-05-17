@@ -944,14 +944,22 @@ class DB {
   }
 
   // IngestExternalFile() will load a list of external SST files (1) into the DB
-  // We will try to find the lowest possible level that the file can fit in, and
-  // ingest the file into this level (2). A file that have a key range that
-  // overlap with the memtable key range will require us to Flush the memtable
-  // first before ingesting the file.
+  // Two primary modes are supported:
+  // - Duplicate keys in the new files will overwrite exiting keys (default)
+  // - Duplicate keys will be skipped (set ingest_behind=true)
+  // In the first mode we will try to find the lowest possible level that
+  // the file can fit in, and ingest the file into this level (2). A file that
+  // have a key range that overlap with the memtable key range will require us
+  // to Flush the memtable first before ingesting the file.
+  // In the second mode we will always ingest in the bottom mode level (see
+  // docs to IngestExternalFileOptions::ingest_behind).
   //
   // (1) External SST files can be created using SstFileWriter
   // (2) We will try to ingest the files to the lowest possible level
   //     even if the file compression dont match the level compression
+  // (3) If IngestExternalFileOptions->ingest_behind is set to true,
+  //     we always ingest at the bottommost level, which should be reserved
+  //     for this purpose (see DBOPtions::allow_ingest_behind flag).
   virtual Status IngestExternalFile(
       ColumnFamilyHandle* column_family,
       const std::vector<std::string>& external_files,

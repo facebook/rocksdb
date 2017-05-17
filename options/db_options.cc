@@ -84,7 +84,8 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
 #endif  // ROCKSDB_LITE
       fail_if_options_file_error(options.fail_if_options_file_error),
       dump_malloc_stats(options.dump_malloc_stats),
-      avoid_flush_during_recovery(options.avoid_flush_during_recovery) {
+      avoid_flush_during_recovery(options.avoid_flush_during_recovery),
+      allow_ingest_behind(options.allow_ingest_behind) {
 }
 
 void ImmutableDBOptions::Dump(Logger* log) const {
@@ -210,8 +211,11 @@ void ImmutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log, "                             Options.wal_filter: %s",
                    wal_filter ? wal_filter->Name() : "None");
 #endif  // ROCKDB_LITE
+
   ROCKS_LOG_HEADER(log, "            Options.avoid_flush_during_recovery: %d",
                    avoid_flush_during_recovery);
+  ROCKS_LOG_HEADER(log, "            Options.allow_ingest_behind: %d",
+                   allow_ingest_behind);
 }
 
 MutableDBOptions::MutableDBOptions()
