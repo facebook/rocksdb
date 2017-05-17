@@ -183,9 +183,14 @@ AwsEnv::AwsEnv(Env* underlying_env, const std::string& src_bucket_prefix,
   // Use specified region if any
   if (src_bucket_region_.empty()) {
     config.region = Aws::String(default_region, strlen(default_region));
+  } else if (src_bucket_region_ == "us-east-1") {
+    // us-east-1 is a special case, we need to set the location to an empty
+    // string:
+    // http://docs.aws.amazon.com/AmazonS3/latest/API/RESTBucketGETlocation.html
+    config.region = "";
   } else {
-    config.region = Aws::String(src_bucket_region_.c_str(),
-                                src_bucket_region_.size());
+    config.region =
+        Aws::String(src_bucket_region_.c_str(), src_bucket_region_.size());
   }
   bucket_location_ = Aws::S3::Model::BucketLocationConstraintMapper::
       GetBucketLocationConstraintForName(config.region);
