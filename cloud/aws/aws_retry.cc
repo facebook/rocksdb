@@ -13,6 +13,8 @@ AwsRetryStrategy::AwsRetryStrategy(const CloudEnvOptions& env_options,
                                    std::shared_ptr<Logger> info_log)
     : env_options_(env_options), info_log_(info_log) {
   default_strategy_ = std::make_shared<Aws::Client::DefaultRetryStrategy>();
+  Log(InfoLogLevel::INFO_LEVEL, info_log_,
+      "[aws] Configured custom retry policy");
 }
 
 //
@@ -38,6 +40,13 @@ bool AwsRetryStrategy::ShouldRetry(const AWSError<CoreErrors>& error,
         attemptedRetries, internal_failure_num_retries_);
     return false;
   }
+  const Aws::String errmsg = error.GetMessage();
+  std::string err(errmsg.c_str(), errmsg.size());
+  Log(InfoLogLevel::WARN_LEVEL, info_log_,
+      "[aws] Encountered S3 failure %s"
+      " retry attempt %d max retries %d. "
+      "Using default retry policy...",
+      err.c_str(), attemptedRetries, internal_failure_num_retries_);
   return default_strategy_->ShouldRetry(error, attemptedRetries);
 }
 
