@@ -222,8 +222,9 @@ bool WriteThread::LinkGroup(WriteGroup& write_group,
   Writer* newest = newest_writer->load(std::memory_order_relaxed);
   while (true) {
     leader->link_older = newest;
-    if (newest_writer->compare_exchange_weak(newest, last_writer))
+    if (newest_writer->compare_exchange_weak(newest, last_writer)) {
       return (newest == nullptr);
+    }
   }
 }
 

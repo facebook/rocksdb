@@ -241,7 +241,7 @@ class WriteThread {
     explicit AdaptationContext(const char* name0) : name(name0), value(0) {}
   };
 
-  WriteThread(const ImmutableDBOptions& db_options);
+  explicit WriteThread(const ImmutableDBOptions& db_options);
 
   virtual ~WriteThread() = default;
 
