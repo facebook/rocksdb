@@ -13,10 +13,16 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "util/coding.h"
+
 namespace rocksdb {
 namespace crc32c {
 
-extern bool IsFastCrc32Supported();
+void Slow_CRC32(uint64_t* l, uint8_t const **p);
+void Fast_CRC32(uint64_t* l, uint8_t const **p);
+
+extern bool isSSE42(); // does the system support sse 4.2?
+extern bool IsFastCrc32Supported(); // do system and binary support sse?
 
 // Return the crc32c of concat(A, data[0,n-1]) where init_crc is the
 // crc32c of some string A.  Extend() is often used to maintain the
@@ -44,6 +50,11 @@ inline uint32_t Mask(uint32_t crc) {
 inline uint32_t Unmask(uint32_t masked_crc) {
   uint32_t rot = masked_crc - kMaskDelta;
   return ((rot >> 17) | (rot << 15));
+}
+
+// Used to fetch a naturally-aligned 32-bit word in little endian byte-order
+inline uint32_t LE_LOAD32(const uint8_t *p) {
+  return DecodeFixed32(reinterpret_cast<const char*>(p));
 }
 
 }  // namespace crc32c
