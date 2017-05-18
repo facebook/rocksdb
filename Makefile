@@ -908,6 +908,7 @@ clean:
 tags:
 	ctags * -R
 	cscope -b `find . -name '*.cc'` `find . -name '*.h'` `find . -name '*.c'`
+	ctags -e -R -o etags *
 
 format:
 	build_tools/format-diff.sh
