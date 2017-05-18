@@ -206,12 +206,9 @@ class BlockBasedTable : public TableReader {
   struct CachableEntry;
   struct Rep;
   Rep* rep_;
-  explicit BlockBasedTable(Rep* rep)
-      : rep_(rep), compaction_optimized_(false) {}
+  explicit BlockBasedTable(Rep* rep) : rep_(rep) {}
 
  private:
-  bool compaction_optimized_;
-
   // input_iter: if it is not null, update this one and return it as Iterator
   static InternalIterator* NewDataBlockIterator(Rep* rep, const ReadOptions& ro,
                                                 const Slice& index_value,
