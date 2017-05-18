@@ -304,9 +304,6 @@ util/build_version.cc: FORCE
 	  cmp -s $@-t $@ && rm -f $@-t || mv -f $@-t $@;		\
 	else mv -f $@-t $@; fi
 endif
-ifndef KEEP_BUILD_VERSION
-CLEAN_FILES += util/build_version.cc
-endif
 
 LIBOBJECTS = $(LIB_SOURCES:.cc=.o)
 LIBOBJECTS += $(TOOL_LIB_SOURCES:.cc=.o)
