@@ -55,7 +55,7 @@ class EnvCounter : public EnvWrapper {
   }
 
  private:
-  int num_new_writable_file_;
+  std::atomic<int> num_new_writable_file_;
 };
 
 class ColumnFamilyTest : public testing::Test {
