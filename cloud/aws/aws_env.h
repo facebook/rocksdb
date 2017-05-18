@@ -18,6 +18,9 @@
 #include <aws/s3/S3Client.h>
 #include <aws/s3/model/BucketLocationConstraint.h>
 
+#include <queue>
+#include <chrono>
+
 namespace rocksdb {
 
 class KinesisSystem;
@@ -266,6 +269,11 @@ class AwsEnv : public CloudEnvImpl {
   Status DeleteDbid(const std::string& bucket_prefix,
                     const std::string& dbid) override;
 
+  void TEST_SetFileDeletionDelay(std::chrono::seconds delay) {
+    std::lock_guard<std::mutex> lk(file_deletion_lock_);
+    file_deletion_delay_ = delay;
+  }
+
  private:
   //
   // The AWS credentials are specified to the constructor via
@@ -297,6 +305,13 @@ class AwsEnv : public CloudEnvImpl {
   std::atomic<bool> running_;
 
   std::unique_ptr<KinesisSystem> tailer_;
+
+  std::chrono::seconds file_deletion_delay_ = std::chrono::hours(1);
+  std::thread file_deletion_thread_;
+  std::mutex file_deletion_lock_;
+  std::condition_variable file_deletion_cv_;
+  std::queue<std::pair<std::chrono::steady_clock::time_point, std::string>>
+      files_to_delete_;
 
   Aws::S3::Model::BucketLocationConstraint bucket_location_;
 

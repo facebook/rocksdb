@@ -12,6 +12,7 @@
 #include "util/logging.h"
 #include "util/testharness.h"
 #include <algorithm>
+#include <chrono>
 #ifndef OS_WIN
 #include <unistd.h>
 #endif
@@ -73,16 +74,20 @@ class CloudTest : public testing::Test {
     DestroyDir(clone_dir_);
   }
 
+  void CreateAwsEnv() {
+    ASSERT_OK(CloudEnv::NewAwsEnv(
+        base_env_, src_bucket_prefix_, src_object_prefix_, region_,
+        src_bucket_prefix_, src_object_prefix_, region_,
+        cloud_env_options_, options_.info_log, &aenv_));
+  }
+
   // Open database via the cloud interface
   void OpenDB() {
     ASSERT_NE(cloud_env_options_.credentials.access_key_id.size(), 0);
     ASSERT_NE(cloud_env_options_.credentials.secret_key.size(), 0);
 
     // Create new AWS env
-    ASSERT_OK(CloudEnv::NewAwsEnv(
-        base_env_, src_bucket_prefix_, src_object_prefix_, region_,
-        src_bucket_prefix_, src_object_prefix_, region_,
-        cloud_env_options_, options_.info_log, &aenv_));
+    CreateAwsEnv();
     options_.env = aenv_;
 
     // default column family
@@ -418,7 +423,7 @@ TEST_F(CloudTest, KeepLocalFiles) {
 }
 
 TEST_F(CloudTest, CopyToFromS3) {
-    std::string fname = dbname_ + "/100000.sst";
+  std::string fname = dbname_ + "/100000.sst";
 
   // Create aws env
   cloud_env_options_.keep_local_sst_files = true;
@@ -456,6 +461,37 @@ TEST_F(CloudTest, CopyToFromS3) {
   }
   CloseDB();
 }
+
+TEST_F(CloudTest, DelayFileDeletion) {
+  std::string fname = dbname_ + "/igor.sst";
+
+  // Create aws env
+  cloud_env_options_.keep_local_sst_files = true;
+  CreateAwsEnv();
+  ((AwsEnv*)aenv_)->TEST_SetFileDeletionDelay(std::chrono::seconds(2));
+
+  // create a file
+  {
+    unique_ptr<WritableFile> writer;
+    ASSERT_OK(aenv_->NewWritableFile(fname, &writer, EnvOptions()));
+
+    for (int i = 0; i < 10; i++) {
+      ASSERT_OK(writer->Append("igor"));
+    }
+    // sync and close file
+  }
+  // delete the file
+  ASSERT_OK(aenv_->DeleteFile(fname));
+
+  // file should still be there
+  ASSERT_OK(aenv_->FileExists(fname));
+
+  // file should be deleted after 2 seconds
+  std::this_thread::sleep_for(std::chrono::seconds(3));
+  auto st = aenv_->FileExists(fname);
+  ASSERT_TRUE(st.IsNotFound());
+}
+
 
 #ifdef AWS_DO_NOT_RUN
 //

@@ -237,10 +237,48 @@ AwsEnv::AwsEnv(Env* underlying_env, const std::string& src_bucket_prefix,
         "[aws] NewAwsEnv Unable to create environment %s",
         create_bucket_status_.ToString().c_str());
   }
+
+  file_deletion_thread_ = std::thread([&]() {
+    while (true) {
+      std::unique_lock<std::mutex> lk(file_deletion_lock_);
+      // wait until we're shutting down or there are some files to delete
+      file_deletion_cv_.wait(lk, [&]() {
+        return running_.load() == false || !files_to_delete_.empty();
+      });
+      if (running_.load() == false) {
+        // we're shutting down
+        break;
+      }
+      assert(!files_to_delete_.empty());
+      auto deleting_file = std::move(files_to_delete_.front());
+      files_to_delete_.pop();
+      bool pred = file_deletion_cv_.wait_until(
+          lk, deleting_file.first + file_deletion_delay_,
+          [&] { return running_.load() == false; });
+      if (pred) {
+        // i.e. running_ == false
+        break;
+      }
+      // we are ready to delete the file!
+      auto st =
+          DeletePathInS3(GetDestBucketPrefix(), destname(deleting_file.second));
+      if (!st.ok() && !st.IsNotFound()) {
+        Log(InfoLogLevel::ERROR_LEVEL, info_log_,
+            "[s3] DeleteFile DeletePathInS3 file %s error %s",
+            deleting_file.second.c_str(), st.ToString().c_str());
+      }
+    }
+  });
 }
 
 AwsEnv::~AwsEnv() {
-  running_ = false;
+  {
+    std::lock_guard<std::mutex> lk(file_deletion_lock_);
+    running_ = false;
+    file_deletion_cv_.notify_one();
+  }
+  file_deletion_thread_.join();
+
   StopPurger();
   if (tid_.joinable()) {
     tid_.join();
@@ -821,12 +859,11 @@ Status AwsEnv::DeleteFile(const std::string& fname) {
 
   // Delete from destination bucket and local dir
   if (has_dest_bucket_ && (sstfile || manifest || identity)) {
-    st = DeletePathInS3(GetDestBucketPrefix(), destname(fname));
-    if (!st.ok() && !st.IsNotFound()) {
-      Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-          "[s3] DeleteFile DeletePathInS3 file %s error %s", fname.c_str(),
-          st.ToString().c_str());
-      return st;
+    {
+      // add the remote file deletion to the queue
+      std::unique_lock<std::mutex> lk(file_deletion_lock_);
+      files_to_delete_.push({std::chrono::steady_clock::now(), fname});
+      file_deletion_cv_.notify_one();
     }
     // delete from local
     st = base_env_->DeleteFile(fname);

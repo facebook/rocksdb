@@ -437,7 +437,7 @@ Status S3WritableFile::CopyFromS3(AwsEnv* env,
   if (s.ok()) {
     uint64_t file_size;
     s = localenv->GetFileSize(destination_pathname, &file_size);
-    Log(InfoLogLevel::ERROR_LEVEL, env->info_log_,
+    Log(InfoLogLevel::INFO_LEVEL, env->info_log_,
         "[s3] CopyFromS3 "
         "bucket %s bucketpath %s size %ld.",
         s3_bucket.c_str(), key.c_str(), file_size);
