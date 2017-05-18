@@ -5,6 +5,7 @@
 #include "cloud/aws/aws_env.h"
 #include "cloud/db_cloud_impl.h"
 #include "cloud/filename.h"
+#include "cloud/cloud_env_wrapper.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/persistent_cache.h"
@@ -96,7 +97,7 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
   // S3 for every update, so always enable rolling of Manifest file
   options.max_manifest_file_size = DBCloudImpl::max_manifest_file_size;
 
-  DB* db;
+  DB* db = nullptr;
   std::string dbid;
   if (read_only) {
     st = DB::OpenForReadOnly(options, local_dbname, column_families, handles,
@@ -104,8 +105,41 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
   } else {
     st = DB::Open(options, local_dbname, column_families, handles, &db);
   }
+
+
+  // If there is no destination bucket, then we have already sucked in all
+  // files locally while opening the database in the previous line. Now, we
+  // can use a pure localenv to serve this database
+  CloudEnvImpl* cenv = static_cast<CloudEnvImpl*>(options.env);
+  if (st.ok() && cenv->GetDestBucketPrefix().empty()) {
+
+    // Close the database that we opened using the cloud env
+    // First, delete the handle for the default column family because the DBImpl
+    // always holds a reference to it.
+    assert(handles->size() == 1);
+    delete (*handles)[0];
+    delete db;
+    handles->clear();
+    db = nullptr;
+
+    Log(InfoLogLevel::INFO_LEVEL, options.info_log,
+       "Reopening cloud db on local dir %s using local env.", local_dbname.c_str());
+
+    // Reopen database using the local env. We have to wrap it within a
+    // CloudEnvWrapper because a DBCloud instance methods always assume
+    // that it is associated with a CloudEnv
+    // TODO this CloudEnvWrapper leaks and needs to be fixed
+    options.env = new CloudEnvWrapper(cenv->GetBaseEnv());
+    if (read_only) {
+      st = DB::OpenForReadOnly(options, local_dbname, column_families, handles,
+                             &db);
+    } else {
+      st = DB::Open(options, local_dbname, column_families, handles, &db);
+    }
+  }
   if (st.ok()) {
-    *dbptr = new DBCloudImpl(db);
+    DBCloudImpl* cloud = new DBCloudImpl(db);
+    *dbptr = cloud;
     db->GetDbIdentity(dbid);
   }
   Log(InfoLogLevel::INFO_LEVEL, options.info_log,
@@ -442,6 +476,29 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
         "[db_cloud_impl] SanitizeDirectory error inspecting dir %s %s",
         local_name.c_str(), st.ToString().c_str());
     return st;
+  }
+
+  // If there is no destination bucket, then we need to suck in all sst files
+  // from source bucket at db startup time. We do this by setting max_open_files = -1
+  if (cenv->GetDestBucketPrefix().empty()) {
+    if (options.max_open_files != -1) {
+      Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
+          "[db_cloud_impl] SanitizeDirectory error.  "
+          " No destination bucket specified. Set options.max_open_files = -1 "
+          " to copy in all sst files from src bucket %s into local dir %s",
+          cenv->GetSrcObjectPrefix().c_str(), local_name.c_str());
+      return Status::InvalidArgument("No destination bucket. "
+                                     "Set options.max_open_files = -1");
+    }
+    if (!cenv->GetCloudEnvOptions().keep_local_sst_files) {
+      Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
+          "[db_cloud_impl] SanitizeDirectory error.  "
+          " No destination bucket specified. Set options.keep_local_sst_files = true "
+          " to copy in all sst files from src bucket %s into local dir %s",
+          cenv->GetSrcObjectPrefix().c_str(), local_name.c_str());
+      return Status::InvalidArgument("No destination bucket. "
+                                     "Set options.keep_local_sst_files = true");
+    }
   }
 
   if (!do_reinit) {

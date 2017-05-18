@@ -141,6 +141,9 @@ class CloudEnv : public Env {
   virtual const std::string& GetDestBucketPrefix() = 0;
   virtual const std::string& GetDestObjectPrefix() = 0;
 
+  // returns the options used to create this env
+  virtual const CloudEnvOptions& GetCloudEnvOptions() = 0;
+
   // Create a new AWS env.
   // src_bucket_name: bucket name suffix where db data is read from
   // src_object_prefix: all db objects in source bucket are prepended with this

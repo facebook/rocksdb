@@ -51,6 +51,7 @@ class DBCloudImpl : public DBCloud {
                          const std::string& bucket_prefix,
                          const std::string& srcname,
                          const std::string& destname, bool do_sync = true);
+
 };
 }
 #endif  // ROCKSDB_LITE

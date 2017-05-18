@@ -122,12 +122,19 @@ class CloudTest : public testing::Test {
     CloudEnv* cenv;
     DBCloud* clone_db;
 
+    // If there is no destination bucket, then the clone needs to copy
+    // all sst fies from source bucket to local dir
+    CloudEnvOptions copt = cloud_env_options_;
+    if (dest_bucket.empty()) {
+      copt.keep_local_sst_files = true;
+    }
+
     // Create new AWS env
     ASSERT_OK(CloudEnv::NewAwsEnv(
         base_env_,
         src_bucket, src_object_path, region_,
         dest_bucket, dest_object_path, region_,
-        cloud_env_options_, options_.info_log, &cenv));
+        copt, options_.info_log, &cenv));
 
     // sets the cloud env to be used by the env wrapper
     options_.env = cenv;
@@ -152,6 +159,15 @@ class CloudTest : public testing::Test {
     // always holds a reference to it.
     ASSERT_TRUE(handles.size() > 0);
     delete handles[0];
+
+    // verify that a clone created with an empty destination directory
+    // creates a db object using the local env. We wrap the local env
+    // with a CloudEnvWrapper, so its type has to be kNone.
+    if (dest_bucket.empty()) {
+      CloudEnvImpl* c = static_cast<CloudEnvImpl*>
+                            (clone_db->GetBaseDB()->GetEnv());
+      ASSERT_TRUE(c->GetCloudType() == CloudType::kNone);
+    }
   }
 
   void CloseDB() {

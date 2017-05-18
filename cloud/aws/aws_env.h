@@ -232,7 +232,9 @@ class AwsEnv : public CloudEnvImpl {
   const std::string& GetDestBucketPrefix() { return dest_bucket_prefix_; }
   const std::string& GetDestObjectPrefix() { return dest_object_prefix_; }
 
-  const CloudEnvOptions& GetCloudEnvOptions() { return cloud_env_options; }
+  const CloudEnvOptions& GetCloudEnvOptions() override {
+      return cloud_env_options;
+  }
 
   std::shared_ptr<Logger> info_log_;  // informational messages
 
@@ -531,6 +533,9 @@ class AwsEnv : public CloudEnvImpl {
   virtual Status DeleteDbid(const std::string& bucket_prefix,
                             const std::string& dbid) override {
     return s3_notsup;
+  }
+  const CloudEnvOptions& GetCloudEnvOptions() override {
+      return CloudEnvOptions();
   }
 
   static Status NewAwsEnv(Env* env, const std::string& src_cloud_storage,

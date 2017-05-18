@@ -200,9 +200,12 @@ class CloudEnvWrapper : public CloudEnvImpl {
 
   uint64_t GetThreadID() const override { return base_env_->GetThreadID(); }
 
+  const CloudEnvOptions& GetCloudEnvOptions() { return options_; }
+
  private:
   Status notsup_;
   std::string empty_;
+  const CloudEnvOptions options_;
 };
 
 }  // namespace rocksdb
