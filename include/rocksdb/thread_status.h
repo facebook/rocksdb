@@ -145,7 +145,7 @@ struct ThreadStatus {
   // The operation (high-level action) that the current thread is involved.
   const OperationType operation_type;
 
-  // The elapsed time in micros of the current thread operation.
+  // The elapsed time of the current thread operation in microseconds.
   const uint64_t op_elapsed_micros;
 
   // An integer showing the current stage where the thread is involved

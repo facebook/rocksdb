@@ -391,7 +391,7 @@ class DBImpl : public DB {
 
   // Return the lastest MutableCFOptions of a column family
   Status TEST_GetLatestMutableCFOptions(ColumnFamilyHandle* column_family,
-                                        MutableCFOptions* mutable_cf_opitons);
+                                        MutableCFOptions* mutable_cf_options);
 
   Cache* TEST_table_cache() { return table_cache_.get(); }
 
@@ -1098,7 +1098,7 @@ class DBImpl : public DB {
   // Indicate DB was opened successfully
   bool opened_successfully_;
 
-  // minmum log number still containing prepared data.
+  // minimum log number still containing prepared data.
   // this is used by FindObsoleteFiles to determine which
   // flushed logs we must keep around because they still
   // contain prepared data which has not been flushed or rolled back
@@ -1111,7 +1111,7 @@ class DBImpl : public DB {
   // to prepared_section_completed_ which maps LOG -> instance_count
   // since a log could contain multiple prepared sections
   //
-  // when trying to determine the minmum log still active we first
+  // when trying to determine the minimum log still active we first
   // consult min_log_with_prep_. while that root value maps to
   // a value > 0 in prepared_section_completed_ we decrement the
   // instance_count for that log and pop the root value in

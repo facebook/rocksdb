@@ -439,7 +439,7 @@ class DB {
     //  It could also be used to return the stats in the format of the map.
     //  In this case there will a pair of string to array of double for
     //  each level as well as for "Sum". "Int" stats will not be affected
-    //  when this form of stats are retrived.
+    //  when this form of stats are retrieved.
     static const std::string kCFStatsNoFileHistogram;
 
     //  "rocksdb.cf-file-histogram" - print out how many file reads to every
@@ -538,7 +538,7 @@ class DB {
     //      by iterators or unfinished compactions.
     static const std::string kNumLiveVersions;
 
-    //  "rocksdb.current-super-version-number" - returns number of curent LSM
+    //  "rocksdb.current-super-version-number" - returns number of current LSM
     //  version. It is a uint64_t integer number, incremented after there is
     //  any change to the LSM tree. The number is not preserved after restarting
     //  the DB. After DB restart, it will start from 0 again.
@@ -548,7 +548,7 @@ class DB {
     //      live data in bytes.
     static const std::string kEstimateLiveDataSize;
 
-    //  "rocksdb.min-log-number-to-keep" - return the minmum log number of the
+    //  "rocksdb.min-log-number-to-keep" - return the minimum log number of the
     //      log files that should be kept.
     static const std::string kMinLogNumberToKeep;
 
@@ -956,7 +956,7 @@ class DB {
   //
   // (1) External SST files can be created using SstFileWriter
   // (2) We will try to ingest the files to the lowest possible level
-  //     even if the file compression dont match the level compression
+  //     even if the file compression doesn't match the level compression
   // (3) If IngestExternalFileOptions->ingest_behind is set to true,
   //     we always ingest at the bottommost level, which should be reserved
   //     for this purpose (see DBOPtions::allow_ingest_behind flag).

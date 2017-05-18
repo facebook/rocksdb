@@ -1403,7 +1403,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       // Can't compact right now, but try again later
       TEST_SYNC_POINT("DBImpl::BackgroundCompaction()::Conflict");
 
-      // Stay in the compaciton queue.
+      // Stay in the compaction queue.
       unscheduled_compactions_++;
 
       return Status::OK();

@@ -136,7 +136,7 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // the same DB. The only exception is reserved for upgrade, where a DB
   // previously without a merge operator is introduced to Merge operation
   // for the first time. It's necessary to specify a merge operator when
-  // openning the DB in this case.
+  // opening the DB in this case.
   // Default: nullptr
   std::shared_ptr<MergeOperator> merge_operator = nullptr;
 
@@ -578,7 +578,7 @@ struct DBOptions {
   //
   // Files will be opened in "direct I/O" mode
   // which means that data r/w from the disk will not be cached or
-  // bufferized. The hardware buffer of the devices may however still
+  // buffered. The hardware buffer of the devices may however still
   // be used. Memory mapped files are not impacted by these parameters.
 
   // Use O_DIRECT for user reads
@@ -946,7 +946,7 @@ struct ReadOptions {
   // and iterator_upper_bound need to have the same prefix.
   // This is because ordering is not guaranteed outside of prefix domain.
   // There is no lower bound on the iterator. If needed, that can be easily
-  // implemented
+  // implemented.
   //
   // Default: nullptr
   const Slice* iterate_upper_bound;

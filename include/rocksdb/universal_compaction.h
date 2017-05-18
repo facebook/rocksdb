@@ -24,7 +24,7 @@ enum CompactionStopStyle {
 class CompactionOptionsUniversal {
  public:
 
-  // Percentage flexibilty while comparing file size. If the candidate file(s)
+  // Percentage flexibility while comparing file size. If the candidate file(s)
   // size is 1% smaller than the next file's size, then include next file into
   // this candidate set. // Default: 1
   unsigned int size_ratio;

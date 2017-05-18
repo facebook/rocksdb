@@ -65,15 +65,15 @@ class SliceTransform {
   // This function is not used by RocksDB, but for users. If users pass
   // Options by string to RocksDB, they might not know what prefix extractor
   // they are using. This function is to help users can determine:
-  //   if they want to iterate all keys prefixing `prefix`, whetherit is
+  //   if they want to iterate all keys prefixing `prefix`, whether it is
   //   safe to use prefix bloom filter and seek to key `prefix`.
   // If this function returns true, this means a user can Seek() to a prefix
   // using the bloom filter. Otherwise, user needs to skip the bloom filter
   // by setting ReadOptions.total_order_seek = true.
   //
   // Here is an example: Suppose we implement a slice transform that returns
-  // the first part of the string after spliting it using deimiter ",":
-  // 1. SameResultWhenAppended("abc,") should return true. If aplying prefix
+  // the first part of the string after spliting it using delimiter ",":
+  // 1. SameResultWhenAppended("abc,") should return true. If applying prefix
   //    bloom filter using it, all slices matching "abc:.*" will be extracted
   //    to "abc,", so any SST file or memtable containing any of those key
   //    will not be filtered out.
