@@ -1,0 +1,24 @@
+@import url("fbos.css");
+
+header.topbar h1 {
+    background-image: url(rocksdb.png);
+    background-size: 188px 55px;
+}
+
+header.hero {
+    background: #FFE084;
+}
+
+header.hero hgroup h1 {
+    color: #000;
+}
+
+header.hero hgroup a.button {
+    background: #000;
+    color: #ffbe00;
+}
+
+header.hero aside img {
+    border: solid 1px #fff;
+    box-shadow: 0 2px 10px #000;
+}

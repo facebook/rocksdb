@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html prefix="og: http://ogp.me/ns#">
+<head>
+    <meta charset='utf-8'>
+    <title>RocksDB | A persistent key-value store for fast storage environments</title>
+    <link rel='stylesheet' href='static/rocksdb.css' type='text/css'/>
+    <link rel='shortcut icon' href='static/favicon.ico'>
+    <meta name='viewport' content='width=device-width'>
+    <meta property='og:type' content='website'>
+    <meta property='og:title' content='RocksDB | A persistent key-value store for fast storage environments'>
+    <meta property='og:description' content='A persistent key-value store for fast storage environments'>
+    <meta property='og:image' content='http://rocksdb.org/static/rocksdb.png'>
+</head>
+<body>
+
+<header class='topbar'><nav class='width'>
+    <a href='index.html'><h1>RocksDB</h1></a>
+    <ul>
+        <li><a href='overview.html' class='active'>Overview</a></li>
+        <li><a href='https://github.com/facebook/rocksdb/wiki/_pages'>Wiki</a></li>
+        <li><a href='https://github.com/facebook/rocksdb'>GitHub</a>
+    </ul>
+</nav></header>
+
+<header class='hero'><div class='width'>
+    <hgroup>
+        <h1>
+            Overview
+        </h1>
+    </hgroup>
+</div></header>
+
+<section class='content'><div class='width'>
+
+    <article>
+
+<p> The <code>rocksdb</code> library provides a persistent key value store. Keys
+and values are arbitrary byte arrays. The keys are ordered within the key value
+store according to a user-specified comparator function. </p>
+
+<p> The library is maintained by the Facebook Database Engineering Team, and is
+based on leveldb, by Sanjay Ghemawat and Jeff Dean at Google. </p>
+
+<p>
+This overview gives some simple examples of how RocksDB is used. For the story
+of why RocksDB was created in the first place, see <a href="intro.pdf">Dhruba
+Borthakur's introductory talk</a> from the Data @ Scale 2013 conference.
+</p>
+
+<h2>Opening A Database</h2>
+
+<p> A <code>rocksdb</code> database has a name which corresponds to a file
+system directory. All of the contents of database are stored in this directory.
+The following example shows how to open a database, creating it if necessary:
+</p>
+
+<pre>#include &lt;assert&gt;
+#include "rocksdb/db.h"
+
+rocksdb::DB* db;
+rocksdb::Options options;
+options.create_if_missing = true;
+rocksdb::Status status =
+  rocksdb::DB::Open(options, "/tmp/testdb", &amp;db);
+assert(status.ok());
+...</pre>
+
+<p>
+If you want to raise an error if the database already exists, add the following
+line before the <code>rocksdb::DB::Open</code> call:
+</p>
+
+<pre>options.error_if_exists = true;</pre>
+
+<h2>Status</h2>
+
+<p>
+You may have noticed the <code>rocksdb::Status</code> type above. Values of this
+type are returned by most functions in <code>rocksdb</code> that may encounter
+an error. You can check if such a result is ok, and also print an associated
+error message:
+</p>
+
+<pre>rocksdb::Status s = ...;
+if (!s.ok()) cerr &lt;&lt; s.ToString() &lt;&lt; endl;</pre>
+
+<h2>Closing A Database</h2>
+
+<p>
+When you are done with a database, just delete the database object. For example:
+</p>
+
+<pre>/* open the db as described above */
+/* do something with db */
+delete db;</pre>
+
+<h2>Reads And Writes</h2>
+
+<p>
+The database provides <code>Put</code>, <code>Delete</code>, and
+<code>Get</code> methods to modify/query the database. For example, the
+following code moves the value stored under <code>key1</code> to
+<code>key2</code>.
+</p>
+
+<pre>std::string value;
+rocksdb::Status s = db-&gt;Get(rocksdb::ReadOptions(), key1, &amp;value);
+if (s.ok()) s = db-&gt;Put(rocksdb::WriteOptions(), key2, value);
+if (s.ok()) s = db-&gt;Delete(rocksdb::WriteOptions(), key1);</pre>
+
+<h2>Further documentation</h2>
+
+<p>
+These are just simple examples of how RocksDB is used. The full documentation is
+available within the
+<a href='https://github.com/facebook/rocksdb/blob/master/doc/'><code>/doc</code></a>
+folder of the project.
+</p>
+
+<p>
+In addition, further details about the RocksDB implementation may be found in
+the following documents:
+</p>
+
+<ul>
+<li><a href='https://github.com/facebook/rocksdb/wiki/_pages'>
+RocksDB Project Wiki</a></li>
+<li><a href='https://github.com/facebook/rocksdb/wiki/Rocksdb-Architecture-Guide'>
+Architecture Guide</a></li>
+<li><a href='https://github.com/facebook/rocksdb/wiki/Rocksdb-Table-Format'>
+Format of an immutable Table file</a></li>
+<li> <a href='https://github.com/facebook/rocksdb/blob/master/doc/log_format.txt'>
+Format of a log file</a></li>
+</ul>
+
+    </article>
+
+</div></section>
+
+<footer><div class='width'>
+    &copy; Copyright 2013, Facebook
+</div></footer>
+
+</body>
+</html>
