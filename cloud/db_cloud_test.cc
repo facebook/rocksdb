@@ -417,10 +417,50 @@ TEST_F(CloudTest, KeepLocalFiles) {
   CloseDB();
 }
 
+TEST_F(CloudTest, CopyToFromS3) {
+    std::string fname = dbname_ + "/100000.sst";
+
+  // Create aws env
+  cloud_env_options_.keep_local_sst_files = true;
+  OpenDB();
+  ASSERT_NE(aenv_, nullptr);
+  char buffer[1 * 1024 * 1024];
+
+  // create a 10 MB file and upload it to cloud
+  {
+    unique_ptr<WritableFile> writer;
+    ASSERT_OK(aenv_->NewWritableFile(fname, &writer, EnvOptions()));
+
+    for (int i = 0; i < 10; i++) {
+      ASSERT_OK(writer->Append(Slice(buffer, sizeof(buffer))));
+    }
+    // sync and close file
+  }
+
+  // delete the file manually.
+  ASSERT_OK(base_env_->DeleteFile(fname));
+
+  // reopen file for reading. It should be refetched from cloud storage.
+  {
+    unique_ptr<RandomAccessFile> reader;
+    ASSERT_OK(aenv_->NewRandomAccessFile(fname, &reader, EnvOptions()));
+
+    uint64_t offset = 0;
+    for (int i = 0; i < 10; i++) {
+      Slice result;
+      char* scratch = &buffer[0];
+      ASSERT_OK(reader->Read(offset, sizeof(buffer), &result, scratch));
+      ASSERT_EQ(result.size(), sizeof(buffer));
+      offset += sizeof(buffer);
+    }
+  }
+  CloseDB();
+}
+
+#ifdef AWS_DO_NOT_RUN
 //
 // Verify that we can cache data from S3 in persistent cache.
 //
-#ifdef AWS_DO_NOT_RUN
 TEST_F(CloudTest, PersistentCache) {
   std::string pcache = test::TmpDir() + "/persistent_cache";
   SetPersistentCache(pcache, 1);

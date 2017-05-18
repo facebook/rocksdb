@@ -288,9 +288,16 @@ S3WritableFile::S3WritableFile(AwsEnv* env, const std::string& local_fname,
   s3_object_ = Aws::String(cloud_fname.c_str(), cloud_fname.size());
 }
 
-S3WritableFile::~S3WritableFile() { temp_file_->Close(); }
+S3WritableFile::~S3WritableFile() {
+    if (temp_file_ != nullptr) {
+      Close();
+    }
+}
 
 Status S3WritableFile::Close() {
+  if (temp_file_ == nullptr) { // already closed
+    return status_;
+  }
   Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
       "[s3] S3WritableFile closing %s", fname_.c_str());
   assert(status_.ok());
@@ -302,42 +309,43 @@ Status S3WritableFile::Close() {
         "[s3] S3WritableFile closing error on local %s\n", fname_.c_str());
     return st;
   }
+  temp_file_.reset(nullptr);
 
   // find file size of local file to be uploaded.
   uint64_t file_size;
-  st = env_->GetPosixEnv()->GetFileSize(fname_, &file_size);
-  if (!st.ok()) {
+  status_ = env_->GetPosixEnv()->GetFileSize(fname_, &file_size);
+  if (!status_.ok()) {
     Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
         "[s3] S3WritableFile closing error in getting filesize %s %s",
-        fname_.c_str(), st.ToString().c_str());
-    return st;
+        fname_.c_str(), status_.ToString().c_str());
+    return status_;
   }
 
   // If this is a manifest file, then upload to S3
   // to make it durable. Do not delete local instance of MANIFEST.
   if (is_manifest_) {
-    st = CopyManifestToS3(file_size, true);
-    return st;
+    status_ = CopyManifestToS3(file_size, true);
+    return status_;
   }
 
   // upload sst file to S3
   assert(IsSstFile(fname_));
-  st = CopyToS3(env_, fname_, s3_bucket_, s3_object_, file_size);
-  if (!st.ok()) {
+  status_ = CopyToS3(env_, fname_, s3_bucket_, s3_object_, file_size);
+  if (!status_.ok()) {
     Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
         "[s3] S3WritableFile closing CopyToS3 failed on local file %s",
         fname_.c_str());
-    return st;
+    return status_;
   }
 
   // delete local file
   if (!env_->cloud_env_options.keep_local_sst_files) {
-    st = env_->GetPosixEnv()->DeleteFile(fname_);
-    if (!st.ok()) {
+    status_ = env_->GetPosixEnv()->DeleteFile(fname_);
+    if (!status_.ok()) {
       Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
           "[s3] S3WritableFile closing delete failed on local file %s",
           fname_.c_str());
-      return st;
+      return status_;
     }
   }
   Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
@@ -347,6 +355,9 @@ Status S3WritableFile::Close() {
 
 // Sync a file to stable storage
 Status S3WritableFile::Sync() {
+  if (temp_file_ == nullptr) {
+    return status_;
+  }
   assert(status_.ok());
 
   // sync local file
@@ -392,51 +403,44 @@ Status S3WritableFile::CopyToS3(const AwsEnv* env, const std::string& fname,
 //
 // Copy S3 object to specified file
 //
-Status S3WritableFile::CopyFromS3(AwsEnv* env, const std::string& bucket_prefix,
+Status S3WritableFile::CopyFromS3(AwsEnv* env,
+                                  const Aws::String& s3_bucket,
                                   const std::string& source_object,
-                                  const std::string& destination_pathname,
-                                  uint64_t size, bool do_sync) {
-  std::unique_ptr<S3ReadableFile> src_reader(
-      new S3ReadableFile(env, bucket_prefix, source_object, true));
-  if (!src_reader) {
-    return Status::IOError("S3WritableFile::CopyFromS3 error");
-  }
+                                  const std::string& destination_pathname) {
 
-  // If size, is not specified, copy the entire object.
-  if (size == 0) {
-    size = src_reader->GetSize();
-  }
-
-  const EnvOptions soptions;
   Status s;
-  unique_ptr<WritableFile> destfile;
   Env* localenv = env->GetBaseEnv();
   std::string tmp_destination = destination_pathname + ".tmp";
-  s = localenv->NewWritableFile(tmp_destination, &destfile, soptions);
+  Aws::String key(source_object.data(), source_object.size());
 
-  // copy 64K at a time
-  char buffer[64 * 1024];
-  Slice slice;
-  while (size > 0 && s.ok()) {
-    size_t bytes_to_read = std::min(sizeof(buffer), static_cast<size_t>(size));
-    s = src_reader->Read(bytes_to_read, &slice, buffer);
-    if (s.ok()) {
-      if (slice.size() == 0) {
-        return Status::Corruption("file too small");
-      }
-      s = destfile->Append(slice);
-    }
-    if (!s.ok()) {
-      return s;
-    }
-    size -= slice.size();
+  Aws::S3::Model::GetObjectRequest getObjectRequest;
+  getObjectRequest.SetBucket(s3_bucket);
+  getObjectRequest.SetKey(key);
+  getObjectRequest.SetResponseStreamFactory([tmp_destination](){
+    return Aws::New<Aws::FStream>(Aws::Utils::ARRAY_ALLOCATION_TAG,
+                                  tmp_destination, std::ios_base::out); });
+  auto get_outcome = env->s3client_->GetObject(getObjectRequest);
+
+  bool isSuccess = get_outcome.IsSuccess();
+  if (!isSuccess) {
+    const Aws::Client::AWSError<Aws::S3::S3Errors>& error =
+        get_outcome.GetError();
+    std::string errmsg(error.GetMessage().c_str(), error.GetMessage().size());
+    Log(InfoLogLevel::ERROR_LEVEL, env->info_log_,
+        "[s3] CopyFromS3 "
+        "bucket %s bucketpath %s error %s.",
+        s3_bucket.c_str(), key.c_str(), errmsg.c_str());
+    return Status::IOError(errmsg);
   }
-  if (s.ok() && do_sync) {
-    s = destfile->Sync();
-  }
-  destfile.reset();
+  s = localenv->RenameFile(tmp_destination, destination_pathname);
+
   if (s.ok()) {
-    s = localenv->RenameFile(tmp_destination, destination_pathname);
+    uint64_t file_size;
+    s = localenv->GetFileSize(destination_pathname, &file_size);
+    Log(InfoLogLevel::ERROR_LEVEL, env->info_log_,
+        "[s3] CopyFromS3 "
+        "bucket %s bucketpath %s size %ld.",
+        s3_bucket.c_str(), key.c_str(), file_size);
   }
   return s;
 }
@@ -459,7 +463,7 @@ Status S3WritableFile::CopyManifestToS3(uint64_t size_hint, bool force) {
       manifest_last_sync_time_ = now;
       Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
           "[s3] S3WritableFile made manifest %s durable to "
-          "bucket %s bucketpath.",
+          "bucket %s bucketpath %s.",
           fname_.c_str(), s3_bucket_.c_str(), s3_object_.c_str());
     } else {
       Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,

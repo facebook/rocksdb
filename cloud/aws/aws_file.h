@@ -253,11 +253,10 @@ class S3WritableFile : public WritableFile {
                          const Aws::String& s3_bucket,
                          const Aws::String& destination_object,
                          uint64_t size_hint = 0);
-  static Status CopyFromS3(AwsEnv* env, const std::string& bucket_prefix,
+  static Status CopyFromS3(AwsEnv* env,
+                           const Aws::String& s3_bucket,
                            const std::string& source_object,
-                           const std::string& destination_pathname,
-                           uint64_t size = 0,  // entire file
-                           bool do_sync = 1);  // sync
+                           const std::string& destination_pathname);
 };
 
 // Creates a new file, appends data to a file or delete an existing file via

@@ -420,11 +420,11 @@ Status AwsEnv::NewRandomAccessFile(const std::string& fname,
     if (!st.ok() && cloud_env_options.keep_local_sst_files) {
       // copy the file to the local storage if keep_local_sst_files is true
       if (has_dest_bucket_) {
-        st = S3WritableFile::CopyFromS3(this, GetDestBucketPrefix(),
+        st = S3WritableFile::CopyFromS3(this, GetBucket(GetDestBucketPrefix()),
                                         destname(fname), fname);
       }
       if (!st.ok() && has_src_bucket_) {
-        st = S3WritableFile::CopyFromS3(this, GetSrcBucketPrefix(),
+        st = S3WritableFile::CopyFromS3(this, GetBucket(GetSrcBucketPrefix()),
                                         srcname(fname), fname);
       }
       if (st.ok()) {
