@@ -80,7 +80,7 @@ class WriteThread {
     SequenceNumber last_sequence;
     // before running goes to zero, status needs leader->StateMutex()
     Status status;
-    std::atomic<uint32_t> running;
+    std::atomic<size_t> running;
     size_t size = 0;
 
     struct Iterator {
