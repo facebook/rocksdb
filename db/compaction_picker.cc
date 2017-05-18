@@ -529,7 +529,11 @@ Compaction* CompactionPicker::CompactRange(
     // files together to the last level.
     assert(vstorage->num_levels() > 1);
     // DBImpl::CompactRange() set output level to be the last level
-    assert(output_level == vstorage->num_levels() - 1);
+    if (ioptions_.allow_ingest_behind) {
+      assert(output_level == vstorage->num_levels() - 2);
+    } else {
+      assert(output_level == vstorage->num_levels() - 1);
+    }
     // DBImpl::RunManualCompaction will make full range for universal compaction
     assert(begin == nullptr);
     assert(end == nullptr);

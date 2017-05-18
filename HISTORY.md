@@ -1,5 +1,7 @@
 # Rocksdb Change Log
 ## Unreleased
+
+## 5.5.0 (05/17/2017)
 ### New Features
 * FIFO compaction to support Intra L0 compaction too with CompactionOptionsFIFO.allow_compaction=true.
 * DB::ResetStats() to reset internal stats.
@@ -9,6 +11,8 @@
 * Support dynamically change `max_open_files` option via SetDBOptions()
 * Added DB::CreateColumnFamilie() and DB::DropColumnFamilies() to bulk create/drop column families.
 * Add debugging function `GetAllKeyVersions` to see internal versions of a range of keys.
+* Support file ingestion with universal compaction style
+* Support file ingestion behind with option `allow_ingest_behind`
 
 ## 5.4.0 (04/11/2017)
 ### Public API Change

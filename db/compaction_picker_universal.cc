@@ -568,6 +568,13 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSortedRuns(
     output_level = sorted_runs[first_index_after].level - 1;
   }
 
+  // last level is reserved for the files ingested behind
+  if (ioptions_.allow_ingest_behind &&
+      (output_level == vstorage->num_levels() - 1)) {
+    assert(output_level > 1);
+    output_level--;
+  }
+
   std::vector<CompactionInputFiles> inputs(vstorage->num_levels());
   for (size_t i = 0; i < inputs.size(); ++i) {
     inputs[i].level = start_level + static_cast<int>(i);
@@ -719,13 +726,20 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSizeAmp(
                      cf_name.c_str(), file_num_buf);
   }
 
+  // output files at the bottom most level, unless it's reserved
+  int output_level = vstorage->num_levels() - 1;
+  // last level is reserved for the files ingested behind
+  if (ioptions_.allow_ingest_behind) {
+    assert(output_level > 1);
+    output_level--;
+  }
+
   return new Compaction(
       vstorage, ioptions_, mutable_cf_options, std::move(inputs),
-      vstorage->num_levels() - 1,
-      mutable_cf_options.MaxFileSizeForLevel(vstorage->num_levels() - 1),
+      output_level, mutable_cf_options.MaxFileSizeForLevel(output_level),
       /* max_grandparent_overlap_bytes */ LLONG_MAX, path_id,
       GetCompressionType(ioptions_, vstorage, mutable_cf_options,
-                         vstorage->num_levels() - 1, 1),
+                         output_level, 1),
       /* grandparents */ {}, /* is manual */ false, score,
       false /* deletion_compaction */,
       CompactionReason::kUniversalSizeAmplification);

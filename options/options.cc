@@ -190,7 +190,8 @@ DBOptions::DBOptions(const Options& options)
       fail_if_options_file_error(options.fail_if_options_file_error),
       dump_malloc_stats(options.dump_malloc_stats),
       avoid_flush_during_recovery(options.avoid_flush_during_recovery),
-      avoid_flush_during_shutdown(options.avoid_flush_during_shutdown) {
+      avoid_flush_during_shutdown(options.avoid_flush_during_shutdown),
+      allow_ingest_behind(options.allow_ingest_behind) {
 }
 
 void DBOptions::Dump(Logger* log) const {

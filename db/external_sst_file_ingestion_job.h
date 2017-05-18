@@ -125,6 +125,12 @@ class ExternalSstFileIngestionJob {
                                             IngestedFileInfo* file_to_ingest,
                                             SequenceNumber* assigned_seqno);
 
+  // File that we want to ingest behind always goes to the lowest level;
+  // we just check that it fits in the level, that DB allows ingest_behind,
+  // and that we don't have 0 seqnums at the upper levels.
+  // REQUIRES: Mutex held
+  Status CheckLevelForIngestedBehindFile(IngestedFileInfo* file_to_ingest);
+
   // Set the file global sequence number to `seqno`
   Status AssignGlobalSeqnoForIngestedFile(IngestedFileInfo* file_to_ingest,
                                           SequenceNumber seqno);
@@ -134,6 +140,11 @@ class ExternalSstFileIngestionJob {
   Status IngestedFileOverlapWithIteratorRange(
       const IngestedFileInfo* file_to_ingest, InternalIterator* iter,
       bool* overlap);
+
+  // Check if `file_to_ingest` key range overlap with level
+  // REQUIRES: Mutex held
+  Status IngestedFileOverlapWithLevel(SuperVersion* sv,
+    IngestedFileInfo* file_to_ingest, int lvl, bool* overlap_with_level);
 
   // Check if `file_to_ingest` can fit in level `level`
   // REQUIRES: Mutex held

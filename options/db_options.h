@@ -77,6 +77,7 @@ struct ImmutableDBOptions {
   bool fail_if_options_file_error;
   bool dump_malloc_stats;
   bool avoid_flush_during_recovery;
+  bool allow_ingest_behind;
 };
 
 struct MutableDBOptions {
