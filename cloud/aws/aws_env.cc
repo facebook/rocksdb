@@ -1023,19 +1023,20 @@ Status AwsEnv::GetFileSize(const std::string& fname, uint64_t* size) {
   GetFileType(fname, &sstfile, &logfile);
 
   if (sstfile) {
-    // Get file length from S3
-    st = Status::NotFound();
-    if (has_dest_bucket_) {
-      st = GetFileInfoInS3(GetDestBucketPrefix(), destname(fname), size,
-                           nullptr);
-    }
-    if (st.IsNotFound() && has_src_bucket_) {
-      st = GetFileInfoInS3(GetSrcBucketPrefix(), srcname(fname), size, nullptr);
-    }
-    if (st.IsNotFound()) {
+    if (base_env_->FileExists(fname).ok()) {
       st = base_env_->GetFileSize(fname, size);
+    } else {
+      st = Status::NotFound();
+      // Get file length from S3
+      if (has_dest_bucket_) {
+        st = GetFileInfoInS3(GetDestBucketPrefix(), destname(fname), size,
+                             nullptr);
+      }
+      if (st.IsNotFound() && has_src_bucket_) {
+        st = GetFileInfoInS3(GetSrcBucketPrefix(), srcname(fname), size,
+                             nullptr);
+      }
     }
-
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
     assert(tailer_->status().ok());
 
@@ -1111,19 +1112,19 @@ Status AwsEnv::GetFileModificationTime(const std::string& fname,
   GetFileType(fname, &sstfile, &logfile);
 
   if (sstfile) {
-    // Get file length from S3
-    st = Status::NotFound();
-    if (has_dest_bucket_) {
-      st = GetFileInfoInS3(GetDestBucketPrefix(), destname(fname), nullptr,
-                           time);
+    if (base_env_->FileExists(fname).ok()) {
+      st = base_env_->GetFileModificationTime(fname, time);
+    } else {
+      st = Status::NotFound();
+      if (has_dest_bucket_) {
+        st = GetFileInfoInS3(GetDestBucketPrefix(), destname(fname), nullptr,
+                             time);
+      }
+      if (st.IsNotFound() && has_src_bucket_) {
+        st = GetFileInfoInS3(GetSrcBucketPrefix(), srcname(fname), nullptr,
+                             time);
+      }
     }
-    if (st.IsNotFound() && has_src_bucket_) {
-      st = GetFileInfoInS3(GetSrcBucketPrefix(), srcname(fname), nullptr, time);
-    }
-    if (st.IsNotFound()) {
-      st = base_env_->FileExists(fname);
-    }
-
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
     assert(tailer_->status().ok());
     // map  pathname to cache dir
