@@ -467,7 +467,7 @@ Because of that, Options::disable_seek_compaction is now obsolete. It is still a
 * Added new option -- verify_checksums_in_compaction
 * Changed Options.prefix_extractor from raw pointer to shared_ptr (take ownership)
   Changed HashSkipListRepFactory and HashLinkListRepFactory constructor to not take SliceTransform object (use Options.prefix_extractor implicitly)
-* Added Env::GetThreadPoolQueueLen(), which returns the waiting queue length of thread pools
+* Added Env::GetThreadPoolQueueLen(), which returns the waiting queue length of thread pools.
 * Added a command "checkconsistency" in ldb tool, which checks
   if file system state matches DB state (file existence and file sizes)
 * Separate options related to block based table to a new struct BlockBasedTableOptions.
