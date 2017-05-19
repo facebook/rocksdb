@@ -933,7 +933,12 @@ void DBIter::FindPrevUserKey() {
     return;
   }
   size_t num_skipped = 0;
+// Suppress false positive clang analyzer warnings.
+#ifdef __clang_analyzer__
+  ParsedInternalKey ikey(Slice(), 0, 0);
+#else
   ParsedInternalKey ikey;
+#endif  // __clang_analyzer__
   FindParseableKey(&ikey, kReverse);
   int cmp;
   while (iter_->Valid() &&
