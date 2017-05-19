@@ -1,4 +1,12 @@
 # Rocksdb Change Log
+## 5.4.5 (05/19/2017)
+### Bug Fixes
+* Facility for cross-building RocksJava using Docker.
+* Build and link with ZStd when creating the static RocksJava build.
+* Fix snprintf's usage to be cross-platform.
+* Fix build error with blob DB.
+* Fix readamp test type inconsistency.
+
 ## 5.4.4 (05/11/2017)
 ### New Features
 * Added DB::CreateColumnFamilie() and DB::DropColumnFamilies() to bulk create/drop column families.
