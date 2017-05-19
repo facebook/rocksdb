@@ -29,7 +29,7 @@ namespace rocksdb {
 // and the value type is embedded as the low 8 bits in the sequence
 // number in internal keys, we need to use the highest-numbered
 // ValueType, not the lowest).
-const ValueType kValueTypeForSeek = kTypeSingleDeletion;
+const ValueType kValueTypeForSeek = kMaxValue;
 const ValueType kValueTypeForSeekForPrev = kTypeDeletion;
 
 uint64_t PackSequenceAndType(uint64_t seq, ValueType t) {
