@@ -24,9 +24,13 @@ AwsRetryStrategy::AwsRetryStrategy(const CloudEnvOptions& env_options,
 bool AwsRetryStrategy::ShouldRetry(const AWSError<CoreErrors>& error,
                                    long attemptedRetries) const {
   CoreErrors ce = error.GetErrorType();
+  const Aws::String errmsg = error.GetMessage();
+  std::string err(errmsg.c_str(), errmsg.size());
 
   // Internal errors are unknown errors and we try harder to fix them
-  if (ce == CoreErrors::INTERNAL_FAILURE) {
+  if (ce == CoreErrors::INTERNAL_FAILURE ||
+      err.find("try again") != std::string::npos) {
+
     if (attemptedRetries <= internal_failure_num_retries_) {
       Log(InfoLogLevel::INFO_LEVEL, info_log_,
           "[aws] Encountered INTERNAL_FAILURE "
@@ -40,8 +44,6 @@ bool AwsRetryStrategy::ShouldRetry(const AWSError<CoreErrors>& error,
         attemptedRetries, internal_failure_num_retries_);
     return false;
   }
-  const Aws::String errmsg = error.GetMessage();
-  std::string err(errmsg.c_str(), errmsg.size());
   Log(InfoLogLevel::WARN_LEVEL, info_log_,
       "[aws] Encountered S3 failure %s"
       " retry attempt %d max retries %d. "
