@@ -639,7 +639,7 @@ $(parallel_tests): $(PARALLEL_TEST)
       -e '/^(\s*)(\S+)/; !$$1 and do {$$p=$$2; break};'	\
       -e 'print qq! $$p$$2!'`; \
 	for TEST_NAME in $$TEST_NAMES; do \
-		TEST_SCRIPT=t/run-$$TEST_BINARY-$${TEST_NAME//\//-}; \
+		TEST_SCRIPT=t/run-$$TEST_BINARY-`echo $$TEST_NAME|sed -e 's/\//-/g'`; \
 		echo "  GEN     " $$TEST_SCRIPT; \
     printf '%s\n' \
       '#!/bin/sh' \
@@ -702,7 +702,7 @@ check_0:
 	} \
 	  | $(prioritize_long_running_tests)				\
 	  | grep -E '$(tests-regexp)'					\
-	  | build_tools/gnu_parallel -j$(J) --plain --joblog=LOG $$eta --gnu '{} >& t/log-{/}'
+	  | build_tools/gnu_parallel -j$(J) --plain --joblog=LOG $$eta --gnu '{} >t/log-{/} 2>&1'
 
 valgrind-blacklist-regexp = InlineSkipTest.ConcurrentInsert|TransactionTest.DeadlockStress|DBCompactionTest.SuggestCompactRangeNoTwoLevel0Compactions|BackupableDBTest.RateLimiting|DBTest.CloseSpeedup|DBTest.ThreadStatusFlush|DBTest.RateLimitingTest|DBTest.EncodeDecompressedBlockSizeTest|FaultInjectionTest.UninstalledCompaction|HarnessTest.Randomized|ExternalSSTFileTest.CompactDuringAddFileRandom|ExternalSSTFileTest.IngestFileWithGlobalSeqnoRandomized
 
