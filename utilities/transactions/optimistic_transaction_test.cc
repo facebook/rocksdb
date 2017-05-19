@@ -47,6 +47,7 @@ class OptimisticTransactionTest : public testing::Test {
 
   void Reopen() {
     delete txn_db;
+    txn_db = nullptr;
     Open();
   }
 
@@ -54,6 +55,7 @@ private:
   void Open() {
     Status s = OptimisticTransactionDB::Open(options, dbname, &txn_db);
     assert(s.ok());
+    assert(txn_db != nullptr);
     db = txn_db->GetBaseDB();
   }
 };
@@ -465,6 +467,7 @@ TEST_F(OptimisticTransactionTest, ColumnFamiliesTest) {
   delete cfa;
   delete cfb;
   delete txn_db;
+  txn_db = nullptr;
 
   // open DB with three column families
   std::vector<ColumnFamilyDescriptor> column_families;
@@ -480,6 +483,7 @@ TEST_F(OptimisticTransactionTest, ColumnFamiliesTest) {
   s = OptimisticTransactionDB::Open(options, dbname, column_families, &handles,
                                     &txn_db);
   ASSERT_OK(s);
+  assert(txn_db != nullptr);
   db = txn_db->GetBaseDB();
 
   Transaction* txn = txn_db->BeginTransaction(write_options);
