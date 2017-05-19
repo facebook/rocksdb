@@ -1290,16 +1290,17 @@ public:
 // 2) During Write(), in a single-threaded write thread
 // 3) During Write(), in a concurrent context where memtables has been cloned
 // The reason is that it calls memtables->Seek(), which has a stateful cache
-Status WriteBatchInternal::InsertInto(
-    const autovector<WriteThread::Writer*>& writers, SequenceNumber sequence,
-    ColumnFamilyMemTables* memtables, FlushScheduler* flush_scheduler,
-    bool ignore_missing_column_families, uint64_t recovery_log_number, DB* db,
-    bool concurrent_memtable_writes) {
+Status WriteBatchInternal::InsertInto(WriteThread::WriteGroup& write_group,
+                                      SequenceNumber sequence,
+                                      ColumnFamilyMemTables* memtables,
+                                      FlushScheduler* flush_scheduler,
+                                      bool ignore_missing_column_families,
+                                      uint64_t recovery_log_number, DB* db,
+                                      bool concurrent_memtable_writes) {
   MemTableInserter inserter(sequence, memtables, flush_scheduler,
                             ignore_missing_column_families, recovery_log_number,
                             db, concurrent_memtable_writes);
-  for (size_t i = 0; i < writers.size(); i++) {
-    auto w = writers[i];
+  for (auto w : write_group) {
     if (!w->ShouldWriteToMemtable()) {
       continue;
     }
