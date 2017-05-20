@@ -152,7 +152,9 @@ class PosixEnv : public Env {
   virtual Status NewSequentialFile(const std::string& fname,
                                    unique_ptr<SequentialFile>* result,
                                    const EnvOptions& options) override {
-    result->reset();
+    // force not using direct io for sequential file
+    EnvOptions optimized(options);
+    optimized.use_direct_reads = false;
     int fd = -1;
     int flags = O_RDONLY;
     FILE* file = nullptr;
@@ -174,7 +176,7 @@ class PosixEnv : public Env {
       close(fd);
       return IOError(fname, errno);
     }
-    result->reset(new PosixSequentialFile(fname, file, fd, options));
+    result->reset(new PosixSequentialFile(fname, file, fd, optimized));
     return Status::OK();
   }
 
