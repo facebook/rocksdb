@@ -380,6 +380,16 @@ class Env {
   virtual std::string GenerateUniqueId();
 
   // OptimizeForLogWrite will create a new EnvOptions object that is a copy of
+  // the EnvOptions in the parameters, but is optimized for reading log files.
+  virtual EnvOptions OptimizeForLogRead(const EnvOptions& env_options) const;
+
+  // OptimizeForManifestRead will create a new EnvOptions object that is a copy
+  // of the EnvOptions in the parameters, but is optimized for reading manifest
+  // files.
+  virtual EnvOptions OptimizeForManifestRead(
+      const EnvOptions& env_options) const;
+
+  // OptimizeForLogWrite will create a new EnvOptions object that is a copy of
   // the EnvOptions in the parameters, but is optimized for writing log files.
   // Default implementation returns the copy of the same object.
   virtual EnvOptions OptimizeForLogWrite(const EnvOptions& env_options,
@@ -390,16 +400,16 @@ class Env {
   virtual EnvOptions OptimizeForManifestWrite(
       const EnvOptions& env_options) const;
 
-  // OptimizeForCompactionTableWrite will create a new EnvOptions object that is a copy
-  // of the EnvOptions in the parameters, but is optimized for writing table
-  // files. Default implementation returns the copy of the same object.
+  // OptimizeForCompactionTableWrite will create a new EnvOptions object that is
+  // a copy of the EnvOptions in the parameters, but is optimized for writing
+  // table files.
   virtual EnvOptions OptimizeForCompactionTableWrite(
       const EnvOptions& env_options,
       const ImmutableDBOptions& db_options) const;
 
-  // OptimizeForCompactionTableWrite will create a new EnvOptions object that is a copy
-  // of the EnvOptions in the parameters, but is optimized for reading table
-  // files. Default implementation returns the copy of the same object.
+  // OptimizeForCompactionTableWrite will create a new EnvOptions object that
+  // is a copy of the EnvOptions in the parameters, but is optimized for reading
+  // table files.
   virtual EnvOptions OptimizeForCompactionTableRead(
       const EnvOptions& env_options,
       const ImmutableDBOptions& db_options) const;

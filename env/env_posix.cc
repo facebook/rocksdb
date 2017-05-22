@@ -152,12 +152,20 @@ class PosixEnv : public Env {
   virtual Status NewSequentialFile(const std::string& fname,
                                    unique_ptr<SequentialFile>* result,
                                    const EnvOptions& options) override {
-    // force not using direct io for sequential file
-    EnvOptions optimized(options);
-    optimized.use_direct_reads = false;
+    result->reset();
     int fd = -1;
     int flags = O_RDONLY;
     FILE* file = nullptr;
+
+    if (options.use_direct_reads && !options.use_mmap_reads) {
+#ifdef ROCKSDB_LITE
+      return Status::IOError(fname, "Direct I/O not supported in RocksDB lite");
+#endif  // !ROCKSDB_LITE
+#if !defined(OS_MACOSX) && !defined(OS_OPENBSD) && !defined(OS_SOLARIS)
+      flags |= O_DIRECT;
+#endif
+    }
+
     do {
       IOSTATS_TIMER_GUARD(open_nanos);
       fd = open(fname.c_str(), flags, 0644);
@@ -168,15 +176,24 @@ class PosixEnv : public Env {
 
     SetFD_CLOEXEC(fd, &options);
 
-    do {
-      IOSTATS_TIMER_GUARD(open_nanos);
-      file = fdopen(fd, "r");
-    } while (file == nullptr && errno == EINTR);
-    if (file == nullptr) {
-      close(fd);
-      return IOError(fname, errno);
+    if (options.use_direct_reads && !options.use_mmap_reads) {
+#ifdef OS_MACOSX
+      if (fcntl(fd, F_NOCACHE, 1) == -1) {
+        close(fd);
+        return IOError(fname, errno);
+      }
+#endif
+    } else {
+      do {
+        IOSTATS_TIMER_GUARD(open_nanos);
+        file = fdopen(fd, "r");
+      } while (file == nullptr && errno == EINTR);
+      if (file == nullptr) {
+        close(fd);
+        return IOError(fname, errno);
+      }
     }
-    result->reset(new PosixSequentialFile(fname, file, fd, optimized));
+    result->reset(new PosixSequentialFile(fname, file, fd, options));
     return Status::OK();
   }
 
