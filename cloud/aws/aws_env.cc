@@ -199,12 +199,16 @@ AwsEnv::AwsEnv(Env* underlying_env, const std::string& src_bucket_prefix,
 
   // create dest bucket if specified
   if (has_dest_bucket_) {
+    Log(InfoLogLevel::INFO_LEVEL, info_log,
+        "[aws] NewAwsEnv Going to  create bucket %s",
+        GetDestBucketPrefix().c_str());
     create_bucket_status_ = S3WritableFile::CreateBucketInS3(
         s3client_, GetDestBucketPrefix(), bucket_location_);
   }
   if (!create_bucket_status_.ok()) {
     Log(InfoLogLevel::ERROR_LEVEL, info_log,
-        "[aws] NewAwsEnv Unable to  create bucket %s",
+        "[aws] NewAwsEnv Unable to  create bucket %s %s",
+        GetDestBucketPrefix().c_str(),
         create_bucket_status_.ToString().c_str());
   }
 
