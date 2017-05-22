@@ -54,8 +54,6 @@ class SequentialFileReader {
 
   bool use_direct_io() const { return file_->use_direct_io(); }
 
-  size_t offset() const { return offset_.load(std::memory_order_relaxed); }
-
  protected:
   Status DirectRead(size_t n, Slice* result, char* scratch);
 };
