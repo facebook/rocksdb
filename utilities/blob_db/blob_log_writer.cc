@@ -157,7 +157,6 @@ Status Writer::AddRecordFooter(const SequenceNumber& seq) {
   uint32_t footer_crc = crc32c::Extend(0, buf.c_str(), buf.size());
   footer_crc = crc32c::Mask(footer_crc);
   PutFixed32(&buf, footer_crc);
-  printf("seq = %lu, footer_crc = %u\n", seq, footer_crc);
 
   Status s = dest_->Append(Slice(buf));
   block_offset_ += BlobLogRecord::kFooterSize;

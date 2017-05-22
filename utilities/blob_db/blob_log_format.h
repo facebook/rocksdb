@@ -70,13 +70,12 @@ class BlobLogHeader {
   void set_ts_guess(const tsrange_t& ts) { ts_guess_.reset(new tsrange_t(ts)); }
 
  public:
-  // magic number + version + flags + ttl guess + timestamp range
+  // magic number + version + flags + ttl guess + timestamp range = 36
   static const size_t kHeaderSize = 4 + 4 + 4 + 4 * 2 + 8 * 2;
-  // 32
 
   void EncodeTo(std::string* dst) const;
 
-  Status DecodeFrom(Slice* input);
+  Status DecodeFrom(const Slice& input);
 
   BlobLogHeader();
 
@@ -121,7 +120,7 @@ class BlobLogFooter {
 
   void EncodeTo(std::string* dst) const;
 
-  Status DecodeFrom(Slice* input);
+  Status DecodeFrom(const Slice& input);
 
   // convert this object to a human readable form
   std::string ToString() const;

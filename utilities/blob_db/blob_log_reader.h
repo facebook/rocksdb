@@ -70,9 +70,7 @@ class Reader {
 
   uint64_t GetNextByte() const { return next_byte_; }
 
-  const SequentialFileReader* file_reader() const {
-    return file_.get();
-  }
+  const SequentialFileReader* file_reader() const { return file_.get(); }
 
  private:
   char* GetReadBuffer() { return &(backing_store_[0]); }
