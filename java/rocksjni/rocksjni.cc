@@ -2164,18 +2164,17 @@ void Java_org_rocksdb_RocksDB_setOptions(JNIEnv* env, jobject jdb,
 }
 
 //////////////////////////////////////////////////////////////////////////////
-// rocksdb::DB::AddFile
+// rocksdb::DB::IngestExternalFile
 
 /*
  * Class:     org_rocksdb_RocksDB
- * Method:    addFile
- * Signature: (JJ[Ljava/lang/String;IZ)V
+ * Method:    ingestExternalFile
+ * Signature: (JJ[Ljava/lang/String;IJ)V
  */
-void Java_org_rocksdb_RocksDB_addFile__JJ_3Ljava_lang_String_2IZ(
+void Java_org_rocksdb_RocksDB_ingestExternalFile(
     JNIEnv* env, jobject jdb, jlong jdb_handle, jlong jcf_handle,
     jobjectArray jfile_path_list, jint jfile_path_list_len,
-    jboolean jmove_file) {
-
+    jlong jingest_external_file_options_handle) {
   jboolean has_exception = JNI_FALSE;
   std::vector<std::string> file_path_list =
       rocksdb::JniUtil::copyStrings(env, jfile_path_list, jfile_path_list_len,
@@ -2188,13 +2187,11 @@ void Java_org_rocksdb_RocksDB_addFile__JJ_3Ljava_lang_String_2IZ(
   auto* db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
   auto* column_family =
       reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
-  rocksdb::IngestExternalFileOptions ifo;
-  ifo.move_files = static_cast<bool>(jmove_file);
-  ifo.snapshot_consistency = true;
-  ifo.allow_global_seqno = false;
-  ifo.allow_blocking_flush = false;
+  auto* ifo =
+      reinterpret_cast<rocksdb::IngestExternalFileOptions*>(
+          jingest_external_file_options_handle);
   rocksdb::Status s =
-      db->IngestExternalFile(column_family, file_path_list, ifo);
+      db->IngestExternalFile(column_family, file_path_list, *ifo);
   if (!s.ok()) {
     rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
   }
