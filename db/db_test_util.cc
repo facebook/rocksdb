@@ -438,17 +438,20 @@ Options DBTestBase::CurrentOptions(
       options.use_direct_reads = true;
       options.use_direct_io_for_flush_and_compaction = true;
       options.compaction_readahead_size = 2 * 1024 * 1024;
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && \
+    !defined(OS_AIX)
       rocksdb::SyncPoint::GetInstance()->SetCallBack(
-        "NewWritableFile:O_DIRECT", [&](void* arg) {
-          int* val = static_cast<int*>(arg);
-          *val &= ~O_DIRECT;
-        });
+          "NewWritableFile:O_DIRECT", [&](void* arg) {
+            int* val = static_cast<int*>(arg);
+            *val &= ~O_DIRECT;
+          });
       rocksdb::SyncPoint::GetInstance()->SetCallBack(
-        "NewRandomAccessFile:O_DIRECT", [&](void* arg) {
-          int* val = static_cast<int*>(arg);
-          *val &= ~O_DIRECT;
-        });
+          "NewRandomAccessFile:O_DIRECT", [&](void* arg) {
+            int* val = static_cast<int*>(arg);
+            *val &= ~O_DIRECT;
+          });
       rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+#endif
       break;
     }
 
