@@ -135,19 +135,19 @@ class CompactionFilter {
   //      *skip_until <= key is treated the same as Decision::kKeep
   //      (since the range [key, *skip_until) is empty).
   //
-  //      The keys are skipped even if there are snapshots containing them,
-  //      as if IgnoreSnapshots() was true; i.e. values removed
-  //      by kRemoveAndSkipUntil can disappear from a snapshot - beware
-  //      if you're using TransactionDB or DB::GetSnapshot().
-  //
-  //      Another warning: if value for a key was overwritten or merged into
-  //      (multiple Put()s or Merge()s), and compaction filter skips this key
-  //      with kRemoveAndSkipUntil, it's possible that it will remove only
-  //      the new value, exposing the old value that was supposed to be
-  //      overwritten.
-  //
-  //      If you use kRemoveAndSkipUntil, consider also reducing
-  //      compaction_readahead_size option.
+  //      Caveats:
+  //       - The keys are skipped even if there are snapshots containing them,
+  //         as if IgnoreSnapshots() was true; i.e. values removed
+  //         by kRemoveAndSkipUntil can disappear from a snapshot - beware
+  //         if you're using TransactionDB or DB::GetSnapshot().
+  //       - If value for a key was overwritten or merged into (multiple Put()s
+  //         or Merge()s), and compaction filter skips this key with
+  //         kRemoveAndSkipUntil, it's possible that it will remove only
+  //         the new value, exposing the old value that was supposed to be
+  //         overwritten.
+  //       - Doesn't work with PlainTableFactory in prefix mode.
+  //       - If you use kRemoveAndSkipUntil, consider also reducing
+  //         compaction_readahead_size option.
   //
   // Note: If you are using a TransactionDB, it is not recommended to filter
   // out or modify merge operands (ValueType::kMergeOperand).

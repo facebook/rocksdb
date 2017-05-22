@@ -47,6 +47,7 @@ static inline uint64_t CuckooHash(
 // - Key length and Value length are fixed.
 // - Does not support Snapshot.
 // - Does not support Merge operations.
+// - Does not support prefix bloom filters.
 class CuckooTableFactory : public TableFactory {
  public:
   explicit CuckooTableFactory(const CuckooTableOptions& table_options)

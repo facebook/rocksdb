@@ -193,15 +193,12 @@ InternalIterator* PlainTableReader::NewIterator(const ReadOptions& options,
                                                 Arena* arena,
                                                 const InternalKeyComparator*,
                                                 bool skip_filters) {
-  if (options.total_order_seek && !IsTotalOrderMode()) {
-    return NewErrorInternalIterator(
-        Status::InvalidArgument("total_order_seek not supported"), arena);
-  }
+  bool use_prefix_seek = !IsTotalOrderMode() && !options.total_order_seek;
   if (arena == nullptr) {
-    return new PlainTableIterator(this, prefix_extractor_ != nullptr);
+    return new PlainTableIterator(this, use_prefix_seek);
   } else {
     auto mem = arena->AllocateAligned(sizeof(PlainTableIterator));
-    return new (mem) PlainTableIterator(this, prefix_extractor_ != nullptr);
+    return new (mem) PlainTableIterator(this, use_prefix_seek);
   }
 }
 
@@ -641,9 +638,22 @@ void PlainTableIterator::SeekToLast() {
 }
 
 void PlainTableIterator::Seek(const Slice& target) {
+  if (use_prefix_seek_ != !table_->IsTotalOrderMode()) {
+    // This check is done here instead of NewIterator() to permit creating an
+    // iterator with total_order_seek = true even if we won't be able to Seek()
+    // it. This is needed for compaction: it creates iterator with
+    // total_order_seek = true but usually never does Seek() on it,
+    // only SeekToFirst().
+    status_ =
+        Status::InvalidArgument(
+          "total_order_seek not implemented for PlainTable.");
+    offset_ = next_offset_ = table_->file_info_.data_end_offset;
+    return;
+  }
+
   // If the user doesn't set prefix seek option and we are not able to do a
   // total Seek(). assert failure.
-  if (!use_prefix_seek_) {
+  if (table_->IsTotalOrderMode()) {
     if (table_->full_scan_mode_) {
       status_ =
           Status::InvalidArgument("Seek() is not allowed in full scan mode.");
