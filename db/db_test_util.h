@@ -123,8 +123,8 @@ enum SkipPolicy { kSkipNone = 0, kSkipNoSnapshot = 1, kSkipNoPrefix = 2 };
 // A hacky skip list mem table that triggers flush after number of entries.
 class SpecialMemTableRep : public MemTableRep {
  public:
-  explicit SpecialMemTableRep(MemTableAllocator* allocator,
-                              MemTableRep* memtable, int num_entries_flush)
+  explicit SpecialMemTableRep(Allocator* allocator, MemTableRep* memtable,
+                              int num_entries_flush)
       : MemTableRep(allocator),
         memtable_(memtable),
         num_entries_flush_(num_entries_flush),
@@ -186,7 +186,7 @@ class SpecialSkipListFactory : public MemTableRepFactory {
 
   using MemTableRepFactory::CreateMemTableRep;
   virtual MemTableRep* CreateMemTableRep(
-      const MemTableRep::KeyComparator& compare, MemTableAllocator* allocator,
+      const MemTableRep::KeyComparator& compare, Allocator* allocator,
       const SliceTransform* transform, Logger* logger) override {
     return new SpecialMemTableRep(
         allocator, factory_.CreateMemTableRep(compare, allocator, transform, 0),

@@ -30,7 +30,7 @@ class HashCuckooRepFactory : public MemTableRepFactory {
 
   using MemTableRepFactory::CreateMemTableRep;
   virtual MemTableRep* CreateMemTableRep(
-      const MemTableRep::KeyComparator& compare, MemTableAllocator* allocator,
+      const MemTableRep::KeyComparator& compare, Allocator* allocator,
       const SliceTransform* transform, Logger* logger) override;
 
   virtual const char* Name() const override { return "HashCuckooRepFactory"; }

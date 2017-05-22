@@ -399,6 +399,7 @@ TESTS = \
 	external_sst_file_test \
 	prefix_test \
 	skiplist_test \
+	write_buffer_manager_test \
 	stringappend_test \
 	ttl_test \
 	date_tiered_test \
@@ -1220,6 +1221,9 @@ inlineskiplist_test: memtable/inlineskiplist_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 skiplist_test: memtable/skiplist_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+write_buffer_manager_test: memtable/write_buffer_manager_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 version_edit_test: db/version_edit_test.o $(LIBOBJECTS) $(TESTHARNESS)

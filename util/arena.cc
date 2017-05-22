@@ -24,6 +24,7 @@
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "util/logging.h"
+#include "util/sync_point.h"
 
 namespace rocksdb {
 
@@ -49,10 +50,11 @@ size_t OptimizeBlockSize(size_t block_size) {
   return block_size;
 }
 
-Arena::Arena(size_t block_size, size_t huge_page_size)
-    : kBlockSize(OptimizeBlockSize(block_size)) {
+Arena::Arena(size_t block_size, AllocTracker* tracker, size_t huge_page_size)
+    : kBlockSize(OptimizeBlockSize(block_size)), tracker_(tracker) {
   assert(kBlockSize >= kMinBlockSize && kBlockSize <= kMaxBlockSize &&
          kBlockSize % kAlignUnit == 0);
+  TEST_SYNC_POINT_CALLBACK("Arena::Arena:0", const_cast<size_t*>(&kBlockSize));
   alloc_bytes_remaining_ = sizeof(inline_block_);
   blocks_memory_ += alloc_bytes_remaining_;
   aligned_alloc_ptr_ = inline_block_;
@@ -63,9 +65,16 @@ Arena::Arena(size_t block_size, size_t huge_page_size)
     hugetlb_size_ = ((kBlockSize - 1U) / hugetlb_size_ + 1U) * hugetlb_size_;
   }
 #endif
+  if (tracker_ != nullptr) {
+    tracker_->Allocate(kInlineSize);
+  }
 }
 
 Arena::~Arena() {
+  if (tracker_ != nullptr) {
+    assert(tracker_->is_freed());
+    tracker_->FreeMem();
+  }
   for (const auto& block : blocks_) {
     delete[] block;
   }
@@ -134,6 +143,9 @@ char* Arena::AllocateFromHugePage(size_t bytes) {
   // the following shouldn't throw because of the above reserve()
   huge_blocks_.emplace_back(MmapInfo(addr, bytes));
   blocks_memory_ += bytes;
+  if (tracker_ != nullptr) {
+    tracker_->Allocate(bytes);
+  }
   return reinterpret_cast<char*>(addr);
 #else
   return nullptr;
@@ -190,12 +202,22 @@ char* Arena::AllocateNewBlock(size_t block_bytes) {
   blocks_.reserve(blocks_.size() + 1);
 
   char* block = new char[block_bytes];
-
+  size_t allocated_size;
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
-  blocks_memory_ += malloc_usable_size(block);
+  allocated_size = malloc_usable_size(block);
+#ifndef NDEBUG
+  // It's hard to predict what malloc_usable_size() returns.
+  // A callback can allow users to change the costed size.
+  std::pair<size_t*, size_t*> pair(&allocated_size, &block_bytes);
+  TEST_SYNC_POINT_CALLBACK("Arena::AllocateNewBlock:0", &pair);
+#endif  // NDEBUG
 #else
-  blocks_memory_ += block_bytes;
+  allocated_size = block_bytes;
 #endif  // ROCKSDB_MALLOC_USABLE_SIZE
+  blocks_memory_ += allocated_size;
+  if (tracker_ != nullptr) {
+    tracker_->Allocate(allocated_size);
+  }
   // the following shouldn't throw because of the above reserve()
   blocks_.push_back(block);
   return block;

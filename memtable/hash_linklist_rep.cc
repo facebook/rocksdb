@@ -58,7 +58,7 @@ struct SkipListBucketHeader {
   MemtableSkipList skip_list;
 
   explicit SkipListBucketHeader(const MemTableRep::KeyComparator& cmp,
-                                MemTableAllocator* allocator, uint32_t count)
+                                Allocator* allocator, uint32_t count)
       : Counting_header(this,  // Pointing to itself to indicate header type.
                         count),
         skip_list(cmp, allocator) {}
@@ -164,7 +164,7 @@ struct Node {
 class HashLinkListRep : public MemTableRep {
  public:
   HashLinkListRep(const MemTableRep::KeyComparator& compare,
-                  MemTableAllocator* allocator, const SliceTransform* transform,
+                  Allocator* allocator, const SliceTransform* transform,
                   size_t bucket_size, uint32_t threshold_use_skiplist,
                   size_t huge_page_tlb_size, Logger* logger,
                   int bucket_entries_logging_threshold,
@@ -496,14 +496,11 @@ class HashLinkListRep : public MemTableRep {
   };
 };
 
-HashLinkListRep::HashLinkListRep(const MemTableRep::KeyComparator& compare,
-                                 MemTableAllocator* allocator,
-                                 const SliceTransform* transform,
-                                 size_t bucket_size,
-                                 uint32_t threshold_use_skiplist,
-                                 size_t huge_page_tlb_size, Logger* logger,
-                                 int bucket_entries_logging_threshold,
-                                 bool if_log_bucket_dist_when_flash)
+HashLinkListRep::HashLinkListRep(
+    const MemTableRep::KeyComparator& compare, Allocator* allocator,
+    const SliceTransform* transform, size_t bucket_size,
+    uint32_t threshold_use_skiplist, size_t huge_page_tlb_size, Logger* logger,
+    int bucket_entries_logging_threshold, bool if_log_bucket_dist_when_flash)
     : MemTableRep(allocator),
       bucket_size_(bucket_size),
       // Threshold to use skip list doesn't make sense if less than 3, so we
@@ -831,7 +828,7 @@ Node* HashLinkListRep::FindGreaterOrEqualInBucket(Node* head,
 } // anon namespace
 
 MemTableRep* HashLinkListRepFactory::CreateMemTableRep(
-    const MemTableRep::KeyComparator& compare, MemTableAllocator* allocator,
+    const MemTableRep::KeyComparator& compare, Allocator* allocator,
     const SliceTransform* transform, Logger* logger) {
   return new HashLinkListRep(compare, allocator, transform, bucket_count_,
                              threshold_use_skiplist_, huge_page_tlb_size_,

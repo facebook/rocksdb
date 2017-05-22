@@ -27,8 +27,7 @@ using namespace stl_wrappers;
 
 class VectorRep : public MemTableRep {
  public:
-  VectorRep(const KeyComparator& compare, MemTableAllocator* allocator,
-            size_t count);
+  VectorRep(const KeyComparator& compare, Allocator* allocator, size_t count);
 
   // Insert key into the collection. (The caller will pack key and value into a
   // single buffer and pass that in as the parameter to Insert)
@@ -138,13 +137,15 @@ size_t VectorRep::ApproximateMemoryUsage() {
     );
 }
 
-VectorRep::VectorRep(const KeyComparator& compare, MemTableAllocator* allocator,
+VectorRep::VectorRep(const KeyComparator& compare, Allocator* allocator,
                      size_t count)
-  : MemTableRep(allocator),
-    bucket_(new Bucket()),
-    immutable_(false),
-    sorted_(false),
-    compare_(compare) { bucket_.get()->reserve(count); }
+    : MemTableRep(allocator),
+      bucket_(new Bucket()),
+      immutable_(false),
+      sorted_(false),
+      compare_(compare) {
+  bucket_.get()->reserve(count);
+}
 
 VectorRep::Iterator::Iterator(class VectorRep* vrep,
                    std::shared_ptr<std::vector<const char*>> bucket,
@@ -296,7 +297,7 @@ MemTableRep::Iterator* VectorRep::GetIterator(Arena* arena) {
 } // anon namespace
 
 MemTableRep* VectorRepFactory::CreateMemTableRep(
-    const MemTableRep::KeyComparator& compare, MemTableAllocator* allocator,
+    const MemTableRep::KeyComparator& compare, Allocator* allocator,
     const SliceTransform*, Logger* logger) {
   return new VectorRep(compare, allocator, count_);
 }

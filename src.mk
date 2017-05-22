@@ -60,13 +60,14 @@ LIB_SOURCES =                                                   \
   env/env_hdfs.cc                                               \
   env/env_posix.cc                                              \
   env/io_posix.cc                                               \
-  env/mock_env.cc                                              \
+  env/mock_env.cc                                               \
+  memtable/alloc_tracker.cc                                     \
   memtable/hash_cuckoo_rep.cc                                   \
   memtable/hash_linklist_rep.cc                                 \
   memtable/hash_skiplist_rep.cc                                 \
-  memtable/memtable_allocator.cc                                \
   memtable/skiplistrep.cc                                       \
   memtable/vectorrep.cc                                         \
+  memtable/write_buffer_manager.cc                              \
   monitoring/histogram.cc                                       \
   monitoring/histogram_windowing.cc                             \
   monitoring/instrumented_mutex.cc                              \
@@ -286,6 +287,7 @@ MAIN_SOURCES =                                                    \
   memtable/inlineskiplist_test.cc                                       \
   memtable/memtablerep_bench.cc                                         \
   memtable/skiplist_test.cc                                             \
+  memtable/write_buffer_manager_test.cc                                 \
   monitoring/histogram_test.cc                                          \
   monitoring/iostats_context_test.cc                                    \
   monitoring/statistics_test.cc                                         \
