@@ -33,15 +33,15 @@ bool AwsRetryStrategy::ShouldRetry(const AWSError<CoreErrors>& error,
 
     if (attemptedRetries <= internal_failure_num_retries_) {
       Log(InfoLogLevel::INFO_LEVEL, info_log_,
-          "[aws] Encountered INTERNAL_FAILURE "
+          "[aws] Encountered retriable failure: %s. "
           " retry attempt %d is lesser than max retries %d. Retrying...",
-          attemptedRetries, internal_failure_num_retries_);
+          err.c_str(), attemptedRetries, internal_failure_num_retries_);
       return true;
     }
     Log(InfoLogLevel::INFO_LEVEL, info_log_,
-        "[aws] Encountered INTERNAL_FAILURE "
+        "[aws] Encountered retriable failure: %s. "
         " retry attempt %d exceeds max retries %d. Aborting...",
-        attemptedRetries, internal_failure_num_retries_);
+        err.c_str(), attemptedRetries, internal_failure_num_retries_);
     return false;
   }
   Log(InfoLogLevel::WARN_LEVEL, info_log_,
