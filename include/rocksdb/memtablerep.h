@@ -216,10 +216,18 @@ class MemTableRep {
 class MemTableRepFactory {
  public:
   virtual ~MemTableRepFactory() {}
+
   virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator&,
                                          MemTableAllocator*,
                                          const SliceTransform*,
                                          Logger* logger) = 0;
+  virtual MemTableRep* CreateMemTableRep(
+      const MemTableRep::KeyComparator& key_cmp, MemTableAllocator* allocator,
+      const SliceTransform* slice_transform, Logger* logger,
+      uint32_t /* column_family_id */) {
+    return CreateMemTableRep(key_cmp, allocator, slice_transform, logger);
+  }
+
   virtual const char* Name() const = 0;
 
   // Return true if the current MemTableRep supports concurrent inserts
@@ -238,6 +246,7 @@ class SkipListFactory : public MemTableRepFactory {
  public:
   explicit SkipListFactory(size_t lookahead = 0) : lookahead_(lookahead) {}
 
+  using MemTableRepFactory::CreateMemTableRep;
   virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator&,
                                          MemTableAllocator*,
                                          const SliceTransform*,
@@ -264,10 +273,13 @@ class VectorRepFactory : public MemTableRepFactory {
 
  public:
   explicit VectorRepFactory(size_t count = 0) : count_(count) { }
+
+  using MemTableRepFactory::CreateMemTableRep;
   virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator&,
                                          MemTableAllocator*,
                                          const SliceTransform*,
                                          Logger* logger) override;
+
   virtual const char* Name() const override {
     return "VectorRepFactory";
   }

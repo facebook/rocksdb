@@ -63,7 +63,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
                    const ImmutableCFOptions& ioptions,
                    const MutableCFOptions& mutable_cf_options,
                    WriteBufferManager* write_buffer_manager,
-                   SequenceNumber latest_seq)
+                   SequenceNumber latest_seq, uint32_t column_family_id)
     : comparator_(cmp),
       moptions_(ioptions, mutable_cf_options),
       refs_(0),
@@ -73,10 +73,10 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       allocator_(&arena_, write_buffer_manager),
       table_(ioptions.memtable_factory->CreateMemTableRep(
           comparator_, &allocator_, ioptions.prefix_extractor,
-          ioptions.info_log)),
+          ioptions.info_log, column_family_id)),
       range_del_table_(SkipListFactory().CreateMemTableRep(
-          comparator_, &allocator_, nullptr /* transform */,
-          ioptions.info_log)),
+          comparator_, &allocator_, nullptr /* transform */, ioptions.info_log,
+          column_family_id)),
       is_range_del_table_empty_(true),
       data_size_(0),
       num_entries_(0),
