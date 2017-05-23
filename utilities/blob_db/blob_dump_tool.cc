@@ -7,9 +7,11 @@
 #ifndef ROCKSDB_LITE
 #include "utilities/blob_db/blob_dump_tool.h"
 #include <inttypes.h>
+#include <stdio.h>
 #include <iostream>
 #include <memory>
 #include <string>
+#include "port/port.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/env.h"
 #include "util/coding.h"
@@ -225,9 +227,9 @@ void BlobDumpTool::DumpSlice(const Slice s, DisplayType type) {
       memset(buf, 0, sizeof(buf));
       for (size_t j = 0; j < 16 && i + j < s.size(); j++) {
         unsigned char c = s[i + j];
-        sprintf(buf + j * 3 + 15, "%x", c >> 4);
-        sprintf(buf + j * 3 + 16, "%x", c & 0xf);
-        sprintf(buf + j + 65, "%c", (0x20 <= c && c <= 0x7e) ? c : '.');
+        snprintf(buf + j * 3 + 15, 2, "%x", c >> 4);
+        snprintf(buf + j * 3 + 16, 2, "%x", c & 0xf);
+        snprintf(buf + j + 65, 2, "%c", (0x20 <= c && c <= 0x7e) ? c : '.');
       }
       for (size_t p = 0; p < sizeof(buf) - 1; p++) {
         if (buf[p] == 0) {
