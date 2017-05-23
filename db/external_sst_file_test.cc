@@ -63,7 +63,7 @@ class ExternalSSTFileTest : public DBTestBase {
       return s;
     }
     for (auto& entry : data) {
-      s = sst_file_writer.Add(entry.first, entry.second);
+      s = sst_file_writer.Put(entry.first, entry.second);
       if (!s.ok()) {
         sst_file_writer.Finish();
         return s;
@@ -125,7 +125,7 @@ class ExternalSSTFileTest : public DBTestBase {
       return s;
     }
     for (auto& entry : data) {
-      s = sst_file_writer.Add(entry.first, entry.second);
+      s = sst_file_writer.Put(entry.first, entry.second);
       if (!s.ok()) {
         sst_file_writer.Finish();
         return s;
@@ -211,7 +211,7 @@ TEST_F(ExternalSSTFileTest, Basic) {
     std::string file1 = sst_files_dir_ + "file1.sst";
     ASSERT_OK(sst_file_writer.Open(file1));
     for (int k = 0; k < 100; k++) {
-      ASSERT_OK(sst_file_writer.Add(Key(k), Key(k) + "_val"));
+      ASSERT_OK(sst_file_writer.Put(Key(k), Key(k) + "_val"));
     }
     ExternalSstFileInfo file1_info;
     Status s = sst_file_writer.Finish(&file1_info);
@@ -225,17 +225,17 @@ TEST_F(ExternalSSTFileTest, Basic) {
     ASSERT_EQ(file1_info.smallest_key, Key(0));
     ASSERT_EQ(file1_info.largest_key, Key(99));
     // sst_file_writer already finished, cannot add this value
-    s = sst_file_writer.Add(Key(100), "bad_val");
+    s = sst_file_writer.Put(Key(100), "bad_val");
     ASSERT_FALSE(s.ok()) << s.ToString();
 
     // file2.sst (100 => 199)
     std::string file2 = sst_files_dir_ + "file2.sst";
     ASSERT_OK(sst_file_writer.Open(file2));
     for (int k = 100; k < 200; k++) {
-      ASSERT_OK(sst_file_writer.Add(Key(k), Key(k) + "_val"));
+      ASSERT_OK(sst_file_writer.Put(Key(k), Key(k) + "_val"));
     }
     // Cannot add this key because it's not after last added key
-    s = sst_file_writer.Add(Key(99), "bad_val");
+    s = sst_file_writer.Put(Key(99), "bad_val");
     ASSERT_FALSE(s.ok()) << s.ToString();
     ExternalSstFileInfo file2_info;
     s = sst_file_writer.Finish(&file2_info);
@@ -250,7 +250,7 @@ TEST_F(ExternalSSTFileTest, Basic) {
     std::string file3 = sst_files_dir_ + "file3.sst";
     ASSERT_OK(sst_file_writer.Open(file3));
     for (int k = 195; k < 300; k++) {
-      ASSERT_OK(sst_file_writer.Add(Key(k), Key(k) + "_val_overlap"));
+      ASSERT_OK(sst_file_writer.Put(Key(k), Key(k) + "_val_overlap"));
     }
     ExternalSstFileInfo file3_info;
     s = sst_file_writer.Finish(&file3_info);
@@ -268,7 +268,7 @@ TEST_F(ExternalSSTFileTest, Basic) {
     std::string file4 = sst_files_dir_ + "file4.sst";
     ASSERT_OK(sst_file_writer.Open(file4));
     for (int k = 30; k < 40; k++) {
-      ASSERT_OK(sst_file_writer.Add(Key(k), Key(k) + "_val_overlap"));
+      ASSERT_OK(sst_file_writer.Put(Key(k), Key(k) + "_val_overlap"));
     }
     ExternalSstFileInfo file4_info;
     s = sst_file_writer.Finish(&file4_info);
@@ -282,7 +282,7 @@ TEST_F(ExternalSSTFileTest, Basic) {
     std::string file5 = sst_files_dir_ + "file5.sst";
     ASSERT_OK(sst_file_writer.Open(file5));
     for (int k = 400; k < 500; k++) {
-      ASSERT_OK(sst_file_writer.Add(Key(k), Key(k) + "_val"));
+      ASSERT_OK(sst_file_writer.Put(Key(k), Key(k) + "_val"));
     }
     ExternalSstFileInfo file5_info;
     s = sst_file_writer.Finish(&file5_info);
@@ -444,7 +444,7 @@ TEST_F(ExternalSSTFileTest, AddList) {
     std::string file1 = sst_files_dir_ + "file1.sst";
     ASSERT_OK(sst_file_writer.Open(file1));
     for (int k = 0; k < 100; k++) {
-      ASSERT_OK(sst_file_writer.Add(Key(k), Key(k) + "_val"));
+      ASSERT_OK(sst_file_writer.Put(Key(k), Key(k) + "_val"));
     }
     ExternalSstFileInfo file1_info;
     Status s = sst_file_writer.Finish(&file1_info);
@@ -454,17 +454,17 @@ TEST_F(ExternalSSTFileTest, AddList) {
     ASSERT_EQ(file1_info.smallest_key, Key(0));
     ASSERT_EQ(file1_info.largest_key, Key(99));
     // sst_file_writer already finished, cannot add this value
-    s = sst_file_writer.Add(Key(100), "bad_val");
+    s = sst_file_writer.Put(Key(100), "bad_val");
     ASSERT_FALSE(s.ok()) << s.ToString();
 
     // file2.sst (100 => 199)
     std::string file2 = sst_files_dir_ + "file2.sst";
     ASSERT_OK(sst_file_writer.Open(file2));
     for (int k = 100; k < 200; k++) {
-      ASSERT_OK(sst_file_writer.Add(Key(k), Key(k) + "_val"));
+      ASSERT_OK(sst_file_writer.Put(Key(k), Key(k) + "_val"));
     }
     // Cannot add this key because it's not after last added key
-    s = sst_file_writer.Add(Key(99), "bad_val");
+    s = sst_file_writer.Put(Key(99), "bad_val");
     ASSERT_FALSE(s.ok()) << s.ToString();
     ExternalSstFileInfo file2_info;
     s = sst_file_writer.Finish(&file2_info);
@@ -479,7 +479,7 @@ TEST_F(ExternalSSTFileTest, AddList) {
     std::string file3 = sst_files_dir_ + "file3.sst";
     ASSERT_OK(sst_file_writer.Open(file3));
     for (int k = 195; k < 200; k++) {
-      ASSERT_OK(sst_file_writer.Add(Key(k), Key(k) + "_val_overlap"));
+      ASSERT_OK(sst_file_writer.Put(Key(k), Key(k) + "_val_overlap"));
     }
     ExternalSstFileInfo file3_info;
     s = sst_file_writer.Finish(&file3_info);
@@ -494,7 +494,7 @@ TEST_F(ExternalSSTFileTest, AddList) {
     std::string file4 = sst_files_dir_ + "file4.sst";
     ASSERT_OK(sst_file_writer.Open(file4));
     for (int k = 30; k < 40; k++) {
-      ASSERT_OK(sst_file_writer.Add(Key(k), Key(k) + "_val_overlap"));
+      ASSERT_OK(sst_file_writer.Put(Key(k), Key(k) + "_val_overlap"));
     }
     ExternalSstFileInfo file4_info;
     s = sst_file_writer.Finish(&file4_info);
@@ -508,7 +508,7 @@ TEST_F(ExternalSSTFileTest, AddList) {
     std::string file5 = sst_files_dir_ + "file5.sst";
     ASSERT_OK(sst_file_writer.Open(file5));
     for (int k = 200; k < 300; k++) {
-      ASSERT_OK(sst_file_writer.Add(Key(k), Key(k) + "_val"));
+      ASSERT_OK(sst_file_writer.Put(Key(k), Key(k) + "_val"));
     }
     ExternalSstFileInfo file5_info;
     s = sst_file_writer.Finish(&file5_info);
@@ -639,7 +639,7 @@ TEST_F(ExternalSSTFileTest, AddListAtomicity) {
       files[i] = sst_files_dir_ + "file" + std::to_string(i) + ".sst";
       ASSERT_OK(sst_file_writer.Open(files[i]));
       for (int k = i * 100; k < (i + 1) * 100; k++) {
-        ASSERT_OK(sst_file_writer.Add(Key(k), Key(k) + "_val"));
+        ASSERT_OK(sst_file_writer.Put(Key(k), Key(k) + "_val"));
       }
       Status s = sst_file_writer.Finish(&files_info[i]);
       ASSERT_TRUE(s.ok()) << s.ToString();
@@ -676,7 +676,7 @@ TEST_F(ExternalSSTFileTest, PurgeObsoleteFilesBug) {
   ASSERT_OK(s);
   for (int i = 0; i < 500; i++) {
     std::string k = Key(i);
-    s = sst_file_writer.Add(k, k + "_val");
+    s = sst_file_writer.Put(k, k + "_val");
     ASSERT_OK(s);
   }
 
@@ -719,7 +719,7 @@ TEST_F(ExternalSSTFileTest, SkipSnapshot) {
   std::string file1 = sst_files_dir_ + "file1.sst";
   ASSERT_OK(sst_file_writer.Open(file1));
   for (int k = 0; k < 100; k++) {
-    ASSERT_OK(sst_file_writer.Add(Key(k), Key(k) + "_val"));
+    ASSERT_OK(sst_file_writer.Put(Key(k), Key(k) + "_val"));
   }
   ExternalSstFileInfo file1_info;
   Status s = sst_file_writer.Finish(&file1_info);
@@ -733,7 +733,7 @@ TEST_F(ExternalSSTFileTest, SkipSnapshot) {
   std::string file2 = sst_files_dir_ + "file2.sst";
   ASSERT_OK(sst_file_writer.Open(file2));
   for (int k = 100; k < 300; k++) {
-    ASSERT_OK(sst_file_writer.Add(Key(k), Key(k) + "_val"));
+    ASSERT_OK(sst_file_writer.Put(Key(k), Key(k) + "_val"));
   }
   ExternalSstFileInfo file2_info;
   s = sst_file_writer.Finish(&file2_info);
@@ -763,7 +763,7 @@ TEST_F(ExternalSSTFileTest, SkipSnapshot) {
   std::string file3 = sst_files_dir_ + "file3.sst";
   ASSERT_OK(sst_file_writer.Open(file3));
   for (int k = 300; k < 400; k++) {
-    ASSERT_OK(sst_file_writer.Add(Key(k), Key(k) + "_val"));
+    ASSERT_OK(sst_file_writer.Put(Key(k), Key(k) + "_val"));
   }
   ExternalSstFileInfo file3_info;
   s = sst_file_writer.Finish(&file3_info);
@@ -809,7 +809,7 @@ TEST_F(ExternalSSTFileTest, MultiThreaded) {
       ASSERT_OK(sst_file_writer.Open(file_names[file_idx]));
 
       for (int k = range_start; k < range_end; k++) {
-        ASSERT_OK(sst_file_writer.Add(Key(k), Key(k)));
+        ASSERT_OK(sst_file_writer.Put(Key(k), Key(k)));
       }
 
       Status s = sst_file_writer.Finish();
@@ -960,7 +960,7 @@ TEST_F(ExternalSSTFileTest, OverlappingRanges) {
         std::string file_name = sst_files_dir_ + env_->GenerateUniqueId();
         ASSERT_OK(sst_file_writer.Open(file_name));
         for (int k = range_start; k <= range_end; k++) {
-          s = sst_file_writer.Add(Key(k), range_val);
+          s = sst_file_writer.Put(Key(k), range_val);
           ASSERT_OK(s);
         }
         ExternalSstFileInfo file_info;
@@ -1358,7 +1358,7 @@ TEST_F(ExternalSSTFileTest, AddExternalSstFileWithCustomCompartor) {
     int range_end = i * 10;
     int range_start = range_end + 15;
     for (int k = (range_start - 1); k >= range_end; k--) {
-      ASSERT_OK(sst_file_writer.Add(Key(k), Key(k)));
+      ASSERT_OK(sst_file_writer.Put(Key(k), Key(k)));
     }
     ExternalSstFileInfo file_info;
     ASSERT_OK(sst_file_writer.Finish(&file_info));
@@ -1448,12 +1448,12 @@ TEST_F(ExternalSSTFileTest, SstFileWriterNonSharedKeys) {
 
   std::string suffix(100, 'X');
   ASSERT_OK(sst_file_writer.Open(file_path));
-  ASSERT_OK(sst_file_writer.Add("A" + suffix, "VAL"));
-  ASSERT_OK(sst_file_writer.Add("BB" + suffix, "VAL"));
-  ASSERT_OK(sst_file_writer.Add("CC" + suffix, "VAL"));
-  ASSERT_OK(sst_file_writer.Add("CXD" + suffix, "VAL"));
-  ASSERT_OK(sst_file_writer.Add("CZZZ" + suffix, "VAL"));
-  ASSERT_OK(sst_file_writer.Add("ZAAAX" + suffix, "VAL"));
+  ASSERT_OK(sst_file_writer.Put("A" + suffix, "VAL"));
+  ASSERT_OK(sst_file_writer.Put("BB" + suffix, "VAL"));
+  ASSERT_OK(sst_file_writer.Put("CC" + suffix, "VAL"));
+  ASSERT_OK(sst_file_writer.Put("CXD" + suffix, "VAL"));
+  ASSERT_OK(sst_file_writer.Put("CZZZ" + suffix, "VAL"));
+  ASSERT_OK(sst_file_writer.Put("ZAAAX" + suffix, "VAL"));
 
   ASSERT_OK(sst_file_writer.Finish());
   ASSERT_OK(DeprecatedAddFile({file_path}));
@@ -1748,22 +1748,22 @@ TEST_F(ExternalSSTFileTest, FileWithCFInfo) {
   // default_cf.sst
   const std::string cf_default_sst = sst_files_dir_ + "/default_cf.sst";
   ASSERT_OK(sfw_default.Open(cf_default_sst));
-  ASSERT_OK(sfw_default.Add("K1", "V1"));
-  ASSERT_OK(sfw_default.Add("K2", "V2"));
+  ASSERT_OK(sfw_default.Put("K1", "V1"));
+  ASSERT_OK(sfw_default.Put("K2", "V2"));
   ASSERT_OK(sfw_default.Finish());
 
   // cf1.sst
   const std::string cf1_sst = sst_files_dir_ + "/cf1.sst";
   ASSERT_OK(sfw_cf1.Open(cf1_sst));
-  ASSERT_OK(sfw_cf1.Add("K3", "V1"));
-  ASSERT_OK(sfw_cf1.Add("K4", "V2"));
+  ASSERT_OK(sfw_cf1.Put("K3", "V1"));
+  ASSERT_OK(sfw_cf1.Put("K4", "V2"));
   ASSERT_OK(sfw_cf1.Finish());
 
   // cf_unknown.sst
   const std::string unknown_sst = sst_files_dir_ + "/cf_unknown.sst";
   ASSERT_OK(sfw_unknown.Open(unknown_sst));
-  ASSERT_OK(sfw_unknown.Add("K5", "V1"));
-  ASSERT_OK(sfw_unknown.Add("K6", "V2"));
+  ASSERT_OK(sfw_unknown.Put("K5", "V1"));
+  ASSERT_OK(sfw_unknown.Put("K6", "V2"));
   ASSERT_OK(sfw_unknown.Finish());
 
   IngestExternalFileOptions ifo;
@@ -1864,7 +1864,7 @@ TEST_F(ExternalSSTFileTest, SnapshotInconsistencyBug) {
   SstFileWriter sst_file_writer(EnvOptions(), options);
   ASSERT_OK(sst_file_writer.Open(sst_file_path));
   for (int i = 0; i < kNumKeys; i++) {
-    ASSERT_OK(sst_file_writer.Add(Key(i), Key(i) + "_V2"));
+    ASSERT_OK(sst_file_writer.Put(Key(i), Key(i) + "_V2"));
   }
   ASSERT_OK(sst_file_writer.Finish());
 

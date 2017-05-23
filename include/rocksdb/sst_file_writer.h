@@ -17,6 +17,12 @@
 #include "rocksdb/table_properties.h"
 #include "rocksdb/types.h"
 
+#if defined(__GNUC__) || defined(__clang__)
+#define ROCKSDB_DEPRECATED_FUNC __attribute__((__deprecated__))
+#elif _WIN32
+#define ROCKSDB_DEPRECATED_FUNC __declspec(deprecated)
+#endif
+
 namespace rocksdb {
 
 class Comparator;
@@ -76,9 +82,21 @@ class SstFileWriter {
   // Prepare SstFileWriter to write into file located at "file_path".
   Status Open(const std::string& file_path);
 
-  // Add key, value to currently opened file
+  // Add a Put key with value to currently opened file (deprecated)
   // REQUIRES: key is after any previously added key according to comparator.
-  Status Add(const Slice& user_key, const Slice& value);
+  ROCKSDB_DEPRECATED_FUNC Status Add(const Slice& user_key, const Slice& value);
+
+  // Add a Put key with value to currently opened file
+  // REQUIRES: key is after any previously added key according to comparator.
+  Status Put(const Slice& user_key, const Slice& value);
+
+  // Add a Merge key with value to currently opened file
+  // REQUIRES: key is after any previously added key according to comparator.
+  Status Merge(const Slice& user_key, const Slice& value);
+
+  // Add a deletion key to currently opened file
+  // REQUIRES: key is after any previously added key according to comparator.
+  Status Delete(const Slice& user_key);
 
   // Finalize writing to sst file and close file.
   //
@@ -91,7 +109,6 @@ class SstFileWriter {
 
  private:
   void InvalidatePageCache(bool closing);
-
   struct Rep;
   std::unique_ptr<Rep> rep_;
 };
