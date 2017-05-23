@@ -18,6 +18,12 @@
 #include "util/core_local.h"
 #include "util/mutexlock.h"
 
+#ifdef __clang__
+#define ROCKSDB_FIELD_UNUSED __attribute__((__unused__))
+#else
+#define ROCKSDB_FIELD_UNUSED
+#endif  // __clang__
+
 namespace rocksdb {
 
 enum TickersInternal : uint32_t {
@@ -65,10 +71,16 @@ class StatisticsImpl : public Statistics {
   // cores can never share the same cache line.
   //
   // Alignment attributes expand to nothing depending on the platform
-  __declspec(align(64)) struct StatisticsData {
+  struct StatisticsData {
     std::atomic_uint_fast64_t tickers_[INTERNAL_TICKER_ENUM_MAX] = {{0}};
     HistogramImpl histograms_[INTERNAL_HISTOGRAM_ENUM_MAX];
-  } __attribute__((__aligned__(64)));
+    char
+        padding[(CACHE_LINE_SIZE -
+                 (INTERNAL_TICKER_ENUM_MAX * sizeof(std::atomic_uint_fast64_t) +
+                  INTERNAL_HISTOGRAM_ENUM_MAX * sizeof(HistogramImpl)) %
+                     CACHE_LINE_SIZE) %
+                CACHE_LINE_SIZE] ROCKSDB_FIELD_UNUSED;
+  };
 
   static_assert(sizeof(StatisticsData) % 64 == 0, "Expected 64-byte aligned");
 
