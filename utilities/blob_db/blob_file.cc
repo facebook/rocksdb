@@ -153,7 +153,7 @@ Status BlobFile::ReadFooter(BlobLogFooter* bf) {
     return Status::IOError("EOF reached before footer");
   }
 
-  s = bf->DecodeFrom(&result);
+  s = bf->DecodeFrom(result);
   return s;
 }
 

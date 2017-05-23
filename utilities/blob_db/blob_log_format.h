@@ -70,15 +70,34 @@ class BlobLogHeader {
   void set_ts_guess(const tsrange_t& ts) { ts_guess_.reset(new tsrange_t(ts)); }
 
  public:
-  // magic number + version + flags + ttl guess + timestamp range
+  // magic number + version + flags + ttl guess + timestamp range = 36
   static const size_t kHeaderSize = 4 + 4 + 4 + 4 * 2 + 8 * 2;
-  // 32
 
   void EncodeTo(std::string* dst) const;
 
-  Status DecodeFrom(Slice* input);
+  Status DecodeFrom(const Slice& input);
 
   BlobLogHeader();
+
+  uint32_t magic_number() const { return magic_number_; }
+
+  uint32_t version() const { return version_; }
+
+  CompressionType compression() const { return compression_; }
+
+  ttlrange_t ttl_range() const {
+    if (!ttl_guess_) {
+      return {0, 0};
+    }
+    return *ttl_guess_;
+  }
+
+  tsrange_t ts_range() const {
+    if (!ts_guess_) {
+      return {0, 0};
+    }
+    return *ts_guess_;
+  }
 
   bool HasTTL() const { return !!ttl_guess_; }
 
@@ -97,11 +116,11 @@ class BlobLogFooter {
   // EncodeTo(). Never use this constructor with DecodeFrom().
   BlobLogFooter();
 
-  uint64_t magic_number() const { return magic_number_; }
+  uint32_t magic_number() const { return magic_number_; }
 
   void EncodeTo(std::string* dst) const;
 
-  Status DecodeFrom(Slice* input);
+  Status DecodeFrom(const Slice& input);
 
   // convert this object to a human readable form
   std::string ToString() const;
@@ -214,7 +233,17 @@ class BlobLogRecord {
 
   uint64_t GetTimeVal() const { return time_val_; }
 
+  char type() const { return type_; }
+
+  char subtype() const { return subtype_; }
+
   SequenceNumber GetSN() const { return sn_; }
+
+  uint32_t header_checksum() const { return header_cksum_; }
+
+  uint32_t checksum() const { return checksum_; }
+
+  uint32_t footer_checksum() const { return footer_cksum_; }
 
   Status DecodeHeaderFrom(const Slice& hdrslice);
 

@@ -202,6 +202,7 @@ TOOL_LIB_SOURCES = \
   tools/ldb_cmd.cc                                               \
   tools/ldb_tool.cc                                              \
   tools/sst_dump_tool.cc                                         \
+  utilities/blob_db/blob_dump_tool.cc                            \
 
 MOCK_LIB_SOURCES = \
   env/mock_env.cc \
