@@ -685,7 +685,7 @@ bool InternalStats::HandleEstimateNumKeys(uint64_t* value, DBImpl* db,
   uint64_t estimate_deletes =
       cfd_->mem()->num_deletes() + cfd_->imm()->current()->GetTotalNumDeletes();
   *value = estimate_keys > estimate_deletes * 2
-               ? estimate_keys - estimate_deletes * 2
+               ? estimate_keys - (estimate_deletes * 2)
                : 0;
   return true;
 }
