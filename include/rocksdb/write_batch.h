@@ -172,6 +172,9 @@ class WriteBatch : public WriteBatchBase {
   // Otherwise returns Status::OK().
   Status PopSavePoint() override;
 
+  // Append other batches to this one
+  Status AppendBatches(WriteBatch** batches, size_t count) override;
+
   // Support for iterating over the contents of a batch.
   class Handler {
    public:

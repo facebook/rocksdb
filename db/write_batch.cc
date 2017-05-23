@@ -814,6 +814,10 @@ Status WriteBatch::PopSavePoint() {
   return Status::OK();
 }
 
+Status WriteBatch::AppendBatches(WriteBatch** batches, size_t count) {
+  return WriteBatchInternal::Append(this, batches, count);
+}
+
 class MemTableInserter : public WriteBatch::Handler {
 
   SequenceNumber sequence_;
@@ -1382,6 +1386,25 @@ Status WriteBatchInternal::Append(WriteBatch* dst, const WriteBatch* src,
   dst->content_flags_.store(
       dst->content_flags_.load(std::memory_order_relaxed) | src_flags,
       std::memory_order_relaxed);
+  return Status::OK();
+}
+
+Status WriteBatchInternal::Append(WriteBatch* dst,
+				  WriteBatch** src,
+				  size_t src_count) {
+  size_t new_size = ByteSize(dst);
+  for (size_t i = 0; i < src_count; ++i) {
+    new_size = WriteBatchInternal::AppendedByteSize(
+      new_size,
+      ByteSize(src[i]));
+  }
+
+  dst->rep_.reserve(new_size);
+
+  for (size_t i = 0; i < src_count; ++i) {
+    WriteBatchInternal::Append(dst, src[i], false);
+  }
+
   return Status::OK();
 }
 

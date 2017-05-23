@@ -169,9 +169,10 @@ TEST_F(WriteBatchTest, Corruption) {
 }
 
 TEST_F(WriteBatchTest, Append) {
-  WriteBatch b1, b2;
+  WriteBatch b1, b2, b3;
   WriteBatchInternal::SetSequence(&b1, 200);
   WriteBatchInternal::SetSequence(&b2, 300);
+  WriteBatchInternal::SetSequence(&b3, 400);
   WriteBatchInternal::Append(&b1, &b2);
   ASSERT_EQ("",
             PrintContents(&b1));
@@ -217,6 +218,31 @@ TEST_F(WriteBatchTest, Append) {
       "Put(e, ee)@2",
       PrintContents(&b2));
   ASSERT_EQ(3, b2.Count());
+
+  b2.Clear();
+  b2.Put("x", "xx");
+  b2.Put("y", "yy");
+  b2.Put("z", "zz");
+
+  b3.Clear();
+  b3.Put("m", "mm");
+  b3.Put("n", "nn");
+  WriteBatch* batch_array[]={&b2, &b3};
+  WriteBatchInternal::Append(&b1, batch_array, 2);
+  ASSERT_EQ(
+      "Put(a, va)@200"
+      "Put(b, vb)@202"
+      "Put(b, vb)@201"
+      "Put(c, cc)@204"
+      "Put(d, dd)@205"
+      "Delete(foo)@203"
+      "Put(m, mm)@209"
+      "Put(n, nn)@210"
+      "Put(x, xx)@206"
+      "Put(y, yy)@207"
+      "Put(z, zz)@208",
+      PrintContents(&b1));
+  ASSERT_EQ(11, b1.Count());
 }
 
 TEST_F(WriteBatchTest, SingleDeletion) {

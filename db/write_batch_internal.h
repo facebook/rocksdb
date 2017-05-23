@@ -181,6 +181,8 @@ class WriteBatchInternal {
 
   static Status Append(WriteBatch* dst, const WriteBatch* src,
                        const bool WAL_only = false);
+  static Status Append(WriteBatch* dst, WriteBatch** src,
+                       size_t src_count);
 
   // Returns the byte size of appending a WriteBatch with ByteSize
   // leftByteSize and a WriteBatch with ByteSize rightByteSize

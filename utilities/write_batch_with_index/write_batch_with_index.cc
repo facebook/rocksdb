@@ -840,5 +840,10 @@ void WriteBatchWithIndex::SetMaxBytes(size_t max_bytes) {
   rep->write_batch.SetMaxBytes(max_bytes);
 }
 
+Status WriteBatchWithIndex::AppendBatches(WriteBatch**, size_t) {
+  return Status::NotSupported();
+}
+
+
 }  // namespace rocksdb
 #endif  // !ROCKSDB_LITE

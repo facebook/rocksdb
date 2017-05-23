@@ -215,6 +215,9 @@ class WriteBatchWithIndex : public WriteBatchBase {
 
   void SetMaxBytes(size_t max_bytes) override;
 
+  // Append other batches to this one
+  Status AppendBatches(WriteBatch**, size_t) override;
+
  private:
   struct Rep;
   std::unique_ptr<Rep> rep;
