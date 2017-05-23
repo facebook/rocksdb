@@ -2637,7 +2637,7 @@ Status VersionSet::Recover(
   {
     unique_ptr<SequentialFile> manifest_file;
     s = env_->NewSequentialFile(manifest_filename, &manifest_file,
-                                env_options_);
+                                env_->OptimizeForManifestRead(env_options_));
     if (!s.ok()) {
       return s;
     }
@@ -3064,7 +3064,8 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
   Status s;
   {
     unique_ptr<SequentialFile> file;
-    s = options.env->NewSequentialFile(dscname, &file, env_options_);
+    s = options.env->NewSequentialFile(
+        dscname, &file, env_->OptimizeForManifestRead(env_options_));
     if (!s.ok()) {
       return s;
     }

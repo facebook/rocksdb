@@ -500,7 +500,8 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     unique_ptr<SequentialFileReader> file_reader;
     {
       unique_ptr<SequentialFile> file;
-      status = env_->NewSequentialFile(fname, &file, env_options_);
+      status = env_->NewSequentialFile(fname, &file,
+                                       env_->OptimizeForLogRead(env_options_));
       if (!status.ok()) {
         MaybeIgnoreError(&status);
         if (!status.ok()) {

@@ -620,12 +620,13 @@ class DBTestBase : public testing::Test {
     kRowCache = 27,
     kRecycleLogFiles = 28,
     kConcurrentSkipList = 29,
-    kEnd = 30,
-    kLevelSubcompactions = 31,
-    kUniversalSubcompactions = 32,
-    kBlockBasedTableWithIndexRestartInterval = 33,
-    kBlockBasedTableWithPartitionedIndex = 34,
-    kPartitionedFilterWithNewTableReaderForCompactions = 35,
+    kDirectIO = 30,
+    kEnd = 31,
+    kLevelSubcompactions = 32,
+    kUniversalSubcompactions = 33,
+    kBlockBasedTableWithIndexRestartInterval = 34,
+    kBlockBasedTableWithPartitionedIndex = 35,
+    kPartitionedFilterWithNewTableReaderForCompactions = 36,
   };
   int option_config_;
 

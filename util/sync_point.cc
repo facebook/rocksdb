@@ -91,6 +91,14 @@ void SyncPoint::SetCallBack(const std::string point,
   callbacks_[point] = callback;
 }
 
+void SyncPoint::ClearCallBack(const std::string point) {
+  std::unique_lock<std::mutex> lock(mutex_);
+  while (num_callbacks_running_ > 0) {
+    cv_.wait(lock);
+  }
+  callbacks_.erase(point);
+}
+
 void SyncPoint::ClearAllCallBacks() {
   std::unique_lock<std::mutex> lock(mutex_);
   while (num_callbacks_running_ > 0) {
