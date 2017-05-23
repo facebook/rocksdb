@@ -265,10 +265,13 @@ Options DBTestBase::CurrentOptions(
   Options options = defaultOptions;
   BlockBasedTableOptions table_options;
   bool set_block_based_table_factory = true;
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) &&  \
+  !defined(OS_AIX)
   rocksdb::SyncPoint::GetInstance()->ClearCallBack(
       "NewRandomAccessFile:O_DIRECT");
   rocksdb::SyncPoint::GetInstance()->ClearCallBack(
       "NewWritableFile:O_DIRECT");
+#endif
 
   switch (option_config_) {
 #ifndef ROCKSDB_LITE

@@ -2360,6 +2360,8 @@ int main(int argc, char** argv) {
   SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
                   " [OPTIONS]...");
   ParseCommandLineFlags(&argc, &argv, true);
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) &&  \
+  !defined(OS_AIX)
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
     "NewWritableFile:O_DIRECT", [&](void* arg) {
       int* val = static_cast<int*>(arg);
@@ -2371,6 +2373,7 @@ int main(int argc, char** argv) {
       *val &= ~O_DIRECT;
     });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+#endif
 
   if (FLAGS_statistics) {
     dbstats = rocksdb::CreateDBStatistics();
