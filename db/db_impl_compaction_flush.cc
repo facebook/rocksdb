@@ -1030,22 +1030,29 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
 
 DBImpl::BGJobLimits DBImpl::GetBGJobLimits() const {
   mutex_.AssertHeld();
+  return GetBGJobLimits(immutable_db_options_.max_background_flushes,
+                        mutable_db_options_.max_background_compactions,
+                        mutable_db_options_.max_background_jobs,
+                        write_controller_.NeedSpeedupCompaction());
+}
+
+DBImpl::BGJobLimits DBImpl::GetBGJobLimits(int max_background_flushes,
+                                           int max_background_compactions,
+                                           int max_background_jobs,
+                                           bool parallelize_compactions) {
   BGJobLimits res;
-  if (immutable_db_options_.max_background_flushes == -1 &&
-      mutable_db_options_.max_background_compactions == -1) {
+  if (max_background_flushes == -1 && max_background_compactions == -1) {
     // for our first stab implementing max_background_jobs, simply allocate a
     // quarter of the threads to flushes.
-    res.max_flushes = std::max(1, mutable_db_options_.max_background_jobs / 4);
-    res.max_compactions =
-        std::max(1, mutable_db_options_.max_background_jobs - res.max_flushes);
+    res.max_flushes = std::max(1, max_background_jobs / 4);
+    res.max_compactions = std::max(1, max_background_jobs - res.max_flushes);
   } else {
     // compatibility code in case users haven't migrated to max_background_jobs,
     // which automatically computes flush/compaction limits
-    res.max_flushes = std::max(1, immutable_db_options_.max_background_flushes);
-    res.max_compactions =
-        std::max(1, mutable_db_options_.max_background_compactions);
+    res.max_flushes = std::max(1, max_background_flushes);
+    res.max_compactions = std::max(1, max_background_compactions);
   }
-  if (!write_controller_.NeedSpeedupCompaction()) {
+  if (!parallelize_compactions) {
     // throttle background compactions until we deem necessary
     res.max_compactions = 1;
   }

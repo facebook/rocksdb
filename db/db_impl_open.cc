@@ -56,9 +56,13 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
     result.write_buffer_manager.reset(
         new WriteBufferManager(result.db_write_buffer_size));
   }
-  result.env->IncBackgroundThreadsIfNeeded(src.max_background_compactions,
+  auto bg_job_limits = DBImpl::GetBGJobLimits(result.max_background_flushes,
+                                              result.max_background_compactions,
+                                              result.max_background_jobs,
+                                              true /* parallelize_compactions */);
+  result.env->IncBackgroundThreadsIfNeeded(bg_job_limits.max_compactions,
                                            Env::Priority::LOW);
-  result.env->IncBackgroundThreadsIfNeeded(src.max_background_flushes,
+  result.env->IncBackgroundThreadsIfNeeded(bg_job_limits.max_flushes,
                                            Env::Priority::HIGH);
 
   if (result.rate_limiter.get() != nullptr) {

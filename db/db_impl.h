@@ -411,6 +411,11 @@ class DBImpl : public DB {
   };
   // Returns maximum background flushes and compactions allowed to be scheduled
   BGJobLimits GetBGJobLimits() const;
+  // Need a static version that can be called during SanitizeOptions().
+  static BGJobLimits GetBGJobLimits(int max_background_flushes,
+                                    int max_background_compactions,
+                                    int max_background_jobs,
+                                    bool parallelize_compactions);
 
   // move logs pending closing from job_context to the DB queue and
   // schedule a purge
