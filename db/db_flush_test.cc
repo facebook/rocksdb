@@ -126,7 +126,6 @@ TEST_F(DBFlushTest, FlushInLowPriThreadPool) {
   dbfull()->TEST_WaitForCompact();
   ASSERT_EQ(4, num_flushes);
   ASSERT_EQ(1, num_compactions);
-
 }
 
 TEST_P(DBFlushDirectIOTest, DirectIO) {
