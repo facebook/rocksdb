@@ -1300,6 +1300,18 @@ TEST_F(DBPropertiesTest, NeedCompactHintPersistentTest) {
     SetPerfLevel(kDisable);
   }
 }
+
+TEST_F(DBPropertiesTest, EstimateNumKeysUnderflow) {
+  Options options;
+  Reopen(options);
+  Put("foo", "bar");
+  Delete("foo");
+  Delete("foo");
+  uint64_t num_keys = 0;
+  ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.estimate-num-keys", &num_keys));
+  ASSERT_EQ(0, num_keys);
+}
+
 #endif  // ROCKSDB_LITE
 }  // namespace rocksdb
 
