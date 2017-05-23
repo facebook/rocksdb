@@ -57,10 +57,10 @@ const size_t kDefaultPageSize = 4 * 1024;
 // Options while opening a file to read/write
 struct EnvOptions {
 
-  // construct with default Options
+  // Construct with default Options
   EnvOptions();
 
-  // construct from Options
+  // Construct from Options
   explicit EnvOptions(const DBOptions& options);
 
    // If true, then use mmap to read data
@@ -95,10 +95,10 @@ struct EnvOptions {
   // WAL writes
   bool fallocate_with_keep_size = true;
 
-  // See DBOPtions doc
+  // See DBOptions doc
   size_t compaction_readahead_size;
 
-  // See DBOPtions doc
+  // See DBOptions doc
   size_t random_access_max_buffer_size;
 
   // See DBOptions doc

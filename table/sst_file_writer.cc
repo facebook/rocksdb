@@ -28,11 +28,12 @@ const size_t kFadviseTrigger = 1024 * 1024; // 1MB
 
 struct SstFileWriter::Rep {
   Rep(const EnvOptions& _env_options, const Options& options,
-      const Comparator* _user_comparator, ColumnFamilyHandle* _cfh,
-      bool _invalidate_page_cache)
+      Env::IOPriority _io_priority, const Comparator* _user_comparator,
+      ColumnFamilyHandle* _cfh, bool _invalidate_page_cache)
       : env_options(_env_options),
         ioptions(options),
         mutable_cf_options(options),
+        io_priority(_io_priority),
         internal_comparator(_user_comparator),
         cfh(_cfh),
         invalidate_page_cache(_invalidate_page_cache),
@@ -43,15 +44,16 @@ struct SstFileWriter::Rep {
   EnvOptions env_options;
   ImmutableCFOptions ioptions;
   MutableCFOptions mutable_cf_options;
+  Env::IOPriority io_priority;
   InternalKeyComparator internal_comparator;
   ExternalSstFileInfo file_info;
   InternalKey ikey;
   std::string column_family_name;
   ColumnFamilyHandle* cfh;
   // If true, We will give the OS a hint that this file pages is not needed
-  // everytime we write 1MB to the file
+  // everytime we write 1MB to the file.
   bool invalidate_page_cache;
-  // the size of the file during the last time we called Fadvise to remove
+  // The size of the file during the last time we called Fadvise to remove
   // cached pages from page cache.
   uint64_t last_fadvise_size;
 };
@@ -60,9 +62,10 @@ SstFileWriter::SstFileWriter(const EnvOptions& env_options,
                              const Options& options,
                              const Comparator* user_comparator,
                              ColumnFamilyHandle* column_family,
-                             bool invalidate_page_cache)
-    : rep_(new Rep(env_options, options, user_comparator, column_family,
-                   invalidate_page_cache)) {
+                             bool invalidate_page_cache,
+                             Env::IOPriority io_priority)
+    : rep_(new Rep(env_options, options, io_priority, user_comparator,
+                   column_family, invalidate_page_cache)) {
   rep_->file_info.file_size = 0;
 }
 
@@ -72,18 +75,18 @@ SstFileWriter::~SstFileWriter() {
     // abandon the builder.
     rep_->builder->Abandon();
   }
-
-  delete rep_;
 }
 
 Status SstFileWriter::Open(const std::string& file_path) {
-  Rep* r = rep_;
+  Rep* r = rep_.get();
   Status s;
   std::unique_ptr<WritableFile> sst_file;
   s = r->ioptions.env->NewWritableFile(file_path, &sst_file, r->env_options);
   if (!s.ok()) {
     return s;
   }
+
+  sst_file->SetIOPriority(r->io_priority);
 
   CompressionType compression_type;
   if (r->ioptions.bottommost_compression != kDisableCompressionOption) {
@@ -146,7 +149,7 @@ Status SstFileWriter::Open(const std::string& file_path) {
 }
 
 Status SstFileWriter::Add(const Slice& user_key, const Slice& value) {
-  Rep* r = rep_;
+  Rep* r = rep_.get();
   if (!r->builder) {
     return Status::InvalidArgument("File is not opened");
   }
@@ -166,7 +169,7 @@ Status SstFileWriter::Add(const Slice& user_key, const Slice& value) {
               ValueType::kTypeValue /* Put */);
   r->builder->Add(r->ikey.Encode(), value);
 
-  // update file info
+  // Update file info
   r->file_info.num_entries++;
   r->file_info.largest_key.assign(user_key.data(), user_key.size());
   r->file_info.file_size = r->builder->FileSize();
@@ -177,7 +180,7 @@ Status SstFileWriter::Add(const Slice& user_key, const Slice& value) {
 }
 
 Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
-  Rep* r = rep_;
+  Rep* r = rep_.get();
   if (!r->builder) {
     return Status::InvalidArgument("File is not opened");
   }
@@ -208,7 +211,7 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
 }
 
 void SstFileWriter::InvalidatePageCache(bool closing) {
-  Rep* r = rep_;
+  Rep* r = rep_.get();
   if (r->invalidate_page_cache == false) {
     // Fadvise disabled
     return;
