@@ -5,6 +5,11 @@
 //  This source code is also licensed under the GPLv2 license found in the
 //  COPYING file in the root directory of this source tree.
 #ifndef ROCKSDB_LITE
+
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
 #include "utilities/blob_db/blob_dump_tool.h"
 #include <inttypes.h>
 #include <stdio.h>
