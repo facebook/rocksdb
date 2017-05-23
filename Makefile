@@ -1632,6 +1632,12 @@ jtest_run:
 jtest: rocksdbjava
 	cd java;$(MAKE) sample;$(MAKE) test;
 
+jtest_static_compile: rocksdbjavastatic
+	cd java;$(MAKE) java_test
+
+jtest_static: rocksdbjavastatic
+	cd java;$(MAKE) sample;$(MAKE) test;
+
 jdb_bench:
 	cd java;$(MAKE) db_bench;
 
