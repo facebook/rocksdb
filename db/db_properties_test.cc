@@ -940,7 +940,6 @@ TEST_F(DBPropertiesTest, EstimateCompressionRatio) {
   Options options = CurrentOptions();
   options.compression_per_level = {kNoCompression, kSnappyCompression};
   options.disable_auto_compactions = true;
-  options.max_background_flushes = 0;
   options.num_levels = 2;
   Reopen(options);
 
@@ -1068,7 +1067,6 @@ class CountingDeleteTabPropCollectorFactory
 TEST_F(DBPropertiesTest, GetUserDefinedTableProperties) {
   Options options = CurrentOptions();
   options.level0_file_num_compaction_trigger = (1 << 30);
-  options.max_background_flushes = 0;
   options.table_properties_collector_factories.resize(1);
   std::shared_ptr<CountingUserTblPropCollectorFactory> collector_factory =
       std::make_shared<CountingUserTblPropCollectorFactory>(0);
@@ -1109,7 +1107,6 @@ TEST_F(DBPropertiesTest, GetUserDefinedTableProperties) {
 TEST_F(DBPropertiesTest, UserDefinedTablePropertiesContext) {
   Options options = CurrentOptions();
   options.level0_file_num_compaction_trigger = 3;
-  options.max_background_flushes = 0;
   options.table_properties_collector_factories.resize(1);
   std::shared_ptr<CountingUserTblPropCollectorFactory> collector_factory =
       std::make_shared<CountingUserTblPropCollectorFactory>(1);

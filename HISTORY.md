@@ -1,5 +1,8 @@
 # Rocksdb Change Log
 ## Unreleased
+### Public API Change
+*Scheduling flushes and compactions in the same thread pool is no longer supported by setting `max_background_flushes=0`. Instead, users can achieve this by configuring their high-pri thread pool to have zero threads.
+
 ### New Features
 * Change ticker/histogram statistics implementations to use core-local storage. This improves aggregation speed compared to our previous thread-local approach, particularly for applications with many threads.
 
