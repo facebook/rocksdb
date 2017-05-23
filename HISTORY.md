@@ -1,5 +1,7 @@
 # Rocksdb Change Log
 ## Unreleased
+### New Features
+* Change ticker/histogram statistics implementations to use core-local storage. This improves aggregation speed compared to our previous thread-local approach, particularly for applications with many threads.
 
 ## 5.5.0 (05/17/2017)
 ### New Features
