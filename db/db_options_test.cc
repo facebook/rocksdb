@@ -19,6 +19,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
+#include "rocksdb/rate_limiter.h"
 #include "util/random.h"
 #include "util/sync_point.h"
 #include "util/testutil.h"
@@ -402,6 +403,17 @@ TEST_F(DBOptionsTest, MaxOpenFilesChange) {
   // examine the table cache (actual size should be 1014)
   ASSERT_GT(1500, tc->GetCapacity());
   Close();
+}
+
+TEST_F(DBOptionsTest, SanitizeDelayedWriteRate) {
+  Options options;
+  options.delayed_write_rate = 0;
+  Reopen(options);
+  ASSERT_EQ(16 * 1024 * 1024, dbfull()->GetDBOptions().delayed_write_rate);
+
+  options.rate_limiter.reset(NewGenericRateLimiter(31 * 1024 * 1024));
+  Reopen(options);
+  ASSERT_EQ(31 * 1024 * 1024, dbfull()->GetDBOptions().delayed_write_rate);
 }
 
 #endif  // ROCKSDB_LITE

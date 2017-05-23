@@ -53,6 +53,8 @@ class RateLimiter {
   // Total # of requests that go though rate limiter
   virtual int64_t GetTotalRequests(
       const Env::IOPriority pri = Env::IO_TOTAL) const = 0;
+
+  virtual int64_t GetBytesPerSecond() const = 0;
 };
 
 // Create a RateLimiter object, which can be shared among RocksDB instances to

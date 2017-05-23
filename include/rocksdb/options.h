@@ -746,10 +746,15 @@ struct DBOptions {
   // calculated using size of user write requests before compression.
   // RocksDB may decide to slow down more if the compaction still
   // gets behind further.
+  // If the value is 0, we will infer a value from `rater_limiter` value
+  // if it is not empty, or 16MB if `rater_limiter` is empty. Note that
+  // if users change the rate in `rate_limiter` after DB is opened,
+  // `delayed_write_rate` won't be adjusted.
+  //
   // Unit: byte per second.
   //
-  // Default: 16MB/s
-  uint64_t delayed_write_rate = 16 * 1024U * 1024U;
+  // Default: 0
+  uint64_t delayed_write_rate = 0;
 
   // By default, a single write thread queue is maintained. The thread gets
   // to the head of the queue becomes write batch group leader and responsible
