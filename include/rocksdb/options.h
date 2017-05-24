@@ -942,24 +942,6 @@ enum ReadTier {
 
 // Options that control read operations
 struct ReadOptions {
-  // If true, all data read from underlying storage will be
-  // verified against corresponding checksums.
-  // Default: true
-  bool verify_checksums;
-
-  // Should the "data block"/"index block"/"filter block" read for this
-  // iteration be cached in memory?
-  // Callers may wish to set this field to false for bulk scans.
-  // Default: true
-  bool fill_cache;
-
-  // If this option is set and memtable implementation allows, Seek
-  // might only return keys with the same prefix as the seek-key
-  //
-  // ! NOT SUPPORTED ANYMORE: prefix_seek is on by default when prefix_extractor
-  // is configured
-  // bool prefix_seek;
-
   // If "snapshot" is non-nullptr, read as of the supplied snapshot
   // (which must belong to the DB that is being read and which must
   // not have been released).  If "snapshot" is nullptr, use an implicit
@@ -979,11 +961,34 @@ struct ReadOptions {
   // Default: nullptr
   const Slice* iterate_upper_bound;
 
+  // If non-zero, NewIterator will create a new table reader which
+  // performs reads of the given size. Using a large size (> 2MB) can
+  // improve the performance of forward iteration on spinning disks.
+  // Default: 0
+  size_t readahead_size;
+
+  // A threshold for the number of keys that can be skipped before failing an
+  // iterator seek as incomplete. The default value of 0 should be used to
+  // never fail a request as incomplete, even on skipping too many keys.
+  // Default: 0
+  uint64_t max_skippable_internal_keys;
+
   // Specify if this read request should process data that ALREADY
   // resides on a particular cache. If the required data is not
   // found at the specified cache, then Status::Incomplete is returned.
   // Default: kReadAllTier
   ReadTier read_tier;
+
+  // If true, all data read from underlying storage will be
+  // verified against corresponding checksums.
+  // Default: true
+  bool verify_checksums;
+
+  // Should the "data block"/"index block"/"filter block" read for this
+  // iteration be cached in memory?
+  // Callers may wish to set this field to false for bulk scans.
+  // Default: true
+  bool fill_cache;
 
   // Specify to create a tailing iterator -- a special iterator that has a
   // view of the complete database (i.e. it can also be used to read newly
@@ -1030,23 +1035,11 @@ struct ReadOptions {
   // Default: false
   bool background_purge_on_iterator_cleanup;
 
-  // If non-zero, NewIterator will create a new table reader which
-  // performs reads of the given size. Using a large size (> 2MB) can
-  // improve the performance of forward iteration on spinning disks.
-  // Default: 0
-  size_t readahead_size;
-
   // If true, keys deleted using the DeleteRange() API will be visible to
   // readers until they are naturally deleted during compaction. This improves
   // read performance in DBs with many range deletions.
   // Default: false
   bool ignore_range_deletions;
-
-  // A threshold for the number of keys that can be skipped before failing an
-  // iterator seek as incomplete. The default value of 0 should be used to
-  // never fail a request as incomplete, even on skipping too many keys.
-  // Default: 0
-  uint64_t max_skippable_internal_keys;
 
   ReadOptions();
   ReadOptions(bool cksum, bool cache);
