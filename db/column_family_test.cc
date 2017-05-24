@@ -1465,7 +1465,6 @@ TEST_F(ColumnFamilyTest, AutomaticAndManualCompactions) {
     ASSERT_NE("NOT_FOUND", Get(1, *key_iter));
     key_iter++;
   }
-  Close();
 }
 
 TEST_F(ColumnFamilyTest, ManualAndAutomaticCompactions) {
@@ -1562,7 +1561,6 @@ TEST_F(ColumnFamilyTest, ManualAndAutomaticCompactions) {
     ASSERT_NE("NOT_FOUND", Get(1, *key_iter));
     key_iter++;
   }
-  Close();
 }
 
 TEST_F(ColumnFamilyTest, SameCFManualManualCompactions) {
@@ -1662,7 +1660,6 @@ TEST_F(ColumnFamilyTest, SameCFManualManualCompactions) {
     ASSERT_NE("NOT_FOUND", Get(1, *key_iter));
     key_iter++;
   }
-  Close();
 }
 
 TEST_F(ColumnFamilyTest, SameCFManualAutomaticCompactions) {
@@ -1753,7 +1750,6 @@ TEST_F(ColumnFamilyTest, SameCFManualAutomaticCompactions) {
     ASSERT_NE("NOT_FOUND", Get(1, *key_iter));
     key_iter++;
   }
-  Close();
 }
 
 TEST_F(ColumnFamilyTest, SameCFManualAutomaticCompactionsLevel) {
@@ -1844,7 +1840,6 @@ TEST_F(ColumnFamilyTest, SameCFManualAutomaticCompactionsLevel) {
     ASSERT_NE("NOT_FOUND", Get(1, *key_iter));
     key_iter++;
   }
-  Close();
 }
 
 // This test checks for automatic getting a conflict if there is a
@@ -1965,8 +1960,6 @@ TEST_F(ColumnFamilyTest, SameCFManualAutomaticConflict) {
     ASSERT_NE("NOT_FOUND", Get(1, *key_iter));
     key_iter++;
   }
-
-  Close();
 }
 
 // In this test, we generate enough files to trigger automatic compactions.
@@ -2056,8 +2049,6 @@ TEST_F(ColumnFamilyTest, SameCFAutomaticManualCompactions) {
     ASSERT_NE("NOT_FOUND", Get(1, *key_iter));
     key_iter++;
   }
-
-  Close();
 }
 #endif  // !ROCKSDB_LITE
 
