@@ -133,12 +133,18 @@ AwsEnv::AwsEnv(Env* underlying_env, const std::string& src_bucket_prefix,
   dest_object_prefix_ = trim(dest_object_prefix_);
   dest_bucket_region_ = trim(dest_bucket_region_);
 
-  Header(info_log_, "      AwsEnv.src_bucket_prefix: %s", src_bucket_prefix_);
-  Header(info_log_, "      AwsEnv.src_object_prefix: %s", src_object_prefix_);
-  Header(info_log_, "      AwsEnv.src_bucket_region: %s", src_bucket_region_);
-  Header(info_log_, "     AwsEnv.dest_bucket_prefix: %s", dest_bucket_prefix_);
-  Header(info_log_, "     AwsEnv.dest_object_prefix: %s", dest_object_prefix_);
-  Header(info_log_, "     AwsEnv.dest_bucket_region: %s", dest_bucket_region_);
+  Header(info_log_, "      AwsEnv.src_bucket_prefix: %s",
+         src_bucket_prefix_.c_str());
+  Header(info_log_, "      AwsEnv.src_object_prefix: %s",
+         src_object_prefix_.c_str());
+  Header(info_log_, "      AwsEnv.src_bucket_region: %s",
+         src_bucket_region_.c_str());
+  Header(info_log_, "     AwsEnv.dest_bucket_prefix: %s",
+         dest_bucket_prefix_.c_str());
+  Header(info_log_, "     AwsEnv.dest_object_prefix: %s",
+         dest_object_prefix_.c_str());
+  Header(info_log_, "     AwsEnv.dest_bucket_region: %s",
+         dest_bucket_region_.c_str());
 
   base_env_ = underlying_env;
   Aws::InitAPI(Aws::SDKOptions());
@@ -194,7 +200,8 @@ AwsEnv::AwsEnv(Env* underlying_env, const std::string& src_bucket_prefix,
     config.region =
         Aws::String(src_bucket_region_.c_str(), src_bucket_region_.size());
   }
-  Header(info_log_, "AwsEnv connection to endpoint in region: %s", config.region.c_str());
+  Header(info_log_, "AwsEnv connection to endpoint in region: %s",
+         config.region.c_str());
   bucket_location_ = Aws::S3::Model::BucketLocationConstraintMapper::
       GetBucketLocationConstraintForName(config.region);
 
