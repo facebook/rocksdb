@@ -1139,6 +1139,7 @@ void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
            total_stall_count - cf_stats_snapshot_.stall_count);
   value->append(buf);
 
+  cf_stats_snapshot_.seconds_up = seconds_up;
   cf_stats_snapshot_.ingest_bytes_flush = flush_ingest;
   cf_stats_snapshot_.ingest_bytes_addfile = add_file_ingest;
   cf_stats_snapshot_.ingest_files_addfile = ingest_files_addfile;
