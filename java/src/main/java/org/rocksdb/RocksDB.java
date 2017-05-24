@@ -513,6 +513,87 @@ public class RocksDB extends RocksObject {
   }
 
   /**
+   * Set the database entry for "key" to "value".
+   *
+   * @param key a buffer containing the key to be inserted.
+   * @param keyLength how many bytes in key to use as the database key. 
+   * @param value a buffer containing the value associated with the specified key.
+   * @param valueLength how many bytes to copy from value to the database entry.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+  public void put(final byte[] key, final int keyLength,
+                  final byte[] value, final int valueLength) throws RocksDBException {
+    put(nativeHandle_, key, keyLength, value, valueLength);
+  }
+
+  /**
+   * Set the database entry for "key" to "value" for the specified
+   * column family.
+   *
+   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
+   *     instance
+   * @param key a buffer containing the key to be inserted.
+   * @param keyLength how many bytes in key to use as the database key. 
+   * @param value a buffer containing the value associated with the specified key.
+   * @param valueLength how many bytes to copy from value to the database entry.
+   *
+   * throws IllegalArgumentException if column family is not present
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+  public void put(final ColumnFamilyHandle columnFamilyHandle, final byte[] key, final int keyLength, 
+                  final byte[] value, final int valueLength) throws RocksDBException {
+    put(nativeHandle_, key, keyLength, value, valueLength,
+        columnFamilyHandle.nativeHandle_);
+  }
+
+  /**
+   * Set the database entry for "key" to "value".
+   *
+   * @param writeOpts {@link org.rocksdb.WriteOptions} instance.
+   * @param key a buffer containing the key to be inserted.
+   * @param keyLength how many bytes in key to use as the database key. 
+   * @param value a buffer containing the value associated with the specified key.
+   * @param valueLength how many bytes to copy from value to the database entry.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+  public void put(final WriteOptions writeOpts, final byte[] key, final int keyLength,
+                  final byte[] value, final int valueLength) throws RocksDBException {
+    put(nativeHandle_, writeOpts.nativeHandle_, key, keyLength, value, valueLength);
+  }
+
+  /**
+   * Set the database entry for "key" to "value" for the specified
+   * column family.
+   *
+   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
+   *     instance
+   * @param writeOpts {@link org.rocksdb.WriteOptions} instance.
+   * @param key a buffer containing the key to be inserted.
+   * @param keyLength how many bytes in key to use as the database key. 
+   * @param value a buffer containing the value associated with the specified key.
+   * @param valueLength how many bytes to copy from value to the database entry.
+   *
+   * throws IllegalArgumentException if column family is not present
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+  public void put(final ColumnFamilyHandle columnFamilyHandle,
+                  final WriteOptions writeOpts, 
+                  final byte[] key, final int keyLength, 
+                  final byte[] value, final int valueLength) throws RocksDBException {
+    put(nativeHandle_,  writeOpts.nativeHandle_, 
+        key, keyLength, value, valueLength,
+        columnFamilyHandle.nativeHandle_);
+  }
+  
+  /**
    * If the key definitely does not exist in the database, then this method
    * returns false, else true.
    *
