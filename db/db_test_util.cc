@@ -1228,7 +1228,6 @@ void DBTestBase::VerifyDBFromMap(std::map<std::string, std::string> true_data,
     auto data_iter = true_data.begin();
     Status s;
     for (iter->SeekToFirst(); iter->Valid(); iter->Next(), data_iter++) {
-      fprintf(stderr, "%s \n", iter->key().ToString().c_str());
       ASSERT_EQ(iter->key().ToString(), data_iter->first);
       Status current_status = status[data_iter->first];
       if (!current_status.ok()) {
