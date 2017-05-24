@@ -486,8 +486,10 @@ DBOptions* DBOptions::OldDefaults(int rocksdb_major_version,
   if (rocksdb_major_version < 5 ||
       (rocksdb_major_version == 5 && rocksdb_minor_version < 2)) {
     delayed_write_rate = 2 * 1024U * 1024U;
+  } else if (rocksdb_major_version < 5 ||
+             (rocksdb_major_version == 5 && rocksdb_minor_version < 6)) {
+    delayed_write_rate = 16 * 1024U * 1024U;
   }
-
   max_open_files = 5000;
   base_background_compactions = -1;
   wal_recovery_mode = WALRecoveryMode::kTolerateCorruptedTailRecords;

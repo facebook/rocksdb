@@ -18,6 +18,7 @@
 #include "db/builder.h"
 #include "options/options_helper.h"
 #include "rocksdb/wal_filter.h"
+#include "util/rate_limiter.h"
 #include "util/sst_file_manager_impl.h"
 #include "util/sync_point.h"
 
@@ -69,6 +70,15 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
   if (result.rate_limiter.get() != nullptr) {
     if (result.bytes_per_sync == 0) {
       result.bytes_per_sync = 1024 * 1024;
+    }
+  }
+
+  if (result.delayed_write_rate == 0) {
+    if (result.rate_limiter.get() != nullptr) {
+      result.delayed_write_rate = result.rate_limiter->GetBytesPerSecond();
+    }
+    if (result.delayed_write_rate == 0) {
+      result.delayed_write_rate = 16 * 1024 * 1024;
     }
   }
 
