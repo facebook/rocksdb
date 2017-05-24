@@ -1287,7 +1287,6 @@ TEST_F(OptionsParserTest, DifferentDefault) {
     old_default_opts.OldDefaults();
     ASSERT_EQ(10 * 1048576, old_default_opts.max_bytes_for_level_base);
     ASSERT_EQ(5000, old_default_opts.max_open_files);
-    ASSERT_EQ(-1, old_default_opts.base_background_compactions);
     ASSERT_EQ(2 * 1024U * 1024U, old_default_opts.delayed_write_rate);
     ASSERT_EQ(WALRecoveryMode::kTolerateCorruptedTailRecords,
               old_default_opts.wal_recovery_mode);

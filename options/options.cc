@@ -139,6 +139,7 @@ DBOptions::DBOptions(const Options& options)
       wal_dir(options.wal_dir),
       delete_obsolete_files_period_micros(
           options.delete_obsolete_files_period_micros),
+      max_background_jobs(options.max_background_jobs),
       base_background_compactions(options.base_background_compactions),
       max_background_compactions(options.max_background_compactions),
       max_subcompactions(options.max_subcompactions),
@@ -455,7 +456,6 @@ Options::PrepareForBulkLoad()
   // to L1. This is helpful so that all files that are
   // input to the manual compaction are all at L0.
   max_background_compactions = 2;
-  base_background_compactions = 2;
 
   // The compaction would create large files in L1.
   target_file_size_base = 256 * 1024 * 1024;
@@ -491,7 +491,6 @@ DBOptions* DBOptions::OldDefaults(int rocksdb_major_version,
     delayed_write_rate = 16 * 1024U * 1024U;
   }
   max_open_files = 5000;
-  base_background_compactions = -1;
   wal_recovery_mode = WALRecoveryMode::kTolerateCorruptedTailRecords;
   return this;
 }
