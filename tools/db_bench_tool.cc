@@ -2197,36 +2197,36 @@ class Benchmark {
     return base_name + ToString(id);
   }
 
-void VerifyDBFromDB(std::string& truth_db_name) {
-  DBWithColumnFamilies truth_db;
-  auto s = DB::OpenForReadOnly(open_options_, truth_db_name, &truth_db.db);
-  if (!s.ok()) {
-    fprintf(stderr, "open error: %s\n", s.ToString().c_str());
-    exit(1);
-  }
-  ReadOptions ro;
-  ro.total_order_seek = true;
-  std::unique_ptr<Iterator> truth_iter(truth_db.db->NewIterator(ro));
-  std::unique_ptr<Iterator> db_iter(db_.db->NewIterator(ro));
-  // Verify that all the key/values in truth_db are retrivable in db with ::Get
-  fprintf(stderr, "Verifying db >= truth_db with ::Get...\n");
-  for (truth_iter->SeekToFirst(); truth_iter->Valid(); truth_iter->Next()) {
+  void VerifyDBFromDB(std::string& truth_db_name) {
+    DBWithColumnFamilies truth_db;
+    auto s = DB::OpenForReadOnly(open_options_, truth_db_name, &truth_db.db);
+    if (!s.ok()) {
+      fprintf(stderr, "open error: %s\n", s.ToString().c_str());
+      exit(1);
+    }
+    ReadOptions ro;
+    ro.total_order_seek = true;
+    std::unique_ptr<Iterator> truth_iter(truth_db.db->NewIterator(ro));
+    std::unique_ptr<Iterator> db_iter(db_.db->NewIterator(ro));
+    // Verify that all the key/values in truth_db are retrivable in db with ::Get
+    fprintf(stderr, "Verifying db >= truth_db with ::Get...\n");
+    for (truth_iter->SeekToFirst(); truth_iter->Valid(); truth_iter->Next()) {
       std::string value;
       s = db_.db->Get(ro, truth_iter->key(), &value);
       assert(s.ok());
       // TODO(myabandeh): provide debugging hints
       assert(Slice(value) == truth_iter->value());
+    }
+    // Verify that the db iterator does not give any extra key/value
+    fprintf(stderr, "Verifying db == truth_db...\n");
+    for (db_iter->SeekToFirst(), truth_iter->SeekToFirst(); db_iter->Valid(); db_iter->Next(), truth_iter->Next()) {
+      assert(truth_iter->Valid());
+      assert(truth_iter->value() == db_iter->value());
+    }
+    // No more key should be left unchecked in truth_db
+    assert(!truth_iter->Valid());
+    fprintf(stderr, "...Verified\n");
   }
-  // Verify that the db iterator does not give any extra key/value
-  fprintf(stderr, "Verifying db == truth_db...\n");
-  for (db_iter->SeekToFirst(), truth_iter->SeekToFirst(); db_iter->Valid(); db_iter->Next(), truth_iter->Next()) {
-    assert(truth_iter->Valid());
-    assert(truth_iter->value() == db_iter->value());
-  }
-  // No more key should be left unchecked in truth_db
-  assert(!truth_iter->Valid());
-  fprintf(stderr, "...Verified\n");
-}
 
   void Run() {
     if (!SanityCheck()) {
