@@ -134,6 +134,8 @@ void DumpSupportInfo(Logger* logger) {
   ROCKS_LOG_HEADER(logger, "Fast CRC32 supported: %d",
                    crc32c::IsFastCrc32Supported());
 }
+
+int64_t kDefaultLowPriThrottledRate = 2 * 1024 * 1024;
 } // namespace
 
 DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
@@ -159,6 +161,11 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       write_buffer_manager_(immutable_db_options_.write_buffer_manager.get()),
       write_thread_(immutable_db_options_),
       write_controller_(mutable_db_options_.delayed_write_rate),
+      // Use delayed_write_rate as a base line to determine the initial
+      // low pri write rate limit. It may be adjusted later.
+      low_pri_write_rate_limiter_(NewGenericRateLimiter(std::min(
+          static_cast<int64_t>(mutable_db_options_.delayed_write_rate / 8),
+          kDefaultLowPriThrottledRate))),
       last_batch_group_size_(0),
       unscheduled_flushes_(0),
       unscheduled_compactions_(0),

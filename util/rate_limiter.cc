@@ -79,6 +79,8 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
                                  Statistics* stats) {
   assert(bytes <= refill_bytes_per_period_.load(std::memory_order_relaxed));
   TEST_SYNC_POINT("GenericRateLimiter::Request");
+  TEST_SYNC_POINT_CALLBACK("GenericRateLimiter::Request:1",
+                           &rate_bytes_per_sec_);
   MutexLock g(&request_mutex_);
   if (stop_) {
     return;

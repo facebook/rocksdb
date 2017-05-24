@@ -10,6 +10,7 @@
 * Change ticker/histogram statistics implementations to use core-local storage. This improves aggregation speed compared to our previous thread-local approach, particularly for applications with many threads.
 * Users can pass a cache object to write buffer manager, so that they can cap memory usage for memtable and block cache using one single limit.
 * Flush will be triggered when 7/8 of the limit introduced by write_buffer_manager or db_write_buffer_size is triggered, so that the hard threshold is hard to hit.
+* Introduce WriteOptions.low_pri. If it is true, low priority writes will be throttled if the compaction is behind.
 
 ## 5.5.0 (05/17/2017)
 ### New Features

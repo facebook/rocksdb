@@ -2186,6 +2186,56 @@ TEST_F(DBTest2, MemtableOnlyIterator) {
   ASSERT_EQ(1, count);
   delete it;
 }
+
+TEST_F(DBTest2, LowPriWrite) {
+  Options options = CurrentOptions();
+  // Compaction pressure should trigger since 6 files
+  options.level0_file_num_compaction_trigger = 4;
+  options.level0_slowdown_writes_trigger = 12;
+  options.level0_stop_writes_trigger = 30;
+  options.delayed_write_rate = 8 * 1024 * 1024;
+  Reopen(options);
+
+  std::atomic<int> rate_limit_count(0);
+
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "GenericRateLimiter::Request:1", [&](void* arg) {
+        rate_limit_count.fetch_add(1);
+        int64_t* rate_bytes_per_sec = static_cast<int64_t*>(arg);
+        ASSERT_EQ(1024 * 1024, *rate_bytes_per_sec);
+      });
+  // Block compaction
+  rocksdb::SyncPoint::GetInstance()->LoadDependency({
+      {"DBTest.LowPriWrite:0", "DBImpl::BGWorkCompaction"},
+  });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  WriteOptions wo;
+  for (int i = 0; i < 6; i++) {
+    wo.low_pri = false;
+    Put("", "", wo);
+    wo.low_pri = true;
+    Put("", "", wo);
+    Flush();
+  }
+  ASSERT_EQ(0, rate_limit_count.load());
+  wo.low_pri = true;
+  Put("", "", wo);
+  ASSERT_EQ(1, rate_limit_count.load());
+  wo.low_pri = false;
+  Put("", "", wo);
+  ASSERT_EQ(1, rate_limit_count.load());
+
+  TEST_SYNC_POINT("DBTest.LowPriWrite:0");
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+
+  dbfull()->TEST_WaitForCompact();
+  wo.low_pri = true;
+  Put("", "", wo);
+  ASSERT_EQ(1, rate_limit_count.load());
+  wo.low_pri = false;
+  Put("", "", wo);
+  ASSERT_EQ(1, rate_limit_count.load());
+}
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
