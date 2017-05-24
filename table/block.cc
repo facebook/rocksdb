@@ -246,8 +246,8 @@ bool BlockIter::ParseNextKey() {
 
     if (global_seqno_ != kDisableGlobalSequenceNumber) {
       // If we are reading a file with a global sequence number we should
-      // expect that all encoded sequence numbers are zeros and all value
-      // types are kTypeValue
+      // expect that all encoded sequence numbers are zeros and any value
+      // type is kTypeValue, kTypeMerge or kTypeDeletion
       assert(GetInternalKeySeqno(key_.GetInternalKey()) == 0);
 
       ValueType value_type = ExtractValueType(key_.GetInternalKey());
