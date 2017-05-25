@@ -34,6 +34,9 @@ Status MergeHelper::TimedFullMerge(const MergeOperator* merge_operator,
     return Status::OK();
   }
 
+  MeasureTime(statistics, READ_NUM_MERGE_OPERANDS,
+              static_cast<uint64_t>(operands.size()));
+
   bool success;
   Slice tmp_result_operand(nullptr, 0);
   const MergeOperator::MergeOperationInput merge_in(key, value, operands,

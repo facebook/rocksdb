@@ -370,6 +370,9 @@ enum Histograms : uint32_t {
   BYTES_DECOMPRESSED,
   COMPRESSION_TIMES_NANOS,
   DECOMPRESSION_TIMES_NANOS,
+  // Number of merge operands passed to the merge operator in user read
+  // requests.
+  READ_NUM_MERGE_OPERANDS,
 
   HISTOGRAM_ENUM_MAX,  // TODO(ldemailly): enforce HistogramsNameMap match
 };
@@ -405,6 +408,7 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {BYTES_DECOMPRESSED, "rocksdb.bytes.decompressed"},
     {COMPRESSION_TIMES_NANOS, "rocksdb.compression.times.nanos"},
     {DECOMPRESSION_TIMES_NANOS, "rocksdb.decompression.times.nanos"},
+    {READ_NUM_MERGE_OPERANDS, "rocksdb.read.num.merge_operands"},
 };
 
 struct HistogramData {
