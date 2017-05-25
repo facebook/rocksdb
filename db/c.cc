@@ -2849,6 +2849,12 @@ void rocksdb_sstfilewriter_open(rocksdb_sstfilewriter_t* writer,
   SaveError(errptr, writer->rep->Open(std::string(name)));
 }
 
+void rocksdb_sstfilewriter_add(rocksdb_sstfilewriter_t* writer, const char* key,
+                               size_t keylen, const char* val, size_t vallen,
+                               char** errptr) {
+  SaveError(errptr, writer->rep->Put(Slice(key, keylen), Slice(val, vallen)));
+}
+
 void rocksdb_sstfilewriter_put(rocksdb_sstfilewriter_t* writer, const char* key,
                                size_t keylen, const char* val, size_t vallen,
                                char** errptr) {

@@ -1114,6 +1114,9 @@ rocksdb_sstfilewriter_create_with_comparator(
     const rocksdb_comparator_t* comparator);
 extern ROCKSDB_LIBRARY_API void rocksdb_sstfilewriter_open(
     rocksdb_sstfilewriter_t* writer, const char* name, char** errptr);
+extern ROCKSDB_LIBRARY_API void rocksdb_sstfilewriter_add(
+    rocksdb_sstfilewriter_t* writer, const char* key, size_t keylen,
+    const char* val, size_t vallen, char** errptr);
 extern ROCKSDB_LIBRARY_API void rocksdb_sstfilewriter_put(
     rocksdb_sstfilewriter_t* writer, const char* key, size_t keylen,
     const char* val, size_t vallen, char** errptr);
