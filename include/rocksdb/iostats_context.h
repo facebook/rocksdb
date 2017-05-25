@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <string>
 
+#include "port/port.h"
 #include "rocksdb/perf_level.h"
 
 // A thread local context for gathering io-stats efficiently and transparently.
@@ -47,12 +48,7 @@ struct IOStatsContext {
 };
 
 #ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
-  #if defined(_MSC_VER) && !defined(__thread)
-    // Thread local storage on Linux
-    // There is thread_local in C++11
-    #define __thread __declspec(thread)
-  #endif
-  extern __thread IOStatsContext iostats_context;
+extern __thread IOStatsContext iostats_context;
 #endif
 
 }  // namespace rocksdb
