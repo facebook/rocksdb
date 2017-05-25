@@ -865,6 +865,19 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
   }
 }
 
+void Version::AddRangeDelIteratorsForLevel(
+    const ReadOptions& read_options, const EnvOptions& soptions,
+    MergeIteratorBuilder* merge_iter_builder, int level) {
+  for (size_t i = 0; i < storage_info_.LevelFilesBrief(level).num_files; i++) {
+    const auto& file = storage_info_.LevelFilesBrief(level).files[i];
+    merge_iter_builder->AddIterator(
+        cfd_->table_cache()->NewRangeTombstoneIterator(
+            read_options, soptions, cfd_->internal_comparator(), file.fd,
+            cfd_->internal_stats()->GetFileReadHist(level),
+            false /* skip_filters */, level));
+  }
+}
+
 VersionStorageInfo::VersionStorageInfo(
     const InternalKeyComparator* internal_comparator,
     const Comparator* user_comparator, int levels,

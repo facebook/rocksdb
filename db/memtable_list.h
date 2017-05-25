@@ -84,6 +84,8 @@ class MemTableListVersion {
 
   Status AddRangeTombstoneIterators(const ReadOptions& read_opts, Arena* arena,
                                     RangeDelAggregator* range_del_agg);
+  Status AddRangeTombstoneIterators(const ReadOptions& read_opts,
+                                    MergeIteratorBuilder* merge_iter_builder);
 
   void AddIterators(const ReadOptions& options,
                     std::vector<InternalIterator*>* iterator_list,
