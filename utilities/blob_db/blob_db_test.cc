@@ -282,7 +282,7 @@ TEST_F(BlobDBTest, GetWithCompression) {
   std::string orig(LONG_STRING);
 
   for (size_t i = 0; i < 10000; i++) {
-    int len = orig.length();
+    size_t len = orig.length();
     int ttl = 3000 * (rnd.Next() % 10);
 
     char *val = new char[len + BlobDB::kTTLSuffixLength];
