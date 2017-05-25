@@ -46,7 +46,7 @@ rocksdb_preprocessor_flags = [
 
 cpp_library(
     name = "rocksdb_lib",
-    headers = AutoHeaders.RECURSIVE_GLOB,
+    auto_headers = AutoHeaders.RECURSIVE_GLOB,
     srcs = [
       "cache/clock_cache.cc",
       "cache/lru_cache.cc",
@@ -258,7 +258,7 @@ cpp_library(
 
 cpp_library(
     name = "rocksdb_test_lib",
-    headers = AutoHeaders.RECURSIVE_GLOB,
+    auto_headers = AutoHeaders.RECURSIVE_GLOB,
     srcs = [
       "env/mock_env.cc",
       "table/mock_table.cc",
@@ -278,7 +278,7 @@ cpp_library(
 
 cpp_library(
     name = "rocksdb_tools_lib",
-    headers = AutoHeaders.RECURSIVE_GLOB,
+    auto_headers = AutoHeaders.RECURSIVE_GLOB,
     srcs = [
       "tools/db_bench_tool.cc",
       "util/testutil.cc",
@@ -291,7 +291,7 @@ cpp_library(
 
 cpp_library(
     name = "env_basic_test_lib",
-    headers = AutoHeaders.RECURSIVE_GLOB,
+    auto_headers = AutoHeaders.RECURSIVE_GLOB,
     srcs = ["env/env_basic_test.cc"],
     deps = [":rocksdb_test_lib"],
     preprocessor_flags = rocksdb_preprocessor_flags,
