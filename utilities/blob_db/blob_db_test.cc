@@ -69,12 +69,13 @@ class BlobDBTest : public testing::Test {
     ASSERT_NE(nullptr, blobdb_);
   }
 
-  void PutRandomWithTTL(const std::string& key, int32_t ttl, Random *rnd,
+  void PutRandomWithTTL(const std::string &key, int32_t ttl, Random *rnd,
                         std::map<std::string, std::string> *data = nullptr) {
     int len = rnd->Next() % 16384 + 1;
     std::string value = test::RandomHumanReadableString(rnd, len);
     ColumnFamilyHandle *cfh = blobdb_->DefaultColumnFamily();
-    ASSERT_OK(blobdb_->PutWithTTL(WriteOptions(), cfh, Slice(key), Slice(value), ttl));
+    ASSERT_OK(blobdb_->PutWithTTL(WriteOptions(), cfh, Slice(key), Slice(value),
+                                  ttl));
     if (data != nullptr) {
       (*data)[key] = value;
     }
@@ -93,9 +94,9 @@ class BlobDBTest : public testing::Test {
   // Verify blob db contain expected data and nothing more.
   // TODO(yiwu): Verify blob files are consistent with data in LSM.
   void VerifyDB(const std::map<std::string, std::string> &data) {
-    Iterator* iter = blobdb_->NewIterator(ReadOptions());
+    Iterator *iter = blobdb_->NewIterator(ReadOptions());
     iter->SeekToFirst();
-    for (auto& p : data) {
+    for (auto &p : data) {
       ASSERT_TRUE(iter->Valid());
       ASSERT_EQ(p.first, iter->key().ToString());
       ASSERT_EQ(p.second, iter->value().ToString());
