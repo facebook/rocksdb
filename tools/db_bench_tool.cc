@@ -1805,6 +1805,7 @@ class Benchmark {
   int64_t readwrites_;
   int64_t merge_keys_;
   bool report_file_operations_;
+  bool use_blob_db_;
 
   bool SanityCheck() {
     if (FLAGS_compression_ratio > 1) {
@@ -2064,7 +2065,12 @@ class Benchmark {
                 ? FLAGS_num
                 : ((FLAGS_writes > FLAGS_reads) ? FLAGS_writes : FLAGS_reads)),
         merge_keys_(FLAGS_merge_keys < 0 ? FLAGS_num : FLAGS_merge_keys),
-        report_file_operations_(FLAGS_report_file_operations) {
+        report_file_operations_(FLAGS_report_file_operations),
+#ifndef ROCKSDB_LITE
+        use_blob_db_(FLAGS_use_blob_db) {
+#else
+        use_blob_db_(false) {
+#endif  // !ROCKSDB_LITE
     // use simcache instead of cache
     if (FLAGS_simcache_size >= 0) {
       if (FLAGS_cache_numshardbits >= 1) {
@@ -3417,13 +3423,14 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       for (int64_t j = 0; j < entries_per_batch_; j++) {
         int64_t rand_num = key_gens[id]->Next();
         GenerateKeyFromInt(rand_num, FLAGS_num, &key);
-        if (FLAGS_use_blob_db) {
+        if (use_blob_db_) {
+#ifndef ROCKSDB_LITE
           Slice val = gen.Generate(value_size_);
           int ttl = rand() % 86400;
           blob_db::BlobDB* blobdb =
               static_cast<blob_db::BlobDB*>(db_with_cfh->db);
           s = blobdb->PutWithTTL(write_options_, key, val, ttl);
-
+#endif  //  ROCKSDB_LITE
         } else if (FLAGS_num_column_families <= 1) {
           batch.Put(key, gen.Generate(value_size_));
         } else {
@@ -3445,9 +3452,11 @@ void VerifyDBFromDB(std::string& truth_db_name) {
                  ++offset) {
               GenerateKeyFromInt(begin_num + offset, FLAGS_num,
                                  &expanded_keys[offset]);
-              if (FLAGS_use_blob_db) {
+              if (use_blob_db_) {
+#ifndef ROCKSDB_LITE
                 s = db_with_cfh->db->Delete(write_options_,
                                             expanded_keys[offset]);
+#endif  //  ROCKSDB_LITE
               } else if (FLAGS_num_column_families <= 1) {
                 batch.Delete(expanded_keys[offset]);
               } else {
@@ -3459,10 +3468,12 @@ void VerifyDBFromDB(std::string& truth_db_name) {
             GenerateKeyFromInt(begin_num, FLAGS_num, &begin_key);
             GenerateKeyFromInt(begin_num + range_tombstone_width_, FLAGS_num,
                                &end_key);
-            if (FLAGS_use_blob_db) {
+            if (use_blob_db_) {
+#ifndef ROCKSDB_LITE
               s = db_with_cfh->db->DeleteRange(
                   write_options_, db_with_cfh->db->DefaultColumnFamily(),
                   begin_key, end_key);
+#endif  //  ROCKSDB_LITE
             } else if (FLAGS_num_column_families <= 1) {
               batch.DeleteRange(begin_key, end_key);
             } else {
@@ -3472,8 +3483,10 @@ void VerifyDBFromDB(std::string& truth_db_name) {
           }
         }
       }
-      if (!FLAGS_use_blob_db) {
+      if (!use_blob_db_) {
+#ifndef ROCKSDB_LITE
         s = db_with_cfh->db->Write(write_options_, &batch);
+#endif  //  ROCKSDB_LITE
       }
       thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db,
                                 entries_per_batch_, kWrite);
