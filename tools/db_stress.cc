@@ -937,27 +937,23 @@ struct ThreadState {
 
 class DbStressListener : public EventListener {
  public:
-  DbStressListener(
-      const std::string& db_name,
-      const std::vector<DbPath>& db_paths) :
-      db_name_(db_name),
-      db_paths_(db_paths),
-      rand_(301) {}
+  DbStressListener(const std::string& db_name,
+                   const std::vector<DbPath>& db_paths)
+      : db_name_(db_name), db_paths_(db_paths) {}
   virtual ~DbStressListener() {}
 #ifndef ROCKSDB_LITE
-  virtual void OnFlushCompleted(
-      DB* db, const FlushJobInfo& info) override {
+  virtual void OnFlushCompleted(DB* db, const FlushJobInfo& info) override {
     assert(db);
     assert(db->GetName() == db_name_);
     assert(IsValidColumnFamilyName(info.cf_name));
     VerifyFilePath(info.file_path);
     // pretending doing some work here
     std::this_thread::sleep_for(
-        std::chrono::microseconds(rand_.Uniform(5000)));
+        std::chrono::microseconds(Random::GetTLSInstance()->Uniform(5000)));
   }
 
-  virtual void OnCompactionCompleted(
-      DB *db, const CompactionJobInfo& ci) override {
+  virtual void OnCompactionCompleted(DB* db,
+                                     const CompactionJobInfo& ci) override {
     assert(db);
     assert(db->GetName() == db_name_);
     assert(IsValidColumnFamilyName(ci.cf_name));
@@ -970,11 +966,10 @@ class DbStressListener : public EventListener {
     }
     // pretending doing some work here
     std::this_thread::sleep_for(
-        std::chrono::microseconds(rand_.Uniform(5000)));
+        std::chrono::microseconds(Random::GetTLSInstance()->Uniform(5000)));
   }
 
-  virtual void OnTableFileCreated(
-      const TableFileCreationInfo& info) override {
+  virtual void OnTableFileCreated(const TableFileCreationInfo& info) override {
     assert(info.db_name == db_name_);
     assert(IsValidColumnFamilyName(info.cf_name));
     VerifyFilePath(info.file_path);
@@ -1043,7 +1038,6 @@ class DbStressListener : public EventListener {
  private:
   std::string db_name_;
   std::vector<DbPath> db_paths_;
-  Random rand_;
 };
 
 }  // namespace
