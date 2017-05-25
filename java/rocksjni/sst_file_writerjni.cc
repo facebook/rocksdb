@@ -83,7 +83,7 @@ void Java_org_rocksdb_SstFileWriter_add(JNIEnv *env, jobject jobj,
   auto *key_slice = reinterpret_cast<rocksdb::Slice *>(jkey_handle);
   auto *value_slice = reinterpret_cast<rocksdb::Slice *>(jvalue_handle);
   rocksdb::Status s =
-      reinterpret_cast<rocksdb::SstFileWriter *>(jhandle)->Add(*key_slice,
+      reinterpret_cast<rocksdb::SstFileWriter *>(jhandle)->Put(*key_slice,
           *value_slice);
   if (!s.ok()) {
     rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
