@@ -1441,7 +1441,6 @@ TEST_F(DBTest, UnremovableSingleDelete) {
 #ifndef ROCKSDB_LITE
 TEST_F(DBTest, DeletionMarkers1) {
   Options options = CurrentOptions();
-  options.max_background_flushes = 0;
   CreateAndReopenWithCF({"pikachu"}, options);
   Put(1, "foo", "v1");
   ASSERT_OK(Flush(1));
@@ -3075,9 +3074,9 @@ TEST_F(DBTest, DynamicMemtableOptions) {
                  Env::Priority::LOW);
   // Start from scratch and disable compaction/flush. Flush can only happen
   // during compaction but trigger is pretty high
-  options.max_background_flushes = 0;
   options.disable_auto_compactions = true;
   DestroyAndReopen(options);
+  env_->SetBackgroundThreads(0, Env::HIGH);
 
   // Put until writes are stopped, bounded by 256 puts. We should see stop at
   // ~128KB
@@ -3354,7 +3353,6 @@ TEST_P(DBTestWithParam, ThreadStatusSingleCompaction) {
 
 TEST_P(DBTestWithParam, PreShutdownManualCompaction) {
   Options options = CurrentOptions();
-  options.max_background_flushes = 0;
   options.max_subcompactions = max_subcompactions_;
   CreateAndReopenWithCF({"pikachu"}, options);
 
@@ -3393,7 +3391,6 @@ TEST_P(DBTestWithParam, PreShutdownManualCompaction) {
 
     if (iter == 0) {
       options = CurrentOptions();
-      options.max_background_flushes = 0;
       options.num_levels = 3;
       options.create_if_missing = true;
       DestroyAndReopen(options);
@@ -3404,7 +3401,6 @@ TEST_P(DBTestWithParam, PreShutdownManualCompaction) {
 
 TEST_F(DBTest, PreShutdownFlush) {
   Options options = CurrentOptions();
-  options.max_background_flushes = 0;
   CreateAndReopenWithCF({"pikachu"}, options);
   ASSERT_OK(Put(1, "key", "value"));
   CancelAllBackgroundWork(db_);

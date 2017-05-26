@@ -70,6 +70,7 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       wal_bytes_per_sync(options.wal_bytes_per_sync),
       listeners(options.listeners),
       enable_thread_tracking(options.enable_thread_tracking),
+      enable_pipelined_write(options.enable_pipelined_write),
       allow_concurrent_memtable_write(options.allow_concurrent_memtable_write),
       enable_write_thread_adaptive_yield(
           options.enable_write_thread_adaptive_yield),
@@ -84,7 +85,8 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
 #endif  // ROCKSDB_LITE
       fail_if_options_file_error(options.fail_if_options_file_error),
       dump_malloc_stats(options.dump_malloc_stats),
-      avoid_flush_during_recovery(options.avoid_flush_during_recovery) {
+      avoid_flush_during_recovery(options.avoid_flush_during_recovery),
+      allow_ingest_behind(options.allow_ingest_behind) {
 }
 
 void ImmutableDBOptions::Dump(Logger* log) const {
@@ -188,6 +190,8 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    wal_recovery_mode);
   ROCKS_LOG_HEADER(log, "                 Options.enable_thread_tracking: %d",
                    enable_thread_tracking);
+  ROCKS_LOG_HEADER(log, "                 Options.enable_pipelined_write: %d",
+                   enable_pipelined_write);
   ROCKS_LOG_HEADER(log, "        Options.allow_concurrent_memtable_write: %d",
                    allow_concurrent_memtable_write);
   ROCKS_LOG_HEADER(log, "     Options.enable_write_thread_adaptive_yield: %d",
@@ -210,13 +214,17 @@ void ImmutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log, "                             Options.wal_filter: %s",
                    wal_filter ? wal_filter->Name() : "None");
 #endif  // ROCKDB_LITE
+
   ROCKS_LOG_HEADER(log, "            Options.avoid_flush_during_recovery: %d",
                    avoid_flush_during_recovery);
+  ROCKS_LOG_HEADER(log, "            Options.allow_ingest_behind: %d",
+                   allow_ingest_behind);
 }
 
 MutableDBOptions::MutableDBOptions()
-    : base_background_compactions(1),
-      max_background_compactions(1),
+    : max_background_jobs(2),
+      base_background_compactions(-1),
+      max_background_compactions(-1),
       avoid_flush_during_shutdown(false),
       delayed_write_rate(2 * 1024U * 1024U),
       max_total_wal_size(0),
@@ -225,7 +233,8 @@ MutableDBOptions::MutableDBOptions()
       max_open_files(-1) {}
 
 MutableDBOptions::MutableDBOptions(const DBOptions& options)
-    : base_background_compactions(options.base_background_compactions),
+    : max_background_jobs(options.max_background_jobs),
+      base_background_compactions(options.base_background_compactions),
       max_background_compactions(options.max_background_compactions),
       avoid_flush_during_shutdown(options.avoid_flush_during_shutdown),
       delayed_write_rate(options.delayed_write_rate),
@@ -236,8 +245,8 @@ MutableDBOptions::MutableDBOptions(const DBOptions& options)
       max_open_files(options.max_open_files) {}
 
 void MutableDBOptions::Dump(Logger* log) const {
-  ROCKS_LOG_HEADER(log, "            Options.base_background_compactions: %d",
-                   base_background_compactions);
+  ROCKS_LOG_HEADER(log, "            Options.max_background_jobs: %d",
+                   max_background_jobs);
   ROCKS_LOG_HEADER(log, "            Options.max_background_compactions: %d",
                    max_background_compactions);
   ROCKS_LOG_HEADER(log, "            Options.avoid_flush_during_shutdown: %d",

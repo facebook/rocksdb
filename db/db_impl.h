@@ -391,7 +391,7 @@ class DBImpl : public DB {
 
   // Return the lastest MutableCFOptions of a column family
   Status TEST_GetLatestMutableCFOptions(ColumnFamilyHandle* column_family,
-                                        MutableCFOptions* mutable_cf_opitons);
+                                        MutableCFOptions* mutable_cf_options);
 
   Cache* TEST_table_cache() { return table_cache_.get(); }
 
@@ -401,12 +401,21 @@ class DBImpl : public DB {
   uint64_t TEST_FindMinPrepLogReferencedByMemTable();
 
   int TEST_BGCompactionsAllowed() const;
+  int TEST_BGFlushesAllowed() const;
 
 #endif  // NDEBUG
 
-  // Return maximum background compaction allowed to be scheduled based on
-  // compaction status.
-  int BGCompactionsAllowed() const;
+  struct BGJobLimits {
+    int max_flushes;
+    int max_compactions;
+  };
+  // Returns maximum background flushes and compactions allowed to be scheduled
+  BGJobLimits GetBGJobLimits() const;
+  // Need a static version that can be called during SanitizeOptions().
+  static BGJobLimits GetBGJobLimits(int max_background_flushes,
+                                    int max_background_compactions,
+                                    int max_background_jobs,
+                                    bool parallelize_compactions);
 
   // move logs pending closing from job_context to the DB queue and
   // schedule a purge
@@ -607,6 +616,11 @@ class DBImpl : public DB {
                    uint64_t* log_used = nullptr, uint64_t log_ref = 0,
                    bool disable_memtable = false);
 
+  Status PipelinedWriteImpl(const WriteOptions& options, WriteBatch* updates,
+                            WriteCallback* callback = nullptr,
+                            uint64_t* log_used = nullptr, uint64_t log_ref = 0,
+                            bool disable_memtable = false);
+
   uint64_t FindMinLogContainingOutstandingPrep();
   uint64_t FindMinPrepLogReferencedByMemTable();
 
@@ -726,16 +740,18 @@ class DBImpl : public DB {
   Status HandleWriteBufferFull(WriteContext* write_context);
 
   // REQUIRES: mutex locked
-  Status PreprocessWrite(const WriteOptions& write_options, bool need_log_sync,
-                         bool* logs_getting_syned, WriteContext* write_context);
+  Status PreprocessWrite(const WriteOptions& write_options, bool* need_log_sync,
+                         WriteContext* write_context);
 
-  Status WriteToWAL(const autovector<WriteThread::Writer*>& write_group,
+  Status WriteToWAL(const WriteThread::WriteGroup& write_group,
                     log::Writer* log_writer, bool need_log_sync,
                     bool need_log_dir_sync, SequenceNumber sequence);
 
-  // Used by WriteImpl to update bg_error_ when encountering memtable insert
-  // error.
-  void UpdateBackgroundError(const Status& memtable_insert_status);
+  // Used by WriteImpl to update bg_error_ if paranoid check is enabled.
+  void ParanoidCheck(const Status& status);
+
+  // Used by WriteImpl to update bg_error_ in case of memtable insert error.
+  void MemTableInsertStatusCheck(const Status& memtable_insert_status);
 
 #ifndef ROCKSDB_LITE
 
@@ -1098,7 +1114,7 @@ class DBImpl : public DB {
   // Indicate DB was opened successfully
   bool opened_successfully_;
 
-  // minmum log number still containing prepared data.
+  // minimum log number still containing prepared data.
   // this is used by FindObsoleteFiles to determine which
   // flushed logs we must keep around because they still
   // contain prepared data which has not been flushed or rolled back
@@ -1111,7 +1127,7 @@ class DBImpl : public DB {
   // to prepared_section_completed_ which maps LOG -> instance_count
   // since a log could contain multiple prepared sections
   //
-  // when trying to determine the minmum log still active we first
+  // when trying to determine the minimum log still active we first
   // consult min_log_with_prep_. while that root value maps to
   // a value > 0 in prepared_section_completed_ we decrement the
   // instance_count for that log and pop the root value in
@@ -1179,7 +1195,7 @@ extern DBOptions SanitizeOptions(const std::string& db, const DBOptions& src);
 extern CompressionType GetCompressionFlush(
     const ImmutableCFOptions& ioptions,
     const MutableCFOptions& mutable_cf_options);
- 
+
 // Fix user-supplied options to be reasonable
 template <class T, class V>
 static void ClipToRange(T* ptr, V minvalue, V maxvalue) {

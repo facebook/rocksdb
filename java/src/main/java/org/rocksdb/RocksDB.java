@@ -2122,100 +2122,50 @@ public class RocksDB extends RocksObject {
     return handleList;
   }
 
-  public void addFileWithFilePath(final ColumnFamilyHandle columnFamilyHandle,
-      final List<String> filePathList) throws RocksDBException {
-    addFile(nativeHandle_, columnFamilyHandle.nativeHandle_,
-        filePathList.toArray(new String[filePathList.size()]), filePathList.size(), false);
-  }
-
-  public void addFileWithFilePath(final ColumnFamilyHandle columnFamilyHandle,
-      final List<String> filePathList, final boolean moveFile) throws RocksDBException {
-    addFile(nativeHandle_, columnFamilyHandle.nativeHandle_,
-        filePathList.toArray(new String[filePathList.size()]), filePathList.size(), moveFile);
-  }
-
-  public void addFileWithFilePath(final List<String> filePathList) throws RocksDBException {
-    addFile(nativeHandle_, getDefaultColumnFamily().nativeHandle_,
-        filePathList.toArray(new String[filePathList.size()]), filePathList.size(), false);
-  }
-
-  public void addFileWithFilePath(final List<String> filePathList, final boolean moveFile)
+  /**
+   * ingestExternalFile will load a list of external SST files (1) into the DB
+   * We will try to find the lowest possible level that the file can fit in, and
+   * ingest the file into this level (2). A file that have a key range that
+   * overlap with the memtable key range will require us to Flush the memtable
+   * first before ingesting the file.
+   *
+   * (1) External SST files can be created using {@link SstFileWriter}
+   * (2) We will try to ingest the files to the lowest possible level
+   * even if the file compression doesn't match the level compression
+   *
+   * @param filePathList The list of files to ingest
+   * @param ingestExternalFileOptions the options for the ingestion
+   */
+  public void ingestExternalFile(final List<String> filePathList,
+      final IngestExternalFileOptions ingestExternalFileOptions)
       throws RocksDBException {
-    addFile(nativeHandle_, getDefaultColumnFamily().nativeHandle_,
-        filePathList.toArray(new String[filePathList.size()]), filePathList.size(), moveFile);
+    ingestExternalFile(nativeHandle_, getDefaultColumnFamily().nativeHandle_,
+        filePathList.toArray(new String[filePathList.size()]),
+        filePathList.size(), ingestExternalFileOptions.nativeHandle_);
   }
 
-  public void addFileWithFilePath(
-      final ColumnFamilyHandle columnFamilyHandle, final String filePath) throws RocksDBException {
-    addFile(nativeHandle_, columnFamilyHandle.nativeHandle_, new String[] {filePath}, 1, false);
-  }
-
-  public void addFileWithFilePath(final ColumnFamilyHandle columnFamilyHandle,
-      final String filePath, final boolean moveFile) throws RocksDBException {
-    addFile(nativeHandle_, columnFamilyHandle.nativeHandle_, new String[] {filePath}, 1, moveFile);
-  }
-
-  public void addFileWithFilePath(final String filePath) throws RocksDBException {
-    addFile(
-        nativeHandle_, getDefaultColumnFamily().nativeHandle_, new String[] {filePath}, 1, false);
-  }
-
-  public void addFileWithFilePath(final String filePath, final boolean moveFile)
+  /**
+   * ingestExternalFile will load a list of external SST files (1) into the DB
+   * We will try to find the lowest possible level that the file can fit in, and
+   * ingest the file into this level (2). A file that have a key range that
+   * overlap with the memtable key range will require us to Flush the memtable
+   * first before ingesting the file.
+   *
+   * (1) External SST files can be created using {@link SstFileWriter}
+   * (2) We will try to ingest the files to the lowest possible level
+   * even if the file compression doesn't match the level compression
+   *
+   * @param columnFamilyHandle The column family for the ingested files
+   * @param filePathList The list of files to ingest
+   * @param ingestExternalFileOptions the options for the ingestion
+   */
+  public void ingestExternalFile(final ColumnFamilyHandle columnFamilyHandle,
+      final List<String> filePathList,
+      final IngestExternalFileOptions ingestExternalFileOptions)
       throws RocksDBException {
-    addFile(nativeHandle_, getDefaultColumnFamily().nativeHandle_, new String[] {filePath}, 1,
-        moveFile);
-  }
-
-  public void addFileWithFileInfo(final ColumnFamilyHandle columnFamilyHandle,
-      final List<ExternalSstFileInfo> fileInfoList) throws RocksDBException {
-    final long[] fiHandleList = toNativeHandleList(fileInfoList);
-    addFile(
-        nativeHandle_, columnFamilyHandle.nativeHandle_, fiHandleList, fiHandleList.length, false);
-  }
-
-  public void addFileWithFileInfo(final ColumnFamilyHandle columnFamilyHandle,
-      final List<ExternalSstFileInfo> fileInfoList, final boolean moveFile)
-      throws RocksDBException {
-    final long[] fiHandleList = toNativeHandleList(fileInfoList);
-    addFile(nativeHandle_, columnFamilyHandle.nativeHandle_, fiHandleList, fiHandleList.length,
-        moveFile);
-  }
-
-  public void addFileWithFileInfo(final List<ExternalSstFileInfo> fileInfoList)
-      throws RocksDBException {
-    final long[] fiHandleList = toNativeHandleList(fileInfoList);
-    addFile(nativeHandle_, getDefaultColumnFamily().nativeHandle_, fiHandleList,
-        fiHandleList.length, false);
-  }
-
-  public void addFileWithFileInfo(final List<ExternalSstFileInfo> fileInfoList,
-      final boolean moveFile) throws RocksDBException {
-    final long[] fiHandleList = toNativeHandleList(fileInfoList);
-    addFile(nativeHandle_, getDefaultColumnFamily().nativeHandle_, fiHandleList,
-        fiHandleList.length, moveFile);
-  }
-
-  public void addFileWithFileInfo(final ColumnFamilyHandle columnFamilyHandle,
-      final ExternalSstFileInfo fileInfo) throws RocksDBException {
-    addFile(nativeHandle_, columnFamilyHandle.nativeHandle_, new long[] {fileInfo.nativeHandle_}, 1,
-        false);
-  }
-
-  public void addFileWithFileInfo(final ColumnFamilyHandle columnFamilyHandle,
-      final ExternalSstFileInfo fileInfo, final boolean moveFile) throws RocksDBException {
-    addFile(nativeHandle_, columnFamilyHandle.nativeHandle_, new long[] {fileInfo.nativeHandle_}, 1,
-        moveFile);
-  }
-
-  public void addFileWithFileInfo(final ExternalSstFileInfo fileInfo) throws RocksDBException {
-    addFile(nativeHandle_, getDefaultColumnFamily().nativeHandle_,
-        new long[] {fileInfo.nativeHandle_}, 1, false);
-  }
-
-  public void addFileWithFileInfo(final ExternalSstFileInfo fileInfo, final boolean moveFile)
-      throws RocksDBException {
-    addFile(nativeHandle_, getDefaultColumnFamily().nativeHandle_,
-        new long[] {fileInfo.nativeHandle_}, 1, moveFile);
+    ingestExternalFile(nativeHandle_, columnFamilyHandle.nativeHandle_,
+        filePathList.toArray(new String[filePathList.size()]),
+        filePathList.size(), ingestExternalFileOptions.nativeHandle_);
   }
 
   /**
@@ -2421,9 +2371,8 @@ public class RocksDB extends RocksObject {
       throws RocksDBException;
   private native void setOptions(long handle, long cfHandle, String[] keys,
       String[] values) throws RocksDBException;
-  private native void addFile(long handle, long cfHandle, String[] filePathList,
-      int filePathListLen, boolean moveFile) throws RocksDBException;
-  private native void addFile(long handle, long cfHandle, long[] fiHandleList, int fiHandleListLen,
-      boolean moveFile) throws RocksDBException;
+  private native void ingestExternalFile(long handle, long cfHandle,
+      String[] filePathList, int filePathListLen,
+      long ingest_external_file_options_handle) throws RocksDBException;
   protected DBOptionsInterface options_;
 }

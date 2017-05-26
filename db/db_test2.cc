@@ -1082,7 +1082,6 @@ TEST_F(DBTest2, CompressionOptions) {
   options.max_bytes_for_level_multiplier = 2;
   options.num_levels = 7;
   options.max_background_compactions = 1;
-  options.base_background_compactions = 1;
 
   CompactionCompressionListener* listener =
       new CompactionCompressionListener(&options);
@@ -1159,6 +1158,9 @@ TEST_F(DBTest2, CompactionStall) {
   CompactionStallTestListener* listener = new CompactionStallTestListener();
   options.listeners.emplace_back(listener);
   DestroyAndReopen(options);
+  // make sure all background compaction jobs can be scheduled
+  auto stop_token =
+      dbfull()->TEST_write_controler().GetCompactionPressureToken();
 
   Random rnd(301);
 

@@ -13,6 +13,7 @@ import org.rocksdb.util.BytewiseComparator;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.Map;
 import java.util.TreeMap;
 
@@ -23,7 +24,8 @@ public class SstFileWriterTest {
   private static final String DB_DIRECTORY_NAME = "test_db";
 
   @ClassRule
-  public static final RocksMemoryResource rocksMemoryResource = new RocksMemoryResource();
+  public static final RocksMemoryResource rocksMemoryResource
+      = new RocksMemoryResource();
 
   @Rule public TemporaryFolder parentFolder = new TemporaryFolder();
 
@@ -71,7 +73,8 @@ public class SstFileWriterTest {
   }
 
   @Test
-  public void generateSstFileWithJavaComparator() throws RocksDBException, IOException {
+  public void generateSstFileWithJavaComparator()
+      throws RocksDBException, IOException {
     final TreeMap<String, String> keyValues = new TreeMap<>();
     keyValues.put("key1", "value1");
     keyValues.put("key2", "value2");
@@ -79,7 +82,8 @@ public class SstFileWriterTest {
   }
 
   @Test
-  public void generateSstFileWithNativeComparator() throws RocksDBException, IOException {
+  public void generateSstFileWithNativeComparator()
+      throws RocksDBException, IOException {
     final TreeMap<String, String> keyValues = new TreeMap<>();
     keyValues.put("key1", "value1");
     keyValues.put("key2", "value2");
@@ -93,14 +97,45 @@ public class SstFileWriterTest {
     keyValues.put("key2", "value2");
     final File sstFile = newSstFile(keyValues, false);
     final File dbFolder = parentFolder.newFolder(DB_DIRECTORY_NAME);
-    final Options options = new Options().setCreateIfMissing(true);
-    final RocksDB db = RocksDB.open(options, dbFolder.getAbsolutePath());
-    db.addFileWithFilePath(sstFile.getAbsolutePath());
+    try(final Options options = new Options().setCreateIfMissing(true);
+      final RocksDB db = RocksDB.open(options, dbFolder.getAbsolutePath());
+      final IngestExternalFileOptions ingestExternalFileOptions
+          = new IngestExternalFileOptions()) {
+      db.ingestExternalFile(Arrays.asList(sstFile.getAbsolutePath()),
+          ingestExternalFileOptions);
 
-    assertThat(db.get("key1".getBytes())).isEqualTo("value1".getBytes());
-    assertThat(db.get("key2".getBytes())).isEqualTo("value2".getBytes());
+      assertThat(db.get("key1".getBytes())).isEqualTo("value1".getBytes());
+      assertThat(db.get("key2".getBytes())).isEqualTo("value2".getBytes());
+    }
+  }
 
-    options.close();
-    db.close();
+  @Test
+  public void ingestSstFile_cf() throws RocksDBException, IOException {
+    final TreeMap<String, String> keyValues = new TreeMap<>();
+    keyValues.put("key1", "value1");
+    keyValues.put("key2", "value2");
+    final File sstFile = newSstFile(keyValues, false);
+    final File dbFolder = parentFolder.newFolder(DB_DIRECTORY_NAME);
+    try(final Options options = new Options()
+          .setCreateIfMissing(true)
+          .setCreateMissingColumnFamilies(true);
+        final RocksDB db = RocksDB.open(options, dbFolder.getAbsolutePath());
+        final IngestExternalFileOptions ingestExternalFileOptions =
+            new IngestExternalFileOptions()) {
+
+      try(final ColumnFamilyOptions cf_opts = new ColumnFamilyOptions();
+          final ColumnFamilyHandle cf_handle = db.createColumnFamily(
+              new ColumnFamilyDescriptor("new_cf".getBytes(), cf_opts))) {
+
+        db.ingestExternalFile(cf_handle,
+            Arrays.asList(sstFile.getAbsolutePath()),
+            ingestExternalFileOptions);
+
+        assertThat(db.get(cf_handle,
+            "key1".getBytes())).isEqualTo("value1".getBytes());
+        assertThat(db.get(cf_handle,
+            "key2".getBytes())).isEqualTo("value2".getBytes());
+      }
+    }
   }
 }

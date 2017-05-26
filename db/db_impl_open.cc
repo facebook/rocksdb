@@ -18,6 +18,7 @@
 #include "db/builder.h"
 #include "options/options_helper.h"
 #include "rocksdb/wal_filter.h"
+#include "util/rate_limiter.h"
 #include "util/sst_file_manager_impl.h"
 #include "util/sync_point.h"
 
@@ -55,20 +56,27 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
     result.write_buffer_manager.reset(
         new WriteBufferManager(result.db_write_buffer_size));
   }
-  if (result.base_background_compactions == -1) {
-    result.base_background_compactions = result.max_background_compactions;
-  }
-  if (result.base_background_compactions > result.max_background_compactions) {
-    result.base_background_compactions = result.max_background_compactions;
-  }
-  result.env->IncBackgroundThreadsIfNeeded(src.max_background_compactions,
+  auto bg_job_limits = DBImpl::GetBGJobLimits(result.max_background_flushes,
+                                              result.max_background_compactions,
+                                              result.max_background_jobs,
+                                              true /* parallelize_compactions */);
+  result.env->IncBackgroundThreadsIfNeeded(bg_job_limits.max_compactions,
                                            Env::Priority::LOW);
-  result.env->IncBackgroundThreadsIfNeeded(src.max_background_flushes,
+  result.env->IncBackgroundThreadsIfNeeded(bg_job_limits.max_flushes,
                                            Env::Priority::HIGH);
 
   if (result.rate_limiter.get() != nullptr) {
     if (result.bytes_per_sync == 0) {
       result.bytes_per_sync = 1024 * 1024;
+    }
+  }
+
+  if (result.delayed_write_rate == 0) {
+    if (result.rate_limiter.get() != nullptr) {
+      result.delayed_write_rate = result.rate_limiter->GetBytesPerSecond();
+    }
+    if (result.delayed_write_rate == 0) {
+      result.delayed_write_rate = 16 * 1024 * 1024;
     }
   }
 
@@ -500,7 +508,8 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     unique_ptr<SequentialFileReader> file_reader;
     {
       unique_ptr<SequentialFile> file;
-      status = env_->NewSequentialFile(fname, &file, env_options_);
+      status = env_->NewSequentialFile(fname, &file,
+                                       env_->OptimizeForLogRead(env_options_));
       if (!status.ok()) {
         MaybeIgnoreError(&status);
         if (!status.ok()) {
@@ -891,7 +900,7 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
   }
   return s;
 }
-  
+
 Status DB::Open(const DBOptions& db_options, const std::string& dbname,
                 const std::vector<ColumnFamilyDescriptor>& column_families,
                 std::vector<ColumnFamilyHandle*>* handles, DB** dbptr) {

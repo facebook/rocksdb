@@ -192,7 +192,7 @@ endif
 # TSAN doesn't work well with jemalloc. If we're compiling with TSAN, we should use regular malloc.
 ifdef COMPILE_WITH_TSAN
 	DISABLE_JEMALLOC=1
-	EXEC_LDFLAGS += -fsanitize=thread -pie
+	EXEC_LDFLAGS += -fsanitize=thread
 	PLATFORM_CCFLAGS += -fsanitize=thread -fPIC -DROCKSDB_TSAN_RUN
 	PLATFORM_CXXFLAGS += -fsanitize=thread -fPIC -DROCKSDB_TSAN_RUN
         # Turn off -pg when enabling TSAN testing, because that induces
@@ -304,7 +304,6 @@ util/build_version.cc: FORCE
 	  cmp -s $@-t $@ && rm -f $@-t || mv -f $@-t $@;		\
 	else mv -f $@-t $@; fi
 endif
-CLEAN_FILES += util/build_version.cc
 
 LIBOBJECTS = $(LIB_SOURCES:.cc=.o)
 LIBOBJECTS += $(TOOL_LIB_SOURCES:.cc=.o)
@@ -486,7 +485,8 @@ TOOLS = \
 	ldb \
 	db_repl_stress \
 	rocksdb_dump \
-	rocksdb_undump
+	rocksdb_undump \
+	blob_dump \
 
 TEST_LIBS = \
 	librocksdb_env_basic_test.a
@@ -908,6 +908,7 @@ clean:
 tags:
 	ctags * -R
 	cscope -b `find . -name '*.cc'` `find . -name '*.h'` `find . -name '*.c'`
+	ctags -e -R -o etags *
 
 format:
 	build_tools/format-diff.sh
@@ -1341,6 +1342,9 @@ transaction_test: utilities/transactions/transaction_test.o $(LIBOBJECTS) $(TEST
 	$(AM_LINK)
 
 sst_dump: tools/sst_dump.o $(LIBOBJECTS)
+	$(AM_LINK)
+
+blob_dump: tools/blob_dump.o $(LIBOBJECTS)
 	$(AM_LINK)
 
 column_aware_encoding_exp: utilities/column_aware_encoding_exp.o $(EXPOBJECTS)

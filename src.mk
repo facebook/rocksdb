@@ -202,6 +202,7 @@ TOOL_LIB_SOURCES = \
   tools/ldb_cmd.cc                                               \
   tools/ldb_tool.cc                                              \
   tools/sst_dump_tool.cc                                         \
+  utilities/blob_db/blob_dump_tool.cc                            \
 
 MOCK_LIB_SOURCES = \
   env/mock_env.cc \
@@ -355,7 +356,7 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/compression_options.cc                        \
   java/rocksjni/env.cc                                        \
   java/rocksjni/env_options.cc                                \
-  java/rocksjni/external_sst_file_info.cc                     \
+  java/rocksjni/ingest_external_file_options.cc               \
   java/rocksjni/filter.cc                                     \
   java/rocksjni/iterator.cc                                   \
   java/rocksjni/loggerjnicallback.cc                          \

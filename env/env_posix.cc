@@ -763,6 +763,11 @@ class PosixEnv : public Env {
     thread_pools_[pri].SetBackgroundThreads(num);
   }
 
+  virtual int GetBackgroundThreads(Priority pri) override {
+    assert(pri >= Priority::LOW && pri <= Priority::HIGH);
+    return thread_pools_[pri].GetBackgroundThreads();
+  }
+
   // Allow increasing the number of worker threads.
   virtual void IncBackgroundThreadsIfNeeded(int num, Priority pri) override {
     assert(pri >= Priority::LOW && pri <= Priority::HIGH);

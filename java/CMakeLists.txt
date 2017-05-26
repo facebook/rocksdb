@@ -14,8 +14,8 @@ set(JNI_NATIVE_SOURCES
         rocksjni/compression_options.cc
         rocksjni/env.cc
         rocksjni/env_options.cc
-        rocksjni/external_sst_file_info.cc
         rocksjni/filter.cc
+        rocksjni/ingest_external_file_options.cc
         rocksjni/iterator.cc
         rocksjni/loggerjnicallback.cc
         rocksjni/lru_cache.cc

@@ -36,7 +36,7 @@ Status Reader::ReadHeader(BlobLogHeader* header) {
     return Status::IOError("EOF reached before file header");
   }
 
-  status = header->DecodeFrom(&buffer_);
+  status = header->DecodeFrom(buffer_);
   return status;
 }
 
@@ -55,7 +55,9 @@ Status Reader::ReadRecord(BlobLogRecord* record, ReadLevel level,
   }
 
   status = record->DecodeHeaderFrom(buffer_);
-  if (!status.ok()) return status;
+  if (!status.ok()) {
+    return status;
+  }
 
   uint32_t header_crc = 0;
   uint32_t blob_crc = 0;

@@ -521,7 +521,6 @@ TEST_F(DBCompactionTest, BGCompactionsAllowed) {
   options.level0_file_num_compaction_trigger = 2;
   options.level0_slowdown_writes_trigger = 20;
   options.soft_pending_compaction_bytes_limit = 1 << 30;  // Infinitely large
-  options.base_background_compactions = 1;
   options.max_background_compactions = 3;
   options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
 
@@ -1230,6 +1229,9 @@ TEST_F(DBCompactionTest, DISABLED_ManualPartialFill) {
   options.max_background_compactions = 3;
 
   DestroyAndReopen(options);
+  // make sure all background compaction jobs can be scheduled
+  auto stop_token =
+      dbfull()->TEST_write_controler().GetCompactionPressureToken();
   int32_t value_size = 10 * 1024;  // 10 KB
 
   // Add 2 non-overlapping files
@@ -1977,7 +1979,6 @@ TEST_P(DBCompactionTestWithParam, ManualCompaction) {
 
     if (iter == 0) {
       options = CurrentOptions();
-      options.max_background_flushes = 0;
       options.num_levels = 3;
       options.create_if_missing = true;
       options.statistics = rocksdb::CreateDBStatistics();
@@ -2423,15 +2424,12 @@ TEST_F(DBCompactionTest, SanitizeCompactionOptionsTest) {
   options.hard_pending_compaction_bytes_limit = 100;
   options.create_if_missing = true;
   DestroyAndReopen(options);
-  ASSERT_EQ(5, db_->GetOptions().base_background_compactions);
   ASSERT_EQ(100, db_->GetOptions().soft_pending_compaction_bytes_limit);
 
-  options.base_background_compactions = 4;
   options.max_background_compactions = 3;
   options.soft_pending_compaction_bytes_limit = 200;
   options.hard_pending_compaction_bytes_limit = 150;
   DestroyAndReopen(options);
-  ASSERT_EQ(3, db_->GetOptions().base_background_compactions);
   ASSERT_EQ(150, db_->GetOptions().soft_pending_compaction_bytes_limit);
 }
 

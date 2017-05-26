@@ -7,19 +7,20 @@
 
 #pragma once
 
+#include <cstddef>
+#include <thread>
+#include <utility>
+#include <vector>
+
 #include "port/likely.h"
 #include "port/port.h"
 #include "util/random.h"
-
-#include <cstddef>
-#include <thread>
-#include <vector>
 
 namespace rocksdb {
 
 // An array of core-local values. Ideally the value type, T, is cache aligned to
 // prevent false sharing.
-template<typename T>
+template <typename T>
 class CoreLocalArray {
  public:
   CoreLocalArray();
@@ -41,7 +42,7 @@ class CoreLocalArray {
   int size_shift_;
 };
 
-template<typename T>
+template <typename T>
 CoreLocalArray<T>::CoreLocalArray() {
   int num_cpus = static_cast<int>(std::thread::hardware_concurrency());
   // find a power of two >= num_cpus and >= 8
@@ -52,17 +53,17 @@ CoreLocalArray<T>::CoreLocalArray() {
   data_.reset(new T[static_cast<size_t>(1) << size_shift_]);
 }
 
-template<typename T>
+template <typename T>
 size_t CoreLocalArray<T>::Size() const {
   return static_cast<size_t>(1) << size_shift_;
 }
 
-template<typename T>
+template <typename T>
 T* CoreLocalArray<T>::Access() const {
   return AccessElementAndIndex().first;
 }
 
-template<typename T>
+template <typename T>
 std::pair<T*, size_t> CoreLocalArray<T>::AccessElementAndIndex() const {
   int cpuid = port::PhysicalCoreID();
   size_t core_idx;
@@ -75,7 +76,7 @@ std::pair<T*, size_t> CoreLocalArray<T>::AccessElementAndIndex() const {
   return {AccessAtCore(core_idx), core_idx};
 }
 
-template<typename T>
+template <typename T>
 T* CoreLocalArray<T>::AccessAtCore(size_t core_idx) const {
   assert(core_idx < static_cast<size_t>(1) << size_shift_);
   return &data_[core_idx];

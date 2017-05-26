@@ -679,12 +679,14 @@ bool InternalStats::HandleEstimateNumKeys(uint64_t* value, DBImpl* db,
   // Estimate number of entries in the column family:
   // Use estimated entries in tables + total entries in memtables.
   const auto* vstorage = cfd_->current()->storage_info();
-  *value = cfd_->mem()->num_entries() +
-           cfd_->imm()->current()->GetTotalNumEntries() -
-           (cfd_->mem()->num_deletes() +
-            cfd_->imm()->current()->GetTotalNumDeletes()) *
-               2 +
-           vstorage->GetEstimatedActiveKeys();
+  uint64_t estimate_keys = cfd_->mem()->num_entries() +
+                           cfd_->imm()->current()->GetTotalNumEntries() +
+                           vstorage->GetEstimatedActiveKeys();
+  uint64_t estimate_deletes =
+      cfd_->mem()->num_deletes() + cfd_->imm()->current()->GetTotalNumDeletes();
+  *value = estimate_keys > estimate_deletes * 2
+               ? estimate_keys - (estimate_deletes * 2)
+               : 0;
   return true;
 }
 
@@ -1137,6 +1139,7 @@ void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
            total_stall_count - cf_stats_snapshot_.stall_count);
   value->append(buf);
 
+  cf_stats_snapshot_.seconds_up = seconds_up;
   cf_stats_snapshot_.ingest_bytes_flush = flush_ingest;
   cf_stats_snapshot_.ingest_bytes_addfile = add_file_ingest;
   cf_stats_snapshot_.ingest_files_addfile = ingest_files_addfile;

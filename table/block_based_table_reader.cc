@@ -797,7 +797,6 @@ void BlockBasedTable::SetupForCompaction() {
     default:
       assert(false);
   }
-  compaction_optimized_ = true;
 }
 
 std::shared_ptr<const TableProperties> BlockBasedTable::GetTableProperties()

@@ -90,6 +90,68 @@ class ExternalSSTFileTest : public DBTestBase {
     return s;
   }
 
+  Status GenerateAndAddExternalFileIngestBehind(
+      const Options options, const IngestExternalFileOptions ifo,
+      std::vector<std::pair<std::string, std::string>> data, int file_id = -1,
+      bool sort_data = false,
+      std::map<std::string, std::string>* true_data = nullptr,
+      ColumnFamilyHandle* cfh = nullptr) {
+    // Generate a file id if not provided
+    if (file_id == -1) {
+      file_id = last_file_id_ + 1;
+      last_file_id_++;
+    }
+
+    // Sort data if asked to do so
+    if (sort_data) {
+      std::sort(data.begin(), data.end(),
+                [&](const std::pair<std::string, std::string>& e1,
+                    const std::pair<std::string, std::string>& e2) {
+                  return options.comparator->Compare(e1.first, e2.first) < 0;
+                });
+      auto uniq_iter = std::unique(
+          data.begin(), data.end(),
+          [&](const std::pair<std::string, std::string>& e1,
+              const std::pair<std::string, std::string>& e2) {
+            return options.comparator->Compare(e1.first, e2.first) == 0;
+          });
+      data.resize(uniq_iter - data.begin());
+    }
+    std::string file_path = sst_files_dir_ + ToString(file_id);
+    SstFileWriter sst_file_writer(EnvOptions(), options, cfh);
+
+    Status s = sst_file_writer.Open(file_path);
+    if (!s.ok()) {
+      return s;
+    }
+    for (auto& entry : data) {
+      s = sst_file_writer.Add(entry.first, entry.second);
+      if (!s.ok()) {
+        sst_file_writer.Finish();
+        return s;
+      }
+    }
+    s = sst_file_writer.Finish();
+
+    if (s.ok()) {
+      if (cfh) {
+        s = db_->IngestExternalFile(cfh, {file_path}, ifo);
+      } else {
+        s = db_->IngestExternalFile({file_path}, ifo);
+      }
+    }
+
+    if (s.ok() && true_data) {
+      for (auto& entry : data) {
+        (*true_data)[entry.first] = entry.second;
+      }
+    }
+
+    return s;
+  }
+
+
+
   Status GenerateAndAddExternalFile(
       const Options options, std::vector<std::pair<int, std::string>> data,
       int file_id = -1, bool allow_global_seqno = false, bool sort_data = false,
@@ -1816,6 +1878,69 @@ TEST_F(ExternalSSTFileTest, SnapshotInconsistencyBug) {
   }
 
   db_->ReleaseSnapshot(snap);
+}
+
+TEST_F(ExternalSSTFileTest, IngestBehind) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.num_levels = 3;
+  options.disable_auto_compactions = false;
+  DestroyAndReopen(options);
+  std::vector<std::pair<std::string, std::string>> file_data;
+  std::map<std::string, std::string> true_data;
+
+  // Insert 100 -> 200 into the memtable
+  for (int i = 100; i <= 200; i++) {
+    ASSERT_OK(Put(Key(i), "memtable"));
+    true_data[Key(i)] = "memtable";
+  }
+
+  // Insert 100 -> 200 using IngestExternalFile
+  file_data.clear();
+  for (int i = 0; i <= 20; i++) {
+    file_data.emplace_back(Key(i), "ingest_behind");
+  }
+
+  IngestExternalFileOptions ifo;
+  ifo.allow_global_seqno = true;
+  ifo.ingest_behind = true;
+
+  // Can't ingest behind since allow_ingest_behind isn't set to true
+  ASSERT_NOK(GenerateAndAddExternalFileIngestBehind(options, ifo,
+                                                   file_data, -1, false,
+                                                   &true_data));
+
+  options.allow_ingest_behind = true;
+  // check that we still can open the DB, as num_levels should be
+  // sanitized to 3
+  options.num_levels = 2;
+  DestroyAndReopen(options);
+
+  options.num_levels = 3;
+  DestroyAndReopen(options);
+  // Insert 100 -> 200 into the memtable
+  for (int i = 100; i <= 200; i++) {
+    ASSERT_OK(Put(Key(i), "memtable"));
+    true_data[Key(i)] = "memtable";
+  }
+  db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  // Universal picker should go at second from the bottom level
+  ASSERT_EQ("0,1", FilesPerLevel());
+  ASSERT_OK(GenerateAndAddExternalFileIngestBehind(options, ifo,
+                                                   file_data, -1, false,
+                                                   &true_data));
+  ASSERT_EQ("0,1,1", FilesPerLevel());
+  // this time ingest should fail as the file doesn't fit to the bottom level
+  ASSERT_NOK(GenerateAndAddExternalFileIngestBehind(options, ifo,
+                                                   file_data, -1, false,
+                                                   &true_data));
+  ASSERT_EQ("0,1,1", FilesPerLevel());
+  db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  // bottom level should be empty
+  ASSERT_EQ("0,1", FilesPerLevel());
+
+  size_t kcnt = 0;
+  VerifyDBFromMap(true_data, &kcnt, false);
 }
 }  // namespace rocksdb
 

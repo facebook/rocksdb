@@ -1007,6 +1007,7 @@ TEST_F(DBIteratorTest, DBIteratorBoundTest) {
 
 TEST_F(DBIteratorTest, DBIteratorBoundOptimizationTest) {
   int upper_bound_hits = 0;
+  Options options = CurrentOptions();
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "BlockBasedTable::BlockEntryIteratorState::KeyReachedUpperBound",
       [&upper_bound_hits](void* arg) {
@@ -1014,7 +1015,6 @@ TEST_F(DBIteratorTest, DBIteratorBoundOptimizationTest) {
         upper_bound_hits += (*static_cast<bool*>(arg) ? 1 : 0);
       });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
-  Options options = CurrentOptions();
   options.env = env_;
   options.create_if_missing = true;
   options.prefix_extractor = nullptr;

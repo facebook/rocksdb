@@ -258,13 +258,15 @@ __attribute__((__no_sanitize_undefined__))
 
   void CloseDB() {
     delete db_;
-    db_ = NULL;
+    db_ = nullptr;
   }
 
   Status OpenDB() {
     CloseDB();
     env_->ResetState();
-    return DB::Open(options_, dbname_, &db_);
+    Status s = DB::Open(options_, dbname_, &db_);
+    assert(db_ != nullptr);
+    return s;
   }
 
   void DeleteAllData() {

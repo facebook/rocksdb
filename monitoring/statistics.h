@@ -15,8 +15,14 @@
 #include "monitoring/histogram.h"
 #include "port/likely.h"
 #include "port/port.h"
+#include "util/core_local.h"
 #include "util/mutexlock.h"
-#include "util/thread_local.h"
+
+#ifdef __clang__
+#define ROCKSDB_FIELD_UNUSED __attribute__((__unused__))
+#else
+#define ROCKSDB_FIELD_UNUSED
+#endif  // __clang__
 
 namespace rocksdb {
 
@@ -52,97 +58,38 @@ class StatisticsImpl : public Statistics {
   virtual bool HistEnabledForType(uint32_t type) const override;
 
  private:
-  std::shared_ptr<Statistics> stats_shared_;
-  Statistics* stats_;
+  // If non-nullptr, forwards updates to the object pointed to by `stats_`.
+  std::shared_ptr<Statistics> stats_;
+  // TODO(ajkr): clean this up since there are no internal stats anymore
   bool enable_internal_stats_;
-  // Synchronizes anything that operates on other threads' thread-specific data
+  // Synchronizes anything that operates across other cores' local data,
   // such that operations like Reset() can be performed atomically.
   mutable port::Mutex aggregate_lock_;
 
-  // Holds data maintained by each thread for implementing tickers.
-  struct ThreadTickerInfo {
-    std::atomic_uint_fast64_t value;
-    // During teardown, value will be summed into *merged_sum.
-    std::atomic_uint_fast64_t* merged_sum;
-
-    ThreadTickerInfo(uint_fast64_t _value,
-                     std::atomic_uint_fast64_t* _merged_sum)
-        : value(_value), merged_sum(_merged_sum) {}
+  // The ticker/histogram data are stored in this structure, which we will store
+  // per-core. It is cache-aligned, so tickers/histograms belonging to different
+  // cores can never share the same cache line.
+  //
+  // Alignment attributes expand to nothing depending on the platform
+  struct StatisticsData {
+    std::atomic_uint_fast64_t tickers_[INTERNAL_TICKER_ENUM_MAX] = {{0}};
+    HistogramImpl histograms_[INTERNAL_HISTOGRAM_ENUM_MAX];
+    char
+        padding[(CACHE_LINE_SIZE -
+                 (INTERNAL_TICKER_ENUM_MAX * sizeof(std::atomic_uint_fast64_t) +
+                  INTERNAL_HISTOGRAM_ENUM_MAX * sizeof(HistogramImpl)) %
+                     CACHE_LINE_SIZE) %
+                CACHE_LINE_SIZE] ROCKSDB_FIELD_UNUSED;
   };
 
-  // Holds data maintained by each thread for implementing histograms.
-  struct ThreadHistogramInfo {
-    HistogramImpl value;
-    // During teardown, value will be merged into *merged_hist while holding
-    // *merge_lock, which also syncs with the merges necessary for reads.
-    HistogramImpl* merged_hist;
-    port::Mutex* merge_lock;
+  static_assert(sizeof(StatisticsData) % 64 == 0, "Expected 64-byte aligned");
 
-    ThreadHistogramInfo(HistogramImpl* _merged_hist, port::Mutex* _merge_lock)
-        : value(), merged_hist(_merged_hist), merge_lock(_merge_lock) {}
-  };
-
-  // Holds global data for implementing tickers.
-  struct TickerInfo {
-    TickerInfo()
-        : thread_value(new ThreadLocalPtr(&mergeThreadValue)), merged_sum(0) {}
-    // Holds thread-specific pointer to ThreadTickerInfo
-    std::unique_ptr<ThreadLocalPtr> thread_value;
-    // Sum of thread-specific values for tickers that have been reset due to
-    // thread termination or ThreadLocalPtr destruction. Also, this is used by
-    // setTickerCount() to conveniently change the global value by setting this
-    // while simultaneously zeroing all thread-local values.
-    std::atomic_uint_fast64_t merged_sum;
-
-    static void mergeThreadValue(void* ptr) {
-      auto info_ptr = static_cast<ThreadTickerInfo*>(ptr);
-      *info_ptr->merged_sum += info_ptr->value;
-      delete info_ptr;
-    }
-  };
-
-  // Holds global data for implementing histograms.
-  struct HistogramInfo {
-    HistogramInfo()
-        : merged_hist(),
-          merge_lock(),
-          thread_value(new ThreadLocalPtr(&mergeThreadValue)) {}
-    // Merged thread-specific values for histograms that have been reset due to
-    // thread termination or ThreadLocalPtr destruction. Note these must be
-    // destroyed after thread_value since its destructor accesses them.
-    HistogramImpl merged_hist;
-    mutable port::Mutex merge_lock;
-    // Holds thread-specific pointer to ThreadHistogramInfo
-    std::unique_ptr<ThreadLocalPtr> thread_value;
-
-    static void mergeThreadValue(void* ptr) {
-      auto info_ptr = static_cast<ThreadHistogramInfo*>(ptr);
-      {
-        MutexLock lock(info_ptr->merge_lock);
-        info_ptr->merged_hist->Merge(info_ptr->value);
-      }
-      delete info_ptr;
-    }
-
-    // Returns a histogram that merges all histograms (thread-specific and
-    // previously merged ones).
-    std::unique_ptr<HistogramImpl> getMergedHistogram() const;
-  };
+  CoreLocalArray<StatisticsData> per_core_stats_;
 
   uint64_t getTickerCountLocked(uint32_t ticker_type) const;
-  void histogramDataLocked(uint32_t histogram_type,
-                           HistogramData* const data) const;
+  std::unique_ptr<HistogramImpl> getHistogramImplLocked(
+      uint32_t histogram_type) const;
   void setTickerCountLocked(uint32_t ticker_type, uint64_t count);
-
-  // Returns the info for this tickerType/thread. It sets a new info with zeroed
-  // counter if none exists.
-  ThreadTickerInfo* getThreadTickerInfo(uint32_t ticker_type);
-  // Returns the info for this histogramType/thread. It sets a new histogram
-  // with zeroed data if none exists.
-  ThreadHistogramInfo* getThreadHistogramInfo(uint32_t histogram_type);
-
-  TickerInfo tickers_[INTERNAL_TICKER_ENUM_MAX];
-  HistogramInfo histograms_[INTERNAL_HISTOGRAM_ENUM_MAX];
 };
 
 // Utility functions

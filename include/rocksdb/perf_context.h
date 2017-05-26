@@ -9,7 +9,6 @@
 #include <stdint.h>
 #include <string>
 
-#include "port/port.h"
 #include "rocksdb/perf_level.h"
 
 namespace rocksdb {
@@ -158,6 +157,11 @@ extern PerfContext perf_context;
     PerfContext *getPerfContext();
     #define perf_context (*getPerfContext())
   #else
+    #if defined(_MSC_VER) && !defined(__thread)
+      // Thread local storage on Linux
+      // There is thread_local in C++11
+      #define __thread __declspec(thread)
+    #endif
     extern __thread PerfContext perf_context;
   #endif
 #endif

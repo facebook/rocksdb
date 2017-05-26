@@ -23,13 +23,9 @@ std::shared_ptr<Statistics> CreateDBStatistics() {
   return std::make_shared<StatisticsImpl>(nullptr, false);
 }
 
-StatisticsImpl::StatisticsImpl(
-    std::shared_ptr<Statistics> stats,
-    bool enable_internal_stats)
-  : stats_shared_(stats),
-    stats_(stats.get()),
-    enable_internal_stats_(enable_internal_stats) {
-}
+StatisticsImpl::StatisticsImpl(std::shared_ptr<Statistics> stats,
+                               bool enable_internal_stats)
+    : stats_(std::move(stats)), enable_internal_stats_(enable_internal_stats) {}
 
 StatisticsImpl::~StatisticsImpl() {}
 
@@ -43,79 +39,36 @@ uint64_t StatisticsImpl::getTickerCountLocked(uint32_t tickerType) const {
     enable_internal_stats_ ?
       tickerType < INTERNAL_TICKER_ENUM_MAX :
       tickerType < TICKER_ENUM_MAX);
-  uint64_t thread_local_sum = 0;
-  tickers_[tickerType].thread_value->Fold(
-      [](void* curr_ptr, void* res) {
-        auto* sum_ptr = static_cast<uint64_t*>(res);
-        *sum_ptr += static_cast<std::atomic_uint_fast64_t*>(curr_ptr)->load(
-            std::memory_order_relaxed);
-      },
-      &thread_local_sum);
-  return thread_local_sum +
-         tickers_[tickerType].merged_sum.load(std::memory_order_relaxed);
-}
-
-std::unique_ptr<HistogramImpl>
-StatisticsImpl::HistogramInfo::getMergedHistogram() const {
-  std::unique_ptr<HistogramImpl> res_hist(new HistogramImpl());
-  {
-    MutexLock lock(&merge_lock);
-    res_hist->Merge(merged_hist);
+  uint64_t res = 0;
+  for (size_t core_idx = 0; core_idx < per_core_stats_.Size(); ++core_idx) {
+    res += per_core_stats_.AccessAtCore(core_idx)->tickers_[tickerType];
   }
-  thread_value->Fold(
-      [](void* curr_ptr, void* res) {
-        auto tmp_res_hist = static_cast<HistogramImpl*>(res);
-        auto curr_hist = static_cast<HistogramImpl*>(curr_ptr);
-        tmp_res_hist->Merge(*curr_hist);
-      },
-      res_hist.get());
-  return res_hist;
+  return res;
 }
 
 void StatisticsImpl::histogramData(uint32_t histogramType,
                                    HistogramData* const data) const {
   MutexLock lock(&aggregate_lock_);
-  histogramDataLocked(histogramType, data);
+  getHistogramImplLocked(histogramType)->Data(data);
 }
 
-void StatisticsImpl::histogramDataLocked(uint32_t histogramType,
-                                         HistogramData* const data) const {
+std::unique_ptr<HistogramImpl> StatisticsImpl::getHistogramImplLocked(
+    uint32_t histogramType) const {
   assert(
     enable_internal_stats_ ?
       histogramType < INTERNAL_HISTOGRAM_ENUM_MAX :
       histogramType < HISTOGRAM_ENUM_MAX);
-  histograms_[histogramType].getMergedHistogram()->Data(data);
+  std::unique_ptr<HistogramImpl> res_hist(new HistogramImpl());
+  for (size_t core_idx = 0; core_idx < per_core_stats_.Size(); ++core_idx) {
+    res_hist->Merge(
+        per_core_stats_.AccessAtCore(core_idx)->histograms_[histogramType]);
+  }
+  return res_hist;
 }
 
 std::string StatisticsImpl::getHistogramString(uint32_t histogramType) const {
   MutexLock lock(&aggregate_lock_);
-  assert(enable_internal_stats_ ? histogramType < INTERNAL_HISTOGRAM_ENUM_MAX
-                                : histogramType < HISTOGRAM_ENUM_MAX);
-  return histograms_[histogramType].getMergedHistogram()->ToString();
-}
-
-StatisticsImpl::ThreadTickerInfo* StatisticsImpl::getThreadTickerInfo(
-    uint32_t tickerType) {
-  auto info_ptr =
-      static_cast<ThreadTickerInfo*>(tickers_[tickerType].thread_value->Get());
-  if (info_ptr == nullptr) {
-    info_ptr =
-        new ThreadTickerInfo(0 /* value */, &tickers_[tickerType].merged_sum);
-    tickers_[tickerType].thread_value->Reset(info_ptr);
-  }
-  return info_ptr;
-}
-
-StatisticsImpl::ThreadHistogramInfo* StatisticsImpl::getThreadHistogramInfo(
-    uint32_t histogram_type) {
-  auto info_ptr = static_cast<ThreadHistogramInfo*>(
-      histograms_[histogram_type].thread_value->Get());
-  if (info_ptr == nullptr) {
-    info_ptr = new ThreadHistogramInfo(&histograms_[histogram_type].merged_hist,
-                                       &histograms_[histogram_type].merge_lock);
-    histograms_[histogram_type].thread_value->Reset(info_ptr);
-  }
-  return info_ptr;
+  return getHistogramImplLocked(histogramType)->ToString();
 }
 
 void StatisticsImpl::setTickerCount(uint32_t tickerType, uint64_t count) {
@@ -131,14 +84,12 @@ void StatisticsImpl::setTickerCount(uint32_t tickerType, uint64_t count) {
 void StatisticsImpl::setTickerCountLocked(uint32_t tickerType, uint64_t count) {
   assert(enable_internal_stats_ ? tickerType < INTERNAL_TICKER_ENUM_MAX
                                 : tickerType < TICKER_ENUM_MAX);
-  if (tickerType < TICKER_ENUM_MAX || enable_internal_stats_) {
-    tickers_[tickerType].thread_value->Fold(
-        [](void* curr_ptr, void* res) {
-          static_cast<std::atomic<uint64_t>*>(curr_ptr)->store(
-              0, std::memory_order_relaxed);
-        },
-        nullptr /* res */);
-    tickers_[tickerType].merged_sum.store(count, std::memory_order_relaxed);
+  for (size_t core_idx = 0; core_idx < per_core_stats_.Size(); ++core_idx) {
+    if (core_idx == 0) {
+      per_core_stats_.AccessAtCore(core_idx)->tickers_[tickerType] = count;
+    } else {
+      per_core_stats_.AccessAtCore(core_idx)->tickers_[tickerType] = 0;
+    }
   }
 }
 
@@ -148,16 +99,10 @@ uint64_t StatisticsImpl::getAndResetTickerCount(uint32_t tickerType) {
     MutexLock lock(&aggregate_lock_);
     assert(enable_internal_stats_ ? tickerType < INTERNAL_TICKER_ENUM_MAX
                                   : tickerType < TICKER_ENUM_MAX);
-    if (tickerType < TICKER_ENUM_MAX || enable_internal_stats_) {
-      tickers_[tickerType].thread_value->Fold(
-          [](void* curr_ptr, void* res) {
-            auto* sum_ptr = static_cast<uint64_t*>(res);
-            *sum_ptr += static_cast<std::atomic<uint64_t>*>(curr_ptr)->exchange(
-                0, std::memory_order_relaxed);
-          },
-          &sum);
-      sum += tickers_[tickerType].merged_sum.exchange(
-          0, std::memory_order_relaxed);
+    for (size_t core_idx = 0; core_idx < per_core_stats_.Size(); ++core_idx) {
+      sum +=
+          per_core_stats_.AccessAtCore(core_idx)->tickers_[tickerType].exchange(
+              0, std::memory_order_relaxed);
     }
   }
   if (stats_ && tickerType < TICKER_ENUM_MAX) {
@@ -171,10 +116,8 @@ void StatisticsImpl::recordTick(uint32_t tickerType, uint64_t count) {
     enable_internal_stats_ ?
       tickerType < INTERNAL_TICKER_ENUM_MAX :
       tickerType < TICKER_ENUM_MAX);
-  if (tickerType < TICKER_ENUM_MAX || enable_internal_stats_) {
-    auto info_ptr = getThreadTickerInfo(tickerType);
-    info_ptr->value.fetch_add(count, std::memory_order_relaxed);
-  }
+  per_core_stats_.Access()->tickers_[tickerType].fetch_add(
+      count, std::memory_order_relaxed);
   if (stats_ && tickerType < TICKER_ENUM_MAX) {
     stats_->recordTick(tickerType, count);
   }
@@ -185,9 +128,7 @@ void StatisticsImpl::measureTime(uint32_t histogramType, uint64_t value) {
     enable_internal_stats_ ?
       histogramType < INTERNAL_HISTOGRAM_ENUM_MAX :
       histogramType < HISTOGRAM_ENUM_MAX);
-  if (histogramType < HISTOGRAM_ENUM_MAX || enable_internal_stats_) {
-    getThreadHistogramInfo(histogramType)->value.Add(value);
-  }
+  per_core_stats_.Access()->histograms_[histogramType].Add(value);
   if (stats_ && histogramType < HISTOGRAM_ENUM_MAX) {
     stats_->measureTime(histogramType, value);
   }
@@ -199,11 +140,9 @@ Status StatisticsImpl::Reset() {
     setTickerCountLocked(i, 0);
   }
   for (uint32_t i = 0; i < HISTOGRAM_ENUM_MAX; ++i) {
-    histograms_[i].thread_value->Fold(
-        [](void* curr_ptr, void* res) {
-          static_cast<HistogramImpl*>(curr_ptr)->Clear();
-        },
-        nullptr /* res */);
+    for (size_t core_idx = 0; core_idx < per_core_stats_.Size(); ++core_idx) {
+      per_core_stats_.AccessAtCore(core_idx)->histograms_[i].Clear();
+    }
   }
   return Status::OK();
 }
@@ -231,7 +170,7 @@ std::string StatisticsImpl::ToString() const {
     if (h.first < HISTOGRAM_ENUM_MAX || enable_internal_stats_) {
       char buffer[kTmpStrBufferSize];
       HistogramData hData;
-      histogramDataLocked(h.first, &hData);
+      getHistogramImplLocked(h.first)->Data(&hData);
       snprintf(
           buffer, kTmpStrBufferSize,
           "%s statistics Percentiles :=> 50 : %f 95 : %f 99 : %f 100 : %f\n",

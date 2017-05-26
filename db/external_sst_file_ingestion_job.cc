@@ -171,9 +171,13 @@ Status ExternalSstFileIngestionJob::Run() {
 
   for (IngestedFileInfo& f : files_to_ingest_) {
     SequenceNumber assigned_seqno = 0;
-    status = AssignLevelAndSeqnoForIngestedFile(
-        super_version, force_global_seqno, cfd_->ioptions()->compaction_style,
-        &f, &assigned_seqno);
+    if (ingestion_options_.ingest_behind) {
+      status = CheckLevelForIngestedBehindFile(&f);
+    } else {
+      status = AssignLevelAndSeqnoForIngestedFile(
+         super_version, force_global_seqno, cfd_->ioptions()->compaction_style,
+         &f, &assigned_seqno);
+    }
     if (!status.ok()) {
       return status;
     }
@@ -408,9 +412,9 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
   Arena arena;
   ReadOptions ro;
   ro.total_order_seek = true;
-
   int target_level = 0;
   auto* vstorage = cfd_->current()->storage_info();
+
   for (int lvl = 0; lvl < cfd_->NumberLevels(); lvl++) {
     if (lvl > 0 && lvl < vstorage->base_level()) {
       continue;
@@ -418,20 +422,8 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
 
     if (vstorage->NumLevelFiles(lvl) > 0) {
       bool overlap_with_level = false;
-      MergeIteratorBuilder merge_iter_builder(&cfd_->internal_comparator(),
-                                              &arena);
-      RangeDelAggregator range_del_agg(cfd_->internal_comparator(),
-                                       {} /* snapshots */);
-      sv->current->AddIteratorsForLevel(ro, env_options_, &merge_iter_builder,
-                                        lvl, &range_del_agg);
-      if (!range_del_agg.IsEmpty()) {
-        return Status::NotSupported(
-            "file ingestion with range tombstones is currently unsupported");
-      }
-      ScopedArenaIterator level_iter(merge_iter_builder.Finish());
-
-      status = IngestedFileOverlapWithIteratorRange(
-          file_to_ingest, level_iter.get(), &overlap_with_level);
+      status = IngestedFileOverlapWithLevel(sv, file_to_ingest, lvl,
+        &overlap_with_level);
       if (!status.ok()) {
         return status;
       }
@@ -476,6 +468,33 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
     *assigned_seqno = last_seqno + 1;
   }
   return status;
+}
+
+Status ExternalSstFileIngestionJob::CheckLevelForIngestedBehindFile(
+    IngestedFileInfo* file_to_ingest) {
+  auto* vstorage = cfd_->current()->storage_info();
+  // first check if new files fit in the bottommost level
+  int bottom_lvl = cfd_->NumberLevels() - 1;
+  if(!IngestedFileFitInLevel(file_to_ingest, bottom_lvl)) {
+    return Status::InvalidArgument(
+      "Can't ingest_behind file as it doesn't fit "
+      "at the bottommost level!");
+  }
+
+  // second check if despite allow_ingest_behind=true we still have 0 seqnums
+  // at some upper level
+  for (int lvl = 0; lvl < cfd_->NumberLevels() - 1; lvl++) {
+    for (auto file : vstorage->LevelFiles(lvl)) {
+      if (file->smallest_seqno == 0) {
+        return Status::InvalidArgument(
+          "Can't ingest_behind file as despite allow_ingest_behind=true "
+          "there are files with 0 seqno in database at upper levels!");
+      }
+    }
+  }
+
+  file_to_ingest->picked_level = bottom_lvl;
+  return Status::OK();
 }
 
 Status ExternalSstFileIngestionJob::AssignGlobalSeqnoForIngestedFile(
@@ -562,6 +581,27 @@ bool ExternalSstFileIngestionJob::IngestedFileFitInLevel(
 
   // File did not overlap with level files, our compaction output
   return true;
+}
+
+Status ExternalSstFileIngestionJob::IngestedFileOverlapWithLevel(
+    SuperVersion* sv, IngestedFileInfo* file_to_ingest, int lvl,
+    bool* overlap_with_level) {
+  Arena arena;
+  ReadOptions ro;
+  ro.total_order_seek = true;
+  MergeIteratorBuilder merge_iter_builder(&cfd_->internal_comparator(),
+                                          &arena);
+  RangeDelAggregator range_del_agg(cfd_->internal_comparator(),
+                                   {} /* snapshots */);
+  sv->current->AddIteratorsForLevel(ro, env_options_, &merge_iter_builder,
+                                    lvl, &range_del_agg);
+  if (!range_del_agg.IsEmpty()) {
+    return Status::NotSupported(
+        "file ingestion with range tombstones is currently unsupported");
+  }
+  ScopedArenaIterator level_iter(merge_iter_builder.Finish());
+  return IngestedFileOverlapWithIteratorRange(
+      file_to_ingest, level_iter.get(), overlap_with_level);
 }
 
 }  // namespace rocksdb

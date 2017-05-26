@@ -159,10 +159,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       max_total_in_memory_state_(0),
       is_snapshot_supported_(true),
       write_buffer_manager_(immutable_db_options_.write_buffer_manager.get()),
-      write_thread_(immutable_db_options_.enable_write_thread_adaptive_yield
-                        ? immutable_db_options_.write_thread_max_yield_usec
-                        : 0,
-                    immutable_db_options_.write_thread_slow_yield_usec),
+      write_thread_(immutable_db_options_),
       write_controller_(mutable_db_options_.delayed_write_rate),
       last_batch_group_size_(0),
       unscheduled_flushes_(0),
@@ -2613,6 +2610,15 @@ Status DBImpl::IngestExternalFile(
   Status status;
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
+
+  // Ingest should immediately fail if ingest_behind is requested,
+  // but the DB doesn't support it.
+  if (ingestion_options.ingest_behind) {
+    if (!immutable_db_options_.allow_ingest_behind) {
+      return Status::InvalidArgument(
+        "Can't ingest_behind file in DB with allow_ingest_behind=false");
+    }
+  }
 
   ExternalSstFileIngestionJob ingestion_job(env_, versions_.get(), cfd,
                                             immutable_db_options_, env_options_,
