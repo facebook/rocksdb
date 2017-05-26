@@ -83,8 +83,59 @@ void Java_org_rocksdb_SstFileWriter_add(JNIEnv *env, jobject jobj,
   auto *key_slice = reinterpret_cast<rocksdb::Slice *>(jkey_handle);
   auto *value_slice = reinterpret_cast<rocksdb::Slice *>(jvalue_handle);
   rocksdb::Status s =
-      reinterpret_cast<rocksdb::SstFileWriter *>(jhandle)->Add(*key_slice,
+      reinterpret_cast<rocksdb::SstFileWriter *>(jhandle)->Put(*key_slice,
           *value_slice);
+  if (!s.ok()) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  }
+}
+
+/*
+ * Class:     org_rocksdb_SstFileWriter
+ * Method:    put
+ * Signature: (JJJ)V
+ */
+void Java_org_rocksdb_SstFileWriter_put(JNIEnv *env, jobject jobj,
+                                        jlong jhandle, jlong jkey_handle,
+                                        jlong jvalue_handle) {
+  auto *key_slice = reinterpret_cast<rocksdb::Slice *>(jkey_handle);
+  auto *value_slice = reinterpret_cast<rocksdb::Slice *>(jvalue_handle);
+  rocksdb::Status s =
+    reinterpret_cast<rocksdb::SstFileWriter *>(jhandle)->Put(*key_slice,
+                                                             *value_slice);
+  if (!s.ok()) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  }
+}
+
+/*
+ * Class:     org_rocksdb_SstFileWriter
+ * Method:    merge
+ * Signature: (JJJ)V
+ */
+void Java_org_rocksdb_SstFileWriter_merge(JNIEnv *env, jobject jobj,
+                                          jlong jhandle, jlong jkey_handle,
+                                          jlong jvalue_handle) {
+  auto *key_slice = reinterpret_cast<rocksdb::Slice *>(jkey_handle);
+  auto *value_slice = reinterpret_cast<rocksdb::Slice *>(jvalue_handle);
+  rocksdb::Status s =
+    reinterpret_cast<rocksdb::SstFileWriter *>(jhandle)->Merge(*key_slice,
+                                                               *value_slice);
+  if (!s.ok()) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  }
+}
+
+/*
+ * Class:     org_rocksdb_SstFileWriter
+ * Method:    delete
+ * Signature: (JJJ)V
+ */
+void Java_org_rocksdb_SstFileWriter_delete(JNIEnv *env, jobject jobj,
+                                           jlong jhandle, jlong jkey_handle) {
+  auto *key_slice = reinterpret_cast<rocksdb::Slice *>(jkey_handle);
+  rocksdb::Status s =
+    reinterpret_cast<rocksdb::SstFileWriter *>(jhandle)->Delete(*key_slice);
   if (!s.ok()) {
     rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
   }

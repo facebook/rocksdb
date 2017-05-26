@@ -2852,7 +2852,26 @@ void rocksdb_sstfilewriter_open(rocksdb_sstfilewriter_t* writer,
 void rocksdb_sstfilewriter_add(rocksdb_sstfilewriter_t* writer, const char* key,
                                size_t keylen, const char* val, size_t vallen,
                                char** errptr) {
-  SaveError(errptr, writer->rep->Add(Slice(key, keylen), Slice(val, vallen)));
+  SaveError(errptr, writer->rep->Put(Slice(key, keylen), Slice(val, vallen)));
+}
+
+void rocksdb_sstfilewriter_put(rocksdb_sstfilewriter_t* writer, const char* key,
+                               size_t keylen, const char* val, size_t vallen,
+                               char** errptr) {
+  SaveError(errptr, writer->rep->Put(Slice(key, keylen), Slice(val, vallen)));
+}
+
+void rocksdb_sstfilewriter_merge(rocksdb_sstfilewriter_t* writer,
+                                 const char* key, size_t keylen,
+                                 const char* val, size_t vallen,
+                                 char** errptr) {
+  SaveError(errptr, writer->rep->Merge(Slice(key, keylen), Slice(val, vallen)));
+}
+
+void rocksdb_sstfilewriter_delete(rocksdb_sstfilewriter_t* writer,
+                                  const char* key, size_t keylen,
+                                  char** errptr) {
+  SaveError(errptr, writer->rep->Delete(Slice(key, keylen)));
 }
 
 void rocksdb_sstfilewriter_finish(rocksdb_sstfilewriter_t* writer,
