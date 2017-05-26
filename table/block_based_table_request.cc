@@ -2009,12 +2009,6 @@ Status TableOpenRequestContext::OnComplete(const Status& status) {
       "TableOpenRequestContext async completion: %s",
       status.ToString().c_str());
 
-    // It is possible that on error we have
-    // an instance of un-finished new_table_
-    // We must move it out into the callback
-    // we can not destroy it anywhere within the IO completion.
-    // as we can deadlock
-
     // Make sure async status is passed
     if (status.async()) {
       cb_.Invoke(status, std::move(new_table_));

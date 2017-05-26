@@ -659,7 +659,11 @@ WinRandomAccessImpl::WinRandomAccessImpl(WinFileData* file_base,
 
 inline
 WinRandomAccessImpl::~WinRandomAccessImpl() {
-  iocompl_.reset();
+  // Close file before iocompl if we deal with async
+  // reads
+  if (iocompl_) {
+    file_base_->CloseFile();
+  }
 }
 
 inline

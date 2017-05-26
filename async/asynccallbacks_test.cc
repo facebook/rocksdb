@@ -283,8 +283,8 @@ public:
   }
 
   ~TestIOCompletionCallback() {
-    io_compl_handle_.reset();
     CloseHandle(hFile_);
+    io_compl_handle_.reset();
   }
 
   TestIOCompletionCallback(const TestIOCompletionCallback&) = delete;

@@ -32,8 +32,16 @@ void IOCompletion::Cancel() const {
 void IOCompletion::Close() {
 
   if (io_compl_ != nullptr) {
-    // Wait for all of them to finish
-    ::WaitForThreadpoolIoCallbacks(GetHandle(io_compl_), FALSE);
+    // Most of the file closures
+    // and, therefore, ThredPoolIo closures will
+    // take place from within the IO callbacks
+    // often originating from the file being closed.
+    // We, therefore, can not wait here for completion
+    // of all the events, it would result in a deadlock.
+    // Thus we choose to close the file
+    // first and then close the ThredPoolIo below and just
+    // let the pending IO drain async OR close
+    // the TakPool handle before the db
     ::CloseThreadpoolIo(GetHandle(io_compl_));
     io_compl_ = nullptr;
   }
