@@ -1434,28 +1434,28 @@ ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-linu
 ROCKSDB_JAR_ALL = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH).jar
 ROCKSDB_JAVADOCS_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-javadoc.jar
 ROCKSDB_SOURCES_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-sources.jar
-SHA256_CMD = sha256sum
+SHA1_CMD = sha1sum
 
 ZLIB_VER ?= 1.2.11
-ZLIB_SHA256 ?= c3e5e9fdd5004dcb542feda5ee4f0ff0744628baf8ed2dd5d66f8ca1197cb1a1
+ZLIB_SHA1 ?= e6d119755acdf9104d7ba236b1242696940ed6dd
 ZLIB_DOWNLOAD_BASE ?= http://zlib.net
 BZIP2_VER ?= 1.0.6
-BZIP2_SHA256 ?= a2848f34fcd5d6cf47def00461fcb528a0484d8edef8208d6d2e2909dc61d9cd
+BZIP2_SHA1 ?= 3f89f861209ce81a6bab1fd1998c0ef311712002
 BZIP2_DOWNLOAD_BASE ?= http://www.bzip.org
 SNAPPY_VER ?= 1.1.4
-SNAPPY_SHA256 ?= 134bfe122fd25599bb807bb8130e7ba6d9bdb851e0b16efcb83ac4f5d0b70057
+SNAPPY_SHA1 ?= 0fac144661573c747ad612c01d03a89e0a2280c7
 SNAPPY_DOWNLOAD_BASE ?= https://github.com/google/snappy/releases/download
 LZ4_VER ?= 1.7.5
-LZ4_SHA256 ?= 0190cacd63022ccb86f44fa5041dc6c3804407ad61550ca21c382827319e7e7e
+LZ4_SHA1 ?= a710a7d45beb0951806d2b98f0c1739107e97c14
 LZ4_DOWNLOAD_BASE ?= https://github.com/lz4/lz4/archive
 ZSTD_VER ?= 1.2.0
-ZSTD_SHA256 ?= 4a7e4593a3638276ca7f2a09dc4f38e674d8317bbea51626393ca73fc047cbfb
+ZSTD_SHA1 ?= 20d06678af13d056e17d7748af32e363bc67ff42
 ZSTD_DOWNLOAD_BASE ?= https://github.com/facebook/zstd/archive
 
 ifeq ($(PLATFORM), OS_MACOSX)
 	ROCKSDBJNILIB = librocksdbjni-osx.jnilib
 	ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-osx.jar
-	SHA256_CMD = openssl sha256 -r
+	SHA1_CMD = openssl sha1 -r
 ifneq ("$(wildcard $(JAVA_HOME)/include/darwin)","")
 	JAVA_INCLUDE = -I$(JAVA_HOME)/include -I $(JAVA_HOME)/include/darwin
 else
@@ -1471,7 +1471,7 @@ ifeq ($(PLATFORM), OS_SOLARIS)
 	ROCKSDBJNILIB = librocksdbjni-solaris$(ARCH).so
 	ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-solaris$(ARCH).jar
 	JAVA_INCLUDE = -I$(JAVA_HOME)/include/ -I$(JAVA_HOME)/include/solaris
-	SHA256_CMD = digest -a sha256
+	SHA1_CMD = digest -a sha1
 endif
 ifeq ($(PLATFORM), OS_AIX)
 	JAVA_INCLUDE = -I$(JAVA_HOME)/include/ -I$(JAVA_HOME)/include/aix
@@ -1483,9 +1483,9 @@ endif
 libz.a:
 	-rm -rf zlib-$(ZLIB_VER)
 	curl -O -L ${ZLIB_DOWNLOAD_BASE}/zlib-$(ZLIB_VER).tar.gz
-	ZLIB_SHA256_ACTUAL=`$(SHA256_CMD) zlib-$(ZLIB_VER).tar.gz | cut -d ' ' -f 1`; \
-	if [ "$(ZLIB_SHA256)" != "$$ZLIB_SHA256_ACTUAL" ]; then \
-		echo zlib-$(ZLIB_VER).tar.gz checksum mismatch, expected=\"$(ZLIB_SHA256)\" actual=\"$$ZLIB_SHA256_ACTUAL\"; \
+	ZLIB_SHA1_ACTUAL=`$(SHA1_CMD) zlib-$(ZLIB_VER).tar.gz | cut -d ' ' -f 1`; \
+	if [ "$(ZLIB_SHA1)" != "$$ZLIB_SHA1_ACTUAL" ]; then \
+		echo zlib-$(ZLIB_VER).tar.gz checksum mismatch, expected=\"$(ZLIB_SHA1)\" actual=\"$$ZLIB_SHA1_ACTUAL\"; \
 		exit 1; \
 	fi
 	tar xvzf zlib-$(ZLIB_VER).tar.gz
@@ -1495,9 +1495,9 @@ libz.a:
 libbz2.a:
 	-rm -rf bzip2-$(BZIP2_VER)
 	curl -O -L ${BZIP2_DOWNLOAD_BASE}/$(BZIP2_VER)/bzip2-$(BZIP2_VER).tar.gz
-	BZIP2_SHA256_ACTUAL=`$(SHA256_CMD) bzip2-$(BZIP2_VER).tar.gz | cut -d ' ' -f 1`; \
-	if [ "$(BZIP2_SHA256)" != "$$BZIP2_SHA256_ACTUAL" ]; then \
-		echo bzip2-$(BZIP2_VER).tar.gz checksum mismatch, expected=\"$(BZIP2_SHA256)\" actual=\"$$BZIP2_SHA256_ACTUAL\"; \
+	BZIP2_SHA1_ACTUAL=`$(SHA1_CMD) bzip2-$(BZIP2_VER).tar.gz | cut -d ' ' -f 1`; \
+	if [ "$(BZIP2_SHA1)" != "$$BZIP2_SHA1_ACTUAL" ]; then \
+		echo bzip2-$(BZIP2_VER).tar.gz checksum mismatch, expected=\"$(BZIP2_SHA1)\" actual=\"$$BZIP2_SHA1_ACTUAL\"; \
 		exit 1; \
 	fi
 	tar xvzf bzip2-$(BZIP2_VER).tar.gz
@@ -1507,9 +1507,9 @@ libbz2.a:
 libsnappy.a:
 	-rm -rf snappy-$(SNAPPY_VER)
 	curl -O -L ${SNAPPY_DOWNLOAD_BASE}/$(SNAPPY_VER)/snappy-$(SNAPPY_VER).tar.gz
-	SNAPPY_SHA256_ACTUAL=`$(SHA256_CMD) snappy-$(SNAPPY_VER).tar.gz | cut -d ' ' -f 1`; \
-	if [ "$(SNAPPY_SHA256)" != "$$SNAPPY_SHA256_ACTUAL" ]; then \
-		echo snappy-$(SNAPPY_VER).tar.gz checksum mismatch, expected=\"$(SNAPPY_SHA256)\" actual=\"$$SNAPPY_SHA256_ACTUAL\"; \
+	SNAPPY_SHA1_ACTUAL=`$(SHA1_CMD) snappy-$(SNAPPY_VER).tar.gz | cut -d ' ' -f 1`; \
+	if [ "$(SNAPPY_SHA1)" != "$$SNAPPY_SHA1_ACTUAL" ]; then \
+		echo snappy-$(SNAPPY_VER).tar.gz checksum mismatch, expected=\"$(SNAPPY_SHA1)\" actual=\"$$SNAPPY_SHA1_ACTUAL\"; \
 		exit 1; \
 	fi
 	tar xvzf snappy-$(SNAPPY_VER).tar.gz
@@ -1521,9 +1521,9 @@ liblz4.a:
 	-rm -rf lz4-$(LZ4_VER)
 	curl -O -L ${LZ4_DOWNLOAD_BASE}/v$(LZ4_VER).tar.gz
 	mv v$(LZ4_VER).tar.gz lz4-$(LZ4_VER).tar.gz
-	LZ4_SHA256_ACTUAL=`$(SHA256_CMD) lz4-$(LZ4_VER).tar.gz | cut -d ' ' -f 1`; \
-	if [ "$(LZ4_SHA256)" != "$$LZ4_SHA256_ACTUAL" ]; then \
-		echo lz4-$(LZ4_VER).tar.gz checksum mismatch, expected=\"$(LZ4_SHA256)\" actual=\"$$LZ4_SHA256_ACTUAL\"; \
+	LZ4_SHA1_ACTUAL=`$(SHA1_CMD) lz4-$(LZ4_VER).tar.gz | cut -d ' ' -f 1`; \
+	if [ "$(LZ4_SHA1)" != "$$LZ4_SHA1_ACTUAL" ]; then \
+		echo lz4-$(LZ4_VER).tar.gz checksum mismatch, expected=\"$(LZ4_SHA1)\" actual=\"$$LZ4_SHA1_ACTUAL\"; \
 		exit 1; \
 	fi
 	tar xvzf lz4-$(LZ4_VER).tar.gz
@@ -1534,9 +1534,9 @@ libzstd.a:
 	-rm -rf zstd-$(ZSTD_VER)
 	curl -O -L ${ZSTD_DOWNLOAD_BASE}/v$(ZSTD_VER).tar.gz
 	mv v$(ZSTD_VER).tar.gz zstd-$(ZSTD_VER).tar.gz
-	ZSTD_SHA256_ACTUAL=`$(SHA256_CMD) zstd-$(ZSTD_VER).tar.gz | cut -d ' ' -f 1`; \
-	if [ "$(ZSTD_SHA256)" != "$$ZSTD_SHA256_ACTUAL" ]; then \
-		echo zstd-$(ZSTD_VER).tar.gz checksum mismatch, expected=\"$(ZSTD_SHA256)\" actual=\"$$ZSTD_SHA256_ACTUAL\"; \
+	ZSTD_SHA1_ACTUAL=`$(SHA1_CMD) zstd-$(ZSTD_VER).tar.gz | cut -d ' ' -f 1`; \
+	if [ "$(ZSTD_SHA1)" != "$$ZSTD_SHA1_ACTUAL" ]; then \
+		echo zstd-$(ZSTD_VER).tar.gz checksum mismatch, expected=\"$(ZSTD_SHA1)\" actual=\"$$ZSTD_SHA1_ACTUAL\"; \
 		exit 1; \
 	fi
 	tar xvzf zstd-$(ZSTD_VER).tar.gz
