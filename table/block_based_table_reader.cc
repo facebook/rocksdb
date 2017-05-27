@@ -14,9 +14,6 @@
 #include <utility>
 #include <vector>
 
-#include "async/block_based_table_request.h"
-#include "async/random_read_context.h"
-
 
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
@@ -34,6 +31,7 @@
 #include "table/block.h"
 #include "table/block_based_filter_block.h"
 #include "table/block_based_table_factory.h"
+#include "table/block_based_table_request.h"
 #include "table/block_prefix_index.h"
 #include "table/filter_block.h"
 #include "table/format.h"
@@ -49,6 +47,7 @@
 #include "monitoring/perf_context_imp.h"
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
+#include "util/random_read_context.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"

@@ -6,7 +6,6 @@
 #include "util/file_reader_writer.h"
 #include "rocksdb/async/callables.h"
 #include "rocksdb/async/asyncthreadpool.h"
-#include "async/random_read_context.h"
 
 #include "rocksdb/env.h"
 #include "port/port.h"
@@ -16,8 +15,14 @@
 
 #include "util/aligned_buffer.h"
 #include "util/random.h"
+#include "util/random_read_context.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
+
+#ifdef OS_WIN
+#include "ms_internal/ms_threadpool.h"
+#include "ms_internal/ms_taskpoolhandle.h"
+#endif
 
 namespace rocksdb {
 
@@ -278,15 +283,12 @@ class RandomAccessReaderTest :
 
 public:
 
-  PTP_POOL tp_;
+  port::VistaThreadPool tp_pool_;
   bool     direct_io_;
   std::string fileName_;
 
-  RandomAccessReaderTest() {
+  RandomAccessReaderTest() : tp_pool_(port::MemoryArenaId(), 5, 10) {
 
-    tp_ = CreateThreadpool(NULL);
-    BOOL ret = SetThreadpoolThreadMinimum(tp_, 5);
-    assert(ret);
     direct_io_ = GetParam();
 
     // Generate a file for reading
@@ -312,7 +314,6 @@ public:
   }
 
   ~RandomAccessReaderTest() {
-    CloseThreadpool(tp_);
     unlink(fileName_.c_str());
   }
 };
@@ -414,7 +415,9 @@ struct Customer {
 TEST_P(RandomAccessReaderTest, TestAsyncRead) {
 
   Env* env = Env::Default();
-  auto io_tp(env->CreateAsyncThreadPool(tp_));
+  // This moves tp_handle_
+  auto tp_handle = tp_pool_.CreateTaskPool();
+  auto io_tp(env->CreateAsyncThreadPool(&tp_handle));
 
   EnvOptions options;
   options.use_direct_reads = direct_io_;

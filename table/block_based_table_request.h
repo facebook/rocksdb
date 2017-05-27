@@ -10,12 +10,12 @@
 #include <thread>
 
 #include "async/async_status_capture.h"
-#include "async/random_read_context.h"
 #include "rocksdb/async/callables.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 #include "table/block_based_table_reader.h"
 #include "table/format.h"
+#include "util/random_read_context.h"
 
 namespace rocksdb {
 

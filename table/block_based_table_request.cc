@@ -3,13 +3,13 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
-#include "async/block_based_table_request.h"
-#include "async/random_read_context.h"
+#include "table/block_based_table_request.h"
 
 #include "table/block.h"
 #include "table/block_based_filter_block.h"
 #include "table/meta_blocks.h"
 #include "table/partitioned_filter_block.h"
+#include "util/random_read_context.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
 
