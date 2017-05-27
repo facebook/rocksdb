@@ -1457,7 +1457,7 @@ void VersionStorageInfo::SetFinalized() {
     assert(NumLevelBytes(level) == 0);
   }
   uint64_t max_bytes_prev_level = 0;
-  for (int level = base_level(); level < num_levels() - 1; level++) {
+  for (int level = base_level(); level < num_levels(); level++) {
     if (LevelFiles(level).size() == 0) {
       continue;
     }
