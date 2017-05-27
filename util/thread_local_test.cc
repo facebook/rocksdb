@@ -67,53 +67,54 @@ TEST_F(ThreadLocalTest, UniqueIdTest) {
   port::Mutex mu;
   port::CondVar cv(&mu);
 
-  ASSERT_EQ(IDChecker::PeekId(), 0u);
+  // perf_context and iostats_context take 2 ids
+  ASSERT_EQ(IDChecker::PeekId(), 2u);
   // New ThreadLocal instance bumps id by 1
   {
-    // Id used 0
-    Params p1(&mu, &cv, nullptr, 1u);
-    ASSERT_EQ(IDChecker::PeekId(), 1u);
-    // Id used 1
-    Params p2(&mu, &cv, nullptr, 1u);
-    ASSERT_EQ(IDChecker::PeekId(), 2u);
     // Id used 2
-    Params p3(&mu, &cv, nullptr, 1u);
+    Params p1(&mu, &cv, nullptr, 1u);
     ASSERT_EQ(IDChecker::PeekId(), 3u);
     // Id used 3
-    Params p4(&mu, &cv, nullptr, 1u);
+    Params p2(&mu, &cv, nullptr, 1u);
     ASSERT_EQ(IDChecker::PeekId(), 4u);
+    // Id used 4
+    Params p3(&mu, &cv, nullptr, 1u);
+    ASSERT_EQ(IDChecker::PeekId(), 5u);
+    // Id used 5
+    Params p4(&mu, &cv, nullptr, 1u);
+    ASSERT_EQ(IDChecker::PeekId(), 6u);
   }
-  // id 3, 2, 1, 0 are in the free queue in order
-  ASSERT_EQ(IDChecker::PeekId(), 0u);
-
-  // pick up 0
-  Params p1(&mu, &cv, nullptr, 1u);
-  ASSERT_EQ(IDChecker::PeekId(), 1u);
-  // pick up 1
-  Params* p2 = new Params(&mu, &cv, nullptr, 1u);
+  // id 5, 4, 3, 2 are in the free queue in order
   ASSERT_EQ(IDChecker::PeekId(), 2u);
+
   // pick up 2
-  Params p3(&mu, &cv, nullptr, 1u);
-  ASSERT_EQ(IDChecker::PeekId(), 3u);
-  // return up 1
-  delete p2;
-  ASSERT_EQ(IDChecker::PeekId(), 1u);
-  // Now we have 3, 1 in queue
-  // pick up 1
-  Params p4(&mu, &cv, nullptr, 1u);
+  Params p1(&mu, &cv, nullptr, 1u);
   ASSERT_EQ(IDChecker::PeekId(), 3u);
   // pick up 3
+  Params* p2 = new Params(&mu, &cv, nullptr, 1u);
+  ASSERT_EQ(IDChecker::PeekId(), 4u);
+  // pick up 4
+  Params p3(&mu, &cv, nullptr, 1u);
+  ASSERT_EQ(IDChecker::PeekId(), 5u);
+  // return up 3
+  delete p2;
+  ASSERT_EQ(IDChecker::PeekId(), 3u);
+  // Now we have 4, 2 in queue
+  // pick up 3
+  Params p4(&mu, &cv, nullptr, 1u);
+  ASSERT_EQ(IDChecker::PeekId(), 5u);
+  // pick up 5
   Params p5(&mu, &cv, nullptr, 1u);
   // next new id
-  ASSERT_EQ(IDChecker::PeekId(), 4u);
+  ASSERT_EQ(IDChecker::PeekId(), 6u);
   // After exit, id sequence in queue:
-  // 3, 1, 2, 0
+  // 5, 4, 3, 2(, 1, 0)
 }
 #endif  // __clang_analyzer__
 
 TEST_F(ThreadLocalTest, SequentialReadWriteTest) {
-  // global id list carries over 3, 1, 2, 0
-  ASSERT_EQ(IDChecker::PeekId(), 0u);
+  // global id list carries over 5, 4, 3, 2
+  ASSERT_EQ(IDChecker::PeekId(), 2u);
 
   port::Mutex mu;
   port::CondVar cv(&mu);
@@ -143,7 +144,7 @@ TEST_F(ThreadLocalTest, SequentialReadWriteTest) {
   };
 
   for (int iter = 0; iter < 1024; ++iter) {
-    ASSERT_EQ(IDChecker::PeekId(), 1u);
+    ASSERT_EQ(IDChecker::PeekId(), 3u);
     // Another new thread, read/write should not see value from previous thread
     env_->StartThread(func, static_cast<void*>(&p));
     mu.Lock();
@@ -151,13 +152,13 @@ TEST_F(ThreadLocalTest, SequentialReadWriteTest) {
       cv.Wait();
     }
     mu.Unlock();
-    ASSERT_EQ(IDChecker::PeekId(), 1u);
+    ASSERT_EQ(IDChecker::PeekId(), 3u);
   }
 }
 
 TEST_F(ThreadLocalTest, ConcurrentReadWriteTest) {
-  // global id list carries over 3, 1, 2, 0
-  ASSERT_EQ(IDChecker::PeekId(), 0u);
+  // global id list carries over 5, 4, 3, 2
+  ASSERT_EQ(IDChecker::PeekId(), 2u);
 
   ThreadLocalPtr tls2;
   port::Mutex mu1;
@@ -238,11 +239,11 @@ TEST_F(ThreadLocalTest, ConcurrentReadWriteTest) {
   }
   mu2.Unlock();
 
-  ASSERT_EQ(IDChecker::PeekId(), 3u);
+  ASSERT_EQ(IDChecker::PeekId(), 5u);
 }
 
 TEST_F(ThreadLocalTest, Unref) {
-  ASSERT_EQ(IDChecker::PeekId(), 0u);
+  ASSERT_EQ(IDChecker::PeekId(), 2u);
 
   auto unref = [](void* ptr) {
     auto& p = *static_cast<Params*>(ptr);

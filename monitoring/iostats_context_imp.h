@@ -13,7 +13,7 @@
 
 // increment a specific counter by the specified value
 #define IOSTATS_ADD(metric, value)     \
-  (iostats_context.metric += value)
+  (GetIOStatsContext()->metric += value)
 
 // Increase metric value only when it is positive
 #define IOSTATS_ADD_IF_POSITIVE(metric, value)   \
@@ -21,25 +21,25 @@
 
 // reset a specific counter to zero
 #define IOSTATS_RESET(metric)          \
-  (iostats_context.metric = 0)
+  (GetIOStatsContext()->metric = 0)
 
 // reset all counters to zero
 #define IOSTATS_RESET_ALL()                        \
-  (iostats_context.Reset())
+  (GetIOStatsContext()->Reset())
 
 #define IOSTATS_SET_THREAD_POOL_ID(value)      \
-  (iostats_context.thread_pool_id = value)
+  (GetIOStatsContext()->thread_pool_id = value)
 
 #define IOSTATS_THREAD_POOL_ID()               \
-  (iostats_context.thread_pool_id)
+  (GetIOStatsContext()->thread_pool_id)
 
 #define IOSTATS(metric)                        \
-  (iostats_context.metric)
+  (GetIOStatsContext()->metric)
 
 // Declare and set start time of the timer
-#define IOSTATS_TIMER_GUARD(metric)                                       \
-  PerfStepTimer iostats_step_timer_ ## metric(&(iostats_context.metric));  \
-  iostats_step_timer_ ## metric.Start();
+#define IOSTATS_TIMER_GUARD(metric)                                          \
+  PerfStepTimer iostats_step_timer_##metric(&(GetIOStatsContext()->metric)); \
+  iostats_step_timer_##metric.Start();
 
 #else  // ROCKSDB_SUPPORT_THREAD_LOCAL
 
