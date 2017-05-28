@@ -4,7 +4,6 @@
 // of patent rights can be found in the PATENTS file in the same directory.
 package org.rocksdb;
 
-import java.util.function.Consumer;
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
@@ -57,14 +56,13 @@ public class KeyMayExistTest {
         builder.append("suffix");
 
         byte[] sliceKey = builder.toString().getBytes();
-
-        byte[] sliceValue0 = "slice value 0".getBytes();
-        db.put(sliceKey, offset, len, sliceValue0, 0, sliceValue0.length);
+        byte[] sliceValue = "slice value 0".getBytes();
+        db.put(sliceKey, offset, len, sliceValue, 0, sliceValue.length);
 
         retValue = new StringBuilder();
         exists = db.keyMayExist(sliceKey, offset, len, retValue);
         assertThat(exists).isTrue();
-        assertThat(retValue.toString().getBytes()).isEqualTo(sliceValue0);
+        assertThat(retValue.toString().getBytes()).isEqualTo(sliceValue);
 
         // Test without column family but with readOptions
         try (final ReadOptions readOptions = new ReadOptions()) {
@@ -72,6 +70,11 @@ public class KeyMayExistTest {
           exists = db.keyMayExist(readOptions, "key".getBytes(), retValue);
           assertThat(exists).isTrue();
           assertThat(retValue.toString()).isEqualTo("value");
+
+          retValue = new StringBuilder();
+          exists = db.keyMayExist(readOptions, sliceKey, offset, len, retValue);
+          assertThat(exists).isTrue();
+          assertThat(retValue.toString().getBytes()).isEqualTo(sliceValue);
         }
 
         // Test with column family
@@ -82,10 +85,11 @@ public class KeyMayExistTest {
         assertThat(retValue.toString()).isEqualTo("value");
 
         // Test slice sky with column family
+        retValue = new StringBuilder();
         exists = db.keyMayExist(columnFamilyHandleList.get(0), sliceKey, offset, len,
             retValue);
         assertThat(exists).isTrue();
-        assertThat(retValue.toString().getBytes()).isEqualTo(sliceValue0);
+        assertThat(retValue.toString().getBytes()).isEqualTo(sliceValue);
 
         // Test with column family and readOptions
         try (final ReadOptions readOptions = new ReadOptions()) {
@@ -102,7 +106,7 @@ public class KeyMayExistTest {
               columnFamilyHandleList.get(0), sliceKey, offset, len,
               retValue);
           assertThat(exists).isTrue();
-          assertThat(retValue.toString().getBytes()).isEqualTo(sliceValue0);
+          assertThat(retValue.toString().getBytes()).isEqualTo(sliceValue);
         }
 
         // KeyMayExist in CF1 must return false
@@ -111,7 +115,7 @@ public class KeyMayExistTest {
 
         // slice key
         assertThat(db.keyMayExist(columnFamilyHandleList.get(1),
-            sliceKey, 1, 3, retValue)).isFalse();
+           sliceKey, 1, 3, retValue)).isFalse();
       } finally {
         for (final ColumnFamilyHandle columnFamilyHandle :
             columnFamilyHandleList) {
