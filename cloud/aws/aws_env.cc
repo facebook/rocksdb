@@ -781,6 +781,13 @@ Status AwsEnv::GetChildrenFromS3(const std::string& path,
     }
     // The new starting point
     marker = res.GetNextMarker();
+    if (marker.empty()) {
+        // If response does not include the NextMaker and it is
+        // truncated, you can use the value of the last Key in the response
+        // as the marker in the subsequent request because all objects
+        // are returned in alphabetical order
+        marker = objs.back().GetKey();
+    }
   }
   return Status::OK();
 }
