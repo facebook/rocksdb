@@ -64,6 +64,5 @@ Status CloudEnvImpl::PurgeObsoleteDbid() {
   }
   return st;
 }
-
 }  // namespace rocksdb
 #endif  // ROCKSDB_LITE

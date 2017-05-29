@@ -768,6 +768,7 @@ class VersionSet {
 
   friend class Version;
   friend class DBImpl;
+  friend class CloudManifest;
 
   struct LogReporter : public log::Reader::Reporter {
     Status* status;
