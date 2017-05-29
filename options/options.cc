@@ -602,35 +602,35 @@ DBOptions* DBOptions::IncreaseParallelism(int total_threads) {
 #endif  // !ROCKSDB_LITE
 
 ReadOptions::ReadOptions()
-    : verify_checksums(true),
-      fill_cache(true),
-      snapshot(nullptr),
+    : snapshot(nullptr),
       iterate_upper_bound(nullptr),
+      readahead_size(0),
+      max_skippable_internal_keys(0),
       read_tier(kReadAllTier),
+      verify_checksums(true),
+      fill_cache(true),
       tailing(false),
       managed(false),
       total_order_seek(false),
       prefix_same_as_start(false),
       pin_data(false),
       background_purge_on_iterator_cleanup(false),
-      readahead_size(0),
-      ignore_range_deletions(false),
-      max_skippable_internal_keys(0) {}
+      ignore_range_deletions(false) {}
 
 ReadOptions::ReadOptions(bool cksum, bool cache)
-    : verify_checksums(cksum),
-      fill_cache(cache),
-      snapshot(nullptr),
+    : snapshot(nullptr),
       iterate_upper_bound(nullptr),
+      readahead_size(0),
+      max_skippable_internal_keys(0),
       read_tier(kReadAllTier),
+      verify_checksums(cksum),
+      fill_cache(cache),
       tailing(false),
       managed(false),
       total_order_seek(false),
       prefix_same_as_start(false),
       pin_data(false),
       background_purge_on_iterator_cleanup(false),
-      readahead_size(0),
-      ignore_range_deletions(false),
-      max_skippable_internal_keys(0) {}
+      ignore_range_deletions(false) {}
 
 }  // namespace rocksdb

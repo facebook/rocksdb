@@ -902,7 +902,7 @@ clean:
 	rm -rf $(CLEAN_FILES) ios-x86 ios-arm scan_build_report
 	find . -name "*.[oda]" -exec rm -f {} \;
 	find . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;
-	rm -rf bzip2* snappy* zlib* lz4*
+	rm -rf bzip2* snappy* zlib* lz4* zstd*
 	cd java; $(MAKE) clean
 
 tags:
