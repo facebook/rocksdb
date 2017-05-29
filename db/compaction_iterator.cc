@@ -4,6 +4,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #include "db/compaction_iterator.h"
 #include "rocksdb/listener.h"
@@ -91,7 +93,9 @@ CompactionIterator::CompactionIterator(
     latest_snapshot_ = snapshots_->back();
   }
   if (compaction_filter_ != nullptr) {
-    if (compaction_filter_->IgnoreSnapshots()) ignore_snapshots_ = true;
+    if (compaction_filter_->IgnoreSnapshots()) {
+      ignore_snapshots_ = true;
+    }
   } else {
     ignore_snapshots_ = false;
   }
@@ -544,7 +548,8 @@ void CompactionIterator::PrepareOutput() {
 
   // This is safe for TransactionDB write-conflict checking since transactions
   // only care about sequence number larger than any active snapshots.
-  if (bottommost_level_ && valid_ && ikey_.sequence <= earliest_snapshot_ &&
+  if ((compaction_ != nullptr && !compaction_->allow_ingest_behind()) &&
+      bottommost_level_ && valid_ && ikey_.sequence <= earliest_snapshot_ &&
       ikey_.type != kTypeMerge &&
       !cmp_->Equal(compaction_->GetLargestUserKey(), ikey_.user_key)) {
     assert(ikey_.type != kTypeDeletion && ikey_.type != kTypeSingleDeletion);

@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -45,6 +47,7 @@ struct ThreadPoolImpl::Impl {
   void JoinThreads(bool wait_for_jobs_to_complete);
 
   void SetBackgroundThreadsInternal(int num, bool allow_reduce);
+  int GetBackgroundThreads();
 
   unsigned int GetQueueLen() const {
     return queue_len_.load(std::memory_order_relaxed);
@@ -273,10 +276,15 @@ void ThreadPoolImpl::Impl::SetBackgroundThreadsInternal(int num,
   }
   if (num > total_threads_limit_ ||
       (num < total_threads_limit_ && allow_reduce)) {
-    total_threads_limit_ = std::max(1, num);
+    total_threads_limit_ = std::max(0, num);
     WakeUpAllThreads();
     StartBGThreads();
   }
+}
+
+int ThreadPoolImpl::Impl::GetBackgroundThreads() {
+  std::unique_lock<std::mutex> lock(mu_);
+  return total_threads_limit_;
 }
 
 void ThreadPoolImpl::Impl::StartBGThreads() {
@@ -380,6 +388,10 @@ void ThreadPoolImpl::JoinAllThreads() {
 
 void ThreadPoolImpl::SetBackgroundThreads(int num) {
   impl_->SetBackgroundThreadsInternal(num, true);
+}
+
+int ThreadPoolImpl::GetBackgroundThreads() {
+  return impl_->GetBackgroundThreads();
 }
 
 unsigned int ThreadPoolImpl::GetQueueLen() const {

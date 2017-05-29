@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -20,6 +22,14 @@
 #include "util/sync_point.h"
 
 namespace rocksdb {
+
+#ifndef NDEBUG
+namespace {
+bool IsFileSectorAligned(const size_t off, size_t sector_size) {
+  return off % sector_size == 0;
+}
+}
+#endif
 
 Status SequentialFileReader::Read(size_t n, Slice* result, char* scratch) {
   Status s;
@@ -500,7 +510,8 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
     if (prefetch_offset == buffer_offset_) {
       return Status::OK();
     }
-    return ReadIntoBuffer(prefetch_offset, offset - prefetch_offset + n);
+    return ReadIntoBuffer(prefetch_offset,
+                          Roundup(offset + n, alignment_) - prefetch_offset);
   }
 
   virtual size_t GetUniqueId(char* id, size_t max_size) const override {
@@ -535,6 +546,8 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
     if (n > buffer_.Capacity()) {
       n = buffer_.Capacity();
     }
+    assert(IsFileSectorAligned(offset, alignment_));
+    assert(IsFileSectorAligned(n, alignment_));
     Slice result;
     Status s = file_->Read(offset, n, &result, buffer_.BufferStart());
     if (s.ok()) {

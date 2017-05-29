@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #include "table/partitioned_filter_block.h"
 
@@ -87,9 +89,19 @@ PartitionedFilterBlockReader::PartitionedFilterBlockReader(
 }
 
 PartitionedFilterBlockReader::~PartitionedFilterBlockReader() {
-  ReadLock rl(&mu_);
-  for (auto it = handle_list_.begin(); it != handle_list_.end(); ++it) {
-    table_->rep_->table_options.block_cache.get()->Release(*it);
+  {
+    ReadLock rl(&mu_);
+    for (auto it = handle_list_.begin(); it != handle_list_.end(); ++it) {
+      table_->rep_->table_options.block_cache.get()->Release(*it);
+    }
+  }
+  char cache_key[BlockBasedTable::kMaxCacheKeyPrefixSize + kMaxVarint64Length];
+  for (auto it = filter_block_set_.begin(); it != filter_block_set_.end();
+       ++it) {
+    auto key = BlockBasedTable::GetCacheKey(table_->rep_->cache_key_prefix,
+                                            table_->rep_->cache_key_prefix_size,
+                                            *it, cache_key);
+    table_->rep_->table_options.block_cache.get()->Erase(key);
   }
 }
 
@@ -104,8 +116,6 @@ bool PartitionedFilterBlockReader::KeyMayMatch(
   if (UNLIKELY(idx_on_fltr_blk_->size() == 0)) {
     return true;
   }
-  // This is the user key vs. the full key in the partition index. We assume
-  // that user key <= full key
   auto filter_handle = GetFilterPartitionHandle(*const_ikey_ptr);
   if (UNLIKELY(filter_handle.size() == 0)) {  // key is out of range
     return false;
@@ -196,15 +206,18 @@ PartitionedFilterBlockReader::GetFilterPartition(Slice* handle_value,
     }
     auto filter =
         table_->GetFilter(fltr_blk_handle, is_a_filter_partition, no_io);
-    if (pin_cached_filters && filter.IsSet()) {
-      WriteLock wl(&mu_);
-      std::pair<uint64_t, FilterBlockReader*> pair(fltr_blk_handle.offset(),
-                                                   filter.value);
-      auto succ = filter_cache_.insert(pair).second;
-      if (succ) {
-        handle_list_.push_back(filter.cache_handle);
-      }  // Otherwise it is already inserted by a concurrent thread
-      *cached = true;
+    if (filter.IsSet()) {
+      filter_block_set_.insert(fltr_blk_handle);
+      if (pin_cached_filters) {
+        WriteLock wl(&mu_);
+        std::pair<uint64_t, FilterBlockReader*> pair(fltr_blk_handle.offset(),
+                                                     filter.value);
+        auto succ = filter_cache_.insert(pair).second;
+        if (succ) {
+          handle_list_.push_back(filter.cache_handle);
+        }  // Otherwise it is already inserted by a concurrent thread
+        *cached = true;
+      }
     }
     return filter;
   } else {

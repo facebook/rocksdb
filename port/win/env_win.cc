@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -33,8 +35,8 @@
 #include "monitoring/thread_status_updater.h"
 #include "monitoring/thread_status_util.h"
 
-#include <Rpc.h>  // For UUID generation
-#include <Windows.h>
+#include <rpc.h>  // for uuid generation
+#include <windows.h>
 
 namespace rocksdb {
 
@@ -877,6 +879,11 @@ void WinEnvThreads::SetBackgroundThreads(int num, Env::Priority pri) {
   thread_pools_[pri].SetBackgroundThreads(num);
 }
 
+int WinEnvThreads::GetBackgroundThreads(Env::Priority pri) {
+  assert(pri >= Env::Priority::LOW && pri <= Env::Priority::HIGH);
+  return thread_pools_[pri].GetBackgroundThreads();
+}
+
 void WinEnvThreads::IncBackgroundThreadsIfNeeded(int num, Env::Priority pri) {
   assert(pri >= Env::Priority::LOW && pri <= Env::Priority::HIGH);
   thread_pools_[pri].IncBackgroundThreadsIfNeeded(num);
@@ -1054,6 +1061,10 @@ void  WinEnv::SetBackgroundThreads(int num, Env::Priority pri) {
   return winenv_threads_.SetBackgroundThreads(num, pri);
 }
 
+int WinEnv::GetBackgroundThreads(Env::Priority pri) {
+  return winenv_threads_.GetBackgroundThreads(pri);
+}
+
 void  WinEnv::IncBackgroundThreadsIfNeeded(int num, Env::Priority pri) {
   return winenv_threads_.IncBackgroundThreadsIfNeeded(num, pri);
 }
@@ -1077,13 +1088,19 @@ std::string Env::GenerateUniqueId() {
   UuidCreateSequential(&uuid);
 
   RPC_CSTR rpc_str;
-  auto status = UuidToStringA(&uuid, &rpc_str);
-  assert(status == RPC_S_OK);
+#ifndef NDEBUG
+  assert(UuidToStringA(&uuid, &rpc_str) == RPC_S_OK);
+#else
+  UuidToStringA(&uuid, &rpc_str);
+#endif
 
   result = reinterpret_cast<char*>(rpc_str);
 
-  status = RpcStringFreeA(&rpc_str);
-  assert(status == RPC_S_OK);
+#ifndef NDEBUG
+  assert(RpcStringFreeA(&rpc_str) == RPC_S_OK);
+#else
+  RpcStringFreeA(&rpc_str);
+#endif
 
   return result;
 }

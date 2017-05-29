@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -13,13 +15,8 @@
 #include "util/crc32c.h"
 
 #include <stdint.h>
-#ifdef __SSE4_2__
+#ifdef HAVE_SSE42
 #include <nmmintrin.h>
-#endif
-#if defined(_WIN64)
-#ifdef __AVX2__
-#include <nmmintrin.h>
-#endif
 #endif
 #include "util/coding.h"
 
@@ -296,21 +293,12 @@ static inline uint32_t LE_LOAD32(const uint8_t *p) {
   return DecodeFixed32(reinterpret_cast<const char*>(p));
 }
 
-#ifdef __SSE4_2__
-#ifdef __LP64__
+#if defined(HAVE_SSE42) && (defined(__LP64__) || defined(_WIN64))
 static inline uint64_t LE_LOAD64(const uint8_t *p) {
   return DecodeFixed64(reinterpret_cast<const char*>(p));
 }
-#endif
 #endif
 
-#if defined(_WIN64)
-#ifdef __AVX2__
-static inline uint64_t LE_LOAD64(const uint8_t *p) {
-  return DecodeFixed64(reinterpret_cast<const char*>(p));
-}
-#endif
-#endif
 static inline void Slow_CRC32(uint64_t* l, uint8_t const **p) {
   uint32_t c = static_cast<uint32_t>(*l ^ LE_LOAD32(*p));
   *p += 4;
@@ -328,8 +316,9 @@ static inline void Slow_CRC32(uint64_t* l, uint8_t const **p) {
 }
 
 static inline void Fast_CRC32(uint64_t* l, uint8_t const **p) {
-#ifdef __SSE4_2__
-#ifdef __LP64__
+#ifndef HAVE_SSE42
+  Slow_CRC32(l, p);
+#elif defined(__LP64__) || defined(_WIN64)
   *l = _mm_crc32_u64(*l, LE_LOAD64(*p));
   *p += 8;
 #else
@@ -337,16 +326,6 @@ static inline void Fast_CRC32(uint64_t* l, uint8_t const **p) {
   *p += 4;
   *l = _mm_crc32_u32(static_cast<unsigned int>(*l), LE_LOAD32(*p));
   *p += 4;
-#endif
-#elif defined(_WIN64)
-#ifdef __AVX2__
-  *l = _mm_crc32_u64(*l, LE_LOAD64(*p));
-  *p += 8;
-#else
-  Slow_CRC32(l, p);
-#endif
-#else
-  Slow_CRC32(l, p);
 #endif
 }
 
@@ -416,9 +395,7 @@ static inline Function Choose_Extend() {
 }
 
 bool IsFastCrc32Supported() {
-#ifdef __SSE4_2__
-  return isSSE42();
-#elif defined(_WIN64)
+#if defined(__SSE4_2__) || defined(_WIN64)
   return isSSE42();
 #else
   return false;

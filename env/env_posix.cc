@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -251,13 +253,14 @@ class PosixEnv : public Env {
     return s;
   }
 
-  virtual Status NewWritableFile(const std::string& fname,
-                                 unique_ptr<WritableFile>* result,
-                                 const EnvOptions& options) override {
+  virtual Status OpenWritableFile(const std::string& fname,
+                                  unique_ptr<WritableFile>* result,
+                                  const EnvOptions& options,
+                                  bool reopen = false) {
     result->reset();
     Status s;
     int fd = -1;
-    int flags = O_CREAT | O_TRUNC;
+    int flags = (reopen) ? (O_CREAT | O_APPEND) : (O_CREAT | O_TRUNC);
     // Direct IO mode with O_DIRECT flag or F_NOCAHCE (MAC OSX)
     if (options.use_direct_writes && !options.use_mmap_writes) {
       // Note: we should avoid O_APPEND here due to ta the following bug:
@@ -329,6 +332,18 @@ class PosixEnv : public Env {
       result->reset(new PosixWritableFile(fname, fd, no_mmap_writes_options));
     }
     return s;
+  }
+
+  virtual Status NewWritableFile(const std::string& fname,
+                                 unique_ptr<WritableFile>* result,
+                                 const EnvOptions& options) override {
+    return OpenWritableFile(fname, result, options, false);
+  }
+
+  virtual Status ReopenWritableFile(const std::string& fname,
+                                    unique_ptr<WritableFile>* result,
+                                    const EnvOptions& options) override {
+    return OpenWritableFile(fname, result, options, true);
   }
 
   virtual Status ReuseWritableFile(const std::string& fname,
@@ -746,6 +761,11 @@ class PosixEnv : public Env {
   virtual void SetBackgroundThreads(int num, Priority pri) override {
     assert(pri >= Priority::LOW && pri <= Priority::HIGH);
     thread_pools_[pri].SetBackgroundThreads(num);
+  }
+
+  virtual int GetBackgroundThreads(Priority pri) override {
+    assert(pri >= Priority::LOW && pri <= Priority::HIGH);
+    return thread_pools_[pri].GetBackgroundThreads();
   }
 
   // Allow increasing the number of worker threads.

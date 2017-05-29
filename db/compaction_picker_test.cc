@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #include "db/compaction_picker.h"
 #include <limits>
@@ -399,6 +401,35 @@ TEST_F(CompactionPickerTest, NeedsCompactionUniversal) {
     ASSERT_EQ(level_compaction_picker.NeedsCompaction(vstorage_.get()),
               vstorage_->CompactionScore(0) >= 1);
   }
+}
+
+TEST_F(CompactionPickerTest, CompactionUniversalIngestBehindReservedLevel) {
+  const uint64_t kFileSize = 100000;
+  NewVersionStorage(1, kCompactionStyleUniversal);
+  ioptions_.allow_ingest_behind = true;
+  ioptions_.num_levels = 3;
+  UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
+  // must return false when there's no files.
+  ASSERT_EQ(universal_compaction_picker.NeedsCompaction(vstorage_.get()),
+            false);
+
+  NewVersionStorage(3, kCompactionStyleUniversal);
+
+  Add(0, 1U, "150", "200", kFileSize, 0, 500, 550);
+  Add(0, 2U, "201", "250", kFileSize, 0, 401, 450);
+  Add(0, 4U, "260", "300", kFileSize, 0, 260, 300);
+  Add(1, 5U, "100", "151", kFileSize, 0, 200, 251);
+  Add(1, 3U, "301", "350", kFileSize, 0, 101, 150);
+  Add(2, 6U, "120", "200", kFileSize, 0, 20, 100);
+
+  UpdateVersionStorageInfo();
+
+  std::unique_ptr<Compaction> compaction(
+      universal_compaction_picker.PickCompaction(
+          cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
+
+  // output level should be the one above the bottom-most
+  ASSERT_EQ(1, compaction->output_level());
 }
 // Tests if the files can be trivially moved in multi level
 // universal compaction when allow_trivial_move option is set
@@ -1011,7 +1042,8 @@ TEST_F(CompactionPickerTest, EstimateCompactionBytesNeededDynamicLevel) {
 
   // Set Last level size 50000
   // num_levels - 1 target 5000
-  // num_levels - 2 is base level with taret 500
+  // num_levels - 2 is base level with target 1000 (rounded up to
+  // max_bytes_for_level_base).
   Add(num_levels - 1, 10U, "400", "500", 50000);
 
   Add(0, 1U, "150", "200", 200);
@@ -1020,16 +1052,16 @@ TEST_F(CompactionPickerTest, EstimateCompactionBytesNeededDynamicLevel) {
   Add(0, 5U, "150", "200", 200);
   Add(0, 6U, "150", "200", 200);
   // num_levels - 3 is over target by 100 + 1000
-  Add(num_levels - 3, 7U, "400", "500", 300);
-  Add(num_levels - 3, 8U, "600", "700", 300);
+  Add(num_levels - 3, 7U, "400", "500", 550);
+  Add(num_levels - 3, 8U, "600", "700", 550);
   // num_levels - 2 is over target by 1100 + 200
   Add(num_levels - 2, 9U, "150", "200", 5200);
 
   UpdateVersionStorageInfo();
 
-  // Merging to the second last level: (5200 / 1600 + 1) * 1100
+  // Merging to the second last level: (5200 / 2100 + 1) * 1100
   // Merging to the last level: (50000 / 6300 + 1) * 1300
-  ASSERT_EQ(1600u + 4675u + 11617u,
+  ASSERT_EQ(2100u + 3823u + 11617u,
             vstorage_->estimated_compaction_needed_bytes());
 }
 

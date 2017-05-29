@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 #include "options/options_helper.h"
 
 #include <cassert>
@@ -39,7 +41,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.sst_file_manager = immutable_db_options.sst_file_manager;
   options.info_log = immutable_db_options.info_log;
   options.info_log_level = immutable_db_options.info_log_level;
-  options.max_open_files = immutable_db_options.max_open_files;
+  options.max_open_files = mutable_db_options.max_open_files;
   options.max_file_opening_threads =
       immutable_db_options.max_file_opening_threads;
   options.max_total_wal_size = mutable_db_options.max_total_wal_size;
@@ -50,6 +52,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.wal_dir = immutable_db_options.wal_dir;
   options.delete_obsolete_files_period_micros =
       mutable_db_options.delete_obsolete_files_period_micros;
+  options.max_background_jobs = mutable_db_options.max_background_jobs;
   options.base_background_compactions =
       mutable_db_options.base_background_compactions;
   options.max_background_compactions =
@@ -117,6 +120,8 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
       immutable_db_options.avoid_flush_during_recovery;
   options.avoid_flush_during_shutdown =
       mutable_db_options.avoid_flush_during_shutdown;
+  options.allow_ingest_behind =
+      immutable_db_options.allow_ingest_behind;
 
   return options;
 }

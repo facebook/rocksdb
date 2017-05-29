@@ -424,7 +424,7 @@ jboolean key_may_exist_helper(JNIEnv* env, rocksdb::DB* db,
   }
 
   rocksdb::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
-  
+
   std::string value;
   bool value_found = false;
   bool keyMayExist;
@@ -727,7 +727,7 @@ inline void multi_get_helper_release_keys(JNIEnv* env,
  * cf multi get
  *
  * @return byte[][] of values or nullptr if an exception occurs
- */ 
+ */
 jobjectArray multi_get_helper(JNIEnv* env, jobject jdb, rocksdb::DB* db,
     const rocksdb::ReadOptions& rOpt, jobjectArray jkeys,
     jintArray jkey_offs, jintArray jkey_lens,
@@ -1373,7 +1373,7 @@ bool rocksdb_merge_helper(JNIEnv* env, rocksdb::DB* db,
   }
   rocksdb::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
 
-  jbyte* value = new jbyte[jkey_len];
+  jbyte* value = new jbyte[jval_len];
   env->GetByteArrayRegion(jval, jval_off, jval_len, value);
   if(env->ExceptionCheck()) {
     // exception thrown: ArrayIndexOutOfBoundsException
@@ -2164,18 +2164,17 @@ void Java_org_rocksdb_RocksDB_setOptions(JNIEnv* env, jobject jdb,
 }
 
 //////////////////////////////////////////////////////////////////////////////
-// rocksdb::DB::AddFile
+// rocksdb::DB::IngestExternalFile
 
 /*
  * Class:     org_rocksdb_RocksDB
- * Method:    addFile
- * Signature: (JJ[Ljava/lang/String;IZ)V
+ * Method:    ingestExternalFile
+ * Signature: (JJ[Ljava/lang/String;IJ)V
  */
-void Java_org_rocksdb_RocksDB_addFile__JJ_3Ljava_lang_String_2IZ(
+void Java_org_rocksdb_RocksDB_ingestExternalFile(
     JNIEnv* env, jobject jdb, jlong jdb_handle, jlong jcf_handle,
     jobjectArray jfile_path_list, jint jfile_path_list_len,
-    jboolean jmove_file) {
-
+    jlong jingest_external_file_options_handle) {
   jboolean has_exception = JNI_FALSE;
   std::vector<std::string> file_path_list =
       rocksdb::JniUtil::copyStrings(env, jfile_path_list, jfile_path_list_len,
@@ -2188,15 +2187,12 @@ void Java_org_rocksdb_RocksDB_addFile__JJ_3Ljava_lang_String_2IZ(
   auto* db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
   auto* column_family =
       reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
-  rocksdb::IngestExternalFileOptions ifo;
-  ifo.move_files = static_cast<bool>(jmove_file);
-  ifo.snapshot_consistency = true;
-  ifo.allow_global_seqno = false;
-  ifo.allow_blocking_flush = false;
+  auto* ifo =
+      reinterpret_cast<rocksdb::IngestExternalFileOptions*>(
+          jingest_external_file_options_handle);
   rocksdb::Status s =
-      db->IngestExternalFile(column_family, file_path_list, ifo);
+      db->IngestExternalFile(column_family, file_path_list, *ifo);
   if (!s.ok()) {
     rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
   }
 }
-

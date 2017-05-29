@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 #pragma once
 
 #include <assert.h>
@@ -83,6 +85,10 @@ class SyncPoint {
   // Set up a call back function in sync point.
   void SetCallBack(const std::string point,
                    std::function<void(void*)> callback);
+
+  // Clear callback function by point
+  void ClearCallBack(const std::string point);
+
   // Clear all call back functions.
   void ClearAllCallBacks();
 

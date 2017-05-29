@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -244,10 +246,14 @@ bool BlockIter::ParseNextKey() {
 
     if (global_seqno_ != kDisableGlobalSequenceNumber) {
       // If we are reading a file with a global sequence number we should
-      // expect that all encoded sequence numbers are zeros and all value
-      // types are kTypeValue
+      // expect that all encoded sequence numbers are zeros and any value
+      // type is kTypeValue, kTypeMerge or kTypeDeletion
       assert(GetInternalKeySeqno(key_.GetInternalKey()) == 0);
-      assert(ExtractValueType(key_.GetInternalKey()) == ValueType::kTypeValue);
+
+      ValueType value_type = ExtractValueType(key_.GetInternalKey());
+      assert(value_type == ValueType::kTypeValue ||
+             value_type == ValueType::kTypeMerge ||
+             value_type == ValueType::kTypeDeletion);
 
       if (key_pinned_) {
         // TODO(tec): Investigate updating the seqno in the loaded block
@@ -259,7 +265,7 @@ bool BlockIter::ParseNextKey() {
         key_pinned_ = false;
       }
 
-      key_.UpdateInternalKey(global_seqno_, ValueType::kTypeValue);
+      key_.UpdateInternalKey(global_seqno_, value_type);
     }
 
     value_ = Slice(p + non_shared, value_length);

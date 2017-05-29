@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -16,6 +18,7 @@
 #include "db/builder.h"
 #include "options/options_helper.h"
 #include "rocksdb/wal_filter.h"
+#include "util/rate_limiter.h"
 #include "util/sst_file_manager_impl.h"
 #include "util/sync_point.h"
 
@@ -36,7 +39,7 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
   if (result.max_open_files != -1) {
     int max_max_open_files = port::GetMaxOpenFiles();
     if (max_max_open_files == -1) {
-      max_max_open_files = 1000000;
+      max_max_open_files = 0x400000;
     }
     ClipToRange(&result.max_open_files, 20, max_max_open_files);
   }
@@ -53,20 +56,27 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
     result.write_buffer_manager.reset(
         new WriteBufferManager(result.db_write_buffer_size));
   }
-  if (result.base_background_compactions == -1) {
-    result.base_background_compactions = result.max_background_compactions;
-  }
-  if (result.base_background_compactions > result.max_background_compactions) {
-    result.base_background_compactions = result.max_background_compactions;
-  }
-  result.env->IncBackgroundThreadsIfNeeded(src.max_background_compactions,
+  auto bg_job_limits = DBImpl::GetBGJobLimits(result.max_background_flushes,
+                                              result.max_background_compactions,
+                                              result.max_background_jobs,
+                                              true /* parallelize_compactions */);
+  result.env->IncBackgroundThreadsIfNeeded(bg_job_limits.max_compactions,
                                            Env::Priority::LOW);
-  result.env->IncBackgroundThreadsIfNeeded(src.max_background_flushes,
+  result.env->IncBackgroundThreadsIfNeeded(bg_job_limits.max_flushes,
                                            Env::Priority::HIGH);
 
   if (result.rate_limiter.get() != nullptr) {
     if (result.bytes_per_sync == 0) {
       result.bytes_per_sync = 1024 * 1024;
+    }
+  }
+
+  if (result.delayed_write_rate == 0) {
+    if (result.rate_limiter.get() != nullptr) {
+      result.delayed_write_rate = result.rate_limiter->GetBytesPerSecond();
+    }
+    if (result.delayed_write_rate == 0) {
+      result.delayed_write_rate = 16 * 1024 * 1024;
     }
   }
 
@@ -97,7 +107,9 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
     result.db_paths.emplace_back(dbname, std::numeric_limits<uint64_t>::max());
   }
 
-  if (result.use_direct_reads && result.compaction_readahead_size == 0) {
+  if (result.use_direct_io_for_flush_and_compaction &&
+      result.compaction_readahead_size == 0) {
+    TEST_SYNC_POINT_CALLBACK("SanitizeOptions:direct_io", nullptr);
     result.compaction_readahead_size = 1024 * 1024 * 2;
   }
 
@@ -496,7 +508,8 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     unique_ptr<SequentialFileReader> file_reader;
     {
       unique_ptr<SequentialFile> file;
-      status = env_->NewSequentialFile(fname, &file, env_options_);
+      status = env_->NewSequentialFile(fname, &file,
+                                       env_->OptimizeForLogRead(env_options_));
       if (!status.ok()) {
         MaybeIgnoreError(&status);
         if (!status.ok()) {
@@ -887,7 +900,7 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
   }
   return s;
 }
-  
+
 Status DB::Open(const DBOptions& db_options, const std::string& dbname,
                 const std::vector<ColumnFamilyDescriptor>& column_families,
                 std::vector<ColumnFamilyHandle*>* handles, DB** dbptr) {
@@ -1030,7 +1043,8 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
   if (s.ok()) {
     // Persist RocksDB Options before scheduling the compaction.
     // The WriteOptionsFile() will release and lock the mutex internally.
-    persist_options_status = impl->WriteOptionsFile();
+    persist_options_status = impl->WriteOptionsFile(
+        false /*need_mutex_lock*/, false /*need_enter_write_thread*/);
 
     *dbptr = impl;
     impl->opened_successfully_ = true;
@@ -1063,14 +1077,9 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
     ROCKS_LOG_INFO(impl->immutable_db_options_.info_log, "DB pointer %p", impl);
     LogFlush(impl->immutable_db_options_.info_log);
     if (!persist_options_status.ok()) {
-      if (db_options.fail_if_options_file_error) {
-        s = Status::IOError(
-            "DB::Open() failed --- Unable to persist Options file",
-            persist_options_status.ToString());
-      }
-      ROCKS_LOG_WARN(impl->immutable_db_options_.info_log,
-                     "Unable to persist options in DB::Open() -- %s",
-                     persist_options_status.ToString().c_str());
+      s = Status::IOError(
+          "DB::Open() failed --- Unable to persist Options file",
+          persist_options_status.ToString());
     }
   }
   if (!s.ok()) {

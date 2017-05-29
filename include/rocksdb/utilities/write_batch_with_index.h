@@ -207,6 +207,12 @@ class WriteBatchWithIndex : public WriteBatchBase {
   //         or other Status on corruption.
   Status RollbackToSavePoint() override;
 
+  // Pop the most recent save point.
+  // If there is no previous call to SetSavePoint(), Status::NotFound()
+  // will be returned.
+  // Otherwise returns Status::OK().
+  Status PopSavePoint() override;
+
   void SetMaxBytes(size_t max_bytes) override;
 
  private:

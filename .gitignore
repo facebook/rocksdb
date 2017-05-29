@@ -31,6 +31,7 @@ build/
 ldb
 manifest_dump
 sst_dump
+blob_dump
 column_aware_encoding_exp
 util/build_version.cc
 build_tools/VALGRIND_LOGS/
@@ -41,6 +42,7 @@ package/
 .phutil_module_cache
 unity.a
 tags
+etags
 rocksdb_dump
 rocksdb_undump
 db_test2
@@ -59,7 +61,7 @@ rocksdb.h
 unity.cc
 java/crossbuild/.vagrant
 .vagrant/
-java/**.asc
+java/**/*.asc
 java/javadoc
 
 scan_build_report/

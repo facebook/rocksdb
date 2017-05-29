@@ -2,19 +2,19 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 
 #include <assert.h>
-#include <sstream>
 #include "monitoring/perf_level_imp.h"
-#include "port/port.h"
 
 namespace rocksdb {
 
-#if defined(IOS_CROSS_COMPILE)
-PerfLevel perf_level = kEnableCount;
-#else
+#ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
 __thread PerfLevel perf_level = kEnableCount;
+#else
+PerfLevel perf_level = kEnableCount;
 #endif
 
 void SetPerfLevel(PerfLevel level) {

@@ -31,7 +31,7 @@ class WriteBatchBase {
   virtual Status Put(const Slice& key, const Slice& value) = 0;
 
   // Variant of Put() that gathers output like writev(2).  The key and value
-  // that will be written to the database are concatentations of arrays of
+  // that will be written to the database are concatenations of arrays of
   // slices.
   virtual Status Put(ColumnFamilyHandle* column_family, const SliceParts& key,
                      const SliceParts& value);
@@ -87,7 +87,7 @@ class WriteBatchBase {
   // it will not be persisted to the SST files. When iterating over this
   // WriteBatch, WriteBatch::Handler::LogData will be called with the contents
   // of the blob as it is encountered. Blobs, puts, deletes, and merges will be
-  // encountered in the same order in thich they were inserted. The blob will
+  // encountered in the same order in which they were inserted. The blob will
   // NOT consume sequence number(s) and will NOT increase the count of the batch
   //
   // Example application: add timestamps to the transaction log for use in
@@ -111,6 +111,12 @@ class WriteBatchBase {
   // If there is no previous call to SetSavePoint(), behaves the same as
   // Clear().
   virtual Status RollbackToSavePoint() = 0;
+
+  // Pop the most recent save point.
+  // If there is no previous call to SetSavePoint(), Status::NotFound()
+  // will be returned.
+  // Otherwise returns Status::OK().
+  virtual Status PopSavePoint() = 0;
 
   // Sets the maximum size of the write batch in bytes. 0 means no limit.
   virtual void SetMaxBytes(size_t max_bytes) = 0;

@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -157,10 +159,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       max_total_in_memory_state_(0),
       is_snapshot_supported_(true),
       write_buffer_manager_(immutable_db_options_.write_buffer_manager.get()),
-      write_thread_(immutable_db_options_.enable_write_thread_adaptive_yield
-                        ? immutable_db_options_.write_thread_max_yield_usec
-                        : 0,
-                    immutable_db_options_.write_thread_slow_yield_usec),
+      write_thread_(immutable_db_options_),
       write_controller_(mutable_db_options_.delayed_write_rate),
       last_batch_group_size_(0),
       unscheduled_flushes_(0),
@@ -190,9 +189,9 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
 
   // Reserve ten files or so for other uses and give the rest to TableCache.
   // Give a large number for setting of "infinite" open files.
-  const int table_cache_size = (immutable_db_options_.max_open_files == -1)
-                                   ? 4194304
-                                   : immutable_db_options_.max_open_files - 10;
+  const int table_cache_size = (mutable_db_options_.max_open_files == -1)
+                                   ? TableCache::kInfiniteCapacity
+                                   : mutable_db_options_.max_open_files - 10;
   table_cache_ = NewLRUCache(table_cache_size,
                              immutable_db_options_.table_cache_numshardbits);
 
@@ -514,9 +513,8 @@ Status DBImpl::SetOptions(ColumnFamilyHandle* column_family,
           InstallSuperVersionAndScheduleWork(cfd, nullptr, new_options);
       delete old_sv;
 
-      write_thread_.EnterUnbatched(&w, &mutex_);
-      persist_options_status = WriteOptionsFile();
-      write_thread_.ExitUnbatched(&w);
+      persist_options_status = WriteOptionsFile(
+          false /*need_mutex_lock*/, true /*need_enter_write_thread*/);
     }
   }
 
@@ -532,14 +530,7 @@ Status DBImpl::SetOptions(ColumnFamilyHandle* column_family,
                    "[%s] SetOptions() succeeded", cfd->GetName().c_str());
     new_options.Dump(immutable_db_options_.info_log.get());
     if (!persist_options_status.ok()) {
-      if (immutable_db_options_.fail_if_options_file_error) {
-        s = Status::IOError(
-            "SetOptions() succeeded, but unable to persist options",
-            persist_options_status.ToString());
-      }
-      ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                     "Unable to persist options in SetOptions() -- %s",
-                     persist_options_status.ToString().c_str());
+      s = persist_options_status;
     }
   } else {
     ROCKS_LOG_WARN(immutable_db_options_.info_log, "[%s] SetOptions() failed",
@@ -579,6 +570,9 @@ Status DBImpl::SetDBOptions(
       }
 
       write_controller_.set_max_delayed_write_rate(new_options.delayed_write_rate);
+      table_cache_.get()->SetCapacity(new_options.max_open_files == -1
+                                          ? TableCache::kInfiniteCapacity
+                                          : new_options.max_open_files - 10);
 
       mutable_db_options_ = new_options;
 
@@ -591,7 +585,8 @@ Status DBImpl::SetDBOptions(
                          purge_wal_status.ToString().c_str());
         }
       }
-      persist_options_status = WriteOptionsFile();
+      persist_options_status = WriteOptionsFile(
+          false /*need_mutex_lock*/, false /*need_enter_write_thread*/);
       write_thread_.ExitUnbatched(&w);
     }
   }
@@ -1121,8 +1116,76 @@ std::vector<Status> DBImpl::MultiGet(
 }
 
 Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& cf_options,
-                                  const std::string& column_family_name,
+                                  const std::string& column_family,
                                   ColumnFamilyHandle** handle) {
+  assert(handle != nullptr);
+  Status s = CreateColumnFamilyImpl(cf_options, column_family, handle);
+  if (s.ok()) {
+    s = WriteOptionsFile(true /*need_mutex_lock*/,
+                         true /*need_enter_write_thread*/);
+  }
+  return s;
+}
+
+Status DBImpl::CreateColumnFamilies(
+    const ColumnFamilyOptions& cf_options,
+    const std::vector<std::string>& column_family_names,
+    std::vector<ColumnFamilyHandle*>* handles) {
+  assert(handles != nullptr);
+  handles->clear();
+  size_t num_cf = column_family_names.size();
+  Status s;
+  bool success_once = false;
+  for (size_t i = 0; i < num_cf; i++) {
+    ColumnFamilyHandle* handle;
+    s = CreateColumnFamilyImpl(cf_options, column_family_names[i], &handle);
+    if (!s.ok()) {
+      break;
+    }
+    handles->push_back(handle);
+    success_once = true;
+  }
+  if (success_once) {
+    Status persist_options_status = WriteOptionsFile(
+        true /*need_mutex_lock*/, true /*need_enter_write_thread*/);
+    if (s.ok() && !persist_options_status.ok()) {
+      s = persist_options_status;
+    }
+  }
+  return s;
+}
+
+Status DBImpl::CreateColumnFamilies(
+    const std::vector<ColumnFamilyDescriptor>& column_families,
+    std::vector<ColumnFamilyHandle*>* handles) {
+  assert(handles != nullptr);
+  handles->clear();
+  size_t num_cf = column_families.size();
+  Status s;
+  bool success_once = false;
+  for (size_t i = 0; i < num_cf; i++) {
+    ColumnFamilyHandle* handle;
+    s = CreateColumnFamilyImpl(column_families[i].options,
+                               column_families[i].name, &handle);
+    if (!s.ok()) {
+      break;
+    }
+    handles->push_back(handle);
+    success_once = true;
+  }
+  if (success_once) {
+    Status persist_options_status = WriteOptionsFile(
+        true /*need_mutex_lock*/, true /*need_enter_write_thread*/);
+    if (s.ok() && !persist_options_status.ok()) {
+      s = persist_options_status;
+    }
+  }
+  return s;
+}
+
+Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
+                                      const std::string& column_family_name,
+                                      ColumnFamilyHandle** handle) {
   Status s;
   Status persist_options_status;
   *handle = nullptr;
@@ -1159,12 +1222,6 @@ Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& cf_options,
       s = versions_->LogAndApply(nullptr, MutableCFOptions(cf_options), &edit,
                                  &mutex_, directories_.GetDbDir(), false,
                                  &cf_options);
-
-      if (s.ok()) {
-        // If the column family was created successfully, we then persist
-        // the updated RocksDB options under the same single write thread
-        persist_options_status = WriteOptionsFile();
-      }
       write_thread_.ExitUnbatched(&w);
     }
     if (s.ok()) {
@@ -1194,22 +1251,42 @@ Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& cf_options,
   if (s.ok()) {
     NewThreadStatusCfInfo(
         reinterpret_cast<ColumnFamilyHandleImpl*>(*handle)->cfd());
-    if (!persist_options_status.ok()) {
-      if (immutable_db_options_.fail_if_options_file_error) {
-        s = Status::IOError(
-            "ColumnFamily has been created, but unable to persist"
-            "options in CreateColumnFamily()",
-            persist_options_status.ToString().c_str());
-      }
-      ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                     "Unable to persist options in CreateColumnFamily() -- %s",
-                     persist_options_status.ToString().c_str());
-    }
   }
   return s;
 }
 
 Status DBImpl::DropColumnFamily(ColumnFamilyHandle* column_family) {
+  assert(column_family != nullptr);
+  Status s = DropColumnFamilyImpl(column_family);
+  if (s.ok()) {
+    s = WriteOptionsFile(true /*need_mutex_lock*/,
+                         true /*need_enter_write_thread*/);
+  }
+  return s;
+}
+
+Status DBImpl::DropColumnFamilies(
+    const std::vector<ColumnFamilyHandle*>& column_families) {
+  Status s;
+  bool success_once = false;
+  for (auto* handle : column_families) {
+    s = DropColumnFamilyImpl(handle);
+    if (!s.ok()) {
+      break;
+    }
+    success_once = true;
+  }
+  if (success_once) {
+    Status persist_options_status = WriteOptionsFile(
+        true /*need_mutex_lock*/, true /*need_enter_write_thread*/);
+    if (s.ok() && !persist_options_status.ok()) {
+      s = persist_options_status;
+    }
+  }
+  return s;
+}
+
+Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
   if (cfd->GetID() == 0) {
@@ -1223,7 +1300,6 @@ Status DBImpl::DropColumnFamily(ColumnFamilyHandle* column_family) {
   edit.SetColumnFamily(cfd->GetID());
 
   Status s;
-  Status options_persist_status;
   {
     InstrumentedMutexLock l(&mutex_);
     if (cfd->IsDropped()) {
@@ -1235,11 +1311,6 @@ Status DBImpl::DropColumnFamily(ColumnFamilyHandle* column_family) {
       write_thread_.EnterUnbatched(&w, &mutex_);
       s = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
                                  &edit, &mutex_);
-      if (s.ok()) {
-        // If the column family was dropped successfully, we then persist
-        // the updated RocksDB options under the same single write thread
-        options_persist_status = WriteOptionsFile();
-      }
       write_thread_.ExitUnbatched(&w);
     }
 
@@ -1268,18 +1339,6 @@ Status DBImpl::DropColumnFamily(ColumnFamilyHandle* column_family) {
                                   mutable_cf_options->max_write_buffer_number;
     ROCKS_LOG_INFO(immutable_db_options_.info_log,
                    "Dropped column family with id %u\n", cfd->GetID());
-
-    if (!options_persist_status.ok()) {
-      if (immutable_db_options_.fail_if_options_file_error) {
-        s = Status::IOError(
-            "ColumnFamily has been dropped, but unable to persist "
-            "options in DropColumnFamily()",
-            options_persist_status.ToString().c_str());
-      }
-      ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                     "Unable to persist options in DropColumnFamily() -- %s",
-                     options_persist_status.ToString().c_str());
-    }
   } else {
     ROCKS_LOG_ERROR(immutable_db_options_.info_log,
                     "Dropping column family with id %u FAILED -- %s\n",
@@ -1513,6 +1572,14 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
     snapshots_.Delete(casted_s);
   }
   delete casted_s;
+}
+
+bool DBImpl::HasActiveSnapshotLaterThanSN(SequenceNumber sn) {
+  InstrumentedMutexLock l(&mutex_);
+  if (snapshots_.empty()) {
+    return false;
+  }
+  return (snapshots_.newest()->GetSequenceNumber() > sn);
 }
 
 #ifndef ROCKSDB_LITE
@@ -1751,6 +1818,20 @@ void DBImpl::ReturnAndCleanupSuperVersion(uint32_t column_family_id,
 // mutex is held.
 ColumnFamilyHandle* DBImpl::GetColumnFamilyHandle(uint32_t column_family_id) {
   ColumnFamilyMemTables* cf_memtables = column_family_memtables_.get();
+
+  if (!cf_memtables->Seek(column_family_id)) {
+    return nullptr;
+  }
+
+  return cf_memtables->GetColumnFamilyHandle();
+}
+
+// REQUIRED: mutex is NOT held.
+ColumnFamilyHandle* DBImpl::GetColumnFamilyHandleUnlocked(
+    uint32_t column_family_id) {
+  ColumnFamilyMemTables* cf_memtables = column_family_memtables_.get();
+
+  InstrumentedMutexLock l(&mutex_);
 
   if (!cf_memtables->Seek(column_family_id)) {
     return nullptr;
@@ -2107,9 +2188,29 @@ Status DB::CreateColumnFamily(const ColumnFamilyOptions& cf_options,
                               ColumnFamilyHandle** handle) {
   return Status::NotSupported("");
 }
+
+Status DB::CreateColumnFamilies(
+    const ColumnFamilyOptions& cf_options,
+    const std::vector<std::string>& column_family_names,
+    std::vector<ColumnFamilyHandle*>* handles) {
+  return Status::NotSupported("");
+}
+
+Status DB::CreateColumnFamilies(
+    const std::vector<ColumnFamilyDescriptor>& column_families,
+    std::vector<ColumnFamilyHandle*>* handles) {
+  return Status::NotSupported("");
+}
+
 Status DB::DropColumnFamily(ColumnFamilyHandle* column_family) {
   return Status::NotSupported("");
 }
+
+Status DB::DropColumnFamilies(
+    const std::vector<ColumnFamilyHandle*>& column_families) {
+  return Status::NotSupported("");
+}
+
 Status DB::DestroyColumnFamilyHandle(ColumnFamilyHandle* column_family) {
   delete column_family;
   return Status::OK();
@@ -2216,9 +2317,18 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
   return result;
 }
 
-Status DBImpl::WriteOptionsFile() {
+Status DBImpl::WriteOptionsFile(bool need_mutex_lock,
+                                bool need_enter_write_thread) {
 #ifndef ROCKSDB_LITE
-  mutex_.AssertHeld();
+  WriteThread::Writer w;
+  if (need_mutex_lock) {
+    mutex_.Lock();
+  } else {
+    mutex_.AssertHeld();
+  }
+  if (need_enter_write_thread) {
+    write_thread_.EnterUnbatched(&w, &mutex_);
+  }
 
   std::vector<std::string> cf_names;
   std::vector<ColumnFamilyOptions> cf_opts;
@@ -2246,11 +2356,23 @@ Status DBImpl::WriteOptionsFile() {
   if (s.ok()) {
     s = RenameTempFileToOptionsFile(file_name);
   }
-  mutex_.Lock();
-  return s;
-#else
-  return Status::OK();
+  // restore lock
+  if (!need_mutex_lock) {
+    mutex_.Lock();
+  }
+  if (need_enter_write_thread) {
+    write_thread_.ExitUnbatched(&w);
+  }
+  if (!s.ok()) {
+    ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                   "Unnable to persist options -- %s", s.ToString().c_str());
+    if (immutable_db_options_.fail_if_options_file_error) {
+      return Status::IOError("Unable to persist options.",
+                             s.ToString().c_str());
+    }
+  }
 #endif  // !ROCKSDB_LITE
+  return Status::OK();
 }
 
 #ifndef ROCKSDB_LITE
@@ -2488,6 +2610,15 @@ Status DBImpl::IngestExternalFile(
   Status status;
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
+
+  // Ingest should immediately fail if ingest_behind is requested,
+  // but the DB doesn't support it.
+  if (ingestion_options.ingest_behind) {
+    if (!immutable_db_options_.allow_ingest_behind) {
+      return Status::InvalidArgument(
+        "Can't ingest_behind file in DB with allow_ingest_behind=false");
+    }
+  }
 
   ExternalSstFileIngestionJob ingestion_job(env_, versions_.get(), cfd,
                                             immutable_db_options_, env_options_,

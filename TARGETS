@@ -9,6 +9,9 @@ rocksdb_compiler_flags = [
   "-DROCKSDB_LIB_IO_POSIX",
   "-DROCKSDB_FALLOCATE_PRESENT",
   "-DROCKSDB_MALLOC_USABLE_SIZE",
+  "-DROCKSDB_RANGESYNC_PRESENT",
+  "-DROCKSDB_SCHED_GETCPU_PRESENT",
+  "-DROCKSDB_SUPPORT_THREAD_LOCAL",
   "-DOS_LINUX",
   # Flags to enable libs we include
   "-DSNAPPY",
@@ -43,7 +46,7 @@ rocksdb_preprocessor_flags = [
 
 cpp_library(
     name = "rocksdb_lib",
-    headers = AutoHeaders.RECURSIVE_GLOB,
+    auto_headers = AutoHeaders.RECURSIVE_GLOB,
     srcs = [
       "cache/clock_cache.cc",
       "cache/lru_cache.cc",
@@ -195,10 +198,17 @@ cpp_library(
       "util/xxhash.cc",
       "utilities/backupable/backupable_db.cc",
       "utilities/blob_db/blob_db.cc",
+      "utilities/blob_db/blob_db_impl.cc",
+      "utilities/blob_db/blob_db_options_impl.cc",
+      "utilities/blob_db/blob_file.cc",
+      "utilities/blob_db/blob_log_reader.cc",
+      "utilities/blob_db/blob_log_writer.cc",
+      "utilities/blob_db/blob_log_format.cc",
       "utilities/checkpoint/checkpoint_impl.cc",
       "utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc",
       "utilities/convenience/info_log_finder.cc",
       "utilities/date_tiered/date_tiered_db_impl.cc",
+      "utilities/debug.cc",
       "utilities/document/document_db.cc",
       "utilities/document/json_document.cc",
       "utilities/document/json_document_builder.cc",
@@ -238,6 +248,7 @@ cpp_library(
       "tools/ldb_cmd.cc",
       "tools/ldb_tool.cc",
       "tools/sst_dump_tool.cc",
+      "utilities/blob_db/blob_dump_tool.cc",
     ],
     deps = [],
     preprocessor_flags = rocksdb_preprocessor_flags,
@@ -247,7 +258,7 @@ cpp_library(
 
 cpp_library(
     name = "rocksdb_test_lib",
-    headers = AutoHeaders.RECURSIVE_GLOB,
+    auto_headers = AutoHeaders.RECURSIVE_GLOB,
     srcs = [
       "env/mock_env.cc",
       "table/mock_table.cc",
@@ -267,7 +278,7 @@ cpp_library(
 
 cpp_library(
     name = "rocksdb_tools_lib",
-    headers = AutoHeaders.RECURSIVE_GLOB,
+    auto_headers = AutoHeaders.RECURSIVE_GLOB,
     srcs = [
       "tools/db_bench_tool.cc",
       "util/testutil.cc",
@@ -280,7 +291,7 @@ cpp_library(
 
 cpp_library(
     name = "env_basic_test_lib",
-    headers = AutoHeaders.RECURSIVE_GLOB,
+    auto_headers = AutoHeaders.RECURSIVE_GLOB,
     srcs = ["env/env_basic_test.cc"],
     deps = [":rocksdb_test_lib"],
     preprocessor_flags = rocksdb_preprocessor_flags,
@@ -293,7 +304,7 @@ ROCKS_TESTS = [['merger_test', 'table/merger_test.cc', 'serial'],
  ['cache_test', 'cache/cache_test.cc', 'serial'],
  ['options_file_test', 'db/options_file_test.cc', 'serial'],
  ['compaction_picker_test', 'db/compaction_picker_test.cc', 'serial'],
- ['corruption_test', 'db/corruption_test.cc', 'serial'],
+ ['db_log_iter_test', 'db/db_log_iter_test.cc', 'serial'],
  ['thread_list_test', 'util/thread_list_test.cc', 'serial'],
  ['table_properties_collector_test',
   'db/table_properties_collector_test.cc',
@@ -319,7 +330,6 @@ ROCKS_TESTS = [['merger_test', 'table/merger_test.cc', 'serial'],
  ['compact_files_test', 'db/compact_files_test.cc', 'serial'],
  ['db_options_test', 'db/db_options_test.cc', 'serial'],
  ['object_registry_test', 'utilities/object_registry_test.cc', 'serial'],
- ['blob_db_test', 'utilities/blob_db/blob_db_test.cc', 'serial'],
  ['auto_roll_logger_test', 'util/auto_roll_logger_test.cc', 'serial'],
  ['dbformat_test', 'db/dbformat_test.cc', 'serial'],
  ['write_batch_with_index_test',
@@ -397,6 +407,7 @@ ROCKS_TESTS = [['merger_test', 'table/merger_test.cc', 'serial'],
  ['ttl_test', 'utilities/ttl/ttl_test.cc', 'serial'],
  ['merge_helper_test', 'db/merge_helper_test.cc', 'serial'],
  ['file_indexer_test', 'db/file_indexer_test.cc', 'serial'],
+ ['db_statistics_test', 'db/db_statistics_test.cc', 'serial'],
  ['memory_test', 'utilities/memory/memory_test.cc', 'serial'],
  ['log_test', 'db/log_test.cc', 'serial'],
  ['env_timed_test', 'utilities/env_timed_test.cc', 'serial'],
@@ -420,12 +431,13 @@ ROCKS_TESTS = [['merger_test', 'table/merger_test.cc', 'serial'],
  ['delete_scheduler_test', 'util/delete_scheduler_test.cc', 'serial'],
  ['transaction_test', 'utilities/transactions/transaction_test.cc', 'serial'],
  ['db_io_failure_test', 'db/db_io_failure_test.cc', 'serial'],
- ['db_log_iter_test', 'db/db_log_iter_test.cc', 'serial'],
+ ['corruption_test', 'db/corruption_test.cc', 'serial'],
  ['compact_on_deletion_collector_test',
   'utilities/table_properties_collectors/compact_on_deletion_collector_test.cc',
   'serial'],
  ['env_test', 'env/env_test.cc', 'serial'],
  ['db_wal_test', 'db/db_wal_test.cc', 'parallel'],
+ ['timer_queue_test', 'util/timer_queue_test.cc', 'serial'],
  ['sim_cache_test', 'utilities/simulator_cache/sim_cache_test.cc', 'serial'],
  ['db_memtable_test', 'db/db_memtable_test.cc', 'serial'],
  ['db_universal_compaction_test',
@@ -444,8 +456,7 @@ ROCKS_TESTS = [['merger_test', 'table/merger_test.cc', 'serial'],
  ['version_edit_test', 'db/version_edit_test.cc', 'serial'],
  ['skiplist_test', 'memtable/skiplist_test.cc', 'serial'],
  ['lru_cache_test', 'cache/lru_cache_test.cc', 'serial'],
- ['plain_table_db_test', 'db/plain_table_db_test.cc', 'serial'],
- ['db_statistics_test', 'db/db_statistics_test.cc', 'serial']]
+ ['plain_table_db_test', 'db/plain_table_db_test.cc', 'serial']]
 
 
 # Generate a test rule for each entry in ROCKS_TESTS

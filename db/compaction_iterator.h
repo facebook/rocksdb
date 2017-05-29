@@ -4,6 +4,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 #pragma once
 
 #include <algorithm>
@@ -16,6 +18,7 @@
 #include "db/merge_helper.h"
 #include "db/pinned_iterators_manager.h"
 #include "db/range_del_aggregator.h"
+#include "options/cf_options.h"
 #include "rocksdb/compaction_filter.h"
 
 namespace rocksdb {
@@ -45,6 +48,9 @@ class CompactionIterator {
     virtual int number_levels() const { return compaction_->number_levels(); }
     virtual Slice GetLargestUserKey() const {
       return compaction_->GetLargestUserKey();
+    }
+    virtual bool allow_ingest_behind() const {
+      return compaction_->immutable_cf_options()->allow_ingest_behind;
     }
 
    protected:

@@ -34,7 +34,7 @@ namespace rocksdb {
 //   - "optimize_filters_for_hits=true" in GetColumnFamilyOptionsFromString.
 //
 // * Integers:
-//   Integers are converted directly from string, in addtion to the following
+//   Integers are converted directly from string, in addition to the following
 //   units that we support:
 //   - 'k' or 'K' => 2^10
 //   - 'm' or 'M' => 2^20

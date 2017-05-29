@@ -277,6 +277,9 @@ class SpecialEnv : public EnvWrapper {
       bool use_direct_io() const override {
         return base_->use_direct_io();
       }
+      Status Allocate(uint64_t offset, uint64_t len) override {
+        return base_->Allocate(offset, len);
+      }
     };
     class ManifestFile : public WritableFile {
      public:
@@ -583,6 +586,28 @@ class OnFileDeletionListener : public EventListener {
 };
 #endif
 
+// A test merge operator mimics put but also fails if one of merge operands is
+// "corrupted".
+class TestPutOperator : public MergeOperator {
+ public:
+  virtual bool FullMergeV2(const MergeOperationInput& merge_in,
+                           MergeOperationOutput* merge_out) const override {
+    if (merge_in.existing_value != nullptr &&
+        *(merge_in.existing_value) == "corrupted") {
+      return false;
+    }
+    for (auto value : merge_in.operand_list) {
+      if (value == "corrupted") {
+        return false;
+      }
+    }
+    merge_out->existing_operand = merge_in.operand_list.back();
+    return true;
+  }
+
+  virtual const char* Name() const override { return "TestPutOperator"; }
+};
+
 class DBTestBase : public testing::Test {
  protected:
   // Sequence of option configurations to try
@@ -617,12 +642,13 @@ class DBTestBase : public testing::Test {
     kRowCache = 27,
     kRecycleLogFiles = 28,
     kConcurrentSkipList = 29,
-    kEnd = 30,
-    kLevelSubcompactions = 31,
-    kUniversalSubcompactions = 32,
-    kBlockBasedTableWithIndexRestartInterval = 33,
-    kBlockBasedTableWithPartitionedIndex = 34,
-    kPartitionedFilterWithNewTableReaderForCompactions = 35,
+    kDirectIO = 30,
+    kEnd = 31,
+    kLevelSubcompactions = 32,
+    kUniversalSubcompactions = 33,
+    kBlockBasedTableWithIndexRestartInterval = 34,
+    kBlockBasedTableWithPartitionedIndex = 35,
+    kPartitionedFilterWithNewTableReaderForCompactions = 36,
   };
   int option_config_;
 

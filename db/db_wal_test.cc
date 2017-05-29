@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -181,11 +183,7 @@ TEST_F(DBWALTest, RecoverWithTableHandle) {
     ASSERT_EQ(total_files, 3);
     for (const auto& level : files) {
       for (const auto& file : level) {
-        if (kInfiniteMaxOpenFiles == option_config_) {
-          ASSERT_TRUE(file.table_reader_handle != nullptr);
-        } else {
-          ASSERT_TRUE(file.table_reader_handle == nullptr);
-        }
+        ASSERT_TRUE(file.table_reader_handle != nullptr);
       }
     }
   } while (ChangeWalOptions());

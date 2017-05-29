@@ -106,29 +106,56 @@ if(NOT WIN32)
   string(STRIP "${ROCKSDB_VERSION_MAJOR}" ROCKSDB_VERSION_MAJOR)
 endif()
 
-if(WIN32)
-  option(WITH_AVX2 "build with AVX2" ON)
-  if(WITH_AVX2)
-    if(MSVC)
-      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:AVX2")
-    else()
-      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx2")
-    endif()
+option(WITH_MD_LIBRARY "build with MD" ON)
+if(WIN32 AND MSVC)
+  if(WITH_MD_LIBRARY)
+    set(RUNTIME_LIBRARY "MD")
+  else()
+    set(RUNTIME_LIBRARY "MT")
   endif()
+endif()
 
-  option(WITH_MD_LIBRARY "build with MD" ON)
-  if(MSVC)
-    if(WITH_MD_LIBRARY)
-      set(RUNTIME_LIBRARY "MD")
-    else()
-      set(RUNTIME_LIBRARY "MT")
-    endif()
-  endif()
-else()
-  option(WITH_SSE42 "build with SSE4.2" ON)
-  if(WITH_SSE42)
+option(PORTABLE "build a portable binary" OFF)
+option(FORCE_SSE42 "force building with SSE4.2, even when PORTABLE=ON" OFF)
+if(PORTABLE)
+  # MSVC does not need a separate compiler flag to enable SSE4.2; if nmmintrin.h
+  # is available, it is available by default.
+  if(FORCE_SSE42 AND NOT MSVC)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -msse4.2")
   endif()
+else()
+  if(MSVC)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:AVX2")
+  else()
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native")
+  endif()
+endif()
+
+set(CMAKE_REQUIRED_FLAGS ${CMAKE_CXX_FLAGS})
+include(CheckCXXSourceCompiles)
+CHECK_CXX_SOURCE_COMPILES("
+#include <cstdint>
+#include <nmmintrin.h>
+int main() {
+  volatile uint32_t x = _mm_crc32_u32(0, 0);
+}
+" HAVE_SSE42)
+if(HAVE_SSE42)
+  add_definitions(-DHAVE_SSE42)
+elseif(FORCE_SSE42)
+  message(FATAL_ERROR "FORCE_SSE42=ON but unable to compile with SSE4.2 enabled")
+endif()
+
+CHECK_CXX_SOURCE_COMPILES("
+#if defined(_MSC_VER) && !defined(__thread)
+#define __thread __declspec(thread)
+#endif
+int main() {
+  static __thread int tls;
+}
+" HAVE_THREAD_LOCAL)
+if(HAVE_THREAD_LOCAL)
+  add_definitions(-DROCKSDB_SUPPORT_THREAD_LOCAL)
 endif()
 
 set(BUILD_VERSION_CC ${CMAKE_BINARY_DIR}/build_version.cc)
@@ -147,6 +174,7 @@ else()
   endif()
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
   if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
+    add_definitions(-DNDEBUG)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2 -fno-omit-frame-pointer")
     include(CheckCXXCompilerFlag)
     CHECK_CXX_COMPILER_FLAG("-momit-leaf-frame-pointer" HAVE_OMIT_LEAF_FRAME_POINTER)
@@ -446,12 +474,19 @@ set(SOURCES
         util/xxhash.cc
         utilities/backupable/backupable_db.cc
         utilities/blob_db/blob_db.cc
+        utilities/blob_db/blob_db_impl.cc
+        utilities/blob_db/blob_db_options_impl.cc
+        utilities/blob_db/blob_file.cc
+        utilities/blob_db/blob_log_reader.cc
+        utilities/blob_db/blob_log_writer.cc
+        utilities/blob_db/blob_log_format.cc
         utilities/checkpoint/checkpoint_impl.cc
         utilities/col_buf_decoder.cc
         utilities/col_buf_encoder.cc
         utilities/column_aware_encoding_util.cc
         utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc
         utilities/date_tiered/date_tiered_db_impl.cc
+        utilities/debug.cc
         utilities/document/document_db.cc
         utilities/document/json_document.cc
         utilities/document/json_document_builder.cc
@@ -506,16 +541,14 @@ else()
     env/io_posix.cc)
 endif()
 
+set(ROCKSDB_STATIC_LIB rocksdb${ARTIFACT_SUFFIX})
+set(ROCKSDB_SHARED_LIB rocksdb-shared${ARTIFACT_SUFFIX})
+set(ROCKSDB_IMPORT_LIB ${ROCKSDB_SHARED_LIB})
 if(WIN32)
   set(SYSTEM_LIBS ${SYSTEM_LIBS} Shlwapi.lib Rpcrt4.lib)
-  set(ROCKSDB_STATIC_LIB rocksdblib${ARTIFACT_SUFFIX})
-  set(ROCKSDB_IMPORT_LIB rocksdb${ARTIFACT_SUFFIX})
   set(LIBS ${ROCKSDB_STATIC_LIB} ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
 else()
-  set(SYSTEM_LIBS ${CMAKE_THREAD_LIBS_INIT} rt)
-  set(ROCKSDB_STATIC_LIB rocksdb${ARTIFACT_SUFFIX})
-  set(ROCKSDB_SHARED_LIB rocksdb-shared)
-  set(ROCKSDB_IMPORT_LIB ${ROCKSDB_SHARED_LIB})
+  set(SYSTEM_LIBS ${CMAKE_THREAD_LIBS_INIT})
   set(LIBS ${ROCKSDB_SHARED_LIB} ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
 
   add_library(${ROCKSDB_SHARED_LIB} SHARED ${SOURCES})
@@ -660,10 +693,10 @@ set(TESTS
         util/heap_test.cc
         util/rate_limiter_test.cc
         util/slice_transform_test.cc
+        util/timer_queue_test.cc
         util/thread_list_test.cc
         util/thread_local_test.cc
         utilities/backupable/backupable_db_test.cc
-        utilities/blob_db/blob_db_test.cc
         utilities/checkpoint/checkpoint_test.cc
         utilities/column_aware_encoding_test.cc
         utilities/date_tiered/date_tiered_test.cc

@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 #include <stdio.h>
 #include <algorithm>
@@ -226,18 +228,17 @@ class BlockReadAmpBitmapSlowAndAccurate {
  public:
   void Mark(size_t start_offset, size_t end_offset) {
     assert(end_offset >= start_offset);
-
     marked_ranges_.emplace(end_offset, start_offset);
   }
 
   // Return true if any byte in this range was Marked
-  bool IsAnyInRangeMarked(size_t start_offset, size_t end_offset) {
+  bool IsPinMarked(size_t offset) {
     auto it = marked_ranges_.lower_bound(
-        std::make_pair(start_offset, static_cast<size_t>(0)));
+        std::make_pair(offset, static_cast<size_t>(0)));
     if (it == marked_ranges_.end()) {
       return false;
     }
-    return start_offset <= it->first && end_offset >= it->second;
+    return offset <= it->first && offset >= it->second;
   }
 
  private:
@@ -245,6 +246,12 @@ class BlockReadAmpBitmapSlowAndAccurate {
 };
 
 TEST_F(BlockTest, BlockReadAmpBitmap) {
+  uint32_t pin_offset = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+    "BlockReadAmpBitmap:rnd", [&pin_offset](void* arg) {
+      pin_offset = *(static_cast<uint32_t*>(arg));
+    });
+  SyncPoint::GetInstance()->EnableProcessing();
   std::vector<size_t> block_sizes = {
       1,                 // 1 byte
       32,                // 32 bytes
@@ -277,10 +284,8 @@ TEST_F(BlockTest, BlockReadAmpBitmap) {
     if (needed_bits % 32 != 0) {
       bitmap_size++;
     }
-    size_t bits_in_bitmap = bitmap_size * 32;
 
-    ASSERT_EQ(stats->getTickerCount(READ_AMP_TOTAL_READ_BYTES),
-              needed_bits * kBytesPerBit);
+    ASSERT_EQ(stats->getTickerCount(READ_AMP_TOTAL_READ_BYTES), block_size);
 
     // Generate some random entries
     std::vector<size_t> random_entry_offsets;
@@ -314,20 +319,18 @@ TEST_F(BlockTest, BlockReadAmpBitmap) {
                                       current_entry.second);
 
       size_t total_bits = 0;
-      for (size_t bit_idx = 0; bit_idx < bits_in_bitmap; bit_idx++) {
-        size_t start_rng = bit_idx * kBytesPerBit;
-        size_t end_rng = (start_rng + kBytesPerBit) - 1;
-
-        total_bits +=
-            read_amp_slow_and_accurate.IsAnyInRangeMarked(start_rng, end_rng);
+      for (size_t bit_idx = 0; bit_idx < needed_bits; bit_idx++) {
+        total_bits += read_amp_slow_and_accurate.IsPinMarked(
+          bit_idx * kBytesPerBit + pin_offset);
       }
       size_t expected_estimate_useful = total_bits * kBytesPerBit;
       size_t got_estimate_useful =
-          stats->getTickerCount(READ_AMP_ESTIMATE_USEFUL_BYTES);
-
+        stats->getTickerCount(READ_AMP_ESTIMATE_USEFUL_BYTES);
       ASSERT_EQ(expected_estimate_useful, got_estimate_useful);
     }
   }
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 TEST_F(BlockTest, BlockWithReadAmpBitmap) {

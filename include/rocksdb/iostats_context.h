@@ -46,12 +46,13 @@ struct IOStatsContext {
   uint64_t logger_nanos;
 };
 
-#ifndef IOS_CROSS_COMPILE
-# ifdef _MSC_VER
-extern __declspec(thread) IOStatsContext iostats_context;
-# else
-extern __thread IOStatsContext iostats_context;
-# endif
-#endif  // IOS_CROSS_COMPILE
+#ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
+  #if defined(_MSC_VER) && !defined(__thread)
+    // Thread local storage on Linux
+    // There is thread_local in C++11
+    #define __thread __declspec(thread)
+  #endif
+  extern __thread IOStatsContext iostats_context;
+#endif
 
 }  // namespace rocksdb

@@ -2,12 +2,14 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 #pragma once
 #include "monitoring/perf_step_timer.h"
 #include "rocksdb/iostats_context.h"
 
-#ifndef IOS_CROSS_COMPILE
+#ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
 
 // increment a specific counter by the specified value
 #define IOSTATS_ADD(metric, value)     \
@@ -39,7 +41,7 @@
   PerfStepTimer iostats_step_timer_ ## metric(&(iostats_context.metric));  \
   iostats_step_timer_ ## metric.Start();
 
-#else  // IOS_CROSS_COMPILE
+#else  // ROCKSDB_SUPPORT_THREAD_LOCAL
 
 #define IOSTATS_ADD(metric, value)
 #define IOSTATS_ADD_IF_POSITIVE(metric, value)
@@ -51,4 +53,4 @@
 
 #define IOSTATS_TIMER_GUARD(metric)
 
-#endif  // IOS_CROSS_COMPILE
+#endif  // ROCKSDB_SUPPORT_THREAD_LOCAL

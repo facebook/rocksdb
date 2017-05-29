@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright 2014 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -256,13 +258,15 @@ __attribute__((__no_sanitize_undefined__))
 
   void CloseDB() {
     delete db_;
-    db_ = NULL;
+    db_ = nullptr;
   }
 
   Status OpenDB() {
     CloseDB();
     env_->ResetState();
-    return DB::Open(options_, dbname_, &db_);
+    Status s = DB::Open(options_, dbname_, &db_);
+    assert(db_ != nullptr);
+    return s;
   }
 
   void DeleteAllData() {

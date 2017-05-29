@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #include "util/sync_point.h"
 #include <functional>
@@ -87,6 +89,14 @@ void SyncPoint::SetCallBack(const std::string point,
                             std::function<void(void*)> callback) {
   std::unique_lock<std::mutex> lock(mutex_);
   callbacks_[point] = callback;
+}
+
+void SyncPoint::ClearCallBack(const std::string point) {
+  std::unique_lock<std::mutex> lock(mutex_);
+  while (num_callbacks_running_ > 0) {
+    cv_.wait(lock);
+  }
+  callbacks_.erase(point);
 }
 
 void SyncPoint::ClearAllCallBacks() {

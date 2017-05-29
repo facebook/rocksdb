@@ -182,10 +182,14 @@ class Cache {
                                       bool thread_safe) = 0;
 
   // Remove all entries.
-  // Prerequisit: no entry is referenced.
+  // Prerequisite: no entry is referenced.
   virtual void EraseUnRefEntries() = 0;
 
   virtual std::string GetPrintableOptions() const { return ""; }
+
+  // Mark the last inserted object as being a raw data block. This will be used
+  // in tests. The default implementation does nothing.
+  virtual void TEST_mark_as_data_block(const Slice& key, size_t charge) {}
 
  private:
   // No copying allowed

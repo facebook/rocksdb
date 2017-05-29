@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -170,6 +172,12 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
       result.num_levels < 2) {
     result.num_levels = 2;
   }
+
+  if (result.compaction_style == kCompactionStyleUniversal &&
+      db_options.allow_ingest_behind && result.num_levels < 3) {
+    result.num_levels = 3;
+  }
+
   if (result.max_write_buffer_number < 2) {
     result.max_write_buffer_number = 2;
   }
@@ -196,7 +204,6 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
     result.num_levels = 1;
     // since we delete level0 files in FIFO compaction when there are too many
     // of them, these options don't really mean anything
-    result.level0_file_num_compaction_trigger = std::numeric_limits<int>::max();
     result.level0_slowdown_writes_trigger = std::numeric_limits<int>::max();
     result.level0_stop_writes_trigger = std::numeric_limits<int>::max();
   }
@@ -722,7 +729,7 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
               mutable_cf_options.level0_slowdown_writes_trigger)) {
         write_controller_token_ =
             write_controller->GetCompactionPressureToken();
-        ROCKS_LOG_WARN(
+        ROCKS_LOG_INFO(
             ioptions_.info_log,
             "[%s] Increasing compaction threads because we have %d level-0 "
             "files ",
@@ -736,7 +743,7 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
         write_controller_token_ =
             write_controller->GetCompactionPressureToken();
         if (mutable_cf_options.soft_pending_compaction_bytes_limit > 0) {
-          ROCKS_LOG_WARN(
+          ROCKS_LOG_INFO(
               ioptions_.info_log,
               "[%s] Increasing compaction threads because of estimated pending "
               "compaction "
@@ -777,7 +784,6 @@ uint64_t ColumnFamilyData::GetTotalSstFilesSize() const {
 
 MemTable* ColumnFamilyData::ConstructNewMemtable(
     const MutableCFOptions& mutable_cf_options, SequenceNumber earliest_seq) {
-  assert(current_ != nullptr);
   return new MemTable(internal_comparator_, ioptions_, mutable_cf_options,
                       write_buffer_manager_, earliest_seq);
 }

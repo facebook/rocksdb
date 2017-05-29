@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -30,7 +32,7 @@ bool IsPowerOfTwo(const size_t alignment) {
 }
 
 inline
-bool IsSectorAligned(const size_t off) { 
+bool IsSectorAligned(const size_t off) {
   return (off & (kSectorSize - 1)) == 0;
 }
 
@@ -192,11 +194,13 @@ WinMmapReadableFile::WinMmapReadableFile(const std::string& fileName,
       length_(length) {}
 
 WinMmapReadableFile::~WinMmapReadableFile() {
-  BOOL ret = ::UnmapViewOfFile(mapped_region_);
-  assert(ret);
-
-  ret = ::CloseHandle(hMap_);
-  assert(ret);
+#ifndef NDEBUG
+  assert(::UnmapViewOfFile(mapped_region_));
+  assert(::CloseHandle(hMap_));
+#else
+  ::UnmapViewOfFile(mapped_region_);
+  ::CloseHandle(hMap_);
+#endif
 }
 
 Status WinMmapReadableFile::Read(uint64_t offset, size_t n, Slice* result,
@@ -743,7 +747,9 @@ Status WinWritableImpl::AppendImpl(const Slice& data) {
 
   assert(data.size() < std::numeric_limits<DWORD>::max());
 
+#ifndef NDEBUG
   uint64_t written = 0;
+#endif
 
   if (file_data_->use_direct_io()) {
 
@@ -763,7 +769,9 @@ Status WinWritableImpl::AppendImpl(const Slice& data) {
         "Failed to pwrite for: " + file_data_->GetName(), lastError);
     }
     else {
+#ifndef NDEBUG
       written = ret;
+#endif
     }
 
   } else {
@@ -777,7 +785,9 @@ Status WinWritableImpl::AppendImpl(const Slice& data) {
         lastError);
     }
     else {
+#ifndef NDEBUG
       written = bytesWritten;
+#endif
     }
   }
 

@@ -37,6 +37,11 @@ static std::map<CompactionPri, std::string> compaction_pri_to_string = {
     {kOldestSmallestSeqFirst, "kOldestSmallestSeqFirst"},
     {kMinOverlappingRatio, "kMinOverlappingRatio"}};
 
+static std::map<CompactionStopStyle, std::string>
+    compaction_stop_style_to_string = {
+        {kCompactionStopStyleSimilarSize, "kCompactionStopStyleSimilarSize"},
+        {kCompactionStopStyleTotalSize, "kCompactionStopStyleTotalSize"}};
+
 #ifndef ROCKSDB_LITE
 
 Status GetMutableOptionsFromStrings(
@@ -218,6 +223,10 @@ static std::unordered_map<std::string, OptionTypeInfo> db_options_type_info = {
     {"use_fsync",
      {offsetof(struct DBOptions, use_fsync), OptionType::kBoolean,
       OptionVerificationType::kNormal, false, 0}},
+    {"max_background_jobs",
+     {offsetof(struct DBOptions, max_background_jobs), OptionType::kInt,
+      OptionVerificationType::kNormal, true,
+      offsetof(struct MutableDBOptions, max_background_jobs)}},
     {"max_background_compactions",
      {offsetof(struct DBOptions, max_background_compactions), OptionType::kInt,
       OptionVerificationType::kNormal, true,
@@ -234,7 +243,8 @@ static std::unordered_map<std::string, OptionTypeInfo> db_options_type_info = {
       OptionVerificationType::kNormal, false, 0}},
     {"max_open_files",
      {offsetof(struct DBOptions, max_open_files), OptionType::kInt,
-      OptionVerificationType::kNormal, false, 0}},
+      OptionVerificationType::kNormal, true,
+      offsetof(struct MutableDBOptions, max_open_files)}},
     {"table_cache_numshardbits",
      {offsetof(struct DBOptions, table_cache_numshardbits), OptionType::kInt,
       OptionVerificationType::kNormal, false, 0}},
@@ -299,6 +309,9 @@ static std::unordered_map<std::string, OptionTypeInfo> db_options_type_info = {
     {"fail_if_options_file_error",
      {offsetof(struct DBOptions, fail_if_options_file_error),
       OptionType::kBoolean, OptionVerificationType::kNormal, false, 0}},
+    {"enable_pipelined_write",
+     {offsetof(struct DBOptions, enable_pipelined_write), OptionType::kBoolean,
+      OptionVerificationType::kNormal, false, 0}},
     {"allow_concurrent_memtable_write",
      {offsetof(struct DBOptions, allow_concurrent_memtable_write),
       OptionType::kBoolean, OptionVerificationType::kNormal, false, 0}},
@@ -329,7 +342,11 @@ static std::unordered_map<std::string, OptionTypeInfo> db_options_type_info = {
     {"avoid_flush_during_shutdown",
      {offsetof(struct DBOptions, avoid_flush_during_shutdown),
       OptionType::kBoolean, OptionVerificationType::kNormal, true,
-      offsetof(struct MutableDBOptions, avoid_flush_during_shutdown)}}};
+      offsetof(struct MutableDBOptions, avoid_flush_during_shutdown)}},
+    {"allow_ingest_behind",
+     {offsetof(struct DBOptions, allow_ingest_behind),
+      OptionType::kBoolean, OptionVerificationType::kNormal, false,
+      offsetof(struct ImmutableDBOptions, allow_ingest_behind)}}};
 
 // offset_of is used to get the offset of a class data member
 // ex: offset_of(&ColumnFamilyOptions::num_levels)

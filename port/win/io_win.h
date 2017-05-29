@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -12,11 +14,11 @@
 #include <mutex>
 #include <string>
 
-#include "rocksdb/Status.h"
+#include "rocksdb/status.h"
 #include "rocksdb/env.h"
 #include "util/aligned_buffer.h"
 
-#include <Windows.h>
+#include <windows.h>
 
 
 namespace rocksdb {
@@ -75,8 +77,8 @@ class WinFileData {
  public:
   // We want this class be usable both for inheritance (prive
   // or protected) and for containment so __ctor and __dtor public
-  WinFileData(const std::string& filename, HANDLE hFile, bool use_direct_io)
-      : filename_(filename), hFile_(hFile), use_direct_io_(use_direct_io) {}
+  WinFileData(const std::string& filename, HANDLE hFile, bool direct_io)
+      : filename_(filename), hFile_(hFile), use_direct_io_(direct_io) {}
 
   virtual ~WinFileData() { this->CloseFile(); }
 

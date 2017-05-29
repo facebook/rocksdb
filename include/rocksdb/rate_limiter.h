@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -51,6 +53,8 @@ class RateLimiter {
   // Total # of requests that go though rate limiter
   virtual int64_t GetTotalRequests(
       const Env::IOPriority pri = Env::IO_TOTAL) const = 0;
+
+  virtual int64_t GetBytesPerSecond() const = 0;
 };
 
 // Create a RateLimiter object, which can be shared among RocksDB instances to
@@ -66,9 +70,9 @@ class RateLimiter {
 // The default should work for most cases.
 // @fairness: RateLimiter accepts high-pri requests and low-pri requests.
 // A low-pri request is usually blocked in favor of hi-pri request. Currently,
-// RocksDB assigns low-pri to request from compaciton and high-pri to request
+// RocksDB assigns low-pri to request from compaction and high-pri to request
 // from flush. Low-pri requests can get blocked if flush requests come in
-// continuouly. This fairness parameter grants low-pri requests permission by
+// continuously. This fairness parameter grants low-pri requests permission by
 // 1/fairness chance even though high-pri requests exist to avoid starvation.
 // You should be good by leaving it at default 10.
 extern RateLimiter* NewGenericRateLimiter(

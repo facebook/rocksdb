@@ -4,7 +4,7 @@
 // of patent rights can be found in the PATENTS file in the same directory.
 //
 // This file implements the "bridge" between Java and C++ and enables
-// calling c++ rocksdb::RestoreBackupableDB and rocksdb::RestoreOptions methods
+// calling C++ rocksdb::RestoreOptions methods
 // from Java side.
 
 #include <stdio.h>

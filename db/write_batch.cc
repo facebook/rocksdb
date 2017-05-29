@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -801,6 +803,17 @@ Status WriteBatch::RollbackToSavePoint() {
   return Status::OK();
 }
 
+Status WriteBatch::PopSavePoint() {
+  if (save_points_ == nullptr || save_points_->stack.size() == 0) {
+    return Status::NotFound();
+  }
+
+  // Pop the most recent savepoint off the stack
+  save_points_->stack.pop();
+
+  return Status::OK();
+}
+
 class MemTableInserter : public WriteBatch::Handler {
 
   SequenceNumber sequence_;
@@ -1277,16 +1290,17 @@ public:
 // 2) During Write(), in a single-threaded write thread
 // 3) During Write(), in a concurrent context where memtables has been cloned
 // The reason is that it calls memtables->Seek(), which has a stateful cache
-Status WriteBatchInternal::InsertInto(
-    const autovector<WriteThread::Writer*>& writers, SequenceNumber sequence,
-    ColumnFamilyMemTables* memtables, FlushScheduler* flush_scheduler,
-    bool ignore_missing_column_families, uint64_t recovery_log_number, DB* db,
-    bool concurrent_memtable_writes) {
+Status WriteBatchInternal::InsertInto(WriteThread::WriteGroup& write_group,
+                                      SequenceNumber sequence,
+                                      ColumnFamilyMemTables* memtables,
+                                      FlushScheduler* flush_scheduler,
+                                      bool ignore_missing_column_families,
+                                      uint64_t recovery_log_number, DB* db,
+                                      bool concurrent_memtable_writes) {
   MemTableInserter inserter(sequence, memtables, flush_scheduler,
                             ignore_missing_column_families, recovery_log_number,
                             db, concurrent_memtable_writes);
-  for (size_t i = 0; i < writers.size(); i++) {
-    auto w = writers[i];
+  for (auto w : write_group) {
     if (!w->ShouldWriteToMemtable()) {
       continue;
     }

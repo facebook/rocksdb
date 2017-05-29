@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -186,7 +188,12 @@ Status DBImpl::TEST_GetLatestMutableCFOptions(
 
 int DBImpl::TEST_BGCompactionsAllowed() const {
   InstrumentedMutexLock l(&mutex_);
-  return BGCompactionsAllowed();
+  return GetBGJobLimits().max_compactions;
+}
+
+int DBImpl::TEST_BGFlushesAllowed() const {
+  InstrumentedMutexLock l(&mutex_);
+  return GetBGJobLimits().max_flushes;
 }
 
 }  // namespace rocksdb

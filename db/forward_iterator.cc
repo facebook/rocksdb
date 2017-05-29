@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #ifndef ROCKSDB_LITE
 #include "db/forward_iterator.h"
@@ -73,7 +75,8 @@ class LevelIterator : public InternalIterator {
         cfd_->internal_comparator(), {} /* snapshots */);
     file_iter_ = cfd_->table_cache()->NewIterator(
         read_options_, *(cfd_->soptions()), cfd_->internal_comparator(),
-        files_[file_index_]->fd, read_options_.ignore_range_deletions ? nullptr : &range_del_agg,
+        files_[file_index_]->fd,
+        read_options_.ignore_range_deletions ? nullptr : &range_del_agg,
         nullptr /* table_reader_ptr */, nullptr, false);
     file_iter_->SetPinnedItersMgr(pinned_iters_mgr_);
     if (!range_del_agg.IsEmpty()) {

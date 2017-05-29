@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #ifndef ROCKSDB_LITE
 
@@ -828,6 +830,10 @@ Status WriteBatchWithIndex::RollbackToSavePoint() {
   }
 
   return s;
+}
+
+Status WriteBatchWithIndex::PopSavePoint() {
+  return rep->write_batch.PopSavePoint();
 }
 
 void WriteBatchWithIndex::SetMaxBytes(size_t max_bytes) {

@@ -69,6 +69,8 @@ enum class CompactionReason {
   kUniversalSortedRunNum,
   // [FIFO] total size > max_table_files_size
   kFIFOMaxSize,
+  // [FIFO] reduce number of files.
+  kFIFOReduceNumFiles,
   // Manual compaction
   kManualCompaction,
   // DB::SuggestCompactRange() marked files for compaction

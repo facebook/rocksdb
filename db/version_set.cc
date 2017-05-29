@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -134,8 +136,8 @@ class FilePicker {
 
         // Do key range filtering of files or/and fractional cascading if:
         // (1) not all the files are in level 0, or
-        // (2) there are more than 3 Level 0 files
-        // If there are only 3 or less level 0 files in the system, we skip
+        // (2) there are more than 3 current level files
+        // If there are only 3 or less current level files in the system, we skip
         // the key range filtering. In this case, more likely, the system is
         // highly tuned to minimize number of tables queried by each query,
         // so it is unlikely that key range filtering is more efficient than
@@ -524,6 +526,13 @@ class LevelFileIteratorState : public TwoLevelIteratorState {
 
   bool PrefixMayMatch(const Slice& internal_key) override {
     return true;
+  }
+
+  bool KeyReachedUpperBound(const Slice& internal_key) override {
+    return read_options_.iterate_upper_bound != nullptr &&
+           icomparator_.user_comparator()->Compare(
+               ExtractUserKey(internal_key),
+               *read_options_.iterate_upper_bound) >= 0;
   }
 
  private:
@@ -1119,8 +1128,11 @@ void Version::UpdateAccumulatedStats(bool update_stats) {
           storage_info_.UpdateAccumulatedStats(file_meta);
           // when option "max_open_files" is -1, all the file metadata has
           // already been read, so MaybeInitializeFileMetaData() won't incur
-          // any I/O cost.
-          if (vset_->db_options_->max_open_files == -1) {
+          // any I/O cost. "max_open_files=-1" means that the table cache passed
+          // to the VersionSet and then to the ColumnFamilySet has a size of
+          // TableCache::kInfiniteCapacity
+          if (vset_->GetColumnFamilySet()->get_table_cache()->GetCapacity() ==
+              TableCache::kInfiniteCapacity) {
             continue;
           }
           if (++init_count >= kMaxInitCount) {
@@ -1307,6 +1319,13 @@ void VersionStorageInfo::ComputeCompactionScore(
         score =
             static_cast<double>(total_size) /
             immutable_cf_options.compaction_options_fifo.max_table_files_size;
+        if (immutable_cf_options.compaction_options_fifo.allow_compaction) {
+          score = std::max(
+              static_cast<double>(num_sorted_runs) /
+                  mutable_cf_options.level0_file_num_compaction_trigger,
+              score);
+        }
+
       } else {
         score = static_cast<double>(num_sorted_runs) /
                 mutable_cf_options.level0_file_num_compaction_trigger;
@@ -2108,7 +2127,11 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableCFOptions& ioptions,
           level_size = MultiplyCheckOverflow(
               level_size, options.max_bytes_for_level_multiplier);
         }
-        level_max_bytes_[i] = level_size;
+        // Don't set any level below base_bytes_max. Otherwise, the LSM can
+        // assume an hourglass shape where L1+ sizes are smaller than L0. This
+        // causes compaction scoring, which depends on level sizes, to favor L1+
+        // at the expense of L0, which may fill up and stall.
+        level_max_bytes_[i] = std::max(level_size, base_bytes_max);
       }
     }
   }
@@ -2377,14 +2400,13 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
     mu->Unlock();
 
     TEST_SYNC_POINT("VersionSet::LogAndApply:WriteManifest");
-    if (!w.edit_list.front()->IsColumnFamilyManipulation() &&
-        db_options_->max_open_files == -1) {
+    if (!w.edit_list.front()->IsColumnFamilyManipulation()) {
       // unlimited table cache. Pre-load table handle now.
       // Need to do it out of the mutex.
       builder_guard->version_builder()->LoadTableHandlers(
           column_family_data->internal_stats(),
-          db_options_->max_open_files,
           column_family_data->ioptions()->optimize_filters_for_hits,
+          this->GetColumnFamilySet()->get_table_cache()->GetCapacity(),
           true /* prefetch_index_and_filter_in_cache */);
     }
 
@@ -2614,7 +2636,7 @@ Status VersionSet::Recover(
   {
     unique_ptr<SequentialFile> manifest_file;
     s = env_->NewSequentialFile(manifest_filename, &manifest_file,
-                                env_options_);
+                                env_->OptimizeForManifestRead(env_options_));
     if (!s.ok()) {
       return s;
     }
@@ -2825,11 +2847,11 @@ Status VersionSet::Recover(
       assert(builders_iter != builders.end());
       auto* builder = builders_iter->second->version_builder();
 
-      // Pre-load as-many table handle as possible for now.
+      // unlimited table cache. Pre-load table handle now.
       // Need to do it out of the mutex.
       builder->LoadTableHandlers(
           cfd->internal_stats(), db_options_->max_file_opening_threads,
-          db_options_->max_open_files,
+          GetColumnFamilySet()->get_table_cache()->GetCapacity(),
           false /* prefetch_index_and_filter_in_cache */);
 
       Version* v = new Version(cfd, this, current_version_number_++);
@@ -3039,7 +3061,8 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
   Status s;
   {
     unique_ptr<SequentialFile> file;
-    s = options.env->NewSequentialFile(dscname, &file, env_options_);
+    s = options.env->NewSequentialFile(
+        dscname, &file, env_->OptimizeForManifestRead(env_options_));
     if (!s.ok()) {
       return s;
     }

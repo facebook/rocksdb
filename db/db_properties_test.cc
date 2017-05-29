@@ -376,11 +376,12 @@ TEST_F(DBPropertiesTest, ReadLatencyHistogramByLevel) {
   ASSERT_NE(std::string::npos, prop.find("** Level 1 read latency histogram"));
   ASSERT_EQ(std::string::npos, prop.find("** Level 2 read latency histogram"));
 
-  // Reopen and issue iterating. See thee latency tracked
+  // Reopen and issue iterating. See thee latency tracked.
+  // Data is preloaded to L0/L1 at cf open time.
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
   ASSERT_TRUE(dbfull()->GetProperty("rocksdb.cf-file-histogram", &prop));
-  ASSERT_EQ(std::string::npos, prop.find("** Level 0 read latency histogram"));
-  ASSERT_EQ(std::string::npos, prop.find("** Level 1 read latency histogram"));
+  ASSERT_NE(std::string::npos, prop.find("** Level 0 read latency histogram"));
+  ASSERT_NE(std::string::npos, prop.find("** Level 1 read latency histogram"));
   ASSERT_EQ(std::string::npos, prop.find("** Level 2 read latency histogram"));
   {
     unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
@@ -940,7 +941,6 @@ TEST_F(DBPropertiesTest, EstimateCompressionRatio) {
   Options options = CurrentOptions();
   options.compression_per_level = {kNoCompression, kSnappyCompression};
   options.disable_auto_compactions = true;
-  options.max_background_flushes = 0;
   options.num_levels = 2;
   Reopen(options);
 
@@ -1068,7 +1068,6 @@ class CountingDeleteTabPropCollectorFactory
 TEST_F(DBPropertiesTest, GetUserDefinedTableProperties) {
   Options options = CurrentOptions();
   options.level0_file_num_compaction_trigger = (1 << 30);
-  options.max_background_flushes = 0;
   options.table_properties_collector_factories.resize(1);
   std::shared_ptr<CountingUserTblPropCollectorFactory> collector_factory =
       std::make_shared<CountingUserTblPropCollectorFactory>(0);
@@ -1109,7 +1108,6 @@ TEST_F(DBPropertiesTest, GetUserDefinedTableProperties) {
 TEST_F(DBPropertiesTest, UserDefinedTablePropertiesContext) {
   Options options = CurrentOptions();
   options.level0_file_num_compaction_trigger = 3;
-  options.max_background_flushes = 0;
   options.table_properties_collector_factories.resize(1);
   std::shared_ptr<CountingUserTblPropCollectorFactory> collector_factory =
       std::make_shared<CountingUserTblPropCollectorFactory>(1);
@@ -1300,6 +1298,18 @@ TEST_F(DBPropertiesTest, NeedCompactHintPersistentTest) {
     SetPerfLevel(kDisable);
   }
 }
+
+TEST_F(DBPropertiesTest, EstimateNumKeysUnderflow) {
+  Options options;
+  Reopen(options);
+  Put("foo", "bar");
+  Delete("foo");
+  Delete("foo");
+  uint64_t num_keys = 0;
+  ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.estimate-num-keys", &num_keys));
+  ASSERT_EQ(0, num_keys);
+}
+
 #endif  // ROCKSDB_LITE
 }  // namespace rocksdb
 

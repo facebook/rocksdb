@@ -37,11 +37,11 @@ enum CompactionStyle : char {
   kCompactionStyleNone = 0x3,
 };
 
-// In Level-based comapction, it Determines which file from a level to be
+// In Level-based compaction, it Determines which file from a level to be
 // picked to merge to the next level. We suggest people try
 // kMinOverlappingRatio first when you tune your database.
 enum CompactionPri : char {
-  // Slightly Priotize larger files by size compensated by #deletes
+  // Slightly prioritize larger files by size compensated by #deletes
   kByCompensatedSize = 0x0,
   // First compact files whose data's latest update time is oldest.
   // Try this if you only update some hot keys in small ranges.
@@ -62,9 +62,19 @@ struct CompactionOptionsFIFO {
   // Default: 1GB
   uint64_t max_table_files_size;
 
+  // If true, try to do compaction to compact smaller files into larger ones.
+  // Minimum files to compact follows options.level0_file_num_compaction_trigger
+  // and compaction won't trigger if average compact bytes per del file is
+  // larger than options.write_buffer_size. This is to protect large files
+  // from being compacted again.
+  // Default: false;
+  bool allow_compaction = false;
+
   CompactionOptionsFIFO() : max_table_files_size(1 * 1024 * 1024 * 1024) {}
-  CompactionOptionsFIFO(uint64_t _max_table_files_size) :
-          max_table_files_size(_max_table_files_size) {}
+  CompactionOptionsFIFO(uint64_t _max_table_files_size,
+                        uint64_t _allow_compaction)
+      : max_table_files_size(_max_table_files_size),
+        allow_compaction(_allow_compaction) {}
 };
 
 // Compression options for different compression algorithms like Zlib

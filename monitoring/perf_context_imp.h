@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 #pragma once
 #include "monitoring/perf_step_timer.h"
@@ -10,7 +12,7 @@
 
 namespace rocksdb {
 
-#if defined(NPERF_CONTEXT) || defined(IOS_CROSS_COMPILE)
+#if defined(NPERF_CONTEXT) || !defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
 
 #define PERF_TIMER_GUARD(metric)
 #define PERF_CONDITIONAL_TIMER_FOR_MUTEX_GUARD(metric, condition)

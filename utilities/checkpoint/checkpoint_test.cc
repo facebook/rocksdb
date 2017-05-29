@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -217,7 +219,7 @@ class CheckpointTest : public testing::Test {
 };
 
 TEST_F(CheckpointTest, GetSnapshotLink) {
-  for (uint64_t log_size_for_fush : {0, 1000000}) {
+  for (uint64_t log_size_for_flush : {0, 1000000}) {
     Options options;
     const std::string snapshot_name = test::TmpDir(env_) + "/snapshot";
     DB* snapshotDB;
@@ -240,7 +242,7 @@ TEST_F(CheckpointTest, GetSnapshotLink) {
     ASSERT_OK(Put(key, "v1"));
     // Take a snapshot
     ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
-    ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name, log_size_for_fush));
+    ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name, log_size_for_flush));
     ASSERT_OK(Put(key, "v2"));
     ASSERT_EQ("v2", Get(key));
     ASSERT_OK(Flush());

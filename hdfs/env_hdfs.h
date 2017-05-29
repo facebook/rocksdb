@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 
 #pragma once
@@ -147,6 +149,10 @@ class HdfsEnv : public Env {
 
   virtual void SetBackgroundThreads(int number, Priority pri = LOW) {
     posixEnv->SetBackgroundThreads(number, pri);
+  }
+
+  virtual int GetBackgroundThreads(Priority pri = LOW) {
+    return posixEnv->GetBackgroundThreads(pri);
   }
 
   virtual void IncBackgroundThreadsIfNeeded(int number, Priority pri) override {
@@ -356,6 +362,7 @@ class HdfsEnv : public Env {
   }
 
   virtual void SetBackgroundThreads(int number, Priority pri = LOW) override {}
+  virtual int GetBackgroundThreads(Priority pri = LOW) override { return 0; }
   virtual void IncBackgroundThreadsIfNeeded(int number, Priority pri) override {
   }
   virtual std::string TimeToString(uint64_t number) override { return ""; }

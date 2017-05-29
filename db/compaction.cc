@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -413,14 +415,15 @@ void Compaction::Summary(char* output, int len) {
 uint64_t Compaction::OutputFilePreallocationSize() const {
   uint64_t preallocation_size = 0;
 
-  if (cfd_->ioptions()->compaction_style == kCompactionStyleLevel ||
-      output_level() > 0) {
+  if (max_output_file_size_ != port::kMaxUint64 &&
+      (cfd_->ioptions()->compaction_style == kCompactionStyleLevel ||
+       output_level() > 0)) {
     preallocation_size = max_output_file_size_;
   } else {
-    // output_level() == 0
-    assert(num_input_levels() > 0);
-    for (const auto& f : inputs_[0].files) {
-      preallocation_size += f->fd.GetFileSize();
+    for (const auto& level_files : inputs_) {
+      for (const auto& file : level_files.files) {
+        preallocation_size += file->fd.GetFileSize();
+      }
     }
   }
   // Over-estimate slightly so we don't end up just barely crossing
