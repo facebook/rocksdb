@@ -15,11 +15,12 @@
 
 namespace rocksdb {
 
-// This function may intentionally do a left shift on a -ve number
-#if __clang_major__ > 3 || (__clang_major__ == 3 && __clang_minor__ >= 9)
-__attribute__((__no_sanitize__("undefined")))
-#elif __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 9)
+#ifdef ROCKSDB_UBSAN_RUN
+#if defined(__clang__)
+__attribute__((__no_sanitize__("shift")))
+#elif defined(__GNUC__)
 __attribute__((__no_sanitize_undefined__))
+#endif
 #endif
 uint32_t Hash(const char* data, size_t n, uint32_t seed) {
   // Similar to murmur hash
