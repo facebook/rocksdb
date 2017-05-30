@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 5.4.6 (05/30/2017)
+### Bug Fixes
+* Fix db_bench with lite build.
+
 ## 5.4.5 (05/19/2017)
 ### Bug Fixes
 * Facility for cross-building RocksJava using Docker.
