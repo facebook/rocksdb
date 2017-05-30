@@ -9,6 +9,8 @@
 
 namespace rocksdb {
 
+class BucketObjectMetadata;
+
 enum CloudType : unsigned char {
   kNone = 0x0,       // Not really a cloud env
   kAws = 0x1,        // AWS
@@ -71,6 +73,12 @@ class CloudEnvOptions {
   // Default:  1 minute
   uint64_t manifest_durable_periodicity_millis;
 
+  // The time period when the purger checks and deleted obselete files.
+  // This is the time when the purger wakes up, scans the cloud bucket
+  // for files that are not part of any DB and then deletes them.
+  // Default: 10 minutes
+  uint64_t purger_periodicity_millis;
+
   // if non-null, will be called *after* every cloud operation with some basic
   // information about the operation. Use this to instrument your calls to the
   // cloud.
@@ -81,6 +89,7 @@ class CloudEnvOptions {
       CloudType _cloud_type = CloudType::kAws,
       bool _keep_local_sst_files = false, bool _keep_local_log_files = true,
       uint64_t _manifest_durable_periodicity_millis = 60 * 1000,
+      uint64_t _purger_periodicity_millis = 10 * 60 * 1000,
       std::shared_ptr<CloudRequestCallback> _cloud_request_callback = nullptr)
       : cloud_type(_cloud_type),
         keep_local_sst_files(_keep_local_sst_files),
@@ -144,6 +153,16 @@ class CloudEnv : public Env {
   // returns the options used to create this env
   virtual const CloudEnvOptions& GetCloudEnvOptions() = 0;
 
+  // returns all the objects that have the specified path prefix and
+  // are stored in a cloud bucket
+  virtual Status ListObjects(const std::string& bucket_name_prefix,
+                             const std::string& bucket_object_prefix,
+                             BucketObjectMetadata* meta) = 0;
+
+  // Delete the specified object from the specified cloud bucket
+  virtual Status DeleteObject(const std::string& bucket_name_prefix,
+                              const std::string& bucket_object_path) = 0;
+
   // Create a new AWS env.
   // src_bucket_name: bucket name suffix where db data is read from
   // src_object_prefix: all db objects in source bucket are prepended with this
@@ -163,6 +182,15 @@ class CloudEnv : public Env {
                           const std::string& dest_bucket_region,
                           const CloudEnvOptions& env_options,
                           std::shared_ptr<Logger> logger, CloudEnv** cenv);
+};
+
+/*
+ * The information about all objects stored in a cloud bucket
+ */
+class BucketObjectMetadata {
+ public:
+  // list of all pathnames
+  std::vector<std::string> pathnames;
 };
 
 }  // namespace

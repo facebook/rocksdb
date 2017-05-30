@@ -202,6 +202,16 @@ class CloudEnvWrapper : public CloudEnvImpl {
 
   const CloudEnvOptions& GetCloudEnvOptions() { return options_; }
 
+  Status ListObjects(const std::string& bucket_name_prefix,
+                     const std::string& bucket_object_prefix,
+                     BucketObjectMetadata* meta) {
+    return notsup_;
+  }
+  Status DeleteObject(const std::string& bucket_name_prefix,
+                      const std::string& bucket_object_path) {
+    return notsup_;
+  }
+
  private:
   Status notsup_;
   std::string empty_;

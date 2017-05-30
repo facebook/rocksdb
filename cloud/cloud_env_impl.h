@@ -27,6 +27,11 @@ class CloudEnvImpl : public CloudEnv {
   // Returns the underlying env
   Env* GetBaseEnv() { return base_env_; }
 
+  Status FindObsoleteFiles(const std::string& bucket_name_prefix,
+                           std::vector<std::string>* pathnames);
+  Status FindObsoleteDbid(const std::string& bucket_name_prefix,
+                          std::vector<std::string>* dbids);
+
  protected:
   // The type of cloud service aws google azure, etc
   CloudType cloud_type_;
@@ -49,9 +54,6 @@ class CloudEnvImpl : public CloudEnv {
 
   // A background thread that deletes orphaned objects in cloud storage
   void Purger();
-
-  Status PurgeObsoleteFiles();
-  Status PurgeObsoleteDbid();
   void StopPurger();
 };
 

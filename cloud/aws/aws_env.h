@@ -270,6 +270,11 @@ class AwsEnv : public CloudEnvImpl {
                      DbidList* dblist) override;
   Status DeleteDbid(const std::string& bucket_prefix,
                     const std::string& dbid) override;
+  Status ListObjects(const std::string& bucket_name_prefix,
+                     const std::string& bucket_object_prefix,
+                     BucketObjectMetadata* meta);
+  Status DeleteObject(const std::string& bucket_name_prefix,
+                      const std::string& bucket_object_path);
 
   void TEST_SetFileDeletionDelay(std::chrono::seconds delay) {
     std::lock_guard<std::mutex> lk(file_deletion_lock_);
@@ -536,6 +541,15 @@ class AwsEnv : public CloudEnvImpl {
   }
   const CloudEnvOptions& GetCloudEnvOptions() override {
       return CloudEnvOptions();
+  }
+  Status ListObjects(const std::string& bucket_name_prefix,
+                     const std::string& bucket_object_prefix,
+                     BucketObjectMetadata* meta) {
+    return s3_notsup;
+  }
+  Status DeleteObject(const std::string& bucket_name_prefix,
+                      const std::string& bucket_object_path) {
+    return s3_notsup;
   }
 
   static Status NewAwsEnv(Env* env, const std::string& src_cloud_storage,

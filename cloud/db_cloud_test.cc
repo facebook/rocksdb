@@ -258,7 +258,7 @@ TEST_F(CloudTest, Newdb) {
   value.clear();
 
   {
-    // Create and Open  a new instance
+    // Create and Open a new instance
     std::unique_ptr<CloudEnv> cloud_env;
     std::unique_ptr<DBCloud> cloud_db;
     CloneDB("newdb1", src_bucket_prefix_, src_object_prefix_,
@@ -274,7 +274,7 @@ TEST_F(CloudTest, Newdb) {
     ASSERT_OK(cloud_db->Get(ReadOptions(), "Hello", &value));
     ASSERT_TRUE(value.compare("World") == 0);
 
-    // Open master and write one more kv to it. The dest bukcet is emty,
+    // Open master and write one more kv to it. The dest bucket is empty,
     // so writes go to local dir only.
     OpenDB();
     ASSERT_OK(db_->Put(WriteOptions(), "Dhruba", "Borthakur"));
@@ -393,6 +393,18 @@ TEST_F(CloudTest, TrueClone) {
     value.clear();
     ASSERT_OK(cloud_db->Get(ReadOptions(), "Hello", &value));
     ASSERT_TRUE(value.compare("World") == 0);
+
+    // Assert that there are no redundant sst files
+    CloudEnvImpl* env = static_cast<CloudEnvImpl *>(cloud_env.get());
+    std::vector<std::string> to_be_deleted;
+    ASSERT_OK(env->FindObsoleteFiles(src_bucket_prefix_,
+                                     &to_be_deleted));
+    ASSERT_EQ(to_be_deleted.size(), 0);
+
+    // Assert that there are no redundant dbid
+    ASSERT_OK(env->FindObsoleteDbid(src_bucket_prefix_,
+                                    &to_be_deleted));
+    ASSERT_EQ(to_be_deleted.size(), 0);
   }
 }
 

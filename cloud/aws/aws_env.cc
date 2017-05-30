@@ -1444,6 +1444,23 @@ Status AwsEnv::DeleteDbid(const std::string& bucket_prefix,
   return st;
 }
 
+// Returns a list of all objects that start with the specified
+// prefix and are stored in the bucket.
+Status AwsEnv::ListObjects(const std::string& bucket_name_prefix,
+                           const std::string& bucket_object_prefix,
+                           BucketObjectMetadata* meta) {
+  Status st = GetChildrenFromS3(bucket_object_prefix,
+                                bucket_name_prefix,
+                                &meta->pathnames);
+  return st;
+}
+
+// Deletes the specified object from cloud storage
+Status AwsEnv::DeleteObject(const std::string& bucket_name_prefix,
+                            const std::string& bucket_object_path) {
+  return DeletePathInS3(bucket_name_prefix, bucket_object_path);
+}
+
 //
 // prepends the configured src object path name
 //
