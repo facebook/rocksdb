@@ -606,9 +606,9 @@ class TestPutOperator : public MergeOperator {
 };
 
 class DBTestBase : public testing::Test {
- protected:
+ public:
   // Sequence of option configurations to try
-  enum OptionConfig {
+  enum OptionConfig : int {
     kDefault = 0,
     kBlockBasedTableWithPrefixHashIndex = 1,
     kBlockBasedTableWithWholeKeyHashIndex = 2,
@@ -646,8 +646,10 @@ class DBTestBase : public testing::Test {
     kBlockBasedTableWithIndexRestartInterval = 34,
     kBlockBasedTableWithPartitionedIndex = 35,
     kPartitionedFilterWithNewTableReaderForCompactions = 36,
+    kPipelinedWrite = 37,
+    kConcurrentMemTableWrite = 38,
+    kPipelinedWriteAndConcurrentMemTableWrite = 39,
   };
-  int option_config_;
 
  public:
   std::string dbname_;
@@ -658,6 +660,7 @@ class DBTestBase : public testing::Test {
   DB* db_;
   std::vector<ColumnFamilyHandle*> handles_;
 
+  int option_config_;
   Options last_options_;
 
   // Skip some options, as they may not be applicable to a specific test.
@@ -708,12 +711,19 @@ class DBTestBase : public testing::Test {
   bool ChangeFilterOptions();
 
   // Return the current option configuration.
-  Options CurrentOptions(
-      const anon::OptionsOverride& options_override = anon::OptionsOverride());
+  Options CurrentOptions(const anon::OptionsOverride& options_override =
+                             anon::OptionsOverride()) const;
 
-  Options CurrentOptions(
-      const Options& defaultOptions,
-      const anon::OptionsOverride& options_override = anon::OptionsOverride());
+  Options CurrentOptions(const Options& default_options,
+                         const anon::OptionsOverride& options_override =
+                             anon::OptionsOverride()) const;
+
+  static Options GetDefaultOptions();
+
+  Options GetOptions(int option_config,
+                     const Options& default_options = GetDefaultOptions(),
+                     const anon::OptionsOverride& options_override =
+                         anon::OptionsOverride()) const;
 
   DBImpl* dbfull() { return reinterpret_cast<DBImpl*>(db_); }
 

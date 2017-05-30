@@ -255,6 +255,7 @@ MAIN_SOURCES =                                                    \
   db/db_test.cc                                                         \
   db/db_universal_compaction_test.cc                                    \
   db/db_wal_test.cc                                                     \
+  db/db_write_test.cc                                                   \
   db/dbformat_test.cc                                                   \
   db/deletefile_test.cc                                                 \
   db/external_sst_file_basic_test.cc                                    \

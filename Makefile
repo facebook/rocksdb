@@ -362,6 +362,7 @@ TESTS = \
 	db_properties_test \
 	db_table_properties_test \
 	db_statistics_test \
+	db_write_test \
 	autovector_test \
 	cleanable_test \
 	column_family_test \
@@ -1061,6 +1062,9 @@ db_sst_test: db/db_sst_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 db_statistics_test: db/db_statistics_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+db_write_test: db/db_write_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 external_sst_file_basic_test: db/external_sst_file_basic_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)

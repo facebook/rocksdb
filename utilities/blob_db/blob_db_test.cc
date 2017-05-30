@@ -490,6 +490,45 @@ TEST_F(BlobDBTest, Large) {
   ASSERT_EQ(value3, value);
 }
 
+// Test sequence number store in blob file is correct.
+TEST_F(BlobDBTest, SequenceNumber) {
+  Random rnd(223);
+  Reopen(BlobDBOptionsImpl(), Options());
+  SequenceNumber sequence = blobdb_->GetLatestSequenceNumber();
+  BlobDBImpl *blobdb_impl = reinterpret_cast<BlobDBImpl *>(blobdb_);
+  for (int i = 0; i < 100; i++) {
+    std::string key = "key" + ToString(i);
+    PutRandom(key, &rnd);
+    sequence += 1;
+    ASSERT_EQ(sequence, blobdb_->GetLatestSequenceNumber());
+    SequenceNumber actual_sequence = 0;
+    ASSERT_OK(blobdb_impl->TEST_GetSequenceNumber(key, &actual_sequence));
+    ASSERT_EQ(sequence, actual_sequence);
+  }
+  for (int i = 0; i < 100; i++) {
+    WriteBatch batch;
+    size_t batch_size = rnd.Next() % 10 + 1;
+    for (size_t k = 0; k < batch_size; k++) {
+      std::string value = test::RandomHumanReadableString(&rnd, 1000);
+      ASSERT_OK(batch.Put("key" + ToString(i) + "-" + ToString(k), value));
+    }
+    ASSERT_OK(blobdb_->Write(WriteOptions(), &batch));
+    sequence += batch_size;
+    ASSERT_EQ(sequence, blobdb_->GetLatestSequenceNumber());
+    for (size_t k = 0; k < batch_size; k++) {
+      std::string key = "key" + ToString(i) + "-" + ToString(k);
+      SequenceNumber actual_sequence;
+      ASSERT_OK(blobdb_impl->TEST_GetSequenceNumber(key, &actual_sequence));
+      // We only write sequence for the last key in a batch.
+      if (k + 1 < batch_size) {
+        ASSERT_EQ(0, actual_sequence);
+      } else {
+        ASSERT_EQ(sequence, actual_sequence);
+      }
+    }
+  }
+}
+
 }  //  namespace blob_db
 }  //  namespace rocksdb
 

@@ -172,7 +172,7 @@ class WriteBatchInternal {
                            SequenceNumber* last_seq_used = nullptr,
                            bool* has_valid_writes = nullptr);
 
-  static Status InsertInto(WriteThread::Writer* writer,
+  static Status InsertInto(WriteThread::Writer* writer, SequenceNumber sequence,
                            ColumnFamilyMemTables* memtables,
                            FlushScheduler* flush_scheduler,
                            bool ignore_missing_column_families = false,
