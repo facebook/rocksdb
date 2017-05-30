@@ -4,9 +4,6 @@ language: cpp
 os:
   - linux
   - osx
-compiler:
-  - clang
-  - gcc
 jdk:
   - oraclejdk7
 cache:
@@ -15,56 +12,51 @@ cache:
 
 addons:
    apt:
-      sources: ['ubuntu-toolchain-r-test', 'llvm-toolchain-trusty-4.0']
-      packages: ['clang-4.0' , 'g++-6', 'zlib1g-dev', 'libbz2-dev', 'libsnappy-dev', 'curl', 'libgflags-dev', 'mingw-w64']
+      packages: ['zlib1g-dev', 'libbz2-dev', 'libsnappy-dev', 'curl', 'libgflags-dev', 'mingw-w64']
 env:
-  - TEST_GROUP=platform_dependent1
-  - TEST_GROUP=platform_dependent2
-  - TEST_GROUP=platform_dependent3
-  - TEST_GROUP=1
-  - TEST_GROUP=2
+  - TEST_GROUP=platform_dependent # 16-18 minutes
+  - TEST_GROUP=1 # 33-35 minutes
+  - TEST_GROUP=2 # 30-32 minutes
   # Run java tests
-  - JOB_NAME=java_test
+  - JOB_NAME=java_test # 4-11 minutes
   # Build ROCKSDB_LITE
-  - JOB_NAME=lite_build
+  - JOB_NAME=lite_build # 3-4 minutes
   # Build examples
-  - JOB_NAME=examples
-  - JOB_NAME=cmake
-  - JOB_NAME=cmake-mingw
+  - JOB_NAME=examples # 5-7 minutes
+  - JOB_NAME=cmake # 3-5 minutes
+  - JOB_NAME=cmake-mingw # 3 minutes
 
 matrix:
   exclude:
-  - os: osx
-    compiler: gcc
   - os: osx
     env: TEST_GROUP=1
   - os: osx
     env: TEST_GROUP=2
   - os : osx
     env: JOB_NAME=cmake-mingw
-  - os: linux
-    env: JOB_NAME=cmake-mingw
-    compiler: clang
+
+# https://docs.travis-ci.com/user/caching/#ccache-cache
+install:
+  - if [ "${TRAVIS_OS_NAME}" == osx ]; then
+      brew install ccache;
+      PATH=$PATH:/usr/local/opt/ccache/libexec;
+    fi
 
 before_script:
-  - if [[ "${TRAVIS_OS_NAME}" == 'linux' && "${CXX}" == 'clang++' ]]; then CXX=clang++-4.0; fi
-  # test one linux g++ build with g++-6
-  - if [[ "${TRAVIS_OS_NAME}" == 'linux' && "${CXX}" == 'g++' && "${JOB_NAME}" == 'unittests' ]]; then CXX=g++-6; fi
-  # Limit the maximum number of open file descriptors to 8192
-  - ulimit -n 8192 || true
+  # Increase the maximum number of open file descriptors, since some tests use
+  # more FDs than the default limit.
+  - ulimit -n 8192
 
 script:
   - ${CXX} --version
-  - if [[ "${TEST_GROUP}" == 'platform_dependent1' ]]; then OPT=-DTRAVIS V=1 ROCKSDBTESTS_END=external_sst_file_basic_test make -j4 check_some; fi
-  - if [[ "${TEST_GROUP}" == 'platform_dependent2' ]]; then OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=external_sst_file_basic_test ROCKSDBTESTS_END=checkpoint_test make -j4 check_some; fi
-  - if [[ "${TEST_GROUP}" == 'platform_dependent3' ]]; then OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=checkpoint_test ROCKSDBTESTS_END=db_block_cache_test make -j4 check_some; fi
-  - if [[ "${TEST_GROUP}" == '1' ]]; then OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=db_block_cache_test ROCKSDBTESTS_END=comparator_db_test make -j4 check_some; fi
-  - if [[ "${TEST_GROUP}" == '2' ]]; then OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=comparator_db_test make -j4 check_some; fi
-  - if [[ "${JOB_NAME}" == 'java_test' ]]; then OPT=-DTRAVIS V=1 make clean jclean && make rocksdbjava jtest; fi
-  - if [[ "${JOB_NAME}" == 'lite_build' ]]; then OPT="-DTRAVIS -DROCKSDB_LITE" V=1 make -j4 static_lib; fi
-  - if [[ "${JOB_NAME}" == 'examples' ]]; then OPT=-DTRAVIS V=1 make -j4 static_lib; cd examples; make -j4; fi
-  - if [[ "${JOB_NAME}" == 'cmake' ]]; then mkdir build && cd build && cmake .. && make -j4 rocksdb; fi
-  - if [[ "${JOB_NAME}" == 'cmake-mingw' ]]; then mkdir build && cd build && cmake .. -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ -DCMAKE_SYSTEM_NAME=Windows && make -j4 rocksdb; fi
+  - if [ "${TEST_GROUP}" == 'platform_dependent' ]; then OPT=-DTRAVIS V=1 make -j4 all; OPT=-DTRAVIS V=1 ROCKSDBTESTS_END=db_block_cache_test make -j4 check_some; fi
+  - if [ "${TEST_GROUP}" == '1' ]; then OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=db_block_cache_test ROCKSDBTESTS_END=comparator_db_test make -j4 check_some; fi
+  - if [ "${TEST_GROUP}" == '2' ]; then OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=comparator_db_test make -j4 check_some; fi
+  - if [ "${JOB_NAME}" == 'java_test' ]; then OPT=-DTRAVIS V=1 make clean jclean && make rocksdbjava jtest; fi
+  - if [ "${JOB_NAME}" == 'lite_build' ]; then OPT="-DTRAVIS -DROCKSDB_LITE" V=1 make -j4 static_lib; fi
+  - if [ "${JOB_NAME}" == 'examples' ]; then OPT=-DTRAVIS V=1 make -j4 static_lib; cd examples; make -j4; fi
+  - if [ "${JOB_NAME}" == 'cmake' ]; then mkdir build && cd build && cmake .. && make -j4 rocksdb; fi
+  - if [ "${JOB_NAME}" == 'cmake-mingw' ]; then mkdir build && cd build && cmake .. -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ -DCMAKE_SYSTEM_NAME=Windows && make -j4 rocksdb; fi
 notifications:
     email:
       - leveldb@fb.com
