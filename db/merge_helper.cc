@@ -25,7 +25,8 @@ Status MergeHelper::TimedFullMerge(const MergeOperator* merge_operator,
                                    const std::vector<Slice>& operands,
                                    std::string* result, Logger* logger,
                                    Statistics* statistics, Env* env,
-                                   Slice* result_operand) {
+                                   Slice* result_operand,
+                                   bool update_num_ops_stats) {
   assert(merge_operator != nullptr);
 
   if (operands.size() == 0) {
@@ -34,8 +35,10 @@ Status MergeHelper::TimedFullMerge(const MergeOperator* merge_operator,
     return Status::OK();
   }
 
-  MeasureTime(statistics, READ_NUM_MERGE_OPERANDS,
-              static_cast<uint64_t>(operands.size()));
+  if (update_num_ops_stats) {
+    MeasureTime(statistics, READ_NUM_MERGE_OPERANDS,
+                static_cast<uint64_t>(operands.size()));
+  }
 
   bool success;
   Slice tmp_result_operand(nullptr, 0);
