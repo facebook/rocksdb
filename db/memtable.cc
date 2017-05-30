@@ -870,8 +870,7 @@ void MemTable::RefLogContainingPrepSection(uint64_t log) {
   assert(log > 0);
   auto cur = min_prep_log_referenced_.load();
   while ((log < cur || cur == 0) &&
-         !min_prep_log_referenced_.compare_exchange_strong(cur, log)) {
-    cur = min_prep_log_referenced_.load();
+         !min_prep_log_referenced_.compare_exchange_weak(cur, log)) {
   }
 }
 
