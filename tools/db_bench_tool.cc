@@ -97,6 +97,7 @@ DEFINE_string(
     "readseq,"
     "readreverse,"
     "compact,"
+    "compactall,"
     "readrandom,"
     "multireadrandom,"
     "readseq,"
@@ -2420,6 +2421,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         method = &Benchmark::WriteSeqSeekSeq;
       } else if (name == "compact") {
         method = &Benchmark::Compact;
+      } else if (name == "compactall") {
+        CompactAll();
       } else if (name == "crc32c") {
         method = &Benchmark::Crc32c;
       } else if (name == "xxhash") {
@@ -5047,6 +5050,15 @@ void VerifyDBFromDB(std::string& truth_db_name) {
   void Compact(ThreadState* thread) {
     DB* db = SelectDB(thread);
     db->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  }
+
+  void CompactAll() {
+    if (db_.db != nullptr) {
+      db_.db->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+    }
+    for (const auto& db_with_cfh : multi_dbs_) {
+      db_with_cfh.db->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+    }
   }
 
   void ResetStats() {
