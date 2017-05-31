@@ -852,24 +852,24 @@ class MemTableInserter : public WriteBatch::Handler {
 
 public:
   // cf_mems should not be shared with concurrent inserters
-  MemTableInserter(SequenceNumber _sequence, ColumnFamilyMemTables* cf_mems,
-                   FlushScheduler* flush_scheduler,
-                   bool ignore_missing_column_families,
-                   uint64_t recovering_log_number, DB* db,
-                   bool concurrent_memtable_writes,
-                   bool* has_valid_writes = nullptr)
-      : sequence_(_sequence),
-        cf_mems_(cf_mems),
-        flush_scheduler_(flush_scheduler),
-        ignore_missing_column_families_(ignore_missing_column_families),
-        recovering_log_number_(recovering_log_number),
-        log_number_ref_(0),
-        db_(reinterpret_cast<DBImpl*>(db)),
-        concurrent_memtable_writes_(concurrent_memtable_writes),
-        post_info_created_(false),
-        has_valid_writes_(has_valid_writes),
-        rebuilding_trx_(nullptr) {
-    assert(cf_mems_);
+ MemTableInserter(SequenceNumber _sequence, ColumnFamilyMemTables* cf_mems,
+                  FlushScheduler* flush_scheduler,
+                  bool ignore_missing_column_families,
+                  uint64_t recovering_log_number, DB* db,
+                  bool concurrent_memtable_writes,
+                  bool* has_valid_writes = nullptr)
+     : sequence_(_sequence),
+       cf_mems_(cf_mems),
+       flush_scheduler_(flush_scheduler),
+       ignore_missing_column_families_(ignore_missing_column_families),
+       recovering_log_number_(recovering_log_number),
+       log_number_ref_(0),
+       db_(reinterpret_cast<DBImpl*>(db)),
+       concurrent_memtable_writes_(concurrent_memtable_writes),
+       post_info_created_(false),
+       has_valid_writes_(has_valid_writes),
+       rebuilding_trx_(nullptr) {
+   assert(cf_mems_);
   }
 
   ~MemTableInserter() {

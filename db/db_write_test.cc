@@ -69,11 +69,9 @@ TEST_P(DBWriteTest, ReturnSeuqneceNumberMultiThreaded) {
   }
 }
 
-INSTANTIATE_TEST_CASE_P(
-    DBWriteTestInstance, DBWriteTest,
-    testing::Values(DBTestBase::kDefault, DBTestBase::kPipelinedWrite,
-                    DBTestBase::kConcurrentMemTableWrite,
-                    DBTestBase::kPipelinedWriteAndConcurrentMemTableWrite));
+INSTANTIATE_TEST_CASE_P(DBWriteTestInstance, DBWriteTest,
+                        testing::Values(DBTestBase::kDefault,
+                                        DBTestBase::kPipelinedWrite));
 
 }  // namespace rocksdb
 

@@ -469,15 +469,6 @@ Options DBTestBase::GetOptions(
       options.enable_pipelined_write = true;
       break;
     }
-    case kConcurrentMemTableWrite: {
-      options.allow_concurrent_memtable_write = true;
-      break;
-    }
-    case kPipelinedWriteAndConcurrentMemTableWrite: {
-      options.enable_pipelined_write = true;
-      options.allow_concurrent_memtable_write = true;
-      break;
-    }
 
     default:
       break;

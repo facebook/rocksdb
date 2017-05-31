@@ -639,16 +639,14 @@ class DBTestBase : public testing::Test {
     kRowCache = 27,
     kRecycleLogFiles = 28,
     kConcurrentSkipList = 29,
-    kDirectIO = 30,
+    kPipelinedWrite = 30,
     kEnd = 31,
-    kLevelSubcompactions = 32,
-    kUniversalSubcompactions = 33,
-    kBlockBasedTableWithIndexRestartInterval = 34,
-    kBlockBasedTableWithPartitionedIndex = 35,
-    kPartitionedFilterWithNewTableReaderForCompactions = 36,
-    kPipelinedWrite = 37,
-    kConcurrentMemTableWrite = 38,
-    kPipelinedWriteAndConcurrentMemTableWrite = 39,
+    kDirectIO = 32,
+    kLevelSubcompactions = 33,
+    kUniversalSubcompactions = 34,
+    kBlockBasedTableWithIndexRestartInterval = 35,
+    kBlockBasedTableWithPartitionedIndex = 36,
+    kPartitionedFilterWithNewTableReaderForCompactions = 37,
   };
 
  public:
