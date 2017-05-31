@@ -89,13 +89,13 @@ TEST_F(PerfContextTest, SeekIntoDeletion) {
     std::string key = "k" + ToString(i);
     std::string value;
 
-    GetPerfContext()->Reset();
+    get_perf_context()->Reset();
     StopWatchNano timer(Env::Default());
     timer.Start();
     auto status = db->Get(read_options, key, &value);
     auto elapsed_nanos = timer.ElapsedNanos();
     ASSERT_TRUE(status.IsNotFound());
-    hist_get.Add(GetPerfContext()->user_key_comparison_count);
+    hist_get.Add(get_perf_context()->user_key_comparison_count);
     hist_get_time.Add(elapsed_nanos);
   }
 
@@ -108,19 +108,19 @@ TEST_F(PerfContextTest, SeekIntoDeletion) {
     HistogramImpl hist_seek_to_first;
     std::unique_ptr<Iterator> iter(db->NewIterator(read_options));
 
-    GetPerfContext()->Reset();
+    get_perf_context()->Reset();
     StopWatchNano timer(Env::Default(), true);
     iter->SeekToFirst();
-    hist_seek_to_first.Add(GetPerfContext()->user_key_comparison_count);
+    hist_seek_to_first.Add(get_perf_context()->user_key_comparison_count);
     auto elapsed_nanos = timer.ElapsedNanos();
 
     if (FLAGS_verbose) {
       std::cout << "SeekToFirst uesr key comparison: \n"
                 << hist_seek_to_first.ToString()
-                << "ikey skipped: " << GetPerfContext()->internal_key_skipped_count
+                << "ikey skipped: " << get_perf_context()->internal_key_skipped_count
                 << "\n"
                 << "idelete skipped: "
-                << GetPerfContext()->internal_delete_skipped_count << "\n"
+                << get_perf_context()->internal_delete_skipped_count << "\n"
                 << "elapsed: " << elapsed_nanos << "\n";
     }
   }
@@ -130,26 +130,26 @@ TEST_F(PerfContextTest, SeekIntoDeletion) {
     std::unique_ptr<Iterator> iter(db->NewIterator(read_options));
     std::string key = "k" + ToString(i);
 
-    GetPerfContext()->Reset();
+    get_perf_context()->Reset();
     StopWatchNano timer(Env::Default(), true);
     iter->Seek(key);
     auto elapsed_nanos = timer.ElapsedNanos();
-    hist_seek.Add(GetPerfContext()->user_key_comparison_count);
+    hist_seek.Add(get_perf_context()->user_key_comparison_count);
     if (FLAGS_verbose) {
-      std::cout << "seek cmp: " << GetPerfContext()->user_key_comparison_count
-                << " ikey skipped " << GetPerfContext()->internal_key_skipped_count
+      std::cout << "seek cmp: " << get_perf_context()->user_key_comparison_count
+                << " ikey skipped " << get_perf_context()->internal_key_skipped_count
                 << " idelete skipped "
-                << GetPerfContext()->internal_delete_skipped_count
+                << get_perf_context()->internal_delete_skipped_count
                 << " elapsed: " << elapsed_nanos << "ns\n";
     }
 
-    GetPerfContext()->Reset();
+    get_perf_context()->Reset();
     ASSERT_TRUE(iter->Valid());
     StopWatchNano timer2(Env::Default(), true);
     iter->Next();
     auto elapsed_nanos2 = timer2.ElapsedNanos();
     if (FLAGS_verbose) {
-      std::cout << "next cmp: " << GetPerfContext()->user_key_comparison_count
+      std::cout << "next cmp: " << get_perf_context()->user_key_comparison_count
                 << "elapsed: " << elapsed_nanos2 << "ns\n";
     }
   }
@@ -265,18 +265,18 @@ void ProfileQueries(bool enabled_time = false) {
 
     std::vector<std::string> values;
 
-    GetPerfContext()->Reset();
+    get_perf_context()->Reset();
     db->Put(write_options, key, value);
     if (++num_mutex_waited > 3) {
 #ifndef NDEBUG
       ThreadStatusUtil::TEST_SetStateDelay(ThreadStatus::STATE_MUTEX_WAIT, 0U);
 #endif
     }
-    hist_write_pre_post.Add(GetPerfContext()->write_pre_and_post_process_time);
-    hist_write_wal_time.Add(GetPerfContext()->write_wal_time);
-    hist_write_memtable_time.Add(GetPerfContext()->write_memtable_time);
-    hist_put.Add(GetPerfContext()->user_key_comparison_count);
-    total_db_mutex_nanos += GetPerfContext()->db_mutex_lock_nanos;
+    hist_write_pre_post.Add(get_perf_context()->write_pre_and_post_process_time);
+    hist_write_wal_time.Add(get_perf_context()->write_wal_time);
+    hist_write_memtable_time.Add(get_perf_context()->write_memtable_time);
+    hist_put.Add(get_perf_context()->user_key_comparison_count);
+    total_db_mutex_nanos += get_perf_context()->db_mutex_lock_nanos;
   }
 #ifndef NDEBUG
   ThreadStatusUtil::TEST_SetStateDelay(ThreadStatus::STATE_MUTEX_WAIT, 0U);
@@ -293,24 +293,24 @@ void ProfileQueries(bool enabled_time = false) {
     std::vector<Slice> multiget_keys = {Slice(key)};
     std::vector<std::string> values;
 
-    GetPerfContext()->Reset();
+    get_perf_context()->Reset();
     ASSERT_OK(db->Get(read_options, key, &value));
     ASSERT_EQ(expected_value, value);
-    hist_get_snapshot.Add(GetPerfContext()->get_snapshot_time);
-    hist_get_memtable.Add(GetPerfContext()->get_from_memtable_time);
-    hist_get_files.Add(GetPerfContext()->get_from_output_files_time);
-    hist_num_memtable_checked.Add(GetPerfContext()->get_from_memtable_count);
-    hist_get_post_process.Add(GetPerfContext()->get_post_process_time);
-    hist_get.Add(GetPerfContext()->user_key_comparison_count);
+    hist_get_snapshot.Add(get_perf_context()->get_snapshot_time);
+    hist_get_memtable.Add(get_perf_context()->get_from_memtable_time);
+    hist_get_files.Add(get_perf_context()->get_from_output_files_time);
+    hist_num_memtable_checked.Add(get_perf_context()->get_from_memtable_count);
+    hist_get_post_process.Add(get_perf_context()->get_post_process_time);
+    hist_get.Add(get_perf_context()->user_key_comparison_count);
 
-    GetPerfContext()->Reset();
+    get_perf_context()->Reset();
     db->MultiGet(read_options, multiget_keys, &values);
-    hist_mget_snapshot.Add(GetPerfContext()->get_snapshot_time);
-    hist_mget_memtable.Add(GetPerfContext()->get_from_memtable_time);
-    hist_mget_files.Add(GetPerfContext()->get_from_output_files_time);
-    hist_mget_num_memtable_checked.Add(GetPerfContext()->get_from_memtable_count);
-    hist_mget_post_process.Add(GetPerfContext()->get_post_process_time);
-    hist_mget.Add(GetPerfContext()->user_key_comparison_count);
+    hist_mget_snapshot.Add(get_perf_context()->get_snapshot_time);
+    hist_mget_memtable.Add(get_perf_context()->get_from_memtable_time);
+    hist_mget_files.Add(get_perf_context()->get_from_output_files_time);
+    hist_mget_num_memtable_checked.Add(get_perf_context()->get_from_memtable_count);
+    hist_mget_post_process.Add(get_perf_context()->get_post_process_time);
+    hist_mget.Add(get_perf_context()->user_key_comparison_count);
   }
 
   if (FLAGS_verbose) {
@@ -394,24 +394,24 @@ void ProfileQueries(bool enabled_time = false) {
     std::vector<Slice> multiget_keys = {Slice(key)};
     std::vector<std::string> values;
 
-    GetPerfContext()->Reset();
+    get_perf_context()->Reset();
     ASSERT_OK(db->Get(read_options, key, &value));
     ASSERT_EQ(expected_value, value);
-    hist_get_snapshot.Add(GetPerfContext()->get_snapshot_time);
-    hist_get_memtable.Add(GetPerfContext()->get_from_memtable_time);
-    hist_get_files.Add(GetPerfContext()->get_from_output_files_time);
-    hist_num_memtable_checked.Add(GetPerfContext()->get_from_memtable_count);
-    hist_get_post_process.Add(GetPerfContext()->get_post_process_time);
-    hist_get.Add(GetPerfContext()->user_key_comparison_count);
+    hist_get_snapshot.Add(get_perf_context()->get_snapshot_time);
+    hist_get_memtable.Add(get_perf_context()->get_from_memtable_time);
+    hist_get_files.Add(get_perf_context()->get_from_output_files_time);
+    hist_num_memtable_checked.Add(get_perf_context()->get_from_memtable_count);
+    hist_get_post_process.Add(get_perf_context()->get_post_process_time);
+    hist_get.Add(get_perf_context()->user_key_comparison_count);
 
-    GetPerfContext()->Reset();
+    get_perf_context()->Reset();
     db->MultiGet(read_options, multiget_keys, &values);
-    hist_mget_snapshot.Add(GetPerfContext()->get_snapshot_time);
-    hist_mget_memtable.Add(GetPerfContext()->get_from_memtable_time);
-    hist_mget_files.Add(GetPerfContext()->get_from_output_files_time);
-    hist_mget_num_memtable_checked.Add(GetPerfContext()->get_from_memtable_count);
-    hist_mget_post_process.Add(GetPerfContext()->get_post_process_time);
-    hist_mget.Add(GetPerfContext()->user_key_comparison_count);
+    hist_mget_snapshot.Add(get_perf_context()->get_snapshot_time);
+    hist_mget_memtable.Add(get_perf_context()->get_from_memtable_time);
+    hist_mget_files.Add(get_perf_context()->get_from_output_files_time);
+    hist_mget_num_memtable_checked.Add(get_perf_context()->get_from_memtable_count);
+    hist_mget_post_process.Add(get_perf_context()->get_post_process_time);
+    hist_mget.Add(get_perf_context()->user_key_comparison_count);
   }
 
   if (FLAGS_verbose) {
@@ -514,13 +514,13 @@ TEST_F(PerfContextTest, SeekKeyComparison) {
     std::string key = "k" + ToString(i);
     std::string value = "v" + ToString(i);
 
-    GetPerfContext()->Reset();
+    get_perf_context()->Reset();
     timer.Start();
     db->Put(write_options, key, value);
     auto put_time = timer.ElapsedNanos();
     hist_put_time.Add(put_time);
-    hist_wal_time.Add(GetPerfContext()->write_wal_time);
-    hist_time_diff.Add(put_time - GetPerfContext()->write_wal_time);
+    hist_wal_time.Add(get_perf_context()->write_wal_time);
+    hist_time_diff.Add(put_time - get_perf_context()->write_wal_time);
   }
 
   if (FLAGS_verbose) {
@@ -537,18 +537,18 @@ TEST_F(PerfContextTest, SeekKeyComparison) {
     std::string value = "v" + ToString(i);
 
     std::unique_ptr<Iterator> iter(db->NewIterator(read_options));
-    GetPerfContext()->Reset();
+    get_perf_context()->Reset();
     iter->Seek(key);
     ASSERT_TRUE(iter->Valid());
     ASSERT_EQ(iter->value().ToString(), value);
-    hist_seek.Add(GetPerfContext()->user_key_comparison_count);
+    hist_seek.Add(get_perf_context()->user_key_comparison_count);
   }
 
   std::unique_ptr<Iterator> iter(db->NewIterator(read_options));
   for (iter->SeekToFirst(); iter->Valid();) {
-    GetPerfContext()->Reset();
+    get_perf_context()->Reset();
     iter->Next();
-    hist_next.Add(GetPerfContext()->user_key_comparison_count);
+    hist_next.Add(get_perf_context()->user_key_comparison_count);
   }
 
   if (FLAGS_verbose) {
@@ -566,16 +566,16 @@ TEST_F(PerfContextTest, DBMutexLockCounter) {
     mutex.Lock();
     rocksdb::port::Thread child_thread([&] {
       SetPerfLevel(perf_level);
-      GetPerfContext()->Reset();
-      ASSERT_EQ(GetPerfContext()->db_mutex_lock_nanos, 0);
+      get_perf_context()->Reset();
+      ASSERT_EQ(get_perf_context()->db_mutex_lock_nanos, 0);
       mutex.Lock();
       mutex.Unlock();
       if (perf_level == PerfLevel::kEnableTimeExceptForMutex ||
           stats_code[c] != DB_MUTEX_WAIT_MICROS) {
-        ASSERT_EQ(GetPerfContext()->db_mutex_lock_nanos, 0);
+        ASSERT_EQ(get_perf_context()->db_mutex_lock_nanos, 0);
       } else {
         // increment the counter only when it's a DB Mutex
-        ASSERT_GT(GetPerfContext()->db_mutex_lock_nanos, 0);
+        ASSERT_GT(get_perf_context()->db_mutex_lock_nanos, 0);
       }
     });
     Env::Default()->SleepForMicroseconds(100);
@@ -591,28 +591,28 @@ TEST_F(PerfContextTest, FalseDBMutexWait) {
   for (int c = 0; c < 2; ++c) {
     InstrumentedMutex mutex(nullptr, Env::Default(), stats_code[c]);
     InstrumentedCondVar lock(&mutex);
-    GetPerfContext()->Reset();
+    get_perf_context()->Reset();
     mutex.Lock();
     lock.TimedWait(100);
     mutex.Unlock();
     if (stats_code[c] == static_cast<int>(DB_MUTEX_WAIT_MICROS)) {
       // increment the counter only when it's a DB Mutex
-      ASSERT_GT(GetPerfContext()->db_condition_wait_nanos, 0);
+      ASSERT_GT(get_perf_context()->db_condition_wait_nanos, 0);
     } else {
-      ASSERT_EQ(GetPerfContext()->db_condition_wait_nanos, 0);
+      ASSERT_EQ(get_perf_context()->db_condition_wait_nanos, 0);
     }
   }
 }
 
 TEST_F(PerfContextTest, ToString) {
-  GetPerfContext()->Reset();
-  GetPerfContext()->block_read_count = 12345;
+  get_perf_context()->Reset();
+  get_perf_context()->block_read_count = 12345;
 
-  std::string zero_included = GetPerfContext()->ToString();
+  std::string zero_included = get_perf_context()->ToString();
   ASSERT_NE(std::string::npos, zero_included.find("= 0"));
   ASSERT_NE(std::string::npos, zero_included.find("= 12345"));
 
-  std::string zero_excluded = GetPerfContext()->ToString(true);
+  std::string zero_excluded = get_perf_context()->ToString(true);
   ASSERT_EQ(std::string::npos, zero_excluded.find("= 0"));
   ASSERT_NE(std::string::npos, zero_excluded.find("= 12345"));
 }
@@ -633,36 +633,36 @@ TEST_F(PerfContextTest, MergeOperatorTime) {
   ASSERT_OK(db->Merge(WriteOptions(), "k1", "val4"));
 
   SetPerfLevel(kEnableTime);
-  GetPerfContext()->Reset();
+  get_perf_context()->Reset();
   ASSERT_OK(db->Get(ReadOptions(), "k1", &val));
 #ifdef OS_SOLARIS
   for (int i = 0; i < 100; i++) {
     ASSERT_OK(db->Get(ReadOptions(), "k1", &val));
   }
 #endif
-  EXPECT_GT(GetPerfContext()->merge_operator_time_nanos, 0);
+  EXPECT_GT(get_perf_context()->merge_operator_time_nanos, 0);
 
   ASSERT_OK(db->Flush(FlushOptions()));
 
-  GetPerfContext()->Reset();
+  get_perf_context()->Reset();
   ASSERT_OK(db->Get(ReadOptions(), "k1", &val));
 #ifdef OS_SOLARIS
   for (int i = 0; i < 100; i++) {
     ASSERT_OK(db->Get(ReadOptions(), "k1", &val));
   }
 #endif
-  EXPECT_GT(GetPerfContext()->merge_operator_time_nanos, 0);
+  EXPECT_GT(get_perf_context()->merge_operator_time_nanos, 0);
 
   ASSERT_OK(db->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
-  GetPerfContext()->Reset();
+  get_perf_context()->Reset();
   ASSERT_OK(db->Get(ReadOptions(), "k1", &val));
 #ifdef OS_SOLARIS
   for (int i = 0; i < 100; i++) {
     ASSERT_OK(db->Get(ReadOptions(), "k1", &val));
   }
 #endif
-  EXPECT_GT(GetPerfContext()->merge_operator_time_nanos, 0);
+  EXPECT_GT(get_perf_context()->merge_operator_time_nanos, 0);
 
   delete db;
 }

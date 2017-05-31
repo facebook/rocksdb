@@ -9,14 +9,14 @@
 namespace rocksdb {
 
 TEST(IOStatsContextTest, ToString) {
-  GetIOStatsContext()->Reset();
-  GetIOStatsContext()->bytes_read = 12345;
+  get_iostats_context()->Reset();
+  get_iostats_context()->bytes_read = 12345;
 
-  std::string zero_included = GetIOStatsContext()->ToString();
+  std::string zero_included = get_iostats_context()->ToString();
   ASSERT_NE(std::string::npos, zero_included.find("= 0"));
   ASSERT_NE(std::string::npos, zero_included.find("= 12345"));
 
-  std::string zero_excluded = GetIOStatsContext()->ToString(true);
+  std::string zero_excluded = get_iostats_context()->ToString(true);
   ASSERT_EQ(std::string::npos, zero_excluded.find("= 0"));
   ASSERT_NE(std::string::npos, zero_excluded.find("= 12345"));
 }

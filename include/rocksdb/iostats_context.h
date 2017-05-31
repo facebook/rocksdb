@@ -47,6 +47,6 @@ struct IOStatsContext {
 };
 
 // Get Thread-local IOStatsContext object pointer
-IOStatsContext* GetIOStatsContext();
+IOStatsContext* get_iostats_context();
 
 }  // namespace rocksdb

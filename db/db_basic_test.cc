@@ -366,9 +366,9 @@ TEST_F(DBBasicTest, FLUSH) {
     ASSERT_OK(Flush(1));
     ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "bar", "v1"));
 
-    GetPerfContext()->Reset();
+    get_perf_context()->Reset();
     Get(1, "foo");
-    ASSERT_TRUE((int)GetPerfContext()->get_from_output_files_time > 0);
+    ASSERT_TRUE((int)get_perf_context()->get_from_output_files_time > 0);
 
     ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
     ASSERT_EQ("v1", Get(1, "foo"));
@@ -381,9 +381,9 @@ TEST_F(DBBasicTest, FLUSH) {
 
     ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
     ASSERT_EQ("v2", Get(1, "bar"));
-    GetPerfContext()->Reset();
+    get_perf_context()->Reset();
     ASSERT_EQ("v2", Get(1, "foo"));
-    ASSERT_TRUE((int)GetPerfContext()->get_from_output_files_time > 0);
+    ASSERT_TRUE((int)get_perf_context()->get_from_output_files_time > 0);
 
     writeOpt.disableWAL = false;
     ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "bar", "v3"));

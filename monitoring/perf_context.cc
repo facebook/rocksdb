@@ -21,7 +21,7 @@ ThreadLocalPtr perf_context([](void* ptr) {
   });
 #endif
 
-PerfContext* GetPerfContext() {
+PerfContext* get_perf_context() {
 #ifdef NPERF_CONTEXT
   return &perf_context;
 #else

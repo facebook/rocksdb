@@ -15,7 +15,7 @@ ThreadLocalPtr iostats_context([](void* ptr) {
     delete p;
   });
 
-IOStatsContext* GetIOStatsContext() {
+IOStatsContext* get_iostats_context() {
   if (iostats_context.Get() == nullptr) {
     iostats_context.Reset(static_cast<void*>(new IOStatsContext()));
   }
