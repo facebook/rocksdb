@@ -578,7 +578,7 @@ static bool SaveValue(void* arg, const char* entry) {
           *(s->status) = MergeHelper::TimedFullMerge(
               merge_operator, s->key->user_key(), &v,
               merge_context->GetOperands(), s->value, s->logger, s->statistics,
-              s->env_);
+              s->env_, nullptr /* result_operand */, true);
         } else if (s->value != nullptr) {
           s->value->assign(v.data(), v.size());
         }
@@ -595,7 +595,7 @@ static bool SaveValue(void* arg, const char* entry) {
           *(s->status) = MergeHelper::TimedFullMerge(
               merge_operator, s->key->user_key(), nullptr,
               merge_context->GetOperands(), s->value, s->logger, s->statistics,
-              s->env_);
+              s->env_, nullptr /* result_operand */, true);
         } else {
           *(s->status) = Status::NotFound();
         }
