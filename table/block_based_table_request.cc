@@ -8,6 +8,7 @@
 #include "table/block.h"
 #include "table/block_based_filter_block.h"
 #include "table/meta_blocks.h"
+#include "table/get_context.h"
 #include "table/partitioned_filter_block.h"
 #include "util/random_read_context.h"
 #include "util/string_util.h"
@@ -2036,6 +2037,10 @@ Status NewDataBlockIteratorHelper::Create(const ReadDataBlockCallback& cb,
     const BlockHandle& handle, BlockIter* input_iter) {
 
   Status s;
+
+  // Important for repeated invocations
+  Reset();
+
   input_iter_ = input_iter;
 
   Slice compression_dict;
@@ -2317,6 +2322,341 @@ Status NewRangeTombstoneIterContext::OnComplete(const Status& status) {
 
     delete this;
     return status;
+  }
+
+  ROCKS_LOG_DEBUG(
+    rep->ioptions.info_log,
+    "TableOpenRequestContext sync completion: %s",
+    status.ToString().c_str());
+
+  return status;
+}
+
+//////////////////////////////////////////////////////////////////////
+/// BlockBasedGetContext
+
+Status BlockBasedGetContext::Get(BlockBasedTable* table,
+                                 const ReadOptions& read_options,
+                                 const Slice & key, GetContext * get_context,
+                                 bool skip_filters) {
+
+  const Callback empty_cb;
+  BlockBasedGetContext ctx(empty_cb, table, read_options, key, get_context,
+                           skip_filters);
+  return ctx.GetImpl();
+}
+
+Status BlockBasedGetContext::RequestGet(const Callback& cb,
+                                        BlockBasedTable * table,
+                                        const ReadOptions& read_options, const Slice & key,
+                                        GetContext * get_context, bool skip_filters) {
+
+  std::unique_ptr<BlockBasedGetContext> ctx(new BlockBasedGetContext(cb, table,
+      read_options, key, get_context,
+      skip_filters));
+
+  Status s = ctx->GetImpl();
+
+  if (s.IsIOPending()) {
+    ctx.release();
+  }
+
+  return s;
+}
+
+Status BlockBasedGetContext::GetImpl() {
+
+  Status s;
+
+  if (!skip_filters_) {
+
+    Callable<Status, const Status&> on_get_filter_cb;
+
+    if (cb_) {
+      CallableFactory<BlockBasedGetContext, Status, const Status&> f(this);
+      on_get_filter_cb = f.GetCallable<&BlockBasedGetContext::OnGetFilter>();
+    }
+
+    s = gf_helper_.GetFilter(on_get_filter_cb);
+
+    if (s.IsIOPending()) {
+      return s;
+    }
+    s = OnGetFilter(s);
+  } else {
+    s = CreateIndexIterator();
+  }
+
+  return s;
+}
+
+Status BlockBasedGetContext::OnGetFilter(const Status& status) {
+  async(status);
+
+  auto rep = Rep();
+
+  ROCKS_LOG_DEBUG(
+    rep->ioptions.info_log,
+    "OnGetFilter invoked with: %s",
+    status.ToString().c_str());
+
+  Status s = gf_helper_.OnGetFilterComplete(status);
+
+  ROCKS_LOG_DEBUG(
+    rep->ioptions.info_log,
+    "OnGetFilterComplete returned: %s",
+    s.ToString().c_str());
+
+
+  return CreateIndexIterator();
+}
+
+Status BlockBasedGetContext::CreateIndexIterator() {
+
+  Status s;
+  FilterBlockReader* filter = GetFilterEntry().value;
+
+  // XXX: This should not incur IO on a block based table
+  if (!gf_helper_.GetTable()->FullFilterKeyMayMatch(*GetReadOptions(), filter,
+      key_, IsNoIO())) {
+    RecordTick(Rep()->ioptions.statistics, BLOOM_FILTER_USEFUL);
+
+    s.async(async());
+    return OnComplete(s);
+  }
+
+  // Create index iterator
+  InternalIterator* index_iterator = nullptr;
+  auto table = gf_helper_.GetTable();
+
+  if (cb_) {
+    CallableFactory<BlockBasedGetContext, Status, const Status&, InternalIterator*>
+    f(this);
+    auto on_index_iterator_cb =
+      f.GetCallable<&BlockBasedGetContext::OnIndexIteratorCreate>();
+    s = NewIndexIteratorContext::RequestCreate(on_index_iterator_cb, table,
+        *GetReadOptions(), nullptr /* preloaded meta iterator*/, &index_iter_,
+        nullptr /* index_entry */,
+        &index_iterator);
+
+    if (s.IsIOPending()) {
+      return s;
+    }
+
+  } else {
+    s = NewIndexIteratorContext::Create(table,
+                                        *GetReadOptions(), nullptr /* preloaded meta iterator*/, &index_iter_,
+                                        nullptr /* index_entry */,
+                                        &index_iterator);
+  }
+
+  return OnIndexIteratorCreate(s, index_iterator);
+}
+
+Status BlockBasedGetContext::OnIndexIteratorCreate(const Status& status,
+    InternalIterator* index_iterator) {
+  async(status);
+
+  Status s;
+
+  if (status.ok()) {
+
+    if (index_iterator != nullptr && index_iterator != &index_iter_) {
+      iiter_unique_ptr_.reset(index_iterator);
+    }
+
+    auto iiter = GetIndexIter();
+    // XXX: At this point Seek/Next()
+    // must be always sync although at other levels
+    // it can be both
+    iiter->Seek(key_);
+    if (iiter->Valid()) {
+
+      s = CreateDataBlockIterator();
+
+      if (s.IsIOPending()) {
+        return s;
+      }
+
+      // NotFound -> filtered out
+      if (!s.IsNotFound()) {
+        return OnNewDataBlockIterator(s);
+      } else {
+        // Return ok on NotFound and let
+        // get_context express its state
+        s = Status::OK();
+      }
+
+    } else {
+      s = iiter->status();
+    }
+
+  } else {
+    s = status;
+  }
+
+  s.async(async());
+  return OnComplete(s);
+}
+
+Status BlockBasedGetContext::CreateDataBlockIterator() {
+  Status s;
+
+  auto iiter = GetIndexIter();
+
+  assert(iiter != nullptr);
+  assert(iiter->Valid());
+
+  FilterBlockReader* filter = GetFilterEntry().value;
+  Slice handle_value = iiter->value();
+
+  BlockHandle handle;
+  bool not_exist_in_filter =
+    filter != nullptr && filter->IsBlockBased() == true &&
+    handle.DecodeFrom(&handle_value).ok() &&
+    !filter->KeyMayMatch(ExtractUserKey(key_), handle.offset(), IsNoIO());
+
+  if (not_exist_in_filter) {
+    // Not found
+    // TODO: think about interaction with Merge. If a user key cannot
+    // cross one data block, we should be fine.
+    RecordTick(Rep()->ioptions.statistics, BLOOM_FILTER_USEFUL);
+    s = Status::NotFound();
+  } else {
+
+    NewDataBlockIteratorHelper::ReadDataBlockCallback on_data_block__cb;
+
+    if (cb_) {
+      CallableFactory<BlockBasedGetContext, Status, const Status&> f(this);
+      on_data_block__cb =
+        f.GetCallable<&BlockBasedGetContext::OnNewDataBlockIterator>();
+    }
+
+    handle_value = iiter->value();
+    s = handle.DecodeFrom(&handle_value);
+    if (s.ok()) {
+      RecreateBlockIterator();
+      s = biter_helper_.Create(on_data_block__cb, handle, &block_iter_);
+    }
+  }
+
+  return s;
+}
+
+Status BlockBasedGetContext::OnNewDataBlockIterator(const Status& status) {
+  async(status);
+
+  Status s(status);
+  bool done = false;
+  auto iiter = GetIndexIter();
+
+  while (!done) {
+
+    // New Data Block iterator created
+    s = biter_helper_.OnCreateComplete(s);
+
+    if (s.ok()) {
+      auto biter = biter_helper_.GetResult();
+      // Expecting to point to our member instance
+      // so no need to deallocate
+      assert(biter == &block_iter_);
+
+      if (IsNoIO() && biter->status().IsIncomplete()) {
+        // couldn't get block from block_cache
+        // Update Saver.state to Found because we are only looking for whether
+        // we can guarantee the key is not there when "no_io" is set
+
+        /// XXX: It looks like we return OK in this case or index iterator status
+        get_context_->MarkKeyMayExist();
+        break;
+      }
+
+      if (!biter->status().ok()) {
+        s = biter->status();
+        break;
+      }
+
+      // Call the *saver function on each entry/block until it returns false
+      for (biter->Seek(key_); biter->Valid(); biter->Next()) {
+        ParsedInternalKey parsed_key;
+        if (!ParseInternalKey(biter->key(), &parsed_key)) {
+          s = Status::Corruption(Slice());
+        }
+
+        if (!get_context_->SaveValue(parsed_key, biter->value(), &block_iter_)) {
+          done = true;
+          break;
+        }
+      }
+
+      s = biter->status();
+
+      if (done) {
+        break;
+      }
+
+      iiter->Next();
+
+      if (!iiter->Valid()) {
+        break;
+      }
+
+      s = CreateDataBlockIterator();
+
+      if (s.IsIOPending()) {
+        return s;
+      }
+
+      if (s.IsNotFound()) {
+        s = Status::OK();
+        break;
+      }
+
+      if (!s.ok()) {
+        break;
+      }
+
+      // New data block iterator was created sync, continue
+      // iteration
+    } else {
+      break;
+    }
+  }
+
+
+  // Check index iterator status if OK
+  if (s.ok()) {
+    s = iiter->status();
+  }
+
+  s.async(async());
+  return OnComplete(s);
+}
+
+Status BlockBasedGetContext::OnComplete(const Status& status) {
+
+  auto rep = Rep();
+  // if rep_->filter_entry is not set, we should call Release(); otherwise
+  // don't call, in this case we have a local copy in rep_->filter_entry,
+  // it's pinned to the cache and will be released in the destructor
+  if (!rep->filter_entry.IsSet()) {
+    GetFilterEntry().Release(rep->table_options.block_cache.get());
+  }
+
+  if (cb_ && async()) {
+
+    Status s(status);
+
+    ROCKS_LOG_DEBUG(
+      rep->ioptions.info_log,
+      "TableOpenRequestContext async completion: %s",
+      s.ToString().c_str());
+
+    s.async(true);
+    cb_.Invoke(s);
+
+    delete this;
+    return s;
   }
 
   ROCKS_LOG_DEBUG(

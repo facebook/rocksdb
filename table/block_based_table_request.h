@@ -275,7 +275,7 @@ class ReadFilterHelper {
   // if the actual read take place
   Status OnFilterReadComplete(const Status&);
 
-  const BlockBasedTable* GetTable() {
+  const BlockBasedTable* GetTable() const {
     return table_;
   }
 
@@ -319,9 +319,9 @@ class GetFilterHelper {
   GetFilterHelper& operator=(const GetFilterHelper&) = delete;
 
   explicit
-  GetFilterHelper(BlockBasedTable* table, bool no_io = false) :
+  GetFilterHelper(const BlockBasedTable* table, bool no_io = false) :
     GetFilterHelper(table, table->rep_->filter_handle,
-                    true /* is_a_filter_partition = true */,
+                    false /* is_a_filter_partition = !true */,
                     no_io) {
   }
 
@@ -357,6 +357,14 @@ class GetFilterHelper {
   // Return result
   BlockBasedTable::CachableEntry<FilterBlockReader>& GetEntry() {
     return entry_;
+  }
+
+  const BlockBasedTable* GetTable() const {
+    return rf_helper_.GetTable();
+  }
+
+  BlockBasedTable* GetTable() {
+    return const_cast<BlockBasedTable*>(rf_helper_.GetTable());
   }
 
  private:
@@ -777,6 +785,14 @@ public:
     return rep_;
   }
 
+  const BlockBasedTable::Rep* GetTableRep() const {
+    return rep_;
+  }
+
+  const ReadOptions* GetReadOptions() const {
+    return ro_;
+  }
+
 private:
 
   // This enum specifies the actions
@@ -790,6 +806,15 @@ private:
   }; 
 
   void StatusToIterator(const Status& s);
+
+  // Reset for repeated use
+  void Reset() {
+    input_iter_ = nullptr;
+    action_ = aNone;
+    block_cont_ = std::move(BlockContents());
+    entry_ = { nullptr, nullptr };
+    new_iterator_.reset();
+  }
 
   BlockBasedTable::Rep*                 rep_;
   const ReadOptions*                    ro_;
@@ -872,6 +897,116 @@ public:
   Callback                   cb_;
   NewDataBlockIteratorHelper db_iter_helper_;
 };
+
+// This is a sync/async implementation of BlockBasedTable::Get()
+class BlockBasedGetContext : protected AsyncStatusCapture {
+public:
+
+  using
+  Callback = async::Callable<Status, const Status&>;
+
+  BlockBasedGetContext(const BlockBasedGetContext&) = delete;
+  BlockBasedGetContext& operator=(const BlockBasedGetContext&) = delete;
+
+  // Sync Get()
+  static Status Get(BlockBasedTable* table, const ReadOptions& read_options,
+                    const Slice& key, GetContext* get_context, bool skip_filters);
+
+
+  // Async Get() which may complete sync just as any other interface
+  static Status RequestGet(const Callback&, BlockBasedTable* table,
+                           const ReadOptions& read_options, const Slice& key,
+                           GetContext* get_context, bool skip_filters);
+
+private:
+
+  BlockBasedGetContext(const Callback& cb, BlockBasedTable* table,
+                       const ReadOptions& read_options, const Slice& key,
+                       GetContext* get_context, bool skip_filters) :
+    cb_(cb), key_(key),
+    get_context_(get_context),
+    skip_filters_(skip_filters),
+    gf_helper_(table, read_options.read_tier == kBlockCacheTier),
+    biter_helper_(table->rep_, read_options)
+  {}
+
+  const BlockBasedTable::Rep* Rep() const {
+    return biter_helper_.GetTableRep();
+  }
+
+  const ReadOptions* GetReadOptions() const {
+    return biter_helper_.GetReadOptions();
+  }
+
+  bool IsNoIO() const {
+    return biter_helper_.GetReadOptions()->read_tier == kBlockCacheTier;
+  }
+
+  BlockBasedTable::CachableEntry<FilterBlockReader>& GetFilterEntry() {
+    return gf_helper_.GetEntry();
+  }
+
+  // Returns the pointer to the index iterator
+  // it may be a heap allocated new instance or
+  // a member instance depending on what the NewIndexIterator
+  // chose to do
+  InternalIterator* GetIndexIter() {
+    if (iiter_unique_ptr_) return iiter_unique_ptr_.get();
+    return &index_iter_;
+  }
+
+  // We need this to keep re-using the same member
+  // instance of the block iterator and not to incur
+  // memory re-allocation. Otherwise, we hit an assert
+  // on repeated initialization of the iterator
+  void RecreateBlockIterator() {
+    block_iter_.~BlockIter();
+    new (&block_iter_) BlockIter();
+  }
+
+  // The actual Get() entry point
+  Status GetImpl();
+
+  // Function is called when we complete obtaining a filter
+  Status OnGetFilter(const Status&);
+
+  // Creates Index iterator
+  Status CreateIndexIterator();
+  // Callback that is invoked when Index iterator creation is finished.
+  Status OnIndexIteratorCreate(const Status&, InternalIterator*);
+
+  // Dereferences current index iterator
+  // decodes next block handle value. If filtered out
+  // returns NotFound() and there is not a need to call OnNewDataBlockIterator()
+  // On async completion returns IOPending and other statuses on sync
+  // One must invoke OnNewDataBlockIterator() explicitely on sync completion
+  Status CreateDataBlockIterator();
+
+  // Performs the actual iteration. It will either
+  // advance index iterator and loop or
+  // create a new one async and serve itself as
+  // a callback
+  Status OnNewDataBlockIterator(const Status&);
+
+  // Final completion
+  Status OnComplete(const Status&);
+
+  Callback              cb_;
+  const Slice           key_;
+  GetContext*           get_context_;
+  const bool            skip_filters_;
+
+  GetFilterHelper             gf_helper_;
+  NewDataBlockIteratorHelper  biter_helper_;
+
+  // We strive to re-init this iterator but it may
+  // decide to allocate on the heap
+  BlockIter             index_iter_;
+  std::unique_ptr<InternalIterator>  iiter_unique_ptr_;
+  // We re-init block iter on every block
+  BlockIter             block_iter_;
+};
+
 
 } // namepsace async
 } // namespace rocksdb
