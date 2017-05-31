@@ -47,7 +47,7 @@ TEST_P(DBWriteTest, ReturnSeuqneceNumberMultiThreaded) {
   for (size_t i = 0; i < flags.size(); i++) {
     flags[i].clear();
   }
-  auto writer = [&](int id) {
+  auto writer = [&](size_t id) {
     for (size_t k = 0; k < kNumKeys; k++) {
       WriteBatch batch;
       batch.Put("key" + ToString(id) + "-" + ToString(k),

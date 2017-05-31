@@ -852,13 +852,13 @@ class MemTableInserter : public WriteBatch::Handler {
 
 public:
   // cf_mems should not be shared with concurrent inserters
-  MemTableInserter(SequenceNumber sequence, ColumnFamilyMemTables* cf_mems,
+  MemTableInserter(SequenceNumber _sequence, ColumnFamilyMemTables* cf_mems,
                    FlushScheduler* flush_scheduler,
                    bool ignore_missing_column_families,
                    uint64_t recovering_log_number, DB* db,
                    bool concurrent_memtable_writes,
                    bool* has_valid_writes = nullptr)
-      : sequence_(sequence),
+      : sequence_(_sequence),
         cf_mems_(cf_mems),
         flush_scheduler_(flush_scheduler),
         ignore_missing_column_families_(ignore_missing_column_families),
