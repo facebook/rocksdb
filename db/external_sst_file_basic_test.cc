@@ -581,15 +581,17 @@ TEST_F(ExternalSSTFileBasicTest, IngestionWithRangeDeletions) {
 
   // overlaps with L0 file but not memtable, so flush is skipped
   SequenceNumber last_seqno = dbfull()->GetLatestSequenceNumber();
-  ASSERT_OK(
-      GenerateAndAddExternalFile(options, {10, 40}, file_id++, &true_data));
+  ASSERT_OK(GenerateAndAddExternalFile(
+      options, {10, 40}, {ValueType::kTypeValue, ValueType::kTypeValue},
+      file_id++, &true_data));
   ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), ++last_seqno);
   ASSERT_EQ(2, NumTableFilesAtLevel(0));
 
   // overlaps with memtable, so flush is triggered (thus file count increases by
   // two at this step).
-  ASSERT_OK(
-      GenerateAndAddExternalFile(options, {50, 90}, file_id++, &true_data));
+  ASSERT_OK(GenerateAndAddExternalFile(
+      options, {50, 90}, {ValueType::kTypeValue, ValueType::kTypeValue},
+      file_id++, &true_data));
   ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), ++last_seqno);
   ASSERT_EQ(4, NumTableFilesAtLevel(0));
 
@@ -598,8 +600,9 @@ TEST_F(ExternalSSTFileBasicTest, IngestionWithRangeDeletions) {
 
   // overlaps with nothing, so places at bottom level and skips incrementing
   // seqnum.
-  ASSERT_OK(
-      GenerateAndAddExternalFile(options, {101, 125}, file_id++, &true_data));
+  ASSERT_OK(GenerateAndAddExternalFile(
+      options, {101, 125}, {ValueType::kTypeValue, ValueType::kTypeValue},
+      file_id++, &true_data));
   ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), last_seqno);
   ASSERT_EQ(4, NumTableFilesAtLevel(0));
   ASSERT_EQ(1, NumTableFilesAtLevel(options.num_levels - 1));

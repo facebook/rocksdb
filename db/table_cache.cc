@@ -286,10 +286,12 @@ InternalIterator* TableCache::NewRangeTombstoneIterator(
       result->RegisterCleanup(&UnrefEntry, cache_, handle);
     }
   }
+  if (result == nullptr && handle != nullptr) {
+    // the range deletion block didn't exist, or there was a failure between
+    // getting handle and getting iterator.
+    ReleaseHandle(handle);
+  }
   if (!s.ok()) {
-    if (handle != nullptr) {
-      ReleaseHandle(handle);
-    }
     assert(result == nullptr);
     result = NewErrorInternalIterator(s);
   }
