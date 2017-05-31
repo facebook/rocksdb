@@ -7,10 +7,15 @@
 
 #include "utilities/blob_db/blob_db.h"
 #include <cstdlib>
+#include <map>
+#include <memory>
+#include <string>
 #include "db/db_test_util.h"
+#include "port/port.h"
 #include "util/random.h"
+#include "util/string_util.h"
 #include "util/testharness.h"
-#include "util/testutil.h"
+#include "utilities/blob_db/blob_db_impl.h"
 #include "utilities/blob_db/blob_db_options_impl.h"
 
 namespace rocksdb {
@@ -33,9 +38,11 @@ void gen_random(char *s, const int len) {
 
 class BlobDBTest : public testing::Test {
  public:
+  const int kMaxBlobSize = 1 << 14;
+
   BlobDBTest() : blobdb_(nullptr) {
     dbname_ = test::TmpDir() + "/blob_db_test";
-    // Reopen1(BlobDBOptionsImpl());
+    // Reopen(BlobDBOptionsImpl());
   }
 
   ~BlobDBTest() {
@@ -45,8 +52,8 @@ class BlobDBTest : public testing::Test {
     }
   }
 
-  void Reopen1(const BlobDBOptionsImpl &bdboptions,
-               const Options &options = Options()) {
+  void Reopen(const BlobDBOptionsImpl &bdboptions,
+              const Options &options = Options()) {
     if (blobdb_) {
       delete blobdb_;
       blobdb_ = nullptr;
@@ -61,40 +68,59 @@ class BlobDBTest : public testing::Test {
     myoptions.create_if_missing = true;
     EXPECT_TRUE(
         BlobDB::Open(myoptions, bblobdb_options, dbname_, &blobdb_).ok());
+    ASSERT_NE(nullptr, blobdb_);
   }
 
-  void insert_blobs() {
-    WriteOptions wo;
-    ReadOptions ro;
-    std::string value;
+  void PutRandomWithTTL(const std::string &key, int32_t ttl, Random *rnd,
+                        std::map<std::string, std::string> *data = nullptr) {
+    int len = rnd->Next() % kMaxBlobSize + 1;
+    std::string value = test::RandomHumanReadableString(rnd, len);
+    ColumnFamilyHandle *cfh = blobdb_->DefaultColumnFamily();
+    ASSERT_OK(blobdb_->PutWithTTL(WriteOptions(), cfh, Slice(key), Slice(value),
+                                  ttl));
+    if (data != nullptr) {
+      (*data)[key] = value;
+    }
+  }
 
-    ColumnFamilyHandle *dcfh = blobdb_->DefaultColumnFamily();
+  void PutRandom(const std::string &key, Random *rnd,
+                 std::map<std::string, std::string> *data = nullptr) {
+    PutRandomWithTTL(key, -1, rnd, data);
+  }
+
+  void Delete(const std::string &key) {
+    ColumnFamilyHandle *cfh = blobdb_->DefaultColumnFamily();
+    ASSERT_OK(blobdb_->Delete(WriteOptions(), cfh, key));
+  }
+
+  // Verify blob db contain expected data and nothing more.
+  // TODO(yiwu): Verify blob files are consistent with data in LSM.
+  void VerifyDB(const std::map<std::string, std::string> &data) {
+    Iterator *iter = blobdb_->NewIterator(ReadOptions());
+    iter->SeekToFirst();
+    for (auto &p : data) {
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_EQ(p.first, iter->key().ToString());
+      ASSERT_EQ(p.second, iter->value().ToString());
+      iter->Next();
+    }
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
+    delete iter;
+  }
+
+  void InsertBlobs() {
+    WriteOptions wo;
+    std::string value;
 
     Random rnd(301);
     for (size_t i = 0; i < 100000; i++) {
-      int len = rnd.Next() % 16384;
-      if (!len) continue;
-
-      char *val = new char[len + 1];
-      gen_random(val, len);
-
-      std::string key("key");
-      key += std::to_string(i % 500);
-
-      Slice keyslice(key);
-      Slice valslice(val, len + 1);
-
-      int ttl = rnd.Next() % 86400;
-
-      ASSERT_OK(blobdb_->PutWithTTL(wo, dcfh, keyslice, valslice, ttl));
-      delete[] val;
+      int32_t ttl = rnd.Next() % 86400;
+      PutRandomWithTTL("key" + ToString(i % 500), ttl, &rnd, nullptr);
     }
 
     for (size_t i = 0; i < 10; i++) {
-      std::string key("key");
-      key += std::to_string(i % 500);
-      Slice keyslice(key);
-      blobdb_->Delete(wo, dcfh, keyslice);
+      Delete("key" + ToString(i % 500));
     }
   }
 
@@ -104,162 +130,60 @@ class BlobDBTest : public testing::Test {
 
 TEST_F(BlobDBTest, DeleteComplex) {
   BlobDBOptionsImpl bdboptions;
-  bdboptions.partial_expiration_pct = 75;
-  bdboptions.gc_check_period_millisecs = 20 * 1000;
-  bdboptions.blob_file_size = 219 * 1024;
-
-  Reopen1(bdboptions);
-
-  WriteOptions wo;
-  ReadOptions ro;
-  std::string value;
-
-  ColumnFamilyHandle *dcfh = blobdb_->DefaultColumnFamily();
+  Reopen(bdboptions);
 
   Random rnd(301);
   for (size_t i = 0; i < 100; i++) {
-    int len = rnd.Next() % 16384;
-    if (!len) continue;
-
-    char *val = new char[len + 1];
-    gen_random(val, len);
-
-    std::string key("key");
-    key += std::to_string(i);
-
-    Slice keyslice(key);
-    Slice valslice(val, len + 1);
-
-    ASSERT_OK(blobdb_->Put(wo, dcfh, keyslice, valslice));
-    delete[] val;
+    PutRandom("key" + ToString(i), &rnd, nullptr);
   }
-
-  for (size_t i = 0; i < 99; i++) {
-    std::string key("key");
-    key += std::to_string(i);
-
-    Slice keyslice(key);
-    blobdb_->Delete(wo, dcfh, keyslice);
+  for (size_t i = 0; i < 100; i++) {
+    Delete("key" + ToString(i));
   }
-
-  Env::Default()->SleepForMicroseconds(60 * 1000 * 1000);
+  // DB should be empty.
+  VerifyDB({});
 }
 
 TEST_F(BlobDBTest, OverrideTest) {
   BlobDBOptionsImpl bdboptions;
-  bdboptions.ttl_range_secs = 30;
-  bdboptions.gc_file_pct = 100;
-  bdboptions.gc_check_period_millisecs = 20 * 1000;
   bdboptions.num_concurrent_simple_blobs = 2;
   bdboptions.blob_file_size = 876 * 1024 * 10;
 
   Options options;
   options.write_buffer_size = 256 * 1024;
-  options.info_log_level = INFO_LEVEL;
 
-  Reopen1(bdboptions, options);
-
-  WriteOptions wo;
-  ReadOptions ro;
-  std::string value;
+  Reopen(bdboptions, options);
 
   Random rnd(301);
-  ColumnFamilyHandle *dcfh = blobdb_->DefaultColumnFamily();
+  std::map<std::string, std::string> data;
 
   for (int i = 0; i < 10000; i++) {
-    int len = rnd.Next() % 16384;
-    if (!len) continue;
-
-    char *val = new char[len + 1];
-    gen_random(val, len);
-
-    std::string key("key");
-    char x[10];
-    std::sprintf(x, "%04d", i);
-    key += std::string(x);
-
-    Slice keyslice(key);
-    Slice valslice(val, len + 1);
-
-    ASSERT_OK(blobdb_->Put(wo, dcfh, keyslice, valslice));
-    delete[] val;
+    PutRandom("key" + ToString(i), &rnd, nullptr);
   }
-
   // override all the keys
   for (int i = 0; i < 10000; i++) {
-    int len = rnd.Next() % 16384;
-    if (!len) continue;
-
-    char *val = new char[len + 1];
-    gen_random(val, len);
-
-    std::string key("key");
-    char x[10];
-    std::sprintf(x, "%04d", i);
-    key += std::string(x);
-
-    Slice keyslice(key);
-    Slice valslice(val, len + 1);
-
-    ASSERT_OK(blobdb_->Put(wo, dcfh, keyslice, valslice));
-    delete[] val;
+    PutRandom("key" + ToString(i), &rnd, &data);
   }
-
-  blobdb_->Flush(FlushOptions());
-
-#if 1
-  blobdb_->GetBaseDB()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
-  reinterpret_cast<DBImpl *>(blobdb_->GetBaseDB())->TEST_WaitForFlushMemTable();
-  reinterpret_cast<DBImpl *>(blobdb_->GetBaseDB())->TEST_WaitForCompact();
-#endif
-
-  Env::Default()->SleepForMicroseconds(120 * 1000 * 1000);
+  VerifyDB(data);
 }
 
 TEST_F(BlobDBTest, DeleteTest) {
   BlobDBOptionsImpl bdboptions;
-  bdboptions.ttl_range_secs = 30;
-  bdboptions.gc_file_pct = 100;
-  bdboptions.partial_expiration_pct = 18;
-  bdboptions.gc_check_period_millisecs = 20 * 1000;
   bdboptions.num_concurrent_simple_blobs = 1;
   bdboptions.blob_file_size = 876 * 1024;
 
-  Reopen1(bdboptions);
-
-  WriteOptions wo;
-  ReadOptions ro;
-  std::string value;
+  Reopen(bdboptions);
 
   Random rnd(301);
-  ColumnFamilyHandle *dcfh = blobdb_->DefaultColumnFamily();
+  std::map<std::string, std::string> data;
 
   for (size_t i = 0; i < 100; i++) {
-    int len = rnd.Next() % 16384;
-    if (!len) continue;
-
-    char *val = new char[len + 1];
-    gen_random(val, len);
-
-    std::string key("key");
-    key += std::to_string(i);
-
-    Slice keyslice(key);
-    Slice valslice(val, len + 1);
-
-    ASSERT_OK(blobdb_->Put(wo, dcfh, keyslice, valslice));
-    delete[] val;
+    PutRandom("key" + ToString(i), &rnd, &data);
   }
-
   for (size_t i = 0; i < 100; i += 5) {
-    std::string key("key");
-    key += std::to_string(i);
-
-    Slice keyslice(key);
-    blobdb_->Delete(wo, dcfh, keyslice);
+    Delete("key" + ToString(i));
+    data.erase("key" + ToString(i));
   }
-
-  Env::Default()->SleepForMicroseconds(60 * 1000 * 1000);
+  VerifyDB(data);
 }
 
 TEST_F(BlobDBTest, GCTestWithWrite) {
@@ -269,7 +193,7 @@ TEST_F(BlobDBTest, GCTestWithWrite) {
   bdboptions.gc_check_period_millisecs = 20 * 1000;
   bdboptions.default_ttl_extractor = true;
 
-  Reopen1(bdboptions);
+  Reopen(bdboptions);
 
   WriteOptions wo;
   ReadOptions ro;
@@ -277,11 +201,11 @@ TEST_F(BlobDBTest, GCTestWithWrite) {
 
   ColumnFamilyHandle *dcfh = blobdb_->DefaultColumnFamily();
 
-  WriteBatch WB;
+  WriteBatch batch;
 
   Random rnd(301);
   for (size_t i = 0; i < 100; i++) {
-    int len = rnd.Next() % 16384;
+    int len = rnd.Next() % kMaxBlobSize;
     if (!len) continue;
 
     int ttl = 30;
@@ -297,13 +221,14 @@ TEST_F(BlobDBTest, GCTestWithWrite) {
     Slice keyslice(key);
     Slice valslice(val, len + BlobDB::kTTLSuffixLength);
 
-    WB.Put(dcfh, keyslice, valslice);
+    batch.Put(dcfh, keyslice, valslice);
     delete[] val;
   }
 
-  ASSERT_OK(blobdb_->Write(wo, &WB));
+  ASSERT_OK(blobdb_->Write(wo, &batch));
 
-  Env::Default()->SleepForMicroseconds(120 * 1000 * 1000);
+  // TODO(yiwu): Use sync point to properly trigger GC and check result.
+  // Env::Default()->SleepForMicroseconds(120 * 1000 * 1000);
 }
 
 void cb_evict(const ColumnFamilyHandle *cfh, const Slice &key,
@@ -348,7 +273,7 @@ TEST_F(BlobDBTest, GetWithCompression) {
   bdboptions.gc_evict_cb_fn = &cb_evict;
   bdboptions.compression = CompressionType::kLZ4Compression;
 
-  Reopen1(bdboptions);
+  Reopen(bdboptions);
 
   WriteOptions wo;
   ReadOptions ro;
@@ -360,7 +285,7 @@ TEST_F(BlobDBTest, GetWithCompression) {
   std::string orig(LONG_STRING);
 
   for (size_t i = 0; i < 10000; i++) {
-    int len = orig.length();
+    size_t len = orig.length();
     int ttl = 3000 * (rnd.Next() % 10);
 
     char *val = new char[len + BlobDB::kTTLSuffixLength];
@@ -388,7 +313,8 @@ TEST_F(BlobDBTest, GetWithCompression) {
     ASSERT_TRUE(orig == val);
   }
 
-  Env::Default()->SleepForMicroseconds(120 * 1000 * 1000);
+  // TODO(yiwu): Use sync point to properly trigger GC and check result.
+  // Env::Default()->SleepForMicroseconds(120 * 1000 * 1000);
 }
 
 TEST_F(BlobDBTest, GCTestWithPutAndCompression) {
@@ -400,7 +326,7 @@ TEST_F(BlobDBTest, GCTestWithPutAndCompression) {
   bdboptions.gc_evict_cb_fn = &cb_evict;
   bdboptions.compression = CompressionType::kLZ4Compression;
 
-  Reopen1(bdboptions);
+  Reopen(bdboptions);
 
   WriteOptions wo;
   ReadOptions ro;
@@ -410,7 +336,7 @@ TEST_F(BlobDBTest, GCTestWithPutAndCompression) {
   ColumnFamilyHandle *dcfh = blobdb_->DefaultColumnFamily();
 
   for (size_t i = 0; i < 100; i++) {
-    int len = rnd.Next() % 16384;
+    int len = rnd.Next() % kMaxBlobSize;
     if (!len) continue;
 
     int ttl = 30;
@@ -430,7 +356,8 @@ TEST_F(BlobDBTest, GCTestWithPutAndCompression) {
     delete[] val;
   }
 
-  Env::Default()->SleepForMicroseconds(120 * 1000 * 1000);
+  // TODO(yiwu): Use sync point to properly trigger GC and check result.
+  // Env::Default()->SleepForMicroseconds(120 * 1000 * 1000);
 }
 
 TEST_F(BlobDBTest, GCTestWithPut) {
@@ -441,7 +368,7 @@ TEST_F(BlobDBTest, GCTestWithPut) {
   bdboptions.default_ttl_extractor = true;
   bdboptions.gc_evict_cb_fn = &cb_evict;
 
-  Reopen1(bdboptions);
+  Reopen(bdboptions);
 
   WriteOptions wo;
   ReadOptions ro;
@@ -451,7 +378,7 @@ TEST_F(BlobDBTest, GCTestWithPut) {
   ColumnFamilyHandle *dcfh = blobdb_->DefaultColumnFamily();
 
   for (size_t i = 0; i < 100; i++) {
-    int len = rnd.Next() % 16384;
+    int len = rnd.Next() % kMaxBlobSize;
     if (!len) continue;
 
     int ttl = 30;
@@ -471,7 +398,8 @@ TEST_F(BlobDBTest, GCTestWithPut) {
     delete[] val;
   }
 
-  Env::Default()->SleepForMicroseconds(120 * 1000 * 1000);
+  // TODO(yiwu): Use sync point to properly trigger GC and check result.
+  // Env::Default()->SleepForMicroseconds(120 * 1000 * 1000);
 }
 
 TEST_F(BlobDBTest, GCTest) {
@@ -479,7 +407,7 @@ TEST_F(BlobDBTest, GCTest) {
   bdboptions.ttl_range_secs = 30;
   bdboptions.gc_file_pct = 100;
 
-  Reopen1(bdboptions);
+  Reopen(bdboptions);
 
   WriteOptions wo;
   ReadOptions ro;
@@ -489,7 +417,7 @@ TEST_F(BlobDBTest, GCTest) {
   ColumnFamilyHandle *dcfh = blobdb_->DefaultColumnFamily();
 
   for (size_t i = 0; i < 100; i++) {
-    int len = rnd.Next() % 16384;
+    int len = rnd.Next() % kMaxBlobSize;
     if (!len) continue;
 
     char *val = new char[len + 1];
@@ -507,18 +435,19 @@ TEST_F(BlobDBTest, GCTest) {
     delete[] val;
   }
 
-  Env::Default()->SleepForMicroseconds(240 * 1000 * 1000);
+  // TODO(yiwu): Use sync point to properly trigger GC and check result.
+  // Env::Default()->SleepForMicroseconds(240 * 1000 * 1000);
 }
 
 TEST_F(BlobDBTest, DISABLED_MultipleWriters) {
   BlobDBOptionsImpl bdboptions;
-  Reopen1(bdboptions);
+  Reopen(bdboptions);
 
   ASSERT_TRUE(blobdb_ != nullptr);
 
   std::vector<std::thread> workers;
   for (size_t ii = 0; ii < 10; ii++)
-    workers.push_back(std::thread(&BlobDBTest::insert_blobs, this));
+    workers.push_back(std::thread(&BlobDBTest::InsertBlobs, this));
 
   for (std::thread &t : workers) {
     if (t.joinable()) {
@@ -534,9 +463,10 @@ TEST_F(BlobDBTest, DISABLED_MultipleWriters) {
   // ASSERT_EQ("v2", value);
 }
 
-#if 0
 TEST_F(BlobDBTest, Large) {
-  ASSERT_TRUE(blobdb_ != nullptr);
+  BlobDBOptionsImpl bdboptions;
+  Options options;
+  Reopen(bdboptions, options);
 
   WriteOptions wo;
   ReadOptions ro;
@@ -559,7 +489,6 @@ TEST_F(BlobDBTest, Large) {
   ASSERT_OK(blobdb_->Get(ro, dcfh, "barfoo", &value));
   ASSERT_EQ(value3, value);
 }
-#endif
 
 }  //  namespace blob_db
 }  //  namespace rocksdb

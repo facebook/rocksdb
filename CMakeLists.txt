@@ -475,6 +475,7 @@ set(SOURCES
         utilities/blob_db/blob_db.cc
         utilities/blob_db/blob_db_impl.cc
         utilities/blob_db/blob_db_options_impl.cc
+        utilities/blob_db/blob_dump_tool.cc
         utilities/blob_db/blob_file.cc
         utilities/blob_db/blob_log_reader.cc
         utilities/blob_db/blob_log_writer.cc
@@ -696,6 +697,7 @@ set(TESTS
         util/thread_list_test.cc
         util/thread_local_test.cc
         utilities/backupable/backupable_db_test.cc
+        utilities/blob_db/blob_db_test.cc
         utilities/checkpoint/checkpoint_test.cc
         utilities/column_aware_encoding_test.cc
         utilities/date_tiered/date_tiered_test.cc

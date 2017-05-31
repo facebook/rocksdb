@@ -1377,6 +1377,9 @@ lua_test: utilities/lua/rocks_lua_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTH
 range_del_aggregator_test: db/range_del_aggregator_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+blob_db_test: utilities/blob_db/blob_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 #-------------------------------------------------
 # make install related stuff
 INSTALL_PATH ?= /usr/local
