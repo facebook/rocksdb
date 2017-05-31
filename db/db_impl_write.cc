@@ -91,9 +91,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     if (w.ShouldWriteToMemtable()) {
       ColumnFamilyMemTablesImpl column_family_memtables(
           versions_->GetColumnFamilySet());
-      WriteBatchInternal::SetSequence(w.batch, w.sequence);
       w.status = WriteBatchInternal::InsertInto(
-          &w, &column_family_memtables, &flush_scheduler_,
+          &w, w.sequence, &column_family_memtables, &flush_scheduler_,
           write_options.ignore_missing_column_families, 0 /*log_number*/, this,
           true /*concurrent_memtable_writes*/);
     }
@@ -239,9 +238,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
           ColumnFamilyMemTablesImpl column_family_memtables(
               versions_->GetColumnFamilySet());
           assert(w.sequence == current_sequence);
-          WriteBatchInternal::SetSequence(w.batch, w.sequence);
           w.status = WriteBatchInternal::InsertInto(
-              &w, &column_family_memtables, &flush_scheduler_,
+              &w, w.sequence, &column_family_memtables, &flush_scheduler_,
               write_options.ignore_missing_column_families, 0 /*log_number*/,
               this, true /*concurrent_memtable_writes*/);
         }
@@ -384,11 +382,10 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
 
   if (w.state == WriteThread::STATE_PARALLEL_MEMTABLE_WRITER) {
     assert(w.ShouldWriteToMemtable());
-    WriteBatchInternal::SetSequence(w.batch, w.sequence);
     ColumnFamilyMemTablesImpl column_family_memtables(
         versions_->GetColumnFamilySet());
     w.status = WriteBatchInternal::InsertInto(
-        &w, &column_family_memtables, &flush_scheduler_,
+        &w, w.sequence, &column_family_memtables, &flush_scheduler_,
         write_options.ignore_missing_column_families, 0 /*log_number*/, this,
         true /*concurrent_memtable_writes*/);
     if (write_thread_.CompleteParallelMemTableWriter(&w)) {

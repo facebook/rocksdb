@@ -43,9 +43,9 @@ SpecialEnv::SpecialEnv(Env* base)
 }
 
 DBTestBase::DBTestBase(const std::string path)
-    : option_config_(kDefault),
-      mem_env_(!getenv("MEM_ENV") ? nullptr : new MockEnv(Env::Default())),
-      env_(new SpecialEnv(mem_env_ ? mem_env_ : Env::Default())) {
+    : mem_env_(!getenv("MEM_ENV") ? nullptr : new MockEnv(Env::Default())),
+      env_(new SpecialEnv(mem_env_ ? mem_env_ : Env::Default())),
+      option_config_(kDefault) {
   env_->SetBackgroundThreads(1, Env::LOW);
   env_->SetBackgroundThreads(1, Env::HIGH);
   dbname_ = test::TmpDir(env_) + path;
@@ -245,7 +245,17 @@ bool DBTestBase::ChangeFilterOptions() {
 
 // Return the current option configuration.
 Options DBTestBase::CurrentOptions(
-    const anon::OptionsOverride& options_override) {
+    const anon::OptionsOverride& options_override) const {
+  return GetOptions(option_config_, GetDefaultOptions(), options_override);
+}
+
+Options DBTestBase::CurrentOptions(
+    const Options& default_options,
+    const anon::OptionsOverride& options_override) const {
+  return GetOptions(option_config_, default_options, options_override);
+}
+
+Options DBTestBase::GetDefaultOptions() {
   Options options;
   options.write_buffer_size = 4090 * 4096;
   options.target_file_size_base = 2 * 1024 * 1024;
@@ -253,15 +263,14 @@ Options DBTestBase::CurrentOptions(
   options.max_open_files = 5000;
   options.wal_recovery_mode = WALRecoveryMode::kTolerateCorruptedTailRecords;
   options.compaction_pri = CompactionPri::kByCompensatedSize;
-
-  return CurrentOptions(options, options_override);
+  return options;
 }
 
-Options DBTestBase::CurrentOptions(
-    const Options& defaultOptions,
-    const anon::OptionsOverride& options_override) {
+Options DBTestBase::GetOptions(
+    int option_config, const Options& default_options,
+    const anon::OptionsOverride& options_override) const {
   // this redundant copy is to minimize code change w/o having lint error.
-  Options options = defaultOptions;
+  Options options = default_options;
   BlockBasedTableOptions table_options;
   bool set_block_based_table_factory = true;
 #if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) &&  \
@@ -272,7 +281,7 @@ Options DBTestBase::CurrentOptions(
       "NewWritableFile:O_DIRECT");
 #endif
 
-  switch (option_config_) {
+  switch (option_config) {
 #ifndef ROCKSDB_LITE
     case kHashSkipList:
       options.prefix_extractor.reset(NewFixedPrefixTransform(1));
@@ -454,6 +463,10 @@ Options DBTestBase::CurrentOptions(
           });
       rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 #endif
+      break;
+    }
+    case kPipelinedWrite: {
+      options.enable_pipelined_write = true;
       break;
     }
 
