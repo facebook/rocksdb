@@ -130,10 +130,9 @@ function main {
       DB_PATH=$ORIGIN_PATH
       test_remote "test -d $DB_PATH"
       if [[ $? -ne 0 ]]; then
-          run_remote "rm -rf $DB_PATH"
           echo "Building DB..."
-          run_db_bench "fillseq" $NUM_KEYS 1 0
-          run_db_bench "compactall"
+          # compactall alone will not print ops or threads, which will fail update_report
+          run_db_bench "fillseq,compactall" $NUM_KEYS 1 0 0
       fi
       DB_PATH=$tmp
   fi
@@ -198,13 +197,15 @@ function init_arguments {
 # $2 --- number of operations.  Default: $NUM_KEYS
 # $3 --- number of threads.  Default $NUM_THREADS
 # $4 --- use_existing_db.  Default: 1
+# $5 --- update_report. Default: 1
 function run_db_bench {
   # this will terminate all currently-running db_bench
   find_db_bench_cmd="ps aux | grep db_bench | grep -v grep | grep -v aux | awk '{print \$2}'"
 
-  USE_EXISTING_DB=${4:-1}
   ops=${2:-$NUM_OPS}
   threads=${3:-$NUM_THREADS}
+  USE_EXISTING_DB=${4:-1}
+  UPDATE_REPORT=${5:-1}
   echo ""
   echo "======================================================================="
   echo "Benchmark $1"
@@ -266,8 +267,9 @@ function run_db_bench {
   echo $cmd
   eval $cmd
   exit_on_error $db_bench_error
-
-  update_report "$1" "$RESULT_PATH/$1" $ops $threads
+  if [ $UPDATE_REPORT -ne 0 ]; then
+    update_report "$1" "$RESULT_PATH/$1" $ops $threads
+  fi
 }
 
 function build_checkpoint {
