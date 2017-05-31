@@ -38,6 +38,8 @@ void gen_random(char *s, const int len) {
 
 class BlobDBTest : public testing::Test {
  public:
+  constexpr int kMaxBlobSize = 1 << 13;
+
   BlobDBTest() : blobdb_(nullptr) {
     dbname_ = test::TmpDir() + "/blob_db_test";
     // Reopen(BlobDBOptionsImpl());
@@ -71,7 +73,7 @@ class BlobDBTest : public testing::Test {
 
   void PutRandomWithTTL(const std::string &key, int32_t ttl, Random *rnd,
                         std::map<std::string, std::string> *data = nullptr) {
-    int len = rnd->Next() % 16384 + 1;
+    int len = rnd->Next() % kMaxBlobSize + 1;
     std::string value = test::RandomHumanReadableString(rnd, len);
     ColumnFamilyHandle *cfh = blobdb_->DefaultColumnFamily();
     ASSERT_OK(blobdb_->PutWithTTL(WriteOptions(), cfh, Slice(key), Slice(value),
@@ -203,7 +205,7 @@ TEST_F(BlobDBTest, GCTestWithWrite) {
 
   Random rnd(301);
   for (size_t i = 0; i < 100; i++) {
-    int len = rnd.Next() % 16384;
+    int len = rnd.Next() % kMaxBlobSize;
     if (!len) continue;
 
     int ttl = 30;
@@ -334,7 +336,7 @@ TEST_F(BlobDBTest, GCTestWithPutAndCompression) {
   ColumnFamilyHandle *dcfh = blobdb_->DefaultColumnFamily();
 
   for (size_t i = 0; i < 100; i++) {
-    int len = rnd.Next() % 16384;
+    int len = rnd.Next() % kMaxBlobSize;
     if (!len) continue;
 
     int ttl = 30;
@@ -376,7 +378,7 @@ TEST_F(BlobDBTest, GCTestWithPut) {
   ColumnFamilyHandle *dcfh = blobdb_->DefaultColumnFamily();
 
   for (size_t i = 0; i < 100; i++) {
-    int len = rnd.Next() % 16384;
+    int len = rnd.Next() % kMaxBlobSize;
     if (!len) continue;
 
     int ttl = 30;
@@ -415,7 +417,7 @@ TEST_F(BlobDBTest, GCTest) {
   ColumnFamilyHandle *dcfh = blobdb_->DefaultColumnFamily();
 
   for (size_t i = 0; i < 100; i++) {
-    int len = rnd.Next() % 16384;
+    int len = rnd.Next() % kMaxBlobSize;
     if (!len) continue;
 
     char *val = new char[len + 1];
