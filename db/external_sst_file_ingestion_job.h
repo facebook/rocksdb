@@ -141,6 +141,13 @@ class ExternalSstFileIngestionJob {
       const IngestedFileInfo* file_to_ingest, InternalIterator* iter,
       bool* overlap);
 
+  // Check if `file_to_ingest` key range overlaps with any range deletions
+  // specified by `iter`.
+  // REQUIRES: Mutex held
+  Status IngestedFileOverlapWithRangeDeletions(
+      const IngestedFileInfo* file_to_ingest, InternalIterator* range_del_iter,
+      bool* overlap);
+
   // Check if `file_to_ingest` key range overlap with level
   // REQUIRES: Mutex held
   Status IngestedFileOverlapWithLevel(SuperVersion* sv,
