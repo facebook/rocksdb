@@ -38,7 +38,7 @@ void gen_random(char *s, const int len) {
 
 class BlobDBTest : public testing::Test {
  public:
-  constexpr int kMaxBlobSize = 1 << 13;
+  const int kMaxBlobSize = 1 << 14;
 
   BlobDBTest() : blobdb_(nullptr) {
     dbname_ = test::TmpDir() + "/blob_db_test";
