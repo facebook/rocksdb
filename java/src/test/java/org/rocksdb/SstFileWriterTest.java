@@ -18,6 +18,7 @@ import java.util.Arrays;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.Assert.fail;
 
 public class SstFileWriterTest {
   private static final String SST_FILE_NAME = "test.sst";
@@ -41,9 +42,11 @@ public class SstFileWriterTest {
     String getKey() {
       return key;
     }
+
     String getValue() {
       return value;
     }
+
     OpType getOpType() {
       return opType;
     }
@@ -86,6 +89,8 @@ public class SstFileWriterTest {
           case DELETE:
             sstFileWriter.delete(keySlice);
             break;
+          default:
+            fail("Unsupported op type");
         }
         keySlice.close();
         valueSlice.close();
@@ -141,13 +146,14 @@ public class SstFileWriterTest {
 
     final File sstFile = newSstFile(keyValues, false);
     final File dbFolder = parentFolder.newFolder(DB_DIRECTORY_NAME);
-    try(final StringAppendOperator stringAppendOperator = new StringAppendOperator();
-      final Options options = new Options()
-          .setCreateIfMissing(true)
-          .setMergeOperator(stringAppendOperator);
-      final RocksDB db = RocksDB.open(options, dbFolder.getAbsolutePath());
-      final IngestExternalFileOptions ingestExternalFileOptions
-          = new IngestExternalFileOptions()) {
+    try(final StringAppendOperator stringAppendOperator =
+            new StringAppendOperator();
+        final Options options = new Options()
+            .setCreateIfMissing(true)
+            .setMergeOperator(stringAppendOperator);
+        final RocksDB db = RocksDB.open(options, dbFolder.getAbsolutePath());
+        final IngestExternalFileOptions ingestExternalFileOptions =
+            new IngestExternalFileOptions()) {
       db.ingestExternalFile(Arrays.asList(sstFile.getAbsolutePath()),
           ingestExternalFileOptions);
 
@@ -166,11 +172,12 @@ public class SstFileWriterTest {
 
     final File sstFile = newSstFile(keyValues, false);
     final File dbFolder = parentFolder.newFolder(DB_DIRECTORY_NAME);
-    try(final StringAppendOperator stringAppendOperator = new StringAppendOperator();
+    try(final StringAppendOperator stringAppendOperator =
+            new StringAppendOperator();
         final Options options = new Options()
-          .setCreateIfMissing(true)
-          .setCreateMissingColumnFamilies(true)
-          .setMergeOperator(stringAppendOperator);
+            .setCreateIfMissing(true)
+            .setCreateMissingColumnFamilies(true)
+            .setMergeOperator(stringAppendOperator);
         final RocksDB db = RocksDB.open(options, dbFolder.getAbsolutePath());
         final IngestExternalFileOptions ingestExternalFileOptions =
             new IngestExternalFileOptions()) {
