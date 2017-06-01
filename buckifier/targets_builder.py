@@ -6,7 +6,7 @@ import targets_cfg
 import pprint
 
 # TODO(tec): replace this with PrettyPrinter
-def pretty_list(lst, indent=6):
+def pretty_list(lst, indent=10):
     if lst is None or len(lst) == 0:
         return ""
 
@@ -23,7 +23,6 @@ class TARGETSBuilder:
     def __init__(self, path):
         self.path = path
         self.targets_file = open(path, 'w')
-        self.targets_file.write(targets_cfg.rocksdb_target_header)
         self.total_lib = 0
         self.total_bin = 0
         self.total_test = 0
@@ -32,34 +31,30 @@ class TARGETSBuilder:
     def __del__(self):
         self.targets_file.close()
 
-    def add_library(self, name, srcs, deps=None, headers=None):
+    def add_library(self, name, srcs, deps="", headers=None):
         if headers is None:
             headers = "AutoHeaders.RECURSIVE_GLOB"
+        if deps != "":
+            deps = targets_cfg.deps_template % (deps)
         self.targets_file.write(targets_cfg.library_template % (
             name,
             headers,
             pretty_list(srcs),
-            pretty_list(deps)))
+            deps))
         self.total_lib = self.total_lib + 1
-
-    def add_binary(self, name, srcs, deps=None):
-        self.targets_file.write(targets_cfg.binary_template % (
-            name,
-            pretty_list(srcs),
-            pretty_list(deps)))
-        self.total_bin = self.total_bin + 1
 
     def register_test(self, test_name, src, is_parallel):
         exec_mode = "serial"
         if is_parallel:
             exec_mode = "parallel"
         self.tests_cfg.append([test_name, str(src), str(exec_mode)])
-
         self.total_test = self.total_test + 1
 
-    def flush_tests(self):
-        self.targets_file.write(targets_cfg.unittests_template % (
+    def add_header(self):
+        self.targets_file.write(targets_cfg.rocksdb_target_header_template % (
             pprint.PrettyPrinter().pformat(self.tests_cfg)
         ))
+        tests_cfg = []
 
-        self.tests_cfg = []
+    def add_footer(self):
+        self.targets_file.write(targets_cfg.rocksdb_target_footer_template)
