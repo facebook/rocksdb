@@ -121,10 +121,4 @@ cpp_library(
     compiler_flags = rocksdb_compiler_flags,
     external_deps = rocksdb_external_deps,
 )
-
-custom_unittest(
-    name = "make_rocksdbjavastatic",
-    type = "simple",
-    command = ["internal_repo_rocksdb/make_rocksdbjavastatic.sh"],
-)
 """
