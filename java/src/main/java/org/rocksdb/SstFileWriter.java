@@ -25,12 +25,38 @@ public class SstFileWriter extends RocksObject {
     open(nativeHandle_, filePath);
   }
 
+  @Deprecated
   public void add(final Slice key, final Slice value) throws RocksDBException {
     add(nativeHandle_, key.getNativeHandle(), value.getNativeHandle());
   }
 
+  @Deprecated
   public void add(final DirectSlice key, final DirectSlice value) throws RocksDBException {
     add(nativeHandle_, key.getNativeHandle(), value.getNativeHandle());
+  }
+
+  public void put(final Slice key, final Slice value) throws RocksDBException {
+    put(nativeHandle_, key.getNativeHandle(), value.getNativeHandle());
+  }
+
+  public void put(final DirectSlice key, final DirectSlice value) throws RocksDBException {
+    put(nativeHandle_, key.getNativeHandle(), value.getNativeHandle());
+  }
+
+  public void merge(final Slice key, final Slice value) throws RocksDBException {
+    merge(nativeHandle_, key.getNativeHandle(), value.getNativeHandle());
+  }
+
+  public void merge(final DirectSlice key, final DirectSlice value) throws RocksDBException {
+    merge(nativeHandle_, key.getNativeHandle(), value.getNativeHandle());
+  }
+
+  public void delete(final Slice key) throws RocksDBException {
+    delete(nativeHandle_, key.getNativeHandle());
+  }
+
+  public void delete(final DirectSlice key) throws RocksDBException {
+    delete(nativeHandle_, key.getNativeHandle());
   }
 
   public void finish() throws RocksDBException {
@@ -47,6 +73,14 @@ public class SstFileWriter extends RocksObject {
 
   private native void add(final long handle, final long keyHandle, final long valueHandle)
       throws RocksDBException;
+
+  private native void put(final long handle, final long keyHandle, final long valueHandle)
+      throws RocksDBException;
+
+  private native void merge(final long handle, final long keyHandle, final long valueHandle)
+      throws RocksDBException;
+
+  private native void delete(final long handle, final long keyHandle) throws RocksDBException;
 
   private native void finish(final long handle) throws RocksDBException;
 
