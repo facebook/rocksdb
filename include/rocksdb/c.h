@@ -638,6 +638,7 @@ extern ROCKSDB_LIBRARY_API void rocksdb_block_based_options_set_format_version(
 enum {
   rocksdb_block_based_table_index_type_binary_search = 0,
   rocksdb_block_based_table_index_type_hash_search = 1,
+  rocksdb_block_based_table_index_type_two_level_index_search = 2,
 };
 extern ROCKSDB_LIBRARY_API void rocksdb_block_based_options_set_index_type(
     rocksdb_block_based_table_options_t*, int);  // uses one of the above enums
