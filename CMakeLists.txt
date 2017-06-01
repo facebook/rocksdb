@@ -381,7 +381,7 @@ set(SOURCES
         env/env.cc
         env/env_chroot.cc
         env/env_hdfs.cc
-        env/memenv.cc
+        env/mock_env.cc
         memtable/hash_cuckoo_rep.cc
         memtable/hash_linklist_rep.cc
         memtable/hash_skiplist_rep.cc
@@ -745,7 +745,6 @@ endforeach(sourcefile ${BENCHMARKS})
 # and linked to tests. Add test only code that is not #ifdefed for Release here.
 set(TESTUTIL_SOURCE
     db/db_test_util.cc
-    env/mock_env.cc
     monitoring/thread_status_updater_debug.cc
     table/mock_table.cc
     util/fault_injection_test_env.cc
