@@ -277,13 +277,21 @@ function build_checkpoint {
     if ! [ -z "$REMOTE_USER_AT_HOST" ]; then
         cmd_prefix="$SSH $REMOTE_USER_AT_HOST "
     fi
-    dirs=$($cmd_prefix find $ORIGIN_PATH -type d -links 2)
-    for dir in $dirs; do
-        db_index=$(basename $dir)
-        echo "Building checkpoint: $ORIGIN_PATH/$db_index -> $DB_PATH/$db_index ..."
-        $cmd_prefix $DB_BENCH_DIR/ldb checkpoint --checkpoint_dir=$DB_PATH/$db_index \
-                      --db=$ORIGIN_PATH/$db_index 2>&1
-    done
+    if [ $NUM_MULTI_DB -gt 1 ]; then
+        dirs=$($cmd_prefix find $ORIGIN_PATH -type d -links 2)
+        for dir in $dirs; do
+            db_index=$(basename $dir)
+            echo "Building checkpoints: $ORIGIN_PATH/$db_index -> $DB_PATH/$db_index ..."
+            $cmd_prefix $DB_BENCH_DIR/ldb checkpoint --checkpoint_dir=$DB_PATH/$db_index \
+                        --db=$ORIGIN_PATH/$db_index 2>&1
+        done
+    else
+        # checkpoint cannot build in directory already exists
+        $cmd_prefix rm -rf $DB_PATH
+        echo "Building checkpoint: $ORIGIN_PATH -> $DB_PATH ..."
+        $cmd_prefix $DB_BENCH_DIR/ldb checkpoint --checkpoint_dir=$DB_PATH \
+                    --db=$ORIGIN_PATH 2>&1
+    fi
 }
 
 function multiply {
