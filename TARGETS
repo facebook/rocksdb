@@ -46,7 +46,7 @@ rocksdb_preprocessor_flags = [
 
 cpp_library(
     name = "rocksdb_lib",
-    auto_headers = AutoHeaders.RECURSIVE_GLOB,
+    headers = AutoHeaders.RECURSIVE_GLOB,
     srcs = [
       "cache/clock_cache.cc",
       "cache/lru_cache.cc",
@@ -108,7 +108,7 @@ cpp_library(
       "env/env_hdfs.cc",
       "env/env_posix.cc",
       "env/io_posix.cc",
-      "env/memenv.cc",
+      "env/mock_env.cc",
       "memtable/hash_cuckoo_rep.cc",
       "memtable/hash_linklist_rep.cc",
       "memtable/hash_skiplist_rep.cc",
@@ -201,7 +201,6 @@ cpp_library(
       "utilities/blob_db/blob_db.cc",
       "utilities/blob_db/blob_db_impl.cc",
       "utilities/blob_db/blob_db_options_impl.cc",
-      "utilities/blob_db/blob_dump_tool.cc",
       "utilities/blob_db/blob_file.cc",
       "utilities/blob_db/blob_log_reader.cc",
       "utilities/blob_db/blob_log_writer.cc",
@@ -260,9 +259,8 @@ cpp_library(
 
 cpp_library(
     name = "rocksdb_test_lib",
-    auto_headers = AutoHeaders.RECURSIVE_GLOB,
+    headers = AutoHeaders.RECURSIVE_GLOB,
     srcs = [
-      "env/mock_env.cc",
       "table/mock_table.cc",
       "util/fault_injection_test_env.cc",
       "util/testharness.cc",
@@ -280,7 +278,7 @@ cpp_library(
 
 cpp_library(
     name = "rocksdb_tools_lib",
-    auto_headers = AutoHeaders.RECURSIVE_GLOB,
+    headers = AutoHeaders.RECURSIVE_GLOB,
     srcs = [
       "tools/db_bench_tool.cc",
       "util/testutil.cc",
@@ -293,7 +291,7 @@ cpp_library(
 
 cpp_library(
     name = "env_basic_test_lib",
-    auto_headers = AutoHeaders.RECURSIVE_GLOB,
+    headers = AutoHeaders.RECURSIVE_GLOB,
     srcs = ["env/env_basic_test.cc"],
     deps = [":rocksdb_test_lib"],
     preprocessor_flags = rocksdb_preprocessor_flags,
@@ -334,6 +332,7 @@ ROCKS_TESTS = [['merger_test', 'table/merger_test.cc', 'serial'],
  ['object_registry_test', 'utilities/object_registry_test.cc', 'serial'],
  ['auto_roll_logger_test', 'util/auto_roll_logger_test.cc', 'serial'],
  ['dbformat_test', 'db/dbformat_test.cc', 'serial'],
+ ['db_write_test', 'db/db_write_test.cc', 'serial'],
  ['write_batch_with_index_test',
   'utilities/write_batch_with_index/write_batch_with_index_test.cc',
   'serial'],
@@ -458,9 +457,8 @@ ROCKS_TESTS = [['merger_test', 'table/merger_test.cc', 'serial'],
  ['version_edit_test', 'db/version_edit_test.cc', 'serial'],
  ['skiplist_test', 'memtable/skiplist_test.cc', 'serial'],
  ['lru_cache_test', 'cache/lru_cache_test.cc', 'serial'],
- ['plain_table_db_test', 'db/plain_table_db_test.cc', 'serial'],
- ['blob_db_test', 'utilities/blob_db/blob_db_test.cc', 'serial'],
- ['db_write_test', 'db/db_write_test.cc', 'serial']]
+ ['plain_table_db_test', 'db/plain_table_db_test.cc', 'serial']]
+
 
 # Generate a test rule for each entry in ROCKS_TESTS
 for test_cfg in ROCKS_TESTS:
@@ -489,12 +487,10 @@ custom_unittest(
     name = "make_rocksdbjavastatic",
     type = "simple",
     command = ["internal_repo_rocksdb/make_rocksdbjavastatic.sh"],
-    deps=[],
 )
 
 custom_unittest(
     name = "make_rocksdb_lite_release",
     type = "simple",
     command = ["internal_repo_rocksdb/make_rocksdb_lite_release.sh"],
-    deps=[],
 )
