@@ -9,7 +9,7 @@ rocksdb_target_header_template = """# Buck build targets
 REPO_PATH = "internal_repo_rocksdb/repo/"
 BUCK_BINS = "buck-out/gen/" + REPO_PATH
 TEST_RUNNER = REPO_PATH + "buckifier/rocks_test_runner.sh"
-rocksdb_compiler_flags_common = [
+rocksdb_compiler_flags_no_compression = [
   "-msse",
   "-msse4.2",
   "-fno-builtin-memcmp",
@@ -39,7 +39,7 @@ rocksdb_compiler_flags_compression = [
 ]
 
 rocksdb_compiler_flags = \\
-  rocksdb_compiler_flags_common + rocksdb_compiler_flags_compression
+  rocksdb_compiler_flags_no_compression + rocksdb_compiler_flags_compression
 
 rocksdb_external_deps = [
   ('bzip2', None, 'bz2'),
@@ -64,20 +64,19 @@ ROCKS_TESTS = %s
 
 # [mode, compiler_flags, test_tmp_dir]
 ROCKS_BUILDS = [
-  ["dev",            rocksdb_compiler_flags,                      "/dev/shm"],
-  ["lite",           rocksdb_compiler_flags + ["-DROCKSDB_LITE"], "/dev/shm"],
-  ["release",        rocksdb_compiler_flags + ["-DNDEBUG"],       "/dev/shm"],
-  ["no_compression", rocksdb_compiler_flags_common,               "/dev/shm"],
-  ["non_shm",        rocksdb_compiler_flags,                      "/tmp"],
+  ["rocksdb",                rocksdb_compiler_flags],
+  ["rocksdb_lite",           rocksdb_compiler_flags + ["-DROCKSDB_LITE"]],
+  ["rocksdb_release",        rocksdb_compiler_flags + ["-DNDEBUG"]],
+  ["rocksdb_no_compression", rocksdb_compiler_flags_no_compression],
 ]
 
-for mode, compiler_flags, test_tmp_dir in ROCKS_BUILDS:"""
+for mode, compiler_flags in ROCKS_BUILDS:"""
 
-deps_template = "\":rocksdb_\" + mode + \"_%s\""
+deps_template = "\":\" + mode + \"_%s\""
 
 library_template = """
     cpp_library(
-        name = "rocksdb_" + mode + "_%s",
+        name = mode + "_%s",
         auto_headers = %s,
         srcs = [%s],
         deps = [%s],
@@ -89,9 +88,9 @@ library_template = """
 
 rocksdb_target_footer_template = """
     # Generate a test rule for each entry in ROCKS_TESTS
-    if mode != "release":
+    if mode != "rocksdb_release":
         for test_cfg in ROCKS_TESTS:
-            test_name = "rocksdb_" + mode + "_" + test_cfg[0]
+            test_name = mode + "_" + test_cfg[0]
             test_cc = test_cfg[1]
             ttype = "gtest" if test_cfg[2] == "parallel" else "simple"
             test_bin = test_name + "_bin"
@@ -99,24 +98,25 @@ rocksdb_target_footer_template = """
             cpp_binary(
               name = test_bin,
               srcs = [test_cc],
-              deps = [":rocksdb_" + mode + "_test_lib"],
+              deps = [":" + mode + "_test_lib"],
               preprocessor_flags = rocksdb_preprocessor_flags,
               compiler_flags = compiler_flags,
               external_deps = rocksdb_external_deps,
             )
 
-            custom_unittest(
-              name = test_name,
-              type = ttype,
-              deps = [":" + test_bin],
-              command = [TEST_RUNNER, test_tmp_dir, BUCK_BINS + test_bin]
-            )
+            if mode == "rocksdb":
+                custom_unittest(
+                  name = test_name,
+                  type = ttype,
+                  deps = [":" + test_bin],
+                  command = [TEST_RUNNER, BUCK_BINS + test_bin]
+                )
 
 cpp_library(
     name = "env_basic_test_lib",
     auto_headers = AutoHeaders.RECURSIVE_GLOB,
     srcs = ["env/env_basic_test.cc"],
-    deps = [":rocksdb_dev_test_lib"],
+    deps = [":rocksdb_test_lib"],
     preprocessor_flags = rocksdb_preprocessor_flags,
     compiler_flags = rocksdb_compiler_flags,
     external_deps = rocksdb_external_deps,

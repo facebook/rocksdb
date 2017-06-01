@@ -5,6 +5,7 @@ from __future__ import unicode_literals
 import targets_cfg
 import pprint
 
+
 # TODO(tec): replace this with PrettyPrinter
 def pretty_list(lst, indent=10):
     if lst is None or len(lst) == 0:
