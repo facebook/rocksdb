@@ -913,7 +913,7 @@ TEST_F(DBPropertiesTest, EstimatePendingCompBytes) {
   Flush();
   ASSERT_TRUE(dbfull()->GetIntProperty(
       "rocksdb.estimate-pending-compaction-bytes", &int_num));
-  ASSERT_EQ(int_num, 0U);
+  ASSERT_GT(int_num, 0U);
 
   ASSERT_OK(dbfull()->Put(writeOpt, "k3", big_value));
   Flush();
