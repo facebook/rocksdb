@@ -143,6 +143,7 @@ public class SstFileWriterTest {
     keyValues.add(new KeyValueWithOp("key1", "value1", OpType.PUT));
     keyValues.add(new KeyValueWithOp("key2", "value2", OpType.PUT));
     keyValues.add(new KeyValueWithOp("key3", "value3", OpType.MERGE));
+    keyValues.add(new KeyValueWithOp("key4", "", OpType.DELETE));
 
     final File sstFile = newSstFile(keyValues, false);
     final File dbFolder = parentFolder.newFolder(DB_DIRECTORY_NAME);
@@ -160,6 +161,7 @@ public class SstFileWriterTest {
       assertThat(db.get("key1".getBytes())).isEqualTo("value1".getBytes());
       assertThat(db.get("key2".getBytes())).isEqualTo("value2".getBytes());
       assertThat(db.get("key3".getBytes())).isEqualTo("value3".getBytes());
+      assertThat(db.get("key4".getBytes())).isEqualTo(null);
     }
   }
 
@@ -169,6 +171,7 @@ public class SstFileWriterTest {
     keyValues.add(new KeyValueWithOp("key1", "value1", OpType.PUT));
     keyValues.add(new KeyValueWithOp("key2", "value2", OpType.PUT));
     keyValues.add(new KeyValueWithOp("key3", "value3", OpType.MERGE));
+    keyValues.add(new KeyValueWithOp("key4", "", OpType.DELETE));
 
     final File sstFile = newSstFile(keyValues, false);
     final File dbFolder = parentFolder.newFolder(DB_DIRECTORY_NAME);
@@ -197,6 +200,8 @@ public class SstFileWriterTest {
             "key2".getBytes())).isEqualTo("value2".getBytes());
         assertThat(db.get(cf_handle,
             "key3".getBytes())).isEqualTo("value3".getBytes());
+        assertThat(db.get(cf_handle,
+            "key4".getBytes())).isEqualTo(null);
       }
     }
   }
