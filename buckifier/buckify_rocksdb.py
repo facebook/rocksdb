@@ -3,17 +3,11 @@ from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
 from targets_builder import TARGETSBuilder
-from optparse import OptionParser
 import os
 import fnmatch
 import sys
-import tempfile
 
 from util import ColorString
-import util
-
-# tests to export as libraries for inclusion in other projects
-_EXPORTED_TEST_LIBS = ["env_basic_test"]
 
 # Parse src.mk files as a Dictionary of
 # VAR_NAME => list of files
@@ -36,7 +30,7 @@ def parse_src_mk(repo_path):
 # get all .cc / .c files
 def get_cc_files(repo_path):
     cc_files = []
-    for root, dirnames, filenames in os.walk(repo_path):
+    for root, _dirnames, filenames in os.walk(repo_path):
         root = root[(len(repo_path) + 1):]
         if "java" in root:
             # Skip java
@@ -102,24 +96,6 @@ def generate_targets(repo_path):
         return False
 
     TARGETS = TARGETSBuilder("%s/TARGETS" % repo_path)
-    # rocksdb_lib
-    TARGETS.add_library(
-        "rocksdb_lib",
-        src_mk["LIB_SOURCES"] +
-        src_mk["TOOL_LIB_SOURCES"])
-    # rocksdb_test_lib
-    TARGETS.add_library(
-        "rocksdb_test_lib",
-        src_mk.get("MOCK_LIB_SOURCES", []) +
-        src_mk.get("TEST_LIB_SOURCES", []) +
-        src_mk.get("EXP_LIB_SOURCES", []),
-        [":rocksdb_lib"])
-    # rocksdb_tools_lib
-    TARGETS.add_library(
-        "rocksdb_tools_lib",
-        src_mk.get("BENCH_LIB_SOURCES", []) +
-        ["util/testutil.cc"],
-        [":rocksdb_lib"])
 
     # test for every test we found in the Makefile
     for test in tests:
@@ -135,11 +111,28 @@ def generate_targets(repo_path):
         assert(len(match_src) == 1)
         is_parallel = tests[test]
         TARGETS.register_test(test, match_src[0], is_parallel)
+    TARGETS.add_header()
 
-        if test in _EXPORTED_TEST_LIBS:
-            test_library = "%s_lib" % test
-            TARGETS.add_library(test_library, match_src, [":rocksdb_test_lib"])
-    TARGETS.flush_tests()
+    # rocksdb_lib
+    TARGETS.add_library(
+        "lib",
+        src_mk["LIB_SOURCES"] +
+        src_mk["TOOL_LIB_SOURCES"])
+    # rocksdb_test_lib
+    TARGETS.add_library(
+        "test_lib",
+        src_mk.get("MOCK_LIB_SOURCES", []) +
+        src_mk.get("TEST_LIB_SOURCES", []) +
+        src_mk.get("EXP_LIB_SOURCES", []),
+        "lib")
+    # rocksdb_tools_lib
+    TARGETS.add_library(
+        "tools_lib",
+        src_mk.get("BENCH_LIB_SOURCES", []) +
+        ["util/testutil.cc"],
+        "lib")
+
+    TARGETS.add_footer()
 
     print(ColorString.info("Generated TARGETS Summary:"))
     print(ColorString.info("- %d libs" % TARGETS.total_lib))
