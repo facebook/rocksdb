@@ -18,9 +18,6 @@
 #ifdef OS_SOLARIS
 #include <alloca.h>
 #endif
-#ifdef ROCKSDB_JEMALLOC
-#include "jemalloc/jemalloc.h"
-#endif
 
 #include <algorithm>
 #include <climits>
@@ -46,6 +43,7 @@
 #include "db/job_context.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
+#include "db/malloc_stats.h"
 #include "db/managed_iterator.h"
 #include "db/memtable.h"
 #include "db/memtable_list.h"
@@ -369,39 +367,6 @@ void DBImpl::PrintStatistics() {
                    dbstats->ToString().c_str());
   }
 }
-
-#ifndef ROCKSDB_LITE
-#ifdef ROCKSDB_JEMALLOC
-typedef struct {
-  char* cur;
-  char* end;
-} MallocStatus;
-
-static void GetJemallocStatus(void* mstat_arg, const char* status) {
-  MallocStatus* mstat = reinterpret_cast<MallocStatus*>(mstat_arg);
-  size_t status_len = status ? strlen(status) : 0;
-  size_t buf_size = (size_t)(mstat->end - mstat->cur);
-  if (!status_len || status_len > buf_size) {
-    return;
-  }
-
-  snprintf(mstat->cur, buf_size, "%s", status);
-  mstat->cur += status_len;
-}
-#endif  // ROCKSDB_JEMALLOC
-
-static void DumpMallocStats(std::string* stats) {
-#ifdef ROCKSDB_JEMALLOC
-  MallocStatus mstat;
-  const unsigned int kMallocStatusLen = 1000000;
-  std::unique_ptr<char[]> buf{new char[kMallocStatusLen + 1]};
-  mstat.cur = buf.get();
-  mstat.end = buf.get() + kMallocStatusLen;
-  je_malloc_stats_print(GetJemallocStatus, &mstat, "");
-  stats->append(buf.get());
-#endif  // ROCKSDB_JEMALLOC
-}
-#endif  // !ROCKSDB_LITE
 
 void DBImpl::MaybeDumpStats() {
   mutex_.Lock();
