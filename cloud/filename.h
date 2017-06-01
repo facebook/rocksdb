@@ -55,4 +55,10 @@ inline std::string& rtrim_if(std::string& s, char c) {
   }
   return s;
 }
+
+// Returns true if 'value' has a suffix of 'ending'
+inline bool ends_with(std::string const& value, std::string const& ending) {
+  if (ending.size() > value.size()) return false;
+  return std::equal(ending.rbegin(), ending.rend(), value.rbegin());
+}
 }

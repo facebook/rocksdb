@@ -105,6 +105,7 @@ class CloudEnvOptions {
   void Dump(Logger* log) const;
 };
 
+// A map of dbid to the pathname where the db is stored
 typedef std::map<std::string, std::string> DbidList;
 
 //

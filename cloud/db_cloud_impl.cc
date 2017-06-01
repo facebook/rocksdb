@@ -697,7 +697,8 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
 
     } else {
       // concoct a new dbid for this clone.
-      new_dbid = src_dbid + "rockset" + env->GenerateUniqueId();
+      new_dbid = src_dbid + std::string(CloudEnvImpl::DBID_SEPARATOR) +
+                 env->GenerateUniqueId();
 
       // write to a newly created ID file
       {

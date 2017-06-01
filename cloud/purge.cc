@@ -5,12 +5,17 @@
 #include "cloud/purge.h"
 #include "cloud/manifest.h"
 #include "cloud/aws/aws_env.h"
+#include "cloud/db_cloud_impl.h"
+#include "cloud/filename.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 
 namespace rocksdb {
+
+// A map from a dbid to the list of all its parent dbids.
+typedef std::map<std::string, std::vector<std::string>> DbidParents;
 
 //
 // Keep running till running is true
@@ -74,11 +79,20 @@ Status CloudEnvImpl::FindObsoleteFiles(const std::string& bucket_name_prefix,
     return st;
   }
 
+  // For each of the dbids names, extract its list of parent-dbs
+  DbidParents parents;
+  st = extractParents(bucket_name_prefix, dbid_list, &parents);
+  if (!st.ok()) {
+    Log(InfoLogLevel::ERROR_LEVEL, info_log_,
+        "[pg] extractParents on bucket prefix %s. %s",
+        bucket_name_prefix.c_str(), st.ToString().c_str());
+    return st;
+  }
+
   std::unique_ptr<CloudManifest> extractor(new CloudManifest(info_log_,
                                              this, bucket_name_prefix));
 
   // Step2: from all MANIFEST files in Step 1, compile a list of all live files
-  // Loop though all dbids.
   for (auto iter = dbid_list.begin(); iter != dbid_list.end(); ++iter) {
     std::unique_ptr<SequentialFile> result;
     std::string mpath = iter->second + "/MANIFEST";
@@ -89,9 +103,18 @@ Status CloudEnvImpl::FindObsoleteFiles(const std::string& bucket_name_prefix,
           "[pg] dbid %s extracted files from path %s %s",
           iter->first.c_str(), iter->second.c_str(), st.ToString().c_str());
     } else {
-      // insert all the live files into our temp array
+      // This file can reside either in this leaf db's path or reside in any of the
+      // parent db's paths. Compute all possible paths and insert them into live_files
       for (auto it = file_nums.begin(); it != file_nums.end(); ++it) {
-        live_files.insert(mpath + "/" + std::to_string(*it) + ".sst");
+
+        // list of all parent dbids
+        const std::vector<std::string>& parent_dbids = parents[iter->first];
+
+        for (const auto& db: parent_dbids) {
+          // parent db's paths
+          const std::string& parent_path = dbid_list[db];
+          live_files.insert(parent_path + "/" + std::to_string(*it) + ".sst");
+        }
       }
     }
   }
@@ -115,9 +138,10 @@ Status CloudEnvImpl::FindObsoleteFiles(const std::string& bucket_name_prefix,
 
   // If a file does not belong to live_files, then it can be deleted
   for (const auto& candidate: all_files.pathnames) {
-    if (live_files.find(candidate) == live_files.end()) {
-      Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-          "[pg] File to delete in bucket prefix %s path %s",
+    if (live_files.find(candidate) == live_files.end() &&
+        ends_with(candidate, ".sst")) {
+      Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
+          "[pg] bucket prefix %s path %s marked for deletion",
           bucket_name_prefix.c_str(), candidate.c_str());
       pathnames->push_back(candidate);
     }
@@ -151,5 +175,89 @@ Status CloudEnvImpl::FindObsoleteDbid(const std::string& bucket_name_prefix,
   }
   return st;
 }
+
+//
+// For each of the dbids in the list, extract the entire list of
+// parent dbids.
+Status CloudEnvImpl::extractParents(const std::string& bucket_name_prefix,
+                                    const DbidList& dbid_list,
+                                    DbidParents* parents) {
+
+  const std::string delimiter(DBID_SEPARATOR);
+  std::srand(std::time(0)); // use current time as seed for random generator
+  const std::string random = std::to_string(std::rand());
+  const std::string scratch(SCRATCH_LOCAL_DIR);
+  Status st;
+  for (auto iter = dbid_list.begin(); iter != dbid_list.end(); ++iter) {
+    // download IDENTITY
+    std::string cloudfile = iter->second  + "/IDENTITY";
+    std::string localfile = scratch + "/.rockset_IDENTITY." + random;
+    st = DBCloudImpl::CopyFile(this, base_env_, bucket_name_prefix, cloudfile,
+                               localfile);
+    if (!st.ok() && !st.IsNotFound()) {
+      Log(InfoLogLevel::ERROR_LEVEL, info_log_,
+          "[pg] Unable to download IDENTITY file from "
+          "bucket %s. %s. Aborting...",
+          bucket_name_prefix.c_str(), st.ToString().c_str());
+      return st;
+    } else if (!st.ok()) {
+      Log(InfoLogLevel::ERROR_LEVEL, info_log_,
+          "[pg] Unable to download IDENTITY file from "
+          "bucket %s. %s. Skipping...",
+          bucket_name_prefix.c_str(), st.ToString().c_str());
+      continue;
+    }
+
+    // Read the dbid from the ID file
+    std::string all_dbid;
+    st = ReadFileToString(base_env_, localfile, &all_dbid);
+    if (!st.ok()) {
+      Log(InfoLogLevel::ERROR_LEVEL, info_log_,
+          "[pg] Unable to read %s %s",
+          localfile.c_str(), st.ToString().c_str());
+      return st;
+    }
+    st = base_env_->DeleteFile(localfile);
+    if (!st.ok()) {
+      Log(InfoLogLevel::ERROR_LEVEL, info_log_,
+          "[pg] Unable to delete %s %s",
+          localfile.c_str(), st.ToString().c_str());
+      return st;
+    }
+
+    // all_dbids is of the form 1x45-555rockset678a-6577rockset7789-9aef
+    all_dbid = rtrim_if(trim(all_dbid), '\n');
+
+    // We want to return parents[1x45-555] = [678a-6577, 7789-9aef]
+    std::vector<std::string> parent_dbids;
+    size_t  start = 0, end = 0;
+    while (end != std::string::npos) {
+
+        end = all_dbid.find(delimiter, start);
+
+        // If at end, use length=maxLength.  Else use length=end-start.
+        parent_dbids.push_back(all_dbid.substr(start,
+                       (end == std::string::npos) ? std::string::npos : end - start));
+
+        // If at end, use start=maxSize.  Else use start=end+delimiter.
+        start = ((end > (std::string::npos - delimiter.size()))
+                  ?  std::string::npos  :  end + delimiter.size());
+    }
+    if (parent_dbids.size() > 0) {
+      std::string leaf_dbid = parent_dbids[parent_dbids.size()-1];
+      // Verify that the leaf dbid matches the one that we retrived from CloudEnv
+      if (leaf_dbid != iter->first) {
+        Log(InfoLogLevel::ERROR_LEVEL, info_log_,
+            "[pg] The IDENTITY file for dbid '%s' contains leaf dbid as '%s'",
+            iter->first.c_str(), leaf_dbid.c_str());
+        return st;
+      }
+      (*parents)[leaf_dbid] = parent_dbids;
+    }
+  }
+  return st;
+}
+
+
 }  // namespace rocksdb
 #endif  // ROCKSDB_LITE

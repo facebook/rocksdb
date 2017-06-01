@@ -27,10 +27,19 @@ class CloudEnvImpl : public CloudEnv {
   // Returns the underlying env
   Env* GetBaseEnv() { return base_env_; }
 
+  // The separator used to separate dbids while creating the dbid of a clone
+  static constexpr const char* DBID_SEPARATOR =  "rockset";
+
+  // A map from a dbid to the list of all its parent dbids.
+  typedef std::map<std::string, std::vector<std::string>> DbidParents;
+
   Status FindObsoleteFiles(const std::string& bucket_name_prefix,
                            std::vector<std::string>* pathnames);
   Status FindObsoleteDbid(const std::string& bucket_name_prefix,
                           std::vector<std::string>* dbids);
+  Status extractParents(const std::string& bucket_name_prefix,
+                        const DbidList& dbid_list,
+                        DbidParents* parents);
 
  protected:
   // The type of cloud service aws google azure, etc
@@ -55,6 +64,11 @@ class CloudEnvImpl : public CloudEnv {
   // A background thread that deletes orphaned objects in cloud storage
   void Purger();
   void StopPurger();
+
+ private:
+
+    // scratch space in local dir
+  static constexpr const char* SCRATCH_LOCAL_DIR = "/tmp";
 };
 
 }  // namespace rocksdb
