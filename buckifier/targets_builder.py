@@ -54,7 +54,7 @@ class TARGETSBuilder:
         self.targets_file.write(targets_cfg.rocksdb_target_header_template % (
             pprint.PrettyPrinter().pformat(self.tests_cfg)
         ))
-        tests_cfg = []
+        self.tests_cfg = []
 
     def add_footer(self):
         self.targets_file.write(targets_cfg.rocksdb_target_footer_template)

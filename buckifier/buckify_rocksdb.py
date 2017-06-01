@@ -3,14 +3,11 @@ from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
 from targets_builder import TARGETSBuilder
-from optparse import OptionParser
 import os
 import fnmatch
 import sys
-import tempfile
 
 from util import ColorString
-import util
 
 # Parse src.mk files as a Dictionary of
 # VAR_NAME => list of files
@@ -115,7 +112,7 @@ def generate_targets(repo_path):
         is_parallel = tests[test]
         TARGETS.register_test(test, match_src[0], is_parallel)
     TARGETS.add_header()
-    
+
     # rocksdb_lib
     TARGETS.add_library(
         "lib",
@@ -135,7 +132,7 @@ def generate_targets(repo_path):
         ["util/testutil.cc"],
         "lib")
 
-    TARGETS.add_footer();
+    TARGETS.add_footer()
 
     print(ColorString.info("Generated TARGETS Summary:"))
     print(ColorString.info("- %d libs" % TARGETS.total_lib))

@@ -4,7 +4,7 @@ from __future__ import print_function
 from __future__ import unicode_literals
 rocksdb_target_header_template = """# Buck build targets
 # This file is auto-generated from `python ./buckifier/buckify_rocksdb.py`
-# Do not manual update unless neccessary.
+# Do not manual update unless necessary.
 
 REPO_PATH = "internal_repo_rocksdb/repo/"
 BUCK_BINS = "buck-out/gen/" + REPO_PATH
