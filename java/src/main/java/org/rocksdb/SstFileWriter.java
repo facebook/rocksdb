@@ -27,12 +27,12 @@ public class SstFileWriter extends RocksObject {
 
   @Deprecated
   public void add(final Slice key, final Slice value) throws RocksDBException {
-    add(nativeHandle_, key.getNativeHandle(), value.getNativeHandle());
+    put(nativeHandle_, key.getNativeHandle(), value.getNativeHandle());
   }
 
   @Deprecated
   public void add(final DirectSlice key, final DirectSlice value) throws RocksDBException {
-    add(nativeHandle_, key.getNativeHandle(), value.getNativeHandle());
+    put(nativeHandle_, key.getNativeHandle(), value.getNativeHandle());
   }
 
   public void put(final Slice key, final Slice value) throws RocksDBException {
@@ -70,9 +70,6 @@ public class SstFileWriter extends RocksObject {
       final long optionsHandle);
 
   private native void open(final long handle, final String filePath) throws RocksDBException;
-
-  private native void add(final long handle, final long keyHandle, final long valueHandle)
-      throws RocksDBException;
 
   private native void put(final long handle, final long keyHandle, final long valueHandle)
       throws RocksDBException;

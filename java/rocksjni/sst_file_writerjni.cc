@@ -74,24 +74,6 @@ void Java_org_rocksdb_SstFileWriter_open(JNIEnv *env, jobject jobj,
 
 /*
  * Class:     org_rocksdb_SstFileWriter
- * Method:    add
- * Signature: (JJJ)V
- */
-void Java_org_rocksdb_SstFileWriter_add(JNIEnv *env, jobject jobj,
-                                        jlong jhandle, jlong jkey_handle,
-                                        jlong jvalue_handle) {
-  auto *key_slice = reinterpret_cast<rocksdb::Slice *>(jkey_handle);
-  auto *value_slice = reinterpret_cast<rocksdb::Slice *>(jvalue_handle);
-  rocksdb::Status s =
-      reinterpret_cast<rocksdb::SstFileWriter *>(jhandle)->Put(*key_slice,
-          *value_slice);
-  if (!s.ok()) {
-    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
-  }
-}
-
-/*
- * Class:     org_rocksdb_SstFileWriter
  * Method:    put
  * Signature: (JJJ)V
  */
