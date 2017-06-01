@@ -11,11 +11,6 @@
 
 namespace rocksdb {
 
-// users could use this macro to fit different rocksdb versions
-#ifndef ROCKSDB_HIDE_THREAD_LOCAL_CONTEXT
-  #define ROCKSDB_HIDE_THREAD_LOCAL_CONTEXT
-#endif
-
 // How much perf stats to collect. Affects perf_context and iostats_context.
 enum PerfLevel : unsigned char {
   kUninitialized = 0,             // unknown setting
