@@ -103,7 +103,7 @@ class MemTable {
                     const ImmutableCFOptions& ioptions,
                     const MutableCFOptions& mutable_cf_options,
                     WriteBufferManager* write_buffer_manager,
-                    SequenceNumber earliest_seq);
+                    SequenceNumber earliest_seq, uint32_t column_family_id);
 
   // Do not delete this MemTable unless Unref() indicates it not in use.
   ~MemTable();

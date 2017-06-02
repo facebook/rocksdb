@@ -28,6 +28,7 @@ class HashLinkListRepFactory : public MemTableRepFactory {
 
   virtual ~HashLinkListRepFactory() {}
 
+  using MemTableRepFactory::CreateMemTableRep;
   virtual MemTableRep* CreateMemTableRep(
       const MemTableRep::KeyComparator& compare, MemTableAllocator* allocator,
       const SliceTransform* transform, Logger* logger) override;
