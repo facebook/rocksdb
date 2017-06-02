@@ -19,6 +19,7 @@
 #include "rocksdb/cache.h"
 #include "table/block_based_table_builder.h"
 #include "table/block_based_table_reader.h"
+#include "table/block_based_table_request.h"
 #include "table/format.h"
 
 namespace rocksdb {
@@ -57,6 +58,19 @@ Status BlockBasedTableFactory::NewTableReader(
       table_options_, table_reader_options.internal_comparator, std::move(file),
       file_size, table_reader, prefetch_index_and_filter_in_cache,
       table_reader_options.skip_filters, table_reader_options.level);
+}
+
+Status BlockBasedTableFactory::NewTableReader(
+  const async::Callable<Status, const Status&,
+  std::unique_ptr<TableReader>&&>& cb,
+  const TableReaderOptions& table_reader_options,
+  std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
+  std::unique_ptr<TableReader>* table_reader,
+  bool prefetch_index_and_filter_in_cache = true) const {
+  return async::TableOpenRequestContext::RequestOpen(cb, table_reader_options.ioptions, table_reader_options.env_options,
+    table_options_, table_reader_options.internal_comparator, std::move(file),
+    file_size, table_reader, prefetch_index_and_filter_in_cache,
+    table_reader_options.skip_filters, table_reader_options.level);
 }
 
 TableBuilder* BlockBasedTableFactory::NewTableBuilder(
