@@ -865,6 +865,19 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
   }
 }
 
+void Version::AddRangeDelIteratorsForLevel(
+    const ReadOptions& read_options, const EnvOptions& soptions,
+    MergeIteratorBuilder* merge_iter_builder, int level) {
+  for (size_t i = 0; i < storage_info_.LevelFilesBrief(level).num_files; i++) {
+    const auto& file = storage_info_.LevelFilesBrief(level).files[i];
+    merge_iter_builder->AddIterator(
+        cfd_->table_cache()->NewRangeTombstoneIterator(
+            read_options, soptions, cfd_->internal_comparator(), file.fd,
+            cfd_->internal_stats()->GetFileReadHist(level),
+            false /* skip_filters */, level));
+  }
+}
+
 VersionStorageInfo::VersionStorageInfo(
     const InternalKeyComparator* internal_comparator,
     const Comparator* user_comparator, int levels,
@@ -1016,7 +1029,8 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     std::string* str_value = value != nullptr ? value->GetSelf() : nullptr;
     *status = MergeHelper::TimedFullMerge(
         merge_operator_, user_key, nullptr, merge_context->GetOperands(),
-        str_value, info_log_, db_statistics_, env_);
+        str_value, info_log_, db_statistics_, env_,
+        nullptr /* result_operand */, true);
     if (LIKELY(value != nullptr)) {
       value->PinSelf();
     }
@@ -1216,15 +1230,18 @@ void VersionStorageInfo::EstimateCompactionBytesNeeded(
   // accumulated bytes.
 
   uint64_t bytes_compact_to_next_level = 0;
+  uint64_t level_size = 0;
+  for (auto* f : files_[0]) {
+    level_size += f->fd.GetFileSize();
+  }
   // Level 0
   bool level0_compact_triggered = false;
-  if (static_cast<int>(files_[0].size()) >
-      mutable_cf_options.level0_file_num_compaction_trigger) {
+  if (static_cast<int>(files_[0].size()) >=
+          mutable_cf_options.level0_file_num_compaction_trigger ||
+      level_size >= mutable_cf_options.max_bytes_for_level_base) {
     level0_compact_triggered = true;
-    for (auto* f : files_[0]) {
-      bytes_compact_to_next_level += f->fd.GetFileSize();
-    }
-    estimated_compaction_needed_bytes_ = bytes_compact_to_next_level;
+    estimated_compaction_needed_bytes_ = level_size;
+    bytes_compact_to_next_level = level_size;
   } else {
     estimated_compaction_needed_bytes_ = 0;
   }
@@ -1232,7 +1249,7 @@ void VersionStorageInfo::EstimateCompactionBytesNeeded(
   // Level 1 and up.
   uint64_t bytes_next_level = 0;
   for (int level = base_level(); level <= MaxInputLevel(); level++) {
-    uint64_t level_size = 0;
+    level_size = 0;
     if (bytes_next_level > 0) {
 #ifndef NDEBUG
       uint64_t level_size2 = 0;

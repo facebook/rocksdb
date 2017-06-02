@@ -97,6 +97,7 @@ DEFINE_string(
     "readseq,"
     "readreverse,"
     "compact,"
+    "compactall,"
     "readrandom,"
     "multireadrandom,"
     "readseq,"
@@ -176,7 +177,8 @@ DEFINE_string(
     "\ttimeseries            -- 1 writer generates time series data "
     "and multiple readers doing random reads on id\n\n"
     "Meta operations:\n"
-    "\tcompact     -- Compact the entire DB\n"
+    "\tcompact     -- Compact the entire DB; If multiple, randomly choose one\n"
+    "\tcompactall  -- Compact the entire DB\n"
     "\tstats       -- Print DB stats\n"
     "\tresetstats  -- Reset DB stats\n"
     "\tlevelstats  -- Print the number of files and bytes per level\n"
@@ -2420,6 +2422,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         method = &Benchmark::WriteSeqSeekSeq;
       } else if (name == "compact") {
         method = &Benchmark::Compact;
+      } else if (name == "compactall") {
+        CompactAll();
       } else if (name == "crc32c") {
         method = &Benchmark::Crc32c;
       } else if (name == "xxhash") {
@@ -5047,6 +5051,15 @@ void VerifyDBFromDB(std::string& truth_db_name) {
   void Compact(ThreadState* thread) {
     DB* db = SelectDB(thread);
     db->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  }
+
+  void CompactAll() {
+    if (db_.db != nullptr) {
+      db_.db->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+    }
+    for (const auto& db_with_cfh : multi_dbs_) {
+      db_with_cfh.db->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+    }
   }
 
   void ResetStats() {

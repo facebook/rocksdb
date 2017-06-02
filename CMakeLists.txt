@@ -195,7 +195,6 @@ endif()
 
 option(WITH_ASAN "build with ASAN" OFF)
 if(WITH_ASAN)
-  add_definitions(-DROCKSDB_TSAN_RUN)
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address")
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address")
@@ -207,7 +206,6 @@ endif()
 option(WITH_TSAN "build with TSAN" OFF)
 if(WITH_TSAN)
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=thread -pie")
-  add_definitions(-DROCKSDB_TSAN_RUN)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=thread -fPIC")
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=thread -fPIC")
   if(WITH_JEMALLOC)
@@ -217,6 +215,7 @@ endif()
 
 option(WITH_UBSAN "build with UBSAN" OFF)
 if(WITH_UBSAN)
+  add_definitions(-DROCKSDB_UBSAN_RUN)
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=undefined")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=undefined")
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=undefined")
@@ -359,6 +358,7 @@ set(SOURCES
         db/internal_stats.cc
         db/log_reader.cc
         db/log_writer.cc
+        db/malloc_stats.cc
         db/managed_iterator.cc
         db/memtable.cc
         db/memtable_list.cc
@@ -381,7 +381,7 @@ set(SOURCES
         env/env.cc
         env/env_chroot.cc
         env/env_hdfs.cc
-        env/memenv.cc
+        env/mock_env.cc
         memtable/hash_cuckoo_rep.cc
         memtable/hash_linklist_rep.cc
         memtable/hash_skiplist_rep.cc
@@ -476,6 +476,7 @@ set(SOURCES
         utilities/blob_db/blob_db.cc
         utilities/blob_db/blob_db_impl.cc
         utilities/blob_db/blob_db_options_impl.cc
+        utilities/blob_db/blob_dump_tool.cc
         utilities/blob_db/blob_file.cc
         utilities/blob_db/blob_log_reader.cc
         utilities/blob_db/blob_log_writer.cc
@@ -632,6 +633,7 @@ set(TESTS
         db/db_test2.cc
         db/db_universal_compaction_test.cc
         db/db_wal_test.cc
+        db/db_write_test.cc
         db/dbformat_test.cc
         db/deletefile_test.cc
         db/external_sst_file_basic_test.cc
@@ -697,6 +699,7 @@ set(TESTS
         util/thread_list_test.cc
         util/thread_local_test.cc
         utilities/backupable/backupable_db_test.cc
+        utilities/blob_db/blob_db_test.cc
         utilities/checkpoint/checkpoint_test.cc
         utilities/column_aware_encoding_test.cc
         utilities/date_tiered/date_tiered_test.cc
@@ -742,7 +745,6 @@ endforeach(sourcefile ${BENCHMARKS})
 # and linked to tests. Add test only code that is not #ifdefed for Release here.
 set(TESTUTIL_SOURCE
     db/db_test_util.cc
-    env/mock_env.cc
     monitoring/thread_status_updater_debug.cc
     table/mock_table.cc
     util/fault_injection_test_env.cc

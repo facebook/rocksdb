@@ -193,8 +193,8 @@ endif
 ifdef COMPILE_WITH_TSAN
 	DISABLE_JEMALLOC=1
 	EXEC_LDFLAGS += -fsanitize=thread
-	PLATFORM_CCFLAGS += -fsanitize=thread -fPIC -DROCKSDB_TSAN_RUN
-	PLATFORM_CXXFLAGS += -fsanitize=thread -fPIC -DROCKSDB_TSAN_RUN
+	PLATFORM_CCFLAGS += -fsanitize=thread -fPIC
+	PLATFORM_CXXFLAGS += -fsanitize=thread -fPIC
         # Turn off -pg when enabling TSAN testing, because that induces
         # a link failure.  TODO: find the root cause
 	PROFILING_FLAGS =
@@ -211,8 +211,8 @@ endif
 ifdef COMPILE_WITH_UBSAN
 	DISABLE_JEMALLOC=1
 	EXEC_LDFLAGS += -fsanitize=undefined
-	PLATFORM_CCFLAGS += -fsanitize=undefined
-	PLATFORM_CXXFLAGS += -fsanitize=undefined
+	PLATFORM_CCFLAGS += -fsanitize=undefined -DROCKSDB_UBSAN_RUN
+	PLATFORM_CXXFLAGS += -fsanitize=undefined -DROCKSDB_UBSAN_RUN
 endif
 
 ifndef DISABLE_JEMALLOC
@@ -362,6 +362,7 @@ TESTS = \
 	db_properties_test \
 	db_table_properties_test \
 	db_statistics_test \
+	db_write_test \
 	autovector_test \
 	cleanable_test \
 	column_family_test \
@@ -1063,6 +1064,9 @@ db_sst_test: db/db_sst_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 db_statistics_test: db/db_statistics_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+db_write_test: db/db_write_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 external_sst_file_basic_test: db/external_sst_file_basic_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
@@ -1375,6 +1379,9 @@ lua_test: utilities/lua/rocks_lua_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTH
 	$(AM_LINK)
 
 range_del_aggregator_test: db/range_del_aggregator_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+blob_db_test: utilities/blob_db/blob_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 #-------------------------------------------------

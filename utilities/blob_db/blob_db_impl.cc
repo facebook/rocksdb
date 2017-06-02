@@ -98,6 +98,7 @@ class BlobHandle {
   void set_compression(CompressionType t) { compression_ = t; }
 
   void EncodeTo(std::string* dst) const;
+
   Status DecodeFrom(Slice* input);
 
   void clear();
@@ -919,7 +920,7 @@ Status BlobDBImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
       Writer::ConstructBlobHeader(&headerbuf, key, value, expiration, -1);
 
       if (previous_put) {
-        impl->AppendSN(last_file, -1);
+        impl->AppendSN(last_file, 0 /*sequence number*/);
         previous_put = false;
       }
 
@@ -977,7 +978,8 @@ Status BlobDBImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
 
   if (handler1.previous_put) {
     // this is the sequence number of the write.
-    SequenceNumber sn = WriteBatchInternal::Sequence(&handler1.updates_blob);
+    SequenceNumber sn = WriteBatchInternal::Sequence(&handler1.updates_blob) +
+                        WriteBatchInternal::Count(&handler1.updates_blob) - 1;
     AppendSN(handler1.last_file, sn);
 
     CloseIf(handler1.last_file);
@@ -1196,8 +1198,8 @@ std::vector<Status> BlobDBImpl::MultiGet(
 }
 
 Status BlobDBImpl::CommonGet(const ColumnFamilyData* cfd, const Slice& key,
-                             const std::string& index_entry,
-                             std::string* value) {
+                             const std::string& index_entry, std::string* value,
+                             SequenceNumber* sequence) {
   Slice index_entry_slice(index_entry);
   BlobHandle handle;
   Status s = handle.DecodeFrom(&index_entry_slice);
@@ -1245,68 +1247,86 @@ Status BlobDBImpl::CommonGet(const ColumnFamilyData* cfd, const Slice& key,
   std::shared_ptr<RandomAccessFileReader> reader =
       GetOrOpenRandomAccessReader(bfile, myenv_, env_options_);
 
-  std::string* valueptr = value;
-  std::string value_c;
-  if (bdb_options_.compression != kNoCompression) {
-    valueptr = &value_c;
-  }
-
-  // allocate the buffer. This is safe in C++11
-  valueptr->resize(handle.size());
-  char* buffer = &(*valueptr)[0];
-
-  Slice blob_value;
-  s = reader->Read(handle.offset(), handle.size(), &blob_value, buffer);
-  if (!s.ok() || blob_value.size() != handle.size()) {
-    if (debug_level_ >= 2) {
-      Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
-          "Failed to read blob from file: %s blob_offset: %" PRIu64
-          " blob_size: %" PRIu64 " read: %d key: %s status: '%s'",
-          bfile->PathName().c_str(), handle.offset(), handle.size(),
-          static_cast<int>(blob_value.size()), key.data(),
-          s.ToString().c_str());
+  if (value != nullptr) {
+    std::string* valueptr = value;
+    std::string value_c;
+    if (bdb_options_.compression != kNoCompression) {
+      valueptr = &value_c;
     }
-    return Status::NotFound("Blob Not Found as couldnt retrieve Blob");
-  }
 
-  Slice crc_slice;
-  uint32_t crc_exp;
-  std::string crc_str;
-  crc_str.resize(sizeof(uint32_t));
-  char* crc_buffer = &(crc_str[0]);
-  s = reader->Read(handle.offset() - (key.size() + sizeof(uint32_t)),
-                   sizeof(uint32_t), &crc_slice, crc_buffer);
-  if (!s.ok() || !GetFixed32(&crc_slice, &crc_exp)) {
-    if (debug_level_ >= 2) {
-      Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
-          "Failed to fetch blob crc file: %s blob_offset: %" PRIu64
-          " blob_size: %" PRIu64 " key: %s status: '%s'",
-          bfile->PathName().c_str(), handle.offset(), handle.size(), key.data(),
-          s.ToString().c_str());
+    // allocate the buffer. This is safe in C++11
+    valueptr->resize(handle.size());
+    char* buffer = &(*valueptr)[0];
+
+    Slice blob_value;
+    s = reader->Read(handle.offset(), handle.size(), &blob_value, buffer);
+    if (!s.ok() || blob_value.size() != handle.size()) {
+      if (debug_level_ >= 2) {
+        Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
+            "Failed to read blob from file: %s blob_offset: %" PRIu64
+            " blob_size: %" PRIu64 " read: %d key: %s status: '%s'",
+            bfile->PathName().c_str(), handle.offset(), handle.size(),
+            static_cast<int>(blob_value.size()), key.data(),
+            s.ToString().c_str());
+      }
+      return Status::NotFound("Blob Not Found as couldnt retrieve Blob");
     }
-    return Status::NotFound("Blob Not Found as couldnt retrieve CRC");
-  }
 
-  uint32_t crc = crc32c::Extend(0, blob_value.data(), blob_value.size());
-  crc = crc32c::Mask(crc);  // Adjust for storage
-  if (crc != crc_exp) {
-    if (debug_level_ >= 2) {
-      Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
-          "Blob crc mismatch file: %s blob_offset: %" PRIu64
-          " blob_size: %" PRIu64 " key: %s status: '%s'",
-          bfile->PathName().c_str(), handle.offset(), handle.size(), key.data(),
-          s.ToString().c_str());
+    Slice crc_slice;
+    uint32_t crc_exp;
+    std::string crc_str;
+    crc_str.resize(sizeof(uint32_t));
+    char* crc_buffer = &(crc_str[0]);
+    s = reader->Read(handle.offset() - (key.size() + sizeof(uint32_t)),
+                     sizeof(uint32_t), &crc_slice, crc_buffer);
+    if (!s.ok() || !GetFixed32(&crc_slice, &crc_exp)) {
+      if (debug_level_ >= 2) {
+        Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
+            "Failed to fetch blob crc file: %s blob_offset: %" PRIu64
+            " blob_size: %" PRIu64 " key: %s status: '%s'",
+            bfile->PathName().c_str(), handle.offset(), handle.size(),
+            key.data(), s.ToString().c_str());
+      }
+      return Status::NotFound("Blob Not Found as couldnt retrieve CRC");
     }
-    return Status::Corruption("Corruption. Blob CRC mismatch");
+
+    uint32_t crc = crc32c::Extend(0, blob_value.data(), blob_value.size());
+    crc = crc32c::Mask(crc);  // Adjust for storage
+    if (crc != crc_exp) {
+      if (debug_level_ >= 2) {
+        Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
+            "Blob crc mismatch file: %s blob_offset: %" PRIu64
+            " blob_size: %" PRIu64 " key: %s status: '%s'",
+            bfile->PathName().c_str(), handle.offset(), handle.size(),
+            key.data(), s.ToString().c_str());
+      }
+      return Status::Corruption("Corruption. Blob CRC mismatch");
+    }
+
+    if (bdb_options_.compression != kNoCompression) {
+      BlockContents contents;
+      s = UncompressBlockContentsForCompressionType(
+          blob_value.data(), blob_value.size(), &contents,
+          kBlockBasedTableVersionFormat, Slice(), bdb_options_.compression,
+          *(cfd->ioptions()));
+      *value = contents.data.ToString();
+    }
   }
 
-  if (bdb_options_.compression != kNoCompression) {
-    BlockContents contents;
-    s = UncompressBlockContentsForCompressionType(
-        blob_value.data(), blob_value.size(), &contents,
-        kBlockBasedTableVersionFormat, Slice(), bdb_options_.compression,
-        *(cfd->ioptions()));
-    *value = contents.data.ToString();
+  if (sequence != nullptr) {
+    char buffer[BlobLogRecord::kFooterSize];
+    Slice footer_slice;
+    s = reader->Read(handle.offset() + handle.size(),
+                     BlobLogRecord::kFooterSize, &footer_slice, buffer);
+    if (!s.ok()) {
+      return s;
+    }
+    BlobLogRecord record;
+    s = record.DecodeFooterFrom(footer_slice);
+    if (!s.ok()) {
+      return s;
+    }
+    *sequence = record.GetSN();
   }
 
   return s;
@@ -2204,6 +2224,19 @@ Iterator* BlobDBImpl::NewIterator(const ReadOptions& opts,
   return new BlobDBIterator(db_->NewIterator(opts, column_family),
                             column_family, this);
 }
+
+#ifndef NDEBUG
+Status BlobDBImpl::TEST_GetSequenceNumber(const Slice& key,
+                                          SequenceNumber* sequence) {
+  std::string index_entry;
+  Status s = db_->Get(ReadOptions(), key, &index_entry);
+  if (!s.ok()) {
+    return s;
+  }
+  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily());
+  return CommonGet(cfh->cfd(), key, index_entry, nullptr, sequence);
+}
+#endif  //  !NDEBUG
 
 }  // namespace blob_db
 }  // namespace rocksdb

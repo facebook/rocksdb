@@ -952,7 +952,7 @@ TEST_F(CompactionPickerTest, NotScheduleL1IfL0WithHigherPri3) {
 TEST_F(CompactionPickerTest, EstimateCompactionBytesNeeded1) {
   int num_levels = ioptions_.num_levels;
   ioptions_.level_compaction_dynamic_level_bytes = false;
-  mutable_cf_options_.level0_file_num_compaction_trigger = 3;
+  mutable_cf_options_.level0_file_num_compaction_trigger = 4;
   mutable_cf_options_.max_bytes_for_level_base = 1000;
   mutable_cf_options_.max_bytes_for_level_multiplier = 10;
   NewVersionStorage(num_levels, kCompactionStyleLevel);

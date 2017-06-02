@@ -35,6 +35,7 @@ LIB_SOURCES =                                                   \
   db/internal_stats.cc                                          \
   db/log_reader.cc                                              \
   db/log_writer.cc                                              \
+  db/malloc_stats.cc                                            \
   db/managed_iterator.cc                                        \
   db/memtable.cc                                                \
   db/memtable_list.cc                                           \
@@ -59,7 +60,7 @@ LIB_SOURCES =                                                   \
   env/env_hdfs.cc                                               \
   env/env_posix.cc                                              \
   env/io_posix.cc                                               \
-  env/memenv.cc                                                 \
+  env/mock_env.cc                                              \
   memtable/hash_cuckoo_rep.cc                                   \
   memtable/hash_linklist_rep.cc                                 \
   memtable/hash_skiplist_rep.cc                                 \
@@ -205,7 +206,6 @@ TOOL_LIB_SOURCES = \
   utilities/blob_db/blob_dump_tool.cc                            \
 
 MOCK_LIB_SOURCES = \
-  env/mock_env.cc \
   table/mock_table.cc \
   util/fault_injection_test_env.cc
 
@@ -255,6 +255,7 @@ MAIN_SOURCES =                                                    \
   db/db_test.cc                                                         \
   db/db_universal_compaction_test.cc                                    \
   db/db_wal_test.cc                                                     \
+  db/db_write_test.cc                                                   \
   db/dbformat_test.cc                                                   \
   db/deletefile_test.cc                                                 \
   db/external_sst_file_basic_test.cc                                    \
@@ -320,6 +321,7 @@ MAIN_SOURCES =                                                    \
   util/thread_list_test.cc                                              \
   util/thread_local_test.cc                                             \
   utilities/backupable/backupable_db_test.cc                            \
+  utilities/blob_db/blob_db_test.cc                                     \
   utilities/checkpoint/checkpoint_test.cc                               \
   utilities/column_aware_encoding_exp.cc                                \
   utilities/column_aware_encoding_test.cc                               \

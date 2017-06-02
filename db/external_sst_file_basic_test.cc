@@ -559,6 +559,55 @@ TEST_F(ExternalSSTFileBasicTest, FadviseTrigger) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(ExternalSSTFileBasicTest, IngestionWithRangeDeletions) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  Reopen(options);
+
+  std::map<std::string, std::string> true_data;
+  int file_id = 1;
+  // prevent range deletions from being dropped due to becoming obsolete.
+  const Snapshot* snapshot = db_->GetSnapshot();
+
+  // range del [0, 50) in L0 file, [50, 100) in memtable
+  for (int i = 0; i < 2; i++) {
+    if (i == 1) {
+      db_->Flush(FlushOptions());
+    }
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                               Key(50 * i), Key(50 * (i + 1))));
+  }
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+
+  // overlaps with L0 file but not memtable, so flush is skipped
+  SequenceNumber last_seqno = dbfull()->GetLatestSequenceNumber();
+  ASSERT_OK(GenerateAndAddExternalFile(
+      options, {10, 40}, {ValueType::kTypeValue, ValueType::kTypeValue},
+      file_id++, &true_data));
+  ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), ++last_seqno);
+  ASSERT_EQ(2, NumTableFilesAtLevel(0));
+
+  // overlaps with memtable, so flush is triggered (thus file count increases by
+  // two at this step).
+  ASSERT_OK(GenerateAndAddExternalFile(
+      options, {50, 90}, {ValueType::kTypeValue, ValueType::kTypeValue},
+      file_id++, &true_data));
+  ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), ++last_seqno);
+  ASSERT_EQ(4, NumTableFilesAtLevel(0));
+
+  // snapshot unneeded now that both range deletions are persisted
+  db_->ReleaseSnapshot(snapshot);
+
+  // overlaps with nothing, so places at bottom level and skips incrementing
+  // seqnum.
+  ASSERT_OK(GenerateAndAddExternalFile(
+      options, {101, 125}, {ValueType::kTypeValue, ValueType::kTypeValue},
+      file_id++, &true_data));
+  ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), last_seqno);
+  ASSERT_EQ(4, NumTableFilesAtLevel(0));
+  ASSERT_EQ(1, NumTableFilesAtLevel(options.num_levels - 1));
+}
+
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb
