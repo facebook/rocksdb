@@ -97,20 +97,25 @@ public:
   }
 
   // Allocates a new buffer and sets bufstart_ to the aligned first byte
-  void AllocateNewBuffer(size_t requestedCapacity) {
-
+  void AllocateNewBuffer(size_t requestedCapacity, bool copy_data = false) {
     assert(alignment_ > 0);
     assert((alignment_ & (alignment_ - 1)) == 0);
 
-    size_t size = Roundup(requestedCapacity, alignment_);
-    buf_.reset(new char[size + alignment_]);
+    size_t new_capacity = Roundup(requestedCapacity, alignment_);
+    char* new_buf = new char[new_capacity + alignment_];
+    char* new_bufstart = reinterpret_cast<char*>(
+        (reinterpret_cast<uintptr_t>(new_buf) + (alignment_ - 1)) &
+        ~static_cast<uintptr_t>(alignment_ - 1));
 
-    char* p = buf_.get();
-    bufstart_ = reinterpret_cast<char*>(
-      (reinterpret_cast<uintptr_t>(p)+(alignment_ - 1)) &
-      ~static_cast<uintptr_t>(alignment_ - 1));
-    capacity_ = size;
-    cursize_ = 0;
+    if (copy_data) {
+      memcpy(new_bufstart, bufstart_, cursize_);
+    } else {
+      cursize_ = 0;
+    }
+
+    bufstart_ = new_bufstart;
+    capacity_ = new_capacity;
+    buf_.reset(new_buf);
   }
   // Used for write
   // Returns the number of bytes appended
