@@ -122,7 +122,7 @@ jlongArray rocksdb_open_helper(JNIEnv* env, jlong jopt_handle,
   env->ReleaseLongArrayElements(jcolumn_options, jco, JNI_ABORT);
 
   if(has_exception == JNI_TRUE) {
-    // exception occured
+    // exception occurred
     env->ReleaseStringUTFChars(jdb_path, db_path);
     return nullptr;
   }
@@ -2180,7 +2180,7 @@ void Java_org_rocksdb_RocksDB_ingestExternalFile(
       rocksdb::JniUtil::copyStrings(env, jfile_path_list, jfile_path_list_len,
           &has_exception);
   if(has_exception == JNI_TRUE) {
-    // exception occured
+    // exception occurred
     return;
   }
 
