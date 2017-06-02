@@ -771,7 +771,7 @@ struct DBOptions {
   // If enable_pipelined_write is true, separate write thread queue is
   // maintained for WAL write and memtable write. A write thread first enter WAL
   // writer queue and then memtable writer queue. Pending thread on the WAL
-  // writer queue thus only have to wait for previous writers to finish thier
+  // writer queue thus only have to wait for previous writers to finish their
   // WAL writing but not the memtable writing. Enabling the feature may improve
   // write throughput and reduce latency of the prepare phase of two-phase
   // commit.
