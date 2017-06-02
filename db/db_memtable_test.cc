@@ -23,7 +23,7 @@ class DBMemTableTest : public DBTestBase {
 
 class MockMemTableRep : public MemTableRep {
  public:
-  explicit MockMemTableRep(MemTableAllocator* allocator, MemTableRep* rep)
+  explicit MockMemTableRep(Allocator* allocator, MemTableRep* rep)
       : MemTableRep(allocator), rep_(rep), num_insert_with_hint_(0) {}
 
   virtual KeyHandle Allocate(const size_t len, char** buf) override {
@@ -74,7 +74,7 @@ class MockMemTableRep : public MemTableRep {
 class MockMemTableRepFactory : public MemTableRepFactory {
  public:
   virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator& cmp,
-                                         MemTableAllocator* allocator,
+                                         Allocator* allocator,
                                          const SliceTransform* transform,
                                          Logger* logger) override {
     SkipListFactory factory;
@@ -85,7 +85,7 @@ class MockMemTableRepFactory : public MemTableRepFactory {
   }
 
   virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator& cmp,
-                                         MemTableAllocator* allocator,
+                                         Allocator* allocator,
                                          const SliceTransform* transform,
                                          Logger* logger,
                                          uint32_t column_family_id) override {
