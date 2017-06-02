@@ -39,7 +39,6 @@ TEST_P(DBWriteTest, ReturnSeuqneceNumber) {
 TEST_P(DBWriteTest, ReturnSeuqneceNumberMultiThreaded) {
   constexpr size_t kThreads = 16;
   constexpr size_t kNumKeys = 1000;
-  Random rnd(4422);
   Open();
   ASSERT_EQ(0, dbfull()->GetLatestSequenceNumber());
   // Check each sequence is used once and only once.
@@ -48,6 +47,7 @@ TEST_P(DBWriteTest, ReturnSeuqneceNumberMultiThreaded) {
     flags[i].clear();
   }
   auto writer = [&](size_t id) {
+    Random rnd(4422 + id);
     for (size_t k = 0; k < kNumKeys; k++) {
       WriteBatch batch;
       batch.Put("key" + ToString(id) + "-" + ToString(k),
