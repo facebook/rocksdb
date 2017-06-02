@@ -169,9 +169,13 @@ Status MemTableListVersion::AddRangeTombstoneIterators(
 }
 
 Status MemTableListVersion::AddRangeTombstoneIterators(
-    const ReadOptions& read_opts, MergeIteratorBuilder* merge_iter_builder) {
+    const ReadOptions& read_opts,
+    std::vector<InternalIterator*>* range_del_iters) {
   for (auto& m : memlist_) {
-    merge_iter_builder->AddIterator(m->NewRangeTombstoneIterator(read_opts));
+    auto* range_del_iter = m->NewRangeTombstoneIterator(read_opts);
+    if (range_del_iter != nullptr) {
+      range_del_iters->push_back(range_del_iter);
+    }
   }
   return Status::OK();
 }

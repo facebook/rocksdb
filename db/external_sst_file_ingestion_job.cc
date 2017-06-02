@@ -381,13 +381,16 @@ Status ExternalSstFileIngestionJob::IngestedFilesOverlapWithMemtables(
   sv->imm->AddIterators(ro, &merge_iter_builder);
   ScopedArenaIterator memtable_iter(merge_iter_builder.Finish());
 
-  MergeIteratorBuilder merge_range_del_iter_builder(
-      &cfd_->internal_comparator(), &arena);
-  merge_range_del_iter_builder.AddIterator(
-      sv->mem->NewRangeTombstoneIterator(ro));
-  sv->imm->AddRangeTombstoneIterators(ro, &merge_range_del_iter_builder);
-  ScopedArenaIterator memtable_range_del_iter(
-      merge_range_del_iter_builder.Finish());
+  std::vector<InternalIterator*> memtable_range_del_iters;
+  auto* active_range_del_iter = sv->mem->NewRangeTombstoneIterator(ro);
+  if (active_range_del_iter != nullptr) {
+    memtable_range_del_iters.push_back(active_range_del_iter);
+  }
+  sv->imm->AddRangeTombstoneIterators(ro, &memtable_range_del_iters);
+  std::unique_ptr<InternalIterator> memtable_range_del_iter(NewMergingIterator(
+      &cfd_->internal_comparator(),
+      memtable_range_del_iters.empty() ? nullptr : &memtable_range_del_iters[0],
+      static_cast<int>(memtable_range_del_iters.size())));
 
   Status status;
   *overlap = false;
@@ -632,15 +635,18 @@ Status ExternalSstFileIngestionJob::IngestedFileOverlapWithLevel(
   ro.total_order_seek = true;
   MergeIteratorBuilder merge_iter_builder(&cfd_->internal_comparator(),
                                           &arena);
-  MergeIteratorBuilder merge_range_del_iter_builder(
-      &cfd_->internal_comparator(), &arena);
   sv->current->AddIteratorsForLevel(ro, env_options_, &merge_iter_builder, lvl,
                                     nullptr /* range_del_agg */);
-  sv->current->AddRangeDelIteratorsForLevel(ro, env_options_,
-                                            &merge_range_del_iter_builder, lvl);
   ScopedArenaIterator level_iter(merge_iter_builder.Finish());
-  ScopedArenaIterator level_range_del_iter(
-      merge_range_del_iter_builder.Finish());
+
+  std::vector<InternalIterator*> level_range_del_iters;
+  sv->current->AddRangeDelIteratorsForLevel(ro, env_options_, lvl,
+                                            &level_range_del_iters);
+  std::unique_ptr<InternalIterator> level_range_del_iter(NewMergingIterator(
+      &cfd_->internal_comparator(),
+      level_range_del_iters.empty() ? nullptr : &level_range_del_iters[0],
+      static_cast<int>(level_range_del_iters.size())));
+
   Status status = IngestedFileOverlapWithIteratorRange(
       file_to_ingest, level_iter.get(), overlap_with_level);
   if (status.ok() && *overlap_with_level == false) {
