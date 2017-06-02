@@ -114,8 +114,8 @@ PERC_PATTERN+="P99: ([0-9\.]+) P99.9: ([0-9\.]+) P99.99: ([0-9\.]+)"
 
 function main {
   commit=${1:-"origin/master"}
-  test_root_dir=${TEST_PATH:-"/tmp/rocksdb/regression_test"}
-  init_arguments $test_root_dir
+  TEST_ROOT_DIR=${TEST_PATH:-"/tmp/rocksdb/regression_test"}
+  init_arguments $TEST_ROOT_DIR
 
   if [ $DEBUG -eq 0 ]; then
       checkout_rocksdb $commit
@@ -145,7 +145,7 @@ function main {
       run_db_bench "seekrandomwhilewriting"
   fi
 
-  cleanup_test_directory $test_root_dir
+  cleanup_test_directory $TEST_ROOT_DIR
   echo ""
   echo "Benchmark completed!  Results are available in $RESULT_PATH"
 }
@@ -258,6 +258,8 @@ function run_db_bench {
   if [ "$grep_output" != "" ]; then
     echo "Stopped regression_test.sh as there're still db_bench processes running:"
     echo $grep_output
+    echo "Clean up test directory"
+    cleanup_test_directory $TEST_ROOT_DIR
     exit 2
   fi
 
