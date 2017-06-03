@@ -16,14 +16,14 @@ class TimedEnvTest : public testing::Test {
 
 TEST_F(TimedEnvTest, BasicTest) {
   SetPerfLevel(PerfLevel::kEnableTime);
-  ASSERT_EQ(0, perf_context.env_new_writable_file_nanos);
+  ASSERT_EQ(0, get_perf_context()->env_new_writable_file_nanos);
 
   std::unique_ptr<Env> mem_env(NewMemEnv(Env::Default()));
   std::unique_ptr<Env> timed_env(NewTimedEnv(mem_env.get()));
   std::unique_ptr<WritableFile> writable_file;
   timed_env->NewWritableFile("f", &writable_file, EnvOptions());
 
-  ASSERT_GT(perf_context.env_new_writable_file_nanos, 0);
+  ASSERT_GT(get_perf_context()->env_new_writable_file_nanos, 0);
 }
 
 }  // namespace rocksdb

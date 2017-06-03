@@ -12,7 +12,7 @@
 
 namespace rocksdb {
 
-#if defined(NPERF_CONTEXT) || !defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
+#if defined(NPERF_CONTEXT)
 
 #define PERF_TIMER_GUARD(metric)
 #define PERF_CONDITIONAL_TIMER_FOR_MUTEX_GUARD(metric, condition)
@@ -24,31 +24,27 @@ namespace rocksdb {
 #else
 
 // Stop the timer and update the metric
-#define PERF_TIMER_STOP(metric)          \
-  perf_step_timer_ ## metric.Stop();
+#define PERF_TIMER_STOP(metric) perf_step_timer_##metric.Stop();
 
-#define PERF_TIMER_START(metric)          \
-  perf_step_timer_ ## metric.Start();
+#define PERF_TIMER_START(metric) perf_step_timer_##metric.Start();
 
 // Declare and set start time of the timer
-#define PERF_TIMER_GUARD(metric)                                      \
-  PerfStepTimer perf_step_timer_ ## metric(&(perf_context.metric));   \
-  perf_step_timer_ ## metric.Start();
+#define PERF_TIMER_GUARD(metric)                                       \
+  PerfStepTimer perf_step_timer_##metric(&(get_perf_context()->metric)); \
+  perf_step_timer_##metric.Start();
 
-#define PERF_CONDITIONAL_TIMER_FOR_MUTEX_GUARD(metric, condition)       \
-  PerfStepTimer perf_step_timer_##metric(&(perf_context.metric), true); \
-  if ((condition)) {                                                    \
-    perf_step_timer_##metric.Start();                                   \
+#define PERF_CONDITIONAL_TIMER_FOR_MUTEX_GUARD(metric, condition)            \
+  PerfStepTimer perf_step_timer_##metric(&(get_perf_context()->metric), true); \
+  if ((condition)) {                                                         \
+    perf_step_timer_##metric.Start();                                        \
   }
 
 // Update metric with time elapsed since last START. start time is reset
 // to current timestamp.
-#define PERF_TIMER_MEASURE(metric)        \
-  perf_step_timer_ ## metric.Measure();
+#define PERF_TIMER_MEASURE(metric) perf_step_timer_##metric.Measure();
 
 // Increase metric value
-#define PERF_COUNTER_ADD(metric, value)     \
-  perf_context.metric += value;
+#define PERF_COUNTER_ADD(metric, value) get_perf_context()->metric += value;
 
 #endif
 

@@ -12,7 +12,6 @@
 namespace rocksdb {
 
 // How much perf stats to collect. Affects perf_context and iostats_context.
-
 enum PerfLevel : unsigned char {
   kUninitialized = 0,             // unknown setting
   kDisable = 1,                   // disable perf stats

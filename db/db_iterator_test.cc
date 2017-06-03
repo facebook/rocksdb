@@ -974,11 +974,11 @@ TEST_F(DBIteratorTest, DBIteratorBoundTest) {
     ASSERT_TRUE(iter->Valid());
     ASSERT_EQ(iter->key().compare(("b1")), 0);
 
-    perf_context.Reset();
+    get_perf_context()->Reset();
     iter->Next();
 
     ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ(static_cast<int>(perf_context.internal_delete_skipped_count), 2);
+    ASSERT_EQ(static_cast<int>(get_perf_context()->internal_delete_skipped_count), 2);
 
     // now testing with iterate_bound
     Slice prefix("c");
@@ -986,7 +986,7 @@ TEST_F(DBIteratorTest, DBIteratorBoundTest) {
 
     iter.reset(db_->NewIterator(ro));
 
-    perf_context.Reset();
+    get_perf_context()->Reset();
 
     iter->Seek("b");
     ASSERT_TRUE(iter->Valid());
@@ -1001,7 +1001,7 @@ TEST_F(DBIteratorTest, DBIteratorBoundTest) {
     // even though the key is deleted
     // hence internal_delete_skipped_count should be 0
     ASSERT_TRUE(!iter->Valid());
-    ASSERT_EQ(static_cast<int>(perf_context.internal_delete_skipped_count), 0);
+    ASSERT_EQ(static_cast<int>(get_perf_context()->internal_delete_skipped_count), 0);
   }
 }
 
@@ -1888,7 +1888,7 @@ TEST_F(DBIteratorTest, DBIteratorSkipRecentDuplicatesTest) {
 #endif
 
   // Seek iterator to a smaller key.
-  perf_context.Reset();
+  get_perf_context()->Reset();
   iter->Seek("a");
   ASSERT_TRUE(iter->Valid());
   EXPECT_EQ("b", iter->key().ToString());
@@ -1896,17 +1896,17 @@ TEST_F(DBIteratorTest, DBIteratorSkipRecentDuplicatesTest) {
 
   // Check that the seek didn't do too much work.
   // Checks are not tight, just make sure that everything is well below 100.
-  EXPECT_LT(perf_context.internal_key_skipped_count, 4);
-  EXPECT_LT(perf_context.internal_recent_skipped_count, 8);
-  EXPECT_LT(perf_context.seek_on_memtable_count, 10);
-  EXPECT_LT(perf_context.next_on_memtable_count, 10);
-  EXPECT_LT(perf_context.prev_on_memtable_count, 10);
+  EXPECT_LT(get_perf_context()->internal_key_skipped_count, 4);
+  EXPECT_LT(get_perf_context()->internal_recent_skipped_count, 8);
+  EXPECT_LT(get_perf_context()->seek_on_memtable_count, 10);
+  EXPECT_LT(get_perf_context()->next_on_memtable_count, 10);
+  EXPECT_LT(get_perf_context()->prev_on_memtable_count, 10);
 
   // Check that iterator did something like what we expect.
-  EXPECT_EQ(perf_context.internal_delete_skipped_count, 0);
-  EXPECT_EQ(perf_context.internal_merge_count, 0);
-  EXPECT_GE(perf_context.internal_recent_skipped_count, 2);
-  EXPECT_GE(perf_context.seek_on_memtable_count, 2);
+  EXPECT_EQ(get_perf_context()->internal_delete_skipped_count, 0);
+  EXPECT_EQ(get_perf_context()->internal_merge_count, 0);
+  EXPECT_GE(get_perf_context()->internal_recent_skipped_count, 2);
+  EXPECT_GE(get_perf_context()->seek_on_memtable_count, 2);
   EXPECT_EQ(1, options.statistics->getTickerCount(
                  NUMBER_OF_RESEEKS_IN_ITERATION));
 }
