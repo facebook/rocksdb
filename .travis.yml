@@ -4,6 +4,9 @@ language: cpp
 os:
   - linux
   - osx
+compiler:
+  - clang
+  - gcc
 osx_image: xcode8.3
 jdk:
   - oraclejdk7
@@ -35,6 +38,10 @@ matrix:
     env: TEST_GROUP=2
   - os : osx
     env: JOB_NAME=cmake-mingw
+  - os : linux
+    compiler: clang
+  - os : osx
+    compiler: gcc
 
 # https://docs.travis-ci.com/user/caching/#ccache-cache
 install:
