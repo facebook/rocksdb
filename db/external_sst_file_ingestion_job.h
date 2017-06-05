@@ -97,7 +97,7 @@ class ExternalSstFileIngestionJob {
   // REQUIRES: Mutex held
   void UpdateStats();
 
-  // Cleanup after successfull/failed job
+  // Cleanup after successful/failed job
   void Cleanup(const Status& status);
 
   VersionEdit* edit() { return &edit_; }

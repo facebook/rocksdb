@@ -91,7 +91,7 @@ jlongArray
   env->ReleaseLongArrayElements(jcolumn_options, jco, JNI_ABORT);
 
   if(has_exception == JNI_TRUE) {
-    // exception occured
+    // exception occurred
     env->ReleaseStringUTFChars(jdb_path, db_path);
     return nullptr;
   }

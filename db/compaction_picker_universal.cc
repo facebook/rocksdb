@@ -621,7 +621,7 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSizeAmp(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     VersionStorageInfo* vstorage, double score,
     const std::vector<SortedRun>& sorted_runs, LogBuffer* log_buffer) {
-  // percentage flexibilty while reducing size amplification
+  // percentage flexibility while reducing size amplification
   uint64_t ratio =
       ioptions_.compaction_options_universal.max_size_amplification_percent;
 

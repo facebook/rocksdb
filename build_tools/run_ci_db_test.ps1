@@ -333,7 +333,7 @@ function RunJobs($Suites, $TestCmds, [int]$ConcurrencyVal)
             $Cases = @{}
 
             if($Suites.Count -gt 0) {
-              # Will teh first one
+              # Will the first one
               ForEach($e in $Suites.Keys) {
                 $exe_name = $e
                 $Cases = $Suites[$e]

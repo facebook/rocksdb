@@ -551,7 +551,7 @@ std::unique_ptr<WriteControllerToken> SetupDelay(
     // If DB just falled into the stop condition, we need to further reduce
     // the write rate to avoid the stop condition.
     if (penalize_stop) {
-      // Penalize the near stop or stop condition by more agressive slowdown.
+      // Penalize the near stop or stop condition by more aggressive slowdown.
       // This is to provide the long term slowdown increase signal.
       // The penalty is more than the reward of recovering to the normal
       // condition.
