@@ -2135,6 +2135,9 @@ public class RocksDB extends RocksObject {
    *
    * @param filePathList The list of files to ingest
    * @param ingestExternalFileOptions the options for the ingestion
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *     native library.
    */
   public void ingestExternalFile(final List<String> filePathList,
       final IngestExternalFileOptions ingestExternalFileOptions)
@@ -2158,6 +2161,9 @@ public class RocksDB extends RocksObject {
    * @param columnFamilyHandle The column family for the ingested files
    * @param filePathList The list of files to ingest
    * @param ingestExternalFileOptions the options for the ingestion
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *     native library.
    */
   public void ingestExternalFile(final ColumnFamilyHandle columnFamilyHandle,
       final List<String> filePathList,
