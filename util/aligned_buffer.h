@@ -97,11 +97,17 @@ public:
   }
 
   // Allocates a new buffer and sets bufstart_ to the aligned first byte
-  void AllocateNewBuffer(size_t requestedCapacity, bool copy_data = false) {
+  void AllocateNewBuffer(size_t requested_capacity, bool copy_data = false) {
     assert(alignment_ > 0);
     assert((alignment_ & (alignment_ - 1)) == 0);
 
-    size_t new_capacity = Roundup(requestedCapacity, alignment_);
+    if (copy_data && requested_capacity < cursize_) {
+      // If we are downsizing to a capacity that is smaller than the current
+      // data in the buffer. Ignore the request.
+      return;
+    }
+
+    size_t new_capacity = Roundup(requested_capacity, alignment_);
     char* new_buf = new char[new_capacity + alignment_];
     char* new_bufstart = reinterpret_cast<char*>(
         (reinterpret_cast<uintptr_t>(new_buf) + (alignment_ - 1)) &
