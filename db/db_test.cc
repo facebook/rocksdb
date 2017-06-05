@@ -5155,7 +5155,6 @@ TEST_F(DBTest, PauseBackgroundWorkTest) {
   // now it's done
   ASSERT_TRUE(done.load());
 }
-
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

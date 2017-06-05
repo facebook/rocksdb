@@ -722,6 +722,9 @@ class DBImpl : public DB {
   //            `num_bytes` going through.
   Status DelayWrite(uint64_t num_bytes, const WriteOptions& write_options);
 
+  Status ThrottleLowPriWritesIfNeeded(const WriteOptions& write_options,
+                                      WriteBatch* my_batch);
+
   Status ScheduleFlushes(WriteContext* context);
 
   Status SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context);
@@ -940,6 +943,8 @@ class DBImpl : public DB {
   WriteBatch tmp_batch_;
 
   WriteController write_controller_;
+
+  unique_ptr<RateLimiter> low_pri_write_rate_limiter_;
 
   // Size of the last batch group. In slowdown mode, next write needs to
   // sleep if it uses up the quota.

@@ -66,12 +66,18 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     return Status::Corruption("Batch is nullptr!");
   }
 
+  Status status;
+  if (write_options.low_pri) {
+    status = ThrottleLowPriWritesIfNeeded(write_options, my_batch);
+    if (!status.ok()) {
+      return status;
+    }
+  }
+
   if (immutable_db_options_.enable_pipelined_write) {
     return PipelinedWriteImpl(write_options, my_batch, callback, log_used,
                               log_ref, disable_memtable);
   }
-
-  Status status;
 
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
   WriteThread::Writer w(write_options, my_batch, callback, log_ref,
@@ -740,6 +746,34 @@ Status DBImpl::DelayWrite(uint64_t num_bytes,
   }
 
   return bg_error_;
+}
+
+Status DBImpl::ThrottleLowPriWritesIfNeeded(const WriteOptions& write_options,
+                                            WriteBatch* my_batch) {
+  assert(write_options.low_pri);
+  // This is called outside the DB mutex. Although it is safe to make the call,
+  // the consistency condition is not guaranteed to hold. It's OK to live with
+  // it in this case.
+  // If we need to speed compaction, it means the compaction is left behind
+  // and we start to limit low pri writes to a limit.
+  if (write_controller_.NeedSpeedupCompaction()) {
+    if (allow_2pc() && (my_batch->HasCommit() || my_batch->HasRollback())) {
+      // For 2PC, we only rate limit prepare, not commit.
+      return Status::OK();
+    }
+    if (write_options.no_slowdown) {
+      return Status::Incomplete();
+    } else {
+      assert(my_batch != nullptr);
+      // Rate limit those writes. The reason that we don't completely wait
+      // is that in case the write is heavy, low pri writes may never have
+      // a chance to run. Now we guarantee we are still slowly making
+      // progress.
+      write_controller_.low_pri_rate_limiter()->Request(my_batch->GetDataSize(),
+                                                        Env::IO_HIGH, nullptr);
+    }
+  }
+  return Status::OK();
 }
 
 Status DBImpl::ScheduleFlushes(WriteContext* context) {

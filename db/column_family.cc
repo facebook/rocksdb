@@ -760,6 +760,12 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
         uint64_t write_rate = write_controller->delayed_write_rate();
         write_controller->set_delayed_write_rate(static_cast<uint64_t>(
             static_cast<double>(write_rate) * kDelayRecoverSlowdownRatio));
+        // Set the low pri limit to be 1/4 the delayed write rate.
+        // Note we don't reset this value even after delay condition is relased.
+        // Low-pri rate will continue to apply if there is a compaction
+        // pressure.
+        write_controller->low_pri_rate_limiter()->SetBytesPerSecond(write_rate /
+                                                                    4);
       }
     }
     prev_compaction_needed_bytes_ = compaction_needed_bytes;
