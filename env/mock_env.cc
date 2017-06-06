@@ -379,8 +379,7 @@ class TestMemLogger : public Logger {
       gettimeofday(&now_tv, nullptr);
       const time_t seconds = now_tv.tv_sec;
       struct tm t;
-      auto ret = localtime_r(&seconds, &t);
-      assert(ret != nullptr);
+      assert(localtime_r(&seconds, &t));
       p += snprintf(p, limit - p,
                     "%04d/%02d/%02d-%02d:%02d:%02d.%06d ",
                     t.tm_year + 1900,
