@@ -101,7 +101,7 @@ Status MaybeLoadDataBlockToCacheHelper::OnBlockReadComplete(const Status& status
     const Slice & compression_dict,
     BlockBasedTable::CachableEntry<Block>* entry) {
 
-  sw_.ElapsedAndDisarm();
+  sw_.Elapsed();
 
   if (status.ok()) {
     return PutBlockToCache(rep, ro, std::move(block_cont), compression_dict, entry);

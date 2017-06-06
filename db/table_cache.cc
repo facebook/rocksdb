@@ -10,11 +10,13 @@
 #include "db/table_cache.h"
 
 #include "db/dbformat.h"
+#include "db/table_cache_request.h"
 #include "db/version_edit.h"
-#include "util/filename.h"
+
 
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/statistics.h"
+
 #include "table/get_context.h"
 #include "table/internal_iterator.h"
 #include "table/iterator_wrapper.h"
@@ -22,6 +24,7 @@
 #include "table/table_reader.h"
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
+#include "util/filename.h"
 #include "util/stop_watch.h"
 #include "util/sync_point.h"
 
@@ -91,39 +94,17 @@ Status TableCache::GetTableReader(
     HistogramImpl* file_read_hist, unique_ptr<TableReader>* table_reader,
     bool skip_filters, int level, bool prefetch_index_and_filter_in_cache) {
 
-  std::string fname =
-      TableFileName(ioptions_.db_paths, fd.GetNumber(), fd.GetPathId());
+  async::TableCacheGetReaderHelper::Callback empty_cb;
+  async::TableCacheGetReaderHelper gr_helper(ioptions_);
+  Status s = gr_helper.GetTableReader(empty_cb, env_options,
+                                      internal_comparator, fd,
+                                      sequential_mode, readahead, record_read_stats,
+                                      file_read_hist, table_reader,
+                                      skip_filters, level, prefetch_index_and_filter_in_cache);
 
-  // Do not perform async IO on compaction
-  EnvOptions ra_options(env_options);
-  if(readahead > 0) {
-    ra_options.use_async_reads = false;
-  }
+  assert(!s.IsIOPending());
 
-  unique_ptr<RandomAccessFile> file;
-  Status s = ioptions_.env->NewRandomAccessFile(fname, &file, ra_options);
-
-  RecordTick(ioptions_.statistics, NO_FILE_OPENS);
-  if (s.ok()) {
-    if (readahead > 0) {
-      file = NewReadaheadRandomAccessFile(std::move(file), readahead);
-    }
-    if (!sequential_mode && ioptions_.advise_random_on_open) {
-      file->Hint(RandomAccessFile::RANDOM);
-    }
-    StopWatch sw(ioptions_.env, ioptions_.statistics, TABLE_OPEN_IO_MICROS);
-    std::unique_ptr<RandomAccessFileReader> file_reader(
-        new RandomAccessFileReader(std::move(file), ioptions_.env,
-                                   ioptions_.statistics, record_read_stats,
-                                   file_read_hist));
-    s = ioptions_.table_factory->NewTableReader(
-        TableReaderOptions(ioptions_, ra_options, internal_comparator,
-                           skip_filters, level),
-        std::move(file_reader), fd.GetFileSize(), table_reader,
-        prefetch_index_and_filter_in_cache);
-    TEST_SYNC_POINT("TableCache::GetTableReader:0");
-  }
-  return s;
+  return gr_helper.OnGetReaderComplete(s);
 }
 
 void TableCache::EraseHandle(const FileDescriptor& fd, Cache::Handle* handle) {

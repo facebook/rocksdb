@@ -13,18 +13,22 @@
 #include <memory>
 
 #include "async/async_status_capture.h"
+
+#include "options/cf_options.h"
 #include "rocksdb/async/callables.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
+
+
+#include "util/stop_watch.h"
 
 namespace rocksdb {
 
 struct EnvOptions;
 struct FileDescriptor;
-class HistogramImpl;
-struct ImmutableCFOptions;
+class  HistogramImpl;
 class  InternalIterator;
-struct InternalKeyComparator;
+class  InternalKeyComparator;
 struct ReadOptions;
 struct TableProperties;
 class  TableReader;
@@ -44,15 +48,24 @@ public:
   // as we are going to call factory interface
   using
   Callback = async::Callable<Status, const Status&,
-             std::unique_ptr<TableReader>&&>;
+                             std::unique_ptr<TableReader>&&>;
 
   TableCacheGetReaderHelper(const TableCacheGetReaderHelper&) = delete;
   TableCacheGetReaderHelper& operator=(const TableCacheGetReaderHelper&) =
     delete;
 
-  TableCacheGetReaderHelper() {}
+  TableCacheGetReaderHelper(const ImmutableCFOptions& ioptions) :
+    ioptions_(ioptions),
+    sw_(ioptions.env, ioptions.statistics, TABLE_OPEN_IO_MICROS,
+        true /* don't start */) {
+  }
 
-  Status TableCache::GetTableReader(
+  ~TableCacheGetReaderHelper() {
+    sw_.Disarm();
+  }
+
+  Status GetTableReader(
+    const Callback& cb,
     const EnvOptions& env_options,
     const InternalKeyComparator& internal_comparator, const FileDescriptor& fd,
     bool sequential_mode, size_t readahead, bool record_read_stats,
@@ -61,11 +74,12 @@ public:
 
   // Callback that must be invoked on the GetReader() completion.
   // either directly on sync completion or via callback on async completion
-  Status OnGetReaderComplete(const Status& s) {
-    return s;
-  }
+  Status OnGetReaderComplete(const Status& s);
 
 private:
+
+  const ImmutableCFOptions& ioptions_;
+  StopWatch sw_;
 
 };
 

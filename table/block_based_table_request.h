@@ -54,8 +54,13 @@ class MaybeLoadDataBlockToCacheHelper {
 
   MaybeLoadDataBlockToCacheHelper(bool is_index, BlockBasedTable::Rep* rep) :
     is_index_(is_index),
-    sw_(rep->ioptions.env, rep->ioptions.statistics, READ_BLOCK_GET_MICROS, true)
-    {}
+    sw_(rep->ioptions.env, rep->ioptions.statistics, READ_BLOCK_GET_MICROS,
+        true /* don't start */)
+  {}
+
+  ~MaybeLoadDataBlockToCacheHelper() {
+    sw_.Disarm();
+  }
 
   MaybeLoadDataBlockToCacheHelper(
     const MaybeLoadDataBlockToCacheHelper&) = delete;

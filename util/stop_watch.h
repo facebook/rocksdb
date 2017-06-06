@@ -41,13 +41,11 @@ class StopWatch {
 
   bool StatsEnabled() const { return stats_enabled_; }
 
-  void ElapsedAndDisarm() {
-
+  void Elapsed() {
     if (elapsed_) {
       if (overwrite_) {
         *elapsed_ = env_->NowMicros() - start_time_;
-      }
-      else {
+      } else {
         *elapsed_ += env_->NowMicros() - start_time_;
       }
     }
@@ -55,15 +53,22 @@ class StopWatch {
     if (stats_enabled_) {
       statistics_->measureTime(hist_type_,
         (elapsed_ != nullptr) ? *elapsed_ :
-            (env_->NowMicros() - start_time_));
+        (env_->NowMicros() - start_time_));
     }
+  }
 
+  void Disarm() {
     elapsed_ = nullptr;
     stats_enabled_ = false;
   }
 
+  void ElapsedAndDisarm() {
+    Elapsed();
+    Disarm();
+  }
+
   ~StopWatch() {
-    ElapsedAndDisarm();
+    Elapsed();
   }
 
   uint64_t start_time() const { return start_time_; }
