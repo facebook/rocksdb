@@ -207,9 +207,9 @@ PartitionedFilterBlockReader::GetFilterPartition(Slice* handle_value,
     auto filter =
         table_->GetFilter(fltr_blk_handle, is_a_filter_partition, no_io);
     if (filter.IsSet()) {
+      WriteLock wl(&mu_);
       filter_block_set_.insert(fltr_blk_handle);
       if (pin_cached_filters) {
-        WriteLock wl(&mu_);
         std::pair<uint64_t, FilterBlockReader*> pair(fltr_blk_handle.offset(),
                                                      filter.value);
         auto succ = filter_cache_.insert(pair).second;
