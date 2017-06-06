@@ -5,6 +5,8 @@
 
 #ifndef ROCKSDB_LITE
 
+#include <algorithm>
+
 #include "rocksdb/auto_tuner.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/statistics.h"

@@ -94,7 +94,6 @@
 #include "util/log_buffer.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
-#include "util/rate_limiter.h"
 #include "util/sst_file_manager_impl.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
