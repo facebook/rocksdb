@@ -589,6 +589,7 @@ Status PosixMmapFile::Append(const Slice& data) {
     }
 
     size_t n = (left <= avail) ? left : avail;
+    assert(dst_);
     memcpy(dst_, src, n);
     dst_ += n;
     src += n;
