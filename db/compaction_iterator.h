@@ -134,7 +134,9 @@ class CompactionIterator {
   RangeDelAggregator* range_del_agg_;
   std::unique_ptr<CompactionProxy> compaction_;
   const CompactionFilter* compaction_filter_;
+#ifndef ROCKSDB_LITE
   CompactionEventListener* compaction_listener_;
+#endif  // ROCKSDB_LITE
   const std::atomic<bool>* shutting_down_;
   bool bottommost_level_;
   bool valid_ = false;
