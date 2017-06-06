@@ -111,9 +111,9 @@ class GenericRateLimiter : public RateLimiter {
 // the scheduling/execution in a wrapper around the provided rate limiter.
 class AdaptiveRateLimiter : public RateLimiter {
  public:
-  AdaptiveRateLimiter(const std::shared_ptr<RateLimiter>& rate_limiter,
-                      const std::shared_ptr<AutoTuner>& tuner)
-      : rate_limiter_(rate_limiter), tuner_(tuner), last_tuned_(0) {}
+  AdaptiveRateLimiter(std::shared_ptr<RateLimiter> rate_limiter,
+                      AutoTuner* tuner)
+      : rate_limiter_(std::move(rate_limiter)), tuner_(tuner), last_tuned_(0) {}
 
   virtual void SetBytesPerSecond(int64_t bytes_per_second) override {
     rate_limiter_->SetBytesPerSecond(bytes_per_second);
@@ -146,8 +146,10 @@ class AdaptiveRateLimiter : public RateLimiter {
   }
 
  private:
+  // useful to make this a shared_ptr since typically it takes its value from
+  // DBOptions::rate_limiter, which is a shared_ptr.
   std::shared_ptr<RateLimiter> rate_limiter_;
-  std::shared_ptr<AutoTuner> tuner_;
+  AutoTuner* tuner_;
   std::mutex tuner_mutex_;
   std::chrono::milliseconds last_tuned_;
 };
