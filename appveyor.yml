@@ -7,7 +7,7 @@ before_build:
 - cd ..
 build:
   project: build\rocksdb.sln
-  parallel: true
+  parallel: false
   verbosity: minimal
 test:
 test_script:
