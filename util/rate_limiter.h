@@ -13,10 +13,12 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <deque>
 #include "port/port.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
+#include "rocksdb/auto_tuner.h"
 #include "rocksdb/env.h"
 #include "rocksdb/rate_limiter.h"
 
@@ -101,5 +103,55 @@ class GenericRateLimiter : public RateLimiter {
   Req* leader_;
   std::deque<Req*> queue_[Env::IO_TOTAL];
 };
+
+#ifndef ROCKSDB_LITE
+
+// TODO(andrewkr): this is a temporary workaround to support auto-tuned rate
+// limiter before we've written a scheduler/executor for auto-tuners. It does
+// the scheduling/execution in a wrapper around the provided rate limiter.
+class AdaptiveRateLimiter : public RateLimiter {
+ public:
+  AdaptiveRateLimiter(const std::shared_ptr<RateLimiter>& rate_limiter,
+                      const std::shared_ptr<AutoTuner>& tuner)
+      : rate_limiter_(rate_limiter), tuner_(tuner), last_tuned_(0) {}
+
+  virtual void SetBytesPerSecond(int64_t bytes_per_second) override {
+    rate_limiter_->SetBytesPerSecond(bytes_per_second);
+  }
+  using RateLimiter::Request;
+  virtual void Request(const int64_t bytes, const Env::IOPriority pri,
+                       Statistics* stats) override {
+    std::chrono::milliseconds now(Env::Default()->NowMicros() / 1000);
+    tuner_mutex_.lock();
+    if (now - last_tuned_ >= tuner_->GetInterval()) {
+      tuner_->Tune(now);
+      last_tuned_ = now;
+    }
+    tuner_mutex_.unlock();
+    rate_limiter_->Request(bytes, pri, stats);
+  }
+  virtual int64_t GetSingleBurstBytes() const override {
+    return rate_limiter_->GetSingleBurstBytes();
+  }
+  virtual int64_t GetTotalBytesThrough(
+      const Env::IOPriority pri = Env::IO_TOTAL) const override {
+    return rate_limiter_->GetTotalBytesThrough(pri);
+  }
+  virtual int64_t GetTotalRequests(
+      const Env::IOPriority pri = Env::IO_TOTAL) const override {
+    return rate_limiter_->GetTotalRequests(pri);
+  }
+  virtual int64_t GetBytesPerSecond() const override {
+    return rate_limiter_->GetBytesPerSecond();
+  }
+
+ private:
+  std::shared_ptr<RateLimiter> rate_limiter_;
+  std::shared_ptr<AutoTuner> tuner_;
+  std::mutex tuner_mutex_;
+  std::chrono::milliseconds last_tuned_;
+};
+
+#endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb

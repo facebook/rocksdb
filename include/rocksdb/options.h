@@ -18,6 +18,7 @@
 #include <unordered_map>
 
 #include "rocksdb/advanced_options.h"
+#include "rocksdb/auto_tuner.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
 #include "rocksdb/listener.h"
@@ -887,6 +888,16 @@ struct DBOptions {
   // DEFAULT: false
   // Immutable.
   bool allow_ingest_behind = false;
+
+#ifndef ROCKSDB_LITE
+  // A list of AutoTuner objects that will change dynamic options at regular
+  // intervals based on statistics data.
+  //
+  // Currently this feature is experimental and only supports one AutoTuner for
+  // adjusting I/O rate limit. It is also restricted to single-DB mode, where
+  // the rate_limiter and statistics objects are used in one DB only.
+  std::vector<std::shared_ptr<AutoTuner>> auto_tuners;
+#endif  // ROCKSDB_LITE
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

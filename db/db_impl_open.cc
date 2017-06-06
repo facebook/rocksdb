@@ -125,6 +125,17 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
     result.avoid_flush_during_recovery = false;
   }
 
+#ifndef ROCKSDB_LITE
+  // TODO(andrewkr): this is a temporary workaround to support auto-tuned rate
+  // limiter before we've written a scheduler/executor for auto-tuners. It does
+  // the scheduling/execution in a wrapper around the provided rate limiter.
+  if (!result.auto_tuners.empty()) {
+    assert(result.rate_limiter != nullptr);
+    assert(result.auto_tuners.size() == 1);
+    result.rate_limiter.reset(
+        new AdaptiveRateLimiter(result.rate_limiter, result.auto_tuners[0]));
+  }
+#endif  // ROCKSDB_LITE
   return result;
 }
 

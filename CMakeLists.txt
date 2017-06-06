@@ -472,6 +472,7 @@ set(SOURCES
         util/threadpool_imp.cc
         util/transaction_test_util.cc
         util/xxhash.cc
+        utilities/auto_tuners/rate_limiter_auto_tuner.cc
         utilities/backupable/backupable_db.cc
         utilities/blob_db/blob_db.cc
         utilities/blob_db/blob_db_impl.cc
