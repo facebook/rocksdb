@@ -9,6 +9,7 @@
 
 #pragma once
 #include <memory>
+#include "rocksdb/async/callables.h"
 #include "table/internal_iterator.h"
 
 namespace rocksdb {
@@ -80,6 +81,13 @@ class TableReader {
   //               option is effective only for block-based table format.
   virtual Status Get(const ReadOptions& readOptions, const Slice& key,
                      GetContext* get_context, bool skip_filters = false) = 0;
+
+  virtual Status GetAsync(const async::Callable<Status, const Status&>&,
+                     const ReadOptions& readOptions,
+                     const Slice&,
+                     GetContext*, bool skip_filters = false) {
+    return Status::NotSupported();
+  }
 
   // Prefetch data corresponding to a give range of keys
   // Typically this functionality is required for table implementations that

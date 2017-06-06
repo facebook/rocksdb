@@ -109,7 +109,7 @@ void RandomFileReadContext::OnRandomReadComplete(const Status& status,
   }
 
   IOSTATS_TIMER_STOP(read_nanos);
-  sw_.ElapsedAndDisarm();
+  sw_.elapse_and_disarm();
 
   if (stats_ != nullptr && hist_ != nullptr) {
     hist_->Add(elapsed_);

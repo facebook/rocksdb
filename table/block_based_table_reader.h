@@ -16,6 +16,7 @@
 #include <utility>
 #include <vector>
 
+#include "rocksdb/async/callables.h"
 #include "options/cf_options.h"
 #include "rocksdb/options.h"
 #include "rocksdb/persistent_cache.h"
@@ -122,6 +123,11 @@ class BlockBasedTable : public TableReader {
   // @param skip_filters Disables loading/accessing the filter block
   Status Get(const ReadOptions& readOptions, const Slice& key,
              GetContext* get_context, bool skip_filters = false) override;
+
+  Status GetAsync(const async::Callable<Status,const Status&>& cb,
+    const ReadOptions& readOptions, const Slice& key,
+    GetContext* get_context, bool skip_filters) override;
+
 
   // Pre-fetch the disk blocks that correspond to the key range specified by
   // (kbegin, kend). The call will return error status in the event of

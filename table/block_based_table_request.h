@@ -59,7 +59,7 @@ class MaybeLoadDataBlockToCacheHelper {
   {}
 
   ~MaybeLoadDataBlockToCacheHelper() {
-    sw_.Disarm();
+    sw_.disarm();
   }
 
   MaybeLoadDataBlockToCacheHelper(

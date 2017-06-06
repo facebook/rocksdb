@@ -1078,6 +1078,15 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
                                           skip_filters);
 }
 
+Status  BlockBasedTable::GetAsync(const async::Callable<Status, const Status&>& cb,
+  const ReadOptions& read_options, const Slice& key,
+  GetContext* get_context, bool skip_filters) {
+
+  return async::BlockBasedGetContext::RequestGet(cb, this, read_options, key, get_context,
+    skip_filters);
+}
+
+
 Status BlockBasedTable::Prefetch(const Slice* const begin,
                                  const Slice* const end) {
   auto& comparator = rep_->internal_comparator;

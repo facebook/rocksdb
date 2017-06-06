@@ -82,9 +82,9 @@ class TableCache {
   // Find table reader
   // @param skip_filters Disables loading/accessing the filter block
   // @param level == -1 means not specified
-  Status FindTable(const EnvOptions& toptions,
+  Status FindTable(const EnvOptions& env_options,
                    const InternalKeyComparator& internal_comparator,
-                   const FileDescriptor& file_fd, Cache::Handle**,
+                   const FileDescriptor& file_fd, Cache::Handle** handle,
                    const bool no_io = false, bool record_read_stats = true,
                    HistogramImpl* file_read_hist = nullptr,
                    bool skip_filters = false, int level = -1,
@@ -99,7 +99,7 @@ class TableCache {
   // @returns: `properties` will be reset on success. Please note that we will
   //            return Status::Incomplete() if table is not present in cache and
   //            we set `no_io` to be true.
-  Status GetTableProperties(const EnvOptions& toptions,
+  Status GetTableProperties(const EnvOptions& env_options,
                             const InternalKeyComparator& internal_comparator,
                             const FileDescriptor& file_meta,
                             std::shared_ptr<const TableProperties>* properties,
@@ -117,19 +117,33 @@ class TableCache {
 
  private:
   // Build a table reader
-  Status GetTableReader(const EnvOptions& env_options,
-                        const InternalKeyComparator& internal_comparator,
-                        const FileDescriptor& fd, bool sequential_mode,
-                        size_t readahead, bool record_read_stats,
-                        HistogramImpl* file_read_hist,
-                        unique_ptr<TableReader>* table_reader,
-                        bool skip_filters = false, int level = -1,
-                        bool prefetch_index_and_filter_in_cache = true);
+   Status GetTableReader(const EnvOptions& env_options,
+     const InternalKeyComparator& internal_comparator,
+     const FileDescriptor& fd, bool sequential_mode,
+     size_t readahead, bool record_read_stats,
+     HistogramImpl* file_read_hist,
+     unique_ptr<TableReader>* table_reader,
+     bool skip_filters = false, int level = -1,
+     bool prefetch_index_and_filter_in_cache = true);
 
   const ImmutableCFOptions& ioptions_;
   const EnvOptions& env_options_;
   Cache* const cache_;
   std::string row_cache_id_;
 };
+
+namespace table_cache_detail {
+
+template <class T> inline
+void DeleteEntry(const Slice& key, void* value) {
+  T* typed_value = reinterpret_cast<T*>(value);
+  delete typed_value;
+}
+
+inline Slice GetSliceForFileNumber(const uint64_t* file_number) {
+  return Slice(reinterpret_cast<const char*>(file_number),
+    sizeof(*file_number));
+}
+}
 
 }  // namespace rocksdb

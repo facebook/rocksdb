@@ -13,9 +13,10 @@
 #include <memory>
 
 #include "async/async_status_capture.h"
-
+#include "monitoring/perf_context_imp.h"
 #include "options/cf_options.h"
 #include "rocksdb/async/callables.h"
+#include "rocksdb/cache.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 
@@ -24,6 +25,7 @@
 
 namespace rocksdb {
 
+class Cache;
 struct EnvOptions;
 struct FileDescriptor;
 class  HistogramImpl;
@@ -54,6 +56,7 @@ public:
   TableCacheGetReaderHelper& operator=(const TableCacheGetReaderHelper&) =
     delete;
 
+  explicit
   TableCacheGetReaderHelper(const ImmutableCFOptions& ioptions) :
     ioptions_(ioptions),
     sw_(ioptions.env, ioptions.statistics, TABLE_OPEN_IO_MICROS,
@@ -61,7 +64,7 @@ public:
   }
 
   ~TableCacheGetReaderHelper() {
-    sw_.Disarm();
+    sw_.disarm();
   }
 
   Status GetTableReader(
@@ -76,11 +79,83 @@ public:
   // either directly on sync completion or via callback on async completion
   Status OnGetReaderComplete(const Status& s);
 
+  const ImmutableCFOptions& GetIOptions() const {
+    return ioptions_;
+  }
+
 private:
 
   const ImmutableCFOptions& ioptions_;
   StopWatch sw_;
+};
 
+class TableCacheFindTableHelper {
+public:
+
+  using
+  Callback = TableCacheGetReaderHelper::Callback;
+
+  TableCacheFindTableHelper(const TableCacheFindTableHelper&) = delete;
+  TableCacheFindTableHelper& operator=(const TableCacheFindTableHelper&) =
+    delete;
+
+  TableCacheFindTableHelper(const ImmutableCFOptions& ioptions, uint64_t fileno, Cache* cache) :
+    PERF_TIMER_INIT(find_table_nanos),
+    gr_helper_(ioptions),
+    file_number_(fileno),
+    cache_(cache) {
+  }
+
+  // We can check if it is in the cache w/o instantiating
+  // the class.The function returns success when the entry was found in the cache,
+  // NoFound with no entry and the IO is allowed. If no IO is allowed the function
+  // returns Incomplete.
+  static
+  Status LookupCache(const FileDescriptor& fd, Cache* cache,
+                     Cache::Handle** handle, bool noio);
+
+  // This function will request to open
+  // the table and create a table reader
+  // If no IO is allowed do not call this function
+  // If the supplied callback is not empty the function
+  // will perform any IO necessary in async manner
+  // otherwise it will return sync
+  // OnGetReaderComplete() must be invoked either
+  // after sync return of GetReader() or via a callback
+  // supplied
+  Status GetReader(const Callback& cb,
+    const EnvOptions& env_options,
+    const InternalKeyComparator& internal_comparator,
+    const FileDescriptor& fd,
+    std::unique_ptr<TableReader>* table_reader,
+    bool record_read_stats,
+    HistogramImpl* file_read_hist, bool skip_filters,
+    int level,
+    bool prefetch_index_and_filter_in_cache) {
+
+    PERF_TIMER_START(find_table_nanos);
+
+    Status s = gr_helper_.GetTableReader(cb, env_options, internal_comparator, fd,
+      false /* sequential mode */, 0 /* readahead */,
+      record_read_stats, file_read_hist, table_reader,
+      skip_filters, level, prefetch_index_and_filter_in_cache);
+
+    return s;
+  }
+
+
+  // This must be called if GetReader() was invoked either synchronously
+  // or from the supplied callback
+  Status OnGetReaderComplete(const Status& status,
+                             Cache::Handle** handle,
+                             std::unique_ptr<TableReader>&);
+
+ private:
+
+  PERF_TIMER_DECL(find_table_nanos);
+  TableCacheGetReaderHelper gr_helper_;
+  uint64_t                  file_number_;
+  Cache*                    cache_;
 };
 
 }

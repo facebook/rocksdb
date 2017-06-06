@@ -30,28 +30,17 @@
 
 namespace rocksdb {
 
-namespace {
+namespace table_cache_detail  {
 
-template <class T>
-static void DeleteEntry(const Slice& key, void* value) {
-  T* typed_value = reinterpret_cast<T*>(value);
-  delete typed_value;
-}
-
-static void UnrefEntry(void* arg1, void* arg2) {
+void UnrefEntry(void* arg1, void* arg2) {
   Cache* cache = reinterpret_cast<Cache*>(arg1);
   Cache::Handle* h = reinterpret_cast<Cache::Handle*>(arg2);
   cache->Release(h);
 }
 
-static void DeleteTableReader(void* arg1, void* arg2) {
+void DeleteTableReader(void* arg1, void* arg2) {
   TableReader* table_reader = reinterpret_cast<TableReader*>(arg1);
   delete table_reader;
-}
-
-static Slice GetSliceForFileNumber(const uint64_t* file_number) {
-  return Slice(reinterpret_cast<const char*>(file_number),
-               sizeof(*file_number));
 }
 
 #ifndef ROCKSDB_LITE
@@ -64,7 +53,9 @@ void AppendVarint64(IterKey* key, uint64_t v) {
 
 #endif  // ROCKSDB_LITE
 
-}  // namespace
+}  // namespace table_cache_detail
+
+using namespace table_cache_detail;
 
 TableCache::TableCache(const ImmutableCFOptions& ioptions,
                        const EnvOptions& env_options, Cache* const cache)
@@ -88,24 +79,28 @@ void TableCache::ReleaseHandle(Cache::Handle* handle) {
 }
 
 Status TableCache::GetTableReader(
-    const EnvOptions& env_options,
-    const InternalKeyComparator& internal_comparator, const FileDescriptor& fd,
-    bool sequential_mode, size_t readahead, bool record_read_stats,
-    HistogramImpl* file_read_hist, unique_ptr<TableReader>* table_reader,
-    bool skip_filters, int level, bool prefetch_index_and_filter_in_cache) {
+  const EnvOptions& env_options,
+  const InternalKeyComparator& internal_comparator, const FileDescriptor& fd,
+  bool sequential_mode, size_t readahead, bool record_read_stats,
+  HistogramImpl* file_read_hist, std::unique_ptr<TableReader>* table_reader,
+  bool skip_filters, int level, bool prefetch_index_and_filter_in_cache) {
 
-  async::TableCacheGetReaderHelper::Callback empty_cb;
-  async::TableCacheGetReaderHelper gr_helper(ioptions_);
-  Status s = gr_helper.GetTableReader(empty_cb, env_options,
-                                      internal_comparator, fd,
-                                      sequential_mode, readahead, record_read_stats,
-                                      file_read_hist, table_reader,
-                                      skip_filters, level, prefetch_index_and_filter_in_cache);
+  using namespace async;
+  Status s;
 
-  assert(!s.IsIOPending());
+  const TableCacheGetReaderHelper::Callback empty_cb;
+  TableCacheGetReaderHelper gr_helper(ioptions_);
+  s = gr_helper.GetTableReader(empty_cb, env_options,
+    internal_comparator, fd,
+    sequential_mode, readahead, record_read_stats,
+    file_read_hist, table_reader,
+    skip_filters, level, prefetch_index_and_filter_in_cache);
 
-  return gr_helper.OnGetReaderComplete(s);
+  s = gr_helper.OnGetReaderComplete(s);
+
+  return s;
 }
+
 
 void TableCache::EraseHandle(const FileDescriptor& fd, Cache::Handle* handle) {
   ReleaseHandle(handle);
@@ -114,44 +109,31 @@ void TableCache::EraseHandle(const FileDescriptor& fd, Cache::Handle* handle) {
   cache_->Erase(key);
 }
 
-Status TableCache::FindTable(const EnvOptions& env_options,
-                             const InternalKeyComparator& internal_comparator,
-                             const FileDescriptor& fd, Cache::Handle** handle,
-                             const bool no_io, bool record_read_stats,
-                             HistogramImpl* file_read_hist, bool skip_filters,
-                             int level,
-                             bool prefetch_index_and_filter_in_cache) {
-  PERF_TIMER_GUARD(find_table_nanos);
-  Status s;
-  uint64_t number = fd.GetNumber();
-  Slice key = GetSliceForFileNumber(&number);
-  *handle = cache_->Lookup(key);
-  TEST_SYNC_POINT_CALLBACK("TableCache::FindTable:0",
-                           const_cast<bool*>(&no_io));
+Status TableCache::FindTable(
+  const EnvOptions& env_options,
+  const InternalKeyComparator& internal_comparator,
+  const FileDescriptor& fd, Cache::Handle** handle,
+  const bool no_io, bool record_read_stats,
+  HistogramImpl* file_read_hist, bool skip_filters,
+  int level,
+  bool prefetch_index_and_filter_in_cache) {
 
-  if (*handle == nullptr) {
-    if (no_io) {  // Don't do IO and return a not-found status
-      return Status::Incomplete("Table not found in table_cache, no_io is set");
-    }
-    unique_ptr<TableReader> table_reader;
-    s = GetTableReader(env_options, internal_comparator, fd,
-                       false /* sequential mode */, 0 /* readahead */,
-                       record_read_stats, file_read_hist, &table_reader,
-                       skip_filters, level, prefetch_index_and_filter_in_cache);
-    if (!s.ok()) {
-      assert(table_reader == nullptr);
-      RecordTick(ioptions_.statistics, NO_FILE_ERRORS);
-      // We do not cache error results so that if the error is transient,
-      // or somebody repairs the file, we recover automatically.
-    } else {
-      s = cache_->Insert(key, table_reader.get(), 1, &DeleteEntry<TableReader>,
-                         handle);
-      if (s.ok()) {
-        // Release ownership of table reader.
-        table_reader.release();
-      }
-    }
+  using namespace async;
+
+  Status s = TableCacheFindTableHelper::LookupCache(fd, cache_, handle, no_io);
+
+  // Lookup returns Incomplete if no_io is true
+  if (s.IsNotFound()) {
+    std::unique_ptr<TableReader> table_reader;
+    TableCacheGetReaderHelper::Callback empty_cb;
+    TableCacheFindTableHelper find_helper(ioptions_, fd.GetNumber(), cache_);
+    s = find_helper.GetReader(empty_cb, env_options, internal_comparator, fd,
+      &table_reader, record_read_stats, file_read_hist, skip_filters, level,
+      prefetch_index_and_filter_in_cache);
+
+    s = find_helper.OnGetReaderComplete(s, handle, table_reader);
   }
+
   return s;
 }
 

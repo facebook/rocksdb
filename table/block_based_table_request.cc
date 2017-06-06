@@ -71,7 +71,7 @@ Status MaybeLoadDataBlockToCacheHelper::RequestCachebableBlock(
 
   Status s;
 
-  sw_.Start();
+  sw_.start();
 
   if (cb) {
     s = ReadBlockContentsContext::RequestContentstRead(cb, rep->file.get(),
@@ -101,7 +101,7 @@ Status MaybeLoadDataBlockToCacheHelper::OnBlockReadComplete(const Status& status
     const Slice & compression_dict,
     BlockBasedTable::CachableEntry<Block>* entry) {
 
-  sw_.Elapsed();
+  sw_.elapsed();
 
   if (status.ok()) {
     return PutBlockToCache(rep, ro, std::move(block_cont), compression_dict, entry);
