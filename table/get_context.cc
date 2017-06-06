@@ -8,6 +8,7 @@
 #include "table/get_context.h"
 #include "db/merge_helper.h"
 #include "db/pinned_iterators_manager.h"
+#include "monitoring/file_read_sample.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
 #include "rocksdb/env.h"
@@ -59,6 +60,7 @@ GetContext::GetContext(const Comparator* ucmp,
   if (seq_) {
     *seq_ = kMaxSequenceNumber;
   }
+  sample_ = should_sample_file_read();
 }
 
 // Called from TableCache::Get and Table::Get when file/block in which
