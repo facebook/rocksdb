@@ -43,16 +43,6 @@ void DeleteTableReader(void* arg1, void* arg2) {
   delete table_reader;
 }
 
-#ifndef ROCKSDB_LITE
-
-void AppendVarint64(IterKey* key, uint64_t v) {
-  char buf[10];
-  auto ptr = EncodeVarint64(buf, v);
-  key->TrimAppend(key->Size(), buf, ptr - buf);
-}
-
-#endif  // ROCKSDB_LITE
-
 }  // namespace table_cache_detail
 
 using namespace table_cache_detail;
@@ -70,7 +60,7 @@ TableCache::TableCache(const ImmutableCFOptions& ioptions,
 TableCache::~TableCache() {
 }
 
-TableReader* TableCache::GetTableReaderFromHandle(Cache::Handle* handle) {
+TableReader* TableCache::GetTableReaderFromHandle(Cache::Handle* handle) const {
   return reinterpret_cast<TableReader*>(cache_->Value(handle));
 }
 
@@ -235,99 +225,9 @@ Status TableCache::Get(const ReadOptions& options,
                        const FileDescriptor& fd, const Slice& k,
                        GetContext* get_context, HistogramImpl* file_read_hist,
                        bool skip_filters, int level) {
-  std::string* row_cache_entry = nullptr;
-  bool done = false;
-#ifndef ROCKSDB_LITE
-  IterKey row_cache_key;
-  std::string row_cache_entry_buffer;
-  // Check row cache if enabled. Since row cache does not currently store
-  // sequence numbers, we cannot use it if we need to fetch the sequence.
-  if (ioptions_.row_cache && !get_context->NeedToReadSequence()) {
-    uint64_t fd_number = fd.GetNumber();
-    auto user_key = ExtractUserKey(k);
-    // We use the user key as cache key instead of the internal key,
-    // otherwise the whole cache would be invalidated every time the
-    // sequence key increases. However, to support caching snapshot
-    // reads, we append the sequence number (incremented by 1 to
-    // distinguish from 0) only in this case.
-    uint64_t seq_no =
-        options.snapshot == nullptr ? 0 : 1 + GetInternalKeySeqno(k);
 
-    // Compute row cache key.
-    row_cache_key.TrimAppend(row_cache_key.Size(), row_cache_id_.data(),
-                             row_cache_id_.size());
-    AppendVarint64(&row_cache_key, fd_number);
-    AppendVarint64(&row_cache_key, seq_no);
-    row_cache_key.TrimAppend(row_cache_key.Size(), user_key.data(),
-                             user_key.size());
-
-    if (auto row_handle =
-            ioptions_.row_cache->Lookup(row_cache_key.GetUserKey())) {
-      auto found_row_cache_entry = static_cast<const std::string*>(
-          ioptions_.row_cache->Value(row_handle));
-      replayGetContextLog(*found_row_cache_entry, user_key, get_context);
-      ioptions_.row_cache->Release(row_handle);
-      RecordTick(ioptions_.statistics, ROW_CACHE_HIT);
-      done = true;
-    } else {
-      // Not found, setting up the replay log.
-      RecordTick(ioptions_.statistics, ROW_CACHE_MISS);
-      row_cache_entry = &row_cache_entry_buffer;
-    }
-  }
-#endif  // ROCKSDB_LITE
-  Status s;
-  TableReader* t = fd.table_reader;
-  Cache::Handle* handle = nullptr;
-  if (!done && s.ok()) {
-    if (t == nullptr) {
-      s = FindTable(env_options_, internal_comparator, fd, &handle,
-                    options.read_tier == kBlockCacheTier /* no_io */,
-                    true /* record_read_stats */, file_read_hist, skip_filters,
-                    level);
-      if (s.ok()) {
-        t = GetTableReaderFromHandle(handle);
-      }
-    }
-    if (s.ok() && get_context->range_del_agg() != nullptr &&
-        !options.ignore_range_deletions) {
-      std::unique_ptr<InternalIterator> range_del_iter(
-          t->NewRangeTombstoneIterator(options));
-      if (range_del_iter != nullptr) {
-        s = range_del_iter->status();
-      }
-      if (s.ok()) {
-        s = get_context->range_del_agg()->AddTombstones(
-            std::move(range_del_iter));
-      }
-    }
-    if (s.ok()) {
-      get_context->SetReplayLog(row_cache_entry);  // nullptr if no cache.
-      s = t->Get(options, k, get_context, skip_filters);
-      get_context->SetReplayLog(nullptr);
-    } else if (options.read_tier == kBlockCacheTier && s.IsIncomplete()) {
-      // Couldn't find Table in cache but treat as kFound if no_io set
-      get_context->MarkKeyMayExist();
-      s = Status::OK();
-      done = true;
-    }
-  }
-
-#ifndef ROCKSDB_LITE
-  // Put the replay log in row cache only if something was found.
-  if (!done && s.ok() && row_cache_entry && !row_cache_entry->empty()) {
-    size_t charge =
-        row_cache_key.Size() + row_cache_entry->size() + sizeof(std::string);
-    void* row_ptr = new std::string(std::move(*row_cache_entry));
-    ioptions_.row_cache->Insert(row_cache_key.GetUserKey(), row_ptr, charge,
-                                &DeleteEntry<std::string>);
-  }
-#endif  // ROCKSDB_LITE
-
-  if (handle != nullptr) {
-    ReleaseHandle(handle);
-  }
-  return s;
+  return async::TableCacheGetContext::Get(this, options, internal_comparator, fd,
+                                          k, get_context, file_read_hist, skip_filters, level);
 }
 
 Status TableCache::GetTableProperties(

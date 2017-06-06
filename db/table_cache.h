@@ -91,7 +91,7 @@ class TableCache {
                    bool prefetch_index_and_filter_in_cache = true);
 
   // Get TableReader from a cache handle.
-  TableReader* GetTableReaderFromHandle(Cache::Handle* handle);
+  TableReader* GetTableReaderFromHandle(Cache::Handle* handle) const;
 
   // Get the table properties of a given table.
   // @no_io: indicates if we should load table to the cache if it is not present
@@ -114,6 +114,22 @@ class TableCache {
 
   // Release the handle from a cache
   void ReleaseHandle(Cache::Handle* handle);
+
+  const ImmutableCFOptions& GetIOptions() const {
+    return ioptions_;
+  }
+
+  const EnvOptions& GetEnvOptions() const {
+    return env_options_;
+  }
+
+  Cache* GetCache() const {
+    return cache_;
+  }
+
+  const std::string& GetRowCacheId() const {
+    return row_cache_id_;
+  }
 
  private:
   // Build a table reader
@@ -144,6 +160,16 @@ inline Slice GetSliceForFileNumber(const uint64_t* file_number) {
   return Slice(reinterpret_cast<const char*>(file_number),
     sizeof(*file_number));
 }
+
+#ifndef ROCKSDB_LITE
+
+inline void AppendVarint64(IterKey* key, uint64_t v) {
+  char buf[10];
+  auto ptr = EncodeVarint64(buf, v);
+  key->TrimAppend(key->Size(), buf, ptr - buf);
 }
+
+#endif  // ROCKSDB_LITE
+}  // namespace table_cache_detail
 
 }  // namespace rocksdb

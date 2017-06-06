@@ -20,7 +20,6 @@
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 
-
 #include "util/stop_watch.h"
 
 namespace rocksdb {
@@ -150,12 +149,151 @@ public:
                              Cache::Handle** handle,
                              std::unique_ptr<TableReader>&);
 
+  const ImmutableCFOptions& GetIOptions() const {
+    return gr_helper_.GetIOptions();
+  }
+
+  uint64_t GetFileNumber() const {
+    return file_number_;
+  }
+
  private:
 
   PERF_TIMER_DECL(find_table_nanos);
   TableCacheGetReaderHelper gr_helper_;
   uint64_t                  file_number_;
   Cache*                    cache_;
+};
+
+// This class facilitates asynchronous get using TableCache
+// and the underlying TableReader
+// In the process the context will attempt to Find/or if not
+// in cache asynchronously create a new table reader by
+// opening the table in async manner
+// It will then execute potentially asynchronous Get on that
+// table reader
+// If  range deletion tombstones are present we then
+// get an iterator on it (potentially async)
+class TableCacheGetContext : protected AsyncStatusCapture {
+ public:
+  // Callback to be supplied by the client
+  using
+  Callback = Callable<Status, const Status&>;
+
+  TableCacheGetContext(const TableCacheGetContext&) = delete;
+  TableCacheGetContext& operator=(const TableCacheGetContext&) = delete;
+
+  ~TableCacheGetContext() {
+    ReleaseCacheHandle();
+  }
+
+  static Status Get(TableCache* table_cache,
+                    const ReadOptions& options,
+                    const InternalKeyComparator& internal_comparator,
+                    const FileDescriptor& file_fd, const Slice& k,
+                    GetContext* get_context, HistogramImpl* file_read_hist = nullptr,
+                    bool skip_filters = false, int level = -1);
+
+  static Status RequestGet(const Callback& cb,
+                           TableCache* table_cache,
+                           const ReadOptions& options,
+                           const InternalKeyComparator& internal_comparator,
+                           const FileDescriptor& file_fd, const Slice& k,
+                           GetContext* get_context, HistogramImpl* file_read_hist = nullptr,
+                           bool skip_filters = false, int level = -1);
+
+ private:
+
+   TableCacheGetContext(const Callback& cb,
+                        TableCache* table_cache, const ReadOptions& options,
+                        const Slice& k, GetContext* get_context, bool skip_filters,
+                        uint64_t fileno,
+                        Cache::Handle* table_reader_handle,
+                        bool row_cache_present) :
+     cb_(cb),
+     table_cache_(table_cache),
+     ft_helper_(table_cache_->GetIOptions(), fileno, table_cache_->GetCache()),
+     options_(&options),
+     k_(k),
+     get_context_(get_context),
+     skip_filters_(skip_filters),
+     table_reader_handle_(table_reader_handle),
+     row_cache_present_(row_cache_present),
+     row_cache_entry_buffer_(),
+     table_reader_(nullptr) {
+   }
+
+   void ReleaseCacheHandle() {
+     if (table_reader_handle_ != nullptr) {
+       table_cache_->ReleaseHandle(table_reader_handle_);
+       table_reader_handle_ = nullptr;
+     }
+   }
+
+   static bool IsNoIo(const ReadOptions& options) {
+     return options.read_tier == kBlockCacheTier;
+   }
+
+   static void ComputeCacheKey(const std::string& row_cache_id,
+                           const ReadOptions& options,
+                           uint64_t fd_number,
+                           const Slice& k,
+                           IterKey& row_cache_key);
+
+   static void InsertRowCache(const ImmutableCFOptions& ioptions,
+     const IterKey& row_cache_key, std::string&& row_cache_entry_buffer);
+
+   // Returns NotFound otherwise OK()
+   // The result is placed into get_context
+   static Status LookupRowCache(TableCache* table_cache,
+                                const ReadOptions& options, const FileDescriptor& fd,
+                                const Slice& k, GetContext* get_context,
+                                bool& raw_cache_enabled);
+
+   // Returns OK, if the TableReader is found either in the FileDescriptor
+   // or in the cache.
+   // Returns Incomplete if TableReader is not in the cache
+   // and no_io is true. Thus we can not proceed with the lookup.
+   // We must return OK() and set KeyMaybePresent
+   static Status LookupTableReader(TableCache* table_cache,
+     const ReadOptions& options,
+     const FileDescriptor& fd,
+     Cache::Handle** table_reader_handle,
+     TableReader** table_reader);
+
+   // If TableReader is not in the cache
+   // and no_io false
+   // Requires context instance
+   // Returns ok on sync completion, IOPending() on async submission
+   // or any other error
+   Status CreateTableReader(const InternalKeyComparator& internal_comparator,
+                            const FileDescriptor& fd, HistogramImpl* file_read_hist, bool skip_filters,
+                            int level);
+
+   Status OnCreateTableReader(const Status&, std::unique_ptr<TableReader>&&);
+
+   Status CreateTombstoneIterator(TableReader*);
+
+   Status OnTombstoneIterator(const Status&, InternalIterator*);
+
+   Status Get(TableReader* table_reader);
+
+   Status OnGetComplete(const Status&);
+
+   Status OnComplete(const Status&);
+
+   Callback           cb_;
+   TableCache*        table_cache_;
+   TableCacheFindTableHelper ft_helper_;
+   const ReadOptions* options_;
+   Slice              k_;
+   GetContext*        get_context_;
+   bool               skip_filters_;
+
+   Cache::Handle*     table_reader_handle_;
+   bool               row_cache_present_;
+   std::string        row_cache_entry_buffer_;
+   TableReader*       table_reader_;
 };
 
 }
