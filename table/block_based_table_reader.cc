@@ -800,6 +800,18 @@ InternalIterator* BlockBasedTable::NewIndexIterator(
   return result;
 }
 
+Status BlockBasedTable::NewIndexIterator(
+  const async::Callable<Status, const Status&, InternalIterator*>& cb,
+  const ReadOptions & read_options, InternalIterator ** internal_iterator,
+  BlockIter * input_iter, CachableEntry<IndexReader>* index_entry) {
+
+  assert(internal_iterator);
+  *internal_iterator = nullptr;
+
+  return async::NewIndexIteratorContext::RequestCreate(cb, this, read_options,
+         nullptr, input_iter, index_entry, internal_iterator);
+}
+
 InternalIterator* BlockBasedTable::NewDataBlockIterator(
     Rep* rep, const ReadOptions& ro, const Slice& index_value,
     BlockIter* input_iter, bool is_index) {
@@ -1047,6 +1059,26 @@ InternalIterator* BlockBasedTable::NewRangeTombstoneIterator(
   return result;
 }
 
+Status BlockBasedTable::NewRangeTombstoneIterator(
+  const async::Callable<Status, const Status&, InternalIterator*>& cb,
+  const ReadOptions & read_options,
+  InternalIterator** internal_iterator) {
+
+  assert(internal_iterator != nullptr);
+  *internal_iterator = nullptr;
+
+  Status s;
+
+  using namespace async;
+
+  if (NewRangeTombstoneIterContext::IsPresent(rep_)) {
+    s = NewRangeTombstoneIterContext::RequestCreateIterator(cb, rep_, read_options,
+        internal_iterator);
+  }
+
+  return s;
+}
+
 bool BlockBasedTable::FullFilterKeyMayMatch(const ReadOptions& read_options,
                                             FilterBlockReader* filter,
                                             const Slice& internal_key,
@@ -1078,7 +1110,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
                                           skip_filters);
 }
 
-Status  BlockBasedTable::GetAsync(const async::Callable<Status, const Status&>& cb,
+Status  BlockBasedTable::Get(const async::Callable<Status, const Status&>& cb,
   const ReadOptions& read_options, const Slice& key,
   GetContext* get_context, bool skip_filters) {
 

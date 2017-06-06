@@ -48,6 +48,13 @@ class TableReader {
     return nullptr;
   }
 
+  virtual Status NewRangeTombstoneIterator(
+    const async::Callable<Status,const Status&, InternalIterator*>& cb,
+    const ReadOptions& read_options,
+    InternalIterator** internal_iterator) {
+    return Status::NotSupported();
+  }
+
   // Given a key, return an approximate byte offset in the file where
   // the data for that key begins (or would begin if the key were
   // present in the file).  The returned value is in terms of file
@@ -82,7 +89,7 @@ class TableReader {
   virtual Status Get(const ReadOptions& readOptions, const Slice& key,
                      GetContext* get_context, bool skip_filters = false) = 0;
 
-  virtual Status GetAsync(const async::Callable<Status, const Status&>&,
+  virtual Status Get(const async::Callable<Status, const Status&>&,
                      const ReadOptions& readOptions,
                      const Slice&,
                      GetContext*, bool skip_filters = false) {

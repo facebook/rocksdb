@@ -120,11 +120,16 @@ class BlockBasedTable : public TableReader {
   InternalIterator* NewRangeTombstoneIterator(
       const ReadOptions& read_options) override;
 
+  Status NewRangeTombstoneIterator(
+    const async::Callable<Status, const Status&, InternalIterator*>& cb,
+    const ReadOptions& read_options,
+    InternalIterator** internal_iterator) override;
+
   // @param skip_filters Disables loading/accessing the filter block
   Status Get(const ReadOptions& readOptions, const Slice& key,
              GetContext* get_context, bool skip_filters = false) override;
 
-  Status GetAsync(const async::Callable<Status,const Status&>& cb,
+  Status Get(const async::Callable<Status,const Status&>& cb,
     const ReadOptions& readOptions, const Slice& key,
     GetContext* get_context, bool skip_filters) override;
 
@@ -282,6 +287,12 @@ class BlockBasedTable : public TableReader {
   InternalIterator* NewIndexIterator(
       const ReadOptions& read_options, BlockIter* input_iter = nullptr,
       CachableEntry<IndexReader>* index_entry = nullptr);
+
+  Status NewIndexIterator(
+    const async::Callable<Status, const Status&, InternalIterator*>&, 
+    const ReadOptions& read_options, InternalIterator** internal_iterator,
+    BlockIter* input_iter = nullptr,
+    CachableEntry<IndexReader>* index_entry = nullptr);
 
   // Read block cache from block caches (if set): block_cache and
   // block_cache_compressed.
