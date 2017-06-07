@@ -224,7 +224,8 @@ class WriteThread {
     // always last in the order
     std::mutex& StateMutex() {
       assert(made_waitable);
-      return *static_cast<std::mutex*>(static_cast<void*>(&state_mutex_bytes));
+      std::mutex* pstate_mutex_bytes = static_cast<std::mutex*>(static_cast<void*>(&state_mutex_bytes));
+      return *pstate_mutex_bytes;
     }
 
     std::condition_variable& StateCV() {
