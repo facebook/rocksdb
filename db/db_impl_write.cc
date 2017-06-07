@@ -144,7 +144,6 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   bool need_log_sync = !write_options.disableWAL && write_options.sync;
   bool need_log_dir_sync = need_log_sync && !log_dir_synced_;
   status = PreprocessWrite(write_options, &need_log_sync, &write_context);
-  log::Writer* cur_log_writer = logs_.back().writer;
 
   mutex_.Unlock();
 
@@ -214,11 +213,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
     if (status.ok() && !write_options.disableWAL) {
       PERF_TIMER_GUARD(write_wal_time);
-      status = WriteToWAL(write_group, cur_log_writer, need_log_sync,
+      status = WriteToWAL(write_group, log_used, need_log_sync,
                           need_log_dir_sync, current_sequence);
-      if (log_used != nullptr) {
-        *log_used = logfile_number_;
-      }
     }
 
     if (status.ok()) {
@@ -308,7 +304,6 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
     bool need_log_sync = !write_options.disableWAL && write_options.sync;
     bool need_log_dir_sync = need_log_sync && !log_dir_synced_;
     w.status = PreprocessWrite(write_options, &need_log_sync, &write_context);
-    log::Writer* cur_log_writer = logs_.back().writer;
     mutex_.Unlock();
 
     // This can set non-OK status if callback fail.
@@ -356,7 +351,7 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
                           wal_write_group.size - 1);
         RecordTick(stats_, WRITE_DONE_BY_OTHER, wal_write_group.size - 1);
       }
-      w.status = WriteToWAL(wal_write_group, cur_log_writer, need_log_sync,
+      w.status = WriteToWAL(wal_write_group, log_used, need_log_sync,
                             need_log_dir_sync, current_sequence);
     }
 
@@ -407,10 +402,6 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
   }
 
   assert(w.state == WriteThread::STATE_COMPLETED);
-  if (log_used != nullptr) {
-    *log_used = w.log_used;
-  }
-
   return w.FinalStatus();
 }
 
@@ -490,6 +481,8 @@ Status DBImpl::WriteImpl2PC(const WriteOptions& write_options,
   uint64_t last_sequence;
   bool need_log_sync = !write_options.disableWAL && write_options.sync;
   bool need_log_dir_sync = need_log_sync && !log_dir_synced_;
+  assert(!need_log_sync);
+  assert(!need_log_dir_sync);
 
   if (!disable_memtable) {
     mutex_.Lock();
@@ -565,9 +558,8 @@ Status DBImpl::WriteImpl2PC(const WriteOptions& write_options,
       PERF_TIMER_GUARD(write_wal_time);
       // LastToBeWrittenSequence is increased inside WriteToWAL under
       // wal_write_mutex_ to ensure ordered events in WAL
-      status =
-          WriteToWAL2PC(write_group, log_used, need_log_sync, need_log_dir_sync,
-                     &last_sequence, total_count, concurrent_writes_);
+      status = ConcurrentWriteToWAL(write_group, log_used, &last_sequence,
+                                    total_count);
     } else {
       // Otherwise we inc seq number for memtable writes
       last_sequence = versions_->FetchAddLastToBeWrittenSequence(total_count);
@@ -738,13 +730,12 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
   return status;
 }
 
-Status DBImpl::WriteToWAL(const WriteThread::WriteGroup& write_group,
-                          log::Writer* log_writer, bool need_log_sync,
-                          bool need_log_dir_sync, SequenceNumber sequence) {
-  Status status;
-
+WriteBatch* DBImpl::MergeBatch(const WriteThread::WriteGroup& write_group,
+                               WriteBatch* tmp_batch, size_t* write_with_wal) {
+  assert(write_with_wal != nullptr);
+  assert(tmp_batch != nullptr);
   WriteBatch* merged_batch = nullptr;
-  size_t write_with_wal = 0;
+  *write_with_wal = 0;
   auto* leader = write_group.leader;
   if (write_group.size == 1 && leader->ShouldWriteToWAL() &&
       leader->batch->GetWalTerminationPoint().is_cleared()) {
@@ -753,30 +744,52 @@ Status DBImpl::WriteToWAL(const WriteThread::WriteGroup& write_group,
     // and the batch is not wanting to be truncated
     merged_batch = leader->batch;
     leader->log_used = logfile_number_;
-    write_with_wal = 1;
+    *write_with_wal = 1;
   } else {
     // WAL needs all of the batches flattened into a single batch.
     // We could avoid copying here with an iov-like AddRecord
     // interface
-    merged_batch = &tmp_batch_;
+    merged_batch = tmp_batch;
     for (auto writer : write_group) {
       if (writer->ShouldWriteToWAL()) {
         WriteBatchInternal::Append(merged_batch, writer->batch,
                                    /*WAL_only*/ true);
-        write_with_wal++;
+        (*write_with_wal)++;
       }
       writer->log_used = logfile_number_;
     }
   }
+  return merged_batch;
+}
 
-  WriteBatchInternal::SetSequence(merged_batch, sequence);
-
-  Slice log_entry = WriteBatchInternal::Contents(merged_batch);
-  status = log_writer->AddRecord(log_entry);
+Status DBImpl::WriteToWAL(const WriteBatch &merged_batch,
+                          uint64_t* log_used, uint64_t* log_size) {
+  assert(log_size != nullptr);
+  Slice log_entry = WriteBatchInternal::Contents(&merged_batch);
+  *log_size = log_entry.size();
+  log::Writer* log_writer = logs_.back().writer;
+  Status status = log_writer->AddRecord(log_entry);
+  if (log_used != nullptr) {
+    *log_used = logfile_number_;
+  }
   total_log_size_ += log_entry.size();
   alive_log_files_.back().AddSize(log_entry.size());
   log_empty_ = false;
-  uint64_t log_size = log_entry.size();
+  return status;
+}
+
+Status DBImpl::WriteToWAL(const WriteThread::WriteGroup& write_group,
+                          uint64_t* log_used, bool need_log_sync,
+                          bool need_log_dir_sync, SequenceNumber sequence) {
+  Status status;
+
+  size_t write_with_wal = 0;
+  WriteBatch* merged_batch = MergeBatch(write_group, &tmp_batch_, &write_with_wal);
+
+  WriteBatchInternal::SetSequence(merged_batch, sequence);
+
+  uint64_t log_size;
+  WriteToWAL(*merged_batch, log_used, &log_size);
 
   if (status.ok() && need_log_sync) {
     StopWatch sw(env_, stats_, WAL_FILE_SYNC_MICROS);
@@ -818,38 +831,14 @@ Status DBImpl::WriteToWAL(const WriteThread::WriteGroup& write_group,
   return status;
 }
 
-Status DBImpl::WriteToWAL2PC(const WriteThread::WriteGroup& write_group,
-                          uint64_t* log_used, bool need_log_sync,
-                          bool need_log_dir_sync, SequenceNumber* last_sequence,
-                          int total_count, bool concurrent) {
+Status DBImpl::ConcurrentWriteToWAL(const WriteThread::WriteGroup& write_group,
+                          uint64_t* log_used, SequenceNumber* last_sequence,
+                          int total_count) {
   Status status;
 
-  WriteBatch* merged_batch = nullptr;
   WriteBatch tmp_batch;
   size_t write_with_wal = 0;
-  auto* leader = write_group.leader;
-  if (write_group.size == 1 && leader->ShouldWriteToWAL() &&
-      leader->batch->GetWalTerminationPoint().is_cleared()) {
-    // we simply write the first WriteBatch to WAL if the group only
-    // contains one batch, that batch should be written to the WAL,
-    // and the batch is not wanting to be truncated
-    merged_batch = leader->batch;
-    leader->log_used = logfile_number_;
-    write_with_wal = 1;
-  } else {
-    // WAL needs all of the batches flattened into a single batch.
-    // We could avoid copying here with an iov-like AddRecord
-    // interface
-    merged_batch = &tmp_batch;
-    for (auto writer : write_group) {
-      if (writer->ShouldWriteToWAL()) {
-        WriteBatchInternal::Append(merged_batch, writer->batch,
-                                   /*WAL_only*/ true);
-        write_with_wal++;
-      }
-      writer->log_used = logfile_number_;
-    }
-  }
+  WriteBatch* merged_batch = MergeBatch(write_group, &tmp_batch, &write_with_wal);
 
   // We need to lock log_write_mutex_ since logs_ and alive_log_files might be
   // pushed back concurrently
@@ -858,21 +847,9 @@ Status DBImpl::WriteToWAL2PC(const WriteThread::WriteGroup& write_group,
   auto sequence = *last_sequence + 1;
   WriteBatchInternal::SetSequence(merged_batch, sequence);
 
-  Slice log_entry = WriteBatchInternal::Contents(merged_batch);
-  log::Writer* log_writer = logs_.back().writer;
-  status = log_writer->AddRecord(log_entry);
-  if (log_used != nullptr) {
-    *log_used = logfile_number_;
-  }
-  total_log_size_ += log_entry.size();
-  alive_log_files_.back().AddSize(log_entry.size());
-  if (concurrent) {
-    log_write_mutex_.Unlock();
-  }
-  log_empty_ = false;
-  uint64_t log_size = log_entry.size();
-
-  assert(!need_log_sync);
+  uint64_t log_size;
+  WriteToWAL(*merged_batch, log_used, &log_size);
+  log_write_mutex_.Unlock();
 
   if (status.ok()) {
     stat_mutex_.Lock();

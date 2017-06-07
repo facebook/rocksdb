@@ -753,14 +753,19 @@ class DBImpl : public DB {
   Status PreprocessWrite(const WriteOptions& write_options, bool* need_log_sync,
                          WriteContext* write_context);
 
+  WriteBatch* MergeBatch(const WriteThread::WriteGroup& write_group,
+                         WriteBatch* tmp_batch, size_t* write_with_wal);
+
+  Status WriteToWAL(const WriteBatch& merged_batch, uint64_t* log_used,
+                    uint64_t* log_size);
+
   Status WriteToWAL(const WriteThread::WriteGroup& write_group,
-                    log::Writer* log_writer, bool need_log_sync,
+                    uint64_t* log_used, bool need_log_sync,
                     bool need_log_dir_sync, SequenceNumber sequence);
 
-  Status WriteToWAL2PC(const WriteThread::WriteGroup& write_group,
-                    uint64_t* log_used, bool need_log_sync,
-                    bool need_log_dir_sync, SequenceNumber* last_sequence,
-                    int total_count, bool concurrent);
+  Status ConcurrentWriteToWAL(const WriteThread::WriteGroup& write_group,
+                       uint64_t* log_used, SequenceNumber* last_sequence,
+                       int total_count);
 
   // Used by WriteImpl to update bg_error_ if paranoid check is enabled.
   void ParanoidCheck(const Status& status);
