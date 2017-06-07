@@ -199,9 +199,11 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
                                  &write_controller_));
   column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(versions_->GetColumnFamilySet()));
+#ifndef ROCKSDB_LITE
   for (auto& auto_tuner : initial_db_options_.auto_tuners) {
     auto_tuner->Init(this, initial_db_options_);
   }
+#endif  // ROCKSDB_LITE
 
   DumpRocksDBBuildVersion(immutable_db_options_.info_log.get());
   DumpDBFileSummary(immutable_db_options_, dbname_);
