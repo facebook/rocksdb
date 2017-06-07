@@ -621,9 +621,12 @@ class DBImpl : public DB {
                             WriteCallback* callback = nullptr,
                             uint64_t* log_used = nullptr, uint64_t log_ref = 0,
                             bool disable_memtable = false);
-  Status WriteImplIn2PCPrepare(const WriteOptions& options, WriteBatch* updates,
+
+  Status WriteImpl2PC(const WriteOptions& options, WriteBatch* updates,
                    WriteCallback* callback = nullptr,
-                   uint64_t* log_used = nullptr, uint64_t log_ref = 0);
+                   uint64_t* log_used = nullptr, uint64_t log_ref = 0,
+                   bool disable_memtable = false);
+
 
   uint64_t FindMinLogContainingOutstandingPrep();
   uint64_t FindMinPrepLogReferencedByMemTable();
@@ -750,7 +753,11 @@ class DBImpl : public DB {
   Status PreprocessWrite(const WriteOptions& write_options, bool* need_log_sync,
                          WriteContext* write_context);
 
-  Status WriteToWAL(const autovector<WriteThread::Writer*>& write_group,
+  Status WriteToWAL(const WriteThread::WriteGroup& write_group,
+                    log::Writer* log_writer, bool need_log_sync,
+                    bool need_log_dir_sync, SequenceNumber sequence);
+
+  Status WriteToWAL2PC(const WriteThread::WriteGroup& write_group,
                     uint64_t* log_used, bool need_log_sync,
                     bool need_log_dir_sync, SequenceNumber* last_sequence,
                     int total_count, bool concurrent);
@@ -948,6 +955,7 @@ class DBImpl : public DB {
   WriteBufferManager* write_buffer_manager_;
 
   WriteThread write_thread_;
+  WriteBatch tmp_batch_;
   // The write thread when the writers have no memtable write. This will be used
   // in 2PC to batch the prepares separately from the serial commit.
   WriteThread nonmem_write_thread_;
