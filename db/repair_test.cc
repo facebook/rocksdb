@@ -7,6 +7,8 @@
 
 #ifndef ROCKSDB_LITE
 
+#ifndef ROCKSDB_LITE
+
 #include <algorithm>
 #include <string>
 #include <vector>
