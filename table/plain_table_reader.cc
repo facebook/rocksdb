@@ -548,7 +548,7 @@ Status PlainTableReader::Get(const ReadOptions& ro, const Slice& target,
           Status::InvalidArgument("Get() is not allowed in full scan mode.");
     }
     // Match whole user key for bloom filter check.
-    if (!MatchBloom(GetSliceHash(GetUserKey(target)))) {
+    if (!MatchBloom(GetSliceHash(ExtractUserKey(target)))) {
       return Status::OK();
     }
     // in total order mode, there is only one bucket 0, and we always use empty
