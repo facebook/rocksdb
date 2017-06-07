@@ -18,7 +18,6 @@
 #include <unordered_map>
 
 #include "rocksdb/advanced_options.h"
-#include "rocksdb/auto_tuner.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
 #include "rocksdb/listener.h"
@@ -32,6 +31,7 @@
 
 namespace rocksdb {
 
+class AutoTuner;
 class Cache;
 class CompactionFilter;
 class CompactionFilterFactory;

@@ -126,15 +126,6 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
   }
 
 #ifndef ROCKSDB_LITE
-  // statistics must be enabled (i.e., non-nullptr); info_log is optional
-  if (!result.auto_tuners.empty()) {
-    assert(result.statistics != nullptr);
-  }
-  for (auto& auto_tuner : result.auto_tuners) {
-    auto_tuner->SetLogger(result.info_log.get());
-    auto_tuner->SetStatistics(result.statistics.get());
-  }
-
   // TODO(andrewkr): this is a temporary workaround to support auto-tuned rate
   // limiter before we've written a scheduler/executor for auto-tuners. It does
   // the scheduling/execution in a wrapper around the provided rate limiter.
