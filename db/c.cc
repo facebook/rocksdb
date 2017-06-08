@@ -98,6 +98,8 @@ using rocksdb::TransactionDB;
 using rocksdb::TransactionOptions;
 using rocksdb::Transaction;
 using rocksdb::Checkpoint;
+using rocksdb::FilterBitsBuilder;
+using rocksdb::FilterBitsReader;
 
 using std::shared_ptr;
 
@@ -2606,6 +2608,13 @@ rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom_format(int bits_per_ke
     }
     bool KeyMayMatch(const Slice& key, const Slice& filter) const override {
       return rep_->KeyMayMatch(key, filter);
+    }
+    virtual FilterBitsBuilder* GetFilterBitsBuilder() const override {
+      return rep_->GetFilterBitsBuilder();
+    }
+    virtual FilterBitsReader* GetFilterBitsReader(
+        const Slice& contents) const override {
+      return rep_->GetFilterBitsReader(contents);
     }
     static void DoNothing(void*) { }
   };
