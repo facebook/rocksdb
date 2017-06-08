@@ -352,6 +352,7 @@ set(SOURCES
         db/write_thread.cc
         env/env.cc
         env/env_chroot.cc
+        env/env_encryption.cc
         env/env_hdfs.cc
         env/memenv.cc
         memtable/hash_cuckoo_rep.cc

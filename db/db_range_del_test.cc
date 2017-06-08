@@ -29,6 +29,9 @@ class DBRangeDelTest : public DBTestBase {
 // ROCKSDB_LITE
 #ifndef ROCKSDB_LITE
 TEST_F(DBRangeDelTest, NonBlockBasedTableNotSupported) {
+  if (!IsMemoryMappedAccessSupported()) {
+    return;
+  }
   Options opts = CurrentOptions();
   opts.table_factory.reset(new PlainTableFactory());
   opts.prefix_extractor.reset(NewNoopTransform());

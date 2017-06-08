@@ -9,6 +9,7 @@
 
 #include "db/db_test_util.h"
 #include "db/forward_iterator.h"
+#include "rocksdb/env_encryption.h"
 
 namespace rocksdb {
 
@@ -42,10 +43,13 @@ SpecialEnv::SpecialEnv(Env* base)
   table_write_callback_ = nullptr;
 }
 
+ROT13BlockCipher rot13Cipher_(16);
+
 DBTestBase::DBTestBase(const std::string path)
     : option_config_(kDefault),
       mem_env_(!getenv("MEM_ENV") ? nullptr : new MockEnv(Env::Default())),
-      env_(new SpecialEnv(mem_env_ ? mem_env_ : Env::Default())) {
+      encrypted_env_(!getenv("ENCRYPTED_ENV") ? nullptr : NewEncryptedEnv(mem_env_ ? mem_env_ : Env::Default(), new CTREncryptionProvider(rot13Cipher_))),
+      env_(new SpecialEnv(encrypted_env_ ? encrypted_env_ : (mem_env_ ? mem_env_ : Env::Default()))) {
   env_->SetBackgroundThreads(1, Env::LOW);
   env_->SetBackgroundThreads(1, Env::HIGH);
   dbname_ = test::TmpDir(env_) + path;
@@ -265,6 +269,7 @@ Options DBTestBase::CurrentOptions(
   Options options = defaultOptions;
   BlockBasedTableOptions table_options;
   bool set_block_based_table_factory = true;
+  bool can_allow_mmap = IsMemoryMappedAccessSupported();
   switch (option_config_) {
 #ifndef ROCKSDB_LITE
     case kHashSkipList:
@@ -275,14 +280,14 @@ Options DBTestBase::CurrentOptions(
     case kPlainTableFirstBytePrefix:
       options.table_factory.reset(new PlainTableFactory());
       options.prefix_extractor.reset(NewFixedPrefixTransform(1));
-      options.allow_mmap_reads = true;
+      options.allow_mmap_reads = can_allow_mmap;
       options.max_sequential_skip_in_iterations = 999999;
       set_block_based_table_factory = false;
       break;
     case kPlainTableCappedPrefix:
       options.table_factory.reset(new PlainTableFactory());
       options.prefix_extractor.reset(NewCappedPrefixTransform(8));
-      options.allow_mmap_reads = true;
+      options.allow_mmap_reads = can_allow_mmap;
       options.max_sequential_skip_in_iterations = 999999;
       set_block_based_table_factory = false;
       break;
@@ -296,7 +301,7 @@ Options DBTestBase::CurrentOptions(
     case kPlainTableAllBytesPrefix:
       options.table_factory.reset(new PlainTableFactory());
       options.prefix_extractor.reset(NewNoopTransform());
-      options.allow_mmap_reads = true;
+      options.allow_mmap_reads = can_allow_mmap;
       options.max_sequential_skip_in_iterations = 999999;
       set_block_based_table_factory = false;
       break;
@@ -348,7 +353,7 @@ Options DBTestBase::CurrentOptions(
       options.wal_dir = alternative_wal_dir_;
       // mmap reads should be orthogonal to WalDir setting, so we piggyback to
       // this option config to test mmap reads as well
-      options.allow_mmap_reads = true;
+      options.allow_mmap_reads = can_allow_mmap;
       break;
     case kManifestFileSize:
       options.max_manifest_file_size = 50;  // 50 bytes
@@ -368,7 +373,7 @@ Options DBTestBase::CurrentOptions(
       options.num_levels = 8;
       break;
     case kCompressedBlockCache:
-      options.allow_mmap_writes = true;
+      options.allow_mmap_writes = can_allow_mmap;
       table_options.block_cache_compressed = NewLRUCache(8 * 1024 * 1024);
       break;
     case kInfiniteMaxOpenFiles:
@@ -550,6 +555,10 @@ bool DBTestBase::IsDirectIOSupported() {
     s = env_->DeleteFile(tmp);
   }
   return s.ok();
+}
+
+bool DBTestBase::IsMemoryMappedAccessSupported() {
+  return (!encrypted_env_);
 }
 
 Status DBTestBase::Flush(int cf) {
