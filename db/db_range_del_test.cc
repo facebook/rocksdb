@@ -791,6 +791,7 @@ TEST_F(DBRangeDelTest, IteratorIgnoresRangeDeletions) {
   db_->ReleaseSnapshot(snapshot);
 }
 
+#ifndef ROCKSDB_UBSAN_RUN
 TEST_F(DBRangeDelTest, TailingIteratorRangeTombstoneUnsupported) {
   db_->Put(WriteOptions(), "key", "val");
   // snapshot prevents key from being deleted during flush
@@ -817,6 +818,8 @@ TEST_F(DBRangeDelTest, TailingIteratorRangeTombstoneUnsupported) {
   }
   db_->ReleaseSnapshot(snapshot);
 }
+#endif  // !ROCKSDB_UBSAN_RUN
+
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb
