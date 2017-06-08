@@ -57,7 +57,8 @@ Status GetMutableDBOptionsFromStrings(
 Status GetTableFactoryFromMap(
     const std::string& factory_name,
     const std::unordered_map<std::string, std::string>& opt_map,
-    std::shared_ptr<TableFactory>* table_factory);
+    std::shared_ptr<TableFactory>* table_factory,
+    bool ignore_unknown_options = false);
 
 Status GetStringFromTableFactory(std::string* opts_str, const TableFactory* tf,
                                  const std::string& delimiter = ";  ");
@@ -129,7 +130,8 @@ Status GetDBOptionsFromMapInternal(
     const DBOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
     DBOptions* new_options, bool input_strings_escaped,
-    std::vector<std::string>* unsupported_options_names = nullptr);
+    std::vector<std::string>* unsupported_options_names = nullptr,
+    bool ignore_unknown_options = false);
 
 // In addition to its public version defined in rocksdb/convenience.h,
 // this further takes an optional output vector "unsupported_options_names",
@@ -138,7 +140,8 @@ Status GetColumnFamilyOptionsFromMapInternal(
     const ColumnFamilyOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
     ColumnFamilyOptions* new_options, bool input_strings_escaped,
-    std::vector<std::string>* unsupported_options_names = nullptr);
+    std::vector<std::string>* unsupported_options_names = nullptr,
+    bool ignore_unknown_options = false);
 
 static std::unordered_map<std::string, OptionTypeInfo> db_options_type_info = {
     /*

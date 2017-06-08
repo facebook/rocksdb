@@ -233,7 +233,8 @@ bool ReadOneLine(std::istringstream* iss, SequentialFile* seq_file,
 }
 }  // namespace
 
-Status RocksDBOptionsParser::Parse(const std::string& file_name, Env* env) {
+Status RocksDBOptionsParser::Parse(const std::string& file_name, Env* env,
+                                   bool ignore_unknown_options) {
   Reset();
 
   std::unique_ptr<SequentialFile> seq_file;
@@ -260,7 +261,7 @@ Status RocksDBOptionsParser::Parse(const std::string& file_name, Env* env) {
       continue;
     }
     if (IsSection(line)) {
-      s = EndSection(section, title, argument, opt_map);
+      s = EndSection(section, title, argument, opt_map, ignore_unknown_options);
       opt_map.clear();
       if (!s.ok()) {
         return s;
@@ -280,7 +281,7 @@ Status RocksDBOptionsParser::Parse(const std::string& file_name, Env* env) {
     }
   }
 
-  s = EndSection(section, title, argument, opt_map);
+  s = EndSection(section, title, argument, opt_map, ignore_unknown_options);
   opt_map.clear();
   if (!s.ok()) {
     return s;
@@ -389,10 +390,12 @@ Status RocksDBOptionsParser::ParseVersionNumber(const std::string& ver_name,
 Status RocksDBOptionsParser::EndSection(
     const OptionSection section, const std::string& section_title,
     const std::string& section_arg,
-    const std::unordered_map<std::string, std::string>& opt_map) {
+    const std::unordered_map<std::string, std::string>& opt_map,
+    bool ignore_unknown_options) {
   Status s;
   if (section == kOptionSectionDBOptions) {
-    s = GetDBOptionsFromMap(DBOptions(), opt_map, &db_opt_, true);
+    s = GetDBOptionsFromMap(DBOptions(), opt_map, &db_opt_, true,
+                            ignore_unknown_options);
     if (!s.ok()) {
       return s;
     }
@@ -404,7 +407,8 @@ Status RocksDBOptionsParser::EndSection(
     cf_names_.emplace_back(section_arg);
     cf_opts_.emplace_back();
     s = GetColumnFamilyOptionsFromMap(ColumnFamilyOptions(), opt_map,
-                                      &cf_opts_.back(), true);
+                                      &cf_opts_.back(), true,
+                                      ignore_unknown_options);
     if (!s.ok()) {
       return s;
     }
@@ -423,7 +427,7 @@ Status RocksDBOptionsParser::EndSection(
     s = GetTableFactoryFromMap(
         section_title.substr(
             opt_section_titles[kOptionSectionTableOptions].size()),
-        opt_map, &(cf_opt->table_factory));
+        opt_map, &(cf_opt->table_factory), ignore_unknown_options);
     if (!s.ok()) {
       return s;
     }
@@ -615,10 +619,10 @@ Status RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
     const DBOptions& db_opt, const std::vector<std::string>& cf_names,
     const std::vector<ColumnFamilyOptions>& cf_opts,
     const std::string& file_name, Env* env,
-    OptionsSanityCheckLevel sanity_check_level) {
+    OptionsSanityCheckLevel sanity_check_level, bool ignore_unknown_options) {
   RocksDBOptionsParser parser;
   std::unique_ptr<SequentialFile> seq_file;
-  Status s = parser.Parse(file_name, env);
+  Status s = parser.Parse(file_name, env, ignore_unknown_options);
   if (!s.ok()) {
     return s;
   }

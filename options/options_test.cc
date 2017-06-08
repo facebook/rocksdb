@@ -202,11 +202,22 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   cf_options_map["write_buffer_size"] = "1";
   ASSERT_OK(GetColumnFamilyOptionsFromMap(
             base_cf_opt, cf_options_map, &new_cf_opt));
-  cf_options_map["unknown_option"] = "1";
 
+  cf_options_map["unknown_option"] = "1";
   ASSERT_NOK(GetColumnFamilyOptionsFromMap(
              base_cf_opt, cf_options_map, &new_cf_opt));
   ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt));
+
+  ASSERT_OK(GetColumnFamilyOptionsFromMap(base_cf_opt, cf_options_map,
+                                          &new_cf_opt,
+                                          false, /* input_strings_escaped  */
+                                          true /* ignore_unknown_options */));
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(
+      base_cf_opt, new_cf_opt, nullptr, /* new_opt_map */
+      kSanityLevelLooselyCompatible /* from CheckOptionsCompatibility*/));
+  ASSERT_NOK(RocksDBOptionsParser::VerifyCFOptions(
+      base_cf_opt, new_cf_opt, nullptr, /* new_opt_map */
+      kSanityLevelExactMatch /* default for VerifyCFOptions */));
 
   DBOptions base_db_opt;
   DBOptions new_db_opt;
@@ -248,6 +259,28 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.writable_file_max_buffer_size, 314159);
   ASSERT_EQ(new_db_opt.bytes_per_sync, static_cast<uint64_t>(47));
   ASSERT_EQ(new_db_opt.wal_bytes_per_sync, static_cast<uint64_t>(48));
+
+  db_options_map["max_open_files"] = "hello";
+  ASSERT_NOK(GetDBOptionsFromMap(base_db_opt, db_options_map, &new_db_opt));
+  ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(base_db_opt, new_db_opt));
+  ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(
+      base_db_opt, new_db_opt, nullptr, /* new_opt_map */
+      kSanityLevelLooselyCompatible /* from CheckOptionsCompatibility */));
+
+  // unknow options should fail parsing without ignore_unknown_options = true
+  db_options_map["unknown_db_option"] = "1";
+  ASSERT_NOK(GetDBOptionsFromMap(base_db_opt, db_options_map, &new_db_opt));
+  ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(base_db_opt, new_db_opt));
+
+  ASSERT_OK(GetDBOptionsFromMap(base_db_opt, db_options_map, &new_db_opt,
+                                false, /* input_strings_escaped  */
+                                true /* ignore_unknown_options */));
+  ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(
+      base_db_opt, new_db_opt, nullptr, /* new_opt_map */
+      kSanityLevelLooselyCompatible /* from CheckOptionsCompatibility */));
+  ASSERT_NOK(RocksDBOptionsParser::VerifyDBOptions(
+      base_db_opt, new_db_opt, nullptr, /* new_opt_mat */
+      kSanityLevelExactMatch /* default for VerifyDBOptions */));
 }
 #endif  // !ROCKSDB_LITE
 
@@ -1066,6 +1099,40 @@ TEST_F(OptionsParserTest, DuplicateCFOptions) {
   env_->WriteToNewFile(kTestFileName, options_file_content);
   RocksDBOptionsParser parser;
   ASSERT_NOK(parser.Parse(kTestFileName, env_.get()));
+}
+
+TEST_F(OptionsParserTest, IgnoreUnknownOptions) {
+  DBOptions db_opt;
+  db_opt.max_open_files = 12345;
+  db_opt.max_background_flushes = 301;
+  db_opt.max_total_wal_size = 1024;
+  ColumnFamilyOptions cf_opt;
+
+  std::string options_file_content =
+      "# This is a testing option string.\n"
+      "# Currently we only support \"#\" styled comment.\n"
+      "\n"
+      "[Version]\n"
+      "  rocksdb_version=3.14.0\n"
+      "  options_file_version=1\n"
+      "[DBOptions]\n"
+      "  max_open_files=12345\n"
+      "  max_background_flushes=301\n"
+      "  max_total_wal_size=1024  # keep_log_file_num=1000\n"
+      "  unknown_db_option1=321\n"
+      "  unknown_db_option2=false\n"
+      "[CFOptions \"default\"]\n"
+      "  unknown_cf_option1=hello\n"
+      "[CFOptions \"something_else\"]\n"
+      "  unknown_cf_option2=world\n"
+      "  # if a section is blank, we will use the default\n";
+
+  const std::string kTestFileName = "test-rocksdb-options.ini";
+  env_->WriteToNewFile(kTestFileName, options_file_content);
+  RocksDBOptionsParser parser;
+  ASSERT_NOK(parser.Parse(kTestFileName, env_.get()));
+  ASSERT_OK(parser.Parse(kTestFileName, env_.get(),
+                         true /* ignore_unknown_options */));
 }
 
 TEST_F(OptionsParserTest, ParseVersion) {
