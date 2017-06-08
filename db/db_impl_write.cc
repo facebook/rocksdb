@@ -769,8 +769,9 @@ Status DBImpl::ThrottleLowPriWritesIfNeeded(const WriteOptions& write_options,
       // is that in case the write is heavy, low pri writes may never have
       // a chance to run. Now we guarantee we are still slowly making
       // progress.
-      write_controller_.low_pri_rate_limiter()->Request(my_batch->GetDataSize(),
-                                                        Env::IO_HIGH, nullptr);
+      write_controller_.low_pri_rate_limiter()->Request(
+          my_batch->GetDataSize(), Env::IO_HIGH, nullptr /* stats */,
+          RateLimiter::OpType::kWrite);
     }
   }
   return Status::OK();

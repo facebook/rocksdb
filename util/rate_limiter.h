@@ -24,8 +24,9 @@ namespace rocksdb {
 
 class GenericRateLimiter : public RateLimiter {
  public:
-  GenericRateLimiter(int64_t refill_bytes,
-      int64_t refill_period_us, int32_t fairness);
+  GenericRateLimiter(int64_t refill_bytes, int64_t refill_period_us,
+                     int32_t fairness,
+                     RateLimiter::Mode mode = RateLimiter::Mode::kWritesOnly);
 
   virtual ~GenericRateLimiter();
 
@@ -37,7 +38,7 @@ class GenericRateLimiter : public RateLimiter {
   // bytes <= GetSingleBurstBytes()
   using RateLimiter::Request;
   virtual void Request(const int64_t bytes, const Env::IOPriority pri,
-                       Statistics* stats) override;
+                       Statistics* stats, OpType op_type) override;
 
   virtual int64_t GetSingleBurstBytes() const override {
     return refill_bytes_per_period_.load(std::memory_order_relaxed);
@@ -99,6 +100,7 @@ class GenericRateLimiter : public RateLimiter {
 
   struct Req;
   Req* leader_;
+  RateLimiter::Mode mode_;
   std::deque<Req*> queue_[Env::IO_TOTAL];
 };
 

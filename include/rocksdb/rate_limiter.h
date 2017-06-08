@@ -18,21 +18,37 @@ namespace rocksdb {
 
 class RateLimiter {
  public:
+  enum class OpType {
+    kRead,
+    kWrite,
+  };
+  enum class Mode {
+    kReadsOnly,
+    kWritesOnly,
+    kAllIo,
+  };
+
   virtual ~RateLimiter() {}
 
   // This API allows user to dynamically change rate limiter's bytes per second.
   // REQUIRED: bytes_per_second > 0
   virtual void SetBytesPerSecond(int64_t bytes_per_second) = 0;
 
+  // Deprecated. New RateLimiter derived classes should override
+  // Request(const int64_t, const Env::IOPriority, Statistics*, OpType)
+  // instead.
+  //
   // Request for token to write bytes. If this request can not be satisfied,
   // the call is blocked. Caller is responsible to make sure
   // bytes <= GetSingleBurstBytes()
   virtual void Request(const int64_t bytes, const Env::IOPriority pri) {
-    // Deprecated. New RateLimiter derived classes should override
-    // Request(const int64_t, const Env::IOPriority, Statistics*) instead.
     assert(false);
   }
 
+  // Deprecated. New RateLimiter derived classes should override
+  // Request(const int64_t, const Env::IOPriority, Statistics*, OpType)
+  // instead.
+  //
   // Request for token to write bytes and potentially update statistics. If this
   // request can not be satisfied, the call is blocked. Caller is responsible to
   // make sure bytes <= GetSingleBurstBytes().
@@ -41,6 +57,18 @@ class RateLimiter {
     // For API compatibility, default implementation calls the older API in
     // which statistics are unsupported.
     Request(bytes, pri);
+  }
+
+  // Request for token to read or write bytes and potentially update statistics.
+  // If this request can not be satisfied, the call is blocked. Caller is
+  // responsible to make sure bytes <= GetSingleBurstBytes().
+  virtual void Request(const int64_t bytes, const Env::IOPriority pri,
+                       Statistics* stats, OpType op_type) {
+    // For API compatibility, default implementation calls the older API that
+    // only supports write rate limiting.
+    if (op_type == OpType::kWrite) {
+      Request(bytes, pri, stats);
+    }
   }
 
   // Max bytes can be granted in a single burst
@@ -75,9 +103,10 @@ class RateLimiter {
 // continuously. This fairness parameter grants low-pri requests permission by
 // 1/fairness chance even though high-pri requests exist to avoid starvation.
 // You should be good by leaving it at default 10.
+// @mode: Mode indicates which types of operations count against the limit.
 extern RateLimiter* NewGenericRateLimiter(
-    int64_t rate_bytes_per_sec,
-    int64_t refill_period_us = 100 * 1000,
-    int32_t fairness = 10);
+    int64_t rate_bytes_per_sec, int64_t refill_period_us = 100 * 1000,
+    int32_t fairness = 10,
+    RateLimiter::Mode mode = RateLimiter::Mode::kWritesOnly);
 
 }  // namespace rocksdb

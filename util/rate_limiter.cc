@@ -30,7 +30,7 @@ struct GenericRateLimiter::Req {
 
 GenericRateLimiter::GenericRateLimiter(int64_t rate_bytes_per_sec,
                                        int64_t refill_period_us,
-                                       int32_t fairness)
+                                       int32_t fairness, RateLimiter::Mode mode)
     : refill_period_us_(refill_period_us),
       rate_bytes_per_sec_(rate_bytes_per_sec),
       refill_bytes_per_period_(
@@ -43,7 +43,8 @@ GenericRateLimiter::GenericRateLimiter(int64_t rate_bytes_per_sec,
       next_refill_us_(NowMicrosMonotonic(env_)),
       fairness_(fairness > 100 ? 100 : fairness),
       rnd_((uint32_t)time(nullptr)),
-      leader_(nullptr) {
+      leader_(nullptr),
+      mode_(mode) {
   total_requests_[0] = 0;
   total_requests_[1] = 0;
   total_bytes_through_[0] = 0;
@@ -76,8 +77,15 @@ void GenericRateLimiter::SetBytesPerSecond(int64_t bytes_per_second) {
 }
 
 void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
-                                 Statistics* stats) {
+                                 Statistics* stats,
+                                 RateLimiter::OpType op_type) {
   assert(bytes <= refill_bytes_per_period_.load(std::memory_order_relaxed));
+  if ((mode_ == RateLimiter::Mode::kWritesOnly &&
+       op_type == RateLimiter::OpType::kRead) ||
+      (mode_ == RateLimiter::Mode::kReadsOnly &&
+       op_type == RateLimiter::OpType::kWrite)) {
+    return;
+  }
   TEST_SYNC_POINT("GenericRateLimiter::Request");
   TEST_SYNC_POINT_CALLBACK("GenericRateLimiter::Request:1",
                            &rate_bytes_per_sec_);
@@ -241,12 +249,14 @@ int64_t GenericRateLimiter::CalculateRefillBytesPerPeriod(
 }
 
 RateLimiter* NewGenericRateLimiter(
-    int64_t rate_bytes_per_sec, int64_t refill_period_us, int32_t fairness) {
+    int64_t rate_bytes_per_sec, int64_t refill_period_us /* = 100 * 1000 */,
+    int32_t fairness /* = 10 */,
+    RateLimiter::Mode mode /* = RateLimiter::Mode::kWritesOnly */) {
   assert(rate_bytes_per_sec > 0);
   assert(refill_period_us > 0);
   assert(fairness > 0);
-  return new GenericRateLimiter(
-      rate_bytes_per_sec, refill_period_us, fairness);
+  return new GenericRateLimiter(rate_bytes_per_sec, refill_period_us, fairness,
+                                mode);
 }
 
 }  // namespace rocksdb

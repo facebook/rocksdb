@@ -333,7 +333,8 @@ size_t WritableFileWriter::RequestToken(size_t bytes, bool align) {
       size_t alignment = buf_.Alignment();
       bytes = std::max(alignment, TruncateToPageBoundary(alignment, bytes));
     }
-    rate_limiter_->Request(bytes, io_priority, stats_);
+    rate_limiter_->Request(bytes, io_priority, stats_,
+                           RateLimiter::OpType::kWrite);
   }
   return bytes;
 }

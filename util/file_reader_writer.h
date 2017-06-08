@@ -13,6 +13,7 @@
 #include <string>
 #include "port/port.h"
 #include "rocksdb/env.h"
+#include "rocksdb/rate_limiter.h"
 #include "util/aligned_buffer.h"
 
 namespace rocksdb {
