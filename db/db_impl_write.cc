@@ -409,18 +409,15 @@ Status DBImpl::WriteImpl2PC(const WriteOptions& write_options,
                             WriteBatch* my_batch, WriteCallback* callback,
                             uint64_t* log_used, uint64_t log_ref,
                             bool disable_memtable) {
+  Status status;
   // The current implementation does not support sync with concurrenet writes
-  assert(!concurrent_writes_ || !write_options.sync);
+  assert(!write_options.sync);
   if (concurrent_writes_ && write_options.sync) {
     return Status::NotSupported();
   }
-
-  Status status;
-  if (write_options.low_pri) {
-    status = ThrottleLowPriWritesIfNeeded(write_options, my_batch);
-    if (!status.ok()) {
-      return status;
-    }
+  WriteThread* write_thread = &write_thread_;
+  if (disable_memtable) {
+    write_thread = &nonmem_write_thread_;
   }
 
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
@@ -433,7 +430,7 @@ Status DBImpl::WriteImpl2PC(const WriteOptions& write_options,
 
   StopWatch write_sw(env_, immutable_db_options_.statistics.get(), DB_WRITE);
 
-  write_thread_.JoinBatchGroup(&w);
+  write_thread->JoinBatchGroup(&w);
   if (w.state == WriteThread::STATE_PARALLEL_MEMTABLE_WRITER) {
     // we are a non-leader in a parallel group
     PERF_TIMER_GUARD(write_memtable_time);
@@ -447,14 +444,14 @@ Status DBImpl::WriteImpl2PC(const WriteOptions& write_options,
           true /*concurrent_memtable_writes*/);
     }
 
-    if (write_thread_.CompleteParallelMemTableWriter(&w)) {
+    if (write_thread->CompleteParallelMemTableWriter(&w)) {
       // we're responsible for exit batch group
       auto last_sequence = w.write_group->last_sequence;
       if (!disable_memtable) {
         versions_->SetLastSequence(last_sequence);
       }
       MemTableInsertStatusCheck(w.status);
-      write_thread_.ExitAsBatchGroupFollower(&w);
+      write_thread->ExitAsBatchGroupFollower(&w);
     }
     assert(w.state == WriteThread::STATE_COMPLETED);
     // STATE_COMPLETED conditional below handles exit
@@ -496,7 +493,7 @@ Status DBImpl::WriteImpl2PC(const WriteOptions& write_options,
   // into memtables
 
   last_batch_group_size_ =
-      write_thread_.EnterAsBatchGroupLeader(&w, &write_group);
+      write_thread->EnterAsBatchGroupLeader(&w, &write_group);
 
   if (status.ok()) {
     // Rules for when we can update the memtable concurrently
@@ -586,7 +583,7 @@ Status DBImpl::WriteImpl2PC(const WriteOptions& write_options,
         write_group.last_sequence = last_sequence;
         write_group.running.store(static_cast<uint32_t>(write_group.size),
                                   std::memory_order_relaxed);
-        write_thread_.LaunchParallelMemTableWriters(&write_group);
+        write_thread->LaunchParallelMemTableWriters(&write_group);
         in_parallel_group = true;
 
         // Each parallel follower is doing each own writes. The leader should
@@ -619,14 +616,14 @@ Status DBImpl::WriteImpl2PC(const WriteOptions& write_options,
   if (in_parallel_group) {
     // CompleteParallelWorker returns true if this thread should
     // handle exit, false means somebody else did
-    should_exit_batch_group = write_thread_.CompleteParallelMemTableWriter(&w);
+    should_exit_batch_group = write_thread->CompleteParallelMemTableWriter(&w);
   }
   if (should_exit_batch_group) {
     if (status.ok() && !disable_memtable) {
       versions_->SetLastSequence(last_sequence);
     }
     MemTableInsertStatusCheck(w.status);
-    write_thread_.ExitAsBatchGroupLeader(write_group, w.status);
+    write_thread->ExitAsBatchGroupLeader(write_group, w.status);
   }
 
   if (status.ok()) {
@@ -789,7 +786,7 @@ Status DBImpl::WriteToWAL(const WriteThread::WriteGroup& write_group,
   WriteBatchInternal::SetSequence(merged_batch, sequence);
 
   uint64_t log_size;
-  WriteToWAL(*merged_batch, log_used, &log_size);
+  status = WriteToWAL(*merged_batch, log_used, &log_size);
 
   if (status.ok() && need_log_sync) {
     StopWatch sw(env_, stats_, WAL_FILE_SYNC_MICROS);
@@ -848,7 +845,7 @@ Status DBImpl::ConcurrentWriteToWAL(const WriteThread::WriteGroup& write_group,
   WriteBatchInternal::SetSequence(merged_batch, sequence);
 
   uint64_t log_size;
-  WriteToWAL(*merged_batch, log_used, &log_size);
+  status = WriteToWAL(*merged_batch, log_used, &log_size);
   log_write_mutex_.Unlock();
 
   if (status.ok()) {

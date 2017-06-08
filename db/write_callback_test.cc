@@ -298,6 +298,7 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
     }
   }
 }
+}
 
 TEST_F(WriteCallbackTest, WriteCallBackTest) {
   Options options;
