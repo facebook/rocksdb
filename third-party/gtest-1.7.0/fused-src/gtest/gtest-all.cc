@@ -673,7 +673,7 @@ GTEST_API_ bool ShouldShard(const char* total_shards_str,
 
 // Parses the environment variable var as an Int32. If it is unset,
 // returns default_val. If it is not an Int32, prints an error and
-// and aborts.
+// aborts.
 GTEST_API_ Int32 Int32FromEnvOrDie(const char* env_var, Int32 default_val);
 
 // Given the total number of shards, the shard index, and the test id,

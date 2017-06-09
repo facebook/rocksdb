@@ -76,7 +76,7 @@ quasardb uses a heavily tuned RocksDB as its persistence layer.
 [Dgraph](https://github.com/dgraph-io/dgraph) is an open-source, scalable, distributed, low latency, high throughput Graph database .They use RocksDB to store state locally on a machine.
 
 ## Uber
-[Uber](http://eng.uber.com/cherami/) uses RocksDB as a durable and and scalable task queue.
+[Uber](http://eng.uber.com/cherami/) uses RocksDB as a durable and scalable task queue.
 
 ## 360 Pika
 [360](http://www.360.cn/) [Pika](https://github.com/Qihoo360/pika) is a nosql compatible with redis. With the huge amount of data stored, redis may suffer for a capacity bottleneck, and pika was born for solving it. It has widely been widely used in many company
