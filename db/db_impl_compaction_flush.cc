@@ -1730,7 +1730,7 @@ bool DBImpl::HaveManualCompaction(ColumnFamilyData* cfd) {
     }
     if ((cfd == (*it)->cfd) && (!((*it)->in_progress || (*it)->done))) {
       // Allow automatic compaction if manual compaction is
-      // is in progress
+      // in progress
       return true;
     }
     it++;
