@@ -27,7 +27,7 @@
 * New option enable_pipelined_write which may improve write throughput in case writing from multiple threads and WAL enabled.
 
 ### Bug Fixes
-* Fix the bug that Direct I/O use direct reads for non-SST file
+* Fix the bug that Direct I/O uses direct reads for non-SST file
 
 ## 5.4.0 (04/11/2017)
 ### Public API Change
