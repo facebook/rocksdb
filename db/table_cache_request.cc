@@ -252,8 +252,140 @@ Status TableCacheFindTableContext::OnComplete(const Status& status) {
     status.ToString().c_str());
 
   return status;
-
 }
+
+//////////////////////////////////////////////////////////////////////////
+// TableCacheGetPropertiesContext
+//
+
+Status TableCacheGetPropertiesContext::GetProps(TableCache* table_cache,
+    const EnvOptions& env_options,
+    const InternalKeyComparator& internal_comparator, const FileDescriptor& fd,
+    std::shared_ptr<const TableProperties>* properties, bool no_io) {
+
+  assert(properties);
+  Status s = GetFromDescriptor(fd, properties);
+  if (s.IsNotFound()) {
+    Cache::Handle* table_reader_handle = nullptr;
+    s = TableCacheFindTableHelper::LookupCache(fd, table_cache->GetCache(),
+        &table_reader_handle, no_io);
+
+    if (s.ok()) {
+      GetPropertiesFromCacheHandle(table_cache, table_reader_handle, properties);
+    } else if (s.IsNotFound()) {
+      Callback empty_cb;
+      TableCacheGetPropertiesContext context(empty_cb, table_cache,
+           table_cache->GetIOptions(), fd.GetNumber(), table_cache->GetCache());
+
+      TableCacheFindTableHelper::Callback empty_helper_cb;
+      std::unique_ptr<TableReader> table_reader;
+      s = context.ft_helper_.GetReader(empty_helper_cb,
+        table_cache->GetEnvOptions(),
+        internal_comparator, fd, &table_reader, true /* record_stats */,
+        nullptr /* file_read_hist */, false /* skip_filters */,
+        -1 /* level */,
+        true /* prefetch_index_and_filter_in_cache */);
+
+      s = context.OnFindReaderComplete(s, std::move(table_reader));
+
+      if (s.ok()) {
+        *properties = context.GetProperties();
+      }
+    }
+  }
+  return s;
+}
+
+Status TableCacheGetPropertiesContext::RequestGetProps(const Callback& cb,
+    TableCache* table_cache, const EnvOptions& env_options,
+    const InternalKeyComparator& internal_comparator, const FileDescriptor& fd,
+    std::shared_ptr<const TableProperties>* properties, bool no_io) {
+
+  assert(properties);
+  Status s = GetFromDescriptor(fd, properties);
+  if (s.IsNotFound()) {
+
+    Cache::Handle* table_reader_handle = nullptr;
+    s = TableCacheFindTableHelper::LookupCache(fd, table_cache->GetCache(),
+      &table_reader_handle, no_io);
+
+    if (s.ok()) {
+      GetPropertiesFromCacheHandle(table_cache, table_reader_handle, properties);
+    } else if (s.IsNotFound()) {
+
+      std::unique_ptr<TableCacheGetPropertiesContext> context(
+        new TableCacheGetPropertiesContext(cb, table_cache,
+               table_cache->GetIOptions(), fd.GetNumber(), table_cache->GetCache()));
+
+      CallableFactory<TableCacheGetPropertiesContext, Status, const Status&,
+                      std::unique_ptr<TableReader>&&> f(context.get());
+      auto helper_cb =
+        f.GetCallable<&TableCacheGetPropertiesContext::OnFindReaderComplete>();
+
+      std::unique_ptr<TableReader> table_reader;
+      s = context->ft_helper_.GetReader(helper_cb,
+        table_cache->GetEnvOptions(),
+        internal_comparator, fd, &table_reader, true /* record_stats */,
+        nullptr /* file_read_hist */, false /* skip_filters */,
+        -1 /* level */,
+        true /* prefetch_index_and_filter_in_cache */);
+
+      if (s.IsIOPending()) {
+        context.release();
+      } else {
+        s = context->OnFindReaderComplete(s, std::move(table_reader));
+        if (s.ok()) {
+          *properties = context->GetProperties();
+        }
+      }
+    }
+  }
+  return s;
+}
+
+
+Status TableCacheGetPropertiesContext::OnFindReaderComplete(const Status& status,
+  std::unique_ptr<TableReader>&& table_reader) {
+  async(status);
+
+  Cache::Handle* table_handle = nullptr;
+  std::unique_ptr<TableReader> t(std::move(table_reader));
+  Status s = ft_helper_.OnGetReaderComplete(status, &table_handle, t);
+
+  if (s.ok()) {
+    GetPropertiesFromCacheHandle(table_cache_, table_handle, &props_);
+  }
+
+  s.async(async());
+  return OnComplete(s);
+}
+
+Status TableCacheGetPropertiesContext::OnComplete(const Status& status) {
+
+  if (cb_ && async()) {
+    ROCKS_LOG_DEBUG(
+      ft_helper_.GetIOptions().info_log,
+      "TableCacheGetPropertiesContext async completion: %s",
+      status.ToString().c_str());
+
+    Status s(status);
+    s.async(true);
+
+    cb_.Invoke(s, std::move(props_));
+
+    delete this;
+    return s;
+  }
+
+  ROCKS_LOG_DEBUG(
+    ft_helper_.GetIOptions().info_log,
+    "TableCacheGetPropertiesContext sync completion: %s",
+    status.ToString().c_str());
+
+  return status;
+}
+
+
 //////////////////////////////////////////////////////////////////////////
 /// TableCacheGetContext
 

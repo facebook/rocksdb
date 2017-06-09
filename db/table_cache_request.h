@@ -226,6 +226,78 @@ private:
   Cache::Handle*            handle_;
 };
 
+class TableCacheGetPropertiesContext : protected AsyncStatusCapture {
+public:
+
+  using
+  Callback = Callable<Status, const Status&, std::shared_ptr<const TableProperties>&&>;
+
+  TableCacheGetPropertiesContext(const TableCacheGetPropertiesContext&) = delete;
+  TableCacheGetPropertiesContext& operator=(const
+      TableCacheGetPropertiesContext&) = delete;
+
+  static Status GetProps(TableCache* table_cache,
+    const EnvOptions& env_options,
+    const InternalKeyComparator& internal_comparator, const FileDescriptor& fd,
+    std::shared_ptr<const TableProperties>* properties, bool no_io);
+
+  static Status RequestGetProps(const Callback& cb,
+    TableCache* table_cache,
+    const EnvOptions& env_options,
+    const InternalKeyComparator& internal_comparator, const FileDescriptor& fd,
+    std::shared_ptr<const TableProperties>* properties, bool no_io);
+
+  std::shared_ptr<const TableProperties> GetProperties() {
+    auto result(std::move(props_));
+    return result;
+  }
+
+private:
+
+  TableCacheGetPropertiesContext(const Callback& cb,
+    TableCache* table_cache,
+    const ImmutableCFOptions& ioptions, uint64_t fileno, Cache* cache) :
+    cb_(cb), table_cache_(table_cache),
+    ft_helper_(ioptions, fileno, cache),
+    props_() {
+  }
+
+  static Status GetFromDescriptor(const FileDescriptor& fd,
+    std::shared_ptr<const TableProperties>* properties) {
+
+    assert(properties);
+    Status s;
+    auto table_reader = fd.table_reader;
+    // table already been pre-loaded?
+    if (table_reader) {
+      *properties = table_reader->GetTableProperties();
+      return s;
+    }
+    return Status::NotFound();
+  }
+
+  static void GetPropertiesFromCacheHandle(TableCache* table_cache,
+    Cache::Handle* table_reader_handle,
+    std::shared_ptr<const TableProperties>* properties) {
+    assert(table_reader_handle);
+    auto table = table_cache->GetTableReaderFromHandle(table_reader_handle);
+    assert(table);
+    *properties = table->GetTableProperties();
+    table_cache->ReleaseHandle(table_reader_handle);
+  }
+
+  Status OnFindReaderComplete(const Status& status,
+    std::unique_ptr<TableReader>&& table_reader);
+
+  Status OnComplete(const Status&);
+
+  Callback                               cb_;
+  TableCache*                            table_cache_;
+  TableCacheFindTableHelper              ft_helper_;
+  // Result to pass to the callback
+  std::shared_ptr<const TableProperties> props_;
+};
+
 // This class facilitates asynchronous get using TableCache
 // and the underlying TableReader
 // In the process the context will attempt to Find/or if not

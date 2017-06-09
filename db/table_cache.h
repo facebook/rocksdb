@@ -111,10 +111,18 @@ class TableCache {
   //            return Status::Incomplete() if table is not present in cache and
   //            we set `no_io` to be true.
   Status GetTableProperties(const EnvOptions& env_options,
-                            const InternalKeyComparator& internal_comparator,
-                            const FileDescriptor& file_meta,
-                            std::shared_ptr<const TableProperties>* properties,
-                            bool no_io = false);
+      const InternalKeyComparator& internal_comparator,
+      const FileDescriptor& file_meta,
+      std::shared_ptr<const TableProperties>* properties,
+      bool no_io = false);
+
+  Status GetTableProperties(async::Callable<Status,const Status&,
+      std::shared_ptr<const TableProperties>&&>& cb,
+      const EnvOptions& env_options,
+      const InternalKeyComparator& internal_comparator,
+      const FileDescriptor& file_meta,
+      std::shared_ptr<const TableProperties>* properties,
+      bool no_io = false);
 
   // Return total memory usage of the table reader of the file.
   // 0 if table reader of the file is not loaded.

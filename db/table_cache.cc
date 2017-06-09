@@ -234,26 +234,22 @@ Status TableCache::GetTableProperties(
     const EnvOptions& env_options,
     const InternalKeyComparator& internal_comparator, const FileDescriptor& fd,
     std::shared_ptr<const TableProperties>* properties, bool no_io) {
-  Status s;
-  auto table_reader = fd.table_reader;
-  // table already been pre-loaded?
-  if (table_reader) {
-    *properties = table_reader->GetTableProperties();
 
-    return s;
-  }
-
-  Cache::Handle* table_handle = nullptr;
-  s = FindTable(env_options, internal_comparator, fd, &table_handle, no_io);
-  if (!s.ok()) {
-    return s;
-  }
-  assert(table_handle);
-  auto table = GetTableReaderFromHandle(table_handle);
-  *properties = table->GetTableProperties();
-  ReleaseHandle(table_handle);
-  return s;
+  return async::TableCacheGetPropertiesContext::GetProps(this, env_options,
+    internal_comparator, fd, properties, no_io);
 }
+
+Status TableCache::GetTableProperties(async::Callable<Status, const Status&,
+  std::shared_ptr<const TableProperties>&&>& cb,
+  const EnvOptions& env_options,
+  const InternalKeyComparator& internal_comparator,
+  const FileDescriptor& fd,
+  std::shared_ptr<const TableProperties>* properties,
+  bool no_io) {
+  return async::TableCacheGetPropertiesContext::RequestGetProps(cb, this, env_options,
+    internal_comparator, fd, properties, no_io);
+}
+
 
 size_t TableCache::GetMemoryUsageByTableReader(
     const EnvOptions& env_options,
