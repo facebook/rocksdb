@@ -378,7 +378,7 @@ class TestMemLogger : public Logger {
       struct timeval now_tv;
       gettimeofday(&now_tv, nullptr);
       const time_t seconds = now_tv.tv_sec;
-      struct tm t;
+      struct tm t{0, 0, 0, 0, 0, 0, 0, 0, 0};
       auto ret __attribute__((__unused__)) = localtime_r(&seconds, &t);
       assert(ret);
       p += snprintf(p, limit - p,
