@@ -38,7 +38,7 @@ class GenericRateLimiter : public RateLimiter {
   // bytes <= GetSingleBurstBytes()
   using RateLimiter::Request;
   virtual void Request(const int64_t bytes, const Env::IOPriority pri,
-                       Statistics* stats, OpType op_type) override;
+                       Statistics* stats) override;
 
   virtual int64_t GetSingleBurstBytes() const override {
     return refill_bytes_per_period_.load(std::memory_order_relaxed);
@@ -100,7 +100,6 @@ class GenericRateLimiter : public RateLimiter {
 
   struct Req;
   Req* leader_;
-  RateLimiter::Mode mode_;
   std::deque<Req*> queue_[Env::IO_TOTAL];
 };
 

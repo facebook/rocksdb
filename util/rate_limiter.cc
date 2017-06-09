@@ -31,7 +31,8 @@ struct GenericRateLimiter::Req {
 GenericRateLimiter::GenericRateLimiter(int64_t rate_bytes_per_sec,
                                        int64_t refill_period_us,
                                        int32_t fairness, RateLimiter::Mode mode)
-    : refill_period_us_(refill_period_us),
+    : RateLimiter(mode),
+      refill_period_us_(refill_period_us),
       rate_bytes_per_sec_(rate_bytes_per_sec),
       refill_bytes_per_period_(
           CalculateRefillBytesPerPeriod(rate_bytes_per_sec)),
@@ -43,8 +44,7 @@ GenericRateLimiter::GenericRateLimiter(int64_t rate_bytes_per_sec,
       next_refill_us_(NowMicrosMonotonic(env_)),
       fairness_(fairness > 100 ? 100 : fairness),
       rnd_((uint32_t)time(nullptr)),
-      leader_(nullptr),
-      mode_(mode) {
+      leader_(nullptr) {
   total_requests_[0] = 0;
   total_requests_[1] = 0;
   total_bytes_through_[0] = 0;
@@ -77,15 +77,8 @@ void GenericRateLimiter::SetBytesPerSecond(int64_t bytes_per_second) {
 }
 
 void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
-                                 Statistics* stats,
-                                 RateLimiter::OpType op_type) {
+                                 Statistics* stats) {
   assert(bytes <= refill_bytes_per_period_.load(std::memory_order_relaxed));
-  if ((mode_ == RateLimiter::Mode::kWritesOnly &&
-       op_type == RateLimiter::OpType::kRead) ||
-      (mode_ == RateLimiter::Mode::kReadsOnly &&
-       op_type == RateLimiter::OpType::kWrite)) {
-    return;
-  }
   TEST_SYNC_POINT("GenericRateLimiter::Request");
   TEST_SYNC_POINT_CALLBACK("GenericRateLimiter::Request:1",
                            &rate_bytes_per_sec_);
