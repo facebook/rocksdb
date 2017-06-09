@@ -2162,13 +2162,87 @@ Status NewDataBlockIteratorHelper::OnCreateComplete(const Status& status) {
   return s;
 }
 
-void NewDataBlockIteratorHelper::StatusToIterator(const Status& status) {
+////////////////////////////////////////////////////////////////////////////
+//// NewDataBlockIteratorContext
+/// 
 
-  if (input_iter_ != nullptr) {
-    input_iter_->SetStatus(status);
-  } else {
-    new_iterator_.reset(NewErrorInternalIterator(status));
+Status NewDataBlockIteratorContext::Create(BlockBasedTable::Rep* rep, 
+  const ReadOptions& ro, const BlockHandle& block_handle,
+  InternalIterator** internal_iterator,
+  BlockIter* input_iter, bool is_index) {
+
+  assert(internal_iterator);
+  *internal_iterator = nullptr;
+
+  Callback empty_cb;
+  NewDataBlockIteratorContext context(empty_cb, rep, ro, is_index);
+
+  NewDataBlockIteratorHelper::ReadDataBlockCallback empty_readblock_cb;
+  Status s = context.biter_helper_.Create(empty_readblock_cb, block_handle, input_iter);
+  s = context.OnBlockReadComplete(s);
+  if (s.ok()) {
+    *internal_iterator = context.GetResult();
   }
+  return s;
+}
+
+Status NewDataBlockIteratorContext::RequestCreate(const Callback& cb,
+    BlockBasedTable::Rep* rep, const ReadOptions& ro,
+    const BlockHandle& block_handle, InternalIterator** internal_iterator,
+    BlockIter* input_iter, bool is_index) {
+
+  assert(cb);
+  assert(internal_iterator);
+  *internal_iterator = nullptr;
+
+  std::unique_ptr<NewDataBlockIteratorContext> context (new 
+    NewDataBlockIteratorContext(cb, rep, ro, is_index));
+
+  CallableFactory<NewDataBlockIteratorContext, Status, const Status&> f(context.get());
+  auto readblock_cb = f.GetCallable<&NewDataBlockIteratorContext::OnBlockReadComplete>();
+
+  Status s = context->biter_helper_.Create(readblock_cb, block_handle, input_iter);
+
+  if (s.IsIOPending()) {
+    context.release();
+  } else {
+    s = context->OnBlockReadComplete(s);
+    if (s.ok()) {
+      *internal_iterator = context->GetResult();
+    }
+  }
+  return s;
+}
+
+inline
+Status NewDataBlockIteratorContext::OnBlockReadComplete(const Status& status) {
+  async(status);
+
+  Status s = biter_helper_.OnCreateComplete(status);
+
+  s.async(async());
+  return OnComplete(s);
+}
+
+Status NewDataBlockIteratorContext::OnComplete(const Status& status) {
+
+  if (cb_ && async()) {
+    ROCKS_LOG_DEBUG(
+      biter_helper_.GetTableRep()->ioptions.info_log,
+      "NewDataBlockIteratorContext async completion: %s",
+      status.ToString().c_str());
+
+    auto result = biter_helper_.GetResult();
+    cb_.Invoke(status, result);
+    delete this;
+    return status;
+  }
+
+  ROCKS_LOG_DEBUG(
+    biter_helper_.GetTableRep()->ioptions.info_log,
+    "NewDataBlockIteratorContext sync completion: %s",
+    status.ToString().c_str());
+  return status;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

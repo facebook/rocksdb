@@ -781,9 +781,14 @@ public:
     return input_iter_;
   }
 
-  void StatusToIterator(BlockIter* input_iter, const Status& s) {
-    input_iter_ = input_iter;
-    StatusToIterator(s);
+  static InternalIterator* StatusToIterator(BlockIter* input_iter,
+      const Status& status) {
+    if (input_iter) {
+      input_iter->SetStatus(status);
+      return input_iter;
+    } else {
+      return NewErrorInternalIterator(status);
+    }
   }
 
   BlockBasedTable::Rep* GetTableRep() {
@@ -810,7 +815,12 @@ private:
     aDirectRead = 3
   }; 
 
-  void StatusToIterator(const Status& s);
+  void StatusToIterator(const Status& status) {
+    auto iter = StatusToIterator(input_iter_, status);
+    if (input_iter_ != iter) {
+      new_iterator_.reset(iter);
+    }
+  }
 
   // Reset for repeated use
   void Reset() {
@@ -835,6 +845,48 @@ private:
   BlockContents                          block_cont_;
   BlockBasedTable::CachableEntry<Block>  entry_;
   std::unique_ptr<InternalIterator>      new_iterator_;
+};
+
+class NewDataBlockIteratorContext : protected AsyncStatusCapture {
+public:
+
+  using
+  Callback = Callable<Status, const Status&, InternalIterator*>;
+
+  NewDataBlockIteratorContext(const NewDataBlockIteratorContext&) = delete;
+  NewDataBlockIteratorContext& operator=(const NewDataBlockIteratorContext&) =
+  delete;
+
+  static Status Create(BlockBasedTable::Rep* rep, const ReadOptions& ro,
+    const BlockHandle& block_hanlde,
+    InternalIterator** internal_iterator,
+    BlockIter* input_iter = nullptr,
+    bool is_index = false);
+
+  static Status RequestCreate(const Callback& cb, BlockBasedTable::Rep* rep,
+    const ReadOptions& ro,
+    const BlockHandle& block_hanlde,
+    InternalIterator** internal_iterator,
+    BlockIter* input_iter = nullptr,
+    bool is_index = false);
+
+  InternalIterator* GetResult() {
+    return biter_helper_.GetResult();
+  }
+
+private:
+
+  NewDataBlockIteratorContext(const Callback& cb, BlockBasedTable::Rep* rep,
+      const ReadOptions& ro,
+      bool is_index) : cb_(cb), biter_helper_(rep, ro, is_index)
+  {}
+
+  Status OnBlockReadComplete(const Status&);
+
+  Status OnComplete(const Status&);
+
+  Callback                   cb_;
+  NewDataBlockIteratorHelper biter_helper_;
 };
 
 class NewRangeTombstoneIterContext : protected AsyncStatusCapture {

@@ -832,21 +832,23 @@ InternalIterator* BlockBasedTable::NewDataBlockIterator(
     BlockIter* input_iter, bool is_index, Status s) {
 
   using namespace async;
-  NewDataBlockIteratorHelper helper(rep, ro, is_index);
+
   if (!s.ok()) {
-    helper.StatusToIterator(input_iter, s);
-    return helper.GetResult();
+    return NewDataBlockIteratorHelper::StatusToIterator(input_iter, s);
   }
 
-  NewDataBlockIteratorHelper::ReadDataBlockCallback empty_cb;
-  s = helper.Create(empty_cb, handle, input_iter);
+  InternalIterator* result = nullptr;
+  async::NewDataBlockIteratorContext::Create(rep, ro, handle, &result, input_iter, is_index);
+  return result;
+}
 
-  assert(!s.IsIOPending());
+Status rocksdb::BlockBasedTable::NewDataBlockIterator(const
+    async::Callable<Status, const Status&, InternalIterator*>& cb, Rep* rep,
+    const ReadOptions& ro, const BlockHandle& block_handle, InternalIterator** internal_iterator,
+    BlockIter* input_iter, bool is_index) {
 
-  helper.OnCreateComplete(s);
-
-  // Status is returned via iterator
-  return helper.GetResult();
+  return async::NewDataBlockIteratorContext::RequestCreate(cb, rep, ro,
+         block_handle, internal_iterator, input_iter, is_index);
 }
 
 Status BlockBasedTable::MaybeLoadDataBlockToCache(

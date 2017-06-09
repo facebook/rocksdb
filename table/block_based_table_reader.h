@@ -59,6 +59,7 @@ class BlockBasedGetContext;
 class CreateIndexReaderContext;
 class GetFilterHelper;
 class MaybeLoadDataBlockToCacheHelper;
+class NewDataBlockIteratorContext;
 class NewDataBlockIteratorHelper;
 class NewIndexIteratorContext;
 class NewRangeTombstoneIterContext;
@@ -225,6 +226,7 @@ class BlockBasedTable : public TableReader {
   friend class async::TableOpenRequestContext;
   friend class async::TableReadMetaBlocksContext;
   friend class async::MaybeLoadDataBlockToCacheHelper;
+  friend class async::NewDataBlockIteratorContext;
   friend class async::NewDataBlockIteratorHelper;
   friend class async::NewIndexIteratorContext;
   friend class async::NewRangeTombstoneIterContext;
@@ -251,6 +253,15 @@ class BlockBasedTable : public TableReader {
                                                 BlockIter* input_iter = nullptr,
                                                 bool is_index = false,
                                                 Status s = Status());
+
+  static Status NewDataBlockIterator(
+    const async::Callable<Status, const Status&, InternalIterator*>& cb,
+    Rep* rep, const ReadOptions& ro,
+    const BlockHandle& block_hanlde,
+    InternalIterator** internal_iterator,
+    BlockIter* input_iter = nullptr,
+    bool is_index = false);
+
   // If block cache enabled (compressed or uncompressed), looks for the block
   // identified by handle in (1) uncompressed cache, (2) compressed cache, and
   // then (3) file. If found, inserts into the cache(s) that were searched
