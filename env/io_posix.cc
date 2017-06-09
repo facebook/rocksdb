@@ -800,10 +800,11 @@ Status PosixWritableFile::Close() {
     // While we work with Travis-CI team to figure out if this is a
     // quirk of Docker/AUFS, we will comment this out.
     struct stat file_stats;
-    fstat(fd_, &file_stats);
+    int result = fstat(fd_, &file_stats);
     // After ftruncate, we check whether ftruncate has the correct behavior.
     // If not, we should hack it with FALLOC_FL_PUNCH_HOLE
-    if ((file_stats.st_size + file_stats.st_blksize - 1) /
+    if (result == 0 &&
+        (file_stats.st_size + file_stats.st_blksize - 1) /
             file_stats.st_blksize !=
         file_stats.st_blocks / (file_stats.st_blksize / 512)) {
       IOSTATS_TIMER_GUARD(allocate_nanos);
