@@ -88,6 +88,9 @@ private:
   StopWatch sw_;
 };
 
+// This is a helper class that can be used
+// as a part of other async contexts to implement sync/async
+// FindTable functionality
 class TableCacheFindTableHelper {
 public:
 
@@ -163,6 +166,64 @@ public:
   TableCacheGetReaderHelper gr_helper_;
   uint64_t                  file_number_;
   Cache*                    cache_;
+};
+
+// This class looks up a table in the cache and if not in the
+// cache creates and caches it. It returns a Cache::Handle which
+// the client must convert to a TableReader pointer and when done
+// the cache handle must be released.
+// This class completly relies on the above TableCacheFindTableHelper
+// functionality but async public API FindTable require a context of its own
+class TableCacheFindTableContext : protected AsyncStatusCapture {
+public:
+
+  using
+  Callback = Callable<Status, const Status&, Cache::Handle*>;
+
+  TableCacheFindTableContext(const TableCacheFindTableContext&) = delete;
+  TableCacheFindTableContext& operator=(const TableCacheFindTableContext&) =
+    delete;
+
+  static Status Find(TableCache* table_cache,
+                     const EnvOptions& env_options,
+                     const InternalKeyComparator& internal_comparator,
+                     const FileDescriptor& file_fd, Cache::Handle** handle,
+                     const bool no_io = false, bool record_read_stats = true,
+                     HistogramImpl* file_read_hist = nullptr,
+                     bool skip_filters = false, int level = -1,
+                     bool prefetch_index_and_filter_in_cache = true);
+
+  static Status RequestFind(const Callback& cb, 
+                            TableCache* table_cache,
+                            const EnvOptions& env_options,
+                            const InternalKeyComparator& internal_comparator,
+                            const FileDescriptor& file_fd, Cache::Handle** handle,
+                            const bool no_io = false, bool record_read_stats = true,
+                            HistogramImpl* file_read_hist = nullptr,
+                            bool skip_filters = false, int level = -1,
+                            bool prefetch_index_and_filter_in_cache = true);
+
+    Cache::Handle* GetHandle() {
+      Cache::Handle* result = handle_;
+      handle_ = nullptr;
+      return result;
+   }
+
+private:
+
+  Status OnFindReaderComplete(const Status&, std::unique_ptr<TableReader>&&);
+
+  Status OnComplete(const Status&);
+
+  TableCacheFindTableContext(const Callback& cb,
+    const ImmutableCFOptions& ioptions, uint64_t fileno, Cache* cache) :
+    cb_(cb), ft_helper_(ioptions, fileno, cache),
+    handle_(nullptr) {
+  }
+
+  Callback                  cb_;
+  TableCacheFindTableHelper ft_helper_;
+  Cache::Handle*            handle_;
 };
 
 // This class facilitates asynchronous get using TableCache

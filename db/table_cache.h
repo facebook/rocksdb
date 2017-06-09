@@ -83,12 +83,23 @@ class TableCache {
   // @param skip_filters Disables loading/accessing the filter block
   // @param level == -1 means not specified
   Status FindTable(const EnvOptions& env_options,
-                   const InternalKeyComparator& internal_comparator,
-                   const FileDescriptor& file_fd, Cache::Handle** handle,
-                   const bool no_io = false, bool record_read_stats = true,
-                   HistogramImpl* file_read_hist = nullptr,
-                   bool skip_filters = false, int level = -1,
-                   bool prefetch_index_and_filter_in_cache = true);
+        const InternalKeyComparator& internal_comparator,
+        const FileDescriptor& file_fd, Cache::Handle** handle,
+        const bool no_io = false, bool record_read_stats = true,
+        HistogramImpl* file_read_hist = nullptr,
+        bool skip_filters = false, int level = -1,
+        bool prefetch_index_and_filter_in_cache = true);
+
+  Status FindTable(const async::Callable
+      <Status, const Status&, Cache::Handle*>& cb,
+      const EnvOptions& env_options,
+      const InternalKeyComparator& internal_comparator,
+      const FileDescriptor& file_fd, Cache::Handle** handle,
+      const bool no_io = false, bool record_read_stats = true,
+      HistogramImpl* file_read_hist = nullptr,
+      bool skip_filters = false, int level = -1,
+      bool prefetch_index_and_filter_in_cache = true);
+
 
   // Get TableReader from a cache handle.
   TableReader* GetTableReaderFromHandle(Cache::Handle* handle) const;

@@ -108,23 +108,23 @@ Status TableCache::FindTable(
   int level,
   bool prefetch_index_and_filter_in_cache) {
 
-  using namespace async;
+  return async::TableCacheFindTableContext::Find(this, env_options,
+         internal_comparator, fd, handle,
+         no_io, record_read_stats, file_read_hist, skip_filters,
+         level, prefetch_index_and_filter_in_cache);
+}
 
-  Status s = TableCacheFindTableHelper::LookupCache(fd, cache_, handle, no_io);
-
-  // Lookup returns Incomplete if no_io is true
-  if (s.IsNotFound()) {
-    std::unique_ptr<TableReader> table_reader;
-    TableCacheGetReaderHelper::Callback empty_cb;
-    TableCacheFindTableHelper find_helper(ioptions_, fd.GetNumber(), cache_);
-    s = find_helper.GetReader(empty_cb, env_options, internal_comparator, fd,
-      &table_reader, record_read_stats, file_read_hist, skip_filters, level,
-      prefetch_index_and_filter_in_cache);
-
-    s = find_helper.OnGetReaderComplete(s, handle, table_reader);
-  }
-
-  return s;
+Status TableCache::FindTable(
+  const async::Callable<Status, const Status&, Cache::Handle*>& cb,
+  const EnvOptions & env_options,
+  const InternalKeyComparator & internal_comparator,
+  const FileDescriptor & file_fd, Cache::Handle ** handle, const bool no_io,
+  bool record_read_stats, HistogramImpl * file_read_hist, bool skip_filters,
+  int level, bool prefetch_index_and_filter_in_cache) {
+  return async::TableCacheFindTableContext::RequestFind(cb, this, env_options,
+         internal_comparator, file_fd, handle,
+         no_io, record_read_stats, file_read_hist, skip_filters,
+         level, prefetch_index_and_filter_in_cache);
 }
 
 InternalIterator* TableCache::NewIterator(

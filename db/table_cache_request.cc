@@ -140,6 +140,120 @@ Status TableCacheFindTableHelper::OnGetReaderComplete(const Status& status,
   return s;
 }
 
+//////////////////////////////////////////////////////////////////////////////
+/// TableCacheFindTableContext
+
+Status TableCacheFindTableContext::Find(TableCache* table_cache,
+                                        const EnvOptions& env_options,
+                                        const InternalKeyComparator& internal_comparator,
+                                        const FileDescriptor& file_fd, Cache::Handle** handle, const bool no_io,
+                                        bool record_read_stats, HistogramImpl* file_read_hist, bool skip_filters,
+                                        int level, bool prefetch_index_and_filter_in_cache) {
+
+  assert(handle != nullptr);
+  *handle = nullptr;
+
+  Status s = TableCacheFindTableHelper::LookupCache(file_fd,
+             table_cache->GetCache(), handle, no_io);
+
+  if (s.IsNotFound()) {
+    Callback empty_cb;
+    TableCacheFindTableContext context(empty_cb, table_cache->GetIOptions(),
+                                       file_fd.GetNumber(), table_cache->GetCache());
+
+    TableCacheFindTableHelper::Callback empty_helper_cb;
+
+    std::unique_ptr<TableReader> table_reader;
+    s = context.ft_helper_.GetReader(empty_helper_cb,
+      env_options, internal_comparator, file_fd,
+      &table_reader, record_read_stats, file_read_hist, skip_filters,
+      level, prefetch_index_and_filter_in_cache);
+
+    s = context.OnFindReaderComplete(s, std::move(table_reader));
+    if (s.ok()) {
+      *handle = context.GetHandle();
+    }
+  }
+  return s;
+}
+
+Status TableCacheFindTableContext::RequestFind(const Callback& cb,
+    TableCache* table_cache, const EnvOptions& env_options,
+    const InternalKeyComparator& internal_comparator,
+    const FileDescriptor& file_fd, Cache::Handle** handle, const bool no_io,
+    bool record_read_stats, HistogramImpl* file_read_hist, bool skip_filters,
+    int level, bool prefetch_index_and_filter_in_cache) {
+
+  assert(handle != nullptr);
+  *handle = nullptr;
+
+  Status s = TableCacheFindTableHelper::LookupCache(file_fd,
+    table_cache->GetCache(), handle, no_io);
+
+  if (s.IsNotFound()) {
+    std::unique_ptr<TableCacheFindTableContext> context(new
+        TableCacheFindTableContext(cb, table_cache->GetIOptions(),
+                                   file_fd.GetNumber(), table_cache->GetCache()));
+
+    CallableFactory<TableCacheFindTableContext, Status, const Status&,
+                    std::unique_ptr<TableReader>&&> f(context.get());
+    auto on_find_reader_cb =
+      f.GetCallable<&TableCacheFindTableContext::OnFindReaderComplete>();
+
+    std::unique_ptr<TableReader> table_reader;
+    s = context->ft_helper_.GetReader(on_find_reader_cb,
+      env_options, internal_comparator, file_fd,
+      &table_reader, record_read_stats, file_read_hist, skip_filters,
+      level, prefetch_index_and_filter_in_cache);
+
+    if (s.IsIOPending()) {
+      context.release();
+    } else {
+      s = context->OnFindReaderComplete(s, std::move(table_reader));
+      if (s.ok()) {
+        *handle = context->GetHandle();
+      }
+    }
+  }
+  return s;
+}
+
+Status TableCacheFindTableContext::OnFindReaderComplete(const Status& status,
+    std::unique_ptr<TableReader>&& table_reader) {
+  async(status);
+
+  std::unique_ptr<TableReader> t(std::move(table_reader));
+  Status s = ft_helper_.OnGetReaderComplete(status, &handle_, t);
+
+  s.async(async());
+  return OnComplete(s);
+}
+
+Status TableCacheFindTableContext::OnComplete(const Status& status) {
+  if (cb_ && async()) {
+    ROCKS_LOG_DEBUG(
+      ft_helper_.GetIOptions().info_log,
+      "TableCacheFindTableContext async completion: %s",
+      status.ToString().c_str());
+
+    Status s(status);
+    s.async(true);
+
+    auto handle = GetHandle();
+    cb_.Invoke(s, handle);
+
+    delete this;
+    return s;
+  }
+
+  ROCKS_LOG_DEBUG(
+    ft_helper_.GetIOptions().info_log,
+    "TableCacheFindTableContext sync completion: %s",
+    status.ToString().c_str());
+
+  return status;
+
+}
 //////////////////////////////////////////////////////////////////////////
 /// TableCacheGetContext
 
