@@ -20,8 +20,31 @@
 #endif
 #include "util/coding.h"
 
+#ifdef HAS_ALTIVEC
+#include "util/crc32c_ppc.h"
+#include "util/crc32c_ppc_constants.h"
+
+#if __linux__
+#include <sys/auxv.h>
+
+#ifndef PPC_FEATURE2_VEC_CRYPTO
+#define PPC_FEATURE2_VEC_CRYPTO 0x02000000
+#endif /* PPC_FEATURE2_VEC_CRYPTO */
+
+#endif /* __linux__ */
+
+#ifndef AT_HWCAP2
+#define AT_HWCAP2 26
+#endif
+
+#endif /* HAS_ALTIVEC */
+
 namespace rocksdb {
 namespace crc32c {
+
+#ifdef __powerpc64__
+static int arch_ppc_crc32 = 0;
+#endif
 
 static const uint32_t table0_[256] = {
   0x00000000, 0xf26b8303, 0xe13b70f7, 0x1350f3f4,
@@ -373,6 +396,7 @@ uint32_t ExtendImpl(uint32_t crc, const char* buf, size_t size) {
 }
 
 // Detect if SS42 or not.
+#ifndef HAVE_POWER8
 static bool isSSE42() {
 #if defined(__GNUC__) && defined(__x86_64__) && !defined(IOS_CROSS_COMPILE)
   uint32_t c_;
@@ -387,17 +411,53 @@ static bool isSSE42() {
   return false;
 #endif
 }
+#endif
 
 typedef uint32_t (*Function)(uint32_t, const char*, size_t);
 
+#if defined(HAVE_POWER8) && defined(HAS_ALTIVEC)
+uint32_t ExtendPPCImpl(uint32_t crc, const char *buf, size_t size) {
+  return crc32c_ppc(crc, (const unsigned char *)buf, size);
+}
+
+#if __linux__
+static int arch_ppc_probe(void) {
+  arch_ppc_crc32 = 0;
+
+#if defined(__powerpc64__)
+  if (getauxval(AT_HWCAP2) & PPC_FEATURE2_VEC_CRYPTO) arch_ppc_crc32 = 1;
+#endif /* __powerpc64__ */
+
+  return arch_ppc_crc32;
+}
+
+static bool isAltiVec() {
+  if (arch_ppc_probe()) {
+    return true;
+  } else {
+    return false;
+  }
+}
+#endif  /* __linux__ */
+#endif /* defined(HAVE_POWER8) && defined(HAS_ALTIVEC) */
+
 static inline Function Choose_Extend() {
+#ifndef HAVE_POWER8
   return isSSE42() ? ExtendImpl<Fast_CRC32> : ExtendImpl<Slow_CRC32>;
+#else
+  return isAltiVec() ? ExtendPPCImpl : ExtendImpl<Slow_CRC32>;
+#endif
 }
 
 bool IsFastCrc32Supported() {
 #if defined(__SSE4_2__) || defined(_WIN64)
   return isSSE42();
 #else
+#if defined(HAVE_POWER8) && defined(HAS_ALTIVEC)
+  if (arch_ppc_probe()) {
+    return true;
+  }
+#endif
   return false;
 #endif
 }

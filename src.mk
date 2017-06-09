@@ -200,6 +200,16 @@ LIB_SOURCES =                                                   \
   utilities/write_batch_with_index/write_batch_with_index.cc    \
   utilities/write_batch_with_index/write_batch_with_index_internal.cc    \
 
+ifeq (,$(shell $(CXX) -fsyntax-only -maltivec -xc /dev/null 2>&1))
+LIB_SOURCES_ASM =\
+  util/crc32c_ppc_asm.S
+LIB_SOURCES_C = \
+  util/crc32c_ppc.c
+else
+LIB_SOURCES_ASM =
+LIB_SOURCES_C =
+endif
+
 TOOL_LIB_SOURCES = \
   tools/ldb_cmd.cc                                               \
   tools/ldb_tool.cc                                              \
