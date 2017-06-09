@@ -1851,7 +1851,7 @@ Status BlockBasedTable::CreateIndexReader(
     }
     default: {
       std::string error_message =
-          "Unrecognized index type: " + ToString(rep_->index_type);
+          "Unrecognized index type: " + ToString(index_type_on_file);
       return Status::InvalidArgument(error_message.c_str());
     }
   }

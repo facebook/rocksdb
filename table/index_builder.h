@@ -300,6 +300,8 @@ class PartitionedIndexBuilder : public IndexBuilder {
       const BlockHandle& last_partition_block_handle) override;
 
   virtual size_t EstimatedSize() const override;
+  size_t EstimateTopLevelIndexSize(uint64_t) const;
+  size_t NumPartitions() const;
 
   inline bool ShouldCutFilterBlock() {
     // Current policy is to align the partitions of index and filters
