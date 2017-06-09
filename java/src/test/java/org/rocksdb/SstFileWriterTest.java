@@ -13,11 +13,12 @@ import org.rocksdb.util.BytewiseComparator;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Map;
-import java.util.TreeMap;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.Assert.fail;
 
 public class SstFileWriterTest {
   private static final String SST_FILE_NAME = "test.sst";
@@ -29,11 +30,37 @@ public class SstFileWriterTest {
 
   @Rule public TemporaryFolder parentFolder = new TemporaryFolder();
 
-  private File newSstFile(final TreeMap<String, String> keyValues,
-      boolean useJavaBytewiseComparator)
-      throws IOException, RocksDBException {
+  enum OpType { PUT, MERGE, DELETE }
+
+  class KeyValueWithOp {
+    KeyValueWithOp(String key, String value, OpType opType) {
+      this.key = key;
+      this.value = value;
+      this.opType = opType;
+    }
+
+    String getKey() {
+      return key;
+    }
+
+    String getValue() {
+      return value;
+    }
+
+    OpType getOpType() {
+      return opType;
+    }
+
+    private String key;
+    private String value;
+    private OpType opType;
+  };
+
+  private File newSstFile(final List<KeyValueWithOp> keyValues,
+      boolean useJavaBytewiseComparator) throws IOException, RocksDBException {
     final EnvOptions envOptions = new EnvOptions();
-    final Options options = new Options();
+    final StringAppendOperator stringAppendOperator = new StringAppendOperator();
+    final Options options = new Options().setMergeOperator(stringAppendOperator);
     SstFileWriter sstFileWriter = null;
     ComparatorOptions comparatorOptions = null;
     BytewiseComparator comparator = null;
@@ -49,10 +76,22 @@ public class SstFileWriterTest {
     final File sstFile = parentFolder.newFile(SST_FILE_NAME);
     try {
       sstFileWriter.open(sstFile.getAbsolutePath());
-      for (Map.Entry<String, String> keyValue : keyValues.entrySet()) {
+      for (KeyValueWithOp keyValue : keyValues) {
         Slice keySlice = new Slice(keyValue.getKey());
         Slice valueSlice = new Slice(keyValue.getValue());
-        sstFileWriter.add(keySlice, valueSlice);
+        switch (keyValue.getOpType()) {
+          case PUT:
+            sstFileWriter.put(keySlice, valueSlice);
+            break;
+          case MERGE:
+            sstFileWriter.merge(keySlice, valueSlice);
+            break;
+          case DELETE:
+            sstFileWriter.delete(keySlice);
+            break;
+          default:
+            fail("Unsupported op type");
+        }
         keySlice.close();
         valueSlice.close();
       }
@@ -75,55 +114,79 @@ public class SstFileWriterTest {
   @Test
   public void generateSstFileWithJavaComparator()
       throws RocksDBException, IOException {
-    final TreeMap<String, String> keyValues = new TreeMap<>();
-    keyValues.put("key1", "value1");
-    keyValues.put("key2", "value2");
+    final List<KeyValueWithOp> keyValues = new ArrayList<>();
+    keyValues.add(new KeyValueWithOp("key1", "value1", OpType.PUT));
+    keyValues.add(new KeyValueWithOp("key2", "value2", OpType.PUT));
+    keyValues.add(new KeyValueWithOp("key3", "value3", OpType.MERGE));
+    keyValues.add(new KeyValueWithOp("key4", "value4", OpType.MERGE));
+    keyValues.add(new KeyValueWithOp("key5", "", OpType.DELETE));
+
     newSstFile(keyValues, true);
   }
 
   @Test
   public void generateSstFileWithNativeComparator()
       throws RocksDBException, IOException {
-    final TreeMap<String, String> keyValues = new TreeMap<>();
-    keyValues.put("key1", "value1");
-    keyValues.put("key2", "value2");
+    final List<KeyValueWithOp> keyValues = new ArrayList<>();
+    keyValues.add(new KeyValueWithOp("key1", "value1", OpType.PUT));
+    keyValues.add(new KeyValueWithOp("key2", "value2", OpType.PUT));
+    keyValues.add(new KeyValueWithOp("key3", "value3", OpType.MERGE));
+    keyValues.add(new KeyValueWithOp("key4", "value4", OpType.MERGE));
+    keyValues.add(new KeyValueWithOp("key5", "", OpType.DELETE));
+
     newSstFile(keyValues, false);
   }
 
   @Test
   public void ingestSstFile() throws RocksDBException, IOException {
-    final TreeMap<String, String> keyValues = new TreeMap<>();
-    keyValues.put("key1", "value1");
-    keyValues.put("key2", "value2");
+    final List<KeyValueWithOp> keyValues = new ArrayList<>();
+    keyValues.add(new KeyValueWithOp("key1", "value1", OpType.PUT));
+    keyValues.add(new KeyValueWithOp("key2", "value2", OpType.PUT));
+    keyValues.add(new KeyValueWithOp("key3", "value3", OpType.MERGE));
+    keyValues.add(new KeyValueWithOp("key4", "", OpType.DELETE));
+
     final File sstFile = newSstFile(keyValues, false);
     final File dbFolder = parentFolder.newFolder(DB_DIRECTORY_NAME);
-    try(final Options options = new Options().setCreateIfMissing(true);
-      final RocksDB db = RocksDB.open(options, dbFolder.getAbsolutePath());
-      final IngestExternalFileOptions ingestExternalFileOptions
-          = new IngestExternalFileOptions()) {
+    try(final StringAppendOperator stringAppendOperator =
+            new StringAppendOperator();
+        final Options options = new Options()
+            .setCreateIfMissing(true)
+            .setMergeOperator(stringAppendOperator);
+        final RocksDB db = RocksDB.open(options, dbFolder.getAbsolutePath());
+        final IngestExternalFileOptions ingestExternalFileOptions =
+            new IngestExternalFileOptions()) {
       db.ingestExternalFile(Arrays.asList(sstFile.getAbsolutePath()),
           ingestExternalFileOptions);
 
       assertThat(db.get("key1".getBytes())).isEqualTo("value1".getBytes());
       assertThat(db.get("key2".getBytes())).isEqualTo("value2".getBytes());
+      assertThat(db.get("key3".getBytes())).isEqualTo("value3".getBytes());
+      assertThat(db.get("key4".getBytes())).isEqualTo(null);
     }
   }
 
   @Test
   public void ingestSstFile_cf() throws RocksDBException, IOException {
-    final TreeMap<String, String> keyValues = new TreeMap<>();
-    keyValues.put("key1", "value1");
-    keyValues.put("key2", "value2");
+    final List<KeyValueWithOp> keyValues = new ArrayList<>();
+    keyValues.add(new KeyValueWithOp("key1", "value1", OpType.PUT));
+    keyValues.add(new KeyValueWithOp("key2", "value2", OpType.PUT));
+    keyValues.add(new KeyValueWithOp("key3", "value3", OpType.MERGE));
+    keyValues.add(new KeyValueWithOp("key4", "", OpType.DELETE));
+
     final File sstFile = newSstFile(keyValues, false);
     final File dbFolder = parentFolder.newFolder(DB_DIRECTORY_NAME);
-    try(final Options options = new Options()
-          .setCreateIfMissing(true)
-          .setCreateMissingColumnFamilies(true);
+    try(final StringAppendOperator stringAppendOperator =
+            new StringAppendOperator();
+        final Options options = new Options()
+            .setCreateIfMissing(true)
+            .setCreateMissingColumnFamilies(true)
+            .setMergeOperator(stringAppendOperator);
         final RocksDB db = RocksDB.open(options, dbFolder.getAbsolutePath());
         final IngestExternalFileOptions ingestExternalFileOptions =
             new IngestExternalFileOptions()) {
 
-      try(final ColumnFamilyOptions cf_opts = new ColumnFamilyOptions();
+      try(final ColumnFamilyOptions cf_opts = new ColumnFamilyOptions()
+              .setMergeOperator(stringAppendOperator);
           final ColumnFamilyHandle cf_handle = db.createColumnFamily(
               new ColumnFamilyDescriptor("new_cf".getBytes(), cf_opts))) {
 
@@ -135,6 +198,10 @@ public class SstFileWriterTest {
             "key1".getBytes())).isEqualTo("value1".getBytes());
         assertThat(db.get(cf_handle,
             "key2".getBytes())).isEqualTo("value2".getBytes());
+        assertThat(db.get(cf_handle,
+            "key3".getBytes())).isEqualTo("value3".getBytes());
+        assertThat(db.get(cf_handle,
+            "key4".getBytes())).isEqualTo(null);
       }
     }
   }
