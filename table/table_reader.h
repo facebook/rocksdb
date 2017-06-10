@@ -43,6 +43,14 @@ class TableReader {
                                         Arena* arena = nullptr,
                                         bool skip_filters = false) = 0;
 
+  virtual Status NewIterator(
+    const async::Callable<Status, const Status&, InternalIterator*>& cb,
+    const ReadOptions& read_options,
+    InternalIterator** internal_iterator,
+    Arena* arena = nullptr, bool skip_filters = false) {
+    return Status::NotSupported();
+  }
+
   virtual InternalIterator* NewRangeTombstoneIterator(
       const ReadOptions& read_options) {
     return nullptr;

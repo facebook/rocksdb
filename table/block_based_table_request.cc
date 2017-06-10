@@ -2155,6 +2155,8 @@ Status NewDataBlockIteratorHelper::OnCreateComplete(const Status& status) {
   } else {
     assert(entry_.value == nullptr);
     StatusToIterator(s);
+    // Status is reported via iterator
+    s = Status::OK();
   }
 
   PERF_TIMER_STOP(new_table_block_iter_nanos);
@@ -2736,6 +2738,110 @@ Status BlockBasedGetContext::OnComplete(const Status& status) {
   ROCKS_LOG_DEBUG(
     rep->ioptions.info_log,
     "TableOpenRequestContext sync completion: %s",
+    status.ToString().c_str());
+
+  return status;
+}
+
+//////////////////////////////////////////////////////////
+// BlockBasedNewIteratorContext
+//
+
+Status BlockBasedNewIteratorContext::Create(BlockBasedTable* table,
+    const ReadOptions& read_options, Arena* arena, bool skip_filters,
+    InternalIterator** iterator) {
+  assert(iterator != nullptr);
+  *iterator = nullptr;
+  const Callback empty_cb;
+  BlockBasedNewIteratorContext context(empty_cb, table, read_options, skip_filters, arena);
+  Status s = context.NewIterator();
+  if (s.ok()) {
+    *iterator = context.GetResult();
+  }
+  return s;
+}
+
+Status BlockBasedNewIteratorContext::RequestCreate(const Callback& cb,
+    BlockBasedTable* table, const ReadOptions& read_options, Arena* arena,
+    bool skip_filters, InternalIterator** iterator) {
+
+  assert(cb);
+  assert(iterator != nullptr);
+  *iterator = nullptr;
+  std::unique_ptr<BlockBasedNewIteratorContext> context(new
+      BlockBasedNewIteratorContext(cb, table, read_options, skip_filters, arena));
+  Status s = context->NewIterator();
+  if (s.ok()) {
+    *iterator = context->GetResult();
+  } else if (s.IsIOPending()) {
+    context.release();
+  }
+  return s;
+}
+
+Status BlockBasedNewIteratorContext::NewIterator() {
+
+  Status s;
+  InternalIterator* index_iterator = nullptr;
+
+  if (cb_) {
+    CallableFactory<BlockBasedNewIteratorContext, Status, const Status&, InternalIterator*>
+        f(this);
+    auto on_index_iter_cb =
+        f.GetCallable<&BlockBasedNewIteratorContext::OnNewIndexIterator>();
+
+    s = NewIndexIteratorContext::RequestCreate(on_index_iter_cb, table_, *ro_,
+        nullptr /* preloaded_meta_iter */, nullptr /* input_iter */,
+        nullptr /* index_entry */, &index_iterator);
+
+    if (s.IsIOPending()) {
+      return s;
+    }
+
+  } else {
+    s = NewIndexIteratorContext::Create(table_, *ro_,
+        nullptr /* preloaded_meta_iter */, nullptr /* input_iter */,
+        nullptr /* index_entry */,
+        &index_iterator);
+  }
+
+  return OnNewIndexIterator(s, index_iterator);
+}
+
+Status BlockBasedNewIteratorContext::OnNewIndexIterator(const Status& status,
+    InternalIterator* index_iterator) {
+  async(status);
+
+  if (status.ok()) {
+    assert(index_iterator != nullptr);
+    result_ = NewTwoLevelIterator(
+      new BlockBasedTable::BlockEntryIteratorState(table_, *ro_, skip_filters_),
+      index_iterator, arena_);
+  }
+
+  return OnComplete(status);
+}
+
+Status BlockBasedNewIteratorContext::OnComplete(const Status& status) {
+  if (cb_ && async()) {
+
+    ROCKS_LOG_DEBUG(
+      table_->rep_->ioptions.info_log,
+      "BlockBasedNewIteratorContext async completion: %s",
+      status.ToString().c_str());
+
+    Status s(status);
+    s.async(async());
+
+    auto iterator = GetResult();
+    cb_.Invoke(s, iterator);
+    delete this;
+    return s;
+  }
+
+  ROCKS_LOG_DEBUG(
+    table_->rep_->ioptions.info_log,
+    "BlockBasedNewIteratorContext sync completion: %s",
     status.ToString().c_str());
 
   return status;

@@ -429,5 +429,13 @@ class TableCacheGetContext : protected AsyncStatusCapture {
    TableReader*       table_reader_;
 };
 
+// This class creates an iterator in async way if
+// any IO is encountered using a corresponding TableReader
+class TableCacheNewIterator : protected AsyncStatusCapture {
+public:
+
+private:
+};
+
 }
 }

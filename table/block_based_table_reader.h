@@ -56,6 +56,7 @@ class InternalIterator;
 
 namespace async {
 class BlockBasedGetContext;
+class BlockBasedNewIteratorContext;
 class CreateIndexReaderContext;
 class GetFilterHelper;
 class MaybeLoadDataBlockToCacheHelper;
@@ -117,6 +118,12 @@ class BlockBasedTable : public TableReader {
   // @param skip_filters Disables loading/accessing the filter block
   InternalIterator* NewIterator(const ReadOptions&, Arena* arena = nullptr,
                                 bool skip_filters = false) override;
+
+  Status NewIterator(
+    const async::Callable<Status, const Status&, InternalIterator*>& cb,
+    const ReadOptions& read_options,
+    InternalIterator** internal_iterator,
+    Arena* arena = nullptr, bool skip_filters = false) override;
 
   InternalIterator* NewRangeTombstoneIterator(
       const ReadOptions& read_options) override;
@@ -220,6 +227,7 @@ class BlockBasedTable : public TableReader {
   class BlockEntryIteratorState;
 
   friend class async::BlockBasedGetContext;
+  friend class async::BlockBasedNewIteratorContext;
   friend class async::CreateIndexReaderContext;
   friend class async::GetFilterHelper;
   friend class async::ReadFilterHelper;

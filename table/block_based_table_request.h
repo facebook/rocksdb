@@ -1064,6 +1064,59 @@ private:
   BlockIter             block_iter_;
 };
 
+// This class creates a new iterator on top of the
+// blockbased table
+class BlockBasedNewIteratorContext : protected AsyncStatusCapture {
+public:
+  using
+  Callback = Callable<Status, const Status&, InternalIterator*>;
+
+  BlockBasedNewIteratorContext(const BlockBasedNewIteratorContext&) = delete;
+  BlockBasedNewIteratorContext& operator=(const BlockBasedNewIteratorContext&) =
+    delete;
+
+  ~BlockBasedNewIteratorContext() {
+    delete result_;
+  }
+
+  static Status Create(BlockBasedTable* table, const ReadOptions& read_options,
+    Arena* arena, bool skip_filters, InternalIterator** iterator);
+
+  static Status RequestCreate(const Callback& cb, BlockBasedTable* table,
+    const ReadOptions& read_options, Arena* arena, bool skip_filters,
+    InternalIterator** iterator);
+
+  // Get for sync completion
+
+private:
+
+  BlockBasedNewIteratorContext(const Callback& cb, BlockBasedTable* table,
+                               const ReadOptions& read_options, bool skip_filters, Arena* arena) :
+    table_(table), ro_(&read_options), skip_filters_(skip_filters), arena_(arena),
+    result_(nullptr) {
+  }
+
+  InternalIterator* GetResult() {
+    InternalIterator* result = nullptr;
+    std::swap(result_, result);
+    return result;
+  }
+
+  Status NewIterator();
+
+  Status OnNewIndexIterator(const Status&, InternalIterator*);
+
+  Status OnComplete(const Status&);
+
+  Callback            cb_;
+  BlockBasedTable*    table_;
+  const               ReadOptions*  ro_;
+  bool                skip_filters_;
+  Arena*              arena_;
+
+  InternalIterator*  result_;
+};
+
 
 } // namepsace async
 } // namespace rocksdb

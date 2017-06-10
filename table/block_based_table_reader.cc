@@ -1042,9 +1042,19 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key) {
 InternalIterator* BlockBasedTable::NewIterator(const ReadOptions& read_options,
                                                Arena* arena,
                                                bool skip_filters) {
-  return NewTwoLevelIterator(
-      new BlockEntryIteratorState(this, read_options, skip_filters),
-      NewIndexIterator(read_options), arena);
+
+  InternalIterator* iterator = nullptr;
+  async::BlockBasedNewIteratorContext::Create(this, read_options, arena, skip_filters, &iterator);
+  return iterator;
+}
+
+Status BlockBasedTable::NewIterator(
+    const async::Callable<Status, const Status&, InternalIterator*>& cb,
+    const ReadOptions & read_options, InternalIterator** iterator,
+    Arena* arena, bool skip_filters) {
+
+  return async::BlockBasedNewIteratorContext::RequestCreate(cb, this,
+         read_options, arena, skip_filters, iterator);
 }
 
 InternalIterator* BlockBasedTable::NewRangeTombstoneIterator(
