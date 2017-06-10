@@ -39,7 +39,8 @@ class SstFileManagerImpl : public SstFileManager {
   Status OnDeleteFile(const std::string& file_path);
 
   // DB will call OnMoveFile whenever an sst file is move to a new path.
-  Status OnMoveFile(const std::string& old_path, const std::string& new_path);
+  Status OnMoveFile(const std::string& old_path, const std::string& new_path,
+                    uint64_t* file_size = nullptr);
 
   // Update the maximum allowed space that should be used by RocksDB, if
   // the total size of the SST files exceeds max_allowed_space, writes to
@@ -75,6 +76,8 @@ class SstFileManagerImpl : public SstFileManager {
   // Wait for all files being deleteing in the background to finish or for
   // destructor to be called.
   virtual void WaitForEmptyTrash();
+
+  DeleteScheduler* delete_scheduler() { return &delete_scheduler_; }
 
  private:
   // REQUIRES: mutex locked

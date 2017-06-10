@@ -51,9 +51,13 @@ Status SstFileManagerImpl::OnDeleteFile(const std::string& file_path) {
 }
 
 Status SstFileManagerImpl::OnMoveFile(const std::string& old_path,
-                                      const std::string& new_path) {
+                                      const std::string& new_path,
+                                      uint64_t* file_size) {
   {
     MutexLock l(&mu_);
+    if (file_size != nullptr) {
+      *file_size = tracked_files_[old_path];
+    }
     OnAddFileImpl(new_path, tracked_files_[old_path]);
     OnDeleteFileImpl(old_path);
   }
