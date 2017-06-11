@@ -191,7 +191,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       bg_compaction_paused_(0),
       refitting_level_(false),
       opened_successfully_(false),
-      concurrent_writes_(options.separate_queue_for_memtable_writes),
+      concurrent_writes_(options.concurrent_wal_writes),
       manual_wal_flush_(options.manual_wal_flush) {
   env_->GetAbsolutePath(dbname, &db_absolute_path_);
 

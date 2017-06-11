@@ -71,6 +71,7 @@ TEST_P(DBWriteTest, ReturnSeuqneceNumberMultiThreaded) {
 
 INSTANTIATE_TEST_CASE_P(DBWriteTestInstance, DBWriteTest,
                         testing::Values(DBTestBase::kDefault,
+                                        DBTestBase::kConcurrentWALWrites,
                                         DBTestBase::kPipelinedWrite));
 
 }  // namespace rocksdb

@@ -53,7 +53,7 @@ class TransactionTest
     options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
     env = new FaultInjectionTestEnv(Env::Default());
     options.env = env;
-    options.separate_queue_for_memtable_writes = std::get<1>(GetParam());
+    options.concurrent_wal_writes = std::get<1>(GetParam());
     dbname = test::TmpDir() + "/transaction_testdb";
 
     DestroyDB(dbname, options);

@@ -707,7 +707,7 @@ class VersionSet {
   void SetLastSequence(uint64_t s) {
     assert(s >= last_sequence_);
     // Last visible seqeunce must always be less than last written seq
-    assert(!db_options_->separate_queue_for_memtable_writes ||
+    assert(!db_options_->concurrent_wal_writes ||
            s <= last_to_be_written_sequence_);
     last_sequence_.store(s, std::memory_order_release);
   }

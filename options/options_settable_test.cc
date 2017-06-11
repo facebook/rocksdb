@@ -295,7 +295,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "avoid_flush_during_recovery=false;"
                              "avoid_flush_during_shutdown=false;"
                              "allow_ingest_behind=false;"
-                             "separate_queue_for_memtable_writes=false;"
+                             "concurrent_wal_writes=false;"
                              "manual_wal_flush=false;",
                              new_options));
 
