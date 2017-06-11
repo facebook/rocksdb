@@ -622,11 +622,9 @@ class DBImpl : public DB {
                             uint64_t* log_used = nullptr, uint64_t log_ref = 0,
                             bool disable_memtable = false);
 
-  Status WriteImpl2PC(const WriteOptions& options, WriteBatch* updates,
+  Status WriteImplWALOnly(const WriteOptions& options, WriteBatch* updates,
                    WriteCallback* callback = nullptr,
-                   uint64_t* log_used = nullptr, uint64_t log_ref = 0,
-                   bool disable_memtable = false);
-
+                   uint64_t* log_used = nullptr, uint64_t log_ref = 0);
 
   uint64_t FindMinLogContainingOutstandingPrep();
   uint64_t FindMinPrepLogReferencedByMemTable();
@@ -971,7 +969,7 @@ class DBImpl : public DB {
 
   // Size of the last batch group. In slowdown mode, next write needs to
   // sleep if it uses up the quota.
-  uint64_t last_batch_group_size_;
+  std::atomic<uint64_t> last_batch_group_size_;
 
   FlushScheduler flush_scheduler_;
 
