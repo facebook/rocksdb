@@ -54,9 +54,24 @@ Status BlockBasedTableFactory::NewTableReader(
     unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
     unique_ptr<TableReader>* table_reader,
     bool prefetch_index_and_filter_in_cache) const {
+  auto new_table_options = table_options_;
+  // When building the l0 files we diable partitioning. The now 1-single l0
+  // partitions could be large and their heap footprint hence non-trivial. We
+  // therefore make sure that they are stored in heap even if
+  // cache_index_and_filter_blocks is not set since
+  // cache_index_and_filter_blocks was meant for top-level indexes when
+  // partitioning is enabled.
+  if (table_reader_options.level < 1) {
+    if (new_table_options.index_type ==
+            BlockBasedTableOptions::kTwoLevelIndexSearch &&
+        !new_table_options.cache_index_and_filter_blocks &&
+        new_table_options.block_cache) {
+      new_table_options.cache_index_and_filter_blocks = true;
+    }
+  }
   return BlockBasedTable::Open(
       table_reader_options.ioptions, table_reader_options.env_options,
-      table_options_, table_reader_options.internal_comparator, std::move(file),
+      new_table_options, table_reader_options.internal_comparator, std::move(file),
       file_size, table_reader, prefetch_index_and_filter_in_cache,
       table_reader_options.skip_filters, table_reader_options.level);
 }
@@ -64,8 +79,19 @@ Status BlockBasedTableFactory::NewTableReader(
 TableBuilder* BlockBasedTableFactory::NewTableBuilder(
     const TableBuilderOptions& table_builder_options, uint32_t column_family_id,
     WritableFileWriter* file) const {
+  auto new_table_options = table_options_;
+  // Disable partitioning for l0 since they are accessed very often
+  if (table_builder_options.level < 1) {
+    if (new_table_options.partition_filters) {
+      new_table_options.partition_filters = false;
+    }
+    if (new_table_options.index_type ==
+        BlockBasedTableOptions::kTwoLevelIndexSearch) {
+      new_table_options.index_type = BlockBasedTableOptions::kBinarySearch;
+    }
+  }
   auto table_builder = new BlockBasedTableBuilder(
-      table_builder_options.ioptions, table_options_,
+      table_builder_options.ioptions, new_table_options,
       table_builder_options.internal_comparator,
       table_builder_options.int_tbl_prop_collector_factories, column_family_id,
       file, table_builder_options.compression_type,

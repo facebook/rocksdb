@@ -404,7 +404,9 @@ struct BlockBasedTable::Rep {
 
   const ImmutableCFOptions& ioptions;
   const EnvOptions& env_options;
-  const BlockBasedTableOptions& table_options;
+  // Use a copy of original table options since it the original could be on
+  // stack
+  const BlockBasedTableOptions table_options;
   const FilterPolicy* const filter_policy;
   const InternalKeyComparator& internal_comparator;
   Status status;
