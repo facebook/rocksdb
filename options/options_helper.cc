@@ -1008,7 +1008,8 @@ Status ParseDBOption(const std::string& name,
 std::string ParseBlockBasedTableOption(const std::string& name,
                                        const std::string& org_value,
                                        BlockBasedTableOptions* new_options,
-                                       bool input_strings_escaped = false) {
+                                       bool input_strings_escaped = false,
+                                       bool ignore_unknown_options = false) {
   const std::string& value =
       input_strings_escaped ? UnescapeOptionString(org_value) : org_value;
   if (!input_strings_escaped) {
@@ -1042,7 +1043,11 @@ std::string ParseBlockBasedTableOption(const std::string& name,
   }
   const auto iter = block_based_table_type_info.find(name);
   if (iter == block_based_table_type_info.end()) {
-    return "Unrecognized option";
+    if (ignore_unknown_options) {
+      return "";
+    } else {
+      return "Unrecognized option";
+    }
   }
   const auto& opt_info = iter->second;
   if (opt_info.verification != OptionVerificationType::kDeprecated &&
@@ -1056,12 +1061,17 @@ std::string ParseBlockBasedTableOption(const std::string& name,
 std::string ParsePlainTableOptions(const std::string& name,
                                    const std::string& org_value,
                                    PlainTableOptions* new_options,
-                                   bool input_strings_escaped = false) {
+                                   bool input_strings_escaped = false,
+                                   bool ignore_unknown_options = false) {
   const std::string& value =
       input_strings_escaped ? UnescapeOptionString(org_value) : org_value;
   const auto iter = plain_table_type_info.find(name);
   if (iter == plain_table_type_info.end()) {
-    return "Unrecognized option";
+    if (ignore_unknown_options) {
+      return "";
+    } else {
+      return "Unrecognized option";
+    }
   }
   const auto& opt_info = iter->second;
   if (opt_info.verification != OptionVerificationType::kDeprecated &&
@@ -1081,26 +1091,23 @@ Status GetBlockBasedTableOptionsFromMap(
   *new_table_options = table_options;
   for (const auto& o : opts_map) {
     auto error_message = ParseBlockBasedTableOption(
-        o.first, o.second, new_table_options, input_strings_escaped);
+        o.first, o.second, new_table_options, input_strings_escaped,
+        ignore_unknown_options);
     if (error_message != "") {
-      if (error_message == "Unrecognized option" && ignore_unknown_options) {
-        continue;
-      } else {
-        const auto iter = block_based_table_type_info.find(o.first);
-        if (iter == block_based_table_type_info.end() ||
-            !input_strings_escaped ||  // !input_strings_escaped indicates
-                                       // the old API, where everything is
-                                       // parsable.
-            (iter->second.verification != OptionVerificationType::kByName &&
-             iter->second.verification !=
-                 OptionVerificationType::kByNameAllowNull &&
-             iter->second.verification !=
-                 OptionVerificationType::kDeprecated)) {
-          // Restore "new_options" to the default "base_options".
-          *new_table_options = table_options;
-          return Status::InvalidArgument("Can't parse BlockBasedTableOptions:",
-                                         o.first + " " + error_message);
-        }
+      const auto iter = block_based_table_type_info.find(o.first);
+      if (iter == block_based_table_type_info.end() ||
+          !input_strings_escaped ||  // !input_strings_escaped indicates
+                                     // the old API, where everything is
+                                     // parsable.
+          (iter->second.verification != OptionVerificationType::kByName &&
+           iter->second.verification !=
+               OptionVerificationType::kByNameAllowNull &&
+           iter->second.verification !=
+               OptionVerificationType::kDeprecated)) {
+        // Restore "new_options" to the default "base_options".
+        *new_table_options = table_options;
+        return Status::InvalidArgument("Can't parse BlockBasedTableOptions:",
+                                       o.first + " " + error_message);
       }
     }
   }
@@ -1131,24 +1138,20 @@ Status GetPlainTableOptionsFromMap(
     auto error_message = ParsePlainTableOptions(
         o.first, o.second, new_table_options, input_strings_escaped);
     if (error_message != "") {
-      if (error_message == "Unrecognized option" && ignore_unknown_options) {
-        continue;
-      } else {
-        const auto iter = plain_table_type_info.find(o.first);
-        if (iter == plain_table_type_info.end() ||
-            !input_strings_escaped ||  // !input_strings_escaped indicates
-                                       // the old API, where everything is
-                                       // parsable.
-            (iter->second.verification != OptionVerificationType::kByName &&
-             iter->second.verification !=
-                 OptionVerificationType::kByNameAllowNull &&
-             iter->second.verification !=
-                 OptionVerificationType::kDeprecated)) {
-          // Restore "new_options" to the default "base_options".
-          *new_table_options = table_options;
-          return Status::InvalidArgument("Can't parse PlainTableOptions:",
-                                         o.first + " " + error_message);
-        }
+      const auto iter = plain_table_type_info.find(o.first);
+      if (iter == plain_table_type_info.end() ||
+          !input_strings_escaped ||  // !input_strings_escaped indicates
+                                     // the old API, where everything is
+                                     // parsable.
+          (iter->second.verification != OptionVerificationType::kByName &&
+           iter->second.verification !=
+               OptionVerificationType::kByNameAllowNull &&
+           iter->second.verification !=
+               OptionVerificationType::kDeprecated)) {
+        // Restore "new_options" to the default "base_options".
+        *new_table_options = table_options;
+        return Status::InvalidArgument("Can't parse PlainTableOptions:",
+                                       o.first + " " + error_message);
       }
     }
   }
