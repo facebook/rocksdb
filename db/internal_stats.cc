@@ -544,7 +544,7 @@ bool InternalStats::HandleDBStats(std::string* value, Slice suffix) {
 
 bool InternalStats::HandleSsTables(std::string* value, Slice suffix) {
   auto* current = cfd_->current();
-  *value = current->DebugString();
+  *value = current->DebugString(true, true);
   return true;
 }
 
