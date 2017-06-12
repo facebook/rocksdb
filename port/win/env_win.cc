@@ -1088,19 +1088,14 @@ std::string Env::GenerateUniqueId() {
   UuidCreateSequential(&uuid);
 
   RPC_CSTR rpc_str;
-#ifndef NDEBUG
-  assert(UuidToStringA(&uuid, &rpc_str) == RPC_S_OK);
-#else
-  UuidToStringA(&uuid, &rpc_str);
-#endif
+  auto status = UuidToStringA(&uuid, &rpc_str);
+  (void)status;
+  assert(status == RPC_S_OK);
 
   result = reinterpret_cast<char*>(rpc_str);
 
-#ifndef NDEBUG
-  assert(RpcStringFreeA(&rpc_str) == RPC_S_OK);
-#else
-  RpcStringFreeA(&rpc_str);
-#endif
+  status = RpcStringFreeA(&rpc_str);
+  assert(status == RPC_S_OK);
 
   return result;
 }
