@@ -1,11 +1,4 @@
 # Rocksdb Change Log
-## Unreleased
-### Public API Change
-* DB property "rocksdb.sstables" now prints keys in hex form.
-
-### New Features
-* Measure estimated number of reads per file. The information can be accessed through DB::GetColumnFamilyMetaData or "rocksdb.sstables" DB property.
-
 ## 5.6.0 (06/06/2017)
 ### Public API Change
 * Scheduling flushes and compactions in the same thread pool is no longer supported by setting `max_background_flushes=0`. Instead, users can achieve this by configuring their high-pri thread pool to have zero threads.
