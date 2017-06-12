@@ -32,7 +32,7 @@ bool IsPowerOfTwo(const size_t alignment) {
 }
 
 inline
-bool IsSectorAligned(const size_t off) {
+bool IsSectorAligned(const size_t off) { 
   return (off & (kSectorSize - 1)) == 0;
 }
 
@@ -194,13 +194,12 @@ WinMmapReadableFile::WinMmapReadableFile(const std::string& fileName,
       length_(length) {}
 
 WinMmapReadableFile::~WinMmapReadableFile() {
-#ifndef NDEBUG
-  assert(::UnmapViewOfFile(mapped_region_));
-  assert(::CloseHandle(hMap_));
-#else
-  ::UnmapViewOfFile(mapped_region_);
-  ::CloseHandle(hMap_);
-#endif
+  BOOL ret = ::UnmapViewOfFile(mapped_region_);
+  (void)ret;
+  assert(ret);
+
+  ret = ::CloseHandle(hMap_);
+  assert(ret);
 }
 
 Status WinMmapReadableFile::Read(uint64_t offset, size_t n, Slice* result,
@@ -747,9 +746,8 @@ Status WinWritableImpl::AppendImpl(const Slice& data) {
 
   assert(data.size() < std::numeric_limits<DWORD>::max());
 
-#ifndef NDEBUG
   uint64_t written = 0;
-#endif
+  (void)written;
 
   if (file_data_->use_direct_io()) {
 
@@ -769,9 +767,7 @@ Status WinWritableImpl::AppendImpl(const Slice& data) {
         "Failed to pwrite for: " + file_data_->GetName(), lastError);
     }
     else {
-#ifndef NDEBUG
       written = ret;
-#endif
     }
 
   } else {
@@ -785,9 +781,7 @@ Status WinWritableImpl::AppendImpl(const Slice& data) {
         lastError);
     }
     else {
-#ifndef NDEBUG
       written = bytesWritten;
-#endif
     }
   }
 
