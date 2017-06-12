@@ -2252,7 +2252,7 @@ TEST_P(DBCompactionTestWithParam, DeleteMovedFileAfterCompaction) {
       }
       ASSERT_OK(Flush());
     }
-    // this should execute L0->L1
+    // this should execute L0->base_level
     dbfull()->TEST_WaitForCompact();
     ASSERT_EQ("0,1", FilesPerLevel(0));
 
@@ -2287,7 +2287,7 @@ TEST_P(DBCompactionTestWithParam, DeleteMovedFileAfterCompaction) {
       }
       ASSERT_OK(Flush());
     }
-    // this should execute both L0->L1 and L1->L2 (merge with previous file)
+    // this should execute both L0->base_level and L1->L2 (merge with previous file)
     dbfull()->TEST_WaitForCompact();
 
     ASSERT_EQ("0,0,2", FilesPerLevel(0));
@@ -2596,7 +2596,7 @@ TEST_P(DBCompactionTestWithParam, IntraL0Compaction) {
   // size:  1MB 1MB 1MB 1MB 1MB 2MB 1MB 1MB 1MB 1MB
   // score:                     1.5 1.3 1.5 2.0 inf
   //
-  // Files 0-4 will be included in an L0->L1 compaction.
+  // Files 0-4 will be included in an L0->base_level compaction.
   //
   // L0->L0 will be triggered since the sync points guarantee compaction to base
   // level is still blocked when files 5-9 trigger another compaction.
@@ -2627,6 +2627,78 @@ TEST_P(DBCompactionTestWithParam, IntraL0Compaction) {
   for (int i = 0; i < 2; ++i) {
     ASSERT_GE(level_to_files[0][0].fd.file_size, 1 << 21);
   }
+}
+
+TEST_P(DBCompactionTestWithParam, UnblockingLevel0ToLevel1Compaction) {
+  Options options = CurrentOptions();
+  options.compression = kNoCompression;
+  options.write_buffer_size = 1000000000;       // Large write buffer
+  options.level0_file_num_compaction_trigger = 4;
+  options.max_background_jobs = 4;
+  options.disable_auto_compactions = true;
+  options.max_subcompactions = max_subcompactions_;
+  DestroyAndReopen(options);
+
+  ASSERT_EQ(NumTableFilesAtLevel(0, 0), 0);
+  const size_t kValueSize = 200 * 1024;  // 200 kB
+  Random rnd(301);
+  std::string value(RandomString(&rnd, kValueSize));
+  std::string long_value(RandomString(&rnd, 5 * kValueSize));
+
+  //         Index:          1         2         3         4
+  // L0 key ranges:  [15 - 19] [16 - 20] [17 - 21] [18 - 22]
+  //          size:        1MB       1MB       1MB       1MB
+  //         Index:          5         6         7         8
+  // L1 key ranges:  [11 - 15] [16 - 20] [21 - 25] [26 - 30]
+  //          size:        1MB       5MB       1MB       1MB
+  //         Index:                    9
+  // L2 key ranges:            [  17   ]
+  //          size:                  1MB
+  ASSERT_OK(Put(Key(17), value));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(2);
+  for (int i = 11; i < 30; i += 5) {
+    for (int j = 0; j < 5; j++) {
+      ASSERT_OK(Put(Key(i + j), (i == 16 ? long_value : value)));
+    }
+    ASSERT_OK(Flush());
+  }
+  MoveFilesToLevel(1);
+  ASSERT_EQ(NumTableFilesAtLevel(1, 0), 4);
+
+  rocksdb::SyncPoint::GetInstance()->LoadDependencyAndMarkers(
+      {{"CompactionJob::Run():Start",
+        "DBCompactionTestWithParam:UnblockingLevel0ToLevel1Compaction"},
+       {"CompactionJob::Run():Level0Start", "CompactionJob::Run():End"}},
+      {{"CompactionJob::Run():Marker", "CompactionJob::Run():Start"},
+       {"CompactionJob::Run():Marker", "CompactionJob::Run():End"},
+       {"LevelCompactionBuilder::SetupInitialFiles:0",
+        "CompactionJob::Run():Level0Start"}});
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  // Trigger L1->L2 (compact file 6 and file 9)
+  options.disable_auto_compactions = false;
+  options.max_bytes_for_level_base = 5 * 1024 * 1024;  // 5 MB
+  Reopen(options);
+  TEST_SYNC_POINT(
+    "DBCompactionTestWithParam:UnblockingLevel0ToLevel1Compaction");
+  auto stop_token =
+    dbfull()->TEST_write_controler().GetCompactionPressureToken();
+  for (int i = 15; i < 19; i++) {
+    for (int j = 0; j < 5; j++) {
+      ASSERT_OK(Put(Key(i + j), value));
+    }
+    ASSERT_OK(Flush());
+  }
+  dbfull()->TEST_WaitForCompact();
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+
+  std::vector<std::vector<FileMetaData>> level_to_files;
+  dbfull()->TEST_GetFilesMetaData(dbfull()->DefaultColumnFamily(),
+                                  &level_to_files);
+  ASSERT_GE(level_to_files.size(), 3);  // at least L0, L1 and L2
+  ASSERT_EQ(0, level_to_files[0].size());
+  ASSERT_LE(2, level_to_files[1].size());
+  ASSERT_LE(1, level_to_files[2].size());
 }
 
 INSTANTIATE_TEST_CASE_P(DBCompactionTestWithParam, DBCompactionTestWithParam,

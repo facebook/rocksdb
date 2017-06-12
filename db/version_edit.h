@@ -23,6 +23,7 @@
 namespace rocksdb {
 
 class VersionSet;
+class Compaction;
 
 const uint64_t kFileNumberMask = 0x3FFFFFFFFFFFFFFF;
 
@@ -69,6 +70,7 @@ struct FileMetaData {
   InternalKey smallest;            // Smallest internal key served by table
   InternalKey largest;             // Largest internal key served by table
   bool being_compacted;            // Is this file undergoing compaction?
+  Compaction* compaction;          // if being compacted, the compaction pointer
   SequenceNumber smallest_seqno;   // The smallest seqno in this file
   SequenceNumber largest_seqno;    // The largest seqno in this file
 
@@ -96,6 +98,7 @@ struct FileMetaData {
   FileMetaData()
       : refs(0),
         being_compacted(false),
+        compaction(nullptr),
         smallest_seqno(kMaxSequenceNumber),
         largest_seqno(0),
         table_reader_handle(nullptr),

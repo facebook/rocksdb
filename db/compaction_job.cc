@@ -516,7 +516,10 @@ void CompactionJob::GenSubcompactionBoundaries() {
 Status CompactionJob::Run() {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_RUN);
+  TEST_SYNC_POINT("CompactionJob::Run():Marker");
   TEST_SYNC_POINT("CompactionJob::Run():Start");
+
+  TEST_SYNC_POINT("CompactionJob::Run():Level0Start");
   log_buffer_->FlushBufferToLog();
   LogCompaction();
 

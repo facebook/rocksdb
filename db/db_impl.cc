@@ -150,6 +150,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
              immutable_db_options_.use_adaptive_mutex),
       shutting_down_(false),
       bg_cv_(&mutex_),
+      l0_to_l1_cv_(&mutex_),
       logfile_number_(0),
       log_dir_synced_(false),
       log_empty_(true),

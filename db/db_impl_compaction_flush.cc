@@ -557,6 +557,8 @@ Status DBImpl::CompactFilesImpl(
 
   ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem);
 
+  CheckAndRemoveCompactionDependency(cfd, c.get(), status);
+
   if (status.ok()) {
     // Done
   } else if (status.IsShutdownInProgress()) {
@@ -1015,7 +1017,6 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     // compactions
     return;
   }
-
   while (bg_compaction_scheduled_ < bg_job_limits.max_compactions &&
          unscheduled_compactions_ > 0) {
     CompactionArg* ca = new CompactionArg;
@@ -1383,6 +1384,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       manual_compaction->status = status;
       manual_compaction->done = true;
       manual_compaction->in_progress = false;
+      CheckAndRemoveCompactionDependency(manual_compaction->cfd,
+                                         manual_compaction->compaction, status);
       delete manual_compaction->compaction;
       manual_compaction = nullptr;
     }
@@ -1395,10 +1398,13 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
   }
 
   unique_ptr<Compaction> c;
+
+  ColumnFamilyData* cfd = nullptr;
   // InternalKey manual_end_storage;
   // InternalKey* manual_end = &manual_end_storage;
   if (is_manual) {
     ManualCompaction* m = manual_compaction;
+    cfd = m->cfd;
     assert(m->in_progress);
     c.reset(std::move(m->compaction));
     if (!c) {
@@ -1407,7 +1413,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       ROCKS_LOG_BUFFER(log_buffer,
                        "[%s] Manual compaction from level-%d from %s .. "
                        "%s; nothing to do\n",
-                       m->cfd->GetName().c_str(), m->input_level,
+                       cfd->GetName().c_str(), m->input_level,
                        (m->begin ? m->begin->DebugString().c_str() : "(begin)"),
                        (m->end ? m->end->DebugString().c_str() : "(end)"));
     } else {
@@ -1415,7 +1421,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
           log_buffer,
           "[%s] Manual compaction from level-%d to level-%d from %s .. "
           "%s; will stop at %s\n",
-          m->cfd->GetName().c_str(), m->input_level, c->output_level(),
+          cfd->GetName().c_str(), m->input_level, c->output_level(),
           (m->begin ? m->begin->DebugString().c_str() : "(begin)"),
           (m->end ? m->end->DebugString().c_str() : "(end)"),
           ((m->done || m->manual_end == nullptr)
@@ -1432,9 +1438,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 
       return Status::OK();
     }
-
     // cfd is referenced here
-    auto cfd = PopFirstFromCompactionQueue();
+    cfd = PopFirstFromCompactionQueue();
     // We unreference here because the following code will take a Ref() on
     // this cfd if it is going to use it (Compaction class holds a
     // reference).
@@ -1443,10 +1448,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     if (cfd->Unref()) {
       delete cfd;
       // This was the last reference of the column family, so no need to
-      // compact.
+      // compact and check dependency
       return Status::OK();
     }
-
     // Pick up latest mutable CF Options and use it throughout the
     // compaction job
     // Compaction makes a copy of the latest MutableCFOptions. It should be used
@@ -1546,7 +1550,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         moved_bytes += f->fd.GetFileSize();
       }
     }
-
+    // no need to unblock L0->base_level in level compaction because if this is
+    // a trivial move from L0 to L1, it should not have any dependency on
+    // any L1 file
     status = versions_->LogAndApply(c->column_family_data(),
                                     *c->mutable_cf_options(), c->edit(),
                                     &mutex_, directories_.GetDbDir());
@@ -1600,19 +1606,26 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     TEST_SYNC_POINT("DBImpl::BackgroundCompaction:NonTrivial:AfterRun");
     mutex_.Lock();
 
-    status = compaction_job.Install(*c->mutable_cf_options());
+    assert(cfd != nullptr);
+    // unblock L0->base_level in level compaction
+    WaitForDependingCompactionsDone(cfd, c.get(), &status);
+    if (status.ok()) {
+      status = compaction_job.Install(*c->mutable_cf_options());
+    }
+
     if (status.ok()) {
       InstallSuperVersionAndScheduleWorkWrapper(
           c->column_family_data(), job_context, *c->mutable_cf_options());
     }
     *made_progress = true;
   }
+
   if (c != nullptr) {
     c->ReleaseCompactionFiles(status);
     *made_progress = true;
-    NotifyOnCompactionCompleted(
-        c->column_family_data(), c.get(), status,
-        compaction_job_stats, job_context->job_id);
+    NotifyOnCompactionCompleted(c->column_family_data(), c.get(), status,
+                                compaction_job_stats, job_context->job_id);
+    CheckAndRemoveCompactionDependency(cfd, c.get(), status);
   }
   // this will unref its input_version and column_family_data
   c.reset();
@@ -1663,7 +1676,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       m->begin = &m->tmp_storage;
       m->incomplete = true;
     }
-    m->in_progress = false; // not being processed anymore
+    m->in_progress = false;  // not being processed anymore
   }
   TEST_SYNC_POINT("DBImpl::BackgroundCompaction:Finish");
   return status;
@@ -1690,6 +1703,42 @@ void DBImpl::RemoveManualCompaction(DBImpl::ManualCompaction* m) {
   }
   assert(false);
   return;
+}
+
+void DBImpl::WaitForDependingCompactionsDone(ColumnFamilyData * cfd,
+                                             Compaction * c, Status * status) {
+  mutex_.AssertHeld();
+  assert(cfd != nullptr);
+  assert(c != nullptr);
+  if (cfd->ioptions()->compaction_style == kCompactionStyleLevel &&
+      c->start_level() == 0 &&
+      c->output_level() == cfd->current()->storage_info()->base_level()) {
+    while (!cfd->compaction_picker()->depending_compactions()->empty()) {
+      l0_to_l1_cv_.Wait();
+    }
+    *status = *(cfd->compaction_picker()->depending_status());
+  }
+}
+
+void DBImpl::CheckAndRemoveCompactionDependency(
+    ColumnFamilyData * cfd, Compaction * c, const Status& status) {
+  mutex_.AssertHeld();
+  assert(cfd != nullptr);
+  if (c == nullptr) {
+    return;
+  }
+  auto* picker = cfd->compaction_picker();
+  if (cfd->ioptions()->compaction_style == kCompactionStyleLevel &&
+      c->start_level() == cfd->current()->storage_info()->base_level()) {
+    if (picker->depending_compactions()->erase(c) > 0) {
+      if (!status.ok()) {
+        *(picker->depending_status()) = status;
+      }
+      if (picker->depending_compactions()->empty()) {
+        l0_to_l1_cv_.SignalAll();
+      }
+    }
+  }
 }
 
 bool DBImpl::ShouldntRunManualCompaction(ManualCompaction* m) {
