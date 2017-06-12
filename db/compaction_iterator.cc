@@ -71,7 +71,9 @@ CompactionIterator::CompactionIterator(
       range_del_agg_(range_del_agg),
       compaction_(std::move(compaction)),
       compaction_filter_(compaction_filter),
+#ifndef ROCKSDB_LITE
       compaction_listener_(compaction_listener),
+#endif  // ROCKSDB_LITE
       shutting_down_(shutting_down),
       ignore_snapshots_(false),
       merge_out_iter_(merge_helper_) {
