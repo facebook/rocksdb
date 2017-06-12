@@ -126,8 +126,12 @@ Status WritableFileWriter::Append(const Slice& data) {
 
   // See whether we need to enlarge the buffer to avoid the flush
   if (buf_.Capacity() - buf_.CurrentSize() < left) {
-    for (size_t desired_capacity = buf_.Capacity();
-         desired_capacity < max_buffer_size_; desired_capacity *= 2) {
+    for (size_t cap = buf_.Capacity();
+         cap < max_buffer_size_;  // There is still room to increase
+         cap *= 2) {
+      // See whether the next available size is large enough.
+      // Buffer will never be increased to more than max_buffer_size_.
+      size_t desired_capacity = std::min(cap * 2, max_buffer_size_);
       if (desired_capacity - buf_.CurrentSize() >= left) {
         buf_.AllocateNewBuffer(desired_capacity, true);
         break;
