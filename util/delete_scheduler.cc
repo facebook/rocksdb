@@ -67,7 +67,8 @@ Status DeleteScheduler::DeleteFile(const std::string& file_path) {
   // Move file to trash
   std::string path_in_trash;
   s = MoveToTrash(file_path, &path_in_trash);
-  if (!s.ok()) { ROCKS_LOG_ERROR(info_log_, "Failed to move %s to trash directory (%s)",
+  if (!s.ok()) {
+    ROCKS_LOG_ERROR(info_log_, "Failed to move %s to trash directory (%s)",
                     file_path.c_str(), trash_dir_.c_str());
     s = env_->DeleteFile(file_path);
     if (s.ok()) {
