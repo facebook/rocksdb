@@ -93,6 +93,12 @@ std::string TableProperties::ToString(
 
   AppendProperty(result, "data block size", data_size, prop_delim, kv_delim);
   AppendProperty(result, "index block size", index_size, prop_delim, kv_delim);
+  if (index_partitions != 0) {
+    AppendProperty(result, "# index partitions", index_partitions, prop_delim,
+                   kv_delim);
+    AppendProperty(result, "top-level index size", top_level_index_size, prop_delim,
+                   kv_delim);
+  }
   AppendProperty(result, "filter block size", filter_size, prop_delim,
                  kv_delim);
   AppendProperty(result, "(estimated) table size",
@@ -139,6 +145,8 @@ std::string TableProperties::ToString(
 void TableProperties::Add(const TableProperties& tp) {
   data_size += tp.data_size;
   index_size += tp.index_size;
+  index_partitions += tp.index_partitions;
+  top_level_index_size += tp.top_level_index_size;
   filter_size += tp.filter_size;
   raw_key_size += tp.raw_key_size;
   raw_value_size += tp.raw_value_size;
@@ -150,6 +158,10 @@ const std::string TablePropertiesNames::kDataSize  =
     "rocksdb.data.size";
 const std::string TablePropertiesNames::kIndexSize =
     "rocksdb.index.size";
+const std::string TablePropertiesNames::kIndexPartitions =
+    "rocksdb.index.partitions";
+const std::string TablePropertiesNames::kTopLevelIndexSize =
+    "rocksdb.top-level.index.size";
 const std::string TablePropertiesNames::kFilterSize =
     "rocksdb.filter.size";
 const std::string TablePropertiesNames::kRawKeySize =
