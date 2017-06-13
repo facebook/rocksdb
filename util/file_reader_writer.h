@@ -13,6 +13,7 @@
 #include <string>
 #include "port/port.h"
 #include "rocksdb/env.h"
+#include "rocksdb/rate_limiter.h"
 #include "util/aligned_buffer.h"
 
 namespace rocksdb {
@@ -53,9 +54,6 @@ class SequentialFileReader {
   SequentialFile* file() { return file_.get(); }
 
   bool use_direct_io() const { return file_->use_direct_io(); }
-
- protected:
-  Status DirectRead(size_t n, Slice* result, char* scratch);
 };
 
 class RandomAccessFileReader {
@@ -65,29 +63,38 @@ class RandomAccessFileReader {
   Statistics*     stats_;
   uint32_t        hist_type_;
   HistogramImpl*  file_read_hist_;
+  RateLimiter* rate_limiter_;
+  bool for_compaction_;
 
  public:
   explicit RandomAccessFileReader(std::unique_ptr<RandomAccessFile>&& raf,
                                   Env* env = nullptr,
                                   Statistics* stats = nullptr,
                                   uint32_t hist_type = 0,
-                                  HistogramImpl* file_read_hist = nullptr)
+                                  HistogramImpl* file_read_hist = nullptr,
+                                  RateLimiter* rate_limiter = nullptr,
+                                  bool for_compaction = false)
       : file_(std::move(raf)),
         env_(env),
         stats_(stats),
         hist_type_(hist_type),
-        file_read_hist_(file_read_hist) {}
+        file_read_hist_(file_read_hist),
+        rate_limiter_(rate_limiter),
+        for_compaction_(for_compaction) {}
 
   RandomAccessFileReader(RandomAccessFileReader&& o) ROCKSDB_NOEXCEPT {
     *this = std::move(o);
   }
 
-  RandomAccessFileReader& operator=(RandomAccessFileReader&& o) ROCKSDB_NOEXCEPT{
+  RandomAccessFileReader& operator=(RandomAccessFileReader&& o)
+      ROCKSDB_NOEXCEPT {
     file_ = std::move(o.file_);
     env_ = std::move(o.env_);
     stats_ = std::move(o.stats_);
     hist_type_ = std::move(o.hist_type_);
     file_read_hist_ = std::move(o.file_read_hist_);
+    rate_limiter_ = std::move(o.rate_limiter_);
+    for_compaction_ = std::move(o.for_compaction_);
     return *this;
   }
 
@@ -103,10 +110,6 @@ class RandomAccessFileReader {
   RandomAccessFile* file() { return file_.get(); }
 
   bool use_direct_io() const { return file_->use_direct_io(); }
-
- protected:
-  Status DirectRead(uint64_t offset, size_t n, Slice* result,
-                    char* scratch) const;
 };
 
 // Use posix write to write data to a file.
@@ -187,7 +190,6 @@ class WritableFileWriter {
   // Normal write
   Status WriteBuffered(const char* data, size_t size);
   Status RangeSync(uint64_t offset, uint64_t nbytes);
-  size_t RequestToken(size_t bytes, bool align);
   Status SyncInternal(bool use_fsync);
 };
 

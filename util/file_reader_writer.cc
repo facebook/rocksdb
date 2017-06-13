@@ -84,22 +84,63 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
       size_t alignment = file_->GetRequiredBufferAlignment();
       size_t aligned_offset = TruncateToPageBoundary(alignment, offset);
       size_t offset_advance = offset - aligned_offset;
-      size_t size = Roundup(offset + n, alignment) - aligned_offset;
-      size_t r = 0;
+      size_t read_size = Roundup(offset + n, alignment) - aligned_offset;
       AlignedBuffer buf;
       buf.Alignment(alignment);
-      buf.AllocateNewBuffer(size);
-      Slice tmp;
-      s = file_->Read(aligned_offset, size, &tmp, buf.BufferStart());
-      if (s.ok() && offset_advance < tmp.size()) {
-        buf.Size(tmp.size());
-        r = buf.Read(scratch, offset_advance,
-                            std::min(tmp.size() - offset_advance, n));
+      buf.AllocateNewBuffer(read_size);
+      while (buf.CurrentSize() < read_size) {
+        size_t allowed;
+        if (rate_limiter_ != nullptr) {
+          allowed = rate_limiter_->RequestToken(
+              buf.Capacity() - buf.CurrentSize(), buf.Alignment(),
+              Env::IOPriority::IO_LOW, stats_, RateLimiter::OpType::kRead);
+        } else {
+          assert(buf.CurrentSize() == 0);
+          allowed = read_size;
+        }
+        Slice tmp;
+        s = file_->Read(aligned_offset + buf.CurrentSize(), allowed, &tmp,
+                        buf.Destination());
+        buf.Size(buf.CurrentSize() + tmp.size());
+        if (!s.ok() || tmp.size() < allowed) {
+          break;
+        }
       }
-      *result = Slice(scratch, r);
+      size_t res_len = 0;
+      if (s.ok() && offset_advance < buf.CurrentSize()) {
+        res_len = buf.Read(scratch, offset_advance,
+                           std::min(buf.CurrentSize() - offset_advance, n));
+      }
+      *result = Slice(scratch, res_len);
 #endif  // !ROCKSDB_LITE
     } else {
-      s = file_->Read(offset, n, result, scratch);
+      size_t pos = 0;
+      const char* res_scratch = nullptr;
+      while (pos < n) {
+        size_t allowed;
+        if (for_compaction_ && rate_limiter_ != nullptr) {
+          allowed = rate_limiter_->RequestToken(n - pos, 0 /* alignment */,
+                                                Env::IOPriority::IO_LOW, stats_,
+                                                RateLimiter::OpType::kRead);
+        } else {
+          allowed = n;
+        }
+        Slice tmp_result;
+        s = file_->Read(offset + pos, allowed, &tmp_result, scratch + pos);
+        if (res_scratch == nullptr) {
+          // we can't simply use `scratch` because reads of mmap'd files return
+          // data in a different buffer.
+          res_scratch = tmp_result.data();
+        } else {
+          // make sure chunks are inserted contiguously into `res_scratch`.
+          assert(tmp_result.data() == res_scratch + pos);
+        }
+        pos += tmp_result.size();
+        if (!s.ok() || tmp_result.size() < allowed) {
+          break;
+        }
+      }
+      *result = Slice(res_scratch, s.ok() ? pos : 0);
     }
     IOSTATS_ADD_IF_POSITIVE(bytes_read, result->size());
   }
@@ -319,25 +360,6 @@ Status WritableFileWriter::RangeSync(uint64_t offset, uint64_t nbytes) {
   return writable_file_->RangeSync(offset, nbytes);
 }
 
-size_t WritableFileWriter::RequestToken(size_t bytes, bool align) {
-  Env::IOPriority io_priority;
-  if (rate_limiter_ && (io_priority = writable_file_->GetIOPriority()) <
-      Env::IO_TOTAL) {
-    bytes = std::min(
-      bytes, static_cast<size_t>(rate_limiter_->GetSingleBurstBytes()));
-
-    if (align) {
-      // Here we may actually require more than burst and block
-      // but we can not write less than one page at a time on direct I/O
-      // thus we may want not to use ratelimiter
-      size_t alignment = buf_.Alignment();
-      bytes = std::max(alignment, TruncateToPageBoundary(alignment, bytes));
-    }
-    rate_limiter_->Request(bytes, io_priority, stats_);
-  }
-  return bytes;
-}
-
 // This method writes to disk the specified data and makes use of the rate
 // limiter if available
 Status WritableFileWriter::WriteBuffered(const char* data, size_t size) {
@@ -347,7 +369,14 @@ Status WritableFileWriter::WriteBuffered(const char* data, size_t size) {
   size_t left = size;
 
   while (left > 0) {
-    size_t allowed = RequestToken(left, false);
+    size_t allowed;
+    if (rate_limiter_ != nullptr) {
+      allowed = rate_limiter_->RequestToken(
+          left, 0 /* alignment */, writable_file_->GetIOPriority(), stats_,
+          RateLimiter::OpType::kWrite);
+    } else {
+      allowed = left;
+    }
 
     {
       IOSTATS_TIMER_GUARD(write_nanos);
@@ -403,7 +432,14 @@ Status WritableFileWriter::WriteDirect() {
 
   while (left > 0) {
     // Check how much is allowed
-    size_t size = RequestToken(left, true);
+    size_t size;
+    if (rate_limiter_ != nullptr) {
+      size = rate_limiter_->RequestToken(left, buf_.Alignment(),
+                                         writable_file_->GetIOPriority(),
+                                         stats_, RateLimiter::OpType::kWrite);
+    } else {
+      size = left;
+    }
 
     {
       IOSTATS_TIMER_GUARD(write_nanos);

@@ -245,7 +245,7 @@ DEFINE_uint64(subcompactions, 1,
               "Maximum number of subcompactions to divide L0-L1 compactions "
               "into.");
 
-DEFINE_bool(allow_concurrent_memtable_write, true,
+DEFINE_bool(allow_concurrent_memtable_write, false,
             "Allow multi-writers to update mem tables in parallel.");
 
 DEFINE_bool(enable_write_thread_adaptive_yield, true,
@@ -325,6 +325,11 @@ DEFINE_double(max_bytes_for_level_multiplier, 2,
 
 DEFINE_int32(range_deletion_width, 10,
              "The width of the range deletion intervals.");
+
+DEFINE_uint64(rate_limiter_bytes_per_sec, 0, "Set options.rate_limiter value.");
+
+DEFINE_bool(rate_limit_bg_reads, false,
+            "Use options.rate_limiter on compaction reads");
 
 // Temporarily disable this to allows it to detect new bugs
 DEFINE_int32(compact_files_one_in, 0,
@@ -2182,6 +2187,16 @@ class StressTest {
         FLAGS_allow_concurrent_memtable_write;
     options_.enable_write_thread_adaptive_yield =
         FLAGS_enable_write_thread_adaptive_yield;
+    if (FLAGS_rate_limiter_bytes_per_sec > 0) {
+      options_.rate_limiter.reset(NewGenericRateLimiter(
+          FLAGS_rate_limiter_bytes_per_sec, 1000 /* refill_period_us */,
+          10 /* fairness */,
+          FLAGS_rate_limit_bg_reads ? RateLimiter::Mode::kReadsOnly
+                                    : RateLimiter::Mode::kWritesOnly));
+      if (FLAGS_rate_limit_bg_reads) {
+        options_.new_table_reader_for_compaction_inputs = true;
+      }
+    }
 
     if (FLAGS_prefix_size == 0 && FLAGS_rep_factory == kHashSkipList) {
       fprintf(stderr,
