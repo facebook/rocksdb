@@ -17,6 +17,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "util/delete_scheduler.h"
+#include "util/sst_file_manager_impl.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
 #include "util/testharness.h"
@@ -61,20 +62,26 @@ class DeleteSchedulerTest : public testing::Test {
     std::string data(size, 'A');
     EXPECT_OK(f->Append(data));
     EXPECT_OK(f->Close());
+    sst_file_mgr_->OnAddFile(file_path);
     return file_path;
   }
 
   void NewDeleteScheduler() {
     ASSERT_OK(env_->CreateDirIfMissing(trash_dir_));
-    delete_scheduler_.reset(new DeleteScheduler(
-        env_, trash_dir_, rate_bytes_per_sec_, nullptr, nullptr));
+    sst_file_mgr_.reset(
+        new SstFileManagerImpl(env_, nullptr, trash_dir_, rate_bytes_per_sec_));
+    delete_scheduler_ = sst_file_mgr_->delete_scheduler();
+    // Tests in this file are for DeleteScheduler component and dont create any
+    // DBs, so we need to use set this value to 100% (instead of default 25%)
+    delete_scheduler_->TEST_SetMaxTrashDBRatio(1.1);
   }
 
   Env* env_;
   std::string dummy_files_dir_;
   std::string trash_dir_;
   int64_t rate_bytes_per_sec_;
-  std::shared_ptr<DeleteScheduler> delete_scheduler_;
+  DeleteScheduler* delete_scheduler_;
+  std::unique_ptr<SstFileManagerImpl> sst_file_mgr_;
 };
 
 // Test the basic functionality of DeleteScheduler (Rate Limiting).
@@ -389,7 +396,7 @@ TEST_F(DeleteSchedulerTest, DestructorWithNonEmptyQueue) {
 
   // Deleting 100 files will need >28 hours to delete
   // we will delete the DeleteScheduler while delete queue is not empty
-  delete_scheduler_.reset();
+  sst_file_mgr_.reset();
 
   ASSERT_LT(bg_delete_file, 100);
   ASSERT_GT(CountFilesInDir(trash_dir_), 0);
@@ -506,6 +513,42 @@ TEST_F(DeleteSchedulerTest, DISABLED_DynamicRateLimiting1) {
     ASSERT_EQ(CountFilesInDir(trash_dir_), 0);
     rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   }
+}
+
+TEST_F(DeleteSchedulerTest, ImmediateDeleteOn25PercDBSize) {
+  int bg_delete_file = 0;
+  int fg_delete_file = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DeleteScheduler::DeleteTrashFile:DeleteFile",
+      [&](void* arg) { bg_delete_file++; });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DeleteScheduler::DeleteFile", [&](void* arg) { fg_delete_file++; });
+
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  int num_files = 100;  // 100 files
+  uint64_t file_size = 1024 * 10; // 100 KB as a file size
+  rate_bytes_per_sec_ = 1;  // 1 byte per sec (very slow trash delete)
+
+  NewDeleteScheduler();
+  delete_scheduler_->TEST_SetMaxTrashDBRatio(0.25);
+
+  std::vector<std::string> generated_files;
+  for (int i = 0; i < num_files; i++) {
+    std::string file_name = "file" + ToString(i) + ".data";
+    generated_files.push_back(NewDummyFile(file_name, file_size));
+  }
+
+  for (std::string& file_name : generated_files) {
+    delete_scheduler_->DeleteFile(file_name);
+  }
+
+  // When we end up with 24 files in trash we will start
+  // deleting new files immediately
+  ASSERT_EQ(fg_delete_file, 74);
+  ASSERT_EQ(CountFilesInDir(trash_dir_), 25);
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 }  // namespace rocksdb

@@ -18,9 +18,6 @@
 #ifdef OS_SOLARIS
 #include <alloca.h>
 #endif
-#ifdef ROCKSDB_JEMALLOC
-#include "jemalloc/jemalloc.h"
-#endif
 
 #include <algorithm>
 #include <climits>
@@ -46,6 +43,7 @@
 #include "db/job_context.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
+#include "db/malloc_stats.h"
 #include "db/managed_iterator.h"
 #include "db/memtable.h"
 #include "db/memtable_list.h"
@@ -136,6 +134,8 @@ void DumpSupportInfo(Logger* logger) {
   ROCKS_LOG_HEADER(logger, "Fast CRC32 supported: %d",
                    crc32c::IsFastCrc32Supported());
 }
+
+int64_t kDefaultLowPriThrottledRate = 2 * 1024 * 1024;
 } // namespace
 
 DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
@@ -159,11 +159,13 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       max_total_in_memory_state_(0),
       is_snapshot_supported_(true),
       write_buffer_manager_(immutable_db_options_.write_buffer_manager.get()),
-      write_thread_(immutable_db_options_.enable_write_thread_adaptive_yield
-                        ? immutable_db_options_.write_thread_max_yield_usec
-                        : 0,
-                    immutable_db_options_.write_thread_slow_yield_usec),
+      write_thread_(immutable_db_options_),
       write_controller_(mutable_db_options_.delayed_write_rate),
+      // Use delayed_write_rate as a base line to determine the initial
+      // low pri write rate limit. It may be adjusted later.
+      low_pri_write_rate_limiter_(NewGenericRateLimiter(std::min(
+          static_cast<int64_t>(mutable_db_options_.delayed_write_rate / 8),
+          kDefaultLowPriThrottledRate))),
       last_batch_group_size_(0),
       unscheduled_flushes_(0),
       unscheduled_compactions_(0),
@@ -372,39 +374,6 @@ void DBImpl::PrintStatistics() {
                    dbstats->ToString().c_str());
   }
 }
-
-#ifndef ROCKSDB_LITE
-#ifdef ROCKSDB_JEMALLOC
-typedef struct {
-  char* cur;
-  char* end;
-} MallocStatus;
-
-static void GetJemallocStatus(void* mstat_arg, const char* status) {
-  MallocStatus* mstat = reinterpret_cast<MallocStatus*>(mstat_arg);
-  size_t status_len = status ? strlen(status) : 0;
-  size_t buf_size = (size_t)(mstat->end - mstat->cur);
-  if (!status_len || status_len > buf_size) {
-    return;
-  }
-
-  snprintf(mstat->cur, buf_size, "%s", status);
-  mstat->cur += status_len;
-}
-#endif  // ROCKSDB_JEMALLOC
-
-static void DumpMallocStats(std::string* stats) {
-#ifdef ROCKSDB_JEMALLOC
-  MallocStatus mstat;
-  const unsigned int kMallocStatusLen = 1000000;
-  std::unique_ptr<char[]> buf{new char[kMallocStatusLen + 1]};
-  mstat.cur = buf.get();
-  mstat.end = buf.get() + kMallocStatusLen;
-  je_malloc_stats_print(GetJemallocStatus, &mstat, "");
-  stats->append(buf.get());
-#endif  // ROCKSDB_JEMALLOC
-}
-#endif  // !ROCKSDB_LITE
 
 void DBImpl::MaybeDumpStats() {
   mutex_.Lock();
@@ -2486,7 +2455,7 @@ void DBImpl::EraseThreadStatusDbInfo() const {
 // A global method that can dump out the build version
 void DumpRocksDBBuildVersion(Logger * log) {
 #if !defined(IOS_CROSS_COMPILE)
-  // if we compile with Xcode, we don't run build_detect_vesion, so we don't
+  // if we compile with Xcode, we don't run build_detect_version, so we don't
   // generate util/build_version.cc
   ROCKS_LOG_HEADER(log, "RocksDB version: %d.%d.%d\n", ROCKSDB_MAJOR,
                    ROCKSDB_MINOR, ROCKSDB_PATCH);
@@ -2613,6 +2582,15 @@ Status DBImpl::IngestExternalFile(
   Status status;
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
+
+  // Ingest should immediately fail if ingest_behind is requested,
+  // but the DB doesn't support it.
+  if (ingestion_options.ingest_behind) {
+    if (!immutable_db_options_.allow_ingest_behind) {
+      return Status::InvalidArgument(
+        "Can't ingest_behind file in DB with allow_ingest_behind=false");
+    }
+  }
 
   ExternalSstFileIngestionJob ingestion_job(env_, versions_.get(), cfd,
                                             immutable_db_options_, env_options_,

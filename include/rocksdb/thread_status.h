@@ -22,8 +22,7 @@
 
 #if !defined(ROCKSDB_LITE) && \
     !defined(NROCKSDB_THREAD_STATUS) && \
-    !defined(OS_MACOSX) && \
-    !defined(IOS_CROSS_COMPILE)
+    defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
 #define ROCKSDB_USING_THREAD_STATUS
 #endif
 
@@ -146,7 +145,7 @@ struct ThreadStatus {
   // The operation (high-level action) that the current thread is involved.
   const OperationType operation_type;
 
-  // The elapsed time in micros of the current thread operation.
+  // The elapsed time of the current thread operation in microseconds.
   const uint64_t op_elapsed_micros;
 
   // An integer showing the current stage where the thread is involved

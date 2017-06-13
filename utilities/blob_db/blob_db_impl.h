@@ -196,6 +196,10 @@ class BlobDBImpl : public BlobDB {
 
   ~BlobDBImpl();
 
+#ifndef NDEBUG
+  Status TEST_GetSequenceNumber(const Slice& key, SequenceNumber* sequence);
+#endif  //  !NDEBUG
+
  private:
   static bool ExtractTTLFromBlob(const Slice& value, Slice* newval,
                                  int32_t* ttl_val);
@@ -203,7 +207,8 @@ class BlobDBImpl : public BlobDB {
   Status OpenPhase1();
 
   Status CommonGet(const ColumnFamilyData* cfd, const Slice& key,
-                   const std::string& index_entry, std::string* value);
+                   const std::string& index_entry, std::string* value,
+                   SequenceNumber* sequence = nullptr);
 
   // Just before flush starts acting on memtable files,
   // this handler is called.

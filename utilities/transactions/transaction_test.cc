@@ -2113,6 +2113,7 @@ TEST_P(TransactionTest, ColumnFamiliesTest) {
   delete cfa;
   delete cfb;
   delete db;
+  db = nullptr;
 
   // open DB with three column families
   std::vector<ColumnFamilyDescriptor> column_families;
@@ -2129,6 +2130,7 @@ TEST_P(TransactionTest, ColumnFamiliesTest) {
 
   s = TransactionDB::Open(options, txn_db_options, dbname, column_families,
                           &handles, &db);
+  assert(db != nullptr);
   ASSERT_OK(s);
 
   Transaction* txn = db->BeginTransaction(write_options);
@@ -2810,10 +2812,12 @@ TEST_P(TransactionTest, LockLimitTest) {
   Status s;
 
   delete db;
+  db = nullptr;
 
   // Open DB with a lock limit of 3
   txn_db_options.max_num_locks = 3;
   s = TransactionDB::Open(options, txn_db_options, dbname, &db);
+  assert(db != nullptr);
   ASSERT_OK(s);
 
   // Create a txn and verify we can only lock up to 3 keys
@@ -3736,6 +3740,7 @@ TEST_P(TransactionTest, TimeoutTest) {
   Status s;
 
   delete db;
+  db = nullptr;
 
   // transaction writes have an infinite timeout,
   // but we will override this when we start a txn
@@ -3744,6 +3749,7 @@ TEST_P(TransactionTest, TimeoutTest) {
   txn_db_options.default_lock_timeout = -1;
 
   s = TransactionDB::Open(options, txn_db_options, dbname, &db);
+  assert(db != nullptr);
   ASSERT_OK(s);
 
   s = db->Put(write_options, "aaa", "aaa");

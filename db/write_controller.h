@@ -11,6 +11,7 @@
 
 #include <atomic>
 #include <memory>
+#include "rocksdb/rate_limiter.h"
 
 namespace rocksdb {
 
@@ -23,12 +24,15 @@ class WriteControllerToken;
 // to be called while holding DB mutex
 class WriteController {
  public:
-  explicit WriteController(uint64_t _delayed_write_rate = 1024u * 1024u * 32u)
+  explicit WriteController(uint64_t _delayed_write_rate = 1024u * 1024u * 32u,
+                           int64_t low_pri_rate_bytes_per_sec = 1024 * 1024)
       : total_stopped_(0),
         total_delayed_(0),
         total_compaction_pressure_(0),
         bytes_left_(0),
-        last_refill_time_(0) {
+        last_refill_time_(0),
+        low_pri_rate_limiter_(
+            NewGenericRateLimiter(low_pri_rate_bytes_per_sec)) {
     set_max_delayed_write_rate(_delayed_write_rate);
   }
   ~WriteController() = default;
@@ -80,6 +84,8 @@ class WriteController {
 
   uint64_t max_delayed_write_rate() const { return max_delayed_write_rate_; }
 
+  RateLimiter* low_pri_rate_limiter() { return low_pri_rate_limiter_.get(); }
+
  private:
   uint64_t NowMicrosMonotonic(Env* env);
 
@@ -88,15 +94,17 @@ class WriteController {
   friend class DelayWriteToken;
   friend class CompactionPressureToken;
 
-  int total_stopped_;
+  std::atomic<int> total_stopped_;
   std::atomic<int> total_delayed_;
-  int total_compaction_pressure_;
+  std::atomic<int> total_compaction_pressure_;
   uint64_t bytes_left_;
   uint64_t last_refill_time_;
   // write rate set when initialization or by `DBImpl::SetDBOptions`
   uint64_t max_delayed_write_rate_;
   // current write rate
   uint64_t delayed_write_rate_;
+
+  std::unique_ptr<RateLimiter> low_pri_rate_limiter_;
 };
 
 class WriteControllerToken {

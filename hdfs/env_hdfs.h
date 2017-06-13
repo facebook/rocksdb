@@ -151,6 +151,10 @@ class HdfsEnv : public Env {
     posixEnv->SetBackgroundThreads(number, pri);
   }
 
+  virtual int GetBackgroundThreads(Priority pri = LOW) {
+    return posixEnv->GetBackgroundThreads(pri);
+  }
+
   virtual void IncBackgroundThreadsIfNeeded(int number, Priority pri) override {
     posixEnv->IncBackgroundThreadsIfNeeded(number, pri);
   }
@@ -358,6 +362,7 @@ class HdfsEnv : public Env {
   }
 
   virtual void SetBackgroundThreads(int number, Priority pri = LOW) override {}
+  virtual int GetBackgroundThreads(Priority pri = LOW) override { return 0; }
   virtual void IncBackgroundThreadsIfNeeded(int number, Priority pri) override {
   }
   virtual std::string TimeToString(uint64_t number) override { return ""; }

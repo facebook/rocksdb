@@ -153,7 +153,7 @@ class WriteBatchInternal {
   //
   // Under concurrent use, the caller is responsible for making sure that
   // the memtables object itself is thread-local.
-  static Status InsertInto(const autovector<WriteThread::Writer*>& batches,
+  static Status InsertInto(WriteThread::WriteGroup& write_group,
                            SequenceNumber sequence,
                            ColumnFamilyMemTables* memtables,
                            FlushScheduler* flush_scheduler,
@@ -172,7 +172,7 @@ class WriteBatchInternal {
                            SequenceNumber* last_seq_used = nullptr,
                            bool* has_valid_writes = nullptr);
 
-  static Status InsertInto(WriteThread::Writer* writer,
+  static Status InsertInto(WriteThread::Writer* writer, SequenceNumber sequence,
                            ColumnFamilyMemTables* memtables,
                            FlushScheduler* flush_scheduler,
                            bool ignore_missing_column_families = false,

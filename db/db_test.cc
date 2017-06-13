@@ -62,7 +62,6 @@
 #include "util/file_reader_writer.h"
 #include "util/filename.h"
 #include "util/hash.h"
-#include "util/logging.h"
 #include "util/mutexlock.h"
 #include "util/rate_limiter.h"
 #include "util/string_util.h"
@@ -1441,7 +1440,6 @@ TEST_F(DBTest, UnremovableSingleDelete) {
 #ifndef ROCKSDB_LITE
 TEST_F(DBTest, DeletionMarkers1) {
   Options options = CurrentOptions();
-  options.max_background_flushes = 0;
   CreateAndReopenWithCF({"pikachu"}, options);
   Put(1, "foo", "v1");
   ASSERT_OK(Flush(1));
@@ -3075,9 +3073,9 @@ TEST_F(DBTest, DynamicMemtableOptions) {
                  Env::Priority::LOW);
   // Start from scratch and disable compaction/flush. Flush can only happen
   // during compaction but trigger is pretty high
-  options.max_background_flushes = 0;
   options.disable_auto_compactions = true;
   DestroyAndReopen(options);
+  env_->SetBackgroundThreads(0, Env::HIGH);
 
   // Put until writes are stopped, bounded by 256 puts. We should see stop at
   // ~128KB
@@ -3354,7 +3352,6 @@ TEST_P(DBTestWithParam, ThreadStatusSingleCompaction) {
 
 TEST_P(DBTestWithParam, PreShutdownManualCompaction) {
   Options options = CurrentOptions();
-  options.max_background_flushes = 0;
   options.max_subcompactions = max_subcompactions_;
   CreateAndReopenWithCF({"pikachu"}, options);
 
@@ -3393,7 +3390,6 @@ TEST_P(DBTestWithParam, PreShutdownManualCompaction) {
 
     if (iter == 0) {
       options = CurrentOptions();
-      options.max_background_flushes = 0;
       options.num_levels = 3;
       options.create_if_missing = true;
       DestroyAndReopen(options);
@@ -3404,7 +3400,6 @@ TEST_P(DBTestWithParam, PreShutdownManualCompaction) {
 
 TEST_F(DBTest, PreShutdownFlush) {
   Options options = CurrentOptions();
-  options.max_background_flushes = 0;
   CreateAndReopenWithCF({"pikachu"}, options);
   ASSERT_OK(Put(1, "key", "value"));
   CancelAllBackgroundWork(db_);
@@ -3696,19 +3691,14 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel2) {
   Random rnd(301);
   Options options;
   options.create_if_missing = true;
-  options.db_write_buffer_size = 6000;
-  options.write_buffer_size = 6000;
+  options.db_write_buffer_size = 6000000;
+  options.write_buffer_size = 600000;
   options.max_write_buffer_number = 2;
   options.level0_file_num_compaction_trigger = 2;
   options.level0_slowdown_writes_trigger = 2;
   options.level0_stop_writes_trigger = 2;
   options.soft_pending_compaction_bytes_limit = 1024 * 1024;
-
-  // Use file size to distinguish levels
-  // L1: 10, L2: 20, L3 40, L4 80
-  // L0 is less than 30
-  options.target_file_size_base = 10;
-  options.target_file_size_multiplier = 2;
+  options.target_file_size_base = 20;
 
   options.level_compaction_dynamic_level_bytes = true;
   options.max_bytes_for_level_base = 200;
@@ -3745,10 +3735,11 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel2) {
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   for (int i = 0; i < 100; i++) {
-    ASSERT_OK(Put(Key(keys[i]), RandomString(&rnd, 200)));
-
-    if (i % 25 == 0) {
-      dbfull()->TEST_WaitForFlushMemTable();
+    std::string value = RandomString(&rnd, 200);
+    ASSERT_OK(Put(Key(keys[i]), value));
+    if (i % 25 == 24) {
+      Flush();
+      dbfull()->TEST_WaitForCompact();
     }
   }
 
@@ -3789,7 +3780,8 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel2) {
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   for (int i = 101; i < 500; i++) {
-    ASSERT_OK(Put(Key(keys[i]), RandomString(&rnd, 200)));
+    std::string value = RandomString(&rnd, 200);
+    ASSERT_OK(Put(Key(keys[i]), value));
     if (i % 100 == 99) {
       Flush();
       dbfull()->TEST_WaitForCompact();
@@ -5163,7 +5155,6 @@ TEST_F(DBTest, PauseBackgroundWorkTest) {
   // now it's done
   ASSERT_TRUE(done.load());
 }
-
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

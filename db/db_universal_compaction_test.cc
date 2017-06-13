@@ -118,7 +118,7 @@ class DelayFilterFactory : public CompactionFilterFactory {
 };
 }  // namespace
 
-// Make sure we don't trigger a problem if the trigger conditon is given
+// Make sure we don't trigger a problem if the trigger condtion is given
 // to be 0, which is invalid.
 TEST_P(DBTestUniversalCompaction, UniversalCompactionSingleSortedRun) {
   Options options = CurrentOptions();

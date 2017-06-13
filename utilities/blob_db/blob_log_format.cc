@@ -32,9 +32,10 @@ BlobLogHeader& BlobLogHeader::operator=(BlobLogHeader&& in) noexcept {
 
 BlobLogFooter::BlobLogFooter() : magic_number_(kMagicNumber), blob_count_(0) {}
 
-Status BlobLogFooter::DecodeFrom(Slice* input) {
+Status BlobLogFooter::DecodeFrom(const Slice& input) {
+  Slice slice(input);
   uint32_t val;
-  if (!GetFixed32(input, &val)) {
+  if (!GetFixed32(&slice, &val)) {
     return Status::Corruption("Invalid Blob Footer: flags");
   }
 
@@ -55,33 +56,34 @@ Status BlobLogFooter::DecodeFrom(Slice* input) {
       return Status::Corruption("Invalid Blob Footer: flags_val");
   }
 
-  if (!GetFixed64(input, &blob_count_)) {
+  if (!GetFixed64(&slice, &blob_count_)) {
     return Status::Corruption("Invalid Blob Footer: blob_count");
   }
 
   ttlrange_t temp_ttl;
-  if (!GetFixed32(input, &temp_ttl.first) ||
-      !GetFixed32(input, &temp_ttl.second)) {
+  if (!GetFixed32(&slice, &temp_ttl.first) ||
+      !GetFixed32(&slice, &temp_ttl.second)) {
     return Status::Corruption("Invalid Blob Footer: ttl_range");
   }
   if (has_ttl) {
-    printf("has ttl\n");
     ttl_range_.reset(new ttlrange_t(temp_ttl));
   }
 
-  if (!GetFixed64(input, &sn_range_.first) ||
-      !GetFixed64(input, &sn_range_.second)) {
+  if (!GetFixed64(&slice, &sn_range_.first) ||
+      !GetFixed64(&slice, &sn_range_.second)) {
     return Status::Corruption("Invalid Blob Footer: sn_range");
   }
 
   tsrange_t temp_ts;
-  if (!GetFixed64(input, &temp_ts.first) ||
-      !GetFixed64(input, &temp_ts.second)) {
+  if (!GetFixed64(&slice, &temp_ts.first) ||
+      !GetFixed64(&slice, &temp_ts.second)) {
     return Status::Corruption("Invalid Blob Footer: ts_range");
   }
-  if (has_ts) ts_range_.reset(new tsrange_t(temp_ts));
+  if (has_ts) {
+    ts_range_.reset(new tsrange_t(temp_ts));
+  }
 
-  if (!GetFixed32(input, &magic_number_) || magic_number_ != kMagicNumber) {
+  if (!GetFixed32(&slice, &magic_number_) || magic_number_ != kMagicNumber) {
     return Status::Corruption("Invalid Blob Footer: magic");
   }
 
@@ -163,18 +165,19 @@ void BlobLogHeader::EncodeTo(std::string* dst) const {
   }
 }
 
-Status BlobLogHeader::DecodeFrom(Slice* input) {
-  if (!GetFixed32(input, &magic_number_) || magic_number_ != kMagicNumber) {
+Status BlobLogHeader::DecodeFrom(const Slice& input) {
+  Slice slice(input);
+  if (!GetFixed32(&slice, &magic_number_) || magic_number_ != kMagicNumber) {
     return Status::Corruption("Invalid Blob Log Header: magic");
   }
 
   // as of today, we only support 1 version
-  if (!GetFixed32(input, &version_) || version_ != kVersion1) {
+  if (!GetFixed32(&slice, &version_) || version_ != kVersion1) {
     return Status::Corruption("Invalid Blob Log Header: version");
   }
 
   uint32_t val;
-  if (!GetFixed32(input, &val)) {
+  if (!GetFixed32(&slice, &val)) {
     return Status::Corruption("Invalid Blob Log Header: subtype");
   }
 
@@ -196,15 +199,15 @@ Status BlobLogHeader::DecodeFrom(Slice* input) {
   }
 
   ttlrange_t temp_ttl;
-  if (!GetFixed32(input, &temp_ttl.first) ||
-      !GetFixed32(input, &temp_ttl.second)) {
+  if (!GetFixed32(&slice, &temp_ttl.first) ||
+      !GetFixed32(&slice, &temp_ttl.second)) {
     return Status::Corruption("Invalid Blob Log Header: ttl");
   }
   if (has_ttl) set_ttl_guess(temp_ttl);
 
   tsrange_t temp_ts;
-  if (!GetFixed64(input, &temp_ts.first) ||
-      !GetFixed64(input, &temp_ts.second)) {
+  if (!GetFixed64(&slice, &temp_ts.first) ||
+      !GetFixed64(&slice, &temp_ts.second)) {
     return Status::Corruption("Invalid Blob Log Header: timestamp");
   }
   if (has_ts) set_ts_guess(temp_ts);

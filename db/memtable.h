@@ -20,12 +20,12 @@
 #include "db/dbformat.h"
 #include "db/range_del_aggregator.h"
 #include "db/version_edit.h"
-#include "memtable/memtable_allocator.h"
 #include "monitoring/instrumented_mutex.h"
 #include "options/cf_options.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
+#include "util/allocator.h"
 #include "util/concurrent_arena.h"
 #include "util/dynamic_bloom.h"
 #include "util/hash.h"
@@ -103,7 +103,7 @@ class MemTable {
                     const ImmutableCFOptions& ioptions,
                     const MutableCFOptions& mutable_cf_options,
                     WriteBufferManager* write_buffer_manager,
-                    SequenceNumber earliest_seq);
+                    SequenceNumber earliest_seq, uint32_t column_family_id);
 
   // Do not delete this MemTable unless Unref() indicates it not in use.
   ~MemTable();
@@ -319,7 +319,7 @@ class MemTable {
   // write anything to this MemTable().  (Ie. do not call Add() or Update()).
   void MarkImmutable() {
     table_->MarkReadOnly();
-    allocator_.DoneAllocating();
+    mem_tracker_.DoneAllocating();
   }
 
   // return true if the current MemTableRep supports merge operator.
@@ -361,8 +361,8 @@ class MemTable {
   const MemTableOptions moptions_;
   int refs_;
   const size_t kArenaBlockSize;
+  AllocTracker mem_tracker_;
   ConcurrentArena arena_;
-  MemTableAllocator allocator_;
   unique_ptr<MemTableRep> table_;
   unique_ptr<MemTableRep> range_del_table_;
   bool is_range_del_table_empty_;

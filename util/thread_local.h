@@ -20,14 +20,6 @@
 #include "util/autovector.h"
 #include "port/port.h"
 
-#ifndef ROCKSDB_SUPPORT_THREAD_LOCAL
-#  if defined(OS_WIN) || defined(OS_MACOSX) || defined(IOS_CROSS_COMPILE)
-#    define ROCKSDB_SUPPORT_THREAD_LOCAL 0
-#  else
-#    define ROCKSDB_SUPPORT_THREAD_LOCAL 1
-#  endif
-#endif
-
 namespace rocksdb {
 
 // Cleanup function that will be called for a stored thread local

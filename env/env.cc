@@ -342,6 +342,18 @@ EnvOptions Env::OptimizeForManifestWrite(const EnvOptions& env_options) const {
   return env_options;
 }
 
+EnvOptions Env::OptimizeForLogRead(const EnvOptions& env_options) const {
+  EnvOptions optimized_env_options(env_options);
+  optimized_env_options.use_direct_reads = false;
+  return optimized_env_options;
+}
+
+EnvOptions Env::OptimizeForManifestRead(const EnvOptions& env_options) const {
+  EnvOptions optimized_env_options(env_options);
+  optimized_env_options.use_direct_reads = false;
+  return optimized_env_options;
+}
+
 EnvOptions Env::OptimizeForCompactionTableWrite(
     const EnvOptions& env_options, const ImmutableDBOptions& db_options) const {
   EnvOptions optimized_env_options(env_options);

@@ -26,7 +26,7 @@ namespace {
 class HashSkipListRep : public MemTableRep {
  public:
   HashSkipListRep(const MemTableRep::KeyComparator& compare,
-                  MemTableAllocator* allocator, const SliceTransform* transform,
+                  Allocator* allocator, const SliceTransform* transform,
                   size_t bucket_size, int32_t skiplist_height,
                   int32_t skiplist_branching_factor);
 
@@ -65,7 +65,7 @@ class HashSkipListRep : public MemTableRep {
 
   const MemTableRep::KeyComparator& compare_;
   // immutable after construction
-  MemTableAllocator* const allocator_;
+  Allocator* const allocator_;
 
   inline size_t GetHash(const Slice& slice) const {
     return MurmurHash(slice.data(), static_cast<int>(slice.size()), 0) %
@@ -233,7 +233,7 @@ class HashSkipListRep : public MemTableRep {
 };
 
 HashSkipListRep::HashSkipListRep(const MemTableRep::KeyComparator& compare,
-                                 MemTableAllocator* allocator,
+                                 Allocator* allocator,
                                  const SliceTransform* transform,
                                  size_t bucket_size, int32_t skiplist_height,
                                  int32_t skiplist_branching_factor)
@@ -336,7 +336,7 @@ MemTableRep::Iterator* HashSkipListRep::GetDynamicPrefixIterator(Arena* arena) {
 } // anon namespace
 
 MemTableRep* HashSkipListRepFactory::CreateMemTableRep(
-    const MemTableRep::KeyComparator& compare, MemTableAllocator* allocator,
+    const MemTableRep::KeyComparator& compare, Allocator* allocator,
     const SliceTransform* transform, Logger* logger) {
   return new HashSkipListRep(compare, allocator, transform, bucket_count_,
                              skiplist_height_, skiplist_branching_factor_);

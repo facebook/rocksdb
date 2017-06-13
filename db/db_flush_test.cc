@@ -91,6 +91,43 @@ TEST_F(DBFlushTest, SyncFail) {
   Destroy(options);
 }
 
+TEST_F(DBFlushTest, FlushInLowPriThreadPool) {
+  // Verify setting an empty high-pri (flush) thread pool causes flushes to be
+  // scheduled in the low-pri (compaction) thread pool.
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = 4;
+  options.memtable_factory.reset(new SpecialSkipListFactory(1));
+  Reopen(options);
+  env_->SetBackgroundThreads(0, Env::HIGH);
+
+  std::thread::id tid;
+  int num_flushes = 0, num_compactions = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BGWorkFlush", [&](void* arg) {
+        if (tid == std::thread::id()) {
+          tid = std::this_thread::get_id();
+        } else {
+          ASSERT_EQ(tid, std::this_thread::get_id());
+        }
+        ++num_flushes;
+      });
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BGWorkCompaction", [&](void* arg) {
+        ASSERT_EQ(tid, std::this_thread::get_id());
+        ++num_compactions;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(Put("key", "val"));
+  for (int i = 0; i < 4; ++i) {
+    ASSERT_OK(Put("key", "val"));
+    dbfull()->TEST_WaitForFlushMemTable();
+  }
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(4, num_flushes);
+  ASSERT_EQ(1, num_compactions);
+}
+
 TEST_P(DBFlushDirectIOTest, DirectIO) {
   Options options;
   options.create_if_missing = true;

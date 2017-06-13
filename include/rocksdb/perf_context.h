@@ -150,18 +150,10 @@ struct PerfContext {
   uint64_t env_new_logger_nanos;
 };
 
-#if defined(NPERF_CONTEXT) || defined(IOS_CROSS_COMPILE)
-extern PerfContext perf_context;
-#elif defined(_MSC_VER)
-extern __declspec(thread) PerfContext perf_context;
-#else
-  #if defined(OS_SOLARIS)
-    PerfContext *getPerfContext();
-    #define perf_context (*getPerfContext())
-  #else
-    extern __thread PerfContext perf_context;
-  #endif
-#endif
+// Get Thread-local PerfContext object pointer
+// if defined(NPERF_CONTEXT), then the pointer is not thread-local
+PerfContext* get_perf_context();
+
 
 }
 

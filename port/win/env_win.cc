@@ -879,6 +879,11 @@ void WinEnvThreads::SetBackgroundThreads(int num, Env::Priority pri) {
   thread_pools_[pri].SetBackgroundThreads(num);
 }
 
+int WinEnvThreads::GetBackgroundThreads(Env::Priority pri) {
+  assert(pri >= Env::Priority::LOW && pri <= Env::Priority::HIGH);
+  return thread_pools_[pri].GetBackgroundThreads();
+}
+
 void WinEnvThreads::IncBackgroundThreadsIfNeeded(int num, Env::Priority pri) {
   assert(pri >= Env::Priority::LOW && pri <= Env::Priority::HIGH);
   thread_pools_[pri].IncBackgroundThreadsIfNeeded(num);
@@ -1056,6 +1061,10 @@ void  WinEnv::SetBackgroundThreads(int num, Env::Priority pri) {
   return winenv_threads_.SetBackgroundThreads(num, pri);
 }
 
+int WinEnv::GetBackgroundThreads(Env::Priority pri) {
+  return winenv_threads_.GetBackgroundThreads(pri);
+}
+
 void  WinEnv::IncBackgroundThreadsIfNeeded(int num, Env::Priority pri) {
   return winenv_threads_.IncBackgroundThreadsIfNeeded(num, pri);
 }
@@ -1080,6 +1089,7 @@ std::string Env::GenerateUniqueId() {
 
   RPC_CSTR rpc_str;
   auto status = UuidToStringA(&uuid, &rpc_str);
+  (void)status;
   assert(status == RPC_S_OK);
 
   result = reinterpret_cast<char*>(rpc_str);

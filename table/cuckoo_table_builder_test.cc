@@ -108,7 +108,7 @@ class CuckooBuilderTest : public testing::Test {
           std::find(expected_locations.begin(), expected_locations.end(), i) -
           expected_locations.begin();
       if (key_idx == keys.size()) {
-        // i is not one of the expected locaitons. Empty bucket.
+        // i is not one of the expected locations. Empty bucket.
         ASSERT_EQ(read_slice.compare(expected_unused_bucket), 0);
       } else {
         keys_found[key_idx] = true;

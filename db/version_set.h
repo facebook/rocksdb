@@ -463,6 +463,10 @@ class Version {
                             MergeIteratorBuilder* merger_iter_builder,
                             int level, RangeDelAggregator* range_del_agg);
 
+  void AddRangeDelIteratorsForLevel(
+      const ReadOptions& read_options, const EnvOptions& soptions, int level,
+      std::vector<InternalIterator*>* range_del_iters);
+
   // Lookup the value for key.  If found, store it in *val and
   // return OK.  Else return a non-OK status.
   // Uses *operands to store merge_operator operations to apply later.
@@ -500,7 +504,7 @@ class Version {
   void AddLiveFiles(std::vector<FileDescriptor>* live);
 
   // Return a human readable string that describes this version's contents.
-  std::string DebugString(bool hex = false) const;
+  std::string DebugString(bool hex = false, bool print_stats = false) const;
 
   // Returns the version nuber of this version
   uint64_t GetVersionNumber() const { return version_number_; }

@@ -182,7 +182,7 @@ class Cache {
                                       bool thread_safe) = 0;
 
   // Remove all entries.
-  // Prerequisit: no entry is referenced.
+  // Prerequisite: no entry is referenced.
   virtual void EraseUnRefEntries() = 0;
 
   virtual std::string GetPrintableOptions() const { return ""; }

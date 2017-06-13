@@ -32,6 +32,7 @@ GenericRateLimiter::GenericRateLimiter(int64_t rate_bytes_per_sec,
                                        int64_t refill_period_us,
                                        int32_t fairness)
     : refill_period_us_(refill_period_us),
+      rate_bytes_per_sec_(rate_bytes_per_sec),
       refill_bytes_per_period_(
           CalculateRefillBytesPerPeriod(rate_bytes_per_sec)),
       env_(Env::Default()),
@@ -68,6 +69,7 @@ GenericRateLimiter::~GenericRateLimiter() {
 // This API allows user to dynamically change rate limiter's bytes per second.
 void GenericRateLimiter::SetBytesPerSecond(int64_t bytes_per_second) {
   assert(bytes_per_second > 0);
+  rate_bytes_per_sec_ = bytes_per_second;
   refill_bytes_per_period_.store(
       CalculateRefillBytesPerPeriod(bytes_per_second),
       std::memory_order_relaxed);
@@ -77,6 +79,8 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
                                  Statistics* stats) {
   assert(bytes <= refill_bytes_per_period_.load(std::memory_order_relaxed));
   TEST_SYNC_POINT("GenericRateLimiter::Request");
+  TEST_SYNC_POINT_CALLBACK("GenericRateLimiter::Request:1",
+                           &rate_bytes_per_sec_);
   MutexLock g(&request_mutex_);
   if (stop_) {
     return;

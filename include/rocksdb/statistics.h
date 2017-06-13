@@ -174,7 +174,7 @@ enum Tickers : uint32_t {
   GET_UPDATES_SINCE_CALLS,
   BLOCK_CACHE_COMPRESSED_MISS,  // miss in the compressed block cache
   BLOCK_CACHE_COMPRESSED_HIT,   // hit in the compressed block cache
-  // Number of blocks added to comopressed block cache
+  // Number of blocks added to compressed block cache
   BLOCK_CACHE_COMPRESSED_ADD,
   // Number of failures when adding blocks to compressed block cache
   BLOCK_CACHE_COMPRESSED_ADD_FAILURES,
@@ -328,7 +328,7 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
 
 /**
  * Keep adding histogram's here.
- * Any histogram whould have value less than HISTOGRAM_ENUM_MAX
+ * Any histogram should have value less than HISTOGRAM_ENUM_MAX
  * Add a new Histogram by assigning it the current value of HISTOGRAM_ENUM_MAX
  * Add a string representation in HistogramsNameMap below
  * And increment HISTOGRAM_ENUM_MAX
@@ -370,6 +370,9 @@ enum Histograms : uint32_t {
   BYTES_DECOMPRESSED,
   COMPRESSION_TIMES_NANOS,
   DECOMPRESSION_TIMES_NANOS,
+  // Number of merge operands passed to the merge operator in user read
+  // requests.
+  READ_NUM_MERGE_OPERANDS,
 
   HISTOGRAM_ENUM_MAX,  // TODO(ldemailly): enforce HistogramsNameMap match
 };
@@ -405,6 +408,7 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {BYTES_DECOMPRESSED, "rocksdb.bytes.decompressed"},
     {COMPRESSION_TIMES_NANOS, "rocksdb.compression.times.nanos"},
     {DECOMPRESSION_TIMES_NANOS, "rocksdb.decompression.times.nanos"},
+    {READ_NUM_MERGE_OPERANDS, "rocksdb.read.num.merge_operands"},
 };
 
 struct HistogramData {

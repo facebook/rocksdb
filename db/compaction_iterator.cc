@@ -71,7 +71,9 @@ CompactionIterator::CompactionIterator(
       range_del_agg_(range_del_agg),
       compaction_(std::move(compaction)),
       compaction_filter_(compaction_filter),
+#ifndef ROCKSDB_LITE
       compaction_listener_(compaction_listener),
+#endif  // ROCKSDB_LITE
       shutting_down_(shutting_down),
       ignore_snapshots_(false),
       merge_out_iter_(merge_helper_) {
@@ -548,7 +550,8 @@ void CompactionIterator::PrepareOutput() {
 
   // This is safe for TransactionDB write-conflict checking since transactions
   // only care about sequence number larger than any active snapshots.
-  if (bottommost_level_ && valid_ && ikey_.sequence <= earliest_snapshot_ &&
+  if ((compaction_ != nullptr && !compaction_->allow_ingest_behind()) &&
+      bottommost_level_ && valid_ && ikey_.sequence <= earliest_snapshot_ &&
       ikey_.type != kTypeMerge &&
       !cmp_->Equal(compaction_->GetLargestUserKey(), ikey_.user_key)) {
     assert(ikey_.type != kTypeDeletion && ikey_.type != kTypeSingleDeletion);

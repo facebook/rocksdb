@@ -66,6 +66,7 @@ public:
 
   // Allow increasing the number of worker threads.
   void SetBackgroundThreads(int num, Env::Priority pri);
+  int GetBackgroundThreads(Env::Priority pri);
 
   void IncBackgroundThreadsIfNeeded(int num, Env::Priority pri);
 
@@ -276,6 +277,7 @@ public:
 
   // Allow increasing the number of worker threads.
   void SetBackgroundThreads(int num, Env::Priority pri) override;
+  int GetBackgroundThreads(Env::Priority pri) override;
 
   void IncBackgroundThreadsIfNeeded(int num, Env::Priority pri) override;
 

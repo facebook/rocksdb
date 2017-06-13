@@ -284,10 +284,14 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
   if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal &&
       cfd->NumberLevels() > 1) {
     // Always compact all files together.
-    s = RunManualCompaction(cfd, ColumnFamilyData::kCompactAllLevels,
-                            cfd->NumberLevels() - 1, options.target_path_id,
-                            begin, end, exclusive);
     final_output_level = cfd->NumberLevels() - 1;
+    // if bottom most level is reserved
+    if (immutable_db_options_.allow_ingest_behind) {
+      final_output_level--;
+    }
+    s = RunManualCompaction(cfd, ColumnFamilyData::kCompactAllLevels,
+                            final_output_level, options.target_path_id,
+                            begin, end, exclusive);
   } else {
     for (int level = 0; level <= max_level_with_files; level++) {
       int output_level;
@@ -979,22 +983,22 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     // DB is being deleted; no more background compactions
     return;
   }
-
-  while (unscheduled_flushes_ > 0 &&
-         bg_flush_scheduled_ < immutable_db_options_.max_background_flushes) {
+  auto bg_job_limits = GetBGJobLimits();
+  bool is_flush_pool_empty =
+    env_->GetBackgroundThreads(Env::Priority::HIGH) == 0;
+  while (!is_flush_pool_empty && unscheduled_flushes_ > 0 &&
+         bg_flush_scheduled_ < bg_job_limits.max_flushes) {
     unscheduled_flushes_--;
     bg_flush_scheduled_++;
     env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::HIGH, this);
   }
 
-  auto bg_compactions_allowed = BGCompactionsAllowed();
-
-  // special case -- if max_background_flushes == 0, then schedule flush on a
-  // compaction thread
-  if (immutable_db_options_.max_background_flushes == 0) {
+  // special case -- if high-pri (flush) thread pool is empty, then schedule
+  // flushes in low-pri (compaction) thread pool.
+  if (is_flush_pool_empty) {
     while (unscheduled_flushes_ > 0 &&
            bg_flush_scheduled_ + bg_compaction_scheduled_ <
-               bg_compactions_allowed) {
+               bg_job_limits.max_flushes) {
       unscheduled_flushes_--;
       bg_flush_scheduled_++;
       env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::LOW, this);
@@ -1012,7 +1016,7 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     return;
   }
 
-  while (bg_compaction_scheduled_ < bg_compactions_allowed &&
+  while (bg_compaction_scheduled_ < bg_job_limits.max_compactions &&
          unscheduled_compactions_ > 0) {
     CompactionArg* ca = new CompactionArg;
     ca->db = this;
@@ -1024,13 +1028,35 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
   }
 }
 
-int DBImpl::BGCompactionsAllowed() const {
+DBImpl::BGJobLimits DBImpl::GetBGJobLimits() const {
   mutex_.AssertHeld();
-  if (write_controller_.NeedSpeedupCompaction()) {
-    return mutable_db_options_.max_background_compactions;
+  return GetBGJobLimits(immutable_db_options_.max_background_flushes,
+                        mutable_db_options_.max_background_compactions,
+                        mutable_db_options_.max_background_jobs,
+                        write_controller_.NeedSpeedupCompaction());
+}
+
+DBImpl::BGJobLimits DBImpl::GetBGJobLimits(int max_background_flushes,
+                                           int max_background_compactions,
+                                           int max_background_jobs,
+                                           bool parallelize_compactions) {
+  BGJobLimits res;
+  if (max_background_flushes == -1 && max_background_compactions == -1) {
+    // for our first stab implementing max_background_jobs, simply allocate a
+    // quarter of the threads to flushes.
+    res.max_flushes = std::max(1, max_background_jobs / 4);
+    res.max_compactions = std::max(1, max_background_jobs - res.max_flushes);
   } else {
-    return mutable_db_options_.base_background_compactions;
+    // compatibility code in case users haven't migrated to max_background_jobs,
+    // which automatically computes flush/compaction limits
+    res.max_flushes = std::max(1, max_background_flushes);
+    res.max_compactions = std::max(1, max_background_compactions);
   }
+  if (!parallelize_compactions) {
+    // throttle background compactions until we deem necessary
+    res.max_compactions = 1;
+  }
+  return res;
 }
 
 void DBImpl::AddToCompactionQueue(ColumnFamilyData* cfd) {
@@ -1152,13 +1178,15 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
   if (cfd != nullptr) {
     const MutableCFOptions mutable_cf_options =
         *cfd->GetLatestMutableCFOptions();
+    auto bg_job_limits = GetBGJobLimits();
     ROCKS_LOG_BUFFER(
         log_buffer,
         "Calling FlushMemTableToOutputFile with column "
-        "family [%s], flush slots available %d, compaction slots allowed %d, "
-        "compaction slots scheduled %d",
-        cfd->GetName().c_str(), immutable_db_options_.max_background_flushes,
-        bg_flush_scheduled_, BGCompactionsAllowed() - bg_compaction_scheduled_);
+        "family [%s], flush slots available %d, compaction slots available %d, "
+        "flush slots scheduled %d, compaction slots scheduled %d",
+        cfd->GetName().c_str(), bg_job_limits.max_flushes,
+        bg_job_limits.max_compactions, bg_flush_scheduled_,
+        bg_compaction_scheduled_);
     status = FlushMemTableToOutputFile(cfd, mutable_cf_options, made_progress,
                                        job_context, log_buffer);
     if (cfd->Unref()) {
@@ -1399,7 +1427,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       // Can't compact right now, but try again later
       TEST_SYNC_POINT("DBImpl::BackgroundCompaction()::Conflict");
 
-      // Stay in the compaciton queue.
+      // Stay in the compaction queue.
       unscheduled_compactions_++;
 
       return Status::OK();

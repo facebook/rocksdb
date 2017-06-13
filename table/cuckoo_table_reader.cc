@@ -372,10 +372,6 @@ InternalIterator* CuckooTableReader::NewIterator(
     return NewErrorInternalIterator(
         Status::Corruption("CuckooTableReader status is not okay."), arena);
   }
-  if (read_options.total_order_seek) {
-    return NewErrorInternalIterator(
-        Status::InvalidArgument("total_order_seek is not supported."), arena);
-  }
   CuckooTableIterator* iter;
   if (arena == nullptr) {
     iter = new CuckooTableIterator(this);

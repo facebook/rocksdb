@@ -56,6 +56,8 @@ class MergeHelper {
   // Wrapper around MergeOperator::FullMergeV2() that records perf statistics.
   // Result of merge will be written to result if status returned is OK.
   // If operands is empty, the value will simply be copied to result.
+  // Set `update_num_ops_stats` to true if it is from a user read, so that
+  // the latency is sensitive.
   // Returns one of the following statuses:
   // - OK: Entries were successfully merged.
   // - Corruption: Merge operator reported unsuccessful merge.
@@ -64,7 +66,8 @@ class MergeHelper {
                                const std::vector<Slice>& operands,
                                std::string* result, Logger* logger,
                                Statistics* statistics, Env* env,
-                               Slice* result_operand = nullptr);
+                               Slice* result_operand = nullptr,
+                               bool update_num_ops_stats = false);
 
   // Merge entries until we hit
   //     - a corrupted key

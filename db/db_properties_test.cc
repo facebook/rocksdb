@@ -533,9 +533,9 @@ TEST_F(DBPropertiesTest, NumImmutableMemTable) {
     ASSERT_TRUE(dbfull()->GetProperty(
         handles_[1], "rocksdb.num-entries-active-mem-table", &num));
     ASSERT_EQ(num, "1");
-    perf_context.Reset();
+    get_perf_context()->Reset();
     Get(1, "k1");
-    ASSERT_EQ(1, static_cast<int>(perf_context.get_from_memtable_count));
+    ASSERT_EQ(1, static_cast<int>(get_perf_context()->get_from_memtable_count));
 
     ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "k2", big_value));
     ASSERT_TRUE(dbfull()->GetProperty(handles_[1],
@@ -548,12 +548,12 @@ TEST_F(DBPropertiesTest, NumImmutableMemTable) {
         handles_[1], "rocksdb.num-entries-imm-mem-tables", &num));
     ASSERT_EQ(num, "1");
 
-    perf_context.Reset();
+    get_perf_context()->Reset();
     Get(1, "k1");
-    ASSERT_EQ(2, static_cast<int>(perf_context.get_from_memtable_count));
-    perf_context.Reset();
+    ASSERT_EQ(2, static_cast<int>(get_perf_context()->get_from_memtable_count));
+    get_perf_context()->Reset();
     Get(1, "k2");
-    ASSERT_EQ(1, static_cast<int>(perf_context.get_from_memtable_count));
+    ASSERT_EQ(1, static_cast<int>(get_perf_context()->get_from_memtable_count));
 
     ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "k3", big_value));
     ASSERT_TRUE(dbfull()->GetProperty(
@@ -567,15 +567,15 @@ TEST_F(DBPropertiesTest, NumImmutableMemTable) {
     ASSERT_TRUE(dbfull()->GetProperty(
         handles_[1], "rocksdb.num-entries-imm-mem-tables", &num));
     ASSERT_EQ(num, "2");
-    perf_context.Reset();
+    get_perf_context()->Reset();
     Get(1, "k2");
-    ASSERT_EQ(2, static_cast<int>(perf_context.get_from_memtable_count));
-    perf_context.Reset();
+    ASSERT_EQ(2, static_cast<int>(get_perf_context()->get_from_memtable_count));
+    get_perf_context()->Reset();
     Get(1, "k3");
-    ASSERT_EQ(1, static_cast<int>(perf_context.get_from_memtable_count));
-    perf_context.Reset();
+    ASSERT_EQ(1, static_cast<int>(get_perf_context()->get_from_memtable_count));
+    get_perf_context()->Reset();
     Get(1, "k1");
-    ASSERT_EQ(3, static_cast<int>(perf_context.get_from_memtable_count));
+    ASSERT_EQ(3, static_cast<int>(get_perf_context()->get_from_memtable_count));
 
     ASSERT_OK(Flush(1));
     ASSERT_TRUE(dbfull()->GetProperty(handles_[1],
@@ -670,7 +670,7 @@ TEST_F(DBPropertiesTest, DISABLED_GetProperty) {
   ASSERT_EQ(num, "0");
   ASSERT_TRUE(dbfull()->GetProperty("rocksdb.estimate-num-keys", &num));
   ASSERT_EQ(num, "1");
-  perf_context.Reset();
+  get_perf_context()->Reset();
 
   ASSERT_OK(dbfull()->Put(writeOpt, "k2", big_value));
   ASSERT_TRUE(dbfull()->GetProperty("rocksdb.num-immutable-mem-table", &num));
@@ -913,7 +913,7 @@ TEST_F(DBPropertiesTest, EstimatePendingCompBytes) {
   Flush();
   ASSERT_TRUE(dbfull()->GetIntProperty(
       "rocksdb.estimate-pending-compaction-bytes", &int_num));
-  ASSERT_EQ(int_num, 0U);
+  ASSERT_GT(int_num, 0U);
 
   ASSERT_OK(dbfull()->Put(writeOpt, "k3", big_value));
   Flush();
@@ -940,7 +940,6 @@ TEST_F(DBPropertiesTest, EstimateCompressionRatio) {
   Options options = CurrentOptions();
   options.compression_per_level = {kNoCompression, kSnappyCompression};
   options.disable_auto_compactions = true;
-  options.max_background_flushes = 0;
   options.num_levels = 2;
   Reopen(options);
 
@@ -1068,7 +1067,6 @@ class CountingDeleteTabPropCollectorFactory
 TEST_F(DBPropertiesTest, GetUserDefinedTableProperties) {
   Options options = CurrentOptions();
   options.level0_file_num_compaction_trigger = (1 << 30);
-  options.max_background_flushes = 0;
   options.table_properties_collector_factories.resize(1);
   std::shared_ptr<CountingUserTblPropCollectorFactory> collector_factory =
       std::make_shared<CountingUserTblPropCollectorFactory>(0);
@@ -1109,7 +1107,6 @@ TEST_F(DBPropertiesTest, GetUserDefinedTableProperties) {
 TEST_F(DBPropertiesTest, UserDefinedTablePropertiesContext) {
   Options options = CurrentOptions();
   options.level0_file_num_compaction_trigger = 3;
-  options.max_background_flushes = 0;
   options.table_properties_collector_factories.resize(1);
   std::shared_ptr<CountingUserTblPropCollectorFactory> collector_factory =
       std::make_shared<CountingUserTblPropCollectorFactory>(1);
@@ -1231,7 +1228,7 @@ TEST_F(DBPropertiesTest, TablePropertiesNeedCompactTest) {
 
   {
     SetPerfLevel(kEnableCount);
-    perf_context.Reset();
+    get_perf_context()->Reset();
     int c = 0;
     std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
     iter->Seek(Key(kMaxKey - 100));
@@ -1239,8 +1236,8 @@ TEST_F(DBPropertiesTest, TablePropertiesNeedCompactTest) {
       iter->Next();
     }
     ASSERT_EQ(c, 0);
-    ASSERT_LT(perf_context.internal_delete_skipped_count, 30u);
-    ASSERT_LT(perf_context.internal_key_skipped_count, 30u);
+    ASSERT_LT(get_perf_context()->internal_delete_skipped_count, 30u);
+    ASSERT_LT(get_perf_context()->internal_key_skipped_count, 30u);
     SetPerfLevel(kDisable);
   }
 }
@@ -1287,19 +1284,31 @@ TEST_F(DBPropertiesTest, NeedCompactHintPersistentTest) {
   ASSERT_EQ(NumTableFilesAtLevel(0), 0);
   {
     SetPerfLevel(kEnableCount);
-    perf_context.Reset();
+    get_perf_context()->Reset();
     int c = 0;
     std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
     for (iter->Seek(Key(0)); iter->Valid(); iter->Next()) {
       c++;
     }
     ASSERT_EQ(c, 2);
-    ASSERT_EQ(perf_context.internal_delete_skipped_count, 0);
+    ASSERT_EQ(get_perf_context()->internal_delete_skipped_count, 0);
     // We iterate every key twice. Is it a bug?
-    ASSERT_LE(perf_context.internal_key_skipped_count, 2);
+    ASSERT_LE(get_perf_context()->internal_key_skipped_count, 2);
     SetPerfLevel(kDisable);
   }
 }
+
+TEST_F(DBPropertiesTest, EstimateNumKeysUnderflow) {
+  Options options;
+  Reopen(options);
+  Put("foo", "bar");
+  Delete("foo");
+  Delete("foo");
+  uint64_t num_keys = 0;
+  ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.estimate-num-keys", &num_keys));
+  ASSERT_EQ(0, num_keys);
+}
+
 #endif  // ROCKSDB_LITE
 }  // namespace rocksdb
 

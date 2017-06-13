@@ -195,6 +195,7 @@ WinMmapReadableFile::WinMmapReadableFile(const std::string& fileName,
 
 WinMmapReadableFile::~WinMmapReadableFile() {
   BOOL ret = ::UnmapViewOfFile(mapped_region_);
+  (void)ret;
   assert(ret);
 
   ret = ::CloseHandle(hMap_);
@@ -746,6 +747,7 @@ Status WinWritableImpl::AppendImpl(const Slice& data) {
   assert(data.size() < std::numeric_limits<DWORD>::max());
 
   uint64_t written = 0;
+  (void)written;
 
   if (file_data_->use_direct_io()) {
 

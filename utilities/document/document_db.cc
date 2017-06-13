@@ -25,7 +25,7 @@ namespace rocksdb {
 // IMPORTANT NOTE: Secondary index column families should be very small and
 // generally fit in memory. Assume that accessing secondary index column
 // families is much faster than accessing primary index (data heap) column
-// family. Accessing a key (i.e. checking for existance) from a column family in
+// family. Accessing a key (i.e. checking for existence) from a column family in
 // RocksDB is not much faster than accessing both key and value since they are
 // kept together and loaded from storage together.
 

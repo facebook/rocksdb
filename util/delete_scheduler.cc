@@ -26,12 +26,14 @@ DeleteScheduler::DeleteScheduler(Env* env, const std::string& trash_dir,
                                  SstFileManagerImpl* sst_file_manager)
     : env_(env),
       trash_dir_(trash_dir),
+      total_trash_size_(0),
       rate_bytes_per_sec_(rate_bytes_per_sec),
       pending_files_(0),
       closing_(false),
       cv_(&mu_),
       info_log_(info_log),
       sst_file_manager_(sst_file_manager) {
+  assert(sst_file_manager != nullptr);
   bg_thread_.reset(
       new port::Thread(&DeleteScheduler::BackgroundEmptyTrash, this));
 }
@@ -49,11 +51,14 @@ DeleteScheduler::~DeleteScheduler() {
 
 Status DeleteScheduler::DeleteFile(const std::string& file_path) {
   Status s;
-  if (rate_bytes_per_sec_.load() <= 0) {
-    // Rate limiting is disabled
+  if (rate_bytes_per_sec_.load() <= 0 ||
+      total_trash_size_.load() >
+          sst_file_manager_->GetTotalSize() * max_trash_db_ratio_) {
+    // Rate limiting is disabled or trash size makes up more than
+    // max_trash_db_ratio_ (default 25%) of the total DB size
     TEST_SYNC_POINT("DeleteScheduler::DeleteFile");
     s = env_->DeleteFile(file_path);
-    if (s.ok() && sst_file_manager_) {
+    if (s.ok()) {
       sst_file_manager_->OnDeleteFile(file_path);
     }
     return s;
@@ -66,7 +71,7 @@ Status DeleteScheduler::DeleteFile(const std::string& file_path) {
     ROCKS_LOG_ERROR(info_log_, "Failed to move %s to trash directory (%s)",
                     file_path.c_str(), trash_dir_.c_str());
     s = env_->DeleteFile(file_path);
-    if (s.ok() && sst_file_manager_) {
+    if (s.ok()) {
       sst_file_manager_->OnDeleteFile(file_path);
     }
     return s;
@@ -123,8 +128,10 @@ Status DeleteScheduler::MoveToTrash(const std::string& file_path,
       break;
     }
   }
-  if (s.ok() && sst_file_manager_) {
-    sst_file_manager_->OnMoveFile(file_path, *path_in_trash);
+  if (s.ok()) {
+    uint64_t trash_file_size = 0;
+    sst_file_manager_->OnMoveFile(file_path, *path_in_trash, &trash_file_size);
+    total_trash_size_.fetch_add(trash_file_size);
   }
   return s;
 }
@@ -210,9 +217,8 @@ Status DeleteScheduler::DeleteTrashFile(const std::string& path_in_trash,
     *deleted_bytes = 0;
   } else {
     *deleted_bytes = file_size;
-    if (sst_file_manager_) {
-      sst_file_manager_->OnDeleteFile(path_in_trash);
-    }
+    total_trash_size_.fetch_sub(file_size);
+    sst_file_manager_->OnDeleteFile(path_in_trash);
   }
 
   return s;

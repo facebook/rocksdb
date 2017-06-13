@@ -118,10 +118,12 @@ class WritableFileWriter {
   // Actually written data size can be used for truncate
   // not counting padding data
   uint64_t                filesize_;
+#ifndef ROCKSDB_LITE
   // This is necessary when we use unbuffered access
   // and writes must happen on aligned offsets
   // so we need to go back and write that page again
   uint64_t                next_write_offset_;
+#endif  // ROCKSDB_LITE
   bool                    pending_sync_;
   uint64_t                last_sync_size_;
   uint64_t                bytes_per_sync_;
@@ -135,16 +137,16 @@ class WritableFileWriter {
         buf_(),
         max_buffer_size_(options.writable_file_max_buffer_size),
         filesize_(0),
+#ifndef ROCKSDB_LITE
         next_write_offset_(0),
+#endif  // ROCKSDB_LITE
         pending_sync_(false),
         last_sync_size_(0),
         bytes_per_sync_(options.bytes_per_sync),
         rate_limiter_(options.rate_limiter),
         stats_(stats) {
     buf_.Alignment(writable_file_->GetRequiredBufferAlignment());
-    buf_.AllocateNewBuffer(use_direct_io()
-                               ? max_buffer_size_
-                               : std::min((size_t)65536, max_buffer_size_));
+    buf_.AllocateNewBuffer(std::min((size_t)65536, max_buffer_size_));
   }
 
   WritableFileWriter(const WritableFileWriter&) = delete;

@@ -115,8 +115,10 @@ TEST_F(SpatialDBTest, TestNextID) {
   ASSERT_OK(db_->Insert(WriteOptions(), BoundingBox<double>(10, 10, 15, 15),
                         "two", FeatureSet(), {"simple"}));
   delete db_;
+  db_ = nullptr;
 
   ASSERT_OK(SpatialDB::Open(SpatialDBOptions(), dbname_, &db_));
+  assert(db_ != nullptr);
   ASSERT_OK(db_->Insert(WriteOptions(), BoundingBox<double>(55, 55, 65, 65),
                         "three", FeatureSet(), {"simple"}));
   delete db_;
@@ -177,6 +179,7 @@ TEST_F(SpatialDBTest, SimpleTest) {
         {SpatialIndexOptions("index", BoundingBox<double>(0, 0, 128, 128),
                              3)}));
     ASSERT_OK(SpatialDB::Open(SpatialDBOptions(), dbname_, &db_));
+    assert(db_ != nullptr);
 
     ASSERT_OK(db_->Insert(WriteOptions(), BoundingBox<double>(33, 17, 63, 79),
                           "one", FeatureSet(), {"index"}));
@@ -193,6 +196,7 @@ TEST_F(SpatialDBTest, SimpleTest) {
 
     if (iter == 1) {
       delete db_;
+      db_ = nullptr;
       ASSERT_OK(SpatialDB::Open(SpatialDBOptions(), dbname_, &db_, true));
     }
 
@@ -214,6 +218,7 @@ TEST_F(SpatialDBTest, SimpleTest) {
                         {"three", "five"});
 
     delete db_;
+    db_ = nullptr;
   }
 }
 
