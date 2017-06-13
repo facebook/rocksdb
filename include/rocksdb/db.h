@@ -162,6 +162,18 @@ class DB {
                      const std::vector<ColumnFamilyDescriptor>& column_families,
                      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr);
 
+  // People may wrongly pass an Option object as db_options,
+  // and set ColumnFamilyOptions in that db_options, these 2 deleted overloads
+  // will prevent such usages.
+  static Status Open(const Options& db_options, const std::string& name,
+                     const std::vector<ColumnFamilyDescriptor>& column_families,
+                     std::vector<ColumnFamilyHandle*>* handles, DB** dbptr) = delete;
+  static Status OpenForReadOnly(
+      const Options& db_options, const std::string& name,
+      const std::vector<ColumnFamilyDescriptor>& column_families,
+      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
+      bool error_if_log_file_exist = false) = delete;
+
   // ListColumnFamilies will open the DB specified by argument name
   // and return the list of all column families in that DB
   // through column_families argument. The ordering of

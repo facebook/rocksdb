@@ -3210,7 +3210,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       }
 #ifndef ROCKSDB_LITE
       if (FLAGS_readonly) {
-        s = DB::OpenForReadOnly(options, db_name, column_families,
+        s = DB::OpenForReadOnly(static_cast<const DBOptions&>(options), db_name, column_families,
             &db->cfh, &db->db);
       } else if (FLAGS_optimistic_transaction_db) {
         s = OptimisticTransactionDB::Open(options, db_name, column_families,
@@ -3227,7 +3227,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
           db->db = ptr;
         }
       } else {
-        s = DB::Open(options, db_name, column_families, &db->cfh, &db->db);
+        s = DB::Open(static_cast<const DBOptions&>(options), db_name, column_families, &db->cfh, &db->db);
       }
 #else
       s = DB::Open(options, db_name, column_families, &db->cfh, &db->db);
