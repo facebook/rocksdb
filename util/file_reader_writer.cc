@@ -140,7 +140,7 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
           break;
         }
       }
-      *result = Slice(res_scratch, pos);
+      *result = Slice(res_scratch, s.ok() ? pos : 0);
     }
     IOSTATS_ADD_IF_POSITIVE(bytes_read, result->size());
   }
