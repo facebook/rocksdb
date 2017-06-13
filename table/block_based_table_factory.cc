@@ -71,9 +71,10 @@ Status BlockBasedTableFactory::NewTableReader(
   }
   return BlockBasedTable::Open(
       table_reader_options.ioptions, table_reader_options.env_options,
-      new_table_options, table_reader_options.internal_comparator, std::move(file),
-      file_size, table_reader, prefetch_index_and_filter_in_cache,
-      table_reader_options.skip_filters, table_reader_options.level);
+      new_table_options, table_reader_options.internal_comparator,
+      std::move(file), file_size, table_reader,
+      prefetch_index_and_filter_in_cache, table_reader_options.skip_filters,
+      table_reader_options.level);
 }
 
 TableBuilder* BlockBasedTableFactory::NewTableBuilder(
@@ -81,7 +82,9 @@ TableBuilder* BlockBasedTableFactory::NewTableBuilder(
     WritableFileWriter* file) const {
   auto new_table_options = table_options_;
   // Disable partitioning for l0 since they are accessed very often
-  if (table_builder_options.level < 1) {
+  if (table_builder_options.level < 1 &&
+      table_builder_options.ioptions.compaction_style ==
+          kCompactionStyleLevel) {
     if (new_table_options.partition_filters) {
       new_table_options.partition_filters = false;
     }
