@@ -252,7 +252,7 @@ struct AdvancedColumnFamilyOptions {
   // ignore the option.
   //
   // The option is best suited for workloads where keys will likely to insert
-  // to a location close the the last inserted key with the same prefix.
+  // to a location close the last inserted key with the same prefix.
   // One example could be inserting keys of the form (prefix + timestamp),
   // and keys of the same prefix always comes in with time order. Another
   // example would be updating the same key over and over again, in which case
@@ -274,7 +274,7 @@ struct AdvancedColumnFamilyOptions {
   // If <= 0, a proper value is automatically calculated (usually 1/8 of
   // writer_buffer_size, rounded up to a multiple of 4KB).
   //
-  // There are two additional restriction of the The specified size:
+  // There are two additional restriction of the specified size:
   // (1) size should be in the range of [4096, 2 << 30] and
   // (2) be the multiple of the CPU word (which helps with the memory
   // alignment).
