@@ -30,7 +30,7 @@ class ThreadPoolImpl : public ThreadPool {
   // Implement ThreadPool interfaces
 
   // Wait for all threads to finish.
-  // Discards all the the jobs that did not
+  // Discards all the jobs that did not
   // start executing and waits for those running
   // to complete
   void JoinAllThreads() override;
