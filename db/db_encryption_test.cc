@@ -5,9 +5,6 @@
 //  This source code is also licensed under the GPLv2 license found in the
 //  COPYING file in the root directory of this source tree.
 //
-// Copyright (c) 2011 The LevelDB Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/perf_context.h"
