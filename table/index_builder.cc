@@ -160,7 +160,7 @@ size_t PartitionedIndexBuilder::EstimatedSize() const {
 }
 
 // Since when this method is called we do not know the index block offsets yet,
-// the top-level index does not exist. Hence we estinate the block offsets and
+// the top-level index does not exist. Hence we estimate the block offsets and
 // create a temporary top-level index.
 size_t PartitionedIndexBuilder::EstimateTopLevelIndexSize(
     uint64_t offset) const {

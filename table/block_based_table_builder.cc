@@ -723,6 +723,7 @@ Status BlockBasedTableBuilder::Finish() {
       r->props.property_collectors_names = property_collectors_names;
       if (r->table_options.index_type ==
           BlockBasedTableOptions::kTwoLevelIndexSearch) {
+        assert(r->p_index_builder_ != nullptr);
         r->props.index_partitions = r->p_index_builder_->NumPartitions();
         r->props.top_level_index_size =
             r->p_index_builder_->EstimateTopLevelIndexSize(r->offset);

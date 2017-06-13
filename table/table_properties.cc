@@ -96,7 +96,7 @@ std::string TableProperties::ToString(
   if (index_partitions != 0) {
     AppendProperty(result, "# index partitions", index_partitions, prop_delim,
                    kv_delim);
-    AppendProperty(result, "2nd index size", top_level_index_size, prop_delim,
+    AppendProperty(result, "top-level index size", top_level_index_size, prop_delim,
                    kv_delim);
   }
   AppendProperty(result, "filter block size", filter_size, prop_delim,
