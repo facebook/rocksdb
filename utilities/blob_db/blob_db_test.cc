@@ -513,19 +513,14 @@ TEST_F(BlobDBTest, SequenceNumber) {
       ASSERT_OK(batch.Put("key" + ToString(i) + "-" + ToString(k), value));
     }
     ASSERT_OK(blobdb_->Write(WriteOptions(), &batch));
-    sequence += batch_size;
-    ASSERT_EQ(sequence, blobdb_->GetLatestSequenceNumber());
     for (size_t k = 0; k < batch_size; k++) {
       std::string key = "key" + ToString(i) + "-" + ToString(k);
+      sequence++;
       SequenceNumber actual_sequence;
       ASSERT_OK(blobdb_impl->TEST_GetSequenceNumber(key, &actual_sequence));
-      // We only write sequence for the last key in a batch.
-      if (k + 1 < batch_size) {
-        ASSERT_EQ(0, actual_sequence);
-      } else {
-        ASSERT_EQ(sequence, actual_sequence);
-      }
+      ASSERT_EQ(sequence, actual_sequence);
     }
+    ASSERT_EQ(sequence, blobdb_->GetLatestSequenceNumber());
   }
 }
 
