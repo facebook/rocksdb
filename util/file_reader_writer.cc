@@ -84,19 +84,34 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
       size_t alignment = file_->GetRequiredBufferAlignment();
       size_t aligned_offset = TruncateToPageBoundary(alignment, offset);
       size_t offset_advance = offset - aligned_offset;
-      size_t size = Roundup(offset + n, alignment) - aligned_offset;
-      size_t r = 0;
+      size_t read_size = Roundup(offset + n, alignment) - aligned_offset;
       AlignedBuffer buf;
       buf.Alignment(alignment);
-      buf.AllocateNewBuffer(size);
-      Slice tmp;
-      s = file_->Read(aligned_offset, size, &tmp, buf.BufferStart());
-      if (s.ok() && offset_advance < tmp.size()) {
-        buf.Size(tmp.size());
-        r = buf.Read(scratch, offset_advance,
-                            std::min(tmp.size() - offset_advance, n));
+      buf.AllocateNewBuffer(read_size);
+      while (buf.CurrentSize() < read_size) {
+        size_t allowed;
+        if (rate_limiter_ != nullptr) {
+          allowed = rate_limiter_->RequestToken(
+              buf.Capacity() - buf.CurrentSize(), buf.Alignment(),
+              Env::IOPriority::IO_LOW, stats_, RateLimiter::OpType::kRead);
+        } else {
+          assert(buf.CurrentSize() == 0);
+          allowed = read_size;
+        }
+        Slice tmp;
+        s = file_->Read(aligned_offset + buf.CurrentSize(), allowed, &tmp,
+                        buf.Destination());
+        buf.Size(buf.CurrentSize() + tmp.size());
+        if (!s.ok() || tmp.size() < allowed) {
+          break;
+        }
       }
-      *result = Slice(scratch, r);
+      size_t res_len = 0;
+      if (s.ok() && offset_advance < buf.CurrentSize()) {
+        res_len = buf.Read(scratch, offset_advance,
+                           std::min(buf.CurrentSize() - offset_advance, n));
+      }
+      *result = Slice(scratch, res_len);
 #endif  // !ROCKSDB_LITE
     } else {
       size_t pos = 0;

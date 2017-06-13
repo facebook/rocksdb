@@ -31,7 +31,7 @@ class RateLimiter {
   };
 
   // For API compatibility, default to rate-limiting writes only.
-  RateLimiter(Mode mode = Mode::kWritesOnly) : mode_(mode) {}
+  explicit RateLimiter(Mode mode = Mode::kWritesOnly) : mode_(mode) {}
 
   virtual ~RateLimiter() {}
 
