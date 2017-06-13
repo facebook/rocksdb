@@ -1635,7 +1635,7 @@ class BackupInfoListJni {
     jobject jbackup_info_handle_list =
         env->NewObject(jarray_list_clazz, cstr_mid, backup_infos.size());
     if(env->ExceptionCheck()) {
-      // exception occured constructing object
+      // exception occurred constructing object
       return nullptr;
     }
 
@@ -1650,7 +1650,7 @@ class BackupInfoListJni {
           backup_info.size,
           backup_info.number_files);
       if(env->ExceptionCheck()) {
-        // exception occured constructing object
+        // exception occurred constructing object
         if(obj != nullptr) {
           env->DeleteLocalRef(obj);
         }
@@ -1663,7 +1663,7 @@ class BackupInfoListJni {
       jboolean rs =
           env->CallBooleanMethod(jbackup_info_handle_list, add_mid, obj);
       if(env->ExceptionCheck() || rs == JNI_FALSE) {
-        // exception occured calling method, or could not add
+        // exception occurred calling method, or could not add
         if(obj != nullptr) {
           env->DeleteLocalRef(obj);
         }
@@ -1825,7 +1825,7 @@ class WriteTypeJni : public JavaClass {
         env->GetStaticFieldID(jclazz, name,
             "Lorg/rocksdb/WBWIRocksIterator$WriteType;");
     if(env->ExceptionCheck()) {
-      // exception occured while getting field
+      // exception occurred while getting field
       return nullptr;
     } else if(jfid == nullptr) {
       return nullptr;
@@ -1962,7 +1962,7 @@ class InfoLogLevelJni : public JavaClass {
     jfieldID jfid =
         env->GetStaticFieldID(jclazz, name, "Lorg/rocksdb/InfoLogLevel;");
     if(env->ExceptionCheck()) {
-      // exception occured while getting field
+      // exception occurred while getting field
       return nullptr;
     } else if(jfid == nullptr) {
       return nullptr;

@@ -605,11 +605,11 @@ TEST_F(PrefixTest, DynamicPrefixIterator) {
         Slice key = TestKeyToSlice(s, test_key);
         std::string value(FLAGS_value_size, 0);
 
-        perf_context.Reset();
+        get_perf_context()->Reset();
         StopWatchNano timer(Env::Default(), true);
         ASSERT_OK(db->Put(write_options, key, value));
         hist_put_time.Add(timer.ElapsedNanos());
-        hist_put_comparison.Add(perf_context.user_key_comparison_count);
+        hist_put_comparison.Add(get_perf_context()->user_key_comparison_count);
       }
     }
 
@@ -628,7 +628,7 @@ TEST_F(PrefixTest, DynamicPrefixIterator) {
       Slice key = TestKeyToSlice(s, test_key);
       std::string value = "v" + ToString(0);
 
-      perf_context.Reset();
+      get_perf_context()->Reset();
       StopWatchNano timer(Env::Default(), true);
       auto key_prefix = options.prefix_extractor->Transform(key);
       uint64_t total_keys = 0;
@@ -642,7 +642,7 @@ TEST_F(PrefixTest, DynamicPrefixIterator) {
         total_keys++;
       }
       hist_seek_time.Add(timer.ElapsedNanos());
-      hist_seek_comparison.Add(perf_context.user_key_comparison_count);
+      hist_seek_comparison.Add(get_perf_context()->user_key_comparison_count);
       ASSERT_EQ(total_keys, FLAGS_items_per_prefix - FLAGS_items_per_prefix/2);
     }
 
@@ -662,11 +662,11 @@ TEST_F(PrefixTest, DynamicPrefixIterator) {
       std::string s;
       Slice key = TestKeyToSlice(s, test_key);
 
-      perf_context.Reset();
+      get_perf_context()->Reset();
       StopWatchNano timer(Env::Default(), true);
       iter->Seek(key);
       hist_no_seek_time.Add(timer.ElapsedNanos());
-      hist_no_seek_comparison.Add(perf_context.user_key_comparison_count);
+      hist_no_seek_comparison.Add(get_perf_context()->user_key_comparison_count);
       ASSERT_TRUE(!iter->Valid());
     }
 

@@ -230,10 +230,12 @@ class FaultInjectionTest : public testing::Test,
     return Status::OK();
   }
 
-#if __clang_major__ > 3 || (__clang_major__ == 3 && __clang_minor__ >= 9)
-__attribute__((__no_sanitize__("undefined")))
-#elif __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 9)
+#ifdef ROCKSDB_UBSAN_RUN
+#if defined(__clang__)
+__attribute__((__no_sanitize__("shift"), no_sanitize("signed-integer-overflow")))
+#elif defined(__GNUC__)
 __attribute__((__no_sanitize_undefined__))
+#endif
 #endif
   // Return the ith key
   Slice Key(int i, std::string* storage) const {
@@ -258,13 +260,15 @@ __attribute__((__no_sanitize_undefined__))
 
   void CloseDB() {
     delete db_;
-    db_ = NULL;
+    db_ = nullptr;
   }
 
   Status OpenDB() {
     CloseDB();
     env_->ResetState();
-    return DB::Open(options_, dbname_, &db_);
+    Status s = DB::Open(options_, dbname_, &db_);
+    assert(db_ != nullptr);
+    return s;
   }
 
   void DeleteAllData() {

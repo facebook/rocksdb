@@ -47,6 +47,7 @@ struct ThreadPoolImpl::Impl {
   void JoinThreads(bool wait_for_jobs_to_complete);
 
   void SetBackgroundThreadsInternal(int num, bool allow_reduce);
+  int GetBackgroundThreads();
 
   unsigned int GetQueueLen() const {
     return queue_len_.load(std::memory_order_relaxed);
@@ -275,10 +276,15 @@ void ThreadPoolImpl::Impl::SetBackgroundThreadsInternal(int num,
   }
   if (num > total_threads_limit_ ||
       (num < total_threads_limit_ && allow_reduce)) {
-    total_threads_limit_ = std::max(1, num);
+    total_threads_limit_ = std::max(0, num);
     WakeUpAllThreads();
     StartBGThreads();
   }
+}
+
+int ThreadPoolImpl::Impl::GetBackgroundThreads() {
+  std::unique_lock<std::mutex> lock(mu_);
+  return total_threads_limit_;
 }
 
 void ThreadPoolImpl::Impl::StartBGThreads() {
@@ -382,6 +388,10 @@ void ThreadPoolImpl::JoinAllThreads() {
 
 void ThreadPoolImpl::SetBackgroundThreads(int num) {
   impl_->SetBackgroundThreadsInternal(num, true);
+}
+
+int ThreadPoolImpl::GetBackgroundThreads() {
+  return impl_->GetBackgroundThreads();
 }
 
 unsigned int ThreadPoolImpl::GetQueueLen() const {

@@ -68,7 +68,7 @@ class SstFileManager {
 // == Deletion rate limiting specific arguments ==
 // @param trash_dir: Path to the directory where deleted files will be moved
 //    to be deleted in a background thread while applying rate limiting. If this
-//    directory dont exist, it will be created. This directory should not be
+//    directory doesn't exist, it will be created. This directory should not be
 //    used by any other process or any other SstFileManager, Set to "" to
 //    disable deletion rate limiting.
 // @param rate_bytes_per_sec: How many bytes should be deleted per second, If

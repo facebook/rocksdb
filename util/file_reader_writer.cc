@@ -25,11 +25,9 @@ namespace rocksdb {
 
 #ifndef NDEBUG
 namespace {
-
-bool IsSectorAligned(const size_t off, size_t sector_size) {
+bool IsFileSectorAligned(const size_t off, size_t sector_size) {
   return off % sector_size == 0;
 }
-
 }
 #endif
 
@@ -126,6 +124,22 @@ Status WritableFileWriter::Append(const Slice& data) {
     writable_file_->PrepareWrite(static_cast<size_t>(GetFileSize()), left);
   }
 
+  // See whether we need to enlarge the buffer to avoid the flush
+  if (buf_.Capacity() - buf_.CurrentSize() < left) {
+    for (size_t cap = buf_.Capacity();
+         cap < max_buffer_size_;  // There is still room to increase
+         cap *= 2) {
+      // See whether the next available size is large enough.
+      // Buffer will never be increased to more than max_buffer_size_.
+      size_t desired_capacity = std::min(cap * 2, max_buffer_size_);
+      if (desired_capacity - buf_.CurrentSize() >= left ||
+          (use_direct_io() && desired_capacity == max_buffer_size_)) {
+        buf_.AllocateNewBuffer(desired_capacity, true);
+        break;
+      }
+    }
+  }
+
   // Flush only when buffered I/O
   if (!use_direct_io() && (buf_.Capacity() - buf_.CurrentSize()) < left) {
     if (buf_.CurrentSize() > 0) {
@@ -133,12 +147,6 @@ Status WritableFileWriter::Append(const Slice& data) {
       if (!s.ok()) {
         return s;
       }
-    }
-
-    if (buf_.Capacity() < max_buffer_size_) {
-      size_t desiredCapacity = buf_.Capacity() * 2;
-      desiredCapacity = std::min(desiredCapacity, max_buffer_size_);
-      buf_.AllocateNewBuffer(desiredCapacity);
     }
     assert(buf_.CurrentSize() == 0);
   }
@@ -156,15 +164,6 @@ Status WritableFileWriter::Append(const Slice& data) {
         s = Flush();
         if (!s.ok()) {
           break;
-        }
-
-        // We double the buffer here because
-        // Flush calls do not keep up with the incoming bytes
-        // This is the only place when buffer is changed with direct I/O
-        if (buf_.Capacity() < max_buffer_size_) {
-          size_t desiredCapacity = buf_.Capacity() * 2;
-          desiredCapacity = std::min(desiredCapacity, max_buffer_size_);
-          buf_.AllocateNewBuffer(desiredCapacity);
         }
       }
     }
@@ -548,8 +547,8 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
     if (n > buffer_.Capacity()) {
       n = buffer_.Capacity();
     }
-    assert(IsSectorAligned(offset, alignment_));
-    assert(IsSectorAligned(n, alignment_));
+    assert(IsFileSectorAligned(offset, alignment_));
+    assert(IsFileSectorAligned(n, alignment_));
     Slice result;
     Status s = file_->Read(offset, n, &result, buffer_.BufferStart());
     if (s.ok()) {

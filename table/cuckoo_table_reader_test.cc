@@ -517,7 +517,7 @@ TEST_F(CuckooReaderTest, TestReadPerformance) {
     return;
   }
   double hash_ratio = 0.95;
-  // These numbers are chosen to have a hash utilizaiton % close to
+  // These numbers are chosen to have a hash utilization % close to
   // 0.9, 0.75, 0.6 and 0.5 respectively.
   // They all create 128 M buckets.
   std::vector<uint64_t> nums = {120*1024*1024, 100*1024*1024, 80*1024*1024,

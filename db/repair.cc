@@ -316,7 +316,8 @@ class Repairer {
     // Open the log file
     std::string logname = LogFileName(dbname_, log);
     unique_ptr<SequentialFile> lfile;
-    Status status = env_->NewSequentialFile(logname, &lfile, env_options_);
+    Status status = env_->NewSequentialFile(
+        logname, &lfile, env_->OptimizeForLogRead(env_options_));
     if (!status.ok()) {
       return status;
     }

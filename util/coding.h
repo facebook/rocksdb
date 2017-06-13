@@ -354,6 +354,13 @@ inline Slice GetSliceUntil(Slice* slice, char delimiter) {
 }
 
 template<class T>
+#ifdef ROCKSDB_UBSAN_RUN
+#if defined(__clang__)
+__attribute__((__no_sanitize__("alignment")))
+#elif defined(__GNUC__)
+__attribute__((__no_sanitize_undefined__))
+#endif
+#endif
 inline void PutUnaligned(T *memory, const T &value) {
 #if defined(PLATFORM_UNALIGNED_ACCESS_NOT_ALLOWED)
   char *nonAlignedMemory = reinterpret_cast<char*>(memory);
@@ -364,6 +371,13 @@ inline void PutUnaligned(T *memory, const T &value) {
 }
 
 template<class T>
+#ifdef ROCKSDB_UBSAN_RUN
+#if defined(__clang__)
+__attribute__((__no_sanitize__("alignment")))
+#elif defined(__GNUC__)
+__attribute__((__no_sanitize_undefined__))
+#endif
+#endif
 inline void GetUnaligned(const T *memory, T *value) {
 #if defined(PLATFORM_UNALIGNED_ACCESS_NOT_ALLOWED)
   char *nonAlignedMemory = reinterpret_cast<char*>(value);

@@ -52,6 +52,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.wal_dir = immutable_db_options.wal_dir;
   options.delete_obsolete_files_period_micros =
       mutable_db_options.delete_obsolete_files_period_micros;
+  options.max_background_jobs = mutable_db_options.max_background_jobs;
   options.base_background_compactions =
       mutable_db_options.base_background_compactions;
   options.max_background_compactions =
@@ -119,6 +120,8 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
       immutable_db_options.avoid_flush_during_recovery;
   options.avoid_flush_during_shutdown =
       mutable_db_options.avoid_flush_during_shutdown;
+  options.allow_ingest_behind =
+      immutable_db_options.allow_ingest_behind;
 
   return options;
 }

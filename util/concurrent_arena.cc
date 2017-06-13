@@ -11,7 +11,6 @@
 
 #include "util/concurrent_arena.h"
 #include <thread>
-#include "port/likely.h"
 #include "port/port.h"
 #include "util/random.h"
 
@@ -21,10 +20,11 @@ namespace rocksdb {
 __thread size_t ConcurrentArena::tls_cpuid = 0;
 #endif
 
-ConcurrentArena::ConcurrentArena(size_t block_size, size_t huge_page_size)
+ConcurrentArena::ConcurrentArena(size_t block_size, AllocTracker* tracker,
+                                 size_t huge_page_size)
     : shard_block_size_(block_size / 8),
       shards_(),
-      arena_(block_size, huge_page_size) {
+      arena_(block_size, tracker, huge_page_size) {
   Fixup();
 }
 

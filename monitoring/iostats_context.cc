@@ -6,16 +6,21 @@
 #include <sstream>
 #include "monitoring/iostats_context_imp.h"
 #include "rocksdb/env.h"
+#include "util/thread_local.h"
 
 namespace rocksdb {
 
-#ifndef IOS_CROSS_COMPILE
-# ifdef _MSC_VER
-__declspec(thread) IOStatsContext iostats_context;
-# else
-__thread IOStatsContext iostats_context;
-# endif
-#endif  // IOS_CROSS_COMPILE
+ThreadLocalPtr iostats_context([](void* ptr) {
+    auto* p = static_cast<IOStatsContext*>(ptr);
+    delete p;
+  });
+
+IOStatsContext* get_iostats_context() {
+  if (iostats_context.Get() == nullptr) {
+    iostats_context.Reset(static_cast<void*>(new IOStatsContext()));
+  }
+  return static_cast<IOStatsContext*>(iostats_context.Get());
+}
 
 void IOStatsContext::Reset() {
   thread_pool_id = Env::Priority::TOTAL;

@@ -627,11 +627,10 @@ int main(int argc, char** argv) {
   rocksdb::MemTable::KeyComparator key_comp(internal_key_comp);
   rocksdb::Arena arena;
   rocksdb::WriteBufferManager wb(FLAGS_write_buffer_size);
-  rocksdb::MemTableAllocator memtable_allocator(&arena, &wb);
   uint64_t sequence;
   auto createMemtableRep = [&] {
     sequence = 0;
-    return factory->CreateMemTableRep(key_comp, &memtable_allocator,
+    return factory->CreateMemTableRep(key_comp, &arena,
                                       options.prefix_extractor.get(),
                                       options.info_log.get());
   };

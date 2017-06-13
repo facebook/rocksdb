@@ -85,6 +85,10 @@ class SyncPoint {
   // Set up a call back function in sync point.
   void SetCallBack(const std::string point,
                    std::function<void(void*)> callback);
+
+  // Clear callback function by point
+  void ClearCallBack(const std::string point);
+
   // Clear all call back functions.
   void ClearAllCallBacks();
 

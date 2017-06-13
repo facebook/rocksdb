@@ -34,7 +34,7 @@ static std::string PrintContents(WriteBatch* b) {
   ImmutableCFOptions ioptions(options);
   WriteBufferManager wb(options.db_write_buffer_size);
   MemTable* mem = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
-                               kMaxSequenceNumber);
+                               kMaxSequenceNumber, 0 /* column_family_id */);
   mem->Ref();
   std::string state;
   ColumnFamilyMemTablesDefault cf_mems_default(mem);

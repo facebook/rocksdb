@@ -67,7 +67,7 @@ struct BlockBasedTableOptions {
 
   // If cache_index_and_filter_blocks is enabled, cache index and filter
   // blocks with high priority. If set to true, depending on implementation of
-  // block cache, index and filter blocks may be less likely to be eviected
+  // block cache, index and filter blocks may be less likely to be evicted
   // than data blocks.
   bool cache_index_and_filter_blocks_with_high_priority = false;
 
@@ -147,7 +147,7 @@ struct BlockBasedTableOptions {
   // Block size for partitioned metadata. Currently applied to indexes when
   // kTwoLevelIndexSearch is used and to filters when partition_filters is used.
   // Note: Since in the current implementation the filters and index partitions
-  // are aligned, an index/filter block is created when eitehr index or filter
+  // are aligned, an index/filter block is created when either index or filter
   // block size reaches the specified limit.
   // Note: this limit is currently applied to only index blocks; a filter
   // partition is cut right after an index block is cut
@@ -418,7 +418,7 @@ class TableFactory {
   // (1) TableCache::FindTable() calls the function when table cache miss
   //     and cache the table object returned.
   // (2) SstFileReader (for SST Dump) opens the table and dump the table
-  //     contents using the interator of the table.
+  //     contents using the iterator of the table.
   // (3) DBImpl::AddFile() calls this function to read the contents of
   //     the sst file it's attempting to add
   //
@@ -446,7 +446,7 @@ class TableFactory {
   // (4) When running Repairer, it creates a table builder to convert logs to
   //     SST files (In Repairer::ConvertLogToTable() by calling BuildTable())
   //
-  // Multiple configured can be acceseed from there, including and not limited
+  // Multiple configured can be accessed from there, including and not limited
   // to compression options. file is a handle of a writable file.
   // It is the caller's responsibility to keep the file open and close the file
   // after closing the table builder. compression_type is the compression type
@@ -472,7 +472,7 @@ class TableFactory {
   // Since the return value is a raw pointer, the TableFactory owns the
   // pointer and the caller should not delete the pointer.
   //
-  // In certan case, it is desirable to alter the underlying options when the
+  // In certain case, it is desirable to alter the underlying options when the
   // TableFactory is not used by any open DB by casting the returned pointer
   // to the right class.   For instance, if BlockBasedTableFactory is used,
   // then the pointer can be casted to BlockBasedTableOptions.

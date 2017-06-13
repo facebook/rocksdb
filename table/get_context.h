@@ -62,6 +62,8 @@ class GetContext {
   // Do we need to fetch the SequenceNumber for this key?
   bool NeedToReadSequence() const { return (seq_ != nullptr); }
 
+  bool sample() const { return sample_; }
+
  private:
   const Comparator* ucmp_;
   const MergeOperator* merge_operator_;
@@ -82,6 +84,7 @@ class GetContext {
   std::string* replay_log_;
   // Used to temporarily pin blocks when state_ == GetContext::kMerge
   PinnedIteratorsManager* pinned_iters_mgr_;
+  bool sample_;
 };
 
 void replayGetContextLog(const Slice& replay_log, const Slice& user_key,

@@ -15,7 +15,7 @@ struct CompactionJobStats {
   // Aggregate the CompactionJobStats from another instance with this one
   void Add(const CompactionJobStats& stats);
 
-  // the elapsed time in micro of this compaction.
+  // the elapsed time of this compaction in microseconds.
   uint64_t elapsed_micros;
 
   // the number of compaction input records.

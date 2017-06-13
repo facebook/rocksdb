@@ -19,9 +19,9 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
 	org.rocksdb.DirectSlice\
 	org.rocksdb.Env\
 	org.rocksdb.EnvOptions\
-	org.rocksdb.ExternalSstFileInfo\
 	org.rocksdb.FlushOptions\
 	org.rocksdb.Filter\
+	org.rocksdb.IngestExternalFileOptions\
 	org.rocksdb.HashLinkedListMemTableConfig\
 	org.rocksdb.HashSkipListMemTableConfig\
 	org.rocksdb.Logger\
@@ -87,7 +87,7 @@ JAVA_TESTS = org.rocksdb.BackupableDBOptionsTest\
 	org.rocksdb.DirectComparatorTest\
 	org.rocksdb.DirectSliceTest\
 	org.rocksdb.EnvOptionsTest\
-	org.rocksdb.ExternalSstFileInfoTest\
+	org.rocksdb.IngestExternalFileOptionsTest\
 	org.rocksdb.util.EnvironmentTest\
 	org.rocksdb.FilterTest\
 	org.rocksdb.FlushTest\

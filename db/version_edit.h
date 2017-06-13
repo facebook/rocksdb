@@ -63,17 +63,29 @@ struct FileDescriptor {
   uint64_t GetFileSize() const { return file_size; }
 };
 
+struct FileSampledStats {
+  FileSampledStats() : num_reads_sampled(0) {}
+  FileSampledStats(const FileSampledStats& other) { *this = other; }
+  FileSampledStats& operator=(const FileSampledStats& other) {
+    num_reads_sampled = other.num_reads_sampled.load();
+    return *this;
+  }
+
+  // number of user reads to this file.
+  mutable std::atomic<uint64_t> num_reads_sampled;
+};
+
 struct FileMetaData {
-  int refs;
   FileDescriptor fd;
   InternalKey smallest;            // Smallest internal key served by table
   InternalKey largest;             // Largest internal key served by table
-  bool being_compacted;            // Is this file undergoing compaction?
   SequenceNumber smallest_seqno;   // The smallest seqno in this file
   SequenceNumber largest_seqno;    // The largest seqno in this file
 
   // Needs to be disposed when refs becomes 0.
   Cache::Handle* table_reader_handle;
+
+  FileSampledStats stats;
 
   // Stats for compensating deletion entries during compaction
 
@@ -87,6 +99,10 @@ struct FileMetaData {
   uint64_t num_deletions;          // the number of deletion entries.
   uint64_t raw_key_size;           // total uncompressed key size.
   uint64_t raw_value_size;         // total uncompressed value size.
+
+  int refs;  // Reference count
+
+  bool being_compacted;        // Is this file undergoing compaction?
   bool init_stats_from_file;   // true if the data-entry stats of this file
                                // has initialized from file.
 
@@ -94,9 +110,7 @@ struct FileMetaData {
                                // file.
 
   FileMetaData()
-      : refs(0),
-        being_compacted(false),
-        smallest_seqno(kMaxSequenceNumber),
+      : smallest_seqno(kMaxSequenceNumber),
         largest_seqno(0),
         table_reader_handle(nullptr),
         compensated_file_size(0),
@@ -104,6 +118,8 @@ struct FileMetaData {
         num_deletions(0),
         raw_key_size(0),
         raw_value_size(0),
+        refs(0),
+        being_compacted(false),
         init_stats_from_file(false),
         marked_for_compaction(false) {}
 
@@ -119,10 +135,12 @@ struct FileMetaData {
   }
 };
 
-// A compressed copy of file meta data that just contain
-// smallest and largest key's slice
+// A compressed copy of file meta data that just contain minimum data needed
+// to server read operations, while still keeping the pointer to full metadata
+// of the file in case it is needed.
 struct FdWithKeyRange {
   FileDescriptor fd;
+  FileMetaData* file_metadata;  // Point to all metadata
   Slice smallest_key;    // slice that contain smallest key
   Slice largest_key;     // slice that contain largest key
 
@@ -132,8 +150,12 @@ struct FdWithKeyRange {
         largest_key() {
   }
 
-  FdWithKeyRange(FileDescriptor _fd, Slice _smallest_key, Slice _largest_key)
-      : fd(_fd), smallest_key(_smallest_key), largest_key(_largest_key) {}
+  FdWithKeyRange(FileDescriptor _fd, Slice _smallest_key, Slice _largest_key,
+                 FileMetaData* _file_metadata)
+      : fd(_fd),
+        file_metadata(_file_metadata),
+        smallest_key(_smallest_key),
+        largest_key(_largest_key) {}
 };
 
 // Data structure to store an array of FdWithKeyRange in one level

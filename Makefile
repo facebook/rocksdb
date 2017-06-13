@@ -192,9 +192,9 @@ endif
 # TSAN doesn't work well with jemalloc. If we're compiling with TSAN, we should use regular malloc.
 ifdef COMPILE_WITH_TSAN
 	DISABLE_JEMALLOC=1
-	EXEC_LDFLAGS += -fsanitize=thread -pie
-	PLATFORM_CCFLAGS += -fsanitize=thread -fPIC -DROCKSDB_TSAN_RUN
-	PLATFORM_CXXFLAGS += -fsanitize=thread -fPIC -DROCKSDB_TSAN_RUN
+	EXEC_LDFLAGS += -fsanitize=thread
+	PLATFORM_CCFLAGS += -fsanitize=thread -fPIC
+	PLATFORM_CXXFLAGS += -fsanitize=thread -fPIC
         # Turn off -pg when enabling TSAN testing, because that induces
         # a link failure.  TODO: find the root cause
 	PROFILING_FLAGS =
@@ -211,8 +211,8 @@ endif
 ifdef COMPILE_WITH_UBSAN
 	DISABLE_JEMALLOC=1
 	EXEC_LDFLAGS += -fsanitize=undefined
-	PLATFORM_CCFLAGS += -fsanitize=undefined
-	PLATFORM_CXXFLAGS += -fsanitize=undefined
+	PLATFORM_CCFLAGS += -fsanitize=undefined -DROCKSDB_UBSAN_RUN
+	PLATFORM_CXXFLAGS += -fsanitize=undefined -DROCKSDB_UBSAN_RUN
 endif
 
 ifndef DISABLE_JEMALLOC
@@ -304,7 +304,6 @@ util/build_version.cc: FORCE
 	  cmp -s $@-t $@ && rm -f $@-t || mv -f $@-t $@;		\
 	else mv -f $@-t $@; fi
 endif
-CLEAN_FILES += util/build_version.cc
 
 LIBOBJECTS = $(LIB_SOURCES:.cc=.o)
 LIBOBJECTS += $(TOOL_LIB_SOURCES:.cc=.o)
@@ -364,6 +363,7 @@ TESTS = \
 	db_properties_test \
 	db_table_properties_test \
 	db_statistics_test \
+	db_write_test \
 	autovector_test \
 	cleanable_test \
 	column_family_test \
@@ -400,6 +400,7 @@ TESTS = \
 	external_sst_file_test \
 	prefix_test \
 	skiplist_test \
+	write_buffer_manager_test \
 	stringappend_test \
 	ttl_test \
 	date_tiered_test \
@@ -487,7 +488,8 @@ TOOLS = \
 	ldb \
 	db_repl_stress \
 	rocksdb_dump \
-	rocksdb_undump
+	rocksdb_undump \
+	blob_dump \
 
 TEST_LIBS = \
 	librocksdb_env_basic_test.a
@@ -903,12 +905,13 @@ clean:
 	rm -rf $(CLEAN_FILES) ios-x86 ios-arm scan_build_report
 	find . -name "*.[oda]" -exec rm -f {} \;
 	find . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;
-	rm -rf bzip2* snappy* zlib* lz4*
+	rm -rf bzip2* snappy* zlib* lz4* zstd*
 	cd java; $(MAKE) clean
 
 tags:
 	ctags * -R
 	cscope -b `find . -name '*.cc'` `find . -name '*.h'` `find . -name '*.c'`
+	ctags -e -R -o etags *
 
 format:
 	build_tools/format-diff.sh
@@ -1066,6 +1069,9 @@ db_sst_test: db/db_sst_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 db_statistics_test: db/db_statistics_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+db_write_test: db/db_write_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 external_sst_file_basic_test: db/external_sst_file_basic_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
@@ -1112,9 +1118,6 @@ prefix_test: db/prefix_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_V_CCLD)$(CXX) $^ $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)
 
 backupable_db_test: utilities/backupable/backupable_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_LINK)
-
-blob_db_test: utilities/blob_db/blob_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 checkpoint_test: utilities/checkpoint/checkpoint_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -1222,6 +1225,9 @@ inlineskiplist_test: memtable/inlineskiplist_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 skiplist_test: memtable/skiplist_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+write_buffer_manager_test: memtable/write_buffer_manager_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 version_edit_test: db/version_edit_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -1350,6 +1356,9 @@ transaction_test: utilities/transactions/transaction_test.o $(LIBOBJECTS) $(TEST
 sst_dump: tools/sst_dump.o $(LIBOBJECTS)
 	$(AM_LINK)
 
+blob_dump: tools/blob_dump.o $(LIBOBJECTS)
+	$(AM_LINK)
+
 column_aware_encoding_exp: utilities/column_aware_encoding_exp.o $(EXPOBJECTS)
 	$(AM_LINK)
 
@@ -1378,6 +1387,9 @@ lua_test: utilities/lua/rocks_lua_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTH
 	$(AM_LINK)
 
 range_del_aggregator_test: db/range_del_aggregator_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+blob_db_test: utilities/blob_db/blob_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 #-------------------------------------------------
@@ -1554,8 +1566,8 @@ ifneq ($(ROCKSDB_JAVA_NO_COMPRESSION), 1)
 JAVA_COMPRESSIONS = libz.a libbz2.a libsnappy.a liblz4.a libzstd.a
 endif
 
-JAVA_STATIC_FLAGS = -DZLIB -DBZIP2 -DSNAPPY -DLZ4
-JAVA_STATIC_INCLUDES = -I./zlib-$(ZLIB_VER) -I./bzip2-$(BZIP2_VER) -I./snappy-$(SNAPPY_VER) -I./lz4-$(LZ4_VER)/lib
+JAVA_STATIC_FLAGS = -DZLIB -DBZIP2 -DSNAPPY -DLZ4 -DZSTD
+JAVA_STATIC_INCLUDES = -I./zlib-$(ZLIB_VER) -I./bzip2-$(BZIP2_VER) -I./snappy-$(SNAPPY_VER) -I./lz4-$(LZ4_VER)/lib -I./zstd-$(ZSTD_VER)/lib
 
 $(java_static_libobjects): jls/%.o: %.cc $(JAVA_COMPRESSIONS)
 	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES) -fPIC -c $< -o $@ $(COVERAGEFLAGS)
@@ -1580,7 +1592,24 @@ rocksdbjavastaticrelease: rocksdbjavastatic
 	cd java/target;jar -uf $(ROCKSDB_JAR_ALL) librocksdbjni-*.so librocksdbjni-*.jnilib
 	cd java/target/classes;jar -uf ../$(ROCKSDB_JAR_ALL) org/rocksdb/*.class org/rocksdb/util/*.class
 
+rocksdbjavastaticreleasedocker: rocksdbjavastatic
+	DOCKER_LINUX_X64_CONTAINER=`docker ps -aqf name=rocksdb_linux_x64-be`; \
+	if [ -z "$$DOCKER_LINUX_X64_CONTAINER" ]; then \
+		docker container create --attach stdin --attach stdout --attach stderr --volume `pwd`:/rocksdb-host --name rocksdb_linux_x64-be evolvedbinary/rocksjava:centos6_x64-be /rocksdb-host/java/crossbuild/docker-build-linux-centos.sh; \
+	fi
+	docker start -a rocksdb_linux_x64-be
+	DOCKER_LINUX_X86_CONTAINER=`docker ps -aqf name=rocksdb_linux_x86-be`; \
+	if [ -z "$$DOCKER_LINUX_X86_CONTAINER" ]; then \
+		docker container create --attach stdin --attach stdout --attach stderr --volume `pwd`:/rocksdb-host --name rocksdb_linux_x86-be evolvedbinary/rocksjava:centos6_x86-be /rocksdb-host/java/crossbuild/docker-build-linux-centos.sh; \
+	fi
+	docker start -a rocksdb_linux_x86-be
+	cd java;jar -cf target/$(ROCKSDB_JAR_ALL) HISTORY*.md
+	cd java/target;jar -uf $(ROCKSDB_JAR_ALL) librocksdbjni-*.so librocksdbjni-*.jnilib
+	cd java/target/classes;jar -uf ../$(ROCKSDB_JAR_ALL) org/rocksdb/*.class org/rocksdb/util/*.class
+
 rocksdbjavastaticpublish: rocksdbjavastaticrelease rocksdbjavastaticpublishcentral
+
+rocksdbjavastaticpublishdocker: rocksdbjavastaticreleasedocker rocksdbjavastaticpublishcentral
 
 rocksdbjavastaticpublishcentral:
 	mvn gpg:sign-and-deploy-file -Durl=https://oss.sonatype.org/service/local/staging/deploy/maven2/ -DrepositoryId=sonatype-nexus-staging -DpomFile=java/rocksjni.pom -Dfile=java/target/rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-javadoc.jar -Dclassifier=javadoc

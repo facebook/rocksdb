@@ -108,6 +108,8 @@ struct ImmutableCFOptions {
 
   bool force_consistency_checks;
 
+  bool allow_ingest_behind;
+
   // A vector of EventListeners which call-back functions will be called
   // when specific RocksDB event happens.
   std::vector<std::shared_ptr<EventListener>> listeners;

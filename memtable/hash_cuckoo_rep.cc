@@ -61,8 +61,7 @@ struct CuckooStep {
 class HashCuckooRep : public MemTableRep {
  public:
   explicit HashCuckooRep(const MemTableRep::KeyComparator& compare,
-                         MemTableAllocator* allocator,
-                         const size_t bucket_count,
+                         Allocator* allocator, const size_t bucket_count,
                          const unsigned int hash_func_count,
                          const size_t approximate_entry_size)
       : MemTableRep(allocator),
@@ -198,7 +197,7 @@ class HashCuckooRep : public MemTableRep {
  private:
   const MemTableRep::KeyComparator& compare_;
   // the pointer to Allocator to allocate memory, immutable after construction.
-  MemTableAllocator* const allocator_;
+  Allocator* const allocator_;
   // the number of hash bucket in the hash table.
   const size_t bucket_count_;
   // approximate size of each entry
@@ -625,7 +624,7 @@ void HashCuckooRep::Iterator::SeekToLast() {
 }  // anom namespace
 
 MemTableRep* HashCuckooRepFactory::CreateMemTableRep(
-    const MemTableRep::KeyComparator& compare, MemTableAllocator* allocator,
+    const MemTableRep::KeyComparator& compare, Allocator* allocator,
     const SliceTransform* transform, Logger* logger) {
   // The estimated average fullness.  The write performance of any close hash
   // degrades as the fullness of the mem-table increases.  Setting kFullness

@@ -13,7 +13,6 @@
 
 #include <memory>
 #include <algorithm>
-#include <limits>
 
 #include "db/dbformat.h"
 #include "db/merge_context.h"
@@ -37,7 +36,6 @@
 #include "util/memory_usage.h"
 #include "util/murmurhash.h"
 #include "util/mutexlock.h"
-#include "util/stop_watch.h"
 
 namespace rocksdb {
 
@@ -63,20 +61,24 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
                    const ImmutableCFOptions& ioptions,
                    const MutableCFOptions& mutable_cf_options,
                    WriteBufferManager* write_buffer_manager,
-                   SequenceNumber latest_seq)
+                   SequenceNumber latest_seq, uint32_t column_family_id)
     : comparator_(cmp),
       moptions_(ioptions, mutable_cf_options),
       refs_(0),
       kArenaBlockSize(OptimizeBlockSize(moptions_.arena_block_size)),
-      arena_(moptions_.arena_block_size,
-             mutable_cf_options.memtable_huge_page_size),
-      allocator_(&arena_, write_buffer_manager),
+      mem_tracker_(write_buffer_manager),
+      arena_(
+          moptions_.arena_block_size,
+          (write_buffer_manager != nullptr && write_buffer_manager->enabled())
+              ? &mem_tracker_
+              : nullptr,
+          mutable_cf_options.memtable_huge_page_size),
       table_(ioptions.memtable_factory->CreateMemTableRep(
-          comparator_, &allocator_, ioptions.prefix_extractor,
-          ioptions.info_log)),
+          comparator_, &arena_, ioptions.prefix_extractor, ioptions.info_log,
+          column_family_id)),
       range_del_table_(SkipListFactory().CreateMemTableRep(
-          comparator_, &allocator_, nullptr /* transform */,
-          ioptions.info_log)),
+          comparator_, &arena_, nullptr /* transform */, ioptions.info_log,
+          column_family_id)),
       is_range_del_table_empty_(true),
       data_size_(0),
       num_entries_(0),
@@ -103,13 +105,16 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
 
   if (prefix_extractor_ && moptions_.memtable_prefix_bloom_bits > 0) {
     prefix_bloom_.reset(new DynamicBloom(
-        &allocator_, moptions_.memtable_prefix_bloom_bits,
-        ioptions.bloom_locality, 6 /* hard coded 6 probes */, nullptr,
-        moptions_.memtable_huge_page_size, ioptions.info_log));
+        &arena_, moptions_.memtable_prefix_bloom_bits, ioptions.bloom_locality,
+        6 /* hard coded 6 probes */, nullptr, moptions_.memtable_huge_page_size,
+        ioptions.info_log));
   }
 }
 
-MemTable::~MemTable() { assert(refs_ == 0); }
+MemTable::~MemTable() {
+  mem_tracker_.FreeMem();
+  assert(refs_ == 0);
+}
 
 size_t MemTable::ApproximateMemoryUsage() {
   autovector<size_t> usages = {arena_.ApproximateMemoryUsage(),
@@ -578,7 +583,7 @@ static bool SaveValue(void* arg, const char* entry) {
           *(s->status) = MergeHelper::TimedFullMerge(
               merge_operator, s->key->user_key(), &v,
               merge_context->GetOperands(), s->value, s->logger, s->statistics,
-              s->env_);
+              s->env_, nullptr /* result_operand */, true);
         } else if (s->value != nullptr) {
           s->value->assign(v.data(), v.size());
         }
@@ -595,7 +600,7 @@ static bool SaveValue(void* arg, const char* entry) {
           *(s->status) = MergeHelper::TimedFullMerge(
               merge_operator, s->key->user_key(), nullptr,
               merge_context->GetOperands(), s->value, s->logger, s->statistics,
-              s->env_);
+              s->env_, nullptr /* result_operand */, true);
         } else {
           *(s->status) = Status::NotFound();
         }

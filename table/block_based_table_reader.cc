@@ -797,7 +797,6 @@ void BlockBasedTable::SetupForCompaction() {
     default:
       assert(false);
   }
-  compaction_optimized_ = true;
 }
 
 std::shared_ptr<const TableProperties> BlockBasedTable::GetTableProperties()
@@ -1414,7 +1413,7 @@ BlockBasedTable::BlockEntryIteratorState::NewSecondaryIterator(
     {
       ReadLock rl(&cleaner_mu);
       if (cleaner_set.find(offset) != cleaner_set.end()) {
-        // already have a refernce to the block cache objects
+        // already have a reference to the block cache objects
         return iter;
       }
     }

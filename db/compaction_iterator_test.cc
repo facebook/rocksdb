@@ -156,6 +156,7 @@ class FakeCompaction : public CompactionIterator::CompactionProxy {
   virtual Slice GetLargestUserKey() const {
     return "\xff\xff\xff\xff\xff\xff\xff\xff\xff";
   }
+  virtual bool allow_ingest_behind() const { return false; }
 
   bool key_not_exists_beyond_output_level = false;
 };

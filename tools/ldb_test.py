@@ -169,10 +169,10 @@ class LDBTestCase(unittest.TestCase):
         print "Running testCountDelimIDump..."
         self.assertRunOK("batchput x.1 x1 --create_if_missing", "OK")
         self.assertRunOK("batchput y.abc abc y.2 2 z.13c pqr", "OK")
-        self.assertRunOK("dump --count_delim", "x => count:1\tsize:5\ny => count:2\tsize:12\nz => count:1\tsize:8")
-        self.assertRunOK("dump --count_delim=\".\"", "x => count:1\tsize:5\ny => count:2\tsize:12\nz => count:1\tsize:8")
+        self.assertRunOK("idump --count_delim", "x => count:1\tsize:5\ny => count:2\tsize:12\nz => count:1\tsize:8")
+        self.assertRunOK("idump --count_delim=\".\"", "x => count:1\tsize:5\ny => count:2\tsize:12\nz => count:1\tsize:8")
         self.assertRunOK("batchput x,2 x2 x,abc xabc", "OK")
-        self.assertRunOK("dump --count_delim=\",\"", "x => count:2\tsize:14\nx.1 => count:1\tsize:5\ny.2 => count:1\tsize:4\ny.abc => count:1\tsize:8\nz.13c => count:1\tsize:8")
+        self.assertRunOK("idump --count_delim=\",\"", "x => count:2\tsize:14\nx.1 => count:1\tsize:5\ny.2 => count:1\tsize:4\ny.abc => count:1\tsize:8\nz.13c => count:1\tsize:8")
 
     def testInvalidCmdLines(self):
         print "Running testInvalidCmdLines..."
@@ -330,6 +330,18 @@ class LDBTestCase(unittest.TestCase):
         dumpFilePath = os.path.join(self.TMP_DIR, "dump8")
         self.assertFalse(self.dumpDb(
             "--db=%s --create_if_missing" % origDbPath, dumpFilePath))
+
+    def testIDumpBasics(self):
+        print "Running testIDumpBasics..."
+        self.assertRunOK("put a val --create_if_missing", "OK")
+        self.assertRunOK("put b val", "OK")
+        self.assertRunOK(
+                "idump", "'a' seq:1, type:1 => val\n"
+                "'b' seq:2, type:1 => val\nInternal keys in range: 2")
+        self.assertRunOK(
+                "idump --input_key_hex --from=%s --to=%s" % (hex(ord('a')),
+                                                             hex(ord('b'))),
+                "'a' seq:1, type:1 => val\nInternal keys in range: 1")
 
     def testMiscAdminTask(self):
         print "Running testMiscAdminTask..."

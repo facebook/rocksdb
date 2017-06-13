@@ -60,6 +60,12 @@ class TableCache {
       HistogramImpl* file_read_hist = nullptr, bool for_compaction = false,
       Arena* arena = nullptr, bool skip_filters = false, int level = -1);
 
+  InternalIterator* NewRangeTombstoneIterator(
+      const ReadOptions& options, const EnvOptions& toptions,
+      const InternalKeyComparator& internal_comparator,
+      const FileDescriptor& file_fd, HistogramImpl* file_read_hist,
+      bool skip_filters, int level);
+
   // If a seek to internal key "k" in specified file finds an entry,
   // call (*handle_result)(arg, found_key, found_value) repeatedly until
   // it returns false.

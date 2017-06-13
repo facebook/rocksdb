@@ -34,6 +34,7 @@
 #include "db/pinned_iterators_manager.h"
 #include "db/table_cache.h"
 #include "db/version_builder.h"
+#include "monitoring/file_read_sample.h"
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
@@ -122,7 +123,7 @@ class FilePicker {
     }
   }
 
-  int GetCurrentLevel() { return returned_file_level_; }
+  int GetCurrentLevel() const { return curr_level_; }
 
   FdWithKeyRange* GetNextFile() {
     while (!search_ended_) {  // Loops over different levels.
@@ -136,8 +137,8 @@ class FilePicker {
 
         // Do key range filtering of files or/and fractional cascading if:
         // (1) not all the files are in level 0, or
-        // (2) there are more than 3 Level 0 files
-        // If there are only 3 or less level 0 files in the system, we skip
+        // (2) there are more than 3 current level files
+        // If there are only 3 or less current level files in the system, we skip
         // the key range filtering. In this case, more likely, the system is
         // highly tuned to minimize number of tables queried by each query,
         // so it is unlikely that key range filtering is more efficient than
@@ -370,6 +371,7 @@ void DoGenerateLevelFilesBrief(LevelFilesBrief* file_level,
 
     FdWithKeyRange& f = file_level->files[i];
     f.fd = files[i]->fd;
+    f.file_metadata = files[i];
     f.smallest_key = Slice(mem, smallest_size);
     f.largest_key = Slice(mem + smallest_size, largest_size);
   }
@@ -437,12 +439,12 @@ namespace {
 class LevelFileNumIterator : public InternalIterator {
  public:
   LevelFileNumIterator(const InternalKeyComparator& icmp,
-                       const LevelFilesBrief* flevel)
+                       const LevelFilesBrief* flevel, bool should_sample)
       : icmp_(icmp),
         flevel_(flevel),
         index_(static_cast<uint32_t>(flevel->num_files)),
-        current_value_(0, 0, 0) {  // Marks as invalid
-  }
+        current_value_(0, 0, 0),  // Marks as invalid
+        should_sample_(should_sample) {}
   virtual bool Valid() const override { return index_ < flevel_->num_files; }
   virtual void Seek(const Slice& target) override {
     index_ = FindFile(icmp_, *flevel_, target);
@@ -477,6 +479,9 @@ class LevelFileNumIterator : public InternalIterator {
     assert(Valid());
 
     auto file_meta = flevel_->files[index_];
+    if (should_sample_) {
+      sample_file_read_inc(file_meta.file_metadata);
+    }
     current_value_ = file_meta.fd;
     return Slice(reinterpret_cast<const char*>(&current_value_),
                  sizeof(FileDescriptor));
@@ -488,6 +493,7 @@ class LevelFileNumIterator : public InternalIterator {
   const LevelFilesBrief* flevel_;
   uint32_t index_;
   mutable FileDescriptor current_value_;
+  bool should_sample_;
 };
 
 class LevelFileIteratorState : public TwoLevelIteratorState {
@@ -745,13 +751,11 @@ void Version::GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta) {
         file_path = ioptions->db_paths.back().path;
       }
       files.emplace_back(
-          MakeTableFileName("", file->fd.GetNumber()),
-          file_path,
-          file->fd.GetFileSize(),
-          file->smallest_seqno,
-          file->largest_seqno,
+          MakeTableFileName("", file->fd.GetNumber()), file_path,
+          file->fd.GetFileSize(), file->smallest_seqno, file->largest_seqno,
           file->smallest.user_key().ToString(),
           file->largest.user_key().ToString(),
+          file->stats.num_reads_sampled.load(std::memory_order_relaxed),
           file->being_compacted);
       level_size += file->fd.GetFileSize();
     }
@@ -835,6 +839,8 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
     return;
   }
 
+  bool should_sample = should_sample_file_read();
+
   auto* arena = merge_iter_builder->GetArena();
   if (level == 0) {
     // Merge all level zero files together since they may overlap
@@ -844,6 +850,15 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
           read_options, soptions, cfd_->internal_comparator(), file.fd,
           range_del_agg, nullptr, cfd_->internal_stats()->GetFileReadHist(0),
           false, arena, false /* skip_filters */, 0 /* level */));
+    }
+    if (should_sample) {
+      // Count ones for every L0 files. This is done per iterator creation
+      // rather than Seek(), while files in other levels are recored per seek.
+      // If users execute one range query per iterator, there may be some
+      // discrepancy here.
+      for (FileMetaData* meta : storage_info_.LevelFiles(0)) {
+        sample_file_read_inc(meta);
+      }
     }
   } else {
     // For levels > 0, we can use a concatenating iterator that sequentially
@@ -859,9 +874,26 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
                                IsFilterSkipped(level), level, range_del_agg);
     mem = arena->AllocateAligned(sizeof(LevelFileNumIterator));
     auto* first_level_iter = new (mem) LevelFileNumIterator(
-        cfd_->internal_comparator(), &storage_info_.LevelFilesBrief(level));
+        cfd_->internal_comparator(), &storage_info_.LevelFilesBrief(level),
+        should_sample_file_read());
     merge_iter_builder->AddIterator(
         NewTwoLevelIterator(state, first_level_iter, arena, false));
+  }
+}
+
+void Version::AddRangeDelIteratorsForLevel(
+    const ReadOptions& read_options, const EnvOptions& soptions, int level,
+    std::vector<InternalIterator*>* range_del_iters) {
+  range_del_iters->clear();
+  for (size_t i = 0; i < storage_info_.LevelFilesBrief(level).num_files; i++) {
+    const auto& file = storage_info_.LevelFilesBrief(level).files[i];
+    auto* range_del_iter = cfd_->table_cache()->NewRangeTombstoneIterator(
+        read_options, soptions, cfd_->internal_comparator(), file.fd,
+        cfd_->internal_stats()->GetFileReadHist(level),
+        false /* skip_filters */, level);
+    if (range_del_iter != nullptr) {
+      range_del_iters->push_back(range_del_iter);
+    }
   }
 }
 
@@ -968,6 +1000,9 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       user_comparator(), internal_comparator());
   FdWithKeyRange* f = fp.GetNextFile();
   while (f != nullptr) {
+    if (get_context.sample()) {
+      sample_file_read_inc(f->file_metadata);
+    }
     *status = table_cache_->Get(
         read_options, *internal_comparator(), f->fd, ikey, &get_context,
         cfd_->internal_stats()->GetFileReadHist(fp.GetHitFileLevel()),
@@ -1016,7 +1051,8 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     std::string* str_value = value != nullptr ? value->GetSelf() : nullptr;
     *status = MergeHelper::TimedFullMerge(
         merge_operator_, user_key, nullptr, merge_context->GetOperands(),
-        str_value, info_log_, db_statistics_, env_);
+        str_value, info_log_, db_statistics_, env_,
+        nullptr /* result_operand */, true);
     if (LIKELY(value != nullptr)) {
       value->PinSelf();
     }
@@ -1216,15 +1252,18 @@ void VersionStorageInfo::EstimateCompactionBytesNeeded(
   // accumulated bytes.
 
   uint64_t bytes_compact_to_next_level = 0;
+  uint64_t level_size = 0;
+  for (auto* f : files_[0]) {
+    level_size += f->fd.GetFileSize();
+  }
   // Level 0
   bool level0_compact_triggered = false;
-  if (static_cast<int>(files_[0].size()) >
-      mutable_cf_options.level0_file_num_compaction_trigger) {
+  if (static_cast<int>(files_[0].size()) >=
+          mutable_cf_options.level0_file_num_compaction_trigger ||
+      level_size >= mutable_cf_options.max_bytes_for_level_base) {
     level0_compact_triggered = true;
-    for (auto* f : files_[0]) {
-      bytes_compact_to_next_level += f->fd.GetFileSize();
-    }
-    estimated_compaction_needed_bytes_ = bytes_compact_to_next_level;
+    estimated_compaction_needed_bytes_ = level_size;
+    bytes_compact_to_next_level = level_size;
   } else {
     estimated_compaction_needed_bytes_ = 0;
   }
@@ -1232,7 +1271,7 @@ void VersionStorageInfo::EstimateCompactionBytesNeeded(
   // Level 1 and up.
   uint64_t bytes_next_level = 0;
   for (int level = base_level(); level <= MaxInputLevel(); level++) {
-    uint64_t level_size = 0;
+    level_size = 0;
     if (bytes_next_level > 0) {
 #ifndef NDEBUG
       uint64_t level_size2 = 0;
@@ -2181,13 +2220,16 @@ void Version::AddLiveFiles(std::vector<FileDescriptor>* live) {
   }
 }
 
-std::string Version::DebugString(bool hex) const {
+std::string Version::DebugString(bool hex, bool print_stats) const {
   std::string r;
   for (int level = 0; level < storage_info_.num_levels_; level++) {
     // E.g.,
     //   --- level 1 ---
     //   17:123['a' .. 'd']
     //   20:43['e' .. 'g']
+    //
+    // if print_stats=true:
+    //   17:123['a' .. 'd'](4096)
     r.append("--- level ");
     AppendNumberTo(&r, level);
     r.append(" --- version# ");
@@ -2203,7 +2245,14 @@ std::string Version::DebugString(bool hex) const {
       r.append(files[i]->smallest.DebugString(hex));
       r.append(" .. ");
       r.append(files[i]->largest.DebugString(hex));
-      r.append("]\n");
+      r.append("]");
+      if (print_stats) {
+        r.append("(");
+        r.append(ToString(
+            files[i]->stats.num_reads_sampled.load(std::memory_order_relaxed)));
+        r.append(")");
+      }
+      r.append("\n");
     }
   }
   return r;
@@ -2637,7 +2686,7 @@ Status VersionSet::Recover(
   {
     unique_ptr<SequentialFile> manifest_file;
     s = env_->NewSequentialFile(manifest_filename, &manifest_file,
-                                env_options_);
+                                env_->OptimizeForManifestRead(env_options_));
     if (!s.ok()) {
       return s;
     }
@@ -3064,7 +3113,8 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
   Status s;
   {
     unique_ptr<SequentialFile> file;
-    s = options.env->NewSequentialFile(dscname, &file, env_options_);
+    s = options.env->NewSequentialFile(
+        dscname, &file, env_->OptimizeForManifestRead(env_options_));
     if (!s.ok()) {
       return s;
     }
@@ -3474,9 +3524,11 @@ InternalIterator* VersionSet::MakeInputIterator(
   ReadOptions read_options;
   read_options.verify_checksums = true;
   read_options.fill_cache = false;
-  if (c->ShouldFormSubcompactions()) {
-    read_options.total_order_seek = true;
-  }
+  // Compaction iterators shouldn't be confined to a single prefix.
+  // Compactions use Seek() for
+  // (a) concurrent compactions,
+  // (b) CompactionFilter::Decision::kRemoveAndSkipUntil.
+  read_options.total_order_seek = true;
 
   // Level-0 files have to be merged together.  For other levels,
   // we will make a concatenating iterator per level.
@@ -3510,7 +3562,8 @@ InternalIterator* VersionSet::MakeInputIterator(
                 false /* skip_filters */, (int)which /* level */,
                 range_del_agg),
             new LevelFileNumIterator(cfd->internal_comparator(),
-                                     c->input_levels(which)));
+                                     c->input_levels(which),
+                                     false /* don't sample compaction */));
       }
     }
   }
