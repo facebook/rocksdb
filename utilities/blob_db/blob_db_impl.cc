@@ -960,15 +960,15 @@ Status BlobDBImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
       return Status::OK();
     }
 
-    virtual Status SingleDeleteCF(uint32_t column_family_id,
-                                  const Slice& key) override {
+    virtual Status SingleDeleteCF(uint32_t /*column_family_id*/,
+                                  const Slice& /*key*/) override {
       batch_rewrite_status_ =
           Status::NotSupported("Not supported operation in blob db.");
       return batch_rewrite_status_;
     }
 
-    virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
-                           const Slice& value) override {
+    virtual Status MergeCF(uint32_t /*column_family_id*/, const Slice& /*key*/,
+                           const Slice& /*value*/) override {
       batch_rewrite_status_ =
           Status::NotSupported("Not supported operation in blob db.");
       return batch_rewrite_status_;
@@ -1002,8 +1002,8 @@ Status BlobDBImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
     explicit DeleteBookkeeper(BlobDBImpl* impl, const SequenceNumber& seq)
         : impl_(impl), sequence_(seq) {}
 
-    virtual Status PutCF(uint32_t column_family_id, const Slice& key,
-                         const Slice& value) override {
+    virtual Status PutCF(uint32_t /*column_family_id*/, const Slice& /*key*/,
+                         const Slice& /*value*/) override {
       sequence_++;
       return Status::OK();
     }
