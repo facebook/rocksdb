@@ -89,6 +89,86 @@ TEST_F(WritableFileWriterTest, RangeSync) {
   writer->Close();
 }
 
+TEST_F(WritableFileWriterTest, IncrementalBuffer) {
+  class FakeWF : public WritableFile {
+   public:
+    explicit FakeWF(std::string* _file_data, bool _use_direct_io,
+                    bool _no_flush)
+        : file_data_(_file_data),
+          use_direct_io_(_use_direct_io),
+          no_flush_(_no_flush) {}
+    ~FakeWF() {}
+
+    Status Append(const Slice& data) override {
+      file_data_->append(data.data(), data.size());
+      size_ += data.size();
+      return Status::OK();
+    }
+    Status PositionedAppend(const Slice& data, uint64_t pos) override {
+      EXPECT_TRUE(pos % 512 == 0);
+      EXPECT_TRUE(data.size() % 512 == 0);
+      file_data_->resize(pos);
+      file_data_->append(data.data(), data.size());
+      size_ += data.size();
+      return Status::OK();
+    }
+
+    virtual Status Truncate(uint64_t size) override {
+      file_data_->resize(size);
+      return Status::OK();
+    }
+    Status Close() override { return Status::OK(); }
+    Status Flush() override { return Status::OK(); }
+    Status Sync() override { return Status::OK(); }
+    Status Fsync() override { return Status::OK(); }
+    void SetIOPriority(Env::IOPriority pri) override {}
+    uint64_t GetFileSize() override { return size_; }
+    void GetPreallocationStatus(size_t* block_size,
+                                size_t* last_allocated_block) override {}
+    size_t GetUniqueId(char* id, size_t max_size) const override { return 0; }
+    Status InvalidateCache(size_t offset, size_t length) override {
+      return Status::OK();
+    }
+    bool use_direct_io() const override { return use_direct_io_; }
+
+    std::string* file_data_;
+    bool use_direct_io_;
+    bool no_flush_;
+    size_t size_ = 0;
+  };
+
+  Random r(301);
+  const int kNumAttempts = 50;
+  for (int attempt = 0; attempt < kNumAttempts; attempt++) {
+    bool no_flush = (attempt % 3 == 0);
+    EnvOptions env_options;
+    env_options.writable_file_max_buffer_size =
+        (attempt < kNumAttempts / 2) ? 512 * 1024 : 700 * 1024;
+    std::string actual;
+    unique_ptr<FakeWF> wf(new FakeWF(&actual, attempt % 2 == 1, no_flush));
+    unique_ptr<WritableFileWriter> writer(
+        new WritableFileWriter(std::move(wf), env_options));
+
+    std::string target;
+    for (int i = 0; i < 20; i++) {
+      uint32_t num = r.Skewed(16) * 100 + r.Uniform(100);
+      std::string random_string;
+      test::RandomString(&r, num, &random_string);
+      writer->Append(Slice(random_string.c_str(), num));
+      target.append(random_string.c_str(), num);
+
+      // In some attempts, flush in a chance of 1/10.
+      if (!no_flush && r.Uniform(10) == 0) {
+        writer->Flush();
+      }
+    }
+    writer->Flush();
+    writer->Close();
+    ASSERT_EQ(target.size(), actual.size());
+    ASSERT_EQ(target, actual);
+  }
+}
+
 #ifndef ROCKSDB_LITE
 TEST_F(WritableFileWriterTest, AppendStatusReturn) {
   class FakeWF : public WritableFile {

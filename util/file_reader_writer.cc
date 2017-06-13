@@ -132,7 +132,8 @@ Status WritableFileWriter::Append(const Slice& data) {
       // See whether the next available size is large enough.
       // Buffer will never be increased to more than max_buffer_size_.
       size_t desired_capacity = std::min(cap * 2, max_buffer_size_);
-      if (desired_capacity - buf_.CurrentSize() >= left) {
+      if (desired_capacity - buf_.CurrentSize() >= left ||
+          (use_direct_io() && desired_capacity == max_buffer_size_)) {
         buf_.AllocateNewBuffer(desired_capacity, true);
         break;
       }
