@@ -13,10 +13,27 @@
 #include "monitoring/statistics.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
+#include "util/aligned_buffer.h"
 #include "util/sync_point.h"
 
 namespace rocksdb {
 
+size_t RateLimiter::RequestToken(size_t bytes, size_t alignment,
+                                 Env::IOPriority io_priority, Statistics* stats,
+                                 RateLimiter::OpType op_type) {
+  if (io_priority < Env::IO_TOTAL && IsRateLimited(op_type)) {
+    bytes = std::min(bytes, static_cast<size_t>(GetSingleBurstBytes()));
+
+    if (alignment > 0) {
+      // Here we may actually require more than burst and block
+      // but we can not write less than one page at a time on direct I/O
+      // thus we may want not to use ratelimiter
+      bytes = std::max(alignment, TruncateToPageBoundary(alignment, bytes));
+    }
+    Request(bytes, io_priority, stats, op_type);
+  }
+  return bytes;
+}
 
 // Pending request
 struct GenericRateLimiter::Req {

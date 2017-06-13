@@ -193,10 +193,6 @@ class WritableFileWriter {
   Status SyncInternal(bool use_fsync);
 };
 
-size_t RequestToken(size_t bytes, size_t alignment, Env::IOPriority io_priority,
-                    RateLimiter* rate_limiter, Statistics* stats,
-                    RateLimiter::OpType op_type);
-
 extern Status NewWritableFile(Env* env, const std::string& fname,
                               unique_ptr<WritableFile>* result,
                               const EnvOptions& options);

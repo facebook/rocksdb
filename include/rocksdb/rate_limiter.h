@@ -72,6 +72,14 @@ class RateLimiter {
     }
   }
 
+  // Requests token to read or write bytes and potentially updates statistics.
+  // Takes into account GetSingleBurstBytes() and alignment (e.g., in case of
+  // direct I/O) to allocate an appropriate number of bytes, which may be less
+  // than the number of bytes requested.
+  virtual size_t RequestToken(size_t bytes, size_t alignment,
+                              Env::IOPriority io_priority, Statistics* stats,
+                              RateLimiter::OpType op_type);
+
   // Max bytes can be granted in a single burst
   virtual int64_t GetSingleBurstBytes() const = 0;
 

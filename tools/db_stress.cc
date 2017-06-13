@@ -328,7 +328,7 @@ DEFINE_int32(range_deletion_width, 10,
 
 DEFINE_uint64(rate_limiter_bytes_per_sec, 0, "Set options.rate_limiter value.");
 
-DEFINE_bool(rate_limit_reads, false,
+DEFINE_bool(rate_limit_bg_reads, false,
             "Use options.rate_limiter on compaction reads");
 
 // Temporarily disable this to allows it to detect new bugs
@@ -2191,9 +2191,9 @@ class StressTest {
       options_.rate_limiter.reset(NewGenericRateLimiter(
           FLAGS_rate_limiter_bytes_per_sec, 1000 /* refill_period_us */,
           10 /* fairness */,
-          FLAGS_rate_limit_reads ? RateLimiter::Mode::kReadsOnly
-                                 : RateLimiter::Mode::kWritesOnly));
-      if (FLAGS_rate_limit_reads) {
+          FLAGS_rate_limit_bg_reads ? RateLimiter::Mode::kReadsOnly
+                                    : RateLimiter::Mode::kWritesOnly));
+      if (FLAGS_rate_limit_bg_reads) {
         options_.new_table_reader_for_compaction_inputs = true;
       }
     }

@@ -103,10 +103,10 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
       const char* res_scratch = nullptr;
       while (pos < n) {
         size_t allowed;
-        if (for_compaction_) {
-          allowed =
-              RequestToken(n - pos, 0 /* alignment */, Env::IOPriority::IO_LOW,
-                           rate_limiter_, stats_, RateLimiter::OpType::kRead);
+        if (for_compaction_ && rate_limiter_ != nullptr) {
+          allowed = rate_limiter_->RequestToken(n - pos, 0 /* alignment */,
+                                                Env::IOPriority::IO_LOW, stats_,
+                                                RateLimiter::OpType::kRead);
         } else {
           allowed = n;
         }
@@ -345,25 +345,6 @@ Status WritableFileWriter::RangeSync(uint64_t offset, uint64_t nbytes) {
   return writable_file_->RangeSync(offset, nbytes);
 }
 
-size_t RequestToken(size_t bytes, size_t alignment, Env::IOPriority io_priority,
-                    RateLimiter* rate_limiter, Statistics* stats,
-                    RateLimiter::OpType op_type) {
-  if (rate_limiter && io_priority < Env::IO_TOTAL &&
-      rate_limiter->IsRateLimited(op_type)) {
-    bytes = std::min(bytes,
-                     static_cast<size_t>(rate_limiter->GetSingleBurstBytes()));
-
-    if (alignment > 0) {
-      // Here we may actually require more than burst and block
-      // but we can not write less than one page at a time on direct I/O
-      // thus we may want not to use ratelimiter
-      bytes = std::max(alignment, TruncateToPageBoundary(alignment, bytes));
-    }
-    rate_limiter->Request(bytes, io_priority, stats, op_type);
-  }
-  return bytes;
-}
-
 // This method writes to disk the specified data and makes use of the rate
 // limiter if available
 Status WritableFileWriter::WriteBuffered(const char* data, size_t size) {
@@ -373,9 +354,14 @@ Status WritableFileWriter::WriteBuffered(const char* data, size_t size) {
   size_t left = size;
 
   while (left > 0) {
-    size_t allowed =
-        RequestToken(left, 0 /* alignment */, writable_file_->GetIOPriority(),
-                     rate_limiter_, stats_, RateLimiter::OpType::kWrite);
+    size_t allowed;
+    if (rate_limiter_ != nullptr) {
+      allowed = rate_limiter_->RequestToken(
+          left, 0 /* alignment */, writable_file_->GetIOPriority(), stats_,
+          RateLimiter::OpType::kWrite);
+    } else {
+      allowed = left;
+    }
 
     {
       IOSTATS_TIMER_GUARD(write_nanos);
@@ -431,9 +417,14 @@ Status WritableFileWriter::WriteDirect() {
 
   while (left > 0) {
     // Check how much is allowed
-    size_t size =
-        RequestToken(left, buf_.Alignment(), writable_file_->GetIOPriority(),
-                     rate_limiter_, stats_, RateLimiter::OpType::kWrite);
+    size_t size;
+    if (rate_limiter_ != nullptr) {
+      size = rate_limiter_->RequestToken(left, buf_.Alignment(),
+                                         writable_file_->GetIOPriority(),
+                                         stats_, RateLimiter::OpType::kWrite);
+    } else {
+      size = left;
+    }
 
     {
       IOSTATS_TIMER_GUARD(write_nanos);

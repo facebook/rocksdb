@@ -785,7 +785,7 @@ DEFINE_int32(rate_limit_delay_max_milliseconds, 1000,
 
 DEFINE_uint64(rate_limiter_bytes_per_sec, 0, "Set options.rate_limiter value.");
 
-DEFINE_bool(rate_limit_reads, false,
+DEFINE_bool(rate_limit_bg_reads, false,
             "Use options.rate_limiter on compaction reads");
 
 DEFINE_uint64(
@@ -3136,16 +3136,18 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       options.enable_thread_tracking = true;
     }
     if (FLAGS_rate_limiter_bytes_per_sec > 0) {
-      if (FLAGS_rate_limit_reads && !FLAGS_new_table_reader_for_compaction_inputs) {
-        fprintf(stderr, "rate limit compaction reads must have "
-                        "new_table_reader_for_compaction_inputs set\n");
+      if (FLAGS_rate_limit_bg_reads &&
+          !FLAGS_new_table_reader_for_compaction_inputs) {
+        fprintf(stderr,
+                "rate limit compaction reads must have "
+                "new_table_reader_for_compaction_inputs set\n");
         exit(1);
       }
       options.rate_limiter.reset(NewGenericRateLimiter(
           FLAGS_rate_limiter_bytes_per_sec, 100 * 1000 /* refill_period_us */,
           10 /* fairness */,
-          FLAGS_rate_limit_reads ? RateLimiter::Mode::kReadsOnly
-                                 : RateLimiter::Mode::kWritesOnly));
+          FLAGS_rate_limit_bg_reads ? RateLimiter::Mode::kReadsOnly
+                                    : RateLimiter::Mode::kWritesOnly));
     }
 
 #ifndef ROCKSDB_LITE
