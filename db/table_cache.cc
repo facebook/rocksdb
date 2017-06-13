@@ -91,7 +91,8 @@ Status TableCache::GetTableReader(
     const InternalKeyComparator& internal_comparator, const FileDescriptor& fd,
     bool sequential_mode, size_t readahead, bool record_read_stats,
     HistogramImpl* file_read_hist, unique_ptr<TableReader>* table_reader,
-    bool skip_filters, int level, bool prefetch_index_and_filter_in_cache) {
+    bool skip_filters, int level, bool prefetch_index_and_filter_in_cache,
+    bool for_compaction) {
   std::string fname =
       TableFileName(ioptions_.db_paths, fd.GetNumber(), fd.GetPathId());
   unique_ptr<RandomAccessFile> file;
@@ -109,7 +110,8 @@ Status TableCache::GetTableReader(
     std::unique_ptr<RandomAccessFileReader> file_reader(
         new RandomAccessFileReader(std::move(file), ioptions_.env,
                                    ioptions_.statistics, record_read_stats,
-                                   file_read_hist));
+                                   file_read_hist, ioptions_.rate_limiter,
+                                   for_compaction));
     s = ioptions_.table_factory->NewTableReader(
         TableReaderOptions(ioptions_, env_options, internal_comparator,
                            skip_filters, level),
@@ -205,7 +207,8 @@ InternalIterator* TableCache::NewIterator(
       s = GetTableReader(
           env_options, icomparator, fd, true /* sequential_mode */, readahead,
           !for_compaction /* record stats */, nullptr, &table_reader_unique_ptr,
-          false /* skip_filters */, level);
+          false /* skip_filters */, level,
+          true /* prefetch_index_and_filter_in_cache */, for_compaction);
       if (s.ok()) {
         table_reader = table_reader_unique_ptr.release();
       }

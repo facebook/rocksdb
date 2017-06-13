@@ -35,6 +35,30 @@ TEST_F(RateLimiterTest, StartStop) {
   std::unique_ptr<RateLimiter> limiter(NewGenericRateLimiter(100, 100, 10));
 }
 
+TEST_F(RateLimiterTest, Modes) {
+  for (auto mode : {RateLimiter::Mode::kWritesOnly,
+                    RateLimiter::Mode::kReadsOnly, RateLimiter::Mode::kAllIo}) {
+    GenericRateLimiter limiter(2000 /* rate_bytes_per_sec */,
+                               1000 * 1000 /* refill_period_us */,
+                               10 /* fairness */, mode);
+    limiter.Request(1000 /* bytes */, Env::IO_HIGH, nullptr /* stats */,
+                    RateLimiter::OpType::kRead);
+    if (mode == RateLimiter::Mode::kWritesOnly) {
+      ASSERT_EQ(0, limiter.GetTotalBytesThrough(Env::IO_HIGH));
+    } else {
+      ASSERT_EQ(1000, limiter.GetTotalBytesThrough(Env::IO_HIGH));
+    }
+
+    limiter.Request(1000 /* bytes */, Env::IO_HIGH, nullptr /* stats */,
+                    RateLimiter::OpType::kWrite);
+    if (mode == RateLimiter::Mode::kAllIo) {
+      ASSERT_EQ(2000, limiter.GetTotalBytesThrough(Env::IO_HIGH));
+    } else {
+      ASSERT_EQ(1000, limiter.GetTotalBytesThrough(Env::IO_HIGH));
+    }
+  }
+}
+
 TEST_F(RateLimiterTest, Rate) {
   auto* env = Env::Default();
   struct Arg {
@@ -57,10 +81,11 @@ TEST_F(RateLimiterTest, Rate) {
     while (thread_env->NowMicros() < until) {
       for (int i = 0; i < static_cast<int>(r.Skewed(arg->burst) + 1); ++i) {
         arg->limiter->Request(r.Uniform(arg->request_size - 1) + 1,
-                              Env::IO_HIGH, nullptr /* stats */);
+                              Env::IO_HIGH, nullptr /* stats */,
+                              RateLimiter::OpType::kWrite);
       }
       arg->limiter->Request(r.Uniform(arg->request_size - 1) + 1, Env::IO_LOW,
-                            nullptr /* stats */);
+                            nullptr /* stats */, RateLimiter::OpType::kWrite);
     }
   };
 
@@ -113,7 +138,8 @@ TEST_F(RateLimiterTest, LimitChangeTest) {
 
   auto writer = [](void* p) {
     auto* arg = static_cast<Arg*>(p);
-    arg->limiter->Request(arg->request_size, arg->pri, nullptr /* stats */);
+    arg->limiter->Request(arg->request_size, arg->pri, nullptr /* stats */,
+                          RateLimiter::OpType::kWrite);
   };
 
   for (uint32_t i = 1; i <= 16; i <<= 1) {

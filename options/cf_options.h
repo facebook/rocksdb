@@ -59,6 +59,8 @@ struct ImmutableCFOptions {
 
   Statistics* statistics;
 
+  RateLimiter* rate_limiter;
+
   InfoLogLevel info_log_level;
 
   Env* env;

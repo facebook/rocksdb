@@ -13,10 +13,27 @@
 #include "monitoring/statistics.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
+#include "util/aligned_buffer.h"
 #include "util/sync_point.h"
 
 namespace rocksdb {
 
+size_t RateLimiter::RequestToken(size_t bytes, size_t alignment,
+                                 Env::IOPriority io_priority, Statistics* stats,
+                                 RateLimiter::OpType op_type) {
+  if (io_priority < Env::IO_TOTAL && IsRateLimited(op_type)) {
+    bytes = std::min(bytes, static_cast<size_t>(GetSingleBurstBytes()));
+
+    if (alignment > 0) {
+      // Here we may actually require more than burst and block
+      // but we can not write less than one page at a time on direct I/O
+      // thus we may want not to use ratelimiter
+      bytes = std::max(alignment, TruncateToPageBoundary(alignment, bytes));
+    }
+    Request(bytes, io_priority, stats, op_type);
+  }
+  return bytes;
+}
 
 // Pending request
 struct GenericRateLimiter::Req {
@@ -30,8 +47,9 @@ struct GenericRateLimiter::Req {
 
 GenericRateLimiter::GenericRateLimiter(int64_t rate_bytes_per_sec,
                                        int64_t refill_period_us,
-                                       int32_t fairness)
-    : refill_period_us_(refill_period_us),
+                                       int32_t fairness, RateLimiter::Mode mode)
+    : RateLimiter(mode),
+      refill_period_us_(refill_period_us),
       rate_bytes_per_sec_(rate_bytes_per_sec),
       refill_bytes_per_period_(
           CalculateRefillBytesPerPeriod(rate_bytes_per_sec)),
@@ -241,12 +259,14 @@ int64_t GenericRateLimiter::CalculateRefillBytesPerPeriod(
 }
 
 RateLimiter* NewGenericRateLimiter(
-    int64_t rate_bytes_per_sec, int64_t refill_period_us, int32_t fairness) {
+    int64_t rate_bytes_per_sec, int64_t refill_period_us /* = 100 * 1000 */,
+    int32_t fairness /* = 10 */,
+    RateLimiter::Mode mode /* = RateLimiter::Mode::kWritesOnly */) {
   assert(rate_bytes_per_sec > 0);
   assert(refill_period_us > 0);
   assert(fairness > 0);
-  return new GenericRateLimiter(
-      rate_bytes_per_sec, refill_period_us, fairness);
+  return new GenericRateLimiter(rate_bytes_per_sec, refill_period_us, fairness,
+                                mode);
 }
 
 }  // namespace rocksdb

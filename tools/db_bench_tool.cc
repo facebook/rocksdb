@@ -785,6 +785,9 @@ DEFINE_int32(rate_limit_delay_max_milliseconds, 1000,
 
 DEFINE_uint64(rate_limiter_bytes_per_sec, 0, "Set options.rate_limiter value.");
 
+DEFINE_bool(rate_limit_bg_reads, false,
+            "Use options.rate_limiter on compaction reads");
+
 DEFINE_uint64(
     benchmark_write_rate_limit, 0,
     "If non-zero, db_bench will rate-limit the writes going into RocksDB. This "
@@ -2579,8 +2582,9 @@ void VerifyDBFromDB(std::string& truth_db_name) {
           NewGenericRateLimiter(FLAGS_benchmark_write_rate_limit));
     }
     if (FLAGS_benchmark_read_rate_limit > 0) {
-      shared.read_rate_limiter.reset(
-          NewGenericRateLimiter(FLAGS_benchmark_read_rate_limit));
+      shared.read_rate_limiter.reset(NewGenericRateLimiter(
+          FLAGS_benchmark_read_rate_limit, 100000 /* refill_period_us */,
+          10 /* fairness */, RateLimiter::Mode::kReadsOnly));
     }
 
     std::unique_ptr<ReporterAgent> reporter_agent;
@@ -3132,8 +3136,18 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       options.enable_thread_tracking = true;
     }
     if (FLAGS_rate_limiter_bytes_per_sec > 0) {
-      options.rate_limiter.reset(
-          NewGenericRateLimiter(FLAGS_rate_limiter_bytes_per_sec));
+      if (FLAGS_rate_limit_bg_reads &&
+          !FLAGS_new_table_reader_for_compaction_inputs) {
+        fprintf(stderr,
+                "rate limit compaction reads must have "
+                "new_table_reader_for_compaction_inputs set\n");
+        exit(1);
+      }
+      options.rate_limiter.reset(NewGenericRateLimiter(
+          FLAGS_rate_limiter_bytes_per_sec, 100 * 1000 /* refill_period_us */,
+          10 /* fairness */,
+          FLAGS_rate_limit_bg_reads ? RateLimiter::Mode::kReadsOnly
+                                    : RateLimiter::Mode::kWritesOnly));
     }
 
 #ifndef ROCKSDB_LITE
@@ -3423,7 +3437,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       if (thread->shared->write_rate_limiter.get() != nullptr) {
         thread->shared->write_rate_limiter->Request(
             entries_per_batch_ * (value_size_ + key_size_), Env::IO_HIGH,
-            nullptr /* stats */);
+            nullptr /* stats */, RateLimiter::OpType::kWrite);
         // Set time at which last op finished to Now() to hide latency and
         // sleep from rate limiter. Also, do the check once per batch, not
         // once per write.
@@ -3833,7 +3847,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       if (thread->shared->read_rate_limiter.get() != nullptr &&
           i % 1024 == 1023) {
         thread->shared->read_rate_limiter->Request(1024, Env::IO_HIGH,
-                                                   nullptr /* stats */);
+                                                   nullptr /* stats */,
+                                                   RateLimiter::OpType::kRead);
       }
     }
 
@@ -3865,7 +3880,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       if (thread->shared->read_rate_limiter.get() != nullptr &&
           i % 1024 == 1023) {
         thread->shared->read_rate_limiter->Request(1024, Env::IO_HIGH,
-                                                   nullptr /* stats */);
+                                                   nullptr /* stats */,
+                                                   RateLimiter::OpType::kRead);
       }
     }
     delete iter;
@@ -3906,8 +3922,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         }
       }
       if (thread->shared->read_rate_limiter.get() != nullptr) {
-        thread->shared->read_rate_limiter->Request(100, Env::IO_HIGH,
-                                                   nullptr /* stats */);
+        thread->shared->read_rate_limiter->Request(
+            100, Env::IO_HIGH, nullptr /* stats */, RateLimiter::OpType::kRead);
       }
 
       thread->stats.FinishedOps(nullptr, db, 100, kRead);
@@ -3991,8 +4007,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 
       if (thread->shared->read_rate_limiter.get() != nullptr &&
           read % 256 == 255) {
-        thread->shared->read_rate_limiter->Request(256, Env::IO_HIGH,
-                                                   nullptr /* stats */);
+        thread->shared->read_rate_limiter->Request(
+            256, Env::IO_HIGH, nullptr /* stats */, RateLimiter::OpType::kRead);
       }
 
       thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db, 1, kRead);
@@ -4048,7 +4064,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       if (thread->shared->read_rate_limiter.get() != nullptr &&
           num_multireads % 256 == 255) {
         thread->shared->read_rate_limiter->Request(
-            256 * entries_per_batch_, Env::IO_HIGH, nullptr /* stats */);
+            256 * entries_per_batch_, Env::IO_HIGH, nullptr /* stats */,
+            RateLimiter::OpType::kRead);
       }
       thread->stats.FinishedOps(nullptr, db, entries_per_batch_, kRead);
     }
@@ -4145,8 +4162,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 
       if (thread->shared->read_rate_limiter.get() != nullptr &&
           read % 256 == 255) {
-        thread->shared->read_rate_limiter->Request(256, Env::IO_HIGH,
-                                                   nullptr /* stats */);
+        thread->shared->read_rate_limiter->Request(
+            256, Env::IO_HIGH, nullptr /* stats */, RateLimiter::OpType::kRead);
       }
 
       thread->stats.FinishedOps(&db_, db_.db, 1, kSeek);
@@ -4294,7 +4311,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       if (FLAGS_benchmark_write_rate_limit > 0) {
         write_rate_limiter->Request(
             entries_per_batch_ * (value_size_ + key_size_), Env::IO_HIGH,
-            nullptr /* stats */);
+            nullptr /* stats */, RateLimiter::OpType::kWrite);
       }
     }
     thread->stats.AddBytes(bytes);
@@ -4965,8 +4982,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       found += key_found;
 
       if (thread->shared->read_rate_limiter.get() != nullptr) {
-        thread->shared->read_rate_limiter->Request(1, Env::IO_HIGH,
-                                                   nullptr /* stats */);
+        thread->shared->read_rate_limiter->Request(
+            1, Env::IO_HIGH, nullptr /* stats */, RateLimiter::OpType::kRead);
       }
     }
     delete iter;
@@ -5037,7 +5054,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       if (FLAGS_benchmark_write_rate_limit > 0) {
         write_rate_limiter->Request(
             entries_per_batch_ * (value_size_ + key_size_), Env::IO_HIGH,
-            nullptr /* stats */);
+            nullptr /* stats */, RateLimiter::OpType::kWrite);
       }
     }
   }
