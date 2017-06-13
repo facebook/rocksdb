@@ -228,7 +228,9 @@ class FilePicker {
   unsigned int hit_file_level_;
   int32_t search_left_bound_;
   int32_t search_right_bound_;
+#ifndef NDEBUG
   std::vector<FileMetaData*>* files_;
+#endif
   autovector<LevelFilesBrief>* level_files_brief_;
   bool search_ended_;
   bool is_hit_file_last_in_level_;
