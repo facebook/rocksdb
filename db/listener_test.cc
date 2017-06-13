@@ -114,6 +114,7 @@ TEST_F(EventListenerTest, OnSingleDBCompactionTest) {
   const int kNumL0Files = 4;
 
   Options options;
+  options.env = CurrentOptions().env;
   options.create_if_missing = true;
   options.write_buffer_size = kEntrySize * kEntriesPerBuffer;
   options.compaction_style = kCompactionStyleLevel;
@@ -233,6 +234,7 @@ class TestFlushListener : public EventListener {
 
 TEST_F(EventListenerTest, OnSingleDBFlushTest) {
   Options options;
+  options.env = CurrentOptions().env;
   options.write_buffer_size = k110KB;
 #ifdef ROCKSDB_USING_THREAD_STATUS
   options.enable_thread_tracking = true;
@@ -269,6 +271,7 @@ TEST_F(EventListenerTest, OnSingleDBFlushTest) {
 
 TEST_F(EventListenerTest, MultiCF) {
   Options options;
+  options.env = CurrentOptions().env;
   options.write_buffer_size = k110KB;
 #ifdef ROCKSDB_USING_THREAD_STATUS
   options.enable_thread_tracking = true;
@@ -304,6 +307,7 @@ TEST_F(EventListenerTest, MultiCF) {
 
 TEST_F(EventListenerTest, MultiDBMultiListeners) {
   Options options;
+  options.env = CurrentOptions().env;
 #ifdef ROCKSDB_USING_THREAD_STATUS
   options.enable_thread_tracking = true;
 #endif  // ROCKSDB_USING_THREAD_STATUS
@@ -386,6 +390,7 @@ TEST_F(EventListenerTest, MultiDBMultiListeners) {
 
 TEST_F(EventListenerTest, DisableBGCompaction) {
   Options options;
+  options.env = CurrentOptions().env;
 #ifdef ROCKSDB_USING_THREAD_STATUS
   options.enable_thread_tracking = true;
 #endif  // ROCKSDB_USING_THREAD_STATUS
@@ -433,6 +438,7 @@ class TestCompactionReasonListener : public EventListener {
 
 TEST_F(EventListenerTest, CompactionReasonLevel) {
   Options options;
+  options.env = CurrentOptions().env;
   options.create_if_missing = true;
   options.memtable_factory.reset(
       new SpecialSkipListFactory(DBTestBase::kNumKeysByGenerateNewRandomFile));
@@ -498,6 +504,7 @@ TEST_F(EventListenerTest, CompactionReasonLevel) {
 
 TEST_F(EventListenerTest, CompactionReasonUniversal) {
   Options options;
+  options.env = CurrentOptions().env;
   options.create_if_missing = true;
   options.memtable_factory.reset(
       new SpecialSkipListFactory(DBTestBase::kNumKeysByGenerateNewRandomFile));
@@ -559,6 +566,7 @@ TEST_F(EventListenerTest, CompactionReasonUniversal) {
 
 TEST_F(EventListenerTest, CompactionReasonFIFO) {
   Options options;
+  options.env = CurrentOptions().env;
   options.create_if_missing = true;
   options.memtable_factory.reset(
       new SpecialSkipListFactory(DBTestBase::kNumKeysByGenerateNewRandomFile));
@@ -781,6 +789,7 @@ TEST_F(EventListenerTest, ColumnFamilyHandleDeletionStartedListenerTest) {
   auto listener =
       std::make_shared<ColumnFamilyHandleDeletionStartedListener>(cfs);
   Options options;
+  options.env = CurrentOptions().env;
   options.create_if_missing = true;
   options.listeners.push_back(listener);
   CreateAndReopenWithCF(cfs, options);
