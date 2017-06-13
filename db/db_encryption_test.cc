@@ -59,23 +59,23 @@ TEST_F(DBEncryptionTest, CheckEncrypted) {
 
     if (data.ToString().find("foo567") != std::string::npos) {
       hits++; 
-      std::cout << "Hit in " << filePath << "\n";
+      //std::cout << "Hit in " << filePath << "\n";
     }
     if (data.ToString().find("v1.fetdq") != std::string::npos) {
       hits++; 
-      std::cout << "Hit in " << filePath << "\n";
+      //std::cout << "Hit in " << filePath << "\n";
     }
     if (data.ToString().find("bar123") != std::string::npos) {
       hits++; 
-      std::cout << "Hit in " << filePath << "\n";
+      //std::cout << "Hit in " << filePath << "\n";
     }
     if (data.ToString().find("v2.dfgkjdfghsd") != std::string::npos) {
       hits++; 
-      std::cout << "Hit in " << filePath << "\n";
+      //std::cout << "Hit in " << filePath << "\n";
     }
     if (data.ToString().find("dfgk") != std::string::npos) {
       hits++; 
-      std::cout << "Hit in " << filePath << "\n";
+      //std::cout << "Hit in " << filePath << "\n";
     }
   }
   if (encrypted_env_) {
