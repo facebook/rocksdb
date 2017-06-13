@@ -1008,7 +1008,8 @@ Status ParseDBOption(const std::string& name,
 std::string ParseBlockBasedTableOption(const std::string& name,
                                        const std::string& org_value,
                                        BlockBasedTableOptions* new_options,
-                                       bool input_strings_escaped = false) {
+                                       bool input_strings_escaped = false,
+                                       bool ignore_unknown_options = false) {
   const std::string& value =
       input_strings_escaped ? UnescapeOptionString(org_value) : org_value;
   if (!input_strings_escaped) {
@@ -1042,7 +1043,11 @@ std::string ParseBlockBasedTableOption(const std::string& name,
   }
   const auto iter = block_based_table_type_info.find(name);
   if (iter == block_based_table_type_info.end()) {
-    return "Unrecognized option";
+    if (ignore_unknown_options) {
+      return "";
+    } else {
+      return "Unrecognized option";
+    }
   }
   const auto& opt_info = iter->second;
   if (opt_info.verification != OptionVerificationType::kDeprecated &&
@@ -1056,12 +1061,17 @@ std::string ParseBlockBasedTableOption(const std::string& name,
 std::string ParsePlainTableOptions(const std::string& name,
                                    const std::string& org_value,
                                    PlainTableOptions* new_options,
-                                   bool input_strings_escaped = false) {
+                                   bool input_strings_escaped = false,
+                                   bool ignore_unknown_options = false) {
   const std::string& value =
       input_strings_escaped ? UnescapeOptionString(org_value) : org_value;
   const auto iter = plain_table_type_info.find(name);
   if (iter == plain_table_type_info.end()) {
-    return "Unrecognized option";
+    if (ignore_unknown_options) {
+      return "";
+    } else {
+      return "Unrecognized option";
+    }
   }
   const auto& opt_info = iter->second;
   if (opt_info.verification != OptionVerificationType::kDeprecated &&
@@ -1075,12 +1085,14 @@ std::string ParsePlainTableOptions(const std::string& name,
 Status GetBlockBasedTableOptionsFromMap(
     const BlockBasedTableOptions& table_options,
     const std::unordered_map<std::string, std::string>& opts_map,
-    BlockBasedTableOptions* new_table_options, bool input_strings_escaped) {
+    BlockBasedTableOptions* new_table_options, bool input_strings_escaped,
+    bool ignore_unknown_options) {
   assert(new_table_options);
   *new_table_options = table_options;
   for (const auto& o : opts_map) {
     auto error_message = ParseBlockBasedTableOption(
-        o.first, o.second, new_table_options, input_strings_escaped);
+        o.first, o.second, new_table_options, input_strings_escaped,
+        ignore_unknown_options);
     if (error_message != "") {
       const auto iter = block_based_table_type_info.find(o.first);
       if (iter == block_based_table_type_info.end() ||
@@ -1090,7 +1102,8 @@ Status GetBlockBasedTableOptionsFromMap(
           (iter->second.verification != OptionVerificationType::kByName &&
            iter->second.verification !=
                OptionVerificationType::kByNameAllowNull &&
-           iter->second.verification != OptionVerificationType::kDeprecated)) {
+           iter->second.verification !=
+               OptionVerificationType::kDeprecated)) {
         // Restore "new_options" to the default "base_options".
         *new_table_options = table_options;
         return Status::InvalidArgument("Can't parse BlockBasedTableOptions:",
@@ -1117,7 +1130,8 @@ Status GetBlockBasedTableOptionsFromString(
 Status GetPlainTableOptionsFromMap(
     const PlainTableOptions& table_options,
     const std::unordered_map<std::string, std::string>& opts_map,
-    PlainTableOptions* new_table_options, bool input_strings_escaped) {
+    PlainTableOptions* new_table_options, bool input_strings_escaped,
+    bool ignore_unknown_options) {
   assert(new_table_options);
   *new_table_options = table_options;
   for (const auto& o : opts_map) {
@@ -1132,11 +1146,12 @@ Status GetPlainTableOptionsFromMap(
           (iter->second.verification != OptionVerificationType::kByName &&
            iter->second.verification !=
                OptionVerificationType::kByNameAllowNull &&
-           iter->second.verification != OptionVerificationType::kDeprecated)) {
+           iter->second.verification !=
+               OptionVerificationType::kDeprecated)) {
         // Restore "new_options" to the default "base_options".
         *new_table_options = table_options;
         return Status::InvalidArgument("Can't parse PlainTableOptions:",
-                                        o.first + " " + error_message);
+                                       o.first + " " + error_message);
       }
     }
   }
@@ -1229,16 +1244,19 @@ Status GetMemTableRepFactoryFromString(const std::string& opts_str,
 Status GetColumnFamilyOptionsFromMap(
     const ColumnFamilyOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
-    ColumnFamilyOptions* new_options, bool input_strings_escaped) {
+    ColumnFamilyOptions* new_options, bool input_strings_escaped,
+    bool ignore_unknown_options) {
   return GetColumnFamilyOptionsFromMapInternal(
-      base_options, opts_map, new_options, input_strings_escaped);
+      base_options, opts_map, new_options, input_strings_escaped, nullptr,
+      ignore_unknown_options);
 }
 
 Status GetColumnFamilyOptionsFromMapInternal(
     const ColumnFamilyOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
     ColumnFamilyOptions* new_options, bool input_strings_escaped,
-    std::vector<std::string>* unsupported_options_names) {
+    std::vector<std::string>* unsupported_options_names,
+    bool ignore_unknown_options) {
   assert(new_options);
   *new_options = base_options;
   if (unsupported_options_names) {
@@ -1258,6 +1276,8 @@ Status GetColumnFamilyOptionsFromMapInternal(
         // Note that we still return Status::OK in such case to maintain
         // the backward compatibility in the old public API defined in
         // rocksdb/convenience.h
+      } else if (s.IsInvalidArgument() && ignore_unknown_options) {
+        continue;
       } else {
         // Restore "new_options" to the default "base_options".
         *new_options = base_options;
@@ -1284,16 +1304,19 @@ Status GetColumnFamilyOptionsFromString(
 Status GetDBOptionsFromMap(
     const DBOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
-    DBOptions* new_options, bool input_strings_escaped) {
-  return GetDBOptionsFromMapInternal(
-      base_options, opts_map, new_options, input_strings_escaped);
+    DBOptions* new_options, bool input_strings_escaped,
+    bool ignore_unknown_options) {
+  return GetDBOptionsFromMapInternal(base_options, opts_map, new_options,
+                                     input_strings_escaped, nullptr,
+                                     ignore_unknown_options);
 }
 
 Status GetDBOptionsFromMapInternal(
     const DBOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
     DBOptions* new_options, bool input_strings_escaped,
-    std::vector<std::string>* unsupported_options_names) {
+    std::vector<std::string>* unsupported_options_names,
+    bool ignore_unknown_options) {
   assert(new_options);
   *new_options = base_options;
   if (unsupported_options_names) {
@@ -1313,6 +1336,8 @@ Status GetDBOptionsFromMapInternal(
         // Note that we still return Status::OK in such case to maintain
         // the backward compatibility in the old public API defined in
         // rocksdb/convenience.h
+      } else if (s.IsInvalidArgument() && ignore_unknown_options) {
+        continue;
       } else {
         // Restore "new_options" to the default "base_options".
         *new_options = base_options;
@@ -1360,12 +1385,14 @@ Status GetOptionsFromString(const Options& base_options,
 Status GetTableFactoryFromMap(
     const std::string& factory_name,
     const std::unordered_map<std::string, std::string>& opt_map,
-    std::shared_ptr<TableFactory>* table_factory) {
+    std::shared_ptr<TableFactory>* table_factory, bool ignore_unknown_options) {
   Status s;
   if (factory_name == BlockBasedTableFactory().Name()) {
     BlockBasedTableOptions bbt_opt;
     s = GetBlockBasedTableOptionsFromMap(BlockBasedTableOptions(), opt_map,
-                                         &bbt_opt, true);
+                                         &bbt_opt,
+                                         true, /* input_strings_escaped */
+                                         ignore_unknown_options);
     if (!s.ok()) {
       return s;
     }
@@ -1374,7 +1401,8 @@ Status GetTableFactoryFromMap(
   } else if (factory_name == PlainTableFactory().Name()) {
     PlainTableOptions pt_opt;
     s = GetPlainTableOptionsFromMap(PlainTableOptions(), opt_map, &pt_opt,
-                                    true);
+                                    true, /* input_strings_escaped */
+                                    ignore_unknown_options);
     if (!s.ok()) {
       return s;
     }
