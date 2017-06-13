@@ -28,7 +28,7 @@ class DynamicBloom {
   // locality:  If positive, optimize for cache line locality, 0 otherwise.
   // hash_func:  customized hash function
   // huge_page_tlb_size:  if >0, try to allocate bloom bytes from huge page TLB
-  //                      withi this page size. Need to reserve huge pages for
+  //                      within this page size. Need to reserve huge pages for
   //                      it to be allocated, like:
   //                         sysctl -w vm.nr_hugepages=20
   //                     See linux doc Documentation/vm/hugetlbpage.txt
