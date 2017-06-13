@@ -146,14 +146,38 @@ Status PartitionedIndexBuilder::Finish(
   }
 }
 
+// Estimate size excluding the top-level index
+// It is assumed that this method is called before writing index partition
+// starts
 size_t PartitionedIndexBuilder::EstimatedSize() const {
   size_t total = 0;
   for (auto it = entries_.begin(); it != entries_.end(); ++it) {
     total += it->value->EstimatedSize();
   }
-  total += index_block_builder_.CurrentSizeEstimate();
   total +=
       sub_index_builder_ == nullptr ? 0 : sub_index_builder_->EstimatedSize();
   return total;
+}
+
+// Since when this method is called we do not know the index block offsets yet,
+// the top-level index does not exist. Hence we estimate the block offsets and
+// create a temporary top-level index.
+size_t PartitionedIndexBuilder::EstimateTopLevelIndexSize(
+    uint64_t offset) const {
+  BlockBuilder tmp_builder(
+      table_opt_.index_block_restart_interval);  // tmp top-level index builder
+  for (auto it = entries_.begin(); it != entries_.end(); ++it) {
+    std::string tmp_handle_encoding;
+    uint64_t size = it->value->EstimatedSize();
+    BlockHandle tmp_block_handle(offset, size);
+    tmp_block_handle.EncodeTo(&tmp_handle_encoding);
+    tmp_builder.Add(it->key, tmp_handle_encoding);
+    offset += size;
+  }
+  return tmp_builder.CurrentSizeEstimate();
+}
+
+size_t PartitionedIndexBuilder::NumPartitions() const {
+  return entries_.size();
 }
 }  // namespace rocksdb
