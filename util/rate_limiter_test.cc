@@ -59,6 +59,7 @@ TEST_F(RateLimiterTest, Modes) {
   }
 }
 
+#if !(defined(TRAVIS) && defined(OS_MACOSX))
 TEST_F(RateLimiterTest, Rate) {
   auto* env = Env::Default();
   struct Arg {
@@ -121,6 +122,7 @@ TEST_F(RateLimiterTest, Rate) {
     }
   }
 }
+#endif
 
 TEST_F(RateLimiterTest, LimitChangeTest) {
   // starvation test when limit changes to a smaller value
