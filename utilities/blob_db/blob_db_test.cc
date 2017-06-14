@@ -205,7 +205,7 @@ TEST_F(BlobDBTest, Override) {
 }
 
 #ifdef SNAPPY
-TEST_F(BlobDBTest, DISABLED_Compression) {
+TEST_F(BlobDBTest, Compression) {
   Random rnd(301);
   BlobDBOptionsImpl bdb_options;
   bdb_options.disable_background_tasks = true;
