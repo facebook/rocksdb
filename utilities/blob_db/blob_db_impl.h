@@ -212,7 +212,8 @@ class BlobDBImpl : public BlobDB {
                    const std::string& index_entry, std::string* value,
                    SequenceNumber* sequence = nullptr);
 
-  Slice GetCompressedSlice(const Slice& raw) const;
+  Slice GetCompressedSlice(const Slice& raw,
+                           std::string* compression_output) const;
 
   // Just before flush starts acting on memtable files,
   // this handler is called.

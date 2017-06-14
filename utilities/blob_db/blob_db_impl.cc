@@ -897,9 +897,8 @@ Status BlobDBImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
       last_file_ = bfile;
       has_put_ = true;
 
-      Slice value;
       std::string compression_output;
-      Slice value = GetCompressedSlice(value_unc, &compression_output);
+      Slice value = impl_->GetCompressedSlice(value_unc, &compression_output);
 
       std::string headerbuf;
       Writer::ConstructBlobHeader(&headerbuf, key, value, expiration, -1);
@@ -1019,8 +1018,8 @@ Slice BlobDBImpl::GetCompressedSlice(const Slice& raw,
   }
   CompressionType ct = bdb_options_.compression;
   CompressionOptions compression_opts;
-  CompressBlock(value_unc, compression_opts, &ct, kBlockBasedTableVersionFormat,
-                Slice(), &compression_output);
+  CompressBlock(raw, compression_opts, &ct, kBlockBasedTableVersionFormat,
+                Slice(), compression_output);
   return *compression_output;
 }
 
