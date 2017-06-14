@@ -1036,7 +1036,6 @@ Status BlobDBImpl::PutUntil(const WriteOptions& options,
     value = CompressBlock(value_unc, compression_opts, &ct,
                           kBlockBasedTableVersionFormat, Slice(),
                           &compression_output);
-    printf("compression %lu -> %lu\n", value_unc.size(), value.size());
   }
 
   std::string headerbuf;
@@ -1195,7 +1194,6 @@ std::vector<Status> BlobDBImpl::MultiGet(
 Status BlobDBImpl::CommonGet(const ColumnFamilyData* cfd, const Slice& key,
                              const std::string& index_entry, std::string* value,
                              SequenceNumber* sequence) {
-  assert(value);
   Slice index_entry_slice(index_entry);
   BlobHandle handle;
   Status s = handle.DecodeFrom(&index_entry_slice);
