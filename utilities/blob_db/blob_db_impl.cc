@@ -191,34 +191,6 @@ void EvictAllVersionsCompactionListener::InternalListener::OnCompaction(
   }
 }
 
-Status BlobDB::DestroyBlobDB(const std::string& dbname, const Options& options,
-                             const BlobDBOptions& bdb_options) {
-  const ImmutableDBOptions soptions(SanitizeOptions(dbname, options));
-  Env* env = soptions.env;
-
-  Status result;
-  std::string blobdir;
-  blobdir = (bdb_options.path_relative) ? dbname + "/" + bdb_options.blob_dir
-                                        : bdb_options.blob_dir;
-
-  std::vector<std::string> filenames;
-  Status status = env->GetChildren(blobdir, &filenames);
-
-  for (const auto& f : filenames) {
-    uint64_t number;
-    FileType type;
-    if (ParseFileName(f, &number, &type) && type == kBlobFile) {
-      Status del = env->DeleteFile(blobdir + "/" + f);
-      if (result.ok() && !del.ok()) {
-        result = del;
-      }
-    }
-  }
-
-  env->DeleteDir(blobdir);
-  return result;
-}
-
 BlobDBImpl::BlobDBImpl(const std::string& dbname,
                        const BlobDBOptions& blob_db_options,
                        const DBOptions& db_options)
@@ -287,9 +259,13 @@ Status BlobDBImpl::LinkToBaseDB(DB* db) {
         s.ToString().c_str());
   }
 
-  StartBackgroundTasks();
+  if (!bdb_options_.disable_background_tasks) {
+    StartBackgroundTasks();
+  }
   return s;
 }
+
+BlobDBOptions BlobDBImpl::GetBlobDBOptions() const { return bdb_options_; }
 
 BlobDBImpl::BlobDBImpl(DB* db, const BlobDBOptions& blob_db_options)
     : BlobDB(db),
@@ -1060,6 +1036,7 @@ Status BlobDBImpl::PutUntil(const WriteOptions& options,
     value = CompressBlock(value_unc, compression_opts, &ct,
                           kBlockBasedTableVersionFormat, Slice(),
                           &compression_output);
+    printf("compression %lu -> %lu\n", value_unc.size(), value.size());
   }
 
   std::string headerbuf;
@@ -2242,6 +2219,39 @@ Iterator* BlobDBImpl::NewIterator(const ReadOptions& opts,
                                   ColumnFamilyHandle* column_family) {
   return new BlobDBIterator(db_->NewIterator(opts, column_family),
                             column_family, this);
+}
+
+Status DestroyBlobDB(const std::string& dbname, const Options& options,
+                     const BlobDBOptions& bdb_options) {
+  const ImmutableDBOptions soptions(SanitizeOptions(dbname, options));
+  Env* env = soptions.env;
+
+  Status status;
+  std::string blobdir;
+  blobdir = (bdb_options.path_relative) ? dbname + "/" + bdb_options.blob_dir
+                                        : bdb_options.blob_dir;
+
+  std::vector<std::string> filenames;
+  env->GetChildren(blobdir, &filenames);
+
+  for (const auto& f : filenames) {
+    uint64_t number;
+    FileType type;
+    if (ParseFileName(f, &number, &type) && type == kBlobFile) {
+      Status del = env->DeleteFile(blobdir + "/" + f);
+      if (status.ok() && !del.ok()) {
+        status = del;
+      }
+    }
+  }
+  env->DeleteDir(blobdir);
+
+  Status destroy = DestroyDB(dbname, options);
+  if (status.ok() && !destroy.ok()) {
+    status = destroy;
+  }
+
+  return status;
 }
 
 #ifndef NDEBUG
