@@ -101,7 +101,6 @@ class BlobDBTest : public testing::Test {
     for (auto &p : data) {
       ASSERT_TRUE(iter->Valid());
       ASSERT_EQ(p.first, iter->key().ToString());
-      printf("key %s\n", p.first.c_str());
       ASSERT_EQ(p.second, iter->value().ToString());
       iter->Next();
     }
