@@ -899,16 +899,7 @@ Status BlobDBImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
 
       Slice value;
       std::string compression_output;
-      if (impl_->bdb_options_.compression == kNoCompression) {
-        value = value_unc;
-      } else {
-        CompressionType ct = impl_->bdb_options_.compression;
-        CompressionOptions compression_opts;
-        CompressBlock(value_unc, compression_opts, &ct,
-                              kBlockBasedTableVersionFormat, Slice(),
-                              &compression_output);
-        value = Slice(compression_output);
-      }
+      Slice value = GetCompressedSlice(value_unc, &compression_output);
 
       std::string headerbuf;
       Writer::ConstructBlobHeader(&headerbuf, key, value, expiration, -1);
@@ -1021,6 +1012,18 @@ Status BlobDBImpl::PutWithTTL(const WriteOptions& options,
           : -1);
 }
 
+Slice BlobDBImpl::GetCompressedSlice(const Slice& raw,
+                                     std::string* compression_output) const {
+  if (bdb_options_.compression == kNoCompression) {
+    return raw;
+  }
+  CompressionType ct = bdb_options_.compression;
+  CompressionOptions compression_opts;
+  CompressBlock(value_unc, compression_opts, &ct, kBlockBasedTableVersionFormat,
+                Slice(), &compression_output);
+  return *compression_output;
+}
+
 Status BlobDBImpl::PutUntil(const WriteOptions& options,
                             ColumnFamilyHandle* column_family, const Slice& key,
                             const Slice& value_unc, int32_t expiration) {
@@ -1031,18 +1034,8 @@ Status BlobDBImpl::PutUntil(const WriteOptions& options,
 
   if (!bfile) return Status::NotFound("Blob file not found");
 
-  Slice value;
   std::string compression_output;
-  if (bdb_options_.compression == kNoCompression) {
-    value = value_unc;
-  } else {
-    CompressionType ct = bdb_options_.compression;
-    CompressionOptions compression_opts;
-    CompressBlock(value_unc, compression_opts, &ct,
-                          kBlockBasedTableVersionFormat, Slice(),
-                          &compression_output);
-    value = Slice(compression_output);
-  }
+  Slice value = GetCompressedSlice(value_unc, &compression_output);
 
   std::string headerbuf;
   Writer::ConstructBlobHeader(&headerbuf, key, value, expiration, -1);
