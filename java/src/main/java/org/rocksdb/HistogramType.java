@@ -29,10 +29,15 @@ public enum HistogramType {
   DB_SEEK(19),
   WRITE_STALL(20),
   SST_READ_MICROS(21),
+  // The number of subcompactions actually scheduled during a compaction
   NUM_SUBCOMPACTIONS_SCHEDULED(22),
+  // Value size distribution in each operation
   BYTES_PER_READ(23),
   BYTES_PER_WRITE(24),
   BYTES_PER_MULTIGET(25),
+
+  // number of bytes compressed/decompressed
+  // number of bytes is when uncompressed; i.e. before/after respectively
   BYTES_COMPRESSED(26),
   BYTES_DECOMPRESSED(27),
   COMPRESSION_TIMES_NANOS(28),
