@@ -897,14 +897,17 @@ Status BlobDBImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
       last_file_ = bfile;
       has_put_ = true;
 
-      Slice value = value_unc;
+      Slice value;
       std::string compression_output;
-      if (impl_->bdb_options_.compression != kNoCompression) {
+      if (impl_->bdb_options_.compression == kNoCompression) {
+        value = value_unc;
+      } else {
         CompressionType ct = impl_->bdb_options_.compression;
         CompressionOptions compression_opts;
-        value = CompressBlock(value_unc, compression_opts, &ct,
+        CompressBlock(value_unc, compression_opts, &ct,
                               kBlockBasedTableVersionFormat, Slice(),
                               &compression_output);
+        value = Slice(compression_output);
       }
 
       std::string headerbuf;
@@ -1028,14 +1031,17 @@ Status BlobDBImpl::PutUntil(const WriteOptions& options,
 
   if (!bfile) return Status::NotFound("Blob file not found");
 
-  Slice value = value_unc;
+  Slice value;
   std::string compression_output;
-  if (bdb_options_.compression != kNoCompression) {
+  if (bdb_options_.compression == kNoCompression) {
+    value = value_unc;
+  } else {
     CompressionType ct = bdb_options_.compression;
     CompressionOptions compression_opts;
-    value = CompressBlock(value_unc, compression_opts, &ct,
+    CompressBlock(value_unc, compression_opts, &ct,
                           kBlockBasedTableVersionFormat, Slice(),
                           &compression_output);
+    value = Slice(compression_output);
   }
 
   std::string headerbuf;
