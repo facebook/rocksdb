@@ -189,6 +189,8 @@ class BlobDBImpl : public BlobDB {
 
   Status LinkToBaseDB(DB* db) override;
 
+  BlobDBOptions GetBlobDBOptions() const override;
+
   BlobDBImpl(DB* db, const BlobDBOptions& bdb_options);
 
   BlobDBImpl(const std::string& dbname, const BlobDBOptions& bdb_options,
