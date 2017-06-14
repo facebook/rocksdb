@@ -218,7 +218,8 @@ TEST_F(BlobDBTest, DISABLED_Compression) {
   for (int i = 0; i < 100; i++) {
     WriteBatch batch;
     for (size_t j = 0; j < 10; j++) {
-      PutRandomToWriteBatch("write-batch-key" + ToString(j * 100 + i), &rnd, &batch, &data);
+      PutRandomToWriteBatch("write-batch-key" + ToString(j * 100 + i), &rnd,
+                            &batch, &data);
     }
     blob_db_->Write(WriteOptions(), &batch);
   }
