@@ -72,6 +72,13 @@ class TableCache {
              GetContext* get_context, HistogramImpl* file_read_hist = nullptr,
              bool skip_filters = false, int level = -1);
 
+  Status Get(const async::Callable<Status,const Status&>& cb,
+    const ReadOptions& options,
+    const InternalKeyComparator& internal_comparator,
+    const FileDescriptor& file_fd, const Slice& k,
+    GetContext* get_context, HistogramImpl* file_read_hist = nullptr,
+    bool skip_filters = false, int level = -1);
+
   // Evict any entry for the specified file number
   static void Evict(Cache* cache, uint64_t file_number);
 
