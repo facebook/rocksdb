@@ -2556,6 +2556,9 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
       if (column_family_data->Unref()) {
         delete column_family_data;
       }
+    } else if (w.edit_list.front()->is_column_family_corrupt_) {
+      assert(batch_edits.size() == 1);
+      column_family_data->SetCorrupted();
     } else {
       uint64_t max_log_number_in_batch  = 0;
       for (auto& e : batch_edits) {
@@ -2788,6 +2791,18 @@ Status VersionSet::Recover(
         } else {
           s = Status::Corruption(
               "Manifest - dropping non-existing column family");
+          break;
+        }
+      } else if (edit.is_column_family_corrupt_) {
+        if (cf_in_builders) {
+          cfd = column_family_set_->GetColumnFamily(edit.column_family_);
+          cfd->SetCorrupted();
+        } else if (cf_in_not_found) {
+          // do nothing since the column family must be deleted anyways, else
+          // there'll be an error.
+        } else {
+          s = Status::Corruption(
+              "Manifest - corrupting non-existing column family");
           break;
         }
       } else if (!cf_in_not_found) {
@@ -3194,6 +3209,14 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
         cfd->Unref();
         delete cfd;
         cfd = nullptr;
+      } else if (edit.is_column_family_corrupt_) {
+        if (!cf_in_builders) {
+          s = Status::Corruption(
+              "Manifest - corrupting non-existing column family");
+          break;
+        }
+        cfd = column_family_set_->GetColumnFamily(edit.column_family_);
+        cfd->SetCorrupted();
       } else {
         if (!cf_in_builders) {
           s = Status::Corruption(
@@ -3268,6 +3291,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
 
       printf("--------------- Column family \"%s\"  (ID %u) --------------\n",
              cfd->GetName().c_str(), (unsigned int)cfd->GetID());
+      printf("corrupted: %s\n", cfd->IsCorrupted() ? "true" : "false");
       printf("log number: %lu\n", (unsigned long)cfd->GetLogNumber());
       auto comparator = comparators.find(cfd->GetID());
       if (comparator != comparators.end()) {
@@ -3335,6 +3359,22 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
       if (!edit.EncodeTo(&record)) {
         return Status::Corruption(
             "Unable to Encode VersionEdit:" + edit.DebugString(true));
+      }
+      Status s = log->AddRecord(record);
+      if (!s.ok()) {
+        return s;
+      }
+    }
+
+    if (cfd->IsCorrupted()) {
+      // persist corruption state
+      VersionEdit edit;
+      edit.SetColumnFamily(cfd->GetID());
+      edit.CorruptColumnFamily();
+      std::string record;
+      if (!edit.EncodeTo(&record)) {
+        return Status::Corruption("Unable to Encode VersionEdit:" +
+                                  edit.DebugString(true));
       }
       Status s = log->AddRecord(record);
       if (!s.ok()) {

@@ -41,6 +41,7 @@ enum Tag {
   kColumnFamilyAdd = 201,
   kColumnFamilyDrop = 202,
   kMaxColumnFamily = 203,
+  kColumnFamilyCorrupt = 204,
 };
 
 enum CustomTag {
@@ -76,6 +77,7 @@ void VersionEdit::Clear() {
   column_family_ = 0;
   is_column_family_add_ = 0;
   is_column_family_drop_ = 0;
+  is_column_family_corrupt_ = 0;
   column_family_name_.clear();
 }
 
@@ -186,6 +188,10 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
 
   if (is_column_family_drop_) {
     PutVarint32(dst, kColumnFamilyDrop);
+  }
+
+  if (is_column_family_corrupt_) {
+    PutVarint32(dst, kColumnFamilyCorrupt);
   }
   return true;
 }
@@ -441,6 +447,10 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         is_column_family_drop_ = true;
         break;
 
+      case kColumnFamilyCorrupt:
+        is_column_family_corrupt_ = true;
+        break;
+
       default:
         msg = "unknown tag";
         break;
@@ -511,6 +521,9 @@ std::string VersionEdit::DebugString(bool hex_key) const {
   if (is_column_family_drop_) {
     r.append("\n  ColumnFamilyDrop");
   }
+  if (is_column_family_corrupt_) {
+    r.append("\n  ColumnFamilyCorrupt");
+  }
   if (has_max_column_family_) {
     r.append("\n  MaxColumnFamily: ");
     AppendNumberTo(&r, max_column_family_);
@@ -580,6 +593,9 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
   }
   if (is_column_family_drop_) {
     jw << "ColumnFamilyDrop" << column_family_name_;
+  }
+  if (is_column_family_corrupt_) {
+    jw << "ColumnFamilyCorrupt" << column_family_name_;
   }
   if (has_max_column_family_) {
     jw << "MaxColumnFamily" << max_column_family_;

@@ -245,6 +245,7 @@ static const std::string num_running_flushes = "num-running-flushes";
 static const std::string actual_delayed_write_rate =
     "actual-delayed-write-rate";
 static const std::string is_write_stopped = "is-write-stopped";
+static const std::string is_corrupted = "is-corrupted";
 
 const std::string DB::Properties::kNumFilesAtLevelPrefix =
                       rocksdb_prefix + num_files_at_level_prefix;
@@ -318,6 +319,8 @@ const std::string DB::Properties::kActualDelayedWriteRate =
     rocksdb_prefix + actual_delayed_write_rate;
 const std::string DB::Properties::kIsWriteStopped =
     rocksdb_prefix + is_write_stopped;
+const std::string DB::Properties::kIsCorrupted =
+    rocksdb_prefix + is_corrupted;
 
 const std::unordered_map<std::string, DBPropertyInfo>
     InternalStats::ppt_name_to_info = {
@@ -416,6 +419,8 @@ const std::unordered_map<std::string, DBPropertyInfo>
           nullptr}},
         {DB::Properties::kIsWriteStopped,
          {false, nullptr, &InternalStats::HandleIsWriteStopped, nullptr}},
+        {DB::Properties::kIsCorrupted,
+         {false, nullptr, &InternalStats::HandleIsCorrupted, nullptr}},
 };
 
 const DBPropertyInfo* GetPropertyInfo(const Slice& property) {
@@ -774,6 +779,12 @@ bool InternalStats::HandleActualDelayedWriteRate(uint64_t* value, DBImpl* db,
 bool InternalStats::HandleIsWriteStopped(uint64_t* value, DBImpl* db,
                                          Version* version) {
   *value = db->write_controller().IsStopped() ? 1 : 0;
+  return true;
+}
+
+bool InternalStats::HandleIsCorrupted(uint64_t* value, DBImpl* /* db */,
+                                      Version* /* version */) {
+  *value = cfd_->IsCorrupted() ? 1 : 0;
   return true;
 }
 

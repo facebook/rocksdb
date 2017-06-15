@@ -350,6 +350,7 @@ ColumnFamilyData::ColumnFamilyData(
       current_(nullptr),
       refs_(0),
       dropped_(false),
+      corrupted_(false),
       internal_comparator_(cf_options.comparator),
       initial_cf_options_(SanitizeOptions(db_options, cf_options)),
       ioptions_(db_options, initial_cf_options_),

@@ -234,7 +234,8 @@ class VersionEdit {
   size_t NumEntries() { return new_files_.size() + deleted_files_.size(); }
 
   bool IsColumnFamilyManipulation() {
-    return is_column_family_add_ || is_column_family_drop_;
+    return is_column_family_add_ || is_column_family_drop_ ||
+           is_column_family_corrupt_;
   }
 
   void SetColumnFamily(uint32_t column_family_id) {
@@ -245,6 +246,7 @@ class VersionEdit {
   void AddColumnFamily(const std::string& name) {
     assert(!is_column_family_drop_);
     assert(!is_column_family_add_);
+    assert(!is_column_family_corrupt_);
     assert(NumEntries() == 0);
     is_column_family_add_ = true;
     column_family_name_ = name;
@@ -254,8 +256,18 @@ class VersionEdit {
   void DropColumnFamily() {
     assert(!is_column_family_drop_);
     assert(!is_column_family_add_);
+    assert(!is_column_family_corrupt_);
     assert(NumEntries() == 0);
     is_column_family_drop_ = true;
+  }
+
+  // set column family ID by calling SetColumnFamily()
+  void CorruptColumnFamily() {
+    assert(!is_column_family_drop_);
+    assert(!is_column_family_add_);
+    assert(!is_column_family_corrupt_);
+    assert(NumEntries() == 0);
+    is_column_family_corrupt_ = true;
   }
 
   // return true on success.
@@ -301,10 +313,11 @@ class VersionEdit {
   // If it's not set, it is default (0)
   uint32_t column_family_;
   // a version edit can be either column_family add or
-  // column_family drop. If it's column family add,
+  // column_family drop or corruption marker. If it's column family add,
   // it also includes column family name.
   bool is_column_family_drop_;
   bool is_column_family_add_;
+  bool is_column_family_corrupt_;
   std::string column_family_name_;
 };
 
