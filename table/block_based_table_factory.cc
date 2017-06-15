@@ -47,6 +47,16 @@ BlockBasedTableFactory::BlockBasedTableFactory(
   if (table_options_.index_block_restart_interval < 1) {
     table_options_.index_block_restart_interval = 1;
   }
+  if (table_options_.partition_filters &&
+      table_options_.index_type !=
+          BlockBasedTableOptions::kTwoLevelIndexSearch) {
+    table_options_.partition_filters = false;
+    // We do not support partitioned filters without partitioning indexes
+    // TODO(myabandeh): make info_log avaialble tlroughout the code base
+    fprintf(stderr,
+            "partition_filters is reset to false since kTwoLevelIndexSearch is "
+            "not enabled.");
+  }
 }
 
 Status BlockBasedTableFactory::NewTableReader(
