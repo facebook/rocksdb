@@ -235,8 +235,6 @@ DEFINE_bool(reverse_iterator, false,
 
 DEFINE_bool(use_uint64_comparator, false, "use Uint64 user comparator");
 
-DEFINE_bool(pin_slice, true, "use pinnable slice for point lookup");
-
 DEFINE_int64(batch_size, 1, "Batch size");
 
 static bool ValidateKeySize(const char* flagname, int32_t value) {
@@ -3993,7 +3991,6 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     ReadOptions options(FLAGS_verify_checksum, true);
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
-    std::string value;
     PinnableSlice pinnable_val;
 
     Duration duration(FLAGS_duration, reads_);
@@ -4008,22 +4005,16 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       Status s;
       if (FLAGS_num_column_families > 1) {
         s = db_with_cfh->db->Get(options, db_with_cfh->GetCfh(key_rand), key,
-                                 &value);
+                                 &pinnable_val);
       } else {
-        if (LIKELY(FLAGS_pin_slice == 1)) {
-          pinnable_val.Reset();
-          s = db_with_cfh->db->Get(options,
-                                   db_with_cfh->db->DefaultColumnFamily(), key,
-                                   &pinnable_val);
-        } else {
-          s = db_with_cfh->db->Get(
-              options, db_with_cfh->db->DefaultColumnFamily(), key, &value);
-        }
+        pinnable_val.Reset();
+        s = db_with_cfh->db->Get(options,
+                                 db_with_cfh->db->DefaultColumnFamily(), key,
+                                 &pinnable_val);
       }
       if (s.ok()) {
         found++;
-        bytes += key.size() +
-                 (FLAGS_pin_slice == 1 ? pinnable_val.size() : value.size());
+        bytes += key.size() + pinnable_val.size();
       } else if (!s.IsNotFound()) {
         fprintf(stderr, "Get returned an error: %s\n", s.ToString().c_str());
         abort();
