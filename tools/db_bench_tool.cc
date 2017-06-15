@@ -392,10 +392,10 @@ DEFINE_int64(metadata_block_size,
              rocksdb::BlockBasedTableOptions().metadata_block_size,
              "Max partition size when partitioning index/filters");
 
-// The default reduces the over of reading time with flash. With HDD, which
+// The default reduces the overhead of reading time with flash. With HDD, which
 // offers much less throughput, however, this number better to be set to 1.
 DEFINE_int32(ops_between_duration_checks, 1000,
-             "Max partition size when partitioning index/filters");
+             "Check duration limit every x ops");
 
 DEFINE_bool(pin_l0_filter_and_index_blocks_in_cache, false,
             "Pin index/filter blocks of L0 files in block cache.");
