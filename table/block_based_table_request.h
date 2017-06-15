@@ -392,7 +392,7 @@ class GetFilterHelper {
 // are found. We will do so in parallel.
 // However, if the index_block and its iterator are not readily
 // available we will need to read the block for kHashSearch
-class CreateIndexReaderContext : protected AsyncStatusCapture {
+class CreateIndexReaderContext : private AsyncStatusCapture {
  public:
 
   using
@@ -525,7 +525,7 @@ class CreateIndexReaderContext : protected AsyncStatusCapture {
 // based on the IndexReader. It first checks the
 // cache if not found it creates a new Index reader
 // after reading the index block if needed
-class NewIndexIteratorContext : protected AsyncStatusCapture {
+class NewIndexIteratorContext : private AsyncStatusCapture {
  public:
 
   using
@@ -620,7 +620,7 @@ class NewIndexIteratorContext : protected AsyncStatusCapture {
 
 // This class facilitate opening a new
 // table and multiple disk IO in a async manner
-class TableOpenRequestContext : protected AsyncStatusCapture {
+class TableOpenRequestContext : private AsyncStatusCapture {
  public:
 
   using
@@ -847,7 +847,7 @@ private:
   std::unique_ptr<InternalIterator>      new_iterator_;
 };
 
-class NewDataBlockIteratorContext : protected AsyncStatusCapture {
+class NewDataBlockIteratorContext : private AsyncStatusCapture {
 public:
 
   using
@@ -889,7 +889,7 @@ private:
   NewDataBlockIteratorHelper biter_helper_;
 };
 
-class NewRangeTombstoneIterContext : protected AsyncStatusCapture {
+class NewRangeTombstoneIterContext : private AsyncStatusCapture {
 public:
 
    using
@@ -956,7 +956,7 @@ public:
 };
 
 // This is a sync/async implementation of BlockBasedTable::Get()
-class BlockBasedGetContext : protected AsyncStatusCapture {
+class BlockBasedGetContext : private AsyncStatusCapture {
 public:
 
   using
@@ -1066,7 +1066,7 @@ private:
 
 // This class creates a new iterator on top of the
 // blockbased table
-class BlockBasedNewIteratorContext : protected AsyncStatusCapture {
+class BlockBasedNewIteratorContext : private AsyncStatusCapture {
 public:
   using
   Callback = Callable<Status, const Status&, InternalIterator*>;

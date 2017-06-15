@@ -17,6 +17,7 @@
 #include "rocksdb/env.h"
 
 #include "table/get_context.h"
+#include "table/iterator_wrapper.h"
 #include "table/table_builder.h"
 
 #include "util/filename.h"
@@ -119,6 +120,7 @@ Status TableCacheFindTableHelper::LookupCache(const FileDescriptor& fd,
 Status TableCacheFindTableHelper::OnGetReaderComplete(const Status& status,
     Cache::Handle** handle, std::unique_ptr<TableReader>& table_reader) {
 
+  PERF_TIMER_GUARD(find_table_nanos);
   *handle = nullptr;
   Status s = gr_helper_.OnGetReaderComplete(status);
   if (!s.ok()) {
@@ -136,7 +138,6 @@ Status TableCacheFindTableHelper::OnGetReaderComplete(const Status& status,
       table_reader.release();
     }
   }
-  PERF_TIMER_STOP(find_table_nanos);
   return s;
 }
 
@@ -776,6 +777,330 @@ Status TableCacheGetContext::RequestGet(const Callback& cb,
     s = Status::OK();
   }
   return s;
+}
+
+///////////////////////////////////////////////////////////////////////
+/// TableCacheNewIteratorContext
+//
+Status TableCacheNewIteratorContext::Create(TableCache* table_cache,
+    const ReadOptions& options, const EnvOptions& eoptions,
+    const InternalKeyComparator& internal_comparator,
+    const FileDescriptor& file_fd, RangeDelAggregator* range_del_agg,
+    InternalIterator** iterator, TableReader** table_reader_ptr,
+    HistogramImpl* file_read_hist, bool for_compaction, Arena* arena,
+    bool skip_filters, int level) {
+
+  assert(iterator != nullptr);
+  *iterator = nullptr;
+
+  if (table_reader_ptr != nullptr) {
+    *table_reader_ptr = nullptr;
+  }
+
+  const Callback empty_cb;
+  TableCacheNewIteratorContext context(empty_cb, table_cache, options,
+    file_fd.GetNumber(), range_del_agg, for_compaction, arena, skip_filters);
+
+  Status s = context.Create(eoptions, internal_comparator, file_fd, file_read_hist, level);
+
+  if (s.ok()) {
+    *iterator = context.GetResult();
+    if (table_reader_ptr) {
+      *table_reader_ptr = context.GetReader();
+    }
+  }
+  return s;
+}
+
+Status TableCacheNewIteratorContext::RequestCreate(const Callback& cb,
+    TableCache* table_cache, const ReadOptions& options,
+    const EnvOptions& eoptions, const InternalKeyComparator& internal_comparator,
+    const FileDescriptor& file_fd, RangeDelAggregator* range_del_agg,
+    InternalIterator** iterator, TableReader** table_reader_ptr,
+    HistogramImpl* file_read_hist, bool for_compaction, Arena* arena,
+    bool skip_filters, int level) {
+
+  assert(iterator != nullptr);
+  *iterator = nullptr;
+
+  if (table_reader_ptr != nullptr) {
+    *table_reader_ptr = nullptr;
+  }
+
+  std::unique_ptr<TableCacheNewIteratorContext> context(new TableCacheNewIteratorContext(cb, table_cache, options,
+    file_fd.GetNumber(), range_del_agg, for_compaction, arena, skip_filters));
+
+  Status s = context->Create(eoptions, internal_comparator, file_fd, file_read_hist, level);
+
+  if (s.IsIOPending()) {
+    context.release();
+  } else if (s.ok()) {
+    *iterator = context->GetResult();
+    if (table_reader_ptr) {
+      *table_reader_ptr = context->GetReader();
+    }
+  }
+  return s;
+}
+
+
+Status TableCacheNewIteratorContext::Create(const EnvOptions& eoptions,
+    const InternalKeyComparator& internal_comparator,
+    const FileDescriptor& fd, HistogramImpl* file_read_hist,
+    int level) {
+
+  PERF_TIMER_START(new_table_iterator_nanos);
+
+  Status s;
+  size_t readahead = 0;
+  if (for_compaction_) {
+#ifndef NDEBUG
+    bool use_direct_reads_for_compaction = eoptions.use_direct_reads;
+    TEST_SYNC_POINT_CALLBACK("TableCache::NewIterator:for_compaction",
+      &use_direct_reads_for_compaction);
+#endif  // !NDEBUG
+    // If we in async mode make sure we always create a new table reader
+    // for compactions in sync mode
+    if (table_cache_->GetIOptions().new_table_reader_for_compaction_inputs ||
+      eoptions.use_async_reads) {
+      readahead = table_cache_->GetIOptions().compaction_readahead_size;
+      create_new_table_reader_ = true;
+    }
+  } else {
+    readahead = options_->readahead_size;
+    create_new_table_reader_ = readahead > 0;
+  }
+
+  // We still want compactions to run in sync mode
+  // Therefore, we want a table_reader that opens the file
+  // in a sync mode and performs sync.
+  // Thus, disable the callback and reset the async mode
+  EnvOptions env_options(eoptions);
+  if (for_compaction_ && env_options.use_async_reads) {
+    cb_ = Callback();
+    env_options.use_async_reads = false;
+  } else {
+    assert(!cb_);
+  }
+
+  if (create_new_table_reader_) {
+
+    TableCacheGetReaderHelper::Callback on_get_tr;
+    if (cb_) {
+      CallableFactory<TableCacheNewIteratorContext, Status, const Status&,
+                      std::unique_ptr<TableReader>&&> f(this);
+      on_get_tr = f.GetCallable<&TableCacheNewIteratorContext::OnTableReader>();
+    }
+
+    std::unique_ptr<TableReader> table_reader;
+    s = gr_helper_.GetTableReader(
+        on_get_tr, env_options, internal_comparator, fd,
+        true /* sequential_mode */, readahead, !for_compaction_ /* record stats */,
+        nullptr /* hist */, &table_reader, false /* skip_filters */, level,
+        true /* prefetch_index_and_filter */);
+
+    if (!s.IsIOPending()) {
+      s = OnTableReader(s, std::move(table_reader));
+    }
+  } else {
+    table_reader_ = fd.table_reader;
+    if (table_reader_ == nullptr) {
+      Status s = TableCacheFindTableHelper::LookupCache(fd,
+        table_cache_->GetCache(), &handle_,
+        options_->read_tier == kBlockCacheTier /* no_io */);
+
+      if (s.IsNotFound()) {
+        TableCacheGetReaderHelper::Callback on_get_tr;
+        if (cb_) {
+          CallableFactory<TableCacheNewIteratorContext, Status, const Status&,
+            std::unique_ptr<TableReader>&&> f(this);
+          on_get_tr = f.GetCallable<&TableCacheNewIteratorContext::OnTableReader>();
+        }
+
+        std::unique_ptr<TableReader> table_reader;
+        s = fr_helper_.GetReader(on_get_tr,
+          env_options, internal_comparator, fd,
+          &table_reader, !for_compaction_ /* record read_stats */,
+          file_read_hist, skip_filters_,
+          level, true /*prefetch_index_and_filter_in_cache*/);
+
+        if (!s.IsIOPending()) {
+          s = OnTableReader(s, std::move(table_reader));
+        }
+      } else if (s.ok()) {
+        assert(handle_ != nullptr);
+        table_reader_ = table_cache_->GetTableReaderFromHandle(handle_);
+        s = CreateTableIterator();
+      }
+    } else {
+      s = CreateTableIterator();
+    }
+  }
+  return s;
+}
+
+Status TableCacheNewIteratorContext::OnTableReader(const Status& status,
+    std::unique_ptr<TableReader>&& table_reader) {
+
+  PERF_TIMER_GUARD(new_table_iterator_nanos);
+  async(status);
+
+  Status s;
+
+  if (create_new_table_reader_) {
+    // Handle GetReader call
+    s = gr_helper_.OnGetReaderComplete(status);
+    if (s.ok()) {
+      table_reader_ = table_reader.release();
+    } else {
+      assert(!table_reader);
+    }
+  } else {
+    // Handle FindReader call
+    // At this point table_reader is not in cache
+    // so we own it
+    assert(handle_ == nullptr);
+    std::unique_ptr<TableReader> tr(std::move(table_reader));
+    s = fr_helper_.OnGetReaderComplete(status, &handle_, tr);
+    if (s.ok()) {
+      assert(handle_ != nullptr);
+      table_reader_ = table_cache_->GetTableReaderFromHandle(handle_);
+    } else {
+      assert(!tr);
+    }
+  }
+
+  // If we failed, then we can not proceed
+  if (s.ok()) {
+    return CreateTableIterator();
+  } else {
+    return OnComplete(s);
+  }
+}
+
+Status TableCacheNewIteratorContext::CreateTableIterator() {
+
+  Status s;
+  InternalIterator* internal_iterator = nullptr;
+
+  if (cb_) {
+    CallableFactory<TableCacheNewIteratorContext, Status, const Status&, InternalIterator*>
+    f(this);
+    auto on_new_table_iterator =
+    f.GetCallable<&TableCacheNewIteratorContext::OnNewTableIterator>();
+
+    s = table_reader_->NewIterator(on_new_table_iterator, *options_,
+                                   &internal_iterator, arena_, skip_filters_);
+  } else {
+    internal_iterator = table_reader_->NewIterator(*options_, arena_,
+                        skip_filters_);
+  }
+  if (!s.IsIOPending()) {
+    s = OnNewTableIterator(s, internal_iterator);
+  }
+  return s;
+}
+
+Status TableCacheNewIteratorContext::OnNewTableIterator(const Status& status,
+    InternalIterator* iterator) {
+
+  Status s(status);
+  async(status);
+
+  if (s.ok()) {
+
+    assert(result_ == nullptr);
+    assert(iterator != nullptr);
+    result_ = iterator;
+
+    if (create_new_table_reader_) {
+      assert(handle_ == nullptr);
+      result_->RegisterCleanup(&table_cache_detail::DeleteTableReader, table_reader_, nullptr);
+    } else if (handle_ != nullptr) {
+      result_->RegisterCleanup(&table_cache_detail::UnrefEntry, table_cache_->GetCache(), handle_);
+      handle_ = nullptr;  // prevent from releasing below
+    }
+
+    if (for_compaction_) {
+      table_reader_->SetupForCompaction();
+    }
+
+    if (range_del_agg_ != nullptr && !options_->ignore_range_deletions) {
+      InternalIterator* range_del_iter = nullptr;
+      if (cb_) {
+        CallableFactory<TableCacheNewIteratorContext, Status, const Status&, InternalIterator*>
+        f(this);
+        auto on_tomb_stone =
+        f.GetCallable<&TableCacheNewIteratorContext::OnTombstoneIterator>();
+        s = table_reader_->NewRangeTombstoneIterator(on_tomb_stone, *options_, &range_del_iter);
+      } else {
+        range_del_iter = table_reader_->NewRangeTombstoneIterator(*options_);
+      }
+
+      if (!s.IsIOPending()) {
+        s = OnTombstoneIterator(s, range_del_iter);
+      }
+    } else {
+      s = OnComplete(s);
+    }
+
+  } else {
+    s = OnComplete(s);
+  }
+
+  return s;
+}
+
+Status TableCacheNewIteratorContext::OnTombstoneIterator(const Status& status, InternalIterator* iterator) {
+  async(status);
+
+  Status s(status);
+
+  std::unique_ptr<InternalIterator> range_del_iter(iterator);
+  if (s.ok()) {
+    if (range_del_iter) {
+      s = range_del_iter->status();
+      if (s.ok()) {
+        s = range_del_agg_->AddTombstones(std::move(range_del_iter));
+      }
+    }
+  }
+
+  return OnComplete(s);
+}
+
+Status TableCacheNewIteratorContext::OnComplete(const Status& status) {
+
+  ResetHandle();
+
+  if (!status.ok()) {
+    assert(result_ == nullptr);
+    result_ = NewErrorInternalIterator(status, arena_);
+  }
+
+  PERF_TIMER_STOP(new_table_iterator_nanos);
+
+  if (cb_ && async()) {
+    ROCKS_LOG_DEBUG(
+      table_cache_->GetIOptions().info_log,
+      "TableCacheNewIteratorContext async completion: %s",
+      status.ToString().c_str());
+
+    Status s(status);
+    s.async(true);
+
+    cb_.Invoke(s, result_, table_reader_);
+
+    delete this;
+    return s;
+  }
+
+  ROCKS_LOG_DEBUG(
+    table_cache_->GetIOptions().info_log,
+    "TableCacheNewIteratorContext sync completion: %s",
+    status.ToString().c_str());
+
+  return status;
 }
 
 } //namespace async

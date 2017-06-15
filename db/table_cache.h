@@ -58,6 +58,18 @@ class TableCache {
       HistogramImpl* file_read_hist = nullptr, bool for_compaction = false,
       Arena* arena = nullptr, bool skip_filters = false, int level = -1);
 
+  using
+  NewIteratorCallback =
+      async::Callable<Status, const Status&, InternalIterator*, TableReader*>;
+
+  Status NewIterator(const NewIteratorCallback& cb, const ReadOptions& options, const EnvOptions& toptions,
+    const InternalKeyComparator& internal_comparator,
+    const FileDescriptor& file_fd, RangeDelAggregator* range_del_agg,
+    InternalIterator** iterator,
+    TableReader** table_reader_ptr = nullptr,
+    HistogramImpl* file_read_hist = nullptr, bool for_compaction = false,
+    Arena* arena = nullptr, bool skip_filters = false, int level = -1);
+
   // If a seek to internal key "k" in specified file finds an entry,
   // call (*handle_result)(arg, found_key, found_value) repeatedly until
   // it returns false.
@@ -66,11 +78,12 @@ class TableCache {
   //    returns non-ok status.
   // @param skip_filters Disables loading/accessing the filter block
   // @param level The level this table is at, -1 for "not set / don't know"
-  Status Get(const ReadOptions& options,
-             const InternalKeyComparator& internal_comparator,
-             const FileDescriptor& file_fd, const Slice& k,
-             GetContext* get_context, HistogramImpl* file_read_hist = nullptr,
-             bool skip_filters = false, int level = -1);
+  Status Get(
+    const ReadOptions& options,
+    const InternalKeyComparator& internal_comparator,
+    const FileDescriptor& file_fd, const Slice& k,
+    GetContext* get_context, HistogramImpl* file_read_hist = nullptr,
+    bool skip_filters = false, int level = -1);
 
   Status Get(const async::Callable<Status,const Status&>& cb,
     const ReadOptions& options,
@@ -186,6 +199,10 @@ inline Slice GetSliceForFileNumber(const uint64_t* file_number) {
   return Slice(reinterpret_cast<const char*>(file_number),
     sizeof(*file_number));
 }
+
+void UnrefEntry(void* arg1, void* arg2);
+
+void DeleteTableReader(void* arg1, void* arg2);
 
 #ifndef ROCKSDB_LITE
 

@@ -29,21 +29,18 @@
 #include "util/sync_point.h"
 
 namespace rocksdb {
+namespace table_cache_detail {
+  void UnrefEntry(void* arg1, void* arg2) {
+    Cache* cache = reinterpret_cast<Cache*>(arg1);
+    Cache::Handle* h = reinterpret_cast<Cache::Handle*>(arg2);
+    cache->Release(h);
+  }
 
-namespace table_cache_detail  {
-
-void UnrefEntry(void* arg1, void* arg2) {
-  Cache* cache = reinterpret_cast<Cache*>(arg1);
-  Cache::Handle* h = reinterpret_cast<Cache::Handle*>(arg2);
-  cache->Release(h);
-}
-
-void DeleteTableReader(void* arg1, void* arg2) {
-  TableReader* table_reader = reinterpret_cast<TableReader*>(arg1);
-  delete table_reader;
-}
-
-}  // namespace table_cache_detail
+  void DeleteTableReader(void* arg1, void* arg2) {
+    TableReader* table_reader = reinterpret_cast<TableReader*>(arg1);
+    delete table_reader;
+  }
+} // namespace table_cache_detail
 
 using namespace table_cache_detail;
 
@@ -133,91 +130,24 @@ InternalIterator* TableCache::NewIterator(
     RangeDelAggregator* range_del_agg, TableReader** table_reader_ptr,
     HistogramImpl* file_read_hist, bool for_compaction, Arena* arena,
     bool skip_filters, int level) {
-  PERF_TIMER_GUARD(new_table_iterator_nanos);
 
-  Status s;
-  bool create_new_table_reader = false;
-  TableReader* table_reader = nullptr;
-  Cache::Handle* handle = nullptr;
-  if (s.ok()) {
-    if (table_reader_ptr != nullptr) {
-      *table_reader_ptr = nullptr;
-    }
-    size_t readahead = 0;
-    if (for_compaction) {
-#ifndef NDEBUG
-      bool use_direct_reads_for_compaction = env_options.use_direct_reads;
-      TEST_SYNC_POINT_CALLBACK("TableCache::NewIterator:for_compaction",
-                               &use_direct_reads_for_compaction);
-#endif  // !NDEBUG
-      if (ioptions_.new_table_reader_for_compaction_inputs) {
-        readahead = ioptions_.compaction_readahead_size;
-        create_new_table_reader = true;
-      }
-    } else {
-      readahead = options.readahead_size;
-      create_new_table_reader = readahead > 0;
-    }
-
-    if (create_new_table_reader) {
-      unique_ptr<TableReader> table_reader_unique_ptr;
-      s = GetTableReader(
-          env_options, icomparator, fd, true /* sequential_mode */, readahead,
-          !for_compaction /* record stats */, nullptr, &table_reader_unique_ptr,
-          false /* skip_filters */, level);
-      if (s.ok()) {
-        table_reader = table_reader_unique_ptr.release();
-      }
-    } else {
-      table_reader = fd.table_reader;
-      if (table_reader == nullptr) {
-        s = FindTable(env_options, icomparator, fd, &handle,
-                      options.read_tier == kBlockCacheTier /* no_io */,
-                      !for_compaction /* record read_stats */, file_read_hist,
-                      skip_filters, level);
-        if (s.ok()) {
-          table_reader = GetTableReaderFromHandle(handle);
-        }
-      }
-    }
-  }
   InternalIterator* result = nullptr;
-  if (s.ok()) {
-    result = table_reader->NewIterator(options, arena, skip_filters);
-    if (create_new_table_reader) {
-      assert(handle == nullptr);
-      result->RegisterCleanup(&DeleteTableReader, table_reader, nullptr);
-    } else if (handle != nullptr) {
-      result->RegisterCleanup(&UnrefEntry, cache_, handle);
-      handle = nullptr;  // prevent from releasing below
-    }
-
-    if (for_compaction) {
-      table_reader->SetupForCompaction();
-    }
-    if (table_reader_ptr != nullptr) {
-      *table_reader_ptr = table_reader;
-    }
-  }
-  if (s.ok() && range_del_agg != nullptr && !options.ignore_range_deletions) {
-    std::unique_ptr<InternalIterator> range_del_iter(
-        table_reader->NewRangeTombstoneIterator(options));
-    if (range_del_iter != nullptr) {
-      s = range_del_iter->status();
-    }
-    if (s.ok()) {
-      s = range_del_agg->AddTombstones(std::move(range_del_iter));
-    }
-  }
-
-  if (handle != nullptr) {
-    ReleaseHandle(handle);
-  }
-  if (!s.ok()) {
-    assert(result == nullptr);
-    result = NewErrorInternalIterator(s, arena);
-  }
+  async::TableCacheNewIteratorContext::Create(this,
+             options, env_options, icomparator, fd, range_del_agg, &result,
+             table_reader_ptr, file_read_hist, for_compaction, arena, skip_filters);
   return result;
+}
+
+Status TableCache::NewIterator(const NewIteratorCallback& cb, const ReadOptions& options,
+                   const EnvOptions& eoptions, const InternalKeyComparator& internal_comparator,
+                   const FileDescriptor& file_fd, RangeDelAggregator* range_del_agg,
+                   InternalIterator** iterator, TableReader** table_reader_ptr,
+                   HistogramImpl* file_read_hist, bool for_compaction, Arena* arena,
+                   bool skip_filters, int level) {
+  return async::TableCacheNewIteratorContext::RequestCreate(cb, this, options,
+         eoptions,
+         internal_comparator, file_fd, range_del_agg, iterator, table_reader_ptr,
+         file_read_hist, for_compaction, arena, skip_filters, level);
 }
 
 Status TableCache::Get(const ReadOptions& options,

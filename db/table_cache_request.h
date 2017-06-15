@@ -19,7 +19,6 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
-
 #include "util/stop_watch.h"
 
 namespace rocksdb {
@@ -174,7 +173,7 @@ public:
 // the cache handle must be released.
 // This class completly relies on the above TableCacheFindTableHelper
 // functionality but async public API FindTable require a context of its own
-class TableCacheFindTableContext : protected AsyncStatusCapture {
+class TableCacheFindTableContext : private AsyncStatusCapture {
 public:
 
   using
@@ -226,7 +225,7 @@ private:
   Cache::Handle*            handle_;
 };
 
-class TableCacheGetPropertiesContext : protected AsyncStatusCapture {
+class TableCacheGetPropertiesContext : private AsyncStatusCapture {
 public:
 
   using
@@ -307,7 +306,7 @@ private:
 // table reader
 // If  range deletion tombstones are present we then
 // get an iterator on it (potentially async)
-class TableCacheGetContext : protected AsyncStatusCapture {
+class TableCacheGetContext : private AsyncStatusCapture {
  public:
   // Callback to be supplied by the client
   using
@@ -431,10 +430,105 @@ class TableCacheGetContext : protected AsyncStatusCapture {
 
 // This class creates an iterator in async way if
 // any IO is encountered using a corresponding TableReader
-class TableCacheNewIterator : protected AsyncStatusCapture {
+class TableCacheNewIteratorContext : private AsyncStatusCapture {
 public:
 
+  using
+  Callback = Callable<Status, const Status&, InternalIterator*,TableReader*>;
+
+  TableCacheNewIteratorContext(const TableCacheNewIteratorContext&) = delete;
+  TableCacheNewIteratorContext& operator=(const TableCacheNewIteratorContext&) = delete;
+
+  static Status Create(TableCache* table_cache, const ReadOptions& options,
+    const EnvOptions& eoptions,
+    const InternalKeyComparator& internal_comparator,
+    const FileDescriptor& file_fd, RangeDelAggregator* range_del_agg,
+    InternalIterator** iterator,
+    TableReader** table_reader_ptr = nullptr,
+    HistogramImpl* file_read_hist = nullptr, bool for_compaction = false,
+    Arena* arena = nullptr, bool skip_filters = false, int level = -1);
+
+  static Status RequestCreate(const Callback& cb, TableCache* table_cache,
+    const ReadOptions& options, const EnvOptions& eoptions,
+    const InternalKeyComparator& internal_comparator,
+    const FileDescriptor& file_fd, RangeDelAggregator* range_del_agg,
+    InternalIterator** iterator,
+    TableReader** table_reader_ptr = nullptr,
+    HistogramImpl* file_read_hist = nullptr, bool for_compaction = false,
+    Arena* arena = nullptr, bool skip_filters = false, int level = -1);
+
+  ~TableCacheNewIteratorContext() {
+    ResetHandle();
+  }
+
+  InternalIterator* GetResult() {
+    return result_;
+  }
+
+  TableReader* GetReader() const {
+    return table_reader_;
+  }
+
 private:
+
+  TableCacheNewIteratorContext(const Callback& cb, TableCache* table_cache,
+        const ReadOptions& options,
+        uint64_t fileno, RangeDelAggregator* range_del_agg, bool for_compaction,
+        Arena* arena, bool skip_filters) :
+    PERF_TIMER_INIT(new_table_iterator_nanos),
+    cb_(cb),
+    table_cache_(table_cache),
+    options_(&options),
+    gr_helper_(table_cache->GetIOptions()),
+    fr_helper_(table_cache->GetIOptions(), fileno, table_cache->GetCache()),
+    range_del_agg_(range_del_agg),
+    for_compaction_(for_compaction),
+    arena_(arena),
+    skip_filters_(skip_filters),
+    create_new_table_reader_(false),
+    table_reader_(nullptr),
+    handle_(nullptr),
+    result_(nullptr) {
+  }
+
+  void ResetHandle() {
+    if (handle_ != nullptr) {
+      table_cache_->ReleaseHandle(handle_);
+      handle_ = nullptr;
+    }
+  }
+
+  Status Create(const EnvOptions& env_options,
+                const InternalKeyComparator& internal_comparator,
+                const FileDescriptor& file_fd, HistogramImpl* file_read_hist,
+                int level);
+
+  Status OnTableReader(const Status&, std::unique_ptr<TableReader>&&);
+
+  Status CreateTableIterator();
+
+  Status OnNewTableIterator(const Status&, InternalIterator* iterator);
+
+  Status OnTombstoneIterator(const Status&, InternalIterator*);
+
+  Status OnComplete(const Status&);
+
+  PERF_TIMER_DECL(new_table_iterator_nanos);
+  Callback                      cb_;
+  TableCache*                   table_cache_;
+  const ReadOptions*            options_;
+  TableCacheGetReaderHelper     gr_helper_;
+  TableCacheFindTableHelper     fr_helper_;
+  RangeDelAggregator*           range_del_agg_;
+  const bool                    for_compaction_;
+  Arena*                        arena_;
+  bool                          skip_filters_;
+
+  bool                          create_new_table_reader_;
+
+  TableReader*                  table_reader_;
+  Cache::Handle*                handle_;
+  InternalIterator*             result_;
 };
 
 }
