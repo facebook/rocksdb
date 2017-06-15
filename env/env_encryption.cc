@@ -20,6 +20,8 @@
 
 namespace rocksdb {
 
+#ifndef ROCKSDB_LITE
+
 class EncryptedSequentialFile : public SequentialFile {
   private:
     std::unique_ptr<SequentialFile> file_;
@@ -903,5 +905,7 @@ Status CTREncryptionProvider::CreateCipherStreamFromPrefix(const std::string& fn
   (*result) = unique_ptr<BlockAccessCipherStream>(new CTRCipherStream(cipher_, iv.data(), initialCounter));
   return Status::OK();
 }
+
+#endif // ROCKSDB_LITE
 
 }  // namespace rocksdb
