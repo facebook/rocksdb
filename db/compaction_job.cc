@@ -589,7 +589,7 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
 
   if (status.ok()) {
     status = InstallCompactionResults(mutable_cf_options);
-  } else if (status.IsCorruption()) {
+  } else if (status.IsCorruption() && !cfd->IsCorrupted()) {
     VersionEdit edit;
     edit.SetColumnFamily(cfd->GetID());
     edit.CorruptColumnFamily();
