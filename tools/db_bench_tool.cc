@@ -385,6 +385,18 @@ DEFINE_int64(simcache_size, -1,
 DEFINE_bool(cache_index_and_filter_blocks, false,
             "Cache index/filter blocks in block cache.");
 
+DEFINE_bool(partition_index_and_filters, false,
+            "Partition index and filter blocks.");
+
+DEFINE_int64(metadata_block_size,
+             rocksdb::BlockBasedTableOptions().metadata_block_size,
+             "Max partition size when partitioning index/filters");
+
+// The default reduces the overhead of reading time with flash. With HDD, which
+// offers much less throughput, however, this number better to be set to 1.
+DEFINE_int32(ops_between_duration_checks, 1000,
+             "Check duration limit every x ops");
+
 DEFINE_bool(pin_l0_filter_and_index_blocks_in_cache, false,
             "Pin index/filter blocks of L0 files in block cache.");
 
@@ -1768,7 +1780,8 @@ class Duration {
 
     if (max_seconds_) {
       // Recheck every appx 1000 ops (exact iff increment is factor of 1000)
-      if ((ops_/1000) != ((ops_-increment)/1000)) {
+      auto granularity = FLAGS_ops_between_duration_checks;
+      if ((ops_ / granularity) != ((ops_ - increment) / granularity)) {
         uint64_t now = FLAGS_env->NowMicros();
         return ((now - start_at_) / 1000000) >= max_seconds_;
       } else {
@@ -2975,6 +2988,17 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         block_based_options.index_type = BlockBasedTableOptions::kHashSearch;
       } else {
         block_based_options.index_type = BlockBasedTableOptions::kBinarySearch;
+      }
+      if (FLAGS_partition_index_and_filters) {
+        if (FLAGS_use_hash_search) {
+          fprintf(stderr,
+                  "use_hash_search is incompatible with "
+                  "partition_index_and_filters and is ignored");
+        }
+        block_based_options.index_type =
+            BlockBasedTableOptions::kTwoLevelIndexSearch;
+        block_based_options.partition_filters = true;
+        block_based_options.metadata_block_size = FLAGS_metadata_block_size;
       }
       if (cache_ == nullptr) {
         block_based_options.no_block_cache = true;
