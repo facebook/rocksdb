@@ -9,6 +9,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors
 
+#ifndef ROCKSDB_LITE
+
 #include <algorithm>
 #include <cctype>
 #include <iostream>
@@ -17,6 +19,8 @@
 #include "util/aligned_buffer.h"
 #include "util/coding.h"
 #include "util/random.h"
+
+#endif
 
 namespace rocksdb {
 
