@@ -893,7 +893,7 @@ struct DBOptions {
   // allows the memtable writes not to lag behind other writes. It can be used
   // to optimize MySQL 2PC in which only the commits, which are serial, write to
   // memtable.
-  bool concurrent_wal_writes = false;
+  bool concurrent_prepare = false;
 
   // If true WAL is not flushed automatically after each write. Instead it
   // relies on manual invocation of FlushWAL to write the WAL buffer to its

@@ -79,7 +79,7 @@ struct ImmutableDBOptions {
   bool dump_malloc_stats;
   bool avoid_flush_during_recovery;
   bool allow_ingest_behind;
-  bool concurrent_wal_writes;
+  bool concurrent_prepare;
   bool manual_wal_flush;
 };
 

@@ -191,7 +191,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       bg_compaction_paused_(0),
       refitting_level_(false),
       opened_successfully_(false),
-      concurrent_writes_(options.concurrent_wal_writes),
+      concurrent_prepare_(options.concurrent_prepare),
       manual_wal_flush_(options.manual_wal_flush) {
   env_->GetAbsolutePath(dbname, &db_absolute_path_);
 
@@ -621,12 +621,12 @@ Status DBImpl::FlushWAL(bool sync) {
                       s.ToString().c_str());
     }
     if (!sync) {
-      ROCKS_LOG_DEBUG(immutable_db_options_.info_log, "FlushWAL-nosync");
+      ROCKS_LOG_DEBUG(immutable_db_options_.info_log, "FlushWAL sync=false");
       return s;
     }
   }
   // sync = true
-  ROCKS_LOG_DEBUG(immutable_db_options_.info_log, "FlushWAL-sync");
+  ROCKS_LOG_DEBUG(immutable_db_options_.info_log, "FlushWAL sync=true");
   return SyncWAL();
 }
 
@@ -2648,7 +2648,9 @@ Status DBImpl::IngestExternalFile(
     WriteThread::Writer w;
     write_thread_.EnterUnbatched(&w, &mutex_);
     WriteThread::Writer nonmem_w;
-    nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
+    if (concurrent_prepare_) {
+      nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
+    }
 
     num_running_ingest_file_++;
 
@@ -2689,7 +2691,9 @@ Status DBImpl::IngestExternalFile(
     }
 
     // Resume writes to the DB
-    nonmem_write_thread_.ExitUnbatched(&nonmem_w);
+    if (concurrent_prepare_) {
+      nonmem_write_thread_.ExitUnbatched(&nonmem_w);
+    }
     write_thread_.ExitUnbatched(&w);
 
     // Update stats

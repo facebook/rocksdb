@@ -754,12 +754,13 @@ class DBImpl : public DB {
   WriteBatch* MergeBatch(const WriteThread::WriteGroup& write_group,
                          WriteBatch* tmp_batch, size_t* write_with_wal);
 
-  Status WriteToWAL(const WriteBatch& merged_batch, uint64_t* log_used,
-                    uint64_t* log_size);
+  Status WriteToWAL(const WriteBatch& merged_batch, log::Writer* log_writer,
+                    uint64_t* log_used, uint64_t* log_size);
 
   Status WriteToWAL(const WriteThread::WriteGroup& write_group,
-                    uint64_t* log_used, bool need_log_sync,
-                    bool need_log_dir_sync, SequenceNumber sequence);
+                    log::Writer* log_writer, uint64_t* log_used,
+                    bool need_log_sync, bool need_log_dir_sync,
+                    SequenceNumber sequence);
 
   Status ConcurrentWriteToWAL(const WriteThread::WriteGroup& write_group,
                        uint64_t* log_used, SequenceNumber* last_sequence,
@@ -908,8 +909,10 @@ class DBImpl : public DB {
   //  - back() and items with getting_synced=true are not popped,
   //  - it follows that write thread with unlocked mutex_ can safely access
   //    back() and items with getting_synced=true.
-  //  - When concurrent write threads is enabled, back() and push_back() must be
-  //  called within log_write_mutex_
+  //  -- Update: apparently this was a mistake. back() should be called under
+  //  mute_: https://github.com/facebook/rocksdb/pull/1774
+  //  - When concurrent write threads is enabled, back(), push_back(), and
+  //  pop_front() must be called within log_write_mutex_
   std::deque<LogWriterNumber> logs_;
   // Signaled when getting_synced becomes false for some of the logs_.
   InstrumentedCondVar log_sync_cv_;
@@ -1212,7 +1215,9 @@ class DBImpl : public DB {
 
   size_t GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
 
-  const bool concurrent_writes_;
+  // When set, we use a seprate queue for writes that dont write to memtable. In
+  // 2PC these are the writes at Prepare phase.
+  const bool concurrent_prepare_;
   const bool manual_wal_flush_;
 };
 

@@ -699,26 +699,29 @@ class VersionSet {
     return last_sequence_.load(std::memory_order_acquire);
   }
 
+  // Note: memory_order_acquire must be sufficient.
   uint64_t LastToBeWrittenSequence() const {
-    return last_to_be_written_sequence_.load(std::memory_order_acquire);
+    return last_to_be_written_sequence_.load(std::memory_order_seq_cst);
   }
 
   // Set the last sequence number to s.
   void SetLastSequence(uint64_t s) {
     assert(s >= last_sequence_);
     // Last visible seqeunce must always be less than last written seq
-    assert(!db_options_->concurrent_wal_writes ||
+    assert(!db_options_->concurrent_prepare ||
            s <= last_to_be_written_sequence_);
     last_sequence_.store(s, std::memory_order_release);
   }
 
+  // Note: memory_order_release must be sufficient
   void SetLastToBeWrittenSequence(uint64_t s) {
     assert(s >= last_to_be_written_sequence_);
-    last_to_be_written_sequence_.store(s, std::memory_order_release);
+    last_to_be_written_sequence_.store(s, std::memory_order_seq_cst);
   }
 
+  // Note: memory_order_release must be sufficient
   uint64_t FetchAddLastToBeWrittenSequence(uint64_t s) {
-    return last_to_be_written_sequence_.fetch_add(s, std::memory_order_release);
+    return last_to_be_written_sequence_.fetch_add(s, std::memory_order_seq_cst);
   }
 
   // Mark the specified file number as used.

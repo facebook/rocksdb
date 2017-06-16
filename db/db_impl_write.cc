@@ -63,8 +63,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
                          uint64_t* log_used, uint64_t log_ref,
                          bool disable_memtable) {
   // The current implementation does not support sync with concurrenet writes
-  assert(!concurrent_writes_ || !write_options.sync);
-  if (concurrent_writes_ && write_options.sync) {
+  if (concurrent_prepare_ && write_options.sync) {
     return Status::NotSupported();
   }
   if (my_batch == nullptr) {
@@ -79,7 +78,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     }
   }
 
-  if (concurrent_writes_ && disable_memtable) {
+  if (concurrent_prepare_ && disable_memtable) {
     return WriteImplWALOnly(write_options, my_batch, callback, log_used,
                             log_ref);
   }
@@ -116,7 +115,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     if (write_thread_.CompleteParallelMemTableWriter(&w)) {
       // we're responsible for exit batch group
       auto last_sequence = w.write_group->last_sequence;
-      if (!concurrent_writes_ || !disable_memtable) {
+      if (!concurrent_prepare_ || !disable_memtable) {
         // With concurrent writes SetLastSequence is used only for making
         // memtable writes visible to reads
         versions_->SetLastSequence(last_sequence);
@@ -147,7 +146,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   WriteThread::WriteGroup write_group;
   bool in_parallel_group = false;
   uint64_t last_sequence;
-  if (!concurrent_writes_) {
+  if (!concurrent_prepare_) {
     last_sequence = versions_->LastSequence();
   }
 
@@ -155,12 +154,13 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
   bool need_log_sync = !write_options.disableWAL && write_options.sync;
   bool need_log_dir_sync = need_log_sync && !log_dir_synced_;
-  if (!concurrent_writes_ || !disable_memtable) {
+  if (!concurrent_prepare_ || !disable_memtable) {
     // With concurrent writes we do preprocess only in the write thread that
     // also does write to memtable to avoid sync issue on shared data structure
     // with the other thread
     status = PreprocessWrite(write_options, &need_log_sync, &write_context);
   }
+  log::Writer* log_writer = logs_.back().writer;
 
   mutex_.Unlock();
 
@@ -202,7 +202,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       }
     }
 
-    if (concurrent_writes_) {
+    if (concurrent_prepare_) {
       stat_mutex_.Lock();
     }
     // Update stats while we are an exclusive group leader, so we know
@@ -223,7 +223,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       RecordTick(stats_, WRITE_DONE_BY_OTHER, write_done_by_other);
     }
     MeasureTime(stats_, BYTES_PER_WRITE, total_byte_size);
-    if (concurrent_writes_) {
+    if (concurrent_prepare_) {
       stat_mutex_.Unlock();
     }
 
@@ -233,10 +233,10 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
     PERF_TIMER_STOP(write_pre_and_post_process_time);
 
-    if (!concurrent_writes_) {
+    if (!concurrent_prepare_) {
       if (status.ok() && !write_options.disableWAL) {
         PERF_TIMER_GUARD(write_wal_time);
-        status = WriteToWAL(write_group, log_used, need_log_sync,
+        status = WriteToWAL(write_group, log_writer, log_used, need_log_sync,
                             need_log_dir_sync, last_sequence + 1);
       }
     } else {
@@ -310,7 +310,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     should_exit_batch_group = write_thread_.CompleteParallelMemTableWriter(&w);
   }
   if (should_exit_batch_group) {
-    if (status.ok() && !(concurrent_writes_ && disable_memtable)) {
+    if (status.ok() && !(concurrent_prepare_ && disable_memtable)) {
       versions_->SetLastSequence(last_sequence);
     }
     MemTableInsertStatusCheck(w.status);
@@ -344,6 +344,7 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
     bool need_log_sync = !write_options.disableWAL && write_options.sync;
     bool need_log_dir_sync = need_log_sync && !log_dir_synced_;
     w.status = PreprocessWrite(write_options, &need_log_sync, &write_context);
+    log::Writer* log_writer = logs_.back().writer;
     mutex_.Unlock();
 
     // This can set non-OK status if callback fail.
@@ -391,8 +392,8 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
                           wal_write_group.size - 1);
         RecordTick(stats_, WRITE_DONE_BY_OTHER, wal_write_group.size - 1);
       }
-      w.status = WriteToWAL(wal_write_group, log_used, need_log_sync,
-                            need_log_dir_sync, current_sequence);
+      w.status = WriteToWAL(wal_write_group, log_writer, log_used,
+                            need_log_sync, need_log_dir_sync, current_sequence);
     }
 
     if (!w.CallbackFailed()) {
@@ -647,12 +648,12 @@ WriteBatch* DBImpl::MergeBatch(const WriteThread::WriteGroup& write_group,
   return merged_batch;
 }
 
-Status DBImpl::WriteToWAL(const WriteBatch &merged_batch,
-                          uint64_t* log_used, uint64_t* log_size) {
+Status DBImpl::WriteToWAL(const WriteBatch& merged_batch,
+                          log::Writer* log_writer, uint64_t* log_used,
+                          uint64_t* log_size) {
   assert(log_size != nullptr);
   Slice log_entry = WriteBatchInternal::Contents(&merged_batch);
   *log_size = log_entry.size();
-  log::Writer* log_writer = logs_.back().writer;
   Status status = log_writer->AddRecord(log_entry);
   if (log_used != nullptr) {
     *log_used = logfile_number_;
@@ -664,8 +665,9 @@ Status DBImpl::WriteToWAL(const WriteBatch &merged_batch,
 }
 
 Status DBImpl::WriteToWAL(const WriteThread::WriteGroup& write_group,
-                          uint64_t* log_used, bool need_log_sync,
-                          bool need_log_dir_sync, SequenceNumber sequence) {
+                          log::Writer* log_writer, uint64_t* log_used,
+                          bool need_log_sync, bool need_log_dir_sync,
+                          SequenceNumber sequence) {
   Status status;
 
   size_t write_with_wal = 0;
@@ -674,7 +676,7 @@ Status DBImpl::WriteToWAL(const WriteThread::WriteGroup& write_group,
   WriteBatchInternal::SetSequence(merged_batch, sequence);
 
   uint64_t log_size;
-  status = WriteToWAL(*merged_batch, log_used, &log_size);
+  status = WriteToWAL(*merged_batch, log_writer, log_used, &log_size);
 
   if (status.ok() && need_log_sync) {
     StopWatch sw(env_, stats_, WAL_FILE_SYNC_MICROS);
@@ -732,8 +734,9 @@ Status DBImpl::ConcurrentWriteToWAL(const WriteThread::WriteGroup& write_group,
   auto sequence = *last_sequence + 1;
   WriteBatchInternal::SetSequence(merged_batch, sequence);
 
+  log::Writer* log_writer = logs_.back().writer;
   uint64_t log_size;
-  status = WriteToWAL(*merged_batch, log_used, &log_size);
+  status = WriteToWAL(*merged_batch, log_writer, log_used, &log_size);
   log_write_mutex_.Unlock();
 
   if (status.ok()) {
@@ -1080,12 +1083,12 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
     assert(new_log != nullptr);
     log_empty_ = true;
     log_dir_synced_ = false;
+    log_write_mutex_.Lock();
     if (!logs_.empty()) {
       // Alway flush the buffer of the last log before switching to a new one
       log::Writer* cur_log_writer = logs_.back().writer;
       cur_log_writer->WriteBuffer();
     }
-    log_write_mutex_.Lock();
     logs_.emplace_back(logfile_number_, new_log);
     alive_log_files_.push_back(LogFileNumberSize(logfile_number_));
     log_write_mutex_.Unlock();
