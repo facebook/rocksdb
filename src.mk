@@ -172,6 +172,8 @@ LIB_SOURCES =                                                   \
   utilities/leveldb_options/leveldb_options.cc                  \
   utilities/lua/rocks_lua_compaction_filter.cc                  \
   utilities/memory/memory_util.cc                               \
+  utilities/merge_operators/cassandra/format.cc                 \
+  utilities/merge_operators/cassandra/merge_operator.cc         \
   utilities/merge_operators/max.cc                              \
   utilities/merge_operators/put.cc                              \
   utilities/merge_operators/string_append/stringappend.cc       \
@@ -334,6 +336,11 @@ MAIN_SOURCES =                                                    \
   utilities/lua/rocks_lua_test.cc                                       \
   utilities/memory/memory_test.cc                                       \
   utilities/merge_operators/string_append/stringappend_test.cc          \
+  utilities/merge_operators/cassandra/cassandra_merge_test.cc           \
+  utilities/merge_operators/cassandra/test_utils.cc                     \
+  utilities/merge_operators/cassandra/format_test.cc                    \
+  utilities/merge_operators/cassandra/row_merge_test.cc                 \
+  utilities/merge_operators/cassandra/serialize_test.cc                 \
   utilities/object_registry_test.cc                                     \
   utilities/option_change_migration/option_change_migration_test.cc           \
   utilities/options/options_util_test.cc                                \
