@@ -2,17 +2,19 @@
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
+// This source code is also licensed under the GPLv2 license found in the
+// COPYING file in the root directory of this source tree.
 
 #include <iostream>
 
 #include "rocksdb/db.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/utilities/db_ttl.h"
-#include "test_utils.h"
-#include "utilities/merge_operators.h"
-#include "utilities/merge_operators/cassandra/merge_operator.h"
 #include "util/testharness.h"
 #include "util/random.h"
+#include "utilities/merge_operators.h"
+#include "utilities/merge_operators/cassandra/merge_operator.h"
+#include "utilities/merge_operators/cassandra/test_utils.h"
 
 using namespace rocksdb;
 
