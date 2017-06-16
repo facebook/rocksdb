@@ -535,6 +535,7 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
   StopWatch sw(r->ioptions.env, r->ioptions.statistics, WRITE_RAW_BLOCK_MICROS);
   handle->set_offset(r->offset);
   handle->set_size(block_contents.size());
+  assert(r->status.ok());
   r->status = r->file->Append(block_contents);
   if (r->status.ok()) {
     char trailer[kBlockTrailerSize];
@@ -561,6 +562,7 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
       }
     }
 
+    assert(r->status.ok());
     r->status = r->file->Append(Slice(trailer, kBlockTrailerSize));
     if (r->status.ok()) {
       r->status = InsertBlockInCache(block_contents, type, handle);
@@ -804,6 +806,7 @@ Status BlockBasedTableBuilder::Finish() {
     footer.set_checksum(r->table_options.checksum);
     std::string footer_encoding;
     footer.EncodeTo(&footer_encoding);
+    assert(r->status.ok());
     r->status = r->file->Append(footer_encoding);
     if (r->status.ok()) {
       r->offset += footer_encoding.size();
