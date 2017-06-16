@@ -7,6 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "db/db_impl_request.h"
 #include "db/db_test_util.h"
 #include "db/forward_iterator.h"
 
@@ -442,6 +443,11 @@ Options DBTestBase::CurrentOptions(
   if (set_block_based_table_factory) {
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   }
+  if (options_override.use_async_reads) {
+    options.use_async_reads = true;
+    options.async_threadpool = options_override.async_threadpool;
+    assert(options.async_threadpool);
+  }
   options.env = env_;
   options.create_if_missing = true;
   options.fail_if_options_file_error = true;
@@ -623,6 +629,54 @@ std::string DBTestBase::Get(int cf, const std::string& k,
   options.snapshot = snapshot;
   std::string result;
   Status s = db_->Get(options, handles_[cf], k, &result);
+  if (s.IsNotFound()) {
+    result = "NOT_FOUND";
+  } else if (!s.ok()) {
+    result = s.ToString();
+  }
+  return result;
+}
+
+std::string DBTestBase::GetAsync(const std::string& k,
+                                 const Snapshot* snapshot) {
+  ReadOptions options;
+  options.verify_checksums = true;
+  options.snapshot = snapshot;
+  auto cf = db_->DefaultColumnFamily();
+
+  std::string result;
+
+  anon::GetSyncer syncer;
+  Status s = async::DBImplGetContext::RequestGet(syncer.GetCallable(), db_,
+             options, cf, k, nullptr, &result);
+
+  if (s.IsIOPending()) {
+    syncer.Wait();
+    s = syncer.GetStatus();
+  }
+  if (s.IsNotFound()) {
+    result = "NOT_FOUND";
+  } else if (!s.ok()) {
+    result = s.ToString();
+  }
+  return result;
+}
+
+std::string DBTestBase::GetAsync(int cf, const std::string& k,
+  const Snapshot * snapshot) {
+
+  ReadOptions options;
+  options.verify_checksums = true;
+  options.snapshot = snapshot;
+  std::string result;
+  anon::GetSyncer syncer;
+  Status s = async::DBImplGetContext::RequestGet(syncer.GetCallable(), db_,
+    options, handles_[cf], k, nullptr, &result);
+
+  if (s.IsIOPending()) {
+    syncer.Wait();
+    s = syncer.GetStatus();
+  }
   if (s.IsNotFound()) {
     result = "NOT_FOUND";
   } else if (!s.ok()) {

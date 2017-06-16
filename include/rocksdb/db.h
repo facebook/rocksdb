@@ -16,6 +16,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include "rocksdb/async/callables.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/metadata.h"
@@ -292,6 +293,16 @@ class DB {
     }  // else value is already assigned
     return s;
   }
+
+  // Async version of the above
+  using
+  GetCallback = async::Callable<Status, const Status&>;
+  virtual Status Get(const GetCallback& cb, const ReadOptions& options,
+    ColumnFamilyHandle* column_family, const Slice& key,
+    std::string* value) {
+    return Status::NotSupported();
+  }
+
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value) = 0;

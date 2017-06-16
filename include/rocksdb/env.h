@@ -1081,6 +1081,12 @@ class EnvWrapper : public Env {
     return target_->GetThreadID();
   }
 
+  std::unique_ptr<async::AsyncThreadPool> CreateAsyncThreadPool(void*
+    context) override {
+    return target_->CreateAsyncThreadPool(context);
+  }
+
+
  private:
   Env* target_;
 };

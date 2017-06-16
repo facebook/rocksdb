@@ -63,6 +63,10 @@ struct JobContext;
 struct ExternalSstFileInfo;
 struct MemTableInfo;
 
+namespace async {
+class DBImplGetContext;
+}
+
 class DBImpl : public DB {
  public:
   DBImpl(const DBOptions& options, const std::string& dbname);
@@ -93,6 +97,11 @@ class DBImpl : public DB {
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value) override;
+
+  virtual Status Get(const GetCallback& cb, const ReadOptions& options,
+    ColumnFamilyHandle* column_family, const Slice& key,
+    std::string* value) override;
+
   using DB::MultiGet;
   virtual std::vector<Status> MultiGet(
       const ReadOptions& options,
@@ -532,6 +541,9 @@ class DBImpl : public DB {
   Status NewDB();
 
  protected:
+
+   friend class async::DBImplGetContext;
+
   Env* const env_;
   const std::string dbname_;
   unique_ptr<VersionSet> versions_;

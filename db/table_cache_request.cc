@@ -29,12 +29,14 @@ namespace async {
 ////////////////////////////////////////////////////////////////////////
 /// TableCacheGetReaderHelper
 Status TableCacheGetReaderHelper::GetTableReader(
-  const Callback& cb,
+  const Callback& cb_in,
   const EnvOptions& env_options,
   const InternalKeyComparator& internal_comparator, const FileDescriptor& fd,
   bool sequential_mode, size_t readahead, bool record_read_stats,
   HistogramImpl* file_read_hist, std::unique_ptr<TableReader>* table_reader,
   bool skip_filters, int level, bool prefetch_index_and_filter_in_cache) {
+
+  Callback cb(cb_in);
 
   std::string fname =
     TableFileName(ioptions_.db_paths, fd.GetNumber(), fd.GetPathId());
@@ -43,6 +45,9 @@ Status TableCacheGetReaderHelper::GetTableReader(
   EnvOptions ra_options(env_options);
   if (readahead > 0) {
     ra_options.use_async_reads = false;
+    // Zero this out and open sync since we
+    // opening the file in sync
+    cb = Callback();
   }
 
   std::unique_ptr<RandomAccessFile> file;
@@ -803,11 +808,11 @@ Status TableCacheNewIteratorContext::Create(TableCache* table_cache,
 
   Status s = context.Create(eoptions, internal_comparator, file_fd, file_read_hist, level);
 
-  if (s.ok()) {
-    *iterator = context.GetResult();
-    if (table_reader_ptr) {
+  // Iterator is created even on error
+  // to contain and report the status
+  *iterator = context.GetResult();
+  if (s.ok() && table_reader_ptr) {
       *table_reader_ptr = context.GetReader();
-    }
   }
   return s;
 }
@@ -834,9 +839,11 @@ Status TableCacheNewIteratorContext::RequestCreate(const Callback& cb,
 
   if (s.IsIOPending()) {
     context.release();
-  } else if (s.ok()) {
+  } else {
+    // Iterator is created even on error
+    // to contain and report the status
     *iterator = context->GetResult();
-    if (table_reader_ptr) {
+    if (s.ok() && table_reader_ptr) {
       *table_reader_ptr = context->GetReader();
     }
   }
@@ -859,13 +866,11 @@ Status TableCacheNewIteratorContext::Create(const EnvOptions& eoptions,
     TEST_SYNC_POINT_CALLBACK("TableCache::NewIterator:for_compaction",
       &use_direct_reads_for_compaction);
 #endif  // !NDEBUG
-    // If we in async mode make sure we always create a new table reader
-    // for compactions in sync mode
-    if (table_cache_->GetIOptions().new_table_reader_for_compaction_inputs ||
-      eoptions.use_async_reads) {
-      readahead = table_cache_->GetIOptions().compaction_readahead_size;
-      create_new_table_reader_ = true;
-    }
+    // XXX: Due to the async prototype we always choose
+    // to create a new table reader for compactions and make it operate
+    // in a sync mode
+    readahead = table_cache_->GetIOptions().compaction_readahead_size;
+    create_new_table_reader_ = true;
   } else {
     readahead = options_->readahead_size;
     create_new_table_reader_ = readahead > 0;
@@ -876,11 +881,9 @@ Status TableCacheNewIteratorContext::Create(const EnvOptions& eoptions,
   // in a sync mode and performs sync.
   // Thus, disable the callback and reset the async mode
   EnvOptions env_options(eoptions);
-  if (for_compaction_ && env_options.use_async_reads) {
+  if (for_compaction_) {
     cb_ = Callback();
     env_options.use_async_reads = false;
-  } else {
-    assert(!cb_);
   }
 
   if (create_new_table_reader_) {
@@ -905,7 +908,7 @@ Status TableCacheNewIteratorContext::Create(const EnvOptions& eoptions,
   } else {
     table_reader_ = fd.table_reader;
     if (table_reader_ == nullptr) {
-      Status s = TableCacheFindTableHelper::LookupCache(fd,
+      s = TableCacheFindTableHelper::LookupCache(fd,
         table_cache_->GetCache(), &handle_,
         options_->read_tier == kBlockCacheTier /* no_io */);
 
@@ -1007,19 +1010,20 @@ Status TableCacheNewIteratorContext::OnNewTableIterator(const Status& status,
   Status s(status);
   async(status);
 
+  assert(result_ == nullptr);
+  assert(iterator != nullptr);
+  assert(table_reader_);
+  result_ = iterator;
+
+  if (create_new_table_reader_) {
+    assert(handle_ == nullptr);
+    result_->RegisterCleanup(&table_cache_detail::DeleteTableReader, table_reader_, nullptr);
+  } else if (handle_ != nullptr) {
+    result_->RegisterCleanup(&table_cache_detail::UnrefEntry, table_cache_->GetCache(), handle_);
+    handle_ = nullptr;  // prevent from releasing below
+  }
+
   if (s.ok()) {
-
-    assert(result_ == nullptr);
-    assert(iterator != nullptr);
-    result_ = iterator;
-
-    if (create_new_table_reader_) {
-      assert(handle_ == nullptr);
-      result_->RegisterCleanup(&table_cache_detail::DeleteTableReader, table_reader_, nullptr);
-    } else if (handle_ != nullptr) {
-      result_->RegisterCleanup(&table_cache_detail::UnrefEntry, table_cache_->GetCache(), handle_);
-      handle_ = nullptr;  // prevent from releasing below
-    }
 
     if (for_compaction_) {
       table_reader_->SetupForCompaction();

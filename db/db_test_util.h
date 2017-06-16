@@ -24,6 +24,7 @@
 #include <utility>
 #include <vector>
 
+#include "async/async_absorber.h"
 #include "db/db_impl.h"
 #include "db/dbformat.h"
 #include "env/mock_env.h"
@@ -109,6 +110,7 @@ class AtomicCounter {
 
 struct OptionsOverride {
   std::shared_ptr<const FilterPolicy> filter_policy = nullptr;
+  std::shared_ptr<async::AsyncThreadPool> async_threadpool = nullptr;
   // These will be used only if filter_policy is set
   bool partition_filters = false;
   uint64_t metadata_block_size = 1024;
@@ -117,6 +119,30 @@ struct OptionsOverride {
 
   // Used as a bit mask of individual enums in which to skip an XF test point
   int skip_policy = 0;
+  bool use_async_reads = false;
+};
+
+class GetSyncer : public async::AsyncAbsorber {
+public:
+  GetSyncer() {}
+
+  async::Callable<Status,const Status&>
+  GetCallable() {
+    async::CallableFactory<GetSyncer, Status, const Status&> f(this);
+    return f.GetCallable<&GetSyncer::OnGetComplete>();
+  }
+
+  const Status& GetStatus() const {
+    return s_;
+  }
+
+private:
+  Status OnGetComplete(const Status& status) {
+    s_ = status;
+    Notify();
+    return status;
+  }
+  Status s_;
 };
 
 }  // namespace anon
@@ -751,6 +777,11 @@ class DBTestBase : public testing::Test {
 
   std::string Get(int cf, const std::string& k,
                   const Snapshot* snapshot = nullptr);
+
+  std::string GetAsync(const std::string& k, const Snapshot* snapshot = nullptr);
+
+  std::string GetAsync(int cf, const std::string& k,
+    const Snapshot* snapshot = nullptr);
 
   uint64_t GetNumSnapshots();
 

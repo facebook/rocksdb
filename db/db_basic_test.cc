@@ -8,16 +8,41 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
+#include "rocksdb/async/callables.h"
+#include "rocksdb/async/asyncthreadpool.h"
 #include "rocksdb/perf_context.h"
 #if !defined(ROCKSDB_LITE)
 #include "util/sync_point.h"
 #endif
 
+#ifdef OS_WIN
+// Using our internal version but there is public one
+// as well
+#include "ms_internal/ms_threadpool.h"
+#include "ms_internal/ms_taskpoolhandle.h"
+
+using TP = rocksdb::port::VistaThreadPool;
+using TPhandle = rocksdb::port::TaskPoolHandle;
+
+#endif
+
 namespace rocksdb {
 
 class DBBasicTest : public DBTestBase {
- public:
-  DBBasicTest() : DBTestBase("/db_basic_test") {}
+public:
+  DBBasicTest() : DBTestBase("/db_basic_test"),
+    thread_pool_(port::MemoryArenaId(), 32) {
+    // tp_handle will be moved inside TPCompl
+    auto tp_handle = thread_pool_.CreateTaskPool();
+    auto io_compl_tp = env_->CreateAsyncThreadPool(&tp_handle);
+    async_tp_ = std::move(io_compl_tp);
+  }
+
+private:
+  TP        thread_pool_;
+// Accessible to the tests
+protected:
+  std::shared_ptr<async::AsyncThreadPool> async_tp_;
 };
 
 TEST_F(DBBasicTest, OpenWhenOpen) {
@@ -32,6 +57,25 @@ TEST_F(DBBasicTest, OpenWhenOpen) {
 
   delete db2;
 }
+
+//TEST_F(DBBasicTest, OpenWhenOpenAsync) {
+//
+//  anon::OptionsOverride opt_override;
+//  opt_override.async_threadpool = async_tp_;
+//  opt_override.use_async_reads = true;
+//
+//  Options options = CurrentOptions(opt_override);
+//  options.env = env_;
+//  rocksdb::DB* db2 = nullptr;
+//  rocksdb::Status s = DB::Open(options, dbname_, &db2);
+//
+//  ASSERT_EQ(Status::Code::kIOError, s.code());
+//  ASSERT_EQ(Status::SubCode::kNone, s.subcode());
+//  ASSERT_TRUE(strstr(s.getState(), "lock ") != nullptr);
+//
+//  delete db2;
+//}
+
 
 #ifndef ROCKSDB_LITE
 TEST_F(DBBasicTest, ReadOnlyDB) {
@@ -165,6 +209,71 @@ TEST_F(DBBasicTest, CompactedDB) {
   s = Put("new", "value");
   ASSERT_EQ(s.ToString(),
             "Not implemented: Not supported operation in read only mode.");
+}
+
+TEST_F(DBBasicTest, CompactedDBAsync) {
+  const uint64_t kFileSize = 1 << 20;
+
+  anon::OptionsOverride opt_override;
+  opt_override.async_threadpool = async_tp_;
+  opt_override.use_async_reads = true;
+
+  Options options = CurrentOptions(opt_override);
+  options.disable_auto_compactions = true;
+  options.write_buffer_size = kFileSize;
+  options.target_file_size_base = kFileSize;
+  options.max_bytes_for_level_base = 1 << 30;
+  options.compression = kNoCompression;
+
+  Reopen(options);
+  // 1 L0 file, use CompactedDB if max_open_files = -1
+  ASSERT_OK(Put("aaa", DummyString(kFileSize / 2, '1')));
+  Flush();
+  Close();
+
+  options.max_open_files = -1;
+
+  Reopen(options);
+  // Add more L0 files
+  ASSERT_OK(Put("bbb", DummyString(kFileSize / 2, '2')));
+  Flush();
+  ASSERT_OK(Put("aaa", DummyString(kFileSize / 2, 'a')));
+  Flush();
+  ASSERT_OK(Put("bbb", DummyString(kFileSize / 2, 'b')));
+  ASSERT_OK(Put("eee", DummyString(kFileSize / 2, 'e')));
+  Flush();
+  Close();
+
+  // Full compaction
+  Reopen(options);
+  // Add more keys
+  ASSERT_OK(Put("fff", DummyString(kFileSize / 2, 'f')));
+  ASSERT_OK(Put("hhh", DummyString(kFileSize / 2, 'h')));
+  ASSERT_OK(Put("iii", DummyString(kFileSize / 2, 'i')));
+  ASSERT_OK(Put("jjj", DummyString(kFileSize / 2, 'j')));
+  db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_EQ(3, NumTableFilesAtLevel(1));
+  Close();
+
+  // CompactedDB
+  Reopen(options);
+  Put("new", "value");
+  ASSERT_EQ("NOT_FOUND", GetAsync("abc"));
+  ASSERT_EQ(DummyString(kFileSize / 2, 'a'), GetAsync("aaa"));
+  ASSERT_EQ(DummyString(kFileSize / 2, 'b'), GetAsync("bbb"));
+  ASSERT_EQ("NOT_FOUND", GetAsync("ccc"));
+  ASSERT_EQ(DummyString(kFileSize / 2, 'e'), GetAsync("eee"));
+  ASSERT_EQ(DummyString(kFileSize / 2, 'f'), GetAsync("fff"));
+  ASSERT_EQ("NOT_FOUND", GetAsync("ggg"));
+  ASSERT_EQ(DummyString(kFileSize / 2, 'h'), GetAsync("hhh"));
+  ASSERT_EQ(DummyString(kFileSize / 2, 'i'), GetAsync("iii"));
+  ASSERT_EQ(DummyString(kFileSize / 2, 'j'), GetAsync("jjj"));
+  ASSERT_EQ("NOT_FOUND", GetAsync("kkk"));
+
+  Reopen(options);
+  // Add a key
+  ASSERT_OK(Put("fff", DummyString(kFileSize / 2, 'f')));
+  Close();
 }
 
 TEST_F(DBBasicTest, LevelLimitReopen) {
@@ -322,6 +431,7 @@ TEST_F(DBBasicTest, FlushEmptyColumnFamily) {
   Options options = CurrentOptions();
   // disable compaction
   options.disable_auto_compactions = true;
+
   WriteOptions writeOpt = WriteOptions();
   writeOpt.disableWAL = true;
   options.max_write_buffer_number = 2;
@@ -340,6 +450,54 @@ TEST_F(DBBasicTest, FlushEmptyColumnFamily) {
 
   ASSERT_EQ("v1", Get(0, "foo"));
   ASSERT_EQ("v1", Get(1, "bar"));
+
+  sleeping_task_high.WakeUp();
+  sleeping_task_high.WaitUntilDone();
+
+  // Flush can still go through.
+  ASSERT_OK(Flush(0));
+  ASSERT_OK(Flush(1));
+
+  sleeping_task_low.WakeUp();
+  sleeping_task_low.WaitUntilDone();
+}
+
+TEST_F(DBBasicTest, FlushEmptyColumnFamilyAsync) {
+  // Block flush thread and disable compaction thread
+  env_->SetBackgroundThreads(1, Env::HIGH);
+  env_->SetBackgroundThreads(1, Env::LOW);
+  test::SleepingBackgroundTask sleeping_task_low;
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
+    Env::Priority::LOW);
+  test::SleepingBackgroundTask sleeping_task_high;
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+    &sleeping_task_high, Env::Priority::HIGH);
+
+  anon::OptionsOverride opt_override;
+  opt_override.async_threadpool = async_tp_;
+  opt_override.use_async_reads = true;
+  Options options = CurrentOptions(opt_override);
+  // disable compaction
+  options.disable_auto_compactions = true;
+
+  WriteOptions writeOpt = WriteOptions();
+  writeOpt.disableWAL = true;
+  options.max_write_buffer_number = 2;
+  options.min_write_buffer_number_to_merge = 1;
+  options.max_write_buffer_number_to_maintain = 1;
+  CreateAndReopenWithCF({ "pikachu" }, options);
+
+  // Compaction can still go through even if no thread can flush the
+  // mem table.
+  ASSERT_OK(Flush(0));
+  ASSERT_OK(Flush(1));
+
+  // Insert can go through
+  ASSERT_OK(dbfull()->Put(writeOpt, handles_[0], "foo", "v1"));
+  ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "bar", "v1"));
+
+  ASSERT_EQ("v1", GetAsync(0, "foo"));
+  ASSERT_EQ("v1", GetAsync(1, "bar"));
 
   sleeping_task_high.WakeUp();
   sleeping_task_high.WaitUntilDone();

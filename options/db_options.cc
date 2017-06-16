@@ -29,6 +29,7 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       paranoid_checks(options.paranoid_checks),
       env(options.env),
       rate_limiter(options.rate_limiter),
+      async_threadpool(options.async_threadpool),
       sst_file_manager(options.sst_file_manager),
       info_log(options.info_log),
       info_log_level(options.info_log_level),

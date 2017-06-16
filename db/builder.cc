@@ -13,12 +13,14 @@
 #include <deque>
 #include <vector>
 
+#include "async/async_absorber.h"
 #include "db/compaction_iterator.h"
 #include "db/dbformat.h"
 #include "db/event_helpers.h"
 #include "db/internal_stats.h"
 #include "db/merge_helper.h"
 #include "db/table_cache.h"
+#include "db/table_cache_request.h"
 #include "db/version_edit.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/thread_status_util.h"
@@ -188,17 +190,40 @@ Status BuildTable(
       // We set for_compaction to false and don't OptimizeForCompactionTableRead
       // here because this is a special case after we finish the table building
       // No matter whether use_direct_io_for_flush_and_compaction is true,
-      // we will regrad this verification as user reads since the goal is
+      // we will regard this verification as user reads since the goal is
       // to cache it here for further user reads
-      std::unique_ptr<InternalIterator> it(table_cache->NewIterator(
-          ReadOptions(), env_options, internal_comparator, meta->fd,
-          nullptr /* range_del_agg */, nullptr,
-          (internal_stats == nullptr) ? nullptr
-                                      : internal_stats->GetFileReadHist(0),
+      ReadOptions read_options;
+      std::unique_ptr<InternalIterator> it;
+      InternalIterator* result = nullptr;
+      if (env_options.use_async_reads) {
+        async::NewIteratorSyncer syncer;
+        s = async::TableCacheNewIteratorContext::RequestCreate(syncer.GetCallable(),
+          table_cache, read_options,
+          env_options, internal_comparator, meta->fd, nullptr /* range_del_agg */,
+          &result, nullptr /* table_reader */, (internal_stats == nullptr) ? nullptr
+          : internal_stats->GetFileReadHist(0),
           false /* for_compaction */, nullptr /* arena */,
-          false /* skip_filter */, level));
+          false /* skip_filter */, level);
+
+        if (s.IsIOPending()) {
+          syncer.Wait();
+          it.reset(syncer.GetResult());
+        } else {
+          it.reset(result);
+        }
+      } else {
+        async::TableCacheNewIteratorContext::Create(table_cache, read_options,
+          env_options, internal_comparator, meta->fd, nullptr /* range_del_agg */,
+          &result, nullptr /* table_reader */, (internal_stats == nullptr) ? nullptr
+          : internal_stats->GetFileReadHist(0),
+          false /* for_compaction */, nullptr /* arena */,
+          false /* skip_filter */, level);
+        it.reset(result);
+      }
+
       s = it->status();
-      if (s.ok() && paranoid_file_checks) {
+      /// XXX: Async iteration is not implemented yet
+      if (s.ok() && paranoid_file_checks && !env_options.use_async_reads) {
         for (it->SeekToFirst(); it->Valid(); it->Next()) {
         }
         s = it->status();

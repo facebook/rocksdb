@@ -34,6 +34,7 @@
 
 #include "db/builder.h"
 #include "db/compaction_job.h"
+#include "db/db_impl_request.h"
 #include "db/db_info_dumper.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
@@ -899,15 +900,28 @@ ColumnFamilyHandle* DBImpl::DefaultColumnFamily() const {
   return default_cf_handle_;
 }
 
+// Async version of the entry point
+Status DBImpl::Get(const GetCallback& cb, const ReadOptions& options,
+                  ColumnFamilyHandle* column_family, const Slice& key,
+                  std::string* value) {
+  return async::DBImplGetContext::RequestGet(cb, this, options, column_family,
+      key, nullptr, value);
+}
+
 Status DBImpl::Get(const ReadOptions& read_options,
                    ColumnFamilyHandle* column_family, const Slice& key,
                    PinnableSlice* value) {
-  return GetImpl(read_options, column_family, key, value);
+  return async::DBImplGetContext::Get(this, read_options, column_family,
+    key, value, nullptr);
 }
 
 Status DBImpl::GetImpl(const ReadOptions& read_options,
                        ColumnFamilyHandle* column_family, const Slice& key,
                        PinnableSlice* pinnable_val, bool* value_found) {
+
+  // temp to find out if we forgot some path
+  assert(false);
+
   assert(pinnable_val != nullptr);
   StopWatch sw(env_, stats_, DB_GET);
   PERF_TIMER_GUARD(get_snapshot_time);
@@ -1300,7 +1314,8 @@ bool DBImpl::KeyMayExist(const ReadOptions& read_options,
   ReadOptions roptions = read_options;
   roptions.read_tier = kBlockCacheTier; // read from block cache only
   PinnableSlice pinnable_val;
-  auto s = GetImpl(roptions, column_family, key, &pinnable_val, value_found);
+  auto s = async::DBImplGetContext::Get(this, roptions, column_family,
+    key, &pinnable_val, nullptr, value_found);
   value->assign(pinnable_val.data(), pinnable_val.size());
 
   // If block_cache is enabled and the index block of the table didn't
