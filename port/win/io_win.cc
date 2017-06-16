@@ -641,6 +641,7 @@ Status WinSequentialFile::InvalidateCache(size_t offset, size_t length) {
 //////////////////////////////////////////////////////////////////////////////////////////////////
 /// WinRandomAccessBase
 
+inline
 SSIZE_T WinRandomAccessImpl::PositionedReadInternal(char* src,
   size_t numBytes,
   uint64_t offset) const {
@@ -733,13 +734,31 @@ Status WinWritableImpl::PreallocateInternal(uint64_t spaceToReserve) {
   return fallocate(file_data_->GetName(), file_data_->GetFileHandle(), spaceToReserve);
 }
 
+inline
 WinWritableImpl::WinWritableImpl(WinFileData* file_data, size_t alignment)
   : file_data_(file_data),
   alignment_(alignment),
-  filesize_(0),
+  next_write_offset_(0),
   reservedsize_(0) {
+
+  // Query current position in case ReopenWritableFile is called
+  // This position is only important for buffered writes
+  // for unbuffered writes we explicitely specify the position.
+  LARGE_INTEGER zero_move;
+  zero_move.QuadPart = 0; // Do not move
+  LARGE_INTEGER pos;
+  pos.QuadPart = 0;
+  BOOL ret = SetFilePointerEx(file_data_->GetFileHandle(), zero_move, &pos,
+      FILE_CURRENT);
+  // Querying no supped to fail
+  if (ret) {
+    next_write_offset_ = pos.QuadPart;
+  } else {
+    assert(false);
+  }
 }
 
+inline
 Status WinWritableImpl::AppendImpl(const Slice& data) {
 
   Status s;
@@ -754,12 +773,12 @@ Status WinWritableImpl::AppendImpl(const Slice& data) {
     // With no offset specified we are appending
     // to the end of the file
 
-    assert(IsSectorAligned(filesize_));
+    assert(IsSectorAligned(next_write_offset_));
     assert(IsSectorAligned(data.size()));
     assert(IsAligned(GetAlignement(), data.data()));
 
     SSIZE_T ret = pwrite(file_data_->GetFileHandle(), data.data(),
-     data.size(), filesize_);
+     data.size(), next_write_offset_);
 
     if (ret < 0) {
       auto lastError = GetLastError();
@@ -787,12 +806,13 @@ Status WinWritableImpl::AppendImpl(const Slice& data) {
 
   if(s.ok()) {
     assert(written == data.size());
-    filesize_ += data.size();
+    next_write_offset_ += data.size();
   }
 
   return s;
 }
 
+inline
 Status WinWritableImpl::PositionedAppendImpl(const Slice& data, uint64_t offset) {
 
   if(file_data_->use_direct_io()) {
@@ -816,8 +836,8 @@ Status WinWritableImpl::PositionedAppendImpl(const Slice& data, uint64_t offset)
     // For sequential write this would be simple
     // size extension by data.size()
     uint64_t write_end = offset + data.size();
-    if (write_end >= filesize_) {
-      filesize_ = write_end;
+    if (write_end >= next_write_offset_) {
+      next_write_offset_ = write_end;
     }
   }
   return s;
@@ -830,11 +850,12 @@ Status WinWritableImpl::TruncateImpl(uint64_t size) {
   Status s = ftruncate(file_data_->GetName(), file_data_->GetFileHandle(),
     size);
   if (s.ok()) {
-    filesize_ = size;
+    next_write_offset_ = size;
   }
   return s;
 }
 
+inline
 Status WinWritableImpl::CloseImpl() {
 
   Status s;
@@ -857,6 +878,7 @@ Status WinWritableImpl::CloseImpl() {
   return s;
 }
 
+inline
 Status WinWritableImpl::SyncImpl() {
   Status s;
   // Calls flush buffers
@@ -869,6 +891,7 @@ Status WinWritableImpl::SyncImpl() {
 }
 
 
+inline
 Status WinWritableImpl::AllocateImpl(uint64_t offset, uint64_t len) {
   Status status;
   TEST_KILL_RANDOM("WinWritableFile::Allocate", rocksdb_kill_odds);
@@ -943,7 +966,7 @@ Status WinWritableFile::Sync() {
 Status WinWritableFile::Fsync() { return SyncImpl(); }
 
 uint64_t WinWritableFile::GetFileSize() {
-  return GetFileSizeImpl();
+  return GetFileNextWriteOffset();
 }
 
 Status WinWritableFile::Allocate(uint64_t offset, uint64_t len) {

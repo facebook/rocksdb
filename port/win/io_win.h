@@ -301,7 +301,7 @@ class WinWritableImpl {
  protected:
   WinFileData* file_data_;
   const uint64_t alignment_;
-  uint64_t filesize_;      // How much data is actually written disk
+  uint64_t next_write_offset_; // Needed because Windows does not support O_APPEND
   uint64_t reservedsize_;  // how far we have reserved space
 
   virtual Status PreallocateInternal(uint64_t spaceToReserve);
@@ -324,14 +324,14 @@ class WinWritableImpl {
 
   Status SyncImpl();
 
-  uint64_t GetFileSizeImpl() {
+  uint64_t GetFileNextWriteOffset() {
     // Double accounting now here with WritableFileWriter
     // and this size will be wrong when unbuffered access is used
     // but tests implement their own writable files and do not use
     // WritableFileWrapper
     // so we need to squeeze a square peg through
     // a round hole here.
-    return filesize_;
+    return next_write_offset_;
   }
 
   Status AllocateImpl(uint64_t offset, uint64_t len);

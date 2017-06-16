@@ -173,8 +173,7 @@ class Env {
   virtual Status ReopenWritableFile(const std::string& fname,
                                     unique_ptr<WritableFile>* result,
                                     const EnvOptions& options) {
-    Status s;
-    return s;
+    return Status::NotSupported();
   }
 
   // Reuse an existing file by renaming it and opening it as writable.
