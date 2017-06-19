@@ -286,7 +286,9 @@ InternalIterator* TableCache::NewRangeTombstoneIterator(
   if (s.ok()) {
     result = table_reader->NewRangeTombstoneIterator(options);
     if (result != nullptr) {
-      result->RegisterCleanup(&UnrefEntry, cache_, handle);
+      if (handle != nullptr) {
+        result->RegisterCleanup(&UnrefEntry, cache_, handle);
+      }
     }
   }
   if (result == nullptr && handle != nullptr) {
