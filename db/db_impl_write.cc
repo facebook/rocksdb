@@ -169,10 +169,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   // and protects against concurrent loggers and concurrent writes
   // into memtables
 
-  uint64_t batch_group_size =
+  last_batch_group_size_ =
       write_thread_.EnterAsBatchGroupLeader(&w, &write_group);
-  last_batch_group_size_.fetch_add(batch_group_size,
-                                   std::memory_order_relaxed);
 
   if (status.ok()) {
     // Rules for when we can update the memtable concurrently
@@ -472,9 +470,9 @@ Status DBImpl::WriteImplWALOnly(const WriteOptions& write_options,
   WriteContext write_context;
   WriteThread::WriteGroup write_group;
   uint64_t last_sequence;
-  uint64_t batch_group_size =
-      nonmem_write_thread_.EnterAsBatchGroupLeader(&w, &write_group);
-  last_batch_group_size_.fetch_add(batch_group_size, std::memory_order_relaxed);
+  nonmem_write_thread_.EnterAsBatchGroupLeader(&w, &write_group);
+  // Note: no need to update last_batch_group_size_ here since the batch writes
+  // to WAL only
 
   uint64_t total_byte_size = 0;
   for (auto* writer : write_group) {
@@ -584,9 +582,7 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
     // for previous one. It might create a fairness issue that expiration
     // might happen for smaller writes but larger writes can go through.
     // Can optimize it if it is an issue.
-    uint64_t last_batch_group_size =
-        last_batch_group_size_.exchange(0, std::memory_order_relaxed);
-    status = DelayWrite(last_batch_group_size, write_options);
+    status = DelayWrite(last_batch_group_size_, write_options);
   }
 
   if (status.ok() && *need_log_sync) {

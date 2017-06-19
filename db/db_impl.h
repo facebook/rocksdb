@@ -972,7 +972,9 @@ class DBImpl : public DB {
 
   // Size of the last batch group. In slowdown mode, next write needs to
   // sleep if it uses up the quota.
-  std::atomic<uint64_t> last_batch_group_size_;
+  // Note: This is to protect memtable and compaction. If the batch only writes
+  // to the WAL its size need not to be included in this.
+  uint64_t last_batch_group_size_;
 
   FlushScheduler flush_scheduler_;
 
