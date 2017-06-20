@@ -26,6 +26,7 @@
 #include <windows.h>
 #include <string>
 #include <string.h>
+#include <atomic>
 #include <mutex>
 #include <limits>
 #include <condition_variable>
@@ -219,6 +220,41 @@ class CondVar {
 // or otherwise preferrable implementation
 using Thread = WindowsThread;
 
+// This is a replacement for std::call_once
+// esp. for critical paths.
+// It performs better than std::call_once
+// (at least on Windows).
+// Please note that this is a bare-bone
+// implementation without exception handling
+// etc. Exception handling is not needed
+// as we expect to terminate on exception.
+class ExecuteOnce {
+ private:
+  // whether it has already been executed
+  std::atomic<bool> flag_;
+  // lock to protect execution
+  std::mutex mutex_;
+ public:
+  ExecuteOnce() {}
+
+  ExecuteOnce(const ExecuteOnce&) = delete;
+  ExecuteOnce& operator=(const ExecuteOnce&) = delete;
+
+  template< class Callable, class... Args >
+  void inline Execute(Callable&& f, Args&&... args) {
+    bool done = flag_.load(std::memory_order_acquire);
+    if (!done) {
+      std::lock_guard<std::mutex> lock(mutex_);
+      done = flag_.load(std::memory_order_relaxed);
+      if (!done) {
+        std::forward<Callable>(f)(std::forward<Args>(args)...);
+        done = true;
+        flag_.store(done, std::memory_order_release);
+      }
+    }
+  }
+};
+
 // OnceInit type helps emulate
 // Posix semantics with initialization
 // adopted in the project
@@ -231,8 +267,12 @@ struct OnceType {
     OnceType(const OnceType&) = delete;
     OnceType& operator=(const OnceType&) = delete;
 
-    std::once_flag flag_;
+    ExecuteOnce exec_once_;
 };
+
+void inline InitOnce(OnceType* once, void(*initializer)()) {
+    once->exec_once_.Execute(initializer);
+}
 
 #define LEVELDB_ONCE_INIT port::OnceType::Init()
 extern void InitOnce(OnceType* once, void (*initializer)());

@@ -104,10 +104,6 @@ void CondVar::SignalAll() { cv_.notify_all(); }
 
 int PhysicalCoreID() { return GetCurrentProcessorNumber(); }
 
-void InitOnce(OnceType* once, void (*initializer)()) {
-  std::call_once(once->flag_, initializer);
-}
-
 // Private structure, exposed only by pointer
 struct DIR {
   intptr_t handle_;
