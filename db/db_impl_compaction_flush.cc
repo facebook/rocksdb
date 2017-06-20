@@ -1199,7 +1199,6 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
 void DBImpl::BackgroundCallFlush() {
   bool made_progress = false;
   JobContext job_context(next_job_id_.fetch_add(1), true);
-  assert(bg_flush_scheduled_);
 
   TEST_SYNC_POINT("DBImpl::BackgroundCallFlush:start");
 
@@ -1207,6 +1206,7 @@ void DBImpl::BackgroundCallFlush() {
                        immutable_db_options_.info_log.get());
   {
     InstrumentedMutexLock l(&mutex_);
+    assert(bg_flush_scheduled_);
     num_running_flushes_++;
 
     auto pending_outputs_inserted_elem =
