@@ -18,7 +18,7 @@ class WriteBufferManagerTest : public testing::Test {};
 
 #ifndef ROCKSDB_LITE
 TEST_F(WriteBufferManagerTest, ShouldFlush) {
-  // A write buffer manager of size 50MB
+  // A write buffer manager of size 10MB
   std::unique_ptr<WriteBufferManager> wbf(
       new WriteBufferManager(10 * 1024 * 1024));
 
@@ -27,16 +27,28 @@ TEST_F(WriteBufferManagerTest, ShouldFlush) {
   // 90% of the hard limit will hit the condition
   wbf->ReserveMem(1 * 1024 * 1024);
   ASSERT_TRUE(wbf->ShouldFlush());
-  // Scheduling for feeing will release the condition
+  // Scheduling for freeing will release the condition
   wbf->ScheduleFreeMem(1 * 1024 * 1024);
   ASSERT_FALSE(wbf->ShouldFlush());
 
   wbf->ReserveMem(2 * 1024 * 1024);
   ASSERT_TRUE(wbf->ShouldFlush());
-  wbf->ScheduleFreeMem(5 * 1024 * 1024);
-  // hard limit still hit
+
+  wbf->ScheduleFreeMem(4 * 1024 * 1024);
+  // 11MB total, 6MB mutable. hard limit still hit
   ASSERT_TRUE(wbf->ShouldFlush());
-  wbf->FreeMem(10 * 1024 * 1024);
+
+  wbf->ScheduleFreeMem(2 * 1024 * 1024);
+  // 11MB total, 4MB mutable. hard limit stills but won't flush because more
+  // than half data is already being flushed.
+  ASSERT_FALSE(wbf->ShouldFlush());
+
+  wbf->ReserveMem(4 * 1024 * 1024);
+  // 15 MB total, 8MB mutable.
+  ASSERT_TRUE(wbf->ShouldFlush());
+
+  wbf->FreeMem(7 * 1024 * 1024);
+  // 9MB total, 8MB mutable.
   ASSERT_FALSE(wbf->ShouldFlush());
 }
 
