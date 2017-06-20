@@ -45,7 +45,8 @@ TEST(ColumnTest, Column) {
   EXPECT_TRUE(std::memcmp(data, dest.c_str() + offset, sizeof(data)) == 0);
 
   // Verify the deserialization.
-  std::unique_ptr<Column> c1 = Column::Deserialize(dest.c_str(), 0);
+  std::string saved_dest = dest;
+  std::unique_ptr<Column> c1 = Column::Deserialize(saved_dest.c_str(), 0);
   EXPECT_EQ(c1->Index(), index);
   EXPECT_EQ(c1->Timestamp(), timestamp);
   EXPECT_EQ(c1->Size(), 14 + sizeof(data));
@@ -56,8 +57,9 @@ TEST(ColumnTest, Column) {
     std::memcmp(dest.c_str(), dest.c_str() + c.Size(), c.Size()) == 0);
 
   // Verify the ColumnBase::Deserialization.
+  saved_dest = dest;
   std::unique_ptr<ColumnBase> c2 =
-    ColumnBase::Deserialize(dest.c_str(), c.Size());
+      ColumnBase::Deserialize(saved_dest.c_str(), c.Size());
   c2->Serialize(&dest);
   EXPECT_EQ(dest.size(), 3 * c.Size());
   EXPECT_TRUE(
@@ -98,8 +100,9 @@ TEST(ExpiringColumnTest, ExpiringColumn) {
   EXPECT_EQ(Deserialize<int32_t>(dest.c_str(), offset), ttl);
 
   // Verify the deserialization.
+  std::string saved_dest = dest;
   std::unique_ptr<ExpiringColumn> c1 =
-    ExpiringColumn::Deserialize(dest.c_str(), 0);
+      ExpiringColumn::Deserialize(saved_dest.c_str(), 0);
   EXPECT_EQ(c1->Index(), index);
   EXPECT_EQ(c1->Timestamp(), timestamp);
   EXPECT_EQ(c1->Size(), 18 + sizeof(data));
@@ -110,8 +113,9 @@ TEST(ExpiringColumnTest, ExpiringColumn) {
     std::memcmp(dest.c_str(), dest.c_str() + c.Size(), c.Size()) == 0);
 
   // Verify the ColumnBase::Deserialization.
+  saved_dest = dest;
   std::unique_ptr<ColumnBase> c2 =
-    ColumnBase::Deserialize(dest.c_str(), c.Size());
+      ColumnBase::Deserialize(saved_dest.c_str(), c.Size());
   c2->Serialize(&dest);
   EXPECT_EQ(dest.size(), 3 * c.Size());
   EXPECT_TRUE(
