@@ -230,11 +230,11 @@ TEST_F(BlobDBTest, Compression) {
 TEST_F(BlobDBTest, DISABLED_MultipleWriters) {
   Open();
 
-  std::vector<std::thread> workers;
+  std::vector<port::Thread> workers;
   for (size_t ii = 0; ii < 10; ii++)
-    workers.push_back(std::thread(&BlobDBTest::InsertBlobs, this));
+    workers.push_back(port::Thread(&BlobDBTest::InsertBlobs, this));
 
-  for (std::thread &t : workers) {
+  for (auto& t : workers) {
     if (t.joinable()) {
       t.join();
     }
