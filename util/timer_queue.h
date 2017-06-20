@@ -21,6 +21,9 @@
 // work, even for commercial purposes, all without asking permission.
 
 #pragma once
+
+#include "port/port.h"
+
 #include <assert.h>
 #include <chrono>
 #include <condition_variable>
@@ -213,5 +216,5 @@ class TimerQueue {
    public:
     std::vector<WorkItem>& getContainer() { return this->c; }
   } m_items;
-  std::thread m_th;
+  rocksdb::port::Thread m_th;
 };
