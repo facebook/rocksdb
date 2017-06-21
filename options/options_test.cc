@@ -1462,13 +1462,15 @@ TEST_F(OptionsSanityCheckTest, SanityCheck) {
 
     // use same prefix extractor but with different parameter
     opts.prefix_extractor.reset(NewCappedPrefixTransform(15));
-    // expect pass only in kSanityLevelNone
-    ASSERT_NOK(SanityCheckCFOptions(opts, kSanityLevelLooselyCompatible));
+    // expect pass only in kSanityLevelLooselyCompatible
+    ASSERT_NOK(SanityCheckCFOptions(opts, kSanityLevelExactMatch));
+    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelLooselyCompatible));
     ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelNone));
 
     // repeat the test with FixedPrefixTransform
     opts.prefix_extractor.reset(NewFixedPrefixTransform(10));
-    ASSERT_NOK(SanityCheckCFOptions(opts, kSanityLevelLooselyCompatible));
+    ASSERT_NOK(SanityCheckCFOptions(opts, kSanityLevelExactMatch));
+    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelLooselyCompatible));
     ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelNone));
 
     // persist the change of prefix_extractor
@@ -1477,8 +1479,9 @@ TEST_F(OptionsSanityCheckTest, SanityCheck) {
 
     // use same prefix extractor but with different parameter
     opts.prefix_extractor.reset(NewFixedPrefixTransform(15));
-    // expect pass only in kSanityLevelNone
-    ASSERT_NOK(SanityCheckCFOptions(opts, kSanityLevelLooselyCompatible));
+    // expect pass only in kSanityLevelLooselyCompatible
+    ASSERT_NOK(SanityCheckCFOptions(opts, kSanityLevelExactMatch));
+    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelLooselyCompatible));
     ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelNone));
 
     // Change prefix extractor from non-nullptr to nullptr
