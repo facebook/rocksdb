@@ -2720,6 +2720,9 @@ Status VersionSet::Recover(
   default_cf_edit.SetColumnFamily(0);
   ColumnFamilyData* default_cfd =
       CreateColumnFamily(default_cf_iter->second, &default_cf_edit);
+  // In recovery, nobody else can access it, so it's fine to set it to be
+  // initialized earlier.
+  default_cfd->set_initialized();
   builders.insert({0, new BaseReferencedVersionBuilder(default_cfd)});
 
   {
@@ -2766,6 +2769,7 @@ Status VersionSet::Recover(
               {edit.column_family_, edit.column_family_name_});
         } else {
           cfd = CreateColumnFamily(cf_options->second, &edit);
+          cfd->set_initialized();
           builders.insert(
               {edit.column_family_, new BaseReferencedVersionBuilder(cfd)});
         }
@@ -2893,6 +2897,7 @@ Status VersionSet::Recover(
       if (cfd->IsDropped()) {
         continue;
       }
+      assert(cfd->initialized());
       auto builders_iter = builders.find(cfd->GetID());
       assert(builders_iter != builders.end());
       auto* builder = builders_iter->second->version_builder();
@@ -3177,6 +3182,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
           break;
         }
         cfd = CreateColumnFamily(ColumnFamilyOptions(options), &edit);
+        cfd->set_initialized();
         builders.insert(
             {edit.column_family_, new BaseReferencedVersionBuilder(cfd)});
       } else if (edit.is_column_family_drop_) {
@@ -3320,6 +3326,7 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
     if (cfd->IsDropped()) {
       continue;
     }
+    assert(cfd->initialized());
     {
       // Store column family info
       VersionEdit edit;
@@ -3486,6 +3493,9 @@ void VersionSet::AddLiveFiles(std::vector<FileDescriptor>* live_list) {
   // pre-calculate space requirement
   int64_t total_files = 0;
   for (auto cfd : *column_family_set_) {
+    if (!cfd->initialized()) {
+      continue;
+    }
     Version* dummy_versions = cfd->dummy_versions();
     for (Version* v = dummy_versions->next_; v != dummy_versions;
          v = v->next_) {
@@ -3500,6 +3510,9 @@ void VersionSet::AddLiveFiles(std::vector<FileDescriptor>* live_list) {
   live_list->reserve(live_list->size() + static_cast<size_t>(total_files));
 
   for (auto cfd : *column_family_set_) {
+    if (!cfd->initialized()) {
+      continue;
+    }
     auto* current = cfd->current();
     bool found_current = false;
     Version* dummy_versions = cfd->dummy_versions();
@@ -3628,6 +3641,9 @@ Status VersionSet::GetMetadataForFile(uint64_t number, int* filelevel,
                                       FileMetaData** meta,
                                       ColumnFamilyData** cfd) {
   for (auto cfd_iter : *column_family_set_) {
+    if (!cfd_iter->initialized()) {
+      continue;
+    }
     Version* version = cfd_iter->current();
     const auto* vstorage = version->storage_info();
     for (int level = 0; level < vstorage->num_levels(); level++) {
@@ -3646,7 +3662,7 @@ Status VersionSet::GetMetadataForFile(uint64_t number, int* filelevel,
 
 void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
   for (auto cfd : *column_family_set_) {
-    if (cfd->IsDropped()) {
+    if (cfd->IsDropped() || !cfd->initialized()) {
       continue;
     }
     for (int level = 0; level < cfd->NumberLevels(); level++) {
