@@ -751,7 +751,7 @@ class DBImpl : public DB {
                     bool need_log_dir_sync, SequenceNumber sequence);
 
   // Used by WriteImpl to update bg_error_ if paranoid check is enabled.
-  void ParanoidCheck(const Status& status);
+  void WriteCallbackStatusCheck(const Status& status);
 
   // Used by WriteImpl to update bg_error_ in case of memtable insert error.
   void MemTableInsertStatusCheck(const Status& memtable_insert_status);

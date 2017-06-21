@@ -14,6 +14,7 @@
 #define __STDC_FORMAT_MACROS
 #endif
 #include <inttypes.h>
+#include "db/event_helpers.h"
 #include "monitoring/perf_context_imp.h"
 #include "options/options_helper.h"
 #include "util/sync_point.h"
@@ -255,7 +256,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   PERF_TIMER_START(write_pre_and_post_process_time);
 
   if (!w.CallbackFailed()) {
-    ParanoidCheck(status);
+    WriteCallbackStatusCheck(status);
   }
 
   if (need_log_sync) {
@@ -356,7 +357,7 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
     }
 
     if (!w.CallbackFailed()) {
-      ParanoidCheck(w.status);
+      WriteCallbackStatusCheck(w.status);
     }
 
     if (need_log_sync) {
@@ -409,14 +410,21 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
   return w.FinalStatus();
 }
 
-void DBImpl::ParanoidCheck(const Status& status) {
+void DBImpl::WriteCallbackStatusCheck(const Status& status) {
   // Is setting bg_error_ enough here?  This will at least stop
   // compaction and fail any further writes.
   if (immutable_db_options_.paranoid_checks && !status.ok() &&
       !status.IsBusy() && !status.IsIncomplete()) {
     mutex_.Lock();
     if (bg_error_.ok()) {
-      bg_error_ = status;  // stop compaction & fail any further writes
+      Status new_bg_error = status;
+      // may temporarily unlock and lock the mutex.
+      EventHelpers::NotifyOnBackgroundError(immutable_db_options_.listeners,
+                                            BackgroundErrorReason::kWriteCallback,
+                                            &new_bg_error, &mutex_);
+      if (!new_bg_error.ok()) {
+        bg_error_ = new_bg_error;  // stop compaction & fail any further writes
+      }
     }
     mutex_.Unlock();
   }
@@ -431,7 +439,14 @@ void DBImpl::MemTableInsertStatusCheck(const Status& status) {
   if (!status.ok()) {
     mutex_.Lock();
     assert(bg_error_.ok());
-    bg_error_ = status;
+    Status new_bg_error = status;
+    // may temporarily unlock and lock the mutex.
+    EventHelpers::NotifyOnBackgroundError(immutable_db_options_.listeners,
+                                          BackgroundErrorReason::kMemTable,
+                                          &new_bg_error, &mutex_);
+    if (!new_bg_error.ok()) {
+      bg_error_ = new_bg_error;  // stop compaction & fail any further writes
+    }
     mutex_.Unlock();
   }
 }

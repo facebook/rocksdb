@@ -1133,12 +1133,22 @@ Status CompactionJob::FinishCompactionOutputFile(
                             meta->fd.GetPathId());
     sfm->OnAddFile(fn);
     if (sfm->IsMaxAllowedSpaceReached()) {
+      // TODO(ajkr): should we return OK() if max space was reached by the final
+      // compaction output file (similarly to how flush works when full)?
+      s = Status::IOError("Max allowed space was reached");
+      TEST_SYNC_POINT(
+          "CompactionJob::FinishCompactionOutputFile:"
+          "MaxAllowedSpaceReached");
       InstrumentedMutexLock l(db_mutex_);
       if (db_bg_error_->ok()) {
-        s = Status::IOError("Max allowed space was reached");
-        *db_bg_error_ = s;
-        TEST_SYNC_POINT(
-            "CompactionJob::FinishCompactionOutputFile:MaxAllowedSpaceReached");
+        Status new_bg_error = s;
+        // may temporarily unlock and lock the mutex.
+        EventHelpers::NotifyOnBackgroundError(
+            cfd->ioptions()->listeners, BackgroundErrorReason::kCompaction,
+            &new_bg_error, db_mutex_);
+        if (!new_bg_error.ok()) {
+          *db_bg_error_ = new_bg_error;
+        }
       }
     }
   }
