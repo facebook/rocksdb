@@ -40,6 +40,9 @@ class AwsS3ClientWrapper {
   Aws::S3::Model::DeleteObjectOutcome DeleteObject(
       const Aws::S3::Model::DeleteObjectRequest& request);
 
+  Aws::S3::Model::CopyObjectOutcome CopyObject(
+      const Aws::S3::Model::CopyObjectRequest& request);
+
   Aws::S3::Model::GetObjectOutcome GetObject(
       const Aws::S3::Model::GetObjectRequest& request);
 
@@ -275,6 +278,12 @@ class AwsEnv : public CloudEnvImpl {
                      BucketObjectMetadata* meta);
   Status DeleteObject(const std::string& bucket_name_prefix,
                       const std::string& bucket_object_path);
+  Status ExistsObject(const std::string& bucket_name_prefix,
+                      const std::string& bucket_object_path);
+  Status CopyObject(const std::string& bucket_name_prefix_src,
+                    const std::string& bucket_object_path_src,
+                    const std::string& bucket_name_prefix_dest,
+                    const std::string& bucket_object_path_dest);
 
   void TEST_SetFileDeletionDelay(std::chrono::seconds delay) {
     std::lock_guard<std::mutex> lk(file_deletion_lock_);
@@ -539,6 +548,9 @@ class AwsEnv : public CloudEnvImpl {
                             const std::string& dbid) override {
     return s3_notsup;
   }
+  virtual Status Savepoint() override {
+    return s3_notsup;
+  }
   const CloudEnvOptions& GetCloudEnvOptions() override {
       return CloudEnvOptions();
   }
@@ -549,6 +561,16 @@ class AwsEnv : public CloudEnvImpl {
   }
   Status DeleteObject(const std::string& bucket_name_prefix,
                       const std::string& bucket_object_path) {
+    return s3_notsup;
+  }
+  Status ExistsObject(const std::string& bucket_name_prefix,
+                      const std::string& bucket_object_path) {
+    return s3_notsup;
+  }
+  Status CopyObject(const std::string& bucket_name_prefix_src,
+                    const std::string& bucket_object_path_src,
+                    const std::string& bucket_name_prefix_dest,
+                    const std::string& bucket_object_path_dest) {
     return s3_notsup;
   }
 

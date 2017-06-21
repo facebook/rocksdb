@@ -73,6 +73,14 @@ Aws::S3::Model::DeleteObjectOutcome AwsS3ClientWrapper::DeleteObject(
   return outcome;
 }
 
+Aws::S3::Model::CopyObjectOutcome AwsS3ClientWrapper::CopyObject(
+    const Aws::S3::Model::CopyObjectRequest& request) {
+  Timer t(cloud_request_callback_.get(), CloudRequestOpType::kCopyOp);
+  auto outcome = client_->CopyObject(request);
+  t.SetSuccess(outcome.IsSuccess());
+  return outcome;
+}
+
 Aws::S3::Model::GetObjectOutcome AwsS3ClientWrapper::GetObject(
     const Aws::S3::Model::GetObjectRequest& request) {
   Timer t(cloud_request_callback_.get(), CloudRequestOpType::kReadOp);
@@ -1459,6 +1467,54 @@ Status AwsEnv::ListObjects(const std::string& bucket_name_prefix,
 Status AwsEnv::DeleteObject(const std::string& bucket_name_prefix,
                             const std::string& bucket_object_path) {
   return DeletePathInS3(bucket_name_prefix, bucket_object_path);
+}
+
+// Delete the specified object from the specified cloud bucket
+Status AwsEnv::ExistsObject(const std::string& bucket_name_prefix,
+                            const std::string& bucket_object_path) {
+  return PathExistsInS3(bucket_object_path, bucket_name_prefix, true);
+}
+
+
+// Copy the specified cloud object from one location in the cloud
+// storage to another location in cloud storage
+Status AwsEnv::CopyObject(const std::string& bucket_name_prefix_src,
+                          const std::string& bucket_object_path_src,
+                          const std::string& bucket_name_prefix_dest,
+                          const std::string& bucket_object_path_dest) {
+  Status st;
+  Aws::String src_bucket = GetBucket(bucket_name_prefix_src);
+  Aws::String dest_bucket = GetBucket(bucket_name_prefix_dest);
+
+  // The filename is the same as the object name in the bucket
+  Aws::String src_object = Aws::String(bucket_object_path_src.c_str(),
+                                       bucket_object_path_src.size());
+  Aws::String dest_object = Aws::String(bucket_object_path_dest.c_str(),
+                                        bucket_object_path_dest.size());
+
+  Aws::String src_url = src_bucket + src_object;
+
+  // create copy request
+  Aws::S3::Model::CopyObjectRequest request;
+  request.SetCopySource(src_url);
+  request.SetBucket(dest_bucket);
+  request.SetKey(dest_object);
+
+  // execure request
+  Aws::S3::Model::CopyObjectOutcome outcome = s3client_->CopyObject(request);
+  bool isSuccess = outcome.IsSuccess();
+  if (!isSuccess) {
+    const Aws::Client::AWSError<Aws::S3::S3Errors>& error = outcome.GetError();
+    std::string errmsg(error.GetMessage().c_str());
+    Log(InfoLogLevel::ERROR_LEVEL, info_log_,
+        "[aws] S3WritableFile src path %s error in copying to %s %s",
+        src_url.c_str(), dest_object.c_str(), errmsg.c_str());
+    return Status::IOError(dest_object.c_str(), errmsg.c_str());
+  }
+  Log(InfoLogLevel::ERROR_LEVEL, info_log_,
+      "[aws] S3WritableFile src path %s copied to %s %s",
+      src_url.c_str(), dest_object.c_str(), st.ToString().c_str());
+  return st;
 }
 
 //

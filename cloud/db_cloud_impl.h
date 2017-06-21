@@ -32,12 +32,13 @@ class DBCloudImpl : public DBCloud {
                          const std::string& srcname,
                          const std::string& destname, bool do_sync = true);
 
+  Status Savepoint();
+
  protected:
   // The CloudEnv used by this open instance.
   CloudEnv* cenv_;
 
  private:
-
   // Maximum manifest file size
   static const uint64_t max_manifest_file_size = 4 * 1024L * 1024L;
 

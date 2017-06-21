@@ -33,6 +33,7 @@ enum class CloudRequestOpType {
   kListOp,
   kCreateOp,
   kDeleteOp,
+  kCopyOp,
   kInfoOp
 };
 using CloudRequestCallback =
@@ -163,6 +164,17 @@ class CloudEnv : public Env {
   // Delete the specified object from the specified cloud bucket
   virtual Status DeleteObject(const std::string& bucket_name_prefix,
                               const std::string& bucket_object_path) = 0;
+
+  // Does the specified object exist in the cloud storage
+  virtual Status ExistsObject(const std::string& bucket_name_prefix,
+                              const std::string& bucket_object_path) = 0;
+
+  // Copy the specified cloud object from one location in the cloud
+  // storage to another location in cloud storage
+  virtual Status CopyObject(const std::string& bucket_name_prefix_src,
+                            const std::string& bucket_object_path_src,
+                            const std::string& bucket_name_prefix_dest,
+                            const std::string& bucket_object_path_dest) = 0;
 
   // Create a new AWS env.
   // src_bucket_name: bucket name suffix where db data is read from

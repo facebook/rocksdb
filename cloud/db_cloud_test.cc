@@ -8,6 +8,7 @@
 #include "cloud/aws/aws_env.h"
 #include "cloud/db_cloud_impl.h"
 #include "cloud/manifest.h"
+#include "cloud/filename.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 #include "util/logging.h"
@@ -533,6 +534,72 @@ TEST_F(CloudTest, DelayFileDeletion) {
   ASSERT_TRUE(st.IsNotFound());
 }
 
+// Verify that a savepoint copies all src files to destination
+TEST_F(CloudTest, Savepoint) {
+
+  // Put one key-value
+  OpenDB();
+  std::string value;
+  ASSERT_OK(db_->Put(WriteOptions(), "Hello", "World"));
+  ASSERT_OK(db_->Get(ReadOptions(), "Hello", &value));
+  ASSERT_TRUE(value.compare("World") == 0);
+  CloseDB();
+  value.clear();
+  std::string dest_path = "/clone2_path";
+  {
+    // Create a new instance with different src and destination paths.
+    // This is true clone and should have all the contents of the masterdb
+    std::unique_ptr<CloudEnv> cloud_env;
+    std::unique_ptr<DBCloud> cloud_db;
+    CloneDB("localpath1", src_bucket_prefix_, src_object_prefix_,
+            src_bucket_prefix_, dest_path, &cloud_db, &cloud_env);
+
+    // check that the original kv appears in the clone
+    value.clear();
+    ASSERT_OK(cloud_db->Get(ReadOptions(), "Hello", &value));
+    ASSERT_TRUE(value.compare("World") == 0);
+
+    // there should be only one sst file
+    std::vector<LiveFileMetaData> flist;
+    cloud_db->GetLiveFilesMetaData(&flist);
+    ASSERT_TRUE(flist.size() == 1);
+
+    // source path
+    std::string spath = src_object_prefix_ + flist[0].name;
+    ASSERT_OK(cloud_env->ExistsObject(src_bucket_prefix_, spath));
+
+    // Verify that the destination path does not have any sst files
+    std::string dpath = dest_path + flist[0].name;
+    ASSERT_TRUE(cloud_env->ExistsObject(src_bucket_prefix_, dpath).IsNotFound());
+
+    // write a new value to the clone
+    ASSERT_OK(cloud_db->Put(WriteOptions(), "Hell", "Done"));
+    value.clear();
+    ASSERT_OK(cloud_db->Get(ReadOptions(), "Hell", &value));
+    ASSERT_TRUE(value.compare("Done") == 0);
+
+    // Invoke savepoint to populate destination path from source path
+    ASSERT_OK(cloud_db->Savepoint());
+
+    // check that the sst file is copied to dest path
+    ASSERT_OK(cloud_env->ExistsObject(src_bucket_prefix_, dpath));
+  }
+  {
+    // Reopen the clone
+    std::unique_ptr<CloudEnv> cloud_env;
+    std::unique_ptr<DBCloud> cloud_db;
+    CloneDB("localpath2", src_bucket_prefix_, src_object_prefix_,
+            src_bucket_prefix_, dest_path, &cloud_db, &cloud_env);
+
+    // check that the both kvs appears in the clone
+    value.clear();
+    ASSERT_OK(cloud_db->Get(ReadOptions(), "Hello", &value));
+    ASSERT_TRUE(value.compare("World") == 0);
+    value.clear();
+    ASSERT_OK(cloud_db->Get(ReadOptions(), "Hell", &value));
+    ASSERT_TRUE(value.compare("Done") == 0);
+  }
+}
 
 #ifdef AWS_DO_NOT_RUN
 //

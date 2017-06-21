@@ -106,12 +106,13 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
     st = DB::Open(options, local_dbname, column_families, handles, &db);
   }
 
-
   // If there is no destination bucket, then we have already sucked in all
   // files locally while opening the database in the previous line. Now, we
   // can use a pure localenv to serve this database
   CloudEnvImpl* cenv = static_cast<CloudEnvImpl*>(options.env);
   if (st.ok() && cenv->GetDestBucketPrefix().empty()) {
+
+    assert(cenv->GetCloudEnvOptions().keep_local_sst_files);
 
     // Close the database that we opened using the cloud env
     // First, delete the handle for the default column family because the DBImpl
@@ -145,6 +146,89 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
   Log(InfoLogLevel::INFO_LEVEL, options.info_log,
       "Opened cloud db with local dir %s dbid %s. %s", local_dbname.c_str(),
       dbid.c_str(), st.ToString().c_str());
+  return st;
+}
+
+Status DBCloudImpl::Savepoint() {
+  std::string dbid;
+  Options default_options = GetOptions();
+  Status st = GetDbIdentity(dbid);
+  if (!st.ok()) {
+    Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
+        "Savepoint could not get dbid %s",
+        st.ToString().c_str());
+    return st;
+  }
+  CloudEnvImpl* cenv = static_cast<CloudEnvImpl*>(GetEnv());
+
+  // If there is no destination bucket, then nothing to do
+  if (cenv->GetDestObjectPrefix().empty() ||
+      cenv->GetDestBucketPrefix().empty()) {
+    Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
+        "Savepoint on cloud dbid %s has no destination bucket, nothing to do.",
+        dbid.c_str());
+    return st;
+  }
+
+  Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
+      "Savepoint on cloud dbid  %s",
+      dbid.c_str());
+
+  // find all sst files in the db
+  std::vector<LiveFileMetaData> live_files;
+  GetLiveFilesMetaData(&live_files);
+
+  // If an sst file does not exist in the destination path, then remember it
+  std::vector<std::string> to_copy;
+  for (auto onefile : live_files) {
+    std::string destpath = cenv->GetDestObjectPrefix() + onefile.name;
+    if (!cenv->ExistsObject(cenv->GetDestBucketPrefix(), destpath).ok()) {
+      to_copy.push_back(onefile.name);
+    }
+  }
+
+  // copy all files in parallel
+  std::atomic<size_t> next_file_meta_idx(0);
+  int max_threads = default_options.max_file_opening_threads;
+
+  std::function<void()> load_handlers_func = [&]() {
+    while (true) {
+      size_t idx = next_file_meta_idx.fetch_add(1);
+      if (idx >= to_copy.size()) {
+        break;
+      }
+      auto& onefile = to_copy[idx];
+      Status s = cenv->CopyObject(cenv->GetSrcBucketPrefix(),
+                                  cenv->GetSrcObjectPrefix() + onefile,
+                                  cenv->GetDestBucketPrefix(),
+                                  cenv->GetDestObjectPrefix() + onefile);
+      if (!s.ok()) {
+        Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
+          "Savepoint on cloud dbid  %s error in copying srcbucket %s srcpath %s "
+          "dest bucket %d dest path %s. %s",
+          dbid.c_str(),
+          cenv->GetSrcBucketPrefix().c_str(), cenv->GetSrcObjectPrefix().c_str(),
+          cenv->GetDestBucketPrefix().c_str(), cenv->GetDestObjectPrefix().c_str(),
+          s.ToString().c_str());
+        if (st.ok()) {
+          st = s;       // save at least one error
+        }
+        break;
+      }
+    }
+  };
+
+  if (max_threads <= 1) {
+    load_handlers_func();
+  } else {
+    std::vector<port::Thread> threads;
+    for (int i = 0; i < max_threads; i++) {
+      threads.emplace_back(load_handlers_func);
+    }
+    for (auto& t : threads) {
+      t.join();
+    }
+  }
   return st;
 }
 

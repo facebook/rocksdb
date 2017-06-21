@@ -211,6 +211,16 @@ class CloudEnvWrapper : public CloudEnvImpl {
                       const std::string& bucket_object_path) {
     return notsup_;
   }
+  Status ExistsObject(const std::string& bucket_name_prefix,
+                      const std::string& bucket_object_path) {
+    return notsup_;
+  }
+  Status CopyObject(const std::string& bucket_name_prefix_src,
+                    const std::string& bucket_object_path_src,
+                    const std::string& bucket_name_prefix_dest,
+                    const std::string& bucket_object_path_dest) {
+    return notsup_;
+  }
 
  private:
   Status notsup_;

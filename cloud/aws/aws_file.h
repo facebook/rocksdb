@@ -36,6 +36,8 @@
 #include <aws/s3/model/ListObjectsResult.h>
 #include <aws/s3/model/PutObjectRequest.h>
 #include <aws/s3/model/PutObjectResult.h>
+#include <aws/s3/model/CopyObjectRequest.h>
+#include <aws/s3/model/CopyObjectResult.h>
 
 #include <aws/kinesis/KinesisClient.h>
 #include <aws/kinesis/KinesisErrors.h>
