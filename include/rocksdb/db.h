@@ -582,6 +582,10 @@ class DB {
 
     //  "rocksdb.is-write-stopped" - Return 1 if write has been stopped.
     static const std::string kIsWriteStopped;
+
+    //  "rocksdb.is-corrupted" - returns 1 if a compaction operation has
+    //      encountered any corruption; otherwise, returns 0.
+    static const std::string kIsCorrupted;
   };
 #endif /* ROCKSDB_LITE */
 
@@ -632,6 +636,7 @@ class DB {
   //  "rocksdb.num-running-flushes"
   //  "rocksdb.actual-delayed-write-rate"
   //  "rocksdb.is-write-stopped"
+  //  "rocksdb.is-corrupted"
   virtual bool GetIntProperty(ColumnFamilyHandle* column_family,
                               const Slice& property, uint64_t* value) = 0;
   virtual bool GetIntProperty(const Slice& property, uint64_t* value) {

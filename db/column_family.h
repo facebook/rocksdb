@@ -196,6 +196,9 @@ class ColumnFamilyData {
   void SetDropped();
   bool IsDropped() const { return dropped_; }
 
+  void SetCorrupted() { corrupted_ = true; }
+  bool IsCorrupted() const { return corrupted_; }
+
   // thread-safe
   int NumberLevels() const { return ioptions_.num_levels; }
 
@@ -352,6 +355,7 @@ class ColumnFamilyData {
 
   std::atomic<int> refs_;      // outstanding references to ColumnFamilyData
   bool dropped_;               // true if client dropped it
+  bool corrupted_;             // true if data corruption detected
 
   const InternalKeyComparator internal_comparator_;
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>>

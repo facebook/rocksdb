@@ -181,6 +181,11 @@ TEST_F(VersionEditTest, ColumnFamilyTest) {
   edit.SetColumnFamily(3);
   edit.DropColumnFamily();
   TestEncodeDecode(edit);
+
+  edit.Clear();
+  edit.SetColumnFamily(4);
+  edit.CorruptColumnFamily();
+  TestEncodeDecode(edit);
 }
 
 }  // namespace rocksdb

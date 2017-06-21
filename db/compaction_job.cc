@@ -589,6 +589,17 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
 
   if (status.ok()) {
     status = InstallCompactionResults(mutable_cf_options);
+  } else if (status.IsCorruption() && !cfd->IsCorrupted()) {
+    VersionEdit edit;
+    edit.SetColumnFamily(cfd->GetID());
+    edit.CorruptColumnFamily();
+    Status s = versions_->LogAndApply(cfd, mutable_cf_options, &edit, db_mutex_,
+                                      db_directory_);
+    if (!s.ok()) {
+      ROCKS_LOG_WARN(
+          db_options_.info_log, "[%s] Persisting corruption state failed",
+          cfd->GetName().c_str());
+    }
   }
   VersionStorageInfo::LevelSummaryStorage tmp;
   auto vstorage = cfd->current()->storage_info();

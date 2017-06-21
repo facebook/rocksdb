@@ -491,6 +491,29 @@ TEST_F(CorruptionTest, FileSystemStateCorrupted) {
   }
 }
 
+TEST_F(CorruptionTest, CompactionPersistsCorruptionState) {
+  Options options;
+  options.level0_file_num_compaction_trigger = 4;
+  Reopen(&options);
+  DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
+
+  ASSERT_EQ(0, Property("rocksdb.is-corrupted"));
+  Build(15001 /* n */, 5000 /* flush_every */);
+  Corrupt(kTableFile, 100, 1);
+  Build(5001 /* n */, 5000 /* flush_every */);
+  dbi->TEST_WaitForCompact();
+  ASSERT_EQ(1, Property("rocksdb.is-corrupted"));
+
+  // Reopening exercises corruption logic in VersionSet::Recover() and then
+  // VersionSet::WriteSnapshot(). Checking the property after reopening the
+  // second time ensures the corruption entry was properly written by the first
+  // WriteSnapshot().
+  for (int i = 0; i < 2; ++i) {
+    Reopen(&options);
+    ASSERT_EQ(1, Property("rocksdb.is-corrupted"));
+  }
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

@@ -2,6 +2,7 @@
 ## Unreleased
 ### Public API Change
 * DB property "rocksdb.sstables" now prints keys in hex form.
+* Persist corruptions detected by compactions, so they can be remembered across database restarts. The corruption state can be queried via DB property: "rocksdb.is-corrupted".
 
 ### New Features
 * Measure estimated number of reads per file. The information can be accessed through DB::GetColumnFamilyMetaData or "rocksdb.sstables" DB property.
