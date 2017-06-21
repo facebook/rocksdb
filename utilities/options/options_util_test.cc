@@ -234,7 +234,7 @@ TEST_F(OptionsUtilTest, SanityCheck) {
         CheckOptionsCompatibility(dbname_, Env::Default(), db_opt, cf_descs));
 
     cf_descs[1].options.prefix_extractor.reset(new DummySliceTransform());
-    ASSERT_NOK(
+    ASSERT_OK(
         CheckOptionsCompatibility(dbname_, Env::Default(), db_opt, cf_descs));
 
     cf_descs[1].options.prefix_extractor = prefix_extractor;
