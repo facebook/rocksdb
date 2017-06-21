@@ -53,6 +53,7 @@ struct WriteBufferManager::CacheRep {};
 WriteBufferManager::WriteBufferManager(size_t _buffer_size,
                                        std::shared_ptr<Cache> cache)
     : buffer_size_(_buffer_size),
+      mutable_limit_(buffer_size_ * 7 / 8),
       memory_used_(0),
       memory_active_(0),
       cache_rep_(nullptr) {

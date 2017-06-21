@@ -43,11 +43,19 @@ class WriteBufferManager {
 
   // Should only be called from write thread
   bool ShouldFlush() const {
-    // Flush if memory usage hits a hard limit, or total size that hasn't been
-    // scheduled to free hits a soft limit, which is 7/8 of the hard limit.
-    return enabled() &&
-           (memory_usage() >= buffer_size() ||
-            mutable_memtable_memory_usage() >= buffer_size() / 8 * 7);
+    if (enabled()) {
+      if (mutable_memtable_memory_usage() > mutable_limit_) {
+        return true;
+      }
+      if (memory_usage() >= buffer_size_ &&
+          mutable_memtable_memory_usage() >= buffer_size_ / 2) {
+        // If the memory exceeds the buffer size, we trigger more aggressive
+        // flush. But if already more than half memory is being flushed,
+        // triggering more flush may not help. We will hold it instead.
+        return true;
+      }
+    }
+    return false;
   }
 
   void ReserveMem(size_t mem) {
@@ -77,6 +85,7 @@ class WriteBufferManager {
 
  private:
   const size_t buffer_size_;
+  const size_t mutable_limit_;
   std::atomic<size_t> memory_used_;
   // Memory that hasn't been scheduled to free.
   std::atomic<size_t> memory_active_;
