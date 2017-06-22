@@ -70,7 +70,7 @@ class FlushJob {
   ~FlushJob();
 
   // Require db_mutex held.
-  // Once PickMemTable() is called, either Run() or Cancel() has to be call.
+  // Once PickMemTable() is called, either Run() or Cancel() has to be called.
   void PickMemTable();
   Status Run(FileMetaData* file_meta = nullptr);
   void Cancel();

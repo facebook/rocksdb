@@ -139,6 +139,8 @@ std::string TableProperties::ToString(
       compression_name.empty() ? std::string("N/A") : compression_name,
       prop_delim, kv_delim);
 
+  AppendProperty(result, "creation time", creation_time, prop_delim, kv_delim);
+
   return result;
 }
 
@@ -190,6 +192,7 @@ const std::string TablePropertiesNames::kPrefixExtractorName =
 const std::string TablePropertiesNames::kPropertyCollectors =
     "rocksdb.property.collectors";
 const std::string TablePropertiesNames::kCompression = "rocksdb.compression";
+const std::string TablePropertiesNames::kCreationTime = "rocksdb.creation.time";
 
 extern const std::string kPropertiesBlock = "rocksdb.properties";
 // Old property block name for backward compatibility

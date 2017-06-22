@@ -1457,27 +1457,74 @@ Compaction* FIFOCompactionPicker::PickCompaction(
     return nullptr;
   }
 
+  auto reason = CompactionReason::kFIFOTtl;
   std::vector<CompactionInputFiles> inputs;
   inputs.emplace_back();
   inputs[0].level = 0;
-  // delete old files (FIFO)
-  for (auto ritr = level_files.rbegin(); ritr != level_files.rend(); ++ritr) {
-    auto f = *ritr;
-    total_size -= f->compensated_file_size;
-    inputs[0].files.push_back(f);
-    char tmp_fsize[16];
-    AppendHumanBytes(f->fd.GetFileSize(), tmp_fsize, sizeof(tmp_fsize));
-    ROCKS_LOG_BUFFER(log_buffer, "[%s] FIFO compaction: picking file %" PRIu64
-                                 " with size %s for deletion",
-                     cf_name.c_str(), f->fd.GetNumber(), tmp_fsize);
-    if (total_size <= ioptions_.compaction_options_fifo.max_table_files_size) {
-      break;
+
+  // Delete files based on TTL
+  const bool ttl_enabled = ioptions_.compaction_options_fifo.ttl > 0;
+  if (ttl_enabled) {
+    int64_t _current_time;
+    auto status = ioptions_.env->GetCurrentTime(&_current_time);
+    const uint64_t current_time = static_cast<uint64_t>(_current_time);
+    if (status.ok()) {
+      for (auto ritr = level_files.rbegin(); ritr != level_files.rend();
+           ++ritr) {
+        auto f = *ritr;
+        auto props = f->fd.table_reader->GetTableProperties();
+        auto creation_time = props->creation_time;
+        if (creation_time == 0) {
+          // Newer files that we might encounter later might have a
+          // creation_time embedded in them. But we don't want to proceed to
+          // them before dropping all the old files with the default '0'
+          // timestamp. Hence, stop.
+          break;
+        }
+        if (creation_time <
+            (current_time - ioptions_.compaction_options_fifo.ttl)) {
+          inputs[0].files.push_back(f);
+          ROCKS_LOG_BUFFER(log_buffer,
+                           "[%s] FIFO compaction: picking file %" PRIu64
+                           " with creation time %" PRIu64 " for deletion",
+                           cf_name.c_str(), f->fd.GetNumber(), creation_time);
+        }
+      }
+    } else {
+      ROCKS_LOG_BUFFER(log_buffer,
+                       "[%s] FIFO compaction: Couldn't get current time: %s. "
+                       "Falling back to size-based table file deletions. ",
+                       cf_name.c_str(), status.ToString().c_str());
     }
   }
+
+  // If TTL-based-deletion is not enabled, or enabled but the table files have
+  // a creation time of 0 (old files), then we fall back to deleting oldest
+  // files based on size.
+  const bool should_proceed_to_size_based_deletion = inputs[0].files.empty();
+  if (should_proceed_to_size_based_deletion) {
+    reason = CompactionReason::kFIFOMaxSize;
+    for (auto ritr = level_files.rbegin(); ritr != level_files.rend(); ++ritr) {
+      auto f = *ritr;
+      total_size -= f->compensated_file_size;
+      inputs[0].files.push_back(f);
+      char tmp_fsize[16];
+      AppendHumanBytes(f->fd.GetFileSize(), tmp_fsize, sizeof(tmp_fsize));
+      ROCKS_LOG_BUFFER(log_buffer,
+                       "[%s] FIFO compaction: picking file %" PRIu64
+                       " with size %s for deletion",
+                       cf_name.c_str(), f->fd.GetNumber(), tmp_fsize);
+      if (total_size <=
+          ioptions_.compaction_options_fifo.max_table_files_size) {
+        break;
+      }
+    }
+  }
+
   Compaction* c = new Compaction(
       vstorage, ioptions_, mutable_cf_options, std::move(inputs), 0, 0, 0, 0,
       kNoCompression, {}, /* is manual */ false, vstorage->CompactionScore(0),
-      /* is deletion compaction */ true, CompactionReason::kFIFOMaxSize);
+      /* is deletion compaction */ true, reason);
   RegisterCompaction(c);
   return c;
 }

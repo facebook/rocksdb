@@ -48,6 +48,7 @@ struct TablePropertiesNames {
   static const std::string kPrefixExtractorName;
   static const std::string kPropertyCollectors;
   static const std::string kCompression;
+  static const std::string kCreationTime;
 };
 
 extern const std::string kPropertiesBlock;
@@ -158,6 +159,9 @@ struct TableProperties {
   // by column_family_name.
   uint64_t column_family_id =
       rocksdb::TablePropertiesCollectorFactory::Context::kUnknownColumnFamily;
+  // The time when the SST file was created.
+  // Since SST files are immutable, this is equivalent to last modified time.
+  uint64_t creation_time = 0;
 
   // Name of the column family with which this SST file is associated.
   // If column family is unknown, `column_family_name` will be an empty string.
