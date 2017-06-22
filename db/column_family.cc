@@ -349,6 +349,7 @@ ColumnFamilyData::ColumnFamilyData(
       dummy_versions_(_dummy_versions),
       current_(nullptr),
       refs_(0),
+      initialized_(false),
       dropped_(false),
       internal_comparator_(cf_options.comparator),
       initial_cf_options_(SanitizeOptions(db_options, cf_options)),
