@@ -62,12 +62,11 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
                          WriteBatch* my_batch, WriteCallback* callback,
                          uint64_t* log_used, uint64_t log_ref,
                          bool disable_memtable) {
-  // The current implementation does not support sync with concurrenet writes
-  if (concurrent_prepare_ && write_options.sync) {
-    return Status::NotSupported();
-  }
   if (my_batch == nullptr) {
     return Status::Corruption("Batch is nullptr!");
+  }
+  if (concurrent_prepare_ && immutable_db_options_.enable_pipelined_write) {
+    return Status::NotSupported("pipelined_writes is not compatible with concurrent prepares");
   }
 
   Status status;
@@ -299,6 +298,15 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     mutex_.Lock();
     MarkLogsSynced(logfile_number_, need_log_dir_sync, status);
     mutex_.Unlock();
+    // Requesting sync with concurrent_prepare_ is expected to be very rare. We
+    // hance provide a simple implementation that is not necessarily efficient.
+    if (concurrent_prepare_) {
+      if (manual_wal_flush_) {
+        status = FlushWAL(true);
+      } else {
+        status = SyncWAL();
+      }
+    }
   }
 
   bool should_exit_batch_group = true;
@@ -507,13 +515,24 @@ Status DBImpl::WriteImplWALOnly(const WriteOptions& write_options,
   // wal_write_mutex_ to ensure ordered events in WAL
   status = ConcurrentWriteToWAL(write_group, log_used, &last_sequence,
                                 0 /*total_count*/);
+  if (status.ok() && write_options.sync) {
+    // Requesting sync with concurrent_prepare_ is expected to be very rare. We
+    // hance provide a simple implementation that is not necessarily efficient.
+    if (manual_wal_flush_) {
+      status = FlushWAL(true);
+    } else {
+      status = SyncWAL();
+    }
+  }
   PERF_TIMER_START(write_pre_and_post_process_time);
 
   if (!w.CallbackFailed()) {
     ParanoidCheck(status);
   }
   nonmem_write_thread_.ExitAsBatchGroupLeader(write_group, w.status);
-  status = w.FinalStatus();
+  if (status.ok()) {
+    status = w.FinalStatus();
+  }
   return status;
 }
 
