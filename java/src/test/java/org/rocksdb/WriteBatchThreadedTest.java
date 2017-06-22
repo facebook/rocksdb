@@ -60,12 +60,15 @@ public class WriteBatchThreadedTest {
         @Override
         public Void call() throws RocksDBException {
           final WriteBatch wb = new WriteBatch();
-          for (int i = offset; i < offset + 100; i++) {
-            wb.put(ByteBuffer.allocate(4).putInt(i).array(),
-                "parallel rocks test".getBytes());
+          try {
+            for (int i = offset; i < offset + 100; i++) {
+              wb.put(ByteBuffer.allocate(4).putInt(i).array(),
+                  "parallel rocks test".getBytes());
+            }
+            db.write(new WriteOptions(), wb);
+          } finally {
+            wb.close();
           }
-          db.write(new WriteOptions(), wb);
-
           return null;
         }
       });
