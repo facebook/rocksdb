@@ -27,8 +27,6 @@ enum class TableFileCreationReason {
   kFlush,
   kCompaction,
   kRecovery,
-  kBulkLoading,
-  kUnknown,
 };
 
 struct TableFileCreationBriefInfo {
