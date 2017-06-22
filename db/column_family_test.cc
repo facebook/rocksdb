@@ -1793,7 +1793,7 @@ TEST_F(ColumnFamilyTest, SameCFManualAutomaticCompactionsLevel) {
       {{"ColumnFamilyTest::ManualAuto:4", "ColumnFamilyTest::ManualAuto:2"},
        {"ColumnFamilyTest::ManualAuto:4", "ColumnFamilyTest::ManualAuto:5"},
        {"ColumnFamilyTest::ManualAuto:3", "ColumnFamilyTest::ManualAuto:2"},
-       {"LevelCompactionPicker::PickCompactionBySize:0",
+       {"LevelCompactionBuilder::SetupInitialFiles:L0ToBaseBlocked",
         "ColumnFamilyTest::ManualAuto:3"},
        {"ColumnFamilyTest::ManualAuto:1", "ColumnFamilyTest::ManualAuto:3"}});
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
