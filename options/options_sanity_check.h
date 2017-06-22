@@ -29,7 +29,6 @@ static const std::unordered_map<std::string, OptionsSanityCheckLevel>
 static const std::unordered_map<std::string, OptionsSanityCheckLevel>
     sanity_level_cf_options = {
         {"comparator", kSanityLevelLooselyCompatible},
-        {"prefix_extractor", kSanityLevelLooselyCompatible},
         {"table_factory", kSanityLevelLooselyCompatible},
         {"merge_operator", kSanityLevelLooselyCompatible}};
 
