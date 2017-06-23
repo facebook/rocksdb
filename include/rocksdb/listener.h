@@ -359,7 +359,9 @@ class EventListener {
   // background error status to a non-OK value. The new background error status
   // is provided in `bg_error` and can be modified by the callback. E.g., a
   // callback can suppress errors by resetting it to Status::OK(), thus
-  // preventing the database from entering read-only mode.
+  // preventing the database from entering read-only mode. We do not provide any
+  // guarantee when failed flushes/compactions will be rescheduled if the user
+  // suppresses an error.
   //
   // Note that this function can run on the same threads as flush, compaction,
   // and user writes. So, it is extremely important not to perform heavy
