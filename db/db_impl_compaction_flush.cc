@@ -16,6 +16,7 @@
 #include <inttypes.h>
 
 #include "db/builder.h"
+#include "db/event_helpers.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/thread_status_updater.h"
@@ -61,7 +62,14 @@ Status DBImpl::SyncClosedLogs(JobContext* job_context) {
     // "number < current_log_number".
     MarkLogsSynced(current_log_number - 1, true, s);
     if (!s.ok()) {
-      bg_error_ = s;
+      Status new_bg_error = s;
+      // may temporarily unlock and lock the mutex.
+      EventHelpers::NotifyOnBackgroundError(immutable_db_options_.listeners,
+                                            BackgroundErrorReason::kFlush,
+                                            &new_bg_error, &mutex_);
+      if (!new_bg_error.ok()) {
+        bg_error_ = new_bg_error;
+      }
       TEST_SYNC_POINT("DBImpl::SyncClosedLogs:Failed");
       return s;
     }
@@ -136,9 +144,16 @@ Status DBImpl::FlushMemTableToOutputFile(
 
   if (!s.ok() && !s.IsShutdownInProgress() &&
       immutable_db_options_.paranoid_checks && bg_error_.ok()) {
-    // if a bad error happened (not ShutdownInProgress) and paranoid_checks is
-    // true, mark DB read-only
-    bg_error_ = s;
+    Status new_bg_error = s;
+    // may temporarily unlock and lock the mutex.
+    EventHelpers::NotifyOnBackgroundError(immutable_db_options_.listeners,
+                                          BackgroundErrorReason::kFlush,
+                                          &new_bg_error, &mutex_);
+    if (!new_bg_error.ok()) {
+      // if a bad error happened (not ShutdownInProgress), paranoid_checks is
+      // true, and the error isn't handled by callback, mark DB read-only
+      bg_error_ = new_bg_error;
+    }
   }
   if (s.ok()) {
 #ifndef ROCKSDB_LITE
@@ -153,10 +168,17 @@ Status DBImpl::FlushMemTableToOutputFile(
           immutable_db_options_.db_paths[0].path, file_meta.fd.GetNumber());
       sfm->OnAddFile(file_path);
       if (sfm->IsMaxAllowedSpaceReached() && bg_error_.ok()) {
-        bg_error_ = Status::IOError("Max allowed space was reached");
+        Status new_bg_error = Status::IOError("Max allowed space was reached");
         TEST_SYNC_POINT_CALLBACK(
             "DBImpl::FlushMemTableToOutputFile:MaxAllowedSpaceReached",
-            &bg_error_);
+            &new_bg_error);
+        // may temporarily unlock and lock the mutex.
+        EventHelpers::NotifyOnBackgroundError(immutable_db_options_.listeners,
+                                              BackgroundErrorReason::kFlush,
+                                              &new_bg_error, &mutex_);
+        if (!new_bg_error.ok()) {
+          bg_error_ = new_bg_error;
+        }
       }
     }
 #endif  // ROCKSDB_LITE
@@ -567,7 +589,14 @@ Status DBImpl::CompactFilesImpl(
                    c->column_family_data()->GetName().c_str(),
                    job_context->job_id, status.ToString().c_str());
     if (immutable_db_options_.paranoid_checks && bg_error_.ok()) {
-      bg_error_ = status;
+      Status new_bg_error = status;
+      // may temporarily unlock and lock the mutex.
+      EventHelpers::NotifyOnBackgroundError(immutable_db_options_.listeners,
+                                            BackgroundErrorReason::kCompaction,
+                                            &new_bg_error, &mutex_);
+      if (!new_bg_error.ok()) {
+        bg_error_ = new_bg_error;
+      }
     }
   }
 
@@ -1625,7 +1654,14 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     ROCKS_LOG_WARN(immutable_db_options_.info_log, "Compaction error: %s",
                    status.ToString().c_str());
     if (immutable_db_options_.paranoid_checks && bg_error_.ok()) {
-      bg_error_ = status;
+      Status new_bg_error = status;
+      // may temporarily unlock and lock the mutex.
+      EventHelpers::NotifyOnBackgroundError(immutable_db_options_.listeners,
+                                            BackgroundErrorReason::kCompaction,
+                                            &new_bg_error, &mutex_);
+      if (!new_bg_error.ok()) {
+        bg_error_ = new_bg_error;
+      }
     }
   }
 
