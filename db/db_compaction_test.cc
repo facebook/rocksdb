@@ -1919,7 +1919,7 @@ TEST_F(DBCompactionTest, ManualAutoRace) {
 
   // The auto compaction is scheduled but waited until here
   TEST_SYNC_POINT("DBCompactionTest::ManualAutoRace:1");
-  // The auto compaction will wait until the the manual compaction is registerd
+  // The auto compaction will wait until the manual compaction is registerd
   // before processing so that it will be cancelled.
   dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr, nullptr);
   ASSERT_EQ("0,1", FilesPerLevel(1));

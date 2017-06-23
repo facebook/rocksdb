@@ -39,6 +39,24 @@ void EventHelpers::NotifyTableFileCreationStarted(
 }
 #endif  // !ROCKSDB_LITE
 
+void EventHelpers::NotifyOnBackgroundError(
+    const std::vector<std::shared_ptr<EventListener>>& listeners,
+    BackgroundErrorReason reason, Status* bg_error,
+    InstrumentedMutex* db_mutex) {
+#ifndef ROCKSDB_LITE
+  if (listeners.size() == 0U) {
+    return;
+  }
+  db_mutex->AssertHeld();
+  // release lock while notifying events
+  db_mutex->Unlock();
+  for (auto& listener : listeners) {
+    listener->OnBackgroundError(reason, bg_error);
+  }
+  db_mutex->Lock();
+#endif  // ROCKSDB_LITE
+}
+
 void EventHelpers::LogAndNotifyTableFileCreationFinished(
     EventLogger* event_logger,
     const std::vector<std::shared_ptr<EventListener>>& listeners,

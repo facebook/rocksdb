@@ -224,7 +224,7 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
       has_unpersisted_data_.load(std::memory_order_relaxed) &&
       !mutable_db_options_.avoid_flush_during_shutdown) {
     for (auto cfd : *versions_->GetColumnFamilySet()) {
-      if (!cfd->IsDropped() && !cfd->mem()->IsEmpty()) {
+      if (!cfd->IsDropped() && cfd->initialized() && !cfd->mem()->IsEmpty()) {
         cfd->Ref();
         mutex_.Unlock();
         FlushMemTable(cfd, FlushOptions());
@@ -406,12 +406,17 @@ void DBImpl::MaybeDumpStats() {
       default_cf_internal_stats_->GetStringProperty(
           *db_property_info, DB::Properties::kDBStats, &stats);
       for (auto cfd : *versions_->GetColumnFamilySet()) {
-        cfd->internal_stats()->GetStringProperty(
-            *cf_property_info, DB::Properties::kCFStatsNoFileHistogram, &stats);
+        if (cfd->initialized()) {
+          cfd->internal_stats()->GetStringProperty(
+              *cf_property_info, DB::Properties::kCFStatsNoFileHistogram,
+              &stats);
+        }
       }
       for (auto cfd : *versions_->GetColumnFamilySet()) {
-        cfd->internal_stats()->GetStringProperty(
-            *cf_property_info, DB::Properties::kCFFileHistogram, &stats);
+        if (cfd->initialized()) {
+          cfd->internal_stats()->GetStringProperty(
+              *cf_property_info, DB::Properties::kCFFileHistogram, &stats);
+        }
       }
     }
     ROCKS_LOG_WARN(immutable_db_options_.info_log,
@@ -1208,6 +1213,8 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
         is_snapshot_supported_ = false;
       }
 
+      cfd->set_initialized();
+
       *handle = new ColumnFamilyHandleImpl(cfd, this, &mutex_);
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
                      "Created column family [%s] (ID %u)",
@@ -1709,7 +1716,9 @@ bool DBImpl::GetIntPropertyInternal(ColumnFamilyData* cfd,
 Status DBImpl::ResetStats() {
   InstrumentedMutexLock l(&mutex_);
   for (auto* cfd : *versions_->GetColumnFamilySet()) {
-    cfd->internal_stats()->Clear();
+    if (cfd->initialized()) {
+      cfd->internal_stats()->Clear();
+    }
   }
   return Status::OK();
 }
@@ -1728,6 +1737,9 @@ bool DBImpl::GetAggregatedIntProperty(const Slice& property,
     InstrumentedMutexLock l(&mutex_);
     uint64_t value;
     for (auto* cfd : *versions_->GetColumnFamilySet()) {
+      if (!cfd->initialized()) {
+        continue;
+      }
       if (GetIntPropertyInternal(cfd, *property_info, true, &value)) {
         sum += value;
       } else {
@@ -2319,6 +2331,9 @@ Status DBImpl::WriteOptionsFile(bool need_mutex_lock,
   DBOptions db_options =
       BuildDBOptions(immutable_db_options_, mutable_db_options_);
   mutex_.Unlock();
+
+  TEST_SYNC_POINT("DBImpl::WriteOptionsFile:1");
+  TEST_SYNC_POINT("DBImpl::WriteOptionsFile:2");
 
   std::string file_name =
       TempOptionsFileName(GetName(), versions_->NewFileNumber());

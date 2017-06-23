@@ -161,12 +161,15 @@ namespace rocksdb {
 // @param input_strings_escaped when set to true, each escaped characters
 //     prefixed by '\' in the values of the opts_map will be further converted
 //     back to the raw string before assigning to the associated options.
+// @param ignore_unknown_options when set to true, unknown options are ignored
+//     instead of resulting in an unknown-option error.
 // @return Status::OK() on success.  Otherwise, a non-ok status indicating
 //     error will be returned, and "new_options" will be set to "base_options".
 Status GetColumnFamilyOptionsFromMap(
     const ColumnFamilyOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
-    ColumnFamilyOptions* new_options, bool input_strings_escaped = false);
+    ColumnFamilyOptions* new_options, bool input_strings_escaped = false,
+    bool ignore_unknown_options = false);
 
 // Take a default DBOptions "base_options" in addition to a
 // map "opts_map" of option name to option value to construct the new
@@ -189,12 +192,15 @@ Status GetColumnFamilyOptionsFromMap(
 // @param input_strings_escaped when set to true, each escaped characters
 //     prefixed by '\' in the values of the opts_map will be further converted
 //     back to the raw string before assigning to the associated options.
+// @param ignore_unknown_options when set to true, unknown options are ignored
+//     instead of resulting in an unknown-option error.
 // @return Status::OK() on success.  Otherwise, a non-ok status indicating
 //     error will be returned, and "new_options" will be set to "base_options".
 Status GetDBOptionsFromMap(
     const DBOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
-    DBOptions* new_options, bool input_strings_escaped = false);
+    DBOptions* new_options, bool input_strings_escaped = false,
+    bool ignore_unknown_options = false);
 
 // Take a default BlockBasedTableOptions "table_options" in addition to a
 // map "opts_map" of option name to option value to construct the new
@@ -229,6 +235,8 @@ Status GetDBOptionsFromMap(
 // @param input_strings_escaped when set to true, each escaped characters
 //     prefixed by '\' in the values of the opts_map will be further converted
 //     back to the raw string before assigning to the associated options.
+// @param ignore_unknown_options when set to true, unknown options are ignored
+//     instead of resulting in an unknown-option error.
 // @return Status::OK() on success.  Otherwise, a non-ok status indicating
 //     error will be returned, and "new_table_options" will be set to
 //     "table_options".
@@ -236,7 +244,7 @@ Status GetBlockBasedTableOptionsFromMap(
     const BlockBasedTableOptions& table_options,
     const std::unordered_map<std::string, std::string>& opts_map,
     BlockBasedTableOptions* new_table_options,
-    bool input_strings_escaped = false);
+    bool input_strings_escaped = false, bool ignore_unknown_options = false);
 
 // Take a default PlainTableOptions "table_options" in addition to a
 // map "opts_map" of option name to option value to construct the new
@@ -250,14 +258,16 @@ Status GetBlockBasedTableOptionsFromMap(
 // @param input_strings_escaped when set to true, each escaped characters
 //     prefixed by '\' in the values of the opts_map will be further converted
 //     back to the raw string before assigning to the associated options.
+// @param ignore_unknown_options when set to true, unknown options are ignored
+//     instead of resulting in an unknown-option error.
 // @return Status::OK() on success.  Otherwise, a non-ok status indicating
 //     error will be returned, and "new_table_options" will be set to
 //     "table_options".
 Status GetPlainTableOptionsFromMap(
     const PlainTableOptions& table_options,
     const std::unordered_map<std::string, std::string>& opts_map,
-    PlainTableOptions* new_table_options,
-    bool input_strings_escaped = false);
+    PlainTableOptions* new_table_options, bool input_strings_escaped = false,
+    bool ignore_unknown_options = false);
 
 // Take a string representation of option names and  values, apply them into the
 // base_options, and return the new options as a result. The string has the

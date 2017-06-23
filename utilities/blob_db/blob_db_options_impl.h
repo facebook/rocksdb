@@ -58,6 +58,9 @@ struct BlobDBOptionsImpl : public BlobDBOptions {
   // how often to schedule check seq files period
   uint32_t check_seqf_period_millisecs;
 
+  // Disable all background job.
+  bool disable_background_tasks;
+
   // default constructor
   BlobDBOptionsImpl();
 

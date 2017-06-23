@@ -189,6 +189,8 @@ class BlobDBImpl : public BlobDB {
 
   Status LinkToBaseDB(DB* db) override;
 
+  BlobDBOptions GetBlobDBOptions() const override;
+
   BlobDBImpl(DB* db, const BlobDBOptions& bdb_options);
 
   BlobDBImpl(const std::string& dbname, const BlobDBOptions& bdb_options,
@@ -209,6 +211,9 @@ class BlobDBImpl : public BlobDB {
   Status CommonGet(const ColumnFamilyData* cfd, const Slice& key,
                    const std::string& index_entry, std::string* value,
                    SequenceNumber* sequence = nullptr);
+
+  Slice GetCompressedSlice(const Slice& raw,
+                           std::string* compression_output) const;
 
   // Just before flush starts acting on memtable files,
   // this handler is called.

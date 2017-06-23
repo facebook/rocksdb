@@ -136,7 +136,8 @@ class TableCache {
                         HistogramImpl* file_read_hist,
                         unique_ptr<TableReader>* table_reader,
                         bool skip_filters = false, int level = -1,
-                        bool prefetch_index_and_filter_in_cache = true);
+                        bool prefetch_index_and_filter_in_cache = true,
+                        bool for_compaction = false);
 
   const ImmutableCFOptions& ioptions_;
   const EnvOptions& env_options_;

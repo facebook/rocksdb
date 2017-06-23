@@ -104,11 +104,6 @@ class BlobDB : public StackableDB {
  public:
   using rocksdb::StackableDB::Put;
 
-  // This function needs to be called before destroying
-  // the base DB
-  static Status DestroyBlobDB(const std::string& dbname, const Options& options,
-                              const BlobDBOptions& bdb_options);
-
   virtual Status Put(const WriteOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      const Slice& value) override = 0;
@@ -190,6 +185,8 @@ class BlobDB : public StackableDB {
                      std::vector<ColumnFamilyHandle*>* handles,
                      BlobDB** blob_db, bool no_base_db = false);
 
+  virtual BlobDBOptions GetBlobDBOptions() const = 0;
+
   virtual ~BlobDB() {}
 
   virtual Status LinkToBaseDB(DB* db_base) = 0;
@@ -197,6 +194,10 @@ class BlobDB : public StackableDB {
  protected:
   explicit BlobDB(DB* db);
 };
+
+// Destroy the content of the database.
+Status DestroyBlobDB(const std::string& dbname, const Options& options,
+                     const BlobDBOptions& bdb_options);
 
 }  // namespace blob_db
 }  // namespace rocksdb

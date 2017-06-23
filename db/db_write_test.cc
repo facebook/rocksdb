@@ -60,7 +60,7 @@ TEST_P(DBWriteTest, ReturnSeuqneceNumberMultiThreaded) {
       ASSERT_FALSE(flags[sequence].test_and_set());
     }
   };
-  std::vector<std::thread> threads;
+  std::vector<port::Thread> threads;
   for (size_t i = 0; i < kThreads; i++) {
     threads.emplace_back(writer, i);
   }

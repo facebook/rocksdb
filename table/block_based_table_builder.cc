@@ -249,6 +249,7 @@ struct BlockBasedTableBuilder::Rep {
 
   InternalKeySliceTransform internal_prefix_transform;
   std::unique_ptr<IndexBuilder> index_builder;
+  PartitionedIndexBuilder* p_index_builder_ = nullptr;
 
   std::string last_key;
   const CompressionType compression_type;
@@ -297,12 +298,11 @@ struct BlockBasedTableBuilder::Rep {
                 table_options, data_block)),
         column_family_id(_column_family_id),
         column_family_name(_column_family_name) {
-    PartitionedIndexBuilder* p_index_builder = nullptr;
     if (table_options.index_type ==
         BlockBasedTableOptions::kTwoLevelIndexSearch) {
-      p_index_builder = PartitionedIndexBuilder::CreateIndexBuilder(
+      p_index_builder_ = PartitionedIndexBuilder::CreateIndexBuilder(
           &internal_comparator, table_options);
-      index_builder.reset(p_index_builder);
+      index_builder.reset(p_index_builder_);
     } else {
       index_builder.reset(IndexBuilder::CreateIndexBuilder(
           table_options.index_type, &internal_comparator,
@@ -312,7 +312,7 @@ struct BlockBasedTableBuilder::Rep {
       filter_builder = nullptr;
     } else {
       filter_builder.reset(
-          CreateFilterBlockBuilder(_ioptions, table_options, p_index_builder));
+          CreateFilterBlockBuilder(_ioptions, table_options, p_index_builder_));
     }
 
     for (auto& collector_factories : *int_tbl_prop_collector_factories) {
@@ -721,6 +721,13 @@ Status BlockBasedTableBuilder::Finish() {
       }
       property_collectors_names += "]";
       r->props.property_collectors_names = property_collectors_names;
+      if (r->table_options.index_type ==
+          BlockBasedTableOptions::kTwoLevelIndexSearch) {
+        assert(r->p_index_builder_ != nullptr);
+        r->props.index_partitions = r->p_index_builder_->NumPartitions();
+        r->props.top_level_index_size =
+            r->p_index_builder_->EstimateTopLevelIndexSize(r->offset);
+      }
 
       // Add basic properties
       property_block_builder.AddTableProperty(r->props);

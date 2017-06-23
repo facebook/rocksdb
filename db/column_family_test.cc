@@ -521,6 +521,28 @@ TEST_F(ColumnFamilyTest, DontReuseColumnFamilyID) {
   }
 }
 
+TEST_F(ColumnFamilyTest, CreateCFRaceWithGetAggProperty) {
+  Open();
+
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::WriteOptionsFile:1",
+        "ColumnFamilyTest.CreateCFRaceWithGetAggProperty:1"},
+       {"ColumnFamilyTest.CreateCFRaceWithGetAggProperty:2",
+        "DBImpl::WriteOptionsFile:2"}});
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  rocksdb::port::Thread thread([&] { CreateColumnFamilies({"one"}); });
+
+  TEST_SYNC_POINT("ColumnFamilyTest.CreateCFRaceWithGetAggProperty:1");
+  uint64_t pv;
+  db_->GetAggregatedIntProperty(DB::Properties::kEstimateTableReadersMem, &pv);
+  TEST_SYNC_POINT("ColumnFamilyTest.CreateCFRaceWithGetAggProperty:2");
+
+  thread.join();
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
 class FlushEmptyCFTestWithParam : public ColumnFamilyTest,
                                   public testing::WithParamInterface<bool> {
  public:

@@ -44,7 +44,8 @@ class RocksDBOptionsParser {
   ~RocksDBOptionsParser() {}
   void Reset();
 
-  Status Parse(const std::string& file_name, Env* env);
+  Status Parse(const std::string& file_name, Env* env,
+               bool ignore_unknown_options = false);
   static std::string TrimAndRemoveComment(const std::string& line,
                                           const bool trim_only = false);
 
@@ -68,7 +69,8 @@ class RocksDBOptionsParser {
       const DBOptions& db_opt, const std::vector<std::string>& cf_names,
       const std::vector<ColumnFamilyOptions>& cf_opts,
       const std::string& file_name, Env* env,
-      OptionsSanityCheckLevel sanity_check_level = kSanityLevelExactMatch);
+      OptionsSanityCheckLevel sanity_check_level = kSanityLevelExactMatch,
+      bool ignore_unknown_options = false);
 
   static Status VerifyDBOptions(
       const DBOptions& base_opt, const DBOptions& new_opt,
@@ -103,10 +105,10 @@ class RocksDBOptionsParser {
   Status ParseStatement(std::string* name, std::string* value,
                         const std::string& line, const int line_num);
 
-  Status EndSection(
-      const OptionSection section, const std::string& title,
-      const std::string& section_arg,
-      const std::unordered_map<std::string, std::string>& opt_map);
+  Status EndSection(const OptionSection section, const std::string& title,
+                    const std::string& section_arg,
+                    const std::unordered_map<std::string, std::string>& opt_map,
+                    bool ignore_unknown_options);
 
   Status ValidityCheck();
 

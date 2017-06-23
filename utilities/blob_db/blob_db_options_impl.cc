@@ -24,7 +24,8 @@ BlobDBOptionsImpl::BlobDBOptionsImpl(const BlobDBOptions& in)
       fsync_files_period_millisecs(10 * 1000),
       reclaim_of_period_millisecs(1 * 1000),
       delete_obsf_period_millisecs(10 * 1000),
-      check_seqf_period_millisecs(10 * 1000) {}
+      check_seqf_period_millisecs(10 * 1000),
+      disable_background_tasks(false) {}
 
 BlobDBOptionsImpl::BlobDBOptionsImpl()
     : deletion_check_period_millisecs(2 * 1000),
@@ -39,7 +40,8 @@ BlobDBOptionsImpl::BlobDBOptionsImpl()
       fsync_files_period_millisecs(10 * 1000),
       reclaim_of_period_millisecs(1 * 1000),
       delete_obsf_period_millisecs(10 * 1000),
-      check_seqf_period_millisecs(10 * 1000) {}
+      check_seqf_period_millisecs(10 * 1000),
+      disable_background_tasks(false) {}
 
 BlobDBOptionsImpl& BlobDBOptionsImpl::operator=(const BlobDBOptionsImpl& in) {
   BlobDBOptions::operator=(in);
@@ -57,6 +59,7 @@ BlobDBOptionsImpl& BlobDBOptionsImpl::operator=(const BlobDBOptionsImpl& in) {
     reclaim_of_period_millisecs = in.reclaim_of_period_millisecs;
     delete_obsf_period_millisecs = in.delete_obsf_period_millisecs;
     check_seqf_period_millisecs = in.check_seqf_period_millisecs;
+    disable_background_tasks = in.disable_background_tasks;
   }
   return *this;
 }

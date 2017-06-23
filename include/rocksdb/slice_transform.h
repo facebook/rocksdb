@@ -58,7 +58,7 @@ class SliceTransform {
   virtual bool InDomain(const Slice& key) const = 0;
 
   // This is currently not used and remains here for backward compatibility.
-  virtual bool InRange(const Slice& dst) const = 0;
+  virtual bool InRange(const Slice& dst) const { return false; }
 
   // Transform(s)=Transform(`prefix`) for any s with `prefix` as a prefix.
   //

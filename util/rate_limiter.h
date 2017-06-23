@@ -24,8 +24,9 @@ namespace rocksdb {
 
 class GenericRateLimiter : public RateLimiter {
  public:
-  GenericRateLimiter(int64_t refill_bytes,
-      int64_t refill_period_us, int32_t fairness);
+  GenericRateLimiter(int64_t refill_bytes, int64_t refill_period_us,
+                     int32_t fairness,
+                     RateLimiter::Mode mode = RateLimiter::Mode::kWritesOnly);
 
   virtual ~GenericRateLimiter();
 
