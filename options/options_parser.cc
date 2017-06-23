@@ -794,7 +794,7 @@ Status RocksDBOptionsParser::VerifyBlockBasedTableFactory(
         return Status::Corruption(
             "[RocksDBOptionsParser]: "
             "failed the verification on BlockBasedTableOptions::",
-            pair.first FILE_LINE_STR);
+            pair.first + FILE_LINE_STR);
       }
     }
   }

@@ -142,7 +142,7 @@ class Repairer {
     if (cf_opts == nullptr) {
       return Status::Corruption(
           "Encountered unknown column family with name=" + cf_name +
-          ", id=" + ToString(cf_id) FILE_LINE_STR);
+          ", id=" + ToString(cf_id) + FILE_LINE_STR);
     }
     Options opts(db_options_, *cf_opts);
     MutableCFOptions mut_cf_opts(opts);

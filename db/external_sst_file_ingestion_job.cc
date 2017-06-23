@@ -588,8 +588,8 @@ Status ExternalSstFileIngestionJob::IngestedFileOverlapWithRangeDeletions(
       ParsedInternalKey parsed_key;
       if (!ParseInternalKey(range_del_iter->key(), &parsed_key)) {
         return Status::Corruption("corrupted range deletion key: " +
-                                  range_del_iter->key().ToString()
-                                      FILE_LINE_STR);
+                                  range_del_iter->key().ToString() +
+                                  FILE_LINE_STR);
       }
       RangeTombstone range_del(parsed_key, range_del_iter->value());
       if (ucmp->Compare(range_del.start_key_,

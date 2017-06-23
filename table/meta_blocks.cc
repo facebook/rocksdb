@@ -322,7 +322,7 @@ Status FindMetaBlock(InternalIterator* meta_index_iter,
     return block_handle->DecodeFrom(&v);
   } else {
     return Status::Corruption("Cannot find the meta block",
-                              meta_block_name FILE_LINE_STR);
+                              meta_block_name + FILE_LINE_STR);
   }
 }
 

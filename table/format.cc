@@ -435,11 +435,11 @@ Status UncompressBlockContentsForCompressionType(
       static char snappy_corrupt_msg[] =
         "Snappy not supported or corrupted Snappy compressed block contents";
       if (!Snappy_GetUncompressedLength(data, n, &ulength)) {
-        return Status::Corruption(snappy_corrupt_msg FILE_LINE_STR);
+        return Status::Corruption(snappy_corrupt_msg + FILE_LINE_STR);
       }
       ubuf.reset(new char[ulength]);
       if (!Snappy_Uncompress(data, n, ubuf.get())) {
-        return Status::Corruption(snappy_corrupt_msg FILE_LINE_STR);
+        return Status::Corruption(snappy_corrupt_msg + FILE_LINE_STR);
       }
       *contents = BlockContents(std::move(ubuf), ulength, true, kNoCompression);
       break;
@@ -452,7 +452,7 @@ Status UncompressBlockContentsForCompressionType(
       if (!ubuf) {
         static char zlib_corrupt_msg[] =
           "Zlib not supported or corrupted Zlib compressed block contents";
-        return Status::Corruption(zlib_corrupt_msg FILE_LINE_STR);
+        return Status::Corruption(zlib_corrupt_msg + FILE_LINE_STR);
       }
       *contents =
           BlockContents(std::move(ubuf), decompress_size, true, kNoCompression);
@@ -464,7 +464,7 @@ Status UncompressBlockContentsForCompressionType(
       if (!ubuf) {
         static char bzip2_corrupt_msg[] =
           "Bzip2 not supported or corrupted Bzip2 compressed block contents";
-        return Status::Corruption(bzip2_corrupt_msg FILE_LINE_STR);
+        return Status::Corruption(bzip2_corrupt_msg + FILE_LINE_STR);
       }
       *contents =
           BlockContents(std::move(ubuf), decompress_size, true, kNoCompression);
@@ -477,7 +477,7 @@ Status UncompressBlockContentsForCompressionType(
       if (!ubuf) {
         static char lz4_corrupt_msg[] =
           "LZ4 not supported or corrupted LZ4 compressed block contents";
-        return Status::Corruption(lz4_corrupt_msg FILE_LINE_STR);
+        return Status::Corruption(lz4_corrupt_msg + FILE_LINE_STR);
       }
       *contents =
           BlockContents(std::move(ubuf), decompress_size, true, kNoCompression);
@@ -490,7 +490,7 @@ Status UncompressBlockContentsForCompressionType(
       if (!ubuf) {
         static char lz4hc_corrupt_msg[] =
           "LZ4HC not supported or corrupted LZ4HC compressed block contents";
-        return Status::Corruption(lz4hc_corrupt_msg FILE_LINE_STR);
+        return Status::Corruption(lz4hc_corrupt_msg + FILE_LINE_STR);
       }
       *contents =
           BlockContents(std::move(ubuf), decompress_size, true, kNoCompression);
@@ -500,7 +500,7 @@ Status UncompressBlockContentsForCompressionType(
       if (!ubuf) {
         static char xpress_corrupt_msg[] =
           "XPRESS not supported or corrupted XPRESS compressed block contents";
-        return Status::Corruption(xpress_corrupt_msg FILE_LINE_STR);
+        return Status::Corruption(xpress_corrupt_msg + FILE_LINE_STR);
       }
       *contents =
         BlockContents(std::move(ubuf), decompress_size, true, kNoCompression);
@@ -511,7 +511,7 @@ Status UncompressBlockContentsForCompressionType(
       if (!ubuf) {
         static char zstd_corrupt_msg[] =
             "ZSTD not supported or corrupted ZSTD compressed block contents";
-        return Status::Corruption(zstd_corrupt_msg FILE_LINE_STR);
+        return Status::Corruption(zstd_corrupt_msg + FILE_LINE_STR);
       }
       *contents =
           BlockContents(std::move(ubuf), decompress_size, true, kNoCompression);

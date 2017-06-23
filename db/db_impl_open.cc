@@ -369,7 +369,7 @@ Status DBImpl::Recover(
           return Status::Corruption(
               "While creating a new Db, wal_dir contains "
               "existing log file: ",
-              filenames[i] FILE_LINE_STR);
+              filenames[i] + FILE_LINE_STR);
         } else {
           logs.push_back(number);
         }
@@ -600,7 +600,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
           case WalFilter::WalProcessingOption::kCorruptedRecord: {
             status = Status::Corruption(
                 "Corruption reported by Wal Filter ",
-                immutable_db_options_.wal_filter->Name() FILE_LINE_STR);
+                immutable_db_options_.wal_filter->Name() + FILE_LINE_STR);
             MaybeIgnoreError(&status);
             if (!status.ok()) {
               reporter.Corruption(record.size(), status);

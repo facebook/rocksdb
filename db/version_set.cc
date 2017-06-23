@@ -1033,7 +1033,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
         return;
       case GetContext::kCorrupt:
         *status = Status::Corruption("corrupted key for ",
-                                     user_key.ToString() FILE_LINE_STR);
+                                     user_key.ToString() + FILE_LINE_STR);
         return;
       case GetContext::kMerge:
         break;
@@ -2495,7 +2495,7 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
         std::string record;
         if (!e->EncodeTo(&record)) {
           s = Status::Corruption("Unable to Encode VersionEdit:" +
-                                 e->DebugString(true) FILE_LINE_STR);
+                                 e->DebugString(true) + FILE_LINE_STR);
           break;
         }
         TEST_KILL_RANDOM("VersionSet::LogAndApply:BeforeAddRecord",
@@ -3340,7 +3340,7 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
       std::string record;
       if (!edit.EncodeTo(&record)) {
         return Status::Corruption("Unable to Encode VersionEdit:" +
-                                  edit.DebugString(true) FILE_LINE_STR);
+                                  edit.DebugString(true) + FILE_LINE_STR);
       }
       Status s = log->AddRecord(record);
       if (!s.ok()) {
@@ -3366,7 +3366,7 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
       std::string record;
       if (!edit.EncodeTo(&record)) {
         return Status::Corruption("Unable to Encode VersionEdit:" +
-                                  edit.DebugString(true) FILE_LINE_STR);
+                                  edit.DebugString(true) + FILE_LINE_STR);
       }
       Status s = log->AddRecord(record);
       if (!s.ok()) {

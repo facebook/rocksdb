@@ -203,7 +203,7 @@ WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
       default: {
         result = WriteBatchWithIndexInternal::Result::kError;
         (*s) = Status::Corruption("Unexpected entry in WriteBatchWithIndex:",
-                                  ToString(entry.type) FILE_LINE_STR);
+                                  ToString(entry.type) + FILE_LINE_STR);
         break;
       }
     }

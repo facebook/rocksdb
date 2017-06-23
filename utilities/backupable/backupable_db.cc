@@ -1137,7 +1137,7 @@ Status BackupEngineImpl::VerifyBackup(BackupID backup_id) {
       return Status::NotFound("File missing: " + abs_path);
     }
     if (file_info->size != curr_abs_path_to_size[abs_path]) {
-      return Status::Corruption("File corrupted: " + abs_path FILE_LINE_STR);
+      return Status::Corruption("File corrupted: " + abs_path + FILE_LINE_STR);
     }
   }
   return Status::OK();
@@ -1629,14 +1629,14 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
       try {
         size = abs_path_to_size.at(abs_path);
       } catch (std::out_of_range&) {
-        return Status::Corruption("Size missing for pathname: " +
-                                  abs_path FILE_LINE_STR);
+        return Status::Corruption("Size missing for pathname: " + abs_path +
+                                  FILE_LINE_STR);
       }
     }
 
     if (line.empty()) {
       return Status::Corruption("File checksum is missing for " + filename +
-                                " in " + meta_filename_ FILE_LINE_STR);
+                                " in " + meta_filename_ + FILE_LINE_STR);
     }
 
     uint32_t checksum_value = 0;
@@ -1646,11 +1646,11 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
           strtoul(line.data(), nullptr, 10));
       if (line != rocksdb::ToString(checksum_value)) {
         return Status::Corruption("Invalid checksum value for " + filename +
-                                  " in " + meta_filename_ FILE_LINE_STR);
+                                  " in " + meta_filename_ + FILE_LINE_STR);
       }
     } else {
       return Status::Corruption("Unknown checksum type for " + filename +
-                                " in " + meta_filename_ FILE_LINE_STR);
+                                " in " + meta_filename_ + FILE_LINE_STR);
     }
 
     files.emplace_back(new FileInfo(filename, size, checksum_value));
@@ -1659,7 +1659,7 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
   if (s.ok() && data.size() > 0) {
     // file has to be read completely. if not, we count it as corruption
     s = Status::Corruption("Tailing data in backup meta file in " +
-                           meta_filename_ FILE_LINE_STR);
+                           meta_filename_ + FILE_LINE_STR);
   }
 
   if (s.ok()) {

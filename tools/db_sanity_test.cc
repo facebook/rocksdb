@@ -73,8 +73,8 @@ class SanityTest {
         return s;
       }
       if (result != v) {
-        return Status::Corruption("Unexpected value for key " +
-                                  k FILE_LINE_STR);
+        return Status::Corruption("Unexpected value for key " + k +
+                                  FILE_LINE_STR);
       }
     }
     return Status::OK();
