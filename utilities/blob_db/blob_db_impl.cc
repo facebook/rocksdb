@@ -137,7 +137,7 @@ Status BlobHandle::DecodeFrom(Slice* input) {
     return Status::OK();
   } else {
     clear();
-    return Status::Corruption("bad blob handle");
+    return Status::Corruption("bad blob handle" FILE_LINE);
   }
 }
 
@@ -613,7 +613,7 @@ Status BlobDBImpl::CreateWriterLocked(const std::shared_ptr<BlobFile>& bfile) {
   else if (bfile->file_size_) {
     Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
         "Open blob file: %s with wrong size: %d", fpath.c_str(), boffset);
-    return Status::Corruption("Invalid blob file size");
+    return Status::Corruption("Invalid blob file size" FILE_LINE);
   }
 
   bfile->log_writer_ = std::make_shared<Writer>(
@@ -1292,7 +1292,7 @@ Status BlobDBImpl::CommonGet(const ColumnFamilyData* cfd, const Slice& key,
             bfile->PathName().c_str(), handle.offset(), handle.size(),
             key.data(), s.ToString().c_str());
       }
-      return Status::Corruption("Corruption. Blob CRC mismatch");
+      return Status::Corruption("Corruption. Blob CRC mismatch" FILE_LINE);
     }
 
     if (bdb_options_.compression != kNoCompression) {

@@ -286,54 +286,54 @@ Status ReadRecordFromWriteBatch(Slice* input, char* tag,
   switch (*tag) {
     case kTypeColumnFamilyValue:
       if (!GetVarint32(input, column_family)) {
-        return Status::Corruption("bad WriteBatch Put");
+        return Status::Corruption("bad WriteBatch Put" FILE_LINE);
       }
     // intentional fallthrough
     case kTypeValue:
       if (!GetLengthPrefixedSlice(input, key) ||
           !GetLengthPrefixedSlice(input, value)) {
-        return Status::Corruption("bad WriteBatch Put");
+        return Status::Corruption("bad WriteBatch Put" FILE_LINE);
       }
       break;
     case kTypeColumnFamilyDeletion:
     case kTypeColumnFamilySingleDeletion:
       if (!GetVarint32(input, column_family)) {
-        return Status::Corruption("bad WriteBatch Delete");
+        return Status::Corruption("bad WriteBatch Delete" FILE_LINE);
       }
     // intentional fallthrough
     case kTypeDeletion:
     case kTypeSingleDeletion:
       if (!GetLengthPrefixedSlice(input, key)) {
-        return Status::Corruption("bad WriteBatch Delete");
+        return Status::Corruption("bad WriteBatch Delete" FILE_LINE);
       }
       break;
     case kTypeColumnFamilyRangeDeletion:
       if (!GetVarint32(input, column_family)) {
-        return Status::Corruption("bad WriteBatch DeleteRange");
+        return Status::Corruption("bad WriteBatch DeleteRange" FILE_LINE);
       }
     // intentional fallthrough
     case kTypeRangeDeletion:
       // for range delete, "key" is begin_key, "value" is end_key
       if (!GetLengthPrefixedSlice(input, key) ||
           !GetLengthPrefixedSlice(input, value)) {
-        return Status::Corruption("bad WriteBatch DeleteRange");
+        return Status::Corruption("bad WriteBatch DeleteRange" FILE_LINE);
       }
       break;
     case kTypeColumnFamilyMerge:
       if (!GetVarint32(input, column_family)) {
-        return Status::Corruption("bad WriteBatch Merge");
+        return Status::Corruption("bad WriteBatch Merge" FILE_LINE);
       }
     // intentional fallthrough
     case kTypeMerge:
       if (!GetLengthPrefixedSlice(input, key) ||
           !GetLengthPrefixedSlice(input, value)) {
-        return Status::Corruption("bad WriteBatch Merge");
+        return Status::Corruption("bad WriteBatch Merge" FILE_LINE);
       }
       break;
     case kTypeLogData:
       assert(blob != nullptr);
       if (!GetLengthPrefixedSlice(input, blob)) {
-        return Status::Corruption("bad WriteBatch Blob");
+        return Status::Corruption("bad WriteBatch Blob" FILE_LINE);
       }
       break;
     case kTypeNoop:
@@ -341,21 +341,21 @@ Status ReadRecordFromWriteBatch(Slice* input, char* tag,
       break;
     case kTypeEndPrepareXID:
       if (!GetLengthPrefixedSlice(input, xid)) {
-        return Status::Corruption("bad EndPrepare XID");
+        return Status::Corruption("bad EndPrepare XID" FILE_LINE);
       }
       break;
     case kTypeCommitXID:
       if (!GetLengthPrefixedSlice(input, xid)) {
-        return Status::Corruption("bad Commit XID");
+        return Status::Corruption("bad Commit XID" FILE_LINE);
       }
       break;
     case kTypeRollbackXID:
       if (!GetLengthPrefixedSlice(input, xid)) {
-        return Status::Corruption("bad Rollback XID");
+        return Status::Corruption("bad Rollback XID" FILE_LINE);
       }
       break;
     default:
-      return Status::Corruption("unknown WriteBatch tag");
+      return Status::Corruption("unknown WriteBatch tag" FILE_LINE);
   }
   return Status::OK();
 }
@@ -363,7 +363,7 @@ Status ReadRecordFromWriteBatch(Slice* input, char* tag,
 Status WriteBatch::Iterate(Handler* handler) const {
   Slice input(rep_);
   if (input.size() < WriteBatchInternal::kHeader) {
-    return Status::Corruption("malformed WriteBatch (too small)");
+    return Status::Corruption("malformed WriteBatch (too small)" FILE_LINE);
   }
 
   input.remove_prefix(WriteBatchInternal::kHeader);
@@ -442,14 +442,14 @@ Status WriteBatch::Iterate(Handler* handler) const {
       case kTypeNoop:
         break;
       default:
-        return Status::Corruption("unknown WriteBatch tag");
+        return Status::Corruption("unknown WriteBatch tag" FILE_LINE);
     }
   }
   if (!s.ok()) {
     return s;
   }
   if (found != WriteBatchInternal::Count(this)) {
-    return Status::Corruption("WriteBatch has wrong count");
+    return Status::Corruption("WriteBatch has wrong count" FILE_LINE);
   } else {
     return Status::OK();
   }

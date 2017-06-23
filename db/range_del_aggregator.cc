@@ -188,7 +188,8 @@ Status RangeDelAggregator::AddTombstones(
     }
     ParsedInternalKey parsed_key;
     if (!ParseInternalKey(input->key(), &parsed_key)) {
-      return Status::Corruption("Unable to parse range tombstone InternalKey");
+      return Status::Corruption(
+          "Unable to parse range tombstone InternalKey" FILE_LINE);
     }
     RangeTombstone tombstone(parsed_key, input->value());
     AddTombstone(std::move(tombstone));

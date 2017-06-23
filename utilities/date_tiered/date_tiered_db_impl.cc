@@ -146,7 +146,7 @@ Status DateTieredDBImpl::DropObsoleteColumnFamilies() {
 // Get timestamp from user key
 Status DateTieredDBImpl::GetTimestamp(const Slice& key, int64_t* result) {
   if (key.size() < kTSLength) {
-    return Status::Corruption("Bad timestamp in key");
+    return Status::Corruption("Bad timestamp in key" FILE_LINE);
   }
   const char* pos = key.data() + key.size() - 8;
   int64_t timestamp = 0;

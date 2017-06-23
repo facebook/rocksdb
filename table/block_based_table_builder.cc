@@ -494,12 +494,12 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
           abort_compression = true;
           ROCKS_LOG_ERROR(r->ioptions.info_log,
                           "Decompressed block did not match raw block");
-          r->status =
-              Status::Corruption("Decompressed block did not match raw block");
+          r->status = Status::Corruption(
+              "Decompressed block did not match raw block" FILE_LINE);
         }
       } else {
         // Decompression reported an error. abort.
-        r->status = Status::Corruption("Could not decompress");
+        r->status = Status::Corruption("Could not decompress" FILE_LINE);
         abort_compression = true;
       }
     }

@@ -369,7 +369,7 @@ Status DBImpl::Recover(
           return Status::Corruption(
               "While creating a new Db, wal_dir contains "
               "existing log file: ",
-              filenames[i]);
+              filenames[i] + FILE_LINE_STR);
         } else {
           logs.push_back(number);
         }
@@ -380,7 +380,7 @@ Status DBImpl::Recover(
       if (error_if_log_file_exist) {
         return Status::Corruption(
             "The db was opened in readonly mode with error_if_log_file_exist"
-            "flag but a log file already exists");
+            "flag but a log file already exists" FILE_LINE);
       } else if (error_if_data_exists_in_logs) {
         for (auto& log : logs) {
           std::string fname = LogFileName(immutable_db_options_.wal_dir, log);
@@ -390,7 +390,7 @@ Status DBImpl::Recover(
             if (bytes > 0) {
               return Status::Corruption(
                   "error_if_data_exists_in_logs is set but there are data "
-                  " in log files.");
+                  " in log files." FILE_LINE);
             }
           }
         }
@@ -554,8 +554,9 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
                              immutable_db_options_.wal_recovery_mode) &&
            status.ok()) {
       if (record.size() < WriteBatchInternal::kHeader) {
-        reporter.Corruption(record.size(),
-                            Status::Corruption("log record too small"));
+        reporter.Corruption(
+            record.size(),
+            Status::Corruption("log record too small" FILE_LINE));
         continue;
       }
       WriteBatchInternal::SetContents(&batch, record);
@@ -597,9 +598,9 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
             stop_replay_by_wal_filter = true;
             continue;
           case WalFilter::WalProcessingOption::kCorruptedRecord: {
-            status =
-                Status::Corruption("Corruption reported by Wal Filter ",
-                                   immutable_db_options_.wal_filter->Name());
+            status = Status::Corruption(
+                "Corruption reported by Wal Filter ",
+                immutable_db_options_.wal_filter->Name() + FILE_LINE_STR);
             MaybeIgnoreError(&status);
             if (!status.ok()) {
               reporter.Corruption(record.size(), status);

@@ -1065,7 +1065,7 @@ Status BackupEngineImpl::RestoreDBFromBackup(
     FileType type;
     bool ok = ParseFileName(dst, &number, &type);
     if (!ok) {
-      return Status::Corruption("Backup corrupted");
+      return Status::Corruption("Backup corrupted" FILE_LINE);
     }
     // 3. Construct the final path
     // kLogFile lives in wal_dir and all the rest live in db_dir
@@ -1095,7 +1095,7 @@ Status BackupEngineImpl::RestoreDBFromBackup(
       s = item_status;
       break;
     } else if (item.checksum_value != result.checksum_value) {
-      s = Status::Corruption("Checksum check failed");
+      s = Status::Corruption("Checksum check failed" FILE_LINE);
       break;
     }
   }
@@ -1137,7 +1137,7 @@ Status BackupEngineImpl::VerifyBackup(BackupID backup_id) {
       return Status::NotFound("File missing: " + abs_path);
     }
     if (file_info->size != curr_abs_path_to_size[abs_path]) {
-      return Status::Corruption("File corrupted: " + abs_path);
+      return Status::Corruption("File corrupted: " + abs_path + FILE_LINE_STR);
     }
   }
   return Status::OK();
@@ -1523,13 +1523,13 @@ Status BackupEngineImpl::BackupMeta::AddFile(
       itr->second->refs = 1;
     } else {
       // if this happens, something is seriously wrong
-      return Status::Corruption("In memory metadata insertion error");
+      return Status::Corruption("In memory metadata insertion error" FILE_LINE);
     }
   } else {
     if (itr->second->checksum_value != file_info->checksum_value) {
       return Status::Corruption(
           "Checksum mismatch for existing backup file. Delete old backups and "
-          "try again.");
+          "try again." FILE_LINE);
     }
     ++itr->second->refs;  // increase refcount if already present
   }
@@ -1587,7 +1587,7 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
   s = backup_meta_reader->Read(max_backup_meta_file_size_, &data, buf.get());
 
   if (!s.ok() || data.size() == max_backup_meta_file_size_) {
-    return s.ok() ? Status::Corruption("File size too big") : s;
+    return s.ok() ? Status::Corruption("File size too big" FILE_LINE) : s;
   }
   buf[data.size()] = 0;
 
@@ -1605,7 +1605,7 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
     bool decode_success = hex_encoded_metadata.DecodeHex(&app_metadata_);
     if (!decode_success) {
       return Status::Corruption(
-          "Failed to decode stored hex encoded app metadata");
+          "Failed to decode stored hex encoded app metadata" FILE_LINE);
     }
   }
 
@@ -1629,13 +1629,14 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
       try {
         size = abs_path_to_size.at(abs_path);
       } catch (std::out_of_range&) {
-        return Status::Corruption("Size missing for pathname: " + abs_path);
+        return Status::Corruption("Size missing for pathname: " + abs_path +
+                                  FILE_LINE_STR);
       }
     }
 
     if (line.empty()) {
       return Status::Corruption("File checksum is missing for " + filename +
-                                " in " + meta_filename_);
+                                " in " + meta_filename_ + FILE_LINE_STR);
     }
 
     uint32_t checksum_value = 0;
@@ -1645,11 +1646,11 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
           strtoul(line.data(), nullptr, 10));
       if (line != rocksdb::ToString(checksum_value)) {
         return Status::Corruption("Invalid checksum value for " + filename +
-                                  " in " + meta_filename_);
+                                  " in " + meta_filename_ + FILE_LINE_STR);
       }
     } else {
       return Status::Corruption("Unknown checksum type for " + filename +
-                                " in " + meta_filename_);
+                                " in " + meta_filename_ + FILE_LINE_STR);
     }
 
     files.emplace_back(new FileInfo(filename, size, checksum_value));
@@ -1658,7 +1659,7 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
   if (s.ok() && data.size() > 0) {
     // file has to be read completely. if not, we count it as corruption
     s = Status::Corruption("Tailing data in backup meta file in " +
-                           meta_filename_);
+                           meta_filename_ + FILE_LINE_STR);
   }
 
   if (s.ok()) {
@@ -1696,7 +1697,8 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
         Slice(app_metadata_).ToString(/* hex */ true);
     if (hex_encoded_metadata.size() + kMetaDataPrefix.size() + 1 >
         buf_size - len) {
-      return Status::Corruption("Buffer too small to fit backup metadata");
+      return Status::Corruption(
+          "Buffer too small to fit backup metadata" FILE_LINE);
     }
     memcpy(buf.get() + len, kMetaDataPrefix.data(), kMetaDataPrefix.size());
     len += kMetaDataPrefix.size();

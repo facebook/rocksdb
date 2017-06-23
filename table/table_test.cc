@@ -276,7 +276,7 @@ class KeyConvertingIterator : public InternalIterator {
     assert(Valid());
     ParsedInternalKey parsed_key;
     if (!ParseInternalKey(iter_->key(), &parsed_key)) {
-      status_ = Status::Corruption("malformed internal key");
+      status_ = Status::Corruption("malformed internal key" FILE_LINE);
       return Slice("corrupted key");
     }
     return parsed_key.user_key;

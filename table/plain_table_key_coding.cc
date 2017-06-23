@@ -88,7 +88,7 @@ Status PlainTableKeyEncoder::AppendKey(const Slice& key,
                                        size_t* meta_bytes_buf_size) {
   ParsedInternalKey parsed_key;
   if (!ParseInternalKey(key, &parsed_key)) {
-    return Status::Corruption(Slice());
+    return Status::Corruption(FILE_LINE);
   }
 
   Slice key_to_write = key;  // Portion of internal key to write out.
@@ -353,7 +353,8 @@ Status PlainTableKeyDecoder::NextPrefixEncodingKey(
       return s;
     }
     if (my_bytes_read == 0) {
-      return Status::Corruption("Unexpected EOF when reading size of the key");
+      return Status::Corruption(
+          "Unexpected EOF when reading size of the key" FILE_LINE);
     }
     *bytes_read += my_bytes_read;
 
@@ -440,7 +441,7 @@ Status PlainTableKeyDecoder::NextPrefixEncodingKey(
         break;
       }
       default:
-        return Status::Corruption("Un-identified size flag.");
+        return Status::Corruption("Un-identified size flag." FILE_LINE);
     }
   } while (expect_suffix);  // Another round if suffix is expected.
   return Status::OK();

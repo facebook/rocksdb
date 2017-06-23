@@ -549,7 +549,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
   if (!BlockBasedTableSupportedVersion(footer.version())) {
     return Status::Corruption(
         "Unknown Footer version. Maybe this file was created with newer "
-        "version of RocksDB?");
+        "version of RocksDB?" FILE_LINE);
   }
 
   // We've successfully read the footer. We are ready to serve requests.
@@ -1668,7 +1668,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         for (biter.Seek(key); biter.Valid(); biter.Next()) {
           ParsedInternalKey parsed_key;
           if (!ParseInternalKey(biter.key(), &parsed_key)) {
-            s = Status::Corruption(Slice());
+            s = Status::Corruption(FILE_LINE);
           }
 
           if (!get_context->SaveValue(parsed_key, biter.value(), &biter)) {

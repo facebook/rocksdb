@@ -182,7 +182,8 @@ void CompactionIterator::NextFromInput() {
       // TODO(noetzli): We should have a more elegant solution for this.
       if (expect_valid_internal_key_) {
         assert(!"Corrupted internal key not expected.");
-        status_ = Status::Corruption("Corrupted internal key not expected.");
+        status_ = Status::Corruption(
+            "Corrupted internal key not expected." FILE_LINE);
         break;
       }
       key_ = current_key_.SetInternalKey(key_);

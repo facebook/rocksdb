@@ -227,7 +227,8 @@ Status CheckpointImpl::CreateCustomCheckpoint(
     FileType type;
     bool ok = ParseFileName(live_files[i], &number, &type);
     if (!ok) {
-      s = Status::Corruption("Can't parse file name. This is very bad");
+      s = Status::Corruption(
+          "Can't parse file name. This is very bad" FILE_LINE);
       break;
     }
     // we should only get sst, options, manifest and current files here

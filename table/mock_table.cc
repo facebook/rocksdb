@@ -43,7 +43,7 @@ Status MockTableReader::Get(const ReadOptions&, const Slice& key,
   for (iter->Seek(key); iter->Valid(); iter->Next()) {
     ParsedInternalKey parsed_key;
     if (!ParseInternalKey(iter->key(), &parsed_key)) {
-      return Status::Corruption(Slice());
+      return Status::Corruption(FILE_LINE);
     }
 
     if (!get_context->SaveValue(parsed_key, iter->value())) {

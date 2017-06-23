@@ -296,7 +296,7 @@ void Reader::UnmarkEOF() {
 }
 
 void Reader::ReportCorruption(size_t bytes, const char* reason) {
-  ReportDrop(bytes, Status::Corruption(reason));
+  ReportDrop(bytes, Status::Corruption(reason + FILE_LINE_STR));
 }
 
 void Reader::ReportDrop(size_t bytes, const Status& reason) {

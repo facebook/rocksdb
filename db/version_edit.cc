@@ -453,7 +453,7 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
 
   Status result;
   if (msg != nullptr) {
-    result = Status::Corruption("VersionEdit", msg);
+    result = Status::Corruption("VersionEdit", msg + FILE_LINE_STR);
   }
   return result;
 }

@@ -456,11 +456,12 @@ Status RocksDBOptionsParser::EndSection(
 Status RocksDBOptionsParser::ValidityCheck() {
   if (!has_db_options_) {
     return Status::Corruption(
-        "A RocksDB Option file must have a single DBOptions section");
+        "A RocksDB Option file must have a single DBOptions section" FILE_LINE);
   }
   if (!has_default_cf_options_) {
     return Status::Corruption(
-        "A RocksDB Option file must have a single CFOptions:default section");
+        "A RocksDB Option file must have a single CFOptions:default "
+        "section" FILE_LINE);
   }
 
   return Status::OK();
@@ -769,7 +770,8 @@ Status RocksDBOptionsParser::VerifyBlockBasedTableFactory(
   if ((base_tf != nullptr) != (file_tf != nullptr) &&
       sanity_check_level > kSanityLevelNone) {
     return Status::Corruption(
-        "[RocksDBOptionsParser]: Inconsistent TableFactory class type");
+        "[RocksDBOptionsParser]: Inconsistent TableFactory class "
+        "type" FILE_LINE);
   }
   if (base_tf == nullptr) {
     return Status::OK();
@@ -792,7 +794,7 @@ Status RocksDBOptionsParser::VerifyBlockBasedTableFactory(
         return Status::Corruption(
             "[RocksDBOptionsParser]: "
             "failed the verification on BlockBasedTableOptions::",
-            pair.first);
+            pair.first + FILE_LINE_STR);
       }
     }
   }
@@ -807,7 +809,7 @@ Status RocksDBOptionsParser::VerifyTableFactory(
         base_tf->Name() != file_tf->Name()) {
       return Status::Corruption(
           "[RocksDBOptionsParser]: "
-          "failed the verification on TableFactory->Name()");
+          "failed the verification on TableFactory->Name()" FILE_LINE);
     }
     auto s = VerifyBlockBasedTableFactory(
         dynamic_cast<const BlockBasedTableFactory*>(base_tf),

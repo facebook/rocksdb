@@ -94,7 +94,8 @@ Status Reader::ReadRecord(BlobLogRecord* record, ReadLevel level,
           crc32c::Extend(header_crc, record->key_.data(), record->GetKeySize());
       header_crc = crc32c::Mask(header_crc);
       if (header_crc != record->header_cksum_) {
-        return Status::Corruption("Record Checksum mismatch: header_cksum");
+        return Status::Corruption(
+            "Record Checksum mismatch: header_cksum" FILE_LINE);
       }
 
       file_->Skip(record->GetBlobSize());
@@ -125,7 +126,8 @@ Status Reader::ReadRecord(BlobLogRecord* record, ReadLevel level,
           crc32c::Extend(header_crc, record->key_.data(), record->GetKeySize());
       header_crc = crc32c::Mask(header_crc);
       if (header_crc != record->header_cksum_) {
-        return Status::Corruption("Record Checksum mismatch: header_cksum");
+        return Status::Corruption(
+            "Record Checksum mismatch: header_cksum" FILE_LINE);
       }
 
       record->ResizeBlobBuffer(record->GetBlobSize());
@@ -141,7 +143,7 @@ Status Reader::ReadRecord(BlobLogRecord* record, ReadLevel level,
           crc32c::Extend(blob_crc, record->blob_.data(), record->blob_.size());
       blob_crc = crc32c::Mask(blob_crc);
       if (blob_crc != record->checksum_) {
-        return Status::Corruption("Blob Checksum mismatch");
+        return Status::Corruption("Blob Checksum mismatch" FILE_LINE);
       }
 
       status =

@@ -90,7 +90,8 @@ void CuckooTableBuilder::Add(const Slice& key, const Slice& value) {
   }
   ParsedInternalKey ikey;
   if (!ParseInternalKey(key, &ikey)) {
-    status_ = Status::Corruption("Unable to parse key into inernal key.");
+    status_ =
+        Status::Corruption("Unable to parse key into inernal key." FILE_LINE);
     return;
   }
   if (ikey.type != kTypeDeletion && ikey.type != kTypeValue) {
@@ -281,7 +282,7 @@ Status CuckooTableBuilder::Finish() {
       }
     }
     if (curr_pos < 0) {
-      return Status::Corruption("Unable to find unused key");
+      return Status::Corruption("Unable to find unused key" FILE_LINE);
     }
     if (is_last_level_file_) {
       unused_bucket = unused_user_key;

@@ -36,7 +36,7 @@ Status BlobLogFooter::DecodeFrom(const Slice& input) {
   Slice slice(input);
   uint32_t val;
   if (!GetFixed32(&slice, &val)) {
-    return Status::Corruption("Invalid Blob Footer: flags");
+    return Status::Corruption("Invalid Blob Footer: flags" FILE_LINE);
   }
 
   bool has_ttl = false;
@@ -53,17 +53,17 @@ Status BlobLogFooter::DecodeFrom(const Slice& input) {
       has_ts = true;
       break;
     default:
-      return Status::Corruption("Invalid Blob Footer: flags_val");
+      return Status::Corruption("Invalid Blob Footer: flags_val" FILE_LINE);
   }
 
   if (!GetFixed64(&slice, &blob_count_)) {
-    return Status::Corruption("Invalid Blob Footer: blob_count");
+    return Status::Corruption("Invalid Blob Footer: blob_count" FILE_LINE);
   }
 
   ttlrange_t temp_ttl;
   if (!GetFixed32(&slice, &temp_ttl.first) ||
       !GetFixed32(&slice, &temp_ttl.second)) {
-    return Status::Corruption("Invalid Blob Footer: ttl_range");
+    return Status::Corruption("Invalid Blob Footer: ttl_range" FILE_LINE);
   }
   if (has_ttl) {
     ttl_range_.reset(new ttlrange_t(temp_ttl));
@@ -71,20 +71,20 @@ Status BlobLogFooter::DecodeFrom(const Slice& input) {
 
   if (!GetFixed64(&slice, &sn_range_.first) ||
       !GetFixed64(&slice, &sn_range_.second)) {
-    return Status::Corruption("Invalid Blob Footer: sn_range");
+    return Status::Corruption("Invalid Blob Footer: sn_range" FILE_LINE);
   }
 
   tsrange_t temp_ts;
   if (!GetFixed64(&slice, &temp_ts.first) ||
       !GetFixed64(&slice, &temp_ts.second)) {
-    return Status::Corruption("Invalid Blob Footer: ts_range");
+    return Status::Corruption("Invalid Blob Footer: ts_range" FILE_LINE);
   }
   if (has_ts) {
     ts_range_.reset(new tsrange_t(temp_ts));
   }
 
   if (!GetFixed32(&slice, &magic_number_) || magic_number_ != kMagicNumber) {
-    return Status::Corruption("Invalid Blob Footer: magic");
+    return Status::Corruption("Invalid Blob Footer: magic" FILE_LINE);
   }
 
   return Status::OK();
@@ -168,17 +168,17 @@ void BlobLogHeader::EncodeTo(std::string* dst) const {
 Status BlobLogHeader::DecodeFrom(const Slice& input) {
   Slice slice(input);
   if (!GetFixed32(&slice, &magic_number_) || magic_number_ != kMagicNumber) {
-    return Status::Corruption("Invalid Blob Log Header: magic");
+    return Status::Corruption("Invalid Blob Log Header: magic" FILE_LINE);
   }
 
   // as of today, we only support 1 version
   if (!GetFixed32(&slice, &version_) || version_ != kVersion1) {
-    return Status::Corruption("Invalid Blob Log Header: version");
+    return Status::Corruption("Invalid Blob Log Header: version" FILE_LINE);
   }
 
   uint32_t val;
   if (!GetFixed32(&slice, &val)) {
-    return Status::Corruption("Invalid Blob Log Header: subtype");
+    return Status::Corruption("Invalid Blob Log Header: subtype" FILE_LINE);
   }
 
   bool has_ttl = false;
@@ -195,20 +195,20 @@ Status BlobLogHeader::DecodeFrom(const Slice& input) {
       has_ts = true;
       break;
     default:
-      return Status::Corruption("Invalid Blob Log Header: subtype_2");
+      return Status::Corruption("Invalid Blob Log Header: subtype_2" FILE_LINE);
   }
 
   ttlrange_t temp_ttl;
   if (!GetFixed32(&slice, &temp_ttl.first) ||
       !GetFixed32(&slice, &temp_ttl.second)) {
-    return Status::Corruption("Invalid Blob Log Header: ttl");
+    return Status::Corruption("Invalid Blob Log Header: ttl" FILE_LINE);
   }
   if (has_ttl) set_ttl_guess(temp_ttl);
 
   tsrange_t temp_ts;
   if (!GetFixed64(&slice, &temp_ts.first) ||
       !GetFixed64(&slice, &temp_ts.second)) {
-    return Status::Corruption("Invalid Blob Log Header: timestamp");
+    return Status::Corruption("Invalid Blob Log Header: timestamp" FILE_LINE);
   }
   if (has_ts) set_ts_guess(temp_ts);
 
@@ -256,20 +256,21 @@ void BlobLogRecord::Clear() {
 Status BlobLogRecord::DecodeHeaderFrom(const Slice& hdrslice) {
   Slice input = hdrslice;
   if (input.size() < kHeaderSize) {
-    return Status::Corruption("Invalid Blob Record Header: size");
+    return Status::Corruption("Invalid Blob Record Header: size" FILE_LINE);
   }
 
   if (!GetFixed32(&input, &key_size_)) {
-    return Status::Corruption("Invalid Blob Record Header: key_size");
+    return Status::Corruption("Invalid Blob Record Header: key_size" FILE_LINE);
   }
   if (!GetFixed64(&input, &blob_size_)) {
-    return Status::Corruption("Invalid Blob Record Header: blob_size");
+    return Status::Corruption(
+        "Invalid Blob Record Header: blob_size" FILE_LINE);
   }
   if (!GetFixed32(&input, &ttl_val_)) {
-    return Status::Corruption("Invalid Blob Record Header: ttl_val");
+    return Status::Corruption("Invalid Blob Record Header: ttl_val" FILE_LINE);
   }
   if (!GetFixed64(&input, &time_val_)) {
-    return Status::Corruption("Invalid Blob Record Header: time_val");
+    return Status::Corruption("Invalid Blob Record Header: time_val" FILE_LINE);
   }
 
   type_ = *(input.data());
@@ -278,10 +279,11 @@ Status BlobLogRecord::DecodeHeaderFrom(const Slice& hdrslice) {
   input.remove_prefix(1);
 
   if (!GetFixed32(&input, &header_cksum_)) {
-    return Status::Corruption("Invalid Blob Record Header: header_cksum");
+    return Status::Corruption(
+        "Invalid Blob Record Header: header_cksum" FILE_LINE);
   }
   if (!GetFixed32(&input, &checksum_)) {
-    return Status::Corruption("Invalid Blob Record Header: checksum");
+    return Status::Corruption("Invalid Blob Record Header: checksum" FILE_LINE);
   }
 
   return Status::OK();
@@ -290,22 +292,23 @@ Status BlobLogRecord::DecodeHeaderFrom(const Slice& hdrslice) {
 Status BlobLogRecord::DecodeFooterFrom(const Slice& footerslice) {
   Slice input = footerslice;
   if (input.size() < kFooterSize) {
-    return Status::Corruption("Invalid Blob Record Footer: size");
+    return Status::Corruption("Invalid Blob Record Footer: size" FILE_LINE);
   }
 
   uint32_t f_crc = crc32c::Extend(0, input.data(), 8);
   f_crc = crc32c::Mask(f_crc);
 
   if (!GetFixed64(&input, &sn_)) {
-    return Status::Corruption("Invalid Blob Record Footer: sn");
+    return Status::Corruption("Invalid Blob Record Footer: sn" FILE_LINE);
   }
 
   if (!GetFixed32(&input, &footer_cksum_)) {
-    return Status::Corruption("Invalid Blob Record Footer: cksum");
+    return Status::Corruption("Invalid Blob Record Footer: cksum" FILE_LINE);
   }
 
   if (f_crc != footer_cksum_) {
-    return Status::Corruption("Record Checksum mismatch: footer_cksum");
+    return Status::Corruption(
+        "Record Checksum mismatch: footer_cksum" FILE_LINE);
   }
 
   return Status::OK();

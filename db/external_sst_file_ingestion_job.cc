@@ -86,7 +86,8 @@ Status ExternalSstFileIngestionJob::Prepare(
 
     if (!f.smallest_internal_key().Valid() ||
         !f.largest_internal_key().Valid()) {
-      return Status::Corruption("Generated table have corrupted keys");
+      return Status::Corruption(
+          "Generated table have corrupted keys" FILE_LINE);
     }
   }
 
@@ -298,7 +299,7 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   // Get table version
   auto version_iter = uprops.find(ExternalSstFilePropertyNames::kVersion);
   if (version_iter == uprops.end()) {
-    return Status::Corruption("External file version not found");
+    return Status::Corruption("External file version not found" FILE_LINE);
   }
   file_to_ingest->version = DecodeFixed32(version_iter->second.c_str());
 
@@ -307,7 +308,7 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
     // version 2 imply that we have global sequence number
     if (seqno_iter == uprops.end()) {
       return Status::Corruption(
-          "External file global sequence number not found");
+          "External file global sequence number not found" FILE_LINE);
     }
 
     // Set the global sequence number
@@ -316,7 +317,8 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
         ExternalSstFilePropertyNames::kGlobalSeqno);
 
     if (file_to_ingest->global_seqno_offset == 0) {
-      return Status::Corruption("Was not able to find file global seqno field");
+      return Status::Corruption(
+          "Was not able to find file global seqno field" FILE_LINE);
     }
   } else if (file_to_ingest->version == 1) {
     // SST file V1 should not have global seqno field
@@ -346,20 +348,22 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   // Get first (smallest) key from file
   iter->SeekToFirst();
   if (!ParseInternalKey(iter->key(), &key)) {
-    return Status::Corruption("external file have corrupted keys");
+    return Status::Corruption("external file have corrupted keys" FILE_LINE);
   }
   if (key.sequence != 0) {
-    return Status::Corruption("external file have non zero sequence number");
+    return Status::Corruption(
+        "external file have non zero sequence number" FILE_LINE);
   }
   file_to_ingest->smallest_user_key = key.user_key.ToString();
 
   // Get last (largest) key from file
   iter->SeekToLast();
   if (!ParseInternalKey(iter->key(), &key)) {
-    return Status::Corruption("external file have corrupted keys");
+    return Status::Corruption("external file have corrupted keys" FILE_LINE);
   }
   if (key.sequence != 0) {
-    return Status::Corruption("external file have non zero sequence number");
+    return Status::Corruption(
+        "external file have non zero sequence number" FILE_LINE);
   }
   file_to_ingest->largest_user_key = key.user_key.ToString();
 
@@ -559,7 +563,7 @@ Status ExternalSstFileIngestionJob::IngestedFileOverlapWithIteratorRange(
   if (iter->Valid()) {
     ParsedInternalKey seek_result;
     if (!ParseInternalKey(iter->key(), &seek_result)) {
-      return Status::Corruption("DB have corrupted keys");
+      return Status::Corruption("DB have corrupted keys" FILE_LINE);
     }
 
     if (ucmp->Compare(seek_result.user_key, file_to_ingest->largest_user_key) <=
@@ -584,7 +588,8 @@ Status ExternalSstFileIngestionJob::IngestedFileOverlapWithRangeDeletions(
       ParsedInternalKey parsed_key;
       if (!ParseInternalKey(range_del_iter->key(), &parsed_key)) {
         return Status::Corruption("corrupted range deletion key: " +
-                                  range_del_iter->key().ToString());
+                                  range_del_iter->key().ToString() +
+                                  FILE_LINE_STR);
       }
       RangeTombstone range_del(parsed_key, range_del_iter->value());
       if (ucmp->Compare(range_del.start_key_,

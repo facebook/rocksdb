@@ -321,7 +321,8 @@ Status FindMetaBlock(InternalIterator* meta_index_iter,
     Slice v = meta_index_iter->value();
     return block_handle->DecodeFrom(&v);
   } else {
-    return Status::Corruption("Cannot find the meta block", meta_block_name);
+    return Status::Corruption("Cannot find the meta block",
+                              meta_block_name + FILE_LINE_STR);
   }
 }
 

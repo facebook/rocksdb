@@ -64,7 +64,7 @@ Status BlockHandle::DecodeFrom(Slice* input) {
     // reset in case failure after partially decoding
     offset_ = 0;
     size_ = 0;
-    return Status::Corruption("bad block handle");
+    return Status::Corruption("bad block handle" FILE_LINE);
   }
 }
 
@@ -174,13 +174,14 @@ Status Footer::DecodeFrom(Slice* input) {
     // It consists of the checksum type, two block handles, padding,
     // a version number, and a magic number
     if (input->size() < kNewVersionsEncodedLength) {
-      return Status::Corruption("input is too short to be an sstable");
+      return Status::Corruption(
+          "input is too short to be an sstable" FILE_LINE);
     } else {
       input->remove_prefix(input->size() - kNewVersionsEncodedLength);
     }
     uint32_t chksum;
     if (!GetVarint32(input, &chksum)) {
-      return Status::Corruption("bad checksum type");
+      return Status::Corruption("bad checksum type" FILE_LINE);
     }
     checksum_ = static_cast<ChecksumType>(chksum);
   }
@@ -221,7 +222,7 @@ std::string Footer::ToString() const {
 Status ReadFooterFromFile(RandomAccessFileReader* file, uint64_t file_size,
                           Footer* footer, uint64_t enforce_table_magic_number) {
   if (file_size < Footer::kMinEncodedLength) {
-    return Status::Corruption("file is too short to be an sstable");
+    return Status::Corruption("file is too short to be an sstable" FILE_LINE);
   }
 
   char footer_space[Footer::kMaxEncodedLength];
@@ -237,7 +238,7 @@ Status ReadFooterFromFile(RandomAccessFileReader* file, uint64_t file_size,
   // Check that we actually read the whole footer from the file. It may be
   // that size isn't correct.
   if (footer_input.size() < Footer::kMinEncodedLength) {
-    return Status::Corruption("file is too short to be an sstable");
+    return Status::Corruption("file is too short to be an sstable" FILE_LINE);
   }
 
   s = footer->DecodeFrom(&footer_input);
@@ -246,7 +247,7 @@ Status ReadFooterFromFile(RandomAccessFileReader* file, uint64_t file_size,
   }
   if (enforce_table_magic_number != 0 &&
       enforce_table_magic_number != footer->table_magic_number()) {
-    return Status::Corruption("Bad table magic number");
+    return Status::Corruption("Bad table magic number" FILE_LINE);
   }
   return Status::OK();
 }
@@ -275,7 +276,7 @@ Status ReadBlock(RandomAccessFileReader* file, const Footer& footer,
     return s;
   }
   if (contents->size() != n + kBlockTrailerSize) {
-    return Status::Corruption("truncated block read");
+    return Status::Corruption("truncated block read" FILE_LINE);
   }
 
   // Check the crc of the type and the block contents
@@ -293,10 +294,10 @@ Status ReadBlock(RandomAccessFileReader* file, const Footer& footer,
         actual = XXH32(data, static_cast<int>(n) + 1, 0);
         break;
       default:
-        s = Status::Corruption("unknown checksum type");
+        s = Status::Corruption("unknown checksum type" FILE_LINE);
     }
     if (s.ok() && actual != value) {
-      s = Status::Corruption("block checksum mismatch");
+      s = Status::Corruption("block checksum mismatch" FILE_LINE);
     }
     if (!s.ok()) {
       return s;
@@ -434,11 +435,11 @@ Status UncompressBlockContentsForCompressionType(
       static char snappy_corrupt_msg[] =
         "Snappy not supported or corrupted Snappy compressed block contents";
       if (!Snappy_GetUncompressedLength(data, n, &ulength)) {
-        return Status::Corruption(snappy_corrupt_msg);
+        return Status::Corruption(snappy_corrupt_msg + FILE_LINE_STR);
       }
       ubuf.reset(new char[ulength]);
       if (!Snappy_Uncompress(data, n, ubuf.get())) {
-        return Status::Corruption(snappy_corrupt_msg);
+        return Status::Corruption(snappy_corrupt_msg + FILE_LINE_STR);
       }
       *contents = BlockContents(std::move(ubuf), ulength, true, kNoCompression);
       break;
@@ -451,7 +452,7 @@ Status UncompressBlockContentsForCompressionType(
       if (!ubuf) {
         static char zlib_corrupt_msg[] =
           "Zlib not supported or corrupted Zlib compressed block contents";
-        return Status::Corruption(zlib_corrupt_msg);
+        return Status::Corruption(zlib_corrupt_msg + FILE_LINE_STR);
       }
       *contents =
           BlockContents(std::move(ubuf), decompress_size, true, kNoCompression);
@@ -463,7 +464,7 @@ Status UncompressBlockContentsForCompressionType(
       if (!ubuf) {
         static char bzip2_corrupt_msg[] =
           "Bzip2 not supported or corrupted Bzip2 compressed block contents";
-        return Status::Corruption(bzip2_corrupt_msg);
+        return Status::Corruption(bzip2_corrupt_msg + FILE_LINE_STR);
       }
       *contents =
           BlockContents(std::move(ubuf), decompress_size, true, kNoCompression);
@@ -476,7 +477,7 @@ Status UncompressBlockContentsForCompressionType(
       if (!ubuf) {
         static char lz4_corrupt_msg[] =
           "LZ4 not supported or corrupted LZ4 compressed block contents";
-        return Status::Corruption(lz4_corrupt_msg);
+        return Status::Corruption(lz4_corrupt_msg + FILE_LINE_STR);
       }
       *contents =
           BlockContents(std::move(ubuf), decompress_size, true, kNoCompression);
@@ -489,7 +490,7 @@ Status UncompressBlockContentsForCompressionType(
       if (!ubuf) {
         static char lz4hc_corrupt_msg[] =
           "LZ4HC not supported or corrupted LZ4HC compressed block contents";
-        return Status::Corruption(lz4hc_corrupt_msg);
+        return Status::Corruption(lz4hc_corrupt_msg + FILE_LINE_STR);
       }
       *contents =
           BlockContents(std::move(ubuf), decompress_size, true, kNoCompression);
@@ -499,7 +500,7 @@ Status UncompressBlockContentsForCompressionType(
       if (!ubuf) {
         static char xpress_corrupt_msg[] =
           "XPRESS not supported or corrupted XPRESS compressed block contents";
-        return Status::Corruption(xpress_corrupt_msg);
+        return Status::Corruption(xpress_corrupt_msg + FILE_LINE_STR);
       }
       *contents =
         BlockContents(std::move(ubuf), decompress_size, true, kNoCompression);
@@ -510,13 +511,13 @@ Status UncompressBlockContentsForCompressionType(
       if (!ubuf) {
         static char zstd_corrupt_msg[] =
             "ZSTD not supported or corrupted ZSTD compressed block contents";
-        return Status::Corruption(zstd_corrupt_msg);
+        return Status::Corruption(zstd_corrupt_msg + FILE_LINE_STR);
       }
       *contents =
           BlockContents(std::move(ubuf), decompress_size, true, kNoCompression);
       break;
     default:
-      return Status::Corruption("bad block type");
+      return Status::Corruption("bad block type" FILE_LINE);
   }
 
   if(ShouldReportDetailedTime(ioptions.env, ioptions.statistics)){

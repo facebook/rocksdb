@@ -1968,8 +1968,9 @@ void DumpWalFile(std::string wal_file, bool print_header, bool print_values,
     while (reader.ReadRecord(&record, &scratch)) {
       row.str("");
       if (record.size() < WriteBatchInternal::kHeader) {
-        reporter.Corruption(record.size(),
-                            Status::Corruption("log record too small"));
+        reporter.Corruption(
+            record.size(),
+            Status::Corruption("log record too small" FILE_LINE));
       } else {
         WriteBatchInternal::SetContents(&batch, record);
         row << WriteBatchInternal::Sequence(&batch) << ",";

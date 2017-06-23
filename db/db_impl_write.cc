@@ -64,7 +64,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
                          uint64_t* log_used, uint64_t log_ref,
                          bool disable_memtable) {
   if (my_batch == nullptr) {
-    return Status::Corruption("Batch is nullptr!");
+    return Status::Corruption("Batch is nullptr!" FILE_LINE);
   }
 
   Status status;
