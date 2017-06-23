@@ -47,6 +47,12 @@ BlockBasedTableFactory::BlockBasedTableFactory(
   if (table_options_.index_block_restart_interval < 1) {
     table_options_.index_block_restart_interval = 1;
   }
+  if (table_options_.partition_filters &&
+      table_options_.index_type !=
+          BlockBasedTableOptions::kTwoLevelIndexSearch) {
+    // We do not support partitioned filters without partitioning indexes
+    table_options_.partition_filters = false;
+  }
 }
 
 Status BlockBasedTableFactory::NewTableReader(
