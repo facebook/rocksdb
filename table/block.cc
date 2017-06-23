@@ -210,7 +210,7 @@ void BlockIter::SeekToLast() {
 void BlockIter::CorruptionError() {
   current_ = restarts_;
   restart_index_ = num_restarts_;
-  status_ = Status::Corruption("bad entry in block");
+  status_ = Status::Corruption("bad entry in block" FILE_LINE);
   key_.Clear();
   value_.clear();
 }
@@ -426,10 +426,11 @@ InternalIterator* Block::NewIterator(const Comparator* cmp, BlockIter* iter,
                                      bool total_order_seek, Statistics* stats) {
   if (size_ < 2*sizeof(uint32_t)) {
     if (iter != nullptr) {
-      iter->SetStatus(Status::Corruption("bad block contents"));
+      iter->SetStatus(Status::Corruption("bad block contents" FILE_LINE));
       return iter;
     } else {
-      return NewErrorInternalIterator(Status::Corruption("bad block contents"));
+      return NewErrorInternalIterator(
+          Status::Corruption("bad block contents" FILE_LINE));
     }
   }
   const uint32_t num_restarts = NumRestarts();

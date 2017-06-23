@@ -159,10 +159,10 @@ Status BlobFile::ReadFooter(BlobLogFooter* bf) {
 
 Status BlobFile::SetFromFooterLocked(const BlobLogFooter& footer) {
   if (footer.HasTTL() != header_.HasTTL()) {
-    return Status::Corruption("has_ttl mismatch");
+    return Status::Corruption("has_ttl mismatch" FILE_LINE);
   }
   if (footer.HasTimestamp() != header_.HasTimestamp()) {
-    return Status::Corruption("has_ts mismatch");
+    return Status::Corruption("has_ts mismatch" FILE_LINE);
   }
 
   // assume that file has been fully fsync'd

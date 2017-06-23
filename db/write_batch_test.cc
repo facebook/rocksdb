@@ -163,9 +163,10 @@ TEST_F(WriteBatchTest, Corruption) {
   Slice contents = WriteBatchInternal::Contents(&batch);
   WriteBatchInternal::SetContents(&batch,
                                   Slice(contents.data(),contents.size()-1));
-  ASSERT_EQ("Put(foo, bar)@200"
-            "Corruption: bad WriteBatch Delete",
-            PrintContents(&batch));
+  auto expected_str =
+      "Put(foo, bar)@200"
+      "Corruption: bad WriteBatch Delete";
+  ASSERT_TRUE(PrintContents(&batch).find(expected_str) != std::string::npos);
 }
 
 TEST_F(WriteBatchTest, Append) {

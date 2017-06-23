@@ -242,7 +242,7 @@ Status PlainTableReader::PopulateIndexRecordList(
     index_builder->AddKeyPrefix(GetPrefix(key), key_offset);
 
     if (!seekable && is_first_record) {
-      return Status::Corruption("Key for a prefix is not seekable");
+      return Status::Corruption("Key for a prefix is not seekable" FILE_LINE);
     }
 
     is_first_record = false;
@@ -440,7 +440,7 @@ Status PlainTableReader::GetOffset(PlainTableKeyDecoder* decoder,
   ParsedInternalKey mid_key;
   ParsedInternalKey parsed_target;
   if (!ParseInternalKey(target, &parsed_target)) {
-    return Status::Corruption(Slice());
+    return Status::Corruption(FILE_LINE);
   }
 
   // The key is between [low, high). Do a binary search between it.
@@ -517,7 +517,7 @@ Status PlainTableReader::Next(PlainTableKeyDecoder* decoder, uint32_t* offset,
   }
 
   if (*offset > file_info_.data_end_offset) {
-    return Status::Corruption("Offset is out of file size");
+    return Status::Corruption("Offset is out of file size" FILE_LINE);
   }
 
   uint32_t bytes_read;
@@ -575,7 +575,7 @@ Status PlainTableReader::Get(const ReadOptions& ro, const Slice& target,
   ParsedInternalKey found_key;
   ParsedInternalKey parsed_target;
   if (!ParseInternalKey(target, &parsed_target)) {
-    return Status::Corruption(Slice());
+    return Status::Corruption(FILE_LINE);
   }
   Slice found_value;
   while (offset < file_info_.data_end_offset) {

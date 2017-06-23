@@ -298,7 +298,7 @@ class DBIter: public Iterator {
 
 inline bool DBIter::ParseKey(ParsedInternalKey* ikey) {
   if (!ParseInternalKey(iter_->key(), ikey)) {
-    status_ = Status::Corruption("corrupted internal key in DBIter");
+    status_ = Status::Corruption("corrupted internal key in DBIter" FILE_LINE);
     ROCKS_LOG_ERROR(logger_, "corrupted internal key in DBIter: %s",
                     iter_->key().ToString(true).c_str());
     return false;

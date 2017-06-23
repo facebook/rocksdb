@@ -145,13 +145,15 @@ Status DBWithTTLImpl::AppendTS(const Slice& val, std::string* val_with_ts,
 // timestamp refers to a time lesser than ttl-feature release time
 Status DBWithTTLImpl::SanityCheckTimestamp(const Slice& str) {
   if (str.size() < kTSLength) {
-    return Status::Corruption("Error: value's length less than timestamp's\n");
+    return Status::Corruption(
+        "Error: value's length less than timestamp's\n" FILE_LINE);
   }
   // Checks that TS is not lesser than kMinTimestamp
   // Gaurds against corruption & normal database opened incorrectly in ttl mode
   int32_t timestamp_value = DecodeFixed32(str.data() + str.size() - kTSLength);
   if (timestamp_value < kMinTimestamp) {
-    return Status::Corruption("Error: Timestamp < ttl feature release time!\n");
+    return Status::Corruption(
+        "Error: Timestamp < ttl feature release time!\n" FILE_LINE);
   }
   return Status::OK();
 }
@@ -174,7 +176,7 @@ bool DBWithTTLImpl::IsStale(const Slice& value, int32_t ttl, Env* env) {
 Status DBWithTTLImpl::StripTS(PinnableSlice* pinnable_val) {
   Status st;
   if (pinnable_val->size() < kTSLength) {
-    return Status::Corruption("Bad timestamp in key-value");
+    return Status::Corruption("Bad timestamp in key-value" FILE_LINE);
   }
   // Erasing characters which hold the TS
   pinnable_val->remove_suffix(kTSLength);
@@ -185,7 +187,7 @@ Status DBWithTTLImpl::StripTS(PinnableSlice* pinnable_val) {
 Status DBWithTTLImpl::StripTS(std::string* str) {
   Status st;
   if (str->length() < kTSLength) {
-    return Status::Corruption("Bad timestamp in key-value");
+    return Status::Corruption("Bad timestamp in key-value" FILE_LINE);
   }
   // Erasing characters which hold the TS
   str->erase(str->length() - kTSLength, kTSLength);

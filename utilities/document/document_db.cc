@@ -582,7 +582,7 @@ class CursorWithFilterIndexed : public Cursor {
     primary_index_iter_->Seek(index_key_.GetPrimaryKey());
     if (!primary_index_iter_->Valid()) {
       status_ = Status::Corruption(
-          "Inconsistency between primary and secondary index");
+          "Inconsistency between primary and secondary index" FILE_LINE);
       valid_ = false;
       return false;
     }
@@ -590,7 +590,7 @@ class CursorWithFilterIndexed : public Cursor {
         JSONDocument::Deserialize(primary_index_iter_->value()));
     assert(current_json_document_->IsOwner());
     if (current_json_document_.get() == nullptr) {
-      status_ = Status::Corruption("JSON deserialization failed");
+      status_ = Status::Corruption("JSON deserialization failed" FILE_LINE);
       valid_ = false;
       return false;
     }
@@ -600,7 +600,7 @@ class CursorWithFilterIndexed : public Cursor {
     if (secondary_index_iter_->Valid()) {
       index_key_ = IndexKey(secondary_index_iter_->key());
       if (!index_key_.ok()) {
-        status_ = Status::Corruption("Invalid index key");
+        status_ = Status::Corruption("Invalid index key" FILE_LINE);
         valid_ = false;
       }
     }
@@ -649,7 +649,7 @@ class CursorFromIterator : public Cursor {
     if (Valid()) {
       current_json_document_.reset(JSONDocument::Deserialize(iter_->value()));
       if (current_json_document_.get() == nullptr) {
-        status_ = Status::Corruption("JSON deserialization failed");
+        status_ = Status::Corruption("JSON deserialization failed" FILE_LINE);
       }
     }
   }
@@ -859,15 +859,15 @@ class DocumentDBImpl : public DocumentDB {
     for (; cursor->status().ok() && cursor->Valid(); cursor->Next()) {
       const auto& document = cursor->document();
       if (!document.IsObject()) {
-        return Status::Corruption("Document corruption");
+        return Status::Corruption("Document corruption" FILE_LINE);
       }
       if (!document.Contains(kPrimaryKey)) {
-        return Status::Corruption("Document corruption");
+        return Status::Corruption("Document corruption" FILE_LINE);
       }
       auto primary_key = document[kPrimaryKey];
       if (primary_key.IsNull() ||
           (!primary_key.IsString() && !primary_key.IsInt64())) {
-        return Status::Corruption("Document corruption");
+        return Status::Corruption("Document corruption" FILE_LINE);
       }
 
       // TODO(icanadi) Instead of doing this, just get primary key encoding from
@@ -905,14 +905,14 @@ class DocumentDBImpl : public DocumentDB {
         ConstructFilterCursor(read_options, nullptr, filter));
 
     if (!updates.IsObject()) {
-        return Status::Corruption("Bad update document format");
+      return Status::Corruption("Bad update document format" FILE_LINE);
     }
     WriteBatch batch;
     for (; cursor->status().ok() && cursor->Valid(); cursor->Next()) {
       const auto& old_document = cursor->document();
       JSONDocument new_document(old_document);
       if (!new_document.IsObject()) {
-        return Status::Corruption("Document corruption");
+        return Status::Corruption("Document corruption" FILE_LINE);
       }
       // TODO(icanadi) Make this nicer, something like class Filter
       for (const auto& update : updates.Items()) {
@@ -954,7 +954,8 @@ class DocumentDBImpl : public DocumentDB {
 
       // TODO(icanadi) reuse some of this code
       if (!new_document.Contains(kPrimaryKey)) {
-        return Status::Corruption("Corrupted document -- primary key missing");
+        return Status::Corruption(
+            "Corrupted document -- primary key missing" FILE_LINE);
       }
       auto primary_key = new_document[kPrimaryKey];
       if (primary_key.IsNull() ||
@@ -962,7 +963,8 @@ class DocumentDBImpl : public DocumentDB {
         // This will happen when document on storage doesn't have primary key,
         // since we don't support any update operations on primary key. That's
         // why this is corruption error
-        return Status::Corruption("Corrupted document -- primary key missing");
+        return Status::Corruption(
+            "Corrupted document -- primary key missing" FILE_LINE);
       }
       std::string encoded_document;
       new_document.Serialize(&encoded_document);

@@ -74,7 +74,7 @@ class LogTest : public ::testing::TestWithParam<int> {
           contents_.remove_prefix(force_error_position_);
           force_error_ = false;
           returned_partial_ = true;
-          return Status::Corruption("read error");
+          return Status::Corruption("read error" FILE_LINE);
         }
       }
 
@@ -560,9 +560,8 @@ TEST_P(LogTest, PartialLastIsNotIgnored) {
   ShrinkSize(1);
   ASSERT_EQ("EOF", Read(WALRecoveryMode::kAbsoluteConsistency));
   ASSERT_GT(DroppedBytes(), 0U);
-  ASSERT_EQ("OK", MatchError(
-                      "Corruption: truncated headerCorruption: "
-                      "error reading trailing data"));
+  ASSERT_EQ("OK", MatchError("Corruption: truncated header"));
+  ASSERT_EQ("OK", MatchError("Corruption: error reading trailing data"));
 }
 
 TEST_P(LogTest, ErrorJoinsRecords) {

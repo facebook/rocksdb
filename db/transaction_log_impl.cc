@@ -112,14 +112,15 @@ void TransactionLogIteratorImpl::SeekToStartSequence(
   while (RestrictedRead(&record, &scratch)) {
     if (record.size() < WriteBatchInternal::kHeader) {
       reporter_.Corruption(
-        record.size(), Status::Corruption("very small log record"));
+          record.size(), Status::Corruption("very small log record" FILE_LINE));
       continue;
     }
     UpdateCurrentWriteBatch(record);
     if (currentLastSeq_ >= startingSequenceNumber_) {
       if (strict && currentBatchSeq_ != startingSequenceNumber_) {
-        currentStatus_ = Status::Corruption("Gap in sequence number. Could not "
-                                            "seek to required sequence number");
+        currentStatus_ = Status::Corruption(
+            "Gap in sequence number. Could not "
+            "seek to required sequence number" FILE_LINE);
         reporter_.Info(currentStatus_.ToString().c_str());
         return;
       } else if (strict) {
@@ -139,12 +140,14 @@ void TransactionLogIteratorImpl::SeekToStartSequence(
   // If strict is set, we want to seek exactly till the start sequence and it
   // should have been present in the file we scanned above
   if (strict) {
-    currentStatus_ = Status::Corruption("Gap in sequence number. Could not "
-                                        "seek to required sequence number");
+    currentStatus_ = Status::Corruption(
+        "Gap in sequence number. Could not "
+        "seek to required sequence number" FILE_LINE);
     reporter_.Info(currentStatus_.ToString().c_str());
   } else if (files_->size() != 1) {
-    currentStatus_ = Status::Corruption("Start sequence was not found, "
-                                        "skipping to the next available");
+    currentStatus_ = Status::Corruption(
+        "Start sequence was not found, "
+        "skipping to the next available" FILE_LINE);
     reporter_.Info(currentStatus_.ToString().c_str());
     // Let NextImpl find the next available entry. started_ remains false
     // because we don't want to check for gaps while moving to start sequence
@@ -172,7 +175,8 @@ void TransactionLogIteratorImpl::NextImpl(bool internal) {
     while (RestrictedRead(&record, &scratch)) {
       if (record.size() < WriteBatchInternal::kHeader) {
         reporter_.Corruption(
-          record.size(), Status::Corruption("very small log record"));
+            record.size(),
+            Status::Corruption("very small log record" FILE_LINE));
         continue;
       } else {
         // started_ should be true if called by application
@@ -201,7 +205,7 @@ void TransactionLogIteratorImpl::NextImpl(bool internal) {
       if (currentLastSeq_ == versions_->LastSequence()) {
         currentStatus_ = Status::OK();
       } else {
-        currentStatus_ = Status::Corruption("NO MORE DATA LEFT");
+        currentStatus_ = Status::Corruption("NO MORE DATA LEFT" FILE_LINE);
       }
       return;
     }

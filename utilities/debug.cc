@@ -36,7 +36,7 @@ Status GetAllKeyVersions(DB* db, Slice begin_key, Slice end_key,
     ParsedInternalKey ikey;
     if (!ParseInternalKey(iter->key(), &ikey)) {
       return Status::Corruption("Internal Key [" + iter->key().ToString() +
-                                "] parse error!");
+                                "] parse error!" FILE_LINE);
     }
 
     if (!end_key.empty() &&

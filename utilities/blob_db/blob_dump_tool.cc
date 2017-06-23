@@ -48,7 +48,7 @@ Status BlobDumpTool::Run(const std::string& filename, DisplayType show_key,
     return s;
   }
   if (file_size == 0) {
-    return Status::Corruption("File is empty.");
+    return Status::Corruption("File is empty." FILE_LINE);
   }
   reader_.reset(new RandomAccessFileReader(std::move(file)));
   uint64_t offset = 0;
@@ -87,7 +87,8 @@ Status BlobDumpTool::Read(uint64_t offset, size_t size, Slice* result) {
     return s;
   }
   if (result->size() != size) {
-    return Status::Corruption("Reach the end of the file unexpectedly.");
+    return Status::Corruption(
+        "Reach the end of the file unexpectedly." FILE_LINE);
   }
   return s;
 }
@@ -194,12 +195,12 @@ Status BlobDumpTool::DumpRecord(DisplayType show_key, DisplayType show_blob,
   header_crc = crc32c::Extend(header_crc, slice.data(), key_size);
   header_crc = crc32c::Mask(header_crc);
   if (header_crc != record.header_checksum()) {
-    return Status::Corruption("Record header checksum mismatch.");
+    return Status::Corruption("Record header checksum mismatch." FILE_LINE);
   }
   uint32_t blob_crc = crc32c::Extend(0, slice.data() + key_size, blob_size);
   blob_crc = crc32c::Mask(blob_crc);
   if (blob_crc != record.checksum()) {
-    return Status::Corruption("Blob checksum mismatch.");
+    return Status::Corruption("Blob checksum mismatch." FILE_LINE);
   }
   if (show_key != DisplayType::kNone) {
     fprintf(stdout, "  key        : ");

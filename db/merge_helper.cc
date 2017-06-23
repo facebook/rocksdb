@@ -70,7 +70,7 @@ Status MergeHelper::TimedFullMerge(const MergeOperator* merge_operator,
 
   if (!success) {
     RecordTick(statistics, NUMBER_MERGE_FAILURES);
-    return Status::Corruption("Error: Could not perform merge.");
+    return Status::Corruption("Error: Could not perform merge." FILE_LINE);
   }
 
   return Status::OK();
@@ -123,7 +123,8 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       // stop at corrupted key
       if (assert_valid_internal_key_) {
         assert(!"Corrupted internal key not expected.");
-        return Status::Corruption("Corrupted internal key not expected.");
+        return Status::Corruption(
+            "Corrupted internal key not expected." FILE_LINE);
       }
       break;
     } else if (first_key) {

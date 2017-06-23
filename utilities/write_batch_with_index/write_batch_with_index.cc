@@ -556,12 +556,12 @@ void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id) {
         case kTypeNoop:
           break;
         default:
-          return Status::Corruption("unknown WriteBatch tag");
+          return Status::Corruption("unknown WriteBatch tag" FILE_LINE);
       }
     }
 
     if (s.ok() && found != write_batch.Count()) {
-      s = Status::Corruption("WriteBatch has wrong count");
+      s = Status::Corruption("WriteBatch has wrong count" FILE_LINE);
     }
 
     return s;

@@ -55,13 +55,14 @@ CuckooTableReader::CuckooTableReader(
   auto& user_props = props->user_collected_properties;
   auto hash_funs = user_props.find(CuckooTablePropertyNames::kNumHashFunc);
   if (hash_funs == user_props.end()) {
-    status_ = Status::Corruption("Number of hash functions not found");
+    status_ =
+        Status::Corruption("Number of hash functions not found" FILE_LINE);
     return;
   }
   num_hash_func_ = *reinterpret_cast<const uint32_t*>(hash_funs->second.data());
   auto unused_key = user_props.find(CuckooTablePropertyNames::kEmptyKey);
   if (unused_key == user_props.end()) {
-    status_ = Status::Corruption("Empty bucket value not found");
+    status_ = Status::Corruption("Empty bucket value not found" FILE_LINE);
     return;
   }
   unused_key_ = unused_key->second;
@@ -69,7 +70,7 @@ CuckooTableReader::CuckooTableReader(
   key_length_ = static_cast<uint32_t>(props->fixed_key_len);
   auto user_key_len = user_props.find(CuckooTablePropertyNames::kUserKeyLength);
   if (user_key_len == user_props.end()) {
-    status_ = Status::Corruption("User key length not found");
+    status_ = Status::Corruption("User key length not found" FILE_LINE);
     return;
   }
   user_key_length_ = *reinterpret_cast<const uint32_t*>(
@@ -77,7 +78,7 @@ CuckooTableReader::CuckooTableReader(
 
   auto value_length = user_props.find(CuckooTablePropertyNames::kValueLength);
   if (value_length == user_props.end()) {
-    status_ = Status::Corruption("Value length not found");
+    status_ = Status::Corruption("Value length not found" FILE_LINE);
     return;
   }
   value_length_ = *reinterpret_cast<const uint32_t*>(
@@ -87,7 +88,7 @@ CuckooTableReader::CuckooTableReader(
   auto hash_table_size = user_props.find(
       CuckooTablePropertyNames::kHashTableSize);
   if (hash_table_size == user_props.end()) {
-    status_ = Status::Corruption("Hash table size not found");
+    status_ = Status::Corruption("Hash table size not found" FILE_LINE);
     return;
   }
   table_size_ = *reinterpret_cast<const uint64_t*>(
@@ -95,7 +96,7 @@ CuckooTableReader::CuckooTableReader(
 
   auto is_last_level = user_props.find(CuckooTablePropertyNames::kIsLastLevel);
   if (is_last_level == user_props.end()) {
-    status_ = Status::Corruption("Is last level not found");
+    status_ = Status::Corruption("Is last level not found" FILE_LINE);
     return;
   }
   is_last_level_ = *reinterpret_cast<const bool*>(is_last_level->second.data());
@@ -103,7 +104,7 @@ CuckooTableReader::CuckooTableReader(
   auto identity_as_first_hash = user_props.find(
       CuckooTablePropertyNames::kIdentityAsFirstHash);
   if (identity_as_first_hash == user_props.end()) {
-    status_ = Status::Corruption("identity as first hash not found");
+    status_ = Status::Corruption("identity as first hash not found" FILE_LINE);
     return;
   }
   identity_as_first_hash_ = *reinterpret_cast<const bool*>(
@@ -112,7 +113,7 @@ CuckooTableReader::CuckooTableReader(
   auto use_module_hash = user_props.find(
       CuckooTablePropertyNames::kUseModuleHash);
   if (use_module_hash == user_props.end()) {
-    status_ = Status::Corruption("hash type is not found");
+    status_ = Status::Corruption("hash type is not found" FILE_LINE);
     return;
   }
   use_module_hash_ = *reinterpret_cast<const bool*>(
@@ -120,7 +121,7 @@ CuckooTableReader::CuckooTableReader(
   auto cuckoo_block_size = user_props.find(
       CuckooTablePropertyNames::kCuckooBlockSize);
   if (cuckoo_block_size == user_props.end()) {
-    status_ = Status::Corruption("Cuckoo block size not found");
+    status_ = Status::Corruption("Cuckoo block size not found" FILE_LINE);
     return;
   }
   cuckoo_block_size_ = *reinterpret_cast<const uint32_t*>(
@@ -370,7 +371,8 @@ InternalIterator* CuckooTableReader::NewIterator(
     const InternalKeyComparator* icomp, bool skip_filters) {
   if (!status().ok()) {
     return NewErrorInternalIterator(
-        Status::Corruption("CuckooTableReader status is not okay."), arena);
+        Status::Corruption("CuckooTableReader status is not okay." FILE_LINE),
+        arena);
   }
   CuckooTableIterator* iter;
   if (arena == nullptr) {

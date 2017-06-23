@@ -186,12 +186,12 @@ Status BlockPrefixIndex::Create(const SliceTransform* internal_prefix_extractor,
         !GetVarint32(&meta_pos, &entry_index) ||
         !GetVarint32(&meta_pos, &num_blocks)) {
       s = Status::Corruption(
-          "Corrupted prefix meta block: unable to read from it.");
+          "Corrupted prefix meta block: unable to read from it." FILE_LINE);
       break;
     }
     if (pos + prefix_size > prefixes.size()) {
       s = Status::Corruption(
-        "Corrupted prefix meta block: size inconsistency.");
+          "Corrupted prefix meta block: size inconsistency." FILE_LINE);
       break;
     }
     Slice prefix(prefixes.data() + pos, prefix_size);
@@ -201,7 +201,7 @@ Status BlockPrefixIndex::Create(const SliceTransform* internal_prefix_extractor,
   }
 
   if (s.ok() && pos != prefixes.size()) {
-    s = Status::Corruption("Corrupted prefix meta block");
+    s = Status::Corruption("Corrupted prefix meta block" FILE_LINE);
   }
 
   if (s.ok()) {

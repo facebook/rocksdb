@@ -2117,7 +2117,7 @@ Status DBImpl::CheckConsistency() {
   if (corruption_messages.size() == 0) {
     return Status::OK();
   } else {
-    return Status::Corruption(corruption_messages);
+    return Status::Corruption(corruption_messages FILE_LINE_STR);
   }
 }
 

@@ -99,7 +99,7 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
       if (int_value == 0 || int_value == ULONG_MAX) {
         unexpected_error = true;
         fprintf(stderr, "Get returned unexpected value: %s\n", value.c_str());
-        s = Status::Corruption();
+        s = Status::Corruption(FILE_LINE);
       }
     } else if (s.IsNotFound()) {
       // Have not yet written to this key, so assume its value is 0
@@ -209,7 +209,7 @@ Status RandomTransactionInserter::Verify(DB* db, uint16_t num_sets) {
       if (int_value == 0 || int_value == ULONG_MAX) {
         fprintf(stderr, "Iter returned unexpected value: %s\n",
                 value.ToString().c_str());
-        return Status::Corruption();
+        return Status::Corruption(FILE_LINE);
       }
 
       total += int_value;
@@ -223,7 +223,7 @@ Status RandomTransactionInserter::Verify(DB* db, uint16_t num_sets) {
                 "Set[%" PRIu32 "]: %" PRIu64 ", Set[%" PRIu32 "]: %" PRIu64
                 " \n",
                 i - 1, prev_total, i, total);
-        return Status::Corruption();
+        return Status::Corruption(FILE_LINE);
       }
     }
     prev_total = total;

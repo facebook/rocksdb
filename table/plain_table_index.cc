@@ -28,11 +28,11 @@ inline uint32_t GetBucketIdFromHash(uint32_t hash, uint32_t num_buckets) {
 
 Status PlainTableIndex::InitFromRawData(Slice data) {
   if (!GetVarint32(&data, &index_size_)) {
-    return Status::Corruption("Couldn't read the index size!");
+    return Status::Corruption("Couldn't read the index size!" FILE_LINE);
   }
   assert(index_size_ > 0);
   if (!GetVarint32(&data, &num_prefixes_)) {
-    return Status::Corruption("Couldn't read the index size!");
+    return Status::Corruption("Couldn't read the index size!" FILE_LINE);
   }
   sub_index_size_ =
       static_cast<uint32_t>(data.size()) - index_size_ * kOffsetLen;

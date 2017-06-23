@@ -78,7 +78,7 @@ Status ReadableWriteBatch::GetEntryFromDataOffset(size_t data_offset,
       *type = kXIDRecord;
       break;
     default:
-      return Status::Corruption("unknown WriteBatch tag");
+      return Status::Corruption("unknown WriteBatch tag" FILE_LINE);
   }
   return Status::OK();
 }
@@ -203,7 +203,7 @@ WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
       default: {
         result = WriteBatchWithIndexInternal::Result::kError;
         (*s) = Status::Corruption("Unexpected entry in WriteBatchWithIndex:",
-                                  ToString(entry.type));
+                                  ToString(entry.type) FILE_LINE_STR);
         break;
       }
     }

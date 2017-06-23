@@ -140,8 +140,9 @@ class Repairer {
   Status AddColumnFamily(const std::string& cf_name, uint32_t cf_id) {
     const auto* cf_opts = GetColumnFamilyOptions(cf_name);
     if (cf_opts == nullptr) {
-      return Status::Corruption("Encountered unknown column family with name=" +
-                                cf_name + ", id=" + ToString(cf_id));
+      return Status::Corruption(
+          "Encountered unknown column family with name=" + cf_name +
+          ", id=" + ToString(cf_id) FILE_LINE_STR);
     }
     Options opts(db_options_, *cf_opts);
     MutableCFOptions mut_cf_opts(opts);
@@ -283,7 +284,7 @@ class Repairer {
       }
     }
     if (!found_file) {
-      return Status::Corruption(dbname_, "repair found no files");
+      return Status::Corruption(dbname_, "repair found no files" FILE_LINE);
     }
     return Status::OK();
   }
@@ -351,7 +352,8 @@ class Repairer {
     while (reader.ReadRecord(&record, &scratch)) {
       if (record.size() < WriteBatchInternal::kHeader) {
         reporter.Corruption(
-            record.size(), Status::Corruption("log record too small"));
+            record.size(),
+            Status::Corruption("log record too small" FILE_LINE));
         continue;
       }
       WriteBatchInternal::SetContents(&batch, record);
@@ -469,7 +471,8 @@ class Repairer {
             "family id %" PRIu32 ".",
             t->meta.fd.GetNumber(), props->column_family_name.c_str(),
             cfd->GetName().c_str(), t->column_family_id);
-        status = Status::Corruption(dbname_, "inconsistent column family name");
+        status = Status::Corruption(
+            dbname_, "inconsistent column family name" FILE_LINE);
       }
     }
     if (status.ok()) {

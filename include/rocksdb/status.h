@@ -22,6 +22,12 @@
 
 namespace rocksdb {
 
+// Helper macros that include information about file name and line number
+#define STATUS_STRINGIFY(x) #x
+#define STATUS_TOSTRING(x) STATUS_STRINGIFY(x)
+#define FILE_LINE " [" __FILE__ ":" STATUS_TOSTRING(__LINE__) "] "
+#define FILE_LINE_STR +std::string(FILE_LINE)
+
 class Status {
  public:
   // Create a success status.

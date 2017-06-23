@@ -519,8 +519,8 @@ class LevelFileIteratorState : public TwoLevelIteratorState {
 
   InternalIterator* NewSecondaryIterator(const Slice& meta_handle) override {
     if (meta_handle.size() != sizeof(FileDescriptor)) {
-      return NewErrorInternalIterator(
-          Status::Corruption("FileReader invoked with unexpected value"));
+      return NewErrorInternalIterator(Status::Corruption(
+          "FileReader invoked with unexpected value" FILE_LINE));
     }
     const FileDescriptor* fd =
         reinterpret_cast<const FileDescriptor*>(meta_handle.data());
@@ -1032,7 +1032,8 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
         *status = Status::NotFound();
         return;
       case GetContext::kCorrupt:
-        *status = Status::Corruption("corrupted key for ", user_key);
+        *status = Status::Corruption("corrupted key for ",
+                                     user_key.ToString() FILE_LINE_STR);
         return;
       case GetContext::kMerge:
         break;
@@ -2493,8 +2494,8 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
       for (auto& e : batch_edits) {
         std::string record;
         if (!e->EncodeTo(&record)) {
-          s = Status::Corruption(
-              "Unable to Encode VersionEdit:" + e->DebugString(true));
+          s = Status::Corruption("Unable to Encode VersionEdit:" +
+                                 e->DebugString(true) FILE_LINE_STR);
           break;
         }
         TEST_KILL_RANDOM("VersionSet::LogAndApply:BeforeAddRecord",
@@ -2667,7 +2668,8 @@ Status VersionSet::Recover(
   }
   if (manifest_filename.empty() ||
       manifest_filename.back() != '\n') {
-    return Status::Corruption("CURRENT file does not end with newline");
+    return Status::Corruption(
+        "CURRENT file does not end with newline" FILE_LINE);
   }
   // remove the trailing '\n'
   manifest_filename.resize(manifest_filename.size() - 1);
@@ -2675,7 +2677,7 @@ Status VersionSet::Recover(
   bool parse_ok =
       ParseFileName(manifest_filename, &manifest_file_number_, &type);
   if (!parse_ok || type != kDescriptorFile) {
-    return Status::Corruption("CURRENT file corrupted");
+    return Status::Corruption("CURRENT file corrupted" FILE_LINE);
   }
 
   ROCKS_LOG_INFO(db_options_->info_log, "Recovering from manifest file: %s\n",
@@ -2757,7 +2759,7 @@ Status VersionSet::Recover(
       if (edit.is_column_family_add_) {
         if (cf_in_builders || cf_in_not_found) {
           s = Status::Corruption(
-              "Manifest adding the same column family twice");
+              "Manifest adding the same column family twice" FILE_LINE);
           break;
         }
         auto cf_options = cf_name_to_options.find(edit.column_family_name_);
@@ -2787,13 +2789,13 @@ Status VersionSet::Recover(
           column_families_not_found.erase(edit.column_family_);
         } else {
           s = Status::Corruption(
-              "Manifest - dropping non-existing column family");
+              "Manifest - dropping non-existing column family" FILE_LINE);
           break;
         }
       } else if (!cf_in_not_found) {
         if (!cf_in_builders) {
           s = Status::Corruption(
-              "Manifest record referencing unknown column family");
+              "Manifest record referencing unknown column family" FILE_LINE);
           break;
         }
 
@@ -2858,11 +2860,12 @@ Status VersionSet::Recover(
 
   if (s.ok()) {
     if (!have_next_file) {
-      s = Status::Corruption("no meta-nextfile entry in descriptor");
+      s = Status::Corruption("no meta-nextfile entry in descriptor" FILE_LINE);
     } else if (!have_log_number) {
-      s = Status::Corruption("no meta-lognumber entry in descriptor");
+      s = Status::Corruption("no meta-lognumber entry in descriptor" FILE_LINE);
     } else if (!have_last_sequence) {
-      s = Status::Corruption("no last-sequence-number entry in descriptor");
+      s = Status::Corruption(
+          "no last-sequence-number entry in descriptor" FILE_LINE);
     }
 
     if (!have_prev_log_number) {
@@ -2961,7 +2964,8 @@ Status VersionSet::ListColumnFamilies(std::vector<std::string>* column_families,
     return s;
   }
   if (current.empty() || current[current.size()-1] != '\n') {
-    return Status::Corruption("CURRENT file does not end with newline");
+    return Status::Corruption(
+        "CURRENT file does not end with newline" FILE_LINE);
   }
   current.resize(current.size() - 1);
 
@@ -2995,7 +2999,8 @@ Status VersionSet::ListColumnFamilies(std::vector<std::string>* column_families,
     if (edit.is_column_family_add_) {
       if (column_family_names.find(edit.column_family_) !=
           column_family_names.end()) {
-        s = Status::Corruption("Manifest adding the same column family twice");
+        s = Status::Corruption(
+            "Manifest adding the same column family twice" FILE_LINE);
         break;
       }
       column_family_names.insert(
@@ -3004,7 +3009,7 @@ Status VersionSet::ListColumnFamilies(std::vector<std::string>* column_families,
       if (column_family_names.find(edit.column_family_) ==
           column_family_names.end()) {
         s = Status::Corruption(
-            "Manifest - dropping non-existing column family");
+            "Manifest - dropping non-existing column family" FILE_LINE);
         break;
       }
       column_family_names.erase(edit.column_family_);
@@ -3173,7 +3178,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
       if (edit.is_column_family_add_) {
         if (cf_in_builders) {
           s = Status::Corruption(
-              "Manifest adding the same column family twice");
+              "Manifest adding the same column family twice" FILE_LINE);
           break;
         }
         cfd = CreateColumnFamily(ColumnFamilyOptions(options), &edit);
@@ -3182,7 +3187,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
       } else if (edit.is_column_family_drop_) {
         if (!cf_in_builders) {
           s = Status::Corruption(
-              "Manifest - dropping non-existing column family");
+              "Manifest - dropping non-existing column family" FILE_LINE);
           break;
         }
         auto builder_iter = builders.find(edit.column_family_);
@@ -3197,7 +3202,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
       } else {
         if (!cf_in_builders) {
           s = Status::Corruption(
-              "Manifest record referencing unknown column family");
+              "Manifest record referencing unknown column family" FILE_LINE);
           break;
         }
 
@@ -3241,11 +3246,12 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
 
   if (s.ok()) {
     if (!have_next_file) {
-      s = Status::Corruption("no meta-nextfile entry in descriptor");
+      s = Status::Corruption("no meta-nextfile entry in descriptor" FILE_LINE);
       printf("no meta-nextfile entry in descriptor");
     } else if (!have_last_sequence) {
       printf("no last-sequence-number entry in descriptor");
-      s = Status::Corruption("no last-sequence-number entry in descriptor");
+      s = Status::Corruption(
+          "no last-sequence-number entry in descriptor" FILE_LINE);
     }
 
     if (!have_prev_log_number) {
@@ -3333,8 +3339,8 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
           cfd->internal_comparator().user_comparator()->Name());
       std::string record;
       if (!edit.EncodeTo(&record)) {
-        return Status::Corruption(
-            "Unable to Encode VersionEdit:" + edit.DebugString(true));
+        return Status::Corruption("Unable to Encode VersionEdit:" +
+                                  edit.DebugString(true) FILE_LINE_STR);
       }
       Status s = log->AddRecord(record);
       if (!s.ok()) {
@@ -3359,8 +3365,8 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
       edit.SetLogNumber(cfd->GetLogNumber());
       std::string record;
       if (!edit.EncodeTo(&record)) {
-        return Status::Corruption(
-            "Unable to Encode VersionEdit:" + edit.DebugString(true));
+        return Status::Corruption("Unable to Encode VersionEdit:" +
+                                  edit.DebugString(true) FILE_LINE_STR);
       }
       Status s = log->AddRecord(record);
       if (!s.ok()) {

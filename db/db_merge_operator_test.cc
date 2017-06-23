@@ -60,7 +60,7 @@ TEST_F(DBMergeOperatorTest, MergeErrorOnIteration) {
   ASSERT_OK(Merge("k1", "corrupted"));
   ASSERT_OK(Put("k2", "v2"));
   VerifyDBFromMap({{"k1", ""}, {"k2", "v2"}}, nullptr, false,
-                  {{"k1", Status::Corruption()}});
+                  {{"k1", Status::Corruption(FILE_LINE)}});
   VerifyDBInternal({{"k1", "corrupted"}, {"k1", "v1"}, {"k2", "v2"}});
 
   DestroyAndReopen(options);
@@ -68,7 +68,7 @@ TEST_F(DBMergeOperatorTest, MergeErrorOnIteration) {
   ASSERT_OK(Put("k2", "v2"));
   ASSERT_OK(Merge("k2", "corrupted"));
   VerifyDBFromMap({{"k1", "v1"}, {"k2", ""}}, nullptr, false,
-                  {{"k2", Status::Corruption()}});
+                  {{"k2", Status::Corruption(FILE_LINE)}});
   VerifyDBInternal({{"k1", "v1"}, {"k2", "corrupted"}, {"k2", "v2"}});
 }
 

@@ -1164,7 +1164,7 @@ Status CompactionJob::InstallCompactionResults(
     ROCKS_LOG_ERROR(db_options_.info_log, "[%s] [JOB %d] Compaction %s aborted",
                     compaction->column_family_data()->GetName().c_str(),
                     job_id_, compaction->InputLevelSummary(&inputs_summary));
-    return Status::Corruption("Compaction input files inconsistent");
+    return Status::Corruption("Compaction input files inconsistent" FILE_LINE);
   }
 
   {

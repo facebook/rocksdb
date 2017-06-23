@@ -304,7 +304,7 @@ class ValueGetterFromDB : public ValueGetter {
     PutFixed64BigEndian(&encoded_id, id);
     status_ = db_->Get(ReadOptions(), cf_, encoded_id, &value_);
     if (status_.IsNotFound()) {
-      status_ = Status::Corruption("Index inconsistency");
+      status_ = Status::Corruption("Index inconsistency" FILE_LINE);
       return false;
     }
 
@@ -332,7 +332,7 @@ class ValueGetterFromIterator : public ValueGetter {
     iterator_->Seek(encoded_id);
 
     if (!iterator_->Valid() || iterator_->key() != Slice(encoded_id)) {
-      status_ = Status::Corruption("Index inconsistency");
+      status_ = Status::Corruption("Index inconsistency" FILE_LINE);
       return false;
     }
 
@@ -387,7 +387,7 @@ class SpatialIndexCursor : public Cursor {
             &id);
         if (!ok) {
           valid_ = false;
-          status_ = Status::Corruption("Spatial index corruption");
+          status_ = Status::Corruption("Spatial index corruption" FILE_LINE);
           break;
         }
         primary_key_ids_.insert(id);
@@ -445,7 +445,7 @@ class SpatialIndexCursor : public Cursor {
       return false;
     }
     if (spatial_iterator->key().size() != 2 * sizeof(uint64_t)) {
-      status_ = Status::Corruption("Invalid spatial index key");
+      status_ = Status::Corruption("Invalid spatial index key" FILE_LINE);
       valid_ = false;
       return false;
     }
@@ -468,7 +468,8 @@ class SpatialIndexCursor : public Cursor {
       current_feature_set_.Clear();
       if (!GetLengthPrefixedSlice(&data, &current_blob_) ||
           !current_feature_set_.Deserialize(data)) {
-        status_ = Status::Corruption("Primary key column family corruption");
+        status_ = Status::Corruption(
+            "Primary key column family corruption" FILE_LINE);
         valid_ = false;
       }
     }
@@ -777,7 +778,8 @@ class MetadataStorage {
     ok = ok && GetDouble(&encoded_index, &(dst->bbox.max_x));
     ok = ok && GetDouble(&encoded_index, &(dst->bbox.max_y));
     ok = ok && GetVarint32(&encoded_index, &(dst->tile_bits));
-    return ok ? Status::OK() : Status::Corruption("Index encoding corrupted");
+    return ok ? Status::OK()
+              : Status::Corruption("Index encoding corrupted" FILE_LINE);
   }
 
  private:
@@ -895,7 +897,7 @@ Status SpatialDB::Open(const SpatialDBOptions& options, const std::string& name,
     if (iter->Valid()) {
       uint64_t last_id = 0;
       if (!GetFixed64BigEndian(iter->key(), &last_id)) {
-        s = Status::Corruption("Invalid key in data column family");
+        s = Status::Corruption("Invalid key in data column family" FILE_LINE);
       } else {
         next_id = last_id + 1;
       }

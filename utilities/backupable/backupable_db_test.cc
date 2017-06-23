@@ -399,15 +399,15 @@ class FileManager : public EnvWrapper {
 
     auto pos = metadata.find("private");
     if (pos == std::string::npos) {
-      return Status::Corruption("private file is expected");
+      return Status::Corruption("private file is expected" FILE_LINE);
     }
     pos = metadata.find(" crc32 ", pos + 6);
     if (pos == std::string::npos) {
-      return Status::Corruption("checksum not found");
+      return Status::Corruption("checksum not found" FILE_LINE);
     }
 
     if (metadata.size() < pos + 7) {
-      return Status::Corruption("bad CRC32 checksum value");
+      return Status::Corruption("bad CRC32 checksum value" FILE_LINE);
     }
 
     if (appear_valid) {
