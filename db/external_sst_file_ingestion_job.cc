@@ -146,7 +146,7 @@ Status ExternalSstFileIngestionJob::NeedsFlush(bool* flush_needed) {
   return status;
 }
 
-// REQUIRES: we have becone the only writer by entering both write_thread_ and
+// REQUIRES: we have become the only writer by entering both write_thread_ and
 // nonmem_write_thread_
 Status ExternalSstFileIngestionJob::Run() {
   Status status;

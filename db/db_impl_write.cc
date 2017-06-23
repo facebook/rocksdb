@@ -114,11 +114,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     if (write_thread_.CompleteParallelMemTableWriter(&w)) {
       // we're responsible for exit batch group
       auto last_sequence = w.write_group->last_sequence;
-      if (!concurrent_prepare_ || !disable_memtable) {
-        // With concurrent writes SetLastSequence is used only for making
-        // memtable writes visible to reads
-        versions_->SetLastSequence(last_sequence);
-      }
+      versions_->SetLastSequence(last_sequence);
       MemTableInsertStatusCheck(w.status);
       write_thread_.ExitAsBatchGroupFollower(&w);
     }
@@ -316,7 +312,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     should_exit_batch_group = write_thread_.CompleteParallelMemTableWriter(&w);
   }
   if (should_exit_batch_group) {
-    if (status.ok() && !(concurrent_prepare_ && disable_memtable)) {
+    if (status.ok()) {
       versions_->SetLastSequence(last_sequence);
     }
     MemTableInsertStatusCheck(w.status);
