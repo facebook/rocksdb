@@ -72,7 +72,7 @@ struct CompactionOptionsFIFO {
 
   CompactionOptionsFIFO() : max_table_files_size(1 * 1024 * 1024 * 1024) {}
   CompactionOptionsFIFO(uint64_t _max_table_files_size,
-                        uint64_t _allow_compaction)
+                        bool _allow_compaction)
       : max_table_files_size(_max_table_files_size),
         allow_compaction(_allow_compaction) {}
 };
