@@ -2567,6 +2567,9 @@ TEST_P(DBCompactionTestWithParam, IntraL0Compaction) {
   options.max_subcompactions = max_subcompactions_;
   DestroyAndReopen(options);
 
+  auto slowdown_token =
+      dbfull()->TEST_write_controler().GetCompactionPressureToken();
+
   rocksdb::SyncPoint::GetInstance()->LoadDependencyAndMarkers(
       {{"LevelCompactionBuilder::SetupInitialFiles:L0ToL0Scheduled",
         "CompactionJob::Run():Start"},  // L0->L0 scheduled after L0->base start
