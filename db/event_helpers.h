@@ -27,6 +27,10 @@ class EventHelpers {
       const std::string& db_name, const std::string& cf_name,
       const std::string& file_path, int job_id, TableFileCreationReason reason);
 #endif  // !ROCKSDB_LITE
+  static void NotifyOnBackgroundError(
+      const std::vector<std::shared_ptr<EventListener>>& listeners,
+      BackgroundErrorReason reason, Status* bg_error,
+      InstrumentedMutex* db_mutex);
   static void LogAndNotifyTableFileCreationFinished(
       EventLogger* event_logger,
       const std::vector<std::shared_ptr<EventListener>>& listeners,
