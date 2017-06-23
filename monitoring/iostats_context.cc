@@ -15,7 +15,11 @@ __thread IOStatsContext iostats_context;
 #endif
 
 IOStatsContext* get_iostats_context() {
+#ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
   return &iostats_context;
+#else
+  return nullptr;
+#endif
 }
 
 void IOStatsContext::Reset() {
