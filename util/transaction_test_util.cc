@@ -12,6 +12,7 @@
 
 #include <inttypes.h>
 #include <string>
+#include <thread>
 
 #include "rocksdb/db.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
