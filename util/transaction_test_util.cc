@@ -137,7 +137,9 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
     if (txn != nullptr) {
       std::hash<std::thread::id> hasher;
       char name[64];
-      sprintf(name, "txn%zu-%d", hasher(std::this_thread::get_id()), txn_id_++);
+      snprintf(name, 64, "txn%zu-%d", hasher(std::this_thread::get_id()),
+               txn_id_++);
+      assert(strlen(name) < 64 - 1);
       txn->SetName(name);
       s = txn->Prepare();
       s = txn->Commit();
