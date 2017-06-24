@@ -35,7 +35,8 @@ using std::string;
 
 namespace rocksdb {
 
-class TransactionTest : public ::testing::TestWithParam<bool> {
+class TransactionTest
+    : public ::testing::TestWithParam<std::tuple<bool, bool>> {
  public:
   TransactionDB* db;
   FaultInjectionTestEnv* env;
@@ -52,13 +53,14 @@ class TransactionTest : public ::testing::TestWithParam<bool> {
     options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
     env = new FaultInjectionTestEnv(Env::Default());
     options.env = env;
+    options.concurrent_prepare = std::get<1>(GetParam());
     dbname = test::TmpDir() + "/transaction_testdb";
 
     DestroyDB(dbname, options);
     txn_db_options.transaction_lock_timeout = 0;
     txn_db_options.default_lock_timeout = 0;
     Status s;
-    if (GetParam() == false) {
+    if (std::get<0>(GetParam()) == false) {
       s = TransactionDB::Open(options, txn_db_options, dbname, &db);
     } else {
       s = OpenWithStackableDB();
@@ -79,7 +81,7 @@ class TransactionTest : public ::testing::TestWithParam<bool> {
     env->DropUnsyncedFileData();
     env->ResetState();
     Status s;
-    if (GetParam() == false) {
+    if (std::get<0>(GetParam()) == false) {
       s = TransactionDB::Open(options, txn_db_options, dbname, &db);
     } else {
       s = OpenWithStackableDB();
@@ -91,7 +93,7 @@ class TransactionTest : public ::testing::TestWithParam<bool> {
     delete db;
     DestroyDB(dbname, options);
     Status s;
-    if (GetParam() == false) {
+    if (std::get<0>(GetParam()) == false) {
       s = TransactionDB::Open(options, txn_db_options, dbname, &db);
     } else {
       s = OpenWithStackableDB();
@@ -122,9 +124,17 @@ class TransactionTest : public ::testing::TestWithParam<bool> {
   }
 };
 
-INSTANTIATE_TEST_CASE_P(DBAsBaseDB, TransactionTest, ::testing::Values(false));
+class MySQLStyleTransactionTest : public TransactionTest {};
+
+INSTANTIATE_TEST_CASE_P(DBAsBaseDB, TransactionTest,
+                        ::testing::Values(std::make_tuple(false, false)));
 INSTANTIATE_TEST_CASE_P(StackableDBAsBaseDB, TransactionTest,
-                        ::testing::Values(true));
+                        ::testing::Values(std::make_tuple(true, false)));
+INSTANTIATE_TEST_CASE_P(MySQLStyleTransactionTest, MySQLStyleTransactionTest,
+                        ::testing::Values(std::make_tuple(false, false),
+                                          std::make_tuple(false, true),
+                                          std::make_tuple(true, false),
+                                          std::make_tuple(true, true)));
 
 TEST_P(TransactionTest, DoubleEmptyWrite) {
   WriteOptions write_options;
@@ -957,6 +967,7 @@ TEST_P(TransactionTest, PersistentTwoPhaseTransactionTest) {
   s = db->Get(read_options, Slice("foo"), &value);
   ASSERT_TRUE(s.IsNotFound());
 
+  db->FlushWAL(false);
   delete txn;
   // kill and reopen
   s = ReOpenNoDelete();
@@ -1021,7 +1032,8 @@ TEST_P(TransactionTest, PersistentTwoPhaseTransactionTest) {
   ASSERT_EQ(db->GetTransactionByName("xid"), nullptr);
 }
 
-TEST_P(TransactionTest, TwoPhaseMultiThreadTest) {
+// TODO this test needs to be updated with serial commits
+TEST_P(TransactionTest, DISABLED_TwoPhaseMultiThreadTest) {
   // mix transaction writes and regular writes
   const uint32_t NUM_TXN_THREADS = 50;
   std::atomic<uint32_t> txn_thread_num(0);
@@ -1545,6 +1557,8 @@ TEST_P(TransactionTest, TwoPhaseOutOfOrderDelete) {
 
   s = db->Put(wal_on, "cats", "dogs4");
   ASSERT_OK(s);
+
+  db->FlushWAL(false);
 
   // kill and reopen
   env->SetFilesystemActive(false);
@@ -4487,7 +4501,7 @@ Status TransactionStressTestInserter(TransactionDB* db,
 }
 }  // namespace
 
-TEST_P(TransactionTest, TransactionStressTest) {
+TEST_P(MySQLStyleTransactionTest, TransactionStressTest) {
   const size_t num_threads = 4;
   const size_t num_transactions_per_thread = 10000;
   const size_t num_sets = 3;

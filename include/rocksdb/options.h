@@ -887,6 +887,18 @@ struct DBOptions {
   // DEFAULT: false
   // Immutable.
   bool allow_ingest_behind = false;
+
+  // If enabled it uses two queues for writes, one for the ones with
+  // disable_memtable and one for the ones that also write to memtable. This
+  // allows the memtable writes not to lag behind other writes. It can be used
+  // to optimize MySQL 2PC in which only the commits, which are serial, write to
+  // memtable.
+  bool concurrent_prepare = false;
+
+  // If true WAL is not flushed automatically after each write. Instead it
+  // relies on manual invocation of FlushWAL to write the WAL buffer to its
+  // file.
+  bool manual_wal_flush = false;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

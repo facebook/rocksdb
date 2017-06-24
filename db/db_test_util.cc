@@ -469,6 +469,12 @@ Options DBTestBase::GetOptions(
       options.enable_pipelined_write = true;
       break;
     }
+    case kConcurrentWALWrites: {
+      // This options optimize 2PC commit path
+      options.concurrent_prepare = true;
+      options.manual_wal_flush = true;
+      break;
+    }
 
     default:
       break;
