@@ -94,7 +94,17 @@ function getSteps($applyDiff, $diffID, $username, $test) {
     "user" => "root"
   );
 
+  // This fixes "FATAL: ThreadSanitizer can not mmap the shadow memory"
+  // Source:
+  // https://github.com/google/sanitizers/wiki/ThreadSanitizerCppManual#FAQ
+  $fix_kernel_issue = array(
+    "name" => "Fix kernel issue with tsan",
+    "shell" => "echo 2 >/proc/sys/kernel/randomize_va_space",
+    "user" => "root"
+  );
+
   $steps[] = $fix_git_ignore;
+  $steps[] = $fix_kernel_issue;
 
   // This will be the command used to execute particular type of tests.
   $cmd = "";
