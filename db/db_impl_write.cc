@@ -66,7 +66,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     return Status::Corruption("Batch is nullptr!");
   }
   if (concurrent_prepare_ && immutable_db_options_.enable_pipelined_write) {
-    return Status::NotSupported("pipelined_writes is not compatible with concurrent prepares");
+    return Status::NotSupported(
+        "pipelined_writes is not compatible with concurrent prepares");
   }
 
   Status status;
@@ -682,7 +683,8 @@ Status DBImpl::WriteToWAL(const WriteThread::WriteGroup& write_group,
   Status status;
 
   size_t write_with_wal = 0;
-  WriteBatch* merged_batch = MergeBatch(write_group, &tmp_batch_, &write_with_wal);
+  WriteBatch* merged_batch =
+      MergeBatch(write_group, &tmp_batch_, &write_with_wal);
 
   WriteBatchInternal::SetSequence(merged_batch, sequence);
 
@@ -730,13 +732,15 @@ Status DBImpl::WriteToWAL(const WriteThread::WriteGroup& write_group,
 }
 
 Status DBImpl::ConcurrentWriteToWAL(const WriteThread::WriteGroup& write_group,
-                          uint64_t* log_used, SequenceNumber* last_sequence,
-                          int total_count) {
+                                    uint64_t* log_used,
+                                    SequenceNumber* last_sequence,
+                                    int total_count) {
   Status status;
 
   WriteBatch tmp_batch;
   size_t write_with_wal = 0;
-  WriteBatch* merged_batch = MergeBatch(write_group, &tmp_batch, &write_with_wal);
+  WriteBatch* merged_batch =
+      MergeBatch(write_group, &tmp_batch, &write_with_wal);
 
   // We need to lock log_write_mutex_ since logs_ and alive_log_files might be
   // pushed back concurrently

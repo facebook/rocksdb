@@ -623,8 +623,8 @@ class DBImpl : public DB {
                             bool disable_memtable = false);
 
   Status WriteImplWALOnly(const WriteOptions& options, WriteBatch* updates,
-                   WriteCallback* callback = nullptr,
-                   uint64_t* log_used = nullptr, uint64_t log_ref = 0);
+                          WriteCallback* callback = nullptr,
+                          uint64_t* log_used = nullptr, uint64_t log_ref = 0);
 
   uint64_t FindMinLogContainingOutstandingPrep();
   uint64_t FindMinPrepLogReferencedByMemTable();
@@ -763,8 +763,8 @@ class DBImpl : public DB {
                     SequenceNumber sequence);
 
   Status ConcurrentWriteToWAL(const WriteThread::WriteGroup& write_group,
-                       uint64_t* log_used, SequenceNumber* last_sequence,
-                       int total_count);
+                              uint64_t* log_used, SequenceNumber* last_sequence,
+                              int total_count);
 
   // Used by WriteImpl to update bg_error_ if paranoid check is enabled.
   void ParanoidCheck(const Status& status);
