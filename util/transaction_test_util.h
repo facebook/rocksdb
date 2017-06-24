@@ -104,6 +104,8 @@ class RandomTransactionInserter {
   Transaction* txn_ = nullptr;
   Transaction* optimistic_txn_ = nullptr;
 
+  std::atomic<int> txn_id_;
+
   bool DoInsert(DB* db, Transaction* txn, bool is_optimistic);
 };
 

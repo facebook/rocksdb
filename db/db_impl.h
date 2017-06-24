@@ -199,6 +199,7 @@ class DBImpl : public DB {
   using DB::Flush;
   virtual Status Flush(const FlushOptions& options,
                        ColumnFamilyHandle* column_family) override;
+  virtual Status FlushWAL(bool sync) override;
   virtual Status SyncWAL() override;
 
   virtual SequenceNumber GetLatestSequenceNumber() const override;
@@ -621,6 +622,10 @@ class DBImpl : public DB {
                             uint64_t* log_used = nullptr, uint64_t log_ref = 0,
                             bool disable_memtable = false);
 
+  Status WriteImplWALOnly(const WriteOptions& options, WriteBatch* updates,
+                          WriteCallback* callback = nullptr,
+                          uint64_t* log_used = nullptr, uint64_t log_ref = 0);
+
   uint64_t FindMinLogContainingOutstandingPrep();
   uint64_t FindMinPrepLogReferencedByMemTable();
 
@@ -746,9 +751,20 @@ class DBImpl : public DB {
   Status PreprocessWrite(const WriteOptions& write_options, bool* need_log_sync,
                          WriteContext* write_context);
 
+  WriteBatch* MergeBatch(const WriteThread::WriteGroup& write_group,
+                         WriteBatch* tmp_batch, size_t* write_with_wal);
+
+  Status WriteToWAL(const WriteBatch& merged_batch, log::Writer* log_writer,
+                    uint64_t* log_used, uint64_t* log_size);
+
   Status WriteToWAL(const WriteThread::WriteGroup& write_group,
-                    log::Writer* log_writer, bool need_log_sync,
-                    bool need_log_dir_sync, SequenceNumber sequence);
+                    log::Writer* log_writer, uint64_t* log_used,
+                    bool need_log_sync, bool need_log_dir_sync,
+                    SequenceNumber sequence);
+
+  Status ConcurrentWriteToWAL(const WriteThread::WriteGroup& write_group,
+                              uint64_t* log_used, SequenceNumber* last_sequence,
+                              int total_count);
 
   // Used by WriteImpl to update bg_error_ if paranoid check is enabled.
   void WriteCallbackStatusCheck(const Status& status);
@@ -827,10 +843,12 @@ class DBImpl : public DB {
   // Lock over the persistent DB state.  Non-nullptr iff successfully acquired.
   FileLock* db_lock_;
 
-  // The mutex for options file related operations.
-  // NOTE: should never acquire options_file_mutex_ and mutex_ at the
-  //       same time.
-  InstrumentedMutex options_files_mutex_;
+  // It is used to concurrently update stats in the write threads
+  InstrumentedMutex stat_mutex_;
+  // It protects the back() of logs_ and alive_log_files_. Any push_back to
+  // these must be under log_write_mutex_ and any access that requires the
+  // back() to remain the same must also lock log_write_mutex_.
+  InstrumentedMutex log_write_mutex_;
   // State below is protected by mutex_
   mutable InstrumentedMutex mutex_;
 
@@ -891,6 +909,10 @@ class DBImpl : public DB {
   //  - back() and items with getting_synced=true are not popped,
   //  - it follows that write thread with unlocked mutex_ can safely access
   //    back() and items with getting_synced=true.
+  //  -- Update: apparently this was a mistake. back() should be called under
+  //  mute_: https://github.com/facebook/rocksdb/pull/1774
+  //  - When concurrent write threads is enabled, back(), push_back(), and
+  //  pop_front() must be called within log_write_mutex_
   std::deque<LogWriterNumber> logs_;
   // Signaled when getting_synced becomes false for some of the logs_.
   InstrumentedCondVar log_sync_cv_;
@@ -939,8 +961,10 @@ class DBImpl : public DB {
   WriteBufferManager* write_buffer_manager_;
 
   WriteThread write_thread_;
-
   WriteBatch tmp_batch_;
+  // The write thread when the writers have no memtable write. This will be used
+  // in 2PC to batch the prepares separately from the serial commit.
+  WriteThread nonmem_write_thread_;
 
   WriteController write_controller_;
 
@@ -948,6 +972,8 @@ class DBImpl : public DB {
 
   // Size of the last batch group. In slowdown mode, next write needs to
   // sleep if it uses up the quota.
+  // Note: This is to protect memtable and compaction. If the batch only writes
+  // to the WAL its size need not to be included in this.
   uint64_t last_batch_group_size_;
 
   FlushScheduler flush_scheduler_;
@@ -1190,6 +1216,11 @@ class DBImpl : public DB {
   bool MCOverlap(ManualCompaction* m, ManualCompaction* m1);
 
   size_t GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
+
+  // When set, we use a seprate queue for writes that dont write to memtable. In
+  // 2PC these are the writes at Prepare phase.
+  const bool concurrent_prepare_;
+  const bool manual_wal_flush_;
 };
 
 extern Options SanitizeOptions(const std::string& db,

@@ -853,6 +853,11 @@ class DB {
     return Flush(options, DefaultColumnFamily());
   }
 
+  // Flush the WAL memory buffer to the file. If sync is true, it calls SyncWAL
+  // afterwards.
+  virtual Status FlushWAL(bool sync) {
+    return Status::NotSupported("FlushWAL not implemented");
+  }
   // Sync the wal. Note that Write() followed by SyncWAL() is not exactly the
   // same as Write() with sync=true: in the latter case the changes won't be
   // visible until the sync is done.

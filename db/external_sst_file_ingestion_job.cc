@@ -146,6 +146,8 @@ Status ExternalSstFileIngestionJob::NeedsFlush(bool* flush_needed) {
   return status;
 }
 
+// REQUIRES: we have become the only writer by entering both write_thread_ and
+// nonmem_write_thread_
 Status ExternalSstFileIngestionJob::Run() {
   Status status;
 #ifndef NDEBUG
@@ -164,6 +166,8 @@ Status ExternalSstFileIngestionJob::Run() {
     // if the dont overlap with any ranges since we have snapshots
     force_global_seqno = true;
   }
+  // It is safe to use this instead of LastToBeWrittenSequence since we are
+  // the only active writer, and hence they are equal
   const SequenceNumber last_seqno = versions_->LastSequence();
   SuperVersion* super_version = cfd_->GetSuperVersion();
   edit_.SetColumnFamily(cfd_->GetID());
@@ -197,6 +201,7 @@ Status ExternalSstFileIngestionJob::Run() {
   }
 
   if (consumed_seqno) {
+    versions_->SetLastToBeWrittenSequence(last_seqno + 1);
     versions_->SetLastSequence(last_seqno + 1);
   }
 

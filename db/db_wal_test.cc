@@ -122,9 +122,11 @@ TEST_F(DBWALTest, SyncWALNotWaitWrite) {
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   rocksdb::port::Thread thread([&]() { ASSERT_OK(Put("foo2", "bar2")); });
-  TEST_SYNC_POINT("DBWALTest::SyncWALNotWaitWrite:1");
+  // Moving this to SyncWAL before the actual fsync
+  // TEST_SYNC_POINT("DBWALTest::SyncWALNotWaitWrite:1");
   ASSERT_OK(db_->SyncWAL());
-  TEST_SYNC_POINT("DBWALTest::SyncWALNotWaitWrite:2");
+  // Moving this to SyncWAL after actual fsync
+  // TEST_SYNC_POINT("DBWALTest::SyncWALNotWaitWrite:2");
 
   thread.join();
 
@@ -660,6 +662,7 @@ TEST_F(DBWALTest, PartOfWritesWithWALDisabled) {
   ASSERT_OK(Flush(0));
   ASSERT_OK(Put(0, "key", "v5", wal_on));  // seq id 5
   ASSERT_EQ("v5", Get(0, "key"));
+  dbfull()->FlushWAL(false);
   // Simulate a crash.
   fault_env->SetFilesystemActive(false);
   Close();
@@ -729,6 +732,7 @@ class RecoveryTestHelper {
         batch.Put(key, value);
         WriteBatchInternal::SetSequence(&batch, seq);
         current_log_writer->AddRecord(WriteBatchInternal::Contents(&batch));
+        versions->SetLastToBeWrittenSequence(seq);
         versions->SetLastSequence(seq);
       }
     }
@@ -1113,6 +1117,7 @@ TEST_F(DBWALTest, RecoverWithoutFlushMultipleCF) {
   ASSERT_EQ(3, countWalFiles());
   Flush(1);
   ASSERT_OK(Put(2, "key7", kLargeValue));
+  dbfull()->FlushWAL(false);
   ASSERT_EQ(4, countWalFiles());
 
   // Reopen twice and validate.

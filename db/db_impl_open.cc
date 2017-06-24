@@ -725,6 +725,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     auto last_sequence = *next_sequence - 1;
     if ((*next_sequence != kMaxSequenceNumber) &&
         (versions_->LastSequence() <= last_sequence)) {
+      versions_->SetLastToBeWrittenSequence(last_sequence);
       versions_->SetLastSequence(last_sequence);
     }
   }
