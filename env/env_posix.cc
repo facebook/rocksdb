@@ -171,7 +171,8 @@ class PosixEnv : public Env {
       fd = open(fname.c_str(), flags, 0644);
     } while (fd < 0 && errno == EINTR);
     if (fd < 0) {
-      return IOError(fname, errno);
+      return IOError("While opening a file for sequentially reading", fname,
+                     errno);
     }
 
     SetFD_CLOEXEC(fd, &options);
@@ -180,7 +181,7 @@ class PosixEnv : public Env {
 #ifdef OS_MACOSX
       if (fcntl(fd, F_NOCACHE, 1) == -1) {
         close(fd);
-        return IOError(fname, errno);
+        return IOError("While fcntl NoCache", fname, errno);
       }
 #endif
     } else {
@@ -190,7 +191,8 @@ class PosixEnv : public Env {
       } while (file == nullptr && errno == EINTR);
       if (file == nullptr) {
         close(fd);
-        return IOError(fname, errno);
+        return IOError("While opening file for sequentially read", fname,
+                       errno);
       }
     }
     result->reset(new PosixSequentialFile(fname, file, fd, options));
@@ -219,7 +221,7 @@ class PosixEnv : public Env {
       fd = open(fname.c_str(), flags, 0644);
     } while (fd < 0 && errno == EINTR);
     if (fd < 0) {
-      return IOError(fname, errno);
+      return IOError("While open a file for random read", fname, errno);
     }
     SetFD_CLOEXEC(fd, &options);
 
@@ -235,7 +237,7 @@ class PosixEnv : public Env {
           result->reset(new PosixMmapReadableFile(fd, fname, base,
                                                   size, options));
         } else {
-          s = IOError(fname, errno);
+          s = IOError("while mmap file for read", fname, errno);
         }
       }
       close(fd);
@@ -244,7 +246,7 @@ class PosixEnv : public Env {
 #ifdef OS_MACOSX
         if (fcntl(fd, F_NOCACHE, 1) == -1) {
           close(fd);
-          return IOError(fname, errno);
+          return IOError("while fcntl NoCache", fname, errno);
         }
 #endif
       }
@@ -291,7 +293,7 @@ class PosixEnv : public Env {
     } while (fd < 0 && errno == EINTR);
 
     if (fd < 0) {
-      s = IOError(fname, errno);
+      s = IOError("While open a file for appending", fname, errno);
       return s;
     }
     SetFD_CLOEXEC(fd, &options);
@@ -312,14 +314,15 @@ class PosixEnv : public Env {
 #ifdef OS_MACOSX
       if (fcntl(fd, F_NOCACHE, 1) == -1) {
         close(fd);
-        s = IOError(fname, errno);
+        s = IOError("While fcntl NoCache an opened file for appending", fname,
+                    errno);
         return s;
       }
 #elif defined(OS_SOLARIS)
       if (directio(fd, DIRECTIO_ON) == -1) {
         if (errno != ENOTTY) { // ZFS filesystems don't support DIRECTIO_ON
           close(fd);
-          s = IOError(fname, errno);
+          s = IOError("While calling directio()", fname, errno);
           return s;
         }
       }
@@ -377,14 +380,14 @@ class PosixEnv : public Env {
       fd = open(old_fname.c_str(), flags, 0644);
     } while (fd < 0 && errno == EINTR);
     if (fd < 0) {
-      s = IOError(fname, errno);
+      s = IOError("while reopen file for write", fname, errno);
       return s;
     }
 
     SetFD_CLOEXEC(fd, &options);
     // rename into place
     if (rename(old_fname.c_str(), fname.c_str()) != 0) {
-      s = IOError(old_fname, errno);
+      s = IOError("while rename file to " + fname, old_fname, errno);
       close(fd);
       return s;
     }
@@ -405,14 +408,15 @@ class PosixEnv : public Env {
 #ifdef OS_MACOSX
       if (fcntl(fd, F_NOCACHE, 1) == -1) {
         close(fd);
-        s = IOError(fname, errno);
+        s = IOError("while fcntl NoCache for reopened file for append", fname,
+                    errno);
         return s;
       }
 #elif defined(OS_SOLARIS)
       if (directio(fd, DIRECTIO_ON) == -1) {
         if (errno != ENOTTY) { // ZFS filesystems don't support DIRECTIO_ON
           close(fd);
-          s = IOError(fname, errno);
+          s = IOError("while calling directio()", fname, errno);
           return s;
         }
       }
@@ -441,7 +445,7 @@ class PosixEnv : public Env {
         if (errno == EINTR) {
           continue;
         }
-        return IOError(fname, errno);
+        return IOError("While open file for random read/write", fname, errno);
       }
     }
 
@@ -459,7 +463,7 @@ class PosixEnv : public Env {
       fd = open(name.c_str(), 0);
     }
     if (fd < 0) {
-      return IOError(name, errno);
+      return IOError("While open directory", name, errno);
     } else {
       result->reset(new PosixDirectory(fd));
     }
@@ -498,7 +502,7 @@ class PosixEnv : public Env {
         case ENOTDIR:
           return Status::NotFound();
         default:
-          return IOError(dir, errno);
+          return IOError("While opendir", dir, errno);
       }
     }
     struct dirent* entry;
@@ -512,7 +516,7 @@ class PosixEnv : public Env {
   virtual Status DeleteFile(const std::string& fname) override {
     Status result;
     if (unlink(fname.c_str()) != 0) {
-      result = IOError(fname, errno);
+      result = IOError("while unlink() file", fname, errno);
     }
     return result;
   };
@@ -520,7 +524,7 @@ class PosixEnv : public Env {
   virtual Status CreateDir(const std::string& name) override {
     Status result;
     if (mkdir(name.c_str(), 0755) != 0) {
-      result = IOError(name, errno);
+      result = IOError("While mkdir", name, errno);
     }
     return result;
   };
@@ -529,7 +533,7 @@ class PosixEnv : public Env {
     Status result;
     if (mkdir(name.c_str(), 0755) != 0) {
       if (errno != EEXIST) {
-        result = IOError(name, errno);
+        result = IOError("While mkdir if missing", name, errno);
       } else if (!DirExists(name)) { // Check that name is actually a
                                      // directory.
         // Message is taken from mkdir
@@ -542,7 +546,7 @@ class PosixEnv : public Env {
   virtual Status DeleteDir(const std::string& name) override {
     Status result;
     if (rmdir(name.c_str()) != 0) {
-      result = IOError(name, errno);
+      result = IOError("file rmdir", name, errno);
     }
     return result;
   };
@@ -553,7 +557,7 @@ class PosixEnv : public Env {
     struct stat sbuf;
     if (stat(fname.c_str(), &sbuf) != 0) {
       *size = 0;
-      s = IOError(fname, errno);
+      s = IOError("while stat a file for size", fname, errno);
     } else {
       *size = sbuf.st_size;
     }
@@ -564,7 +568,7 @@ class PosixEnv : public Env {
                                          uint64_t* file_mtime) override {
     struct stat s;
     if (stat(fname.c_str(), &s) !=0) {
-      return IOError(fname, errno);
+      return IOError("while stat a file for modification time", fname, errno);
     }
     *file_mtime = static_cast<uint64_t>(s.st_mtime);
     return Status::OK();
@@ -573,7 +577,7 @@ class PosixEnv : public Env {
                             const std::string& target) override {
     Status result;
     if (rename(src.c_str(), target.c_str()) != 0) {
-      result = IOError(src, errno);
+      result = IOError("While renaming a file to " + target, src, errno);
     }
     return result;
   }
@@ -585,7 +589,7 @@ class PosixEnv : public Env {
       if (errno == EXDEV) {
         return Status::NotSupported("No cross FS links allowed");
       }
-      result = IOError(src, errno);
+      result = IOError("while link file to " + target, src, errno);
     }
     return result;
   }
@@ -599,9 +603,9 @@ class PosixEnv : public Env {
       fd = open(fname.c_str(), O_RDWR | O_CREAT, 0644);
     }
     if (fd < 0) {
-      result = IOError(fname, errno);
+      result = IOError("while open a file for lock", fname, errno);
     } else if (LockOrUnlock(fname, fd, true) == -1) {
-      result = IOError("lock " + fname, errno);
+      result = IOError("While lock file", fname, errno);
       close(fd);
     } else {
       SetFD_CLOEXEC(fd, nullptr);
@@ -617,7 +621,7 @@ class PosixEnv : public Env {
     PosixFileLock* my_lock = reinterpret_cast<PosixFileLock*>(lock);
     Status result;
     if (LockOrUnlock(my_lock->filename, my_lock->fd_, false) == -1) {
-      result = IOError("unlock", errno);
+      result = IOError("unlock", my_lock->filename, errno);
     }
     close(my_lock->fd_);
     delete my_lock;
@@ -680,7 +684,7 @@ class PosixEnv : public Env {
     }
     if (f == nullptr) {
       result->reset();
-      return IOError(fname, errno);
+      return IOError("when fopen a file for new logger", fname, errno);
     } else {
       int fd = fileno(f);
 #ifdef ROCKSDB_FALLOCATE_PRESENT
@@ -726,7 +730,7 @@ class PosixEnv : public Env {
       if (errno == EFAULT || errno == EINVAL)
         return Status::InvalidArgument(strerror(errno));
       else
-        return IOError("GetHostName", errno);
+        return IOError("GetHostName", name, errno);
     }
     return Status::OK();
   }
@@ -734,7 +738,7 @@ class PosixEnv : public Env {
   virtual Status GetCurrentTime(int64_t* unix_time) override {
     time_t ret = time(nullptr);
     if (ret == (time_t) -1) {
-      return IOError("GetCurrentTime", errno);
+      return IOError("GetCurrentTime", "", errno);
     }
     *unix_time = (int64_t) ret;
     return Status::OK();
