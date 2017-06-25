@@ -2792,7 +2792,7 @@ TEST_F(DBTest, FIFOCompactionTestWithCompaction) {
   ASSERT_EQ(NumTableFilesAtLevel(0), 10);
 
   for (int i = 0; i < 60; i++) {
-    // Generate and flush a file about 10KB.
+    // Generate and flush a file about 20KB.
     for (int j = 0; j < 20; j++) {
       ASSERT_OK(Put(ToString(i * 20 + j + 2000), RandomString(&rnd, 980)));
     }
@@ -2806,6 +2806,204 @@ TEST_F(DBTest, FIFOCompactionTestWithCompaction) {
   // Size limit is still guaranteed.
   ASSERT_LE(SizeAtLevel(0),
             options.compaction_options_fifo.max_table_files_size);
+}
+
+TEST_F(DBTest, FIFOCompactionTestWithTTL) {
+  Options options;
+  options.compaction_style = kCompactionStyleFIFO;
+  options.write_buffer_size = 10 << 10;  // 10KB
+  options.arena_block_size = 4096;
+  options.compression = kNoCompression;
+  options.create_if_missing = true;
+
+  // Test to make sure that all files with expired ttl are deleted on next
+  // manual compaction.
+  {
+    options.compaction_options_fifo.max_table_files_size = 150 << 10;  // 150KB
+    options.compaction_options_fifo.allow_compaction = false;
+    options.compaction_options_fifo.ttl = 600;  // seconds
+    options = CurrentOptions(options);
+    DestroyAndReopen(options);
+
+    Random rnd(301);
+    for (int i = 0; i < 10; i++) {
+      // Generate and flush a file about 10KB.
+      for (int j = 0; j < 10; j++) {
+        ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
+      }
+      Flush();
+    }
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    ASSERT_EQ(NumTableFilesAtLevel(0), 10);
+
+    // sleep for 5 seconds
+    env_->SleepForMicroseconds(5 * 1000 * 1000);
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    ASSERT_EQ(NumTableFilesAtLevel(0), 10);
+
+    // change ttl to 1 sec. So all files should be deleted on next compaction.
+    options.compaction_options_fifo.ttl = 1;
+    Reopen(options);
+
+    dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+    ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+  }
+
+  // Test to make sure that all files with expired ttl are deleted on compaction
+  // that is triggerred by size going beyond max_table_files_size threshold.
+  {
+    options.compaction_options_fifo.max_table_files_size = 150 << 10;  // 150KB
+    options.compaction_options_fifo.allow_compaction = false;
+    options.compaction_options_fifo.ttl = 5;  // seconds
+    options = CurrentOptions(options);
+    DestroyAndReopen(options);
+
+    Random rnd(301);
+    for (int i = 0; i < 10; i++) {
+      // Generate and flush a file about 10KB.
+      for (int j = 0; j < 10; j++) {
+        ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
+      }
+      Flush();
+    }
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    ASSERT_EQ(NumTableFilesAtLevel(0), 10);
+
+    env_->SleepForMicroseconds(6 * 1000 * 1000);
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    ASSERT_EQ(NumTableFilesAtLevel(0), 10);
+
+    // Create 10 more files. The old 10 files are dropped.
+    for (int i = 0; i < 10; i++) {
+      for (int j = 0; j < 10; j++) {
+        ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
+      }
+      Flush();
+    }
+
+    // Only the new 10 files remain.
+    ASSERT_EQ(NumTableFilesAtLevel(0), 10);
+    ASSERT_LE(SizeAtLevel(0),
+              options.compaction_options_fifo.max_table_files_size);
+  }
+
+  // Test that shows the fall back to size-based FIFO compaction if TTL-based
+  // deletion doesn't move the total size to be less than max_table_files_size.
+  {
+    options.write_buffer_size = 110 << 10;                             // 10KB
+    options.compaction_options_fifo.max_table_files_size = 150 << 10;  // 150KB
+    options.compaction_options_fifo.allow_compaction = false;
+    options.compaction_options_fifo.ttl = 5;  // seconds
+    options = CurrentOptions(options);
+    DestroyAndReopen(options);
+
+    Random rnd(301);
+    for (int i = 0; i < 3; i++) {
+      // Generate and flush a file about 10KB.
+      for (int j = 0; j < 10; j++) {
+        ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
+      }
+      Flush();
+    }
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    ASSERT_EQ(NumTableFilesAtLevel(0), 3);
+
+    env_->SleepForMicroseconds(6 * 1000 * 1000);
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    ASSERT_EQ(NumTableFilesAtLevel(0), 3);
+
+    for (int i = 0; i < 5; i++) {
+      for (int j = 0; j < 140; j++) {
+        ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
+      }
+      Flush();
+    }
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    // Size limit is still guaranteed.
+    ASSERT_LE(SizeAtLevel(0),
+              options.compaction_options_fifo.max_table_files_size);
+  }
+
+  // Test with TTL + Intra-L0 compactions.
+  {
+    options.compaction_options_fifo.max_table_files_size = 150 << 10;  // 150KB
+    options.compaction_options_fifo.allow_compaction = true;
+    options.compaction_options_fifo.ttl = 5;  // seconds
+    options.level0_file_num_compaction_trigger = 6;
+    options = CurrentOptions(options);
+    DestroyAndReopen(options);
+
+    Random rnd(301);
+    for (int i = 0; i < 10; i++) {
+      // Generate and flush a file about 10KB.
+      for (int j = 0; j < 10; j++) {
+        ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
+      }
+      Flush();
+    }
+    // With Intra-L0 compaction, out of 10 files, 6 files will be compacted to 1
+    // (due to level0_file_num_compaction_trigger = 6).
+    // So total files = 1 + remaining 4 = 5.
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    ASSERT_EQ(NumTableFilesAtLevel(0), 5);
+
+    // Sleep for a little over ttl time.
+    env_->SleepForMicroseconds(6 * 1000 * 1000);
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    ASSERT_EQ(NumTableFilesAtLevel(0), 5);
+
+    // Create 10 more files. The old 5 files are dropped as their ttl expired.
+    for (int i = 0; i < 10; i++) {
+      for (int j = 0; j < 10; j++) {
+        ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
+      }
+      Flush();
+    }
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    ASSERT_EQ(NumTableFilesAtLevel(0), 5);
+    ASSERT_LE(SizeAtLevel(0),
+              options.compaction_options_fifo.max_table_files_size);
+  }
+
+  // Test with large TTL + Intra-L0 compactions.
+  // Files dropped based on size, as ttl doesn't kick in.
+  {
+    options.write_buffer_size = 20 << 10;                               // 20K
+    options.compaction_options_fifo.max_table_files_size = 1500 << 10;  // 1.5MB
+    options.compaction_options_fifo.allow_compaction = true;
+    options.compaction_options_fifo.ttl = 60 * 60;  // 1 hour
+    options.level0_file_num_compaction_trigger = 6;
+    options = CurrentOptions(options);
+    DestroyAndReopen(options);
+
+    Random rnd(301);
+    for (int i = 0; i < 60; i++) {
+      // Generate and flush a file about 20KB.
+      for (int j = 0; j < 20; j++) {
+        ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
+      }
+      Flush();
+    }
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    // It should be compacted to 10 files.
+    ASSERT_EQ(NumTableFilesAtLevel(0), 10);
+
+    for (int i = 0; i < 60; i++) {
+      // Generate and flush a file about 20KB.
+      for (int j = 0; j < 20; j++) {
+        ASSERT_OK(Put(ToString(i * 20 + j + 2000), RandomString(&rnd, 980)));
+      }
+      Flush();
+    }
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+    // It should be compacted to no more than 20 files.
+    ASSERT_GT(NumTableFilesAtLevel(0), 10);
+    ASSERT_LT(NumTableFilesAtLevel(0), 18);
+    // Size limit is still guaranteed.
+    ASSERT_LE(SizeAtLevel(0),
+              options.compaction_options_fifo.max_table_files_size);
+  }
 }
 #endif  // ROCKSDB_LITE
 
