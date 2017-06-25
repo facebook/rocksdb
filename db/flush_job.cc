@@ -243,7 +243,6 @@ Status FlushJob::WriteLevel0Table() {
       ThreadStatus::STAGE_FLUSH_WRITE_L0);
   db_mutex_->AssertHeld();
   const uint64_t start_micros = db_options_.env->NowMicros();
-
   Status s;
   {
     db_mutex_->Unlock();
@@ -301,7 +300,10 @@ Status FlushJob::WriteLevel0Table() {
           db_options_.env->OptimizeForCompactionTableWrite(env_options_, db_options_);
 
       int64_t _current_time;
-      db_options_.env->GetCurrentTime(&_current_time);
+      auto status = db_options_.env->GetCurrentTime(&_current_time);
+      if (!status.ok()) {
+        _current_time = 0;
+      }
       const uint64_t current_time = static_cast<uint64_t>(_current_time);
 
       s = BuildTable(
