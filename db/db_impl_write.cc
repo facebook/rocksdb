@@ -525,7 +525,7 @@ Status DBImpl::WriteImplWALOnly(const WriteOptions& write_options,
   PERF_TIMER_START(write_pre_and_post_process_time);
 
   if (!w.CallbackFailed()) {
-    ParanoidCheck(status);
+    WriteCallbackStatusCheck(status);
   }
   nonmem_write_thread_.ExitAsBatchGroupLeader(write_group, w.status);
   if (status.ok()) {
