@@ -2865,7 +2865,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 #ifndef ROCKSDB_LITE
     options.compaction_options_fifo = CompactionOptionsFIFO(
         FLAGS_fifo_compaction_max_table_files_size_mb * 1024 * 1024,
-        FLAGS_fifo_compaction_ttl, FLAGS_fifo_compaction_allow_compaction);
+        FLAGS_fifo_compaction_allow_compaction, FLAGS_fifo_compaction_ttl);
 #endif  // ROCKSDB_LITE
     if (FLAGS_prefix_size != 0) {
       options.prefix_extractor.reset(
