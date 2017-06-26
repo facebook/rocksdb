@@ -380,6 +380,7 @@ set(SOURCES
         db/write_thread.cc
         env/env.cc
         env/env_chroot.cc
+        env/env_encryption.cc
         env/env_hdfs.cc
         env/mock_env.cc
         memtable/alloc_tracker.cc

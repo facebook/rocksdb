@@ -671,6 +671,7 @@ class DBTestBase : public testing::Test {
   std::string alternative_wal_dir_;
   std::string alternative_db_log_dir_;
   MockEnv* mem_env_;
+  Env* encrypted_env_;
   SpecialEnv* env_;
   DB* db_;
   std::vector<ColumnFamilyHandle*> handles_;
@@ -773,6 +774,8 @@ class DBTestBase : public testing::Test {
   Status TryReopen(const Options& options);
 
   bool IsDirectIOSupported();
+
+  bool IsMemoryMappedAccessSupported() const;
 
   Status Flush(int cf = 0);
 
