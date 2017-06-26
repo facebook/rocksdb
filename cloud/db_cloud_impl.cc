@@ -267,6 +267,48 @@ Status DBCloudImpl::ReadFileIntoString(Env* env, const std::string& filename,
   return s;
 }
 
+Status DBCloudImpl::CreateNewIdentityFile(CloudEnv* cenv,
+                                          const Options& options,
+                                          const std::string& dbid,
+                                          const std::string& local_name) {
+  const EnvOptions soptions;
+  auto tmp_identity_path = local_name + "/IDENTITY.tmp";
+  Env* env = cenv->GetBaseEnv();
+  Status st;
+  {
+    unique_ptr<WritableFile> destfile;
+    st = env->NewWritableFile(tmp_identity_path, &destfile, soptions);
+    if (!st.ok()) {
+      Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
+          "[db_cloud_impl] Unable to create local IDENTITY file to %s %s",
+          tmp_identity_path.c_str(), st.ToString().c_str());
+      return st;
+    }
+    st = destfile->Append(Slice(dbid));
+    if (!st.ok()) {
+      Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
+          "[db_cloud_impl] Unable to write new dbid to local IDENTITY file "
+          "%s %s",
+          tmp_identity_path.c_str(), st.ToString().c_str());
+      return st;
+    }
+  }
+  Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+      "[db_cloud_impl] Written new dbid %s to %s %s", dbid.c_str(),
+      tmp_identity_path.c_str(), st.ToString().c_str());
+
+  // Rename ID file on local filesystem and upload it to dest bucket too
+  st = cenv->RenameFile(tmp_identity_path, local_name + "/IDENTITY");
+  if (!st.ok()) {
+    Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
+        "[db_cloud_impl] Unable to rename newly created IDENTITY.tmp "
+        " to IDENTITY. %S",
+        st.ToString().c_str());
+    return st;
+  }
+  return st;
+}
+
 //
 // Shall we re-initialize the local dir?
 //
@@ -631,6 +673,10 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
     return st;
   }
 
+  bool dest_equal_src =
+      cenv->GetSrcBucketPrefix() == cenv->GetDestBucketPrefix() &&
+      cenv->GetSrcObjectPrefix() == cenv->GetDestObjectPrefix();
+
   // Download files from dest bucket
   if (!cenv->GetDestBucketPrefix().empty()) {
     // download MANIFEST
@@ -669,7 +715,7 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
   }
 
   // Download files from src bucket
-  if (!cenv->GetSrcBucketPrefix().empty()) {
+  if (!cenv->GetSrcBucketPrefix().empty() && !dest_equal_src) {
     // download MANIFEST
     std::string cloudfile = cenv->GetSrcObjectPrefix() + "/MANIFEST";
     std::string localfile = local_name + "/MANIFEST.src";
@@ -762,9 +808,7 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
     // bucket is specified, then it is not a clone. So continue to use
     // the src_dbid
     std::string new_dbid;
-    if ((cenv->GetSrcBucketPrefix() == cenv->GetDestBucketPrefix() &&
-         (cenv->GetSrcObjectPrefix() == cenv->GetDestObjectPrefix())) ||
-        cenv->GetDestBucketPrefix().empty()) {
+    if (dest_equal_src || cenv->GetDestBucketPrefix().empty()) {
       Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
           "[db_cloud_impl] Reopening an existing cloud-db with dbid %s",
           src_dbid.c_str());
@@ -784,39 +828,8 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
       new_dbid = src_dbid + std::string(CloudEnvImpl::DBID_SEPARATOR) +
                  env->GenerateUniqueId();
 
-      // write to a newly created ID file
-      {
-        unique_ptr<WritableFile> destfile;
-        st = env->NewWritableFile(local_name + "/IDENTITY.tmp", &destfile,
-                                  soptions);
-        if (!st.ok()) {
-          Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
-              "[db_cloud_impl] Unable to create local IDENTITY file to %s %s",
-              local_name.c_str(), st.ToString().c_str());
-          return st;
-        }
-        st = destfile->Append(Slice(new_dbid));
-        if (!st.ok()) {
-          Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
-              "[db_cloud_impl] Unable to write new dbid to local IDENTITY file "
-              "%s %s",
-              local_name.c_str(), st.ToString().c_str());
-          return st;
-        }
-      }
-      Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
-          "[db_cloud_impl] Written new clone dbid %s to %s%s %s",
-          new_dbid.c_str(), local_name.c_str(), "/IDENTITY.tmp",
-          st.ToString().c_str());
-
-      // Rename ID file on local filesystem and upload it to dest bucket too
-      st = cenv->RenameFile(local_name + "/IDENTITY.tmp",
-                            local_name + "/IDENTITY");
+      st = CreateNewIdentityFile(cenv, options, new_dbid, local_name);
       if (!st.ok()) {
-        Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
-            "[db_cloud_impl] Unable to rename newly created IDENTITY.tmp "
-            " to IDENTITY. %S",
-            st.ToString().c_str());
         return st;
       }
 
@@ -834,6 +847,24 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
     if (!st.ok()) {
       Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
           "[db_cloud_impl] Unable to rename IDENTITY.src %s",
+          st.ToString().c_str());
+      return st;
+    }
+  } else if (dest_equal_src &&
+             env->FileExists(local_name + "/MANIFEST.dest").ok()) {
+    // IDENTITY doesn't exist, but source is equal to destination and MANIFEST
+    // is there.
+    // Assume this is an external copy and create a new IDENTITY.
+    st = CreateNewIdentityFile(cenv, options, env->GenerateUniqueId(),
+                               local_name);
+    if (!st.ok()) {
+      return st;
+    }
+    st = env->RenameFile(local_name + "/MANIFEST.dest",
+                         local_name + "/MANIFEST-000001");
+    if (!st.ok()) {
+      Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
+          "[db_cloud_impl] Unable to rename MANIFEST.dest %s",
           st.ToString().c_str());
       return st;
     }

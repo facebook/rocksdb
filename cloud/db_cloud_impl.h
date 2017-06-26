@@ -52,7 +52,9 @@ class DBCloudImpl : public DBCloud {
   static Status SanitizeDirectory(const Options& options,
                                   const std::string& clone_name, bool readonly);
 
-
+  static Status CreateNewIdentityFile(CloudEnv* cenv, const Options& options,
+                                      const std::string& dbid,
+                                      const std::string& local_name);
 };
 }
 #endif  // ROCKSDB_LITE
