@@ -21,6 +21,9 @@
 * Introduce WriteOptions.low_pri. If it is true, low priority writes will be throttled if the compaction is behind.
 * `DB::IngestExternalFile()` now supports ingesting files into a database containing range deletions.
 
+### Bu Fixes
+* Shouldn't ignore return value of fsync() in flush.
+
 ## 5.5.0 (05/17/2017)
 ### New Features
 * FIFO compaction to support Intra L0 compaction too with CompactionOptionsFIFO.allow_compaction=true.
