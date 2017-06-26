@@ -252,7 +252,314 @@ TEST_F(DBIOFailureTest, PutFailsParanoid) {
   // the next put should NOT fail
   ASSERT_TRUE(s.ok());
 }
+#if !(defined NDEBUG) || !defined(OS_WIN)
+TEST_F(DBIOFailureTest, FlushSstRangeSyncError) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  options.error_if_exists = false;
+  options.paranoid_checks = true;
+  options.write_buffer_size = 256 * 1024 * 1024;
+  options.writable_file_max_buffer_size = 128 * 1024;
+  options.bytes_per_sync = 128 * 1024;
+  options.level0_file_num_compaction_trigger = 4;
+  options.memtable_factory.reset(new SpecialSkipListFactory(10));
+  BlockBasedTableOptions table_options;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
+  DestroyAndReopen(options);
+  CreateAndReopenWithCF({"pikachu"}, options);
+  Status s;
+
+  std::atomic<int> range_sync_called(0);
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "SpecialEnv::SStableFile::RangeSync", [&](void* arg) {
+        if (range_sync_called.fetch_add(1) == 0) {
+          Status* st = static_cast<Status*>(arg);
+          *st = Status::IOError("range sync dummy error");
+        }
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  Random rnd(301);
+  std::string rnd_str = RandomString(&rnd, options.bytes_per_sync / 2);
+  std::string rnd_str_512kb = RandomString(&rnd, 512 * 1024);
+
+  ASSERT_OK(Put(1, "foo", "bar"));
+  // First 1MB doesn't get range synced
+  ASSERT_OK(Put(1, "foo0_0", rnd_str_512kb));
+  ASSERT_OK(Put(1, "foo0_1", rnd_str_512kb));
+  ASSERT_OK(Put(1, "foo1_1", rnd_str));
+  ASSERT_OK(Put(1, "foo1_2", rnd_str));
+  ASSERT_OK(Put(1, "foo1_3", rnd_str));
+  ASSERT_OK(Put(1, "foo2", "bar"));
+  ASSERT_OK(Put(1, "foo3_1", rnd_str));
+  ASSERT_OK(Put(1, "foo3_2", rnd_str));
+  ASSERT_OK(Put(1, "foo3_3", rnd_str));
+  ASSERT_OK(Put(1, "foo4", "bar"));
+  dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
+
+  // Following writes should fail as flush failed.
+  ASSERT_NOK(Put(1, "foo2", "bar3"));
+  ASSERT_EQ("bar", Get(1, "foo"));
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  ASSERT_GE(1, range_sync_called.load());
+
+  ReopenWithColumnFamilies({"default", "pikachu"}, options);
+  ASSERT_EQ("bar", Get(1, "foo"));
+}
+
+TEST_F(DBIOFailureTest, CompactSstRangeSyncError) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  options.error_if_exists = false;
+  options.paranoid_checks = true;
+  options.write_buffer_size = 256 * 1024 * 1024;
+  options.writable_file_max_buffer_size = 128 * 1024;
+  options.bytes_per_sync = 128 * 1024;
+  options.level0_file_num_compaction_trigger = 2;
+  options.target_file_size_base = 256 * 1024 * 1024;
+  options.disable_auto_compactions = true;
+  BlockBasedTableOptions table_options;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+  CreateAndReopenWithCF({"pikachu"}, options);
+  Status s;
+
+  Random rnd(301);
+  std::string rnd_str =
+      RandomString(&rnd, static_cast<int>(options.bytes_per_sync / 2));
+  std::string rnd_str_512kb = RandomString(&rnd, 512 * 1024);
+
+  ASSERT_OK(Put(1, "foo", "bar"));
+  // First 1MB doesn't get range synced
+  ASSERT_OK(Put(1, "foo0_0", rnd_str_512kb));
+  ASSERT_OK(Put(1, "foo0_1", rnd_str_512kb));
+  ASSERT_OK(Put(1, "foo1_1", rnd_str));
+  ASSERT_OK(Put(1, "foo1_2", rnd_str));
+  ASSERT_OK(Put(1, "foo1_3", rnd_str));
+  Flush(1);
+  ASSERT_OK(Put(1, "foo", "bar"));
+  ASSERT_OK(Put(1, "foo3_1", rnd_str));
+  ASSERT_OK(Put(1, "foo3_2", rnd_str));
+  ASSERT_OK(Put(1, "foo3_3", rnd_str));
+  ASSERT_OK(Put(1, "foo4", "bar"));
+  Flush(1);
+  dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
+
+  std::atomic<int> range_sync_called(0);
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "SpecialEnv::SStableFile::RangeSync", [&](void* arg) {
+        if (range_sync_called.fetch_add(1) == 0) {
+          Status* st = static_cast<Status*>(arg);
+          *st = Status::IOError("range sync dummy error");
+        }
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(dbfull()->SetOptions(handles_[1],
+                                 {
+                                     {"disable_auto_compactions", "false"},
+                                 }));
+  dbfull()->TEST_WaitForCompact();
+
+  // Following writes should fail as flush failed.
+  ASSERT_NOK(Put(1, "foo2", "bar3"));
+  ASSERT_EQ("bar", Get(1, "foo"));
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  ASSERT_GE(1, range_sync_called.load());
+
+  ReopenWithColumnFamilies({"default", "pikachu"}, options);
+  ASSERT_EQ("bar", Get(1, "foo"));
+}
+
+TEST_F(DBIOFailureTest, FlushSstCloseError) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  options.error_if_exists = false;
+  options.paranoid_checks = true;
+  options.level0_file_num_compaction_trigger = 4;
+  options.memtable_factory.reset(new SpecialSkipListFactory(2));
+
+  DestroyAndReopen(options);
+  CreateAndReopenWithCF({"pikachu"}, options);
+  Status s;
+  std::atomic<int> close_called(0);
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "SpecialEnv::SStableFile::Close", [&](void* arg) {
+        if (close_called.fetch_add(1) == 0) {
+          Status* st = static_cast<Status*>(arg);
+          *st = Status::IOError("close dummy error");
+        }
+      });
+
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(Put(1, "foo", "bar"));
+  ASSERT_OK(Put(1, "foo1", "bar1"));
+  ASSERT_OK(Put(1, "foo", "bar2"));
+  dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
+
+  // Following writes should fail as flush failed.
+  ASSERT_NOK(Put(1, "foo2", "bar3"));
+  ASSERT_EQ("bar2", Get(1, "foo"));
+  ASSERT_EQ("bar1", Get(1, "foo1"));
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+
+  ReopenWithColumnFamilies({"default", "pikachu"}, options);
+  ASSERT_EQ("bar2", Get(1, "foo"));
+  ASSERT_EQ("bar1", Get(1, "foo1"));
+}
+
+TEST_F(DBIOFailureTest, CompactionSstCloseError) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  options.error_if_exists = false;
+  options.paranoid_checks = true;
+  options.level0_file_num_compaction_trigger = 2;
+  options.disable_auto_compactions = true;
+
+  DestroyAndReopen(options);
+  CreateAndReopenWithCF({"pikachu"}, options);
+  Status s;
+
+  ASSERT_OK(Put(1, "foo", "bar"));
+  ASSERT_OK(Put(1, "foo2", "bar"));
+  Flush(1);
+  ASSERT_OK(Put(1, "foo", "bar2"));
+  ASSERT_OK(Put(1, "foo2", "bar"));
+  Flush(1);
+  ASSERT_OK(Put(1, "foo", "bar3"));
+  ASSERT_OK(Put(1, "foo2", "bar"));
+  Flush(1);
+  dbfull()->TEST_WaitForCompact();
+
+  std::atomic<int> close_called(0);
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "SpecialEnv::SStableFile::Close", [&](void* arg) {
+        if (close_called.fetch_add(1) == 0) {
+          Status* st = static_cast<Status*>(arg);
+          *st = Status::IOError("close dummy error");
+        }
+      });
+
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(dbfull()->SetOptions(handles_[1],
+                                 {
+                                     {"disable_auto_compactions", "false"},
+                                 }));
+  dbfull()->TEST_WaitForCompact();
+
+  // Following writes should fail as compaction failed.
+  ASSERT_NOK(Put(1, "foo2", "bar3"));
+  ASSERT_EQ("bar3", Get(1, "foo"));
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+
+  ReopenWithColumnFamilies({"default", "pikachu"}, options);
+  ASSERT_EQ("bar3", Get(1, "foo"));
+}
+
+TEST_F(DBIOFailureTest, FlushSstSyncError) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  options.error_if_exists = false;
+  options.paranoid_checks = true;
+  options.use_fsync = false;
+  options.level0_file_num_compaction_trigger = 4;
+  options.memtable_factory.reset(new SpecialSkipListFactory(2));
+
+  DestroyAndReopen(options);
+  CreateAndReopenWithCF({"pikachu"}, options);
+  Status s;
+  std::atomic<int> sync_called(0);
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "SpecialEnv::SStableFile::Sync", [&](void* arg) {
+        if (sync_called.fetch_add(1) == 0) {
+          Status* st = static_cast<Status*>(arg);
+          *st = Status::IOError("sync dummy error");
+        }
+      });
+
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(Put(1, "foo", "bar"));
+  ASSERT_OK(Put(1, "foo1", "bar1"));
+  ASSERT_OK(Put(1, "foo", "bar2"));
+  dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
+
+  // Following writes should fail as flush failed.
+  ASSERT_NOK(Put(1, "foo2", "bar3"));
+  ASSERT_EQ("bar2", Get(1, "foo"));
+  ASSERT_EQ("bar1", Get(1, "foo1"));
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+
+  ReopenWithColumnFamilies({"default", "pikachu"}, options);
+  ASSERT_EQ("bar2", Get(1, "foo"));
+  ASSERT_EQ("bar1", Get(1, "foo1"));
+}
+
+TEST_F(DBIOFailureTest, CompactionSstSyncError) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  options.error_if_exists = false;
+  options.paranoid_checks = true;
+  options.level0_file_num_compaction_trigger = 2;
+  options.disable_auto_compactions = true;
+  options.use_fsync = false;
+
+  DestroyAndReopen(options);
+  CreateAndReopenWithCF({"pikachu"}, options);
+  Status s;
+
+  ASSERT_OK(Put(1, "foo", "bar"));
+  ASSERT_OK(Put(1, "foo2", "bar"));
+  Flush(1);
+  ASSERT_OK(Put(1, "foo", "bar2"));
+  ASSERT_OK(Put(1, "foo2", "bar"));
+  Flush(1);
+  ASSERT_OK(Put(1, "foo", "bar3"));
+  ASSERT_OK(Put(1, "foo2", "bar"));
+  Flush(1);
+  dbfull()->TEST_WaitForCompact();
+
+  std::atomic<int> sync_called(0);
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "SpecialEnv::SStableFile::Sync", [&](void* arg) {
+        if (sync_called.fetch_add(1) == 0) {
+          Status* st = static_cast<Status*>(arg);
+          *st = Status::IOError("close dummy error");
+        }
+      });
+
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(dbfull()->SetOptions(handles_[1],
+                                 {
+                                     {"disable_auto_compactions", "false"},
+                                 }));
+  dbfull()->TEST_WaitForCompact();
+
+  // Following writes should fail as compaction failed.
+  ASSERT_NOK(Put(1, "foo2", "bar3"));
+  ASSERT_EQ("bar3", Get(1, "foo"));
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+
+  ReopenWithColumnFamilies({"default", "pikachu"}, options);
+  ASSERT_EQ("bar3", Get(1, "foo"));
+}
+#endif  // !(defined NDEBUG) || !defined(OS_WIN)
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
