@@ -59,7 +59,6 @@ public class WriteBatchThreadedTest {
       callables.add(new Callable<Void>() {
         @Override
         public Void call() throws RocksDBException {
-          final WriteBatch wb = new WriteBatch();
           try (final WriteBatch wb = new WriteBatch();
                final WriteOptions w_opt = new WriteOptions()) {
             for (int i = offset; i < offset + 100; i++) {
