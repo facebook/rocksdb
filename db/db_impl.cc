@@ -160,6 +160,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       is_snapshot_supported_(true),
       write_buffer_manager_(immutable_db_options_.write_buffer_manager.get()),
       write_thread_(immutable_db_options_),
+      nonmem_write_thread_(immutable_db_options_),
       write_controller_(mutable_db_options_.delayed_write_rate),
       // Use delayed_write_rate as a base line to determine the initial
       // low pri write rate limit. It may be adjusted later.
@@ -189,7 +190,9 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       bg_work_paused_(0),
       bg_compaction_paused_(0),
       refitting_level_(false),
-      opened_successfully_(false) {
+      opened_successfully_(false),
+      concurrent_prepare_(options.concurrent_prepare),
+      manual_wal_flush_(options.manual_wal_flush) {
   env_->GetAbsolutePath(dbname, &db_absolute_path_);
 
   // Reserve ten files or so for other uses and give the rest to TableCache.
@@ -612,6 +615,26 @@ int DBImpl::FindMinimumEmptyLevelFitting(ColumnFamilyData* cfd,
   return minimum_level;
 }
 
+Status DBImpl::FlushWAL(bool sync) {
+  {
+    // We need to lock log_write_mutex_ since logs_ might change concurrently
+    InstrumentedMutexLock wl(&log_write_mutex_);
+    log::Writer* cur_log_writer = logs_.back().writer;
+    auto s = cur_log_writer->WriteBuffer();
+    if (!s.ok()) {
+      ROCKS_LOG_ERROR(immutable_db_options_.info_log, "WAL flush error %s",
+                      s.ToString().c_str());
+    }
+    if (!sync) {
+      ROCKS_LOG_DEBUG(immutable_db_options_.info_log, "FlushWAL sync=false");
+      return s;
+    }
+  }
+  // sync = true
+  ROCKS_LOG_DEBUG(immutable_db_options_.info_log, "FlushWAL sync=true");
+  return SyncWAL();
+}
+
 Status DBImpl::SyncWAL() {
   autovector<log::Writer*, 1> logs_to_sync;
   bool need_log_dir_sync;
@@ -650,6 +673,7 @@ Status DBImpl::SyncWAL() {
     need_log_dir_sync = !log_dir_synced_;
   }
 
+  TEST_SYNC_POINT("DBWALTest::SyncWALNotWaitWrite:1");
   RecordTick(stats_, WAL_FILE_SYNCED);
   Status status;
   for (log::Writer* log : logs_to_sync) {
@@ -661,6 +685,7 @@ Status DBImpl::SyncWAL() {
   if (status.ok() && need_log_dir_sync) {
     status = directories_.GetWalDir()->Fsync();
   }
+  TEST_SYNC_POINT("DBWALTest::SyncWALNotWaitWrite:2");
 
   TEST_SYNC_POINT("DBImpl::SyncWAL:BeforeMarkLogsSynced:1");
   {
@@ -2634,9 +2659,13 @@ Status DBImpl::IngestExternalFile(
     InstrumentedMutexLock l(&mutex_);
     TEST_SYNC_POINT("DBImpl::AddFile:MutexLock");
 
-    // Stop writes to the DB
+    // Stop writes to the DB by entering both write threads
     WriteThread::Writer w;
     write_thread_.EnterUnbatched(&w, &mutex_);
+    WriteThread::Writer nonmem_w;
+    if (concurrent_prepare_) {
+      nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
+    }
 
     num_running_ingest_file_++;
 
@@ -2677,6 +2706,9 @@ Status DBImpl::IngestExternalFile(
     }
 
     // Resume writes to the DB
+    if (concurrent_prepare_) {
+      nonmem_write_thread_.ExitUnbatched(&nonmem_w);
+    }
     write_thread_.ExitUnbatched(&w);
 
     // Update stats

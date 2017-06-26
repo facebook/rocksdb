@@ -136,6 +136,9 @@ class DummyDB : public StackableDB {
     return Status::OK();
   }
 
+  // To avoid FlushWAL called on stacked db which is nullptr
+  virtual Status FlushWAL(bool sync) override { return Status::OK(); }
+
   std::vector<std::string> live_files_;
   // pair<filename, alive?>
   std::vector<std::pair<std::string, bool>> wal_files_;

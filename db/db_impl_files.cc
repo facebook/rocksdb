@@ -265,7 +265,10 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
         continue;
       }
       logs_to_free_.push_back(log.ReleaseWriter());
-      logs_.pop_front();
+      {
+        InstrumentedMutexLock wl(&log_write_mutex_);
+        logs_.pop_front();
+      }
     }
     // Current log cannot be obsolete.
     assert(!logs_.empty());

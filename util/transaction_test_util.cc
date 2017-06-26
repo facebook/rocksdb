@@ -12,6 +12,7 @@
 
 #include <inttypes.h>
 #include <string>
+#include <thread>
 
 #include "rocksdb/db.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
@@ -135,6 +136,13 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
 
   if (s.ok()) {
     if (txn != nullptr) {
+      std::hash<std::thread::id> hasher;
+      char name[64];
+      snprintf(name, 64, "txn%zu-%d", hasher(std::this_thread::get_id()),
+               txn_id_++);
+      assert(strlen(name) < 64 - 1);
+      txn->SetName(name);
+      s = txn->Prepare();
       s = txn->Commit();
 
       if (!s.ok()) {

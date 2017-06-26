@@ -9,7 +9,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-
 #include "table/block_based_table_factory.h"
 
 #include <memory>
@@ -46,6 +45,12 @@ BlockBasedTableFactory::BlockBasedTableFactory(
   }
   if (table_options_.index_block_restart_interval < 1) {
     table_options_.index_block_restart_interval = 1;
+  }
+  if (table_options_.partition_filters &&
+      table_options_.index_type !=
+          BlockBasedTableOptions::kTwoLevelIndexSearch) {
+    // We do not support partitioned filters without partitioning indexes
+    table_options_.partition_filters = false;
   }
 }
 

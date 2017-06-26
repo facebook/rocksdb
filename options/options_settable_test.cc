@@ -13,22 +13,11 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
-#include <inttypes.h>
-#include <cctype>
 #include <cstring>
-#include <unordered_map>
 
-#include "options/options_helper.h"
 #include "options/options_parser.h"
-#include "options/options_sanity_check.h"
-#include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
-#include "rocksdb/memtablerep.h"
-#include "rocksdb/utilities/leveldb_options.h"
-#include "util/random.h"
-#include "util/stderr_logger.h"
 #include "util/testharness.h"
-#include "util/testutil.h"
 
 #ifndef GFLAGS
 bool FLAGS_enable_print = false;
@@ -294,7 +283,9 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "allow_2pc=false;"
                              "avoid_flush_during_recovery=false;"
                              "avoid_flush_during_shutdown=false;"
-                             "allow_ingest_behind=false;",
+                             "allow_ingest_behind=false;"
+                             "concurrent_prepare=false;"
+                             "manual_wal_flush=false;",
                              new_options));
 
   ASSERT_EQ(unset_bytes_base, NumUnsetBytes(new_options_ptr, sizeof(DBOptions),

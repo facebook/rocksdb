@@ -524,6 +524,7 @@ class Repairer {
         max_sequence = tables_[i].max_sequence;
       }
     }
+    vset_.SetLastToBeWrittenSequence(max_sequence);
     vset_.SetLastSequence(max_sequence);
 
     for (const auto& cf_id_and_tables : cf_id_to_tables) {

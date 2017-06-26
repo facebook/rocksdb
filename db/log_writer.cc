@@ -20,20 +20,22 @@
 namespace rocksdb {
 namespace log {
 
-Writer::Writer(unique_ptr<WritableFileWriter>&& dest,
-               uint64_t log_number, bool recycle_log_files)
+Writer::Writer(unique_ptr<WritableFileWriter>&& dest, uint64_t log_number,
+               bool recycle_log_files, bool manual_flush)
     : dest_(std::move(dest)),
       block_offset_(0),
       log_number_(log_number),
-      recycle_log_files_(recycle_log_files) {
+      recycle_log_files_(recycle_log_files),
+      manual_flush_(manual_flush) {
   for (int i = 0; i <= kMaxRecordType; i++) {
     char t = static_cast<char>(i);
     type_crc_[i] = crc32c::Value(&t, 1);
   }
 }
 
-Writer::~Writer() {
-}
+Writer::~Writer() { WriteBuffer(); }
+
+Status Writer::WriteBuffer() { return dest_->Flush(); }
 
 Status Writer::AddRecord(const Slice& slice) {
   const char* ptr = slice.data();
@@ -129,7 +131,9 @@ Status Writer::EmitPhysicalRecord(RecordType t, const char* ptr, size_t n) {
   if (s.ok()) {
     s = dest_->Append(Slice(ptr, n));
     if (s.ok()) {
-      s = dest_->Flush();
+      if (!manual_flush_) {
+        s = dest_->Flush();
+      }
     }
   }
   block_offset_ += header_size + n;

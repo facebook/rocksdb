@@ -86,7 +86,9 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       fail_if_options_file_error(options.fail_if_options_file_error),
       dump_malloc_stats(options.dump_malloc_stats),
       avoid_flush_during_recovery(options.avoid_flush_during_recovery),
-      allow_ingest_behind(options.allow_ingest_behind) {
+      allow_ingest_behind(options.allow_ingest_behind),
+      concurrent_prepare(options.concurrent_prepare),
+      manual_wal_flush(options.manual_wal_flush) {
 }
 
 void ImmutableDBOptions::Dump(Logger* log) const {
@@ -219,6 +221,10 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    avoid_flush_during_recovery);
   ROCKS_LOG_HEADER(log, "            Options.allow_ingest_behind: %d",
                    allow_ingest_behind);
+  ROCKS_LOG_HEADER(log, "            Options.concurrent_prepare: %d",
+                   concurrent_prepare);
+  ROCKS_LOG_HEADER(log, "            Options.manual_wal_flush: %d",
+                   manual_wal_flush);
 }
 
 MutableDBOptions::MutableDBOptions()

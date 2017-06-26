@@ -274,6 +274,8 @@ Status TransactionImpl::Commit() {
     s = db_impl_->WriteImpl(write_options_, working_batch, nullptr, nullptr,
                             log_number_);
     if (!s.ok()) {
+      ROCKS_LOG_WARN(db_impl_->immutable_db_options().info_log,
+                     "Commit write failed");
       return s;
     }
 
