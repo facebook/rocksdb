@@ -44,7 +44,10 @@ namespace rocksdb {
 #define PERF_TIMER_MEASURE(metric) perf_step_timer_##metric.Measure();
 
 // Increase metric value
-#define PERF_COUNTER_ADD(metric, value) get_perf_context()->metric += value;
+#define PERF_COUNTER_ADD(metric, value)        \
+  if (perf_level >= PerfLevel::kEnableCount) { \
+    get_perf_context()->metric += value;       \
+  }
 
 #endif
 
