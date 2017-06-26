@@ -179,7 +179,7 @@ Status BuildTable(
     // Finish and check for file errors
     if (s.ok() && !empty) {
       StopWatch sw(env, ioptions.statistics, TABLE_SYNC_MICROS);
-      file_writer->Sync(ioptions.use_fsync);
+      s = file_writer->Sync(ioptions.use_fsync);
     }
     if (s.ok() && !empty) {
       s = file_writer->Close();
