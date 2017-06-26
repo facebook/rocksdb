@@ -1450,10 +1450,6 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
               (current_time - ioptions_.compaction_options_fifo.ttl)) {
         total_size -= f->compensated_file_size;
         inputs[0].files.push_back(f);
-        ROCKS_LOG_BUFFER(log_buffer,
-                         "[%s] FIFO compaction: picking file %" PRIu64
-                         " with creation time %" PRIu64 " for deletion",
-                         cf_name.c_str(), f->fd.GetNumber(), creation_time);
       }
     }
   }
@@ -1465,6 +1461,14 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
   if (inputs[0].files.empty() ||
       total_size > ioptions_.compaction_options_fifo.max_table_files_size) {
     return nullptr;
+  }
+
+  for (const auto& f : inputs[0].files) {
+    ROCKS_LOG_BUFFER(log_buffer,
+                     "[%s] FIFO compaction: picking file %" PRIu64
+                     " with creation time %" PRIu64 " for deletion",
+                     cf_name.c_str(), f->fd.GetNumber(),
+                     f->fd.table_reader->GetTableProperties()->creation_time);
   }
 
   Compaction* c = new Compaction(
