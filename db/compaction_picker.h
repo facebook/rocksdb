@@ -255,8 +255,6 @@ class FIFOCompactionPicker : public CompactionPicker {
                                  const MutableCFOptions& mutable_cf_options,
                                  VersionStorageInfo* version,
                                  LogBuffer* log_buffer);
-
-  uint64_t GetTotalFilesSize(const std::vector<FileMetaData*>& files);
 };
 
 class NullCompactionPicker : public CompactionPicker {

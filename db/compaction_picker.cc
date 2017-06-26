@@ -1405,7 +1405,8 @@ bool FIFOCompactionPicker::NeedsCompaction(
   return vstorage->CompactionScore(kLevel0) >= 1;
 }
 
-uint64_t FIFOCompactionPicker::GetTotalFilesSize(
+namespace {
+uint64_t GetTotalFilesSize(
     const std::vector<FileMetaData*>& files) {
   uint64_t total_size = 0;
   for (const auto& f : files) {
@@ -1413,6 +1414,7 @@ uint64_t FIFOCompactionPicker::GetTotalFilesSize(
   }
   return total_size;
 }
+}  // anonymous namespace
 
 Compaction* FIFOCompactionPicker::PickTTLCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
