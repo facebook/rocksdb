@@ -2849,8 +2849,8 @@ TEST_F(DBTest, FIFOCompactionTestWithTTL) {
     ASSERT_EQ(NumTableFilesAtLevel(0), 0);
   }
 
-  // Test to make sure that all files with expired ttl are deleted on compaction
-  // that is triggerred by size going beyond max_table_files_size threshold.
+  // Test to make sure that all files with expired ttl are deleted on next
+  // automatic compaction.
   {
     options.compaction_options_fifo.max_table_files_size = 150 << 10;  // 150KB
     options.compaction_options_fifo.allow_compaction = false;
@@ -2873,16 +2873,17 @@ TEST_F(DBTest, FIFOCompactionTestWithTTL) {
     ASSERT_OK(dbfull()->TEST_WaitForCompact());
     ASSERT_EQ(NumTableFilesAtLevel(0), 10);
 
-    // Create 10 more files. The old 10 files are dropped.
-    for (int i = 0; i < 10; i++) {
+    // Create 1 more file to trigger TTL compaction. The old files are dropped.
+    for (int i = 0; i < 1; i++) {
       for (int j = 0; j < 10; j++) {
         ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
       }
       Flush();
     }
 
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
     // Only the new 10 files remain.
-    ASSERT_EQ(NumTableFilesAtLevel(0), 10);
+    ASSERT_EQ(NumTableFilesAtLevel(0), 1);
     ASSERT_LE(SizeAtLevel(0),
               options.compaction_options_fifo.max_table_files_size);
   }

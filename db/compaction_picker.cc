@@ -1440,18 +1440,19 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
 
   for (auto ritr = level_files.rbegin(); ritr != level_files.rend(); ++ritr) {
     auto f = *ritr;
-    auto props = f->fd.table_reader->GetTableProperties();
-    auto creation_time = props->creation_time;
-    if (creation_time == 0) {
-      continue;
-    } else if (creation_time <
-               (current_time - ioptions_.compaction_options_fifo.ttl)) {
-      total_size -= f->compensated_file_size;
-      inputs[0].files.push_back(f);
-      ROCKS_LOG_BUFFER(log_buffer,
-                       "[%s] FIFO compaction: picking file %" PRIu64
-                       " with creation time %" PRIu64 " for deletion",
-                       cf_name.c_str(), f->fd.GetNumber(), creation_time);
+    if (f->fd.table_reader != nullptr) {
+      auto creation_time =
+          f->fd.table_reader->GetTableProperties()->creation_time;
+      if (creation_time > 0 &&
+          creation_time <
+              (current_time - ioptions_.compaction_options_fifo.ttl)) {
+        total_size -= f->compensated_file_size;
+        inputs[0].files.push_back(f);
+        ROCKS_LOG_BUFFER(log_buffer,
+                         "[%s] FIFO compaction: picking file %" PRIu64
+                         " with creation time %" PRIu64 " for deletion",
+                         cf_name.c_str(), f->fd.GetNumber(), creation_time);
+      }
     }
   }
 

@@ -465,10 +465,11 @@ uint64_t Compaction::MaxInputFileCreationTime() const {
   uint64_t max_creation_time = 0;
   if (cfd_->ioptions()->compaction_style == kCompactionStyleFIFO) {
     for (const auto& file : inputs_[0].files) {
-      uint64_t creation_time =
-          file->fd.table_reader->GetTableProperties()->creation_time;
-      max_creation_time =
-          creation_time > max_creation_time ? creation_time : max_creation_time;
+      if (file->fd.table_reader != nullptr) {
+        uint64_t creation_time =
+            file->fd.table_reader->GetTableProperties()->creation_time;
+        max_creation_time = std::max(max_creation_time, creation_time);
+      }
     }
   }
   return max_creation_time;
