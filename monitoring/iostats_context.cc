@@ -10,16 +10,16 @@
 
 namespace rocksdb {
 
-ThreadLocalPtr iostats_context([](void* ptr) {
-    auto* p = static_cast<IOStatsContext*>(ptr);
-    delete p;
-  });
+#ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
+__thread IOStatsContext iostats_context;
+#endif
 
 IOStatsContext* get_iostats_context() {
-  if (iostats_context.Get() == nullptr) {
-    iostats_context.Reset(static_cast<void*>(new IOStatsContext()));
-  }
-  return static_cast<IOStatsContext*>(iostats_context.Get());
+#ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
+  return &iostats_context;
+#else
+  return nullptr;
+#endif
 }
 
 void IOStatsContext::Reset() {
