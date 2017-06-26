@@ -154,7 +154,6 @@ struct PerfContext {
 // if defined(NPERF_CONTEXT), then the pointer is not thread-local
 PerfContext* get_perf_context();
 
-
 }
 
 #endif

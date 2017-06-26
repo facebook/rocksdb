@@ -8,27 +8,28 @@
 
 #include <sstream>
 #include "monitoring/perf_context_imp.h"
-#include "util/thread_local.h"
 
 namespace rocksdb {
 
-#ifdef NPERF_CONTEXT
+#if defined(NPERF_CONTEXT) || !defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
 PerfContext perf_context;
 #else
-ThreadLocalPtr perf_context([](void* ptr) {
-    auto* p = static_cast<PerfContext*>(ptr);
-    delete p;
-  });
+#if defined(OS_SOLARIS)
+__thread PerfContext perf_context_;
+#else
+__thread PerfContext perf_context;
+#endif
 #endif
 
 PerfContext* get_perf_context() {
-#ifdef NPERF_CONTEXT
+#if defined(NPERF_CONTEXT) || !defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
   return &perf_context;
 #else
-  if (perf_context.Get() == nullptr) {
-    perf_context.Reset(static_cast<void*>(new PerfContext()));
-  }
-  return static_cast<PerfContext*>(perf_context.Get());
+#if defined(OS_SOLARIS)
+  return &perf_context_;
+#else
+  return &perf_context;
+#endif
 #endif
 }
 
