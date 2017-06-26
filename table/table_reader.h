@@ -101,6 +101,11 @@ class TableReader {
     return Status::NotSupported("DumpTable() not supported");
   }
 
+  // check whether there is corruption in this db file
+  virtual Status CheckCorruption() {
+    return Status::NotSupported("CheckCorruption() not supported");
+  }
+
   virtual void Close() {}
 };
 

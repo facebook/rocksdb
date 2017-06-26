@@ -2737,6 +2737,45 @@ Status DBImpl::IngestExternalFile(
   return status;
 }
 
+Status DBImpl::CheckCorruption() {
+  InstrumentedMutexLock l(&mutex_);
+  Status s;
+  EnvOptions env_options;
+  for (auto cfd: *versions_->GetColumnFamilySet()) {
+    VersionStorageInfo* vstorage = cfd->current()->storage_info();
+    for (int i = 0; i < vstorage->num_non_empty_levels(); i++) {
+      for (size_t j = 0; j < vstorage->LevelFilesBrief(i).num_files; j++) {
+        const auto& fd = vstorage->LevelFilesBrief(i).files[j].fd;
+        std::string fname = TableFileName(
+          cfd->ioptions()->db_paths, fd.GetNumber(), fd.GetPathId());
+        unique_ptr<RandomAccessFile> file;
+        s = env_->NewRandomAccessFile(fname, &file, env_options);
+        if (!s.ok()) {
+          return s;
+        }
+        unique_ptr<TableReader> table_reader;
+        std::unique_ptr<RandomAccessFileReader> file_reader(
+            new RandomAccessFileReader(std::move(file)));
+        s = cfd->ioptions()->table_factory->NewTableReader(
+
+          TableReaderOptions(*cfd->ioptions(), env_options,
+                               cfd->internal_comparator(),
+                               false /* skip_filters */, -1 /* level */),
+            std::move(file_reader), fd.GetFileSize(), &table_reader,
+            false /* prefetch_index_and_filter_in_cache */);
+        if (!s.ok()) {
+          return s;
+        }
+        s = table_reader->CheckCorruption();
+        if (!s.ok()) {
+          return s;
+        }
+      }
+    }
+  }
+  return s;
+}
+
 void DBImpl::NotifyOnExternalFileIngested(
     ColumnFamilyData* cfd, const ExternalSstFileIngestionJob& ingestion_job) {
 #ifndef ROCKSDB_LITE

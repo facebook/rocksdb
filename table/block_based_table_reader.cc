@@ -822,7 +822,6 @@ Status BlockBasedTable::ReadMetaBlock(Rep* rep,
                                       std::unique_ptr<InternalIterator>* iter) {
   // TODO(sanjay): Skip this if footer.metaindex_handle() size indicates
   // it is an empty block.
-  //  TODO: we never really verify check sum for meta index block
   std::unique_ptr<Block> meta;
   Status s = ReadBlockFromFile(
       rep->file.get(), rep->footer, ReadOptions(),
@@ -1745,6 +1744,60 @@ Status BlockBasedTable::Prefetch(const Slice* const begin,
   }
 
   return Status::OK();
+}
+
+Status BlockBasedTable::CheckCorruption() {
+  Status s;
+  // Check Meta blocks
+  std::unique_ptr<Block> meta;
+  std::unique_ptr<InternalIterator> meta_iter;
+  s = ReadMetaBlock(rep_, &meta, &meta_iter);
+  if (s.ok()) {
+    s = CheckCorruptionInBlocks(meta_iter.get());
+    if (!s.ok()) {
+      return s;
+    }
+  } else {
+    return s;
+  }
+  // Check Data blocks
+  BlockIter iiter_on_stack;
+  InternalIterator* iiter = NewIndexIterator(ReadOptions(), &iiter_on_stack);
+  std::unique_ptr<InternalIterator> iiter_unique_ptr;
+  if (iiter != &iiter_on_stack) {
+    iiter_unique_ptr = std::unique_ptr<InternalIterator>(iiter);
+  }
+  if (!iiter->status().ok()) {
+    // error opening index iterator
+    return iiter->status();
+  }
+  s = CheckCorruptionInBlocks(iiter);
+  return s;
+}
+
+Status BlockBasedTable::CheckCorruptionInBlocks(InternalIterator* index_iter) {
+  Status s;
+  for (index_iter->SeekToFirst(); index_iter->Valid(); index_iter->Next()) {
+    s = index_iter->status();
+    if (!s.ok()) {
+      break;
+    }
+    BlockHandle handle;
+    Slice input = index_iter->value();
+    s = handle.DecodeFrom(&input);
+    if (!s.ok()) {
+      break;
+    }
+    BlockContents contents;
+    s = ReadBlockContents(rep_->file.get(), rep_->footer, ReadOptions(),
+                          handle, &contents, rep_->ioptions,
+                          false /* decompress */, Slice() /*compression dict*/,
+                          rep_->persistent_cache_options);
+    if (!s.ok()) {
+      break;
+    }
+  }
+  return s;
 }
 
 bool BlockBasedTable::TEST_KeyInCache(const ReadOptions& options,

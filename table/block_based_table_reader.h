@@ -142,6 +142,8 @@ class BlockBasedTable : public TableReader {
   // convert SST file to a human readable form
   Status DumpTable(WritableFile* out_file) override;
 
+  Status CheckCorruption() override;
+
   void Close() override;
 
   ~BlockBasedTable();
@@ -312,6 +314,8 @@ class BlockBasedTable : public TableReader {
   // Read the meta block from sst.
   static Status ReadMetaBlock(Rep* rep, std::unique_ptr<Block>* meta_block,
                               std::unique_ptr<InternalIterator>* iter);
+
+  Status CheckCorruptionInBlocks(InternalIterator* index_iter);
 
   // Create the filter from the filter block.
   FilterBlockReader* ReadFilter(const BlockHandle& filter_handle,
