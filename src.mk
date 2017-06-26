@@ -57,6 +57,7 @@ LIB_SOURCES =                                                   \
   db/write_thread.cc                                            \
   env/env.cc                                                    \
   env/env_chroot.cc                                             \
+  env/env_encryption.cc                                         \
   env/env_hdfs.cc                                               \
   env/env_posix.cc                                              \
   env/io_posix.cc                                               \
@@ -241,6 +242,7 @@ MAIN_SOURCES =                                                    \
   db/db_compaction_filter_test.cc                                       \
   db/db_compaction_test.cc                                              \
   db/db_dynamic_level_test.cc                                           \
+  db/db_encryption_test.cc                                              \
   db/db_flush_test.cc                                                    \
   db/db_inplace_update_test.cc                                          \
   db/db_io_failure_test.cc                                              \

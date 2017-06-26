@@ -416,6 +416,7 @@ TEST_F(DBOptionsTest, DeleteObsoleteFilesPeriodChange) {
 TEST_F(DBOptionsTest, MaxOpenFilesChange) {
   SpecialEnv env(env_);
   Options options;
+  options.env = CurrentOptions().env;
   options.max_open_files = -1;
 
   Reopen(options);
