@@ -41,6 +41,8 @@ Say the L1->L2 compaction started first. Now L0->L1 is prevented by the locked L
 
 The tradeoff is this increases total compaction work, as we're now compacting files without contributing towards our eventual goal of moving them towards lower levels. Our benchmarks, though, consistently show less compaction stalls and improved write throughput. One justification is that L0 file data is highly likely in page cache and/or block cache due to it being recently written and frequently accessed. So, this type of compaction is relatively cheap compared to compactions at lower levels.
 
+This feature is available since RocksDB 5.4.
+
 ### New L0->L1 Picking Logic
 
 Recall how the old L0->L1 picking algorithm chose the largest L0 file for compaction. This didn't fit well with L0->L0 compaction, which operates on a span of files. That span begins at the newest L0 file, and expands towards older files as long as they're not being compacted. Since the largest file may be anywhere, the old L0->L1 picking logic could arbitrarily prevent us from getting a long span of files. See the second illustration in this post for a scenario where this would happen.
@@ -50,6 +52,8 @@ So, we changed the L0->L1 picking algorithm to start from the oldest file and ex
 ![l0-l1-contend.png](/static/images/compaction/l0-l1-contend.png)
 
 Now, there can never be L0 files unreachable for L0->L0 due to L0->L1 selecting files in the middle. When longer spans of files are available for L0->L0, we perform less compaction work per deleted L0 file, thus improving efficiency.
+
+This feature will be available in RocksDB 5.7.
 
 ### Performance Changes
 
