@@ -18,6 +18,7 @@
 #include "db/builder.h"
 #include "options/options_helper.h"
 #include "rocksdb/wal_filter.h"
+#include "table/block_based_table_factory.h"
 #include "util/rate_limiter.h"
 #include "util/sst_file_manager_impl.h"
 #include "util/sync_point.h"
@@ -162,6 +163,19 @@ static Status ValidateOptions(
         return Status::NotSupported(
             "More than one DB paths are only supported in "
             "universal and level compaction styles. ");
+      }
+    }
+    if (cfd.options.compaction_options_fifo.ttl > 0) {
+      if (db_options.max_open_files != -1) {
+        return Status::NotSupported(
+            "FIFO Compaction with TTL is only supported when files are always "
+            "kept open (set max_open_files = -1). ");
+      }
+      if (cfd.options.table_factory->Name() !=
+          BlockBasedTableFactory().Name()) {
+        return Status::NotSupported(
+            "FIFO Compaction with TTL is only supported in "
+            "Block-Based Table format. ");
       }
     }
   }
@@ -833,6 +847,14 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
         *cfd->GetLatestMutableCFOptions();
     bool paranoid_file_checks =
         cfd->GetLatestMutableCFOptions()->paranoid_file_checks;
+
+    int64_t _current_time;
+    s = env_->GetCurrentTime(&_current_time);
+    if (!s.ok()) {
+      _current_time = 0;
+    }
+    const uint64_t current_time = static_cast<uint64_t>(_current_time);
+
     {
       mutex_.Unlock();
 
@@ -852,7 +874,8 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
           GetCompressionFlush(*cfd->ioptions(), mutable_cf_options),
           cfd->ioptions()->compression_opts, paranoid_file_checks,
           cfd->internal_stats(), TableFileCreationReason::kRecovery,
-          &event_logger_, job_id);
+          &event_logger_, job_id, Env::IO_HIGH, nullptr /* table_properties */,
+          -1 /* level */, current_time);
       LogFlush(immutable_db_options_.info_log);
       ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
                       "[%s] [WriteLevel0TableForRecovery]"

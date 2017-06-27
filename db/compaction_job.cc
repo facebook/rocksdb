@@ -1025,7 +1025,6 @@ Status CompactionJob::FinishCompactionOutputFile(
   uint64_t output_number = sub_compact->current_output()->meta.fd.GetNumber();
   assert(output_number != 0);
 
-  TableProperties table_properties;
   // Check for iterator errors
   Status s = input_status;
   auto meta = &sub_compact->current_output()->meta;
@@ -1263,14 +1262,25 @@ Status CompactionJob::OpenCompactionOutputFile(
   // data is going to be found
   bool skip_filters =
       cfd->ioptions()->optimize_filters_for_hits && bottommost_level_;
+
+  uint64_t output_file_creation_time =
+      sub_compact->compaction->MaxInputFileCreationTime();
+  if (output_file_creation_time == 0) {
+    int64_t _current_time;
+    auto status = db_options_.env->GetCurrentTime(&_current_time);
+    if (!status.ok()) {
+      _current_time = 0;
+    }
+    output_file_creation_time = static_cast<uint64_t>(_current_time);
+  }
+
   sub_compact->builder.reset(NewTableBuilder(
       *cfd->ioptions(), cfd->internal_comparator(),
       cfd->int_tbl_prop_collector_factories(), cfd->GetID(), cfd->GetName(),
       sub_compact->outfile.get(), sub_compact->compaction->output_compression(),
       cfd->ioptions()->compression_opts,
-      sub_compact->compaction->output_level(),
-      &sub_compact->compression_dict,
-      skip_filters));
+      sub_compact->compaction->output_level(), &sub_compact->compression_dict,
+      skip_filters, output_file_creation_time));
   LogFlush(db_options_.info_log);
   return s;
 }

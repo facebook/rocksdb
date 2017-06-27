@@ -71,6 +71,8 @@ enum class CompactionReason {
   kFIFOMaxSize,
   // [FIFO] reduce number of files.
   kFIFOReduceNumFiles,
+  // [FIFO] files with creation time < (current_time - interval)
+  kFIFOTtl,
   // Manual compaction
   kManualCompaction,
   // DB::SuggestCompactRange() marked files for compaction
