@@ -61,7 +61,7 @@ struct SavePoint {
 class WriteBatch : public WriteBatchBase {
  public:
   explicit WriteBatch(size_t reserved_bytes = 0, size_t max_bytes = 0);
-  ~WriteBatch();
+  ~WriteBatch() override;
 
   using WriteBatchBase::Put;
   // Store the mapping "key->value" in the database.

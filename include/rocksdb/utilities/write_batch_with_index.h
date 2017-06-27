@@ -97,7 +97,7 @@ class WriteBatchWithIndex : public WriteBatchBase {
       size_t reserved_bytes = 0, bool overwrite_key = false,
       size_t max_bytes = 0);
 
-  virtual ~WriteBatchWithIndex();
+  ~WriteBatchWithIndex() override;
 
   using WriteBatchBase::Put;
   Status Put(ColumnFamilyHandle* column_family, const Slice& key,
