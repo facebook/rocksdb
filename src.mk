@@ -224,7 +224,8 @@ EXP_LIB_SOURCES = \
 TEST_LIB_SOURCES = \
   util/testharness.cc                                                   \
   util/testutil.cc                                                      \
-  db/db_test_util.cc
+  db/db_test_util.cc                                                    \
+  utilities/merge_operators/cassandra/test_utils.cc                     \
 
 MAIN_SOURCES =                                                    \
   cache/cache_bench.cc                                                   \
@@ -323,7 +324,7 @@ MAIN_SOURCES =                                                    \
   util/log_write_bench.cc                                               \
   util/rate_limiter_test.cc                                             \
   util/slice_transform_test.cc                                          \
-  util/timer_queue_test.cc                                             \
+  util/timer_queue_test.cc                                              \
   util/thread_list_test.cc                                              \
   util/thread_local_test.cc                                             \
   utilities/backupable/backupable_db_test.cc                            \
@@ -340,11 +341,11 @@ MAIN_SOURCES =                                                    \
   utilities/merge_operators/string_append/stringappend_test.cc          \
   utilities/merge_operators/cassandra/cassandra_merge_test.cc           \
   utilities/merge_operators/cassandra/test_utils.cc                     \
-  utilities/merge_operators/cassandra/format_test.cc                    \
-  utilities/merge_operators/cassandra/row_merge_test.cc                 \
-  utilities/merge_operators/cassandra/serialize_test.cc                 \
+  utilities/merge_operators/cassandra/cassandra_format_test.cc          \
+  utilities/merge_operators/cassandra/cassandra_row_merge_test.cc       \
+  utilities/merge_operators/cassandra/cassandra_serialize_test.cc       \
   utilities/object_registry_test.cc                                     \
-  utilities/option_change_migration/option_change_migration_test.cc           \
+  utilities/option_change_migration/option_change_migration_test.cc     \
   utilities/options/options_util_test.cc                                \
   utilities/redis/redis_lists_test.cc                                   \
   utilities/simulator_cache/sim_cache_test.cc                           \
