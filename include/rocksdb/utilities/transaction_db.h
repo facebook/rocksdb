@@ -148,7 +148,7 @@ class TransactionDB : public StackableDB {
       StackableDB* db, const TransactionDBOptions& txn_db_options,
       const std::vector<size_t>& compaction_enabled_cf_indices,
       const std::vector<ColumnFamilyHandle*>& handles, TransactionDB** dbptr);
-  virtual ~TransactionDB() {}
+  ~TransactionDB() override {}
 
   // Starts a new Transaction.
   //
