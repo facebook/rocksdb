@@ -2808,7 +2808,47 @@ TEST_F(DBTest, FIFOCompactionTestWithCompaction) {
             options.compaction_options_fifo.max_table_files_size);
 }
 
-TEST_F(DBTest, FIFOCompactionTestWithTTL) {
+// Check that FIFO-with-TTL is not supported with max_open_files != -1.
+TEST_F(DBTest, FIFOCompactionWithTTLAndMaxOpenFilesTest) {
+  Options options;
+  options.compaction_style = kCompactionStyleFIFO;
+  options.create_if_missing = true;
+  options.compaction_options_fifo.ttl = 600;  // seconds
+
+  // Check that it is not supported with max_open_files != -1.
+  options.max_open_files = 100;
+  options = CurrentOptions(options);
+  ASSERT_TRUE(TryReopen(options).IsNotSupported());
+
+  options.max_open_files = -1;
+  ASSERT_OK(TryReopen(options));
+}
+
+// Check that FIFO-with-TTL is supported only with BlockBasedTableFactory.
+TEST_F(DBTest, FIFOCompactionWithTTLAndVariousTableFormatsTest) {
+  Options options;
+  options.compaction_style = kCompactionStyleFIFO;
+  options.create_if_missing = true;
+  options.compaction_options_fifo.ttl = 600;  // seconds
+
+  options = CurrentOptions(options);
+  options.table_factory.reset(NewBlockBasedTableFactory());
+  ASSERT_OK(TryReopen(options));
+
+  Destroy(options);
+  options.table_factory.reset(NewPlainTableFactory());
+  ASSERT_TRUE(TryReopen(options).IsNotSupported());
+
+  Destroy(options);
+  options.table_factory.reset(NewCuckooTableFactory());
+  ASSERT_TRUE(TryReopen(options).IsNotSupported());
+
+  Destroy(options);
+  options.table_factory.reset(NewAdaptiveTableFactory());
+  ASSERT_TRUE(TryReopen(options).IsNotSupported());
+}
+
+TEST_F(DBTest, FIFOCompactionWithTTLTest) {
   Options options;
   options.compaction_style = kCompactionStyleFIFO;
   options.write_buffer_size = 10 << 10;  // 10KB
