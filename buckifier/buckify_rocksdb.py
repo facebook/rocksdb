@@ -84,7 +84,7 @@ def get_tests(repo_path):
             else:
                 # we consumed all the parallel tests
                 break
-
+    
     return tests
 
 
@@ -122,7 +122,7 @@ def generate_targets(repo_path):
         [":rocksdb_lib"])
 
     # test for every test we found in the Makefile
-    for test in tests:
+    for test in sorted(tests):
         match_src = [src for src in cc_files if ("/%s.c" % test) in src]
         if len(match_src) == 0:
             print(ColorString.warning("Cannot find .cc file for %s" % test))
