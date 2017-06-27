@@ -38,7 +38,7 @@ rocksdb_external_deps = [
   ('lz4', None, 'lz4'),
   ('zstd', None),
   ('tbb', None),
-  ("numa", "2.0.8", "numa"),
+  ("numa", None, "numa"),
   ("googletest", None, "gtest"),
 ]
 
