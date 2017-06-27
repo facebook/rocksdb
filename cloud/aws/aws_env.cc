@@ -1341,7 +1341,7 @@ Status AwsEnv::SaveDbid(const std::string& dbid, const std::string& dirname) {
         bucket.c_str(), dbid.c_str(), dirname.c_str(), errmsg.c_str());
     return Status::IOError(dirname, errmsg.c_str());
   }
-  Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
+  Log(InfoLogLevel::INFO_LEVEL, info_log_,
       "[s3] Bucket %s SaveDbid dbid %s dirname %s %s", bucket.c_str(),
       dbid.c_str(), dirname.c_str(), "ok");
   return Status::OK();
