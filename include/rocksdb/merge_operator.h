@@ -188,7 +188,7 @@ class MergeOperator {
 // The simpler, associative merge operator.
 class AssociativeMergeOperator : public MergeOperator {
  public:
-  virtual ~AssociativeMergeOperator() {}
+  ~AssociativeMergeOperator() override {}
 
   // Gives the client a way to express the read -> modify -> write semantics
   // key:           (IN) The key that's associated with this merge operation.
@@ -212,14 +212,12 @@ class AssociativeMergeOperator : public MergeOperator {
 
  private:
   // Default implementations of the MergeOperator functions
-  virtual bool FullMergeV2(const MergeOperationInput& merge_in,
-                           MergeOperationOutput* merge_out) const override;
+  bool FullMergeV2(const MergeOperationInput& merge_in,
+                   MergeOperationOutput* merge_out) const override;
 
-  virtual bool PartialMerge(const Slice& key,
-                            const Slice& left_operand,
-                            const Slice& right_operand,
-                            std::string* new_value,
-                            Logger* logger) const override;
+  bool PartialMerge(const Slice& key, const Slice& left_operand,
+                    const Slice& right_operand, std::string* new_value,
+                    Logger* logger) const override;
 };
 
 }  // namespace rocksdb

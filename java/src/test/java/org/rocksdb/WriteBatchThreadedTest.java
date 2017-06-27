@@ -62,8 +62,7 @@ public class WriteBatchThreadedTest {
           try (final WriteBatch wb = new WriteBatch();
                final WriteOptions w_opt = new WriteOptions()) {
             for (int i = offset; i < offset + 100; i++) {
-              wb.put(ByteBuffer.allocate(4).putInt(i).array(),
-                  "parallel rocks test".getBytes());
+              wb.put(ByteBuffer.allocate(4).putInt(i).array(), "parallel rocks test".getBytes());
             }
             db.write(w_opt, wb);
           }
