@@ -270,6 +270,7 @@ cpp_library(
       "util/testharness.cc",
       "util/testutil.cc",
       "db/db_test_util.cc",
+      "utilities/merge_operators/cassandra/test_utils.cc",
       "utilities/col_buf_encoder.cc",
       "utilities/col_buf_decoder.cc",
       "utilities/column_aware_encoding_util.cc",

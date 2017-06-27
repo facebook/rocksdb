@@ -224,7 +224,8 @@ EXP_LIB_SOURCES = \
 TEST_LIB_SOURCES = \
   util/testharness.cc                                                   \
   util/testutil.cc                                                      \
-  db/db_test_util.cc
+  db/db_test_util.cc                                                    \
+  utilities/merge_operators/cassandra/test_utils.cc                     \
 
 MAIN_SOURCES =                                                    \
   cache/cache_bench.cc                                                   \
