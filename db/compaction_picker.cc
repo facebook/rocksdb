@@ -1442,15 +1442,17 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
 
   for (auto ritr = level_files.rbegin(); ritr != level_files.rend(); ++ritr) {
     auto f = *ritr;
-    if (f->fd.table_reader != nullptr) {
+    if (f->fd.table_reader != nullptr &&
+        f->fd.table_reader->GetTableProperties() != nullptr) {
       auto creation_time =
           f->fd.table_reader->GetTableProperties()->creation_time;
-      if (creation_time > 0 &&
-          creation_time <
+      if (creation_time == 0 ||
+          creation_time >=
               (current_time - ioptions_.compaction_options_fifo.ttl)) {
-        total_size -= f->compensated_file_size;
-        inputs[0].files.push_back(f);
+        break;
       }
+      total_size -= f->compensated_file_size;
+      inputs[0].files.push_back(f);
     }
   }
 

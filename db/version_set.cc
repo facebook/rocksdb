@@ -1328,7 +1328,8 @@ uint32_t GetExpiredTtlFilesCount(const ImmutableCFOptions& ioptions,
   if (status.ok()) {
     const uint64_t current_time = static_cast<uint64_t>(_current_time);
     for (auto f : files) {
-      if (!f->being_compacted && f->fd.table_reader != nullptr) {
+      if (!f->being_compacted && f->fd.table_reader != nullptr &&
+          f->fd.table_reader->GetTableProperties() != nullptr) {
         auto creation_time =
             f->fd.table_reader->GetTableProperties()->creation_time;
         if (creation_time > 0 &&
