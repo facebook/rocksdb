@@ -283,7 +283,8 @@ TEST_F(DBIOFailureTest, FlushSstRangeSyncError) {
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   Random rnd(301);
-  std::string rnd_str = RandomString(&rnd, options.bytes_per_sync / 2);
+  std::string rnd_str =
+      RandomString(&rnd, static_cast<int>(options.bytes_per_sync / 2));
   std::string rnd_str_512kb = RandomString(&rnd, 512 * 1024);
 
   ASSERT_OK(Put(1, "foo", "bar"));
