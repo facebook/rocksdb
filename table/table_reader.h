@@ -102,8 +102,8 @@ class TableReader {
   }
 
   // check whether there is corruption in this db file
-  virtual Status CheckCorruption() {
-    return Status::NotSupported("CheckCorruption() not supported");
+  virtual Status VerifyChecksum() {
+    return Status::NotSupported("VerifyChecksum() not supported");
   }
 
   virtual void Close() {}

@@ -1746,14 +1746,14 @@ Status BlockBasedTable::Prefetch(const Slice* const begin,
   return Status::OK();
 }
 
-Status BlockBasedTable::CheckCorruption() {
+Status BlockBasedTable::VerifyChecksum() {
   Status s;
   // Check Meta blocks
   std::unique_ptr<Block> meta;
   std::unique_ptr<InternalIterator> meta_iter;
   s = ReadMetaBlock(rep_, &meta, &meta_iter);
   if (s.ok()) {
-    s = CheckCorruptionInBlocks(meta_iter.get());
+    s = VerifyChecksumInBlocks(meta_iter.get());
     if (!s.ok()) {
       return s;
     }
@@ -1771,11 +1771,11 @@ Status BlockBasedTable::CheckCorruption() {
     // error opening index iterator
     return iiter->status();
   }
-  s = CheckCorruptionInBlocks(iiter);
+  s = VerifyChecksumInBlocks(iiter);
   return s;
 }
 
-Status BlockBasedTable::CheckCorruptionInBlocks(InternalIterator* index_iter) {
+Status BlockBasedTable::VerifyChecksumInBlocks(InternalIterator* index_iter) {
   Status s;
   for (index_iter->SeekToFirst(); index_iter->Valid(); index_iter->Next()) {
     s = index_iter->status();

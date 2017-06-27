@@ -976,7 +976,7 @@ class DB {
     return IngestExternalFile(DefaultColumnFamily(), external_files, options);
   }
 
-  virtual Status CheckCorruption() = 0;
+  virtual Status VerifyChecksum() = 0;
 
   // AddFile() is deprecated, please use IngestExternalFile()
   ROCKSDB_DEPRECATED_FUNC virtual Status AddFile(

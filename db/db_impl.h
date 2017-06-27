@@ -295,7 +295,7 @@ class DBImpl : public DB {
       const std::vector<std::string>& external_files,
       const IngestExternalFileOptions& ingestion_options) override;
 
-  virtual Status CheckCorruption() override;
+  virtual Status VerifyChecksum() override;
 
 #endif  // ROCKSDB_LITE
 

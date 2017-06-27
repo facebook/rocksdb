@@ -95,8 +95,8 @@ class StackableDB : public DB {
     return db_->IngestExternalFile(column_family, external_files, options);
   }
 
-  virtual Status CheckCorruption() {
-    return db_->CheckCorruption();
+  virtual Status VerifyChecksum() override {
+    return db_->VerifyChecksum();
   }
 
   using DB::KeyMayExist;

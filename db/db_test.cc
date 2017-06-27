@@ -2236,7 +2236,7 @@ class ModelDB : public DB {
     return Status::NotSupported("Not implemented.");
   }
 
-  virtual Status CheckCorruption() {
+  virtual Status VerifyChecksum() override {
     return Status::NotSupported("Not implemented.");
   }
 

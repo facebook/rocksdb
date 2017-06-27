@@ -2737,7 +2737,7 @@ Status DBImpl::IngestExternalFile(
   return status;
 }
 
-Status DBImpl::CheckCorruption() {
+Status DBImpl::VerifyChecksum() {
   InstrumentedMutexLock l(&mutex_);
   Status s;
   EnvOptions env_options;
@@ -2766,7 +2766,7 @@ Status DBImpl::CheckCorruption() {
         if (!s.ok()) {
           return s;
         }
-        s = table_reader->CheckCorruption();
+        s = table_reader->VerifyChecksum();
         if (!s.ok()) {
           return s;
         }
