@@ -139,7 +139,8 @@ WritableFileWriter* GetWritableFileWriter(WritableFile* wf) {
 
 RandomAccessFileReader* GetRandomAccessFileReader(RandomAccessFile* raf) {
   unique_ptr<RandomAccessFile> file(raf);
-  return new RandomAccessFileReader(std::move(file));
+  return new RandomAccessFileReader(std::move(file),
+                                    "[test RandomAccessFileReader]");
 }
 
 SequentialFileReader* GetSequentialFileReader(SequentialFile* se) {

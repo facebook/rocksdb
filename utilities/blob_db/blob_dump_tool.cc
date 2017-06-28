@@ -50,7 +50,7 @@ Status BlobDumpTool::Run(const std::string& filename, DisplayType show_key,
   if (file_size == 0) {
     return Status::Corruption("File is empty.");
   }
-  reader_.reset(new RandomAccessFileReader(std::move(file)));
+  reader_.reset(new RandomAccessFileReader(std::move(file), filename));
   uint64_t offset = 0;
   uint64_t footer_offset = 0;
   s = DumpBlobLogHeader(&offset);
