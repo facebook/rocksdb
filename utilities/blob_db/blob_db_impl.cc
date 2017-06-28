@@ -1230,7 +1230,7 @@ Status BlobDBImpl::CommonGet(const ColumnFamilyData* cfd, const Slice& key,
   }
 
   // 0 - size
-  if (!handle.size()) {
+  if (!handle.size() && value != nullptr) {
     value->clear();
     return Status::OK();
   }

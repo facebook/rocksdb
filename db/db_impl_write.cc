@@ -142,7 +142,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   WriteContext write_context;
   WriteThread::WriteGroup write_group;
   bool in_parallel_group = false;
-  uint64_t last_sequence;
+  uint64_t last_sequence = kMaxSequenceNumber;
   if (!concurrent_prepare_) {
     last_sequence = versions_->LastSequence();
   }
@@ -247,6 +247,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         last_sequence = versions_->FetchAddLastToBeWrittenSequence(total_count);
       }
     }
+    assert(last_sequence != kMaxSequenceNumber);
     const SequenceNumber current_sequence = last_sequence + 1;
     last_sequence += total_count;
 

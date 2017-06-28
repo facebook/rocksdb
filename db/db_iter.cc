@@ -644,6 +644,7 @@ void DBIter::ReverseToBackward() {
     while (iter_->Valid() &&
            user_comparator_->Compare(ikey.user_key, saved_key_.GetUserKey()) >
                0) {
+      assert(ikey.sequence != kMaxSequenceNumber);
       if (ikey.sequence > sequence_) {
         PERF_COUNTER_ADD(internal_recent_skipped_count, 1);
       } else {
@@ -956,6 +957,7 @@ void DBIter::FindPrevUserKey() {
         ++num_skipped;
       }
     }
+    assert(ikey.sequence != kMaxSequenceNumber);
     if (ikey.sequence > sequence_) {
       PERF_COUNTER_ADD(internal_recent_skipped_count, 1);
     } else {
