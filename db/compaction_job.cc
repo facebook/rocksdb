@@ -1088,6 +1088,11 @@ Status CompactionJob::FinishCompactionOutputFile(
     std::string fname = TableFileName(
         db_options_.db_paths, meta->fd.GetNumber(), meta->fd.GetPathId());
     env_->DeleteFile(fname);
+
+    // Also need to remove the file from outputs, or it will be added to the
+    // VersionEdit.
+    assert(!sub_compact->outputs.empty());
+    sub_compact->outputs.pop_back();
     sub_compact->builder.reset();
     sub_compact->current_output_file_size = 0;
     return s;
