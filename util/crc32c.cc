@@ -13,12 +13,7 @@
 // four bytes at a time.
 
 #include "util/crc32c.h"
-
 #include <stdint.h>
-#ifdef HAVE_SSE42
-#include <nmmintrin.h>
-#endif
-#include "util/coding.h"
 
 namespace rocksdb {
 namespace crc32c {
@@ -288,18 +283,7 @@ static const uint32_t table3_[256] = {
   0x4a21617b, 0x9764cbc3, 0xf54642fa, 0x2803e842
 };
 
-// Used to fetch a naturally-aligned 32-bit word in little endian byte-order
-static inline uint32_t LE_LOAD32(const uint8_t *p) {
-  return DecodeFixed32(reinterpret_cast<const char*>(p));
-}
-
-#if defined(HAVE_SSE42) && (defined(__LP64__) || defined(_WIN64))
-static inline uint64_t LE_LOAD64(const uint8_t *p) {
-  return DecodeFixed64(reinterpret_cast<const char*>(p));
-}
-#endif
-
-static inline void Slow_CRC32(uint64_t* l, uint8_t const **p) {
+void Slow_CRC32(uint64_t* l, uint8_t const **p) {
   uint32_t c = static_cast<uint32_t>(*l ^ LE_LOAD32(*p));
   *p += 4;
   *l = table3_[c & 0xff] ^
@@ -315,19 +299,7 @@ static inline void Slow_CRC32(uint64_t* l, uint8_t const **p) {
   table0_[c >> 24];
 }
 
-static inline void Fast_CRC32(uint64_t* l, uint8_t const **p) {
-#ifndef HAVE_SSE42
-  Slow_CRC32(l, p);
-#elif defined(__LP64__) || defined(_WIN64)
-  *l = _mm_crc32_u64(*l, LE_LOAD64(*p));
-  *p += 8;
-#else
-  *l = _mm_crc32_u32(static_cast<unsigned int>(*l), LE_LOAD32(*p));
-  *p += 4;
-  *l = _mm_crc32_u32(static_cast<unsigned int>(*l), LE_LOAD32(*p));
-  *p += 4;
-#endif
-}
+
 
 template<void (*CRC32)(uint64_t*, uint8_t const**)>
 uint32_t ExtendImpl(uint32_t crc, const char* buf, size_t size) {
@@ -373,7 +345,7 @@ uint32_t ExtendImpl(uint32_t crc, const char* buf, size_t size) {
 }
 
 // Detect if SS42 or not.
-static bool isSSE42() {
+bool isSSE42() {
 #if defined(__GNUC__) && defined(__x86_64__) && !defined(IOS_CROSS_COMPILE)
   uint32_t c_;
   uint32_t d_;
@@ -391,20 +363,11 @@ static bool isSSE42() {
 typedef uint32_t (*Function)(uint32_t, const char*, size_t);
 
 static inline Function Choose_Extend() {
-  return isSSE42() ? ExtendImpl<Fast_CRC32> : ExtendImpl<Slow_CRC32>;
+  return IsFastCrc32Supported() ? ExtendImpl<Fast_CRC32> : ExtendImpl<Slow_CRC32>;
 }
-
-bool IsFastCrc32Supported() {
-#if defined(__SSE4_2__) || defined(_WIN64)
-  return isSSE42();
-#else
-  return false;
-#endif
-}
-
-Function ChosenExtend = Choose_Extend();
 
 uint32_t Extend(uint32_t crc, const char* buf, size_t size) {
+  static Function ChosenExtend = Choose_Extend();
   return ChosenExtend(crc, buf, size);
 }
 
