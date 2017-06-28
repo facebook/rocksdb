@@ -35,17 +35,7 @@ class BlobDBTest : public testing::Test {
   void Open(BlobDBOptionsImpl bdb_options = BlobDBOptionsImpl(),
             Options options = Options()) {
     options.create_if_missing = true;
-    Reopen(bdb_options, options);
-  }
-
-  void Reopen(BlobDBOptionsImpl bdb_options = BlobDBOptionsImpl(),
-              Options options = Options()) {
-    if (blob_db_) {
-      delete blob_db_;
-      blob_db_ = nullptr;
-    }
     ASSERT_OK(BlobDB::Open(options, bdb_options, dbname_, &blob_db_));
-    ASSERT_TRUE(blob_db_);
   }
 
   void Destroy() {
