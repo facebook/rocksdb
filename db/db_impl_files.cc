@@ -252,7 +252,10 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
       }
       job_context->size_log_to_delete += earliest.size;
       total_log_size_ -= earliest.size;
-      alive_log_files_.pop_front();
+      {
+        InstrumentedMutexLock wl(&log_write_mutex_);
+        alive_log_files_.pop_front();
+      }
       // Current log should always stay alive since it can't have
       // number < MinLogNumber().
       assert(alive_log_files_.size());
