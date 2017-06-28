@@ -72,6 +72,7 @@ void Tracer::AppendTrace(uint64_t timestamp, TraceType type,
 
 void Tracer::BackgroundTrace() {
   std::unique_lock<std::mutex> lock(mutex_, std::defer_lock);
+  bool stop = false;
   while (true) {
     lock.lock();
     while (user_queue_.empty() && !stop_) {
@@ -80,14 +81,15 @@ void Tracer::BackgroundTrace() {
     if (!user_queue_.empty()) {
       // Record the trace in the queue
       swap(user_queue_, log_queue_);
-      lock.unlock();
-      while (!log_queue_.empty()) {
-        trace_writer_->AddRecord(log_queue_.front().first,
-                                 log_queue_.front().second);
-        log_queue_.pop();
-      }
     }
-    if (stop_) {
+    stop = stop_;
+    lock.unlock();
+    while (!log_queue_.empty()) {
+      trace_writer_->AddRecord(log_queue_.front().first,
+                               log_queue_.front().second);
+      log_queue_.pop();
+    }
+    if (stop) {
       break;
     }
   }
