@@ -298,6 +298,14 @@ Status FlushJob::WriteLevel0Table() {
                                &output_compression_);
       EnvOptions optimized_env_options =
           db_options_.env->OptimizeForCompactionTableWrite(env_options_, db_options_);
+
+      int64_t _current_time;
+      auto status = db_options_.env->GetCurrentTime(&_current_time);
+      if (!status.ok()) {
+        _current_time = 0;
+      }
+      const uint64_t current_time = static_cast<uint64_t>(_current_time);
+
       s = BuildTable(
           dbname_, db_options_.env, *cfd_->ioptions(), mutable_cf_options_,
           optimized_env_options, cfd_->table_cache(), iter.get(),
@@ -308,7 +316,7 @@ Status FlushJob::WriteLevel0Table() {
           cfd_->ioptions()->compression_opts,
           mutable_cf_options_.paranoid_file_checks, cfd_->internal_stats(),
           TableFileCreationReason::kFlush, event_logger_, job_context_->job_id,
-          Env::IO_HIGH, &table_properties_, 0 /* level */);
+          Env::IO_HIGH, &table_properties_, 0 /* level */, current_time);
       LogFlush(db_options_.info_log);
     }
     ROCKS_LOG_INFO(db_options_.info_log,

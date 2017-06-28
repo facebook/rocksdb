@@ -1318,6 +1318,32 @@ void VersionStorageInfo::EstimateCompactionBytesNeeded(
   }
 }
 
+namespace {
+uint32_t GetExpiredTtlFilesCount(const ImmutableCFOptions& ioptions,
+                                 const std::vector<FileMetaData*>& files) {
+  uint32_t ttl_expired_files_count = 0;
+
+  int64_t _current_time;
+  auto status = ioptions.env->GetCurrentTime(&_current_time);
+  if (status.ok()) {
+    const uint64_t current_time = static_cast<uint64_t>(_current_time);
+    for (auto f : files) {
+      if (!f->being_compacted && f->fd.table_reader != nullptr &&
+          f->fd.table_reader->GetTableProperties() != nullptr) {
+        auto creation_time =
+            f->fd.table_reader->GetTableProperties()->creation_time;
+        if (creation_time > 0 &&
+            creation_time <
+                (current_time - ioptions.compaction_options_fifo.ttl)) {
+          ttl_expired_files_count++;
+        }
+      }
+    }
+  }
+  return ttl_expired_files_count;
+}
+}  // anonymous namespace
+
 void VersionStorageInfo::ComputeCompactionScore(
     const ImmutableCFOptions& immutable_cf_options,
     const MutableCFOptions& mutable_cf_options) {
@@ -1363,6 +1389,11 @@ void VersionStorageInfo::ComputeCompactionScore(
               static_cast<double>(num_sorted_runs) /
                   mutable_cf_options.level0_file_num_compaction_trigger,
               score);
+        }
+        if (immutable_cf_options.compaction_options_fifo.ttl > 0) {
+          score = std::max(static_cast<double>(GetExpiredTtlFilesCount(
+                               immutable_cf_options, files_[level])),
+                           score);
         }
 
       } else {

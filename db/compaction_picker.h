@@ -244,6 +244,17 @@ class FIFOCompactionPicker : public CompactionPicker {
 
   virtual bool NeedsCompaction(
       const VersionStorageInfo* vstorage) const override;
+
+ private:
+  Compaction* PickTTLCompaction(const std::string& cf_name,
+                                const MutableCFOptions& mutable_cf_options,
+                                VersionStorageInfo* version,
+                                LogBuffer* log_buffer);
+
+  Compaction* PickSizeCompaction(const std::string& cf_name,
+                                 const MutableCFOptions& mutable_cf_options,
+                                 VersionStorageInfo* version,
+                                 LogBuffer* log_buffer);
 };
 
 class NullCompactionPicker : public CompactionPicker {

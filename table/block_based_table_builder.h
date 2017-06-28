@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "rocksdb/flush_block_policy.h"
+#include "rocksdb/listener.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 #include "table/table_builder.h"
@@ -48,7 +49,7 @@ class BlockBasedTableBuilder : public TableBuilder {
       const CompressionType compression_type,
       const CompressionOptions& compression_opts,
       const std::string* compression_dict, const bool skip_filters,
-      const std::string& column_family_name);
+      const std::string& column_family_name, const uint64_t creation_time = 0);
 
   // REQUIRES: Either Finish() or Abandon() has been called.
   ~BlockBasedTableBuilder();
