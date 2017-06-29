@@ -16,6 +16,7 @@ rocksdb_compiler_flags = [
   "-DROCKSDB_RANGESYNC_PRESENT",
   "-DROCKSDB_SCHED_GETCPU_PRESENT",
   "-DROCKSDB_SUPPORT_THREAD_LOCAL",
+  "-DHAVE_SSE42",
   "-DOS_LINUX",
   # Flags to enable libs we include
   "-DSNAPPY",
