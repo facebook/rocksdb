@@ -59,6 +59,7 @@ class SequentialFileReader {
 class RandomAccessFileReader {
  private:
   std::unique_ptr<RandomAccessFile> file_;
+  std::string     file_name_;
   Env*            env_;
   Statistics*     stats_;
   uint32_t        hist_type_;
@@ -68,6 +69,7 @@ class RandomAccessFileReader {
 
  public:
   explicit RandomAccessFileReader(std::unique_ptr<RandomAccessFile>&& raf,
+                                  std::string _file_name,
                                   Env* env = nullptr,
                                   Statistics* stats = nullptr,
                                   uint32_t hist_type = 0,
@@ -75,6 +77,7 @@ class RandomAccessFileReader {
                                   RateLimiter* rate_limiter = nullptr,
                                   bool for_compaction = false)
       : file_(std::move(raf)),
+        file_name_(std::move(_file_name)),
         env_(env),
         stats_(stats),
         hist_type_(hist_type),
@@ -108,6 +111,8 @@ class RandomAccessFileReader {
   }
 
   RandomAccessFile* file() { return file_.get(); }
+
+  std::string file_name() const { return file_name_; }
 
   bool use_direct_io() const { return file_->use_direct_io(); }
 };

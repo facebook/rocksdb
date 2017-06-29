@@ -49,7 +49,7 @@ void ColumnAwareEncodingReader::InitTableReader(const std::string& file_path) {
   options_.env->NewRandomAccessFile(file_path, &file, soptions_);
   options_.env->GetFileSize(file_path, &file_size);
 
-  file_.reset(new RandomAccessFileReader(std::move(file)));
+  file_.reset(new RandomAccessFileReader(std::move(file), file_path));
 
   options_.comparator = &internal_comparator_;
   options_.table_factory = std::make_shared<BlockBasedTableFactory>();

@@ -212,7 +212,8 @@ std::shared_ptr<RandomAccessFileReader> BlobFile::GetOrOpenRandomAccessReader(
     return nullptr;
   }
 
-  ra_file_reader_ = std::make_shared<RandomAccessFileReader>(std::move(rfile));
+  ra_file_reader_ = std::make_shared<RandomAccessFileReader>(std::move(rfile),
+                                                             PathName());
   *fresh_open = true;
   return ra_file_reader_;
 }

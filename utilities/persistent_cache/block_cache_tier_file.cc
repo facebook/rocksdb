@@ -214,7 +214,7 @@ bool RandomAccessCacheFile::OpenImpl(const bool enable_direct_reads) {
           status.ToString().c_str());
     return false;
   }
-  freader_.reset(new RandomAccessFileReader(std::move(file), env_));
+  freader_.reset(new RandomAccessFileReader(std::move(file), Path(), env_));
 
   return true;
 }
