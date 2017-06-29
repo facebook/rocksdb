@@ -198,6 +198,10 @@ class LRUCacheShard : public CacheShard {
 
   void TEST_GetLRUList(LRUHandle** lru, LRUHandle** lru_low_pri);
 
+  //  Retrieves number of elements in LRU, for unit test purpose only
+  //  not threadsafe
+  size_t TEST_GetLRUSize();
+
  private:
   void LRU_Remove(LRUHandle* e);
   void LRU_Insert(LRUHandle* e);
@@ -267,8 +271,12 @@ class LRUCache : public ShardedCache {
   virtual uint32_t GetHash(Handle* handle) const override;
   virtual void DisownData() override;
 
+  //  Retrieves number of elements in LRU, for unit test purpose only
+  size_t TEST_GetLRUSize();
+
  private:
   LRUCacheShard* shards_;
+  int num_shards_ = 0;
 };
 
 }  // namespace rocksdb
