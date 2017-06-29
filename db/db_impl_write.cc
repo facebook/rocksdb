@@ -197,30 +197,27 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       }
     }
 
-    if (concurrent_prepare_) {
-      stat_mutex_.Lock();
-    }
+    const bool concurrent_update = concurrent_prepare_;
     // Update stats while we are an exclusive group leader, so we know
     // that nobody else can be writing to these particular stats.
     // We're optimistic, updating the stats before we successfully
     // commit.  That lets us release our leader status early.
     auto stats = default_cf_internal_stats_;
-    stats->AddDBStats(InternalStats::NUMBER_KEYS_WRITTEN, total_count);
+    stats->AddDBStats(InternalStats::NUMBER_KEYS_WRITTEN, total_count,
+                      concurrent_update);
     RecordTick(stats_, NUMBER_KEYS_WRITTEN, total_count);
-    stats->AddDBStats(InternalStats::BYTES_WRITTEN, total_byte_size);
+    stats->AddDBStats(InternalStats::BYTES_WRITTEN, total_byte_size,
+                      concurrent_update);
     RecordTick(stats_, BYTES_WRITTEN, total_byte_size);
-    stats->AddDBStats(InternalStats::WRITE_DONE_BY_SELF, 1);
+    stats->AddDBStats(InternalStats::WRITE_DONE_BY_SELF, 1, concurrent_update);
     RecordTick(stats_, WRITE_DONE_BY_SELF);
     auto write_done_by_other = write_group.size - 1;
     if (write_done_by_other > 0) {
-      stats->AddDBStats(InternalStats::WRITE_DONE_BY_OTHER,
-                        write_done_by_other);
+      stats->AddDBStats(InternalStats::WRITE_DONE_BY_OTHER, write_done_by_other,
+                        concurrent_update);
       RecordTick(stats_, WRITE_DONE_BY_OTHER, write_done_by_other);
     }
     MeasureTime(stats_, BYTES_PER_WRITE, total_byte_size);
-    if (concurrent_prepare_) {
-      stat_mutex_.Unlock();
-    }
 
     if (write_options.disableWAL) {
       has_unpersisted_data_.store(true, std::memory_order_relaxed);
@@ -489,23 +486,24 @@ Status DBImpl::WriteImplWALOnly(const WriteOptions& write_options,
     }
   }
 
-  stat_mutex_.Lock();
+  const bool concurrent_update = true;
   // Update stats while we are an exclusive group leader, so we know
   // that nobody else can be writing to these particular stats.
   // We're optimistic, updating the stats before we successfully
   // commit.  That lets us release our leader status early.
   auto stats = default_cf_internal_stats_;
-  stats->AddDBStats(InternalStats::BYTES_WRITTEN, total_byte_size);
+  stats->AddDBStats(InternalStats::BYTES_WRITTEN, total_byte_size,
+                    concurrent_update);
   RecordTick(stats_, BYTES_WRITTEN, total_byte_size);
-  stats->AddDBStats(InternalStats::WRITE_DONE_BY_SELF, 1);
+  stats->AddDBStats(InternalStats::WRITE_DONE_BY_SELF, 1, concurrent_update);
   RecordTick(stats_, WRITE_DONE_BY_SELF);
   auto write_done_by_other = write_group.size - 1;
   if (write_done_by_other > 0) {
-    stats->AddDBStats(InternalStats::WRITE_DONE_BY_OTHER, write_done_by_other);
+    stats->AddDBStats(InternalStats::WRITE_DONE_BY_OTHER, write_done_by_other,
+                      concurrent_update);
     RecordTick(stats_, WRITE_DONE_BY_OTHER, write_done_by_other);
   }
   MeasureTime(stats_, BYTES_PER_WRITE, total_byte_size);
-  stat_mutex_.Unlock();
 
   PERF_TIMER_STOP(write_pre_and_post_process_time);
 
@@ -783,13 +781,13 @@ Status DBImpl::ConcurrentWriteToWAL(const WriteThread::WriteGroup& write_group,
   log_write_mutex_.Unlock();
 
   if (status.ok()) {
-    stat_mutex_.Lock();
+    const bool concurrent = true;
     auto stats = default_cf_internal_stats_;
-    stats->AddDBStats(InternalStats::WAL_FILE_BYTES, log_size);
+    stats->AddDBStats(InternalStats::WAL_FILE_BYTES, log_size, concurrent);
     RecordTick(stats_, WAL_FILE_BYTES, log_size);
-    stats->AddDBStats(InternalStats::WRITE_WITH_WAL, write_with_wal);
+    stats->AddDBStats(InternalStats::WRITE_WITH_WAL, write_with_wal,
+                      concurrent);
     RecordTick(stats_, WRITE_WITH_WAL, write_with_wal);
-    stat_mutex_.Unlock();
   }
   return status;
 }

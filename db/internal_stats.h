@@ -272,10 +272,15 @@ class InternalStats {
     ++cf_stats_count_[type];
   }
 
-  void AddDBStats(InternalDBStatsType type, uint64_t value) {
+  void AddDBStats(InternalDBStatsType type, uint64_t value,
+                  bool concurrent = false) {
     auto& v = db_stats_[type];
-    v.store(v.load(std::memory_order_relaxed) + value,
-            std::memory_order_relaxed);
+    if (concurrent) {
+      v.fetch_add(value, std::memory_order_relaxed);
+    } else {
+      v.store(v.load(std::memory_order_relaxed) + value,
+              std::memory_order_relaxed);
+    }
   }
 
   uint64_t GetDBStats(InternalDBStatsType type) {
