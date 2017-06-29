@@ -598,15 +598,15 @@ Status Version::GetTableProperties(std::shared_ptr<const TableProperties>* tp,
   // 2. Table is not present in table cache, we'll read the table properties
   // directly from the properties block in the file.
   std::unique_ptr<RandomAccessFile> file;
+  std::string file_name;
   if (fname != nullptr) {
-    s = ioptions->env->NewRandomAccessFile(
-        *fname, &file, vset_->env_options_);
+    file_name = *fname;
   } else {
-    s = ioptions->env->NewRandomAccessFile(
-        TableFileName(vset_->db_options_->db_paths, file_meta->fd.GetNumber(),
-                      file_meta->fd.GetPathId()),
-        &file, vset_->env_options_);
+    file_name =
+      TableFileName(vset_->db_options_->db_paths, file_meta->fd.GetNumber(),
+                    file_meta->fd.GetPathId());
   }
+  s = ioptions->env->NewRandomAccessFile(file_name, &file, vset_->env_options_);
   if (!s.ok()) {
     return s;
   }
@@ -615,7 +615,7 @@ Status Version::GetTableProperties(std::shared_ptr<const TableProperties>* tp,
   // By setting the magic number to kInvalidTableMagicNumber, we can by
   // pass the magic number check in the footer.
   std::unique_ptr<RandomAccessFileReader> file_reader(
-      new RandomAccessFileReader(std::move(file)));
+      new RandomAccessFileReader(std::move(file), file_name));
   s = ReadTableProperties(
       file_reader.get(), file_meta->fd.GetFileSize(),
       Footer::kInvalidTableMagicNumber /* table's magic number */, *ioptions, &raw_table_properties);
