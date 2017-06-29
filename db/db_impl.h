@@ -843,8 +843,6 @@ class DBImpl : public DB {
   // Lock over the persistent DB state.  Non-nullptr iff successfully acquired.
   FileLock* db_lock_;
 
-  // It is used to concurrently update stats in the write threads
-  InstrumentedMutex stat_mutex_;
   // It protects the back() of logs_ and alive_log_files_. Any push_back to
   // these must be under log_write_mutex_ and any access that requires the
   // back() to remain the same must also lock log_write_mutex_.
