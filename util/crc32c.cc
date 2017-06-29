@@ -374,7 +374,9 @@ uint32_t ExtendImpl(uint32_t crc, const char* buf, size_t size) {
 
 // Detect if SS42 or not.
 static bool isSSE42() {
-#if defined(__GNUC__) && defined(__x86_64__) && !defined(IOS_CROSS_COMPILE)
+#ifndef HAVE_SSE42
+  return false;
+#elif defined(__GNUC__) && defined(__x86_64__) && !defined(IOS_CROSS_COMPILE)
   uint32_t c_;
   uint32_t d_;
   __asm__("cpuid" : "=c"(c_), "=d"(d_) : "a"(1) : "ebx");
@@ -395,11 +397,7 @@ static inline Function Choose_Extend() {
 }
 
 bool IsFastCrc32Supported() {
-#if defined(__SSE4_2__) || defined(_WIN64)
   return isSSE42();
-#else
-  return false;
-#endif
 }
 
 Function ChosenExtend = Choose_Extend();
