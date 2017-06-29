@@ -340,6 +340,24 @@ TEST_F(CompactionJobTest, SimpleDeletion) {
   RunCompaction({files}, expected_results);
 }
 
+TEST_F(CompactionJobTest, OutputNothing) {
+  NewDB();
+
+  auto file1 = mock::MakeMockFile({{KeyStr("a", 1U, kTypeValue), "val"}});
+
+  AddMockFile(file1);
+
+  auto file2 = mock::MakeMockFile({{KeyStr("a", 2U, kTypeDeletion), ""}});
+
+  AddMockFile(file2);
+
+  auto expected_results = mock::MakeMockFile();
+
+  SetLastSequence(4U);
+  auto files = cfd_->current()->storage_info()->LevelFiles(0);
+  RunCompaction({files}, expected_results);
+}
+
 TEST_F(CompactionJobTest, SimpleOverwrite) {
   NewDB();
 
