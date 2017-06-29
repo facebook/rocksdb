@@ -32,7 +32,7 @@ Tracer::~Tracer() {
     bg_thread_->join();
   }
   TEST_SYNC_POINT_CALLBACK("Tracer::~Tracer", &num_ops_);
-  fprintf(stdout, "[Trace] Finish tracing: %lu ops\n", num_ops_);
+  fprintf(stdout, "[Trace] Finish tracing: %llu ops\n", num_ops_);
   trace_writer_->Close();
 }
 

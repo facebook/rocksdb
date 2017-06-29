@@ -19,7 +19,7 @@ Status TraceWriterImpl::AddRecord(const std::string& key,
                                   const std::string& value) {
   Status s = writer_->Append(Slice(key));
   std::string payload_length;
-  PutFixed32(&payload_length, value.size());
+  PutFixed32(&payload_length,static_cast<uint32_t>(value.size()));
   if (s.ok()) {
     s = writer_->Append(Slice(payload_length));
   }
