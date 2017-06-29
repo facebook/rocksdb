@@ -2320,7 +2320,7 @@ TEST_F(DBTest2, TraceAndReplay) {
   CreateAndReopenWithCF({"pikachu"}, options);
   db_->StartTrace(dbname_ + "/test.tr");
   Random rnd(301);
-  for (size_t i = 0; i < 1000; i++) {
+  for (int i = 0; i < 1000; i++) {
     ASSERT_OK(Put(0, Key(i), RandomString(&rnd, 10)));
     ASSERT_OK(Merge(0, Key(i), RandomString(&rnd, 10)));
     // Found
