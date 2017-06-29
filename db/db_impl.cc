@@ -2748,31 +2748,45 @@ Status DBImpl::VerifyChecksum() {
         const auto& fd = vstorage->LevelFilesBrief(i).files[j].fd;
         std::string fname = TableFileName(
           cfd->ioptions()->db_paths, fd.GetNumber(), fd.GetPathId());
-        unique_ptr<RandomAccessFile> file;
-        s = env_->NewRandomAccessFile(fname, &file, env_options);
-        if (!s.ok()) {
-          return s;
-        }
-        unique_ptr<TableReader> table_reader;
-        std::unique_ptr<RandomAccessFileReader> file_reader(
-            new RandomAccessFileReader(std::move(file)));
-        s = cfd->ioptions()->table_factory->NewTableReader(
-
-          TableReaderOptions(*cfd->ioptions(), env_options,
-                               cfd->internal_comparator(),
-                               false /* skip_filters */, -1 /* level */),
-            std::move(file_reader), fd.GetFileSize(), &table_reader,
-            false /* prefetch_index_and_filter_in_cache */);
-        if (!s.ok()) {
-          return s;
-        }
-        s = table_reader->VerifyChecksum();
+        s = VerifyChecksumImpl(cfd, fname);
         if (!s.ok()) {
           return s;
         }
       }
     }
   }
+  return s;
+}
+
+Status DBImpl::VerifyChecksum(ColumnFamilyHandle* column_family,
+                              const std::string& file_path) {
+  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  return VerifyChecksumImpl(cfh->cfd(), file_path);
+}
+
+Status DBImpl::VerifyChecksumImpl(ColumnFamilyData* cfd,
+                                  const std::string& file_path) {
+  unique_ptr<RandomAccessFile> file;
+  uint64_t file_size;
+  Status s = env_->NewRandomAccessFile(file_path, &file, env_options_);
+  if (s.ok()) {
+    s = env_->GetFileSize(file_path, &file_size);
+  } else {
+    return s;
+  }
+  unique_ptr<TableReader> table_reader;
+  std::unique_ptr<RandomAccessFileReader> file_reader(
+      new RandomAccessFileReader(std::move(file)));
+  s = cfd->ioptions()->table_factory->NewTableReader(
+      TableReaderOptions(*cfd->ioptions(), env_options_,
+                         cfd->internal_comparator(), false /* skip_filters */,
+                         -1 /* level */),
+      std::move(file_reader), file_size, &table_reader,
+      false /* prefetch_index_and_filter_in_cache */);
+  if (!s.ok()) {
+    return s;
+  }
+  s = table_reader->VerifyChecksum();
   return s;
 }
 

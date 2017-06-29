@@ -30,6 +30,7 @@ class SstFileReader {
   uint64_t GetReadNumber() { return read_num_; }
   TableProperties* GetInitTableProperties() { return table_properties_.get(); }
 
+  Status VerifyChecksum();
   Status DumpTable(const std::string& out_filename);
   Status getStatus() { return init_result_; }
 

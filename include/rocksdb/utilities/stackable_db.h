@@ -99,6 +99,11 @@ class StackableDB : public DB {
     return db_->VerifyChecksum();
   }
 
+  virtual Status VerifyChecksum(ColumnFamilyHandle* column_family,
+                                const std::string& file_path) override {
+    return db_->VerifyChecksum(column_family, file_path);
+  }
+
   using DB::KeyMayExist;
   virtual bool KeyMayExist(const ReadOptions& options,
                            ColumnFamilyHandle* column_family, const Slice& key,

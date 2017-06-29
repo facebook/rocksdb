@@ -2240,6 +2240,11 @@ class ModelDB : public DB {
     return Status::NotSupported("Not implemented.");
   }
 
+  virtual Status VerifyChecksum(ColumnFamilyHandle* column_family,
+                                const std::string& file_path) override {
+    return Status::NotSupported("Not implemented.");
+  }
+
   using DB::GetPropertiesOfAllTables;
   virtual Status GetPropertiesOfAllTables(
       ColumnFamilyHandle* column_family,
