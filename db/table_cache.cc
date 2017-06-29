@@ -336,16 +336,20 @@ Status TableCache::Get(const ReadOptions& options,
     if (auto row_handle =
             ioptions_.row_cache->Lookup(row_cache_key.GetUserKey())) {
 
-      Cleanable cache_entry_clean;
       // Cleanable routine to release the cache entry
+      Cleanable cache_entry_clean;
       auto release_cache_entry_func = [] (void* cache_to_clean, void* cache_handle){
           ((Cache*)cache_to_clean)->Release((Cache::Handle*) cache_handle);
       };
       auto found_row_cache_entry = static_cast<const std::string*>(
           ioptions_.row_cache->Value(row_handle));
+      // If it comes here value is located on the cache, input PinnableSlice (get_context.pinnable_slice_) will now
+      // point to cache entry buffer and cleanup routine will be delegated to the
+      // input PinnableSlice (get_context.pinnable_slice_)
       cache_entry_clean.RegisterCleanup(release_cache_entry_func,
                                         ioptions_.row_cache.get(), row_handle);
-      replayGetContextLog(*found_row_cache_entry, user_key, get_context, &cache_entry_clean);
+      replayGetContextLog(*found_row_cache_entry, user_key, get_context,
+                          &cache_entry_clean);
       RecordTick(ioptions_.statistics, ROW_CACHE_HIT);
       done = true;
     } else {
