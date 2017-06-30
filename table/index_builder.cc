@@ -77,6 +77,11 @@ void PartitionedIndexBuilder::MakeNewSubIndexBuilder() {
   flush_policy_.reset(FlushBlockBySizePolicyFactory::NewFlushBlockPolicy(
       table_opt_.metadata_block_size, table_opt_.block_size_deviation,
       sub_index_builder_->index_block_builder_));
+  partition_cut_requested_ = false;
+}
+
+void PartitionedIndexBuilder::RequestPartitionCut() {
+  partition_cut_requested_ = true;
 }
 
 void PartitionedIndexBuilder::AddIndexEntry(
@@ -102,6 +107,7 @@ void PartitionedIndexBuilder::AddIndexEntry(
       std::string handle_encoding;
       block_handle.EncodeTo(&handle_encoding);
       bool do_flush =
+          partition_cut_requested_ ||
           flush_policy_->Update(*last_key_in_current_block, handle_encoding);
       if (do_flush) {
         entries_.push_back(

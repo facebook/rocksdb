@@ -314,6 +314,10 @@ class PartitionedIndexBuilder : public IndexBuilder {
 
   std::string& GetPartitionKey() { return sub_index_last_key_; }
 
+  // Called when an external entity (such as filter partition builder) request
+  // cutting the next partition
+  void RequestPartitionCut();
+
  private:
   void MakeNewSubIndexBuilder();
 
@@ -331,6 +335,9 @@ class PartitionedIndexBuilder : public IndexBuilder {
   // true if Finish is called once but not complete yet.
   bool finishing_indexes = false;
   const BlockBasedTableOptions& table_opt_;
+  // true if an external entity (such as filter partition builder) request
+  // cutting the next partition
+  bool partition_cut_requested_ = true;
   // true if it should cut the next filter partition block
   bool cut_filter_block = false;
 };

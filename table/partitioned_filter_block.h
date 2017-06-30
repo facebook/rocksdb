@@ -28,7 +28,8 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   explicit PartitionedFilterBlockBuilder(
       const SliceTransform* prefix_extractor, bool whole_key_filtering,
       FilterBitsBuilder* filter_bits_builder, int index_block_restart_interval,
-      PartitionedIndexBuilder* const p_index_builder);
+      PartitionedIndexBuilder* const p_index_builder,
+      const uint32_t partition_size);
 
   virtual ~PartitionedFilterBlockBuilder();
 
@@ -51,7 +52,15 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
       false;  // true if Finish is called once but not complete yet.
   // The policy of when cut a filter block and Finish it
   void MaybeCutAFilterBlock();
+  // Currently we keep the same number of partitions for filters and indexes.
+  // This would allow for some potentioal optimizations in future. If such
+  // optimizations did not realize we can use different number of partitions and
+  // eliminate p_index_builder_
   PartitionedIndexBuilder* const p_index_builder_;
+  // The desired number of filters per partition
+  uint32_t filters_per_partition_;
+  // The current number of filters in the last partition
+  uint32_t filters_in_partition_;
 };
 
 class PartitionedFilterBlockReader : public FilterBlockReader {
