@@ -24,7 +24,7 @@
 
 namespace rocksdb {
 
-LRUHandleTable::LRUHandleTable() : length_(0), elems_(0), list_(nullptr){
+LRUHandleTable::LRUHandleTable() : list_(nullptr), length_(0), elems_(0){
   Resize();
 }
 
