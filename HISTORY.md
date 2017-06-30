@@ -7,6 +7,10 @@
 * Measure estimated number of reads per file. The information can be accessed through DB::GetColumnFamilyMetaData or "rocksdb.sstables" DB property.
 * RateLimiter support for throttling background reads, or throttling the sum of background reads and writes. This can give more predictable I/O usage when compaction reads more data than it writes, e.g., due to lots of deletions.
 * [Experimental] FIFO compaction with TTL support. It can be enabled by setting CompactionOptionsFIFO.ttl > 0.
+* Introduce `EventListener::OnBackgroundError()` callback. Users can implement it to be notified of errors causing the DB to enter read-only mode, and optionally override them.
+
+### Bug Fixes
+* Fix discarding empty compaction output files when `DeleteRange()` is used together with subcompactions.
 
 ## 5.6.0 (06/06/2017)
 ### Public API Change
