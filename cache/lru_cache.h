@@ -153,7 +153,7 @@ class LRUHandleTable {
   // cache line alignment elems_ to avoid false sharing
   uint32_t length_;
   LRUHandle** list_;
-  uint32_t elems_ CACHE_ALIGNED(CACHE_LINE_SIZE);
+  CACHE_ALIGNED(CACHE_LINE_SIZE) uint32_t elems_;
 };
 
 // A single shard of sharded cache.
