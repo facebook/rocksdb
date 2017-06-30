@@ -811,8 +811,14 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
   if (data_seen && !flushed) {
     // Mark these as alive so they'll be considered for deletion later by
     // FindObsoleteFiles()
+    if (concurrent_prepare_) {
+      log_write_mutex_.Lock();
+    }
     for (auto log_number : log_numbers) {
       alive_log_files_.push_back(LogFileNumberSize(log_number));
+    }
+    if (concurrent_prepare_) {
+      log_write_mutex_.Unlock();
     }
   }
 
@@ -986,14 +992,17 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
     if (s.ok()) {
       lfile->SetPreallocationBlockSize(
           impl->GetWalPreallocateBlockSize(max_write_buffer_size));
-      impl->logfile_number_ = new_log_number;
-      unique_ptr<WritableFileWriter> file_writer(
-          new WritableFileWriter(std::move(lfile), opt_env_options));
-      impl->logs_.emplace_back(
-          new_log_number,
-          new log::Writer(
-              std::move(file_writer), new_log_number,
-              impl->immutable_db_options_.recycle_log_file_num > 0));
+      {
+        InstrumentedMutexLock wl(&impl->log_write_mutex_);
+        impl->logfile_number_ = new_log_number;
+        unique_ptr<WritableFileWriter> file_writer(
+            new WritableFileWriter(std::move(lfile), opt_env_options));
+        impl->logs_.emplace_back(
+            new_log_number,
+            new log::Writer(
+                std::move(file_writer), new_log_number,
+                impl->immutable_db_options_.recycle_log_file_num > 0));
+      }
 
       // set column family handles
       for (auto cf : column_families) {
@@ -1027,8 +1036,14 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
         delete impl->InstallSuperVersionAndScheduleWork(
             cfd, nullptr, *cfd->GetLatestMutableCFOptions());
       }
+      if (impl->concurrent_prepare_) {
+        impl->log_write_mutex_.Lock();
+      }
       impl->alive_log_files_.push_back(
           DBImpl::LogFileNumberSize(impl->logfile_number_));
+      if (impl->concurrent_prepare_) {
+        impl->log_write_mutex_.Unlock();
+      }
       impl->DeleteObsoleteFiles();
       s = impl->directories_.GetDbDir()->Fsync();
     }
