@@ -247,7 +247,7 @@ extern void InitOnce(OnceType* once, void (*initializer)());
 #elif defined(_MSC_VER)
 # define CACHE_ALIGNED(size) __declspec(align(size))
 #else
-# error Cannot define CACHE_ALIGNED on this platform
+# define CACHE_ALIGNED(size) 
 #endif
 
 static inline void AsmVolatilePause() {
