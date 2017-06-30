@@ -106,7 +106,7 @@ int FullFilterBitsBuilder::CalculateNumEntry(const uint32_t space) {
   assert(bits_per_key_);
   assert(space > 0);
   uint32_t dont_care1, dont_care2;
-  int high = space * 8 / bits_per_key_ + 1;
+  int high = (int) (space * 8 / bits_per_key_ + 1);
   int low = 1;
   int n = high;
   for (; n >= low; n--) {
