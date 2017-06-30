@@ -151,9 +151,9 @@ class LRUHandleTable {
   // The table consists of an array of buckets where each bucket is
   // a linked list of cache entries that hash into the bucket.
   // cache line alignment elems_ to avoid false sharing
-  LRUHandle** list_;
   uint32_t length_;
-  CACHE_ALIGNED(CACHE_LINE_SIZE) uint32_t elems_;
+  uint32_t elems_;
+  CACHE_ALIGNED(CACHE_LINE_SIZE)   LRUHandle** list_;
 };
 
 // A single shard of sharded cache.
