@@ -21,6 +21,7 @@
 #define STORAGE_ROCKSDB_INCLUDE_FILTER_POLICY_H_
 
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -45,7 +46,8 @@ class FilterBitsBuilder {
 
   // Calculate num of entries fit into a space.
   virtual int CalculateNumEntry(const uint32_t space) {
-    throw new std::runtime_error("CalculateNumEntry not Implemented");
+    throw std::runtime_error("CalculateNumEntry not Implemented");
+    return 0;
   }
 };
 
