@@ -148,7 +148,7 @@ class MemFile {
 
  private:
   uint64_t Now() {
-    int64_t unix_time;
+    int64_t unix_time = 0;
     auto s = env_->GetCurrentTime(&unix_time);
     assert(s.ok());
     return static_cast<uint64_t>(unix_time);
@@ -734,7 +734,9 @@ Status MockEnv::GetTestDirectory(std::string* path) {
 
 Status MockEnv::GetCurrentTime(int64_t* unix_time) {
   auto s = EnvWrapper::GetCurrentTime(unix_time);
-  *unix_time += fake_sleep_micros_.load() / (1000 * 1000);
+  if (s.ok()) {
+    *unix_time += fake_sleep_micros_.load() / (1000 * 1000);
+  }
   return s;
 }
 

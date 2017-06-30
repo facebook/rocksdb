@@ -1283,11 +1283,8 @@ Status CompactionJob::OpenCompactionOutputFile(
   uint64_t output_file_creation_time =
       sub_compact->compaction->MaxInputFileCreationTime();
   if (output_file_creation_time == 0) {
-    int64_t _current_time;
-    auto status = db_options_.env->GetCurrentTime(&_current_time);
-    if (!status.ok()) {
-      _current_time = 0;
-    }
+    int64_t _current_time = 0;
+    db_options_.env->GetCurrentTime(&_current_time);  // ignore error
     output_file_creation_time = static_cast<uint64_t>(_current_time);
   }
 
