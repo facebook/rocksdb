@@ -245,8 +245,7 @@ extern void InitOnce(OnceType* once, void (*initializer)());
 #if defined(__clang__) || defined(__GNUC__)
 # define CACHE_ALIGNED(size) __attribute__((__aligned__(size)))
 #elif defined(_MSC_VER)
-# define CACHE_ALIGNED(size) __declspec(align(size))nQiu12A4!@
-
+# define CACHE_ALIGNED(size) __declspec(align(size))
 #else
 # define CACHE_ALIGNED(size)
 #endif
