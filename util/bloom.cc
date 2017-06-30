@@ -13,20 +13,20 @@
 
 #include "rocksdb/slice.h"
 #include "table/block_based_filter_block.h"
+#include "table/full_filter_bits_builder.h"
 #include "table/full_filter_block.h"
-#include "util/hash.h"
 #include "util/coding.h"
+#include "util/hash.h"
 
 namespace rocksdb {
 
 class BlockBasedFilterBlockBuilder;
 class FullFilterBlockBuilder;
 
-  FullFilterBitsBuilder::FullFilterBitsBuilder(const size_t bits_per_key,
-                                 const size_t num_probes)
-      : bits_per_key_(bits_per_key),
-        num_probes_(num_probes) {
-    assert(bits_per_key_);
+FullFilterBitsBuilder::FullFilterBitsBuilder(const size_t bits_per_key,
+                                             const size_t num_probes)
+    : bits_per_key_(bits_per_key), num_probes_(num_probes) {
+  assert(bits_per_key_);
   }
 
   FullFilterBitsBuilder::~FullFilterBitsBuilder() {}
@@ -72,7 +72,8 @@ uint32_t FullFilterBitsBuilder::GetTotalBitsForLocality(uint32_t total_bits) {
 }
 
 uint32_t FullFilterBitsBuilder::CalculateSpace(const int num_entry,
-    uint32_t* total_bits, uint32_t* num_lines) {
+                                               uint32_t* total_bits,
+                                               uint32_t* num_lines) {
   assert(bits_per_key_);
   if (num_entry != 0) {
     uint32_t total_bits_tmp = num_entry * static_cast<uint32_t>(bits_per_key_);
@@ -93,7 +94,8 @@ uint32_t FullFilterBitsBuilder::CalculateSpace(const int num_entry,
 }
 
 char* FullFilterBitsBuilder::ReserveSpace(const int num_entry,
-    uint32_t* total_bits, uint32_t* num_lines) {
+                                          uint32_t* total_bits,
+                                          uint32_t* num_lines) {
   uint32_t sz = CalculateSpace(num_entry, total_bits, num_lines);
   char* data = new char[sz];
   memset(data, 0, sz);
@@ -113,7 +115,7 @@ int FullFilterBitsBuilder::CalculateNumEntry(const uint32_t space) {
       break;
     }
   }
-  assert(n < high); // High should be an overestimation
+  assert(n < high);  // High should be an overestimation
   return n;
 }
 

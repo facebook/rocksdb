@@ -79,11 +79,11 @@ FilterBlockBuilder* CreateFilterBlockBuilder(
       // Since after partition cut request from filter builder it takes time
       // until index builder actully cuts the partition, we take the lower bound
       // as partition size.
-      uint64_t partition_size =
-          table_opt.metadata_block_size >
-                  (uint64_t)table_opt.block_size_deviation
-              ? table_opt.metadata_block_size - table_opt.block_size_deviation
-              : 1;
+      assert(table_opt.block_size_deviation <= 100);
+      auto partition_size =
+          (const uint32_t)(table_opt.metadata_block_size *
+                           (100 - table_opt.block_size_deviation));
+      partition_size = std::max(partition_size, (const uint32_t)1);
       return new PartitionedFilterBlockBuilder(
           opt.prefix_extractor, table_opt.whole_key_filtering,
           filter_bits_builder, table_opt.index_block_restart_interval,

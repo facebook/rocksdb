@@ -106,7 +106,8 @@ void PartitionedIndexBuilder::AddIndexEntry(
     if (sub_index_builder_ != nullptr) {
       std::string handle_encoding;
       block_handle.EncodeTo(&handle_encoding);
-      bool do_flush = partition_cut_requested_ ||
+      bool do_flush =
+          partition_cut_requested_ ||
           flush_policy_->Update(*last_key_in_current_block, handle_encoding);
       if (do_flush) {
         entries_.push_back(

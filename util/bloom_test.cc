@@ -21,10 +21,11 @@ int main() {
 #include <vector>
 
 #include "rocksdb/filter_policy.h"
+#include "table/full_filter_bits_builder.h"
+#include "util/arena.h"
 #include "util/logging.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
-#include "util/arena.h"
 
 using GFLAGS::ParseCommandLineFlags;
 
