@@ -821,7 +821,54 @@ TEST_F(DBRangeDelTest, TailingIteratorRangeTombstoneUnsupported) {
   }
   db_->ReleaseSnapshot(snapshot);
 }
+
 #endif  // !ROCKSDB_UBSAN_RUN
+
+TEST_F(DBRangeDelTest, SubcompactionHasEmptyDedicatedRangeDelFile) {
+  const int kNumFiles = 2, kNumKeysPerFile = 4;
+  Options options = CurrentOptions();
+  options.compression = kNoCompression;
+  options.disable_auto_compactions = true;
+  options.level0_file_num_compaction_trigger = kNumFiles;
+  options.max_subcompactions = 2;
+  options.num_levels = 2;
+  options.target_file_size_base = 4096;
+  Reopen(options);
+
+  // need a L1 file for subcompaction to be triggered
+  ASSERT_OK(
+      db_->Put(WriteOptions(), db_->DefaultColumnFamily(), Key(0), "val"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  MoveFilesToLevel(1);
+
+  // put enough keys to fill up the first subcompaction, and later range-delete
+  // them so that the first subcompaction outputs no key-values. In that case
+  // it'll consider making an SST file dedicated to range deletions.
+  for (int i = 0; i < kNumKeysPerFile; ++i) {
+    ASSERT_OK(db_->Put(WriteOptions(), db_->DefaultColumnFamily(), Key(i),
+                       std::string(1024, 'a')));
+  }
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(0),
+                             Key(kNumKeysPerFile)));
+
+  // the above range tombstone can be dropped, so that one alone won't cause a
+  // dedicated file to be opened. We can make one protected by snapshot that
+  // must be considered. Make its range outside the first subcompaction's range
+  // to exercise the tricky part of the code.
+  const Snapshot* snapshot = db_->GetSnapshot();
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                             Key(kNumKeysPerFile + 1),
+                             Key(kNumKeysPerFile + 2)));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  ASSERT_EQ(kNumFiles, NumTableFilesAtLevel(0));
+  ASSERT_EQ(1, NumTableFilesAtLevel(1));
+
+  db_->EnableAutoCompaction({db_->DefaultColumnFamily()});
+  dbfull()->TEST_WaitForCompact();
+  db_->ReleaseSnapshot(snapshot);
+}
 
 #endif  // ROCKSDB_LITE
 
