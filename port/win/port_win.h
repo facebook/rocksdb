@@ -241,6 +241,13 @@ extern void InitOnce(OnceType* once, void (*initializer)());
 #define CACHE_LINE_SIZE 64U
 #endif
 
+// To reduce false cache sharing by enforcing alignment
+#if defined(__clang__) || defined(__GNUC__)
+#define CACHE_ALIGNED(size) __attribute__((__aligned__(size)))
+#elif defined(_MSC_VER)
+#define CACHE_ALIGNED(size) __declspec(align(size))
+#else
+
 static inline void AsmVolatilePause() {
 #if defined(_M_IX86) || defined(_M_X64)
   YieldProcessor();
