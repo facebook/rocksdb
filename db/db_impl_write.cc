@@ -672,6 +672,8 @@ WriteBatch* DBImpl::MergeBatch(const WriteThread::WriteGroup& write_group,
   return merged_batch;
 }
 
+// When concurrent_prepare_ is disabled, this function is called from the only
+// write thread. Otherwise this must be called holding log_write_mutex_.
 Status DBImpl::WriteToWAL(const WriteBatch& merged_batch,
                           log::Writer* log_writer, uint64_t* log_used,
                           uint64_t* log_size) {
@@ -683,6 +685,8 @@ Status DBImpl::WriteToWAL(const WriteBatch& merged_batch,
     *log_used = logfile_number_;
   }
   total_log_size_ += log_entry.size();
+  // TODO(myabandeh): it might be unsafe to access alive_log_files_.back() here
+  // since alive_log_files_ might be modified concurrently
   alive_log_files_.back().AddSize(log_entry.size());
   log_empty_ = false;
   return status;
@@ -1021,6 +1025,8 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   mutex_.AssertHeld();
   WriteThread::Writer nonmem_w;
   if (concurrent_prepare_) {
+    // SwitchMemtable is a rare event. To simply the reasoning, we make sure
+    // that there is no concurrent thread writing to WAL.
     nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
   }
 
@@ -1037,9 +1043,13 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   // Attempt to switch to a new memtable and trigger flush of old.
   // Do this without holding the dbmutex lock.
   assert(versions_->prev_log_number() == 0);
-  //log_write_mutex_.Lock();
+  if (concurrent_prepare_) {
+    log_write_mutex_.Lock();
+  }
   bool creating_new_log = !log_empty_;
-  //log_write_mutex_.Unlock();
+  if (concurrent_prepare_) {
+    log_write_mutex_.Unlock();
+  }
   uint64_t recycle_log_number = 0;
   if (creating_new_log && immutable_db_options_.recycle_log_file_num &&
       !log_recycle_files.empty()) {
