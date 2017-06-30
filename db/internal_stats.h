@@ -555,7 +555,8 @@ class InternalStats {
 
   void AddCFStats(InternalCFStatsType type, uint64_t value) {}
 
-  void AddDBStats(InternalDBStatsType type, uint64_t value) {}
+  void AddDBStats(InternalDBStatsType type, uint64_t value,
+                  bool concurrent = false) {}
 
   HistogramImpl* GetFileReadHist(int level) { return nullptr; }
 
