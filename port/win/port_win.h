@@ -243,11 +243,11 @@ extern void InitOnce(OnceType* once, void (*initializer)());
 
 // To reduce false cache sharing by enforcing alignment
 #if defined(__clang__) || defined(__GNUC__)
-# define FOLLY_ALIGNED(size) __attribute__((__aligned__(size)))
+# define CACHE_ALIGNED(size) __attribute__((__aligned__(size)))
 #elif defined(_MSC_VER)
-# define FOLLY_ALIGNED(size) __declspec(align(size))
+# define CACHE_ALIGNED(size) __declspec(align(size))
 #else
-# error Cannot define FOLLY_ALIGNED on this platform
+# error Cannot define CACHE_ALIGNED on this platform
 #endif
 
 static inline void AsmVolatilePause() {
