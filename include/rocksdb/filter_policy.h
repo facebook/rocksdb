@@ -46,7 +46,11 @@ class FilterBitsBuilder {
 
   // Calculate num of entries fit into a space.
   virtual int CalculateNumEntry(const uint32_t space) {
+#ifndef ROCKSDB_LITE
     throw std::runtime_error("CalculateNumEntry not Implemented");
+#else
+    abort();
+#endif
     return 0;
   }
 };
