@@ -452,9 +452,8 @@ Status S3WritableFile::CopyManifestToS3(uint64_t size_hint, bool force) {
   Status stat;
 
   uint64_t now = env_->NowMicros();
-  if (is_manifest_ && (force || (manifest_last_sync_time_ +
-                                     manifest_durable_periodicity_millis_ <
-                                 now))) {
+  if (is_manifest_ && (force ||
+      (manifest_last_sync_time_ + 1000 * manifest_durable_periodicity_millis_ < now))) {
     // Upload manifest file only if it has not been uploaded in the last
     // manifest_durable_periodicity_millis_  milliseconds.
     stat = CopyToS3(env_, fname_, s3_bucket_, s3_object_, size_hint);

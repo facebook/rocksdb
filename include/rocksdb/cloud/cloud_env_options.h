@@ -97,6 +97,7 @@ class CloudEnvOptions {
         keep_local_log_files(_keep_local_log_files),
         manifest_durable_periodicity_millis(
             _manifest_durable_periodicity_millis),
+        purger_periodicity_millis(_purger_periodicity_millis),
         cloud_request_callback(_cloud_request_callback) {
     assert(manifest_durable_periodicity_millis == 0 ||
            keep_local_log_files == true);
