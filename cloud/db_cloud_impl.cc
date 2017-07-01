@@ -553,14 +553,15 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
   manifest_name = rtrim_if(trim(manifest_name), '/');
 
   // Check to see that we have a non-zero MANIFEST
-  uint64_t size = 0;
+  uint64_t local_manifest_size = 0;
   std::string mname = local_dir + "/" + manifest_name;
-  st = env->GetFileSize(mname, &size);
-  if (!st.ok() || size == 0) {
+  st = env->GetFileSize(mname, &local_manifest_size);
+  if (!st.ok() || local_manifest_size == 0) {
     Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
         "[db_cloud_impl] NeedsReinitialization: "
-        "Unable to read MANIFEST file '%s' in local dir %s. %s",
-        mname.c_str(), local_dir.c_str(), st.ToString().c_str());
+        "Bad local MANIFEST file '%s' in local dir %s (size %ld). %s",
+        mname.c_str(), local_dir.c_str(),
+        local_manifest_size, st.ToString().c_str());
     return Status::OK();
   }
   Log(InfoLogLevel::INFO_LEVEL, options.info_log,
