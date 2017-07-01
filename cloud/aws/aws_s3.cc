@@ -378,6 +378,19 @@ Status S3WritableFile::CopyToS3(const AwsEnv* env, const std::string& fname,
                                 const Aws::String& s3_bucket,
                                 const Aws::String& s3_object,
                                 uint64_t size_hint) {
+  {
+    // debugging paranoia. Files uploaded to S3 can never be zero size.
+    size_t fsize = 0;
+    Status statx = env->GetPosixEnv()->GetFileSize(fname, &fsize);
+    if (fsize == 0) {
+      Log(InfoLogLevel::ERROR_LEVEL, env->info_log_,
+          "[s3] CopyToS3 "
+          "localpath %s error zero size %s",
+          fname.c_str(), statx.ToString().c_str());
+      return Status::IOError(fname + " Zero size.");
+    }
+  }
+
   auto input_data = Aws::MakeShared<Aws::FStream>(
       s3_object.c_str(), fname.c_str(), std::ios_base::in | std::ios_base::out);
 
@@ -432,16 +445,25 @@ Status S3WritableFile::CopyFromS3(AwsEnv* env,
         s3_bucket.c_str(), key.c_str(), errmsg.c_str());
     return Status::IOError(errmsg);
   }
-  s = localenv->RenameFile(tmp_destination, destination_pathname);
+
+  // Paranoia. Files can never be zero size.
+  uint64_t file_size;
+  s = localenv->GetFileSize(tmp_destination, &file_size);
+  if (file_size == 0) {
+    s = Status::IOError(tmp_destination +  "Zero size.");
+    Log(InfoLogLevel::ERROR_LEVEL, env->info_log_,
+        "[s3] CopyFromS3 "
+        "bucket %s bucketpath %s size %ld. %s",
+        s3_bucket.c_str(), key.c_str(), file_size, s.ToString().c_str());
+  }
 
   if (s.ok()) {
-    uint64_t file_size;
-    s = localenv->GetFileSize(destination_pathname, &file_size);
-    Log(InfoLogLevel::INFO_LEVEL, env->info_log_,
-        "[s3] CopyFromS3 "
-        "bucket %s bucketpath %s size %ld.",
-        s3_bucket.c_str(), key.c_str(), file_size);
+    s = localenv->RenameFile(tmp_destination, destination_pathname);
   }
+  Log(InfoLogLevel::INFO_LEVEL, env->info_log_,
+      "[s3] CopyFromS3 "
+      "bucket %s bucketpath %s size %ld. %s",
+      s3_bucket.c_str(), key.c_str(), file_size, s.ToString().c_str());
   return s;
 }
 
