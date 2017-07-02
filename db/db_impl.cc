@@ -2740,7 +2740,6 @@ Status DBImpl::IngestExternalFile(
 Status DBImpl::VerifyChecksum() {
   InstrumentedMutexLock l(&mutex_);
   Status s;
-  EnvOptions env_options;
   for (auto cfd: *versions_->GetColumnFamilySet()) {
     VersionStorageInfo* vstorage = cfd->current()->storage_info();
     for (int i = 0; i < vstorage->num_non_empty_levels(); i++) {
@@ -2768,7 +2767,8 @@ Status DBImpl::VerifyChecksumImpl(ColumnFamilyData* cfd,
                                   const std::string& file_path) {
   unique_ptr<RandomAccessFile> file;
   uint64_t file_size;
-  Status s = env_->NewRandomAccessFile(file_path, &file, env_options_);
+  EnvOptions env_options;
+  Status s = env_->NewRandomAccessFile(file_path, &file, env_options);
   if (s.ok()) {
     s = env_->GetFileSize(file_path, &file_size);
   } else {
