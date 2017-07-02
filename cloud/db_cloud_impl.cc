@@ -400,25 +400,10 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
 
     if (st.ok()) {
       src_object_path = rtrim_if(trim(src_object_path), '/');
-      std::string src_specified_path = cenv->GetSrcObjectPrefix();
-      src_specified_path = rtrim_if(trim(src_specified_path), '/');
-
-      // If the registered source path does not match the one specified in
-      // our env, then fail the OpenDB  request.
-      if (src_object_path != src_specified_path) {
-        Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
-            "[db_cloud_impl] NeedsReinitialization: "
-            "Local dbid %s src path specified in env is %s "
-            " but src path in registry is %s",
-            local_dbid.c_str(), cenv->GetSrcObjectPrefix().c_str(),
-            src_object_path.c_str());
-        return Status::InvalidArgument(
-            "[db_cloud_impl] NeedsReinitialization: bad src path");
-      }
     }
     Log(InfoLogLevel::INFO_LEVEL, options.info_log,
         "[db_cloud_impl] NeedsReinitialization: "
-        "Local dbid %d configured path %s matches the src dbid registry",
+        "Local dbid %d configured src path %s src dbid registry",
         local_dbid.c_str(), src_object_path.c_str());
   }
   std::string dest_dbid;

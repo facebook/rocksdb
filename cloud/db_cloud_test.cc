@@ -379,6 +379,20 @@ TEST_F(CloudTest, TrueClone) {
     ASSERT_TRUE(value.compare("Clone1") == 0);
   }
   {
+    // Reopen clone1 with the same local path as above.
+    std::unique_ptr<CloudEnv> cloud_env;
+    std::unique_ptr<DBCloud> cloud_db;
+    CloneDB("localpath2", src_bucket_prefix_, src_object_prefix_,
+            src_bucket_prefix_, "clone1_path", &cloud_db, &cloud_env);
+
+    // Retrieve the id of the clone db
+    ASSERT_OK(cloud_db->GetDbIdentity(newdb2_dbid));
+    ASSERT_EQ(newdb1_dbid, newdb2_dbid);
+    value.clear();
+    ASSERT_OK(cloud_db->Get(ReadOptions(), "Hello", &value));
+    ASSERT_TRUE(value.compare("Clone1") == 0);
+  }
+  {
     // Create clone2
     std::unique_ptr<CloudEnv> cloud_env;
     std::unique_ptr<DBCloud> cloud_db;

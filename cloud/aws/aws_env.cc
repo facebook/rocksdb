@@ -1297,9 +1297,9 @@ Status AwsEnv::SaveIdentitytoS3(const std::string& localfile,
     st = S3WritableFile::CopyToS3(this, localfile, bucket, target, dbid.size());
   }
 
-  // Save mapping from ID to dirname
+  // Save mapping from ID to cloud pathname
   if (st.ok()) {
-    st = SaveDbid(dbid, dirname(idfile));
+    st = SaveDbid(dbid, GetDestObjectPrefix());
   }
   return st;
 }
