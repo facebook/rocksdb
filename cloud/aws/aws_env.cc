@@ -1475,6 +1475,13 @@ Status AwsEnv::ExistsObject(const std::string& bucket_name_prefix,
   return PathExistsInS3(bucket_object_path, bucket_name_prefix, true);
 }
 
+// Return size of cloud object
+Status AwsEnv::GetObjectSize(const std::string& bucket_name_prefix,
+                             const std::string& bucket_object_path,
+                             size_t* filesize) {
+  return GetFileInfoInS3(bucket_name_prefix, bucket_object_path,
+                         filesize, nullptr);
+}
 
 // Copy the specified cloud object from one location in the cloud
 // storage to another location in cloud storage

@@ -280,6 +280,9 @@ class AwsEnv : public CloudEnvImpl {
                       const std::string& bucket_object_path);
   Status ExistsObject(const std::string& bucket_name_prefix,
                       const std::string& bucket_object_path);
+  Status GetObjectSize(const std::string& bucket_name_prefix,
+                       const std::string& bucket_object_path,
+                       size_t* filesize);
   Status CopyObject(const std::string& bucket_name_prefix_src,
                     const std::string& bucket_object_path_src,
                     const std::string& bucket_name_prefix_dest,

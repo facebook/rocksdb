@@ -512,8 +512,7 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
         dest_dbid.c_str(), dest_bucket.c_str(), local_dbid.c_str());
 
     // If the local dbid is an exact match with the destination dbid, then
-    // ensure
-    // that we are run not in a 'clone' mode.
+    // ensure that we are run not in a 'clone' mode.
     if (local_dbid == dest_dbid) {
       Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
           "[db_cloud_impl] NeedsReinitialization: "
@@ -564,6 +563,31 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
         local_manifest_size, st.ToString().c_str());
     return Status::OK();
   }
+  //
+  // Validate that local manifest file is the same size as in cloud storage
+  // First, compare with dest bucket, if it does not exist, then compare
+  //
+  if (!dest_bucket.empty() && !dest_object_path.empty()) {
+    uint64_t cloud_manifest_size = 0;
+    st = cenv->GetObjectSize(dest_bucket, dest_object_path + "/MANIFEST",
+                             &cloud_manifest_size);
+    if (!st.ok() || cloud_manifest_size != local_manifest_size) {
+      Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
+          "[db_cloud_impl] NeedsReinitialization: "
+          "Cloud manifest at dest bucket %s path %s size %ld "
+          "does not match local manifest file size %d. %s",
+          dest_bucket.c_str(), dest_object_path.c_str(), cloud_manifest_size,
+          local_manifest_size, st.ToString().c_str());
+      return Status::OK();
+    }
+    Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
+        "[db_cloud_impl] NeedsReinitialization: "
+        "Validated that Cloud manifest at dest bucket %s path %s size %ld "
+        "matches local manifest file size %d. %s",
+        dest_bucket.c_str(), dest_object_path.c_str(), cloud_manifest_size,
+        local_manifest_size, st.ToString().c_str());
+  }
+
   Log(InfoLogLevel::INFO_LEVEL, options.info_log,
       "[db_cloud_impl] NeedsReinitialization: "
       "Valid manifest file %s in local dir %s",
@@ -937,6 +961,19 @@ Status DBCloudImpl::CopyFile(CloudEnv* src_env, Env* dest_env,
   }
   if (s.ok() && do_sync) {
     s = destfile->Sync();
+  }
+  // Paranoia, we should never have to download a zero size file
+  if (s.ok()) {
+    uint64_t file_size;
+    Status stax = dest_env->GetFileSize(destname, &file_size);
+    if (stax.ok()) {
+      if (file_size == 0) {
+        std::string msg =  "CopyFile: "
+            "Downloaded zerosize file from cloud storage " +
+            srcname + s.ToString().c_str();
+        return Status::IOError(msg);
+      }
+    }
   }
   return s;
 }
