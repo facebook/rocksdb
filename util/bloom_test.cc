@@ -21,10 +21,11 @@ int main() {
 #include <vector>
 
 #include "rocksdb/filter_policy.h"
+#include "table/full_filter_bits_builder.h"
+#include "util/arena.h"
 #include "util/logging.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
-#include "util/arena.h"
 
 using GFLAGS::ParseCommandLineFlags;
 
@@ -197,6 +198,10 @@ class FullBloomTest : public testing::Test {
     delete policy_;
   }
 
+  FullFilterBitsBuilder* GetFullFilterBitsBuilder() {
+    return dynamic_cast<FullFilterBitsBuilder*>(bits_builder_.get());
+  }
+
   void Reset() {
     bits_builder_.reset(policy_->GetFilterBitsBuilder());
     bits_reader_.reset(nullptr);
@@ -236,6 +241,19 @@ class FullBloomTest : public testing::Test {
     return result / 10000.0;
   }
 };
+
+TEST_F(FullBloomTest, FilterSize) {
+  uint32_t dont_care1, dont_care2;
+  auto full_bits_builder = GetFullFilterBitsBuilder();
+  for (int n = 1; n < 100; n++) {
+    auto space = full_bits_builder->CalculateSpace(n, &dont_care1, &dont_care2);
+    auto n2 = full_bits_builder->CalculateNumEntry(space);
+    ASSERT_GE(n2, n);
+    auto space2 =
+        full_bits_builder->CalculateSpace(n2, &dont_care1, &dont_care2);
+    ASSERT_EQ(space, space2);
+  }
+}
 
 TEST_F(FullBloomTest, FullEmptyFilter) {
   // Empty filter is not match, at this level

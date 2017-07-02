@@ -20,15 +20,25 @@ namespace rocksdb {
 PartitionedFilterBlockBuilder::PartitionedFilterBlockBuilder(
     const SliceTransform* prefix_extractor, bool whole_key_filtering,
     FilterBitsBuilder* filter_bits_builder, int index_block_restart_interval,
-    PartitionedIndexBuilder* const p_index_builder)
+    PartitionedIndexBuilder* const p_index_builder,
+    const uint32_t partition_size)
     : FullFilterBlockBuilder(prefix_extractor, whole_key_filtering,
                              filter_bits_builder),
       index_on_filter_block_builder_(index_block_restart_interval),
-      p_index_builder_(p_index_builder) {}
+      p_index_builder_(p_index_builder) {
+  filters_per_partition_ =
+      filter_bits_builder_->CalculateNumEntry(partition_size);
+}
 
 PartitionedFilterBlockBuilder::~PartitionedFilterBlockBuilder() {}
 
 void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock() {
+  // Use == to send the request only once
+  if (filters_in_partition_ == filters_per_partition_) {
+    // Currently only index builder is in charge of cutting a partition. We keep
+    // requesting until it is granted.
+    p_index_builder_->RequestPartitionCut();
+  }
   if (!p_index_builder_->ShouldCutFilterBlock()) {
     return;
   }
@@ -36,11 +46,13 @@ void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock() {
   Slice filter = filter_bits_builder_->Finish(&filter_gc.back());
   std::string& index_key = p_index_builder_->GetPartitionKey();
   filters.push_back({index_key, filter});
+  filters_in_partition_ = 0;
 }
 
 void PartitionedFilterBlockBuilder::AddKey(const Slice& key) {
   MaybeCutAFilterBlock();
   filter_bits_builder_->AddKey(key);
+  filters_in_partition_++;
 }
 
 Slice PartitionedFilterBlockBuilder::Finish(

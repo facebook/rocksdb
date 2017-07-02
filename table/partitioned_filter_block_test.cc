@@ -9,6 +9,7 @@
 
 #include "rocksdb/filter_policy.h"
 
+#include "table/full_filter_bits_builder.h"
 #include "table/index_builder.h"
 #include "table/partitioned_filter_block.h"
 #include "util/coding.h"
@@ -64,6 +65,16 @@ class PartitionedFilterBlockTest : public testing::Test {
     return max_index_size;
   }
 
+  uint64_t MaxFilterSize() {
+    int num_keys = sizeof(keys) / sizeof(*keys);
+    auto filter_bits_reader = dynamic_cast<rocksdb::FullFilterBitsBuilder*>(
+        table_options_.filter_policy->GetFilterBitsBuilder());
+    uint32_t dont_care1, dont_care2;
+    auto partition_size =
+        filter_bits_reader->CalculateSpace(num_keys, &dont_care1, &dont_care2);
+    return partition_size + table_options_.block_size_deviation;
+  }
+
   int last_offset = 10;
   BlockHandle Write(const Slice& slice) {
     BlockHandle bh(last_offset + 1, slice.size());
@@ -78,10 +89,17 @@ class PartitionedFilterBlockTest : public testing::Test {
 
   PartitionedFilterBlockBuilder* NewBuilder(
       PartitionedIndexBuilder* const p_index_builder) {
+    uint32_t partition_size =
+        table_options_.metadata_block_size >
+                (uint64_t)table_options_.block_size_deviation
+            ? table_options_.metadata_block_size -
+                  table_options_.block_size_deviation
+            : 1;
     return new PartitionedFilterBlockBuilder(
         nullptr, table_options_.whole_key_filtering,
         table_options_.filter_policy->GetFilterBitsBuilder(),
-        table_options_.index_block_restart_interval, p_index_builder);
+        table_options_.index_block_restart_interval, p_index_builder,
+        partition_size);
   }
 
   std::unique_ptr<MockedBlockBasedTable> table;
@@ -261,7 +279,8 @@ TEST_F(PartitionedFilterBlockTest, OneBlockPerKey) {
 
 TEST_F(PartitionedFilterBlockTest, PartitionCount) {
   int num_keys = sizeof(keys) / sizeof(*keys);
-  table_options_.metadata_block_size = MaxIndexSize();
+  table_options_.metadata_block_size =
+      std::max(MaxIndexSize(), MaxFilterSize());
   int partitions = TestBlockPerKey();
   ASSERT_EQ(partitions, 1);
   // A low number ensures cutting a block after each key
