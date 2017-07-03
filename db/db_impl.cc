@@ -2776,7 +2776,7 @@ Status DBImpl::VerifyChecksumImpl(ColumnFamilyData* cfd,
   }
   unique_ptr<TableReader> table_reader;
   std::unique_ptr<RandomAccessFileReader> file_reader(
-      new RandomAccessFileReader(std::move(file)));
+    new RandomAccessFileReader(std::move(file), file_path));
   s = cfd->ioptions()->table_factory->NewTableReader(
       TableReaderOptions(*cfd->ioptions(), env_options_,
                          cfd->internal_comparator(), false /* skip_filters */,
