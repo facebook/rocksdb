@@ -2791,7 +2791,7 @@ Status DBImpl::StartReplay(std::vector<ColumnFamilyHandle*>& handles,
   }
   if (s.ok()) {
     unique_ptr<RandomAccessFileReader> trace_file_reader;
-    trace_file_reader.reset(new RandomAccessFileReader(std::move(tfile)));
+    trace_file_reader.reset(new RandomAccessFileReader(std::move(tfile), trace_filename));
     unique_ptr<TraceReader> trace_reader;
     trace_reader.reset(
         new TraceReaderImpl(std::move(trace_file_reader), file_size));
