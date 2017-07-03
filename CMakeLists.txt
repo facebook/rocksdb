@@ -472,6 +472,8 @@ set(SOURCES
         util/testutil.cc
         util/thread_local.cc
         util/threadpool_imp.cc
+        util/trace_reader_writer_impl.cc
+        util/tracer_replayer.cc
         util/transaction_test_util.cc
         util/xxhash.cc
         utilities/backupable/backupable_db.cc
