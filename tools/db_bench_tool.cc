@@ -33,6 +33,7 @@
 #include <unordered_map>
 
 #include "db/db_impl.h"
+#include "db/db_impl_request.h"
 #include "db/version_set.h"
 #include "hdfs/env_hdfs.h"
 #include "monitoring/histogram.h"
@@ -72,6 +73,9 @@
 
 #ifdef OS_WIN
 #include <io.h>  // open/close
+#include "ms_internal/ms_threadpool.h"
+#include "ms_internal/ms_taskpoolhandle.h"
+#include "rocksdb/async/asyncthreadpool.h"
 #endif
 
 using GFLAGS::ParseCommandLineFlags;
@@ -87,6 +91,7 @@ DEFINE_string(
     "filluniquerandomdeterministic,"
     "overwrite,"
     "readrandom,"
+    "readrandomasync,"
     "newiterator,"
     "newiteratorwhilewriting,"
     "seekrandom,"
@@ -138,6 +143,7 @@ DEFINE_string(
     "\treadtocache   -- 1 thread reading database sequentially\n"
     "\treadreverse   -- read N times in reverse order\n"
     "\treadrandom    -- read N times in random order\n"
+    "\treadrandomasync - read N times in random order using async API. Each completion starts another read.\n"
     "\treadmissing   -- read N missing keys in random order\n"
     "\treadwhilewriting      -- 1 writer, N threads doing random "
     "reads\n"
@@ -214,6 +220,9 @@ DEFINE_int64(seed, 0, "Seed base for random number generators. "
              "When 0 it is deterministic.");
 
 DEFINE_int32(threads, 1, "Number of concurrent threads to run.");
+
+DEFINE_bool(run_async, false, 
+  "Use async API. The bench needs to have an async implementation");
 
 DEFINE_int32(duration, 0, "Time in seconds for the random-ops tests to run."
              " When 0 then num & reads determine the test duration");
@@ -1772,6 +1781,12 @@ class Benchmark {
   std::shared_ptr<Cache> cache_;
   std::shared_ptr<Cache> compressed_cache_;
   std::shared_ptr<const FilterPolicy> filter_policy_;
+
+#ifdef OS_WIN
+  std::unique_ptr<port::VistaThreadPool>  thread_pool_;
+  std::shared_ptr<async::AsyncThreadPool> async_tp_;
+#endif
+
   const SliceTransform* prefix_extractor_;
   DBWithColumnFamilies db_;
   std::vector<DBWithColumnFamilies> multi_dbs_;
@@ -2073,6 +2088,26 @@ class Benchmark {
       FLAGS_env = new ReportFileOpEnv(rocksdb::Env::Default());
     }
 
+#ifdef OS_WIN
+    if (FLAGS_run_async) {
+      if (FLAGS_threads < 2) {
+        fprintf(stderr,
+                "Running async requires many threads");
+        exit(1);
+      }
+      thread_pool_.reset(new port::VistaThreadPool(port::MemoryArenaId(), FLAGS_threads));
+      bool result = thread_pool_->SetMinMaxThreadCount(FLAGS_threads, 2 * FLAGS_threads);
+      if (!result) {
+        fprintf(stderr,
+          "Failed to set MinMaxThreads on the threadpool");
+        exit(1);
+      }
+      auto tp_handle = thread_pool_->CreateTaskPool();
+      auto io_compl_tp = FLAGS_env->CreateAsyncThreadPool(&tp_handle);
+      async_tp_ = std::move(io_compl_tp);
+    }
+#endif
+
     if (FLAGS_prefix_size > FLAGS_key_size) {
       fprintf(stderr, "prefix size is larger than key size");
       exit(1);
@@ -2217,6 +2252,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     if (!SanityCheck()) {
       exit(1);
     }
+
     Open(&open_options_);
     PrintHeader();
     std::stringstream benchmark_stream(FLAGS_benchmarks);
@@ -2341,6 +2377,12 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         method = &Benchmark::ReadReverse;
       } else if (name == "readrandom") {
         method = &Benchmark::ReadRandom;
+      } else if (name == "readrandomasync") {
+        method = &Benchmark::ReadRandomAsync;
+        if (!FLAGS_run_async) {
+          fprintf(stdout, run_async must be enabled"\n");
+          exit(1);
+        }
       } else if (name == "readrandomfast") {
         method = &Benchmark::ReadRandomFast;
       } else if (name == "multireadrandom") {
@@ -2616,6 +2658,61 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       delete arg[i].thread;
     }
     delete[] arg;
+
+    return merge_stats;
+  }
+
+  // This will run it on Windows Threadpool
+  // along with the IO completions
+  Stats RunBenchmarkAsync(int n, Slice name,
+    void (Benchmark::*method)(ThreadState*)) {
+    SharedState shared;
+    shared.total = n;
+    shared.num_initialized = 0;
+    shared.num_done = 0;
+    shared.start = false;
+
+    std::unique_ptr<ReporterAgent> reporter_agent;
+    if (FLAGS_report_interval_seconds > 0) {
+      reporter_agent.reset(new ReporterAgent(FLAGS_env, FLAGS_report_file,
+        FLAGS_report_interval_seconds));
+    }
+
+    std::vector<ThreadArg> arg;
+    arg.resize(n);
+
+    for (int i = 0; i < n; i++) {
+      arg[i].bm = this;
+      arg[i].method = method;
+      arg[i].shared = &shared;
+      arg[i].thread = new ThreadState(i);
+      arg[i].thread->stats.SetReporterAgent(reporter_agent.get());
+      arg[i].thread->shared = &shared;
+      // FLAGS_env->StartThread(ThreadBody, &arg[i]);
+    }
+
+    shared.mu.Lock();
+    while (shared.num_initialized < n) {
+      shared.cv.Wait();
+    }
+
+    shared.start = true;
+    shared.cv.SignalAll();
+    while (shared.num_done < n) {
+      shared.cv.Wait();
+    }
+    shared.mu.Unlock();
+
+    // Stats for some threads can be excluded.
+    Stats merge_stats;
+    for (int i = 0; i < n; i++) {
+      merge_stats.Merge(arg[i].thread->stats);
+    }
+    merge_stats.Report(name);
+
+    for (int i = 0; i < n; i++) {
+      delete arg[i].thread;
+    }
 
     return merge_stats;
   }
@@ -3957,6 +4054,70 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     char msg[100];
     snprintf(msg, sizeof(msg), "(%" PRIu64 " of %" PRIu64 " found)\n",
              found, read);
+
+    thread->stats.AddBytes(bytes);
+    thread->stats.AddMessage(msg);
+
+    if (FLAGS_perf_level > rocksdb::PerfLevel::kDisable) {
+      thread->stats.AddMessage(perf_context.ToString());
+    }
+  }
+
+  void ReadRandomAsync(ThreadState* thread) {
+    int64_t read = 0;
+    int64_t found = 0;
+    int64_t bytes = 0;
+    ReadOptions options(FLAGS_verify_checksum, true);
+    std::unique_ptr<const char[]> key_guard;
+    Slice key = AllocateKey(&key_guard);
+    std::string value;
+    PinnableSlice pinnable_val;
+
+    Duration duration(FLAGS_duration, reads_);
+    while (!duration.Done(1)) {
+      DBWithColumnFamilies* db_with_cfh = SelectDBWithCfh(thread);
+      // We use same key_rand as seed for key and column family so that we can
+      // deterministically find the cfh corresponding to a particular key, as it
+      // is done in DoWrite method.
+      int64_t key_rand = GetRandomKey(&thread->rand);
+      GenerateKeyFromInt(key_rand, FLAGS_num, &key);
+      read++;
+      Status s;
+      if (FLAGS_num_column_families > 1) {
+        s = db_with_cfh->db->Get(options, db_with_cfh->GetCfh(key_rand), key,
+          &value);
+      } else {
+        if (LIKELY(FLAGS_pin_slice == 1)) {
+          pinnable_val.Reset();
+          s = db_with_cfh->db->Get(options,
+            db_with_cfh->db->DefaultColumnFamily(), key,
+            &pinnable_val);
+        } else {
+          s = db_with_cfh->db->Get(
+            options, db_with_cfh->db->DefaultColumnFamily(), key, &value);
+        }
+      }
+      if (s.ok()) {
+        found++;
+        bytes += key.size() +
+          (FLAGS_pin_slice == 1 ? pinnable_val.size() : value.size());
+      } else if (!s.IsNotFound()) {
+        fprintf(stderr, "Get returned an error: %s\n", s.ToString().c_str());
+        abort();
+      }
+
+      if (thread->shared->read_rate_limiter.get() != nullptr &&
+        read % 256 == 255) {
+        thread->shared->read_rate_limiter->Request(256, Env::IO_HIGH,
+          nullptr /* stats */);
+      }
+
+      thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db, 1, kRead);
+    }
+
+    char msg[100];
+    snprintf(msg, sizeof(msg), "(%" PRIu64 " of %" PRIu64 " found)\n",
+      found, read);
 
     thread->stats.AddBytes(bytes);
     thread->stats.AddMessage(msg);
