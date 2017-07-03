@@ -269,10 +269,10 @@ Status TransactionImpl::Commit() {
     // insert prepared batch into Memtable only skipping WAL.
     // Memtable will ignore BeginPrepare/EndPrepare markers
     // in non recovery mode and simply insert the values
-    WriteBatchInternal::Append(working_batch, GetWriteBatch()->GetWriteBatch());
+    //WriteBatchInternal::Append(working_batch, GetWriteBatch()->GetWriteBatch());
 
     s = db_impl_->WriteImpl(write_options_, working_batch, nullptr, nullptr,
-                            log_number_);
+                            log_number_, true /* disable_memtable */);
     if (!s.ok()) {
       ROCKS_LOG_WARN(db_impl_->immutable_db_options().info_log,
                      "Commit write failed");

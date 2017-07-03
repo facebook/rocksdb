@@ -262,7 +262,8 @@ Status TransactionBaseImpl::Put(ColumnFamilyHandle* column_family,
       TryLock(column_family, key, false /* read_only */, true /* exclusive */);
 
   if (s.ok()) {
-    s = GetBatchForWrite()->Put(column_family, key, value);
+    //s = GetBatchForWrite()->Put(column_family, key, value);
+    s = db_->Put(write_options_, key, value);
     if (s.ok()) {
       num_puts_++;
     }
@@ -278,7 +279,10 @@ Status TransactionBaseImpl::Put(ColumnFamilyHandle* column_family,
       TryLock(column_family, key, false /* read_only */, true /* exclusive */);
 
   if (s.ok()) {
-    s = GetBatchForWrite()->Put(column_family, key, value);
+    //s = GetBatchForWrite()->Put(column_family, key, value);
+    WriteBatch batch(0, 0);
+    batch.Put(column_family, key, value);
+    s = db_->Write(write_options_, &batch);
     if (s.ok()) {
       num_puts_++;
     }
@@ -293,7 +297,8 @@ Status TransactionBaseImpl::Merge(ColumnFamilyHandle* column_family,
       TryLock(column_family, key, false /* read_only */, true /* exclusive */);
 
   if (s.ok()) {
-    s = GetBatchForWrite()->Merge(column_family, key, value);
+    //s = GetBatchForWrite()->Merge(column_family, key, value);
+    s = db_->Merge(write_options_, key, value);
     if (s.ok()) {
       num_merges_++;
     }
@@ -308,7 +313,8 @@ Status TransactionBaseImpl::Delete(ColumnFamilyHandle* column_family,
       TryLock(column_family, key, false /* read_only */, true /* exclusive */);
 
   if (s.ok()) {
-    s = GetBatchForWrite()->Delete(column_family, key);
+    //s = GetBatchForWrite()->Delete(column_family, key);
+    s = db_->Delete(write_options_, key);
     if (s.ok()) {
       num_deletes_++;
     }
@@ -323,7 +329,10 @@ Status TransactionBaseImpl::Delete(ColumnFamilyHandle* column_family,
       TryLock(column_family, key, false /* read_only */, true /* exclusive */);
 
   if (s.ok()) {
-    s = GetBatchForWrite()->Delete(column_family, key);
+    //s = GetBatchForWrite()->Delete(column_family, key);
+    WriteBatch batch(0, 0);
+    batch.Delete(column_family, key);
+    s = db_->Write(write_options_, &batch);
     if (s.ok()) {
       num_deletes_++;
     }
@@ -338,7 +347,8 @@ Status TransactionBaseImpl::SingleDelete(ColumnFamilyHandle* column_family,
       TryLock(column_family, key, false /* read_only */, true /* exclusive */);
 
   if (s.ok()) {
-    s = GetBatchForWrite()->SingleDelete(column_family, key);
+    //s = GetBatchForWrite()->SingleDelete(column_family, key);
+    s = db_->SingleDelete(write_options_, key);
     if (s.ok()) {
       num_deletes_++;
     }
@@ -353,7 +363,10 @@ Status TransactionBaseImpl::SingleDelete(ColumnFamilyHandle* column_family,
       TryLock(column_family, key, false /* read_only */, true /* exclusive */);
 
   if (s.ok()) {
-    s = GetBatchForWrite()->SingleDelete(column_family, key);
+    //s = GetBatchForWrite()->SingleDelete(column_family, key);
+    WriteBatch batch(0, 0);
+    batch.SingleDelete(column_family, key);
+    s = db_->Write(write_options_, &batch);
     if (s.ok()) {
       num_deletes_++;
     }
@@ -368,7 +381,8 @@ Status TransactionBaseImpl::PutUntracked(ColumnFamilyHandle* column_family,
                      true /* exclusive */, true /* untracked */);
 
   if (s.ok()) {
-    s = GetBatchForWrite()->Put(column_family, key, value);
+    //s = GetBatchForWrite()->Put(column_family, key, value);
+    s = db_->Put(write_options_, key, value);
     if (s.ok()) {
       num_puts_++;
     }
@@ -384,7 +398,10 @@ Status TransactionBaseImpl::PutUntracked(ColumnFamilyHandle* column_family,
                      true /* exclusive */, true /* untracked */);
 
   if (s.ok()) {
-    s = GetBatchForWrite()->Put(column_family, key, value);
+    //s = GetBatchForWrite()->Put(column_family, key, value);
+    WriteBatch batch(0, 0);
+    batch.Put(column_family, key, value);
+    s = db_->Write(write_options_, &batch);
     if (s.ok()) {
       num_puts_++;
     }
@@ -400,7 +417,8 @@ Status TransactionBaseImpl::MergeUntracked(ColumnFamilyHandle* column_family,
                      true /* exclusive */, true /* untracked */);
 
   if (s.ok()) {
-    s = GetBatchForWrite()->Merge(column_family, key, value);
+    //s = GetBatchForWrite()->Merge(column_family, key, value);
+    s = db_->Merge(write_options_, key, value);
     if (s.ok()) {
       num_merges_++;
     }
@@ -415,7 +433,8 @@ Status TransactionBaseImpl::DeleteUntracked(ColumnFamilyHandle* column_family,
                      true /* exclusive */, true /* untracked */);
 
   if (s.ok()) {
-    s = GetBatchForWrite()->Delete(column_family, key);
+    //s = GetBatchForWrite()->Delete(column_family, key);
+    s = db_->Delete(write_options_, key);
     if (s.ok()) {
       num_deletes_++;
     }
@@ -430,7 +449,10 @@ Status TransactionBaseImpl::DeleteUntracked(ColumnFamilyHandle* column_family,
                      true /* exclusive */, true /* untracked */);
 
   if (s.ok()) {
-    s = GetBatchForWrite()->Delete(column_family, key);
+    //s = GetBatchForWrite()->Delete(column_family, key);
+    WriteBatch batch(0, 0);
+    batch.Delete(column_family, key);
+    s = db_->Write(write_options_, &batch);
     if (s.ok()) {
       num_deletes_++;
     }
