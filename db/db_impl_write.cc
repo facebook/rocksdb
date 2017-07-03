@@ -62,7 +62,7 @@ Status DBImpl::WriteWithCallback(const WriteOptions& write_options,
 Status DBImpl::WriteImpl(const WriteOptions& write_options,
                          WriteBatch* my_batch, WriteCallback* callback,
                          uint64_t* log_used, uint64_t log_ref,
-                         bool disable_memtable) {
+                         bool disable_memtable, bool skip_mem) {
   if (my_batch == nullptr) {
     return Status::Corruption("Batch is nullptr!");
   }
@@ -107,10 +107,14 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     if (w.ShouldWriteToMemtable()) {
       ColumnFamilyMemTablesImpl column_family_memtables(
           versions_->GetColumnFamilySet());
+      if (!skip_mem) {
       w.status = WriteBatchInternal::InsertInto(
           &w, w.sequence, &column_family_memtables, &flush_scheduler_,
           write_options.ignore_missing_column_families, 0 /*log_number*/, this,
           true /*concurrent_memtable_writes*/);
+      } else {
+        w.status = Status::OK();
+      }
     }
 
     if (write_thread_.CompleteParallelMemTableWriter(&w)) {
@@ -252,10 +256,14 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       PERF_TIMER_GUARD(write_memtable_time);
 
       if (!parallel) {
+         if (!skip_mem) {
         w.status = WriteBatchInternal::InsertInto(
             write_group, current_sequence, column_family_memtables_.get(),
             &flush_scheduler_, write_options.ignore_missing_column_families,
             0 /*recovery_log_number*/, this);
+         } else {
+           w.status = Status::OK();
+         }
       } else {
         SequenceNumber next_sequence = current_sequence;
         for (auto* writer : write_group) {
@@ -276,10 +284,14 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
           ColumnFamilyMemTablesImpl column_family_memtables(
               versions_->GetColumnFamilySet());
           assert(w.sequence == current_sequence);
+          if (!skip_mem) {
           w.status = WriteBatchInternal::InsertInto(
               &w, w.sequence, &column_family_memtables, &flush_scheduler_,
               write_options.ignore_missing_column_families, 0 /*log_number*/,
               this, true /*concurrent_memtable_writes*/);
+          } else {
+            w.status = Status::OK();
+          }
         }
       }
     }

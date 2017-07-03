@@ -194,7 +194,7 @@ Status TransactionImpl::Prepare() {
     WriteBatchInternal::MarkEndPrepare(GetWriteBatch()->GetWriteBatch(), name_);
     s = db_impl_->WriteImpl(write_options, GetWriteBatch()->GetWriteBatch(),
                             /*callback*/ nullptr, &log_number_, /*log ref*/ 0,
-                            /* disable_memtable*/ true);
+                            /* disable_memtable*/ false, true /*skip_mem*/);
     if (s.ok()) {
       assert(log_number_ != 0);
       dbimpl_->MarkLogAsContainingPrepSection(log_number_);
