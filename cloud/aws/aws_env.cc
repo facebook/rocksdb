@@ -1096,6 +1096,29 @@ Status AwsEnv::GetFileSize(const std::string& fname, uint64_t* size) {
   if (sstfile) {
     if (base_env_->FileExists(fname).ok()) {
       st = base_env_->GetFileSize(fname, size);
+      // If we are being paranoic, then we validate that our file size is
+      // the same as in cloud storage.
+      if (st.ok() && cloud_env_options.validate_filesize) {
+        uint64_t check_size = 0;
+        Status stax = Status::NotFound();
+        if (has_dest_bucket_) {
+          stax = GetFileInfoInS3(GetDestBucketPrefix(), destname(fname),
+                                 &check_size, nullptr);
+        }
+        if (stax.IsNotFound() && has_src_bucket_) {
+          stax = GetFileInfoInS3(GetSrcBucketPrefix(), srcname(fname),
+                                 &check_size, nullptr);
+        }
+        if (!stax.ok() || check_size != *size) {
+          std::string msg = "[aws] GetFileInfoInS3 src " + fname +
+                            " local size " + std::to_string(*size) +
+                            " cloud size " + std::to_string(check_size) +
+                            " " + stax.ToString();
+          Log(InfoLogLevel::ERROR_LEVEL, info_log_,
+              "%s", msg.c_str());
+          return Status::IOError(msg);
+        }
+      }
     } else {
       st = Status::NotFound();
       // Get file length from S3

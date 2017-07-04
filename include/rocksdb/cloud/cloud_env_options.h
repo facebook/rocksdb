@@ -80,6 +80,11 @@ class CloudEnvOptions {
   // Default: 10 minutes
   uint64_t purger_periodicity_millis;
 
+  // Validate that locally cached files have the same size as those
+  // stored in the cloud.
+  // Default: true
+  bool validate_filesize;
+
   // if non-null, will be called *after* every cloud operation with some basic
   // information about the operation. Use this to instrument your calls to the
   // cloud.
@@ -91,6 +96,7 @@ class CloudEnvOptions {
       bool _keep_local_sst_files = false, bool _keep_local_log_files = true,
       uint64_t _manifest_durable_periodicity_millis = 60 * 1000,
       uint64_t _purger_periodicity_millis = 10 * 60 * 1000,
+      bool _validate_filesize = true,
       std::shared_ptr<CloudRequestCallback> _cloud_request_callback = nullptr)
       : cloud_type(_cloud_type),
         keep_local_sst_files(_keep_local_sst_files),
@@ -98,6 +104,7 @@ class CloudEnvOptions {
         manifest_durable_periodicity_millis(
             _manifest_durable_periodicity_millis),
         purger_periodicity_millis(_purger_periodicity_millis),
+        validate_filesize(_validate_filesize),
         cloud_request_callback(_cloud_request_callback) {
     assert(manifest_durable_periodicity_millis == 0 ||
            keep_local_log_files == true);
