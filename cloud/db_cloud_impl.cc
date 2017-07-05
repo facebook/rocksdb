@@ -565,7 +565,7 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
           local_manifest_size, st.ToString().c_str());
       return Status::OK();
     }
-    Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
+    Log(InfoLogLevel::INFO_LEVEL, options.info_log,
         "[db_cloud_impl] NeedsReinitialization: "
         "Validated that Cloud manifest at dest bucket %s path %s size %ld "
         "matches local manifest file size %d. %s",

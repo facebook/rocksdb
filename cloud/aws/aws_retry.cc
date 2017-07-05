@@ -25,7 +25,9 @@ bool AwsRetryStrategy::ShouldRetry(const AWSError<CoreErrors>& error,
                                    long attemptedRetries) const {
   CoreErrors ce = error.GetErrorType();
   const Aws::String errmsg = error.GetMessage();
+  const Aws::String exceptionMsg = error.GetExceptionName();
   std::string err(errmsg.c_str(), errmsg.size());
+  std::string emsg(exceptionMsg.c_str(), exceptionMsg.size());
 
   // Internal errors are unknown errors and we try harder to fix them
   if (ce == CoreErrors::INTERNAL_FAILURE ||
@@ -33,22 +35,22 @@ bool AwsRetryStrategy::ShouldRetry(const AWSError<CoreErrors>& error,
 
     if (attemptedRetries <= internal_failure_num_retries_) {
       Log(InfoLogLevel::INFO_LEVEL, info_log_,
-          "[aws] Encountered retriable failure: %s. "
+          "[aws] Encountered retriable failure: %s. Exception %s."
           " retry attempt %d is lesser than max retries %d. Retrying...",
-          err.c_str(), attemptedRetries, internal_failure_num_retries_);
+          err.c_str(), emsg.c_str(), attemptedRetries, internal_failure_num_retries_);
       return true;
     }
     Log(InfoLogLevel::INFO_LEVEL, info_log_,
-        "[aws] Encountered retriable failure: %s. "
+        "[aws] Encountered retriable failure: %s. Exception %s."
         " retry attempt %d exceeds max retries %d. Aborting...",
-        err.c_str(), attemptedRetries, internal_failure_num_retries_);
+        err.c_str(), emsg.c_str(), attemptedRetries, internal_failure_num_retries_);
     return false;
   }
   Log(InfoLogLevel::WARN_LEVEL, info_log_,
-      "[aws] Encountered S3 failure %s"
+      "[aws] Encountered S3 failure %s. Exception %s."
       " retry attempt %d max retries %d. "
       "Using default retry policy...",
-      err.c_str(), attemptedRetries, internal_failure_num_retries_);
+      err.c_str(), emsg.c_str(), attemptedRetries, internal_failure_num_retries_);
   return default_strategy_->ShouldRetry(error, attemptedRetries);
 }
 
