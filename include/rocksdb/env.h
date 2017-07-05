@@ -353,6 +353,7 @@ class Env {
   virtual Status GetHostName(char* name, uint64_t len) = 0;
 
   // Get the number of seconds since the Epoch, 1970-01-01 00:00:00 (UTC).
+  // Only overwrites *unix_time on success.
   virtual Status GetCurrentTime(int64_t* unix_time) = 0;
 
   // Get full directory name for this db.

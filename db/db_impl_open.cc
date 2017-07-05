@@ -854,11 +854,8 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
     bool paranoid_file_checks =
         cfd->GetLatestMutableCFOptions()->paranoid_file_checks;
 
-    int64_t _current_time;
-    s = env_->GetCurrentTime(&_current_time);
-    if (!s.ok()) {
-      _current_time = 0;
-    }
+    int64_t _current_time = 0;
+    env_->GetCurrentTime(&_current_time);  // ignore error
     const uint64_t current_time = static_cast<uint64_t>(_current_time);
 
     {
