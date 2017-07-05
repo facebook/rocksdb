@@ -70,6 +70,7 @@ class PartitionedFilterBlockTest : public testing::Test {
     int num_keys = sizeof(keys) / sizeof(*keys);
     auto filter_bits_reader = dynamic_cast<rocksdb::FullFilterBitsBuilder*>(
         table_options_.filter_policy->GetFilterBitsBuilder());
+    assert(filter_bits_reader);
     auto partition_size =
         filter_bits_reader->CalculateSpace(num_keys, &dont_care1, &dont_care2);
     delete filter_bits_reader;
