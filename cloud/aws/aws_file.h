@@ -23,6 +23,7 @@
 #include <aws/s3/model/CreateBucketConfiguration.h>
 #include <aws/s3/model/CreateBucketRequest.h>
 #include <aws/s3/model/CreateBucketResult.h>
+#include <aws/s3/model/HeadBucketRequest.h>
 #include <aws/s3/model/DeleteBucketRequest.h>
 #include <aws/s3/model/DeleteObjectRequest.h>
 #include <aws/s3/model/DeleteObjectResult.h>
@@ -222,6 +223,12 @@ class S3WritableFile : public WritableFile {
  public:
   // create S3 bucket
   static Status CreateBucketInS3(
+      std::shared_ptr<AwsS3ClientWrapper> client,
+      const std::string& bucket_prefix,
+      const Aws::S3::Model::BucketLocationConstraint& location);
+
+  // bucket exists and we can access it
+  static Status BucketExistsInS3(
       std::shared_ptr<AwsS3ClientWrapper> client,
       const std::string& bucket_prefix,
       const Aws::S3::Model::BucketLocationConstraint& location);

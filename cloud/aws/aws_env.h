@@ -37,6 +37,9 @@ class AwsS3ClientWrapper {
   Aws::S3::Model::CreateBucketOutcome CreateBucket(
       const Aws::S3::Model::CreateBucketRequest& request);
 
+  Aws::S3::Model::HeadBucketOutcome HeadBucket(
+      const Aws::S3::Model::HeadBucketRequest& request);
+
   Aws::S3::Model::DeleteObjectOutcome DeleteObject(
       const Aws::S3::Model::DeleteObjectRequest& request);
 

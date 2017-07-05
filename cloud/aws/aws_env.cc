@@ -65,6 +65,11 @@ Aws::S3::Model::CreateBucketOutcome AwsS3ClientWrapper::CreateBucket(
   return client_->CreateBucket(request);
 }
 
+Aws::S3::Model::HeadBucketOutcome AwsS3ClientWrapper::HeadBucket(
+    const Aws::S3::Model::HeadBucketRequest& request) {
+  return client_->HeadBucket(request);
+}
+
 Aws::S3::Model::DeleteObjectOutcome AwsS3ClientWrapper::DeleteObject(
     const Aws::S3::Model::DeleteObjectRequest& request) {
   Timer t(cloud_request_callback_.get(), CloudRequestOpType::kDeleteOp);
@@ -222,15 +227,23 @@ AwsEnv::AwsEnv(Env* underlying_env, const std::string& src_bucket_prefix,
 
   // create dest bucket if specified
   if (has_dest_bucket_) {
-    Log(InfoLogLevel::INFO_LEVEL, info_log,
-        "[aws] NewAwsEnv Going to  create bucket %s",
-        GetDestBucketPrefix().c_str());
-    create_bucket_status_ = S3WritableFile::CreateBucketInS3(
-        s3client_, GetDestBucketPrefix(), bucket_location_);
+    if (S3WritableFile::BucketExistsInS3(s3client_, GetDestBucketPrefix(),
+                                         bucket_location_)
+            .ok()) {
+      Log(InfoLogLevel::INFO_LEVEL, info_log,
+          "[aws] NewAwsEnv Bucket %s already exists",
+          GetDestBucketPrefix().c_str());
+    } else {
+      Log(InfoLogLevel::INFO_LEVEL, info_log,
+          "[aws] NewAwsEnv Going to create bucket %s",
+          GetDestBucketPrefix().c_str());
+      create_bucket_status_ = S3WritableFile::CreateBucketInS3(
+          s3client_, GetDestBucketPrefix(), bucket_location_);
+    }
   }
   if (!create_bucket_status_.ok()) {
     Log(InfoLogLevel::ERROR_LEVEL, info_log,
-        "[aws] NewAwsEnv Unable to  create bucket %s %s",
+        "[aws] NewAwsEnv Unable to create bucket %s %s",
         GetDestBucketPrefix().c_str(),
         create_bucket_status_.ToString().c_str());
   }

@@ -224,6 +224,17 @@ Status S3ReadableFile::GetFileInfo() {
 
 /******************** Writablefile ******************/
 
+Status S3WritableFile::BucketExistsInS3(
+    std::shared_ptr<AwsS3ClientWrapper> client,
+    const std::string& bucket_prefix,
+    const Aws::S3::Model::BucketLocationConstraint& location) {
+  Aws::String bucket = GetBucket(bucket_prefix);
+  Aws::S3::Model::HeadBucketRequest request;
+  request.SetBucket(bucket);
+  Aws::S3::Model::HeadBucketOutcome outcome = client->HeadBucket(request);
+  return outcome.IsSuccess() ? Status::OK() : Status::NotFound();
+}
+
 //
 // Create bucket in S3 if it does not already exist.
 //
