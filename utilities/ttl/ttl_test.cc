@@ -36,7 +36,7 @@ class SpecialTimeEnv : public EnvWrapper {
   }
 
  private:
-  int64_t current_time_;
+  int64_t current_time_ = 0;
 };
 
 class TtlTest : public testing::Test {

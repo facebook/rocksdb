@@ -27,7 +27,7 @@ bool DbDumpTool::Run(const DumpOptions& dump_options,
   rocksdb::Status status;
   std::unique_ptr<rocksdb::WritableFile> dumpfile;
   char hostname[1024];
-  int64_t timesec;
+  int64_t timesec = 0;
   std::string abspath;
   char json[4096];
 

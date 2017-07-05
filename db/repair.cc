@@ -383,11 +383,8 @@ class Repairer {
       EnvOptions optimized_env_options =
           env_->OptimizeForCompactionTableWrite(env_options_, immutable_db_options_);
 
-      int64_t _current_time;
-      status = env_->GetCurrentTime(&_current_time);
-      if (!status.ok()) {
-        _current_time = 0;
-      }
+      int64_t _current_time = 0;
+      status = env_->GetCurrentTime(&_current_time);  // ignore error
       const uint64_t current_time = static_cast<uint64_t>(_current_time);
 
       status = BuildTable(
