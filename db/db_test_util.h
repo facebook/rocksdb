@@ -120,6 +120,8 @@ struct OptionsOverride {
   // Used as a bit mask of individual enums in which to skip an XF test point
   int skip_policy = 0;
   bool use_async_reads = false;
+  bool use_direct_reads = false;
+  bool use_direct_io_for_flush_and_compaction = false;
 };
 
 class GetSyncer : public async::AsyncAbsorber {

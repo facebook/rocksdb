@@ -217,6 +217,7 @@ TEST_F(DBBasicTest, CompactedDBAsync) {
   anon::OptionsOverride opt_override;
   opt_override.async_threadpool = async_tp_;
   opt_override.use_async_reads = true;
+  opt_override.use_direct_reads = true;
 
   Options options = CurrentOptions(opt_override);
   options.disable_auto_compactions = true;

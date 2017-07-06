@@ -448,6 +448,11 @@ Options DBTestBase::CurrentOptions(
     options.async_threadpool = options_override.async_threadpool;
     assert(options.async_threadpool);
   }
+
+  options.use_direct_reads = options_override.use_direct_reads;
+  options.use_direct_io_for_flush_and_compaction = 
+    options_override.use_direct_io_for_flush_and_compaction;
+
   options.env = env_;
   options.create_if_missing = true;
   options.fail_if_options_file_error = true;

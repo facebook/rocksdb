@@ -2155,13 +2155,14 @@ class Benchmark {
 
 #ifdef OS_WIN
     if (FLAGS_run_async) {
-      if (FLAGS_threads < 2) {
-        fprintf(stderr,
-                "Running async requires many threads");
-        exit(1);
-      }
+      //if (FLAGS_threads < 2) {
+      //  fprintf(stderr,
+      //          "Running async requires many threads");
+      //  exit(1);
+      //}
       thread_pool_.reset(new port::VistaThreadPool(port::MemoryArenaId(), FLAGS_threads));
-      bool result = thread_pool_->SetMinMaxThreadCount(FLAGS_threads, 2 * FLAGS_threads);
+      auto max_threads = std::min(FLAGS_threads * 2, 32);
+      bool result = thread_pool_->SetMinMaxThreadCount(FLAGS_threads, max_threads);
       if (!result) {
         fprintf(stderr,
           "Failed to set MinMaxThreads on the threadpool");
