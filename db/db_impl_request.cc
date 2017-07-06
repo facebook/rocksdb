@@ -127,8 +127,6 @@ Status DBImplGetContext::GetImpl() {
         read_options_, lkey, &GetPinnable(), &s, &merge_context_, &GetRangeDel(), value_found_);
     }
 
-    RecordTick(db_impl_->stats_, MEMTABLE_MISS);
-
     if (s.IsIOPending()) {
       return s;
     }
@@ -140,6 +138,8 @@ Status DBImplGetContext::GetImpl() {
 
 Status DBImplGetContext::OnGetComplete(const Status& status) {
   async(status);
+
+  RecordTick(db_impl_->stats_, MEMTABLE_MISS);
 
   if (status.async()) {
     // We are aonly async when read took place

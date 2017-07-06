@@ -548,7 +548,7 @@ Status TableCacheGetContext::OnCreateTableReader(const Status& status,
 
     if (s.ok() && get_context_->range_del_agg() != nullptr &&
         !options_->ignore_range_deletions) {
-      CreateTombstoneIterator(table_reader);
+      return CreateTombstoneIterator(table_reader);
     } else if (s.ok()) {
       return Get(table_reader);
     }
