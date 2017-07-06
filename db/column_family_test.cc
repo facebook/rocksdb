@@ -1027,6 +1027,7 @@ TEST_F(ColumnFamilyTest, DifferentWriteBufferSizes) {
   default_cf.arena_block_size = 4 * 4096;
   default_cf.max_write_buffer_number = 10;
   default_cf.min_write_buffer_number_to_merge = 1;
+  default_cf.write_buffer_number_to_flush = 0;
   default_cf.max_write_buffer_number_to_maintain = 0;
   one.write_buffer_size = 200000;
   one.arena_block_size = 4 * 4096;

@@ -158,9 +158,11 @@ class MemTableList {
  public:
   // A list of memtables.
   explicit MemTableList(int min_write_buffer_number_to_merge,
-                        int max_write_buffer_number_to_maintain)
+                        int max_write_buffer_number_to_maintain,
+                        int write_buffer_number_to_flush = 1)
       : imm_flush_needed(false),
         min_write_buffer_number_to_merge_(min_write_buffer_number_to_merge),
+        write_buffer_number_to_flush_(write_buffer_number_to_flush),
         current_(new MemTableListVersion(&current_memory_usage_,
                                          max_write_buffer_number_to_maintain)),
         num_flush_not_started_(0),
@@ -194,6 +196,7 @@ class MemTableList {
 
   // Returns the earliest memtables that needs to be flushed. The returned
   // memtables are guaranteed to be in the ascending order of created time.
+  void PickMemtablesToFlush(autovector<MemTable*>* mems, autovector<MemTable*>* compare_mems);
   void PickMemtablesToFlush(autovector<MemTable*>* mems);
 
   // Reset status of the given memtable list back to pending state so that
@@ -241,6 +244,8 @@ class MemTableList {
   void InstallNewVersion();
 
   const int min_write_buffer_number_to_merge_;
+
+  const unsigned int write_buffer_number_to_flush_;
 
   MemTableListVersion* current_;
 

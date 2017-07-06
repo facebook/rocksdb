@@ -31,6 +31,10 @@ static std::map<CompactionStyle, std::string> compaction_style_to_string = {
     {kCompactionStyleFIFO, "kCompactionStyleFIFO"},
     {kCompactionStyleNone, "kCompactionStyleNone"}};
 
+static std::map<FlushStyle, std::string> flush_style_to_string = {
+    {kFlushStyleMerge, "kFlushStyleMerge"},
+    {kFlushStyleDedup, "kFlushStyleDedup"}};
+
 static std::map<CompactionPri, std::string> compaction_pri_to_string = {
     {kByCompensatedSize, "kByCompensatedSize"},
     {kOldestLargestSeqFirst, "kOldestLargestSeqFirst"},
@@ -72,6 +76,7 @@ enum class OptionType {
   kSizeT,
   kString,
   kDouble,
+  kFlushStyle,
   kCompactionStyle,
   kCompactionPri,
   kSliceTransform,
@@ -453,6 +458,9 @@ static std::unordered_map<std::string, OptionTypeInfo> cf_options_type_info = {
     {"min_write_buffer_number_to_merge",
      {offset_of(&ColumnFamilyOptions::min_write_buffer_number_to_merge),
       OptionType::kInt, OptionVerificationType::kNormal, false, 0}},
+    {"write_buffer_number_to_flush",
+     {offset_of(&ColumnFamilyOptions::write_buffer_number_to_flush),
+      OptionType::kInt, OptionVerificationType::kNormal, false, 0}},
     {"num_levels",
      {offset_of(&ColumnFamilyOptions::num_levels), OptionType::kInt,
       OptionVerificationType::kNormal, false, 0}},
@@ -565,6 +573,9 @@ static std::unordered_map<std::string, OptionTypeInfo> cf_options_type_info = {
     {"compaction_style",
      {offset_of(&ColumnFamilyOptions::compaction_style),
       OptionType::kCompactionStyle, OptionVerificationType::kNormal, false, 0}},
+    {"flush_style",
+     {offset_of(&ColumnFamilyOptions::flush_style),
+      OptionType::kFlushStyle, OptionVerificationType::kNormal, false, 0}},
     {"compaction_pri",
      {offset_of(&ColumnFamilyOptions::compaction_pri),
       OptionType::kCompactionPri, OptionVerificationType::kNormal, false, 0}}};
@@ -704,6 +715,11 @@ static std::unordered_map<std::string, CompactionStyle>
         {"kCompactionStyleUniversal", kCompactionStyleUniversal},
         {"kCompactionStyleFIFO", kCompactionStyleFIFO},
         {"kCompactionStyleNone", kCompactionStyleNone}};
+
+static std::unordered_map<std::string, FlushStyle>
+    flush_style_string_map = {
+        {"kFlushStyleMerge", kFlushStyleMerge},
+        {"kFlushStyleDedup", kFlushStyleDedup}};
 
 static std::unordered_map<std::string, CompactionPri>
     compaction_pri_string_map = {

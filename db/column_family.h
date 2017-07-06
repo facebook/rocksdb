@@ -236,6 +236,9 @@ class ColumnFamilyData {
   MemTable* mem() { return mem_; }
   Version* current() { return current_; }
   Version* dummy_versions() { return dummy_versions_; }
+  void set_stop() { stop = true; }
+  bool is_stop() { return stop; }
+  bool is_flush_recursive_dedup() { return (ioptions_.flush_style == kFlushStyleDedup); }
   void SetCurrent(Version* _current);
   uint64_t GetNumLiveVersions() const;  // REQUIRE: DB mutex held
   uint64_t GetTotalSstFilesSize() const;  // REQUIRE: DB mutex held
@@ -371,6 +374,7 @@ class ColumnFamilyData {
 
   MemTable* mem_;
   MemTableList imm_;
+  bool stop;
   SuperVersion* super_version_;
 
   // An ordinal representing the current SuperVersion. Updated by

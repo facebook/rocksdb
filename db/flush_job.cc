@@ -129,11 +129,16 @@ void FlushJob::PickMemTable() {
   assert(!pick_memtable_called);
   pick_memtable_called = true;
   // Save the contents of the earliest memtable as a new Table
-  cfd_->imm()->PickMemtablesToFlush(&mems_);
+
+  if (cfd_->is_flush_recursive_dedup() && !cfd_->is_stop()) {
+    cfd_->imm()->PickMemtablesToFlush(&mems_, &compare_mems_);
+  }
+  else {
+    cfd_->imm()->PickMemtablesToFlush(&mems_);
+  }
   if (mems_.empty()) {
     return;
   }
-
   ReportFlushInputSize(mems_);
 
   // entries mems are (implicitly) sorted in ascending order by their created
@@ -257,6 +262,7 @@ Status FlushJob::WriteLevel0Table() {
     ReadOptions ro;
     ro.total_order_seek = true;
     Arena arena;
+    Arena arena1;
     uint64_t total_num_entries = 0, total_num_deletes = 0;
     size_t total_memory_usage = 0;
     for (MemTable* m : mems_) {
@@ -274,17 +280,36 @@ Status FlushJob::WriteLevel0Table() {
       total_memory_usage += m->ApproximateMemoryUsage();
     }
 
+    std::vector<InternalIterator*> compare_memtables;
+    int comp_entries = 0;
+    for (MemTable *m: compare_mems_) {
+      compare_memtables.push_back(m->NewIterator(ro, &arena1));
+      comp_entries += m->num_entries();
+    }
+
     event_logger_->Log() << "job" << job_context_->job_id << "event"
                          << "flush_started"
                          << "num_memtables" << mems_.size() << "num_entries"
                          << total_num_entries << "num_deletes"
                          << total_num_deletes << "memory_usage"
-                         << total_memory_usage;
+                         << total_memory_usage << "mems table count "
+                         << mems_.size() << " compare mems count "
+                         << compare_mems_.size() << " compare mems total "
+                         << comp_entries;
 
     {
       ScopedArenaIterator iter(
           NewMergingIterator(&cfd_->internal_comparator(), &memtables[0],
                              static_cast<int>(memtables.size()), &arena));
+      InternalIterator *compare_iter = nullptr;
+      ScopedArenaIterator compare_scope_iter;
+      if (compare_mems_.size() > 0) {
+          compare_scope_iter.set(
+             NewMergingIterator(&cfd_->internal_comparator(), &compare_memtables[0],
+                                static_cast<int>(compare_memtables.size()), &arena1));
+          compare_iter = compare_scope_iter.get();
+      }
+
       std::unique_ptr<InternalIterator> range_del_iter(NewMergingIterator(
           &cfd_->internal_comparator(),
           range_del_iters.empty() ? nullptr : &range_del_iters[0],
@@ -308,7 +333,7 @@ Status FlushJob::WriteLevel0Table() {
           cfd_->ioptions()->compression_opts,
           mutable_cf_options_.paranoid_file_checks, cfd_->internal_stats(),
           TableFileCreationReason::kFlush, event_logger_, job_context_->job_id,
-          Env::IO_HIGH, &table_properties_, 0 /* level */);
+          Env::IO_HIGH, &table_properties_, 0, compare_iter);
       LogFlush(db_options_.info_log);
     }
     ROCKS_LOG_INFO(db_options_.info_log,

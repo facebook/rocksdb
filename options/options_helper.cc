@@ -336,6 +336,10 @@ bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
     case OptionType::kDouble:
       *reinterpret_cast<double*>(opt_address) = ParseDouble(value);
       break;
+    case OptionType::kFlushStyle:
+      return ParseEnum<FlushStyle>(
+          flush_style_string_map, value,
+          reinterpret_cast<FlushStyle*>(opt_address));
     case OptionType::kCompactionStyle:
       return ParseEnum<CompactionStyle>(
           compaction_style_string_map, value,
@@ -429,6 +433,10 @@ bool SerializeSingleOptionHelper(const char* opt_address,
       *value = EscapeOptionString(
           *(reinterpret_cast<const std::string*>(opt_address)));
       break;
+    case OptionType::kFlushStyle:
+      return SerializeEnum<FlushStyle>(
+          flush_style_string_map,
+          *(reinterpret_cast<const FlushStyle*>(opt_address)), value);
     case OptionType::kCompactionStyle:
       return SerializeEnum<CompactionStyle>(
           compaction_style_string_map,

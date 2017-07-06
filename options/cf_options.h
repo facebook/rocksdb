@@ -26,6 +26,8 @@ struct ImmutableCFOptions {
   ImmutableCFOptions(const ImmutableDBOptions& db_options,
                      const ColumnFamilyOptions& cf_options);
 
+  FlushStyle flush_style;
+
   CompactionStyle compaction_style;
 
   CompactionPri compaction_pri;
@@ -46,6 +48,7 @@ struct ImmutableCFOptions {
 
   int min_write_buffer_number_to_merge;
 
+  int write_buffer_number_to_flush;
   int max_write_buffer_number_to_maintain;
 
   bool inplace_update_support;

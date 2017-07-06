@@ -2263,6 +2263,14 @@ void rocksdb_options_set_max_write_buffer_number(rocksdb_options_t* opt, int n) 
   opt->rep.max_write_buffer_number = n;
 }
 
+void rocksdb_options_set_flush_style(rocksdb_options_t* opt, int style) {
+  opt->rep.flush_style = static_cast<rocksdb::FlushStyle>(style);
+}
+
+void rocksdb_options_set_write_buffer_number_to_flush(rocksdb_options_t* opt, int n) {
+  opt->rep.write_buffer_number_to_flush = n;
+}
+
 void rocksdb_options_set_min_write_buffer_number_to_merge(rocksdb_options_t* opt, int n) {
   opt->rep.min_write_buffer_number_to_merge = n;
 }

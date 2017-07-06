@@ -165,6 +165,14 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
     result.min_write_buffer_number_to_merge = 1;
   }
 
+  if (result.flush_style == kFlushStyleDedup) {
+    if (result.write_buffer_number_to_flush < 1 ||
+        (result.write_buffer_number_to_flush >
+         result.min_write_buffer_number_to_merge)) {
+      result.write_buffer_number_to_flush = 1;
+    }
+  }
+
   if (result.num_levels < 1) {
     result.num_levels = 1;
   }
@@ -181,6 +189,7 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
   if (result.max_write_buffer_number < 2) {
     result.max_write_buffer_number = 2;
   }
+
   if (result.max_write_buffer_number_to_maintain < 0) {
     result.max_write_buffer_number_to_maintain = result.max_write_buffer_number;
   }
@@ -359,7 +368,9 @@ ColumnFamilyData::ColumnFamilyData(
       write_buffer_manager_(write_buffer_manager),
       mem_(nullptr),
       imm_(ioptions_.min_write_buffer_number_to_merge,
-           ioptions_.max_write_buffer_number_to_maintain),
+           ioptions_.max_write_buffer_number_to_maintain,
+           ioptions_.write_buffer_number_to_flush),
+      stop(false),
       super_version_(nullptr),
       super_version_number_(0),
       local_sv_(new ThreadLocalPtr(&SuperVersionUnrefHandle)),

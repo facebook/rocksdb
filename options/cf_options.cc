@@ -27,7 +27,8 @@ ImmutableCFOptions::ImmutableCFOptions(const Options& options)
 
 ImmutableCFOptions::ImmutableCFOptions(const ImmutableDBOptions& db_options,
                                        const ColumnFamilyOptions& cf_options)
-    : compaction_style(cf_options.compaction_style),
+    : flush_style(cf_options.flush_style),
+      compaction_style(cf_options.compaction_style),
       compaction_pri(cf_options.compaction_pri),
       compaction_options_universal(cf_options.compaction_options_universal),
       compaction_options_fifo(cf_options.compaction_options_fifo),
@@ -39,6 +40,8 @@ ImmutableCFOptions::ImmutableCFOptions(const ImmutableDBOptions& db_options,
       compaction_filter_factory(cf_options.compaction_filter_factory.get()),
       min_write_buffer_number_to_merge(
           cf_options.min_write_buffer_number_to_merge),
+      write_buffer_number_to_flush(
+          cf_options.write_buffer_number_to_flush),
       max_write_buffer_number_to_maintain(
           cf_options.max_write_buffer_number_to_maintain),
       inplace_update_support(cf_options.inplace_update_support),

@@ -173,8 +173,8 @@ std::string StatisticsImpl::ToString() const {
       getHistogramImplLocked(h.first)->Data(&hData);
       snprintf(
           buffer, kTmpStrBufferSize,
-          "%s statistics Percentiles :=> 50 : %f 95 : %f 99 : %f 100 : %f\n",
-          h.second.c_str(), hData.median, hData.percentile95,
+          "%s statistics Percentiles :=> average: %f 50 : %f 95 : %f 99 : %f 100 : %f\n",
+          h.second.c_str(), hData.average, hData.median, hData.percentile95,
           hData.percentile99, hData.max);
       res.append(buffer);
     }

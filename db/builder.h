@@ -79,6 +79,7 @@ extern Status BuildTable(
     InternalStats* internal_stats, TableFileCreationReason reason,
     EventLogger* event_logger = nullptr, int job_id = 0,
     const Env::IOPriority io_priority = Env::IO_HIGH,
-    TableProperties* table_properties = nullptr, int level = -1);
+    TableProperties* table_properties = nullptr, int level = -1,
+    InternalIterator* compare_iter = nullptr);
 
 }  // namespace rocksdb

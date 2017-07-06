@@ -547,6 +547,9 @@ bool AreEqualOptions(
     case OptionType::kDouble:
       return AreEqualDoubles(*reinterpret_cast<const double*>(offset1),
                              *reinterpret_cast<const double*>(offset2));
+    case OptionType::kFlushStyle:
+      return (*reinterpret_cast<const FlushStyle*>(offset1) ==
+              *reinterpret_cast<const FlushStyle*>(offset2));
     case OptionType::kCompactionStyle:
       return (*reinterpret_cast<const CompactionStyle*>(offset1) ==
               *reinterpret_cast<const CompactionStyle*>(offset2));

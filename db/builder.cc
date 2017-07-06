@@ -76,13 +76,15 @@ Status BuildTable(
     const CompressionOptions& compression_opts, bool paranoid_file_checks,
     InternalStats* internal_stats, TableFileCreationReason reason,
     EventLogger* event_logger, int job_id, const Env::IOPriority io_priority,
-    TableProperties* table_properties, int level) {
+    TableProperties* table_properties, int level,
+    InternalIterator* compare_iter) {
   assert((column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          column_family_name.empty());
   // Reports the IOStats for flush for every following bytes.
   const size_t kReportFlushIOStatsEvery = 1048576;
   Status s;
+  uint64_t num_duplicated = 0, num_total = 0;
   meta->fd.file_size = 0;
   iter->SeekToFirst();
   std::unique_ptr<RangeDelAggregator> range_del_agg(
@@ -138,17 +140,56 @@ Status BuildTable(
         &snapshots, earliest_write_conflict_snapshot, env,
         true /* internal key corruption is not ok */, range_del_agg.get());
     c_iter.SeekToFirst();
+
+    ParsedInternalKey c_ikey, comp_ikey;
+    if (compare_iter != nullptr) {
+      compare_iter->SeekToFirst();  //find the first one
+    }
+    const rocksdb::Comparator *comp = internal_comparator.user_comparator();
     for (; c_iter.Valid(); c_iter.Next()) {
       const Slice& key = c_iter.key();
       const Slice& value = c_iter.value();
-      builder->Add(key, value);
-      meta->UpdateBoundaries(key, c_iter.ikey().sequence);
+      bool skip = false;
+      num_total++;
 
-      // TODO(noetzli): Update stats after flush, too.
-      if (io_priority == Env::IO_HIGH &&
-          IOSTATS(bytes_written) >= kReportFlushIOStatsEvery) {
-        ThreadStatusUtil::SetThreadOperationProperty(
-            ThreadStatus::FLUSH_BYTES_WRITTEN, IOSTATS(bytes_written));
+      // Check whether the key is duplicated in later mems
+      c_ikey = c_iter.ikey();
+      if (compare_iter != nullptr ) {
+        while (compare_iter->Valid()) {
+          if (!ParseInternalKey(compare_iter->key(), &comp_ikey)) {
+            compare_iter->Next();
+            continue;
+          }
+          int result = comp->Compare(c_ikey.user_key, comp_ikey.user_key);
+          if (result == 0) {
+            // No delete for merge options.
+            if (c_ikey.type != kTypeMerge && comp_ikey.type != kTypeMerge) {
+              skip = true;
+            }
+            break;
+          }
+          else if (result > 0) {
+            compare_iter->Next();
+          }
+          else {
+            break;
+          }
+        }
+      }
+      if (skip) {
+          num_duplicated++;
+          continue;
+      }
+      else {
+          builder->Add(key, value);
+          meta->UpdateBoundaries(key, c_iter.ikey().sequence);
+
+          // TODO(noetzli): Update stats after flush, too.
+          if (io_priority == Env::IO_HIGH &&
+              IOSTATS(bytes_written) >= kReportFlushIOStatsEvery) {
+            ThreadStatusUtil::SetThreadOperationProperty(
+                ThreadStatus::FLUSH_BYTES_WRITTEN, IOSTATS(bytes_written));
+          }
       }
     }
     // nullptr for table_{min,max} so all range tombstones will be flushed
@@ -218,9 +259,10 @@ Status BuildTable(
   }
 
   // Output to event logger and fire events.
+  bool show_num = (compare_iter != nullptr)?true:false;
   EventHelpers::LogAndNotifyTableFileCreationFinished(
       event_logger, ioptions.listeners, dbname, column_family_name, fname,
-      job_id, meta->fd, tp, reason, s);
+      job_id, meta->fd, tp, reason, s, show_num, num_total, num_duplicated);
 
   return s;
 }

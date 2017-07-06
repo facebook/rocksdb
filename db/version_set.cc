@@ -884,7 +884,9 @@ void Version::AddRangeDelIteratorsForLevel(
 VersionStorageInfo::VersionStorageInfo(
     const InternalKeyComparator* internal_comparator,
     const Comparator* user_comparator, int levels,
-    CompactionStyle compaction_style, VersionStorageInfo* ref_vstorage,
+    FlushStyle flush_style,
+    CompactionStyle compaction_style,
+    VersionStorageInfo* ref_vstorage,
     bool _force_consistency_checks)
     : internal_comparator_(internal_comparator),
       user_comparator_(user_comparator),
@@ -892,6 +894,7 @@ VersionStorageInfo::VersionStorageInfo(
       num_levels_(levels),
       num_non_empty_levels_(0),
       file_indexer_(user_comparator),
+      flush_style_(flush_style),
       compaction_style_(compaction_style),
       files_(new std::vector<FileMetaData*>[num_levels_]),
       base_level_(num_levels_ == 1 ? -1 : 1),
@@ -939,6 +942,8 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
           (cfd_ == nullptr) ? nullptr : &cfd_->internal_comparator(),
           (cfd_ == nullptr) ? nullptr : cfd_->user_comparator(),
           cfd_ == nullptr ? 0 : cfd_->NumberLevels(),
+          cfd_ == nullptr ? kFlushStyleMerge
+                          : cfd_->ioptions()->flush_style,
           cfd_ == nullptr ? kCompactionStyleLevel
                           : cfd_->ioptions()->compaction_style,
           (cfd_ == nullptr || cfd_->current() == nullptr)

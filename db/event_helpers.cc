@@ -45,7 +45,7 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
     const std::string& db_name, const std::string& cf_name,
     const std::string& file_path, int job_id, const FileDescriptor& fd,
     const TableProperties& table_properties, TableFileCreationReason reason,
-    const Status& s) {
+    const Status& s, bool show_num, int total_num, int dup_num) {
   if (s.ok() && event_logger) {
     JSONWriter jwriter;
     AppendCurrentTime(&jwriter);
@@ -73,6 +73,9 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
               << "num_data_blocks" << table_properties.num_data_blocks
               << "num_entries" << table_properties.num_entries
               << "filter_policy_name" << table_properties.filter_policy_name;
+      if (show_num) {
+        jwriter << "total_paris" << total_num << "duplicated_pairs" << dup_num;
+      }
 
       // user collected properties
       for (const auto& prop : table_properties.readable_properties) {

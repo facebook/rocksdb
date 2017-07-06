@@ -280,6 +280,33 @@ bool MemTableList::IsFlushPending() const {
 }
 
 // Returns the memtables that need to be flushed.
+void MemTableList::PickMemtablesToFlush(autovector<MemTable*>* ret,
+                                        autovector<MemTable*>* compare_ret) {
+  AutoThreadOperationStageUpdater stage_updater(
+      ThreadStatus::STAGE_PICK_MEMTABLES_TO_FLUSH);
+  assert(write_buffer_number_to_flush_ > 0);
+  const auto& memlist = current_->memlist_;
+  for (auto it = memlist.rbegin(); it != memlist.rend(); ++it) {
+    MemTable* m = *it;
+    if (!m->flush_in_progress_) {
+      assert(!m->flush_completed_);
+      if (ret->size() < write_buffer_number_to_flush_) {
+        num_flush_not_started_--;
+        if (num_flush_not_started_ == 0) {
+          imm_flush_needed.store(false, std::memory_order_release);
+        }
+        m->flush_in_progress_ = true;  // flushing will start very soon
+        ret->push_back(m);
+      }
+      else {
+        compare_ret->push_back(m);
+      }
+    }
+  }
+  flush_requested_ = false;  // start-flush request is complete
+}
+
+// Returns the memtables that need to be flushed.
 void MemTableList::PickMemtablesToFlush(autovector<MemTable*>* ret) {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_PICK_MEMTABLES_TO_FLUSH);

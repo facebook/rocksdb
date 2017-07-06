@@ -95,6 +95,7 @@ class VersionStorageInfo {
  public:
   VersionStorageInfo(const InternalKeyComparator* internal_comparator,
                      const Comparator* user_comparator, int num_levels,
+                     FlushStyle flush_style,
                      CompactionStyle compaction_style,
                      VersionStorageInfo* src_vstorage,
                      bool _force_consistency_checks);
@@ -371,6 +372,7 @@ class VersionStorageInfo {
   FileIndexer file_indexer_;
   Arena arena_;  // Used to allocate space for file_levels_
 
+  FlushStyle flush_style_;
   CompactionStyle compaction_style_;
 
   // List of files per level, files in each level are arranged

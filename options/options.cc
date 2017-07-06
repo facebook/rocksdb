@@ -46,6 +46,8 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
     : max_write_buffer_number(options.max_write_buffer_number),
       min_write_buffer_number_to_merge(
           options.min_write_buffer_number_to_merge),
+      write_buffer_number_to_flush(
+          options.write_buffer_number_to_flush),
       max_write_buffer_number_to_maintain(
           options.max_write_buffer_number_to_maintain),
       inplace_update_support(options.inplace_update_support),
@@ -74,6 +76,7 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
           options.soft_pending_compaction_bytes_limit),
       hard_pending_compaction_bytes_limit(
           options.hard_pending_compaction_bytes_limit),
+      flush_style(options.flush_style),
       compaction_style(options.compaction_style),
       compaction_pri(options.compaction_pri),
       compaction_options_universal(options.compaction_options_universal),
@@ -247,6 +250,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     ROCKS_LOG_HEADER(log, "            Options.num_levels: %d", num_levels);
     ROCKS_LOG_HEADER(log, "       Options.min_write_buffer_number_to_merge: %d",
                      min_write_buffer_number_to_merge);
+    ROCKS_LOG_HEADER(log, "       Options.write_buffer_number_to_flush: %d",
+                     write_buffer_number_to_flush);
     ROCKS_LOG_HEADER(log, "    Options.max_write_buffer_number_to_maintain: %d",
                      max_write_buffer_number_to_maintain);
     ROCKS_LOG_HEADER(log, "           Options.compression_opts.window_bits: %d",
@@ -304,6 +309,19 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                      rate_limit_delay_max_milliseconds);
     ROCKS_LOG_HEADER(log, "               Options.disable_auto_compactions: %d",
                      disable_auto_compactions);
+
+   const auto& it_flush_style =
+        flush_style_to_string.find(flush_style);
+    std::string str_flush_style;
+    if (it_flush_style == flush_style_to_string.end()) {
+      assert(false);
+      str_flush_style = "unknown_" + std::to_string(flush_style);
+    } else {
+      str_flush_style = it_flush_style->second;
+    }
+    ROCKS_LOG_HEADER(log,
+                     "                       Options.flush_style: %s",
+                     str_flush_style.c_str());
 
     const auto& it_compaction_style =
         compaction_style_to_string.find(compaction_style);
@@ -447,6 +465,7 @@ Options::PrepareForBulkLoad()
   // of flushes.
   max_write_buffer_number = 6;
   min_write_buffer_number_to_merge = 1;
+  write_buffer_number_to_flush = 0;
 
   // When compaction is disabled, more parallel flush threads can
   // help with write throughput.
@@ -550,6 +569,7 @@ ColumnFamilyOptions* ColumnFamilyOptions::OptimizeLevelStyleCompaction(
   write_buffer_size = static_cast<size_t>(memtable_memory_budget / 4);
   // merge two memtables when flushing to L0
   min_write_buffer_number_to_merge = 2;
+  write_buffer_number_to_flush = 0;
   // this means we'll use 50% extra memory in the worst case, but will reduce
   // write stalls.
   max_write_buffer_number = 6;
@@ -562,6 +582,7 @@ ColumnFamilyOptions* ColumnFamilyOptions::OptimizeLevelStyleCompaction(
   // make Level1 size equal to Level0 size, so that L0->L1 compactions are fast
   max_bytes_for_level_base = memtable_memory_budget;
 
+  flush_style = kFlushStyleMerge;
   // level style compaction
   compaction_style = kCompactionStyleLevel;
 
@@ -582,9 +603,12 @@ ColumnFamilyOptions* ColumnFamilyOptions::OptimizeUniversalStyleCompaction(
   write_buffer_size = static_cast<size_t>(memtable_memory_budget / 4);
   // merge two memtables when flushing to L0
   min_write_buffer_number_to_merge = 2;
+  write_buffer_number_to_flush = 1;
   // this means we'll use 50% extra memory in the worst case, but will reduce
   // write stalls.
   max_write_buffer_number = 6;
+
+  flush_style = kFlushStyleMerge;
   // universal style compaction
   compaction_style = kCompactionStyleUniversal;
   compaction_options_universal.compression_size_percent = 80;
