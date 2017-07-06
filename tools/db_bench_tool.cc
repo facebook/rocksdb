@@ -2545,7 +2545,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
                     s.ToString().c_str());
             exit(1);
           }
-          fprintf(stdout, "[Trace] Start tracing the workload to [%s] in DB Path\n",
+          fprintf(stdout, "[Trace] Start tracing the workload to [%s]\n",
                   FLAGS_trace_file.c_str());
         }
 
