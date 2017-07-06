@@ -25,7 +25,8 @@ PartitionedFilterBlockBuilder::PartitionedFilterBlockBuilder(
     : FullFilterBlockBuilder(prefix_extractor, whole_key_filtering,
                              filter_bits_builder),
       index_on_filter_block_builder_(index_block_restart_interval),
-      p_index_builder_(p_index_builder) {
+      p_index_builder_(p_index_builder),
+      filters_in_partition_(0) {
   filters_per_partition_ =
       filter_bits_builder_->CalculateNumEntry(partition_size);
 }
