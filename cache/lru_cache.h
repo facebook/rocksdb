@@ -118,7 +118,7 @@ struct LRUHandle {
 // table implementations in some of the compiler/runtime combinations
 // we have tested.  E.g., readrandom speeds up by ~5% over the g++
 // 4.4.3's builtin hashtable.
-class LRUHandleTable {
+class CACHE_ALIGNED(CACHE_LINE_SIZE) LRUHandleTable {
  public:
   LRUHandleTable();
   ~LRUHandleTable();
@@ -150,9 +150,10 @@ class LRUHandleTable {
 
   // The table consists of an array of buckets where each bucket is
   // a linked list of cache entries that hash into the bucket.
-  // cache line alignment elems_ to avoid false sharing
   LRUHandle** list_;
   uint32_t length_;
+
+  // cache line alignment elems_ to avoid false sharing
   CACHE_ALIGNED(CACHE_LINE_SIZE) uint32_t elems_;
 };
 

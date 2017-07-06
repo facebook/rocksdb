@@ -243,11 +243,11 @@ extern void InitOnce(OnceType* once, void (*initializer)());
 
 // To reduce false cache sharing by enforcing alignment
 #if defined(__clang__) || defined(__GNUC__)
-# define CACHE_ALIGNED(size) __attribute__((__aligned__(size)))
+# define CACHE_ALIGNED(size) alignas(size)
 //Disabling this for win due to compiling warning, and no neat solution for now
 //Warning C4316: object allocated on the heap may not be aligned
 //#elif defined(_MSC_VER)
-//# define CACHE_ALIGNED(size) __declspec(align(size))
+//# define CACHE_ALIGNED(size) __declspec(align(size)) or alignas(size)
 #else
 # define CACHE_ALIGNED(size)
 #endif

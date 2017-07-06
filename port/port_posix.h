@@ -190,7 +190,8 @@ extern void InitOnce(OnceType* once, void (*initializer)());
 #endif
 
 //Cache-line aligning to avoid false cache sharing
-#define CACHE_ALIGNED(size) __attribute__((__aligned__(size)))
+// gcc 4.8- needs __attribute__((__aligned__(size)))
+#define CACHE_ALIGNED(size) alignas(size)
 
 #define PREFETCH(addr, rw, locality) __builtin_prefetch(addr, rw, locality)
 
