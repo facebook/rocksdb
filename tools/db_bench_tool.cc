@@ -28,6 +28,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <cstddef>
+#include <functional>
 #include <mutex>
 #include <thread>
 #include <unordered_map>
@@ -1739,6 +1740,69 @@ struct ThreadState {
   }
 };
 
+class Benchmark;
+
+class AsyncBenchBase {
+public:
+
+  // Initialized before invocation
+  void SetState(Benchmark* bm,
+    SharedState* shared,
+    ThreadState* thread) {
+    bm_ = bm;
+    shared_ = shared;
+    thread_ = thread;
+  }
+
+  virtual std::unique_ptr<AsyncBenchBase> Clone() = 0;
+
+  virtual void Run() = 0;
+
+  virtual ~AsyncBenchBase() {}
+
+protected:
+
+  AsyncBenchBase() :
+    bm_(nullptr),
+    shared_(nullptr),
+    thread_(nullptr) {
+  }
+
+  AsyncBenchBase(const AsyncBenchBase&) = default;
+  AsyncBenchBase& operator=(const AsyncBenchBase&) = default;
+
+  // Concrete class invokes this when all threads
+  // when the hosting thread start running it
+  // Once this method returns start doing
+  // benchmarks specific things
+  void OnInitialized() {
+    {
+      MutexLock l(&shared_->mu);
+      shared_->num_initialized++;
+      if (shared_->num_initialized >= shared_->total) {
+        shared_->cv.SignalAll();
+      }
+      while (!shared_->start) {
+        shared_->cv.Wait();
+      }
+    }
+    SetPerfLevel(static_cast<PerfLevel> (shared_->perf_level));
+    thread_->stats.Start(thread_->tid);
+  }
+
+  void OnComplete() {
+    MutexLock l(&shared_->mu);
+    shared_->num_done++;
+    if (shared_->num_done >= shared_->total) {
+      shared_->cv.SignalAll();
+    }
+  }
+
+  Benchmark*            bm_;
+  SharedState*          shared_;
+  ThreadState*          thread_;
+};
+
 class Duration {
  public:
   Duration(uint64_t max_seconds, int64_t max_ops, int64_t ops_per_stage = 0) {
@@ -1783,8 +1847,9 @@ class Benchmark {
   std::shared_ptr<const FilterPolicy> filter_policy_;
 
 #ifdef OS_WIN
-  std::unique_ptr<port::VistaThreadPool>  thread_pool_;
-  std::shared_ptr<async::AsyncThreadPool> async_tp_;
+  std::unique_ptr<port::VistaThreadPool>   thread_pool_;
+  std::shared_ptr<async::AsyncThreadPool>  async_tp_;
+  std::unique_ptr<AsyncBenchBase>          bench_func_;
 #endif
 
   const SliceTransform* prefix_extractor_;
@@ -2105,6 +2170,8 @@ class Benchmark {
       auto tp_handle = thread_pool_->CreateTaskPool();
       auto io_compl_tp = FLAGS_env->CreateAsyncThreadPool(&tp_handle);
       async_tp_ = std::move(io_compl_tp);
+
+      
     }
 #endif
 
@@ -2253,6 +2320,11 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       exit(1);
     }
 
+    if (FLAGS_run_async) {
+      open_options_.use_async_reads = true;
+      open_options_.async_threadpool = std::move(async_tp_);
+    }
+
     Open(&open_options_);
     PrintHeader();
     std::stringstream benchmark_stream(FLAGS_benchmarks);
@@ -2378,9 +2450,9 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       } else if (name == "readrandom") {
         method = &Benchmark::ReadRandom;
       } else if (name == "readrandomasync") {
-        method = &Benchmark::ReadRandomAsync;
+        bench_func_.reset(new ReadRandomAsync());
         if (!FLAGS_run_async) {
-          fprintf(stdout, run_async must be enabled"\n");
+          fprintf(stdout, "run_async must be enabled\n");
           exit(1);
         }
       } else if (name == "readrandomfast") {
@@ -2531,7 +2603,22 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         if (num_repeat > 1) {
           combined_stats.Report(name);
         }
+      } else if(FLAGS_run_async) {
+        if (num_repeat > 1) {
+          printf("Running benchmark for %d times\n", num_repeat);
+        }
+
+        CombinedStats combined_stats;
+        for (int i = 0; i < num_repeat; i++) {
+          Stats stats = RunBenchmarkAsync(num_threads, name);
+          combined_stats.AddStats(stats);
+        }
+
+        if (num_repeat > 1) {
+          combined_stats.Report(name);
+        }
       }
+
       if (post_process_method != nullptr) {
         (this->*post_process_method)();
       }
@@ -2661,11 +2748,13 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 
     return merge_stats;
   }
-
+#ifdef OS_WIN
   // This will run it on Windows Threadpool
   // along with the IO completions
-  Stats RunBenchmarkAsync(int n, Slice name,
-    void (Benchmark::*method)(ThreadState*)) {
+  Stats RunBenchmarkAsync(int n, Slice name) {
+
+    assert(bench_func_);
+
     SharedState shared;
     shared.total = n;
     shared.num_initialized = 0;
@@ -2678,17 +2767,28 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         FLAGS_report_interval_seconds));
     }
 
-    std::vector<ThreadArg> arg;
-    arg.resize(n);
+    std::vector<std::unique_ptr<ThreadState>> states;
+    std::vector<std::unique_ptr<AsyncBenchBase>> benches;
+    states.resize(n);
+    benches.resize(n);
 
     for (int i = 0; i < n; i++) {
-      arg[i].bm = this;
-      arg[i].method = method;
-      arg[i].shared = &shared;
-      arg[i].thread = new ThreadState(i);
-      arg[i].thread->stats.SetReporterAgent(reporter_agent.get());
-      arg[i].thread->shared = &shared;
-      // FLAGS_env->StartThread(ThreadBody, &arg[i]);
+
+      states[i].reset(new ThreadState(i));
+      states[i]->stats.SetReporterAgent(reporter_agent.get());
+      states[i]->shared = &shared;
+
+      benches[i] = std::move(bench_func_->Clone());
+      benches[i]->SetState(this, &shared, states[i].get());
+      auto f(std::bind(&AsyncBenchBase::Run, benches[i].get()));
+      // XXX:
+      // We want to run this on the same thread pool
+      // as the IO completion takes place.
+      // However, we require that all tasks start running
+      // and signal they are inited before we allow them to proceed.
+      // In case our Windows threadpool does not start the specified
+      // amount of threads at the same time we may hang.
+      thread_pool_->SubmitWork(f);
     }
 
     shared.mu.Lock();
@@ -2706,16 +2806,13 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     // Stats for some threads can be excluded.
     Stats merge_stats;
     for (int i = 0; i < n; i++) {
-      merge_stats.Merge(arg[i].thread->stats);
+      merge_stats.Merge(states[i]->stats);
     }
     merge_stats.Report(name);
 
-    for (int i = 0; i < n; i++) {
-      delete arg[i].thread;
-    }
-
     return merge_stats;
   }
+#endif
 
   void Crc32c(ThreadState* thread) {
     // Checksum about 500MB of data total
@@ -4063,70 +4160,172 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     }
   }
 
-  void ReadRandomAsync(ThreadState* thread) {
-    int64_t read = 0;
-    int64_t found = 0;
-    int64_t bytes = 0;
-    ReadOptions options(FLAGS_verify_checksum, true);
-    std::unique_ptr<const char[]> key_guard;
-    Slice key = AllocateKey(&key_guard);
-    std::string value;
-    PinnableSlice pinnable_val;
 
-    Duration duration(FLAGS_duration, reads_);
-    while (!duration.Done(1)) {
-      DBWithColumnFamilies* db_with_cfh = SelectDBWithCfh(thread);
+  class ReadRandomAsync : public AsyncBenchBase {
+  public:
+
+    explicit
+    ReadRandomAsync() :
+      options_(FLAGS_verify_checksum, true),
+      duration_(FLAGS_duration, FLAGS_reads),
+      read_(0),
+      found_(0),
+      bytes_(0) {
+    }
+
+    std::unique_ptr<AsyncBenchBase> Clone() override {
+      std::unique_ptr<AsyncBenchBase> result(new ReadRandomAsync(*this));
+      return result;
+    }
+
+  private:
+
+    struct ReadContext : public async::AsyncStatusCapture {
+
+      ReadContext(ReadRandomAsync* bench) :
+          bench_(bench),
+          db_with_cfh_(nullptr) {
+      }
+
+      async::Callable<Status,const Status&>
+      GetCallback() {
+        async::CallableFactory<ReadContext, Status, const Status&> f(this);
+        return f.GetCallable<&ReadContext::OnReadComplete>();
+      }
+
+      Status OnReadComplete(const Status& status) {
+        async(status.async());
+
+        if (status.ok()) {
+          bench_->found_.fetch_add(1, std::memory_order_relaxed);
+          bench_->bytes_.fetch_add(key_.size() +
+            (FLAGS_pin_slice == 1 ? pinnable_val_.size() : value_.size()), 
+            std::memory_order_relaxed);
+        } else if (!status.IsNotFound()) {
+          fprintf(stderr, "Get returned an error: %s\n", 
+            status.ToString().c_str());
+          abort();
+        }
+
+        bench_->thread_->stats.FinishedOps(db_with_cfh_, 
+          db_with_cfh_->db, 1, kRead);
+
+        if (async()) {
+          // ping on continue
+          bench_->ReadComplete();
+          delete this;
+        }
+
+        return status;
+      }
+
+      // Re-init for the next iteration so we could reuse contexts
+      void Reset(DBWithColumnFamilies* db_with_cfh, const Slice& key) {
+        db_with_cfh_ = db_with_cfh;
+        key_ = key;
+        if (LIKELY(FLAGS_pin_slice == 1)) {
+          pinnable_val_.Reset();
+        }
+      }
+
+      ReadRandomAsync* bench_;
+      DBWithColumnFamilies* db_with_cfh_;
+      std::unique_ptr<const char[]> key_guard_;
+      Slice key_; 
+      std::string value_;
+      PinnableSlice pinnable_val_;
+    };
+
+    friend struct ReadContext;
+
+    Status RequestGet() {
+
+      Slice key(key_);
+      int64_t key_rand = bm_->GetRandomKey(&thread_->rand);
+      bm_->GenerateKeyFromInt(key_rand, FLAGS_num, &key);
+
+      DBWithColumnFamilies* db_with_cfh = bm_->SelectDBWithCfh(thread_);
+      std::unique_ptr<ReadContext> c(new ReadContext(this));
+      c->Reset(db_with_cfh, key);
+
+      Status s;
+      if (LIKELY(FLAGS_pin_slice == 1)) {
+        s = async::DBImplGetContext::RequestGet(c->GetCallback(), db_with_cfh->db, options_,
+          db_with_cfh->db->DefaultColumnFamily(), c->key_, &c->pinnable_val_, nullptr);
+      } else {
+        s = async::DBImplGetContext::RequestGet(c->GetCallback(), db_with_cfh->db, options_,
+          db_with_cfh->db->DefaultColumnFamily(), c->key_, nullptr, &c->value_);
+      }
+
+      read_.fetch_add(1, std::memory_order_relaxed);
+
+      if (s.IsIOPending()) {
+        c.release();
+      } else {
+        s = c->OnReadComplete(s);
+      }
+      return s;
+    }
+
+    // Thread entry point
+    void Run() override {
+
+      // Init once, we then
       // We use same key_rand as seed for key and column family so that we can
       // deterministically find the cfh corresponding to a particular key, as it
       // is done in DoWrite method.
-      int64_t key_rand = GetRandomKey(&thread->rand);
-      GenerateKeyFromInt(key_rand, FLAGS_num, &key);
-      read++;
-      Status s;
-      if (FLAGS_num_column_families > 1) {
-        s = db_with_cfh->db->Get(options, db_with_cfh->GetCfh(key_rand), key,
-          &value);
-      } else {
-        if (LIKELY(FLAGS_pin_slice == 1)) {
-          pinnable_val.Reset();
-          s = db_with_cfh->db->Get(options,
-            db_with_cfh->db->DefaultColumnFamily(), key,
-            &pinnable_val);
-        } else {
-          s = db_with_cfh->db->Get(
-            options, db_with_cfh->db->DefaultColumnFamily(), key, &value);
+      key_ = bm_->AllocateKey(&key_guard_);
+
+      OnInitialized();
+      Status s = RequestGet();
+      if (s.IsIOPending()) {
+        // Release the thread
+        return;
+      }
+      ReadComplete();
+    }
+
+    void ReadComplete() {
+
+      while (!duration_.Done(1)) {
+        Status s = RequestGet();
+        if (s.IsIOPending()) {
+          // Release the thread
+          return;
         }
       }
-      if (s.ok()) {
-        found++;
-        bytes += key.size() +
-          (FLAGS_pin_slice == 1 ? pinnable_val.size() : value.size());
-      } else if (!s.IsNotFound()) {
-        fprintf(stderr, "Get returned an error: %s\n", s.ToString().c_str());
-        abort();
-      }
 
-      if (thread->shared->read_rate_limiter.get() != nullptr &&
-        read % 256 == 255) {
-        thread->shared->read_rate_limiter->Request(256, Env::IO_HIGH,
-          nullptr /* stats */);
-      }
+      char msg[100];
+      snprintf(msg, sizeof(msg), "(%" PRIu64 " of %" PRIu64 " found)\n",
+        found_.load(std::memory_order_relaxed), 
+        read_.load(std::memory_order_relaxed));
 
-      thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db, 1, kRead);
+      thread_->stats.AddBytes(bytes_);
+      thread_->stats.AddMessage(msg);
+
+      if (FLAGS_perf_level > rocksdb::PerfLevel::kDisable) {
+        thread_->stats.AddMessage(perf_context.ToString());
+      }
+      // Notify we are done
+      OnComplete();
     }
 
-    char msg[100];
-    snprintf(msg, sizeof(msg), "(%" PRIu64 " of %" PRIu64 " found)\n",
-      found, read);
-
-    thread->stats.AddBytes(bytes);
-    thread->stats.AddMessage(msg);
-
-    if (FLAGS_perf_level > rocksdb::PerfLevel::kDisable) {
-      thread->stats.AddMessage(perf_context.ToString());
+    ReadRandomAsync(const ReadRandomAsync&) :
+      ReadRandomAsync() {
     }
-  }
+    // We use this only for cloning before we start
+    ReadRandomAsync& operator=(const ReadRandomAsync&) {
+      return *this;
+    }
 
+    ReadOptions             options_;
+    std::unique_ptr<const char[]> key_guard_;
+    Duration                duration_;
+    Slice                   key_;
+    std::atomic_int64_t     read_;
+    std::atomic_int64_t     found_;
+    std::atomic_int64_t     bytes_;
+  };
   // Calls MultiGet over a list of keys from a random distribution.
   // Returns the total number of keys found.
   void MultiReadRandom(ThreadState* thread) {
