@@ -66,12 +66,14 @@ class PartitionedFilterBlockTest : public testing::Test {
   }
 
   uint64_t MaxFilterSize() {
+    uint32_t dont_care1, dont_care2;
     int num_keys = sizeof(keys) / sizeof(*keys);
     auto filter_bits_reader = dynamic_cast<rocksdb::FullFilterBitsBuilder*>(
         table_options_.filter_policy->GetFilterBitsBuilder());
-    uint32_t dont_care1, dont_care2;
+    assert(filter_bits_reader);
     auto partition_size =
         filter_bits_reader->CalculateSpace(num_keys, &dont_care1, &dont_care2);
+    delete filter_bits_reader;
     return partition_size + table_options_.block_size_deviation;
   }
 
@@ -89,9 +91,10 @@ class PartitionedFilterBlockTest : public testing::Test {
 
   PartitionedFilterBlockBuilder* NewBuilder(
       PartitionedIndexBuilder* const p_index_builder) {
-    assert(table_opt.block_size_deviation <= 100);
+    assert(table_options_.block_size_deviation <= 100);
     auto partition_size = static_cast<const uint32_t>(
-        table_opt.metadata_block_size * (100 - table_opt.block_size_deviation));
+        table_options_.metadata_block_size *
+        (100 - table_options_.block_size_deviation));
     partition_size = std::max(partition_size, static_cast<const uint32_t>(1));
     return new PartitionedFilterBlockBuilder(
         nullptr, table_options_.whole_key_filtering,
