@@ -935,6 +935,11 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
     // data overwriting it, so users may see wrong results.
     snapshot = versions_->LastSequence();
   }
+  ts_tc_mutex_.Lock();
+  // Emulate the cost of a read from ts->tc map
+  tmp_ = ts_tc_map_[snapshot % 1000000];
+  ts_tc_mutex_.Unlock();
+
   TEST_SYNC_POINT("DBImpl::GetImpl:3");
   TEST_SYNC_POINT("DBImpl::GetImpl:4");
 
