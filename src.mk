@@ -340,7 +340,6 @@ MAIN_SOURCES =                                                    \
   utilities/memory/memory_test.cc                                       \
   utilities/merge_operators/string_append/stringappend_test.cc          \
   utilities/merge_operators/cassandra/cassandra_merge_test.cc           \
-  utilities/merge_operators/cassandra/test_utils.cc                     \
   utilities/merge_operators/cassandra/cassandra_format_test.cc          \
   utilities/merge_operators/cassandra/cassandra_row_merge_test.cc       \
   utilities/merge_operators/cassandra/cassandra_serialize_test.cc       \
