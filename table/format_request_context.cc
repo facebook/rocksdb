@@ -279,18 +279,28 @@ Status ReadBlockContentsContext::ReadContents(RandomAccessFileReader* file,
 }
 
 Status ReadBlockContentsContext::OnReadBlockContentsComplete(const Status& s,
-  const Slice& slice) {
+  const Slice& raw_slice) {
 
   Status status(s);
 
   if (is_read_block_) {
-    status = GetReadBlock()->OnReadBlockComplete(s, slice);
+    status = GetReadBlock()->OnReadBlockComplete(s, raw_slice);
   }
 
   if (!status.ok()) {
     return status;
   }
 
+  // This is a size w/o a trailer
+  // but the result has the total size
+  // raw_slice may not point to our buffer in case of the following:
+  // - direct_io read is performed to an intermediate buffer
+  // - may point to a memory mapped file in memory
+  // - may point to a read_ahead buffer
+  // The result is properly set after the above OnReadBlockComplete
+  // is handled or if the data is obtained from the persistent cache
+  // then raw_slice is same as a result
+  const Slice& slice = result_;
   size_t n = GetN();
 
   // We only allocate heap_buf_ if necessary
@@ -301,8 +311,8 @@ Status ReadBlockContentsContext::OnReadBlockContentsComplete(const Status& s,
     cache_options_->persistent_cache &&
     cache_options_->persistent_cache->IsCompressed()) {
     // insert to raw cache
-    PersistentCacheHelper::InsertRawPage(*cache_options_, handle_, used_buf,
-      n + kBlockTrailerSize);
+    PersistentCacheHelper::InsertRawPage(*cache_options_, handle_, slice.data(),
+      slice.size());
   }
 
   PERF_TIMER_GUARD(block_decompress_time);
