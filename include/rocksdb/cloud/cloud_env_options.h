@@ -69,7 +69,7 @@ class CloudEnvOptions {
   bool keep_local_log_files;
 
   // The periodicity when the manifest should be made durable by backing it
-  // to cloud store. If set to 0, then manifest is not uploaded to S3.
+  // to cloud store.
   // This feature is enabled only if keep_local_log_files = true.
   // Default:  1 minute
   uint64_t manifest_durable_periodicity_millis;

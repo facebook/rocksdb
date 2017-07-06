@@ -572,10 +572,7 @@ Status AwsEnv::NewWritableFile(const std::string& fname,
   result->reset();
   Status s;
 
-  if (has_dest_bucket_ &&
-      (sstfile || identity ||
-       (manifest &&
-        cloud_env_options.manifest_durable_periodicity_millis > 0))) {
+  if (has_dest_bucket_ && (sstfile || identity || manifest)) {
     std::string cloud_file;
     if (manifest) {
       cloud_file = destname(dirname(fname)) + "/MANIFEST";
