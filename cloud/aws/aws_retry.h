@@ -46,8 +46,8 @@ class AwsRetryStrategy : public Aws::Client::RetryStrategy {
   // The default strategy implemented by AWS client
   std::shared_ptr<Aws::Client::RetryStrategy> default_strategy_;
 
-  // The numbe of times an internal-error failure should be retried
-  const int internal_failure_num_retries_{25};
+  // The number of times an internal-error failure should be retried
+  const int internal_failure_num_retries_{10};
 };
 
 }  // namepace rocksdb
