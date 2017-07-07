@@ -181,6 +181,7 @@ class CorruptionTest : public testing::Test {
     }
     s = WriteStringToFile(Env::Default(), contents, fname);
     ASSERT_TRUE(s.ok()) << s.ToString();
+    ASSERT_NOK(db_->VerifyChecksum(fname));
   }
 
   void Corrupt(FileType filetype, int offset, int bytes_to_corrupt) {

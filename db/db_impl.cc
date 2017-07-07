@@ -82,6 +82,7 @@
 #include "table/merging_iterator.h"
 #include "table/table_builder.h"
 #include "table/two_level_iterator.h"
+#include "tools/sst_dump_tool_imp.h"
 #include "util/auto_roll_logger.h"
 #include "util/autovector.h"
 #include "util/build_version.h"
@@ -2738,29 +2739,48 @@ Status DBImpl::IngestExternalFile(
 }
 
 Status DBImpl::VerifyChecksum() {
-  InstrumentedMutexLock l(&mutex_);
   Status s;
-  for (auto cfd: *versions_->GetColumnFamilySet()) {
-    VersionStorageInfo* vstorage = cfd->current()->storage_info();
-    for (int i = 0; i < vstorage->num_non_empty_levels(); i++) {
-      for (size_t j = 0; j < vstorage->LevelFilesBrief(i).num_files; j++) {
-        const auto& fd = vstorage->LevelFilesBrief(i).files[j].fd;
-        std::string fname = TableFileName(
-          cfd->ioptions()->db_paths, fd.GetNumber(), fd.GetPathId());
-        s = VerifyChecksumImpl(cfd, fname);
-        if (!s.ok()) {
-          return s;
-        }
+  std::vector<ColumnFamilyData*> cfd_list;
+  {
+    InstrumentedMutexLock l(&mutex_);
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      if (!cfd->IsDropped() && cfd->initialized()) {
+        cfd->Ref();
+        cfd_list.push_back(cfd);
       }
+    }
+  }
+  for (auto cfd : cfd_list) {
+    VersionStorageInfo* vstorage = cfd->current()->storage_info();
+    for (int i = 0; i < vstorage->num_non_empty_levels() && s.ok(); i++) {
+      for (size_t j = 0; j < vstorage->LevelFilesBrief(i).num_files && s.ok();
+           j++) {
+        const auto& fd = vstorage->LevelFilesBrief(i).files[j].fd;
+        std::string fname = TableFileName(cfd->ioptions()->db_paths,
+                                          fd.GetNumber(), fd.GetPathId());
+        s = VerifyChecksumImpl(cfd, fname);
+      }
+    }
+    if (!s.ok()) {
+      break;
+    }
+  }
+  {
+    InstrumentedMutexLock l(&mutex_);
+    for (auto cfd : cfd_list) {
+        cfd->Unref();
     }
   }
   return s;
 }
 
-Status DBImpl::VerifyChecksum(ColumnFamilyHandle* column_family,
-                              const std::string& file_path) {
-  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
-  return VerifyChecksumImpl(cfh->cfd(), file_path);
+Status DBImpl::VerifyChecksum(const std::string& file_path) {
+  SstFileReader reader(file_path, true /* verify_checksum */,
+                       false /* output_hex */);
+  if (reader.getStatus().ok()) {
+    return reader.VerifyChecksum();
+  }
+  return reader.getStatus();
 }
 
 Status DBImpl::VerifyChecksumImpl(ColumnFamilyData* cfd,

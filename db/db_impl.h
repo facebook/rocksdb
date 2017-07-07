@@ -296,8 +296,7 @@ class DBImpl : public DB {
       const IngestExternalFileOptions& ingestion_options) override;
 
   virtual Status VerifyChecksum() override;
-  virtual Status VerifyChecksum(ColumnFamilyHandle* column_family,
-                                const std::string& file_path) override;
+  virtual Status VerifyChecksum(const std::string& file_path) override;
 
 #endif  // ROCKSDB_LITE
 
