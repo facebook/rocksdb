@@ -697,6 +697,7 @@ set(TESTS
         util/event_logger_test.cc
         util/file_reader_writer_test.cc
         util/filelock_test.cc
+        util/hash_test.cc
         util/heap_test.cc
         util/rate_limiter_test.cc
         util/slice_transform_test.cc
