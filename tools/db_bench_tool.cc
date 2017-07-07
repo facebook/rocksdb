@@ -313,6 +313,11 @@ DEFINE_int32(max_write_buffer_number_to_maintain,
              "after they are flushed.  If this value is set to -1, "
              "'max_write_buffer_number' will be used.");
 
+DEFINE_int32(max_background_jobs,
+             rocksdb::Options().max_background_jobs,
+             "The maximum number of concurrent background jobs that can occur "
+             "in parallel.");
+
 DEFINE_int32(max_background_compactions,
              rocksdb::Options().max_background_compactions,
              "The maximum number of concurrent background compactions"
@@ -3490,7 +3495,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         bytes += value_size_ + key_size_;
         ++num_written;
         if (writes_per_range_tombstone_ > 0 &&
-            num_written / writes_per_range_tombstone_ <
+            num_written / writes_per_range_tombstone_ <=
                 max_num_range_tombstones_ &&
             num_written % writes_per_range_tombstone_ == 0) {
           int64_t begin_num = key_gens[id]->Next();
