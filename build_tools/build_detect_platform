@@ -456,7 +456,7 @@ elif test -z "$PORTABLE"; then
   fi
 fi
 
-$CXX $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null <<EOF
+$CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null <<EOF
   #include <cstdint>
   #include <nmmintrin.h>
   int main() {
