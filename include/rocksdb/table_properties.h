@@ -89,7 +89,7 @@ class TablePropertiesCollector {
   // @params value  the value that is inserted into the table.
   virtual Status AddUserKey(const Slice& key, const Slice& value,
                             EntryType /*type*/, SequenceNumber /*seq*/,
-                            uint64_t /*file_size*/) {
+                            uint64_t /*file_size*/) override {
     // For backwards-compatibility.
     return Add(key, value);
   }
