@@ -21,6 +21,7 @@
 
 #include "rocksjni/comparatorjnicallback.h"
 #include "rocksjni/portal.h"
+#include "rocksjni/statisticsjni.h"
 
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
@@ -224,24 +225,34 @@ void Java_org_rocksdb_Options_setMaxWriteBufferNumber(
 
 /*
  * Class:     org_rocksdb_Options
- * Method:    createStatistics
- * Signature: (J)V
+ * Method:    setStatistics
+ * Signature: (JJ)V
  */
-void Java_org_rocksdb_Options_createStatistics(
-    JNIEnv* env, jobject jobj, jlong jOptHandle) {
-  reinterpret_cast<rocksdb::Options*>(jOptHandle)->statistics =
-      rocksdb::CreateDBStatistics();
+void Java_org_rocksdb_Options_setStatistics(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jstatistics_handle) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  auto* pSptr =
+      reinterpret_cast<std::shared_ptr<rocksdb::StatisticsJni>*>(
+          jstatistics_handle);
+  opt->statistics = *pSptr;
 }
 
 /*
  * Class:     org_rocksdb_Options
- * Method:    statisticsPtr
+ * Method:    statistics
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_Options_statisticsPtr(
-    JNIEnv* env, jobject jobj, jlong jOptHandle) {
-  auto* st = reinterpret_cast<rocksdb::Options*>(jOptHandle)->statistics.get();
-  return reinterpret_cast<jlong>(st);
+jlong Java_org_rocksdb_Options_statistics(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  std::shared_ptr<rocksdb::Statistics> sptr = opt->statistics;
+  if (sptr == nullptr) {
+    return 0;
+  } else {
+    std::shared_ptr<rocksdb::Statistics>* pSptr =
+        new std::shared_ptr<rocksdb::Statistics>(sptr);
+    return reinterpret_cast<jlong>(pSptr);
+  }
 }
 
 /*
@@ -4376,25 +4387,34 @@ jint Java_org_rocksdb_DBOptions_maxFileOpeningThreads(
 
 /*
  * Class:     org_rocksdb_DBOptions
- * Method:    createStatistics
- * Signature: (J)V
+ * Method:    setStatistics
+ * Signature: (JJ)V
  */
-void Java_org_rocksdb_DBOptions_createStatistics(
-    JNIEnv* env, jobject jobj, jlong jOptHandle) {
-  reinterpret_cast<rocksdb::DBOptions*>(jOptHandle)->statistics =
-      rocksdb::CreateDBStatistics();
+void Java_org_rocksdb_DBOptions_setStatistics(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jstatistics_handle) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  auto* pSptr =
+      reinterpret_cast<std::shared_ptr<rocksdb::StatisticsJni>*>(
+          jstatistics_handle);
+  opt->statistics = *pSptr;
 }
 
 /*
  * Class:     org_rocksdb_DBOptions
- * Method:    statisticsPtr
+ * Method:    statistics
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_DBOptions_statisticsPtr(
-    JNIEnv* env, jobject jobj, jlong jOptHandle) {
-  auto* st = reinterpret_cast<rocksdb::DBOptions*>(jOptHandle)->
-      statistics.get();
-  return reinterpret_cast<jlong>(st);
+jlong Java_org_rocksdb_DBOptions_statistics(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  std::shared_ptr<rocksdb::Statistics> sptr = opt->statistics;
+  if (sptr == nullptr) {
+    return 0;
+  } else {
+    std::shared_ptr<rocksdb::Statistics>* pSptr =
+        new std::shared_ptr<rocksdb::Statistics>(sptr);
+    return reinterpret_cast<jlong>(pSptr);
+  }
 }
 
 /*

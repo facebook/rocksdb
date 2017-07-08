@@ -31,6 +31,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/snapshot.cc
         rocksjni/sst_file_writerjni.cc
         rocksjni/statistics.cc
+        rocksjni/statisticsjni.cc
         rocksjni/table.cc
         rocksjni/transaction_log.cc
         rocksjni/ttl.cc
