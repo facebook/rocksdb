@@ -11,27 +11,40 @@ package org.rocksdb;
  */
 public class Statistics {
 
+  //  TODO(AR) fix the ownership semantics of this class
+
   private final long statsHandle_;
 
   public Statistics(final long statsHandle) {
     statsHandle_ = statsHandle;
   }
 
-  public long getTickerCount(TickerType tickerType) {
+  public StatsLevel statsLevel() {
+    return StatsLevel.getStatsLevel(statsLevel(statsHandle_));
+  }
+
+  public void setStatsLevel(final StatsLevel statsLevel) {
+    setStatsLevel(statsHandle_, statsLevel.getValue());
+  }
+
+  public long getTickerCount(final TickerType tickerType) {
     assert(isInitialized());
-    return getTickerCount0(tickerType.getValue(), statsHandle_);
+    return getTickerCount0(statsHandle_, tickerType.getValue());
   }
 
   public HistogramData getHistogramData(final HistogramType histogramType) {
     assert(isInitialized());
-    return getHistogramData0(
-        histogramType.getValue(), statsHandle_);
+    return getHistogramData0(statsHandle_, histogramType.getValue());
   }
+
+  // TODO(AR) add missing methods!
 
   private boolean isInitialized() {
     return (statsHandle_ != 0);
   }
 
-  private native long getTickerCount0(int tickerType, long handle);
-  private native HistogramData getHistogramData0(int histogramType, long handle);
+  private native byte statsLevel(final long handle);
+  private native void setStatsLevel(final long handle, final byte statsLevel);
+  private native long getTickerCount0(final long handle, final byte tickerType);
+  private native HistogramData getHistogramData0(final long handle, final byte histogramType);
 }

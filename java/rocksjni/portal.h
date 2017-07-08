@@ -2283,6 +2283,603 @@ class WALRecoveryModeJni {
   }
 };
 
+// The portal class for org.rocksdb.TickerType
+class TickerTypeJni {
+ public:
+  // Returns the equivalent org.rocksdb.TickerType for the provided
+  // C++ rocksdb::Tickers enum
+  static jbyte toJavaTickerType(
+      const rocksdb::Tickers& tickers) {
+    switch(tickers) {
+      case rocksdb::Tickers::BLOCK_CACHE_MISS:
+        return 0x0;
+      case rocksdb::Tickers::BLOCK_CACHE_HIT:
+        return 0x1;
+      case rocksdb::Tickers::BLOCK_CACHE_ADD:
+        return 0x2;
+      case rocksdb::Tickers::BLOCK_CACHE_ADD_FAILURES:
+        return 0x3;
+      case rocksdb::Tickers::BLOCK_CACHE_INDEX_MISS:
+        return 0x4;
+      case rocksdb::Tickers::BLOCK_CACHE_INDEX_HIT:
+        return 0x5;
+      case rocksdb::Tickers::BLOCK_CACHE_INDEX_ADD:
+        return 0x6;
+      case rocksdb::Tickers::BLOCK_CACHE_INDEX_BYTES_INSERT:
+        return 0x7;
+      case rocksdb::Tickers::BLOCK_CACHE_INDEX_BYTES_EVICT:
+        return 0x8;
+      case rocksdb::Tickers::BLOCK_CACHE_FILTER_MISS:
+        return 0x9;
+      case rocksdb::Tickers::BLOCK_CACHE_FILTER_HIT:
+        return 0xA;
+      case rocksdb::Tickers::BLOCK_CACHE_FILTER_ADD:
+        return 0xB;
+      case rocksdb::Tickers::BLOCK_CACHE_FILTER_BYTES_INSERT:
+        return 0xC;
+      case rocksdb::Tickers::BLOCK_CACHE_FILTER_BYTES_EVICT:
+        return 0xD;
+      case rocksdb::Tickers::BLOCK_CACHE_DATA_MISS:
+        return 0xE;
+      case rocksdb::Tickers::BLOCK_CACHE_DATA_HIT:
+        return 0xF;
+      case rocksdb::Tickers::BLOCK_CACHE_DATA_ADD:
+        return 0x10;
+      case rocksdb::Tickers::BLOCK_CACHE_DATA_BYTES_INSERT:
+        return 0x11;
+      case rocksdb::Tickers::BLOCK_CACHE_BYTES_READ:
+        return 0x12;
+      case rocksdb::Tickers::BLOCK_CACHE_BYTES_WRITE:
+        return 0x13;
+      case rocksdb::Tickers::BLOOM_FILTER_USEFUL:
+        return 0x14;
+      case rocksdb::Tickers::PERSISTENT_CACHE_HIT:
+        return 0x15;
+      case rocksdb::Tickers::PERSISTENT_CACHE_MISS:
+        return 0x16;
+      case rocksdb::Tickers::SIM_BLOCK_CACHE_HIT:
+        return 0x17;
+      case rocksdb::Tickers::SIM_BLOCK_CACHE_MISS:
+        return 0x18;
+      case rocksdb::Tickers::MEMTABLE_HIT:
+        return 0x19;
+      case rocksdb::Tickers::MEMTABLE_MISS:
+        return 0x1A;
+      case rocksdb::Tickers::GET_HIT_L0:
+        return 0x1B;
+      case rocksdb::Tickers::GET_HIT_L1:
+        return 0x1C;
+      case rocksdb::Tickers::GET_HIT_L2_AND_UP:
+        return 0x1D;
+      case rocksdb::Tickers::COMPACTION_KEY_DROP_NEWER_ENTRY:
+        return 0x1E;
+      case rocksdb::Tickers::COMPACTION_KEY_DROP_OBSOLETE:
+        return 0x1F;
+      case rocksdb::Tickers::COMPACTION_KEY_DROP_RANGE_DEL:
+        return 0x20;
+      case rocksdb::Tickers::COMPACTION_KEY_DROP_USER:
+        return 0x21;
+      case rocksdb::Tickers::COMPACTION_RANGE_DEL_DROP_OBSOLETE:
+        return 0x22;
+      case rocksdb::Tickers::NUMBER_KEYS_WRITTEN:
+        return 0x23;
+      case rocksdb::Tickers::NUMBER_KEYS_READ:
+        return 0x24;
+      case rocksdb::Tickers::NUMBER_KEYS_UPDATED:
+        return 0x25;
+      case rocksdb::Tickers::BYTES_WRITTEN:
+        return 0x26;
+      case rocksdb::Tickers::BYTES_READ:
+        return 0x27;
+      case rocksdb::Tickers::NUMBER_DB_SEEK:
+        return 0x28;
+      case rocksdb::Tickers::NUMBER_DB_NEXT:
+        return 0x29;
+      case rocksdb::Tickers::NUMBER_DB_PREV:
+        return 0x2A;
+      case rocksdb::Tickers::NUMBER_DB_SEEK_FOUND:
+        return 0x2B;
+      case rocksdb::Tickers::NUMBER_DB_NEXT_FOUND:
+        return 0x2C;
+      case rocksdb::Tickers::NUMBER_DB_PREV_FOUND:
+        return 0x2D;
+      case rocksdb::Tickers::ITER_BYTES_READ:
+        return 0x2E;
+      case rocksdb::Tickers::NO_FILE_CLOSES:
+        return 0x2F;
+      case rocksdb::Tickers::NO_FILE_OPENS:
+        return 0x30;
+      case rocksdb::Tickers::NO_FILE_ERRORS:
+        return 0x31;
+      case rocksdb::Tickers::STALL_L0_SLOWDOWN_MICROS:
+        return 0x32;
+      case rocksdb::Tickers::STALL_MEMTABLE_COMPACTION_MICROS:
+        return 0x33;
+      case rocksdb::Tickers::STALL_L0_NUM_FILES_MICROS:
+        return 0x34;
+      case rocksdb::Tickers::STALL_MICROS:
+        return 0x35;
+      case rocksdb::Tickers::DB_MUTEX_WAIT_MICROS:
+        return 0x36;
+      case rocksdb::Tickers::RATE_LIMIT_DELAY_MILLIS:
+        return 0x37;
+      case rocksdb::Tickers::NO_ITERATORS:
+        return 0x38;
+      case rocksdb::Tickers::NUMBER_MULTIGET_CALLS:
+        return 0x39;
+      case rocksdb::Tickers::NUMBER_MULTIGET_KEYS_READ:
+        return 0x3A;
+      case rocksdb::Tickers::NUMBER_MULTIGET_BYTES_READ:
+        return 0x3B;
+      case rocksdb::Tickers::NUMBER_FILTERED_DELETES:
+        return 0x3C;
+      case rocksdb::Tickers::NUMBER_MERGE_FAILURES:
+        return 0x3D;
+      case rocksdb::Tickers::BLOOM_FILTER_PREFIX_CHECKED:
+        return 0x3E;
+      case rocksdb::Tickers::BLOOM_FILTER_PREFIX_USEFUL:
+        return 0x3F;
+      case rocksdb::Tickers::NUMBER_OF_RESEEKS_IN_ITERATION:
+        return 0x40;
+      case rocksdb::Tickers::GET_UPDATES_SINCE_CALLS:
+        return 0x41;
+      case rocksdb::Tickers::BLOCK_CACHE_COMPRESSED_MISS:
+        return 0x42;
+      case rocksdb::Tickers::BLOCK_CACHE_COMPRESSED_HIT:
+        return 0x43;
+      case rocksdb::Tickers::BLOCK_CACHE_COMPRESSED_ADD:
+        return 0x44;
+      case rocksdb::Tickers::BLOCK_CACHE_COMPRESSED_ADD_FAILURES:
+        return 0x45;
+      case rocksdb::Tickers::WAL_FILE_SYNCED:
+        return 0x46;
+      case rocksdb::Tickers::WAL_FILE_BYTES:
+        return 0x47;
+      case rocksdb::Tickers::WRITE_DONE_BY_SELF:
+        return 0x48;
+      case rocksdb::Tickers::WRITE_DONE_BY_OTHER:
+        return 0x49;
+      case rocksdb::Tickers::WRITE_TIMEDOUT:
+        return 0x4A;
+      case rocksdb::Tickers::WRITE_WITH_WAL:
+        return 0x4B;
+      case rocksdb::Tickers::COMPACT_READ_BYTES:
+        return 0x4C;
+      case rocksdb::Tickers::COMPACT_WRITE_BYTES:
+        return 0x4D;
+      case rocksdb::Tickers::FLUSH_WRITE_BYTES:
+        return 0x4E;
+      case rocksdb::Tickers::NUMBER_DIRECT_LOAD_TABLE_PROPERTIES:
+        return 0x4F;
+      case rocksdb::Tickers::NUMBER_SUPERVERSION_ACQUIRES:
+        return 0x50;
+      case rocksdb::Tickers::NUMBER_SUPERVERSION_RELEASES:
+        return 0x51;
+      case rocksdb::Tickers::NUMBER_SUPERVERSION_CLEANUPS:
+        return 0x52;
+      case rocksdb::Tickers::NUMBER_BLOCK_COMPRESSED:
+        return 0x53;
+      case rocksdb::Tickers::NUMBER_BLOCK_DECOMPRESSED:
+        return 0x54;
+      case rocksdb::Tickers::NUMBER_BLOCK_NOT_COMPRESSED:
+        return 0x55;
+      case rocksdb::Tickers::MERGE_OPERATION_TOTAL_TIME:
+        return 0x56;
+      case rocksdb::Tickers::FILTER_OPERATION_TOTAL_TIME:
+        return 0x57;
+      case rocksdb::Tickers::ROW_CACHE_HIT:
+        return 0x58;
+      case rocksdb::Tickers::ROW_CACHE_MISS:
+        return 0x59;
+      case rocksdb::Tickers::READ_AMP_ESTIMATE_USEFUL_BYTES:
+        return 0x5A;
+      case rocksdb::Tickers::READ_AMP_TOTAL_READ_BYTES:
+        return 0x5B;
+      case rocksdb::Tickers::NUMBER_RATE_LIMITER_DRAINS:
+        return 0x5C;
+      case rocksdb::Tickers::TICKER_ENUM_MAX:
+        return 0x5D;
+      
+      default:
+        // undefined/default
+        return 0x0;
+    }
+  }
+
+  // Returns the equivalent C++ rocksdb::Tickers enum for the
+  // provided Java org.rocksdb.TickerType
+  static rocksdb::Tickers toCppTickers(jbyte jticker_type) {
+    switch(jticker_type) {
+      case 0x0:
+        return rocksdb::Tickers::BLOCK_CACHE_MISS;
+      case 0x1:
+        return rocksdb::Tickers::BLOCK_CACHE_HIT;
+      case 0x2:
+        return rocksdb::Tickers::BLOCK_CACHE_ADD;
+      case 0x3:
+        return rocksdb::Tickers::BLOCK_CACHE_ADD_FAILURES;
+      case 0x4:
+        return rocksdb::Tickers::BLOCK_CACHE_INDEX_MISS;
+      case 0x5:
+        return rocksdb::Tickers::BLOCK_CACHE_INDEX_HIT;
+      case 0x6:
+        return rocksdb::Tickers::BLOCK_CACHE_INDEX_ADD;
+      case 0x7:
+        return rocksdb::Tickers::BLOCK_CACHE_INDEX_BYTES_INSERT;
+      case 0x8:
+        return rocksdb::Tickers::BLOCK_CACHE_INDEX_BYTES_EVICT;
+      case 0x9:
+        return rocksdb::Tickers::BLOCK_CACHE_FILTER_MISS;
+      case 0xA:
+        return rocksdb::Tickers::BLOCK_CACHE_FILTER_HIT;
+      case 0xB:
+        return rocksdb::Tickers::BLOCK_CACHE_FILTER_ADD;
+      case 0xC:
+        return rocksdb::Tickers::BLOCK_CACHE_FILTER_BYTES_INSERT;
+      case 0xD:
+        return rocksdb::Tickers::BLOCK_CACHE_FILTER_BYTES_EVICT;
+      case 0xE:
+        return rocksdb::Tickers::BLOCK_CACHE_DATA_MISS;
+      case 0xF:
+        return rocksdb::Tickers::BLOCK_CACHE_DATA_HIT;
+      case 0x10:
+        return rocksdb::Tickers::BLOCK_CACHE_DATA_ADD;
+      case 0x11:
+        return rocksdb::Tickers::BLOCK_CACHE_DATA_BYTES_INSERT;
+      case 0x12:
+        return rocksdb::Tickers::BLOCK_CACHE_BYTES_READ;
+      case 0x13:
+        return rocksdb::Tickers::BLOCK_CACHE_BYTES_WRITE;
+      case 0x14:
+        return rocksdb::Tickers::BLOOM_FILTER_USEFUL;
+      case 0x15:
+        return rocksdb::Tickers::PERSISTENT_CACHE_HIT;
+      case 0x16:
+        return rocksdb::Tickers::PERSISTENT_CACHE_MISS;
+      case 0x17:
+        return rocksdb::Tickers::SIM_BLOCK_CACHE_HIT;
+      case 0x18:
+        return rocksdb::Tickers::SIM_BLOCK_CACHE_MISS;
+      case 0x19:
+        return rocksdb::Tickers::MEMTABLE_HIT;
+      case 0x1A:
+        return rocksdb::Tickers::MEMTABLE_MISS;
+      case 0x1B:
+        return rocksdb::Tickers::GET_HIT_L0;
+      case 0x1C:
+        return rocksdb::Tickers::GET_HIT_L1;
+      case 0x1D:
+        return rocksdb::Tickers::GET_HIT_L2_AND_UP;
+      case 0x1E:
+        return rocksdb::Tickers::COMPACTION_KEY_DROP_NEWER_ENTRY;
+      case 0x1F:
+        return rocksdb::Tickers::COMPACTION_KEY_DROP_OBSOLETE;
+      case 0x20:
+        return rocksdb::Tickers::COMPACTION_KEY_DROP_RANGE_DEL;
+      case 0x21:
+        return rocksdb::Tickers::COMPACTION_KEY_DROP_USER;
+      case 0x22:
+        return rocksdb::Tickers::COMPACTION_RANGE_DEL_DROP_OBSOLETE;
+      case 0x23:
+        return rocksdb::Tickers::NUMBER_KEYS_WRITTEN;
+      case 0x24:
+        return rocksdb::Tickers::NUMBER_KEYS_READ;
+      case 0x25:
+        return rocksdb::Tickers::NUMBER_KEYS_UPDATED;
+      case 0x26:
+        return rocksdb::Tickers::BYTES_WRITTEN;
+      case 0x27:
+        return rocksdb::Tickers::BYTES_READ;
+      case 0x28:
+        return rocksdb::Tickers::NUMBER_DB_SEEK;
+      case 0x29:
+        return rocksdb::Tickers::NUMBER_DB_NEXT;
+      case 0x2A:
+        return rocksdb::Tickers::NUMBER_DB_PREV;
+      case 0x2B:
+        return rocksdb::Tickers::NUMBER_DB_SEEK_FOUND;
+      case 0x2C:
+        return rocksdb::Tickers::NUMBER_DB_NEXT_FOUND;
+      case 0x2D:
+        return rocksdb::Tickers::NUMBER_DB_PREV_FOUND;
+      case 0x2E:
+        return rocksdb::Tickers::ITER_BYTES_READ;
+      case 0x2F:
+        return rocksdb::Tickers::NO_FILE_CLOSES;
+      case 0x30:
+        return rocksdb::Tickers::NO_FILE_OPENS;
+      case 0x31:
+        return rocksdb::Tickers::NO_FILE_ERRORS;
+      case 0x32:
+        return rocksdb::Tickers::STALL_L0_SLOWDOWN_MICROS;
+      case 0x33:
+        return rocksdb::Tickers::STALL_MEMTABLE_COMPACTION_MICROS;
+      case 0x34:
+        return rocksdb::Tickers::STALL_L0_NUM_FILES_MICROS;
+      case 0x35:
+        return rocksdb::Tickers::STALL_MICROS;
+      case 0x36:
+        return rocksdb::Tickers::DB_MUTEX_WAIT_MICROS;
+      case 0x37:
+        return rocksdb::Tickers::RATE_LIMIT_DELAY_MILLIS;
+      case 0x38:
+        return rocksdb::Tickers::NO_ITERATORS;
+      case 0x39:
+        return rocksdb::Tickers::NUMBER_MULTIGET_CALLS;
+      case 0x3A:
+        return rocksdb::Tickers::NUMBER_MULTIGET_KEYS_READ;
+      case 0x3B:
+        return rocksdb::Tickers::NUMBER_MULTIGET_BYTES_READ;
+      case 0x3C:
+        return rocksdb::Tickers::NUMBER_FILTERED_DELETES;
+      case 0x3D:
+        return rocksdb::Tickers::NUMBER_MERGE_FAILURES;
+      case 0x3E:
+        return rocksdb::Tickers::BLOOM_FILTER_PREFIX_CHECKED;
+      case 0x3F:
+        return rocksdb::Tickers::BLOOM_FILTER_PREFIX_USEFUL;
+      case 0x40:
+        return rocksdb::Tickers::NUMBER_OF_RESEEKS_IN_ITERATION;
+      case 0x41:
+        return rocksdb::Tickers::GET_UPDATES_SINCE_CALLS;
+      case 0x42:
+        return rocksdb::Tickers::BLOCK_CACHE_COMPRESSED_MISS;
+      case 0x43:
+        return rocksdb::Tickers::BLOCK_CACHE_COMPRESSED_HIT;
+      case 0x44:
+        return rocksdb::Tickers::BLOCK_CACHE_COMPRESSED_ADD;
+      case 0x45:
+        return rocksdb::Tickers::BLOCK_CACHE_COMPRESSED_ADD_FAILURES;
+      case 0x46:
+        return rocksdb::Tickers::WAL_FILE_SYNCED;
+      case 0x47:
+        return rocksdb::Tickers::WAL_FILE_BYTES;
+      case 0x48:
+        return rocksdb::Tickers::WRITE_DONE_BY_SELF;
+      case 0x49:
+        return rocksdb::Tickers::WRITE_DONE_BY_OTHER;
+      case 0x4A:
+        return rocksdb::Tickers::WRITE_TIMEDOUT;
+      case 0x4B:
+        return rocksdb::Tickers::WRITE_WITH_WAL;
+      case 0x4C:
+        return rocksdb::Tickers::COMPACT_READ_BYTES;
+      case 0x4D:
+        return rocksdb::Tickers::COMPACT_WRITE_BYTES;
+      case 0x4E:
+        return rocksdb::Tickers::FLUSH_WRITE_BYTES;
+      case 0x4F:
+        return rocksdb::Tickers::NUMBER_DIRECT_LOAD_TABLE_PROPERTIES;
+      case 0x50:
+        return rocksdb::Tickers::NUMBER_SUPERVERSION_ACQUIRES;
+      case 0x51:
+        return rocksdb::Tickers::NUMBER_SUPERVERSION_RELEASES;
+      case 0x52:
+        return rocksdb::Tickers::NUMBER_SUPERVERSION_CLEANUPS;
+      case 0x53:
+        return rocksdb::Tickers::NUMBER_BLOCK_COMPRESSED;
+      case 0x54:
+        return rocksdb::Tickers::NUMBER_BLOCK_DECOMPRESSED;
+      case 0x55:
+        return rocksdb::Tickers::NUMBER_BLOCK_NOT_COMPRESSED;
+      case 0x56:
+        return rocksdb::Tickers::MERGE_OPERATION_TOTAL_TIME;
+      case 0x57:
+        return rocksdb::Tickers::FILTER_OPERATION_TOTAL_TIME;
+      case 0x58:
+        return rocksdb::Tickers::ROW_CACHE_HIT;
+      case 0x59:
+        return rocksdb::Tickers::ROW_CACHE_MISS;
+      case 0x5A:
+        return rocksdb::Tickers::READ_AMP_ESTIMATE_USEFUL_BYTES;
+      case 0x5B:
+        return rocksdb::Tickers::READ_AMP_TOTAL_READ_BYTES;
+      case 0x5C:
+        return rocksdb::Tickers::NUMBER_RATE_LIMITER_DRAINS;
+      case 0x5D:
+        return rocksdb::Tickers::TICKER_ENUM_MAX;
+
+      default:
+        // undefined/default
+        return rocksdb::Tickers::BLOCK_CACHE_MISS;
+    }
+  }
+};
+
+// The portal class for org.rocksdb.HistogramType
+class HistogramTypeJni {
+ public:
+  // Returns the equivalent org.rocksdb.HistogramType for the provided
+  // C++ rocksdb::Histograms enum
+  static jbyte toJavaHistogramsType(
+      const rocksdb::Histograms& histograms) {
+    switch(histograms) {
+      case rocksdb::Histograms::DB_GET:
+        return 0x0;
+      case rocksdb::Histograms::DB_WRITE:
+        return 0x1;
+      case rocksdb::Histograms::COMPACTION_TIME:
+        return 0x2;
+      case rocksdb::Histograms::SUBCOMPACTION_SETUP_TIME:
+        return 0x3;
+      case rocksdb::Histograms::TABLE_SYNC_MICROS:
+        return 0x4;
+      case rocksdb::Histograms::COMPACTION_OUTFILE_SYNC_MICROS:
+        return 0x5;
+      case rocksdb::Histograms::WAL_FILE_SYNC_MICROS:
+        return 0x6;
+      case rocksdb::Histograms::MANIFEST_FILE_SYNC_MICROS:
+        return 0x7;
+      case rocksdb::Histograms::TABLE_OPEN_IO_MICROS:
+        return 0x8;
+      case rocksdb::Histograms::DB_MULTIGET:
+        return 0x9;
+      case rocksdb::Histograms::READ_BLOCK_COMPACTION_MICROS:
+        return 0xA;
+      case rocksdb::Histograms::READ_BLOCK_GET_MICROS:
+        return 0xB;
+      case rocksdb::Histograms::WRITE_RAW_BLOCK_MICROS:
+        return 0xC;
+      case rocksdb::Histograms::STALL_L0_SLOWDOWN_COUNT:
+        return 0xD;
+      case rocksdb::Histograms::STALL_MEMTABLE_COMPACTION_COUNT:
+        return 0xE;
+      case rocksdb::Histograms::STALL_L0_NUM_FILES_COUNT:
+        return 0xF;
+      case rocksdb::Histograms::HARD_RATE_LIMIT_DELAY_COUNT:
+        return 0x10;
+      case rocksdb::Histograms::SOFT_RATE_LIMIT_DELAY_COUNT:
+        return 0x11;
+      case rocksdb::Histograms::NUM_FILES_IN_SINGLE_COMPACTION:
+        return 0x12;
+      case rocksdb::Histograms::DB_SEEK:
+        return 0x13;
+      case rocksdb::Histograms::WRITE_STALL:
+        return 0x14;
+      case rocksdb::Histograms::SST_READ_MICROS:
+        return 0x15;
+      case rocksdb::Histograms::NUM_SUBCOMPACTIONS_SCHEDULED:
+        return 0x16;
+      case rocksdb::Histograms::BYTES_PER_READ:
+        return 0x17;
+      case rocksdb::Histograms::BYTES_PER_WRITE:
+        return 0x18;
+      case rocksdb::Histograms::BYTES_PER_MULTIGET:
+        return 0x19;
+      case rocksdb::Histograms::BYTES_COMPRESSED:
+        return 0x1A;
+      case rocksdb::Histograms::BYTES_DECOMPRESSED:
+        return 0x1B;
+      case rocksdb::Histograms::COMPRESSION_TIMES_NANOS:
+        return 0x1C;
+      case rocksdb::Histograms::DECOMPRESSION_TIMES_NANOS:
+        return 0x1D;
+      case rocksdb::Histograms::READ_NUM_MERGE_OPERANDS:
+        return 0x1E;
+      case rocksdb::Histograms::HISTOGRAM_ENUM_MAX:
+        return 0x1F;
+
+      default:
+        // undefined/default
+        return 0x0;
+    }
+  }
+
+  // Returns the equivalent C++ rocksdb::Histograms enum for the
+  // provided Java org.rocksdb.HistogramsType
+  static rocksdb::Histograms toCppHistograms(jbyte jhistograms_type) {
+    switch(jhistograms_type) {
+      case 0x0:
+        return rocksdb::Histograms::DB_GET;
+      case 0x1:
+        return rocksdb::Histograms::DB_WRITE;
+      case 0x2:
+        return rocksdb::Histograms::COMPACTION_TIME;
+      case 0x3:
+        return rocksdb::Histograms::SUBCOMPACTION_SETUP_TIME;
+      case 0x4:
+        return rocksdb::Histograms::TABLE_SYNC_MICROS;
+      case 0x5:
+        return rocksdb::Histograms::COMPACTION_OUTFILE_SYNC_MICROS;
+      case 0x6:
+        return rocksdb::Histograms::WAL_FILE_SYNC_MICROS;
+      case 0x7:
+        return rocksdb::Histograms::MANIFEST_FILE_SYNC_MICROS;
+      case 0x8:
+        return rocksdb::Histograms::TABLE_OPEN_IO_MICROS;
+      case 0x9:
+        return rocksdb::Histograms::DB_MULTIGET;
+      case 0xA:
+        return rocksdb::Histograms::READ_BLOCK_COMPACTION_MICROS;
+      case 0xB:
+        return rocksdb::Histograms::READ_BLOCK_GET_MICROS;
+      case 0xC:
+        return rocksdb::Histograms::WRITE_RAW_BLOCK_MICROS;
+      case 0xD:
+        return rocksdb::Histograms::STALL_L0_SLOWDOWN_COUNT;
+      case 0xE:
+        return rocksdb::Histograms::STALL_MEMTABLE_COMPACTION_COUNT;
+      case 0xF:
+        return rocksdb::Histograms::STALL_L0_NUM_FILES_COUNT;
+      case 0x10:
+        return rocksdb::Histograms::HARD_RATE_LIMIT_DELAY_COUNT;
+      case 0x11:
+        return rocksdb::Histograms::SOFT_RATE_LIMIT_DELAY_COUNT;
+      case 0x12:
+        return rocksdb::Histograms::NUM_FILES_IN_SINGLE_COMPACTION;
+      case 0x13:
+        return rocksdb::Histograms::DB_SEEK;
+      case 0x14:
+        return rocksdb::Histograms::WRITE_STALL;
+      case 0x15:
+        return rocksdb::Histograms::SST_READ_MICROS;
+      case 0x16:
+        return rocksdb::Histograms::NUM_SUBCOMPACTIONS_SCHEDULED;
+      case 0x17:
+        return rocksdb::Histograms::BYTES_PER_READ;
+      case 0x18:
+        return rocksdb::Histograms::BYTES_PER_WRITE;
+      case 0x19:
+        return rocksdb::Histograms::BYTES_PER_MULTIGET;
+      case 0x1A:
+        return rocksdb::Histograms::BYTES_COMPRESSED;
+      case 0x1B:
+        return rocksdb::Histograms::BYTES_DECOMPRESSED;
+      case 0x1C:
+        return rocksdb::Histograms::COMPRESSION_TIMES_NANOS;
+      case 0x1D:
+        return rocksdb::Histograms::DECOMPRESSION_TIMES_NANOS;
+      case 0x1E:
+        return rocksdb::Histograms::READ_NUM_MERGE_OPERANDS;
+      case 0x1F:
+        return rocksdb::Histograms::HISTOGRAM_ENUM_MAX;
+
+      default:
+        // undefined/default
+        return rocksdb::Histograms::DB_GET;
+    }
+  }
+};
+
+// The portal class for org.rocksdb.StatsLevel
+class StatsLevelJni {
+ public:
+  // Returns the equivalent org.rocksdb.StatsLevel for the provided
+  // C++ rocksdb::StatsLevel enum
+  static jbyte toJavaStatsLevel(
+      const rocksdb::StatsLevel& stats_level) {
+    switch(stats_level) {
+      case rocksdb::StatsLevel::kExceptDetailedTimers:
+        return 0x0;
+      case rocksdb::StatsLevel::kExceptTimeForMutex:
+        return 0x1;
+      case rocksdb::StatsLevel::kAll:
+        return 0x2;
+
+      default:
+        // undefined/default
+        return 0x0;
+    }
+  }
+
+  // Returns the equivalent C++ rocksdb::StatsLevel enum for the
+  // provided Java org.rocksdb.StatsLevel
+  static rocksdb::StatsLevel toCppStatsLevel(jbyte jstats_level) {
+    switch(jstats_level) {
+      case 0x0:
+        return rocksdb::StatsLevel::kExceptDetailedTimers;
+      case 0x1:
+        return rocksdb::StatsLevel::kExceptTimeForMutex;
+      case 0x2:
+        return rocksdb::StatsLevel::kAll;
+
+      default:
+        // undefined/default
+        return rocksdb::StatsLevel::kExceptDetailedTimers;
+    }
+  }
+};
+
 // various utility functions for working with RocksDB and JNI
 class JniUtil {
  public:

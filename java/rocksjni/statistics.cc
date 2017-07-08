@@ -16,28 +16,55 @@
 
 /*
  * Class:     org_rocksdb_Statistics
- * Method:    getTickerCount0
- * Signature: (IJ)J
+ * Method:    statsLevel
+ * Signature: (J)B
  */
-jlong Java_org_rocksdb_Statistics_getTickerCount0(
-    JNIEnv* env, jobject jobj, jint tickerType, jlong handle) {
+jbyte Java_org_rocksdb_Statistics_statsLevel(
+    JNIEnv* env, jobject jobj, jlong handle) {
   auto* st = reinterpret_cast<rocksdb::Statistics*>(handle);
   assert(st != nullptr);
-  return st->getTickerCount(static_cast<rocksdb::Tickers>(tickerType));
+  return rocksdb::StatsLevelJni::toJavaStatsLevel(st->stats_level_);
+}
+
+/*
+ * Class:     org_rocksdb_Statistics
+ * Method:    setStatsLevel
+ * Signature: (JB)V
+ */
+void Java_org_rocksdb_Statistics_setStatsLevel(
+    JNIEnv* env, jobject jobj, jlong handle, jbyte jstats_level) {
+  auto* st = reinterpret_cast<rocksdb::Statistics*>(handle);
+  assert(st != nullptr);
+  auto stats_level = rocksdb::StatsLevelJni::toCppStatsLevel(jstats_level);
+  st->stats_level_ = stats_level;
+}
+
+/*
+ * Class:     org_rocksdb_Statistics
+ * Method:    getTickerCount0
+ * Signature: (JB)J
+ */
+jlong Java_org_rocksdb_Statistics_getTickerCount0(
+    JNIEnv* env, jobject jobj, jlong handle, jbyte jticker_type) {
+  auto* st = reinterpret_cast<rocksdb::Statistics*>(handle);
+  assert(st != nullptr);
+  auto ticker = rocksdb::TickerTypeJni::toCppTickers(jticker_type);
+  return st->getTickerCount(ticker);
 }
 
 /*
  * Class:     org_rocksdb_Statistics
  * Method:    getHistogramData0
- * Signature: (IJ)Lorg/rocksdb/HistogramData;
+ * Signature: (JB)Lorg/rocksdb/HistogramData;
  */
 jobject Java_org_rocksdb_Statistics_getHistogramData0(
-    JNIEnv* env, jobject jobj, jint histogramType, jlong handle) {
+    JNIEnv* env, jobject jobj, jlong handle, jbyte jhistogram_type) {
   auto* st = reinterpret_cast<rocksdb::Statistics*>(handle);
   assert(st != nullptr);
 
   rocksdb::HistogramData data;
-  st->histogramData(static_cast<rocksdb::Histograms>(histogramType),
+  auto histogram = rocksdb::HistogramTypeJni::toCppHistograms(jhistogram_type);
+  st->histogramData(static_cast<rocksdb::Histograms>(histogram),
     &data);
 
   jclass jclazz = rocksdb::HistogramDataJni::getJClass(env);
