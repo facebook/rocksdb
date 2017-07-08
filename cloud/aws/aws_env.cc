@@ -146,6 +146,15 @@ AwsEnv::AwsEnv(Env* underlying_env, const std::string& src_bucket_prefix,
   dest_object_prefix_ = trim(dest_object_prefix_);
   dest_bucket_region_ = trim(dest_bucket_region_);
 
+
+  unique_ptr<Aws::Auth::AWSCredentials> creds;
+  if (!cloud_env_options.credentials.access_key_id.empty() &&
+      !cloud_env_options.credentials.secret_key.c_str()) {
+    creds.reset(new Aws::Auth::AWSCredentials(
+        Aws::String(cloud_env_options.credentials.access_key_id.c_str()),
+        Aws::String(cloud_env_options.credentials.secret_key.c_str())));
+  }
+
   Header(info_log_, "      AwsEnv.src_bucket_prefix: %s",
          src_bucket_prefix_.c_str());
   Header(info_log_, "      AwsEnv.src_object_prefix: %s",
@@ -158,15 +167,11 @@ AwsEnv::AwsEnv(Env* underlying_env, const std::string& src_bucket_prefix,
          dest_object_prefix_.c_str());
   Header(info_log_, "     AwsEnv.dest_bucket_region: %s",
          dest_bucket_region_.c_str());
+  Header(info_log_, "            AwsEnv.credentials: %s",
+         creds ? "[given]" : "[not given]");
 
   base_env_ = underlying_env;
   Aws::InitAPI(Aws::SDKOptions());
-
-  // create AWS creds
-  Aws::Auth::AWSCredentials creds(
-      Aws::String(cloud_env_options.credentials.access_key_id.c_str()),
-      Aws::String(cloud_env_options.credentials.secret_key.c_str()));
-
   // create AWS S3 client with appropriate timeouts
   Aws::Client::ClientConfiguration config;
   config.connectTimeoutMs = 30000;
@@ -219,8 +224,10 @@ AwsEnv::AwsEnv(Env* underlying_env, const std::string& src_bucket_prefix,
       GetBucketLocationConstraintForName(config.region);
 
   {
-    std::unique_ptr<Aws::S3::S3Client> s3client(
-        new Aws::S3::S3Client(creds, config));
+    unique_ptr<Aws::S3::S3Client> s3client(
+        creds ? new Aws::S3::S3Client(*creds, config)
+              : new Aws::S3::S3Client(config));
+
     s3client_ = std::make_shared<AwsS3ClientWrapper>(
         std::move(s3client), cloud_env_options.cloud_request_callback);
   }
@@ -251,7 +258,8 @@ AwsEnv::AwsEnv(Env* underlying_env, const std::string& src_bucket_prefix,
   // create Kinesis client for storing/reading logs
   if (create_bucket_status_.ok() && !cloud_env_options.keep_local_log_files) {
     kinesis_client_ =
-        std::make_shared<Aws::Kinesis::KinesisClient>(creds, config);
+        creds ? std::make_shared<Aws::Kinesis::KinesisClient>(*creds, config)
+              : std::make_shared<Aws::Kinesis::KinesisClient>(config);
     if (kinesis_client_ == nullptr) {
       create_bucket_status_ =
           Status::IOError("Error in creating Kinesis client");
