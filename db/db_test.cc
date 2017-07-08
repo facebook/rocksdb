@@ -2848,7 +2848,7 @@ TEST_F(DBTest, FIFOCompactionWithTTLAndVariousTableFormatsTest) {
   ASSERT_TRUE(TryReopen(options).IsNotSupported());
 }
 
-TEST_F(DBTest, FIFOCompactionWithTTLTest) {
+TEST_F(DBTest, DISABLED_FIFOCompactionWithTTLTest) {
   Options options;
   options.compaction_style = kCompactionStyleFIFO;
   options.write_buffer_size = 10 << 10;  // 10KB
