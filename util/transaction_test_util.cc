@@ -30,7 +30,8 @@ RandomTransactionInserter::RandomTransactionInserter(
       write_options_(write_options),
       read_options_(read_options),
       num_keys_(num_keys),
-      num_sets_(num_sets) {}
+      num_sets_(num_sets),
+      txn_id_(0) {}
 
 RandomTransactionInserter::~RandomTransactionInserter() {
   if (txn_ != nullptr) {
