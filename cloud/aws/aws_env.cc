@@ -149,7 +149,7 @@ AwsEnv::AwsEnv(Env* underlying_env, const std::string& src_bucket_prefix,
 
   unique_ptr<Aws::Auth::AWSCredentials> creds;
   if (!cloud_env_options.credentials.access_key_id.empty() &&
-      !cloud_env_options.credentials.secret_key.c_str()) {
+      !cloud_env_options.credentials.secret_key.empty()) {
     creds.reset(new Aws::Auth::AWSCredentials(
         Aws::String(cloud_env_options.credentials.access_key_id.c_str()),
         Aws::String(cloud_env_options.credentials.secret_key.c_str())));
