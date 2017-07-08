@@ -989,10 +989,10 @@ Status AwsEnv::CreateDir(const std::string& dirname) {
     Aws::String object = Aws::String(dname.c_str(), dname.size());
 
     // create an empty object
-    // we don't set encryption here on purpose
     Aws::S3::Model::PutObjectRequest put_request;
     put_request.SetBucket(bucket);
     put_request.SetKey(object);
+    SetEncryptionParameters(put_request);
     Aws::S3::Model::PutObjectOutcome put_outcome =
         s3client_->PutObject(put_request);
     bool isSuccess = put_outcome.IsSuccess();
@@ -1031,10 +1031,10 @@ Status AwsEnv::CreateDirIfMissing(const std::string& dirname) {
     Aws::String object = Aws::String(dname.c_str(), dname.size());
 
     // create request
-    // we don't set encryption here on purpose
     Aws::S3::Model::PutObjectRequest put_request;
     put_request.SetBucket(bucket);
     put_request.SetKey(object);
+    SetEncryptionParameters(put_request);
     Aws::S3::Model::PutObjectOutcome put_outcome =
         s3client_->PutObject(put_request);
     bool isSuccess = put_outcome.IsSuccess();
@@ -1359,11 +1359,11 @@ Status AwsEnv::SaveDbid(const std::string& dbid, const std::string& dirname) {
   metadata[dir] = Aws::String(dirname.c_str(), dirname.size());
 
   // create request
-  // we don't set encryption here on purpose
   Aws::S3::Model::PutObjectRequest put_request;
   put_request.SetBucket(bucket);
   put_request.SetKey(key);
   put_request.SetMetadata(metadata);
+  SetEncryptionParameters(put_request);
 
   Aws::S3::Model::PutObjectOutcome put_outcome =
       s3client_->PutObject(put_request);
