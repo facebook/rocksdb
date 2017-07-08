@@ -19,6 +19,10 @@ void CloudEnvOptions::Dump(Logger* log) const {
   Header(log,
          "COptions.manifest_durable_periodicity_millis: %" PRIu64 " millis",
          manifest_durable_periodicity_millis);
+  Header(log, "             COptions.server_side_encryption: %d",
+         server_side_encryption);
+  Header(log, "                  COptions.encryption_key_id: %s",
+         encryption_key_id.c_str());
 }
 
 }  // namespace rocksdb

@@ -20,10 +20,11 @@
 #include <aws/s3/S3Client.h>
 #include <aws/s3/S3Errors.h>
 #include <aws/s3/model/CopyObjectRequest.h>
+#include <aws/s3/model/CopyObjectRequest.h>
+#include <aws/s3/model/CopyObjectResult.h>
 #include <aws/s3/model/CreateBucketConfiguration.h>
 #include <aws/s3/model/CreateBucketRequest.h>
 #include <aws/s3/model/CreateBucketResult.h>
-#include <aws/s3/model/HeadBucketRequest.h>
 #include <aws/s3/model/DeleteBucketRequest.h>
 #include <aws/s3/model/DeleteObjectRequest.h>
 #include <aws/s3/model/DeleteObjectResult.h>
@@ -31,14 +32,14 @@
 #include <aws/s3/model/GetBucketVersioningResult.h>
 #include <aws/s3/model/GetObjectRequest.h>
 #include <aws/s3/model/GetObjectResult.h>
+#include <aws/s3/model/HeadBucketRequest.h>
 #include <aws/s3/model/HeadObjectRequest.h>
 #include <aws/s3/model/HeadObjectResult.h>
 #include <aws/s3/model/ListObjectsRequest.h>
 #include <aws/s3/model/ListObjectsResult.h>
 #include <aws/s3/model/PutObjectRequest.h>
 #include <aws/s3/model/PutObjectResult.h>
-#include <aws/s3/model/CopyObjectRequest.h>
-#include <aws/s3/model/CopyObjectResult.h>
+#include <aws/s3/model/ServerSideEncryption.h>
 
 #include <aws/kinesis/KinesisClient.h>
 #include <aws/kinesis/KinesisErrors.h>

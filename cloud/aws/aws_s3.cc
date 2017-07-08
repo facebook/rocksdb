@@ -411,6 +411,7 @@ Status S3WritableFile::CopyToS3(const AwsEnv* env, const std::string& fname,
   put_request.SetBucket(s3_bucket);
   put_request.SetKey(s3_object);
   put_request.SetBody(input_data);
+  env->SetEncryptionParameters(put_request);
 
   Aws::S3::Model::PutObjectOutcome put_outcome =
       env->s3client_->PutObject(put_request, size_hint);

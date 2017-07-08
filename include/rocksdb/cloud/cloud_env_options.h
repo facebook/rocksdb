@@ -91,13 +91,24 @@ class CloudEnvOptions {
   // parameters: (op, size, latency in microseconds, is_success)
   std::shared_ptr<CloudRequestCallback> cloud_request_callback;
 
+  // If true, enables server side encryption. If used with encryption_key_id in
+  // S3 mode uses AWS KMS. Otherwise, uses S3 server-side encryption where
+  // key is automatically created by Amazon.
+  // Default: false
+  bool server_side_encryption;
+
+  // If non-empty, uses the key ID for encryption.
+  // Default: empty
+  std::string encryption_key_id;
+
   CloudEnvOptions(
       CloudType _cloud_type = CloudType::kAws,
       bool _keep_local_sst_files = false, bool _keep_local_log_files = true,
       uint64_t _manifest_durable_periodicity_millis = 60 * 1000,
       uint64_t _purger_periodicity_millis = 10 * 60 * 1000,
       bool _validate_filesize = true,
-      std::shared_ptr<CloudRequestCallback> _cloud_request_callback = nullptr)
+      std::shared_ptr<CloudRequestCallback> _cloud_request_callback = nullptr,
+      bool _server_side_encryption = false, std::string _encryption_key_id = "")
       : cloud_type(_cloud_type),
         keep_local_sst_files(_keep_local_sst_files),
         keep_local_log_files(_keep_local_log_files),
@@ -105,7 +116,9 @@ class CloudEnvOptions {
             _manifest_durable_periodicity_millis),
         purger_periodicity_millis(_purger_periodicity_millis),
         validate_filesize(_validate_filesize),
-        cloud_request_callback(_cloud_request_callback) {
+        cloud_request_callback(_cloud_request_callback),
+        server_side_encryption(_server_side_encryption),
+        encryption_key_id(std::move(_encryption_key_id)) {
     assert(manifest_durable_periodicity_millis == 0 ||
            keep_local_log_files == true);
   }

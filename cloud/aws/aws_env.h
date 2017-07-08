@@ -291,6 +291,9 @@ class AwsEnv : public CloudEnvImpl {
                     const std::string& bucket_name_prefix_dest,
                     const std::string& bucket_object_path_dest);
 
+  void SetEncryptionParameters(
+      Aws::S3::Model::PutObjectRequest& put_request) const;
+
   void TEST_SetFileDeletionDelay(std::chrono::seconds delay) {
     std::lock_guard<std::mutex> lk(file_deletion_lock_);
     file_deletion_delay_ = delay;

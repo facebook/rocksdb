@@ -615,6 +615,30 @@ TEST_F(CloudTest, Savepoint) {
   }
 }
 
+TEST_F(CloudTest, Encryption) {
+  // Create aws env
+  cloud_env_options_.server_side_encryption = true;
+  char* key_id = getenv("AWS_KMS_KEY_ID");
+  if (key_id != nullptr) {
+    cloud_env_options_.encryption_key_id = std::string(key_id);
+    Log(options_.info_log, "Found encryption key id in env variable %s",
+        key_id);
+  }
+
+  OpenDB();
+
+  ASSERT_OK(db_->Put(WriteOptions(), "Hello", "World"));
+  // create a file
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  CloseDB();
+
+  OpenDB();
+  std::string value;
+  ASSERT_OK(db_->Get(ReadOptions(), "Hello", &value));
+  ASSERT_EQ(value, "World");
+  CloseDB();
+}
+
 #ifdef AWS_DO_NOT_RUN
 //
 // Verify that we can cache data from S3 in persistent cache.

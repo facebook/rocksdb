@@ -989,6 +989,7 @@ Status AwsEnv::CreateDir(const std::string& dirname) {
     Aws::String object = Aws::String(dname.c_str(), dname.size());
 
     // create an empty object
+    // we don't set encryption here on purpose
     Aws::S3::Model::PutObjectRequest put_request;
     put_request.SetBucket(bucket);
     put_request.SetKey(object);
@@ -1030,6 +1031,7 @@ Status AwsEnv::CreateDirIfMissing(const std::string& dirname) {
     Aws::String object = Aws::String(dname.c_str(), dname.size());
 
     // create request
+    // we don't set encryption here on purpose
     Aws::S3::Model::PutObjectRequest put_request;
     put_request.SetBucket(bucket);
     put_request.SetKey(object);
@@ -1357,6 +1359,7 @@ Status AwsEnv::SaveDbid(const std::string& dbid, const std::string& dirname) {
   metadata[dir] = Aws::String(dirname.c_str(), dirname.size());
 
   // create request
+  // we don't set encryption here on purpose
   Aws::S3::Model::PutObjectRequest put_request;
   put_request.SetBucket(bucket);
   put_request.SetKey(key);
@@ -1556,6 +1559,21 @@ Status AwsEnv::CopyObject(const std::string& bucket_name_prefix_src,
       src_url.c_str(), dest_object.c_str(), st.ToString().c_str());
   return st;
 }
+
+void AwsEnv::SetEncryptionParameters(
+    Aws::S3::Model::PutObjectRequest& put_request) const {
+  if (cloud_env_options.server_side_encryption) {
+    if (cloud_env_options.encryption_key_id.empty()) {
+      put_request.SetServerSideEncryption(
+          Aws::S3::Model::ServerSideEncryption::AES256);
+    } else {
+      put_request.SetServerSideEncryption(
+          Aws::S3::Model::ServerSideEncryption::aws_kms);
+      put_request.SetSSEKMSKeyId(cloud_env_options.encryption_key_id.c_str());
+    }
+  }
+}
+
 
 //
 // prepends the configured src object path name
