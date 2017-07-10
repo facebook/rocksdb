@@ -113,16 +113,10 @@ PERC_PATTERN+="P99: ([0-9\.]+) P99.9: ([0-9\.]+) P99.99: ([0-9\.]+)"
 #==============================================================================
 
 function main {
-  commit=${1:-"origin/master"}
   TEST_ROOT_DIR=${TEST_PATH:-"/tmp/rocksdb/regression_test"}
   init_arguments $TEST_ROOT_DIR
 
-  if [ $DEBUG -eq 0 ]; then
-      checkout_rocksdb $commit
-      build_db_bench_and_ldb
-  elif [[ ! -f db_bench ]] || [[ ! -f ldb ]]; then
-      build_db_bench_and_ldb
-  fi
+  build_db_bench_and_ldb
 
   setup_test_directory
   if [ $TEST_MODE -le 1 ]; then
