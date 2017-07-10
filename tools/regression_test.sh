@@ -118,7 +118,6 @@ function main {
   init_arguments $TEST_ROOT_DIR
 
   if [ $DEBUG -eq 0 ]; then
-      checkout_rocksdb $commit
       build_db_bench_and_ldb
   elif [[ ! -f db_bench ]] || [[ ! -f ldb ]]; then
       build_db_bench_and_ldb
