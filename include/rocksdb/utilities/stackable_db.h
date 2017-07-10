@@ -95,10 +95,8 @@ class StackableDB : public DB {
     return db_->IngestExternalFile(column_family, external_files, options);
   }
 
-  virtual Status VerifyChecksum() override { return db_->VerifyChecksum(); }
-
-  virtual Status VerifyChecksum(const std::string& file_path) override {
-    return db_->VerifyChecksum(file_path);
+  virtual Status VerifyChecksum() override {
+    return db_->VerifyChecksum();
   }
 
   using DB::KeyMayExist;

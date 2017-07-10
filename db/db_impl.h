@@ -296,7 +296,6 @@ class DBImpl : public DB {
       const IngestExternalFileOptions& ingestion_options) override;
 
   virtual Status VerifyChecksum() override;
-  virtual Status VerifyChecksum(const std::string& file_path) override;
 
 #endif  // ROCKSDB_LITE
 
@@ -774,9 +773,6 @@ class DBImpl : public DB {
 
   // Used by WriteImpl to update bg_error_ in case of memtable insert error.
   void MemTableInsertStatusCheck(const Status& memtable_insert_status);
-
-  Status VerifyChecksumImpl(ColumnFamilyData* cfd,
-                            const std::string& file_path);
 
 #ifndef ROCKSDB_LITE
 

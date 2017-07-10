@@ -977,7 +977,6 @@ class DB {
   }
 
   virtual Status VerifyChecksum() = 0;
-  virtual Status VerifyChecksum(const std::string& file_path) = 0;
 
   // AddFile() is deprecated, please use IngestExternalFile()
   ROCKSDB_DEPRECATED_FUNC virtual Status AddFile(

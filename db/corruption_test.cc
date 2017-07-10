@@ -22,6 +22,7 @@
 #include "db/log_format.h"
 #include "db/version_set.h"
 #include "rocksdb/cache.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/env.h"
 #include "rocksdb/table.h"
 #include "rocksdb/write_batch.h"
@@ -181,7 +182,7 @@ class CorruptionTest : public testing::Test {
     }
     s = WriteStringToFile(Env::Default(), contents, fname);
     ASSERT_TRUE(s.ok()) << s.ToString();
-    ASSERT_NOK(db_->VerifyChecksum(fname));
+    ASSERT_NOK(VerifyChecksum(fname));
   }
 
   void Corrupt(FileType filetype, int offset, int bytes_to_corrupt) {

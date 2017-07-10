@@ -69,6 +69,7 @@
 #include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
@@ -2750,15 +2751,19 @@ Status DBImpl::VerifyChecksum() {
       }
     }
   }
+  std::vector<SuperVersion*> sv_list;
   for (auto cfd : cfd_list) {
-    VersionStorageInfo* vstorage = cfd->current()->storage_info();
+    sv_list.push_back(cfd->GetReferencedSuperVersion(&mutex_));
+  }
+  for (auto& sv : sv_list) {
+    VersionStorageInfo* vstorage = sv->current->storage_info();
     for (int i = 0; i < vstorage->num_non_empty_levels() && s.ok(); i++) {
       for (size_t j = 0; j < vstorage->LevelFilesBrief(i).num_files && s.ok();
            j++) {
         const auto& fd = vstorage->LevelFilesBrief(i).files[j].fd;
-        std::string fname = TableFileName(cfd->ioptions()->db_paths,
+        std::string fname = TableFileName(immutable_db_options_.db_paths,
                                           fd.GetNumber(), fd.GetPathId());
-        s = VerifyChecksumImpl(cfd, fname);
+        s = rocksdb::VerifyChecksum(fname);
       }
     }
     if (!s.ok()) {
@@ -2767,46 +2772,16 @@ Status DBImpl::VerifyChecksum() {
   }
   {
     InstrumentedMutexLock l(&mutex_);
+    for (auto sv: sv_list) {
+      if (sv && sv->Unref()) {
+        sv->Cleanup();
+        delete sv;
+      }
+    }
     for (auto cfd : cfd_list) {
         cfd->Unref();
     }
   }
-  return s;
-}
-
-Status DBImpl::VerifyChecksum(const std::string& file_path) {
-  SstFileReader reader(file_path, true /* verify_checksum */,
-                       false /* output_hex */);
-  if (reader.getStatus().ok()) {
-    return reader.VerifyChecksum();
-  }
-  return reader.getStatus();
-}
-
-Status DBImpl::VerifyChecksumImpl(ColumnFamilyData* cfd,
-                                  const std::string& file_path) {
-  unique_ptr<RandomAccessFile> file;
-  uint64_t file_size;
-  EnvOptions env_options;
-  Status s = env_->NewRandomAccessFile(file_path, &file, env_options);
-  if (s.ok()) {
-    s = env_->GetFileSize(file_path, &file_size);
-  } else {
-    return s;
-  }
-  unique_ptr<TableReader> table_reader;
-  std::unique_ptr<RandomAccessFileReader> file_reader(
-    new RandomAccessFileReader(std::move(file), file_path));
-  s = cfd->ioptions()->table_factory->NewTableReader(
-      TableReaderOptions(*cfd->ioptions(), env_options_,
-                         cfd->internal_comparator(), false /* skip_filters */,
-                         -1 /* level */),
-      std::move(file_reader), file_size, &table_reader,
-      false /* prefetch_index_and_filter_in_cache */);
-  if (!s.ok()) {
-    return s;
-  }
-  s = table_reader->VerifyChecksum();
   return s;
 }
 

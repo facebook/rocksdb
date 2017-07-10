@@ -329,6 +329,10 @@ void CancelAllBackgroundWork(DB* db, bool wait = false);
 // Snapshots before the delete might not see the data in the given range.
 Status DeleteFilesInRange(DB* db, ColumnFamilyHandle* column_family,
                           const Slice* begin, const Slice* end);
+
+// Verify the checksum of file
+Status VerifyChecksum(const std::string& file_path);
+
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb
