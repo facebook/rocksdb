@@ -503,19 +503,48 @@ Status AwsEnv::NewRandomAccessFile(const std::string& fname,
       return st;
     }
 
-    if (!st.ok() && cloud_env_options.keep_local_sst_files) {
-      // copy the file to the local storage if keep_local_sst_files is true
-      if (has_dest_bucket_) {
-        st = S3WritableFile::CopyFromS3(this, GetBucket(GetDestBucketPrefix()),
-                                        destname(fname), fname);
+    if (cloud_env_options.keep_local_sst_files) {
+      if (!st.ok()) {
+        // copy the file to the local storage if keep_local_sst_files is true
+        if (has_dest_bucket_) {
+          st = S3WritableFile::CopyFromS3(
+              this, GetBucket(GetDestBucketPrefix()), destname(fname), fname);
+        }
+        if (!st.ok() && has_src_bucket_) {
+          st = S3WritableFile::CopyFromS3(this, GetBucket(GetSrcBucketPrefix()),
+                                          srcname(fname), fname);
+        }
+        if (st.ok()) {
+          // we successfully copied the file, try opening it locally now
+          st = base_env_->NewRandomAccessFile(fname, result, options);
+        }
       }
-      if (!st.ok() && has_src_bucket_) {
-        st = S3WritableFile::CopyFromS3(this, GetBucket(GetSrcBucketPrefix()),
-                                        srcname(fname), fname);
-      }
-      if (st.ok()) {
-        // we successfully copied the file, try opening it locally now
-        st = base_env_->NewRandomAccessFile(fname, result, options);
+      // If we are being paranoic, then we validate that our file size is
+      // the same as in cloud storage.
+      if (st.ok() && cloud_env_options.validate_filesize) {
+        uint64_t remote_size = 0;
+        uint64_t local_size = 0;
+        Status stax = base_env_->GetFileSize(fname, &local_size);
+        if (!stax.ok()) {
+            return stax;
+        }
+        stax = Status::NotFound();
+        if (has_dest_bucket_) {
+          stax = GetFileInfoInS3(GetDestBucketPrefix(), destname(fname),
+                                 &remote_size, nullptr);
+        }
+        if (stax.IsNotFound() && has_src_bucket_) {
+          stax = GetFileInfoInS3(GetSrcBucketPrefix(), srcname(fname),
+                                 &remote_size, nullptr);
+        }
+        if (!stax.ok() || remote_size != local_size) {
+          std::string msg = "[aws] GetFileInfoInS3 src " + fname +
+                            " local size " + std::to_string(local_size) +
+                            " cloud size " + std::to_string(remote_size) + " " +
+                            stax.ToString();
+          Log(InfoLogLevel::ERROR_LEVEL, info_log_, "%s", msg.c_str());
+          return Status::IOError(msg);
+        }
       }
     }
 
@@ -1116,29 +1145,6 @@ Status AwsEnv::GetFileSize(const std::string& fname, uint64_t* size) {
   if (sstfile) {
     if (base_env_->FileExists(fname).ok()) {
       st = base_env_->GetFileSize(fname, size);
-      // If we are being paranoic, then we validate that our file size is
-      // the same as in cloud storage.
-      if (st.ok() && cloud_env_options.validate_filesize) {
-        uint64_t check_size = 0;
-        Status stax = Status::NotFound();
-        if (has_dest_bucket_) {
-          stax = GetFileInfoInS3(GetDestBucketPrefix(), destname(fname),
-                                 &check_size, nullptr);
-        }
-        if (stax.IsNotFound() && has_src_bucket_) {
-          stax = GetFileInfoInS3(GetSrcBucketPrefix(), srcname(fname),
-                                 &check_size, nullptr);
-        }
-        if (!stax.ok() || check_size != *size) {
-          std::string msg = "[aws] GetFileInfoInS3 src " + fname +
-                            " local size " + std::to_string(*size) +
-                            " cloud size " + std::to_string(check_size) +
-                            " " + stax.ToString();
-          Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-              "%s", msg.c_str());
-          return Status::IOError(msg);
-        }
-      }
     } else {
       st = Status::NotFound();
       // Get file length from S3

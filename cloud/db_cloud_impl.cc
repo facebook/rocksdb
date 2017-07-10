@@ -138,6 +138,15 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
       st = DB::Open(options, local_dbname, column_families, handles, &db);
     }
   }
+
+  // now that the database is opened, all file sizes have been verified and we
+  // no longer need to verify file sizes for each file that we open. Note that
+  // this might have a data race with background compaction, but it's not a big
+  // deal, since it's a boolean and it does not impact correctness in any way.
+  if (cenv->GetCloudEnvOptions().validate_filesize) {
+    *const_cast<bool*>(&cenv->GetCloudEnvOptions().validate_filesize) = false;
+  }
+
   if (st.ok()) {
     DBCloudImpl* cloud = new DBCloudImpl(db);
     *dbptr = cloud;
