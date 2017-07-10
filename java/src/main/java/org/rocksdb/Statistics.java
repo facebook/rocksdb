@@ -49,22 +49,86 @@ public class Statistics extends RocksObject {
     return values;
   }
 
+  /**
+   * Gets the current stats level.
+   *
+   * @return The stats level.
+   */
   public StatsLevel statsLevel() {
     return StatsLevel.getStatsLevel(statsLevel(nativeHandle_));
   }
 
+  /**
+   * Sets the stats level.
+   *
+   * @param statsLevel The stats level to set.
+   */
   public void setStatsLevel(final StatsLevel statsLevel) {
     setStatsLevel(nativeHandle_, statsLevel.getValue());
   }
 
+  /**
+   * Get the count for a ticker.
+   *
+   * @param tickerType The ticker to get the count for
+   *
+   * @return The count for the ticker
+   */
   public long getTickerCount(final TickerType tickerType) {
     assert(isOwningHandle());
-    return getTickerCount0(nativeHandle_, tickerType.getValue());
+    return getTickerCount(nativeHandle_, tickerType.getValue());
   }
 
+  /**
+   * Get the count for a ticker and reset the tickers count.
+   *
+   * @param tickerType The ticker to get the count for
+   *
+   * @return The count for the ticker
+   */
+  public long getAndResetTickerCount(final TickerType tickerType) {
+    assert(isOwningHandle());
+    return getAndResetTickerCount(nativeHandle_, tickerType.getValue());
+  }
+
+  /**
+   * Gets the histogram data for a particular histogram.
+   *
+   * @param histogramType The histogram to retrieve the data for
+   *
+   * @return The histogram data
+   */
   public HistogramData getHistogramData(final HistogramType histogramType) {
     assert(isOwningHandle());
-    return getHistogramData0(nativeHandle_, histogramType.getValue());
+    return getHistogramData(nativeHandle_, histogramType.getValue());
+  }
+
+  /**
+   * Gets a string representation of a particular histogram.
+   *
+   * @param histogramType The histogram to retrieve the data for
+   *
+   * @return A string representation of the histogram data
+   */
+  public String getHistogramString(final HistogramType histogramType) {
+    assert(isOwningHandle());
+    return getHistogramString(nativeHandle_, histogramType.getValue());
+  }
+
+  /**
+   * Resets all ticker and histogram stats.
+   */
+  public void reset() throws RocksDBException {
+    assert(isOwningHandle());
+    reset(nativeHandle_);
+  }
+
+  /**
+   * String representation of the statistic object.
+   */
+  public String toString() {
+    assert(isOwningHandle());
+    return toString(nativeHandle_);
   }
 
   private native static long newStatistics();
@@ -74,10 +138,12 @@ public class Statistics extends RocksObject {
 
   @Override protected final native void disposeInternal(final long handle);
 
-  // TODO(AR) add missing methods!
-
   private native byte statsLevel(final long handle);
   private native void setStatsLevel(final long handle, final byte statsLevel);
-  private native long getTickerCount0(final long handle, final byte tickerType);
-  private native HistogramData getHistogramData0(final long handle, final byte histogramType);
+  private native long getTickerCount(final long handle, final byte tickerType);
+  private native long getAndResetTickerCount(final long handle, final byte tickerType);
+  private native HistogramData getHistogramData(final long handle, final byte histogramType);
+  private native String getHistogramString(final long handle, final byte histogramType);
+  private native void reset(final long nativeHandle) throws RocksDBException;
+  private native String toString(final long nativeHandle);
 }
