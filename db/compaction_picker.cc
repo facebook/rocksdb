@@ -682,6 +682,10 @@ Compaction* CompactionPicker::CompactRange(
     return nullptr;
   }
 
+  if (inputs.empty() && output_level_inputs.empty()) {
+    return nullptr;
+  }
+
   std::vector<FileMetaData*> grandparents;
   GetGrandparents(vstorage, inputs, output_level_inputs, &grandparents);
   Compaction* compaction = new Compaction(
