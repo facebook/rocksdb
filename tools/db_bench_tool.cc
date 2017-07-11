@@ -1346,14 +1346,17 @@ static std::unordered_map<OperationType, std::string, std::hash<unsigned char>>
 class CombinedStats;
 class Stats {
  private:
+   // Used for async env reporting
+   std::mutex    lock_;
+   const   bool  sync_stats_;
   int id_;
-  uint64_t start_;
-  uint64_t finish_;
+  std::atomic_uint64_t start_;
+  std::atomic_uint64_t finish_;
   double seconds_;
-  uint64_t done_;
+  std::atomic_uint64_t done_;
   uint64_t last_report_done_;
   uint64_t next_report_;
-  uint64_t bytes_;
+  std::atomic_uint64_t bytes_;
   uint64_t last_op_finish_;
   uint64_t last_report_finish_;
   std::unordered_map<OperationType, std::shared_ptr<HistogramImpl>,
@@ -1364,7 +1367,32 @@ class Stats {
   friend class CombinedStats;
 
  public:
-  Stats() { Start(-1); }
+  Stats(bool sync_stats = false) : 
+    sync_stats_(sync_stats) { 
+    Start(-1);
+  }
+
+  Stats(Stats&& o) : Stats(o.sync_stats_) {
+    *this = std::move(o);
+  }
+
+  Stats& operator=(Stats&& o) {
+    id_ = o.id_;
+    start_ = o.start_.load(std::memory_order_relaxed);
+    finish_ = o.finish_.load(std::memory_order_relaxed);
+    seconds_ = o.seconds_;
+    done_ = o.done_.load(std::memory_order_relaxed);
+    last_report_done_ = o.last_report_done_;
+    next_report_ = o.next_report_;
+    bytes_ = o.bytes_.load(std::memory_order_relaxed);
+    last_op_finish_ = o.last_op_finish_;
+    last_report_finish_ = o.last_report_finish_;
+    hist_ = std::move(o.hist_);
+    message_ = std::move(o.message_);
+    exclude_from_merge_ = o.exclude_from_merge_;
+    reporter_agent_ = o.reporter_agent_;
+    return *this;
+  }
 
   void SetReporterAgent(ReporterAgent* reporter_agent) {
     reporter_agent_ = reporter_agent;
@@ -1380,7 +1408,7 @@ class Stats {
     bytes_ = 0;
     seconds_ = 0;
     start_ = FLAGS_env->NowMicros();
-    finish_ = start_;
+    finish_ = start_.load();
     last_report_finish_ = start_;
     message_.clear();
     // When set, stats from this thread won't be merged with others.
@@ -1400,11 +1428,13 @@ class Stats {
       }
     }
 
-    done_ += other.done_;
-    bytes_ += other.bytes_;
+    done_.fetch_add(other.done_, std::memory_order_relaxed);
+    bytes_.fetch_add(other.bytes_, std::memory_order_relaxed);
     seconds_ += other.seconds_;
-    if (other.start_ < start_) start_ = other.start_;
-    if (other.finish_ > finish_) finish_ = other.finish_;
+    auto other_start = other.start_.load();
+    auto other_finish = other.finish_.load();
+    if (other_start < start_) start_ = other_start;
+    if (other_finish > finish_) finish_ = other_finish;
 
     // Just keep the messages from one thread
     if (message_.empty()) message_ = other.message_;
@@ -1462,26 +1492,35 @@ class Stats {
     if (reporter_agent_) {
       reporter_agent_->ReportFinishedOps(num_ops);
     }
-    if (FLAGS_histogram) {
-      uint64_t now = FLAGS_env->NowMicros();
-      uint64_t micros = now - last_op_finish_;
 
-      if (hist_.find(op_type) == hist_.end())
-      {
-        auto hist_temp = std::make_shared<HistogramImpl>();
-        hist_.insert({op_type, std::move(hist_temp)});
+    {
+      std::unique_lock<std::mutex> ulock;
+      if (sync_stats_) {
+        std::unique_lock<std::mutex> l(lock_);
+        ulock = std::move(l);
       }
-      hist_[op_type]->Add(micros);
+      if (FLAGS_histogram) {
+        uint64_t now = FLAGS_env->NowMicros();
+        uint64_t micros = now - last_op_finish_;
 
-      if (micros > 20000 && !FLAGS_stats_interval) {
-        fprintf(stderr, "long op: %" PRIu64 " micros%30s\r", micros, "");
-        fflush(stderr);
+        auto& impl = hist_[op_type];
+        if (!impl) {
+          impl = std::move(std::make_shared<HistogramImpl>());
+        }
+        impl->Add(micros);
+        last_op_finish_ = now;
+
+        if (micros > 20000 && !FLAGS_stats_interval) {
+          fprintf(stderr, "long op: %" PRIu64 " micros%30s\r", micros, "");
+          fflush(stderr);
+        }
       }
-      last_op_finish_ = now;
     }
 
-    done_ += num_ops;
-    if (done_ >= next_report_) {
+    auto done = done_.fetch_add(num_ops, std::memory_order_relaxed)
+      + num_ops;
+
+    if (done >= next_report_) {
       if (!FLAGS_stats_interval) {
         if      (next_report_ < 1000)   next_report_ += 100;
         else if (next_report_ < 5000)   next_report_ += 500;
@@ -1490,7 +1529,8 @@ class Stats {
         else if (next_report_ < 100000) next_report_ += 10000;
         else if (next_report_ < 500000) next_report_ += 50000;
         else                            next_report_ += 100000;
-        fprintf(stderr, "... finished %" PRIu64 " ops%30s\r", done_, "");
+        fprintf(stderr, "... finished %" PRIu64 " ops%30s\r", 
+          done, "");
       } else {
         uint64_t now = FLAGS_env->NowMicros();
         int64_t usecs_since_last = now - last_report_finish_;
@@ -1510,10 +1550,10 @@ class Stats {
                   "(%.1f,%.1f) ops/second in (%.6f,%.6f) seconds\n",
                   FLAGS_env->TimeToString(now/1000000).c_str(),
                   id_,
-                  done_ - last_report_done_, done_,
-                  (done_ - last_report_done_) /
+                  done - last_report_done_, done,
+                  (done - last_report_done_) /
                   (usecs_since_last / 1000000.0),
-                  done_ / ((now - start_) / 1000000.0),
+                  done / ((now - start_) / 1000000.0),
                   (now - last_report_finish_) / 1000000.0,
                   (now - start_) / 1000000.0);
 
@@ -1572,7 +1612,7 @@ class Stats {
   }
 
   void AddBytes(int64_t n) {
-    bytes_ += n;
+    bytes_.fetch_add(n, std::memory_order_relaxed);
   }
 
   void Report(const Slice& name) {
@@ -1734,9 +1774,10 @@ struct ThreadState {
   Stats stats;
   SharedState* shared;
 
-  /* implicit */ ThreadState(int index)
+  /* implicit */ ThreadState(int index, bool sync_stats = false)
       : tid(index),
-        rand((FLAGS_seed ? FLAGS_seed : 1000) + index) {
+        rand((FLAGS_seed ? FLAGS_seed : 1000) + index),
+        stats(sync_stats) {
   }
 };
 
@@ -1791,6 +1832,7 @@ protected:
   }
 
   void OnComplete() {
+    thread_->stats.Stop();
     MutexLock l(&shared_->mu);
     shared_->num_done++;
     if (shared_->num_done >= shared_->total) {
@@ -1805,39 +1847,42 @@ protected:
 
 class Duration {
  public:
-  Duration(uint64_t max_seconds, int64_t max_ops, int64_t ops_per_stage = 0) {
-    max_seconds_ = max_seconds;
-    max_ops_= max_ops;
-    ops_per_stage_ = (ops_per_stage > 0) ? ops_per_stage : max_ops;
-    ops_ = 0;
-    start_at_ = FLAGS_env->NowMicros();
+  Duration(uint64_t max_seconds, int64_t max_ops, int64_t ops_per_stage = 0) :
+   max_seconds_(max_seconds),
+   max_ops_(max_ops),
+   ops_per_stage_ ((ops_per_stage > 0) ? ops_per_stage : max_ops),
+   ops_(0),
+   start_at_(FLAGS_env->NowMicros()) {
   }
 
-  int64_t GetStage() { return std::min(ops_, max_ops_ - 1) / ops_per_stage_; }
+  int64_t GetStage() const { 
+    return std::min(ops_.load(std::memory_order_relaxed), max_ops_ - 1) / ops_per_stage_;
+  }
 
   bool Done(int64_t increment) {
     if (increment <= 0) increment = 1;    // avoid Done(0) and infinite loops
-    ops_ += increment;
+    auto ops = ops_.fetch_add(increment, std::memory_order_relaxed) 
+      + increment;
 
     if (max_seconds_) {
       // Recheck every appx 1000 ops (exact iff increment is factor of 1000)
-      if ((ops_/1000) != ((ops_-increment)/1000)) {
+      if ((ops/1000) != ((ops-increment)/1000)) {
         uint64_t now = FLAGS_env->NowMicros();
         return ((now - start_at_) / 1000000) >= max_seconds_;
       } else {
         return false;
       }
     } else {
-      return ops_ > max_ops_;
+      return ops > max_ops_;
     }
   }
 
  private:
-  uint64_t max_seconds_;
-  int64_t max_ops_;
-  int64_t ops_per_stage_;
-  int64_t ops_;
-  uint64_t start_at_;
+  const uint64_t max_seconds_;
+  const int64_t  max_ops_;
+  const int64_t  ops_per_stage_;
+  std::atomic_int64_t ops_;
+  const uint64_t start_at_;
 };
 
 class Benchmark {
@@ -2161,7 +2206,7 @@ class Benchmark {
       //  exit(1);
       //}
       thread_pool_.reset(new port::VistaThreadPool(port::MemoryArenaId(), FLAGS_threads));
-      auto max_threads = std::min(FLAGS_threads * 2, 32);
+      auto max_threads = std::min(FLAGS_threads * 2, 64);
       bool result = thread_pool_->SetMinMaxThreadCount(FLAGS_threads, max_threads);
       if (!result) {
         fprintf(stderr,
@@ -2775,7 +2820,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 
     for (int i = 0; i < n; i++) {
 
-      states[i].reset(new ThreadState(i));
+      states[i].reset(new ThreadState(i, true));
       states[i]->stats.SetReporterAgent(reporter_agent.get());
       states[i]->shared = &shared;
 
@@ -4109,6 +4154,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 
     Duration duration(FLAGS_duration, reads_);
     while (!duration.Done(1)) {
+      // uint64_t start = FLAGS_env->NowMicros();
       DBWithColumnFamilies* db_with_cfh = SelectDBWithCfh(thread);
       // We use same key_rand as seed for key and column family so that we can
       // deterministically find the cfh corresponding to a particular key, as it
@@ -4147,6 +4193,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       }
 
       thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db, 1, kRead);
+      // fprintf(stderr, "Elapsed: %" PRIu64 "\n", FLAGS_env->NowMicros() - start);
     }
 
     char msg[100];
@@ -4171,7 +4218,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       duration_(FLAGS_duration, FLAGS_reads),
       read_(0),
       found_(0),
-      bytes_(0) {
+      bytes_(0),
+      ctx_() {
     }
 
     std::unique_ptr<AsyncBenchBase> Clone() override {
@@ -4181,11 +4229,22 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 
   private:
 
+    Slice AllocateKey(std::unique_ptr<const char[]>* guard) {
+      return bm_->AllocateKey(guard);
+    }
+
     struct ReadContext : public async::AsyncStatusCapture {
 
       ReadContext(ReadRandomAsync* bench) :
           bench_(bench),
-          db_with_cfh_(nullptr) {
+          db_with_cfh_(nullptr),
+          key_guard_(),
+          key_() {
+        // Init once, we then
+        // We use same key_rand as seed for key and column family so that we can
+        // deterministically find the cfh corresponding to a particular key, as it
+        // is done in DoWrite method.
+        key_ = bench_->AllocateKey(&key_guard_);
       }
 
       async::Callable<Status,const Status&>
@@ -4196,6 +4255,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 
       Status OnReadComplete(const Status& status) {
         async(status.async());
+
+        bench_->read_.fetch_add(1, std::memory_order_relaxed);
 
         if (status.ok()) {
           bench_->found_.fetch_add(1, std::memory_order_relaxed);
@@ -4214,22 +4275,12 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         if (async()) {
           // ping on continue
           bench_->ReadComplete();
-          delete this;
         }
 
         return status;
       }
 
-      // Re-init for the next iteration so we could reuse contexts
-      void Reset(DBWithColumnFamilies* db_with_cfh, const Slice& key) {
-        db_with_cfh_ = db_with_cfh;
-        key_ = key;
-        if (LIKELY(FLAGS_pin_slice == 1)) {
-          pinnable_val_.Reset();
-        }
-      }
-
-      ReadRandomAsync* bench_;
+      ReadRandomAsync*      bench_;
       DBWithColumnFamilies* db_with_cfh_;
       std::unique_ptr<const char[]> key_guard_;
       Slice key_; 
@@ -4239,51 +4290,47 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 
     friend struct ReadContext;
 
+    void AllocateReadContext() {
+      ctx_.reset(new ReadContext(this));
+    }
+
+    void ResetContext(ReadContext* ctx) {
+      ctx->db_with_cfh_ = bm_->SelectDBWithCfh(thread_);
+      int64_t key_rand = bm_->GetRandomKey(&thread_->rand);
+      bm_->GenerateKeyFromInt(key_rand, FLAGS_num, &ctx->key_);
+      if (LIKELY(FLAGS_pin_slice == 1)) {
+        ctx->pinnable_val_.Reset();
+      }
+    }
+
     Status RequestGet() {
 
-      Slice key(key_);
-      int64_t key_rand = bm_->GetRandomKey(&thread_->rand);
-      bm_->GenerateKeyFromInt(key_rand, FLAGS_num, &key);
-
-      DBWithColumnFamilies* db_with_cfh = bm_->SelectDBWithCfh(thread_);
-      std::unique_ptr<ReadContext> c(new ReadContext(this));
-      c->Reset(db_with_cfh, key);
+      ResetContext(ctx_.get());
 
       Status s;
       if (LIKELY(FLAGS_pin_slice == 1)) {
-        s = async::DBImplGetContext::RequestGet(c->GetCallback(), db_with_cfh->db, options_,
-          db_with_cfh->db->DefaultColumnFamily(), c->key_, &c->pinnable_val_, nullptr);
+        s = async::DBImplGetContext::RequestGet(ctx_->GetCallback(), ctx_->db_with_cfh_->db, options_,
+          ctx_->db_with_cfh_->db->DefaultColumnFamily(), ctx_->key_, &ctx_->pinnable_val_, nullptr);
       } else {
-        s = async::DBImplGetContext::RequestGet(c->GetCallback(), db_with_cfh->db, options_,
-          db_with_cfh->db->DefaultColumnFamily(), c->key_, nullptr, &c->value_);
+        s = async::DBImplGetContext::RequestGet(ctx_->GetCallback(), ctx_->db_with_cfh_->db, options_,
+          ctx_->db_with_cfh_->db->DefaultColumnFamily(), ctx_->key_, nullptr, &ctx_->value_);
       }
 
-      read_.fetch_add(1, std::memory_order_relaxed);
-
-      if (s.IsIOPending()) {
-        c.release();
-      } else {
-        s = c->OnReadComplete(s);
+      if (!s.IsIOPending()) {
+        s = ctx_->OnReadComplete(s);
       }
       return s;
     }
 
     // Thread entry point
     void Run() override {
-
-      // Init once, we then
-      // We use same key_rand as seed for key and column family so that we can
-      // deterministically find the cfh corresponding to a particular key, as it
-      // is done in DoWrite method.
-      key_ = bm_->AllocateKey(&key_guard_);
-
+      AllocateReadContext();
       OnInitialized();
+
       Status s = RequestGet();
-      if (s.IsIOPending()) {
-        // Release the thread
-        return;
+      if (!s.IsIOPending()) {
+        ReadComplete();
       }
-      ReadComplete();
     }
 
     void ReadComplete() {
@@ -4301,7 +4348,10 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         found_.load(std::memory_order_relaxed), 
         read_.load(std::memory_order_relaxed));
 
-      thread_->stats.AddBytes(bytes_);
+      fprintf(stderr, "tid: %d %" PRIu64 " %s\n",
+        thread_->tid, bytes_.load(std::memory_order_relaxed), msg);
+
+      thread_->stats.AddBytes(bytes_.load(std::memory_order_relaxed));
       thread_->stats.AddMessage(msg);
 
       if (FLAGS_perf_level > rocksdb::PerfLevel::kDisable) {
@@ -4320,12 +4370,11 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     }
 
     ReadOptions             options_;
-    std::unique_ptr<const char[]> key_guard_;
     Duration                duration_;
-    Slice                   key_;
     std::atomic_int64_t     read_;
     std::atomic_int64_t     found_;
     std::atomic_int64_t     bytes_;
+    std::unique_ptr<ReadContext> ctx_;
   };
   // Calls MultiGet over a list of keys from a random distribution.
   // Returns the total number of keys found.
