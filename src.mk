@@ -386,6 +386,7 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/snapshot.cc                                   \
   java/rocksjni/sst_file_writerjni.cc                         \
   java/rocksjni/statistics.cc                                 \
+  java/rocksjni/statisticsjni.cc                              \
   java/rocksjni/table.cc                                      \
   java/rocksjni/transaction_log.cc                            \
   java/rocksjni/ttl.cc                                        \

@@ -265,23 +265,22 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
   long maxTotalWalSize();
 
   /**
-   * <p>Creates statistics object which collects metrics about database operations.
+   * <p>Sets the statistics object which collects metrics about database operations.
    * Statistics objects should not be shared between DB instances as
    * it does not use any locks to prevent concurrent updates.</p>
    *
    * @return the instance of the current object.
    * @see RocksDB#open(org.rocksdb.Options, String)
    */
-  T createStatistics();
+  T setStatistics(final Statistics statistics);
 
   /**
-   * <p>Returns statistics object. Calls {@link #createStatistics()} if
-   * C++ returns {@code nullptr} for statistics.</p>
+   * <p>Returns statistics object.</p>
    *
-   * @return the instance of the statistics object.
-   * @see #createStatistics()
+   * @return the instance of the statistics object or null if there is no statistics object.
+   * @see #setStatistics(Statistics)
    */
-  Statistics statisticsPtr();
+  Statistics statistics();
 
   /**
    * <p>If true, then every store to stable storage will issue a fsync.</p>

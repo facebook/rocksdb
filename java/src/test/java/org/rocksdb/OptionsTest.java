@@ -1010,14 +1010,15 @@ public class OptionsTest {
 
   @Test
   public void statistics() {
-    try (final Options options = new Options()) {
-      Statistics statistics = options.createStatistics().
-          statisticsPtr();
-      assertThat(statistics).isNotNull();
-      try (final Options anotherOptions = new Options()) {
-        statistics = anotherOptions.statisticsPtr();
-        assertThat(statistics).isNotNull();
-      }
+    try(final Options options = new Options()) {
+      final Statistics statistics = options.statistics();
+      assertThat(statistics).isNull();
+    }
+
+    try(final Statistics statistics = new Statistics();
+        final Options options = new Options().setStatistics(statistics);
+        final Statistics stats = options.statistics()) {
+      assertThat(stats).isNotNull();
     }
   }
 

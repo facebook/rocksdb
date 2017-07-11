@@ -624,14 +624,14 @@ public class DBOptionsTest {
   @Test
   public void statistics() {
     try(final DBOptions options = new DBOptions()) {
-      Statistics statistics = options.createStatistics().
-          statisticsPtr();
-      assertThat(statistics).isNotNull();
+      final Statistics statistics = options.statistics();
+      assertThat(statistics).isNull();
+    }
 
-      try(final DBOptions anotherOptions = new DBOptions()) {
-        statistics = anotherOptions.statisticsPtr();
-        assertThat(statistics).isNotNull();
-      }
+    try(final Statistics statistics = new Statistics();
+        final DBOptions options = new DBOptions().setStatistics(statistics);
+        final Statistics stats = options.statistics()) {
+      assertThat(stats).isNotNull();
     }
   }
 }

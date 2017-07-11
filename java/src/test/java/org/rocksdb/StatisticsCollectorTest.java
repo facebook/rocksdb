@@ -26,27 +26,30 @@ public class StatisticsCollectorTest {
   @Test
   public void statisticsCollector()
       throws InterruptedException, RocksDBException {
-    try (final Options opt = new Options()
-        .createStatistics()
+    try (final Statistics statistics = new Statistics();
+            final Options opt = new Options()
+        .setStatistics(statistics)
         .setCreateIfMissing(true);
          final RocksDB db = RocksDB.open(opt,
              dbFolder.getRoot().getAbsolutePath())) {
-      final Statistics stats = opt.statisticsPtr();
 
-      final StatsCallbackMock callback = new StatsCallbackMock();
-      final StatsCollectorInput statsInput =
-          new StatsCollectorInput(stats, callback);
+      try(final Statistics stats = opt.statistics()) {
 
-      final StatisticsCollector statsCollector = new StatisticsCollector(
-          Collections.singletonList(statsInput), 100);
-      statsCollector.start();
+        final StatsCallbackMock callback = new StatsCallbackMock();
+        final StatsCollectorInput statsInput =
+                new StatsCollectorInput(stats, callback);
 
-      Thread.sleep(1000);
+        final StatisticsCollector statsCollector = new StatisticsCollector(
+                Collections.singletonList(statsInput), 100);
+        statsCollector.start();
 
-      assertThat(callback.tickerCallbackCount).isGreaterThan(0);
-      assertThat(callback.histCallbackCount).isGreaterThan(0);
+        Thread.sleep(1000);
 
-      statsCollector.shutDown(1000);
+        assertThat(callback.tickerCallbackCount).isGreaterThan(0);
+        assertThat(callback.histCallbackCount).isGreaterThan(0);
+
+        statsCollector.shutDown(1000);
+      }
     }
   }
 }
