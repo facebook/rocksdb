@@ -11,7 +11,7 @@
 // four bytes at a time.
 #include "util/crc32c.h"
 #include <stdint.h>
-#ifdef HAVE_SSE42
+#if defined(__x86_64__) || defined(_WIN64)
 #include <nmmintrin.h>
 #include <wmmintrin.h>
 #endif
@@ -318,7 +318,7 @@ static inline uint32_t LE_LOAD32(const uint8_t *p) {
   return DecodeFixed32(reinterpret_cast<const char*>(p));
 }
 
-#if defined(HAVE_SSE42) && (defined(__LP64__) || defined(_WIN64))
+#if defined(__LP64__) || defined(_WIN64)
 static inline uint64_t LE_LOAD64(const uint8_t *p) {
   return DecodeFixed64(reinterpret_cast<const char*>(p));
 }
@@ -340,8 +340,11 @@ static inline void Slow_CRC32(uint64_t* l, uint8_t const **p) {
   table0_[c >> 24];
 }
 
+#if defined(__x86_64__) || defined(_WIN64)
+__attribute__((target("sse4.2")))
+#endif
 static inline void Fast_CRC32(uint64_t* l, uint8_t const **p) {
-#ifndef HAVE_SSE42
+#if !defined(__x86_64__) && !defined(_WIN64)
   Slow_CRC32(l, p);
 #elif defined(__LP64__) || defined(_WIN64)
   *l = _mm_crc32_u64(*l, LE_LOAD64(*p));
@@ -398,13 +401,16 @@ uint32_t ExtendImpl(uint32_t crc, const char* buf, size_t size) {
   return static_cast<uint32_t>(l ^ 0xffffffffu);
 }
 
+#if defined(__x86_64__) || defined(_WIN64)
+template __attribute__((target("sse4.2")))
+uint32_t ExtendImpl<Fast_CRC32>(uint32_t, const char*, size_t);
+#endif
+
 // Detect if SS42 or not.
 #ifndef HAVE_POWER8
 
 static bool isSSE42() {
-#ifndef HAVE_SSE42
-  return false;
-#elif defined(__GNUC__) && defined(__x86_64__) && !defined(IOS_CROSS_COMPILE)
+#if defined(__GNUC__) && defined(__x86_64__) && !defined(IOS_CROSS_COMPILE)
   uint32_t c_;
   __asm__("cpuid" : "=c"(c_) : "a"(1) : "ebx", "edx");
   return c_ & (1U << 20);  // copied from CpuId.h in Folly. Test SSE42
