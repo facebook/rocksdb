@@ -2136,6 +2136,11 @@ class Benchmark {
       if (!FLAGS_wal_dir.empty()) {
         options.wal_dir = FLAGS_wal_dir;
       }
+#ifndef ROCKSDB_LITE
+      if (use_blob_db_) {
+        blob_db::DestroyBlobDB(FLAGS_db, options, blob_db::BlobDBOptions());
+      }
+#endif  // !ROCKSDB_LITE
       DestroyDB(FLAGS_db, options);
       if (!FLAGS_wal_dir.empty()) {
         FLAGS_env->DeleteDir(FLAGS_wal_dir);
@@ -3238,7 +3243,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     InitializeOptionsGeneral(opts);
   }
 
-  void OpenDb(const Options& options, const std::string& db_name,
+  void OpenDb(Options options, const std::string& db_name,
       DBWithColumnFamilies* db) {
     Status s;
     // Open with column families if necessary.
@@ -3293,14 +3298,20 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     } else if (FLAGS_transaction_db) {
       TransactionDB* ptr;
       TransactionDBOptions txn_db_options;
-      s = TransactionDB::Open(options, txn_db_options, db_name, &ptr);
+      s = CreateLoggerFromOptions(db_name, options, &options.info_log);
+      if (s.ok()) {
+        s = TransactionDB::Open(options, txn_db_options, db_name, &ptr);
+      }
       if (s.ok()) {
         db->db = ptr;
       }
     } else if (FLAGS_use_blob_db) {
       blob_db::BlobDBOptions blob_db_options;
       blob_db::BlobDB* ptr;
-      s = blob_db::BlobDB::Open(options, blob_db_options, db_name, &ptr);
+      s = CreateLoggerFromOptions(db_name, options, &options.info_log);
+      if (s.ok()) {
+        s = blob_db::BlobDB::Open(options, blob_db_options, db_name, &ptr);
+      }
       if (s.ok()) {
         db->db = ptr;
       }
