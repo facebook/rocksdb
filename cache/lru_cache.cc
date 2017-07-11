@@ -24,7 +24,7 @@
 
 namespace rocksdb {
 
-LRUHandleTable::LRUHandleTable() : length_(0), elems_(0), list_(nullptr) {
+LRUHandleTable::LRUHandleTable() : list_(nullptr), length_(0), elems_(0) {
   Resize();
 }
 
@@ -102,7 +102,7 @@ void LRUHandleTable::Resize() {
 }
 
 LRUCacheShard::LRUCacheShard()
-    : usage_(0), lru_usage_(0), high_pri_pool_usage_(0) {
+    : high_pri_pool_usage_(0), usage_(0), lru_usage_(0) {
   // Make empty circular linked list
   lru_.next = &lru_;
   lru_.prev = &lru_;
