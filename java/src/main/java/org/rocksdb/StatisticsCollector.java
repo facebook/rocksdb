@@ -71,33 +71,37 @@ public class StatisticsCollector {
             if(Thread.currentThread().isInterrupted()) {
               break;
             }
-            for(StatsCollectorInput statsCollectorInput :
+            for(final StatsCollectorInput statsCollectorInput :
                 _statsCollectorInputList) {
               Statistics statistics = statsCollectorInput.getStatistics();
               StatisticsCollectorCallback statsCallback =
                   statsCollectorInput.getCallback();
 
-                // Collect ticker data
-              for(TickerType ticker : TickerType.values()) {
-                long tickerValue = statistics.getTickerCount(ticker);
-                statsCallback.tickerCallback(ticker, tickerValue);
+              // Collect ticker data
+              for(final TickerType ticker : TickerType.values()) {
+                if(ticker != TickerType.TICKER_ENUM_MAX) {
+                  final long tickerValue = statistics.getTickerCount(ticker);
+                  statsCallback.tickerCallback(ticker, tickerValue);
+                }
               }
 
               // Collect histogram data
-              for(HistogramType histogramType : HistogramType.values()) {
-                HistogramData histogramData =
-                    statistics.getHistogramData(histogramType);
-                statsCallback.histogramCallback(histogramType, histogramData);
+              for(final HistogramType histogramType : HistogramType.values()) {
+                if(histogramType != HistogramType.HISTOGRAM_ENUM_MAX) {
+                  final HistogramData histogramData =
+                          statistics.getHistogramData(histogramType);
+                  statsCallback.histogramCallback(histogramType, histogramData);
+                }
               }
 
               Thread.sleep(_statsCollectionInterval);
             }
           }
-          catch (InterruptedException e) {
+          catch (final InterruptedException e) {
             Thread.currentThread().interrupt();
             break;
           }
-          catch (Exception e) {
+          catch (final Exception e) {
             throw new RuntimeException("Error while calculating statistics", e);
           }
         }

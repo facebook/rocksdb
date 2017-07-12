@@ -1,5 +1,5 @@
 NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
-        org.rocksdb.AbstractComparator\
+	org.rocksdb.AbstractComparator\
 	org.rocksdb.AbstractSlice\
 	org.rocksdb.BackupEngine\
 	org.rocksdb.BackupableDBOptions\
@@ -69,9 +69,9 @@ ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-osx.
 endif
 
 JAVA_TESTS = org.rocksdb.BackupableDBOptionsTest\
-        org.rocksdb.BackupEngineTest\
+	org.rocksdb.BackupEngineTest\
 	org.rocksdb.BlockBasedTableConfigTest\
-        org.rocksdb.util.BytewiseComparatorTest\
+	org.rocksdb.util.BytewiseComparatorTest\
 	org.rocksdb.CheckPointTest\
 	org.rocksdb.ClockCacheTest\
 	org.rocksdb.ColumnFamilyOptionsTest\
@@ -94,13 +94,13 @@ JAVA_TESTS = org.rocksdb.BackupableDBOptionsTest\
 	org.rocksdb.FlushTest\
 	org.rocksdb.InfoLogLevelTest\
 	org.rocksdb.KeyMayExistTest\
-        org.rocksdb.LoggerTest\
+	org.rocksdb.LoggerTest\
     org.rocksdb.LRUCacheTest\
 	org.rocksdb.MemTableTest\
 	org.rocksdb.MergeTest\
 	org.rocksdb.MixedOptionsTest\
-        org.rocksdb.MutableColumnFamilyOptionsTest\
-        org.rocksdb.NativeLibraryLoaderTest\
+	org.rocksdb.MutableColumnFamilyOptionsTest\
+	org.rocksdb.NativeLibraryLoaderTest\
 	org.rocksdb.OptionsTest\
 	org.rocksdb.PlainTableConfigTest\
 	org.rocksdb.RateLimiterTest\
@@ -117,11 +117,12 @@ JAVA_TESTS = org.rocksdb.BackupableDBOptionsTest\
 	org.rocksdb.SstFileWriterTest\
 	org.rocksdb.TransactionLogIteratorTest\
 	org.rocksdb.TtlDBTest\
+	org.rocksdb.StatisticsTest\
 	org.rocksdb.StatisticsCollectorTest\
 	org.rocksdb.WALRecoveryModeTest\
 	org.rocksdb.WriteBatchHandlerTest\
 	org.rocksdb.WriteBatchTest\
-        org.rocksdb.WriteBatchThreadedTest\
+	org.rocksdb.WriteBatchThreadedTest\
 	org.rocksdb.WriteOptionsTest\
 	org.rocksdb.WriteBatchWithIndexTest
 
