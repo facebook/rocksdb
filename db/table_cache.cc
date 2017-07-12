@@ -343,9 +343,14 @@ Status TableCache::Get(const ReadOptions& options,
       };
       auto found_row_cache_entry = static_cast<const std::string*>(
           ioptions_.row_cache->Value(row_handle));
-      // If it comes here value is located on the cache, input PinnableSlice (get_context.pinnable_slice_) will now
-      // point to cache entry buffer and cleanup routine will be delegated to the
-      // input PinnableSlice (get_context.pinnable_slice_)
+      // If it comes here value is located on the cache,
+      // found_row_cache_entry points to the value on cache,
+      // cache_entry_clean has cleanup procedure for the cached entry,
+      // after replayGetContextLog() returns  get_context.pinnable_slice_
+      // will point to cache entry buffer and
+      // cleanup routine under cache_entry_clean will be delegated to
+      // get_context.pinnable_slice_, cache entry is released when
+      // get_context.pinnable_slice_ is reset
       cache_entry_clean.RegisterCleanup(release_cache_entry_func,
                                         ioptions_.row_cache.get(), row_handle);
       replayGetContextLog(*found_row_cache_entry, user_key, get_context,

@@ -5332,16 +5332,19 @@ TEST_F(DBTest, PinnableSliceAndRowCache) {
   ASSERT_OK(Flush());
 
   ASSERT_EQ(Get("foo"), "bar");
-  ASSERT_EQ(reinterpret_cast<LRUCache*>(options.row_cache.get())->TEST_GetLRUSize(), 1);
+  ASSERT_EQ(reinterpret_cast<LRUCache*>(options.row_cache.get())->
+          TEST_GetLRUSize(), 1);
 
   {
     PinnableSlice value;
     ASSERT_EQ(Get("foo", &value), "bar");
     // Entry is already in cache, lookup will remove the element from lru
-    ASSERT_EQ(reinterpret_cast<LRUCache*>(options.row_cache.get())->TEST_GetLRUSize(), 0);
+    ASSERT_EQ(reinterpret_cast<LRUCache*>(options.row_cache.get())->
+            TEST_GetLRUSize(), 0);
   }
   // After PinnableSlice destruction element is added back in LRU
-  ASSERT_EQ(reinterpret_cast<LRUCache*>(options.row_cache.get())->TEST_GetLRUSize(), 1);
+  ASSERT_EQ(reinterpret_cast<LRUCache*>(options.row_cache.get())->
+          TEST_GetLRUSize(), 1);
 }
 
 #endif  // ROCKSDB_LITE
