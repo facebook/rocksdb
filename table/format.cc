@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -12,6 +14,8 @@
 #include <string>
 #include <inttypes.h>
 
+#include "monitoring/perf_context_imp.h"
+#include "monitoring/statistics.h"
 #include "rocksdb/env.h"
 #include "table/block.h"
 #include "table/block_based_table_reader.h"
@@ -21,8 +25,6 @@
 #include "util/crc32c.h"
 #include "util/file_reader_writer.h"
 #include "util/logging.h"
-#include "util/perf_context_imp.h"
-#include "util/statistics.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/xxhash.h"
@@ -219,7 +221,9 @@ std::string Footer::ToString() const {
 Status ReadFooterFromFile(RandomAccessFileReader* file, uint64_t file_size,
                           Footer* footer, uint64_t enforce_table_magic_number) {
   if (file_size < Footer::kMinEncodedLength) {
-    return Status::Corruption("file is too short to be an sstable");
+    return Status::Corruption(
+      "file is too short (" + ToString(file_size) + " bytes) to be an "
+      "sstable: " + file->file_name());
   }
 
   char footer_space[Footer::kMaxEncodedLength];
@@ -235,7 +239,9 @@ Status ReadFooterFromFile(RandomAccessFileReader* file, uint64_t file_size,
   // Check that we actually read the whole footer from the file. It may be
   // that size isn't correct.
   if (footer_input.size() < Footer::kMinEncodedLength) {
-    return Status::Corruption("file is too short to be an sstable");
+    return Status::Corruption(
+      "file is too short (" + ToString(file_size) + " bytes) to be an "
+      "sstable" + file->file_name());
   }
 
   s = footer->DecodeFrom(&footer_input);
@@ -244,7 +250,11 @@ Status ReadFooterFromFile(RandomAccessFileReader* file, uint64_t file_size,
   }
   if (enforce_table_magic_number != 0 &&
       enforce_table_magic_number != footer->table_magic_number()) {
-    return Status::Corruption("Bad table magic number");
+    return Status::Corruption(
+      "Bad table magic number: expected "
+      + ToString(enforce_table_magic_number) + ", found "
+      + ToString(footer->table_magic_number())
+      + " in " + file->file_name());
   }
   return Status::OK();
 }
@@ -273,7 +283,11 @@ Status ReadBlock(RandomAccessFileReader* file, const Footer& footer,
     return s;
   }
   if (contents->size() != n + kBlockTrailerSize) {
-    return Status::Corruption("truncated block read");
+    return Status::Corruption(
+      "truncated block read from " + file->file_name() + " offset "
+      + ToString(handle.offset()) + ", expected "
+      + ToString(n + kBlockTrailerSize) + " bytes, got "
+      + ToString(contents->size()));
   }
 
   // Check the crc of the type and the block contents
@@ -291,10 +305,17 @@ Status ReadBlock(RandomAccessFileReader* file, const Footer& footer,
         actual = XXH32(data, static_cast<int>(n) + 1, 0);
         break;
       default:
-        s = Status::Corruption("unknown checksum type");
+        s = Status::Corruption(
+          "unknown checksum type " + ToString(footer.checksum())
+          + " in " + file->file_name() + " offset "
+          + ToString(handle.offset()) + " size " + ToString(n));
     }
     if (s.ok() && actual != value) {
-      s = Status::Corruption("block checksum mismatch");
+      s = Status::Corruption(
+        "block checksum mismatch: expected " + ToString(actual)
+        + ", got " + ToString(value) + "  in " + file->file_name()
+        + " offset " + ToString(handle.offset())
+        + " size " + ToString(n));
     }
     if (!s.ok()) {
       return s;

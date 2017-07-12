@@ -2,15 +2,18 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #include "table/get_context.h"
 #include "db/merge_helper.h"
 #include "db/pinned_iterators_manager.h"
+#include "monitoring/file_read_sample.h"
+#include "monitoring/perf_context_imp.h"
+#include "monitoring/statistics.h"
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/statistics.h"
-#include "util/perf_context_imp.h"
-#include "util/statistics.h"
 
 namespace rocksdb {
 
@@ -57,6 +60,7 @@ GetContext::GetContext(const Comparator* ucmp,
   if (seq_) {
     *seq_ = kMaxSequenceNumber;
   }
+  sample_ = should_sample_file_read();
 }
 
 // Called from TableCache::Get and Table::Get when file/block in which
@@ -180,7 +184,6 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
 void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
                          GetContext* get_context) {
 #ifndef ROCKSDB_LITE
-  static Cleanable nonToClean;
   Slice s = replay_log;
   while (s.size()) {
     auto type = static_cast<ValueType>(*s.data());
@@ -193,8 +196,7 @@ void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
     // Since SequenceNumber is not stored and unknown, we will use
     // kMaxSequenceNumber.
     get_context->SaveValue(
-        ParsedInternalKey(user_key, kMaxSequenceNumber, type), value,
-        &nonToClean);
+        ParsedInternalKey(user_key, kMaxSequenceNumber, type), value, nullptr);
   }
 #else   // ROCKSDB_LITE
   assert(false);

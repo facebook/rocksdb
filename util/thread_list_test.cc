@@ -2,13 +2,15 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #include <mutex>
 #include <condition_variable>
 
-#include "util/thread_status_updater.h"
-#include "util/testharness.h"
+#include "monitoring/thread_status_updater.h"
 #include "rocksdb/db.h"
+#include "util/testharness.h"
 
 #ifdef ROCKSDB_USING_THREAD_STATUS
 

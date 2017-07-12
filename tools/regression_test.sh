@@ -39,6 +39,10 @@
 #   DEBUG: If true, then the script will not checkout master and build db_bench
 #       if db_bench already exists
 #       Default: 0
+#   TEST_MODE: If 1, run fillseqdeterminstic and benchmarks both
+#       if 0, only run fillseqdeterministc
+#       if 2, only run benchmarks
+#       Default: 1
 #   TEST_PATH: the root directory of the regression test.
 #       Default: "/tmp/rocksdb/regression_test"
 #   RESULT_PATH: the directory where the regression results will be generated.
@@ -92,13 +96,15 @@
 TITLE_FORMAT="%40s,%25s,%30s,%7s,%9s,%8s,"
 TITLE_FORMAT+="%10s,%13s,%14s,%11s,%12s,"
 TITLE_FORMAT+="%7s,%11s,"
-TITLE_FORMAT+="%9s,%10s,%10s,%10s,%10s,%10s,%5s"
+TITLE_FORMAT+="%9s,%10s,%10s,%10s,%10s,%10s,%5s,"
+TITLE_FORMAT+="%5s,%5s,%5s" # time
 TITLE_FORMAT+="\n"
 
 DATA_FORMAT="%40s,%25s,%30s,%7s,%9s,%8s,"
 DATA_FORMAT+="%10s,%13.0f,%14s,%11s,%12s,"
 DATA_FORMAT+="%7s,%11s,"
-DATA_FORMAT+="%9.0f,%10.0f,%10.0f,%10.0f,%10.0f,%10.0f,%5.0f"
+DATA_FORMAT+="%9.0f,%10.0f,%10.0f,%10.0f,%10.0f,%10.0f,%5.0f,"
+DATA_FORMAT+="%5.0f,%5.0f,%5.0f" # time
 DATA_FORMAT+="\n"
 
 MAIN_PATTERN="$1""[[:blank:]]+:.*[[:blank:]]+([0-9\.]+)[[:blank:]]+ops/sec"
@@ -107,28 +113,33 @@ PERC_PATTERN+="P99: ([0-9\.]+) P99.9: ([0-9\.]+) P99.99: ([0-9\.]+)"
 #==============================================================================
 
 function main {
-  commit=${1:-"origin/master"}
-  test_root_dir=${TEST_PATH:-"/tmp/rocksdb/regression_test"}
-  init_arguments $test_root_dir
+  TEST_ROOT_DIR=${TEST_PATH:-"/tmp/rocksdb/regression_test"}
+  init_arguments $TEST_ROOT_DIR
 
-  if [ $DEBUG -eq 0 ]; then
-      checkout_rocksdb $commit
-      build_db_bench
-  elif [ ! -f db_bench ]; then
-      build_db_bench
-  fi
+  build_db_bench_and_ldb
 
   setup_test_directory
-  # an additional dot indicates we share same env variables
-  run_db_bench "fillseqdeterministic" $NUM_KEYS 1 0
-  run_db_bench "readrandom"
-  run_db_bench "readwhilewriting"
-  run_db_bench "deleterandom" $((NUM_KEYS / 10 / $NUM_THREADS))
-  run_db_bench "seekrandom"
-  run_db_bench "seekrandomwhilewriting"
+  if [ $TEST_MODE -le 1 ]; then
+      tmp=$DB_PATH
+      DB_PATH=$ORIGIN_PATH
+      test_remote "test -d $DB_PATH"
+      if [[ $? -ne 0 ]]; then
+          echo "Building DB..."
+          # compactall alone will not print ops or threads, which will fail update_report
+          run_db_bench "fillseq,compactall" $NUM_KEYS 1 0 0
+      fi
+      DB_PATH=$tmp
+  fi
+  if [ $TEST_MODE -ge 1 ]; then
+      build_checkpoint
+      run_db_bench "readrandom"
+      run_db_bench "readwhilewriting"
+      run_db_bench "deleterandom" $((NUM_KEYS / 10 / $NUM_THREADS))
+      run_db_bench "seekrandom"
+      run_db_bench "seekrandomwhilewriting"
+  fi
 
-  cleanup_test_directory $test_root_dir
-
+  cleanup_test_directory $TEST_ROOT_DIR
   echo ""
   echo "Benchmark completed!  Results are available in $RESULT_PATH"
 }
@@ -145,6 +156,7 @@ function init_arguments {
   SUMMARY_FILE="$RESULT_PATH/SUMMARY.csv"
 
   DB_PATH=${3:-"$1/db"}
+  ORIGIN_PATH=${ORIGIN_PATH:-"$(dirname $(dirname $DB_PATH))/db"}
   WAL_PATH=${4:-""}
   if [ -z "$REMOTE_USER_AT_HOST" ]; then
     DB_BENCH_DIR=${5:-"."}
@@ -153,6 +165,7 @@ function init_arguments {
   fi
 
   DEBUG=${DEBUG:-0}
+  TEST_MODE=${TEST_MODE:-1}
   SCP=${SCP:-"scp"}
   SSH=${SSH:-"ssh"}
   NUM_THREADS=${NUM_THREADS:-16}
@@ -178,13 +191,15 @@ function init_arguments {
 # $2 --- number of operations.  Default: $NUM_KEYS
 # $3 --- number of threads.  Default $NUM_THREADS
 # $4 --- use_existing_db.  Default: 1
+# $5 --- update_report. Default: 1
 function run_db_bench {
   # this will terminate all currently-running db_bench
   find_db_bench_cmd="ps aux | grep db_bench | grep -v grep | grep -v aux | awk '{print \$2}'"
 
-  USE_EXISTING_DB=${4:-1}
   ops=${2:-$NUM_OPS}
   threads=${3:-$NUM_THREADS}
+  USE_EXISTING_DB=${4:-1}
+  UPDATE_REPORT=${5:-1}
   echo ""
   echo "======================================================================="
   echo "Benchmark $1"
@@ -193,7 +208,8 @@ function run_db_bench {
   db_bench_error=0
   options_file_arg=$(setup_options_file)
   echo "$options_file_arg"
-  db_bench_cmd="$DB_BENCH_DIR/db_bench \
+  # use `which time` to avoid using bash's internal time command
+  db_bench_cmd="("'\$(which time)'" -p $DB_BENCH_DIR/db_bench \
       --benchmarks=$1 --db=$DB_PATH --wal_dir=$WAL_PATH \
       --use_existing_db=$USE_EXISTING_DB \
       --disable_auto_compactions \
@@ -215,20 +231,12 @@ function run_db_bench {
       --max_background_flushes=$MAX_BACKGROUND_FLUSHES \
       --num_multi_db=$NUM_MULTI_DB \
       --max_background_compactions=$MAX_BACKGROUND_COMPACTIONS \
-      --seed=$SEED 2>&1"
-  kill_db_bench_cmd="pkill db_bench"
+      --seed=$SEED) 2>&1"
   ps_cmd="ps aux"
   if ! [ -z "$REMOTE_USER_AT_HOST" ]; then
     echo "Running benchmark remotely on $REMOTE_USER_AT_HOST"
-    kill_db_bench_cmd="$SSH $REMOTE_USER_AT_HOST $kill_db_bench_cmd"
-    db_bench_cmd="$SSH $REMOTE_USER_AT_HOST $db_bench_cmd"
+    db_bench_cmd="$SSH $REMOTE_USER_AT_HOST \"$db_bench_cmd\""
     ps_cmd="$SSH $REMOTE_USER_AT_HOST $ps_cmd"
-  fi
-
-  ## kill existing db_bench processes
-  eval "$kill_db_bench_cmd"
-  if [ $? -eq 0 ]; then
-    echo "Killed all currently running db_bench"
   fi
 
   ## make sure no db_bench is running
@@ -244,7 +252,9 @@ function run_db_bench {
   if [ "$grep_output" != "" ]; then
     echo "Stopped regression_test.sh as there're still db_bench processes running:"
     echo $grep_output
-    exit 1
+    echo "Clean up test directory"
+    cleanup_test_directory $TEST_ROOT_DIR
+    exit 2
   fi
 
   ## run the db_bench
@@ -253,8 +263,31 @@ function run_db_bench {
   echo $cmd
   eval $cmd
   exit_on_error $db_bench_error
+  if [ $UPDATE_REPORT -ne 0 ]; then
+    update_report "$1" "$RESULT_PATH/$1" $ops $threads
+  fi
+}
 
-  update_report "$1" "$RESULT_PATH/$1" $ops $threads
+function build_checkpoint {
+    cmd_prefix=""
+    if ! [ -z "$REMOTE_USER_AT_HOST" ]; then
+        cmd_prefix="$SSH $REMOTE_USER_AT_HOST "
+    fi
+    if [ $NUM_MULTI_DB -gt 1 ]; then
+        dirs=$($cmd_prefix find $ORIGIN_PATH -type d -links 2)
+        for dir in $dirs; do
+            db_index=$(basename $dir)
+            echo "Building checkpoints: $ORIGIN_PATH/$db_index -> $DB_PATH/$db_index ..."
+            $cmd_prefix $DB_BENCH_DIR/ldb checkpoint --checkpoint_dir=$DB_PATH/$db_index \
+                        --db=$ORIGIN_PATH/$db_index 2>&1
+        done
+    else
+        # checkpoint cannot build in directory already exists
+        $cmd_prefix rm -rf $DB_PATH
+        echo "Building checkpoint: $ORIGIN_PATH -> $DB_PATH ..."
+        $cmd_prefix $DB_BENCH_DIR/ldb checkpoint --checkpoint_dir=$DB_PATH \
+                    --db=$ORIGIN_PATH 2>&1
+    fi
 }
 
 function multiply {
@@ -282,6 +315,11 @@ function update_report {
   perc[3]=${BASH_REMATCH[4]}  # p99.9
   perc[4]=${BASH_REMATCH[5]}  # p99.99
 
+  # Parse the output of the time command
+  real_sec=`tail -3 $2 | grep real | awk '{print $2}'`
+  user_sec=`tail -3 $2 | grep user | awk '{print $2}'`
+  sys_sec=`tail -3 $2 | grep sys | awk '{print $2}'`
+
   (printf "$DATA_FORMAT" \
     $COMMIT_ID $1 $REMOTE_USER_AT_HOST $NUM_MULTI_DB $NUM_KEYS $KEY_SIZE $VALUE_SIZE \
        $(multiply $COMPRESSION_RATIO 100) \
@@ -294,6 +332,9 @@ function update_report {
        $(multiply ${perc[3]} 1000) \
        $(multiply ${perc[4]} 1000) \
        $DEBUG \
+       $real_sec \
+       $user_sec \
+       $sys_sec \
        >> $SUMMARY_FILE)
   exit_on_error $?
 }
@@ -321,25 +362,28 @@ function checkout_rocksdb {
   exit_on_error $?
 }
 
-function build_db_bench {
-  echo "Building db_bench ..."
+function build_db_bench_and_ldb {
+  echo "Building db_bench & ldb ..."
 
   make clean
   exit_on_error $?
 
-  DEBUG_LEVEL=0 make db_bench -j32
+  DEBUG_LEVEL=0 make db_bench ldb -j32
   exit_on_error $?
 }
 
 function run_remote {
-  if ! [ -z "$REMOTE_USER_AT_HOST" ]; then
-    cmd="$SSH $REMOTE_USER_AT_HOST $1"
-  else
-    cmd="$1"
-  fi
+  test_remote "$1"
+  exit_on_error $? "$1"
+}
 
+function test_remote {
+  if ! [ -z "$REMOTE_USER_AT_HOST" ]; then
+      cmd="$SSH $REMOTE_USER_AT_HOST '$1'"
+  else
+      cmd="$1"
+  fi
   eval "$cmd"
-  exit_on_error $? "$cmd"
 }
 
 function run_local {
@@ -378,7 +422,8 @@ function setup_test_directory {
   run_remote "ls -l $DB_BENCH_DIR"
 
   if ! [ -z "$REMOTE_USER_AT_HOST" ]; then
-    run_local "$SCP ./db_bench $REMOTE_USER_AT_HOST:$DB_BENCH_DIR/db_bench"
+      run_local "$SCP ./db_bench $REMOTE_USER_AT_HOST:$DB_BENCH_DIR/db_bench"
+      run_local "$SCP ./ldb $REMOTE_USER_AT_HOST:$DB_BENCH_DIR/ldb"
   fi
 
   run_local "mkdir -p $RESULT_PATH"
@@ -388,6 +433,7 @@ function setup_test_directory {
       "value-size" "compress-rate" "ops-per-thread" "num-threads" "cache-size" \
       "flushes" "compactions" \
       "ops-per-s" "p50" "p75" "p99" "p99.9" "p99.99" "debug" \
+      "real-sec" "user-sec" "sys-sec" \
       >> $SUMMARY_FILE)
   exit_on_error $?
 }

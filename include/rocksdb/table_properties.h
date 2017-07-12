@@ -31,6 +31,8 @@ typedef std::map<std::string, std::string> UserCollectedProperties;
 struct TablePropertiesNames {
   static const std::string kDataSize;
   static const std::string kIndexSize;
+  static const std::string kIndexPartitions;
+  static const std::string kTopLevelIndexSize;
   static const std::string kFilterSize;
   static const std::string kRawKeySize;
   static const std::string kRawValueSize;
@@ -46,6 +48,7 @@ struct TablePropertiesNames {
   static const std::string kPrefixExtractorName;
   static const std::string kPropertyCollectors;
   static const std::string kCompression;
+  static const std::string kCreationTime;
 };
 
 extern const std::string kPropertiesBlock;
@@ -134,6 +137,10 @@ struct TableProperties {
   uint64_t data_size = 0;
   // the size of index block.
   uint64_t index_size = 0;
+  // Total number of index partitions if kTwoLevelIndexSearch is used
+  uint64_t index_partitions = 0;
+  // Size of the top-level index if kTwoLevelIndexSearch is used
+  uint64_t top_level_index_size = 0;
   // the size of filter block.
   uint64_t filter_size = 0;
   // total raw key size
@@ -152,6 +159,9 @@ struct TableProperties {
   // by column_family_name.
   uint64_t column_family_id =
       rocksdb::TablePropertiesCollectorFactory::Context::kUnknownColumnFamily;
+  // The time when the SST file was created.
+  // Since SST files are immutable, this is equivalent to last modified time.
+  uint64_t creation_time = 0;
 
   // Name of the column family with which this SST file is associated.
   // If column family is unknown, `column_family_name` will be an empty string.

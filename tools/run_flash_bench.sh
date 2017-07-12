@@ -102,7 +102,7 @@ if [[ $skip_low_pri_tests == 1 ]]; then
   echo "Skipping some non-critical tests because SKIP_LOW_PRI_TESTS is set."
 fi
 
-output_dir="/tmp/output"
+output_dir="${TMPDIR:-/tmp}/output"
 
 ARGS="\
 OUTPUT_DIR=$output_dir \

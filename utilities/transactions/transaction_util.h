@@ -24,8 +24,10 @@ struct TransactionKeyMapInfo {
   uint32_t num_writes;
   uint32_t num_reads;
 
+  bool exclusive;
+
   explicit TransactionKeyMapInfo(SequenceNumber seq_no)
-      : seq(seq_no), num_writes(0), num_reads(0) {}
+      : seq(seq_no), num_writes(0), num_reads(0), exclusive(false) {}
 };
 
 using TransactionKeyMap =

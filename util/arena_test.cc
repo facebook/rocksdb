@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -35,7 +37,7 @@ void MemoryAllocatedBytesTest(size_t huge_page_size) {
   size_t bsz = 32 * 1024;  // block size
   size_t expected_memory_allocated;
 
-  Arena arena(bsz, huge_page_size);
+  Arena arena(bsz, nullptr, huge_page_size);
 
   // requested size > quarter of a block:
   //   allocate requested size separately
@@ -87,7 +89,7 @@ static void ApproximateMemoryUsageTest(size_t huge_page_size) {
   const size_t kBlockSize = 4096;
   const size_t kEntrySize = kBlockSize / 8;
   const size_t kZero = 0;
-  Arena arena(kBlockSize, huge_page_size);
+  Arena arena(kBlockSize, nullptr, huge_page_size);
   ASSERT_EQ(kZero, arena.ApproximateMemoryUsage());
 
   // allocate inline bytes
@@ -129,7 +131,7 @@ static void ApproximateMemoryUsageTest(size_t huge_page_size) {
 
 static void SimpleTest(size_t huge_page_size) {
   std::vector<std::pair<size_t, char*>> allocated;
-  Arena arena(Arena::kMinBlockSize, huge_page_size);
+  Arena arena(Arena::kMinBlockSize, nullptr, huge_page_size);
   const int N = 100000;
   size_t bytes = 0;
   Random rnd(301);

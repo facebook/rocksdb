@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright 2014 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -12,17 +14,17 @@
 // file data (or entire files) not protected by a "sync".
 
 #include "db/db_impl.h"
-#include "db/filename.h"
 #include "db/log_format.h"
 #include "db/version_set.h"
+#include "env/mock_env.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/table.h"
 #include "rocksdb/write_batch.h"
 #include "util/fault_injection_test_env.h"
+#include "util/filename.h"
 #include "util/logging.h"
-#include "util/mock_env.h"
 #include "util/mutexlock.h"
 #include "util/sync_point.h"
 #include "util/testharness.h"
@@ -228,10 +230,12 @@ class FaultInjectionTest : public testing::Test,
     return Status::OK();
   }
 
-#if __clang_major__ > 3 || (__clang_major__ == 3 && __clang_minor__ >= 9)
-__attribute__((__no_sanitize__("undefined")))
-#elif __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 9)
+#ifdef ROCKSDB_UBSAN_RUN
+#if defined(__clang__)
+__attribute__((__no_sanitize__("shift"), no_sanitize("signed-integer-overflow")))
+#elif defined(__GNUC__)
 __attribute__((__no_sanitize_undefined__))
+#endif
 #endif
   // Return the ith key
   Slice Key(int i, std::string* storage) const {
@@ -256,13 +260,15 @@ __attribute__((__no_sanitize_undefined__))
 
   void CloseDB() {
     delete db_;
-    db_ = NULL;
+    db_ = nullptr;
   }
 
   Status OpenDB() {
     CloseDB();
     env_->ResetState();
-    return DB::Open(options_, dbname_, &db_);
+    Status s = DB::Open(options_, dbname_, &db_);
+    assert(db_ != nullptr);
+    return s;
   }
 
   void DeleteAllData() {
@@ -406,6 +412,7 @@ TEST_P(FaultInjectionTest, WriteOptionSyncTest) {
   write_options.sync = true;
   ASSERT_OK(
       db_->Put(write_options, Key(2, &key_space), Value(2, &value_space)));
+  db_->FlushWAL(false);
 
   env_->SetFilesystemActive(false);
   NoWriteTestReopenWithFault(kResetDropAndDeleteUnsynced);
@@ -490,7 +497,7 @@ TEST_P(FaultInjectionTest, ManualLogSyncTest) {
   ASSERT_OK(db_->Flush(flush_options));
   ASSERT_OK(
       db_->Put(write_options, Key(2, &key_space), Value(2, &value_space)));
-  ASSERT_OK(db_->SyncWAL());
+  ASSERT_OK(db_->FlushWAL(true));
 
   env_->SetFilesystemActive(false);
   NoWriteTestReopenWithFault(kResetDropAndDeleteUnsynced);

@@ -2,13 +2,15 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #include "table/full_filter_block.h"
 
-#include "rocksdb/filter_policy.h"
+#include "monitoring/perf_context_imp.h"
 #include "port/port.h"
+#include "rocksdb/filter_policy.h"
 #include "util/coding.h"
-#include "util/perf_context_imp.h"
 
 namespace rocksdb {
 

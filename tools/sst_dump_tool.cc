@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 #ifndef ROCKSDB_LITE
 
@@ -19,6 +21,7 @@
 
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
+#include "options/cf_options.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
@@ -34,7 +37,6 @@
 #include "table/meta_blocks.h"
 #include "table/plain_table_factory.h"
 #include "table/table_reader.h"
-#include "util/cf_options.h"
 #include "util/compression.h"
 #include "util/random.h"
 
@@ -77,7 +79,7 @@ Status SstFileReader::GetTableReader(const std::string& file_path) {
     s = options_.env->GetFileSize(file_path, &file_size);
   }
 
-  file_.reset(new RandomAccessFileReader(std::move(file)));
+  file_.reset(new RandomAccessFileReader(std::move(file), file_path));
 
   if (s.ok()) {
     s = ReadFooterFromFile(file_.get(), file_size, &footer);
@@ -91,7 +93,7 @@ Status SstFileReader::GetTableReader(const std::string& file_path) {
         magic_number == kLegacyPlainTableMagicNumber) {
       soptions_.use_mmap_reads = true;
       options_.env->NewRandomAccessFile(file_path, &file, soptions_);
-      file_.reset(new RandomAccessFileReader(std::move(file)));
+      file_.reset(new RandomAccessFileReader(std::move(file), file_path));
     }
     options_.comparator = &internal_comparator_;
     // For old sst format, ReadTableProperties might fail but file can be read

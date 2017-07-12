@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -364,9 +366,9 @@ TEST_F(DBBasicTest, FLUSH) {
     ASSERT_OK(Flush(1));
     ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "bar", "v1"));
 
-    perf_context.Reset();
+    get_perf_context()->Reset();
     Get(1, "foo");
-    ASSERT_TRUE((int)perf_context.get_from_output_files_time > 0);
+    ASSERT_TRUE((int)get_perf_context()->get_from_output_files_time > 0);
 
     ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
     ASSERT_EQ("v1", Get(1, "foo"));
@@ -379,9 +381,9 @@ TEST_F(DBBasicTest, FLUSH) {
 
     ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
     ASSERT_EQ("v2", Get(1, "bar"));
-    perf_context.Reset();
+    get_perf_context()->Reset();
     ASSERT_EQ("v2", Get(1, "foo"));
-    ASSERT_TRUE((int)perf_context.get_from_output_files_time > 0);
+    ASSERT_TRUE((int)get_perf_context()->get_from_output_files_time > 0);
 
     writeOpt.disableWAL = false;
     ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "bar", "v3"));
@@ -822,6 +824,9 @@ TEST_F(DBBasicTest, ChecksumTest) {
 // sense to run
 #ifndef OS_WIN
 TEST_F(DBBasicTest, MmapAndBufferOptions) {
+  if (!IsMemoryMappedAccessSupported()) {
+    return;
+  }
   Options options = CurrentOptions();
 
   options.use_direct_reads = true;

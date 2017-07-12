@@ -92,7 +92,7 @@
 
 ### CreateColumnFamily
 
-    # Create a new column familiy for the database.
+    # Create a new column family for the database.
     #
     # column_family_name (string) - Name of the new column family.
     #

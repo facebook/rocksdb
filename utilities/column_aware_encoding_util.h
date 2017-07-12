@@ -12,8 +12,8 @@
 #include "include/rocksdb/listener.h"
 #include "include/rocksdb/options.h"
 #include "include/rocksdb/status.h"
+#include "options/cf_options.h"
 #include "table/block_based_table_reader.h"
-#include "util/cf_options.h"
 
 namespace rocksdb {
 

@@ -20,8 +20,10 @@
 #ifndef STORAGE_ROCKSDB_INCLUDE_FILTER_POLICY_H_
 #define STORAGE_ROCKSDB_INCLUDE_FILTER_POLICY_H_
 
-#include <string>
 #include <memory>
+#include <stdexcept>
+#include <string>
+#include <vector>
 
 namespace rocksdb {
 
@@ -41,6 +43,16 @@ class FilterBitsBuilder {
   // The return value of this function would be the filter bits,
   // The ownership of actual data is set to buf
   virtual Slice Finish(std::unique_ptr<const char[]>* buf) = 0;
+
+  // Calculate num of entries fit into a space.
+  virtual int CalculateNumEntry(const uint32_t space) {
+#ifndef ROCKSDB_LITE
+    throw std::runtime_error("CalculateNumEntry not Implemented");
+#else
+    abort();
+#endif
+    return 0;
+  }
 };
 
 // A class that checks if a key can be in filter
@@ -112,7 +124,7 @@ class FilterPolicy {
 //
 // bits_per_key: bits per key in bloom filter. A good value for bits_per_key
 // is 10, which yields a filter with ~ 1% false positive rate.
-// use_block_based_builder: use block based filter rather than full fiter.
+// use_block_based_builder: use block based filter rather than full filter.
 // If you want to builder full filter, it needs to be set to false.
 //
 // Callers must delete the result after any database that is using the

@@ -2,11 +2,12 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
-
 
 #include "table/block_based_table_factory.h"
 
@@ -45,6 +46,12 @@ BlockBasedTableFactory::BlockBasedTableFactory(
   if (table_options_.index_block_restart_interval < 1) {
     table_options_.index_block_restart_interval = 1;
   }
+  if (table_options_.partition_filters &&
+      table_options_.index_type !=
+          BlockBasedTableOptions::kTwoLevelIndexSearch) {
+    // We do not support partitioned filters without partitioning indexes
+    table_options_.partition_filters = false;
+  }
 }
 
 Status BlockBasedTableFactory::NewTableReader(
@@ -70,7 +77,8 @@ TableBuilder* BlockBasedTableFactory::NewTableBuilder(
       table_builder_options.compression_opts,
       table_builder_options.compression_dict,
       table_builder_options.skip_filters,
-      table_builder_options.column_family_name);
+      table_builder_options.column_family_name,
+      table_builder_options.creation_time);
 
   return table_builder;
 }

@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -142,7 +144,7 @@ DIR* opendir(const char* name) {
     return nullptr;
   }
 
-  strncpy_s(dir->entry_.d_name, dir->data_.name, strlen(dir->data_.name));
+  strcpy_s(dir->entry_.d_name, sizeof(dir->entry_.d_name), dir->data_.name);
 
   return dir.release();
 }
@@ -164,7 +166,7 @@ struct dirent* readdir(DIR* dirp) {
     return nullptr;
   }
 
-  strncpy_s(dirp->entry_.d_name, dirp->data_.name, strlen(dirp->data_.name));
+  strcpy_s(dirp->entry_.d_name, sizeof(dirp->entry_.d_name), dirp->data_.name);
 
   return &dirp->entry_;
 }

@@ -4,6 +4,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 #pragma once
 
 #include <algorithm>
@@ -16,9 +18,12 @@
 #include "db/merge_helper.h"
 #include "db/pinned_iterators_manager.h"
 #include "db/range_del_aggregator.h"
+#include "options/cf_options.h"
 #include "rocksdb/compaction_filter.h"
 
 namespace rocksdb {
+
+class CompactionEventListener;
 
 class CompactionIterator {
  public:
@@ -44,6 +49,9 @@ class CompactionIterator {
     virtual Slice GetLargestUserKey() const {
       return compaction_->GetLargestUserKey();
     }
+    virtual bool allow_ingest_behind() const {
+      return compaction_->immutable_cf_options()->allow_ingest_behind;
+    }
 
    protected:
     CompactionProxy() = default;
@@ -60,6 +68,7 @@ class CompactionIterator {
                      RangeDelAggregator* range_del_agg,
                      const Compaction* compaction = nullptr,
                      const CompactionFilter* compaction_filter = nullptr,
+                     CompactionEventListener* compaction_listener = nullptr,
                      const std::atomic<bool>* shutting_down = nullptr);
 
   // Constructor with custom CompactionProxy, used for tests.
@@ -71,6 +80,7 @@ class CompactionIterator {
                      RangeDelAggregator* range_del_agg,
                      std::unique_ptr<CompactionProxy> compaction,
                      const CompactionFilter* compaction_filter = nullptr,
+                     CompactionEventListener* compaction_listener = nullptr,
                      const std::atomic<bool>* shutting_down = nullptr);
 
   ~CompactionIterator();
@@ -124,6 +134,9 @@ class CompactionIterator {
   RangeDelAggregator* range_del_agg_;
   std::unique_ptr<CompactionProxy> compaction_;
   const CompactionFilter* compaction_filter_;
+#ifndef ROCKSDB_LITE
+  CompactionEventListener* compaction_listener_;
+#endif  // ROCKSDB_LITE
   const std::atomic<bool>* shutting_down_;
   bool bottommost_level_;
   bool valid_ = false;

@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 #ifndef ROCKSDB_LITE
 
@@ -47,7 +49,7 @@ void ColumnAwareEncodingReader::InitTableReader(const std::string& file_path) {
   options_.env->NewRandomAccessFile(file_path, &file, soptions_);
   options_.env->GetFileSize(file_path, &file_size);
 
-  file_.reset(new RandomAccessFileReader(std::move(file)));
+  file_.reset(new RandomAccessFileReader(std::move(file), file_path));
 
   options_.comparator = &internal_comparator_;
   options_.table_factory = std::make_shared<BlockBasedTableFactory>();

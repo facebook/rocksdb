@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #include "rocksdb/options.h"
 #include "rocksdb/flush_block_policy.h"
@@ -69,6 +71,12 @@ FlushBlockPolicy* FlushBlockBySizePolicyFactory::NewFlushBlockPolicy(
   return new FlushBlockBySizePolicy(
       table_options.block_size, table_options.block_size_deviation,
       data_block_builder);
+}
+
+FlushBlockPolicy* FlushBlockBySizePolicyFactory::NewFlushBlockPolicy(
+    const uint64_t size, const int deviation,
+    const BlockBuilder& data_block_builder) {
+  return new FlushBlockBySizePolicy(size, deviation, data_block_builder);
 }
 
 }  // namespace rocksdb

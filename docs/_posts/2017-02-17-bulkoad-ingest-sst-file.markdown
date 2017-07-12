@@ -1,5 +1,5 @@
 ---
-title: Bulkoading by ingesting external SST files
+title: Bulkloading by ingesting external SST files
 layout: post
 author: IslamAbdelRahman
 category: blog

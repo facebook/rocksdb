@@ -2,15 +2,18 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #ifndef ROCKSDB_LITE
 
 #include "db/db_impl.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
-#include "table/meta_blocks.h"
 #include "table/cuckoo_table_factory.h"
 #include "table/cuckoo_table_reader.h"
+#include "table/meta_blocks.h"
+#include "util/string_util.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 
@@ -319,8 +322,14 @@ TEST_F(CuckooTableDBTest, AdaptiveTable) {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  ::testing::InitGoogleTest(&argc, argv);
-  return RUN_ALL_TESTS();
+  if (rocksdb::port::kLittleEndian) {
+    ::testing::InitGoogleTest(&argc, argv);
+    return RUN_ALL_TESTS();
+  }
+  else {
+    fprintf(stderr, "SKIPPED as Cuckoo table doesn't support Big Endian\n");
+    return 0;
+  }
 }
 
 #else

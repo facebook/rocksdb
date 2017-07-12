@@ -21,7 +21,7 @@
 #include "util/threadpool_imp.h"
 
 #include <stdint.h>
-#include <Windows.h>
+#include <windows.h>
 
 #include <mutex>
 #include <vector>
@@ -66,6 +66,7 @@ public:
 
   // Allow increasing the number of worker threads.
   void SetBackgroundThreads(int num, Env::Priority pri);
+  int GetBackgroundThreads(Env::Priority pri);
 
   void IncBackgroundThreadsIfNeeded(int num, Env::Priority pri);
 
@@ -94,13 +95,15 @@ public:
     std::unique_ptr<SequentialFile>* result,
     const EnvOptions& options);
 
+  // Helper for NewWritable and ReopenWritableFile
+  virtual Status OpenWritableFile(const std::string& fname,
+    std::unique_ptr<WritableFile>* result,
+    const EnvOptions& options,
+    bool reopen);
+
   virtual Status NewRandomAccessFile(const std::string& fname,
     std::unique_ptr<RandomAccessFile>* result,
     const EnvOptions& options);
-
-  virtual Status NewWritableFile(const std::string& fname,
-                                 std::unique_ptr<WritableFile>* result,
-                                 const EnvOptions& options);
 
   // The returned file will only be accessed by one thread at a time.
   virtual Status NewRandomRWFile(const std::string& fname,
@@ -203,6 +206,17 @@ public:
                          std::unique_ptr<WritableFile>* result,
                          const EnvOptions& options) override;
 
+  // Create an object that writes to a new file with the specified
+  // name.  Deletes any existing file with the same name and creates a
+  // new file.  On success, stores a pointer to the new file in
+  // *result and returns OK.  On failure stores nullptr in *result and
+  // returns non-OK.
+  //
+  // The returned file will only be accessed by one thread at a time.
+  Status ReopenWritableFile(const std::string& fname,
+    std::unique_ptr<WritableFile>* result,
+    const EnvOptions& options) override;
+
   // The returned file will only be accessed by one thread at a time.
   Status NewRandomRWFile(const std::string& fname,
     unique_ptr<RandomRWFile>* result,
@@ -276,6 +290,7 @@ public:
 
   // Allow increasing the number of worker threads.
   void SetBackgroundThreads(int num, Env::Priority pri) override;
+  int GetBackgroundThreads(Env::Priority pri) override;
 
   void IncBackgroundThreadsIfNeeded(int num, Env::Priority pri) override;
 

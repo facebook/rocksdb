@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -39,10 +41,10 @@
 #include "db/version_builder.h"
 #include "db/version_edit.h"
 #include "db/write_controller.h"
+#include "monitoring/instrumented_mutex.h"
+#include "options/db_options.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
-#include "util/db_options.h"
-#include "util/instrumented_mutex.h"
 
 namespace rocksdb {
 
@@ -461,6 +463,10 @@ class Version {
                             MergeIteratorBuilder* merger_iter_builder,
                             int level, RangeDelAggregator* range_del_agg);
 
+  void AddRangeDelIteratorsForLevel(
+      const ReadOptions& read_options, const EnvOptions& soptions, int level,
+      std::vector<InternalIterator*>* range_del_iters);
+
   // Lookup the value for key.  If found, store it in *val and
   // return OK.  Else return a non-OK status.
   // Uses *operands to store merge_operator operations to apply later.
@@ -498,7 +504,7 @@ class Version {
   void AddLiveFiles(std::vector<FileDescriptor>* live);
 
   // Return a human readable string that describes this version's contents.
-  std::string DebugString(bool hex = false) const;
+  std::string DebugString(bool hex = false, bool print_stats = false) const;
 
   // Returns the version nuber of this version
   uint64_t GetVersionNumber() const { return version_number_; }
@@ -693,10 +699,29 @@ class VersionSet {
     return last_sequence_.load(std::memory_order_acquire);
   }
 
+  // Note: memory_order_acquire must be sufficient.
+  uint64_t LastToBeWrittenSequence() const {
+    return last_to_be_written_sequence_.load(std::memory_order_seq_cst);
+  }
+
   // Set the last sequence number to s.
   void SetLastSequence(uint64_t s) {
     assert(s >= last_sequence_);
+    // Last visible seqeunce must always be less than last written seq
+    assert(!db_options_->concurrent_prepare ||
+           s <= last_to_be_written_sequence_);
     last_sequence_.store(s, std::memory_order_release);
+  }
+
+  // Note: memory_order_release must be sufficient
+  void SetLastToBeWrittenSequence(uint64_t s) {
+    assert(s >= last_to_be_written_sequence_);
+    last_to_be_written_sequence_.store(s, std::memory_order_seq_cst);
+  }
+
+  // Note: memory_order_release must be sufficient
+  uint64_t FetchAddLastToBeWrittenSequence(uint64_t s) {
+    return last_to_be_written_sequence_.fetch_add(s, std::memory_order_seq_cst);
   }
 
   // Mark the specified file number as used.
@@ -798,7 +823,10 @@ class VersionSet {
   uint64_t manifest_file_number_;
   uint64_t options_file_number_;
   uint64_t pending_manifest_file_number_;
+  // The last seq visible to reads
   std::atomic<uint64_t> last_sequence_;
+  // The last seq with which a writer has written/will write.
+  std::atomic<uint64_t> last_to_be_written_sequence_;
   uint64_t prev_log_number_;  // 0 or backing store for memtable being compacted
 
   // Opened lazily

@@ -21,7 +21,6 @@
 #include "rocksjni/writebatchhandlerjnicallback.h"
 #include "table/scoped_arena_iterator.h"
 #include "util/logging.h"
-#include "util/testharness.h"
 
 /*
  * Class:     org_rocksdb_WriteBatch

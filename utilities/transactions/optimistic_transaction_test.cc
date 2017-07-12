@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #ifndef ROCKSDB_LITE
 
@@ -45,6 +47,7 @@ class OptimisticTransactionTest : public testing::Test {
 
   void Reopen() {
     delete txn_db;
+    txn_db = nullptr;
     Open();
   }
 
@@ -52,6 +55,7 @@ private:
   void Open() {
     Status s = OptimisticTransactionDB::Open(options, dbname, &txn_db);
     assert(s.ok());
+    assert(txn_db != nullptr);
     db = txn_db->GetBaseDB();
   }
 };
@@ -463,6 +467,7 @@ TEST_F(OptimisticTransactionTest, ColumnFamiliesTest) {
   delete cfa;
   delete cfb;
   delete txn_db;
+  txn_db = nullptr;
 
   // open DB with three column families
   std::vector<ColumnFamilyDescriptor> column_families;
@@ -478,6 +483,7 @@ TEST_F(OptimisticTransactionTest, ColumnFamiliesTest) {
   s = OptimisticTransactionDB::Open(options, dbname, column_families, &handles,
                                     &txn_db);
   ASSERT_OK(s);
+  assert(txn_db != nullptr);
   db = txn_db->GetBaseDB();
 
   Transaction* txn = txn_db->BeginTransaction(write_options);

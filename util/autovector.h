@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 #pragma once
 
 #include <algorithm>
@@ -96,16 +98,16 @@ class autovector {
       return old;
     }
 
-    self_type operator-(difference_type len) {
+    self_type operator-(difference_type len) const {
       return self_type(vect_, index_ - len);
     }
 
-    difference_type operator-(const self_type& other) {
+    difference_type operator-(const self_type& other) const {
       assert(vect_ == other.vect_);
       return index_ - other.index_;
     }
 
-    self_type operator+(difference_type len) {
+    self_type operator+(difference_type len) const {
       return self_type(vect_, index_ + len);
     }
 
@@ -124,10 +126,22 @@ class autovector {
       assert(vect_->size() >= index_);
       return (*vect_)[index_];
     }
+
+    const_reference operator*() const {
+      assert(vect_->size() >= index_);
+      return (*vect_)[index_];
+    }
+
     pointer operator->() {
       assert(vect_->size() >= index_);
       return &(*vect_)[index_];
     }
+
+    const_pointer operator->() const {
+      assert(vect_->size() >= index_);
+      return &(*vect_)[index_];
+    }
+
 
     // -- Logical Operators
     bool operator==(const self_type& other) const {

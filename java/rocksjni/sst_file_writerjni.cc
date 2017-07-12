@@ -4,7 +4,7 @@
 // of patent rights can be found in the PATENTS file in the same directory.
 //
 // This file implements the "bridge" between Java and C++ and enables
-// calling c++ rocksdb::BackupableDB and rocksdb::BackupableDBOptions methods
+// calling C++ rocksdb::SstFileWriter methods
 // from Java side.
 
 #include <jni.h>
@@ -22,7 +22,7 @@
  * Method:    newSstFileWriter
  * Signature: (JJJ)J
  */
-jlong Java_org_rocksdb_SstFileWriter_newSstFileWriter(JNIEnv *env, jclass jcls,
+jlong Java_org_rocksdb_SstFileWriter_newSstFileWriter__JJJ(JNIEnv *env, jclass jcls,
                                                       jlong jenvoptions,
                                                       jlong joptions,
                                                       jlong jcomparator) {
@@ -32,6 +32,22 @@ jlong Java_org_rocksdb_SstFileWriter_newSstFileWriter(JNIEnv *env, jclass jcls,
   auto *comparator = reinterpret_cast<const rocksdb::Comparator *>(jcomparator);
   rocksdb::SstFileWriter *sst_file_writer =
       new rocksdb::SstFileWriter(*env_options, *options, comparator);
+  return reinterpret_cast<jlong>(sst_file_writer);
+}
+
+/*
+ * Class:     org_rocksdb_SstFileWriter
+ * Method:    newSstFileWriter
+ * Signature: (JJ)J
+ */
+jlong Java_org_rocksdb_SstFileWriter_newSstFileWriter__JJ(JNIEnv *env, jclass jcls,
+                                                      jlong jenvoptions,
+                                                      jlong joptions) {
+  auto *env_options =
+      reinterpret_cast<const rocksdb::EnvOptions *>(jenvoptions);
+  auto *options = reinterpret_cast<const rocksdb::Options *>(joptions);
+  rocksdb::SstFileWriter *sst_file_writer =
+      new rocksdb::SstFileWriter(*env_options, *options);
   return reinterpret_cast<jlong>(sst_file_writer);
 }
 
@@ -58,17 +74,50 @@ void Java_org_rocksdb_SstFileWriter_open(JNIEnv *env, jobject jobj,
 
 /*
  * Class:     org_rocksdb_SstFileWriter
- * Method:    add
+ * Method:    put
  * Signature: (JJJ)V
  */
-void Java_org_rocksdb_SstFileWriter_add(JNIEnv *env, jobject jobj,
+void Java_org_rocksdb_SstFileWriter_put(JNIEnv *env, jobject jobj,
                                         jlong jhandle, jlong jkey_handle,
                                         jlong jvalue_handle) {
   auto *key_slice = reinterpret_cast<rocksdb::Slice *>(jkey_handle);
   auto *value_slice = reinterpret_cast<rocksdb::Slice *>(jvalue_handle);
   rocksdb::Status s =
-      reinterpret_cast<rocksdb::SstFileWriter *>(jhandle)->Add(*key_slice,
-          *value_slice);
+    reinterpret_cast<rocksdb::SstFileWriter *>(jhandle)->Put(*key_slice,
+                                                             *value_slice);
+  if (!s.ok()) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  }
+}
+
+/*
+ * Class:     org_rocksdb_SstFileWriter
+ * Method:    merge
+ * Signature: (JJJ)V
+ */
+void Java_org_rocksdb_SstFileWriter_merge(JNIEnv *env, jobject jobj,
+                                          jlong jhandle, jlong jkey_handle,
+                                          jlong jvalue_handle) {
+  auto *key_slice = reinterpret_cast<rocksdb::Slice *>(jkey_handle);
+  auto *value_slice = reinterpret_cast<rocksdb::Slice *>(jvalue_handle);
+  rocksdb::Status s =
+    reinterpret_cast<rocksdb::SstFileWriter *>(jhandle)->Merge(*key_slice,
+                                                               *value_slice);
+  if (!s.ok()) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  }
+}
+
+/*
+ * Class:     org_rocksdb_SstFileWriter
+ * Method:    delete
+ * Signature: (JJJ)V
+ */
+void Java_org_rocksdb_SstFileWriter_delete(JNIEnv *env, jobject jobj,
+                                           jlong jhandle, jlong jkey_handle) {
+  auto *key_slice = reinterpret_cast<rocksdb::Slice *>(jkey_handle);
+  rocksdb::Status s =
+    reinterpret_cast<rocksdb::SstFileWriter *>(jhandle)->Delete(*key_slice);
   if (!s.ok()) {
     rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
   }

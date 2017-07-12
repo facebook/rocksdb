@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 #include <stdlib.h>
 #include <iostream>
@@ -89,7 +91,7 @@ TEST_F(HashTableTest, TestInsert) {
   // verify
   for (uint64_t k = 0; k < max_keys; ++k) {
     Node val;
-    port::RWMutex* rlock;
+    port::RWMutex* rlock = nullptr;
     assert(map_.Find(Node(k), &val, &rlock));
     rlock->ReadUnlock();
     assert(val.val_ == std::string(1000, k % 255));

@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -57,7 +59,6 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBase) {
       Options options;
       options.env = env.get();
       options.create_if_missing = true;
-      options.db_write_buffer_size = 2048;
       options.write_buffer_size = 2048;
       options.max_write_buffer_number = 2;
       options.level0_file_num_compaction_trigger = 2;
@@ -127,7 +128,6 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBase2) {
 
   Options options = CurrentOptions();
   options.create_if_missing = true;
-  options.db_write_buffer_size = 204800;
   options.write_buffer_size = 20480;
   options.max_write_buffer_number = 2;
   options.level0_file_num_compaction_trigger = 2;
@@ -284,7 +284,6 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesCompactRange) {
 
   Options options = CurrentOptions();
   options.create_if_missing = true;
-  options.db_write_buffer_size = 2048;
   options.write_buffer_size = 2048;
   options.max_write_buffer_number = 2;
   options.level0_file_num_compaction_trigger = 2;
@@ -362,7 +361,6 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesCompactRange) {
 TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBaseInc) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
-  options.db_write_buffer_size = 2048;
   options.write_buffer_size = 2048;
   options.max_write_buffer_number = 2;
   options.level0_file_num_compaction_trigger = 2;
@@ -375,6 +373,7 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBaseInc) {
   options.soft_rate_limit = 1.1;
   options.max_background_compactions = 2;
   options.num_levels = 5;
+  options.max_compaction_bytes = 100000000;
 
   DestroyAndReopen(options);
 
@@ -414,7 +413,6 @@ TEST_F(DBTestDynamicLevel, DISABLED_MigrateToDynamicLevelMaxBytesBase) {
 
   Options options;
   options.create_if_missing = true;
-  options.db_write_buffer_size = 2048;
   options.write_buffer_size = 2048;
   options.max_write_buffer_number = 8;
   options.level0_file_num_compaction_trigger = 4;

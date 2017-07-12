@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -34,18 +36,19 @@
 #include "db/write_controller.h"
 #include "db/write_thread.h"
 #include "memtable_list.h"
+#include "monitoring/instrumented_mutex.h"
+#include "options/db_options.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
+#include "rocksdb/status.h"
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/scoped_arena_iterator.h"
 #include "util/autovector.h"
-#include "util/db_options.h"
 #include "util/event_logger.h"
 #include "util/hash.h"
-#include "util/instrumented_mutex.h"
 #include "util/stop_watch.h"
 #include "util/thread_local.h"
 
@@ -99,10 +102,19 @@ class DBImpl : public DB {
       const std::vector<Slice>& keys,
       std::vector<std::string>* values) override;
 
-  virtual Status CreateColumnFamily(const ColumnFamilyOptions& options,
+  virtual Status CreateColumnFamily(const ColumnFamilyOptions& cf_options,
                                     const std::string& column_family,
                                     ColumnFamilyHandle** handle) override;
+  virtual Status CreateColumnFamilies(
+      const ColumnFamilyOptions& cf_options,
+      const std::vector<std::string>& column_family_names,
+      std::vector<ColumnFamilyHandle*>* handles) override;
+  virtual Status CreateColumnFamilies(
+      const std::vector<ColumnFamilyDescriptor>& column_families,
+      std::vector<ColumnFamilyHandle*>* handles) override;
   virtual Status DropColumnFamily(ColumnFamilyHandle* column_family) override;
+  virtual Status DropColumnFamilies(
+      const std::vector<ColumnFamilyHandle*>& column_families) override;
 
   // Returns false if key doesn't exist in the database and true if it may.
   // If value_found is not passed in as null, then return the value if found in
@@ -187,11 +199,16 @@ class DBImpl : public DB {
   using DB::Flush;
   virtual Status Flush(const FlushOptions& options,
                        ColumnFamilyHandle* column_family) override;
+  virtual Status FlushWAL(bool sync) override;
   virtual Status SyncWAL() override;
 
   virtual SequenceNumber GetLatestSequenceNumber() const override;
 
+  bool HasActiveSnapshotLaterThanSN(SequenceNumber sn);
+
 #ifndef ROCKSDB_LITE
+  using DB::ResetStats;
+  virtual Status ResetStats() override;
   virtual Status DisableFileDeletions() override;
   virtual Status EnableFileDeletions(bool force) override;
   virtual int IsFileDeletionsEnabled() const;
@@ -314,7 +331,7 @@ class DBImpl : public DB {
                            ColumnFamilyHandle* column_family = nullptr,
                            bool disallow_trivial_move = false);
 
-  void TEST_MaybeFlushColumnFamilies();
+  void TEST_HandleWALFull();
 
   bool TEST_UnableToFlushOldestLog() {
     return unable_to_flush_oldest_log_;
@@ -373,9 +390,9 @@ class DBImpl : public DB {
   Status TEST_GetAllImmutableCFOptions(
       std::unordered_map<std::string, const ImmutableCFOptions*>* iopts_map);
 
-  // Return the lastest MutableCFOptions of of a column family
+  // Return the lastest MutableCFOptions of a column family
   Status TEST_GetLatestMutableCFOptions(ColumnFamilyHandle* column_family,
-                                        MutableCFOptions* mutable_cf_opitons);
+                                        MutableCFOptions* mutable_cf_options);
 
   Cache* TEST_table_cache() { return table_cache_.get(); }
 
@@ -385,12 +402,21 @@ class DBImpl : public DB {
   uint64_t TEST_FindMinPrepLogReferencedByMemTable();
 
   int TEST_BGCompactionsAllowed() const;
+  int TEST_BGFlushesAllowed() const;
 
 #endif  // NDEBUG
 
-  // Return maximum background compaction allowed to be scheduled based on
-  // compaction status.
-  int BGCompactionsAllowed() const;
+  struct BGJobLimits {
+    int max_flushes;
+    int max_compactions;
+  };
+  // Returns maximum background flushes and compactions allowed to be scheduled
+  BGJobLimits GetBGJobLimits() const;
+  // Need a static version that can be called during SanitizeOptions().
+  static BGJobLimits GetBGJobLimits(int max_background_flushes,
+                                    int max_background_compactions,
+                                    int max_background_jobs,
+                                    bool parallelize_compactions);
 
   // move logs pending closing from job_context to the DB queue and
   // schedule a purge
@@ -451,6 +477,9 @@ class DBImpl : public DB {
   // mutex is released.
   ColumnFamilyHandle* GetColumnFamilyHandle(uint32_t column_family_id);
 
+  // Same as above, should called without mutex held and not on write thread.
+  ColumnFamilyHandle* GetColumnFamilyHandleUnlocked(uint32_t column_family_id);
+
   // Returns the number of currently running flushes.
   // REQUIREMENT: mutex_ must be held when calling this function.
   int num_running_flushes() {
@@ -464,6 +493,8 @@ class DBImpl : public DB {
     mutex_.AssertHeld();
     return num_running_compactions_;
   }
+
+  const WriteController& write_controller() { return write_controller_; }
 
   // hollow transactions shell used for recovery.
   // these will then be passed to TransactionDB so that
@@ -544,15 +575,20 @@ class DBImpl : public DB {
                                         RangeDelAggregator* range_del_agg);
 
   // Except in DB::Open(), WriteOptionsFile can only be called when:
-  // 1. WriteThread::Writer::EnterUnbatched() is used.
-  // 2. db_mutex is held
-  Status WriteOptionsFile();
+  // Persist options to options file.
+  // If need_mutex_lock = false, the method will lock DB mutex.
+  // If need_enter_write_thread = false, the method will enter write thread.
+  Status WriteOptionsFile(bool need_mutex_lock, bool need_enter_write_thread);
 
   // The following two functions can only be called when:
   // 1. WriteThread::Writer::EnterUnbatched() is used.
   // 2. db_mutex is NOT held
   Status RenameTempFileToOptionsFile(const std::string& file_name);
   Status DeleteObsoleteOptionsFiles();
+
+  void NotifyOnFlushBegin(ColumnFamilyData* cfd, FileMetaData* file_meta,
+                          const MutableCFOptions& mutable_cf_options,
+                          int job_id, TableProperties prop);
 
   void NotifyOnFlushCompleted(ColumnFamilyData* cfd, FileMetaData* file_meta,
                               const MutableCFOptions& mutable_cf_options,
@@ -581,6 +617,15 @@ class DBImpl : public DB {
                    uint64_t* log_used = nullptr, uint64_t log_ref = 0,
                    bool disable_memtable = false);
 
+  Status PipelinedWriteImpl(const WriteOptions& options, WriteBatch* updates,
+                            WriteCallback* callback = nullptr,
+                            uint64_t* log_used = nullptr, uint64_t log_ref = 0,
+                            bool disable_memtable = false);
+
+  Status WriteImplWALOnly(const WriteOptions& options, WriteBatch* updates,
+                          WriteCallback* callback = nullptr,
+                          uint64_t* log_used = nullptr, uint64_t log_ref = 0);
+
   uint64_t FindMinLogContainingOutstandingPrep();
   uint64_t FindMinPrepLogReferencedByMemTable();
 
@@ -598,7 +643,19 @@ class DBImpl : public DB {
 #endif
   struct CompactionState;
 
-  struct WriteContext;
+  struct WriteContext {
+    autovector<SuperVersion*> superversions_to_free_;
+    autovector<MemTable*> memtables_to_free_;
+
+    ~WriteContext() {
+      for (auto& sv : superversions_to_free_) {
+        delete sv;
+      }
+      for (auto& m : memtables_to_free_) {
+        delete m;
+      }
+    }
+  };
 
   struct PurgeFileInfo;
 
@@ -612,6 +669,12 @@ class DBImpl : public DB {
   void MaybeIgnoreError(Status* s) const;
 
   const Status CreateArchivalDirectory();
+
+  Status CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
+                                const std::string& cf_name,
+                                ColumnFamilyHandle** handle);
+
+  Status DropColumnFamilyImpl(ColumnFamilyHandle* column_family);
 
   // Delete any unneeded files and stale in-memory entries.
   void DeleteObsoleteFiles();
@@ -664,6 +727,9 @@ class DBImpl : public DB {
   //            `num_bytes` going through.
   Status DelayWrite(uint64_t num_bytes, const WriteOptions& write_options);
 
+  Status ThrottleLowPriWritesIfNeeded(const WriteOptions& write_options,
+                                      WriteBatch* my_batch);
+
   Status ScheduleFlushes(WriteContext* context);
 
   Status SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context);
@@ -674,6 +740,37 @@ class DBImpl : public DB {
 
   // Wait for memtable flushed
   Status WaitForFlushMemTable(ColumnFamilyData* cfd);
+
+  // REQUIRES: mutex locked
+  Status HandleWALFull(WriteContext* write_context);
+
+  // REQUIRES: mutex locked
+  Status HandleWriteBufferFull(WriteContext* write_context);
+
+  // REQUIRES: mutex locked
+  Status PreprocessWrite(const WriteOptions& write_options, bool* need_log_sync,
+                         WriteContext* write_context);
+
+  WriteBatch* MergeBatch(const WriteThread::WriteGroup& write_group,
+                         WriteBatch* tmp_batch, size_t* write_with_wal);
+
+  Status WriteToWAL(const WriteBatch& merged_batch, log::Writer* log_writer,
+                    uint64_t* log_used, uint64_t* log_size);
+
+  Status WriteToWAL(const WriteThread::WriteGroup& write_group,
+                    log::Writer* log_writer, uint64_t* log_used,
+                    bool need_log_sync, bool need_log_dir_sync,
+                    SequenceNumber sequence);
+
+  Status ConcurrentWriteToWAL(const WriteThread::WriteGroup& write_group,
+                              uint64_t* log_used, SequenceNumber* last_sequence,
+                              int total_count);
+
+  // Used by WriteImpl to update bg_error_ if paranoid check is enabled.
+  void WriteCallbackStatusCheck(const Status& status);
+
+  // Used by WriteImpl to update bg_error_ in case of memtable insert error.
+  void MemTableInsertStatusCheck(const Status& memtable_insert_status);
 
 #ifndef ROCKSDB_LITE
 
@@ -738,12 +835,6 @@ class DBImpl : public DB {
 
   const Snapshot* GetSnapshotImpl(bool is_write_conflict_boundary);
 
-  // Persist RocksDB options under the single write thread
-  // REQUIRES: mutex locked
-  Status PersistOptions();
-
-  void MaybeFlushColumnFamilies();
-
   uint64_t GetMaxTotalWalSize() const;
 
   // table_cache_ provides its own synchronization
@@ -752,11 +843,16 @@ class DBImpl : public DB {
   // Lock over the persistent DB state.  Non-nullptr iff successfully acquired.
   FileLock* db_lock_;
 
-  // The mutex for options file related operations.
-  // NOTE: should never acquire options_file_mutex_ and mutex_ at the
-  //       same time.
-  InstrumentedMutex options_files_mutex_;
+  // In addition to mutex_, log_write_mutex_ protected writes to logs_ and
+  // logfile_number_. With concurrent_prepare it also protects alive_log_files_,
+  // and log_empty_. Refer to the definition of each variable below for more
+  // details.
+  InstrumentedMutex log_write_mutex_;
   // State below is protected by mutex_
+  // With concurrent_prepare enabled, some of the variables that accessed during
+  // WriteToWAL need different synchronization: log_empty_, alive_log_files_,
+  // logs_, logfile_number_. Refer to the definition of each variable below for
+  // more description.
   mutable InstrumentedMutex mutex_;
 
   std::atomic<bool> shutting_down_;
@@ -770,10 +866,20 @@ class DBImpl : public DB {
   // * whenever there is an error in background purge, flush or compaction
   // * whenever num_running_ingest_file_ goes to 0.
   InstrumentedCondVar bg_cv_;
+  // Writes are protected by locking both mutex_ and log_write_mutex_, and reads
+  // must be under either mutex_ or log_write_mutex_. Since after ::Open,
+  // logfile_number_ is currently updated only in write_thread_, it can be read
+  // from the same write_thread_ without any locks.
   uint64_t logfile_number_;
   std::deque<uint64_t>
       log_recycle_files;  // a list of log files that we can recycle
   bool log_dir_synced_;
+  // Without concurrent_prepare, read and writes to log_empty_ are protected by
+  // mutex_. Since it is currently updated/read only in write_thread_, it can be
+  // accessed from the same write_thread_ without any locks. With
+  // concurrent_prepare writes, where it can be updated in different threads,
+  // read and writes are protected by log_write_mutex_ instead. This is to avoid
+  // expesnive mutex_ lock during WAL write, which update log_empty_.
   bool log_empty_;
   ColumnFamilyHandleImpl* default_cf_handle_;
   InternalStats* default_cf_internal_stats_;
@@ -808,14 +914,26 @@ class DBImpl : public DB {
     // true for some prefix of logs_
     bool getting_synced = false;
   };
+  // Without concurrent_prepare, read and writes to alive_log_files_ are
+  // protected by mutex_. However since back() is never popped, and push_back()
+  // is done only from write_thread_, the same thread can access the item
+  // reffered by back() without mutex_. With concurrent_prepare_, writes
+  // are protected by locking both mutex_ and log_write_mutex_, and reads must
+  // be under either mutex_ or log_write_mutex_.
   std::deque<LogFileNumberSize> alive_log_files_;
   // Log files that aren't fully synced, and the current log file.
   // Synchronization:
-  //  - push_back() is done from write thread with locked mutex_,
-  //  - pop_front() is done from any thread with locked mutex_,
+  //  - push_back() is done from write_thread_ with locked mutex_ and
+  //  log_write_mutex_
+  //  - pop_front() is done from any thread with locked mutex_ and
+  //  log_write_mutex_
+  //  - reads are done with either locked mutex_ or log_write_mutex_
   //  - back() and items with getting_synced=true are not popped,
-  //  - it follows that write thread with unlocked mutex_ can safely access
-  //    back() and items with getting_synced=true.
+  //  - The same thread that sets getting_synced=true will reset it.
+  //  - it follows that the object referred by back() can be safely read from
+  //  the write_thread_ without using mutex
+  //  - it follows that the items with getting_synced=true can be safely read
+  //  from the same thread that has set getting_synced=true
   std::deque<LogWriterNumber> logs_;
   // Signaled when getting_synced becomes false for some of the logs_.
   InstrumentedCondVar log_sync_cv_;
@@ -864,13 +982,19 @@ class DBImpl : public DB {
   WriteBufferManager* write_buffer_manager_;
 
   WriteThread write_thread_;
-
   WriteBatch tmp_batch_;
+  // The write thread when the writers have no memtable write. This will be used
+  // in 2PC to batch the prepares separately from the serial commit.
+  WriteThread nonmem_write_thread_;
 
   WriteController write_controller_;
 
+  unique_ptr<RateLimiter> low_pri_write_rate_limiter_;
+
   // Size of the last batch group. In slowdown mode, next write needs to
   // sleep if it uses up the quota.
+  // Note: This is to protect memtable and compaction. If the batch only writes
+  // to the WAL its size need not to be included in this.
   uint64_t last_batch_group_size_;
 
   FlushScheduler flush_scheduler_;
@@ -1042,7 +1166,7 @@ class DBImpl : public DB {
   // Indicate DB was opened successfully
   bool opened_successfully_;
 
-  // minmum log number still containing prepared data.
+  // minimum log number still containing prepared data.
   // this is used by FindObsoleteFiles to determine which
   // flushed logs we must keep around because they still
   // contain prepared data which has not been flushed or rolled back
@@ -1055,7 +1179,7 @@ class DBImpl : public DB {
   // to prepared_section_completed_ which maps LOG -> instance_count
   // since a log could contain multiple prepared sections
   //
-  // when trying to determine the minmum log still active we first
+  // when trying to determine the minimum log still active we first
   // consult min_log_with_prep_. while that root value maps to
   // a value > 0 in prepared_section_completed_ we decrement the
   // instance_count for that log and pop the root value in
@@ -1067,13 +1191,6 @@ class DBImpl : public DB {
   // No copying allowed
   DBImpl(const DBImpl&);
   void operator=(const DBImpl&);
-
-  // Return the earliest snapshot where seqno is visible.
-  // Store the snapshot right before that, if any, in prev_snapshot
-  inline SequenceNumber findEarliestVisibleSnapshot(
-    SequenceNumber in,
-    std::vector<SequenceNumber>& snapshots,
-    SequenceNumber* prev_snapshot);
 
   // Background threads call this function, which is just a wrapper around
   // the InstallSuperVersion() function. Background threads carry
@@ -1120,12 +1237,21 @@ class DBImpl : public DB {
   bool MCOverlap(ManualCompaction* m, ManualCompaction* m1);
 
   size_t GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
+
+  // When set, we use a seprate queue for writes that dont write to memtable. In
+  // 2PC these are the writes at Prepare phase.
+  const bool concurrent_prepare_;
+  const bool manual_wal_flush_;
 };
 
 extern Options SanitizeOptions(const std::string& db,
                                const Options& src);
 
 extern DBOptions SanitizeOptions(const std::string& db, const DBOptions& src);
+
+extern CompressionType GetCompressionFlush(
+    const ImmutableCFOptions& ioptions,
+    const MutableCFOptions& mutable_cf_options);
 
 // Fix user-supplied options to be reasonable
 template <class T, class V>

@@ -2,11 +2,15 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #include <map>
 
 #include "rocksdb/filter_policy.h"
 
+#include "table/full_filter_bits_builder.h"
+#include "table/index_builder.h"
 #include "table/partitioned_filter_block.h"
 #include "util/coding.h"
 #include "util/hash.h"
@@ -51,6 +55,28 @@ class PartitionedFilterBlockTest : public testing::Test {
   const std::string keys[4] = {"afoo", "bar", "box", "hello"};
   const std::string missing_keys[2] = {"missing", "other"};
 
+  uint64_t MaxIndexSize() {
+    int num_keys = sizeof(keys) / sizeof(*keys);
+    uint64_t max_key_size = 0;
+    for (int i = 1; i < num_keys; i++) {
+      max_key_size = std::max(max_key_size, static_cast<uint64_t>(keys[i].size()));
+    }
+    uint64_t max_index_size = num_keys * (max_key_size + 8 /*handle*/);
+    return max_index_size;
+  }
+
+  uint64_t MaxFilterSize() {
+    uint32_t dont_care1, dont_care2;
+    int num_keys = sizeof(keys) / sizeof(*keys);
+    auto filter_bits_reader = dynamic_cast<rocksdb::FullFilterBitsBuilder*>(
+        table_options_.filter_policy->GetFilterBitsBuilder());
+    assert(filter_bits_reader);
+    auto partition_size =
+        filter_bits_reader->CalculateSpace(num_keys, &dont_care1, &dont_care2);
+    delete filter_bits_reader;
+    return partition_size + table_options_.block_size_deviation;
+  }
+
   int last_offset = 10;
   BlockHandle Write(const Slice& slice) {
     BlockHandle bh(last_offset + 1, slice.size());
@@ -65,10 +91,16 @@ class PartitionedFilterBlockTest : public testing::Test {
 
   PartitionedFilterBlockBuilder* NewBuilder(
       PartitionedIndexBuilder* const p_index_builder) {
+    assert(table_options_.block_size_deviation <= 100);
+    auto partition_size = static_cast<uint32_t>(
+        table_options_.metadata_block_size *
+        ( 100 - table_options_.block_size_deviation));
+    partition_size = std::max(partition_size, static_cast<uint32_t>(1));
     return new PartitionedFilterBlockBuilder(
         nullptr, table_options_.whole_key_filtering,
         table_options_.filter_policy->GetFilterBitsBuilder(),
-        table_options_.index_block_restart_interval, p_index_builder);
+        table_options_.index_block_restart_interval, p_index_builder,
+        partition_size);
   }
 
   std::unique_ptr<MockedBlockBasedTable> table;
@@ -122,8 +154,7 @@ class PartitionedFilterBlockTest : public testing::Test {
     }
   }
 
-  void TestBlockPerKey() {
-    table_options_.index_per_partition = 1;
+  int TestBlockPerKey() {
     std::unique_ptr<PartitionedIndexBuilder> pib(NewIndexBuilder());
     std::unique_ptr<PartitionedFilterBlockBuilder> builder(
         NewBuilder(pib.get()));
@@ -142,6 +173,7 @@ class PartitionedFilterBlockTest : public testing::Test {
     CutABlock(pib.get(), keys[i]);
 
     VerifyReader(builder.get());
+    return CountNumOfIndexPartitions(pib.get());
   }
 
   void TestBlockPerTwoKeys() {
@@ -201,6 +233,18 @@ class PartitionedFilterBlockTest : public testing::Test {
     Slice slice = Slice(next_key.data(), next_key.size());
     builder->AddIndexEntry(&key, &slice, dont_care_block_handle);
   }
+
+  int CountNumOfIndexPartitions(PartitionedIndexBuilder* builder) {
+    IndexBuilder::IndexBlocks dont_care_ib;
+    BlockHandle dont_care_bh(10, 10);
+    Status s;
+    int cnt = 0;
+    do {
+      s = builder->Finish(&dont_care_ib, dont_care_bh);
+      cnt++;
+    } while (s.IsIncomplete());
+    return cnt - 1;  // 1 is 2nd level index
+  }
 };
 
 TEST_F(PartitionedFilterBlockTest, EmptyBuilder) {
@@ -211,27 +255,39 @@ TEST_F(PartitionedFilterBlockTest, EmptyBuilder) {
 }
 
 TEST_F(PartitionedFilterBlockTest, OneBlock) {
-  int num_keys = sizeof(keys) / sizeof(*keys);
-  for (int i = 1; i < num_keys + 1; i++) {
-    table_options_.index_per_partition = i;
+  uint64_t max_index_size = MaxIndexSize();
+  for (uint64_t i = 1; i < max_index_size + 1; i++) {
+    table_options_.metadata_block_size = i;
     TestBlockPerAllKeys();
   }
 }
 
 TEST_F(PartitionedFilterBlockTest, TwoBlocksPerKey) {
-  int num_keys = sizeof(keys) / sizeof(*keys);
-  for (int i = 1; i < num_keys + 1; i++) {
-    table_options_.index_per_partition = i;
+  uint64_t max_index_size = MaxIndexSize();
+  for (uint64_t i = 1; i < max_index_size + 1; i++) {
+    table_options_.metadata_block_size = i;
     TestBlockPerTwoKeys();
   }
 }
 
 TEST_F(PartitionedFilterBlockTest, OneBlockPerKey) {
-  int num_keys = sizeof(keys) / sizeof(*keys);
-  for (int i = 1; i < num_keys + 1; i++) {
-    table_options_.index_per_partition = i;
+  uint64_t max_index_size = MaxIndexSize();
+  for (uint64_t i = 1; i < max_index_size + 1; i++) {
+    table_options_.metadata_block_size = i;
     TestBlockPerKey();
   }
+}
+
+TEST_F(PartitionedFilterBlockTest, PartitionCount) {
+  int num_keys = sizeof(keys) / sizeof(*keys);
+  table_options_.metadata_block_size =
+      std::max(MaxIndexSize(), MaxFilterSize());
+  int partitions = TestBlockPerKey();
+  ASSERT_EQ(partitions, 1);
+  // A low number ensures cutting a block after each key
+  table_options_.metadata_block_size = 1;
+  partitions = TestBlockPerKey();
+  ASSERT_EQ(partitions, num_keys - 1 /* last two keys make one flush */);
 }
 
 }  // namespace rocksdb

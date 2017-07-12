@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
@@ -10,6 +12,7 @@
 #include <utility>
 #include <vector>
 #include "db/table_properties_collector.h"
+#include "options/cf_options.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
 #include "rocksdb/listener.h"
@@ -18,7 +21,6 @@
 #include "rocksdb/table_properties.h"
 #include "rocksdb/types.h"
 #include "table/scoped_arena_iterator.h"
-#include "util/cf_options.h"
 #include "util/event_logger.h"
 
 namespace rocksdb {
@@ -48,10 +50,9 @@ TableBuilder* NewTableBuilder(
         int_tbl_prop_collector_factories,
     uint32_t column_family_id, const std::string& column_family_name,
     WritableFileWriter* file, const CompressionType compression_type,
-    const CompressionOptions& compression_opts,
-    int level,
+    const CompressionOptions& compression_opts, int level,
     const std::string* compression_dict = nullptr,
-    const bool skip_filters = false);
+    const bool skip_filters = false, const uint64_t creation_time = 0);
 
 // Build a Table file from the contents of *iter.  The generated file
 // will be named according to number specified in meta. On success, the rest of
@@ -77,6 +78,7 @@ extern Status BuildTable(
     InternalStats* internal_stats, TableFileCreationReason reason,
     EventLogger* event_logger = nullptr, int job_id = 0,
     const Env::IOPriority io_priority = Env::IO_HIGH,
-    TableProperties* table_properties = nullptr, int level = -1);
+    TableProperties* table_properties = nullptr, int level = -1,
+    const uint64_t creation_time = 0);
 
 }  // namespace rocksdb

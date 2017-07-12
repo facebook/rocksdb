@@ -9,16 +9,16 @@
 
 #include "db/db_impl.h"
 #include "db/db_iter.h"
-#include "db/filename.h"
 #include "db/write_batch_internal.h"
+#include "monitoring/instrumented_mutex.h"
+#include "options/options_helper.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/utilities/date_tiered_db.h"
 #include "table/merging_iterator.h"
 #include "util/coding.h"
-#include "util/instrumented_mutex.h"
-#include "util/options_helper.h"
+#include "util/filename.h"
 #include "util/string_util.h"
 
 namespace rocksdb {
@@ -378,8 +378,8 @@ Iterator* DateTieredDBImpl::NewIterator(const ReadOptions& opts) {
   DBImpl* db_impl = reinterpret_cast<DBImpl*>(db_);
 
   auto db_iter = NewArenaWrappedDbIterator(
-      db_impl->GetEnv(), ioptions_, cf_options_.comparator, kMaxSequenceNumber,
-      cf_options_.max_sequential_skip_in_iterations, 0);
+      db_impl->GetEnv(), opts, ioptions_, cf_options_.comparator,
+      kMaxSequenceNumber, cf_options_.max_sequential_skip_in_iterations, 0);
 
   auto arena = db_iter->GetArena();
   MergeIteratorBuilder builder(cf_options_.comparator, arena);

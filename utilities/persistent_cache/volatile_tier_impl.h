@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 #pragma once
 
@@ -108,10 +110,10 @@ class VolatileCacheTier : public PersistentCacheTier {
   };
 
   struct Statistics {
-    uint64_t cache_misses_ = 0;
-    uint64_t cache_hits_ = 0;
-    uint64_t cache_inserts_ = 0;
-    uint64_t cache_evicts_ = 0;
+    std::atomic<uint64_t> cache_misses_{0};
+    std::atomic<uint64_t> cache_hits_{0};
+    std::atomic<uint64_t> cache_inserts_{0};
+    std::atomic<uint64_t> cache_evicts_{0};
 
     double CacheHitPct() const {
       auto lookups = cache_hits_ + cache_misses_;

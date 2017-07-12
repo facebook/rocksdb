@@ -66,13 +66,12 @@ int main() {
 #include <string>
 #include <thread>
 
-#include "db/filename.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
-
+#include "util/filename.h"
 
 using GFLAGS::ParseCommandLineFlags;
 using GFLAGS::RegisterFlagValidator;
@@ -82,7 +81,7 @@ DEFINE_int32(key_size, 10, "Key size");
 DEFINE_int32(value_size, 100, "Value size");
 DEFINE_string(db, "", "Use the db with the following name.");
 DEFINE_bool(destroy_db, true,
-            "Destory the existing DB before running the test");
+            "Destroy the existing DB before running the test");
 
 DEFINE_int32(runtime_sec, 10 * 60, "How long are we running for, in seconds");
 DEFINE_int32(seed, 139, "Random seed");

@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
@@ -27,6 +29,9 @@ class DBRangeDelTest : public DBTestBase {
 // ROCKSDB_LITE
 #ifndef ROCKSDB_LITE
 TEST_F(DBRangeDelTest, NonBlockBasedTableNotSupported) {
+  if (!IsMemoryMappedAccessSupported()) {
+    return;
+  }
   Options opts = CurrentOptions();
   opts.table_factory.reset(new PlainTableFactory());
   opts.prefix_extractor.reset(NewNoopTransform());
@@ -324,6 +329,7 @@ TEST_F(DBRangeDelTest, CompactionRemovesCoveredKeys) {
 TEST_F(DBRangeDelTest, ValidLevelSubcompactionBoundaries) {
   const int kNumPerFile = 100, kNumFiles = 4, kFileBytes = 100 << 10;
   Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
   options.level0_file_num_compaction_trigger = kNumFiles;
   options.max_bytes_for_level_base = 2 * kFileBytes;
   options.max_subcompactions = 4;
@@ -361,7 +367,14 @@ TEST_F(DBRangeDelTest, ValidLevelSubcompactionBoundaries) {
         // new L1 files must be generated with non-overlapping key ranges even
         // though multiple subcompactions see the same ranges deleted, else an
         // assertion will fail.
+        //
+        // Only enable auto-compactions when we're ready; otherwise, the
+        // oversized L0 (relative to base_level) causes the compaction to run
+        // earlier.
+        ASSERT_OK(db_->EnableAutoCompaction({db_->DefaultColumnFamily()}));
         dbfull()->TEST_WaitForCompact();
+        ASSERT_OK(db_->SetOptions(db_->DefaultColumnFamily(),
+                                  {{"disable_auto_compactions", "true"}}));
         ASSERT_EQ(NumTableFilesAtLevel(0), 0);
         ASSERT_GT(NumTableFilesAtLevel(1), 0);
         ASSERT_GT(NumTableFilesAtLevel(2), 0);
@@ -781,6 +794,7 @@ TEST_F(DBRangeDelTest, IteratorIgnoresRangeDeletions) {
   db_->ReleaseSnapshot(snapshot);
 }
 
+#ifndef ROCKSDB_UBSAN_RUN
 TEST_F(DBRangeDelTest, TailingIteratorRangeTombstoneUnsupported) {
   db_->Put(WriteOptions(), "key", "val");
   // snapshot prevents key from being deleted during flush
@@ -807,6 +821,55 @@ TEST_F(DBRangeDelTest, TailingIteratorRangeTombstoneUnsupported) {
   }
   db_->ReleaseSnapshot(snapshot);
 }
+
+#endif  // !ROCKSDB_UBSAN_RUN
+
+TEST_F(DBRangeDelTest, SubcompactionHasEmptyDedicatedRangeDelFile) {
+  const int kNumFiles = 2, kNumKeysPerFile = 4;
+  Options options = CurrentOptions();
+  options.compression = kNoCompression;
+  options.disable_auto_compactions = true;
+  options.level0_file_num_compaction_trigger = kNumFiles;
+  options.max_subcompactions = 2;
+  options.num_levels = 2;
+  options.target_file_size_base = 4096;
+  Reopen(options);
+
+  // need a L1 file for subcompaction to be triggered
+  ASSERT_OK(
+      db_->Put(WriteOptions(), db_->DefaultColumnFamily(), Key(0), "val"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  MoveFilesToLevel(1);
+
+  // put enough keys to fill up the first subcompaction, and later range-delete
+  // them so that the first subcompaction outputs no key-values. In that case
+  // it'll consider making an SST file dedicated to range deletions.
+  for (int i = 0; i < kNumKeysPerFile; ++i) {
+    ASSERT_OK(db_->Put(WriteOptions(), db_->DefaultColumnFamily(), Key(i),
+                       std::string(1024, 'a')));
+  }
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(0),
+                             Key(kNumKeysPerFile)));
+
+  // the above range tombstone can be dropped, so that one alone won't cause a
+  // dedicated file to be opened. We can make one protected by snapshot that
+  // must be considered. Make its range outside the first subcompaction's range
+  // to exercise the tricky part of the code.
+  const Snapshot* snapshot = db_->GetSnapshot();
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                             Key(kNumKeysPerFile + 1),
+                             Key(kNumKeysPerFile + 2)));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  ASSERT_EQ(kNumFiles, NumTableFilesAtLevel(0));
+  ASSERT_EQ(1, NumTableFilesAtLevel(1));
+
+  db_->EnableAutoCompaction({db_->DefaultColumnFamily()});
+  dbfull()->TEST_WaitForCompact();
+  db_->ReleaseSnapshot(snapshot);
+}
+
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb

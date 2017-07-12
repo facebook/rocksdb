@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #ifndef ROCKSDB_LITE
 
@@ -142,6 +144,7 @@ class CompactionJobTest : public testing::Test {
   }
 
   void SetLastSequence(const SequenceNumber sequence_number) {
+    versions_->SetLastToBeWrittenSequence(sequence_number + 1);
     versions_->SetLastSequence(sequence_number + 1);
   }
 
@@ -331,6 +334,24 @@ TEST_F(CompactionJobTest, SimpleDeletion) {
 
   auto expected_results =
       mock::MakeMockFile({{KeyStr("b", 0U, kTypeValue), "val"}});
+
+  SetLastSequence(4U);
+  auto files = cfd_->current()->storage_info()->LevelFiles(0);
+  RunCompaction({files}, expected_results);
+}
+
+TEST_F(CompactionJobTest, OutputNothing) {
+  NewDB();
+
+  auto file1 = mock::MakeMockFile({{KeyStr("a", 1U, kTypeValue), "val"}});
+
+  AddMockFile(file1);
+
+  auto file2 = mock::MakeMockFile({{KeyStr("a", 2U, kTypeDeletion), ""}});
+
+  AddMockFile(file2);
+
+  auto expected_results = mock::MakeMockFile();
 
   SetLastSequence(4U);
   auto files = cfd_->current()->storage_info()->LevelFiles(0);

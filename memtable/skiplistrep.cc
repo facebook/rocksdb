@@ -2,8 +2,10 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
-#include "db/inlineskiplist.h"
+#include "memtable/inlineskiplist.h"
 #include "db/memtable.h"
 #include "rocksdb/memtablerep.h"
 #include "util/arena.h"
@@ -18,16 +20,18 @@ class SkipListRep : public MemTableRep {
 
   friend class LookaheadIterator;
 public:
-  explicit SkipListRep(const MemTableRep::KeyComparator& compare,
-                       MemTableAllocator* allocator,
-                       const SliceTransform* transform, const size_t lookahead)
-    : MemTableRep(allocator), skip_list_(compare, allocator), cmp_(compare),
-      transform_(transform), lookahead_(lookahead) {
-  }
+ explicit SkipListRep(const MemTableRep::KeyComparator& compare,
+                      Allocator* allocator, const SliceTransform* transform,
+                      const size_t lookahead)
+     : MemTableRep(allocator),
+       skip_list_(compare, allocator),
+       cmp_(compare),
+       transform_(transform),
+       lookahead_(lookahead) {}
 
-  virtual KeyHandle Allocate(const size_t len, char** buf) override {
-    *buf = skip_list_.AllocateKey(len);
-    return static_cast<KeyHandle>(*buf);
+ virtual KeyHandle Allocate(const size_t len, char** buf) override {
+   *buf = skip_list_.AllocateKey(len);
+   return static_cast<KeyHandle>(*buf);
   }
 
   // Insert key into the list.
@@ -267,7 +271,7 @@ public:
 }
 
 MemTableRep* SkipListFactory::CreateMemTableRep(
-    const MemTableRep::KeyComparator& compare, MemTableAllocator* allocator,
+    const MemTableRep::KeyComparator& compare, Allocator* allocator,
     const SliceTransform* transform, Logger* logger) {
   return new SkipListRep(compare, allocator, transform, lookahead_);
 }

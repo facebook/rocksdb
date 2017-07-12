@@ -227,12 +227,12 @@ class TransactionBaseImpl : public Transaction {
   // seqno is the earliest seqno this key was involved with this transaction.
   // readonly should be set to true if no data was written for this key
   void TrackKey(uint32_t cfh_id, const std::string& key, SequenceNumber seqno,
-                bool readonly);
+                bool readonly, bool exclusive);
 
   // Helper function to add a key to the given TransactionKeyMap
   static void TrackKey(TransactionKeyMap* key_map, uint32_t cfh_id,
                        const std::string& key, SequenceNumber seqno,
-                       bool readonly);
+                       bool readonly, bool exclusive);
 
   // Called when UndoGetForUpdate determines that this key can be unlocked.
   virtual void UnlockGetForUpdate(ColumnFamilyHandle* column_family,
@@ -284,10 +284,10 @@ class TransactionBaseImpl : public Transaction {
           num_merges_(num_merges) {}
   };
 
- private:
   // Records writes pending in this transaction
   WriteBatchWithIndex write_batch_;
 
+ private:
   // batch to be written at commit time
   WriteBatch commit_time_batch_;
 

@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #ifndef ROCKSDB_LITE
 
@@ -23,7 +25,7 @@ namespace rocksdb {
 // IMPORTANT NOTE: Secondary index column families should be very small and
 // generally fit in memory. Assume that accessing secondary index column
 // families is much faster than accessing primary index (data heap) column
-// family. Accessing a key (i.e. checking for existance) from a column family in
+// family. Accessing a key (i.e. checking for existence) from a column family in
 // RocksDB is not much faster than accessing both key and value since they are
 // kept together and loaded from storage together.
 
@@ -1037,6 +1039,7 @@ class DocumentDBImpl : public DocumentDB {
   }
 
   // RocksDB functions
+  using DB::Get;
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value) override {

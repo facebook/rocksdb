@@ -4,12 +4,12 @@
 
 #ifndef ROCKSDB_LITE
 
+#include <map>
 #include <memory>
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/utilities/db_ttl.h"
+#include "util/string_util.h"
 #include "util/testharness.h"
-#include "util/logging.h"
-#include <map>
 #ifndef OS_WIN
 #include <unistd.h>
 #endif
@@ -36,7 +36,7 @@ class SpecialTimeEnv : public EnvWrapper {
   }
 
  private:
-  int64_t current_time_;
+  int64_t current_time_ = 0;
 };
 
 class TtlTest : public testing::Test {

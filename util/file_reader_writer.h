@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -11,6 +13,7 @@
 #include <string>
 #include "port/port.h"
 #include "rocksdb/env.h"
+#include "rocksdb/rate_limiter.h"
 #include "util/aligned_buffer.h"
 
 namespace rocksdb {
@@ -46,44 +49,55 @@ class SequentialFileReader {
 
   Status Skip(uint64_t n);
 
+  void Rewind();
+
   SequentialFile* file() { return file_.get(); }
 
   bool use_direct_io() const { return file_->use_direct_io(); }
-
- protected:
-  Status DirectRead(size_t n, Slice* result, char* scratch);
 };
 
 class RandomAccessFileReader {
  private:
   std::unique_ptr<RandomAccessFile> file_;
+  std::string     file_name_;
   Env*            env_;
   Statistics*     stats_;
   uint32_t        hist_type_;
   HistogramImpl*  file_read_hist_;
+  RateLimiter* rate_limiter_;
+  bool for_compaction_;
 
  public:
   explicit RandomAccessFileReader(std::unique_ptr<RandomAccessFile>&& raf,
+                                  std::string _file_name,
                                   Env* env = nullptr,
                                   Statistics* stats = nullptr,
                                   uint32_t hist_type = 0,
-                                  HistogramImpl* file_read_hist = nullptr)
+                                  HistogramImpl* file_read_hist = nullptr,
+                                  RateLimiter* rate_limiter = nullptr,
+                                  bool for_compaction = false)
       : file_(std::move(raf)),
+        file_name_(std::move(_file_name)),
         env_(env),
         stats_(stats),
         hist_type_(hist_type),
-        file_read_hist_(file_read_hist) {}
+        file_read_hist_(file_read_hist),
+        rate_limiter_(rate_limiter),
+        for_compaction_(for_compaction) {}
 
   RandomAccessFileReader(RandomAccessFileReader&& o) ROCKSDB_NOEXCEPT {
     *this = std::move(o);
   }
 
-  RandomAccessFileReader& operator=(RandomAccessFileReader&& o) ROCKSDB_NOEXCEPT{
+  RandomAccessFileReader& operator=(RandomAccessFileReader&& o)
+      ROCKSDB_NOEXCEPT {
     file_ = std::move(o.file_);
     env_ = std::move(o.env_);
     stats_ = std::move(o.stats_);
     hist_type_ = std::move(o.hist_type_);
     file_read_hist_ = std::move(o.file_read_hist_);
+    rate_limiter_ = std::move(o.rate_limiter_);
+    for_compaction_ = std::move(o.for_compaction_);
     return *this;
   }
 
@@ -92,13 +106,15 @@ class RandomAccessFileReader {
 
   Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const;
 
+  Status Prefetch(uint64_t offset, size_t n) const {
+    return file_->Prefetch(offset, n);
+  }
+
   RandomAccessFile* file() { return file_.get(); }
 
-  bool use_direct_io() const { return file_->use_direct_io(); }
+  std::string file_name() const { return file_name_; }
 
- protected:
-  Status DirectRead(uint64_t offset, size_t n, Slice* result,
-                    char* scratch) const;
+  bool use_direct_io() const { return file_->use_direct_io(); }
 };
 
 // Use posix write to write data to a file.
@@ -110,10 +126,12 @@ class WritableFileWriter {
   // Actually written data size can be used for truncate
   // not counting padding data
   uint64_t                filesize_;
+#ifndef ROCKSDB_LITE
   // This is necessary when we use unbuffered access
   // and writes must happen on aligned offsets
   // so we need to go back and write that page again
   uint64_t                next_write_offset_;
+#endif  // ROCKSDB_LITE
   bool                    pending_sync_;
   uint64_t                last_sync_size_;
   uint64_t                bytes_per_sync_;
@@ -127,7 +145,9 @@ class WritableFileWriter {
         buf_(),
         max_buffer_size_(options.writable_file_max_buffer_size),
         filesize_(0),
+#ifndef ROCKSDB_LITE
         next_write_offset_(0),
+#endif  // ROCKSDB_LITE
         pending_sync_(false),
         last_sync_size_(0),
         bytes_per_sync_(options.bytes_per_sync),
@@ -175,7 +195,6 @@ class WritableFileWriter {
   // Normal write
   Status WriteBuffered(const char* data, size_t size);
   Status RangeSync(uint64_t offset, uint64_t nbytes);
-  size_t RequestToken(size_t bytes, bool align);
   Status SyncInternal(bool use_fsync);
 };
 

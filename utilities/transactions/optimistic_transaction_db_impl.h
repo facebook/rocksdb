@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #pragma once
 #ifndef ROCKSDB_LITE
@@ -14,10 +16,14 @@ namespace rocksdb {
 
 class OptimisticTransactionDBImpl : public OptimisticTransactionDB {
  public:
-  explicit OptimisticTransactionDBImpl(DB* db)
-      : OptimisticTransactionDB(db), db_(db) {}
+  explicit OptimisticTransactionDBImpl(DB* db, bool take_ownership = true)
+      : OptimisticTransactionDB(db), db_(db), db_owner_(take_ownership) {}
 
-  ~OptimisticTransactionDBImpl() {}
+  ~OptimisticTransactionDBImpl() {
+    if (!db_owner_) {
+      db_.release();
+    }
+  }
 
   Transaction* BeginTransaction(const WriteOptions& write_options,
                                 const OptimisticTransactionOptions& txn_options,
@@ -27,6 +33,7 @@ class OptimisticTransactionDBImpl : public OptimisticTransactionDB {
 
  private:
   std::unique_ptr<DB> db_;
+  bool db_owner_;
 
   void ReinitializeTransaction(Transaction* txn,
                                const WriteOptions& write_options,

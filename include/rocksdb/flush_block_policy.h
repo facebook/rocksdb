@@ -48,13 +48,15 @@ class FlushBlockBySizePolicyFactory : public FlushBlockPolicyFactory {
  public:
   FlushBlockBySizePolicyFactory() {}
 
-  virtual const char* Name() const override {
-    return "FlushBlockBySizePolicyFactory";
-  }
+  const char* Name() const override { return "FlushBlockBySizePolicyFactory"; }
 
-  virtual FlushBlockPolicy* NewFlushBlockPolicy(
+  FlushBlockPolicy* NewFlushBlockPolicy(
       const BlockBasedTableOptions& table_options,
       const BlockBuilder& data_block_builder) const override;
+
+  static FlushBlockPolicy* NewFlushBlockPolicy(
+      const uint64_t size, const int deviation,
+      const BlockBuilder& data_block_builder);
 };
 
 }  // rocksdb

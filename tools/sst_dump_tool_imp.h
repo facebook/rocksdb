@@ -10,7 +10,7 @@
 #include <memory>
 #include <string>
 #include "db/dbformat.h"
-#include "util/cf_options.h"
+#include "options/cf_options.h"
 #include "util/file_reader_writer.h"
 
 namespace rocksdb {

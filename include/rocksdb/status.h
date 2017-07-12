@@ -71,6 +71,7 @@ class Status {
     kNoSpace = 4,
     kDeadlock = 5,
     kStaleFile = 6,
+    kMemoryLimit = 7,
     kMaxSubCode
   };
 
@@ -166,6 +167,11 @@ class Status {
     return Status(kIOError, kNoSpace, msg, msg2);
   }
 
+  static Status MemoryLimit() { return Status(kAborted, kMemoryLimit); }
+  static Status MemoryLimit(const Slice& msg, const Slice& msg2 = Slice()) {
+    return Status(kAborted, kMemoryLimit, msg, msg2);
+  }
+
   // Returns true iff the status indicates success.
   bool ok() const { return code() == kOk; }
 
@@ -222,6 +228,13 @@ class Status {
   // if needed
   bool IsNoSpace() const {
     return (code() == kIOError) && (subcode() == kNoSpace);
+  }
+
+  // Returns true iff the status indicates a memory limit error.  There may be
+  // cases where we limit the memory used in certain operations (eg. the size
+  // of a write batch) in order to avoid out of memory exceptions.
+  bool IsMemoryLimit() const {
+    return (code() == kAborted) && (subcode() == kMemoryLimit);
   }
 
   // Return a string representation of this status suitable for printing.

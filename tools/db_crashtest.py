@@ -220,9 +220,10 @@ def blackbox_crash_main(args):
 
         while True:
             line = child.stderr.readline().strip()
-            if line != '':
+            if line != '' and not line.startswith('WARNING'):
                 run_had_errors = True
-                print('***' + line + '^')
+                print('stderr has error message:')
+                print('***' + line + '***')
             else:
                 break
 

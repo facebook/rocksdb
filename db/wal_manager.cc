@@ -2,6 +2,8 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -18,10 +20,9 @@
 #include <vector>
 #include <memory>
 
-#include "db/filename.h"
-#include "db/transaction_log_impl.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
+#include "db/transaction_log_impl.h"
 #include "db/write_batch_internal.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
@@ -29,10 +30,11 @@
 #include "rocksdb/write_batch.h"
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
+#include "util/filename.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
-#include "util/sync_point.h"
 #include "util/string_util.h"
+#include "util/sync_point.h"
 
 namespace rocksdb {
 
@@ -431,7 +433,8 @@ Status WalManager::ReadFirstLine(const std::string& fname,
   };
 
   std::unique_ptr<SequentialFile> file;
-  Status status = env_->NewSequentialFile(fname, &file, env_options_);
+  Status status = env_->NewSequentialFile(
+      fname, &file, env_->OptimizeForLogRead(env_options_));
   unique_ptr<SequentialFileReader> file_reader(
       new SequentialFileReader(std::move(file)));
 

@@ -179,10 +179,37 @@ class DB {
                                     const std::string& column_family_name,
                                     ColumnFamilyHandle** handle);
 
+  // Bulk create column families with the same column family options.
+  // Return the handles of the column families through the argument handles.
+  // In case of error, the request may succeed partially, and handles will
+  // contain column family handles that it managed to create, and have size
+  // equal to the number of created column families.
+  virtual Status CreateColumnFamilies(
+      const ColumnFamilyOptions& options,
+      const std::vector<std::string>& column_family_names,
+      std::vector<ColumnFamilyHandle*>* handles);
+
+  // Bulk create column families.
+  // Return the handles of the column families through the argument handles.
+  // In case of error, the request may succeed partially, and handles will
+  // contain column family handles that it managed to create, and have size
+  // equal to the number of created column families.
+  virtual Status CreateColumnFamilies(
+      const std::vector<ColumnFamilyDescriptor>& column_families,
+      std::vector<ColumnFamilyHandle*>* handles);
+
   // Drop a column family specified by column_family handle. This call
   // only records a drop record in the manifest and prevents the column
   // family from flushing and compacting.
   virtual Status DropColumnFamily(ColumnFamilyHandle* column_family);
+
+  // Bulk drop column families. This call only records drop records in the
+  // manifest and prevents the column families from flushing and compacting.
+  // In case of error, the request may succeed partially. User may call
+  // ListColumnFamilies to check the result.
+  virtual Status DropColumnFamilies(
+      const std::vector<ColumnFamilyHandle*>& column_families);
+
   // Close a column family specified by column_family handle and destroy
   // the column family handle specified to avoid double deletion. This call
   // deletes the column family handle by default. Use this method to
@@ -280,9 +307,9 @@ class DB {
   // a status for which Status::IsNotFound() returns true.
   //
   // May return some other Status on an error.
-  inline Status Get(const ReadOptions& options,
-                    ColumnFamilyHandle* column_family, const Slice& key,
-                    std::string* value) {
+  virtual inline Status Get(const ReadOptions& options,
+                            ColumnFamilyHandle* column_family, const Slice& key,
+                            std::string* value) {
     assert(value != nullptr);
     PinnableSlice pinnable_val(value);
     assert(!pinnable_val.IsPinned());
@@ -400,15 +427,24 @@ class DB {
     //      SST files.
     static const std::string kSSTables;
 
-    //  "rocksdb.cfstats" - returns a multi-line string with general column
-    //      family stats per-level over db's lifetime ("L<n>"), aggregated over
-    //      db's lifetime ("Sum"), and aggregated over the interval since the
-    //      last retrieval ("Int").
+    //  "rocksdb.cfstats" - Both of "rocksdb.cfstats-no-file-histogram" and
+    //      "rocksdb.cf-file-histogram" together. See below for description
+    //      of the two.
+    static const std::string kCFStats;
+
+    //  "rocksdb.cfstats-no-file-histogram" - returns a multi-line string with
+    //      general columm family stats per-level over db's lifetime ("L<n>"),
+    //      aggregated over db's lifetime ("Sum"), and aggregated over the
+    //      interval since the last retrieval ("Int").
     //  It could also be used to return the stats in the format of the map.
     //  In this case there will a pair of string to array of double for
     //  each level as well as for "Sum". "Int" stats will not be affected
-    //  when this form of stats are retrived.
-    static const std::string kCFStats;
+    //  when this form of stats are retrieved.
+    static const std::string kCFStatsNoFileHistogram;
+
+    //  "rocksdb.cf-file-histogram" - print out how many file reads to every
+    //      level, as well as the histogram of latency of single requests.
+    static const std::string kCFFileHistogram;
 
     //  "rocksdb.dbstats" - returns a multi-line string with general database
     //      stats, both cumulative (over the db's lifetime) and interval (since
@@ -502,7 +538,7 @@ class DB {
     //      by iterators or unfinished compactions.
     static const std::string kNumLiveVersions;
 
-    //  "rocksdb.current-super-version-number" - returns number of curent LSM
+    //  "rocksdb.current-super-version-number" - returns number of current LSM
     //  version. It is a uint64_t integer number, incremented after there is
     //  any change to the LSM tree. The number is not preserved after restarting
     //  the DB. After DB restart, it will start from 0 again.
@@ -512,7 +548,7 @@ class DB {
     //      live data in bytes.
     static const std::string kEstimateLiveDataSize;
 
-    //  "rocksdb.min-log-number-to-keep" - return the minmum log number of the
+    //  "rocksdb.min-log-number-to-keep" - return the minimum log number of the
     //      log files that should be kept.
     static const std::string kMinLogNumberToKeep;
 
@@ -539,6 +575,13 @@ class DB {
     //      one but only returns the aggregated table properties of the
     //      specified level "N" at the target column family.
     static const std::string kAggregatedTablePropertiesAtLevel;
+
+    //  "rocksdb.actual-delayed-write-rate" - returns the current actual delayed
+    //      write rate. 0 means no delay.
+    static const std::string kActualDelayedWriteRate;
+
+    //  "rocksdb.is-write-stopped" - Return 1 if write has been stopped.
+    static const std::string kIsWriteStopped;
   };
 #endif /* ROCKSDB_LITE */
 
@@ -587,10 +630,19 @@ class DB {
   //  "rocksdb.estimate-pending-compaction-bytes"
   //  "rocksdb.num-running-compactions"
   //  "rocksdb.num-running-flushes"
+  //  "rocksdb.actual-delayed-write-rate"
+  //  "rocksdb.is-write-stopped"
   virtual bool GetIntProperty(ColumnFamilyHandle* column_family,
                               const Slice& property, uint64_t* value) = 0;
   virtual bool GetIntProperty(const Slice& property, uint64_t* value) {
     return GetIntProperty(DefaultColumnFamily(), property, value);
+  }
+
+  // Reset internal stats for DB and all column families.
+  // Note this doesn't reset options.statistics as it is not owned by
+  // DB.
+  virtual Status ResetStats() {
+    return Status::NotSupported("Not implemented");
   }
 
   // Same as GetIntProperty(), but this one returns the aggregated int
@@ -598,7 +650,7 @@ class DB {
   virtual bool GetAggregatedIntProperty(const Slice& property,
                                         uint64_t* value) = 0;
 
-  // Flags for DB::GetSizeApproximation that specify whether memtable 
+  // Flags for DB::GetSizeApproximation that specify whether memtable
   // stats should be included, or file stats approximation or both
   enum SizeApproximationFlags : uint8_t {
     NONE = 0,
@@ -801,6 +853,11 @@ class DB {
     return Flush(options, DefaultColumnFamily());
   }
 
+  // Flush the WAL memory buffer to the file. If sync is true, it calls SyncWAL
+  // afterwards.
+  virtual Status FlushWAL(bool sync) {
+    return Status::NotSupported("FlushWAL not implemented");
+  }
   // Sync the wal. Note that Write() followed by SyncWAL() is not exactly the
   // same as Write() with sync=true: in the latter case the changes won't be
   // visible until the sync is done.
@@ -892,14 +949,22 @@ class DB {
   }
 
   // IngestExternalFile() will load a list of external SST files (1) into the DB
-  // We will try to find the lowest possible level that the file can fit in, and
-  // ingest the file into this level (2). A file that have a key range that
-  // overlap with the memtable key range will require us to Flush the memtable
-  // first before ingesting the file.
+  // Two primary modes are supported:
+  // - Duplicate keys in the new files will overwrite exiting keys (default)
+  // - Duplicate keys will be skipped (set ingest_behind=true)
+  // In the first mode we will try to find the lowest possible level that
+  // the file can fit in, and ingest the file into this level (2). A file that
+  // have a key range that overlap with the memtable key range will require us
+  // to Flush the memtable first before ingesting the file.
+  // In the second mode we will always ingest in the bottom mode level (see
+  // docs to IngestExternalFileOptions::ingest_behind).
   //
   // (1) External SST files can be created using SstFileWriter
   // (2) We will try to ingest the files to the lowest possible level
-  //     even if the file compression dont match the level compression
+  //     even if the file compression doesn't match the level compression
+  // (3) If IngestExternalFileOptions->ingest_behind is set to true,
+  //     we always ingest at the bottommost level, which should be reserved
+  //     for this purpose (see DBOPtions::allow_ingest_behind flag).
   virtual Status IngestExternalFile(
       ColumnFamilyHandle* column_family,
       const std::vector<std::string>& external_files,

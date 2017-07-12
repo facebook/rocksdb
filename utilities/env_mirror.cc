@@ -12,7 +12,7 @@
 
 namespace rocksdb {
 
-// An implementaiton of Env that mirrors all work over two backend
+// An implementation of Env that mirrors all work over two backend
 // Env's.  This is useful for debugging purposes.
 class SequentialFileMirror : public SequentialFile {
  public:
@@ -84,11 +84,6 @@ class RandomAccessFileMirror : public RandomAccessFile {
       assert(as == bs);
     }
     return as;
-  }
-
-  bool ShouldForwardRawRequest() const {
-    // NOTE: not verified
-    return a_->ShouldForwardRawRequest();
   }
 
   size_t GetUniqueId(char* id, size_t max_size) const {

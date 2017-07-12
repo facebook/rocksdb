@@ -2,11 +2,13 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #ifndef ROCKSDB_LITE
 
 #include "rocksdb/utilities/env_mirror.h"
-#include "util/mock_env.h"
+#include "env/mock_env.h"
 #include "util/testharness.h"
 
 namespace rocksdb {

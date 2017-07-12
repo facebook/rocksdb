@@ -2,14 +2,16 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "rocksdb/db_bench_tool.h"
+#include "options/options_parser.h"
 #include "rocksdb/utilities/options_util.h"
-#include "util/options_parser.h"
 #include "util/random.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
@@ -104,7 +106,6 @@ TEST_F(DBBenchTest, OptionsFile) {
   Options opt;
   opt.create_if_missing = true;
   opt.max_open_files = 256;
-  opt.base_background_compactions = 5;
   opt.max_background_compactions = 10;
   opt.arena_block_size = 8388608;
   ASSERT_OK(PersistRocksDBOptions(DBOptions(opt), {"default"},
@@ -128,7 +129,6 @@ TEST_F(DBBenchTest, OptionsFileUniversal) {
   opt.num_levels = 1;
   opt.create_if_missing = true;
   opt.max_open_files = 256;
-  opt.base_background_compactions = 5;
   opt.max_background_compactions = 10;
   opt.arena_block_size = 8388608;
   ASSERT_OK(PersistRocksDBOptions(DBOptions(opt), {"default"},
@@ -152,7 +152,6 @@ TEST_F(DBBenchTest, OptionsFileMultiLevelUniversal) {
   opt.num_levels = 12;
   opt.create_if_missing = true;
   opt.max_open_files = 256;
-  opt.base_background_compactions = 5;
   opt.max_background_compactions = 10;
   opt.arena_block_size = 8388608;
   ASSERT_OK(PersistRocksDBOptions(DBOptions(opt), {"default"},
@@ -183,7 +182,6 @@ const std::string options_file_content = R"OPTIONS_FILE(
   table_cache_numshardbits=4
   max_open_files=-1
   max_file_opening_threads=10
-  base_background_compactions=3
   max_background_compactions=5
   use_fsync=false
   use_adaptive_mutex=false
@@ -211,7 +209,7 @@ const std::string options_file_content = R"OPTIONS_FILE(
   allow_mmap_reads=false
   allow_mmap_writes=false
   use_direct_reads=false
-  use_direct_writes=false
+  use_direct_io_for_flush_and_compaction=false
   stats_dump_period_sec=600
   allow_fallocate=true
   max_log_file_size=83886080
