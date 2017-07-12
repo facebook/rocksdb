@@ -1018,6 +1018,9 @@ TEST_P(EnvPosixTestWithParam, InvalidateCache) {
 class TestLogger : public Logger {
  public:
   using Logger::Logv;
+
+  explicit TestLogger(char marker): marker_(marker) {}
+
   virtual void Logv(const char* format, va_list ap) override {
     log_count++;
 
@@ -1046,20 +1049,21 @@ class TestLogger : public Logger {
     }
 
     for (size_t i = 0; i < sizeof(new_format); i++) {
-      if (new_format[i] == 'x') {
+      if (new_format[i] == marker_) {
         char_x_count++;
       } else if (new_format[i] == '\0') {
         char_0_count++;
       }
     }
   }
+  const char marker_;
   int log_count;
   int char_x_count;
   int char_0_count;
 };
 
 TEST_P(EnvPosixTestWithParam, LogBufferTest) {
-  TestLogger test_logger;
+  TestLogger test_logger('#');
   test_logger.SetInfoLogLevel(InfoLogLevel::INFO_LEVEL);
   test_logger.log_count = 0;
   test_logger.char_x_count = 0;
@@ -1077,15 +1081,15 @@ TEST_P(EnvPosixTestWithParam, LogBufferTest) {
   std::fill_n(bytes9000, sizeof(bytes9000), '1');
   bytes9000[sizeof(bytes9000) - 1] = '\0';
 
-  ROCKS_LOG_BUFFER(&log_buffer, "x%sx", bytes200);
-  ROCKS_LOG_BUFFER(&log_buffer, "x%sx", bytes600);
-  ROCKS_LOG_BUFFER(&log_buffer, "x%sx%sx%sx", bytes200, bytes200, bytes200);
-  ROCKS_LOG_BUFFER(&log_buffer, "x%sx%sx", bytes200, bytes600);
-  ROCKS_LOG_BUFFER(&log_buffer, "x%sx%sx", bytes600, bytes9000);
+  ROCKS_LOG_BUFFER(&log_buffer, "#%s#", bytes200);
+  ROCKS_LOG_BUFFER(&log_buffer, "#%s#", bytes600);
+  ROCKS_LOG_BUFFER(&log_buffer, "#%s#%s#%s#", bytes200, bytes200, bytes200);
+  ROCKS_LOG_BUFFER(&log_buffer, "#%s#%s#", bytes200, bytes600);
+  ROCKS_LOG_BUFFER(&log_buffer, "#%s#%s#", bytes600, bytes9000);
 
-  ROCKS_LOG_BUFFER(&log_buffer_debug, "x%sx", bytes200);
+  ROCKS_LOG_BUFFER(&log_buffer_debug, "#%s#", bytes200);
   test_logger.SetInfoLogLevel(DEBUG_LEVEL);
-  ROCKS_LOG_BUFFER(&log_buffer_debug, "x%sx%sx%sx", bytes600, bytes9000,
+  ROCKS_LOG_BUFFER(&log_buffer_debug, "#%s#%s#%s#", bytes600, bytes9000,
                    bytes200);
 
   ASSERT_EQ(0, test_logger.log_count);
