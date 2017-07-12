@@ -355,8 +355,8 @@ ColumnFamilyData::ColumnFamilyData(
       initial_cf_options_(SanitizeOptions(db_options, cf_options)),
       ioptions_(db_options, initial_cf_options_),
       mutable_cf_options_(initial_cf_options_),
-      is_delete_range_supported_(strcmp(cf_options.table_factory->Name(),
-                                        BlockBasedTableFactory().Name()) == 0),
+      is_delete_range_supported_(
+          cf_options.table_factory->IsDeleteRangeSupported()),
       write_buffer_manager_(write_buffer_manager),
       mem_(nullptr),
       imm_(ioptions_.min_write_buffer_number_to_merge,
