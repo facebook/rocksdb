@@ -2,16 +2,74 @@
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
-#include <cinttypes>
+#include "util/tracer_replayer.h"
 #include <chrono>
+#include <cinttypes>
 #include <thread>
 #include "db/db_impl.h"
 #include "util/read_batch.h"
 #include "util/sync_point.h"
-#include "util/tracer_replayer.h"
+#include "util/trace_reader_writer_impl.h"
 
 namespace rocksdb {
+
+Status StartTrace(DB* db, const std::string& trace_filename) {
+  Status s;
+  EnvOptions env_options;
+  unique_ptr<WritableFile> tfile;
+  s = db->GetEnv()->NewWritableFile(trace_filename, &tfile, env_options);
+  if (s.ok()) {
+    unique_ptr<WritableFileWriter> trace_file_writer;
+    trace_file_writer.reset(
+        new WritableFileWriter(std::move(tfile), env_options));
+    unique_ptr<TraceWriter> trace_writer;
+    trace_writer.reset(new TraceWriterImpl(std::move(trace_file_writer)));
+    DBImpl* db_impl = static_cast<DBImpl*>(db->GetRootDB());
+    s = db_impl->StartTrace(std::move(trace_writer));
+  }
+  return s;
+}
+Status StartTrace(DB* db, std::unique_ptr<TraceWriter>&& trace_writer) {
+  DBImpl* db_impl = static_cast<DBImpl*>(db->GetRootDB());
+  return db_impl->StartTrace(std::move(trace_writer));
+}
+
+Status EndTrace(DB* db) {
+  DBImpl* db_impl = static_cast<DBImpl*>(db->GetRootDB());
+  return db_impl->EndTrace();
+}
+
+Status StartReplay(DB* db, std::vector<ColumnFamilyHandle*>& handles,
+                   std::unique_ptr<TraceReader>&& trace_reader, bool no_wait) {
+  DBImpl* db_impl = static_cast<DBImpl*>(db->GetRootDB());
+  return db_impl->StartReplay(handles, std::move(trace_reader), no_wait);
+}
+
+Status StartReplay(DB* db, std::vector<ColumnFamilyHandle*>& handles,
+                   const std::string& trace_filename, bool no_wait) {
+  unique_ptr<RandomAccessFile> tfile;
+  EnvOptions env_options;
+  Status s =
+      db->GetEnv()->NewRandomAccessFile(trace_filename, &tfile, env_options);
+  uint64_t file_size = 0;
+  if (s.ok()) {
+    s = db->GetEnv()->GetFileSize(trace_filename, &file_size);
+  }
+  if (s.ok()) {
+    unique_ptr<RandomAccessFileReader> trace_file_reader;
+    trace_file_reader.reset(
+        new RandomAccessFileReader(std::move(tfile), trace_filename));
+    unique_ptr<TraceReader> trace_reader;
+    trace_reader.reset(
+        new TraceReaderImpl(std::move(trace_file_reader), file_size));
+    DBImpl* db_impl = static_cast<DBImpl*>(db->GetRootDB());
+    s = db_impl->StartReplay(handles, std::move(trace_reader), no_wait);
+  }
+  return s;
+}
 
 Tracer::Tracer(Env* env, std::unique_ptr<TraceWriter>&& writer)
     : env_(env), stop_(false), num_ops_(0) {
@@ -37,9 +95,7 @@ Tracer::~Tracer() {
   trace_writer_->Close();
 }
 
-void Tracer::Start() {
-  AppendTrace(env_->NowMicros(), kTraceStart, "");
-}
+void Tracer::Start() { AppendTrace(env_->NowMicros(), kTraceStart, ""); }
 
 void Tracer::Finish() {
   std::string ops(8, '\0');
@@ -52,8 +108,7 @@ void Tracer::Write(WriteBatch* batch) {
   AppendTrace(env_->NowMicros(), kTraceWrite, std::move(payload));
 }
 
-void Tracer::Get(ColumnFamilyHandle* column_family,
-                 const Slice& key) {
+void Tracer::Get(ColumnFamilyHandle* column_family, const Slice& key) {
   ReadBatch batch;
   batch.Get(column_family->GetID(), key);
   std::string payload(batch.Data());
@@ -104,7 +159,7 @@ std::string Tracer::EncodeKey(uint64_t timestamp, TraceType type) {
 }
 
 void Replayer::DecodeKey(const std::string& key, uint64_t* timestamp,
-                                TraceType* type) {
+                         TraceType* type) {
   assert(key.length() == Tracer::kKeySize);
   *timestamp = DecodeFixed64(key.data());
   *type = static_cast<TraceType>(key[Tracer::kKeySize - 1]);
@@ -113,7 +168,7 @@ void Replayer::DecodeKey(const std::string& key, uint64_t* timestamp,
 Replayer::Replayer(DBImpl* db, std::vector<ColumnFamilyHandle*>& handles,
                    std::unique_ptr<TraceReader>&& reader)
     : db_(db), stop_(false) {
-  for (ColumnFamilyHandle* cfh: handles) {
+  for (ColumnFamilyHandle* cfh : handles) {
     handle_map_[cfh->GetID()] = cfh;
   }
   trace_reader_ = std::move(reader);

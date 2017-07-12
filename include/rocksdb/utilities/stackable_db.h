@@ -291,31 +291,6 @@ class StackableDB : public DB {
     db_->GetColumnFamilyMetaData(column_family, cf_meta);
   }
 
-  virtual Status StartTrace(
-      std::unique_ptr<TraceWriter>&& trace_writer) override {
-    return db_->StartTrace(std::move(trace_writer));
-  }
-
-  virtual Status StartTrace(const std::string& trace_filename) override {
-    return db_->StartTrace(trace_filename);
-  }
-
-  virtual Status EndTrace() override {
-    return db_->EndTrace();
-  }
-
-  virtual Status StartReplay(std::vector<ColumnFamilyHandle*>& handles,
-                             std::unique_ptr<TraceReader>&& trace_reader,
-                             bool no_wait = false) override {
-    return db_->StartReplay(handles, std::move(trace_reader), no_wait);
-  }
-
-  virtual Status StartReplay(std::vector<ColumnFamilyHandle*>& handles,
-                             const std::string& trace_filename,
-                             bool no_wait = false) override {
-    return db_->StartReplay(handles, trace_filename, no_wait);
-  }
-
 #endif  // ROCKSDB_LITE
 
   virtual Status GetLiveFiles(std::vector<std::string>& vec, uint64_t* mfs,

@@ -2401,7 +2401,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       } else if (name == "replay") {
         method = &Benchmark::Replay;
         if (FLAGS_replay_file == "") {
-          fprintf(stderr, "Please set --replay_file to the trace file"
+          fprintf(stderr,
+                  "Please set --replay_file to the trace file"
                   "path you want to replay from\n");
           exit(1);
         }
@@ -2550,7 +2551,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 
       if (method != nullptr) {
         if (FLAGS_trace_file != "") {
-          Status s = db_.db->StartTrace(FLAGS_trace_file);
+          Status s = StartTrace(db_.db, FLAGS_trace_file);
           if (!s.ok()) {
             fprintf(stderr, "Error in starting trace, %s\n",
                     s.ToString().c_str());
@@ -2587,7 +2588,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       }
 
       if (FLAGS_trace_file != "") {
-        db_.db->EndTrace();
+        EndTrace(db_.db);
       }
     }
     if (FLAGS_statistics) {
@@ -3919,8 +3920,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
   }
 
   void Replay(ThreadState* thread, DBWithColumnFamilies* db_with_cfh) {
-    Status s = db_with_cfh->db->StartReplay(db_with_cfh->cfh, FLAGS_replay_file,
-                                            false);
+    Status s = StartReplay(db_with_cfh->db, db_with_cfh->cfh, FLAGS_replay_file,
+                           false);
   }
 
   void ReadSequential(ThreadState* thread) {

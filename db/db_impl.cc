@@ -2748,21 +2748,6 @@ Status DBImpl::StartTrace(std::unique_ptr<TraceWriter>&& writer) {
   return Status::OK();
 }
 
-Status DBImpl::StartTrace(const std::string& trace_filename) {
-  Status s;
-  unique_ptr<WritableFile> tfile;
-  s = env_->NewWritableFile(trace_filename, &tfile, env_options_);
-  if (s.ok()) {
-    unique_ptr<WritableFileWriter> trace_file_writer;
-    trace_file_writer.reset(
-      new WritableFileWriter(std::move(tfile), env_options_));
-    unique_ptr<TraceWriter> trace_writer;
-    trace_writer.reset(new TraceWriterImpl(std::move(trace_file_writer)));
-    s = StartTrace(std::move(trace_writer));
-  }
-  return s;
-}
-
 Status DBImpl::EndTrace() {
   std::lock_guard<std::mutex> lock(trace_mutex_);
   tracer_.reset();
@@ -2779,6 +2764,7 @@ Status DBImpl::StartReplay(std::vector<ColumnFamilyHandle*>& handles,
   return Status::OK();
 }
 
+<<<<<<< 51f5132e1f4ff3d6f7c38e52562601427288a817
 Status DBImpl::StartReplay(std::vector<ColumnFamilyHandle*>& handles,
                            const std::string& trace_filename, bool no_wait) {
   unique_ptr<RandomAccessFile> tfile;
@@ -2799,6 +2785,8 @@ Status DBImpl::StartReplay(std::vector<ColumnFamilyHandle*>& handles,
   return s;
 }
 
+=======
+>>>>>>> change api
 void DBImpl::NotifyOnExternalFileIngested(
     ColumnFamilyData* cfd, const ExternalSstFileIngestionJob& ingestion_job) {
 #ifndef ROCKSDB_LITE

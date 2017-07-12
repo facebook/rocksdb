@@ -2,6 +2,8 @@
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 
 #include "util/trace_reader_writer_impl.h"
 #include "util/coding.h"
@@ -19,7 +21,7 @@ Status TraceWriterImpl::AddRecord(const std::string& key,
                                   const std::string& value) {
   Status s = writer_->Append(Slice(key));
   std::string payload_length;
-  PutFixed32(&payload_length,static_cast<uint32_t>(value.size()));
+  PutFixed32(&payload_length, static_cast<uint32_t>(value.size()));
   if (s.ok()) {
     s = writer_->Append(Slice(payload_length));
   }
@@ -29,15 +31,13 @@ Status TraceWriterImpl::AddRecord(const std::string& key,
   return s;
 }
 
-void TraceWriterImpl::Close() {
-  return writer_.reset();
-}
+void TraceWriterImpl::Close() { return writer_.reset(); }
 
 /*
  * TraceReaderImpl
  */
 
-const unsigned int TraceReaderImpl::kBufferSize = 32 * 1024; // 32KB
+const unsigned int TraceReaderImpl::kBufferSize = 32 * 1024;  // 32KB
 const unsigned int TraceReaderImpl::kHeaderSize = Tracer::kKeySize + 4;
 const unsigned int TraceReaderImpl::kLastRecordSize =
     TraceReaderImpl::kHeaderSize + 8;
@@ -74,7 +74,7 @@ Status TraceReaderImpl::ReadRecord(std::string* key, std::string* value) {
     }
     offset_ += result_.size();
     value->append(result_.data(), result_.size());
-    len -= result_.size();
+    len -= static_cast<uint32_t>(result_.size());
   }
   return s;
 }
@@ -98,9 +98,6 @@ Status TraceReaderImpl::ReadLastRecord(std::string* key, std::string* value) {
   return s;
 }
 
-void TraceReaderImpl::Close() {
-  return reader_.reset();
-}
+void TraceReaderImpl::Close() { return reader_.reset(); }
 
-
-} // namespace rocksdb
+}  // namespace rocksdb
