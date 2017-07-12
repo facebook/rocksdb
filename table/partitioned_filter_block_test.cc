@@ -92,10 +92,10 @@ class PartitionedFilterBlockTest : public testing::Test {
   PartitionedFilterBlockBuilder* NewBuilder(
       PartitionedIndexBuilder* const p_index_builder) {
     assert(table_options_.block_size_deviation <= 100);
-    auto partition_size = static_cast<const uint32_t>(
+    auto partition_size = static_cast<uint32_t>(
         table_options_.metadata_block_size *
-        (100 - table_options_.block_size_deviation));
-    partition_size = std::max(partition_size, static_cast<const uint32_t>(1));
+        ( 100 - table_options_.block_size_deviation));
+    partition_size = std::max(partition_size, static_cast<uint32_t>(1));
     return new PartitionedFilterBlockBuilder(
         nullptr, table_options_.whole_key_filtering,
         table_options_.filter_policy->GetFilterBitsBuilder(),
