@@ -162,7 +162,7 @@ class BlobDBImpl : public BlobDB {
 
   using rocksdb::StackableDB::Get;
   Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
-             const Slice& key, std::string* value) override;
+             const Slice& key, PinnableSlice* value) override;
 
   using rocksdb::StackableDB::NewIterator;
   virtual Iterator* NewIterator(const ReadOptions& opts,
