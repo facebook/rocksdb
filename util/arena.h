@@ -77,6 +77,10 @@ class Arena : public Allocator {
 
   size_t BlockSize() const override { return kBlockSize; }
 
+  bool IsInInlineBlock() const {
+    return blocks_.empty();
+  }
+
  private:
   char inline_block_[kInlineSize] __attribute__((__aligned__(sizeof(void*))));
   // Number of bytes allocated in one block

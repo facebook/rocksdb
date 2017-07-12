@@ -164,6 +164,21 @@ class ConcurrentArena : public Allocator {
       // size, we adjust our request to avoid arena waste.
       auto exact = arena_allocated_and_unused_.load(std::memory_order_relaxed);
       assert(exact == arena_.AllocatedAndUnused());
+
+      if (exact >= bytes && arena_.IsInInlineBlock()) {
+        // If we haven't exhausted arena's inline block yet, allocate from arena
+        // directly. This ensures that we'll do the first few small allocations
+        // without allocating any blocks.
+        // In particular this prevents empty memtables from using
+        // disproportionately large amount of memory: a memtable allocates on
+        // the order of 1 KB of memory when created; we wouldn't want to
+        // allocate a full arena block (typically a few megabytes) for that,
+        // especially if there are thousands of empty memtables.
+        auto rv = func();
+        Fixup();
+        return rv;
+      }
+
       avail = exact >= shard_block_size_ / 2 && exact < shard_block_size_ * 2
                   ? exact
                   : shard_block_size_;
