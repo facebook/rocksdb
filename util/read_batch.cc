@@ -2,6 +2,8 @@
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is also licensed under the GPLv2 license found in the
+//  COPYING file in the root directory of this source tree.
 //
 // IteratorBatch::rep_ :=
 //     count: fixed32
@@ -66,20 +68,15 @@ enum IteratorOpType : unsigned char {
 
 // ReadBatchBase
 ReadBatchBase::ReadBatchBase(size_t reserved_bytes) {
-  rep_.reserve((reserved_bytes > kHeader) ?
-               reserved_bytes : kHeader);
+  rep_.reserve((reserved_bytes > kHeader) ? reserved_bytes : kHeader);
   rep_.resize(kHeader);
 }
 
-ReadBatchBase::~ReadBatchBase() { }
+ReadBatchBase::~ReadBatchBase() {}
 
-int ReadBatchBase::Count() {
-  return DecodeFixed32(rep_.data());
-}
+int ReadBatchBase::Count() { return DecodeFixed32(rep_.data()); }
 
-void ReadBatchBase::SetCount(int n) {
-  EncodeFixed32(&rep_[0], n);
-}
+void ReadBatchBase::SetCount(int n) { EncodeFixed32(&rep_[0], n); }
 
 // ReadBatch
 void ReadBatch::Get(uint32_t column_family_id, const Slice& key) {
@@ -111,8 +108,7 @@ Status ReadBatch::Execute(
     char tag = input[0];
     input.remove_prefix(1);
     switch (tag) {
-      case kGet:
-      {
+      case kGet: {
         if (!GetVarint32(&input, &column_family_id) ||
             !GetLengthPrefixedSlice(&input, &key)) {
           return Status::Corruption("bad ReadBatch Get");
@@ -123,8 +119,7 @@ Status ReadBatch::Execute(
         s = db->Get(ReadOptions(), handle_map[column_family_id], key, &value);
         break;
       }
-      case kNewIterator:
-      {
+      case kNewIterator: {
         if (!GetVarint32(&input, &column_family_id) ||
             !GetVarint32(&input, &iter_id)) {
           return Status::Corruption("bad ReadBatch Get");
@@ -211,4 +206,4 @@ void IteratorBatch::GetProperty(uint64_t timestamp) {
   rep_.push_back(static_cast<unsigned char>(kIteratorGetProperty));
 }
 
-} // namespace rocksdb
+}  // namespace rocksdb

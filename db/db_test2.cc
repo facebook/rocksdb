@@ -2307,18 +2307,18 @@ TEST_F(DBTest2, TraceAndReplay) {
   options.merge_operator.reset(new TestPutOperator());
   uint64_t num_ops = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-    "Tracer::~Tracer", [&num_ops](void* arg) {
-      ASSERT_TRUE(arg != nullptr);
-      num_ops = *(static_cast<uint64_t*>(arg));
-    });
+      "Tracer::~Tracer", [&num_ops](void* arg) {
+        ASSERT_TRUE(arg != nullptr);
+        num_ops = *(static_cast<uint64_t*>(arg));
+      });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-    "Replay::BackgroundReplay", [&num_ops](void* arg) {
-      ASSERT_TRUE(arg != nullptr);
-      num_ops = *(static_cast<uint64_t*>(arg));
-    });
+      "Replay::BackgroundReplay", [&num_ops](void* arg) {
+        ASSERT_TRUE(arg != nullptr);
+        num_ops = *(static_cast<uint64_t*>(arg));
+      });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   CreateAndReopenWithCF({"pikachu"}, options);
-  db_->StartTrace(dbname_ + "/test.tr");
+  StartTrace(db_, dbname_ + "/test.tr");
   Random rnd(301);
   for (int i = 0; i < 1000; i++) {
     ASSERT_OK(Put(0, Key(i), RandomString(&rnd, 10)));
@@ -2336,7 +2336,7 @@ TEST_F(DBTest2, TraceAndReplay) {
   ASSERT_EQ(num_ops, 8000);
   num_ops = 0;
   ASSERT_OK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
-  db_->StartReplay(handles_, dbname_ + "/test.tr", false);
+  StartReplay(db_, handles_, dbname_ + "/test.tr", false);
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   Close();
   ASSERT_EQ(num_ops, 8000);

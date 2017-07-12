@@ -2750,21 +2750,6 @@ Status DBImpl::StartTrace(std::unique_ptr<TraceWriter>&& writer) {
   return Status::OK();
 }
 
-Status DBImpl::StartTrace(const std::string& trace_filename) {
-  Status s;
-  unique_ptr<WritableFile> tfile;
-  s = env_->NewWritableFile(trace_filename, &tfile, env_options_);
-  if (s.ok()) {
-    unique_ptr<WritableFileWriter> trace_file_writer;
-    trace_file_writer.reset(
-      new WritableFileWriter(std::move(tfile), env_options_));
-    unique_ptr<TraceWriter> trace_writer;
-    trace_writer.reset(new TraceWriterImpl(std::move(trace_file_writer)));
-    s = StartTrace(std::move(trace_writer));
-  }
-  return s;
-}
-
 Status DBImpl::EndTrace() {
   std::lock_guard<std::mutex> lock(trace_mutex_);
   tracer_.reset();
@@ -2779,25 +2764,6 @@ Status DBImpl::StartReplay(std::vector<ColumnFamilyHandle*>& handles,
     replayer_->WaitForReplay();
   }
   return Status::OK();
-}
-
-Status DBImpl::StartReplay(std::vector<ColumnFamilyHandle*>& handles,
-                           const std::string& trace_filename, bool no_wait) {
-  unique_ptr<RandomAccessFile> tfile;
-  Status s = env_->NewRandomAccessFile(trace_filename, &tfile, env_options_);
-  uint64_t file_size = 0;
-  if (s.ok()) {
-    s = env_->GetFileSize(trace_filename, &file_size);
-  }
-  if (s.ok()) {
-    unique_ptr<RandomAccessFileReader> trace_file_reader;
-    trace_file_reader.reset(new RandomAccessFileReader(std::move(tfile), trace_filename));
-    unique_ptr<TraceReader> trace_reader;
-    trace_reader.reset(
-        new TraceReaderImpl(std::move(trace_file_reader), file_size));
-    s = StartReplay(handles, std::move(trace_reader));
-  }
-  return s;
 }
 
 void DBImpl::NotifyOnExternalFileIngested(
