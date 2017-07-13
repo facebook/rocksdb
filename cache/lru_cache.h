@@ -154,7 +154,7 @@ class LRUHandleTable {
 };
 
 // A single shard of sharded cache.
-class alignas(CACHE_LINE_SIZE) LRUCacheShard : public CacheShard {
+class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard : public CacheShard {
  public:
   LRUCacheShard();
   virtual ~LRUCacheShard();
