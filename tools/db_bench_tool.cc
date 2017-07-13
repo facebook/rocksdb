@@ -489,7 +489,8 @@ static bool ValidateCacheNumshardbits(const char* flagname, int32_t value) {
   return true;
 }
 
-DEFINE_bool(verify_checksum, true, "Verify checksum for every block read"
+DEFINE_bool(verify_checksum, true,
+            "Verify checksum for every block read"
             " from storage");
 
 DEFINE_bool(statistics, false, "Database statistics");
@@ -4590,6 +4591,12 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         fprintf(stderr, "Get returned an error: %s\n",
                 status.ToString().c_str());
         abort();
+      }
+
+      if (thread->shared->write_rate_limiter) {
+        thread->shared->write_rate_limiter->Request(
+            key.size() + value_size_, Env::IO_HIGH, nullptr /*stats*/,
+            RateLimiter::OpType::kWrite);
       }
 
       Status s = db->Put(write_options_, key, gen.Generate(value_size_));
