@@ -131,35 +131,6 @@ DISABLE_COMMANDS="[
 ]"
 
 #
-# RocksDB unit test in parallel
-# Currently we always have noise in our parallel runs. This job is to help
-# manage the noise
-#
-PARALLEL_UNIT_TEST_COMMANDS="[
-    {
-        'name':'Rocksdb Parallel Unit Test',
-        'oncall':'$ONCALL',
-        'steps': [
-            $CLEANUP_ENV,
-            {
-                'name':'Build and test RocksDB debug version',
-                'shell':'$DEBUG make -j$(nproc) all && $SHM make check > /dev/null 2>&1 || $CONTRUN_NAME=punit_check $TASK_CREATION_TOOL || cat t/log-*',
-                'user':'root',
-                $PARSER
-            },
-            $CLEANUP_ENV,
-            {
-                'name':'Build and test RocksDB debug version under gcc-4.8.1',
-                'shell':'$GCC_481 $DEBUG make -j$(nproc) all && $SHM make check > /dev/null 2>&1 || $CONTRUN_NAME=punit_check_gcc481 $TASK_CREATION_TOOL || cat t/log-*',
-                'user':'root',
-                $PARSER
-            },
-        ],
-        $REPORT
-    }
-]"
-
-#
 # RocksDB unit test
 #
 UNIT_TEST_COMMANDS="[
@@ -776,9 +747,6 @@ JAVA_BUILD_TEST_COMMANDS="[
 
 
 case $1 in
-  punit)
-    echo $PARALLEL_UNIT_TEST_COMMANDS
-    ;;
   unit)
     echo $UNIT_TEST_COMMANDS
     ;;
