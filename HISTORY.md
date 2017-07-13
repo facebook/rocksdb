@@ -1,4 +1,7 @@
 # Rocksdb Change Log
+## 5.4.8 (07/13/2017)
+No change from 5.4.7.
+
 ## 5.4.7 (06/28/2017)
 ### Bug Fixes
 * Shouldn't ignore return value of fsync() in flush.
