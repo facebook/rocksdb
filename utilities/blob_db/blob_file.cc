@@ -11,6 +11,7 @@
 #include "utilities/blob_db/blob_db_impl.h"
 
 #include "util/filename.h"
+#include "util/logging.h"
 
 namespace rocksdb {
 
@@ -58,7 +59,7 @@ BlobFile::~BlobFile() {
     std::string pn(PathName());
     Status s = Env::Default()->DeleteFile(PathName());
     if (!s.ok()) {
-      // Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+      // ROCKS_LOG_INFO(db_options_.info_log,
       // "File could not be deleted %s", pn.c_str());
     }
   }
@@ -110,8 +111,8 @@ bool BlobFile::NeedsFsync(bool hard, uint64_t bytes_per_sync) const {
 }
 
 Status BlobFile::WriteFooterAndCloseLocked() {
-  Log(InfoLogLevel::INFO_LEVEL, parent_->db_options_.info_log,
-      "File is being closed after footer %s", PathName().c_str());
+  ROCKS_LOG_INFO(parent_->db_options_.info_log,
+                 "File is being closed after footer %s", PathName().c_str());
 
   BlobLogFooter footer;
   footer.blob_count_ = blob_count_;
@@ -126,8 +127,9 @@ Status BlobFile::WriteFooterAndCloseLocked() {
     closed_ = true;
     file_size_ += BlobLogFooter::kFooterSize;
   } else {
-    Log(InfoLogLevel::ERROR_LEVEL, parent_->db_options_.info_log,
-        "Failure to read Header for blob-file %s", PathName().c_str());
+    ROCKS_LOG_ERROR(parent_->db_options_.info_log,
+                    "Failure to read Header for blob-file %s",
+                    PathName().c_str());
   }
   // delete the sequential writer
   log_writer_.reset();
@@ -204,11 +206,11 @@ std::shared_ptr<RandomAccessFileReader> BlobFile::GetOrOpenRandomAccessReader(
   std::unique_ptr<RandomAccessFile> rfile;
   Status s = env->NewRandomAccessFile(PathName(), &rfile, env_options);
   if (!s.ok()) {
-    Log(InfoLogLevel::ERROR_LEVEL, parent_->db_options_.info_log,
-        "Failed to open blob file for random-read: %s status: '%s'"
-        " exists: '%s'",
-        PathName().c_str(), s.ToString().c_str(),
-        env->FileExists(PathName()).ToString().c_str());
+    ROCKS_LOG_ERROR(parent_->db_options_.info_log,
+                    "Failed to open blob file for random-read: %s status: '%s'"
+                    " exists: '%s'",
+                    PathName().c_str(), s.ToString().c_str(),
+                    env->FileExists(PathName()).ToString().c_str());
     return nullptr;
   }
 
