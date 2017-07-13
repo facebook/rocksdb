@@ -1,5 +1,5 @@
 # Rocksdb Change Log
-## Unreleased
+## 5.7.0 (07/13/2017)
 ### Public API Change
 * DB property "rocksdb.sstables" now prints keys in hex form.
 
