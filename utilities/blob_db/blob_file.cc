@@ -112,7 +112,7 @@ bool BlobFile::NeedsFsync(bool hard, uint64_t bytes_per_sync) const {
 
 Status BlobFile::WriteFooterAndCloseLocked() {
   ROCKS_LOG_INFO(parent_->db_options_.info_log,
-      "File is being closed after footer %s", PathName().c_str());
+                 "File is being closed after footer %s", PathName().c_str());
 
   BlobLogFooter footer;
   footer.blob_count_ = blob_count_;
@@ -128,7 +128,8 @@ Status BlobFile::WriteFooterAndCloseLocked() {
     file_size_ += BlobLogFooter::kFooterSize;
   } else {
     ROCKS_LOG_ERROR(parent_->db_options_.info_log,
-        "Failure to read Header for blob-file %s", PathName().c_str());
+                    "Failure to read Header for blob-file %s",
+                    PathName().c_str());
   }
   // delete the sequential writer
   log_writer_.reset();
@@ -206,10 +207,10 @@ std::shared_ptr<RandomAccessFileReader> BlobFile::GetOrOpenRandomAccessReader(
   Status s = env->NewRandomAccessFile(PathName(), &rfile, env_options);
   if (!s.ok()) {
     ROCKS_LOG_ERROR(parent_->db_options_.info_log,
-        "Failed to open blob file for random-read: %s status: '%s'"
-        " exists: '%s'",
-        PathName().c_str(), s.ToString().c_str(),
-        env->FileExists(PathName()).ToString().c_str());
+                    "Failed to open blob file for random-read: %s status: '%s'"
+                    " exists: '%s'",
+                    PathName().c_str(), s.ToString().c_str(),
+                    env->FileExists(PathName()).ToString().c_str());
     return nullptr;
   }
 
