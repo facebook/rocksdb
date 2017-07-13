@@ -747,9 +747,6 @@ JAVA_BUILD_TEST_COMMANDS="[
 
 
 case $1 in
-  punit)
-    echo $PARALLEL_UNIT_TEST_COMMANDS
-    ;;
   unit)
     echo $UNIT_TEST_COMMANDS
     ;;
