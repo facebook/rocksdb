@@ -130,6 +130,28 @@ TEST_F(BlobDBTest, Put) {
   VerifyDB(data);
 }
 
+TEST_F(BlobDBTest, StackableDBGet) {
+  Random rnd(301);
+  BlobDBOptionsImpl bdb_options;
+  bdb_options.disable_background_tasks = true;
+  Open(bdb_options);
+  std::map<std::string, std::string> data;
+  for (size_t i = 0; i < 100; i++) {
+    PutRandom("key" + ToString(i), &rnd, &data);
+  }
+  for (size_t i = 0; i < 100; i++) {
+    StackableDB *db = blob_db_;
+    ColumnFamilyHandle *column_family = db->DefaultColumnFamily();
+    std::string key = "key" + ToString(i);
+    PinnableSlice pinnable_value;
+    ASSERT_OK(db->Get(ReadOptions(), column_family, key, &pinnable_value));
+    std::string string_value;
+    ASSERT_OK(db->Get(ReadOptions(), column_family, key, &string_value));
+    ASSERT_EQ(string_value, pinnable_value.ToString());
+    ASSERT_EQ(string_value, data[key]);
+  }
+}
+
 TEST_F(BlobDBTest, WriteBatch) {
   Random rnd(301);
   BlobDBOptionsImpl bdb_options;

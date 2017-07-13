@@ -134,7 +134,7 @@ class BlobDB : public StackableDB {
   using rocksdb::StackableDB::Get;
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
-                     std::string* value) override = 0;
+                     PinnableSlice* value) override = 0;
 
   using rocksdb::StackableDB::MultiGet;
   virtual std::vector<Status> MultiGet(

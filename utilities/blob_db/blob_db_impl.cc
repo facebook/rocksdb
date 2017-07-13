@@ -1326,7 +1326,7 @@ Status BlobDBImpl::CommonGet(const ColumnFamilyData* cfd, const Slice& key,
 
 Status BlobDBImpl::Get(const ReadOptions& options,
                        ColumnFamilyHandle* column_family, const Slice& key,
-                       std::string* value) {
+                       PinnableSlice* value) {
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
 
@@ -1341,7 +1341,8 @@ Status BlobDBImpl::Get(const ReadOptions& options,
     return s;
   }
 
-  s = CommonGet(cfd, key, index_entry, value);
+  s = CommonGet(cfd, key, index_entry, value->GetSelf());
+  value->PinSelf();
   return s;
 }
 
