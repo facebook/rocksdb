@@ -656,6 +656,7 @@ class DBImpl : public DB {
     }
   };
 
+  struct PrepickedCompaction;
   struct PurgeFileInfo;
 
   // Recover the descriptor from persistent storage.  May do a significant
@@ -800,11 +801,12 @@ class DBImpl : public DB {
   static void BGWorkFlush(void* db);
   static void BGWorkPurge(void* arg);
   static void UnscheduleCallback(void* arg);
-  void BackgroundCallCompaction(void* arg);
+  void BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction);
   void BackgroundCallFlush();
   void BackgroundCallPurge();
-  Status BackgroundCompaction(bool* madeProgress, JobContext* job_context,
-                              LogBuffer* log_buffer, void* m = 0);
+  Status BackgroundCompaction(
+      bool* madeProgress, JobContext* job_context, LogBuffer* log_buffer,
+      PrepickedCompaction* prepicked_compaction);
   Status BackgroundFlush(bool* madeProgress, JobContext* job_context,
                          LogBuffer* log_buffer);
 
@@ -1073,7 +1075,7 @@ class DBImpl : public DB {
   int bg_purge_scheduled_;
 
   // Information for a manual compaction
-  struct ManualCompaction {
+  struct ManualCompactionState {
     ColumnFamilyData* cfd;
     int input_level;
     int output_level;
@@ -1089,13 +1091,21 @@ class DBImpl : public DB {
     InternalKey* manual_end;      // how far we are compacting
     InternalKey tmp_storage;      // Used to keep track of compaction progress
     InternalKey tmp_storage1;     // Used to keep track of compaction progress
-    Compaction* compaction;
   };
-  std::deque<ManualCompaction*> manual_compaction_dequeue_;
+  struct PrepickedCompaction {
+    // background compaction takes ownership of `compaction`.
+    Compaction* compaction;
+    // caller retains ownership of `manual_compaction_state` as it is reused
+    // across background compactions.
+    ManualCompactionState* manual_compaction_state;  // nullptr if non-manual
+  };
+  std::deque<ManualCompactionState*> manual_compaction_dequeue_;
 
   struct CompactionArg {
+    // caller retains ownership of `db`.
     DBImpl* db;
-    ManualCompaction* m;
+    // background compaction takes ownership of `prepicked_compaction`.
+    PrepickedCompaction* prepicked_compaction;
   };
 
   // Have we encountered a background error in paranoid mode?
@@ -1229,11 +1239,11 @@ class DBImpl : public DB {
 
   bool HasPendingManualCompaction();
   bool HasExclusiveManualCompaction();
-  void AddManualCompaction(ManualCompaction* m);
-  void RemoveManualCompaction(ManualCompaction* m);
-  bool ShouldntRunManualCompaction(ManualCompaction* m);
+  void AddManualCompaction(ManualCompactionState* m);
+  void RemoveManualCompaction(ManualCompactionState* m);
+  bool ShouldntRunManualCompaction(ManualCompactionState* m);
   bool HaveManualCompaction(ColumnFamilyData* cfd);
-  bool MCOverlap(ManualCompaction* m, ManualCompaction* m1);
+  bool MCOverlap(ManualCompactionState* m, ManualCompactionState* m1);
 
   size_t GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
 
