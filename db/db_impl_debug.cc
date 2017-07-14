@@ -112,7 +112,9 @@ Status DBImpl::TEST_WaitForCompact() {
   // OR flush to finish.
 
   InstrumentedMutexLock l(&mutex_);
-  while ((bg_compaction_scheduled_ || bg_flush_scheduled_) && bg_error_.ok()) {
+  while ((bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
+          bg_flush_scheduled_) &&
+         bg_error_.ok()) {
     bg_cv_.Wait();
   }
   return bg_error_;

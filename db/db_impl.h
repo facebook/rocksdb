@@ -798,15 +798,19 @@ class DBImpl : public DB {
   void SchedulePendingPurge(std::string fname, FileType type, uint64_t number,
                             uint32_t path_id, int job_id);
   static void BGWorkCompaction(void* arg);
+  // Runs a pre-chosen universal compaction involving bottom level in a
+  // separate, bottom-pri thread pool.
+  static void BGWorkBottomCompaction(void* arg);
   static void BGWorkFlush(void* db);
   static void BGWorkPurge(void* arg);
   static void UnscheduleCallback(void* arg);
-  void BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction);
+  void BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
+                                Env::Priority bg_thread_pri);
   void BackgroundCallFlush();
   void BackgroundCallPurge();
-  Status BackgroundCompaction(
-      bool* madeProgress, JobContext* job_context, LogBuffer* log_buffer,
-      PrepickedCompaction* prepicked_compaction);
+  Status BackgroundCompaction(bool* madeProgress, JobContext* job_context,
+                              LogBuffer* log_buffer,
+                              PrepickedCompaction* prepicked_compaction);
   Status BackgroundFlush(bool* madeProgress, JobContext* job_context,
                          LogBuffer* log_buffer);
 
@@ -1058,6 +1062,10 @@ class DBImpl : public DB {
   std::deque<log::Writer*> logs_to_free_queue_;
   int unscheduled_flushes_;
   int unscheduled_compactions_;
+
+  // count how many background compactions are running or have been scheduled in
+  // the BOTTOM pool
+  int bg_bottom_compaction_scheduled_;
 
   // count how many background compactions are running or have been scheduled
   int bg_compaction_scheduled_;

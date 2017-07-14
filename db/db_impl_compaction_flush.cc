@@ -612,7 +612,8 @@ Status DBImpl::CompactFilesImpl(
 Status DBImpl::PauseBackgroundWork() {
   InstrumentedMutexLock guard_lock(&mutex_);
   bg_compaction_paused_++;
-  while (bg_compaction_scheduled_ > 0 || bg_flush_scheduled_ > 0) {
+  while (bg_bottom_compaction_scheduled_ > 0 || bg_compaction_scheduled_ > 0 ||
+         bg_flush_scheduled_ > 0) {
     bg_cv_.Wait();
   }
   bg_work_paused_++;
@@ -858,7 +859,8 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
   AddManualCompaction(&manual);
   TEST_SYNC_POINT_CALLBACK("DBImpl::RunManualCompaction:NotScheduled", &mutex_);
   if (exclusive) {
-    while (bg_compaction_scheduled_ > 0) {
+    while (bg_bottom_compaction_scheduled_ > 0 ||
+           bg_compaction_scheduled_ > 0) {
       TEST_SYNC_POINT("DBImpl::RunManualCompaction:WaitScheduled");
       ROCKS_LOG_INFO(
           immutable_db_options_.info_log,
@@ -1157,7 +1159,19 @@ void DBImpl::BGWorkCompaction(void* arg) {
   auto prepicked_compaction =
       static_cast<PrepickedCompaction*>(ca.prepicked_compaction);
   reinterpret_cast<DBImpl*>(ca.db)->BackgroundCallCompaction(
-      prepicked_compaction);
+      prepicked_compaction, Env::Priority::LOW);
+  delete prepicked_compaction;
+}
+
+void DBImpl::BGWorkBottomCompaction(void* arg) {
+  CompactionArg ca = *(static_cast<CompactionArg*>(arg));
+  delete static_cast<CompactionArg*>(arg);
+  IOSTATS_SET_THREAD_POOL_ID(Env::Priority::BOTTOM);
+  TEST_SYNC_POINT("DBImpl::BGWorkBottomCompaction");
+  auto* prepicked_compaction = ca.prepicked_compaction;
+  assert(prepicked_compaction && prepicked_compaction->compaction &&
+         !prepicked_compaction->manual_compaction_state);
+  ca.db->BackgroundCallCompaction(prepicked_compaction, Env::Priority::BOTTOM);
   delete prepicked_compaction;
 }
 
@@ -1302,8 +1316,8 @@ void DBImpl::BackgroundCallFlush() {
   }
 }
 
-void DBImpl::BackgroundCallCompaction(
-    PrepickedCompaction* prepicked_compaction) {
+void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
+                                      Env::Priority bg_thread_pri) {
   bool made_progress = false;
   JobContext job_context(next_job_id_.fetch_add(1), true);
   TEST_SYNC_POINT("BackgroundCallCompaction:0");
@@ -1322,7 +1336,9 @@ void DBImpl::BackgroundCallCompaction(
     auto pending_outputs_inserted_elem =
         CaptureCurrentFileNumberInPendingOutputs();
 
-    assert(bg_compaction_scheduled_);
+    assert((bg_thread_pri == Env::Priority::BOTTOM &&
+            bg_bottom_compaction_scheduled_) ||
+           (bg_thread_pri == Env::Priority::LOW && bg_compaction_scheduled_));
     Status s = BackgroundCompaction(&made_progress, &job_context, &log_buffer,
                                     prepicked_compaction);
     TEST_SYNC_POINT("BackgroundCallCompaction:1");
@@ -1370,17 +1386,24 @@ void DBImpl::BackgroundCallCompaction(
 
     assert(num_running_compactions_ > 0);
     num_running_compactions_--;
-    bg_compaction_scheduled_--;
+    if (bg_thread_pri == Env::Priority::LOW) {
+      bg_compaction_scheduled_--;
+    } else {
+      assert(bg_thread_pri == Env::Priority::BOTTOM);
+      bg_bottom_compaction_scheduled_--;
+    }
 
     versions_->GetColumnFamilySet()->FreeDeadColumnFamilies();
 
     // See if there's more work to be done
     MaybeScheduleFlushOrCompaction();
-    if (made_progress || bg_compaction_scheduled_ == 0 ||
+    if (made_progress ||
+        (bg_compaction_scheduled_ == 0 &&
+         bg_bottom_compaction_scheduled_ == 0) ||
         HasPendingManualCompaction()) {
       // signal if
       // * made_progress -- need to wakeup DelayWrite
-      // * bg_compaction_scheduled_ == 0 -- need to wakeup ~DBImpl
+      // * bg_{bottom,}_compaction_scheduled_ == 0 -- need to wakeup ~DBImpl
       // * HasPendingManualCompaction -- need to wakeup RunManualCompaction
       // If none of this is true, there is no need to signal since nobody is
       // waiting for it
@@ -1406,6 +1429,12 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
   TEST_SYNC_POINT("DBImpl::BackgroundCompaction:Start");
 
   bool is_manual = (manual_compaction != nullptr);
+  unique_ptr<Compaction> c;
+  if (prepicked_compaction != nullptr &&
+      prepicked_compaction->compaction != nullptr) {
+    c.reset(prepicked_compaction->compaction);
+  }
+  bool is_prepicked = is_manual || c;
 
   // (manual_compaction->in_progress == false);
   bool trivial_move_disallowed =
@@ -1422,7 +1451,6 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       manual_compaction->status = status;
       manual_compaction->done = true;
       manual_compaction->in_progress = false;
-      delete prepicked_compaction->compaction;
       manual_compaction = nullptr;
     }
     return status;
@@ -1433,13 +1461,11 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     manual_compaction->in_progress = true;
   }
 
-  unique_ptr<Compaction> c;
   // InternalKey manual_end_storage;
   // InternalKey* manual_end = &manual_end_storage;
   if (is_manual) {
     ManualCompactionState* m = manual_compaction;
     assert(m->in_progress);
-    c.reset(std::move(prepicked_compaction->compaction));
     if (!c) {
       m->done = true;
       m->manual_end = nullptr;
@@ -1461,7 +1487,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                ? "(end)"
                : m->manual_end->DebugString().c_str()));
     }
-  } else if (!compaction_queue_.empty()) {
+  } else if (!is_prepicked && !compaction_queue_.empty()) {
     if (HaveManualCompaction(compaction_queue_.front())) {
       // Can't compact right now, but try again later
       TEST_SYNC_POINT("DBImpl::BackgroundCompaction()::Conflict");
@@ -1613,6 +1639,28 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 
     // Clear Instrument
     ThreadStatusUtil::ResetThreadStatus();
+  } else if (env_->GetBackgroundThreads(Env::Priority::BOTTOM) > 0 &&
+             c->column_family_data()->ioptions()->compaction_style ==
+                 kCompactionStyleUniversal &&
+             !is_prepicked && c->output_level() > 0 &&
+             c->output_level() ==
+                 c->column_family_data()
+                     ->current()
+                     ->storage_info()
+                     ->MaxOutputLevel(
+                         immutable_db_options_.allow_ingest_behind)) {
+    // Forward universal compactions involving last level to the bottom pool
+    // if it exists, such that long-running compactions can't block short-
+    // lived ones, like L0->L0s.
+    TEST_SYNC_POINT("DBImpl::BackgroundCompaction:ForwardToBottomPriPool");
+    CompactionArg* ca = new CompactionArg;
+    ca->db = this;
+    ca->prepicked_compaction = new PrepickedCompaction;
+    ca->prepicked_compaction->compaction = c.release();
+    ca->prepicked_compaction->manual_compaction_state = nullptr;
+    ++bg_bottom_compaction_scheduled_;
+    env_->Schedule(&DBImpl::BGWorkBottomCompaction, ca, Env::Priority::BOTTOM,
+                   this, &DBImpl::UnscheduleCallback);
   } else {
     int output_level  __attribute__((unused)) = c->output_level();
     TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCompaction:NonTrivial",
@@ -1745,7 +1793,8 @@ bool DBImpl::ShouldntRunManualCompaction(ManualCompactionState* m) {
     return true;
   }
   if (m->exclusive) {
-    return (bg_compaction_scheduled_ > 0);
+    return (bg_bottom_compaction_scheduled_ > 0 ||
+            bg_compaction_scheduled_ > 0);
   }
   std::deque<ManualCompactionState*>::iterator it =
       manual_compaction_dequeue_.begin();
