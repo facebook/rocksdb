@@ -66,9 +66,9 @@ else()
   endif()
 endif()
 
-if(not CMAKE_BUILD_TYPE)
+if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE DEBUG)
-endif(not CMAKE_BUILD_TYPE)
+endif(NOT CMAKE_BUILD_TYPE)
 
 # If the user did not customize the install prefix,
 # set it to live under build so we don't inadvertently pollute /usr/local
