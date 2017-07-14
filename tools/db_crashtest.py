@@ -165,12 +165,12 @@ def gen_cmd_params(args):
 
 
 def gen_cmd(params):
-    cmd = './db_stress ' + ' '.join(
+    cmd = ['./db_stress'] + [
         '--{0}={1}'.format(k, v)
         for k, v in finalize_and_sanitize(params).items()
         if k not in set(['test_type', 'simple', 'duration', 'interval',
                          'random_kill_odd'])
-        and v is not None)
+        and v is not None]
     return cmd
 
 
@@ -195,10 +195,9 @@ def blackbox_crash_main(args):
 
         cmd = gen_cmd(dict(cmd_params.items() + {'db': dbname}.items()))
 
-        child = subprocess.Popen([cmd],
-                                 stderr=subprocess.PIPE, shell=True)
+        child = subprocess.Popen(cmd, stderr=subprocess.PIPE)
         print("Running db_stress with pid=%d: %s\n\n"
-              % (child.pid, cmd))
+              % (child.pid, ' '.join(cmd)))
 
         stop_early = False
         while time.time() < killtime:
@@ -315,11 +314,10 @@ def whitebox_crash_main(args):
         cmd = gen_cmd(dict(cmd_params.items() + additional_opts.items()
                            + {'db': dbname}.items()))
 
-        print "Running:" + cmd + "\n"
+        print "Running:" + ' '.join(cmd) + "\n"
 
-        popen = subprocess.Popen([cmd], stdout=subprocess.PIPE,
-                                 stderr=subprocess.STDOUT,
-                                 shell=True)
+        popen = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                 stderr=subprocess.STDOUT)
         stdoutdata, stderrdata = popen.communicate()
         retncode = popen.returncode
         msg = ("check_mode={0}, kill option={1}, exitcode={2}\n".format(
