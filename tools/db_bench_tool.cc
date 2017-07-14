@@ -1789,10 +1789,12 @@ public:
   // Initialized before invocation
   void SetState(Benchmark* bm,
     SharedState* shared,
-    ThreadState* thread) {
+    ThreadState* thread,
+    port::VistaThreadPool* tp) {
     bm_ = bm;
     shared_ = shared;
     thread_ = thread;
+    thread_pool_ = tp;
   }
 
   virtual std::unique_ptr<AsyncBenchBase> Clone() = 0;
@@ -1843,6 +1845,7 @@ protected:
   Benchmark*            bm_;
   SharedState*          shared_;
   ThreadState*          thread_;
+  port::VistaThreadPool* thread_pool_;
 };
 
 class Duration {
@@ -2825,7 +2828,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       states[i]->shared = &shared;
 
       benches[i] = std::move(bench_func_->Clone());
-      benches[i]->SetState(this, &shared, states[i].get());
+      benches[i]->SetState(this, &shared, states[i].get(), thread_pool_.get());
       auto f(std::bind(&AsyncBenchBase::Run, benches[i].get()));
       // XXX:
       // We want to run this on the same thread pool
@@ -4327,6 +4330,10 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       AllocateReadContext();
       OnInitialized();
 
+      RequestOnThreadPool();
+    }
+
+    void RequestOnThreadPool() {
       Status s = RequestGet();
       if (!s.IsIOPending()) {
         ReadComplete();
@@ -4335,12 +4342,11 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 
     void ReadComplete() {
 
-      while (!duration_.Done(1)) {
-        Status s = RequestGet();
-        if (s.IsIOPending()) {
-          // Release the thread
-          return;
-        }
+      if (!duration_.Done(1)) {
+        auto bound = std::bind(&ReadRandomAsync::RequestOnThreadPool, this);
+        std::function<void()> f(bound);
+        thread_pool_->SubmitWork(std::move(f));
+        return;
       }
 
       char msg[100];
