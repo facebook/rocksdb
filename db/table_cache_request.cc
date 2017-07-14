@@ -103,8 +103,9 @@ Status TableCacheGetReaderHelper::OnGetReaderComplete(const Status& s) {
 Status TableCacheFindTableHelper::LookupCache(const FileDescriptor& fd,
     Cache* cache, Cache::Handle** handle, bool no_io) {
 
-  // We will accumulate this metric in two additions if necessary
+  // This is a static method, we collect this separate
   PERF_TIMER_GUARD(find_table_nanos);
+
   Status s;
   uint64_t number = fd.GetNumber();
   Slice key = table_cache_detail::GetSliceForFileNumber(&number);
@@ -119,13 +120,13 @@ Status TableCacheFindTableHelper::LookupCache(const FileDescriptor& fd,
   }
   TEST_SYNC_POINT_CALLBACK("TableCache::FindTable:0",
                            const_cast<bool*>(&no_io));
+
   return s;
 }
 
 Status TableCacheFindTableHelper::OnGetReaderComplete(const Status& status,
     Cache::Handle** handle, std::unique_ptr<TableReader>& table_reader) {
 
-  PERF_TIMER_GUARD(find_table_nanos);
   *handle = nullptr;
   Status s = gr_helper_.OnGetReaderComplete(status);
   if (!s.ok()) {
@@ -143,6 +144,8 @@ Status TableCacheFindTableHelper::OnGetReaderComplete(const Status& status,
       table_reader.release();
     }
   }
+
+  PERF_METER_STOP(find_table_nanos);
   return s;
 }
 
@@ -856,7 +859,7 @@ Status TableCacheNewIteratorContext::Create(const EnvOptions& eoptions,
     const FileDescriptor& fd, HistogramImpl* file_read_hist,
     int level) {
 
-  PERF_TIMER_START(new_table_iterator_nanos);
+  PERF_METER_START(new_table_iterator_nanos);
 
   Status s;
   size_t readahead = 0;
@@ -895,6 +898,7 @@ Status TableCacheNewIteratorContext::Create(const EnvOptions& eoptions,
       on_get_tr = f.GetCallable<&TableCacheNewIteratorContext::OnTableReader>();
     }
 
+    PERF_METER_MEASURE(new_table_iterator_nanos);
     std::unique_ptr<TableReader> table_reader;
     s = gr_helper_.GetTableReader(
         on_get_tr, env_options, internal_comparator, fd,
@@ -920,6 +924,7 @@ Status TableCacheNewIteratorContext::Create(const EnvOptions& eoptions,
           on_get_tr = f.GetCallable<&TableCacheNewIteratorContext::OnTableReader>();
         }
 
+        PERF_METER_MEASURE(new_table_iterator_nanos);
         std::unique_ptr<TableReader> table_reader;
         s = fr_helper_.GetReader(on_get_tr,
           env_options, internal_comparator, fd,
@@ -945,7 +950,6 @@ Status TableCacheNewIteratorContext::Create(const EnvOptions& eoptions,
 Status TableCacheNewIteratorContext::OnTableReader(const Status& status,
     std::unique_ptr<TableReader>&& table_reader) {
 
-  PERF_TIMER_GUARD(new_table_iterator_nanos);
   async(status);
 
   Status s;
@@ -1082,7 +1086,7 @@ Status TableCacheNewIteratorContext::OnComplete(const Status& status) {
     result_ = NewErrorInternalIterator(status, arena_);
   }
 
-  PERF_TIMER_STOP(new_table_iterator_nanos);
+  PERF_METER_STOP(new_table_iterator_nanos);
 
   if (cb_ && async()) {
     ROCKS_LOG_DEBUG(

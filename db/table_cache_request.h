@@ -101,7 +101,7 @@ public:
     delete;
 
   TableCacheFindTableHelper(const ImmutableCFOptions& ioptions, uint64_t fileno, Cache* cache) :
-    PERF_TIMER_INIT(find_table_nanos),
+    PERF_METER_INIT(find_table_nanos),
     gr_helper_(ioptions),
     file_number_(fileno),
     cache_(cache) {
@@ -134,7 +134,7 @@ public:
     int level,
     bool prefetch_index_and_filter_in_cache) {
 
-    PERF_TIMER_START(find_table_nanos);
+    PERF_METER_START(find_table_nanos);
 
     Status s = gr_helper_.GetTableReader(cb, env_options, internal_comparator, fd,
       false /* sequential mode */, 0 /* readahead */,
@@ -161,7 +161,7 @@ public:
 
  private:
 
-  PERF_TIMER_DECL(find_table_nanos);
+  PERF_METER_DECL(find_table_nanos);
   TableCacheGetReaderHelper gr_helper_;
   uint64_t                  file_number_;
   Cache*                    cache_;
@@ -475,7 +475,7 @@ private:
         const ReadOptions& options,
         uint64_t fileno, RangeDelAggregator* range_del_agg, bool for_compaction,
         Arena* arena, bool skip_filters) :
-    PERF_TIMER_INIT(new_table_iterator_nanos),
+    PERF_METER_INIT(new_table_iterator_nanos),
     cb_(cb),
     table_cache_(table_cache),
     options_(&options),
@@ -513,7 +513,7 @@ private:
 
   Status OnComplete(const Status&);
 
-  PERF_TIMER_DECL(new_table_iterator_nanos);
+  PERF_METER_DECL(new_table_iterator_nanos);
   Callback                      cb_;
   TableCache*                   table_cache_;
   const ReadOptions*            options_;

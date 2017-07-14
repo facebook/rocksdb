@@ -40,7 +40,7 @@ class RandomFileReadContext {
   HistogramImpl*    hist_;
   StopWatch         sw_;
   uint64_t          elapsed_;
-  IOSTATS_TIMER_DECL(read_nanos);
+  IOSTATS_METER_DECL(read_nanos);
   bool              direct_io_;
 
   Slice*            result_;
@@ -64,7 +64,7 @@ class RandomFileReadContext {
     hist_(hist),
     sw_(env, stats, hist_type, (stats_ != nullptr) ? &elapsed_ : nullptr),
     elapsed_(0),
-    IOSTATS_TIMER_INIT(read_nanos),
+    IOSTATS_METER_INIT(read_nanos),
     direct_io_(direct_io),
     result_(nullptr),
     result_buffer_(nullptr),
@@ -258,18 +258,19 @@ class ReadBlockContext : protected RandomReadContext {
     RandomReadContext(file, handle.offset(), static_cast<size_t>(handle.size())
                       + kBlockTrailerSize,
                       result, buf),
-    PERF_TIMER_INIT(block_read_time),
+    PERF_METER_INIT(block_read_time),
     checksum_type_(checksum_type),
     verify_checksums_(verify_check_sum) {
-    PERF_TIMER_START(block_read_time);
   }
 
   // Expose protected members for the benefit of containing classes
   Status Read() {
+    PERF_METER_START(block_read_time);
     return RandomReadContext::Read();
   }
 
   Status RequestRead(const RandomAccessCallback& iocb) {
+    PERF_METER_START(block_read_time);
     return RandomReadContext::RequestRead(iocb);
   }
 
@@ -310,7 +311,7 @@ class ReadBlockContext : protected RandomReadContext {
   }
 
   ReadBlockCallback  client_cb_;
-  PERF_TIMER_DECL(block_read_time);
+  PERF_METER_DECL(block_read_time);
   ChecksumType       checksum_type_;
   bool               verify_checksums_;
 };

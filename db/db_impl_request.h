@@ -138,7 +138,7 @@ private:
   ColumnFamilyData*   cfd_;
   SuperVersion*       sv_;
   StopWatch           sw_;
-  PERF_TIMER_DECL(get_from_output_files_time);
+  PERF_METER_DECL(get_from_output_files_time);
   MergeContext        merge_context_;
   PinnableSlice*      pinnable_val_input_; // External for sync
   std::aligned_storage<sizeof(PinnableSlice)>::type pinnable_val_;

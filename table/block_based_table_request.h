@@ -337,7 +337,7 @@ class GetFilterHelper {
     rf_helper_(table, is_a_filter_partition),
     filter_blk_handle_(filter_blk_handle),
     no_io_(no_io),
-    PERF_TIMER_INIT(read_filter_block_nanos),
+    PERF_METER_INIT(read_filter_block_nanos),
     was_read_(false),
     cache_handle_(nullptr) {
   }
@@ -377,7 +377,7 @@ class GetFilterHelper {
   ReadFilterHelper   rf_helper_;
   BlockHandle        filter_blk_handle_;
   bool               no_io_;
-  PERF_TIMER_DECL(read_filter_block_nanos);
+  PERF_METER_DECL(read_filter_block_nanos);
   bool               was_read_;
   char cache_key_[BlockBasedTable::kMaxCacheKeyPrefixSize + kMaxVarint64Length];
   Slice key_;
@@ -577,7 +577,7 @@ class NewIndexIteratorContext : private AsyncStatusCapture {
       preloaded_meta_index_iter_(preloaded_meta_index_iter),
       input_iter_(input_iter),
       index_entry_(index_entry),
-      PERF_TIMER_INIT(read_index_block_nanos),
+      PERF_METER_INIT(read_index_block_nanos),
       result_(nullptr),
       cache_handle_(nullptr) {
   }
@@ -604,7 +604,7 @@ class NewIndexIteratorContext : private AsyncStatusCapture {
   InternalIterator*  preloaded_meta_index_iter_;
   BlockIter*         input_iter_;
   BlockBasedTable::CachableEntry<IndexReader>* index_entry_;
-  PERF_TIMER_DECL(read_index_block_nanos);
+  PERF_METER_DECL(read_index_block_nanos);
 
   // End result, this is either passed out
   // to the caller supplied cache or registered
@@ -743,7 +743,7 @@ public:
     mb_helper_(is_index, rep),
     input_iter_(nullptr),
     new_iterator_(),
-    PERF_TIMER_INIT(new_table_block_iter_nanos),
+    PERF_METER_INIT(new_table_block_iter_nanos),
     action_(aNone) {
   }
 
@@ -834,7 +834,7 @@ private:
   BlockBasedTable::Rep*                 rep_;
   const ReadOptions*                    ro_;
   MaybeLoadDataBlockToCacheHelper       mb_helper_;
-  PERF_TIMER_DECL(new_table_block_iter_nanos);
+  PERF_METER_DECL(new_table_block_iter_nanos);
   // If this is not nullptr then the result will be assigned
   // to the instance that is pointed to. Otherwise,
   // the result will be allocated on the heap

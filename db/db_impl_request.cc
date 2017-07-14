@@ -41,7 +41,7 @@ DBImplGetContext::DBImplGetContext(const Callback& cb, DB* db, const ReadOptions
   cfd_(nullptr),
   sv_(nullptr),
   sw_(db_impl_->env_, db_impl_->stats_, DB_GET),
-  PERF_TIMER_INIT(get_from_output_files_time) {
+  PERF_METER_INIT(get_from_output_files_time) {
 
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   cfd_ = cfh->cfd();
@@ -115,7 +115,7 @@ Status DBImplGetContext::GetImpl() {
   }
 
   if (!done) {
-    PERF_TIMER_START(get_from_output_files_time);
+    PERF_METER_START(get_from_output_files_time);
     if (cb_) {
       CallableFactory<DBImplGetContext, Status, const Status&> fac(this);
       auto on_get_complete = fac.GetCallable<&DBImplGetContext::OnGetComplete>();
@@ -130,7 +130,6 @@ Status DBImplGetContext::GetImpl() {
     if (s.IsIOPending()) {
       return s;
     }
-    PERF_TIMER_STOP(get_from_output_files_time);
   }
 
   return OnGetComplete(s);
@@ -141,10 +140,7 @@ Status DBImplGetContext::OnGetComplete(const Status& status) {
 
   RecordTick(db_impl_->stats_, MEMTABLE_MISS);
 
-  if (status.async()) {
-    // We are aonly async when read took place
-    PERF_TIMER_STOP(get_from_output_files_time);
-  }
+  PERF_METER_STOP(get_from_output_files_time);
 
   {
     PERF_TIMER_GUARD(get_post_process_time);

@@ -95,7 +95,7 @@ Status ReadBlockContext::OnReadBlockComplete(const Status& status, const Slice& 
 
   OnRandomReadComplete(status, raw_slice);
 
-  PERF_TIMER_STOP(block_read_time);
+  PERF_METER_STOP(block_read_time);
   PERF_COUNTER_ADD(block_read_count, 1);
   PERF_COUNTER_ADD(block_read_byte, raw_slice.size());
 
@@ -193,7 +193,7 @@ Status ReadBlockContentsContext::CheckPersistentCache(bool&
 
   if (status.ok()) {
     // cache hit
-    result_ = Slice(heap_buf_.get(), n);
+    result_ = Slice(heap_buf_.get(), n + kBlockTrailerSize);
   } else if (ioptions_->info_log && !status.IsNotFound()) {
     assert(!status.ok());
     ROCKS_LOG_INFO(ioptions_->info_log,

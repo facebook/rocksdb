@@ -55,6 +55,35 @@
 #define IOSTATS_TIMER_STOP(metric)               \
   iostats_step_timer_ ## metric.Stop();
 
+/// Async begin
+
+// The following  METER macros operate on
+// raw values instead of using PerfStepTimer
+// This is because in async world we should
+// capture the thread-local of one thread and
+// charge it from another thread on io completion.
+// Thus we capture the start time into the raw value
+// and on completion we charge the completing thread
+
+// Declares a raw value for measuring perf
+#define IOSTATS_METER_DECL(metric)           \
+  PerfMeter iostats_meter_ ## metric
+
+// Inits raw value for as a member of the class
+#define IOSTATS_METER_INIT(metric)           \
+  iostats_meter_ ## metric()
+
+#define IOSTATS_METER_START(metric)          \
+  iostats_meter_ ## metric.Start()
+
+#define IOSTATS_METER_MEASURE(metric)       \
+  iostats_meter_ ## metric.Measure(&(iostats_context.metric))
+
+#define IOSTATS_METER_STOP(metric)       \
+  iostats_meter_ ## metric.Stop(&(iostats_context.metric))
+
+/// Async end
+
 #else  // IOS_CROSS_COMPILE
 
 #define IOSTATS_ADD(metric, value)
@@ -71,5 +100,10 @@
 #define IOSTATS_TIMER_START(metric)
 #define IOSTATS_TIMER_STOP(metric)
 
+#define IOSTATS_METER_DECL(metric)
+#define IOSTATS_METER_INIT(metric)
+#define IOSTATS_METER_START(metric)
+#define IOSTATS_METER_MEASURE(metric)
+#define IOSTATS_METER_STOP(metric)
 
 #endif  // IOS_CROSS_COMPILE

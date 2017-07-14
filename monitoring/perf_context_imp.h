@@ -12,6 +12,14 @@ namespace rocksdb {
 
 #if defined(NPERF_CONTEXT) || defined(IOS_CROSS_COMPILE)
 
+// Async
+#define PERF_METER_DECL(metric)
+#define PERF_METER_INIT(metric)
+#define PERF_METER_START(metric)
+#define PERF_METER_MEASURE(metric)
+#define PERF_METER_STOP(metric)
+// End Async
+
 #define PERF_TIMER_DECL(metric)
 #define PERF_TIMER_INIT(metric)
 #define PERF_TIMER_GUARD(metric)
@@ -22,6 +30,35 @@ namespace rocksdb {
 #define PERF_COUNTER_ADD(metric, value)
 
 #else
+
+/// Async begin
+
+// The following  METER macros operate on
+// raw values instead of using PerfStepTimer
+// This is because in async world we should
+// capture the thread-local of one thread and
+// charge it from another thread on io completion.
+// Thus we capture the start time into the raw value
+// and on completion we charge the completing thread
+
+// Declares a raw value for measuring perf
+#define PERF_METER_DECL(metric)           \
+  PerfMeter perf_meter_ ## metric
+
+// Inits raw value for as a member of the class
+#define PERF_METER_INIT(metric)           \
+  perf_meter_ ## metric()
+
+#define PERF_METER_START(metric)          \
+  perf_meter_ ## metric.Start()
+
+#define PERF_METER_MEASURE(metric)       \
+  perf_meter_ ## metric.Measure(&(perf_context.metric))
+
+#define PERF_METER_STOP(metric)       \
+  perf_meter_ ## metric.Stop(&(perf_context.metric))
+
+/// Async end
 
 // Declare timer as a member of a class
 #define PERF_TIMER_DECL(metric)           \

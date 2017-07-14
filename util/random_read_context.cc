@@ -22,7 +22,7 @@ void RandomFileReadContext::PrepareRead(uint64_t offset, size_t n,
   result_buffer_ = buffer;
   n_ = n;
 
-  IOSTATS_TIMER_START(read_nanos);
+  IOSTATS_METER_START(read_nanos);
 
   if (direct_io_) {
     auto alignment = buf_.Alignment();
@@ -54,6 +54,8 @@ Status RandomFileReadContext::RandomRead() {
 Status RandomFileReadContext::RequestRandomRead(const RandomAccessCallback & iocb) {
 
   Status s;
+
+  IOSTATS_METER_MEASURE(read_nanos);
 
   if (direct_io_) {
     assert(buf_.Capacity() >= read_size_);
@@ -108,7 +110,7 @@ void RandomFileReadContext::OnRandomReadComplete(const Status& status,
     }
   }
 
-  IOSTATS_TIMER_STOP(read_nanos);
+  IOSTATS_METER_STOP(read_nanos);
   sw_.elapse_and_disarm();
 
   if (stats_ != nullptr && hist_ != nullptr) {

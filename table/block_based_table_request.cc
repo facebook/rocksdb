@@ -600,7 +600,7 @@ Status GetFilterHelper::GetFilter(const GetFilterCallback& client_cb) {
   }
 
   // Now we have to read the block
-  PERF_TIMER_START(read_filter_block_nanos);
+  PERF_METER_START(read_filter_block_nanos);
 
   key_ = BlockBasedTable::GetCacheKey(rep->cache_key_prefix, rep->cache_key_prefix_size,
                                       filter_blk_handle_, cache_key_);
@@ -621,11 +621,12 @@ Status GetFilterHelper::GetFilter(const GetFilterCallback& client_cb) {
   if (no_io_) {
     // Do not invoke any io.
     entry_ = BlockBasedTable::CachableEntry<FilterBlockReader>();
-    PERF_TIMER_STOP(read_filter_block_nanos);
+    PERF_METER_STOP(read_filter_block_nanos);
     return Status::Incomplete();
   }
 
   was_read_ = true;
+  PERF_METER_MEASURE(read_filter_block_nanos);
   return rf_helper_.Read(client_cb, filter_blk_handle_);
 }
 
@@ -641,7 +642,7 @@ Status GetFilterHelper::OnGetFilterComplete(const Status& status) {
     s = rf_helper_.OnFilterReadComplete(status);
   }
 
-  PERF_TIMER_STOP(read_filter_block_nanos);
+  PERF_METER_STOP(read_filter_block_nanos);
 
   if (!s.ok()) {
     return s;
@@ -1204,7 +1205,7 @@ Status NewIndexIteratorContext::GetFromCache() {
     return s;
   }
 
-  PERF_TIMER_START(read_index_block_nanos);
+  PERF_METER_START(read_index_block_nanos);
 
   const bool no_io = ro_->read_tier == kBlockCacheTier;
   Cache* block_cache = rep->table_options.block_cache.get();
@@ -1230,14 +1231,14 @@ Status NewIndexIteratorContext::GetFromCache() {
       result_ = NewErrorInternalIterator(s);
     }
 
-    PERF_TIMER_STOP(read_index_block_nanos);
+    PERF_METER_STOP(read_index_block_nanos);
     return s;
   }
 
   if (cache_handle_ != nullptr) {
     IndexReader* index_reader = reinterpret_cast<IndexReader*>(block_cache->Value(cache_handle_));
     s = ReaderToIterator(s, index_reader);
-    PERF_TIMER_STOP(read_index_block_nanos);
+    PERF_METER_STOP(read_index_block_nanos);
     return s;
   }
 
@@ -1254,6 +1255,8 @@ Status NewIndexIteratorContext::RequestIndexRead(const IndexIterCallback& client
   cb_ = client_cb;
 
   if (cb_) {
+    PERF_METER_MEASURE(read_index_block_nanos);
+
     async::CallableFactory<NewIndexIteratorContext, Status, const Status&,
           IndexReader*> f(this);
     auto on_create_cb =
@@ -1328,7 +1331,7 @@ Status NewIndexIteratorContext::OnCreateComplete(const Status& status, IndexRead
     }
   }
 
-  PERF_TIMER_STOP(read_index_block_nanos);
+  PERF_METER_STOP(read_index_block_nanos);
 
   s.async(async());
   return OnComplete(s);
@@ -1352,8 +1355,6 @@ Status NewIndexIteratorContext::ReaderToIterator(const Status& status, IndexRead
       result_->RegisterCleanup(&BlockBasedTable::ReleaseCachedEntry, block_cache, cache_handle_);
     }
   }
-
-  PERF_TIMER_STOP(read_index_block_nanos);
 
   return status;
 }
@@ -2048,7 +2049,7 @@ Status NewDataBlockIteratorHelper::Create(const ReadDataBlockCallback& cb,
     compression_dict = rep_->compression_dict_block->data;
   }
 
-  PERF_TIMER_START(new_table_block_iter_nanos);
+  PERF_METER_START(new_table_block_iter_nanos);
 
   if (mb_helper_.IsCacheEnabled(rep_)) {
 
@@ -2084,6 +2085,7 @@ Status NewDataBlockIteratorHelper::Create(const ReadDataBlockCallback& cb,
     const bool do_uncompress_true = true;
 
     if (cb) {
+      PERF_METER_MEASURE(new_table_block_iter_nanos);
       s = ReadBlockContentsContext::RequestContentstRead(cb, rep_->file.get(),
           rep_->footer, *ro_,
           handle, &block_cont_, rep_->ioptions, do_uncompress_true, compression_dict,
@@ -2159,7 +2161,7 @@ Status NewDataBlockIteratorHelper::OnCreateComplete(const Status& status) {
     s = Status::OK();
   }
 
-  PERF_TIMER_STOP(new_table_block_iter_nanos);
+  PERF_METER_STOP(new_table_block_iter_nanos);
 
   return s;
 }
