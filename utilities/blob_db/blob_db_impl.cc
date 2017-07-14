@@ -1487,8 +1487,6 @@ bool BlobDBImpl::FindFileAndEvictABlob(uint64_t file_number, uint64_t key_size,
 
     // file was deleted
     if (hitr == blob_files_.end()) {
-      ROCKS_LOG_INFO(db_options_.info_log,
-                     "Could not find file_number %" PRIu64, file_number);
       return false;
     }
 
@@ -1523,22 +1521,8 @@ std::pair<bool, int64_t> BlobDBImpl::EvictCompacted(bool aborted) {
 
   override_packet_t packet;
   while (override_vals_q_.dequeue(&packet)) {
-    bool succ = FindFileAndEvictABlob(packet.file_number_, packet.key_size_,
-                                      packet.blob_offset_, packet.blob_size_);
-
-    if (!succ)
-      ROCKS_LOG_DEBUG(
-          db_options_.info_log,
-          "EVICT COMPACTION FAILURE SN: %d FN: %d OFFSET: %d SIZE: %d",
-          packet.dsn_, packet.file_number_, packet.blob_offset_,
-          packet.blob_size_);
-
-    if (debug_level_ >= 3)
-      ROCKS_LOG_INFO(
-          db_options_.info_log,
-          "EVICT COMPACTED SN: %d FN: %d OFFSET: %d SIZE: %d SUCC: %d",
-          packet.dsn_, packet.file_number_, packet.blob_offset_,
-          packet.blob_size_, succ);
+    FindFileAndEvictABlob(packet.file_number_, packet.key_size_,
+                          packet.blob_offset_, packet.blob_size_);
   }
   return std::make_pair(true, -1);
 }
@@ -1813,16 +1797,7 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
       // because
       // a new version of the key came in at this time, which will override
       // the current version being iterated on.
-      if (s1.IsBusy()) {
-        ROCKS_LOG_INFO(db_options_.info_log,
-                       "Optimistic transaction failed delete: %s bn: %" PRIu32,
-                       bfptr->PathName().c_str(), gcstats->blob_count);
-      } else {
-        ROCKS_LOG_DEBUG(
-            db_options_.info_log,
-            "Successfully added delete back into LSM: %s bn: %" PRIu32,
-            bfptr->PathName().c_str(), gcstats->blob_count);
-
+      if (!s1.IsBusy()) {
         // assume that failures happen due to new writes.
         gcstats->succ_deletes_lsm++;
       }
