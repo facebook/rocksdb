@@ -826,8 +826,8 @@ add_subdirectory(tools)
 endif(DEVELOPER_ENABLE_TESTS)
 
 # Installation and packaging for Linux
-install(TARGETS ${ROCKSDB_STATIC_LIB} COMPONENT devel ARCHIVE DESTINATION lib64)
-install(TARGETS ${ROCKSDB_SHARED_LIB} COMPONENT runtime DESTINATION lib64)
+install(TARGETS ${ROCKSDB_STATIC_LIB} COMPONENT devel ARCHIVE DESTINATION lib)
+install(TARGETS ${ROCKSDB_SHARED_LIB} COMPONENT runtime DESTINATION lib)
 install(DIRECTORY "${PROJECT_SOURCE_DIR}/include/rocksdb/"
         COMPONENT devel
         DESTINATION include/rocksdb)
