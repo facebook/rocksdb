@@ -1447,6 +1447,10 @@ TEST_P(DBTestUniversalCompaction, ConcurrentBottomPriLowPriCompactions) {
     for (int num = 0; num < kNumFilesTrigger; num++) {
       int key_idx = 0;
       GenerateNewFile(&rnd, &key_idx, true /* no_wait */);
+      // use no_wait above because that one waits for flush and compaction. We
+      // don't want to wait for compaction because the full compaction is
+      // intentionally blocked while more files are flushed.
+      dbfull()->TEST_WaitForFlushMemTable();
     }
     if (i == 0) {
       TEST_SYNC_POINT(
