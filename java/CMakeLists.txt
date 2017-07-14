@@ -24,6 +24,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/options.cc
         rocksjni/ratelimiterjni.cc
         rocksjni/remove_emptyvalue_compactionfilterjni.cc
+        rocksjni/cassandra_compactionfilterjni.cc
         rocksjni/restorejni.cc
         rocksjni/rocksdb_exception_test.cc
         rocksjni/rocksjni.cc
@@ -55,6 +56,8 @@ set(NATIVE_JAVA_CLASSES
         org.rocksdb.BlockBasedTableConfig
         org.rocksdb.BloomFilter
         org.rocksdb.Cache
+        org.rocksdb.CassandraCompactionFilter
+        org.rocksdb.CassandraValueMergeOperator
         org.rocksdb.Checkpoint
         org.rocksdb.ClockCache
         org.rocksdb.ColumnFamilyHandle
