@@ -803,7 +803,7 @@ class DBTestBase : public testing::Test {
   std::string Get(int cf, const std::string& k,
                   const Snapshot* snapshot = nullptr);
 
-  std::string Get(const std::string& k, PinnableSlice* v);
+  Status Get(const std::string& k, PinnableSlice* v, std::string& value);
 
   uint64_t GetNumSnapshots();
 

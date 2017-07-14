@@ -686,19 +686,13 @@ std::string DBTestBase::Get(int cf, const std::string& k,
   return result;
 }
 
-std::string DBTestBase::Get(const std::string& k, PinnableSlice* v) {
+Status DBTestBase::Get(const std::string& k, PinnableSlice* v,
+                       std::string& value) {
   ReadOptions options;
   options.verify_checksums = true;
-  std::string result;
   Status s = dbfull()->Get(options, dbfull()->DefaultColumnFamily(), k, v);
-  if (s.IsNotFound()) {
-    result = "NOT_FOUND";
-  } else if (!s.ok()) {
-    result = s.ToString();
-  }  else {
-    result = std::string(v->data());
-  }
-  return result;
+  value = std::string(v->data());
+  return s;
 }
 
 uint64_t DBTestBase::GetNumSnapshots() {
