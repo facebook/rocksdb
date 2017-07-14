@@ -186,7 +186,13 @@ typedef pthread_once_t OnceType;
 extern void InitOnce(OnceType* once, void (*initializer)());
 
 #ifndef CACHE_LINE_SIZE
-#define CACHE_LINE_SIZE 64U
+  #if defined(__s390__)
+    #define CACHE_LINE_SIZE 256U
+  #elif defined(__powerpc__) || defined(__aarch64__)
+    #define CACHE_LINE_SIZE 128U
+  #else
+    #define CACHE_LINE_SIZE 64U
+  #endif
 #endif
 
 #define PREFETCH(addr, rw, locality) __builtin_prefetch(addr, rw, locality)
