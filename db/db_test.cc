@@ -5337,9 +5337,8 @@ TEST_F(DBTest, PinnableSliceAndRowCache) {
 
   {
     PinnableSlice pin_slice;
-    std::string value;
-    ASSERT_EQ(Get("foo", &pin_slice, value), Status::OK());
-    ASSERT_EQ(value, "bar");
+    ASSERT_EQ(Get("foo", &pin_slice), Status::OK());
+    ASSERT_EQ(pin_slice.ToString(), "bar");
     // Entry is already in cache, lookup will remove the element from lru
     ASSERT_EQ(reinterpret_cast<LRUCache*>(options.row_cache.get())->
             TEST_GetLRUSize(), 0);

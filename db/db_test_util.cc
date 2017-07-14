@@ -686,12 +686,10 @@ std::string DBTestBase::Get(int cf, const std::string& k,
   return result;
 }
 
-Status DBTestBase::Get(const std::string& k, PinnableSlice* v,
-                       std::string& value) {
+Status DBTestBase::Get(const std::string& k, PinnableSlice* v) {
   ReadOptions options;
   options.verify_checksums = true;
   Status s = dbfull()->Get(options, dbfull()->DefaultColumnFamily(), k, v);
-  value = std::string(v->data());
   return s;
 }
 
