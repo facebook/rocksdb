@@ -862,6 +862,14 @@ size_t MemTable::CountSuccessiveMergeEntries(const LookupKey& key) {
   return num_successive_merges;
 }
 
+void MemTableRep::InsertConcurrently(KeyHandle handle) {
+#ifndef ROCKSDB_LITE
+  throw std::runtime_error("concurrent insert not supported");
+#else
+  abort();
+#endif
+}
+
 void MemTableRep::Get(const LookupKey& k, void* callback_args,
                       bool (*callback_func)(void* arg, const char* entry)) {
   auto iter = GetDynamicPrefixIterator();
