@@ -372,7 +372,7 @@ void PersistentCacheDBTest::RunTest(
         options.table_factory.reset(NewBlockBasedTableFactory(table_options));
         break;
       default:
-        ASSERT_TRUE(false);
+        FAIL();
     }
 
     std::vector<std::string> values;
@@ -425,7 +425,7 @@ void PersistentCacheDBTest::RunTest(
         ASSERT_EQ(compressed_block_miss, 0);
         break;
       default:
-        ASSERT_TRUE(false);
+        FAIL();
     }
 
     options.create_if_missing = true;

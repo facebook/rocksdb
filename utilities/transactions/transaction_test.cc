@@ -242,7 +242,7 @@ TEST_P(TransactionTest, WaitingTxn) {
 
   // Column family is 1 or 0 (cfa).
   if (cf_iterator->first != 1 && cf_iterator->first != 0) {
-    ASSERT_FALSE(true);
+    FAIL();
   }
   // The locked key is "foo" and is locked by txn1
   ASSERT_EQ(cf_iterator->second.key, "foo");
@@ -253,7 +253,7 @@ TEST_P(TransactionTest, WaitingTxn) {
 
   // Column family is 0 (default) or 1.
   if (cf_iterator->first != 1 && cf_iterator->first != 0) {
-    ASSERT_FALSE(true);
+    FAIL();
   }
   // The locked key is "foo" and is locked by txn1
   ASSERT_EQ(cf_iterator->second.key, "foo");
@@ -1080,7 +1080,7 @@ TEST_P(TransactionTest, DISABLED_TwoPhaseMultiThreadTest) {
             env->SleepForMicroseconds(10);
           }
         } else {
-          ASSERT_TRUE(false);
+          FAIL();
         }
       });
 

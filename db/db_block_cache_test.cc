@@ -497,7 +497,7 @@ TEST_F(DBBlockCacheTest, CompressedCache) {
         options.compression = kNoCompression;
         break;
       default:
-        ASSERT_TRUE(false);
+        FAIL();
     }
     CreateAndReopenWithCF({"pikachu"}, options);
     // default column family doesn't have block cache
@@ -560,7 +560,7 @@ TEST_F(DBBlockCacheTest, CompressedCache) {
         ASSERT_EQ(TestGetTickerCount(options, BLOCK_CACHE_COMPRESSED_HIT), 0);
         break;
       default:
-        ASSERT_TRUE(false);
+        FAIL();
     }
 
     options.create_if_missing = true;

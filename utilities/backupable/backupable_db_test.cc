@@ -101,7 +101,7 @@ class DummyDB : public StackableDB {
 
     virtual uint64_t LogNumber() const override {
       // what business do you have calling this method?
-      EXPECT_TRUE(false);
+      ADD_FAILURE();
       return 0;
     }
 

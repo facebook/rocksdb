@@ -451,20 +451,20 @@ TEST_F(WriteBatchTest, DISABLED_ManyUpdates) {
     }
     virtual Status DeleteCF(uint32_t column_family_id,
                             const Slice& key) override {
-      EXPECT_TRUE(false);
+      ADD_FAILURE();
       return Status::OK();
     }
     virtual Status SingleDeleteCF(uint32_t column_family_id,
                                   const Slice& key) override {
-      EXPECT_TRUE(false);
+      ADD_FAILURE();
       return Status::OK();
     }
     virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
                            const Slice& value) override {
-      EXPECT_TRUE(false);
+      ADD_FAILURE();
       return Status::OK();
     }
-    virtual void LogData(const Slice& blob) override { EXPECT_TRUE(false); }
+    virtual void LogData(const Slice& blob) override { ADD_FAILURE(); }
     virtual bool Continue() override { return num_seen < kNumUpdates; }
   } handler;
 
@@ -502,20 +502,20 @@ TEST_F(WriteBatchTest, DISABLED_LargeKeyValue) {
     }
     virtual Status DeleteCF(uint32_t column_family_id,
                             const Slice& key) override {
-      EXPECT_TRUE(false);
+      ADD_FAILURE();
       return Status::OK();
     }
     virtual Status SingleDeleteCF(uint32_t column_family_id,
                                   const Slice& key) override {
-      EXPECT_TRUE(false);
+      ADD_FAILURE();
       return Status::OK();
     }
     virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
                            const Slice& value) override {
-      EXPECT_TRUE(false);
+      ADD_FAILURE();
       return Status::OK();
     }
-    virtual void LogData(const Slice& blob) override { EXPECT_TRUE(false); }
+    virtual void LogData(const Slice& blob) override { ADD_FAILURE(); }
     virtual bool Continue() override { return num_seen < 2; }
   } handler;
 

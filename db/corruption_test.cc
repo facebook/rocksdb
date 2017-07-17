@@ -152,7 +152,7 @@ class CorruptionTest : public testing::Test {
     struct stat sbuf;
     if (stat(fname.c_str(), &sbuf) != 0) {
       const char* msg = strerror(errno);
-      ASSERT_TRUE(false) << fname << ": " << msg;
+      FAIL() << fname << ": " << msg;
     }
 
     if (offset < 0) {
@@ -213,7 +213,7 @@ class CorruptionTest : public testing::Test {
         return;
       }
     }
-    ASSERT_TRUE(false) << "no file found at level";
+    FAIL() << "no file found at level";
   }
 
 

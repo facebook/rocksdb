@@ -26,7 +26,7 @@ class StopOnErrorLogger : public Logger {
   virtual void Logv(const char* format, va_list ap) override {
     vfprintf(stderr, format, ap);
     fprintf(stderr, "\n");
-    ASSERT_TRUE(false);
+    FAIL();
   }
 };
 

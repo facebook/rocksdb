@@ -137,7 +137,7 @@ void MockTableFactory::AssertLatestFile(
       ParseInternalKey(Slice(key), &ikey);
       std::cout << ikey.DebugString(false) << " -> " << value << std::endl;
     }
-    ASSERT_TRUE(false);
+    FAIL();
   }
 }
 
