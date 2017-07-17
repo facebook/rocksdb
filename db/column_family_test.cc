@@ -521,6 +521,7 @@ TEST_F(ColumnFamilyTest, DontReuseColumnFamilyID) {
   }
 }
 
+#ifndef ROCKSDB_LITE
 TEST_F(ColumnFamilyTest, CreateCFRaceWithGetAggProperty) {
   Open();
 
@@ -542,6 +543,7 @@ TEST_F(ColumnFamilyTest, CreateCFRaceWithGetAggProperty) {
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
+#endif  // !ROCKSDB_LITE
 
 class FlushEmptyCFTestWithParam : public ColumnFamilyTest,
                                   public testing::WithParamInterface<bool> {
