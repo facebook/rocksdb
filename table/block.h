@@ -16,7 +16,11 @@
 #ifdef OS_FREEBSD
 #include <malloc_np.h>
 #else
+#ifdef ROCKSDB_JEMALLOC
+#include "jemalloc/jemalloc.h"
+#else
 #include <malloc.h>
+#endif
 #endif
 #endif
 
