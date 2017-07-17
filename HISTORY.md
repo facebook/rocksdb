@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 5.5.3 (07/17/2017)
+### Bug Fixes
+* Fix LITE build error.
+
 ## 5.5.2 (07/13/2017)
 No change from 5.5.1.
 
