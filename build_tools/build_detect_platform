@@ -49,13 +49,7 @@ COMMON_FLAGS="-DROCKSDB_PLATFORM_POSIX"
 if [ -z "$ROCKSDB_NO_FBCODE" -a -d /mnt/gvfs/third-party ]; then
     FBCODE_BUILD="true"
     if [ -z "$USE_CLANG" ]; then
-        CENTOS_VERSION=`rpm -q --qf "%{VERSION}" \
-          $(rpm -q --whatprovides redhat-release)`
-        if [ "$CENTOS_VERSION" -ge "6" ]; then
-          source "$PWD/build_tools/fbcode.gcc481.sh"
-        else
-          source "$PWD/build_tools/fbcode.gcc471.sh"
-        fi
+        source $PWD/build_tools/fbcode_config.sh
     else
         source "$PWD/build_tools/fbcode.clang31.sh"
     fi
@@ -242,7 +236,7 @@ EOF
       int main() {}
 EOF
     if [ "$?" = 0 ]; then
-        COMMON_FLAGS="$COMMON_FLAGS -DGFLAGS=google"
+        COMMON_FLAGS="$COMMON_FLAGS -DGFLAGS=gflags"
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
     fi
 
