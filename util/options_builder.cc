@@ -4,6 +4,7 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 
 #include <math.h>
+#include <cmath>
 #include <algorithm>
 #include "rocksdb/options.h"
 
