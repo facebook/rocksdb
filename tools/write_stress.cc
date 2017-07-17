@@ -135,8 +135,8 @@ class WriteStress {
     // compactions
     options.create_if_missing = true;
     options.write_buffer_size = 256 * 1024;              // 256k
-    options.max_bytes_for_level_base = 1 * 1024 * 1204;  // 1MB
-    options.target_file_size_base = 100 * 1204;          // 100k
+    options.max_bytes_for_level_base = 1 * 1024 * 1024;  // 1MB
+    options.target_file_size_base = 100 * 1024;          // 100k
     options.max_write_buffer_number = 16;
     options.max_background_compactions = 16;
     options.max_background_flushes = 16;
