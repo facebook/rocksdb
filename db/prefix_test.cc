@@ -620,7 +620,7 @@ TEST(PrefixTest, PrefixHash) {
 }
 
 int main(int argc, char** argv) {
-  google::ParseCommandLineFlags(&argc, &argv, true);
+  GFLAGS::ParseCommandLineFlags(&argc, &argv, true);
   std::cout << kDbName << "\n";
 
   rocksdb::test::RunAllTests();

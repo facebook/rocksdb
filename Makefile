@@ -170,7 +170,7 @@ dbg: $(LIBRARY) $(PROGRAMS)
 # Will also generate shared libraries.
 release:
 	$(MAKE) clean
-	OPT="-DNDEBUG -O2" $(MAKE) all -j32
+	OPT="-DNDEBUG -O2" $(MAKE) $(LIBRARY) db_bench sst_dump ldb -j32
 
 coverage:
 	$(MAKE) clean

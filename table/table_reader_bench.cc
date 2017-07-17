@@ -233,9 +233,9 @@ DEFINE_string(time_unit, "microsecond",
               "`microsecond` (default) or `nanosecond`");
 
 int main(int argc, char** argv) {
-  google::SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
+  GFLAGS::SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
                           " [OPTIONS]...");
-  google::ParseCommandLineFlags(&argc, &argv, true);
+  GFLAGS::ParseCommandLineFlags(&argc, &argv, true);
 
   rocksdb::TableFactory* tf = new rocksdb::BlockBasedTableFactory();
   rocksdb::Options options;

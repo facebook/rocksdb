@@ -164,7 +164,7 @@ TEST(BloomTest, VaryingLengths) {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  google::ParseCommandLineFlags(&argc, &argv, true);
+  GFLAGS::ParseCommandLineFlags(&argc, &argv, true);
 
   return rocksdb::test::RunAllTests();
 }

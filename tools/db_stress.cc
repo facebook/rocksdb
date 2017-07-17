@@ -61,7 +61,7 @@ static bool ValidateUint32Range(const char* flagname, uint64_t value) {
 }
 DEFINE_uint64(seed, 2341234, "Seed for PRNG");
 static const bool FLAGS_seed_dummy =
-  google::RegisterFlagValidator(&FLAGS_seed, &ValidateUint32Range);
+  GFLAGS::RegisterFlagValidator(&FLAGS_seed, &ValidateUint32Range);
 
 DEFINE_int64(max_key, 1 * KB * KB * KB,
              "Max number of key/values to place in database");
@@ -171,7 +171,7 @@ static bool ValidateInt32Positive(const char* flagname, int32_t value) {
 }
 DEFINE_int32(reopen, 10, "Number of times database reopens");
 static const bool FLAGS_reopen_dummy =
-  google::RegisterFlagValidator(&FLAGS_reopen, &ValidateInt32Positive);
+  GFLAGS::RegisterFlagValidator(&FLAGS_reopen, &ValidateInt32Positive);
 
 DEFINE_int32(bloom_bits, 10, "Bloom filter bits per key. "
              "Negative means use default settings.");
@@ -199,7 +199,7 @@ DEFINE_int32(kill_random_test, 0,
              "If non-zero, kill at various points in source code with "
              "probability 1/this");
 static const bool FLAGS_kill_random_test_dummy =
-  google::RegisterFlagValidator(&FLAGS_kill_random_test,
+  GFLAGS::RegisterFlagValidator(&FLAGS_kill_random_test,
                                 &ValidateInt32Positive);
 extern int rocksdb_kill_odds;
 
@@ -227,32 +227,32 @@ static bool ValidateInt32Percent(const char* flagname, int32_t value) {
 DEFINE_int32(readpercent, 10,
              "Ratio of reads to total workload (expressed as a percentage)");
 static const bool FLAGS_readpercent_dummy =
-  google::RegisterFlagValidator(&FLAGS_readpercent, &ValidateInt32Percent);
+  GFLAGS::RegisterFlagValidator(&FLAGS_readpercent, &ValidateInt32Percent);
 
 DEFINE_int32(prefixpercent, 20,
              "Ratio of prefix iterators to total workload (expressed as a"
              " percentage)");
 static const bool FLAGS_prefixpercent_dummy =
-  google::RegisterFlagValidator(&FLAGS_prefixpercent, &ValidateInt32Percent);
+  GFLAGS::RegisterFlagValidator(&FLAGS_prefixpercent, &ValidateInt32Percent);
 
 DEFINE_int32(writepercent, 45,
              " Ratio of deletes to total workload (expressed as a percentage)");
 static const bool FLAGS_writepercent_dummy =
-  google::RegisterFlagValidator(&FLAGS_writepercent, &ValidateInt32Percent);
+  GFLAGS::RegisterFlagValidator(&FLAGS_writepercent, &ValidateInt32Percent);
 
 DEFINE_int32(delpercent, 15,
              "Ratio of deletes to total workload (expressed as a percentage)");
 static const bool FLAGS_delpercent_dummy =
-  google::RegisterFlagValidator(&FLAGS_delpercent, &ValidateInt32Percent);
+  GFLAGS::RegisterFlagValidator(&FLAGS_delpercent, &ValidateInt32Percent);
 
 DEFINE_int32(iterpercent, 10, "Ratio of iterations to total workload"
              " (expressed as a percentage)");
 static const bool FLAGS_iterpercent_dummy =
-  google::RegisterFlagValidator(&FLAGS_iterpercent, &ValidateInt32Percent);
+  GFLAGS::RegisterFlagValidator(&FLAGS_iterpercent, &ValidateInt32Percent);
 
 DEFINE_uint64(num_iterations, 10, "Number of iterations per MultiIterate run");
 static const bool FLAGS_num_iterations_dummy =
-  google::RegisterFlagValidator(&FLAGS_num_iterations, &ValidateUint32Range);
+  GFLAGS::RegisterFlagValidator(&FLAGS_num_iterations, &ValidateUint32Range);
 
 DEFINE_bool(disable_seek_compaction, false,
             "Option to disable compation triggered by read.");
@@ -292,18 +292,18 @@ static rocksdb::Env* FLAGS_env = rocksdb::Env::Default();
 
 DEFINE_uint64(ops_per_thread, 600000, "Number of operations per thread.");
 static const bool FLAGS_ops_per_thread_dummy =
-  google::RegisterFlagValidator(&FLAGS_ops_per_thread, &ValidateUint32Range);
+  GFLAGS::RegisterFlagValidator(&FLAGS_ops_per_thread, &ValidateUint32Range);
 
 DEFINE_uint64(log2_keys_per_lock, 2, "Log2 of number of keys per lock");
 static const bool FLAGS_log2_keys_per_lock_dummy =
-  google::RegisterFlagValidator(&FLAGS_log2_keys_per_lock,
+  GFLAGS::RegisterFlagValidator(&FLAGS_log2_keys_per_lock,
                                 &ValidateUint32Range);
 
 DEFINE_int32(purge_redundant_percent, 50,
              "Percentage of times we want to purge redundant keys in memory "
              "before flushing");
 static const bool FLAGS_purge_redundant_percent_dummy =
-  google::RegisterFlagValidator(&FLAGS_purge_redundant_percent,
+  GFLAGS::RegisterFlagValidator(&FLAGS_purge_redundant_percent,
                                 &ValidateInt32Percent);
 
 DEFINE_bool(filter_deletes, false, "On true, deletes use KeyMayExist to drop"
@@ -340,7 +340,7 @@ static bool ValidatePrefixSize(const char* flagname, int32_t value) {
 }
 DEFINE_int32(prefix_size, 7, "Control the prefix size for HashSkipListRep");
 static const bool FLAGS_prefix_size_dummy =
-  google::RegisterFlagValidator(&FLAGS_prefix_size, &ValidatePrefixSize);
+  GFLAGS::RegisterFlagValidator(&FLAGS_prefix_size, &ValidatePrefixSize);
 
 DEFINE_bool(use_merge, false, "On true, replaces all writes with a Merge "
             "that behaves like a Put");
@@ -1502,9 +1502,9 @@ class StressTest {
 
 
 int main(int argc, char** argv) {
-  google::SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
+  GFLAGS::SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
                           " [OPTIONS]...");
-  google::ParseCommandLineFlags(&argc, &argv, true);
+  GFLAGS::ParseCommandLineFlags(&argc, &argv, true);
 
   if (FLAGS_statistics) {
     dbstats = rocksdb::CreateDBStatistics();
