@@ -86,6 +86,7 @@ class GetContext {
 };
 
 void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
-                         GetContext* get_context);
+                         GetContext* get_context,
+                         Cleanable* value_pinner = nullptr);
 
 }  // namespace rocksdb

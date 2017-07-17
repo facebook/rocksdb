@@ -33,7 +33,7 @@ class Cleanable {
   typedef void (*CleanupFunction)(void* arg1, void* arg2);
   void RegisterCleanup(CleanupFunction function, void* arg1, void* arg2);
   void DelegateCleanupsTo(Cleanable* other);
-  // DoCkeanup and also resets the pointers for reuse
+  // DoCleanup and also resets the pointers for reuse
   inline void Reset() {
     DoCleanup();
     cleanup_.function = nullptr;

@@ -23,6 +23,7 @@
 #include <alloca.h>
 #endif
 
+#include "cache/lru_cache.h"
 #include "db/db_impl.h"
 #include "db/db_test_util.h"
 #include "db/dbformat.h"
@@ -5320,6 +5321,36 @@ TEST_F(DBTest, RowCache) {
   ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 1);
   ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 1);
 }
+
+TEST_F(DBTest, PinnableSliceAndRowCache) {
+  Options options = CurrentOptions();
+  options.statistics = rocksdb::CreateDBStatistics();
+  options.row_cache = NewLRUCache(8192);
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Flush());
+
+  ASSERT_EQ(Get("foo"), "bar");
+  ASSERT_EQ(
+      reinterpret_cast<LRUCache*>(options.row_cache.get())->TEST_GetLRUSize(),
+      1);
+
+  {
+    PinnableSlice pin_slice;
+    ASSERT_EQ(Get("foo", &pin_slice), Status::OK());
+    ASSERT_EQ(pin_slice.ToString(), "bar");
+    // Entry is already in cache, lookup will remove the element from lru
+    ASSERT_EQ(
+        reinterpret_cast<LRUCache*>(options.row_cache.get())->TEST_GetLRUSize(),
+        0);
+  }
+  // After PinnableSlice destruction element is added back in LRU
+  ASSERT_EQ(
+      reinterpret_cast<LRUCache*>(options.row_cache.get())->TEST_GetLRUSize(),
+      1);
+}
+
 #endif  // ROCKSDB_LITE
 
 TEST_F(DBTest, DeletingOldWalAfterDrop) {

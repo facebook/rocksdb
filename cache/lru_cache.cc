@@ -157,6 +157,16 @@ void LRUCacheShard::TEST_GetLRUList(LRUHandle** lru, LRUHandle** lru_low_pri) {
   *lru_low_pri = lru_low_pri_;
 }
 
+size_t LRUCacheShard::TEST_GetLRUSize() {
+  LRUHandle* lru_handle = lru_.next;
+  size_t lru_size = 0;
+  while (lru_handle != &lru_) {
+    lru_size++;
+    lru_handle = lru_handle->next;
+  }
+  return lru_size;
+}
+
 void LRUCacheShard::LRU_Remove(LRUHandle* e) {
   assert(e->next != nullptr);
   assert(e->prev != nullptr);
@@ -438,11 +448,11 @@ std::string LRUCacheShard::GetPrintableOptions() const {
 LRUCache::LRUCache(size_t capacity, int num_shard_bits,
                    bool strict_capacity_limit, double high_pri_pool_ratio)
     : ShardedCache(capacity, num_shard_bits, strict_capacity_limit) {
-  int num_shards = 1 << num_shard_bits;
-  shards_ = new LRUCacheShard[num_shards];
+  num_shards_ = 1 << num_shard_bits;
+  shards_ = new LRUCacheShard[num_shards_];
   SetCapacity(capacity);
   SetStrictCapacityLimit(strict_capacity_limit);
-  for (int i = 0; i < num_shards; i++) {
+  for (int i = 0; i < num_shards_; i++) {
     shards_[i].SetHighPriorityPoolRatio(high_pri_pool_ratio);
   }
 }
@@ -470,6 +480,14 @@ uint32_t LRUCache::GetHash(Handle* handle) const {
 }
 
 void LRUCache::DisownData() { shards_ = nullptr; }
+
+size_t LRUCache::TEST_GetLRUSize() {
+  size_t lru_size_of_all_shards = 0;
+  for (int i = 0; i < num_shards_; i++) {
+    lru_size_of_all_shards += shards_[i].TEST_GetLRUSize();
+  }
+  return lru_size_of_all_shards;
+}
 
 std::shared_ptr<Cache> NewLRUCache(size_t capacity, int num_shard_bits,
                                    bool strict_capacity_limit,
