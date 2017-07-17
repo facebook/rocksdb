@@ -1,105 +1,156 @@
 #!/bin/sh
 #
 # Set environment variables so that we can compile rocksdb using
-# fbcode settings.  It uses the latest g++ compiler and also
+# fbcode settings.  It uses the latest g++ and clang compilers and also
 # uses jemalloc
+# Environment variables that change the behavior of this script:
+# PIC_BUILD -- if true, it will only take pic versions of libraries from fbcode. libraries that don't have pic variant will not be included
 
-# location of libgcc
-LIBGCC_BASE="/mnt/gvfs/third-party2/libgcc/7712e757d7355cb51292454ee0b7b46a467fdfed/4.8.1/gcc-4.8.1-glibc-2.17/8aac7fc"
+
+BASEDIR=`dirname $BASH_SOURCE`
+source "$BASEDIR/dependencies.sh"
+
+CFLAGS=""
+
+# libgcc
 LIBGCC_INCLUDE="$LIBGCC_BASE/include"
-LIBGCC_LIBS=" -L $LIBGCC_BASE/libs"
+LIBGCC_LIBS=" -L $LIBGCC_BASE/lib"
 
-# location of glibc
-GLIBC_REV=6e40560b4e0b6d690fd1cf8c7a43ad7452b04cfa
-GLIBC_INCLUDE="/mnt/gvfs/third-party2/glibc/$GLIBC_REV/2.17/gcc-4.8.1-glibc-2.17/99df8fc/include"
-GLIBC_LIBS=" -L /mnt/gvfs/third-party2/glibc/$GLIBC_REV/2.17/gcc-4.8.1-glibc-2.17/99df8fc/lib"
+# glibc
+GLIBC_INCLUDE="$GLIBC_BASE/include"
+GLIBC_LIBS=" -L $GLIBC_BASE/lib"
 
-# location of snappy headers and libraries
-SNAPPY_INCLUDE=" -I /mnt/gvfs/third-party2/snappy/aef17f6c0b44b4fe408bd06f67c93701ab0a6ceb/1.0.3/gcc-4.8.1-glibc-2.17/43d84e2/include"
-SNAPPY_LIBS=" /mnt/gvfs/third-party2/snappy/aef17f6c0b44b4fe408bd06f67c93701ab0a6ceb/1.0.3/gcc-4.8.1-glibc-2.17/43d84e2/lib/libsnappy.a"
+# snappy
+SNAPPY_INCLUDE=" -I $SNAPPY_BASE/include/"
+if test -z $PIC_BUILD; then
+  SNAPPY_LIBS=" $SNAPPY_BASE/lib/libsnappy.a"
+else
+  SNAPPY_LIBS=" $SNAPPY_BASE/lib/libsnappy_pic.a"
+fi
+CFLAGS+=" -DSNAPPY"
 
-# location of zlib headers and libraries
-ZLIB_INCLUDE=" -I /mnt/gvfs/third-party2/zlib/25c6216928b4d77b59ddeca0990ff6fe9ac16b81/1.2.5/gcc-4.8.1-glibc-2.17/c3f970a/include"
-ZLIB_LIBS=" /mnt/gvfs/third-party2/zlib/25c6216928b4d77b59ddeca0990ff6fe9ac16b81/1.2.5/gcc-4.8.1-glibc-2.17/c3f970a/lib/libz.a"
+if test -z $PIC_BUILD; then
+  # location of zlib headers and libraries
+  ZLIB_INCLUDE=" -I $ZLIB_BASE/include/"
+  ZLIB_LIBS=" $ZLIB_BASE/lib/libz.a"
+  CFLAGS+=" -DZLIB"
 
-# location of bzip headers and libraries
-BZIP_INCLUDE=" -I /mnt/gvfs/third-party2/bzip2/c9ef7629c2aa0024f7a416e87602f06eb88f5eac/1.0.6/gcc-4.8.1-glibc-2.17/c3f970a/include/"
-BZIP_LIBS=" /mnt/gvfs/third-party2/bzip2/c9ef7629c2aa0024f7a416e87602f06eb88f5eac/1.0.6/gcc-4.8.1-glibc-2.17/c3f970a/lib/libbz2.a"
+  # location of bzip headers and libraries
+  BZIP_INCLUDE=" -I $BZIP2_BASE/include/"
+  BZIP_LIBS=" $BZIP2_BASE/lib/libbz2.a"
+  CFLAGS+=" -DBZIP2"
 
-LZ4_REV=065ec7e38fe83329031f6668c43bef83eff5808b
-LZ4_INCLUDE=" -I /mnt/gvfs/third-party2/lz4/$LZ4_REV/r108/gcc-4.8.1-glibc-2.17/c3f970a/include"
-LZ4_LIBS=" /mnt/gvfs/third-party2/lz4/$LZ4_REV/r108/gcc-4.8.1-glibc-2.17/c3f970a/lib/liblz4.a"
+  LZ4_INCLUDE=" -I $LZ4_BASE/include/"
+  LZ4_LIBS=" $LZ4_BASE/lib/liblz4.a"
+  CFLAGS+=" -DLZ4"
+
+  ZSTD_INCLUDE=" -I $ZSTD_BASE/include/"
+  ZSTD_LIBS=" $ZSTD_BASE/lib/libzstd.a"
+  CFLAGS+=" -DZSTD"
+fi
 
 # location of gflags headers and libraries
-GFLAGS_INCLUDE=" -I /mnt/gvfs/third-party2/gflags/1ad047a6e6f6673991918ecadc670868205a243a/1.6/gcc-4.8.1-glibc-2.17/c3f970a/include/"
-GFLAGS_LIBS=" /mnt/gvfs/third-party2/gflags/1ad047a6e6f6673991918ecadc670868205a243a/1.6/gcc-4.8.1-glibc-2.17/c3f970a/lib/libgflags.a"
+GFLAGS_INCLUDE=" -I $GFLAGS_BASE/include/"
+if test -z $PIC_BUILD; then
+  GFLAGS_LIBS=" $GFLAGS_BASE/lib/libgflags.a"
+else
+  GFLAGS_LIBS=" $GFLAGS_BASE/lib/libgflags_pic.a"
+fi
+CFLAGS+=" -DGFLAGS=gflags"
 
 # location of jemalloc
-JEMALLOC_INCLUDE=" -I /mnt/gvfs/third-party2/jemalloc/c60d854f7824f334195fe7fd34b2bc9057e3c1f9/3.6.0/gcc-4.8.1-glibc-2.17/4d53c6f/include"
-JEMALLOC_LIB=" -Wl,--whole-archive /mnt/gvfs/third-party2/jemalloc/c60d854f7824f334195fe7fd34b2bc9057e3c1f9/3.6.0/gcc-4.8.1-glibc-2.17/4d53c6f/lib/libjemalloc.a"
+JEMALLOC_INCLUDE=" -I $JEMALLOC_BASE/include/"
+JEMALLOC_LIB=" $JEMALLOC_BASE/lib/libjemalloc.a"
 
-# location of numa
-NUMA_REV=829d10dac0230f99cd7e1778869d2adf3da24b65
-NUMA_INCLUDE=" -I /mnt/gvfs/third-party2/numa/$NUMA_REV/2.0.8/gcc-4.8.1-glibc-2.17/c3f970a/include/"
-NUMA_LIB=" /mnt/gvfs/third-party2/numa/$NUMA_REV/2.0.8/gcc-4.8.1-glibc-2.17/c3f970a/lib/libnuma.a"
+if test -z $PIC_BUILD; then
+  # location of numa
+  NUMA_INCLUDE=" -I $NUMA_BASE/include/"
+  NUMA_LIB=" $NUMA_BASE/lib/libnuma.a"
+  CFLAGS+=" -DNUMA"
 
-# location of libunwind
-LIBUNWIND_REV=2c060e64064559905d46fd194000d61592087bdc
-LIBUNWIND="/mnt/gvfs/third-party2/libunwind/$LIBUNWIND_REV/1.1/gcc-4.8.1-glibc-2.17/675d945/lib/libunwind.a"
+  # location of libunwind
+  LIBUNWIND="$LIBUNWIND_BASE/lib/libunwind.a"
+fi
+
+# location of TBB
+TBB_INCLUDE=" -isystem $TBB_BASE/include/"
+if test -z $PIC_BUILD; then
+  TBB_LIBS="$TBB_BASE/lib/libtbb.a"
+else
+  TBB_LIBS="$TBB_BASE/lib/libtbb_pic.a"
+fi
+CFLAGS+=" -DTBB"
 
 # use Intel SSE support for checksum calculations
 export USE_SSE=" -msse -msse4.2 "
 
-BINUTILS="/mnt/gvfs/third-party2/binutils/2aff2e7b474cd3e6ab23495ad1224b7d214b9f8e/2.21.1/centos6-native/da39a3e/bin"
+BINUTILS="$BINUTILS_BASE/bin"
 AR="$BINUTILS/ar"
 
-DEPS_INCLUDE="$SNAPPY_INCLUDE $ZLIB_INCLUDE $BZIP_INCLUDE $LZ4_INCLUDE $GFLAGS_INCLUDE $NUMA_INCLUDE"
+DEPS_INCLUDE="$SNAPPY_INCLUDE $ZLIB_INCLUDE $BZIP_INCLUDE $LZ4_INCLUDE $ZSTD_INCLUDE $GFLAGS_INCLUDE $NUMA_INCLUDE $TBB_INCLUDE"
 
-GCC_BASE="/mnt/gvfs/third-party2/gcc/1ec615e23800f0815d474478ba476a0adc3fe788/4.8.1/centos6-native/cc6c9dc"
 STDLIBS="-L $GCC_BASE/lib64"
+
+CLANG_BIN="$CLANG_BASE/bin"
+CLANG_LIB="$CLANG_BASE/lib"
+CLANG_SRC="$CLANG_BASE/../../src"
+
+CLANG_ANALYZER="$CLANG_BIN/clang++"
+CLANG_SCAN_BUILD="$CLANG_SRC/llvm/tools/clang/tools/scan-build/bin/scan-build"
 
 if [ -z "$USE_CLANG" ]; then
   # gcc
   CC="$GCC_BASE/bin/gcc"
   CXX="$GCC_BASE/bin/g++"
-  
-  CFLAGS="-B$BINUTILS/gold -m64 -mtune=generic"
+
+  CFLAGS+=" -B$BINUTILS/gold"
   CFLAGS+=" -isystem $GLIBC_INCLUDE"
   CFLAGS+=" -isystem $LIBGCC_INCLUDE"
+  JEMALLOC=1
 else
-  # clang 
-  CLANG_BASE="/mnt/gvfs/third-party2/clang/9ab68376f938992c4eb5946ca68f90c3185cffc8/3.4"
-  CLANG_INCLUDE="$CLANG_BASE/gcc-4.8.1-glibc-2.17/fb0f730/lib/clang/3.4/include"
-  CC="$CLANG_BASE/centos6-native/9cefd8a/bin/clang"
-  CXX="$CLANG_BASE/centos6-native/9cefd8a/bin/clang++"
+  # clang
+  CLANG_INCLUDE="$CLANG_LIB/clang/stable/include"
+  CC="$CLANG_BIN/clang"
+  CXX="$CLANG_BIN/clang++"
 
-  KERNEL_HEADERS_INCLUDE="/mnt/gvfs/third-party2/kernel-headers/a683ed7135276731065a9d76d3016c9731f4e2f9/3.2.18_70_fbk11_00129_gc8882d0/gcc-4.8.1-glibc-2.17/da39a3e/include/"
+  KERNEL_HEADERS_INCLUDE="$KERNEL_HEADERS_BASE/include"
 
-  CFLAGS="-B$BINUTILS/gold -nostdinc -nostdlib"
-  CFLAGS+=" -isystem $LIBGCC_BASE/include/c++/4.8.1 "
-  CFLAGS+=" -isystem $LIBGCC_BASE/include/c++/4.8.1/x86_64-facebook-linux "
+  CFLAGS+=" -B$BINUTILS/gold -nostdinc -nostdlib"
+  CFLAGS+=" -isystem $LIBGCC_BASE/include/c++/5.x "
+  CFLAGS+=" -isystem $LIBGCC_BASE/include/c++/5.x/x86_64-facebook-linux "
   CFLAGS+=" -isystem $GLIBC_INCLUDE"
   CFLAGS+=" -isystem $LIBGCC_INCLUDE"
   CFLAGS+=" -isystem $CLANG_INCLUDE"
   CFLAGS+=" -isystem $KERNEL_HEADERS_INCLUDE/linux "
   CFLAGS+=" -isystem $KERNEL_HEADERS_INCLUDE "
+  CFLAGS+=" -Wno-expansion-to-defined "
   CXXFLAGS="-nostdinc++"
 fi
 
 CFLAGS+=" $DEPS_INCLUDE"
-CFLAGS+=" -DROCKSDB_PLATFORM_POSIX -DROCKSDB_FALLOCATE_PRESENT"
-CFLAGS+=" -DSNAPPY -DGFLAGS=google -DZLIB -DBZIP2 -DLZ4 -DNUMA"
+CFLAGS+=" -DROCKSDB_PLATFORM_POSIX -DROCKSDB_LIB_IO_POSIX -DROCKSDB_FALLOCATE_PRESENT -DROCKSDB_MALLOC_USABLE_SIZE -DROCKSDB_RANGESYNC_PRESENT -DROCKSDB_SCHED_GETCPU_PRESENT -DROCKSDB_SUPPORT_THREAD_LOCAL -DHAVE_SSE42"
 CXXFLAGS+=" $CFLAGS"
 
-EXEC_LDFLAGS=" $SNAPPY_LIBS $ZLIB_LIBS $BZIP_LIBS $LZ4_LIBS $GFLAGS_LIBS $NUMA_LIB"
-EXEC_LDFLAGS+=" -Wl,--dynamic-linker,/usr/local/fbcode/gcc-4.8.1-glibc-2.17/lib/ld.so"
-EXEC_LDFLAGS+=" -Wl,--no-whole-archive $LIBUNWIND"
+EXEC_LDFLAGS=" $SNAPPY_LIBS $ZLIB_LIBS $BZIP_LIBS $LZ4_LIBS $ZSTD_LIBS $GFLAGS_LIBS $NUMA_LIB $TBB_LIBS"
+EXEC_LDFLAGS+=" -B$BINUTILS/gold"
+EXEC_LDFLAGS+=" -Wl,--dynamic-linker,/usr/local/fbcode/gcc-5-glibc-2.23/lib/ld.so"
+EXEC_LDFLAGS+=" $LIBUNWIND"
+EXEC_LDFLAGS+=" -Wl,-rpath=/usr/local/fbcode/gcc-5-glibc-2.23/lib"
+# required by libtbb
+EXEC_LDFLAGS+=" -ldl"
 
 PLATFORM_LDFLAGS="$LIBGCC_LIBS $GLIBC_LIBS $STDLIBS -lgcc -lstdc++"
 
-EXEC_LDFLAGS_SHARED="$SNAPPY_LIBS $ZLIB_LIBS $BZIP_LIBS $LZ4_LIBS $GFLAGS_LIBS"
+EXEC_LDFLAGS_SHARED="$SNAPPY_LIBS $ZLIB_LIBS $BZIP_LIBS $LZ4_LIBS $ZSTD_LIBS $GFLAGS_LIBS $TBB_LIBS"
 
-VALGRIND_REV=b2a9f85e4b70cd03abc85a7f3027fbc4cef35bd0
-VALGRIND_VER="/mnt/gvfs/third-party2/valgrind/$VALGRIND_REV/3.8.1/gcc-4.8.1-glibc-2.17/c3f970a/bin/"
+VALGRIND_VER="$VALGRIND_BASE/bin/"
 
-export CC CXX AR CFLAGS CXXFLAGS EXEC_LDFLAGS EXEC_LDFLAGS_SHARED VALGRIND_VER JEMALLOC_LIB JEMALLOC_INCLUDE
+LUA_PATH="$LUA_BASE"
+
+if test -z $PIC_BUILD; then
+  LUA_LIB=" $LUA_PATH/lib/liblua.a"
+else
+  LUA_LIB=" $LUA_PATH/lib/liblua_pic.a"
+fi
+
+export CC CXX AR CFLAGS CXXFLAGS EXEC_LDFLAGS EXEC_LDFLAGS_SHARED VALGRIND_VER JEMALLOC_LIB JEMALLOC_INCLUDE CLANG_ANALYZER CLANG_SCAN_BUILD LUA_PATH LUA_LIB
