@@ -158,7 +158,7 @@ void LRUCacheShard::TEST_GetLRUList(LRUHandle** lru, LRUHandle** lru_low_pri) {
 }
 
 size_t LRUCacheShard::TEST_GetLRUSize() {
-  LRUHandle *lru_handle = lru_.next;
+  LRUHandle* lru_handle = lru_.next;
   size_t lru_size = 0;
   while (lru_handle != &lru_) {
     lru_size++;

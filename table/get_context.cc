@@ -194,7 +194,8 @@ void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
     // Since SequenceNumber is not stored and unknown, we will use
     // kMaxSequenceNumber.
     get_context->SaveValue(
-        ParsedInternalKey(user_key, kMaxSequenceNumber, type), value, value_pinner);
+        ParsedInternalKey(user_key, kMaxSequenceNumber, type), value,
+        value_pinner);
   }
 #else   // ROCKSDB_LITE
   assert(false);
