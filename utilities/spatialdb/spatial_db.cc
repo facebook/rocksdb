@@ -15,6 +15,7 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <atomic>
 #include <set>
 #include <unordered_set>
 
