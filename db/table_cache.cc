@@ -311,6 +311,7 @@ Status TableCache::Get(const ReadOptions& options,
 #ifndef ROCKSDB_LITE
   IterKey row_cache_key;
   std::string row_cache_entry_buffer;
+
   // Check row cache if enabled. Since row cache does not currently store
   // sequence numbers, we cannot use it if we need to fetch the sequence.
   if (ioptions_.row_cache && !get_context->NeedToReadSequence()) {
@@ -334,10 +335,26 @@ Status TableCache::Get(const ReadOptions& options,
 
     if (auto row_handle =
             ioptions_.row_cache->Lookup(row_cache_key.GetUserKey())) {
+      // Cleanable routine to release the cache entry
+      Cleanable value_pinner;
+      auto release_cache_entry_func = [](void* cache_to_clean,
+                                         void* cache_handle) {
+        ((Cache*)cache_to_clean)->Release((Cache::Handle*)cache_handle);
+      };
       auto found_row_cache_entry = static_cast<const std::string*>(
           ioptions_.row_cache->Value(row_handle));
-      replayGetContextLog(*found_row_cache_entry, user_key, get_context);
-      ioptions_.row_cache->Release(row_handle);
+      // If it comes here value is located on the cache.
+      // found_row_cache_entry points to the value on cache,
+      // and value_pinner has cleanup procedure for the cached entry.
+      // After replayGetContextLog() returns, get_context.pinnable_slice_
+      // will point to cache entry buffer (or a copy based on that) and
+      // cleanup routine under value_pinner will be delegated to
+      // get_context.pinnable_slice_. Cache entry is released when
+      // get_context.pinnable_slice_ is reset.
+      value_pinner.RegisterCleanup(release_cache_entry_func,
+                                   ioptions_.row_cache.get(), row_handle);
+      replayGetContextLog(*found_row_cache_entry, user_key, get_context,
+                          &value_pinner);
       RecordTick(ioptions_.statistics, ROW_CACHE_HIT);
       done = true;
     } else {
