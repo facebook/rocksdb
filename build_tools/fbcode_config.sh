@@ -56,7 +56,7 @@ if test -z $PIC_BUILD; then
 else
   GFLAGS_LIBS=" $GFLAGS_BASE/lib/libgflags_pic.a"
 fi
-CFLAGS+=" -DGFLAGS=google"
+CFLAGS+=" -DGFLAGS=gflags"
 
 # location of jemalloc
 JEMALLOC_INCLUDE=" -I $JEMALLOC_BASE/include/"
@@ -116,8 +116,8 @@ else
   KERNEL_HEADERS_INCLUDE="$KERNEL_HEADERS_BASE/include"
 
   CFLAGS+=" -B$BINUTILS/gold -nostdinc -nostdlib"
-  CFLAGS+=" -isystem $LIBGCC_BASE/include/c++/4.9.x "
-  CFLAGS+=" -isystem $LIBGCC_BASE/include/c++/4.9.x/x86_64-facebook-linux "
+  CFLAGS+=" -isystem $LIBGCC_BASE/include/c++/5.x "
+  CFLAGS+=" -isystem $LIBGCC_BASE/include/c++/5.x/x86_64-facebook-linux "
   CFLAGS+=" -isystem $GLIBC_INCLUDE"
   CFLAGS+=" -isystem $LIBGCC_INCLUDE"
   CFLAGS+=" -isystem $CLANG_INCLUDE"
@@ -132,9 +132,10 @@ CFLAGS+=" -DROCKSDB_PLATFORM_POSIX -DROCKSDB_LIB_IO_POSIX -DROCKSDB_FALLOCATE_PR
 CXXFLAGS+=" $CFLAGS"
 
 EXEC_LDFLAGS=" $SNAPPY_LIBS $ZLIB_LIBS $BZIP_LIBS $LZ4_LIBS $ZSTD_LIBS $GFLAGS_LIBS $NUMA_LIB $TBB_LIBS"
-EXEC_LDFLAGS+=" -Wl,--dynamic-linker,/usr/local/fbcode/gcc-4.9-glibc-2.20/lib/ld.so"
+EXEC_LDFLAGS+=" -B$BINUTILS/gold"
+EXEC_LDFLAGS+=" -Wl,--dynamic-linker,/usr/local/fbcode/gcc-5-glibc-2.23/lib/ld.so"
 EXEC_LDFLAGS+=" $LIBUNWIND"
-EXEC_LDFLAGS+=" -Wl,-rpath=/usr/local/fbcode/gcc-4.9-glibc-2.20/lib"
+EXEC_LDFLAGS+=" -Wl,-rpath=/usr/local/fbcode/gcc-5-glibc-2.23/lib"
 # required by libtbb
 EXEC_LDFLAGS+=" -ldl"
 
