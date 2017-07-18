@@ -583,39 +583,7 @@ run_format_compatible()
   rm -rf /dev/shm/rocksdb
   mkdir /dev/shm/rocksdb
 
-  echo '
-  if [ -e "build_tools/build_detect_platform" ]
-  then
-    sed "s/tcmalloc/nothingnothingnothing/g" build_tools/build_detect_platform > $TEST_TMPDIR/temp_build_file
-    rm -rf build_tools/build_detect_platform
-    cp $TEST_TMPDIR/temp_build_file build_tools/build_detect_platform
-    chmod +x build_tools/build_detect_platform
-  fi
-
-  if [ -e "build_detect_platform" ]
-  then
-    sed "s/tcmalloc/nothingnothingnothing/g" build_detect_platform > $TEST_TMPDIR/temp_build_file
-    rm -rf build_detect_platform
-    cp $TEST_TMPDIR/temp_build_file build_detect_platform
-    chmod +x build_detect_platform
-  fi
-
-  make ldb -j32
-
-  if [ -e "build_detect_platform" ]
-  then
-    git checkout -- build_detect_platform
-  fi
-
-  if [ -e "build_tools/build_detect_platform" ]
-  then
-    git checkout -- build_tools/build_detect_platform
-  fi
-  ' > temp_build_ldb.sh
-
-  sed "s/make ldb -j32/source temp_build_ldb.sh/g" tools/check_format_compatible.sh > tools/temp_check_format_compatible.sh
-  chmod +x tools/temp_check_format_compatible.sh
-  tools/temp_check_format_compatible.sh
+  tools/check_format_compatible.sh
 }
 
 FORMAT_COMPATIBLE_COMMANDS="[
