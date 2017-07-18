@@ -78,7 +78,7 @@ fi
 CFLAGS+=" -DTBB"
 
 # use Intel SSE support for checksum calculations
-export USE_SSE=" -msse -msse4.2 "
+export USE_SSE=1
 
 BINUTILS="$BINUTILS_BASE/bin"
 AR="$BINUTILS/ar"
