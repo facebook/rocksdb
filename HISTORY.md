@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 5.5.5 (07/18/2017)
+* Change license section of java/rocksjni.pom
+* Clear up some files still mentioning PATENTS file 
+
 ## 5.5.4 (07/18/2017)
 * Change License to Apache + GPLv2
 
