@@ -162,6 +162,8 @@ void ImmutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(
       log, "                   Options.db_write_buffer_size: %" ROCKSDB_PRIszt,
       db_write_buffer_size);
+  ROCKS_LOG_HEADER(log, "                   Options.write_buffer_manager: %p",
+                   write_buffer_manager.get());
   ROCKS_LOG_HEADER(log, "        Options.access_hint_on_compaction_start: %d",
                    static_cast<int>(access_hint_on_compaction_start));
   ROCKS_LOG_HEADER(log, " Options.new_table_reader_for_compaction_inputs: %d",
