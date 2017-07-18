@@ -85,7 +85,7 @@ done
 checkout_flag=${1:-"master"}
 
 echo == Building $checkout_flag debug
-https_proxy="fwdproxy:8080" git checkout github_origin/$checkout_flag -b $checkout_flag
+https_proxy="fwdproxy:8080" git checkout github_origin/$checkout_flag -b tmp-$checkout_flag
 make clean
 make ldb -j32
 compare_base_db_dir=$test_dir"/base_db_dir"
