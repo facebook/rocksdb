@@ -76,7 +76,7 @@ https_proxy="fwdproxy:8080" git fetch github_origin
 for checkout_obj in "${checkout_objs[@]}"
 do
    echo == Generating DB from "$checkout_obj" ...
-   git checkout $checkout_obj
+   https_proxy="fwdproxy:8080" git checkout github_origin/$checkout_obj -b $checkout_obj
    make clean
    make ldb -j32
    generate_db $input_data_path $test_dir/$checkout_obj
