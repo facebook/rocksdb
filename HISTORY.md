@@ -1,4 +1,7 @@
 # Rocksdb Change Log
+## 5.5.4 (07/18/2017)
+* Change License to Apache + GPLv2
+
 ## 5.5.3 (07/17/2017)
 ### Bug Fixes
 * Fix LITE build error.
