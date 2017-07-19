@@ -544,7 +544,6 @@ TEST_F(DeleteSchedulerTest, ImmediateDeleteOn25PercDBSize) {
   // When we end up with 24 files in trash we will start
   // deleting new files immediately
   ASSERT_EQ(fg_delete_file, 74);
-  ASSERT_EQ(CountFilesInDir(trash_dir_), 25);
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
