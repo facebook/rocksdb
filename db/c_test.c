@@ -41,6 +41,7 @@ static char dbname[200];
 static char sstfilename[200];
 static char dbbackupname[200];
 static char dbcheckpointname[200];
+static char dbpathname[200];
 
 static void StartPhase(const char* name) {
   fprintf(stderr, "=== Test %s\n", name);
@@ -351,6 +352,7 @@ int main(int argc, char** argv) {
   rocksdb_t* db;
   rocksdb_comparator_t* cmp;
   rocksdb_cache_t* cache;
+  rocksdb_dbpath_t *dbpath;
   rocksdb_env_t* env;
   rocksdb_options_t* options;
   rocksdb_compactoptions_t* coptions;
@@ -385,8 +387,14 @@ int main(int argc, char** argv) {
            GetTempDir(),
            ((int)geteuid()));
 
+  snprintf(dbpathname, sizeof(dbpathname),
+           "%s/rocksdb_c_test-%d-dbpath",
+           GetTempDir(),
+           ((int) geteuid()));
+
   StartPhase("create_objects");
   cmp = rocksdb_comparator_create(NULL, CmpDestroy, CmpCompare, CmpName);
+  dbpath = rocksdb_dbpath_create(dbpathname, 1024 * 1024);
   env = rocksdb_create_default_env();
   cache = rocksdb_cache_create_lru(100000);
 
@@ -1440,6 +1448,18 @@ int main(int argc, char** argv) {
     CheckNoError(err);
   }
 
+  // Simple sanity check that options setting db_paths work.
+  StartPhase("open_db_paths");
+  {
+    rocksdb_close(db);
+    rocksdb_destroy_db(options, dbname, &err);
+
+    const rocksdb_dbpath_t* paths[1] = {dbpath};
+    rocksdb_options_set_db_paths(options, paths, 1);
+    db = rocksdb_open(options, dbname, &err);
+    CheckNoError(err);
+  }
+  
   StartPhase("cleanup");
   rocksdb_close(db);
   rocksdb_options_destroy(options);
@@ -1449,6 +1469,7 @@ int main(int argc, char** argv) {
   rocksdb_compactoptions_destroy(coptions);
   rocksdb_cache_destroy(cache);
   rocksdb_comparator_destroy(cmp);
+  rocksdb_dbpath_destroy(dbpath);
   rocksdb_env_destroy(env);
 
   fprintf(stderr, "PASS\n");
