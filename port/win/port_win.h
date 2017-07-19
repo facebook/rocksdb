@@ -27,6 +27,7 @@
 #include <mutex>
 #include <limits>
 #include <condition_variable>
+#include <malloc.h>
 
 #include <stdint.h>
 
@@ -238,6 +239,14 @@ extern void InitOnce(OnceType* once, void (*initializer)());
 #ifndef CACHE_LINE_SIZE
 #define CACHE_LINE_SIZE 64U
 #endif
+
+inline void *cacheline_aligned_alloc(size_t size) {
+  return _aligned_malloc(CACHE_LINE_SIZE, size);
+}
+
+inline void cacheline_aligned_free(void *memblock) {
+  _aligned_free(memblock);
+}
 
 static inline void AsmVolatilePause() {
 #if defined(_M_IX86) || defined(_M_X64)
