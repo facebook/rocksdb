@@ -234,11 +234,6 @@ bool CompactionPicker::ExpandInputsToCleanCut(const std::string& cf_name,
   // If, after the expansion, there are files that are already under
   // compaction, then we must drop/cancel this compaction.
   if (AreFilesInCompaction(inputs->files)) {
-    ROCKS_LOG_WARN(
-        ioptions_.info_log,
-        "[%s] ExpandWhileOverlapping() failure because some of the necessary"
-        " compaction input files are currently being compacted.",
-        cf_name.c_str());
     return false;
   }
   return true;
