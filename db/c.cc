@@ -2804,7 +2804,7 @@ size_t rocksdb_cache_get_pinned_usage(rocksdb_cache_t* cache) {
   return cache->rep->GetPinnedUsage();
 }
 
-rocksdb_dbpath_t* rocksdb_dbpath_create(const char* path, size_t target_size) {
+rocksdb_dbpath_t* rocksdb_dbpath_create(const char* path, uint64_t target_size) {
   rocksdb_dbpath_t* result = new rocksdb_dbpath_t;
   result->rep.path = std::string(path);
   result->rep.target_size = target_size;

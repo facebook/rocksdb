@@ -1095,7 +1095,7 @@ rocksdb_cache_get_pinned_usage(rocksdb_cache_t* cache);
 
 /* DBPath */
 
-extern ROCKSDB_LIBRARY_API rocksdb_dbpath_t* rocksdb_dbpath_create(const char* path, size_t target_size);
+extern ROCKSDB_LIBRARY_API rocksdb_dbpath_t* rocksdb_dbpath_create(const char* path, uint64_t target_size);
 extern ROCKSDB_LIBRARY_API void rocksdb_dbpath_destroy(rocksdb_dbpath_t*);
 
 /* Env */
