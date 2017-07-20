@@ -58,7 +58,7 @@ Iterator* DBImplReadOnly::NewIterator(const ReadOptions& read_options,
   SuperVersion* super_version = cfd->GetSuperVersion()->Ref();
   SequenceNumber latest_snapshot = versions_->LastSequence();
   auto db_iter = NewArenaWrappedDbIterator(
-      env_, read_options, *cfd->ioptions(), cfd->user_comparator(),
+      env_, read_options, *cfd->ioptions(),
       (read_options.snapshot != nullptr
            ? reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)
                  ->number_
@@ -87,7 +87,7 @@ Status DBImplReadOnly::NewIterators(
     auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
     auto* sv = cfd->GetSuperVersion()->Ref();
     auto* db_iter = NewArenaWrappedDbIterator(
-        env_, read_options, *cfd->ioptions(), cfd->user_comparator(),
+        env_, read_options, *cfd->ioptions(),
         (read_options.snapshot != nullptr
              ? reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)
                    ->number_

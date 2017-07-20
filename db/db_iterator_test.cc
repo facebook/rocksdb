@@ -1909,6 +1909,65 @@ TEST_F(DBIteratorTest, DBIteratorSkipRecentDuplicatesTest) {
                  NUMBER_OF_RESEEKS_IN_ITERATION));
 }
 
+TEST_F(DBIteratorTest, Refresh) {
+  ASSERT_OK(Put("x", "y"));
+
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+  iter->Seek(Slice("a"));
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().compare(Slice("x")), 0);
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+
+  ASSERT_OK(Put("c", "d"));
+
+  iter->Seek(Slice("a"));
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().compare(Slice("x")), 0);
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+
+  iter->Refresh();
+
+  iter->Seek(Slice("a"));
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().compare(Slice("c")), 0);
+  iter->Next();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().compare(Slice("x")), 0);
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+
+  dbfull()->Flush(FlushOptions());
+
+  ASSERT_OK(Put("m", "n"));
+
+  iter->Seek(Slice("a"));
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().compare(Slice("c")), 0);
+  iter->Next();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().compare(Slice("x")), 0);
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+
+  iter->Refresh();
+
+  iter->Seek(Slice("a"));
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().compare(Slice("c")), 0);
+  iter->Next();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().compare(Slice("m")), 0);
+  iter->Next();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().compare(Slice("x")), 0);
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+
+  iter.reset();
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
