@@ -59,20 +59,14 @@ namespace rocksdb {
 namespace blob_db {
 
 struct GCStats {
-  uint64_t blob_count;
-  uint64_t num_deletes;
-  uint64_t deleted_size;
-  uint64_t num_relocs;
-  uint64_t succ_deletes_lsm;
-  uint64_t succ_relocs;
-  std::shared_ptr<BlobFile> newfile;
-  GCStats()
-      : blob_count(0),
-        num_deletes(0),
-        deleted_size(0),
-        num_relocs(0),
-        succ_deletes_lsm(0),
-        succ_relocs(0) {}
+  uint64_t blob_count = 0;
+  uint64_t num_deletes = 0;
+  uint64_t deleted_size = 0;
+  uint64_t num_relocs = 0;
+  uint64_t succ_deletes_lsm = 0;
+  uint64_t overrided_while_delete = 0;
+  uint64_t succ_relocs = 0;
+  std::shared_ptr<BlobFile> newfile = nullptr;
 };
 
 // BlobHandle is a pointer to the blob that is stored in the LSM
@@ -1487,8 +1481,6 @@ bool BlobDBImpl::FindFileAndEvictABlob(uint64_t file_number, uint64_t key_size,
 
     // file was deleted
     if (hitr == blob_files_.end()) {
-      ROCKS_LOG_INFO(db_options_.info_log,
-                     "Could not find file_number %" PRIu64, file_number);
       return false;
     }
 
@@ -1522,24 +1514,22 @@ std::pair<bool, int64_t> BlobDBImpl::EvictCompacted(bool aborted) {
   if (aborted) return std::make_pair(false, -1);
 
   override_packet_t packet;
+  size_t total_vals = 0;
+  size_t mark_evicted = 0;
   while (override_vals_q_.dequeue(&packet)) {
-    bool succ = FindFileAndEvictABlob(packet.file_number_, packet.key_size_,
-                                      packet.blob_offset_, packet.blob_size_);
-
-    if (!succ)
-      ROCKS_LOG_DEBUG(
-          db_options_.info_log,
-          "EVICT COMPACTION FAILURE SN: %d FN: %d OFFSET: %d SIZE: %d",
-          packet.dsn_, packet.file_number_, packet.blob_offset_,
-          packet.blob_size_);
-
-    if (debug_level_ >= 3)
-      ROCKS_LOG_INFO(
-          db_options_.info_log,
-          "EVICT COMPACTED SN: %d FN: %d OFFSET: %d SIZE: %d SUCC: %d",
-          packet.dsn_, packet.file_number_, packet.blob_offset_,
-          packet.blob_size_, succ);
+    bool succeeded =
+        FindFileAndEvictABlob(packet.file_number_, packet.key_size_,
+                              packet.blob_offset_, packet.blob_size_);
+    total_vals++;
+    if (succeeded) {
+      mark_evicted++;
+    }
   }
+  ROCKS_LOG_INFO(db_options_.info_log,
+                 "Mark %" ROCKSDB_PRIszt
+                 " values to evict, out of %" ROCKSDB_PRIszt
+                 " compacted values.",
+                 mark_evicted, total_vals);
   return std::make_pair(true, -1);
 }
 
@@ -1810,21 +1800,11 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
       txn->Delete(cfh, record.Key());
       Status s1 = txn->Commit();
       // chances that this DELETE will fail is low. If it fails, it would be
-      // because
-      // a new version of the key came in at this time, which will override
-      // the current version being iterated on.
-      if (s1.IsBusy()) {
-        ROCKS_LOG_INFO(db_options_.info_log,
-                       "Optimistic transaction failed delete: %s bn: %" PRIu32,
-                       bfptr->PathName().c_str(), gcstats->blob_count);
-      } else {
-        ROCKS_LOG_DEBUG(
-            db_options_.info_log,
-            "Successfully added delete back into LSM: %s bn: %" PRIu32,
-            bfptr->PathName().c_str(), gcstats->blob_count);
-
+      // because a new version of the key came in at this time, which will
+      // override the current version being iterated on.
+      if (!s1.IsBusy()) {
         // assume that failures happen due to new writes.
-        gcstats->succ_deletes_lsm++;
+        gcstats->overrided_while_delete++;
       }
       delete txn;
       continue;
