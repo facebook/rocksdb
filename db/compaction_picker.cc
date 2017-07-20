@@ -1101,11 +1101,7 @@ void LevelCompactionBuilder::SetupInitialFiles() {
       }
       output_level_ =
           (start_level_ == 0) ? vstorage_->base_level() : start_level_ + 1;
-      if (PickFileToCompact() &&
-          compaction_picker_->ExpandInputsToCleanCut(cf_name_, vstorage_,
-                                                     &start_level_inputs_) &&
-          !compaction_picker_->FilesRangeOverlapWithCompaction(
-              {start_level_inputs_}, output_level_)) {
+      if (PickFileToCompact()) {
         // found the compaction!
         if (start_level_ == 0) {
           // L0 score = `num L0 files` / `level0_file_num_compaction_trigger`
@@ -1346,16 +1342,36 @@ bool LevelCompactionBuilder::PickFileToCompact() {
       nextIndex = i;
     }
 
-    // Do not pick this file if its parents at level+1 are being compacted.
-    // Maybe we can avoid redoing this work in SetupOtherInputs
-    parent_index_ = -1;
-    if (compaction_picker_->IsRangeInCompaction(vstorage_, &f->smallest,
-                                                &f->largest, output_level_,
-                                                &parent_index_)) {
-      continue;
-    }
     start_level_inputs_.files.push_back(f);
     start_level_inputs_.level = start_level_;
+    if (!compaction_picker_->ExpandInputsToCleanCut(cf_name_, vstorage_,
+                                                    &start_level_inputs_) ||
+        compaction_picker_->FilesRangeOverlapWithCompaction(
+            {start_level_inputs_}, output_level_)) {
+      // A locked (pending compaction) input-level file was pulled in due to
+      // user-key overlap.
+      start_level_inputs_.clear();
+      continue;
+    }
+
+    // Now that input level is fully expanded, we check whether any output files
+    // are locked due to pending compaction.
+    //
+    // Note we rely on ExpandInputsToCleanCut() to tell us whether any output-
+    // level files are locked, not just the extra ones pulled in for user-key
+    // overlap.
+    InternalKey smallest, largest;
+    compaction_picker_->GetRange(start_level_inputs_, &smallest, &largest);
+    CompactionInputFiles output_level_inputs;
+    output_level_inputs.level = output_level_;
+    vstorage_->GetOverlappingInputs(output_level_, &smallest, &largest,
+                                    &output_level_inputs.files);
+    if (!output_level_inputs.empty() &&
+        !compaction_picker_->ExpandInputsToCleanCut(cf_name_, vstorage_,
+                                                    &output_level_inputs)) {
+      start_level_inputs_.clear();
+      continue;
+    }
     base_index_ = index;
     break;
   }
