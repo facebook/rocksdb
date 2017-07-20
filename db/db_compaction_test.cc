@@ -1510,7 +1510,7 @@ TEST_P(DBCompactionTestWithParam, LevelCompactionThirdPath) {
   options.compaction_style = kCompactionStyleLevel;
   options.write_buffer_size = 110 << 10;  // 110KB
   options.arena_block_size = 4 << 10;
-  options.level0_file_num_compaction_trigger = 2;
+  options.level0_file_num_compaction_trigger = 1;
   options.num_levels = 4;
   options.max_bytes_for_level_base = 400 * 1024;
   options.max_subcompactions = max_subcompactions_;
@@ -1536,69 +1536,61 @@ TEST_P(DBCompactionTestWithParam, LevelCompactionThirdPath) {
 
   // Another 110KB triggers a compaction to 400K file to fill up first path
   GenerateNewFile(&rnd, &key_idx);
-  ASSERT_EQ(3, GetSstFileCount(options.db_paths[1].path));
-
-  // (1, 4)
-  GenerateNewFile(&rnd, &key_idx);
-  ASSERT_EQ("1,4", FilesPerLevel(0));
   ASSERT_EQ(4, GetSstFileCount(options.db_paths[1].path));
-  ASSERT_EQ(1, GetSstFileCount(dbname_));
 
-  // (1, 4, 1)
   GenerateNewFile(&rnd, &key_idx);
-  ASSERT_EQ("1,4,1", FilesPerLevel(0));
+  ASSERT_EQ("0,4,1", FilesPerLevel(0));
   ASSERT_EQ(1, GetSstFileCount(options.db_paths[2].path));
   ASSERT_EQ(4, GetSstFileCount(options.db_paths[1].path));
-  ASSERT_EQ(1, GetSstFileCount(dbname_));
+  ASSERT_EQ(0, GetSstFileCount(dbname_));
 
-  // (1, 4, 2)
   GenerateNewFile(&rnd, &key_idx);
-  ASSERT_EQ("1,4,2", FilesPerLevel(0));
+  ASSERT_EQ("0,4,2", FilesPerLevel(0));
   ASSERT_EQ(2, GetSstFileCount(options.db_paths[2].path));
   ASSERT_EQ(4, GetSstFileCount(options.db_paths[1].path));
-  ASSERT_EQ(1, GetSstFileCount(dbname_));
+  ASSERT_EQ(0, GetSstFileCount(dbname_));
 
-  // (1, 4, 3)
   GenerateNewFile(&rnd, &key_idx);
-  ASSERT_EQ("1,4,3", FilesPerLevel(0));
+  ASSERT_EQ("0,4,3", FilesPerLevel(0));
   ASSERT_EQ(3, GetSstFileCount(options.db_paths[2].path));
   ASSERT_EQ(4, GetSstFileCount(options.db_paths[1].path));
-  ASSERT_EQ(1, GetSstFileCount(dbname_));
+  ASSERT_EQ(0, GetSstFileCount(dbname_));
 
-  // (1, 4, 4)
   GenerateNewFile(&rnd, &key_idx);
-  ASSERT_EQ("1,4,4", FilesPerLevel(0));
+  ASSERT_EQ("0,4,4", FilesPerLevel(0));
   ASSERT_EQ(4, GetSstFileCount(options.db_paths[2].path));
   ASSERT_EQ(4, GetSstFileCount(options.db_paths[1].path));
-  ASSERT_EQ(1, GetSstFileCount(dbname_));
+  ASSERT_EQ(0, GetSstFileCount(dbname_));
 
-  // (1, 4, 5)
   GenerateNewFile(&rnd, &key_idx);
-  ASSERT_EQ("1,4,5", FilesPerLevel(0));
+  ASSERT_EQ("0,4,5", FilesPerLevel(0));
   ASSERT_EQ(5, GetSstFileCount(options.db_paths[2].path));
   ASSERT_EQ(4, GetSstFileCount(options.db_paths[1].path));
-  ASSERT_EQ(1, GetSstFileCount(dbname_));
+  ASSERT_EQ(0, GetSstFileCount(dbname_));
 
-  // (1, 4, 6)
   GenerateNewFile(&rnd, &key_idx);
-  ASSERT_EQ("1,4,6", FilesPerLevel(0));
+  ASSERT_EQ("0,4,6", FilesPerLevel(0));
   ASSERT_EQ(6, GetSstFileCount(options.db_paths[2].path));
   ASSERT_EQ(4, GetSstFileCount(options.db_paths[1].path));
-  ASSERT_EQ(1, GetSstFileCount(dbname_));
+  ASSERT_EQ(0, GetSstFileCount(dbname_));
 
-  // (1, 4, 7)
   GenerateNewFile(&rnd, &key_idx);
-  ASSERT_EQ("1,4,7", FilesPerLevel(0));
+  ASSERT_EQ("0,4,7", FilesPerLevel(0));
   ASSERT_EQ(7, GetSstFileCount(options.db_paths[2].path));
   ASSERT_EQ(4, GetSstFileCount(options.db_paths[1].path));
-  ASSERT_EQ(1, GetSstFileCount(dbname_));
+  ASSERT_EQ(0, GetSstFileCount(dbname_));
 
-  // (1, 4, 8)
   GenerateNewFile(&rnd, &key_idx);
-  ASSERT_EQ("1,4,8", FilesPerLevel(0));
+  ASSERT_EQ("0,4,8", FilesPerLevel(0));
   ASSERT_EQ(8, GetSstFileCount(options.db_paths[2].path));
   ASSERT_EQ(4, GetSstFileCount(options.db_paths[1].path));
-  ASSERT_EQ(1, GetSstFileCount(dbname_));
+  ASSERT_EQ(0, GetSstFileCount(dbname_));
+
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ("0,4,9", FilesPerLevel(0));
+  ASSERT_EQ(9, GetSstFileCount(options.db_paths[2].path));
+  ASSERT_EQ(4, GetSstFileCount(options.db_paths[1].path));
+  ASSERT_EQ(0, GetSstFileCount(dbname_));
 
   for (int i = 0; i < key_idx; i++) {
     auto v = Get(Key(i));
@@ -2312,7 +2304,7 @@ TEST_P(DBCompactionTestWithParam, CompressLevelCompaction) {
   options.compaction_style = kCompactionStyleLevel;
   options.write_buffer_size = 110 << 10;  // 110KB
   options.arena_block_size = 4 << 10;
-  options.level0_file_num_compaction_trigger = 2;
+  options.level0_file_num_compaction_trigger = 1;
   options.num_levels = 4;
   options.max_bytes_for_level_base = 400 * 1024;
   options.max_subcompactions = max_subcompactions_;
@@ -2352,49 +2344,40 @@ TEST_P(DBCompactionTestWithParam, CompressLevelCompaction) {
   GenerateNewFile(&rnd, &key_idx);
   ASSERT_EQ(4, GetSstFileCount(dbname_));
 
-  // (1, 4)
   GenerateNewFile(&rnd, &key_idx);
-  ASSERT_EQ("1,4", FilesPerLevel(0));
+  ASSERT_EQ("0,4,1", FilesPerLevel(0));
 
-  // (1, 4, 1)
   GenerateNewFile(&rnd, &key_idx);
-  ASSERT_EQ("1,4,1", FilesPerLevel(0));
+  ASSERT_EQ("0,4,2", FilesPerLevel(0));
 
-  // (1, 4, 2)
   GenerateNewFile(&rnd, &key_idx);
-  ASSERT_EQ("1,4,2", FilesPerLevel(0));
+  ASSERT_EQ("0,4,3", FilesPerLevel(0));
 
-  // (1, 4, 3)
   GenerateNewFile(&rnd, &key_idx);
-  ASSERT_EQ("1,4,3", FilesPerLevel(0));
+  ASSERT_EQ("0,4,4", FilesPerLevel(0));
 
-  // (1, 4, 4)
   GenerateNewFile(&rnd, &key_idx);
-  ASSERT_EQ("1,4,4", FilesPerLevel(0));
+  ASSERT_EQ("0,4,5", FilesPerLevel(0));
 
-  // (1, 4, 5)
   GenerateNewFile(&rnd, &key_idx);
-  ASSERT_EQ("1,4,5", FilesPerLevel(0));
+  ASSERT_EQ("0,4,6", FilesPerLevel(0));
 
-  // (1, 4, 6)
   GenerateNewFile(&rnd, &key_idx);
-  ASSERT_EQ("1,4,6", FilesPerLevel(0));
+  ASSERT_EQ("0,4,7", FilesPerLevel(0));
 
-  // (1, 4, 7)
   GenerateNewFile(&rnd, &key_idx);
-  ASSERT_EQ("1,4,7", FilesPerLevel(0));
+  ASSERT_EQ("0,4,8", FilesPerLevel(0));
 
-  // (1, 4, 8)
   GenerateNewFile(&rnd, &key_idx);
-  ASSERT_EQ("1,4,8", FilesPerLevel(0));
+  ASSERT_EQ("0,4,9", FilesPerLevel(0));
 
-  ASSERT_EQ(matches, 12);
+  ASSERT_EQ(matches, 13);
   // Currently, the test relies on the number of calls to
   // InputCompressionMatchesOutput() per compaction.
   const int kCallsToInputCompressionMatch = 2;
-  ASSERT_EQ(didnt_match, 8 * kCallsToInputCompressionMatch);
-  ASSERT_EQ(trivial_move, 12);
-  ASSERT_EQ(non_trivial, 8);
+  ASSERT_EQ(didnt_match, 9 * kCallsToInputCompressionMatch);
+  ASSERT_EQ(trivial_move, 13);
+  ASSERT_EQ(non_trivial, 9);
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 
@@ -2578,21 +2561,38 @@ TEST_P(DBCompactionTestWithParam, IntraL0Compaction) {
   options.compression = kNoCompression;
   options.level0_file_num_compaction_trigger = 5;
   options.max_background_compactions = 2;
+  options.max_bytes_for_level_base = 5 << 20;
   options.max_subcompactions = max_subcompactions_;
   DestroyAndReopen(options);
 
-  const size_t kValueSize = 1 << 20;
-  Random rnd(301);
-  std::string value(RandomString(&rnd, kValueSize));
+  auto slowdown_token =
+      dbfull()->TEST_write_controler().GetCompactionPressureToken();
 
-  rocksdb::SyncPoint::GetInstance()->LoadDependency(
-      {{"LevelCompactionPicker::PickCompactionBySize:0",
-        "CompactionJob::Run():Start"}});
+  rocksdb::SyncPoint::GetInstance()->LoadDependencyAndMarkers(
+      {{"LevelCompactionBuilder::SetupInitialFiles:L0ToL0Scheduled",
+        "CompactionJob::Run():Start"},  // L0->L0 scheduled after L0->base start
+       {"DBCompactionTestWithParam::IntraL0Compaction:L0ToBaseSecond",
+        "CompactionJob::Run():End"}},  // L0->base scheduled before L0->L0 done
+      {{"LevelCompactionBuilder::SetupInitialFiles:L0ToBaseScheduled",
+        "CompactionJob::Run():Start"},  // L0->base thread
+       {"LevelCompactionBuilder::SetupInitialFiles:L0ToL0Scheduled",
+        "CompactionJob::Run():End"}});  // L0->L0 thread
+  int l0_to_base_count = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "LevelCompactionBuilder::SetupInitialFiles:L0ToBaseScheduled",
+      [&](void* arg) {
+        // The second L0->base should be schedulable even though a L0->L0
+        // compaction is running
+        if (++l0_to_base_count == 2) {
+          TEST_SYNC_POINT(
+            "DBCompactionTestWithParam::IntraL0Compaction:L0ToBaseSecond");
+        }
+      });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   // index:   0   1   2   3   4   5   6   7   8   9
-  // size:  1MB 1MB 1MB 1MB 1MB 2MB 1MB 1MB 1MB 1MB
-  // score:                     1.5 1.3 1.5 2.0 inf
+  // size:  1MB 1MB 1MB 1MB 1MB 6MB 1MB 1MB 1MB 1MB
+  // score:                     2.0 1.3 1.5 2.0 inf
   //
   // Files 0-4 will be included in an L0->L1 compaction.
   //
@@ -2601,13 +2601,20 @@ TEST_P(DBCompactionTestWithParam, IntraL0Compaction) {
   //
   // Files 6-9 are the longest span of available files for which
   // work-per-deleted-file decreases (see "score" row above).
+  //
+  // Once the first L0->base finishes, L0 still has score >= 1.0 due to the 6MB
+  // file that hasn't been compacted. This file is oldest and not pending
+  // compaction so it is merged with L1. The SyncPoints ensure the second
+  // L0->base is scheduled while the L0->L0 is still running.
+  const size_t kValueSize = 1 << 20;
+  Random rnd(301);
   for (int i = 0; i < 10; ++i) {
     for (int j = 0; j < 2; ++j) {
       ASSERT_OK(Put(Key(0), ""));  // prevents trivial move
       if (i == 5) {
-        ASSERT_OK(Put(Key(i + 1), value + value));
+        ASSERT_OK(Put(Key(i + 1), RandomString(&rnd, 6 * kValueSize)));
       } else {
-        ASSERT_OK(Put(Key(i + 1), value));
+        ASSERT_OK(Put(Key(i + 1), RandomString(&rnd, kValueSize)));
       }
     }
     ASSERT_OK(Flush());
@@ -2619,11 +2626,13 @@ TEST_P(DBCompactionTestWithParam, IntraL0Compaction) {
   dbfull()->TEST_GetFilesMetaData(dbfull()->DefaultColumnFamily(),
                                   &level_to_files);
   ASSERT_GE(level_to_files.size(), 2);  // at least L0 and L1
-  // L0 has the 2MB file (not compacted) and 4MB file (output of L0->L0)
-  ASSERT_EQ(2, level_to_files[0].size());
+  // L0 has the 4MB file (output of L0->L0)
+  ASSERT_EQ(1, level_to_files[0].size());
   ASSERT_GT(level_to_files[1].size(), 0);
   for (int i = 0; i < 2; ++i) {
-    ASSERT_GE(level_to_files[0][0].fd.file_size, 1 << 21);
+    // somewhere between 4-5MB
+    ASSERT_GE(level_to_files[0][0].fd.file_size, 4 << 20);
+    ASSERT_LE(level_to_files[0][0].fd.file_size, 5 << 20);
   }
 }
 
