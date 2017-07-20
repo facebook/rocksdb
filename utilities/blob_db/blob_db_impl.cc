@@ -59,20 +59,14 @@ namespace rocksdb {
 namespace blob_db {
 
 struct GCStats {
-  uint64_t blob_count;
-  uint64_t num_deletes;
-  uint64_t deleted_size;
-  uint64_t num_relocs;
-  uint64_t succ_deletes_lsm;
-  uint64_t succ_relocs;
-  std::shared_ptr<BlobFile> newfile;
-  GCStats()
-      : blob_count(0),
-        num_deletes(0),
-        deleted_size(0),
-        num_relocs(0),
-        succ_deletes_lsm(0),
-        succ_relocs(0) {}
+  uint64_t blob_count = 0;
+  uint64_t num_deletes = 0;
+  uint64_t deleted_size = 0;
+  uint64_t num_relocs = 0;
+  uint64_t succ_deletes_lsm = 0;
+  uint64_t overrided_while_delete = 0;
+  uint64_t succ_relocs = 0;
+  std::shared_ptr<BlobFile> newfile = nullptr;
 };
 
 // BlobHandle is a pointer to the blob that is stored in the LSM
@@ -1520,10 +1514,22 @@ std::pair<bool, int64_t> BlobDBImpl::EvictCompacted(bool aborted) {
   if (aborted) return std::make_pair(false, -1);
 
   override_packet_t packet;
+  size_t total_vals = 0;
+  size_t mark_evicted = 0;
   while (override_vals_q_.dequeue(&packet)) {
-    FindFileAndEvictABlob(packet.file_number_, packet.key_size_,
-                          packet.blob_offset_, packet.blob_size_);
+    bool succeeded =
+        FindFileAndEvictABlob(packet.file_number_, packet.key_size_,
+                              packet.blob_offset_, packet.blob_size_);
+    total_vals++;
+    if (succeeded) {
+      mark_evicted++;
+    }
   }
+  ROCKS_LOG_INFO(db_options_.info_log,
+                 "Mark %" ROCKSDB_PRIszt
+                 " values to evict, out of %" ROCKSDB_PRIszt
+                 " compacted values.",
+                 mark_evicted, total_vals);
   return std::make_pair(true, -1);
 }
 
@@ -1794,12 +1800,11 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
       txn->Delete(cfh, record.Key());
       Status s1 = txn->Commit();
       // chances that this DELETE will fail is low. If it fails, it would be
-      // because
-      // a new version of the key came in at this time, which will override
-      // the current version being iterated on.
+      // because a new version of the key came in at this time, which will
+      // override the current version being iterated on.
       if (!s1.IsBusy()) {
         // assume that failures happen due to new writes.
-        gcstats->succ_deletes_lsm++;
+        gcstats->overrided_while_delete++;
       }
       delete txn;
       continue;
