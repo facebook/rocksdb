@@ -101,12 +101,12 @@ class DBIter: public Iterator {
     uint64_t bytes_read_;
   };
 
-  DBIter(Env* env, const ReadOptions& read_options,
+  DBIter(Env* _env, const ReadOptions& read_options,
          const ImmutableCFOptions& cf_options, const Comparator* cmp,
          InternalIterator* iter, SequenceNumber s, bool arena_mode,
          uint64_t max_sequential_skip_in_iterations, uint64_t version_number)
       : arena_mode_(arena_mode),
-        env_(env),
+        env_(_env),
         logger_(cf_options.info_log),
         user_comparator_(cmp),
         merge_operator_(cf_options.merge_operator),
@@ -1218,7 +1218,7 @@ Status ArenaWrappedDBIter::Refresh() {
   uint64_t cur_sv_number = cfd_->GetSuperVersionNumber();
   if (sv_number_ != cur_sv_number) {
     Env* env = db_iter_->env();
-    db_iter_->~Iterator();
+    db_iter_->~DBIter();
     arena_.~Arena();
     new (&arena_) Arena();
 
