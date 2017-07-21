@@ -84,7 +84,7 @@ class Iterator : public Cleanable {
   // iterator will be invalidated after the call. Not supported if
   // ReadOptions.snapshot is given when creating the iterator.
   virtual Status Refresh() {
-    return Status::NotSupported("Renew is not supported");
+    return Status::NotSupported("Refresh() is not supported");
   }
 
   // Property "rocksdb.iterator.is-key-pinned":
