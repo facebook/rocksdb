@@ -20,7 +20,7 @@
 #include "rocksdb/table.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/merge_operator.h"
-#include "utilities/merge_operators/cassandra/merge_operator.h"
+#include "utilities/cassandra/merge_operator.h"
 
 /*
  * Class:     org_rocksdb_CassandraValueMergeOperator

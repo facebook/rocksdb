@@ -8,8 +8,8 @@
 #pragma once
 #include <memory>
 #include "util/testharness.h"
-#include "utilities/merge_operators/cassandra/format.h"
-#include "utilities/merge_operators/cassandra/serialize.h"
+#include "utilities/cassandra/format.h"
+#include "utilities/cassandra/serialize.h"
 
 namespace rocksdb {
 namespace cassandra {
@@ -22,7 +22,7 @@ extern const int8_t kTombstone;
 extern const int8_t kExpiringColumn;
 
 
-std::unique_ptr<ColumnBase> CreateTestColumn(int8_t mask,
+std::shared_ptr<ColumnBase> CreateTestColumn(int8_t mask,
                                              int8_t index,
                                              int64_t timestamp);
 
@@ -32,12 +32,14 @@ RowValue CreateTestRowValue(
 RowValue CreateRowTombstone(int64_t timestamp);
 
 void VerifyRowValueColumns(
-  std::vector<std::unique_ptr<ColumnBase>> &columns,
+  std::vector<std::shared_ptr<ColumnBase>> &columns,
   std::size_t index_of_vector,
   int8_t expected_mask,
   int8_t expected_index,
   int64_t expected_timestamp
 );
+
+int64_t ToMicroSeconds(int64_t seconds);
 
 }
 }

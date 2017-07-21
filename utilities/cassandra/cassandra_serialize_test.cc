@@ -2,11 +2,9 @@
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
-// This source code is also licensed under the GPLv2 license found in the
-// COPYING file in the root directory of this source tree.
 
 #include "util/testharness.h"
-#include "utilities/merge_operators/cassandra/serialize.h"
+#include "utilities/cassandra/serialize.h"
 
 using namespace rocksdb::cassandra;
 

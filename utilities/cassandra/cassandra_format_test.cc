@@ -2,14 +2,13 @@
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
-// This source code is also licensed under the GPLv2 license found in the
-// COPYING file in the root directory of this source tree.
 
 #include <cstring>
 #include <memory>
 #include "util/testharness.h"
-#include "utilities/merge_operators/cassandra/format.h"
-#include "utilities/merge_operators/cassandra/serialize.h"
+#include "utilities/cassandra/format.h"
+#include "utilities/cassandra/serialize.h"
+#include "utilities/cassandra/test_utils.h"
 
 using namespace rocksdb::cassandra;
 
@@ -46,7 +45,7 @@ TEST(ColumnTest, Column) {
 
   // Verify the deserialization.
   std::string saved_dest = dest;
-  std::unique_ptr<Column> c1 = Column::Deserialize(saved_dest.c_str(), 0);
+  std::shared_ptr<Column> c1 = Column::Deserialize(saved_dest.c_str(), 0);
   EXPECT_EQ(c1->Index(), index);
   EXPECT_EQ(c1->Timestamp(), timestamp);
   EXPECT_EQ(c1->Size(), 14 + sizeof(data));
@@ -58,7 +57,7 @@ TEST(ColumnTest, Column) {
 
   // Verify the ColumnBase::Deserialization.
   saved_dest = dest;
-  std::unique_ptr<ColumnBase> c2 =
+  std::shared_ptr<ColumnBase> c2 =
       ColumnBase::Deserialize(saved_dest.c_str(), c.Size());
   c2->Serialize(&dest);
   EXPECT_EQ(dest.size(), 3 * c.Size());
@@ -101,7 +100,7 @@ TEST(ExpiringColumnTest, ExpiringColumn) {
 
   // Verify the deserialization.
   std::string saved_dest = dest;
-  std::unique_ptr<ExpiringColumn> c1 =
+  std::shared_ptr<ExpiringColumn> c1 =
       ExpiringColumn::Deserialize(saved_dest.c_str(), 0);
   EXPECT_EQ(c1->Index(), index);
   EXPECT_EQ(c1->Timestamp(), timestamp);
@@ -114,7 +113,7 @@ TEST(ExpiringColumnTest, ExpiringColumn) {
 
   // Verify the ColumnBase::Deserialization.
   saved_dest = dest;
-  std::unique_ptr<ColumnBase> c2 =
+  std::shared_ptr<ColumnBase> c2 =
       ColumnBase::Deserialize(saved_dest.c_str(), c.Size());
   c2->Serialize(&dest);
   EXPECT_EQ(dest.size(), 3 * c.Size());
@@ -151,7 +150,7 @@ TEST(TombstoneTest, Tombstone) {
   EXPECT_EQ(Deserialize<int64_t>(dest.c_str(), offset), marked_for_delete_at);
 
   // Verify the deserialization.
-  std::unique_ptr<Tombstone> c1 = Tombstone::Deserialize(dest.c_str(), 0);
+  std::shared_ptr<Tombstone> c1 = Tombstone::Deserialize(dest.c_str(), 0);
   EXPECT_EQ(c1->Index(), index);
   EXPECT_EQ(c1->Timestamp(), marked_for_delete_at);
   EXPECT_EQ(c1->Size(), 14);
@@ -162,7 +161,7 @@ TEST(TombstoneTest, Tombstone) {
     std::memcmp(dest.c_str(), dest.c_str() + c.Size(), c.Size()) == 0);
 
   // Verify the ColumnBase::Deserialization.
-  std::unique_ptr<ColumnBase> c2 =
+  std::shared_ptr<ColumnBase> c2 =
     ColumnBase::Deserialize(dest.c_str(), c.Size());
   c2->Serialize(&dest);
   EXPECT_EQ(dest.size(), 3 * c.Size());
@@ -204,7 +203,7 @@ TEST(RowValueTest, RowTombstone) {
 }
 
 TEST(RowValueTest, RowWithColumns) {
-  std::vector<std::unique_ptr<ColumnBase>> columns;
+  std::vector<std::shared_ptr<ColumnBase>> columns;
   int64_t last_modified_time = 1494022807048;
   std::size_t columns_data_size = 0;
 
@@ -212,7 +211,7 @@ TEST(RowValueTest, RowWithColumns) {
   int8_t e_index = 0;
   int64_t e_timestamp = 1494022807044;
   int32_t e_ttl = 3600;
-  columns.push_back(std::unique_ptr<ExpiringColumn>(
+  columns.push_back(std::shared_ptr<ExpiringColumn>(
     new ExpiringColumn(ColumnTypeMask::EXPIRATION_MASK, e_index,
       e_timestamp, sizeof(e_data), e_data, e_ttl)));
   columns_data_size += columns[0]->Size();
@@ -220,14 +219,14 @@ TEST(RowValueTest, RowWithColumns) {
   char c_data[4] = {'d', 'a', 't', 'a'};
   int8_t c_index = 1;
   int64_t c_timestamp = 1494022807048;
-  columns.push_back(std::unique_ptr<Column>(
+  columns.push_back(std::shared_ptr<Column>(
     new Column(0, c_index, c_timestamp, sizeof(c_data), c_data)));
   columns_data_size += columns[1]->Size();
 
   int8_t t_index = 2;
   int32_t t_local_deletion_time = 1494022801;
   int64_t t_marked_for_delete_at = 1494022807043;
-  columns.push_back(std::unique_ptr<Tombstone>(
+  columns.push_back(std::shared_ptr<Tombstone>(
     new Tombstone(ColumnTypeMask::DELETION_MASK,
       t_index, t_local_deletion_time, t_marked_for_delete_at)));
   columns_data_size += columns[2]->Size();
@@ -301,6 +300,50 @@ TEST(RowValueTest, RowWithColumns) {
     std::memcmp(dest.c_str(), dest.c_str() + r.Size(), r.Size()) == 0);
 }
 
+TEST(RowValueTest, PurgeTtlShouldRemvoeAllColumnsExpired) {
+  int64_t now = time(nullptr);
+
+  auto row_value = CreateTestRowValue({
+    std::make_tuple(kColumn, 0, ToMicroSeconds(now)),
+    std::make_tuple(kExpiringColumn, 1, ToMicroSeconds(now - kTtl - 10)), //expired
+    std::make_tuple(kExpiringColumn, 2, ToMicroSeconds(now)), // not expired
+    std::make_tuple(kTombstone, 3, ToMicroSeconds(now))
+  });
+
+  bool changed = false;
+  auto purged = row_value.PurgeTtl(&changed);
+  EXPECT_TRUE(changed);
+  EXPECT_EQ(purged.columns_.size(), 3);
+  VerifyRowValueColumns(purged.columns_, 0, kColumn, 0, ToMicroSeconds(now));
+  VerifyRowValueColumns(purged.columns_, 1, kExpiringColumn, 2, ToMicroSeconds(now));
+  VerifyRowValueColumns(purged.columns_, 2, kTombstone, 3, ToMicroSeconds(now));
+
+  purged.PurgeTtl(&changed);
+  EXPECT_FALSE(changed);
+}
+
+TEST(RowValueTest, ExpireTtlShouldConvertExpiredColumnsToTombstones) {
+  int64_t now = time(nullptr);
+
+  auto row_value = CreateTestRowValue({
+    std::make_tuple(kColumn, 0, ToMicroSeconds(now)),
+    std::make_tuple(kExpiringColumn, 1, ToMicroSeconds(now - kTtl - 10)), //expired
+    std::make_tuple(kExpiringColumn, 2, ToMicroSeconds(now)), // not expired
+    std::make_tuple(kTombstone, 3, ToMicroSeconds(now))
+  });
+
+  bool changed = false;
+  auto compacted = row_value.ExpireTtl(&changed);
+  EXPECT_TRUE(changed);
+  EXPECT_EQ(compacted.columns_.size(), 4);
+  VerifyRowValueColumns(compacted.columns_, 0, kColumn, 0, ToMicroSeconds(now));
+  VerifyRowValueColumns(compacted.columns_, 1, kTombstone, 1, ToMicroSeconds(now - 10));
+  VerifyRowValueColumns(compacted.columns_, 2, kExpiringColumn, 2, ToMicroSeconds(now));
+  VerifyRowValueColumns(compacted.columns_, 3, kTombstone, 3, ToMicroSeconds(now));
+
+  compacted.ExpireTtl(&changed);
+  EXPECT_FALSE(changed);
+}
 } // namespace cassandra
 } // namespace rocksdb
 
