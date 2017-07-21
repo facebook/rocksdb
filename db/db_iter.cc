@@ -104,7 +104,7 @@ class DBIter: public Iterator {
   DBIter(Env* _env, const ReadOptions& read_options,
          const ImmutableCFOptions& cf_options, const Comparator* cmp,
          InternalIterator* iter, SequenceNumber s, bool arena_mode,
-         uint64_t max_sequential_skip_in_iterations, uint64_t version_number)
+         uint64_t max_sequential_skip_in_iterations)
       : arena_mode_(arena_mode),
         env_(_env),
         logger_(cf_options.info_log),
@@ -116,7 +116,6 @@ class DBIter: public Iterator {
         valid_(false),
         current_entry_is_merged_(false),
         statistics_(cf_options.statistics),
-        version_number_(version_number),
         iterate_upper_bound_(read_options.iterate_upper_bound),
         prefix_same_as_start_(read_options.prefix_same_as_start),
         pin_thru_lifetime_(read_options.pin_data),
@@ -188,10 +187,7 @@ class DBIter: public Iterator {
     }
     if (prop_name == "rocksdb.iterator.super-version-number") {
       // First try to pass the value returned from inner iterator.
-      if (!iter_->GetProperty(prop_name, prop).ok()) {
-        *prop = ToString(version_number_);
-      }
-      return Status::OK();
+      return iter_->GetProperty(prop_name, prop);
     } else if (prop_name == "rocksdb.iterator.is-key-pinned") {
       if (valid_) {
         *prop = (pin_thru_lifetime_ && saved_key_.IsKeyPinned()) ? "1" : "0";
@@ -277,7 +273,6 @@ class DBIter: public Iterator {
   uint64_t max_skip_;
   uint64_t max_skippable_internal_keys_;
   uint64_t num_internal_keys_skipped_;
-  uint64_t version_number_;
   const Slice* iterate_upper_bound_;
   IterKey prefix_start_buf_;
   Slice prefix_start_key_;
@@ -1160,11 +1155,10 @@ Iterator* NewDBIterator(Env* env, const ReadOptions& read_options,
                         const Comparator* user_key_comparator,
                         InternalIterator* internal_iter,
                         const SequenceNumber& sequence,
-                        uint64_t max_sequential_skip_in_iterations,
-                        uint64_t version_number) {
-  DBIter* db_iter = new DBIter(
-      env, read_options, cf_options, user_key_comparator, internal_iter,
-      sequence, false, max_sequential_skip_in_iterations, version_number);
+                        uint64_t max_sequential_skip_in_iterations) {
+  DBIter* db_iter = new DBIter(env, read_options, cf_options,
+                               user_key_comparator, internal_iter, sequence,
+                               false, max_sequential_skip_in_iterations);
   return db_iter;
 }
 
@@ -1194,6 +1188,13 @@ inline Slice ArenaWrappedDBIter::value() const { return db_iter_->value(); }
 inline Status ArenaWrappedDBIter::status() const { return db_iter_->status(); }
 inline Status ArenaWrappedDBIter::GetProperty(std::string prop_name,
                                               std::string* prop) {
+  if (prop_name == "rocksdb.iterator.super-version-number") {
+    // First try to pass the value returned from inner iterator.
+    if (!db_iter_->GetProperty(prop_name, prop).ok()) {
+      *prop = ToString(sv_number_);
+    }
+    return Status::OK();
+  }
   return db_iter_->GetProperty(prop_name, prop);
 }
 
@@ -1205,7 +1206,7 @@ void ArenaWrappedDBIter::Init(Env* env, const ReadOptions& read_options,
   auto mem = arena_.AllocateAligned(sizeof(DBIter));
   db_iter_ = new (mem)
       DBIter(env, read_options, cf_options, cf_options.user_comparator, nullptr,
-             sequence, true, max_sequential_skip_in_iteration, version_number);
+             sequence, true, max_sequential_skip_in_iteration);
   sv_number_ = version_number;
 }
 

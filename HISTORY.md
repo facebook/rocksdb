@@ -1,7 +1,7 @@
 # Rocksdb Change Log
 ## Unreleased
 ### New Features
-* Add Iterator::Refresh(), which also users to bring the iterator state up-to-date and avoid some initialization costs of the iterator.
+* Add Iterator::Refresh(), which allows users to update the iterator state so that they can avoid some initialization costs of recreating iterators.
 
 ## 5.7.0 (07/13/2017)
 ### Public API Change

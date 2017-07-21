@@ -33,8 +33,7 @@ extern Iterator* NewDBIterator(Env* env, const ReadOptions& read_options,
                                const Comparator* user_key_comparator,
                                InternalIterator* internal_iter,
                                const SequenceNumber& sequence,
-                               uint64_t max_sequential_skip_in_iterations,
-                               uint64_t version_number);
+                               uint64_t max_sequential_skip_in_iterations);
 
 // A wrapper iterator which wraps DB Iterator and the arena, with which the DB
 // iterator is supposed be allocated. This class is used as an entry point of
