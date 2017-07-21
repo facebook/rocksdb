@@ -215,10 +215,12 @@ inline bool operator!=(const Slice& x, const Slice& y) {
 
 // UBSAN complain that we pass nullptr to memcmp that's fine since
 // we always do that for a string of len = 0
+#ifdef ROCKSDB_UBSAN_RUN
 #if defined(__clang__)
 __attribute__((__no_sanitize__("undefined")))
 #elif defined(__GNUC__)
 __attribute__((__no_sanitize_undefined__))
+#endif
 #endif
 inline int Slice::compare(const Slice& b) const {
   const size_t min_len = (size_ < b.size_) ? size_ : b.size_;
