@@ -1,4 +1,7 @@
 # Rocksdb Change Log
+## 5.4.9 (07/20/2017)
+* Change license to Apache + GPLv2
+
 ## 5.4.8 (07/13/2017)
 No change from 5.4.7.
 
