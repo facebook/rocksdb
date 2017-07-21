@@ -249,7 +249,13 @@ inline void cacheline_aligned_free(void *memblock) {
   _aligned_free(memblock);
 }
 
+// https://gcc.gnu.org/bugzilla/show_bug.cgi?id=52991 for MINGW32
+// could not be worked around with by -mno-ms-bitfields
+#ifndef __MINGW32__
 #define ALIGN_AS(n) __declspec(align(n))
+#else
+#define ALIGN_AS(n)
+#endif
 
 static inline void AsmVolatilePause() {
 #if defined(_M_IX86) || defined(_M_X64)
