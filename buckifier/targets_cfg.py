@@ -22,6 +22,7 @@ rocksdb_compiler_flags = [
   "-DROCKSDB_SUPPORT_THREAD_LOCAL",
   "-DHAVE_SSE42",
   "-DOS_LINUX",
+  "-DROCKSDB_UBSAN_RUN",
   # Flags to enable libs we include
   "-DSNAPPY",
   "-DZLIB",
