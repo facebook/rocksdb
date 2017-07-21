@@ -345,8 +345,8 @@ class EventListener {
   // returns.  Otherwise, RocksDB may be blocked.
   // @param handle is a pointer to the column family handle to be deleted
   // which will become a dangling pointer after the deletion.
-  virtual void OnColumnFamilyHandleDeletionStarted(ColumnFamilyHandle* handle) {
-  }
+  virtual void OnColumnFamilyHandleDeletionStarted(
+      ColumnFamilyHandle* /*handle*/) {}
 
   // A call-back function for RocksDB which will be called after an external
   // file is ingested using IngestExternalFile.

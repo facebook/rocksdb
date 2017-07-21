@@ -105,7 +105,7 @@ Status DBImplReadOnly::NewIterators(
 }
 
 Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,
-                           DB** dbptr, bool error_if_log_file_exist) {
+                           DB** dbptr, bool /*error_if_log_file_exist*/) {
   *dbptr = nullptr;
 
   // Try to first open DB as fully compacted DB

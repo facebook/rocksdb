@@ -110,9 +110,9 @@ Status SstFileReader::GetTableReader(const std::string& file_path) {
 }
 
 Status SstFileReader::NewTableReader(
-    const ImmutableCFOptions& ioptions, const EnvOptions& soptions,
-    const InternalKeyComparator& internal_comparator, uint64_t file_size,
-    unique_ptr<TableReader>* table_reader) {
+    const ImmutableCFOptions& /*ioptions*/, const EnvOptions& /*soptions*/,
+    const InternalKeyComparator& /*internal_comparator*/, uint64_t file_size,
+    unique_ptr<TableReader>* /*table_reader*/) {
   // We need to turn off pre-fetching of index and filter nodes for
   // BlockBasedTable
   shared_ptr<BlockBasedTableFactory> block_table_factory =

@@ -157,10 +157,10 @@ TEST_F(DBTestTailingIterator, TailingIteratorTrimSeekToNext) {
       });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "ForwardIterator::RenewIterators:Null",
-      [&](void* arg) { file_iters_renewed_null = true; });
+      [&](void* /*arg*/) { file_iters_renewed_null = true; });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "ForwardIterator::RenewIterators:Copy",
-      [&](void* arg) { file_iters_renewed_copy = true; });
+      [&](void* /*arg*/) { file_iters_renewed_copy = true; });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   const int num_records = 1000;
   for (int i = 1; i < num_records; ++i) {
@@ -415,7 +415,7 @@ TEST_F(DBTestTailingIterator, TailingIteratorUpperBound) {
   int immutable_seeks = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "ForwardIterator::SeekInternal:Immutable",
-      [&](void* arg) { ++immutable_seeks; });
+      [&](void* /*arg*/) { ++immutable_seeks; });
 
   // Seek to 13. This should not require any immutable seeks.
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();

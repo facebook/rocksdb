@@ -227,8 +227,8 @@ void VectorRep::Iterator::Seek(const Slice& user_key,
 }
 
 // Advance to the first entry with a key <= target
-void VectorRep::Iterator::SeekForPrev(const Slice& user_key,
-                                      const char* memtable_key) {
+void VectorRep::Iterator::SeekForPrev(const Slice& /*user_key*/,
+                                      const char* /*memtable_key*/) {
   assert(false);
 }
 
@@ -296,7 +296,7 @@ MemTableRep::Iterator* VectorRep::GetIterator(Arena* arena) {
 
 MemTableRep* VectorRepFactory::CreateMemTableRep(
     const MemTableRep::KeyComparator& compare, Allocator* allocator,
-    const SliceTransform*, Logger* logger) {
+    const SliceTransform*, Logger* /*logger*/) {
   return new VectorRep(compare, allocator, count_);
 }
 } // namespace rocksdb

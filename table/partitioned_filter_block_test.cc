@@ -25,8 +25,8 @@ class MockedBlockBasedTable : public BlockBasedTable {
   explicit MockedBlockBasedTable(Rep* rep) : BlockBasedTable(rep) {}
 
   virtual CachableEntry<FilterBlockReader> GetFilter(
-      const BlockHandle& filter_blk_handle, const bool is_a_filter_partition,
-      bool no_io) const override {
+      const BlockHandle& filter_blk_handle,
+      const bool /*is_a_filter_partition*/, bool /*no_io*/) const override {
     Slice slice = slices[filter_blk_handle.offset()];
     auto obj = new FullFilterBlockReader(
         nullptr, true, BlockContents(slice, false, kNoCompression),

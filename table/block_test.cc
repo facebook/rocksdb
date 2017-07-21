@@ -133,7 +133,7 @@ TEST_F(BlockTest, SimpleTest) {
 BlockContents GetBlockContents(std::unique_ptr<BlockBuilder> *builder,
                                const std::vector<std::string> &keys,
                                const std::vector<std::string> &values,
-                               const int prefix_group_size = 1) {
+                               const int /*prefix_group_size*/ = 1) {
   builder->reset(new BlockBuilder(1 /* restart interval */));
 
   // Add only half of the keys

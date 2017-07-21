@@ -89,14 +89,14 @@ class MemTableRep {
   //
   // Currently only skip-list based memtable implement the interface. Other
   // implementations will fallback to Insert() by default.
-  virtual void InsertWithHint(KeyHandle handle, void** hint) {
+  virtual void InsertWithHint(KeyHandle handle, void** /*hint*/) {
     // Ignore the hint by default.
     Insert(handle);
   }
 
   // Like Insert(handle), but may be called concurrent with other calls
   // to InsertConcurrently for other handles
-  virtual void InsertConcurrently(KeyHandle handle) {
+  virtual void InsertConcurrently(KeyHandle /*handle*/) {
 #ifndef ROCKSDB_LITE
     throw std::runtime_error("concurrent insert not supported");
 #else
@@ -128,8 +128,8 @@ class MemTableRep {
   virtual void Get(const LookupKey& k, void* callback_args,
                    bool (*callback_func)(void* arg, const char* entry));
 
-  virtual uint64_t ApproximateNumEntries(const Slice& start_ikey,
-                                         const Slice& end_key) {
+  virtual uint64_t ApproximateNumEntries(const Slice& /*start_ikey*/,
+                                         const Slice& /*end_key*/) {
     return 0;
   }
 

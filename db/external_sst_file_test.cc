@@ -395,8 +395,9 @@ class SstFileWriterCollector : public TablePropertiesCollector {
     return Status::OK();
   }
 
-  Status AddUserKey(const Slice& user_key, const Slice& value, EntryType type,
-                    SequenceNumber seq, uint64_t file_size) override {
+  Status AddUserKey(const Slice& /*user_key*/, const Slice& /*value*/,
+                    EntryType /*type*/, SequenceNumber /*seq*/,
+                    uint64_t /*file_size*/) override {
     ++count_;
     return Status::OK();
   }
@@ -416,7 +417,7 @@ class SstFileWriterCollectorFactory : public TablePropertiesCollectorFactory {
   explicit SstFileWriterCollectorFactory(std::string prefix)
       : prefix_(prefix), num_created_(0) {}
   virtual TablePropertiesCollector* CreateTablePropertiesCollector(
-      TablePropertiesCollectorFactory::Context context) override {
+      TablePropertiesCollectorFactory::Context /*context*/) override {
     num_created_++;
     return new SstFileWriterCollector(prefix_);
   }
@@ -687,7 +688,7 @@ TEST_F(ExternalSSTFileTest, PurgeObsoleteFilesBug) {
   DestroyAndReopen(options);
 
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::AddFile:FileCopied", [&](void* arg) {
+      "DBImpl::AddFile:FileCopied", [&](void* /*arg*/) {
         ASSERT_OK(Put("aaa", "bbb"));
         ASSERT_OK(Flush());
         ASSERT_OK(Put("aaa", "xxx"));
@@ -1126,7 +1127,7 @@ TEST_F(ExternalSSTFileTest, PickedLevelBug) {
   std::atomic<bool> bg_compact_started(false);
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:Start",
-      [&](void* arg) { bg_compact_started.store(true); });
+      [&](void* /*arg*/) { bg_compact_started.store(true); });
 
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -1407,7 +1408,7 @@ TEST_F(ExternalSSTFileTest, AddFileTrivialMoveBug) {
   ASSERT_OK(GenerateAndAddExternalFile(options, {22, 23}, 6));  // L2
 
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "CompactionJob::Run():Start", [&](void* arg) {
+      "CompactionJob::Run():Start", [&](void* /*arg*/) {
         // fit in L3 but will overlap with compaction so will be added
         // to L2 but a compaction will trivially move it to L3
         // and break LSM consistency
@@ -1797,7 +1798,7 @@ TEST_F(ExternalSSTFileTest, FileWithCFInfo) {
 
 class TestIngestExternalFileListener : public EventListener {
  public:
-  void OnExternalFileIngested(DB* db,
+  void OnExternalFileIngested(DB* /*db*/,
                               const ExternalFileIngestionInfo& info) override {
     ingested_files.push_back(info);
   }

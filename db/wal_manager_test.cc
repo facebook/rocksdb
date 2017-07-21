@@ -72,7 +72,7 @@ class WalManagerTest : public testing::Test {
   }
 
   // NOT thread safe
-  void RollTheLog(bool archived) {
+  void RollTheLog(bool /*archived*/) {
     current_log_number_++;
     std::string fname = ArchivedLogFileName(dbname_, current_log_number_);
     unique_ptr<WritableFile> file;

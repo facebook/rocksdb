@@ -295,8 +295,8 @@ class TtlTest : public testing::Test {
     // Keeps key if it is in [kSampleSize_/3, 2*kSampleSize_/3),
     // Change value if it is in [2*kSampleSize_/3, kSampleSize_)
     // Eg. kSampleSize_=6. Drop:key0-1...Keep:key2-3...Change:key4-5...
-    virtual bool Filter(int level, const Slice& key,
-                        const Slice& value, std::string* new_value,
+    virtual bool Filter(int /*level*/, const Slice& key, const Slice& /*value*/,
+                        std::string* new_value,
                         bool* value_changed) const override {
       assert(new_value != nullptr);
 
@@ -345,7 +345,7 @@ class TtlTest : public testing::Test {
       }
 
       virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
-          const CompactionFilter::Context& context) override {
+          const CompactionFilter::Context& /*context*/) override {
         return std::unique_ptr<CompactionFilter>(
             new TestFilter(kSampleSize_, kNewValue_));
       }

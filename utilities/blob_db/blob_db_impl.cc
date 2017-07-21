@@ -143,8 +143,9 @@ void BlobDBFlushBeginListener::OnFlushBegin(DB* db, const FlushJobInfo& info) {
 }
 
 WalFilter::WalProcessingOption BlobReconcileWalFilter::LogRecordFound(
-    unsigned long long log_number, const std::string& log_file_name,
-    const WriteBatch& batch, WriteBatch* new_batch, bool* batch_changed) {
+    unsigned long long /*log_number*/, const std::string& /*log_file_name*/,
+    const WriteBatch& /*batch*/, WriteBatch* /*new_batch*/,
+    bool* /*batch_changed*/) {
   return WalFilter::WalProcessingOption::kContinueProcessing;
 }
 
@@ -158,7 +159,7 @@ bool blobf_compare_ttl::operator()(const std::shared_ptr<BlobFile>& lhs,
 }
 
 void EvictAllVersionsCompactionListener::InternalListener::OnCompaction(
-    int level, const Slice& key,
+    int /*level*/, const Slice& key,
     CompactionEventListener::CompactionListenerValueType value_type,
     const Slice& existing_value, const SequenceNumber& sn, bool is_new) {
   if (!is_new &&
@@ -354,7 +355,7 @@ void BlobDBImpl::StartBackgroundTasks() {
 
 void BlobDBImpl::Shutdown() { shutdown_.store(true); }
 
-void BlobDBImpl::OnFlushBeginHandler(DB* db, const FlushJobInfo& info) {
+void BlobDBImpl::OnFlushBeginHandler(DB* /*db*/, const FlushJobInfo& /*info*/) {
   if (shutdown_.load()) return;
 
   // a callback that happens too soon needs to be ignored
@@ -1395,7 +1396,7 @@ std::pair<bool, int64_t> BlobDBImpl::SanityCheck(bool aborted) {
 }
 
 std::pair<bool, int64_t> BlobDBImpl::CloseSeqWrite(
-    std::shared_ptr<BlobFile> bfile, bool aborted) {
+    std::shared_ptr<BlobFile> bfile, bool /*aborted*/) {
   {
     WriteLock wl(&mutex_);
 
@@ -2051,7 +2052,7 @@ bool BlobDBImpl::CallbackEvictsImpl(std::shared_ptr<BlobFile> bfile) {
 }
 
 std::pair<bool, int64_t> BlobDBImpl::RemoveTimerQ(TimerQueue* tq,
-                                                  bool aborted) {
+                                                  bool /*aborted*/) {
   WriteLock wl(&mutex_);
   for (auto itr = cb_threads_.begin(); itr != cb_threads_.end(); ++itr) {
     if ((*itr).get() != tq) continue;

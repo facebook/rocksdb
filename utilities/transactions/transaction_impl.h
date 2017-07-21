@@ -180,7 +180,7 @@ class TransactionCallback : public WriteCallback {
  public:
   explicit TransactionCallback(TransactionImpl* txn) : txn_(txn) {}
 
-  Status Callback(DB* db) override {
+  Status Callback(DB* /*db*/) override {
     if (txn_->IsExpired()) {
       return Status::Expired();
     } else {

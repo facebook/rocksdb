@@ -87,7 +87,7 @@ Slice PartitionedFilterBlockBuilder::Finish(
 
 PartitionedFilterBlockReader::PartitionedFilterBlockReader(
     const SliceTransform* prefix_extractor, bool _whole_key_filtering,
-    BlockContents&& contents, FilterBitsReader* filter_bits_reader,
+    BlockContents&& contents, FilterBitsReader* /*filter_bits_reader*/,
     Statistics* stats, const Comparator& comparator,
     const BlockBasedTable* table)
     : FilterBlockReader(contents.data.size(), stats, _whole_key_filtering),

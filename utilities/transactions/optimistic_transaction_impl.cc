@@ -133,7 +133,7 @@ Status OptimisticTransactionImpl::CheckTransactionForConflicts(DB* db) {
                                                 true /* cache_only */);
 }
 
-Status OptimisticTransactionImpl::SetName(const TransactionName& name) {
+Status OptimisticTransactionImpl::SetName(const TransactionName& /*name*/) {
   return Status::InvalidArgument("Optimistic transactions cannot be named.");
 }
 

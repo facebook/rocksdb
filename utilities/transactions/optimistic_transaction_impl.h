@@ -67,8 +67,8 @@ class OptimisticTransactionImpl : public TransactionBaseImpl {
 
   void Clear() override;
 
-  void UnlockGetForUpdate(ColumnFamilyHandle* column_family,
-                          const Slice& key) override {
+  void UnlockGetForUpdate(ColumnFamilyHandle* /*column_family*/,
+                          const Slice& /*key*/) override {
     // Nothing to unlock.
   }
 

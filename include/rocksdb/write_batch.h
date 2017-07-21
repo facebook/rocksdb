@@ -217,8 +217,9 @@ class WriteBatch : public WriteBatchBase {
     }
     virtual void SingleDelete(const Slice& /*key*/) {}
 
-    virtual Status DeleteRangeCF(uint32_t column_family_id,
-                                 const Slice& begin_key, const Slice& end_key) {
+    virtual Status DeleteRangeCF(uint32_t /*column_family_id*/,
+                                 const Slice& /*begin_key*/,
+                                 const Slice& /*end_key*/) {
       return Status::InvalidArgument("DeleteRangeCF not implemented");
     }
 
@@ -240,16 +241,16 @@ class WriteBatch : public WriteBatchBase {
       return Status::InvalidArgument("MarkBeginPrepare() handler not defined.");
     }
 
-    virtual Status MarkEndPrepare(const Slice& xid) {
+    virtual Status MarkEndPrepare(const Slice& /*xid*/) {
       return Status::InvalidArgument("MarkEndPrepare() handler not defined.");
     }
 
-    virtual Status MarkRollback(const Slice& xid) {
+    virtual Status MarkRollback(const Slice& /*xid*/) {
       return Status::InvalidArgument(
           "MarkRollbackPrepare() handler not defined.");
     }
 
-    virtual Status MarkCommit(const Slice& xid) {
+    virtual Status MarkCommit(const Slice& /*xid*/) {
       return Status::InvalidArgument("MarkCommit() handler not defined.");
     }
 

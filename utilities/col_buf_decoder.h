@@ -23,7 +23,7 @@ struct ColDeclaration;
 class ColBufDecoder {
  public:
   virtual ~ColBufDecoder() = 0;
-  virtual size_t Init(const char* src) { return 0; }
+  virtual size_t Init(const char* /*src*/) { return 0; }
   virtual size_t Decode(const char* src, char** dest) = 0;
   static ColBufDecoder* NewColBufDecoder(const ColDeclaration& col_declaration);
 

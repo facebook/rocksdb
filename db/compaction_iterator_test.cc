@@ -17,15 +17,15 @@ namespace rocksdb {
 // Expects no merging attempts.
 class NoMergingMergeOp : public MergeOperator {
  public:
-  bool FullMergeV2(const MergeOperationInput& merge_in,
-                   MergeOperationOutput* merge_out) const override {
+  bool FullMergeV2(const MergeOperationInput& /*merge_in*/,
+                   MergeOperationOutput* /*merge_out*/) const override {
     ADD_FAILURE();
     return false;
   }
-  bool PartialMergeMulti(const Slice& key,
-                         const std::deque<Slice>& operand_list,
-                         std::string* new_value,
-                         Logger* logger) const override {
+  bool PartialMergeMulti(const Slice& /*key*/,
+                         const std::deque<Slice>& /*operand_list*/,
+                         std::string* /*new_value*/,
+                         Logger* /*logger*/) const override {
     ADD_FAILURE();
     return false;
   }
@@ -39,9 +39,10 @@ class NoMergingMergeOp : public MergeOperator {
 // Always returns Decition::kRemove.
 class StallingFilter : public CompactionFilter {
  public:
-  virtual Decision FilterV2(int level, const Slice& key, ValueType t,
-                            const Slice& existing_value, std::string* new_value,
-                            std::string* skip_until) const override {
+  virtual Decision FilterV2(int /*level*/, const Slice& key, ValueType /*t*/,
+                            const Slice& /*existing_value*/,
+                            std::string* /*new_value*/,
+                            std::string* /*skip_until*/) const override {
     int k = std::atoi(key.ToString().c_str());
     last_seen.store(k);
     while (k >= stall_at.load()) {
@@ -112,7 +113,7 @@ class LoggingForwardVectorIterator : public InternalIterator {
                keys_.begin();
   }
 
-  virtual void SeekForPrev(const Slice& target) override { assert(false); }
+  virtual void SeekForPrev(const Slice& /*target*/) override { assert(false); }
 
   virtual void Next() override {
     assert(Valid());
@@ -144,9 +145,9 @@ class FakeCompaction : public CompactionIterator::CompactionProxy {
  public:
   FakeCompaction() = default;
 
-  virtual int level(size_t compaction_input_level) const { return 0; }
+  virtual int level(size_t /*compaction_input_level*/) const { return 0; }
   virtual bool KeyNotExistsBeyondOutputLevel(
-      const Slice& user_key, std::vector<size_t>* level_ptrs) const {
+      const Slice& /*user_key*/, std::vector<size_t>* /*level_ptrs*/) const {
     return key_not_exists_beyond_output_level;
   }
   virtual bool bottommost_level() const { return false; }
@@ -276,9 +277,9 @@ TEST_F(CompactionIteratorTest, RangeDeletionWithSnapshots) {
 
 TEST_F(CompactionIteratorTest, CompactionFilterSkipUntil) {
   class Filter : public CompactionFilter {
-    virtual Decision FilterV2(int level, const Slice& key, ValueType t,
+    virtual Decision FilterV2(int /*level*/, const Slice& key, ValueType t,
                               const Slice& existing_value,
-                              std::string* new_value,
+                              std::string* /*new_value*/,
                               std::string* skip_until) const override {
       std::string k = key.ToString();
       std::string v = existing_value.ToString();

@@ -147,9 +147,9 @@ class BlobDB : public StackableDB {
                               const Slice& key) override = 0;
 
   using rocksdb::StackableDB::Merge;
-  virtual Status Merge(const WriteOptions& options,
-                       ColumnFamilyHandle* column_family, const Slice& key,
-                       const Slice& value) override {
+  virtual Status Merge(const WriteOptions& /*options*/,
+                       ColumnFamilyHandle* /*column_family*/,
+                       const Slice& /*key*/, const Slice& /*value*/) override {
     return Status::NotSupported("Not supported operation in blob db.");
   }
 

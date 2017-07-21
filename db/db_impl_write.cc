@@ -1002,7 +1002,7 @@ Status DBImpl::ScheduleFlushes(WriteContext* context) {
 }
 
 #ifndef ROCKSDB_LITE
-void DBImpl::NotifyOnMemTableSealed(ColumnFamilyData* cfd,
+void DBImpl::NotifyOnMemTableSealed(ColumnFamilyData* /*cfd*/,
                                     const MemTableInfo& mem_table_info) {
   if (immutable_db_options_.listeners.size() == 0U) {
     return;

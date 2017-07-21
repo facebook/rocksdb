@@ -45,7 +45,7 @@ class FilterBitsBuilder {
   virtual Slice Finish(std::unique_ptr<const char[]>* buf) = 0;
 
   // Calculate num of entries fit into a space.
-  virtual int CalculateNumEntry(const uint32_t space) {
+  virtual int CalculateNumEntry(const uint32_t /*space*/) {
 #ifndef ROCKSDB_LITE
     throw std::runtime_error("CalculateNumEntry not Implemented");
 #else
@@ -114,7 +114,8 @@ class FilterPolicy {
   // Get the FilterBitsReader, which is ONLY used for full filter block
   // It contains interface to tell if key can be in filter
   // The input slice should NOT be deleted by FilterPolicy
-  virtual FilterBitsReader* GetFilterBitsReader(const Slice& contents) const {
+  virtual FilterBitsReader* GetFilterBitsReader(
+      const Slice& /*contents*/) const {
     return nullptr;
   }
 };

@@ -23,7 +23,7 @@ namespace {
 std::unordered_map<std::string, std::vector<uint64_t>> hash_map;
 
 uint64_t GetSliceHash(const Slice& s, uint32_t index,
-    uint64_t max_num_buckets) {
+                      uint64_t /*max_num_buckets*/) {
   return hash_map[s.ToString()][index];
 }
 }  // namespace

@@ -240,7 +240,7 @@ struct rocksdb_comparator_t : public Comparator {
   // No-ops since the C binding does not support key shortening methods.
   virtual void FindShortestSeparator(std::string*,
                                      const Slice&) const override {}
-  virtual void FindShortSuccessor(std::string* key) const override {}
+  virtual void FindShortSuccessor(std::string* /*key*/) const override {}
 };
 
 struct rocksdb_filterpolicy_t : public FilterPolicy {
@@ -355,7 +355,7 @@ struct rocksdb_mergeoperator_t : public MergeOperator {
   virtual bool PartialMergeMulti(const Slice& key,
                                  const std::deque<Slice>& operand_list,
                                  std::string* new_value,
-                                 Logger* logger) const override {
+                                 Logger* /*logger*/) const override {
     size_t operand_count = operand_list.size();
     std::vector<const char*> operand_pointers(operand_count);
     std::vector<size_t> operand_sizes(operand_count);
@@ -2106,8 +2106,8 @@ void rocksdb_options_set_level0_stop_writes_trigger(
   opt->rep.level0_stop_writes_trigger = n;
 }
 
-void rocksdb_options_set_max_mem_compaction_level(rocksdb_options_t* opt,
-                                                  int n) {}
+void rocksdb_options_set_max_mem_compaction_level(rocksdb_options_t* /*opt*/,
+                                                  int /*n*/) {}
 
 void rocksdb_options_set_wal_recovery_mode(rocksdb_options_t* opt,int mode) {
   opt->rep.wal_recovery_mode = static_cast<WALRecoveryMode>(mode);
@@ -2171,8 +2171,8 @@ void rocksdb_options_set_manifest_preallocation_size(
 }
 
 // noop
-void rocksdb_options_set_purge_redundant_kvs_while_flush(rocksdb_options_t* opt,
-                                                         unsigned char v) {}
+void rocksdb_options_set_purge_redundant_kvs_while_flush(
+    rocksdb_options_t* /*opt*/, unsigned char /*v*/) {}
 
 void rocksdb_options_set_use_direct_reads(rocksdb_options_t* opt,
                                           unsigned char v) {
@@ -2332,7 +2332,7 @@ void rocksdb_options_set_table_cache_numshardbits(
 }
 
 void rocksdb_options_set_table_cache_remove_scan_count_limit(
-    rocksdb_options_t* opt, int v) {
+    rocksdb_options_t* /*opt*/, int /*v*/) {
   // this option is deprecated
 }
 
@@ -2836,7 +2836,7 @@ rocksdb_sstfilewriter_t* rocksdb_sstfilewriter_create(
 
 rocksdb_sstfilewriter_t* rocksdb_sstfilewriter_create_with_comparator(
     const rocksdb_envoptions_t* env, const rocksdb_options_t* io_options,
-    const rocksdb_comparator_t* comparator) {
+    const rocksdb_comparator_t* /*comparator*/) {
   rocksdb_sstfilewriter_t* writer = new rocksdb_sstfilewriter_t;
   writer->rep = new SstFileWriter(env->rep, io_options->rep);
   return writer;
