@@ -1,4 +1,7 @@
 # Rocksdb Change Log
+## 5.3.7
+* Change license to Apache + GPLv2
+
 ## 5.3.0 (03/08/2017)
 ### Public API Change
 * Remove disableDataSync option.
