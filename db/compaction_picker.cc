@@ -1323,23 +1323,16 @@ bool LevelCompactionBuilder::PickFileToCompact() {
   const std::vector<FileMetaData*>& level_files =
       vstorage_->LevelFiles(start_level_);
 
-  // record the first file that is not yet compacted
-  int nextIndex = -1;
-
-  for (unsigned int i = vstorage_->NextCompactionIndex(start_level_);
-       i < file_size.size(); i++) {
-    int index = file_size[i];
+  unsigned int cmp_idx;
+  for (cmp_idx = vstorage_->NextCompactionIndex(start_level_);
+       cmp_idx < file_size.size(); cmp_idx++) {
+    int index = file_size[cmp_idx];
     auto* f = level_files[index];
 
     // do not pick a file to compact if it is being compacted
     // from n-1 level.
     if (f->being_compacted) {
       continue;
-    }
-
-    // remember the startIndex for the next call to PickCompaction
-    if (nextIndex == -1) {
-      nextIndex = i;
     }
 
     start_level_inputs_.files.push_back(f);
@@ -1377,7 +1370,7 @@ bool LevelCompactionBuilder::PickFileToCompact() {
   }
 
   // store where to start the iteration in the next call to PickCompaction
-  vstorage_->SetNextCompactionIndex(start_level_, nextIndex);
+  vstorage_->SetNextCompactionIndex(start_level_, cmp_idx);
 
   return start_level_inputs_.size() > 0;
 }
