@@ -2,8 +2,6 @@
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
-// This source code is also licensed under the GPLv2 license found in the
-// COPYING file in the root directory of this source tree.
 
 #include "format.h"
 
@@ -11,7 +9,7 @@
 #include <map>
 #include <memory>
 
-#include "utilities/merge_operators/cassandra/serialize.h"
+#include "utilities/cassandra/serialize.h"
 
 namespace rocksdb {
 namespace cassandra {
@@ -42,7 +40,7 @@ void ColumnBase::Serialize(std::string* dest) const {
   rocksdb::cassandra::Serialize<int8_t>(index_, dest);
 }
 
-std::unique_ptr<ColumnBase> ColumnBase::Deserialize(const char* src,
+std::shared_ptr<ColumnBase> ColumnBase::Deserialize(const char* src,
                                                     std::size_t offset) {
   int8_t mask = rocksdb::cassandra::Deserialize<int8_t>(src, offset);
   if ((mask & ColumnTypeMask::DELETION_MASK) != 0) {
@@ -79,7 +77,7 @@ void Column::Serialize(std::string* dest) const {
   dest->append(value_, value_size_);
 }
 
-std::unique_ptr<Column> Column::Deserialize(const char *src,
+std::shared_ptr<Column> Column::Deserialize(const char *src,
                                             std::size_t offset) {
   int8_t mask = rocksdb::cassandra::Deserialize<int8_t>(src, offset);
   offset += sizeof(mask);
@@ -89,8 +87,8 @@ std::unique_ptr<Column> Column::Deserialize(const char *src,
   offset += sizeof(timestamp);
   int32_t value_size = rocksdb::cassandra::Deserialize<int32_t>(src, offset);
   offset += sizeof(value_size);
-  return std::unique_ptr<Column>(
-    new Column(mask, index, timestamp, value_size, src + offset));
+  return std::make_shared<Column>(
+    mask, index, timestamp, value_size, src + offset);
 }
 
 ExpiringColumn::ExpiringColumn(
@@ -112,7 +110,32 @@ void ExpiringColumn::Serialize(std::string* dest) const {
   rocksdb::cassandra::Serialize<int32_t>(ttl_, dest);
 }
 
-std::unique_ptr<ExpiringColumn> ExpiringColumn::Deserialize(
+std::chrono::time_point<std::chrono::system_clock> ExpiringColumn::TimePoint() const {
+  return std::chrono::time_point<std::chrono::system_clock>(std::chrono::microseconds(Timestamp()));
+}
+
+std::chrono::seconds ExpiringColumn::Ttl() const {
+  return std::chrono::seconds(ttl_);
+}
+
+bool ExpiringColumn::Expired() const {
+  return TimePoint() + Ttl() < std::chrono::system_clock::now();
+}
+
+std::shared_ptr<Tombstone> ExpiringColumn::ToTombstone() const {
+  auto expired_at = (TimePoint() + Ttl()).time_since_epoch();
+  int32_t local_deletion_time = static_cast<int32_t>(
+    std::chrono::duration_cast<std::chrono::seconds>(expired_at).count());
+  int64_t marked_for_delete_at =
+    std::chrono::duration_cast<std::chrono::microseconds>(expired_at).count();
+  return std::make_shared<Tombstone>(
+    ColumnTypeMask::DELETION_MASK,
+    Index(),
+    local_deletion_time,
+    marked_for_delete_at);
+}
+
+std::shared_ptr<ExpiringColumn> ExpiringColumn::Deserialize(
     const char *src,
     std::size_t offset) {
   int8_t mask = rocksdb::cassandra::Deserialize<int8_t>(src, offset);
@@ -126,8 +149,8 @@ std::unique_ptr<ExpiringColumn> ExpiringColumn::Deserialize(
   const char* value = src + offset;
   offset += value_size;
   int32_t ttl =  rocksdb::cassandra::Deserialize<int32_t>(src, offset);
-  return std::unique_ptr<ExpiringColumn>(
-    new ExpiringColumn(mask, index, timestamp, value_size, value, ttl));
+  return std::make_shared<ExpiringColumn>(
+    mask, index, timestamp, value_size, value, ttl);
 }
 
 Tombstone::Tombstone(
@@ -153,7 +176,7 @@ void Tombstone::Serialize(std::string* dest) const {
   rocksdb::cassandra::Serialize<int64_t>(marked_for_delete_at_, dest);
 }
 
-std::unique_ptr<Tombstone> Tombstone::Deserialize(const char *src,
+std::shared_ptr<Tombstone> Tombstone::Deserialize(const char *src,
                                                   std::size_t offset) {
   int8_t mask = rocksdb::cassandra::Deserialize<int8_t>(src, offset);
   offset += sizeof(mask);
@@ -164,8 +187,8 @@ std::unique_ptr<Tombstone> Tombstone::Deserialize(const char *src,
   offset += sizeof(int32_t);
   int64_t marked_for_delete_at =
     rocksdb::cassandra::Deserialize<int64_t>(src, offset);
-  return std::unique_ptr<Tombstone>(
-    new Tombstone(mask, index, local_deletion_time, marked_for_delete_at));
+  return std::make_shared<Tombstone>(
+    mask, index, local_deletion_time, marked_for_delete_at);
 }
 
 RowValue::RowValue(int32_t local_deletion_time, int64_t marked_for_delete_at)
@@ -173,7 +196,7 @@ RowValue::RowValue(int32_t local_deletion_time, int64_t marked_for_delete_at)
   marked_for_delete_at_(marked_for_delete_at), columns_(),
   last_modified_time_(0) {}
 
-RowValue::RowValue(std::vector<std::unique_ptr<ColumnBase>> columns,
+RowValue::RowValue(Columns columns,
                   int64_t last_modified_time)
   : local_deletion_time_(kDefaultLocalDeletionTime),
   marked_for_delete_at_(kDefaultMarkedForDeleteAt),
@@ -208,6 +231,49 @@ void RowValue::Serialize(std::string* dest) const {
   }
 }
 
+RowValue RowValue::PurgeTtl(bool* changed) const {
+  *changed = false;
+  Columns new_columns;
+  for (auto& column : columns_) {
+    if(column->Mask() == ColumnTypeMask::EXPIRATION_MASK) {
+      std::shared_ptr<ExpiringColumn> expiring_column =
+        std::static_pointer_cast<ExpiringColumn>(column);
+
+      if(expiring_column->Expired()){
+        *changed = true;
+        continue;
+      }
+    }
+
+    new_columns.push_back(column);
+  }
+  return RowValue(std::move(new_columns), last_modified_time_);
+}
+
+RowValue RowValue::ExpireTtl(bool* changed) const {
+  *changed = false;
+  Columns new_columns;
+  for (auto& column : columns_) {
+    if(column->Mask() == ColumnTypeMask::EXPIRATION_MASK) {
+      std::shared_ptr<ExpiringColumn> expiring_column =
+        std::static_pointer_cast<ExpiringColumn>(column);
+
+      if(expiring_column->Expired()) {
+        shared_ptr<Tombstone> tombstone = expiring_column->ToTombstone();
+        new_columns.push_back(tombstone);
+        *changed = true;
+        continue;
+      }
+    }
+    new_columns.push_back(column);
+  }
+  return RowValue(std::move(new_columns), last_modified_time_);
+}
+
+bool RowValue::Empty() const {
+  return columns_.empty();
+}
+
 RowValue RowValue::Deserialize(const char *src, std::size_t size) {
   std::size_t offset = 0;
   assert(size >= sizeof(local_deletion_time_) + sizeof(marked_for_delete_at_));
@@ -223,7 +289,7 @@ RowValue RowValue::Deserialize(const char *src, std::size_t size) {
 
   assert(local_deletion_time == kDefaultLocalDeletionTime);
   assert(marked_for_delete_at == kDefaultMarkedForDeleteAt);
-  std::vector<std::unique_ptr<ColumnBase>> columns;
+  Columns columns;
   int64_t last_modified_time = 0;
   while (offset < size) {
     auto c = ColumnBase::Deserialize(src, offset);
@@ -254,7 +320,7 @@ RowValue RowValue::Merge(std::vector<RowValue>&& values) {
       return r1.LastModifiedTime() > r2.LastModifiedTime();
     });
 
-  std::map<int8_t, std::unique_ptr<ColumnBase>> merged_columns;
+  std::map<int8_t, std::shared_ptr<ColumnBase>> merged_columns;
   int64_t tombstone_timestamp = 0;
 
   for (auto& value : values) {
@@ -268,17 +334,17 @@ RowValue RowValue::Merge(std::vector<RowValue>&& values) {
     for (auto& column : value.columns_) {
       int8_t index = column->Index();
       if (merged_columns.find(index) == merged_columns.end()) {
-        merged_columns[index] = std::move(column);
+        merged_columns[index] = column;
       } else {
         if (column->Timestamp() > merged_columns[index]->Timestamp()) {
-          merged_columns[index] = std::move(column);
+          merged_columns[index] = column;
         }
       }
     }
   }
 
   int64_t last_modified_time = 0;
-  std::vector<std::unique_ptr<ColumnBase>> columns;
+  Columns columns;
   for (auto& pair: merged_columns) {
     // For some row, its last_modified_time > row tombstone_timestamp, but
     // it might have rows whose timestamp is ealier than tombstone, so we

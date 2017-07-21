@@ -13,7 +13,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/merge_operator.h"
 #include "utilities/merge_operators.h"
-#include "utilities/merge_operators/cassandra/format.h"
+#include "utilities/cassandra/format.h"
 
 namespace rocksdb {
 namespace cassandra {
