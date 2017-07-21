@@ -557,9 +557,11 @@ class DBImpl : public DB {
 
   Status NewDB();
 
-  InstrumentedMutex ts_tc_mutex_;
-  std::map<uint64_t, uint64_t> ts_tc_map_;
-  uint64_t tmp_;
+  uint64_t TsTcRead(uint64_t seq);
+  void TsTcWrite();
+  void TsTcSync();
+  std::atomic<uint64_t> ts_tc_map_[1000000];
+  std::atomic<bool> ts_tc_fence_;
 
  protected:
   Env* const env_;

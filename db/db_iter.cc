@@ -9,6 +9,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "db/db_impl.h"
 #include "db/db_iter.h"
 #include <stdexcept>
 #include <deque>
@@ -106,7 +107,7 @@ class DBIter: public Iterator {
   DBIter(Env* env, const ReadOptions& read_options,
          const ImmutableCFOptions& cf_options, const Comparator* cmp,
          InternalIterator* iter, SequenceNumber s, bool arena_mode,
-         uint64_t max_sequential_skip_in_iterations, uint64_t version_number)
+         uint64_t max_sequential_skip_in_iterations, uint64_t version_number, DBImpl* db_impl)
       : arena_mode_(arena_mode),
         env_(env),
         logger_(cf_options.info_log),
@@ -124,7 +125,8 @@ class DBIter: public Iterator {
         pin_thru_lifetime_(read_options.pin_data),
         total_order_seek_(read_options.total_order_seek),
         range_del_agg_(cf_options.internal_comparator, s,
-                       true /* collapse_deletions */) {
+                       true /* collapse_deletions */),
+        db_impl_(db_impl) {
     RecordTick(statistics_, NO_ITERATORS);
     prefix_extractor_ = cf_options.prefix_extractor;
     max_skip_ = max_sequential_skip_in_iterations;
@@ -288,6 +290,7 @@ class DBIter: public Iterator {
   // List of operands for merge operator.
   MergeContext merge_context_;
   RangeDelAggregator range_del_agg_;
+  DBImpl *db_impl_;
   LocalStatistics local_stats_;
   PinnedIteratorsManager pinned_iters_mgr_;
 
@@ -402,6 +405,8 @@ void DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
     if (TooManyInternalKeysSkipped()) {
       return;
     }
+
+    db_impl_->TsTcRead(ikey.sequence);
 
     if (ikey.sequence <= sequence_) {
       if (skipping &&
@@ -645,6 +650,9 @@ void DBIter::ReverseToBackward() {
            user_comparator_->Compare(ikey.user_key, saved_key_.GetUserKey()) >
                0) {
       assert(ikey.sequence != kMaxSequenceNumber);
+
+      db_impl_->TsTcRead(ikey.sequence);
+
       if (ikey.sequence > sequence_) {
         PERF_COUNTER_ADD(internal_recent_skipped_count, 1);
       } else {
@@ -736,6 +744,9 @@ bool DBIter::FindValueForCurrentKey() {
   size_t num_skipped = 0;
   while (iter_->Valid() && ikey.sequence <= sequence_ &&
          user_comparator_->Equal(ikey.user_key, saved_key_.GetUserKey())) {
+
+    db_impl_->TsTcRead(ikey.sequence);
+
     if (TooManyInternalKeysSkipped()) {
       return false;
     }
@@ -941,6 +952,9 @@ void DBIter::FindPrevUserKey() {
          ((cmp = user_comparator_->Compare(ikey.user_key,
                                            saved_key_.GetUserKey())) == 0 ||
           (cmp > 0 && ikey.sequence > sequence_))) {
+
+    db_impl_->TsTcRead(ikey.sequence);
+
     if (TooManyInternalKeysSkipped()) {
       return;
     }
@@ -1160,10 +1174,11 @@ Iterator* NewDBIterator(Env* env, const ReadOptions& read_options,
                         InternalIterator* internal_iter,
                         const SequenceNumber& sequence,
                         uint64_t max_sequential_skip_in_iterations,
-                        uint64_t version_number) {
+                        uint64_t version_number,
+                        DBImpl* db_impl) {
   DBIter* db_iter = new DBIter(
       env, read_options, cf_options, user_key_comparator, internal_iter,
-      sequence, false, max_sequential_skip_in_iterations, version_number);
+      sequence, false, max_sequential_skip_in_iterations, version_number, db_impl);
   return db_iter;
 }
 
@@ -1206,13 +1221,13 @@ ArenaWrappedDBIter* NewArenaWrappedDbIterator(
     Env* env, const ReadOptions& read_options,
     const ImmutableCFOptions& cf_options, const Comparator* user_key_comparator,
     const SequenceNumber& sequence, uint64_t max_sequential_skip_in_iterations,
-    uint64_t version_number) {
+    uint64_t version_number, DBImpl* db_impl) {
   ArenaWrappedDBIter* iter = new ArenaWrappedDBIter();
   Arena* arena = iter->GetArena();
   auto mem = arena->AllocateAligned(sizeof(DBIter));
   DBIter* db_iter = new (mem)
       DBIter(env, read_options, cf_options, user_key_comparator, nullptr,
-             sequence, true, max_sequential_skip_in_iterations, version_number);
+             sequence, true, max_sequential_skip_in_iterations, version_number, db_impl);
 
   iter->SetDBIter(db_iter);
 

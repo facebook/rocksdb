@@ -902,6 +902,22 @@ Status DBImpl::Get(const ReadOptions& read_options,
   return GetImpl(read_options, column_family, key, value);
 }
 
+void DBImpl::TsTcWrite() {
+  //ts_tc_mutex_.WriteLock();
+  auto seq = GetLatestSequenceNumber();
+  ts_tc_map_[seq % 1000000].store(seq, std::memory_order_relaxed);
+  ts_tc_fence_.store(std::memory_order_release);
+  //ts_tc_mutex_.WriteUnlock();
+}
+
+uint64_t DBImpl::TsTcRead(uint64_t seq) {
+  return ts_tc_map_[seq % 1000000].load(std::memory_order_relaxed);
+}
+
+void DBImpl::TsTcSync() {
+  ts_tc_fence_.load(std::memory_order_acquire);
+}
+
 Status DBImpl::GetImpl(const ReadOptions& read_options,
                        ColumnFamilyHandle* column_family, const Slice& key,
                        PinnableSlice* pinnable_val, bool* value_found) {
@@ -935,10 +951,9 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
     // data overwriting it, so users may see wrong results.
     snapshot = versions_->LastSequence();
   }
-  ts_tc_mutex_.Lock();
+
   // Emulate the cost of a read from ts->tc map
-  tmp_ = ts_tc_map_[snapshot % 1000000];
-  ts_tc_mutex_.Unlock();
+  TsTcRead(snapshot);
 
   TEST_SYNC_POINT("DBImpl::GetImpl:3");
   TEST_SYNC_POINT("DBImpl::GetImpl:4");
@@ -1410,7 +1425,7 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
         env_, read_options, *cfd->ioptions(), cfd->user_comparator(), iter,
         kMaxSequenceNumber,
         sv->mutable_cf_options.max_sequential_skip_in_iterations,
-        sv->version_number);
+        sv->version_number, this);
 #endif
   } else {
     SequenceNumber latest_snapshot = versions_->LastSequence();
@@ -1467,7 +1482,7 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
     ArenaWrappedDBIter* db_iter = NewArenaWrappedDbIterator(
         env_, read_options, *cfd->ioptions(), cfd->user_comparator(), snapshot,
         sv->mutable_cf_options.max_sequential_skip_in_iterations,
-        sv->version_number);
+        sv->version_number, this);
 
     InternalIterator* internal_iter =
         NewInternalIterator(read_options, cfd, sv, db_iter->GetArena(),
@@ -1519,7 +1534,7 @@ Status DBImpl::NewIterators(
           env_, read_options, *cfd->ioptions(), cfd->user_comparator(), iter,
           kMaxSequenceNumber,
           sv->mutable_cf_options.max_sequential_skip_in_iterations,
-          sv->version_number));
+          sv->version_number, this));
     }
 #endif
   } else {
@@ -1539,7 +1554,7 @@ Status DBImpl::NewIterators(
       ArenaWrappedDBIter* db_iter = NewArenaWrappedDbIterator(
           env_, read_options, *cfd->ioptions(), cfd->user_comparator(),
           snapshot, sv->mutable_cf_options.max_sequential_skip_in_iterations,
-          sv->version_number);
+          sv->version_number, this);
       InternalIterator* internal_iter =
           NewInternalIterator(read_options, cfd, sv, db_iter->GetArena(),
                               db_iter->GetRangeDelAggregator());
@@ -1555,6 +1570,8 @@ const Snapshot* DBImpl::GetSnapshot() { return GetSnapshotImpl(false); }
 
 #ifndef ROCKSDB_LITE
 const Snapshot* DBImpl::GetSnapshotForWriteConflictBoundary() {
+  // To get the latest updates on ts_tc_map_
+  TsTcSync();
   return GetSnapshotImpl(true);
 }
 #endif  // ROCKSDB_LITE

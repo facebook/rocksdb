@@ -273,10 +273,10 @@ Status TransactionImpl::Commit() {
 
     s = db_impl_->WriteImpl(write_options_, working_batch, nullptr, nullptr,
                             log_number_, true /* disable_memtable */);
-    db_impl_->ts_tc_mutex_.Lock();
-    auto seq = db_impl_->GetLatestSequenceNumber();
-    db_impl_->ts_tc_map_[seq % 1000000] = seq;
-    db_impl_->ts_tc_mutex_.Unlock();
+
+    // To emulate the cost of update the ts_tc map
+    db_impl_->TsTcWrite();
+
     if (!s.ok()) {
       ROCKS_LOG_WARN(db_impl_->immutable_db_options().info_log,
                      "Commit write failed");
