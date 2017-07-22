@@ -193,6 +193,9 @@ extern void InitOnce(OnceType* once, void (*initializer)());
   #endif
 #endif
 
+//Cache-line aligning to avoid false cache sharing
+#define CACHE_ALIGNED(size) __attribute__((__aligned__(size)))
+
 #define PREFETCH(addr, rw, locality) __builtin_prefetch(addr, rw, locality)
 
 extern void Crash(const std::string& srcfile, int srcline);
