@@ -231,11 +231,11 @@ TEST_F(DBTest, SkipDelay) {
       std::atomic<int> sleep_count(0);
       rocksdb::SyncPoint::GetInstance()->SetCallBack(
           "DBImpl::DelayWrite:Sleep",
-          [&](void* /*arg*/) { sleep_count.fetch_add(1); });
+          [&](void* arg) { sleep_count.fetch_add(1); });
       std::atomic<int> wait_count(0);
       rocksdb::SyncPoint::GetInstance()->SetCallBack(
           "DBImpl::DelayWrite:Wait",
-          [&](void* /*arg*/) { wait_count.fetch_add(1); });
+          [&](void* arg) { wait_count.fetch_add(1); });
       rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
       WriteOptions wo;
@@ -715,9 +715,9 @@ TEST_F(DBTest, FlushSchedule) {
 namespace {
 class KeepFilter : public CompactionFilter {
  public:
-  virtual bool Filter(int /*level*/, const Slice& /*key*/,
-                      const Slice& /*value*/, std::string* /*new_value*/,
-                      bool* /*value_changed*/) const override {
+  virtual bool Filter(int level, const Slice& key, const Slice& value,
+                      std::string* new_value,
+                      bool* value_changed) const override {
     return false;
   }
 
@@ -747,9 +747,9 @@ class KeepFilterFactory : public CompactionFilterFactory {
 class DelayFilter : public CompactionFilter {
  public:
   explicit DelayFilter(DBTestBase* d) : db_test(d) {}
-  virtual bool Filter(int /*level*/, const Slice& /*key*/,
-                      const Slice& /*value*/, std::string* /*new_value*/,
-                      bool* /*value_changed*/) const override {
+  virtual bool Filter(int level, const Slice& key, const Slice& value,
+                      std::string* new_value,
+                      bool* value_changed) const override {
     db_test->env_->addon_time_.fetch_add(1000);
     return true;
   }
@@ -764,7 +764,7 @@ class DelayFilterFactory : public CompactionFilterFactory {
  public:
   explicit DelayFilterFactory(DBTestBase* d) : db_test(d) {}
   virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
-      const CompactionFilter::Context& /*context*/) override {
+      const CompactionFilter::Context& context) override {
     return std::unique_ptr<CompactionFilter>(new DelayFilter(db_test));
   }
 
@@ -2210,17 +2210,17 @@ class ModelDB : public DB {
     return Write(o, &batch);
   }
   using DB::Get;
-  virtual Status Get(const ReadOptions& /*options*/, ColumnFamilyHandle* /*cf*/,
-                     const Slice& key, PinnableSlice* /*value*/) override {
+  virtual Status Get(const ReadOptions& options, ColumnFamilyHandle* cf,
+                     const Slice& key, PinnableSlice* value) override {
     return Status::NotSupported(key);
   }
 
   using DB::MultiGet;
   virtual std::vector<Status> MultiGet(
-      const ReadOptions& /*options*/,
-      const std::vector<ColumnFamilyHandle*>& /*column_family*/,
+      const ReadOptions& options,
+      const std::vector<ColumnFamilyHandle*>& column_family,
       const std::vector<Slice>& keys,
-      std::vector<std::string>* /*values*/) override {
+      std::vector<std::string>* values) override {
     std::vector<Status> s(keys.size(),
                           Status::NotSupported("Not implemented."));
     return s;
@@ -2229,30 +2229,30 @@ class ModelDB : public DB {
 #ifndef ROCKSDB_LITE
   using DB::IngestExternalFile;
   virtual Status IngestExternalFile(
-      ColumnFamilyHandle* /*column_family*/,
-      const std::vector<std::string>& /*external_files*/,
-      const IngestExternalFileOptions& /*options*/) override {
+      ColumnFamilyHandle* column_family,
+      const std::vector<std::string>& external_files,
+      const IngestExternalFileOptions& options) override {
     return Status::NotSupported("Not implemented.");
   }
 
   using DB::GetPropertiesOfAllTables;
   virtual Status GetPropertiesOfAllTables(
-      ColumnFamilyHandle* /*column_family*/,
-      TablePropertiesCollection* /*props*/) override {
+      ColumnFamilyHandle* column_family,
+      TablePropertiesCollection* props) override {
     return Status();
   }
 
   virtual Status GetPropertiesOfTablesInRange(
-      ColumnFamilyHandle* /*column_family*/, const Range* /*range*/,
-      std::size_t /*n*/, TablePropertiesCollection* /*props*/) override {
+      ColumnFamilyHandle* column_family, const Range* range, std::size_t n,
+      TablePropertiesCollection* props) override {
     return Status();
   }
 #endif  // ROCKSDB_LITE
 
   using DB::KeyMayExist;
-  virtual bool KeyMayExist(const ReadOptions& /*options*/,
-                           ColumnFamilyHandle* /*column_family*/,
-                           const Slice& /*key*/, std::string* /*value*/,
+  virtual bool KeyMayExist(const ReadOptions& options,
+                           ColumnFamilyHandle* column_family, const Slice& key,
+                           std::string* value,
                            bool* value_found = nullptr) override {
     if (value_found != nullptr) {
       *value_found = false;
@@ -2260,9 +2260,8 @@ class ModelDB : public DB {
     return true;  // Not Supported directly
   }
   using DB::NewIterator;
-  virtual Iterator* NewIterator(
-      const ReadOptions& options,
-      ColumnFamilyHandle* /*column_family*/) override {
+  virtual Iterator* NewIterator(const ReadOptions& options,
+                                ColumnFamilyHandle* column_family) override {
     if (options.snapshot == nullptr) {
       KVMap* saved = new KVMap;
       *saved = map_;
@@ -2274,9 +2273,9 @@ class ModelDB : public DB {
     }
   }
   virtual Status NewIterators(
-      const ReadOptions& /*options*/,
-      const std::vector<ColumnFamilyHandle*>& /*column_family*/,
-      std::vector<Iterator*>* /*iterators*/) override {
+      const ReadOptions& options,
+      const std::vector<ColumnFamilyHandle*>& column_family,
+      std::vector<Iterator*>* iterators) override {
     return Status::NotSupported("Not supported yet");
   }
   virtual const Snapshot* GetSnapshot() override {
@@ -2289,7 +2288,7 @@ class ModelDB : public DB {
     delete reinterpret_cast<const ModelSnapshot*>(snapshot);
   }
 
-  virtual Status Write(const WriteOptions& /*options*/,
+  virtual Status Write(const WriteOptions& options,
                        WriteBatch* batch) override {
     class Handler : public WriteBatch::Handler {
      public:
@@ -2297,8 +2296,7 @@ class ModelDB : public DB {
       virtual void Put(const Slice& key, const Slice& value) override {
         (*map_)[key.ToString()] = value.ToString();
       }
-      virtual void Merge(const Slice& /*key*/,
-                         const Slice& /*value*/) override {
+      virtual void Merge(const Slice& key, const Slice& value) override {
         // ignore merge for now
         // (*map_)[key.ToString()] = value.ToString();
       }
@@ -2312,65 +2310,62 @@ class ModelDB : public DB {
   }
 
   using DB::GetProperty;
-  virtual bool GetProperty(ColumnFamilyHandle* /*column_family*/,
-                           const Slice& /*property*/,
-                           std::string* /*value*/) override {
+  virtual bool GetProperty(ColumnFamilyHandle* column_family,
+                           const Slice& property, std::string* value) override {
     return false;
   }
   using DB::GetIntProperty;
-  virtual bool GetIntProperty(ColumnFamilyHandle* /*column_family*/,
-                              const Slice& /*property*/,
-                              uint64_t* /*value*/) override {
+  virtual bool GetIntProperty(ColumnFamilyHandle* column_family,
+                              const Slice& property, uint64_t* value) override {
     return false;
   }
   using DB::GetMapProperty;
-  virtual bool GetMapProperty(
-      ColumnFamilyHandle* /*column_family*/, const Slice& /*property*/,
-      std::map<std::string, double>* /*value*/) override {
+  virtual bool GetMapProperty(ColumnFamilyHandle* column_family,
+                              const Slice& property,
+                              std::map<std::string, double>* value) override {
     return false;
   }
   using DB::GetAggregatedIntProperty;
-  virtual bool GetAggregatedIntProperty(const Slice& /*property*/,
-                                        uint64_t* /*value*/) override {
+  virtual bool GetAggregatedIntProperty(const Slice& property,
+                                        uint64_t* value) override {
     return false;
   }
   using DB::GetApproximateSizes;
-  virtual void GetApproximateSizes(ColumnFamilyHandle* /*column_family*/,
-                                   const Range* /*range*/, int n,
-                                   uint64_t* sizes,
-                                   uint8_t /*include_flags*/
+  virtual void GetApproximateSizes(ColumnFamilyHandle* column_family,
+                                   const Range* range, int n, uint64_t* sizes,
+                                   uint8_t include_flags
                                    = INCLUDE_FILES) override {
     for (int i = 0; i < n; i++) {
       sizes[i] = 0;
     }
   }
   using DB::GetApproximateMemTableStats;
-  virtual void GetApproximateMemTableStats(
-      ColumnFamilyHandle* /*column_family*/, const Range& /*range*/,
-      uint64_t* const count, uint64_t* const size) override {
+  virtual void GetApproximateMemTableStats(ColumnFamilyHandle* column_family,
+                                           const Range& range,
+                                           uint64_t* const count,
+                                           uint64_t* const size) override {
     *count = 0;
     *size = 0;
   }
   using DB::CompactRange;
-  virtual Status CompactRange(const CompactRangeOptions& /*options*/,
-                              ColumnFamilyHandle* /*column_family*/,
-                              const Slice* /*start*/,
-                              const Slice* /*end*/) override {
+  virtual Status CompactRange(const CompactRangeOptions& options,
+                              ColumnFamilyHandle* column_family,
+                              const Slice* start, const Slice* end) override {
     return Status::NotSupported("Not supported operation.");
   }
 
   virtual Status SetDBOptions(
-      const std::unordered_map<std::string, std::string>& /*new_options*/)
+      const std::unordered_map<std::string, std::string>& new_options)
       override {
     return Status::NotSupported("Not supported operation.");
   }
 
   using DB::CompactFiles;
-  virtual Status CompactFiles(
-      const CompactionOptions& /*compact_options*/,
-      ColumnFamilyHandle* /*column_family*/,
-      const std::vector<std::string>& /*input_file_names*/,
-      const int /*output_level*/, const int /*output_path_id*/ = -1) override {
+  virtual Status CompactFiles(const CompactionOptions& compact_options,
+                              ColumnFamilyHandle* column_family,
+                              const std::vector<std::string>& input_file_names,
+                              const int output_level,
+                              const int output_path_id = -1) override {
     return Status::NotSupported("Not supported operation.");
   }
 
@@ -2383,25 +2378,24 @@ class ModelDB : public DB {
   }
 
   Status EnableAutoCompaction(
-      const std::vector<ColumnFamilyHandle*>& /*column_family_handles*/)
-      override {
+      const std::vector<ColumnFamilyHandle*>& column_family_handles) override {
     return Status::NotSupported("Not supported operation.");
   }
 
   using DB::NumberLevels;
-  virtual int NumberLevels(ColumnFamilyHandle* /*column_family*/) override {
+  virtual int NumberLevels(ColumnFamilyHandle* column_family) override {
     return 1;
   }
 
   using DB::MaxMemCompactionLevel;
   virtual int MaxMemCompactionLevel(
-      ColumnFamilyHandle* /*column_family*/) override {
+      ColumnFamilyHandle* column_family) override {
     return 1;
   }
 
   using DB::Level0StopWriteTrigger;
   virtual int Level0StopWriteTrigger(
-      ColumnFamilyHandle* /*column_family*/) override {
+      ColumnFamilyHandle* column_family) override {
     return -1;
   }
 
@@ -2410,8 +2404,7 @@ class ModelDB : public DB {
   virtual Env* GetEnv() const override { return nullptr; }
 
   using DB::GetOptions;
-  virtual Options GetOptions(
-      ColumnFamilyHandle* /*column_family*/) const override {
+  virtual Options GetOptions(ColumnFamilyHandle* column_family) const override {
     return options_;
   }
 
@@ -2419,8 +2412,8 @@ class ModelDB : public DB {
   virtual DBOptions GetDBOptions() const override { return options_; }
 
   using DB::Flush;
-  virtual Status Flush(const rocksdb::FlushOptions& /*options*/,
-                       ColumnFamilyHandle* /*column_family*/) override {
+  virtual Status Flush(const rocksdb::FlushOptions& options,
+                       ColumnFamilyHandle* column_family) override {
     Status ret;
     return ret;
   }
@@ -2430,35 +2423,33 @@ class ModelDB : public DB {
 #ifndef ROCKSDB_LITE
   virtual Status DisableFileDeletions() override { return Status::OK(); }
 
-  virtual Status EnableFileDeletions(bool /*force*/) override {
+  virtual Status EnableFileDeletions(bool force) override {
     return Status::OK();
   }
-  virtual Status GetLiveFiles(std::vector<std::string>&, uint64_t* /*size*/,
-                              bool /*flush_memtable*/ = true) override {
-    return Status::OK();
-  }
-
-  virtual Status GetSortedWalFiles(VectorLogPtr& /*files*/) override {
+  virtual Status GetLiveFiles(std::vector<std::string>&, uint64_t* size,
+                              bool flush_memtable = true) override {
     return Status::OK();
   }
 
-  virtual Status DeleteFile(std::string /*name*/) override {
+  virtual Status GetSortedWalFiles(VectorLogPtr& files) override {
     return Status::OK();
   }
+
+  virtual Status DeleteFile(std::string name) override { return Status::OK(); }
 
   virtual Status GetUpdatesSince(
       rocksdb::SequenceNumber, unique_ptr<rocksdb::TransactionLogIterator>*,
-      const TransactionLogIterator::ReadOptions& /*read_options*/ =
+      const TransactionLogIterator::ReadOptions& read_options =
           TransactionLogIterator::ReadOptions()) override {
     return Status::NotSupported("Not supported in Model DB");
   }
 
   virtual void GetColumnFamilyMetaData(
-      ColumnFamilyHandle* /*column_family*/,
-      ColumnFamilyMetaData* /*metadata*/) override {}
+      ColumnFamilyHandle* column_family,
+      ColumnFamilyMetaData* metadata) override {}
 #endif  // ROCKSDB_LITE
 
-  virtual Status GetDbIdentity(std::string& /*identity*/) const override {
+  virtual Status GetDbIdentity(std::string& identity) const override {
     return Status::OK();
   }
 
@@ -3331,7 +3322,7 @@ TEST_F(DBTest, DynamicMemtableOptions) {
 
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::DelayWrite:Wait",
-      [&](void* /*arg*/) { sleeping_task_low.WakeUp(); });
+      [&](void* arg) { sleeping_task_low.WakeUp(); });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   while (!sleeping_task_low.WokenUp() && count < 256) {
@@ -4539,7 +4530,7 @@ class DelayedMergeOperator : public MergeOperator {
  public:
   explicit DelayedMergeOperator(DBTest* d) : db_test_(d) {}
 
-  virtual bool FullMergeV2(const MergeOperationInput& /*merge_in*/,
+  virtual bool FullMergeV2(const MergeOperationInput& merge_in,
                            MergeOperationOutput* merge_out) const override {
     db_test_->env_->addon_time_.fetch_add(1000);
     merge_out->new_value = "";
@@ -4890,7 +4881,7 @@ TEST_F(DBTest, AutomaticConflictsWithManualCompaction) {
   std::atomic<int> callback_count(0);
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction()::Conflict",
-      [&](void* /*arg*/) { callback_count.fetch_add(1); });
+      [&](void* arg) { callback_count.fetch_add(1); });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   CompactRangeOptions croptions;
   croptions.exclusive_manual_compaction = false;
@@ -5089,7 +5080,7 @@ TEST_F(DBTest, HardLimit) {
 
   std::atomic<int> callback_count(0);
   rocksdb::SyncPoint::GetInstance()->SetCallBack("DBImpl::DelayWrite:Wait",
-                                                 [&](void* /*arg*/) {
+                                                 [&](void* arg) {
                                                    callback_count.fetch_add(1);
                                                    sleeping_task_low.WakeUp();
                                                  });
@@ -5182,7 +5173,7 @@ TEST_F(DBTest, SoftLimit) {
 
   // Only allow one compactin going through.
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "BackgroundCallCompaction:0", [&](void* /*arg*/) {
+      "BackgroundCallCompaction:0", [&](void* arg) {
         // Schedule a sleeping task.
         sleeping_task_low.Reset();
         env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,

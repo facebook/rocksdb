@@ -235,7 +235,7 @@ DEFINE_bool(use_uint64_comparator, false, "use Uint64 user comparator");
 
 DEFINE_int64(batch_size, 1, "Batch size");
 
-static bool ValidateKeySize(const char* /*flagname*/, int32_t /*value*/) {
+static bool ValidateKeySize(const char* flagname, int32_t value) {
   return true;
 }
 
@@ -2041,9 +2041,8 @@ class Benchmark {
     explicit ExpiredTimeFilter(
         const std::shared_ptr<TimestampEmulator>& timestamp_emulator)
         : timestamp_emulator_(timestamp_emulator) {}
-    bool Filter(int /*level*/, const Slice& key,
-                const Slice& /*existing_value*/, std::string* /*new_value*/,
-                bool* /*value_changed*/) const override {
+    bool Filter(int level, const Slice& key, const Slice& existing_value,
+                std::string* new_value, bool* value_changed) const override {
       return KeyExpired(timestamp_emulator_.get(), key);
     }
     const char* Name() const override { return "ExpiredTimeFilter"; }
@@ -3352,9 +3351,12 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 
   class KeyGenerator {
    public:
-    KeyGenerator(Random64* rand, WriteMode mode, uint64_t num,
-                 uint64_t /*num_per_set*/ = 64 * 1024)
-        : rand_(rand), mode_(mode), num_(num), next_(0) {
+    KeyGenerator(Random64* rand, WriteMode mode,
+        uint64_t num, uint64_t num_per_set = 64 * 1024)
+      : rand_(rand),
+        mode_(mode),
+        num_(num),
+        next_(0) {
       if (mode_ == UNIQUE_RANDOM) {
         // NOTE: if memory consumption of this approach becomes a concern,
         // we can either break it into pieces and only random shuffle a section

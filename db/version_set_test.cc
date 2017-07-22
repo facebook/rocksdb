@@ -76,9 +76,7 @@ class CountingLogger : public Logger {
  public:
   CountingLogger() : log_count(0) {}
   using Logger::Logv;
-  virtual void Logv(const char* /*format*/, va_list /*ap*/) override {
-    log_count++;
-  }
+  virtual void Logv(const char* format, va_list ap) override { log_count++; }
   int log_count;
 };
 

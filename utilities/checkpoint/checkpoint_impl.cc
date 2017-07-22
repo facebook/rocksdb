@@ -37,8 +37,8 @@ Status Checkpoint::Create(DB* db, Checkpoint** checkpoint_ptr) {
   return Status::OK();
 }
 
-Status Checkpoint::CreateCheckpoint(const std::string& /*checkpoint_dir*/,
-                                    uint64_t /*log_size_for_flush*/) {
+Status Checkpoint::CreateCheckpoint(const std::string& checkpoint_dir,
+                                    uint64_t log_size_for_flush) {
   return Status::NotSupported("");
 }
 

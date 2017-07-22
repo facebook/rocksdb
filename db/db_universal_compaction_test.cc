@@ -56,9 +56,9 @@ void VerifyCompactionResult(
 
 class KeepFilter : public CompactionFilter {
  public:
-  virtual bool Filter(int /*level*/, const Slice& /*key*/,
-                      const Slice& /*value*/, std::string* /*new_value*/,
-                      bool* /*value_changed*/) const override {
+  virtual bool Filter(int level, const Slice& key, const Slice& value,
+                      std::string* new_value, bool* value_changed) const
+      override {
     return false;
   }
 
@@ -88,9 +88,9 @@ class KeepFilterFactory : public CompactionFilterFactory {
 class DelayFilter : public CompactionFilter {
  public:
   explicit DelayFilter(DBTestBase* d) : db_test(d) {}
-  virtual bool Filter(int /*level*/, const Slice& /*key*/,
-                      const Slice& /*value*/, std::string* /*new_value*/,
-                      bool* /*value_changed*/) const override {
+  virtual bool Filter(int level, const Slice& key, const Slice& value,
+                      std::string* new_value,
+                      bool* value_changed) const override {
     db_test->env_->addon_time_.fetch_add(1000);
     return true;
   }
@@ -105,7 +105,7 @@ class DelayFilterFactory : public CompactionFilterFactory {
  public:
   explicit DelayFilterFactory(DBTestBase* d) : db_test(d) {}
   virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
-      const CompactionFilter::Context& /*context*/) override {
+      const CompactionFilter::Context& context) override {
     return std::unique_ptr<CompactionFilter>(new DelayFilter(db_test));
   }
 
@@ -522,7 +522,7 @@ TEST_P(DBTestUniversalCompactionMultiLevels, UniversalCompactionTrivialMove) {
   int32_t non_trivial_move = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:TrivialMove",
-      [&](void* /*arg*/) { trivial_move++; });
+      [&](void* arg) { trivial_move++; });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:NonTrivial", [&](void* arg) {
         non_trivial_move++;
@@ -593,23 +593,23 @@ TEST_P(DBTestUniversalCompactionParallel, UniversalCompactionParallel) {
   // Delay every compaction so multiple compactions will happen.
   std::atomic<int> num_compactions_running(0);
   std::atomic<bool> has_parallel(false);
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "CompactionJob::Run():Start", [&](void* /*arg*/) {
-        if (num_compactions_running.fetch_add(1) > 0) {
-          has_parallel.store(true);
-          return;
-        }
-        for (int nwait = 0; nwait < 20000; nwait++) {
-          if (has_parallel.load() || num_compactions_running.load() > 1) {
-            has_parallel.store(true);
-            break;
-          }
-          env_->SleepForMicroseconds(1000);
-        }
-      });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack("CompactionJob::Run():Start",
+                                                 [&](void* arg) {
+    if (num_compactions_running.fetch_add(1) > 0) {
+      has_parallel.store(true);
+      return;
+    }
+    for (int nwait = 0; nwait < 20000; nwait++) {
+      if (has_parallel.load() || num_compactions_running.load() > 1) {
+        has_parallel.store(true);
+        break;
+      }
+      env_->SleepForMicroseconds(1000);
+    }
+  });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "CompactionJob::Run():End",
-      [&](void* /*arg*/) { num_compactions_running.fetch_add(-1); });
+      [&](void* arg) { num_compactions_running.fetch_add(-1); });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   options = CurrentOptions(options);
@@ -984,7 +984,7 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionTrivialMoveTest1) {
   int32_t non_trivial_move = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:TrivialMove",
-      [&](void* /*arg*/) { trivial_move++; });
+      [&](void* arg) { trivial_move++; });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:NonTrivial", [&](void* arg) {
         non_trivial_move++;
@@ -1030,7 +1030,7 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionTrivialMoveTest2) {
   int32_t trivial_move = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:TrivialMove",
-      [&](void* /*arg*/) { trivial_move++; });
+      [&](void* arg) { trivial_move++; });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:NonTrivial", [&](void* arg) {
         ASSERT_TRUE(arg != nullptr);

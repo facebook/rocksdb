@@ -231,12 +231,11 @@ TEST_F(DBSSTTest, DBWithSstFileManager) {
   int files_deleted = 0;
   int files_moved = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "SstFileManagerImpl::OnAddFile", [&](void* /*arg*/) { files_added++; });
+      "SstFileManagerImpl::OnAddFile", [&](void* arg) { files_added++; });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "SstFileManagerImpl::OnDeleteFile",
-      [&](void* /*arg*/) { files_deleted++; });
+      "SstFileManagerImpl::OnDeleteFile", [&](void* arg) { files_deleted++; });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "SstFileManagerImpl::OnMoveFile", [&](void* /*arg*/) { files_moved++; });
+      "SstFileManagerImpl::OnMoveFile", [&](void* arg) { files_moved++; });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   Options options = CurrentOptions();
@@ -386,7 +385,7 @@ TEST_F(DBSSTTest, DeleteSchedulerMultipleDBPaths) {
   int bg_delete_file = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DeleteScheduler::DeleteTrashFile:DeleteFile",
-      [&](void* /*arg*/) { bg_delete_file++; });
+      [&](void* arg) { bg_delete_file++; });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   Options options = CurrentOptions();
@@ -454,7 +453,7 @@ TEST_F(DBSSTTest, DestroyDBWithRateLimitedDelete) {
   int bg_delete_file = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DeleteScheduler::DeleteTrashFile:DeleteFile",
-      [&](void* /*arg*/) { bg_delete_file++; });
+      [&](void* arg) { bg_delete_file++; });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   Status s;
@@ -547,7 +546,7 @@ TEST_F(DBSSTTest, DBWithMaxSpaceAllowedRandomized) {
 
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "CompactionJob::FinishCompactionOutputFile:MaxAllowedSpaceReached",
-      [&](void* /*arg*/) {
+      [&](void* arg) {
         bg_error_set = true;
         GetAllSSTFiles(&total_sst_files_size);
         reached_max_space_on_compaction++;
