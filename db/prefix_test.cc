@@ -126,10 +126,10 @@ class TestKeyComparator : public Comparator {
     return "TestKeyComparator";
   }
 
-  virtual void FindShortestSeparator(std::string* /*start*/,
-                                     const Slice& /*limit*/) const override {}
+  virtual void FindShortestSeparator(std::string* start,
+                                     const Slice& limit) const override {}
 
-  virtual void FindShortSuccessor(std::string* /*key*/) const override {}
+  virtual void FindShortSuccessor(std::string* key) const override {}
 };
 
 namespace {

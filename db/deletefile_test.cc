@@ -159,7 +159,7 @@ class DeleteFileTest : public testing::Test {
   }
 
   // An empty job to guard all jobs are processed
-  static void GuardFinish(void* /*arg*/) {
+  static void GuardFinish(void* arg) {
     TEST_SYNC_POINT("DeleteFileTest::GuardFinish");
   }
 };

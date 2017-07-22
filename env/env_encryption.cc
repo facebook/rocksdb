@@ -844,9 +844,7 @@ static void decodeCTRParameters(const char *prefix, size_t blockSize, uint64_t &
 
 // CreateNewPrefix initialized an allocated block of prefix memory 
 // for a new file.
-Status CTREncryptionProvider::CreateNewPrefix(const std::string& /*fname*/,
-                                              char* prefix,
-                                              size_t prefixLength) {
+Status CTREncryptionProvider::CreateNewPrefix(const std::string& fname, char *prefix, size_t prefixLength) {
   // Create & seed rnd.
   Random rnd((uint32_t)Env::Default()->NowMicros());
   // Fill entire prefix block with random values.
@@ -875,9 +873,7 @@ Status CTREncryptionProvider::CreateNewPrefix(const std::string& /*fname*/,
 // in plain text.
 // Returns the amount of space (starting from the start of the prefix)
 // that has been initialized.
-size_t CTREncryptionProvider::PopulateSecretPrefixPart(char* /*prefix*/,
-                                                       size_t /*prefixLength*/,
-                                                       size_t /*blockSize*/) {
+size_t CTREncryptionProvider::PopulateSecretPrefixPart(char *prefix, size_t prefixLength, size_t blockSize) {
   // Nothing to do here, put in custom data in override when needed.
   return 0;
 }
@@ -902,10 +898,8 @@ Status CTREncryptionProvider::CreateCipherStream(const std::string& fname, const
 
 // CreateCipherStreamFromPrefix creates a block access cipher stream for a file given
 // given name and options. The given prefix is already decrypted.
-Status CTREncryptionProvider::CreateCipherStreamFromPrefix(
-    const std::string& /*fname*/, const EnvOptions& /*options*/,
-    uint64_t initialCounter, const Slice& iv, const Slice& /*prefix*/,
-    unique_ptr<BlockAccessCipherStream>* result) {
+Status CTREncryptionProvider::CreateCipherStreamFromPrefix(const std::string& fname, const EnvOptions& options,
+    uint64_t initialCounter, const Slice& iv, const Slice& prefix, unique_ptr<BlockAccessCipherStream>* result) {
   (*result) = unique_ptr<BlockAccessCipherStream>(new CTRCipherStream(cipher_, iv.data(), initialCounter));
   return Status::OK();
 }

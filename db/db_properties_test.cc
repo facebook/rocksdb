@@ -985,9 +985,8 @@ class CountingUserTblPropCollector : public TablePropertiesCollector {
     return Status::OK();
   }
 
-  Status AddUserKey(const Slice& /*user_key*/, const Slice& /*value*/,
-                    EntryType /*type*/, SequenceNumber /*seq*/,
-                    uint64_t /*file_size*/) override {
+  Status AddUserKey(const Slice& user_key, const Slice& value, EntryType type,
+                    SequenceNumber seq, uint64_t file_size) override {
     ++count_;
     return Status::OK();
   }
@@ -1028,9 +1027,8 @@ class CountingDeleteTabPropCollector : public TablePropertiesCollector {
  public:
   const char* Name() const override { return "CountingDeleteTabPropCollector"; }
 
-  Status AddUserKey(const Slice& /*user_key*/, const Slice& /*value*/,
-                    EntryType type, SequenceNumber /*seq*/,
-                    uint64_t /*file_size*/) override {
+  Status AddUserKey(const Slice& user_key, const Slice& value, EntryType type,
+                    SequenceNumber seq, uint64_t file_size) override {
     if (type == kEntryDelete) {
       num_deletes_++;
     }
@@ -1057,7 +1055,7 @@ class CountingDeleteTabPropCollectorFactory
     : public TablePropertiesCollectorFactory {
  public:
   virtual TablePropertiesCollector* CreateTablePropertiesCollector(
-      TablePropertiesCollectorFactory::Context /*context*/) override {
+      TablePropertiesCollectorFactory::Context context) override {
     return new CountingDeleteTabPropCollector();
   }
   const char* Name() const override {

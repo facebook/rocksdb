@@ -370,7 +370,7 @@ TEST_F(CheckpointTest, CheckpointCFNoFlush) {
   Status s;
   // Take a snapshot
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BackgroundCallFlush:start", [&](void* /*arg*/) {
+      "DBImpl::BackgroundCallFlush:start", [&](void* arg) {
         // Flush should never trigger.
         FAIL();
       });

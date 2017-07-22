@@ -402,8 +402,8 @@ class Transaction {
 
   virtual bool IsDeadlockDetect() const { return false; }
 
-  virtual std::vector<TransactionID> GetWaitingTxns(
-      uint32_t* /*column_family_id*/, std::string* /*key*/) const {
+  virtual std::vector<TransactionID> GetWaitingTxns(uint32_t* column_family_id,
+                                                    std::string* key) const {
     assert(false);
     return std::vector<TransactionID>();
   }
@@ -423,7 +423,7 @@ class Transaction {
   void SetState(TransactionState state) { txn_state_ = state; }
 
  protected:
-  explicit Transaction(const TransactionDB* /*db*/) {}
+  explicit Transaction(const TransactionDB* db) {}
   Transaction() {}
 
   // the log in which the prepared section for this txn resides
