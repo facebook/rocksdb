@@ -101,12 +101,12 @@ class DBIter: public Iterator {
     uint64_t bytes_read_;
   };
 
-  DBIter(Env* env, const ReadOptions& read_options,
+  DBIter(Env* _env, const ReadOptions& read_options,
          const ImmutableCFOptions& cf_options, const Comparator* cmp,
          InternalIterator* iter, SequenceNumber s, bool arena_mode,
-         uint64_t max_sequential_skip_in_iterations, uint64_t version_number)
+         uint64_t max_sequential_skip_in_iterations)
       : arena_mode_(arena_mode),
-        env_(env),
+        env_(_env),
         logger_(cf_options.info_log),
         user_comparator_(cmp),
         merge_operator_(cf_options.merge_operator),
@@ -116,7 +116,6 @@ class DBIter: public Iterator {
         valid_(false),
         current_entry_is_merged_(false),
         statistics_(cf_options.statistics),
-        version_number_(version_number),
         iterate_upper_bound_(read_options.iterate_upper_bound),
         prefix_same_as_start_(read_options.prefix_same_as_start),
         pin_thru_lifetime_(read_options.pin_data),
@@ -188,10 +187,7 @@ class DBIter: public Iterator {
     }
     if (prop_name == "rocksdb.iterator.super-version-number") {
       // First try to pass the value returned from inner iterator.
-      if (!iter_->GetProperty(prop_name, prop).ok()) {
-        *prop = ToString(version_number_);
-      }
-      return Status::OK();
+      return iter_->GetProperty(prop_name, prop);
     } else if (prop_name == "rocksdb.iterator.is-key-pinned") {
       if (valid_) {
         *prop = (pin_thru_lifetime_ && saved_key_.IsKeyPinned()) ? "1" : "0";
@@ -209,6 +205,9 @@ class DBIter: public Iterator {
   virtual void SeekForPrev(const Slice& target) override;
   virtual void SeekToFirst() override;
   virtual void SeekToLast() override;
+  Env* env() { return env_; }
+  void set_sequence(uint64_t s) { sequence_ = s; }
+  void set_valid(bool v) { valid_ = v; }
 
  private:
   void ReverseToForward();
@@ -260,7 +259,7 @@ class DBIter: public Iterator {
   const Comparator* const user_comparator_;
   const MergeOperator* const merge_operator_;
   InternalIterator* iter_;
-  SequenceNumber const sequence_;
+  SequenceNumber sequence_;
 
   Status status_;
   IterKey saved_key_;
@@ -274,7 +273,6 @@ class DBIter: public Iterator {
   uint64_t max_skip_;
   uint64_t max_skippable_internal_keys_;
   uint64_t num_internal_keys_skipped_;
-  uint64_t version_number_;
   const Slice* iterate_upper_bound_;
   IterKey prefix_start_buf_;
   Slice prefix_start_key_;
@@ -1157,17 +1155,14 @@ Iterator* NewDBIterator(Env* env, const ReadOptions& read_options,
                         const Comparator* user_key_comparator,
                         InternalIterator* internal_iter,
                         const SequenceNumber& sequence,
-                        uint64_t max_sequential_skip_in_iterations,
-                        uint64_t version_number) {
-  DBIter* db_iter = new DBIter(
-      env, read_options, cf_options, user_key_comparator, internal_iter,
-      sequence, false, max_sequential_skip_in_iterations, version_number);
+                        uint64_t max_sequential_skip_in_iterations) {
+  DBIter* db_iter = new DBIter(env, read_options, cf_options,
+                               user_key_comparator, internal_iter, sequence,
+                               false, max_sequential_skip_in_iterations);
   return db_iter;
 }
 
 ArenaWrappedDBIter::~ArenaWrappedDBIter() { db_iter_->~DBIter(); }
-
-void ArenaWrappedDBIter::SetDBIter(DBIter* iter) { db_iter_ = iter; }
 
 RangeDelAggregator* ArenaWrappedDBIter::GetRangeDelAggregator() {
   return db_iter_->GetRangeDelAggregator();
@@ -1193,26 +1188,67 @@ inline Slice ArenaWrappedDBIter::value() const { return db_iter_->value(); }
 inline Status ArenaWrappedDBIter::status() const { return db_iter_->status(); }
 inline Status ArenaWrappedDBIter::GetProperty(std::string prop_name,
                                               std::string* prop) {
+  if (prop_name == "rocksdb.iterator.super-version-number") {
+    // First try to pass the value returned from inner iterator.
+    if (!db_iter_->GetProperty(prop_name, prop).ok()) {
+      *prop = ToString(sv_number_);
+    }
+    return Status::OK();
+  }
   return db_iter_->GetProperty(prop_name, prop);
 }
-void ArenaWrappedDBIter::RegisterCleanup(CleanupFunction function, void* arg1,
-                                         void* arg2) {
-  db_iter_->RegisterCleanup(function, arg1, arg2);
+
+void ArenaWrappedDBIter::Init(Env* env, const ReadOptions& read_options,
+                              const ImmutableCFOptions& cf_options,
+                              const SequenceNumber& sequence,
+                              uint64_t max_sequential_skip_in_iteration,
+                              uint64_t version_number) {
+  auto mem = arena_.AllocateAligned(sizeof(DBIter));
+  db_iter_ = new (mem)
+      DBIter(env, read_options, cf_options, cf_options.user_comparator, nullptr,
+             sequence, true, max_sequential_skip_in_iteration);
+  sv_number_ = version_number;
+}
+
+Status ArenaWrappedDBIter::Refresh() {
+  if (cfd_ == nullptr || db_impl_ == nullptr) {
+    return Status::NotSupported("Creating renew iterator is not allowed.");
+  }
+  assert(db_iter_ != nullptr);
+  SequenceNumber latest_seq = db_impl_->GetLatestSequenceNumber();
+  uint64_t cur_sv_number = cfd_->GetSuperVersionNumber();
+  if (sv_number_ != cur_sv_number) {
+    Env* env = db_iter_->env();
+    db_iter_->~DBIter();
+    arena_.~Arena();
+    new (&arena_) Arena();
+
+    SuperVersion* sv = cfd_->GetReferencedSuperVersion(db_impl_->mutex());
+    Init(env, read_options_, *(cfd_->ioptions()), latest_seq,
+         sv->mutable_cf_options.max_sequential_skip_in_iterations,
+         cur_sv_number);
+
+    InternalIterator* internal_iter = db_impl_->NewInternalIterator(
+        read_options_, cfd_, sv, &arena_, db_iter_->GetRangeDelAggregator());
+    SetIterUnderDBIter(internal_iter);
+  } else {
+    db_iter_->set_sequence(latest_seq);
+    db_iter_->set_valid(false);
+  }
+  return Status::OK();
 }
 
 ArenaWrappedDBIter* NewArenaWrappedDbIterator(
     Env* env, const ReadOptions& read_options,
-    const ImmutableCFOptions& cf_options, const Comparator* user_key_comparator,
-    const SequenceNumber& sequence, uint64_t max_sequential_skip_in_iterations,
-    uint64_t version_number) {
+    const ImmutableCFOptions& cf_options, const SequenceNumber& sequence,
+    uint64_t max_sequential_skip_in_iterations, uint64_t version_number,
+    DBImpl* db_impl, ColumnFamilyData* cfd) {
   ArenaWrappedDBIter* iter = new ArenaWrappedDBIter();
-  Arena* arena = iter->GetArena();
-  auto mem = arena->AllocateAligned(sizeof(DBIter));
-  DBIter* db_iter = new (mem)
-      DBIter(env, read_options, cf_options, user_key_comparator, nullptr,
-             sequence, true, max_sequential_skip_in_iterations, version_number);
-
-  iter->SetDBIter(db_iter);
+  iter->Init(env, read_options, cf_options, sequence,
+             max_sequential_skip_in_iterations, version_number);
+  if (db_impl != nullptr && cfd != nullptr) {
+    iter->StoreRefreshInfo(read_options, db_impl, cfd);
+  }
 
   return iter;
 }
