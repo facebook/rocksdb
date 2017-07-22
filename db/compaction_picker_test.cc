@@ -1390,6 +1390,49 @@ TEST_F(CompactionPickerTest, IsTrivialMoveOff) {
   ASSERT_FALSE(compaction->IsTrivialMove());
 }
 
+TEST_F(CompactionPickerTest, CacheNextCompactionIndex) {
+  NewVersionStorage(6, kCompactionStyleLevel);
+  mutable_cf_options_.max_compaction_bytes = 100000000000u;
+
+  Add(1 /* level */, 1U /* file_number */, "100" /* smallest */,
+      "149" /* largest */, 1000000000U /* file_size */);
+  file_map_[1U].first->being_compacted = true;
+  Add(1 /* level */, 2U /* file_number */, "150" /* smallest */,
+      "199" /* largest */, 900000000U /* file_size */);
+  Add(1 /* level */, 3U /* file_number */, "200" /* smallest */,
+      "249" /* largest */, 800000000U /* file_size */);
+  Add(1 /* level */, 4U /* file_number */, "250" /* smallest */,
+      "299" /* largest */, 700000000U /* file_size */);
+  Add(2 /* level */, 5U /* file_number */, "150" /* smallest */,
+      "199" /* largest */, 1U /* file_size */);
+  file_map_[5U].first->being_compacted = true;
+
+  UpdateVersionStorageInfo();
+
+  std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
+      cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
+  ASSERT_TRUE(compaction.get() != nullptr);
+  ASSERT_EQ(1U, compaction->num_input_levels());
+  ASSERT_EQ(1U, compaction->num_input_files(0));
+  ASSERT_EQ(0U, compaction->num_input_files(1));
+  ASSERT_EQ(3U, compaction->input(0, 0)->fd.GetNumber());
+  ASSERT_EQ(2, vstorage_->NextCompactionIndex(1 /* level */));
+
+  compaction.reset(level_compaction_picker.PickCompaction(
+      cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
+  ASSERT_TRUE(compaction.get() != nullptr);
+  ASSERT_EQ(1U, compaction->num_input_levels());
+  ASSERT_EQ(1U, compaction->num_input_files(0));
+  ASSERT_EQ(0U, compaction->num_input_files(1));
+  ASSERT_EQ(4U, compaction->input(0, 0)->fd.GetNumber());
+  ASSERT_EQ(3, vstorage_->NextCompactionIndex(1 /* level */));
+
+  compaction.reset(level_compaction_picker.PickCompaction(
+      cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
+  ASSERT_TRUE(compaction.get() == nullptr);
+  ASSERT_EQ(4, vstorage_->NextCompactionIndex(1 /* level */));
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
