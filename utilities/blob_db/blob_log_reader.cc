@@ -41,7 +41,7 @@ Status Reader::ReadHeader(BlobLogHeader* header) {
 }
 
 Status Reader::ReadRecord(BlobLogRecord* record, ReadLevel level,
-                          WALRecoveryMode /*wal_recovery_mode*/) {
+                          WALRecoveryMode wal_recovery_mode) {
   record->Clear();
   buffer_.clear();
   backing_store_[0] = '\0';

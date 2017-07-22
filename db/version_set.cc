@@ -528,7 +528,9 @@ class LevelFileIteratorState : public TwoLevelIteratorState {
         for_compaction_, nullptr /* arena */, skip_filters_, level_);
   }
 
-  bool PrefixMayMatch(const Slice& /*internal_key*/) override { return true; }
+  bool PrefixMayMatch(const Slice& internal_key) override {
+    return true;
+  }
 
   bool KeyReachedUpperBound(const Slice& internal_key) override {
     return read_options_.iterate_upper_bound != nullptr &&
@@ -2654,7 +2656,7 @@ void VersionSet::LogAndApplyCFHelper(VersionEdit* edit) {
 }
 
 void VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd,
-                                   VersionBuilder* builder, Version* /*v*/,
+                                   VersionBuilder* builder, Version* v,
                                    VersionEdit* edit, InstrumentedMutex* mu) {
   mu->AssertHeld();
   assert(!edit->IsColumnFamilyManipulation());

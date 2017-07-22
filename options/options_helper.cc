@@ -1129,7 +1129,7 @@ Status GetPlainTableOptionsFromMap(
     const PlainTableOptions& table_options,
     const std::unordered_map<std::string, std::string>& opts_map,
     PlainTableOptions* new_table_options, bool input_strings_escaped,
-    bool /*ignore_unknown_options*/) {
+    bool ignore_unknown_options) {
   assert(new_table_options);
   *new_table_options = table_options;
   for (const auto& o : opts_map) {

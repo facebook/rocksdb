@@ -199,7 +199,7 @@ void CompactionPicker::GetRange(const std::vector<CompactionInputFiles>& inputs,
   assert(initialized);
 }
 
-bool CompactionPicker::ExpandInputsToCleanCut(const std::string& /*cf_name*/,
+bool CompactionPicker::ExpandInputsToCleanCut(const std::string& cf_name,
                                               VersionStorageInfo* vstorage,
                                               CompactionInputFiles* inputs) {
   // This isn't good compaction
@@ -318,7 +318,7 @@ Compaction* CompactionPicker::CompactFiles(
 Status CompactionPicker::GetCompactionInputsFromFileNumbers(
     std::vector<CompactionInputFiles>* input_files,
     std::unordered_set<uint64_t>* input_set, const VersionStorageInfo* vstorage,
-    const CompactionOptions& /*compact_options*/) const {
+    const CompactionOptions& compact_options) const {
   if (input_set->size() == 0U) {
     return Status::InvalidArgument(
         "Compaction must include at least one file.");
@@ -1581,9 +1581,8 @@ Compaction* FIFOCompactionPicker::PickCompaction(
 Compaction* FIFOCompactionPicker::CompactRange(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     VersionStorageInfo* vstorage, int input_level, int output_level,
-    uint32_t /*output_path_id*/, const InternalKey* /*begin*/,
-    const InternalKey* /*end*/, InternalKey** compaction_end,
-    bool* /*manual_conflict*/) {
+    uint32_t output_path_id, const InternalKey* begin, const InternalKey* end,
+    InternalKey** compaction_end, bool* manual_conflict) {
   assert(input_level == 0);
   assert(output_level == 0);
   *compaction_end = nullptr;

@@ -107,12 +107,12 @@ class Uint64ComparatorImpl : public Comparator {
     }
   }
 
-  virtual void FindShortestSeparator(std::string* /*start*/,
-                                     const Slice& /*limit*/) const override {
+  virtual void FindShortestSeparator(std::string* start,
+      const Slice& limit) const override {
     return;
   }
 
-  virtual void FindShortSuccessor(std::string* /*key*/) const override {
+  virtual void FindShortSuccessor(std::string* key) const override {
     return;
   }
 };

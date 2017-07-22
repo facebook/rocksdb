@@ -36,7 +36,7 @@ static void GetJemallocStatus(void* mstat_arg, const char* status) {
 }
 #endif  // ROCKSDB_JEMALLOC
 
-void DumpMallocStats(std::string* /*stats*/) {
+void DumpMallocStats(std::string* stats) {
 #ifdef ROCKSDB_JEMALLOC
   MallocStatus mstat;
   const unsigned int kMallocStatusLen = 1000000;

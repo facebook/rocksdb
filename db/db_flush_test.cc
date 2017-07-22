@@ -101,7 +101,7 @@ TEST_F(DBFlushTest, FlushInLowPriThreadPool) {
   std::thread::id tid;
   int num_flushes = 0, num_compactions = 0;
   SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BGWorkFlush", [&](void* /*arg*/) {
+      "DBImpl::BGWorkFlush", [&](void* arg) {
         if (tid == std::thread::id()) {
           tid = std::this_thread::get_id();
         } else {
@@ -110,7 +110,7 @@ TEST_F(DBFlushTest, FlushInLowPriThreadPool) {
         ++num_flushes;
       });
   SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BGWorkCompaction", [&](void* /*arg*/) {
+      "DBImpl::BGWorkCompaction", [&](void* arg) {
         ASSERT_EQ(tid, std::this_thread::get_id());
         ++num_compactions;
       });
