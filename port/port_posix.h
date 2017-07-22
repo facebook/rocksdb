@@ -193,6 +193,13 @@ extern void InitOnce(OnceType* once, void (*initializer)());
   #endif
 #endif
 
+
+extern void *cacheline_aligned_alloc(size_t size);
+
+extern void cacheline_aligned_free(void *memblock);
+
+#define ALIGN_AS(n) alignas(n)
+
 #define PREFETCH(addr, rw, locality) __builtin_prefetch(addr, rw, locality)
 
 extern void Crash(const std::string& srcfile, int srcline);
