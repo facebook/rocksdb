@@ -233,6 +233,14 @@ void LRUCacheShard::EvictFromLRU(size_t charge,
   }
 }
 
+void* LRUCacheShard::operator new(size_t size) {
+  return rocksdb::port::cacheline_aligned_alloc(size);
+}
+
+void LRUCacheShard::operator delete(void *memblock) {
+  rocksdb::port::cacheline_aligned_free(memblock);
+}
+
 void LRUCacheShard::SetCapacity(size_t capacity) {
   autovector<LRUHandle*> last_reference_list;
   {

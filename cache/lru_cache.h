@@ -202,6 +202,11 @@ class LRUCacheShard : public CacheShard {
   //  not threadsafe
   size_t TEST_GetLRUSize();
 
+  // Overloading to aligned it to cache line size
+  void* operator new(size_t);
+
+  void operator delete(void *);
+
  private:
   void LRU_Remove(LRUHandle* e);
   void LRU_Insert(LRUHandle* e);
