@@ -239,6 +239,8 @@ extern void InitOnce(OnceType* once, void (*initializer)());
 #define CACHE_LINE_SIZE 64U
 #endif
 
+#define ALIGN_AS(n)
+
 static inline void AsmVolatilePause() {
 #if defined(_M_IX86) || defined(_M_X64)
   YieldProcessor();
