@@ -100,6 +100,10 @@ class PessimisticTransactionDB : public TransactionDB {
   void GetAllPreparedTransactions(std::vector<Transaction*>* trans) override;
 
   TransactionLockMgr::LockStatusData GetLockStatusData() override;
+
+  std::vector<DeadlockPath> GetDeadlockInfoBuffer() override;
+  void SetDeadlockInfoBufferSize(uint32_t target_size) override;
+
   struct CommitEntry {
     uint64_t prep_seq;
     uint64_t commit_seq;

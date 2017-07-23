@@ -26,13 +26,35 @@ struct LockInfo;
 struct LockMap;
 struct LockMapStripe;
 
+struct DeadlockInfoBuffer {
+ private:
+  std::vector<DeadlockPath> paths_buffer_;
+  uint32_t buffer_idx_;
+  std::mutex paths_buffer_mutex_;
+  std::vector<DeadlockPath> Normalize();
+
+ public:
+  explicit DeadlockInfoBuffer(uint32_t n_latest_dlocks)
+      : paths_buffer_(n_latest_dlocks), buffer_idx_(0) {}
+  void AddNewPath(DeadlockPath path);
+  void Resize(uint32_t target_size);
+  std::vector<DeadlockPath> PrepareBuffer();
+};
+
+struct TrackedTrxInfo {
+  autovector<TransactionID> m_neighbors;
+  uint32_t m_cf_id;
+  std::string m_waiting_key;
+  bool m_exclusive;
+};
+
 class Slice;
 class PessimisticTransactionDB;
 
 class TransactionLockMgr {
  public:
   TransactionLockMgr(TransactionDB* txn_db, size_t default_num_stripes,
-                     int64_t max_num_locks,
+                     int64_t max_num_locks, uint32_t max_num_deadlocks,
                      std::shared_ptr<TransactionDBMutexFactory> factory);
 
   ~TransactionLockMgr();
@@ -59,6 +81,8 @@ class TransactionLockMgr {
 
   using LockStatusData = std::unordered_multimap<uint32_t, KeyLockInfo>;
   LockStatusData GetLockStatusData();
+  std::vector<DeadlockPath> GetDeadlockInfoBuffer();
+  void Resize(uint32_t);
 
  private:
   PessimisticTransactionDB* txn_db_impl_;
@@ -92,7 +116,8 @@ class TransactionLockMgr {
   // Maps from waitee -> number of waiters.
   HashMap<TransactionID, int> rev_wait_txn_map_;
   // Maps from waiter -> waitee.
-  HashMap<TransactionID, autovector<TransactionID>> wait_txn_map_;
+  HashMap<TransactionID, TrackedTrxInfo> wait_txn_map_;
+  DeadlockInfoBuffer dlock_buffer_;
 
   // Used to allocate mutexes/condvars to use when locking keys
   std::shared_ptr<TransactionDBMutexFactory> mutex_factory_;
@@ -116,7 +141,9 @@ class TransactionLockMgr {
                  LockMapStripe* stripe, LockMap* lock_map, Env* env);
 
   bool IncrementWaiters(const PessimisticTransaction* txn,
-                        const autovector<TransactionID>& wait_ids);
+                        const autovector<TransactionID>& wait_ids,
+                        const std::string& key, const uint32_t& cf_id,
+                        const bool& exclusive);
   void DecrementWaiters(const PessimisticTransaction* txn,
                         const autovector<TransactionID>& wait_ids);
   void DecrementWaitersImpl(const PessimisticTransaction* txn,
