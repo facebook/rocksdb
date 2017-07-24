@@ -27,6 +27,7 @@
 #include <mutex>
 #include <limits>
 #include <condition_variable>
+#include <malloc.h>
 
 #include <stdint.h>
 
@@ -237,6 +238,23 @@ extern void InitOnce(OnceType* once, void (*initializer)());
 
 #ifndef CACHE_LINE_SIZE
 #define CACHE_LINE_SIZE 64U
+#endif
+
+
+inline void *cacheline_aligned_alloc(size_t size) {
+  return _aligned_malloc(CACHE_LINE_SIZE, size);
+}
+
+inline void cacheline_aligned_free(void *memblock) {
+  _aligned_free(memblock);
+}
+
+// https://gcc.gnu.org/bugzilla/show_bug.cgi?id=52991 for MINGW32
+// could not be worked around with by -mno-ms-bitfields
+#ifndef __MINGW32__
+#define ALIGN_AS(n) __declspec(align(n))
+#else
+#define ALIGN_AS(n)
 #endif
 
 static inline void AsmVolatilePause() {

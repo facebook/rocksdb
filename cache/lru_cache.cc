@@ -22,7 +22,7 @@
 
 namespace rocksdb {
 
-LRUHandleTable::LRUHandleTable() : length_(0), elems_(0), list_(nullptr) {
+LRUHandleTable::LRUHandleTable() : list_(nullptr), length_(0), elems_(0) {
   Resize();
 }
 
@@ -100,7 +100,7 @@ void LRUHandleTable::Resize() {
 }
 
 LRUCacheShard::LRUCacheShard()
-    : usage_(0), lru_usage_(0), high_pri_pool_usage_(0) {
+    : high_pri_pool_usage_(0), usage_(0), lru_usage_(0) {
   // Make empty circular linked list
   lru_.next = &lru_;
   lru_.prev = &lru_;
@@ -231,6 +231,14 @@ void LRUCacheShard::EvictFromLRU(size_t charge,
     usage_ -= old->charge;
     deleted->push_back(old);
   }
+}
+
+void* LRUCacheShard::operator new(size_t size) {
+  return rocksdb::port::cacheline_aligned_alloc(size);
+}
+
+void LRUCacheShard::operator delete(void *memblock) {
+  rocksdb::port::cacheline_aligned_free(memblock);
 }
 
 void LRUCacheShard::SetCapacity(size_t capacity) {
@@ -449,7 +457,14 @@ LRUCache::LRUCache(size_t capacity, int num_shard_bits,
                    bool strict_capacity_limit, double high_pri_pool_ratio)
     : ShardedCache(capacity, num_shard_bits, strict_capacity_limit) {
   num_shards_ = 1 << num_shard_bits;
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable: 4316) // We've validated the alignment with the new operators
+#endif
   shards_ = new LRUCacheShard[num_shards_];
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
   SetCapacity(capacity);
   SetStrictCapacityLimit(strict_capacity_limit);
   for (int i = 0; i < num_shards_; i++) {
