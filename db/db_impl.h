@@ -494,6 +494,12 @@ class DBImpl : public DB {
 
   const WriteController& write_controller() { return write_controller_; }
 
+  InternalIterator* NewInternalIterator(const ReadOptions&,
+                                        ColumnFamilyData* cfd,
+                                        SuperVersion* super_version,
+                                        Arena* arena,
+                                        RangeDelAggregator* range_del_agg);
+
   // hollow transactions shell used for recovery.
   // these will then be passed to TransactionDB so that
   // locks can be reacquired before writing can resume.
@@ -552,6 +558,7 @@ class DBImpl : public DB {
   void AddToLogsToFreeQueue(log::Writer* log_writer) {
     logs_to_free_queue_.push_back(log_writer);
   }
+  InstrumentedMutex* mutex() { return &mutex_; }
 
   Status NewDB();
 
@@ -565,12 +572,6 @@ class DBImpl : public DB {
   Statistics* stats_;
   std::unordered_map<std::string, RecoveredTransaction*>
       recovered_transactions_;
-
-  InternalIterator* NewInternalIterator(const ReadOptions&,
-                                        ColumnFamilyData* cfd,
-                                        SuperVersion* super_version,
-                                        Arena* arena,
-                                        RangeDelAggregator* range_del_agg);
 
   // Except in DB::Open(), WriteOptionsFile can only be called when:
   // Persist options to options file.

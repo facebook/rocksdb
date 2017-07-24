@@ -80,6 +80,13 @@ class Iterator : public Cleanable {
   // satisfied without doing some IO, then this returns Status::Incomplete().
   virtual Status status() const = 0;
 
+  // If supported, renew the iterator to represent the latest state. The
+  // iterator will be invalidated after the call. Not supported if
+  // ReadOptions.snapshot is given when creating the iterator.
+  virtual Status Refresh() {
+    return Status::NotSupported("Refresh() is not supported");
+  }
+
   // Property "rocksdb.iterator.is-key-pinned":
   //   If returning "1", this means that the Slice returned by key() is valid
   //   as long as the iterator is not deleted.

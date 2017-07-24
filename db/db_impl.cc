@@ -1402,8 +1402,7 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
     return NewDBIterator(
         env_, read_options, *cfd->ioptions(), cfd->user_comparator(), iter,
         kMaxSequenceNumber,
-        sv->mutable_cf_options.max_sequential_skip_in_iterations,
-        sv->version_number);
+        sv->mutable_cf_options.max_sequential_skip_in_iterations);
 #endif
   } else {
     SequenceNumber latest_snapshot = versions_->LastSequence();
@@ -1458,9 +1457,10 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
     // likely that any iterator pointer is close to the iterator it points to so
     // that they are likely to be in the same cache line and/or page.
     ArenaWrappedDBIter* db_iter = NewArenaWrappedDbIterator(
-        env_, read_options, *cfd->ioptions(), cfd->user_comparator(), snapshot,
+        env_, read_options, *cfd->ioptions(), snapshot,
         sv->mutable_cf_options.max_sequential_skip_in_iterations,
-        sv->version_number);
+        sv->version_number,
+        ((read_options.snapshot != nullptr) ? nullptr : this), cfd);
 
     InternalIterator* internal_iter =
         NewInternalIterator(read_options, cfd, sv, db_iter->GetArena(),
@@ -1511,8 +1511,7 @@ Status DBImpl::NewIterators(
       iterators->push_back(NewDBIterator(
           env_, read_options, *cfd->ioptions(), cfd->user_comparator(), iter,
           kMaxSequenceNumber,
-          sv->mutable_cf_options.max_sequential_skip_in_iterations,
-          sv->version_number));
+          sv->mutable_cf_options.max_sequential_skip_in_iterations));
     }
 #endif
   } else {
@@ -1530,9 +1529,10 @@ Status DBImpl::NewIterators(
               : latest_snapshot;
 
       ArenaWrappedDBIter* db_iter = NewArenaWrappedDbIterator(
-          env_, read_options, *cfd->ioptions(), cfd->user_comparator(),
-          snapshot, sv->mutable_cf_options.max_sequential_skip_in_iterations,
-          sv->version_number);
+          env_, read_options, *cfd->ioptions(), snapshot,
+          sv->mutable_cf_options.max_sequential_skip_in_iterations,
+          sv->version_number,
+          ((read_options.snapshot != nullptr) ? nullptr : this), cfd);
       InternalIterator* internal_iter =
           NewInternalIterator(read_options, cfd, sv, db_iter->GetArena(),
                               db_iter->GetRangeDelAggregator());

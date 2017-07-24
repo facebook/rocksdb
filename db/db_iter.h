@@ -10,6 +10,7 @@
 #pragma once
 #include <stdint.h>
 #include <string>
+#include "db/db_impl.h"
 #include "db/dbformat.h"
 #include "db/range_del_aggregator.h"
 #include "options/cf_options.h"
@@ -32,8 +33,7 @@ extern Iterator* NewDBIterator(Env* env, const ReadOptions& read_options,
                                const Comparator* user_key_comparator,
                                InternalIterator* internal_iter,
                                const SequenceNumber& sequence,
-                               uint64_t max_sequential_skip_in_iterations,
-                               uint64_t version_number);
+                               uint64_t max_sequential_skip_in_iterations);
 
 // A wrapper iterator which wraps DB Iterator and the arena, with which the DB
 // iterator is supposed be allocated. This class is used as an entry point of
@@ -49,10 +49,6 @@ class ArenaWrappedDBIter : public Iterator {
   virtual Arena* GetArena() { return &arena_; }
   virtual RangeDelAggregator* GetRangeDelAggregator();
 
-  // Set the DB Iterator to be wrapped
-
-  virtual void SetDBIter(DBIter* iter);
-
   // Set the internal iterator wrapped inside the DB Iterator. Usually it is
   // a merging iterator.
   virtual void SetIterUnderDBIter(InternalIterator* iter);
@@ -66,20 +62,39 @@ class ArenaWrappedDBIter : public Iterator {
   virtual Slice key() const override;
   virtual Slice value() const override;
   virtual Status status() const override;
+  virtual Status Refresh() override;
 
-  void RegisterCleanup(CleanupFunction function, void* arg1, void* arg2);
   virtual Status GetProperty(std::string prop_name, std::string* prop) override;
+
+  void Init(Env* env, const ReadOptions& read_options,
+            const ImmutableCFOptions& cf_options,
+            const SequenceNumber& sequence,
+            uint64_t max_sequential_skip_in_iterations,
+            uint64_t version_number);
+
+  void StoreRefreshInfo(const ReadOptions& read_options, DBImpl* db_impl,
+                        ColumnFamilyData* cfd) {
+    read_options_ = read_options;
+    db_impl_ = db_impl;
+    cfd_ = cfd;
+  }
 
  private:
   DBIter* db_iter_;
   Arena arena_;
+  uint64_t sv_number_;
+  ColumnFamilyData* cfd_ = nullptr;
+  DBImpl* db_impl_ = nullptr;
+  ReadOptions read_options_;
 };
 
 // Generate the arena wrapped iterator class.
+// `db_impl` and `cfd` are used for reneweal. If left null, renewal will not
+// be supported.
 extern ArenaWrappedDBIter* NewArenaWrappedDbIterator(
     Env* env, const ReadOptions& read_options,
-    const ImmutableCFOptions& cf_options, const Comparator* user_key_comparator,
-    const SequenceNumber& sequence, uint64_t max_sequential_skip_in_iterations,
-    uint64_t version_number);
+    const ImmutableCFOptions& cf_options, const SequenceNumber& sequence,
+    uint64_t max_sequential_skip_in_iterations, uint64_t version_number,
+    DBImpl* db_impl = nullptr, ColumnFamilyData* cfd = nullptr);
 
 }  // namespace rocksdb
