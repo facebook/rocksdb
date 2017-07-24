@@ -52,6 +52,7 @@ using rocksdb::CompressionType;
 using rocksdb::WALRecoveryMode;
 using rocksdb::DB;
 using rocksdb::DBOptions;
+using rocksdb::DbPath;
 using rocksdb::Env;
 using rocksdb::EnvOptions;
 using rocksdb::InfoLogLevel;
@@ -380,6 +381,10 @@ struct rocksdb_mergeoperator_t : public MergeOperator {
 
     return success;
   }
+};
+
+struct rocksdb_dbpath_t {
+  DbPath rep;
 };
 
 struct rocksdb_env_t {
@@ -2009,6 +2014,16 @@ void rocksdb_options_set_paranoid_checks(
   opt->rep.paranoid_checks = v;
 }
 
+void rocksdb_options_set_db_paths(rocksdb_options_t* opt, 
+                                  const rocksdb_dbpath_t** dbpath_values, 
+                                  size_t num_paths) {
+  std::vector<DbPath> db_paths(num_paths);
+  for (size_t i = 0; i < num_paths; ++i) {
+    db_paths[i] = dbpath_values[i]->rep;
+  }
+  opt->rep.db_paths = db_paths;
+}
+
 void rocksdb_options_set_env(rocksdb_options_t* opt, rocksdb_env_t* env) {
   opt->rep.env = (env ? env->rep : nullptr);
 }
@@ -2787,6 +2802,17 @@ size_t rocksdb_cache_get_usage(rocksdb_cache_t* cache) {
 
 size_t rocksdb_cache_get_pinned_usage(rocksdb_cache_t* cache) {
   return cache->rep->GetPinnedUsage();
+}
+
+rocksdb_dbpath_t* rocksdb_dbpath_create(const char* path, uint64_t target_size) {
+  rocksdb_dbpath_t* result = new rocksdb_dbpath_t;
+  result->rep.path = std::string(path);
+  result->rep.target_size = target_size;
+  return result;
+}
+
+void rocksdb_dbpath_destroy(rocksdb_dbpath_t* dbpath) {
+  delete dbpath;
 }
 
 rocksdb_env_t* rocksdb_create_default_env() {
