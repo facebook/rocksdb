@@ -145,23 +145,29 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
               db_impl = dynamic_cast<DBImpl*>(db);
               ASSERT_TRUE(db_impl);
 
+              std::atomic<uint64_t> threads_joined(0);
+              std::atomic<uint64_t> threads_linked(0);
               std::atomic<uint64_t> threads_waiting(0);
               std::atomic<uint64_t> seq(db_impl->GetLatestSequenceNumber());
               ASSERT_EQ(db_impl->GetLatestSequenceNumber(), 0);
 
               rocksdb::SyncPoint::GetInstance()->SetCallBack(
+                  "WriteThread::JoinBatchGroup:Start", [&](void* arg) {
+                    uint64_t cur_threads_joined = threads_joined.fetch_add(1);
+                    // Wait for threads joined earlier to finish linking.
+                    while (threads_linked.load() < cur_threads_joined) {
+                    }
+                  });
+
+              rocksdb::SyncPoint::GetInstance()->SetCallBack(
                   "WriteThread::JoinBatchGroup:Wait", [&](void* arg) {
-                    uint64_t cur_threads_waiting = 0;
+                    uint64_t cur_threads_linked = threads_linked.fetch_add(1);
                     bool is_leader = false;
                     bool is_last = false;
 
                     // who am i
-                    do {
-                      cur_threads_waiting = threads_waiting.load();
-                      is_leader = (cur_threads_waiting == 0);
-                      is_last = (cur_threads_waiting == write_group.size() - 1);
-                    } while (!threads_waiting.compare_exchange_strong(
-                        cur_threads_waiting, cur_threads_waiting + 1));
+                    is_leader = (cur_threads_linked == 0);
+                    is_last = (cur_threads_linked == write_group.size() - 1);
 
                     // check my state
                     auto* writer = reinterpret_cast<WriteThread::Writer*>(arg);
@@ -184,7 +190,8 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
                       ASSERT_TRUE(writer->callback->Callback(nullptr).ok() ==
                                   !write_group.back().callback_.should_fail_);
                     }
-
+                    
+                    threads_waiting.fetch_add(1);
                     // wait for friends
                     while (threads_waiting.load() < write_group.size()) {
                     }
@@ -231,11 +238,7 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
                 // insert some keys
                 for (uint32_t j = 0; j < rnd.Next() % 50; j++) {
                   // grab unique key
-                  char my_key = 0;
-                  do {
-                    my_key = dummy_key.load();
-                  } while (
-                      !dummy_key.compare_exchange_strong(my_key, my_key + 1));
+                  char my_key = dummy_key.fetch_add(1);
 
                   string skey(5, my_key);
                   string sval(10, my_key);
