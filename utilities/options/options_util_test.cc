@@ -100,28 +100,34 @@ class DummyTableFactory : public TableFactory {
   DummyTableFactory() {}
   virtual ~DummyTableFactory() {}
 
-  virtual const char* Name() const { return "DummyTableFactory"; }
+  virtual const char* Name() const override { return "DummyTableFactory"; }
 
-  virtual Status NewTableReader(const TableReaderOptions& table_reader_options,
-                                unique_ptr<RandomAccessFileReader>&& file,
-                                uint64_t file_size,
-                                unique_ptr<TableReader>* table_reader,
-                                bool prefetch_index_and_filter_in_cache) const {
+  virtual Status NewTableReader(
+      const TableReaderOptions& table_reader_options,
+      unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
+      unique_ptr<TableReader>* table_reader,
+      bool prefetch_index_and_filter_in_cache) const override {
     return Status::NotSupported();
   }
 
   virtual TableBuilder* NewTableBuilder(
       const TableBuilderOptions& table_builder_options,
-      uint32_t column_family_id, WritableFileWriter* file) const {
+      uint32_t column_family_id, WritableFileWriter* file) const override {
     return nullptr;
   }
 
-  virtual Status SanitizeOptions(const DBOptions& db_opts,
-                                 const ColumnFamilyOptions& cf_opts) const {
+  virtual Status SanitizeOptions(
+      const DBOptions& db_opts,
+      const ColumnFamilyOptions& cf_opts) const override {
     return Status::NotSupported();
   }
 
-  virtual std::string GetPrintableTableOptions() const { return ""; }
+  virtual std::string GetPrintableTableOptions() const override { return ""; }
+
+  Status GetOptionString(std::string* opt_string,
+                         const std::string& delimiter) const override {
+    return Status::OK();
+  }
 };
 
 class DummyMergeOperator : public MergeOperator {

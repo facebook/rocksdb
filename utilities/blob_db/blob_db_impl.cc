@@ -211,7 +211,7 @@ BlobDBImpl::BlobDBImpl(const std::string& dbname,
       open_p1_done_(false),
       debug_level_(0) {
   const BlobDBOptionsImpl* options_impl =
-      dynamic_cast<const BlobDBOptionsImpl*>(&blob_db_options);
+      static_cast<const BlobDBOptionsImpl*>(&blob_db_options);
   if (options_impl) {
     bdb_options_ = *options_impl;
   }
@@ -231,12 +231,7 @@ Status BlobDBImpl::LinkToBaseDB(DB* db) {
   db_ = db;
 
   // the Base DB in-itself can be a stackable DB
-  StackableDB* sdb = dynamic_cast<StackableDB*>(db_);
-  if (sdb) {
-    db_impl_ = dynamic_cast<DBImpl*>(sdb->GetBaseDB());
-  } else {
-    db_impl_ = dynamic_cast<DBImpl*>(db);
-  }
+  db_impl_ = static_cast<DBImpl*>(db_->GetRootDB());
 
   myenv_ = db_->GetEnv();
 
@@ -265,7 +260,7 @@ BlobDBOptions BlobDBImpl::GetBlobDBOptions() const { return bdb_options_; }
 
 BlobDBImpl::BlobDBImpl(DB* db, const BlobDBOptions& blob_db_options)
     : BlobDB(db),
-      db_impl_(dynamic_cast<DBImpl*>(db)),
+      db_impl_(static_cast<DBImpl*>(db)),
       opt_db_(new OptimisticTransactionDBImpl(db, false)),
       wo_set_(false),
       bdb_options_(blob_db_options),
@@ -284,10 +279,8 @@ BlobDBImpl::BlobDBImpl(DB* db, const BlobDBOptions& blob_db_options)
       total_blob_space_(0) {
   assert(db_impl_ != nullptr);
   const BlobDBOptionsImpl* options_impl =
-      dynamic_cast<const BlobDBOptionsImpl*>(&blob_db_options);
-  if (options_impl) {
-    bdb_options_ = *options_impl;
-  }
+      static_cast<const BlobDBOptionsImpl*>(&blob_db_options);
+  bdb_options_ = *options_impl;
 
   if (!bdb_options_.blob_dir.empty())
     blob_dir_ = (bdb_options_.path_relative)

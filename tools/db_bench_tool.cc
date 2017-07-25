@@ -28,6 +28,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <cstddef>
+#include <memory>
 #include <mutex>
 #include <thread>
 #include <unordered_map>
@@ -2551,7 +2552,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     }
     if (FLAGS_simcache_size >= 0) {
       fprintf(stdout, "SIMULATOR CACHE STATISTICS:\n%s\n",
-              std::dynamic_pointer_cast<SimCache>(cache_)->ToString().c_str());
+              static_cast<SimCache*>(cache_.get())->ToString().c_str());
     }
   }
 

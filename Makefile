@@ -101,6 +101,10 @@ endif
 ifeq ($(DEBUG_LEVEL),0)
 OPT += -DNDEBUG
 DISABLE_WARNING_AS_ERROR=1
+ifndef USE_RTTI
+	CFLAGS += -fno-rtti
+	CXXFLAGS += -fno-rtti
+endif
 else
 $(warning Warning: Compiling in debug mode. Don't use the resulting binary in production)
 endif

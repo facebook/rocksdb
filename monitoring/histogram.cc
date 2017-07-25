@@ -255,7 +255,7 @@ void HistogramImpl::Add(uint64_t value) {
 
 void HistogramImpl::Merge(const Histogram& other) {
   if (strcmp(Name(), other.Name()) == 0) {
-    Merge(dynamic_cast<const HistogramImpl&>(other));
+    Merge(static_cast<const HistogramImpl&>(other));
   }
 }
 

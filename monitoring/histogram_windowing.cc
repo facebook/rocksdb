@@ -64,7 +64,7 @@ void HistogramWindowingImpl::Add(uint64_t value){
 
 void HistogramWindowingImpl::Merge(const Histogram& other) {
   if (strcmp(Name(), other.Name()) == 0) {
-    Merge(dynamic_cast<const HistogramWindowingImpl&>(other));
+    Merge(static_cast<const HistogramWindowingImpl&>(other));
   }
 }
 

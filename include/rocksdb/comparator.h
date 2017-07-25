@@ -64,6 +64,10 @@ class Comparator {
   // Simple comparator implementations may return with *key unchanged,
   // i.e., an implementation of this method that does nothing is correct.
   virtual void FindShortSuccessor(std::string* key) const = 0;
+
+  // if it is a wrapped comparator, may return the root one.
+  // return itself it is not wrapped.
+  virtual const Comparator* GetRootComparator() const { return this; }
 };
 
 // Return a builtin comparator that uses lexicographic byte-wise

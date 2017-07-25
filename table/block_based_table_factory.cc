@@ -13,12 +13,15 @@
 #include <string>
 #include <stdint.h>
 
+#include "options/options_helper.h"
 #include "port/port.h"
-#include "rocksdb/flush_block_policy.h"
 #include "rocksdb/cache.h"
+#include "rocksdb/convenience.h"
+#include "rocksdb/flush_block_policy.h"
 #include "table/block_based_table_builder.h"
 #include "table/block_based_table_reader.h"
 #include "table/format.h"
+#include "util/string_util.h"
 
 namespace rocksdb {
 
@@ -201,15 +204,203 @@ std::string BlockBasedTableFactory::GetPrintableTableOptions() const {
   return ret;
 }
 
+#ifndef ROCKSDB_LITE
+namespace {
+bool SerializeSingleBlockBasedTableOption(
+    std::string* opt_string, const BlockBasedTableOptions& bbt_options,
+    const std::string& name, const std::string& delimiter) {
+  auto iter = block_based_table_type_info.find(name);
+  if (iter == block_based_table_type_info.end()) {
+    return false;
+  }
+  auto& opt_info = iter->second;
+  const char* opt_address =
+      reinterpret_cast<const char*>(&bbt_options) + opt_info.offset;
+  std::string value;
+  bool result = SerializeSingleOptionHelper(opt_address, opt_info.type, &value);
+  if (result) {
+    *opt_string = name + "=" + value + delimiter;
+  }
+  return result;
+}
+}  // namespace
+
+Status BlockBasedTableFactory::GetOptionString(
+    std::string* opt_string, const std::string& delimiter) const {
+  assert(opt_string);
+  opt_string->clear();
+  for (auto iter = block_based_table_type_info.begin();
+       iter != block_based_table_type_info.end(); ++iter) {
+    if (iter->second.verification == OptionVerificationType::kDeprecated) {
+      // If the option is no longer used in rocksdb and marked as deprecated,
+      // we skip it in the serialization.
+      continue;
+    }
+    std::string single_output;
+    bool result = SerializeSingleBlockBasedTableOption(
+        &single_output, table_options_, iter->first, delimiter);
+    assert(result);
+    if (result) {
+      opt_string->append(single_output);
+    }
+  }
+  return Status::OK();
+}
+#else
+Status BlockBasedTableFactory::GetOptionString(
+    std::string* opt_string, const std::string& delimiter) const {
+  return Status::OK();
+}
+#endif  // !ROCKSDB_LITE
+
 const BlockBasedTableOptions& BlockBasedTableFactory::table_options() const {
   return table_options_;
 }
+
+#ifndef ROCKSDB_LITE
+namespace {
+std::string ParseBlockBasedTableOption(const std::string& name,
+                                       const std::string& org_value,
+                                       BlockBasedTableOptions* new_options,
+                                       bool input_strings_escaped = false,
+                                       bool ignore_unknown_options = false) {
+  const std::string& value =
+      input_strings_escaped ? UnescapeOptionString(org_value) : org_value;
+  if (!input_strings_escaped) {
+    // if the input string is not escaped, it means this function is
+    // invoked from SetOptions, which takes the old format.
+    if (name == "block_cache") {
+      new_options->block_cache = NewLRUCache(ParseSizeT(value));
+      return "";
+    } else if (name == "block_cache_compressed") {
+      new_options->block_cache_compressed = NewLRUCache(ParseSizeT(value));
+      return "";
+    } else if (name == "filter_policy") {
+      // Expect the following format
+      // bloomfilter:int:bool
+      const std::string kName = "bloomfilter:";
+      if (value.compare(0, kName.size(), kName) != 0) {
+        return "Invalid filter policy name";
+      }
+      size_t pos = value.find(':', kName.size());
+      if (pos == std::string::npos) {
+        return "Invalid filter policy config, missing bits_per_key";
+      }
+      int bits_per_key =
+          ParseInt(trim(value.substr(kName.size(), pos - kName.size())));
+      bool use_block_based_builder =
+          ParseBoolean("use_block_based_builder", trim(value.substr(pos + 1)));
+      new_options->filter_policy.reset(
+          NewBloomFilterPolicy(bits_per_key, use_block_based_builder));
+      return "";
+    }
+  }
+  const auto iter = block_based_table_type_info.find(name);
+  if (iter == block_based_table_type_info.end()) {
+    if (ignore_unknown_options) {
+      return "";
+    } else {
+      return "Unrecognized option";
+    }
+  }
+  const auto& opt_info = iter->second;
+  if (opt_info.verification != OptionVerificationType::kDeprecated &&
+      !ParseOptionHelper(reinterpret_cast<char*>(new_options) + opt_info.offset,
+                         opt_info.type, value)) {
+    return "Invalid value";
+  }
+  return "";
+}
+}  // namespace
+
+Status GetBlockBasedTableOptionsFromString(
+    const BlockBasedTableOptions& table_options, const std::string& opts_str,
+    BlockBasedTableOptions* new_table_options) {
+  std::unordered_map<std::string, std::string> opts_map;
+  Status s = StringToMap(opts_str, &opts_map);
+  if (!s.ok()) {
+    return s;
+  }
+
+  return GetBlockBasedTableOptionsFromMap(table_options, opts_map,
+                                          new_table_options);
+}
+
+Status GetBlockBasedTableOptionsFromMap(
+    const BlockBasedTableOptions& table_options,
+    const std::unordered_map<std::string, std::string>& opts_map,
+    BlockBasedTableOptions* new_table_options, bool input_strings_escaped,
+    bool ignore_unknown_options) {
+  assert(new_table_options);
+  *new_table_options = table_options;
+  for (const auto& o : opts_map) {
+    auto error_message = ParseBlockBasedTableOption(
+        o.first, o.second, new_table_options, input_strings_escaped,
+        ignore_unknown_options);
+    if (error_message != "") {
+      const auto iter = block_based_table_type_info.find(o.first);
+      if (iter == block_based_table_type_info.end() ||
+          !input_strings_escaped ||  // !input_strings_escaped indicates
+                                     // the old API, where everything is
+                                     // parsable.
+          (iter->second.verification != OptionVerificationType::kByName &&
+           iter->second.verification !=
+               OptionVerificationType::kByNameAllowNull &&
+           iter->second.verification != OptionVerificationType::kDeprecated)) {
+        // Restore "new_options" to the default "base_options".
+        *new_table_options = table_options;
+        return Status::InvalidArgument("Can't parse BlockBasedTableOptions:",
+                                       o.first + " " + error_message);
+      }
+    }
+  }
+  return Status::OK();
+}
+
+Status VerifyBlockBasedTableFactory(
+    const BlockBasedTableFactory* base_tf,
+    const BlockBasedTableFactory* file_tf,
+    OptionsSanityCheckLevel sanity_check_level) {
+  if ((base_tf != nullptr) != (file_tf != nullptr) &&
+      sanity_check_level > kSanityLevelNone) {
+    return Status::Corruption(
+        "[RocksDBOptionsParser]: Inconsistent TableFactory class type");
+  }
+  if (base_tf == nullptr) {
+    return Status::OK();
+  }
+  assert(file_tf != nullptr);
+
+  const auto& base_opt = base_tf->table_options();
+  const auto& file_opt = file_tf->table_options();
+
+  for (auto& pair : block_based_table_type_info) {
+    if (pair.second.verification == OptionVerificationType::kDeprecated) {
+      // We skip checking deprecated variables as they might
+      // contain random values since they might not be initialized
+      continue;
+    }
+    if (BBTOptionSanityCheckLevel(pair.first) <= sanity_check_level) {
+      if (!AreEqualOptions(reinterpret_cast<const char*>(&base_opt),
+                           reinterpret_cast<const char*>(&file_opt),
+                           pair.second, pair.first, nullptr)) {
+        return Status::Corruption(
+            "[RocksDBOptionsParser]: "
+            "failed the verification on BlockBasedTableOptions::",
+            pair.first);
+      }
+    }
+  }
+  return Status::OK();
+}
+#endif  // !ROCKSDB_LITE
 
 TableFactory* NewBlockBasedTableFactory(
     const BlockBasedTableOptions& _table_options) {
   return new BlockBasedTableFactory(_table_options);
 }
 
+const std::string BlockBasedTableFactory::kName = "BlockBasedTable";
 const std::string BlockBasedTablePropertyNames::kIndexType =
     "rocksdb.block.based.table.index.type";
 const std::string BlockBasedTablePropertyNames::kWholeKeyFiltering =

@@ -273,8 +273,8 @@ namespace {
 struct CompareLogByPointer {
   bool operator()(const std::unique_ptr<LogFile>& a,
                   const std::unique_ptr<LogFile>& b) {
-    LogFileImpl* a_impl = dynamic_cast<LogFileImpl*>(a.get());
-    LogFileImpl* b_impl = dynamic_cast<LogFileImpl*>(b.get());
+    LogFileImpl* a_impl = static_cast<LogFileImpl*>(a.get());
+    LogFileImpl* b_impl = static_cast<LogFileImpl*>(b.get());
     return *a_impl < *b_impl;
   }
 };
