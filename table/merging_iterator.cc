@@ -62,11 +62,13 @@ class MergingIterator : public InternalIterator {
     if (pinned_iters_mgr_) {
       iter->SetPinnedItersMgr(pinned_iters_mgr_);
     }
-    auto new_wrapper = children_.back();
-    if (new_wrapper.Valid()) {
-      minHeap_.push(&new_wrapper);
-      current_ = CurrentForward();
+    minHeap_.clear();
+    for (auto& child : children_) {
+      if (child.Valid()) {
+        minHeap_.push(&child);
+      }
     }
+    current_ = CurrentForward();
   }
 
   virtual ~MergingIterator() {
