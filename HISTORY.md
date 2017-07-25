@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 5.6.1 (07/25/2017)
+### Bug Fixes
+* Fix lite build.
+
 ## 5.6.0 (06/06/2017)
 ### Public API Change
 * Scheduling flushes and compactions in the same thread pool is no longer supported by setting `max_background_flushes=0`. Instead, users can achieve this by configuring their high-pri thread pool to have zero threads.
