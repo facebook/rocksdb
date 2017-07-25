@@ -269,8 +269,9 @@ void WriteThread::CompleteFollower(Writer* w, WriteGroup& write_group) {
 
 static WriteThread::AdaptationContext jbg_ctx("JoinBatchGroup");
 void WriteThread::JoinBatchGroup(Writer* w) {
-
+  TEST_SYNC_POINT_CALLBACK("WriteThread::JoinBatchGroup:Start", w);
   assert(w->batch != nullptr);
+
   bool linked_as_leader = LinkOne(w, &newest_writer_);
   if (linked_as_leader) {
     SetState(w, STATE_GROUP_LEADER);
