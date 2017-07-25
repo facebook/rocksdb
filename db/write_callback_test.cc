@@ -147,7 +147,7 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
 
               db_impl = dynamic_cast<DBImpl*>(db);
               ASSERT_TRUE(db_impl);
-              
+
               // Writers that have called JoinBatchGroup.
               std::atomic<uint64_t> threads_joining(0);
               // Writers that have linked to the queue
