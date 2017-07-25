@@ -16,7 +16,6 @@
 #include "rocksdb/db.h"
 #include "rocksdb/write_batch.h"
 #include "port/port.h"
-#include "util/logging.h"
 #include "util/random.h"
 #include "util/sync_point.h"
 #include "util/testharness.h"
@@ -160,7 +159,7 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
               ASSERT_EQ(db_impl->GetLatestSequenceNumber(), 0);
 
               rocksdb::SyncPoint::GetInstance()->SetCallBack(
-                  "WriteThread::JoinBatchGroup:Start", [&](void* arg) {
+                  "WriteThread::JoinBatchGroup:Start", [&](void*) {
                     uint64_t cur_threads_joined = threads_joined.fetch_add(1);
                     // Wait for other writers linking to the queue. In this way
                     // we will know whether the writer is a leader by checking
@@ -201,7 +200,7 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
                       ASSERT_TRUE(writer->callback->Callback(nullptr).ok() ==
                                   !write_group.back().callback_.should_fail_);
                     }
-                    
+
                     threads_waiting.fetch_add(1);
                     // Wait here until all verification in this sync-point
                     // callback finish for all writers.
