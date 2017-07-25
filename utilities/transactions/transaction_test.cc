@@ -543,7 +543,7 @@ TEST_P(TransactionTest, DeadlockCycle) {
 TEST_P(TransactionTest, DeadlockStress) {
   const uint32_t NUM_TXN_THREADS = 10;
   const uint32_t NUM_KEYS = 100;
-  const uint32_t NUM_ITERS = 100000;
+  const uint32_t NUM_ITERS = 10000;
 
   WriteOptions write_options;
   ReadOptions read_options;
