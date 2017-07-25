@@ -149,22 +149,23 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
               ASSERT_TRUE(db_impl);
               
               // Writers that have called JoinBatchGroup.
-              std::atomic<uint64_t> threads_joined(0);
+              std::atomic<uint64_t> threads_joining(0);
               // Writers that have linked to the queue
               std::atomic<uint64_t> threads_linked(0);
               // Writers that pass WriteThread::JoinBatchGroup:Wait sync-point.
-              std::atomic<uint64_t> threads_waiting(0);
+              std::atomic<uint64_t> threads_verified(0);
 
               std::atomic<uint64_t> seq(db_impl->GetLatestSequenceNumber());
               ASSERT_EQ(db_impl->GetLatestSequenceNumber(), 0);
 
               rocksdb::SyncPoint::GetInstance()->SetCallBack(
                   "WriteThread::JoinBatchGroup:Start", [&](void*) {
-                    uint64_t cur_threads_joined = threads_joined.fetch_add(1);
-                    // Wait for other writers linking to the queue. In this way
-                    // we will know whether the writer is a leader by checking
-                    // threads_linked.
-                    while (threads_linked.load() < cur_threads_joined) {
+                    uint64_t cur_threads_joining = threads_joining.fetch_add(1);
+                    // Wait for the last joined writer to link to the queue.
+                    // In this way the writers link to the queue one by one.
+                    // This allows us to confidently detect the first writer
+                    // who increases threads_linked as the leader.
+                    while (threads_linked.load() < cur_threads_joining) {
                     }
                   });
 
@@ -201,10 +202,10 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
                                   !write_group.back().callback_.should_fail_);
                     }
 
-                    threads_waiting.fetch_add(1);
+                    threads_verified.fetch_add(1);
                     // Wait here until all verification in this sync-point
                     // callback finish for all writers.
-                    while (threads_waiting.load() < write_group.size()) {
+                    while (threads_verified.load() < write_group.size()) {
                     }
                   });
 
@@ -237,12 +238,12 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
                 Random rnd(i);
 
                 // leaders gotta lead
-                while (i > 0 && threads_waiting.load() < 1) {
+                while (i > 0 && threads_verified.load() < 1) {
                 }
 
                 // loser has to lose
                 while (i == write_group.size() - 1 &&
-                       threads_waiting.load() < write_group.size() - 1) {
+                       threads_verified.load() < write_group.size() - 1) {
                 }
 
                 auto& write_op = write_group.at(i);
