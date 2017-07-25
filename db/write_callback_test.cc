@@ -107,6 +107,10 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
     std::vector<std::pair<string, string>> kvs_;
   };
 
+  // In each scenario we'll launch multiple threads to write.
+  // The size of each array equals to number of threads, and
+  // each boolean in it denote whether callback of corresponding
+  // thread should succeed or fail.
   std::vector<std::vector<WriteOP>> write_scenarios = {
       {true},
       {false},
@@ -144,21 +148,28 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
 
               db_impl = dynamic_cast<DBImpl*>(db);
               ASSERT_TRUE(db_impl);
-
+              
+              // Writers that have called JoinBatchGroup.
               std::atomic<uint64_t> threads_joined(0);
+              // Writers that have linked to the queue
               std::atomic<uint64_t> threads_linked(0);
+              // Writers that passes WriteThread::JoinBatchGroup:Wait sync-point.
               std::atomic<uint64_t> threads_waiting(0);
+
               std::atomic<uint64_t> seq(db_impl->GetLatestSequenceNumber());
               ASSERT_EQ(db_impl->GetLatestSequenceNumber(), 0);
 
               rocksdb::SyncPoint::GetInstance()->SetCallBack(
                   "WriteThread::JoinBatchGroup:Start", [&](void* arg) {
                     uint64_t cur_threads_joined = threads_joined.fetch_add(1);
-                    // Wait for threads joined earlier to finish linking.
+                    // Wait for other writers linking to the queue. In this way
+                    // we will know whether the writer is a leader by checking
+                    // threads_linked.
                     while (threads_linked.load() < cur_threads_joined) {
                     }
                   });
 
+              // Verification once writers call JoinBatchGroup.
               rocksdb::SyncPoint::GetInstance()->SetCallBack(
                   "WriteThread::JoinBatchGroup:Wait", [&](void* arg) {
                     uint64_t cur_threads_linked = threads_linked.fetch_add(1);
@@ -192,7 +203,8 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
                     }
                     
                     threads_waiting.fetch_add(1);
-                    // wait for friends
+                    // Wait here until all verification in this sync-point
+                    // callback finish for all writers.
                     while (threads_waiting.load() < write_group.size()) {
                     }
                   });
@@ -218,6 +230,9 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
 
               std::atomic<uint32_t> thread_num(0);
               std::atomic<char> dummy_key(0);
+
+              // Each write thread create a random write batch and write to DB
+              // with a write callback.
               std::function<void()> write_with_callback_func = [&]() {
                 uint32_t i = thread_num.fetch_add(1);
                 Random rnd(i);
