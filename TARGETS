@@ -6,8 +6,6 @@ REPO_PATH = TARGETS_PATH[(TARGETS_PATH.find('fbcode/') + len('fbcode/')):] + "/"
 BUCK_BINS = "buck-out/gen/" + REPO_PATH
 TEST_RUNNER = REPO_PATH + "buckifier/rocks_test_runner.sh"
 rocksdb_compiler_flags = [
-  "-msse",
-  "-msse4.2",
   "-fno-builtin-memcmp",
   "-DROCKSDB_PLATFORM_POSIX",
   "-DROCKSDB_LIB_IO_POSIX",
