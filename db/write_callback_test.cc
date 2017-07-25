@@ -152,7 +152,7 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
               std::atomic<uint64_t> threads_joined(0);
               // Writers that have linked to the queue
               std::atomic<uint64_t> threads_linked(0);
-              // Writers that passes WriteThread::JoinBatchGroup:Wait sync-point.
+              // Writers that pass WriteThread::JoinBatchGroup:Wait sync-point.
               std::atomic<uint64_t> threads_waiting(0);
 
               std::atomic<uint64_t> seq(db_impl->GetLatestSequenceNumber());
