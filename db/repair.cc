@@ -261,14 +261,12 @@ class Repairer {
       for (size_t i = 0; i < filenames.size(); i++) {
         if (ParseFileName(filenames[i], &number, &type)) {
           if (type == kDescriptorFile) {
-            assert(path_id == 0);
             manifests_.push_back(filenames[i]);
           } else {
             if (number + 1 > next_file_number_) {
               next_file_number_ = number + 1;
             }
             if (type == kLogFile) {
-              assert(path_id == 0);
               logs_.push_back(number);
             } else if (type == kTableFile) {
               table_fds_.emplace_back(number, static_cast<uint32_t>(path_id),
