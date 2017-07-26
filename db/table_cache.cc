@@ -227,8 +227,7 @@ InternalIterator* TableCache::NewIterator(
   }
   InternalIterator* result = nullptr;
   if (s.ok()) {
-    result =
-      table_reader->NewIterator(options, arena, &icomparator, skip_filters);
+    result = table_reader->NewIterator(options, arena, skip_filters);
     if (create_new_table_reader) {
       assert(handle == nullptr);
       result->RegisterCleanup(&DeleteTableReader, table_reader, nullptr);
