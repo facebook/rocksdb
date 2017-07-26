@@ -230,7 +230,6 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
                             need_log_dir_sync, last_sequence + 1);
       }
     } else {
-      assert(!need_log_sync && !need_log_dir_sync);
       if (status.ok() && !write_options.disableWAL) {
         PERF_TIMER_GUARD(write_wal_time);
         // LastToBeWrittenSequence is increased inside WriteToWAL under
