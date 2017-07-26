@@ -512,7 +512,7 @@ TEST_F(CompactionPickerTest, NeedsCompactionFIFO) {
         kFileSize, 0, i * 100, i * 100 + 99);
     current_size += kFileSize;
     UpdateVersionStorageInfo();
-    ASSERT_EQ(level_compaction_picker.NeedsCompaction(vstorage_.get()),
+    ASSERT_EQ(fifo_compaction_picker.NeedsCompaction(vstorage_.get()),
               vstorage_->CompactionScore(0) >= 1);
   }
 }
