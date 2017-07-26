@@ -236,16 +236,6 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         // wal_write_mutex_ to ensure ordered events in WAL
         status = ConcurrentWriteToWAL(write_group, log_used, &last_sequence,
                                       total_count);
-        if (status.ok() && need_log_sync) {
-          // Requesting sync with concurrent_prepare_ is expected to be very
-          // rare. We hance provide a simple implementation that is not
-          // necessarily efficient.
-          if (manual_wal_flush_) {
-            status = FlushWAL(true);
-          } else {
-            status = SyncWAL();
-          }
-        }
       } else {
         // Otherwise we inc seq number for memtable writes
         last_sequence = versions_->FetchAddLastToBeWrittenSequence(total_count);
