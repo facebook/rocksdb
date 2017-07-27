@@ -143,7 +143,13 @@ TEST_F(WritableFileWriterTest, IncrementalBuffer) {
     env_options.writable_file_max_buffer_size =
         (attempt < kNumAttempts / 2) ? 512 * 1024 : 700 * 1024;
     std::string actual;
-    unique_ptr<FakeWF> wf(new FakeWF(&actual, attempt % 2 == 1, no_flush));
+    unique_ptr<FakeWF> wf(new FakeWF(&actual,
+#ifndef ROCKSDB_LITE
+                                     attempt % 2 == 1,
+#else
+                                     false,
+#endif
+                                     no_flush));
     unique_ptr<WritableFileWriter> writer(
         new WritableFileWriter(std::move(wf), env_options));
 

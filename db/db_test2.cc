@@ -2236,6 +2236,7 @@ TEST_F(DBTest2, LowPriWrite) {
   ASSERT_EQ(1, rate_limit_count.load());
 }
 
+#ifndef ROCKSDB_LITE
 TEST_F(DBTest2, RateLimitedCompactionReads) {
   // compaction input has 512KB data
   const int kNumKeysPerFile = 128;
@@ -2299,7 +2300,7 @@ TEST_F(DBTest2, RateLimitedCompactionReads) {
                   options.rate_limiter->GetTotalBytesThrough(Env::IO_LOW)));
   }
 }
-
+#endif  // ROCKSDB_LITE
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
