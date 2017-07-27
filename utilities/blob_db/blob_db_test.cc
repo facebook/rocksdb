@@ -87,7 +87,12 @@ class BlobDBTest : public testing::Test {
 
   void PutRandom(const std::string &key, Random *rnd,
                  std::map<std::string, std::string> *data = nullptr) {
-    PutRandomWithTTL(key, -1, rnd, data);
+    int len = rnd->Next() % kMaxBlobSize + 1;
+    std::string value = test::RandomHumanReadableString(rnd, len);
+    ASSERT_OK(blob_db_->Put(WriteOptions(), Slice(key), Slice(value)));
+    if (data != nullptr) {
+      (*data)[key] = value;
+    }
   }
 
   void PutRandomToWriteBatch(
@@ -255,8 +260,8 @@ TEST_F(BlobDBTest, TTLExtractor_ExtractTTL) {
     explicit TestTTLExtractor(Random *r) : rnd(r) {}
 
     virtual bool ExtractTTL(const Slice &key, const Slice &value, uint32_t *ttl,
-                            std::string* /*new_value*/,
-                            bool* /*value_changed*/) override {
+                            std::string * /*new_value*/,
+                            bool * /*value_changed*/) override {
       *ttl = rnd->Next() % 100;
       if (*ttl >= 50) {
         data[key.ToString()] = value.ToString();
@@ -273,6 +278,7 @@ TEST_F(BlobDBTest, TTLExtractor_ExtractTTL) {
   BlobDBOptionsImpl bdb_options;
   bdb_options.ttl_range_secs = 1000;
   bdb_options.blob_file_size = 256 * 1000 * 1000;
+  bdb_options.ttl_extractor = ttl_extractor_;
   bdb_options.disable_background_tasks = true;
   Open(bdb_options, options);
   mock_env_->set_now_micros(50 * 1000000);
@@ -301,8 +307,8 @@ TEST_F(BlobDBTest, TTLExtractor_ExtractExpiration) {
 
     virtual bool ExtractExpiration(const Slice &key, const Slice &value,
                                    uint64_t now, uint64_t *expiration,
-                                   std::string* /*new_value*/,
-                                   bool* /*value_changed*/) override {
+                                   std::string * /*new_value*/,
+                                   bool * /*value_changed*/) override {
       *expiration = rnd->Next() % 100 + 50;
       if (*expiration >= 100) {
         data[key.ToString()] = value.ToString();
@@ -319,6 +325,7 @@ TEST_F(BlobDBTest, TTLExtractor_ExtractExpiration) {
   BlobDBOptionsImpl bdb_options;
   bdb_options.ttl_range_secs = 1000;
   bdb_options.blob_file_size = 256 * 1000 * 1000;
+  bdb_options.ttl_extractor = ttl_extractor_;
   bdb_options.disable_background_tasks = true;
   Open(bdb_options, options);
   mock_env_->set_now_micros(50 * 1000000);
@@ -334,6 +341,43 @@ TEST_F(BlobDBTest, TTLExtractor_ExtractExpiration) {
   GCStats gc_stats;
   ASSERT_OK(bdb_impl->TEST_GCFileAndUpdateLSM(blob_files[0], &gc_stats));
   auto& data = static_cast<TestTTLExtractor *>(ttl_extractor_.get())->data;
+  ASSERT_EQ(100 - data.size(), gc_stats.num_deletes);
+  ASSERT_EQ(data.size(), gc_stats.num_relocs);
+  VerifyDB(data);
+}
+
+TEST_F(BlobDBTest, TTLExtractor_DefaultTTLExtractor) {
+  Random rnd(301);
+  Options options;
+  options.env = mock_env_.get();
+  BlobDBOptionsImpl bdb_options;
+  bdb_options.ttl_range_secs = 1000;
+  bdb_options.blob_file_size = 256 * 1000 * 1000;
+  bdb_options.ttl_extractor = NewDefaultTTLExtractor();
+  bdb_options.disable_background_tasks = true;
+  Open(bdb_options, options);
+  std::map<std::string, std::string> data;
+  mock_env_->set_now_micros(50 * 1000000);
+  for (size_t i = 0; i < 100; i++) {
+    int len = rnd.Next() % kMaxBlobSize + 1;
+    std::string key = "key" + ToString(i);
+    std::string value = test::RandomHumanReadableString(&rnd, len);
+    uint32_t ttl = rnd.Next() % 100;
+    std::string value_ttl = value + "ttl:";
+    PutFixed32(&value_ttl, ttl);
+    ASSERT_OK(blob_db_->Put(WriteOptions(), Slice(key), Slice(value_ttl)));
+    if (ttl >= 50) {
+      data[key] = value;
+    }
+  }
+  mock_env_->set_now_micros(100 * 1000000);
+  auto *bdb_impl = static_cast<BlobDBImpl *>(blob_db_);
+  auto blob_files = bdb_impl->TEST_GetBlobFiles();
+  ASSERT_EQ(1, blob_files.size());
+  ASSERT_TRUE(blob_files[0]->HasTTL());
+  bdb_impl->TEST_CloseBlobFile(blob_files[0]);
+  GCStats gc_stats;
+  ASSERT_OK(bdb_impl->TEST_GCFileAndUpdateLSM(blob_files[0], &gc_stats));
   ASSERT_EQ(100 - data.size(), gc_stats.num_deletes);
   ASSERT_EQ(data.size(), gc_stats.num_relocs);
   VerifyDB(data);
