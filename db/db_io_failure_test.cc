@@ -204,7 +204,6 @@ TEST_F(DBIOFailureTest, ManifestWriteError) {
     ASSERT_EQ("bar2", Get("foo2"));
   }
 }
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBIOFailureTest, PutFailsParanoid) {
   // Test the following:
@@ -559,6 +558,7 @@ TEST_F(DBIOFailureTest, CompactionSstSyncError) {
   ASSERT_EQ("bar3", Get(1, "foo"));
 }
 #endif  // !(defined NDEBUG) || !defined(OS_WIN)
+#endif  // ROCKSDB_LITE
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
