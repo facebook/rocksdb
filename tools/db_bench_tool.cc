@@ -85,6 +85,7 @@ DEFINE_string(
     "fillsync,"
     "fillrandom,"
     "filluniquerandomdeterministic,"
+    "replay,"
     "overwrite,"
     "readrandom,"
     "newiterator,"
@@ -127,6 +128,7 @@ DEFINE_string(
     " mode\n"
     "\tfilluniquerandomdeterministic       -- write N values in a random"
     " key order and keep the shape of the LSM tree\n"
+    "\treplay        -- replay the trace file specified with replay_file"
     "\toverwrite     -- overwrite N values in random key order in"
     " async mode\n"
     "\tfillsync      -- write N/100 values in random key order in "
@@ -232,6 +234,17 @@ DEFINE_bool(reverse_iterator, false,
             "Seek and then Next");
 
 DEFINE_bool(use_uint64_comparator, false, "use Uint64 user comparator");
+
+DEFINE_bool(pin_slice, true, "use pinnable slice for point lookup");
+
+DEFINE_string(trace_file, "",
+              "If not empty string, use default tracer to trace the"
+              "workload with this as filename");
+
+DEFINE_string(replay_file, "",
+              "If not empty string, use default replayer to replay the"
+              "workload with this as file path, must be specified when"
+              "benchmarks includes 'replay'");
 
 DEFINE_int64(batch_size, 1, "Batch size");
 
@@ -2364,7 +2377,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         fresh_db = true;
         if (num_threads > 1) {
           fprintf(stderr,
-                  "filluniquerandom multithreaded not supported"
+                  "Multi-threading filluniquerandom is not supported"
                   ", use 1 thread");
           num_threads = 1;
         }
@@ -2383,6 +2396,21 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         method = &Benchmark::WriteRandom;
       } else if (name == "readseq") {
         method = &Benchmark::ReadSequential;
+      } else if (name == "replay") {
+        method = &Benchmark::Replay;
+        if (FLAGS_replay_file == "") {
+          fprintf(stderr,
+                  "Please set --replay_file to the trace file"
+                  "path you want to replay from\n");
+          exit(1);
+        }
+        if (num_threads > 1) {
+          fprintf(stderr,
+                  "Multi-threading replay is not supported"
+                  ", use 1 thread");
+          num_threads = 1;
+        }
+        method = &Benchmark::Replay;
       } else if (name == "readtocache") {
         method = &Benchmark::ReadSequential;
         num_threads = 1;
@@ -2520,6 +2548,17 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       }
 
       if (method != nullptr) {
+        if (FLAGS_trace_file != "") {
+          Status s = StartTrace(db_.db, FLAGS_trace_file);
+          if (!s.ok()) {
+            fprintf(stderr, "Error in starting trace, %s\n",
+                    s.ToString().c_str());
+            exit(1);
+          }
+          fprintf(stdout, "[Trace] Start tracing the workload to [%s]\n",
+                  FLAGS_trace_file.c_str());
+        }
+
         fprintf(stdout, "DB path: [%s]\n", FLAGS_db.c_str());
         if (num_warmup > 0) {
           printf("Warming up benchmark by running %d times\n", num_warmup);
@@ -2544,6 +2583,10 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       }
       if (post_process_method != nullptr) {
         (this->*post_process_method)();
+      }
+
+      if (FLAGS_trace_file != "") {
+        EndTrace(db_.db);
       }
     }
     if (FLAGS_statistics) {
@@ -3863,6 +3906,21 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     return Status::NotSupported(
         "Rocksdb Lite doesn't support filldeterministic");
 #endif  // ROCKSDB_LITE
+  }
+
+  void Replay(ThreadState* thread) {
+    if (db_.db != nullptr) {
+      Replay(thread, &db_);
+    } else {
+      for (auto& db_with_cfh : multi_dbs_) {
+        Replay(thread, &db_with_cfh);
+      }
+    }
+  }
+
+  void Replay(ThreadState* thread, DBWithColumnFamilies* db_with_cfh) {
+    Status s = StartReplay(db_with_cfh->db, db_with_cfh->cfh, FLAGS_replay_file,
+                           false);
   }
 
   void ReadSequential(ThreadState* thread) {

@@ -2300,6 +2300,46 @@ TEST_F(DBTest2, RateLimitedCompactionReads) {
   }
 }
 
+TEST_F(DBTest2, TraceAndReplay) {
+  Options options = CurrentOptions();
+  options.merge_operator.reset(new TestPutOperator());
+  uint64_t num_ops = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "Tracer::~Tracer", [&num_ops](void* arg) {
+        ASSERT_TRUE(arg != nullptr);
+        num_ops = *(static_cast<uint64_t*>(arg));
+      });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "Replay::BackgroundReplay", [&num_ops](void* arg) {
+        ASSERT_TRUE(arg != nullptr);
+        num_ops = *(static_cast<uint64_t*>(arg));
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  CreateAndReopenWithCF({"pikachu"}, options);
+  StartTrace(db_, dbname_ + "/test.tr");
+  Random rnd(301);
+  for (int i = 0; i < 1000; i++) {
+    ASSERT_OK(Put(0, Key(i), RandomString(&rnd, 10)));
+    ASSERT_OK(Merge(0, Key(i), RandomString(&rnd, 10)));
+    // Found
+    Get(0, Key(i));
+    ASSERT_OK(Delete(0, Key(i)));
+    ASSERT_OK(Put(1, Key(i), RandomString(&rnd, 10)));
+    ASSERT_OK(Merge(1, Key(i), RandomString(&rnd, 10)));
+    ASSERT_OK(Delete(1, Key(i)));
+    // Not Found
+    Get(1, Key(i));
+  }
+  Close();
+  ASSERT_EQ(num_ops, 8000);
+  num_ops = 0;
+  ASSERT_OK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
+  StartReplay(db_, handles_, dbname_ + "/test.tr", false);
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  Close();
+  ASSERT_EQ(num_ops, 8000);
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

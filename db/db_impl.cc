@@ -96,6 +96,7 @@
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
+#include "util/trace_reader_writer_impl.h"
 
 namespace rocksdb {
 const std::string kDefaultColumnFamilyName("default");
@@ -983,6 +984,12 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
     size_t size = pinnable_val->size();
     RecordTick(stats_, BYTES_READ, size);
     MeasureTime(stats_, BYTES_PER_READ, size);
+  }
+  {
+    std::lock_guard<std::mutex> lock(trace_mutex_);
+    if (tracer_ != nullptr) {
+      tracer_->Get(column_family, key);
+    }
   }
   return s;
 }
@@ -2733,6 +2740,28 @@ Status DBImpl::IngestExternalFile(
   }
 
   return status;
+}
+
+Status DBImpl::StartTrace(std::unique_ptr<TraceWriter>&& writer) {
+  std::lock_guard<std::mutex> lock(trace_mutex_);
+  tracer_.reset(new Tracer(env_, std::move(writer)));
+  return Status::OK();
+}
+
+Status DBImpl::EndTrace() {
+  std::lock_guard<std::mutex> lock(trace_mutex_);
+  tracer_.reset();
+  return Status::OK();
+}
+
+Status DBImpl::StartReplay(std::vector<ColumnFamilyHandle*>& handles,
+                           std::unique_ptr<TraceReader>&& reader,
+                           bool no_wait) {
+  replayer_.reset(new Replayer(this, handles, std::move(reader)));
+  if (!no_wait) {
+    replayer_->WaitForReplay();
+  }
+  return Status::OK();
 }
 
 void DBImpl::NotifyOnExternalFileIngested(

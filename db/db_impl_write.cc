@@ -318,6 +318,10 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
   if (status.ok()) {
     status = w.FinalStatus();
+    std::lock_guard<std::mutex> lock(trace_mutex_);
+    if (tracer_ != nullptr) {
+      tracer_->Write(my_batch);
+    }
   }
   return status;
 }
@@ -442,6 +446,12 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
   }
 
   assert(w.state == WriteThread::STATE_COMPLETED);
+  if (w.FinalStatus().ok()) {
+    std::lock_guard<std::mutex> lock(trace_mutex_);
+    if (tracer_ != nullptr) {
+      tracer_->Write(my_batch);
+    }
+  }
   return w.FinalStatus();
 }
 

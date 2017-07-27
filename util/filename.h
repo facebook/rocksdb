@@ -39,7 +39,8 @@ enum FileType {
   kMetaDatabase,
   kIdentityFile,
   kOptionsFile,
-  kBlobFile
+  kBlobFile,
+  kTraceFile
 };
 
 // Return the name of the log file with the specified number
@@ -79,6 +80,12 @@ const size_t kFormatFileNumberBufSize = 38;
 
 extern void FormatFileNumber(uint64_t number, uint32_t path_id, char* out_buf,
                              size_t out_buf_size);
+
+// Return the name of the trace file for the db named by
+// "dbname" and the specified time filename.  The result will be
+// prefixed with "dbname".
+extern std::string TraceFileName(const std::string& dbname,
+                                 const std::string& time);
 
 // Return the name of the descriptor file for the db named by
 // "dbname" and the specified incarnation number.  The result will be

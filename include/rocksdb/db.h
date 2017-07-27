@@ -23,6 +23,7 @@
 #include "rocksdb/snapshot.h"
 #include "rocksdb/sst_file_writer.h"
 #include "rocksdb/thread_status.h"
+#include "rocksdb/trace_reader_writer.h"
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/types.h"
 #include "rocksdb/version.h"

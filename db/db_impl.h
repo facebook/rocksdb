@@ -49,6 +49,7 @@
 #include "util/hash.h"
 #include "util/stop_watch.h"
 #include "util/thread_local.h"
+#include "util/tracer_replayer.h"
 
 namespace rocksdb {
 
@@ -146,10 +147,9 @@ class DBImpl : public DB {
   virtual bool GetAggregatedIntProperty(const Slice& property,
                                         uint64_t* aggregated_value) override;
   using DB::GetApproximateSizes;
-  virtual void GetApproximateSizes(ColumnFamilyHandle* column_family,
-                                   const Range* range, int n, uint64_t* sizes,
-                                   uint8_t include_flags
-                                   = INCLUDE_FILES) override;
+  virtual void GetApproximateSizes(
+      ColumnFamilyHandle* column_family, const Range* range, int n,
+      uint64_t* sizes, uint8_t include_flags = INCLUDE_FILES) override;
   using DB::GetApproximateMemTableStats;
   virtual void GetApproximateMemTableStats(ColumnFamilyHandle* column_family,
                                            const Range& range,
@@ -218,8 +218,8 @@ class DBImpl : public DB {
 
   virtual Status GetUpdatesSince(
       SequenceNumber seq_number, unique_ptr<TransactionLogIterator>* iter,
-      const TransactionLogIterator::ReadOptions&
-          read_options = TransactionLogIterator::ReadOptions()) override;
+      const TransactionLogIterator::ReadOptions& read_options =
+          TransactionLogIterator::ReadOptions()) override;
   virtual Status DeleteFile(std::string name) override;
   Status DeleteFilesInRange(ColumnFamilyHandle* column_family,
                             const Slice* begin, const Slice* end);
@@ -231,9 +231,8 @@ class DBImpl : public DB {
   // Status::NotFound() will be returned if the current DB does not have
   // any column family match the specified name.
   // TODO(yhchiang): output parameter is placed in the end in this codebase.
-  virtual void GetColumnFamilyMetaData(
-      ColumnFamilyHandle* column_family,
-      ColumnFamilyMetaData* metadata) override;
+  virtual void GetColumnFamilyMetaData(ColumnFamilyHandle* column_family,
+                                       ColumnFamilyMetaData* metadata) override;
 
   // experimental API
   Status SuggestCompactRange(ColumnFamilyHandle* column_family,
@@ -293,6 +292,13 @@ class DBImpl : public DB {
       const std::vector<std::string>& external_files,
       const IngestExternalFileOptions& ingestion_options) override;
 
+  virtual Status StartTrace(std::unique_ptr<TraceWriter>&& trace_writer);
+  virtual Status EndTrace();
+
+  // StartReplay will replay the trace to the DB opened by trace_reader
+  virtual Status StartReplay(std::vector<ColumnFamilyHandle*>& handles,
+                             std::unique_ptr<TraceReader>&& trace_reader,
+                             bool no_wait);
 #endif  // ROCKSDB_LITE
 
   // Similar to GetSnapshot(), but also lets the db know that this snapshot
@@ -632,6 +638,8 @@ class DBImpl : public DB {
   friend class DB;
   friend class InternalStats;
   friend class TransactionImpl;
+  friend class Tracer;
+  friend class Replayer;
 #ifndef ROCKSDB_LITE
   friend class ForwardIterator;
 #endif
@@ -999,6 +1007,10 @@ class DBImpl : public DB {
   FlushScheduler flush_scheduler_;
 
   SnapshotList snapshots_;
+
+  unique_ptr<Tracer> tracer_;
+  unique_ptr<Replayer> replayer_;
+  std::mutex trace_mutex_;
 
   // For each background job, pending_outputs_ keeps the current file number at
   // the time that background job started.
