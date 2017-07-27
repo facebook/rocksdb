@@ -328,10 +328,6 @@ Version::~Version() {
       assert(f->refs > 0);
       f->refs--;
       if (f->refs <= 0) {
-        if (f->table_reader_handle) {
-          cfd_->table_cache()->EraseHandle(f->fd, f->table_reader_handle);
-          f->table_reader_handle = nullptr;
-        }
         vset_->obsolete_files_.push_back(f);
       }
     }
