@@ -181,6 +181,8 @@ class BlockBasedTable : public TableReader {
     // that was allocated in block cache.
     virtual size_t ApproximateMemoryUsage() const = 0;
 
+    virtual void CacheDependencies(bool pin){};
+
    protected:
     const InternalKeyComparator* icomparator_;
 
@@ -345,11 +347,11 @@ class BlockBasedTable : public TableReader {
 // Maitaning state of a two-level iteration on a partitioned index structure
 class BlockBasedTable::BlockEntryIteratorState : public TwoLevelIteratorState {
  public:
-  BlockEntryIteratorState(BlockBasedTable* table,
-                          const ReadOptions& read_options,
-                          const InternalKeyComparator* icomparator,
-                          bool skip_filters, bool is_index = false,
-                          Cleanable* block_cache_cleaner = nullptr);
+  BlockEntryIteratorState(
+      BlockBasedTable* table, const ReadOptions& read_options,
+      const InternalKeyComparator* icomparator, bool skip_filters,
+      bool is_index = false,
+      std::map<uint64_t, CachableEntry<Block>>* block_map = nullptr);
   InternalIterator* NewSecondaryIterator(const Slice& index_value) override;
   bool PrefixMayMatch(const Slice& internal_key) override;
   bool KeyReachedUpperBound(const Slice& internal_key) override;
@@ -362,8 +364,7 @@ class BlockBasedTable::BlockEntryIteratorState : public TwoLevelIteratorState {
   bool skip_filters_;
   // true if the 2nd level iterator is on indexes instead of on user data.
   bool is_index_;
-  Cleanable* block_cache_cleaner_;
-  std::set<uint64_t> cleaner_set;
+  std::map<uint64_t, CachableEntry<Block>>* block_map_;
   port::RWMutex cleaner_mu;
 };
 
