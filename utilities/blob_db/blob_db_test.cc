@@ -164,7 +164,7 @@ TEST_F(BlobDBTest, PutWithTTL) {
   options.env = mock_env_.get();
   BlobDBOptionsImpl bdb_options;
   bdb_options.ttl_range_secs = 1000;
-  bdb_options.blob_file_size = 1 << 28;
+  bdb_options.blob_file_size = 256 * 1000 * 1000;
   bdb_options.disable_background_tasks = true;
   Open(bdb_options, options);
   std::map<std::string, std::string> data;
@@ -193,7 +193,7 @@ TEST_F(BlobDBTest, PutUntil) {
   options.env = mock_env_.get();
   BlobDBOptionsImpl bdb_options;
   bdb_options.ttl_range_secs = 1000;
-  bdb_options.blob_file_size = 1 << 28;
+  bdb_options.blob_file_size = 256 * 1000 * 1000;
   bdb_options.disable_background_tasks = true;
   Open(bdb_options, options);
   std::map<std::string, std::string> data;
@@ -224,7 +224,7 @@ TEST_F(BlobDBTest, TTLExtrator_NoTTL) {
   options.env = mock_env_.get();
   BlobDBOptionsImpl bdb_options;
   bdb_options.ttl_range_secs = 1000;
-  bdb_options.blob_file_size = 1 << 28;
+  bdb_options.blob_file_size = 256 * 1000 * 1000;
   bdb_options.num_concurrent_simple_blobs = 1;
   bdb_options.ttl_extractor = ttl_extractor_;
   bdb_options.disable_background_tasks = true;
@@ -252,11 +252,11 @@ TEST_F(BlobDBTest, TTLExtractor_ExtractTTL) {
   Random rnd(301);
   class TestTTLExtractor : public TTLExtractor {
    public:
-    TestTTLExtractor(Random *r) : rnd(r) {}
+    explicit TestTTLExtractor(Random *r) : rnd(r) {}
 
     virtual bool ExtractTTL(const Slice &key, const Slice &value, uint32_t *ttl,
-                            std::string *new_value,
-                            bool *value_changed) override {
+                            std::string* /*new_value*/,
+                            bool* /*value_changed*/) override {
       *ttl = rnd->Next() % 100;
       if (*ttl >= 50) {
         data[key.ToString()] = value.ToString();
@@ -272,7 +272,7 @@ TEST_F(BlobDBTest, TTLExtractor_ExtractTTL) {
   options.env = mock_env_.get();
   BlobDBOptionsImpl bdb_options;
   bdb_options.ttl_range_secs = 1000;
-  bdb_options.blob_file_size = 1 << 28;
+  bdb_options.blob_file_size = 256 * 1000 * 1000;
   bdb_options.disable_background_tasks = true;
   Open(bdb_options, options);
   mock_env_->set_now_micros(50 * 1000000);
@@ -297,12 +297,12 @@ TEST_F(BlobDBTest, TTLExtractor_ExtractExpiration) {
   Random rnd(301);
   class TestTTLExtractor : public TTLExtractor {
    public:
-    TestTTLExtractor(Random *r) : rnd(r) {}
+    explicit TestTTLExtractor(Random *r) : rnd(r) {}
 
     virtual bool ExtractExpiration(const Slice &key, const Slice &value,
                                    uint64_t now, uint64_t *expiration,
-                                   std::string *new_value,
-                                   bool *value_changed) override {
+                                   std::string* /*new_value*/,
+                                   bool* /*value_changed*/) override {
       *expiration = rnd->Next() % 100 + 50;
       if (*expiration >= 100) {
         data[key.ToString()] = value.ToString();
@@ -318,7 +318,7 @@ TEST_F(BlobDBTest, TTLExtractor_ExtractExpiration) {
   options.env = mock_env_.get();
   BlobDBOptionsImpl bdb_options;
   bdb_options.ttl_range_secs = 1000;
-  bdb_options.blob_file_size = 1 << 28;
+  bdb_options.blob_file_size = 256 * 1000 * 1000;
   bdb_options.disable_background_tasks = true;
   Open(bdb_options, options);
   mock_env_->set_now_micros(50 * 1000000);

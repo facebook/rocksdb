@@ -17,7 +17,6 @@
 #include "table/block.h"
 #include "table/block_based_table_builder.h"
 #include "table/block_builder.h"
-#include "util/crc32c.h"
 #include "util/file_reader_writer.h"
 #include "util/filename.h"
 #include "utilities/blob_db/blob_db_impl.h"
