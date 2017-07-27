@@ -1545,11 +1545,12 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key) {
   return may_match;
 }
 
-InternalIterator* BlockBasedTable::NewIterator(
-    const ReadOptions& read_options, Arena* arena,
-    const InternalKeyComparator* icomp, bool skip_filters) {
+InternalIterator* BlockBasedTable::NewIterator(const ReadOptions& read_options,
+                                               Arena* arena,
+                                               bool skip_filters) {
   return NewTwoLevelIterator(
-      new BlockEntryIteratorState(this, read_options, icomp, skip_filters),
+      new BlockEntryIteratorState(this, read_options,
+                                  &rep_->internal_comparator, skip_filters),
       NewIndexIterator(read_options), arena);
 }
 
