@@ -277,11 +277,12 @@ Options DBTestBase::GetOptions(
   Options options = default_options;
   BlockBasedTableOptions table_options;
   bool set_block_based_table_factory = true;
-#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && \
-    !defined(OS_AIX)
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) &&  \
+  !defined(OS_AIX)
   rocksdb::SyncPoint::GetInstance()->ClearCallBack(
       "NewRandomAccessFile:O_DIRECT");
-  rocksdb::SyncPoint::GetInstance()->ClearCallBack("NewWritableFile:O_DIRECT");
+  rocksdb::SyncPoint::GetInstance()->ClearCallBack(
+      "NewWritableFile:O_DIRECT");
 #endif
 
   bool can_allow_mmap = IsMemoryMappedAccessSupported();
