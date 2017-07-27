@@ -24,7 +24,7 @@ bool TTLExtractor::ExtractExpiration(const Slice& key, const Slice& value,
   if (has_ttl) {
     *expiration = now + ttl;
   }
-  return true;
+  return has_ttl;
 }
 
 class DefaultTTLExtractor : public TTLExtractor {
