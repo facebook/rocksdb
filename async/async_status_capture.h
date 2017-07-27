@@ -52,7 +52,9 @@ class AsyncStatusCapture {
       async_ = true;
     }
   }
-
+  void reset_async(const Status& s) {
+    async_ = s.async();
+  }
 };
 
 }

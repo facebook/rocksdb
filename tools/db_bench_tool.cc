@@ -1814,6 +1814,10 @@ protected:
   AsyncBenchBase(const AsyncBenchBase&) = default;
   AsyncBenchBase& operator=(const AsyncBenchBase&) = default;
 
+  void SetThreadPerfLevel() {
+    SetPerfLevel(static_cast<PerfLevel> (shared_->perf_level));
+  }
+
   // Concrete class invokes this when all threads
   // when the hosting thread start running it
   // Once this method returns start doing
@@ -4157,7 +4161,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 
     Duration duration(FLAGS_duration, reads_);
     while (!duration.Done(1)) {
-      // uint64_t start = FLAGS_env->NowMicros();
+      uint64_t start = FLAGS_env->NowMicros();
       DBWithColumnFamilies* db_with_cfh = SelectDBWithCfh(thread);
       // We use same key_rand as seed for key and column family so that we can
       // deterministically find the cfh corresponding to a particular key, as it
@@ -4196,7 +4200,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       }
 
       thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db, 1, kRead);
-      // fprintf(stderr, "Elapsed: %" PRIu64 "\n", FLAGS_env->NowMicros() - start);
+      fprintf(stderr, "Elapsed: %" PRIu64 "\n", FLAGS_env->NowMicros() - start);
     }
 
     char msg[100];
@@ -4236,13 +4240,15 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       return bm_->AllocateKey(guard);
     }
 
+#define DSM_TIME_REQ
     struct ReadContext : public async::AsyncStatusCapture {
 
       ReadContext(ReadRandomAsync* bench) :
           bench_(bench),
           db_with_cfh_(nullptr),
           key_guard_(),
-          key_() {
+          key_(),
+          start_() {
         // Init once, we then
         // We use same key_rand as seed for key and column family so that we can
         // deterministically find the cfh corresponding to a particular key, as it
@@ -4257,7 +4263,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       }
 
       Status OnReadComplete(const Status& status) {
-        async(status.async());
+        // This is a reusable context
+        reset_async(status);
 
         bench_->read_.fetch_add(1, std::memory_order_relaxed);
 
@@ -4275,6 +4282,10 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         bench_->thread_->stats.FinishedOps(db_with_cfh_, 
           db_with_cfh_->db, 1, kRead);
 
+#ifdef DSM_TIME_REQ
+        fprintf(stderr, "t %" PRIu64 "\n", FLAGS_env->NowMicros() - start_);
+#endif
+
         if (async()) {
           // ping on continue
           bench_->ReadComplete();
@@ -4289,6 +4300,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       Slice key_; 
       std::string value_;
       PinnableSlice pinnable_val_;
+      uint64_t      start_;
     };
 
     friend struct ReadContext;
@@ -4307,6 +4319,10 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     }
 
     Status RequestGet() {
+
+#ifdef DSM_TIME_REQ
+      ctx_->start_ = FLAGS_env->NowMicros();
+#endif
 
       ResetContext(ctx_.get());
 
@@ -4334,6 +4350,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     }
 
     void RequestOnThreadPool() {
+      SetThreadPerfLevel();
       Status s = RequestGet();
       if (!s.IsIOPending()) {
         ReadComplete();
