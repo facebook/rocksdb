@@ -2847,7 +2847,7 @@ TEST_F(DBTest, FIFOCompactionWithTTLAndVariousTableFormatsTest) {
   ASSERT_TRUE(TryReopen(options).IsNotSupported());
 }
 
-TEST_F(DBTest, DISABLED_FIFOCompactionWithTTLTest) {
+TEST_F(DBTest, FIFOCompactionWithTTLTest) {
   Options options;
   options.compaction_style = kCompactionStyleFIFO;
   options.write_buffer_size = 10 << 10;  // 10KB
@@ -2871,12 +2871,13 @@ TEST_F(DBTest, DISABLED_FIFOCompactionWithTTLTest) {
         ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
       }
       Flush();
+      ASSERT_OK(dbfull()->TEST_WaitForCompact());
     }
-    ASSERT_OK(dbfull()->TEST_WaitForCompact());
     ASSERT_EQ(NumTableFilesAtLevel(0), 10);
 
-    // sleep for 5 seconds
-    env_->SleepForMicroseconds(5 * 1000 * 1000);
+    // sleep for 2 seconds
+    env_->SleepForMicroseconds(2 * 1000 * 1000);
+    // Just to make sure that we are in the same state even after sleeping.
     ASSERT_OK(dbfull()->TEST_WaitForCompact());
     ASSERT_EQ(NumTableFilesAtLevel(0), 10);
 
@@ -2904,11 +2905,12 @@ TEST_F(DBTest, DISABLED_FIFOCompactionWithTTLTest) {
         ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
       }
       Flush();
+      ASSERT_OK(dbfull()->TEST_WaitForCompact());
     }
-    ASSERT_OK(dbfull()->TEST_WaitForCompact());
     ASSERT_EQ(NumTableFilesAtLevel(0), 10);
 
     env_->SleepForMicroseconds(6 * 1000 * 1000);
+    // Just to make sure that we are in the same state even after sleeping.
     ASSERT_OK(dbfull()->TEST_WaitForCompact());
     ASSERT_EQ(NumTableFilesAtLevel(0), 10);
 
@@ -2930,7 +2932,7 @@ TEST_F(DBTest, DISABLED_FIFOCompactionWithTTLTest) {
   // Test that shows the fall back to size-based FIFO compaction if TTL-based
   // deletion doesn't move the total size to be less than max_table_files_size.
   {
-    options.write_buffer_size = 110 << 10;                             // 10KB
+    options.write_buffer_size = 10 << 10;                              // 10KB
     options.compaction_options_fifo.max_table_files_size = 150 << 10;  // 150KB
     options.compaction_options_fifo.allow_compaction = false;
     options.compaction_options_fifo.ttl = 5;  // seconds
@@ -2944,11 +2946,12 @@ TEST_F(DBTest, DISABLED_FIFOCompactionWithTTLTest) {
         ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
       }
       Flush();
+      ASSERT_OK(dbfull()->TEST_WaitForCompact());
     }
-    ASSERT_OK(dbfull()->TEST_WaitForCompact());
     ASSERT_EQ(NumTableFilesAtLevel(0), 3);
 
     env_->SleepForMicroseconds(6 * 1000 * 1000);
+    // Just to make sure that we are in the same state even after sleeping.
     ASSERT_OK(dbfull()->TEST_WaitForCompact());
     ASSERT_EQ(NumTableFilesAtLevel(0), 3);
 
@@ -2957,8 +2960,8 @@ TEST_F(DBTest, DISABLED_FIFOCompactionWithTTLTest) {
         ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
       }
       Flush();
+      ASSERT_OK(dbfull()->TEST_WaitForCompact());
     }
-    ASSERT_OK(dbfull()->TEST_WaitForCompact());
     // Size limit is still guaranteed.
     ASSERT_LE(SizeAtLevel(0),
               options.compaction_options_fifo.max_table_files_size);
@@ -2980,15 +2983,16 @@ TEST_F(DBTest, DISABLED_FIFOCompactionWithTTLTest) {
         ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
       }
       Flush();
+      ASSERT_OK(dbfull()->TEST_WaitForCompact());
     }
     // With Intra-L0 compaction, out of 10 files, 6 files will be compacted to 1
     // (due to level0_file_num_compaction_trigger = 6).
     // So total files = 1 + remaining 4 = 5.
-    ASSERT_OK(dbfull()->TEST_WaitForCompact());
     ASSERT_EQ(NumTableFilesAtLevel(0), 5);
 
     // Sleep for a little over ttl time.
     env_->SleepForMicroseconds(6 * 1000 * 1000);
+    // Just to make sure that we are in the same state even after sleeping.
     ASSERT_OK(dbfull()->TEST_WaitForCompact());
     ASSERT_EQ(NumTableFilesAtLevel(0), 5);
 
@@ -2998,8 +3002,8 @@ TEST_F(DBTest, DISABLED_FIFOCompactionWithTTLTest) {
         ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
       }
       Flush();
+      ASSERT_OK(dbfull()->TEST_WaitForCompact());
     }
-    ASSERT_OK(dbfull()->TEST_WaitForCompact());
     ASSERT_EQ(NumTableFilesAtLevel(0), 5);
     ASSERT_LE(SizeAtLevel(0),
               options.compaction_options_fifo.max_table_files_size);
@@ -3023,8 +3027,8 @@ TEST_F(DBTest, DISABLED_FIFOCompactionWithTTLTest) {
         ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
       }
       Flush();
+      ASSERT_OK(dbfull()->TEST_WaitForCompact());
     }
-    ASSERT_OK(dbfull()->TEST_WaitForCompact());
     // It should be compacted to 10 files.
     ASSERT_EQ(NumTableFilesAtLevel(0), 10);
 
@@ -3034,8 +3038,8 @@ TEST_F(DBTest, DISABLED_FIFOCompactionWithTTLTest) {
         ASSERT_OK(Put(ToString(i * 20 + j + 2000), RandomString(&rnd, 980)));
       }
       Flush();
+      ASSERT_OK(dbfull()->TEST_WaitForCompact());
     }
-    ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
     // It should be compacted to no more than 20 files.
     ASSERT_GT(NumTableFilesAtLevel(0), 10);
