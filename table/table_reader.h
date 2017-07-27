@@ -40,7 +40,6 @@ class TableReader {
   //               option is effective only for block-based table format.
   virtual InternalIterator* NewIterator(const ReadOptions&,
                                         Arena* arena = nullptr,
-                                        const InternalKeyComparator* = nullptr,
                                         bool skip_filters = false) = 0;
 
   virtual InternalIterator* NewRangeTombstoneIterator(
