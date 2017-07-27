@@ -1365,6 +1365,17 @@ int main(int argc, char** argv) {
     CheckNoError(err);
     CheckTxnDBGet(txn_db, roptions, "foo", NULL);
 
+    // write batch into TransactionDB
+    rocksdb_writebatch_t* wb = rocksdb_writebatch_create();
+    rocksdb_writebatch_put(wb, "foo", 3, "a", 1);
+    rocksdb_writebatch_clear(wb);
+    rocksdb_writebatch_put(wb, "bar", 3, "b", 1);
+    rocksdb_writebatch_put(wb, "box", 3, "c", 1);
+    rocksdb_writebatch_delete(wb, "bar", 3);
+    rocksdb_transactiondb_write(txn_db, woptions, wb, &err);
+    CheckTxnDBGet(txn_db, roptions, "box", "c");
+    CheckNoError(err);
+
     // begin a transaction
     txn = rocksdb_transaction_begin(txn_db, woptions, txn_options, NULL);
     // put
