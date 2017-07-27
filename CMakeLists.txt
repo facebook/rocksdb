@@ -645,6 +645,8 @@ if(${CMAKE_INSTALL_PREFIX} STREQUAL /usr/local)
   set(CMAKE_INSTALL_PREFIX /usr)
 endif()
 
+option(WITH_TESTS "build with tests" ON)
+if(WITH_TESTS)
 set(TESTS
         cache/cache_test.cc
         cache/lru_cache_test.cc
@@ -856,6 +858,7 @@ foreach(sourcefile ${C_TEST_EXES})
     add_test(NAME ${exename} COMMAND ${exename}${ARTIFACT_SUFFIX})
     add_dependencies(check ${exename}${ARTIFACT_SUFFIX})
 endforeach(sourcefile ${C_TEST_EXES})
+endif()
 
 option(WITH_TOOLS "build with tools" ON)
 if(WITH_TOOLS)
