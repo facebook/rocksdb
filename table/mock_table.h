@@ -40,7 +40,6 @@ class MockTableReader : public TableReader {
 
   InternalIterator* NewIterator(const ReadOptions&,
                                 Arena* arena,
-                                const InternalKeyComparator* = nullptr,
                                 bool skip_filters = false) override;
 
   Status Get(const ReadOptions&, const Slice& key, GetContext* get_context,

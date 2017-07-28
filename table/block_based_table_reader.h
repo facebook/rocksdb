@@ -102,7 +102,6 @@ class BlockBasedTable : public TableReader {
   // @param skip_filters Disables loading/accessing the filter block
   InternalIterator* NewIterator(
       const ReadOptions&, Arena* arena = nullptr,
-      const InternalKeyComparator* icomparator = nullptr,
       bool skip_filters = false) override;
 
   InternalIterator* NewRangeTombstoneIterator(
