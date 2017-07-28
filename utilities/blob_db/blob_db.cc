@@ -17,7 +17,6 @@
 #include "table/block.h"
 #include "table/block_based_table_builder.h"
 #include "table/block_builder.h"
-#include "util/crc32c.h"
 #include "util/file_reader_writer.h"
 #include "util/filename.h"
 #include "utilities/blob_db/blob_db_impl.h"
@@ -163,7 +162,6 @@ BlobDBOptions::BlobDBOptions()
       bytes_per_sync(0),
       blob_file_size(256 * 1024 * 1024),
       num_concurrent_simple_blobs(4),
-      default_ttl_extractor(false),
       compression(kNoCompression) {}
 
 }  // namespace blob_db
