@@ -10,6 +10,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <ctime>
+#include <limits>
 #include <list>
 #include <memory>
 #include <set>
@@ -45,7 +46,6 @@ namespace blob_db {
 
 class BlobFile;
 class BlobDBImpl;
-struct GCStats;
 
 class BlobDBFlushBeginListener : public EventListener {
  public:
@@ -134,6 +134,17 @@ struct blobf_compare_ttl {
                   const std::shared_ptr<BlobFile>& rhs) const;
 };
 
+struct GCStats {
+  uint64_t blob_count = 0;
+  uint64_t num_deletes = 0;
+  uint64_t deleted_size = 0;
+  uint64_t num_relocs = 0;
+  uint64_t succ_deletes_lsm = 0;
+  uint64_t overrided_while_delete = 0;
+  uint64_t succ_relocs = 0;
+  std::shared_ptr<BlobFile> newfile = nullptr;
+};
+
 /**
  * The implementation class for BlobDB. This manages the value
  * part in TTL aware sequentially written files. These files are
@@ -147,6 +158,9 @@ class BlobDBImpl : public BlobDB {
   friend class BlobDBIterator;
 
  public:
+  static constexpr uint64_t kNoExpiration =
+      std::numeric_limits<uint64_t>::max();
+
   using rocksdb::StackableDB::Put;
   Status Put(const WriteOptions& options, ColumnFamilyHandle* column_family,
              const Slice& key, const Slice& value) override;
@@ -200,12 +214,16 @@ class BlobDBImpl : public BlobDB {
 
 #ifndef NDEBUG
   Status TEST_GetSequenceNumber(const Slice& key, SequenceNumber* sequence);
+
+  std::vector<std::shared_ptr<BlobFile>> TEST_GetBlobFiles() const;
+
+  void TEST_CloseBlobFile(std::shared_ptr<BlobFile>& bfile);
+
+  Status TEST_GCFileAndUpdateLSM(std::shared_ptr<BlobFile>& bfile,
+                                 GCStats* gc_stats);
 #endif  //  !NDEBUG
 
  private:
-  static bool ExtractTTLFromBlob(const Slice& value, Slice* newval,
-                                 int32_t* ttl_val);
-
   Status OpenPhase1();
 
   Status CommonGet(const ColumnFamilyData* cfd, const Slice& key,
@@ -236,6 +254,9 @@ class BlobDBImpl : public BlobDB {
 
   // appends a task into timer queue to close the file
   void CloseIf(const std::shared_ptr<BlobFile>& bfile);
+
+  int32_t ExtractExpiration(const Slice& key, const Slice& value,
+                            Slice* value_slice, std::string* new_value);
 
   Status AppendBlob(const std::shared_ptr<BlobFile>& bfile,
                     const std::string& headerbuf, const Slice& key,
@@ -346,11 +367,12 @@ class BlobDBImpl : public BlobDB {
       std::vector<std::shared_ptr<BlobFile>>* to_process, uint64_t epoch,
       uint64_t last_id, size_t files_to_collect);
 
- private:
+  uint64_t EpochNow() { return env_->NowMicros() / 1000000; }
+
   // the base DB
   DBImpl* db_impl_;
-
-  Env* myenv_;
+  Env* env_;
+  TTLExtractor* ttl_extractor_;
 
   // Optimistic Transaction DB used during Garbage collection
   // for atomicity

@@ -13,6 +13,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/stackable_db.h"
+#include "utilities/blob_db/ttl_extractor.h"
 
 namespace rocksdb {
 
@@ -64,24 +65,16 @@ struct BlobDBOptions {
   // how many files to use for simple blobs at one time
   uint32_t num_concurrent_simple_blobs;
 
-  // this function is to be provided by client if they intend to
-  // use Put API to provide TTL.
-  // the first argument is the value in the Put API
-  // in case you want to do some modifications to the value,
-  // return a new Slice in the second.
-  // otherwise just copy the input value into output.
-  // the ttl should be extracted and returned in last pointer.
-  // otherwise assign it to -1
-  std::function<bool(const Slice&, Slice*, int32_t*)> extract_ttl_fn;
+  // Instead of setting TTL explicitly by calling PutWithTTL or PutUntil,
+  // applications can set a TTLExtractor which can extract TTL from key-value
+  // pairs.
+  std::shared_ptr<TTLExtractor> ttl_extractor;
 
   // eviction callback.
   // this function will be called for every blob that is getting
   // evicted.
   std::function<void(const ColumnFamilyHandle*, const Slice&, const Slice&)>
       gc_evict_cb_fn;
-
-  // default ttl extactor
-  bool default_ttl_extractor;
 
   // what compression to use for Blob's
   CompressionType compression;
@@ -95,10 +88,6 @@ struct BlobDBOptions {
 };
 
 class BlobDB : public StackableDB {
- public:
-  // the suffix to a blob value to represent "ttl:TTLVAL"
-  static const uint64_t kTTLSuffixLength = 8;
-
  public:
   using rocksdb::StackableDB::Put;
 
@@ -120,6 +109,8 @@ class BlobDB : public StackableDB {
     return PutWithTTL(options, DefaultColumnFamily(), key, value, ttl);
   }
 
+  // Put with expiration. Key with expiration time equal to -1
+  // means the key don't expire.
   virtual Status PutUntil(const WriteOptions& options,
                           ColumnFamilyHandle* column_family, const Slice& key,
                           const Slice& value, int32_t expiration) = 0;

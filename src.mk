@@ -159,6 +159,7 @@ LIB_SOURCES =                                                   \
   utilities/blob_db/blob_log_reader.cc                          \
   utilities/blob_db/blob_log_writer.cc                          \
   utilities/blob_db/blob_log_format.cc                          \
+  utilities/blob_db/ttl_extractor.cc                            \
   utilities/checkpoint/checkpoint_impl.cc                       \
   utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc    \
   utilities/convenience/info_log_finder.cc                      \
