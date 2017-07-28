@@ -306,7 +306,7 @@ TEST_F(BlobDBTest, TTLExtractor_ExtractExpiration) {
     explicit TestTTLExtractor(Random *r) : rnd(r) {}
 
     virtual bool ExtractExpiration(const Slice &key, const Slice &value,
-                                   uint64_t now, uint64_t *expiration,
+                                   uint64_t /*now*/, uint64_t *expiration,
                                    std::string * /*new_value*/,
                                    bool * /*value_changed*/) override {
       *expiration = rnd->Next() % 100 + 50;

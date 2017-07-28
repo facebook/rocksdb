@@ -27,6 +27,7 @@ bool TTLExtractor::ExtractExpiration(const Slice& key, const Slice& value,
   return has_ttl;
 }
 
+namespace {
 class DefaultTTLExtractor : public TTLExtractor {
  public:
   const Slice kTTLSuffix = Slice("ttl:");
@@ -46,6 +47,7 @@ class DefaultTTLExtractor : public TTLExtractor {
     return true;
   }
 };
+}  // anonymous namespace
 
 std::shared_ptr<TTLExtractor> NewDefaultTTLExtractor() {
   return std::make_shared<DefaultTTLExtractor>();
