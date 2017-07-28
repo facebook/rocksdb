@@ -11,6 +11,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <string>
 #include <utility>
@@ -228,6 +229,10 @@ class BlobLogRecord {
   uint32_t GetKeySize() const { return key_size_; }
 
   uint64_t GetBlobSize() const { return blob_size_; }
+
+  bool HasTTL() const {
+    return ttl_val_ != std::numeric_limits<uint32_t>::max();
+  }
 
   uint32_t GetTTL() const { return ttl_val_; }
 
