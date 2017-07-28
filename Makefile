@@ -101,11 +101,23 @@ endif
 ifeq ($(DEBUG_LEVEL),0)
 OPT += -DNDEBUG
 DISABLE_WARNING_AS_ERROR=1
-ifndef USE_RTTI
+
+ifneq ($(USE_RTTI), 1)
+	CFLAGS += -fno-rtti
+	CXXFLAGS += -fno-rtti
+else
+	PLATFORM_CCFLAGS += -DROCKSDB_USE_RTTI
+	PLATFORM_CXXFLAGS += -DROCKSDB_USE_RTTI
+endif
+else
+ifneq ($(USE_RTTI), 0)
+	PLATFORM_CCFLAGS += -DROCKSDB_USE_RTTI
+	PLATFORM_CXXFLAGS += -DROCKSDB_USE_RTTI
+else
 	CFLAGS += -fno-rtti
 	CXXFLAGS += -fno-rtti
 endif
-else
+
 $(warning Warning: Compiling in debug mode. Don't use the resulting binary in production)
 endif
 
