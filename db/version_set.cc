@@ -2327,10 +2327,14 @@ void CloseTables(void* ptr, size_t) {
 VersionSet::~VersionSet() {
   // we need to delete column_family_set_ because its destructor depends on
   // VersionSet
-  column_family_set_->get_table_cache()->ApplyToAllCacheEntries(&CloseTables,
-                                                                false);
+  Cache* table_cache = column_family_set_->get_table_cache();
+  table_cache->ApplyToAllCacheEntries(&CloseTables, false /* thread_safe */);
   column_family_set_.reset();
   for (auto file : obsolete_files_) {
+    if (file->table_reader_handle) {
+      table_cache->Release(file->table_reader_handle);
+      TableCache::Evict(table_cache, file->fd.GetNumber());
+    }
     delete file;
   }
   obsolete_files_.clear();
