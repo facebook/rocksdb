@@ -2854,13 +2854,16 @@ TEST_F(DBTest, FIFOCompactionWithTTLTest) {
   options.arena_block_size = 4096;
   options.compression = kNoCompression;
   options.create_if_missing = true;
+  env_->time_elapse_only_sleep_ = false;
+  options.env = env_;
 
   // Test to make sure that all files with expired ttl are deleted on next
   // manual compaction.
   {
+    env_->addon_time_.store(0);
     options.compaction_options_fifo.max_table_files_size = 150 << 10;  // 150KB
     options.compaction_options_fifo.allow_compaction = false;
-    options.compaction_options_fifo.ttl = 600;  // seconds
+    options.compaction_options_fifo.ttl = 1 * 60 * 60 ;  // 1 hour
     options = CurrentOptions(options);
     DestroyAndReopen(options);
 
@@ -2875,15 +2878,16 @@ TEST_F(DBTest, FIFOCompactionWithTTLTest) {
     }
     ASSERT_EQ(NumTableFilesAtLevel(0), 10);
 
-    // sleep for 2 seconds
-    env_->SleepForMicroseconds(2 * 1000 * 1000);
-    // Just to make sure that we are in the same state even after sleeping.
+    // Sleep for 2 hours -- which is much greater than TTL.
+    // Note: Couldn't use SleepForMicroseconds because it takes an int instead
+    // of uint64_t. Hence used addon_time_ directly.
+    // env_->SleepForMicroseconds(2 * 60 * 60 * 1000 * 1000);
+    env_->addon_time_.fetch_add(2 * 60 * 60);
+
+    // Since no flushes and compactions have run, the db should still be in
+    // the same state even after considerable time has passed.
     ASSERT_OK(dbfull()->TEST_WaitForCompact());
     ASSERT_EQ(NumTableFilesAtLevel(0), 10);
-
-    // change ttl to 1 sec. So all files should be deleted on next compaction.
-    options.compaction_options_fifo.ttl = 1;
-    Reopen(options);
 
     dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
     ASSERT_EQ(NumTableFilesAtLevel(0), 0);
@@ -2894,7 +2898,7 @@ TEST_F(DBTest, FIFOCompactionWithTTLTest) {
   {
     options.compaction_options_fifo.max_table_files_size = 150 << 10;  // 150KB
     options.compaction_options_fifo.allow_compaction = false;
-    options.compaction_options_fifo.ttl = 5;  // seconds
+    options.compaction_options_fifo.ttl = 1 * 60 * 60;  // 1 hour
     options = CurrentOptions(options);
     DestroyAndReopen(options);
 
@@ -2909,7 +2913,8 @@ TEST_F(DBTest, FIFOCompactionWithTTLTest) {
     }
     ASSERT_EQ(NumTableFilesAtLevel(0), 10);
 
-    env_->SleepForMicroseconds(6 * 1000 * 1000);
+    // Sleep for 2 hours -- which is much greater than TTL.
+    env_->addon_time_.fetch_add(2 * 60 * 60);
     // Just to make sure that we are in the same state even after sleeping.
     ASSERT_OK(dbfull()->TEST_WaitForCompact());
     ASSERT_EQ(NumTableFilesAtLevel(0), 10);
@@ -2935,7 +2940,7 @@ TEST_F(DBTest, FIFOCompactionWithTTLTest) {
     options.write_buffer_size = 10 << 10;                              // 10KB
     options.compaction_options_fifo.max_table_files_size = 150 << 10;  // 150KB
     options.compaction_options_fifo.allow_compaction = false;
-    options.compaction_options_fifo.ttl = 5;  // seconds
+    options.compaction_options_fifo.ttl =  1 * 60 * 60;  // 1 hour
     options = CurrentOptions(options);
     DestroyAndReopen(options);
 
@@ -2950,7 +2955,8 @@ TEST_F(DBTest, FIFOCompactionWithTTLTest) {
     }
     ASSERT_EQ(NumTableFilesAtLevel(0), 3);
 
-    env_->SleepForMicroseconds(6 * 1000 * 1000);
+    // Sleep for 2 hours -- which is much greater than TTL.
+    env_->addon_time_.fetch_add(2 * 60 * 60);
     // Just to make sure that we are in the same state even after sleeping.
     ASSERT_OK(dbfull()->TEST_WaitForCompact());
     ASSERT_EQ(NumTableFilesAtLevel(0), 3);
@@ -2971,7 +2977,7 @@ TEST_F(DBTest, FIFOCompactionWithTTLTest) {
   {
     options.compaction_options_fifo.max_table_files_size = 150 << 10;  // 150KB
     options.compaction_options_fifo.allow_compaction = true;
-    options.compaction_options_fifo.ttl = 5;  // seconds
+    options.compaction_options_fifo.ttl = 1 * 60 * 60;  // 1 hour
     options.level0_file_num_compaction_trigger = 6;
     options = CurrentOptions(options);
     DestroyAndReopen(options);
@@ -2990,8 +2996,8 @@ TEST_F(DBTest, FIFOCompactionWithTTLTest) {
     // So total files = 1 + remaining 4 = 5.
     ASSERT_EQ(NumTableFilesAtLevel(0), 5);
 
-    // Sleep for a little over ttl time.
-    env_->SleepForMicroseconds(6 * 1000 * 1000);
+    // Sleep for 2 hours -- which is much greater than TTL.
+    env_->addon_time_.fetch_add(2 * 60 * 60);
     // Just to make sure that we are in the same state even after sleeping.
     ASSERT_OK(dbfull()->TEST_WaitForCompact());
     ASSERT_EQ(NumTableFilesAtLevel(0), 5);
@@ -3015,7 +3021,7 @@ TEST_F(DBTest, FIFOCompactionWithTTLTest) {
     options.write_buffer_size = 20 << 10;                               // 20K
     options.compaction_options_fifo.max_table_files_size = 1500 << 10;  // 1.5MB
     options.compaction_options_fifo.allow_compaction = true;
-    options.compaction_options_fifo.ttl = 60 * 60;  // 1 hour
+    options.compaction_options_fifo.ttl = 1 * 60 * 60;  // 1 hour
     options.level0_file_num_compaction_trigger = 6;
     options = CurrentOptions(options);
     DestroyAndReopen(options);
