@@ -371,6 +371,10 @@ Status TransactionDBImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
   Transaction* txn = BeginInternalTransaction(opts);
   txn->DisableIndexing();
 
+#ifdef ROCKSDB_USE_RTTI
+  assert(static_cast<TransactionImpl*>(txn) ==
+         dynamic_cast<TransactionImpl*>(txn));
+#endif
   auto txn_impl = static_cast<TransactionImpl*>(txn);
 
   // Since commitBatch sorts the keys before locking, concurrent Write()
@@ -411,6 +415,10 @@ bool TransactionDBImpl::TryStealingExpiredTransactionLocks(
 void TransactionDBImpl::ReinitializeTransaction(
     Transaction* txn, const WriteOptions& write_options,
     const TransactionOptions& txn_options) {
+#ifdef ROCKSDB_USE_RTTI
+  assert(static_cast<TransactionImpl*>(txn) ==
+         dynamic_cast<TransactionImpl*>(txn));
+#endif
   auto txn_impl = static_cast<TransactionImpl*>(txn);
 
   txn_impl->Reinitialize(this, write_options, txn_options);

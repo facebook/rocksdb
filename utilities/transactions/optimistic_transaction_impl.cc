@@ -62,7 +62,11 @@ Status OptimisticTransactionImpl::Commit() {
   // check whether this transaction is safe to be committed.
   OptimisticTransactionCallback callback(this);
 
-  DBImpl* db_impl = static_cast<DBImpl*>(db_->GetRootDB());
+  DB* root_db = db_->GetRootDB();
+#ifdef ROCKSDB_USE_RTTI
+  assert(static_cast<DBImpl*>(root_db) == dynamic_cast<DBImpl*>(root_db));
+#endif
+  DBImpl* db_impl = static_cast<DBImpl*>(root_db);
 
   Status s = db_impl->WriteWithCallback(
       write_options_, GetWriteBatch()->GetWriteBatch(), &callback);
@@ -116,6 +120,9 @@ Status OptimisticTransactionImpl::TryLock(ColumnFamilyHandle* column_family,
 Status OptimisticTransactionImpl::CheckTransactionForConflicts(DB* db) {
   Status result;
 
+#ifdef ROCKSDB_USE_RTTI
+  assert(static_cast<DBImpl*>(db) == dynamic_cast<DBImpl*>(db));
+#endif
   auto db_impl = static_cast<DBImpl*>(db);
 
   // Since we are on the write thread and do not want to block other writers,

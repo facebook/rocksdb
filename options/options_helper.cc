@@ -694,6 +694,12 @@ Status ParseColumnFamilyOption(const std::string& name,
     if (name == "block_based_table_factory") {
       // Nested options
       BlockBasedTableOptions table_opt, base_table_options;
+#ifdef ROCKSDB_USE_RTTI
+      assert(static_cast<BlockBasedTableFactory*>(
+                 new_options->table_factory.get()) ==
+             dynamic_cast<BlockBasedTableFactory*>(
+                 new_options->table_factory.get()));
+#endif
       auto block_based_table_factory = static_cast<BlockBasedTableFactory*>(
           new_options->table_factory.get());
       if (block_based_table_factory != nullptr) {
@@ -709,6 +715,11 @@ Status ParseColumnFamilyOption(const std::string& name,
     } else if (name == "plain_table_factory") {
       // Nested options
       PlainTableOptions table_opt, base_table_options;
+#ifdef ROCKSDB_USE_RTTI
+      assert(
+          static_cast<PlainTableFactory*>(new_options->table_factory.get()) ==
+          dynamic_cast<PlainTableFactory*>(new_options->table_factory.get()));
+#endif
       auto plain_table_factory =
           static_cast<PlainTableFactory*>(new_options->table_factory.get());
       if (plain_table_factory != nullptr) {

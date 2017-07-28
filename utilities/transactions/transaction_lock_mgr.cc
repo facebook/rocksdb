@@ -113,6 +113,10 @@ TransactionLockMgr::TransactionLockMgr(
       lock_maps_cache_(new ThreadLocalPtr(&UnrefLockMapsCache)),
       mutex_factory_(mutex_factory) {
   assert(txn_db);
+#ifdef ROCKSDB_USE_RTTI
+  assert(static_cast<TransactionDBImpl*>(txn_db) ==
+         dynamic_cast<TransactionDBImpl*>(txn_db));
+#endif
   txn_db_impl_ = static_cast<TransactionDBImpl*>(txn_db);
 }
 

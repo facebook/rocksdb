@@ -13,11 +13,19 @@
 namespace rocksdb {
 
 void CancelAllBackgroundWork(DB* db, bool wait) {
+#ifdef ROCKSDB_USE_RTTI
+  assert(static_cast<DBImpl*>(db->GetRootDB()) ==
+         dynamic_cast<DBImpl*>(db->GetRootDB()));
+#endif
   (static_cast<DBImpl*>(db->GetRootDB()))->CancelAllBackgroundWork(wait);
 }
 
 Status DeleteFilesInRange(DB* db, ColumnFamilyHandle* column_family,
                           const Slice* begin, const Slice* end) {
+#ifdef ROCKSDB_USE_RTTI
+  assert(static_cast<DBImpl*>(db->GetRootDB()) ==
+         dynamic_cast<DBImpl*>(db->GetRootDB()));
+#endif
   return (static_cast<DBImpl*>(db->GetRootDB()))
       ->DeleteFilesInRange(column_family, begin, end);
 }

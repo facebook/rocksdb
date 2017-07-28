@@ -1493,6 +1493,10 @@ void DBDumperCommand::DoDumpCommand() {
     if (max_keys == 0)
       break;
     if (is_db_ttl_) {
+#ifdef ROCKSDB_USE_RTTI
+      assert(static_cast<TtlIterator*>(iter) ==
+             dynamic_cast<TtlIterator*>(iter));
+#endif
       TtlIterator* it_ttl = static_cast<TtlIterator*>(iter);
       rawtime = it_ttl->timestamp();
       if (rawtime < ttl_start || rawtime >= ttl_end) {
@@ -2290,6 +2294,10 @@ void ScanCommand::DoCommand() {
         it->Valid() && (!end_key_specified_ || it->key().ToString() < end_key_);
         it->Next()) {
     if (is_db_ttl_) {
+#ifdef ROCKSDB_USE_RTTI
+      assert(static_cast<TtlIterator*>(it) == dynamic_cast<TtlIterator*>(it));
+#endif
+
       TtlIterator* it_ttl = static_cast<TtlIterator*>(it);
       int rawtime = it_ttl->timestamp();
       if (rawtime < ttl_start || rawtime >= ttl_end) {

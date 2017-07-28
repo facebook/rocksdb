@@ -273,6 +273,12 @@ namespace {
 struct CompareLogByPointer {
   bool operator()(const std::unique_ptr<LogFile>& a,
                   const std::unique_ptr<LogFile>& b) {
+#ifdef ROCKSDB_USE_RTTI
+    assert(static_cast<LogFileImpl*>(a.get()) ==
+           dynamic_cast<LogFileImpl*>(a.get()));
+    assert(static_cast<LogFileImpl*>(b.get()) ==
+           dynamic_cast<LogFileImpl*>(b.get()));
+#endif
     LogFileImpl* a_impl = static_cast<LogFileImpl*>(a.get());
     LogFileImpl* b_impl = static_cast<LogFileImpl*>(b.get());
     return *a_impl < *b_impl;

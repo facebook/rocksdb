@@ -46,6 +46,12 @@ TransactionImpl::TransactionImpl(TransactionDB* txn_db,
       lock_timeout_(0),
       deadlock_detect_(false),
       deadlock_detect_depth_(0) {
+#ifdef ROCKSDB_USE_RTTI
+  assert(static_cast<TransactionDBImpl*>(txn_db) ==
+         dynamic_cast<TransactionDBImpl*>(txn_db));
+  assert(static_cast<DBImpl*>(txn_db->GetRootDB()) ==
+         dynamic_cast<DBImpl*>(txn_db->GetRootDB()));
+#endif
   txn_db_impl_ = static_cast<TransactionDBImpl*>(txn_db);
   db_impl_ = static_cast<DBImpl*>(txn_db->GetRootDB());
   Initialize(txn_options);
@@ -523,6 +529,10 @@ Status TransactionImpl::ValidateSnapshot(ColumnFamilyHandle* column_family,
   }
 
   *new_seqno = seq;
+
+#ifdef ROCKSDB_USE_RTTI
+  assert(static_cast<DBImpl*>(db_) == dynamic_cast<DBImpl*>(db_));
+#endif
 
   auto db_impl = static_cast<DBImpl*>(db_);
 

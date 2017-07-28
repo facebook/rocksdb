@@ -64,6 +64,10 @@ void HistogramWindowingImpl::Add(uint64_t value){
 
 void HistogramWindowingImpl::Merge(const Histogram& other) {
   if (strcmp(Name(), other.Name()) == 0) {
+#ifdef ROCKSDB_USE_RTTI
+    assert(static_cast<const HistogramWindowingImpl&>(other) ==
+           dynamic_cast<const HistogramWindowingImpl&>(other));
+#endif
     Merge(static_cast<const HistogramWindowingImpl&>(other));
   }
 }

@@ -773,6 +773,12 @@ Status RocksDBOptionsParser::VerifyTableFactory(
           "failed the verification on TableFactory->Name()");
     }
     if (base_tf->Name() == BlockBasedTableFactory::kName) {
+#ifdef ROCKSDB_USE_RTTI
+      assert(static_cast<const BlockBasedTableFactory*>(base_tf) ==
+             dynamic_cast<const BlockBasedTableFactory*>(base_tf));
+      assert(static_cast<const BlockBasedTableFactory*>(file_tf) ==
+             dynamic_cast<const BlockBasedTableFactory*>(file_tf));
+#endif
       return VerifyBlockBasedTableFactory(
           static_cast<const BlockBasedTableFactory*>(base_tf),
           static_cast<const BlockBasedTableFactory*>(file_tf),
