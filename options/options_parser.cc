@@ -16,6 +16,7 @@
 #include "options/options_helper.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
+#include "util/cast_util.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
 
@@ -84,7 +85,8 @@ Status PersistRocksDBOptions(const DBOptions& db_opt,
       writable->Append("[" + opt_section_titles[kOptionSectionTableOptions] +
                        tf->Name() + " \"" + EscapeOptionString(cf_names[i]) +
                        "\"]\n  ");
-      s = GetStringFromTableFactory(&options_file_content, tf, "\n  ");
+      options_file_content.clear();
+      s = tf->GetOptionString(&options_file_content, "\n  ");
       if (!s.ok()) {
         return s;
       }
@@ -507,6 +509,7 @@ namespace {
 bool AreEqualDoubles(const double a, const double b) {
   return (fabs(a - b) < 0.00001);
 }
+}  // namespace
 
 bool AreEqualOptions(
     const char* opt1, const char* opt2, const OptionTypeInfo& type_info,
@@ -612,8 +615,6 @@ bool AreEqualOptions(
       return false;
   }
 }
-
-}  // namespace
 
 Status RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
     const DBOptions& db_opt, const std::vector<std::string>& cf_names,
@@ -762,59 +763,23 @@ Status RocksDBOptionsParser::VerifyCFOptions(
   return Status::OK();
 }
 
-Status RocksDBOptionsParser::VerifyBlockBasedTableFactory(
-    const BlockBasedTableFactory* base_tf,
-    const BlockBasedTableFactory* file_tf,
-    OptionsSanityCheckLevel sanity_check_level) {
-  if ((base_tf != nullptr) != (file_tf != nullptr) &&
-      sanity_check_level > kSanityLevelNone) {
-    return Status::Corruption(
-        "[RocksDBOptionsParser]: Inconsistent TableFactory class type");
-  }
-  if (base_tf == nullptr) {
-    return Status::OK();
-  }
-  assert(file_tf != nullptr);
-
-  const auto& base_opt = base_tf->table_options();
-  const auto& file_opt = file_tf->table_options();
-
-  for (auto& pair : block_based_table_type_info) {
-    if (pair.second.verification == OptionVerificationType::kDeprecated) {
-      // We skip checking deprecated variables as they might
-      // contain random values since they might not be initialized
-      continue;
-    }
-    if (BBTOptionSanityCheckLevel(pair.first) <= sanity_check_level) {
-      if (!AreEqualOptions(reinterpret_cast<const char*>(&base_opt),
-                           reinterpret_cast<const char*>(&file_opt),
-                           pair.second, pair.first, nullptr)) {
-        return Status::Corruption(
-            "[RocksDBOptionsParser]: "
-            "failed the verification on BlockBasedTableOptions::",
-            pair.first);
-      }
-    }
-  }
-  return Status::OK();
-}
-
 Status RocksDBOptionsParser::VerifyTableFactory(
     const TableFactory* base_tf, const TableFactory* file_tf,
     OptionsSanityCheckLevel sanity_check_level) {
   if (base_tf && file_tf) {
     if (sanity_check_level > kSanityLevelNone &&
-        base_tf->Name() != file_tf->Name()) {
+        std::string(base_tf->Name()) != std::string(file_tf->Name())) {
       return Status::Corruption(
           "[RocksDBOptionsParser]: "
           "failed the verification on TableFactory->Name()");
     }
-    auto s = VerifyBlockBasedTableFactory(
-        dynamic_cast<const BlockBasedTableFactory*>(base_tf),
-        dynamic_cast<const BlockBasedTableFactory*>(file_tf),
-        sanity_check_level);
-    if (!s.ok()) {
-      return s;
+    if (base_tf->Name() == BlockBasedTableFactory::kName) {
+      return VerifyBlockBasedTableFactory(
+          static_cast_with_check<const BlockBasedTableFactory,
+                                 const TableFactory>(base_tf),
+          static_cast_with_check<const BlockBasedTableFactory,
+                                 const TableFactory>(file_tf),
+          sanity_check_level);
     }
     // TODO(yhchiang): add checks for other table factory types
   } else {

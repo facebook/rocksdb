@@ -23,6 +23,7 @@
 #include "table/block_based_table_builder.h"
 #include "table/block_builder.h"
 #include "table/meta_blocks.h"
+#include "util/cast_util.h"
 #include "util/crc32c.h"
 #include "util/file_reader_writer.h"
 #include "util/filename.h"
@@ -199,7 +200,8 @@ BlobDBImpl::BlobDBImpl(const std::string& dbname,
       open_p1_done_(false),
       debug_level_(0) {
   const BlobDBOptionsImpl* options_impl =
-      dynamic_cast<const BlobDBOptionsImpl*>(&blob_db_options);
+      static_cast_with_check<const BlobDBOptionsImpl, const BlobDBOptions>(
+          &blob_db_options);
   if (options_impl) {
     bdb_options_ = *options_impl;
   }
@@ -215,12 +217,7 @@ Status BlobDBImpl::LinkToBaseDB(DB* db) {
   db_ = db;
 
   // the Base DB in-itself can be a stackable DB
-  StackableDB* sdb = dynamic_cast<StackableDB*>(db_);
-  if (sdb) {
-    db_impl_ = dynamic_cast<DBImpl*>(sdb->GetBaseDB());
-  } else {
-    db_impl_ = dynamic_cast<DBImpl*>(db);
-  }
+  db_impl_ = static_cast_with_check<DBImpl, DB>(db_->GetRootDB());
 
   env_ = db_->GetEnv();
 
@@ -249,7 +246,7 @@ BlobDBOptions BlobDBImpl::GetBlobDBOptions() const { return bdb_options_; }
 
 BlobDBImpl::BlobDBImpl(DB* db, const BlobDBOptions& blob_db_options)
     : BlobDB(db),
-      db_impl_(dynamic_cast<DBImpl*>(db)),
+      db_impl_(static_cast_with_check<DBImpl, DB>(db)),
       opt_db_(new OptimisticTransactionDBImpl(db, false)),
       wo_set_(false),
       bdb_options_(blob_db_options),
@@ -268,10 +265,9 @@ BlobDBImpl::BlobDBImpl(DB* db, const BlobDBOptions& blob_db_options)
       total_blob_space_(0) {
   assert(db_impl_ != nullptr);
   const BlobDBOptionsImpl* options_impl =
-      dynamic_cast<const BlobDBOptionsImpl*>(&blob_db_options);
-  if (options_impl) {
-    bdb_options_ = *options_impl;
-  }
+      static_cast_with_check<const BlobDBOptionsImpl, const BlobDBOptions>(
+          &blob_db_options);
+  bdb_options_ = *options_impl;
 
   if (!bdb_options_.blob_dir.empty())
     blob_dir_ = (bdb_options_.path_relative)
@@ -1752,8 +1748,8 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
       gcstats->deleted_size += record.GetBlobSize();
       if (first_gc) continue;
 
-      Transaction* txn = static_cast<OptimisticTransactionDB*>(opt_db_.get())
-                             ->BeginTransaction(write_options_);
+      Transaction* txn = opt_db_->BeginTransaction(
+          write_options_, OptimisticTransactionOptions(), nullptr);
       txn->Delete(cfh, record.Key());
       Status s1 = txn->Commit();
       // chances that this DELETE will fail is low. If it fails, it would be
@@ -1817,8 +1813,8 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
     newfile->file_size_ += BlobLogRecord::kHeaderSize + record.Key().size() +
                            record.Blob().size() + BlobLogRecord::kFooterSize;
 
-    Transaction* txn = static_cast<OptimisticTransactionDB*>(opt_db_.get())
-                           ->BeginTransaction(write_options_);
+    Transaction* txn = opt_db_->BeginTransaction(
+        write_options_, OptimisticTransactionOptions(), nullptr);
     txn->Put(cfh, record.Key(), index_entry);
     Status s1 = txn->Commit();
     // chances that this Put will fail is low. If it fails, it would be because

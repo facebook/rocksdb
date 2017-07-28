@@ -51,11 +51,9 @@ void ColumnAwareEncodingReader::InitTableReader(const std::string& file_path) {
 
   options_.comparator = &internal_comparator_;
   options_.table_factory = std::make_shared<BlockBasedTableFactory>();
-  shared_ptr<BlockBasedTableFactory> block_table_factory =
-      std::dynamic_pointer_cast<BlockBasedTableFactory>(options_.table_factory);
 
   std::unique_ptr<TableReader> table_reader;
-  block_table_factory->NewTableReader(
+  options_.table_factory->NewTableReader(
       TableReaderOptions(ioptions_, soptions_, internal_comparator_,
                          /*skip_filters=*/false),
       std::move(file_), file_size, &table_reader, /*enable_prefetch=*/false);

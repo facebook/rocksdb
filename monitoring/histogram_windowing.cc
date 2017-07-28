@@ -9,6 +9,7 @@
 
 #include "monitoring/histogram_windowing.h"
 #include "monitoring/histogram.h"
+#include "util/cast_util.h"
 
 #include <algorithm>
 
@@ -64,7 +65,9 @@ void HistogramWindowingImpl::Add(uint64_t value){
 
 void HistogramWindowingImpl::Merge(const Histogram& other) {
   if (strcmp(Name(), other.Name()) == 0) {
-    Merge(dynamic_cast<const HistogramWindowingImpl&>(other));
+    Merge(
+        *static_cast_with_check<const HistogramWindowingImpl, const Histogram>(
+            &other));
   }
 }
 

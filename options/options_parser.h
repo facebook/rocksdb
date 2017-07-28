@@ -38,6 +38,11 @@ Status PersistRocksDBOptions(const DBOptions& db_opt,
                              const std::vector<ColumnFamilyOptions>& cf_opts,
                              const std::string& file_name, Env* env);
 
+extern bool AreEqualOptions(
+    const char* opt1, const char* opt2, const OptionTypeInfo& type_info,
+    const std::string& opt_name,
+    const std::unordered_map<std::string, std::string>* opt_map);
+
 class RocksDBOptionsParser {
  public:
   explicit RocksDBOptionsParser();
@@ -85,11 +90,6 @@ class RocksDBOptionsParser {
   static Status VerifyTableFactory(
       const TableFactory* base_tf, const TableFactory* file_tf,
       OptionsSanityCheckLevel sanity_check_level = kSanityLevelExactMatch);
-
-  static Status VerifyBlockBasedTableFactory(
-      const BlockBasedTableFactory* base_tf,
-      const BlockBasedTableFactory* file_tf,
-      OptionsSanityCheckLevel sanity_check_level);
 
   static Status ExtraParserCheck(const RocksDBOptionsParser& input_parser);
 
