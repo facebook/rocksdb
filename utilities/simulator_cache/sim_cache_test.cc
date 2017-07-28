@@ -195,8 +195,10 @@ TEST_F(SimCacheTest, SimCacheLogging) {
   // Log things again but stop logging automatically after reaching 512 bytes
 	int max_size = 512;
   ASSERT_OK(sim_cache->StartActivityLogging(log_file, env_, max_size));
-  for (int i = 0; i < num_block_entries; i++) {
-    ASSERT_EQ(Get(Key(i)), "val");
+  for (int it = 0; it < 10; it++) {
+    for (int i = 0; i < num_block_entries; i++) {
+      ASSERT_EQ(Get(Key(i)), "val");
+    }
   }
   ASSERT_OK(sim_cache->GetActivityLoggingStatus());
 

@@ -5,7 +5,6 @@
 
 #include "rocksdb/utilities/sim_cache.h"
 #include <atomic>
-#include "monitoring/instrumented_mutex.h"
 #include "monitoring/statistics.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
@@ -23,7 +22,7 @@ class CacheActivityLogger {
       : activity_logging_enabled_(false), max_logging_size_(0) {}
 
   ~CacheActivityLogger() {
-    InstrumentedMutexLock l(&mutex_);
+    MutexLock l(&mutex_);
 
     StopLoggingInternal();
   }
@@ -37,7 +36,7 @@ class CacheActivityLogger {
     EnvOptions env_opts;
     std::unique_ptr<WritableFile> log_file;
 
-    InstrumentedMutexLock l(&mutex_);
+    MutexLock l(&mutex_);
 
     // Stop existing logging if any
     StopLoggingInternal();
@@ -56,31 +55,33 @@ class CacheActivityLogger {
   }
 
   void StopLogging() {
-    InstrumentedMutexLock l(&mutex_);
+    MutexLock l(&mutex_);
 
     StopLoggingInternal();
   }
 
   void ReportLookup(const Slice& key) {
-    if (!activity_logging_enabled_) {
+    if (activity_logging_enabled_.load() == false) {
       return;
     }
 
     std::string log_line = "LOOKUP - " + key.ToString(true) + "\n";
 
     // line format: "LOOKUP - <KEY>"
-    InstrumentedMutexLock l(&mutex_);
+    MutexLock l(&mutex_);
     Status s = file_writer_->Append(log_line);
     if (!s.ok() && bg_status_.ok()) {
       bg_status_ = s;
     }
-    if (MaxLoggingSizeReached()) {
+    if (MaxLoggingSizeReached() || !bg_status_.ok()) {
+      // Stop logging if we have reached the max file size or
+      // encountered an error
       StopLoggingInternal();
     }
   }
 
   void ReportAdd(const Slice& key, size_t size) {
-    if (!activity_logging_enabled_) {
+    if (activity_logging_enabled_.load() == false) {
       return;
     }
 
@@ -91,18 +92,21 @@ class CacheActivityLogger {
 		log_line += "\n";
 
     // line format: "ADD - <KEY> - <KEY-SIZE>"
-    InstrumentedMutexLock l(&mutex_);
+    MutexLock l(&mutex_);
     Status s = file_writer_->Append(log_line);
     if (!s.ok() && bg_status_.ok()) {
       bg_status_ = s;
     }
-    if (MaxLoggingSizeReached()) {
+
+    if (MaxLoggingSizeReached() || !bg_status_.ok()) {
+      // Stop logging if we have reached the max file size or
+      // encountered an error
       StopLoggingInternal();
     }
   }
 
   Status& bg_status() {
-    InstrumentedMutexLock l(&mutex_);
+    MutexLock l(&mutex_);
     return bg_status_;
   }
 
@@ -130,7 +134,7 @@ class CacheActivityLogger {
 
   // Mutex to sync writes to file_writer, and all following
   // class data members
-  InstrumentedMutex mutex_;
+  port::Mutex mutex_;
   // Indicates if logging is currently enabled
   // atomic to allow reads without mutex
   std::atomic<bool> activity_logging_enabled_;
