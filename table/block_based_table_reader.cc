@@ -536,6 +536,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
   Footer footer;
 
   // Before read footer, readahead backwards to prefetch data
+  file->MarkForMutualAccess();
   Status s =
       file->Prefetch((file_size < 512 * 1024 ? 0 : file_size - 512 * 1024),
                      512 * 1024 /* 512 KB prefetching */);
@@ -579,6 +580,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
   std::unique_ptr<InternalIterator> meta_iter;
   s = ReadMetaBlock(rep, &meta, &meta_iter);
   if (!s.ok()) {
+    rep->file->MarkForConcurrentAccess();
     return s;
   }
 
@@ -776,6 +778,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
     *table_reader = std::move(new_table);
   }
 
+  rep->file->MarkForConcurrentAccess();
   return s;
 }
 
