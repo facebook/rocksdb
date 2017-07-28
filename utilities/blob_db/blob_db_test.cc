@@ -259,7 +259,7 @@ TEST_F(BlobDBTest, TTLExtractor_ExtractTTL) {
    public:
     explicit TestTTLExtractor(Random *r) : rnd(r) {}
 
-    virtual bool ExtractTTL(const Slice &key, const Slice &value, uint32_t *ttl,
+    virtual bool ExtractTTL(const Slice &key, const Slice &value, uint64_t *ttl,
                             std::string * /*new_value*/,
                             bool * /*value_changed*/) override {
       *ttl = rnd->Next() % 100;
@@ -362,9 +362,9 @@ TEST_F(BlobDBTest, TTLExtractor_DefaultTTLExtractor) {
     int len = rnd.Next() % kMaxBlobSize + 1;
     std::string key = "key" + ToString(i);
     std::string value = test::RandomHumanReadableString(&rnd, len);
-    uint32_t ttl = rnd.Next() % 100;
+    uint64_t ttl = rnd.Next() % 100;
     std::string value_ttl = value + "ttl:";
-    PutFixed32(&value_ttl, ttl);
+    PutFixed64(&value_ttl, ttl);
     ASSERT_OK(blob_db_->Put(WriteOptions(), Slice(key), Slice(value_ttl)));
     if (ttl >= 50) {
       data[key] = value;

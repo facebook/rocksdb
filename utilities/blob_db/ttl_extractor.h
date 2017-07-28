@@ -24,7 +24,7 @@ class TTLExtractor {
   // Return true if the key has TTL, false otherwise. If key has TTL,
   // TTL is pass back through ttl. The method can optionally modify the value,
   // pass the result back through new_value, and also set value_changed to true.
-  virtual bool ExtractTTL(const Slice& key, const Slice& value, uint32_t* ttl,
+  virtual bool ExtractTTL(const Slice& key, const Slice& value, uint64_t* ttl,
                           std::string* new_value, bool* value_changed);
 
   // Extract expiration time from key-value pair.
@@ -40,7 +40,7 @@ class TTLExtractor {
 };
 
 // Create a default TTLExtractor which extract TTL from value with suffix of
-// the form "ttl:" + <4 bytes ttl>.
+// the form "ttl:" + <8 bytes ttl>.
 extern std::shared_ptr<TTLExtractor> NewDefaultTTLExtractor();
 
 }  // namespace blob_db
