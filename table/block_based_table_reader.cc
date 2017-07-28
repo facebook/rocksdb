@@ -2083,6 +2083,9 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
 }
 
 void BlockBasedTable::Close() {
+  if (rep_->closed) {
+    return;
+  }
   rep_->filter_entry.Release(rep_->table_options.block_cache.get());
   rep_->index_entry.Release(rep_->table_options.block_cache.get());
   rep_->range_del_entry.Release(rep_->table_options.block_cache.get());
@@ -2099,6 +2102,7 @@ void BlockBasedTable::Close() {
                                 rep_->dummy_index_reader_offset, cache_key);
     rep_->table_options.block_cache.get()->Erase(key);
   }
+  rep_->closed = true;
 }
 
 Status BlockBasedTable::DumpIndexBlock(WritableFile* out_file) {

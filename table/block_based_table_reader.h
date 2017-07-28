@@ -467,6 +467,7 @@ struct BlockBasedTable::Rep {
   // A value of kDisableGlobalSequenceNumber means that this feature is disabled
   // and every key have it's own seqno.
   SequenceNumber global_seqno;
+  bool closed = false;
 };
 
 }  // namespace rocksdb
