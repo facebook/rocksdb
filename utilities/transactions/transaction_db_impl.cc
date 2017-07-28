@@ -15,6 +15,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/transaction_db.h"
+#include "util/cast_util.h"
 #include "utilities/transactions/transaction_db_mutex_impl.h"
 #include "utilities/transactions/transaction_impl.h"
 
@@ -23,7 +24,7 @@ namespace rocksdb {
 TransactionDBImpl::TransactionDBImpl(DB* db,
                                      const TransactionDBOptions& txn_db_options)
     : TransactionDB(db),
-      db_impl_(dynamic_cast<DBImpl*>(db)),
+      db_impl_(static_cast_with_check<DBImpl, DB>(db)),
       txn_db_options_(txn_db_options),
       lock_mgr_(this, txn_db_options_.num_stripes, txn_db_options.max_num_locks,
                 txn_db_options_.custom_mutex_factory
@@ -52,7 +53,7 @@ TransactionDBImpl::TransactionDBImpl(DB* db,
 TransactionDBImpl::TransactionDBImpl(StackableDB* db,
                                      const TransactionDBOptions& txn_db_options)
     : TransactionDB(db),
-      db_impl_(dynamic_cast<DBImpl*>(db->GetRootDB())),
+      db_impl_(static_cast_with_check<DBImpl, DB>(db->GetRootDB())),
       txn_db_options_(txn_db_options),
       lock_mgr_(this, txn_db_options_.num_stripes, txn_db_options.max_num_locks,
                 txn_db_options_.custom_mutex_factory
@@ -371,8 +372,7 @@ Status TransactionDBImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
   Transaction* txn = BeginInternalTransaction(opts);
   txn->DisableIndexing();
 
-  assert(dynamic_cast<TransactionImpl*>(txn) != nullptr);
-  auto txn_impl = reinterpret_cast<TransactionImpl*>(txn);
+  auto txn_impl = static_cast_with_check<TransactionImpl, Transaction>(txn);
 
   // Since commitBatch sorts the keys before locking, concurrent Write()
   // operations will not cause a deadlock.
@@ -412,8 +412,7 @@ bool TransactionDBImpl::TryStealingExpiredTransactionLocks(
 void TransactionDBImpl::ReinitializeTransaction(
     Transaction* txn, const WriteOptions& write_options,
     const TransactionOptions& txn_options) {
-  assert(dynamic_cast<TransactionImpl*>(txn) != nullptr);
-  auto txn_impl = reinterpret_cast<TransactionImpl*>(txn);
+  auto txn_impl = static_cast_with_check<TransactionImpl, Transaction>(txn);
 
   txn_impl->Reinitialize(this, write_options, txn_options);
 }

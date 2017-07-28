@@ -350,6 +350,17 @@ class StackableDB : public DB {
     return db_->GetUpdatesSince(seq_number, iter, read_options);
   }
 
+  virtual Status SuggestCompactRange(ColumnFamilyHandle* column_family,
+                                     const Slice* begin,
+                                     const Slice* end) override {
+    return db_->SuggestCompactRange(column_family, begin, end);
+  }
+
+  virtual Status PromoteL0(ColumnFamilyHandle* column_family,
+                           int target_level) override {
+    return db_->PromoteL0(column_family, target_level);
+  }
+
   virtual ColumnFamilyHandle* DefaultColumnFamily() const override {
     return db_->DefaultColumnFamily();
   }

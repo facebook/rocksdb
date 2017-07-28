@@ -2,6 +2,7 @@
 ## Unreleased
 ### New Features
 * Add Iterator::Refresh(), which allows users to update the iterator state so that they can avoid some initialization costs of recreating iterators.
+* Replace dynamic_cast<> (except unit test) so people can choose to build with RTTI off. With make, release mode is by default built with -fno-rtti and debug mode is built without it. Users can override it by setting USE_RTTI=0 or 1.
 
 ## 5.7.0 (07/13/2017)
 ### Public API Change

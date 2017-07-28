@@ -14,6 +14,7 @@
 #include <inttypes.h>
 #include <iostream>
 #include <map>
+#include <memory>
 #include <sstream>
 #include <vector>
 
@@ -41,8 +42,6 @@
 #include "port/port.h"
 
 namespace rocksdb {
-
-using std::dynamic_pointer_cast;
 
 SstFileReader::SstFileReader(const std::string& file_path,
                              bool verify_checksum,
@@ -115,17 +114,12 @@ Status SstFileReader::NewTableReader(
     unique_ptr<TableReader>* table_reader) {
   // We need to turn off pre-fetching of index and filter nodes for
   // BlockBasedTable
-  shared_ptr<BlockBasedTableFactory> block_table_factory =
-      dynamic_pointer_cast<BlockBasedTableFactory>(options_.table_factory);
-
-  if (block_table_factory) {
-    return block_table_factory->NewTableReader(
+  if (BlockBasedTableFactory::kName == options_.table_factory->Name()) {
+    return options_.table_factory->NewTableReader(
         TableReaderOptions(ioptions_, soptions_, internal_comparator_,
                            /*skip_filters=*/false),
         std::move(file_), file_size, &table_reader_, /*enable_prefetch=*/false);
   }
-
-  assert(!block_table_factory);
 
   // For all other factory implementation
   return options_.table_factory->NewTableReader(

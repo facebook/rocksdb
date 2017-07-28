@@ -19,6 +19,7 @@
 #include "rocksdb/snapshot.h"
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/transaction_db.h"
+#include "util/cast_util.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
 #include "utilities/transactions/transaction_db_impl.h"
@@ -46,10 +47,9 @@ TransactionImpl::TransactionImpl(TransactionDB* txn_db,
       lock_timeout_(0),
       deadlock_detect_(false),
       deadlock_detect_depth_(0) {
-  txn_db_impl_ = dynamic_cast<TransactionDBImpl*>(txn_db);
-  assert(txn_db_impl_);
-  db_impl_ = dynamic_cast<DBImpl*>(txn_db->GetRootDB());
-  assert(db_impl_);
+  txn_db_impl_ =
+      static_cast_with_check<TransactionDBImpl, TransactionDB>(txn_db);
+  db_impl_ = static_cast_with_check<DBImpl, DB>(txn_db->GetRootDB());
   Initialize(txn_options);
 }
 
@@ -526,8 +526,7 @@ Status TransactionImpl::ValidateSnapshot(ColumnFamilyHandle* column_family,
 
   *new_seqno = seq;
 
-  assert(dynamic_cast<DBImpl*>(db_) != nullptr);
-  auto db_impl = reinterpret_cast<DBImpl*>(db_);
+  auto db_impl = static_cast_with_check<DBImpl, DB>(db_);
 
   ColumnFamilyHandle* cfh =
       column_family ? column_family : db_impl->DefaultColumnFamily();

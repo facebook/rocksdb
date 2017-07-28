@@ -17,6 +17,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
+#include "util/cast_util.h"
 #include "util/string_util.h"
 #include "utilities/transactions/transaction_util.h"
 
@@ -62,13 +63,7 @@ Status OptimisticTransactionImpl::Commit() {
   // check whether this transaction is safe to be committed.
   OptimisticTransactionCallback callback(this);
 
-  DBImpl* db_impl = dynamic_cast<DBImpl*>(db_->GetRootDB());
-  if (db_impl == nullptr) {
-    // This should only happen if we support creating transactions from
-    // a StackableDB and someone overrides GetRootDB().
-    return Status::InvalidArgument(
-        "DB::GetRootDB() returned an unexpected DB class");
-  }
+  DBImpl* db_impl = static_cast_with_check<DBImpl, DB>(db_->GetRootDB());
 
   Status s = db_impl->WriteWithCallback(
       write_options_, GetWriteBatch()->GetWriteBatch(), &callback);
@@ -122,8 +117,7 @@ Status OptimisticTransactionImpl::TryLock(ColumnFamilyHandle* column_family,
 Status OptimisticTransactionImpl::CheckTransactionForConflicts(DB* db) {
   Status result;
 
-  assert(dynamic_cast<DBImpl*>(db) != nullptr);
-  auto db_impl = reinterpret_cast<DBImpl*>(db);
+  auto db_impl = static_cast_with_check<DBImpl, DB>(db);
 
   // Since we are on the write thread and do not want to block other writers,
   // we will do a cache-only conflict check.  This can result in TryAgain

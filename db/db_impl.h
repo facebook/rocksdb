@@ -235,11 +235,11 @@ class DBImpl : public DB {
       ColumnFamilyHandle* column_family,
       ColumnFamilyMetaData* metadata) override;
 
-  // experimental API
   Status SuggestCompactRange(ColumnFamilyHandle* column_family,
-                             const Slice* begin, const Slice* end);
+                             const Slice* begin, const Slice* end) override;
 
-  Status PromoteL0(ColumnFamilyHandle* column_family, int target_level);
+  Status PromoteL0(ColumnFamilyHandle* column_family,
+                   int target_level) override;
 
   // Similar to Write() but will call the callback once on the single write
   // thread to determine whether it is safe to perform the write.
