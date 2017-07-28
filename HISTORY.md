@@ -3,6 +3,9 @@
 ### New Features
 * Add Iterator::Refresh(), which allows users to update the iterator state so that they can avoid some initialization costs of recreating iterators.
 
+### Bug Fixes
+* Fix wrong latencies in `rocksdb.db.get.micros`, `rocksdb.db.write.micros`, and `rocksdb.sst.read.micros`.
+
 ## 5.7.0 (07/13/2017)
 ### Public API Change
 * DB property "rocksdb.sstables" now prints keys in hex form.
