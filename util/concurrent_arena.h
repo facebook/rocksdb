@@ -102,9 +102,10 @@ class ConcurrentArena : public Allocator {
 
   char padding0[56] ROCKSDB_FIELD_UNUSED;
 
+  CoreLocalArray<Shard> shards_;
+
   size_t shard_block_size_;
 
-  CoreLocalArray<Shard> shards_;
 
   Arena arena_;
   mutable SpinMutex arena_mutex_;

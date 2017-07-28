@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "util/concurrent_arena.h"
+#include <algorithm>
 #include <thread>
 #include "port/port.h"
 #include "util/random.h"
@@ -20,8 +21,13 @@ __thread size_t ConcurrentArena::tls_cpuid = 0;
 
 ConcurrentArena::ConcurrentArena(size_t block_size, AllocTracker* tracker,
                                  size_t huge_page_size)
-    : shard_block_size_(block_size / 8),
-      shards_(),
+    : shards_(),
+      shard_block_size_(
+          (tracker != nullptr)
+              ? std::max(static_cast<size_t>(4 * 1024),
+                         block_size / shards_.Size())
+              : block_size / 8),  // If being tracked, allocate smaller blocks
+                                  // to avoid too sensitive flush triggering
       arena_(block_size, tracker, huge_page_size) {
   Fixup();
 }
