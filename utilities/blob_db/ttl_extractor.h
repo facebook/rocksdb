@@ -39,9 +39,5 @@ class TTLExtractor {
   virtual ~TTLExtractor() = default;
 };
 
-// Create a default TTLExtractor which extract TTL from value with suffix of
-// the form "ttl:" + <8 bytes ttl>.
-extern std::shared_ptr<TTLExtractor> NewDefaultTTLExtractor();
-
 }  // namespace blob_db
 }  // namespace rocksdb

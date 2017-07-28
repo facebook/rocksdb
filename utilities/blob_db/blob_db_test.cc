@@ -346,14 +346,33 @@ TEST_F(BlobDBTest, TTLExtractor_ExtractExpiration) {
   VerifyDB(data);
 }
 
-TEST_F(BlobDBTest, TTLExtractor_DefaultTTLExtractor) {
+TEST_F(BlobDBTest, TTLExtractor_ChangeValue) {
+  class TestTTLExtractor : public TTLExtractor {
+   public:
+    const Slice kTTLSuffix = Slice("ttl:");
+  
+    bool ExtractTTL(const Slice& /*key*/, const Slice& value, uint64_t* ttl,
+                    std::string* new_value, bool* value_changed) override {
+      if (value.size() < 12) {
+        return false;
+      }
+      const char* p = value.data() + value.size() - 12;
+      if (kTTLSuffix != Slice(p, 4)) {
+        return false;
+      }
+      *ttl = DecodeFixed64(p + 4);
+      *new_value = Slice(value.data(), value.size() - 12).ToString();
+      *value_changed = true;
+      return true;
+    }
+  };
   Random rnd(301);
   Options options;
   options.env = mock_env_.get();
   BlobDBOptionsImpl bdb_options;
   bdb_options.ttl_range_secs = 1000;
   bdb_options.blob_file_size = 256 * 1000 * 1000;
-  bdb_options.ttl_extractor = NewDefaultTTLExtractor();
+  bdb_options.ttl_extractor = std::make_shared<TestTTLExtractor>();
   bdb_options.disable_background_tasks = true;
   Open(bdb_options, options);
   std::map<std::string, std::string> data;
