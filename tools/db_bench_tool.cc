@@ -58,6 +58,7 @@
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/write_batch.h"
+#include "util/cast_util.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
 #include "util/mutexlock.h"
@@ -2552,7 +2553,9 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     }
     if (FLAGS_simcache_size >= 0) {
       fprintf(stdout, "SIMULATOR CACHE STATISTICS:\n%s\n",
-              static_cast<SimCache*>(cache_.get())->ToString().c_str());
+              static_cast_with_check<SimCache, Cache>(cache_.get())
+                  ->ToString()
+                  .c_str());
     }
   }
 
