@@ -206,7 +206,7 @@ TEST_F(BlobDBTest, PutUntil) {
   for (size_t i = 0; i < 100; i++) {
     int32_t expiration = rnd.Next() % 100 + 50;
     PutRandomUntil("key" + ToString(i), expiration, &rnd,
-                     (expiration < 100 ? nullptr : &data));
+                   (expiration < 100 ? nullptr : &data));
   }
   mock_env_->set_now_micros(100 * 1000000);
   auto *bdb_impl = static_cast<BlobDBImpl *>(blob_db_);
@@ -293,7 +293,7 @@ TEST_F(BlobDBTest, TTLExtractor_ExtractTTL) {
   bdb_impl->TEST_CloseBlobFile(blob_files[0]);
   GCStats gc_stats;
   ASSERT_OK(bdb_impl->TEST_GCFileAndUpdateLSM(blob_files[0], &gc_stats));
-  auto& data = static_cast<TestTTLExtractor *>(ttl_extractor_.get())->data;
+  auto &data = static_cast<TestTTLExtractor *>(ttl_extractor_.get())->data;
   ASSERT_EQ(100 - data.size(), gc_stats.num_deletes);
   ASSERT_EQ(data.size(), gc_stats.num_relocs);
   VerifyDB(data);
@@ -340,7 +340,7 @@ TEST_F(BlobDBTest, TTLExtractor_ExtractExpiration) {
   bdb_impl->TEST_CloseBlobFile(blob_files[0]);
   GCStats gc_stats;
   ASSERT_OK(bdb_impl->TEST_GCFileAndUpdateLSM(blob_files[0], &gc_stats));
-  auto& data = static_cast<TestTTLExtractor *>(ttl_extractor_.get())->data;
+  auto &data = static_cast<TestTTLExtractor *>(ttl_extractor_.get())->data;
   ASSERT_EQ(100 - data.size(), gc_stats.num_deletes);
   ASSERT_EQ(data.size(), gc_stats.num_relocs);
   VerifyDB(data);
@@ -350,13 +350,13 @@ TEST_F(BlobDBTest, TTLExtractor_ChangeValue) {
   class TestTTLExtractor : public TTLExtractor {
    public:
     const Slice kTTLSuffix = Slice("ttl:");
-  
-    bool ExtractTTL(const Slice& /*key*/, const Slice& value, uint64_t* ttl,
-                    std::string* new_value, bool* value_changed) override {
+
+    bool ExtractTTL(const Slice & /*key*/, const Slice &value, uint64_t *ttl,
+                    std::string *new_value, bool *value_changed) override {
       if (value.size() < 12) {
         return false;
       }
-      const char* p = value.data() + value.size() - 12;
+      const char *p = value.data() + value.size() - 12;
       if (kTTLSuffix != Slice(p, 4)) {
         return false;
       }
