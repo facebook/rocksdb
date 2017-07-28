@@ -575,6 +575,8 @@ endif  # PLATFORM_SHARED_EXT
 
 all: $(LIBRARY) $(BENCHMARKS) tools tools_lib test_libs $(TESTS)
 
+all_but_some_tests: $(LIBRARY) $(BENCHMARKS) tools tools_lib test_libs $(SUBSET)
+
 static_lib: $(LIBRARY)
 
 shared_lib: $(SHARED)

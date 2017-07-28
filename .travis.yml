@@ -57,7 +57,7 @@ before_script:
 
 script:
   - ${CXX} --version
-  - if [ "${TEST_GROUP}" == 'platform_dependent' ]; then ccache -C && OPT=-DTRAVIS V=1 make -j4 all && OPT=-DTRAVIS V=1 ROCKSDBTESTS_END=db_block_cache_test make -j4 check_some; fi
+  - if [ "${TEST_GROUP}" == 'platform_dependent' ]; then ccache -C && OPT=-DTRAVIS V=1 ROCKSDBTESTS_END=db_block_cache_test make -j4 all_but_some_tests check_some; fi
   - if [ "${TEST_GROUP}" == '1' ]; then OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=db_block_cache_test ROCKSDBTESTS_END=comparator_db_test make -j4 check_some; fi
   - if [ "${TEST_GROUP}" == '2' ]; then OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=comparator_db_test make -j4 check_some; fi
   - if [ "${JOB_NAME}" == 'java_test' ]; then OPT=-DTRAVIS V=1 make clean jclean && make rocksdbjava jtest; fi
