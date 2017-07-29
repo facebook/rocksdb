@@ -80,6 +80,8 @@ public:
   }
 
   ~DBImplGetContext() {
+    ReturnSuperVersion();
+    GetLookupKey().~LookupKey();
     GetRangeDel().~RangeDelAggregator();
     DestroyPinnableSlice();
   }
@@ -122,6 +124,16 @@ private:
     return *reinterpret_cast<PinnableSlice*>(&pinnable_val_);
   }
 
+  void InitLookupKey(const Slice& key, SequenceNumber snapshot) {
+    new (&lookup_key_) LookupKey(key, snapshot);
+  }
+
+  const LookupKey& GetLookupKey() const {
+    return *reinterpret_cast<const LookupKey*>(&lookup_key_);
+  }
+
+  void ReturnSuperVersion();
+
   Status GetImpl();
 
   Status OnGetComplete(const Status&);
@@ -143,6 +155,7 @@ private:
   PinnableSlice*      pinnable_val_input_; // External for sync
   std::aligned_storage<sizeof(PinnableSlice)>::type pinnable_val_;
   std::aligned_storage<sizeof(RangeDelAggregator)>::type range_del_agg_;
+  std::aligned_storage<sizeof(LookupKey)>::type lookup_key_;
 };
 
 }

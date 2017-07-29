@@ -49,9 +49,6 @@ DBImplGetContext::DBImplGetContext(const Callback& cb, DB* db, const ReadOptions
   InitPinnableSlice(pinnable_input, value);
 
   assert(!GetPinnable().IsPinned());
-}
-
-Status DBImplGetContext::GetImpl() {
 
   PERF_TIMER_GUARD(get_snapshot_time);
 
@@ -78,32 +75,32 @@ Status DBImplGetContext::GetImpl() {
     // data overwriting it, so users may see wrong results.
     snapshot = db_impl_->versions_->LastSequence();
   }
-  TEST_SYNC_POINT("DBImpl::GetImpl:3");
-  TEST_SYNC_POINT("DBImpl::GetImpl:4");
 
   InitRangeDelAggreagator(cfd_->internal_comparator(), snapshot);
+  InitLookupKey(key_, snapshot);
+
+  TEST_SYNC_POINT("DBImpl::GetImpl:3");
+  TEST_SYNC_POINT("DBImpl::GetImpl:4");
+}
+
+Status DBImplGetContext::GetImpl() {
 
   Status s;
   // First look in the memtable, then in the immutable memtable (if any).
   // s is both in/out. When in, s could either be OK or MergeInProgress.
   // merge_operands will contain the sequence of merges in the latter case.
-  LookupKey lkey(key_, snapshot);
-  PERF_TIMER_STOP(get_snapshot_time);
-
-  TEST_SYNC_POINT("DBImpl::GetImpl:3");
-  TEST_SYNC_POINT("DBImpl::GetImpl:4");
 
   bool skip_memtable = (read_options_.read_tier == kPersistedTier &&
     db_impl_->has_unpersisted_data_.load(std::memory_order_relaxed));
   bool done = false;
   if (!skip_memtable) {
-    if (sv_->mem->Get(lkey, GetPinnable().GetSelf(), &s, &merge_context_,
+    if (sv_->mem->Get(GetLookupKey(), GetPinnable().GetSelf(), &s, &merge_context_,
       &GetRangeDel(), read_options_)) {
       done = true;
       GetPinnable().PinSelf();
       RecordTick(db_impl_->stats_, MEMTABLE_HIT);
     } else if ((s.ok() || s.IsMergeInProgress()) &&
-      sv_->imm->Get(lkey, GetPinnable().GetSelf(), &s, &merge_context_,
+      sv_->imm->Get(GetLookupKey(), GetPinnable().GetSelf(), &s, &merge_context_,
         &GetRangeDel(), read_options_)) {
       done = true;
       GetPinnable().PinSelf();
@@ -120,11 +117,11 @@ Status DBImplGetContext::GetImpl() {
       CallableFactory<DBImplGetContext, Status, const Status&> fac(this);
       auto on_get_complete = fac.GetCallable<&DBImplGetContext::OnGetComplete>();
       s = VersionSetGetContext::RequestGet(on_get_complete, sv_->current,
-        read_options_, lkey, &GetPinnable(), &s, &merge_context_, &GetRangeDel(), value_found_);
+        read_options_, GetLookupKey(), &GetPinnable(), &s, &merge_context_, &GetRangeDel(), value_found_);
 
     } else {
       s = VersionSetGetContext::Get(sv_->current,
-        read_options_, lkey, &GetPinnable(), &s, &merge_context_, &GetRangeDel(), value_found_);
+        read_options_, GetLookupKey(), &GetPinnable(), &s, &merge_context_, &GetRangeDel(), value_found_);
     }
 
     if (s.IsIOPending()) {
@@ -134,6 +131,14 @@ Status DBImplGetContext::GetImpl() {
 
   return OnGetComplete(s);
 }
+
+void DBImplGetContext::ReturnSuperVersion() {
+  if (sv_) {
+    db_impl_->ReturnAndCleanupSuperVersion(cfd_, sv_);
+    sv_ = nullptr;
+  }
+}
+
 
 Status DBImplGetContext::OnGetComplete(const Status& status) {
   async(status);
@@ -146,8 +151,7 @@ Status DBImplGetContext::OnGetComplete(const Status& status) {
     PERF_TIMER_GUARD(get_post_process_time);
 
     assert(sv_);
-
-    db_impl_->ReturnAndCleanupSuperVersion(cfd_, sv_);
+    ReturnSuperVersion();
 
     RecordTick(db_impl_->stats_, NUMBER_KEYS_READ);
     size_t size = GetPinnable().size();
