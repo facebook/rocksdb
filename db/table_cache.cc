@@ -106,10 +106,10 @@ Status TableCache::GetTableReader(
     }
     StopWatch sw(ioptions_.env, ioptions_.statistics, TABLE_OPEN_IO_MICROS);
     std::unique_ptr<RandomAccessFileReader> file_reader(
-        new RandomAccessFileReader(std::move(file), fname, ioptions_.env,
-                                   ioptions_.statistics, record_read_stats,
-                                   file_read_hist, ioptions_.rate_limiter,
-                                   for_compaction));
+        new RandomAccessFileReader(
+            std::move(file), fname, ioptions_.env,
+            record_read_stats ? ioptions_.statistics : nullptr, SST_READ_MICROS,
+            file_read_hist, ioptions_.rate_limiter, for_compaction));
     s = ioptions_.table_factory->NewTableReader(
         TableReaderOptions(ioptions_, env_options, internal_comparator,
                            skip_filters, level),
