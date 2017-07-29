@@ -145,6 +145,7 @@ class RandomAccessFileReader {
     mutual_access_ = true;
     prefetch_buffer_ =
         std::move(unique_ptr<AlignedBuffer>(new AlignedBuffer()));
+    prefetch_buffer_->Alignment(alignment_);
   }
 
   // This is to be used right before the pointer is shared for concurrent
