@@ -4158,10 +4158,13 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     Slice key = AllocateKey(&key_guard);
     std::string value;
     PinnableSlice pinnable_val;
+    bool printed = false;
 
     Duration duration(FLAGS_duration, reads_);
     while (!duration.Done(1)) {
+#ifdef _DEBUG
       uint64_t start = FLAGS_env->NowMicros();
+#endif
       DBWithColumnFamilies* db_with_cfh = SelectDBWithCfh(thread);
       // We use same key_rand as seed for key and column family so that we can
       // deterministically find the cfh corresponding to a particular key, as it
@@ -4185,6 +4188,11 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         }
       }
       if (s.ok()) {
+        if (!printed) {
+          std::string hex = key.ToString(true);
+          fprintf(stderr, "%s\n", hex.c_str());
+          printed = true;
+        }
         found++;
         bytes += key.size() +
                  (FLAGS_pin_slice == 1 ? pinnable_val.size() : value.size());
@@ -4200,7 +4208,9 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       }
 
       thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db, 1, kRead);
+#ifdef _DEBUG
       fprintf(stderr, "Elapsed: %" PRIu64 "\n", FLAGS_env->NowMicros() - start);
+#endif
     }
 
     char msg[100];
@@ -4240,7 +4250,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       return bm_->AllocateKey(guard);
     }
 
-#define DSM_TIME_REQ
+//#define DSM_TIME_REQ
     struct ReadContext : public async::AsyncStatusCapture {
 
       ReadContext(ReadRandomAsync* bench) :
@@ -4267,6 +4277,10 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         reset_async(status);
 
         bench_->read_.fetch_add(1, std::memory_order_relaxed);
+
+        if (status.IsNotFound()) {
+          fprintf(stderr, "%s\n", key_.ToString(true).c_str());
+        }
 
         if (status.ok()) {
           bench_->found_.fetch_add(1, std::memory_order_relaxed);
@@ -4297,7 +4311,9 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       ReadRandomAsync*      bench_;
       DBWithColumnFamilies* db_with_cfh_;
       std::unique_ptr<const char[]> key_guard_;
+      std::string           present_key_;
       Slice key_; 
+      bool  verified_ = false;
       std::string value_;
       PinnableSlice pinnable_val_;
       uint64_t      start_;
@@ -4311,8 +4327,17 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 
     void ResetContext(ReadContext* ctx) {
       ctx->db_with_cfh_ = bm_->SelectDBWithCfh(thread_);
-      int64_t key_rand = bm_->GetRandomKey(&thread_->rand);
-      bm_->GenerateKeyFromInt(key_rand, FLAGS_num, &ctx->key_);
+      if (!ctx_->verified_) {
+        const char* const VerifKey = "00000000000000473030303030303030";
+        Slice verif_key(VerifKey);
+        bool result = verif_key.DecodeHex(&ctx_->present_key_);
+        assert(result);
+        ctx_->key_ = ctx_->present_key_;
+        ctx_->verified_ = true;
+      } else {
+        int64_t key_rand = bm_->GetRandomKey(&thread_->rand);
+        bm_->GenerateKeyFromInt(key_rand, FLAGS_num, &ctx->key_);
+      }
       if (LIKELY(FLAGS_pin_slice == 1)) {
         ctx->pinnable_val_.Reset();
       }
