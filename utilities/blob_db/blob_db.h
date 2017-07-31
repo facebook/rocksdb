@@ -31,18 +31,18 @@ class TTLExtractor;
 struct BlobDBOptions {
   // name of the directory under main db, where blobs will be stored.
   // default is "blob_dir"
-  std::string blob_dir;
+  std::string blob_dir = "blob_dir";
 
   // whether the blob_dir path is relative or absolute.
-  bool path_relative;
+  bool path_relative = true;
 
   // is the eviction strategy fifo based
-  bool is_fifo;
+  bool is_fifo = false;
 
   // maximum size of the blob dir. Once this gets used, up
   // evict the blob file which is oldest (is_fifo )
   // 0 means no limits
-  uint64_t blob_dir_size;
+  uint64_t blob_dir_size = 0;
 
   // a new bucket is opened, for ttl_range. So if ttl_range is 600seconds
   // (10 minutes), and the first bucket starts at 1471542000
@@ -50,26 +50,22 @@ struct BlobDBOptions {
   // first bucket is 1471542000 - 1471542600
   // second bucket is 1471542600 - 1471543200
   // and so on
-  uint32_t ttl_range_secs;
-
-  // at what size will the blobs be stored in separate log rather than
-  // inline
-  uint64_t min_blob_size;
+  uint32_t ttl_range_secs = 3600;
 
   // at what bytes will the blob files be synced to blob log.
-  uint64_t bytes_per_sync;
+  uint64_t bytes_per_sync = 0;
 
   // the target size of each blob file. File will become immutable
   // after it exceeds that size
-  uint64_t blob_file_size;
+  uint64_t blob_file_size = 256 * 1024 * 1024;
 
   // how many files to use for simple blobs at one time
-  uint32_t num_concurrent_simple_blobs;
+  uint32_t num_concurrent_simple_blobs = 1;
 
   // Instead of setting TTL explicitly by calling PutWithTTL or PutUntil,
   // applications can set a TTLExtractor which can extract TTL from key-value
   // pairs.
-  std::shared_ptr<TTLExtractor> ttl_extractor;
+  std::shared_ptr<TTLExtractor> ttl_extractor = nullptr;
 
   // eviction callback.
   // this function will be called for every blob that is getting
@@ -78,14 +74,12 @@ struct BlobDBOptions {
       gc_evict_cb_fn;
 
   // what compression to use for Blob's
-  CompressionType compression;
+  CompressionType compression = kNoCompression;
 
-  // default constructor
-  BlobDBOptions();
+  // Disable all background job.
+  bool disable_background_tasks = false;
 
-  BlobDBOptions(const BlobDBOptions& in) = default;
-
-  virtual ~BlobDBOptions() = default;
+  void Dump(Logger* log) const;
 };
 
 class BlobDB : public StackableDB {

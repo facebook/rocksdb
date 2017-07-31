@@ -3311,10 +3311,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     } else if (FLAGS_use_blob_db) {
       blob_db::BlobDBOptions blob_db_options;
       blob_db::BlobDB* ptr;
-      s = CreateLoggerFromOptions(db_name, options, &options.info_log);
-      if (s.ok()) {
-        s = blob_db::BlobDB::Open(options, blob_db_options, db_name, &ptr);
-      }
+      s = blob_db::BlobDB::Open(options, blob_db_options, db_name, &ptr);
       if (s.ok()) {
         db->db = ptr;
       }

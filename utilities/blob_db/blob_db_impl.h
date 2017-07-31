@@ -29,7 +29,6 @@
 #include "util/mutexlock.h"
 #include "util/timer_queue.h"
 #include "utilities/blob_db/blob_db.h"
-#include "utilities/blob_db/blob_db_options_impl.h"
 #include "utilities/blob_db/blob_log_format.h"
 #include "utilities/blob_db/blob_log_reader.h"
 #include "utilities/blob_db/blob_log_writer.h"
@@ -158,6 +157,51 @@ class BlobDBImpl : public BlobDB {
   friend class BlobDBIterator;
 
  public:
+  // deletions check period
+  static constexpr uint32_t kDeleteCheckPeriodMillisecs = 2 * 1000;
+
+  // gc percentage each check period
+  static constexpr uint32_t kGCFilePercentage = 100;
+
+  // gc period
+  static constexpr uint32_t kGCCheckPeriodMillisecs = 60 * 1000;
+
+  // sanity check task
+  static constexpr uint32_t kSanityCheckPeriodMillisecs = 20 * 60 * 1000;
+
+  // how many random access open files can we tolerate
+  static constexpr uint32_t kOpenFilesTrigger = 100;
+
+  // how many periods of stats do we keep.
+  static constexpr uint32_t kWriteAmplificationStatsPeriods = 24;
+
+  // what is the length of any period
+  static constexpr uint32_t kWriteAmplificationStatsPeriodMillisecs =
+      3600 * 1000;
+
+  // we will garbage collect blob files in
+  // which entire files have expired. However if the
+  // ttl_range of files is very large say a day, we
+  // would have to wait for the entire day, before we
+  // recover most of the space.
+  static constexpr uint32_t kPartialExpirationGCRangeSecs = 4 * 3600;
+
+  // this should be based on allowed Write Amplification
+  // if 50% of the space of a blob file has been deleted/expired,
+  static constexpr uint32_t kPartialExpirationPercentage = 75;
+
+  // how often should we schedule a job to fsync open files
+  static constexpr uint32_t kFSyncFilesPeriodMillisecs = 10 * 1000;
+
+  // how often to schedule reclaim open files.
+  static constexpr uint32_t kReclaimOpenFilesPeriodMillisecs = 1 * 1000;
+
+  // how often to schedule delete obs files periods
+  static constexpr uint32_t kDeleteObsoletedFilesPeriodMillisecs = 10 * 1000;
+
+  // how often to schedule check seq files period
+  static constexpr uint32_t kCheckSeqFilesPeriodMillisecs = 10 * 1000;
+
   static constexpr uint64_t kNoExpiration =
       std::numeric_limits<uint64_t>::max();
 
@@ -383,7 +427,7 @@ class BlobDBImpl : public BlobDB {
   WriteOptions write_options_;
 
   // the options that govern the behavior of Blob Storage
-  BlobDBOptionsImpl bdb_options_;
+  BlobDBOptions bdb_options_;
   DBOptions db_options_;
   EnvOptions env_options_;
 
