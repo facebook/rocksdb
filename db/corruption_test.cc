@@ -182,7 +182,10 @@ class CorruptionTest : public testing::Test {
     }
     s = WriteStringToFile(Env::Default(), contents, fname);
     ASSERT_TRUE(s.ok()) << s.ToString();
-    ASSERT_NOK(VerifyChecksum(fname));
+    Options options;
+    EnvOptions env_options;
+    ASSERT_NOK(VerifySstFileChecksum(options, env_options, fname,
+                                     BytewiseComparator()));
   }
 
   void Corrupt(FileType filetype, int offset, int bytes_to_corrupt) {

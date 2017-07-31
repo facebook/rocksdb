@@ -95,9 +95,7 @@ class StackableDB : public DB {
     return db_->IngestExternalFile(column_family, external_files, options);
   }
 
-  virtual Status VerifyChecksum() override {
-    return db_->VerifyChecksum();
-  }
+  virtual Status VerifyChecksum() override { return db_->VerifyChecksum(); }
 
   using DB::KeyMayExist;
   virtual bool KeyMayExist(const ReadOptions& options,
