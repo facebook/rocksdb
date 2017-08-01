@@ -184,8 +184,7 @@ class CorruptionTest : public testing::Test {
     ASSERT_TRUE(s.ok()) << s.ToString();
     Options options;
     EnvOptions env_options;
-    ASSERT_NOK(VerifySstFileChecksum(options, env_options, fname,
-                                     BytewiseComparator()));
+    ASSERT_NOK(VerifySstFileChecksum(options, env_options, fname));
   }
 
   void Corrupt(FileType filetype, int offset, int bytes_to_corrupt) {

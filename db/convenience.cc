@@ -29,11 +29,10 @@ Status DeleteFilesInRange(DB* db, ColumnFamilyHandle* column_family,
 
 Status VerifySstFileChecksum(const Options& options,
                              const EnvOptions& env_options,
-                             const std::string& file_path,
-                             const Comparator* comp) {
+                             const std::string& file_path) {
   unique_ptr<RandomAccessFile> file;
   uint64_t file_size;
-  InternalKeyComparator internal_comparator(comp);
+  InternalKeyComparator internal_comparator(options.comparator);
   ImmutableCFOptions ioptions(options);
 
   Status s = ioptions.env->NewRandomAccessFile(file_path, &file, env_options);

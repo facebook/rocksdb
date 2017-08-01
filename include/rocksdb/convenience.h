@@ -333,8 +333,7 @@ Status DeleteFilesInRange(DB* db, ColumnFamilyHandle* column_family,
 // Verify the checksum of file
 Status VerifySstFileChecksum(const Options& options,
                              const EnvOptions& env_options,
-                             const std::string& file_path,
-                             const Comparator* comp);
+                             const std::string& file_path);
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb

@@ -2765,8 +2765,7 @@ Status DBImpl::VerifyChecksum() {
         const auto& fd = vstorage->LevelFilesBrief(i).files[j].fd;
         std::string fname = TableFileName(immutable_db_options_.db_paths,
                                           fd.GetNumber(), fd.GetPathId());
-        s = rocksdb::VerifySstFileChecksum(options, env_options, fname,
-                                           BytewiseComparator());
+        s = rocksdb::VerifySstFileChecksum(options, env_options, fname); 
       }
     }
     if (!s.ok()) {
