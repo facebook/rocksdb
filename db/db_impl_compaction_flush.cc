@@ -1639,8 +1639,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 
     // Clear Instrument
     ThreadStatusUtil::ResetThreadStatus();
-  } else if (env_->GetBackgroundThreads(Env::Priority::BOTTOM) > 0 &&
-             c->column_family_data()->ioptions()->compaction_style ==
+  } else if (c->column_family_data()->ioptions()->compaction_style ==
                  kCompactionStyleUniversal &&
              !is_prepicked && c->output_level() > 0 &&
              c->output_level() ==
@@ -1648,7 +1647,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                      ->current()
                      ->storage_info()
                      ->MaxOutputLevel(
-                         immutable_db_options_.allow_ingest_behind)) {
+                         immutable_db_options_.allow_ingest_behind) &&
+             env_->GetBackgroundThreads(Env::Priority::BOTTOM) > 0) {
     // Forward universal compactions involving last level to the bottom pool
     // if it exists, such that long-running compactions can't block short-
     // lived ones, like L0->L0s.

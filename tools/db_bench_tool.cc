@@ -318,6 +318,10 @@ DEFINE_int32(max_background_jobs,
              "The maximum number of concurrent background jobs that can occur "
              "in parallel.");
 
+DEFINE_int32(num_bottom_pri_threads, 0,
+             "The number of threads in the bottom-priority thread pool (used "
+             "by universal compaction only).");
+
 DEFINE_int32(max_background_compactions,
              rocksdb::Options().max_background_compactions,
              "The maximum number of concurrent background compactions"
@@ -5245,6 +5249,15 @@ int db_bench_tool(int argc, char** argv) {
   FLAGS_env->SetBackgroundThreads(FLAGS_max_background_compactions);
   FLAGS_env->SetBackgroundThreads(FLAGS_max_background_flushes,
                                   rocksdb::Env::Priority::HIGH);
+  if (FLAGS_num_bottom_pri_threads != 0 &&
+      FLAGS_compaction_style_e != CompactionStyle::kCompactionStyleUniversal) {
+    fprintf(stderr,
+            "nonzero --num_bottom_pri_threads requires "
+            "--compaction_style=1 (universal).\n");
+    exit(1);
+  }
+  FLAGS_env->SetBackgroundThreads(FLAGS_num_bottom_pri_threads,
+                                  rocksdb::Env::Priority::BOTTOM);
 
   // Choose a location for the test database if none given with --db=<path>
   if (FLAGS_db.empty()) {
