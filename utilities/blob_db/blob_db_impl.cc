@@ -1594,8 +1594,9 @@ std::pair<bool, int64_t> BlobDBImpl::FsyncFiles(bool aborted) {
 std::pair<bool, int64_t> BlobDBImpl::ReclaimOpenFiles(bool aborted) {
   if (aborted) return std::make_pair(false, -1);
 
-  if (open_file_count_.load() < kOpenFilesTrigger)
+  if (open_file_count_.load() < kOpenFilesTrigger) {
     return std::make_pair(true, -1);
+  }
 
   // in the future, we should sort by last_access_
   // instead of closing every file
