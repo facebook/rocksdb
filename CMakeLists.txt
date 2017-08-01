@@ -476,7 +476,6 @@ set(SOURCES
         utilities/backupable/backupable_db.cc
         utilities/blob_db/blob_db.cc
         utilities/blob_db/blob_db_impl.cc
-        utilities/blob_db/blob_db_options_impl.cc
         utilities/blob_db/blob_dump_tool.cc
         utilities/blob_db/blob_file.cc
         utilities/blob_db/blob_log_reader.cc

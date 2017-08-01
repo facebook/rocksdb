@@ -16,7 +16,6 @@
 #include "util/string_util.h"
 #include "util/testharness.h"
 #include "utilities/blob_db/blob_db_impl.h"
-#include "utilities/blob_db/blob_db_options_impl.h"
 
 namespace rocksdb {
 namespace blob_db {
@@ -47,7 +46,7 @@ class BlobDBTest : public testing::Test {
 
   ~BlobDBTest() { Destroy(); }
 
-  void Open(BlobDBOptionsImpl bdb_options = BlobDBOptionsImpl(),
+  void Open(BlobDBOptions bdb_options = BlobDBOptions(),
             Options options = Options()) {
     options.create_if_missing = true;
     ASSERT_OK(BlobDB::Open(options, bdb_options, dbname_, &blob_db_));
@@ -153,7 +152,7 @@ class BlobDBTest : public testing::Test {
 
 TEST_F(BlobDBTest, Put) {
   Random rnd(301);
-  BlobDBOptionsImpl bdb_options;
+  BlobDBOptions bdb_options;
   bdb_options.disable_background_tasks = true;
   Open(bdb_options);
   std::map<std::string, std::string> data;
@@ -167,7 +166,7 @@ TEST_F(BlobDBTest, PutWithTTL) {
   Random rnd(301);
   Options options;
   options.env = mock_env_.get();
-  BlobDBOptionsImpl bdb_options;
+  BlobDBOptions bdb_options;
   bdb_options.ttl_range_secs = 1000;
   bdb_options.blob_file_size = 256 * 1000 * 1000;
   bdb_options.disable_background_tasks = true;
@@ -196,7 +195,7 @@ TEST_F(BlobDBTest, PutUntil) {
   Random rnd(301);
   Options options;
   options.env = mock_env_.get();
-  BlobDBOptionsImpl bdb_options;
+  BlobDBOptions bdb_options;
   bdb_options.ttl_range_secs = 1000;
   bdb_options.blob_file_size = 256 * 1000 * 1000;
   bdb_options.disable_background_tasks = true;
@@ -227,7 +226,7 @@ TEST_F(BlobDBTest, TTLExtrator_NoTTL) {
   Random rnd(301);
   Options options;
   options.env = mock_env_.get();
-  BlobDBOptionsImpl bdb_options;
+  BlobDBOptions bdb_options;
   bdb_options.ttl_range_secs = 1000;
   bdb_options.blob_file_size = 256 * 1000 * 1000;
   bdb_options.num_concurrent_simple_blobs = 1;
@@ -275,7 +274,7 @@ TEST_F(BlobDBTest, TTLExtractor_ExtractTTL) {
   ttl_extractor_.reset(new TestTTLExtractor(&rnd));
   Options options;
   options.env = mock_env_.get();
-  BlobDBOptionsImpl bdb_options;
+  BlobDBOptions bdb_options;
   bdb_options.ttl_range_secs = 1000;
   bdb_options.blob_file_size = 256 * 1000 * 1000;
   bdb_options.ttl_extractor = ttl_extractor_;
@@ -322,7 +321,7 @@ TEST_F(BlobDBTest, TTLExtractor_ExtractExpiration) {
   ttl_extractor_.reset(new TestTTLExtractor(&rnd));
   Options options;
   options.env = mock_env_.get();
-  BlobDBOptionsImpl bdb_options;
+  BlobDBOptions bdb_options;
   bdb_options.ttl_range_secs = 1000;
   bdb_options.blob_file_size = 256 * 1000 * 1000;
   bdb_options.ttl_extractor = ttl_extractor_;
@@ -369,7 +368,7 @@ TEST_F(BlobDBTest, TTLExtractor_ChangeValue) {
   Random rnd(301);
   Options options;
   options.env = mock_env_.get();
-  BlobDBOptionsImpl bdb_options;
+  BlobDBOptions bdb_options;
   bdb_options.ttl_range_secs = 1000;
   bdb_options.blob_file_size = 256 * 1000 * 1000;
   bdb_options.ttl_extractor = std::make_shared<TestTTLExtractor>();
@@ -404,7 +403,7 @@ TEST_F(BlobDBTest, TTLExtractor_ChangeValue) {
 
 TEST_F(BlobDBTest, StackableDBGet) {
   Random rnd(301);
-  BlobDBOptionsImpl bdb_options;
+  BlobDBOptions bdb_options;
   bdb_options.disable_background_tasks = true;
   Open(bdb_options);
   std::map<std::string, std::string> data;
@@ -426,7 +425,7 @@ TEST_F(BlobDBTest, StackableDBGet) {
 
 TEST_F(BlobDBTest, WriteBatch) {
   Random rnd(301);
-  BlobDBOptionsImpl bdb_options;
+  BlobDBOptions bdb_options;
   bdb_options.disable_background_tasks = true;
   Open(bdb_options);
   std::map<std::string, std::string> data;
@@ -442,7 +441,7 @@ TEST_F(BlobDBTest, WriteBatch) {
 
 TEST_F(BlobDBTest, Delete) {
   Random rnd(301);
-  BlobDBOptionsImpl bdb_options;
+  BlobDBOptions bdb_options;
   bdb_options.disable_background_tasks = true;
   Open(bdb_options);
   std::map<std::string, std::string> data;
@@ -457,7 +456,7 @@ TEST_F(BlobDBTest, Delete) {
 
 TEST_F(BlobDBTest, DeleteBatch) {
   Random rnd(301);
-  BlobDBOptionsImpl bdb_options;
+  BlobDBOptions bdb_options;
   bdb_options.disable_background_tasks = true;
   Open(bdb_options);
   for (size_t i = 0; i < 100; i++) {
@@ -474,7 +473,7 @@ TEST_F(BlobDBTest, DeleteBatch) {
 
 TEST_F(BlobDBTest, Override) {
   Random rnd(301);
-  BlobDBOptionsImpl bdb_options;
+  BlobDBOptions bdb_options;
   bdb_options.disable_background_tasks = true;
   Open(bdb_options);
   std::map<std::string, std::string> data;
@@ -491,7 +490,7 @@ TEST_F(BlobDBTest, Override) {
 #ifdef SNAPPY
 TEST_F(BlobDBTest, Compression) {
   Random rnd(301);
-  BlobDBOptionsImpl bdb_options;
+  BlobDBOptions bdb_options;
   bdb_options.disable_background_tasks = true;
   bdb_options.compression = CompressionType::kSnappyCompression;
   Open(bdb_options);
@@ -528,7 +527,7 @@ TEST_F(BlobDBTest, DISABLED_MultipleWriters) {
 // Test sequence number store in blob file is correct.
 TEST_F(BlobDBTest, SequenceNumber) {
   Random rnd(301);
-  BlobDBOptionsImpl bdb_options;
+  BlobDBOptions bdb_options;
   bdb_options.disable_background_tasks = true;
   Open(bdb_options);
   SequenceNumber sequence = blob_db_->GetLatestSequenceNumber();
