@@ -33,6 +33,7 @@
 #include <thread>
 #include <unordered_map>
 
+#include "async/context_pool.h"
 #include "db/db_impl.h"
 #include "db/db_impl_request.h"
 #include "db/version_set.h"
@@ -1782,7 +1783,6 @@ struct ThreadState {
 };
 
 class Benchmark;
-
 class AsyncBenchBase {
 public:
 
@@ -2808,7 +2808,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 
     assert(bench_func_);
 
-    SharedState shared;
+    RandomReadAsyncShared shared;
     shared.total = n;
     shared.num_initialized = 0;
     shared.num_done = 0;
@@ -4225,6 +4225,16 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     }
   }
 
+  struct RandomReadContext;
+
+  // Faciliates a pool of memory allocations for the context
+  struct RandomReadAsyncShared : public SharedState {
+    using
+    CtxPtr = async::ContextPool<RandomReadContext>::Ptr;
+
+    async::ContextPool<RandomReadContext> pool_;
+    RandomReadAsyncShared() : SharedState() {}
+  };
 
   class ReadRandomAsync : public AsyncBenchBase {
   public:
@@ -4235,8 +4245,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       duration_(FLAGS_duration, FLAGS_reads),
       read_(0),
       found_(0),
-      bytes_(0),
-      ctx_() {
+      bytes_(0) {
     }
 
     std::unique_ptr<AsyncBenchBase> Clone() override {
@@ -4246,131 +4255,66 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 
   private:
 
-    Slice AllocateKey(std::unique_ptr<const char[]>* guard) {
-      return bm_->AllocateKey(guard);
-    }
-
-//#define DSM_TIME_REQ
-    struct ReadContext : public async::AsyncStatusCapture {
-
-      ReadContext(ReadRandomAsync* bench) :
-          bench_(bench),
-          db_with_cfh_(nullptr),
-          key_guard_(),
-          key_(),
-          start_() {
-        // Init once, we then
-        // We use same key_rand as seed for key and column family so that we can
-        // deterministically find the cfh corresponding to a particular key, as it
-        // is done in DoWrite method.
-        key_ = bench_->AllocateKey(&key_guard_);
-      }
-
-      async::Callable<Status,const Status&>
-      GetCallback() {
-        async::CallableFactory<ReadContext, Status, const Status&> f(this);
-        return f.GetCallable<&ReadContext::OnReadComplete>();
-      }
-
-      Status OnReadComplete(const Status& status) {
-        // This is a reusable context
-        reset_async(status);
-
-        bench_->read_.fetch_add(1, std::memory_order_relaxed);
-
-        if (status.IsNotFound()) {
-          fprintf(stderr, "%s\n", key_.ToString(true).c_str());
-        }
-
-        if (status.ok()) {
-          bench_->found_.fetch_add(1, std::memory_order_relaxed);
-          bench_->bytes_.fetch_add(key_.size() +
-            (FLAGS_pin_slice == 1 ? pinnable_val_.size() : value_.size()), 
-            std::memory_order_relaxed);
-        } else if (!status.IsNotFound()) {
-          fprintf(stderr, "Get returned an error: %s\n", 
-            status.ToString().c_str());
-          abort();
-        }
-
-        bench_->thread_->stats.FinishedOps(db_with_cfh_, 
-          db_with_cfh_->db, 1, kRead);
-
-#ifdef DSM_TIME_REQ
-        fprintf(stderr, "t %" PRIu64 "\n", FLAGS_env->NowMicros() - start_);
+#ifdef _DEBUG
+#define DSM_TIME_REQ
 #endif
 
-        if (async()) {
-          // ping on continue
-          bench_->ReadComplete();
-        }
+    friend struct RandomReadContext;
 
-        return status;
-      }
+    using
+    CtxPtr = RandomReadAsyncShared::CtxPtr;
 
-      ReadRandomAsync*      bench_;
-      DBWithColumnFamilies* db_with_cfh_;
-      std::unique_ptr<const char[]> key_guard_;
-      std::string           present_key_;
-      Slice key_; 
-      bool  verified_ = false;
-      std::string value_;
-      PinnableSlice pinnable_val_;
-      uint64_t      start_;
-    };
-
-    friend struct ReadContext;
-
-    void AllocateReadContext() {
-      ctx_.reset(new ReadContext(this));
+    RandomReadAsyncShared* GetShared() const {
+      return reinterpret_cast<RandomReadAsyncShared*>(shared_);
     }
 
-    void ResetContext(ReadContext* ctx) {
-      ctx->db_with_cfh_ = bm_->SelectDBWithCfh(thread_);
-      if (!ctx_->verified_) {
-        const char* const VerifKey = "00000000000000473030303030303030";
-        Slice verif_key(VerifKey);
-        bool result = verif_key.DecodeHex(&ctx_->present_key_);
-        assert(result);
-        ctx_->key_ = ctx_->present_key_;
-        ctx_->verified_ = true;
-      } else {
-        int64_t key_rand = bm_->GetRandomKey(&thread_->rand);
-        bm_->GenerateKeyFromInt(key_rand, FLAGS_num, &ctx->key_);
-      }
+    CtxPtr AcquireInitContext() {
+      // May want to cache the allocation key
+      std::unique_ptr<const char[]> guard;
+      auto key = bm_->AllocateKey(&guard);
+      int64_t key_rand = bm_->GetRandomKey(&thread_->rand);
+      bm_->GenerateKeyFromInt(key_rand, FLAGS_num, &key);
+
+      auto shared = GetShared();
+
+      CtxPtr result = shared->pool_.Get(this, std::move(guard), std::move(key));
+      result->db_with_cfh_ = bm_->SelectDBWithCfh(thread_);
+
       if (LIKELY(FLAGS_pin_slice == 1)) {
-        ctx->pinnable_val_.Reset();
+        result->pinnable_val_.Reset();
       }
+      return result;
     }
 
     Status RequestGet() {
 
-#ifdef DSM_TIME_REQ
-      ctx_->start_ = FLAGS_env->NowMicros();
-#endif
+      CtxPtr ctx = AcquireInitContext();
 
-      ResetContext(ctx_.get());
+#ifdef DSM_TIME_REQ
+      ctx->start_ = FLAGS_env->NowMicros();
+#endif
 
       Status s;
       if (LIKELY(FLAGS_pin_slice == 1)) {
-        s = async::DBImplGetContext::RequestGet(ctx_->GetCallback(), ctx_->db_with_cfh_->db, options_,
-          ctx_->db_with_cfh_->db->DefaultColumnFamily(), ctx_->key_, &ctx_->pinnable_val_, nullptr);
+        s = async::DBImplGetContext::RequestGet(ctx->GetCallback(), ctx->db_with_cfh_->db, options_,
+          ctx->db_with_cfh_->db->DefaultColumnFamily(), ctx->key_, &ctx->pinnable_val_, nullptr);
       } else {
-        s = async::DBImplGetContext::RequestGet(ctx_->GetCallback(), ctx_->db_with_cfh_->db, options_,
-          ctx_->db_with_cfh_->db->DefaultColumnFamily(), ctx_->key_, nullptr, &ctx_->value_);
+        s = async::DBImplGetContext::RequestGet(ctx->GetCallback(), ctx->db_with_cfh_->db, options_,
+          ctx->db_with_cfh_->db->DefaultColumnFamily(), ctx->key_, nullptr, &ctx->value_);
       }
 
+      // CtxPtr will return the pool on destruction
       if (!s.IsIOPending()) {
-        s = ctx_->OnReadComplete(s);
+        s = ctx->OnReadComplete(s);
+      } else {
+        ctx.release();
       }
       return s;
     }
 
     // Thread entry point
     void Run() override {
-      AllocateReadContext();
       OnInitialized();
-
       RequestOnThreadPool();
     }
 
@@ -4378,11 +4322,15 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       SetThreadPerfLevel();
       Status s = RequestGet();
       if (!s.IsIOPending()) {
-        ReadComplete();
+        ReadComplete(nullptr);
       }
     }
 
-    void ReadComplete() {
+    void ReadComplete(RandomReadContext* ctx) {
+
+      if (ctx != nullptr) {
+        GetShared()->pool_.Release(ctx);
+      }
 
       if (!duration_.Done(1)) {
         auto bound = std::bind(&ReadRandomAsync::RequestOnThreadPool, this);
@@ -4422,8 +4370,69 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     std::atomic_int64_t     read_;
     std::atomic_int64_t     found_;
     std::atomic_int64_t     bytes_;
-    std::unique_ptr<ReadContext> ctx_;
   };
+
+  struct RandomReadContext : public async::AsyncStatusCapture {
+
+    using
+    CtxPtr = RandomReadAsyncShared::CtxPtr;
+
+    RandomReadContext(ReadRandomAsync* bench,
+      std::unique_ptr<const char[]>&& key_guard,
+      Slice&& key) :
+      bench_(bench),
+      db_with_cfh_(nullptr),
+      key_guard_(std::move(key_guard)),
+      key_(key),
+      start_() {
+    }
+
+    async::Callable<Status, const Status&>
+      GetCallback() {
+      async::CallableFactory<RandomReadContext, Status, const Status&> f(this);
+      return f.GetCallable<&RandomReadContext::OnReadComplete>();
+    }
+
+    Status OnReadComplete(const Status& status) {
+      async(status);
+
+      bench_->read_.fetch_add(1, std::memory_order_relaxed);
+
+      if (status.IsNotFound()) {
+        fprintf(stderr, "%s\n", key_.ToString(true).c_str());
+      }
+
+      if (status.ok()) {
+        bench_->found_.fetch_add(1, std::memory_order_relaxed);
+        bench_->bytes_.fetch_add(key_.size() +
+          (FLAGS_pin_slice == 1 ? pinnable_val_.size() : value_.size()),
+          std::memory_order_relaxed);
+      } else if (!status.IsNotFound()) {
+        fprintf(stderr, "Get returned an error: %s\n",
+          status.ToString().c_str());
+        abort();
+      }
+      bench_->thread_->stats.FinishedOps(db_with_cfh_,
+        db_with_cfh_->db, 1, kRead);
+#ifdef DSM_TIME_REQ
+      fprintf(stderr, "t %" PRIu64 "\n", FLAGS_env->NowMicros() - start_);
+#endif
+      if (async()) {
+        // ping on continue
+        bench_->ReadComplete(this);
+      }
+      return status;
+    }
+
+    ReadRandomAsync*      bench_;
+    DBWithColumnFamilies* db_with_cfh_;
+    std::unique_ptr<const char[]> key_guard_;
+    Slice                 key_;
+    std::string           value_;
+    PinnableSlice         pinnable_val_;
+    uint64_t              start_;
+  };
+
   // Calls MultiGet over a list of keys from a random distribution.
   // Returns the total number of keys found.
   void MultiReadRandom(ThreadState* thread) {

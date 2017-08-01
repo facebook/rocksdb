@@ -27,11 +27,6 @@
 #include <vector>
 #include <string>
 
-
-#undef GetCurrentTime
-#undef DeleteFile
-#undef GetTickCount
-
 namespace rocksdb {
 namespace port {
 
@@ -145,7 +140,8 @@ public:
   virtual Status NewLogger(const std::string& fname,
     std::shared_ptr<Logger>* result);
 
-  virtual uint64_t NowMicros();
+  MsEnvThreads(const MsEnvThreads&) = delete;
+  MsEnvThreads& operator=(const MsEnvThreads&) = delete;
 
   virtual uint64_t NowNanos();
 
@@ -200,8 +196,8 @@ public:
     const EnvOptions& options) override;
 
   Status NewWritableFile(const std::string& fname,
-                         std::unique_ptr<WritableFile>* result,
-                         const EnvOptions& options) override;
+    std::unique_ptr<WritableFile>* result,
+    const EnvOptions& options) override;
 
   // The returned file will only be accessed by one thread at a time.
   Status NewRandomRWFile(const std::string& fname,
