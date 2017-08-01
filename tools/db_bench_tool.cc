@@ -5249,13 +5249,6 @@ int db_bench_tool(int argc, char** argv) {
   FLAGS_env->SetBackgroundThreads(FLAGS_max_background_compactions);
   FLAGS_env->SetBackgroundThreads(FLAGS_max_background_flushes,
                                   rocksdb::Env::Priority::HIGH);
-  if (FLAGS_num_bottom_pri_threads != 0 &&
-      FLAGS_compaction_style_e != CompactionStyle::kCompactionStyleUniversal) {
-    fprintf(stderr,
-            "nonzero --num_bottom_pri_threads requires "
-            "--compaction_style=1 (universal).\n");
-    exit(1);
-  }
   FLAGS_env->SetBackgroundThreads(FLAGS_num_bottom_pri_threads,
                                   rocksdb::Env::Priority::BOTTOM);
 
