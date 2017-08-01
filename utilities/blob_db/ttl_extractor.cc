@@ -2,8 +2,9 @@
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
-#include "ttl_extractor.h"
+#ifndef ROCKSDB_LITE
 
+#include "utilities/blob_db/blob_db.h"
 #include "util/coding.h"
 
 namespace rocksdb {
@@ -29,3 +30,5 @@ bool TTLExtractor::ExtractExpiration(const Slice& key, const Slice& value,
 
 }  // namespace blob_db
 }  // namespace rocksdb
+
+#endif  // ROCKSDB_LITE

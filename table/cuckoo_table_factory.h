@@ -76,6 +76,11 @@ class CuckooTableFactory : public TableFactory {
 
   void* GetOptions() override { return &table_options_; }
 
+  Status GetOptionString(std::string* opt_string,
+                         const std::string& delimiter) const override {
+    return Status::OK();
+  }
+
  private:
   CuckooTableOptions table_options_;
 };

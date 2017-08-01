@@ -13,11 +13,12 @@
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/stackable_db.h"
-#include "utilities/blob_db/ttl_extractor.h"
 
 namespace rocksdb {
 
 namespace blob_db {
+
+class TTLExtractor;
 
 // A wrapped database which puts values of KV pairs in a separate log
 // and store location to the log in the underlying DB.
@@ -30,18 +31,18 @@ namespace blob_db {
 struct BlobDBOptions {
   // name of the directory under main db, where blobs will be stored.
   // default is "blob_dir"
-  std::string blob_dir;
+  std::string blob_dir = "blob_dir";
 
   // whether the blob_dir path is relative or absolute.
-  bool path_relative;
+  bool path_relative = true;
 
   // is the eviction strategy fifo based
-  bool is_fifo;
+  bool is_fifo = false;
 
   // maximum size of the blob dir. Once this gets used, up
   // evict the blob file which is oldest (is_fifo )
   // 0 means no limits
-  uint64_t blob_dir_size;
+  uint64_t blob_dir_size = 0;
 
   // a new bucket is opened, for ttl_range. So if ttl_range is 600seconds
   // (10 minutes), and the first bucket starts at 1471542000
@@ -49,26 +50,22 @@ struct BlobDBOptions {
   // first bucket is 1471542000 - 1471542600
   // second bucket is 1471542600 - 1471543200
   // and so on
-  uint32_t ttl_range_secs;
-
-  // at what size will the blobs be stored in separate log rather than
-  // inline
-  uint64_t min_blob_size;
+  uint32_t ttl_range_secs = 3600;
 
   // at what bytes will the blob files be synced to blob log.
-  uint64_t bytes_per_sync;
+  uint64_t bytes_per_sync = 0;
 
   // the target size of each blob file. File will become immutable
   // after it exceeds that size
-  uint64_t blob_file_size;
+  uint64_t blob_file_size = 256 * 1024 * 1024;
 
   // how many files to use for simple blobs at one time
-  uint32_t num_concurrent_simple_blobs;
+  uint32_t num_concurrent_simple_blobs = 1;
 
   // Instead of setting TTL explicitly by calling PutWithTTL or PutUntil,
   // applications can set a TTLExtractor which can extract TTL from key-value
   // pairs.
-  std::shared_ptr<TTLExtractor> ttl_extractor;
+  std::shared_ptr<TTLExtractor> ttl_extractor = nullptr;
 
   // eviction callback.
   // this function will be called for every blob that is getting
@@ -77,14 +74,12 @@ struct BlobDBOptions {
       gc_evict_cb_fn;
 
   // what compression to use for Blob's
-  CompressionType compression;
+  CompressionType compression = kNoCompression;
 
-  // default constructor
-  BlobDBOptions();
+  // Disable all background job.
+  bool disable_background_tasks = false;
 
-  BlobDBOptions(const BlobDBOptions& in) = default;
-
-  virtual ~BlobDBOptions() = default;
+  void Dump(Logger* log) const;
 };
 
 class BlobDB : public StackableDB {
@@ -187,6 +182,33 @@ class BlobDB : public StackableDB {
 // Destroy the content of the database.
 Status DestroyBlobDB(const std::string& dbname, const Options& options,
                      const BlobDBOptions& bdb_options);
+
+// TTLExtractor allow applications to extract TTL from key-value pairs.
+// This useful for applications using Put or WriteBatch to write keys and
+// don't intend to migrate to PutWithTTL or PutUntil.
+//
+// Applications can implement either ExtractTTL or ExtractExpiration. If both
+// are implemented, ExtractExpiration will take precedence.
+class TTLExtractor {
+ public:
+  // Extract TTL from key-value pair.
+  // Return true if the key has TTL, false otherwise. If key has TTL,
+  // TTL is pass back through ttl. The method can optionally modify the value,
+  // pass the result back through new_value, and also set value_changed to true.
+  virtual bool ExtractTTL(const Slice& key, const Slice& value, uint64_t* ttl,
+                          std::string* new_value, bool* value_changed);
+
+  // Extract expiration time from key-value pair.
+  // Return true if the key has expiration time, false otherwise. If key has
+  // expiration time, it is pass back through expiration. The method can
+  // optionally modify the value, pass the result back through new_value,
+  // and also set value_changed to true.
+  virtual bool ExtractExpiration(const Slice& key, const Slice& value,
+                                 uint64_t now, uint64_t* expiration,
+                                 std::string* new_value, bool* value_changed);
+
+  virtual ~TTLExtractor() = default;
+};
 
 }  // namespace blob_db
 }  // namespace rocksdb

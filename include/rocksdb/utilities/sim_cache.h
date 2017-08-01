@@ -9,6 +9,7 @@
 #include <memory>
 #include <string>
 #include "rocksdb/cache.h"
+#include "rocksdb/env.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
@@ -66,6 +67,19 @@ class SimCache : public Cache {
   virtual void reset_counter() = 0;
   // String representation of the statistics of the simcache
   virtual std::string ToString() const = 0;
+
+  // Start storing logs of the cache activity (Add/Lookup) into
+  // a file located at activity_log_file, max_logging_size option can be used to
+  // stop logging to the file automatically after reaching a specific size in
+  // bytes, a values of 0 disable this feature
+  virtual Status StartActivityLogging(const std::string& activity_log_file,
+                                      Env* env, uint64_t max_logging_size = 0) = 0;
+
+  // Stop cache activity logging if any
+  virtual void StopActivityLogging() = 0;
+
+  // Status of cache logging happening in background
+  virtual Status GetActivityLoggingStatus() = 0;
 
  private:
   SimCache(const SimCache&);

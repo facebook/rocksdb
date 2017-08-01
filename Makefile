@@ -101,7 +101,19 @@ endif
 ifeq ($(DEBUG_LEVEL),0)
 OPT += -DNDEBUG
 DISABLE_WARNING_AS_ERROR=1
+
+ifneq ($(USE_RTTI), 1)
+	CXXFLAGS += -fno-rtti
 else
+	CXXFLAGS += -DROCKSDB_USE_RTTI
+endif
+else
+ifneq ($(USE_RTTI), 0)
+	CXXFLAGS += -DROCKSDB_USE_RTTI
+else
+	CXXFLAGS += -fno-rtti
+endif
+
 $(warning Warning: Compiling in debug mode. Don't use the resulting binary in production)
 endif
 

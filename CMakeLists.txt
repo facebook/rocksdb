@@ -476,7 +476,6 @@ set(SOURCES
         utilities/backupable/backupable_db.cc
         utilities/blob_db/blob_db.cc
         utilities/blob_db/blob_db_impl.cc
-        utilities/blob_db/blob_db_options_impl.cc
         utilities/blob_db/blob_dump_tool.cc
         utilities/blob_db/blob_file.cc
         utilities/blob_db/blob_log_reader.cc
@@ -727,6 +726,7 @@ set(TESTS
         utilities/persistent_cache/persistent_cache_test.cc
         utilities/redis/redis_lists_test.cc
         utilities/spatialdb/spatial_db_test.cc
+        utilities/simulator_cache/sim_cache_test.cc
         utilities/table_properties_collectors/compact_on_deletion_collector_test.cc
         utilities/transactions/optimistic_transaction_test.cc
         utilities/transactions/transaction_test.cc

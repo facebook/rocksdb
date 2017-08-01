@@ -22,6 +22,7 @@
 
 #include "rocksdb/slice.h"
 #include "rocksdb/utilities/transaction_db_mutex.h"
+#include "util/cast_util.h"
 #include "util/murmurhash.h"
 #include "util/sync_point.h"
 #include "util/thread_local.h"
@@ -112,8 +113,9 @@ TransactionLockMgr::TransactionLockMgr(
       max_num_locks_(max_num_locks),
       lock_maps_cache_(new ThreadLocalPtr(&UnrefLockMapsCache)),
       mutex_factory_(mutex_factory) {
-  txn_db_impl_ = dynamic_cast<TransactionDBImpl*>(txn_db);
-  assert(txn_db_impl_);
+  assert(txn_db);
+  txn_db_impl_ =
+      static_cast_with_check<TransactionDBImpl, TransactionDB>(txn_db);
 }
 
 TransactionLockMgr::~TransactionLockMgr() {}
