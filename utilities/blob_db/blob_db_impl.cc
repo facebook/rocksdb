@@ -199,12 +199,6 @@ BlobDBImpl::BlobDBImpl(const std::string& dbname,
       total_blob_space_(0),
       open_p1_done_(false),
       debug_level_(0) {
-  const BlobDBOptionsImpl* options_impl =
-      static_cast_with_check<const BlobDBOptionsImpl, const BlobDBOptions>(
-          &blob_db_options);
-  if (options_impl) {
-    bdb_options_ = *options_impl;
-  }
   blob_dir_ = (bdb_options_.path_relative)
                   ? dbname + "/" + bdb_options_.blob_dir
                   : bdb_options_.blob_dir;
@@ -263,12 +257,6 @@ BlobDBImpl::BlobDBImpl(DB* db, const BlobDBOptions& blob_db_options)
       total_periods_write_(0),
       total_periods_ampl_(0),
       total_blob_space_(0) {
-  assert(db_impl_ != nullptr);
-  const BlobDBOptionsImpl* options_impl =
-      static_cast_with_check<const BlobDBOptionsImpl, const BlobDBOptions>(
-          &blob_db_options);
-  bdb_options_ = *options_impl;
-
   if (!bdb_options_.blob_dir.empty())
     blob_dir_ = (bdb_options_.path_relative)
                     ? db_->GetName() + "/" + bdb_options_.blob_dir
@@ -304,27 +292,27 @@ Status BlobDBImpl::OpenPhase1() {
 void BlobDBImpl::StartBackgroundTasks() {
   // store a call to a member function and object
   tqueue_.add(
-      bdb_options_.reclaim_of_period_millisecs,
+      kReclaimOpenFilesPeriodMillisecs,
       std::bind(&BlobDBImpl::ReclaimOpenFiles, this, std::placeholders::_1));
-  tqueue_.add(bdb_options_.gc_check_period_millisecs,
+  tqueue_.add(kGCCheckPeriodMillisecs,
               std::bind(&BlobDBImpl::RunGC, this, std::placeholders::_1));
   tqueue_.add(
-      bdb_options_.deletion_check_period_millisecs,
+      kDeleteCheckPeriodMillisecs,
       std::bind(&BlobDBImpl::EvictDeletions, this, std::placeholders::_1));
   tqueue_.add(
-      bdb_options_.deletion_check_period_millisecs,
+      kDeleteCheckPeriodMillisecs,
       std::bind(&BlobDBImpl::EvictCompacted, this, std::placeholders::_1));
   tqueue_.add(
-      bdb_options_.delete_obsf_period_millisecs,
+      kDeleteObsoletedFilesPeriodMillisecs,
       std::bind(&BlobDBImpl::DeleteObsFiles, this, std::placeholders::_1));
-  tqueue_.add(bdb_options_.sanity_check_period_millisecs,
+  tqueue_.add(kSanityCheckPeriodMillisecs,
               std::bind(&BlobDBImpl::SanityCheck, this, std::placeholders::_1));
-  tqueue_.add(bdb_options_.wa_stats_period_millisecs,
+  tqueue_.add(kWriteAmplificationStatsPeriodMillisecs,
               std::bind(&BlobDBImpl::WaStats, this, std::placeholders::_1));
-  tqueue_.add(bdb_options_.fsync_files_period_millisecs,
+  tqueue_.add(kFSyncFilesPeriodMillisecs,
               std::bind(&BlobDBImpl::FsyncFiles, this, std::placeholders::_1));
   tqueue_.add(
-      bdb_options_.check_seqf_period_millisecs,
+      kCheckSeqFilesPeriodMillisecs,
       std::bind(&BlobDBImpl::CheckSeqFiles, this, std::placeholders::_1));
 }
 
@@ -1606,8 +1594,9 @@ std::pair<bool, int64_t> BlobDBImpl::FsyncFiles(bool aborted) {
 std::pair<bool, int64_t> BlobDBImpl::ReclaimOpenFiles(bool aborted) {
   if (aborted) return std::make_pair(false, -1);
 
-  if (open_file_count_.load() < bdb_options_.open_files_trigger)
+  if (open_file_count_.load() < kOpenFilesTrigger) {
     return std::make_pair(true, -1);
+  }
 
   // in the future, we should sort by last_access_
   // instead of closing every file
@@ -1628,7 +1617,7 @@ std::pair<bool, int64_t> BlobDBImpl::WaStats(bool aborted) {
 
   WriteLock wl(&mutex_);
 
-  if (all_periods_write_.size() < bdb_options_.wa_num_stats_periods) {
+  if (all_periods_write_.size() < kWriteAmplificationStatsPeriods) {
     total_periods_write_ -= (*all_periods_write_.begin());
     total_periods_ampl_ = (*all_periods_ampl_.begin());
 
@@ -1868,15 +1857,14 @@ bool BlobDBImpl::ShouldGCFile(std::shared_ptr<BlobFile> bfile, std::time_t tt,
       return true;
     }
 
-    if (bdb_options_.ttl_range_secs <
-        bdb_options_.partial_expiration_gc_range_secs) {
+    if (bdb_options_.ttl_range_secs < kPartialExpirationGCRangeSecs) {
       *reason = "has ttl but partial expiration not turned on";
       return false;
     }
 
     ReadLock lockbfile_r(&bfile->mutex_);
     bool ret = ((bfile->deleted_size_ * 100.0 / bfile->file_size_.load()) >
-                bdb_options_.partial_expiration_pct);
+                kPartialExpirationPercentage);
     if (ret) {
       *reason = "deleted blobs beyond threshold";
     } else {
@@ -1895,13 +1883,14 @@ bool BlobDBImpl::ShouldGCFile(std::shared_ptr<BlobFile> bfile, std::time_t tt,
   ReadLock lockbfile_r(&bfile->mutex_);
 
   if ((bfile->deleted_size_ * 100.0 / bfile->file_size_.load()) >
-      bdb_options_.partial_expiration_pct) {
+      kPartialExpirationPercentage) {
     *reason = "deleted simple blobs beyond threshold";
     return true;
   }
 
   // if we haven't reached limits of disk space, don't DELETE
-  if (total_blob_space_.load() < bdb_options_.blob_dir_size) {
+  if (bdb_options_.blob_dir_size == 0 ||
+      total_blob_space_.load() < bdb_options_.blob_dir_size) {
     *reason = "disk space not exceeded";
     return false;
   }
@@ -2057,7 +2046,7 @@ void BlobDBImpl::FilterSubsetOfFiles(
     uint64_t last_id, size_t files_to_collect) {
   // 100.0 / 15.0 = 7
   uint64_t next_epoch_increment = static_cast<uint64_t>(
-      std::ceil(100 / static_cast<double>(bdb_options_.gc_file_pct)));
+      std::ceil(100 / static_cast<double>(kGCFilePercentage)));
   std::chrono::system_clock::time_point now = std::chrono::system_clock::now();
   std::time_t tt = std::chrono::system_clock::to_time_t(now);
 
@@ -2114,8 +2103,7 @@ std::pair<bool, int64_t> BlobDBImpl::RunGC(bool aborted) {
 
   // 15% of files are collected each call to space out the IO and CPU
   // consumption.
-  size_t files_to_collect =
-      (bdb_options_.gc_file_pct * blob_files.size()) / 100;
+  size_t files_to_collect = (kGCFilePercentage * blob_files.size()) / 100;
 
   std::vector<std::shared_ptr<BlobFile>> to_process;
   FilterSubsetOfFiles(blob_files, &to_process, current_epoch_, last_id,
