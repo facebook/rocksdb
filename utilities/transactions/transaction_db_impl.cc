@@ -266,17 +266,17 @@ Status TransactionDBImpl::DropColumnFamily(ColumnFamilyHandle* column_family) {
   return s;
 }
 
-Status TransactionDBImpl::TryLock(TransactionImpl* txn, uint32_t cfh_id,
+Status TransactionDBImpl::TryLock(PessimisticTxn* txn, uint32_t cfh_id,
                                   const std::string& key, bool exclusive) {
   return lock_mgr_.TryLock(txn, cfh_id, key, GetEnv(), exclusive);
 }
 
-void TransactionDBImpl::UnLock(TransactionImpl* txn,
+void TransactionDBImpl::UnLock(PessimisticTxn* txn,
                                const TransactionKeyMap* keys) {
   lock_mgr_.UnLock(txn, keys, GetEnv());
 }
 
-void TransactionDBImpl::UnLock(TransactionImpl* txn, uint32_t cfh_id,
+void TransactionDBImpl::UnLock(PessimisticTxn* txn, uint32_t cfh_id,
                                const std::string& key) {
   lock_mgr_.UnLock(txn, cfh_id, key, GetEnv());
 }
@@ -386,7 +386,7 @@ Status TransactionDBImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
 }
 
 void TransactionDBImpl::InsertExpirableTransaction(TransactionID tx_id,
-                                                   TransactionImpl* tx) {
+                                                   PessimisticTxn* tx) {
   assert(tx->GetExpirationTime() > 0);
   std::lock_guard<std::mutex> lock(map_mutex_);
   expirable_transactions_map_.insert({tx_id, tx});
@@ -405,7 +405,7 @@ bool TransactionDBImpl::TryStealingExpiredTransactionLocks(
   if (tx_it == expirable_transactions_map_.end()) {
     return true;
   }
-  TransactionImpl& tx = *(tx_it->second);
+  PessimisticTxn& tx = *(tx_it->second);
   return tx.TryStealingLocks();
 }
 
