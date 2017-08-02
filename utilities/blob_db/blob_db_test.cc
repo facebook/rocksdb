@@ -12,6 +12,7 @@
 #include <string>
 #include "db/db_test_util.h"
 #include "port/port.h"
+#include "util/cast_util.h"
 #include "util/random.h"
 #include "util/string_util.h"
 #include "util/testharness.h"
@@ -531,7 +532,8 @@ TEST_F(BlobDBTest, SequenceNumber) {
   bdb_options.disable_background_tasks = true;
   Open(bdb_options);
   SequenceNumber sequence = blob_db_->GetLatestSequenceNumber();
-  BlobDBImpl *blob_db_impl = reinterpret_cast<BlobDBImpl *>(blob_db_);
+  BlobDBImpl *blob_db_impl =
+      static_cast_with_check<BlobDBImpl, BlobDB>(blob_db_);
   for (int i = 0; i < 100; i++) {
     std::string key = "key" + ToString(i);
     PutRandom(key, &rnd);
@@ -558,6 +560,44 @@ TEST_F(BlobDBTest, SequenceNumber) {
     }
     ASSERT_EQ(sequence, blob_db_->GetLatestSequenceNumber());
   }
+}
+
+TEST_F(BlobDBTest, GCShouldKeepKeysWithNewerVersion) {
+  Random rnd(301);
+  BlobDBOptions bdb_options;
+  bdb_options.disable_background_tasks = true;
+  Open(bdb_options);
+  BlobDBImpl *blob_db_impl =
+      static_cast_with_check<BlobDBImpl, BlobDB>(blob_db_);
+  DBImpl *db_impl = static_cast_with_check<DBImpl, DB>(blob_db_->GetBaseDB());
+  std::map<std::string, std::string> data;
+  for (int i = 0; i < 200; i++) {
+    PutRandom("key" + ToString(i), &rnd, &data);
+  }
+  auto blob_files = blob_db_impl->TEST_GetBlobFiles();
+  ASSERT_EQ(1, blob_files.size());
+  blob_db_impl->TEST_CloseBlobFile(blob_files[0]);
+  // Test for data in SST
+  size_t new_keys = 0;
+  for (int i = 0; i < 100; i++) {
+    if (rnd.Next() % 2 == 1) {
+      new_keys++;
+      PutRandom("key" + ToString(i), &rnd, &data);
+    }
+  }
+  db_impl->TEST_FlushMemTable(true /*wait*/);
+  // Test for data in memtable
+  for (int i = 100; i < 200; i++) {
+    if (rnd.Next() % 2 == 1) {
+      new_keys++;
+      PutRandom("key" + ToString(i), &rnd, &data);
+    }
+  }
+  GCStats gc_stats;
+  ASSERT_OK(blob_db_impl->TEST_GCFileAndUpdateLSM(blob_files[0], &gc_stats));
+  ASSERT_EQ(0, gc_stats.num_deletes);
+  ASSERT_EQ(200 - new_keys, gc_stats.num_relocs);
+  VerifyDB(data);
 }
 
 }  //  namespace blob_db
