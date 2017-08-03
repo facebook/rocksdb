@@ -25,7 +25,7 @@ namespace blob_db {
 class BlobFile;
 class BlobDBImpl;
 
-static constexpr uint64_t kNoExpiration = std::numeric_limits<uint64_t>::max();
+constexpr uint64_t kNoExpiration = std::numeric_limits<uint64_t>::max();
 
 enum RecordType : uint8_t {
   // Zero is reserved for preallocated files
