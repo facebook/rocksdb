@@ -28,6 +28,7 @@
 #include "util/file_reader_writer.h"
 #include "util/filename.h"
 #include "util/logging.h"
+#include "util/mutexlock.h"
 #include "util/random.h"
 #include "util/timer_queue.h"
 #include "utilities/transactions/optimistic_transaction_db_impl.h"
@@ -878,6 +879,8 @@ Status BlobDBImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
     }
   };
 
+  MutexLock l(&write_mutex_);
+
   SequenceNumber sequence = db_impl_->GetLatestSequenceNumber() + 1;
   BlobInserter blob_inserter(this, sequence);
   updates->Iterate(&blob_inserter);
@@ -953,6 +956,7 @@ Slice BlobDBImpl::GetCompressedSlice(const Slice& raw,
 Status BlobDBImpl::PutUntil(const WriteOptions& options,
                             ColumnFamilyHandle* column_family, const Slice& key,
                             const Slice& value_unc, int32_t expiration) {
+  MutexLock l(&write_mutex_);
   UpdateWriteOptions(options);
 
   std::shared_ptr<BlobFile> bfile =
