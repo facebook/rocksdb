@@ -631,7 +631,9 @@ class DBImpl : public DB {
  private:
   friend class DB;
   friend class InternalStats;
-  friend class TransactionImpl;
+  friend class PessimisticTxn;
+  friend class WriteCommittedTxnImpl;
+  friend class WritePreparedTxnImpl;
 #ifndef ROCKSDB_LITE
   friend class ForwardIterator;
 #endif

@@ -47,14 +47,14 @@ class TransactionLockMgr {
 
   // Attempt to lock key.  If OK status is returned, the caller is responsible
   // for calling UnLock() on this key.
-  Status TryLock(TransactionImpl* txn, uint32_t column_family_id,
+  Status TryLock(PessimisticTxn* txn, uint32_t column_family_id,
                  const std::string& key, Env* env, bool exclusive);
 
   // Unlock a key locked by TryLock().  txn must be the same Transaction that
   // locked this key.
-  void UnLock(const TransactionImpl* txn, const TransactionKeyMap* keys,
+  void UnLock(const PessimisticTxn* txn, const TransactionKeyMap* keys,
               Env* env);
-  void UnLock(TransactionImpl* txn, uint32_t column_family_id,
+  void UnLock(PessimisticTxn* txn, uint32_t column_family_id,
               const std::string& key, Env* env);
 
   using LockStatusData = std::unordered_multimap<uint32_t, KeyLockInfo>;
@@ -102,7 +102,7 @@ class TransactionLockMgr {
 
   std::shared_ptr<LockMap> GetLockMap(uint32_t column_family_id);
 
-  Status AcquireWithTimeout(TransactionImpl* txn, LockMap* lock_map,
+  Status AcquireWithTimeout(PessimisticTxn* txn, LockMap* lock_map,
                             LockMapStripe* stripe, uint32_t column_family_id,
                             const std::string& key, Env* env, int64_t timeout,
                             const LockInfo& lock_info);
@@ -112,14 +112,14 @@ class TransactionLockMgr {
                        const LockInfo& lock_info, uint64_t* wait_time,
                        autovector<TransactionID>* txn_ids);
 
-  void UnLockKey(const TransactionImpl* txn, const std::string& key,
+  void UnLockKey(const PessimisticTxn* txn, const std::string& key,
                  LockMapStripe* stripe, LockMap* lock_map, Env* env);
 
-  bool IncrementWaiters(const TransactionImpl* txn,
+  bool IncrementWaiters(const PessimisticTxn* txn,
                         const autovector<TransactionID>& wait_ids);
-  void DecrementWaiters(const TransactionImpl* txn,
+  void DecrementWaiters(const PessimisticTxn* txn,
                         const autovector<TransactionID>& wait_ids);
-  void DecrementWaitersImpl(const TransactionImpl* txn,
+  void DecrementWaitersImpl(const PessimisticTxn* txn,
                             const autovector<TransactionID>& wait_ids);
 
   // No copying allowed
