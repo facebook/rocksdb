@@ -63,7 +63,7 @@ class BlobDBTest : public testing::Test {
     }
   }
 
-  void PutRandomWithTTL(const std::string &key, int32_t ttl, Random *rnd,
+  void PutRandomWithTTL(const std::string &key, uint64_t ttl, Random *rnd,
                         std::map<std::string, std::string> *data = nullptr) {
     int len = rnd->Next() % kMaxBlobSize + 1;
     std::string value = test::RandomHumanReadableString(rnd, len);
@@ -74,7 +74,7 @@ class BlobDBTest : public testing::Test {
     }
   }
 
-  void PutRandomUntil(const std::string &key, int32_t expiration, Random *rnd,
+  void PutRandomUntil(const std::string &key, uint64_t expiration, Random *rnd,
                       std::map<std::string, std::string> *data = nullptr) {
     int len = rnd->Next() % kMaxBlobSize + 1;
     std::string value = test::RandomHumanReadableString(rnd, len);
@@ -136,7 +136,7 @@ class BlobDBTest : public testing::Test {
 
     Random rnd(301);
     for (size_t i = 0; i < 100000; i++) {
-      int32_t ttl = rnd.Next() % 86400;
+      uint64_t ttl = rnd.Next() % 86400;
       PutRandomWithTTL("key" + ToString(i % 500), ttl, &rnd, nullptr);
     }
 
@@ -175,7 +175,7 @@ TEST_F(BlobDBTest, PutWithTTL) {
   std::map<std::string, std::string> data;
   mock_env_->set_now_micros(50 * 1000000);
   for (size_t i = 0; i < 100; i++) {
-    int32_t ttl = rnd.Next() % 100;
+    uint64_t ttl = rnd.Next() % 100;
     PutRandomWithTTL("key" + ToString(i), ttl, &rnd,
                      (ttl < 50 ? nullptr : &data));
   }
@@ -204,7 +204,7 @@ TEST_F(BlobDBTest, PutUntil) {
   std::map<std::string, std::string> data;
   mock_env_->set_now_micros(50 * 1000000);
   for (size_t i = 0; i < 100; i++) {
-    int32_t expiration = rnd.Next() % 100 + 50;
+    uint64_t expiration = rnd.Next() % 100 + 50;
     PutRandomUntil("key" + ToString(i), expiration, &rnd,
                    (expiration < 100 ? nullptr : &data));
   }
