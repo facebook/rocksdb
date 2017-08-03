@@ -37,7 +37,7 @@
 namespace {
 int kBlockBasedTableVersionFormat = 2;
 
-void extendTTL(rocksdb::blob_db::ttlrange_t* ttl_range, uint32_t ttl) {
+void extendTTL(rocksdb::blob_db::ttlrange_t* ttl_range, uint64_t ttl) {
   ttl_range->first = std::min(ttl_range->first, ttl);
   ttl_range->second = std::max(ttl_range->second, ttl);
 }
@@ -489,9 +489,8 @@ Status BlobDBImpl::OpenAllFiles() {
                      ttl_range.first + (uint32_t)bdb_options_.ttl_range_secs);
         bfptr->set_ttl_range(ttl_range);
 
-        std::time_t epoch_now = std::chrono::system_clock::to_time_t(
-            std::chrono::system_clock::now());
-        if (ttl_range.second < epoch_now) {
+        uint64_t now = EpochNow();
+        if (ttl_range.second < now) {
           Status fstatus = CreateWriterLocked(bfptr);
           if (fstatus.ok()) fstatus = bfptr->WriteFooterAndCloseLocked();
           if (!fstatus.ok()) {
@@ -503,7 +502,7 @@ Status BlobDBImpl::OpenAllFiles() {
           } else {
             ROCKS_LOG_ERROR(db_options_.info_log,
                             "Blob File Closed: %s now: %d ttl_range: (%d, %d)",
-                            bfpath.c_str(), epoch_now, ttl_range.first,
+                            bfpath.c_str(), now, ttl_range.first,
                             ttl_range.second);
           }
         } else {
@@ -591,7 +590,7 @@ Status BlobDBImpl::CreateWriterLocked(const std::shared_ptr<BlobFile>& bfile) {
 }
 
 std::shared_ptr<BlobFile> BlobDBImpl::FindBlobFileLocked(
-    uint32_t expiration) const {
+    uint64_t expiration) const {
   if (open_blob_files_.empty()) return nullptr;
 
   std::shared_ptr<BlobFile> tmp = std::make_shared<BlobFile>();
@@ -684,7 +683,8 @@ std::shared_ptr<BlobFile> BlobDBImpl::SelectBlobFile() {
   return bfile;
 }
 
-std::shared_ptr<BlobFile> BlobDBImpl::SelectBlobFileTTL(uint32_t expiration) {
+std::shared_ptr<BlobFile> BlobDBImpl::SelectBlobFileTTL(uint64_t expiration) {
+  assert(expiration != kNoExpiration);
   uint64_t epoch_read = 0;
   std::shared_ptr<BlobFile> bfile;
   {
@@ -698,9 +698,9 @@ std::shared_ptr<BlobFile> BlobDBImpl::SelectBlobFileTTL(uint32_t expiration) {
     return bfile;
   }
 
-  uint32_t exp_low =
+  uint64_t exp_low =
       (expiration / bdb_options_.ttl_range_secs) * bdb_options_.ttl_range_secs;
-  uint32_t exp_high = exp_low + bdb_options_.ttl_range_secs;
+  uint64_t exp_high = exp_low + bdb_options_.ttl_range_secs;
   ttlrange_t ttl_guess = std::make_pair(exp_low, exp_high);
 
   bfile = NewBlobFile("SelectBlobFileTTL");
@@ -758,7 +758,7 @@ Status BlobDBImpl::Put(const WriteOptions& options,
                        const Slice& value) {
   std::string new_value;
   Slice value_slice;
-  int32_t expiration = ExtractExpiration(key, value, &value_slice, &new_value);
+  uint64_t expiration = ExtractExpiration(key, value, &value_slice, &new_value);
   return PutUntil(options, column_family, key, value_slice, expiration);
 }
 
@@ -808,11 +808,11 @@ Status BlobDBImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
     virtual Status PutCF(uint32_t column_family_id, const Slice& key,
                          const Slice& value_slice) override {
       Slice value_unc;
-      int32_t expiration =
+      uint64_t expiration =
           impl_->ExtractExpiration(key, value_slice, &value_unc, &new_value_);
 
       std::shared_ptr<BlobFile> bfile =
-          (expiration != -1)
+          (expiration != kNoExpiration)
               ? impl_->SelectBlobFileTTL(expiration)
               : ((last_file_) ? last_file_ : impl_->SelectBlobFile());
       if (last_file_ && last_file_ != bfile) {
@@ -840,8 +840,8 @@ Status BlobDBImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
         sequence_++;
       }
 
-      if (expiration != -1) {
-        extendTTL(&(bfile->ttl_range_), (uint32_t)expiration);
+      if (expiration != kNoExpiration) {
+        extendTTL(&(bfile->ttl_range_), expiration);
       }
 
       if (!st.ok()) {
@@ -935,9 +935,10 @@ Status BlobDBImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
 Status BlobDBImpl::PutWithTTL(const WriteOptions& options,
                               ColumnFamilyHandle* column_family,
                               const Slice& key, const Slice& value,
-                              int32_t ttl) {
-  return PutUntil(options, column_family, key, value,
-                  static_cast<int32_t>(EpochNow()) + ttl);
+                              uint64_t ttl) {
+  uint64_t now = EpochNow();
+  assert(std::numeric_limits<uint64_t>::max() - now > ttl);
+  return PutUntil(options, column_family, key, value, now + ttl);
 }
 
 Slice BlobDBImpl::GetCompressedSlice(const Slice& raw,
@@ -952,15 +953,15 @@ Slice BlobDBImpl::GetCompressedSlice(const Slice& raw,
   return *compression_output;
 }
 
-// TODO(yiwu): We should use uint64_t for expiration.
 Status BlobDBImpl::PutUntil(const WriteOptions& options,
                             ColumnFamilyHandle* column_family, const Slice& key,
-                            const Slice& value_unc, int32_t expiration) {
+                            const Slice& value_unc, uint64_t expiration) {
   MutexLock l(&write_mutex_);
   UpdateWriteOptions(options);
 
-  std::shared_ptr<BlobFile> bfile =
-      (expiration != -1) ? SelectBlobFileTTL(expiration) : SelectBlobFile();
+  std::shared_ptr<BlobFile> bfile = (expiration != kNoExpiration)
+                                        ? SelectBlobFileTTL(expiration)
+                                        : SelectBlobFile();
 
   if (!bfile) return Status::NotFound("Blob file not found");
 
@@ -1020,29 +1021,27 @@ Status BlobDBImpl::PutUntil(const WriteOptions& options,
                     bfile->DumpState().c_str());
   }
 
-  if (expiration != -1) extendTTL(&(bfile->ttl_range_), (uint32_t)expiration);
+  if (expiration != kNoExpiration) {
+    extendTTL(&(bfile->ttl_range_), expiration);
+  }
 
   CloseIf(bfile);
 
   return s;
 }
 
-// TODO(yiwu): We should return uint64_t after updating the rest of the code
-// to use uint64_t for expiration.
-int32_t BlobDBImpl::ExtractExpiration(const Slice& key, const Slice& value,
-                                      Slice* value_slice,
-                                      std::string* new_value) {
+uint64_t BlobDBImpl::ExtractExpiration(const Slice& key, const Slice& value,
+                                       Slice* value_slice,
+                                       std::string* new_value) {
   uint64_t expiration = kNoExpiration;
+  bool has_expiration = false;
   bool value_changed = false;
   if (ttl_extractor_ != nullptr) {
-    bool has_ttl = ttl_extractor_->ExtractExpiration(
+    has_expiration = ttl_extractor_->ExtractExpiration(
         key, value, EpochNow(), &expiration, new_value, &value_changed);
-    if (!has_ttl) {
-      expiration = kNoExpiration;
-    }
   }
   *value_slice = value_changed ? Slice(*new_value) : value;
-  return (expiration == kNoExpiration) ? -1 : static_cast<int32_t>(expiration);
+  return has_expiration ? expiration : kNoExpiration;
 }
 
 Status BlobDBImpl::AppendBlob(const std::shared_ptr<BlobFile>& bfile,
@@ -1847,11 +1846,11 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
 // Ideally we should hold the lock during the entire function,
 // but under the asusmption that this is only called when a
 // file is Immutable, we can reduce the critical section
-bool BlobDBImpl::ShouldGCFile(std::shared_ptr<BlobFile> bfile, std::time_t tt,
+bool BlobDBImpl::ShouldGCFile(std::shared_ptr<BlobFile> bfile, uint64_t now,
                               uint64_t last_id, std::string* reason) {
   if (bfile->HasTTL()) {
     ttlrange_t ttl_range = bfile->GetTTLRange();
-    if (tt > ttl_range.second) {
+    if (now > ttl_range.second) {
       *reason = "entire file ttl expired";
       return true;
     }
@@ -2057,8 +2056,7 @@ void BlobDBImpl::FilterSubsetOfFiles(
   // 100.0 / 15.0 = 7
   uint64_t next_epoch_increment = static_cast<uint64_t>(
       std::ceil(100 / static_cast<double>(kGCFilePercentage)));
-  std::chrono::system_clock::time_point now = std::chrono::system_clock::now();
-  std::time_t tt = std::chrono::system_clock::to_time_t(now);
+  uint64_t now = EpochNow();
 
   size_t files_processed = 0;
   for (auto bfile : blob_files) {
@@ -2081,18 +2079,20 @@ void BlobDBImpl::FilterSubsetOfFiles(
     if (bfile->Obsolete() || !bfile->Immutable()) continue;
 
     std::string reason;
-    bool shouldgc = ShouldGCFile(bfile, tt, last_id, &reason);
+    bool shouldgc = ShouldGCFile(bfile, now, last_id, &reason);
     if (!shouldgc) {
       ROCKS_LOG_DEBUG(db_options_.info_log,
-                      "File has been skipped for GC ttl %s %d %d reason='%s'",
-                      bfile->PathName().c_str(), tt,
+                      "File has been skipped for GC ttl %s %" PRIu64 " %" PRIu64
+                      " reason='%s'",
+                      bfile->PathName().c_str(), now,
                       bfile->GetTTLRange().second, reason.c_str());
       continue;
     }
 
     ROCKS_LOG_INFO(db_options_.info_log,
-                   "File has been chosen for GC ttl %s %d %d reason='%s'",
-                   bfile->PathName().c_str(), tt, bfile->GetTTLRange().second,
+                   "File has been chosen for GC ttl %s %" PRIu64 " %" PRIu64
+                   " reason='%s'",
+                   bfile->PathName().c_str(), now, bfile->GetTTLRange().second,
                    reason.c_str());
     to_process->push_back(bfile);
   }

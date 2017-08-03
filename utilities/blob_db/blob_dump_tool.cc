@@ -102,8 +102,8 @@ Status BlobDumpTool::DumpBlobLogHeader(uint64_t* offset) {
     return s;
   }
   fprintf(stdout, "Blob log header:\n");
-  fprintf(stdout, "  Magic Number   : %u\n", header.magic_number());
-  fprintf(stdout, "  Version        : %d\n", header.version());
+  fprintf(stdout, "  Magic Number   : %" PRIu32 "\n", header.magic_number());
+  fprintf(stdout, "  Version        : %" PRIu32 "\n", header.version());
   CompressionType compression = header.compression();
   std::string compression_str;
   if (!GetStringFromCompressionType(&compression_str, compression).ok()) {
@@ -175,13 +175,13 @@ Status BlobDumpTool::DumpRecord(DisplayType show_key, DisplayType show_blob,
   }
   uint32_t key_size = record.GetKeySize();
   uint64_t blob_size = record.GetBlobSize();
-  fprintf(stdout, "  key size   : %d\n", key_size);
+  fprintf(stdout, "  key size   : %" PRIu32 "\n", key_size);
   fprintf(stdout, "  blob size  : %" PRIu64 "\n", record.GetBlobSize());
-  fprintf(stdout, "  TTL        : %u\n", record.GetTTL());
+  fprintf(stdout, "  TTL        : %" PRIu64 "\n", record.GetTTL());
   fprintf(stdout, "  time       : %" PRIu64 "\n", record.GetTimeVal());
   fprintf(stdout, "  type       : %d, %d\n", record.type(), record.subtype());
-  fprintf(stdout, "  header CRC : %u\n", record.header_checksum());
-  fprintf(stdout, "  CRC        : %u\n", record.checksum());
+  fprintf(stdout, "  header CRC : %" PRIu32 "\n", record.header_checksum());
+  fprintf(stdout, "  CRC        : %" PRIu32 "\n", record.checksum());
   uint32_t header_crc =
       crc32c::Extend(0, slice.data(), slice.size() - 2 * sizeof(uint32_t));
   *offset += BlobLogRecord::kHeaderSize;
@@ -213,7 +213,7 @@ Status BlobDumpTool::DumpRecord(DisplayType show_key, DisplayType show_blob,
   if (!s.ok()) {
     return s;
   }
-  fprintf(stdout, "  footer CRC : %u\n", record.footer_checksum());
+  fprintf(stdout, "  footer CRC : %" PRIu32 "\n", record.footer_checksum());
   fprintf(stdout, "  sequence   : %" PRIu64 "\n", record.GetSN());
   *offset += key_size + blob_size + BlobLogRecord::kFooterSize;
   return s;
