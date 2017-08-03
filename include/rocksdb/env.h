@@ -283,7 +283,7 @@ class Env {
   virtual Status UnlockFile(FileLock* lock) = 0;
 
   // Priority for scheduling job in thread pool
-  enum Priority { LOW, HIGH, TOTAL };
+  enum Priority { BOTTOM, LOW, HIGH, TOTAL };
 
   // Priority for requesting bytes in rate limiter scheduler
   enum IOPriority {

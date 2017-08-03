@@ -1370,6 +1370,103 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionSecondPathRatio) {
   Destroy(options);
 }
 
+TEST_P(DBTestUniversalCompaction, FullCompactionInBottomPriThreadPool) {
+  const int kNumFilesTrigger = 3;
+  Env::Default()->SetBackgroundThreads(1, Env::Priority::BOTTOM);
+  for (bool allow_ingest_behind : {false, true}) {
+    Options options = CurrentOptions();
+    options.allow_ingest_behind = allow_ingest_behind;
+    options.compaction_style = kCompactionStyleUniversal;
+    options.num_levels = num_levels_;
+    options.write_buffer_size = 100 << 10;     // 100KB
+    options.target_file_size_base = 32 << 10;  // 32KB
+    options.level0_file_num_compaction_trigger = kNumFilesTrigger;
+    // Trigger compaction if size amplification exceeds 110%
+    options.compaction_options_universal.max_size_amplification_percent = 110;
+    DestroyAndReopen(options);
+
+    int num_bottom_pri_compactions = 0;
+    SyncPoint::GetInstance()->SetCallBack(
+        "DBImpl::BGWorkBottomCompaction",
+        [&](void* arg) { ++num_bottom_pri_compactions; });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    Random rnd(301);
+    for (int num = 0; num < kNumFilesTrigger; num++) {
+      ASSERT_EQ(NumSortedRuns(), num);
+      int key_idx = 0;
+      GenerateNewFile(&rnd, &key_idx);
+    }
+    dbfull()->TEST_WaitForCompact();
+
+    if (allow_ingest_behind || num_levels_ > 1) {
+      // allow_ingest_behind increases number of levels while sanitizing.
+      ASSERT_EQ(1, num_bottom_pri_compactions);
+    } else {
+      // for single-level universal, everything's bottom level so nothing should
+      // be executed in bottom-pri thread pool.
+      ASSERT_EQ(0, num_bottom_pri_compactions);
+    }
+    // Verify that size amplification did occur
+    ASSERT_EQ(NumSortedRuns(), 1);
+    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  }
+}
+
+TEST_P(DBTestUniversalCompaction, ConcurrentBottomPriLowPriCompactions) {
+  if (num_levels_ == 1) {
+    // for single-level universal, everything's bottom level so nothing should
+    // be executed in bottom-pri thread pool.
+    return;
+  }
+  const int kNumFilesTrigger = 3;
+  Env::Default()->SetBackgroundThreads(1, Env::Priority::BOTTOM);
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.num_levels = num_levels_;
+  options.write_buffer_size = 100 << 10;     // 100KB
+  options.target_file_size_base = 32 << 10;  // 32KB
+  options.level0_file_num_compaction_trigger = kNumFilesTrigger;
+  // Trigger compaction if size amplification exceeds 110%
+  options.compaction_options_universal.max_size_amplification_percent = 110;
+  DestroyAndReopen(options);
+
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {// wait for the full compaction to be picked before adding files intended
+       // for the second one.
+       {"DBImpl::BackgroundCompaction:ForwardToBottomPriPool",
+        "DBTestUniversalCompaction:ConcurrentBottomPriLowPriCompactions:0"},
+       // the full (bottom-pri) compaction waits until a partial (low-pri)
+       // compaction has started to verify they can run in parallel.
+       {"DBImpl::BackgroundCompaction:NonTrivial",
+        "DBImpl::BGWorkBottomCompaction"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Random rnd(301);
+  for (int i = 0; i < 2; ++i) {
+    for (int num = 0; num < kNumFilesTrigger; num++) {
+      int key_idx = 0;
+      GenerateNewFile(&rnd, &key_idx, true /* no_wait */);
+      // use no_wait above because that one waits for flush and compaction. We
+      // don't want to wait for compaction because the full compaction is
+      // intentionally blocked while more files are flushed.
+      dbfull()->TEST_WaitForFlushMemTable();
+    }
+    if (i == 0) {
+      TEST_SYNC_POINT(
+          "DBTestUniversalCompaction:ConcurrentBottomPriLowPriCompactions:0");
+    }
+  }
+  dbfull()->TEST_WaitForCompact();
+
+  // First compaction should output to bottom level. Second should output to L0
+  // since older L0 files pending compaction prevent it from being placed lower.
+  ASSERT_EQ(NumSortedRuns(), 2);
+  ASSERT_GT(NumTableFilesAtLevel(0), 0);
+  ASSERT_GT(NumTableFilesAtLevel(num_levels_ - 1), 0);
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
 INSTANTIATE_TEST_CASE_P(UniversalCompactionNumLevels, DBTestUniversalCompaction,
                         ::testing::Combine(::testing::Values(1, 3, 5),
                                            ::testing::Bool()));

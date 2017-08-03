@@ -1227,6 +1227,14 @@ int VersionStorageInfo::MaxInputLevel() const {
   return 0;
 }
 
+int VersionStorageInfo::MaxOutputLevel(bool allow_ingest_behind) const {
+  if (allow_ingest_behind) {
+    assert(num_levels() > 1);
+    return num_levels() - 2;
+  }
+  return num_levels() - 1;
+}
+
 void VersionStorageInfo::EstimateCompactionBytesNeeded(
     const MutableCFOptions& mutable_cf_options) {
   // Only implemented for level-based compaction
