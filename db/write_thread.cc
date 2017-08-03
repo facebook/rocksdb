@@ -57,6 +57,10 @@ uint8_t WriteThread::AwaitState(Writer* w, uint8_t goal_mask,
                                 AdaptationContext* ctx) {
   uint8_t state;
 
+  // 1. Busy loop using "pause" for 1 micro sec
+  // 2. Else SOMETIMES busy loop using "yield" for 100 micro sec (default)
+  // 3. Else blocking wait
+
   // On a modern Xeon each loop takes about 7 nanoseconds (most of which
   // is the effect of the pause instruction), so 200 iterations is a bit
   // more than a microsecond.  This is long enough that waits longer than
@@ -114,13 +118,21 @@ uint8_t WriteThread::AwaitState(Writer* w, uint8_t goal_mask,
 
   const size_t kMaxSlowYieldsWhileSpinning = 3;
 
+  // Whether the yield approach has any credit in this context. The credit is
+  // added by yield being succesfull before timing out, and decreased otherwise.
+  auto& yield_credit = ctx->value;
+  // Update the yield_credit based on sample runs or right after a hard failure
   bool update_ctx = false;
+  // Should we reinforce the yield credit
   bool would_spin_again = false;
+  // The samling base for updating the yeild credit. The sampling rate would be
+  // 1/sampling_base.
+  const int sampling_base = 256;
 
   if (max_yield_usec_ > 0) {
-    update_ctx = Random::GetTLSInstance()->OneIn(256);
+    update_ctx = Random::GetTLSInstance()->OneIn(sampling_base);
 
-    if (update_ctx || ctx->value.load(std::memory_order_relaxed) >= 0) {
+    if (update_ctx || yield_credit.load(std::memory_order_relaxed) >= 0) {
       // we're updating the adaptation statistics, or spinning has >
       // 50% chance of being shorter than max_yield_usec_ and causing no
       // involuntary context switches
@@ -149,7 +161,7 @@ uint8_t WriteThread::AwaitState(Writer* w, uint8_t goal_mask,
           // accurate enough to measure the yield duration
           ++slow_yield_count;
           if (slow_yield_count >= kMaxSlowYieldsWhileSpinning) {
-            // Not just one ivcsw, but several.  Immediately update ctx
+            // Not just one ivcsw, but several.  Immediately update yield_credit
             // and fall back to blocking
             update_ctx = true;
             break;
@@ -165,11 +177,19 @@ uint8_t WriteThread::AwaitState(Writer* w, uint8_t goal_mask,
   }
 
   if (update_ctx) {
-    auto v = ctx->value.load(std::memory_order_relaxed);
+    // Since our update is sample based, it is ok if a thread overwrites the
+    // updates by other threads. Thus the update does not have to be atomic.
+    auto v = yield_credit.load(std::memory_order_relaxed);
     // fixed point exponential decay with decay constant 1/1024, with +1
     // and -1 scaled to avoid overflow for int32_t
-    v = v + (v / 1024) + (would_spin_again ? 1 : -1) * 16384;
-    ctx->value.store(v, std::memory_order_relaxed);
+    //
+    // On each update the positive credit is decayed by a facor of 1/1024 (i.e.,
+    // 0.1%). If the sampled yield was successful, the credit is also increased
+    // by X. Setting X=2^17 ensures that the credit never exceeds
+    // 2^17*2^10=2^27, which is lower than 2^31 the upperbound of int32_t. Same
+    // logic applies to negative credits.
+    v = v - (v / 1024) + (would_spin_again ? 1 : -1) * 131072;
+    yield_credit.store(v, std::memory_order_relaxed);
   }
 
   assert((state & goal_mask) != 0);
