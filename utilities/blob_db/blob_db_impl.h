@@ -447,6 +447,9 @@ class BlobDBImpl : public BlobDB {
   // HEAVILY TRAFFICKED
   port::RWMutex mutex_;
 
+  // Writers has to hold write_mutex_ before writing.
+  mutable port::Mutex write_mutex_;
+
   // counter for blob file number
   std::atomic<uint64_t> next_file_number_;
 
