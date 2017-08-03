@@ -15,9 +15,11 @@
 namespace rocksdb {
 
 const char* Status::CopyState(const char* state) {
+  const size_t cch = 
+      std::strlen(state) + 1; // +1 for the null terminator
   char* const result =
-      new char[std::strlen(state) + 1];  // +1 for the null terminator
-  std::strcpy(result, state);
+      new char[cch]; 
+  strcpy_s(result, cch, state);
   return result;
 }
 
