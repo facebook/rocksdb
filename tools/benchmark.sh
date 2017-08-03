@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # REQUIRE: db_bench binary exists in the current directory
 
 if [ $# -ne 1 ]; then

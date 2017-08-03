@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # If clang_format_diff.py command is not specfied, we assume we are able to
 # access directly without any path.
 if [ -z $CLANG_FORMAT_DIFF ]
