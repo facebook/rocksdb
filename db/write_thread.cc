@@ -185,10 +185,10 @@ uint8_t WriteThread::AwaitState(Writer* w, uint8_t goal_mask,
     //
     // On each update the positive credit is decayed by a facor of 1/1024 (i.e.,
     // 0.1%). If the sampled yield was successful, the credit is also increased
-    // by X. Setting X=2^14 ensures that the credit never exceeds
-    // 2^14*2^10=2^24, which is lower than 2^31 the upperbound of int32_t. Same
+    // by X. Setting X=2^17 ensures that the credit never exceeds
+    // 2^17*2^10=2^27, which is lower than 2^31 the upperbound of int32_t. Same
     // logic applies to negative credits.
-    v = v - (v / 1024) + (would_spin_again ? 1 : -1) * 16384;
+    v = v - (v / 1024) + (would_spin_again ? 1 : -1) * 131072;
     yield_credit.store(v, std::memory_order_relaxed);
   }
 
