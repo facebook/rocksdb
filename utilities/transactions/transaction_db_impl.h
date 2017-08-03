@@ -63,11 +63,11 @@ class TransactionDBImpl : public TransactionDB {
   using StackableDB::DropColumnFamily;
   virtual Status DropColumnFamily(ColumnFamilyHandle* column_family) override;
 
-  Status TryLock(TransactionImpl* txn, uint32_t cfh_id, const std::string& key,
+  Status TryLock(PessimisticTxn* txn, uint32_t cfh_id, const std::string& key,
                  bool exclusive);
 
-  void UnLock(TransactionImpl* txn, const TransactionKeyMap* keys);
-  void UnLock(TransactionImpl* txn, uint32_t cfh_id, const std::string& key);
+  void UnLock(PessimisticTxn* txn, const TransactionKeyMap* keys);
+  void UnLock(PessimisticTxn* txn, uint32_t cfh_id, const std::string& key);
 
   void AddColumnFamily(const ColumnFamilyHandle* handle);
 
@@ -78,7 +78,7 @@ class TransactionDBImpl : public TransactionDB {
     return txn_db_options_;
   }
 
-  void InsertExpirableTransaction(TransactionID tx_id, TransactionImpl* tx);
+  void InsertExpirableTransaction(TransactionID tx_id, PessimisticTxn* tx);
   void RemoveExpirableTransaction(TransactionID tx_id);
 
   // If transaction is no longer available, locks can be stolen
@@ -109,13 +109,12 @@ class TransactionDBImpl : public TransactionDB {
   // Must be held when adding/dropping column families.
   InstrumentedMutex column_family_mutex_;
   Transaction* BeginInternalTransaction(const WriteOptions& options);
-  Status WriteHelper(WriteBatch* updates, TransactionImpl* txn_impl);
 
   // Used to ensure that no locks are stolen from an expirable transaction
   // that has started a commit. Only transactions with an expiration time
   // should be in this map.
   std::mutex map_mutex_;
-  std::unordered_map<TransactionID, TransactionImpl*>
+  std::unordered_map<TransactionID, PessimisticTxn*>
       expirable_transactions_map_;
 
   // map from name to two phase transaction instance

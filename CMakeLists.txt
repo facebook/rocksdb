@@ -525,6 +525,7 @@ set(SOURCES
         utilities/transactions/transaction_impl.cc
         utilities/transactions/transaction_lock_mgr.cc
         utilities/transactions/transaction_util.cc
+        utilities/transactions/write_prepared_transaction_impl.cc
         utilities/ttl/db_ttl_impl.cc
         utilities/write_batch_with_index/write_batch_with_index.cc
         utilities/write_batch_with_index/write_batch_with_index_internal.cc
