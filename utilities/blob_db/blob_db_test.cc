@@ -511,18 +511,35 @@ TEST_F(BlobDBTest, Compression) {
 }
 #endif
 
-TEST_F(BlobDBTest, DISABLED_MultipleWriters) {
-  Open();
+TEST_F(BlobDBTest, MultipleWriters) {
+  Open(BlobDBOptions());
 
   std::vector<port::Thread> workers;
-  for (size_t ii = 0; ii < 10; ii++)
-    workers.push_back(port::Thread(&BlobDBTest::InsertBlobs, this));
-
-  for (auto& t : workers) {
-    if (t.joinable()) {
-      t.join();
+  std::vector<std::map<std::string, std::string>> data_set(10);
+  for (uint32_t i = 0; i < 10; i++)
+    workers.push_back(port::Thread(
+        [&](uint32_t id) {
+          Random rnd(301 + id);
+          for (int j = 0; j < 100; j++) {
+            std::string key = "key" + ToString(id) + "_" + ToString(j);
+            if (id < 5) {
+              PutRandom(key, &rnd, &data_set[id]);
+            } else {
+              WriteBatch batch;
+              PutRandomToWriteBatch(key, &rnd, &batch, &data_set[id]);
+              blob_db_->Write(WriteOptions(), &batch);
+            }
+          }
+        },
+        i));
+  std::map<std::string, std::string> data;
+  for (size_t i = 0; i < 10; i++) {
+    if (workers[i].joinable()) {
+      workers[i].join();
     }
+    data.insert(data_set[i].begin(), data_set[i].end());
   }
+  VerifyDB(data);
 }
 
 // Test sequence number store in blob file is correct.
