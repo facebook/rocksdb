@@ -119,14 +119,14 @@ class PessimisticTxn : public TransactionBaseImpl {
                  bool read_only, bool exclusive,
                  bool untracked = false) override;
 
+  void Clear() override;
+
   TransactionDBImpl* txn_db_impl_;
   DBImpl* db_impl_;
 
   // If non-zero, this transaction should not be committed after this time (in
   // microseconds according to Env->NowMicros())
   uint64_t expiration_time_;
-
-  void Clear() override;
 
  private:
   // Used to create unique ids for transactions.
@@ -197,9 +197,6 @@ class WriteCommittedTxnImpl : public PessimisticTxn {
   WriteCommittedTxnImpl(const WriteCommittedTxnImpl&);
   void operator=(const WriteCommittedTxnImpl&);
 };
-
-// For backward compatibility
-typedef WriteCommittedTxnImpl TransactionImpl;
 
 // Used at commit time to check whether transaction is committing before its
 // expiration time.

@@ -109,7 +109,6 @@ class TransactionDBImpl : public TransactionDB {
   // Must be held when adding/dropping column families.
   InstrumentedMutex column_family_mutex_;
   Transaction* BeginInternalTransaction(const WriteOptions& options);
-  Status WriteHelper(WriteBatch* updates, TransactionImpl* txn_impl);
 
   // Used to ensure that no locks are stolen from an expirable transaction
   // that has started a commit. Only transactions with an expiration time

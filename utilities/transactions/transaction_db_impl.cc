@@ -128,7 +128,7 @@ Transaction* TransactionDBImpl::BeginTransaction(
     ReinitializeTransaction(old_txn, write_options, txn_options);
     return old_txn;
   } else {
-    return new TransactionImpl(this, write_options, txn_options);
+    return new WriteCommittedTxnImpl(this, write_options, txn_options);
   }
 }
 
@@ -372,7 +372,7 @@ Status TransactionDBImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
   Transaction* txn = BeginInternalTransaction(opts);
   txn->DisableIndexing();
 
-  auto txn_impl = static_cast_with_check<TransactionImpl, Transaction>(txn);
+  auto txn_impl = static_cast_with_check<PessimisticTxn, Transaction>(txn);
 
   // Since commitBatch sorts the keys before locking, concurrent Write()
   // operations will not cause a deadlock.
@@ -412,7 +412,7 @@ bool TransactionDBImpl::TryStealingExpiredTransactionLocks(
 void TransactionDBImpl::ReinitializeTransaction(
     Transaction* txn, const WriteOptions& write_options,
     const TransactionOptions& txn_options) {
-  auto txn_impl = static_cast_with_check<TransactionImpl, Transaction>(txn);
+  auto txn_impl = static_cast_with_check<PessimisticTxn, Transaction>(txn);
 
   txn_impl->Reinitialize(this, write_options, txn_options);
 }
