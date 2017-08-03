@@ -56,28 +56,18 @@ public:
   static Status Get(DB* db, const ReadOptions& read_options,
     ColumnFamilyHandle* column_family, const Slice& key,
     PinnableSlice* pinnable_input, std::string* value,
-    bool* value_found = nullptr) {
-    assert(!pinnable_input || !value);
-    const Callback empty_cb;
-    DBImplGetContext context(empty_cb, db, read_options, key, value,
-      pinnable_input, column_family, value_found);
-    return context.GetImpl();
-  }
+    bool* value_found = nullptr);
 
   static Status RequestGet(const Callback& cb, DB* db,
     const ReadOptions& read_options,
     ColumnFamilyHandle* column_family, const Slice& key,
-    PinnableSlice* pinnable_input, std::string* value, 
-    bool* value_found = nullptr) {
-    assert(!pinnable_input || !value);
-    std::unique_ptr<DBImplGetContext> context(new DBImplGetContext(cb, db,
-      read_options, key, value, pinnable_input, column_family, value_found));
-    Status s = context->GetImpl();
-    if (s.IsIOPending()) {
-      context.release();
-    }
-    return s;
-  }
+    PinnableSlice* pinnable_input, std::string* value,
+    bool* value_found = nullptr);
+
+  DBImplGetContext(const Callback& cb, DBImpl* db, const ReadOptions& ro,
+    const Slice& key, std::string* value, PinnableSlice* pinnable_input,
+    ColumnFamilyHandle* cfd,
+    bool* value_found);
 
   ~DBImplGetContext() {
     ReturnSuperVersion();
@@ -87,11 +77,6 @@ public:
   }
 
 private:
-
-  DBImplGetContext(const Callback& cb, DB* db, const ReadOptions& ro,
-        const Slice& key, std::string* value, PinnableSlice* pinnable_input,
-        ColumnFamilyHandle* cfd,
-        bool* value_found);
 
   void InitRangeDelAggreagator(const InternalKeyComparator& icomp,
                                SequenceNumber snapshot) {

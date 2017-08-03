@@ -683,16 +683,6 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
             key_exists, seq);
 }
 
-Status Version::Get(const GetCallback& cb, const ReadOptions& read_options,
-                  const LookupKey& key, PinnableSlice* value, Status* status,
-                  MergeContext* merge_context,
-                  RangeDelAggregator* range_del_agg, bool* value_found, bool* key_exists,
-                  SequenceNumber * seq) {
-  return async::VersionSetGetContext::RequestGet(cb, this, read_options, key,
-         value, status, merge_context, range_del_agg, value_found,
-         key_exists, seq);
-}
-
 bool Version::IsFilterSkipped(int level, bool is_file_last_in_level) {
   // Reaching the bottom level implies misses at all upper levels, so we'll
   // skip checking the filters when we predict a hit.

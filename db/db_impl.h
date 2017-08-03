@@ -20,6 +20,7 @@
 #include <utility>
 #include <vector>
 
+#include "async/context_pool.h"
 #include "db/column_family.h"
 #include "db/compaction_job.h"
 #include "db/dbformat.h"
@@ -30,6 +31,7 @@
 #include "db/log_writer.h"
 #include "db/snapshot_impl.h"
 #include "db/version_edit.h"
+#include "db/version_set_request.h"
 #include "db/wal_manager.h"
 #include "db/write_controller.h"
 #include "db/write_thread.h"
@@ -542,8 +544,6 @@ class DBImpl : public DB {
 
  protected:
 
-   friend class async::DBImplGetContext;
-
   Env* const env_;
   const std::string dbname_;
   unique_ptr<VersionSet> versions_;
@@ -618,6 +618,8 @@ class DBImpl : public DB {
   friend class XFTransactionWriteHandler;
 #endif
   struct CompactionState;
+
+  friend class async::DBImplGetContext;
 
   struct WriteContext {
     autovector<SuperVersion*> superversions_to_free_;
@@ -1108,6 +1110,16 @@ class DBImpl : public DB {
   // where we are deleteing arbitrary elements and the up heaping.
   std::unordered_map<uint64_t, uint64_t> prepared_section_completed_;
   std::mutex prep_heap_mutex_;
+
+  using
+  GetReqPool = async::ContextPool<async::DBImplGetContext>;
+
+  GetReqPool get_request_pool_;
+
+  using
+  VersionGetPool = async::ContextPool<async::VersionSetGetContext>;
+
+  VersionGetPool  ver_get_request_pool_;
 
   // No copying allowed
   DBImpl(const DBImpl&);

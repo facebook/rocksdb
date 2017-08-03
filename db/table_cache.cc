@@ -160,14 +160,6 @@ Status TableCache::Get(const ReadOptions& options,
                                           k, get_context, file_read_hist, skip_filters, level);
 }
 
-Status TableCache::Get(const async::Callable<Status, const Status&>& cb,
-    const ReadOptions& options, const InternalKeyComparator& internal_comparator,
-    const FileDescriptor& file_fd, const Slice& k, GetContext* get_context,
-    HistogramImpl * file_read_hist, bool skip_filters, int level) {
-  return async::TableCacheGetContext::RequestGet(cb, this, options, internal_comparator, file_fd,
-    k, get_context, file_read_hist, skip_filters, level);
-}
-
 Status TableCache::GetTableProperties(
     const EnvOptions& env_options,
     const InternalKeyComparator& internal_comparator, const FileDescriptor& fd,

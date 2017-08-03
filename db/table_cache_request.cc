@@ -673,7 +673,7 @@ Status TableCacheGetContext::OnComplete(const Status& status) {
     Status s(status);
     s.async(true);
     cb_.Invoke(s);
-    delete this;
+    table_cache_->GetRequestPool()->Release(this);
     return s;
   }
 
@@ -758,9 +758,11 @@ Status TableCacheGetContext::RequestGet(const Callback& cb,
     s = LookupTableReader(table_cache, options, fd, &handle, &table_reader);
 
     if (s.ok() || s.IsNotFound()) {
-      std::unique_ptr<TableCacheGetContext> context(new TableCacheGetContext(cb,
-          table_cache, options, k, get_context,
-          skip_filters, fd.GetNumber(), handle, row_cache_present));
+      using ReqPool = async::ContextPool<TableCacheGetContext>;
+      ReqPool::Ptr context = table_cache->GetRequestPool()->Get(
+                             cb, table_cache, options, k, get_context,
+                             skip_filters, fd.GetNumber(), handle, row_cache_present);
+
       if (s.ok()) {
         assert(table_reader != nullptr);
         // If we need to create tombstone iterator then

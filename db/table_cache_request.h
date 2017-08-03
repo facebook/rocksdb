@@ -334,26 +334,26 @@ class TableCacheGetContext : private AsyncStatusCapture {
                            GetContext* get_context, HistogramImpl* file_read_hist = nullptr,
                            bool skip_filters = false, int level = -1);
 
- private:
+  TableCacheGetContext(const Callback& cb,
+                       TableCache* table_cache, const ReadOptions& options,
+                       const Slice& k, GetContext* get_context, bool skip_filters,
+                       uint64_t fileno,
+                       Cache::Handle* table_reader_handle,
+                       bool row_cache_present) :
+    cb_(cb),
+    table_cache_(table_cache),
+    ft_helper_(table_cache_->GetIOptions(), fileno, table_cache_->GetCache()),
+    options_(&options),
+    k_(k),
+    get_context_(get_context),
+    skip_filters_(skip_filters),
+    table_reader_handle_(table_reader_handle),
+    row_cache_present_(row_cache_present),
+    row_cache_entry_buffer_(),
+    table_reader_(nullptr) {
+  }
 
-   TableCacheGetContext(const Callback& cb,
-                        TableCache* table_cache, const ReadOptions& options,
-                        const Slice& k, GetContext* get_context, bool skip_filters,
-                        uint64_t fileno,
-                        Cache::Handle* table_reader_handle,
-                        bool row_cache_present) :
-     cb_(cb),
-     table_cache_(table_cache),
-     ft_helper_(table_cache_->GetIOptions(), fileno, table_cache_->GetCache()),
-     options_(&options),
-     k_(k),
-     get_context_(get_context),
-     skip_filters_(skip_filters),
-     table_reader_handle_(table_reader_handle),
-     row_cache_present_(row_cache_present),
-     row_cache_entry_buffer_(),
-     table_reader_(nullptr) {
-   }
+ private:
 
    void ReleaseCacheHandle() {
      if (table_reader_handle_ != nullptr) {

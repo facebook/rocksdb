@@ -27,12 +27,58 @@ namespace rocksdb {
 namespace async {
 /////////////////////////////////////////////////////////////////
 /// DBImplGetContext
-DBImplGetContext::DBImplGetContext(const Callback& cb, DB* db, const ReadOptions& ro,
+namespace {
+template<typename U, typename B>
+inline U* SafeCast(B* b) {
+#ifdef _DEBUG
+  U* result = dynamic_cast<U*>(b);
+  assert(result);
+#else
+  U* result = reinterpret_cast<U*>(b);
+#endif
+  return result;
+}
+}
+
+Status DBImplGetContext::Get(DB* db, const ReadOptions& read_options,
+                            ColumnFamilyHandle* column_family, const Slice& key,
+                            PinnableSlice* pinnable_input, std::string* value,
+                            bool* value_found) {
+
+  assert(!pinnable_input || !value);
+  const Callback empty_cb;
+  DBImpl* db_impl = SafeCast<DBImpl>(db);
+  DBImplGetContext context(empty_cb, db_impl, read_options, key, value,
+    pinnable_input, column_family, value_found);
+  return context.GetImpl();
+}
+
+Status DBImplGetContext::RequestGet(const Callback& cb, DB* db,
+                                    const ReadOptions& read_options,
+                                    ColumnFamilyHandle* column_family, const Slice& key,
+                                    PinnableSlice* pinnable_input, std::string* value,
+                                    bool* value_found) {
+
+  assert(!pinnable_input || !value);
+
+  DBImpl* db_impl = SafeCast<DBImpl>(db);
+
+  DBImpl::GetReqPool::Ptr context = db_impl->get_request_pool_.Get(cb, db_impl,
+    read_options, key, value, pinnable_input, column_family, value_found);
+
+  Status s = context->GetImpl();
+  if (s.IsIOPending()) {
+    context.release();
+  }
+  return s;
+}
+
+DBImplGetContext::DBImplGetContext(const Callback& cb, DBImpl* db, const ReadOptions& ro,
                            const Slice& key, std::string* value, PinnableSlice* pinnable_input,
                            ColumnFamilyHandle* column_family,
                            bool* value_found) :
   cb_(cb),
-  db_impl_(reinterpret_cast<DBImpl*>(db)),
+  db_impl_(db),
   read_options_(ro),
   key_(key),
   value_(value),
@@ -116,7 +162,7 @@ Status DBImplGetContext::GetImpl() {
     if (cb_) {
       CallableFactory<DBImplGetContext, Status, const Status&> fac(this);
       auto on_get_complete = fac.GetCallable<&DBImplGetContext::OnGetComplete>();
-      s = VersionSetGetContext::RequestGet(on_get_complete, sv_->current,
+      s = VersionSetGetContext::RequestGet(&db_impl_->ver_get_request_pool_, on_get_complete, sv_->current,
         read_options_, GetLookupKey(), &GetPinnable(), &s, &merge_context_, &GetRangeDel(), value_found_);
 
     } else {
@@ -184,7 +230,7 @@ Status DBImplGetContext::OnComplete(const Status& status) {
     Status s(status);
     s.async(true);
     cb_.Invoke(s);
-    delete this;
+    db_impl_->get_request_pool_.Release(this);
     return status;
   }
 

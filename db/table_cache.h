@@ -14,6 +14,7 @@
 #include <vector>
 #include <stdint.h>
 
+#include "async/context_pool.h"
 #include "db/dbformat.h"
 #include "db/range_del_aggregator.h"
 #include "options/cf_options.h"
@@ -32,6 +33,10 @@ struct FileDescriptor;
 class GetContext;
 class HistogramImpl;
 class InternalIterator;
+
+namespace async {
+class TableCacheGetContext;
+}
 
 class TableCache {
  public:
@@ -79,13 +84,6 @@ class TableCache {
   // @param skip_filters Disables loading/accessing the filter block
   // @param level The level this table is at, -1 for "not set / don't know"
   Status Get(
-    const ReadOptions& options,
-    const InternalKeyComparator& internal_comparator,
-    const FileDescriptor& file_fd, const Slice& k,
-    GetContext* get_context, HistogramImpl* file_read_hist = nullptr,
-    bool skip_filters = false, int level = -1);
-
-  Status Get(const async::Callable<Status,const Status&>& cb,
     const ReadOptions& options,
     const InternalKeyComparator& internal_comparator,
     const FileDescriptor& file_fd, const Slice& k,
@@ -170,6 +168,11 @@ class TableCache {
     return row_cache_id_;
   }
 
+  async::ContextPool<async::TableCacheGetContext>*
+  GetRequestPool() {
+    return &get_request_pool_;
+  }
+
  private:
   // Build a table reader
    Status GetTableReader(const EnvOptions& env_options,
@@ -185,6 +188,7 @@ class TableCache {
   const EnvOptions& env_options_;
   Cache* const cache_;
   std::string row_cache_id_;
+  async::ContextPool<async::TableCacheGetContext> get_request_pool_;
 };
 
 namespace table_cache_detail {

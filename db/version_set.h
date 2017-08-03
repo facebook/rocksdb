@@ -487,15 +487,6 @@ class Version {
            RangeDelAggregator* range_del_agg, bool* value_found = nullptr,
            bool* key_exists = nullptr, SequenceNumber* seq = nullptr);
 
-  using 
-  GetCallback = async::Callable<Status, const Status&>;
-
-  Status Get(const GetCallback&, const ReadOptions&, const LookupKey& key,
-    PinnableSlice* value, Status* status, MergeContext* merge_context,
-    RangeDelAggregator* range_del_agg, bool* value_found = nullptr,
-    bool* key_exists = nullptr, SequenceNumber* seq = nullptr);
-
-
   // Loads some stats information from files. Call without mutex held. It needs
   // to be called before applying the version to the version set.
   void PrepareApply(const MutableCFOptions& mutable_cf_options,

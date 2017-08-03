@@ -40,7 +40,7 @@ Status VersionSetGetContext::Get(Version* version,
 
   const Callback empty_cb;
   VersionSetGetContext context(empty_cb, version, read_options, ikey, user_key,
-                               value, merge_context, key_exists);
+                               value, merge_context, key_exists, nullptr);
 
   context.InitGetState(status->ok() ? GetContext::kNotFound : GetContext::kMerge,
     range_del_agg, value_found, seq);
@@ -52,7 +52,8 @@ Status VersionSetGetContext::Get(Version* version,
   return *status;
 }
 
-Status VersionSetGetContext::RequestGet(const Callback& cb, Version* version,
+Status VersionSetGetContext::RequestGet(ContextPool<VersionSetGetContext>* ctx_pool,
+    const Callback& cb, Version* version,
     const ReadOptions & read_options, const LookupKey & k, PinnableSlice* value,
     Status* status, MergeContext* merge_context,
     RangeDelAggregator* range_del_agg, bool* value_found, bool* key_exists,
@@ -63,8 +64,11 @@ Status VersionSetGetContext::RequestGet(const Callback& cb, Version* version,
 
   assert(status->ok() || status->IsMergeInProgress());
 
-  std::unique_ptr<VersionSetGetContext> context(new VersionSetGetContext(cb,
-    version, read_options, ikey, user_key, value, merge_context, key_exists));
+  using
+  Pool = ContextPool<VersionSetGetContext>;
+
+  Pool::Ptr context = ctx_pool->Get(cb, version, read_options, ikey, user_key,
+                                   value, merge_context, key_exists, ctx_pool);
 
   context->InitGetState(status->ok() ? GetContext::kNotFound : GetContext::kMerge,
     range_del_agg, value_found, seq);
@@ -206,7 +210,7 @@ Status VersionSetGetContext::OnComplete(const Status& status) {
     Status s(status);
     s.async(true);
     cb_.Invoke(s);
-    delete this;
+    ctx_pool_->Release(this);
     return s;
   }
 

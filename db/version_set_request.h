@@ -21,6 +21,7 @@
 
 #include "async/async_status_capture.h"
 
+#include "async/context_pool.h"
 #include "db/pinned_iterators_manager.h"
 #include "db/version_set.h"
 #include "rocksdb/async/callables.h"
@@ -64,12 +65,31 @@ public:
   // In async version value of status is not returned in the
   // output parameter, only via a return value
   static Status RequestGet(
+    ContextPool<VersionSetGetContext>* ctx_pool,
     const Callback& cb, Version* version,
     const ReadOptions& read_options, const LookupKey& k,
     PinnableSlice* value, Status* status,
     MergeContext* merge_context,
     RangeDelAggregator* range_del_agg, bool* value_found = nullptr,
     bool* key_exists = nullptr, SequenceNumber* seq = nullptr);
+
+  VersionSetGetContext(const Callback& cb, Version* version,
+    const ReadOptions& read_options,
+    const Slice& ikey, const Slice& user_key,
+    PinnableSlice* value,
+    MergeContext* merge_context,
+    bool* key_exists,
+    ContextPool<VersionSetGetContext>* ctx_pool) :
+    cb_(cb), version_(version), read_options_(&read_options),
+    ikey_(ikey), user_key_(user_key),
+    value_(value),
+    merge_context_(merge_context),
+    key_exists_(key_exists),
+    ctx_pool_(ctx_pool),
+    pinned_iters_mgr_() {
+
+    SetKeyExists(true);
+  }
 
   ~VersionSetGetContext() {
     file_picker()->~FilePicker();
@@ -80,22 +100,6 @@ private:
 
   using 
   FilePicker = versionset_detail::FilePicker;
-
-  VersionSetGetContext(const Callback& cb, Version* version,
-    const ReadOptions& read_options,
-    const Slice& ikey, const Slice& user_key,
-    PinnableSlice* value,
-    MergeContext* merge_context,
-    bool* key_exists) :
-    cb_(cb), version_(version), read_options_(&read_options),
-    ikey_(ikey), user_key_(user_key),
-    value_(value),
-    merge_context_(merge_context),
-    key_exists_(key_exists),
-    pinned_iters_mgr_() {
-
-    SetKeyExists(true);
-  }
 
   void SetKeyExists(bool v) {
     if (key_exists_) {
@@ -173,6 +177,7 @@ private:
   PinnableSlice*         value_;
   MergeContext*          merge_context_;
   bool*                  key_exists_;
+  ContextPool<VersionSetGetContext>* ctx_pool_;
 
   PinnedIteratorsManager pinned_iters_mgr_;
   std::aligned_storage<sizeof(GetContext)>::type get_context_;
