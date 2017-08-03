@@ -226,6 +226,9 @@ DEFINE_int32(threads, 1, "Number of concurrent threads to run.");
 DEFINE_bool(run_async, false, 
   "Use async API. The bench needs to have an async implementation");
 
+DEFINE_int32(conc_io_ops, 1,
+  "Run this number of concurrent io ops per thread");
+
 DEFINE_int32(duration, 0, "Time in seconds for the random-ops tests to run."
              " When 0 then num & reads determine the test duration");
 
@@ -2802,8 +2805,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     return merge_stats;
   }
 #ifdef OS_WIN
-  // This will run it on Windows Threadpool
-  // along with the IO completions
+  // Will start standalone dispatcher threads
+  // but I/O completion will run on a windows threadpool
   Stats RunBenchmarkAsync(int n, Slice name) {
 
     assert(bench_func_);
@@ -2822,8 +2825,10 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 
     std::vector<std::unique_ptr<ThreadState>> states;
     std::vector<std::unique_ptr<AsyncBenchBase>> benches;
+    std::vector<port::Thread>  threads;
     states.resize(n);
     benches.resize(n);
+    threads.reserve(n);
 
     for (int i = 0; i < n; i++) {
 
@@ -2833,15 +2838,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 
       benches[i] = std::move(bench_func_->Clone());
       benches[i]->SetState(this, &shared, states[i].get(), thread_pool_.get());
-      auto f(std::bind(&AsyncBenchBase::Run, benches[i].get()));
-      // XXX:
-      // We want to run this on the same thread pool
-      // as the IO completion takes place.
-      // However, we require that all tasks start running
-      // and signal they are inited before we allow them to proceed.
-      // In case our Windows threadpool does not start the specified
-      // amount of threads at the same time we may hang.
-      thread_pool_->SubmitWork(f);
+      port::Thread t(&AsyncBenchBase::Run, benches[i].get());
+      threads.push_back(std::move(t));
     }
 
     shared.mu.Lock();
@@ -2855,6 +2853,10 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       shared.cv.Wait();
     }
     shared.mu.Unlock();
+
+    for (auto& t : threads) {
+      t.join();
+    }
 
     // Stats for some threads can be excluded.
     Stats merge_stats;
@@ -4243,9 +4245,12 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     ReadRandomAsync() :
       options_(FLAGS_verify_checksum, true),
       duration_(FLAGS_duration, FLAGS_reads),
+      conc_io_ops_(FLAGS_conc_io_ops),
       read_(0),
       found_(0),
-      bytes_(0) {
+      bytes_(0),
+      in_flight_(0),
+      stop_(false) {
     }
 
     std::unique_ptr<AsyncBenchBase> Clone() override {
@@ -4315,7 +4320,51 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     // Thread entry point
     void Run() override {
       OnInitialized();
-      RequestOnThreadPool();
+
+      bool done = false;
+      int32_t in_flight = 0;
+
+      {
+        std::unique_lock<std::mutex> l(m_);
+        while (!done || in_flight_ > 0) {
+
+          if (!done) {
+            while (in_flight_ < conc_io_ops_) {
+              auto bound = std::bind(&ReadRandomAsync::RequestOnThreadPool, this);
+              std::function<void()> f(bound);
+              thread_pool_->SubmitWork(std::move(f));
+              in_flight = ++in_flight_;
+            }
+          }
+
+          c_.wait(l);
+
+          if (!done) {
+            assert(in_flight >= in_flight_);
+            auto diff = in_flight - in_flight_;
+            if (diff > 0) {
+              done = duration_.Done(diff);
+            }
+          }
+        }
+      }
+
+      char msg[100];
+      snprintf(msg, sizeof(msg), "(%" PRIu64 " of %" PRIu64 " found)\n",
+        found_.load(std::memory_order_relaxed),
+        read_.load(std::memory_order_relaxed));
+
+      fprintf(stderr, "tid: %d %" PRIu64 " %s\n",
+        thread_->tid, bytes_.load(std::memory_order_relaxed), msg);
+
+      thread_->stats.AddBytes(bytes_.load(std::memory_order_relaxed));
+      thread_->stats.AddMessage(msg);
+
+      if (FLAGS_perf_level > rocksdb::PerfLevel::kDisable) {
+        thread_->stats.AddMessage(perf_context.ToString());
+      }
+      // Notify we are done
+      OnComplete();
     }
 
     void RequestOnThreadPool() {
@@ -4332,29 +4381,11 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         GetShared()->pool_.Release(ctx);
       }
 
-      if (!duration_.Done(1)) {
-        auto bound = std::bind(&ReadRandomAsync::RequestOnThreadPool, this);
-        std::function<void()> f(bound);
-        thread_pool_->SubmitWork(std::move(f));
-        return;
+      {
+        std::lock_guard<std::mutex> l(m_);
+        --in_flight_;
       }
-
-      char msg[100];
-      snprintf(msg, sizeof(msg), "(%" PRIu64 " of %" PRIu64 " found)\n",
-        found_.load(std::memory_order_relaxed), 
-        read_.load(std::memory_order_relaxed));
-
-      fprintf(stderr, "tid: %d %" PRIu64 " %s\n",
-        thread_->tid, bytes_.load(std::memory_order_relaxed), msg);
-
-      thread_->stats.AddBytes(bytes_.load(std::memory_order_relaxed));
-      thread_->stats.AddMessage(msg);
-
-      if (FLAGS_perf_level > rocksdb::PerfLevel::kDisable) {
-        thread_->stats.AddMessage(perf_context.ToString());
-      }
-      // Notify we are done
-      OnComplete();
+      c_.notify_one();
     }
 
     ReadRandomAsync(const ReadRandomAsync&) :
@@ -4367,9 +4398,14 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 
     ReadOptions             options_;
     Duration                duration_;
+    const int32_t           conc_io_ops_;
     std::atomic_int64_t     read_;
     std::atomic_int64_t     found_;
     std::atomic_int64_t     bytes_;
+    std::mutex              m_;
+    std::condition_variable c_;
+    int32_t                 in_flight_;
+    bool                    stop_;
   };
 
   struct RandomReadContext : public async::AsyncStatusCapture {
