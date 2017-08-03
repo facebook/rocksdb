@@ -8,7 +8,6 @@
 #include "utilities/blob_db/blob_log_writer.h"
 
 #include <cstdint>
-#include <limits>
 #include <string>
 #include "rocksdb/env.h"
 #include "util/coding.h"

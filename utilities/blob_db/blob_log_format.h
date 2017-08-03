@@ -48,9 +48,9 @@ extern const uint32_t kMagicNumber;
 
 class Reader;
 
-typedef std::pair<uint64_t, uint64_t> ttlrange_t;
-typedef std::pair<uint64_t, uint64_t> tsrange_t;
-typedef std::pair<rocksdb::SequenceNumber, rocksdb::SequenceNumber> snrange_t;
+using ttlrange_t = std::pair<uint64_t, uint64_t>;
+using tsrange_t = std::pair<uint64_t, uint64_t>;
+using snrange_t = std::pair<rocksdb::SequenceNumber, rocksdb::SequenceNumber>;
 
 class BlobLogHeader {
   friend class BlobFile;
