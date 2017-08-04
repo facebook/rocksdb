@@ -94,8 +94,8 @@ std::string BlobFile::DumpState() const {
            "path: %s fn: %" PRIu64 " blob_count: %" PRIu64 " gc_epoch: %" PRIu64
            " file_size: %" PRIu64 " deleted_count: %" PRIu64
            " deleted_size: %" PRIu64
-           " closed: %d can_be_deleted: %d ttl_range: (%d, %d)"
-           " sn_range: (%" PRIu64 " %" PRIu64 "), writer: %d reader: %d",
+           " closed: %d can_be_deleted: %d ttl_range: (%" PRIu64 ", %" PRIu64
+           ") sn_range: (%" PRIu64 " %" PRIu64 "), writer: %d reader: %d",
            path_to_dir_.c_str(), file_number_, blob_count_.load(),
            gc_epoch_.load(), file_size_.load(), deleted_count_, deleted_size_,
            closed_.load(), can_be_deleted_.load(), ttl_range_.first,

@@ -25,6 +25,8 @@ namespace blob_db {
 class BlobFile;
 class BlobDBImpl;
 
+constexpr uint64_t kNoExpiration = std::numeric_limits<uint64_t>::max();
+
 enum RecordType : uint8_t {
   // Zero is reserved for preallocated files
   kFullType = 0,
@@ -46,9 +48,9 @@ extern const uint32_t kMagicNumber;
 
 class Reader;
 
-typedef std::pair<uint32_t, uint32_t> ttlrange_t;
-typedef std::pair<uint64_t, uint64_t> tsrange_t;
-typedef std::pair<rocksdb::SequenceNumber, rocksdb::SequenceNumber> snrange_t;
+using ttlrange_t = std::pair<uint64_t, uint64_t>;
+using tsrange_t = std::pair<uint64_t, uint64_t>;
+using snrange_t = std::pair<rocksdb::SequenceNumber, rocksdb::SequenceNumber>;
 
 class BlobLogHeader {
   friend class BlobFile;
@@ -71,8 +73,8 @@ class BlobLogHeader {
   void set_ts_guess(const tsrange_t& ts) { ts_guess_.reset(new tsrange_t(ts)); }
 
  public:
-  // magic number + version + flags + ttl guess + timestamp range = 36
-  static const size_t kHeaderSize = 4 + 4 + 4 + 4 * 2 + 8 * 2;
+  // magic number + version + flags + ttl guess + timestamp range = 44
+  static const size_t kHeaderSize = 4 + 4 + 4 + 8 * 2 + 8 * 2;
 
   void EncodeTo(std::string* dst) const;
 
@@ -100,9 +102,9 @@ class BlobLogHeader {
     return *ts_guess_;
   }
 
-  bool HasTTL() const { return !!ttl_guess_; }
+  bool HasTTL() const { return ttl_guess_ != nullptr; }
 
-  bool HasTimestamp() const { return !!ts_guess_; }
+  bool HasTimestamp() const { return ts_guess_ != nullptr; }
 
   BlobLogHeader& operator=(BlobLogHeader&& in) noexcept;
 };
@@ -128,11 +130,11 @@ class BlobLogFooter {
 
   // footer size = 4 byte magic number
   // 8 bytes count
-  // 4, 4 - ttl range
+  // 8, 8 - ttl range
   // 8, 8 - sn range
   // 8, 8 - ts range
-  // = 56
-  static const size_t kFooterSize = 4 + 4 + 8 + (4 * 2) + (8 * 2) + (8 * 2);
+  // = 64
+  static const size_t kFooterSize = 4 + 4 + 8 + (8 * 2) + (8 * 2) + (8 * 2);
 
   bool HasTTL() const { return !!ttl_range_; }
 
@@ -185,7 +187,7 @@ class BlobLogRecord {
   uint32_t key_size_;
   uint64_t blob_size_;
   uint64_t time_val_;
-  uint32_t ttl_val_;
+  uint64_t ttl_val_;
   SequenceNumber sn_;
   uint32_t footer_cksum_;
   char type_;
@@ -209,11 +211,12 @@ class BlobLogRecord {
  public:
   // Header is
   // Key Length ( 4 bytes ),
-  // Blob Length ( 8 bytes), timestamp/ttl (8 bytes),
+  // Blob Length ( 8 bytes),
+  // ttl (8 bytes), timestamp (8 bytes),
   // type (1 byte), subtype (1 byte)
   // header checksum (4 bytes), blob checksum (4 bytes),
-  // = 34
-  static const size_t kHeaderSize = 4 + 4 + 4 + 8 + 4 + 8 + 1 + 1;
+  // = 42
+  static const size_t kHeaderSize = 4 + 4 + 8 + 8 + 4 + 8 + 1 + 1;
 
   static const size_t kFooterSize = 8 + 4;
 
@@ -234,7 +237,7 @@ class BlobLogRecord {
     return ttl_val_ != std::numeric_limits<uint32_t>::max();
   }
 
-  uint32_t GetTTL() const { return ttl_val_; }
+  uint64_t GetTTL() const { return ttl_val_; }
 
   uint64_t GetTimeVal() const { return time_val_; }
 

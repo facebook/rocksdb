@@ -168,6 +168,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       last_batch_group_size_(0),
       unscheduled_flushes_(0),
       unscheduled_compactions_(0),
+      bg_bottom_compaction_scheduled_(0),
       bg_compaction_scheduled_(0),
       num_running_compactions_(0),
       bg_flush_scheduled_(0),
@@ -242,7 +243,8 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
     return;
   }
   // Wait for background work to finish
-  while (bg_compaction_scheduled_ || bg_flush_scheduled_) {
+  while (bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
+         bg_flush_scheduled_) {
     bg_cv_.Wait();
   }
 }
@@ -252,15 +254,18 @@ DBImpl::~DBImpl() {
   // marker. After this we do a variant of the waiting and unschedule work
   // (to consider: moving all the waiting into CancelAllBackgroundWork(true))
   CancelAllBackgroundWork(false);
+  int bottom_compactions_unscheduled =
+      env_->UnSchedule(this, Env::Priority::BOTTOM);
   int compactions_unscheduled = env_->UnSchedule(this, Env::Priority::LOW);
   int flushes_unscheduled = env_->UnSchedule(this, Env::Priority::HIGH);
   mutex_.Lock();
+  bg_bottom_compaction_scheduled_ -= bottom_compactions_unscheduled;
   bg_compaction_scheduled_ -= compactions_unscheduled;
   bg_flush_scheduled_ -= flushes_unscheduled;
 
   // Wait for background work to finish
-  while (bg_compaction_scheduled_ || bg_flush_scheduled_ ||
-         bg_purge_scheduled_) {
+  while (bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
+         bg_flush_scheduled_ || bg_purge_scheduled_) {
     TEST_SYNC_POINT("DBImpl::~DBImpl:WaitJob");
     bg_cv_.Wait();
   }

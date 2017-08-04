@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # The RocksDB regression test script.
 # REQUIREMENT: must be able to run make db_bench in the current directory
 #

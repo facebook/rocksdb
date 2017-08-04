@@ -29,31 +29,31 @@ namespace rocksdb {
 
 struct WriteOptions;
 
-std::atomic<TransactionID> TransactionImpl::txn_id_counter_(1);
+std::atomic<TransactionID> PessimisticTxn::txn_id_counter_(1);
 
-TransactionID TransactionImpl::GenTxnID() {
+TransactionID PessimisticTxn::GenTxnID() {
   return txn_id_counter_.fetch_add(1);
 }
 
-TransactionImpl::TransactionImpl(TransactionDB* txn_db,
-                                 const WriteOptions& write_options,
-                                 const TransactionOptions& txn_options)
+PessimisticTxn::PessimisticTxn(TransactionDB* txn_db,
+                               const WriteOptions& write_options,
+                               const TransactionOptions& txn_options)
     : TransactionBaseImpl(txn_db->GetRootDB(), write_options),
       txn_db_impl_(nullptr),
+      expiration_time_(0),
       txn_id_(0),
       waiting_cf_id_(0),
       waiting_key_(nullptr),
-      expiration_time_(0),
       lock_timeout_(0),
       deadlock_detect_(false),
       deadlock_detect_depth_(0) {
   txn_db_impl_ =
       static_cast_with_check<TransactionDBImpl, TransactionDB>(txn_db);
-  db_impl_ = static_cast_with_check<DBImpl, DB>(txn_db->GetRootDB());
+  db_impl_ = static_cast_with_check<DBImpl, DB>(db_);
   Initialize(txn_options);
 }
 
-void TransactionImpl::Initialize(const TransactionOptions& txn_options) {
+void PessimisticTxn::Initialize(const TransactionOptions& txn_options) {
   txn_id_ = GenTxnID();
 
   txn_state_ = STARTED;
@@ -84,7 +84,7 @@ void TransactionImpl::Initialize(const TransactionOptions& txn_options) {
   }
 }
 
-TransactionImpl::~TransactionImpl() {
+PessimisticTxn::~PessimisticTxn() {
   txn_db_impl_->UnLock(this, &GetTrackedKeys());
   if (expiration_time_ > 0) {
     txn_db_impl_->RemoveExpirableTransaction(txn_id_);
@@ -94,14 +94,14 @@ TransactionImpl::~TransactionImpl() {
   }
 }
 
-void TransactionImpl::Clear() {
+void PessimisticTxn::Clear() {
   txn_db_impl_->UnLock(this, &GetTrackedKeys());
   TransactionBaseImpl::Clear();
 }
 
-void TransactionImpl::Reinitialize(TransactionDB* txn_db,
-                                   const WriteOptions& write_options,
-                                   const TransactionOptions& txn_options) {
+void PessimisticTxn::Reinitialize(TransactionDB* txn_db,
+                                  const WriteOptions& write_options,
+                                  const TransactionOptions& txn_options) {
   if (!name_.empty() && txn_state_ != COMMITED) {
     txn_db_impl_->UnregisterTransaction(this);
   }
@@ -109,7 +109,7 @@ void TransactionImpl::Reinitialize(TransactionDB* txn_db,
   Initialize(txn_options);
 }
 
-bool TransactionImpl::IsExpired() const {
+bool PessimisticTxn::IsExpired() const {
   if (expiration_time_ > 0) {
     if (db_->GetEnv()->NowMicros() >= expiration_time_) {
       // Transaction is expired.
@@ -120,7 +120,12 @@ bool TransactionImpl::IsExpired() const {
   return false;
 }
 
-Status TransactionImpl::CommitBatch(WriteBatch* batch) {
+WriteCommittedTxnImpl::WriteCommittedTxnImpl(
+    TransactionDB* txn_db, const WriteOptions& write_options,
+    const TransactionOptions& txn_options)
+    : PessimisticTxn(txn_db, write_options, txn_options){};
+
+Status WriteCommittedTxnImpl::CommitBatch(WriteBatch* batch) {
   TransactionKeyMap keys_to_unlock;
   Status s = LockBatch(batch, &keys_to_unlock);
 
@@ -158,7 +163,7 @@ Status TransactionImpl::CommitBatch(WriteBatch* batch) {
   return s;
 }
 
-Status TransactionImpl::Prepare() {
+Status WriteCommittedTxnImpl::Prepare() {
   Status s;
 
   if (name_.empty()) {
@@ -213,7 +218,7 @@ Status TransactionImpl::Prepare() {
   return s;
 }
 
-Status TransactionImpl::Commit() {
+Status WriteCommittedTxnImpl::Commit() {
   Status s;
   bool commit_single = false;
   bool commit_prepared = false;
@@ -299,7 +304,7 @@ Status TransactionImpl::Commit() {
   return s;
 }
 
-Status TransactionImpl::Rollback() {
+Status WriteCommittedTxnImpl::Rollback() {
   Status s;
   if (txn_state_ == PREPARED) {
     WriteBatch rollback_marker;
@@ -326,7 +331,7 @@ Status TransactionImpl::Rollback() {
   return s;
 }
 
-Status TransactionImpl::RollbackToSavePoint() {
+Status PessimisticTxn::RollbackToSavePoint() {
   if (txn_state_ != STARTED) {
     return Status::InvalidArgument("Transaction is beyond state for rollback.");
   }
@@ -344,8 +349,8 @@ Status TransactionImpl::RollbackToSavePoint() {
 
 // Lock all keys in this batch.
 // On success, caller should unlock keys_to_unlock
-Status TransactionImpl::LockBatch(WriteBatch* batch,
-                                  TransactionKeyMap* keys_to_unlock) {
+Status PessimisticTxn::LockBatch(WriteBatch* batch,
+                                 TransactionKeyMap* keys_to_unlock) {
   class Handler : public WriteBatch::Handler {
    public:
     // Sorted map of column_family_id to sorted set of keys.
@@ -422,9 +427,9 @@ Status TransactionImpl::LockBatch(WriteBatch* batch,
 // If check_shapshot is true and this transaction has a snapshot set,
 // this key will only be locked if there have been no writes to this key since
 // the snapshot time.
-Status TransactionImpl::TryLock(ColumnFamilyHandle* column_family,
-                                const Slice& key, bool read_only,
-                                bool exclusive, bool untracked) {
+Status PessimisticTxn::TryLock(ColumnFamilyHandle* column_family,
+                               const Slice& key, bool read_only, bool exclusive,
+                               bool untracked) {
   uint32_t cfh_id = GetColumnFamilyID(column_family);
   std::string key_str = key.ToString();
   bool previously_locked;
@@ -510,10 +515,10 @@ Status TransactionImpl::TryLock(ColumnFamilyHandle* column_family,
 
 // Return OK() if this key has not been modified more recently than the
 // transaction snapshot_.
-Status TransactionImpl::ValidateSnapshot(ColumnFamilyHandle* column_family,
-                                         const Slice& key,
-                                         SequenceNumber prev_seqno,
-                                         SequenceNumber* new_seqno) {
+Status PessimisticTxn::ValidateSnapshot(ColumnFamilyHandle* column_family,
+                                        const Slice& key,
+                                        SequenceNumber prev_seqno,
+                                        SequenceNumber* new_seqno) {
   assert(snapshot_);
 
   SequenceNumber seq = snapshot_->GetSequenceNumber();
@@ -526,29 +531,27 @@ Status TransactionImpl::ValidateSnapshot(ColumnFamilyHandle* column_family,
 
   *new_seqno = seq;
 
-  auto db_impl = static_cast_with_check<DBImpl, DB>(db_);
-
   ColumnFamilyHandle* cfh =
-      column_family ? column_family : db_impl->DefaultColumnFamily();
+      column_family ? column_family : db_impl_->DefaultColumnFamily();
 
-  return TransactionUtil::CheckKeyForConflicts(db_impl, cfh, key.ToString(),
+  return TransactionUtil::CheckKeyForConflicts(db_impl_, cfh, key.ToString(),
                                                snapshot_->GetSequenceNumber(),
                                                false /* cache_only */);
 }
 
-bool TransactionImpl::TryStealingLocks() {
+bool PessimisticTxn::TryStealingLocks() {
   assert(IsExpired());
   TransactionState expected = STARTED;
   return std::atomic_compare_exchange_strong(&txn_state_, &expected,
                                              LOCKS_STOLEN);
 }
 
-void TransactionImpl::UnlockGetForUpdate(ColumnFamilyHandle* column_family,
-                                         const Slice& key) {
+void PessimisticTxn::UnlockGetForUpdate(ColumnFamilyHandle* column_family,
+                                        const Slice& key) {
   txn_db_impl_->UnLock(this, GetColumnFamilyID(column_family), key.ToString());
 }
 
-Status TransactionImpl::SetName(const TransactionName& name) {
+Status PessimisticTxn::SetName(const TransactionName& name) {
   Status s;
   if (txn_state_ == STARTED) {
     if (name_.length()) {

@@ -147,6 +147,7 @@ class VersionStorageInfo {
   }
 
   int MaxInputLevel() const;
+  int MaxOutputLevel(bool allow_ingest_behind) const;
 
   // Return level number that has idx'th highest score
   int CompactionScoreLevel(int idx) const { return compaction_level_[idx]; }

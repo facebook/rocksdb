@@ -12,6 +12,7 @@
 #include <string>
 #include "db/db_test_util.h"
 #include "port/port.h"
+#include "util/cast_util.h"
 #include "util/random.h"
 #include "util/string_util.h"
 #include "util/testharness.h"
@@ -62,7 +63,7 @@ class BlobDBTest : public testing::Test {
     }
   }
 
-  void PutRandomWithTTL(const std::string &key, int32_t ttl, Random *rnd,
+  void PutRandomWithTTL(const std::string &key, uint64_t ttl, Random *rnd,
                         std::map<std::string, std::string> *data = nullptr) {
     int len = rnd->Next() % kMaxBlobSize + 1;
     std::string value = test::RandomHumanReadableString(rnd, len);
@@ -73,7 +74,7 @@ class BlobDBTest : public testing::Test {
     }
   }
 
-  void PutRandomUntil(const std::string &key, int32_t expiration, Random *rnd,
+  void PutRandomUntil(const std::string &key, uint64_t expiration, Random *rnd,
                       std::map<std::string, std::string> *data = nullptr) {
     int len = rnd->Next() % kMaxBlobSize + 1;
     std::string value = test::RandomHumanReadableString(rnd, len);
@@ -135,7 +136,7 @@ class BlobDBTest : public testing::Test {
 
     Random rnd(301);
     for (size_t i = 0; i < 100000; i++) {
-      int32_t ttl = rnd.Next() % 86400;
+      uint64_t ttl = rnd.Next() % 86400;
       PutRandomWithTTL("key" + ToString(i % 500), ttl, &rnd, nullptr);
     }
 
@@ -174,7 +175,7 @@ TEST_F(BlobDBTest, PutWithTTL) {
   std::map<std::string, std::string> data;
   mock_env_->set_now_micros(50 * 1000000);
   for (size_t i = 0; i < 100; i++) {
-    int32_t ttl = rnd.Next() % 100;
+    uint64_t ttl = rnd.Next() % 100;
     PutRandomWithTTL("key" + ToString(i), ttl, &rnd,
                      (ttl < 50 ? nullptr : &data));
   }
@@ -203,7 +204,7 @@ TEST_F(BlobDBTest, PutUntil) {
   std::map<std::string, std::string> data;
   mock_env_->set_now_micros(50 * 1000000);
   for (size_t i = 0; i < 100; i++) {
-    int32_t expiration = rnd.Next() % 100 + 50;
+    uint64_t expiration = rnd.Next() % 100 + 50;
     PutRandomUntil("key" + ToString(i), expiration, &rnd,
                    (expiration < 100 ? nullptr : &data));
   }
@@ -510,18 +511,35 @@ TEST_F(BlobDBTest, Compression) {
 }
 #endif
 
-TEST_F(BlobDBTest, DISABLED_MultipleWriters) {
-  Open();
+TEST_F(BlobDBTest, MultipleWriters) {
+  Open(BlobDBOptions());
 
   std::vector<port::Thread> workers;
-  for (size_t ii = 0; ii < 10; ii++)
-    workers.push_back(port::Thread(&BlobDBTest::InsertBlobs, this));
-
-  for (auto& t : workers) {
-    if (t.joinable()) {
-      t.join();
+  std::vector<std::map<std::string, std::string>> data_set(10);
+  for (uint32_t i = 0; i < 10; i++)
+    workers.push_back(port::Thread(
+        [&](uint32_t id) {
+          Random rnd(301 + id);
+          for (int j = 0; j < 100; j++) {
+            std::string key = "key" + ToString(id) + "_" + ToString(j);
+            if (id < 5) {
+              PutRandom(key, &rnd, &data_set[id]);
+            } else {
+              WriteBatch batch;
+              PutRandomToWriteBatch(key, &rnd, &batch, &data_set[id]);
+              blob_db_->Write(WriteOptions(), &batch);
+            }
+          }
+        },
+        i));
+  std::map<std::string, std::string> data;
+  for (size_t i = 0; i < 10; i++) {
+    if (workers[i].joinable()) {
+      workers[i].join();
     }
+    data.insert(data_set[i].begin(), data_set[i].end());
   }
+  VerifyDB(data);
 }
 
 // Test sequence number store in blob file is correct.
@@ -531,7 +549,8 @@ TEST_F(BlobDBTest, SequenceNumber) {
   bdb_options.disable_background_tasks = true;
   Open(bdb_options);
   SequenceNumber sequence = blob_db_->GetLatestSequenceNumber();
-  BlobDBImpl *blob_db_impl = reinterpret_cast<BlobDBImpl *>(blob_db_);
+  BlobDBImpl *blob_db_impl =
+      static_cast_with_check<BlobDBImpl, BlobDB>(blob_db_);
   for (int i = 0; i < 100; i++) {
     std::string key = "key" + ToString(i);
     PutRandom(key, &rnd);
@@ -558,6 +577,44 @@ TEST_F(BlobDBTest, SequenceNumber) {
     }
     ASSERT_EQ(sequence, blob_db_->GetLatestSequenceNumber());
   }
+}
+
+TEST_F(BlobDBTest, GCShouldKeepKeysWithNewerVersion) {
+  Random rnd(301);
+  BlobDBOptions bdb_options;
+  bdb_options.disable_background_tasks = true;
+  Open(bdb_options);
+  BlobDBImpl *blob_db_impl =
+      static_cast_with_check<BlobDBImpl, BlobDB>(blob_db_);
+  DBImpl *db_impl = static_cast_with_check<DBImpl, DB>(blob_db_->GetBaseDB());
+  std::map<std::string, std::string> data;
+  for (int i = 0; i < 200; i++) {
+    PutRandom("key" + ToString(i), &rnd, &data);
+  }
+  auto blob_files = blob_db_impl->TEST_GetBlobFiles();
+  ASSERT_EQ(1, blob_files.size());
+  blob_db_impl->TEST_CloseBlobFile(blob_files[0]);
+  // Test for data in SST
+  size_t new_keys = 0;
+  for (int i = 0; i < 100; i++) {
+    if (rnd.Next() % 2 == 1) {
+      new_keys++;
+      PutRandom("key" + ToString(i), &rnd, &data);
+    }
+  }
+  db_impl->TEST_FlushMemTable(true /*wait*/);
+  // Test for data in memtable
+  for (int i = 100; i < 200; i++) {
+    if (rnd.Next() % 2 == 1) {
+      new_keys++;
+      PutRandom("key" + ToString(i), &rnd, &data);
+    }
+  }
+  GCStats gc_stats;
+  ASSERT_OK(blob_db_impl->TEST_GCFileAndUpdateLSM(blob_files[0], &gc_stats));
+  ASSERT_EQ(0, gc_stats.num_deletes);
+  ASSERT_EQ(200 - new_keys, gc_stats.num_relocs);
+  VerifyDB(data);
 }
 
 }  //  namespace blob_db
