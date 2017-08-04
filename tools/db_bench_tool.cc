@@ -1350,9 +1350,8 @@ static std::unordered_map<OperationType, std::string, std::hash<unsigned char>>
 class CombinedStats;
 class Stats {
  private:
-   // Used for async env reporting
-   std::mutex    lock_;
-   const   bool  sync_stats_;
+  // Used for async env reporting
+  std::mutex    lock_;
   int id_;
   std::atomic_uint64_t start_;
   std::atomic_uint64_t finish_;
@@ -1371,12 +1370,11 @@ class Stats {
   friend class CombinedStats;
 
  public:
-  Stats(bool sync_stats = false) : 
-    sync_stats_(sync_stats) { 
+  Stats() { 
     Start(-1);
   }
 
-  Stats(Stats&& o) : Stats(o.sync_stats_) {
+  Stats(Stats&& o) : Stats() {
     *this = std::move(o);
   }
 
@@ -1498,11 +1496,6 @@ class Stats {
     }
 
     {
-      std::unique_lock<std::mutex> ulock;
-      if (sync_stats_) {
-        std::unique_lock<std::mutex> l(lock_);
-        ulock = std::move(l);
-      }
       if (FLAGS_histogram) {
         uint64_t now = FLAGS_env->NowMicros();
         uint64_t micros = now - last_op_finish_;
@@ -1610,6 +1603,130 @@ class Stats {
       }
       if (id_ == 0 && FLAGS_thread_status_per_interval) {
         PrintThreadStatus();
+      }
+      fflush(stderr);
+    }
+  }
+
+  void FinishedOps(DBWithColumnFamilies* db_with_cfh, DB* db, int64_t num_ops,
+    uint64_t elapsed_us, enum OperationType op_type = kOthers) {
+
+    if (reporter_agent_) {
+      reporter_agent_->ReportFinishedOps(num_ops);
+    }
+
+    auto done = done_.fetch_add(num_ops, std::memory_order_relaxed)
+      + num_ops;
+
+    bool run_report = false;
+    int64_t  usecs_since_last = 0;
+    uint64_t now = FLAGS_env->NowMicros();
+    {
+      std::lock_guard<std::mutex> lg(lock_);
+
+      if (FLAGS_histogram) {
+        auto& impl = hist_[op_type];
+        if (!impl) {
+          impl = std::move(std::make_shared<HistogramImpl>());
+        }
+        impl->Add(elapsed_us);
+
+        if (elapsed_us > 20000 && !FLAGS_stats_interval) {
+          fprintf(stderr, "long op: %" PRIu64 " micros%30s\r", elapsed_us, "");
+          fflush(stderr);
+        }
+      }
+
+      run_report = done >= next_report_;
+      usecs_since_last = now - last_report_finish_;
+
+      if (run_report) {
+        if (!FLAGS_stats_interval) {
+          if (next_report_ < 1000)   next_report_ += 100;
+          else if (next_report_ < 5000)   next_report_ += 500;
+          else if (next_report_ < 10000)  next_report_ += 1000;
+          else if (next_report_ < 50000)  next_report_ += 5000;
+          else if (next_report_ < 100000) next_report_ += 10000;
+          else if (next_report_ < 500000) next_report_ += 50000;
+          else                            next_report_ += 100000;
+          fprintf(stderr, "... finished %" PRIu64 " ops%30s\r",
+            done, "");
+        } else {
+
+          last_report_finish_ = now;
+          last_report_done_ = done_;
+
+          // Determine whether to print status where interval is either
+          // each N operations or each N seconds.
+
+          if (FLAGS_stats_interval_seconds &&
+            usecs_since_last < (FLAGS_stats_interval_seconds * 1000000)) {
+            // Don't check again for this many operations
+            next_report_ += FLAGS_stats_interval;
+          } else {
+            next_report_ += FLAGS_stats_interval;
+          }
+        }
+      } else {
+        return;
+      }
+    }
+
+    if (!FLAGS_stats_interval_seconds ||
+      usecs_since_last >= (FLAGS_stats_interval_seconds * 1000000)) {
+
+      fprintf(stderr,
+        "%s ... thread %d: (%" PRIu64 ",%" PRIu64 ") ops and "
+        "(%.1f,%.1f) ops/second in (%.6f,%.6f) seconds\n",
+        FLAGS_env->TimeToString(now / 1000000).c_str(),
+        id_,
+        done - last_report_done_, done,
+        (done - last_report_done_) /
+        (usecs_since_last / 1000000.0),
+        done / ((now - start_) / 1000000.0),
+        (now - last_report_finish_) / 1000000.0,
+        (now - start_) / 1000000.0);
+
+      if (id_ == 0 && FLAGS_stats_per_interval) {
+        std::string stats;
+
+        if (db_with_cfh && db_with_cfh->num_created.load()) {
+          for (size_t i = 0; i < db_with_cfh->num_created.load(); ++i) {
+            if (db->GetProperty(db_with_cfh->cfh[i], "rocksdb.cfstats",
+              &stats))
+              fprintf(stderr, "%s\n", stats.c_str());
+            if (FLAGS_show_table_properties) {
+              for (int level = 0; level < FLAGS_num_levels; ++level) {
+                if (db->GetProperty(
+                  db_with_cfh->cfh[i],
+                  "rocksdb.aggregated-table-properties-at-level" +
+                  ToString(level),
+                  &stats)) {
+                  if (stats.find("# entries=0") == std::string::npos) {
+                    fprintf(stderr, "Level[%d]: %s\n", level,
+                      stats.c_str());
+                  }
+                }
+              }
+            }
+          }
+        } else if (db) {
+          if (db->GetProperty("rocksdb.stats", &stats)) {
+            fprintf(stderr, "%s\n", stats.c_str());
+          }
+          if (FLAGS_show_table_properties) {
+            for (int level = 0; level < FLAGS_num_levels; ++level) {
+              if (db->GetProperty(
+                "rocksdb.aggregated-table-properties-at-level" +
+                ToString(level),
+                &stats)) {
+                if (stats.find("# entries=0") == std::string::npos) {
+                  fprintf(stderr, "Level[%d]: %s\n", level, stats.c_str());
+                }
+              }
+            }
+          }
+        }
       }
       fflush(stderr);
     }
@@ -1778,10 +1895,10 @@ struct ThreadState {
   Stats stats;
   SharedState* shared;
 
-  /* implicit */ ThreadState(int index, bool sync_stats = false)
+  /* implicit */ ThreadState(int index)
       : tid(index),
         rand((FLAGS_seed ? FLAGS_seed : 1000) + index),
-        stats(sync_stats) {
+        stats() {
   }
 };
 
@@ -2210,14 +2327,12 @@ class Benchmark {
 
 #ifdef OS_WIN
     if (FLAGS_run_async) {
-      //if (FLAGS_threads < 2) {
-      //  fprintf(stderr,
-      //          "Running async requires many threads");
-      //  exit(1);
-      //}
       thread_pool_.reset(new port::VistaThreadPool(port::MemoryArenaId(), FLAGS_threads));
-      auto max_threads = std::min(FLAGS_threads * 2, 64);
-      bool result = thread_pool_->SetMinMaxThreadCount(FLAGS_threads, max_threads);
+      const size_t maxThreads = 500;
+      SYSTEM_INFO sinfo;
+      GetSystemInfo(&sinfo);
+      size_t minThreads = sinfo.dwNumberOfProcessors * 2;
+      bool result = thread_pool_->SetMinMaxThreadCount(minThreads, maxThreads);
       if (!result) {
         fprintf(stderr,
           "Failed to set MinMaxThreads on the threadpool");
@@ -2226,8 +2341,6 @@ class Benchmark {
       auto tp_handle = thread_pool_->CreateTaskPool();
       auto io_compl_tp = FLAGS_env->CreateAsyncThreadPool(&tp_handle);
       async_tp_ = std::move(io_compl_tp);
-
-      
     }
 #endif
 
@@ -2832,7 +2945,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 
     for (int i = 0; i < n; i++) {
 
-      states[i].reset(new ThreadState(i, true));
+      states[i].reset(new ThreadState(i));
       states[i]->stats.SetReporterAgent(reporter_agent.get());
       states[i]->shared = &shared;
 
@@ -4250,7 +4363,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       found_(0),
       bytes_(0),
       in_flight_(0),
-      stop_(false) {
+      start_(0) {
     }
 
     std::unique_ptr<AsyncBenchBase> Clone() override {
@@ -4259,10 +4372,6 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     }
 
   private:
-
-#ifdef _DEBUG
-#define DSM_TIME_REQ
-#endif
 
     friend struct RandomReadContext;
 
@@ -4294,10 +4403,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     Status RequestGet() {
 
       CtxPtr ctx = AcquireInitContext();
-
-#ifdef DSM_TIME_REQ
       ctx->start_ = FLAGS_env->NowMicros();
-#endif
 
       Status s;
       if (LIKELY(FLAGS_pin_slice == 1)) {
@@ -4322,7 +4428,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       OnInitialized();
 
       bool done = false;
-      int32_t in_flight = 0;
+      int32_t in_flight = in_flight_;
 
       {
         std::unique_lock<std::mutex> l(m_);
@@ -4330,10 +4436,14 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 
           if (!done) {
             while (in_flight_ < conc_io_ops_) {
-              auto bound = std::bind(&ReadRandomAsync::RequestOnThreadPool, this);
-              std::function<void()> f(bound);
-              thread_pool_->SubmitWork(std::move(f));
-              in_flight = ++in_flight_;
+              Status s = RequestGet();
+              if (s.IsIOPending()) {
+                ++in_flight_;
+                ++in_flight;
+              } else {
+                // to properly account things that were done
+                ++in_flight;
+              }
             }
           }
 
@@ -4346,6 +4456,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
               done = duration_.Done(diff);
             }
           }
+          in_flight = in_flight_;
         }
       }
 
@@ -4405,7 +4516,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     std::mutex              m_;
     std::condition_variable c_;
     int32_t                 in_flight_;
-    bool                    stop_;
+    uint64_t                start_;
   };
 
   struct RandomReadContext : public async::AsyncStatusCapture {
@@ -4448,11 +4559,16 @@ void VerifyDBFromDB(std::string& truth_db_name) {
           status.ToString().c_str());
         abort();
       }
-      bench_->thread_->stats.FinishedOps(db_with_cfh_,
-        db_with_cfh_->db, 1, kRead);
-#ifdef DSM_TIME_REQ
-      fprintf(stderr, "t %" PRIu64 "\n", FLAGS_env->NowMicros() - start_);
+
+      auto elapsed_us = FLAGS_env->NowMicros() - start_;
+
+#ifdef _DEBUG
+      fprintf(stderr, "t %" PRIu64 "\n", elapsed_us);
 #endif
+
+      bench_->thread_->stats.FinishedOps(db_with_cfh_,
+        db_with_cfh_->db, 1, elapsed_us, kRead);
+
       if (async()) {
         // ping on continue
         bench_->ReadComplete(this);
