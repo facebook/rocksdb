@@ -61,8 +61,8 @@ Status BlobLogFooter::DecodeFrom(const Slice& input) {
   }
 
   ttlrange_t temp_ttl;
-  if (!GetFixed32(&slice, &temp_ttl.first) ||
-      !GetFixed32(&slice, &temp_ttl.second)) {
+  if (!GetFixed64(&slice, &temp_ttl.first) ||
+      !GetFixed64(&slice, &temp_ttl.second)) {
     return Status::Corruption("Invalid Blob Footer: ttl_range");
   }
   if (has_ttl) {
@@ -108,11 +108,11 @@ void BlobLogFooter::EncodeTo(std::string* dst) const {
   bool has_ts = HasTimestamp();
 
   if (has_ttl) {
-    PutFixed32(dst, ttl_range_.get()->first);
-    PutFixed32(dst, ttl_range_.get()->second);
+    PutFixed64(dst, ttl_range_.get()->first);
+    PutFixed64(dst, ttl_range_.get()->second);
   } else {
-    PutFixed32(dst, 0);
-    PutFixed32(dst, 0);
+    PutFixed64(dst, 0);
+    PutFixed64(dst, 0);
   }
   PutFixed64(dst, sn_range_.first);
   PutFixed64(dst, sn_range_.second);
@@ -149,11 +149,11 @@ void BlobLogHeader::EncodeTo(std::string* dst) const {
   PutFixed32(dst, val);
 
   if (has_ttl) {
-    PutFixed32(dst, ttl_guess_.get()->first);
-    PutFixed32(dst, ttl_guess_.get()->second);
+    PutFixed64(dst, ttl_guess_.get()->first);
+    PutFixed64(dst, ttl_guess_.get()->second);
   } else {
-    PutFixed32(dst, 0);
-    PutFixed32(dst, 0);
+    PutFixed64(dst, 0);
+    PutFixed64(dst, 0);
   }
 
   if (has_ts) {
@@ -199,11 +199,13 @@ Status BlobLogHeader::DecodeFrom(const Slice& input) {
   }
 
   ttlrange_t temp_ttl;
-  if (!GetFixed32(&slice, &temp_ttl.first) ||
-      !GetFixed32(&slice, &temp_ttl.second)) {
+  if (!GetFixed64(&slice, &temp_ttl.first) ||
+      !GetFixed64(&slice, &temp_ttl.second)) {
     return Status::Corruption("Invalid Blob Log Header: ttl");
   }
-  if (has_ttl) set_ttl_guess(temp_ttl);
+  if (has_ttl) {
+    set_ttl_guess(temp_ttl);
+  }
 
   tsrange_t temp_ts;
   if (!GetFixed64(&slice, &temp_ts.first) ||
@@ -265,7 +267,7 @@ Status BlobLogRecord::DecodeHeaderFrom(const Slice& hdrslice) {
   if (!GetFixed64(&input, &blob_size_)) {
     return Status::Corruption("Invalid Blob Record Header: blob_size");
   }
-  if (!GetFixed32(&input, &ttl_val_)) {
+  if (!GetFixed64(&input, &ttl_val_)) {
     return Status::Corruption("Invalid Blob Record Header: ttl_val");
   }
   if (!GetFixed64(&input, &time_val_)) {
