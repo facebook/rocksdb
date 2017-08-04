@@ -17,6 +17,7 @@
 #include "rocksdb/utilities/transaction_db.h"
 #include "utilities/transactions/transaction_impl.h"
 #include "utilities/transactions/transaction_lock_mgr.h"
+#include "utilities/transactions/write_prepared_transaction_impl.h"
 
 namespace rocksdb {
 
@@ -133,6 +134,23 @@ class WriteCommittedTxnDBImpl : public PessimisticTxnDB {
       : PessimisticTxnDB(db, txn_db_options){};
 
   virtual ~WriteCommittedTxnDBImpl(){};
+
+  Transaction* BeginTransaction(const WriteOptions& write_options,
+                                const TransactionOptions& txn_options,
+                                Transaction* old_txn) override;
+};
+
+class WritePreparedTxnDBImpl : public PessimisticTxnDB {
+ public:
+  explicit WritePreparedTxnDBImpl(DB* db,
+                                  const TransactionDBOptions& txn_db_options)
+      : PessimisticTxnDB(db, txn_db_options){};
+
+  explicit WritePreparedTxnDBImpl(StackableDB* db,
+                                  const TransactionDBOptions& txn_db_options)
+      : PessimisticTxnDB(db, txn_db_options){};
+
+  virtual ~WritePreparedTxnDBImpl(){};
 
   Transaction* BeginTransaction(const WriteOptions& write_options,
                                 const TransactionOptions& txn_options,

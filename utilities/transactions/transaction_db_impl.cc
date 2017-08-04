@@ -132,6 +132,17 @@ Transaction* WriteCommittedTxnDBImpl::BeginTransaction(
   }
 }
 
+Transaction* WritePreparedTxnDBImpl::BeginTransaction(
+    const WriteOptions& write_options, const TransactionOptions& txn_options,
+    Transaction* old_txn) {
+  if (old_txn != nullptr) {
+    ReinitializeTransaction(old_txn, write_options, txn_options);
+    return old_txn;
+  } else {
+    return new WritePreparedTxnImpl(this, write_options, txn_options);
+  }
+}
+
 TransactionDBOptions PessimisticTxnDB::ValidateTxnDBOptions(
     const TransactionDBOptions& txn_db_options) {
   TransactionDBOptions validated = txn_db_options;
@@ -215,9 +226,11 @@ Status TransactionDB::WrapDB(
     const std::vector<ColumnFamilyHandle*>& handles, TransactionDB** dbptr) {
   PessimisticTxnDB* txn_db;
   switch (txn_db_options.write_policy) {
-    case WRITE_PREPARED:
     case WRITE_UNPREPARED:
       return Status::NotSupported("WRITE_UNPREPARED is not implemented yet");
+    case WRITE_PREPARED:
+      txn_db = new WritePreparedTxnDBImpl(
+          db, PessimisticTxnDB::ValidateTxnDBOptions(txn_db_options));
     case WRITE_COMMITTED:
     default:
       txn_db = new WriteCommittedTxnDBImpl(
@@ -237,9 +250,11 @@ Status TransactionDB::WrapStackableDB(
     const std::vector<ColumnFamilyHandle*>& handles, TransactionDB** dbptr) {
   PessimisticTxnDB* txn_db;
   switch (txn_db_options.write_policy) {
-    case WRITE_PREPARED:
     case WRITE_UNPREPARED:
       return Status::NotSupported("WRITE_UNPREPARED is not implemented yet");
+    case WRITE_PREPARED:
+      txn_db = new WritePreparedTxnDBImpl(
+          db, PessimisticTxnDB::ValidateTxnDBOptions(txn_db_options));
     case WRITE_COMMITTED:
     default:
       txn_db = new WriteCommittedTxnDBImpl(
