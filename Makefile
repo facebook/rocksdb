@@ -260,11 +260,11 @@ CCNAME = $(shell $(CXX) --version | awk 'NR==1' | cut -f1 -d " ")
 
 ifeq ($(CCNAME), clang)
 ifeq ($(CCVERSION), 4*)
-	CXXFLAGS += -faligned-new
+	WARNING_FLAGS += -faligned-new
 endif
 else
 ifeq ($(CCVERSION), 7)
-	CXXFLAGS += -faligned-new
+	WARNING_FLAGS += -faligned-new
 endif
 endif
 
