@@ -50,7 +50,7 @@ struct BlobDBOptions {
   // first bucket is 1471542000 - 1471542600
   // second bucket is 1471542600 - 1471543200
   // and so on
-  uint32_t ttl_range_secs = 3600;
+  uint64_t ttl_range_secs = 3600;
 
   // at what bytes will the blob files be synced to blob log.
   uint64_t bytes_per_sync = 0;
@@ -97,21 +97,21 @@ class BlobDB : public StackableDB {
 
   virtual Status PutWithTTL(const WriteOptions& options,
                             ColumnFamilyHandle* column_family, const Slice& key,
-                            const Slice& value, int32_t ttl) = 0;
+                            const Slice& value, uint64_t ttl) = 0;
 
   virtual Status PutWithTTL(const WriteOptions& options, const Slice& key,
-                            const Slice& value, int32_t ttl) {
+                            const Slice& value, uint64_t ttl) {
     return PutWithTTL(options, DefaultColumnFamily(), key, value, ttl);
   }
 
-  // Put with expiration. Key with expiration time equal to -1
-  // means the key don't expire.
+  // Put with expiration. Key with expiration time equal to
+  // std::numeric_limits<uint64_t>::max() means the key don't expire.
   virtual Status PutUntil(const WriteOptions& options,
                           ColumnFamilyHandle* column_family, const Slice& key,
-                          const Slice& value, int32_t expiration) = 0;
+                          const Slice& value, uint64_t expiration) = 0;
 
   virtual Status PutUntil(const WriteOptions& options, const Slice& key,
-                          const Slice& value, int32_t expiration) {
+                          const Slice& value, uint64_t expiration) {
     return PutUntil(options, DefaultColumnFamily(), key, value, expiration);
   }
 

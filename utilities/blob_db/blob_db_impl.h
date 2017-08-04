@@ -202,9 +202,6 @@ class BlobDBImpl : public BlobDB {
   // how often to schedule check seq files period
   static constexpr uint32_t kCheckSeqFilesPeriodMillisecs = 10 * 1000;
 
-  static constexpr uint64_t kNoExpiration =
-      std::numeric_limits<uint64_t>::max();
-
   using rocksdb::StackableDB::Put;
   Status Put(const WriteOptions& options, ColumnFamilyHandle* column_family,
              const Slice& key, const Slice& value) override;
@@ -238,12 +235,12 @@ class BlobDBImpl : public BlobDB {
   using BlobDB::PutWithTTL;
   Status PutWithTTL(const WriteOptions& options,
                     ColumnFamilyHandle* column_family, const Slice& key,
-                    const Slice& value, int32_t ttl) override;
+                    const Slice& value, uint64_t ttl) override;
 
   using BlobDB::PutUntil;
   Status PutUntil(const WriteOptions& options,
                   ColumnFamilyHandle* column_family, const Slice& key,
-                  const Slice& value_unc, int32_t expiration) override;
+                  const Slice& value_unc, uint64_t expiration) override;
 
   Status LinkToBaseDB(DB* db) override;
 
@@ -290,7 +287,7 @@ class BlobDBImpl : public BlobDB {
   // has expired or if threshold of the file has been evicted
   // tt - current time
   // last_id - the id of the non-TTL file to evict
-  bool ShouldGCFile(std::shared_ptr<BlobFile> bfile, std::time_t tt,
+  bool ShouldGCFile(std::shared_ptr<BlobFile> bfile, uint64_t now,
                     uint64_t last_id, std::string* reason);
 
   // collect all the blob log files from the blob directory
@@ -299,8 +296,8 @@ class BlobDBImpl : public BlobDB {
   // appends a task into timer queue to close the file
   void CloseIf(const std::shared_ptr<BlobFile>& bfile);
 
-  int32_t ExtractExpiration(const Slice& key, const Slice& value,
-                            Slice* value_slice, std::string* new_value);
+  uint64_t ExtractExpiration(const Slice& key, const Slice& value,
+                             Slice* value_slice, std::string* new_value);
 
   Status AppendBlob(const std::shared_ptr<BlobFile>& bfile,
                     const std::string& headerbuf, const Slice& key,
@@ -311,12 +308,12 @@ class BlobDBImpl : public BlobDB {
 
   // find an existing blob log file based on the expiration unix epoch
   // if such a file does not exist, return nullptr
-  std::shared_ptr<BlobFile> SelectBlobFileTTL(uint32_t expiration);
+  std::shared_ptr<BlobFile> SelectBlobFileTTL(uint64_t expiration);
 
   // find an existing blob log file to append the value to
   std::shared_ptr<BlobFile> SelectBlobFile();
 
-  std::shared_ptr<BlobFile> FindBlobFileLocked(uint32_t expiration) const;
+  std::shared_ptr<BlobFile> FindBlobFileLocked(uint64_t expiration) const;
 
   void UpdateWriteOptions(const WriteOptions& options);
 
