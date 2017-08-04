@@ -30,7 +30,7 @@
 
 namespace rocksdb {
 
-class TransactionDBImpl;
+class PessimisticTxnDB;
 class PessimisticTxn;
 
 // A transaction under pessimistic concurrency control. This class implements
@@ -121,7 +121,7 @@ class PessimisticTxn : public TransactionBaseImpl {
 
   void Clear() override;
 
-  TransactionDBImpl* txn_db_impl_;
+  PessimisticTxnDB* txn_db_impl_;
   DBImpl* db_impl_;
 
   // If non-zero, this transaction should not be committed after this time (in

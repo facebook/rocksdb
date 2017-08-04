@@ -48,7 +48,7 @@ PessimisticTxn::PessimisticTxn(TransactionDB* txn_db,
       deadlock_detect_(false),
       deadlock_detect_depth_(0) {
   txn_db_impl_ =
-      static_cast_with_check<TransactionDBImpl, TransactionDB>(txn_db);
+      static_cast_with_check<PessimisticTxnDB, TransactionDB>(txn_db);
   db_impl_ = static_cast_with_check<DBImpl, DB>(db_);
   Initialize(txn_options);
 }

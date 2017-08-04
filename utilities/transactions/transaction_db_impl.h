@@ -20,22 +20,21 @@
 
 namespace rocksdb {
 
-class TransactionDBImpl : public TransactionDB {
+class PessimisticTxnDB : public TransactionDB {
  public:
-  explicit TransactionDBImpl(DB* db,
-                             const TransactionDBOptions& txn_db_options);
+  explicit PessimisticTxnDB(DB* db, const TransactionDBOptions& txn_db_options);
 
-  explicit TransactionDBImpl(StackableDB* db,
-                             const TransactionDBOptions& txn_db_options);
+  explicit PessimisticTxnDB(StackableDB* db,
+                            const TransactionDBOptions& txn_db_options);
 
-  ~TransactionDBImpl();
+  virtual ~PessimisticTxnDB();
 
   Status Initialize(const std::vector<size_t>& compaction_enabled_cf_indices,
                     const std::vector<ColumnFamilyHandle*>& handles);
 
   Transaction* BeginTransaction(const WriteOptions& write_options,
                                 const TransactionOptions& txn_options,
-                                Transaction* old_txn) override;
+                                Transaction* old_txn) override = 0;
 
   using StackableDB::Put;
   virtual Status Put(const WriteOptions& options,
@@ -97,11 +96,12 @@ class TransactionDBImpl : public TransactionDB {
 
   TransactionLockMgr::LockStatusData GetLockStatusData() override;
 
- private:
+ protected:
   void ReinitializeTransaction(
       Transaction* txn, const WriteOptions& write_options,
       const TransactionOptions& txn_options = TransactionOptions());
 
+ private:
   DBImpl* db_impl_;
   const TransactionDBOptions txn_db_options_;
   TransactionLockMgr lock_mgr_;
@@ -120,6 +120,23 @@ class TransactionDBImpl : public TransactionDB {
   // map from name to two phase transaction instance
   std::mutex name_map_mutex_;
   std::unordered_map<TransactionName, Transaction*> transactions_;
+};
+
+class WriteCommittedTxnDBImpl : public PessimisticTxnDB {
+ public:
+  explicit WriteCommittedTxnDBImpl(DB* db,
+                                   const TransactionDBOptions& txn_db_options)
+      : PessimisticTxnDB(db, txn_db_options){};
+
+  explicit WriteCommittedTxnDBImpl(StackableDB* db,
+                                   const TransactionDBOptions& txn_db_options)
+      : PessimisticTxnDB(db, txn_db_options){};
+
+  virtual ~WriteCommittedTxnDBImpl(){};
+
+  Transaction* BeginTransaction(const WriteOptions& write_options,
+                                const TransactionOptions& txn_options,
+                                Transaction* old_txn) override;
 };
 
 }  //  namespace rocksdb

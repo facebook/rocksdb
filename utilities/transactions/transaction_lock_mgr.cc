@@ -115,7 +115,7 @@ TransactionLockMgr::TransactionLockMgr(
       mutex_factory_(mutex_factory) {
   assert(txn_db);
   txn_db_impl_ =
-      static_cast_with_check<TransactionDBImpl, TransactionDB>(txn_db);
+      static_cast_with_check<PessimisticTxnDB, TransactionDB>(txn_db);
 }
 
 TransactionLockMgr::~TransactionLockMgr() {}
