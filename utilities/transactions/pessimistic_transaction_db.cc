@@ -231,6 +231,7 @@ Status TransactionDB::WrapDB(
     case WRITE_PREPARED:
       txn_db = new WritePreparedTxnDB(
           db, PessimisticTransactionDB::ValidateTxnDBOptions(txn_db_options));
+      break;
     case WRITE_COMMITTED:
     default:
       txn_db = new WriteCommittedTxnDB(
@@ -255,6 +256,7 @@ Status TransactionDB::WrapStackableDB(
     case WRITE_PREPARED:
       txn_db = new WritePreparedTxnDB(
           db, PessimisticTransactionDB::ValidateTxnDBOptions(txn_db_options));
+      break;
     case WRITE_COMMITTED:
     default:
       txn_db = new WriteCommittedTxnDB(

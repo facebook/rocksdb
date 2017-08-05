@@ -130,13 +130,13 @@ class WriteCommittedTxnDB : public PessimisticTransactionDB {
  public:
   explicit WriteCommittedTxnDB(DB* db,
                                const TransactionDBOptions& txn_db_options)
-      : PessimisticTransactionDB(db, txn_db_options){};
+      : PessimisticTransactionDB(db, txn_db_options) {}
 
   explicit WriteCommittedTxnDB(StackableDB* db,
                                const TransactionDBOptions& txn_db_options)
-      : PessimisticTransactionDB(db, txn_db_options){};
+      : PessimisticTransactionDB(db, txn_db_options) {}
 
-  virtual ~WriteCommittedTxnDB(){};
+  virtual ~WriteCommittedTxnDB() {}
 
   Transaction* BeginTransaction(const WriteOptions& write_options,
                                 const TransactionOptions& txn_options,
@@ -150,13 +150,13 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
  public:
   explicit WritePreparedTxnDB(DB* db,
                               const TransactionDBOptions& txn_db_options)
-      : PessimisticTransactionDB(db, txn_db_options){};
+      : PessimisticTransactionDB(db, txn_db_options) {}
 
   explicit WritePreparedTxnDB(StackableDB* db,
                               const TransactionDBOptions& txn_db_options)
-      : PessimisticTransactionDB(db, txn_db_options){};
+      : PessimisticTransactionDB(db, txn_db_options) {}
 
-  virtual ~WritePreparedTxnDB(){};
+  virtual ~WritePreparedTxnDB() {}
 
   Transaction* BeginTransaction(const WriteOptions& write_options,
                                 const TransactionOptions& txn_options,
