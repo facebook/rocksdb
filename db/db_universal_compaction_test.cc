@@ -1406,6 +1406,7 @@ TEST_P(DBTestUniversalCompaction, FullCompactionInBottomPriThreadPool) {
     ASSERT_EQ(NumSortedRuns(), 1);
     rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   }
+  Env::Default()->SetBackgroundThreads(0, Env::Priority::BOTTOM);
 }
 
 TEST_P(DBTestUniversalCompaction, ConcurrentBottomPriLowPriCompactions) {
@@ -1460,6 +1461,7 @@ TEST_P(DBTestUniversalCompaction, ConcurrentBottomPriLowPriCompactions) {
   ASSERT_GT(NumTableFilesAtLevel(0), 0);
   ASSERT_GT(NumTableFilesAtLevel(num_levels_ - 1), 0);
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  Env::Default()->SetBackgroundThreads(0, Env::Priority::BOTTOM);
 }
 
 TEST_P(DBTestUniversalCompaction, RecalculateScoreAfterPicking) {
