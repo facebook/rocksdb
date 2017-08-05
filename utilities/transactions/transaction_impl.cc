@@ -22,7 +22,7 @@
 #include "util/cast_util.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
-#include "utilities/transactions/transaction_db_impl.h"
+#include "utilities/transactions/pessimistic_transaction_db.h"
 #include "utilities/transactions/transaction_util.h"
 
 namespace rocksdb {
@@ -48,7 +48,7 @@ PessimisticTxn::PessimisticTxn(TransactionDB* txn_db,
       deadlock_detect_(false),
       deadlock_detect_depth_(0) {
   txn_db_impl_ =
-      static_cast_with_check<TransactionDBImpl, TransactionDB>(txn_db);
+      static_cast_with_check<PessimisticTransactionDB, TransactionDB>(txn_db);
   db_impl_ = static_cast_with_check<DBImpl, DB>(db_);
   Initialize(txn_options);
 }

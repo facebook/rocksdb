@@ -27,7 +27,7 @@ struct LockMap;
 struct LockMapStripe;
 
 class Slice;
-class TransactionDBImpl;
+class PessimisticTransactionDB;
 
 class TransactionLockMgr {
  public:
@@ -61,7 +61,7 @@ class TransactionLockMgr {
   LockStatusData GetLockStatusData();
 
  private:
-  TransactionDBImpl* txn_db_impl_;
+  PessimisticTransactionDB* txn_db_impl_;
 
   // Default number of lock map stripes per column family
   const size_t default_num_stripes_;
