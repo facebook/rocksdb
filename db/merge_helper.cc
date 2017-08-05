@@ -201,12 +201,11 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
           ikey.sequence <= latest_snapshot_
               ? CompactionFilter::Decision::kKeep
               : FilterMerge(orig_ikey.user_key, value_slice);
-      if (range_del_agg != nullptr &&
-
+      if (filter != CompactionFilter::Decision::kRemoveAndSkipUntil &&
+          range_del_agg != nullptr &&
           range_del_agg->ShouldDelete(
               iter->key(),
-              RangeDelAggregator::RangePositioningMode::kForwardTraversal) &&
-          filter != CompactionFilter::Decision::kRemoveAndSkipUntil) {
+              RangeDelAggregator::RangePositioningMode::kForwardTraversal)) {
         filter = CompactionFilter::Decision::kRemove;
       }
       if (filter == CompactionFilter::Decision::kKeep ||
