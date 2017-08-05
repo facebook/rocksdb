@@ -46,9 +46,9 @@ class PessimisticTxn : public TransactionBaseImpl {
   void Reinitialize(TransactionDB* txn_db, const WriteOptions& write_options,
                     const TransactionOptions& txn_options);
 
-  Status Prepare() override = 0;
+  Status Prepare() override;
 
-  Status Commit() override = 0;
+  Status Commit() override;
 
   virtual Status CommitBatch(WriteBatch* batch) = 0;
 
@@ -111,6 +111,12 @@ class PessimisticTxn : public TransactionBaseImpl {
   int64_t GetDeadlockDetectDepth() const { return deadlock_detect_depth_; }
 
  protected:
+  virtual Status PrepareInternal() = 0;
+
+  virtual Status CommitSingleInternal() = 0;
+
+  virtual Status CommitInternal() = 0;
+
   void Initialize(const TransactionOptions& txn_options);
 
   Status LockBatch(WriteBatch* batch, TransactionKeyMap* keys_to_unlock);
@@ -181,15 +187,17 @@ class WriteCommittedTxnImpl : public PessimisticTxn {
 
   virtual ~WriteCommittedTxnImpl() {}
 
-  Status Prepare() override;
-
-  Status Commit() override;
-
   Status CommitBatch(WriteBatch* batch) override;
 
   Status Rollback() override;
 
  private:
+  Status PrepareInternal() override;
+
+  Status CommitSingleInternal() override;
+
+  Status CommitInternal() override;
+
   Status ValidateSnapshot(ColumnFamilyHandle* column_family, const Slice& key,
                           SequenceNumber prev_seqno, SequenceNumber* new_seqno);
 

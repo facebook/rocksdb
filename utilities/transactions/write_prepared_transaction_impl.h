@@ -44,15 +44,17 @@ class WritePreparedTxnImpl : public PessimisticTxn {
 
   virtual ~WritePreparedTxnImpl() {}
 
-  Status Prepare() override;
-
-  Status Commit() override;
-
   Status CommitBatch(WriteBatch* batch) override;
 
   Status Rollback() override;
 
  private:
+  Status PrepareInternal() override;
+
+  Status CommitSingleInternal() override;
+
+  Status CommitInternal() override;
+
   // TODO(myabandeh): verify that the current impl work with values being
   // written with prepare sequence number too.
   // Status ValidateSnapshot(ColumnFamilyHandle* column_family, const Slice&

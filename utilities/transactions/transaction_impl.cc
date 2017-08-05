@@ -163,7 +163,7 @@ Status WriteCommittedTxnImpl::CommitBatch(WriteBatch* batch) {
   return s;
 }
 
-Status WriteCommittedTxnImpl::Prepare() {
+Status PessimisticTxn::Prepare() {
   Status s;
 
   if (name_.empty()) {
@@ -192,12 +192,7 @@ Status WriteCommittedTxnImpl::Prepare() {
     txn_state_.store(AWAITING_PREPARE);
     // transaction can't expire after preparation
     expiration_time_ = 0;
-    WriteOptions write_options = write_options_;
-    write_options.disableWAL = false;
-    WriteBatchInternal::MarkEndPrepare(GetWriteBatch()->GetWriteBatch(), name_);
-    s = db_impl_->WriteImpl(write_options, GetWriteBatch()->GetWriteBatch(),
-                            /*callback*/ nullptr, &log_number_, /*log ref*/ 0,
-                            /* disable_memtable*/ true);
+    s = PrepareInternal();
     if (s.ok()) {
       assert(log_number_ != 0);
       dbimpl_->MarkLogAsContainingPrepSection(log_number_);
@@ -218,7 +213,18 @@ Status WriteCommittedTxnImpl::Prepare() {
   return s;
 }
 
-Status WriteCommittedTxnImpl::Commit() {
+Status WriteCommittedTxnImpl::PrepareInternal() {
+  WriteOptions write_options = write_options_;
+  write_options.disableWAL = false;
+  WriteBatchInternal::MarkEndPrepare(GetWriteBatch()->GetWriteBatch(), name_);
+  Status s =
+      db_impl_->WriteImpl(write_options, GetWriteBatch()->GetWriteBatch(),
+                          /*callback*/ nullptr, &log_number_, /*log ref*/ 0,
+                          /* disable_memtable*/ true);
+  return s;
+}
+
+Status PessimisticTxn::Commit() {
   Status s;
   bool commit_single = false;
   bool commit_prepared = false;
@@ -252,7 +258,7 @@ Status WriteCommittedTxnImpl::Commit() {
           "Commit-time batch contains values that will not be committed.");
     } else {
       txn_state_.store(AWAITING_COMMIT);
-      s = db_->Write(write_options_, GetWriteBatch()->GetWriteBatch());
+      s = CommitSingleInternal();
       Clear();
       if (s.ok()) {
         txn_state_.store(COMMITED);
@@ -261,21 +267,8 @@ Status WriteCommittedTxnImpl::Commit() {
   } else if (commit_prepared) {
     txn_state_.store(AWAITING_COMMIT);
 
-    // We take the commit-time batch and append the Commit marker.
-    // The Memtable will ignore the Commit marker in non-recovery mode
-    WriteBatch* working_batch = GetCommitTimeWriteBatch();
-    WriteBatchInternal::MarkCommit(working_batch, name_);
+    s = CommitInternal();
 
-    // any operations appended to this working_batch will be ignored from WAL
-    working_batch->MarkWalTerminationPoint();
-
-    // insert prepared batch into Memtable only skipping WAL.
-    // Memtable will ignore BeginPrepare/EndPrepare markers
-    // in non recovery mode and simply insert the values
-    WriteBatchInternal::Append(working_batch, GetWriteBatch()->GetWriteBatch());
-
-    s = db_impl_->WriteImpl(write_options_, working_batch, nullptr, nullptr,
-                            log_number_);
     if (!s.ok()) {
       ROCKS_LOG_WARN(db_impl_->immutable_db_options().info_log,
                      "Commit write failed");
@@ -301,6 +294,30 @@ Status WriteCommittedTxnImpl::Commit() {
     s = Status::InvalidArgument("Transaction is not in state for commit.");
   }
 
+  return s;
+}
+
+Status WriteCommittedTxnImpl::CommitSingleInternal() {
+  Status s = db_->Write(write_options_, GetWriteBatch()->GetWriteBatch());
+  return s;
+}
+
+Status WriteCommittedTxnImpl::CommitInternal() {
+  // We take the commit-time batch and append the Commit marker.
+  // The Memtable will ignore the Commit marker in non-recovery mode
+  WriteBatch* working_batch = GetCommitTimeWriteBatch();
+  WriteBatchInternal::MarkCommit(working_batch, name_);
+
+  // any operations appended to this working_batch will be ignored from WAL
+  working_batch->MarkWalTerminationPoint();
+
+  // insert prepared batch into Memtable only skipping WAL.
+  // Memtable will ignore BeginPrepare/EndPrepare markers
+  // in non recovery mode and simply insert the values
+  WriteBatchInternal::Append(working_batch, GetWriteBatch()->GetWriteBatch());
+
+  auto s = db_impl_->WriteImpl(write_options_, working_batch, nullptr, nullptr,
+                               log_number_);
   return s;
 }
 

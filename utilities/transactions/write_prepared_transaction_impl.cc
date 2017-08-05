@@ -42,13 +42,19 @@ Status WritePreparedTxnImpl::CommitBatch(WriteBatch* batch) {
   return Status::OK();
 }
 
-Status WritePreparedTxnImpl::Prepare() {
+Status WritePreparedTxnImpl::PrepareInternal() {
   // TODO(myabandeh) Implement this
   throw std::runtime_error("Prepare not Implemented");
   return Status::OK();
 }
 
-Status WritePreparedTxnImpl::Commit() {
+Status WritePreparedTxnImpl::CommitSingleInternal() {
+  // TODO(myabandeh) Implement this
+  throw std::runtime_error("Commit not Implemented");
+  return Status::OK();
+}
+
+Status WritePreparedTxnImpl::CommitInternal() {
   // TODO(myabandeh) Implement this
   throw std::runtime_error("Commit not Implemented");
   return Status::OK();
