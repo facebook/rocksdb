@@ -26,7 +26,7 @@
 #include "util/murmurhash.h"
 #include "util/sync_point.h"
 #include "util/thread_local.h"
-#include "utilities/transactions/transaction_db_impl.h"
+#include "utilities/transactions/pessimistic_transaction_db.h"
 
 namespace rocksdb {
 

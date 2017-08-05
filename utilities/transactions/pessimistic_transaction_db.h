@@ -21,14 +21,15 @@
 
 namespace rocksdb {
 
-class PessimisticTxnDB : public TransactionDB {
+class PessimisticTransactionDB : public TransactionDB {
  public:
-  explicit PessimisticTxnDB(DB* db, const TransactionDBOptions& txn_db_options);
+  explicit PessimisticTransactionDB(DB* db,
+                                    const TransactionDBOptions& txn_db_options);
 
-  explicit PessimisticTxnDB(StackableDB* db,
-                            const TransactionDBOptions& txn_db_options);
+  explicit PessimisticTransactionDB(StackableDB* db,
+                                    const TransactionDBOptions& txn_db_options);
 
-  virtual ~PessimisticTxnDB();
+  virtual ~PessimisticTransactionDB();
 
   Status Initialize(const std::vector<size_t>& compaction_enabled_cf_indices,
                     const std::vector<ColumnFamilyHandle*>& handles);
@@ -123,34 +124,39 @@ class PessimisticTxnDB : public TransactionDB {
   std::unordered_map<TransactionName, Transaction*> transactions_;
 };
 
-class WriteCommittedTxnDBImpl : public PessimisticTxnDB {
+// A PessimisticTransactionDB that writes the data to the DB after the commit.
+// In this way the DB only contains the committed data.
+class WriteCommittedTxnDB : public PessimisticTransactionDB {
  public:
-  explicit WriteCommittedTxnDBImpl(DB* db,
-                                   const TransactionDBOptions& txn_db_options)
-      : PessimisticTxnDB(db, txn_db_options){};
+  explicit WriteCommittedTxnDB(DB* db,
+                               const TransactionDBOptions& txn_db_options)
+      : PessimisticTransactionDB(db, txn_db_options){};
 
-  explicit WriteCommittedTxnDBImpl(StackableDB* db,
-                                   const TransactionDBOptions& txn_db_options)
-      : PessimisticTxnDB(db, txn_db_options){};
+  explicit WriteCommittedTxnDB(StackableDB* db,
+                               const TransactionDBOptions& txn_db_options)
+      : PessimisticTransactionDB(db, txn_db_options){};
 
-  virtual ~WriteCommittedTxnDBImpl(){};
+  virtual ~WriteCommittedTxnDB(){};
 
   Transaction* BeginTransaction(const WriteOptions& write_options,
                                 const TransactionOptions& txn_options,
                                 Transaction* old_txn) override;
 };
 
-class WritePreparedTxnDBImpl : public PessimisticTxnDB {
+// A PessimisticTransactionDB that writes data to DB after prepare phase of 2PC.
+// In this way some data in the DB might not be committed. The DB provides
+// mechanisms to tell such data apart from committed data.
+class WritePreparedTxnDB : public PessimisticTransactionDB {
  public:
-  explicit WritePreparedTxnDBImpl(DB* db,
-                                  const TransactionDBOptions& txn_db_options)
-      : PessimisticTxnDB(db, txn_db_options){};
+  explicit WritePreparedTxnDB(DB* db,
+                              const TransactionDBOptions& txn_db_options)
+      : PessimisticTransactionDB(db, txn_db_options){};
 
-  explicit WritePreparedTxnDBImpl(StackableDB* db,
-                                  const TransactionDBOptions& txn_db_options)
-      : PessimisticTxnDB(db, txn_db_options){};
+  explicit WritePreparedTxnDB(StackableDB* db,
+                              const TransactionDBOptions& txn_db_options)
+      : PessimisticTransactionDB(db, txn_db_options){};
 
-  virtual ~WritePreparedTxnDBImpl(){};
+  virtual ~WritePreparedTxnDB(){};
 
   Transaction* BeginTransaction(const WriteOptions& write_options,
                                 const TransactionOptions& txn_options,

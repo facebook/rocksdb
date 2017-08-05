@@ -21,7 +21,7 @@
 #include "rocksdb/utilities/transaction_db.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
-#include "utilities/transactions/transaction_db_impl.h"
+#include "utilities/transactions/pessimistic_transaction_db.h"
 #include "utilities/transactions/transaction_impl.h"
 #include "utilities/transactions/transaction_util.h"
 

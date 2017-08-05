@@ -5,7 +5,7 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "utilities/transactions/transaction_db_impl.h"
+#include "utilities/transactions/pessimistic_transaction_db.h"
 
 #include <string>
 #include <unordered_set>
@@ -21,8 +21,8 @@
 
 namespace rocksdb {
 
-PessimisticTxnDB::PessimisticTxnDB(DB* db,
-                                   const TransactionDBOptions& txn_db_options)
+PessimisticTransactionDB::PessimisticTransactionDB(
+    DB* db, const TransactionDBOptions& txn_db_options)
     : TransactionDB(db),
       db_impl_(static_cast_with_check<DBImpl, DB>(db)),
       txn_db_options_(txn_db_options),
@@ -34,9 +34,9 @@ PessimisticTxnDB::PessimisticTxnDB(DB* db,
   assert(db_impl_ != nullptr);
 }
 
-// Support initiliazing PessimisticTxnDB from a stackable db
+// Support initiliazing PessimisticTransactionDB from a stackable db
 //
-//    PessimisticTxnDB
+//    PessimisticTransactionDB
 //     ^        ^
 //     |        |
 //     |        +
@@ -50,8 +50,8 @@ PessimisticTxnDB::PessimisticTxnDB(DB* db,
 //       +
 //       DB
 //
-PessimisticTxnDB::PessimisticTxnDB(StackableDB* db,
-                                   const TransactionDBOptions& txn_db_options)
+PessimisticTransactionDB::PessimisticTransactionDB(
+    StackableDB* db, const TransactionDBOptions& txn_db_options)
     : TransactionDB(db),
       db_impl_(static_cast_with_check<DBImpl, DB>(db->GetRootDB())),
       txn_db_options_(txn_db_options),
@@ -63,13 +63,13 @@ PessimisticTxnDB::PessimisticTxnDB(StackableDB* db,
   assert(db_impl_ != nullptr);
 }
 
-PessimisticTxnDB::~PessimisticTxnDB() {
+PessimisticTransactionDB::~PessimisticTransactionDB() {
   while (!transactions_.empty()) {
     delete transactions_.begin()->second;
   }
 }
 
-Status PessimisticTxnDB::Initialize(
+Status PessimisticTransactionDB::Initialize(
     const std::vector<size_t>& compaction_enabled_cf_indices,
     const std::vector<ColumnFamilyHandle*>& handles) {
   for (auto cf_ptr : handles) {
@@ -121,7 +121,7 @@ Status PessimisticTxnDB::Initialize(
   return s;
 }
 
-Transaction* WriteCommittedTxnDBImpl::BeginTransaction(
+Transaction* WriteCommittedTxnDB::BeginTransaction(
     const WriteOptions& write_options, const TransactionOptions& txn_options,
     Transaction* old_txn) {
   if (old_txn != nullptr) {
@@ -132,7 +132,7 @@ Transaction* WriteCommittedTxnDBImpl::BeginTransaction(
   }
 }
 
-Transaction* WritePreparedTxnDBImpl::BeginTransaction(
+Transaction* WritePreparedTxnDB::BeginTransaction(
     const WriteOptions& write_options, const TransactionOptions& txn_options,
     Transaction* old_txn) {
   if (old_txn != nullptr) {
@@ -143,7 +143,7 @@ Transaction* WritePreparedTxnDBImpl::BeginTransaction(
   }
 }
 
-TransactionDBOptions PessimisticTxnDB::ValidateTxnDBOptions(
+TransactionDBOptions PessimisticTransactionDB::ValidateTxnDBOptions(
     const TransactionDBOptions& txn_db_options) {
   TransactionDBOptions validated = txn_db_options;
 
@@ -224,17 +224,17 @@ Status TransactionDB::WrapDB(
     DB* db, const TransactionDBOptions& txn_db_options,
     const std::vector<size_t>& compaction_enabled_cf_indices,
     const std::vector<ColumnFamilyHandle*>& handles, TransactionDB** dbptr) {
-  PessimisticTxnDB* txn_db;
+  PessimisticTransactionDB* txn_db;
   switch (txn_db_options.write_policy) {
     case WRITE_UNPREPARED:
       return Status::NotSupported("WRITE_UNPREPARED is not implemented yet");
     case WRITE_PREPARED:
-      txn_db = new WritePreparedTxnDBImpl(
-          db, PessimisticTxnDB::ValidateTxnDBOptions(txn_db_options));
+      txn_db = new WritePreparedTxnDB(
+          db, PessimisticTransactionDB::ValidateTxnDBOptions(txn_db_options));
     case WRITE_COMMITTED:
     default:
-      txn_db = new WriteCommittedTxnDBImpl(
-          db, PessimisticTxnDB::ValidateTxnDBOptions(txn_db_options));
+      txn_db = new WriteCommittedTxnDB(
+          db, PessimisticTransactionDB::ValidateTxnDBOptions(txn_db_options));
   }
   *dbptr = txn_db;
   Status s = txn_db->Initialize(compaction_enabled_cf_indices, handles);
@@ -248,17 +248,17 @@ Status TransactionDB::WrapStackableDB(
     StackableDB* db, const TransactionDBOptions& txn_db_options,
     const std::vector<size_t>& compaction_enabled_cf_indices,
     const std::vector<ColumnFamilyHandle*>& handles, TransactionDB** dbptr) {
-  PessimisticTxnDB* txn_db;
+  PessimisticTransactionDB* txn_db;
   switch (txn_db_options.write_policy) {
     case WRITE_UNPREPARED:
       return Status::NotSupported("WRITE_UNPREPARED is not implemented yet");
     case WRITE_PREPARED:
-      txn_db = new WritePreparedTxnDBImpl(
-          db, PessimisticTxnDB::ValidateTxnDBOptions(txn_db_options));
+      txn_db = new WritePreparedTxnDB(
+          db, PessimisticTransactionDB::ValidateTxnDBOptions(txn_db_options));
     case WRITE_COMMITTED:
     default:
-      txn_db = new WriteCommittedTxnDBImpl(
-          db, PessimisticTxnDB::ValidateTxnDBOptions(txn_db_options));
+      txn_db = new WriteCommittedTxnDB(
+          db, PessimisticTransactionDB::ValidateTxnDBOptions(txn_db_options));
   }
   *dbptr = txn_db;
   Status s = txn_db->Initialize(compaction_enabled_cf_indices, handles);
@@ -267,11 +267,12 @@ Status TransactionDB::WrapStackableDB(
 
 // Let TransactionLockMgr know that this column family exists so it can
 // allocate a LockMap for it.
-void PessimisticTxnDB::AddColumnFamily(const ColumnFamilyHandle* handle) {
+void PessimisticTransactionDB::AddColumnFamily(
+    const ColumnFamilyHandle* handle) {
   lock_mgr_.AddColumnFamily(handle->GetID());
 }
 
-Status PessimisticTxnDB::CreateColumnFamily(
+Status PessimisticTransactionDB::CreateColumnFamily(
     const ColumnFamilyOptions& options, const std::string& column_family_name,
     ColumnFamilyHandle** handle) {
   InstrumentedMutexLock l(&column_family_mutex_);
@@ -286,7 +287,8 @@ Status PessimisticTxnDB::CreateColumnFamily(
 
 // Let TransactionLockMgr know that it can deallocate the LockMap for this
 // column family.
-Status PessimisticTxnDB::DropColumnFamily(ColumnFamilyHandle* column_family) {
+Status PessimisticTransactionDB::DropColumnFamily(
+    ColumnFamilyHandle* column_family) {
   InstrumentedMutexLock l(&column_family_mutex_);
 
   Status s = db_->DropColumnFamily(column_family);
@@ -297,23 +299,24 @@ Status PessimisticTxnDB::DropColumnFamily(ColumnFamilyHandle* column_family) {
   return s;
 }
 
-Status PessimisticTxnDB::TryLock(PessimisticTxn* txn, uint32_t cfh_id,
-                                 const std::string& key, bool exclusive) {
+Status PessimisticTransactionDB::TryLock(PessimisticTxn* txn, uint32_t cfh_id,
+                                         const std::string& key,
+                                         bool exclusive) {
   return lock_mgr_.TryLock(txn, cfh_id, key, GetEnv(), exclusive);
 }
 
-void PessimisticTxnDB::UnLock(PessimisticTxn* txn,
-                              const TransactionKeyMap* keys) {
+void PessimisticTransactionDB::UnLock(PessimisticTxn* txn,
+                                      const TransactionKeyMap* keys) {
   lock_mgr_.UnLock(txn, keys, GetEnv());
 }
 
-void PessimisticTxnDB::UnLock(PessimisticTxn* txn, uint32_t cfh_id,
-                              const std::string& key) {
+void PessimisticTransactionDB::UnLock(PessimisticTxn* txn, uint32_t cfh_id,
+                                      const std::string& key) {
   lock_mgr_.UnLock(txn, cfh_id, key, GetEnv());
 }
 
 // Used when wrapping DB write operations in a transaction
-Transaction* PessimisticTxnDB::BeginInternalTransaction(
+Transaction* PessimisticTransactionDB::BeginInternalTransaction(
     const WriteOptions& options) {
   TransactionOptions txn_options;
   Transaction* txn = BeginTransaction(options, txn_options, nullptr);
@@ -332,9 +335,9 @@ Transaction* PessimisticTxnDB::BeginInternalTransaction(
 // sort its keys before locking them.  This guarantees that TransactionDB write
 // methods cannot deadlock with eachother (but still could deadlock with a
 // Transaction).
-Status PessimisticTxnDB::Put(const WriteOptions& options,
-                             ColumnFamilyHandle* column_family,
-                             const Slice& key, const Slice& val) {
+Status PessimisticTransactionDB::Put(const WriteOptions& options,
+                                     ColumnFamilyHandle* column_family,
+                                     const Slice& key, const Slice& val) {
   Status s;
 
   Transaction* txn = BeginInternalTransaction(options);
@@ -353,9 +356,9 @@ Status PessimisticTxnDB::Put(const WriteOptions& options,
   return s;
 }
 
-Status PessimisticTxnDB::Delete(const WriteOptions& wopts,
-                                ColumnFamilyHandle* column_family,
-                                const Slice& key) {
+Status PessimisticTransactionDB::Delete(const WriteOptions& wopts,
+                                        ColumnFamilyHandle* column_family,
+                                        const Slice& key) {
   Status s;
 
   Transaction* txn = BeginInternalTransaction(wopts);
@@ -375,9 +378,9 @@ Status PessimisticTxnDB::Delete(const WriteOptions& wopts,
   return s;
 }
 
-Status PessimisticTxnDB::Merge(const WriteOptions& options,
-                               ColumnFamilyHandle* column_family,
-                               const Slice& key, const Slice& value) {
+Status PessimisticTransactionDB::Merge(const WriteOptions& options,
+                                       ColumnFamilyHandle* column_family,
+                                       const Slice& key, const Slice& value) {
   Status s;
 
   Transaction* txn = BeginInternalTransaction(options);
@@ -397,7 +400,8 @@ Status PessimisticTxnDB::Merge(const WriteOptions& options,
   return s;
 }
 
-Status PessimisticTxnDB::Write(const WriteOptions& opts, WriteBatch* updates) {
+Status PessimisticTransactionDB::Write(const WriteOptions& opts,
+                                       WriteBatch* updates) {
   // Need to lock all keys in this batch to prevent write conflicts with
   // concurrent transactions.
   Transaction* txn = BeginInternalTransaction(opts);
@@ -416,19 +420,20 @@ Status PessimisticTxnDB::Write(const WriteOptions& opts, WriteBatch* updates) {
   return s;
 }
 
-void PessimisticTxnDB::InsertExpirableTransaction(TransactionID tx_id,
-                                                  PessimisticTxn* tx) {
+void PessimisticTransactionDB::InsertExpirableTransaction(TransactionID tx_id,
+                                                          PessimisticTxn* tx) {
   assert(tx->GetExpirationTime() > 0);
   std::lock_guard<std::mutex> lock(map_mutex_);
   expirable_transactions_map_.insert({tx_id, tx});
 }
 
-void PessimisticTxnDB::RemoveExpirableTransaction(TransactionID tx_id) {
+void PessimisticTransactionDB::RemoveExpirableTransaction(TransactionID tx_id) {
   std::lock_guard<std::mutex> lock(map_mutex_);
   expirable_transactions_map_.erase(tx_id);
 }
 
-bool PessimisticTxnDB::TryStealingExpiredTransactionLocks(TransactionID tx_id) {
+bool PessimisticTransactionDB::TryStealingExpiredTransactionLocks(
+    TransactionID tx_id) {
   std::lock_guard<std::mutex> lock(map_mutex_);
 
   auto tx_it = expirable_transactions_map_.find(tx_id);
@@ -439,7 +444,7 @@ bool PessimisticTxnDB::TryStealingExpiredTransactionLocks(TransactionID tx_id) {
   return tx.TryStealingLocks();
 }
 
-void PessimisticTxnDB::ReinitializeTransaction(
+void PessimisticTransactionDB::ReinitializeTransaction(
     Transaction* txn, const WriteOptions& write_options,
     const TransactionOptions& txn_options) {
   auto txn_impl = static_cast_with_check<PessimisticTxn, Transaction>(txn);
@@ -447,7 +452,7 @@ void PessimisticTxnDB::ReinitializeTransaction(
   txn_impl->Reinitialize(this, write_options, txn_options);
 }
 
-Transaction* PessimisticTxnDB::GetTransactionByName(
+Transaction* PessimisticTransactionDB::GetTransactionByName(
     const TransactionName& name) {
   std::lock_guard<std::mutex> lock(name_map_mutex_);
   auto it = transactions_.find(name);
@@ -458,7 +463,7 @@ Transaction* PessimisticTxnDB::GetTransactionByName(
   }
 }
 
-void PessimisticTxnDB::GetAllPreparedTransactions(
+void PessimisticTransactionDB::GetAllPreparedTransactions(
     std::vector<Transaction*>* transv) {
   assert(transv);
   transv->clear();
@@ -470,11 +475,12 @@ void PessimisticTxnDB::GetAllPreparedTransactions(
   }
 }
 
-TransactionLockMgr::LockStatusData PessimisticTxnDB::GetLockStatusData() {
+TransactionLockMgr::LockStatusData
+PessimisticTransactionDB::GetLockStatusData() {
   return lock_mgr_.GetLockStatusData();
 }
 
-void PessimisticTxnDB::RegisterTransaction(Transaction* txn) {
+void PessimisticTransactionDB::RegisterTransaction(Transaction* txn) {
   assert(txn);
   assert(txn->GetName().length() > 0);
   assert(GetTransactionByName(txn->GetName()) == nullptr);
@@ -483,7 +489,7 @@ void PessimisticTxnDB::RegisterTransaction(Transaction* txn) {
   transactions_[txn->GetName()] = txn;
 }
 
-void PessimisticTxnDB::UnregisterTransaction(Transaction* txn) {
+void PessimisticTransactionDB::UnregisterTransaction(Transaction* txn) {
   assert(txn);
   std::lock_guard<std::mutex> lock(name_map_mutex_);
   auto it = transactions_.find(txn->GetName());
