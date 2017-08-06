@@ -15,9 +15,9 @@
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/transaction_db.h"
-#include "utilities/transactions/transaction_impl.h"
+#include "utilities/transactions/pessimistic_transaction.h"
 #include "utilities/transactions/transaction_lock_mgr.h"
-#include "utilities/transactions/write_prepared_transaction_impl.h"
+#include "utilities/transactions/write_prepared_txn.h"
 
 namespace rocksdb {
 
@@ -64,11 +64,11 @@ class PessimisticTransactionDB : public TransactionDB {
   using StackableDB::DropColumnFamily;
   virtual Status DropColumnFamily(ColumnFamilyHandle* column_family) override;
 
-  Status TryLock(PessimisticTxn* txn, uint32_t cfh_id, const std::string& key,
+  Status TryLock(PessimisticTransaction* txn, uint32_t cfh_id, const std::string& key,
                  bool exclusive);
 
-  void UnLock(PessimisticTxn* txn, const TransactionKeyMap* keys);
-  void UnLock(PessimisticTxn* txn, uint32_t cfh_id, const std::string& key);
+  void UnLock(PessimisticTransaction* txn, const TransactionKeyMap* keys);
+  void UnLock(PessimisticTransaction* txn, uint32_t cfh_id, const std::string& key);
 
   void AddColumnFamily(const ColumnFamilyHandle* handle);
 
@@ -79,7 +79,7 @@ class PessimisticTransactionDB : public TransactionDB {
     return txn_db_options_;
   }
 
-  void InsertExpirableTransaction(TransactionID tx_id, PessimisticTxn* tx);
+  void InsertExpirableTransaction(TransactionID tx_id, PessimisticTransaction* tx);
   void RemoveExpirableTransaction(TransactionID tx_id);
 
   // If transaction is no longer available, locks can be stolen
@@ -116,7 +116,7 @@ class PessimisticTransactionDB : public TransactionDB {
   // that has started a commit. Only transactions with an expiration time
   // should be in this map.
   std::mutex map_mutex_;
-  std::unordered_map<TransactionID, PessimisticTxn*>
+  std::unordered_map<TransactionID, PessimisticTransaction*>
       expirable_transactions_map_;
 
   // map from name to two phase transaction instance

@@ -31,17 +31,16 @@
 namespace rocksdb {
 
 class PessimisticTransactionDB;
-class PessimisticTxn;
 
 // A transaction under pessimistic concurrency control. This class implements
 // the locking API and interfaces with the lock manager as well as the
 // pessimistic transactional db.
-class PessimisticTxn : public TransactionBaseImpl {
+class PessimisticTransaction : public TransactionBaseImpl {
  public:
-  PessimisticTxn(TransactionDB* db, const WriteOptions& write_options,
+  PessimisticTransaction(TransactionDB* db, const WriteOptions& write_options,
                  const TransactionOptions& txn_options);
 
-  virtual ~PessimisticTxn();
+  virtual ~PessimisticTransaction();
 
   void Reinitialize(TransactionDB* txn_db, const WriteOptions& write_options,
                     const TransactionOptions& txn_options);
@@ -176,16 +175,16 @@ class PessimisticTxn : public TransactionBaseImpl {
                           const Slice& key) override;
 
   // No copying allowed
-  PessimisticTxn(const PessimisticTxn&);
-  void operator=(const PessimisticTxn&);
+  PessimisticTransaction(const PessimisticTransaction&);
+  void operator=(const PessimisticTransaction&);
 };
 
-class WriteCommittedTxnImpl : public PessimisticTxn {
+class WriteCommittedTxn : public PessimisticTransaction {
  public:
-  WriteCommittedTxnImpl(TransactionDB* db, const WriteOptions& write_options,
+  WriteCommittedTxn(TransactionDB* db, const WriteOptions& write_options,
                         const TransactionOptions& txn_options);
 
-  virtual ~WriteCommittedTxnImpl() {}
+  virtual ~WriteCommittedTxn() {}
 
   Status CommitBatch(WriteBatch* batch) override;
 
@@ -202,15 +201,15 @@ class WriteCommittedTxnImpl : public PessimisticTxn {
                           SequenceNumber prev_seqno, SequenceNumber* new_seqno);
 
   // No copying allowed
-  WriteCommittedTxnImpl(const WriteCommittedTxnImpl&);
-  void operator=(const WriteCommittedTxnImpl&);
+  WriteCommittedTxn(const WriteCommittedTxn&);
+  void operator=(const WriteCommittedTxn&);
 };
 
 // Used at commit time to check whether transaction is committing before its
 // expiration time.
 class TransactionCallback : public WriteCallback {
  public:
-  explicit TransactionCallback(PessimisticTxn* txn) : txn_(txn) {}
+  explicit TransactionCallback(PessimisticTransaction* txn) : txn_(txn) {}
 
   Status Callback(DB* db) override {
     if (txn_->IsExpired()) {
@@ -223,7 +222,7 @@ class TransactionCallback : public WriteCallback {
   bool AllowWriteBatching() override { return true; }
 
  private:
-  PessimisticTxn* txn_;
+  PessimisticTransaction* txn_;
 };
 
 }  // namespace rocksdb

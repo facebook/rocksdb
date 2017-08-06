@@ -17,7 +17,7 @@
 #include "rocksdb/utilities/transaction_db.h"
 #include "util/cast_util.h"
 #include "utilities/transactions/transaction_db_mutex_impl.h"
-#include "utilities/transactions/transaction_impl.h"
+#include "utilities/transactions/pessimistic_transaction.h"
 
 namespace rocksdb {
 
@@ -128,7 +128,7 @@ Transaction* WriteCommittedTxnDB::BeginTransaction(
     ReinitializeTransaction(old_txn, write_options, txn_options);
     return old_txn;
   } else {
-    return new WriteCommittedTxnImpl(this, write_options, txn_options);
+    return new WriteCommittedTxn(this, write_options, txn_options);
   }
 }
 
@@ -139,7 +139,7 @@ Transaction* WritePreparedTxnDB::BeginTransaction(
     ReinitializeTransaction(old_txn, write_options, txn_options);
     return old_txn;
   } else {
-    return new WritePreparedTxnImpl(this, write_options, txn_options);
+    return new WritePreparedTxn(this, write_options, txn_options);
   }
 }
 
@@ -301,18 +301,18 @@ Status PessimisticTransactionDB::DropColumnFamily(
   return s;
 }
 
-Status PessimisticTransactionDB::TryLock(PessimisticTxn* txn, uint32_t cfh_id,
+Status PessimisticTransactionDB::TryLock(PessimisticTransaction* txn, uint32_t cfh_id,
                                          const std::string& key,
                                          bool exclusive) {
   return lock_mgr_.TryLock(txn, cfh_id, key, GetEnv(), exclusive);
 }
 
-void PessimisticTransactionDB::UnLock(PessimisticTxn* txn,
+void PessimisticTransactionDB::UnLock(PessimisticTransaction* txn,
                                       const TransactionKeyMap* keys) {
   lock_mgr_.UnLock(txn, keys, GetEnv());
 }
 
-void PessimisticTransactionDB::UnLock(PessimisticTxn* txn, uint32_t cfh_id,
+void PessimisticTransactionDB::UnLock(PessimisticTransaction* txn, uint32_t cfh_id,
                                       const std::string& key) {
   lock_mgr_.UnLock(txn, cfh_id, key, GetEnv());
 }
@@ -409,7 +409,7 @@ Status PessimisticTransactionDB::Write(const WriteOptions& opts,
   Transaction* txn = BeginInternalTransaction(opts);
   txn->DisableIndexing();
 
-  auto txn_impl = static_cast_with_check<PessimisticTxn, Transaction>(txn);
+  auto txn_impl = static_cast_with_check<PessimisticTransaction, Transaction>(txn);
 
   // Since commitBatch sorts the keys before locking, concurrent Write()
   // operations will not cause a deadlock.
@@ -423,7 +423,7 @@ Status PessimisticTransactionDB::Write(const WriteOptions& opts,
 }
 
 void PessimisticTransactionDB::InsertExpirableTransaction(TransactionID tx_id,
-                                                          PessimisticTxn* tx) {
+                                                          PessimisticTransaction* tx) {
   assert(tx->GetExpirationTime() > 0);
   std::lock_guard<std::mutex> lock(map_mutex_);
   expirable_transactions_map_.insert({tx_id, tx});
@@ -442,14 +442,14 @@ bool PessimisticTransactionDB::TryStealingExpiredTransactionLocks(
   if (tx_it == expirable_transactions_map_.end()) {
     return true;
   }
-  PessimisticTxn& tx = *(tx_it->second);
+  PessimisticTransaction& tx = *(tx_it->second);
   return tx.TryStealingLocks();
 }
 
 void PessimisticTransactionDB::ReinitializeTransaction(
     Transaction* txn, const WriteOptions& write_options,
     const TransactionOptions& txn_options) {
-  auto txn_impl = static_cast_with_check<PessimisticTxn, Transaction>(txn);
+  auto txn_impl = static_cast_with_check<PessimisticTransaction, Transaction>(txn);
 
   txn_impl->Reinitialize(this, write_options, txn_options);
 }
