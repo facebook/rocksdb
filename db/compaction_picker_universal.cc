@@ -615,7 +615,6 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSortedRuns(
 // of the candidate files all the way upto the earliest
 // base file (overrides configured values of file-size ratios,
 // min_merge_width and max_merge_width).
-//
 Compaction* UniversalCompactionPicker::PickCompactionToReduceSizeAmp(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     VersionStorageInfo* vstorage, double score,
@@ -623,56 +622,37 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSizeAmp(
   // percentage flexibility while reducing size amplification
   uint64_t ratio =
       ioptions_.compaction_options_universal.max_size_amplification_percent;
-
-  unsigned int candidate_count = 0;
   uint64_t candidate_size = 0;
-  size_t start_index = 0;
-  const SortedRun* sr = nullptr;
-
-  // Skip files that are already being compacted
-  for (size_t loop = 0; loop < sorted_runs.size() - 1; loop++) {
-    sr = &sorted_runs[loop];
-    if (!sr->being_compacted) {
-      start_index = loop;  // Consider this as the first candidate.
-      break;
-    }
-    char file_num_buf[kFormatFileNumberBufSize];
-    sr->Dump(file_num_buf, sizeof(file_num_buf), true);
-    ROCKS_LOG_BUFFER(log_buffer, "[%s] Universal: skipping %s[%d] compacted %s",
-                     cf_name.c_str(), file_num_buf, loop,
-                     " cannot be a candidate to reduce size amp.\n");
-    sr = nullptr;
-  }
-
-  if (sr == nullptr) {
-    return nullptr;  // no candidate files
-  }
-  {
-    char file_num_buf[kFormatFileNumberBufSize];
-    sr->Dump(file_num_buf, sizeof(file_num_buf), true);
-    ROCKS_LOG_BUFFER(
-        log_buffer,
-        "[%s] Universal: First candidate %s[%" ROCKSDB_PRIszt "] %s",
-        cf_name.c_str(), file_num_buf, start_index, " to reduce size amp.\n");
-  }
-
-  // keep adding up all the remaining files
-  for (size_t loop = start_index; loop < sorted_runs.size() - 1; loop++) {
-    sr = &sorted_runs[loop];
+  uint64_t estimated_total_size = 0;
+  size_t start_index = sorted_runs.size() - 1;
+  // Get longest span of available sorted runs ending at last
+  while (start_index > 0) {
+    const SortedRun* sr = &sorted_runs[start_index - 1];
     if (sr->being_compacted) {
       char file_num_buf[kFormatFileNumberBufSize];
       sr->Dump(file_num_buf, sizeof(file_num_buf), true);
       ROCKS_LOG_BUFFER(
-          log_buffer, "[%s] Universal: Possible candidate %s[%d] %s",
-          cf_name.c_str(), file_num_buf, start_index,
-          " is already being compacted. No size amp reduction possible.\n");
-      return nullptr;
+          log_buffer,
+          "[%s] Universal: stopping at sorted run undergoing compaction: "
+          "%s[%" ROCKSDB_PRIszt "]", cf_name.c_str(), file_num_buf,
+          start_index);
+      break;
     }
     candidate_size += sr->compensated_file_size;
-    candidate_count++;
+    estimated_total_size += sr->size;
+    --start_index;
   }
-  if (candidate_count == 0) {
-    return nullptr;
+
+  if (start_index == sorted_runs.size() - 1) {
+    return nullptr;  // no candidate files
+  }
+  {
+    char file_num_buf[kFormatFileNumberBufSize];
+    sorted_runs[start_index].Dump(file_num_buf, sizeof(file_num_buf), true);
+    ROCKS_LOG_BUFFER(
+        log_buffer,
+        "[%s] Universal: First candidate %s[%" ROCKSDB_PRIszt "] %s",
+        cf_name.c_str(), file_num_buf, start_index, " to reduce size amp.\n");
   }
 
   // size of earliest file
@@ -695,11 +675,6 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSizeAmp(
   }
   assert(start_index < sorted_runs.size() - 1);
 
-  // Estimate total file size
-  uint64_t estimated_total_size = 0;
-  for (size_t loop = start_index; loop < sorted_runs.size(); loop++) {
-    estimated_total_size += sorted_runs[loop].size;
-  }
   uint32_t path_id = GetPathId(ioptions_, estimated_total_size);
   int start_level = sorted_runs[start_index].level;
 
@@ -743,6 +718,7 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSizeAmp(
       false /* deletion_compaction */,
       CompactionReason::kUniversalSizeAmplification);
 }
+
 }  // namespace rocksdb
 
 #endif  // !ROCKSDB_LITE
