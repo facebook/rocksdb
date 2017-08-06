@@ -26,7 +26,7 @@
 #include "util/murmurhash.h"
 #include "util/sync_point.h"
 #include "util/thread_local.h"
-#include "utilities/transactions/transaction_db_impl.h"
+#include "utilities/transactions/pessimistic_transaction_db.h"
 
 namespace rocksdb {
 
@@ -115,7 +115,7 @@ TransactionLockMgr::TransactionLockMgr(
       mutex_factory_(mutex_factory) {
   assert(txn_db);
   txn_db_impl_ =
-      static_cast_with_check<TransactionDBImpl, TransactionDB>(txn_db);
+      static_cast_with_check<PessimisticTransactionDB, TransactionDB>(txn_db);
 }
 
 TransactionLockMgr::~TransactionLockMgr() {}

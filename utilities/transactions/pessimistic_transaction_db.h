@@ -17,25 +17,26 @@
 #include "rocksdb/utilities/transaction_db.h"
 #include "utilities/transactions/transaction_impl.h"
 #include "utilities/transactions/transaction_lock_mgr.h"
+#include "utilities/transactions/write_prepared_transaction_impl.h"
 
 namespace rocksdb {
 
-class TransactionDBImpl : public TransactionDB {
+class PessimisticTransactionDB : public TransactionDB {
  public:
-  explicit TransactionDBImpl(DB* db,
-                             const TransactionDBOptions& txn_db_options);
+  explicit PessimisticTransactionDB(DB* db,
+                                    const TransactionDBOptions& txn_db_options);
 
-  explicit TransactionDBImpl(StackableDB* db,
-                             const TransactionDBOptions& txn_db_options);
+  explicit PessimisticTransactionDB(StackableDB* db,
+                                    const TransactionDBOptions& txn_db_options);
 
-  ~TransactionDBImpl();
+  virtual ~PessimisticTransactionDB();
 
   Status Initialize(const std::vector<size_t>& compaction_enabled_cf_indices,
                     const std::vector<ColumnFamilyHandle*>& handles);
 
   Transaction* BeginTransaction(const WriteOptions& write_options,
                                 const TransactionOptions& txn_options,
-                                Transaction* old_txn) override;
+                                Transaction* old_txn) override = 0;
 
   using StackableDB::Put;
   virtual Status Put(const WriteOptions& options,
@@ -97,11 +98,12 @@ class TransactionDBImpl : public TransactionDB {
 
   TransactionLockMgr::LockStatusData GetLockStatusData() override;
 
- private:
+ protected:
   void ReinitializeTransaction(
       Transaction* txn, const WriteOptions& write_options,
       const TransactionOptions& txn_options = TransactionOptions());
 
+ private:
   DBImpl* db_impl_;
   const TransactionDBOptions txn_db_options_;
   TransactionLockMgr lock_mgr_;
@@ -120,6 +122,45 @@ class TransactionDBImpl : public TransactionDB {
   // map from name to two phase transaction instance
   std::mutex name_map_mutex_;
   std::unordered_map<TransactionName, Transaction*> transactions_;
+};
+
+// A PessimisticTransactionDB that writes the data to the DB after the commit.
+// In this way the DB only contains the committed data.
+class WriteCommittedTxnDB : public PessimisticTransactionDB {
+ public:
+  explicit WriteCommittedTxnDB(DB* db,
+                               const TransactionDBOptions& txn_db_options)
+      : PessimisticTransactionDB(db, txn_db_options) {}
+
+  explicit WriteCommittedTxnDB(StackableDB* db,
+                               const TransactionDBOptions& txn_db_options)
+      : PessimisticTransactionDB(db, txn_db_options) {}
+
+  virtual ~WriteCommittedTxnDB() {}
+
+  Transaction* BeginTransaction(const WriteOptions& write_options,
+                                const TransactionOptions& txn_options,
+                                Transaction* old_txn) override;
+};
+
+// A PessimisticTransactionDB that writes data to DB after prepare phase of 2PC.
+// In this way some data in the DB might not be committed. The DB provides
+// mechanisms to tell such data apart from committed data.
+class WritePreparedTxnDB : public PessimisticTransactionDB {
+ public:
+  explicit WritePreparedTxnDB(DB* db,
+                              const TransactionDBOptions& txn_db_options)
+      : PessimisticTransactionDB(db, txn_db_options) {}
+
+  explicit WritePreparedTxnDB(StackableDB* db,
+                              const TransactionDBOptions& txn_db_options)
+      : PessimisticTransactionDB(db, txn_db_options) {}
+
+  virtual ~WritePreparedTxnDB() {}
+
+  Transaction* BeginTransaction(const WriteOptions& write_options,
+                                const TransactionOptions& txn_options,
+                                Transaction* old_txn) override;
 };
 
 }  //  namespace rocksdb

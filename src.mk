@@ -195,7 +195,7 @@ LIB_SOURCES =                                                   \
   utilities/transactions/optimistic_transaction_db_impl.cc      \
   utilities/transactions/optimistic_transaction_impl.cc         \
   utilities/transactions/transaction_base.cc                    \
-  utilities/transactions/transaction_db_impl.cc                 \
+  utilities/transactions/pessimistic_transaction_db.cc                 \
   utilities/transactions/transaction_db_mutex_impl.cc           \
   utilities/transactions/transaction_impl.cc                    \
   utilities/transactions/transaction_lock_mgr.cc                \
