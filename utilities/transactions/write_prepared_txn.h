@@ -26,7 +26,7 @@
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "util/autovector.h"
 #include "utilities/transactions/transaction_base.h"
-#include "utilities/transactions/transaction_impl.h"
+#include "utilities/transactions/pessimistic_transaction.h"
 #include "utilities/transactions/transaction_util.h"
 
 namespace rocksdb {
@@ -35,24 +35,26 @@ class TransactionDBImpl;
 
 // This impl could write to DB also uncomitted data and then later tell apart
 // committed data from uncomitted data. Uncommitted data could be after the
-// Prepare phase in 2PC (WritePreparedTxnImpl) or before that
+// Prepare phase in 2PC (WritePreparedTxn) or before that
 // (WriteUnpreparedTxnImpl).
-class WritePreparedTxnImpl : public PessimisticTxn {
+class WritePreparedTxn : public PessimisticTransaction {
  public:
-  WritePreparedTxnImpl(TransactionDB* db, const WriteOptions& write_options,
+  WritePreparedTxn(TransactionDB* db, const WriteOptions& write_options,
                        const TransactionOptions& txn_options);
 
-  virtual ~WritePreparedTxnImpl() {}
-
-  Status Prepare() override;
-
-  Status Commit() override;
+  virtual ~WritePreparedTxn() {}
 
   Status CommitBatch(WriteBatch* batch) override;
 
   Status Rollback() override;
 
  private:
+  Status PrepareInternal() override;
+
+  Status CommitWithoutPrepareInternal() override;
+
+  Status CommitInternal() override;
+
   // TODO(myabandeh): verify that the current impl work with values being
   // written with prepare sequence number too.
   // Status ValidateSnapshot(ColumnFamilyHandle* column_family, const Slice&
@@ -61,8 +63,8 @@ class WritePreparedTxnImpl : public PessimisticTxn {
   //                        new_seqno);
 
   // No copying allowed
-  WritePreparedTxnImpl(const WritePreparedTxnImpl&);
-  void operator=(const WritePreparedTxnImpl&);
+  WritePreparedTxn(const WritePreparedTxn&);
+  void operator=(const WritePreparedTxn&);
 };
 
 }  // namespace rocksdb

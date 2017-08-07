@@ -26,13 +26,13 @@
 
 namespace rocksdb {
 
-class OptimisticTransactionImpl : public TransactionBaseImpl {
+class OptimisticTransaction : public TransactionBaseImpl {
  public:
-  OptimisticTransactionImpl(OptimisticTransactionDB* db,
+  OptimisticTransaction(OptimisticTransactionDB* db,
                             const WriteOptions& write_options,
                             const OptimisticTransactionOptions& txn_options);
 
-  virtual ~OptimisticTransactionImpl();
+  virtual ~OptimisticTransaction();
 
   void Reinitialize(OptimisticTransactionDB* txn_db,
                     const WriteOptions& write_options,
@@ -67,20 +67,20 @@ class OptimisticTransactionImpl : public TransactionBaseImpl {
 
   void Clear() override;
 
-  void UnlockGetForUpdate(ColumnFamilyHandle* column_family,
-                          const Slice& key) override {
+  void UnlockGetForUpdate(ColumnFamilyHandle* /* unused */,
+                          const Slice& /* unused */) override {
     // Nothing to unlock.
   }
 
   // No copying allowed
-  OptimisticTransactionImpl(const OptimisticTransactionImpl&);
-  void operator=(const OptimisticTransactionImpl&);
+  OptimisticTransaction(const OptimisticTransaction&);
+  void operator=(const OptimisticTransaction&);
 };
 
 // Used at commit time to trigger transaction validation
 class OptimisticTransactionCallback : public WriteCallback {
  public:
-  explicit OptimisticTransactionCallback(OptimisticTransactionImpl* txn)
+  explicit OptimisticTransactionCallback(OptimisticTransaction* txn)
       : txn_(txn) {}
 
   Status Callback(DB* db) override {
@@ -90,7 +90,7 @@ class OptimisticTransactionCallback : public WriteCallback {
   bool AllowWriteBatching() override { return false; }
 
  private:
-  OptimisticTransactionImpl* txn_;
+  OptimisticTransaction* txn_;
 };
 
 }  // namespace rocksdb

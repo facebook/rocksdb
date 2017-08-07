@@ -5,56 +5,54 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "utilities/transactions/write_prepared_transaction_impl.h"
+#include "utilities/transactions/write_prepared_txn.h"
 
 #include <map>
-#include <set>
-#include <string>
-#include <vector>
 
 #include "db/column_family.h"
 #include "db/db_impl.h"
-#include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
-#include "rocksdb/snapshot.h"
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/transaction_db.h"
-#include "util/string_util.h"
-#include "util/sync_point.h"
 #include "utilities/transactions/pessimistic_transaction_db.h"
-#include "utilities/transactions/transaction_impl.h"
-#include "utilities/transactions/transaction_util.h"
+#include "utilities/transactions/pessimistic_transaction.h"
 
 namespace rocksdb {
 
 struct WriteOptions;
 
-WritePreparedTxnImpl::WritePreparedTxnImpl(
+WritePreparedTxn::WritePreparedTxn(
     TransactionDB* txn_db, const WriteOptions& write_options,
     const TransactionOptions& txn_options)
-    : PessimisticTxn(txn_db, write_options, txn_options) {
-  PessimisticTxn::Initialize(txn_options);
+    : PessimisticTransaction(txn_db, write_options, txn_options) {
+  PessimisticTransaction::Initialize(txn_options);
 }
 
-Status WritePreparedTxnImpl::CommitBatch(WriteBatch* batch) {
+Status WritePreparedTxn::CommitBatch(WriteBatch* /* unused */) {
   // TODO(myabandeh) Implement this
   throw std::runtime_error("CommitBatch not Implemented");
   return Status::OK();
 }
 
-Status WritePreparedTxnImpl::Prepare() {
+Status WritePreparedTxn::PrepareInternal() {
   // TODO(myabandeh) Implement this
   throw std::runtime_error("Prepare not Implemented");
   return Status::OK();
 }
 
-Status WritePreparedTxnImpl::Commit() {
+Status WritePreparedTxn::CommitWithoutPrepareInternal() {
   // TODO(myabandeh) Implement this
   throw std::runtime_error("Commit not Implemented");
   return Status::OK();
 }
 
-Status WritePreparedTxnImpl::Rollback() {
+Status WritePreparedTxn::CommitInternal() {
+  // TODO(myabandeh) Implement this
+  throw std::runtime_error("Commit not Implemented");
+  return Status::OK();
+}
+
+Status WritePreparedTxn::Rollback() {
   // TODO(myabandeh) Implement this
   throw std::runtime_error("Rollback not Implemented");
   return Status::OK();
