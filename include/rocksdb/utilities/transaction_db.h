@@ -77,7 +77,7 @@ struct TransactionDBOptions {
   // write only the committed data (WRITE_COMMITTED). The data could be written
   // before the commit phase. The DB then needs to provide the mechanisms to
   // tell apart committed from uncommitted data.
-  TxnDBWritePolicy write_policy;
+  TxnDBWritePolicy write_policy = TxnDBWritePolicy::WRITE_COMMITTED;
 };
 
 struct TransactionOptions {
