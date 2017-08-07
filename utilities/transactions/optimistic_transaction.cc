@@ -7,9 +7,7 @@
 
 #include "utilities/transactions/optimistic_transaction.h"
 
-#include <algorithm>
 #include <string>
-#include <vector>
 
 #include "db/column_family.h"
 #include "db/db_impl.h"
@@ -127,7 +125,7 @@ Status OptimisticTransaction::CheckTransactionForConflicts(DB* db) {
                                                 true /* cache_only */);
 }
 
-Status OptimisticTransaction::SetName(const TransactionName& name) {
+Status OptimisticTransaction::SetName(const TransactionName& /* unused */) {
   return Status::InvalidArgument("Optimistic transactions cannot be named.");
 }
 
