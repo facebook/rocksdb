@@ -112,7 +112,7 @@ class PessimisticTransaction : public TransactionBaseImpl {
  protected:
   virtual Status PrepareInternal() = 0;
 
-  virtual Status CommitSingleInternal() = 0;
+  virtual Status CommitWithoutPrepareInternal() = 0;
 
   virtual Status CommitInternal() = 0;
 
@@ -193,7 +193,7 @@ class WriteCommittedTxn : public PessimisticTransaction {
  private:
   Status PrepareInternal() override;
 
-  Status CommitSingleInternal() override;
+  Status CommitWithoutPrepareInternal() override;
 
   Status CommitInternal() override;
 

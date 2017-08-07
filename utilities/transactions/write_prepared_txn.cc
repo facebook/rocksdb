@@ -40,7 +40,7 @@ Status WritePreparedTxn::PrepareInternal() {
   return Status::OK();
 }
 
-Status WritePreparedTxn::CommitSingleInternal() {
+Status WritePreparedTxn::CommitWithoutPrepareInternal() {
   // TODO(myabandeh) Implement this
   throw std::runtime_error("Commit not Implemented");
   return Status::OK();

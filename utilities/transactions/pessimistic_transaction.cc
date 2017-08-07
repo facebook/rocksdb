@@ -226,7 +226,7 @@ Status WriteCommittedTxn::PrepareInternal() {
 
 Status PessimisticTransaction::Commit() {
   Status s;
-  bool commit_single = false;
+  bool commit_without_prepare = false;
   bool commit_prepared = false;
 
   if (IsExpired()) {
@@ -240,25 +240,28 @@ Status PessimisticTransaction::Commit() {
     // our locks stolen. In this case the only valid state is STARTED because
     // a state of PREPARED would have a cleared expiration_time_.
     TransactionState expected = STARTED;
-    commit_single = std::atomic_compare_exchange_strong(&txn_state_, &expected,
-                                                        AWAITING_COMMIT);
+    commit_without_prepare = std::atomic_compare_exchange_strong(
+        &txn_state_, &expected, AWAITING_COMMIT);
     TEST_SYNC_POINT("TransactionTest::ExpirableTransactionDataRace:1");
   } else if (txn_state_ == PREPARED) {
     // expiration and lock stealing is not a concern
     commit_prepared = true;
   } else if (txn_state_ == STARTED) {
     // expiration and lock stealing is not a concern
-    commit_single = true;
+    commit_without_prepare = true;
+    // TODO(myabandeh): what if the user mistakenly forgets prepare? We should
+    // add an option so that the user explictly express the intention of
+    // skipping the prepare phase.
   }
 
-  if (commit_single) {
+  if (commit_without_prepare) {
     assert(!commit_prepared);
     if (WriteBatchInternal::Count(GetCommitTimeWriteBatch()) > 0) {
       s = Status::InvalidArgument(
           "Commit-time batch contains values that will not be committed.");
     } else {
       txn_state_.store(AWAITING_COMMIT);
-      s = CommitSingleInternal();
+      s = CommitWithoutPrepareInternal();
       Clear();
       if (s.ok()) {
         txn_state_.store(COMMITED);
@@ -297,7 +300,7 @@ Status PessimisticTransaction::Commit() {
   return s;
 }
 
-Status WriteCommittedTxn::CommitSingleInternal() {
+Status WriteCommittedTxn::CommitWithoutPrepareInternal() {
   Status s = db_->Write(write_options_, GetWriteBatch()->GetWriteBatch());
   return s;
 }

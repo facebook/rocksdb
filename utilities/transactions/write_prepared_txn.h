@@ -51,7 +51,7 @@ class WritePreparedTxn : public PessimisticTransaction {
  private:
   Status PrepareInternal() override;
 
-  Status CommitSingleInternal() override;
+  Status CommitWithoutPrepareInternal() override;
 
   Status CommitInternal() override;
 
