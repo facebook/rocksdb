@@ -8,22 +8,14 @@
 #include "utilities/transactions/write_prepared_txn.h"
 
 #include <map>
-#include <set>
-#include <string>
-#include <vector>
 
 #include "db/column_family.h"
 #include "db/db_impl.h"
-#include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
-#include "rocksdb/snapshot.h"
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/transaction_db.h"
-#include "util/string_util.h"
-#include "util/sync_point.h"
 #include "utilities/transactions/pessimistic_transaction_db.h"
 #include "utilities/transactions/pessimistic_transaction.h"
-#include "utilities/transactions/transaction_util.h"
 
 namespace rocksdb {
 
@@ -36,7 +28,7 @@ WritePreparedTxn::WritePreparedTxn(
   PessimisticTransaction::Initialize(txn_options);
 }
 
-Status WritePreparedTxn::CommitBatch(WriteBatch* batch) {
+Status WritePreparedTxn::CommitBatch(WriteBatch* /* unused */) {
   // TODO(myabandeh) Implement this
   throw std::runtime_error("CommitBatch not Implemented");
   return Status::OK();
