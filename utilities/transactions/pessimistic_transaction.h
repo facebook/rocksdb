@@ -31,24 +31,23 @@
 namespace rocksdb {
 
 class PessimisticTransactionDB;
-class PessimisticTxn;
 
 // A transaction under pessimistic concurrency control. This class implements
 // the locking API and interfaces with the lock manager as well as the
 // pessimistic transactional db.
-class PessimisticTxn : public TransactionBaseImpl {
+class PessimisticTransaction : public TransactionBaseImpl {
  public:
-  PessimisticTxn(TransactionDB* db, const WriteOptions& write_options,
+  PessimisticTransaction(TransactionDB* db, const WriteOptions& write_options,
                  const TransactionOptions& txn_options);
 
-  virtual ~PessimisticTxn();
+  virtual ~PessimisticTransaction();
 
   void Reinitialize(TransactionDB* txn_db, const WriteOptions& write_options,
                     const TransactionOptions& txn_options);
 
-  Status Prepare() override = 0;
+  Status Prepare() override;
 
-  Status Commit() override = 0;
+  Status Commit() override;
 
   virtual Status CommitBatch(WriteBatch* batch) = 0;
 
@@ -111,6 +110,12 @@ class PessimisticTxn : public TransactionBaseImpl {
   int64_t GetDeadlockDetectDepth() const { return deadlock_detect_depth_; }
 
  protected:
+  virtual Status PrepareInternal() = 0;
+
+  virtual Status CommitWithoutPrepareInternal() = 0;
+
+  virtual Status CommitInternal() = 0;
+
   void Initialize(const TransactionOptions& txn_options);
 
   Status LockBatch(WriteBatch* batch, TransactionKeyMap* keys_to_unlock);
@@ -170,41 +175,43 @@ class PessimisticTxn : public TransactionBaseImpl {
                           const Slice& key) override;
 
   // No copying allowed
-  PessimisticTxn(const PessimisticTxn&);
-  void operator=(const PessimisticTxn&);
+  PessimisticTransaction(const PessimisticTransaction&);
+  void operator=(const PessimisticTransaction&);
 };
 
-class WriteCommittedTxnImpl : public PessimisticTxn {
+class WriteCommittedTxn : public PessimisticTransaction {
  public:
-  WriteCommittedTxnImpl(TransactionDB* db, const WriteOptions& write_options,
+  WriteCommittedTxn(TransactionDB* db, const WriteOptions& write_options,
                         const TransactionOptions& txn_options);
 
-  virtual ~WriteCommittedTxnImpl() {}
-
-  Status Prepare() override;
-
-  Status Commit() override;
+  virtual ~WriteCommittedTxn() {}
 
   Status CommitBatch(WriteBatch* batch) override;
 
   Status Rollback() override;
 
  private:
+  Status PrepareInternal() override;
+
+  Status CommitWithoutPrepareInternal() override;
+
+  Status CommitInternal() override;
+
   Status ValidateSnapshot(ColumnFamilyHandle* column_family, const Slice& key,
                           SequenceNumber prev_seqno, SequenceNumber* new_seqno);
 
   // No copying allowed
-  WriteCommittedTxnImpl(const WriteCommittedTxnImpl&);
-  void operator=(const WriteCommittedTxnImpl&);
+  WriteCommittedTxn(const WriteCommittedTxn&);
+  void operator=(const WriteCommittedTxn&);
 };
 
 // Used at commit time to check whether transaction is committing before its
 // expiration time.
 class TransactionCallback : public WriteCallback {
  public:
-  explicit TransactionCallback(PessimisticTxn* txn) : txn_(txn) {}
+  explicit TransactionCallback(PessimisticTransaction* txn) : txn_(txn) {}
 
-  Status Callback(DB* db) override {
+  Status Callback(DB* /* unused */) override {
     if (txn_->IsExpired()) {
       return Status::Expired();
     } else {
@@ -215,7 +222,7 @@ class TransactionCallback : public WriteCallback {
   bool AllowWriteBatching() override { return true; }
 
  private:
-  PessimisticTxn* txn_;
+  PessimisticTransaction* txn_;
 };
 
 }  // namespace rocksdb

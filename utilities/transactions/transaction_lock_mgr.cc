@@ -227,7 +227,7 @@ bool TransactionLockMgr::IsLockExpired(TransactionID txn_id,
   return expired;
 }
 
-Status TransactionLockMgr::TryLock(PessimisticTxn* txn,
+Status TransactionLockMgr::TryLock(PessimisticTransaction* txn,
                                    uint32_t column_family_id,
                                    const std::string& key, Env* env,
                                    bool exclusive) {
@@ -256,7 +256,7 @@ Status TransactionLockMgr::TryLock(PessimisticTxn* txn,
 
 // Helper function for TryLock().
 Status TransactionLockMgr::AcquireWithTimeout(
-    PessimisticTxn* txn, LockMap* lock_map, LockMapStripe* stripe,
+    PessimisticTransaction* txn, LockMap* lock_map, LockMapStripe* stripe,
     uint32_t column_family_id, const std::string& key, Env* env,
     int64_t timeout, const LockInfo& lock_info) {
   Status result;
@@ -357,13 +357,13 @@ Status TransactionLockMgr::AcquireWithTimeout(
 }
 
 void TransactionLockMgr::DecrementWaiters(
-    const PessimisticTxn* txn, const autovector<TransactionID>& wait_ids) {
+    const PessimisticTransaction* txn, const autovector<TransactionID>& wait_ids) {
   std::lock_guard<std::mutex> lock(wait_txn_map_mutex_);
   DecrementWaitersImpl(txn, wait_ids);
 }
 
 void TransactionLockMgr::DecrementWaitersImpl(
-    const PessimisticTxn* txn, const autovector<TransactionID>& wait_ids) {
+    const PessimisticTransaction* txn, const autovector<TransactionID>& wait_ids) {
   auto id = txn->GetID();
   assert(wait_txn_map_.Contains(id));
   wait_txn_map_.Delete(id);
@@ -377,7 +377,7 @@ void TransactionLockMgr::DecrementWaitersImpl(
 }
 
 bool TransactionLockMgr::IncrementWaiters(
-    const PessimisticTxn* txn, const autovector<TransactionID>& wait_ids) {
+    const PessimisticTransaction* txn, const autovector<TransactionID>& wait_ids) {
   auto id = txn->GetID();
   std::vector<TransactionID> queue(txn->GetDeadlockDetectDepth());
   std::lock_guard<std::mutex> lock(wait_txn_map_mutex_);
@@ -501,7 +501,7 @@ Status TransactionLockMgr::AcquireLocked(LockMap* lock_map,
   return result;
 }
 
-void TransactionLockMgr::UnLockKey(const PessimisticTxn* txn,
+void TransactionLockMgr::UnLockKey(const PessimisticTransaction* txn,
                                    const std::string& key,
                                    LockMapStripe* stripe, LockMap* lock_map,
                                    Env* env) {
@@ -537,7 +537,7 @@ void TransactionLockMgr::UnLockKey(const PessimisticTxn* txn,
   }
 }
 
-void TransactionLockMgr::UnLock(PessimisticTxn* txn, uint32_t column_family_id,
+void TransactionLockMgr::UnLock(PessimisticTransaction* txn, uint32_t column_family_id,
                                 const std::string& key, Env* env) {
   std::shared_ptr<LockMap> lock_map_ptr = GetLockMap(column_family_id);
   LockMap* lock_map = lock_map_ptr.get();
@@ -559,7 +559,7 @@ void TransactionLockMgr::UnLock(PessimisticTxn* txn, uint32_t column_family_id,
   stripe->stripe_cv->NotifyAll();
 }
 
-void TransactionLockMgr::UnLock(const PessimisticTxn* txn,
+void TransactionLockMgr::UnLock(const PessimisticTransaction* txn,
                                 const TransactionKeyMap* key_map, Env* env) {
   for (auto& key_map_iter : *key_map) {
     uint32_t column_family_id = key_map_iter.first;
