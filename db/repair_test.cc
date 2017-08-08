@@ -194,15 +194,18 @@ TEST_F(RepairTest, SeparateWalDir) {
     ASSERT_OK(env_->DeleteFile(manifest_path));
     ASSERT_OK(RepairDB(dbname_, options));
 
-    Reopen(options);
+    // make sure that all WALs are converted to SSTables.
+    options.wal_dir = "";
 
+    Reopen(options);
     ASSERT_OK(dbfull()->GetSortedWalFiles(wal_files));
     ASSERT_EQ(wal_files.size(), 0);
     GetAllSSTFiles(&total_ssts_size);
     ASSERT_GT(total_ssts_size, 0);
     ASSERT_EQ(Get("key"), "val");
     ASSERT_EQ(Get("foo"), "bar");
-  } while(ChangeWalOptions());
+
+ } while(ChangeWalOptions());
 }
 
 TEST_F(RepairTest, RepairMultipleColumnFamilies) {
