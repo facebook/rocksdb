@@ -9,6 +9,8 @@
 #include "monitoring/iostats_context_imp.h"
 #include "util/file_reader_writer.h"
 
+#include <algorithm>
+
 namespace rocksdb {
 namespace async {
 
