@@ -31,8 +31,8 @@
 #include "util/mutexlock.h"
 #include "util/random.h"
 #include "util/timer_queue.h"
-#include "utilities/transactions/optimistic_transaction_db_impl.h"
 #include "utilities/transactions/optimistic_transaction.h"
+#include "utilities/transactions/optimistic_transaction_db_impl.h"
 
 namespace {
 int kBlockBasedTableVersionFormat = 2;

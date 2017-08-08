@@ -357,13 +357,15 @@ Status TransactionLockMgr::AcquireWithTimeout(
 }
 
 void TransactionLockMgr::DecrementWaiters(
-    const PessimisticTransaction* txn, const autovector<TransactionID>& wait_ids) {
+    const PessimisticTransaction* txn,
+    const autovector<TransactionID>& wait_ids) {
   std::lock_guard<std::mutex> lock(wait_txn_map_mutex_);
   DecrementWaitersImpl(txn, wait_ids);
 }
 
 void TransactionLockMgr::DecrementWaitersImpl(
-    const PessimisticTransaction* txn, const autovector<TransactionID>& wait_ids) {
+    const PessimisticTransaction* txn,
+    const autovector<TransactionID>& wait_ids) {
   auto id = txn->GetID();
   assert(wait_txn_map_.Contains(id));
   wait_txn_map_.Delete(id);
@@ -377,7 +379,8 @@ void TransactionLockMgr::DecrementWaitersImpl(
 }
 
 bool TransactionLockMgr::IncrementWaiters(
-    const PessimisticTransaction* txn, const autovector<TransactionID>& wait_ids) {
+    const PessimisticTransaction* txn,
+    const autovector<TransactionID>& wait_ids) {
   auto id = txn->GetID();
   std::vector<TransactionID> queue(txn->GetDeadlockDetectDepth());
   std::lock_guard<std::mutex> lock(wait_txn_map_mutex_);
@@ -537,7 +540,8 @@ void TransactionLockMgr::UnLockKey(const PessimisticTransaction* txn,
   }
 }
 
-void TransactionLockMgr::UnLock(PessimisticTransaction* txn, uint32_t column_family_id,
+void TransactionLockMgr::UnLock(PessimisticTransaction* txn,
+                                uint32_t column_family_id,
                                 const std::string& key, Env* env) {
   std::shared_ptr<LockMap> lock_map_ptr = GetLockMap(column_family_id);
   LockMap* lock_map = lock_map_ptr.get();

@@ -1303,6 +1303,7 @@ Status WriteBatchInternal::InsertInto(WriteThread::WriteGroup& write_group,
       continue;
     }
     SetSequence(w->batch, inserter.sequence());
+    w->sequence = inserter.sequence();
     inserter.set_log_number_ref(w->log_ref);
     w->status = w->batch->Iterate(&inserter);
     if (!w->status.ok()) {

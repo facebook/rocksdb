@@ -29,8 +29,8 @@ namespace rocksdb {
 class OptimisticTransaction : public TransactionBaseImpl {
  public:
   OptimisticTransaction(OptimisticTransactionDB* db,
-                            const WriteOptions& write_options,
-                            const OptimisticTransactionOptions& txn_options);
+                        const WriteOptions& write_options,
+                        const OptimisticTransactionOptions& txn_options);
 
   virtual ~OptimisticTransaction();
 
