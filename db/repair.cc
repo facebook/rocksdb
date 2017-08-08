@@ -299,7 +299,7 @@ class Repairer {
 
   void ConvertLogFilesToTables() {
     for (size_t i = 0; i < logs_.size(); i++) {
-	  // we should use LogFileName(wal_dir, logs_[i]) here. user might uses wal_dir option.
+      // we should use LogFileName(wal_dir, logs_[i]) here. user might uses wal_dir option.
       std::string logname = LogFileName(db_options_.wal_dir, logs_[i]);
       Status status = ConvertLogToTable(logs_[i]);
       if (!status.ok()) {

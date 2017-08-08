@@ -176,33 +176,32 @@ TEST_F(RepairTest, UnflushedSst) {
 
 TEST_F(RepairTest, SeparateWalDir) {
   do {
-	Options options = CurrentOptions();
-	DestroyAndReopen(options);
-	Put("key", "val");
-	Put("foo", "bar");
-	VectorLogPtr wal_files;
-	ASSERT_OK(dbfull()->GetSortedWalFiles(wal_files));
-	ASSERT_EQ(wal_files.size(), 1);
-	uint64_t total_ssts_size;
-	GetAllSSTFiles(&total_ssts_size);
-	ASSERT_EQ(total_ssts_size, 0);
-	std::string manifest_path =
-		DescriptorFileName(dbname_, dbfull()->TEST_Current_Manifest_FileNo());
+    Options options = CurrentOptions();
+    DestroyAndReopen(options);
+    Put("key", "val");
+    Put("foo", "bar");
+    VectorLogPtr wal_files;
+    ASSERT_OK(dbfull()->GetSortedWalFiles(wal_files));
+    ASSERT_EQ(wal_files.size(), 1);
+    uint64_t total_ssts_size;
+    GetAllSSTFiles(&total_ssts_size);
+    ASSERT_EQ(total_ssts_size, 0);
+    std::string manifest_path =
+      DescriptorFileName(dbname_, dbfull()->TEST_Current_Manifest_FileNo());
 
-	Close();
-	ASSERT_OK(env_->FileExists(manifest_path));
-	ASSERT_OK(env_->DeleteFile(manifest_path));
+    Close();
+    ASSERT_OK(env_->FileExists(manifest_path));
+    ASSERT_OK(env_->DeleteFile(manifest_path));
+    ASSERT_OK(RepairDB(dbname_, options));
 
-	ASSERT_OK(RepairDB(dbname_, options));
+    Reopen(options);
 
-	Reopen(options);
-
-	ASSERT_OK(dbfull()->GetSortedWalFiles(wal_files));
-	ASSERT_EQ(wal_files.size(), 0);
-	GetAllSSTFiles(&total_ssts_size);
-	ASSERT_GT(total_ssts_size, 0);
-	ASSERT_EQ(Get("key"), "val");
-	ASSERT_EQ(Get("foo"), "bar");
+    ASSERT_OK(dbfull()->GetSortedWalFiles(wal_files));
+    ASSERT_EQ(wal_files.size(), 0);
+    GetAllSSTFiles(&total_ssts_size);
+    ASSERT_GT(total_ssts_size, 0);
+    ASSERT_EQ(Get("key"), "val");
+    ASSERT_EQ(Get("foo"), "bar");
   } while(ChangeWalOptions());
 }
 
