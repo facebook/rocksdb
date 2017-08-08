@@ -38,6 +38,7 @@ public:
   virtual uint64_t min() const override { return stats_.min(); }
   virtual uint64_t max() const override { return stats_.max(); }
   virtual uint64_t num() const override { return stats_.num(); }
+  virtual uint64_t sum() const override { return stats_.sum(); }
   virtual double Median() const override;
   virtual double Percentile(double p) const override;
   virtual double Average() const override;

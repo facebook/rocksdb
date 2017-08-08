@@ -17,22 +17,30 @@
 
 namespace rocksdb {
 
-std::shared_ptr<Statistics> CreateDBStatistics() {
-  return std::make_shared<StatisticsImpl>(nullptr, false);
+std::shared_ptr<Statistics> CreateDBStatistics(bool use_histogram_windowing) {
+  if (use_histogram_windowing) {
+    return std::make_shared<StatisticsImpl<HistogramWindowingImpl>>(nullptr,
+           false);
+  }
+  return std::make_shared<StatisticsImpl<HistogramImpl>>(nullptr, false);
 }
 
-StatisticsImpl::StatisticsImpl(std::shared_ptr<Statistics> stats,
+template <class T>
+StatisticsImpl<T>::StatisticsImpl(std::shared_ptr<Statistics> stats,
                                bool enable_internal_stats)
     : stats_(std::move(stats)), enable_internal_stats_(enable_internal_stats) {}
 
-StatisticsImpl::~StatisticsImpl() {}
+template <class T>
+StatisticsImpl<T>::~StatisticsImpl() {}
 
-uint64_t StatisticsImpl::getTickerCount(uint32_t tickerType) const {
+template <class T>
+uint64_t StatisticsImpl<T>::getTickerCount(uint32_t tickerType) const {
   MutexLock lock(&aggregate_lock_);
   return getTickerCountLocked(tickerType);
 }
 
-uint64_t StatisticsImpl::getTickerCountLocked(uint32_t tickerType) const {
+template <class T>
+uint64_t StatisticsImpl<T>::getTickerCountLocked(uint32_t tickerType) const {
   assert(
     enable_internal_stats_ ?
       tickerType < INTERNAL_TICKER_ENUM_MAX :
@@ -44,19 +52,21 @@ uint64_t StatisticsImpl::getTickerCountLocked(uint32_t tickerType) const {
   return res;
 }
 
-void StatisticsImpl::histogramData(uint32_t histogramType,
+template <class T>
+void StatisticsImpl<T>::histogramData(uint32_t histogramType,
                                    HistogramData* const data) const {
   MutexLock lock(&aggregate_lock_);
   getHistogramImplLocked(histogramType)->Data(data);
 }
 
-std::unique_ptr<HistogramImpl> StatisticsImpl::getHistogramImplLocked(
+template <class T>
+std::unique_ptr<T> StatisticsImpl<T>::getHistogramImplLocked(
     uint32_t histogramType) const {
   assert(
     enable_internal_stats_ ?
       histogramType < INTERNAL_HISTOGRAM_ENUM_MAX :
       histogramType < HISTOGRAM_ENUM_MAX);
-  std::unique_ptr<HistogramImpl> res_hist(new HistogramImpl());
+  std::unique_ptr<T> res_hist(new T());
   for (size_t core_idx = 0; core_idx < per_core_stats_.Size(); ++core_idx) {
     res_hist->Merge(
         per_core_stats_.AccessAtCore(core_idx)->histograms_[histogramType]);
@@ -64,12 +74,15 @@ std::unique_ptr<HistogramImpl> StatisticsImpl::getHistogramImplLocked(
   return res_hist;
 }
 
-std::string StatisticsImpl::getHistogramString(uint32_t histogramType) const {
+template <class T>
+std::string StatisticsImpl<T>::getHistogramString(uint32_t histogramType)
+const {
   MutexLock lock(&aggregate_lock_);
   return getHistogramImplLocked(histogramType)->ToString();
 }
 
-void StatisticsImpl::setTickerCount(uint32_t tickerType, uint64_t count) {
+template <class T>
+void StatisticsImpl<T>::setTickerCount(uint32_t tickerType, uint64_t count) {
   {
     MutexLock lock(&aggregate_lock_);
     setTickerCountLocked(tickerType, count);
@@ -79,7 +92,9 @@ void StatisticsImpl::setTickerCount(uint32_t tickerType, uint64_t count) {
   }
 }
 
-void StatisticsImpl::setTickerCountLocked(uint32_t tickerType, uint64_t count) {
+template <class T>
+void StatisticsImpl<T>::setTickerCountLocked(uint32_t tickerType,
+    uint64_t count) {
   assert(enable_internal_stats_ ? tickerType < INTERNAL_TICKER_ENUM_MAX
                                 : tickerType < TICKER_ENUM_MAX);
   for (size_t core_idx = 0; core_idx < per_core_stats_.Size(); ++core_idx) {
@@ -91,7 +106,8 @@ void StatisticsImpl::setTickerCountLocked(uint32_t tickerType, uint64_t count) {
   }
 }
 
-uint64_t StatisticsImpl::getAndResetTickerCount(uint32_t tickerType) {
+template <class T>
+uint64_t StatisticsImpl<T>::getAndResetTickerCount(uint32_t tickerType) {
   uint64_t sum = 0;
   {
     MutexLock lock(&aggregate_lock_);
@@ -109,7 +125,8 @@ uint64_t StatisticsImpl::getAndResetTickerCount(uint32_t tickerType) {
   return sum;
 }
 
-void StatisticsImpl::recordTick(uint32_t tickerType, uint64_t count) {
+template <class T>
+void StatisticsImpl<T>::recordTick(uint32_t tickerType, uint64_t count) {
   assert(
     enable_internal_stats_ ?
       tickerType < INTERNAL_TICKER_ENUM_MAX :
@@ -121,7 +138,8 @@ void StatisticsImpl::recordTick(uint32_t tickerType, uint64_t count) {
   }
 }
 
-void StatisticsImpl::measureTime(uint32_t histogramType, uint64_t value) {
+template <class T>
+void StatisticsImpl<T>::measureTime(uint32_t histogramType, uint64_t value) {
   assert(
     enable_internal_stats_ ?
       histogramType < INTERNAL_HISTOGRAM_ENUM_MAX :
@@ -132,7 +150,8 @@ void StatisticsImpl::measureTime(uint32_t histogramType, uint64_t value) {
   }
 }
 
-Status StatisticsImpl::Reset() {
+template <class T>
+Status StatisticsImpl<T>::Reset() {
   MutexLock lock(&aggregate_lock_);
   for (uint32_t i = 0; i < TICKER_ENUM_MAX; ++i) {
     setTickerCountLocked(i, 0);
@@ -152,7 +171,8 @@ const int kTmpStrBufferSize = 200;
 
 } // namespace
 
-std::string StatisticsImpl::ToString() const {
+template <class T>
+std::string StatisticsImpl<T>::ToString() const {
   MutexLock lock(&aggregate_lock_);
   std::string res;
   res.reserve(20000);
@@ -181,11 +201,26 @@ std::string StatisticsImpl::ToString() const {
   return res;
 }
 
-bool StatisticsImpl::HistEnabledForType(uint32_t type) const {
+template <class T>
+bool StatisticsImpl<T>::HistEnabledForType(uint32_t type) const {
   if (LIKELY(!enable_internal_stats_)) {
     return type < HISTOGRAM_ENUM_MAX;
   }
   return true;
+}
+
+template <class T>
+double StatisticsImpl<T>::getHistogramPercentile(uint32_t type,
+    double percentile) const {
+  assert(percentile > 0 && percentile < 100);
+  MutexLock lock(&aggregate_lock_);
+  return getHistogramImplLocked(type)->Percentile(percentile);
+}
+
+template <class T>
+uint64_t StatisticsImpl<T>::getHistogramSum(uint32_t type) const {
+  MutexLock lock(&aggregate_lock_);
+  return getHistogramImplLocked(type)->sum();
 }
 
 } // namespace rocksdb

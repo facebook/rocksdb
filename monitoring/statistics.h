@@ -11,6 +11,7 @@
 #include <string>
 
 #include "monitoring/histogram.h"
+#include "monitoring/histogram_windowing.h"
 #include "port/likely.h"
 #include "port/port.h"
 #include "util/core_local.h"
@@ -35,6 +36,7 @@ enum HistogramsInternal : uint32_t {
 };
 
 
+template <class T>
 class StatisticsImpl : public Statistics {
  public:
   StatisticsImpl(std::shared_ptr<Statistics> stats,
@@ -55,6 +57,10 @@ class StatisticsImpl : public Statistics {
   virtual std::string ToString() const override;
   virtual bool HistEnabledForType(uint32_t type) const override;
 
+  virtual double getHistogramPercentile(uint32_t type,
+                                        double percentile) const override;
+  virtual uint64_t getHistogramSum(uint32_t type) const override;
+
  private:
   // If non-nullptr, forwards updates to the object pointed to by `stats_`.
   std::shared_ptr<Statistics> stats_;
@@ -71,11 +77,11 @@ class StatisticsImpl : public Statistics {
   // Alignment attributes expand to nothing depending on the platform
   struct StatisticsData {
     std::atomic_uint_fast64_t tickers_[INTERNAL_TICKER_ENUM_MAX] = {{0}};
-    HistogramImpl histograms_[INTERNAL_HISTOGRAM_ENUM_MAX];
+    T histograms_[INTERNAL_HISTOGRAM_ENUM_MAX];
     char
         padding[(CACHE_LINE_SIZE -
                  (INTERNAL_TICKER_ENUM_MAX * sizeof(std::atomic_uint_fast64_t) +
-                  INTERNAL_HISTOGRAM_ENUM_MAX * sizeof(HistogramImpl)) %
+                  INTERNAL_HISTOGRAM_ENUM_MAX * sizeof(T)) %
                      CACHE_LINE_SIZE) %
                 CACHE_LINE_SIZE] ROCKSDB_FIELD_UNUSED;
   };
@@ -85,7 +91,7 @@ class StatisticsImpl : public Statistics {
   CoreLocalArray<StatisticsData> per_core_stats_;
 
   uint64_t getTickerCountLocked(uint32_t ticker_type) const;
-  std::unique_ptr<HistogramImpl> getHistogramImplLocked(
+  std::unique_ptr<T> getHistogramImplLocked(
       uint32_t histogram_type) const;
   void setTickerCountLocked(uint32_t ticker_type, uint64_t count);
 };

@@ -467,11 +467,18 @@ class Statistics {
     return type < HISTOGRAM_ENUM_MAX;
   }
 
+  virtual double getHistogramPercentile(uint32_t type,
+                                        double percentile) const = 0;
+  virtual uint64_t getHistogramSum(uint32_t type) const = 0;
+
   StatsLevel stats_level_ = kExceptDetailedTimers;
 };
 
 // Create a concrete DBStatistics object
-std::shared_ptr<Statistics> CreateDBStatistics();
+// Set use_histogram_windowing to true to use histogram_windowing
+// to report histogram stats.
+std::shared_ptr<Statistics> CreateDBStatistics(bool use_histogram_windowing =
+      false);
 
 }  // namespace rocksdb
 
