@@ -2298,7 +2298,7 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
     // Delete log files in the WAL dir
     for (const auto& file : walDirFiles) {
       if (ParseFileName(file, &number, &type) && type == kLogFile) {
-        Status del = env->DeleteFile(soptions.wal_dir + "/" + file);
+        Status del = env->DeleteFile(LogFileName(soptions.wal_dir, number));
         if (result.ok() && !del.ok()) {
           result = del;
         }
