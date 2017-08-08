@@ -60,9 +60,9 @@ class Reader {
   // "*scratch" as temporary storage.  The contents filled in *record
   // will only be valid until the next mutating operation on this
   // reader or the next mutation to *scratch.
+  // If blob_offset is non-null, return offset of the blob through it.
   Status ReadRecord(BlobLogRecord* record, ReadLevel level = kReadHdrFooter,
-                    WALRecoveryMode wal_recovery_mode =
-                        WALRecoveryMode::kTolerateCorruptedTailRecords);
+                    uint64_t* blob_offset = nullptr);
 
   SequentialFileReader* file() { return file_.get(); }
 
