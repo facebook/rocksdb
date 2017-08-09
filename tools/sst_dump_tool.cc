@@ -127,6 +127,10 @@ Status SstFileReader::NewTableReader(
       std::move(file_), file_size, &table_reader_);
 }
 
+Status SstFileReader::VerifyChecksum() {
+  return table_reader_->VerifyChecksum();
+}
+
 Status SstFileReader::DumpTable(const std::string& out_filename) {
   unique_ptr<WritableFile> out_file;
   Env* env = Env::Default();
@@ -349,10 +353,11 @@ void print_help() {
     --file=<data_dir_OR_sst_file>
       Path to SST file or directory containing SST files
 
-    --command=check|scan|raw
+    --command=check|scan|raw|verify
         check: Iterate over entries in files but dont print anything except if an error is encounterd (default command)
         scan: Iterate over entries in files and print them to screen
         raw: Dump all the table contents to <file_name>_dump.txt
+        verify: Iterate all the blocks in files verifying checksum to detect possible coruption but dont print anything except if a corruption is encountered
 
     --output_hex
       Can be combined with scan command to print the keys and values in Hex
@@ -578,6 +583,17 @@ int SSTDumpTool::Run(int argc, char** argv) {
       if (read_num > 0 && total_read > read_num) {
         break;
       }
+    }
+
+    if (command == "verify") {
+      st = reader.VerifyChecksum();
+      if (!st.ok()) {
+        fprintf(stderr, "%s is corrupted: %s\n", filename.c_str(),
+                st.ToString().c_str());
+      } else {
+        fprintf(stdout, "The file is ok\n");
+      }
+      continue;
     }
 
     if (show_properties || show_summary) {
