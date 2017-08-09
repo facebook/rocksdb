@@ -259,17 +259,10 @@ default: all
 WARNING_FLAGS = -W -Wextra -Wall -Wsign-compare -Wshadow \
   -Wno-unused-parameter
 
-CCVERSION = $(shell $(CXX) -dumpversion)
-CCNAME = $(shell $(CXX) --version | awk 'NR==1' | cut -f1 -d " ")
+CCFALIGNED := $(shell $(CXX) --version | awk 'NR==1 { split($$3, ver, "."); if (($$1 == "clang" && ver[1] >= 4) || ($$2 == "(GCC)" && ver[1] >= 7)) { print "yes" } }')
 
-ifeq ($(CCNAME), clang)
-ifeq ($(CCVERSION), 4*)
+ifeq ($(CCFALIGNED), yes)
 	CXXFLAGS += -faligned-new
-endif
-else
-ifeq ($(CCVERSION), 7)
-	CXXFLAGS += -faligned-new
-endif
 endif
 
 ifndef DISABLE_WARNING_AS_ERROR
