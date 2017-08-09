@@ -98,6 +98,11 @@ class TableReader {
     return Status::NotSupported("DumpTable() not supported");
   }
 
+  // check whether there is corruption in this db file
+  virtual Status VerifyChecksum() {
+    return Status::NotSupported("VerifyChecksum() not supported");
+  }
+
   virtual void Close() {}
 };
 
