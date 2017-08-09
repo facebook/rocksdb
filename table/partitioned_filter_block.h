@@ -86,7 +86,8 @@ class PartitionedFilterBlockReader : public FilterBlockReader {
  private:
   Slice GetFilterPartitionHandle(const Slice& entry);
   BlockBasedTable::CachableEntry<FilterBlockReader> GetFilterPartition(
-      Slice* handle, const bool no_io, bool* cached);
+      FilePrefetchBuffer* prefetch_buffer, Slice* handle, const bool no_io,
+      bool* cached);
 
   const SliceTransform* prefix_extractor_;
   std::unique_ptr<Block> idx_on_fltr_blk_;

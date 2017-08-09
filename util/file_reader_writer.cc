@@ -603,6 +603,34 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
 };
 }  // namespace
 
+Status FilePrefetchBuffer::Prefetch(RandomAccessFileReader* reader,
+                                    uint64_t offset, size_t n) {
+  size_t alignment = reader->file()->GetRequiredBufferAlignment();
+  uint64_t roundup_offset = Roundup(offset, alignment);
+  uint64_t roundup_len = Roundup(n, alignment);
+  buffer_.Alignment(alignment);
+  buffer_.AllocateNewBuffer(roundup_len);
+
+  Slice result;
+  Status s =
+      reader->Read(roundup_offset, roundup_len, &result, buffer_.BufferStart());
+  if (s.ok()) {
+    buffer_offset_ = roundup_offset;
+    buffer_len_ = result.size();
+  }
+  return s;
+}
+
+bool FilePrefetchBuffer::TryReadFromCache(uint64_t offset, size_t n,
+                                          Slice* result) const {
+  if (offset < buffer_offset_ || offset + n > buffer_offset_ + buffer_len_) {
+    return false;
+  }
+  uint64_t offset_in_buffer = offset - buffer_offset_;
+  *result = Slice(buffer_.BufferStart() + offset_in_buffer, n);
+  return true;
+}
+
 std::unique_ptr<RandomAccessFile> NewReadaheadRandomAccessFile(
     std::unique_ptr<RandomAccessFile>&& file, size_t readahead_size) {
   std::unique_ptr<RandomAccessFile> result(
