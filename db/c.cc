@@ -3249,6 +3249,17 @@ void rocksdb_transaction_options_set_max_write_batch_size(
   opt->rep.max_write_batch_size = size;
 }
 
+rocksdb_column_family_handle_t* rocksdb_transactiondb_create_column_family(
+    rocksdb_transactiondb_t* txn_db,
+    const rocksdb_options_t* column_family_options,
+    const char* column_family_name, char** errptr) {
+  rocksdb_column_family_handle_t* handle = new rocksdb_column_family_handle_t;
+  SaveError(errptr, txn_db->rep->CreateColumnFamily(
+                        ColumnFamilyOptions(column_family_options->rep),
+                        std::string(column_family_name), &(handle->rep)));
+  return handle;
+}
+
 rocksdb_transactiondb_t* rocksdb_transactiondb_open(
     const rocksdb_options_t* options,
     const rocksdb_transactiondb_options_t* txn_db_options, const char* name,
@@ -3325,6 +3336,27 @@ char* rocksdb_transaction_get(rocksdb_transaction_t* txn,
   return result;
 }
 
+char* rocksdb_transaction_get_cf(rocksdb_transaction_t* txn,
+                                 const rocksdb_readoptions_t* options,
+                                 rocksdb_column_family_handle_t* column_family,
+                                 const char* key, size_t klen, size_t* vlen,
+                                 char** errptr) {
+  char* result = nullptr;
+  std::string tmp;
+  Status s =
+      txn->rep->Get(options->rep, column_family->rep, Slice(key, klen), &tmp);
+  if (s.ok()) {
+    *vlen = tmp.size();
+    result = CopyString(tmp);
+  } else {
+    *vlen = 0;
+    if (!s.IsNotFound()) {
+      SaveError(errptr, s);
+    }
+  }
+  return result;
+}
+
 // Read a key outside a transaction
 char* rocksdb_transactiondb_get(
     rocksdb_transactiondb_t* txn_db,
@@ -3347,11 +3379,39 @@ char* rocksdb_transactiondb_get(
   return result;
 }
 
+char* rocksdb_transactiondb_get_cf(
+    rocksdb_transactiondb_t* txn_db, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, const char* key,
+    size_t keylen, size_t* vallen, char** errptr) {
+  char* result = nullptr;
+  std::string tmp;
+  Status s = txn_db->rep->Get(options->rep, column_family->rep,
+                              Slice(key, keylen), &tmp);
+  if (s.ok()) {
+    *vallen = tmp.size();
+    result = CopyString(tmp);
+  } else {
+    *vallen = 0;
+    if (!s.IsNotFound()) {
+      SaveError(errptr, s);
+    }
+  }
+  return result;
+}
+
 // Put a key inside a transaction
 void rocksdb_transaction_put(rocksdb_transaction_t* txn, const char* key,
                              size_t klen, const char* val, size_t vlen,
                              char** errptr) {
   SaveError(errptr, txn->rep->Put(Slice(key, klen), Slice(val, vlen)));
+}
+
+void rocksdb_transaction_put_cf(rocksdb_transaction_t* txn,
+                                rocksdb_column_family_handle_t* column_family,
+                                const char* key, size_t klen, const char* val,
+                                size_t vlen, char** errptr) {
+  SaveError(errptr, txn->rep->Put(column_family->rep, Slice(key, klen),
+                                  Slice(val, vlen)));
 }
 
 //Put a key outside a transaction
@@ -3363,6 +3423,16 @@ void rocksdb_transactiondb_put(rocksdb_transactiondb_t* txn_db,
             txn_db->rep->Put(options->rep, Slice(key, klen), Slice(val, vlen)));
 }
 
+void rocksdb_transactiondb_put_cf(rocksdb_transactiondb_t* txn_db,
+                                  const rocksdb_writeoptions_t* options,
+                                  rocksdb_column_family_handle_t* column_family,
+                                  const char* key, size_t keylen,
+                                  const char* val, size_t vallen,
+                                  char** errptr) {
+  SaveError(errptr, txn_db->rep->Put(options->rep, column_family->rep,
+                                     Slice(key, keylen), Slice(val, vallen)));
+}
+
 //Write batch into transaction db
 void rocksdb_transactiondb_write(
         rocksdb_transactiondb_t* db,
@@ -3372,11 +3442,16 @@ void rocksdb_transactiondb_write(
   SaveError(errptr, db->rep->Write(options->rep, &batch->rep));
 }
 
-
 // Delete a key inside a transaction
 void rocksdb_transaction_delete(rocksdb_transaction_t* txn, const char* key,
                                 size_t klen, char** errptr) {
   SaveError(errptr, txn->rep->Delete(Slice(key, klen)));
+}
+
+void rocksdb_transaction_delete_cf(
+    rocksdb_transaction_t* txn, rocksdb_column_family_handle_t* column_family,
+    const char* key, size_t klen, char** errptr) {
+  SaveError(errptr, txn->rep->Delete(column_family->rep, Slice(key, klen)));
 }
 
 // Delete a key outside a transaction
@@ -3384,6 +3459,14 @@ void rocksdb_transactiondb_delete(rocksdb_transactiondb_t* txn_db,
                                   const rocksdb_writeoptions_t* options,
                                   const char* key, size_t klen, char** errptr) {
   SaveError(errptr, txn_db->rep->Delete(options->rep, Slice(key, klen)));
+}
+
+void rocksdb_transactiondb_delete_cf(
+    rocksdb_transactiondb_t* txn_db, const rocksdb_writeoptions_t* options,
+    rocksdb_column_family_handle_t* column_family, const char* key,
+    size_t keylen, char** errptr) {
+  SaveError(errptr, txn_db->rep->Delete(options->rep, column_family->rep,
+                                        Slice(key, keylen)));
 }
 
 // Create an iterator inside a transaction
