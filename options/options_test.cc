@@ -93,6 +93,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"min_partial_merge_operands", "31"},
       {"prefix_extractor", "fixed:31"},
       {"optimize_filters_for_hits", "true"},
+      {"allow_single_merge_operand", "true"},
   };
 
   std::unordered_map<std::string, std::string> db_options_map = {
@@ -189,6 +190,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.max_successive_merges, 30U);
   ASSERT_TRUE(new_cf_opt.prefix_extractor != nullptr);
   ASSERT_EQ(new_cf_opt.optimize_filters_for_hits, true);
+  ASSERT_EQ(new_cf_opt.allow_single_merge_operand, true);
   ASSERT_EQ(std::string(new_cf_opt.prefix_extractor->Name()),
             "rocksdb.FixedPrefix.31");
 

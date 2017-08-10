@@ -426,7 +426,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "purge_redundant_kvs_while_flush=true;"
       "hard_pending_compaction_bytes_limit=0;"
       "disable_auto_compactions=false;"
-      "report_bg_io_stats=true;",
+      "report_bg_io_stats=true;"
+      "allow_single_merge_operand=true",
       new_options));
 
   ASSERT_EQ(unset_bytes_base,
