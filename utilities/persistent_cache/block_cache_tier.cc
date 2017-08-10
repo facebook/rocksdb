@@ -136,7 +136,7 @@ Status BlockCacheTier::Close() {
 template<class T>
 void Add(std::map<std::string, double>* stats, const std::string& key,
          const T& t) {
-  stats->insert({key, static_cast<const double>(t)});
+  stats->insert({key, static_cast<double>(t)});
 }
 
 PersistentCache::StatsType BlockCacheTier::Stats() {
