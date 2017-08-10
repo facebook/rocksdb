@@ -90,7 +90,7 @@ void RandomFileReadContext::OnRandomReadComplete(const Status& status,
         if (offset_advance_ < result_->size()) {
           buf_.Size(result_->size());
           r = buf_.Read(result_buffer_, offset_advance_,
-            std::min(result_->size() - offset_advance_, n_));
+            std::min(result_->size() - size_t(offset_advance_), n_));
         }
         *result_ = Slice(result_buffer_, r);
       } else {
@@ -99,7 +99,7 @@ void RandomFileReadContext::OnRandomReadComplete(const Status& status,
         // We want to keep that optimization but need to adjust
         // the start and length
         if (offset_advance_ < result_->size()) {
-          r = std::min(result_->size() - offset_advance_, n_);
+          r = std::min(result_->size() - size_t(offset_advance_), n_);
           auto start = result_->data() + offset_advance_;
           *result_ = Slice(start, r);
         } else {
