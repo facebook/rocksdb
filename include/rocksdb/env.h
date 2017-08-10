@@ -793,7 +793,7 @@ enum InfoLogLevel : unsigned char {
 // An interface for writing log messages.
 class Logger {
  public:
-  size_t kDoNotSupportGetLogFileSize = std::numeric_limits<size_t>::max();
+  size_t kDoNotSupportGetLogFileSize = (std::numeric_limits<size_t>::max)();
 
   explicit Logger(const InfoLogLevel log_level = InfoLogLevel::INFO_LEVEL)
       : log_level_(log_level) {}
