@@ -348,6 +348,20 @@ static void CheckTxnDBGet(
         Free(&val);
 }
 
+static void CheckTxnDBGetCF(rocksdb_transactiondb_t* txn_db,
+                            const rocksdb_readoptions_t* options,
+                            rocksdb_column_family_handle_t* column_family,
+                            const char* key, const char* expected) {
+  char* err = NULL;
+  size_t val_len;
+  char* val;
+  val = rocksdb_transactiondb_get_cf(txn_db, options, column_family, key,
+                                     strlen(key), &val_len, &err);
+  CheckNoError(err);
+  CheckEqual(expected, val, val_len);
+  Free(&val);
+}
+
 int main(int argc, char** argv) {
   rocksdb_t* db;
   rocksdb_comparator_t* cmp;
@@ -1431,6 +1445,23 @@ int main(int argc, char** argv) {
     rocksdb_transaction_rollback(txn, &err);
     CheckNoError(err);
     CheckTxnDBGet(txn_db, roptions, "bar", NULL);
+
+    // Column families.
+    rocksdb_column_family_handle_t* cfh;
+    cfh = rocksdb_transactiondb_create_column_family(txn_db, options,
+                                                     "txn_db_cf", &err);
+    CheckNoError(err);
+
+    rocksdb_transactiondb_put_cf(txn_db, woptions, cfh, "cf_foo", 6, "cf_hello",
+                                 8, &err);
+    CheckNoError(err);
+    CheckTxnDBGetCF(txn_db, roptions, cfh, "cf_foo", "cf_hello");
+
+    rocksdb_transactiondb_delete_cf(txn_db, woptions, cfh, "cf_foo", 6, &err);
+    CheckNoError(err);
+    CheckTxnDBGetCF(txn_db, roptions, cfh, "cf_foo", NULL);
+
+    rocksdb_column_family_handle_destroy(cfh);
 
     // close and destroy
     rocksdb_transaction_destroy(txn);
