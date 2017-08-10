@@ -59,7 +59,11 @@ int main() {
 
   MyFilter filter;
 
-  system("rm -rf /tmp/rocksmergetest");
+  int ret = system("rm -rf /tmp/rocksmergetest");
+  if (ret != 0) {
+    fprintf(stderr, "Error deleting /tmp/rocksmergetest, code: %d\n", ret);
+    return ret;
+  }
   rocksdb::Options options;
   options.create_if_missing = true;
   options.merge_operator.reset(new MyMerge);

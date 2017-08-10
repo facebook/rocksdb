@@ -176,6 +176,7 @@ class Repairer {
       status = db_impl->NewDB();
       delete db_impl;
     }
+
     if (status.ok()) {
       // Recover using the fresh manifest created by NewDB()
       status =
@@ -246,9 +247,21 @@ class Repairer {
   Status FindFiles() {
     std::vector<std::string> filenames;
     bool found_file = false;
+    std::vector<std::string> to_search_paths;
+
     for (size_t path_id = 0; path_id < db_options_.db_paths.size(); path_id++) {
+        to_search_paths.push_back(db_options_.db_paths[path_id].path);
+    }
+
+    // search wal_dir if user uses a customize wal_dir
+    if (!db_options_.wal_dir.empty() && 
+        db_options_.wal_dir != dbname_) {
+        to_search_paths.push_back(db_options_.wal_dir);
+    }
+
+    for (size_t path_id = 0; path_id < to_search_paths.size(); path_id++) {
       Status status =
-          env_->GetChildren(db_options_.db_paths[path_id].path, &filenames);
+          env_->GetChildren(to_search_paths[path_id], &filenames);
       if (!status.ok()) {
         return status;
       }
@@ -261,14 +274,12 @@ class Repairer {
       for (size_t i = 0; i < filenames.size(); i++) {
         if (ParseFileName(filenames[i], &number, &type)) {
           if (type == kDescriptorFile) {
-            assert(path_id == 0);
             manifests_.push_back(filenames[i]);
           } else {
             if (number + 1 > next_file_number_) {
               next_file_number_ = number + 1;
             }
             if (type == kLogFile) {
-              assert(path_id == 0);
               logs_.push_back(number);
             } else if (type == kTableFile) {
               table_fds_.emplace_back(number, static_cast<uint32_t>(path_id),
@@ -288,7 +299,8 @@ class Repairer {
 
   void ConvertLogFilesToTables() {
     for (size_t i = 0; i < logs_.size(); i++) {
-      std::string logname = LogFileName(dbname_, logs_[i]);
+      // we should use LogFileName(wal_dir, logs_[i]) here. user might uses wal_dir option.
+      std::string logname = LogFileName(db_options_.wal_dir, logs_[i]);
       Status status = ConvertLogToTable(logs_[i]);
       if (!status.ok()) {
         ROCKS_LOG_WARN(db_options_.info_log,
@@ -312,7 +324,7 @@ class Repairer {
     };
 
     // Open the log file
-    std::string logname = LogFileName(dbname_, log);
+    std::string logname = LogFileName(db_options_.wal_dir, log);
     unique_ptr<SequentialFile> lfile;
     Status status = env_->NewSequentialFile(
         logname, &lfile, env_->OptimizeForLogRead(env_options_));

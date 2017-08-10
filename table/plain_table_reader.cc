@@ -191,7 +191,6 @@ void PlainTableReader::SetupForCompaction() {
 
 InternalIterator* PlainTableReader::NewIterator(const ReadOptions& options,
                                                 Arena* arena,
-                                                const InternalKeyComparator*,
                                                 bool skip_filters) {
   bool use_prefix_seek = !IsTotalOrderMode() && !options.total_order_seek;
   if (arena == nullptr) {

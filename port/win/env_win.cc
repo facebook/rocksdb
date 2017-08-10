@@ -829,7 +829,7 @@ WinEnvThreads::~WinEnvThreads() {
 
 void WinEnvThreads::Schedule(void(*function)(void*), void* arg, Env::Priority pri,
   void* tag, void(*unschedFunction)(void* arg)) {
-  assert(pri >= Env::Priority::LOW && pri <= Env::Priority::HIGH);
+  assert(pri >= Env::Priority::BOTTOM && pri <= Env::Priority::HIGH);
   thread_pools_[pri].Schedule(function, arg, tag, unschedFunction);
 }
 
@@ -878,7 +878,7 @@ void WinEnvThreads::WaitForJoin() {
 }
 
 unsigned int WinEnvThreads::GetThreadPoolQueueLen(Env::Priority pri) const {
-  assert(pri >= Env::Priority::LOW && pri <= Env::Priority::HIGH);
+  assert(pri >= Env::Priority::BOTTOM && pri <= Env::Priority::HIGH);
   return thread_pools_[pri].GetQueueLen();
 }
 
@@ -894,17 +894,17 @@ void  WinEnvThreads::SleepForMicroseconds(int micros) {
 }
 
 void WinEnvThreads::SetBackgroundThreads(int num, Env::Priority pri) {
-  assert(pri >= Env::Priority::LOW && pri <= Env::Priority::HIGH);
+  assert(pri >= Env::Priority::BOTTOM && pri <= Env::Priority::HIGH);
   thread_pools_[pri].SetBackgroundThreads(num);
 }
 
 int WinEnvThreads::GetBackgroundThreads(Env::Priority pri) {
-  assert(pri >= Env::Priority::LOW && pri <= Env::Priority::HIGH);
+  assert(pri >= Env::Priority::BOTTOM && pri <= Env::Priority::HIGH);
   return thread_pools_[pri].GetBackgroundThreads();
 }
 
 void WinEnvThreads::IncBackgroundThreadsIfNeeded(int num, Env::Priority pri) {
-  assert(pri >= Env::Priority::LOW && pri <= Env::Priority::HIGH);
+  assert(pri >= Env::Priority::BOTTOM && pri <= Env::Priority::HIGH);
   thread_pools_[pri].IncBackgroundThreadsIfNeeded(num);
 }
 

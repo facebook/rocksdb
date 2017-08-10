@@ -102,7 +102,6 @@ class BlockBasedTable : public TableReader {
   // @param skip_filters Disables loading/accessing the filter block
   InternalIterator* NewIterator(
       const ReadOptions&, Arena* arena = nullptr,
-      const InternalKeyComparator* icomparator = nullptr,
       bool skip_filters = false) override;
 
   InternalIterator* NewRangeTombstoneIterator(
@@ -139,6 +138,8 @@ class BlockBasedTable : public TableReader {
 
   // convert SST file to a human readable form
   Status DumpTable(WritableFile* out_file) override;
+
+  Status VerifyChecksum() override;
 
   void Close() override;
 
@@ -311,6 +312,8 @@ class BlockBasedTable : public TableReader {
   static Status ReadMetaBlock(Rep* rep, std::unique_ptr<Block>* meta_block,
                               std::unique_ptr<InternalIterator>* iter);
 
+  Status VerifyChecksumInBlocks(InternalIterator* index_iter);
+
   // Create the filter from the filter block.
   FilterBlockReader* ReadFilter(const BlockHandle& filter_handle,
                                 const bool is_a_filter_partition) const;
@@ -468,6 +471,7 @@ struct BlockBasedTable::Rep {
   // A value of kDisableGlobalSequenceNumber means that this feature is disabled
   // and every key have it's own seqno.
   SequenceNumber global_seqno;
+  bool closed = false;
 };
 
 }  // namespace rocksdb

@@ -317,9 +317,11 @@ EOF
     # Test whether jemalloc is available
     if echo 'int main() {}' | $CXX $CFLAGS -x c++ - -o /dev/null -ljemalloc \
       2>/dev/null; then
-        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -ljemalloc"
-        JAVA_LDFLAGS="$JAVA_LDFLAGS -ljemalloc"
+        # This will enable some preprocessor identifiers in the Makefile
         JEMALLOC=1
+        # JEMALLOC can be enabled either using the flag (like here) or by
+        # providing direct link to the jemalloc library
+        WITH_JEMALLOC_FLAG=1
     else
         # jemalloc is not available. Let's try tcmalloc
         if echo 'int main() {}' | $CXX $CFLAGS -x c++ - -o /dev/null \
@@ -517,7 +519,14 @@ echo "ROCKSDB_PATCH=$ROCKSDB_PATCH" >> "$OUTPUT"
 echo "CLANG_SCAN_BUILD=$CLANG_SCAN_BUILD" >> "$OUTPUT"
 echo "CLANG_ANALYZER=$CLANG_ANALYZER" >> "$OUTPUT"
 echo "PROFILING_FLAGS=$PROFILING_FLAGS" >> "$OUTPUT"
+# This will enable some related identifiers for the preprocessor
 if test -n "$JEMALLOC"; then
   echo "JEMALLOC=1" >> "$OUTPUT"
+fi
+# Indicates that jemalloc should be enabled using -ljemalloc flag
+# The alternative is to porvide a direct link to the library via JEMALLOC_LIB
+# and JEMALLOC_INCLUDE
+if test -n "$WITH_JEMALLOC_FLAG"; then
+  echo "WITH_JEMALLOC_FLAG=$WITH_JEMALLOC_FLAG" >> "$OUTPUT"
 fi
 echo "LUA_PATH=$LUA_PATH" >> "$OUTPUT"

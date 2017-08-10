@@ -5,7 +5,7 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "utilities/transactions/transaction_db_impl.h"
+#include "utilities/transactions/pessimistic_transaction_db.h"
 
 #include <string>
 #include <unordered_set>
@@ -15,15 +15,16 @@
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/transaction_db.h"
+#include "util/cast_util.h"
 #include "utilities/transactions/transaction_db_mutex_impl.h"
-#include "utilities/transactions/transaction_impl.h"
+#include "utilities/transactions/pessimistic_transaction.h"
 
 namespace rocksdb {
 
-TransactionDBImpl::TransactionDBImpl(DB* db,
-                                     const TransactionDBOptions& txn_db_options)
+PessimisticTransactionDB::PessimisticTransactionDB(
+    DB* db, const TransactionDBOptions& txn_db_options)
     : TransactionDB(db),
-      db_impl_(dynamic_cast<DBImpl*>(db)),
+      db_impl_(static_cast_with_check<DBImpl, DB>(db)),
       txn_db_options_(txn_db_options),
       lock_mgr_(this, txn_db_options_.num_stripes, txn_db_options.max_num_locks,
                 txn_db_options_.custom_mutex_factory
@@ -33,9 +34,9 @@ TransactionDBImpl::TransactionDBImpl(DB* db,
   assert(db_impl_ != nullptr);
 }
 
-// Support initiliazing TransactionDBImpl from a stackable db
+// Support initiliazing PessimisticTransactionDB from a stackable db
 //
-//    TransactionDBImpl
+//    PessimisticTransactionDB
 //     ^        ^
 //     |        |
 //     |        +
@@ -49,10 +50,10 @@ TransactionDBImpl::TransactionDBImpl(DB* db,
 //       +
 //       DB
 //
-TransactionDBImpl::TransactionDBImpl(StackableDB* db,
-                                     const TransactionDBOptions& txn_db_options)
+PessimisticTransactionDB::PessimisticTransactionDB(
+    StackableDB* db, const TransactionDBOptions& txn_db_options)
     : TransactionDB(db),
-      db_impl_(dynamic_cast<DBImpl*>(db->GetRootDB())),
+      db_impl_(static_cast_with_check<DBImpl, DB>(db->GetRootDB())),
       txn_db_options_(txn_db_options),
       lock_mgr_(this, txn_db_options_.num_stripes, txn_db_options.max_num_locks,
                 txn_db_options_.custom_mutex_factory
@@ -62,13 +63,13 @@ TransactionDBImpl::TransactionDBImpl(StackableDB* db,
   assert(db_impl_ != nullptr);
 }
 
-TransactionDBImpl::~TransactionDBImpl() {
+PessimisticTransactionDB::~PessimisticTransactionDB() {
   while (!transactions_.empty()) {
     delete transactions_.begin()->second;
   }
 }
 
-Status TransactionDBImpl::Initialize(
+Status PessimisticTransactionDB::Initialize(
     const std::vector<size_t>& compaction_enabled_cf_indices,
     const std::vector<ColumnFamilyHandle*>& handles) {
   for (auto cf_ptr : handles) {
@@ -120,18 +121,29 @@ Status TransactionDBImpl::Initialize(
   return s;
 }
 
-Transaction* TransactionDBImpl::BeginTransaction(
+Transaction* WriteCommittedTxnDB::BeginTransaction(
     const WriteOptions& write_options, const TransactionOptions& txn_options,
     Transaction* old_txn) {
   if (old_txn != nullptr) {
     ReinitializeTransaction(old_txn, write_options, txn_options);
     return old_txn;
   } else {
-    return new TransactionImpl(this, write_options, txn_options);
+    return new WriteCommittedTxn(this, write_options, txn_options);
   }
 }
 
-TransactionDBOptions TransactionDBImpl::ValidateTxnDBOptions(
+Transaction* WritePreparedTxnDB::BeginTransaction(
+    const WriteOptions& write_options, const TransactionOptions& txn_options,
+    Transaction* old_txn) {
+  if (old_txn != nullptr) {
+    ReinitializeTransaction(old_txn, write_options, txn_options);
+    return old_txn;
+  } else {
+    return new WritePreparedTxn(this, write_options, txn_options);
+  }
+}
+
+TransactionDBOptions PessimisticTransactionDB::ValidateTxnDBOptions(
     const TransactionDBOptions& txn_db_options) {
   TransactionDBOptions validated = txn_db_options;
 
@@ -212,8 +224,19 @@ Status TransactionDB::WrapDB(
     DB* db, const TransactionDBOptions& txn_db_options,
     const std::vector<size_t>& compaction_enabled_cf_indices,
     const std::vector<ColumnFamilyHandle*>& handles, TransactionDB** dbptr) {
-  TransactionDBImpl* txn_db = new TransactionDBImpl(
-      db, TransactionDBImpl::ValidateTxnDBOptions(txn_db_options));
+  PessimisticTransactionDB* txn_db;
+  switch (txn_db_options.write_policy) {
+    case WRITE_UNPREPARED:
+      return Status::NotSupported("WRITE_UNPREPARED is not implemented yet");
+    case WRITE_PREPARED:
+      txn_db = new WritePreparedTxnDB(
+          db, PessimisticTransactionDB::ValidateTxnDBOptions(txn_db_options));
+      break;
+    case WRITE_COMMITTED:
+    default:
+      txn_db = new WriteCommittedTxnDB(
+          db, PessimisticTransactionDB::ValidateTxnDBOptions(txn_db_options));
+  }
   *dbptr = txn_db;
   Status s = txn_db->Initialize(compaction_enabled_cf_indices, handles);
   return s;
@@ -226,8 +249,19 @@ Status TransactionDB::WrapStackableDB(
     StackableDB* db, const TransactionDBOptions& txn_db_options,
     const std::vector<size_t>& compaction_enabled_cf_indices,
     const std::vector<ColumnFamilyHandle*>& handles, TransactionDB** dbptr) {
-  TransactionDBImpl* txn_db = new TransactionDBImpl(
-      db, TransactionDBImpl::ValidateTxnDBOptions(txn_db_options));
+  PessimisticTransactionDB* txn_db;
+  switch (txn_db_options.write_policy) {
+    case WRITE_UNPREPARED:
+      return Status::NotSupported("WRITE_UNPREPARED is not implemented yet");
+    case WRITE_PREPARED:
+      txn_db = new WritePreparedTxnDB(
+          db, PessimisticTransactionDB::ValidateTxnDBOptions(txn_db_options));
+      break;
+    case WRITE_COMMITTED:
+    default:
+      txn_db = new WriteCommittedTxnDB(
+          db, PessimisticTransactionDB::ValidateTxnDBOptions(txn_db_options));
+  }
   *dbptr = txn_db;
   Status s = txn_db->Initialize(compaction_enabled_cf_indices, handles);
   return s;
@@ -235,11 +269,12 @@ Status TransactionDB::WrapStackableDB(
 
 // Let TransactionLockMgr know that this column family exists so it can
 // allocate a LockMap for it.
-void TransactionDBImpl::AddColumnFamily(const ColumnFamilyHandle* handle) {
+void PessimisticTransactionDB::AddColumnFamily(
+    const ColumnFamilyHandle* handle) {
   lock_mgr_.AddColumnFamily(handle->GetID());
 }
 
-Status TransactionDBImpl::CreateColumnFamily(
+Status PessimisticTransactionDB::CreateColumnFamily(
     const ColumnFamilyOptions& options, const std::string& column_family_name,
     ColumnFamilyHandle** handle) {
   InstrumentedMutexLock l(&column_family_mutex_);
@@ -254,7 +289,8 @@ Status TransactionDBImpl::CreateColumnFamily(
 
 // Let TransactionLockMgr know that it can deallocate the LockMap for this
 // column family.
-Status TransactionDBImpl::DropColumnFamily(ColumnFamilyHandle* column_family) {
+Status PessimisticTransactionDB::DropColumnFamily(
+    ColumnFamilyHandle* column_family) {
   InstrumentedMutexLock l(&column_family_mutex_);
 
   Status s = db_->DropColumnFamily(column_family);
@@ -265,23 +301,24 @@ Status TransactionDBImpl::DropColumnFamily(ColumnFamilyHandle* column_family) {
   return s;
 }
 
-Status TransactionDBImpl::TryLock(TransactionImpl* txn, uint32_t cfh_id,
-                                  const std::string& key, bool exclusive) {
+Status PessimisticTransactionDB::TryLock(PessimisticTransaction* txn, uint32_t cfh_id,
+                                         const std::string& key,
+                                         bool exclusive) {
   return lock_mgr_.TryLock(txn, cfh_id, key, GetEnv(), exclusive);
 }
 
-void TransactionDBImpl::UnLock(TransactionImpl* txn,
-                               const TransactionKeyMap* keys) {
+void PessimisticTransactionDB::UnLock(PessimisticTransaction* txn,
+                                      const TransactionKeyMap* keys) {
   lock_mgr_.UnLock(txn, keys, GetEnv());
 }
 
-void TransactionDBImpl::UnLock(TransactionImpl* txn, uint32_t cfh_id,
-                               const std::string& key) {
+void PessimisticTransactionDB::UnLock(PessimisticTransaction* txn, uint32_t cfh_id,
+                                      const std::string& key) {
   lock_mgr_.UnLock(txn, cfh_id, key, GetEnv());
 }
 
 // Used when wrapping DB write operations in a transaction
-Transaction* TransactionDBImpl::BeginInternalTransaction(
+Transaction* PessimisticTransactionDB::BeginInternalTransaction(
     const WriteOptions& options) {
   TransactionOptions txn_options;
   Transaction* txn = BeginTransaction(options, txn_options, nullptr);
@@ -300,9 +337,9 @@ Transaction* TransactionDBImpl::BeginInternalTransaction(
 // sort its keys before locking them.  This guarantees that TransactionDB write
 // methods cannot deadlock with eachother (but still could deadlock with a
 // Transaction).
-Status TransactionDBImpl::Put(const WriteOptions& options,
-                              ColumnFamilyHandle* column_family,
-                              const Slice& key, const Slice& val) {
+Status PessimisticTransactionDB::Put(const WriteOptions& options,
+                                     ColumnFamilyHandle* column_family,
+                                     const Slice& key, const Slice& val) {
   Status s;
 
   Transaction* txn = BeginInternalTransaction(options);
@@ -321,9 +358,9 @@ Status TransactionDBImpl::Put(const WriteOptions& options,
   return s;
 }
 
-Status TransactionDBImpl::Delete(const WriteOptions& wopts,
-                                 ColumnFamilyHandle* column_family,
-                                 const Slice& key) {
+Status PessimisticTransactionDB::Delete(const WriteOptions& wopts,
+                                        ColumnFamilyHandle* column_family,
+                                        const Slice& key) {
   Status s;
 
   Transaction* txn = BeginInternalTransaction(wopts);
@@ -343,9 +380,9 @@ Status TransactionDBImpl::Delete(const WriteOptions& wopts,
   return s;
 }
 
-Status TransactionDBImpl::Merge(const WriteOptions& options,
-                                ColumnFamilyHandle* column_family,
-                                const Slice& key, const Slice& value) {
+Status PessimisticTransactionDB::Merge(const WriteOptions& options,
+                                       ColumnFamilyHandle* column_family,
+                                       const Slice& key, const Slice& value) {
   Status s;
 
   Transaction* txn = BeginInternalTransaction(options);
@@ -365,14 +402,14 @@ Status TransactionDBImpl::Merge(const WriteOptions& options,
   return s;
 }
 
-Status TransactionDBImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
+Status PessimisticTransactionDB::Write(const WriteOptions& opts,
+                                       WriteBatch* updates) {
   // Need to lock all keys in this batch to prevent write conflicts with
   // concurrent transactions.
   Transaction* txn = BeginInternalTransaction(opts);
   txn->DisableIndexing();
 
-  assert(dynamic_cast<TransactionImpl*>(txn) != nullptr);
-  auto txn_impl = reinterpret_cast<TransactionImpl*>(txn);
+  auto txn_impl = static_cast_with_check<PessimisticTransaction, Transaction>(txn);
 
   // Since commitBatch sorts the keys before locking, concurrent Write()
   // operations will not cause a deadlock.
@@ -385,19 +422,19 @@ Status TransactionDBImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
   return s;
 }
 
-void TransactionDBImpl::InsertExpirableTransaction(TransactionID tx_id,
-                                                   TransactionImpl* tx) {
+void PessimisticTransactionDB::InsertExpirableTransaction(TransactionID tx_id,
+                                                          PessimisticTransaction* tx) {
   assert(tx->GetExpirationTime() > 0);
   std::lock_guard<std::mutex> lock(map_mutex_);
   expirable_transactions_map_.insert({tx_id, tx});
 }
 
-void TransactionDBImpl::RemoveExpirableTransaction(TransactionID tx_id) {
+void PessimisticTransactionDB::RemoveExpirableTransaction(TransactionID tx_id) {
   std::lock_guard<std::mutex> lock(map_mutex_);
   expirable_transactions_map_.erase(tx_id);
 }
 
-bool TransactionDBImpl::TryStealingExpiredTransactionLocks(
+bool PessimisticTransactionDB::TryStealingExpiredTransactionLocks(
     TransactionID tx_id) {
   std::lock_guard<std::mutex> lock(map_mutex_);
 
@@ -405,20 +442,19 @@ bool TransactionDBImpl::TryStealingExpiredTransactionLocks(
   if (tx_it == expirable_transactions_map_.end()) {
     return true;
   }
-  TransactionImpl& tx = *(tx_it->second);
+  PessimisticTransaction& tx = *(tx_it->second);
   return tx.TryStealingLocks();
 }
 
-void TransactionDBImpl::ReinitializeTransaction(
+void PessimisticTransactionDB::ReinitializeTransaction(
     Transaction* txn, const WriteOptions& write_options,
     const TransactionOptions& txn_options) {
-  assert(dynamic_cast<TransactionImpl*>(txn) != nullptr);
-  auto txn_impl = reinterpret_cast<TransactionImpl*>(txn);
+  auto txn_impl = static_cast_with_check<PessimisticTransaction, Transaction>(txn);
 
   txn_impl->Reinitialize(this, write_options, txn_options);
 }
 
-Transaction* TransactionDBImpl::GetTransactionByName(
+Transaction* PessimisticTransactionDB::GetTransactionByName(
     const TransactionName& name) {
   std::lock_guard<std::mutex> lock(name_map_mutex_);
   auto it = transactions_.find(name);
@@ -429,7 +465,7 @@ Transaction* TransactionDBImpl::GetTransactionByName(
   }
 }
 
-void TransactionDBImpl::GetAllPreparedTransactions(
+void PessimisticTransactionDB::GetAllPreparedTransactions(
     std::vector<Transaction*>* transv) {
   assert(transv);
   transv->clear();
@@ -441,11 +477,12 @@ void TransactionDBImpl::GetAllPreparedTransactions(
   }
 }
 
-TransactionLockMgr::LockStatusData TransactionDBImpl::GetLockStatusData() {
+TransactionLockMgr::LockStatusData
+PessimisticTransactionDB::GetLockStatusData() {
   return lock_mgr_.GetLockStatusData();
 }
 
-void TransactionDBImpl::RegisterTransaction(Transaction* txn) {
+void PessimisticTransactionDB::RegisterTransaction(Transaction* txn) {
   assert(txn);
   assert(txn->GetName().length() > 0);
   assert(GetTransactionByName(txn->GetName()) == nullptr);
@@ -454,7 +491,7 @@ void TransactionDBImpl::RegisterTransaction(Transaction* txn) {
   transactions_[txn->GetName()] = txn;
 }
 
-void TransactionDBImpl::UnregisterTransaction(Transaction* txn) {
+void PessimisticTransactionDB::UnregisterTransaction(Transaction* txn) {
   assert(txn);
   std::lock_guard<std::mutex> lock(name_map_mutex_);
   auto it = transactions_.find(txn->GetName());

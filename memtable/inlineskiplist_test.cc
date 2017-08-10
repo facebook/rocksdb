@@ -571,6 +571,7 @@ static void RunConcurrentRead(int run) {
       fprintf(stderr, "Run %d of %d\n", i, N);
     }
     TestState state(seed + 1);
+    Env::Default()->SetBackgroundThreads(1);
     Env::Default()->Schedule(ConcurrentReader, &state);
     state.Wait(TestState::RUNNING);
     for (int k = 0; k < kSize; ++k) {

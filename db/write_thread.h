@@ -55,7 +55,7 @@ class WriteThread {
 
     // The state used to inform a waiting writer that it has become a
     // parallel memtable writer. It can be the group leader who launch the
-    // praallel writer group, or one of the followers. The writer should then
+    // parallel writer group, or one of the followers. The writer should then
     // apply its batch to the memtable concurrently and call
     // CompleteParallelMemTableWriter.
     STATE_PARALLEL_MEMTABLE_WRITER = 8,

@@ -368,6 +368,9 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state, bool schedule_only) {
     candidate_files.emplace_back(
         MakeTableFileName(kDumbDbName, file->fd.GetNumber()),
         file->fd.GetPathId());
+    if (file->table_reader_handle) {
+      table_cache_->Release(file->table_reader_handle);
+    }
     delete file;
   }
 

@@ -67,6 +67,7 @@
 #include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
@@ -80,6 +81,7 @@
 #include "table/merging_iterator.h"
 #include "table/table_builder.h"
 #include "table/two_level_iterator.h"
+#include "tools/sst_dump_tool_imp.h"
 #include "util/auto_roll_logger.h"
 #include "util/autovector.h"
 #include "util/build_version.h"
@@ -168,6 +170,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       last_batch_group_size_(0),
       unscheduled_flushes_(0),
       unscheduled_compactions_(0),
+      bg_bottom_compaction_scheduled_(0),
       bg_compaction_scheduled_(0),
       num_running_compactions_(0),
       bg_flush_scheduled_(0),
@@ -242,7 +245,8 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
     return;
   }
   // Wait for background work to finish
-  while (bg_compaction_scheduled_ || bg_flush_scheduled_) {
+  while (bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
+         bg_flush_scheduled_) {
     bg_cv_.Wait();
   }
 }
@@ -252,15 +256,18 @@ DBImpl::~DBImpl() {
   // marker. After this we do a variant of the waiting and unschedule work
   // (to consider: moving all the waiting into CancelAllBackgroundWork(true))
   CancelAllBackgroundWork(false);
+  int bottom_compactions_unscheduled =
+      env_->UnSchedule(this, Env::Priority::BOTTOM);
   int compactions_unscheduled = env_->UnSchedule(this, Env::Priority::LOW);
   int flushes_unscheduled = env_->UnSchedule(this, Env::Priority::HIGH);
   mutex_.Lock();
+  bg_bottom_compaction_scheduled_ -= bottom_compactions_unscheduled;
   bg_compaction_scheduled_ -= compactions_unscheduled;
   bg_flush_scheduled_ -= flushes_unscheduled;
 
   // Wait for background work to finish
-  while (bg_compaction_scheduled_ || bg_flush_scheduled_ ||
-         bg_purge_scheduled_) {
+  while (bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
+         bg_flush_scheduled_ || bg_purge_scheduled_) {
     TEST_SYNC_POINT("DBImpl::~DBImpl:WaitJob");
     bg_cv_.Wait();
   }
@@ -2293,7 +2300,7 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
     // Delete log files in the WAL dir
     for (const auto& file : walDirFiles) {
       if (ParseFileName(file, &number, &type) && type == kLogFile) {
-        Status del = env->DeleteFile(soptions.wal_dir + "/" + file);
+        Status del = env->DeleteFile(LogFileName(soptions.wal_dir, number));
         if (result.ok() && !del.ok()) {
           result = del;
         }
@@ -2733,6 +2740,54 @@ Status DBImpl::IngestExternalFile(
   }
 
   return status;
+}
+
+Status DBImpl::VerifyChecksum() {
+  Status s;
+  Options options;
+  EnvOptions env_options;
+  std::vector<ColumnFamilyData*> cfd_list;
+  {
+    InstrumentedMutexLock l(&mutex_);
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      if (!cfd->IsDropped() && cfd->initialized()) {
+        cfd->Ref();
+        cfd_list.push_back(cfd);
+      }
+    }
+  }
+  std::vector<SuperVersion*> sv_list;
+  for (auto cfd : cfd_list) {
+    sv_list.push_back(cfd->GetReferencedSuperVersion(&mutex_));
+  }
+  for (auto& sv : sv_list) {
+    VersionStorageInfo* vstorage = sv->current->storage_info();
+    for (int i = 0; i < vstorage->num_non_empty_levels() && s.ok(); i++) {
+      for (size_t j = 0; j < vstorage->LevelFilesBrief(i).num_files && s.ok();
+           j++) {
+        const auto& fd = vstorage->LevelFilesBrief(i).files[j].fd;
+        std::string fname = TableFileName(immutable_db_options_.db_paths,
+                                          fd.GetNumber(), fd.GetPathId());
+        s = rocksdb::VerifySstFileChecksum(options, env_options, fname); 
+      }
+    }
+    if (!s.ok()) {
+      break;
+    }
+  }
+  {
+    InstrumentedMutexLock l(&mutex_);
+    for (auto sv : sv_list) {
+      if (sv && sv->Unref()) {
+        sv->Cleanup();
+        delete sv;
+      }
+    }
+    for (auto cfd : cfd_list) {
+        cfd->Unref();
+    }
+  }
+  return s;
 }
 
 void DBImpl::NotifyOnExternalFileIngested(
