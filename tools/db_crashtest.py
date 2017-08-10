@@ -44,6 +44,7 @@ default_params = {
     "verify_checksum": 1,
     "write_buffer_size": 4 * 1024 * 1024,
     "writepercent": 35,
+    "log2_keys_per_lock": 2,
     "subcompactions": lambda: random.randint(1, 4),
     "use_merge": lambda: random.randint(0, 1),
     "use_full_merge_v1": lambda: random.randint(0, 1),
