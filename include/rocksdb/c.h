@@ -1323,6 +1323,10 @@ extern ROCKSDB_LIBRARY_API void rocksdb_transactiondb_put_cf(
     rocksdb_column_family_handle_t* column_family, const char* key,
     size_t keylen, const char* val, size_t vallen, char** errptr);
 
+extern ROCKSDB_LIBRARY_API void rocksdb_transactiondb_write(
+    rocksdb_transactiondb_t* txn_db, const rocksdb_writeoptions_t* options,
+    rocksdb_writebatch_t *batch, char** errptr);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_transaction_delete(
     rocksdb_transaction_t* txn, const char* key, size_t klen, char** errptr);
 

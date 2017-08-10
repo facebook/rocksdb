@@ -125,12 +125,14 @@ static void SetBool(void* ptr) {
   reinterpret_cast<std::atomic<bool>*>(ptr)->store(true);
 }
 
-TEST_P(EnvPosixTestWithParam, RunImmediately) {
-  std::atomic<bool> called(false);
-  env_->Schedule(&SetBool, &called);
-  Env::Default()->SleepForMicroseconds(kDelayMicros);
-  ASSERT_TRUE(called.load());
-  WaitThreadPoolsEmpty();
+TEST_F(EnvPosixTest, RunImmediately) {
+  for (int pri = Env::BOTTOM; pri < Env::TOTAL; ++pri) {
+    std::atomic<bool> called(false);
+    env_->SetBackgroundThreads(1, static_cast<Env::Priority>(pri));
+    env_->Schedule(&SetBool, &called, static_cast<Env::Priority>(pri));
+    Env::Default()->SleepForMicroseconds(kDelayMicros);
+    ASSERT_TRUE(called.load());
+  }
 }
 
 TEST_P(EnvPosixTestWithParam, UnSchedule) {

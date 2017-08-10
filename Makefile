@@ -232,6 +232,10 @@ ifndef DISABLE_JEMALLOC
 		PLATFORM_CXXFLAGS += -DROCKSDB_JEMALLOC -DJEMALLOC_NO_DEMANGLE
 		PLATFORM_CCFLAGS  += -DROCKSDB_JEMALLOC -DJEMALLOC_NO_DEMANGLE
 	endif
+	ifdef WITH_JEMALLOC_FLAG
+		PLATFORM_LDFLAGS += -ljemalloc
+		JAVA_LDFLAGS += -ljemalloc
+	endif
 	EXEC_LDFLAGS := $(JEMALLOC_LIB) $(EXEC_LDFLAGS)
 	PLATFORM_CXXFLAGS += $(JEMALLOC_INCLUDE)
 	PLATFORM_CCFLAGS += $(JEMALLOC_INCLUDE)
@@ -254,6 +258,12 @@ default: all
 
 WARNING_FLAGS = -W -Wextra -Wall -Wsign-compare -Wshadow \
   -Wno-unused-parameter
+
+CCFALIGNED := $(shell $(CXX) --version | awk 'NR==1 { split($$3, ver, "."); if (($$1 == "clang" && ver[1] >= 4) || ($$2 == "(GCC)" && ver[1] >= 7)) { print "yes" } }')
+
+ifeq ($(CCFALIGNED), yes)
+	CXXFLAGS += -faligned-new
+endif
 
 ifndef DISABLE_WARNING_AS_ERROR
 	WARNING_FLAGS += -Werror

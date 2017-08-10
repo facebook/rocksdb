@@ -8,7 +8,6 @@
 #include "utilities/blob_db/blob_log_writer.h"
 
 #include <cstdint>
-#include <limits>
 #include <string>
 #include "rocksdb/env.h"
 #include "util/coding.h"
@@ -72,7 +71,7 @@ Status Writer::AppendFooter(const BlobLogFooter& footer) {
 
 Status Writer::AddRecord(const Slice& key, const Slice& val,
                          uint64_t* key_offset, uint64_t* blob_offset,
-                         uint32_t ttl) {
+                         uint64_t ttl) {
   assert(block_offset_ != 0);
   assert(last_elem_type_ == kEtFileHdr || last_elem_type_ == kEtFooter);
 
@@ -96,26 +95,23 @@ Status Writer::AddRecord(const Slice& key, const Slice& val,
 }
 
 void Writer::ConstructBlobHeader(std::string* headerbuf, const Slice& key,
-                                 const Slice& val, int32_t ttl, int64_t ts) {
+                                 const Slice& val, uint64_t ttl, int64_t ts) {
   headerbuf->reserve(BlobLogRecord::kHeaderSize);
 
   uint32_t key_size = static_cast<uint32_t>(key.size());
   PutFixed32(headerbuf, key_size);
   PutFixed64(headerbuf, val.size());
 
-  uint32_t ttl_write = (ttl != -1) ? static_cast<uint32_t>(ttl)
-                                   : std::numeric_limits<uint32_t>::max();
-  PutFixed32(headerbuf, ttl_write);
-
-  uint64_t ts_write = (ts != -1) ? static_cast<uint64_t>(ts)
-                                 : std::numeric_limits<uint64_t>::max();
-  PutFixed64(headerbuf, ts_write);
+  PutFixed64(headerbuf, ttl);
+  PutFixed64(headerbuf, ts);
 
   RecordType t = kFullType;
   headerbuf->push_back(static_cast<char>(t));
 
   RecordSubType st = kRegularType;
-  if (ttl != -1) st = kTTLType;
+  if (ttl != kNoExpiration) {
+    st = kTTLType;
+  }
   headerbuf->push_back(static_cast<char>(st));
 
   uint32_t header_crc = 0;

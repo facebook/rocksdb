@@ -29,7 +29,6 @@
 #include "util/mutexlock.h"
 #include "util/timer_queue.h"
 #include "utilities/blob_db/blob_db.h"
-#include "utilities/blob_db/blob_db_options_impl.h"
 #include "utilities/blob_db/blob_log_format.h"
 #include "utilities/blob_db/blob_log_reader.h"
 #include "utilities/blob_db/blob_log_writer.h"
@@ -158,8 +157,50 @@ class BlobDBImpl : public BlobDB {
   friend class BlobDBIterator;
 
  public:
-  static constexpr uint64_t kNoExpiration =
-      std::numeric_limits<uint64_t>::max();
+  // deletions check period
+  static constexpr uint32_t kDeleteCheckPeriodMillisecs = 2 * 1000;
+
+  // gc percentage each check period
+  static constexpr uint32_t kGCFilePercentage = 100;
+
+  // gc period
+  static constexpr uint32_t kGCCheckPeriodMillisecs = 60 * 1000;
+
+  // sanity check task
+  static constexpr uint32_t kSanityCheckPeriodMillisecs = 20 * 60 * 1000;
+
+  // how many random access open files can we tolerate
+  static constexpr uint32_t kOpenFilesTrigger = 100;
+
+  // how many periods of stats do we keep.
+  static constexpr uint32_t kWriteAmplificationStatsPeriods = 24;
+
+  // what is the length of any period
+  static constexpr uint32_t kWriteAmplificationStatsPeriodMillisecs =
+      3600 * 1000;
+
+  // we will garbage collect blob files in
+  // which entire files have expired. However if the
+  // ttl_range of files is very large say a day, we
+  // would have to wait for the entire day, before we
+  // recover most of the space.
+  static constexpr uint32_t kPartialExpirationGCRangeSecs = 4 * 3600;
+
+  // this should be based on allowed Write Amplification
+  // if 50% of the space of a blob file has been deleted/expired,
+  static constexpr uint32_t kPartialExpirationPercentage = 75;
+
+  // how often should we schedule a job to fsync open files
+  static constexpr uint32_t kFSyncFilesPeriodMillisecs = 10 * 1000;
+
+  // how often to schedule reclaim open files.
+  static constexpr uint32_t kReclaimOpenFilesPeriodMillisecs = 1 * 1000;
+
+  // how often to schedule delete obs files periods
+  static constexpr uint32_t kDeleteObsoletedFilesPeriodMillisecs = 10 * 1000;
+
+  // how often to schedule check seq files period
+  static constexpr uint32_t kCheckSeqFilesPeriodMillisecs = 10 * 1000;
 
   using rocksdb::StackableDB::Put;
   Status Put(const WriteOptions& options, ColumnFamilyHandle* column_family,
@@ -194,12 +235,12 @@ class BlobDBImpl : public BlobDB {
   using BlobDB::PutWithTTL;
   Status PutWithTTL(const WriteOptions& options,
                     ColumnFamilyHandle* column_family, const Slice& key,
-                    const Slice& value, int32_t ttl) override;
+                    const Slice& value, uint64_t ttl) override;
 
   using BlobDB::PutUntil;
   Status PutUntil(const WriteOptions& options,
                   ColumnFamilyHandle* column_family, const Slice& key,
-                  const Slice& value_unc, int32_t expiration) override;
+                  const Slice& value_unc, uint64_t expiration) override;
 
   Status LinkToBaseDB(DB* db) override;
 
@@ -246,7 +287,7 @@ class BlobDBImpl : public BlobDB {
   // has expired or if threshold of the file has been evicted
   // tt - current time
   // last_id - the id of the non-TTL file to evict
-  bool ShouldGCFile(std::shared_ptr<BlobFile> bfile, std::time_t tt,
+  bool ShouldGCFile(std::shared_ptr<BlobFile> bfile, uint64_t now,
                     uint64_t last_id, std::string* reason);
 
   // collect all the blob log files from the blob directory
@@ -255,8 +296,8 @@ class BlobDBImpl : public BlobDB {
   // appends a task into timer queue to close the file
   void CloseIf(const std::shared_ptr<BlobFile>& bfile);
 
-  int32_t ExtractExpiration(const Slice& key, const Slice& value,
-                            Slice* value_slice, std::string* new_value);
+  uint64_t ExtractExpiration(const Slice& key, const Slice& value,
+                             Slice* value_slice, std::string* new_value);
 
   Status AppendBlob(const std::shared_ptr<BlobFile>& bfile,
                     const std::string& headerbuf, const Slice& key,
@@ -267,12 +308,12 @@ class BlobDBImpl : public BlobDB {
 
   // find an existing blob log file based on the expiration unix epoch
   // if such a file does not exist, return nullptr
-  std::shared_ptr<BlobFile> SelectBlobFileTTL(uint32_t expiration);
+  std::shared_ptr<BlobFile> SelectBlobFileTTL(uint64_t expiration);
 
   // find an existing blob log file to append the value to
   std::shared_ptr<BlobFile> SelectBlobFile();
 
-  std::shared_ptr<BlobFile> FindBlobFileLocked(uint32_t expiration) const;
+  std::shared_ptr<BlobFile> FindBlobFileLocked(uint64_t expiration) const;
 
   void UpdateWriteOptions(const WriteOptions& options);
 
@@ -383,7 +424,7 @@ class BlobDBImpl : public BlobDB {
   WriteOptions write_options_;
 
   // the options that govern the behavior of Blob Storage
-  BlobDBOptionsImpl bdb_options_;
+  BlobDBOptions bdb_options_;
   DBOptions db_options_;
   EnvOptions env_options_;
 
@@ -402,6 +443,9 @@ class BlobDBImpl : public BlobDB {
   // Read Write Mutex, which protects all the data structures
   // HEAVILY TRAFFICKED
   port::RWMutex mutex_;
+
+  // Writers has to hold write_mutex_ before writing.
+  mutable port::Mutex write_mutex_;
 
   // counter for blob file number
   std::atomic<uint64_t> next_file_number_;

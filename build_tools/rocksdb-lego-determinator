@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # This script is executed by Sandcastle
 # to determine next steps to run
 

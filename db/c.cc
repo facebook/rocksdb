@@ -3433,6 +3433,15 @@ void rocksdb_transactiondb_put_cf(rocksdb_transactiondb_t* txn_db,
                                      Slice(key, keylen), Slice(val, vallen)));
 }
 
+//Write batch into transaction db
+void rocksdb_transactiondb_write(
+        rocksdb_transactiondb_t* db,
+        const rocksdb_writeoptions_t* options,
+        rocksdb_writebatch_t* batch,
+        char** errptr) {
+  SaveError(errptr, db->rep->Write(options->rep, &batch->rep));
+}
+
 // Delete a key inside a transaction
 void rocksdb_transaction_delete(rocksdb_transaction_t* txn, const char* key,
                                 size_t klen, char** errptr) {

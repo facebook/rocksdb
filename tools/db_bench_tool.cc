@@ -318,6 +318,18 @@ DEFINE_int32(max_background_jobs,
              "The maximum number of concurrent background jobs that can occur "
              "in parallel.");
 
+DEFINE_int32(num_bottom_pri_threads, 0,
+             "The number of threads in the bottom-priority thread pool (used "
+             "by universal compaction only).");
+
+DEFINE_int32(num_high_pri_threads, 0,
+             "The maximum number of concurrent background compactions"
+             " that can occur in parallel.");
+
+DEFINE_int32(num_low_pri_threads, 0,
+             "The maximum number of concurrent background compactions"
+             " that can occur in parallel.");
+
 DEFINE_int32(max_background_compactions,
              rocksdb::Options().max_background_compactions,
              "The maximum number of concurrent background compactions"
@@ -2856,7 +2868,6 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 
     assert(db_.db == nullptr);
 
-    options.create_missing_column_families = FLAGS_num_column_families > 1;
     options.max_open_files = FLAGS_open_files;
     if (FLAGS_cost_write_buffer_to_cache || FLAGS_db_write_buffer_size != 0) {
       options.write_buffer_manager.reset(
@@ -3203,6 +3214,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
   void InitializeOptionsGeneral(Options* opts) {
     Options& options = *opts;
 
+    options.create_missing_column_families = FLAGS_num_column_families > 1;
     options.statistics = dbstats;
     options.wal_dir = FLAGS_wal_dir;
     options.create_if_missing = !FLAGS_use_existing_db;
@@ -3311,10 +3323,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     } else if (FLAGS_use_blob_db) {
       blob_db::BlobDBOptions blob_db_options;
       blob_db::BlobDB* ptr;
-      s = CreateLoggerFromOptions(db_name, options, &options.info_log);
-      if (s.ok()) {
-        s = blob_db::BlobDB::Open(options, blob_db_options, db_name, &ptr);
-      }
+      s = blob_db::BlobDB::Open(options, blob_db_options, db_name, &ptr);
       if (s.ok()) {
         db->db = ptr;
       }
@@ -5240,11 +5249,14 @@ int db_bench_tool(int argc, char** argv) {
 
   FLAGS_rep_factory = StringToRepFactory(FLAGS_memtablerep.c_str());
 
-  // The number of background threads should be at least as much the
-  // max number of concurrent compactions.
-  FLAGS_env->SetBackgroundThreads(FLAGS_max_background_compactions);
-  FLAGS_env->SetBackgroundThreads(FLAGS_max_background_flushes,
+  // Note options sanitization may increase thread pool sizes according to
+  // max_background_flushes/max_background_compactions/max_background_jobs
+  FLAGS_env->SetBackgroundThreads(FLAGS_num_high_pri_threads,
                                   rocksdb::Env::Priority::HIGH);
+  FLAGS_env->SetBackgroundThreads(FLAGS_num_bottom_pri_threads,
+                                  rocksdb::Env::Priority::BOTTOM);
+  FLAGS_env->SetBackgroundThreads(FLAGS_num_low_pri_threads,
+                                  rocksdb::Env::Priority::LOW);
 
   // Choose a location for the test database if none given with --db=<path>
   if (FLAGS_db.empty()) {

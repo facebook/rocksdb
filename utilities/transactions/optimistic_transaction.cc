@@ -5,11 +5,9 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "utilities/transactions/optimistic_transaction_impl.h"
+#include "utilities/transactions/optimistic_transaction.h"
 
-#include <algorithm>
 #include <string>
-#include <vector>
 
 #include "db/column_family.h"
 #include "db/db_impl.h"
@@ -25,40 +23,40 @@ namespace rocksdb {
 
 struct WriteOptions;
 
-OptimisticTransactionImpl::OptimisticTransactionImpl(
+OptimisticTransaction::OptimisticTransaction(
     OptimisticTransactionDB* txn_db, const WriteOptions& write_options,
     const OptimisticTransactionOptions& txn_options)
     : TransactionBaseImpl(txn_db->GetBaseDB(), write_options), txn_db_(txn_db) {
   Initialize(txn_options);
 }
 
-void OptimisticTransactionImpl::Initialize(
+void OptimisticTransaction::Initialize(
     const OptimisticTransactionOptions& txn_options) {
   if (txn_options.set_snapshot) {
     SetSnapshot();
   }
 }
 
-void OptimisticTransactionImpl::Reinitialize(
+void OptimisticTransaction::Reinitialize(
     OptimisticTransactionDB* txn_db, const WriteOptions& write_options,
     const OptimisticTransactionOptions& txn_options) {
   TransactionBaseImpl::Reinitialize(txn_db->GetBaseDB(), write_options);
   Initialize(txn_options);
 }
 
-OptimisticTransactionImpl::~OptimisticTransactionImpl() {
+OptimisticTransaction::~OptimisticTransaction() {
 }
 
-void OptimisticTransactionImpl::Clear() {
+void OptimisticTransaction::Clear() {
   TransactionBaseImpl::Clear();
 }
 
-Status OptimisticTransactionImpl::Prepare() {
+Status OptimisticTransaction::Prepare() {
   return Status::InvalidArgument(
       "Two phase commit not supported for optimistic transactions.");
 }
 
-Status OptimisticTransactionImpl::Commit() {
+Status OptimisticTransaction::Commit() {
   // Set up callback which will call CheckTransactionForConflicts() to
   // check whether this transaction is safe to be committed.
   OptimisticTransactionCallback callback(this);
@@ -75,7 +73,7 @@ Status OptimisticTransactionImpl::Commit() {
   return s;
 }
 
-Status OptimisticTransactionImpl::Rollback() {
+Status OptimisticTransaction::Rollback() {
   Clear();
   return Status::OK();
 }
@@ -83,7 +81,7 @@ Status OptimisticTransactionImpl::Rollback() {
 // Record this key so that we can check it for conflicts at commit time.
 //
 // 'exclusive' is unused for OptimisticTransaction.
-Status OptimisticTransactionImpl::TryLock(ColumnFamilyHandle* column_family,
+Status OptimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
                                           const Slice& key, bool read_only,
                                           bool exclusive, bool untracked) {
   if (untracked) {
@@ -114,7 +112,7 @@ Status OptimisticTransactionImpl::TryLock(ColumnFamilyHandle* column_family,
 //
 // Should only be called on writer thread in order to avoid any race conditions
 // in detecting write conflicts.
-Status OptimisticTransactionImpl::CheckTransactionForConflicts(DB* db) {
+Status OptimisticTransaction::CheckTransactionForConflicts(DB* db) {
   Status result;
 
   auto db_impl = static_cast_with_check<DBImpl, DB>(db);
@@ -127,7 +125,7 @@ Status OptimisticTransactionImpl::CheckTransactionForConflicts(DB* db) {
                                                 true /* cache_only */);
 }
 
-Status OptimisticTransactionImpl::SetName(const TransactionName& name) {
+Status OptimisticTransaction::SetName(const TransactionName& /* unused */) {
   return Status::InvalidArgument("Optimistic transactions cannot be named.");
 }
 
