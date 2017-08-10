@@ -2764,29 +2764,6 @@ Status DBImpl::StartReplay(std::vector<ColumnFamilyHandle*>& handles,
   return Status::OK();
 }
 
-<<<<<<< 51f5132e1f4ff3d6f7c38e52562601427288a817
-Status DBImpl::StartReplay(std::vector<ColumnFamilyHandle*>& handles,
-                           const std::string& trace_filename, bool no_wait) {
-  unique_ptr<RandomAccessFile> tfile;
-  Status s = env_->NewRandomAccessFile(trace_filename, &tfile, env_options_);
-  uint64_t file_size = 0;
-  if (s.ok()) {
-    s = env_->GetFileSize(trace_filename, &file_size);
-  }
-  if (s.ok()) {
-    unique_ptr<RandomAccessFileReader> trace_file_reader;
-    trace_file_reader.reset(
-        new RandomAccessFileReader(std::move(tfile), trace_filename));
-    unique_ptr<TraceReader> trace_reader;
-    trace_reader.reset(
-        new TraceReaderImpl(std::move(trace_file_reader), file_size));
-    s = StartReplay(handles, std::move(trace_reader));
-  }
-  return s;
-}
-
-=======
->>>>>>> change api
 void DBImpl::NotifyOnExternalFileIngested(
     ColumnFamilyData* cfd, const ExternalSstFileIngestionJob& ingestion_job) {
 #ifndef ROCKSDB_LITE
