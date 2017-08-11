@@ -30,13 +30,7 @@ bool MergeOperator::PartialMergeMulti(const Slice& key,
                                       const std::deque<Slice>& operand_list,
                                       std::string* new_value,
                                       Logger* logger) const {
-  assert(operand_list.size() >= 1);
-
-  if (operand_list.size() == 1) {
-    new_value->assign(operand_list[0].data(), operand_list[0].size());
-    return true;
-  }
-
+  assert(operand_list.size() >= 2);
   // Simply loop through the operands
   Slice temp_slice(operand_list[0]);
 
