@@ -7,6 +7,7 @@
 
 ### Bug Fixes
 * Fix wrong latencies in `rocksdb.db.get.micros`, `rocksdb.db.write.micros`, and `rocksdb.sst.read.micros`.
+* Fix incorrect dropping of deletions during intra-L0 compaction.
 
 ## 5.7.0 (07/13/2017)
 ### Public API Change
