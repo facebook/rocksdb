@@ -153,7 +153,6 @@ struct MutableCFOptions {
             options.max_sequential_skip_in_iterations),
         paranoid_file_checks(options.paranoid_file_checks),
         report_bg_io_stats(options.report_bg_io_stats),
-        allow_single_merge_operand(options.allow_single_merge_operand),
         compression(options.compression) {
     RefreshDerivedOptions(options.num_levels, options.compaction_style);
   }
@@ -180,7 +179,6 @@ struct MutableCFOptions {
         max_sequential_skip_in_iterations(0),
         paranoid_file_checks(false),
         report_bg_io_stats(false),
-        allow_single_merge_operand(false),
         compression(Snappy_Supported() ? kSnappyCompression : kNoCompression) {}
 
   // Must be called after any change to MutableCFOptions
@@ -229,7 +227,6 @@ struct MutableCFOptions {
   uint64_t max_sequential_skip_in_iterations;
   bool paranoid_file_checks;
   bool report_bg_io_stats;
-  bool allow_single_merge_operand;
   CompressionType compression;
 
   // Derived options

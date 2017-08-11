@@ -34,8 +34,7 @@ class MergeHelper {
               const CompactionFilter* compaction_filter, Logger* logger,
               bool assert_valid_internal_key, SequenceNumber latest_snapshot,
               int level = 0, Statistics* stats = nullptr,
-              const std::atomic<bool>* shutting_down = nullptr,
-              bool allow_single_merge_operand = false)
+              const std::atomic<bool>* shutting_down = nullptr)
       : env_(env),
         user_comparator_(user_comparator),
         user_merge_operator_(user_merge_operator),
@@ -48,8 +47,7 @@ class MergeHelper {
         keys_(),
         filter_timer_(env_),
         total_filter_time_(0U),
-        stats_(stats),
-        allow_single_merge_operand_(allow_single_merge_operand) {
+        stats_(stats) {
     assert(user_comparator_ != nullptr);
   }
 
@@ -178,7 +176,6 @@ class MergeHelper {
   bool has_compaction_filter_skip_until_ = false;
   std::string compaction_filter_value_;
   InternalKey compaction_filter_skip_until_;
-  bool allow_single_merge_operand_;
 
   bool IsShuttingDown() {
     // This is a best-effort facility, so memory_order_relaxed is sufficient.

@@ -170,8 +170,7 @@ class CompactionIteratorTest : public testing::Test {
                      const std::vector<std::string>& range_del_vs,
                      SequenceNumber last_sequence,
                      MergeOperator* merge_op = nullptr,
-                     CompactionFilter* filter = nullptr,
-                     bool allow_single_merge_operand = false) {
+                     CompactionFilter* filter = nullptr) {
     std::unique_ptr<InternalIterator> range_del_iter(
         new test::VectorIterator(range_del_ks, range_del_vs));
     range_del_agg_.reset(new RangeDelAggregator(icmp_, snapshots_));
@@ -183,9 +182,9 @@ class CompactionIteratorTest : public testing::Test {
       compaction.reset(compaction_proxy_);
     }
 
-    merge_helper_.reset(new MergeHelper(
-        Env::Default(), cmp_, merge_op, filter, nullptr, false, 0, 0, nullptr,
-        &shutting_down_, allow_single_merge_operand));
+    merge_helper_.reset(new MergeHelper(Env::Default(), cmp_, merge_op, filter,
+                                        nullptr, false, 0, 0, nullptr,
+                                        &shutting_down_));
     iter_.reset(new LoggingForwardVectorIterator(ks, vs));
     iter_->SeekToFirst();
     c_iter_.reset(new CompactionIterator(
@@ -521,6 +520,8 @@ TEST_F(CompactionIteratorTest, SingleMergeOperand) {
     const char* Name() const override {
       return "CompactionIteratorTest SingleMergeOp";
     }
+
+    bool DoesAllowSingleMergeOperand() const override { return true; }
   };
 
   SingleMergeOp merge_op;
@@ -533,7 +534,7 @@ TEST_F(CompactionIteratorTest, SingleMergeOperand) {
        // c should invoke FullMerge due to kTypeValue at the beginning.
        test::KeyStr("c", 90, kTypeMerge), test::KeyStr("c", 80, kTypeValue)},
       {"av1", "bv2", "bv1", "cv2", "cv1"}, {}, {}, kMaxSequenceNumber,
-      &merge_op, &filter, true /* allow_single_merge_operand */);
+      &merge_op, &filter);
 
   c_iter_->SeekToFirst();
   ASSERT_TRUE(c_iter_->Valid());

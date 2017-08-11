@@ -544,10 +544,6 @@ struct AdvancedColumnFamilyOptions {
   // Default: false
   bool report_bg_io_stats = false;
 
-  // Allow merge operator to be called with a single merge operand, if true.
-  // Default: false
-  bool allow_single_merge_operand = false;
-
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();
   // Create ColumnFamilyOptions from Options

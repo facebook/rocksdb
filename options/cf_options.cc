@@ -172,8 +172,6 @@ void MutableCFOptions::Dump(Logger* log) const {
                  paranoid_file_checks);
   ROCKS_LOG_INFO(log, "                       report_bg_io_stats: %d",
                  report_bg_io_stats);
-  ROCKS_LOG_INFO(log, "               allow_single_merge_operand: %d",
-                 allow_single_merge_operand);
   ROCKS_LOG_INFO(log, "                              compression: %d",
                  static_cast<int>(compression));
 }

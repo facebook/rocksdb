@@ -289,7 +289,8 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
     // merge the stacked merge operands into a single operand.
     s = Status::MergeInProgress();
     if (merge_context_.GetNumOperands() >= 2 ||
-        (merge_context_.GetNumOperands() == 1 && allow_single_merge_operand_)) {
+        (merge_context_.GetNumOperands() == 1 &&
+         user_merge_operator_->DoesAllowSingleMergeOperand())) {
       bool merge_success = false;
       std::string merge_result;
       {
