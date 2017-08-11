@@ -2102,6 +2102,10 @@ void rocksdb_options_enable_statistics(rocksdb_options_t* opt) {
   opt->rep.statistics = rocksdb::CreateDBStatistics();
 }
 
+void rocksdb_options_set_skip_stats_update_on_db_open(rocksdb_options_t* opt, unsigned char val) {
+  opt->rep.skip_stats_update_on_db_open = val;
+}
+
 void rocksdb_options_set_num_levels(rocksdb_options_t* opt, int n) {
   opt->rep.num_levels = n;
 }
