@@ -27,11 +27,6 @@
 #include <vector>
 #include <string>
 
-
-#undef GetCurrentTime
-#undef DeleteFile
-#undef GetTickCount
-
 namespace rocksdb {
 namespace port {
 
@@ -145,7 +140,8 @@ public:
   virtual Status NewLogger(const std::string& fname,
     std::shared_ptr<Logger>* result);
 
-  virtual uint64_t NowMicros();
+  MsEnvThreads(const MsEnvThreads&) = delete;
+  MsEnvThreads& operator=(const MsEnvThreads&) = delete;
 
   virtual uint64_t NowNanos();
 

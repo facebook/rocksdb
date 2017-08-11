@@ -490,6 +490,15 @@ set(SOURCES
         utilities/write_batch_with_index/write_batch_with_index_internal.cc
         $<TARGET_OBJECTS:build_version>)
 
+# Async related things got here for now
+list(APPEND SOURCES
+    db/db_impl_request.cc
+    db/version_set_request.cc
+    db/table_cache_request.cc
+    table/block_based_table_request.cc
+    table/format_request_context.cc
+    util/random_read_context.cc)
+
 if(WIN32)
   list(APPEND SOURCES
     port/win/asyncthreadpoolimpl.cc

@@ -1007,7 +1007,8 @@ Status WinWritableImpl::CloseImpl() {
 Status WinWritableImpl::SyncImpl() {
   Status s;
   // Calls flush buffers
-  if (fsync(file_data_->GetFileHandle()) < 0) {
+  if (!file_data_->use_direct_io() &&
+      fsync(file_data_->GetFileHandle()) < 0) {
     auto lastError = GetLastError();
     s = IOErrorFromWindowsError(
         "fsync failed at Sync() for: " + file_data_->GetName(), lastError);

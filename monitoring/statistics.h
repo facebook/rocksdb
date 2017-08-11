@@ -49,7 +49,7 @@ class StatisticsImpl : public Statistics {
   virtual std::string ToString() const override;
   virtual bool HistEnabledForType(uint32_t type) const override;
 
- private:
+ protected:
   std::shared_ptr<Statistics> stats_shared_;
   Statistics* stats_;
   bool enable_internal_stats_;

@@ -23,6 +23,8 @@
 #include <cstdlib>
 #include "util/logging.h"
 
+#include <thread>
+
 namespace rocksdb {
 namespace port {
 
@@ -134,6 +136,8 @@ void RWMutex::WriteLock() { PthreadCall("write lock", pthread_rwlock_wrlock(&mu_
 void RWMutex::ReadUnlock() { PthreadCall("read unlock", pthread_rwlock_unlock(&mu_)); }
 
 void RWMutex::WriteUnlock() { PthreadCall("write unlock", pthread_rwlock_unlock(&mu_)); }
+
+using Thread = std::thread;
 
 int PhysicalCoreID() {
 #if defined(__i386__) || defined(__x86_64__)

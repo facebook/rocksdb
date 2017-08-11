@@ -399,7 +399,11 @@ static void DumpMallocStats(std::string* stats) {
   std::unique_ptr<char[]> buf{new char[kMallocStatusLen + 1]};
   mstat.cur = buf.get();
   mstat.end = buf.get() + kMallocStatusLen;
+#ifdef OS_WIN
   je_malloc_stats_print(GetJemallocStatus, &mstat, "");
+#else
+  malloc_stats_print(GetJemallocStatus, &mstat, "");
+#endif
   stats->append(buf.get());
 #endif  // ROCKSDB_JEMALLOC
 }

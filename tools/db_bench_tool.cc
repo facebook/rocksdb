@@ -73,11 +73,10 @@
 #include "utilities/merge_operators.h"
 #include "utilities/persistent_cache/block_cache_tier.h"
 
+#include "rocksdb/async/asyncthreadpool.h"
 #ifdef OS_WIN
 #include <io.h>  // open/close
-#include "ms_internal/ms_threadpool.h"
-#include "ms_internal/ms_taskpoolhandle.h"
-#include "rocksdb/async/asyncthreadpool.h"
+#include "port/win/winasyncthreadpoolimpl.h"
 #endif
 
 using GFLAGS::ParseCommandLineFlags;
@@ -1909,12 +1908,10 @@ public:
   // Initialized before invocation
   void SetState(Benchmark* bm,
     SharedState* shared,
-    ThreadState* thread,
-    port::VistaThreadPool* tp) {
+    ThreadState* thread) {
     bm_ = bm;
     shared_ = shared;
     thread_ = thread;
-    thread_pool_ = tp;
   }
 
   virtual std::unique_ptr<AsyncBenchBase> Clone() = 0;
@@ -1969,7 +1966,6 @@ protected:
   Benchmark*            bm_;
   SharedState*          shared_;
   ThreadState*          thread_;
-  port::VistaThreadPool* thread_pool_;
 };
 
 class Duration {
@@ -2019,7 +2015,6 @@ class Benchmark {
   std::shared_ptr<const FilterPolicy> filter_policy_;
 
 #ifdef OS_WIN
-  std::unique_ptr<port::VistaThreadPool>   thread_pool_;
   std::shared_ptr<async::AsyncThreadPool>  async_tp_;
   std::unique_ptr<AsyncBenchBase>          bench_func_;
 #endif
@@ -2325,21 +2320,36 @@ class Benchmark {
       FLAGS_env = new ReportFileOpEnv(rocksdb::Env::Default());
     }
 
+// Othe rplatforms supply their own async primitives
+// to handle and issue callbacks. On Linux it can aio, epoll
+// and possibly others
 #ifdef OS_WIN
     if (FLAGS_run_async) {
-      thread_pool_.reset(new port::VistaThreadPool(port::MemoryArenaId(), FLAGS_threads));
-      const size_t maxThreads = 500;
-      SYSTEM_INFO sinfo;
-      GetSystemInfo(&sinfo);
-      size_t minThreads = sinfo.dwNumberOfProcessors * 2;
-      bool result = thread_pool_->SetMinMaxThreadCount(minThreads, maxThreads);
-      if (!result) {
-        fprintf(stderr,
-          "Failed to set MinMaxThreads on the threadpool");
+      PTP_POOL ptp_pool = CreateThreadpool(NULL);
+      if (ptp_pool == NULL) {
+        fprintf(stderr, "Failed to create a threadpool error code: %ld\n",
+          GetLastError());
         exit(1);
       }
-      auto tp_handle = thread_pool_->CreateTaskPool();
-      auto io_compl_tp = FLAGS_env->CreateAsyncThreadPool(&tp_handle);
+
+      const DWORD maxThreads = 500;
+      SYSTEM_INFO sinfo;
+      GetSystemInfo(&sinfo);
+      DWORD minThreads = sinfo.dwNumberOfProcessors * 2;
+
+      assert(maxThreads != minThreads);
+
+      SetThreadpoolThreadMaximum(ptp_pool, maxThreads);
+      BOOL ret = SetThreadpoolThreadMinimum(ptp_pool, minThreads);
+      assert(ret);
+      if (!ret) {
+        fprintf(stderr,
+          "Failed to set MinMaxThreads on the threadpool: %ld", 
+          GetLastError());
+        exit(1);
+      }
+
+      auto io_compl_tp = FLAGS_env->CreateAsyncThreadPool(&ptp_pool);
       async_tp_ = std::move(io_compl_tp);
     }
 #endif
@@ -2950,7 +2960,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       states[i]->shared = &shared;
 
       benches[i] = std::move(bench_func_->Clone());
-      benches[i]->SetState(this, &shared, states[i].get(), thread_pool_.get());
+      benches[i]->SetState(this, &shared, states[i].get());
       port::Thread t(&AsyncBenchBase::Run, benches[i].get());
       threads.push_back(std::move(t));
     }
