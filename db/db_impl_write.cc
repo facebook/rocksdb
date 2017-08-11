@@ -526,7 +526,7 @@ Status DBImpl::WriteImplWALOnly(const WriteOptions& write_options,
   for (auto* writer : write_group) {
     if (writer->CheckCallback(this)) {
       writer->sequence = curr_seq;
-      curr_seq += WriteBatchInternal::ByteSize(writer->batch);
+      curr_seq += WriteBatchInternal::Count(writer->batch);
     }
   }
   if (status.ok() && write_options.sync) {

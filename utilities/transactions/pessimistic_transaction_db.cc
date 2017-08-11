@@ -524,15 +524,15 @@ bool WritePreparedTxnDB::IsInSnapshot(uint64_t prep_seq,
     }
   }
   auto indexed_seq = prep_seq % COMMIT_CACHE_SIZE;
-  uint64_t cached_prep_seq, commit_seq;
-  bool exist = GetCommitEntry(indexed_seq, &cached_prep_seq, &commit_seq);
+  CommitEntry cached;
+  bool exist = GetCommitEntry(indexed_seq, &cached);
   if (!exist) {
     // It is not committed, so it must be still prepared
     return false;
   }
-  if (prep_seq == cached_prep_seq) {
+  if (prep_seq == cached.prep_seq) {
     // It is committed and also not evicted from commit cache
-    return commit_seq <= snapshot_seq;
+    return cached.commit_seq <= snapshot_seq;
   }
   // At this point we dont know if it was committed or it is still prepared
   auto max_evicted_seq = max_evicted_seq_.load(std::memory_order_acquire);
@@ -576,12 +576,12 @@ void WritePreparedTxnDB::AddPrepared(uint64_t seq) { prepared_txns_.push(seq); }
 void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq,
                                       uint64_t commit_seq) {
   auto indexed_seq = prepare_seq % COMMIT_CACHE_SIZE;
-  uint64_t evicted_prep_seq, evicted_commit_seq;
-  bool to_be_evicted =
-      GetCommitEntry(indexed_seq, &evicted_prep_seq, &evicted_commit_seq);
-  if (to_be_evicted) {
-    if (max_evicted_seq_.load(std::memory_order_acquire) < evicted_commit_seq) {
-      auto max_evicted_seq = evicted_commit_seq;
+  CommitEntry evicted;
+  bool is_evicted =
+      AddCommitEntry(indexed_seq, {prepare_seq, commit_seq}, &evicted);
+  if (is_evicted) {
+    if (max_evicted_seq_.load(std::memory_order_acquire) < evicted.commit_seq) {
+      auto max_evicted_seq = evicted.commit_seq;
       max_evicted_seq_.store(max_evicted_seq, std::memory_order_release);
       // When max_evicted_seq_ advances, move older entries from prepared_txns_
       // to delayed_prepared_. This guarantees that if a seq is lower than max,
@@ -611,51 +611,48 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq,
       for (auto snapshot : snapshots_) {
         auto snapshot_seq =
             reinterpret_cast<const SnapshotImpl*>(snapshot)->number_;
-        if (evicted_commit_seq <= snapshot_seq) {
+        if (evicted.commit_seq <= snapshot_seq) {
           break;
         }
-        // then snapshot_seq < evicted_commit_seq
-        if (evicted_prep_seq <= snapshot_seq) {  // overlapping range
-          old_commit_map_empty_.store(false, std::memory_order_release);
+        // then snapshot_seq < evicted.commit_seq
+        if (evicted.prep_seq <= snapshot_seq) {  // overlapping range
           WriteLock wl(&old_commit_map_mutex_);
-          old_commit_map_[evicted_prep_seq] = evicted_commit_seq;
+          old_commit_map_empty_.store(false, std::memory_order_release);
+          old_commit_map_[evicted.prep_seq] = evicted.commit_seq;
         }
       }
     }
   }
-  AddCommitEntry(indexed_seq, prepare_seq, commit_seq);
   {
     WriteLock wl(&prepared_mutex_);
     prepared_txns_.erase(prepare_seq);
     bool was_empty = delayed_prepared_.empty();
-    delayed_prepared_.erase(prepare_seq);
-    bool is_empty = delayed_prepared_.empty();
-    if (was_empty != is_empty) {
-      delayed_prepared_empty_.store(is_empty, std::memory_order_release);
+    if (!was_empty) {
+      delayed_prepared_.erase(prepare_seq);
+      bool is_empty = delayed_prepared_.empty();
+      if (was_empty != is_empty) {
+        delayed_prepared_empty_.store(is_empty, std::memory_order_release);
+      }
     }
   }
 }
 
 bool WritePreparedTxnDB::GetCommitEntry(uint64_t indexed_seq,
-                                        uint64_t* prep_seq,
-                                        uint64_t* commit_seq) {
+                                        CommitEntry* entry) {
   // TODO(myabandeh): implement lock-free commit_cache_
   ReadLock rl(&commit_cache_mutex_);
-  auto entry = commit_cache_[indexed_seq];
-  if (entry.commit_seq == 0) {  // uninitialized
-    return false;
-  } else {
-    *prep_seq = entry.prep_seq;
-    *commit_seq = entry.commit_seq;
-    return true;
-  }
+  *entry = commit_cache_[indexed_seq];
+  return (entry->commit_seq != 0);  // initialized
 }
 
-void WritePreparedTxnDB::AddCommitEntry(uint64_t indexed_seq, uint64_t prep_seq,
-                                        uint64_t commit_seq) {
+bool WritePreparedTxnDB::AddCommitEntry(uint64_t indexed_seq,
+                                        CommitEntry new_entry,
+                                        CommitEntry* evicted_entry) {
   // TODO(myabandeh): implement lock-free commit_cache_
   WriteLock wl(&commit_cache_mutex_);
-  commit_cache_[indexed_seq] = {prep_seq, commit_seq};
+  *evicted_entry = commit_cache_[indexed_seq];
+  commit_cache_[indexed_seq] = new_entry;
+  return (evicted_entry->commit_seq != 0);  // initialized
 }
 
 }  //  namespace rocksdb

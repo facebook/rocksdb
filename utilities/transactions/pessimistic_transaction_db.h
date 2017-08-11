@@ -100,6 +100,10 @@ class PessimisticTransactionDB : public TransactionDB {
   void GetAllPreparedTransactions(std::vector<Transaction*>* trans) override;
 
   TransactionLockMgr::LockStatusData GetLockStatusData() override;
+  struct CommitEntry {
+    uint64_t prep_seq;
+    uint64_t commit_seq;
+  };
 
  protected:
   void ReinitializeTransaction(
@@ -204,24 +208,21 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
 
   // Get the commit entry with index indexed_seq from the commit table. It
   // returns true if such entry exists.
-  bool GetCommitEntry(uint64_t indexed_seq, uint64_t* prep_seq,
-                      uint64_t* commit_seq);
+  bool GetCommitEntry(uint64_t indexed_seq, CommitEntry* entry);
   // Rewrite the entry with the index indexed_seq in the commit table with the
-  // commit entry <prep_seq, commit_seq>
-  void AddCommitEntry(uint64_t indexed_seq, uint64_t prep_seq,
-                      uint64_t commit_seq);
+  // commit entry <prep_seq, commit_seq>. If the rewrite results into eviction,
+  // sets the evicted_entry and returns true.
+  bool AddCommitEntry(uint64_t indexed_seq, CommitEntry new_entry,
+                      CommitEntry* evicted_entry);
 
   // The list of live snapshots at the last time that max_evicted_seq_ advanced.
-  // Thread-safety is provided with snapshots_mutex_.
+  // The list sorted in ascending order. Thread-safety is provided with
+  // snapshots_mutex_.
   std::vector<SequenceNumber> snapshots_;
   // A heap of prepared transactions. Thread-safety is provided with
   // prepared_mutex_.
   PreparedHeap prepared_txns_;
   static const uint64_t COMMIT_CACHE_SIZE = 1 << 21;  // 10m entry, 80MB size
-  struct CommitEntry {
-    uint64_t prep_seq;
-    uint64_t commit_seq;
-  };
   // commit_cache_ is initialized to zero to tell apart an empty index from a
   // filled one. Thread-safety is provided with commit_cache_mutex_.
   CommitEntry commit_cache_[COMMIT_CACHE_SIZE] = {};
