@@ -137,10 +137,13 @@ struct GCStats {
   uint64_t blob_count = 0;
   uint64_t num_deletes = 0;
   uint64_t deleted_size = 0;
-  uint64_t num_relocs = 0;
-  uint64_t succ_deletes_lsm = 0;
-  uint64_t overrided_while_delete = 0;
-  uint64_t succ_relocs = 0;
+  uint64_t retry_delete = 0;
+  uint64_t delete_succeeded = 0;
+  uint64_t overwritten_while_delete = 0;
+  uint64_t num_relocate = 0;
+  uint64_t retry_relocate = 0;
+  uint64_t relocate_succeeded = 0;
+  uint64_t overwritten_while_relocate = 0;
   std::shared_ptr<BlobFile> newfile = nullptr;
 };
 
