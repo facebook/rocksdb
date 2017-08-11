@@ -69,6 +69,59 @@ bool FindIntraL0Compaction(const std::vector<FileMetaData*>& level_files,
   }
   return false;
 }
+
+bool FindIntraL0CompactionForLevelCompaction(
+    const std::vector<FileMetaData*>& level_files, size_t min_files_to_compact,
+    CompactionInputFiles* comp_inputs) {
+  // Calculate small/big file threshold.
+  size_t total_count = 0;
+  size_t total_bytes = 0;
+  for (size_t i = 0; i < level_files.size(); ++i) {
+    if (!level_files[i]->being_compacted) {
+      total_bytes += level_files[i]->fd.file_size;
+      ++total_count;
+    }
+  }
+  if (total_count < min_files_to_compact) return false;
+
+  size_t avg_file_size = total_bytes / total_count;
+  size_t small_file_size = avg_file_size / 4;
+  size_t big_file_size = avg_file_size * 4;
+
+  // Collect a series of small files.
+  size_t span_sum_bytes = 0;
+  size_t span_start = 0, span_end = 0;
+  bool found = false;
+  for (size_t i = 0; i < level_files.size(); ++i) {
+    if (level_files[i]->being_compacted ||
+        level_files[i]->fd.file_size > small_file_size) {
+      if (found) break;
+    } else {
+      if (!found) {
+        found = true;
+        span_start = i;
+      }
+
+      // Prevent from generating a big sst file in level 0.
+      span_sum_bytes += level_files[i]->fd.file_size;
+      if (span_sum_bytes > big_file_size) {
+        break;
+      }
+
+      span_end = i + 1;
+    }
+  }
+
+  if (found && span_start + min_files_to_compact <= span_end) {
+    assert(comp_inputs != nullptr);
+    comp_inputs->level = 0;
+    while (span_start < span_end) {
+      comp_inputs->files.push_back(level_files[span_start++]);
+    }
+    return true;
+  }
+  return false;
+}
 }  // anonymous namespace
 
 // Determine compression type, based on user options, level of the output
@@ -1387,8 +1440,8 @@ bool LevelCompactionBuilder::PickIntraL0Compaction() {
     // resort to L0->L0 compaction yet.
     return false;
   }
-  return FindIntraL0Compaction(level_files, kMinFilesForIntraL0Compaction,
-                               port::kMaxUint64, &start_level_inputs_);
+  return FindIntraL0CompactionForLevelCompaction(
+      level_files, kMinFilesForIntraL0Compaction, &start_level_inputs_);
 }
 }  // namespace
 
@@ -1498,7 +1551,8 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
       if (FindIntraL0Compaction(
               level_files,
               mutable_cf_options
-                  .level0_file_num_compaction_trigger /* min_files_to_compact */,
+                  .level0_file_num_compaction_trigger /* min_files_to_compact */
+              ,
               mutable_cf_options.write_buffer_size, &comp_inputs)) {
         Compaction* c = new Compaction(
             vstorage, ioptions_, mutable_cf_options, {comp_inputs}, 0,
