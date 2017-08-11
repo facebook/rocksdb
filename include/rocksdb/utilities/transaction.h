@@ -168,9 +168,24 @@ class Transaction {
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      std::string* value) = 0;
+  virtual Status Get(const ReadOptions& options,
+                     ColumnFamilyHandle* column_family, const Slice& key,
+                     PinnableSlice* pinnable_val) {
+    assert(pinnable_val != nullptr);
+    auto s = Get(options, column_family, key, pinnable_val->GetSelf());
+    pinnable_val->PinSelf();
+    return s;
+  }
 
   virtual Status Get(const ReadOptions& options, const Slice& key,
                      std::string* value) = 0;
+  virtual Status Get(const ReadOptions& options, const Slice& key,
+                     PinnableSlice* pinnable_val) {
+    assert(pinnable_val != nullptr);
+    auto s = Get(options, key, pinnable_val->GetSelf());
+    pinnable_val->PinSelf();
+    return s;
+  }
 
   virtual std::vector<Status> MultiGet(
       const ReadOptions& options,
