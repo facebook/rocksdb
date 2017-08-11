@@ -577,12 +577,11 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq,
                                       uint64_t commit_seq) {
   auto indexed_seq = prepare_seq % COMMIT_CACHE_SIZE;
   CommitEntry evicted;
-  bool is_evicted =
-      AddCommitEntry(indexed_seq, {prepare_seq, commit_seq}, &evicted);
-  if (is_evicted) {
-    if (max_evicted_seq_.load(std::memory_order_acquire) < evicted.commit_seq) {
+  bool to_be_evicted = GetCommitEntry(indexed_seq, &evicted);
+  if (to_be_evicted) {
+    auto prev_max = max_evicted_seq_.load(std::memory_order_acquire);
+    if (prev_max < evicted.commit_seq) {
       auto max_evicted_seq = evicted.commit_seq;
-      max_evicted_seq_.store(max_evicted_seq, std::memory_order_release);
       // When max_evicted_seq_ advances, move older entries from prepared_txns_
       // to delayed_prepared_. This guarantees that if a seq is lower than max,
       // then it is not in prepared_txns_ ans save an expensive, synchronized
@@ -603,6 +602,11 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq,
         InstrumentedMutex(db_impl_->mutex());
         snapshots_ = db_impl_->snapshots().GetAll();
       }
+      while (prev_max < max_evicted_seq &&
+             !max_evicted_seq_.compare_exchange_weak(prev_max, max_evicted_seq,
+                                                     std::memory_order_release,
+                                                     std::memory_order_acquire))
+        ;
     }
     // After each eviction from commit cache, check if the commit entry should
     // be kept around because it overlaps with a live snapshot.
@@ -622,6 +626,15 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq,
         }
       }
     }
+  }
+  bool succ =
+      ExchangeCommitEntry(indexed_seq, evicted, {prepare_seq, commit_seq});
+  if (!succ) {
+    // A very rare event, in which the commit entry is updated before we do.
+    // Here we apply a very simple solution of retrying.
+    // TODO(myabandeh): do precautions to detect bugs that cause infinite loops
+    AddCommitted(prepare_seq, commit_seq);
+    return;
   }
   {
     WriteLock wl(&prepared_mutex_);
@@ -646,13 +659,26 @@ bool WritePreparedTxnDB::GetCommitEntry(uint64_t indexed_seq,
 }
 
 bool WritePreparedTxnDB::AddCommitEntry(uint64_t indexed_seq,
-                                        CommitEntry new_entry,
+                                        CommitEntry& new_entry,
                                         CommitEntry* evicted_entry) {
   // TODO(myabandeh): implement lock-free commit_cache_
   WriteLock wl(&commit_cache_mutex_);
   *evicted_entry = commit_cache_[indexed_seq];
   commit_cache_[indexed_seq] = new_entry;
   return (evicted_entry->commit_seq != 0);  // initialized
+}
+
+bool WritePreparedTxnDB::ExchangeCommitEntry(uint64_t indexed_seq,
+                                             CommitEntry& expected_entry,
+                                             CommitEntry new_entry) {
+  // TODO(myabandeh): implement lock-free commit_cache_
+  WriteLock wl(&commit_cache_mutex_);
+  auto& evicted_entry = commit_cache_[indexed_seq];
+  if (evicted_entry.prep_seq != expected_entry.prep_seq) {
+    return false;
+  }
+  commit_cache_[indexed_seq] = new_entry;
+  return true;
 }
 
 }  //  namespace rocksdb

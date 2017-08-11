@@ -212,8 +212,13 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // Rewrite the entry with the index indexed_seq in the commit table with the
   // commit entry <prep_seq, commit_seq>. If the rewrite results into eviction,
   // sets the evicted_entry and returns true.
-  bool AddCommitEntry(uint64_t indexed_seq, CommitEntry new_entry,
+  bool AddCommitEntry(uint64_t indexed_seq, CommitEntry& new_entry,
                       CommitEntry* evicted_entry);
+  // Rewrite the entry with the index indexed_seq in the commit table with the
+  // commit entry new_entry only if the existing entry matches the
+  // expected_entry. Returns false otherwise.
+  bool ExchangeCommitEntry(uint64_t indexed_seq, CommitEntry& expected_entry,
+                           CommitEntry new_entry);
 
   // The list of live snapshots at the last time that max_evicted_seq_ advanced.
   // The list sorted in ascending order. Thread-safety is provided with
