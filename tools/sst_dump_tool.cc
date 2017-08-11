@@ -488,7 +488,6 @@ int SSTDumpTool::Run(int argc, char** argv) {
         }
         compression_types.emplace_back(*iter);
       }
-      iss >> block_size;
     } else if (strncmp(argv[i], "--parse_internal_key=", 21) == 0) {
       std::string in_key(argv[i] + 21);
       try {
