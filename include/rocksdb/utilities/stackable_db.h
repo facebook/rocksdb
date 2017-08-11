@@ -95,6 +95,8 @@ class StackableDB : public DB {
     return db_->IngestExternalFile(column_family, external_files, options);
   }
 
+  virtual Status VerifyChecksum() override { return db_->VerifyChecksum(); }
+
   using DB::KeyMayExist;
   virtual bool KeyMayExist(const ReadOptions& options,
                            ColumnFamilyHandle* column_family, const Slice& key,
@@ -348,6 +350,17 @@ class StackableDB : public DB {
       SequenceNumber seq_number, unique_ptr<TransactionLogIterator>* iter,
       const TransactionLogIterator::ReadOptions& read_options) override {
     return db_->GetUpdatesSince(seq_number, iter, read_options);
+  }
+
+  virtual Status SuggestCompactRange(ColumnFamilyHandle* column_family,
+                                     const Slice* begin,
+                                     const Slice* end) override {
+    return db_->SuggestCompactRange(column_family, begin, end);
+  }
+
+  virtual Status PromoteL0(ColumnFamilyHandle* column_family,
+                           int target_level) override {
+    return db_->PromoteL0(column_family, target_level);
   }
 
   virtual ColumnFamilyHandle* DefaultColumnFamily() const override {

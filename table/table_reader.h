@@ -40,7 +40,6 @@ class TableReader {
   //               option is effective only for block-based table format.
   virtual InternalIterator* NewIterator(const ReadOptions&,
                                         Arena* arena = nullptr,
-                                        const InternalKeyComparator* = nullptr,
                                         bool skip_filters = false) = 0;
 
   virtual InternalIterator* NewRangeTombstoneIterator(
@@ -97,6 +96,11 @@ class TableReader {
   // convert db file to a human readable form
   virtual Status DumpTable(WritableFile* out_file) {
     return Status::NotSupported("DumpTable() not supported");
+  }
+
+  // check whether there is corruption in this db file
+  virtual Status VerifyChecksum() {
+    return Status::NotSupported("VerifyChecksum() not supported");
   }
 
   virtual void Close() {}

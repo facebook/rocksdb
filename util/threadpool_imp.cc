@@ -123,11 +123,11 @@ private:
 
 inline
 ThreadPoolImpl::Impl::Impl()
-    : 
+    :
       low_io_priority_(false),
       priority_(Env::LOW),
       env_(nullptr),
-      total_threads_limit_(1),
+      total_threads_limit_(0),
       queue_len_(),
       exit_all_threads_(false),
       wait_for_jobs_to_complete_(false),
@@ -372,7 +372,7 @@ int ThreadPoolImpl::Impl::UnSchedule(void* arg) {
   return count;
 }
 
-ThreadPoolImpl::ThreadPoolImpl() : 
+ThreadPoolImpl::ThreadPoolImpl() :
   impl_(new Impl()) {
 }
 

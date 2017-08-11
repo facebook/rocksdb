@@ -283,7 +283,7 @@ class Env {
   virtual Status UnlockFile(FileLock* lock) = 0;
 
   // Priority for scheduling job in thread pool
-  enum Priority { LOW, HIGH, TOTAL };
+  enum Priority { BOTTOM, LOW, HIGH, TOTAL };
 
   // Priority for requesting bytes in rate limiter scheduler
   enum IOPriority {
@@ -793,7 +793,7 @@ enum InfoLogLevel : unsigned char {
 // An interface for writing log messages.
 class Logger {
  public:
-  size_t kDoNotSupportGetLogFileSize = std::numeric_limits<size_t>::max();
+  size_t kDoNotSupportGetLogFileSize = (std::numeric_limits<size_t>::max)();
 
   explicit Logger(const InfoLogLevel log_level = InfoLogLevel::INFO_LEVEL)
       : log_level_(log_level) {}

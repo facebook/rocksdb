@@ -14,6 +14,7 @@
 #include <inttypes.h>
 #include <iostream>
 #include <map>
+#include <memory>
 #include <sstream>
 #include <vector>
 
@@ -41,8 +42,6 @@
 #include "port/port.h"
 
 namespace rocksdb {
-
-using std::dynamic_pointer_cast;
 
 SstFileReader::SstFileReader(const std::string& file_path,
                              bool verify_checksum,
@@ -115,22 +114,21 @@ Status SstFileReader::NewTableReader(
     unique_ptr<TableReader>* table_reader) {
   // We need to turn off pre-fetching of index and filter nodes for
   // BlockBasedTable
-  shared_ptr<BlockBasedTableFactory> block_table_factory =
-      dynamic_pointer_cast<BlockBasedTableFactory>(options_.table_factory);
-
-  if (block_table_factory) {
-    return block_table_factory->NewTableReader(
+  if (BlockBasedTableFactory::kName == options_.table_factory->Name()) {
+    return options_.table_factory->NewTableReader(
         TableReaderOptions(ioptions_, soptions_, internal_comparator_,
                            /*skip_filters=*/false),
         std::move(file_), file_size, &table_reader_, /*enable_prefetch=*/false);
   }
 
-  assert(!block_table_factory);
-
   // For all other factory implementation
   return options_.table_factory->NewTableReader(
       TableReaderOptions(ioptions_, soptions_, internal_comparator_),
       std::move(file_), file_size, &table_reader_);
+}
+
+Status SstFileReader::VerifyChecksum() {
+  return table_reader_->VerifyChecksum();
 }
 
 Status SstFileReader::DumpTable(const std::string& out_filename) {
@@ -355,10 +353,11 @@ void print_help() {
     --file=<data_dir_OR_sst_file>
       Path to SST file or directory containing SST files
 
-    --command=check|scan|raw
+    --command=check|scan|raw|verify
         check: Iterate over entries in files but dont print anything except if an error is encounterd (default command)
         scan: Iterate over entries in files and print them to screen
         raw: Dump all the table contents to <file_name>_dump.txt
+        verify: Iterate all the blocks in files verifying checksum to detect possible coruption but dont print anything except if a corruption is encountered
 
     --output_hex
       Can be combined with scan command to print the keys and values in Hex
@@ -584,6 +583,17 @@ int SSTDumpTool::Run(int argc, char** argv) {
       if (read_num > 0 && total_read > read_num) {
         break;
       }
+    }
+
+    if (command == "verify") {
+      st = reader.VerifyChecksum();
+      if (!st.ok()) {
+        fprintf(stderr, "%s is corrupted: %s\n", filename.c_str(),
+                st.ToString().c_str());
+      } else {
+        fprintf(stdout, "The file is ok\n");
+      }
+      continue;
     }
 
     if (show_properties || show_summary) {

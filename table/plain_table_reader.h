@@ -71,7 +71,7 @@ class PlainTableReader: public TableReader {
  public:
   static Status Open(const ImmutableCFOptions& ioptions,
                      const EnvOptions& env_options,
-                     const InternalKeyComparator& icomparator,
+                     const InternalKeyComparator& internal_comparator,
                      unique_ptr<RandomAccessFileReader>&& file,
                      uint64_t file_size, unique_ptr<TableReader>* table,
                      const int bloom_bits_per_key, double hash_table_ratio,
@@ -80,7 +80,6 @@ class PlainTableReader: public TableReader {
 
   InternalIterator* NewIterator(const ReadOptions&,
                                 Arena* arena = nullptr,
-                                const InternalKeyComparator* = nullptr,
                                 bool skip_filters = false) override;
 
   void Prepare(const Slice& target) override;

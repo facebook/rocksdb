@@ -20,6 +20,7 @@
 #include "db/log_format.h"
 #include "db/version_set.h"
 #include "rocksdb/cache.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/env.h"
 #include "rocksdb/table.h"
 #include "rocksdb/write_batch.h"
@@ -179,6 +180,9 @@ class CorruptionTest : public testing::Test {
     }
     s = WriteStringToFile(Env::Default(), contents, fname);
     ASSERT_TRUE(s.ok()) << s.ToString();
+    Options options;
+    EnvOptions env_options;
+    ASSERT_NOK(VerifySstFileChecksum(options, env_options, fname));
   }
 
   void Corrupt(FileType filetype, int offset, int bytes_to_corrupt) {
@@ -312,6 +316,7 @@ TEST_F(CorruptionTest, TableFile) {
 
   Corrupt(kTableFile, 100, 1);
   Check(99, 99);
+  ASSERT_NOK(dbi->VerifyChecksum());
 }
 
 TEST_F(CorruptionTest, TableFileIndexData) {
@@ -330,6 +335,7 @@ TEST_F(CorruptionTest, TableFileIndexData) {
   // one full file should be readable, since only one was corrupted
   // the other file should be fully non-readable, since index was corrupted
   Check(5000, 5000);
+  ASSERT_NOK(dbi->VerifyChecksum());
 }
 
 TEST_F(CorruptionTest, MissingDescriptor) {
@@ -389,10 +395,12 @@ TEST_F(CorruptionTest, CompactionInputError) {
 
   Corrupt(kTableFile, 100, 1);
   Check(9, 9);
+  ASSERT_NOK(dbi->VerifyChecksum());
 
   // Force compactions by writing lots of values
   Build(10000);
   Check(10000, 10000);
+  ASSERT_NOK(dbi->VerifyChecksum());
 }
 
 TEST_F(CorruptionTest, CompactionInputErrorParanoid) {
@@ -424,6 +432,7 @@ TEST_F(CorruptionTest, CompactionInputErrorParanoid) {
 
   CorruptTableFileAtLevel(0, 100, 1);
   Check(9, 9);
+  ASSERT_NOK(dbi->VerifyChecksum());
 
   // Write must eventually fail because of corrupted table
   Status s;
@@ -445,6 +454,7 @@ TEST_F(CorruptionTest, UnrelatedKeys) {
   DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
   dbi->TEST_FlushMemTable();
   Corrupt(kTableFile, 100, 1);
+  ASSERT_NOK(dbi->VerifyChecksum());
 
   std::string tmp1, tmp2;
   ASSERT_OK(db_->Put(WriteOptions(), Key(1000, &tmp1), Value(1000, &tmp2)));

@@ -5,7 +5,7 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "utilities/transactions/transaction_impl.h"
+#include "utilities/transactions/pessimistic_transaction.h"
 
 #include <map>
 #include <set>
@@ -19,41 +19,41 @@
 #include "rocksdb/snapshot.h"
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/transaction_db.h"
+#include "util/cast_util.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
-#include "utilities/transactions/transaction_db_impl.h"
+#include "utilities/transactions/pessimistic_transaction_db.h"
 #include "utilities/transactions/transaction_util.h"
 
 namespace rocksdb {
 
 struct WriteOptions;
 
-std::atomic<TransactionID> TransactionImpl::txn_id_counter_(1);
+std::atomic<TransactionID> PessimisticTransaction::txn_id_counter_(1);
 
-TransactionID TransactionImpl::GenTxnID() {
+TransactionID PessimisticTransaction::GenTxnID() {
   return txn_id_counter_.fetch_add(1);
 }
 
-TransactionImpl::TransactionImpl(TransactionDB* txn_db,
-                                 const WriteOptions& write_options,
-                                 const TransactionOptions& txn_options)
+PessimisticTransaction::PessimisticTransaction(TransactionDB* txn_db,
+                               const WriteOptions& write_options,
+                               const TransactionOptions& txn_options)
     : TransactionBaseImpl(txn_db->GetRootDB(), write_options),
       txn_db_impl_(nullptr),
+      expiration_time_(0),
       txn_id_(0),
       waiting_cf_id_(0),
       waiting_key_(nullptr),
-      expiration_time_(0),
       lock_timeout_(0),
       deadlock_detect_(false),
       deadlock_detect_depth_(0) {
-  txn_db_impl_ = dynamic_cast<TransactionDBImpl*>(txn_db);
-  assert(txn_db_impl_);
-  db_impl_ = dynamic_cast<DBImpl*>(txn_db->GetRootDB());
-  assert(db_impl_);
+  txn_db_impl_ =
+      static_cast_with_check<PessimisticTransactionDB, TransactionDB>(txn_db);
+  db_impl_ = static_cast_with_check<DBImpl, DB>(db_);
   Initialize(txn_options);
 }
 
-void TransactionImpl::Initialize(const TransactionOptions& txn_options) {
+void PessimisticTransaction::Initialize(const TransactionOptions& txn_options) {
   txn_id_ = GenTxnID();
 
   txn_state_ = STARTED;
@@ -84,7 +84,7 @@ void TransactionImpl::Initialize(const TransactionOptions& txn_options) {
   }
 }
 
-TransactionImpl::~TransactionImpl() {
+PessimisticTransaction::~PessimisticTransaction() {
   txn_db_impl_->UnLock(this, &GetTrackedKeys());
   if (expiration_time_ > 0) {
     txn_db_impl_->RemoveExpirableTransaction(txn_id_);
@@ -94,14 +94,14 @@ TransactionImpl::~TransactionImpl() {
   }
 }
 
-void TransactionImpl::Clear() {
+void PessimisticTransaction::Clear() {
   txn_db_impl_->UnLock(this, &GetTrackedKeys());
   TransactionBaseImpl::Clear();
 }
 
-void TransactionImpl::Reinitialize(TransactionDB* txn_db,
-                                   const WriteOptions& write_options,
-                                   const TransactionOptions& txn_options) {
+void PessimisticTransaction::Reinitialize(TransactionDB* txn_db,
+                                  const WriteOptions& write_options,
+                                  const TransactionOptions& txn_options) {
   if (!name_.empty() && txn_state_ != COMMITED) {
     txn_db_impl_->UnregisterTransaction(this);
   }
@@ -109,7 +109,7 @@ void TransactionImpl::Reinitialize(TransactionDB* txn_db,
   Initialize(txn_options);
 }
 
-bool TransactionImpl::IsExpired() const {
+bool PessimisticTransaction::IsExpired() const {
   if (expiration_time_ > 0) {
     if (db_->GetEnv()->NowMicros() >= expiration_time_) {
       // Transaction is expired.
@@ -120,7 +120,12 @@ bool TransactionImpl::IsExpired() const {
   return false;
 }
 
-Status TransactionImpl::CommitBatch(WriteBatch* batch) {
+WriteCommittedTxn::WriteCommittedTxn(
+    TransactionDB* txn_db, const WriteOptions& write_options,
+    const TransactionOptions& txn_options)
+    : PessimisticTransaction(txn_db, write_options, txn_options){};
+
+Status WriteCommittedTxn::CommitBatch(WriteBatch* batch) {
   TransactionKeyMap keys_to_unlock;
   Status s = LockBatch(batch, &keys_to_unlock);
 
@@ -158,7 +163,7 @@ Status TransactionImpl::CommitBatch(WriteBatch* batch) {
   return s;
 }
 
-Status TransactionImpl::Prepare() {
+Status PessimisticTransaction::Prepare() {
   Status s;
 
   if (name_.empty()) {
@@ -187,12 +192,7 @@ Status TransactionImpl::Prepare() {
     txn_state_.store(AWAITING_PREPARE);
     // transaction can't expire after preparation
     expiration_time_ = 0;
-    WriteOptions write_options = write_options_;
-    write_options.disableWAL = false;
-    WriteBatchInternal::MarkEndPrepare(GetWriteBatch()->GetWriteBatch(), name_);
-    s = db_impl_->WriteImpl(write_options, GetWriteBatch()->GetWriteBatch(),
-                            /*callback*/ nullptr, &log_number_, /*log ref*/ 0,
-                            /* disable_memtable*/ true);
+    s = PrepareInternal();
     if (s.ok()) {
       assert(log_number_ != 0);
       dbimpl_->MarkLogAsContainingPrepSection(log_number_);
@@ -213,9 +213,20 @@ Status TransactionImpl::Prepare() {
   return s;
 }
 
-Status TransactionImpl::Commit() {
+Status WriteCommittedTxn::PrepareInternal() {
+  WriteOptions write_options = write_options_;
+  write_options.disableWAL = false;
+  WriteBatchInternal::MarkEndPrepare(GetWriteBatch()->GetWriteBatch(), name_);
+  Status s =
+      db_impl_->WriteImpl(write_options, GetWriteBatch()->GetWriteBatch(),
+                          /*callback*/ nullptr, &log_number_, /*log ref*/ 0,
+                          /* disable_memtable*/ true);
+  return s;
+}
+
+Status PessimisticTransaction::Commit() {
   Status s;
-  bool commit_single = false;
+  bool commit_without_prepare = false;
   bool commit_prepared = false;
 
   if (IsExpired()) {
@@ -229,25 +240,28 @@ Status TransactionImpl::Commit() {
     // our locks stolen. In this case the only valid state is STARTED because
     // a state of PREPARED would have a cleared expiration_time_.
     TransactionState expected = STARTED;
-    commit_single = std::atomic_compare_exchange_strong(&txn_state_, &expected,
-                                                        AWAITING_COMMIT);
+    commit_without_prepare = std::atomic_compare_exchange_strong(
+        &txn_state_, &expected, AWAITING_COMMIT);
     TEST_SYNC_POINT("TransactionTest::ExpirableTransactionDataRace:1");
   } else if (txn_state_ == PREPARED) {
     // expiration and lock stealing is not a concern
     commit_prepared = true;
   } else if (txn_state_ == STARTED) {
     // expiration and lock stealing is not a concern
-    commit_single = true;
+    commit_without_prepare = true;
+    // TODO(myabandeh): what if the user mistakenly forgets prepare? We should
+    // add an option so that the user explictly express the intention of
+    // skipping the prepare phase.
   }
 
-  if (commit_single) {
+  if (commit_without_prepare) {
     assert(!commit_prepared);
     if (WriteBatchInternal::Count(GetCommitTimeWriteBatch()) > 0) {
       s = Status::InvalidArgument(
           "Commit-time batch contains values that will not be committed.");
     } else {
       txn_state_.store(AWAITING_COMMIT);
-      s = db_->Write(write_options_, GetWriteBatch()->GetWriteBatch());
+      s = CommitWithoutPrepareInternal();
       Clear();
       if (s.ok()) {
         txn_state_.store(COMMITED);
@@ -256,21 +270,8 @@ Status TransactionImpl::Commit() {
   } else if (commit_prepared) {
     txn_state_.store(AWAITING_COMMIT);
 
-    // We take the commit-time batch and append the Commit marker.
-    // The Memtable will ignore the Commit marker in non-recovery mode
-    WriteBatch* working_batch = GetCommitTimeWriteBatch();
-    WriteBatchInternal::MarkCommit(working_batch, name_);
+    s = CommitInternal();
 
-    // any operations appended to this working_batch will be ignored from WAL
-    working_batch->MarkWalTerminationPoint();
-
-    // insert prepared batch into Memtable only skipping WAL.
-    // Memtable will ignore BeginPrepare/EndPrepare markers
-    // in non recovery mode and simply insert the values
-    WriteBatchInternal::Append(working_batch, GetWriteBatch()->GetWriteBatch());
-
-    s = db_impl_->WriteImpl(write_options_, working_batch, nullptr, nullptr,
-                            log_number_);
     if (!s.ok()) {
       ROCKS_LOG_WARN(db_impl_->immutable_db_options().info_log,
                      "Commit write failed");
@@ -299,7 +300,31 @@ Status TransactionImpl::Commit() {
   return s;
 }
 
-Status TransactionImpl::Rollback() {
+Status WriteCommittedTxn::CommitWithoutPrepareInternal() {
+  Status s = db_->Write(write_options_, GetWriteBatch()->GetWriteBatch());
+  return s;
+}
+
+Status WriteCommittedTxn::CommitInternal() {
+  // We take the commit-time batch and append the Commit marker.
+  // The Memtable will ignore the Commit marker in non-recovery mode
+  WriteBatch* working_batch = GetCommitTimeWriteBatch();
+  WriteBatchInternal::MarkCommit(working_batch, name_);
+
+  // any operations appended to this working_batch will be ignored from WAL
+  working_batch->MarkWalTerminationPoint();
+
+  // insert prepared batch into Memtable only skipping WAL.
+  // Memtable will ignore BeginPrepare/EndPrepare markers
+  // in non recovery mode and simply insert the values
+  WriteBatchInternal::Append(working_batch, GetWriteBatch()->GetWriteBatch());
+
+  auto s = db_impl_->WriteImpl(write_options_, working_batch, nullptr, nullptr,
+                               log_number_);
+  return s;
+}
+
+Status WriteCommittedTxn::Rollback() {
   Status s;
   if (txn_state_ == PREPARED) {
     WriteBatch rollback_marker;
@@ -326,7 +351,7 @@ Status TransactionImpl::Rollback() {
   return s;
 }
 
-Status TransactionImpl::RollbackToSavePoint() {
+Status PessimisticTransaction::RollbackToSavePoint() {
   if (txn_state_ != STARTED) {
     return Status::InvalidArgument("Transaction is beyond state for rollback.");
   }
@@ -344,8 +369,8 @@ Status TransactionImpl::RollbackToSavePoint() {
 
 // Lock all keys in this batch.
 // On success, caller should unlock keys_to_unlock
-Status TransactionImpl::LockBatch(WriteBatch* batch,
-                                  TransactionKeyMap* keys_to_unlock) {
+Status PessimisticTransaction::LockBatch(WriteBatch* batch,
+                                 TransactionKeyMap* keys_to_unlock) {
   class Handler : public WriteBatch::Handler {
    public:
     // Sorted map of column_family_id to sorted set of keys.
@@ -367,12 +392,12 @@ Status TransactionImpl::LockBatch(WriteBatch* batch,
     }
 
     virtual Status PutCF(uint32_t column_family_id, const Slice& key,
-                         const Slice& value) override {
+                         const Slice& /* unused */) override {
       RecordKey(column_family_id, key);
       return Status::OK();
     }
     virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
-                           const Slice& value) override {
+                           const Slice& /* unused */) override {
       RecordKey(column_family_id, key);
       return Status::OK();
     }
@@ -422,9 +447,9 @@ Status TransactionImpl::LockBatch(WriteBatch* batch,
 // If check_shapshot is true and this transaction has a snapshot set,
 // this key will only be locked if there have been no writes to this key since
 // the snapshot time.
-Status TransactionImpl::TryLock(ColumnFamilyHandle* column_family,
-                                const Slice& key, bool read_only,
-                                bool exclusive, bool untracked) {
+Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
+                               const Slice& key, bool read_only, bool exclusive,
+                               bool untracked) {
   uint32_t cfh_id = GetColumnFamilyID(column_family);
   std::string key_str = key.ToString();
   bool previously_locked;
@@ -510,10 +535,10 @@ Status TransactionImpl::TryLock(ColumnFamilyHandle* column_family,
 
 // Return OK() if this key has not been modified more recently than the
 // transaction snapshot_.
-Status TransactionImpl::ValidateSnapshot(ColumnFamilyHandle* column_family,
-                                         const Slice& key,
-                                         SequenceNumber prev_seqno,
-                                         SequenceNumber* new_seqno) {
+Status PessimisticTransaction::ValidateSnapshot(ColumnFamilyHandle* column_family,
+                                        const Slice& key,
+                                        SequenceNumber prev_seqno,
+                                        SequenceNumber* new_seqno) {
   assert(snapshot_);
 
   SequenceNumber seq = snapshot_->GetSequenceNumber();
@@ -526,30 +551,27 @@ Status TransactionImpl::ValidateSnapshot(ColumnFamilyHandle* column_family,
 
   *new_seqno = seq;
 
-  assert(dynamic_cast<DBImpl*>(db_) != nullptr);
-  auto db_impl = reinterpret_cast<DBImpl*>(db_);
-
   ColumnFamilyHandle* cfh =
-      column_family ? column_family : db_impl->DefaultColumnFamily();
+      column_family ? column_family : db_impl_->DefaultColumnFamily();
 
-  return TransactionUtil::CheckKeyForConflicts(db_impl, cfh, key.ToString(),
+  return TransactionUtil::CheckKeyForConflicts(db_impl_, cfh, key.ToString(),
                                                snapshot_->GetSequenceNumber(),
                                                false /* cache_only */);
 }
 
-bool TransactionImpl::TryStealingLocks() {
+bool PessimisticTransaction::TryStealingLocks() {
   assert(IsExpired());
   TransactionState expected = STARTED;
   return std::atomic_compare_exchange_strong(&txn_state_, &expected,
                                              LOCKS_STOLEN);
 }
 
-void TransactionImpl::UnlockGetForUpdate(ColumnFamilyHandle* column_family,
-                                         const Slice& key) {
+void PessimisticTransaction::UnlockGetForUpdate(ColumnFamilyHandle* column_family,
+                                        const Slice& key) {
   txn_db_impl_->UnLock(this, GetColumnFamilyID(column_family), key.ToString());
 }
 
-Status TransactionImpl::SetName(const TransactionName& name) {
+Status PessimisticTransaction::SetName(const TransactionName& name) {
   Status s;
   if (txn_state_ == STARTED) {
     if (name_.length()) {

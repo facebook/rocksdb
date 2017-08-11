@@ -29,6 +29,7 @@
 #include "table/scoped_arena_iterator.h"
 #include "tools/ldb_cmd_impl.h"
 #include "tools/sst_dump_tool_imp.h"
+#include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/filename.h"
 #include "util/stderr_logger.h"
@@ -1493,8 +1494,7 @@ void DBDumperCommand::DoDumpCommand() {
     if (max_keys == 0)
       break;
     if (is_db_ttl_) {
-      TtlIterator* it_ttl = dynamic_cast<TtlIterator*>(iter);
-      assert(it_ttl);
+      TtlIterator* it_ttl = static_cast_with_check<TtlIterator, Iterator>(iter);
       rawtime = it_ttl->timestamp();
       if (rawtime < ttl_start || rawtime >= ttl_end) {
         continue;
@@ -2291,8 +2291,7 @@ void ScanCommand::DoCommand() {
         it->Valid() && (!end_key_specified_ || it->key().ToString() < end_key_);
         it->Next()) {
     if (is_db_ttl_) {
-      TtlIterator* it_ttl = dynamic_cast<TtlIterator*>(it);
-      assert(it_ttl);
+      TtlIterator* it_ttl = static_cast_with_check<TtlIterator, Iterator>(it);
       int rawtime = it_ttl->timestamp();
       if (rawtime < ttl_start || rawtime >= ttl_end) {
         continue;

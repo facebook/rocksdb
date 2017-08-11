@@ -157,6 +157,9 @@ class InternalKeyComparator : public Comparator {
 
   int Compare(const InternalKey& a, const InternalKey& b) const;
   int Compare(const ParsedInternalKey& a, const ParsedInternalKey& b) const;
+  virtual const Comparator* GetRootComparator() const override {
+    return user_comparator_->GetRootComparator();
+  }
 };
 
 // Modules in this directory should keep internal keys wrapped inside

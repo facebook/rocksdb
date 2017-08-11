@@ -138,6 +138,77 @@ TEST_F(SimCacheTest, SimCache) {
   ASSERT_EQ(6, simCache->get_hit_counter());
 }
 
+TEST_F(SimCacheTest, SimCacheLogging) {
+  auto table_options = GetTableOptions();
+  auto options = GetOptions(table_options);
+  options.disable_auto_compactions = true;
+  std::shared_ptr<SimCache> sim_cache =
+      NewSimCache(NewLRUCache(1024 * 1024), 20000, 0);
+  table_options.block_cache = sim_cache;
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  Reopen(options);
+
+  int num_block_entries = 20;
+  for (int i = 0; i < num_block_entries; i++) {
+    Put(Key(i), "val");
+    Flush();
+  }
+
+  std::string log_file = test::TmpDir(env_) + "/cache_log.txt";
+  ASSERT_OK(sim_cache->StartActivityLogging(log_file, env_));
+  for (int i = 0; i < num_block_entries; i++) {
+    ASSERT_EQ(Get(Key(i)), "val");
+  }
+  for (int i = 0; i < num_block_entries; i++) {
+    ASSERT_EQ(Get(Key(i)), "val");
+  }
+  sim_cache->StopActivityLogging();
+  ASSERT_OK(sim_cache->GetActivityLoggingStatus());
+
+  std::string file_contents = "";
+  ReadFileToString(env_, log_file, &file_contents);
+
+  int lookup_num = 0;
+  int add_num = 0;
+  std::string::size_type pos;
+
+  // count number of lookups
+  pos = 0;
+  while ((pos = file_contents.find("LOOKUP -", pos)) != std::string::npos) {
+    ++lookup_num;
+    pos += 1;
+  }
+
+  // count number of additions
+  pos = 0;
+  while ((pos = file_contents.find("ADD -", pos)) != std::string::npos) {
+    ++add_num;
+    pos += 1;
+  }
+
+  // We asked for every block twice
+  ASSERT_EQ(lookup_num, num_block_entries * 2);
+
+  // We added every block only once, since the cache can hold all blocks
+  ASSERT_EQ(add_num, num_block_entries);
+
+  // Log things again but stop logging automatically after reaching 512 bytes
+	int max_size = 512;
+  ASSERT_OK(sim_cache->StartActivityLogging(log_file, env_, max_size));
+  for (int it = 0; it < 10; it++) {
+    for (int i = 0; i < num_block_entries; i++) {
+      ASSERT_EQ(Get(Key(i)), "val");
+    }
+  }
+  ASSERT_OK(sim_cache->GetActivityLoggingStatus());
+
+  uint64_t fsize = 0;
+  ASSERT_OK(env_->GetFileSize(log_file, &fsize));
+	// error margin of 100 bytes
+  ASSERT_LT(fsize, max_size + 100);
+	ASSERT_GT(fsize, max_size - 100);
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

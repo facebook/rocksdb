@@ -9,17 +9,48 @@
 #include "rocksdb/convenience.h"
 
 #include "db/db_impl.h"
+#include "util/cast_util.h"
 
 namespace rocksdb {
 
 void CancelAllBackgroundWork(DB* db, bool wait) {
-  (dynamic_cast<DBImpl*>(db->GetRootDB()))->CancelAllBackgroundWork(wait);
+  (static_cast_with_check<DBImpl, DB>(db->GetRootDB()))
+      ->CancelAllBackgroundWork(wait);
 }
 
 Status DeleteFilesInRange(DB* db, ColumnFamilyHandle* column_family,
                           const Slice* begin, const Slice* end) {
-  return (dynamic_cast<DBImpl*>(db->GetRootDB()))
+  return (static_cast_with_check<DBImpl, DB>(db->GetRootDB()))
       ->DeleteFilesInRange(column_family, begin, end);
+}
+
+Status VerifySstFileChecksum(const Options& options,
+                             const EnvOptions& env_options,
+                             const std::string& file_path) {
+  unique_ptr<RandomAccessFile> file;
+  uint64_t file_size;
+  InternalKeyComparator internal_comparator(options.comparator);
+  ImmutableCFOptions ioptions(options);
+
+  Status s = ioptions.env->NewRandomAccessFile(file_path, &file, env_options);
+  if (s.ok()) {
+    s = ioptions.env->GetFileSize(file_path, &file_size);
+  } else {
+    return s;
+  }
+  unique_ptr<TableReader> table_reader;
+  std::unique_ptr<RandomAccessFileReader> file_reader(
+      new RandomAccessFileReader(std::move(file), file_path));
+  s = ioptions.table_factory->NewTableReader(
+      TableReaderOptions(ioptions, env_options, internal_comparator,
+                         false /* skip_filters */, -1 /* level */),
+      std::move(file_reader), file_size, &table_reader,
+      false /* prefetch_index_and_filter_in_cache */);
+  if (!s.ok()) {
+    return s;
+  }
+  s = table_reader->VerifyChecksum();
+  return s;
 }
 
 }  // namespace rocksdb

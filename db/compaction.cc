@@ -169,6 +169,7 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
       bottommost_level_(IsBottommostLevel(output_level_, vstorage, inputs_)),
       is_full_compaction_(IsFullCompaction(vstorage, inputs_)),
       is_manual_compaction_(_manual_compaction),
+      is_trivial_move_(false),
       compaction_reason_(_compaction_reason) {
   MarkFilesBeingCompacted(true);
   if (is_manual_compaction_) {

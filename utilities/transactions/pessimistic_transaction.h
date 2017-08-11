@@ -30,14 +30,17 @@
 
 namespace rocksdb {
 
-class TransactionDBImpl;
+class PessimisticTransactionDB;
 
-class TransactionImpl : public TransactionBaseImpl {
+// A transaction under pessimistic concurrency control. This class implements
+// the locking API and interfaces with the lock manager as well as the
+// pessimistic transactional db.
+class PessimisticTransaction : public TransactionBaseImpl {
  public:
-  TransactionImpl(TransactionDB* db, const WriteOptions& write_options,
-                  const TransactionOptions& txn_options);
+  PessimisticTransaction(TransactionDB* db, const WriteOptions& write_options,
+                 const TransactionOptions& txn_options);
 
-  virtual ~TransactionImpl();
+  virtual ~PessimisticTransaction();
 
   void Reinitialize(TransactionDB* txn_db, const WriteOptions& write_options,
                     const TransactionOptions& txn_options);
@@ -46,9 +49,9 @@ class TransactionImpl : public TransactionBaseImpl {
 
   Status Commit() override;
 
-  Status CommitBatch(WriteBatch* batch);
+  virtual Status CommitBatch(WriteBatch* batch) = 0;
 
-  Status Rollback() override;
+  Status Rollback() override = 0;
 
   Status RollbackToSavePoint() override;
 
@@ -107,14 +110,30 @@ class TransactionImpl : public TransactionBaseImpl {
   int64_t GetDeadlockDetectDepth() const { return deadlock_detect_depth_; }
 
  protected:
+  virtual Status PrepareInternal() = 0;
+
+  virtual Status CommitWithoutPrepareInternal() = 0;
+
+  virtual Status CommitInternal() = 0;
+
+  void Initialize(const TransactionOptions& txn_options);
+
+  Status LockBatch(WriteBatch* batch, TransactionKeyMap* keys_to_unlock);
+
   Status TryLock(ColumnFamilyHandle* column_family, const Slice& key,
                  bool read_only, bool exclusive,
                  bool untracked = false) override;
 
- private:
-  TransactionDBImpl* txn_db_impl_;
+  void Clear() override;
+
+  PessimisticTransactionDB* txn_db_impl_;
   DBImpl* db_impl_;
 
+  // If non-zero, this transaction should not be committed after this time (in
+  // microseconds according to Env->NowMicros())
+  uint64_t expiration_time_;
+
+ private:
   // Used to create unique ids for transactions.
   static std::atomic<TransactionID> txn_id_counter_;
 
@@ -140,10 +159,6 @@ class TransactionImpl : public TransactionBaseImpl {
   // Mutex protecting waiting_txn_ids_, waiting_cf_id_ and waiting_key_.
   mutable std::mutex wait_mutex_;
 
-  // If non-zero, this transaction should not be committed after this time (in
-  // microseconds according to Env->NowMicros())
-  uint64_t expiration_time_;
-
   // Timeout in microseconds when locking a key or -1 if there is no timeout.
   int64_t lock_timeout_;
 
@@ -153,34 +168,50 @@ class TransactionImpl : public TransactionBaseImpl {
   // Whether to perform deadlock detection or not.
   int64_t deadlock_detect_depth_;
 
-  void Clear() override;
-
-  void Initialize(const TransactionOptions& txn_options);
-
   Status ValidateSnapshot(ColumnFamilyHandle* column_family, const Slice& key,
                           SequenceNumber prev_seqno, SequenceNumber* new_seqno);
-
-  Status LockBatch(WriteBatch* batch, TransactionKeyMap* keys_to_unlock);
-
-  Status DoCommit(WriteBatch* batch);
-
-  void RollbackLastN(size_t num);
 
   void UnlockGetForUpdate(ColumnFamilyHandle* column_family,
                           const Slice& key) override;
 
   // No copying allowed
-  TransactionImpl(const TransactionImpl&);
-  void operator=(const TransactionImpl&);
+  PessimisticTransaction(const PessimisticTransaction&);
+  void operator=(const PessimisticTransaction&);
+};
+
+class WriteCommittedTxn : public PessimisticTransaction {
+ public:
+  WriteCommittedTxn(TransactionDB* db, const WriteOptions& write_options,
+                        const TransactionOptions& txn_options);
+
+  virtual ~WriteCommittedTxn() {}
+
+  Status CommitBatch(WriteBatch* batch) override;
+
+  Status Rollback() override;
+
+ private:
+  Status PrepareInternal() override;
+
+  Status CommitWithoutPrepareInternal() override;
+
+  Status CommitInternal() override;
+
+  Status ValidateSnapshot(ColumnFamilyHandle* column_family, const Slice& key,
+                          SequenceNumber prev_seqno, SequenceNumber* new_seqno);
+
+  // No copying allowed
+  WriteCommittedTxn(const WriteCommittedTxn&);
+  void operator=(const WriteCommittedTxn&);
 };
 
 // Used at commit time to check whether transaction is committing before its
 // expiration time.
 class TransactionCallback : public WriteCallback {
  public:
-  explicit TransactionCallback(TransactionImpl* txn) : txn_(txn) {}
+  explicit TransactionCallback(PessimisticTransaction* txn) : txn_(txn) {}
 
-  Status Callback(DB* db) override {
+  Status Callback(DB* /* unused */) override {
     if (txn_->IsExpired()) {
       return Status::Expired();
     } else {
@@ -191,7 +222,7 @@ class TransactionCallback : public WriteCallback {
   bool AllowWriteBatching() override { return true; }
 
  private:
-  TransactionImpl* txn_;
+  PessimisticTransaction* txn_;
 };
 
 }  // namespace rocksdb

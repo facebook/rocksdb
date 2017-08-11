@@ -154,11 +154,11 @@ LIB_SOURCES =                                                   \
   utilities/backupable/backupable_db.cc                         \
   utilities/blob_db/blob_db.cc                                  \
   utilities/blob_db/blob_db_impl.cc                             \
-  utilities/blob_db/blob_db_options_impl.cc                     \
   utilities/blob_db/blob_file.cc                                \
   utilities/blob_db/blob_log_reader.cc                          \
   utilities/blob_db/blob_log_writer.cc                          \
   utilities/blob_db/blob_log_format.cc                          \
+  utilities/blob_db/ttl_extractor.cc                            \
   utilities/cassandra/cassandra_compaction_filter.cc            \
   utilities/cassandra/format.cc                                 \
   utilities/cassandra/merge_operator.cc                         \
@@ -193,13 +193,14 @@ LIB_SOURCES =                                                   \
   utilities/spatialdb/spatial_db.cc                             \
   utilities/table_properties_collectors/compact_on_deletion_collector.cc \
   utilities/transactions/optimistic_transaction_db_impl.cc      \
-  utilities/transactions/optimistic_transaction_impl.cc         \
+  utilities/transactions/optimistic_transaction.cc         \
   utilities/transactions/transaction_base.cc                    \
-  utilities/transactions/transaction_db_impl.cc                 \
+  utilities/transactions/pessimistic_transaction_db.cc                 \
   utilities/transactions/transaction_db_mutex_impl.cc           \
-  utilities/transactions/transaction_impl.cc                    \
+  utilities/transactions/pessimistic_transaction.cc                    \
   utilities/transactions/transaction_lock_mgr.cc                \
   utilities/transactions/transaction_util.cc                    \
+  utilities/transactions/write_prepared_txn.cc     \
   utilities/ttl/db_ttl_impl.cc                                  \
   utilities/write_batch_with_index/write_batch_with_index.cc    \
   utilities/write_batch_with_index/write_batch_with_index_internal.cc    \

@@ -101,7 +101,19 @@ endif
 ifeq ($(DEBUG_LEVEL),0)
 OPT += -DNDEBUG
 DISABLE_WARNING_AS_ERROR=1
+
+ifneq ($(USE_RTTI), 1)
+	CXXFLAGS += -fno-rtti
 else
+	CXXFLAGS += -DROCKSDB_USE_RTTI
+endif
+else
+ifneq ($(USE_RTTI), 0)
+	CXXFLAGS += -DROCKSDB_USE_RTTI
+else
+	CXXFLAGS += -fno-rtti
+endif
+
 $(warning Warning: Compiling in debug mode. Don't use the resulting binary in production)
 endif
 
@@ -220,6 +232,10 @@ ifndef DISABLE_JEMALLOC
 		PLATFORM_CXXFLAGS += -DROCKSDB_JEMALLOC -DJEMALLOC_NO_DEMANGLE
 		PLATFORM_CCFLAGS  += -DROCKSDB_JEMALLOC -DJEMALLOC_NO_DEMANGLE
 	endif
+	ifdef WITH_JEMALLOC_FLAG
+		PLATFORM_LDFLAGS += -ljemalloc
+		JAVA_LDFLAGS += -ljemalloc
+	endif
 	EXEC_LDFLAGS := $(JEMALLOC_LIB) $(EXEC_LDFLAGS)
 	PLATFORM_CXXFLAGS += $(JEMALLOC_INCLUDE)
 	PLATFORM_CCFLAGS += $(JEMALLOC_INCLUDE)
@@ -242,6 +258,19 @@ default: all
 
 WARNING_FLAGS = -W -Wextra -Wall -Wsign-compare -Wshadow \
   -Wno-unused-parameter
+
+CCVERSION = $(shell $(CXX) -dumpversion)
+CCNAME = $(shell $(CXX) --version | awk 'NR==1' | cut -f1 -d " ")
+
+ifeq ($(CCNAME), clang)
+ifeq ($(CCVERSION), 4*)
+	CXXFLAGS += -faligned-new
+endif
+else
+ifeq ($(CCVERSION), 7)
+	CXXFLAGS += -faligned-new
+endif
+endif
 
 ifndef DISABLE_WARNING_AS_ERROR
 	WARNING_FLAGS += -Werror
@@ -575,6 +604,8 @@ endif  # PLATFORM_SHARED_EXT
 
 all: $(LIBRARY) $(BENCHMARKS) tools tools_lib test_libs $(TESTS)
 
+all_but_some_tests: $(LIBRARY) $(BENCHMARKS) tools tools_lib test_libs $(SUBSET)
+
 static_lib: $(LIBRARY)
 
 shared_lib: $(SHARED)
@@ -778,8 +809,8 @@ ldb_tests: ldb
 crash_test: whitebox_crash_test blackbox_crash_test
 
 blackbox_crash_test: db_stress
-	python -u tools/db_crashtest.py --simple blackbox
-	python -u tools/db_crashtest.py blackbox
+	python -u tools/db_crashtest.py --simple blackbox $(CRASH_TEST_EXT_ARGS)
+	python -u tools/db_crashtest.py blackbox $(CRASH_TEST_EXT_ARGS)
 
 ifeq ($(CRASH_TEST_KILL_ODD),)
   CRASH_TEST_KILL_ODD=888887
@@ -787,9 +818,9 @@ endif
 
 whitebox_crash_test: db_stress
 	python -u tools/db_crashtest.py --simple whitebox --random_kill_odd \
-      $(CRASH_TEST_KILL_ODD)
+      $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
 	python -u tools/db_crashtest.py whitebox  --random_kill_odd \
-      $(CRASH_TEST_KILL_ODD)
+      $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
 
 asan_check:
 	$(MAKE) clean
