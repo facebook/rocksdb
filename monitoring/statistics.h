@@ -76,7 +76,8 @@ class StatisticsImpl : public Statistics {
   //
   // Alignment attributes expand to nothing depending on the platform
   struct StatisticsData {
-    std::atomic_uint_fast64_t tickers_[INTERNAL_TICKER_ENUM_MAX] = {{0}};
+    StatisticsData() : tickers_{{0}} {};
+    std::atomic_uint_fast64_t tickers_[INTERNAL_TICKER_ENUM_MAX];
     T histograms_[INTERNAL_HISTOGRAM_ENUM_MAX];
     char
         padding[(CACHE_LINE_SIZE -
