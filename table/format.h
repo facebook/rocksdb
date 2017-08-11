@@ -18,6 +18,7 @@
 #include "options/cf_options.h"
 #include "port/port.h"  // noexcept
 #include "table/persistent_cache_options.h"
+#include "util/file_reader_writer.h"
 
 namespace rocksdb {
 
@@ -173,8 +174,9 @@ class Footer {
 // Read the footer from file
 // If enforce_table_magic_number != 0, ReadFooterFromFile() will return
 // corruption if table_magic number is not equal to enforce_table_magic_number
-Status ReadFooterFromFile(RandomAccessFileReader* file, uint64_t file_size,
-                          Footer* footer,
+Status ReadFooterFromFile(RandomAccessFileReader* file,
+                          FilePrefetchBuffer* prefetch_buffer,
+                          uint64_t file_size, Footer* footer,
                           uint64_t enforce_table_magic_number = 0);
 
 // 1-byte type + 32-bit crc
@@ -213,9 +215,9 @@ struct BlockContents {
 // Read the block identified by "handle" from "file".  On failure
 // return non-OK.  On success fill *result and return OK.
 extern Status ReadBlockContents(
-    RandomAccessFileReader* file, const Footer& footer,
-    const ReadOptions& options, const BlockHandle& handle,
-    BlockContents* contents, const ImmutableCFOptions &ioptions,
+    RandomAccessFileReader* file, FilePrefetchBuffer* prefetch_buffer,
+    const Footer& footer, const ReadOptions& options, const BlockHandle& handle,
+    BlockContents* contents, const ImmutableCFOptions& ioptions,
     bool do_uncompress = true, const Slice& compression_dict = Slice(),
     const PersistentCacheOptions& cache_options = PersistentCacheOptions());
 

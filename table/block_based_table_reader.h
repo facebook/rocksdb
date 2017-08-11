@@ -300,7 +300,7 @@ class BlockBasedTable : public TableReader {
   // need to access extra meta blocks for index construction. This parameter
   // helps avoid re-reading meta index block if caller already created one.
   Status CreateIndexReader(
-      IndexReader** index_reader,
+      FilePrefetchBuffer* prefetch_buffer, IndexReader** index_reader,
       InternalIterator* preloaded_meta_index_iter = nullptr,
       const int level = -1);
 
@@ -309,13 +309,15 @@ class BlockBasedTable : public TableReader {
                              const bool no_io) const;
 
   // Read the meta block from sst.
-  static Status ReadMetaBlock(Rep* rep, std::unique_ptr<Block>* meta_block,
+  static Status ReadMetaBlock(Rep* rep, FilePrefetchBuffer* prefetch_buffer,
+                              std::unique_ptr<Block>* meta_block,
                               std::unique_ptr<InternalIterator>* iter);
 
   Status VerifyChecksumInBlocks(InternalIterator* index_iter);
 
   // Create the filter from the filter block.
-  FilterBlockReader* ReadFilter(const BlockHandle& filter_handle,
+  FilterBlockReader* ReadFilter(FilePrefetchBuffer* prefetch_buffer,
+                                const BlockHandle& filter_handle,
                                 const bool is_a_filter_partition) const;
 
   static void SetupCacheKeyPrefix(Rep* rep, uint64_t file_size);

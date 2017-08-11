@@ -79,7 +79,8 @@ Status SstFileReader::GetTableReader(const std::string& file_path) {
   file_.reset(new RandomAccessFileReader(std::move(file), file_path));
 
   if (s.ok()) {
-    s = ReadFooterFromFile(file_.get(), file_size, &footer);
+    s = ReadFooterFromFile(file_.get(), nullptr /* prefetch_buffer */,
+                           file_size, &footer);
   }
   if (s.ok()) {
     magic_number = footer.table_magic_number();
