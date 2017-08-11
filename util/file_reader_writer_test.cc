@@ -317,6 +317,133 @@ INSTANTIATE_TEST_CASE_P(
     NExceedReadaheadTest, ReadaheadRandomAccessFileTest,
     ::testing::ValuesIn(ReadaheadRandomAccessFileTest::GetReadaheadSizeList()));
 
+class RandomAccessFileReaderTest
+    : public testing::Test,
+      public testing::WithParamInterface<std::tuple<size_t, bool, bool, bool>> {
+ public:
+  static std::vector<size_t> GetFileSizeList() {
+    auto alignment = kDefaultPageSize;
+    return {100, 100 + alignment, 100 + 2 * alignment};
+  }
+  virtual void SetUp() override {
+    file_size_ = std::get<0>(GetParam());
+    scratch_.reset(new char[file_size_]);
+    auto direct_io = std::get<3>(GetParam());
+    ResetSourceStr(direct_io);
+    bool mutual_before = std::get<1>(GetParam());
+    if (mutual_before) {
+      reader_->MarkForMutualAccess();
+    }
+    parallel_after_ = std::get<2>(GetParam());
+  }
+  RandomAccessFileReaderTest() : control_contents_() {}
+  std::string Read(uint64_t offset, size_t n) {
+    Slice result;
+    reader_->Read(offset, n, &result, scratch_.get());
+    return std::string(result.data(), result.size());
+  }
+  void Prefetch(uint64_t offset, size_t n) { reader_->Prefetch(offset, n); }
+  size_t GetFileSize() const { return file_size_; }
+  const std::string& GetSrcStr() const { return src_str_; }
+  bool parallel_after_;
+  std::unique_ptr<RandomAccessFileReader> reader_;
+
+ private:
+  void ResetSourceStr(bool direct_io) {
+    Random rng(file_size_);
+    src_str_ =
+        test::RandomHumanReadableString(&rng, static_cast<int>(file_size_));
+    auto write_holder = std::unique_ptr<WritableFileWriter>(
+        test::GetWritableFileWriter(new test::StringSink(&control_contents_)));
+    write_holder->Append(Slice(src_str_));
+    write_holder->Flush();
+    auto file = new test::StringSource(control_contents_, 0, false, direct_io);
+    reader_ = std::unique_ptr<RandomAccessFileReader>(
+        GetRandomAccessFileReader(file));
+  }
+
+  size_t file_size_;
+  Slice control_contents_;
+  std::unique_ptr<char[]> scratch_;
+  std::string src_str_;
+};
+
+TEST_P(RandomAccessFileReaderTest, ReadTest) {
+  if (parallel_after_) {
+    reader_->MarkForConcurrentAccess();
+  }
+  const std::string& src = GetSrcStr();
+  int fsize = GetFileSize();
+  for (int p : {0, 10, fsize / 2, fsize / 2 + 10, fsize - 10}) {
+    for (int l : {10, fsize}) {
+      ASSERT_EQ(src.substr(p, l), Read(p, l));
+    }
+  }
+}
+
+TEST_P(RandomAccessFileReaderTest, ReadWithinPrefetchTest) {
+  const std::string& src = GetSrcStr();
+  int fsize = GetFileSize();
+  for (int p : {0, 10, fsize / 2, fsize / 2 + 10, fsize - 10}) {
+    for (int l : {10, fsize}) {
+      Prefetch(p, l);
+      if (parallel_after_) {
+        reader_->MarkForConcurrentAccess();
+      }
+      ASSERT_EQ(src.substr(p, l), Read(p, l));
+      ASSERT_EQ(src.substr(p + 1, l - 2), Read(p + 1, l - 2));
+    }
+  }
+}
+
+TEST_P(RandomAccessFileReaderTest, ReadOutsidePrefetchTest) {
+  const std::string& src = GetSrcStr();
+  int fsize = GetFileSize();
+  for (int p : {0, 10, fsize / 2, fsize / 2 + 10, fsize - 10}) {
+    for (int l : {10, fsize}) {
+      Prefetch(p, l);
+      if (parallel_after_) {
+        reader_->MarkForConcurrentAccess();
+      }
+      if (p + l + 1 < fsize) {
+        ASSERT_EQ(src.substr(p + l + 1, 1), Read(p + l + 1, 1));
+      }
+      if (p - 2 >= 0) {
+        ASSERT_EQ(src.substr(p - 2, 1), Read(p - 2, 1));
+      }
+    }
+  }
+}
+
+static const bool ps = kDefaultPageSize;
+static const bool dio = true;
+INSTANTIATE_TEST_CASE_P(
+    RandomAccessFileReaderTest, RandomAccessFileReaderTest,
+    ::testing::Values(std::make_tuple(100, false, false, dio),
+                      std::make_tuple(100 + ps, false, false, dio),
+                      std::make_tuple(100 + 2 * ps, false, false, dio),
+                      std::make_tuple(100, false, true, dio),
+                      std::make_tuple(100 + ps, false, true, dio),
+                      std::make_tuple(100 + 2 * ps, false, true, dio),
+                      std::make_tuple(100, true, true, dio),
+                      std::make_tuple(100 + ps, true, true, dio),
+                      std::make_tuple(100 + 2 * ps, true, true, dio),
+                      std::make_tuple(100, true, false, dio),
+                      std::make_tuple(100 + ps, true, false, dio),
+                      std::make_tuple(100 + 2 * ps, true, false, dio),
+                      std::make_tuple(100, false, false, !dio),
+                      std::make_tuple(100 + ps, false, false, !dio),
+                      std::make_tuple(100 + 2 * ps, false, false, !dio),
+                      std::make_tuple(100, false, true, !dio),
+                      std::make_tuple(100 + ps, false, true, !dio),
+                      std::make_tuple(100 + 2 * ps, false, true, !dio),
+                      std::make_tuple(100, true, true, !dio),
+                      std::make_tuple(100 + ps, true, true, !dio),
+                      std::make_tuple(100 + 2 * ps, true, true, !dio),
+                      std::make_tuple(100, true, false, !dio),
+                      std::make_tuple(100 + ps, true, false, !dio),
+                      std::make_tuple(100 + 2 * ps, true, false, !dio)));
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

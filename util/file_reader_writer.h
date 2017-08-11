@@ -64,11 +64,22 @@ class RandomAccessFileReader {
   HistogramImpl*  file_read_hist_;
   RateLimiter* rate_limiter_;
   bool for_compaction_;
+  size_t alignment_;
+  // Whether the pointer is accessed by only one thread.
+  bool mutual_access_;
+  // The buffer to be used for prefetch when direct_io is set. The buffer is not
+  // thread safe and thus has to be disabled when mutual_access_ is unset.
+  mutable unique_ptr<AlignedBuffer> prefetch_buffer_;
+  mutable uint64_t buffer_offset_;
+  mutable size_t buffer_len_;
+
+  Status ReadIntoPrefetchBuffer(uint64_t offset, size_t n) const;
+  bool TryReadFromPrefetchBuffer(uint64_t offset, size_t n,
+                                 char* scratch) const;
 
  public:
   explicit RandomAccessFileReader(std::unique_ptr<RandomAccessFile>&& raf,
-                                  std::string _file_name,
-                                  Env* env = nullptr,
+                                  std::string _file_name, Env* env = nullptr,
                                   Statistics* stats = nullptr,
                                   uint32_t hist_type = 0,
                                   HistogramImpl* file_read_hist = nullptr,
@@ -81,7 +92,11 @@ class RandomAccessFileReader {
         hist_type_(hist_type),
         file_read_hist_(file_read_hist),
         rate_limiter_(rate_limiter),
-        for_compaction_(for_compaction) {}
+        for_compaction_(for_compaction),
+        alignment_(file_->GetRequiredBufferAlignment()),
+        mutual_access_(false),
+        buffer_offset_(0),
+        buffer_len_(0) {}
 
   RandomAccessFileReader(RandomAccessFileReader&& o) ROCKSDB_NOEXCEPT {
     *this = std::move(o);
@@ -96,6 +111,11 @@ class RandomAccessFileReader {
     file_read_hist_ = std::move(o.file_read_hist_);
     rate_limiter_ = std::move(o.rate_limiter_);
     for_compaction_ = std::move(o.for_compaction_);
+    alignment_ = std::move(o.alignment_);
+    mutual_access_ = std::move(o.mutual_access_);
+    prefetch_buffer_ = std::move(o.prefetch_buffer_);
+    buffer_offset_ = std::move(o.buffer_offset_);
+    buffer_len_ = std::move(o.buffer_len_);
     return *this;
   }
 
@@ -105,7 +125,35 @@ class RandomAccessFileReader {
   Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const;
 
   Status Prefetch(uint64_t offset, size_t n) const {
-    return file_->Prefetch(offset, n);
+    if (mutual_access_ && use_direct_io()) {
+      size_t prefetch_offset = TruncateToPageBoundary(alignment_, offset);
+      if (offset >= buffer_offset_ &&
+          offset + n <= buffer_offset_ + buffer_len_) {
+        return Status::OK();
+      }
+      return ReadIntoPrefetchBuffer(
+          prefetch_offset, Roundup(offset + n, alignment_) - prefetch_offset);
+    } else {
+      return file_->Prefetch(offset, n);
+    }
+  }
+
+  // This is to be used when the pointer is not yet shared for concurrent
+  // access. In mutual access mode certain optimizations are feasible, which
+  // will be disabled when concurrent mode is active.
+  void MarkForMutualAccess() {
+    mutual_access_ = true;
+    prefetch_buffer_ =
+        std::move(unique_ptr<AlignedBuffer>(new AlignedBuffer()));
+    prefetch_buffer_->Alignment(alignment_);
+  }
+
+  // This is to be used right before the pointer is shared for concurrent
+  // access. In concurrent access mode certain optimizations that are not safe
+  // will be disabled.
+  void MarkForConcurrentAccess() {
+    mutual_access_ = false;
+    prefetch_buffer_.reset();
   }
 
   RandomAccessFile* file() { return file_.get(); }

@@ -79,6 +79,13 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
     IOSTATS_TIMER_GUARD(read_nanos);
     if (use_direct_io()) {
 #ifndef ROCKSDB_LITE
+      if (UNLIKELY(mutual_access_)) {
+        const bool cache_hit = TryReadFromPrefetchBuffer(offset, n, scratch);
+        if (cache_hit) {
+          *result = Slice(scratch, n);
+          return Status::OK();
+        }
+      }
       size_t alignment = file_->GetRequiredBufferAlignment();
       size_t aligned_offset = TruncateToPageBoundary(alignment, offset);
       size_t offset_advance = offset - aligned_offset;
@@ -146,6 +153,36 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
     file_read_hist_->Add(elapsed);
   }
   return s;
+}
+
+Status RandomAccessFileReader::ReadIntoPrefetchBuffer(uint64_t offset,
+                                                      size_t n) const {
+  assert(prefetch_buffer_);
+  assert(mutual_access_);
+  if (n > prefetch_buffer_->Capacity()) {
+    const bool copy_data = true;
+    prefetch_buffer_->AllocateNewBuffer(n, copy_data);
+  }
+  assert(IsFileSectorAligned(offset, alignment_));
+  assert(IsFileSectorAligned(n, alignment_));
+  Slice result;
+  Status s = file_->Read(offset, n, &result, prefetch_buffer_->BufferStart());
+  if (s.ok()) {
+    buffer_offset_ = offset;
+    buffer_len_ = result.size();
+  }
+  return s;
+}
+
+bool RandomAccessFileReader::TryReadFromPrefetchBuffer(uint64_t offset,
+                                                       size_t n,
+                                                       char* scratch) const {
+  if (offset < buffer_offset_ || offset + n > buffer_offset_ + buffer_len_) {
+    return false;
+  }
+  uint64_t offset_in_buffer = offset - buffer_offset_;
+  memcpy(scratch, prefetch_buffer_->BufferStart() + offset_in_buffer, n);
+  return true;
 }
 
 Status WritableFileWriter::Append(const Slice& data) {

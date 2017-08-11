@@ -323,13 +323,16 @@ class OverwritingStringSink : public WritableFile {
 class StringSource: public RandomAccessFile {
  public:
   explicit StringSource(const Slice& contents, uint64_t uniq_id = 0,
-                        bool mmap = false)
+                        bool mmap = false, bool direct_io = false)
       : contents_(contents.data(), contents.size()),
         uniq_id_(uniq_id),
         mmap_(mmap),
-        total_reads_(0) {}
+        total_reads_(0),
+        direct_io_(direct_io) {}
 
   virtual ~StringSource() { }
+
+  virtual bool use_direct_io() const { return direct_io_; }
 
   uint64_t Size() const { return contents_.size(); }
 
@@ -371,6 +374,7 @@ class StringSource: public RandomAccessFile {
   uint64_t uniq_id_;
   bool mmap_;
   mutable int total_reads_;
+  const bool direct_io_;
 };
 
 class NullLogger : public Logger {
