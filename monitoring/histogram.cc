@@ -109,10 +109,14 @@ void HistogramStat::Add(uint64_t value) {
                         std::memory_order_relaxed);
 
   uint64_t old_min = min();
-  while (value < old_min && !min_.compare_exchange_weak(old_min, value)) {}
+  if (value < old_min) {
+    min_.store(value, std::memory_order_relaxed);
+  }
 
   uint64_t old_max = max();
-  while (value > old_max && !max_.compare_exchange_weak(old_max, value)) {}
+  if (value > old_max) {
+    max_.store(value, std::memory_order_relaxed);
+  }
 
   num_.store(num_.load(std::memory_order_relaxed) + 1,
              std::memory_order_relaxed);
