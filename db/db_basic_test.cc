@@ -15,31 +15,42 @@
 #include "util/sync_point.h"
 #endif
 
-#ifdef OS_WIN
-// Using our internal version but there is public one
-// as well
-#include "ms_internal/ms_threadpool.h"
-#include "ms_internal/ms_taskpoolhandle.h"
-
-using TP = rocksdb::port::VistaThreadPool;
-using TPhandle = rocksdb::port::TaskPoolHandle;
-
-#endif
-
 namespace rocksdb {
 
 class DBBasicTest : public DBTestBase {
 public:
-  DBBasicTest() : DBTestBase("/db_basic_test"),
-    thread_pool_(port::MemoryArenaId(), 32) {
-    // tp_handle will be moved inside TPCompl
-    auto tp_handle = thread_pool_.CreateTaskPool();
-    auto io_compl_tp = env_->CreateAsyncThreadPool(&tp_handle);
+  DBBasicTest() : DBTestBase("/db_basic_test") {
+#ifdef OS_WIN
+    PTP_POOL ptp_pool = CreateThreadpool(NULL);
+    if (ptp_pool == NULL) {
+      fprintf(stderr, "Failed to create a threadpool error code: %ld\n",
+        GetLastError());
+      exit(1);
+    }
+
+    const DWORD maxThreads = 500;
+    SYSTEM_INFO sinfo;
+    GetSystemInfo(&sinfo);
+    DWORD minThreads = sinfo.dwNumberOfProcessors * 2;
+
+    assert(maxThreads != minThreads);
+
+    SetThreadpoolThreadMaximum(ptp_pool, maxThreads);
+    BOOL ret = SetThreadpoolThreadMinimum(ptp_pool, minThreads);
+    assert(ret);
+    if (!ret) {
+      fprintf(stderr,
+        "Failed to set MinMaxThreads on the threadpool: %ld",
+        GetLastError());
+      exit(1);
+    }
+    auto io_compl_tp = env_->CreateAsyncThreadPool(ptp_pool);
     async_tp_ = std::move(io_compl_tp);
+#endif // OS-WIN
   }
 
 private:
-  TP        thread_pool_;
+
 // Accessible to the tests
 protected:
   std::shared_ptr<async::AsyncThreadPool> async_tp_;

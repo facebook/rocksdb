@@ -19,11 +19,6 @@
 #include "util/testharness.h"
 #include "util/testutil.h"
 
-#ifdef OS_WIN
-#include "ms_internal/ms_threadpool.h"
-#include "ms_internal/ms_taskpoolhandle.h"
-#endif
-
 namespace rocksdb {
 
 class WritableFileWriterTest : public testing::Test {};
@@ -283,11 +278,38 @@ class RandomAccessReaderTest :
 
 public:
 
-  port::VistaThreadPool tp_pool_;
+  std::shared_ptr<async::AsyncThreadPool>  async_tp_;
   bool     direct_io_;
   std::string fileName_;
 
-  RandomAccessReaderTest() : tp_pool_(port::MemoryArenaId(), 5, 10) {
+  RandomAccessReaderTest() {
+
+    PTP_POOL ptp_pool = CreateThreadpool(NULL);
+    if (ptp_pool == NULL) {
+      fprintf(stderr, "Failed to create a threadpool error code: %ld\n",
+        GetLastError());
+      exit(1);
+    }
+
+    const DWORD maxThreads = 500;
+    SYSTEM_INFO sinfo;
+    GetSystemInfo(&sinfo);
+    DWORD minThreads = sinfo.dwNumberOfProcessors * 2;
+
+    assert(maxThreads != minThreads);
+
+    SetThreadpoolThreadMaximum(ptp_pool, maxThreads);
+    BOOL ret = SetThreadpoolThreadMinimum(ptp_pool, minThreads);
+    assert(ret);
+    if (!ret) {
+      fprintf(stderr,
+        "Failed to set MinMaxThreads on the threadpool: %ld",
+        GetLastError());
+      exit(1);
+    }
+
+    auto io_compl_tp = Env::Default() ->CreateAsyncThreadPool(ptp_pool);
+    async_tp_ = std::move(io_compl_tp);
 
     direct_io_ = GetParam();
 
@@ -414,16 +436,12 @@ struct Customer {
 // Windows specific because of one line
 TEST_P(RandomAccessReaderTest, TestAsyncRead) {
 
-  Env* env = Env::Default();
-  // This moves tp_handle_
-  auto tp_handle = tp_pool_.CreateTaskPool();
-  auto io_tp(env->CreateAsyncThreadPool(&tp_handle));
-
   EnvOptions options;
   options.use_direct_reads = direct_io_;
   options.use_async_reads = true;
-  options.async_threadpool = io_tp.get();
+  options.async_threadpool = async_tp_.get();
 
+  Env* env = Env::Default();
   std::unique_ptr<RandomAccessFile> file;
   Status s = env->NewRandomAccessFile(fileName_, &file, options);
   ASSERT_OK(s);
@@ -482,8 +500,6 @@ TEST_P(RandomAccessReaderTest, TestAsyncRead) {
       th.join();
     }
   }
-
-  io_tp->CloseThreadPool();
 }
 
 INSTANTIATE_TEST_CASE_P(

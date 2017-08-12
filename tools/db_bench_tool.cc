@@ -2014,10 +2014,8 @@ class Benchmark {
   std::shared_ptr<Cache> compressed_cache_;
   std::shared_ptr<const FilterPolicy> filter_policy_;
 
-#ifdef OS_WIN
   std::shared_ptr<async::AsyncThreadPool>  async_tp_;
   std::unique_ptr<AsyncBenchBase>          bench_func_;
-#endif
 
   const SliceTransform* prefix_extractor_;
   DBWithColumnFamilies db_;
@@ -2349,7 +2347,7 @@ class Benchmark {
         exit(1);
       }
 
-      auto io_compl_tp = FLAGS_env->CreateAsyncThreadPool(&ptp_pool);
+      auto io_compl_tp = FLAGS_env->CreateAsyncThreadPool(ptp_pool);
       async_tp_ = std::move(io_compl_tp);
     }
 #endif
