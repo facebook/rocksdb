@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 5.7.1 (08/13/2017)
+### Bug Fixes
+* Fix incorrect dropping of deletions during intra-L0 compaction.
+
 ## 5.7.0 (07/13/2017)
 ### Public API Change
 * DB property "rocksdb.sstables" now prints keys in hex form.
