@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 5.5.6 (08/12/2017)
+### Bug Fixes
+* Fix incorrect dropping of deletions during intra-L0 compaction.
+
 ## 5.5.5 (07/18/2017)
 * Change license section of java/rocksjni.pom
 * Clear up some files still mentioning PATENTS file 
