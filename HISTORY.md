@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 5.4.10 (08/12/2017)
+### Bug Fixes
+* Fix incorrect dropping of deletions during intra-L0 compaction.
+
 ## 5.4.9 (07/20/2017)
 * Change license to Apache + GPLv2
 
