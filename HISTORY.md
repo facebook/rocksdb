@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 5.6.2 (08/12/2017)
+### Bug Fixes
+* Fix incorrect dropping of deletions during intra-L0 compaction.
+
 ## 5.6.1 (07/25/2017)
 ### Bug Fixes
 * Fix lite build.
