@@ -165,9 +165,12 @@ class Transaction {
   // DB but will NOT change which keys are read from this transaction (the keys
   // in this transaction do not yet belong to any snapshot and will be fetched
   // regardless).
-  virtual Status Get(const ReadOptions& options,
-                     ColumnFamilyHandle* column_family, const Slice& key,
-                     std::string* value) = 0;
+  ROCKSDB_DEPRECATED_FUNC virtual Status Get(const ReadOptions& options,
+                                             ColumnFamilyHandle* column_family,
+                                             const Slice& key,
+                                             std::string* value) = 0;
+
+  // An overload of the the above method that receives a PinnableSlice
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* pinnable_val) {

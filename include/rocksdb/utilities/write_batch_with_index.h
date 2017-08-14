@@ -184,13 +184,19 @@ class WriteBatchWithIndex : public WriteBatchBase {
   // but will NOT change which keys are read from the batch (the keys in
   // this batch do not yet belong to any snapshot and will be fetched
   // regardless).
-  Status GetFromBatchAndDB(DB* db, const ReadOptions& read_options,
-                           const Slice& key, std::string* value);
+  ROCKSDB_DEPRECATED_FUNC Status
+  GetFromBatchAndDB(DB* db, const ReadOptions& read_options, const Slice& key,
+                    std::string* value);
+
+  // An overload of the the above method that receives a PinnableSlice
   Status GetFromBatchAndDB(DB* db, const ReadOptions& read_options,
                            const Slice& key, PinnableSlice* value);
-  Status GetFromBatchAndDB(DB* db, const ReadOptions& read_options,
-                           ColumnFamilyHandle* column_family, const Slice& key,
-                           std::string* value);
+
+  ROCKSDB_DEPRECATED_FUNC Status GetFromBatchAndDB(
+      DB* db, const ReadOptions& read_options,
+      ColumnFamilyHandle* column_family, const Slice& key, std::string* value);
+
+  // An overload of the the above method that receives a PinnableSlice
   Status GetFromBatchAndDB(DB* db, const ReadOptions& read_options,
                            ColumnFamilyHandle* column_family, const Slice& key,
                            PinnableSlice* value);

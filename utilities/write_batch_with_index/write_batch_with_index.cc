@@ -788,6 +788,9 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(DB* db,
   const ImmutableDBOptions& immuable_db_options =
       reinterpret_cast<DBImpl*>(db)->immutable_db_options();
 
+  // Since the lifetime of the WriteBatch is the same as that of the transaction
+  // we cannot pin it as otherwise the returned value will not be available
+  // after the transaction finishes.
   std::string& batch_value = *pinnable_val->GetSelf();
   WriteBatchWithIndexInternal::Result result =
       WriteBatchWithIndexInternal::GetFromBatch(
