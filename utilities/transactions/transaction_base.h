@@ -60,10 +60,17 @@ class TransactionBaseImpl : public Transaction {
     return Get(options, db_->DefaultColumnFamily(), key, value);
   }
 
+  using Transaction::GetForUpdate;
   Status GetForUpdate(const ReadOptions& options,
                       ColumnFamilyHandle* column_family, const Slice& key,
                       std::string* value, bool exclusive) override;
 
+  using Transaction::GetForUpdate;
+  Status GetForUpdate(const ReadOptions& options,
+                      ColumnFamilyHandle* column_family, const Slice& key,
+                      PinnableSlice* pinnable_val, bool exclusive) override;
+
+  using Transaction::GetForUpdate;
   Status GetForUpdate(const ReadOptions& options, const Slice& key,
                       std::string* value, bool exclusive) override {
     return GetForUpdate(options, db_->DefaultColumnFamily(), key, value,

@@ -165,12 +165,12 @@ class Transaction {
   // DB but will NOT change which keys are read from this transaction (the keys
   // in this transaction do not yet belong to any snapshot and will be fetched
   // regardless).
-  ROCKSDB_DEPRECATED_FUNC virtual Status Get(const ReadOptions& options,
-                                             ColumnFamilyHandle* column_family,
-                                             const Slice& key,
-                                             std::string* value) = 0;
+  virtual Status Get(const ReadOptions& options,
+                     ColumnFamilyHandle* column_family, const Slice& key,
+                     std::string* value) = 0;
 
   // An overload of the the above method that receives a PinnableSlice
+  // For backward compatiblity a default implementation is provided
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* pinnable_val) {
@@ -229,6 +229,23 @@ class Transaction {
                               ColumnFamilyHandle* column_family,
                               const Slice& key, std::string* value,
                               bool exclusive = true) = 0;
+
+  // An overload of the the above method that receives a PinnableSlice
+  // For backward compatiblity a default implementation is provided
+  virtual Status GetForUpdate(const ReadOptions& options,
+                              ColumnFamilyHandle* column_family,
+                              const Slice& key, PinnableSlice* pinnable_val,
+                              bool exclusive = true) {
+    if (pinnable_val == nullptr) {
+      std::string* null_str = nullptr;
+      return GetForUpdate(options, key, null_str);
+    } else {
+      assert(pinnable_val != nullptr);
+      auto s = GetForUpdate(options, key, pinnable_val->GetSelf());
+      pinnable_val->PinSelf();
+      return s;
+    }
+  }
 
   virtual Status GetForUpdate(const ReadOptions& options, const Slice& key,
                               std::string* value, bool exclusive = true) = 0;
