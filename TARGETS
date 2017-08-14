@@ -14,7 +14,6 @@ rocksdb_compiler_flags = [
   "-DROCKSDB_RANGESYNC_PRESENT",
   "-DROCKSDB_SCHED_GETCPU_PRESENT",
   "-DROCKSDB_SUPPORT_THREAD_LOCAL",
-  "-DHAVE_SSE42",
   "-DOS_LINUX",
   "-DROCKSDB_UBSAN_RUN",
   # Flags to enable libs we include
@@ -47,6 +46,10 @@ rocksdb_preprocessor_flags = [
   "-I" + REPO_PATH + "include/",
   "-I" + REPO_PATH,
 ]
+
+rocksdb_arch_preprocessor_flags = {
+  "x86_64": ["-DHAVE_SSE42"],
+}
 
 cpp_library(
     name = "rocksdb_lib",
@@ -263,6 +266,7 @@ cpp_library(
     ],
     deps = [],
     preprocessor_flags = rocksdb_preprocessor_flags,
+    arch_preprocessor_flags = rocksdb_arch_preprocessor_flags,
     compiler_flags = rocksdb_compiler_flags,
     external_deps = rocksdb_external_deps,
 )
@@ -283,6 +287,7 @@ cpp_library(
     ],
     deps = [":rocksdb_lib"],
     preprocessor_flags = rocksdb_preprocessor_flags,
+    arch_preprocessor_flags = rocksdb_arch_preprocessor_flags,
     compiler_flags = rocksdb_compiler_flags,
     external_deps = rocksdb_external_deps,
 )
@@ -296,6 +301,7 @@ cpp_library(
     ],
     deps = [":rocksdb_lib"],
     preprocessor_flags = rocksdb_preprocessor_flags,
+    arch_preprocessor_flags = rocksdb_arch_preprocessor_flags,
     compiler_flags = rocksdb_compiler_flags,
     external_deps = rocksdb_external_deps,
 )
@@ -306,6 +312,7 @@ cpp_library(
     srcs = ["env/env_basic_test.cc"],
     deps = [":rocksdb_test_lib"],
     preprocessor_flags = rocksdb_preprocessor_flags,
+    arch_preprocessor_flags = rocksdb_arch_preprocessor_flags,
     compiler_flags = rocksdb_compiler_flags,
     external_deps = rocksdb_external_deps,
 )
@@ -501,6 +508,7 @@ for test_cfg in ROCKS_TESTS:
       srcs = [test_cc],
       deps = [":rocksdb_test_lib"],
       preprocessor_flags = rocksdb_preprocessor_flags,
+      arch_preprocessor_flags = rocksdb_arch_preprocessor_flags,
       compiler_flags = rocksdb_compiler_flags,
       external_deps = rocksdb_external_deps,
     )
