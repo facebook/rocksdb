@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
@@ -976,6 +976,8 @@ class DB {
     return IngestExternalFile(DefaultColumnFamily(), external_files, options);
   }
 
+  virtual Status VerifyChecksum() = 0;
+
   // AddFile() is deprecated, please use IngestExternalFile()
   ROCKSDB_DEPRECATED_FUNC virtual Status AddFile(
       ColumnFamilyHandle* column_family,
@@ -1097,6 +1099,17 @@ class DB {
   virtual Status GetPropertiesOfTablesInRange(
       ColumnFamilyHandle* column_family, const Range* range, std::size_t n,
       TablePropertiesCollection* props) = 0;
+
+  virtual Status SuggestCompactRange(ColumnFamilyHandle* column_family,
+                                     const Slice* begin, const Slice* end) {
+    return Status::NotSupported("SuggestCompactRange() is not implemented.");
+  }
+
+  virtual Status PromoteL0(ColumnFamilyHandle* column_family,
+                           int target_level) {
+    return Status::NotSupported("PromoteL0() is not implemented.");
+  }
+
 #endif  // ROCKSDB_LITE
 
   // Needed for StackableDB

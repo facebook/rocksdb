@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // This file implements the "bridge" between Java and C++ and enables
 // calling c++ rocksdb::WriteBatch methods testing from Java side.
@@ -59,7 +59,7 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(
       rocksdb::ReadOptions(), &arena));
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     rocksdb::ParsedInternalKey ikey;
-    memset(reinterpret_cast<void*>(&ikey), 0, sizeof(ikey));
+    ikey.clear();
     bool parsed = rocksdb::ParseInternalKey(iter->key(), &ikey);
     if (!parsed) {
       assert(parsed);

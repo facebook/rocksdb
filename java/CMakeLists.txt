@@ -24,6 +24,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/options.cc
         rocksjni/ratelimiterjni.cc
         rocksjni/remove_emptyvalue_compactionfilterjni.cc
+        rocksjni/cassandra_compactionfilterjni.cc
         rocksjni/restorejni.cc
         rocksjni/rocksdb_exception_test.cc
         rocksjni/rocksjni.cc
@@ -31,6 +32,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/snapshot.cc
         rocksjni/sst_file_writerjni.cc
         rocksjni/statistics.cc
+        rocksjni/statisticsjni.cc
         rocksjni/table.cc
         rocksjni/transaction_log.cc
         rocksjni/ttl.cc
@@ -54,6 +56,8 @@ set(NATIVE_JAVA_CLASSES
         org.rocksdb.BlockBasedTableConfig
         org.rocksdb.BloomFilter
         org.rocksdb.Cache
+        org.rocksdb.CassandraCompactionFilter
+        org.rocksdb.CassandraValueMergeOperator
         org.rocksdb.Checkpoint
         org.rocksdb.ClockCache
         org.rocksdb.ColumnFamilyHandle
@@ -73,6 +77,7 @@ set(NATIVE_JAVA_CLASSES
         org.rocksdb.FlushOptions
         org.rocksdb.HashLinkedListMemTableConfig
         org.rocksdb.HashSkipListMemTableConfig
+        org.rocksdb.IngestExternalFileOptions
         org.rocksdb.Logger
         org.rocksdb.LRUCache
         org.rocksdb.MemTableConfig
@@ -195,7 +200,7 @@ else()
   set(JAVAH javah)
 endif()
 
-execute_process(COMMAND ${JAVAC} -cp ${JAVA_TESTCLASSPATH} -d ${PROJECT_SOURCE_DIR}/java/classes ${PROJECT_SOURCE_DIR}/java/src/main/java/org/rocksdb/util/*.java ${PROJECT_SOURCE_DIR}/java/src/main/java/org/rocksdb/*.java ${PROJECT_SOURCE_DIR}/java/src/test/java/org/rocksdb/*.java)
+execute_process(COMMAND ${JAVAC} ${JAVAC_ARGS} -cp ${JAVA_TESTCLASSPATH} -d ${PROJECT_SOURCE_DIR}/java/classes ${PROJECT_SOURCE_DIR}/java/src/main/java/org/rocksdb/util/*.java ${PROJECT_SOURCE_DIR}/java/src/main/java/org/rocksdb/*.java ${PROJECT_SOURCE_DIR}/java/src/test/java/org/rocksdb/*.java)
 execute_process(COMMAND ${JAVAH} -cp ${PROJECT_SOURCE_DIR}/java/classes -d ${PROJECT_SOURCE_DIR}/java/include -jni ${NATIVE_JAVA_CLASSES})
 add_library(rocksdbjni${ARTIFACT_SUFFIX} SHARED ${JNI_NATIVE_SOURCES})
 set_target_properties(rocksdbjni${ARTIFACT_SUFFIX} PROPERTIES COMPILE_FLAGS "/Fd${CMAKE_CFG_INTDIR}/rocksdbjni${ARTIFACT_SUFFIX}.pdb")

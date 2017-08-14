@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -172,9 +170,6 @@ Status PosixSequentialFile::Read(size_t n, Slice* result, char* scratch) {
       s = IOError("While reading file sequentially", filename_, errno);
     }
   }
-  // we need to fadvise away the entire range of pages because
-  // we do not want readahead pages to be cached under buffered io
-  Fadvise(fd_, 0, 0, POSIX_FADV_DONTNEED);  // free OS pages
   return s;
 }
 

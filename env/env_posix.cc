@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -763,23 +761,23 @@ class PosixEnv : public Env {
 
   // Allow increasing the number of worker threads.
   virtual void SetBackgroundThreads(int num, Priority pri) override {
-    assert(pri >= Priority::LOW && pri <= Priority::HIGH);
+    assert(pri >= Priority::BOTTOM && pri <= Priority::HIGH);
     thread_pools_[pri].SetBackgroundThreads(num);
   }
 
   virtual int GetBackgroundThreads(Priority pri) override {
-    assert(pri >= Priority::LOW && pri <= Priority::HIGH);
+    assert(pri >= Priority::BOTTOM && pri <= Priority::HIGH);
     return thread_pools_[pri].GetBackgroundThreads();
   }
 
   // Allow increasing the number of worker threads.
   virtual void IncBackgroundThreadsIfNeeded(int num, Priority pri) override {
-    assert(pri >= Priority::LOW && pri <= Priority::HIGH);
+    assert(pri >= Priority::BOTTOM && pri <= Priority::HIGH);
     thread_pools_[pri].IncBackgroundThreadsIfNeeded(num);
   }
 
   virtual void LowerThreadPoolIOPriority(Priority pool = LOW) override {
-    assert(pool >= Priority::LOW && pool <= Priority::HIGH);
+    assert(pool >= Priority::BOTTOM && pool <= Priority::HIGH);
 #ifdef OS_LINUX
     thread_pools_[pool].LowerIOPriority();
 #endif
@@ -885,7 +883,7 @@ PosixEnv::PosixEnv()
 
 void PosixEnv::Schedule(void (*function)(void* arg1), void* arg, Priority pri,
                         void* tag, void (*unschedFunction)(void* arg)) {
-  assert(pri >= Priority::LOW && pri <= Priority::HIGH);
+  assert(pri >= Priority::BOTTOM && pri <= Priority::HIGH);
   thread_pools_[pri].Schedule(function, arg, tag, unschedFunction);
 }
 
@@ -894,7 +892,7 @@ int PosixEnv::UnSchedule(void* arg, Priority pri) {
 }
 
 unsigned int PosixEnv::GetThreadPoolQueueLen(Priority pri) const {
-  assert(pri >= Priority::LOW && pri <= Priority::HIGH);
+  assert(pri >= Priority::BOTTOM && pri <= Priority::HIGH);
   return thread_pools_[pri].GetQueueLen();
 }
 

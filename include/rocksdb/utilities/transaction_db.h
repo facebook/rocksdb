@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
 #ifndef ROCKSDB_LITE
@@ -24,6 +22,12 @@
 namespace rocksdb {
 
 class TransactionDBMutexFactory;
+
+enum TxnDBWritePolicy {
+  WRITE_COMMITTED = 0,  // write only the committed data
+  WRITE_PREPARED,       // write data after the prepare phase of 2pc
+  WRITE_UNPREPARED      // write data before the prepare phase of 2pc
+};
 
 struct TransactionDBOptions {
   // Specifies the maximum number of keys that can be locked at the same time
@@ -68,6 +72,12 @@ struct TransactionDBOptions {
   // condition variable for all transaction locking instead of the default
   // mutex/condvar implementation.
   std::shared_ptr<TransactionDBMutexFactory> custom_mutex_factory;
+
+  // The policy for when to write the data into the DB. The default policy is to
+  // write only the committed data (WRITE_COMMITTED). The data could be written
+  // before the commit phase. The DB then needs to provide the mechanisms to
+  // tell apart committed from uncommitted data.
+  TxnDBWritePolicy write_policy = TxnDBWritePolicy::WRITE_COMMITTED;
 };
 
 struct TransactionOptions {

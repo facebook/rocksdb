@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include <map>
 
@@ -92,10 +90,10 @@ class PartitionedFilterBlockTest : public testing::Test {
   PartitionedFilterBlockBuilder* NewBuilder(
       PartitionedIndexBuilder* const p_index_builder) {
     assert(table_options_.block_size_deviation <= 100);
-    auto partition_size = static_cast<const uint32_t>(
+    auto partition_size = static_cast<uint32_t>(
         table_options_.metadata_block_size *
-        (100 - table_options_.block_size_deviation));
-    partition_size = std::max(partition_size, static_cast<const uint32_t>(1));
+        ( 100 - table_options_.block_size_deviation));
+    partition_size = std::max(partition_size, static_cast<uint32_t>(1));
     return new PartitionedFilterBlockBuilder(
         nullptr, table_options_.whole_key_filtering,
         table_options_.filter_policy->GetFilterBitsBuilder(),

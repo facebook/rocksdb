@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -604,6 +602,34 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
   mutable size_t buffer_len_;
 };
 }  // namespace
+
+Status FilePrefetchBuffer::Prefetch(RandomAccessFileReader* reader,
+                                    uint64_t offset, size_t n) {
+  size_t alignment = reader->file()->GetRequiredBufferAlignment();
+  uint64_t roundup_offset = Roundup(offset, alignment);
+  uint64_t roundup_len = Roundup(n, alignment);
+  buffer_.Alignment(alignment);
+  buffer_.AllocateNewBuffer(roundup_len);
+
+  Slice result;
+  Status s =
+      reader->Read(roundup_offset, roundup_len, &result, buffer_.BufferStart());
+  if (s.ok()) {
+    buffer_offset_ = roundup_offset;
+    buffer_len_ = result.size();
+  }
+  return s;
+}
+
+bool FilePrefetchBuffer::TryReadFromCache(uint64_t offset, size_t n,
+                                          Slice* result) const {
+  if (offset < buffer_offset_ || offset + n > buffer_offset_ + buffer_len_) {
+    return false;
+  }
+  uint64_t offset_in_buffer = offset - buffer_offset_;
+  *result = Slice(buffer_.BufferStart() + offset_in_buffer, n);
+  return true;
+}
 
 std::unique_ptr<RandomAccessFile> NewReadaheadRandomAccessFile(
     std::unique_ptr<RandomAccessFile>&& file, size_t readahead_size) {

@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -596,6 +594,9 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
 
   double read_write_amp = 0.0;
   double write_amp = 0.0;
+  double bytes_read_per_sec = 0;
+  double bytes_written_per_sec = 0;
+
   if (stats.bytes_read_non_output_levels > 0) {
     read_write_amp = (stats.bytes_written + stats.bytes_read_output_level +
                       stats.bytes_read_non_output_levels) /
@@ -603,17 +604,22 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
     write_amp = stats.bytes_written /
                 static_cast<double>(stats.bytes_read_non_output_levels);
   }
+  if (stats.micros > 0) {
+    bytes_read_per_sec =
+        (stats.bytes_read_non_output_levels + stats.bytes_read_output_level) /
+        static_cast<double>(stats.micros);
+    bytes_written_per_sec =
+        stats.bytes_written / static_cast<double>(stats.micros);
+  }
+
   ROCKS_LOG_BUFFER(
       log_buffer_,
       "[%s] compacted to: %s, MB/sec: %.1f rd, %.1f wr, level %d, "
       "files in(%d, %d) out(%d) "
       "MB in(%.1f, %.1f) out(%.1f), read-write-amplify(%.1f) "
       "write-amplify(%.1f) %s, records in: %d, records dropped: %d\n",
-      cfd->GetName().c_str(), vstorage->LevelSummary(&tmp),
-      (stats.bytes_read_non_output_levels + stats.bytes_read_output_level) /
-          static_cast<double>(stats.micros),
-      stats.bytes_written / static_cast<double>(stats.micros),
-      compact_->compaction->output_level(),
+      cfd->GetName().c_str(), vstorage->LevelSummary(&tmp), bytes_read_per_sec,
+      bytes_written_per_sec, compact_->compaction->output_level(),
       stats.num_input_files_in_non_output_levels,
       stats.num_input_files_in_output_level, stats.num_output_files,
       stats.bytes_read_non_output_levels / 1048576.0,

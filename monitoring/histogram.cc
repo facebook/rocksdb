@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -21,6 +19,7 @@
 #include <stdio.h>
 
 #include "port/port.h"
+#include "util/cast_util.h"
 
 namespace rocksdb {
 
@@ -106,17 +105,26 @@ void HistogramStat::Add(uint64_t value) {
   // by concurrent threads is tolerable.
   const size_t index = bucketMapper.IndexForValue(value);
   assert(index < num_buckets_);
-  buckets_[index].fetch_add(1, std::memory_order_relaxed);
+  buckets_[index].store(buckets_[index].load(std::memory_order_relaxed) + 1,
+                        std::memory_order_relaxed);
 
   uint64_t old_min = min();
-  while (value < old_min && !min_.compare_exchange_weak(old_min, value)) {}
+  if (value < old_min) {
+    min_.store(value, std::memory_order_relaxed);
+  }
 
   uint64_t old_max = max();
-  while (value > old_max && !max_.compare_exchange_weak(old_max, value)) {}
+  if (value > old_max) {
+    max_.store(value, std::memory_order_relaxed);
+  }
 
-  num_.fetch_add(1, std::memory_order_relaxed);
-  sum_.fetch_add(value, std::memory_order_relaxed);
-  sum_squares_.fetch_add(value * value, std::memory_order_relaxed);
+  num_.store(num_.load(std::memory_order_relaxed) + 1,
+             std::memory_order_relaxed);
+  sum_.store(sum_.load(std::memory_order_relaxed) + value,
+             std::memory_order_relaxed);
+  sum_squares_.store(
+      sum_squares_.load(std::memory_order_relaxed) + value * value,
+      std::memory_order_relaxed);
 }
 
 void HistogramStat::Merge(const HistogramStat& other) {
@@ -257,7 +265,8 @@ void HistogramImpl::Add(uint64_t value) {
 
 void HistogramImpl::Merge(const Histogram& other) {
   if (strcmp(Name(), other.Name()) == 0) {
-    Merge(dynamic_cast<const HistogramImpl&>(other));
+    Merge(
+        *static_cast_with_check<const HistogramImpl, const Histogram>(&other));
   }
 }
 

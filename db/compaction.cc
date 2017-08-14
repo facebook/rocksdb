@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -171,6 +169,7 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
       bottommost_level_(IsBottommostLevel(output_level_, vstorage, inputs_)),
       is_full_compaction_(IsFullCompaction(vstorage, inputs_)),
       is_manual_compaction_(_manual_compaction),
+      is_trivial_move_(false),
       compaction_reason_(_compaction_reason) {
   MarkFilesBeingCompacted(true);
   if (is_manual_compaction_) {
@@ -288,6 +287,10 @@ bool Compaction::KeyNotExistsBeyondOutputLevel(
   assert(cfd_->ioptions()->compaction_style != kCompactionStyleFIFO);
   if (cfd_->ioptions()->compaction_style == kCompactionStyleUniversal) {
     return bottommost_level_;
+  }
+  if (cfd_->ioptions()->compaction_style == kCompactionStyleLevel &&
+      output_level_ == 0) {
+    return false;
   }
   // Maybe use binary search to find right entry instead of linear search?
   const Comparator* user_cmp = cfd_->user_comparator();

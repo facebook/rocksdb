@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include "table/partitioned_filter_block.h"
 
@@ -134,7 +132,8 @@ bool PartitionedFilterBlockReader::KeyMayMatch(
     return false;
   }
   bool cached = false;
-  auto filter_partition = GetFilterPartition(&filter_handle, no_io, &cached);
+  auto filter_partition = GetFilterPartition(nullptr /* prefetch_buffer */,
+                                             &filter_handle, no_io, &cached);
   if (UNLIKELY(!filter_partition.value)) {
     return true;
   }
@@ -166,7 +165,8 @@ bool PartitionedFilterBlockReader::PrefixMayMatch(
     return false;
   }
   bool cached = false;
-  auto filter_partition = GetFilterPartition(&filter_handle, no_io, &cached);
+  auto filter_partition = GetFilterPartition(nullptr /* prefetch_buffer */,
+                                             &filter_handle, no_io, &cached);
   if (UNLIKELY(!filter_partition.value)) {
     return true;
   }
@@ -196,9 +196,9 @@ Slice PartitionedFilterBlockReader::GetFilterPartitionHandle(
 }
 
 BlockBasedTable::CachableEntry<FilterBlockReader>
-PartitionedFilterBlockReader::GetFilterPartition(Slice* handle_value,
-                                                 const bool no_io,
-                                                 bool* cached) {
+PartitionedFilterBlockReader::GetFilterPartition(
+    FilePrefetchBuffer* prefetch_buffer, Slice* handle_value, const bool no_io,
+    bool* cached) {
   BlockHandle fltr_blk_handle;
   auto s = fltr_blk_handle.DecodeFrom(handle_value);
   assert(s.ok());
@@ -234,7 +234,8 @@ PartitionedFilterBlockReader::GetFilterPartition(Slice* handle_value,
     }
     return filter;
   } else {
-    auto filter = table_->ReadFilter(fltr_blk_handle, is_a_filter_partition);
+    auto filter = table_->ReadFilter(prefetch_buffer, fltr_blk_handle,
+                                     is_a_filter_partition);
     return {filter, nullptr};
   }
 }

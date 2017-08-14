@@ -467,6 +467,12 @@ class TableFactory {
   // RocksDB prints configurations at DB Open().
   virtual std::string GetPrintableTableOptions() const = 0;
 
+  virtual Status GetOptionString(std::string* opt_string,
+                                 const std::string& delimiter) const {
+    return Status::NotSupported(
+        "The table factory doesn't implement GetOptionString().");
+  }
+
   // Returns the raw pointer of the table options that is used by this
   // TableFactory, or nullptr if this function is not supported.
   // Since the return value is a raw pointer, the TableFactory owns the
@@ -482,6 +488,9 @@ class TableFactory {
   // Developers should use DB::SetOption() instead to dynamically change
   // options while the DB is open.
   virtual void* GetOptions() { return nullptr; }
+
+  // Return is delete range supported
+  virtual bool IsDeleteRangeSupported() const { return false; }
 };
 
 #ifndef ROCKSDB_LITE

@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -206,7 +204,6 @@ TEST_F(DBIOFailureTest, ManifestWriteError) {
     ASSERT_EQ("bar2", Get("foo2"));
   }
 }
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBIOFailureTest, PutFailsParanoid) {
   // Test the following:
@@ -561,6 +558,7 @@ TEST_F(DBIOFailureTest, CompactionSstSyncError) {
   ASSERT_EQ("bar3", Get(1, "foo"));
 }
 #endif  // !(defined NDEBUG) || !defined(OS_WIN)
+#endif  // ROCKSDB_LITE
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

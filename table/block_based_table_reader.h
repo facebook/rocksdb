@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -104,7 +102,6 @@ class BlockBasedTable : public TableReader {
   // @param skip_filters Disables loading/accessing the filter block
   InternalIterator* NewIterator(
       const ReadOptions&, Arena* arena = nullptr,
-      const InternalKeyComparator* icomparator = nullptr,
       bool skip_filters = false) override;
 
   InternalIterator* NewRangeTombstoneIterator(
@@ -141,6 +138,8 @@ class BlockBasedTable : public TableReader {
 
   // convert SST file to a human readable form
   Status DumpTable(WritableFile* out_file) override;
+
+  Status VerifyChecksum() override;
 
   void Close() override;
 
@@ -301,7 +300,7 @@ class BlockBasedTable : public TableReader {
   // need to access extra meta blocks for index construction. This parameter
   // helps avoid re-reading meta index block if caller already created one.
   Status CreateIndexReader(
-      IndexReader** index_reader,
+      FilePrefetchBuffer* prefetch_buffer, IndexReader** index_reader,
       InternalIterator* preloaded_meta_index_iter = nullptr,
       const int level = -1);
 
@@ -310,11 +309,15 @@ class BlockBasedTable : public TableReader {
                              const bool no_io) const;
 
   // Read the meta block from sst.
-  static Status ReadMetaBlock(Rep* rep, std::unique_ptr<Block>* meta_block,
+  static Status ReadMetaBlock(Rep* rep, FilePrefetchBuffer* prefetch_buffer,
+                              std::unique_ptr<Block>* meta_block,
                               std::unique_ptr<InternalIterator>* iter);
 
+  Status VerifyChecksumInBlocks(InternalIterator* index_iter);
+
   // Create the filter from the filter block.
-  FilterBlockReader* ReadFilter(const BlockHandle& filter_handle,
+  FilterBlockReader* ReadFilter(FilePrefetchBuffer* prefetch_buffer,
+                                const BlockHandle& filter_handle,
                                 const bool is_a_filter_partition) const;
 
   static void SetupCacheKeyPrefix(Rep* rep, uint64_t file_size);
@@ -470,6 +473,7 @@ struct BlockBasedTable::Rep {
   // A value of kDisableGlobalSequenceNumber means that this feature is disabled
   // and every key have it's own seqno.
   SequenceNumber global_seqno;
+  bool closed = false;
 };
 
 }  // namespace rocksdb

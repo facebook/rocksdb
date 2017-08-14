@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
@@ -543,10 +541,9 @@ TEST_F(DeleteSchedulerTest, ImmediateDeleteOn25PercDBSize) {
     delete_scheduler_->DeleteFile(file_name);
   }
 
-  // When we end up with 24 files in trash we will start
+  // When we end up with 26 files in trash we will start
   // deleting new files immediately
   ASSERT_EQ(fg_delete_file, 74);
-  ASSERT_EQ(CountFilesInDir(trash_dir_), 25);
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }

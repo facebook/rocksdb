@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 #include "util/file_reader_writer.h"
 #include <algorithm>
@@ -145,7 +143,13 @@ TEST_F(WritableFileWriterTest, IncrementalBuffer) {
     env_options.writable_file_max_buffer_size =
         (attempt < kNumAttempts / 2) ? 512 * 1024 : 700 * 1024;
     std::string actual;
-    unique_ptr<FakeWF> wf(new FakeWF(&actual, attempt % 2 == 1, no_flush));
+    unique_ptr<FakeWF> wf(new FakeWF(&actual,
+#ifndef ROCKSDB_LITE
+                                     attempt % 2 == 1,
+#else
+                                     false,
+#endif
+                                     no_flush));
     unique_ptr<WritableFileWriter> writer(
         new WritableFileWriter(std::move(wf), env_options));
 

@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -93,9 +91,13 @@ static void ApproximateMemoryUsageTest(size_t huge_page_size) {
   ASSERT_EQ(kZero, arena.ApproximateMemoryUsage());
 
   // allocate inline bytes
+  EXPECT_TRUE(arena.IsInInlineBlock());
   arena.AllocateAligned(8);
+  EXPECT_TRUE(arena.IsInInlineBlock());
   arena.AllocateAligned(Arena::kInlineSize / 2 - 16);
+  EXPECT_TRUE(arena.IsInInlineBlock());
   arena.AllocateAligned(Arena::kInlineSize / 2);
+  EXPECT_TRUE(arena.IsInInlineBlock());
   ASSERT_EQ(arena.ApproximateMemoryUsage(), Arena::kInlineSize - 8);
   ASSERT_PRED2(CheckMemoryAllocated, arena.MemoryAllocatedBytes(),
                Arena::kInlineSize);
@@ -104,6 +106,7 @@ static void ApproximateMemoryUsageTest(size_t huge_page_size) {
 
   // first allocation
   arena.AllocateAligned(kEntrySize);
+  EXPECT_FALSE(arena.IsInInlineBlock());
   auto mem_usage = arena.MemoryAllocatedBytes();
   if (huge_page_size) {
     ASSERT_TRUE(
@@ -119,6 +122,7 @@ static void ApproximateMemoryUsageTest(size_t huge_page_size) {
     arena.AllocateAligned(kEntrySize);
     ASSERT_EQ(mem_usage, arena.MemoryAllocatedBytes());
     ASSERT_EQ(arena.ApproximateMemoryUsage(), usage + kEntrySize);
+    EXPECT_FALSE(arena.IsInInlineBlock());
     usage = arena.ApproximateMemoryUsage();
   }
   if (huge_page_size) {

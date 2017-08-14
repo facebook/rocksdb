@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -2238,6 +2236,7 @@ TEST_F(DBTest2, LowPriWrite) {
   ASSERT_EQ(1, rate_limit_count.load());
 }
 
+#ifndef ROCKSDB_LITE
 TEST_F(DBTest2, RateLimitedCompactionReads) {
   // compaction input has 512KB data
   const int kNumKeysPerFile = 128;
@@ -2283,12 +2282,15 @@ TEST_F(DBTest2, RateLimitedCompactionReads) {
     // chose 1MB as the upper bound on the total bytes read.
     size_t rate_limited_bytes =
         options.rate_limiter->GetTotalBytesThrough(Env::IO_LOW);
-    ASSERT_GE(
-        rate_limited_bytes,
-        static_cast<size_t>(kNumKeysPerFile * kBytesPerKey * kNumL0Files));
+    // Include the explict prefetch of the footer in direct I/O case.
+    size_t direct_io_extra = use_direct_io ? 512 * 1024 : 0;
+    ASSERT_GE(rate_limited_bytes,
+              static_cast<size_t>(kNumKeysPerFile * kBytesPerKey * kNumL0Files +
+                                  direct_io_extra));
     ASSERT_LT(
         rate_limited_bytes,
-        static_cast<size_t>(2 * kNumKeysPerFile * kBytesPerKey * kNumL0Files));
+        static_cast<size_t>(2 * kNumKeysPerFile * kBytesPerKey * kNumL0Files +
+                            direct_io_extra));
 
     Iterator* iter = db_->NewIterator(ReadOptions());
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
@@ -2301,7 +2303,7 @@ TEST_F(DBTest2, RateLimitedCompactionReads) {
                   options.rate_limiter->GetTotalBytesThrough(Env::IO_LOW)));
   }
 }
-
+#endif  // ROCKSDB_LITE
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

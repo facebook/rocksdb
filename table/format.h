@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -20,6 +18,7 @@
 #include "options/cf_options.h"
 #include "port/port.h"  // noexcept
 #include "table/persistent_cache_options.h"
+#include "util/file_reader_writer.h"
 
 namespace rocksdb {
 
@@ -175,8 +174,9 @@ class Footer {
 // Read the footer from file
 // If enforce_table_magic_number != 0, ReadFooterFromFile() will return
 // corruption if table_magic number is not equal to enforce_table_magic_number
-Status ReadFooterFromFile(RandomAccessFileReader* file, uint64_t file_size,
-                          Footer* footer,
+Status ReadFooterFromFile(RandomAccessFileReader* file,
+                          FilePrefetchBuffer* prefetch_buffer,
+                          uint64_t file_size, Footer* footer,
                           uint64_t enforce_table_magic_number = 0);
 
 // 1-byte type + 32-bit crc
@@ -215,9 +215,9 @@ struct BlockContents {
 // Read the block identified by "handle" from "file".  On failure
 // return non-OK.  On success fill *result and return OK.
 extern Status ReadBlockContents(
-    RandomAccessFileReader* file, const Footer& footer,
-    const ReadOptions& options, const BlockHandle& handle,
-    BlockContents* contents, const ImmutableCFOptions &ioptions,
+    RandomAccessFileReader* file, FilePrefetchBuffer* prefetch_buffer,
+    const Footer& footer, const ReadOptions& options, const BlockHandle& handle,
+    BlockContents* contents, const ImmutableCFOptions& ioptions,
     bool do_uncompress = true, const Slice& compression_dict = Slice(),
     const PersistentCacheOptions& cache_options = PersistentCacheOptions());
 

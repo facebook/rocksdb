@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -237,11 +235,11 @@ class DBImpl : public DB {
       ColumnFamilyHandle* column_family,
       ColumnFamilyMetaData* metadata) override;
 
-  // experimental API
   Status SuggestCompactRange(ColumnFamilyHandle* column_family,
-                             const Slice* begin, const Slice* end);
+                             const Slice* begin, const Slice* end) override;
 
-  Status PromoteL0(ColumnFamilyHandle* column_family, int target_level);
+  Status PromoteL0(ColumnFamilyHandle* column_family,
+                   int target_level) override;
 
   // Similar to Write() but will call the callback once on the single write
   // thread to determine whether it is safe to perform the write.
@@ -294,6 +292,8 @@ class DBImpl : public DB {
       ColumnFamilyHandle* column_family,
       const std::vector<std::string>& external_files,
       const IngestExternalFileOptions& ingestion_options) override;
+
+  virtual Status VerifyChecksum() override;
 
 #endif  // ROCKSDB_LITE
 
@@ -496,6 +496,12 @@ class DBImpl : public DB {
 
   const WriteController& write_controller() { return write_controller_; }
 
+  InternalIterator* NewInternalIterator(const ReadOptions&,
+                                        ColumnFamilyData* cfd,
+                                        SuperVersion* super_version,
+                                        Arena* arena,
+                                        RangeDelAggregator* range_del_agg);
+
   // hollow transactions shell used for recovery.
   // these will then be passed to TransactionDB so that
   // locks can be reacquired before writing can resume.
@@ -554,6 +560,7 @@ class DBImpl : public DB {
   void AddToLogsToFreeQueue(log::Writer* log_writer) {
     logs_to_free_queue_.push_back(log_writer);
   }
+  InstrumentedMutex* mutex() { return &mutex_; }
 
   Status NewDB();
 
@@ -567,12 +574,6 @@ class DBImpl : public DB {
   Statistics* stats_;
   std::unordered_map<std::string, RecoveredTransaction*>
       recovered_transactions_;
-
-  InternalIterator* NewInternalIterator(const ReadOptions&,
-                                        ColumnFamilyData* cfd,
-                                        SuperVersion* super_version,
-                                        Arena* arena,
-                                        RangeDelAggregator* range_del_agg);
 
   // Except in DB::Open(), WriteOptionsFile can only be called when:
   // Persist options to options file.
@@ -632,7 +633,9 @@ class DBImpl : public DB {
  private:
   friend class DB;
   friend class InternalStats;
-  friend class TransactionImpl;
+  friend class PessimisticTransaction;
+  friend class WriteCommittedTxn;
+  friend class WritePreparedTxn;
 #ifndef ROCKSDB_LITE
   friend class ForwardIterator;
 #endif
@@ -657,6 +660,7 @@ class DBImpl : public DB {
     }
   };
 
+  struct PrepickedCompaction;
   struct PurgeFileInfo;
 
   // Recover the descriptor from persistent storage.  May do a significant
@@ -798,14 +802,19 @@ class DBImpl : public DB {
   void SchedulePendingPurge(std::string fname, FileType type, uint64_t number,
                             uint32_t path_id, int job_id);
   static void BGWorkCompaction(void* arg);
+  // Runs a pre-chosen universal compaction involving bottom level in a
+  // separate, bottom-pri thread pool.
+  static void BGWorkBottomCompaction(void* arg);
   static void BGWorkFlush(void* db);
   static void BGWorkPurge(void* arg);
   static void UnscheduleCallback(void* arg);
-  void BackgroundCallCompaction(void* arg);
+  void BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
+                                Env::Priority bg_thread_pri);
   void BackgroundCallFlush();
   void BackgroundCallPurge();
   Status BackgroundCompaction(bool* madeProgress, JobContext* job_context,
-                              LogBuffer* log_buffer, void* m = 0);
+                              LogBuffer* log_buffer,
+                              PrepickedCompaction* prepicked_compaction);
   Status BackgroundFlush(bool* madeProgress, JobContext* job_context,
                          LogBuffer* log_buffer);
 
@@ -1058,6 +1067,10 @@ class DBImpl : public DB {
   int unscheduled_flushes_;
   int unscheduled_compactions_;
 
+  // count how many background compactions are running or have been scheduled in
+  // the BOTTOM pool
+  int bg_bottom_compaction_scheduled_;
+
   // count how many background compactions are running or have been scheduled
   int bg_compaction_scheduled_;
 
@@ -1074,7 +1087,7 @@ class DBImpl : public DB {
   int bg_purge_scheduled_;
 
   // Information for a manual compaction
-  struct ManualCompaction {
+  struct ManualCompactionState {
     ColumnFamilyData* cfd;
     int input_level;
     int output_level;
@@ -1090,13 +1103,21 @@ class DBImpl : public DB {
     InternalKey* manual_end;      // how far we are compacting
     InternalKey tmp_storage;      // Used to keep track of compaction progress
     InternalKey tmp_storage1;     // Used to keep track of compaction progress
-    Compaction* compaction;
   };
-  std::deque<ManualCompaction*> manual_compaction_dequeue_;
+  struct PrepickedCompaction {
+    // background compaction takes ownership of `compaction`.
+    Compaction* compaction;
+    // caller retains ownership of `manual_compaction_state` as it is reused
+    // across background compactions.
+    ManualCompactionState* manual_compaction_state;  // nullptr if non-manual
+  };
+  std::deque<ManualCompactionState*> manual_compaction_dequeue_;
 
   struct CompactionArg {
+    // caller retains ownership of `db`.
     DBImpl* db;
-    ManualCompaction* m;
+    // background compaction takes ownership of `prepicked_compaction`.
+    PrepickedCompaction* prepicked_compaction;
   };
 
   // Have we encountered a background error in paranoid mode?
@@ -1230,11 +1251,11 @@ class DBImpl : public DB {
 
   bool HasPendingManualCompaction();
   bool HasExclusiveManualCompaction();
-  void AddManualCompaction(ManualCompaction* m);
-  void RemoveManualCompaction(ManualCompaction* m);
-  bool ShouldntRunManualCompaction(ManualCompaction* m);
+  void AddManualCompaction(ManualCompactionState* m);
+  void RemoveManualCompaction(ManualCompactionState* m);
+  bool ShouldntRunManualCompaction(ManualCompactionState* m);
   bool HaveManualCompaction(ColumnFamilyData* cfd);
-  bool MCOverlap(ManualCompaction* m, ManualCompaction* m1);
+  bool MCOverlap(ManualCompactionState* m, ManualCompactionState* m1);
 
   size_t GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
 

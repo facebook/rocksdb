@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -891,11 +889,11 @@ TEST_F(OptionsTest, ConvertOptionsTest) {
   ASSERT_EQ(converted_opt.max_open_files, leveldb_opt.max_open_files);
   ASSERT_EQ(converted_opt.compression, leveldb_opt.compression);
 
-  std::shared_ptr<BlockBasedTableFactory> table_factory =
-      std::dynamic_pointer_cast<BlockBasedTableFactory>(
-          converted_opt.table_factory);
+  std::shared_ptr<TableFactory> tb_guard = converted_opt.table_factory;
+  BlockBasedTableFactory* table_factory =
+      dynamic_cast<BlockBasedTableFactory*>(converted_opt.table_factory.get());
 
-  ASSERT_TRUE(table_factory.get() != nullptr);
+  ASSERT_TRUE(table_factory != nullptr);
 
   const BlockBasedTableOptions table_opt = table_factory->table_options();
 
@@ -1280,6 +1278,11 @@ TEST_F(OptionsParserTest, DumpAndParse) {
   Random rnd(302);
   test::RandomInitDBOptions(&base_db_opt, &rnd);
   base_db_opt.db_log_dir += "/#odd #but #could #happen #path #/\\\\#OMG";
+
+  BlockBasedTableOptions special_bbto;
+  special_bbto.cache_index_and_filter_blocks = true;
+  special_bbto.block_size = 999999;
+
   for (int c = 0; c < num_cf; ++c) {
     ColumnFamilyOptions cf_opt;
     Random cf_rnd(0xFB + c);
@@ -1289,6 +1292,8 @@ TEST_F(OptionsParserTest, DumpAndParse) {
     }
     if (c < 3) {
       cf_opt.table_factory.reset(test::RandomTableFactory(&rnd, c));
+    } else if (c == 4) {
+      cf_opt.table_factory.reset(NewBlockBasedTableFactory(special_bbto));
     }
     base_cf_opts.emplace_back(cf_opt);
   }
@@ -1299,6 +1304,15 @@ TEST_F(OptionsParserTest, DumpAndParse) {
 
   RocksDBOptionsParser parser;
   ASSERT_OK(parser.Parse(kOptionsFileName, env_.get()));
+
+  // Make sure block-based table factory options was deserialized correctly
+  std::shared_ptr<TableFactory> ttf = (*parser.cf_opts())[4].table_factory;
+  ASSERT_EQ(BlockBasedTableFactory::kName, std::string(ttf->Name()));
+  const BlockBasedTableOptions& parsed_bbto =
+      static_cast<BlockBasedTableFactory*>(ttf.get())->table_options();
+  ASSERT_EQ(special_bbto.block_size, parsed_bbto.block_size);
+  ASSERT_EQ(special_bbto.cache_index_and_filter_blocks,
+            parsed_bbto.cache_index_and_filter_blocks);
 
   ASSERT_OK(RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
       base_db_opt, cf_names, base_cf_opts, kOptionsFileName, env_.get()));

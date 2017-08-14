@@ -32,6 +32,7 @@ to build a portable binary, add `PORTABLE=1` before your make commands, like thi
 * You can link RocksDB with following compression libraries:
   - [zlib](http://www.zlib.net/) - a library for data compression.
   - [bzip2](http://www.bzip.org/) - a library for data compression.
+  - [lz4](https://github.com/lz4/lz4) - a library for extremely fast data compression.
   - [snappy](http://google.github.io/snappy/) - a library for fast
       data compression.
   - [zstandard](http://www.zstd.net) - Fast real-time compression
@@ -53,6 +54,7 @@ to build a portable binary, add `PORTABLE=1` before your make commands, like thi
       `sudo apt-get install libsnappy-dev`.
     * Install zlib. Try: `sudo apt-get install zlib1g-dev`.
     * Install bzip2: `sudo apt-get install libbz2-dev`.
+    * Install lz4: `sudo apt-get install liblz4-dev`.
     * Install zstandard: `sudo apt-get install libzstd-dev`.
 
 * **Linux - CentOS / RHEL**
@@ -81,6 +83,10 @@ to build a portable binary, add `PORTABLE=1` before your make commands, like thi
 
               sudo yum install bzip2 bzip2-devel
 
+    * Install lz4:
+
+              sudo yum install lz4-devel
+
     * Install ASAN (optional for debugging):
 
               sudo yum install libasan
@@ -107,6 +113,8 @@ to build a portable binary, add `PORTABLE=1` before your make commands, like thi
 * **Windows**:
   * For building with MS Visual Studio 13 you will need Update 4 installed.
   * Read and follow the instructions at CMakeLists.txt
+  * Or install via [vcpkg](https://github.com/microsoft/vcpkg) 
+       * run `vcpkg install rocksdb`
 
 * **AIX 6.1**
     * Install AIX Toolbox rpms with gcc

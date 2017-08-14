@@ -101,7 +101,19 @@ endif
 ifeq ($(DEBUG_LEVEL),0)
 OPT += -DNDEBUG
 DISABLE_WARNING_AS_ERROR=1
+
+ifneq ($(USE_RTTI), 1)
+	CXXFLAGS += -fno-rtti
 else
+	CXXFLAGS += -DROCKSDB_USE_RTTI
+endif
+else
+ifneq ($(USE_RTTI), 0)
+	CXXFLAGS += -DROCKSDB_USE_RTTI
+else
+	CXXFLAGS += -fno-rtti
+endif
+
 $(warning Warning: Compiling in debug mode. Don't use the resulting binary in production)
 endif
 
@@ -220,6 +232,10 @@ ifndef DISABLE_JEMALLOC
 		PLATFORM_CXXFLAGS += -DROCKSDB_JEMALLOC -DJEMALLOC_NO_DEMANGLE
 		PLATFORM_CCFLAGS  += -DROCKSDB_JEMALLOC -DJEMALLOC_NO_DEMANGLE
 	endif
+	ifdef WITH_JEMALLOC_FLAG
+		PLATFORM_LDFLAGS += -ljemalloc
+		JAVA_LDFLAGS += -ljemalloc
+	endif
 	EXEC_LDFLAGS := $(JEMALLOC_LIB) $(EXEC_LDFLAGS)
 	PLATFORM_CXXFLAGS += $(JEMALLOC_INCLUDE)
 	PLATFORM_CCFLAGS += $(JEMALLOC_INCLUDE)
@@ -242,6 +258,19 @@ default: all
 
 WARNING_FLAGS = -W -Wextra -Wall -Wsign-compare -Wshadow \
   -Wno-unused-parameter
+
+CCVERSION = $(shell $(CXX) -dumpversion)
+CCNAME = $(shell $(CXX) --version | awk 'NR==1' | cut -f1 -d " ")
+
+ifeq ($(CCNAME), clang)
+ifeq ($(CCVERSION), 4*)
+	CXXFLAGS += -faligned-new
+endif
+else
+ifeq ($(CCVERSION), 7)
+	CXXFLAGS += -faligned-new
+endif
+endif
 
 ifndef DISABLE_WARNING_AS_ERROR
 	WARNING_FLAGS += -Werror
@@ -336,6 +365,7 @@ TESTS = \
 	inlineskiplist_test \
 	env_basic_test \
 	env_test \
+	hash_test \
 	thread_local_test \
 	rate_limiter_test \
 	perf_context_test \
@@ -404,7 +434,7 @@ TESTS = \
 	write_buffer_manager_test \
 	stringappend_test \
 	cassandra_format_test \
-	cassandra_merge_test \
+	cassandra_functional_test \
 	cassandra_row_merge_test \
 	cassandra_serialize_test \
 	ttl_test \
@@ -573,6 +603,8 @@ endif  # PLATFORM_SHARED_EXT
 
 
 all: $(LIBRARY) $(BENCHMARKS) tools tools_lib test_libs $(TESTS)
+
+all_but_some_tests: $(LIBRARY) $(BENCHMARKS) tools tools_lib test_libs $(SUBSET)
 
 static_lib: $(LIBRARY)
 
@@ -777,8 +809,8 @@ ldb_tests: ldb
 crash_test: whitebox_crash_test blackbox_crash_test
 
 blackbox_crash_test: db_stress
-	python -u tools/db_crashtest.py --simple blackbox
-	python -u tools/db_crashtest.py blackbox
+	python -u tools/db_crashtest.py --simple blackbox $(CRASH_TEST_EXT_ARGS)
+	python -u tools/db_crashtest.py blackbox $(CRASH_TEST_EXT_ARGS)
 
 ifeq ($(CRASH_TEST_KILL_ODD),)
   CRASH_TEST_KILL_ODD=888887
@@ -786,9 +818,9 @@ endif
 
 whitebox_crash_test: db_stress
 	python -u tools/db_crashtest.py --simple whitebox --random_kill_odd \
-      $(CRASH_TEST_KILL_ODD)
+      $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
 	python -u tools/db_crashtest.py whitebox  --random_kill_odd \
-      $(CRASH_TEST_KILL_ODD)
+      $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
 
 asan_check:
 	$(MAKE) clean
@@ -990,22 +1022,25 @@ cache_test: cache/cache_test.o $(LIBOBJECTS) $(TESTHARNESS)
 coding_test: util/coding_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+hash_test: util/hash_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 option_change_migration_test: utilities/option_change_migration/option_change_migration_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 stringappend_test: utilities/merge_operators/string_append/stringappend_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-cassandra_format_test: utilities/merge_operators/cassandra/cassandra_format_test.o $(LIBOBJECTS) $(TESTHARNESS)
+cassandra_format_test: utilities/cassandra/cassandra_format_test.o utilities/cassandra/test_utils.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-cassandra_merge_test: utilities/merge_operators/cassandra/cassandra_merge_test.o utilities/merge_operators/cassandra/test_utils.o $(LIBOBJECTS) $(TESTHARNESS)
+cassandra_functional_test: utilities/cassandra/cassandra_functional_test.o utilities/cassandra/test_utils.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-cassandra_row_merge_test: utilities/merge_operators/cassandra/cassandra_row_merge_test.o utilities/merge_operators/cassandra/test_utils.o $(LIBOBJECTS) $(TESTHARNESS)
+cassandra_row_merge_test: utilities/cassandra/cassandra_row_merge_test.o utilities/cassandra/test_utils.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-cassandra_serialize_test: utilities/merge_operators/cassandra/cassandra_serialize_test.o $(LIBOBJECTS) $(TESTHARNESS)
+cassandra_serialize_test: utilities/cassandra/cassandra_serialize_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 redis_test: utilities/redis/redis_lists_test.o $(LIBOBJECTS) $(TESTHARNESS)

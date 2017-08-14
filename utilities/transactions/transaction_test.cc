@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef ROCKSDB_LITE
 
@@ -244,7 +242,7 @@ TEST_P(TransactionTest, WaitingTxn) {
 
   // Column family is 1 or 0 (cfa).
   if (cf_iterator->first != 1 && cf_iterator->first != 0) {
-    ASSERT_FALSE(true);
+    FAIL();
   }
   // The locked key is "foo" and is locked by txn1
   ASSERT_EQ(cf_iterator->second.key, "foo");
@@ -255,7 +253,7 @@ TEST_P(TransactionTest, WaitingTxn) {
 
   // Column family is 0 (default) or 1.
   if (cf_iterator->first != 1 && cf_iterator->first != 0) {
-    ASSERT_FALSE(true);
+    FAIL();
   }
   // The locked key is "foo" and is locked by txn1
   ASSERT_EQ(cf_iterator->second.key, "foo");
@@ -545,7 +543,7 @@ TEST_P(TransactionTest, DeadlockCycle) {
 TEST_P(TransactionTest, DeadlockStress) {
   const uint32_t NUM_TXN_THREADS = 10;
   const uint32_t NUM_KEYS = 100;
-  const uint32_t NUM_ITERS = 100000;
+  const uint32_t NUM_ITERS = 10000;
 
   WriteOptions write_options;
   ReadOptions read_options;
@@ -1082,7 +1080,7 @@ TEST_P(TransactionTest, DISABLED_TwoPhaseMultiThreadTest) {
             env->SleepForMicroseconds(10);
           }
         } else {
-          ASSERT_TRUE(false);
+          FAIL();
         }
       });
 

@@ -1,9 +1,11 @@
-REPO_PATH = "internal_repo_rocksdb/repo/"
+
+import os
+
+TARGETS_PATH = os.path.dirname(__file__)
+REPO_PATH = TARGETS_PATH[(TARGETS_PATH.find('fbcode/') + len('fbcode/')):] + "/"
 BUCK_BINS = "buck-out/gen/" + REPO_PATH
 TEST_RUNNER = REPO_PATH + "buckifier/rocks_test_runner.sh"
 rocksdb_compiler_flags = [
-  "-msse",
-  "-msse4.2",
   "-fno-builtin-memcmp",
   "-DROCKSDB_PLATFORM_POSIX",
   "-DROCKSDB_LIB_IO_POSIX",
@@ -11,9 +13,9 @@ rocksdb_compiler_flags = [
   "-DROCKSDB_MALLOC_USABLE_SIZE",
   "-DROCKSDB_RANGESYNC_PRESENT",
   "-DROCKSDB_SCHED_GETCPU_PRESENT",
-  "-DROCKSDB_SUPPORT_THREAD_LOCAL", 
-  "-DHAVE_SSE42",
+  "-DROCKSDB_SUPPORT_THREAD_LOCAL",
   "-DOS_LINUX",
+  "-DROCKSDB_UBSAN_RUN",
   # Flags to enable libs we include
   "-DSNAPPY",
   "-DZLIB",
@@ -44,6 +46,10 @@ rocksdb_preprocessor_flags = [
   "-I" + REPO_PATH + "include/",
   "-I" + REPO_PATH,
 ]
+
+rocksdb_arch_preprocessor_flags = {
+  "x86_64": ["-DHAVE_SSE42"],
+}
 
 cpp_library(
     name = "rocksdb_lib",
@@ -203,11 +209,14 @@ cpp_library(
       "utilities/backupable/backupable_db.cc",
       "utilities/blob_db/blob_db.cc",
       "utilities/blob_db/blob_db_impl.cc",
-      "utilities/blob_db/blob_db_options_impl.cc",
       "utilities/blob_db/blob_file.cc",
       "utilities/blob_db/blob_log_reader.cc",
       "utilities/blob_db/blob_log_writer.cc",
       "utilities/blob_db/blob_log_format.cc",
+      "utilities/blob_db/ttl_extractor.cc",
+      "utilities/cassandra/cassandra_compaction_filter.cc",
+      "utilities/cassandra/format.cc",
+      "utilities/cassandra/merge_operator.cc",
       "utilities/checkpoint/checkpoint_impl.cc",
       "utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc",
       "utilities/convenience/info_log_finder.cc",
@@ -222,8 +231,6 @@ cpp_library(
       "utilities/leveldb_options/leveldb_options.cc",
       "utilities/lua/rocks_lua_compaction_filter.cc",
       "utilities/memory/memory_util.cc",
-      "utilities/merge_operators/cassandra/format.cc",
-      "utilities/merge_operators/cassandra/merge_operator.cc",
       "utilities/merge_operators/max.cc",
       "utilities/merge_operators/put.cc",
       "utilities/merge_operators/string_append/stringappend.cc",
@@ -241,13 +248,14 @@ cpp_library(
       "utilities/spatialdb/spatial_db.cc",
       "utilities/table_properties_collectors/compact_on_deletion_collector.cc",
       "utilities/transactions/optimistic_transaction_db_impl.cc",
-      "utilities/transactions/optimistic_transaction_impl.cc",
+      "utilities/transactions/optimistic_transaction.cc",
       "utilities/transactions/transaction_base.cc",
-      "utilities/transactions/transaction_db_impl.cc",
+      "utilities/transactions/pessimistic_transaction_db.cc",
       "utilities/transactions/transaction_db_mutex_impl.cc",
-      "utilities/transactions/transaction_impl.cc",
+      "utilities/transactions/pessimistic_transaction.cc",
       "utilities/transactions/transaction_lock_mgr.cc",
       "utilities/transactions/transaction_util.cc",
+      "utilities/transactions/write_prepared_txn.cc",
       "utilities/ttl/db_ttl_impl.cc",
       "utilities/write_batch_with_index/write_batch_with_index.cc",
       "utilities/write_batch_with_index/write_batch_with_index_internal.cc",
@@ -258,6 +266,7 @@ cpp_library(
     ],
     deps = [],
     preprocessor_flags = rocksdb_preprocessor_flags,
+    arch_preprocessor_flags = rocksdb_arch_preprocessor_flags,
     compiler_flags = rocksdb_compiler_flags,
     external_deps = rocksdb_external_deps,
 )
@@ -271,13 +280,14 @@ cpp_library(
       "util/testharness.cc",
       "util/testutil.cc",
       "db/db_test_util.cc",
-      "utilities/merge_operators/cassandra/test_utils.cc",
+      "utilities/cassandra/test_utils.cc",
       "utilities/col_buf_encoder.cc",
       "utilities/col_buf_decoder.cc",
       "utilities/column_aware_encoding_util.cc",
     ],
     deps = [":rocksdb_lib"],
     preprocessor_flags = rocksdb_preprocessor_flags,
+    arch_preprocessor_flags = rocksdb_arch_preprocessor_flags,
     compiler_flags = rocksdb_compiler_flags,
     external_deps = rocksdb_external_deps,
 )
@@ -291,6 +301,7 @@ cpp_library(
     ],
     deps = [":rocksdb_lib"],
     preprocessor_flags = rocksdb_preprocessor_flags,
+    arch_preprocessor_flags = rocksdb_arch_preprocessor_flags,
     compiler_flags = rocksdb_compiler_flags,
     external_deps = rocksdb_external_deps,
 )
@@ -301,6 +312,7 @@ cpp_library(
     srcs = ["env/env_basic_test.cc"],
     deps = [":rocksdb_test_lib"],
     preprocessor_flags = rocksdb_preprocessor_flags,
+    arch_preprocessor_flags = rocksdb_arch_preprocessor_flags,
     compiler_flags = rocksdb_compiler_flags,
     external_deps = rocksdb_external_deps,
 )
@@ -321,16 +333,16 @@ ROCKS_TESTS = [['arena_test', 'util/arena_test.cc', 'serial'],
  ['c_test', 'db/c_test.c', 'serial'],
  ['cache_test', 'cache/cache_test.cc', 'serial'],
  ['cassandra_format_test',
-  'utilities/merge_operators/cassandra/cassandra_format_test.cc',
+  'utilities/cassandra/cassandra_format_test.cc',
   'serial'],
- ['cassandra_merge_test',
-  'utilities/merge_operators/cassandra/cassandra_merge_test.cc',
+ ['cassandra_functional_test',
+  'utilities/cassandra/cassandra_functional_test.cc',
   'serial'],
  ['cassandra_row_merge_test',
-  'utilities/merge_operators/cassandra/cassandra_row_merge_test.cc',
+  'utilities/cassandra/cassandra_row_merge_test.cc',
   'serial'],
  ['cassandra_serialize_test',
-  'utilities/merge_operators/cassandra/cassandra_serialize_test.cc',
+  'utilities/cassandra/cassandra_serialize_test.cc',
   'serial'],
  ['checkpoint_test', 'utilities/checkpoint/checkpoint_test.cc', 'serial'],
  ['cleanable_test', 'table/cleanable_test.cc', 'serial'],
@@ -407,6 +419,7 @@ ROCKS_TESTS = [['arena_test', 'util/arena_test.cc', 'serial'],
  ['hash_table_test',
   'utilities/persistent_cache/hash_table_test.cc',
   'serial'],
+ ['hash_test', 'util/hash_test.cc', 'serial'],
  ['heap_test', 'util/heap_test.cc', 'serial'],
  ['histogram_test', 'monitoring/histogram_test.cc', 'serial'],
  ['inlineskiplist_test', 'memtable/inlineskiplist_test.cc', 'parallel'],
@@ -495,6 +508,7 @@ for test_cfg in ROCKS_TESTS:
       srcs = [test_cc],
       deps = [":rocksdb_test_lib"],
       preprocessor_flags = rocksdb_preprocessor_flags,
+      arch_preprocessor_flags = rocksdb_arch_preprocessor_flags,
       compiler_flags = rocksdb_compiler_flags,
       external_deps = rocksdb_external_deps,
     )

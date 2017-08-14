@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 #ifndef ROCKSDB_LITE
 #include "rocksdb/utilities/ldb_cmd.h"
@@ -31,6 +29,7 @@
 #include "table/scoped_arena_iterator.h"
 #include "tools/ldb_cmd_impl.h"
 #include "tools/sst_dump_tool_imp.h"
+#include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/filename.h"
 #include "util/stderr_logger.h"
@@ -1495,8 +1494,7 @@ void DBDumperCommand::DoDumpCommand() {
     if (max_keys == 0)
       break;
     if (is_db_ttl_) {
-      TtlIterator* it_ttl = dynamic_cast<TtlIterator*>(iter);
-      assert(it_ttl);
+      TtlIterator* it_ttl = static_cast_with_check<TtlIterator, Iterator>(iter);
       rawtime = it_ttl->timestamp();
       if (rawtime < ttl_start || rawtime >= ttl_end) {
         continue;
@@ -2293,8 +2291,7 @@ void ScanCommand::DoCommand() {
         it->Valid() && (!end_key_specified_ || it->key().ToString() < end_key_);
         it->Next()) {
     if (is_db_ttl_) {
-      TtlIterator* it_ttl = dynamic_cast<TtlIterator*>(it);
-      assert(it_ttl);
+      TtlIterator* it_ttl = static_cast_with_check<TtlIterator, Iterator>(it);
       int rawtime = it_ttl->timestamp();
       if (rawtime < ttl_start || rawtime >= ttl_end) {
         continue;

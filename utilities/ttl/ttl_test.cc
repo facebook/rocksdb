@@ -131,7 +131,7 @@ class TtlTest : public testing::Test {
           batch.Delete(kv_it_->first);
           break;
         default:
-          ASSERT_TRUE(false);
+          FAIL();
       }
     }
     db_ttl_->Write(wopts, &batch);
@@ -184,12 +184,12 @@ class TtlTest : public testing::Test {
       if (ret == false || value_found == false) {
         fprintf(stderr, "KeyMayExist could not find key=%s in the database but"
                         " should have\n", kv.first.c_str());
-        ASSERT_TRUE(false);
+        FAIL();
       } else if (val.compare(kv.second) != 0) {
         fprintf(stderr, " value for key=%s present in database is %s but"
                         " should be %s\n", kv.first.c_str(), val.c_str(),
                         kv.second.c_str());
-        ASSERT_TRUE(false);
+        FAIL();
       }
     }
   }
@@ -239,18 +239,18 @@ class TtlTest : public testing::Test {
         } else {
           fprintf(stderr, "is present in db but was expected to be absent\n");
         }
-        ASSERT_TRUE(false);
+        FAIL();
       } else if (s.ok()) {
           if (test_compaction_change && v.compare(kNewValue_) != 0) {
             fprintf(stderr, " value for key=%s present in database is %s but "
                             " should be %s\n", kv_it_->first.c_str(), v.c_str(),
                             kNewValue_.c_str());
-            ASSERT_TRUE(false);
+            FAIL();
           } else if (!test_compaction_change && v.compare(kv_it_->second) !=0) {
             fprintf(stderr, " value for key=%s present in database is %s but "
                             " should be %s\n", kv_it_->first.c_str(), v.c_str(),
                             kv_it_->second.c_str());
-            ASSERT_TRUE(false);
+            FAIL();
           }
       }
     }

@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
 
@@ -37,6 +37,11 @@ Status PersistRocksDBOptions(const DBOptions& db_opt,
                              const std::vector<std::string>& cf_names,
                              const std::vector<ColumnFamilyOptions>& cf_opts,
                              const std::string& file_name, Env* env);
+
+extern bool AreEqualOptions(
+    const char* opt1, const char* opt2, const OptionTypeInfo& type_info,
+    const std::string& opt_name,
+    const std::unordered_map<std::string, std::string>* opt_map);
 
 class RocksDBOptionsParser {
  public:
@@ -85,11 +90,6 @@ class RocksDBOptionsParser {
   static Status VerifyTableFactory(
       const TableFactory* base_tf, const TableFactory* file_tf,
       OptionsSanityCheckLevel sanity_check_level = kSanityLevelExactMatch);
-
-  static Status VerifyBlockBasedTableFactory(
-      const BlockBasedTableFactory* base_tf,
-      const BlockBasedTableFactory* file_tf,
-      OptionsSanityCheckLevel sanity_check_level);
 
   static Status ExtraParserCheck(const RocksDBOptionsParser& input_parser);
 

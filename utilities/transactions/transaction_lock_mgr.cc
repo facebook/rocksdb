@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef ROCKSDB_LITE
 
@@ -24,10 +22,11 @@
 
 #include "rocksdb/slice.h"
 #include "rocksdb/utilities/transaction_db_mutex.h"
+#include "util/cast_util.h"
 #include "util/murmurhash.h"
 #include "util/sync_point.h"
 #include "util/thread_local.h"
-#include "utilities/transactions/transaction_db_impl.h"
+#include "utilities/transactions/pessimistic_transaction_db.h"
 
 namespace rocksdb {
 
@@ -114,8 +113,9 @@ TransactionLockMgr::TransactionLockMgr(
       max_num_locks_(max_num_locks),
       lock_maps_cache_(new ThreadLocalPtr(&UnrefLockMapsCache)),
       mutex_factory_(mutex_factory) {
-  txn_db_impl_ = dynamic_cast<TransactionDBImpl*>(txn_db);
-  assert(txn_db_impl_);
+  assert(txn_db);
+  txn_db_impl_ =
+      static_cast_with_check<PessimisticTransactionDB, TransactionDB>(txn_db);
 }
 
 TransactionLockMgr::~TransactionLockMgr() {}
@@ -227,7 +227,7 @@ bool TransactionLockMgr::IsLockExpired(TransactionID txn_id,
   return expired;
 }
 
-Status TransactionLockMgr::TryLock(TransactionImpl* txn,
+Status TransactionLockMgr::TryLock(PessimisticTransaction* txn,
                                    uint32_t column_family_id,
                                    const std::string& key, Env* env,
                                    bool exclusive) {
@@ -256,7 +256,7 @@ Status TransactionLockMgr::TryLock(TransactionImpl* txn,
 
 // Helper function for TryLock().
 Status TransactionLockMgr::AcquireWithTimeout(
-    TransactionImpl* txn, LockMap* lock_map, LockMapStripe* stripe,
+    PessimisticTransaction* txn, LockMap* lock_map, LockMapStripe* stripe,
     uint32_t column_family_id, const std::string& key, Env* env,
     int64_t timeout, const LockInfo& lock_info) {
   Status result;
@@ -357,13 +357,13 @@ Status TransactionLockMgr::AcquireWithTimeout(
 }
 
 void TransactionLockMgr::DecrementWaiters(
-    const TransactionImpl* txn, const autovector<TransactionID>& wait_ids) {
+    const PessimisticTransaction* txn, const autovector<TransactionID>& wait_ids) {
   std::lock_guard<std::mutex> lock(wait_txn_map_mutex_);
   DecrementWaitersImpl(txn, wait_ids);
 }
 
 void TransactionLockMgr::DecrementWaitersImpl(
-    const TransactionImpl* txn, const autovector<TransactionID>& wait_ids) {
+    const PessimisticTransaction* txn, const autovector<TransactionID>& wait_ids) {
   auto id = txn->GetID();
   assert(wait_txn_map_.Contains(id));
   wait_txn_map_.Delete(id);
@@ -377,7 +377,7 @@ void TransactionLockMgr::DecrementWaitersImpl(
 }
 
 bool TransactionLockMgr::IncrementWaiters(
-    const TransactionImpl* txn, const autovector<TransactionID>& wait_ids) {
+    const PessimisticTransaction* txn, const autovector<TransactionID>& wait_ids) {
   auto id = txn->GetID();
   std::vector<TransactionID> queue(txn->GetDeadlockDetectDepth());
   std::lock_guard<std::mutex> lock(wait_txn_map_mutex_);
@@ -501,7 +501,7 @@ Status TransactionLockMgr::AcquireLocked(LockMap* lock_map,
   return result;
 }
 
-void TransactionLockMgr::UnLockKey(const TransactionImpl* txn,
+void TransactionLockMgr::UnLockKey(const PessimisticTransaction* txn,
                                    const std::string& key,
                                    LockMapStripe* stripe, LockMap* lock_map,
                                    Env* env) {
@@ -537,7 +537,7 @@ void TransactionLockMgr::UnLockKey(const TransactionImpl* txn,
   }
 }
 
-void TransactionLockMgr::UnLock(TransactionImpl* txn, uint32_t column_family_id,
+void TransactionLockMgr::UnLock(PessimisticTransaction* txn, uint32_t column_family_id,
                                 const std::string& key, Env* env) {
   std::shared_ptr<LockMap> lock_map_ptr = GetLockMap(column_family_id);
   LockMap* lock_map = lock_map_ptr.get();
@@ -559,7 +559,7 @@ void TransactionLockMgr::UnLock(TransactionImpl* txn, uint32_t column_family_id,
   stripe->stripe_cv->NotifyAll();
 }
 
-void TransactionLockMgr::UnLock(const TransactionImpl* txn,
+void TransactionLockMgr::UnLock(const PessimisticTransaction* txn,
                                 const TransactionKeyMap* key_map, Env* env) {
   for (auto& key_map_iter : *key_map) {
     uint32_t column_family_id = key_map_iter.first;

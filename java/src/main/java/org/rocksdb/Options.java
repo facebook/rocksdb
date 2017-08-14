@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 package org.rocksdb;
 
@@ -379,23 +379,21 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options createStatistics() {
+  public Options setStatistics(final Statistics statistics) {
     assert(isOwningHandle());
-    createStatistics(nativeHandle_);
+    setStatistics(nativeHandle_, statistics.nativeHandle_);
     return this;
   }
 
   @Override
-  public Statistics statisticsPtr() {
+  public Statistics statistics() {
     assert(isOwningHandle());
-
-    long statsPtr = statisticsPtr(nativeHandle_);
-    if(statsPtr == 0) {
-      createStatistics();
-      statsPtr = statisticsPtr(nativeHandle_);
+    final long statisticsNativeHandle = statistics(nativeHandle_);
+    if(statisticsNativeHandle == 0) {
+      return null;
+    } else {
+      return new Statistics(statisticsNativeHandle);
     }
-
-    return new Statistics(statsPtr);
   }
 
   @Override
@@ -1566,8 +1564,8 @@ public class Options extends RocksObject
       final int maxFileOpeningThreads);
   private native int maxFileOpeningThreads(final long handle);
   private native long maxTotalWalSize(long handle);
-  private native void createStatistics(long optHandle);
-  private native long statisticsPtr(long optHandle);
+  private native void setStatistics(final long handle, final long statisticsHandle);
+  private native long statistics(final long handle);
   private native boolean useFsync(long handle);
   private native void setUseFsync(long handle, boolean useFsync);
   private native void setDbPaths(final long handle, final String[] paths,

@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -127,12 +125,14 @@ static void SetBool(void* ptr) {
   reinterpret_cast<std::atomic<bool>*>(ptr)->store(true);
 }
 
-TEST_P(EnvPosixTestWithParam, RunImmediately) {
-  std::atomic<bool> called(false);
-  env_->Schedule(&SetBool, &called);
-  Env::Default()->SleepForMicroseconds(kDelayMicros);
-  ASSERT_TRUE(called.load());
-  WaitThreadPoolsEmpty();
+TEST_F(EnvPosixTest, RunImmediately) {
+  for (int pri = Env::BOTTOM; pri < Env::TOTAL; ++pri) {
+    std::atomic<bool> called(false);
+    env_->SetBackgroundThreads(1, static_cast<Env::Priority>(pri));
+    env_->Schedule(&SetBool, &called, static_cast<Env::Priority>(pri));
+    Env::Default()->SleepForMicroseconds(kDelayMicros);
+    ASSERT_TRUE(called.load());
+  }
 }
 
 TEST_P(EnvPosixTestWithParam, UnSchedule) {

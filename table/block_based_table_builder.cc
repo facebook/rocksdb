@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -80,10 +78,10 @@ FilterBlockBuilder* CreateFilterBlockBuilder(
       // until index builder actully cuts the partition, we take the lower bound
       // as partition size.
       assert(table_opt.block_size_deviation <= 100);
-      auto partition_size =
-          static_cast<const uint32_t>(table_opt.metadata_block_size *
-                                      (100 - table_opt.block_size_deviation));
-      partition_size = std::max(partition_size, static_cast<const uint32_t>(1));
+      auto partition_size = static_cast<uint32_t>(
+          table_opt.metadata_block_size *
+          (100 - table_opt.block_size_deviation));
+      partition_size = std::max(partition_size, static_cast<uint32_t>(1));
       return new PartitionedFilterBlockBuilder(
           opt.prefix_extractor, table_opt.whole_key_filtering,
           filter_bits_builder, table_opt.index_block_restart_interval,

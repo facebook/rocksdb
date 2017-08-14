@@ -80,3 +80,6 @@ quasardb uses a heavily tuned RocksDB as its persistence layer.
 
 ## 360 Pika
 [360](http://www.360.cn/) [Pika](https://github.com/Qihoo360/pika) is a nosql compatible with redis. With the huge amount of data stored, redis may suffer for a capacity bottleneck, and pika was born for solving it. It has widely been widely used in many company
+
+## LzLabs
+LzLabs is using RocksDB as a storage engine in their multi-database distributed framework to store application configuration and user data.
