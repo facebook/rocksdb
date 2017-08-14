@@ -2811,6 +2811,46 @@ TEST_F(DBTest, FIFOCompactionTestWithCompaction) {
             options.compaction_options_fifo.max_table_files_size);
 }
 
+TEST_F(DBTest, FIFOCompactionStyleWithCompactionAndDelete) {
+  Options options;
+  options.compaction_style = kCompactionStyleFIFO;
+  options.write_buffer_size = 20 << 10;  // 20K
+  options.arena_block_size = 4096;
+  options.compaction_options_fifo.max_table_files_size = 1500 << 10;  // 1MB
+  options.compaction_options_fifo.allow_compaction = true;
+  options.level0_file_num_compaction_trigger = 3;
+  options.compression = kNoCompression;
+  options.create_if_missing = true;
+  options = CurrentOptions(options);
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  for (int i = 0; i < 3; i++) {
+    // Each file contains a different key which will be dropped later.
+    ASSERT_OK(Put("a" + ToString(i), RandomString(&rnd, 500)));
+    ASSERT_OK(Put("key" + ToString(i), ""));
+    ASSERT_OK(Put("z" + ToString(i), RandomString(&rnd, 500)));
+    Flush();
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  }
+  ASSERT_EQ(NumTableFilesAtLevel(0), 1);
+  for (int i = 0; i < 3; i++) {
+    ASSERT_EQ("", Get("key" + ToString(i)));
+  }
+  for (int i = 0; i < 3; i++) {
+    // Each file contains a different key which will be dropped later.
+    ASSERT_OK(Put("a" + ToString(i), RandomString(&rnd, 500)));
+    ASSERT_OK(Delete("key" + ToString(i)));
+    ASSERT_OK(Put("z" + ToString(i), RandomString(&rnd, 500)));
+    Flush();
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  }
+  ASSERT_EQ(NumTableFilesAtLevel(0), 2);
+  for (int i = 0; i < 3; i++) {
+    ASSERT_EQ("NOT_FOUND", Get("key" + ToString(i)));
+  }
+}
+
 // Check that FIFO-with-TTL is not supported with max_open_files != -1.
 TEST_F(DBTest, FIFOCompactionWithTTLAndMaxOpenFilesTest) {
   Options options;
