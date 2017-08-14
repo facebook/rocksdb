@@ -234,11 +234,19 @@ void LRUCacheShard::EvictFromLRU(size_t charge,
 }
 
 void* LRUCacheShard::operator new(size_t size) {
-  return rocksdb::port::cacheline_aligned_alloc(size);
+  return port::cacheline_aligned_alloc(size);
+}
+
+void* LRUCacheShard::operator new[](size_t size) {
+  return port::cacheline_aligned_alloc(size);
 }
 
 void LRUCacheShard::operator delete(void *memblock) {
-  rocksdb::port::cacheline_aligned_free(memblock);
+  port::cacheline_aligned_free(memblock);
+}
+
+void LRUCacheShard::operator delete[](void* memblock) {
+  port::cacheline_aligned_free(memblock);
 }
 
 void LRUCacheShard::SetCapacity(size_t capacity) {
