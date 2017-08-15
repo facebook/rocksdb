@@ -1,4 +1,9 @@
 # Rocksdb Change Log
+## 5.7.2 (08/15/2017)
+### Bug Fixes
+* Fix incorrect dropping of deletions issue with FIFO compaction.
+* Fix LITE build compiler error with missing abort().
+
 ## 5.7.1 (08/13/2017)
 ### Bug Fixes
 * Fix incorrect dropping of deletions during intra-L0 compaction.
