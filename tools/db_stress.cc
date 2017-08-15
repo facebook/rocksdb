@@ -176,6 +176,11 @@ DEFINE_int32(max_write_buffer_number_to_maintain,
              "after they are flushed.  If this value is set to -1, "
              "'max_write_buffer_number' will be used.");
 
+DEFINE_double(memtable_prefix_bloom_size_ratio,
+              rocksdb::Options().memtable_prefix_bloom_size_ratio,
+              "creates prefix blooms for memtables, each with size "
+              "`write_buffer_size * memtable_prefix_bloom_size_ratio`.");
+
 DEFINE_int32(open_files, rocksdb::Options().max_open_files,
              "Maximum number of files to keep open at the same time "
              "(use default if == 0)");
@@ -1129,8 +1134,6 @@ class StressTest {
              ToString(FLAGS_write_buffer_size / 4),
              ToString(FLAGS_write_buffer_size / 8),
          }},
-        {"memtable_prefix_bloom_bits", {"0", "8", "10"}},
-        {"memtable_prefix_bloom_probes", {"4", "5", "6"}},
         {"memtable_huge_page_size", {"0", ToString(2 * 1024 * 1024)}},
         {"max_successive_merges", {"0", "2", "4"}},
         {"inplace_update_num_locks", {"100", "200", "300"}},
@@ -2171,6 +2174,8 @@ class StressTest {
         FLAGS_min_write_buffer_number_to_merge;
     options_.max_write_buffer_number_to_maintain =
         FLAGS_max_write_buffer_number_to_maintain;
+    options_.memtable_prefix_bloom_size_ratio =
+        FLAGS_memtable_prefix_bloom_size_ratio;
     options_.max_background_compactions = FLAGS_max_background_compactions;
     options_.max_background_flushes = FLAGS_max_background_flushes;
     options_.compaction_style =
@@ -2428,6 +2433,11 @@ int main(int argc, char** argv) {
             "Error: please specify prefix_size for "
             "test_batches_snapshots test!\n");
     exit(1);
+  }
+  if (FLAGS_memtable_prefix_bloom_size_ratio > 0.0 && FLAGS_prefix_size <= 0) {
+    fprintf(stderr,
+            "Error: please specify positive prefix_size in order to use "
+            "memtable_prefix_bloom_size_ratio\n");
   }
   if ((FLAGS_readpercent + FLAGS_prefixpercent +
        FLAGS_writepercent + FLAGS_delpercent + FLAGS_delrangepercent +
