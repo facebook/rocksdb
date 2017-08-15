@@ -2438,6 +2438,7 @@ int main(int argc, char** argv) {
     fprintf(stderr,
             "Error: please specify positive prefix_size in order to use "
             "memtable_prefix_bloom_size_ratio\n");
+    exit(1);
   }
   if ((FLAGS_readpercent + FLAGS_prefixpercent +
        FLAGS_writepercent + FLAGS_delpercent + FLAGS_delrangepercent +
