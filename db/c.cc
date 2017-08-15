@@ -3395,12 +3395,12 @@ char* rocksdb_transaction_get_cf(rocksdb_transaction_t* txn,
 // Read a key inside a transaction
 char* rocksdb_transaction_get_for_update(rocksdb_transaction_t* txn,
                                          const rocksdb_readoptions_t* options,
-                                         const char* key, size_t klen, 
+                                         const char* key, size_t klen,
                                          size_t* vlen, unsigned char exclusive,
                                          char** errptr) {
   char* result = nullptr;
   std::string tmp;
-  Status s = 
+  Status s =
       txn->rep->GetForUpdate(options->rep, Slice(key, klen), &tmp, exclusive);
   if (s.ok()) {
     *vlen = tmp.size();
