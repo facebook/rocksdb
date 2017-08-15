@@ -3480,22 +3480,6 @@ void rocksdb_transactiondb_put(rocksdb_transactiondb_t* txn_db,
                                      Slice(val, vlen)));
 }
 
-// Merge a key inside a transaction
-void rocksdb_transaction_merge(rocksdb_transaction_t* txn, const char* key,
-                               size_t klen, const char* val, size_t vlen,
-                               char** errptr) {
-  SaveError(errptr, txn->rep->Merge(Slice(key, klen), Slice(val, vlen)));
-}
-
-// Merge a key outside a transaction
-void rocksdb_transactiondb_merge(rocksdb_transactiondb_t* txn_db,
-                                 const rocksdb_writeoptions_t* options,
-                                 const char* key, size_t klen, const char* val,
-                                 size_t vlen, char** errptr) {
-  SaveError(errptr, txn_db->rep->Merge(options->rep, Slice(key, klen),
-                                       Slice(val, vlen)));
-}
-
 void rocksdb_transactiondb_put_cf(rocksdb_transactiondb_t* txn_db,
                                   const rocksdb_writeoptions_t* options,
                                   rocksdb_column_family_handle_t* column_family,
