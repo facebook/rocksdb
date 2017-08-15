@@ -47,27 +47,6 @@ bool CassandraValueMergeOperator::FullMergeV2(
   return true;
 }
 
-// Implementation for the merge operation (merges two Cassandra values)
-bool CassandraValueMergeOperator::PartialMerge(const Slice& key,
-                                               const Slice& left_operand,
-                                               const Slice& right_operand,
-                                               std::string* new_value,
-                                               Logger* logger) const {
-  // Clear the *new_value for writing.
-  assert(new_value);
-  new_value->clear();
-
-  std::vector<RowValue> row_values;
-  row_values.push_back(RowValue::Deserialize(left_operand.data(),
-                                             left_operand.size()));
-  row_values.push_back(RowValue::Deserialize(right_operand.data(),
-                                             right_operand.size()));
-  RowValue merged = RowValue::Merge(std::move(row_values));
-  new_value->reserve(merged.Size());
-  merged.Serialize(new_value);
-  return true;
-}
-
 bool CassandraValueMergeOperator::PartialMergeMulti(
     const Slice& key,
     const std::deque<Slice>& operand_list,
