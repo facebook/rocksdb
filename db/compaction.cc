@@ -284,32 +284,32 @@ bool Compaction::KeyNotExistsBeyondOutputLevel(
   assert(input_version_ != nullptr);
   assert(level_ptrs != nullptr);
   assert(level_ptrs->size() == static_cast<size_t>(number_levels_));
-  assert(cfd_->ioptions()->compaction_style != kCompactionStyleFIFO);
-  if (cfd_->ioptions()->compaction_style == kCompactionStyleUniversal) {
-    return bottommost_level_;
-  }
-  if (cfd_->ioptions()->compaction_style == kCompactionStyleLevel &&
-      output_level_ == 0) {
-    return false;
-  }
-  // Maybe use binary search to find right entry instead of linear search?
-  const Comparator* user_cmp = cfd_->user_comparator();
-  for (int lvl = output_level_ + 1; lvl < number_levels_; lvl++) {
-    const std::vector<FileMetaData*>& files = input_vstorage_->LevelFiles(lvl);
-    for (; level_ptrs->at(lvl) < files.size(); level_ptrs->at(lvl)++) {
-      auto* f = files[level_ptrs->at(lvl)];
-      if (user_cmp->Compare(user_key, f->largest.user_key()) <= 0) {
-        // We've advanced far enough
-        if (user_cmp->Compare(user_key, f->smallest.user_key()) >= 0) {
-          // Key falls in this file's range, so definitely
-          // exists beyond output level
-          return false;
+  if (cfd_->ioptions()->compaction_style == kCompactionStyleLevel) {
+    if (output_level_ == 0) {
+      return false;
+    }
+    // Maybe use binary search to find right entry instead of linear search?
+    const Comparator* user_cmp = cfd_->user_comparator();
+    for (int lvl = output_level_ + 1; lvl < number_levels_; lvl++) {
+      const std::vector<FileMetaData*>& files =
+          input_vstorage_->LevelFiles(lvl);
+      for (; level_ptrs->at(lvl) < files.size(); level_ptrs->at(lvl)++) {
+        auto* f = files[level_ptrs->at(lvl)];
+        if (user_cmp->Compare(user_key, f->largest.user_key()) <= 0) {
+          // We've advanced far enough
+          if (user_cmp->Compare(user_key, f->smallest.user_key()) >= 0) {
+            // Key falls in this file's range, so definitely
+            // exists beyond output level
+            return false;
+          }
+          break;
         }
-        break;
       }
     }
+    return true;
+  } else {
+    return bottommost_level_;
   }
-  return true;
 }
 
 // Mark (or clear) each file that is being compacted
