@@ -1383,7 +1383,8 @@ extern ROCKSDB_LIBRARY_API rocksdb_optimistictransactiondb_t*
 rocksdb_optimistictransactiondb_open(const rocksdb_options_t* options,
                                      const char* name, char** errptr);
 
-extern ROCKSDB_LIBRARY_API rocksdb_transaction_t* rocksdb_optimistictransaction_begin(
+extern ROCKSDB_LIBRARY_API rocksdb_transaction_t*
+rocksdb_optimistictransaction_begin(
     rocksdb_optimistictransactiondb_t* otxn_db,
     const rocksdb_writeoptions_t* write_options,
     const rocksdb_optimistictransaction_options_t* otxn_options,
