@@ -207,6 +207,10 @@ DEFINE_int32(max_background_compactions,
              "The maximum number of concurrent background compactions "
              "that can occur in parallel.");
 
+DEFINE_int32(num_bottom_pri_threads, 0,
+             "The number of threads in the bottom-priority thread pool (used "
+             "by universal compaction only).");
+
 DEFINE_int32(compaction_thread_pool_adjust_interval, 0,
              "The interval (in milliseconds) to adjust compaction thread pool "
              "size. Don't change it periodically if the value is 0.");
@@ -1254,7 +1258,7 @@ class StressTest {
       threads[i] = nullptr;
     }
     auto now = FLAGS_env->NowMicros();
-    if (!FLAGS_test_batches_snapshots) {
+    if (!FLAGS_test_batches_snapshots && !shared.HasVerificationFailedYet()) {
       fprintf(stdout, "%s Verification successful\n",
               FLAGS_env->TimeToString(now/1000000).c_str());
     }
@@ -2411,7 +2415,8 @@ int main(int argc, char** argv) {
   // The number of background threads should be at least as much the
   // max number of concurrent compactions.
   FLAGS_env->SetBackgroundThreads(FLAGS_max_background_compactions);
-
+  FLAGS_env->SetBackgroundThreads(FLAGS_num_bottom_pri_threads,
+                                  rocksdb::Env::Priority::BOTTOM);
   if (FLAGS_prefixpercent > 0 && FLAGS_prefix_size <= 0) {
     fprintf(stderr,
             "Error: prefixpercent is non-zero while prefix_size is "
