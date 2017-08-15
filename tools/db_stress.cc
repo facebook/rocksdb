@@ -93,6 +93,13 @@ DEFINE_int64(max_key, 1 * KB* KB,
 
 DEFINE_int32(column_families, 10, "Number of column families");
 
+DEFINE_int64(
+    active_width, 0,
+    "Number of keys in active span of the key-range at any given time. The "
+    "span begins with its left endpoint at key 0, gradually moves rightwards, "
+    "and ends with its right endpoint at max_key. If set to 0, active_width "
+    "will be sanitized to be equal to max_key.");
+
 // TODO(noetzli) Add support for single deletes
 DEFINE_bool(test_batches_snapshots, false,
             "If set, the test uses MultiGet(), MultiPut() and MultiDelete()"
@@ -1727,7 +1734,11 @@ class StressTest {
       }
 #endif                // !ROCKSDB_LITE
 
-      long rand_key = thread->rand.Next() % max_key;
+      const double completed_ratio =
+          static_cast<double>(i) / FLAGS_ops_per_thread;
+      const int64_t base_key = static_cast<int64_t>(
+          completed_ratio * (FLAGS_max_key - FLAGS_active_width));
+      long rand_key = base_key + thread->rand.Next() % FLAGS_active_width;
       int rand_column_family = thread->rand.Next() % FLAGS_column_families;
       std::string keystr = Key(rand_key);
       Slice key = keystr;
@@ -2432,6 +2443,12 @@ int main(int argc, char** argv) {
     fprintf(stderr, "Error: nonzero delrangepercent unsupported in "
                     "test_batches_snapshots mode\n");
     exit(1);
+  }
+  if (FLAGS_active_width > FLAGS_max_key) {
+    fprintf(stderr, "Error: active_width can be at most max_key\n");
+    exit(1);
+  } else if (FLAGS_active_width == 0) {
+    FLAGS_active_width = FLAGS_max_key;
   }
 
   // Choose a location for the test database if none given with --db=<path>
