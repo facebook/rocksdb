@@ -1292,7 +1292,7 @@ extern ROCKSDB_LIBRARY_API void rocksdb_transaction_rollback(
 extern ROCKSDB_LIBRARY_API void rocksdb_transaction_destroy(
     rocksdb_transaction_t* txn);
 
-//This snapshot should be freed using rocksdb_free
+// This snapshot should be freed using rocksdb_free
 extern ROCKSDB_LIBRARY_API const rocksdb_snapshot_t*
 rocksdb_transaction_get_snapshot(rocksdb_transaction_t* txn);
 
@@ -1372,9 +1372,6 @@ extern ROCKSDB_LIBRARY_API rocksdb_iterator_t*
 rocksdb_transactiondb_create_iterator(rocksdb_transactiondb_t* txn_db,
                                       const rocksdb_readoptions_t* options);
 
-extern ROCKSDB_LIBRARY_API rocksdb_t* rocksdb_transactiondb_get_basedb(
-    const rocksdb_transactiondb_t* txn_db);
-
 extern ROCKSDB_LIBRARY_API void rocksdb_transactiondb_close(
     rocksdb_transactiondb_t* txn_db);
 
@@ -1383,11 +1380,8 @@ rocksdb_transactiondb_checkpoint_object_create(rocksdb_transactiondb_t* txn_db,
                                                char** errptr);
 
 extern ROCKSDB_LIBRARY_API rocksdb_optimistictransactiondb_t*
-rocksdb_optimistictransactiondb_open(const rocksdb_options_t* options, 
+rocksdb_optimistictransactiondb_open(const rocksdb_options_t* options,
                                      const char* name, char** errptr);
-
-extern ROCKSDB_LIBRARY_API rocksdb_t* rocksdb_optimistictransactiondb_get_basedb(
-    const rocksdb_optimistictransactiondb_t* otxn_db);
 
 extern ROCKSDB_LIBRARY_API rocksdb_transaction_t* rocksdb_optimistictransaction_begin(
     rocksdb_optimistictransactiondb_t* otxn_db,
