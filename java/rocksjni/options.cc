@@ -232,7 +232,7 @@ void Java_org_rocksdb_Options_setStatistics(
     JNIEnv* env, jobject jobj, jlong jhandle, jlong jstatistics_handle) {
   auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
   auto* pSptr =
-      reinterpret_cast<std::shared_ptr<rocksdb::StatisticsJni>*>(
+      reinterpret_cast<std::shared_ptr<rocksdb::Statistics>*>(
           jstatistics_handle);
   opt->statistics = *pSptr;
 }
@@ -4394,7 +4394,7 @@ void Java_org_rocksdb_DBOptions_setStatistics(
     JNIEnv* env, jobject jobj, jlong jhandle, jlong jstatistics_handle) {
   auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
   auto* pSptr =
-      reinterpret_cast<std::shared_ptr<rocksdb::StatisticsJni>*>(
+      reinterpret_cast<std::shared_ptr<rocksdb::Statistics>*>(
           jstatistics_handle);
   opt->statistics = *pSptr;
 }

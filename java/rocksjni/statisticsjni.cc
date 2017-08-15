@@ -7,19 +7,25 @@
 // rocksdb::Statistics
 
 #include "rocksjni/statisticsjni.h"
+#include "monitoring/histogram.h"
+#include "monitoring/histogram_windowing.h"
+
 
 namespace rocksdb {
 
-  StatisticsJni::StatisticsJni(std::shared_ptr<Statistics> stats)
-      : StatisticsImpl(stats, false), m_ignore_histograms() {
+  template <class T>
+  StatisticsJni<T>::StatisticsJni(std::shared_ptr<Statistics> stats)
+      : StatisticsImpl<T>(stats, false), m_ignore_histograms() {
   }
 
-  StatisticsJni::StatisticsJni(std::shared_ptr<Statistics> stats,
-      const std::set<uint32_t> ignore_histograms) : StatisticsImpl(stats, false),
+  template <class T>
+  StatisticsJni<T>::StatisticsJni(std::shared_ptr<Statistics> stats,
+      const std::set<uint32_t> ignore_histograms) : StatisticsImpl<T>(stats, false),
       m_ignore_histograms(ignore_histograms) {
   }
 
-  bool StatisticsJni::HistEnabledForType(uint32_t type) const {
+  template <class T>
+  bool StatisticsJni<T>::HistEnabledForType(uint32_t type) const {
     if (type >= HISTOGRAM_ENUM_MAX) {
       return false;
     }
@@ -30,4 +36,8 @@ namespace rocksdb {
 
     return true;
   }
+
+  template class StatisticsJni<HistogramImpl>;
+  template class StatisticsJni<HistogramWindowingImpl>;
+
 };

@@ -29,6 +29,27 @@ public class Statistics extends RocksObject {
     super(newStatistics(toArrayValues(ignoreHistograms), otherStatistics.nativeHandle_));
   }
 
+  public Statistics(final boolean useHistogramWindowing) {
+    super(newStatistics(useHistogramWindowing));
+  }
+
+  public Statistics(final Statistics otherStatistics,
+      final boolean useHistogramWindowing) {
+    super(newStatistics(otherStatistics.nativeHandle_, useHistogramWindowing));
+  }
+
+  public Statistics(final EnumSet<HistogramType> ignoreHistograms,
+      final boolean useHistogramWindowing) {
+    super(newStatistics(toArrayValues(ignoreHistograms), useHistogramWindowing));
+  }
+
+  public Statistics(final EnumSet<HistogramType> ignoreHistograms, final Statistics otherStatistics,
+      final boolean useHistogramWindowing) {
+    super(newStatistics(toArrayValues(ignoreHistograms), otherStatistics.nativeHandle_,
+        useHistogramWindowing));
+  }
+
+
   /**
    * Intentionally package-private.
    *
@@ -135,6 +156,14 @@ public class Statistics extends RocksObject {
   private native static long newStatistics(final long otherStatisticsHandle);
   private native static long newStatistics(final byte[] ignoreHistograms);
   private native static long newStatistics(final byte[] ignoreHistograms, final long otherStatisticsHandle);
+
+  private native static long newStatistics(final boolean useHistogramWindowing);
+  private native static long newStatistics(final long otherStatisticsHandle,
+      final boolean useHistogramWindowing);
+  private native static long newStatistics(final byte[] ignoreHistograms,
+      final boolean useHistogramWindowing);
+  private native static long newStatistics(final byte[] ignoreHistograms, final long otherStatisticsHandle,
+      final boolean useHistogramWindowing);
 
   @Override protected final native void disposeInternal(final long handle);
 

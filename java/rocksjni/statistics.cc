@@ -11,6 +11,8 @@
 #include <set>
 
 #include "include/org_rocksdb_Statistics.h"
+#include "monitoring/histogram.h"
+#include "monitoring/histogram_windowing.h"
 #include "rocksjni/portal.h"
 #include "rocksjni/statisticsjni.h"
 #include "rocksdb/statistics.h"
@@ -21,8 +23,8 @@
  * Signature: ()J
  */
 jlong Java_org_rocksdb_Statistics_newStatistics__(JNIEnv* env, jclass jcls) {
-  return Java_org_rocksdb_Statistics_newStatistics___3BJ(
-      env, jcls, nullptr, 0);
+  return Java_org_rocksdb_Statistics_newStatistics___3BJZ(
+      env, jcls, nullptr, 0, false);
 }
 
 /*
@@ -32,8 +34,8 @@ jlong Java_org_rocksdb_Statistics_newStatistics__(JNIEnv* env, jclass jcls) {
  */
 jlong Java_org_rocksdb_Statistics_newStatistics__J(
     JNIEnv* env, jclass jcls, jlong jother_statistics_handle) {
-  return Java_org_rocksdb_Statistics_newStatistics___3BJ(
-      env, jcls, nullptr, jother_statistics_handle);
+  return Java_org_rocksdb_Statistics_newStatistics___3BJZ(
+      env, jcls, nullptr, jother_statistics_handle, false);
 }
 
 /*
@@ -43,8 +45,8 @@ jlong Java_org_rocksdb_Statistics_newStatistics__J(
  */
 jlong Java_org_rocksdb_Statistics_newStatistics___3B(
     JNIEnv* env, jclass jcls, jbyteArray jhistograms) {
-  return Java_org_rocksdb_Statistics_newStatistics___3BJ(
-      env, jcls, jhistograms, 0);
+  return Java_org_rocksdb_Statistics_newStatistics___3BJZ(
+      env, jcls, jhistograms, 0, false);
 }
 
 /*
@@ -55,6 +57,54 @@ jlong Java_org_rocksdb_Statistics_newStatistics___3B(
 jlong Java_org_rocksdb_Statistics_newStatistics___3BJ(
     JNIEnv* env, jclass jcls, jbyteArray jhistograms,
     jlong jother_statistics_handle) {
+  return Java_org_rocksdb_Statistics_newStatistics___3BJZ(
+      env, jcls, jhistograms, jother_statistics_handle, false);
+}
+
+/*
+ * Class:     org_rocksdb_Statistics
+ * Method:    newStatistics
+ * Signature: (Z)J
+ */
+jlong Java_org_rocksdb_Statistics_newStatistics__Z(
+    JNIEnv* env, jclass jcls, jboolean use_histogram_windowing) {
+  return Java_org_rocksdb_Statistics_newStatistics___3BJZ(
+      env, jcls, nullptr, 0, use_histogram_windowing);
+}
+
+/*
+ * Class:     org_rocksdb_Statistics
+ * Method:    newStatistics
+ * Signature: (JZ)J
+ */
+jlong Java_org_rocksdb_Statistics_newStatistics__JZ(
+    JNIEnv* env, jclass jcls, jlong jother_statistics_handle,
+    jboolean use_histogram_windowing) {
+  return Java_org_rocksdb_Statistics_newStatistics___3BJZ(
+      env, jcls, nullptr, jother_statistics_handle, use_histogram_windowing);
+}
+
+
+/*
+ * Class:     org_rocksdb_Statistics
+ * Method:    newStatistics
+ * Signature: ([BZ)J
+ */
+jlong Java_org_rocksdb_Statistics_newStatistics___3BZ(
+    JNIEnv* env, jclass jcls, jbyteArray jhistograms,
+    jboolean use_histogram_windowing) {
+  return Java_org_rocksdb_Statistics_newStatistics___3BJZ(
+      env, jcls, jhistograms, 0, use_histogram_windowing);
+}
+
+/*
+ * Class:     org_rocksdb_Statistics
+ * Method:    newStatistics
+ * Signature: ([BJZ)J
+ */
+jlong Java_org_rocksdb_Statistics_newStatistics___3BJZ(
+    JNIEnv* env, jclass jcls, jbyteArray jhistograms,
+    jlong jother_statistics_handle, jboolean use_histogram_windowing) {
 
   std::shared_ptr<rocksdb::Statistics>* pSptr_other_statistics = nullptr;
   if (jother_statistics_handle > 0) {
@@ -88,8 +138,18 @@ jlong Java_org_rocksdb_Statistics_newStatistics___3BJ(
       sptr_other_statistics =   *pSptr_other_statistics;
   }
 
-  auto* pSptr_statistics = new std::shared_ptr<rocksdb::StatisticsJni>(
-      new rocksdb::StatisticsJni(sptr_other_statistics, histograms));
+  if (use_histogram_windowing) {
+    auto* pSptr_statistics =
+        new std::shared_ptr<rocksdb::StatisticsJni<rocksdb::HistogramWindowingImpl>>(
+            new rocksdb::StatisticsJni<rocksdb::HistogramWindowingImpl>(
+                sptr_other_statistics, histograms));
+
+    return reinterpret_cast<jlong>(pSptr_statistics);
+  }
+  auto* pSptr_statistics =
+      new std::shared_ptr<rocksdb::StatisticsJni<rocksdb::HistogramImpl>>(
+          new rocksdb::StatisticsJni<rocksdb::HistogramImpl>(
+              sptr_other_statistics, histograms));
 
   return reinterpret_cast<jlong>(pSptr_statistics);
 }

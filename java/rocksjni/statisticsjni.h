@@ -17,7 +17,8 @@
 
 namespace rocksdb {
 
-  class StatisticsJni : public StatisticsImpl {
+  template <class T>
+  class StatisticsJni : public StatisticsImpl<T> {
    public:
      StatisticsJni(std::shared_ptr<Statistics> stats);
      StatisticsJni(std::shared_ptr<Statistics> stats,
