@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <atomic>
 #include <functional>
+#include <map>
 #include <set>
 #include <thread>
 #include <unordered_map>
@@ -87,7 +88,7 @@ class VersionBuilder::Rep {
   Logger* info_log_;
   TableCache* table_cache_;
   VersionStorageInfo* base_vstorage_;
-  LevelState* levels_;
+  std::map<int, LevelState> levels_;
   FileComparator level_zero_cmp_;
   FileComparator level_nonzero_cmp_;
 
@@ -98,7 +99,6 @@ class VersionBuilder::Rep {
         info_log_(info_log),
         table_cache_(table_cache),
         base_vstorage_(base_vstorage) {
-    levels_ = new LevelState[base_vstorage_->num_levels()];
     level_zero_cmp_.sort_method = FileComparator::kLevel0;
     level_nonzero_cmp_.sort_method = FileComparator::kLevelNon0;
     level_nonzero_cmp_.internal_comparator =
@@ -112,8 +112,6 @@ class VersionBuilder::Rep {
         UnrefFile(pair.second);
       }
     }
-
-    delete[] levels_;
   }
 
   void UnrefFile(FileMetaData* f) {
@@ -231,6 +229,19 @@ class VersionBuilder::Rep {
       fprintf(stderr, "not found %" PRIu64 "\n", number);
       abort();
     }
+  }
+
+  bool CheckConsistencyForNumLevels() {
+    // Make sure there are no files on or beyond num_levels().
+    auto level_iter = levels_.lower_bound(base_vstorage_->num_levels());
+    while (level_iter != levels_.end()) {
+      if (level_iter->second.added_files.size() != 0) {
+        return false;
+      }
+      // Don't need to check deleted files.
+      level_iter = levels_.erase(level_iter);
+    }
+    return true;
   }
 
   // Apply all of the edits in *edit to the current state.
@@ -386,24 +397,35 @@ VersionBuilder::VersionBuilder(const EnvOptions& env_options,
                                VersionStorageInfo* base_vstorage,
                                Logger* info_log)
     : rep_(new Rep(env_options, info_log, table_cache, base_vstorage)) {}
+
 VersionBuilder::~VersionBuilder() { delete rep_; }
+
 void VersionBuilder::CheckConsistency(VersionStorageInfo* vstorage) {
   rep_->CheckConsistency(vstorage);
 }
+
 void VersionBuilder::CheckConsistencyForDeletes(VersionEdit* edit,
                                                 uint64_t number, int level) {
   rep_->CheckConsistencyForDeletes(edit, number, level);
 }
+
+bool VersionBuilder::CheckConsistencyForNumLevels() {
+  return rep_->CheckConsistencyForNumLevels();
+}
+
 void VersionBuilder::Apply(VersionEdit* edit) { rep_->Apply(edit); }
+
 void VersionBuilder::SaveTo(VersionStorageInfo* vstorage) {
   rep_->SaveTo(vstorage);
 }
+
 void VersionBuilder::LoadTableHandlers(
     InternalStats* internal_stats, int max_threads,
     bool prefetch_index_and_filter_in_cache) {
   rep_->LoadTableHandlers(internal_stats, max_threads,
                           prefetch_index_and_filter_in_cache);
 }
+
 void VersionBuilder::MaybeAddFile(VersionStorageInfo* vstorage, int level,
                                   FileMetaData* f) {
   rep_->MaybeAddFile(vstorage, level, f);
