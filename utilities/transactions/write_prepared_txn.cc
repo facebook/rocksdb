@@ -60,6 +60,9 @@ Status WritePreparedTxn::CommitInternal() {
   // We take the commit-time batch and append the Commit marker.
   // The Memtable will ignore the Commit marker in non-recovery mode
   WriteBatch* working_batch = GetCommitTimeWriteBatch();
+  // TODO(myabandeh): prevent the users from writing to txn after the prepare
+  // phase
+  assert(working_batch.Count() == 0);
   WriteBatchInternal::MarkCommit(working_batch, name_);
 
   // any operations appended to this working_batch will be ignored from WAL
