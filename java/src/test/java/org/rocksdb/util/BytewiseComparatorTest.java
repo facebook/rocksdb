@@ -228,7 +228,7 @@ public class BytewiseComparatorTest {
       for (int i = 0; i < num_iter_ops; i++) {
         // Random walk and make sure iter and result_iter returns the
         // same key and value
-        final int type = rnd.nextInt(6);
+        final int type = rnd.nextInt(7);
         iter.status();
         switch (type) {
           case 0:
@@ -242,14 +242,22 @@ public class BytewiseComparatorTest {
             result_iter.seekToLast();
             break;
           case 2: {
-            // Seek to random key
+            // Seek to random (existing or non-existing) key
             final int key_idx = rnd.nextInt(source_strings.size());
-            final String key = source_strings.get(key_idx);
+            final String key = source_strings.get(key_idx) + (rnd.nextBoolean() ? "" : "non-existing");
             iter.seek(bytes(key));
             result_iter.seek(bytes(key));
             break;
           }
-          case 3:
+          case 3: {
+            // SeekForPrev to random (existing or non-existing) key
+            final int key_idx = rnd.nextInt(source_strings.size());
+            final String key = source_strings.get(key_idx) + (rnd.nextBoolean() ? "" : "non-existing");
+            iter.seekForPrev(bytes(key));
+            result_iter.seekForPrev(bytes(key));
+            break;
+          }
+          case 4:
             // Next
             if (is_valid) {
               iter.next();
@@ -258,7 +266,7 @@ public class BytewiseComparatorTest {
               continue;
             }
             break;
-          case 4:
+          case 5:
             // Prev
             if (is_valid) {
               iter.prev();
@@ -268,7 +276,7 @@ public class BytewiseComparatorTest {
             }
             break;
           default: {
-            assert (type == 5);
+            assert (type == 6);
             final int key_idx = rnd.nextInt(source_strings.size());
             final String key = source_strings.get(key_idx);
             final byte[] result = db.get(new ReadOptions(), bytes(key));
@@ -408,6 +416,16 @@ public class BytewiseComparatorTest {
       for(offset = 0; offset < entries.size(); offset++) {
         if(comparator.compare(entries.get(offset).getKey(),
             (K)new String(target, StandardCharsets.UTF_8)) >= 0) {
+          return;
+        }
+      }
+    }
+
+    @Override
+    public void seekForPrev(final byte[] target) {
+      for(offset = entries.size()-1; offset >= 0; offset--) {
+        if(comparator.compare(entries.get(offset).getKey(),
+            (K)new String(target, StandardCharsets.UTF_8)) <= 0) {
           return;
         }
       }
