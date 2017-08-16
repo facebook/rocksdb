@@ -62,7 +62,7 @@ Status WritePreparedTxn::CommitInternal() {
   WriteBatch* working_batch = GetCommitTimeWriteBatch();
   // TODO(myabandeh): prevent the users from writing to txn after the prepare
   // phase
-  assert(working_batch.Count() == 0);
+  assert(working_batch->Count() == 0);
   WriteBatchInternal::MarkCommit(working_batch, name_);
 
   // any operations appended to this working_batch will be ignored from WAL

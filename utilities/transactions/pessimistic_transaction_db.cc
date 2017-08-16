@@ -603,10 +603,10 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq,
         snapshots_ = db_impl_->snapshots().GetAll();
       }
       while (prev_max < max_evicted_seq &&
-             !max_evicted_seq_.compare_exchange_weak(prev_max, max_evicted_seq,
-                                                     std::memory_order_release,
-                                                     std::memory_order_acquire))
-        ;
+             !max_evicted_seq_.compare_exchange_weak(
+                 prev_max, max_evicted_seq, std::memory_order_release,
+                 std::memory_order_acquire)) {
+      };
     }
     // After each eviction from commit cache, check if the commit entry should
     // be kept around because it overlaps with a live snapshot.

@@ -227,7 +227,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // A heap of prepared transactions. Thread-safety is provided with
   // prepared_mutex_.
   PreparedHeap prepared_txns_;
-  static const uint64_t COMMIT_CACHE_SIZE = 1 << 21;  // 10m entry, 80MB size
+  // 10m entry, 80MB size
+  static const uint64_t COMMIT_CACHE_SIZE = static_cast<uint64_t>(1 << 21);
   // commit_cache_ is initialized to zero to tell apart an empty index from a
   // filled one. Thread-safety is provided with commit_cache_mutex_.
   CommitEntry commit_cache_[COMMIT_CACHE_SIZE] = {};
