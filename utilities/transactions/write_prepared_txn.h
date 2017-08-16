@@ -25,13 +25,14 @@
 #include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "util/autovector.h"
-#include "utilities/transactions/transaction_base.h"
 #include "utilities/transactions/pessimistic_transaction.h"
+#include "utilities/transactions/pessimistic_transaction_db.h"
+#include "utilities/transactions/transaction_base.h"
 #include "utilities/transactions/transaction_util.h"
 
 namespace rocksdb {
 
-class TransactionDBImpl;
+class WritePreparedTxnDB;
 
 // This impl could write to DB also uncomitted data and then later tell apart
 // committed data from uncomitted data. Uncommitted data could be after the
@@ -39,8 +40,8 @@ class TransactionDBImpl;
 // (WriteUnpreparedTxnImpl).
 class WritePreparedTxn : public PessimisticTransaction {
  public:
-  WritePreparedTxn(TransactionDB* db, const WriteOptions& write_options,
-                       const TransactionOptions& txn_options);
+  WritePreparedTxn(WritePreparedTxnDB* db, const WriteOptions& write_options,
+                   const TransactionOptions& txn_options);
 
   virtual ~WritePreparedTxn() {}
 
@@ -65,6 +66,9 @@ class WritePreparedTxn : public PessimisticTransaction {
   // No copying allowed
   WritePreparedTxn(const WritePreparedTxn&);
   void operator=(const WritePreparedTxn&);
+
+  WritePreparedTxnDB* wpt_db_;
+  uint64_t prepare_seq_;
 };
 
 }  // namespace rocksdb

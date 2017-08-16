@@ -616,16 +616,18 @@ class DBImpl : public DB {
   Status WriteImpl(const WriteOptions& options, WriteBatch* updates,
                    WriteCallback* callback = nullptr,
                    uint64_t* log_used = nullptr, uint64_t log_ref = 0,
-                   bool disable_memtable = false);
+                   bool disable_memtable = false, uint64_t* seq_used = nullptr);
 
   Status PipelinedWriteImpl(const WriteOptions& options, WriteBatch* updates,
                             WriteCallback* callback = nullptr,
                             uint64_t* log_used = nullptr, uint64_t log_ref = 0,
-                            bool disable_memtable = false);
+                            bool disable_memtable = false,
+                            uint64_t* seq_used = nullptr);
 
   Status WriteImplWALOnly(const WriteOptions& options, WriteBatch* updates,
                           WriteCallback* callback = nullptr,
-                          uint64_t* log_used = nullptr, uint64_t log_ref = 0);
+                          uint64_t* log_used = nullptr, uint64_t log_ref = 0,
+                          uint64_t* seq_used = nullptr);
 
   uint64_t FindMinLogContainingOutstandingPrep();
   uint64_t FindMinPrepLogReferencedByMemTable();
