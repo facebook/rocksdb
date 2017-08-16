@@ -868,6 +868,32 @@ TEST_F(DBRangeDelTest, SubcompactionHasEmptyDedicatedRangeDelFile) {
   db_->ReleaseSnapshot(snapshot);
 }
 
+TEST_F(DBRangeDelTest, MemtableBloomFilter) {
+  // regression test for #2743. the range delete tombstones in memtable should
+  // be added even when Get() skips searching due to its prefix bloom filter
+  const int kMemtableSize = 1 << 20;              // 1MB
+  const int kMemtablePrefixFilterSize = 1 << 13;  // 8KB
+  const int kNumKeys = 1000;
+  const int kPrefixLen = 8;
+  Options options = CurrentOptions();
+  options.memtable_prefix_bloom_size_ratio =
+      static_cast<double>(kMemtablePrefixFilterSize) / kMemtableSize;
+  options.prefix_extractor.reset(rocksdb::NewFixedPrefixTransform(kPrefixLen));
+  options.write_buffer_size = kMemtableSize;
+  Reopen(options);
+
+  for (int i = 0; i < kNumKeys; ++i) {
+    ASSERT_OK(Put(Key(i), "val"));
+  }
+  Flush();
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(0),
+                             Key(kNumKeys)));
+  for (int i = 0; i < kNumKeys; ++i) {
+    std::string value;
+    ASSERT_TRUE(db_->Get(ReadOptions(), Key(i), &value).IsNotFound());
+  }
+}
+
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb
