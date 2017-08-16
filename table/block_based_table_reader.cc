@@ -205,6 +205,7 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
     index_block_->NewIterator(icomparator_, &biter, true);
     // Index partitions are assumed to be consecuitive. Prefetch them all.
     // Read the first block offset
+    biter.SeekToFirst();
     Slice input = biter.value();
     Status s = handle.DecodeFrom(&input);
     assert(s.ok());
@@ -261,7 +262,6 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
                                             handle, compression_dict, &block,
                                             is_index);
 
-      // Didn't get any data from block caches.
       if (s.ok() && block.value != nullptr) {
         assert(block.cache_handle != nullptr);
         if (pin) {
@@ -271,8 +271,6 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
           block_cache->Release(block.cache_handle);
         }
       }
-      assert(block.value == nullptr);
-      assert(block.cache_handle == nullptr);
     }
   }
 
