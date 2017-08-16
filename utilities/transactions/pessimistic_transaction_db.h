@@ -198,10 +198,15 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       }
     }
     void erase(uint64_t seq) {
-      if (!heap_.empty() && heap_.top() == seq) {
-        heap_.pop();
-      } else {
-        erased_heap_.push(seq);
+      if (!heap_.empty()) {
+        if (heap_.top() < seq) {
+          // Already popped, ignore it.
+        } else if (heap_.top() == seq) {
+          heap_.pop();
+        } else {  // (heap_.top() > seq)
+          // Down the heap, remember to pop it later
+          erased_heap_.push(seq);
+        }
       }
     }
   };
