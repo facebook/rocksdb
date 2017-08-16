@@ -590,7 +590,7 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq,
       {
         WriteLock wl(&prepared_mutex_);
         while (!prepared_txns_.empty() &&
-               prepared_txns_.top() > max_evicted_seq) {
+               prepared_txns_.top() <= max_evicted_seq) {
           auto to_be_popped = prepared_txns_.top();
           delayed_prepared_.insert(to_be_popped);
           prepared_txns_.pop();

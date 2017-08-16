@@ -182,26 +182,26 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // A heap with the amortized O(1) complexity for erase. It uses one extra heap
   // to keep track of erased entries that are not yet on top of the main heap.
   class PreparedHeap {
-    std::priority_queue<uint64_t> prepared_txns_;
-    std::priority_queue<uint64_t> erased_prepared_txns_;
+    std::priority_queue<uint64_t> heap_;
+    std::priority_queue<uint64_t> erased_heap_;
 
    public:
-    bool empty() { return prepared_txns_.empty(); }
-    uint64_t top() { return prepared_txns_.top(); }
-    void push(uint64_t v) { prepared_txns_.push(v); }
+    bool empty() { return heap_.empty(); }
+    uint64_t top() { return heap_.top(); }
+    void push(uint64_t v) { heap_.push(v); }
     void pop() {
-      prepared_txns_.pop();
-      while (!prepared_txns_.empty() && !erased_prepared_txns_.empty() &&
-             prepared_txns_.top() == erased_prepared_txns_.top()) {
-        prepared_txns_.pop();
-        erased_prepared_txns_.pop();
+      heap_.pop();
+      while (!heap_.empty() && !erased_heap_.empty() &&
+             heap_.top() == erased_heap_.top()) {
+        heap_.pop();
+        erased_heap_.pop();
       }
     }
     void erase(uint64_t seq) {
-      if (!prepared_txns_.empty() && prepared_txns_.top() == seq) {
-        prepared_txns_.pop();
+      if (!heap_.empty() && heap_.top() == seq) {
+        heap_.pop();
       } else {
-        erased_prepared_txns_.push(seq);
+        erased_heap_.push(seq);
       }
     }
   };
