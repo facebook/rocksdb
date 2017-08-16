@@ -635,14 +635,19 @@ else()
   message(STATUS "JNI library is disabled")
 endif()
 
-# Installation and packaging for Linux
-include(GNUInstallDirs)
-install(TARGETS ${ROCKSDB_STATIC_LIB} COMPONENT devel ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
-install(TARGETS ${ROCKSDB_SHARED_LIB} COMPONENT runtime DESTINATION ${CMAKE_INSTALL_LIBDIR})
-install(DIRECTORY include/rocksdb COMPONENT devel DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
-if(${CMAKE_INSTALL_PREFIX} STREQUAL /usr/local)
-  # Change default installation prefix on Linux to /usr
-  set(CMAKE_INSTALL_PREFIX /usr)
+# Installation and packaging
+if(WIN32)
+  option(ROCKSDB_INSTALL_ON_WINDOWS "Enable install target on Windows" OFF)
+endif()
+if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
+  include(GNUInstallDirs)
+  install(TARGETS ${ROCKSDB_STATIC_LIB} COMPONENT devel ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+  install(TARGETS ${ROCKSDB_SHARED_LIB} COMPONENT runtime DESTINATION ${CMAKE_INSTALL_LIBDIR})
+  install(DIRECTORY include/rocksdb COMPONENT devel DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+  if(${CMAKE_INSTALL_PREFIX} STREQUAL /usr/local)
+    # Change default installation prefix on Linux to /usr
+    set(CMAKE_INSTALL_PREFIX /usr)
+  endif()
 endif()
 
 option(WITH_TESTS "build with tests" ON)
