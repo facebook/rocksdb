@@ -35,9 +35,9 @@ TransactionID PessimisticTransaction::GenTxnID() {
   return txn_id_counter_.fetch_add(1);
 }
 
-PessimisticTransaction::PessimisticTransaction(TransactionDB* txn_db,
-                               const WriteOptions& write_options,
-                               const TransactionOptions& txn_options)
+PessimisticTransaction::PessimisticTransaction(
+    TransactionDB* txn_db, const WriteOptions& write_options,
+    const TransactionOptions& txn_options)
     : TransactionBaseImpl(txn_db->GetRootDB(), write_options),
       txn_db_impl_(nullptr),
       expiration_time_(0),
@@ -99,9 +99,9 @@ void PessimisticTransaction::Clear() {
   TransactionBaseImpl::Clear();
 }
 
-void PessimisticTransaction::Reinitialize(TransactionDB* txn_db,
-                                  const WriteOptions& write_options,
-                                  const TransactionOptions& txn_options) {
+void PessimisticTransaction::Reinitialize(
+    TransactionDB* txn_db, const WriteOptions& write_options,
+    const TransactionOptions& txn_options) {
   if (!name_.empty() && txn_state_ != COMMITED) {
     txn_db_impl_->UnregisterTransaction(this);
   }
@@ -120,9 +120,9 @@ bool PessimisticTransaction::IsExpired() const {
   return false;
 }
 
-WriteCommittedTxn::WriteCommittedTxn(
-    TransactionDB* txn_db, const WriteOptions& write_options,
-    const TransactionOptions& txn_options)
+WriteCommittedTxn::WriteCommittedTxn(TransactionDB* txn_db,
+                                     const WriteOptions& write_options,
+                                     const TransactionOptions& txn_options)
     : PessimisticTransaction(txn_db, write_options, txn_options){};
 
 Status WriteCommittedTxn::CommitBatch(WriteBatch* batch) {
@@ -370,7 +370,7 @@ Status PessimisticTransaction::RollbackToSavePoint() {
 // Lock all keys in this batch.
 // On success, caller should unlock keys_to_unlock
 Status PessimisticTransaction::LockBatch(WriteBatch* batch,
-                                 TransactionKeyMap* keys_to_unlock) {
+                                         TransactionKeyMap* keys_to_unlock) {
   class Handler : public WriteBatch::Handler {
    public:
     // Sorted map of column_family_id to sorted set of keys.
@@ -448,8 +448,8 @@ Status PessimisticTransaction::LockBatch(WriteBatch* batch,
 // this key will only be locked if there have been no writes to this key since
 // the snapshot time.
 Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
-                               const Slice& key, bool read_only, bool exclusive,
-                               bool untracked) {
+                                       const Slice& key, bool read_only,
+                                       bool exclusive, bool untracked) {
   uint32_t cfh_id = GetColumnFamilyID(column_family);
   std::string key_str = key.ToString();
   bool previously_locked;
@@ -535,10 +535,9 @@ Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
 
 // Return OK() if this key has not been modified more recently than the
 // transaction snapshot_.
-Status PessimisticTransaction::ValidateSnapshot(ColumnFamilyHandle* column_family,
-                                        const Slice& key,
-                                        SequenceNumber prev_seqno,
-                                        SequenceNumber* new_seqno) {
+Status PessimisticTransaction::ValidateSnapshot(
+    ColumnFamilyHandle* column_family, const Slice& key,
+    SequenceNumber prev_seqno, SequenceNumber* new_seqno) {
   assert(snapshot_);
 
   SequenceNumber seq = snapshot_->GetSequenceNumber();
@@ -566,8 +565,8 @@ bool PessimisticTransaction::TryStealingLocks() {
                                              LOCKS_STOLEN);
 }
 
-void PessimisticTransaction::UnlockGetForUpdate(ColumnFamilyHandle* column_family,
-                                        const Slice& key) {
+void PessimisticTransaction::UnlockGetForUpdate(
+    ColumnFamilyHandle* column_family, const Slice& key) {
   txn_db_impl_->UnLock(this, GetColumnFamilyID(column_family), key.ToString());
 }
 

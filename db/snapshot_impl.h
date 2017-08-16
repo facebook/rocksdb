@@ -76,7 +76,7 @@ class SnapshotList {
 
   // retrieve all snapshot numbers. They are sorted in ascending order.
   std::vector<SequenceNumber> GetAll(
-      SequenceNumber* oldest_write_conflict_snapshot = nullptr) {
+      SequenceNumber* oldest_write_conflict_snapshot = nullptr) const {
     std::vector<SequenceNumber> ret;
 
     if (oldest_write_conflict_snapshot != nullptr) {
@@ -86,7 +86,7 @@ class SnapshotList {
     if (empty()) {
       return ret;
     }
-    SnapshotImpl* s = &list_;
+    const SnapshotImpl* s = &list_;
     while (s->next_ != &list_) {
       ret.push_back(s->next_->number_);
 

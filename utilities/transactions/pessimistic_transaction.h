@@ -38,7 +38,7 @@ class PessimisticTransactionDB;
 class PessimisticTransaction : public TransactionBaseImpl {
  public:
   PessimisticTransaction(TransactionDB* db, const WriteOptions& write_options,
-                 const TransactionOptions& txn_options);
+                         const TransactionOptions& txn_options);
 
   virtual ~PessimisticTransaction();
 
@@ -182,7 +182,7 @@ class PessimisticTransaction : public TransactionBaseImpl {
 class WriteCommittedTxn : public PessimisticTransaction {
  public:
   WriteCommittedTxn(TransactionDB* db, const WriteOptions& write_options,
-                        const TransactionOptions& txn_options);
+                    const TransactionOptions& txn_options);
 
   virtual ~WriteCommittedTxn() {}
 

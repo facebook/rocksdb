@@ -16,8 +16,9 @@
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "util/cast_util.h"
-#include "utilities/transactions/transaction_db_mutex_impl.h"
+#include "util/mutexlock.h"
 #include "utilities/transactions/pessimistic_transaction.h"
+#include "utilities/transactions/transaction_db_mutex_impl.h"
 
 namespace rocksdb {
 
@@ -301,7 +302,8 @@ Status PessimisticTransactionDB::DropColumnFamily(
   return s;
 }
 
-Status PessimisticTransactionDB::TryLock(PessimisticTransaction* txn, uint32_t cfh_id,
+Status PessimisticTransactionDB::TryLock(PessimisticTransaction* txn,
+                                         uint32_t cfh_id,
                                          const std::string& key,
                                          bool exclusive) {
   return lock_mgr_.TryLock(txn, cfh_id, key, GetEnv(), exclusive);
@@ -312,8 +314,8 @@ void PessimisticTransactionDB::UnLock(PessimisticTransaction* txn,
   lock_mgr_.UnLock(txn, keys, GetEnv());
 }
 
-void PessimisticTransactionDB::UnLock(PessimisticTransaction* txn, uint32_t cfh_id,
-                                      const std::string& key) {
+void PessimisticTransactionDB::UnLock(PessimisticTransaction* txn,
+                                      uint32_t cfh_id, const std::string& key) {
   lock_mgr_.UnLock(txn, cfh_id, key, GetEnv());
 }
 
@@ -409,7 +411,8 @@ Status PessimisticTransactionDB::Write(const WriteOptions& opts,
   Transaction* txn = BeginInternalTransaction(opts);
   txn->DisableIndexing();
 
-  auto txn_impl = static_cast_with_check<PessimisticTransaction, Transaction>(txn);
+  auto txn_impl =
+      static_cast_with_check<PessimisticTransaction, Transaction>(txn);
 
   // Since commitBatch sorts the keys before locking, concurrent Write()
   // operations will not cause a deadlock.
@@ -422,8 +425,8 @@ Status PessimisticTransactionDB::Write(const WriteOptions& opts,
   return s;
 }
 
-void PessimisticTransactionDB::InsertExpirableTransaction(TransactionID tx_id,
-                                                          PessimisticTransaction* tx) {
+void PessimisticTransactionDB::InsertExpirableTransaction(
+    TransactionID tx_id, PessimisticTransaction* tx) {
   assert(tx->GetExpirationTime() > 0);
   std::lock_guard<std::mutex> lock(map_mutex_);
   expirable_transactions_map_.insert({tx_id, tx});
@@ -449,7 +452,8 @@ bool PessimisticTransactionDB::TryStealingExpiredTransactionLocks(
 void PessimisticTransactionDB::ReinitializeTransaction(
     Transaction* txn, const WriteOptions& write_options,
     const TransactionOptions& txn_options) {
-  auto txn_impl = static_cast_with_check<PessimisticTransaction, Transaction>(txn);
+  auto txn_impl =
+      static_cast_with_check<PessimisticTransaction, Transaction>(txn);
 
   txn_impl->Reinitialize(this, write_options, txn_options);
 }
@@ -497,6 +501,184 @@ void PessimisticTransactionDB::UnregisterTransaction(Transaction* txn) {
   auto it = transactions_.find(txn->GetName());
   assert(it != transactions_.end());
   transactions_.erase(it);
+}
+
+// Returns true if commit_seq <= snapshot_seq
+bool WritePreparedTxnDB::IsInSnapshot(uint64_t prep_seq,
+                                      uint64_t snapshot_seq) {
+  // Here we try to infer the return value without looking into prepare list.
+  // This would help avoiding synchronization over a shared map.
+  // TODO(myabandeh): read your own writes
+  // TODO(myabandeh): optimize this. This sequence of checks must be correct but
+  // not necessary efficient
+  if (snapshot_seq < prep_seq) {
+    // snapshot_seq < prep_seq <= commit_seq => snapshot_seq < commit_seq
+    return false;
+  }
+  if (!delayed_prepared_empty_.load(std::memory_order_acquire)) {
+    // We should not normally reach here
+    ReadLock rl(&prepared_mutex_);
+    if (delayed_prepared_.find(prep_seq) != delayed_prepared_.end()) {
+      // Then it is not committed yet
+      return false;
+    }
+  }
+  auto indexed_seq = prep_seq % COMMIT_CACHE_SIZE;
+  CommitEntry cached;
+  bool exist = GetCommitEntry(indexed_seq, &cached);
+  if (!exist) {
+    // It is not committed, so it must be still prepared
+    return false;
+  }
+  if (prep_seq == cached.prep_seq) {
+    // It is committed and also not evicted from commit cache
+    return cached.commit_seq <= snapshot_seq;
+  }
+  // At this point we dont know if it was committed or it is still prepared
+  auto max_evicted_seq = max_evicted_seq_.load(std::memory_order_acquire);
+  if (max_evicted_seq < prep_seq) {
+    // Not evicted from cache and also not present, so must be still prepared
+    return false;
+  }
+  // When advancing max_evicted_seq_, we move older entires from prepared to
+  // delayed_prepared_. Also we move evicted entries from commit cache to
+  // old_commit_map_ if it overlaps with any snapshot. Since prep_seq <=
+  // max_evicted_seq_, we have three cases: i) in delayed_prepared_, ii) in
+  // old_commit_map_, iii) committed with no conflict with any snapshot (i)
+  // delayed_prepared_ is checked above
+  if (max_evicted_seq < snapshot_seq) {  // then (ii) cannot be the case
+    // only (iii) is the case: committed
+    // commit_seq <= max_evicted_seq_ < snapshot_seq => commit_seq <
+    // snapshot_seq
+    return true;
+  }
+  // else (ii) might be the case: check the commit data saved for this snapshot.
+  // If there was no overlapping commit entry, then it is committed with a
+  // commit_seq lower than any live snapshot, including snapshot_seq.
+  if (old_commit_map_empty_.load(std::memory_order_acquire)) {
+    return true;
+  }
+  {
+    // We should not normally reach here
+    ReadLock rl(&old_commit_map_mutex_);
+    auto old_commit_entry = old_commit_map_.find(prep_seq);
+    if (old_commit_entry == old_commit_map_.end() ||
+        old_commit_entry->second <= snapshot_seq) {
+      return true;
+    }
+  }
+  // (ii) it the case: it is committed but after the snapshot_seq
+  return false;
+}
+
+void WritePreparedTxnDB::AddPrepared(uint64_t seq) { prepared_txns_.push(seq); }
+
+void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq,
+                                      uint64_t commit_seq) {
+  auto indexed_seq = prepare_seq % COMMIT_CACHE_SIZE;
+  CommitEntry evicted;
+  bool to_be_evicted = GetCommitEntry(indexed_seq, &evicted);
+  if (to_be_evicted) {
+    auto prev_max = max_evicted_seq_.load(std::memory_order_acquire);
+    if (prev_max < evicted.commit_seq) {
+      auto max_evicted_seq = evicted.commit_seq;
+      // When max_evicted_seq_ advances, move older entries from prepared_txns_
+      // to delayed_prepared_. This guarantees that if a seq is lower than max,
+      // then it is not in prepared_txns_ ans save an expensive, synchronized
+      // lookup from a shared set. delayed_prepared_ is expected to be empty in
+      // normal cases.
+      {
+        WriteLock wl(&prepared_mutex_);
+        while (!prepared_txns_.empty() &&
+               prepared_txns_.top() <= max_evicted_seq) {
+          auto to_be_popped = prepared_txns_.top();
+          delayed_prepared_.insert(to_be_popped);
+          prepared_txns_.pop();
+          delayed_prepared_empty_.store(false, std::memory_order_release);
+        }
+      }
+      {
+        WriteLock wl(&snapshots_mutex_);
+        InstrumentedMutex(db_impl_->mutex());
+        snapshots_ = db_impl_->snapshots().GetAll();
+      }
+      while (prev_max < max_evicted_seq &&
+             !max_evicted_seq_.compare_exchange_weak(
+                 prev_max, max_evicted_seq, std::memory_order_release,
+                 std::memory_order_acquire)) {
+      };
+    }
+    // After each eviction from commit cache, check if the commit entry should
+    // be kept around because it overlaps with a live snapshot.
+    {
+      ReadLock rl(&snapshots_mutex_);
+      for (auto snapshot : snapshots_) {
+        auto snapshot_seq =
+            reinterpret_cast<const SnapshotImpl*>(snapshot)->number_;
+        if (evicted.commit_seq <= snapshot_seq) {
+          break;
+        }
+        // then snapshot_seq < evicted.commit_seq
+        if (evicted.prep_seq <= snapshot_seq) {  // overlapping range
+          WriteLock wl(&old_commit_map_mutex_);
+          old_commit_map_empty_.store(false, std::memory_order_release);
+          old_commit_map_[evicted.prep_seq] = evicted.commit_seq;
+        }
+      }
+    }
+  }
+  bool succ =
+      ExchangeCommitEntry(indexed_seq, evicted, {prepare_seq, commit_seq});
+  if (!succ) {
+    // A very rare event, in which the commit entry is updated before we do.
+    // Here we apply a very simple solution of retrying.
+    // TODO(myabandeh): do precautions to detect bugs that cause infinite loops
+    AddCommitted(prepare_seq, commit_seq);
+    return;
+  }
+  {
+    WriteLock wl(&prepared_mutex_);
+    prepared_txns_.erase(prepare_seq);
+    bool was_empty = delayed_prepared_.empty();
+    if (!was_empty) {
+      delayed_prepared_.erase(prepare_seq);
+      bool is_empty = delayed_prepared_.empty();
+      if (was_empty != is_empty) {
+        delayed_prepared_empty_.store(is_empty, std::memory_order_release);
+      }
+    }
+  }
+}
+
+bool WritePreparedTxnDB::GetCommitEntry(uint64_t indexed_seq,
+                                        CommitEntry* entry) {
+  // TODO(myabandeh): implement lock-free commit_cache_
+  ReadLock rl(&commit_cache_mutex_);
+  *entry = commit_cache_[indexed_seq];
+  return (entry->commit_seq != 0);  // initialized
+}
+
+bool WritePreparedTxnDB::AddCommitEntry(uint64_t indexed_seq,
+                                        CommitEntry& new_entry,
+                                        CommitEntry* evicted_entry) {
+  // TODO(myabandeh): implement lock-free commit_cache_
+  WriteLock wl(&commit_cache_mutex_);
+  *evicted_entry = commit_cache_[indexed_seq];
+  commit_cache_[indexed_seq] = new_entry;
+  return (evicted_entry->commit_seq != 0);  // initialized
+}
+
+bool WritePreparedTxnDB::ExchangeCommitEntry(uint64_t indexed_seq,
+                                             CommitEntry& expected_entry,
+                                             CommitEntry new_entry) {
+  // TODO(myabandeh): implement lock-free commit_cache_
+  WriteLock wl(&commit_cache_mutex_);
+  auto& evicted_entry = commit_cache_[indexed_seq];
+  if (evicted_entry.prep_seq != expected_entry.prep_seq) {
+    return false;
+  }
+  commit_cache_[indexed_seq] = new_entry;
+  return true;
 }
 
 }  //  namespace rocksdb

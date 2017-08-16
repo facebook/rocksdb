@@ -44,12 +44,9 @@ void OptimisticTransaction::Reinitialize(
   Initialize(txn_options);
 }
 
-OptimisticTransaction::~OptimisticTransaction() {
-}
+OptimisticTransaction::~OptimisticTransaction() {}
 
-void OptimisticTransaction::Clear() {
-  TransactionBaseImpl::Clear();
-}
+void OptimisticTransaction::Clear() { TransactionBaseImpl::Clear(); }
 
 Status OptimisticTransaction::Prepare() {
   return Status::InvalidArgument(
@@ -82,8 +79,8 @@ Status OptimisticTransaction::Rollback() {
 //
 // 'exclusive' is unused for OptimisticTransaction.
 Status OptimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
-                                          const Slice& key, bool read_only,
-                                          bool exclusive, bool untracked) {
+                                      const Slice& key, bool read_only,
+                                      bool exclusive, bool untracked) {
   if (untracked) {
     return Status::OK();
   }
