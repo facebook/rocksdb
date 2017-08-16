@@ -30,7 +30,7 @@ public class SstFileWriterTest {
 
   @Rule public TemporaryFolder parentFolder = new TemporaryFolder();
 
-  enum OpType { PUT, MERGE, DELETE }
+  enum OpType { PUT, MERGE, MERGE_BYTES, DELETE }
 
   class KeyValueWithOp {
     KeyValueWithOp(String key, String value, OpType opType) {
@@ -85,6 +85,10 @@ public class SstFileWriterTest {
             break;
           case MERGE:
             sstFileWriter.merge(keySlice, valueSlice);
+            break;
+          case MERGE_BYTES:
+            sstFileWriter.merge(keyValue.getKey().getBytes(), 
+                                keyValue.getValue().getBytes());
             break;
           case DELETE:
             sstFileWriter.delete(keySlice);
@@ -143,7 +147,9 @@ public class SstFileWriterTest {
     keyValues.add(new KeyValueWithOp("key1", "value1", OpType.PUT));
     keyValues.add(new KeyValueWithOp("key2", "value2", OpType.PUT));
     keyValues.add(new KeyValueWithOp("key3", "value3", OpType.MERGE));
-    keyValues.add(new KeyValueWithOp("key4", "", OpType.DELETE));
+    keyValues.add(new KeyValueWithOp("key4", "value4", OpType.MERGE_BYTES));
+    keyValues.add(new KeyValueWithOp("key5", "", OpType.DELETE));
+
 
     final File sstFile = newSstFile(keyValues, false);
     final File dbFolder = parentFolder.newFolder(DB_DIRECTORY_NAME);
@@ -161,7 +167,8 @@ public class SstFileWriterTest {
       assertThat(db.get("key1".getBytes())).isEqualTo("value1".getBytes());
       assertThat(db.get("key2".getBytes())).isEqualTo("value2".getBytes());
       assertThat(db.get("key3".getBytes())).isEqualTo("value3".getBytes());
-      assertThat(db.get("key4".getBytes())).isEqualTo(null);
+      assertThat(db.get("key4".getBytes())).isEqualTo("value4".getBytes());
+      assertThat(db.get("key5".getBytes())).isEqualTo(null);
     }
   }
 

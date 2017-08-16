@@ -95,14 +95,51 @@ void Java_org_rocksdb_SstFileWriter_put(JNIEnv *env, jobject jobj,
  * Method:    merge
  * Signature: (JJJ)V
  */
-void Java_org_rocksdb_SstFileWriter_merge(JNIEnv *env, jobject jobj,
-                                          jlong jhandle, jlong jkey_handle,
-                                          jlong jvalue_handle) {
+void Java_org_rocksdb_SstFileWriter_merge__JJJ(JNIEnv *env, jobject jobj,
+                                               jlong jhandle, jlong jkey_handle,
+                                               jlong jvalue_handle) {
   auto *key_slice = reinterpret_cast<rocksdb::Slice *>(jkey_handle);
   auto *value_slice = reinterpret_cast<rocksdb::Slice *>(jvalue_handle);
   rocksdb::Status s =
     reinterpret_cast<rocksdb::SstFileWriter *>(jhandle)->Merge(*key_slice,
                                                                *value_slice);
+  if (!s.ok()) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  }
+}
+
+/*
+ * Class:     org_rocksdb_SstFileWriter
+ * Method:    merge
+ * Signature: (J[B[B)V
+ */
+void Java_org_rocksdb_SstFileWriter_merge__J_3B_3B(JNIEnv *env, jobject jobj,
+                                                   jlong jhandle, jbyteArray jkey,
+                                                   jbyteArray jval) {
+
+  jbyte* key = env->GetByteArrayElements(jkey, nullptr);
+  if(key == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return;
+  }
+  rocksdb::Slice keySlice(
+      reinterpret_cast<char*>(key),  env->GetArrayLength(jkey));
+
+  jbyte* value = env->GetByteArrayElements(jval, nullptr);
+  if(value == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return;
+  }
+  rocksdb::Slice valueSlice(
+      reinterpret_cast<char*>(value),  env->GetArrayLength(jval));
+
+  rocksdb::Status s =
+    reinterpret_cast<rocksdb::SstFileWriter *>(jhandle)->Merge(keySlice,
+                                                               valueSlice);
+
+  env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
+  env->ReleaseByteArrayElements(jval, value, JNI_ABORT);
+
   if (!s.ok()) {
     rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
   }

@@ -142,6 +142,21 @@ public class SstFileWriter extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
+  public void merge(final byte[] key, final byte[] value)
+      throws RocksDBException {
+    merge(nativeHandle_, key, value);
+  }
+
+  /**
+   * Add a Merge key with value to currently opened file.
+   *
+   * @param key the specified key to be merged.
+   * @param value the value to be merged with the current value for
+   * the specified key.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
   public void merge(final DirectSlice key, final DirectSlice value)
       throws RocksDBException {
     merge(nativeHandle_, key.getNativeHandle(), value.getNativeHandle());
@@ -196,6 +211,9 @@ public class SstFileWriter extends RocksObject {
 
   private native void merge(final long handle, final long keyHandle,
       final long valueHandle) throws RocksDBException;
+
+  private native void merge(final long handle, final byte[] key,
+      final byte[] value) throws RocksDBException;
 
   private native void delete(final long handle, final long keyHandle)
       throws RocksDBException;
