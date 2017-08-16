@@ -223,4 +223,7 @@ uint64_t StatisticsImpl<T>::getHistogramSum(uint32_t type) const {
   return getHistogramImplLocked(type)->sum();
 }
 
+template class StatisticsImpl<HistogramImpl>;
+template class StatisticsImpl<HistogramWindowingImpl>;
+
 } // namespace rocksdb
