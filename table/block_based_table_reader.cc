@@ -198,15 +198,52 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
   }
 
   virtual void CacheDependencies(bool pin) {
-    BlockIter biter;
-    index_block_->NewIterator(icomparator_, &biter, true);
-    auto ro = ReadOptions();
+    // Before read partitions, prefetch them to avoid lots of IOs
     auto rep = table_->rep_;
+    BlockIter biter;
+    BlockHandle handle;
+    index_block_->NewIterator(icomparator_, &biter, true);
+    // Index partitions are assumed to be consecuitive. Prefetch them all.
+    // Read the first block offset
+    Slice input = biter.value();
+    Status s = handle.DecodeFrom(&input);
+    assert(s.ok());
+    if (!s.ok()) {
+      ROCKS_LOG_WARN(rep->ioptions.info_log,
+                     "Could not read first index partition");
+      return;
+    }
+    uint64_t prefetch_off = handle.offset();
+
+    // Read the last block's offset
+    biter.SeekToLast();
+    input = biter.value();
+    s = handle.DecodeFrom(&input);
+    assert(s.ok());
+    if (!s.ok()) {
+      ROCKS_LOG_WARN(rep->ioptions.info_log,
+                     "Could not read last index partition");
+      return;
+    }
+    uint64_t last_off = handle.offset() + handle.size();
+    uint64_t prefetch_len = last_off - prefetch_off;
+    // TODO(siying) should not have this special logic in the future.
+    std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
+    auto& file = table_->rep_->file;
+    if (!file->use_direct_io()) {
+      s = file->Prefetch(prefetch_off, prefetch_len);
+    } else {
+      prefetch_buffer.reset(new FilePrefetchBuffer());
+      s = prefetch_buffer->Prefetch(file.get(), prefetch_off, prefetch_len);
+    }
+
+    // After prefetch, read the partitions one by one
+    biter.SeekToFirst();
+    auto ro = ReadOptions();
     Cache* block_cache = rep->table_options.block_cache.get();
     for (; biter.Valid(); biter.Next()) {
-      BlockHandle handle;
-      Slice input = biter.value();
-      Status s = handle.DecodeFrom(&input);
+      input = biter.value();
+      s = handle.DecodeFrom(&input);
       assert(s.ok());
       if (!s.ok()) {
         ROCKS_LOG_WARN(rep->ioptions.info_log,
@@ -220,8 +257,9 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
         compression_dict = rep->compression_dict_block->data;
       }
       const bool is_index = true;
-      s = table_->MaybeLoadDataBlockToCache(rep, ro, handle, compression_dict,
-                                            &block, is_index);
+      s = table_->MaybeLoadDataBlockToCache(prefetch_buffer.get(), rep, ro,
+                                            handle, compression_dict, &block,
+                                            is_index);
 
       // Didn't get any data from block caches.
       if (s.ok() && block.value != nullptr) {
@@ -741,9 +779,9 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
     if (found_range_del_block && !rep->range_del_handle.IsNull()) {
       ReadOptions read_options;
       // TODO: try to use prefetched buffer too.
-      s = MaybeLoadDataBlockToCache(rep, read_options, rep->range_del_handle,
-                                    Slice() /* compression_dict */,
-                                    &rep->range_del_entry);
+      s = MaybeLoadDataBlockToCache(
+          nullptr /*prefetch_buffer*/, rep, read_options, rep->range_del_handle,
+          Slice() /* compression_dict */, &rep->range_del_entry);
       if (!s.ok()) {
         ROCKS_LOG_WARN(
             rep->ioptions.info_log,
@@ -1337,8 +1375,8 @@ InternalIterator* BlockBasedTable::NewDataBlockIterator(
     if (rep->compression_dict_block) {
       compression_dict = rep->compression_dict_block->data;
     }
-    s = MaybeLoadDataBlockToCache(rep, ro, handle, compression_dict, &block,
-                                  is_index);
+    s = MaybeLoadDataBlockToCache(nullptr /*prefetch_buffer*/, rep, ro, handle,
+                                  compression_dict, &block, is_index);
   }
 
   // Didn't get any data from block caches.
@@ -1387,8 +1425,9 @@ InternalIterator* BlockBasedTable::NewDataBlockIterator(
 }
 
 Status BlockBasedTable::MaybeLoadDataBlockToCache(
-    Rep* rep, const ReadOptions& ro, const BlockHandle& handle,
-    Slice compression_dict, CachableEntry<Block>* block_entry, bool is_index) {
+    FilePrefetchBuffer* prefetch_buffer, Rep* rep, const ReadOptions& ro,
+    const BlockHandle& handle, Slice compression_dict,
+    CachableEntry<Block>* block_entry, bool is_index) {
   const bool no_io = (ro.read_tier == kBlockCacheTier);
   Cache* block_cache = rep->table_options.block_cache.get();
   Cache* block_cache_compressed =
@@ -1424,12 +1463,11 @@ Status BlockBasedTable::MaybeLoadDataBlockToCache(
       std::unique_ptr<Block> raw_block;
       {
         StopWatch sw(rep->ioptions.env, statistics, READ_BLOCK_GET_MICROS);
-        s = ReadBlockFromFile(rep->file.get(), nullptr /* prefetch_buffer*/,
-                              rep->footer, ro, handle, &raw_block,
-                              rep->ioptions, block_cache_compressed == nullptr,
-                              compression_dict, rep->persistent_cache_options,
-                              rep->global_seqno,
-                              rep->table_options.read_amp_bytes_per_bit);
+        s = ReadBlockFromFile(
+            rep->file.get(), prefetch_buffer, rep->footer, ro, handle,
+            &raw_block, rep->ioptions, block_cache_compressed == nullptr,
+            compression_dict, rep->persistent_cache_options, rep->global_seqno,
+            rep->table_options.read_amp_bytes_per_bit);
       }
 
       if (s.ok()) {
