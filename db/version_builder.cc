@@ -233,14 +233,15 @@ class VersionBuilder::Rep {
 
   bool CheckConsistencyForNumLevels() {
     // Make sure there are no files on or beyond num_levels().
-    auto level_iter = levels_.lower_bound(base_vstorage_->num_levels());
+    int max_levels = base_vstorage_->num_levels();
+    auto level_iter = levels_.lower_bound(max_levels);
     while (level_iter != levels_.end()) {
       if (level_iter->second.added_files.size() != 0) {
         return false;
       }
-      // Don't need to check deleted files.
-      level_iter = levels_.erase(level_iter);
+      level_iter++;
     }
+    levels_.erase(levels_.lower_bound(max_levels), levels_.end());
     return true;
   }
 
