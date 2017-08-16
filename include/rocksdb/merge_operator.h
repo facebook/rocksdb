@@ -186,10 +186,10 @@ class MergeOperator {
 
   // Determines whether the MergeOperator can be called with just a single
   // merge operand.
-  // Override and return true for allowing single operands. FullMergeV2 and
-  // PartialMerge/PartialMergeMulti should be implmented accordingly to handle
+  // Override and return true for allowing a single operand. FullMergeV2 and
+  // PartialMerge/PartialMergeMulti should be implemented accordingly to handle
   // a single operand.
-  virtual bool DoesAllowSingleMergeOperand() const { return false; }
+  virtual bool AllowSingleOperand() const { return false; }
 };
 
 // The simpler, associative merge operator.

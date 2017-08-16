@@ -491,6 +491,10 @@ TEST_F(CompactionIteratorTest, SingleMergeOperand) {
    public:
     bool FullMergeV2(const MergeOperationInput& merge_in,
                      MergeOperationOutput* merge_out) const override {
+      // See InitIterators() call below for why "c" is the only key for which
+      // FullMergeV2 should be called.
+      EXPECT_EQ("c", merge_in.key.ToString());
+
       std::string temp_value;
       if (merge_in.existing_value != nullptr) {
         temp_value = merge_in.existing_value->ToString();
@@ -508,6 +512,15 @@ TEST_F(CompactionIteratorTest, SingleMergeOperand) {
                            const std::deque<Slice>& operand_list,
                            std::string* new_value,
                            Logger* logger) const override {
+      std::string string_key = key.ToString();
+      EXPECT_TRUE(string_key == "a" || string_key == "b");
+
+      if (string_key == "a") {
+        EXPECT_EQ(1, operand_list.size());
+      } else if (string_key == "b") {
+        EXPECT_EQ(2, operand_list.size());
+      }
+
       std::string temp_value;
       for (auto& operand : operand_list) {
         temp_value.append(operand.ToString());
@@ -521,15 +534,15 @@ TEST_F(CompactionIteratorTest, SingleMergeOperand) {
       return "CompactionIteratorTest SingleMergeOp";
     }
 
-    bool DoesAllowSingleMergeOperand() const override { return true; }
+    bool AllowSingleOperand() const override { return true; }
   };
 
   SingleMergeOp merge_op;
   Filter filter;
   InitIterators(
-      // a should invoke PartialMerge with a single merge operand
+      // a should invoke PartialMergeMulti with a single merge operand.
       {test::KeyStr("a", 50, kTypeMerge),
-       // b should invoke PartialMergeMulti with two operands
+       // b should invoke PartialMergeMulti with two operands.
        test::KeyStr("b", 70, kTypeMerge), test::KeyStr("b", 60, kTypeMerge),
        // c should invoke FullMerge due to kTypeValue at the beginning.
        test::KeyStr("c", 90, kTypeMerge), test::KeyStr("c", 80, kTypeValue)},
