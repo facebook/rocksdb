@@ -463,7 +463,7 @@ TEST_P(TransactionTest, DeadlockCycleShared) {
         txns[i]->GetForUpdate(read_options, "0", nullptr, true /* exclusive */);
     ASSERT_TRUE(s.IsDeadlock());
 
-    // Calculate next buffer len, plateu at 5 when 5 records are inserted.
+    // Calculate next buffer len, plateau at 5 when 5 records are inserted.
     const uint32_t curr_dlock_buffer_len_ =
         (i - 14 > kInitialMaxDeadlocks) ? kInitialMaxDeadlocks : (i - 14);
 
@@ -666,7 +666,7 @@ TEST_P(TransactionTest, DeadlockCycle) {
     uint32_t check_len = len;
     bool check_limit_flag = false;
 
-    // Special caes for a deadlock path that exceeds the maximum depth.
+    // Special case for a deadlock path that exceeds the maximum depth.
     if (len > 50) {
       check_len = 0;
       check_limit_flag = true;
