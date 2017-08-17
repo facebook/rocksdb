@@ -26,6 +26,8 @@ public:
                                  Logger* logger) const override;
 
   virtual const char* Name() const override;
+
+  virtual bool AllowSingleOperand() const override { return true; }
 };
 } // namespace cassandra
 } // namespace rocksdb
