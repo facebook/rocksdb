@@ -385,8 +385,8 @@ class WBWIIteratorImpl : public WBWIIterator {
 };
 
 struct WriteBatchWithIndex::Rep {
-  Rep(const Comparator* index_comparator, size_t reserved_bytes = 0,
-      size_t max_bytes = 0, bool _overwrite_key = false)
+  explicit Rep(const Comparator* index_comparator, size_t reserved_bytes = 0,
+               size_t max_bytes = 0, bool _overwrite_key = false)
       : write_batch(reserved_bytes, max_bytes),
         comparator(index_comparator, &write_batch),
         skip_list(comparator, &arena),
