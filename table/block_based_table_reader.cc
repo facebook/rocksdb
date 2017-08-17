@@ -197,7 +197,7 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
     // in its destructor.
   }
 
-  virtual void CacheDependencies(bool pin) {
+  virtual void CacheDependencies(bool pin) override {
     // Before read partitions, prefetch them to avoid lots of IOs
     auto rep = table_->rep_;
     BlockIter biter;
@@ -226,17 +226,12 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
                      "Could not read last index partition");
       return;
     }
-    uint64_t last_off = handle.offset() + handle.size();
+    uint64_t last_off = handle.offset() + handle.size() + kBlockTrailerSize;
     uint64_t prefetch_len = last_off - prefetch_off;
-    // TODO(siying) should not have this special logic in the future.
     std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
     auto& file = table_->rep_->file;
-    if (!file->use_direct_io()) {
-      s = file->Prefetch(prefetch_off, prefetch_len);
-    } else {
-      prefetch_buffer.reset(new FilePrefetchBuffer());
-      s = prefetch_buffer->Prefetch(file.get(), prefetch_off, prefetch_len);
-    }
+    prefetch_buffer.reset(new FilePrefetchBuffer());
+    s = prefetch_buffer->Prefetch(file.get(), prefetch_off, prefetch_len);
 
     // After prefetch, read the partitions one by one
     biter.SeekToFirst();
@@ -776,9 +771,8 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
   } else {
     if (found_range_del_block && !rep->range_del_handle.IsNull()) {
       ReadOptions read_options;
-      // TODO: try to use prefetched buffer too.
       s = MaybeLoadDataBlockToCache(
-          nullptr /*prefetch_buffer*/, rep, read_options, rep->range_del_handle,
+          prefetch_buffer.get(), rep, read_options, rep->range_del_handle,
           Slice() /* compression_dict */, &rep->range_del_entry);
       if (!s.ok()) {
         ROCKS_LOG_WARN(
@@ -820,7 +814,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
           new_table->NewIndexIterator(ReadOptions(), nullptr, &index_entry));
       index_entry.value->CacheDependencies(pin);
       if (pin) {
-        rep->index_entry = index_entry;
+        rep->index_entry = std::move(index_entry);
       } else {
         index_entry.Release(table_options.block_cache.get());
       }

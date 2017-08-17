@@ -181,7 +181,7 @@ class BlockBasedTable : public TableReader {
     // that was allocated in block cache.
     virtual size_t ApproximateMemoryUsage() const = 0;
 
-    virtual void CacheDependencies(bool pin){};
+    virtual void CacheDependencies(bool /* unused */){};
 
    protected:
     const InternalKeyComparator* icomparator_;
