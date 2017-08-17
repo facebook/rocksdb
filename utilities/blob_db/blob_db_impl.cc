@@ -1620,7 +1620,7 @@ std::pair<bool, int64_t> BlobDBImpl::WaStats(bool aborted) {
 
   WriteLock wl(&mutex_);
 
-  if (all_periods_write_.size() < kWriteAmplificationStatsPeriods) {
+  if (all_periods_write_.size() >= kWriteAmplificationStatsPeriods) {
     total_periods_write_ -= (*all_periods_write_.begin());
     total_periods_ampl_ = (*all_periods_ampl_.begin());
 
