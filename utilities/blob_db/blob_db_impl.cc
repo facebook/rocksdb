@@ -1615,12 +1615,13 @@ std::pair<bool, int64_t> BlobDBImpl::ReclaimOpenFiles(bool aborted) {
   return std::make_pair(true, -1);
 }
 
+// TODO(yiwu): correct the stats and expose it.
 std::pair<bool, int64_t> BlobDBImpl::WaStats(bool aborted) {
   if (aborted) return std::make_pair(false, -1);
 
   WriteLock wl(&mutex_);
 
-  if (all_periods_write_.size() < kWriteAmplificationStatsPeriods) {
+  if (all_periods_write_.size() >= kWriteAmplificationStatsPeriods) {
     total_periods_write_ -= (*all_periods_write_.begin());
     total_periods_ampl_ = (*all_periods_ampl_.begin());
 
