@@ -18,6 +18,33 @@
 
 namespace rocksdb {
 
+MergeHelper::MergeHelper(Env* env, const Comparator* user_comparator,
+                         const MergeOperator* user_merge_operator,
+                         const CompactionFilter* compaction_filter,
+                         Logger* logger, bool assert_valid_internal_key,
+                         SequenceNumber latest_snapshot, int level,
+                         Statistics* stats,
+                         const std::atomic<bool>* shutting_down)
+    : env_(env),
+      user_comparator_(user_comparator),
+      user_merge_operator_(user_merge_operator),
+      compaction_filter_(compaction_filter),
+      shutting_down_(shutting_down),
+      logger_(logger),
+      assert_valid_internal_key_(assert_valid_internal_key),
+      allow_single_operand_(false),
+      latest_snapshot_(latest_snapshot),
+      level_(level),
+      keys_(),
+      filter_timer_(env_),
+      total_filter_time_(0U),
+      stats_(stats) {
+  assert(user_comparator_ != nullptr);
+  if (user_merge_operator_) {
+    allow_single_operand_ = user_merge_operator_->AllowSingleOperand();
+  }
+}
+
 Status MergeHelper::TimedFullMerge(const MergeOperator* merge_operator,
                                    const Slice& key, const Slice* value,
                                    const std::vector<Slice>& operands,
@@ -288,7 +315,8 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
     // Attempt to use the user's associative merge function to
     // merge the stacked merge operands into a single operand.
     s = Status::MergeInProgress();
-    if (merge_context_.GetNumOperands() >= 2) {
+    if (merge_context_.GetNumOperands() >= 2 ||
+        (allow_single_operand_ && merge_context_.GetNumOperands() == 1)) {
       bool merge_success = false;
       std::string merge_result;
       {
