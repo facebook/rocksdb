@@ -575,6 +575,7 @@ TEST_P(TransactionTest, DeadlockCycleShared) {
 
   // Wait until all threads are waiting on each other.
   while (checkpoints_shared.load() != 1) {
+    /* sleep override */
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
