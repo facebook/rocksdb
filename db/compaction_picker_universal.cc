@@ -373,6 +373,7 @@ Compaction* UniversalCompactionPicker::PickCompaction(
               c->inputs(0)->size());
 
   RegisterCompaction(c);
+  vstorage->ComputeCompactionScore(ioptions_, mutable_cf_options);
 
   TEST_SYNC_POINT_CALLBACK("UniversalCompactionPicker::PickCompaction:Return",
                            c);
