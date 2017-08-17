@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 5.4.11 (08/17/2017)
+### Bug Fixes
+* Fix a bug in PosixWritableFile::Close()
+
 ## 5.4.10 (08/12/2017)
 ### Bug Fixes
 * Fix incorrect dropping of deletions during intra-L0 compaction.
