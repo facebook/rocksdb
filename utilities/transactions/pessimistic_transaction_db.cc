@@ -332,7 +332,7 @@ Transaction* PessimisticTransactionDB::BeginInternalTransaction(
 
 // All user Put, Merge, Delete, and Write requests must be intercepted to make
 // sure that they lock all keys that they are writing to avoid causing conflicts
-// with any concurent transactions. The easiest way to do this is to wrap all
+// with any concurrent transactions. The easiest way to do this is to wrap all
 // write operations in a transaction.
 //
 // Put(), Merge(), and Delete() only lock a single key per call.  Write() will

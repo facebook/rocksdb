@@ -617,7 +617,7 @@ TEST_F(BlobDBTest, GCAfterOverwriteKeys) {
   VerifyDB(data);
 }
 
-TEST_F(BlobDBTest, GCRelocateKeyWhileOverwritting) {
+TEST_F(BlobDBTest, GCRelocateKeyWhileOverwriting) {
   Random rnd(301);
   BlobDBOptions bdb_options;
   bdb_options.disable_background_tasks = true;
@@ -650,7 +650,7 @@ TEST_F(BlobDBTest, GCRelocateKeyWhileOverwritting) {
   VerifyDB({{"foo", "v2"}});
 }
 
-TEST_F(BlobDBTest, GCExpiredKeyWhileOverwritting) {
+TEST_F(BlobDBTest, GCExpiredKeyWhileOverwriting) {
   Random rnd(301);
   Options options;
   options.env = mock_env_.get();
