@@ -619,11 +619,12 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSizeAmp(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     VersionStorageInfo* vstorage, double score,
     const std::vector<SortedRun>& sorted_runs, LogBuffer* log_buffer) {
+  assert(!sorted_runs.empty());
   // percentage flexibility while reducing size amplification
   uint64_t ratio =
       ioptions_.compaction_options_universal.max_size_amplification_percent;
   uint64_t candidate_size = 0;
-  uint64_t estimated_total_size = 0;
+  uint64_t estimated_total_size = sorted_runs.back().size;
   size_t start_index = sorted_runs.size() - 1;
   // Get longest span of available sorted runs ending at last
   while (start_index > 0) {
