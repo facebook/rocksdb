@@ -46,13 +46,10 @@ TEST_F(DBBasicTest, ReadOnlyDB) {
   ASSERT_EQ("v3", Get("foo"));
   ASSERT_EQ("v2", Get("bar"));
   Iterator* iter = db_->NewIterator(ReadOptions());
-  int bytes = 0;
   int count = 0;
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     ASSERT_OK(iter->status());
     ++count;
-    bytes += iter->key().size();
-    bytes += iter->value().size();
   }
   ASSERT_EQ(count, 2);
   delete iter;
