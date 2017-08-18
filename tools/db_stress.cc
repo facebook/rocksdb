@@ -328,7 +328,7 @@ extern std::vector<std::string> rocksdb_kill_prefix_blacklist;
 
 DEFINE_bool(disable_wal, false, "If true, do not write WAL for write.");
 
-DEFINE_int32(target_file_size_base, rocksdb::Options().target_file_size_base,
+DEFINE_int64(target_file_size_base, rocksdb::Options().target_file_size_base,
              "Target level-1 file size for compaction");
 
 DEFINE_int32(target_file_size_multiplier, 1,
