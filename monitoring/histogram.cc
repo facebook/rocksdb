@@ -31,6 +31,14 @@ HistogramBucketMapper::HistogramBucketMapper() {
   double bucket_val = static_cast<double>(bucketValues_.back());
   while ((bucket_val = 1.5 * bucket_val) <= static_cast<double>(port::kMaxUint64)) {
     bucketValues_.push_back(static_cast<uint64_t>(bucket_val));
+    // Extracts two most significant digits to make histogram buckets more
+    // human-readable. E.g., 172 becomes 170.
+    uint64_t pow_of_ten = 1;
+    while (bucketValues_.back() / 10 > 10) {
+      bucketValues_.back() /= 10;
+      pow_of_ten *= 10;
+    }
+    bucketValues_.back() *= pow_of_ten;
     valueIndexMap_[bucketValues_.back()] = bucketValues_.size() - 1;
   }
   maxBucketValue_ = bucketValues_.back();
