@@ -291,7 +291,8 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
   }
   BlockBasedTable* table_;
   std::unique_ptr<Block> index_block_;
-  std::map<uint64_t, BlockBasedTable::CachableEntry<Block>> partition_map_;
+  std::unordered_map<uint64_t, BlockBasedTable::CachableEntry<Block>>
+      partition_map_;
 };
 
 // Index that allows binary search lookup for the first key of each block.
@@ -823,15 +824,15 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
       if (s.ok()) {
         // Hack: Call GetFilter() to implicitly add filter to the block_cache
         auto filter_entry = new_table->GetFilter();
+        if (filter_entry.value != nullptr) {
+          filter_entry.value->CacheDependencies(pin);
+        }
         // if pin_l0_filter_and_index_blocks_in_cache is true, and this is
         // a level0 file, then save it in rep_->filter_entry; it will be
         // released in the destructor only, hence it will be pinned in the
         // cache while this reader is alive
         if (pin) {
           rep->filter_entry = filter_entry;
-          if (rep->filter_entry.value != nullptr) {
-            rep->filter_entry.value->SetLevel(level);
-          }
         } else {
           filter_entry.Release(table_options.block_cache.get());
         }
@@ -853,9 +854,6 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
         const bool is_a_filter_partition = true;
         rep->filter.reset(new_table->ReadFilter(
             prefetch_buffer.get(), rep->filter_handle, !is_a_filter_partition));
-        if (rep->filter.get()) {
-          rep->filter->SetLevel(level);
-        }
       }
     } else {
       delete index_reader;
@@ -1171,15 +1169,16 @@ FilterBlockReader* BlockBasedTable::ReadFilter(
 }
 
 BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
-                                                          bool no_io) const {
+    FilePrefetchBuffer* prefetch_buffer, bool no_io) const {
   const BlockHandle& filter_blk_handle = rep_->filter_handle;
   const bool is_a_filter_partition = true;
-  return GetFilter(filter_blk_handle, !is_a_filter_partition, no_io);
+  return GetFilter(prefetch_buffer, filter_blk_handle, !is_a_filter_partition,
+                   no_io);
 }
 
 BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
-    const BlockHandle& filter_blk_handle, const bool is_a_filter_partition,
-    bool no_io) const {
+    FilePrefetchBuffer* prefetch_buffer, const BlockHandle& filter_blk_handle,
+    const bool is_a_filter_partition, bool no_io) const {
   // If cache_index_and_filter_blocks is false, filter should be pre-populated.
   // We will return rep_->filter anyway. rep_->filter can be nullptr if filter
   // read fails at Open() time. We don't want to reload again since it will
@@ -1219,8 +1218,8 @@ BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
     // Do not invoke any io.
     return CachableEntry<FilterBlockReader>();
   } else {
-    filter = ReadFilter(nullptr /* prefetch_buffer */, filter_blk_handle,
-                        is_a_filter_partition);
+    filter =
+        ReadFilter(prefetch_buffer, filter_blk_handle, is_a_filter_partition);
     if (filter != nullptr) {
       assert(filter->size() > 0);
       Status s = block_cache->Insert(
@@ -1482,7 +1481,7 @@ Status BlockBasedTable::MaybeLoadDataBlockToCache(
 BlockBasedTable::BlockEntryIteratorState::BlockEntryIteratorState(
     BlockBasedTable* table, const ReadOptions& read_options,
     const InternalKeyComparator* icomparator, bool skip_filters, bool is_index,
-    std::map<uint64_t, CachableEntry<Block>>* block_map)
+    std::unordered_map<uint64_t, CachableEntry<Block>>* block_map)
     : TwoLevelIteratorState(table->rep_->ioptions.prefix_extractor != nullptr),
       table_(table),
       read_options_(read_options),
@@ -1700,7 +1699,8 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
   const bool no_io = read_options.read_tier == kBlockCacheTier;
   CachableEntry<FilterBlockReader> filter_entry;
   if (!skip_filters) {
-    filter_entry = GetFilter(read_options.read_tier == kBlockCacheTier);
+    filter_entry = GetFilter(/*prefetch_buffer*/ nullptr,
+                             read_options.read_tier == kBlockCacheTier);
   }
   FilterBlockReader* filter = filter_entry.value;
 

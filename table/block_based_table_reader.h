@@ -183,6 +183,9 @@ class BlockBasedTable : public TableReader {
 
     virtual void CacheDependencies(bool /* unused */) {}
 
+    // Prefetch all the blocks referenced by this index to the buffer
+    void PrefetchBlocks(FilePrefetchBuffer* buf);
+
    protected:
     const InternalKeyComparator* icomparator_;
 
@@ -210,6 +213,7 @@ class BlockBasedTable : public TableReader {
   explicit BlockBasedTable(Rep* rep) : rep_(rep) {}
 
  private:
+  friend class MockedBlockBasedTable;
   // input_iter: if it is not null, update this one and return it as Iterator
   static InternalIterator* NewDataBlockIterator(Rep* rep, const ReadOptions& ro,
                                                 const Slice& index_value,
@@ -239,10 +243,11 @@ class BlockBasedTable : public TableReader {
   // For the following two functions:
   // if `no_io == true`, we will not try to read filter/index from sst file
   // were they not present in cache yet.
-  CachableEntry<FilterBlockReader> GetFilter(bool no_io = false) const;
+  CachableEntry<FilterBlockReader> GetFilter(
+      FilePrefetchBuffer* prefetch_buffer = nullptr, bool no_io = false) const;
   virtual CachableEntry<FilterBlockReader> GetFilter(
-      const BlockHandle& filter_blk_handle, const bool is_a_filter_partition,
-      bool no_io) const;
+      FilePrefetchBuffer* prefetch_buffer, const BlockHandle& filter_blk_handle,
+      const bool is_a_filter_partition, bool no_io) const;
 
   // Get the iterator from the index reader.
   // If input_iter is not set, return new Iterator
@@ -352,7 +357,7 @@ class BlockBasedTable::BlockEntryIteratorState : public TwoLevelIteratorState {
       BlockBasedTable* table, const ReadOptions& read_options,
       const InternalKeyComparator* icomparator, bool skip_filters,
       bool is_index = false,
-      std::map<uint64_t, CachableEntry<Block>>* block_map = nullptr);
+      std::unordered_map<uint64_t, CachableEntry<Block>>* block_map = nullptr);
   InternalIterator* NewSecondaryIterator(const Slice& index_value) override;
   bool PrefixMayMatch(const Slice& internal_key) override;
   bool KeyReachedUpperBound(const Slice& internal_key) override;
@@ -365,7 +370,7 @@ class BlockBasedTable::BlockEntryIteratorState : public TwoLevelIteratorState {
   bool skip_filters_;
   // true if the 2nd level iterator is on indexes instead of on user data.
   bool is_index_;
-  std::map<uint64_t, CachableEntry<Block>>* block_map_;
+  std::unordered_map<uint64_t, CachableEntry<Block>>* block_map_;
   port::RWMutex cleaner_mu;
 };
 
