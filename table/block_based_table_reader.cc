@@ -1502,13 +1502,8 @@ BlockBasedTable::BlockEntryIteratorState::NewSecondaryIterator(
   if (block_map_) {
     auto block = block_map_->find(handle.offset());
     assert(block != block_map_->end());
-    if (LIKELY(block != block_map_->end())) {
-      return block->second.value->NewIterator(
-          &rep->internal_comparator, nullptr, true, rep->ioptions.statistics);
-    }
-    ROCKS_LOG_ERROR(rep->ioptions.info_log,
-                    "The block is not found in the provided block map; moving "
-                    "on to search from the block cache");
+    return block->second.value->NewIterator(&rep->internal_comparator, nullptr,
+                                            true, rep->ioptions.statistics);
   }
   return NewDataBlockIterator(rep, read_options_, handle, nullptr, is_index_,
                               s);
