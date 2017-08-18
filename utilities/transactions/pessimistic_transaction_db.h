@@ -242,10 +242,31 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   bool ExchangeCommitEntry(uint64_t indexed_seq, CommitEntry& expected_entry,
                            CommitEntry new_entry);
 
+  // Add a new entry to old_commit_map_ if prep_seq <= snapshot_seq <
+  // commit_seq. Return false if commit_seq <= snapshot_seq indicating that the
+  // check for the next conseqcuitive snapshot is unnecessary.
+  bool MaybeUpdateOldCommitMap(const uint64_t& prep_seq,
+                               const uint64_t& commit_seq,
+                               const uint64_t& snapshot_seq);
+
   // The list of live snapshots at the last time that max_evicted_seq_ advanced.
-  // The list sorted in ascending order. Thread-safety is provided with
-  // snapshots_mutex_.
+  // The list stored into two data structures: in snapshot_cache_ that is
+  // efficient for concurrent reads, and in snapshots_ if the data does not fit
+  // into snapshot_cache_. The total number of snapshots in the two lists
+  std::atomic<size_t> snapshots_total_ = {};
+  // The list sorted in ascending order. Thread-safety for writes is provided
+  // with snapshots_mutex_ and concurrent reads are safe due to std::atomic for
+  // each entry. In x86_64 architecture such reads are compiled to simple read
+  // instructions. 128 entries
+  static const uint64_t SNAPSHOT_CACHE_SIZE = static_cast<uint64_t>(1 << 7);
+  std::atomic<SequenceNumber> snapshot_cache_[SNAPSHOT_CACHE_SIZE] = {};
+  // 2nd list for storing snapshots. The list sorted in ascending order.
+  // Thread-safety is provided with snapshots_mutex_.
   std::vector<SequenceNumber> snapshots_;
+  // The version of the latest list of snapshots. This can be used to avoid
+  // rewrittiing a list that is concurrently updated with a more recent version.
+  SequenceNumber snapshots_version_;
+
   // A heap of prepared transactions. Thread-safety is provided with
   // prepared_mutex_.
   PreparedHeap prepared_txns_;
