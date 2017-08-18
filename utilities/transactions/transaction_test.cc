@@ -26,6 +26,7 @@
 #include "util/transaction_test_util.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/string_append/stringappend.h"
+#include "utilities/transactions/pessimistic_transaction_db.h"
 
 #include "port/port.h"
 
@@ -34,7 +35,7 @@ using std::string;
 namespace rocksdb {
 
 class TransactionTest
-    : public ::testing::TestWithParam<std::tuple<bool, bool>> {
+    : public ::testing::TestWithParam<std::tuple<bool, bool, uint32_t>> {
  public:
   TransactionDB* db;
   FaultInjectionTestEnv* env;
@@ -57,6 +58,8 @@ class TransactionTest
     DestroyDB(dbname, options);
     txn_db_options.transaction_lock_timeout = 0;
     txn_db_options.default_lock_timeout = 0;
+    txn_db_options.write_policy =
+        static_cast<TxnDBWritePolicy>(std::get<2>(GetParam()));
     Status s;
     if (std::get<0>(GetParam()) == false) {
       s = TransactionDB::Open(options, txn_db_options, dbname, &db);
@@ -123,16 +126,20 @@ class TransactionTest
 };
 
 class MySQLStyleTransactionTest : public TransactionTest {};
+class WritePreparedTransactionTest : public TransactionTest {};
 
 INSTANTIATE_TEST_CASE_P(DBAsBaseDB, TransactionTest,
-                        ::testing::Values(std::make_tuple(false, false)));
+                        ::testing::Values(std::make_tuple(false, false, 0u)));
 INSTANTIATE_TEST_CASE_P(StackableDBAsBaseDB, TransactionTest,
-                        ::testing::Values(std::make_tuple(true, false)));
+                        ::testing::Values(std::make_tuple(true, false, 0u)));
 INSTANTIATE_TEST_CASE_P(MySQLStyleTransactionTest, MySQLStyleTransactionTest,
-                        ::testing::Values(std::make_tuple(false, false),
-                                          std::make_tuple(false, true),
-                                          std::make_tuple(true, false),
-                                          std::make_tuple(true, true)));
+                        ::testing::Values(std::make_tuple(false, false, 0u),
+                                          std::make_tuple(false, true, 0u),
+                                          std::make_tuple(true, false, 0u),
+                                          std::make_tuple(true, true, 0u)));
+INSTANTIATE_TEST_CASE_P(WritePreparedTransactionTest,
+                        WritePreparedTransactionTest,
+                        ::testing::Values(std::make_tuple(false, true, 1u)));
 
 TEST_P(TransactionTest, DoubleEmptyWrite) {
   WriteOptions write_options;
@@ -4557,6 +4564,124 @@ TEST_P(TransactionTest, MemoryLimitTest) {
 
   txn->Rollback();
   delete txn;
+}
+
+// Test WritePreparedTxnDB's IsInSnapshot against different ordering of
+// snapshot, max_committed_seq_, prepared, and commit entries.
+TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
+  WriteOptions wo;
+  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+  // Use small comit cache to trigger lots of eviction and fast advance of
+  // max_evicted_seq_
+  WritePreparedTxnDB::DEF_COMMIT_CACHE_SIZE =
+      8;  // will take effect after ReOpen
+
+  // Take some preliminary snapshots first. This is to stress the data structure
+  // that holds the old snapshots as it will be designed to be efficient when
+  // only a few snapshots are below the max_evicted_seq_.
+  for (int max_snapshots = 1; max_snapshots < 20; max_snapshots++) {
+    // Leave some gap between the preliminary snapshots and the final snapshot
+    // that we check. This should test for also different overlapping scnearios
+    // between the last snapshot and the commits.
+    for (int max_gap = 1; max_gap < 10; max_gap++) {
+      // Since we do not actually write to db, we mock the seq as it would be
+      // increaased by the db. The only exception is that we need db seq to
+      // advance for our snapshots. for which we apply a dummy put each time we
+      // increase our mock of seq.
+      uint64_t seq = 0;
+      // At each step we prepare a txn and then we commit it in the next txn.
+      // This emulates the consecuitive transactions that write to the same key
+      uint64_t cur_txn = 0;
+      // Number of snapshots taken so far
+      int num_snapshots = 0;
+      // Number of gaps applied so far
+      int gap_cnt = 0;
+      // The final snapshot that we will inspect
+      uint64_t snapshot = 0;
+      bool found_committed = false;
+      // To stress the data structure that maintain prepared txns, at each cycle
+      // we add a new prepare txn. These do not mean to be committed for
+      // snapshot inspection.
+      std::set<uint64_t> prepared;
+      // We keep the list of txns comitted before we take the last snaphot.
+      // These should be the only seq numbers that will be found in the snapshot
+      std::set<uint64_t> committed_before;
+      ReOpen();  // to restart the db
+      // We continue until max advances a bit beyond the snapshot.
+      while (!snapshot || wp_db->max_evicted_seq_ < snapshot + 100) {
+        // do prepare for a transaction
+        wp_db->db_impl_->Put(wo, "key", "value");  // dummy put to inc db seq
+        seq++;
+        wp_db->AddPrepared(seq);
+        prepared.insert(seq);
+
+        // If cur_txn is not started, do prepare for it.
+        if (!cur_txn) {
+          wp_db->db_impl_->Put(wo, "key", "value");  // dummy put to inc db seq
+          seq++;
+          cur_txn = seq;
+          wp_db->AddPrepared(cur_txn);
+        } else {                                     // else commit it
+          wp_db->db_impl_->Put(wo, "key", "value");  // dummy put to inc db seq
+          seq++;
+          wp_db->AddCommitted(cur_txn, seq);
+          if (!snapshot) {
+            committed_before.insert(cur_txn);
+          }
+          cur_txn = 0;
+        }
+
+        if (num_snapshots < max_snapshots - 1) {
+          // Take preliminary snapshots
+          db->GetSnapshot();
+          num_snapshots++;
+        } else if (gap_cnt < max_gap) {
+          // Wait for some gap before taking the final snapshot
+          gap_cnt++;
+        } else if (!snapshot) {
+          // Take the final snapshot if it is not already taken
+          snapshot = db->GetSnapshot()->GetSequenceNumber();
+          // We increase the db seq artificailly by a dummy Put. Check that this
+          // technique is effective and db seq is that same as ours.
+          ASSERT_EQ(snapshot, seq);
+          num_snapshots++;
+        }
+
+        // If the snapshot is taken, verify seq numbers visible to it. We redo
+        // it at each cycle to test that the system is still sound when
+        // max_evicted_seq_ advances.
+        if (snapshot) {
+          for (uint64_t s = 0; s <= seq; s++) {
+            bool was_committed =
+                (committed_before.find(s) != committed_before.end());
+            bool is_in_snapshot = wp_db->IsInSnapshot(s, snapshot);
+            if (was_committed != is_in_snapshot) {
+              printf(
+                  "max_snapshots %d max_gap %d seq %lu max %lu snapshot %lu "
+                  "gap_cnt %d num_snapshots %d\n",
+                  max_snapshots, max_gap, seq, wp_db->max_evicted_seq_.load(),
+                  snapshot, gap_cnt, num_snapshots);
+            }
+            ASSERT_EQ(was_committed, is_in_snapshot);
+            found_committed = found_committed || is_in_snapshot;
+          }
+        }
+      }
+      // Safety check to make sure the test actually ran
+      ASSERT_TRUE(found_committed);
+      // As an extra check, check if prepared set will be properly empty after
+      // they are committed.
+      if (cur_txn) {
+        wp_db->AddCommitted(cur_txn, seq);
+      }
+      for (auto p : prepared) {
+        wp_db->AddCommitted(p, seq);
+      }
+      ASSERT_TRUE(wp_db->delayed_prepared_.empty());
+      ASSERT_TRUE(wp_db->prepared_txns_.empty());
+    }
+  }
+  // TODO delete
 }
 
 }  // namespace rocksdb
