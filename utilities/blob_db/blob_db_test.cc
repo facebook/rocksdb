@@ -762,7 +762,7 @@ TEST_F(BlobDBTest, ReadWhileGC) {
     blob_files = blob_db_impl->TEST_GetBlobFiles();
     ASSERT_EQ(2, blob_files.size());
     ASSERT_EQ(bfile_number, blob_files[0]->BlobFileNumber());
-    auto obsoleted_files = blob_db_impl->TEST_GetObsoletedFiles();
+    auto obsoleted_files = blob_db_impl->TEST_GetObsoleteFiles();
     ASSERT_EQ(1, obsoleted_files.size());
     ASSERT_EQ(bfile_number, obsoleted_files[0]->BlobFileNumber());
     TEST_SYNC_POINT("BlobDBTest::ReadWhileGC:2");
@@ -774,10 +774,11 @@ TEST_F(BlobDBTest, ReadWhileGC) {
     blob_files = blob_db_impl->TEST_GetBlobFiles();
     ASSERT_EQ(1, blob_files.size());
     ASSERT_NE(bfile_number, blob_files[0]->BlobFileNumber());
-    ASSERT_EQ(0, blob_db_impl->TEST_GetObsoletedFiles().size());
+    ASSERT_EQ(0, blob_db_impl->TEST_GetObsoleteFiles().size());
     VerifyDB({{"foo", "bar"}});
     Destroy();
   }
+}
 
 TEST_F(BlobDBTest, GCOldestSimpleBlobFileWhenOutOfSpace) {
   // Use mock env to stop wall clock.

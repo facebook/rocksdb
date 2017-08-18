@@ -534,7 +534,7 @@ class BlobDBImpl : public BlobDB {
 
   // total size of all blob files at a given time
   std::atomic<uint64_t> total_blob_space_;
-  std::list<std::shared_ptr<BlobFile>> obsoleted_files_;
+  std::list<std::shared_ptr<BlobFile>> obsolete_files_;
   bool open_p1_done_;
 
   uint32_t debug_level_;
