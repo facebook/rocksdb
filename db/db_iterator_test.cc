@@ -1719,12 +1719,15 @@ TEST_F(DBIteratorTest, IteratorWithLocalStatistics) {
 
   std::vector<port::Thread> threads;
   std::function<void()> reader_func_next = [&]() {
+    SetPerfLevel(kEnableCount);
+    get_perf_context()->Reset();
     Iterator* iter = db_->NewIterator(ReadOptions());
 
     iter->SeekToFirst();
     // Seek will bump ITER_BYTES_READ
-    total_bytes += iter->key().size();
-    total_bytes += iter->value().size();
+    uint64_t bytes = 0;
+    bytes += iter->key().size();
+    bytes += iter->value().size();
     while (true) {
       iter->Next();
       total_next++;
@@ -1733,20 +1736,25 @@ TEST_F(DBIteratorTest, IteratorWithLocalStatistics) {
         break;
       }
       total_next_found++;
-      total_bytes += iter->key().size();
-      total_bytes += iter->value().size();
+      bytes += iter->key().size();
+      bytes += iter->value().size();
     }
 
     delete iter;
+    ASSERT_EQ(bytes, get_perf_context()->iter_read_bytes);
+    SetPerfLevel(kDisable);
+    total_bytes += bytes;
   };
 
   std::function<void()> reader_func_prev = [&]() {
+    SetPerfLevel(kEnableCount);
     Iterator* iter = db_->NewIterator(ReadOptions());
 
     iter->SeekToLast();
     // Seek will bump ITER_BYTES_READ
-    total_bytes += iter->key().size();
-    total_bytes += iter->value().size();
+    uint64_t bytes = 0;
+    bytes += iter->key().size();
+    bytes += iter->value().size();
     while (true) {
       iter->Prev();
       total_prev++;
@@ -1755,11 +1763,14 @@ TEST_F(DBIteratorTest, IteratorWithLocalStatistics) {
         break;
       }
       total_prev_found++;
-      total_bytes += iter->key().size();
-      total_bytes += iter->value().size();
+      bytes += iter->key().size();
+      bytes += iter->value().size();
     }
 
     delete iter;
+    ASSERT_EQ(bytes, get_perf_context()->iter_read_bytes);
+    SetPerfLevel(kDisable);
+    total_bytes += bytes;
   };
 
   for (int i = 0; i < 10; i++) {
