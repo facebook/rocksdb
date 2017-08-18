@@ -1123,11 +1123,7 @@ std::vector<Status> BlobDBImpl::MultiGet(
   // Get a snapshot to avoid blob file get deleted between we
   // fetch and index entry and reading from the file.
   ReadOptions ro(read_options);
-  const Snapshot* snapshot = nullptr;
-  if (ro.snapshot == nullptr) {
-    snapshot = db_->GetSnapshot();
-    ro.snapshot = snapshot;
-  }
+  bool snapshot_created = SetSnapshotIfNeeded(&ro);
   std::vector<std::string> values_lsm;
   values_lsm.resize(keys.size());
   auto statuses = db_->MultiGet(ro, column_family, keys, &values_lsm);
@@ -1146,10 +1142,19 @@ std::vector<Status> BlobDBImpl::MultiGet(
     Status s = CommonGet(cfd, keys[i], values_lsm[i], &((*values)[i]));
     statuses[i] = s;
   }
-  if (snapshot != nullptr) {
-    db_->ReleaseSnapshot(snapshot);
+  if (snapshot_created) {
+    db_->ReleaseSnapshot(ro.snapshot);
   }
   return statuses;
+}
+
+bool BlobDBImpl::SetSnapshotIfNeeded(ReadOptions* read_options) {
+  assert(read_options != nullptr);
+  if (read_options->snapshot != nullptr) {
+    return false;
+  }
+  read_options->snapshot = db_->GetSnapshot();
+  return true;
 }
 
 Status BlobDBImpl::CommonGet(const ColumnFamilyData* cfd, const Slice& key,
@@ -1295,11 +1300,7 @@ Status BlobDBImpl::Get(const ReadOptions& read_options,
   // fetch and index entry and reading from the file.
   // TODO(yiwu): For Get() retry if file not found would be a simpler strategy.
   ReadOptions ro(read_options);
-  const Snapshot* snapshot = nullptr;
-  if (ro.snapshot == nullptr) {
-    snapshot = db_->GetSnapshot();
-    ro.snapshot = snapshot;
-  }
+  bool snapshot_created = SetSnapshotIfNeeded(&ro);
 
   Status s;
   std::string index_entry;
@@ -1310,8 +1311,8 @@ Status BlobDBImpl::Get(const ReadOptions& read_options,
     s = CommonGet(cfd, key, index_entry, value->GetSelf());
     value->PinSelf();
   }
-  if (snapshot != nullptr) {
-    db_->ReleaseSnapshot(snapshot);
+  if (snapshot_created) {
+    db_->ReleaseSnapshot(ro.snapshot);
   }
   return s;
 }
@@ -2255,17 +2256,9 @@ Iterator* BlobDBImpl::NewIterator(const ReadOptions& read_options,
   // Get a snapshot to avoid blob file get deleted between we
   // fetch and index entry and reading from the file.
   ReadOptions ro(read_options);
-  bool own_snapshot = false;
-  const Snapshot* snapshot = nullptr;
-  if (ro.snapshot == nullptr) {
-    own_snapshot = true;
-    snapshot = db_->GetSnapshot();
-  } else {
-    snapshot = ro.snapshot;
-  }
-
+  bool snapshot_created = SetSnapshotIfNeeded(&ro);
   return new BlobDBIterator(db_->NewIterator(ro, column_family), column_family,
-                            this, own_snapshot, snapshot);
+                            this, snapshot_created, ro.snapshot);
 }
 
 Status DestroyBlobDB(const std::string& dbname, const Options& options,
