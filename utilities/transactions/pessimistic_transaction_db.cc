@@ -28,6 +28,7 @@ PessimisticTransactionDB::PessimisticTransactionDB(
       db_impl_(static_cast_with_check<DBImpl, DB>(db)),
       txn_db_options_(txn_db_options),
       lock_mgr_(this, txn_db_options_.num_stripes, txn_db_options.max_num_locks,
+                txn_db_options_.max_num_deadlocks,
                 txn_db_options_.custom_mutex_factory
                     ? txn_db_options_.custom_mutex_factory
                     : std::shared_ptr<TransactionDBMutexFactory>(
@@ -57,6 +58,7 @@ PessimisticTransactionDB::PessimisticTransactionDB(
       db_impl_(static_cast_with_check<DBImpl, DB>(db->GetRootDB())),
       txn_db_options_(txn_db_options),
       lock_mgr_(this, txn_db_options_.num_stripes, txn_db_options.max_num_locks,
+                txn_db_options_.max_num_deadlocks,
                 txn_db_options_.custom_mutex_factory
                     ? txn_db_options_.custom_mutex_factory
                     : std::shared_ptr<TransactionDBMutexFactory>(
@@ -484,6 +486,14 @@ void PessimisticTransactionDB::GetAllPreparedTransactions(
 TransactionLockMgr::LockStatusData
 PessimisticTransactionDB::GetLockStatusData() {
   return lock_mgr_.GetLockStatusData();
+}
+
+std::vector<DeadlockPath> PessimisticTransactionDB::GetDeadlockInfoBuffer() {
+  return lock_mgr_.GetDeadlockInfoBuffer();
+}
+
+void PessimisticTransactionDB::SetDeadlockInfoBufferSize(uint32_t target_size) {
+  lock_mgr_.Resize(target_size);
 }
 
 void PessimisticTransactionDB::RegisterTransaction(Transaction* txn) {

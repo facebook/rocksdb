@@ -29,6 +29,8 @@ enum TxnDBWritePolicy {
   WRITE_UNPREPARED      // write data before the prepare phase of 2pc
 };
 
+const uint32_t kInitialMaxDeadlocks = 5;
+
 struct TransactionDBOptions {
   // Specifies the maximum number of keys that can be locked at the same time
   // per column family.
@@ -36,6 +38,9 @@ struct TransactionDBOptions {
   // writes (or GetForUpdate) will return an error.
   // If this value is not positive, no limit will be enforced.
   int64_t max_num_locks = -1;
+
+  // Stores the number of latest deadlocks to track
+  uint32_t max_num_deadlocks = kInitialMaxDeadlocks;
 
   // Increasing this value will increase the concurrency by dividing the lock
   // table (per column family) into more sub-tables, each with their own
@@ -123,6 +128,26 @@ struct KeyLockInfo {
   bool exclusive;
 };
 
+struct DeadlockInfo {
+  TransactionID m_txn_id;
+  uint32_t m_cf_id;
+  std::string m_waiting_key;
+  bool m_exclusive;
+};
+
+struct DeadlockPath {
+  std::vector<DeadlockInfo> path;
+  bool limit_exceeded;
+
+  explicit DeadlockPath(std::vector<DeadlockInfo> path_entry)
+      : path(path_entry), limit_exceeded(false) {}
+
+  // empty path, limit exceeded constructor and default constructor
+  explicit DeadlockPath(bool limit = false) : path(0), limit_exceeded(limit) {}
+
+  bool empty() { return path.empty() && !limit_exceeded; }
+};
+
 class TransactionDB : public StackableDB {
  public:
   // Open a TransactionDB similar to DB::Open().
@@ -181,6 +206,8 @@ class TransactionDB : public StackableDB {
   // The mapping is column family id -> KeyLockInfo
   virtual std::unordered_multimap<uint32_t, KeyLockInfo>
   GetLockStatusData() = 0;
+  virtual std::vector<DeadlockPath> GetDeadlockInfoBuffer() = 0;
+  virtual void SetDeadlockInfoBufferSize(uint32_t target_size) = 0;
 
  protected:
   // To Create an TransactionDB, call Open()
