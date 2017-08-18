@@ -261,7 +261,7 @@ class BlobDBImpl : public BlobDB {
 
   std::vector<std::shared_ptr<BlobFile>> TEST_GetBlobFiles() const;
 
-  std::vector<std::shared_ptr<BlobFile>> TEST_GetObsoletedFiles() const;
+  std::vector<std::shared_ptr<BlobFile>> TEST_GetObsoleteFiles() const;
 
   void TEST_CloseBlobFile(std::shared_ptr<BlobFile>& bfile);
 
@@ -271,6 +271,8 @@ class BlobDBImpl : public BlobDB {
   void TEST_ObsoleteFile(std::shared_ptr<BlobFile>& bfile);
 
   void TEST_DeleteObsoletedFiles();
+  
+  void TEST_RunGC();
 #endif  //  !NDEBUG
 
  private:
@@ -301,7 +303,7 @@ class BlobDBImpl : public BlobDB {
   // tt - current time
   // last_id - the id of the non-TTL file to evict
   bool ShouldGCFile(std::shared_ptr<BlobFile> bfile, uint64_t now,
-                    uint64_t last_id, std::string* reason);
+                    bool is_oldest_simple_blob_file, std::string* reason);
 
   // collect all the blob log files from the blob directory
   Status GetAllLogFiles(std::set<std::pair<uint64_t, std::string>>* file_nums);
@@ -413,13 +415,12 @@ class BlobDBImpl : public BlobDB {
   bool FindFileAndEvictABlob(uint64_t file_number, uint64_t key_size,
                              uint64_t blob_offset, uint64_t blob_size);
 
-  void CopyBlobFiles(std::vector<std::shared_ptr<BlobFile>>* bfiles_copy,
-                     uint64_t* last_id);
+  void CopyBlobFiles(std::vector<std::shared_ptr<BlobFile>>* bfiles_copy);
 
   void FilterSubsetOfFiles(
       const std::vector<std::shared_ptr<BlobFile>>& blob_files,
       std::vector<std::shared_ptr<BlobFile>>* to_process, uint64_t epoch,
-      uint64_t last_id, size_t files_to_collect);
+      size_t files_to_collect);
 
   uint64_t EpochNow() { return env_->NowMicros() / 1000000; }
 
