@@ -278,6 +278,10 @@ class BlobDBImpl : public BlobDB {
  private:
   Status OpenPhase1();
 
+  // Create a snapshot if there isn't one in read options.
+  // Return true if a snapshot is created.
+  bool SetSnapshotIfNeeded(ReadOptions* read_options);
+
   Status CommonGet(const ColumnFamilyData* cfd, const Slice& key,
                    const std::string& index_entry, std::string* value,
                    SequenceNumber* sequence = nullptr);
