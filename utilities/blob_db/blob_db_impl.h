@@ -219,16 +219,16 @@ class BlobDBImpl : public BlobDB {
                               const Slice& key) override;
 
   using rocksdb::StackableDB::Get;
-  Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
+  Status Get(const ReadOptions& read_options, ColumnFamilyHandle* column_family,
              const Slice& key, PinnableSlice* value) override;
 
   using rocksdb::StackableDB::NewIterator;
-  virtual Iterator* NewIterator(const ReadOptions& opts,
+  virtual Iterator* NewIterator(const ReadOptions& read_options,
                                 ColumnFamilyHandle* column_family) override;
 
   using rocksdb::StackableDB::MultiGet;
   virtual std::vector<Status> MultiGet(
-      const ReadOptions& options,
+      const ReadOptions& read_options,
       const std::vector<ColumnFamilyHandle*>& column_family,
       const std::vector<Slice>& keys,
       std::vector<std::string>* values) override;
@@ -269,6 +269,10 @@ class BlobDBImpl : public BlobDB {
                                  GCStats* gc_stats);
 
   void TEST_RunGC();
+  
+  void TEST_ObsoleteFile(std::shared_ptr<BlobFile>& bfile);
+
+  void TEST_DeleteObsoletedFiles();
 #endif  //  !NDEBUG
 
  private:
@@ -332,7 +336,7 @@ class BlobDBImpl : public BlobDB {
   // delete files which have been garbage collected and marked
   // obsolete. Check whether any snapshots exist which refer to
   // the same
-  std::pair<bool, int64_t> DeleteObsFiles(bool aborted);
+  std::pair<bool, int64_t> DeleteObsoletedFiles(bool aborted);
 
   // Major task to garbage collect expired and deleted blobs
   std::pair<bool, int64_t> RunGC(bool aborted);
@@ -526,7 +530,7 @@ class BlobDBImpl : public BlobDB {
 
   // total size of all blob files at a given time
   std::atomic<uint64_t> total_blob_space_;
-  std::list<std::shared_ptr<BlobFile>> obsolete_files_;
+  std::list<std::shared_ptr<BlobFile>> obsoleted_files_;
   bool open_p1_done_;
 
   uint32_t debug_level_;
@@ -593,7 +597,7 @@ class BlobFile {
 
   // This Read-Write mutex is per file specific and protects
   // all the datastructures
-  port::RWMutex mutex_;
+  mutable port::RWMutex mutex_;
 
   // time when the random access reader was last created.
   std::atomic<std::time_t> last_access_;
@@ -700,12 +704,23 @@ class BlobFile {
 class BlobDBIterator : public Iterator {
  public:
   explicit BlobDBIterator(Iterator* iter, ColumnFamilyHandle* column_family,
-                          BlobDBImpl* impl)
-      : iter_(iter), cfh_(column_family), db_impl_(impl) {
-    assert(iter_);
+                          BlobDBImpl* impl, bool own_snapshot,
+                          const Snapshot* snapshot)
+      : iter_(iter),
+        cfh_(column_family),
+        db_impl_(impl),
+        own_snapshot_(own_snapshot),
+        snapshot_(snapshot) {
+    assert(iter != nullptr);
+    assert(snapshot != nullptr);
   }
 
-  ~BlobDBIterator() { delete iter_; }
+  ~BlobDBIterator() {
+    if (own_snapshot_) {
+      db_impl_->ReleaseSnapshot(snapshot_);
+    }
+    delete iter_;
+  }
 
   bool Valid() const override { return iter_->Valid(); }
 
@@ -727,10 +742,14 @@ class BlobDBIterator : public Iterator {
 
   Status status() const override { return iter_->status(); }
 
+  // Iterator::Refresh() not supported.
+
  private:
   Iterator* iter_;
   ColumnFamilyHandle* cfh_;
   BlobDBImpl* db_impl_;
+  bool own_snapshot_;
+  const Snapshot* snapshot_;
   mutable std::string vpart_;
 };
 
