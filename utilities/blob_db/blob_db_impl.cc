@@ -1560,7 +1560,9 @@ std::pair<bool, int64_t> BlobDBImpl::CheckSeqFiles(bool aborted) {
     }
   }
 
-  for (auto bfile : process_files) CloseSeqWrite(bfile, false);
+  for (auto bfile : process_files) {
+    CloseSeqWrite(bfile, false);
+  }
 
   return std::make_pair(true, -1);
 }
@@ -1909,7 +1911,8 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
 // but under the asusmption that this is only called when a
 // file is Immutable, we can reduce the critical section
 bool BlobDBImpl::ShouldGCFile(std::shared_ptr<BlobFile> bfile, uint64_t now,
-                              uint64_t last_id, std::string* reason) {
+                              bool is_oldest_simple_blob_file,
+                              std::string* reason) {
   if (bfile->HasTTL()) {
     ttlrange_t ttl_range = bfile->GetTTLRange();
     if (now > ttl_range.second) {
@@ -1966,13 +1969,12 @@ bool BlobDBImpl::ShouldGCFile(std::shared_ptr<BlobFile> bfile, uint64_t now,
     return false;
   }
 
-  bool ret = bfile->BlobFileNumber() == last_id;
-  if (ret) {
-    *reason = "eligible last simple blob file";
-  } else {
-    *reason = "not eligible since not last simple blob file";
+  if (is_oldest_simple_blob_file) {
+    *reason = "out of space and is the oldest simple blob file";
+    return true;
   }
-  return ret;
+  *reason = "out of space but is not the oldest simple blob file";
+  return false;
 }
 
 std::pair<bool, int64_t> BlobDBImpl::DeleteObsFiles(bool aborted) {
@@ -2096,31 +2098,27 @@ std::pair<bool, int64_t> BlobDBImpl::CallbackEvicts(
 }
 
 void BlobDBImpl::CopyBlobFiles(
-    std::vector<std::shared_ptr<BlobFile>>* bfiles_copy, uint64_t* last_id) {
+    std::vector<std::shared_ptr<BlobFile>>* bfiles_copy) {
   ReadLock rl(&mutex_);
 
   // take a copy
   bfiles_copy->reserve(blob_files_.size());
-  for (auto const& ent : blob_files_) {
-    bfiles_copy->push_back(ent.second);
-
-    // A. has ttl is immutable, once set, hence no locks required
-    // B. blob files are sorted based on number(i.e. index of creation )
-    //    so we will return the last blob file
-    if (!ent.second->HasTTL()) *last_id = ent.second->BlobFileNumber();
+  for (auto const& p : blob_files_) {
+    bfiles_copy->push_back(p.second);
   }
 }
 
 void BlobDBImpl::FilterSubsetOfFiles(
     const std::vector<std::shared_ptr<BlobFile>>& blob_files,
     std::vector<std::shared_ptr<BlobFile>>* to_process, uint64_t epoch,
-    uint64_t last_id, size_t files_to_collect) {
+    size_t files_to_collect) {
   // 100.0 / 15.0 = 7
   uint64_t next_epoch_increment = static_cast<uint64_t>(
       std::ceil(100 / static_cast<double>(kGCFilePercentage)));
   uint64_t now = EpochNow();
 
   size_t files_processed = 0;
+  bool simple_blob_file_found = false;
   for (auto bfile : blob_files) {
     if (files_processed >= files_to_collect) break;
     // if this is the first time processing the file
@@ -2140,8 +2138,15 @@ void BlobDBImpl::FilterSubsetOfFiles(
     // then it should not be GC'd
     if (bfile->Obsolete() || !bfile->Immutable()) continue;
 
+    bool is_oldest_simple_blob_file = false;
+    if (!simple_blob_file_found && !bfile->HasTTL()) {
+      is_oldest_simple_blob_file = true;
+      simple_blob_file_found = true;
+    }
+
     std::string reason;
-    bool shouldgc = ShouldGCFile(bfile, now, last_id, &reason);
+    bool shouldgc =
+        ShouldGCFile(bfile, now, is_oldest_simple_blob_file, &reason);
     if (!shouldgc) {
       ROCKS_LOG_DEBUG(db_options_.info_log,
                       "File has been skipped for GC ttl %s %" PRIu64 " %" PRIu64
@@ -2165,11 +2170,8 @@ std::pair<bool, int64_t> BlobDBImpl::RunGC(bool aborted) {
 
   current_epoch_++;
 
-  // collect the ID of the last regular file, in case we need to GC it.
-  uint64_t last_id = std::numeric_limits<uint64_t>::max();
-
   std::vector<std::shared_ptr<BlobFile>> blob_files;
-  CopyBlobFiles(&blob_files, &last_id);
+  CopyBlobFiles(&blob_files);
 
   if (!blob_files.size()) return std::make_pair(true, -1);
 
@@ -2178,7 +2180,7 @@ std::pair<bool, int64_t> BlobDBImpl::RunGC(bool aborted) {
   size_t files_to_collect = (kGCFilePercentage * blob_files.size()) / 100;
 
   std::vector<std::shared_ptr<BlobFile>> to_process;
-  FilterSubsetOfFiles(blob_files, &to_process, current_epoch_, last_id,
+  FilterSubsetOfFiles(blob_files, &to_process, current_epoch_,
                       files_to_collect);
 
   // in this collect the set of files, which became obsolete
@@ -2288,6 +2290,16 @@ std::vector<std::shared_ptr<BlobFile>> BlobDBImpl::TEST_GetBlobFiles() const {
   return blob_files;
 }
 
+std::vector<std::shared_ptr<BlobFile>> BlobDBImpl::TEST_GetObsoleteFiles()
+    const {
+  ReadLock l(&mutex_);
+  std::vector<std::shared_ptr<BlobFile>> obsolete_files;
+  for (auto& bfile : obsolete_files_) {
+    obsolete_files.emplace_back(bfile);
+  }
+  return obsolete_files;
+}
+
 void BlobDBImpl::TEST_CloseBlobFile(std::shared_ptr<BlobFile>& bfile) {
   CloseSeqWrite(bfile, false /*abort*/);
 }
@@ -2296,6 +2308,8 @@ Status BlobDBImpl::TEST_GCFileAndUpdateLSM(std::shared_ptr<BlobFile>& bfile,
                                            GCStats* gc_stats) {
   return GCFileAndUpdateLSM(bfile, gc_stats);
 }
+
+void BlobDBImpl::TEST_RunGC() { RunGC(false /*abort*/); }
 #endif  //  !NDEBUG
 
 }  // namespace blob_db

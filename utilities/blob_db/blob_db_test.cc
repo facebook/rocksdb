@@ -688,6 +688,41 @@ TEST_F(BlobDBTest, GCExpiredKeyWhileOverwriting) {
   VerifyDB({{"foo", "v2"}});
 }
 
+TEST_F(BlobDBTest, GCOldestSimpleBlobFileWhenOutOfSpace) {
+  // Use mock env to stop wall clock.
+  Options options;
+  options.env = mock_env_.get();
+  BlobDBOptions bdb_options;
+  bdb_options.blob_dir_size = 100;
+  bdb_options.blob_file_size = 100;
+  bdb_options.disable_background_tasks = true;
+  Open(bdb_options);
+  std::string value(100, 'v');
+  ASSERT_OK(blob_db_->PutWithTTL(WriteOptions(), "key_with_ttl", value, 60));
+  for (int i = 0; i < 10; i++) {
+    ASSERT_OK(blob_db_->Put(WriteOptions(), "key" + ToString(i), value));
+  }
+  BlobDBImpl *blob_db_impl =
+      static_cast_with_check<BlobDBImpl, BlobDB>(blob_db_);
+  auto blob_files = blob_db_impl->TEST_GetBlobFiles();
+  ASSERT_EQ(11, blob_files.size());
+  ASSERT_TRUE(blob_files[0]->HasTTL());
+  ASSERT_TRUE(blob_files[0]->Immutable());
+  blob_db_impl->TEST_CloseBlobFile(blob_files[0]);
+  for (int i = 1; i <= 10; i++) {
+    ASSERT_FALSE(blob_files[i]->HasTTL());
+    if (i < 10) {
+      ASSERT_TRUE(blob_files[i]->Immutable());
+    }
+  }
+  blob_db_impl->TEST_RunGC();
+  // The oldest simple blob file (i.e. blob_files[1]) has been selected for GC.
+  auto obsolete_files = blob_db_impl->TEST_GetObsoleteFiles();
+  ASSERT_EQ(1, obsolete_files.size());
+  ASSERT_EQ(blob_files[1]->BlobFileNumber(),
+            obsolete_files[0]->BlobFileNumber());
+}
+
 }  //  namespace blob_db
 }  //  namespace rocksdb
 
