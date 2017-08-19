@@ -18,7 +18,7 @@
 namespace rocksdb {
 
 std::shared_ptr<Statistics> CreateDBStatistics() {
-  return std::make_shared<StatisticsImpl>(nullptr, true);
+  return std::make_shared<StatisticsImpl>(nullptr, false);
 }
 
 StatisticsImpl::StatisticsImpl(std::shared_ptr<Statistics> stats,

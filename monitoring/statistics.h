@@ -26,9 +26,6 @@ namespace rocksdb {
 
 enum TickersInternal : uint32_t {
   INTERNAL_TICKER_ENUM_START = TICKER_ENUM_MAX,
-  COMPACTION_OPTIMIZED_DEL_DROP_OBSOLETE,  // Deletions obsoleted before
-                                           // bottom level due to file gap
-                                           // optimization.
   INTERNAL_TICKER_ENUM_MAX
 };
 
