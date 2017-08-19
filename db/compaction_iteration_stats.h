@@ -16,6 +16,9 @@ struct CompactionIterationStats {
   int64_t num_record_drop_obsolete = 0;
   int64_t num_record_drop_range_del = 0;
   int64_t num_range_del_drop_obsolete = 0;
+  int64_t num_optimized_del_drop_obsolete = 0;  // Deletions obsoleted before
+                                                // bottom level due to file gap
+                                                // optimization.
   uint64_t total_filter_time = 0;
 
   // Input statistics
