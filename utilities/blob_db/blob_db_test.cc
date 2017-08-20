@@ -792,24 +792,24 @@ TEST_F(BlobDBTest, ReadWhileGC) {
     ASSERT_EQ(1, gc_stats.num_relocate);
     ASSERT_EQ(1, gc_stats.relocate_succeeded);
     blob_db_impl->TEST_ObsoleteFile(blob_files[0]);
-    blob_db_impl->TEST_DeleteObsoletedFiles();
+    blob_db_impl->TEST_DeleteObsoleteFiles();
     // The file shouln't be deleted
     blob_files = blob_db_impl->TEST_GetBlobFiles();
     ASSERT_EQ(2, blob_files.size());
     ASSERT_EQ(bfile_number, blob_files[0]->BlobFileNumber());
-    auto obsoleted_files = blob_db_impl->TEST_GetObsoletedFiles();
-    ASSERT_EQ(1, obsoleted_files.size());
-    ASSERT_EQ(bfile_number, obsoleted_files[0]->BlobFileNumber());
+    auto obsolete_files = blob_db_impl->TEST_GetObsoleteFiles();
+    ASSERT_EQ(1, obsolete_files.size());
+    ASSERT_EQ(bfile_number, obsolete_files[0]->BlobFileNumber());
     TEST_SYNC_POINT("BlobDBTest::ReadWhileGC:2");
     reader.join();
     SyncPoint::GetInstance()->DisableProcessing();
 
     // The file is deleted this time
-    blob_db_impl->TEST_DeleteObsoletedFiles();
+    blob_db_impl->TEST_DeleteObsoleteFiles();
     blob_files = blob_db_impl->TEST_GetBlobFiles();
     ASSERT_EQ(1, blob_files.size());
     ASSERT_NE(bfile_number, blob_files[0]->BlobFileNumber());
-    ASSERT_EQ(0, blob_db_impl->TEST_GetObsoletedFiles().size());
+    ASSERT_EQ(0, blob_db_impl->TEST_GetObsoleteFiles().size());
     VerifyDB({{"foo", "bar"}});
     Destroy();
   }

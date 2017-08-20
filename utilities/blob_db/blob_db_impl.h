@@ -200,7 +200,7 @@ class BlobDBImpl : public BlobDB {
   static constexpr uint32_t kReclaimOpenFilesPeriodMillisecs = 1 * 1000;
 
   // how often to schedule delete obs files periods
-  static constexpr uint32_t kDeleteObsoletedFilesPeriodMillisecs = 10 * 1000;
+  static constexpr uint32_t kDeleteObsoleteFilesPeriodMillisecs = 10 * 1000;
 
   // how often to schedule check seq files period
   static constexpr uint32_t kCheckSeqFilesPeriodMillisecs = 10 * 1000;
@@ -269,10 +269,10 @@ class BlobDBImpl : public BlobDB {
                                  GCStats* gc_stats);
 
   void TEST_RunGC();
-  
+
   void TEST_ObsoleteFile(std::shared_ptr<BlobFile>& bfile);
 
-  void TEST_DeleteObsoletedFiles();
+  void TEST_DeleteObsoleteFiles();
 #endif  //  !NDEBUG
 
  private:
@@ -340,7 +340,7 @@ class BlobDBImpl : public BlobDB {
   // delete files which have been garbage collected and marked
   // obsolete. Check whether any snapshots exist which refer to
   // the same
-  std::pair<bool, int64_t> DeleteObsoletedFiles(bool aborted);
+  std::pair<bool, int64_t> DeleteObsoleteFiles(bool aborted);
 
   // Major task to garbage collect expired and deleted blobs
   std::pair<bool, int64_t> RunGC(bool aborted);
@@ -534,7 +534,7 @@ class BlobDBImpl : public BlobDB {
 
   // total size of all blob files at a given time
   std::atomic<uint64_t> total_blob_space_;
-  std::list<std::shared_ptr<BlobFile>> obsoleted_files_;
+  std::list<std::shared_ptr<BlobFile>> obsolete_files_;
   bool open_p1_done_;
 
   uint32_t debug_level_;

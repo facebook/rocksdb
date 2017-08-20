@@ -304,9 +304,9 @@ void BlobDBImpl::StartBackgroundTasks() {
   tqueue_.add(
       kDeleteCheckPeriodMillisecs,
       std::bind(&BlobDBImpl::EvictCompacted, this, std::placeholders::_1));
-  tqueue_.add(kDeleteObsoletedFilesPeriodMillisecs,
-              std::bind(&BlobDBImpl::DeleteObsoletedFiles, this,
-                        std::placeholders::_1));
+  tqueue_.add(
+      kDeleteObsoleteFilesPeriodMillisecs,
+      std::bind(&BlobDBImpl::DeleteObsoleteFiles, this, std::placeholders::_1));
   tqueue_.add(kSanityCheckPeriodMillisecs,
               std::bind(&BlobDBImpl::SanityCheck, this, std::placeholders::_1));
   tqueue_.add(kWriteAmplificationStatsPeriodMillisecs,
@@ -1131,6 +1131,7 @@ std::vector<Status> BlobDBImpl::MultiGet(
   TEST_SYNC_POINT("BlobDBImpl::MultiGet:AfterIndexEntryGet:2");
 
   values->resize(keys.size());
+  assert(statuses.size() == keys.size());
   for (size_t i = 0; i < keys.size(); ++i) {
     if (!statuses[i].ok()) {
       continue;
@@ -2000,18 +2001,18 @@ bool BlobDBImpl::ShouldGCFile(std::shared_ptr<BlobFile> bfile, uint64_t now,
   return false;
 }
 
-std::pair<bool, int64_t> BlobDBImpl::DeleteObsoletedFiles(bool aborted) {
+std::pair<bool, int64_t> BlobDBImpl::DeleteObsoleteFiles(bool aborted) {
   if (aborted) return std::make_pair(false, -1);
 
   {
     ReadLock rl(&mutex_);
-    if (obsoleted_files_.empty()) return std::make_pair(true, -1);
+    if (obsolete_files_.empty()) return std::make_pair(true, -1);
   }
 
   std::list<std::shared_ptr<BlobFile>> tobsolete;
   {
     WriteLock wl(&mutex_);
-    tobsolete.swap(obsoleted_files_);
+    tobsolete.swap(obsolete_files_);
   }
 
   bool file_deleted = false;
@@ -2050,7 +2051,9 @@ std::pair<bool, int64_t> BlobDBImpl::DeleteObsoletedFiles(bool aborted) {
   // put files back into obsolete if for some reason, delete failed
   if (!tobsolete.empty()) {
     WriteLock wl(&mutex_);
-    for (auto bfile : tobsolete) obsoleted_files_.push_front(bfile);
+    for (auto bfile : tobsolete) {
+      obsolete_files_.push_front(bfile);
+    }
   }
 
   return std::make_pair(!aborted, -1);
@@ -2112,7 +2115,7 @@ std::pair<bool, int64_t> BlobDBImpl::CallbackEvicts(
 
   WriteLock wl(&mutex_);
   bfile->SetCanBeDeleted();
-  obsoleted_files_.push_front(bfile);
+  obsolete_files_.push_front(bfile);
   if (tq) {
     // all of the callbacks have been processed
     tqueue_.add(0, std::bind(&BlobDBImpl::RemoveTimerQ, this, tq,
@@ -2239,7 +2242,7 @@ std::pair<bool, int64_t> BlobDBImpl::RunGC(bool aborted) {
 
       if (!evict_cb) {
         bfile->SetCanBeDeleted();
-        obsoleted_files_.push_front(bfile);
+        obsolete_files_.push_front(bfile);
       } else {
         tq->add(0, std::bind(&BlobDBImpl::CallbackEvicts, this,
                              (last_file) ? tq.get() : nullptr, bfile,
@@ -2348,7 +2351,7 @@ void BlobDBImpl::TEST_ObsoleteFile(std::shared_ptr<BlobFile>& bfile) {
   bfile->SetCanBeDeleted();
   {
     WriteLock l(&mutex_);
-    obsoleted_files_.push_back(bfile);
+    obsolete_files_.push_back(bfile);
   }
 }
 #endif  //  !NDEBUG
