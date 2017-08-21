@@ -798,14 +798,13 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
                                                 rep->ioptions.info_log);
   }
 
-    // pre-fetching of blocks is turned on
+  const bool pin =
+      rep->table_options.pin_l0_filter_and_index_blocks_in_cache && level == 0;
+  // pre-fetching of blocks is turned on
   // Will use block cache for index/filter blocks access
   // Always prefetch index and filter for level 0
   if (table_options.cache_index_and_filter_blocks) {
     if (prefetch_index_and_filter_in_cache || level == 0) {
-      const bool pin =
-          rep->table_options.pin_l0_filter_and_index_blocks_in_cache &&
-          level == 0;
       assert(table_options.block_cache != nullptr);
       // Hack: Call NewIndexIterator() to implicitly add index to the
       // block_cache
@@ -845,15 +844,26 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
     IndexReader* index_reader = nullptr;
     s = new_table->CreateIndexReader(prefetch_buffer.get(), &index_reader,
                                      meta_iter.get(), level);
-
     if (s.ok()) {
       rep->index_reader.reset(index_reader);
+      // The partitions of partitioned index are always stored in cache. They
+      // are hence follow the configuration for pin and prefetch regardless of
+      // the value of cache_index_and_filter_blocks
+      if (prefetch_index_and_filter_in_cache || level == 0) {
+        rep->index_reader->CacheDependencies(pin);
+      }
 
       // Set filter block
       if (rep->filter_policy) {
         const bool is_a_filter_partition = true;
-        rep->filter.reset(new_table->ReadFilter(
-            prefetch_buffer.get(), rep->filter_handle, !is_a_filter_partition));
+        auto filter = new_table->ReadFilter(
+            prefetch_buffer.get(), rep->filter_handle, !is_a_filter_partition);
+        rep->filter.reset(filter);
+        // Refer to the comment above about paritioned indexes always being
+        // cached
+        if (filter && (prefetch_index_and_filter_in_cache || level == 0)) {
+          filter->CacheDependencies(pin);
+        }
       }
     } else {
       delete index_reader;
