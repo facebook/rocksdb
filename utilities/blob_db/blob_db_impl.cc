@@ -2330,8 +2330,8 @@ std::vector<std::shared_ptr<BlobFile>> BlobDBImpl::TEST_GetObsoleteFiles()
   return obsolete_files;
 }
 
-void BlobDBImpl::TEST_DeleteObsoletedFiles() {
-  DeleteObsoletedFiles(false /*abort*/);
+void BlobDBImpl::TEST_DeleteObsoleteFiles() {
+  DeleteObsoleteFiles(false /*abort*/);
 }
 
 void BlobDBImpl::TEST_CloseBlobFile(std::shared_ptr<BlobFile>& bfile) {
