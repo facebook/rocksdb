@@ -723,6 +723,98 @@ TEST_F(BlobDBTest, GCOldestSimpleBlobFileWhenOutOfSpace) {
             obsolete_files[0]->BlobFileNumber());
 }
 
+TEST_F(BlobDBTest, ReadWhileGC) {
+  // run the same test for Get(), MultiGet() and Iterator each.
+  for (int i = 0; i < 3; i++) {
+    BlobDBOptions bdb_options;
+    bdb_options.disable_background_tasks = true;
+    Open(bdb_options);
+    blob_db_->Put(WriteOptions(), "foo", "bar");
+    BlobDBImpl *blob_db_impl =
+        static_cast_with_check<BlobDBImpl, BlobDB>(blob_db_);
+    auto blob_files = blob_db_impl->TEST_GetBlobFiles();
+    ASSERT_EQ(1, blob_files.size());
+    std::shared_ptr<BlobFile> bfile = blob_files[0];
+    uint64_t bfile_number = bfile->BlobFileNumber();
+    blob_db_impl->TEST_CloseBlobFile(bfile);
+
+    switch (i) {
+      case 0:
+        SyncPoint::GetInstance()->LoadDependency(
+            {{"BlobDBImpl::Get:AfterIndexEntryGet:1",
+              "BlobDBTest::ReadWhileGC:1"},
+             {"BlobDBTest::ReadWhileGC:2",
+              "BlobDBImpl::Get:AfterIndexEntryGet:2"}});
+        break;
+      case 1:
+        SyncPoint::GetInstance()->LoadDependency(
+            {{"BlobDBImpl::MultiGet:AfterIndexEntryGet:1",
+              "BlobDBTest::ReadWhileGC:1"},
+             {"BlobDBTest::ReadWhileGC:2",
+              "BlobDBImpl::MultiGet:AfterIndexEntryGet:2"}});
+        break;
+      case 2:
+        SyncPoint::GetInstance()->LoadDependency(
+            {{"BlobDBIterator::value:BeforeGetBlob:1",
+              "BlobDBTest::ReadWhileGC:1"},
+             {"BlobDBTest::ReadWhileGC:2",
+              "BlobDBIterator::value:BeforeGetBlob:2"}});
+        break;
+    }
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    auto reader = port::Thread([this, i]() {
+      std::string value;
+      std::vector<std::string> values;
+      std::vector<Status> statuses;
+      switch (i) {
+        case 0:
+          ASSERT_OK(blob_db_->Get(ReadOptions(), "foo", &value));
+          ASSERT_EQ("bar", value);
+          break;
+        case 1:
+          statuses = blob_db_->MultiGet(ReadOptions(), {"foo"}, &values);
+          ASSERT_EQ(1, statuses.size());
+          ASSERT_EQ(1, values.size());
+          ASSERT_EQ("bar", values[0]);
+          break;
+        case 2:
+          // VerifyDB use iterator to scan the DB.
+          VerifyDB({{"foo", "bar"}});
+          break;
+      }
+    });
+
+    TEST_SYNC_POINT("BlobDBTest::ReadWhileGC:1");
+    GCStats gc_stats;
+    ASSERT_OK(blob_db_impl->TEST_GCFileAndUpdateLSM(bfile, &gc_stats));
+    ASSERT_EQ(1, gc_stats.blob_count);
+    ASSERT_EQ(1, gc_stats.num_relocate);
+    ASSERT_EQ(1, gc_stats.relocate_succeeded);
+    blob_db_impl->TEST_ObsoleteFile(blob_files[0]);
+    blob_db_impl->TEST_DeleteObsoleteFiles();
+    // The file shouln't be deleted
+    blob_files = blob_db_impl->TEST_GetBlobFiles();
+    ASSERT_EQ(2, blob_files.size());
+    ASSERT_EQ(bfile_number, blob_files[0]->BlobFileNumber());
+    auto obsolete_files = blob_db_impl->TEST_GetObsoleteFiles();
+    ASSERT_EQ(1, obsolete_files.size());
+    ASSERT_EQ(bfile_number, obsolete_files[0]->BlobFileNumber());
+    TEST_SYNC_POINT("BlobDBTest::ReadWhileGC:2");
+    reader.join();
+    SyncPoint::GetInstance()->DisableProcessing();
+
+    // The file is deleted this time
+    blob_db_impl->TEST_DeleteObsoleteFiles();
+    blob_files = blob_db_impl->TEST_GetBlobFiles();
+    ASSERT_EQ(1, blob_files.size());
+    ASSERT_NE(bfile_number, blob_files[0]->BlobFileNumber());
+    ASSERT_EQ(0, blob_db_impl->TEST_GetObsoleteFiles().size());
+    VerifyDB({{"foo", "bar"}});
+    Destroy();
+  }
+}
+
 }  //  namespace blob_db
 }  //  namespace rocksdb
 
