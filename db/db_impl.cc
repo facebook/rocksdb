@@ -2320,10 +2320,8 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
         std::string path_to_delete = dbname + "/" + filenames[i];
         if (type == kMetaDatabase) {
           del = DestroyDB(path_to_delete, options);
-        } else if (type == kTableFile) {
-          del = DeleteSSTFile(&soptions, path_to_delete, 0);
         } else {
-          del = env->DeleteFile(path_to_delete);
+          del = DeleteDBFile(&soptions, path_to_delete, 0, type);
         }
         if (result.ok() && !del.ok()) {
           result = del;
@@ -2338,8 +2336,8 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
         if (ParseFileName(filenames[i], &number, &type) &&
             type == kTableFile) {  // Lock file will be deleted at end
           std::string table_path = db_path.path + "/" + filenames[i];
-          Status del = DeleteSSTFile(&soptions, table_path,
-                                     static_cast<uint32_t>(path_id));
+          Status del = DeleteDBFile(&soptions, table_path,
+                                    static_cast<uint32_t>(path_id), type);
           if (result.ok() && !del.ok()) {
             result = del;
           }
@@ -2357,7 +2355,8 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
     // Delete log files in the WAL dir
     for (const auto& file : walDirFiles) {
       if (ParseFileName(file, &number, &type) && type == kLogFile) {
-        Status del = env->DeleteFile(LogFileName(soptions.wal_dir, number));
+        Status del = DeleteDBFile(
+            &soptions, LogFileName(soptions.wal_dir, number), 0, type);
         if (result.ok() && !del.ok()) {
           result = del;
         }
@@ -2370,7 +2369,8 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
     for (size_t i = 0; i < archiveFiles.size(); ++i) {
       if (ParseFileName(archiveFiles[i], &number, &type) &&
           type == kLogFile) {
-        Status del = env->DeleteFile(archivedir + "/" + archiveFiles[i]);
+        Status del = DeleteDBFile(&soptions, archivedir + "/" + archiveFiles[i],
+                                  0, type);
         if (result.ok() && !del.ok()) {
           result = del;
         }

@@ -336,14 +336,16 @@ TEST_F(DBSSTTest, RateLimitedDelete) {
   auto sfm = static_cast<SstFileManagerImpl*>(options.sst_file_manager.get());
   sfm->delete_scheduler()->TEST_SetMaxTrashDBRatio(1.1);
 
+  WriteOptions wo;
+  wo.disableWAL = true;
   ASSERT_OK(TryReopen(options));
   // Create 4 files in L0
   for (char v = 'a'; v <= 'd'; v++) {
-    ASSERT_OK(Put("Key2", DummyString(1024, v)));
-    ASSERT_OK(Put("Key3", DummyString(1024, v)));
-    ASSERT_OK(Put("Key4", DummyString(1024, v)));
-    ASSERT_OK(Put("Key1", DummyString(1024, v)));
-    ASSERT_OK(Put("Key4", DummyString(1024, v)));
+    ASSERT_OK(Put("Key2", DummyString(1024, v), wo));
+    ASSERT_OK(Put("Key3", DummyString(1024, v), wo));
+    ASSERT_OK(Put("Key4", DummyString(1024, v), wo));
+    ASSERT_OK(Put("Key1", DummyString(1024, v), wo));
+    ASSERT_OK(Put("Key4", DummyString(1024, v), wo));
     ASSERT_OK(Flush());
   }
   // We created 4 sst files in L0
@@ -403,9 +405,12 @@ TEST_F(DBSSTTest, DeleteSchedulerMultipleDBPaths) {
 
   DestroyAndReopen(options);
 
+  WriteOptions wo;
+  wo.disableWAL = true;
+
   // Create 4 files in L0
   for (int i = 0; i < 4; i++) {
-    ASSERT_OK(Put("Key" + ToString(i), DummyString(1024, 'A')));
+    ASSERT_OK(Put("Key" + ToString(i), DummyString(1024, 'A'), wo));
     ASSERT_OK(Flush());
   }
   // We created 4 sst files in L0
@@ -421,7 +426,7 @@ TEST_F(DBSSTTest, DeleteSchedulerMultipleDBPaths) {
 
   // Create 4 files in L0
   for (int i = 4; i < 8; i++) {
-    ASSERT_OK(Put("Key" + ToString(i), DummyString(1024, 'B')));
+    ASSERT_OK(Put("Key" + ToString(i), DummyString(1024, 'B'), wo));
     ASSERT_OK(Flush());
   }
   ASSERT_EQ("4,1", FilesPerLevel(0));
@@ -474,14 +479,27 @@ TEST_F(DBSSTTest, DestroyDBWithRateLimitedDelete) {
   // Close DB and destroy it using DeleteScheduler
   Close();
 
+  int num_sst_files = 0;
+  int num_wal_files = 0;
+  std::vector<std::string> db_files;
+  env_->GetChildren(dbname_, &db_files);
+  for (std::string f : db_files) {
+    if (f.substr(f.find_last_of(".") + 1) == "sst") {
+      num_sst_files++;
+    } else if (f.substr(f.find_last_of(".") + 1) == "log") {
+      num_wal_files++;
+    }
+  }
+  ASSERT_GT(num_sst_files, 0);
+  ASSERT_GT(num_wal_files, 0);
+
   auto sfm = static_cast<SstFileManagerImpl*>(options.sst_file_manager.get());
 
   sfm->SetDeleteRateBytesPerSecond(1024 * 1024);
   sfm->delete_scheduler()->TEST_SetMaxTrashDBRatio(1.1);
   ASSERT_OK(DestroyDB(dbname_, options));
   sfm->WaitForEmptyTrash();
-  // We have deleted the 4 sst files in the delete_scheduler
-  ASSERT_EQ(bg_delete_file, 4);
+  ASSERT_EQ(bg_delete_file, num_sst_files + num_wal_files);
 }
 
 TEST_F(DBSSTTest, DBWithMaxSpaceAllowed) {
