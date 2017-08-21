@@ -448,11 +448,9 @@ void RangeDelAggregator::AddToBuilder(
         continue;
       }
 
-      auto ikey_and_end_key = tombstone.Serialize();
-      builder->Add(ikey_and_end_key.first.Encode(), ikey_and_end_key.second);
       if (!first_added) {
         first_added = true;
-        InternalKey smallest_candidate = std::move(ikey_and_end_key.first);;
+        InternalKey smallest_candidate = tombstone.SerializeKey();
         if (lower_bound != nullptr &&
             icmp_.user_comparator()->Compare(smallest_candidate.user_key(),
                                              *lower_bound) <= 0) {
@@ -465,6 +463,7 @@ void RangeDelAggregator::AddToBuilder(
           // is OK because the read path's file-picking code only considers user
           // key.
           smallest_candidate = InternalKey(*lower_bound, 0, kTypeRangeDeletion);
+          tombstone.start_key_ = *lower_bound;
         }
         if (meta->smallest.size() == 0 ||
             icmp_.Compare(smallest_candidate, meta->smallest) < 0) {
@@ -491,6 +490,7 @@ void RangeDelAggregator::AddToBuilder(
         // next file for the user key.
         largest_candidate = InternalKey(*upper_bound, kMaxSequenceNumber,
                                         kTypeRangeDeletion);
+        tombstone.end_key_ = *upper_bound;
       }
       if (meta->largest.size() == 0 ||
           icmp_.Compare(meta->largest, largest_candidate) < 0) {
@@ -498,6 +498,8 @@ void RangeDelAggregator::AddToBuilder(
       }
       meta->smallest_seqno = std::min(meta->smallest_seqno, tombstone.seq_);
       meta->largest_seqno = std::max(meta->largest_seqno, tombstone.seq_);
+      auto ikey_and_end_key = tombstone.Serialize();
+      builder->Add(ikey_and_end_key.first.Encode(), ikey_and_end_key.second);
     }
     ++stripe_map_iter;
   }
