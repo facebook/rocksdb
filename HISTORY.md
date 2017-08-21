@@ -1,4 +1,7 @@
 # Rocksdb Change Log
+## 5.4.12 (08/21/2017)
+* Statistics::Reset() to reset user stats.
+
 ## 5.4.11 (08/17/2017)
 ### Bug Fixes
 * Fix a bug in PosixWritableFile::Close()
