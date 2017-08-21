@@ -41,6 +41,7 @@ endif()
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake/modules/")
 
+option(DEVELOPER_ENABLE_TESTS "Enable tests for ${PROJECT_NAME} project" OFF)
 if(MSVC)
   include(${CMAKE_CURRENT_SOURCE_DIR}/thirdparty.inc)
 else()
@@ -97,6 +98,16 @@ else()
     list(APPEND THIRDPARTY_LIBS ${ZSTD_LIBRARIES})
   endif()
 endif()
+
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE DEBUG)
+endif(NOT CMAKE_BUILD_TYPE)
+
+# If the user did not customize the install prefix,
+# set it to live under build so we don't inadvertently pollute /usr/local
+if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+  set(CMAKE_INSTALL_PREFIX "${CMAKE_BINARY_DIR}/install" CACHE PATH "default install path" FORCE)
+endif(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
 
 if(WIN32)
   execute_process(COMMAND powershell -noprofile -Command "Get-Date -format MM_dd_yyyy" OUTPUT_VARIABLE DATE)
@@ -635,6 +646,7 @@ else()
   message(STATUS "JNI library is disabled")
 endif()
 
+if(DEVELOPER_ENABLE_TESTS)
 set(TESTS
         cache/cache_test.cc
         cache/lru_cache_test.cc
@@ -847,13 +859,11 @@ foreach(sourcefile ${C_TEST_EXES})
     add_dependencies(check ${exename}${ARTIFACT_SUFFIX})
 endforeach(sourcefile ${C_TEST_EXES})
 add_subdirectory(tools)
+endif(DEVELOPER_ENABLE_TESTS)
 
 # Installation and packaging for Linux
-if(NOT WIN32)
-install(TARGETS ${ROCKSDB_STATIC_LIB} COMPONENT devel ARCHIVE DESTINATION lib64)
-install(TARGETS ${ROCKSDB_SHARED_LIB} COMPONENT runtime DESTINATION lib64)
+install(TARGETS ${ROCKSDB_STATIC_LIB} COMPONENT devel ARCHIVE DESTINATION lib)
+install(TARGETS ${ROCKSDB_SHARED_LIB} COMPONENT runtime DESTINATION lib)
 install(DIRECTORY "${PROJECT_SOURCE_DIR}/include/rocksdb/"
         COMPONENT devel
         DESTINATION include/rocksdb)
-set(CMAKE_INSTALL_PREFIX /usr)
-endif()
