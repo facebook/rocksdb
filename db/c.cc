@@ -100,6 +100,8 @@ using rocksdb::OptimisticTransactionDB;
 using rocksdb::OptimisticTransactionOptions;
 using rocksdb::Transaction;
 using rocksdb::Checkpoint;
+using rocksdb::TransactionLogIterator;
+using rocksdb::BatchResult;
 
 using std::shared_ptr;
 
@@ -110,6 +112,8 @@ struct rocksdb_backup_engine_t   { BackupEngine*     rep; };
 struct rocksdb_backup_engine_info_t { std::vector<BackupInfo> rep; };
 struct rocksdb_restore_options_t { RestoreOptions rep; };
 struct rocksdb_iterator_t        { Iterator*         rep; };
+struct rocksdb_transactionlog_iterator_t { std::unique_ptr<TransactionLogIterator> rep; };
+struct rocksdb_transactionlog_iterator_readoptions_t { TransactionLogIterator::ReadOptions rep; };
 struct rocksdb_writebatch_t      { WriteBatch        rep; };
 struct rocksdb_writebatch_wi_t   { WriteBatchWithIndex* rep; };
 struct rocksdb_snapshot_t        { const Snapshot*   rep; };
@@ -2501,13 +2505,69 @@ DB::OpenForReadOnly
 DB::KeyMayExist
 DB::GetOptions
 DB::GetSortedWalFiles
-DB::GetLatestSequenceNumber
-DB::GetUpdatesSince
 DB::GetDbIdentity
 DB::RunManualCompaction
 custom cache
 table_properties_collectors
 */
+
+uint64_t rocksdb_get_latest_sequence_number(rocksdb_t* db){
+  return db->rep->GetLatestSequenceNumber();
+}
+
+rocksdb_transactionlog_iterator_readoptions_t*
+rocksdb_transactionlog_iterator_readoptions_create(){
+    return new rocksdb_transactionlog_iterator_readoptions_t();
+}
+
+void rocksdb_transactionlog_iterator_readoptions_destroy(
+    rocksdb_transactionlog_iterator_readoptions_t* opt){
+  delete opt;
+}
+
+rocksdb_transactionlog_iterator_t* rocksdb_get_updates_since(rocksdb_t* db,
+    uint64_t sequence_num, rocksdb_transactionlog_iterator_t* iterator,
+    const rocksdb_transactionlog_iterator_readoptions_t* read_options,
+    char** errptr){
+  std::unique_ptr<TransactionLogIterator> iter;
+  Status status = db->rep->GetUpdatesSince(sequence_num, &iter,
+									       read_options->rep);
+  if (SaveError(errptr, status)) {
+    return nullptr;
+  }
+  iterator = new rocksdb_transactionlog_iterator_t();
+  iterator->rep = std::move(iter);
+  return iterator;
+}
+
+void rocksb_transactionlog_iter_destroy(
+    rocksdb_transactionlog_iterator_t* iterator){
+  delete iterator;
+}
+
+void rocksdb_transactionlog_iter_next(
+    rocksdb_transactionlog_iterator_t* iterator){
+  iterator->rep->Next();
+}
+
+unsigned char rocksdb_transactionlog_iter_is_valid(
+    rocksdb_transactionlog_iterator_t* iterator){
+  return iterator->rep->Valid();
+}
+
+void rocksdb_transactionlog_iter_get_error(
+    rocksdb_transactionlog_iterator_t* iterator, char** errptr){
+  SaveError(errptr, iterator->rep->status());
+}
+
+void rocksdb_transactionlog_iter_get_batch(
+    rocksdb_transactionlog_iterator_t* iterator, uint64_t* seq,
+    rocksdb_writebatch_t** write_batch){
+  BatchResult res = iterator->rep->GetBatch();
+  *seq = res.sequence;
+  *write_batch = new rocksdb_writebatch_t();
+  (*write_batch)->rep = WriteBatch(*res.writeBatchPtr.get());
+}
 
 rocksdb_compactionfilter_t* rocksdb_compactionfilter_create(
     void* state,
