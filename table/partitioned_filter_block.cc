@@ -218,14 +218,17 @@ PartitionedFilterBlockReader::GetFilterPartition(
   if (LIKELY(block_cache != nullptr)) {
     if (filter_map_.size() != 0) {
       auto iter = filter_map_.find(fltr_blk_handle.offset());
-      assert(iter != filter_map_.end());
-      PERF_COUNTER_ADD(block_cache_hit_count, 1);
-      RecordTick(statistics(), BLOCK_CACHE_FILTER_HIT);
-      RecordTick(statistics(), BLOCK_CACHE_HIT);
-      RecordTick(statistics(), BLOCK_CACHE_BYTES_READ,
-                 block_cache->GetUsage(iter->second.cache_handle));
-      *cached = true;
-      return iter->second;
+      // This is a possible scenario since block cache might not have had space
+      // for the partition
+      if (iter != filter_map_.end()) {
+        PERF_COUNTER_ADD(block_cache_hit_count, 1);
+        RecordTick(statistics(), BLOCK_CACHE_FILTER_HIT);
+        RecordTick(statistics(), BLOCK_CACHE_HIT);
+        RecordTick(statistics(), BLOCK_CACHE_BYTES_READ,
+                   block_cache->GetUsage(iter->second.cache_handle));
+        *cached = true;
+        return iter->second;
+      }
     }
     return table_->GetFilter(/*prefetch_buffer*/ nullptr, fltr_blk_handle,
                              is_a_filter_partition, no_io);

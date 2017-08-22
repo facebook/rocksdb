@@ -1510,16 +1510,19 @@ BlockBasedTable::BlockEntryIteratorState::NewSecondaryIterator(
   auto rep = table_->rep_;
   if (block_map_) {
     auto block = block_map_->find(handle.offset());
-    assert(block != block_map_->end());
-    PERF_COUNTER_ADD(block_cache_hit_count, 1);
-    RecordTick(rep->ioptions.statistics, BLOCK_CACHE_INDEX_HIT);
-    RecordTick(rep->ioptions.statistics, BLOCK_CACHE_HIT);
-    Cache* block_cache = rep->table_options.block_cache.get();
-    assert(block_cache);
-    RecordTick(rep->ioptions.statistics, BLOCK_CACHE_BYTES_READ,
-               block_cache->GetUsage(block->second.cache_handle));
-    return block->second.value->NewIterator(&rep->internal_comparator, nullptr,
-                                            true, rep->ioptions.statistics);
+    // This is a possible scenario since block cache might not have had space
+    // for the partition
+    if (block != block_map_->end()) {
+      PERF_COUNTER_ADD(block_cache_hit_count, 1);
+      RecordTick(rep->ioptions.statistics, BLOCK_CACHE_INDEX_HIT);
+      RecordTick(rep->ioptions.statistics, BLOCK_CACHE_HIT);
+      Cache* block_cache = rep->table_options.block_cache.get();
+      assert(block_cache);
+      RecordTick(rep->ioptions.statistics, BLOCK_CACHE_BYTES_READ,
+                 block_cache->GetUsage(block->second.cache_handle));
+      return block->second.value->NewIterator(
+          &rep->internal_comparator, nullptr, true, rep->ioptions.statistics);
+    }
   }
   return NewDataBlockIterator(rep, read_options_, handle, nullptr, is_index_,
                               s);
