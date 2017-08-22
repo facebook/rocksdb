@@ -943,7 +943,8 @@ TEST_F(DBRangeDelTest, ManualCompactionHoldsTombstoneTogether) {
       ASSERT_OK(db_->CompactFiles(
           CompactionOptions(), {meta.levels[1].files[0].name}, 2 /* level */));
     } else {
-      Slice begin = Key(0), end = Key(1);
+      auto begin_str = Key(0), end_str = Key(1);
+      Slice begin = begin_str, end = end_str;
       ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &begin, &end));
     }
     ASSERT_EQ(0, NumTableFilesAtLevel(1));
