@@ -17,7 +17,6 @@
 #include "rocksdb/utilities/transaction_db.h"
 #include "table/mock_table.h"
 #include "util/fault_injection_test_env.h"
-#include "util/logging.h"
 #include "util/random.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
@@ -34,8 +33,8 @@ using std::string;
 
 namespace rocksdb {
 
-class TransactionTest
-    : public ::testing::TestWithParam<std::tuple<bool, bool, uint32_t>> {
+class TransactionTest : public ::testing::TestWithParam<
+                            std::tuple<bool, bool, TxnDBWritePolicy>> {
  public:
   TransactionDB* db;
   FaultInjectionTestEnv* env;
@@ -58,8 +57,7 @@ class TransactionTest
     DestroyDB(dbname, options);
     txn_db_options.transaction_lock_timeout = 0;
     txn_db_options.default_lock_timeout = 0;
-    txn_db_options.write_policy =
-        static_cast<TxnDBWritePolicy>(std::get<2>(GetParam()));
+    txn_db_options.write_policy = std::get<2>(GetParam());
     Status s;
     if (std::get<0>(GetParam()) == false) {
       s = TransactionDB::Open(options, txn_db_options, dbname, &db);
@@ -128,18 +126,21 @@ class TransactionTest
 class MySQLStyleTransactionTest : public TransactionTest {};
 class WritePreparedTransactionTest : public TransactionTest {};
 
+static const TxnDBWritePolicy wc = WRITE_COMMITTED;
+static const TxnDBWritePolicy wp = WRITE_PREPARED;
+// TODO(myabandeh): Instantiate the tests with other write policies
 INSTANTIATE_TEST_CASE_P(DBAsBaseDB, TransactionTest,
-                        ::testing::Values(std::make_tuple(false, false, 0u)));
+                        ::testing::Values(std::make_tuple(false, false, wc)));
 INSTANTIATE_TEST_CASE_P(StackableDBAsBaseDB, TransactionTest,
-                        ::testing::Values(std::make_tuple(true, false, 0u)));
+                        ::testing::Values(std::make_tuple(true, false, wc)));
 INSTANTIATE_TEST_CASE_P(MySQLStyleTransactionTest, MySQLStyleTransactionTest,
-                        ::testing::Values(std::make_tuple(false, false, 0u),
-                                          std::make_tuple(false, true, 0u),
-                                          std::make_tuple(true, false, 0u),
-                                          std::make_tuple(true, true, 0u)));
+                        ::testing::Values(std::make_tuple(false, false, wc),
+                                          std::make_tuple(false, true, wc),
+                                          std::make_tuple(true, false, wc),
+                                          std::make_tuple(true, true, wc)));
 INSTANTIATE_TEST_CASE_P(WritePreparedTransactionTest,
                         WritePreparedTransactionTest,
-                        ::testing::Values(std::make_tuple(false, true, 1u)));
+                        ::testing::Values(std::make_tuple(false, true, wp)));
 
 TEST_P(TransactionTest, DoubleEmptyWrite) {
   WriteOptions write_options;
@@ -4571,7 +4572,7 @@ TEST_P(TransactionTest, MemoryLimitTest) {
 TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
   WriteOptions wo;
   WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
-  // Use small comit cache to trigger lots of eviction and fast advance of
+  // Use small commit cache to trigger lots of eviction and fast advance of
   // max_evicted_seq_
   WritePreparedTxnDB::DEF_COMMIT_CACHE_SIZE =
       8;  // will take effect after ReOpen

@@ -187,7 +187,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
  private:
   friend class WritePreparedTransactionTest_IsInSnapshotTest_Test;
 
-  void init(const TransactionDBOptions& txn_db_options) {
+  void init(const TransactionDBOptions& /* unused */) {
     commit_cache_ =
         unique_ptr<CommitEntry[]>(new CommitEntry[COMMIT_CACHE_SIZE]{});
   }
