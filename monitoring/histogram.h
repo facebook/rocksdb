@@ -45,9 +45,9 @@ class HistogramBucketMapper {
   }
 
  private:
-  const std::vector<uint64_t> bucketValues_;
-  const uint64_t maxBucketValue_;
-  const uint64_t minBucketValue_;
+  std::vector<uint64_t> bucketValues_;
+  uint64_t maxBucketValue_;
+  uint64_t minBucketValue_;
   std::map<uint64_t, uint64_t> valueIndexMap_;
 };
 
@@ -89,7 +89,7 @@ struct HistogramStat {
   std::atomic_uint_fast64_t num_;
   std::atomic_uint_fast64_t sum_;
   std::atomic_uint_fast64_t sum_squares_;
-  std::atomic_uint_fast64_t buckets_[138]; // 138==BucketMapper::BucketCount()
+  std::atomic_uint_fast64_t buckets_[109]; // 109==BucketMapper::BucketCount()
   const uint64_t num_buckets_;
 };
 

@@ -20,18 +20,14 @@ public:
   virtual bool FullMergeV2(const MergeOperationInput& merge_in,
                            MergeOperationOutput* merge_out) const override;
 
-  virtual bool PartialMerge(const Slice& key,
-                            const Slice& left_operand,
-                            const Slice& right_operand,
-                            std::string* new_value,
-                            Logger* logger) const override;
-
   virtual bool PartialMergeMulti(const Slice& key,
                                  const std::deque<Slice>& operand_list,
                                  std::string* new_value,
                                  Logger* logger) const override;
 
   virtual const char* Name() const override;
+
+  virtual bool AllowSingleOperand() const override { return true; }
 };
 } // namespace cassandra
 } // namespace rocksdb

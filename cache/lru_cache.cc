@@ -234,19 +234,35 @@ void LRUCacheShard::EvictFromLRU(size_t charge,
 }
 
 void* LRUCacheShard::operator new(size_t size) {
+#if __SANITIZE_ADDRESS__
+  return malloc(size);
+#else
   return port::cacheline_aligned_alloc(size);
+#endif
 }
 
 void* LRUCacheShard::operator new[](size_t size) {
+#if __SANITIZE_ADDRESS__
+  return malloc(size);
+#else
   return port::cacheline_aligned_alloc(size);
+#endif
 }
 
 void LRUCacheShard::operator delete(void *memblock) {
+#if __SANITIZE_ADDRESS__
+  free(memblock);
+#else
   port::cacheline_aligned_free(memblock);
+#endif
 }
 
 void LRUCacheShard::operator delete[](void* memblock) {
+#if __SANITIZE_ADDRESS__
+  free(memblock);
+#else
   port::cacheline_aligned_free(memblock);
+#endif
 }
 
 void LRUCacheShard::SetCapacity(size_t capacity) {

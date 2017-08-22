@@ -1014,6 +1014,10 @@ void CompactionJob::RecordDroppedKeys(
     RecordTick(stats_, COMPACTION_RANGE_DEL_DROP_OBSOLETE,
                c_iter_stats.num_range_del_drop_obsolete);
   }
+  if (c_iter_stats.num_optimized_del_drop_obsolete > 0) {
+    RecordTick(stats_, COMPACTION_OPTIMIZED_DEL_DROP_OBSOLETE,
+               c_iter_stats.num_optimized_del_drop_obsolete);
+  }
 }
 
 Status CompactionJob::FinishCompactionOutputFile(
