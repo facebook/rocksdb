@@ -7,6 +7,7 @@
 
 #include <utility>
 
+#include "monitoring/perf_context_imp.h"
 #include "port/port.h"
 #include "rocksdb/filter_policy.h"
 #include "table/block.h"
@@ -218,7 +219,11 @@ PartitionedFilterBlockReader::GetFilterPartition(
     if (filter_map_.size() != 0) {
       auto iter = filter_map_.find(fltr_blk_handle.offset());
       assert(iter != filter_map_.end());
+      PERF_COUNTER_ADD(block_cache_hit_count, 1);
       RecordTick(statistics(), BLOCK_CACHE_FILTER_HIT);
+      RecordTick(statistics(), BLOCK_CACHE_HIT);
+      RecordTick(statistics(), BLOCK_CACHE_BYTES_READ,
+                 block_cache->GetUsage(iter->second.cache_handle));
       *cached = true;
       return iter->second;
     }
