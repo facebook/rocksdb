@@ -117,6 +117,20 @@ public class SstFileWriter extends RocksObject {
     put(nativeHandle_, key.getNativeHandle(), value.getNativeHandle());
   }
 
+ /**
+   * Add a Put key with value to currently opened file.
+   *
+   * @param key the specified key to be inserted.
+   * @param value the value associated with the specified key.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+public void put(final byte[] key, final byte[] value)
+    throws RocksDBException {
+  put(nativeHandle_, key, value);
+}
+
   /**
    * Add a Merge key with value to currently opened file.
    *
@@ -130,6 +144,21 @@ public class SstFileWriter extends RocksObject {
   public void merge(final Slice key, final Slice value)
       throws RocksDBException {
     merge(nativeHandle_, key.getNativeHandle(), value.getNativeHandle());
+  }
+
+  /**
+   * Add a Merge key with value to currently opened file.
+   *
+   * @param key the specified key to be merged.
+   * @param value the value to be merged with the current value for
+   * the specified key.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+  public void merge(final byte[] key, final byte[] value)
+      throws RocksDBException {
+    merge(nativeHandle_, key, value);
   }
 
   /**
@@ -172,6 +201,18 @@ public class SstFileWriter extends RocksObject {
   }
 
   /**
+   * Add a deletion key to currently opened file.
+   *
+   * @param key the specified key to be deleted.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+  public void delete(final byte[] key) throws RocksDBException {
+    delete(nativeHandle_, key);
+  }
+
+  /**
    * Finish the process and close the sst file.
    *
    * @throws RocksDBException thrown if error happens in underlying
@@ -193,11 +234,20 @@ public class SstFileWriter extends RocksObject {
 
   private native void put(final long handle, final long keyHandle,
       final long valueHandle) throws RocksDBException;
+      
+  private native void put(final long handle, final byte[] key,
+      final byte[] value) throws RocksDBException;
 
   private native void merge(final long handle, final long keyHandle,
       final long valueHandle) throws RocksDBException;
 
+  private native void merge(final long handle, final byte[] key,
+      final byte[] value) throws RocksDBException;
+
   private native void delete(final long handle, final long keyHandle)
+      throws RocksDBException;
+
+  private native void delete(final long handle, final byte[] key)
       throws RocksDBException;
 
   private native void finish(final long handle) throws RocksDBException;
