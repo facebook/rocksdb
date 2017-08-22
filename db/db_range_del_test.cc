@@ -894,11 +894,12 @@ TEST_F(DBRangeDelTest, MemtableBloomFilter) {
   }
 }
 
-TEST_F(DBRangeDelTest, ManualCompactionHoldsTombstoneTogether) {
-  // make sure manual compaction treats files containing a split range deletion
-  // as an atomic unit. I.e., compacting any file(s) containing a portion of the
-  // range deletion causes all other files containing portions of that same
-  // range deletion to be included in the compaction.
+TEST_F(DBRangeDelTest, CompactionTreatsSplitInputLevelDeletionAtomically) {
+  // make sure compaction treats files containing a split range deletion in the
+  // input level as an atomic unit. I.e., compacting any input-level file(s)
+  // containing a portion of the range deletion causes all other input-level
+  // files containing portions of that same range deletion to be included in the
+  // compaction.
   const int kNumFilesPerLevel = 4, kValueBytes = 4 << 10;
   Options options = CurrentOptions();
   options.compression = kNoCompression;
@@ -906,7 +907,10 @@ TEST_F(DBRangeDelTest, ManualCompactionHoldsTombstoneTogether) {
   options.memtable_factory.reset(
       new SpecialSkipListFactory(2 /* num_entries_flush */));
   options.target_file_size_base = kValueBytes;
-  for (int i = 0; i < 2; ++i) {
+  // i == 0: CompactFiles
+  // i == 1: CompactRange
+  // i == 2: automatic compaction
+  for (int i = 0; i < 3; ++i) {
     DestroyAndReopen(options);
 
     ASSERT_OK(Put(Key(0), ""));
@@ -942,10 +946,14 @@ TEST_F(DBRangeDelTest, ManualCompactionHoldsTombstoneTogether) {
     if (i == 0) {
       ASSERT_OK(db_->CompactFiles(
           CompactionOptions(), {meta.levels[1].files[0].name}, 2 /* level */));
-    } else {
+    } else if (i == 1) {
       auto begin_str = Key(0), end_str = Key(1);
       Slice begin = begin_str, end = end_str;
       ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &begin, &end));
+    } else if (i == 2) {
+      ASSERT_OK(db_->SetOptions(db_->DefaultColumnFamily(),
+                                {{"max_bytes_for_level_base", "10000"}}));
+      dbfull()->TEST_WaitForCompact();
     }
     ASSERT_EQ(0, NumTableFilesAtLevel(1));
     ASSERT_GT(NumTableFilesAtLevel(2), 0);
