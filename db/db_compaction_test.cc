@@ -2684,6 +2684,46 @@ TEST_P(DBCompactionTestWithParam, IntraL0CompactionDoesNotObsoleteDeletions) {
   ASSERT_TRUE(db_->Get(roptions, Key(0), &result).IsNotFound());
 }
 
+TEST_F(DBCompactionTest, OptimizedDeletionObsoleting) {
+  // Deletions can be dropped when compacted to non-last level if they fall
+  // outside the lower-level files' key-ranges.
+  const int kNumL0Files = 4;
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = kNumL0Files;
+  options.statistics = rocksdb::CreateDBStatistics();
+  DestroyAndReopen(options);
+
+  // put key 1 and 3 in separate L1, L2 files.
+  // So key 0, 2, and 4+ fall outside these levels' key-ranges.
+  for (int level = 2; level >= 1; --level) {
+    for (int i = 0; i < 2; ++i) {
+      Put(Key(2 * i + 1), "val");
+      Flush();
+    }
+    MoveFilesToLevel(level);
+    ASSERT_EQ(2, NumTableFilesAtLevel(level));
+  }
+
+  // Delete keys in range [1, 4]. These L0 files will be compacted with L1:
+  // - Tombstones for keys 2 and 4 can be dropped early.
+  // - Tombstones for keys 1 and 3 must be kept due to L2 files' key-ranges.
+  for (int i = 0; i < kNumL0Files; ++i) {
+    Put(Key(0), "val");  // sentinel to prevent trivial move
+    Delete(Key(i + 1));
+    Flush();
+  }
+  dbfull()->TEST_WaitForCompact();
+
+  for (int i = 0; i < kNumL0Files; ++i) {
+    std::string value;
+    ASSERT_TRUE(db_->Get(ReadOptions(), Key(i + 1), &value).IsNotFound());
+  }
+  ASSERT_EQ(2, options.statistics->getTickerCount(
+                   COMPACTION_OPTIMIZED_DEL_DROP_OBSOLETE));
+  ASSERT_EQ(2,
+            options.statistics->getTickerCount(COMPACTION_KEY_DROP_OBSOLETE));
+}
+
 INSTANTIATE_TEST_CASE_P(DBCompactionTestWithParam, DBCompactionTestWithParam,
                         ::testing::Values(std::make_tuple(1, true),
                                           std::make_tuple(1, false),
