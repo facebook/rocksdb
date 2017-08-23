@@ -257,6 +257,7 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
                                             handle, compression_dict, &block,
                                             is_index);
 
+      assert(s.ok() || block.value == nullptr);
       if (s.ok() && block.value != nullptr) {
         assert(block.cache_handle != nullptr);
         if (pin) {
@@ -1429,6 +1430,7 @@ Status BlockBasedTable::MaybeLoadDataBlockToCache(
     FilePrefetchBuffer* prefetch_buffer, Rep* rep, const ReadOptions& ro,
     const BlockHandle& handle, Slice compression_dict,
     CachableEntry<Block>* block_entry, bool is_index) {
+  assert(block_entry != nullptr);
   const bool no_io = (ro.read_tier == kBlockCacheTier);
   Cache* block_cache = rep->table_options.block_cache.get();
   Cache* block_cache_compressed =
@@ -1485,6 +1487,7 @@ Status BlockBasedTable::MaybeLoadDataBlockToCache(
       }
     }
   }
+  assert(s.ok() || block_entry->value == nullptr);
   return s;
 }
 
