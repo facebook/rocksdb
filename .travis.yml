@@ -16,7 +16,7 @@ cache:
 
 addons:
    apt:
-      packages: ['zlib1g-dev', 'libbz2-dev', 'libsnappy-dev', 'curl', 'libgflags-dev', 'mingw-w64', 'gdb', 'apport']
+      packages: ['zlib1g-dev', 'libbz2-dev', 'libsnappy-dev', 'curl', 'libgflags-dev', 'mingw-w64']
 env:
   - TEST_GROUP=platform_dependent # 16-18 minutes
   - TEST_GROUP=1 # 33-35 minutes
@@ -43,17 +43,6 @@ matrix:
   - os : osx
     compiler: gcc
 
-before_install:
- # What is the current file size max for core files?
- # It is usually 0, which means no core file will be dumped if there is a crash 
- - ulimit -c
- - ulimit -a -S
- - ulimit -a -H
- - cat /proc/sys/kernel/core_pattern
- - cat /etc/default/apport
- - service --status-all || true
- - initctl list || true
-
 # https://docs.travis-ci.com/user/caching/#ccache-cache
 install:
   - if [ "${TRAVIS_OS_NAME}" == osx ]; then
@@ -67,7 +56,6 @@ before_script:
   - ulimit -n 8192
 
 script:
-  - ulimit -c unlimited -S
   - ${CXX} --version
   - if [ "${TEST_GROUP}" == 'platform_dependent' ]; then ccache -C && OPT=-DTRAVIS V=1 ROCKSDBTESTS_END=db_block_cache_test make -j4 all_but_some_tests check_some; fi
   - if [ "${TEST_GROUP}" == '1' ]; then OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=db_block_cache_test ROCKSDBTESTS_END=comparator_db_test make -j4 check_some; fi
@@ -77,7 +65,6 @@ script:
   - if [ "${JOB_NAME}" == 'examples' ]; then OPT=-DTRAVIS V=1 make -j4 static_lib; cd examples; make -j4; fi
   - if [ "${JOB_NAME}" == 'cmake' ]; then mkdir build && cd build && cmake .. && make -j4 rocksdb; fi
   - if [ "${JOB_NAME}" == 'cmake-mingw' ]; then mkdir build && cd build && cmake .. -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ -DCMAKE_SYSTEM_NAME=Windows && make -j4 rocksdb; fi
-  - for i in $(find ./ -maxdepth 1 -name 'core*' -print); do gdb $(pwd)/test core* -ex "thread apply all bt" -ex "set pagination 0" -batch; done;
 notifications:
     email:
       - leveldb@fb.com
