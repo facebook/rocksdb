@@ -56,12 +56,45 @@ else()
       include_directories(${JEMALLOC_INCLUDE_DIR})
     endif()
   endif()
+
   option(WITH_SNAPPY "build with SNAPPY" OFF)
   if(WITH_SNAPPY)
     find_package(snappy REQUIRED)
     add_definitions(-DSNAPPY)
     include_directories(${SNAPPY_INCLUDE_DIR})
     list(APPEND THIRDPARTY_LIBS ${SNAPPY_LIBRARIES})
+  endif()
+
+  option(WITH_ZLIB "build with zlib" OFF)
+  if(WITH_ZLIB)
+    find_package(zlib REQUIRED)
+    add_definitions(-DZLIB)
+    include_directories(${ZLIB_INCLUDE_DIR})
+    list(APPEND THIRDPARTY_LIBS ${ZLIB_LIBRARIES})
+  endif()
+
+  option(WITH_BZ2 "build with bzip2" OFF)
+  if(WITH_BZ2)
+    find_package(bzip2 REQUIRED)
+    add_definitions(-DBZIP2)
+    include_directories(${BZIP2_INCLUDE_DIR})
+    list(APPEND THIRDPARTY_LIBS ${BZIP2_LIBRARIES})
+  endif()
+
+  option(WITH_LZ4 "build with lz4" OFF)
+  if(WITH_LZ4)
+    find_package(lz4 REQUIRED)
+    add_definitions(-DLZ4)
+    include_directories(${LZ4_INCLUDE_DIR})
+    list(APPEND THIRDPARTY_LIBS ${LZ4_LIBRARIES})
+  endif()
+
+  option(WITH_ZSTD "build with zstd" OFF)
+  if(WITH_ZSTD)
+    find_package(zstd REQUIRED)
+    add_definitions(-DZSTD)
+    include_directories(${ZSTD_INCLUDE_DIR})
+    list(APPEND THIRDPARTY_LIBS ${ZSTD_LIBRARIES})
   endif()
 endif()
 
@@ -115,6 +148,31 @@ if(WIN32 AND MSVC)
   endif()
 endif()
 
+set(BUILD_VERSION_CC ${CMAKE_BINARY_DIR}/build_version.cc)
+configure_file(util/build_version.cc.in ${BUILD_VERSION_CC} @ONLY)
+add_library(build_version OBJECT ${BUILD_VERSION_CC})
+target_include_directories(build_version PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/util)
+if(MSVC)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zi /nologo /EHsc /GS /Gd /GR /GF /fp:precise /Zc:wchar_t /Zc:forScope /errorReport:queue")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /FC /d2Zi+ /W3 /wd4127 /wd4800 /wd4996 /wd4351")
+else()
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -W -Wextra -Wall")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wsign-compare -Wshadow -Wno-unused-parameter -Wno-unused-variable -Woverloaded-virtual -Wnon-virtual-dtor -Wno-missing-field-initializers")
+  if(MINGW)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-format")
+  endif()
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
+  if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2 -fno-omit-frame-pointer")
+    include(CheckCXXCompilerFlag)
+    CHECK_CXX_COMPILER_FLAG("-momit-leaf-frame-pointer" HAVE_OMIT_LEAF_FRAME_POINTER)
+    if(HAVE_OMIT_LEAF_FRAME_POINTER)
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -momit-leaf-frame-pointer")
+    endif()
+  endif()
+endif()
+
 option(PORTABLE "build a portable binary" OFF)
 option(FORCE_SSE42 "force building with SSE4.2, even when PORTABLE=ON" OFF)
 if(PORTABLE)
@@ -156,32 +214,6 @@ int main() {
 " HAVE_THREAD_LOCAL)
 if(HAVE_THREAD_LOCAL)
   add_definitions(-DROCKSDB_SUPPORT_THREAD_LOCAL)
-endif()
-
-set(BUILD_VERSION_CC ${CMAKE_BINARY_DIR}/build_version.cc)
-configure_file(util/build_version.cc.in ${BUILD_VERSION_CC} @ONLY)
-add_library(build_version OBJECT ${BUILD_VERSION_CC})
-target_include_directories(build_version PRIVATE
-  ${CMAKE_CURRENT_SOURCE_DIR}/util)
-if(MSVC)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zi /nologo /EHsc /GS /Gd /GR /GF /fp:precise /Zc:wchar_t /Zc:forScope /errorReport:queue")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /FC /d2Zi+ /W3 /wd4127 /wd4800 /wd4996 /wd4351")
-else()
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -W -Wextra -Wall")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wsign-compare -Wshadow -Wno-unused-parameter -Wno-unused-variable -Woverloaded-virtual -Wnon-virtual-dtor -Wno-missing-field-initializers")
-  if(MINGW)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-format")
-  endif()
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
-  if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
-    add_definitions(-DNDEBUG)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2 -fno-omit-frame-pointer")
-    include(CheckCXXCompilerFlag)
-    CHECK_CXX_COMPILER_FLAG("-momit-leaf-frame-pointer" HAVE_OMIT_LEAF_FRAME_POINTER)
-    if(HAVE_OMIT_LEAF_FRAME_POINTER)
-      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -momit-leaf-frame-pointer")
-    endif()
-  endif()
 endif()
 
 option(FAIL_ON_WARNINGS "Treat compile warnings as errors" ON)
@@ -293,6 +325,7 @@ endif()
 option(WITH_FALLOCATE "build with fallocate" ON)
 
 if(WITH_FALLOCATE)
+  set(CMAKE_REQUIRED_FLAGS ${CMAKE_C_FLAGS})
   include(CheckCSourceCompiles)
   CHECK_C_SOURCE_COMPILES("
 #include <fcntl.h>
@@ -380,6 +413,7 @@ set(SOURCES
         db/write_thread.cc
         env/env.cc
         env/env_chroot.cc
+        env/env_encryption.cc
         env/env_hdfs.cc
         env/mock_env.cc
         memtable/alloc_tracker.cc
@@ -476,12 +510,15 @@ set(SOURCES
         utilities/backupable/backupable_db.cc
         utilities/blob_db/blob_db.cc
         utilities/blob_db/blob_db_impl.cc
-        utilities/blob_db/blob_db_options_impl.cc
         utilities/blob_db/blob_dump_tool.cc
         utilities/blob_db/blob_file.cc
         utilities/blob_db/blob_log_reader.cc
         utilities/blob_db/blob_log_writer.cc
         utilities/blob_db/blob_log_format.cc
+        utilities/blob_db/ttl_extractor.cc
+        utilities/cassandra/cassandra_compaction_filter.cc
+        utilities/cassandra/format.cc
+        utilities/cassandra/merge_operator.cc
         utilities/checkpoint/checkpoint_impl.cc
         utilities/col_buf_decoder.cc
         utilities/col_buf_encoder.cc
@@ -515,13 +552,14 @@ set(SOURCES
         utilities/spatialdb/spatial_db.cc
         utilities/table_properties_collectors/compact_on_deletion_collector.cc
         utilities/transactions/optimistic_transaction_db_impl.cc
-        utilities/transactions/optimistic_transaction_impl.cc
+        utilities/transactions/optimistic_transaction.cc
         utilities/transactions/transaction_base.cc
-        utilities/transactions/transaction_db_impl.cc
+        utilities/transactions/pessimistic_transaction_db.cc
         utilities/transactions/transaction_db_mutex_impl.cc
-        utilities/transactions/transaction_impl.cc
+        utilities/transactions/pessimistic_transaction.cc
         utilities/transactions/transaction_lock_mgr.cc
         utilities/transactions/transaction_util.cc
+        utilities/transactions/write_prepared_txn.cc
         utilities/ttl/db_ttl_impl.cc
         utilities/write_batch_with_index/write_batch_with_index.cc
         utilities/write_batch_with_index/write_batch_with_index_internal.cc
@@ -597,6 +635,26 @@ else()
   message(STATUS "JNI library is disabled")
 endif()
 
+# Installation and packaging
+if(WIN32)
+  option(ROCKSDB_INSTALL_ON_WINDOWS "Enable install target on Windows" OFF)
+endif()
+if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
+  if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+    if(${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
+      # Change default installation prefix on Linux to /usr
+      set(CMAKE_INSTALL_PREFIX /usr CACHE PATH "Install path prefix, prepended onto install directories." FORCE)
+    endif()
+  endif()
+
+  include(GNUInstallDirs)
+  install(TARGETS ${ROCKSDB_STATIC_LIB} COMPONENT devel ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+  install(TARGETS ${ROCKSDB_SHARED_LIB} COMPONENT runtime DESTINATION ${CMAKE_INSTALL_LIBDIR})
+  install(DIRECTORY include/rocksdb COMPONENT devel DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+endif()
+
+option(WITH_TESTS "build with tests" ON)
+if(WITH_TESTS)
 set(TESTS
         cache/cache_test.cc
         cache/lru_cache_test.cc
@@ -694,6 +752,7 @@ set(TESTS
         util/event_logger_test.cc
         util/file_reader_writer_test.cc
         util/filelock_test.cc
+        util/hash_test.cc
         util/heap_test.cc
         util/rate_limiter_test.cc
         util/slice_transform_test.cc
@@ -702,6 +761,10 @@ set(TESTS
         util/thread_local_test.cc
         utilities/backupable/backupable_db_test.cc
         utilities/blob_db/blob_db_test.cc
+        utilities/cassandra/cassandra_functional_test.cc
+        utilities/cassandra/cassandra_format_test.cc
+        utilities/cassandra/cassandra_row_merge_test.cc
+        utilities/cassandra/cassandra_serialize_test.cc
         utilities/checkpoint/checkpoint_test.cc
         utilities/column_aware_encoding_test.cc
         utilities/date_tiered/date_tiered_test.cc
@@ -718,6 +781,7 @@ set(TESTS
         utilities/persistent_cache/persistent_cache_test.cc
         utilities/redis/redis_lists_test.cc
         utilities/spatialdb/spatial_db_test.cc
+        utilities/simulator_cache/sim_cache_test.cc
         utilities/table_properties_collectors/compact_on_deletion_collector_test.cc
         utilities/transactions/optimistic_transaction_test.cc
         utilities/transactions/transaction_test.cc
@@ -750,6 +814,7 @@ set(TESTUTIL_SOURCE
     monitoring/thread_status_updater_debug.cc
     table/mock_table.cc
     util/fault_injection_test_env.cc
+    utilities/cassandra/test_utils.cc
 )
 # test utilities are only build in debug
 enable_testing()
@@ -801,14 +866,9 @@ foreach(sourcefile ${C_TEST_EXES})
     add_test(NAME ${exename} COMMAND ${exename}${ARTIFACT_SUFFIX})
     add_dependencies(check ${exename}${ARTIFACT_SUFFIX})
 endforeach(sourcefile ${C_TEST_EXES})
-add_subdirectory(tools)
+endif()
 
-# Installation and packaging for Linux
-if(NOT WIN32)
-install(TARGETS ${ROCKSDB_STATIC_LIB} COMPONENT devel ARCHIVE DESTINATION lib64)
-install(TARGETS ${ROCKSDB_SHARED_LIB} COMPONENT runtime DESTINATION lib64)
-install(DIRECTORY "${PROJECT_SOURCE_DIR}/include/rocksdb/"
-        COMPONENT devel
-        DESTINATION include/rocksdb)
-set(CMAKE_INSTALL_PREFIX /usr)
+option(WITH_TOOLS "build with tools" ON)
+if(WITH_TOOLS)
+  add_subdirectory(tools)
 endif()

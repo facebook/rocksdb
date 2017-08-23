@@ -1,34 +1,33 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 
 #include <sstream>
 #include "monitoring/perf_context_imp.h"
-#include "util/thread_local.h"
 
 namespace rocksdb {
 
-#ifdef NPERF_CONTEXT
+#if defined(NPERF_CONTEXT) || !defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
 PerfContext perf_context;
 #else
-ThreadLocalPtr perf_context([](void* ptr) {
-    auto* p = static_cast<PerfContext*>(ptr);
-    delete p;
-  });
+#if defined(OS_SOLARIS)
+__thread PerfContext perf_context_;
+#else
+__thread PerfContext perf_context;
+#endif
 #endif
 
 PerfContext* get_perf_context() {
-#ifdef NPERF_CONTEXT
+#if defined(NPERF_CONTEXT) || !defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
   return &perf_context;
 #else
-  if (perf_context.Get() == nullptr) {
-    perf_context.Reset(static_cast<void*>(new PerfContext()));
-  }
-  return static_cast<PerfContext*>(perf_context.Get());
+#if defined(OS_SOLARIS)
+  return &perf_context_;
+#else
+  return &perf_context;
+#endif
 #endif
 }
 
@@ -41,6 +40,9 @@ void PerfContext::Reset() {
   block_read_time = 0;
   block_checksum_time = 0;
   block_decompress_time = 0;
+  get_read_bytes = 0;
+  multiget_read_bytes = 0;
+  iter_read_bytes = 0;
   internal_key_skipped_count = 0;
   internal_delete_skipped_count = 0;
   internal_recent_skipped_count = 0;
@@ -118,6 +120,9 @@ std::string PerfContext::ToString(bool exclude_zero_counters) const {
   PERF_CONTEXT_OUTPUT(block_read_time);
   PERF_CONTEXT_OUTPUT(block_checksum_time);
   PERF_CONTEXT_OUTPUT(block_decompress_time);
+  PERF_CONTEXT_OUTPUT(get_read_bytes);
+  PERF_CONTEXT_OUTPUT(multiget_read_bytes);
+  PERF_CONTEXT_OUTPUT(iter_read_bytes);
   PERF_CONTEXT_OUTPUT(internal_key_skipped_count);
   PERF_CONTEXT_OUTPUT(internal_delete_skipped_count);
   PERF_CONTEXT_OUTPUT(internal_recent_skipped_count);

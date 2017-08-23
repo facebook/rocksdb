@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 #ifndef ROCKSDB_LITE
 
 #include <stdio.h>
@@ -11,6 +11,7 @@
 #include "utilities/blob_db/blob_db_impl.h"
 
 #include "util/filename.h"
+#include "util/logging.h"
 
 namespace rocksdb {
 
@@ -58,7 +59,7 @@ BlobFile::~BlobFile() {
     std::string pn(PathName());
     Status s = Env::Default()->DeleteFile(PathName());
     if (!s.ok()) {
-      // Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+      // ROCKS_LOG_INFO(db_options_.info_log,
       // "File could not be deleted %s", pn.c_str());
     }
   }
@@ -93,8 +94,8 @@ std::string BlobFile::DumpState() const {
            "path: %s fn: %" PRIu64 " blob_count: %" PRIu64 " gc_epoch: %" PRIu64
            " file_size: %" PRIu64 " deleted_count: %" PRIu64
            " deleted_size: %" PRIu64
-           " closed: %d can_be_deleted: %d ttl_range: (%d, %d)"
-           " sn_range: (%" PRIu64 " %" PRIu64 "), writer: %d reader: %d",
+           " closed: %d can_be_deleted: %d ttl_range: (%" PRIu64 ", %" PRIu64
+           ") sn_range: (%" PRIu64 " %" PRIu64 "), writer: %d reader: %d",
            path_to_dir_.c_str(), file_number_, blob_count_.load(),
            gc_epoch_.load(), file_size_.load(), deleted_count_, deleted_size_,
            closed_.load(), can_be_deleted_.load(), ttl_range_.first,
@@ -110,8 +111,8 @@ bool BlobFile::NeedsFsync(bool hard, uint64_t bytes_per_sync) const {
 }
 
 Status BlobFile::WriteFooterAndCloseLocked() {
-  Log(InfoLogLevel::INFO_LEVEL, parent_->db_options_.info_log,
-      "File is being closed after footer %s", PathName().c_str());
+  ROCKS_LOG_INFO(parent_->db_options_.info_log,
+                 "File is being closed after footer %s", PathName().c_str());
 
   BlobLogFooter footer;
   footer.blob_count_ = blob_count_;
@@ -126,8 +127,9 @@ Status BlobFile::WriteFooterAndCloseLocked() {
     closed_ = true;
     file_size_ += BlobLogFooter::kFooterSize;
   } else {
-    Log(InfoLogLevel::ERROR_LEVEL, parent_->db_options_.info_log,
-        "Failure to read Header for blob-file %s", PathName().c_str());
+    ROCKS_LOG_ERROR(parent_->db_options_.info_log,
+                    "Failure to read Header for blob-file %s",
+                    PathName().c_str());
   }
   // delete the sequential writer
   log_writer_.reset();
@@ -204,15 +206,16 @@ std::shared_ptr<RandomAccessFileReader> BlobFile::GetOrOpenRandomAccessReader(
   std::unique_ptr<RandomAccessFile> rfile;
   Status s = env->NewRandomAccessFile(PathName(), &rfile, env_options);
   if (!s.ok()) {
-    Log(InfoLogLevel::ERROR_LEVEL, parent_->db_options_.info_log,
-        "Failed to open blob file for random-read: %s status: '%s'"
-        " exists: '%s'",
-        PathName().c_str(), s.ToString().c_str(),
-        env->FileExists(PathName()).ToString().c_str());
+    ROCKS_LOG_ERROR(parent_->db_options_.info_log,
+                    "Failed to open blob file for random-read: %s status: '%s'"
+                    " exists: '%s'",
+                    PathName().c_str(), s.ToString().c_str(),
+                    env->FileExists(PathName()).ToString().c_str());
     return nullptr;
   }
 
-  ra_file_reader_ = std::make_shared<RandomAccessFileReader>(std::move(rfile));
+  ra_file_reader_ = std::make_shared<RandomAccessFileReader>(std::move(rfile),
+                                                             PathName());
   *fresh_open = true;
   return ra_file_reader_;
 }

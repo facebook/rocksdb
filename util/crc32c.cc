@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -374,7 +372,9 @@ uint32_t ExtendImpl(uint32_t crc, const char* buf, size_t size) {
 
 // Detect if SS42 or not.
 static bool isSSE42() {
-#if defined(__GNUC__) && defined(__x86_64__) && !defined(IOS_CROSS_COMPILE)
+#ifndef HAVE_SSE42
+  return false;
+#elif defined(__GNUC__) && defined(__x86_64__) && !defined(IOS_CROSS_COMPILE)
   uint32_t c_;
   uint32_t d_;
   __asm__("cpuid" : "=c"(c_), "=d"(d_) : "a"(1) : "ebx");
@@ -395,11 +395,7 @@ static inline Function Choose_Extend() {
 }
 
 bool IsFastCrc32Supported() {
-#if defined(__SSE4_2__) || defined(_WIN64)
   return isSSE42();
-#else
-  return false;
-#endif
 }
 
 Function ChosenExtend = Choose_Extend();

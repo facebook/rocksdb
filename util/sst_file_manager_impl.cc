@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include "util/sst_file_manager_impl.h"
 
@@ -51,9 +49,13 @@ Status SstFileManagerImpl::OnDeleteFile(const std::string& file_path) {
 }
 
 Status SstFileManagerImpl::OnMoveFile(const std::string& old_path,
-                                      const std::string& new_path) {
+                                      const std::string& new_path,
+                                      uint64_t* file_size) {
   {
     MutexLock l(&mu_);
+    if (file_size != nullptr) {
+      *file_size = tracked_files_[old_path];
+    }
     OnAddFileImpl(new_path, tracked_files_[old_path]);
     OnDeleteFileImpl(old_path);
   }

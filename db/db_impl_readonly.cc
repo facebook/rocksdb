@@ -1,10 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
-
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include "db/db_impl_readonly.h"
 
@@ -61,7 +58,7 @@ Iterator* DBImplReadOnly::NewIterator(const ReadOptions& read_options,
   SuperVersion* super_version = cfd->GetSuperVersion()->Ref();
   SequenceNumber latest_snapshot = versions_->LastSequence();
   auto db_iter = NewArenaWrappedDbIterator(
-      env_, read_options, *cfd->ioptions(), cfd->user_comparator(),
+      env_, read_options, *cfd->ioptions(),
       (read_options.snapshot != nullptr
            ? reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)
                  ->number_
@@ -90,7 +87,7 @@ Status DBImplReadOnly::NewIterators(
     auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
     auto* sv = cfd->GetSuperVersion()->Ref();
     auto* db_iter = NewArenaWrappedDbIterator(
-        env_, read_options, *cfd->ioptions(), cfd->user_comparator(),
+        env_, read_options, *cfd->ioptions(),
         (read_options.snapshot != nullptr
              ? reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)
                    ->number_

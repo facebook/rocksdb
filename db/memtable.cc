@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -645,6 +643,14 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
   }
   PERF_TIMER_GUARD(get_from_memtable_time);
 
+  std::unique_ptr<InternalIterator> range_del_iter(
+      NewRangeTombstoneIterator(read_opts));
+  Status status = range_del_agg->AddTombstones(std::move(range_del_iter));
+  if (!status.ok()) {
+    *s = status;
+    return false;
+  }
+
   Slice user_key = key.user_key();
   bool found_final_value = false;
   bool merge_in_progress = s->IsMergeInProgress();
@@ -659,13 +665,6 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
   } else {
     if (prefix_bloom_) {
       PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
-    }
-    std::unique_ptr<InternalIterator> range_del_iter(
-        NewRangeTombstoneIterator(read_opts));
-    Status status = range_del_agg->AddTombstones(std::move(range_del_iter));
-    if (!status.ok()) {
-      *s = status;
-      return false;
     }
     Saver saver;
     saver.status = s;

@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include "rocksdb/table_properties.h"
 #include "port/port.h"
@@ -93,6 +91,12 @@ std::string TableProperties::ToString(
 
   AppendProperty(result, "data block size", data_size, prop_delim, kv_delim);
   AppendProperty(result, "index block size", index_size, prop_delim, kv_delim);
+  if (index_partitions != 0) {
+    AppendProperty(result, "# index partitions", index_partitions, prop_delim,
+                   kv_delim);
+    AppendProperty(result, "top-level index size", top_level_index_size, prop_delim,
+                   kv_delim);
+  }
   AppendProperty(result, "filter block size", filter_size, prop_delim,
                  kv_delim);
   AppendProperty(result, "(estimated) table size",
@@ -133,12 +137,16 @@ std::string TableProperties::ToString(
       compression_name.empty() ? std::string("N/A") : compression_name,
       prop_delim, kv_delim);
 
+  AppendProperty(result, "creation time", creation_time, prop_delim, kv_delim);
+
   return result;
 }
 
 void TableProperties::Add(const TableProperties& tp) {
   data_size += tp.data_size;
   index_size += tp.index_size;
+  index_partitions += tp.index_partitions;
+  top_level_index_size += tp.top_level_index_size;
   filter_size += tp.filter_size;
   raw_key_size += tp.raw_key_size;
   raw_value_size += tp.raw_value_size;
@@ -150,6 +158,10 @@ const std::string TablePropertiesNames::kDataSize  =
     "rocksdb.data.size";
 const std::string TablePropertiesNames::kIndexSize =
     "rocksdb.index.size";
+const std::string TablePropertiesNames::kIndexPartitions =
+    "rocksdb.index.partitions";
+const std::string TablePropertiesNames::kTopLevelIndexSize =
+    "rocksdb.top-level.index.size";
 const std::string TablePropertiesNames::kFilterSize =
     "rocksdb.filter.size";
 const std::string TablePropertiesNames::kRawKeySize =
@@ -178,6 +190,7 @@ const std::string TablePropertiesNames::kPrefixExtractorName =
 const std::string TablePropertiesNames::kPropertyCollectors =
     "rocksdb.property.collectors";
 const std::string TablePropertiesNames::kCompression = "rocksdb.compression";
+const std::string TablePropertiesNames::kCreationTime = "rocksdb.creation.time";
 
 extern const std::string kPropertiesBlock = "rocksdb.properties";
 // Old property block name for backward compatibility

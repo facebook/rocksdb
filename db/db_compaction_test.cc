@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -1919,7 +1917,7 @@ TEST_F(DBCompactionTest, ManualAutoRace) {
 
   // The auto compaction is scheduled but waited until here
   TEST_SYNC_POINT("DBCompactionTest::ManualAutoRace:1");
-  // The auto compaction will wait until the the manual compaction is registerd
+  // The auto compaction will wait until the manual compaction is registerd
   // before processing so that it will be cancelled.
   dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr, nullptr);
   ASSERT_EQ("0,1", FilesPerLevel(1));
@@ -2604,13 +2602,11 @@ TEST_P(DBCompactionTestWithParam, IntraL0Compaction) {
   // Files 6-9 are the longest span of available files for which
   // work-per-deleted-file decreases (see "score" row above).
   for (int i = 0; i < 10; ++i) {
-    for (int j = 0; j < 2; ++j) {
-      ASSERT_OK(Put(Key(0), ""));  // prevents trivial move
-      if (i == 5) {
-        ASSERT_OK(Put(Key(i + 1), value + value));
-      } else {
-        ASSERT_OK(Put(Key(i + 1), value));
-      }
+    ASSERT_OK(Put(Key(0), ""));  // prevents trivial move
+    if (i == 5) {
+      ASSERT_OK(Put(Key(i + 1), value + value));
+    } else {
+      ASSERT_OK(Put(Key(i + 1), value));
     }
     ASSERT_OK(Flush());
   }
@@ -2625,8 +2621,107 @@ TEST_P(DBCompactionTestWithParam, IntraL0Compaction) {
   ASSERT_EQ(2, level_to_files[0].size());
   ASSERT_GT(level_to_files[1].size(), 0);
   for (int i = 0; i < 2; ++i) {
-    ASSERT_GE(level_to_files[0][0].fd.file_size, 1 << 21);
+    ASSERT_GE(level_to_files[0][i].fd.file_size, 1 << 21);
   }
+}
+
+TEST_P(DBCompactionTestWithParam, IntraL0CompactionDoesNotObsoleteDeletions) {
+  // regression test for issue #2722: L0->L0 compaction can resurrect deleted
+  // keys from older L0 files if L1+ files' key-ranges do not include the key.
+  Options options = CurrentOptions();
+  options.compression = kNoCompression;
+  options.level0_file_num_compaction_trigger = 5;
+  options.max_background_compactions = 2;
+  options.max_subcompactions = max_subcompactions_;
+  DestroyAndReopen(options);
+
+  const size_t kValueSize = 1 << 20;
+  Random rnd(301);
+  std::string value(RandomString(&rnd, kValueSize));
+
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {{"LevelCompactionPicker::PickCompactionBySize:0",
+        "CompactionJob::Run():Start"}});
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  // index:   0   1   2   3   4    5    6   7   8   9
+  // size:  1MB 1MB 1MB 1MB 1MB  1MB  1MB 1MB 1MB 1MB
+  // score:                     1.25 1.33 1.5 2.0 inf
+  //
+  // Files 0-4 will be included in an L0->L1 compaction.
+  //
+  // L0->L0 will be triggered since the sync points guarantee compaction to base
+  // level is still blocked when files 5-9 trigger another compaction. All files
+  // 5-9 are included in the L0->L0 due to work-per-deleted file decreasing.
+  //
+  // Put a key-value in files 0-4. Delete that key in files 5-9. Verify the
+  // L0->L0 preserves the deletion such that the key remains deleted.
+  for (int i = 0; i < 10; ++i) {
+    // key 0 serves both to prevent trivial move and as the key we want to
+    // verify is not resurrected by L0->L0 compaction.
+    if (i < 5) {
+      ASSERT_OK(Put(Key(0), ""));
+    } else {
+      ASSERT_OK(Delete(Key(0)));
+    }
+    ASSERT_OK(Put(Key(i + 1), value));
+    ASSERT_OK(Flush());
+  }
+  dbfull()->TEST_WaitForCompact();
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+
+  std::vector<std::vector<FileMetaData>> level_to_files;
+  dbfull()->TEST_GetFilesMetaData(dbfull()->DefaultColumnFamily(),
+                                  &level_to_files);
+  ASSERT_GE(level_to_files.size(), 2);  // at least L0 and L1
+  // L0 has a single output file from L0->L0
+  ASSERT_EQ(1, level_to_files[0].size());
+  ASSERT_GT(level_to_files[1].size(), 0);
+  ASSERT_GE(level_to_files[0][0].fd.file_size, 1 << 22);
+
+  ReadOptions roptions;
+  std::string result;
+  ASSERT_TRUE(db_->Get(roptions, Key(0), &result).IsNotFound());
+}
+
+TEST_F(DBCompactionTest, OptimizedDeletionObsoleting) {
+  // Deletions can be dropped when compacted to non-last level if they fall
+  // outside the lower-level files' key-ranges.
+  const int kNumL0Files = 4;
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = kNumL0Files;
+  options.statistics = rocksdb::CreateDBStatistics();
+  DestroyAndReopen(options);
+
+  // put key 1 and 3 in separate L1, L2 files.
+  // So key 0, 2, and 4+ fall outside these levels' key-ranges.
+  for (int level = 2; level >= 1; --level) {
+    for (int i = 0; i < 2; ++i) {
+      Put(Key(2 * i + 1), "val");
+      Flush();
+    }
+    MoveFilesToLevel(level);
+    ASSERT_EQ(2, NumTableFilesAtLevel(level));
+  }
+
+  // Delete keys in range [1, 4]. These L0 files will be compacted with L1:
+  // - Tombstones for keys 2 and 4 can be dropped early.
+  // - Tombstones for keys 1 and 3 must be kept due to L2 files' key-ranges.
+  for (int i = 0; i < kNumL0Files; ++i) {
+    Put(Key(0), "val");  // sentinel to prevent trivial move
+    Delete(Key(i + 1));
+    Flush();
+  }
+  dbfull()->TEST_WaitForCompact();
+
+  for (int i = 0; i < kNumL0Files; ++i) {
+    std::string value;
+    ASSERT_TRUE(db_->Get(ReadOptions(), Key(i + 1), &value).IsNotFound());
+  }
+  ASSERT_EQ(2, options.statistics->getTickerCount(
+                   COMPACTION_OPTIMIZED_DEL_DROP_OBSOLETE));
+  ASSERT_EQ(2,
+            options.statistics->getTickerCount(COMPACTION_KEY_DROP_OBSOLETE));
 }
 
 INSTANTIATE_TEST_CASE_P(DBCompactionTestWithParam, DBCompactionTestWithParam,

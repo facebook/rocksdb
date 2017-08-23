@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -13,6 +11,7 @@
 #include <algorithm>
 #include <chrono>
 #include "port/sys_time.h"
+#include "util/cast_util.h"
 #include "util/murmurhash.h"
 #include "util/random.h"
 #include "util/rate_limiter.h"
@@ -148,7 +147,7 @@ class MemFile {
 
  private:
   uint64_t Now() {
-    int64_t unix_time;
+    int64_t unix_time = 0;
     auto s = env_->GetCurrentTime(&unix_time);
     assert(s.ok());
     return static_cast<uint64_t>(unix_time);
@@ -378,7 +377,8 @@ class TestMemLogger : public Logger {
       struct timeval now_tv;
       gettimeofday(&now_tv, nullptr);
       const time_t seconds = now_tv.tv_sec;
-      struct tm t{0, 0, 0, 0, 0, 0, 0, 0, 0};
+      struct tm t;
+      memset(&t, 0, sizeof(t));
       auto ret __attribute__((__unused__)) = localtime_r(&seconds, &t);
       assert(ret);
       p += snprintf(p, limit - p,
@@ -712,7 +712,8 @@ Status MockEnv::LockFile(const std::string& fname, FileLock** flock) {
 }
 
 Status MockEnv::UnlockFile(FileLock* flock) {
-  std::string fn = dynamic_cast<MockEnvFileLock*>(flock)->FileName();
+  std::string fn =
+      static_cast_with_check<MockEnvFileLock, FileLock>(flock)->FileName();
   {
     MutexLock lock(&mutex_);
     if (file_map_.find(fn) != file_map_.end()) {
@@ -733,7 +734,9 @@ Status MockEnv::GetTestDirectory(std::string* path) {
 
 Status MockEnv::GetCurrentTime(int64_t* unix_time) {
   auto s = EnvWrapper::GetCurrentTime(unix_time);
-  *unix_time += fake_sleep_micros_.load() / (1000 * 1000);
+  if (s.ok()) {
+    *unix_time += fake_sleep_micros_.load() / (1000 * 1000);
+  }
   return s;
 }
 

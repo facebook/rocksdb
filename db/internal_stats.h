@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -272,10 +270,15 @@ class InternalStats {
     ++cf_stats_count_[type];
   }
 
-  void AddDBStats(InternalDBStatsType type, uint64_t value) {
+  void AddDBStats(InternalDBStatsType type, uint64_t value,
+                  bool concurrent = false) {
     auto& v = db_stats_[type];
-    v.store(v.load(std::memory_order_relaxed) + value,
-            std::memory_order_relaxed);
+    if (concurrent) {
+      v.fetch_add(value, std::memory_order_relaxed);
+    } else {
+      v.store(v.load(std::memory_order_relaxed) + value,
+              std::memory_order_relaxed);
+    }
   }
 
   uint64_t GetDBStats(InternalDBStatsType type) {
@@ -550,7 +553,8 @@ class InternalStats {
 
   void AddCFStats(InternalCFStatsType type, uint64_t value) {}
 
-  void AddDBStats(InternalDBStatsType type, uint64_t value) {}
+  void AddDBStats(InternalDBStatsType type, uint64_t value,
+                  bool concurrent = false) {}
 
   HistogramImpl* GetFileReadHist(int level) { return nullptr; }
 

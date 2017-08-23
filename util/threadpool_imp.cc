@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -125,11 +123,11 @@ private:
 
 inline
 ThreadPoolImpl::Impl::Impl()
-    : 
+    :
       low_io_priority_(false),
       priority_(Env::LOW),
       env_(nullptr),
-      total_threads_limit_(1),
+      total_threads_limit_(0),
       queue_len_(),
       exit_all_threads_(false),
       wait_for_jobs_to_complete_(false),
@@ -374,7 +372,7 @@ int ThreadPoolImpl::Impl::UnSchedule(void* arg) {
   return count;
 }
 
-ThreadPoolImpl::ThreadPoolImpl() : 
+ThreadPoolImpl::ThreadPoolImpl() :
   impl_(new Impl()) {
 }
 

@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 #ifndef ROCKSDB_LITE
 #include "rocksdb/utilities/ldb_cmd.h"
@@ -31,6 +29,7 @@
 #include "table/scoped_arena_iterator.h"
 #include "tools/ldb_cmd_impl.h"
 #include "tools/sst_dump_tool_imp.h"
+#include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/filename.h"
 #include "util/stderr_logger.h"
@@ -60,6 +59,8 @@ const std::string LDBCommand::ARG_TTL_START = "start_time";
 const std::string LDBCommand::ARG_TTL_END = "end_time";
 const std::string LDBCommand::ARG_TIMESTAMP = "timestamp";
 const std::string LDBCommand::ARG_TRY_LOAD_OPTIONS = "try_load_options";
+const std::string LDBCommand::ARG_IGNORE_UNKNOWN_OPTIONS =
+    "ignore_unknown_options";
 const std::string LDBCommand::ARG_FROM = "from";
 const std::string LDBCommand::ARG_TO = "to";
 const std::string LDBCommand::ARG_MAX_KEYS = "max_keys";
@@ -284,6 +285,7 @@ LDBCommand::LDBCommand(const std::map<std::string, std::string>& options,
       is_db_ttl_(false),
       timestamp_(false),
       try_load_options_(false),
+      ignore_unknown_options_(false),
       create_if_missing_(false),
       option_map_(options),
       flags_(flags),
@@ -305,14 +307,15 @@ LDBCommand::LDBCommand(const std::map<std::string, std::string>& options,
   is_db_ttl_ = IsFlagPresent(flags, ARG_TTL);
   timestamp_ = IsFlagPresent(flags, ARG_TIMESTAMP);
   try_load_options_ = IsFlagPresent(flags, ARG_TRY_LOAD_OPTIONS);
+  ignore_unknown_options_ = IsFlagPresent(flags, ARG_IGNORE_UNKNOWN_OPTIONS);
 }
 
 void LDBCommand::OpenDB() {
   Options opt;
   bool opt_set = false;
   if (!create_if_missing_ && try_load_options_) {
-    Status s =
-        LoadLatestOptions(db_path_, Env::Default(), &opt, &column_families_);
+    Status s = LoadLatestOptions(db_path_, Env::Default(), &opt,
+                                 &column_families_, ignore_unknown_options_);
     if (s.ok()) {
       opt_set = true;
     } else if (!s.IsNotFound()) {
@@ -440,6 +443,7 @@ std::vector<std::string> LDBCommand::BuildCmdLineOptions(
                                   ARG_FILE_SIZE,
                                   ARG_FIX_PREFIX_LEN,
                                   ARG_TRY_LOAD_OPTIONS,
+                                  ARG_IGNORE_UNKNOWN_OPTIONS,
                                   ARG_CF_NAME};
   ret.insert(ret.end(), options.begin(), options.end());
   return ret;
@@ -1081,7 +1085,7 @@ CreateColumnFamilyCommand::CreateColumnFamilyCommand(
 }
 
 void CreateColumnFamilyCommand::DoCommand() {
-  ColumnFamilyHandle* new_cf_handle;
+  ColumnFamilyHandle* new_cf_handle = nullptr;
   Status st = db_->CreateColumnFamily(options_, new_cf_name_, &new_cf_handle);
   if (st.ok()) {
     fprintf(stdout, "OK\n");
@@ -1490,8 +1494,7 @@ void DBDumperCommand::DoDumpCommand() {
     if (max_keys == 0)
       break;
     if (is_db_ttl_) {
-      TtlIterator* it_ttl = dynamic_cast<TtlIterator*>(iter);
-      assert(it_ttl);
+      TtlIterator* it_ttl = static_cast_with_check<TtlIterator, Iterator>(iter);
       rawtime = it_ttl->timestamp();
       if (rawtime < ttl_start || rawtime >= ttl_end) {
         continue;
@@ -2288,8 +2291,7 @@ void ScanCommand::DoCommand() {
         it->Valid() && (!end_key_specified_ || it->key().ToString() < end_key_);
         it->Next()) {
     if (is_db_ttl_) {
-      TtlIterator* it_ttl = dynamic_cast<TtlIterator*>(it);
-      assert(it_ttl);
+      TtlIterator* it_ttl = static_cast_with_check<TtlIterator, Iterator>(it);
       int rawtime = it_ttl->timestamp();
       if (rawtime < ttl_start || rawtime >= ttl_end) {
         continue;

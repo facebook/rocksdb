@@ -41,6 +41,7 @@ static char dbname[200];
 static char sstfilename[200];
 static char dbbackupname[200];
 static char dbcheckpointname[200];
+static char dbpathname[200];
 
 static void StartPhase(const char* name) {
   fprintf(stderr, "=== Test %s\n", name);
@@ -347,10 +348,25 @@ static void CheckTxnDBGet(
         Free(&val);
 }
 
+static void CheckTxnDBGetCF(rocksdb_transactiondb_t* txn_db,
+                            const rocksdb_readoptions_t* options,
+                            rocksdb_column_family_handle_t* column_family,
+                            const char* key, const char* expected) {
+  char* err = NULL;
+  size_t val_len;
+  char* val;
+  val = rocksdb_transactiondb_get_cf(txn_db, options, column_family, key,
+                                     strlen(key), &val_len, &err);
+  CheckNoError(err);
+  CheckEqual(expected, val, val_len);
+  Free(&val);
+}
+
 int main(int argc, char** argv) {
   rocksdb_t* db;
   rocksdb_comparator_t* cmp;
   rocksdb_cache_t* cache;
+  rocksdb_dbpath_t *dbpath;
   rocksdb_env_t* env;
   rocksdb_options_t* options;
   rocksdb_compactoptions_t* coptions;
@@ -385,8 +401,14 @@ int main(int argc, char** argv) {
            GetTempDir(),
            ((int)geteuid()));
 
+  snprintf(dbpathname, sizeof(dbpathname),
+           "%s/rocksdb_c_test-%d-dbpath",
+           GetTempDir(),
+           ((int) geteuid()));
+
   StartPhase("create_objects");
   cmp = rocksdb_comparator_create(NULL, CmpDestroy, CmpCompare, CmpName);
+  dbpath = rocksdb_dbpath_create(dbpathname, 1024 * 1024);
   env = rocksdb_create_default_env();
   cache = rocksdb_cache_create_lru(100000);
 
@@ -1357,6 +1379,18 @@ int main(int argc, char** argv) {
     CheckNoError(err);
     CheckTxnDBGet(txn_db, roptions, "foo", NULL);
 
+    // write batch into TransactionDB
+    rocksdb_writebatch_t* wb = rocksdb_writebatch_create();
+    rocksdb_writebatch_put(wb, "foo", 3, "a", 1);
+    rocksdb_writebatch_clear(wb);
+    rocksdb_writebatch_put(wb, "bar", 3, "b", 1);
+    rocksdb_writebatch_put(wb, "box", 3, "c", 1);
+    rocksdb_writebatch_delete(wb, "bar", 3);
+    rocksdb_transactiondb_write(txn_db, woptions, wb, &err);
+    rocksdb_writebatch_destroy(wb);
+    CheckTxnDBGet(txn_db, roptions, "box", "c");
+    CheckNoError(err);
+
     // begin a transaction
     txn = rocksdb_transaction_begin(txn_db, woptions, txn_options, NULL);
     // put
@@ -1413,6 +1447,23 @@ int main(int argc, char** argv) {
     CheckNoError(err);
     CheckTxnDBGet(txn_db, roptions, "bar", NULL);
 
+    // Column families.
+    rocksdb_column_family_handle_t* cfh;
+    cfh = rocksdb_transactiondb_create_column_family(txn_db, options,
+                                                     "txn_db_cf", &err);
+    CheckNoError(err);
+
+    rocksdb_transactiondb_put_cf(txn_db, woptions, cfh, "cf_foo", 6, "cf_hello",
+                                 8, &err);
+    CheckNoError(err);
+    CheckTxnDBGetCF(txn_db, roptions, cfh, "cf_foo", "cf_hello");
+
+    rocksdb_transactiondb_delete_cf(txn_db, woptions, cfh, "cf_foo", 6, &err);
+    CheckNoError(err);
+    CheckTxnDBGetCF(txn_db, roptions, cfh, "cf_foo", NULL);
+
+    rocksdb_column_family_handle_destroy(cfh);
+
     // close and destroy
     rocksdb_transaction_destroy(txn);
     rocksdb_transactiondb_close(txn_db);
@@ -1440,6 +1491,18 @@ int main(int argc, char** argv) {
     CheckNoError(err);
   }
 
+  // Simple sanity check that options setting db_paths work.
+  StartPhase("open_db_paths");
+  {
+    rocksdb_close(db);
+    rocksdb_destroy_db(options, dbname, &err);
+
+    const rocksdb_dbpath_t* paths[1] = {dbpath};
+    rocksdb_options_set_db_paths(options, paths, 1);
+    db = rocksdb_open(options, dbname, &err);
+    CheckNoError(err);
+  }
+  
   StartPhase("cleanup");
   rocksdb_close(db);
   rocksdb_options_destroy(options);
@@ -1449,6 +1512,7 @@ int main(int argc, char** argv) {
   rocksdb_compactoptions_destroy(coptions);
   rocksdb_cache_destroy(cache);
   rocksdb_comparator_destroy(cmp);
+  rocksdb_dbpath_destroy(dbpath);
   rocksdb_env_destroy(env);
 
   fprintf(stderr, "PASS\n");

@@ -1,8 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in
-//  the LICENSE file in the root directory of this source tree. An
-//  additional grant of patent rights can be found in the PATENTS file
-//  in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -303,6 +302,7 @@ class ColumnFamilyTest : public testing::Test {
         ASSERT_OK(Put(cf, key, RandomString(&rnd_, key_value_size - 10)));
       }
     }
+    db_->FlushWAL(false);
   }
 
 #ifndef ROCKSDB_LITE  // TEST functions in DB are not supported in lite
@@ -521,6 +521,30 @@ TEST_F(ColumnFamilyTest, DontReuseColumnFamilyID) {
   }
 }
 
+#ifndef ROCKSDB_LITE
+TEST_F(ColumnFamilyTest, CreateCFRaceWithGetAggProperty) {
+  Open();
+
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::WriteOptionsFile:1",
+        "ColumnFamilyTest.CreateCFRaceWithGetAggProperty:1"},
+       {"ColumnFamilyTest.CreateCFRaceWithGetAggProperty:2",
+        "DBImpl::WriteOptionsFile:2"}});
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  rocksdb::port::Thread thread([&] { CreateColumnFamilies({"one"}); });
+
+  TEST_SYNC_POINT("ColumnFamilyTest.CreateCFRaceWithGetAggProperty:1");
+  uint64_t pv;
+  db_->GetAggregatedIntProperty(DB::Properties::kEstimateTableReadersMem, &pv);
+  TEST_SYNC_POINT("ColumnFamilyTest.CreateCFRaceWithGetAggProperty:2");
+
+  thread.join();
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+#endif  // !ROCKSDB_LITE
+
 class FlushEmptyCFTestWithParam : public ColumnFamilyTest,
                                   public testing::WithParamInterface<bool> {
  public:
@@ -558,6 +582,7 @@ TEST_P(FlushEmptyCFTestWithParam, FlushEmptyCFTest) {
   Flush(0);
   ASSERT_OK(Put(1, "bar", "v3"));  // seqID 4
   ASSERT_OK(Put(1, "foo", "v4"));  // seqID 5
+  db_->FlushWAL(false);
 
   // Preserve file system state up to here to simulate a crash condition.
   fault_env->SetFilesystemActive(false);
@@ -620,6 +645,7 @@ TEST_P(FlushEmptyCFTestWithParam, FlushEmptyCFTest2) {
   // Write to log file D
   ASSERT_OK(Put(1, "bar", "v4"));  // seqID 7
   ASSERT_OK(Put(1, "bar", "v5"));  // seqID 8
+  db_->FlushWAL(false);
   // Preserve file system state up to here to simulate a crash condition.
   fault_env->SetFilesystemActive(false);
   std::vector<std::string> names;

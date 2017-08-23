@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
 
@@ -57,7 +55,7 @@ class WriteThread {
 
     // The state used to inform a waiting writer that it has become a
     // parallel memtable writer. It can be the group leader who launch the
-    // praallel writer group, or one of the followers. The writer should then
+    // parallel writer group, or one of the followers. The writer should then
     // apply its batch to the memtable concurrently and call
     // CompleteParallelMemTableWriter.
     STATE_PARALLEL_MEMTABLE_WRITER = 8,

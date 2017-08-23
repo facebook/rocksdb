@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 #ifndef ROCKSDB_LITE
 
@@ -49,15 +47,13 @@ void ColumnAwareEncodingReader::InitTableReader(const std::string& file_path) {
   options_.env->NewRandomAccessFile(file_path, &file, soptions_);
   options_.env->GetFileSize(file_path, &file_size);
 
-  file_.reset(new RandomAccessFileReader(std::move(file)));
+  file_.reset(new RandomAccessFileReader(std::move(file), file_path));
 
   options_.comparator = &internal_comparator_;
   options_.table_factory = std::make_shared<BlockBasedTableFactory>();
-  shared_ptr<BlockBasedTableFactory> block_table_factory =
-      std::dynamic_pointer_cast<BlockBasedTableFactory>(options_.table_factory);
 
   std::unique_ptr<TableReader> table_reader;
-  block_table_factory->NewTableReader(
+  options_.table_factory->NewTableReader(
       TableReaderOptions(ioptions_, soptions_, internal_comparator_,
                          /*skip_filters=*/false),
       std::move(file_), file_size, &table_reader, /*enable_prefetch=*/false);

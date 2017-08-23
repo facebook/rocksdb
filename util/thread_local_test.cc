@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include <thread>
 #include <atomic>
@@ -67,54 +65,53 @@ TEST_F(ThreadLocalTest, UniqueIdTest) {
   port::Mutex mu;
   port::CondVar cv(&mu);
 
-  // perf_context and iostats_context take 2 ids
-  ASSERT_EQ(IDChecker::PeekId(), 2u);
+  ASSERT_EQ(IDChecker::PeekId(), 0u);
   // New ThreadLocal instance bumps id by 1
   {
-    // Id used 2
+    // Id used 0
     Params p1(&mu, &cv, nullptr, 1u);
+    ASSERT_EQ(IDChecker::PeekId(), 1u);
+    // Id used 1
+    Params p2(&mu, &cv, nullptr, 1u);
+    ASSERT_EQ(IDChecker::PeekId(), 2u);
+    // Id used 2
+    Params p3(&mu, &cv, nullptr, 1u);
     ASSERT_EQ(IDChecker::PeekId(), 3u);
     // Id used 3
-    Params p2(&mu, &cv, nullptr, 1u);
-    ASSERT_EQ(IDChecker::PeekId(), 4u);
-    // Id used 4
-    Params p3(&mu, &cv, nullptr, 1u);
-    ASSERT_EQ(IDChecker::PeekId(), 5u);
-    // Id used 5
     Params p4(&mu, &cv, nullptr, 1u);
-    ASSERT_EQ(IDChecker::PeekId(), 6u);
+    ASSERT_EQ(IDChecker::PeekId(), 4u);
   }
-  // id 5, 4, 3, 2 are in the free queue in order
-  ASSERT_EQ(IDChecker::PeekId(), 2u);
+  // id 3, 2, 1, 0 are in the free queue in order
+  ASSERT_EQ(IDChecker::PeekId(), 0u);
 
-  // pick up 2
+  // pick up 0
   Params p1(&mu, &cv, nullptr, 1u);
-  ASSERT_EQ(IDChecker::PeekId(), 3u);
-  // pick up 3
+  ASSERT_EQ(IDChecker::PeekId(), 1u);
+  // pick up 1
   Params* p2 = new Params(&mu, &cv, nullptr, 1u);
-  ASSERT_EQ(IDChecker::PeekId(), 4u);
-  // pick up 4
+  ASSERT_EQ(IDChecker::PeekId(), 2u);
+  // pick up 2
   Params p3(&mu, &cv, nullptr, 1u);
-  ASSERT_EQ(IDChecker::PeekId(), 5u);
-  // return up 3
-  delete p2;
   ASSERT_EQ(IDChecker::PeekId(), 3u);
-  // Now we have 4, 2 in queue
-  // pick up 3
+  // return up 1
+  delete p2;
+  ASSERT_EQ(IDChecker::PeekId(), 1u);
+  // Now we have 3, 1 in queue
+  // pick up 1
   Params p4(&mu, &cv, nullptr, 1u);
-  ASSERT_EQ(IDChecker::PeekId(), 5u);
-  // pick up 5
+  ASSERT_EQ(IDChecker::PeekId(), 3u);
+  // pick up 3
   Params p5(&mu, &cv, nullptr, 1u);
   // next new id
-  ASSERT_EQ(IDChecker::PeekId(), 6u);
+  ASSERT_EQ(IDChecker::PeekId(), 4u);
   // After exit, id sequence in queue:
-  // 5, 4, 3, 2(, 1, 0)
+  // 3, 1, 2, 0
 }
 #endif  // __clang_analyzer__
 
 TEST_F(ThreadLocalTest, SequentialReadWriteTest) {
-  // global id list carries over 5, 4, 3, 2
-  ASSERT_EQ(IDChecker::PeekId(), 2u);
+  // global id list carries over 3, 1, 2, 0
+  ASSERT_EQ(IDChecker::PeekId(), 0u);
 
   port::Mutex mu;
   port::CondVar cv(&mu);
@@ -144,7 +141,7 @@ TEST_F(ThreadLocalTest, SequentialReadWriteTest) {
   };
 
   for (int iter = 0; iter < 1024; ++iter) {
-    ASSERT_EQ(IDChecker::PeekId(), 3u);
+    ASSERT_EQ(IDChecker::PeekId(), 1u);
     // Another new thread, read/write should not see value from previous thread
     env_->StartThread(func, static_cast<void*>(&p));
     mu.Lock();
@@ -152,13 +149,13 @@ TEST_F(ThreadLocalTest, SequentialReadWriteTest) {
       cv.Wait();
     }
     mu.Unlock();
-    ASSERT_EQ(IDChecker::PeekId(), 3u);
+    ASSERT_EQ(IDChecker::PeekId(), 1u);
   }
 }
 
 TEST_F(ThreadLocalTest, ConcurrentReadWriteTest) {
-  // global id list carries over 5, 4, 3, 2
-  ASSERT_EQ(IDChecker::PeekId(), 2u);
+  // global id list carries over 3, 1, 2, 0
+  ASSERT_EQ(IDChecker::PeekId(), 0u);
 
   ThreadLocalPtr tls2;
   port::Mutex mu1;
@@ -239,11 +236,11 @@ TEST_F(ThreadLocalTest, ConcurrentReadWriteTest) {
   }
   mu2.Unlock();
 
-  ASSERT_EQ(IDChecker::PeekId(), 5u);
+  ASSERT_EQ(IDChecker::PeekId(), 3u);
 }
 
 TEST_F(ThreadLocalTest, Unref) {
-  ASSERT_EQ(IDChecker::PeekId(), 2u);
+  ASSERT_EQ(IDChecker::PeekId(), 0u);
 
   auto unref = [](void* ptr) {
     auto& p = *static_cast<Params*>(ptr);
@@ -572,7 +569,7 @@ TEST_F(ThreadLocalTest, DISABLED_MainThreadDiesFirst) {
 #ifndef ROCKSDB_LITE
   } catch (const std::system_error& ex) {
     std::cerr << "Start thread: " << ex.code() << std::endl;
-    ASSERT_TRUE(false);
+    FAIL();
   }
 #endif  // ROCKSDB_LITE
 }

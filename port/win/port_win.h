@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -29,6 +27,7 @@
 #include <mutex>
 #include <limits>
 #include <condition_variable>
+#include <malloc.h>
 
 #include <stdint.h>
 
@@ -239,6 +238,23 @@ extern void InitOnce(OnceType* once, void (*initializer)());
 
 #ifndef CACHE_LINE_SIZE
 #define CACHE_LINE_SIZE 64U
+#endif
+
+
+inline void *cacheline_aligned_alloc(size_t size) {
+  return _aligned_malloc(CACHE_LINE_SIZE, size);
+}
+
+inline void cacheline_aligned_free(void *memblock) {
+  _aligned_free(memblock);
+}
+
+// https://gcc.gnu.org/bugzilla/show_bug.cgi?id=52991 for MINGW32
+// could not be worked around with by -mno-ms-bitfields
+#ifndef __MINGW32__
+#define ALIGN_AS(n) __declspec(align(n))
+#else
+#define ALIGN_AS(n)
 #endif
 
 static inline void AsmVolatilePause() {

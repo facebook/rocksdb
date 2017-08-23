@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include "db/compaction_picker.h"
 #include <limits>
@@ -514,7 +512,7 @@ TEST_F(CompactionPickerTest, NeedsCompactionFIFO) {
         kFileSize, 0, i * 100, i * 100 + 99);
     current_size += kFileSize;
     UpdateVersionStorageInfo();
-    ASSERT_EQ(level_compaction_picker.NeedsCompaction(vstorage_.get()),
+    ASSERT_EQ(fifo_compaction_picker.NeedsCompaction(vstorage_.get()),
               vstorage_->CompactionScore(0) >= 1);
   }
 }
@@ -852,6 +850,80 @@ TEST_F(CompactionPickerTest, OverlappingUserKeys9) {
   ASSERT_EQ(4U, compaction->input(0, 3)->fd.GetNumber());
   ASSERT_EQ(7U, compaction->input(1, 0)->fd.GetNumber());
   ASSERT_EQ(8U, compaction->input(1, 1)->fd.GetNumber());
+}
+
+TEST_F(CompactionPickerTest, OverlappingUserKeys10) {
+  // Locked file encountered when pulling in extra input-level files with same
+  // user keys. Verify we pick the next-best file from the same input level.
+  NewVersionStorage(6, kCompactionStyleLevel);
+  mutable_cf_options_.max_compaction_bytes = 100000000000u;
+
+  // file_number 2U is largest and thus first choice. But it overlaps with
+  // file_number 1U which is being compacted. So instead we pick the next-
+  // biggest file, 3U, which is eligible for compaction.
+  Add(1 /* level */, 1U /* file_number */, "100" /* smallest */,
+      "150" /* largest */, 1U /* file_size */);
+  file_map_[1U].first->being_compacted = true;
+  Add(1 /* level */, 2U /* file_number */, "150" /* smallest */,
+      "200" /* largest */, 1000000000U /* file_size */, 0 /* smallest_seq */,
+      0 /* largest_seq */);
+  Add(1 /* level */, 3U /* file_number */, "201" /* smallest */,
+      "250" /* largest */, 900000000U /* file_size */);
+  Add(2 /* level */, 4U /* file_number */, "100" /* smallest */,
+      "150" /* largest */, 1U /* file_size */);
+  Add(2 /* level */, 5U /* file_number */, "151" /* smallest */,
+      "200" /* largest */, 1U /* file_size */);
+  Add(2 /* level */, 6U /* file_number */, "201" /* smallest */,
+      "250" /* largest */, 1U /* file_size */);
+
+  UpdateVersionStorageInfo();
+
+  std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
+      cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
+  ASSERT_TRUE(compaction.get() != nullptr);
+  ASSERT_EQ(2U, compaction->num_input_levels());
+  ASSERT_EQ(1U, compaction->num_input_files(0));
+  ASSERT_EQ(1U, compaction->num_input_files(1));
+  ASSERT_EQ(3U, compaction->input(0, 0)->fd.GetNumber());
+  ASSERT_EQ(6U, compaction->input(1, 0)->fd.GetNumber());
+}
+
+TEST_F(CompactionPickerTest, OverlappingUserKeys11) {
+  // Locked file encountered when pulling in extra output-level files with same
+  // user keys. Expected to skip that compaction and pick the next-best choice.
+  NewVersionStorage(6, kCompactionStyleLevel);
+  mutable_cf_options_.max_compaction_bytes = 100000000000u;
+
+  // score(L1) = 3.7
+  // score(L2) = 1.85
+  // There is no eligible file in L1 to compact since both candidates pull in
+  // file_number 5U, which overlaps with a file pending compaction (6U). The
+  // first eligible compaction is from L2->L3.
+  Add(1 /* level */, 2U /* file_number */, "151" /* smallest */,
+      "200" /* largest */, 1000000000U /* file_size */);
+  Add(1 /* level */, 3U /* file_number */, "201" /* smallest */,
+      "250" /* largest */, 1U /* file_size */);
+  Add(2 /* level */, 4U /* file_number */, "100" /* smallest */,
+      "149" /* largest */, 5000000000U /* file_size */);
+  Add(2 /* level */, 5U /* file_number */, "150" /* smallest */,
+      "201" /* largest */, 1U /* file_size */);
+  Add(2 /* level */, 6U /* file_number */, "201" /* smallest */,
+      "249" /* largest */, 1U /* file_size */, 0 /* smallest_seq */,
+      0 /* largest_seq */);
+  file_map_[6U].first->being_compacted = true;
+  Add(3 /* level */, 7U /* file_number */, "100" /* smallest */,
+      "149" /* largest */, 1U /* file_size */);
+
+  UpdateVersionStorageInfo();
+
+  std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
+      cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
+  ASSERT_TRUE(compaction.get() != nullptr);
+  ASSERT_EQ(2U, compaction->num_input_levels());
+  ASSERT_EQ(1U, compaction->num_input_files(0));
+  ASSERT_EQ(1U, compaction->num_input_files(1));
+  ASSERT_EQ(4U, compaction->input(0, 0)->fd.GetNumber());
+  ASSERT_EQ(7U, compaction->input(1, 0)->fd.GetNumber());
 }
 
 TEST_F(CompactionPickerTest, NotScheduleL1IfL0WithHigherPri1) {
@@ -1316,6 +1388,49 @@ TEST_F(CompactionPickerTest, IsTrivialMoveOff) {
     cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_FALSE(compaction->IsTrivialMove());
+}
+
+TEST_F(CompactionPickerTest, CacheNextCompactionIndex) {
+  NewVersionStorage(6, kCompactionStyleLevel);
+  mutable_cf_options_.max_compaction_bytes = 100000000000u;
+
+  Add(1 /* level */, 1U /* file_number */, "100" /* smallest */,
+      "149" /* largest */, 1000000000U /* file_size */);
+  file_map_[1U].first->being_compacted = true;
+  Add(1 /* level */, 2U /* file_number */, "150" /* smallest */,
+      "199" /* largest */, 900000000U /* file_size */);
+  Add(1 /* level */, 3U /* file_number */, "200" /* smallest */,
+      "249" /* largest */, 800000000U /* file_size */);
+  Add(1 /* level */, 4U /* file_number */, "250" /* smallest */,
+      "299" /* largest */, 700000000U /* file_size */);
+  Add(2 /* level */, 5U /* file_number */, "150" /* smallest */,
+      "199" /* largest */, 1U /* file_size */);
+  file_map_[5U].first->being_compacted = true;
+
+  UpdateVersionStorageInfo();
+
+  std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
+      cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
+  ASSERT_TRUE(compaction.get() != nullptr);
+  ASSERT_EQ(1U, compaction->num_input_levels());
+  ASSERT_EQ(1U, compaction->num_input_files(0));
+  ASSERT_EQ(0U, compaction->num_input_files(1));
+  ASSERT_EQ(3U, compaction->input(0, 0)->fd.GetNumber());
+  ASSERT_EQ(2, vstorage_->NextCompactionIndex(1 /* level */));
+
+  compaction.reset(level_compaction_picker.PickCompaction(
+      cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
+  ASSERT_TRUE(compaction.get() != nullptr);
+  ASSERT_EQ(1U, compaction->num_input_levels());
+  ASSERT_EQ(1U, compaction->num_input_files(0));
+  ASSERT_EQ(0U, compaction->num_input_files(1));
+  ASSERT_EQ(4U, compaction->input(0, 0)->fd.GetNumber());
+  ASSERT_EQ(3, vstorage_->NextCompactionIndex(1 /* level */));
+
+  compaction.reset(level_compaction_picker.PickCompaction(
+      cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
+  ASSERT_TRUE(compaction.get() == nullptr);
+  ASSERT_EQ(4, vstorage_->NextCompactionIndex(1 /* level */));
 }
 
 }  // namespace rocksdb

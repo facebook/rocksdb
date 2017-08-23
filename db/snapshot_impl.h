@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -78,7 +76,7 @@ class SnapshotList {
 
   // retrieve all snapshot numbers. They are sorted in ascending order.
   std::vector<SequenceNumber> GetAll(
-      SequenceNumber* oldest_write_conflict_snapshot = nullptr) {
+      SequenceNumber* oldest_write_conflict_snapshot = nullptr) const {
     std::vector<SequenceNumber> ret;
 
     if (oldest_write_conflict_snapshot != nullptr) {
@@ -88,7 +86,7 @@ class SnapshotList {
     if (empty()) {
       return ret;
     }
-    SnapshotImpl* s = &list_;
+    const SnapshotImpl* s = &list_;
     while (s->next_ != &list_) {
       ret.push_back(s->next_->number_);
 

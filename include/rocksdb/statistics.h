@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef STORAGE_ROCKSDB_INCLUDE_STATISTICS_H_
 #define STORAGE_ROCKSDB_INCLUDE_STATISTICS_H_
@@ -21,6 +21,7 @@ namespace rocksdb {
  * Keep adding ticker's here.
  *  1. Any ticker should be added before TICKER_ENUM_MAX.
  *  2. Add a readable string in TickersNameMap below for the newly added ticker.
+ *  3. Add a corresponding enum value to TickerType.java in the java API
  */
 enum Tickers : uint32_t {
   // total block cache misses
@@ -104,8 +105,9 @@ enum Tickers : uint32_t {
   COMPACTION_KEY_DROP_OBSOLETE,     // The key is obsolete.
   COMPACTION_KEY_DROP_RANGE_DEL,    // key was covered by a range tombstone.
   COMPACTION_KEY_DROP_USER,  // user compaction function has dropped the key.
-
   COMPACTION_RANGE_DEL_DROP_OBSOLETE,  // all keys in range were deleted.
+  // Deletions obsoleted before bottom level due to file gap optimization.
+  COMPACTION_OPTIMIZED_DEL_DROP_OBSOLETE,
 
   // Number of keys written to the database via the Put and Write call's
   NUMBER_KEYS_WRITTEN,
@@ -263,7 +265,9 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {COMPACTION_KEY_DROP_RANGE_DEL, "rocksdb.compaction.key.drop.range_del"},
     {COMPACTION_KEY_DROP_USER, "rocksdb.compaction.key.drop.user"},
     {COMPACTION_RANGE_DEL_DROP_OBSOLETE,
-     "rocksdb.compaction.range_del.drop.obsolete"},
+      "rocksdb.compaction.range_del.drop.obsolete"},
+    {COMPACTION_OPTIMIZED_DEL_DROP_OBSOLETE,
+      "rocksdb.compaction.optimized.del.drop.obsolete"},
     {NUMBER_KEYS_WRITTEN, "rocksdb.number.keys.written"},
     {NUMBER_KEYS_READ, "rocksdb.number.keys.read"},
     {NUMBER_KEYS_UPDATED, "rocksdb.number.keys.updated"},
@@ -332,6 +336,7 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
  * Add a new Histogram by assigning it the current value of HISTOGRAM_ENUM_MAX
  * Add a string representation in HistogramsNameMap below
  * And increment HISTOGRAM_ENUM_MAX
+ * Add a corresponding enum value to HistogramType.java in the java API
  */
 enum Histograms : uint32_t {
   DB_GET = 0,

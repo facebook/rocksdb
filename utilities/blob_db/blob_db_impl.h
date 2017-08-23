@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
 
@@ -10,6 +10,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <ctime>
+#include <limits>
 #include <list>
 #include <memory>
 #include <set>
@@ -28,7 +29,6 @@
 #include "util/mutexlock.h"
 #include "util/timer_queue.h"
 #include "utilities/blob_db/blob_db.h"
-#include "utilities/blob_db/blob_db_options_impl.h"
 #include "utilities/blob_db/blob_log_format.h"
 #include "utilities/blob_db/blob_log_reader.h"
 #include "utilities/blob_db/blob_log_writer.h"
@@ -45,7 +45,6 @@ namespace blob_db {
 
 class BlobFile;
 class BlobDBImpl;
-struct GCStats;
 
 class BlobDBFlushBeginListener : public EventListener {
  public:
@@ -134,6 +133,20 @@ struct blobf_compare_ttl {
                   const std::shared_ptr<BlobFile>& rhs) const;
 };
 
+struct GCStats {
+  uint64_t blob_count = 0;
+  uint64_t num_deletes = 0;
+  uint64_t deleted_size = 0;
+  uint64_t retry_delete = 0;
+  uint64_t delete_succeeded = 0;
+  uint64_t overwritten_while_delete = 0;
+  uint64_t num_relocate = 0;
+  uint64_t retry_relocate = 0;
+  uint64_t relocate_succeeded = 0;
+  uint64_t overwritten_while_relocate = 0;
+  std::shared_ptr<BlobFile> newfile = nullptr;
+};
+
 /**
  * The implementation class for BlobDB. This manages the value
  * part in TTL aware sequentially written files. These files are
@@ -147,6 +160,51 @@ class BlobDBImpl : public BlobDB {
   friend class BlobDBIterator;
 
  public:
+  // deletions check period
+  static constexpr uint32_t kDeleteCheckPeriodMillisecs = 2 * 1000;
+
+  // gc percentage each check period
+  static constexpr uint32_t kGCFilePercentage = 100;
+
+  // gc period
+  static constexpr uint32_t kGCCheckPeriodMillisecs = 60 * 1000;
+
+  // sanity check task
+  static constexpr uint32_t kSanityCheckPeriodMillisecs = 20 * 60 * 1000;
+
+  // how many random access open files can we tolerate
+  static constexpr uint32_t kOpenFilesTrigger = 100;
+
+  // how many periods of stats do we keep.
+  static constexpr uint32_t kWriteAmplificationStatsPeriods = 24;
+
+  // what is the length of any period
+  static constexpr uint32_t kWriteAmplificationStatsPeriodMillisecs =
+      3600 * 1000;
+
+  // we will garbage collect blob files in
+  // which entire files have expired. However if the
+  // ttl_range of files is very large say a day, we
+  // would have to wait for the entire day, before we
+  // recover most of the space.
+  static constexpr uint32_t kPartialExpirationGCRangeSecs = 4 * 3600;
+
+  // this should be based on allowed Write Amplification
+  // if 50% of the space of a blob file has been deleted/expired,
+  static constexpr uint32_t kPartialExpirationPercentage = 75;
+
+  // how often should we schedule a job to fsync open files
+  static constexpr uint32_t kFSyncFilesPeriodMillisecs = 10 * 1000;
+
+  // how often to schedule reclaim open files.
+  static constexpr uint32_t kReclaimOpenFilesPeriodMillisecs = 1 * 1000;
+
+  // how often to schedule delete obs files periods
+  static constexpr uint32_t kDeleteObsoleteFilesPeriodMillisecs = 10 * 1000;
+
+  // how often to schedule check seq files period
+  static constexpr uint32_t kCheckSeqFilesPeriodMillisecs = 10 * 1000;
+
   using rocksdb::StackableDB::Put;
   Status Put(const WriteOptions& options, ColumnFamilyHandle* column_family,
              const Slice& key, const Slice& value) override;
@@ -161,16 +219,16 @@ class BlobDBImpl : public BlobDB {
                               const Slice& key) override;
 
   using rocksdb::StackableDB::Get;
-  Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
-             const Slice& key, std::string* value) override;
+  Status Get(const ReadOptions& read_options, ColumnFamilyHandle* column_family,
+             const Slice& key, PinnableSlice* value) override;
 
   using rocksdb::StackableDB::NewIterator;
-  virtual Iterator* NewIterator(const ReadOptions& opts,
+  virtual Iterator* NewIterator(const ReadOptions& read_options,
                                 ColumnFamilyHandle* column_family) override;
 
   using rocksdb::StackableDB::MultiGet;
   virtual std::vector<Status> MultiGet(
-      const ReadOptions& options,
+      const ReadOptions& read_options,
       const std::vector<ColumnFamilyHandle*>& column_family,
       const std::vector<Slice>& keys,
       std::vector<std::string>* values) override;
@@ -180,14 +238,16 @@ class BlobDBImpl : public BlobDB {
   using BlobDB::PutWithTTL;
   Status PutWithTTL(const WriteOptions& options,
                     ColumnFamilyHandle* column_family, const Slice& key,
-                    const Slice& value, int32_t ttl) override;
+                    const Slice& value, uint64_t ttl) override;
 
   using BlobDB::PutUntil;
   Status PutUntil(const WriteOptions& options,
                   ColumnFamilyHandle* column_family, const Slice& key,
-                  const Slice& value_unc, int32_t expiration) override;
+                  const Slice& value_unc, uint64_t expiration) override;
 
   Status LinkToBaseDB(DB* db) override;
+
+  BlobDBOptions GetBlobDBOptions() const override;
 
   BlobDBImpl(DB* db, const BlobDBOptions& bdb_options);
 
@@ -198,17 +258,36 @@ class BlobDBImpl : public BlobDB {
 
 #ifndef NDEBUG
   Status TEST_GetSequenceNumber(const Slice& key, SequenceNumber* sequence);
+
+  std::vector<std::shared_ptr<BlobFile>> TEST_GetBlobFiles() const;
+
+  std::vector<std::shared_ptr<BlobFile>> TEST_GetObsoleteFiles() const;
+
+  void TEST_CloseBlobFile(std::shared_ptr<BlobFile>& bfile);
+
+  Status TEST_GCFileAndUpdateLSM(std::shared_ptr<BlobFile>& bfile,
+                                 GCStats* gc_stats);
+
+  void TEST_RunGC();
+
+  void TEST_ObsoleteFile(std::shared_ptr<BlobFile>& bfile);
+
+  void TEST_DeleteObsoleteFiles();
 #endif  //  !NDEBUG
 
  private:
-  static bool ExtractTTLFromBlob(const Slice& value, Slice* newval,
-                                 int32_t* ttl_val);
-
   Status OpenPhase1();
+
+  // Create a snapshot if there isn't one in read options.
+  // Return true if a snapshot is created.
+  bool SetSnapshotIfNeeded(ReadOptions* read_options);
 
   Status CommonGet(const ColumnFamilyData* cfd, const Slice& key,
                    const std::string& index_entry, std::string* value,
                    SequenceNumber* sequence = nullptr);
+
+  Slice GetCompressedSlice(const Slice& raw,
+                           std::string* compression_output) const;
 
   // Just before flush starts acting on memtable files,
   // this handler is called.
@@ -223,14 +302,17 @@ class BlobDBImpl : public BlobDB {
   // has expired or if threshold of the file has been evicted
   // tt - current time
   // last_id - the id of the non-TTL file to evict
-  bool ShouldGCFile(std::shared_ptr<BlobFile> bfile, std::time_t tt,
-                    uint64_t last_id, std::string* reason);
+  bool ShouldGCFile(std::shared_ptr<BlobFile> bfile, uint64_t now,
+                    bool is_oldest_simple_blob_file, std::string* reason);
 
   // collect all the blob log files from the blob directory
   Status GetAllLogFiles(std::set<std::pair<uint64_t, std::string>>* file_nums);
 
   // appends a task into timer queue to close the file
   void CloseIf(const std::shared_ptr<BlobFile>& bfile);
+
+  uint64_t ExtractExpiration(const Slice& key, const Slice& value,
+                             Slice* value_slice, std::string* new_value);
 
   Status AppendBlob(const std::shared_ptr<BlobFile>& bfile,
                     const std::string& headerbuf, const Slice& key,
@@ -241,12 +323,12 @@ class BlobDBImpl : public BlobDB {
 
   // find an existing blob log file based on the expiration unix epoch
   // if such a file does not exist, return nullptr
-  std::shared_ptr<BlobFile> SelectBlobFileTTL(uint32_t expiration);
+  std::shared_ptr<BlobFile> SelectBlobFileTTL(uint64_t expiration);
 
   // find an existing blob log file to append the value to
   std::shared_ptr<BlobFile> SelectBlobFile();
 
-  std::shared_ptr<BlobFile> FindBlobFileLocked(uint32_t expiration) const;
+  std::shared_ptr<BlobFile> FindBlobFileLocked(uint64_t expiration) const;
 
   void UpdateWriteOptions(const WriteOptions& options);
 
@@ -258,7 +340,7 @@ class BlobDBImpl : public BlobDB {
   // delete files which have been garbage collected and marked
   // obsolete. Check whether any snapshots exist which refer to
   // the same
-  std::pair<bool, int64_t> DeleteObsFiles(bool aborted);
+  std::pair<bool, int64_t> DeleteObsoleteFiles(bool aborted);
 
   // Major task to garbage collect expired and deleted blobs
   std::pair<bool, int64_t> RunGC(bool aborted);
@@ -333,19 +415,19 @@ class BlobDBImpl : public BlobDB {
   bool FindFileAndEvictABlob(uint64_t file_number, uint64_t key_size,
                              uint64_t blob_offset, uint64_t blob_size);
 
-  void CopyBlobFiles(std::vector<std::shared_ptr<BlobFile>>* bfiles_copy,
-                     uint64_t* last_id);
+  void CopyBlobFiles(std::vector<std::shared_ptr<BlobFile>>* bfiles_copy);
 
   void FilterSubsetOfFiles(
       const std::vector<std::shared_ptr<BlobFile>>& blob_files,
       std::vector<std::shared_ptr<BlobFile>>* to_process, uint64_t epoch,
-      uint64_t last_id, size_t files_to_collect);
+      size_t files_to_collect);
 
- private:
+  uint64_t EpochNow() { return env_->NowMicros() / 1000000; }
+
   // the base DB
   DBImpl* db_impl_;
-
-  Env* myenv_;
+  Env* env_;
+  TTLExtractor* ttl_extractor_;
 
   // Optimistic Transaction DB used during Garbage collection
   // for atomicity
@@ -356,7 +438,7 @@ class BlobDBImpl : public BlobDB {
   WriteOptions write_options_;
 
   // the options that govern the behavior of Blob Storage
-  BlobDBOptionsImpl bdb_options_;
+  BlobDBOptions bdb_options_;
   DBOptions db_options_;
   EnvOptions env_options_;
 
@@ -374,13 +456,16 @@ class BlobDBImpl : public BlobDB {
 
   // Read Write Mutex, which protects all the data structures
   // HEAVILY TRAFFICKED
-  port::RWMutex mutex_;
+  mutable port::RWMutex mutex_;
+
+  // Writers has to hold write_mutex_ before writing.
+  mutable port::Mutex write_mutex_;
 
   // counter for blob file number
   std::atomic<uint64_t> next_file_number_;
 
   // entire metadata of all the BLOB files memory
-  std::unordered_map<uint64_t, std::shared_ptr<BlobFile>> blob_files_;
+  std::map<uint64_t, std::shared_ptr<BlobFile>> blob_files_;
 
   // epoch or version of the open files.
   std::atomic<uint64_t> epoch_of_;
@@ -516,7 +601,7 @@ class BlobFile {
 
   // This Read-Write mutex is per file specific and protects
   // all the datastructures
-  port::RWMutex mutex_;
+  mutable port::RWMutex mutex_;
 
   // time when the random access reader was last created.
   std::atomic<std::time_t> last_access_;
@@ -623,12 +708,23 @@ class BlobFile {
 class BlobDBIterator : public Iterator {
  public:
   explicit BlobDBIterator(Iterator* iter, ColumnFamilyHandle* column_family,
-                          BlobDBImpl* impl)
-      : iter_(iter), cfh_(column_family), db_impl_(impl) {
-    assert(iter_);
+                          BlobDBImpl* impl, bool own_snapshot,
+                          const Snapshot* snapshot)
+      : iter_(iter),
+        cfh_(column_family),
+        db_impl_(impl),
+        own_snapshot_(own_snapshot),
+        snapshot_(snapshot) {
+    assert(iter != nullptr);
+    assert(snapshot != nullptr);
   }
 
-  ~BlobDBIterator() { delete iter_; }
+  ~BlobDBIterator() {
+    if (own_snapshot_) {
+      db_impl_->ReleaseSnapshot(snapshot_);
+    }
+    delete iter_;
+  }
 
   bool Valid() const override { return iter_->Valid(); }
 
@@ -650,10 +746,14 @@ class BlobDBIterator : public Iterator {
 
   Status status() const override { return iter_->status(); }
 
+  // Iterator::Refresh() not supported.
+
  private:
   Iterator* iter_;
   ColumnFamilyHandle* cfh_;
   BlobDBImpl* db_impl_;
+  bool own_snapshot_;
+  const Snapshot* snapshot_;
   mutable std::string vpart_;
 };
 

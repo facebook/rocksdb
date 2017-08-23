@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -13,10 +11,27 @@
 #include "monitoring/statistics.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
+#include "util/aligned_buffer.h"
 #include "util/sync_point.h"
 
 namespace rocksdb {
 
+size_t RateLimiter::RequestToken(size_t bytes, size_t alignment,
+                                 Env::IOPriority io_priority, Statistics* stats,
+                                 RateLimiter::OpType op_type) {
+  if (io_priority < Env::IO_TOTAL && IsRateLimited(op_type)) {
+    bytes = std::min(bytes, static_cast<size_t>(GetSingleBurstBytes()));
+
+    if (alignment > 0) {
+      // Here we may actually require more than burst and block
+      // but we can not write less than one page at a time on direct I/O
+      // thus we may want not to use ratelimiter
+      bytes = std::max(alignment, TruncateToPageBoundary(alignment, bytes));
+    }
+    Request(bytes, io_priority, stats, op_type);
+  }
+  return bytes;
+}
 
 // Pending request
 struct GenericRateLimiter::Req {
@@ -30,8 +45,9 @@ struct GenericRateLimiter::Req {
 
 GenericRateLimiter::GenericRateLimiter(int64_t rate_bytes_per_sec,
                                        int64_t refill_period_us,
-                                       int32_t fairness)
-    : refill_period_us_(refill_period_us),
+                                       int32_t fairness, RateLimiter::Mode mode)
+    : RateLimiter(mode),
+      refill_period_us_(refill_period_us),
       rate_bytes_per_sec_(rate_bytes_per_sec),
       refill_bytes_per_period_(
           CalculateRefillBytesPerPeriod(rate_bytes_per_sec)),
@@ -241,12 +257,14 @@ int64_t GenericRateLimiter::CalculateRefillBytesPerPeriod(
 }
 
 RateLimiter* NewGenericRateLimiter(
-    int64_t rate_bytes_per_sec, int64_t refill_period_us, int32_t fairness) {
+    int64_t rate_bytes_per_sec, int64_t refill_period_us /* = 100 * 1000 */,
+    int32_t fairness /* = 10 */,
+    RateLimiter::Mode mode /* = RateLimiter::Mode::kWritesOnly */) {
   assert(rate_bytes_per_sec > 0);
   assert(refill_period_us > 0);
   assert(fairness > 0);
-  return new GenericRateLimiter(
-      rate_bytes_per_sec, refill_period_us, fairness);
+  return new GenericRateLimiter(rate_bytes_per_sec, refill_period_us, fairness,
+                                mode);
 }
 
 }  // namespace rocksdb

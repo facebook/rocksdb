@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef STORAGE_ROCKSDB_INCLUDE_MERGE_OPERATOR_H_
 #define STORAGE_ROCKSDB_INCLUDE_MERGE_OPERATOR_H_
@@ -183,12 +183,19 @@ class MergeOperator {
   //       no checking is enforced. Client is responsible for providing
   //       consistent MergeOperator between DB opens.
   virtual const char* Name() const = 0;
+
+  // Determines whether the MergeOperator can be called with just a single
+  // merge operand.
+  // Override and return true for allowing a single operand. FullMergeV2 and
+  // PartialMerge/PartialMergeMulti should be implemented accordingly to handle
+  // a single operand.
+  virtual bool AllowSingleOperand() const { return false; }
 };
 
 // The simpler, associative merge operator.
 class AssociativeMergeOperator : public MergeOperator {
  public:
-  virtual ~AssociativeMergeOperator() {}
+  ~AssociativeMergeOperator() override {}
 
   // Gives the client a way to express the read -> modify -> write semantics
   // key:           (IN) The key that's associated with this merge operation.
@@ -212,14 +219,12 @@ class AssociativeMergeOperator : public MergeOperator {
 
  private:
   // Default implementations of the MergeOperator functions
-  virtual bool FullMergeV2(const MergeOperationInput& merge_in,
-                           MergeOperationOutput* merge_out) const override;
+  bool FullMergeV2(const MergeOperationInput& merge_in,
+                   MergeOperationOutput* merge_out) const override;
 
-  virtual bool PartialMerge(const Slice& key,
-                            const Slice& left_operand,
-                            const Slice& right_operand,
-                            std::string* new_value,
-                            Logger* logger) const override;
+  bool PartialMerge(const Slice& key, const Slice& left_operand,
+                    const Slice& right_operand, std::string* new_value,
+                    Logger* logger) const override;
 };
 
 }  // namespace rocksdb

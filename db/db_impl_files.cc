@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -252,7 +250,13 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
       }
       job_context->size_log_to_delete += earliest.size;
       total_log_size_ -= earliest.size;
+      if (concurrent_prepare_) {
+        log_write_mutex_.Lock();
+      }
       alive_log_files_.pop_front();
+      if (concurrent_prepare_) {
+        log_write_mutex_.Unlock();
+      }
       // Current log should always stay alive since it can't have
       // number < MinLogNumber().
       assert(alive_log_files_.size());
@@ -265,7 +269,10 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
         continue;
       }
       logs_to_free_.push_back(log.ReleaseWriter());
-      logs_.pop_front();
+      {
+        InstrumentedMutexLock wl(&log_write_mutex_);
+        logs_.pop_front();
+      }
     }
     // Current log cannot be obsolete.
     assert(!logs_.empty());
@@ -361,6 +368,9 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state, bool schedule_only) {
     candidate_files.emplace_back(
         MakeTableFileName(kDumbDbName, file->fd.GetNumber()),
         file->fd.GetPathId());
+    if (file->table_reader_handle) {
+      table_cache_->Release(file->table_reader_handle);
+    }
     delete file;
   }
 

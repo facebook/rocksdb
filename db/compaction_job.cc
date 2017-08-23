@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -596,6 +594,9 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
 
   double read_write_amp = 0.0;
   double write_amp = 0.0;
+  double bytes_read_per_sec = 0;
+  double bytes_written_per_sec = 0;
+
   if (stats.bytes_read_non_output_levels > 0) {
     read_write_amp = (stats.bytes_written + stats.bytes_read_output_level +
                       stats.bytes_read_non_output_levels) /
@@ -603,17 +604,22 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
     write_amp = stats.bytes_written /
                 static_cast<double>(stats.bytes_read_non_output_levels);
   }
+  if (stats.micros > 0) {
+    bytes_read_per_sec =
+        (stats.bytes_read_non_output_levels + stats.bytes_read_output_level) /
+        static_cast<double>(stats.micros);
+    bytes_written_per_sec =
+        stats.bytes_written / static_cast<double>(stats.micros);
+  }
+
   ROCKS_LOG_BUFFER(
       log_buffer_,
       "[%s] compacted to: %s, MB/sec: %.1f rd, %.1f wr, level %d, "
       "files in(%d, %d) out(%d) "
       "MB in(%.1f, %.1f) out(%.1f), read-write-amplify(%.1f) "
       "write-amplify(%.1f) %s, records in: %d, records dropped: %d\n",
-      cfd->GetName().c_str(), vstorage->LevelSummary(&tmp),
-      (stats.bytes_read_non_output_levels + stats.bytes_read_output_level) /
-          static_cast<double>(stats.micros),
-      stats.bytes_written / static_cast<double>(stats.micros),
-      compact_->compaction->output_level(),
+      cfd->GetName().c_str(), vstorage->LevelSummary(&tmp), bytes_read_per_sec,
+      bytes_written_per_sec, compact_->compaction->output_level(),
       stats.num_input_files_in_non_output_levels,
       stats.num_input_files_in_output_level, stats.num_output_files,
       stats.bytes_read_non_output_levels / 1048576.0,
@@ -1008,6 +1014,10 @@ void CompactionJob::RecordDroppedKeys(
     RecordTick(stats_, COMPACTION_RANGE_DEL_DROP_OBSOLETE,
                c_iter_stats.num_range_del_drop_obsolete);
   }
+  if (c_iter_stats.num_optimized_del_drop_obsolete > 0) {
+    RecordTick(stats_, COMPACTION_OPTIMIZED_DEL_DROP_OBSOLETE,
+               c_iter_stats.num_optimized_del_drop_obsolete);
+  }
 }
 
 Status CompactionJob::FinishCompactionOutputFile(
@@ -1025,7 +1035,6 @@ Status CompactionJob::FinishCompactionOutputFile(
   uint64_t output_number = sub_compact->current_output()->meta.fd.GetNumber();
   assert(output_number != 0);
 
-  TableProperties table_properties;
   // Check for iterator errors
   Status s = input_status;
   auto meta = &sub_compact->current_output()->meta;
@@ -1081,6 +1090,23 @@ Status CompactionJob::FinishCompactionOutputFile(
   }
   sub_compact->outfile.reset();
 
+  if (s.ok() && current_entries == 0) {
+    // If there is nothing to output, no necessary to generate a sst file.
+    // This happens when the output level is bottom level, at the same time
+    // the sub_compact output nothing.
+    std::string fname = TableFileName(
+        db_options_.db_paths, meta->fd.GetNumber(), meta->fd.GetPathId());
+    env_->DeleteFile(fname);
+
+    // Also need to remove the file from outputs, or it will be added to the
+    // VersionEdit.
+    assert(!sub_compact->outputs.empty());
+    sub_compact->outputs.pop_back();
+    sub_compact->builder.reset();
+    sub_compact->current_output_file_size = 0;
+    return s;
+  }
+
   ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
   TableProperties tp;
   if (s.ok() && current_entries > 0) {
@@ -1133,12 +1159,22 @@ Status CompactionJob::FinishCompactionOutputFile(
                             meta->fd.GetPathId());
     sfm->OnAddFile(fn);
     if (sfm->IsMaxAllowedSpaceReached()) {
+      // TODO(ajkr): should we return OK() if max space was reached by the final
+      // compaction output file (similarly to how flush works when full)?
+      s = Status::IOError("Max allowed space was reached");
+      TEST_SYNC_POINT(
+          "CompactionJob::FinishCompactionOutputFile:"
+          "MaxAllowedSpaceReached");
       InstrumentedMutexLock l(db_mutex_);
       if (db_bg_error_->ok()) {
-        s = Status::IOError("Max allowed space was reached");
-        *db_bg_error_ = s;
-        TEST_SYNC_POINT(
-            "CompactionJob::FinishCompactionOutputFile:MaxAllowedSpaceReached");
+        Status new_bg_error = s;
+        // may temporarily unlock and lock the mutex.
+        EventHelpers::NotifyOnBackgroundError(
+            cfd->ioptions()->listeners, BackgroundErrorReason::kCompaction,
+            &new_bg_error, db_mutex_);
+        if (!new_bg_error.ok()) {
+          *db_bg_error_ = new_bg_error;
+        }
       }
     }
   }
@@ -1253,14 +1289,22 @@ Status CompactionJob::OpenCompactionOutputFile(
   // data is going to be found
   bool skip_filters =
       cfd->ioptions()->optimize_filters_for_hits && bottommost_level_;
+
+  uint64_t output_file_creation_time =
+      sub_compact->compaction->MaxInputFileCreationTime();
+  if (output_file_creation_time == 0) {
+    int64_t _current_time = 0;
+    db_options_.env->GetCurrentTime(&_current_time);  // ignore error
+    output_file_creation_time = static_cast<uint64_t>(_current_time);
+  }
+
   sub_compact->builder.reset(NewTableBuilder(
       *cfd->ioptions(), cfd->internal_comparator(),
       cfd->int_tbl_prop_collector_factories(), cfd->GetID(), cfd->GetName(),
       sub_compact->outfile.get(), sub_compact->compaction->output_compression(),
       cfd->ioptions()->compression_opts,
-      sub_compact->compaction->output_level(),
-      &sub_compact->compression_dict,
-      skip_filters));
+      sub_compact->compaction->output_level(), &sub_compact->compression_dict,
+      skip_filters, output_file_creation_time));
   LogFlush(db_options_.info_log);
   return s;
 }

@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 #ifndef ROCKSDB_LITE
 
 #ifndef __STDC_FORMAT_MACROS
@@ -50,7 +48,7 @@ Status BlobDumpTool::Run(const std::string& filename, DisplayType show_key,
   if (file_size == 0) {
     return Status::Corruption("File is empty.");
   }
-  reader_.reset(new RandomAccessFileReader(std::move(file)));
+  reader_.reset(new RandomAccessFileReader(std::move(file), filename));
   uint64_t offset = 0;
   uint64_t footer_offset = 0;
   s = DumpBlobLogHeader(&offset);
@@ -104,8 +102,8 @@ Status BlobDumpTool::DumpBlobLogHeader(uint64_t* offset) {
     return s;
   }
   fprintf(stdout, "Blob log header:\n");
-  fprintf(stdout, "  Magic Number   : %u\n", header.magic_number());
-  fprintf(stdout, "  Version        : %d\n", header.version());
+  fprintf(stdout, "  Magic Number   : %" PRIu32 "\n", header.magic_number());
+  fprintf(stdout, "  Version        : %" PRIu32 "\n", header.version());
   CompressionType compression = header.compression();
   std::string compression_str;
   if (!GetStringFromCompressionType(&compression_str, compression).ok()) {
@@ -177,13 +175,13 @@ Status BlobDumpTool::DumpRecord(DisplayType show_key, DisplayType show_blob,
   }
   uint32_t key_size = record.GetKeySize();
   uint64_t blob_size = record.GetBlobSize();
-  fprintf(stdout, "  key size   : %d\n", key_size);
+  fprintf(stdout, "  key size   : %" PRIu32 "\n", key_size);
   fprintf(stdout, "  blob size  : %" PRIu64 "\n", record.GetBlobSize());
-  fprintf(stdout, "  TTL        : %u\n", record.GetTTL());
+  fprintf(stdout, "  TTL        : %" PRIu64 "\n", record.GetTTL());
   fprintf(stdout, "  time       : %" PRIu64 "\n", record.GetTimeVal());
   fprintf(stdout, "  type       : %d, %d\n", record.type(), record.subtype());
-  fprintf(stdout, "  header CRC : %u\n", record.header_checksum());
-  fprintf(stdout, "  CRC        : %u\n", record.checksum());
+  fprintf(stdout, "  header CRC : %" PRIu32 "\n", record.header_checksum());
+  fprintf(stdout, "  CRC        : %" PRIu32 "\n", record.checksum());
   uint32_t header_crc =
       crc32c::Extend(0, slice.data(), slice.size() - 2 * sizeof(uint32_t));
   *offset += BlobLogRecord::kHeaderSize;
@@ -215,7 +213,7 @@ Status BlobDumpTool::DumpRecord(DisplayType show_key, DisplayType show_blob,
   if (!s.ok()) {
     return s;
   }
-  fprintf(stdout, "  footer CRC : %u\n", record.footer_checksum());
+  fprintf(stdout, "  footer CRC : %" PRIu32 "\n", record.footer_checksum());
   fprintf(stdout, "  sequence   : %" PRIu64 "\n", record.GetSN());
   *offset += key_size + blob_size + BlobLogRecord::kFooterSize;
   return s;

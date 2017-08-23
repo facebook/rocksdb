@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -18,6 +16,7 @@
 #include "db/builder.h"
 #include "options/options_helper.h"
 #include "rocksdb/wal_filter.h"
+#include "table/block_based_table_factory.h"
 #include "util/rate_limiter.h"
 #include "util/sst_file_manager_impl.h"
 #include "util/sync_point.h"
@@ -162,6 +161,19 @@ static Status ValidateOptions(
         return Status::NotSupported(
             "More than one DB paths are only supported in "
             "universal and level compaction styles. ");
+      }
+    }
+    if (cfd.options.compaction_options_fifo.ttl > 0) {
+      if (db_options.max_open_files != -1) {
+        return Status::NotSupported(
+            "FIFO Compaction with TTL is only supported when files are always "
+            "kept open (set max_open_files = -1). ");
+      }
+      if (cfd.options.table_factory->Name() !=
+          BlockBasedTableFactory().Name()) {
+        return Status::NotSupported(
+            "FIFO Compaction with TTL is only supported in "
+            "Block-Based Table format. ");
       }
     }
   }
@@ -725,6 +737,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     auto last_sequence = *next_sequence - 1;
     if ((*next_sequence != kMaxSequenceNumber) &&
         (versions_->LastSequence() <= last_sequence)) {
+      versions_->SetLastToBeWrittenSequence(last_sequence);
       versions_->SetLastSequence(last_sequence);
     }
   }
@@ -796,8 +809,14 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
   if (data_seen && !flushed) {
     // Mark these as alive so they'll be considered for deletion later by
     // FindObsoleteFiles()
+    if (concurrent_prepare_) {
+      log_write_mutex_.Lock();
+    }
     for (auto log_number : log_numbers) {
       alive_log_files_.push_back(LogFileNumberSize(log_number));
+    }
+    if (concurrent_prepare_) {
+      log_write_mutex_.Unlock();
     }
   }
 
@@ -832,6 +851,11 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
         *cfd->GetLatestMutableCFOptions();
     bool paranoid_file_checks =
         cfd->GetLatestMutableCFOptions()->paranoid_file_checks;
+
+    int64_t _current_time = 0;
+    env_->GetCurrentTime(&_current_time);  // ignore error
+    const uint64_t current_time = static_cast<uint64_t>(_current_time);
+
     {
       mutex_.Unlock();
 
@@ -851,7 +875,8 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
           GetCompressionFlush(*cfd->ioptions(), mutable_cf_options),
           cfd->ioptions()->compression_opts, paranoid_file_checks,
           cfd->internal_stats(), TableFileCreationReason::kRecovery,
-          &event_logger_, job_id);
+          &event_logger_, job_id, Env::IO_HIGH, nullptr /* table_properties */,
+          -1 /* level */, current_time);
       LogFlush(immutable_db_options_.info_log);
       ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
                       "[%s] [WriteLevel0TableForRecovery]"
@@ -962,14 +987,17 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
     if (s.ok()) {
       lfile->SetPreallocationBlockSize(
           impl->GetWalPreallocateBlockSize(max_write_buffer_size));
-      impl->logfile_number_ = new_log_number;
-      unique_ptr<WritableFileWriter> file_writer(
-          new WritableFileWriter(std::move(lfile), opt_env_options));
-      impl->logs_.emplace_back(
-          new_log_number,
-          new log::Writer(
-              std::move(file_writer), new_log_number,
-              impl->immutable_db_options_.recycle_log_file_num > 0));
+      {
+        InstrumentedMutexLock wl(&impl->log_write_mutex_);
+        impl->logfile_number_ = new_log_number;
+        unique_ptr<WritableFileWriter> file_writer(
+            new WritableFileWriter(std::move(lfile), opt_env_options));
+        impl->logs_.emplace_back(
+            new_log_number,
+            new log::Writer(
+                std::move(file_writer), new_log_number,
+                impl->immutable_db_options_.recycle_log_file_num > 0));
+      }
 
       // set column family handles
       for (auto cf : column_families) {
@@ -1003,8 +1031,14 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
         delete impl->InstallSuperVersionAndScheduleWork(
             cfd, nullptr, *cfd->GetLatestMutableCFOptions());
       }
+      if (impl->concurrent_prepare_) {
+        impl->log_write_mutex_.Lock();
+      }
       impl->alive_log_files_.push_back(
           DBImpl::LogFileNumberSize(impl->logfile_number_));
+      if (impl->concurrent_prepare_) {
+        impl->log_write_mutex_.Unlock();
+      }
       impl->DeleteObsoleteFiles();
       s = impl->directories_.GetDbDir()->Fsync();
     }

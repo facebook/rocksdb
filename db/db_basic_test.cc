@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -177,6 +175,8 @@ TEST_F(DBBasicTest, LevelLimitReopen) {
   int i = 0;
   while (NumTableFilesAtLevel(2, 1) == 0) {
     ASSERT_OK(Put(1, Key(i++), value));
+    dbfull()->TEST_WaitForFlushMemTable();
+    dbfull()->TEST_WaitForCompact();
   }
 
   options.num_levels = 1;
@@ -360,7 +360,6 @@ TEST_F(DBBasicTest, FLUSH) {
     WriteOptions writeOpt = WriteOptions();
     writeOpt.disableWAL = true;
     SetPerfLevel(kEnableTime);
-    ;
     ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "foo", "v1"));
     // this will now also flush the last 2 writes
     ASSERT_OK(Flush(1));
@@ -369,6 +368,7 @@ TEST_F(DBBasicTest, FLUSH) {
     get_perf_context()->Reset();
     Get(1, "foo");
     ASSERT_TRUE((int)get_perf_context()->get_from_output_files_time > 0);
+    ASSERT_EQ(2, (int)get_perf_context()->get_read_bytes);
 
     ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
     ASSERT_EQ("v1", Get(1, "foo"));
@@ -725,6 +725,7 @@ TEST_F(DBBasicTest, FlushOneColumnFamily) {
 TEST_F(DBBasicTest, MultiGetSimple) {
   do {
     CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+    SetPerfLevel(kEnableCount);
     ASSERT_OK(Put(1, "k1", "v1"));
     ASSERT_OK(Put(1, "k2", "v2"));
     ASSERT_OK(Put(1, "k3", "v3"));
@@ -738,12 +739,15 @@ TEST_F(DBBasicTest, MultiGetSimple) {
     std::vector<std::string> values(20, "Temporary data to be overwritten");
     std::vector<ColumnFamilyHandle*> cfs(keys.size(), handles_[1]);
 
+    get_perf_context()->Reset();
     std::vector<Status> s = db_->MultiGet(ReadOptions(), cfs, keys, &values);
     ASSERT_EQ(values.size(), keys.size());
     ASSERT_EQ(values[0], "v1");
     ASSERT_EQ(values[1], "v2");
     ASSERT_EQ(values[2], "v3");
     ASSERT_EQ(values[4], "v5");
+    // four kv pairs * two bytes per value
+    ASSERT_EQ(8, (int)get_perf_context()->multiget_read_bytes);
 
     ASSERT_OK(s[0]);
     ASSERT_OK(s[1]);
@@ -751,6 +755,7 @@ TEST_F(DBBasicTest, MultiGetSimple) {
     ASSERT_TRUE(s[3].IsNotFound());
     ASSERT_OK(s[4]);
     ASSERT_TRUE(s[5].IsNotFound());
+    SetPerfLevel(kDisable);
   } while (ChangeCompactOptions());
 }
 
@@ -824,6 +829,9 @@ TEST_F(DBBasicTest, ChecksumTest) {
 // sense to run
 #ifndef OS_WIN
 TEST_F(DBBasicTest, MmapAndBufferOptions) {
+  if (!IsMemoryMappedAccessSupported()) {
+    return;
+  }
   Options options = CurrentOptions();
 
   options.use_direct_reads = true;

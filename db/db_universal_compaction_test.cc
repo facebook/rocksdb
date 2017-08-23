@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -698,17 +696,12 @@ TEST_P(DBTestUniversalCompactionParallel, PickByFileNumberBug) {
     num_keys -= 100;
   }
 
-  // Wait for the 2nd background compaction process to start
-  TEST_SYNC_POINT("DBTestUniversalCompactionParallel::PickByFileNumberBug:0");
-  TEST_SYNC_POINT("DBTestUniversalCompactionParallel::PickByFileNumberBug:1");
-
-  // Hold the 1st and 2nd compaction from finishing
+  // Hold the 1st compaction from finishing
   TEST_SYNC_POINT("DBTestUniversalCompactionParallel::PickByFileNumberBug:2");
   dbfull()->TEST_WaitForCompact();
 
-  // Although 2 compaction threads started, the second one did not compact
-  // anything because the number of files not being compacted is less than
-  // level0_file_num_compaction_trigger
+  // There should only be one picked compaction as the score drops below one
+  // after the first one is picked.
   EXPECT_EQ(total_picked_compactions, 1);
   EXPECT_EQ(TotalTableFiles(), 4);
 
@@ -1370,6 +1363,140 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionSecondPathRatio) {
   }
 
   Destroy(options);
+}
+
+TEST_P(DBTestUniversalCompaction, FullCompactionInBottomPriThreadPool) {
+  const int kNumFilesTrigger = 3;
+  Env::Default()->SetBackgroundThreads(1, Env::Priority::BOTTOM);
+  for (bool allow_ingest_behind : {false, true}) {
+    Options options = CurrentOptions();
+    options.allow_ingest_behind = allow_ingest_behind;
+    options.compaction_style = kCompactionStyleUniversal;
+    options.num_levels = num_levels_;
+    options.write_buffer_size = 100 << 10;     // 100KB
+    options.target_file_size_base = 32 << 10;  // 32KB
+    options.level0_file_num_compaction_trigger = kNumFilesTrigger;
+    // Trigger compaction if size amplification exceeds 110%
+    options.compaction_options_universal.max_size_amplification_percent = 110;
+    DestroyAndReopen(options);
+
+    int num_bottom_pri_compactions = 0;
+    SyncPoint::GetInstance()->SetCallBack(
+        "DBImpl::BGWorkBottomCompaction",
+        [&](void* arg) { ++num_bottom_pri_compactions; });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    Random rnd(301);
+    for (int num = 0; num < kNumFilesTrigger; num++) {
+      ASSERT_EQ(NumSortedRuns(), num);
+      int key_idx = 0;
+      GenerateNewFile(&rnd, &key_idx);
+    }
+    dbfull()->TEST_WaitForCompact();
+
+    if (allow_ingest_behind || num_levels_ > 1) {
+      // allow_ingest_behind increases number of levels while sanitizing.
+      ASSERT_EQ(1, num_bottom_pri_compactions);
+    } else {
+      // for single-level universal, everything's bottom level so nothing should
+      // be executed in bottom-pri thread pool.
+      ASSERT_EQ(0, num_bottom_pri_compactions);
+    }
+    // Verify that size amplification did occur
+    ASSERT_EQ(NumSortedRuns(), 1);
+    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  }
+  Env::Default()->SetBackgroundThreads(0, Env::Priority::BOTTOM);
+}
+
+TEST_P(DBTestUniversalCompaction, ConcurrentBottomPriLowPriCompactions) {
+  if (num_levels_ == 1) {
+    // for single-level universal, everything's bottom level so nothing should
+    // be executed in bottom-pri thread pool.
+    return;
+  }
+  const int kNumFilesTrigger = 3;
+  Env::Default()->SetBackgroundThreads(1, Env::Priority::BOTTOM);
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.num_levels = num_levels_;
+  options.write_buffer_size = 100 << 10;     // 100KB
+  options.target_file_size_base = 32 << 10;  // 32KB
+  options.level0_file_num_compaction_trigger = kNumFilesTrigger;
+  // Trigger compaction if size amplification exceeds 110%
+  options.compaction_options_universal.max_size_amplification_percent = 110;
+  DestroyAndReopen(options);
+
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {// wait for the full compaction to be picked before adding files intended
+       // for the second one.
+       {"DBImpl::BackgroundCompaction:ForwardToBottomPriPool",
+        "DBTestUniversalCompaction:ConcurrentBottomPriLowPriCompactions:0"},
+       // the full (bottom-pri) compaction waits until a partial (low-pri)
+       // compaction has started to verify they can run in parallel.
+       {"DBImpl::BackgroundCompaction:NonTrivial",
+        "DBImpl::BGWorkBottomCompaction"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Random rnd(301);
+  for (int i = 0; i < 2; ++i) {
+    for (int num = 0; num < kNumFilesTrigger; num++) {
+      int key_idx = 0;
+      GenerateNewFile(&rnd, &key_idx, true /* no_wait */);
+      // use no_wait above because that one waits for flush and compaction. We
+      // don't want to wait for compaction because the full compaction is
+      // intentionally blocked while more files are flushed.
+      dbfull()->TEST_WaitForFlushMemTable();
+    }
+    if (i == 0) {
+      TEST_SYNC_POINT(
+          "DBTestUniversalCompaction:ConcurrentBottomPriLowPriCompactions:0");
+    }
+  }
+  dbfull()->TEST_WaitForCompact();
+
+  // First compaction should output to bottom level. Second should output to L0
+  // since older L0 files pending compaction prevent it from being placed lower.
+  ASSERT_EQ(NumSortedRuns(), 2);
+  ASSERT_GT(NumTableFilesAtLevel(0), 0);
+  ASSERT_GT(NumTableFilesAtLevel(num_levels_ - 1), 0);
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  Env::Default()->SetBackgroundThreads(0, Env::Priority::BOTTOM);
+}
+
+TEST_P(DBTestUniversalCompaction, RecalculateScoreAfterPicking) {
+  // Regression test for extra compactions scheduled. Once enough compactions
+  // have been scheduled to bring the score below one, we should stop
+  // scheduling more; otherwise, other CFs/DBs may be delayed unnecessarily.
+  const int kNumFilesTrigger = 8;
+  Options options = CurrentOptions();
+  options.compaction_options_universal.max_merge_width = kNumFilesTrigger / 2;
+  options.compaction_options_universal.max_size_amplification_percent =
+      static_cast<unsigned int>(-1);
+  options.compaction_style = kCompactionStyleUniversal;
+  options.level0_file_num_compaction_trigger = kNumFilesTrigger;
+  options.num_levels = num_levels_;
+  options.write_buffer_size = 100 << 10;  // 100KB
+  Reopen(options);
+
+  std::atomic<int> num_compactions_attempted(0);
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:Start", [&](void* arg) {
+        ++num_compactions_attempted;
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  Random rnd(301);
+  for (int num = 0; num < kNumFilesTrigger; num++) {
+    ASSERT_EQ(NumSortedRuns(), num);
+    int key_idx = 0;
+    GenerateNewFile(&rnd, &key_idx);
+  }
+  dbfull()->TEST_WaitForCompact();
+  // Compacting the first four files was enough to bring the score below one so
+  // there's no need to schedule any more compactions.
+  ASSERT_EQ(1, num_compactions_attempted);
+  ASSERT_EQ(NumSortedRuns(), 5);
 }
 
 INSTANTIATE_TEST_CASE_P(UniversalCompactionNumLevels, DBTestUniversalCompaction,

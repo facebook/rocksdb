@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -47,9 +45,9 @@ TableBuilder* NewTableBuilder(
         int_tbl_prop_collector_factories,
     uint32_t column_family_id, const std::string& column_family_name,
     WritableFileWriter* file, const CompressionType compression_type,
-    const CompressionOptions& compression_opts,
-    int level,
-    const std::string* compression_dict, const bool skip_filters) {
+    const CompressionOptions& compression_opts, int level,
+    const std::string* compression_dict, const bool skip_filters,
+    const uint64_t creation_time) {
   assert((column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          column_family_name.empty());
@@ -57,7 +55,7 @@ TableBuilder* NewTableBuilder(
       TableBuilderOptions(ioptions, internal_comparator,
                           int_tbl_prop_collector_factories, compression_type,
                           compression_opts, compression_dict, skip_filters,
-                          column_family_name, level),
+                          column_family_name, level, creation_time),
       column_family_id, file);
 }
 
@@ -76,7 +74,8 @@ Status BuildTable(
     const CompressionOptions& compression_opts, bool paranoid_file_checks,
     InternalStats* internal_stats, TableFileCreationReason reason,
     EventLogger* event_logger, int job_id, const Env::IOPriority io_priority,
-    TableProperties* table_properties, int level) {
+    TableProperties* table_properties, int level,
+    const uint64_t creation_time) {
   assert((column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          column_family_name.empty());
@@ -125,7 +124,8 @@ Status BuildTable(
       builder = NewTableBuilder(
           ioptions, internal_comparator, int_tbl_prop_collector_factories,
           column_family_id, column_family_name, file_writer.get(), compression,
-          compression_opts, level);
+          compression_opts, level, nullptr /* compression_dict */,
+          false /* skip_filters */, creation_time);
     }
 
     MergeHelper merge(env, internal_comparator.user_comparator(),
@@ -179,7 +179,7 @@ Status BuildTable(
     // Finish and check for file errors
     if (s.ok() && !empty) {
       StopWatch sw(env, ioptions.statistics, TABLE_SYNC_MICROS);
-      file_writer->Sync(ioptions.use_fsync);
+      s = file_writer->Sync(ioptions.use_fsync);
     }
     if (s.ok() && !empty) {
       s = file_writer->Close();

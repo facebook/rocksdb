@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -62,7 +60,7 @@ static std::string PrintContents(WriteBatch* b) {
     }
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       ParsedInternalKey ikey;
-      memset((void*)&ikey, 0, sizeof(ikey));
+      ikey.clear();
       EXPECT_TRUE(ParseInternalKey(iter->key(), &ikey));
       switch (ikey.type) {
         case kTypeValue:
@@ -453,20 +451,20 @@ TEST_F(WriteBatchTest, DISABLED_ManyUpdates) {
     }
     virtual Status DeleteCF(uint32_t column_family_id,
                             const Slice& key) override {
-      EXPECT_TRUE(false);
+      ADD_FAILURE();
       return Status::OK();
     }
     virtual Status SingleDeleteCF(uint32_t column_family_id,
                                   const Slice& key) override {
-      EXPECT_TRUE(false);
+      ADD_FAILURE();
       return Status::OK();
     }
     virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
                            const Slice& value) override {
-      EXPECT_TRUE(false);
+      ADD_FAILURE();
       return Status::OK();
     }
-    virtual void LogData(const Slice& blob) override { EXPECT_TRUE(false); }
+    virtual void LogData(const Slice& blob) override { ADD_FAILURE(); }
     virtual bool Continue() override { return num_seen < kNumUpdates; }
   } handler;
 
@@ -504,20 +502,20 @@ TEST_F(WriteBatchTest, DISABLED_LargeKeyValue) {
     }
     virtual Status DeleteCF(uint32_t column_family_id,
                             const Slice& key) override {
-      EXPECT_TRUE(false);
+      ADD_FAILURE();
       return Status::OK();
     }
     virtual Status SingleDeleteCF(uint32_t column_family_id,
                                   const Slice& key) override {
-      EXPECT_TRUE(false);
+      ADD_FAILURE();
       return Status::OK();
     }
     virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
                            const Slice& value) override {
-      EXPECT_TRUE(false);
+      ADD_FAILURE();
       return Status::OK();
     }
-    virtual void LogData(const Slice& blob) override { EXPECT_TRUE(false); }
+    virtual void LogData(const Slice& blob) override { ADD_FAILURE(); }
     virtual bool Continue() override { return num_seen < 2; }
   } handler;
 

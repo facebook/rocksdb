@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 import java.lang.IllegalArgumentException;
 import java.util.Arrays;
@@ -31,6 +31,7 @@ public class RocksDBSample {
          final Filter bloomFilter = new BloomFilter(10);
          final ReadOptions readOptions = new ReadOptions()
              .setFillCache(false);
+         final Statistics stats = new Statistics();
          final RateLimiter rateLimiter = new RateLimiter(10000000,10000, 10)) {
 
       try (final RocksDB db = RocksDB.open(options, db_path_not_found)) {
@@ -41,7 +42,7 @@ public class RocksDBSample {
 
       try {
         options.setCreateIfMissing(true)
-            .createStatistics()
+            .setStatistics(stats)
             .setWriteBufferSize(8 * SizeUnit.KB)
             .setMaxWriteBufferNumber(3)
             .setMaxBackgroundCompactions(10)
@@ -50,8 +51,6 @@ public class RocksDBSample {
       } catch (final IllegalArgumentException e) {
         assert (false);
       }
-
-      final Statistics stats = options.statisticsPtr();
 
       assert (options.createIfMissing() == true);
       assert (options.writeBufferSize() == 8 * SizeUnit.KB);
@@ -221,7 +220,9 @@ public class RocksDBSample {
 
         try {
           for (final TickerType statsType : TickerType.values()) {
-            stats.getTickerCount(statsType);
+            if (statsType != TickerType.TICKER_ENUM_MAX) {
+              stats.getTickerCount(statsType);
+            }
           }
           System.out.println("getTickerCount() passed.");
         } catch (final Exception e) {
@@ -231,7 +232,9 @@ public class RocksDBSample {
 
         try {
           for (final HistogramType histogramType : HistogramType.values()) {
-            HistogramData data = stats.getHistogramData(histogramType);
+            if (histogramType != HistogramType.HISTOGRAM_ENUM_MAX) {
+              HistogramData data = stats.getHistogramData(histogramType);
+            }
           }
           System.out.println("getHistogramData() passed.");
         } catch (final Exception e) {

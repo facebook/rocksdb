@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include "options/cf_options.h"
 
@@ -45,6 +43,7 @@ ImmutableCFOptions::ImmutableCFOptions(const ImmutableDBOptions& db_options,
       inplace_callback(cf_options.inplace_callback),
       info_log(db_options.info_log.get()),
       statistics(db_options.statistics.get()),
+      rate_limiter(db_options.rate_limiter.get()),
       env(db_options.env),
       allow_mmap_reads(db_options.allow_mmap_reads),
       allow_mmap_writes(db_options.allow_mmap_writes),

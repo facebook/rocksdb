@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc. All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
 
@@ -28,7 +28,7 @@ class DynamicBloom {
   // locality:  If positive, optimize for cache line locality, 0 otherwise.
   // hash_func:  customized hash function
   // huge_page_tlb_size:  if >0, try to allocate bloom bytes from huge page TLB
-  //                      withi this page size. Need to reserve huge pages for
+  //                      within this page size. Need to reserve huge pages for
   //                      it to be allocated, like:
   //                         sysctl -w vm.nr_hugepages=20
   //                     See linux doc Documentation/vm/hugetlbpage.txt

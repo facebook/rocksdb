@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 #pragma once
 
@@ -42,6 +40,7 @@ class LDBCommand {
   static const std::string ARG_TTL_END;
   static const std::string ARG_TIMESTAMP;
   static const std::string ARG_TRY_LOAD_OPTIONS;
+  static const std::string ARG_IGNORE_UNKNOWN_OPTIONS;
   static const std::string ARG_FROM;
   static const std::string ARG_TO;
   static const std::string ARG_MAX_KEYS;
@@ -148,6 +147,8 @@ class LDBCommand {
 
   // If true, try to construct options from DB's option files.
   bool try_load_options_;
+
+  bool ignore_unknown_options_;
 
   bool create_if_missing_;
 

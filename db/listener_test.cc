@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include "db/db_impl.h"
 #include "db/db_test_util.h"
@@ -114,6 +112,7 @@ TEST_F(EventListenerTest, OnSingleDBCompactionTest) {
   const int kNumL0Files = 4;
 
   Options options;
+  options.env = CurrentOptions().env;
   options.create_if_missing = true;
   options.write_buffer_size = kEntrySize * kEntriesPerBuffer;
   options.compaction_style = kCompactionStyleLevel;
@@ -233,6 +232,7 @@ class TestFlushListener : public EventListener {
 
 TEST_F(EventListenerTest, OnSingleDBFlushTest) {
   Options options;
+  options.env = CurrentOptions().env;
   options.write_buffer_size = k110KB;
 #ifdef ROCKSDB_USING_THREAD_STATUS
   options.enable_thread_tracking = true;
@@ -269,6 +269,7 @@ TEST_F(EventListenerTest, OnSingleDBFlushTest) {
 
 TEST_F(EventListenerTest, MultiCF) {
   Options options;
+  options.env = CurrentOptions().env;
   options.write_buffer_size = k110KB;
 #ifdef ROCKSDB_USING_THREAD_STATUS
   options.enable_thread_tracking = true;
@@ -304,6 +305,7 @@ TEST_F(EventListenerTest, MultiCF) {
 
 TEST_F(EventListenerTest, MultiDBMultiListeners) {
   Options options;
+  options.env = CurrentOptions().env;
 #ifdef ROCKSDB_USING_THREAD_STATUS
   options.enable_thread_tracking = true;
 #endif  // ROCKSDB_USING_THREAD_STATUS
@@ -386,6 +388,7 @@ TEST_F(EventListenerTest, MultiDBMultiListeners) {
 
 TEST_F(EventListenerTest, DisableBGCompaction) {
   Options options;
+  options.env = CurrentOptions().env;
 #ifdef ROCKSDB_USING_THREAD_STATUS
   options.enable_thread_tracking = true;
 #endif  // ROCKSDB_USING_THREAD_STATUS
@@ -433,6 +436,7 @@ class TestCompactionReasonListener : public EventListener {
 
 TEST_F(EventListenerTest, CompactionReasonLevel) {
   Options options;
+  options.env = CurrentOptions().env;
   options.create_if_missing = true;
   options.memtable_factory.reset(
       new SpecialSkipListFactory(DBTestBase::kNumKeysByGenerateNewRandomFile));
@@ -498,6 +502,7 @@ TEST_F(EventListenerTest, CompactionReasonLevel) {
 
 TEST_F(EventListenerTest, CompactionReasonUniversal) {
   Options options;
+  options.env = CurrentOptions().env;
   options.create_if_missing = true;
   options.memtable_factory.reset(
       new SpecialSkipListFactory(DBTestBase::kNumKeysByGenerateNewRandomFile));
@@ -559,6 +564,7 @@ TEST_F(EventListenerTest, CompactionReasonUniversal) {
 
 TEST_F(EventListenerTest, CompactionReasonFIFO) {
   Options options;
+  options.env = CurrentOptions().env;
   options.create_if_missing = true;
   options.memtable_factory.reset(
       new SpecialSkipListFactory(DBTestBase::kNumKeysByGenerateNewRandomFile));
@@ -781,6 +787,7 @@ TEST_F(EventListenerTest, ColumnFamilyHandleDeletionStartedListenerTest) {
   auto listener =
       std::make_shared<ColumnFamilyHandleDeletionStartedListener>(cfs);
   Options options;
+  options.env = CurrentOptions().env;
   options.create_if_missing = true;
   options.listeners.push_back(listener);
   CreateAndReopenWithCF(cfs, options);
@@ -790,6 +797,92 @@ TEST_F(EventListenerTest, ColumnFamilyHandleDeletionStartedListenerTest) {
   delete handles_[1];
   handles_.resize(1);
   ASSERT_EQ(listener->getCounter(), 3);
+}
+
+class BackgroundErrorListener : public EventListener {
+ private:
+  SpecialEnv* env_;
+  int counter_;
+
+ public:
+  BackgroundErrorListener(SpecialEnv* env) : env_(env), counter_(0) {}
+
+  void OnBackgroundError(BackgroundErrorReason reason, Status* bg_error) override {
+    if (counter_ == 0) {
+      // suppress the first error and disable write-dropping such that a retry
+      // can succeed.
+      *bg_error = Status::OK();
+      env_->drop_writes_.store(false, std::memory_order_release);
+      env_->no_slowdown_ = false;
+    }
+    ++counter_;
+  }
+
+  int counter() { return counter_; }
+};
+
+TEST_F(EventListenerTest, BackgroundErrorListenerFailedFlushTest) {
+  auto listener = std::make_shared<BackgroundErrorListener>(env_);
+  Options options;
+  options.create_if_missing = true;
+  options.env = env_;
+  options.listeners.push_back(listener);
+  options.memtable_factory.reset(new SpecialSkipListFactory(1));
+  options.paranoid_checks = true;
+  DestroyAndReopen(options);
+
+  // the usual TEST_WaitForFlushMemTable() doesn't work for failed flushes, so
+  // forge a custom one for the failed flush case.
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::BGWorkFlush:done",
+        "EventListenerTest:BackgroundErrorListenerFailedFlushTest:1"}});
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  env_->drop_writes_.store(true, std::memory_order_release);
+  env_->no_slowdown_ = true;
+
+  ASSERT_OK(Put("key0", "val"));
+  ASSERT_OK(Put("key1", "val"));
+  TEST_SYNC_POINT("EventListenerTest:BackgroundErrorListenerFailedFlushTest:1");
+  ASSERT_EQ(1, listener->counter());
+  ASSERT_OK(Put("key2", "val"));
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+}
+
+TEST_F(EventListenerTest, BackgroundErrorListenerFailedCompactionTest) {
+  auto listener = std::make_shared<BackgroundErrorListener>(env_);
+  Options options;
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+  options.env = env_;
+  options.level0_file_num_compaction_trigger = 2;
+  options.listeners.push_back(listener);
+  options.memtable_factory.reset(new SpecialSkipListFactory(2));
+  options.paranoid_checks = true;
+  DestroyAndReopen(options);
+
+  // third iteration triggers the second memtable's flush
+  for (int i = 0; i < 3; ++i) {
+    ASSERT_OK(Put("key0", "val"));
+    if (i > 0) {
+      ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+    }
+    ASSERT_OK(Put("key1", "val"));
+  }
+  ASSERT_EQ(2, NumTableFilesAtLevel(0));
+
+  env_->drop_writes_.store(true, std::memory_order_release);
+  env_->no_slowdown_ = true;
+  ASSERT_OK(dbfull()->SetOptions({{"disable_auto_compactions", "false"}}));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ(1, listener->counter());
+
+  // trigger flush so compaction is triggered again; this time it succeeds
+  ASSERT_OK(Put("key0", "val"));
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
 }
 
 }  // namespace rocksdb

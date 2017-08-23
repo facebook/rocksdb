@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include "options/db_options.h"
 
@@ -86,7 +86,9 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       fail_if_options_file_error(options.fail_if_options_file_error),
       dump_malloc_stats(options.dump_malloc_stats),
       avoid_flush_during_recovery(options.avoid_flush_during_recovery),
-      allow_ingest_behind(options.allow_ingest_behind) {
+      allow_ingest_behind(options.allow_ingest_behind),
+      concurrent_prepare(options.concurrent_prepare),
+      manual_wal_flush(options.manual_wal_flush) {
 }
 
 void ImmutableDBOptions::Dump(Logger* log) const {
@@ -160,6 +162,8 @@ void ImmutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(
       log, "                   Options.db_write_buffer_size: %" ROCKSDB_PRIszt,
       db_write_buffer_size);
+  ROCKS_LOG_HEADER(log, "                   Options.write_buffer_manager: %p",
+                   write_buffer_manager.get());
   ROCKS_LOG_HEADER(log, "        Options.access_hint_on_compaction_start: %d",
                    static_cast<int>(access_hint_on_compaction_start));
   ROCKS_LOG_HEADER(log, " Options.new_table_reader_for_compaction_inputs: %d",
@@ -219,6 +223,10 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    avoid_flush_during_recovery);
   ROCKS_LOG_HEADER(log, "            Options.allow_ingest_behind: %d",
                    allow_ingest_behind);
+  ROCKS_LOG_HEADER(log, "            Options.concurrent_prepare: %d",
+                   concurrent_prepare);
+  ROCKS_LOG_HEADER(log, "            Options.manual_wal_flush: %d",
+                   manual_wal_flush);
 }
 
 MutableDBOptions::MutableDBOptions()

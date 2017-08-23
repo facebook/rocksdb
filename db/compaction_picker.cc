@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -236,11 +234,6 @@ bool CompactionPicker::ExpandInputsToCleanCut(const std::string& cf_name,
   // If, after the expansion, there are files that are already under
   // compaction, then we must drop/cancel this compaction.
   if (AreFilesInCompaction(inputs->files)) {
-    ROCKS_LOG_WARN(
-        ioptions_.info_log,
-        "[%s] ExpandWhileOverlapping() failure because some of the necessary"
-        " compaction input files are currently being compacted.",
-        cf_name.c_str());
     return false;
   }
   return true;
@@ -1108,11 +1101,7 @@ void LevelCompactionBuilder::SetupInitialFiles() {
       }
       output_level_ =
           (start_level_ == 0) ? vstorage_->base_level() : start_level_ + 1;
-      if (PickFileToCompact() &&
-          compaction_picker_->ExpandInputsToCleanCut(cf_name_, vstorage_,
-                                                     &start_level_inputs_) &&
-          !compaction_picker_->FilesRangeOverlapWithCompaction(
-              {start_level_inputs_}, output_level_)) {
+      if (PickFileToCompact()) {
         // found the compaction!
         if (start_level_ == 0) {
           // L0 score = `num L0 files` / `level0_file_num_compaction_trigger`
@@ -1334,12 +1323,10 @@ bool LevelCompactionBuilder::PickFileToCompact() {
   const std::vector<FileMetaData*>& level_files =
       vstorage_->LevelFiles(start_level_);
 
-  // record the first file that is not yet compacted
-  int nextIndex = -1;
-
-  for (unsigned int i = vstorage_->NextCompactionIndex(start_level_);
-       i < file_size.size(); i++) {
-    int index = file_size[i];
+  unsigned int cmp_idx;
+  for (cmp_idx = vstorage_->NextCompactionIndex(start_level_);
+       cmp_idx < file_size.size(); cmp_idx++) {
+    int index = file_size[cmp_idx];
     auto* f = level_files[index];
 
     // do not pick a file to compact if it is being compacted
@@ -1348,27 +1335,42 @@ bool LevelCompactionBuilder::PickFileToCompact() {
       continue;
     }
 
-    // remember the startIndex for the next call to PickCompaction
-    if (nextIndex == -1) {
-      nextIndex = i;
-    }
-
-    // Do not pick this file if its parents at level+1 are being compacted.
-    // Maybe we can avoid redoing this work in SetupOtherInputs
-    parent_index_ = -1;
-    if (compaction_picker_->IsRangeInCompaction(vstorage_, &f->smallest,
-                                                &f->largest, output_level_,
-                                                &parent_index_)) {
-      continue;
-    }
     start_level_inputs_.files.push_back(f);
     start_level_inputs_.level = start_level_;
+    if (!compaction_picker_->ExpandInputsToCleanCut(cf_name_, vstorage_,
+                                                    &start_level_inputs_) ||
+        compaction_picker_->FilesRangeOverlapWithCompaction(
+            {start_level_inputs_}, output_level_)) {
+      // A locked (pending compaction) input-level file was pulled in due to
+      // user-key overlap.
+      start_level_inputs_.clear();
+      continue;
+    }
+
+    // Now that input level is fully expanded, we check whether any output files
+    // are locked due to pending compaction.
+    //
+    // Note we rely on ExpandInputsToCleanCut() to tell us whether any output-
+    // level files are locked, not just the extra ones pulled in for user-key
+    // overlap.
+    InternalKey smallest, largest;
+    compaction_picker_->GetRange(start_level_inputs_, &smallest, &largest);
+    CompactionInputFiles output_level_inputs;
+    output_level_inputs.level = output_level_;
+    vstorage_->GetOverlappingInputs(output_level_, &smallest, &largest,
+                                    &output_level_inputs.files);
+    if (!output_level_inputs.empty() &&
+        !compaction_picker_->ExpandInputsToCleanCut(cf_name_, vstorage_,
+                                                    &output_level_inputs)) {
+      start_level_inputs_.clear();
+      continue;
+    }
     base_index_ = index;
     break;
   }
 
   // store where to start the iteration in the next call to PickCompaction
-  vstorage_->SetNextCompactionIndex(start_level_, nextIndex);
+  vstorage_->SetNextCompactionIndex(start_level_, cmp_idx);
 
   return start_level_inputs_.size() > 0;
 }
@@ -1405,16 +1407,87 @@ bool FIFOCompactionPicker::NeedsCompaction(
   return vstorage->CompactionScore(kLevel0) >= 1;
 }
 
-Compaction* FIFOCompactionPicker::PickCompaction(
+namespace {
+uint64_t GetTotalFilesSize(
+    const std::vector<FileMetaData*>& files) {
+  uint64_t total_size = 0;
+  for (const auto& f : files) {
+    total_size += f->fd.file_size;
+  }
+  return total_size;
+}
+}  // anonymous namespace
+
+Compaction* FIFOCompactionPicker::PickTTLCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     VersionStorageInfo* vstorage, LogBuffer* log_buffer) {
-  assert(vstorage->num_levels() == 1);
+  assert(ioptions_.compaction_options_fifo.ttl > 0);
+
   const int kLevel0 = 0;
   const std::vector<FileMetaData*>& level_files = vstorage->LevelFiles(kLevel0);
-  uint64_t total_size = 0;
-  for (const auto& file : level_files) {
-    total_size += file->fd.file_size;
+  uint64_t total_size = GetTotalFilesSize(level_files);
+
+  int64_t _current_time;
+  auto status = ioptions_.env->GetCurrentTime(&_current_time);
+  if (!status.ok()) {
+    ROCKS_LOG_BUFFER(log_buffer,
+                     "[%s] FIFO compaction: Couldn't get current time: %s. "
+                     "Not doing compactions based on TTL. ",
+                     cf_name.c_str(), status.ToString().c_str());
+    return nullptr;
   }
+  const uint64_t current_time = static_cast<uint64_t>(_current_time);
+
+  std::vector<CompactionInputFiles> inputs;
+  inputs.emplace_back();
+  inputs[0].level = 0;
+
+  for (auto ritr = level_files.rbegin(); ritr != level_files.rend(); ++ritr) {
+    auto f = *ritr;
+    if (f->fd.table_reader != nullptr &&
+        f->fd.table_reader->GetTableProperties() != nullptr) {
+      auto creation_time =
+          f->fd.table_reader->GetTableProperties()->creation_time;
+      if (creation_time == 0 ||
+          creation_time >=
+              (current_time - ioptions_.compaction_options_fifo.ttl)) {
+        break;
+      }
+      total_size -= f->compensated_file_size;
+      inputs[0].files.push_back(f);
+    }
+  }
+
+  // Return a nullptr and proceed to size-based FIFO compaction if:
+  // 1. there are no files older than ttl OR
+  // 2. there are a few files older than ttl, but deleting them will not bring
+  //    the total size to be less than max_table_files_size threshold.
+  if (inputs[0].files.empty() ||
+      total_size > ioptions_.compaction_options_fifo.max_table_files_size) {
+    return nullptr;
+  }
+
+  for (const auto& f : inputs[0].files) {
+    ROCKS_LOG_BUFFER(log_buffer,
+                     "[%s] FIFO compaction: picking file %" PRIu64
+                     " with creation time %" PRIu64 " for deletion",
+                     cf_name.c_str(), f->fd.GetNumber(),
+                     f->fd.table_reader->GetTableProperties()->creation_time);
+  }
+
+  Compaction* c = new Compaction(
+      vstorage, ioptions_, mutable_cf_options, std::move(inputs), 0, 0, 0, 0,
+      kNoCompression, {}, /* is manual */ false, vstorage->CompactionScore(0),
+      /* is deletion compaction */ true, CompactionReason::kFIFOTtl);
+  return c;
+}
+
+Compaction* FIFOCompactionPicker::PickSizeCompaction(
+    const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
+    VersionStorageInfo* vstorage, LogBuffer* log_buffer) {
+  const int kLevel0 = 0;
+  const std::vector<FileMetaData*>& level_files = vstorage->LevelFiles(kLevel0);
+  uint64_t total_size = GetTotalFilesSize(level_files);
 
   if (total_size <= ioptions_.compaction_options_fifo.max_table_files_size ||
       level_files.size() == 0) {
@@ -1435,7 +1508,6 @@ Compaction* FIFOCompactionPicker::PickCompaction(
             /* is manual */ false, vstorage->CompactionScore(0),
             /* is deletion compaction */ false,
             CompactionReason::kFIFOReduceNumFiles);
-        RegisterCompaction(c);
         return c;
       }
     }
@@ -1460,24 +1532,41 @@ Compaction* FIFOCompactionPicker::PickCompaction(
   std::vector<CompactionInputFiles> inputs;
   inputs.emplace_back();
   inputs[0].level = 0;
-  // delete old files (FIFO)
+
   for (auto ritr = level_files.rbegin(); ritr != level_files.rend(); ++ritr) {
     auto f = *ritr;
     total_size -= f->compensated_file_size;
     inputs[0].files.push_back(f);
     char tmp_fsize[16];
     AppendHumanBytes(f->fd.GetFileSize(), tmp_fsize, sizeof(tmp_fsize));
-    ROCKS_LOG_BUFFER(log_buffer, "[%s] FIFO compaction: picking file %" PRIu64
-                                 " with size %s for deletion",
+    ROCKS_LOG_BUFFER(log_buffer,
+                     "[%s] FIFO compaction: picking file %" PRIu64
+                     " with size %s for deletion",
                      cf_name.c_str(), f->fd.GetNumber(), tmp_fsize);
     if (total_size <= ioptions_.compaction_options_fifo.max_table_files_size) {
       break;
     }
   }
+
   Compaction* c = new Compaction(
       vstorage, ioptions_, mutable_cf_options, std::move(inputs), 0, 0, 0, 0,
       kNoCompression, {}, /* is manual */ false, vstorage->CompactionScore(0),
       /* is deletion compaction */ true, CompactionReason::kFIFOMaxSize);
+  return c;
+}
+
+Compaction* FIFOCompactionPicker::PickCompaction(
+    const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
+    VersionStorageInfo* vstorage, LogBuffer* log_buffer) {
+  assert(vstorage->num_levels() == 1);
+
+  Compaction* c = nullptr;
+  if (ioptions_.compaction_options_fifo.ttl > 0) {
+    c = PickTTLCompaction(cf_name, mutable_cf_options, vstorage, log_buffer);
+  }
+  if (c == nullptr) {
+    c = PickSizeCompaction(cf_name, mutable_cf_options, vstorage, log_buffer);
+  }
   RegisterCompaction(c);
   return c;
 }

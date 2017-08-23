@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
@@ -887,6 +887,18 @@ struct DBOptions {
   // DEFAULT: false
   // Immutable.
   bool allow_ingest_behind = false;
+
+  // If enabled it uses two queues for writes, one for the ones with
+  // disable_memtable and one for the ones that also write to memtable. This
+  // allows the memtable writes not to lag behind other writes. It can be used
+  // to optimize MySQL 2PC in which only the commits, which are serial, write to
+  // memtable.
+  bool concurrent_prepare = false;
+
+  // If true WAL is not flushed automatically after each write. Instead it
+  // relies on manual invocation of FlushWAL to write the WAL buffer to its
+  // file.
+  bool manual_wal_flush = false;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

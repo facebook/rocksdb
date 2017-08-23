@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -1721,12 +1719,15 @@ TEST_F(DBIteratorTest, IteratorWithLocalStatistics) {
 
   std::vector<port::Thread> threads;
   std::function<void()> reader_func_next = [&]() {
+    SetPerfLevel(kEnableCount);
+    get_perf_context()->Reset();
     Iterator* iter = db_->NewIterator(ReadOptions());
 
     iter->SeekToFirst();
     // Seek will bump ITER_BYTES_READ
-    total_bytes += iter->key().size();
-    total_bytes += iter->value().size();
+    uint64_t bytes = 0;
+    bytes += iter->key().size();
+    bytes += iter->value().size();
     while (true) {
       iter->Next();
       total_next++;
@@ -1735,20 +1736,25 @@ TEST_F(DBIteratorTest, IteratorWithLocalStatistics) {
         break;
       }
       total_next_found++;
-      total_bytes += iter->key().size();
-      total_bytes += iter->value().size();
+      bytes += iter->key().size();
+      bytes += iter->value().size();
     }
 
     delete iter;
+    ASSERT_EQ(bytes, get_perf_context()->iter_read_bytes);
+    SetPerfLevel(kDisable);
+    total_bytes += bytes;
   };
 
   std::function<void()> reader_func_prev = [&]() {
+    SetPerfLevel(kEnableCount);
     Iterator* iter = db_->NewIterator(ReadOptions());
 
     iter->SeekToLast();
     // Seek will bump ITER_BYTES_READ
-    total_bytes += iter->key().size();
-    total_bytes += iter->value().size();
+    uint64_t bytes = 0;
+    bytes += iter->key().size();
+    bytes += iter->value().size();
     while (true) {
       iter->Prev();
       total_prev++;
@@ -1757,11 +1763,14 @@ TEST_F(DBIteratorTest, IteratorWithLocalStatistics) {
         break;
       }
       total_prev_found++;
-      total_bytes += iter->key().size();
-      total_bytes += iter->value().size();
+      bytes += iter->key().size();
+      bytes += iter->value().size();
     }
 
     delete iter;
+    ASSERT_EQ(bytes, get_perf_context()->iter_read_bytes);
+    SetPerfLevel(kDisable);
+    total_bytes += bytes;
   };
 
   for (int i = 0; i < 10; i++) {
@@ -1909,6 +1918,65 @@ TEST_F(DBIteratorTest, DBIteratorSkipRecentDuplicatesTest) {
   EXPECT_GE(get_perf_context()->seek_on_memtable_count, 2);
   EXPECT_EQ(1, options.statistics->getTickerCount(
                  NUMBER_OF_RESEEKS_IN_ITERATION));
+}
+
+TEST_F(DBIteratorTest, Refresh) {
+  ASSERT_OK(Put("x", "y"));
+
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+  iter->Seek(Slice("a"));
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().compare(Slice("x")), 0);
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+
+  ASSERT_OK(Put("c", "d"));
+
+  iter->Seek(Slice("a"));
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().compare(Slice("x")), 0);
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+
+  iter->Refresh();
+
+  iter->Seek(Slice("a"));
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().compare(Slice("c")), 0);
+  iter->Next();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().compare(Slice("x")), 0);
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+
+  dbfull()->Flush(FlushOptions());
+
+  ASSERT_OK(Put("m", "n"));
+
+  iter->Seek(Slice("a"));
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().compare(Slice("c")), 0);
+  iter->Next();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().compare(Slice("x")), 0);
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+
+  iter->Refresh();
+
+  iter->Seek(Slice("a"));
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().compare(Slice("c")), 0);
+  iter->Next();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().compare(Slice("m")), 0);
+  iter->Next();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().compare(Slice("x")), 0);
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+
+  iter.reset();
 }
 
 }  // namespace rocksdb

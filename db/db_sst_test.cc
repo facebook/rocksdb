@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -337,6 +335,7 @@ TEST_F(DBSSTTest, RateLimitedDelete) {
   ASSERT_OK(s);
   options.sst_file_manager->SetDeleteRateBytesPerSecond(rate_bytes_per_sec);
   auto sfm = static_cast<SstFileManagerImpl*>(options.sst_file_manager.get());
+  sfm->delete_scheduler()->TEST_SetMaxTrashDBRatio(1.1);
 
   ASSERT_OK(TryReopen(options));
   // Create 4 files in L0
@@ -402,6 +401,7 @@ TEST_F(DBSSTTest, DeleteSchedulerMultipleDBPaths) {
       env_, nullptr, trash_dir, rate_bytes_per_sec, false, &s));
   ASSERT_OK(s);
   auto sfm = static_cast<SstFileManagerImpl*>(options.sst_file_manager.get());
+  sfm->delete_scheduler()->TEST_SetMaxTrashDBRatio(1.1);
 
   DestroyAndReopen(options);
 
@@ -456,9 +456,14 @@ TEST_F(DBSSTTest, DestroyDBWithRateLimitedDelete) {
       [&](void* arg) { bg_delete_file++; });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
+  Status s;
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   options.env = env_;
+  std::string trash_dir = test::TmpDir(env_) + "/trash";
+  options.sst_file_manager.reset(
+      NewSstFileManager(env_, nullptr, trash_dir, 0, false, &s));
+  ASSERT_OK(s);
   DestroyAndReopen(options);
 
   // Create 4 files in L0
@@ -471,15 +476,12 @@ TEST_F(DBSSTTest, DestroyDBWithRateLimitedDelete) {
 
   // Close DB and destroy it using DeleteScheduler
   Close();
-  std::string trash_dir = test::TmpDir(env_) + "/trash";
-  int64_t rate_bytes_per_sec = 1024 * 1024;  // 1 Mb / Sec
-  Status s;
-  options.sst_file_manager.reset(NewSstFileManager(
-      env_, nullptr, trash_dir, rate_bytes_per_sec, false, &s));
-  ASSERT_OK(s);
-  ASSERT_OK(DestroyDB(dbname_, options));
 
   auto sfm = static_cast<SstFileManagerImpl*>(options.sst_file_manager.get());
+
+  sfm->SetDeleteRateBytesPerSecond(1024 * 1024);
+  sfm->delete_scheduler()->TEST_SetMaxTrashDBRatio(1.1);
+  ASSERT_OK(DestroyDB(dbname_, options));
   sfm->WaitForEmptyTrash();
   // We have deleted the 4 sst files in the delete_scheduler
   ASSERT_EQ(bg_delete_file, 4);

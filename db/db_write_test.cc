@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include <memory>
 #include <thread>
@@ -60,7 +58,7 @@ TEST_P(DBWriteTest, ReturnSeuqneceNumberMultiThreaded) {
       ASSERT_FALSE(flags[sequence].test_and_set());
     }
   };
-  std::vector<std::thread> threads;
+  std::vector<port::Thread> threads;
   for (size_t i = 0; i < kThreads; i++) {
     threads.emplace_back(writer, i);
   }
@@ -71,6 +69,7 @@ TEST_P(DBWriteTest, ReturnSeuqneceNumberMultiThreaded) {
 
 INSTANTIATE_TEST_CASE_P(DBWriteTestInstance, DBWriteTest,
                         testing::Values(DBTestBase::kDefault,
+                                        DBTestBase::kConcurrentWALWrites,
                                         DBTestBase::kPipelinedWrite));
 
 }  // namespace rocksdb

@@ -1,9 +1,7 @@
 //  Copyright (c) 2016-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
@@ -29,6 +27,9 @@ class DBRangeDelTest : public DBTestBase {
 // ROCKSDB_LITE
 #ifndef ROCKSDB_LITE
 TEST_F(DBRangeDelTest, NonBlockBasedTableNotSupported) {
+  if (!IsMemoryMappedAccessSupported()) {
+    return;
+  }
   Options opts = CurrentOptions();
   opts.table_factory.reset(new PlainTableFactory());
   opts.prefix_extractor.reset(NewNoopTransform());
@@ -818,7 +819,80 @@ TEST_F(DBRangeDelTest, TailingIteratorRangeTombstoneUnsupported) {
   }
   db_->ReleaseSnapshot(snapshot);
 }
+
 #endif  // !ROCKSDB_UBSAN_RUN
+
+TEST_F(DBRangeDelTest, SubcompactionHasEmptyDedicatedRangeDelFile) {
+  const int kNumFiles = 2, kNumKeysPerFile = 4;
+  Options options = CurrentOptions();
+  options.compression = kNoCompression;
+  options.disable_auto_compactions = true;
+  options.level0_file_num_compaction_trigger = kNumFiles;
+  options.max_subcompactions = 2;
+  options.num_levels = 2;
+  options.target_file_size_base = 4096;
+  Reopen(options);
+
+  // need a L1 file for subcompaction to be triggered
+  ASSERT_OK(
+      db_->Put(WriteOptions(), db_->DefaultColumnFamily(), Key(0), "val"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  MoveFilesToLevel(1);
+
+  // put enough keys to fill up the first subcompaction, and later range-delete
+  // them so that the first subcompaction outputs no key-values. In that case
+  // it'll consider making an SST file dedicated to range deletions.
+  for (int i = 0; i < kNumKeysPerFile; ++i) {
+    ASSERT_OK(db_->Put(WriteOptions(), db_->DefaultColumnFamily(), Key(i),
+                       std::string(1024, 'a')));
+  }
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(0),
+                             Key(kNumKeysPerFile)));
+
+  // the above range tombstone can be dropped, so that one alone won't cause a
+  // dedicated file to be opened. We can make one protected by snapshot that
+  // must be considered. Make its range outside the first subcompaction's range
+  // to exercise the tricky part of the code.
+  const Snapshot* snapshot = db_->GetSnapshot();
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                             Key(kNumKeysPerFile + 1),
+                             Key(kNumKeysPerFile + 2)));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  ASSERT_EQ(kNumFiles, NumTableFilesAtLevel(0));
+  ASSERT_EQ(1, NumTableFilesAtLevel(1));
+
+  db_->EnableAutoCompaction({db_->DefaultColumnFamily()});
+  dbfull()->TEST_WaitForCompact();
+  db_->ReleaseSnapshot(snapshot);
+}
+
+TEST_F(DBRangeDelTest, MemtableBloomFilter) {
+  // regression test for #2743. the range delete tombstones in memtable should
+  // be added even when Get() skips searching due to its prefix bloom filter
+  const int kMemtableSize = 1 << 20;              // 1MB
+  const int kMemtablePrefixFilterSize = 1 << 13;  // 8KB
+  const int kNumKeys = 1000;
+  const int kPrefixLen = 8;
+  Options options = CurrentOptions();
+  options.memtable_prefix_bloom_size_ratio =
+      static_cast<double>(kMemtablePrefixFilterSize) / kMemtableSize;
+  options.prefix_extractor.reset(rocksdb::NewFixedPrefixTransform(kPrefixLen));
+  options.write_buffer_size = kMemtableSize;
+  Reopen(options);
+
+  for (int i = 0; i < kNumKeys; ++i) {
+    ASSERT_OK(Put(Key(i), "val"));
+  }
+  Flush();
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(0),
+                             Key(kNumKeys)));
+  for (int i = 0; i < kNumKeys; ++i) {
+    std::string value;
+    ASSERT_TRUE(db_->Get(ReadOptions(), Key(i), &value).IsNotFound());
+  }
+}
 
 #endif  // ROCKSDB_LITE
 

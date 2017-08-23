@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef STORAGE_ROCKSDB_INCLUDE_PERF_CONTEXT_H
 #define STORAGE_ROCKSDB_INCLUDE_PERF_CONTEXT_H
@@ -30,6 +30,11 @@ struct PerfContext {
   uint64_t block_read_time;           // total nanos spent on block reads
   uint64_t block_checksum_time;       // total nanos spent on block checksum
   uint64_t block_decompress_time;  // total nanos spent on block decompression
+
+  uint64_t get_read_bytes;       // bytes for vals returned by Get
+  uint64_t multiget_read_bytes;  // bytes for vals returned by MultiGet
+  uint64_t iter_read_bytes;      // bytes for keys/vals decoded by iterator
+
   // total number of internal keys skipped over during iteration.
   // There are several reasons for it:
   // 1. when calling Next(), the iterator is in the position of the previous
@@ -153,7 +158,6 @@ struct PerfContext {
 // Get Thread-local PerfContext object pointer
 // if defined(NPERF_CONTEXT), then the pointer is not thread-local
 PerfContext* get_perf_context();
-
 
 }
 

@@ -71,10 +71,19 @@ enum class CompactionReason {
   kFIFOMaxSize,
   // [FIFO] reduce number of files.
   kFIFOReduceNumFiles,
+  // [FIFO] files with creation time < (current_time - interval)
+  kFIFOTtl,
   // Manual compaction
   kManualCompaction,
   // DB::SuggestCompactRange() marked files for compaction
   kFilesMarkedForCompaction,
+};
+
+enum class BackgroundErrorReason {
+  kFlush,
+  kCompaction,
+  kWriteCallback,
+  kMemTable,
 };
 
 #ifndef ROCKSDB_LITE
@@ -347,6 +356,20 @@ class EventListener {
   // will be blocked from finishing.
   virtual void OnExternalFileIngested(
       DB* /*db*/, const ExternalFileIngestionInfo& /*info*/) {}
+
+  // A call-back function for RocksDB which will be called before setting the
+  // background error status to a non-OK value. The new background error status
+  // is provided in `bg_error` and can be modified by the callback. E.g., a
+  // callback can suppress errors by resetting it to Status::OK(), thus
+  // preventing the database from entering read-only mode. We do not provide any
+  // guarantee when failed flushes/compactions will be rescheduled if the user
+  // suppresses an error.
+  //
+  // Note that this function can run on the same threads as flush, compaction,
+  // and user writes. So, it is extremely important not to perform heavy
+  // computations or blocking calls in this function.
+  virtual void OnBackgroundError(BackgroundErrorReason /* reason */,
+                                 Status* /* bg_error */) {}
 
   // Factory method to return CompactionEventListener. If multiple listeners
   // provides CompactionEventListner, only the first one will be used.

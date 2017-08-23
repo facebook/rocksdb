@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -43,11 +41,19 @@ class WriteBufferManager {
 
   // Should only be called from write thread
   bool ShouldFlush() const {
-    // Flush if memory usage hits a hard limit, or total size that hasn't been
-    // scheduled to free hits a soft limit, which is 7/8 of the hard limit.
-    return enabled() &&
-           (memory_usage() >= buffer_size() ||
-            mutable_memtable_memory_usage() >= buffer_size() / 8 * 7);
+    if (enabled()) {
+      if (mutable_memtable_memory_usage() > mutable_limit_) {
+        return true;
+      }
+      if (memory_usage() >= buffer_size_ &&
+          mutable_memtable_memory_usage() >= buffer_size_ / 2) {
+        // If the memory exceeds the buffer size, we trigger more aggressive
+        // flush. But if already more than half memory is being flushed,
+        // triggering more flush may not help. We will hold it instead.
+        return true;
+      }
+    }
+    return false;
   }
 
   void ReserveMem(size_t mem) {
@@ -77,6 +83,7 @@ class WriteBufferManager {
 
  private:
   const size_t buffer_size_;
+  const size_t mutable_limit_;
   std::atomic<size_t> memory_used_;
   // Memory that hasn't been scheduled to free.
   std::atomic<size_t> memory_active_;

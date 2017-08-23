@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -247,6 +247,13 @@ class SpecialEnv : public EnvWrapper {
         }
       }
       Status Truncate(uint64_t size) override { return base_->Truncate(size); }
+      Status RangeSync(uint64_t offset, uint64_t nbytes) override {
+        Status s = base_->RangeSync(offset, nbytes);
+#if !(defined NDEBUG) || !defined(OS_WIN)
+        TEST_SYNC_POINT_CALLBACK("SpecialEnv::SStableFile::RangeSync", &s);
+#endif  // !(defined NDEBUG) || !defined(OS_WIN)
+        return s;
+      }
       Status Close() override {
 // SyncPoint is not supported in Released Windows Mode.
 #if !(defined NDEBUG) || !defined(OS_WIN)
@@ -256,7 +263,11 @@ class SpecialEnv : public EnvWrapper {
         TEST_SYNC_POINT_CALLBACK("DBTestWritableFile.GetPreallocationStatus",
                                  &preallocation_size);
 #endif  // !(defined NDEBUG) || !defined(OS_WIN)
-        return base_->Close();
+        Status s = base_->Close();
+#if !(defined NDEBUG) || !defined(OS_WIN)
+        TEST_SYNC_POINT_CALLBACK("SpecialEnv::SStableFile::Close", &s);
+#endif  // !(defined NDEBUG) || !defined(OS_WIN)
+        return s;
       }
       Status Flush() override { return base_->Flush(); }
       Status Sync() override {
@@ -264,7 +275,11 @@ class SpecialEnv : public EnvWrapper {
         while (env_->delay_sstable_sync_.load(std::memory_order_acquire)) {
           env_->SleepForMicroseconds(100000);
         }
-        return base_->Sync();
+        Status s = base_->Sync();
+#if !(defined NDEBUG) || !defined(OS_WIN)
+        TEST_SYNC_POINT_CALLBACK("SpecialEnv::SStableFile::Sync", &s);
+#endif  // !(defined NDEBUG) || !defined(OS_WIN)
+        return s;
       }
       void SetIOPriority(Env::IOPriority pri) override {
         base_->SetIOPriority(pri);
@@ -641,13 +656,14 @@ class DBTestBase : public testing::Test {
     kRecycleLogFiles = 28,
     kConcurrentSkipList = 29,
     kPipelinedWrite = 30,
-    kEnd = 31,
-    kDirectIO = 32,
-    kLevelSubcompactions = 33,
-    kUniversalSubcompactions = 34,
-    kBlockBasedTableWithIndexRestartInterval = 35,
-    kBlockBasedTableWithPartitionedIndex = 36,
-    kPartitionedFilterWithNewTableReaderForCompactions = 37,
+    kConcurrentWALWrites = 31,
+    kEnd = 32,
+    kDirectIO = 33,
+    kLevelSubcompactions = 34,
+    kUniversalSubcompactions = 35,
+    kBlockBasedTableWithIndexRestartInterval = 36,
+    kBlockBasedTableWithPartitionedIndex = 37,
+    kPartitionedFilterWithNewTableReaderForCompactions = 38,
   };
 
  public:
@@ -655,6 +671,7 @@ class DBTestBase : public testing::Test {
   std::string alternative_wal_dir_;
   std::string alternative_db_log_dir_;
   MockEnv* mem_env_;
+  Env* encrypted_env_;
   SpecialEnv* env_;
   DB* db_;
   std::vector<ColumnFamilyHandle*> handles_;
@@ -758,6 +775,8 @@ class DBTestBase : public testing::Test {
 
   bool IsDirectIOSupported();
 
+  bool IsMemoryMappedAccessSupported() const;
+
   Status Flush(int cf = 0);
 
   Status Put(const Slice& k, const Slice& v, WriteOptions wo = WriteOptions());
@@ -783,6 +802,8 @@ class DBTestBase : public testing::Test {
 
   std::string Get(int cf, const std::string& k,
                   const Snapshot* snapshot = nullptr);
+
+  Status Get(const std::string& k, PinnableSlice* v);
 
   uint64_t GetNumSnapshots();
 

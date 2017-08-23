@@ -378,8 +378,8 @@ Iterator* DateTieredDBImpl::NewIterator(const ReadOptions& opts) {
   DBImpl* db_impl = reinterpret_cast<DBImpl*>(db_);
 
   auto db_iter = NewArenaWrappedDbIterator(
-      db_impl->GetEnv(), opts, ioptions_, cf_options_.comparator,
-      kMaxSequenceNumber, cf_options_.max_sequential_skip_in_iterations, 0);
+      db_impl->GetEnv(), opts, ioptions_, kMaxSequenceNumber,
+      cf_options_.max_sequential_skip_in_iterations, 0);
 
   auto arena = db_iter->GetArena();
   MergeIteratorBuilder builder(cf_options_.comparator, arena);

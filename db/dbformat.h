@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -80,10 +78,18 @@ struct ParsedInternalKey {
   SequenceNumber sequence;
   ValueType type;
 
-  ParsedInternalKey() { }  // Intentionally left uninitialized (for speed)
+  ParsedInternalKey()
+      : sequence(kMaxSequenceNumber)  // Make code analyzer happy
+  {}  // Intentionally left uninitialized (for speed)
   ParsedInternalKey(const Slice& u, const SequenceNumber& seq, ValueType t)
       : user_key(u), sequence(seq), type(t) { }
   std::string DebugString(bool hex = false) const;
+
+  void clear() {
+    user_key.clear();
+    sequence = 0;
+    type = kTypeDeletion;
+  }
 };
 
 // Return the length of the encoding of "key".
@@ -151,6 +157,9 @@ class InternalKeyComparator : public Comparator {
 
   int Compare(const InternalKey& a, const InternalKey& b) const;
   int Compare(const ParsedInternalKey& a, const ParsedInternalKey& b) const;
+  virtual const Comparator* GetRootComparator() const override {
+    return user_comparator_->GetRootComparator();
+  }
 };
 
 // Modules in this directory should keep internal keys wrapped inside

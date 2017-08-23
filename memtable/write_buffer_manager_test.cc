@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -18,7 +16,7 @@ class WriteBufferManagerTest : public testing::Test {};
 
 #ifndef ROCKSDB_LITE
 TEST_F(WriteBufferManagerTest, ShouldFlush) {
-  // A write buffer manager of size 50MB
+  // A write buffer manager of size 10MB
   std::unique_ptr<WriteBufferManager> wbf(
       new WriteBufferManager(10 * 1024 * 1024));
 
@@ -27,16 +25,28 @@ TEST_F(WriteBufferManagerTest, ShouldFlush) {
   // 90% of the hard limit will hit the condition
   wbf->ReserveMem(1 * 1024 * 1024);
   ASSERT_TRUE(wbf->ShouldFlush());
-  // Scheduling for feeing will release the condition
+  // Scheduling for freeing will release the condition
   wbf->ScheduleFreeMem(1 * 1024 * 1024);
   ASSERT_FALSE(wbf->ShouldFlush());
 
   wbf->ReserveMem(2 * 1024 * 1024);
   ASSERT_TRUE(wbf->ShouldFlush());
-  wbf->ScheduleFreeMem(5 * 1024 * 1024);
-  // hard limit still hit
+
+  wbf->ScheduleFreeMem(4 * 1024 * 1024);
+  // 11MB total, 6MB mutable. hard limit still hit
   ASSERT_TRUE(wbf->ShouldFlush());
-  wbf->FreeMem(10 * 1024 * 1024);
+
+  wbf->ScheduleFreeMem(2 * 1024 * 1024);
+  // 11MB total, 4MB mutable. hard limit stills but won't flush because more
+  // than half data is already being flushed.
+  ASSERT_FALSE(wbf->ShouldFlush());
+
+  wbf->ReserveMem(4 * 1024 * 1024);
+  // 15 MB total, 8MB mutable.
+  ASSERT_TRUE(wbf->ShouldFlush());
+
+  wbf->FreeMem(7 * 1024 * 1024);
+  // 9MB total, 8MB mutable.
   ASSERT_FALSE(wbf->ShouldFlush());
 }
 

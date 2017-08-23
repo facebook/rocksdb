@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef ROCKSDB_LITE
 
@@ -146,6 +144,8 @@ Status ExternalSstFileIngestionJob::NeedsFlush(bool* flush_needed) {
   return status;
 }
 
+// REQUIRES: we have become the only writer by entering both write_thread_ and
+// nonmem_write_thread_
 Status ExternalSstFileIngestionJob::Run() {
   Status status;
 #ifndef NDEBUG
@@ -164,6 +164,8 @@ Status ExternalSstFileIngestionJob::Run() {
     // if the dont overlap with any ranges since we have snapshots
     force_global_seqno = true;
   }
+  // It is safe to use this instead of LastToBeWrittenSequence since we are
+  // the only active writer, and hence they are equal
   const SequenceNumber last_seqno = versions_->LastSequence();
   SuperVersion* super_version = cfd_->GetSuperVersion();
   edit_.SetColumnFamily(cfd_->GetID());
@@ -197,6 +199,7 @@ Status ExternalSstFileIngestionJob::Run() {
   }
 
   if (consumed_seqno) {
+    versions_->SetLastToBeWrittenSequence(last_seqno + 1);
     versions_->SetLastSequence(last_seqno + 1);
   }
 
@@ -281,7 +284,8 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   if (!status.ok()) {
     return status;
   }
-  sst_file_reader.reset(new RandomAccessFileReader(std::move(sst_file)));
+  sst_file_reader.reset(new RandomAccessFileReader(std::move(sst_file),
+                                                   external_file));
 
   status = cfd_->ioptions()->table_factory->NewTableReader(
       TableReaderOptions(*cfd_->ioptions(), env_options_,

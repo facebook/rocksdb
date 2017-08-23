@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 #include "options/options_helper.h"
 
 #include <cassert>
@@ -23,6 +21,7 @@
 #include "rocksdb/table.h"
 #include "table/block_based_table_factory.h"
 #include "table/plain_table_factory.h"
+#include "util/cast_util.h"
 #include "util/string_util.h"
 
 namespace rocksdb {
@@ -305,6 +304,7 @@ bool ParseSliceTransform(
   //                 SliceTransforms here.
   return false;
 }
+}  // anonymouse namespace
 
 bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
                        const std::string& value) {
@@ -384,8 +384,6 @@ bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
   }
   return true;
 }
-
-}  // anonymouse namespace
 
 bool SerializeSingleOptionHelper(const char* opt_address,
                                  const OptionType opt_type,
@@ -468,12 +466,14 @@ bool SerializeSingleOptionHelper(const char* opt_address,
       // Since the user-specified comparator will be wrapped by
       // InternalKeyComparator, we should persist the user-specified one
       // instead of InternalKeyComparator.
-      const auto* internal_comparator =
-          dynamic_cast<const InternalKeyComparator*>(*ptr);
-      if (internal_comparator != nullptr) {
-        *value = internal_comparator->user_comparator()->Name();
+      if (*ptr == nullptr) {
+        *value = kNullptrString;
       } else {
-        *value = *ptr ? (*ptr)->Name() : kNullptrString;
+        const Comparator* root_comp = (*ptr)->GetRootComparator();
+        if (root_comp == nullptr) {
+          root_comp = (*ptr);
+        }
+        *value = root_comp->Name();
       }
       break;
     }
@@ -695,8 +695,9 @@ Status ParseColumnFamilyOption(const std::string& name,
     if (name == "block_based_table_factory") {
       // Nested options
       BlockBasedTableOptions table_opt, base_table_options;
-      auto block_based_table_factory = dynamic_cast<BlockBasedTableFactory*>(
-          new_options->table_factory.get());
+      BlockBasedTableFactory* block_based_table_factory =
+          static_cast_with_check<BlockBasedTableFactory, TableFactory>(
+              new_options->table_factory.get());
       if (block_based_table_factory != nullptr) {
         base_table_options = block_based_table_factory->table_options();
       }
@@ -710,8 +711,9 @@ Status ParseColumnFamilyOption(const std::string& name,
     } else if (name == "plain_table_factory") {
       // Nested options
       PlainTableOptions table_opt, base_table_options;
-      auto plain_table_factory = dynamic_cast<PlainTableFactory*>(
-          new_options->table_factory.get());
+      PlainTableFactory* plain_table_factory =
+          static_cast_with_check<PlainTableFactory, TableFactory>(
+              new_options->table_factory.get());
       if (plain_table_factory != nullptr) {
         base_table_options = plain_table_factory->table_options();
       }
@@ -911,59 +913,6 @@ std::vector<CompressionType> GetSupportedCompressions() {
   return supported_compressions;
 }
 
-bool SerializeSingleBlockBasedTableOption(
-    std::string* opt_string, const BlockBasedTableOptions& bbt_options,
-    const std::string& name, const std::string& delimiter) {
-  auto iter = block_based_table_type_info.find(name);
-  if (iter == block_based_table_type_info.end()) {
-    return false;
-  }
-  auto& opt_info = iter->second;
-  const char* opt_address =
-      reinterpret_cast<const char*>(&bbt_options) + opt_info.offset;
-  std::string value;
-  bool result = SerializeSingleOptionHelper(opt_address, opt_info.type, &value);
-  if (result) {
-    *opt_string = name + "=" + value + delimiter;
-  }
-  return result;
-}
-
-Status GetStringFromBlockBasedTableOptions(
-    std::string* opt_string, const BlockBasedTableOptions& bbt_options,
-    const std::string& delimiter) {
-  assert(opt_string);
-  opt_string->clear();
-  for (auto iter = block_based_table_type_info.begin();
-       iter != block_based_table_type_info.end(); ++iter) {
-    if (iter->second.verification == OptionVerificationType::kDeprecated) {
-      // If the option is no longer used in rocksdb and marked as deprecated,
-      // we skip it in the serialization.
-      continue;
-    }
-    std::string single_output;
-    bool result = SerializeSingleBlockBasedTableOption(
-        &single_output, bbt_options, iter->first, delimiter);
-    assert(result);
-    if (result) {
-      opt_string->append(single_output);
-    }
-  }
-  return Status::OK();
-}
-
-Status GetStringFromTableFactory(std::string* opts_str, const TableFactory* tf,
-                                 const std::string& delimiter) {
-  const auto* bbtf = dynamic_cast<const BlockBasedTableFactory*>(tf);
-  opts_str->clear();
-  if (bbtf != nullptr) {
-    return GetStringFromBlockBasedTableOptions(opts_str, bbtf->table_options(),
-                                               delimiter);
-  }
-
-  return Status::OK();
-}
-
 Status ParseDBOption(const std::string& name,
                      const std::string& org_value,
                      DBOptions* new_options,
@@ -1005,240 +954,22 @@ Status ParseDBOption(const std::string& name,
   return Status::OK();
 }
 
-std::string ParseBlockBasedTableOption(const std::string& name,
-                                       const std::string& org_value,
-                                       BlockBasedTableOptions* new_options,
-                                       bool input_strings_escaped = false) {
-  const std::string& value =
-      input_strings_escaped ? UnescapeOptionString(org_value) : org_value;
-  if (!input_strings_escaped) {
-    // if the input string is not escaped, it means this function is
-    // invoked from SetOptions, which takes the old format.
-    if (name == "block_cache") {
-      new_options->block_cache = NewLRUCache(ParseSizeT(value));
-      return "";
-    } else if (name == "block_cache_compressed") {
-      new_options->block_cache_compressed = NewLRUCache(ParseSizeT(value));
-      return "";
-    } else if (name == "filter_policy") {
-      // Expect the following format
-      // bloomfilter:int:bool
-      const std::string kName = "bloomfilter:";
-      if (value.compare(0, kName.size(), kName) != 0) {
-        return "Invalid filter policy name";
-      }
-      size_t pos = value.find(':', kName.size());
-      if (pos == std::string::npos) {
-        return "Invalid filter policy config, missing bits_per_key";
-      }
-      int bits_per_key =
-          ParseInt(trim(value.substr(kName.size(), pos - kName.size())));
-      bool use_block_based_builder =
-          ParseBoolean("use_block_based_builder", trim(value.substr(pos + 1)));
-      new_options->filter_policy.reset(
-          NewBloomFilterPolicy(bits_per_key, use_block_based_builder));
-      return "";
-    }
-  }
-  const auto iter = block_based_table_type_info.find(name);
-  if (iter == block_based_table_type_info.end()) {
-    return "Unrecognized option";
-  }
-  const auto& opt_info = iter->second;
-  if (opt_info.verification != OptionVerificationType::kDeprecated &&
-      !ParseOptionHelper(reinterpret_cast<char*>(new_options) + opt_info.offset,
-                         opt_info.type, value)) {
-    return "Invalid value";
-  }
-  return "";
-}
-
-std::string ParsePlainTableOptions(const std::string& name,
-                                   const std::string& org_value,
-                                   PlainTableOptions* new_options,
-                                   bool input_strings_escaped = false) {
-  const std::string& value =
-      input_strings_escaped ? UnescapeOptionString(org_value) : org_value;
-  const auto iter = plain_table_type_info.find(name);
-  if (iter == plain_table_type_info.end()) {
-    return "Unrecognized option";
-  }
-  const auto& opt_info = iter->second;
-  if (opt_info.verification != OptionVerificationType::kDeprecated &&
-      !ParseOptionHelper(reinterpret_cast<char*>(new_options) + opt_info.offset,
-                         opt_info.type, value)) {
-    return "Invalid value";
-  }
-  return "";
-}
-
-Status GetBlockBasedTableOptionsFromMap(
-    const BlockBasedTableOptions& table_options,
-    const std::unordered_map<std::string, std::string>& opts_map,
-    BlockBasedTableOptions* new_table_options, bool input_strings_escaped) {
-  assert(new_table_options);
-  *new_table_options = table_options;
-  for (const auto& o : opts_map) {
-    auto error_message = ParseBlockBasedTableOption(
-        o.first, o.second, new_table_options, input_strings_escaped);
-    if (error_message != "") {
-      const auto iter = block_based_table_type_info.find(o.first);
-      if (iter == block_based_table_type_info.end() ||
-          !input_strings_escaped ||  // !input_strings_escaped indicates
-                                     // the old API, where everything is
-                                     // parsable.
-          (iter->second.verification != OptionVerificationType::kByName &&
-           iter->second.verification !=
-               OptionVerificationType::kByNameAllowNull &&
-           iter->second.verification != OptionVerificationType::kDeprecated)) {
-        // Restore "new_options" to the default "base_options".
-        *new_table_options = table_options;
-        return Status::InvalidArgument("Can't parse BlockBasedTableOptions:",
-                                       o.first + " " + error_message);
-      }
-    }
-  }
-  return Status::OK();
-}
-
-Status GetBlockBasedTableOptionsFromString(
-    const BlockBasedTableOptions& table_options,
-    const std::string& opts_str,
-    BlockBasedTableOptions* new_table_options) {
-  std::unordered_map<std::string, std::string> opts_map;
-  Status s = StringToMap(opts_str, &opts_map);
-  if (!s.ok()) {
-    return s;
-  }
-  return GetBlockBasedTableOptionsFromMap(table_options, opts_map,
-                                          new_table_options);
-}
-
-Status GetPlainTableOptionsFromMap(
-    const PlainTableOptions& table_options,
-    const std::unordered_map<std::string, std::string>& opts_map,
-    PlainTableOptions* new_table_options, bool input_strings_escaped) {
-  assert(new_table_options);
-  *new_table_options = table_options;
-  for (const auto& o : opts_map) {
-    auto error_message = ParsePlainTableOptions(
-        o.first, o.second, new_table_options, input_strings_escaped);
-    if (error_message != "") {
-      const auto iter = plain_table_type_info.find(o.first);
-      if (iter == plain_table_type_info.end() ||
-          !input_strings_escaped ||  // !input_strings_escaped indicates
-                                     // the old API, where everything is
-                                     // parsable.
-          (iter->second.verification != OptionVerificationType::kByName &&
-           iter->second.verification !=
-               OptionVerificationType::kByNameAllowNull &&
-           iter->second.verification != OptionVerificationType::kDeprecated)) {
-        // Restore "new_options" to the default "base_options".
-        *new_table_options = table_options;
-        return Status::InvalidArgument("Can't parse PlainTableOptions:",
-                                        o.first + " " + error_message);
-      }
-    }
-  }
-  return Status::OK();
-}
-
-Status GetPlainTableOptionsFromString(
-    const PlainTableOptions& table_options,
-    const std::string& opts_str,
-    PlainTableOptions* new_table_options) {
-  std::unordered_map<std::string, std::string> opts_map;
-  Status s = StringToMap(opts_str, &opts_map);
-  if (!s.ok()) {
-    return s;
-  }
-  return GetPlainTableOptionsFromMap(table_options, opts_map,
-                                     new_table_options);
-}
-
-Status GetMemTableRepFactoryFromString(const std::string& opts_str,
-    std::unique_ptr<MemTableRepFactory>* new_mem_factory) {
-  std::vector<std::string> opts_list = StringSplit(opts_str, ':');
-  size_t len = opts_list.size();
-
-  if (opts_list.size() <= 0 || opts_list.size() > 2) {
-    return Status::InvalidArgument("Can't parse memtable_factory option ",
-                                     opts_str);
-  }
-
-  MemTableRepFactory* mem_factory = nullptr;
-
-  if (opts_list[0] == "skip_list") {
-    // Expecting format
-    // skip_list:<lookahead>
-    if (2 == len) {
-      size_t lookahead = ParseSizeT(opts_list[1]);
-      mem_factory = new SkipListFactory(lookahead);
-    } else if (1 == len) {
-      mem_factory = new SkipListFactory();
-    }
-  } else if (opts_list[0] == "prefix_hash") {
-    // Expecting format
-    // prfix_hash:<hash_bucket_count>
-    if (2 == len) {
-      size_t hash_bucket_count = ParseSizeT(opts_list[1]);
-      mem_factory = NewHashSkipListRepFactory(hash_bucket_count);
-    } else if (1 == len) {
-      mem_factory = NewHashSkipListRepFactory();
-    }
-  } else if (opts_list[0] == "hash_linkedlist") {
-    // Expecting format
-    // hash_linkedlist:<hash_bucket_count>
-    if (2 == len) {
-      size_t hash_bucket_count = ParseSizeT(opts_list[1]);
-      mem_factory = NewHashLinkListRepFactory(hash_bucket_count);
-    } else if (1 == len) {
-      mem_factory = NewHashLinkListRepFactory();
-    }
-  } else if (opts_list[0] == "vector") {
-    // Expecting format
-    // vector:<count>
-    if (2 == len) {
-      size_t count = ParseSizeT(opts_list[1]);
-      mem_factory = new VectorRepFactory(count);
-    } else if (1 == len) {
-      mem_factory = new VectorRepFactory();
-    }
-  } else if (opts_list[0] == "cuckoo") {
-    // Expecting format
-    // cuckoo:<write_buffer_size>
-    if (2 == len) {
-      size_t write_buffer_size = ParseSizeT(opts_list[1]);
-      mem_factory= NewHashCuckooRepFactory(write_buffer_size);
-    } else if (1 == len) {
-      return Status::InvalidArgument("Can't parse memtable_factory option ",
-                                     opts_str);
-    }
-  } else {
-    return Status::InvalidArgument("Unrecognized memtable_factory option ",
-                                   opts_str);
-  }
-
-  if (mem_factory != nullptr){
-    new_mem_factory->reset(mem_factory);
-  }
-
-  return Status::OK();
-}
-
 Status GetColumnFamilyOptionsFromMap(
     const ColumnFamilyOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
-    ColumnFamilyOptions* new_options, bool input_strings_escaped) {
+    ColumnFamilyOptions* new_options, bool input_strings_escaped,
+    bool ignore_unknown_options) {
   return GetColumnFamilyOptionsFromMapInternal(
-      base_options, opts_map, new_options, input_strings_escaped);
+      base_options, opts_map, new_options, input_strings_escaped, nullptr,
+      ignore_unknown_options);
 }
 
 Status GetColumnFamilyOptionsFromMapInternal(
     const ColumnFamilyOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
     ColumnFamilyOptions* new_options, bool input_strings_escaped,
-    std::vector<std::string>* unsupported_options_names) {
+    std::vector<std::string>* unsupported_options_names,
+    bool ignore_unknown_options) {
   assert(new_options);
   *new_options = base_options;
   if (unsupported_options_names) {
@@ -1258,6 +989,8 @@ Status GetColumnFamilyOptionsFromMapInternal(
         // Note that we still return Status::OK in such case to maintain
         // the backward compatibility in the old public API defined in
         // rocksdb/convenience.h
+      } else if (s.IsInvalidArgument() && ignore_unknown_options) {
+        continue;
       } else {
         // Restore "new_options" to the default "base_options".
         *new_options = base_options;
@@ -1284,16 +1017,19 @@ Status GetColumnFamilyOptionsFromString(
 Status GetDBOptionsFromMap(
     const DBOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
-    DBOptions* new_options, bool input_strings_escaped) {
-  return GetDBOptionsFromMapInternal(
-      base_options, opts_map, new_options, input_strings_escaped);
+    DBOptions* new_options, bool input_strings_escaped,
+    bool ignore_unknown_options) {
+  return GetDBOptionsFromMapInternal(base_options, opts_map, new_options,
+                                     input_strings_escaped, nullptr,
+                                     ignore_unknown_options);
 }
 
 Status GetDBOptionsFromMapInternal(
     const DBOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
     DBOptions* new_options, bool input_strings_escaped,
-    std::vector<std::string>* unsupported_options_names) {
+    std::vector<std::string>* unsupported_options_names,
+    bool ignore_unknown_options) {
   assert(new_options);
   *new_options = base_options;
   if (unsupported_options_names) {
@@ -1313,6 +1049,8 @@ Status GetDBOptionsFromMapInternal(
         // Note that we still return Status::OK in such case to maintain
         // the backward compatibility in the old public API defined in
         // rocksdb/convenience.h
+      } else if (s.IsInvalidArgument() && ignore_unknown_options) {
+        continue;
       } else {
         // Restore "new_options" to the default "base_options".
         *new_options = base_options;
@@ -1360,12 +1098,14 @@ Status GetOptionsFromString(const Options& base_options,
 Status GetTableFactoryFromMap(
     const std::string& factory_name,
     const std::unordered_map<std::string, std::string>& opt_map,
-    std::shared_ptr<TableFactory>* table_factory) {
+    std::shared_ptr<TableFactory>* table_factory, bool ignore_unknown_options) {
   Status s;
   if (factory_name == BlockBasedTableFactory().Name()) {
     BlockBasedTableOptions bbt_opt;
     s = GetBlockBasedTableOptionsFromMap(BlockBasedTableOptions(), opt_map,
-                                         &bbt_opt, true);
+                                         &bbt_opt,
+                                         true, /* input_strings_escaped */
+                                         ignore_unknown_options);
     if (!s.ok()) {
       return s;
     }
@@ -1374,7 +1114,8 @@ Status GetTableFactoryFromMap(
   } else if (factory_name == PlainTableFactory().Name()) {
     PlainTableOptions pt_opt;
     s = GetPlainTableOptionsFromMap(PlainTableOptions(), opt_map, &pt_opt,
-                                    true);
+                                    true, /* input_strings_escaped */
+                                    ignore_unknown_options);
     if (!s.ok()) {
       return s;
     }

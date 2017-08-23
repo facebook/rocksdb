@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -103,7 +101,7 @@ class DummyDB : public StackableDB {
 
     virtual uint64_t LogNumber() const override {
       // what business do you have calling this method?
-      EXPECT_TRUE(false);
+      ADD_FAILURE();
       return 0;
     }
 
@@ -135,6 +133,9 @@ class DummyDB : public StackableDB {
     }
     return Status::OK();
   }
+
+  // To avoid FlushWAL called on stacked db which is nullptr
+  virtual Status FlushWAL(bool sync) override { return Status::OK(); }
 
   std::vector<std::string> live_files_;
   // pair<filename, alive?>

@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
 
@@ -39,7 +37,8 @@ class SstFileManagerImpl : public SstFileManager {
   Status OnDeleteFile(const std::string& file_path);
 
   // DB will call OnMoveFile whenever an sst file is move to a new path.
-  Status OnMoveFile(const std::string& old_path, const std::string& new_path);
+  Status OnMoveFile(const std::string& old_path, const std::string& new_path,
+                    uint64_t* file_size = nullptr);
 
   // Update the maximum allowed space that should be used by RocksDB, if
   // the total size of the SST files exceeds max_allowed_space, writes to
@@ -75,6 +74,8 @@ class SstFileManagerImpl : public SstFileManager {
   // Wait for all files being deleteing in the background to finish or for
   // destructor to be called.
   virtual void WaitForEmptyTrash();
+
+  DeleteScheduler* delete_scheduler() { return &delete_scheduler_; }
 
  private:
   // REQUIRES: mutex locked

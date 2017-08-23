@@ -13,7 +13,7 @@ RocksDB is an embeddable persistent key-value store for fast storage. RocksDB ca
 
 RocksDB builds on [LevelDB](https://code.google.com/p/leveldb/) to be scalable to run on servers with many CPU cores, to efficiently use fast storage, to support IO-bound, in-memory and write-once workloads, and to be flexible to allow for innovation.
 
-For the latest details, watch [Mark Callaghan’s and Igor Canadi’s talk at CMU on 10/2015](https://scs.hosted.panopto.com/Panopto/Pages/Viewer.aspx?id=f4e0eb37-ae18-468f-9248-cb73edad3e56). [Dhruba Borthakur’s introductory talk](https://github.com/facebook/rocksdb/blob/gh-pages/intro.pdf?raw=true) from the Data @ Scale 2013 conference provides some perspective about how RocksDB has evolved.
+For the latest details, watch [Mark Callaghan’s and Igor Canadi’s talk at CMU on 10/2015](https://scs.hosted.panopto.com/Panopto/Pages/Viewer.aspx?id=f4e0eb37-ae18-468f-9248-cb73edad3e56). [Dhruba Borthakur’s introductory talk](https://github.com/facebook/rocksdb/blob/gh-pages-old/intro.pdf?raw=true) from the Data @ Scale 2013 conference provides some perspective about how RocksDB has evolved.
 
 ## How does performance compare?
 

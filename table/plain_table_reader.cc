@@ -191,7 +191,6 @@ void PlainTableReader::SetupForCompaction() {
 
 InternalIterator* PlainTableReader::NewIterator(const ReadOptions& options,
                                                 Arena* arena,
-                                                const InternalKeyComparator*,
                                                 bool skip_filters) {
   bool use_prefix_seek = !IsTotalOrderMode() && !options.total_order_seek;
   if (arena == nullptr) {
@@ -292,9 +291,10 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
   table_properties_.reset(props);
 
   BlockContents index_block_contents;
-  Status s = ReadMetaBlock(
-      file_info_.file.get(), file_size_, kPlainTableMagicNumber, ioptions_,
-      PlainTableIndexBuilder::kPlainTableIndexBlock, &index_block_contents);
+  Status s = ReadMetaBlock(file_info_.file.get(), nullptr /* prefetch_buffer */,
+                           file_size_, kPlainTableMagicNumber, ioptions_,
+                           PlainTableIndexBuilder::kPlainTableIndexBlock,
+                           &index_block_contents);
 
   bool index_in_file = s.ok();
 
@@ -302,9 +302,9 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
   bool bloom_in_file = false;
   // We only need to read the bloom block if index block is in file.
   if (index_in_file) {
-    s = ReadMetaBlock(file_info_.file.get(), file_size_, kPlainTableMagicNumber,
-                      ioptions_, BloomBlockBuilder::kBloomBlock,
-                      &bloom_block_contents);
+    s = ReadMetaBlock(file_info_.file.get(), nullptr /* prefetch_buffer */,
+                      file_size_, kPlainTableMagicNumber, ioptions_,
+                      BloomBlockBuilder::kBloomBlock, &bloom_block_contents);
     bloom_in_file = s.ok() && bloom_block_contents.data.size() > 0;
   }
 

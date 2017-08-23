@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
 
@@ -59,6 +59,8 @@ struct ImmutableCFOptions {
 
   Statistics* statistics;
 
+  RateLimiter* rate_limiter;
+
   InfoLogLevel info_log_level;
 
   Env* env;
@@ -81,7 +83,7 @@ struct ImmutableCFOptions {
   bool advise_random_on_open;
 
   // This options is required by PlainTableReader. May need to move it
-  // to PlainTalbeOptions just like bloom_bits_per_key
+  // to PlainTableOptions just like bloom_bits_per_key
   uint32_t bloom_locality;
 
   bool purge_redundant_kvs_while_flush;

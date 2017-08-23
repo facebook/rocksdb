@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include "db/merge_helper.h"
 
@@ -19,6 +17,33 @@
 #include "table/internal_iterator.h"
 
 namespace rocksdb {
+
+MergeHelper::MergeHelper(Env* env, const Comparator* user_comparator,
+                         const MergeOperator* user_merge_operator,
+                         const CompactionFilter* compaction_filter,
+                         Logger* logger, bool assert_valid_internal_key,
+                         SequenceNumber latest_snapshot, int level,
+                         Statistics* stats,
+                         const std::atomic<bool>* shutting_down)
+    : env_(env),
+      user_comparator_(user_comparator),
+      user_merge_operator_(user_merge_operator),
+      compaction_filter_(compaction_filter),
+      shutting_down_(shutting_down),
+      logger_(logger),
+      assert_valid_internal_key_(assert_valid_internal_key),
+      allow_single_operand_(false),
+      latest_snapshot_(latest_snapshot),
+      level_(level),
+      keys_(),
+      filter_timer_(env_),
+      total_filter_time_(0U),
+      stats_(stats) {
+  assert(user_comparator_ != nullptr);
+  if (user_merge_operator_) {
+    allow_single_operand_ = user_merge_operator_->AllowSingleOperand();
+  }
+}
 
 Status MergeHelper::TimedFullMerge(const MergeOperator* merge_operator,
                                    const Slice& key, const Slice* value,
@@ -203,12 +228,11 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
           ikey.sequence <= latest_snapshot_
               ? CompactionFilter::Decision::kKeep
               : FilterMerge(orig_ikey.user_key, value_slice);
-      if (range_del_agg != nullptr &&
-
+      if (filter != CompactionFilter::Decision::kRemoveAndSkipUntil &&
+          range_del_agg != nullptr &&
           range_del_agg->ShouldDelete(
               iter->key(),
-              RangeDelAggregator::RangePositioningMode::kForwardTraversal) &&
-          filter != CompactionFilter::Decision::kRemoveAndSkipUntil) {
+              RangeDelAggregator::RangePositioningMode::kForwardTraversal)) {
         filter = CompactionFilter::Decision::kRemove;
       }
       if (filter == CompactionFilter::Decision::kKeep ||
@@ -291,7 +315,8 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
     // Attempt to use the user's associative merge function to
     // merge the stacked merge operands into a single operand.
     s = Status::MergeInProgress();
-    if (merge_context_.GetNumOperands() >= 2) {
+    if (merge_context_.GetNumOperands() >= 2 ||
+        (allow_single_operand_ && merge_context_.GetNumOperands() == 1)) {
       bool merge_success = false;
       std::string merge_result;
       {

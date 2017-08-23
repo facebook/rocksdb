@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 #ifndef ROCKSDB_LITE
 
 #ifndef __STDC_FORMAT_MACROS
@@ -12,6 +12,7 @@
 
 #include <inttypes.h>
 #include <string>
+#include <thread>
 
 #include "rocksdb/db.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
@@ -29,7 +30,8 @@ RandomTransactionInserter::RandomTransactionInserter(
       write_options_(write_options),
       read_options_(read_options),
       num_keys_(num_keys),
-      num_sets_(num_sets) {}
+      num_sets_(num_sets),
+      txn_id_(0) {}
 
 RandomTransactionInserter::~RandomTransactionInserter() {
   if (txn_ != nullptr) {
@@ -135,6 +137,13 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
 
   if (s.ok()) {
     if (txn != nullptr) {
+      std::hash<std::thread::id> hasher;
+      char name[64];
+      snprintf(name, 64, "txn%zu-%d", hasher(std::this_thread::get_id()),
+               txn_id_++);
+      assert(strlen(name) < 64 - 1);
+      txn->SetName(name);
+      s = txn->Prepare();
       s = txn->Commit();
 
       if (!s.ok()) {

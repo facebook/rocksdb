@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include "db/write_thread.h"
 #include <chrono>
@@ -58,6 +56,10 @@ uint8_t WriteThread::BlockingAwaitState(Writer* w, uint8_t goal_mask) {
 uint8_t WriteThread::AwaitState(Writer* w, uint8_t goal_mask,
                                 AdaptationContext* ctx) {
   uint8_t state;
+
+  // 1. Busy loop using "pause" for 1 micro sec
+  // 2. Else SOMETIMES busy loop using "yield" for 100 micro sec (default)
+  // 3. Else blocking wait
 
   // On a modern Xeon each loop takes about 7 nanoseconds (most of which
   // is the effect of the pause instruction), so 200 iterations is a bit
@@ -116,13 +118,21 @@ uint8_t WriteThread::AwaitState(Writer* w, uint8_t goal_mask,
 
   const size_t kMaxSlowYieldsWhileSpinning = 3;
 
+  // Whether the yield approach has any credit in this context. The credit is
+  // added by yield being succesfull before timing out, and decreased otherwise.
+  auto& yield_credit = ctx->value;
+  // Update the yield_credit based on sample runs or right after a hard failure
   bool update_ctx = false;
+  // Should we reinforce the yield credit
   bool would_spin_again = false;
+  // The samling base for updating the yeild credit. The sampling rate would be
+  // 1/sampling_base.
+  const int sampling_base = 256;
 
   if (max_yield_usec_ > 0) {
-    update_ctx = Random::GetTLSInstance()->OneIn(256);
+    update_ctx = Random::GetTLSInstance()->OneIn(sampling_base);
 
-    if (update_ctx || ctx->value.load(std::memory_order_relaxed) >= 0) {
+    if (update_ctx || yield_credit.load(std::memory_order_relaxed) >= 0) {
       // we're updating the adaptation statistics, or spinning has >
       // 50% chance of being shorter than max_yield_usec_ and causing no
       // involuntary context switches
@@ -151,7 +161,7 @@ uint8_t WriteThread::AwaitState(Writer* w, uint8_t goal_mask,
           // accurate enough to measure the yield duration
           ++slow_yield_count;
           if (slow_yield_count >= kMaxSlowYieldsWhileSpinning) {
-            // Not just one ivcsw, but several.  Immediately update ctx
+            // Not just one ivcsw, but several.  Immediately update yield_credit
             // and fall back to blocking
             update_ctx = true;
             break;
@@ -167,11 +177,19 @@ uint8_t WriteThread::AwaitState(Writer* w, uint8_t goal_mask,
   }
 
   if (update_ctx) {
-    auto v = ctx->value.load(std::memory_order_relaxed);
+    // Since our update is sample based, it is ok if a thread overwrites the
+    // updates by other threads. Thus the update does not have to be atomic.
+    auto v = yield_credit.load(std::memory_order_relaxed);
     // fixed point exponential decay with decay constant 1/1024, with +1
     // and -1 scaled to avoid overflow for int32_t
-    v = v + (v / 1024) + (would_spin_again ? 1 : -1) * 16384;
-    ctx->value.store(v, std::memory_order_relaxed);
+    //
+    // On each update the positive credit is decayed by a facor of 1/1024 (i.e.,
+    // 0.1%). If the sampled yield was successful, the credit is also increased
+    // by X. Setting X=2^17 ensures that the credit never exceeds
+    // 2^17*2^10=2^27, which is lower than 2^31 the upperbound of int32_t. Same
+    // logic applies to negative credits.
+    v = v - (v / 1024) + (would_spin_again ? 1 : -1) * 131072;
+    yield_credit.store(v, std::memory_order_relaxed);
   }
 
   assert((state & goal_mask) != 0);
@@ -269,10 +287,11 @@ void WriteThread::CompleteFollower(Writer* w, WriteGroup& write_group) {
   SetState(w, STATE_COMPLETED);
 }
 
+static WriteThread::AdaptationContext jbg_ctx("JoinBatchGroup");
 void WriteThread::JoinBatchGroup(Writer* w) {
-  static AdaptationContext ctx("JoinBatchGroup");
-
+  TEST_SYNC_POINT_CALLBACK("WriteThread::JoinBatchGroup:Start", w);
   assert(w->batch != nullptr);
+
   bool linked_as_leader = LinkOne(w, &newest_writer_);
   if (linked_as_leader) {
     SetState(w, STATE_GROUP_LEADER);
@@ -296,7 +315,7 @@ void WriteThread::JoinBatchGroup(Writer* w) {
      */
     AwaitState(w, STATE_GROUP_LEADER | STATE_MEMTABLE_WRITER_LEADER |
                       STATE_PARALLEL_MEMTABLE_WRITER | STATE_COMPLETED,
-               &ctx);
+               &jbg_ctx);
     TEST_SYNC_POINT_CALLBACK("WriteThread::JoinBatchGroup:DoneWaiting", w);
   }
 }
@@ -475,9 +494,9 @@ void WriteThread::LaunchParallelMemTableWriters(WriteGroup* write_group) {
   }
 }
 
+static WriteThread::AdaptationContext cpmtw_ctx("CompleteParallelMemTableWriter");
 // This method is called by both the leader and parallel followers
 bool WriteThread::CompleteParallelMemTableWriter(Writer* w) {
-  static AdaptationContext ctx("CompleteParallelMemTableWriter");
 
   auto* write_group = w->write_group;
   if (!w->status.ok()) {
@@ -487,7 +506,7 @@ bool WriteThread::CompleteParallelMemTableWriter(Writer* w) {
 
   if (write_group->running-- > 1) {
     // we're not the last one
-    AwaitState(w, STATE_COMPLETED, &ctx);
+    AwaitState(w, STATE_COMPLETED, &cpmtw_ctx);
     return false;
   }
   // else we're the last parallel worker and should perform exit duties.
@@ -506,9 +525,9 @@ void WriteThread::ExitAsBatchGroupFollower(Writer* w) {
   SetState(write_group->leader, STATE_COMPLETED);
 }
 
+static WriteThread::AdaptationContext eabgl_ctx("ExitAsBatchGroupLeader");
 void WriteThread::ExitAsBatchGroupLeader(WriteGroup& write_group,
                                          Status status) {
-  static AdaptationContext ctx("ExitAsBatchGroupLeader");
   Writer* leader = write_group.leader;
   Writer* last_writer = write_group.last_writer;
   assert(leader->link_older == nullptr);
@@ -546,7 +565,7 @@ void WriteThread::ExitAsBatchGroupLeader(WriteGroup& write_group,
     }
     AwaitState(leader, STATE_MEMTABLE_WRITER_LEADER |
                            STATE_PARALLEL_MEMTABLE_WRITER | STATE_COMPLETED,
-               &ctx);
+               &eabgl_ctx);
   } else {
     Writer* head = newest_writer_.load(std::memory_order_acquire);
     if (head != last_writer ||
@@ -593,15 +612,15 @@ void WriteThread::ExitAsBatchGroupLeader(WriteGroup& write_group,
   }
 }
 
+static WriteThread::AdaptationContext eu_ctx("EnterUnbatched");
 void WriteThread::EnterUnbatched(Writer* w, InstrumentedMutex* mu) {
-  static AdaptationContext ctx("EnterUnbatched");
   assert(w != nullptr && w->batch == nullptr);
   mu->Unlock();
   bool linked_as_leader = LinkOne(w, &newest_writer_);
   if (!linked_as_leader) {
     TEST_SYNC_POINT("WriteThread::EnterUnbatched:Wait");
     // Last leader will not pick us as a follower since our batch is nullptr
-    AwaitState(w, STATE_GROUP_LEADER, &ctx);
+    AwaitState(w, STATE_GROUP_LEADER, &eu_ctx);
   }
   if (enable_pipelined_write_) {
     WaitForMemTableWriters();
@@ -621,15 +640,15 @@ void WriteThread::ExitUnbatched(Writer* w) {
   }
 }
 
+static WriteThread::AdaptationContext wfmw_ctx("WaitForMemTableWriters");
 void WriteThread::WaitForMemTableWriters() {
-  static AdaptationContext ctx("WaitForMemTableWriters");
   assert(enable_pipelined_write_);
   if (newest_memtable_writer_.load() == nullptr) {
     return;
   }
   Writer w;
   if (!LinkOne(&w, &newest_memtable_writer_)) {
-    AwaitState(&w, STATE_MEMTABLE_WRITER_LEADER, &ctx);
+    AwaitState(&w, STATE_MEMTABLE_WRITER_LEADER, &wfmw_ctx);
   }
   newest_memtable_writer_.store(nullptr);
 }

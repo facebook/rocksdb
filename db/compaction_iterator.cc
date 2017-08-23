@@ -1,11 +1,7 @@
-// Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file. See the AUTHORS file for names of contributors.
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include "db/compaction_iterator.h"
 #include "rocksdb/listener.h"
@@ -71,7 +67,9 @@ CompactionIterator::CompactionIterator(
       range_del_agg_(range_del_agg),
       compaction_(std::move(compaction)),
       compaction_filter_(compaction_filter),
+#ifndef ROCKSDB_LITE
       compaction_listener_(compaction_listener),
+#endif  // ROCKSDB_LITE
       shutting_down_(shutting_down),
       ignore_snapshots_(false),
       merge_out_iter_(merge_helper_) {
@@ -113,6 +111,7 @@ void CompactionIterator::ResetRecordCounts() {
   iter_stats_.num_record_drop_obsolete = 0;
   iter_stats_.num_record_drop_range_del = 0;
   iter_stats_.num_range_del_drop_obsolete = 0;
+  iter_stats_.num_optimized_del_drop_obsolete = 0;
 }
 
 void CompactionIterator::SeekToFirst() {
@@ -428,6 +427,9 @@ void CompactionIterator::NextFromInput() {
           // Can compact out this SingleDelete.
           ++iter_stats_.num_record_drop_obsolete;
           ++iter_stats_.num_single_del_fallthru;
+          if (!bottommost_level_) {
+            ++iter_stats_.num_optimized_del_drop_obsolete;
+          }
         } else {
           // Output SingleDelete
           valid_ = true;
@@ -469,6 +471,9 @@ void CompactionIterator::NextFromInput() {
       // Note:  Dropping this Delete will not affect TransactionDB
       // write-conflict checking since it is earlier than any snapshot.
       ++iter_stats_.num_record_drop_obsolete;
+      if (!bottommost_level_) {
+        ++iter_stats_.num_optimized_del_drop_obsolete;
+      }
       input_->Next();
     } else if (ikey_.type == kTypeMerge) {
       if (!merge_helper_->HasOperator()) {

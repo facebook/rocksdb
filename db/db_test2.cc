@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -1030,6 +1028,7 @@ TEST_F(DBTest2, PresetCompressionDict) {
   const int kNumL0Files = 5;
 
   Options options;
+  options.env = CurrentOptions().env; // Make sure to use any custom env that the test is configured with.
   options.allow_concurrent_memtable_write = false;
   options.arena_block_size = kBlockSizeBytes;
   options.compaction_style = kCompactionStyleUniversal;
@@ -2236,6 +2235,75 @@ TEST_F(DBTest2, LowPriWrite) {
   Put("", "", wo);
   ASSERT_EQ(1, rate_limit_count.load());
 }
+
+#ifndef ROCKSDB_LITE
+TEST_F(DBTest2, RateLimitedCompactionReads) {
+  // compaction input has 512KB data
+  const int kNumKeysPerFile = 128;
+  const int kBytesPerKey = 1024;
+  const int kNumL0Files = 4;
+
+  for (auto use_direct_io : {false, true}) {
+    if (use_direct_io && !IsDirectIOSupported()) {
+      continue;
+    }
+    Options options = CurrentOptions();
+    options.compression = kNoCompression;
+    options.level0_file_num_compaction_trigger = kNumL0Files;
+    options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
+    options.new_table_reader_for_compaction_inputs = true;
+    // takes roughly one second, split into 100 x 10ms intervals. Each interval
+    // permits 5.12KB, which is smaller than the block size, so this test
+    // exercises the code for chunking reads.
+    options.rate_limiter.reset(NewGenericRateLimiter(
+        static_cast<int64_t>(kNumL0Files * kNumKeysPerFile *
+                             kBytesPerKey) /* rate_bytes_per_sec */,
+        10 * 1000 /* refill_period_us */, 10 /* fairness */,
+        RateLimiter::Mode::kReadsOnly));
+    options.use_direct_io_for_flush_and_compaction = use_direct_io;
+    BlockBasedTableOptions bbto;
+    bbto.block_size = 16384;
+    bbto.no_block_cache = true;
+    options.table_factory.reset(new BlockBasedTableFactory(bbto));
+    DestroyAndReopen(options);
+
+    for (int i = 0; i < kNumL0Files; ++i) {
+      for (int j = 0; j <= kNumKeysPerFile; ++j) {
+        ASSERT_OK(Put(Key(j), DummyString(kBytesPerKey)));
+      }
+      dbfull()->TEST_WaitForFlushMemTable();
+      ASSERT_EQ(i + 1, NumTableFilesAtLevel(0));
+    }
+    dbfull()->TEST_WaitForCompact();
+    ASSERT_EQ(0, NumTableFilesAtLevel(0));
+
+    ASSERT_EQ(0, options.rate_limiter->GetTotalBytesThrough(Env::IO_HIGH));
+    // should be slightly above 512KB due to non-data blocks read. Arbitrarily
+    // chose 1MB as the upper bound on the total bytes read.
+    size_t rate_limited_bytes =
+        options.rate_limiter->GetTotalBytesThrough(Env::IO_LOW);
+    // Include the explict prefetch of the footer in direct I/O case.
+    size_t direct_io_extra = use_direct_io ? 512 * 1024 : 0;
+    ASSERT_GE(rate_limited_bytes,
+              static_cast<size_t>(kNumKeysPerFile * kBytesPerKey * kNumL0Files +
+                                  direct_io_extra));
+    ASSERT_LT(
+        rate_limited_bytes,
+        static_cast<size_t>(2 * kNumKeysPerFile * kBytesPerKey * kNumL0Files +
+                            direct_io_extra));
+
+    Iterator* iter = db_->NewIterator(ReadOptions());
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      ASSERT_EQ(iter->value().ToString(), DummyString(kBytesPerKey));
+    }
+    delete iter;
+    // bytes read for user iterator shouldn't count against the rate limit.
+    ASSERT_EQ(rate_limited_bytes,
+              static_cast<size_t>(
+                  options.rate_limiter->GetTotalBytesThrough(Env::IO_LOW)));
+  }
+}
+#endif  // ROCKSDB_LITE
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -202,11 +200,22 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   cf_options_map["write_buffer_size"] = "1";
   ASSERT_OK(GetColumnFamilyOptionsFromMap(
             base_cf_opt, cf_options_map, &new_cf_opt));
-  cf_options_map["unknown_option"] = "1";
 
+  cf_options_map["unknown_option"] = "1";
   ASSERT_NOK(GetColumnFamilyOptionsFromMap(
              base_cf_opt, cf_options_map, &new_cf_opt));
   ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt));
+
+  ASSERT_OK(GetColumnFamilyOptionsFromMap(base_cf_opt, cf_options_map,
+                                          &new_cf_opt,
+                                          false, /* input_strings_escaped  */
+                                          true /* ignore_unknown_options */));
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(
+      base_cf_opt, new_cf_opt, nullptr, /* new_opt_map */
+      kSanityLevelLooselyCompatible /* from CheckOptionsCompatibility*/));
+  ASSERT_NOK(RocksDBOptionsParser::VerifyCFOptions(
+      base_cf_opt, new_cf_opt, nullptr, /* new_opt_map */
+      kSanityLevelExactMatch /* default for VerifyCFOptions */));
 
   DBOptions base_db_opt;
   DBOptions new_db_opt;
@@ -248,6 +257,28 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.writable_file_max_buffer_size, 314159);
   ASSERT_EQ(new_db_opt.bytes_per_sync, static_cast<uint64_t>(47));
   ASSERT_EQ(new_db_opt.wal_bytes_per_sync, static_cast<uint64_t>(48));
+
+  db_options_map["max_open_files"] = "hello";
+  ASSERT_NOK(GetDBOptionsFromMap(base_db_opt, db_options_map, &new_db_opt));
+  ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(base_db_opt, new_db_opt));
+  ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(
+      base_db_opt, new_db_opt, nullptr, /* new_opt_map */
+      kSanityLevelLooselyCompatible /* from CheckOptionsCompatibility */));
+
+  // unknow options should fail parsing without ignore_unknown_options = true
+  db_options_map["unknown_db_option"] = "1";
+  ASSERT_NOK(GetDBOptionsFromMap(base_db_opt, db_options_map, &new_db_opt));
+  ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(base_db_opt, new_db_opt));
+
+  ASSERT_OK(GetDBOptionsFromMap(base_db_opt, db_options_map, &new_db_opt,
+                                false, /* input_strings_escaped  */
+                                true /* ignore_unknown_options */));
+  ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(
+      base_db_opt, new_db_opt, nullptr, /* new_opt_map */
+      kSanityLevelLooselyCompatible /* from CheckOptionsCompatibility */));
+  ASSERT_NOK(RocksDBOptionsParser::VerifyDBOptions(
+      base_db_opt, new_db_opt, nullptr, /* new_opt_mat */
+      kSanityLevelExactMatch /* default for VerifyDBOptions */));
 }
 #endif  // !ROCKSDB_LITE
 
@@ -858,11 +889,11 @@ TEST_F(OptionsTest, ConvertOptionsTest) {
   ASSERT_EQ(converted_opt.max_open_files, leveldb_opt.max_open_files);
   ASSERT_EQ(converted_opt.compression, leveldb_opt.compression);
 
-  std::shared_ptr<BlockBasedTableFactory> table_factory =
-      std::dynamic_pointer_cast<BlockBasedTableFactory>(
-          converted_opt.table_factory);
+  std::shared_ptr<TableFactory> tb_guard = converted_opt.table_factory;
+  BlockBasedTableFactory* table_factory =
+      dynamic_cast<BlockBasedTableFactory*>(converted_opt.table_factory.get());
 
-  ASSERT_TRUE(table_factory.get() != nullptr);
+  ASSERT_TRUE(table_factory != nullptr);
 
   const BlockBasedTableOptions table_opt = table_factory->table_options();
 
@@ -1068,6 +1099,40 @@ TEST_F(OptionsParserTest, DuplicateCFOptions) {
   ASSERT_NOK(parser.Parse(kTestFileName, env_.get()));
 }
 
+TEST_F(OptionsParserTest, IgnoreUnknownOptions) {
+  DBOptions db_opt;
+  db_opt.max_open_files = 12345;
+  db_opt.max_background_flushes = 301;
+  db_opt.max_total_wal_size = 1024;
+  ColumnFamilyOptions cf_opt;
+
+  std::string options_file_content =
+      "# This is a testing option string.\n"
+      "# Currently we only support \"#\" styled comment.\n"
+      "\n"
+      "[Version]\n"
+      "  rocksdb_version=3.14.0\n"
+      "  options_file_version=1\n"
+      "[DBOptions]\n"
+      "  max_open_files=12345\n"
+      "  max_background_flushes=301\n"
+      "  max_total_wal_size=1024  # keep_log_file_num=1000\n"
+      "  unknown_db_option1=321\n"
+      "  unknown_db_option2=false\n"
+      "[CFOptions \"default\"]\n"
+      "  unknown_cf_option1=hello\n"
+      "[CFOptions \"something_else\"]\n"
+      "  unknown_cf_option2=world\n"
+      "  # if a section is blank, we will use the default\n";
+
+  const std::string kTestFileName = "test-rocksdb-options.ini";
+  env_->WriteToNewFile(kTestFileName, options_file_content);
+  RocksDBOptionsParser parser;
+  ASSERT_NOK(parser.Parse(kTestFileName, env_.get()));
+  ASSERT_OK(parser.Parse(kTestFileName, env_.get(),
+                         true /* ignore_unknown_options */));
+}
+
 TEST_F(OptionsParserTest, ParseVersion) {
   DBOptions db_opt;
   db_opt.max_open_files = 12345;
@@ -1213,6 +1278,11 @@ TEST_F(OptionsParserTest, DumpAndParse) {
   Random rnd(302);
   test::RandomInitDBOptions(&base_db_opt, &rnd);
   base_db_opt.db_log_dir += "/#odd #but #could #happen #path #/\\\\#OMG";
+
+  BlockBasedTableOptions special_bbto;
+  special_bbto.cache_index_and_filter_blocks = true;
+  special_bbto.block_size = 999999;
+
   for (int c = 0; c < num_cf; ++c) {
     ColumnFamilyOptions cf_opt;
     Random cf_rnd(0xFB + c);
@@ -1222,6 +1292,8 @@ TEST_F(OptionsParserTest, DumpAndParse) {
     }
     if (c < 3) {
       cf_opt.table_factory.reset(test::RandomTableFactory(&rnd, c));
+    } else if (c == 4) {
+      cf_opt.table_factory.reset(NewBlockBasedTableFactory(special_bbto));
     }
     base_cf_opts.emplace_back(cf_opt);
   }
@@ -1232,6 +1304,15 @@ TEST_F(OptionsParserTest, DumpAndParse) {
 
   RocksDBOptionsParser parser;
   ASSERT_OK(parser.Parse(kOptionsFileName, env_.get()));
+
+  // Make sure block-based table factory options was deserialized correctly
+  std::shared_ptr<TableFactory> ttf = (*parser.cf_opts())[4].table_factory;
+  ASSERT_EQ(BlockBasedTableFactory::kName, std::string(ttf->Name()));
+  const BlockBasedTableOptions& parsed_bbto =
+      static_cast<BlockBasedTableFactory*>(ttf.get())->table_options();
+  ASSERT_EQ(special_bbto.block_size, parsed_bbto.block_size);
+  ASSERT_EQ(special_bbto.cache_index_and_filter_blocks,
+            parsed_bbto.cache_index_and_filter_blocks);
 
   ASSERT_OK(RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
       base_db_opt, cf_names, base_cf_opts, kOptionsFileName, env_.get()));
@@ -1395,13 +1476,15 @@ TEST_F(OptionsSanityCheckTest, SanityCheck) {
 
     // use same prefix extractor but with different parameter
     opts.prefix_extractor.reset(NewCappedPrefixTransform(15));
-    // expect pass only in kSanityLevelNone
-    ASSERT_NOK(SanityCheckCFOptions(opts, kSanityLevelLooselyCompatible));
+    // expect pass only in kSanityLevelLooselyCompatible
+    ASSERT_NOK(SanityCheckCFOptions(opts, kSanityLevelExactMatch));
+    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelLooselyCompatible));
     ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelNone));
 
     // repeat the test with FixedPrefixTransform
     opts.prefix_extractor.reset(NewFixedPrefixTransform(10));
-    ASSERT_NOK(SanityCheckCFOptions(opts, kSanityLevelLooselyCompatible));
+    ASSERT_NOK(SanityCheckCFOptions(opts, kSanityLevelExactMatch));
+    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelLooselyCompatible));
     ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelNone));
 
     // persist the change of prefix_extractor
@@ -1410,8 +1493,9 @@ TEST_F(OptionsSanityCheckTest, SanityCheck) {
 
     // use same prefix extractor but with different parameter
     opts.prefix_extractor.reset(NewFixedPrefixTransform(15));
-    // expect pass only in kSanityLevelNone
-    ASSERT_NOK(SanityCheckCFOptions(opts, kSanityLevelLooselyCompatible));
+    // expect pass only in kSanityLevelLooselyCompatible
+    ASSERT_NOK(SanityCheckCFOptions(opts, kSanityLevelExactMatch));
+    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelLooselyCompatible));
     ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelNone));
 
     // Change prefix extractor from non-nullptr to nullptr

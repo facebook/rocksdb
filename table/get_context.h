@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
 #include <string>
@@ -62,6 +60,8 @@ class GetContext {
   // Do we need to fetch the SequenceNumber for this key?
   bool NeedToReadSequence() const { return (seq_ != nullptr); }
 
+  bool sample() const { return sample_; }
+
  private:
   const Comparator* ucmp_;
   const MergeOperator* merge_operator_;
@@ -82,9 +82,11 @@ class GetContext {
   std::string* replay_log_;
   // Used to temporarily pin blocks when state_ == GetContext::kMerge
   PinnedIteratorsManager* pinned_iters_mgr_;
+  bool sample_;
 };
 
 void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
-                         GetContext* get_context);
+                         GetContext* get_context,
+                         Cleanable* value_pinner = nullptr);
 
 }  // namespace rocksdb

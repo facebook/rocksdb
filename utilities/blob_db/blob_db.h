@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
 
@@ -20,6 +18,8 @@ namespace rocksdb {
 
 namespace blob_db {
 
+class TTLExtractor;
+
 // A wrapped database which puts values of KV pairs in a separate log
 // and store location to the log in the underlying DB.
 // It lacks lots of importatant functionalities, e.g. DB restarts,
@@ -31,18 +31,18 @@ namespace blob_db {
 struct BlobDBOptions {
   // name of the directory under main db, where blobs will be stored.
   // default is "blob_dir"
-  std::string blob_dir;
+  std::string blob_dir = "blob_dir";
 
   // whether the blob_dir path is relative or absolute.
-  bool path_relative;
+  bool path_relative = true;
 
   // is the eviction strategy fifo based
-  bool is_fifo;
+  bool is_fifo = false;
 
   // maximum size of the blob dir. Once this gets used, up
   // evict the blob file which is oldest (is_fifo )
   // 0 means no limits
-  uint64_t blob_dir_size;
+  uint64_t blob_dir_size = 0;
 
   // a new bucket is opened, for ttl_range. So if ttl_range is 600seconds
   // (10 minutes), and the first bucket starts at 1471542000
@@ -50,31 +50,22 @@ struct BlobDBOptions {
   // first bucket is 1471542000 - 1471542600
   // second bucket is 1471542600 - 1471543200
   // and so on
-  uint32_t ttl_range_secs;
-
-  // at what size will the blobs be stored in separate log rather than
-  // inline
-  uint64_t min_blob_size;
+  uint64_t ttl_range_secs = 3600;
 
   // at what bytes will the blob files be synced to blob log.
-  uint64_t bytes_per_sync;
+  uint64_t bytes_per_sync = 0;
 
   // the target size of each blob file. File will become immutable
   // after it exceeds that size
-  uint64_t blob_file_size;
+  uint64_t blob_file_size = 256 * 1024 * 1024;
 
   // how many files to use for simple blobs at one time
-  uint32_t num_concurrent_simple_blobs;
+  uint32_t num_concurrent_simple_blobs = 1;
 
-  // this function is to be provided by client if they intend to
-  // use Put API to provide TTL.
-  // the first argument is the value in the Put API
-  // in case you want to do some modifications to the value,
-  // return a new Slice in the second.
-  // otherwise just copy the input value into output.
-  // the ttl should be extracted and returned in last pointer.
-  // otherwise assign it to -1
-  std::function<bool(const Slice&, Slice*, int32_t*)> extract_ttl_fn;
+  // Instead of setting TTL explicitly by calling PutWithTTL or PutUntil,
+  // applications can set a TTLExtractor which can extract TTL from key-value
+  // pairs.
+  std::shared_ptr<TTLExtractor> ttl_extractor = nullptr;
 
   // eviction callback.
   // this function will be called for every blob that is getting
@@ -82,32 +73,18 @@ struct BlobDBOptions {
   std::function<void(const ColumnFamilyHandle*, const Slice&, const Slice&)>
       gc_evict_cb_fn;
 
-  // default ttl extactor
-  bool default_ttl_extractor;
-
   // what compression to use for Blob's
-  CompressionType compression;
+  CompressionType compression = kNoCompression;
 
-  // default constructor
-  BlobDBOptions();
+  // Disable all background job.
+  bool disable_background_tasks = false;
 
-  BlobDBOptions(const BlobDBOptions& in) = default;
-
-  virtual ~BlobDBOptions() = default;
+  void Dump(Logger* log) const;
 };
 
 class BlobDB : public StackableDB {
  public:
-  // the suffix to a blob value to represent "ttl:TTLVAL"
-  static const uint64_t kTTLSuffixLength = 8;
-
- public:
   using rocksdb::StackableDB::Put;
-
-  // This function needs to be called before destroying
-  // the base DB
-  static Status DestroyBlobDB(const std::string& dbname, const Options& options,
-                              const BlobDBOptions& bdb_options);
 
   virtual Status Put(const WriteOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
@@ -120,26 +97,28 @@ class BlobDB : public StackableDB {
 
   virtual Status PutWithTTL(const WriteOptions& options,
                             ColumnFamilyHandle* column_family, const Slice& key,
-                            const Slice& value, int32_t ttl) = 0;
+                            const Slice& value, uint64_t ttl) = 0;
 
   virtual Status PutWithTTL(const WriteOptions& options, const Slice& key,
-                            const Slice& value, int32_t ttl) {
+                            const Slice& value, uint64_t ttl) {
     return PutWithTTL(options, DefaultColumnFamily(), key, value, ttl);
   }
 
+  // Put with expiration. Key with expiration time equal to
+  // std::numeric_limits<uint64_t>::max() means the key don't expire.
   virtual Status PutUntil(const WriteOptions& options,
                           ColumnFamilyHandle* column_family, const Slice& key,
-                          const Slice& value, int32_t expiration) = 0;
+                          const Slice& value, uint64_t expiration) = 0;
 
   virtual Status PutUntil(const WriteOptions& options, const Slice& key,
-                          const Slice& value, int32_t expiration) {
+                          const Slice& value, uint64_t expiration) {
     return PutUntil(options, DefaultColumnFamily(), key, value, expiration);
   }
 
   using rocksdb::StackableDB::Get;
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
-                     std::string* value) override = 0;
+                     PinnableSlice* value) override = 0;
 
   using rocksdb::StackableDB::MultiGet;
   virtual std::vector<Status> MultiGet(
@@ -190,12 +169,45 @@ class BlobDB : public StackableDB {
                      std::vector<ColumnFamilyHandle*>* handles,
                      BlobDB** blob_db, bool no_base_db = false);
 
+  virtual BlobDBOptions GetBlobDBOptions() const = 0;
+
   virtual ~BlobDB() {}
 
   virtual Status LinkToBaseDB(DB* db_base) = 0;
 
  protected:
   explicit BlobDB(DB* db);
+};
+
+// Destroy the content of the database.
+Status DestroyBlobDB(const std::string& dbname, const Options& options,
+                     const BlobDBOptions& bdb_options);
+
+// TTLExtractor allow applications to extract TTL from key-value pairs.
+// This useful for applications using Put or WriteBatch to write keys and
+// don't intend to migrate to PutWithTTL or PutUntil.
+//
+// Applications can implement either ExtractTTL or ExtractExpiration. If both
+// are implemented, ExtractExpiration will take precedence.
+class TTLExtractor {
+ public:
+  // Extract TTL from key-value pair.
+  // Return true if the key has TTL, false otherwise. If key has TTL,
+  // TTL is pass back through ttl. The method can optionally modify the value,
+  // pass the result back through new_value, and also set value_changed to true.
+  virtual bool ExtractTTL(const Slice& key, const Slice& value, uint64_t* ttl,
+                          std::string* new_value, bool* value_changed);
+
+  // Extract expiration time from key-value pair.
+  // Return true if the key has expiration time, false otherwise. If key has
+  // expiration time, it is pass back through expiration. The method can
+  // optionally modify the value, pass the result back through new_value,
+  // and also set value_changed to true.
+  virtual bool ExtractExpiration(const Slice& key, const Slice& value,
+                                 uint64_t now, uint64_t* expiration,
+                                 std::string* new_value, bool* value_changed);
+
+  virtual ~TTLExtractor() = default;
 };
 
 }  // namespace blob_db
