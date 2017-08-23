@@ -240,7 +240,6 @@ class Transaction {
       std::string* null_str = nullptr;
       return GetForUpdate(options, key, null_str);
     } else {
-      assert(pinnable_val != nullptr);
       auto s = GetForUpdate(options, key, pinnable_val->GetSelf());
       pinnable_val->PinSelf();
       return s;
