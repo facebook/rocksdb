@@ -257,6 +257,7 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
                                             handle, compression_dict, &block,
                                             is_index);
 
+      assert(s.ok() || block.value == nullptr);
       if (s.ok() && block.value != nullptr) {
         assert(block.cache_handle != nullptr);
         if (pin) {
