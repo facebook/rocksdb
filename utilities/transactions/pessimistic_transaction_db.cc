@@ -608,43 +608,57 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq,
           delayed_prepared_empty_.store(false, std::memory_order_release);
         }
       }
+
       // With each change to max_evicted_seq_ fetch the live snapshots behind it
+      SequenceNumber curr_seq;
+      std::vector<SequenceNumber> all_snapshots;
+      bool update_snapshots = false;
       {
-        WriteLock wl(&snapshots_mutex_);
         InstrumentedMutex(db_impl_->mutex());
-        // We only care about snapshots lower then max
-        auto all_snapshots =
-            db_impl_->snapshots().GetAll(nullptr, max_evicted_seq);
-        auto curr_seq = db_impl_->GetLatestSequenceNumber();
-        // This is to avoid updating the snapshots_ if it already updated with a
-        // more recent vesion by a concrrent thread
+        // We use this to identify how fresh are the snapshot list. Since this
+        // is done atomically with obtaining the snapshot list, the one with
+        // the larger seq is more fresh. If the seq is equal the full snapshot
+        // list could be different since taking snapshots does not increase
+        // the db seq. However since we only care about snapshots before the
+        // new max, such recent snapshots would not be included the in the
+        // list anyway.
+        curr_seq = db_impl_->GetLatestSequenceNumber();
         if (curr_seq > snapshots_version_) {
-          snapshots_version_ = curr_seq;
-          // Both new and old lists are sorted and the new list is subset of the
-          // previous list plus some new items. Thus if a snapshot repeats in
-          // both new and old lists, it will appear upper in the new list. So if
-          // we simply insert the new snapshots in order, if an overwritten item
-          // is still valid in the new list is either equal to the new one or
-          // already inserted before. This guarantess that a reader will who
-          // sees the list in the middle of update, will always see all the old
-          // snaphots that are still valid.
-          size_t i = 0;
-          auto it = all_snapshots.begin();
-          for (; it != all_snapshots.end() && i < SNAPSHOT_CACHE_SIZE;
-               it++, i++) {
-            snapshot_cache_[i].store(*it, std::memory_order_release);
-          }
-          snapshots_.clear();
-          if (it != all_snapshots.end()) {
-            // Insert them to a vector that is less efficient to access
-            // concurrently
-            snapshots_.push_back(*it);
-          }
-          // Update the size at the end. Otherwise a parallel reader might read
-          // items that are not set yet.
-          snapshots_total_.store(all_snapshots.size(),
-                                 std::memory_order_release);
+          // This is to avoid updating the snapshots_ if it already updated
+          // with a more recent vesion by a concrrent thread
+          update_snapshots = true;
+          // We only care about snapshots lower then max
+          all_snapshots =
+              db_impl_->snapshots().GetAll(nullptr, max_evicted_seq);
         }
+      }
+      if (update_snapshots) {
+        WriteLock wl(&snapshots_mutex_);
+        snapshots_version_ = curr_seq;
+        // We update the list concurrently with the readers.
+        // Both new and old lists are sorted and the new list is subset of the
+        // previous list plus some new items. Thus if a snapshot repeats in
+        // both new and old lists, it will appear upper in the new list. So if
+        // we simply insert the new snapshots in order, if an overwritten item
+        // is still valid in the new list is either equal to the new one or
+        // already inserted before. This guarantess that a reader will who
+        // sees the list in the middle of update, will always see all the old
+        // snaphots that are still valid.
+        size_t i = 0;
+        auto it = all_snapshots.begin();
+        for (; it != all_snapshots.end() && i < SNAPSHOT_CACHE_SIZE;
+             it++, i++) {
+          snapshot_cache_[i].store(*it, std::memory_order_release);
+        }
+        snapshots_.clear();
+        if (it != all_snapshots.end()) {
+          // Insert them to a vector that is less efficient to access
+          // concurrently
+          snapshots_.push_back(*it);
+        }
+        // Update the size at the end. Otherwise a parallel reader might read
+        // items that are not set yet.
+        snapshots_total_.store(all_snapshots.size(), std::memory_order_release);
       }
       while (prev_max < max_evicted_seq &&
              !max_evicted_seq_.compare_exchange_weak(
@@ -656,12 +670,22 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq,
     // be kept around because it overlaps with a live snapshot.
     // First check the snapshot cache that is efficient for concurrent access
     auto cnt = snapshots_total_.load(std::memory_order_acquire);
+    // The list might get updated concurrently as we are reading from it. The
+    // reader should be able to read all the snapshots before the update by the
+    // writer that are still valid. As explained above if a reader jumps in the
+    // middle of update it still sees all the old snapshots that are still
+    // valid. If a writer jumps in the middle of a read, however, the reader has
+    // to re-read all updated items by writer since the snapshots could move up
+    // in the new sorted list. To cover this case, the readers reads the list
+    // twice.
     size_t i = 0;
-    for (; i < cnt && i < SNAPSHOT_CACHE_SIZE; i++) {
-      auto snapshot_seq = snapshot_cache_[i].load(std::memory_order_acquire);
-      if (!MaybeUpdateOldCommitMap(evicted.prep_seq, evicted.commit_seq,
-                                   snapshot_seq)) {
-        break;
+    for (int pass = 0; pass < 2; pass++) {
+      for (i = 0; i < cnt && i < SNAPSHOT_CACHE_SIZE; i++) {
+        auto snapshot_seq = snapshot_cache_[i].load(std::memory_order_acquire);
+        if (!MaybeUpdateOldCommitMap(evicted.prep_seq, evicted.commit_seq,
+                                     snapshot_seq)) {
+          break;
+        }
       }
     }
     if (UNLIKELY(i == SNAPSHOT_CACHE_SIZE && SNAPSHOT_CACHE_SIZE < cnt)) {
@@ -735,14 +759,19 @@ uint64_t WritePreparedTxnDB::DEF_COMMIT_CACHE_SIZE =
 bool WritePreparedTxnDB::MaybeUpdateOldCommitMap(const uint64_t& prep_seq,
                                                  const uint64_t& commit_seq,
                                                  const uint64_t& snapshot_seq) {
+  // If we do not store an entry in old_commit_map we assume it is committed in
+  // all snapshots. if commit_seq <= snapshot_seq, it is considered already in
+  // the snapshot so we need not to keep the entry around for this snapshot.
   if (commit_seq <= snapshot_seq) {
     return false;
   }
-  // then snapshot_seq < evicted.commit_seq
+  // then snapshot_seq < commit_seq
   if (prep_seq <= snapshot_seq) {  // overlapping range
     WriteLock wl(&old_commit_map_mutex_);
     old_commit_map_empty_.store(false, std::memory_order_release);
     old_commit_map_[prep_seq] = commit_seq;
+    // Storing once is enough. No need to check it for other snapshots.
+    return false;
   }
   return true;
 }
