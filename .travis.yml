@@ -69,7 +69,7 @@ script:
   - if [ "${TEST_GROUP}" == '2' ]; then OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=transaction_test make -j4 check_some; fi
   - ls -ltr .
   - ls -ltr /var/tmp/cores
-  - for i in $(find ./ -maxdepth 1 -name 'core*' -print); do gdb $(pwd)/test core* -ex "thread apply all bt" -ex "set pagination 0" -batch; done;
+  - for i in $(find ./ -maxdepth 1 -name 'core*' -print); do gdb ./transaction_test core* -ex "thread apply all bt" -ex "set pagination 0" -batch; done;
 notifications:
     email:
       - leveldb@fb.com
