@@ -1310,6 +1310,15 @@ extern ROCKSDB_LIBRARY_API rocksdb_transaction_t* rocksdb_transaction_begin(
     const rocksdb_transaction_options_t* txn_options,
     rocksdb_transaction_t* old_txn);
 
+extern ROCKSDB_LIBRARY_API void rocksdb_transaction_set_name(
+    rocksdb_transaction_t* txn, const char* name, char** errptr);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_transaction_prepare(
+	rocksdb_transaction_t* txn, char** errptr);
+
+extern ROCKSDB_LIBRARY_API uint64_t
+rocksdb_transaction_get_prepare_sequence_number(rocksdb_transaction_t* txn);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_transaction_commit(
     rocksdb_transaction_t* txn, char** errptr);
 

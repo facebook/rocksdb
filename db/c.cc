@@ -3391,6 +3391,20 @@ rocksdb_transaction_t* rocksdb_transaction_begin(
   return old_txn;
 }
 
+void rocksdb_transaction_set_name(rocksdb_transaction_t* txn, const char* name,
+    char** errptr) {
+  SaveError(errptr, txn->rep->SetName(std::string(name)));
+}
+
+void rocksdb_transaction_prepare(rocksdb_transaction_t* txn, char** errptr) {
+  SaveError(errptr, txn->rep->Prepare());
+}
+
+uint64_t rocksdb_transaction_get_prepare_sequence_number(
+    rocksdb_transaction_t* txn) {
+  return txn->rep->GetPrepareSequenceNumber();
+}
+
 void rocksdb_transaction_commit(rocksdb_transaction_t* txn, char** errptr) {
   SaveError(errptr, txn->rep->Commit());
 }
