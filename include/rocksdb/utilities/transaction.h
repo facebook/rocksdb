@@ -428,6 +428,8 @@ class Transaction {
 
   virtual uint64_t GetLogNumber() const { return log_number_; }
 
+  virtual SequenceNumber GetPrepareSequenceNumber() const { return prepare_seq_; }
+
   virtual Status SetName(const TransactionName& name) = 0;
 
   virtual TransactionName GetName() const { return name_; }
@@ -463,6 +465,8 @@ class Transaction {
   // the log in which the prepared section for this txn resides
   // (for two phase commit)
   uint64_t log_number_;
+  // prepare sequence number (for two phase commit)
+  uint64_t prepare_seq_;
   TransactionName name_;
 
   // Execution status of the transaction.
