@@ -2,6 +2,7 @@
 ## Unreleased
 ### Public API Change
 * Users of `Statistics::getHistogramString()` will see fewer histogram buckets and different bucket endpoints.
+* `Slice::compare` and BytewiseComparator `Compare` no longer accept `Slice`s containing nullptr.
 
 ### New Features
 * Add Iterator::Refresh(), which allows users to update the iterator state so that they can avoid some initialization costs of recreating iterators.
