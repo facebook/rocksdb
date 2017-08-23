@@ -77,8 +77,6 @@ script:
   - if [ "${JOB_NAME}" == 'examples' ]; then OPT=-DTRAVIS V=1 make -j4 static_lib; cd examples; make -j4; fi
   - if [ "${JOB_NAME}" == 'cmake' ]; then mkdir build && cd build && cmake .. && make -j4 rocksdb; fi
   - if [ "${JOB_NAME}" == 'cmake-mingw' ]; then mkdir build && cd build && cmake .. -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ -DCMAKE_SYSTEM_NAME=Windows && make -j4 rocksdb; fi
-  - ls -ltr .
-  - ls -ltr /var/tmp/cores
   - for i in $(find ./ -maxdepth 1 -name 'core*' -print); do gdb $(pwd)/test core* -ex "thread apply all bt" -ex "set pagination 0" -batch; done;
 notifications:
     email:
