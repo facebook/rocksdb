@@ -5,6 +5,10 @@
 
 #pragma once
 
+#include "rocksdb/compaction_filter.h"
+
+namespace rocksdb {
+
 struct CompactionIterationStats {
   // Compaction statistics
 
@@ -32,4 +36,30 @@ struct CompactionIterationStats {
   // Single-Delete diagnostics for exceptional situations
   uint64_t num_single_del_fallthru = 0;
   uint64_t num_single_del_mismatch = 0;
+
+  uint64_t num_compaction_filter_keeps = 0;
+  uint64_t num_compaction_filter_removes = 0;
+  uint64_t num_compaction_filter_changes = 0;
+  uint64_t num_compaction_filter_skips = 0;
+
+  void IncrementCompactionFilterStats(CompactionFilter::Decision decision) {
+    switch (decision) {
+      case CompactionFilter::Decision::kKeep:
+        ++num_compaction_filter_keeps;
+        break;
+      case CompactionFilter::Decision::kRemove:
+        ++num_compaction_filter_removes;
+        break;
+      case CompactionFilter::Decision::kChangeValue:
+        ++num_compaction_filter_changes;
+        break;
+      case CompactionFilter::Decision::kRemoveAndSkipUntil:
+        ++num_compaction_filter_skips;
+        break;
+      default:
+        assert(false);
+    }
+  }
 };
+
+}  // namespace rocksdb

@@ -223,6 +223,13 @@ enum Tickers : uint32_t {
   // Number of refill intervals where rate limiter's bytes are fully consumed.
   NUMBER_RATE_LIMITER_DRAINS,
 
+  // Compaction Filter statistics.
+  // # of times compaction filter returned a particular decision.
+  COMPACTION_FILTER_KEEPS,    // Decision::kKeep
+  COMPACTION_FILTER_REMOVES,  // Decision::kRemove
+  COMPACTION_FILTER_CHANGES,  // Decision::kChangeValue
+  COMPACTION_FILTER_SKIPS,    // Decision::kRemoveAndSkipUntil
+
   TICKER_ENUM_MAX
 };
 
@@ -265,9 +272,9 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {COMPACTION_KEY_DROP_RANGE_DEL, "rocksdb.compaction.key.drop.range_del"},
     {COMPACTION_KEY_DROP_USER, "rocksdb.compaction.key.drop.user"},
     {COMPACTION_RANGE_DEL_DROP_OBSOLETE,
-      "rocksdb.compaction.range_del.drop.obsolete"},
+     "rocksdb.compaction.range_del.drop.obsolete"},
     {COMPACTION_OPTIMIZED_DEL_DROP_OBSOLETE,
-      "rocksdb.compaction.optimized.del.drop.obsolete"},
+     "rocksdb.compaction.optimized.del.drop.obsolete"},
     {NUMBER_KEYS_WRITTEN, "rocksdb.number.keys.written"},
     {NUMBER_KEYS_READ, "rocksdb.number.keys.read"},
     {NUMBER_KEYS_UPDATED, "rocksdb.number.keys.updated"},
@@ -328,6 +335,10 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {READ_AMP_ESTIMATE_USEFUL_BYTES, "rocksdb.read.amp.estimate.useful.bytes"},
     {READ_AMP_TOTAL_READ_BYTES, "rocksdb.read.amp.total.read.bytes"},
     {NUMBER_RATE_LIMITER_DRAINS, "rocksdb.number.rate_limiter.drains"},
+    {COMPACTION_FILTER_KEEPS, "rocksdb.compaction.filter.keeps"},
+    {COMPACTION_FILTER_REMOVES, "rocksdb.compaction.filter.removes"},
+    {COMPACTION_FILTER_CHANGES, "rocksdb.compaction.filter.changes"},
+    {COMPACTION_FILTER_SKIPS, "rocksdb.compaction.filter.skips"},
 };
 
 /**

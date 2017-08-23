@@ -272,6 +272,7 @@ void CompactionIterator::NextFromInput() {
                                                            kValueTypeForSeek);
           skip_until = compaction_filter_skip_until_.Encode();
         }
+        iter_stats_.IncrementCompactionFilterStats(filter);
       }
     } else {
 #ifndef ROCKSDB_LITE
@@ -487,8 +488,9 @@ void CompactionIterator::NextFromInput() {
       // have hit (A)
       // We encapsulate the merge related state machine in a different
       // object to minimize change to the existing flow.
-      Status s = merge_helper_->MergeUntil(input_, range_del_agg_,
-                                           prev_snapshot, bottommost_level_);
+      Status s =
+          merge_helper_->MergeUntil(input_, range_del_agg_, prev_snapshot,
+                                    bottommost_level_, &iter_stats_);
       merge_out_iter_.SeekToFirst();
 
       if (!s.ok() && !s.IsMergeInProgress()) {

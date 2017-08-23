@@ -110,7 +110,8 @@ Status MergeHelper::TimedFullMerge(const MergeOperator* merge_operator,
 Status MergeHelper::MergeUntil(InternalIterator* iter,
                                RangeDelAggregator* range_del_agg,
                                const SequenceNumber stop_before,
-                               const bool at_bottom) {
+                               const bool at_bottom,
+                               CompactionIterationStats* c_iter_stats) {
   // Get a copy of the internal key, before it's invalidated by iter->Next()
   // Also maintain the list of merge operands seen.
   assert(HasOperator());
@@ -263,6 +264,9 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
         merge_context_.Clear();
         has_compaction_filter_skip_until_ = true;
         return Status::OK();
+      }
+      if (c_iter_stats) {
+        c_iter_stats->IncrementCompactionFilterStats(filter);
       }
     }
   }

@@ -80,7 +80,8 @@ class MergeHelper {
   Status MergeUntil(InternalIterator* iter,
                     RangeDelAggregator* range_del_agg = nullptr,
                     const SequenceNumber stop_before = 0,
-                    const bool at_bottom = false);
+                    const bool at_bottom = false,
+                    CompactionIterationStats* c_iter_stats = nullptr);
 
   // Filters a merge operand using the compaction filter specified
   // in the constructor. Returns the decision that the filter made.

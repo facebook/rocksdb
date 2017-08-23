@@ -1202,7 +1202,7 @@ class SliceJni : public NativeRocksMutableObject<
       // exception occurred accessing method
       return nullptr;
     }
-    
+
     jobject jslice = env->NewObject(jclazz, mid);
     if(env->ExceptionCheck()) {
       return nullptr;
@@ -1719,7 +1719,7 @@ class WBWIRocksIteratorJni : public JavaClass {
   /**
    * Gets the value of the WBWIRocksIterator#entry
    *
-   * @param env A pointer to the Java environment 
+   * @param env A pointer to the Java environment
    * @param jwbwi_rocks_iterator A reference to a WBWIIterator
    *
    * @return A reference to a Java WBWIRocksIterator.WriteEntry object, or
@@ -2477,9 +2477,17 @@ class TickerTypeJni {
         return 0x5B;
       case rocksdb::Tickers::NUMBER_RATE_LIMITER_DRAINS:
         return 0x5C;
-      case rocksdb::Tickers::TICKER_ENUM_MAX:
+      case rocksdb::Tickers::COMPACTION_FILTER_KEEPS:
         return 0x5D;
-      
+      case rocksdb::Tickers::COMPACTION_FILTER_REMOVES:
+        return 0x5E;
+      case rocksdb::Tickers::COMPACTION_FILTER_CHANGES:
+        return 0x5F;
+      case rocksdb::Tickers::COMPACTION_FILTER_SKIPS:
+        return 0x60;
+      case rocksdb::Tickers::TICKER_ENUM_MAX:
+        return 0x61;
+
       default:
         // undefined/default
         return 0x0;
@@ -2677,6 +2685,14 @@ class TickerTypeJni {
       case 0x5C:
         return rocksdb::Tickers::NUMBER_RATE_LIMITER_DRAINS;
       case 0x5D:
+        return rocksdb::Tickers::COMPACTION_FILTER_KEEPS;
+      case 0x5E:
+        return rocksdb::Tickers::COMPACTION_FILTER_REMOVES;
+      case 0x5F:
+        return rocksdb::Tickers::COMPACTION_FILTER_CHANGES;
+      case 0x60:
+        return rocksdb::Tickers::COMPACTION_FILTER_SKIPS;
+      case 0x61:
         return rocksdb::Tickers::TICKER_ENUM_MAX;
 
       default:

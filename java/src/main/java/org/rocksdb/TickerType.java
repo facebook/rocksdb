@@ -465,8 +465,32 @@ public enum TickerType {
      */
     NUMBER_RATE_LIMITER_DRAINS((byte) 0x5C),
 
-    TICKER_ENUM_MAX((byte) 0x5D);
+    /**
+     * Compaction Filter statistics.
+     * # of times compaction filter returned a particular decision.
+     */
 
+    /**
+     * Decision::kKeep
+     */
+    COMPACTION_FILTER_KEEPS((byte) 0x5D),
+
+    /**
+     * Decision::kRemove
+     */
+    COMPACTION_FILTER_REMOVES((byte) 0x5E),
+
+    /**
+     * Decision::kChangeValue
+     */
+    COMPACTION_FILTER_CHANGES((byte) 0x5F),
+
+    /**
+     * Decision::kRemoveAndSkipUntil
+     */
+    COMPACTION_FILTER_SKIPS((byte) 0x60),
+
+    TICKER_ENUM_MAX((byte) 0x61);
 
     private final byte value;
 

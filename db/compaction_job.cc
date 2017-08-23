@@ -928,8 +928,18 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   sub_compact->compaction_job_stats.total_input_raw_value_bytes +=
       c_iter_stats.total_input_raw_value_bytes;
 
+  // Compaction Filter Stats
   RecordTick(stats_, FILTER_OPERATION_TOTAL_TIME,
              c_iter_stats.total_filter_time);
+  RecordTick(stats_, COMPACTION_FILTER_KEEPS,
+             c_iter_stats.num_compaction_filter_keeps);
+  RecordTick(stats_, COMPACTION_FILTER_REMOVES,
+             c_iter_stats.num_compaction_filter_removes);
+  RecordTick(stats_, COMPACTION_FILTER_CHANGES,
+             c_iter_stats.num_compaction_filter_changes);
+  RecordTick(stats_, COMPACTION_FILTER_SKIPS,
+             c_iter_stats.num_compaction_filter_skips);
+
   RecordDroppedKeys(c_iter_stats, &sub_compact->compaction_job_stats);
   RecordCompactionIOStats();
 

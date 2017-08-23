@@ -264,6 +264,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
   options.max_open_files = -1;
   options.num_levels = 3;
   options.compaction_filter_factory = std::make_shared<KeepFilterFactory>();
+  options.statistics = rocksdb::CreateDBStatistics();
   options = CurrentOptions(options);
   CreateAndReopenWithCF({"pikachu"}, options);
 
@@ -282,9 +283,12 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
   cfilter_count = 0;
   dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
   ASSERT_EQ(cfilter_count, 100000);
+  ASSERT_EQ(100000, TestGetTickerCount(options, COMPACTION_FILTER_KEEPS));
+
   cfilter_count = 0;
   dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[1]);
   ASSERT_EQ(cfilter_count, 100000);
+  ASSERT_EQ(200000, TestGetTickerCount(options, COMPACTION_FILTER_KEEPS));
 
   ASSERT_EQ(NumTableFilesAtLevel(0, 1), 0);
   ASSERT_EQ(NumTableFilesAtLevel(1, 1), 0);
@@ -415,9 +419,11 @@ TEST_F(DBTestCompactionFilter, CompactionFilterDeletesAll) {
   options.compaction_filter_factory = std::make_shared<DeleteFilterFactory>();
   options.disable_auto_compactions = true;
   options.create_if_missing = true;
+  options.statistics = rocksdb::CreateDBStatistics();
   DestroyAndReopen(options);
 
   // put some data
+  // 10 + 11 + 12 + 13 = 46 keys
   for (int table = 0; table < 4; ++table) {
     for (int i = 0; i < 10 + table; ++i) {
       Put(ToString(table * 100 + i), "val");
@@ -428,6 +434,8 @@ TEST_F(DBTestCompactionFilter, CompactionFilterDeletesAll) {
   // this will produce empty file (delete compaction filter)
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ(0U, CountLiveFiles());
+  ASSERT_EQ(0, TestGetTickerCount(options, COMPACTION_FILTER_KEEPS));
+  ASSERT_EQ(46, TestGetTickerCount(options, COMPACTION_FILTER_REMOVES));
 
   Reopen(options);
 
@@ -446,6 +454,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilterWithValueChange) {
     options.num_levels = 3;
     options.compaction_filter_factory =
       std::make_shared<ChangeFilterFactory>();
+    options.statistics = rocksdb::CreateDBStatistics();
     CreateAndReopenWithCF({"pikachu"}, options);
 
     // Write 100K+1 keys, these are written to a few files
@@ -469,6 +478,15 @@ TEST_F(DBTestCompactionFilter, CompactionFilterWithValueChange) {
     } else {
       dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
                              nullptr);
+    }
+
+    if (option_config_ == kUniversalCompaction ||
+        option_config_ == kUniversalCompactionMultiLevel ||
+        option_config_ == kUniversalSubcompactions) {
+      ASSERT_EQ(100001, TestGetTickerCount(options, COMPACTION_FILTER_CHANGES));
+    } else if (option_config_ == kDefault ||
+        option_config_ == kLevelSubcompactions) {
+      ASSERT_EQ(200002, TestGetTickerCount(options, COMPACTION_FILTER_CHANGES));
     }
 
     // re-write all data again
@@ -498,6 +516,16 @@ TEST_F(DBTestCompactionFilter, CompactionFilterWithValueChange) {
       std::string newvalue = Get(1, key);
       ASSERT_EQ(newvalue.compare(NEW_VALUE), 0);
     }
+
+    if (option_config_ == kUniversalCompaction ||
+        option_config_ == kUniversalCompactionMultiLevel ||
+        option_config_ == kUniversalSubcompactions) {
+      ASSERT_EQ(200002, TestGetTickerCount(options, COMPACTION_FILTER_CHANGES));
+    } else if (option_config_ == kDefault ||
+        option_config_ == kLevelSubcompactions) {
+      ASSERT_EQ(400004, TestGetTickerCount(options, COMPACTION_FILTER_CHANGES));
+    }
+
   } while (ChangeCompactOptions());
 }
 
@@ -577,6 +605,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextManual) {
   options.compaction_filter_factory.reset(filter);
   options.compression = kNoCompression;
   options.level0_file_num_compaction_trigger = 8;
+  options.statistics = rocksdb::CreateDBStatistics();
   Reopen(options);
   int num_keys_per_file = 400;
   for (int j = 0; j < 3; j++) {
@@ -628,6 +657,11 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextManual) {
     ASSERT_EQ(total, 700);
     ASSERT_EQ(count, 1);
   }
+
+  ASSERT_EQ(700, TestGetTickerCount(options, COMPACTION_FILTER_KEEPS));
+  ASSERT_EQ(0, TestGetTickerCount(options, COMPACTION_FILTER_REMOVES));
+  ASSERT_EQ(0, TestGetTickerCount(options, COMPACTION_FILTER_CHANGES));
+  ASSERT_EQ(0, TestGetTickerCount(options, COMPACTION_FILTER_SKIPS));
 }
 #endif  // ROCKSDB_LITE
 
@@ -668,6 +702,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilterSnapshot) {
   options.compaction_filter_factory = std::make_shared<DeleteFilterFactory>();
   options.disable_auto_compactions = true;
   options.create_if_missing = true;
+  options.statistics = rocksdb::CreateDBStatistics();
   DestroyAndReopen(options);
 
   // Put some data.
@@ -688,23 +723,29 @@ TEST_F(DBTestCompactionFilter, CompactionFilterSnapshot) {
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   // The filter should delete 10 records.
   ASSERT_EQ(30U, cfilter_count);
+  ASSERT_EQ(0, TestGetTickerCount(options, COMPACTION_FILTER_KEEPS));
+  ASSERT_EQ(30, TestGetTickerCount(options, COMPACTION_FILTER_REMOVES));
 
   // Release the snapshot and compact again -> now all records should be
   // removed.
   db_->ReleaseSnapshot(snapshot);
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_EQ(40U, cfilter_count);
   ASSERT_EQ(0U, CountLiveFiles());
+  ASSERT_EQ(0, TestGetTickerCount(options, COMPACTION_FILTER_KEEPS));
+  ASSERT_EQ(40, TestGetTickerCount(options, COMPACTION_FILTER_REMOVES));
 }
 
 // Compaction filters should only be applied to records that are newer than the
 // latest snapshot. However, if the compaction filter asks to ignore snapshots
-// records newer than the snapshot will also be processed
+// records older than the snapshot will also be processed
 TEST_F(DBTestCompactionFilter, CompactionFilterIgnoreSnapshot) {
   std::string five = ToString(5);
   Options options = CurrentOptions();
   options.compaction_filter_factory = std::make_shared<DeleteISFilterFactory>();
   options.disable_auto_compactions = true;
   options.create_if_missing = true;
+  options.statistics = rocksdb::CreateDBStatistics();
   DestroyAndReopen(options);
 
   // Put some data.
@@ -723,8 +764,13 @@ TEST_F(DBTestCompactionFilter, CompactionFilterIgnoreSnapshot) {
 
   cfilter_count = 0;
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  // The filter should delete 40 records.
+  // The filter should look at 40 records.
   ASSERT_EQ(40U, cfilter_count);
+  // DeleteISFilter removes all keys between (5, 105].
+  // Keeps: [0-5, 106-109, 200-209, 300-309] = 28
+  ASSERT_EQ(30, TestGetTickerCount(options, COMPACTION_FILTER_KEEPS));
+  // Deletes: [6-9, 100-105] = 10
+  ASSERT_EQ(10, TestGetTickerCount(options, COMPACTION_FILTER_REMOVES));
 
   {
     // Scan the entire database as of the snapshot to ensure
@@ -763,6 +809,7 @@ TEST_F(DBTestCompactionFilter, SkipUntil) {
   options.compaction_filter_factory = std::make_shared<SkipEvenFilterFactory>();
   options.disable_auto_compactions = true;
   options.create_if_missing = true;
+  options.statistics = rocksdb::CreateDBStatistics();
   DestroyAndReopen(options);
 
   // Write 100K keys, these are written to a few files in L0.
@@ -779,7 +826,14 @@ TEST_F(DBTestCompactionFilter, SkipUntil) {
   cfilter_skips = 0;
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   // Number of skips in tables: 2, 3, 3, 3.
+  // Key skips:
+  // Table0: [0->10, 20->30]
+  // Table1: [106->110, 120->130, 140->150]
+  // Table2: [220->230, 240->250, 260->270]
+  // Table3: [320->330, 340->350, 360->370]
   ASSERT_EQ(11, cfilter_skips);
+  ASSERT_EQ(91, TestGetTickerCount(options, COMPACTION_FILTER_KEEPS));
+  ASSERT_EQ(11, TestGetTickerCount(options, COMPACTION_FILTER_SKIPS));
 
   for (int table = 0; table < 4; ++table) {
     for (int i = table * 6; i < 39 + table * 11; ++i) {
@@ -810,6 +864,7 @@ TEST_F(DBTestCompactionFilter, SkipUntilWithBloomFilter) {
   options.compaction_filter_factory = std::make_shared<SkipEvenFilterFactory>();
   options.disable_auto_compactions = true;
   options.create_if_missing = true;
+  options.statistics = rocksdb::CreateDBStatistics();
   DestroyAndReopen(options);
 
   Put("0000000010", "v10");
@@ -820,6 +875,9 @@ TEST_F(DBTestCompactionFilter, SkipUntilWithBloomFilter) {
   cfilter_skips = 0;
   EXPECT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   EXPECT_EQ(1, cfilter_skips);
+
+  ASSERT_EQ(2, TestGetTickerCount(options, COMPACTION_FILTER_KEEPS));
+  ASSERT_EQ(1, TestGetTickerCount(options, COMPACTION_FILTER_SKIPS));
 
   Status s;
   std::string val;
