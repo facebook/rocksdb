@@ -385,8 +385,8 @@ class WBWIIteratorImpl : public WBWIIterator {
 };
 
 struct WriteBatchWithIndex::Rep {
-  Rep(const Comparator* index_comparator, size_t reserved_bytes = 0,
-      size_t max_bytes = 0, bool _overwrite_key = false)
+  explicit Rep(const Comparator* index_comparator, size_t reserved_bytes = 0,
+               size_t max_bytes = 0, bool _overwrite_key = false)
       : write_batch(reserved_bytes, max_bytes),
         comparator(index_comparator, &write_batch),
         skip_list(comparator, &arena),
@@ -743,8 +743,23 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(DB* db,
                                               const ReadOptions& read_options,
                                               const Slice& key,
                                               std::string* value) {
+  assert(value != nullptr);
+  PinnableSlice pinnable_val(value);
+  assert(!pinnable_val.IsPinned());
+  auto s = GetFromBatchAndDB(db, read_options, db->DefaultColumnFamily(), key,
+                             &pinnable_val);
+  if (s.ok() && pinnable_val.IsPinned()) {
+    value->assign(pinnable_val.data(), pinnable_val.size());
+  }  // else value is already assigned
+  return s;
+}
+
+Status WriteBatchWithIndex::GetFromBatchAndDB(DB* db,
+                                              const ReadOptions& read_options,
+                                              const Slice& key,
+                                              PinnableSlice* pinnable_val) {
   return GetFromBatchAndDB(db, read_options, db->DefaultColumnFamily(), key,
-                           value);
+                           pinnable_val);
 }
 
 Status WriteBatchWithIndex::GetFromBatchAndDB(DB* db,
@@ -752,19 +767,38 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(DB* db,
                                               ColumnFamilyHandle* column_family,
                                               const Slice& key,
                                               std::string* value) {
+  assert(value != nullptr);
+  PinnableSlice pinnable_val(value);
+  assert(!pinnable_val.IsPinned());
+  auto s =
+      GetFromBatchAndDB(db, read_options, column_family, key, &pinnable_val);
+  if (s.ok() && pinnable_val.IsPinned()) {
+    value->assign(pinnable_val.data(), pinnable_val.size());
+  }  // else value is already assigned
+  return s;
+}
+
+Status WriteBatchWithIndex::GetFromBatchAndDB(DB* db,
+                                              const ReadOptions& read_options,
+                                              ColumnFamilyHandle* column_family,
+                                              const Slice& key,
+                                              PinnableSlice* pinnable_val) {
   Status s;
   MergeContext merge_context;
   const ImmutableDBOptions& immuable_db_options =
       reinterpret_cast<DBImpl*>(db)->immutable_db_options();
 
-  std::string batch_value;
+  // Since the lifetime of the WriteBatch is the same as that of the transaction
+  // we cannot pin it as otherwise the returned value will not be available
+  // after the transaction finishes.
+  std::string& batch_value = *pinnable_val->GetSelf();
   WriteBatchWithIndexInternal::Result result =
       WriteBatchWithIndexInternal::GetFromBatch(
           immuable_db_options, this, column_family, key, &merge_context,
           &rep->comparator, &batch_value, rep->overwrite_key, &s);
 
   if (result == WriteBatchWithIndexInternal::Result::kFound) {
-    value->assign(batch_value.data(), batch_value.size());
+    pinnable_val->PinSelf();
     return s;
   }
   if (result == WriteBatchWithIndexInternal::Result::kDeleted) {
@@ -785,7 +819,7 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(DB* db,
          result == WriteBatchWithIndexInternal::Result::kNotFound);
 
   // Did not find key in batch OR could not resolve Merges.  Try DB.
-  s = db->Get(read_options, column_family, key, value);
+  s = db->Get(read_options, column_family, key, pinnable_val);
 
   if (s.ok() || s.IsNotFound()) {  // DB Get Succeeded
     if (result == WriteBatchWithIndexInternal::Result::kMergeInProgress) {
@@ -797,18 +831,18 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(DB* db,
       Env* env = immuable_db_options.env;
       Logger* logger = immuable_db_options.info_log.get();
 
-      Slice db_slice(*value);
       Slice* merge_data;
       if (s.ok()) {
-        merge_data = &db_slice;
+        merge_data = pinnable_val;
       } else {  // Key not present in db (s.IsNotFound())
         merge_data = nullptr;
       }
 
       if (merge_operator) {
-        s = MergeHelper::TimedFullMerge(merge_operator, key, merge_data,
-                                        merge_context.GetOperands(), value,
-                                        logger, statistics, env);
+        s = MergeHelper::TimedFullMerge(
+            merge_operator, key, merge_data, merge_context.GetOperands(),
+            pinnable_val->GetSelf(), logger, statistics, env);
+        pinnable_val->PinSelf();
       } else {
         s = Status::InvalidArgument("Options::merge_operator must be set");
       }
