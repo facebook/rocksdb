@@ -169,8 +169,26 @@ class Transaction {
                      ColumnFamilyHandle* column_family, const Slice& key,
                      std::string* value) = 0;
 
+  // An overload of the the above method that receives a PinnableSlice
+  // For backward compatiblity a default implementation is provided
+  virtual Status Get(const ReadOptions& options,
+                     ColumnFamilyHandle* column_family, const Slice& key,
+                     PinnableSlice* pinnable_val) {
+    assert(pinnable_val != nullptr);
+    auto s = Get(options, column_family, key, pinnable_val->GetSelf());
+    pinnable_val->PinSelf();
+    return s;
+  }
+
   virtual Status Get(const ReadOptions& options, const Slice& key,
                      std::string* value) = 0;
+  virtual Status Get(const ReadOptions& options, const Slice& key,
+                     PinnableSlice* pinnable_val) {
+    assert(pinnable_val != nullptr);
+    auto s = Get(options, key, pinnable_val->GetSelf());
+    pinnable_val->PinSelf();
+    return s;
+  }
 
   virtual std::vector<Status> MultiGet(
       const ReadOptions& options,
@@ -211,6 +229,22 @@ class Transaction {
                               ColumnFamilyHandle* column_family,
                               const Slice& key, std::string* value,
                               bool exclusive = true) = 0;
+
+  // An overload of the the above method that receives a PinnableSlice
+  // For backward compatiblity a default implementation is provided
+  virtual Status GetForUpdate(const ReadOptions& options,
+                              ColumnFamilyHandle* column_family,
+                              const Slice& key, PinnableSlice* pinnable_val,
+                              bool exclusive = true) {
+    if (pinnable_val == nullptr) {
+      std::string* null_str = nullptr;
+      return GetForUpdate(options, key, null_str);
+    } else {
+      auto s = GetForUpdate(options, key, pinnable_val->GetSelf());
+      pinnable_val->PinSelf();
+      return s;
+    }
+  }
 
   virtual Status GetForUpdate(const ReadOptions& options, const Slice& key,
                               std::string* value, bool exclusive = true) = 0;
