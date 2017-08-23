@@ -4571,7 +4571,6 @@ TEST_P(TransactionTest, MemoryLimitTest) {
 // snapshot, max_committed_seq_, prepared, and commit entries.
 TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
   WriteOptions wo;
-  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
   // Use small commit cache to trigger lots of eviction and fast advance of
   // max_evicted_seq_
   WritePreparedTxnDB::DEF_COMMIT_CACHE_SIZE =
@@ -4608,6 +4607,9 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
       // These should be the only seq numbers that will be found in the snapshot
       std::set<uint64_t> committed_before;
       ReOpen();  // to restart the db
+      WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+      assert(wp_db);
+      assert(wp_db->db_impl_);
       // We continue until max advances a bit beyond the snapshot.
       while (!snapshot || wp_db->max_evicted_seq_ < snapshot + 100) {
         // do prepare for a transaction
