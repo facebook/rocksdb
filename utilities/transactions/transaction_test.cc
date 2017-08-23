@@ -4615,6 +4615,7 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
         // do prepare for a transaction
         wp_db->db_impl_->Put(wo, "key", "value");  // dummy put to inc db seq
         seq++;
+        ASSERT_EQ(wp_db->db_impl_->GetLatestSequenceNumber(), seq);
         wp_db->AddPrepared(seq);
         prepared.insert(seq);
 
@@ -4622,11 +4623,13 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
         if (!cur_txn) {
           wp_db->db_impl_->Put(wo, "key", "value");  // dummy put to inc db seq
           seq++;
+          ASSERT_EQ(wp_db->db_impl_->GetLatestSequenceNumber(), seq);
           cur_txn = seq;
           wp_db->AddPrepared(cur_txn);
         } else {                                     // else commit it
           wp_db->db_impl_->Put(wo, "key", "value");  // dummy put to inc db seq
           seq++;
+          ASSERT_EQ(wp_db->db_impl_->GetLatestSequenceNumber(), seq);
           wp_db->AddCommitted(cur_txn, seq);
           if (!snapshot) {
             committed_before.insert(cur_txn);
@@ -4684,7 +4687,6 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
       ASSERT_TRUE(wp_db->prepared_txns_.empty());
     }
   }
-  // TODO delete
 }
 
 }  // namespace rocksdb
