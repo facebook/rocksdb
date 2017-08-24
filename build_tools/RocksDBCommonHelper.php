@@ -21,11 +21,17 @@ function postURL($diffID, $url) {
   assert(is_numeric($diffID));
   assert(strlen($url) > 0);
 
-  $cmd = 'echo \'{"diff_id": ' . $diffID . ', '
-         . '"name":"click here for sandcastle tests for D' . $diffID . '", '
-         . '"link":"' . $url . '"}\' | '
-         . 'arc call-conduit '
-         . 'differential.updateunitresults';
+  $cmd_args = array(
+    'diff_id' => (int)$diffID,
+    'name' => sprintf(
+      'click here for sandcastle tests for D%d',
+      (int)$diffID
+    ),
+    'link' => $url
+  );
+  $cmd = 'echo ' . escapeshellarg(json_encode($cmd_args))
+         . ' | arc call-conduit differential.updateunitresults';
+
   shell_exec($cmd);
 }
 
@@ -35,11 +41,15 @@ function buildUpdateTestStatusCmd($diffID, $test, $status) {
   assert(strlen($test) > 0);
   assert(strlen($status) > 0);
 
-  $cmd = 'echo \'{"diff_id": ' . $diffID . ', '
-         . '"name":"' . $test . '", '
-         . '"result":"' . $status . '"}\' | '
-         . 'arc call-conduit '
-         . 'differential.updateunitresults';
+  $cmd_args = array(
+    'diff_id' => (int)$diffID,
+    'name' => $test,
+    'result' => $status
+  );
+
+  $cmd = 'echo ' . escapeshellarg(json_encode($cmd_args))
+         . ' | arc call-conduit differential.updateunitresults';
+
   return $cmd;
 }
 
@@ -68,7 +78,7 @@ function getSteps($applyDiff, $diffID, $username, $test) {
     // and authenticate using that in Sandcastle.
     $setup = array(
       "name" => "Setup arcrc",
-      "shell" => "echo " . $arcrc_content . " | base64 --decode"
+      "shell" => "echo " . escapeshellarg($arcrc_content) . " | base64 --decode"
                  . " | gzip -d > ~/.arcrc",
       "user" => "root"
     );
@@ -114,7 +124,7 @@ function getSteps($applyDiff, $diffID, $username, $test) {
     $patch = array(
       "name" => "Patch " . $diffID,
       "shell" => "arc --arcrc-file ~/.arcrc "
-                  . "patch --nocommit --diff " . $diffID,
+                  . "patch --nocommit --diff " . escapeshellarg($diffID),
       "user" => "root"
     );
 
@@ -125,8 +135,8 @@ function getSteps($applyDiff, $diffID, $username, $test) {
   }
 
   // Run the actual command.
-  $cmd = $cmd . "J=$(nproc) ./build_tools/precommit_checker.py " . $test
-           . "; exit_code=$?; ";
+  $cmd = $cmd . "J=$(nproc) ./build_tools/precommit_checker.py " .
+           escapeshellarg($test) . "; exit_code=$?; ";
 
   if ($applyDiff) {
     $cmd = $cmd . "([[ \$exit_code -eq 0 ]] &&"
@@ -159,7 +169,7 @@ function getSteps($applyDiff, $diffID, $username, $test) {
     "name" => "Run " . $test,
     "shell" => $cmd,
     "user" => "root",
-    "parser" => "python build_tools/error_filter.py " . $test,
+    "parser" => "python build_tools/error_filter.py " . escapeshellarg($test),
   );
 
   $steps[] = $run_test;
@@ -207,7 +217,7 @@ function getSandcastleConfig() {
     if (file_exists(PRIMARY_TOKEN_FILE)) {
       $cmd = 'cat ' . PRIMARY_TOKEN_FILE;
     } else {
-      $cmd = 'cat ' . $cwd_token_file;
+      $cmd = 'cat ' . escapeshellarg($cwd_token_file);
     }
 
     assert(strlen($cmd) > 0);
@@ -331,9 +341,11 @@ function getSandcastleConfig() {
   $app = $sandcastle_config[0];
   $token = $sandcastle_config[1];
 
-  $cmd = 'curl -s -k -F app=' . $app . ' '
-          . '-F token=' . $token . ' -F job=\'' . json_encode($job)
-          .'\' "' . $url . '"';
+  $cmd = 'curl -s -k '
+          . ' -F app=' . escapeshellarg($app)
+          . ' -F token=' . escapeshellarg($token)
+          . ' -F job=' . escapeshellarg(json_encode($job))
+          .' ' . escapeshellarg($url);
 
   $output = shell_exec($cmd);
   assert(strlen($output) > 0);

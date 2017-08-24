@@ -39,7 +39,6 @@ coverage/COVERAGE_REPORT
 .gdbhistory
 .gdb_history
 package/
-.phutil_module_cache
 unity.a
 tags
 etags

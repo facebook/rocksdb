@@ -86,6 +86,7 @@ class DBIter: public Iterator {
       RecordTick(global_statistics, NUMBER_DB_PREV, prev_count_);
       RecordTick(global_statistics, NUMBER_DB_PREV_FOUND, prev_found_count_);
       RecordTick(global_statistics, ITER_BYTES_READ, bytes_read_);
+      PERF_COUNTER_ADD(iter_read_bytes, bytes_read_);
       ResetCounters();
     }
 
@@ -1014,6 +1015,7 @@ void DBIter::Seek(const Slice& target) {
       if (valid_) {
         RecordTick(statistics_, NUMBER_DB_SEEK_FOUND);
         RecordTick(statistics_, ITER_BYTES_READ, key().size() + value().size());
+        PERF_COUNTER_ADD(iter_read_bytes, key().size() + value().size());
       }
     }
   } else {
@@ -1056,6 +1058,7 @@ void DBIter::SeekForPrev(const Slice& target) {
       if (valid_) {
         RecordTick(statistics_, NUMBER_DB_SEEK_FOUND);
         RecordTick(statistics_, ITER_BYTES_READ, key().size() + value().size());
+        PERF_COUNTER_ADD(iter_read_bytes, key().size() + value().size());
       }
     }
   } else {
@@ -1094,6 +1097,7 @@ void DBIter::SeekToFirst() {
       if (valid_) {
         RecordTick(statistics_, NUMBER_DB_SEEK_FOUND);
         RecordTick(statistics_, ITER_BYTES_READ, key().size() + value().size());
+        PERF_COUNTER_ADD(iter_read_bytes, key().size() + value().size());
       }
     }
   } else {
@@ -1141,6 +1145,7 @@ void DBIter::SeekToLast() {
     if (valid_) {
       RecordTick(statistics_, NUMBER_DB_SEEK_FOUND);
       RecordTick(statistics_, ITER_BYTES_READ, key().size() + value().size());
+      PERF_COUNTER_ADD(iter_read_bytes, key().size() + value().size());
     }
   }
   if (valid_ && prefix_extractor_ && prefix_same_as_start_) {

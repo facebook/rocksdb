@@ -1387,6 +1387,7 @@ int main(int argc, char** argv) {
     rocksdb_writebatch_put(wb, "box", 3, "c", 1);
     rocksdb_writebatch_delete(wb, "bar", 3);
     rocksdb_transactiondb_write(txn_db, woptions, wb, &err);
+    rocksdb_writebatch_destroy(wb);
     CheckTxnDBGet(txn_db, roptions, "box", "c");
     CheckNoError(err);
 

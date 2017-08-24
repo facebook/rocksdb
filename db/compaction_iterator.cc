@@ -111,6 +111,7 @@ void CompactionIterator::ResetRecordCounts() {
   iter_stats_.num_record_drop_obsolete = 0;
   iter_stats_.num_record_drop_range_del = 0;
   iter_stats_.num_range_del_drop_obsolete = 0;
+  iter_stats_.num_optimized_del_drop_obsolete = 0;
 }
 
 void CompactionIterator::SeekToFirst() {
@@ -426,6 +427,9 @@ void CompactionIterator::NextFromInput() {
           // Can compact out this SingleDelete.
           ++iter_stats_.num_record_drop_obsolete;
           ++iter_stats_.num_single_del_fallthru;
+          if (!bottommost_level_) {
+            ++iter_stats_.num_optimized_del_drop_obsolete;
+          }
         } else {
           // Output SingleDelete
           valid_ = true;
@@ -467,6 +471,9 @@ void CompactionIterator::NextFromInput() {
       // Note:  Dropping this Delete will not affect TransactionDB
       // write-conflict checking since it is earlier than any snapshot.
       ++iter_stats_.num_record_drop_obsolete;
+      if (!bottommost_level_) {
+        ++iter_stats_.num_optimized_del_drop_obsolete;
+      }
       input_->Next();
     } else if (ikey_.type == kTypeMerge) {
       if (!merge_helper_->HasOperator()) {

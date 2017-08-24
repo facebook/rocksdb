@@ -696,17 +696,12 @@ TEST_P(DBTestUniversalCompactionParallel, PickByFileNumberBug) {
     num_keys -= 100;
   }
 
-  // Wait for the 2nd background compaction process to start
-  TEST_SYNC_POINT("DBTestUniversalCompactionParallel::PickByFileNumberBug:0");
-  TEST_SYNC_POINT("DBTestUniversalCompactionParallel::PickByFileNumberBug:1");
-
-  // Hold the 1st and 2nd compaction from finishing
+  // Hold the 1st compaction from finishing
   TEST_SYNC_POINT("DBTestUniversalCompactionParallel::PickByFileNumberBug:2");
   dbfull()->TEST_WaitForCompact();
 
-  // Although 2 compaction threads started, the second one did not compact
-  // anything because the number of files not being compacted is less than
-  // level0_file_num_compaction_trigger
+  // There should only be one picked compaction as the score drops below one
+  // after the first one is picked.
   EXPECT_EQ(total_picked_compactions, 1);
   EXPECT_EQ(TotalTableFiles(), 4);
 
@@ -1411,6 +1406,7 @@ TEST_P(DBTestUniversalCompaction, FullCompactionInBottomPriThreadPool) {
     ASSERT_EQ(NumSortedRuns(), 1);
     rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   }
+  Env::Default()->SetBackgroundThreads(0, Env::Priority::BOTTOM);
 }
 
 TEST_P(DBTestUniversalCompaction, ConcurrentBottomPriLowPriCompactions) {
@@ -1465,6 +1461,42 @@ TEST_P(DBTestUniversalCompaction, ConcurrentBottomPriLowPriCompactions) {
   ASSERT_GT(NumTableFilesAtLevel(0), 0);
   ASSERT_GT(NumTableFilesAtLevel(num_levels_ - 1), 0);
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  Env::Default()->SetBackgroundThreads(0, Env::Priority::BOTTOM);
+}
+
+TEST_P(DBTestUniversalCompaction, RecalculateScoreAfterPicking) {
+  // Regression test for extra compactions scheduled. Once enough compactions
+  // have been scheduled to bring the score below one, we should stop
+  // scheduling more; otherwise, other CFs/DBs may be delayed unnecessarily.
+  const int kNumFilesTrigger = 8;
+  Options options = CurrentOptions();
+  options.compaction_options_universal.max_merge_width = kNumFilesTrigger / 2;
+  options.compaction_options_universal.max_size_amplification_percent =
+      static_cast<unsigned int>(-1);
+  options.compaction_style = kCompactionStyleUniversal;
+  options.level0_file_num_compaction_trigger = kNumFilesTrigger;
+  options.num_levels = num_levels_;
+  options.write_buffer_size = 100 << 10;  // 100KB
+  Reopen(options);
+
+  std::atomic<int> num_compactions_attempted(0);
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:Start", [&](void* arg) {
+        ++num_compactions_attempted;
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  Random rnd(301);
+  for (int num = 0; num < kNumFilesTrigger; num++) {
+    ASSERT_EQ(NumSortedRuns(), num);
+    int key_idx = 0;
+    GenerateNewFile(&rnd, &key_idx);
+  }
+  dbfull()->TEST_WaitForCompact();
+  // Compacting the first four files was enough to bring the score below one so
+  // there's no need to schedule any more compactions.
+  ASSERT_EQ(1, num_compactions_attempted);
+  ASSERT_EQ(NumSortedRuns(), 5);
 }
 
 INSTANTIATE_TEST_CASE_P(UniversalCompactionNumLevels, DBTestUniversalCompaction,

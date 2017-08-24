@@ -109,7 +109,11 @@ class CuckooBuilderTest : public testing::Test {
           expected_locations.begin();
       if (key_idx == keys.size()) {
         // i is not one of the expected locations. Empty bucket.
-        ASSERT_EQ(read_slice.compare(expected_unused_bucket), 0);
+        if (read_slice.data() == nullptr) {
+          ASSERT_EQ(0, expected_unused_bucket.size());
+        } else {
+          ASSERT_EQ(read_slice.compare(expected_unused_bucket), 0);
+        }
       } else {
         keys_found[key_idx] = true;
         ASSERT_EQ(read_slice.compare(keys[key_idx] + values[key_idx]), 0);

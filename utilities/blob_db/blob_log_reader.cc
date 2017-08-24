@@ -41,7 +41,7 @@ Status Reader::ReadHeader(BlobLogHeader* header) {
 }
 
 Status Reader::ReadRecord(BlobLogRecord* record, ReadLevel level,
-                          WALRecoveryMode wal_recovery_mode) {
+                          uint64_t* blob_offset) {
   record->Clear();
   buffer_.clear();
   backing_store_[0] = '\0';
@@ -65,6 +65,9 @@ Status Reader::ReadRecord(BlobLogRecord* record, ReadLevel level,
   header_crc = crc32c::Extend(header_crc, buffer_.data(), crc_data_size);
 
   uint64_t kb_size = record->GetKeySize() + record->GetBlobSize();
+  if (blob_offset != nullptr) {
+    *blob_offset = next_byte_ + record->GetKeySize();
+  }
   switch (level) {
     case kReadHdrFooter:
       file_->Skip(kb_size);

@@ -44,6 +44,7 @@ int main() {
 #include "db/version_set.h"
 #include "hdfs/env_hdfs.h"
 #include "monitoring/histogram.h"
+#include "options/options_helper.h"
 #include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/env.h"
@@ -72,6 +73,8 @@ using GFLAGS::RegisterFlagValidator;
 using GFLAGS::SetUsageMessage;
 
 static const long KB = 1024;
+static const int kRandomValueMaxFactor = 3;
+static const int kValueMaxLen = 100;
 
 static bool ValidateUint32Range(const char* flagname, uint64_t value) {
   if (value > std::numeric_limits<uint32_t>::max()) {
@@ -92,6 +95,13 @@ DEFINE_int64(max_key, 1 * KB* KB,
              "Max number of key/values to place in database");
 
 DEFINE_int32(column_families, 10, "Number of column families");
+
+DEFINE_int64(
+    active_width, 0,
+    "Number of keys in active span of the key-range at any given time. The "
+    "span begins with its left endpoint at key 0, gradually moves rightwards, "
+    "and ends with its right endpoint at max_key. If set to 0, active_width "
+    "will be sanitized to be equal to max_key.");
 
 // TODO(noetzli) Add support for single deletes
 DEFINE_bool(test_batches_snapshots, false,
@@ -167,6 +177,11 @@ DEFINE_int32(max_write_buffer_number_to_maintain,
              "after they are flushed.  If this value is set to -1, "
              "'max_write_buffer_number' will be used.");
 
+DEFINE_double(memtable_prefix_bloom_size_ratio,
+              rocksdb::Options().memtable_prefix_bloom_size_ratio,
+              "creates prefix blooms for memtables, each with size "
+              "`write_buffer_size * memtable_prefix_bloom_size_ratio`.");
+
 DEFINE_int32(open_files, rocksdb::Options().max_open_files,
              "Maximum number of files to keep open at the same time "
              "(use default if == 0)");
@@ -197,6 +212,10 @@ DEFINE_int32(max_background_compactions,
              rocksdb::Options().max_background_compactions,
              "The maximum number of concurrent background compactions "
              "that can occur in parallel.");
+
+DEFINE_int32(num_bottom_pri_threads, 0,
+             "The number of threads in the bottom-priority thread pool (used "
+             "by universal compaction only).");
 
 DEFINE_int32(compaction_thread_pool_adjust_interval, 0,
              "The interval (in milliseconds) to adjust compaction thread pool "
@@ -310,13 +329,15 @@ extern std::vector<std::string> rocksdb_kill_prefix_blacklist;
 
 DEFINE_bool(disable_wal, false, "If true, do not write WAL for write.");
 
-DEFINE_int32(target_file_size_base, 64 * KB,
+DEFINE_int64(target_file_size_base, rocksdb::Options().target_file_size_base,
              "Target level-1 file size for compaction");
 
 DEFINE_int32(target_file_size_multiplier, 1,
              "A multiplier to compute target level-N file size (N >= 2)");
 
-DEFINE_uint64(max_bytes_for_level_base, 256 * KB, "Max bytes for level-1");
+DEFINE_uint64(max_bytes_for_level_base,
+              rocksdb::Options().max_bytes_for_level_base,
+              "Max bytes for level-1");
 
 DEFINE_double(max_bytes_for_level_multiplier, 2,
               "A multiplier to compute max bytes for level-N (N >= 2)");
@@ -406,8 +427,28 @@ enum rocksdb::CompressionType StringToCompressionType(const char* ctype) {
   else if (!strcasecmp(ctype, "zstd"))
     return rocksdb::kZSTD;
 
-  fprintf(stdout, "Cannot parse compression type '%s'\n", ctype);
+  fprintf(stderr, "Cannot parse compression type '%s'\n", ctype);
   return rocksdb::kSnappyCompression; //default value
+}
+
+enum rocksdb::ChecksumType StringToChecksumType(const char* ctype) {
+  assert(ctype);
+  auto iter = rocksdb::checksum_type_string_map.find(ctype);
+  if (iter != rocksdb::checksum_type_string_map.end()) {
+    return iter->second;
+  }
+  fprintf(stderr, "Cannot parse checksum type '%s'\n", ctype);
+  return rocksdb::kCRC32c;
+}
+
+std::string ChecksumTypeToString(rocksdb::ChecksumType ctype) {
+  auto iter = std::find_if(
+      rocksdb::checksum_type_string_map.begin(),
+      rocksdb::checksum_type_string_map.end(),
+      [&](const std::pair<std::string, rocksdb::ChecksumType>&
+              name_and_enum_val) { return name_and_enum_val.second == ctype; });
+  assert(iter != rocksdb::checksum_type_string_map.end());
+  return iter->first;
 }
 
 std::vector<std::string> SplitString(std::string src) {
@@ -430,6 +471,9 @@ DEFINE_string(compression_type, "snappy",
               "Algorithm to use to compress the database");
 static enum rocksdb::CompressionType FLAGS_compression_type_e =
     rocksdb::kSnappyCompression;
+
+DEFINE_string(checksum_type, "kCRC32c", "Algorithm to use to checksum blocks");
+static enum rocksdb::ChecksumType FLAGS_checksum_type_e = rocksdb::kCRC32c;
 
 DEFINE_string(hdfs, "", "Name of hdfs environment");
 // posix or hdfs environment
@@ -1114,8 +1158,6 @@ class StressTest {
              ToString(FLAGS_write_buffer_size / 4),
              ToString(FLAGS_write_buffer_size / 8),
          }},
-        {"memtable_prefix_bloom_bits", {"0", "8", "10"}},
-        {"memtable_prefix_bloom_probes", {"4", "5", "6"}},
         {"memtable_huge_page_size", {"0", ToString(2 * 1024 * 1024)}},
         {"max_successive_merges", {"0", "2", "4"}},
         {"inplace_update_num_locks", {"100", "200", "300"}},
@@ -1243,7 +1285,7 @@ class StressTest {
       threads[i] = nullptr;
     }
     auto now = FLAGS_env->NowMicros();
-    if (!FLAGS_test_batches_snapshots) {
+    if (!FLAGS_test_batches_snapshots && !shared.HasVerificationFailedYet()) {
       fprintf(stdout, "%s Verification successful\n",
               FLAGS_env->TimeToString(now/1000000).c_str());
     }
@@ -1727,7 +1769,11 @@ class StressTest {
       }
 #endif                // !ROCKSDB_LITE
 
-      long rand_key = thread->rand.Next() % max_key;
+      const double completed_ratio =
+          static_cast<double>(i) / FLAGS_ops_per_thread;
+      const int64_t base_key = static_cast<int64_t>(
+          completed_ratio * (FLAGS_max_key - FLAGS_active_width));
+      long rand_key = base_key + thread->rand.Next() % FLAGS_active_width;
       int rand_column_family = thread->rand.Next() % FLAGS_column_families;
       std::string keystr = Key(rand_key);
       Slice key = keystr;
@@ -2010,7 +2056,7 @@ class StressTest {
       return false;
     }
     // compare value_from_db with the value in the shared state
-    char value[100];
+    char value[kValueMaxLen];
     uint32_t value_base = shared->Get(cf, key);
     if (value_base == SharedState::SENTINEL && !strict) {
       return true;
@@ -2053,7 +2099,8 @@ class StressTest {
   }
 
   static size_t GenerateValue(uint32_t rand, char *v, size_t max_sz) {
-    size_t value_sz = ((rand % 3) + 1) * FLAGS_value_size_mult;
+    size_t value_sz =
+        ((rand % kRandomValueMaxFactor) + 1) * FLAGS_value_size_mult;
     assert(value_sz <= max_sz && value_sz >= sizeof(uint32_t));
     *((uint32_t*)v) = rand;
     for (size_t i=sizeof(uint32_t); i < value_sz; i++) {
@@ -2105,6 +2152,8 @@ class StressTest {
             1 << FLAGS_log2_keys_per_lock);
     std::string compression = CompressionTypeToString(FLAGS_compression_type_e);
     fprintf(stdout, "Compression               : %s\n", compression.c_str());
+    std::string checksum = ChecksumTypeToString(FLAGS_checksum_type_e);
+    fprintf(stdout, "Checksum type             : %s\n", checksum.c_str());
     fprintf(stdout, "Max subcompactions        : %" PRIu64 "\n",
             FLAGS_subcompactions);
 
@@ -2139,6 +2188,7 @@ class StressTest {
     BlockBasedTableOptions block_based_options;
     block_based_options.block_cache = cache_;
     block_based_options.block_cache_compressed = compressed_cache_;
+    block_based_options.checksum = FLAGS_checksum_type_e;
     block_based_options.block_size = FLAGS_block_size;
     block_based_options.format_version = 2;
     block_based_options.filter_policy = filter_policy_;
@@ -2151,6 +2201,8 @@ class StressTest {
         FLAGS_min_write_buffer_number_to_merge;
     options_.max_write_buffer_number_to_maintain =
         FLAGS_max_write_buffer_number_to_maintain;
+    options_.memtable_prefix_bloom_size_ratio =
+        FLAGS_memtable_prefix_bloom_size_ratio;
     options_.max_background_compactions = FLAGS_max_background_compactions;
     options_.max_background_flushes = FLAGS_max_background_flushes;
     options_.compaction_style =
@@ -2387,6 +2439,7 @@ int main(int argc, char** argv) {
   }
   FLAGS_compression_type_e =
     StringToCompressionType(FLAGS_compression_type.c_str());
+  FLAGS_checksum_type_e = StringToChecksumType(FLAGS_checksum_type.c_str());
   if (!FLAGS_hdfs.empty()) {
     FLAGS_env  = new rocksdb::HdfsEnv(FLAGS_hdfs);
   }
@@ -2395,7 +2448,8 @@ int main(int argc, char** argv) {
   // The number of background threads should be at least as much the
   // max number of concurrent compactions.
   FLAGS_env->SetBackgroundThreads(FLAGS_max_background_compactions);
-
+  FLAGS_env->SetBackgroundThreads(FLAGS_num_bottom_pri_threads,
+                                  rocksdb::Env::Priority::BOTTOM);
   if (FLAGS_prefixpercent > 0 && FLAGS_prefix_size <= 0) {
     fprintf(stderr,
             "Error: prefixpercent is non-zero while prefix_size is "
@@ -2406,6 +2460,12 @@ int main(int argc, char** argv) {
     fprintf(stderr,
             "Error: please specify prefix_size for "
             "test_batches_snapshots test!\n");
+    exit(1);
+  }
+  if (FLAGS_memtable_prefix_bloom_size_ratio > 0.0 && FLAGS_prefix_size <= 0) {
+    fprintf(stderr,
+            "Error: please specify positive prefix_size in order to use "
+            "memtable_prefix_bloom_size_ratio\n");
     exit(1);
   }
   if ((FLAGS_readpercent + FLAGS_prefixpercent +
@@ -2431,6 +2491,17 @@ int main(int argc, char** argv) {
   if (FLAGS_test_batches_snapshots && FLAGS_delrangepercent > 0) {
     fprintf(stderr, "Error: nonzero delrangepercent unsupported in "
                     "test_batches_snapshots mode\n");
+    exit(1);
+  }
+  if (FLAGS_active_width > FLAGS_max_key) {
+    fprintf(stderr, "Error: active_width can be at most max_key\n");
+    exit(1);
+  } else if (FLAGS_active_width == 0) {
+    FLAGS_active_width = FLAGS_max_key;
+  }
+  if (FLAGS_value_size_mult * kRandomValueMaxFactor > kValueMaxLen) {
+    fprintf(stderr, "Error: value_size_mult can be at most %d\n",
+            kValueMaxLen / kRandomValueMaxFactor);
     exit(1);
   }
 

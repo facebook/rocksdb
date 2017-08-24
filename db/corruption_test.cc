@@ -332,6 +332,7 @@ TEST_F(CorruptionTest, TableFileIndexData) {
   // corrupt an index block of an entire file
   Corrupt(kTableFile, -2000, 500);
   Reopen();
+  dbi = reinterpret_cast<DBImpl*>(db_);
   // one full file should be readable, since only one was corrupted
   // the other file should be fully non-readable, since index was corrupted
   Check(5000, 5000);
