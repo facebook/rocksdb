@@ -4734,8 +4734,10 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
   WriteOptions wo;
   // Use small commit cache to trigger lots of eviction and fast advance of
   // max_evicted_seq_
-  WritePreparedTxnDB::DEF_COMMIT_CACHE_SIZE =
-      8;  // will take effect after ReOpen
+  // will take effect after ReOpen
+  WritePreparedTxnDB::DEF_COMMIT_CACHE_SIZE = 8;
+  // Same for snapshot cache size
+  WritePreparedTxnDB::DEF_SNAPSHOT_CACHE_SIZE = 5;
 
   // Take some preliminary snapshots first. This is to stress the data structure
   // that holds the old snapshots as it will be designed to be efficient when
@@ -4825,9 +4827,9 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
             if (was_committed != is_in_snapshot) {
               printf(
                   "max_snapshots %d max_gap %d seq %lu max %lu snapshot %lu "
-                  "gap_cnt %d num_snapshots %d\n",
+                  "gap_cnt %d num_snapshots %d s %lu\n",
                   max_snapshots, max_gap, seq, wp_db->max_evicted_seq_.load(),
-                  snapshot, gap_cnt, num_snapshots);
+                  snapshot, gap_cnt, num_snapshots, s);
             }
             ASSERT_EQ(was_committed, is_in_snapshot);
             found_committed = found_committed || is_in_snapshot;

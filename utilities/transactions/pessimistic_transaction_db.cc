@@ -581,10 +581,16 @@ bool WritePreparedTxnDB::IsInSnapshot(uint64_t prep_seq,
   return false;
 }
 
-void WritePreparedTxnDB::AddPrepared(uint64_t seq) { prepared_txns_.push(seq); }
+void WritePreparedTxnDB::AddPrepared(uint64_t seq) {
+  WriteLock wl(&prepared_mutex_);
+  prepared_txns_.push(seq);
+  ROCKS_LOG_INFO(db_impl_->GetDBOptions().info_log, "Txn %lu Prepared", seq);
+}
 
 void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq,
                                       uint64_t commit_seq) {
+  ROCKS_LOG_INFO(db_impl_->GetDBOptions().info_log,
+                 "Txn %lu Committed with %lu", prepare_seq, commit_seq);
   auto indexed_seq = prepare_seq % COMMIT_CACHE_SIZE;
   CommitEntry evicted;
   bool to_be_evicted = GetCommitEntry(indexed_seq, &evicted);
@@ -651,7 +657,7 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq,
           snapshot_cache_[i].store(*it, std::memory_order_release);
         }
         snapshots_.clear();
-        if (it != all_snapshots.end()) {
+        for (; it != all_snapshots.end(); it++) {
           // Insert them to a vector that is less efficient to access
           // concurrently
           snapshots_.push_back(*it);
@@ -756,6 +762,8 @@ bool WritePreparedTxnDB::ExchangeCommitEntry(uint64_t indexed_seq,
 // 10m entry, 80MB size
 uint64_t WritePreparedTxnDB::DEF_COMMIT_CACHE_SIZE =
     static_cast<uint64_t>(1 << 21);
+uint64_t WritePreparedTxnDB::DEF_SNAPSHOT_CACHE_SIZE =
+    static_cast<uint64_t>(1 << 7);
 bool WritePreparedTxnDB::MaybeUpdateOldCommitMap(const uint64_t& prep_seq,
                                                  const uint64_t& commit_seq,
                                                  const uint64_t& snapshot_seq) {
