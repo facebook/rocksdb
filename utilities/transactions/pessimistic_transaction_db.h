@@ -114,6 +114,7 @@ class PessimisticTransactionDB : public TransactionDB {
       Transaction* txn, const WriteOptions& write_options,
       const TransactionOptions& txn_options = TransactionOptions());
   DBImpl* db_impl_;
+  std::shared_ptr<Logger> info_log;
 
  private:
   friend class WritePreparedTxnDB;

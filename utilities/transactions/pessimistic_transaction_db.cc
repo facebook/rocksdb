@@ -7,6 +7,7 @@
 
 #include "utilities/transactions/pessimistic_transaction_db.h"
 
+#include <inttypes.h>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -34,6 +35,7 @@ PessimisticTransactionDB::PessimisticTransactionDB(
                     : std::shared_ptr<TransactionDBMutexFactory>(
                           new TransactionDBMutexFactoryImpl())) {
   assert(db_impl_ != nullptr);
+  info_log = db_impl_->GetDBOptions().info_log;
 }
 
 // Support initiliazing PessimisticTransactionDB from a stackable db
@@ -582,15 +584,15 @@ bool WritePreparedTxnDB::IsInSnapshot(uint64_t prep_seq,
 }
 
 void WritePreparedTxnDB::AddPrepared(uint64_t seq) {
+  ROCKS_LOG_INFO(info_log, "Txn %" PRIu64 " Prepareing", seq);
   WriteLock wl(&prepared_mutex_);
   prepared_txns_.push(seq);
-  ROCKS_LOG_INFO(db_impl_->GetDBOptions().info_log, "Txn %lu Prepared", seq);
 }
 
 void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq,
                                       uint64_t commit_seq) {
-  ROCKS_LOG_INFO(db_impl_->GetDBOptions().info_log,
-                 "Txn %lu Committed with %lu", prepare_seq, commit_seq);
+  ROCKS_LOG_INFO(info_log, "Txn %" PRIu64 " Committing with %" PRIu64,
+                 prepare_seq, commit_seq);
   auto indexed_seq = prepare_seq % COMMIT_CACHE_SIZE;
   CommitEntry evicted;
   bool to_be_evicted = GetCommitEntry(indexed_seq, &evicted);
