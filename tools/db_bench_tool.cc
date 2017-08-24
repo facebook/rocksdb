@@ -1093,6 +1093,9 @@ class ReportFileOpEnv : public EnvWrapper {
                                          std::memory_order_relaxed);
         return rv;
       }
+      virtual intptr_t FileDescriptor() const override {
+        return target_->FileDescriptor();
+      }
     };
 
     Status s = target()->NewRandomAccessFile(f, r, soptions);

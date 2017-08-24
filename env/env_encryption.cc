@@ -183,6 +183,10 @@ class EncryptedRandomAccessFile : public RandomAccessFile {
   virtual Status InvalidateCache(size_t offset, size_t length) override {
     return file_->InvalidateCache(offset + prefixLength_, length);
   }
+
+  virtual intptr_t FileDescriptor() const override {
+    return file_->FileDescriptor();
+  }
 };
 
 // A file abstraction for sequential writing.  The implementation

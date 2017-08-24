@@ -223,6 +223,10 @@ size_t WinMmapReadableFile::GetUniqueId(char* id, size_t max_size) const {
   return GetUniqueIdFromFile(hFile_, id, max_size);
 }
 
+intptr_t WinMmapReadableFile::FileDescriptor() const {
+  return (intptr_t)this->hFile_;
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 /// WinMmapFile
 
