@@ -2304,6 +2304,27 @@ TEST_F(DBTest2, RateLimitedCompactionReads) {
   }
 }
 #endif  // ROCKSDB_LITE
+
+// Make sure DB can be reopen with reduced number of levels, given no file
+// is on levels higher than the new num_levels.
+TEST_F(DBTest2, ReduceLevel) {
+  Options options;
+  options.disable_auto_compactions = true;
+  options.num_levels = 7;
+  Reopen(options);
+  Put("foo", "bar");
+  Flush();
+  MoveFilesToLevel(6);
+  ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
+  CompactRangeOptions compact_options;
+  compact_options.change_level = true;
+  compact_options.target_level = 1;
+  dbfull()->CompactRange(compact_options, nullptr, nullptr);
+  ASSERT_EQ("0,1", FilesPerLevel());
+  options.num_levels = 3;
+  Reopen(options);
+  ASSERT_EQ("0,1", FilesPerLevel());
+}
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

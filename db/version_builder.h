@@ -29,6 +29,7 @@ class VersionBuilder {
   void CheckConsistency(VersionStorageInfo* vstorage);
   void CheckConsistencyForDeletes(VersionEdit* edit, uint64_t number,
                                   int level);
+  bool CheckConsistencyForNumLevels();
   void Apply(VersionEdit* edit);
   void SaveTo(VersionStorageInfo* vstorage);
   void LoadTableHandlers(InternalStats* internal_stats, int max_threads,
