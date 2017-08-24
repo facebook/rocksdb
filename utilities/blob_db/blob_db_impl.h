@@ -263,7 +263,7 @@ class BlobDBImpl : public BlobDB {
 
   std::vector<std::shared_ptr<BlobFile>> TEST_GetObsoleteFiles() const;
 
-  void TEST_CloseBlobFile(std::shared_ptr<BlobFile>& bfile);
+  Status TEST_CloseBlobFile(std::shared_ptr<BlobFile>& bfile);
 
   Status TEST_GCFileAndUpdateLSM(std::shared_ptr<BlobFile>& bfile,
                                  GCStats* gc_stats);
@@ -293,11 +293,6 @@ class BlobDBImpl : public BlobDB {
   // this handler is called.
   void OnFlushBeginHandler(DB* db, const FlushJobInfo& info);
 
-  // timer queue callback to close a file by appending a footer
-  // removes file from open files list
-  std::pair<bool, int64_t> CloseSeqWrite(std::shared_ptr<BlobFile> bfile,
-                                         bool aborted);
-
   // is this file ready for Garbage collection. if the TTL of the file
   // has expired or if threshold of the file has been evicted
   // tt - current time
@@ -308,8 +303,11 @@ class BlobDBImpl : public BlobDB {
   // collect all the blob log files from the blob directory
   Status GetAllLogFiles(std::set<std::pair<uint64_t, std::string>>* file_nums);
 
-  // appends a task into timer queue to close the file
-  void CloseIf(const std::shared_ptr<BlobFile>& bfile);
+  // Close a file by appending a footer, and removes file from open files list.
+  Status CloseBlobFile(std::shared_ptr<BlobFile> bfile);
+
+  // Close a file if its size exceeds blob_file_size
+  Status CloseBlobFileIfNeeded(std::shared_ptr<BlobFile>& bfile);
 
   uint64_t ExtractExpiration(const Slice& key, const Slice& value,
                              Slice* value_slice, std::string* new_value);
@@ -470,7 +468,7 @@ class BlobDBImpl : public BlobDB {
   // epoch or version of the open files.
   std::atomic<uint64_t> epoch_of_;
 
-  // typically we keep 4 open blob files (simple i.e. no TTL)
+  // All opened non-TTL blob files.
   std::vector<std::shared_ptr<BlobFile>> open_simple_files_;
 
   // all the blob files which are currently being appended to based

@@ -185,7 +185,7 @@ TEST_F(BlobDBTest, PutWithTTL) {
   auto blob_files = bdb_impl->TEST_GetBlobFiles();
   ASSERT_EQ(1, blob_files.size());
   ASSERT_TRUE(blob_files[0]->HasTTL());
-  bdb_impl->TEST_CloseBlobFile(blob_files[0]);
+  ASSERT_OK(bdb_impl->TEST_CloseBlobFile(blob_files[0]));
   GCStats gc_stats;
   ASSERT_OK(bdb_impl->TEST_GCFileAndUpdateLSM(blob_files[0], &gc_stats));
   ASSERT_EQ(100 - data.size(), gc_stats.num_deletes);
@@ -214,7 +214,7 @@ TEST_F(BlobDBTest, PutUntil) {
   auto blob_files = bdb_impl->TEST_GetBlobFiles();
   ASSERT_EQ(1, blob_files.size());
   ASSERT_TRUE(blob_files[0]->HasTTL());
-  bdb_impl->TEST_CloseBlobFile(blob_files[0]);
+  ASSERT_OK(bdb_impl->TEST_CloseBlobFile(blob_files[0]));
   GCStats gc_stats;
   ASSERT_OK(bdb_impl->TEST_GCFileAndUpdateLSM(blob_files[0], &gc_stats));
   ASSERT_EQ(100 - data.size(), gc_stats.num_deletes);
@@ -246,7 +246,7 @@ TEST_F(BlobDBTest, TTLExtrator_NoTTL) {
   auto blob_files = bdb_impl->TEST_GetBlobFiles();
   ASSERT_EQ(1, blob_files.size());
   ASSERT_FALSE(blob_files[0]->HasTTL());
-  bdb_impl->TEST_CloseBlobFile(blob_files[0]);
+  ASSERT_OK(bdb_impl->TEST_CloseBlobFile(blob_files[0]));
   GCStats gc_stats;
   ASSERT_OK(bdb_impl->TEST_GCFileAndUpdateLSM(blob_files[0], &gc_stats));
   ASSERT_EQ(0, gc_stats.num_deletes);
@@ -291,7 +291,7 @@ TEST_F(BlobDBTest, TTLExtractor_ExtractTTL) {
   auto blob_files = bdb_impl->TEST_GetBlobFiles();
   ASSERT_EQ(1, blob_files.size());
   ASSERT_TRUE(blob_files[0]->HasTTL());
-  bdb_impl->TEST_CloseBlobFile(blob_files[0]);
+  ASSERT_OK(bdb_impl->TEST_CloseBlobFile(blob_files[0]));
   GCStats gc_stats;
   ASSERT_OK(bdb_impl->TEST_GCFileAndUpdateLSM(blob_files[0], &gc_stats));
   auto &data = static_cast<TestTTLExtractor *>(ttl_extractor_.get())->data;
@@ -338,7 +338,7 @@ TEST_F(BlobDBTest, TTLExtractor_ExtractExpiration) {
   auto blob_files = bdb_impl->TEST_GetBlobFiles();
   ASSERT_EQ(1, blob_files.size());
   ASSERT_TRUE(blob_files[0]->HasTTL());
-  bdb_impl->TEST_CloseBlobFile(blob_files[0]);
+  ASSERT_OK(bdb_impl->TEST_CloseBlobFile(blob_files[0]));
   GCStats gc_stats;
   ASSERT_OK(bdb_impl->TEST_GCFileAndUpdateLSM(blob_files[0], &gc_stats));
   auto &data = static_cast<TestTTLExtractor *>(ttl_extractor_.get())->data;
@@ -395,7 +395,7 @@ TEST_F(BlobDBTest, TTLExtractor_ChangeValue) {
   auto blob_files = bdb_impl->TEST_GetBlobFiles();
   ASSERT_EQ(1, blob_files.size());
   ASSERT_TRUE(blob_files[0]->HasTTL());
-  bdb_impl->TEST_CloseBlobFile(blob_files[0]);
+  ASSERT_OK(bdb_impl->TEST_CloseBlobFile(blob_files[0]));
   GCStats gc_stats;
   ASSERT_OK(bdb_impl->TEST_GCFileAndUpdateLSM(blob_files[0], &gc_stats));
   ASSERT_EQ(100 - data.size(), gc_stats.num_deletes);
@@ -592,7 +592,7 @@ TEST_F(BlobDBTest, GCAfterOverwriteKeys) {
   }
   auto blob_files = blob_db_impl->TEST_GetBlobFiles();
   ASSERT_EQ(1, blob_files.size());
-  blob_db_impl->TEST_CloseBlobFile(blob_files[0]);
+  ASSERT_OK(blob_db_impl->TEST_CloseBlobFile(blob_files[0]));
   // Test for data in SST
   size_t new_keys = 0;
   for (int i = 0; i < 100; i++) {
@@ -627,7 +627,7 @@ TEST_F(BlobDBTest, GCRelocateKeyWhileOverwriting) {
       static_cast_with_check<BlobDBImpl, BlobDB>(blob_db_);
   auto blob_files = blob_db_impl->TEST_GetBlobFiles();
   ASSERT_EQ(1, blob_files.size());
-  blob_db_impl->TEST_CloseBlobFile(blob_files[0]);
+  ASSERT_OK(blob_db_impl->TEST_CloseBlobFile(blob_files[0]));
 
   SyncPoint::GetInstance()->LoadDependency(
       {{"BlobDBImpl::GCFileAndUpdateLSM:AfterGetForUpdate",
@@ -663,7 +663,7 @@ TEST_F(BlobDBTest, GCExpiredKeyWhileOverwriting) {
       static_cast_with_check<BlobDBImpl, BlobDB>(blob_db_);
   auto blob_files = blob_db_impl->TEST_GetBlobFiles();
   ASSERT_EQ(1, blob_files.size());
-  blob_db_impl->TEST_CloseBlobFile(blob_files[0]);
+  ASSERT_OK(blob_db_impl->TEST_CloseBlobFile(blob_files[0]));
   mock_env_->set_now_micros(300 * 1000000);
 
   SyncPoint::GetInstance()->LoadDependency(
@@ -708,7 +708,6 @@ TEST_F(BlobDBTest, GCOldestSimpleBlobFileWhenOutOfSpace) {
   ASSERT_EQ(11, blob_files.size());
   ASSERT_TRUE(blob_files[0]->HasTTL());
   ASSERT_TRUE(blob_files[0]->Immutable());
-  blob_db_impl->TEST_CloseBlobFile(blob_files[0]);
   for (int i = 1; i <= 10; i++) {
     ASSERT_FALSE(blob_files[i]->HasTTL());
     if (i < 10) {
@@ -736,7 +735,7 @@ TEST_F(BlobDBTest, ReadWhileGC) {
     ASSERT_EQ(1, blob_files.size());
     std::shared_ptr<BlobFile> bfile = blob_files[0];
     uint64_t bfile_number = bfile->BlobFileNumber();
-    blob_db_impl->TEST_CloseBlobFile(bfile);
+    ASSERT_OK(blob_db_impl->TEST_CloseBlobFile(bfile));
 
     switch (i) {
       case 0:
