@@ -2842,11 +2842,6 @@ Status VersionSet::Recover(
         cfd = column_family_set_->GetColumnFamily(edit.column_family_);
         // this should never happen since cf_in_builders is true
         assert(cfd != nullptr);
-        if (edit.max_level_ >= cfd->current()->storage_info()->num_levels()) {
-          s = Status::InvalidArgument(
-              "db has more levels than options.num_levels");
-          break;
-        }
 
         // if it is not column family add or column family drop,
         // then it's a file add/delete, which should be forwarded
@@ -2928,6 +2923,18 @@ Status VersionSet::Recover(
     s = Status::InvalidArgument(
         "You have to open all column families. Column families not opened: " +
         list_of_not_found);
+  }
+
+  if (s.ok()) {
+    for (auto cfd : *column_family_set_) {
+      assert(builders.count(cfd->GetID()) > 0);
+      auto* builder = builders[cfd->GetID()]->version_builder();
+      if (!builder->CheckConsistencyForNumLevels()) {
+        s = Status::InvalidArgument(
+            "db has more levels than options.num_levels");
+        break;
+      }
+    }
   }
 
   if (s.ok()) {
