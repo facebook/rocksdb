@@ -1909,7 +1909,6 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
   ROCKS_LOG_INFO(
       db_options_.info_log,
       "%s blob file %" PRIu64
-      "."
       ". Total blob records: %" PRIu64 ", Deletes: %" PRIu64 "/%" PRIu64
       " succeeded, Relocates: %" PRIu64 "/%" PRIu64 " succeeded.",
       s.ok() ? "Successfully garbage collected" : "Failed to garbage collect",
