@@ -10,6 +10,7 @@
 * Universal compactions including the bottom level can be executed in a dedicated thread pool. This alleviates head-of-line blocking in the compaction queue, which cause write stalling, particularly in multi-instance use cases. Users can enable this feature via `Env::SetBackgroundThreads(N, Env::Priority::BOTTOM)`, where `N > 0`.
 * Allow merge operator to be called even with a single merge operand during compactions, by appropriately overriding `MergeOperator::AllowSingleOperand`.
 * Add `DB::VerifyChecksum()`, which verifies the checksums in all SST files in a running DB.
+* Block-based table support for disabling checksums by setting `BlockBasedTableOptions::checksum = kNoChecksum`.
 
 ### Bug Fixes
 * Fix wrong latencies in `rocksdb.db.get.micros`, `rocksdb.db.write.micros`, and `rocksdb.sst.read.micros`.

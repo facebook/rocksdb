@@ -44,6 +44,7 @@ int main() {
 #include "db/version_set.h"
 #include "hdfs/env_hdfs.h"
 #include "monitoring/histogram.h"
+#include "options/options_helper.h"
 #include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/env.h"
@@ -426,8 +427,28 @@ enum rocksdb::CompressionType StringToCompressionType(const char* ctype) {
   else if (!strcasecmp(ctype, "zstd"))
     return rocksdb::kZSTD;
 
-  fprintf(stdout, "Cannot parse compression type '%s'\n", ctype);
+  fprintf(stderr, "Cannot parse compression type '%s'\n", ctype);
   return rocksdb::kSnappyCompression; //default value
+}
+
+enum rocksdb::ChecksumType StringToChecksumType(const char* ctype) {
+  assert(ctype);
+  auto iter = rocksdb::checksum_type_string_map.find(ctype);
+  if (iter != rocksdb::checksum_type_string_map.end()) {
+    return iter->second;
+  }
+  fprintf(stderr, "Cannot parse checksum type '%s'\n", ctype);
+  return rocksdb::kCRC32c;
+}
+
+std::string ChecksumTypeToString(rocksdb::ChecksumType ctype) {
+  auto iter = std::find_if(
+      rocksdb::checksum_type_string_map.begin(),
+      rocksdb::checksum_type_string_map.end(),
+      [&](const std::pair<std::string, rocksdb::ChecksumType>&
+              name_and_enum_val) { return name_and_enum_val.second == ctype; });
+  assert(iter != rocksdb::checksum_type_string_map.end());
+  return iter->first;
 }
 
 std::vector<std::string> SplitString(std::string src) {
@@ -450,6 +471,9 @@ DEFINE_string(compression_type, "snappy",
               "Algorithm to use to compress the database");
 static enum rocksdb::CompressionType FLAGS_compression_type_e =
     rocksdb::kSnappyCompression;
+
+DEFINE_string(checksum_type, "kCRC32c", "Algorithm to use to checksum blocks");
+static enum rocksdb::ChecksumType FLAGS_checksum_type_e = rocksdb::kCRC32c;
 
 DEFINE_string(hdfs, "", "Name of hdfs environment");
 // posix or hdfs environment
@@ -2128,6 +2152,8 @@ class StressTest {
             1 << FLAGS_log2_keys_per_lock);
     std::string compression = CompressionTypeToString(FLAGS_compression_type_e);
     fprintf(stdout, "Compression               : %s\n", compression.c_str());
+    std::string checksum = ChecksumTypeToString(FLAGS_checksum_type_e);
+    fprintf(stdout, "Checksum type             : %s\n", checksum.c_str());
     fprintf(stdout, "Max subcompactions        : %" PRIu64 "\n",
             FLAGS_subcompactions);
 
@@ -2162,6 +2188,7 @@ class StressTest {
     BlockBasedTableOptions block_based_options;
     block_based_options.block_cache = cache_;
     block_based_options.block_cache_compressed = compressed_cache_;
+    block_based_options.checksum = FLAGS_checksum_type_e;
     block_based_options.block_size = FLAGS_block_size;
     block_based_options.format_version = 2;
     block_based_options.filter_policy = filter_policy_;
@@ -2412,6 +2439,7 @@ int main(int argc, char** argv) {
   }
   FLAGS_compression_type_e =
     StringToCompressionType(FLAGS_compression_type.c_str());
+  FLAGS_checksum_type_e = StringToChecksumType(FLAGS_checksum_type.c_str());
   if (!FLAGS_hdfs.empty()) {
     FLAGS_env  = new rocksdb::HdfsEnv(FLAGS_hdfs);
   }

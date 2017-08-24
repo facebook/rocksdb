@@ -551,9 +551,8 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
     char* trailer_without_type = trailer + 1;
     switch (r->table_options.checksum) {
       case kNoChecksum:
-        // we don't support no checksum yet
-        assert(false);
-        // intentional fallthrough
+        EncodeFixed32(trailer_without_type, 0);
+        break;
       case kCRC32c: {
         auto crc = crc32c::Value(block_contents.data(), block_contents.size());
         crc = crc32c::Extend(crc, trailer, 1);  // Extend to cover block type
