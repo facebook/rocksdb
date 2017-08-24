@@ -792,36 +792,30 @@ TEST_F(DBBasicTest, MultiGetEmpty) {
 TEST_F(DBBasicTest, ChecksumTest) {
   BlockBasedTableOptions table_options;
   Options options = CurrentOptions();
+  // change when new checksum type added
+  int max_checksum = static_cast<int>(kxxHash);
+  const int kNumPerFile = 2;
 
-  table_options.checksum = kCRC32c;
-  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  Reopen(options);
-  ASSERT_OK(Put("a", "b"));
-  ASSERT_OK(Put("c", "d"));
-  ASSERT_OK(Flush());  // table with crc checksum
+  // generate one table with each type of checksum
+  for (int i = 0; i <= max_checksum; ++i) {
+    table_options.checksum = static_cast<ChecksumType>(i);
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+    Reopen(options);
+    for (int j = 0; j < kNumPerFile; ++j) {
+      ASSERT_OK(Put(Key(i * kNumPerFile + j), Key(i * kNumPerFile + j)));
+    }
+    ASSERT_OK(Flush());
+  }
 
-  table_options.checksum = kxxHash;
-  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  Reopen(options);
-  ASSERT_OK(Put("e", "f"));
-  ASSERT_OK(Put("g", "h"));
-  ASSERT_OK(Flush());  // table with xxhash checksum
-
-  table_options.checksum = kCRC32c;
-  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  Reopen(options);
-  ASSERT_EQ("b", Get("a"));
-  ASSERT_EQ("d", Get("c"));
-  ASSERT_EQ("f", Get("e"));
-  ASSERT_EQ("h", Get("g"));
-
-  table_options.checksum = kCRC32c;
-  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  Reopen(options);
-  ASSERT_EQ("b", Get("a"));
-  ASSERT_EQ("d", Get("c"));
-  ASSERT_EQ("f", Get("e"));
-  ASSERT_EQ("h", Get("g"));
+  // verify data with each type of checksum
+  for (int i = 0; i <= kxxHash; ++i) {
+    table_options.checksum = static_cast<ChecksumType>(i);
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+    Reopen(options);
+    for (int j = 0; j < (max_checksum + 1) * kNumPerFile; ++j) {
+      ASSERT_EQ(Key(j), Get(Key(j)));
+    }
+  }
 }
 
 // On Windows you can have either memory mapped file or a file

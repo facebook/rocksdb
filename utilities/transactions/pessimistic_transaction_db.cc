@@ -607,6 +607,7 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq,
           delayed_prepared_empty_.store(false, std::memory_order_release);
         }
       }
+      // With each change to max_evicted_seq_ fetch the live snapshots behind it
       {
         WriteLock wl(&snapshots_mutex_);
         InstrumentedMutex(db_impl_->mutex());
@@ -622,9 +623,7 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq,
     // be kept around because it overlaps with a live snapshot.
     {
       ReadLock rl(&snapshots_mutex_);
-      for (auto snapshot : snapshots_) {
-        auto snapshot_seq =
-            reinterpret_cast<const SnapshotImpl*>(snapshot)->number_;
+      for (auto snapshot_seq : snapshots_) {
         if (evicted.commit_seq <= snapshot_seq) {
           break;
         }
@@ -691,5 +690,8 @@ bool WritePreparedTxnDB::ExchangeCommitEntry(uint64_t indexed_seq,
   return true;
 }
 
+// 10m entry, 80MB size
+uint64_t WritePreparedTxnDB::DEF_COMMIT_CACHE_SIZE =
+    static_cast<uint64_t>(1 << 21);
 }  //  namespace rocksdb
 #endif  // ROCKSDB_LITE

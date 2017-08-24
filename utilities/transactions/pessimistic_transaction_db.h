@@ -161,11 +161,17 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
  public:
   explicit WritePreparedTxnDB(DB* db,
                               const TransactionDBOptions& txn_db_options)
-      : PessimisticTransactionDB(db, txn_db_options) {}
+      : PessimisticTransactionDB(db, txn_db_options),
+        COMMIT_CACHE_SIZE(DEF_COMMIT_CACHE_SIZE) {
+    init(txn_db_options);
+  }
 
   explicit WritePreparedTxnDB(StackableDB* db,
                               const TransactionDBOptions& txn_db_options)
-      : PessimisticTransactionDB(db, txn_db_options) {}
+      : PessimisticTransactionDB(db, txn_db_options),
+        COMMIT_CACHE_SIZE(DEF_COMMIT_CACHE_SIZE) {
+    init(txn_db_options);
+  }
 
   virtual ~WritePreparedTxnDB() {}
 
@@ -183,6 +189,13 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   void AddCommitted(uint64_t prepare_seq, uint64_t commit_seq);
 
  private:
+  friend class WritePreparedTransactionTest_IsInSnapshotTest_Test;
+
+  void init(const TransactionDBOptions& /* unused */) {
+    commit_cache_ =
+        unique_ptr<CommitEntry[]>(new CommitEntry[COMMIT_CACHE_SIZE]{});
+  }
+
   // A heap with the amortized O(1) complexity for erase. It uses one extra heap
   // to keep track of erased entries that are not yet on top of the main heap.
   class PreparedHeap {
@@ -236,11 +249,11 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // A heap of prepared transactions. Thread-safety is provided with
   // prepared_mutex_.
   PreparedHeap prepared_txns_;
-  // 10m entry, 80MB size
-  static const uint64_t COMMIT_CACHE_SIZE = static_cast<uint64_t>(1 << 21);
-  // commit_cache_ is initialized to zero to tell apart an empty index from a
-  // filled one. Thread-safety is provided with commit_cache_mutex_.
-  CommitEntry commit_cache_[COMMIT_CACHE_SIZE] = {};
+  static uint64_t DEF_COMMIT_CACHE_SIZE;
+  const uint64_t COMMIT_CACHE_SIZE;
+  // commit_cache_ must be initialized to zero to tell apart an empty index from
+  // a filled one. Thread-safety is provided with commit_cache_mutex_.
+  unique_ptr<CommitEntry[]> commit_cache_;
   // The largest evicted *commit* sequence number from the commit_cache_
   std::atomic<uint64_t> max_evicted_seq_ = {};
   // A map of the evicted entries from commit_cache_ that has to be kept around
