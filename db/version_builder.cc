@@ -90,7 +90,13 @@ class VersionBuilder::Rep {
   VersionStorageInfo* base_vstorage_;
   int num_levels_;
   LevelState* levels_;
+  // Store states of levels larger than num_levels_. We do this instead of
+  // storing them in levels_ to avoid regression in case there are no files
+  // on invalid levels. The version is not consistent if in the end the files
+  // on invalid levels don't cancel out.
   std::map<int, std::unordered_set<uint64_t>> invalid_levels_;
+  // Whether there are invalid new files or invalid deletion on levels larger
+  // than num_levels_.
   bool has_invalid_levels_;
   FileComparator level_zero_cmp_;
   FileComparator level_nonzero_cmp_;
@@ -274,6 +280,7 @@ class VersionBuilder::Rep {
         if (invalid_levels_[level].count(number) > 0) {
           invalid_levels_[level].erase(number);
         } else {
+          // Deleting an non-existing file on invalid level.
           has_invalid_levels_ = true;
         }
       }
@@ -295,6 +302,7 @@ class VersionBuilder::Rep {
         if (invalid_levels_[level].count(number) == 0) {
           invalid_levels_[level].insert(number);
         } else {
+          // Creating an already existing file on invalid level.
           has_invalid_levels_ = true;
         }
       }
