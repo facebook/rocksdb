@@ -114,7 +114,7 @@ class PessimisticTransactionDB : public TransactionDB {
       Transaction* txn, const WriteOptions& write_options,
       const TransactionOptions& txn_options = TransactionOptions());
   DBImpl* db_impl_;
-  std::shared_ptr<Logger> info_log;
+  std::shared_ptr<Logger> info_log_;
 
  private:
   friend class WritePreparedTxnDB;
@@ -251,11 +251,14 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
                            CommitEntry new_entry);
 
   // Add a new entry to old_commit_map_ if prep_seq <= snapshot_seq <
-  // commit_seq. Return false if commit_seq <= snapshot_seq indicating that the
-  // check for the next conseqcuitive snapshot is unnecessary.
+  // commit_seq. Return false if checking the next snapshot(s) is not needed.
+  // This is the case if the entry already added to old_commit_map_ or none of
+  // the next snapshots could satisfy the condition. next_is_larger: the next
+  // snapshot will be a larger value
   bool MaybeUpdateOldCommitMap(const uint64_t& prep_seq,
                                const uint64_t& commit_seq,
-                               const uint64_t& snapshot_seq);
+                               const uint64_t& snapshot_seq,
+                               const bool next_is_larger);
 
   // The list of live snapshots at the last time that max_evicted_seq_ advanced.
   // The list stored into two data structures: in snapshot_cache_ that is

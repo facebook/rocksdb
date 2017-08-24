@@ -35,7 +35,7 @@ PessimisticTransactionDB::PessimisticTransactionDB(
                     : std::shared_ptr<TransactionDBMutexFactory>(
                           new TransactionDBMutexFactoryImpl())) {
   assert(db_impl_ != nullptr);
-  info_log = db_impl_->GetDBOptions().info_log;
+  info_log_ = db_impl_->GetDBOptions().info_log;
 }
 
 // Support initiliazing PessimisticTransactionDB from a stackable db
@@ -584,15 +584,15 @@ bool WritePreparedTxnDB::IsInSnapshot(uint64_t prep_seq,
 }
 
 void WritePreparedTxnDB::AddPrepared(uint64_t seq) {
-  ROCKS_LOG_INFO(info_log, "Txn %" PRIu64 " Prepareing", seq);
+  ROCKS_LOG_DEBUG(info_log_, "Txn %" PRIu64 " Prepareing", seq);
   WriteLock wl(&prepared_mutex_);
   prepared_txns_.push(seq);
 }
 
 void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq,
                                       uint64_t commit_seq) {
-  ROCKS_LOG_INFO(info_log, "Txn %" PRIu64 " Committing with %" PRIu64,
-                 prepare_seq, commit_seq);
+  ROCKS_LOG_DEBUG(info_log_, "Txn %" PRIu64 " Committing with %" PRIu64,
+                  prepare_seq, commit_seq);
   auto indexed_seq = prepare_seq % COMMIT_CACHE_SIZE;
   CommitEntry evicted;
   bool to_be_evicted = GetCommitEntry(indexed_seq, &evicted);
@@ -648,10 +648,12 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq,
         // previous list plus some new items. Thus if a snapshot repeats in
         // both new and old lists, it will appear upper in the new list. So if
         // we simply insert the new snapshots in order, if an overwritten item
-        // is still valid in the new list is either equal to the new one or
-        // already inserted before. This guarantess that a reader will who
-        // sees the list in the middle of update, will always see all the old
-        // snaphots that are still valid.
+        // is still valid in the new list is either written to the same place in
+        // the array or it is written in a higher palce before it gets
+        // overwritten by another item. This guarantess a reader that reads the
+        // list bottom-up will eventaully see a snapshot that repeats in the
+        // update, either before it gets overwritten by the writer or
+        // afterwards.
         size_t i = 0;
         auto it = all_snapshots.begin();
         for (; it != all_snapshots.end() && i < SNAPSHOT_CACHE_SIZE;
@@ -679,29 +681,27 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq,
     // First check the snapshot cache that is efficient for concurrent access
     auto cnt = snapshots_total_.load(std::memory_order_acquire);
     // The list might get updated concurrently as we are reading from it. The
-    // reader should be able to read all the snapshots before the update by the
-    // writer that are still valid. As explained above if a reader jumps in the
-    // middle of update it still sees all the old snapshots that are still
-    // valid. If a writer jumps in the middle of a read, however, the reader has
-    // to re-read all updated items by writer since the snapshots could move up
-    // in the new sorted list. To cover this case, the readers reads the list
-    // twice.
-    size_t i = 0;
-    for (int pass = 0; pass < 2; pass++) {
-      for (i = 0; i < cnt && i < SNAPSHOT_CACHE_SIZE; i++) {
-        auto snapshot_seq = snapshot_cache_[i].load(std::memory_order_acquire);
-        if (!MaybeUpdateOldCommitMap(evicted.prep_seq, evicted.commit_seq,
-                                     snapshot_seq)) {
-          break;
-        }
+    // reader should be able to read all the snapshots that are still valid
+    // after the update. Since the survived snapshots are written in a higher
+    // place before gets overwritten the reader that reads bottom-up will
+    // eventully see it.
+    const bool next_is_larger = true;
+    SequenceNumber snapshot_seq = kMaxSequenceNumber;
+    size_t i = std::min(cnt, SNAPSHOT_CACHE_SIZE);
+    for (; 0 < i; i--) {
+      snapshot_seq = snapshot_cache_[i - 1].load(std::memory_order_acquire);
+      if (!MaybeUpdateOldCommitMap(evicted.prep_seq, evicted.commit_seq,
+                                   snapshot_seq, !next_is_larger)) {
+        break;
       }
     }
-    if (UNLIKELY(i == SNAPSHOT_CACHE_SIZE && SNAPSHOT_CACHE_SIZE < cnt)) {
+    if (UNLIKELY(SNAPSHOT_CACHE_SIZE < cnt && i == SNAPSHOT_CACHE_SIZE &&
+                 snapshot_seq < evicted.prep_seq)) {
       // Then access the less efficient list of snapshots_
       ReadLock rl(&snapshots_mutex_);
-      for (auto snapshot_seq : snapshots_) {
+      for (auto snapshot_seq_2 : snapshots_) {
         if (!MaybeUpdateOldCommitMap(evicted.prep_seq, evicted.commit_seq,
-                                     snapshot_seq)) {
+                                     snapshot_seq_2, next_is_larger)) {
           break;
         }
       }
@@ -766,14 +766,16 @@ uint64_t WritePreparedTxnDB::DEF_COMMIT_CACHE_SIZE =
     static_cast<uint64_t>(1 << 21);
 uint64_t WritePreparedTxnDB::DEF_SNAPSHOT_CACHE_SIZE =
     static_cast<uint64_t>(1 << 7);
-bool WritePreparedTxnDB::MaybeUpdateOldCommitMap(const uint64_t& prep_seq,
-                                                 const uint64_t& commit_seq,
-                                                 const uint64_t& snapshot_seq) {
+
+bool WritePreparedTxnDB::MaybeUpdateOldCommitMap(
+    const uint64_t& prep_seq, const uint64_t& commit_seq,
+    const uint64_t& snapshot_seq, const bool next_is_larger = true) {
   // If we do not store an entry in old_commit_map we assume it is committed in
   // all snapshots. if commit_seq <= snapshot_seq, it is considered already in
   // the snapshot so we need not to keep the entry around for this snapshot.
   if (commit_seq <= snapshot_seq) {
-    return false;
+    // continue the search if the next snapshot could be smaller than commit_seq
+    return !next_is_larger;
   }
   // then snapshot_seq < commit_seq
   if (prep_seq <= snapshot_seq) {  // overlapping range
@@ -783,7 +785,8 @@ bool WritePreparedTxnDB::MaybeUpdateOldCommitMap(const uint64_t& prep_seq,
     // Storing once is enough. No need to check it for other snapshots.
     return false;
   }
-  return true;
+  // continue the search if the next snapshot could be larger than prep_seq
+  return next_is_larger;
 }
 
 }  //  namespace rocksdb
