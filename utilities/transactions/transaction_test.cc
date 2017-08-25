@@ -9,6 +9,7 @@
 #include <functional>
 #include <string>
 #include <thread>
+#include <inttypes.h>
 
 #include "db/db_impl.h"
 #include "rocksdb/db.h"
@@ -4824,7 +4825,7 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
             bool is_in_snapshot = wp_db->IsInSnapshot(s, snapshot);
             if (was_committed != is_in_snapshot) {
               printf(
-                  "max_snapshots %d max_gap %d seq %lu max %lu snapshot %lu "
+                  "max_snapshots %d max_gap %d seq %" PRIu64 " max %" PRIu64 " snapshot %" PRIu64 " "
                   "gap_cnt %d num_snapshots %d\n",
                   max_snapshots, max_gap, seq, wp_db->max_evicted_seq_.load(),
                   snapshot, gap_cnt, num_snapshots);
