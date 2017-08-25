@@ -5,8 +5,13 @@
 
 #ifndef ROCKSDB_LITE
 
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
 #include <algorithm>
 #include <functional>
+#include <inttypes.h>
 #include <string>
 #include <thread>
 
@@ -4829,11 +4834,12 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
                 (committed_before.find(s) != committed_before.end());
             bool is_in_snapshot = wp_db->IsInSnapshot(s, snapshot);
             if (was_committed != is_in_snapshot) {
-              printf(
-                  "max_snapshots %d max_gap %d seq %lu max %lu snapshot %lu "
-                  "gap_cnt %d num_snapshots %d s %lu\n",
-                  max_snapshots, max_gap, seq, wp_db->max_evicted_seq_.load(),
-                  snapshot, gap_cnt, num_snapshots, s);
+              printf("max_snapshots %d max_gap %d seq %" PRIu64 " max %" PRIu64
+                     " snapshot %" PRIu64
+                     " gap_cnt %d num_snapshots %d s %" PRIu64 "\n",
+                     max_snapshots, max_gap, seq,
+                     wp_db->max_evicted_seq_.load(), snapshot, gap_cnt,
+                     num_snapshots, s);
             }
             ASSERT_EQ(was_committed, is_in_snapshot);
             found_committed = found_committed || is_in_snapshot;

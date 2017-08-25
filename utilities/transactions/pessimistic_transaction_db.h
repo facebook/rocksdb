@@ -270,8 +270,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // each entry. In x86_64 architecture such reads are compiled to simple read
   // instructions. 128 entries
   // TODO(myabandeh): avoid non-const static variables
-  static uint64_t DEF_SNAPSHOT_CACHE_SIZE;
-  const uint64_t SNAPSHOT_CACHE_SIZE;
+  static size_t DEF_SNAPSHOT_CACHE_SIZE;
+  const size_t SNAPSHOT_CACHE_SIZE;
   unique_ptr<std::atomic<SequenceNumber>[]> snapshot_cache_;
   // 2nd list for storing snapshots. The list sorted in ascending order.
   // Thread-safety is provided with snapshots_mutex_.
@@ -284,8 +284,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // prepared_mutex_.
   PreparedHeap prepared_txns_;
   // TODO(myabandeh): avoid non-const static variables
-  static uint64_t DEF_COMMIT_CACHE_SIZE;
-  const uint64_t COMMIT_CACHE_SIZE;
+  static size_t DEF_COMMIT_CACHE_SIZE;
+  const size_t COMMIT_CACHE_SIZE;
   // commit_cache_ must be initialized to zero to tell apart an empty index from
   // a filled one. Thread-safety is provided with commit_cache_mutex_.
   unique_ptr<CommitEntry[]> commit_cache_;
