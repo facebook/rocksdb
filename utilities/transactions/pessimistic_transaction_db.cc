@@ -687,18 +687,28 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq,
     // eventully see it.
     const bool next_is_larger = true;
     SequenceNumber snapshot_seq = kMaxSequenceNumber;
-    size_t i = std::min(cnt, SNAPSHOT_CACHE_SIZE);
-    for (; 0 < i; i--) {
-      snapshot_seq = snapshot_cache_[i - 1].load(std::memory_order_acquire);
+    size_t ip1 = std::min(cnt, SNAPSHOT_CACHE_SIZE);
+    for (; 0 < ip1; ip1--) {
+      snapshot_seq = snapshot_cache_[ip1 - 1].load(std::memory_order_acquire);
       if (!MaybeUpdateOldCommitMap(evicted.prep_seq, evicted.commit_seq,
                                    snapshot_seq, !next_is_larger)) {
         break;
       }
     }
-    if (UNLIKELY(SNAPSHOT_CACHE_SIZE < cnt && i == SNAPSHOT_CACHE_SIZE &&
+    if (UNLIKELY(SNAPSHOT_CACHE_SIZE < cnt && ip1 == SNAPSHOT_CACHE_SIZE &&
                  snapshot_seq < evicted.prep_seq)) {
       // Then access the less efficient list of snapshots_
       ReadLock rl(&snapshots_mutex_);
+      // Items could have moved from the snapshots_ to snapshot_cache_ before
+      // accquiring the lock. To make sure that we do not miss a valid snapshot,
+      // read snapshot_cache_ again while holding the lock.
+      for (size_t i = 0; i < SNAPSHOT_CACHE_SIZE; i++) {
+        snapshot_seq = snapshot_cache_[i].load(std::memory_order_acquire);
+        if (!MaybeUpdateOldCommitMap(evicted.prep_seq, evicted.commit_seq,
+                                     snapshot_seq, next_is_larger)) {
+          break;
+        }
+      }
       for (auto snapshot_seq_2 : snapshots_) {
         if (!MaybeUpdateOldCommitMap(evicted.prep_seq, evicted.commit_seq,
                                      snapshot_seq_2, next_is_larger)) {
