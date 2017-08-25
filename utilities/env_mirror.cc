@@ -90,6 +90,10 @@ class RandomAccessFileMirror : public RandomAccessFile {
     // NOTE: not verified
     return a_->GetUniqueId(id, max_size);
   }
+
+  virtual intptr_t FileDescriptor() const override {
+    return a_->FileDescriptor();
+  }
 };
 
 class WritableFileMirror : public WritableFile {

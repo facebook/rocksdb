@@ -563,6 +563,10 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
     return file_->use_direct_io();
   }
 
+  virtual intptr_t FileDescriptor() const override {
+    return file_->FileDescriptor();
+  }
+
  private:
   bool TryReadFromCache(uint64_t offset, size_t n, size_t* cached_len,
                          char* scratch) const {
