@@ -197,7 +197,9 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
 
   void init(const TransactionDBOptions& /* unused */) {
     snapshot_cache_ = unique_ptr<std::atomic<SequenceNumber>[]>(
-        new std::atomic<SequenceNumber>[SNAPSHOT_CACHE_SIZE] {{0}});
+        new std::atomic<SequenceNumber>[SNAPSHOT_CACHE_SIZE] {
+          { 0 }
+        });
     commit_cache_ =
         unique_ptr<CommitEntry[]>(new CommitEntry[COMMIT_CACHE_SIZE]{{0}});
   }

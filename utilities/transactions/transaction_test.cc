@@ -9,9 +9,9 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
+#include <inttypes.h>
 #include <algorithm>
 #include <functional>
-#include <inttypes.h>
 #include <string>
 #include <thread>
 
