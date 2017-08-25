@@ -1,5 +1,5 @@
 ---
-title: PinnableSlice: less memcpy with point lookups
+title: PinnableSlice; less memcpy with point lookups
 layout: post
 author: maysamyabandeh
 category: blog
@@ -11,7 +11,7 @@ The classic API for [DB::Get](https://github.com/facebook/rocksdb/blob/9e5837111
 
 Similarly to Slice, PinnableSlice refers to some in-memory data so it does not incur the memcpy cost. To ensure that the data will not be erased while it is being processed by the user, PinnableSlice, as its name suggests, has the data pinned in memory. The pinned data are released when PinnableSlice object is destructed or when ::Reset is invoked explicitly on it.
 
-### How good it is?
+### How good is it?
 
 Here are the improvements in throughput for an [in-memory benchmark](https://github.com/facebook/rocksdb/pull/1756#issuecomment-286201693):
 * value 1k byte: 14%
