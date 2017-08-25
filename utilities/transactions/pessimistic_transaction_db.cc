@@ -5,6 +5,10 @@
 
 #ifndef ROCKSDB_LITE
 
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
 #include "utilities/transactions/pessimistic_transaction_db.h"
 
 #include <inttypes.h>
