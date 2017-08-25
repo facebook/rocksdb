@@ -4757,6 +4757,7 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
       uint64_t cur_txn = 0;
       // Number of snapshots taken so far
       int num_snapshots = 0;
+      std::vector<const Snapshot*> to_be_released;
       // Number of gaps applied so far
       int gap_cnt = 0;
       // The final snapshot that we will inspect
@@ -4802,14 +4803,17 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
 
         if (num_snapshots < max_snapshots - 1) {
           // Take preliminary snapshots
-          db->GetSnapshot();
+          auto tmp_snapshot = db->GetSnapshot();
+          to_be_released.push_back(tmp_snapshot);
           num_snapshots++;
         } else if (gap_cnt < max_gap) {
           // Wait for some gap before taking the final snapshot
           gap_cnt++;
         } else if (!snapshot) {
           // Take the final snapshot if it is not already taken
-          snapshot = db->GetSnapshot()->GetSequenceNumber();
+          auto tmp_snapshot = db->GetSnapshot();
+          to_be_released.push_back(tmp_snapshot);
+          snapshot = tmp_snapshot->GetSequenceNumber();
           // We increase the db seq artificailly by a dummy Put. Check that this
           // technique is effective and db seq is that same as ours.
           ASSERT_EQ(snapshot, seq);
@@ -4848,6 +4852,9 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
       }
       ASSERT_TRUE(wp_db->delayed_prepared_.empty());
       ASSERT_TRUE(wp_db->prepared_txns_.empty());
+      for (auto s : to_be_released) {
+        db->ReleaseSnapshot(s);
+      }
     }
   }
 }
