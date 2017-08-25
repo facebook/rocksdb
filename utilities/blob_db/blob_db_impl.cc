@@ -1391,9 +1391,9 @@ Status BlobDBImpl::CloseBlobFile(std::shared_ptr<BlobFile> bfile) {
   }
 
   if (!s.ok()) {
-    ROCKS_LOG_INFO(db_options_.info_log,
-                   "Failed to close blob file %" PRIu64 "with error: %s",
-                   bfile->BlobFileNumber(), s.ToString().c_str());
+    ROCKS_LOG_ERROR(db_options_.info_log,
+                    "Failed to close blob file %" PRIu64 "with error: %s",
+                    bfile->BlobFileNumber(), s.ToString().c_str());
   }
 
   return s;
