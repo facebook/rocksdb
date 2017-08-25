@@ -278,9 +278,11 @@ WriteableCacheFile::~WriteableCacheFile() {
 }
 
 bool WriteableCacheFile::Create(const bool enable_direct_writes,
-                                const bool enable_direct_reads) {
+                                const bool enable_direct_reads,
+                                const size_t page_alignment) {
   WriteLock _(&rwlock_);
 
+  page_alignment_ = page_alignment;
   enable_direct_reads_ = enable_direct_reads;
 
   ROCKS_LOG_DEBUG(log_, "Creating new cache %s (max size is %d B)",
@@ -316,6 +318,27 @@ bool WriteableCacheFile::Append(const Slice& key, const Slice& val, LBA* lba) {
   // estimate the space required to store the (key, val)
   uint32_t rec_size = CacheRecord::CalcSize(key, val);
 
+  if (page_alignment_ > 0) {
+    assert(page_alignment_ % 2 == 0);
+
+    size_t min_extra_pages = (rec_size-1) / page_alignment_;
+    size_t start_page = disk_woff_ / page_alignment_;
+    size_t end_page = (disk_woff_ + rec_size) / page_alignment_;
+
+    if (end_page - start_page != min_extra_pages) {
+      assert(end_page - start_page > min_extra_pages);
+
+      size_t new_woff_ = (start_page + 1) * page_alignment_;
+      size_t zeros_size = new_woff_ - disk_woff_;
+
+      if (PadZeros(zeros_size)) {
+        disk_woff_ += zeros_size;
+      } else {
+        return false;
+      }
+    }
+  }
+
   if (!ExpandBuffer(rec_size)) {
     // unable to expand the buffer
     ROCKS_LOG_DEBUG(log_, "Error expanding buffers. size=%d", rec_size);
@@ -341,6 +364,22 @@ bool WriteableCacheFile::Append(const Slice& key, const Slice& val, LBA* lba) {
 
   return true;
 }
+
+bool WriteableCacheFile::PadZeros(const size_t size) {
+  if (!ExpandBuffer(size)) {
+    // unable to expand the buffer
+    ROCKS_LOG_DEBUG(log_, "Error expanding buffers. size=%d", size);
+    return false;
+  }
+
+  char zeros_[size];
+  memset(zeros_, '0', size);
+  Slice zeros(zeros_, size);
+  CacheRecord zeros_rec(zeros,zeros);
+  return zeros_rec.Append(&bufs_, &buf_woff_,
+                          reinterpret_cast<const char*>(zeros_), size);
+}
+
 
 bool WriteableCacheFile::ExpandBuffer(const size_t size) {
   rwlock_.AssertHeld();

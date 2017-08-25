@@ -186,7 +186,8 @@ class WriteableCacheFile : public RandomAccessCacheFile {
   virtual ~WriteableCacheFile();
 
   // create file on disk
-  bool Create(const bool enable_direct_writes, const bool enable_direct_reads);
+  bool Create(const bool enable_direct_writes, const bool enable_direct_reads,
+              const size_t page_alignment);
 
   // read data from logical file
   bool Read(const LBA& lba, Slice* key, Slice* block, char* scratch) override {
@@ -212,6 +213,7 @@ class WriteableCacheFile : public RandomAccessCacheFile {
 
   bool ReadBuffer(const LBA& lba, Slice* key, Slice* block, char* scratch);
   bool ReadBuffer(const LBA& lba, char* data);
+  bool PadZeros(const size_t size);
   bool ExpandBuffer(const size_t size);
   void DispatchBuffer();
   void BufferWriteDone();
@@ -245,6 +247,8 @@ class WriteableCacheFile : public RandomAccessCacheFile {
   size_t pending_ios_ = 0;               // Number of ios to disk in-progress
   bool enable_direct_reads_ = false;     // Should we enable direct reads
                                          // when reading from disk
+  size_t page_alignment_ = 0;            // Align writes with this page size
+                                         // (disabled if 0)
 };
 
 //

@@ -54,6 +54,8 @@ std::string PersistentCacheConfig::ToString() const {
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "    is_compressed: %d\n", is_compressed);
   ret.append(buffer);
+  snprintf(buffer, kBufferSize, "    page_alignment: %zu\n", page_alignment);
+  ret.append(buffer);
 
   return ret;
 }
