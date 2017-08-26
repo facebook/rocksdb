@@ -776,10 +776,9 @@ bool WritePreparedTxnDB::ExchangeCommitEntry(uint64_t indexed_seq,
 }
 
 // 10m entry, 80MB size
-uint64_t WritePreparedTxnDB::DEF_COMMIT_CACHE_SIZE =
-    static_cast<uint64_t>(1 << 21);
-uint64_t WritePreparedTxnDB::DEF_SNAPSHOT_CACHE_SIZE =
-    static_cast<uint64_t>(1 << 7);
+size_t WritePreparedTxnDB::DEF_COMMIT_CACHE_SIZE = static_cast<size_t>(1 << 21);
+size_t WritePreparedTxnDB::DEF_SNAPSHOT_CACHE_SIZE =
+    static_cast<size_t>(1 << 7);
 
 bool WritePreparedTxnDB::MaybeUpdateOldCommitMap(
     const uint64_t& prep_seq, const uint64_t& commit_seq,
