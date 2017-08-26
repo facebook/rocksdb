@@ -201,7 +201,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
           { 0 }
         });
     commit_cache_ =
-        unique_ptr<CommitEntry[]>(new CommitEntry[COMMIT_CACHE_SIZE]{{0}});
+        unique_ptr<CommitEntry[]>(new CommitEntry[COMMIT_CACHE_SIZE]{{0,0}});
   }
 
   // A heap with the amortized O(1) complexity for erase. It uses one extra heap
