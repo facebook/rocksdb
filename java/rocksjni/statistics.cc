@@ -140,14 +140,14 @@ jlong Java_org_rocksdb_Statistics_newStatistics___3BJZ(
 
   if (use_histogram_windowing) {
     auto* pSptr_statistics =
-        new std::shared_ptr<rocksdb::StatisticsJni<rocksdb::HistogramWindowingImpl>>(
+        new std::shared_ptr<rocksdb::Statistics>(
             new rocksdb::StatisticsJni<rocksdb::HistogramWindowingImpl>(
                 sptr_other_statistics, histograms));
 
     return reinterpret_cast<jlong>(pSptr_statistics);
   }
   auto* pSptr_statistics =
-      new std::shared_ptr<rocksdb::StatisticsJni<rocksdb::HistogramImpl>>(
+      new std::shared_ptr<rocksdb::Statistics>(
           new rocksdb::StatisticsJni<rocksdb::HistogramImpl>(
               sptr_other_statistics, histograms));
 
