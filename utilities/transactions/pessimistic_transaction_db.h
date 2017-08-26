@@ -107,6 +107,8 @@ class PessimisticTransactionDB : public TransactionDB {
   struct CommitEntry {
     uint64_t prep_seq;
     uint64_t commit_seq;
+    CommitEntry() : prep_seq(0), commit_seq(0) {}
+    CommitEntry(uint64_t ps, uint64_t cs) : prep_seq(ps), commit_seq(cs) {}
   };
 
  protected:
@@ -197,11 +199,9 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
 
   void init(const TransactionDBOptions& /* unused */) {
     snapshot_cache_ = unique_ptr<std::atomic<SequenceNumber>[]>(
-        new std::atomic<SequenceNumber>[SNAPSHOT_CACHE_SIZE] {
-          { 0 }
-        });
+        new std::atomic<SequenceNumber>[SNAPSHOT_CACHE_SIZE] {});
     commit_cache_ =
-        unique_ptr<CommitEntry[]>(new CommitEntry[COMMIT_CACHE_SIZE]{{0,0}});
+        unique_ptr<CommitEntry[]>(new CommitEntry[COMMIT_CACHE_SIZE]{});
   }
 
   // A heap with the amortized O(1) complexity for erase. It uses one extra heap
