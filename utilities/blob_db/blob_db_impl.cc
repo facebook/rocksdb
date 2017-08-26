@@ -891,7 +891,10 @@ Status BlobDBImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
   }
 
   if (blob_inserter.has_put()) {
-    CloseIf(blob_inserter.last_file());
+    s = CloseBlobFileIfNeeded(blob_inserter.last_file());
+    if (!s.ok()) {
+      return s;
+    }
   }
 
   // add deleted key to list of keys that have been deleted for book-keeping
@@ -1022,7 +1025,9 @@ Status BlobDBImpl::PutUntil(const WriteOptions& options,
     extendTTL(&(bfile->ttl_range_), expiration);
   }
 
-  CloseIf(bfile);
+  if (s.ok()) {
+    s = CloseBlobFileIfNeeded(bfile);
+  }
 
   TEST_SYNC_POINT("BlobDBImpl::PutUntil:Finish");
   return s;
@@ -1362,58 +1367,44 @@ std::pair<bool, int64_t> BlobDBImpl::SanityCheck(bool aborted) {
   return std::make_pair(true, -1);
 }
 
-std::pair<bool, int64_t> BlobDBImpl::CloseSeqWrite(
-    std::shared_ptr<BlobFile> bfile, bool aborted) {
+Status BlobDBImpl::CloseBlobFile(std::shared_ptr<BlobFile> bfile) {
+  Status s;
+  ROCKS_LOG_INFO(db_options_.info_log, "Close blob file %" PRIu64,
+                 bfile->BlobFileNumber());
   {
     WriteLock wl(&mutex_);
 
-    // this prevents others from picking up this file
-    open_blob_files_.erase(bfile);
-
-    auto findit =
-        std::find(open_simple_files_.begin(), open_simple_files_.end(), bfile);
-    if (findit != open_simple_files_.end()) open_simple_files_.erase(findit);
+    if (bfile->HasTTL()) {
+      size_t erased __attribute__((__unused__)) = open_blob_files_.erase(bfile);
+      assert(erased == 1);
+    } else {
+      auto iter = std::find(open_simple_files_.begin(),
+                            open_simple_files_.end(), bfile);
+      assert(iter != open_simple_files_.end());
+      open_simple_files_.erase(iter);
+    }
   }
 
   if (!bfile->closed_.load()) {
     WriteLock lockbfile_w(&bfile->mutex_);
-    bfile->WriteFooterAndCloseLocked();
+    s = bfile->WriteFooterAndCloseLocked();
   }
 
-  return std::make_pair(false, -1);
+  if (!s.ok()) {
+    ROCKS_LOG_ERROR(db_options_.info_log,
+                    "Failed to close blob file %" PRIu64 "with error: %s",
+                    bfile->BlobFileNumber(), s.ToString().c_str());
+  }
+
+  return s;
 }
 
-void BlobDBImpl::CloseIf(const std::shared_ptr<BlobFile>& bfile) {
+Status BlobDBImpl::CloseBlobFileIfNeeded(std::shared_ptr<BlobFile>& bfile) {
   // atomic read
-  bool close = bfile->GetFileSize() > bdb_options_.blob_file_size;
-  if (!close) return;
-
-  if (debug_level_ >= 2) {
-    ROCKS_LOG_DEBUG(db_options_.info_log,
-                    "Scheduling file for close %s fsize: %" PRIu64
-                    " limit: %" PRIu64,
-                    bfile->PathName().c_str(), bfile->GetFileSize(),
-                    bdb_options_.blob_file_size);
+  if (bfile->GetFileSize() < bdb_options_.blob_file_size) {
+    return Status::OK();
   }
-
-  {
-    WriteLock wl(&mutex_);
-
-    open_blob_files_.erase(bfile);
-    auto findit =
-        std::find(open_simple_files_.begin(), open_simple_files_.end(), bfile);
-    if (findit != open_simple_files_.end()) {
-      open_simple_files_.erase(findit);
-    } else {
-      ROCKS_LOG_WARN(db_options_.info_log,
-                     "File not found while closing %s fsize: %" PRIu64
-                     " Multithreaded Writes?",
-                     bfile->PathName().c_str(), bfile->GetFileSize());
-    }
-  }
-
-  tqueue_.add(0, std::bind(&BlobDBImpl::CloseSeqWrite, this, bfile,
-                           std::placeholders::_1));
+  return CloseBlobFile(bfile);
 }
 
 bool BlobDBImpl::FileDeleteOk_SnapshotCheckLocked(
@@ -1585,7 +1576,7 @@ std::pair<bool, int64_t> BlobDBImpl::CheckSeqFiles(bool aborted) {
   }
 
   for (auto bfile : process_files) {
-    CloseSeqWrite(bfile, false);
+    CloseBlobFile(bfile);
   }
 
   return std::make_pair(true, -1);
@@ -1916,7 +1907,8 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
     delete transaction;
   }
   ROCKS_LOG_INFO(
-      db_options_.info_log, "%s blob file %" PRIu64 ".",
+      db_options_.info_log,
+      "%s blob file %" PRIu64
       ". Total blob records: %" PRIu64 ", Deletes: %" PRIu64 "/%" PRIu64
       " succeeded, Relocates: %" PRIu64 "/%" PRIu64 " succeeded.",
       s.ok() ? "Successfully garbage collected" : "Failed to garbage collect",
@@ -2334,8 +2326,8 @@ void BlobDBImpl::TEST_DeleteObsoleteFiles() {
   DeleteObsoleteFiles(false /*abort*/);
 }
 
-void BlobDBImpl::TEST_CloseBlobFile(std::shared_ptr<BlobFile>& bfile) {
-  CloseSeqWrite(bfile, false /*abort*/);
+Status BlobDBImpl::TEST_CloseBlobFile(std::shared_ptr<BlobFile>& bfile) {
+  return CloseBlobFile(bfile);
 }
 
 Status BlobDBImpl::TEST_GCFileAndUpdateLSM(std::shared_ptr<BlobFile>& bfile,
