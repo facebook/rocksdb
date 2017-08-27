@@ -129,6 +129,57 @@ void Java_org_rocksdb_SstFileWriter_put__JJJ(JNIEnv *env, jobject jobj,
 
 /*
  * Class:     org_rocksdb_SstFileWriter
+ * Method:    put
+ * Signature: (JLjava/nio/ByteBuffer;IILjava/nio/ByteBuffer;II)V
+ */
+void Java_org_rocksdb_SstFileWriter_put__JLjava_nio_ByteBuffer_2IILjava_nio_ByteBuffer_2II
+  (JNIEnv *env, jobject jobj, jlong jhandle,
+    jobject jkey, jint jkey_off, jint jkey_len,
+    jobject jval, jint jval_off, jint jval_len) {
+
+      // no need to check jkey_off, jkey_len, jval_off, jval_len for bounds,
+      // since valid values are guaranteed by caller.
+
+      assert(jkey != nullptr);
+      char* key = reinterpret_cast<char*>(env->GetDirectBufferAddress(jkey));
+      if(key == nullptr) {
+        // error: memory region is undefined, given object is not a direct
+        // java.nio.Buffer, or JNI access to direct buffers is not supported by JVM
+        rocksdb::IllegalArgumentExceptionJni::ThrowNew(env,
+            rocksdb::Status::InvalidArgument(
+                "Could not access key's DirectBuffer"));
+        return;
+      }
+
+      assert(jval != nullptr);
+      char* value = reinterpret_cast<char*>(env->GetDirectBufferAddress(jval));
+      if(value == nullptr) {
+        // error: memory region is undefined, given object is not a direct
+        // java.nio.Buffer, or JNI access to direct buffers is not supported by JVM
+        rocksdb::IllegalArgumentExceptionJni::ThrowNew(env,
+            rocksdb::Status::InvalidArgument(
+                "Could not access value's DirectBuffer"));
+        return;
+      }
+
+      key += jkey_off;
+      value += jval_off;
+
+      rocksdb::Slice key_slice(key, jkey_len);
+      rocksdb::Slice value_slice(value, jval_len);
+
+      rocksdb::Status s =
+      reinterpret_cast<rocksdb::SstFileWriter *>(jhandle)->Put(key_slice,
+                                                               value_slice);
+
+      if (!s.ok()) {
+        rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+      }
+}
+
+
+/*
+ * Class:     org_rocksdb_SstFileWriter
  * Method:    merge
  * Signature: (JJJ)V
  */
