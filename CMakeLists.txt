@@ -648,9 +648,54 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
   endif()
 
   include(GNUInstallDirs)
-  install(TARGETS ${ROCKSDB_STATIC_LIB} COMPONENT devel ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
-  install(TARGETS ${ROCKSDB_SHARED_LIB} COMPONENT runtime DESTINATION ${CMAKE_INSTALL_LIBDIR})
-  install(DIRECTORY include/rocksdb COMPONENT devel DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+  include(CMakePackageConfigHelpers)
+
+  set(package_config_destination ${CMAKE_INSTALL_LIBDIR}/cmake/rocksdb)
+
+  configure_package_config_file(
+    ${CMAKE_SOURCE_DIR}/cmake/RocksDBConfig.cmake.in RocksDBConfig.cmake
+    INSTALL_DESTINATION ${package_config_destination}
+  )
+
+  write_basic_package_version_file(
+    RocksDBConfigVersion.cmake
+    VERSION ${ROCKSDB_VERSION}
+    COMPATIBILITY SameMajorVersion
+  )
+
+  install(DIRECTORY include/rocksdb COMPONENT devel DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
+
+  install(
+    TARGETS ${ROCKSDB_STATIC_LIB}
+    EXPORT RocksDBTargets
+    COMPONENT devel
+    ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+    INCLUDES DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
+  )
+
+  install(
+    TARGETS ${ROCKSDB_SHARED_LIB}
+    EXPORT RocksDBTargets
+    COMPONENT runtime
+    RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
+    LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+    INCLUDES DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
+  )
+
+  install(
+    EXPORT RocksDBTargets
+    COMPONENT devel
+    DESTINATION ${package_config_destination}
+    NAMESPACE RocksDB::
+  )
+
+  install(
+    FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/RocksDBConfig.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/RocksDBConfigVersion.cmake
+    COMPONENT devel
+    DESTINATION ${package_config_destination}
+  )
 endif()
 
 option(WITH_TESTS "build with tests" ON)
