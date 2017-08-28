@@ -1363,7 +1363,6 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest) {
   string v;
   ColumnFamilyHandle *cfa, *cfb;
 
-
   // Create 2 new column families
   ColumnFamilyOptions cf_options;
   s = db->CreateColumnFamily(cf_options, "CFA", &cfa);

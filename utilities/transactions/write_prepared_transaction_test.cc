@@ -40,6 +40,70 @@ using std::string;
 
 namespace rocksdb {
 
+TEST(PreparedHeap, BasicsTest) {
+  WritePreparedTxnDB::PreparedHeap heap;
+  heap.push(14l);
+  // Test with one element
+  ASSERT_EQ(14l, heap.top());
+  heap.push(24l);
+  heap.push(34l);
+  // Test that old min is still on top
+  ASSERT_EQ(14l, heap.top());
+  heap.push(13l);
+  // Test that the new min will be on top
+  ASSERT_EQ(13l, heap.top());
+  // Test that it is persistent
+  ASSERT_EQ(13l, heap.top());
+  heap.push(44l);
+  heap.push(54l);
+  heap.push(64l);
+  heap.push(74l);
+  heap.push(84l);
+  // Test that old min is still on top
+  ASSERT_EQ(13l, heap.top());
+  heap.erase(24l);
+  // Test that old min is still on top
+  ASSERT_EQ(13l, heap.top());
+  heap.erase(14l);
+  // Test that old min is still on top
+  ASSERT_EQ(13l, heap.top());
+  heap.erase(13l);
+  // Test that the new comes to the top after multiple erase
+  ASSERT_EQ(34l, heap.top());
+  heap.erase(34l);
+  // Test that the new comes to the top after single erase
+  ASSERT_EQ(44l, heap.top());
+  heap.erase(54l);
+  ASSERT_EQ(44l, heap.top());
+  heap.pop();  // pop 44l
+  // Test that the erased items are ignored after pop
+  ASSERT_EQ(64l, heap.top());
+  heap.erase(44l);
+  // Test that erasing an already popped item would work
+  ASSERT_EQ(64l, heap.top());
+  heap.erase(84l);
+  ASSERT_EQ(64l, heap.top());
+  heap.push(85l);
+  heap.push(86l);
+  heap.push(87l);
+  heap.push(88l);
+  heap.push(89l);
+  heap.erase(87l);
+  heap.erase(85l);
+  heap.erase(89l);
+  heap.erase(86l);
+  heap.erase(88l);
+  // Test top remians the same after a ranodm order of many erases
+  ASSERT_EQ(64l, heap.top());
+  heap.pop();
+  // Test that pop works with a series of random pending erases
+  ASSERT_EQ(74l, heap.top());
+  ASSERT_FALSE(heap.empty());
+  heap.pop();
+  // Test that empty works
+  ASSERT_TRUE(heap.empty());
+}
+
 // Test WritePreparedTxnDB's IsInSnapshot against different ordering of
 // snapshot, max_committed_seq_, prepared, and commit entries.
 TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {

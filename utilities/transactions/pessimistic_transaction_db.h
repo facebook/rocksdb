@@ -196,6 +196,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
 
  private:
   friend class WritePreparedTransactionTest_IsInSnapshotTest_Test;
+  friend class PreparedHeap_BasicsTest_Test;
 
   void init(const TransactionDBOptions& /* unused */) {
     snapshot_cache_ = unique_ptr<std::atomic<SequenceNumber>[]>(
@@ -223,13 +224,16 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
         heap_.pop();
         erased_heap_.pop();
       }
+      while (heap_.empty() && !erased_heap_.empty()) {
+        erased_heap_.pop();
+      }
     }
     void erase(uint64_t seq) {
       if (!heap_.empty()) {
         if (seq < heap_.top()) {
           // Already popped, ignore it.
         } else if (heap_.top() == seq) {
-          heap_.pop();
+          pop();
         } else {  // (heap_.top() > seq)
           // Down the heap, remember to pop it later
           erased_heap_.push(seq);
