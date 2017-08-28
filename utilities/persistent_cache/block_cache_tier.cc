@@ -332,7 +332,8 @@ Status BlockCacheTier::NewCacheFile() {
                            GetCachePath(), writer_cache_id_,
                            opt_.cache_file_size, opt_.log));
 
-  bool status = f->Create(opt_.enable_direct_writes, opt_.enable_direct_reads, opt_.page_alignment);
+  bool status = f->Create(opt_.enable_direct_writes, opt_.enable_direct_reads,
+                          opt_.page_alignment);
   if (!status) {
     return Status::IOError("Error creating file");
   }

@@ -222,7 +222,7 @@ struct PersistentCacheConfig {
   // This option aligns cache blocks with the specified page size in order to
   // reduce the number of page splits (and thus, reduce read bandwidth). This
   // option is disabled if set to 0
-  size_t page_alignment = 0;
+  uint32_t page_alignment = 0;
 
   PersistentCacheConfig MakePersistentCacheConfig(
       const std::string& path, const uint64_t size,

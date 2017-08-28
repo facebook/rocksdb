@@ -279,7 +279,7 @@ WriteableCacheFile::~WriteableCacheFile() {
 
 bool WriteableCacheFile::Create(const bool enable_direct_writes,
                                 const bool enable_direct_reads,
-                                const size_t page_alignment) {
+                                const uint32_t page_alignment) {
   WriteLock _(&rwlock_);
 
   page_alignment_ = page_alignment;
@@ -321,15 +321,15 @@ bool WriteableCacheFile::Append(const Slice& key, const Slice& val, LBA* lba) {
   if (page_alignment_ > 0) {
     assert(page_alignment_ % 2 == 0);
 
-    size_t min_extra_pages = (rec_size-1) / page_alignment_;
-    size_t start_page = disk_woff_ / page_alignment_;
-    size_t end_page = (disk_woff_ + rec_size) / page_alignment_;
+    uint32_t min_extra_pages = (rec_size-1) / page_alignment_;
+    uint32_t start_page = disk_woff_ / page_alignment_;
+    uint32_t end_page = (disk_woff_ + rec_size) / page_alignment_;
 
     if (end_page - start_page != min_extra_pages) {
       assert(end_page - start_page > min_extra_pages);
 
-      size_t new_woff_ = (start_page + 1) * page_alignment_;
-      size_t zeros_size = new_woff_ - disk_woff_;
+      uint32_t new_woff_ = (start_page + 1) * page_alignment_;
+      uint32_t zeros_size = new_woff_ - disk_woff_;
 
       if (PadZeros(zeros_size)) {
         disk_woff_ += zeros_size;
@@ -365,7 +365,7 @@ bool WriteableCacheFile::Append(const Slice& key, const Slice& val, LBA* lba) {
   return true;
 }
 
-bool WriteableCacheFile::PadZeros(const size_t size) {
+bool WriteableCacheFile::PadZeros(const uint32_t size) {
   if (!ExpandBuffer(size)) {
     // unable to expand the buffer
     ROCKS_LOG_DEBUG(log_, "Error expanding buffers. size=%d", size);
