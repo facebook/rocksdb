@@ -138,7 +138,8 @@ class DBImpl : public DB {
   using DB::GetMapProperty;
   virtual bool GetMapProperty(ColumnFamilyHandle* column_family,
                               const Slice& property,
-                              std::map<std::string, double>* value) override;
+                              std::map<std::string, std::string>* value
+                              ) override;
   using DB::GetIntProperty;
   virtual bool GetIntProperty(ColumnFamilyHandle* column_family,
                               const Slice& property, uint64_t* value) override;

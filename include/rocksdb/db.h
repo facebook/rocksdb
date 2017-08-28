@@ -596,9 +596,9 @@ class DB {
   }
   virtual bool GetMapProperty(ColumnFamilyHandle* column_family,
                               const Slice& property,
-                              std::map<std::string, double>* value) = 0;
+                              std::map<std::string, std::string>* value) = 0;
   virtual bool GetMapProperty(const Slice& property,
-                              std::map<std::string, double>* value) {
+                              std::map<std::string, std::string>* value) {
     return GetMapProperty(DefaultColumnFamily(), property, value);
   }
 
