@@ -9,6 +9,8 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
+#include "utilities/transactions/transaction_test.h"
+
 #include <inttypes.h>
 #include <algorithm>
 #include <functional>
@@ -37,115 +39,6 @@
 using std::string;
 
 namespace rocksdb {
-
-class TransactionTest : public ::testing::TestWithParam<
-                            std::tuple<bool, bool, TxnDBWritePolicy>> {
- public:
-  TransactionDB* db;
-  FaultInjectionTestEnv* env;
-  string dbname;
-  Options options;
-
-  TransactionDBOptions txn_db_options;
-
-  TransactionTest() {
-    options.create_if_missing = true;
-    options.max_write_buffer_number = 2;
-    options.write_buffer_size = 4 * 1024;
-    options.level0_file_num_compaction_trigger = 2;
-    options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
-    env = new FaultInjectionTestEnv(Env::Default());
-    options.env = env;
-    options.concurrent_prepare = std::get<1>(GetParam());
-    dbname = test::TmpDir() + "/transaction_testdb";
-
-    DestroyDB(dbname, options);
-    txn_db_options.transaction_lock_timeout = 0;
-    txn_db_options.default_lock_timeout = 0;
-    txn_db_options.write_policy = std::get<2>(GetParam());
-    Status s;
-    if (std::get<0>(GetParam()) == false) {
-      s = TransactionDB::Open(options, txn_db_options, dbname, &db);
-    } else {
-      s = OpenWithStackableDB();
-    }
-    assert(s.ok());
-  }
-
-  ~TransactionTest() {
-    delete db;
-    DestroyDB(dbname, options);
-    delete env;
-  }
-
-  Status ReOpenNoDelete() {
-    delete db;
-    db = nullptr;
-    env->AssertNoOpenFile();
-    env->DropUnsyncedFileData();
-    env->ResetState();
-    Status s;
-    if (std::get<0>(GetParam()) == false) {
-      s = TransactionDB::Open(options, txn_db_options, dbname, &db);
-    } else {
-      s = OpenWithStackableDB();
-    }
-    return s;
-  }
-
-  Status ReOpen() {
-    delete db;
-    DestroyDB(dbname, options);
-    Status s;
-    if (std::get<0>(GetParam()) == false) {
-      s = TransactionDB::Open(options, txn_db_options, dbname, &db);
-    } else {
-      s = OpenWithStackableDB();
-    }
-    return s;
-  }
-
-  Status OpenWithStackableDB() {
-    std::vector<size_t> compaction_enabled_cf_indices;
-    std::vector<ColumnFamilyDescriptor> column_families{ColumnFamilyDescriptor(
-        kDefaultColumnFamilyName, ColumnFamilyOptions(options))};
-
-    TransactionDB::PrepareWrap(&options, &column_families,
-                               &compaction_enabled_cf_indices);
-    std::vector<ColumnFamilyHandle*> handles;
-    DB* root_db;
-    Options options_copy(options);
-    Status s =
-        DB::Open(options_copy, dbname, column_families, &handles, &root_db);
-    if (s.ok()) {
-      assert(handles.size() == 1);
-      s = TransactionDB::WrapStackableDB(
-          new StackableDB(root_db), txn_db_options,
-          compaction_enabled_cf_indices, handles, &db);
-      delete handles[0];
-    }
-    return s;
-  }
-};
-
-class MySQLStyleTransactionTest : public TransactionTest {};
-class WritePreparedTransactionTest : public TransactionTest {};
-
-static const TxnDBWritePolicy wc = WRITE_COMMITTED;
-static const TxnDBWritePolicy wp = WRITE_PREPARED;
-// TODO(myabandeh): Instantiate the tests with other write policies
-INSTANTIATE_TEST_CASE_P(DBAsBaseDB, TransactionTest,
-                        ::testing::Values(std::make_tuple(false, false, wc)));
-INSTANTIATE_TEST_CASE_P(StackableDBAsBaseDB, TransactionTest,
-                        ::testing::Values(std::make_tuple(true, false, wc)));
-INSTANTIATE_TEST_CASE_P(MySQLStyleTransactionTest, MySQLStyleTransactionTest,
-                        ::testing::Values(std::make_tuple(false, false, wc),
-                                          std::make_tuple(false, true, wc),
-                                          std::make_tuple(true, false, wc),
-                                          std::make_tuple(true, true, wc)));
-INSTANTIATE_TEST_CASE_P(WritePreparedTransactionTest,
-                        WritePreparedTransactionTest,
-                        ::testing::Values(std::make_tuple(false, true, wp)));
 
 TEST_P(TransactionTest, DoubleEmptyWrite) {
   WriteOptions write_options;
@@ -1469,6 +1362,7 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest) {
   Status s;
   string v;
   ColumnFamilyHandle *cfa, *cfb;
+
 
   // Create 2 new column families
   ColumnFamilyOptions cf_options;
