@@ -196,6 +196,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
 
  private:
   friend class WritePreparedTransactionTest_IsInSnapshotTest_Test;
+  friend class WritePreparedTransactionTest;
   friend class PreparedHeap_BasicsTest_Test;
 
   void init(const TransactionDBOptions& /* unused */) {

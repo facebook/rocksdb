@@ -104,6 +104,80 @@ TEST(PreparedHeap, BasicsTest) {
   ASSERT_TRUE(heap.empty());
 }
 
+class WritePreparedTransactionTest : public TransactionTest {
+ protected:
+  // If expect_update is set, check if it actually updated old_commit_map_. If
+  // it did not and yet suggested not to check the next snapshot, do the
+  // opposite to check if it was not a bad suggstion.
+  void MaybeUpdateOldCommitMapTestWithNext(uint64_t prepare, uint64_t commit,
+                                           uint64_t snapshot,
+                                           uint64_t next_snapshot,
+                                           bool expect_update) {
+    WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+    // reset old_commit_map_empty_ so that its value indicate whether
+    // old_commit_map_ was updated
+    wp_db->old_commit_map_empty_ = true;
+    bool check_next = wp_db->MaybeUpdateOldCommitMap(prepare, commit, snapshot,
+                                                     snapshot < next_snapshot);
+    if (expect_update == wp_db->old_commit_map_empty_) {
+      printf("prepare: %" PRIu64 " commit: %" PRIu64 " snapshot: %" PRIu64
+             " next: %" PRIu64 "\n",
+             prepare, commit, snapshot, next_snapshot);
+    }
+    EXPECT_EQ(!expect_update, wp_db->old_commit_map_empty_);
+    if (!check_next && wp_db->old_commit_map_empty_) {
+      // do the oppotisite to make sure it was not a bad suggestion
+      const bool dont_care_bool = true;
+      wp_db->MaybeUpdateOldCommitMap(prepare, commit, next_snapshot,
+                                     dont_care_bool);
+      if (!wp_db->old_commit_map_empty_) {
+        printf("prepare: %" PRIu64 " commit: %" PRIu64 " snapshot: %" PRIu64
+               " next: %" PRIu64 "\n",
+               prepare, commit, snapshot, next_snapshot);
+      }
+      EXPECT_TRUE(wp_db->old_commit_map_empty_);
+    }
+  }
+};
+
+static const TxnDBWritePolicy wp = WRITE_PREPARED;
+INSTANTIATE_TEST_CASE_P(WritePreparedTransactionTest,
+                        WritePreparedTransactionTest,
+                        ::testing::Values(std::make_tuple(false, true, wp)));
+
+TEST_P(WritePreparedTransactionTest, MaybeUpdateOldCommitMap) {
+  uint64_t p /*prepare*/, c /*commit*/, s /*snapshot*/, ns /*next_snapshot*/;
+  p = 10l, c = 15l, s = 20l, ns = 21l;
+  MaybeUpdateOldCommitMapTestWithNext(p, c, s, ns, false);
+  // If we do not expect the old commit map to be updated, try also with a next
+  // snapshot that is expected to update the old commit map. This would test
+  // that MaybeUpdateOldCommitMap would not prevent us from checking the next
+  // snapshot that must be checked.
+  p = 10l, c = 15l, s = 20l, ns = 11l;
+  MaybeUpdateOldCommitMapTestWithNext(p, c, s, ns, false);
+
+  p = 10l, c = 20l, s = 20l, ns = 19l;
+  MaybeUpdateOldCommitMapTestWithNext(p, c, s, ns, false);
+  p = 10l, c = 20l, s = 20l, ns = 21l;
+  MaybeUpdateOldCommitMapTestWithNext(p, c, s, ns, false);
+
+  p = 20l, c = 20l, s = 20l, ns = 21l;
+  MaybeUpdateOldCommitMapTestWithNext(p, c, s, ns, false);
+  p = 20l, c = 20l, s = 20l, ns = 19l;
+  MaybeUpdateOldCommitMapTestWithNext(p, c, s, ns, false);
+
+  p = 10l, c = 25l, s = 20l, ns = 21l;
+  MaybeUpdateOldCommitMapTestWithNext(p, c, s, ns, true);
+
+  p = 20l, c = 25l, s = 20l, ns = 21l;
+  MaybeUpdateOldCommitMapTestWithNext(p, c, s, ns, true);
+
+  p = 21l, c = 25l, s = 20l, ns = 22l;
+  MaybeUpdateOldCommitMapTestWithNext(p, c, s, ns, false);
+  p = 21l, c = 25l, s = 20l, ns = 19l;
+  MaybeUpdateOldCommitMapTestWithNext(p, c, s, ns, false);
+}
+
 // Test WritePreparedTxnDB's IsInSnapshot against different ordering of
 // snapshot, max_committed_seq_, prepared, and commit entries.
 TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
