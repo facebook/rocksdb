@@ -262,6 +262,31 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
                            const CommitEntry& expected_entry,
                            const CommitEntry& new_entry);
 
+  // Increase max_evicted_seq_ from the previous value prev_max to the new
+  // value. This also involves taking care of prepared txns that are not
+  // committed before new_max, as well as updating the list of live snapshots at
+  // the time of updating the max. Thread-safety: this function can be called
+  // concurrently. The concurrent invocations of this function is equivalent to
+  // a serial invocation in which the last invocation is the one with the
+  // largetst new_max value.
+  void AdvanceMaxEvictedSeq(SequenceNumber& prev_max, SequenceNumber& new_max);
+
+  // Update the list of snapshots correponding to the soon-to-be-updated
+  // max_eviceted_seq_. Thread-safety: this function can be called concurrently.
+  // The concurrent invocations of this function is equivalent to a serial
+  // invocation in which the last invocation is the one with the largetst
+  // version value.
+  void UpdateSnapshots(const std::vector<SequenceNumber>& snapshots,
+                       const SequenceNumber& version);
+
+  // Check an evicted entry against live snapshots to see if it should be kept
+  // around or it can be safely discarded (and hence assume committed for all
+  // snapshots). Thread-safety: this function can be called concurrently. If it
+  // is called concurrently with multiple UpdateSnapshots, the result is the
+  // same as checking the intersection of the snapshot list before updates with
+  // the snapshot list of all the concurrent updates.
+  void CheckAgainstSnapshots(const CommitEntry& evicted);
+
   // Add a new entry to old_commit_map_ if prep_seq <= snapshot_seq <
   // commit_seq. Return false if checking the next snapshot(s) is not needed.
   // This is the case if the entry already added to old_commit_map_ or none of
