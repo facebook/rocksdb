@@ -200,6 +200,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
  private:
   friend class WritePreparedTransactionTest_IsInSnapshotTest_Test;
   friend class WritePreparedTransactionTest_CommitMapTest_Test;
+  friend class WritePreparedTransactionTest_SnapshotConcurrentAccessTest_Test;
   friend class WritePreparedTransactionTest;
   friend class PreparedHeap_BasicsTest_Test;
 
@@ -250,11 +251,13 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // Get the commit entry with index indexed_seq from the commit table. It
   // returns true if such entry exists.
   bool GetCommitEntry(const uint64_t indexed_seq, CommitEntry* entry);
+
   // Rewrite the entry with the index indexed_seq in the commit table with the
   // commit entry <prep_seq, commit_seq>. If the rewrite results into eviction,
   // sets the evicted_entry and returns true.
   bool AddCommitEntry(const uint64_t indexed_seq, const CommitEntry& new_entry,
                       CommitEntry* evicted_entry);
+
   // Rewrite the entry with the index indexed_seq in the commit table with the
   // commit entry new_entry only if the existing entry matches the
   // expected_entry. Returns false otherwise.

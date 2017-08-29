@@ -234,6 +234,30 @@ TEST_P(WritePreparedTransactionTest, MaybeUpdateOldCommitMap) {
   MaybeUpdateOldCommitMapTestWithNext(p, c, s, ns, false);
 }
 
+TEST_P(WritePreparedTransactionTest, SnapshotConcurrentAccessTest) {
+  // will take effect after ReOpen
+  WritePreparedTxnDB::DEF_SNAPSHOT_CACHE_SIZE = 5;
+  ReOpen();  // to restart the db
+  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+  assert(wp_db);
+  assert(wp_db->db_impl_);
+  rocksdb::SyncPoint::GetInstance()->LoadDependency({
+      {"WritePreparedTxnDB::CheckAgainstSnapshots::1",
+       "WritePreparedTxnDB::UpdateSnapshots:1"},
+      {"WritePreparedTxnDB::UpdateSnapshots:2",
+       "WritePreparedTxnDB::CheckAgainstSnapshots::2"},
+  });
+  std::vector<SequenceNumber> snapshots = {100l, 200l, 300l};
+  SequenceNumber version = 400l;
+  rocksdb::port::Thread t1(
+      [&]() { wp_db->UpdateSnapshots(snapshots, version); });
+  CommitEntry entry = {150l, 160l};
+  rocksdb::port::Thread t2([&]() { wp_db->CheckAgainstSnapshots(entry); });
+  t1.join();
+  t2.join();
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
 // Test WritePreparedTxnDB's IsInSnapshot against different ordering of
 // snapshot, max_committed_seq_, prepared, and commit entries.
 TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {

@@ -22,6 +22,7 @@
 #include "rocksdb/utilities/transaction_db.h"
 #include "util/cast_util.h"
 #include "util/mutexlock.h"
+#include "util/sync_point.h"
 #include "utilities/transactions/pessimistic_transaction.h"
 #include "utilities/transactions/transaction_db_mutex_impl.h"
 
@@ -722,6 +723,8 @@ size_t WritePreparedTxnDB::DEF_SNAPSHOT_CACHE_SIZE =
 void WritePreparedTxnDB::UpdateSnapshots(
     const std::vector<SequenceNumber>& snapshots,
     const SequenceNumber& version) {
+  TEST_SYNC_POINT("WritePreparedTxnDB::UpdateSnapshots::1");
+  TEST_SYNC_POINT("WritePreparedTxnDB::UpdateSnapshots::2");
   WriteLock wl(&snapshots_mutex_);
   snapshots_version_ = version;
   // We update the list concurrently with the readers.
@@ -752,6 +755,9 @@ void WritePreparedTxnDB::UpdateSnapshots(
 }
 
 void WritePreparedTxnDB::CheckAgainstSnapshots(const CommitEntry& evicted) {
+  size_t iii = 1;
+  TEST_INDEXED_SYNC_POINT("WritePreparedTxnDB::CheckAgainstSnapshots::", iii);
+  TEST_SYNC_POINT("WritePreparedTxnDB::CheckAgainstSnapshots::2");
   // First check the snapshot cache that is efficient for concurrent access
   auto cnt = snapshots_total_.load(std::memory_order_acquire);
   // The list might get updated concurrently as we are reading from it. The
