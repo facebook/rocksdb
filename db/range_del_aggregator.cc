@@ -412,7 +412,6 @@ void RangeDelAggregator::AddToBuilder(
 
   // Note the order in which tombstones are stored is insignificant since we
   // insert them into a std::map on the read path.
-  bool first_added = false;
   while (stripe_map_iter != rep_->stripe_map_.end()) {
     for (auto tombstone_map_iter = stripe_map_iter->second.raw_map.begin();
          tombstone_map_iter != stripe_map_iter->second.raw_map.end();
@@ -450,26 +449,23 @@ void RangeDelAggregator::AddToBuilder(
 
       auto ikey_and_end_key = tombstone.Serialize();
       builder->Add(ikey_and_end_key.first.Encode(), ikey_and_end_key.second);
-      if (!first_added) {
-        first_added = true;
-        InternalKey smallest_candidate = std::move(ikey_and_end_key.first);;
-        if (lower_bound != nullptr &&
-            icmp_.user_comparator()->Compare(smallest_candidate.user_key(),
-                                             *lower_bound) <= 0) {
-          // Pretend the smallest key has the same user key as lower_bound
-          // (the max key in the previous table or subcompaction) in order for
-          // files to appear key-space partitioned.
-          //
-          // Choose lowest seqnum so this file's smallest internal key comes
-          // after the previous file's/subcompaction's largest. The fake seqnum
-          // is OK because the read path's file-picking code only considers user
-          // key.
-          smallest_candidate = InternalKey(*lower_bound, 0, kTypeRangeDeletion);
-        }
-        if (meta->smallest.size() == 0 ||
-            icmp_.Compare(smallest_candidate, meta->smallest) < 0) {
-          meta->smallest = std::move(smallest_candidate);
-        }
+      InternalKey smallest_candidate = std::move(ikey_and_end_key.first);
+      if (lower_bound != nullptr &&
+          icmp_.user_comparator()->Compare(smallest_candidate.user_key(),
+                                           *lower_bound) <= 0) {
+        // Pretend the smallest key has the same user key as lower_bound
+        // (the max key in the previous table or subcompaction) in order for
+        // files to appear key-space partitioned.
+        //
+        // Choose lowest seqnum so this file's smallest internal key comes
+        // after the previous file's/subcompaction's largest. The fake seqnum
+        // is OK because the read path's file-picking code only considers user
+        // key.
+        smallest_candidate = InternalKey(*lower_bound, 0, kTypeRangeDeletion);
+      }
+      if (meta->smallest.size() == 0 ||
+          icmp_.Compare(smallest_candidate, meta->smallest) < 0) {
+        meta->smallest = std::move(smallest_candidate);
       }
       InternalKey largest_candidate = tombstone.SerializeEndKey();
       if (upper_bound != nullptr &&
