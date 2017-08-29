@@ -249,17 +249,18 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
 
   // Get the commit entry with index indexed_seq from the commit table. It
   // returns true if such entry exists.
-  bool GetCommitEntry(uint64_t indexed_seq, CommitEntry* entry);
+  bool GetCommitEntry(const uint64_t indexed_seq, CommitEntry* entry);
   // Rewrite the entry with the index indexed_seq in the commit table with the
   // commit entry <prep_seq, commit_seq>. If the rewrite results into eviction,
   // sets the evicted_entry and returns true.
-  bool AddCommitEntry(uint64_t indexed_seq, CommitEntry& new_entry,
+  bool AddCommitEntry(const uint64_t indexed_seq, const CommitEntry& new_entry,
                       CommitEntry* evicted_entry);
   // Rewrite the entry with the index indexed_seq in the commit table with the
   // commit entry new_entry only if the existing entry matches the
   // expected_entry. Returns false otherwise.
-  bool ExchangeCommitEntry(uint64_t indexed_seq, CommitEntry& expected_entry,
-                           CommitEntry new_entry);
+  bool ExchangeCommitEntry(const uint64_t indexed_seq,
+                           const CommitEntry& expected_entry,
+                           const CommitEntry& new_entry);
 
   // Add a new entry to old_commit_map_ if prep_seq <= snapshot_seq <
   // commit_seq. Return false if checking the next snapshot(s) is not needed.

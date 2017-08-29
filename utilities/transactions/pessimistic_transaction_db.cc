@@ -744,7 +744,7 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq,
   }
 }
 
-bool WritePreparedTxnDB::GetCommitEntry(uint64_t indexed_seq,
+bool WritePreparedTxnDB::GetCommitEntry(const uint64_t indexed_seq,
                                         CommitEntry* entry) {
   // TODO(myabandeh): implement lock-free commit_cache_
   ReadLock rl(&commit_cache_mutex_);
@@ -752,8 +752,8 @@ bool WritePreparedTxnDB::GetCommitEntry(uint64_t indexed_seq,
   return (entry->commit_seq != 0);  // initialized
 }
 
-bool WritePreparedTxnDB::AddCommitEntry(uint64_t indexed_seq,
-                                        CommitEntry& new_entry,
+bool WritePreparedTxnDB::AddCommitEntry(const uint64_t indexed_seq,
+                                        const CommitEntry& new_entry,
                                         CommitEntry* evicted_entry) {
   // TODO(myabandeh): implement lock-free commit_cache_
   WriteLock wl(&commit_cache_mutex_);
@@ -762,9 +762,9 @@ bool WritePreparedTxnDB::AddCommitEntry(uint64_t indexed_seq,
   return (evicted_entry->commit_seq != 0);  // initialized
 }
 
-bool WritePreparedTxnDB::ExchangeCommitEntry(uint64_t indexed_seq,
-                                             CommitEntry& expected_entry,
-                                             CommitEntry new_entry) {
+bool WritePreparedTxnDB::ExchangeCommitEntry(const uint64_t indexed_seq,
+                                             const CommitEntry& expected_entry,
+                                             const CommitEntry& new_entry) {
   // TODO(myabandeh): implement lock-free commit_cache_
   WriteLock wl(&commit_cache_mutex_);
   auto& evicted_entry = commit_cache_[indexed_seq];
