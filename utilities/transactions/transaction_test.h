@@ -128,7 +128,7 @@ class TransactionTest : public ::testing::TestWithParam<
 
 class MySQLStyleTransactionTest : public TransactionTest {};
 
-static const TxnDBWritePolicy& wc = WRITE_COMMITTED;
+const TxnDBWritePolicy& wc = WRITE_COMMITTED;
 // TODO(myabandeh): Instantiate the tests with other write policies
 INSTANTIATE_TEST_CASE_P(DBAsBaseDB, TransactionTest,
                         ::testing::Values(std::make_tuple(false, false, wc)));

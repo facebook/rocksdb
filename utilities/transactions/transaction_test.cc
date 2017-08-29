@@ -11,7 +11,6 @@
 
 #include "utilities/transactions/transaction_test.h"
 
-#include <inttypes.h>
 #include <algorithm>
 #include <functional>
 #include <string>

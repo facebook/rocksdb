@@ -142,7 +142,7 @@ class WritePreparedTransactionTest : public TransactionTest {
   }
 };
 
-static const TxnDBWritePolicy wp = WRITE_PREPARED;
+const TxnDBWritePolicy& wp = WRITE_PREPARED;
 INSTANTIATE_TEST_CASE_P(WritePreparedTransactionTest,
                         WritePreparedTransactionTest,
                         ::testing::Values(std::make_tuple(false, true, wp)));
