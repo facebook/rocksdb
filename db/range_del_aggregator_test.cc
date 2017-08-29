@@ -149,6 +149,38 @@ TEST_F(RangeDelAggregatorTest, AlternateMultipleAboveBelow) {
        {"h", 0}});
 }
 
+TEST_F(RangeDelAggregatorTest, UnorderedTombstones) {
+  // See more details in https://github.com/facebook/rocksdb/issues/2752.
+  Options opts;
+  opts.create_if_missing = true;
+  opts.error_if_exists = true;
+  ReadOptions ropts;
+  WriteOptions wopts;
+  FlushOptions fopts;
+  CompactRangeOptions copts;
+
+  std::string name = test::TmpDir() + "/UnorderedTombstones";
+
+  DB* db = nullptr;
+  ASSERT_OK(DB::Open(opts, name, &db));
+
+  auto cf = db->DefaultColumnFamily();
+
+  ASSERT_OK(db->Put(wopts, cf, Slice("a"), Slice("a")));
+  ASSERT_OK(db->Flush(fopts, cf));
+  ASSERT_OK(db->CompactRange(copts, cf, nullptr, nullptr));
+
+  ASSERT_OK(db->DeleteRange(wopts, cf, Slice("b"), Slice("c")));
+  // Hold a snapshot to separate these two delete ranges.
+  auto sn = db->GetSnapshot();
+  ASSERT_OK(db->DeleteRange(wopts, cf, Slice("a"), Slice("b")));
+  ASSERT_OK(db->Flush(fopts, cf));
+  db->ReleaseSnapshot(sn);
+
+  std::string v;
+  auto s = db->Get(ropts, Slice("a"), &v);
+  ASSERT_TRUE(s.IsNotFound());
+}
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
