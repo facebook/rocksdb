@@ -109,6 +109,9 @@ class PessimisticTransactionDB : public TransactionDB {
     uint64_t commit_seq;
     CommitEntry() : prep_seq(0), commit_seq(0) {}
     CommitEntry(uint64_t ps, uint64_t cs) : prep_seq(ps), commit_seq(cs) {}
+    bool operator==(const CommitEntry& rhs) const {
+      return prep_seq == rhs.prep_seq && commit_seq == rhs.commit_seq;
+    }
   };
 
  protected:
@@ -196,6 +199,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
 
  private:
   friend class WritePreparedTransactionTest_IsInSnapshotTest_Test;
+  friend class WritePreparedTransactionTest_CommitMapTest_Test;
   friend class WritePreparedTransactionTest;
   friend class PreparedHeap_BasicsTest_Test;
 

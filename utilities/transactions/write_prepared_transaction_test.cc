@@ -40,6 +40,8 @@ using std::string;
 
 namespace rocksdb {
 
+typedef PessimisticTransactionDB::CommitEntry CommitEntry;
+
 TEST(PreparedHeap, BasicsTest) {
   WritePreparedTxnDB::PreparedHeap heap;
   heap.push(14l);
@@ -145,7 +147,61 @@ INSTANTIATE_TEST_CASE_P(WritePreparedTransactionTest,
                         WritePreparedTransactionTest,
                         ::testing::Values(std::make_tuple(false, true, wp)));
 
+TEST_P(WritePreparedTransactionTest, CommitMapTest) {
+  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+  assert(wp_db);
+  assert(wp_db->db_impl_);
+  size_t size = wp_db->COMMIT_CACHE_SIZE;
+  CommitEntry c = {5, 12}, e;
+  bool evicted = wp_db->AddCommitEntry(c.prep_seq % size, c, &e);
+  ASSERT_FALSE(evicted);
+
+  // Should be able to read the same value
+  bool found = wp_db->GetCommitEntry(c.prep_seq % size, &e);
+  ASSERT_TRUE(found);
+  ASSERT_EQ(c, e);
+  // Should be able to distinguish between overlapping entries
+  found = wp_db->GetCommitEntry((c.prep_seq + size) % size, &e);
+  ASSERT_TRUE(found);
+  ASSERT_NE(c.prep_seq + size, e.prep_seq);
+  // Should be able to detect non-existent entry
+  found = wp_db->GetCommitEntry((c.prep_seq + 1) % size, &e);
+  ASSERT_EQ(e.commit_seq, 0);
+  ASSERT_FALSE(found);
+
+  // Reject an invalid exchange
+  CommitEntry e2 = {c.prep_seq + size, c.commit_seq};
+  bool exchanged = wp_db->ExchangeCommitEntry(e2.prep_seq % size, e2, e);
+  ASSERT_FALSE(exchanged);
+  // check whether it did actually reject that
+  found = wp_db->GetCommitEntry(e2.prep_seq % size, &e);
+  ASSERT_TRUE(found);
+  ASSERT_EQ(c, e);
+
+  // Accept a valid exchange
+  CommitEntry e3 = {c.prep_seq + size, c.commit_seq + size + 1};
+  exchanged = wp_db->ExchangeCommitEntry(c.prep_seq % size, c, e3);
+  ASSERT_TRUE(exchanged);
+  // check whether it did actually accepted that
+  found = wp_db->GetCommitEntry(c.prep_seq % size, &e);
+  ASSERT_TRUE(found);
+  ASSERT_EQ(e3, e);
+
+  // Rewrite an entry
+  CommitEntry e4 = {e3.prep_seq + size, e4.commit_seq + size + 1};
+  evicted = wp_db->AddCommitEntry(e4.prep_seq % size, e4, &e);
+  ASSERT_TRUE(evicted);
+  ASSERT_EQ(e3, e);
+  found = wp_db->GetCommitEntry(e4.prep_seq % size, &e);
+  ASSERT_TRUE(found);
+  ASSERT_EQ(e4, e);
+}
+
 TEST_P(WritePreparedTransactionTest, MaybeUpdateOldCommitMap) {
+  // If prepare <= snapshot < commit we should keep the entry around since its
+  // nonexistence could be interpreted as committed in the snapshot while it is
+  // not true. We keep such entries around by adding them to the
+  // old_commit_map_.
   uint64_t p /*prepare*/, c /*commit*/, s /*snapshot*/, ns /*next_snapshot*/;
   p = 10l, c = 15l, s = 20l, ns = 21l;
   MaybeUpdateOldCommitMapTestWithNext(p, c, s, ns, false);
