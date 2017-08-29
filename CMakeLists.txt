@@ -700,7 +700,7 @@ endif()
 
 option(WITH_TESTS "build with tests" ON)
 if(WITH_TESTS)
-set(TESTS
+  set(TESTS
         cache/cache_test.cc
         cache/lru_cache_test.cc
         db/column_family_test.cc
@@ -832,85 +832,85 @@ set(TESTS
         utilities/transactions/transaction_test.cc
         utilities/ttl/ttl_test.cc
         utilities/write_batch_with_index/write_batch_with_index_test.cc
-)
-if(WITH_LIBRADOS)
-  list(APPEND TESTS utilities/env_librados_test.cc)
-endif()
+  )
+  if(WITH_LIBRADOS)
+    list(APPEND TESTS utilities/env_librados_test.cc)
+  endif()
 
-set(BENCHMARKS
-  cache/cache_bench.cc
-  memtable/memtablerep_bench.cc
-  tools/db_bench.cc
-  table/table_reader_bench.cc
-  utilities/column_aware_encoding_exp.cc
-  utilities/persistent_cache/hash_table_bench.cc)
-add_library(testharness OBJECT util/testharness.cc)
-foreach(sourcefile ${BENCHMARKS})
-  get_filename_component(exename ${sourcefile} NAME_WE)
-  add_executable(${exename}${ARTIFACT_SUFFIX} ${sourcefile}
-    $<TARGET_OBJECTS:testharness>)
-  target_link_libraries(${exename}${ARTIFACT_SUFFIX} gtest ${LIBS})
-endforeach(sourcefile ${BENCHMARKS})
-
-# For test util library that is build only in DEBUG mode
-# and linked to tests. Add test only code that is not #ifdefed for Release here.
-set(TESTUTIL_SOURCE
-    db/db_test_util.cc
-    monitoring/thread_status_updater_debug.cc
-    table/mock_table.cc
-    util/fault_injection_test_env.cc
-    utilities/cassandra/test_utils.cc
-)
-# test utilities are only build in debug
-enable_testing()
-add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND})
-set(TESTUTILLIB testutillib${ARTIFACT_SUFFIX})
-add_library(${TESTUTILLIB} STATIC ${TESTUTIL_SOURCE})
-if(MSVC)
-  set_target_properties(${TESTUTILLIB} PROPERTIES COMPILE_FLAGS "/Fd${CMAKE_CFG_INTDIR}/testutillib${ARTIFACT_SUFFIX}.pdb")
-endif()
-set_target_properties(${TESTUTILLIB}
-      PROPERTIES EXCLUDE_FROM_DEFAULT_BUILD_RELEASE 1
-      EXCLUDE_FROM_DEFAULT_BUILD_MINRELEASE 1
-      EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
-      )
-
-# Tests are excluded from Release builds
-set(TEST_EXES ${TESTS})
-
-foreach(sourcefile ${TEST_EXES})
+  set(BENCHMARKS
+    cache/cache_bench.cc
+    memtable/memtablerep_bench.cc
+    tools/db_bench.cc
+    table/table_reader_bench.cc
+    utilities/column_aware_encoding_exp.cc
+    utilities/persistent_cache/hash_table_bench.cc)
+  add_library(testharness OBJECT util/testharness.cc)
+  foreach(sourcefile ${BENCHMARKS})
     get_filename_component(exename ${sourcefile} NAME_WE)
     add_executable(${exename}${ARTIFACT_SUFFIX} ${sourcefile}
       $<TARGET_OBJECTS:testharness>)
-    set_target_properties(${exename}${ARTIFACT_SUFFIX}
-      PROPERTIES EXCLUDE_FROM_DEFAULT_BUILD_RELEASE 1
-      EXCLUDE_FROM_DEFAULT_BUILD_MINRELEASE 1
-      EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
-      )
-    target_link_libraries(${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} gtest ${LIBS})
-    if(NOT "${exename}" MATCHES "db_sanity_test")
+    target_link_libraries(${exename}${ARTIFACT_SUFFIX} gtest ${LIBS})
+  endforeach(sourcefile ${BENCHMARKS})
+
+  # For test util library that is build only in DEBUG mode
+  # and linked to tests. Add test only code that is not #ifdefed for Release here.
+  set(TESTUTIL_SOURCE
+      db/db_test_util.cc
+      monitoring/thread_status_updater_debug.cc
+      table/mock_table.cc
+      util/fault_injection_test_env.cc
+      utilities/cassandra/test_utils.cc
+  )
+  # test utilities are only build in debug
+  enable_testing()
+  add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND})
+  set(TESTUTILLIB testutillib${ARTIFACT_SUFFIX})
+  add_library(${TESTUTILLIB} STATIC ${TESTUTIL_SOURCE})
+  if(MSVC)
+    set_target_properties(${TESTUTILLIB} PROPERTIES COMPILE_FLAGS "/Fd${CMAKE_CFG_INTDIR}/testutillib${ARTIFACT_SUFFIX}.pdb")
+  endif()
+  set_target_properties(${TESTUTILLIB}
+        PROPERTIES EXCLUDE_FROM_DEFAULT_BUILD_RELEASE 1
+        EXCLUDE_FROM_DEFAULT_BUILD_MINRELEASE 1
+        EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
+        )
+
+  # Tests are excluded from Release builds
+  set(TEST_EXES ${TESTS})
+
+  foreach(sourcefile ${TEST_EXES})
+      get_filename_component(exename ${sourcefile} NAME_WE)
+      add_executable(${exename}${ARTIFACT_SUFFIX} ${sourcefile}
+        $<TARGET_OBJECTS:testharness>)
+      set_target_properties(${exename}${ARTIFACT_SUFFIX}
+        PROPERTIES EXCLUDE_FROM_DEFAULT_BUILD_RELEASE 1
+        EXCLUDE_FROM_DEFAULT_BUILD_MINRELEASE 1
+        EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
+        )
+      target_link_libraries(${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} gtest ${LIBS})
+      if(NOT "${exename}" MATCHES "db_sanity_test")
+        add_test(NAME ${exename} COMMAND ${exename}${ARTIFACT_SUFFIX})
+        add_dependencies(check ${exename}${ARTIFACT_SUFFIX})
+      endif()
+  endforeach(sourcefile ${TEST_EXES})
+
+  # C executables must link to a shared object
+  set(C_TESTS db/c_test.c)
+  set(C_TEST_EXES ${C_TESTS})
+
+  foreach(sourcefile ${C_TEST_EXES})
+      string(REPLACE ".c" "" exename ${sourcefile})
+      string(REGEX REPLACE "^((.+)/)+" "" exename ${exename})
+      add_executable(${exename}${ARTIFACT_SUFFIX} ${sourcefile})
+      set_target_properties(${exename}${ARTIFACT_SUFFIX}
+        PROPERTIES EXCLUDE_FROM_DEFAULT_BUILD_RELEASE 1
+        EXCLUDE_FROM_DEFAULT_BUILD_MINRELEASE 1
+        EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
+        )
+      target_link_libraries(${exename}${ARTIFACT_SUFFIX} ${ROCKSDB_IMPORT_LIB} testutillib${ARTIFACT_SUFFIX})
       add_test(NAME ${exename} COMMAND ${exename}${ARTIFACT_SUFFIX})
       add_dependencies(check ${exename}${ARTIFACT_SUFFIX})
-    endif()
-endforeach(sourcefile ${TEST_EXES})
-
-# C executables must link to a shared object
-set(C_TESTS db/c_test.c)
-set(C_TEST_EXES ${C_TESTS})
-
-foreach(sourcefile ${C_TEST_EXES})
-    string(REPLACE ".c" "" exename ${sourcefile})
-    string(REGEX REPLACE "^((.+)/)+" "" exename ${exename})
-    add_executable(${exename}${ARTIFACT_SUFFIX} ${sourcefile})
-    set_target_properties(${exename}${ARTIFACT_SUFFIX}
-      PROPERTIES EXCLUDE_FROM_DEFAULT_BUILD_RELEASE 1
-      EXCLUDE_FROM_DEFAULT_BUILD_MINRELEASE 1
-      EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
-      )
-    target_link_libraries(${exename}${ARTIFACT_SUFFIX} ${ROCKSDB_IMPORT_LIB} testutillib${ARTIFACT_SUFFIX})
-    add_test(NAME ${exename} COMMAND ${exename}${ARTIFACT_SUFFIX})
-    add_dependencies(check ${exename}${ARTIFACT_SUFFIX})
-endforeach(sourcefile ${C_TEST_EXES})
+  endforeach(sourcefile ${C_TEST_EXES})
 endif()
 
 option(WITH_TOOLS "build with tools" ON)
