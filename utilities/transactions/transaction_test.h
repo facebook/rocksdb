@@ -3,6 +3,8 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#pragma once
+
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
 #endif
@@ -32,8 +34,6 @@
 
 #include "port/port.h"
 
-using std::string;
-
 namespace rocksdb {
 
 class TransactionTest : public ::testing::TestWithParam<
@@ -41,7 +41,7 @@ class TransactionTest : public ::testing::TestWithParam<
  public:
   TransactionDB* db;
   FaultInjectionTestEnv* env;
-  string dbname;
+  std::string dbname;
   Options options;
 
   TransactionDBOptions txn_db_options;
@@ -128,7 +128,7 @@ class TransactionTest : public ::testing::TestWithParam<
 
 class MySQLStyleTransactionTest : public TransactionTest {};
 
-static const TxnDBWritePolicy wc = WRITE_COMMITTED;
+static const TxnDBWritePolicy& wc = WRITE_COMMITTED;
 // TODO(myabandeh): Instantiate the tests with other write policies
 INSTANTIATE_TEST_CASE_P(DBAsBaseDB, TransactionTest,
                         ::testing::Values(std::make_tuple(false, false, wc)));
