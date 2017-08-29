@@ -234,6 +234,38 @@ TEST_P(WritePreparedTransactionTest, MaybeUpdateOldCommitMap) {
   MaybeUpdateOldCommitMapTestWithNext(p, c, s, ns, false);
 }
 
+TEST_P(WritePreparedTransactionTest, CheckAgainstSnapshotsTest) {
+  std::vector<SequenceNumber> snapshots = {100l, 200l, 300l, 400l,
+                                           500l, 600l, 700l};
+  // will take effect after ReOpen
+  WritePreparedTxnDB::DEF_SNAPSHOT_CACHE_SIZE = snapshots.size() / 2;
+  ReOpen();  // to restart the db
+  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+  assert(wp_db);
+  assert(wp_db->db_impl_);
+  SequenceNumber version = 1000l;
+  ASSERT_EQ(0, wp_db->snapshots_total_);
+  wp_db->UpdateSnapshots(snapshots, version);
+  ASSERT_EQ(snapshots.size(), wp_db->snapshots_total_);
+  // seq numbers are chosen so that we have two of them between each two
+  // snapshots. If the diff of two consecuitive seq is more than 5, there is a
+  // snapshot between them.
+  std::vector<SequenceNumber> seqs = {50l,  55l,  150l, 155l, 250l, 255l,
+                                      350l, 355l, 450l, 455l, 550l, 555l,
+                                      650l, 655l, 750l, 755l};
+  assert(seqs.size() > 1);
+  for (size_t i = 0; i < seqs.size() - 1; i++) {
+    wp_db->old_commit_map_empty_ = true;  // reset
+    CommitEntry commit_entry = {seqs[i], seqs[i + 1]};
+    wp_db->CheckAgainstSnapshots(commit_entry);
+    // Expect update if there is snapshot in between the prepare and commit
+    bool expect_update = commit_entry.commit_seq - commit_entry.prep_seq > 5 &&
+                         commit_entry.commit_seq >= snapshots.front() &&
+                         commit_entry.prep_seq <= snapshots.back();
+    ASSERT_EQ(expect_update, !wp_db->old_commit_map_empty_);
+  }
+}
+
 TEST_P(WritePreparedTransactionTest, SnapshotConcurrentAccessTest) {
   // will take effect after ReOpen
   WritePreparedTxnDB::DEF_SNAPSHOT_CACHE_SIZE = 5;

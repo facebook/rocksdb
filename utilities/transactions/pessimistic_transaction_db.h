@@ -199,6 +199,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
 
  private:
   friend class WritePreparedTransactionTest_IsInSnapshotTest_Test;
+  friend class WritePreparedTransactionTest_CheckAgainstSnapshotsTest_Test;
   friend class WritePreparedTransactionTest_CommitMapTest_Test;
   friend class WritePreparedTransactionTest_SnapshotConcurrentAccessTest_Test;
   friend class WritePreparedTransactionTest;
