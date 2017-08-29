@@ -142,10 +142,10 @@ class WritePreparedTransactionTest : public TransactionTest {
   }
 };
 
-const TxnDBWritePolicy& wp = WRITE_PREPARED;
 INSTANTIATE_TEST_CASE_P(WritePreparedTransactionTest,
                         WritePreparedTransactionTest,
-                        ::testing::Values(std::make_tuple(false, true, wp)));
+                        ::testing::Values(std::make_tuple(false, true,
+                                                          WRITE_PREPARED)));
 
 TEST_P(WritePreparedTransactionTest, CommitMapTest) {
   WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);

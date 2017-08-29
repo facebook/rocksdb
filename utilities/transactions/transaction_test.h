@@ -128,16 +128,18 @@ class TransactionTest : public ::testing::TestWithParam<
 
 class MySQLStyleTransactionTest : public TransactionTest {};
 
-const TxnDBWritePolicy& wc = WRITE_COMMITTED;
 // TODO(myabandeh): Instantiate the tests with other write policies
 INSTANTIATE_TEST_CASE_P(DBAsBaseDB, TransactionTest,
-                        ::testing::Values(std::make_tuple(false, false, wc)));
+                        ::testing::Values(std::make_tuple(false, false,
+                                                          WRITE_COMMITTED)));
 INSTANTIATE_TEST_CASE_P(StackableDBAsBaseDB, TransactionTest,
-                        ::testing::Values(std::make_tuple(true, false, wc)));
-INSTANTIATE_TEST_CASE_P(MySQLStyleTransactionTest, MySQLStyleTransactionTest,
-                        ::testing::Values(std::make_tuple(false, false, wc),
-                                          std::make_tuple(false, true, wc),
-                                          std::make_tuple(true, false, wc),
-                                          std::make_tuple(true, true, wc)));
+                        ::testing::Values(std::make_tuple(true, false,
+                                                          WRITE_COMMITTED)));
+INSTANTIATE_TEST_CASE_P(
+    MySQLStyleTransactionTest, MySQLStyleTransactionTest,
+    ::testing::Values(std::make_tuple(false, false, WRITE_COMMITTED),
+                      std::make_tuple(false, true, WRITE_COMMITTED),
+                      std::make_tuple(true, false, WRITE_COMMITTED),
+                      std::make_tuple(true, true, WRITE_COMMITTED)));
 
 }  // namespace rocksdb
