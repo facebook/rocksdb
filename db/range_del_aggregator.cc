@@ -413,8 +413,8 @@ void RangeDelAggregator::AddToBuilder(
 
   // Note the order in which tombstones are stored is insignificant since we
   // insert them into a std::map on the read path.
-  bool first_added = false;
   while (stripe_map_iter != rep_->stripe_map_.end()) {
+    bool first_added = false;
     for (auto tombstone_map_iter = stripe_map_iter->second.raw_map.begin();
          tombstone_map_iter != stripe_map_iter->second.raw_map.end();
          ++tombstone_map_iter) {
@@ -453,7 +453,7 @@ void RangeDelAggregator::AddToBuilder(
       builder->Add(ikey_and_end_key.first.Encode(), ikey_and_end_key.second);
       if (!first_added) {
         first_added = true;
-        InternalKey smallest_candidate = std::move(ikey_and_end_key.first);;
+        InternalKey smallest_candidate = std::move(ikey_and_end_key.first);
         if (lower_bound != nullptr &&
             icmp_.user_comparator()->Compare(smallest_candidate.user_key(),
                                              *lower_bound) <= 0) {
