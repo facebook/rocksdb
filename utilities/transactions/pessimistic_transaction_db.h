@@ -275,7 +275,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // largetst new_max value.
   void AdvanceMaxEvictedSeq(SequenceNumber& prev_max, SequenceNumber& new_max);
 
-  // Update the list of snapshots correponding to the soon-to-be-updated
+  // Update the list of snapshots corresponding to the soon-to-be-updated
   // max_eviceted_seq_. Thread-safety: this function can be called concurrently.
   // The concurrent invocations of this function is equivalent to a serial
   // invocation in which the last invocation is the one with the largetst

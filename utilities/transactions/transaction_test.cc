@@ -39,6 +39,21 @@ using std::string;
 
 namespace rocksdb {
 
+// TODO(myabandeh): Instantiate the tests with other write policies
+INSTANTIATE_TEST_CASE_P(DBAsBaseDB, TransactionTest,
+                        ::testing::Values(std::make_tuple(false, false,
+                                                          WRITE_COMMITTED)));
+INSTANTIATE_TEST_CASE_P(StackableDBAsBaseDB, TransactionTest,
+                        ::testing::Values(std::make_tuple(true, false,
+                                                          WRITE_COMMITTED)));
+INSTANTIATE_TEST_CASE_P(
+    MySQLStyleTransactionTest, MySQLStyleTransactionTest,
+    ::testing::Values(std::make_tuple(false, false, WRITE_COMMITTED),
+                      std::make_tuple(false, true, WRITE_COMMITTED),
+                      std::make_tuple(true, false, WRITE_COMMITTED),
+                      std::make_tuple(true, true, WRITE_COMMITTED)));
+
+
 TEST_P(TransactionTest, DoubleEmptyWrite) {
   WriteOptions write_options;
   write_options.sync = true;
