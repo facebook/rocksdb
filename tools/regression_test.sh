@@ -87,7 +87,7 @@
 #       in db_bench.  Default: 16.
 #   NUM_HIGH_PRI_THREADS:  The number of high-pri threads available for
 #       concurrent flushes in db_bench.  Default: 4.
-#   NUM_LOW_PRI_THREADS:  The number of low-pri hreads available for
+#   NUM_LOW_PRI_THREADS:  The number of low-pri threads available for
 #       concurrent compactions in db_bench.  Default: 16.
 #   SEEK_NEXTS:  Controls how many Next() will be called after seek.
 #       Default: 10.
