@@ -38,6 +38,7 @@ function get_lib_base()
     # platform is not provided, use latest gcc
     result=`ls -dr1v $result/gcc-*[^fb]/ | head -n1`
   else
+    echo $lib_platform
     result="$result/$lib_platform/"
   fi
   
@@ -71,22 +72,22 @@ log_variable GCC_BASE
 log_variable CLANG_BASE
 
 # Libraries locations
-get_lib_base libgcc     5.x
-get_lib_base glibc      2.23
-get_lib_base snappy     LATEST gcc-5-glibc-2.23
-get_lib_base zlib       LATEST
-get_lib_base bzip2      LATEST
-get_lib_base lz4        LATEST
-get_lib_base zstd       LATEST
-get_lib_base gflags     LATEST
-get_lib_base jemalloc   LATEST
-get_lib_base numa       LATEST
-get_lib_base libunwind  LATEST
-get_lib_base tbb        4.0_update2 gcc-5-glibc-2.23
+get_lib_base libgcc     5.x     gcc-5-glibc-2.23
+get_lib_base glibc      2.23    gcc-5-glibc-2.23
+get_lib_base snappy     LATEST  gcc-5-glibc-2.23
+get_lib_base zlib       LATEST  gcc-5-glibc-2.23
+get_lib_base bzip2      LATEST  gcc-5-glibc-2.23
+get_lib_base lz4        LATEST  gcc-5-glibc-2.23
+get_lib_base zstd       LATEST  gcc-5-glibc-2.23
+get_lib_base gflags     LATEST  gcc-5-glibc-2.23
+get_lib_base jemalloc   LATEST  gcc-5-glibc-2.23
+get_lib_base numa       LATEST  gcc-5-glibc-2.23
+get_lib_base libunwind  LATEST  gcc-5-glibc-2.23
+get_lib_base tbb        LATEST  gcc-5-glibc-2.23
 
-get_lib_base kernel-headers LATEST 
+get_lib_base kernel-headers 4.0.9-36_fbk5_2933_gd092e3f gcc-5-glibc-2.23
 get_lib_base binutils   LATEST centos6-native 
-get_lib_base valgrind   3.10.0 gcc-5-glibc-2.23
+get_lib_base valgrind   LATEST gcc-5-glibc-2.23
 get_lib_base lua        5.2.3 gcc-5-glibc-2.23
 
 git diff $OUTPUT
