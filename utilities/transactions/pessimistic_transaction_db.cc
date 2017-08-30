@@ -723,8 +723,11 @@ size_t WritePreparedTxnDB::DEF_SNAPSHOT_CACHE_SIZE =
 void WritePreparedTxnDB::UpdateSnapshots(
     const std::vector<SequenceNumber>& snapshots,
     const SequenceNumber& version) {
-  TEST_SYNC_POINT("WritePreparedTxnDB::UpdateSnapshots::1");
-  TEST_SYNC_POINT("WritePreparedTxnDB::UpdateSnapshots::2");
+  TEST_SYNC_POINT("WritePreparedTxnDB::UpdateSnapshots:p:start");
+  TEST_SYNC_POINT("WritePreparedTxnDB::UpdateSnapshots:s:start");
+#ifndef NDEBUG
+  size_t sync_i = 0;
+#endif
   WriteLock wl(&snapshots_mutex_);
   snapshots_version_ = version;
   // We update the list concurrently with the readers.
@@ -742,7 +745,17 @@ void WritePreparedTxnDB::UpdateSnapshots(
   auto it = snapshots.begin();
   for (; it != snapshots.end() && i < SNAPSHOT_CACHE_SIZE; it++, i++) {
     snapshot_cache_[i].store(*it, std::memory_order_release);
+    TEST_IDX_SYNC_POINT("WritePreparedTxnDB::UpdateSnapshots:p:", ++sync_i);
+    TEST_IDX_SYNC_POINT("WritePreparedTxnDB::UpdateSnapshots:s:", sync_i);
   }
+#ifndef NDEBUG
+  // Release the remaining sync points since they are useless given that the
+  // reader would also use lock to access snapshots
+  for (++sync_i; sync_i <= 10; ++sync_i) {
+    TEST_IDX_SYNC_POINT("WritePreparedTxnDB::UpdateSnapshots:p:", sync_i);
+    TEST_IDX_SYNC_POINT("WritePreparedTxnDB::UpdateSnapshots:s:", sync_i);
+  }
+#endif
   snapshots_.clear();
   for (; it != snapshots.end(); it++) {
     // Insert them to a vector that is less efficient to access
@@ -752,12 +765,16 @@ void WritePreparedTxnDB::UpdateSnapshots(
   // Update the size at the end. Otherwise a parallel reader might read
   // items that are not set yet.
   snapshots_total_.store(snapshots.size(), std::memory_order_release);
+  TEST_SYNC_POINT("WritePreparedTxnDB::UpdateSnapshots:p:end");
+  TEST_SYNC_POINT("WritePreparedTxnDB::UpdateSnapshots:s:end");
 }
 
 void WritePreparedTxnDB::CheckAgainstSnapshots(const CommitEntry& evicted) {
-  size_t iii = 1;
-  TEST_INDEXED_SYNC_POINT("WritePreparedTxnDB::CheckAgainstSnapshots::", iii);
-  TEST_SYNC_POINT("WritePreparedTxnDB::CheckAgainstSnapshots::2");
+  TEST_SYNC_POINT("WritePreparedTxnDB::CheckAgainstSnapshots:p:start");
+  TEST_SYNC_POINT("WritePreparedTxnDB::CheckAgainstSnapshots:s:start");
+#ifndef NDEBUG
+  size_t sync_i = 0;
+#endif
   // First check the snapshot cache that is efficient for concurrent access
   auto cnt = snapshots_total_.load(std::memory_order_acquire);
   // The list might get updated concurrently as we are reading from it. The
@@ -770,11 +787,23 @@ void WritePreparedTxnDB::CheckAgainstSnapshots(const CommitEntry& evicted) {
   size_t ip1 = std::min(cnt, SNAPSHOT_CACHE_SIZE);
   for (; 0 < ip1; ip1--) {
     snapshot_seq = snapshot_cache_[ip1 - 1].load(std::memory_order_acquire);
+    TEST_IDX_SYNC_POINT("WritePreparedTxnDB::CheckAgainstSnapshots:p:",
+                        ++sync_i);
+    TEST_IDX_SYNC_POINT("WritePreparedTxnDB::CheckAgainstSnapshots:s:", sync_i);
     if (!MaybeUpdateOldCommitMap(evicted.prep_seq, evicted.commit_seq,
                                  snapshot_seq, !next_is_larger)) {
       break;
     }
   }
+#ifndef NDEBUG
+  // Release the remaining sync points before accquiring the lock
+  for (++sync_i; sync_i <= 10; ++sync_i) {
+    TEST_IDX_SYNC_POINT("WritePreparedTxnDB::CheckAgainstSnapshots:p:", sync_i);
+    TEST_IDX_SYNC_POINT("WritePreparedTxnDB::CheckAgainstSnapshots:s:", sync_i);
+  }
+#endif
+  TEST_SYNC_POINT("WritePreparedTxnDB::CheckAgainstSnapshots:p:end");
+  TEST_SYNC_POINT("WritePreparedTxnDB::CheckAgainstSnapshots:s:end");
   if (UNLIKELY(SNAPSHOT_CACHE_SIZE < cnt && ip1 == SNAPSHOT_CACHE_SIZE &&
                snapshot_seq < evicted.prep_seq)) {
     // Then access the less efficient list of snapshots_

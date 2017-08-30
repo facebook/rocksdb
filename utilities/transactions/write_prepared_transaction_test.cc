@@ -140,6 +140,78 @@ class WritePreparedTransactionTest : public TransactionTest {
       EXPECT_TRUE(wp_db->old_commit_map_empty_);
     }
   }
+
+  // Test that a CheckAgainstSnapshots thread reading old_snapshots will not
+  // miss a snapshot because of a concurrent update by UpdateSnapshots that is
+  // writing new_snapshots. Both threads are broken at two points. The sync
+  // points to enforce them are specified by a1, a2, b1, and b2. CommitEntry
+  // entry is expected to be vital for one of the snapshots that is common
+  // between the old and new list of snapshots.
+  void SnapshotConcurrentAccessTestInternal(
+      WritePreparedTxnDB* wp_db,
+      const std::vector<SequenceNumber>& old_snapshots,
+      const std::vector<SequenceNumber>& new_snapshots, CommitEntry& entry,
+      SequenceNumber& version, size_t a1, size_t a2, size_t b1, size_t b2) {
+    // First reset the snapshot list
+    const std::vector<SequenceNumber> empty_snapshots;
+    wp_db->old_commit_map_empty_ = true;
+    wp_db->UpdateSnapshots(empty_snapshots, ++version);
+    // Then initialize it with the old_snapshots
+    wp_db->UpdateSnapshots(old_snapshots, ++version);
+
+    // Starting from the first thread, cut each thread at two points
+    rocksdb::SyncPoint::GetInstance()->LoadDependency({
+        {"WritePreparedTxnDB::CheckAgainstSnapshots:p:" + std::to_string(a1),
+         "WritePreparedTxnDB::UpdateSnapshots:s:start"},
+        {"WritePreparedTxnDB::UpdateSnapshots:p:" + std::to_string(b1),
+         "WritePreparedTxnDB::CheckAgainstSnapshots:s:" + std::to_string(a1)},
+        {"WritePreparedTxnDB::CheckAgainstSnapshots:p:" + std::to_string(a2),
+         "WritePreparedTxnDB::UpdateSnapshots:s:" + std::to_string(b1)},
+        {"WritePreparedTxnDB::UpdateSnapshots:p:" + std::to_string(b2),
+         "WritePreparedTxnDB::CheckAgainstSnapshots:s:" + std::to_string(a2)},
+        {"WritePreparedTxnDB::CheckAgainstSnapshots:p:end",
+         "WritePreparedTxnDB::UpdateSnapshots:s:" + std::to_string(b2)},
+    });
+    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+    {
+      ASSERT_TRUE(wp_db->old_commit_map_empty_);
+      rocksdb::port::Thread t1(
+          [&]() { wp_db->UpdateSnapshots(new_snapshots, version); });
+      rocksdb::port::Thread t2([&]() { wp_db->CheckAgainstSnapshots(entry); });
+      t1.join();
+      t2.join();
+      ASSERT_FALSE(wp_db->old_commit_map_empty_);
+    }
+    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+
+    wp_db->old_commit_map_empty_ = true;
+    wp_db->UpdateSnapshots(empty_snapshots, ++version);
+    wp_db->UpdateSnapshots(old_snapshots, ++version);
+    // Starting from the second thread, cut each thread at two points
+    rocksdb::SyncPoint::GetInstance()->LoadDependency({
+        {"WritePreparedTxnDB::UpdateSnapshots:p:" + std::to_string(a1),
+         "WritePreparedTxnDB::CheckAgainstSnapshots:s:start"},
+        {"WritePreparedTxnDB::CheckAgainstSnapshots:p:" + std::to_string(b1),
+         "WritePreparedTxnDB::UpdateSnapshots:s:" + std::to_string(a1)},
+        {"WritePreparedTxnDB::UpdateSnapshots:p:" + std::to_string(a2),
+         "WritePreparedTxnDB::CheckAgainstSnapshots:s:" + std::to_string(b1)},
+        {"WritePreparedTxnDB::CheckAgainstSnapshots:p:" + std::to_string(b2),
+         "WritePreparedTxnDB::UpdateSnapshots:s:" + std::to_string(a2)},
+        {"WritePreparedTxnDB::UpdateSnapshots:p:end",
+         "WritePreparedTxnDB::CheckAgainstSnapshots:s:" + std::to_string(b2)},
+    });
+    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+    {
+      ASSERT_TRUE(wp_db->old_commit_map_empty_);
+      rocksdb::port::Thread t1(
+          [&]() { wp_db->UpdateSnapshots(new_snapshots, version); });
+      rocksdb::port::Thread t2([&]() { wp_db->CheckAgainstSnapshots(entry); });
+      t1.join();
+      t2.join();
+      ASSERT_FALSE(wp_db->old_commit_map_empty_);
+    }
+    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  }
 };
 
 INSTANTIATE_TEST_CASE_P(WritePreparedTransactionTest,
@@ -266,28 +338,84 @@ TEST_P(WritePreparedTransactionTest, CheckAgainstSnapshotsTest) {
   }
 }
 
+// Return true if the ith bit is set in combination represented by comb
+bool IsInCombination(size_t i, size_t comb) { return comb & (1 << i); }
+
+// Test that CheckAgainstSnapshots will not miss a live snapshot if it is run in
+// parallel with UpdateSnapshots.
 TEST_P(WritePreparedTransactionTest, SnapshotConcurrentAccessTest) {
-  // will take effect after ReOpen
-  WritePreparedTxnDB::DEF_SNAPSHOT_CACHE_SIZE = 5;
+  // We have a sync point in the method under test after checking each snapshot.
+  // If you increase the max number of snapshots in this test, more sync points
+  // in the methods must also be added.
+  const std::vector<SequenceNumber> snapshots = {10l, 20l, 30l, 40l, 50l,
+                                                 60l, 70l, 80l, 90l, 100l};
+  SequenceNumber version = 1000l;
+  // Choose the cache size so that the new snapshot list could replace all the
+  // existing items in the cache and also have some overflow Will take effect
+  // after ReOpen
+  WritePreparedTxnDB::DEF_SNAPSHOT_CACHE_SIZE = (snapshots.size() - 2) / 2;
   ReOpen();  // to restart the db
   WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
   assert(wp_db);
   assert(wp_db->db_impl_);
-  rocksdb::SyncPoint::GetInstance()->LoadDependency({
-      {"WritePreparedTxnDB::CheckAgainstSnapshots::1",
-       "WritePreparedTxnDB::UpdateSnapshots:1"},
-      {"WritePreparedTxnDB::UpdateSnapshots:2",
-       "WritePreparedTxnDB::CheckAgainstSnapshots::2"},
-  });
-  std::vector<SequenceNumber> snapshots = {100l, 200l, 300l};
-  SequenceNumber version = 400l;
-  rocksdb::port::Thread t1(
-      [&]() { wp_db->UpdateSnapshots(snapshots, version); });
-  CommitEntry entry = {150l, 160l};
-  rocksdb::port::Thread t2([&]() { wp_db->CheckAgainstSnapshots(entry); });
-  t1.join();
-  t2.join();
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  // Add up to 2 items that do not fit into the cache
+  for (size_t old_size = 1;
+       old_size <= WritePreparedTxnDB::DEF_SNAPSHOT_CACHE_SIZE + 2;
+       old_size++) {
+    const std::vector<SequenceNumber> old_snapshots(
+        snapshots.begin(), snapshots.begin() + old_size);
+
+    // Each member of old snapshot might or might not appear in the new list. We
+    // create a common_snapshots for each combination.
+    size_t new_comb_cnt = 1 << old_size;
+    for (size_t new_comb = 0; new_comb < new_comb_cnt; new_comb++) {
+      std::vector<SequenceNumber> common_snapshots;
+      for (size_t i = 0; i < old_snapshots.size(); i++) {
+        if (IsInCombination(i, new_comb)) {
+          common_snapshots.push_back(old_snapshots[i]);
+        }
+      }
+      // And add some new snapshots to the common list
+      for (size_t added_snapshots = 0;
+           added_snapshots <= snapshots.size() - old_snapshots.size();
+           added_snapshots++) {
+        std::vector<SequenceNumber> new_snapshots = common_snapshots;
+        for (size_t i = 0; i < added_snapshots; i++) {
+          new_snapshots.push_back(snapshots[old_snapshots.size() + i]);
+        }
+        for (auto it = common_snapshots.begin(); it != common_snapshots.end();
+             it++) {
+          auto snapshot = *it;
+          // Create a commit entry that is around the snapshot and thus should
+          // be not be discarded
+          CommitEntry entry = {static_cast<uint64_t>(snapshot - 1),
+                               snapshot + 1};
+          // The critical part is when iterating the snapshot cache. Afterwards,
+          // we are operating under the lock
+          size_t a_range =
+              std::min(old_snapshots.size(),
+                       WritePreparedTxnDB::DEF_SNAPSHOT_CACHE_SIZE) +
+              1;
+          size_t b_range =
+              std::min(new_snapshots.size(),
+                       WritePreparedTxnDB::DEF_SNAPSHOT_CACHE_SIZE) +
+              1;
+          // Break each thread at two points
+          for (size_t a1 = 1; a1 <= a_range; a1++) {
+            for (size_t a2 = a1 + 1; a2 <= a_range; a2++) {
+              for (size_t b1 = 1; b1 <= b_range; b1++) {
+                for (size_t b2 = b1 + 1; b2 <= b_range; b2++) {
+                  SnapshotConcurrentAccessTestInternal(wp_db, old_snapshots,
+                                                       new_snapshots, entry,
+                                                       version, a1, a2, b1, b2);
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
 }
 
 // Test WritePreparedTxnDB's IsInSnapshot against different ordering of
