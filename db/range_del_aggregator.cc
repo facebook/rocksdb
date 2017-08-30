@@ -357,7 +357,8 @@ Status RangeDelAggregator::AddTombstone(RangeTombstone tombstone) {
       ++new_range_dels_iter;
     }
   } else {
-    tombstone_map.emplace(tombstone.start_key_, std::move(tombstone));
+    auto start_key = tombstone.start_key_;
+    tombstone_map.emplace(start_key, std::move(tombstone));
   }
   return Status::OK();
 }
