@@ -626,7 +626,10 @@ Status BackupEngineImpl::Initialize() {
     for (auto backup_iter = backups_.rbegin();
          backup_iter != backups_.rend() && valid_backups_to_open > 0;
          ++backup_iter) {
-      latest_backup_id_ = std::max(latest_backup_id_, backup_iter->first);
+      assert(latest_backup_id_ == 0 || latest_backup_id_ > backup_iter->first);
+      if (latest_backup_id_ == 0) {
+        latest_backup_id_ = backup_iter->first;
+      }
       InsertPathnameToSizeBytes(
           GetAbsolutePath(GetPrivateFileRel(backup_iter->first)), backup_env_,
           &abs_path_to_size);
@@ -647,8 +650,11 @@ Status BackupEngineImpl::Initialize() {
         ROCKS_LOG_INFO(options_.info_log, "Loading backup %" PRIu32 " OK:\n%s",
                        backup_iter->first,
                        backup_iter->second->GetInfoString().c_str());
-        latest_valid_backup_id_ =
-            std::max(latest_valid_backup_id_, backup_iter->first);
+        assert(latest_valid_backup_id_ == 0 ||
+               latest_valid_backup_id_ > backup_iter->first);
+        if (latest_valid_backup_id_ == 0) {
+          latest_valid_backup_id_ = backup_iter->first;
+        }
         --valid_backups_to_open;
       }
     }
