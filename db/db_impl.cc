@@ -130,6 +130,8 @@ void DumpSupportInfo(Logger* logger) {
   ROCKS_LOG_HEADER(logger, "\tZlib supported: %d", Zlib_Supported());
   ROCKS_LOG_HEADER(logger, "\tBzip supported: %d", BZip2_Supported());
   ROCKS_LOG_HEADER(logger, "\tLZ4 supported: %d", LZ4_Supported());
+  ROCKS_LOG_HEADER(logger, "\tZSTDNotFinal supported: %d",
+                   ZSTDNotFinal_Supported());
   ROCKS_LOG_HEADER(logger, "\tZSTD supported: %d", ZSTD_Supported());
   ROCKS_LOG_HEADER(logger, "Fast CRC32 supported: %d",
                    crc32c::IsFastCrc32Supported());
