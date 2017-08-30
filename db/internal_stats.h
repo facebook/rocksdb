@@ -44,8 +44,7 @@ struct DBPropertyInfo {
                                     Version* version);
 
   // @param props Map of general properties to populate
-  bool (InternalStats::*handle_map)(
-      std::map<std::string, std::string>* props);
+  bool (InternalStats::*handle_map)(std::map<std::string, std::string>* props);
 };
 
 extern const DBPropertyInfo* GetPropertyInfo(const Slice& property);

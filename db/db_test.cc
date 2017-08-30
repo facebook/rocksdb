@@ -2324,10 +2324,9 @@ class ModelDB : public DB {
     return false;
   }
   using DB::GetMapProperty;
-  virtual bool GetMapProperty(ColumnFamilyHandle* column_family,
-                              const Slice& property,
-                              std::map<std::string, std::string>* value
-                              ) override {
+  virtual bool GetMapProperty(
+      ColumnFamilyHandle* column_family, const Slice& property,
+      std::map<std::string, std::string>* value) override {
     return false;
   }
   using DB::GetAggregatedIntProperty;
