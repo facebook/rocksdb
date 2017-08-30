@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 5.7.3 (08/29/2017)
+### Bug Fixes
+* Fix transient reappearance of keys covered by range deletions when memtable prefix bloom filter is enabled.
+
 ## 5.7.2 (08/15/2017)
 ### Bug Fixes
 * Fix incorrect dropping of deletions issue with FIFO compaction.
