@@ -5,6 +5,11 @@
 
 #ifndef ROCKSDB_LITE
 
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
+#include <inttypes.h>
 #include <algorithm>
 #include <functional>
 #include <string>
@@ -4734,8 +4739,10 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
   WriteOptions wo;
   // Use small commit cache to trigger lots of eviction and fast advance of
   // max_evicted_seq_
-  WritePreparedTxnDB::DEF_COMMIT_CACHE_SIZE =
-      8;  // will take effect after ReOpen
+  // will take effect after ReOpen
+  WritePreparedTxnDB::DEF_COMMIT_CACHE_SIZE = 8;
+  // Same for snapshot cache size
+  WritePreparedTxnDB::DEF_SNAPSHOT_CACHE_SIZE = 5;
 
   // Take some preliminary snapshots first. This is to stress the data structure
   // that holds the old snapshots as it will be designed to be efficient when
@@ -4755,6 +4762,7 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
       uint64_t cur_txn = 0;
       // Number of snapshots taken so far
       int num_snapshots = 0;
+      std::vector<const Snapshot*> to_be_released;
       // Number of gaps applied so far
       int gap_cnt = 0;
       // The final snapshot that we will inspect
@@ -4800,14 +4808,17 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
 
         if (num_snapshots < max_snapshots - 1) {
           // Take preliminary snapshots
-          db->GetSnapshot();
+          auto tmp_snapshot = db->GetSnapshot();
+          to_be_released.push_back(tmp_snapshot);
           num_snapshots++;
         } else if (gap_cnt < max_gap) {
           // Wait for some gap before taking the final snapshot
           gap_cnt++;
         } else if (!snapshot) {
           // Take the final snapshot if it is not already taken
-          snapshot = db->GetSnapshot()->GetSequenceNumber();
+          auto tmp_snapshot = db->GetSnapshot();
+          to_be_released.push_back(tmp_snapshot);
+          snapshot = tmp_snapshot->GetSequenceNumber();
           // We increase the db seq artificailly by a dummy Put. Check that this
           // technique is effective and db seq is that same as ours.
           ASSERT_EQ(snapshot, seq);
@@ -4823,11 +4834,12 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
                 (committed_before.find(s) != committed_before.end());
             bool is_in_snapshot = wp_db->IsInSnapshot(s, snapshot);
             if (was_committed != is_in_snapshot) {
-              printf(
-                  "max_snapshots %d max_gap %d seq %lu max %lu snapshot %lu "
-                  "gap_cnt %d num_snapshots %d\n",
-                  max_snapshots, max_gap, seq, wp_db->max_evicted_seq_.load(),
-                  snapshot, gap_cnt, num_snapshots);
+              printf("max_snapshots %d max_gap %d seq %" PRIu64 " max %" PRIu64
+                     " snapshot %" PRIu64
+                     " gap_cnt %d num_snapshots %d s %" PRIu64 "\n",
+                     max_snapshots, max_gap, seq,
+                     wp_db->max_evicted_seq_.load(), snapshot, gap_cnt,
+                     num_snapshots, s);
             }
             ASSERT_EQ(was_committed, is_in_snapshot);
             found_committed = found_committed || is_in_snapshot;
@@ -4846,6 +4858,9 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
       }
       ASSERT_TRUE(wp_db->delayed_prepared_.empty());
       ASSERT_TRUE(wp_db->prepared_txns_.empty());
+      for (auto s : to_be_released) {
+        db->ReleaseSnapshot(s);
+      }
     }
   }
 }

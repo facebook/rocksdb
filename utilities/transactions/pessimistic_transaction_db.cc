@@ -5,8 +5,13 @@
 
 #ifndef ROCKSDB_LITE
 
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
 #include "utilities/transactions/pessimistic_transaction_db.h"
 
+#include <inttypes.h>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -34,6 +39,7 @@ PessimisticTransactionDB::PessimisticTransactionDB(
                     : std::shared_ptr<TransactionDBMutexFactory>(
                           new TransactionDBMutexFactoryImpl())) {
   assert(db_impl_ != nullptr);
+  info_log_ = db_impl_->GetDBOptions().info_log;
 }
 
 // Support initiliazing PessimisticTransactionDB from a stackable db
@@ -581,16 +587,23 @@ bool WritePreparedTxnDB::IsInSnapshot(uint64_t prep_seq,
   return false;
 }
 
-void WritePreparedTxnDB::AddPrepared(uint64_t seq) { prepared_txns_.push(seq); }
+void WritePreparedTxnDB::AddPrepared(uint64_t seq) {
+  ROCKS_LOG_DEBUG(info_log_, "Txn %" PRIu64 " Prepareing", seq);
+  WriteLock wl(&prepared_mutex_);
+  prepared_txns_.push(seq);
+}
 
 void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq,
                                       uint64_t commit_seq) {
+  ROCKS_LOG_DEBUG(info_log_, "Txn %" PRIu64 " Committing with %" PRIu64,
+                  prepare_seq, commit_seq);
   auto indexed_seq = prepare_seq % COMMIT_CACHE_SIZE;
   CommitEntry evicted;
   bool to_be_evicted = GetCommitEntry(indexed_seq, &evicted);
   if (to_be_evicted) {
     auto prev_max = max_evicted_seq_.load(std::memory_order_acquire);
     if (prev_max < evicted.commit_seq) {
+      // TODO(myabandeh) inc max in larger steps to avoid frequent updates
       auto max_evicted_seq = evicted.commit_seq;
       // When max_evicted_seq_ advances, move older entries from prepared_txns_
       // to delayed_prepared_. This guarantees that if a seq is lower than max,
@@ -607,11 +620,59 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq,
           delayed_prepared_empty_.store(false, std::memory_order_release);
         }
       }
+
       // With each change to max_evicted_seq_ fetch the live snapshots behind it
+      SequenceNumber curr_seq;
+      std::vector<SequenceNumber> all_snapshots;
+      bool update_snapshots = false;
       {
-        WriteLock wl(&snapshots_mutex_);
         InstrumentedMutex(db_impl_->mutex());
-        snapshots_ = db_impl_->snapshots().GetAll();
+        // We use this to identify how fresh are the snapshot list. Since this
+        // is done atomically with obtaining the snapshot list, the one with
+        // the larger seq is more fresh. If the seq is equal the full snapshot
+        // list could be different since taking snapshots does not increase
+        // the db seq. However since we only care about snapshots before the
+        // new max, such recent snapshots would not be included the in the
+        // list anyway.
+        curr_seq = db_impl_->GetLatestSequenceNumber();
+        if (curr_seq > snapshots_version_) {
+          // This is to avoid updating the snapshots_ if it already updated
+          // with a more recent vesion by a concrrent thread
+          update_snapshots = true;
+          // We only care about snapshots lower then max
+          all_snapshots =
+              db_impl_->snapshots().GetAll(nullptr, max_evicted_seq);
+        }
+      }
+      if (update_snapshots) {
+        WriteLock wl(&snapshots_mutex_);
+        snapshots_version_ = curr_seq;
+        // We update the list concurrently with the readers.
+        // Both new and old lists are sorted and the new list is subset of the
+        // previous list plus some new items. Thus if a snapshot repeats in
+        // both new and old lists, it will appear upper in the new list. So if
+        // we simply insert the new snapshots in order, if an overwritten item
+        // is still valid in the new list is either written to the same place in
+        // the array or it is written in a higher palce before it gets
+        // overwritten by another item. This guarantess a reader that reads the
+        // list bottom-up will eventaully see a snapshot that repeats in the
+        // update, either before it gets overwritten by the writer or
+        // afterwards.
+        size_t i = 0;
+        auto it = all_snapshots.begin();
+        for (; it != all_snapshots.end() && i < SNAPSHOT_CACHE_SIZE;
+             it++, i++) {
+          snapshot_cache_[i].store(*it, std::memory_order_release);
+        }
+        snapshots_.clear();
+        for (; it != all_snapshots.end(); it++) {
+          // Insert them to a vector that is less efficient to access
+          // concurrently
+          snapshots_.push_back(*it);
+        }
+        // Update the size at the end. Otherwise a parallel reader might read
+        // items that are not set yet.
+        snapshots_total_.store(all_snapshots.size(), std::memory_order_release);
       }
       while (prev_max < max_evicted_seq &&
              !max_evicted_seq_.compare_exchange_weak(
@@ -621,17 +682,41 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq,
     }
     // After each eviction from commit cache, check if the commit entry should
     // be kept around because it overlaps with a live snapshot.
-    {
+    // First check the snapshot cache that is efficient for concurrent access
+    auto cnt = snapshots_total_.load(std::memory_order_acquire);
+    // The list might get updated concurrently as we are reading from it. The
+    // reader should be able to read all the snapshots that are still valid
+    // after the update. Since the survived snapshots are written in a higher
+    // place before gets overwritten the reader that reads bottom-up will
+    // eventully see it.
+    const bool next_is_larger = true;
+    SequenceNumber snapshot_seq = kMaxSequenceNumber;
+    size_t ip1 = std::min(cnt, SNAPSHOT_CACHE_SIZE);
+    for (; 0 < ip1; ip1--) {
+      snapshot_seq = snapshot_cache_[ip1 - 1].load(std::memory_order_acquire);
+      if (!MaybeUpdateOldCommitMap(evicted.prep_seq, evicted.commit_seq,
+                                   snapshot_seq, !next_is_larger)) {
+        break;
+      }
+    }
+    if (UNLIKELY(SNAPSHOT_CACHE_SIZE < cnt && ip1 == SNAPSHOT_CACHE_SIZE &&
+                 snapshot_seq < evicted.prep_seq)) {
+      // Then access the less efficient list of snapshots_
       ReadLock rl(&snapshots_mutex_);
-      for (auto snapshot_seq : snapshots_) {
-        if (evicted.commit_seq <= snapshot_seq) {
+      // Items could have moved from the snapshots_ to snapshot_cache_ before
+      // accquiring the lock. To make sure that we do not miss a valid snapshot,
+      // read snapshot_cache_ again while holding the lock.
+      for (size_t i = 0; i < SNAPSHOT_CACHE_SIZE; i++) {
+        snapshot_seq = snapshot_cache_[i].load(std::memory_order_acquire);
+        if (!MaybeUpdateOldCommitMap(evicted.prep_seq, evicted.commit_seq,
+                                     snapshot_seq, next_is_larger)) {
           break;
         }
-        // then snapshot_seq < evicted.commit_seq
-        if (evicted.prep_seq <= snapshot_seq) {  // overlapping range
-          WriteLock wl(&old_commit_map_mutex_);
-          old_commit_map_empty_.store(false, std::memory_order_release);
-          old_commit_map_[evicted.prep_seq] = evicted.commit_seq;
+      }
+      for (auto snapshot_seq_2 : snapshots_) {
+        if (!MaybeUpdateOldCommitMap(evicted.prep_seq, evicted.commit_seq,
+                                     snapshot_seq_2, next_is_larger)) {
+          break;
         }
       }
     }
@@ -691,7 +776,31 @@ bool WritePreparedTxnDB::ExchangeCommitEntry(uint64_t indexed_seq,
 }
 
 // 10m entry, 80MB size
-uint64_t WritePreparedTxnDB::DEF_COMMIT_CACHE_SIZE =
-    static_cast<uint64_t>(1 << 21);
+size_t WritePreparedTxnDB::DEF_COMMIT_CACHE_SIZE = static_cast<size_t>(1 << 21);
+size_t WritePreparedTxnDB::DEF_SNAPSHOT_CACHE_SIZE =
+    static_cast<size_t>(1 << 7);
+
+bool WritePreparedTxnDB::MaybeUpdateOldCommitMap(
+    const uint64_t& prep_seq, const uint64_t& commit_seq,
+    const uint64_t& snapshot_seq, const bool next_is_larger = true) {
+  // If we do not store an entry in old_commit_map we assume it is committed in
+  // all snapshots. if commit_seq <= snapshot_seq, it is considered already in
+  // the snapshot so we need not to keep the entry around for this snapshot.
+  if (commit_seq <= snapshot_seq) {
+    // continue the search if the next snapshot could be smaller than commit_seq
+    return !next_is_larger;
+  }
+  // then snapshot_seq < commit_seq
+  if (prep_seq <= snapshot_seq) {  // overlapping range
+    WriteLock wl(&old_commit_map_mutex_);
+    old_commit_map_empty_.store(false, std::memory_order_release);
+    old_commit_map_[prep_seq] = commit_seq;
+    // Storing once is enough. No need to check it for other snapshots.
+    return false;
+  }
+  // continue the search if the next snapshot could be larger than prep_seq
+  return next_is_larger;
+}
+
 }  //  namespace rocksdb
 #endif  // ROCKSDB_LITE

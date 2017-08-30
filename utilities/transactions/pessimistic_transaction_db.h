@@ -107,6 +107,8 @@ class PessimisticTransactionDB : public TransactionDB {
   struct CommitEntry {
     uint64_t prep_seq;
     uint64_t commit_seq;
+    CommitEntry() : prep_seq(0), commit_seq(0) {}
+    CommitEntry(uint64_t ps, uint64_t cs) : prep_seq(ps), commit_seq(cs) {}
   };
 
  protected:
@@ -114,8 +116,10 @@ class PessimisticTransactionDB : public TransactionDB {
       Transaction* txn, const WriteOptions& write_options,
       const TransactionOptions& txn_options = TransactionOptions());
   DBImpl* db_impl_;
+  std::shared_ptr<Logger> info_log_;
 
  private:
+  friend class WritePreparedTxnDB;
   const TransactionDBOptions txn_db_options_;
   TransactionLockMgr lock_mgr_;
 
@@ -162,6 +166,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   explicit WritePreparedTxnDB(DB* db,
                               const TransactionDBOptions& txn_db_options)
       : PessimisticTransactionDB(db, txn_db_options),
+        SNAPSHOT_CACHE_SIZE(DEF_SNAPSHOT_CACHE_SIZE),
         COMMIT_CACHE_SIZE(DEF_COMMIT_CACHE_SIZE) {
     init(txn_db_options);
   }
@@ -169,6 +174,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   explicit WritePreparedTxnDB(StackableDB* db,
                               const TransactionDBOptions& txn_db_options)
       : PessimisticTransactionDB(db, txn_db_options),
+        SNAPSHOT_CACHE_SIZE(DEF_SNAPSHOT_CACHE_SIZE),
         COMMIT_CACHE_SIZE(DEF_COMMIT_CACHE_SIZE) {
     init(txn_db_options);
   }
@@ -192,6 +198,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   friend class WritePreparedTransactionTest_IsInSnapshotTest_Test;
 
   void init(const TransactionDBOptions& /* unused */) {
+    snapshot_cache_ = unique_ptr<std::atomic<SequenceNumber>[]>(
+        new std::atomic<SequenceNumber>[SNAPSHOT_CACHE_SIZE] {});
     commit_cache_ =
         unique_ptr<CommitEntry[]>(new CommitEntry[COMMIT_CACHE_SIZE]{});
   }
@@ -199,8 +207,10 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // A heap with the amortized O(1) complexity for erase. It uses one extra heap
   // to keep track of erased entries that are not yet on top of the main heap.
   class PreparedHeap {
-    std::priority_queue<uint64_t> heap_;
-    std::priority_queue<uint64_t> erased_heap_;
+    std::priority_queue<uint64_t, std::vector<uint64_t>, std::greater<uint64_t>>
+        heap_;
+    std::priority_queue<uint64_t, std::vector<uint64_t>, std::greater<uint64_t>>
+        erased_heap_;
 
    public:
     bool empty() { return heap_.empty(); }
@@ -216,7 +226,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
     }
     void erase(uint64_t seq) {
       if (!heap_.empty()) {
-        if (heap_.top() < seq) {
+        if (seq < heap_.top()) {
           // Already popped, ignore it.
         } else if (heap_.top() == seq) {
           heap_.pop();
@@ -242,15 +252,42 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   bool ExchangeCommitEntry(uint64_t indexed_seq, CommitEntry& expected_entry,
                            CommitEntry new_entry);
 
+  // Add a new entry to old_commit_map_ if prep_seq <= snapshot_seq <
+  // commit_seq. Return false if checking the next snapshot(s) is not needed.
+  // This is the case if the entry already added to old_commit_map_ or none of
+  // the next snapshots could satisfy the condition. next_is_larger: the next
+  // snapshot will be a larger value
+  bool MaybeUpdateOldCommitMap(const uint64_t& prep_seq,
+                               const uint64_t& commit_seq,
+                               const uint64_t& snapshot_seq,
+                               const bool next_is_larger);
+
   // The list of live snapshots at the last time that max_evicted_seq_ advanced.
-  // The list sorted in ascending order. Thread-safety is provided with
-  // snapshots_mutex_.
+  // The list stored into two data structures: in snapshot_cache_ that is
+  // efficient for concurrent reads, and in snapshots_ if the data does not fit
+  // into snapshot_cache_. The total number of snapshots in the two lists
+  std::atomic<size_t> snapshots_total_ = {};
+  // The list sorted in ascending order. Thread-safety for writes is provided
+  // with snapshots_mutex_ and concurrent reads are safe due to std::atomic for
+  // each entry. In x86_64 architecture such reads are compiled to simple read
+  // instructions. 128 entries
+  // TODO(myabandeh): avoid non-const static variables
+  static size_t DEF_SNAPSHOT_CACHE_SIZE;
+  const size_t SNAPSHOT_CACHE_SIZE;
+  unique_ptr<std::atomic<SequenceNumber>[]> snapshot_cache_;
+  // 2nd list for storing snapshots. The list sorted in ascending order.
+  // Thread-safety is provided with snapshots_mutex_.
   std::vector<SequenceNumber> snapshots_;
+  // The version of the latest list of snapshots. This can be used to avoid
+  // rewrittiing a list that is concurrently updated with a more recent version.
+  SequenceNumber snapshots_version_ = 0;
+
   // A heap of prepared transactions. Thread-safety is provided with
   // prepared_mutex_.
   PreparedHeap prepared_txns_;
-  static uint64_t DEF_COMMIT_CACHE_SIZE;
-  const uint64_t COMMIT_CACHE_SIZE;
+  // TODO(myabandeh): avoid non-const static variables
+  static size_t DEF_COMMIT_CACHE_SIZE;
+  const size_t COMMIT_CACHE_SIZE;
   // commit_cache_ must be initialized to zero to tell apart an empty index from
   // a filled one. Thread-safety is provided with commit_cache_mutex_.
   unique_ptr<CommitEntry[]> commit_cache_;

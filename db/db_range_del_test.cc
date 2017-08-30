@@ -962,6 +962,40 @@ TEST_F(DBRangeDelTest, CompactionTreatsSplitInputLevelDeletionAtomically) {
   }
 }
 
+TEST_F(DBRangeDelTest, UnorderedTombstones) {
+  // Regression test for #2752. Range delete tombstones between
+  // different snapshot stripes are not stored in order, so the first
+  // tombstone of each snapshot stripe should be checked as a smallest
+  // candidate.
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+
+  auto cf = db_->DefaultColumnFamily();
+
+  ASSERT_OK(db_->Put(WriteOptions(), cf, "a", "a"));
+  ASSERT_OK(db_->Flush(FlushOptions(), cf));
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+  ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr));
+  ASSERT_EQ(1, NumTableFilesAtLevel(1));
+
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), cf, "b", "c"));
+  // Hold a snapshot to separate these two delete ranges.
+  auto snapshot = db_->GetSnapshot();
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), cf, "a", "b"));
+  ASSERT_OK(db_->Flush(FlushOptions(), cf));
+  db_->ReleaseSnapshot(snapshot);
+
+  std::vector<std::vector<FileMetaData>> files;
+  dbfull()->TEST_GetFilesMetaData(cf, &files);
+  ASSERT_EQ(1, files[0].size());
+  ASSERT_EQ("a", files[0][0].smallest.user_key());
+  ASSERT_EQ("c", files[0][0].largest.user_key());
+
+  std::string v;
+  auto s = db_->Get(ReadOptions(), "a", &v);
+  ASSERT_TRUE(s.IsNotFound());
+}
+
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb
