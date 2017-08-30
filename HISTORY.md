@@ -2,6 +2,7 @@
 ## 5.7.3 (08/29/2017)
 ### Bug Fixes
 * Fix transient reappearance of keys covered by range deletions when memtable prefix bloom filter is enabled.
+* Fix potentially wrong file smallest key when range deletions separated by snapshot are written together.
 
 ## 5.7.2 (08/15/2017)
 ### Bug Fixes
