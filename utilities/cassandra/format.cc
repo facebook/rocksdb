@@ -237,7 +237,7 @@ void RowValue::Serialize(std::string* dest) const {
   }
 }
 
-RowValue RowValue::PurgeTtl(bool* changed) const {
+RowValue RowValue::RemoveExpiredColumns(bool* changed) const {
   *changed = false;
   Columns new_columns;
   for (auto& column : columns_) {
@@ -256,7 +256,7 @@ RowValue RowValue::PurgeTtl(bool* changed) const {
   return RowValue(std::move(new_columns), last_modified_time_);
 }
 
-RowValue RowValue::ExpireTtl(bool* changed) const {
+RowValue RowValue::ConvertExpiredColumnsToTombstones(bool* changed) const {
   *changed = false;
   Columns new_columns;
   for (auto& column : columns_) {
@@ -276,7 +276,7 @@ RowValue RowValue::ExpireTtl(bool* changed) const {
   return RowValue(std::move(new_columns), last_modified_time_);
 }
 
-RowValue RowValue::GC(int32_t gc_grace_period) const {
+RowValue RowValue::RemoveTombstones(int32_t gc_grace_period) const {
   Columns new_columns;
   for (auto& column : columns_) {
     if(column->Mask() == ColumnTypeMask::DELETION_MASK) {

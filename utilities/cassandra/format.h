@@ -163,9 +163,9 @@ public:
   // otherwise it returns the max timestamp of containing columns.
   int64_t LastModifiedTime() const;
   void Serialize(std::string* dest) const;
-  RowValue PurgeTtl(bool* changed) const;
-  RowValue ExpireTtl(bool* changed) const;
-  RowValue GC(int32_t gc_grace_period) const;
+  RowValue RemoveExpiredColumns(bool* changed) const;
+  RowValue ConvertExpiredColumnsToTombstones(bool* changed) const;
+  RowValue RemoveTombstones(int32_t gc_grace_period) const;
   bool Empty() const;
 
   static RowValue Deserialize(const char* src, std::size_t size);

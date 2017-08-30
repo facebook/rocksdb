@@ -41,7 +41,7 @@ bool CassandraValueMergeOperator::FullMergeV2(
   }
 
   RowValue merged = RowValue::Merge(std::move(row_values));
-  merged = merged.GC(gc_grace_period_in_seconds_);
+  merged = merged.RemoveTombstones(gc_grace_period_in_seconds_);
   merge_out->new_value.reserve(merged.Size());
   merged.Serialize(&(merge_out->new_value));
 

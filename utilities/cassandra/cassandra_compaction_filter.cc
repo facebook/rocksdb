@@ -28,8 +28,8 @@ CompactionFilter::Decision CassandraCompactionFilter::FilterV2(
   RowValue row_value = RowValue::Deserialize(
     existing_value.data(), existing_value.size());
   RowValue compacted = purge_ttl_on_expiration_ ?
-    row_value.PurgeTtl(&value_changed) :
-    row_value.ExpireTtl(&value_changed);
+    row_value.RemoveExpiredColumns(&value_changed) :
+    row_value.ConvertExpiredColumnsToTombstones(&value_changed);
 
   if(compacted.Empty()) {
     return Decision::kRemove;
