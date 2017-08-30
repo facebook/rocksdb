@@ -617,19 +617,18 @@ Status BackupEngineImpl::Initialize() {
     }
     // load the backups if any, until valid_backups_to_open of the latest
     // non-corrupted backups have been successfully opened.
-    int valid_backups_to_open;
-    if (options_.max_valid_backups_to_open == 0) {
-      valid_backups_to_open = INT_MAX;
-    } else {
-      valid_backups_to_open = options_.max_valid_backups_to_open;
-    }
+    int valid_backups_to_open = options_.max_valid_backups_to_open;
     for (auto backup_iter = backups_.rbegin();
-         backup_iter != backups_.rend() && valid_backups_to_open > 0;
+         backup_iter != backups_.rend();
          ++backup_iter) {
       assert(latest_backup_id_ == 0 || latest_backup_id_ > backup_iter->first);
       if (latest_backup_id_ == 0) {
         latest_backup_id_ = backup_iter->first;
       }
+      if (valid_backups_to_open == 0) {
+        break;
+      }
+
       InsertPathnameToSizeBytes(
           GetAbsolutePath(GetPrivateFileRel(backup_iter->first)), backup_env_,
           &abs_path_to_size);
