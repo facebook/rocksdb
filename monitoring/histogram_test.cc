@@ -85,6 +85,15 @@ TEST_F(HistogramTest, BasicOperation) {
   BasicOperation(histogramWindowing);
 }
 
+TEST_F(HistogramTest, BoundaryValue) {
+  HistogramImpl histogram;
+  // both should be in [0, 1], never (1, 2].
+  histogram.Add(0);
+  histogram.Add(1);
+
+  ASSERT_LE(fabs(histogram.Percentile(50.0) - 0.5), kIota);
+}
+
 TEST_F(HistogramTest, MergeHistogram) {
   HistogramImpl histogram;
   HistogramImpl other;
