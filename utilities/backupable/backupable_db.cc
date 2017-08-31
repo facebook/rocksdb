@@ -114,7 +114,7 @@ class BackupEngineImpl : public BackupEngine {
   Status RestoreDBFromLatestBackup(
       const std::string& db_dir, const std::string& wal_dir,
       const RestoreOptions& restore_options = RestoreOptions()) override {
-    return RestoreDBFromBackup(latest_backup_id_, db_dir, wal_dir,
+    return RestoreDBFromBackup(latest_valid_backup_id_, db_dir, wal_dir,
                                restore_options);
   }
 
@@ -452,6 +452,7 @@ class BackupEngineImpl : public BackupEngine {
 
   // backup state data
   BackupID latest_backup_id_;
+  BackupID latest_valid_backup_id_;
   std::map<BackupID, unique_ptr<BackupMeta>> backups_;
   std::map<BackupID,
            std::pair<Status, unique_ptr<BackupMeta>>> corrupt_backups_;
@@ -593,6 +594,7 @@ Status BackupEngineImpl::Initialize() {
   }
 
   latest_backup_id_ = 0;
+  latest_valid_backup_id_ = 0;
   if (options_.destroy_old_data) {  // Destroy old data
     assert(!read_only_);
     ROCKS_LOG_INFO(
@@ -624,6 +626,10 @@ Status BackupEngineImpl::Initialize() {
     for (auto backup_iter = backups_.rbegin();
          backup_iter != backups_.rend() && valid_backups_to_open > 0;
          ++backup_iter) {
+      assert(latest_backup_id_ == 0 || latest_backup_id_ > backup_iter->first);
+      if (latest_backup_id_ == 0) {
+        latest_backup_id_ = backup_iter->first;
+      }
       InsertPathnameToSizeBytes(
           GetAbsolutePath(GetPrivateFileRel(backup_iter->first)), backup_env_,
           &abs_path_to_size);
@@ -644,7 +650,11 @@ Status BackupEngineImpl::Initialize() {
         ROCKS_LOG_INFO(options_.info_log, "Loading backup %" PRIu32 " OK:\n%s",
                        backup_iter->first,
                        backup_iter->second->GetInfoString().c_str());
-        latest_backup_id_ = std::max(latest_backup_id_, backup_iter->first);
+        assert(latest_valid_backup_id_ == 0 ||
+               latest_valid_backup_id_ > backup_iter->first);
+        if (latest_valid_backup_id_ == 0) {
+          latest_valid_backup_id_ = backup_iter->first;
+        }
         --valid_backups_to_open;
       }
     }
@@ -668,6 +678,8 @@ Status BackupEngineImpl::Initialize() {
   }
 
   ROCKS_LOG_INFO(options_.info_log, "Latest backup is %u", latest_backup_id_);
+  ROCKS_LOG_INFO(options_.info_log, "Latest valid backup is %u",
+                 latest_valid_backup_id_);
 
   // set up threads perform copies from files_to_copy_or_create_ in the
   // background
@@ -877,6 +889,7 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
   // here we know that we succeeded and installed the new backup
   // in the LATEST_BACKUP file
   latest_backup_id_ = new_backup_id;
+  latest_valid_backup_id_ = new_backup_id;
   ROCKS_LOG_INFO(options_.info_log, "Backup DONE. All is good");
 
   // backup_speed is in byte/second
