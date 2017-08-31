@@ -339,7 +339,7 @@ TEST_P(WritePreparedTransactionTest, CheckAgainstSnapshotsTest) {
 }
 
 // Return true if the ith bit is set in combination represented by comb
-bool IsInCombination(size_t i, size_t comb) { return comb & (1 << i); }
+bool IsInCombination(size_t i, size_t comb) { return comb & (size_t(1) << i); }
 
 // Test that CheckAgainstSnapshots will not miss a live snapshot if it is run in
 // parallel with UpdateSnapshots.
@@ -367,7 +367,7 @@ TEST_P(WritePreparedTransactionTest, SnapshotConcurrentAccessTest) {
 
     // Each member of old snapshot might or might not appear in the new list. We
     // create a common_snapshots for each combination.
-    size_t new_comb_cnt = static_cast<size_t>(1 << old_size);
+    size_t new_comb_cnt = size_t(1) << old_size;
     for (size_t new_comb = 0; new_comb < new_comb_cnt; new_comb++) {
       std::vector<SequenceNumber> common_snapshots;
       for (size_t i = 0; i < old_snapshots.size(); i++) {
