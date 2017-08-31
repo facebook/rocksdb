@@ -109,6 +109,9 @@ class PessimisticTransactionDB : public TransactionDB {
     uint64_t commit_seq;
     CommitEntry() : prep_seq(0), commit_seq(0) {}
     CommitEntry(uint64_t ps, uint64_t cs) : prep_seq(ps), commit_seq(cs) {}
+    bool operator==(const CommitEntry& rhs) const {
+      return prep_seq == rhs.prep_seq && commit_seq == rhs.commit_seq;
+    }
   };
 
  protected:
@@ -196,6 +199,11 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
 
  private:
   friend class WritePreparedTransactionTest_IsInSnapshotTest_Test;
+  friend class WritePreparedTransactionTest_CheckAgainstSnapshotsTest_Test;
+  friend class WritePreparedTransactionTest_CommitMapTest_Test;
+  friend class WritePreparedTransactionTest_SnapshotConcurrentAccessTest_Test;
+  friend class WritePreparedTransactionTest;
+  friend class PreparedHeap_BasicsTest_Test;
 
   void init(const TransactionDBOptions& /* unused */) {
     snapshot_cache_ = unique_ptr<std::atomic<SequenceNumber>[]>(
@@ -223,13 +231,16 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
         heap_.pop();
         erased_heap_.pop();
       }
+      while (heap_.empty() && !erased_heap_.empty()) {
+        erased_heap_.pop();
+      }
     }
     void erase(uint64_t seq) {
       if (!heap_.empty()) {
         if (seq < heap_.top()) {
           // Already popped, ignore it.
         } else if (heap_.top() == seq) {
-          heap_.pop();
+          pop();
         } else {  // (heap_.top() > seq)
           // Down the heap, remember to pop it later
           erased_heap_.push(seq);
@@ -240,17 +251,45 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
 
   // Get the commit entry with index indexed_seq from the commit table. It
   // returns true if such entry exists.
-  bool GetCommitEntry(uint64_t indexed_seq, CommitEntry* entry);
+  bool GetCommitEntry(const uint64_t indexed_seq, CommitEntry* entry);
+
   // Rewrite the entry with the index indexed_seq in the commit table with the
   // commit entry <prep_seq, commit_seq>. If the rewrite results into eviction,
   // sets the evicted_entry and returns true.
-  bool AddCommitEntry(uint64_t indexed_seq, CommitEntry& new_entry,
+  bool AddCommitEntry(const uint64_t indexed_seq, const CommitEntry& new_entry,
                       CommitEntry* evicted_entry);
+
   // Rewrite the entry with the index indexed_seq in the commit table with the
   // commit entry new_entry only if the existing entry matches the
   // expected_entry. Returns false otherwise.
-  bool ExchangeCommitEntry(uint64_t indexed_seq, CommitEntry& expected_entry,
-                           CommitEntry new_entry);
+  bool ExchangeCommitEntry(const uint64_t indexed_seq,
+                           const CommitEntry& expected_entry,
+                           const CommitEntry& new_entry);
+
+  // Increase max_evicted_seq_ from the previous value prev_max to the new
+  // value. This also involves taking care of prepared txns that are not
+  // committed before new_max, as well as updating the list of live snapshots at
+  // the time of updating the max. Thread-safety: this function can be called
+  // concurrently. The concurrent invocations of this function is equivalent to
+  // a serial invocation in which the last invocation is the one with the
+  // largetst new_max value.
+  void AdvanceMaxEvictedSeq(SequenceNumber& prev_max, SequenceNumber& new_max);
+
+  // Update the list of snapshots corresponding to the soon-to-be-updated
+  // max_eviceted_seq_. Thread-safety: this function can be called concurrently.
+  // The concurrent invocations of this function is equivalent to a serial
+  // invocation in which the last invocation is the one with the largetst
+  // version value.
+  void UpdateSnapshots(const std::vector<SequenceNumber>& snapshots,
+                       const SequenceNumber& version);
+
+  // Check an evicted entry against live snapshots to see if it should be kept
+  // around or it can be safely discarded (and hence assume committed for all
+  // snapshots). Thread-safety: this function can be called concurrently. If it
+  // is called concurrently with multiple UpdateSnapshots, the result is the
+  // same as checking the intersection of the snapshot list before updates with
+  // the snapshot list of all the concurrent updates.
+  void CheckAgainstSnapshots(const CommitEntry& evicted);
 
   // Add a new entry to old_commit_map_ if prep_seq <= snapshot_seq <
   // commit_seq. Return false if checking the next snapshot(s) is not needed.
