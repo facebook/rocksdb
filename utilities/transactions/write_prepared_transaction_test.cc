@@ -40,7 +40,7 @@ using std::string;
 
 namespace rocksdb {
 
-typedef PessimisticTransactionDB::CommitEntry CommitEntry;
+using CommitEntry = PessimisticTransactionDB::CommitEntry;
 
 TEST(PreparedHeap, BasicsTest) {
   WritePreparedTxnDB::PreparedHeap heap;
@@ -367,7 +367,7 @@ TEST_P(WritePreparedTransactionTest, SnapshotConcurrentAccessTest) {
 
     // Each member of old snapshot might or might not appear in the new list. We
     // create a common_snapshots for each combination.
-    size_t new_comb_cnt = 1 << old_size;
+    size_t new_comb_cnt = static_cast<size_t>(1 << old_size);
     for (size_t new_comb = 0; new_comb < new_comb_cnt; new_comb++) {
       std::vector<SequenceNumber> common_snapshots;
       for (size_t i = 0; i < old_snapshots.size(); i++) {
