@@ -423,6 +423,9 @@ TEST_P(WritePreparedTransactionTest, SnapshotConcurrentAccessTest) {
 }
 #endif
 
+TEST_P(WritePreparedTransactionTest, AdvanceMaxEvictedSeqBasicTest) {
+}
+
 // Test WritePreparedTxnDB's IsInSnapshot against different ordering of
 // snapshot, max_committed_seq_, prepared, and commit entries.
 TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {

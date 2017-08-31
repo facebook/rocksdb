@@ -206,6 +206,9 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   friend class PreparedHeap_BasicsTest_Test;
 
   void init(const TransactionDBOptions& /* unused */) {
+    // Adcance max_evicted_seq_ no more than 100 times before the cache wraps
+    // around.
+    INC_STEP_FOR_MAX_EVICTED = std::max(SNAPSHOT_CACHE_SIZE / 100, static_cast<size_t>(1));
     snapshot_cache_ = unique_ptr<std::atomic<SequenceNumber>[]>(
         new std::atomic<SequenceNumber>[SNAPSHOT_CACHE_SIZE] {});
     commit_cache_ =
@@ -332,6 +335,11 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   unique_ptr<CommitEntry[]> commit_cache_;
   // The largest evicted *commit* sequence number from the commit_cache_
   std::atomic<uint64_t> max_evicted_seq_ = {};
+  // Advance max_evicted_seq_ by this value each time it needs an update. The
+  // larger the value, the less frequent advances we would have. We do not want
+  // it to be too large either as it would cause stalls by doing too much
+  // maintenance work under the lock.
+  size_t INC_STEP_FOR_MAX_EVICTED = 1;
   // A map of the evicted entries from commit_cache_ that has to be kept around
   // to service the old snapshots. This is expected to be empty normally.
   // Thread-safety is provided with old_commit_map_mutex_.
