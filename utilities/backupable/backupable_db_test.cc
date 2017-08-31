@@ -1527,6 +1527,26 @@ TEST_F(BackupableDBTest, LimitBackupsOpened) {
   DestroyDB(dbname_, options_);
 }
 
+TEST_F(BackupableDBTest, CreateWhenLatestBackupCorrupted) {
+  // we should pick an ID greater than corrupted backups' IDs so creation can
+  // succeed even when latest backup is corrupted.
+  const int kNumKeys = 5000;
+  OpenDBAndBackupEngine(true /* destroy_old_data */);
+  FillDB(db_.get(), 0 /* from */, kNumKeys);
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(),
+                                            true /* flush_before_backup */));
+  ASSERT_OK(file_manager_->CorruptFile(backupdir_ + "/meta/1",
+                                       3 /* bytes_to_corrupt */));
+  CloseDBAndBackupEngine();
+
+  OpenDBAndBackupEngine();
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(),
+                                            true /* flush_before_backup */));
+  std::vector<BackupInfo> backup_infos;
+  backup_engine_->GetBackupInfo(&backup_infos);
+  ASSERT_EQ(1, backup_infos.size());
+  ASSERT_EQ(2, backup_infos[0].backup_id);
+}
 }  // anon namespace
 
 } //  namespace rocksdb
