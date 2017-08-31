@@ -476,6 +476,7 @@ TESTS = \
 	object_registry_test \
 	repair_test \
 	env_timed_test \
+	write_prepared_transaction_test \
 
 PARALLEL_TEST = \
 	backupable_db_test \
@@ -491,7 +492,8 @@ PARALLEL_TEST = \
 	manual_compaction_test \
 	persistent_cache_test \
 	table_test \
-	transaction_test
+	transaction_test \
+	write_prepared_transaction_test
 
 SUBSET := $(TESTS)
 ifdef ROCKSDBTESTS_START
@@ -1390,6 +1392,9 @@ heap_test: util/heap_test.o $(GTEST)
 	$(AM_LINK)
 
 transaction_test: utilities/transactions/transaction_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+write_prepared_transaction_test: utilities/transactions/write_prepared_transaction_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 sst_dump: tools/sst_dump.o $(LIBOBJECTS)
