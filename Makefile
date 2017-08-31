@@ -96,6 +96,18 @@ OPT += -momit-leaf-frame-pointer
 endif
 endif
 
+ifeq (,$(shell $(CXX) -fsyntax-only -maltivec -xc /dev/null 2>&1))
+CXXFLAGS += -DHAS_ALTIVEC
+CFLAGS += -DHAS_ALTIVEC
+HAS_ALTIVEC=1
+endif
+
+ifeq (,$(shell $(CXX) -fsyntax-only -mcpu=power8 -xc /dev/null 2>&1))
+CXXFLAGS += -DHAVE_POWER8
+CFLAGS +=  -DHAVE_POWER8
+HAVE_POWER8=1
+endif
+
 # if we're compiling for release, compile without debug code (-DNDEBUG) and
 # don't treat warnings as errors
 ifeq ($(DEBUG_LEVEL),0)
@@ -322,6 +334,12 @@ util/build_version.cc: FORCE
 endif
 
 LIBOBJECTS = $(LIB_SOURCES:.cc=.o)
+ifeq ($(HAVE_POWER8),1)
+LIB_CC_OBJECTS = $(LIB_SOURCES:.cc=.o)
+LIBOBJECTS += $(LIB_SOURCES_C:.c=.o)
+LIBOBJECTS += $(LIB_SOURCES_ASM:.S=.o)
+endif
+
 LIBOBJECTS += $(TOOL_LIB_SOURCES:.cc=.o)
 MOCKOBJECTS = $(MOCK_LIB_SOURCES:.cc=.o)
 
@@ -573,14 +591,35 @@ $(SHARED2): $(SHARED4)
 $(SHARED3): $(SHARED4)
 	ln -fs $(SHARED4) $(SHARED3)
 endif
-
+ifeq ($(HAVE_POWER8),1)
+SHARED_C_OBJECTS = $(LIB_SOURCES_C:.c=.o)
+SHARED_ASM_OBJECTS = $(LIB_SOURCES_ASM:.S=.o)
+SHARED_C_LIBOBJECTS = $(patsubst %.o,shared-objects/%.o,$(SHARED_C_OBJECTS))
+SHARED_ASM_LIBOBJECTS = $(patsubst %.o,shared-objects/%.o,$(SHARED_ASM_OBJECTS))
+shared_libobjects = $(patsubst %,shared-objects/%,$(LIB_CC_OBJECTS))
+else
 shared_libobjects = $(patsubst %,shared-objects/%,$(LIBOBJECTS))
-CLEAN_FILES += shared-objects
+endif
 
+CLEAN_FILES += shared-objects
+shared_all_libobjects = $(shared_libobjects)
+
+ifeq ($(HAVE_POWER8),1)
+shared-ppc-objects = $(SHARED_C_LIBOBJECTS) $(SHARED_ASM_LIBOBJECTS)
+
+shared-objects/util/crc32c_ppc.o: util/crc32c_ppc.c
+	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
+
+shared-objects/util/crc32c_ppc_asm.o: util/crc32c_ppc_asm.S
+	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
+endif
 $(shared_libobjects): shared-objects/%.o: %.cc
 	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) -c $< -o $@
 
-$(SHARED4): $(shared_libobjects)
+ifeq ($(HAVE_POWER8),1)
+shared_all_libobjects = $(shared_libobjects) $(shared-ppc-objects)
+endif
+$(SHARED4): $(shared_all_libobjects)
 	$(CXX) $(PLATFORM_SHARED_LDFLAGS)$(SHARED3) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) $(shared_libobjects) $(LDFLAGS) -o $@
 
 endif  # PLATFORM_SHARED_EXT
@@ -1665,13 +1704,36 @@ rocksdbjavastaticpublishcentral:
 	mvn gpg:sign-and-deploy-file -Durl=https://oss.sonatype.org/service/local/staging/deploy/maven2/ -DrepositoryId=sonatype-nexus-staging -DpomFile=java/rocksjni.pom -Dfile=java/target/rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH).jar
 
 # A version of each $(LIBOBJECTS) compiled with -fPIC
+ifeq ($(HAVE_POWER8),1)
+JAVA_CC_OBJECTS = $(SHARED_CC_OBJECTS)
+JAVA_C_OBJECTS = $(SHARED_C_OBJECTS)
+JAVA_ASM_OBJECTS = $(SHARED_ASM_OBJECTS)
+
+JAVA_C_LIBOBJECTS = $(patsubst %.c.o,jl/%.c.o,$(JAVA_C_OBJECTS))
+JAVA_ASM_LIBOBJECTS = $(patsubst %.S.o,jl/%.S.o,$(JAVA_ASM_OBJECTS))
+endif
+
 java_libobjects = $(patsubst %,jl/%,$(LIBOBJECTS))
 CLEAN_FILES += jl
+java_all_libobjects = $(java_libobjects)
+
+ifeq ($(HAVE_POWER8),1)
+java_ppc_libobjects = $(JAVA_C_LIBOBJECTS) $(JAVA_ASM_LIBOBJECTS)
+
+jl/crc32c_ppc.o: util/crc32c_ppc.c
+	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
+
+jl/crc32c_ppc_asm.o: util/crc32c_ppc_asm.S
+	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
+java_all_libobjects += $(java_ppc_libobjects)
+endif
 
 $(java_libobjects): jl/%.o: %.cc
 	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) -fPIC -c $< -o $@ $(COVERAGEFLAGS)
 
-rocksdbjava: $(java_libobjects)
+
+
+rocksdbjava: $(java_all_libobjects)
 	$(AM_V_GEN)cd java;$(MAKE) javalib;
 	$(AM_V_at)rm -f ./java/target/$(ROCKSDBJNILIB)
 	$(AM_V_at)$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC -o ./java/target/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) $(java_libobjects) $(JAVA_LDFLAGS) $(COVERAGEFLAGS)
@@ -1726,30 +1788,54 @@ IOSVERSION=$(shell defaults read $(PLATFORMSROOT)/iPhoneOS.platform/version CFBu
 	lipo ios-x86/$@ ios-arm/$@ -create -output $@
 
 else
+ifeq ($(HAVE_POWER8),1)
+util/crc32c_ppc.o: util/crc32c_ppc.c
+	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
+
+util/crc32c_ppc_asm.o: util/crc32c_ppc_asm.S
+	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
+endif
 .cc.o:
 	$(AM_V_CC)$(CXX) $(CXXFLAGS) -c $< -o $@ $(COVERAGEFLAGS)
 
 .c.o:
 	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
 endif
-
 # ---------------------------------------------------------------------------
 #  	Source files dependencies detection
 # ---------------------------------------------------------------------------
 
 all_sources = $(LIB_SOURCES) $(MAIN_SOURCES) $(MOCK_LIB_SOURCES) $(TOOL_LIB_SOURCES) $(BENCH_LIB_SOURCES) $(TEST_LIB_SOURCES) $(EXP_LIB_SOURCES)
-DEPFILES = $(all_sources:.cc=.d)
+DEPFILES = $(all_sources:.cc=.cc.d)
 
 # Add proper dependency support so changing a .h file forces a .cc file to
 # rebuild.
 
 # The .d file indicates .cc file's dependencies on .h files. We generate such
 # dependency by g++'s -MM option, whose output is a make dependency rule.
-$(DEPFILES): %.d: %.cc
+%.cc.d: %.cc
 	@$(CXX) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) \
 	  -MM -MT'$@' -MT'$(<:.cc=.o)' "$<" -o '$@'
 
+ifeq ($(HAVE_POWER8),1)
+DEPFILES_C = $(LIB_SOURCES_C:.c=.c.d)
+DEPFILES_ASM = $(LIB_SOURCES_ASM:.S=.S.d)
+
+%.c.d: %.c
+	@$(CXX) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) \
+	  -MM -MT'$@' -MT'$(<:.c=.o)' "$<" -o '$@'
+
+%.S.d: %.S
+	@$(CXX) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) \
+	  -MM -MT'$@' -MT'$(<:.S=.o)' "$<" -o '$@'
+
+$(DEPFILES_C): %.c.d
+
+$(DEPFILES_ASM): %.S.d
+depend: $(DEPFILES) $(DEPFILES_C) $(DEPFILES_ASM)
+else
 depend: $(DEPFILES)
+endif
 
 # if the make goal is either "clean" or "format", we shouldn't
 # try to import the *.d files.

@@ -133,8 +133,8 @@ void DumpSupportInfo(Logger* logger) {
   ROCKS_LOG_HEADER(logger, "\tZSTDNotFinal supported: %d",
                    ZSTDNotFinal_Supported());
   ROCKS_LOG_HEADER(logger, "\tZSTD supported: %d", ZSTD_Supported());
-  ROCKS_LOG_HEADER(logger, "Fast CRC32 supported: %d",
-                   crc32c::IsFastCrc32Supported());
+  ROCKS_LOG_HEADER(logger, "Fast CRC32 supported: %s",
+                   crc32c::IsFastCrc32Supported().c_str());
 }
 
 int64_t kDefaultLowPriThrottledRate = 2 * 1024 * 1024;

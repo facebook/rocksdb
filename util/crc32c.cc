@@ -18,8 +18,31 @@
 #endif
 #include "util/coding.h"
 
+#ifdef __powerpc64__
+#include "util/crc32c_ppc.h"
+#include "util/crc32c_ppc_constants.h"
+
+#if __linux__
+#include <sys/auxv.h>
+
+#ifndef PPC_FEATURE2_VEC_CRYPTO
+#define PPC_FEATURE2_VEC_CRYPTO 0x02000000
+#endif
+
+#ifndef AT_HWCAP2
+#define AT_HWCAP2 26
+#endif
+
+#endif /* __linux__ */
+
+#endif
+
 namespace rocksdb {
 namespace crc32c {
+
+#ifdef __powerpc64__
+static int arch_ppc_crc32 = 0;
+#endif
 
 static const uint32_t table0_[256] = {
   0x00000000, 0xf26b8303, 0xe13b70f7, 0x1350f3f4,
@@ -371,6 +394,7 @@ uint32_t ExtendImpl(uint32_t crc, const char* buf, size_t size) {
 }
 
 // Detect if SS42 or not.
+#ifndef HAVE_POWER8
 static bool isSSE42() {
 #ifndef HAVE_SSE42
   return false;
@@ -387,15 +411,67 @@ static bool isSSE42() {
   return false;
 #endif
 }
+#endif
 
 typedef uint32_t (*Function)(uint32_t, const char*, size_t);
 
-static inline Function Choose_Extend() {
-  return isSSE42() ? ExtendImpl<Fast_CRC32> : ExtendImpl<Slow_CRC32>;
+#if defined(HAVE_POWER8) && defined(HAS_ALTIVEC)
+uint32_t ExtendPPCImpl(uint32_t crc, const char *buf, size_t size) {
+  return crc32c_ppc(crc, (const unsigned char *)buf, size);
 }
 
-bool IsFastCrc32Supported() {
-  return isSSE42();
+#if __linux__
+static int arch_ppc_probe(void) {
+  arch_ppc_crc32 = 0;
+
+#if defined(__powerpc64__)
+  if (getauxval(AT_HWCAP2) & PPC_FEATURE2_VEC_CRYPTO) arch_ppc_crc32 = 1;
+#endif /* __powerpc64__ */
+
+  return arch_ppc_crc32;
+}
+#endif  // __linux__
+
+static bool isAltiVec() {
+  if (arch_ppc_probe()) {
+    return true;
+  } else {
+    return false;
+  }
+}
+#endif
+
+static inline Function Choose_Extend() {
+#ifndef HAVE_POWER8
+  return isSSE42() ? ExtendImpl<Fast_CRC32> : ExtendImpl<Slow_CRC32>;
+#else
+  return isAltiVec() ? ExtendPPCImpl : ExtendImpl<Slow_CRC32>;
+#endif
+}
+
+std::string IsFastCrc32Supported() {
+  bool has_fast_crc = false;
+  std::string fast_zero_msg;
+  std::string arch;
+#ifdef HAVE_POWER8
+#ifdef HAS_ALTIVEC
+  if (arch_ppc_probe()) {
+    has_fast_crc = true;
+    arch = "PPC";
+  }
+#else
+  has_fast_crc = false;
+  arch = "PPC";
+#endif
+#else
+  has_fast_crc = isSSE42();
+  arch = "x86";
+#endif
+  if (has_fast_crc){
+    fast_zero_msg.append("Supported on " + arch);
+  }
+  fast_zero_msg.append("Not supported on " + arch);
+  return fast_zero_msg;  
 }
 
 Function ChosenExtend = Choose_Extend();
