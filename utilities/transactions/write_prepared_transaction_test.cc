@@ -260,7 +260,7 @@ TEST_P(WritePreparedTransactionTest, CommitMapTest) {
   ASSERT_EQ(e3, e);
 
   // Rewrite an entry
-  CommitEntry e4 = {e3.prep_seq + size, e4.commit_seq + size + 1};
+  CommitEntry e4 = {e3.prep_seq + size, e3.commit_seq + size + 1};
   evicted = wp_db->AddCommitEntry(e4.prep_seq % size, e4, &e);
   ASSERT_TRUE(evicted);
   ASSERT_EQ(e3, e);
