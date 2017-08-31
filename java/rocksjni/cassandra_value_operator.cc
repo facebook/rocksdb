@@ -25,10 +25,11 @@
  * Method:    newSharedCassandraValueMergeOperator
  * Signature: (I)J
  */
-jlong Java_org_rocksdb_CassandraValueMergeOperator_newSharedCassandraValueMergeOperator
-(JNIEnv* env, jclass jclazz, jint gcGracePeriodInSeconds) {
+jlong Java_org_rocksdb_CassandraValueMergeOperator_newSharedCassandraValueMergeOperator(
+    JNIEnv* env, jclass jclazz, jint gcGracePeriodInSeconds) {
   auto* op = new std::shared_ptr<rocksdb::MergeOperator>(
-    new rocksdb::cassandra::CassandraValueMergeOperator(gcGracePeriodInSeconds));
+      new rocksdb::cassandra::CassandraValueMergeOperator(
+          gcGracePeriodInSeconds));
   return reinterpret_cast<jlong>(op);
 }
 
@@ -39,6 +40,7 @@ jlong Java_org_rocksdb_CassandraValueMergeOperator_newSharedCassandraValueMergeO
  */
 void Java_org_rocksdb_CassandraValueMergeOperator_disposeInternal(
     JNIEnv* env, jobject jobj, jlong jhandle) {
-  auto* op = reinterpret_cast<std::shared_ptr<rocksdb::MergeOperator>* >(jhandle);
+  auto* op =
+      reinterpret_cast<std::shared_ptr<rocksdb::MergeOperator>*>(jhandle);
   delete op;
 }

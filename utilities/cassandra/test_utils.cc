@@ -14,13 +14,12 @@ const int8_t kColumn = 0;
 const int8_t kTombstone = 1;
 const int8_t kExpiringColumn = 2;
 
-
 std::shared_ptr<ColumnBase> CreateTestColumn(int8_t mask,
                                              int8_t index,
                                              int64_t timestamp) {
   if ((mask & ColumnTypeMask::DELETION_MASK) != 0) {
-    return std::shared_ptr<Tombstone>(new Tombstone(
-      mask, index, ToSeconds(timestamp), timestamp));
+    return std::shared_ptr<Tombstone>(
+        new Tombstone(mask, index, ToSeconds(timestamp), timestamp));
   } else if ((mask & ColumnTypeMask::EXPIRATION_MASK) != 0) {
     return std::shared_ptr<ExpiringColumn>(new ExpiringColumn(
       mask, index, timestamp, sizeof(kExpiringData), kExpiringData, kTtl));
@@ -64,7 +63,7 @@ int64_t ToMicroSeconds(int64_t seconds) {
 }
 
 int32_t ToSeconds(int64_t microseconds) {
-  return (int32_t) (microseconds / (int64_t) 1000000);
+  return (int32_t)(microseconds / (int64_t)1000000);
 }
 }
 }

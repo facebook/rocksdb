@@ -189,8 +189,8 @@ private:
     CassandraFunctionalTest, CompactionShouldPurgeExpiredColumnsIfPurgeTtlIsOn);
   FRIEND_TEST(
     CassandraFunctionalTest, CompactionShouldRemoveRowWhenAllColumnExpiredIfPurgeTtlIsOn);
-  FRIEND_TEST(
-    CassandraFunctionalTest, CompactionShouldRemoveTombstoneExceedingGCGracePeriod);
+  FRIEND_TEST(CassandraFunctionalTest,
+              CompactionShouldRemoveTombstoneExceedingGCGracePeriod);
 };
 
 } // namepsace cassandrda

@@ -177,9 +177,10 @@ void Tombstone::Serialize(std::string* dest) const {
 }
 
 bool Tombstone::Collectable(int32_t gc_grace_period_in_seconds) const {
-  auto local_deleted_at = std::chrono::time_point<std::chrono::system_clock>(std::chrono::seconds(local_deletion_time_));
+  auto local_deleted_at = std::chrono::time_point<std::chrono::system_clock>(
+      std::chrono::seconds(local_deletion_time_));
   auto gc_grace_period = std::chrono::seconds(gc_grace_period_in_seconds);
-  return local_deleted_at + gc_grace_period  < std::chrono::system_clock::now();
+  return local_deleted_at + gc_grace_period < std::chrono::system_clock::now();
 }
 
 std::shared_ptr<Tombstone> Tombstone::Deserialize(const char *src,
@@ -279,11 +280,11 @@ RowValue RowValue::ConvertExpiredColumnsToTombstones(bool* changed) const {
 RowValue RowValue::RemoveTombstones(int32_t gc_grace_period) const {
   Columns new_columns;
   for (auto& column : columns_) {
-    if(column->Mask() == ColumnTypeMask::DELETION_MASK) {
+    if (column->Mask() == ColumnTypeMask::DELETION_MASK) {
       std::shared_ptr<Tombstone> tombstone =
-        std::static_pointer_cast<Tombstone>(column);
+          std::static_pointer_cast<Tombstone>(column);
 
-      if(tombstone->Collectable(gc_grace_period)){
+      if (tombstone->Collectable(gc_grace_period)) {
         continue;
       }
     }
@@ -292,7 +293,6 @@ RowValue RowValue::RemoveTombstones(int32_t gc_grace_period) const {
   }
   return RowValue(std::move(new_columns), last_modified_time_);
 }
-
 
 bool RowValue::Empty() const {
   return columns_.empty();
