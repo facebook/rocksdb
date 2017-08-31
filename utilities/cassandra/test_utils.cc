@@ -9,7 +9,6 @@ namespace rocksdb {
 namespace cassandra {
 const char kData[] = {'d', 'a', 't', 'a'};
 const char kExpiringData[] = {'e', 'd', 'a', 't', 'a'};
-const int32_t kLocalDeletionTime = 1;
 const int32_t kTtl = 86400;
 const int8_t kColumn = 0;
 const int8_t kTombstone = 1;
@@ -19,8 +18,8 @@ std::shared_ptr<ColumnBase> CreateTestColumn(int8_t mask,
                                              int8_t index,
                                              int64_t timestamp) {
   if ((mask & ColumnTypeMask::DELETION_MASK) != 0) {
-    return std::shared_ptr<Tombstone>(new Tombstone(
-      mask, index, kLocalDeletionTime, timestamp));
+    return std::shared_ptr<Tombstone>(
+        new Tombstone(mask, index, ToSeconds(timestamp), timestamp));
   } else if ((mask & ColumnTypeMask::EXPIRATION_MASK) != 0) {
     return std::shared_ptr<ExpiringColumn>(new ExpiringColumn(
       mask, index, timestamp, sizeof(kExpiringData), kExpiringData, kTtl));
@@ -44,7 +43,7 @@ RowValue CreateTestRowValue(
 }
 
 RowValue CreateRowTombstone(int64_t timestamp) {
-  return RowValue(kLocalDeletionTime, timestamp);
+  return RowValue(ToSeconds(timestamp), timestamp);
 }
 
 void VerifyRowValueColumns(
@@ -63,5 +62,8 @@ int64_t ToMicroSeconds(int64_t seconds) {
   return seconds * (int64_t)1000000;
 }
 
+int32_t ToSeconds(int64_t microseconds) {
+  return (int32_t)(microseconds / (int64_t)1000000);
+}
 }
 }
