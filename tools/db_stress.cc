@@ -885,7 +885,7 @@ class SharedState {
 
   bool HasVerificationFailedYet() { return verification_failure_.load(); }
 
-  port::Mutex* GetMutexForKey(int cf, long key) {
+  port::Mutex* GetMutexForKey(int cf, int64_t key) {
     return key_locks_[cf][key >> log2_keys_per_lock_].get();
   }
 
@@ -1773,7 +1773,7 @@ class StressTest {
           static_cast<double>(i) / FLAGS_ops_per_thread;
       const int64_t base_key = static_cast<int64_t>(
           completed_ratio * (FLAGS_max_key - FLAGS_active_width));
-      long rand_key = base_key + thread->rand.Next() % FLAGS_active_width;
+      int64_t rand_key = base_key + thread->rand.Next() % FLAGS_active_width;
       int rand_column_family = thread->rand.Next() % FLAGS_column_families;
       std::string keystr = Key(rand_key);
       Slice key = keystr;

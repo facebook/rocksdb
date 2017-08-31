@@ -8,7 +8,7 @@ before_build:
 build:
   project: build\rocksdb.sln
   parallel: true
-  verbosity: minimal
+  verbosity: normal
 test:
 test_script:
 - ps: build_tools\run_ci_db_test.ps1 -SuiteRun db_basic_test,db_test2,db_test,env_basic_test,env_test -Concurrency 8
