@@ -467,7 +467,6 @@ TESTS = \
 	compaction_job_stats_test \
 	option_change_migration_test \
 	transaction_test \
-	write_prepared_transaction_test \
 	ldb_cmd_test \
 	persistent_cache_test \
 	statistics_test \
@@ -477,6 +476,7 @@ TESTS = \
 	object_registry_test \
 	repair_test \
 	env_timed_test \
+	write_prepared_transaction_test \
 
 PARALLEL_TEST = \
 	backupable_db_test \
