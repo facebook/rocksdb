@@ -407,7 +407,7 @@ bool IsFastCrc32Supported() {
   return isSSE42();
 }
 
-Function ChosenExtend = Choose_Extend();
+static Function ChosenExtend = Choose_Extend();
 
 uint32_t Extend(uint32_t crc, const char* buf, size_t size) {
   return ChosenExtend(crc, buf, size);
