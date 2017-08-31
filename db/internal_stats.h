@@ -42,8 +42,9 @@ struct DBPropertyInfo {
   //      holding db mutex, which is only supported for int properties.
   bool (InternalStats::*handle_int)(uint64_t* value, DBImpl* db,
                                     Version* version);
-  bool (InternalStats::*handle_map)(
-      std::map<std::string, double>* compaction_stats);
+
+  // @param props Map of general properties to populate
+  bool (InternalStats::*handle_map)(std::map<std::string, std::string>* props);
 };
 
 extern const DBPropertyInfo* GetPropertyInfo(const Slice& property);
@@ -298,7 +299,7 @@ class InternalStats {
 
   bool GetMapProperty(const DBPropertyInfo& property_info,
                       const Slice& property,
-                      std::map<std::string, double>* value);
+                      std::map<std::string, std::string>* value);
 
   bool GetIntProperty(const DBPropertyInfo& property_info, uint64_t* value,
                       DBImpl* db);
@@ -312,10 +313,11 @@ class InternalStats {
 
  private:
   void DumpDBStats(std::string* value);
-  void DumpCFMapStats(std::map<std::string, double>* cf_stats);
+  void DumpCFMapStats(std::map<std::string, std::string>* cf_stats);
   void DumpCFMapStats(
       std::map<int, std::map<LevelStatType, double>>* level_stats,
       CompactionStats* compaction_stats_sum);
+  void DumpCFMapStatsIOStalls(std::map<std::string, std::string>* cf_stats);
   void DumpCFStats(std::string* value);
   void DumpCFStatsNoFileHistogram(std::string* value);
   void DumpCFFileHistogram(std::string* value);
@@ -424,7 +426,7 @@ class InternalStats {
   bool HandleCompressionRatioAtLevelPrefix(std::string* value, Slice suffix);
   bool HandleLevelStats(std::string* value, Slice suffix);
   bool HandleStats(std::string* value, Slice suffix);
-  bool HandleCFMapStats(std::map<std::string, double>* compaction_stats);
+  bool HandleCFMapStats(std::map<std::string, std::string>* compaction_stats);
   bool HandleCFStats(std::string* value, Slice suffix);
   bool HandleCFStatsNoFileHistogram(std::string* value, Slice suffix);
   bool HandleCFFileHistogram(std::string* value, Slice suffix);
@@ -569,7 +571,7 @@ class InternalStats {
 
   bool GetMapProperty(const DBPropertyInfo& property_info,
                       const Slice& property,
-                      std::map<std::string, double>* value) {
+                      std::map<std::string, std::string>* value) {
     return false;
   }
 

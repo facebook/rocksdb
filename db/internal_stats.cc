@@ -436,7 +436,7 @@ bool InternalStats::GetStringProperty(const DBPropertyInfo& property_info,
 
 bool InternalStats::GetMapProperty(const DBPropertyInfo& property_info,
                                    const Slice& property,
-                                   std::map<std::string, double>* value) {
+                                   std::map<std::string, std::string>* value) {
   assert(value != nullptr);
   assert(property_info.handle_map != nullptr);
   return (this->*(property_info.handle_map))(value);
@@ -514,7 +514,8 @@ bool InternalStats::HandleStats(std::string* value, Slice suffix) {
   return true;
 }
 
-bool InternalStats::HandleCFMapStats(std::map<std::string, double>* cf_stats) {
+bool InternalStats::HandleCFMapStats(
+    std::map<std::string, std::string>* cf_stats) {
   DumpCFMapStats(cf_stats);
   return true;
 }
@@ -892,12 +893,15 @@ void InternalStats::DumpDBStats(std::string* value) {
 }
 
 /**
- * Dump Compaction Level stats to a map of stat name to value in double.
- * The level in stat name is represented with a prefix "Lx" where "x"
- * is the level number. A special level "Sum" represents the sum of a stat
- * for all levels.
+ * Dump Compaction Level stats to a map of stat name with "compaction." prefix
+ * to value in double as string. The level in stat name is represented with
+ * a prefix "Lx" where "x" is the level number. A special level "Sum"
+ * represents the sum of a stat for all levels.
+ * The result also contains IO stall counters which keys start with "io_stalls."
+ * and values represent uint64 encoded as strings.
  */
-void InternalStats::DumpCFMapStats(std::map<std::string, double>* cf_stats) {
+void InternalStats::DumpCFMapStats(
+        std::map<std::string, std::string>* cf_stats) {
   CompactionStats compaction_stats_sum(0);
   std::map<int, std::map<LevelStatType, double>> levels_stats;
   DumpCFMapStats(&levels_stats, &compaction_stats_sum);
@@ -907,11 +911,13 @@ void InternalStats::DumpCFMapStats(std::map<std::string, double>* cf_stats) {
     for (auto const& stat_ent : level_ent.second) {
       auto stat_type = stat_ent.first;
       auto key_str =
-          level_str + "." +
+          "compaction." + level_str + "." +
           InternalStats::compaction_level_stats.at(stat_type).property_name;
-      (*cf_stats)[key_str] = stat_ent.second;
+      (*cf_stats)[key_str] = std::to_string(stat_ent.second);
     }
   }
+
+  DumpCFMapStatsIOStalls(cf_stats);
 }
 
 void InternalStats::DumpCFMapStats(
@@ -980,6 +986,39 @@ void InternalStats::DumpCFMapStats(
   PrepareLevelStats(&sum_stats, total_files, total_files_being_compacted,
                     total_file_size, 0, w_amp, *compaction_stats_sum);
   (*levels_stats)[-1] = sum_stats;  //  -1 is for the Sum level
+}
+
+void InternalStats::DumpCFMapStatsIOStalls(
+    std::map<std::string, std::string>* cf_stats) {
+  (*cf_stats)["io_stalls.level0_slowdown"] =
+      std::to_string(cf_stats_count_[LEVEL0_SLOWDOWN_TOTAL]);
+  (*cf_stats)["io_stalls.level0_slowdown_with_compaction"] =
+      std::to_string(cf_stats_count_[LEVEL0_SLOWDOWN_WITH_COMPACTION]);
+  (*cf_stats)["io_stalls.level0_numfiles"] =
+      std::to_string(cf_stats_count_[LEVEL0_NUM_FILES_TOTAL]);
+  (*cf_stats)["io_stalls.level0_numfiles_with_compaction"] =
+      std::to_string(cf_stats_count_[LEVEL0_NUM_FILES_WITH_COMPACTION]);
+  (*cf_stats)["io_stalls.stop_for_pending_compaction_bytes"] =
+      std::to_string(cf_stats_count_[HARD_PENDING_COMPACTION_BYTES_LIMIT]);
+  (*cf_stats)["io_stalls.slowdown_for_pending_compaction_bytes"] =
+      std::to_string(cf_stats_count_[SOFT_PENDING_COMPACTION_BYTES_LIMIT]);
+  (*cf_stats)["io_stalls.memtable_compaction"] =
+      std::to_string(cf_stats_count_[MEMTABLE_COMPACTION]);
+  (*cf_stats)["io_stalls.memtable_slowdown"] =
+      std::to_string(cf_stats_count_[MEMTABLE_SLOWDOWN]);
+
+  uint64_t total_stop =
+      cf_stats_count_[LEVEL0_NUM_FILES_TOTAL] +
+      cf_stats_count_[HARD_PENDING_COMPACTION_BYTES_LIMIT] +
+      cf_stats_count_[MEMTABLE_COMPACTION];
+
+  uint64_t total_slowdown =
+      cf_stats_count_[LEVEL0_SLOWDOWN_TOTAL] +
+      cf_stats_count_[SOFT_PENDING_COMPACTION_BYTES_LIMIT] +
+      cf_stats_count_[MEMTABLE_SLOWDOWN];
+
+  (*cf_stats)["io_stalls.total_stop"] = std::to_string(total_stop);
+  (*cf_stats)["io_stalls.total_slowdown"] = std::to_string(total_slowdown);
 }
 
 void InternalStats::DumpCFStats(std::string* value) {
