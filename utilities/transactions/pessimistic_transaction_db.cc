@@ -43,6 +43,17 @@ PessimisticTransactionDB::PessimisticTransactionDB(
   info_log_ = db_impl_->GetDBOptions().info_log;
 }
 
+void PessimisticTransactionDB::Reset(
+    DB* db, const TransactionDBOptions& txn_db_options) {
+  TransactionDB::Reset(db);
+  db_impl_ = static_cast_with_check<DBImpl, DB>(db);
+  // Options meant to be const and should remian the same in obj lifetime
+  // assert(txn_db_options_ == txn_db_options);
+  lock_mgr_.Reset(this);
+  assert(db_impl_ != nullptr);
+  info_log_ = db_impl_->GetDBOptions().info_log;
+}
+
 // Support initiliazing PessimisticTransactionDB from a stackable db
 //
 //    PessimisticTransactionDB
@@ -235,19 +246,26 @@ Status TransactionDB::WrapDB(
     const std::vector<size_t>& compaction_enabled_cf_indices,
     const std::vector<ColumnFamilyHandle*>& handles, TransactionDB** dbptr) {
   PessimisticTransactionDB* txn_db;
-  switch (txn_db_options.write_policy) {
-    case WRITE_UNPREPARED:
-      return Status::NotSupported("WRITE_UNPREPARED is not implemented yet");
-    case WRITE_PREPARED:
-      txn_db = new WritePreparedTxnDB(
-          db, PessimisticTransactionDB::ValidateTxnDBOptions(txn_db_options));
-      break;
-    case WRITE_COMMITTED:
-    default:
-      txn_db = new WriteCommittedTxnDB(
-          db, PessimisticTransactionDB::ValidateTxnDBOptions(txn_db_options));
+  if (*dbptr) {
+    txn_db =
+        static_cast_with_check<PessimisticTransactionDB, TransactionDB>(*dbptr);
+    txn_db->Reset(
+        db, PessimisticTransactionDB::ValidateTxnDBOptions(txn_db_options));
+  } else {
+    switch (txn_db_options.write_policy) {
+      case WRITE_UNPREPARED:
+        return Status::NotSupported("WRITE_UNPREPARED is not implemented yet");
+      case WRITE_PREPARED:
+        txn_db = new WritePreparedTxnDB(
+            db, PessimisticTransactionDB::ValidateTxnDBOptions(txn_db_options));
+        break;
+      case WRITE_COMMITTED:
+      default:
+        txn_db = new WriteCommittedTxnDB(
+            db, PessimisticTransactionDB::ValidateTxnDBOptions(txn_db_options));
+    }
+    *dbptr = txn_db;
   }
-  *dbptr = txn_db;
   Status s = txn_db->Initialize(compaction_enabled_cf_indices, handles);
   return s;
 }
@@ -694,9 +712,8 @@ void WritePreparedTxnDB::AdvanceMaxEvictedSeq(SequenceNumber& prev_max,
     // This is to avoid updating the snapshots_ if it already updated
     // with a more recent vesion by a concrrent thread
     update_snapshots = true;
-    InstrumentedMutex(db_impl_->mutex());
     // We only care about snapshots lower then max
-    snapshots = db_impl_->snapshots().GetAll(nullptr, new_max);
+    snapshots = GetSnapshotListFromDB(new_max);
   }
   if (update_snapshots) {
     UpdateSnapshots(snapshots, new_snapshots_version);
@@ -706,6 +723,12 @@ void WritePreparedTxnDB::AdvanceMaxEvictedSeq(SequenceNumber& prev_max,
                                    prev_max, new_max, std::memory_order_release,
                                    std::memory_order_acquire)) {
   };
+}
+
+const std::vector<SequenceNumber> WritePreparedTxnDB::GetSnapshotListFromDB(
+    SequenceNumber max) {
+  InstrumentedMutex(db_impl_->mutex());
+  return db_impl_->snapshots().GetAll(nullptr, max);
 }
 
 // 10m entry, 80MB size

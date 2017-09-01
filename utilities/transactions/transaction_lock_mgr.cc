@@ -178,6 +178,12 @@ TransactionLockMgr::TransactionLockMgr(
       static_cast_with_check<PessimisticTransactionDB, TransactionDB>(txn_db);
 }
 
+void TransactionLockMgr::Reset(TransactionDB* txn_db) {
+  assert(txn_db);
+  txn_db_impl_ =
+      static_cast_with_check<PessimisticTransactionDB, TransactionDB>(txn_db);
+}
+
 TransactionLockMgr::~TransactionLockMgr() {}
 
 size_t LockMap::GetStripe(const std::string& key) const {

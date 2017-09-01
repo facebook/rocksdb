@@ -20,6 +20,11 @@ class StackableDB : public DB {
  public:
   // StackableDB is the owner of db now!
   explicit StackableDB(DB* db) : db_(db) {}
+  // Reuse an existing object in place of constructing a new one
+  void Reset(DB* db) {
+    delete db_;
+    db_ = db;
+  }
 
   ~StackableDB() {
     delete db_;

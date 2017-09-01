@@ -85,6 +85,9 @@ class TransactionLockMgr {
   void Resize(uint32_t);
 
  private:
+  friend class PessimisticTransactionDB;
+  void Reset(TransactionDB* txn_db);
+
   PessimisticTransactionDB* txn_db_impl_;
 
   // Default number of lock map stripes per column family

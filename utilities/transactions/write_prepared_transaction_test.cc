@@ -106,6 +106,24 @@ TEST(PreparedHeap, BasicsTest) {
   ASSERT_TRUE(heap.empty());
 }
 
+class WritePreparedTxnDBMock : public WritePreparedTxnDB {
+ public:
+  WritePreparedTxnDBMock(WritePreparedTxnDB* wp_db)
+      : WritePreparedTxnDB(wp_db->db_impl_, wp_db->txn_db_options_) {}
+  void SetDBSnapshots(const std::vector<SequenceNumber> snapshots) {
+    snapshots_ = snapshots;
+  }
+
+ protected:
+  virtual const std::vector<SequenceNumber> GetSnapshotListFromDB(
+      SequenceNumber max) override {
+    return snapshots_;
+  }
+
+ private:
+  std::vector<SequenceNumber> snapshots_;
+};
+
 class WritePreparedTransactionTest : public TransactionTest {
  protected:
   // If expect_update is set, check if it actually updated old_commit_map_. If
@@ -424,6 +442,24 @@ TEST_P(WritePreparedTransactionTest, SnapshotConcurrentAccessTest) {
 #endif
 
 TEST_P(WritePreparedTransactionTest, AdvanceMaxEvictedSeqBasicTest) {
+  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+  WritePreparedTxnDBMock* mock = new WritePreparedTxnDBMock(wp_db);
+  ReOpenWithMock(mock);  // to restart the db
+  wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+  SequenceNumber init_max = 100;
+  const std::vector<SequenceNumber> initial_prepared = {10,  30,  50, 100,
+                                                        150, 200, 250};
+  SequenceNumber zero_max = 0l;
+  wp_db->AdvanceMaxEvictedSeq(zero_max, init_max);
+  const std::vector<SequenceNumber> initial_snapshots = {20, 40};
+  mock->SetDBSnapshots(initial_snapshots);
+  wp_db->UpdateSnapshots(initial_snapshots, init_max);
+  for (auto p : initial_prepared) {
+    wp_db->AddPrepared(p);
+  }
+
+  SequenceNumber new_max = 200;
+  wp_db->AdvanceMaxEvictedSeq(init_max, new_max);
 }
 
 // Test WritePreparedTxnDB's IsInSnapshot against different ordering of

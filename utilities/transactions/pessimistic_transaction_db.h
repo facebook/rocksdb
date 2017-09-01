@@ -115,6 +115,8 @@ class PessimisticTransactionDB : public TransactionDB {
   };
 
  protected:
+  friend class TransactionDB;
+  virtual void Reset(DB* db, const TransactionDBOptions& txn_db_options);
   void ReinitializeTransaction(
       Transaction* txn, const WriteOptions& write_options,
       const TransactionOptions& txn_options = TransactionOptions());
@@ -123,6 +125,7 @@ class PessimisticTransactionDB : public TransactionDB {
 
  private:
   friend class WritePreparedTxnDB;
+  friend class WritePreparedTxnDBMock;
   const TransactionDBOptions txn_db_options_;
   TransactionLockMgr lock_mgr_;
 
@@ -159,6 +162,12 @@ class WriteCommittedTxnDB : public PessimisticTransactionDB {
   Transaction* BeginTransaction(const WriteOptions& write_options,
                                 const TransactionOptions& txn_options,
                                 Transaction* old_txn) override;
+
+ protected:
+  virtual void Reset(DB* db,
+                     const TransactionDBOptions& txn_db_options) override {
+    PessimisticTransactionDB::Reset(db, txn_db_options);
+  }
 };
 
 // A PessimisticTransactionDB that writes data to DB after prepare phase of 2PC.
@@ -197,6 +206,13 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // commit_seq to the commit map
   void AddCommitted(uint64_t prepare_seq, uint64_t commit_seq);
 
+ protected:
+  virtual void Reset(DB* db,
+                     const TransactionDBOptions& txn_db_options) override {
+    PessimisticTransactionDB::Reset(db, txn_db_options);
+    init(txn_db_options);
+  }
+
  private:
   friend class WritePreparedTransactionTest_IsInSnapshotTest_Test;
   friend class WritePreparedTransactionTest_CheckAgainstSnapshotsTest_Test;
@@ -204,11 +220,14 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   friend class WritePreparedTransactionTest_SnapshotConcurrentAccessTest_Test;
   friend class WritePreparedTransactionTest;
   friend class PreparedHeap_BasicsTest_Test;
+  friend class WritePreparedTxnDBMock;
+  friend class WritePreparedTransactionTest_AdvanceMaxEvictedSeqBasicTest_Test;
 
   void init(const TransactionDBOptions& /* unused */) {
     // Adcance max_evicted_seq_ no more than 100 times before the cache wraps
     // around.
-    INC_STEP_FOR_MAX_EVICTED = std::max(SNAPSHOT_CACHE_SIZE / 100, static_cast<size_t>(1));
+    INC_STEP_FOR_MAX_EVICTED =
+        std::max(SNAPSHOT_CACHE_SIZE / 100, static_cast<size_t>(1));
     snapshot_cache_ = unique_ptr<std::atomic<SequenceNumber>[]>(
         new std::atomic<SequenceNumber>[SNAPSHOT_CACHE_SIZE] {});
     commit_cache_ =
@@ -277,6 +296,9 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // a serial invocation in which the last invocation is the one with the
   // largetst new_max value.
   void AdvanceMaxEvictedSeq(SequenceNumber& prev_max, SequenceNumber& new_max);
+
+  virtual const std::vector<SequenceNumber> GetSnapshotListFromDB(
+      SequenceNumber max);
 
   // Update the list of snapshots corresponding to the soon-to-be-updated
   // max_eviceted_seq_. Thread-safety: this function can be called concurrently.
