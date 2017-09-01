@@ -209,7 +209,8 @@ std::string HistogramStat::ToString() const {
     if (bucket_value <= 0.0) continue;
     cumulative_sum += bucket_value;
     snprintf(buf, sizeof(buf),
-             "[ %7" PRIu64 ", %7" PRIu64 " ) %8" PRIu64 " %7.3f%% %7.3f%% ",
+             "%c %7" PRIu64 ", %7" PRIu64 " ] %8" PRIu64 " %7.3f%% %7.3f%% ",
+             (b == 0) ? '[' : '(',
              (b == 0) ? 0 : bucketMapper.BucketLimit(b-1),  // left
               bucketMapper.BucketLimit(b),  // right
               bucket_value,                   // count
