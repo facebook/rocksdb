@@ -87,7 +87,11 @@ TEST_F(HistogramTest, BasicOperation) {
 
 TEST_F(HistogramTest, BoundaryValue) {
   HistogramImpl histogram;
-  // both should be in [0, 1], never (1, 2].
+  // - both should be in [0, 1] bucket because we place values on bucket
+  //   boundaries in the lower bucket.
+  // - all points are in [0, 1] bucket, so p50 will be 0.5
+  // - the test cannot be written with a single point since histogram won't
+  //   report percentiles lower than the min or greater than the max.
   histogram.Add(0);
   histogram.Add(1);
 
