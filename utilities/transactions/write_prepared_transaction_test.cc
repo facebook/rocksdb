@@ -363,6 +363,7 @@ TEST_P(WritePreparedTransactionTest, SnapshotConcurrentAccessTest) {
        old_size <= WritePreparedTxnDB::DEF_SNAPSHOT_CACHE_SIZE + 2;
        old_size++) {
     printf("."); // To signal progress
+    fflush(stdout);
     const std::vector<SequenceNumber> old_snapshots(
         snapshots.begin(), snapshots.begin() + old_size);
 
