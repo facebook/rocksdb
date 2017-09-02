@@ -254,14 +254,21 @@ class Repairer {
     }
 
     // search wal_dir if user uses a customize wal_dir
-    if (!db_options_.wal_dir.empty() && 
-        db_options_.wal_dir != dbname_) {
-        to_search_paths.push_back(db_options_.wal_dir);
+    bool same = false;
+    Status status = env_->AreFilesSame(db_options_.wal_dir, dbname_, &same);
+    if (status.IsNotSupported()) {
+      same = db_options_.wal_dir == dbname_;
+      status = Status::OK();
+    } else if (!status.ok()) {
+      return status;
+    }
+
+    if (!same) {
+      to_search_paths.push_back(db_options_.wal_dir);
     }
 
     for (size_t path_id = 0; path_id < to_search_paths.size(); path_id++) {
-      Status status =
-          env_->GetChildren(to_search_paths[path_id], &filenames);
+      status = env_->GetChildren(to_search_paths[path_id], &filenames);
       if (!status.ok()) {
         return status;
       }
