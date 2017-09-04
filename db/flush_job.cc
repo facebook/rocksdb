@@ -156,11 +156,16 @@ void FlushJob::PickMemTable() {
   assert(!pick_memtable_called);
   pick_memtable_called = true;
   // Save the contents of the earliest memtable as a new Table
-  cfd_->imm()->PickMemtablesToFlush(&mems_);
+
+  if (cfd_->is_flush_recursive_dedup() && !cfd_->is_stop()) {
+    cfd_->imm()->PickMemtablesToFlush(&mems_, &compare_mems_);
+  }
+  else {
+    cfd_->imm()->PickMemtablesToFlush(&mems_);
+  }
   if (mems_.empty()) {
     return;
   }
-
   ReportFlushInputSize(mems_);
 
   // entries mems are (implicitly) sorted in ascending order by their created
@@ -287,6 +292,7 @@ Status FlushJob::WriteLevel0Table() {
     ReadOptions ro;
     ro.total_order_seek = true;
     Arena arena;
+    Arena arena1;
     uint64_t total_num_entries = 0, total_num_deletes = 0;
     size_t total_memory_usage = 0;
     for (MemTable* m : mems_) {
@@ -304,13 +310,30 @@ Status FlushJob::WriteLevel0Table() {
       total_memory_usage += m->ApproximateMemoryUsage();
     }
 
+    std::vector<InternalIterator*> cmp_memtables;
+    std::vector<InternalIterator*> cmp_range_del_iters;
+    uint64_t cmp_entries = 0;
+    uint64_t cmp_num_deletes = 0;
+    for (MemTable *m: compare_mems_) {
+      cmp_memtables.push_back(m->NewIterator(ro, &arena1));
+      auto* range_del_iter = m->NewRangeTombstoneIterator(ro);
+      if (range_del_iter != nullptr) {
+        cmp_range_del_iters.push_back(range_del_iter);
+      }
+      cmp_entries += m->num_entries();
+      cmp_num_deletes += m->num_deletes();
+    }
+
     event_logger_->Log()
-        << "job" << job_context_->job_id << "event"
+	<< "job" << job_context_->job_id << "event"
         << "flush_started"
-        << "num_memtables" << mems_.size() << "num_entries" << total_num_entries
-        << "num_deletes" << total_num_deletes << "memory_usage"
+        << "num_memtables" << mems_.size() << "num_entries"<< total_num_entries
+	<< "num_deletes" << total_num_deletes << "memory_usage"
         << total_memory_usage << "flush_reason"
-        << GetFlushReasonString(cfd_->GetFlushReason());
+	<< GetFlushReasonString(cfd_->GetFlushReason())
+        << " compare mems count " << compare_mems_.size()
+	<< " compare mems total " << cmp_entries
+	<< " compare mems total delete " << cmp_num_deletes;
 
     {
       ScopedArenaIterator iter(
@@ -320,6 +343,15 @@ Status FlushJob::WriteLevel0Table() {
           &cfd_->internal_comparator(),
           range_del_iters.empty() ? nullptr : &range_del_iters[0],
           static_cast<int>(range_del_iters.size())));
+
+      ScopedArenaIterator cmp_iter(
+          NewMergingIterator(
+              &cfd_->internal_comparator(), &cmp_memtables[0],
+              static_cast<int>(cmp_memtables.size()), &arena1));
+      std::unique_ptr<InternalIterator> cmp_range_del_iter(NewMergingIterator(
+          &cfd_->internal_comparator(),
+          cmp_range_del_iters.empty() ? nullptr : &cmp_range_del_iters[0],
+          static_cast<int>(cmp_range_del_iters.size())));
       ROCKS_LOG_INFO(db_options_.info_log,
                      "[%s] [JOB %d] Level-0 flush table #%" PRIu64 ": started",
                      cfd_->GetName().c_str(), job_context_->job_id,
@@ -353,7 +385,8 @@ Status FlushJob::WriteLevel0Table() {
           mutable_cf_options_.paranoid_file_checks, cfd_->internal_stats(),
           TableFileCreationReason::kFlush, event_logger_, job_context_->job_id,
           Env::IO_HIGH, &table_properties_, 0 /* level */, current_time,
-          oldest_key_time, write_hint);
+          oldest_key_time, write_hint,
+	  cmp_iter.get(), std::move(cmp_range_del_iter));
       LogFlush(db_options_.info_log);
     }
     ROCKS_LOG_INFO(db_options_.info_log,

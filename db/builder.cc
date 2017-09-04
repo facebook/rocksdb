@@ -75,13 +75,16 @@ Status BuildTable(
     InternalStats* internal_stats, TableFileCreationReason reason,
     EventLogger* event_logger, int job_id, const Env::IOPriority io_priority,
     TableProperties* table_properties, int level, const uint64_t creation_time,
-    const uint64_t oldest_key_time, Env::WriteLifeTimeHint write_hint) {
+    const uint64_t oldest_key_time, Env::WriteLifeTimeHint write_hint,
+    InternalIterator* cmp_iter,
+    std::unique_ptr<InternalIterator> cmp_range_del_iter) {
   assert((column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          column_family_name.empty());
   // Reports the IOStats for flush for every following bytes.
   const size_t kReportFlushIOStatsEvery = 1048576;
   Status s;
+  uint64_t num_duplicated = 0, num_total = 0;
   meta->fd.file_size = 0;
   iter->SeekToFirst();
   std::unique_ptr<RangeDelAggregator> range_del_agg(
@@ -90,6 +93,15 @@ Status BuildTable(
   if (!s.ok()) {
     // may be non-ok if a range tombstone key is unparsable
     return s;
+  }
+  std::unique_ptr<RangeDelAggregator> cmp_range_del_agg(
+      new RangeDelAggregator(internal_comparator, snapshots));
+  if (cmp_range_del_iter != nullptr) {
+    s = cmp_range_del_agg->AddTombstones(std::move(cmp_range_del_iter));
+    if (!s.ok()) {
+      // may be non-ok if a range tombstone key is unparsable
+      return s;
+    }
   }
 
   std::string fname = TableFileName(ioptions.db_paths, meta->fd.GetNumber(),
@@ -139,19 +151,64 @@ Status BuildTable(
         &snapshots, earliest_write_conflict_snapshot, snapshot_checker, env,
         true /* internal key corruption is not ok */, range_del_agg.get());
     c_iter.SeekToFirst();
+
+    ParsedInternalKey c_ikey, cmp_ikey;
+    if (cmp_iter != nullptr) {
+      cmp_iter->SeekToFirst();
+    }
+    const rocksdb::Comparator *comp = internal_comparator.user_comparator();
     for (; c_iter.Valid(); c_iter.Next()) {
       const Slice& key = c_iter.key();
       const Slice& value = c_iter.value();
-      builder->Add(key, value);
-      meta->UpdateBoundaries(key, c_iter.ikey().sequence);
+      bool skip = false;
+      num_total++;
 
-      // TODO(noetzli): Update stats after flush, too.
-      if (io_priority == Env::IO_HIGH &&
-          IOSTATS(bytes_written) >= kReportFlushIOStatsEvery) {
-        ThreadStatusUtil::SetThreadOperationProperty(
-            ThreadStatus::FLUSH_BYTES_WRITTEN, IOSTATS(bytes_written));
+      // Check whether the key is duplicated in later mems
+      if (ParseInternalKey(key, &c_ikey)) {
+        if (cmp_iter != nullptr ) {
+          while (cmp_iter->Valid()) {
+            if (!ParseInternalKey(cmp_iter->key(), &cmp_ikey)) {
+              cmp_iter->Next();
+              continue;
+            }
+            int result = comp->Compare(c_ikey.user_key, cmp_ikey.user_key);
+            if (result == 0) {
+              // No delete for merge options.
+              if (c_ikey.type != kTypeMerge && cmp_ikey.type != kTypeMerge) {
+                skip = true;
+              }
+              break;
+            }
+            else if (result > 0) {
+              cmp_iter->Next();
+            }
+            else {
+              break;
+            }
+          }
+        }
+        if (!skip && cmp_range_del_agg->ShouldDelete(c_ikey)) {
+          skip = true;
+        }
+      }
+
+      if (skip) {
+        num_duplicated++;
+        continue;
+      }
+      else {
+        builder->Add(key, value);
+        meta->UpdateBoundaries(key, c_iter.ikey().sequence);
+
+        // TODO(noetzli): Update stats after flush, too.
+        if (io_priority == Env::IO_HIGH &&
+            IOSTATS(bytes_written) >= kReportFlushIOStatsEvery) {
+          ThreadStatusUtil::SetThreadOperationProperty(
+              ThreadStatus::FLUSH_BYTES_WRITTEN, IOSTATS(bytes_written));
+        }
       }
     }
+
     // nullptr for table_{min,max} so all range tombstones will be flushed
     range_del_agg->AddToBuilder(builder, nullptr /* lower_bound */,
                                 nullptr /* upper_bound */, meta);
@@ -219,9 +276,11 @@ Status BuildTable(
   }
 
   // Output to event logger and fire events.
+  bool show_num = (cmp_iter != nullptr ||
+                   cmp_range_del_iter != nullptr)?true:false;
   EventHelpers::LogAndNotifyTableFileCreationFinished(
       event_logger, ioptions.listeners, dbname, column_family_name, fname,
-      job_id, meta->fd, tp, reason, s);
+      job_id, meta->fd, tp, reason, s, show_num, num_total, num_duplicated);
 
   return s;
 }

@@ -798,6 +798,8 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_max_write_buffer_number(
 extern ROCKSDB_LIBRARY_API void
 rocksdb_options_set_min_write_buffer_number_to_merge(rocksdb_options_t*, int);
 extern ROCKSDB_LIBRARY_API void
+rocksdb_options_set_flush_style(rocksdb_options_t*, int);
+extern ROCKSDB_LIBRARY_API void
 rocksdb_options_set_max_write_buffer_number_to_maintain(rocksdb_options_t*,
                                                         int);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_max_background_compactions(

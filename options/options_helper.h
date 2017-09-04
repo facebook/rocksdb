@@ -55,6 +55,7 @@ enum class OptionType {
   kString,
   kDouble,
   kCompactionStyle,
+  kFlushStyle,
   kCompactionPri,
   kSliceTransform,
   kCompressionType,
@@ -140,6 +141,7 @@ extern bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
 
 struct OptionsHelper {
   static std::map<CompactionStyle, std::string> compaction_style_to_string;
+  static std::map<FlushStyle, std::string> flush_style_to_string;
   static std::map<CompactionPri, std::string> compaction_pri_to_string;
   static std::map<CompactionStopStyle, std::string>
       compaction_stop_style_to_string;
@@ -162,6 +164,8 @@ struct OptionsHelper {
   static std::unordered_map<std::string, EncodingType> encoding_type_string_map;
   static std::unordered_map<std::string, CompactionStyle>
       compaction_style_string_map;
+  static std::unordered_map<std::string, FlushStyle>
+      flush_style_string_map;
   static std::unordered_map<std::string, CompactionPri>
       compaction_pri_string_map;
   static std::unordered_map<std::string, WALRecoveryMode>
@@ -180,6 +184,8 @@ struct OptionsHelper {
 // Some aliasing
 static auto& compaction_style_to_string =
     OptionsHelper::compaction_style_to_string;
+static auto& flush_style_to_string =
+    OptionsHelper::flush_style_to_string;
 static auto& compaction_pri_to_string = OptionsHelper::compaction_pri_to_string;
 static auto& compaction_stop_style_to_string =
     OptionsHelper::compaction_stop_style_to_string;
@@ -202,6 +208,8 @@ static auto& block_base_table_index_type_string_map =
 static auto& encoding_type_string_map = OptionsHelper::encoding_type_string_map;
 static auto& compaction_style_string_map =
     OptionsHelper::compaction_style_string_map;
+static auto& flush_style_string_map =
+    OptionsHelper::flush_style_string_map;
 static auto& compaction_pri_string_map =
     OptionsHelper::compaction_pri_string_map;
 static auto& wal_recovery_mode_string_map =

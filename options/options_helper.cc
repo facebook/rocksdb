@@ -192,6 +192,11 @@ std::map<CompactionStyle, std::string>
         {kCompactionStyleFIFO, "kCompactionStyleFIFO"},
         {kCompactionStyleNone, "kCompactionStyleNone"}};
 
+std::map<FlushStyle, std::string>
+    OptionsHelper::flush_style_to_string = {
+	    {kFlushStyleMerge, "kFlushStyleMerge"},
+	    {kFlushStyleDedup, "kFlushStyleDedup"}};
+
 std::map<CompactionPri, std::string> OptionsHelper::compaction_pri_to_string = {
     {kByCompensatedSize, "kByCompensatedSize"},
     {kOldestLargestSeqFirst, "kOldestLargestSeqFirst"},
@@ -453,6 +458,10 @@ bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
     case OptionType::kDouble:
       *reinterpret_cast<double*>(opt_address) = ParseDouble(value);
       break;
+    case OptionType::kFlushStyle:
+      return ParseEnum<FlushStyle>(
+          flush_style_string_map, value,
+          reinterpret_cast<FlushStyle*>(opt_address));
     case OptionType::kCompactionStyle:
       return ParseEnum<CompactionStyle>(
           compaction_style_string_map, value,
@@ -566,6 +575,10 @@ bool SerializeSingleOptionHelper(const char* opt_address,
       *value = EscapeOptionString(
           *(reinterpret_cast<const std::string*>(opt_address)));
       break;
+    case OptionType::kFlushStyle:
+      return SerializeEnum<FlushStyle>(
+          flush_style_string_map,
+          *(reinterpret_cast<const FlushStyle*>(opt_address)), value);
     case OptionType::kCompactionStyle:
       return SerializeEnum<CompactionStyle>(
           compaction_style_string_map,
@@ -1506,6 +1519,11 @@ std::unordered_map<std::string, CompactionStyle>
         {"kCompactionStyleFIFO", kCompactionStyleFIFO},
         {"kCompactionStyleNone", kCompactionStyleNone}};
 
+std::unordered_map<std::string, FlushStyle>
+    OptionsHelper::flush_style_string_map = {
+	{"kFlushStyleMerge", kFlushStyleMerge},
+	{"kFlushStyleDedup", kFlushStyleDedup}};
+
 std::unordered_map<std::string, CompactionPri>
     OptionsHelper::compaction_pri_string_map = {
         {"kByCompensatedSize", kByCompensatedSize},
@@ -1795,6 +1813,10 @@ std::unordered_map<std::string, OptionTypeInfo>
          {offset_of(&ColumnFamilyOptions::compaction_style),
           OptionType::kCompactionStyle, OptionVerificationType::kNormal, false,
           0}},
+	{"flush_style",
+	 {offset_of(&ColumnFamilyOptions::flush_style),
+          OptionType::kFlushStyle, OptionVerificationType::kNormal, false,
+	  0}},
         {"compaction_pri",
          {offset_of(&ColumnFamilyOptions::compaction_pri),
           OptionType::kCompactionPri, OptionVerificationType::kNormal, false,

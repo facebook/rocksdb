@@ -257,6 +257,7 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       if (!cfd->IsDropped() && cfd->initialized() && !cfd->mem()->IsEmpty()) {
         cfd->Ref();
+        cfd->set_stop();
         mutex_.Unlock();
         FlushMemTable(cfd, FlushOptions(), FlushReason::kShutDown);
         mutex_.Lock();

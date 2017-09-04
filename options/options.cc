@@ -72,6 +72,7 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
           options.soft_pending_compaction_bytes_limit),
       hard_pending_compaction_bytes_limit(
           options.hard_pending_compaction_bytes_limit),
+      flush_style(options.flush_style),
       compaction_style(options.compaction_style),
       compaction_pri(options.compaction_pri),
       compaction_options_universal(options.compaction_options_universal),
@@ -213,6 +214,19 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                      rate_limit_delay_max_milliseconds);
     ROCKS_LOG_HEADER(log, "               Options.disable_auto_compactions: %d",
                      disable_auto_compactions);
+
+   const auto& it_flush_style =
+        flush_style_to_string.find(flush_style);
+    std::string str_flush_style;
+    if (it_flush_style == flush_style_to_string.end()) {
+      assert(false);
+      str_flush_style = "unknown_" + std::to_string(flush_style);
+    } else {
+      str_flush_style = it_flush_style->second;
+    }
+    ROCKS_LOG_HEADER(log,
+                     "                       Options.flush_style: %s",
+                     str_flush_style.c_str());
 
     const auto& it_compaction_style =
         compaction_style_to_string.find(compaction_style);
@@ -473,6 +487,7 @@ ColumnFamilyOptions* ColumnFamilyOptions::OptimizeLevelStyleCompaction(
   // make Level1 size equal to Level0 size, so that L0->L1 compactions are fast
   max_bytes_for_level_base = memtable_memory_budget;
 
+  flush_style = kFlushStyleMerge;
   // level style compaction
   compaction_style = kCompactionStyleLevel;
 
@@ -496,6 +511,8 @@ ColumnFamilyOptions* ColumnFamilyOptions::OptimizeUniversalStyleCompaction(
   // this means we'll use 50% extra memory in the worst case, but will reduce
   // write stalls.
   max_write_buffer_number = 6;
+
+  flush_style = kFlushStyleMerge;
   // universal style compaction
   compaction_style = kCompactionStyleUniversal;
   compaction_options_universal.compression_size_percent = 80;

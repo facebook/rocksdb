@@ -56,6 +56,15 @@ enum CompactionPri : char {
   kMinOverlappingRatio = 0x3,
 };
 
+// Indicate the way when flushing memtables.
+enum FlushStyle : unsigned char {
+  // Current style.
+  kFlushStyleMerge = 0x0,
+  // Recursively delete duplicated/invalid key/value pairs compared to later
+  // memtables when flushing.
+  kFlushStyleDedup = 0x1,
+};
+
 struct CompactionOptionsFIFO {
   // once the total sum of table files reaches this, we will delete the oldest
   // table file
@@ -471,6 +480,8 @@ struct AdvancedColumnFamilyOptions {
   //
   // Default: 256GB
   uint64_t hard_pending_compaction_bytes_limit = 256 * 1073741824ull;
+
+  FlushStyle flush_style = kFlushStyleMerge;
 
   // The compaction style. Default: kCompactionStyleLevel
   CompactionStyle compaction_style = kCompactionStyleLevel;

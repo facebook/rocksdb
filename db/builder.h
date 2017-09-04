@@ -80,6 +80,7 @@ extern Status BuildTable(
     const Env::IOPriority io_priority = Env::IO_HIGH,
     TableProperties* table_properties = nullptr, int level = -1,
     const uint64_t creation_time = 0, const uint64_t oldest_key_time = 0,
-    Env::WriteLifeTimeHint write_hint = Env::WLTH_NOT_SET);
-
+    Env::WriteLifeTimeHint write_hint = Env::WLTH_NOT_SET,
+    InternalIterator* cmp_iter = nullptr,
+    std::unique_ptr<InternalIterator> cmp_range_del_iter = nullptr);
 }  // namespace rocksdb

@@ -431,6 +431,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "optimize_filters_for_hits=false;"
       "level_compaction_dynamic_level_bytes=false;"
       "inplace_update_support=false;"
+      "flush_style=kFlushStyleMerge;"
       "compaction_style=kCompactionStyleFIFO;"
       "compaction_pri=kMinOverlappingRatio;"
       "hard_pending_compaction_bytes_limit=0;"
