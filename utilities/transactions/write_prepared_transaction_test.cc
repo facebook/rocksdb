@@ -441,25 +441,61 @@ TEST_P(WritePreparedTransactionTest, SnapshotConcurrentAccessTest) {
 }
 #endif
 
+// This test clarifies the contract of AdvanceMaxEvictedSeq method
 TEST_P(WritePreparedTransactionTest, AdvanceMaxEvictedSeqBasicTest) {
   WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
   WritePreparedTxnDBMock* mock = new WritePreparedTxnDBMock(wp_db);
-  ReOpenWithMock(mock);  // to restart the db
-  wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
-  SequenceNumber init_max = 100;
+
+  // 1. Set the initial values for max, prepared, and snapshots
+  SequenceNumber zero_max = 0l;
+  // Set the initial list of prepared txns
   const std::vector<SequenceNumber> initial_prepared = {10,  30,  50, 100,
                                                         150, 200, 250};
-  SequenceNumber zero_max = 0l;
-  wp_db->AdvanceMaxEvictedSeq(zero_max, init_max);
+  for (auto p : initial_prepared) {
+    mock->AddPrepared(p);
+  }
+  // This updates the max value and also set old prepared
+  SequenceNumber init_max = 100;
+  mock->AdvanceMaxEvictedSeq(zero_max, init_max);
   const std::vector<SequenceNumber> initial_snapshots = {20, 40};
   mock->SetDBSnapshots(initial_snapshots);
-  wp_db->UpdateSnapshots(initial_snapshots, init_max);
-  for (auto p : initial_prepared) {
-    wp_db->AddPrepared(p);
-  }
+  // This will update the internal cache of snapshots from the DB
+  mock->UpdateSnapshots(initial_snapshots, init_max);
 
+  // 2. Invoke AdvanceMaxEvictedSeq
+  const std::vector<SequenceNumber> latest_snapshots = {20, 110, 220, 300};
+  mock->SetDBSnapshots(latest_snapshots);
   SequenceNumber new_max = 200;
-  wp_db->AdvanceMaxEvictedSeq(init_max, new_max);
+  mock->AdvanceMaxEvictedSeq(init_max, new_max);
+
+  // 3. Verify that the state matches with AdvanceMaxEvictedSeq contract
+  // a. max should be updated to new_max
+  ASSERT_EQ(mock->max_evicted_seq_, new_max);
+  // b. delayed prepared should contain every txn <= max and prepared should
+  // only contian txns > max
+  auto it = initial_prepared.begin();
+  for (; it != initial_prepared.end() && *it <= new_max; it++) {
+    ASSERT_EQ(1, mock->delayed_prepared_.erase(*it));
+  }
+  ASSERT_TRUE(mock->delayed_prepared_.empty());
+  for (; it != initial_prepared.end() && !mock->prepared_txns_.empty();
+       it++, mock->prepared_txns_.pop()) {
+    ASSERT_EQ(*it, mock->prepared_txns_.top());
+  }
+  ASSERT_TRUE(it == initial_prepared.end());
+  ASSERT_TRUE(mock->prepared_txns_.empty());
+  // c. snapshots should contain everything below new_max
+  auto sit = latest_snapshots.begin();
+  for (size_t i = 0; sit != latest_snapshots.end() && *sit <= new_max &&
+                     i < mock->snapshots_total_;
+       sit++, i++) {
+    ASSERT_TRUE(i < mock->snapshots_total_);
+    // This test is in small scale and the list of snapshots are assumed to be
+    // within the cache size limit. This is just a safety check to double check
+    // that assumption.
+    ASSERT_TRUE(i < mock->SNAPSHOT_CACHE_SIZE);
+    ASSERT_EQ(*sit, mock->snapshot_cache_[i]);
+  }
 }
 
 // Test WritePreparedTxnDB's IsInSnapshot against different ordering of

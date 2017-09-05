@@ -214,8 +214,6 @@ class TransactionDB : public StackableDB {
  protected:
   // To Create an TransactionDB, call Open()
   explicit TransactionDB(DB* db) : StackableDB(db) {}
-  // Reuse an existing object in place of constructing a new one
-  void Reset(DB* db) { StackableDB::Reset(db); }
 
  private:
   // No copying allowed

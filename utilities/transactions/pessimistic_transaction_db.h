@@ -115,8 +115,6 @@ class PessimisticTransactionDB : public TransactionDB {
   };
 
  protected:
-  friend class TransactionDB;
-  virtual void Reset(DB* db, const TransactionDBOptions& txn_db_options);
   void ReinitializeTransaction(
       Transaction* txn, const WriteOptions& write_options,
       const TransactionOptions& txn_options = TransactionOptions());
@@ -162,12 +160,6 @@ class WriteCommittedTxnDB : public PessimisticTransactionDB {
   Transaction* BeginTransaction(const WriteOptions& write_options,
                                 const TransactionOptions& txn_options,
                                 Transaction* old_txn) override;
-
- protected:
-  virtual void Reset(DB* db,
-                     const TransactionDBOptions& txn_db_options) override {
-    PessimisticTransactionDB::Reset(db, txn_db_options);
-  }
 };
 
 // A PessimisticTransactionDB that writes data to DB after prepare phase of 2PC.
@@ -205,13 +197,6 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // Add the transaction with prepare sequence prepare_seq and commit sequence
   // commit_seq to the commit map
   void AddCommitted(uint64_t prepare_seq, uint64_t commit_seq);
-
- protected:
-  virtual void Reset(DB* db,
-                     const TransactionDBOptions& txn_db_options) override {
-    PessimisticTransactionDB::Reset(db, txn_db_options);
-    init(txn_db_options);
-  }
 
  private:
   friend class WritePreparedTransactionTest_IsInSnapshotTest_Test;

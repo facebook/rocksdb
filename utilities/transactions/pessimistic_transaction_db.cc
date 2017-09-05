@@ -43,17 +43,6 @@ PessimisticTransactionDB::PessimisticTransactionDB(
   info_log_ = db_impl_->GetDBOptions().info_log;
 }
 
-void PessimisticTransactionDB::Reset(
-    DB* db, const TransactionDBOptions& txn_db_options) {
-  TransactionDB::Reset(db);
-  db_impl_ = static_cast_with_check<DBImpl, DB>(db);
-  // Options meant to be const and should remian the same in obj lifetime
-  // assert(txn_db_options_ == txn_db_options);
-  lock_mgr_.Reset(this);
-  assert(db_impl_ != nullptr);
-  info_log_ = db_impl_->GetDBOptions().info_log;
-}
-
 // Support initiliazing PessimisticTransactionDB from a stackable db
 //
 //    PessimisticTransactionDB
@@ -246,26 +235,19 @@ Status TransactionDB::WrapDB(
     const std::vector<size_t>& compaction_enabled_cf_indices,
     const std::vector<ColumnFamilyHandle*>& handles, TransactionDB** dbptr) {
   PessimisticTransactionDB* txn_db;
-  if (*dbptr) {
-    txn_db =
-        static_cast_with_check<PessimisticTransactionDB, TransactionDB>(*dbptr);
-    txn_db->Reset(
-        db, PessimisticTransactionDB::ValidateTxnDBOptions(txn_db_options));
-  } else {
-    switch (txn_db_options.write_policy) {
-      case WRITE_UNPREPARED:
-        return Status::NotSupported("WRITE_UNPREPARED is not implemented yet");
-      case WRITE_PREPARED:
-        txn_db = new WritePreparedTxnDB(
-            db, PessimisticTransactionDB::ValidateTxnDBOptions(txn_db_options));
-        break;
-      case WRITE_COMMITTED:
-      default:
-        txn_db = new WriteCommittedTxnDB(
-            db, PessimisticTransactionDB::ValidateTxnDBOptions(txn_db_options));
-    }
-    *dbptr = txn_db;
+  switch (txn_db_options.write_policy) {
+    case WRITE_UNPREPARED:
+      return Status::NotSupported("WRITE_UNPREPARED is not implemented yet");
+    case WRITE_PREPARED:
+      txn_db = new WritePreparedTxnDB(
+          db, PessimisticTransactionDB::ValidateTxnDBOptions(txn_db_options));
+      break;
+    case WRITE_COMMITTED:
+    default:
+      txn_db = new WriteCommittedTxnDB(
+          db, PessimisticTransactionDB::ValidateTxnDBOptions(txn_db_options));
   }
+  *dbptr = txn_db;
   Status s = txn_db->Initialize(compaction_enabled_cf_indices, handles);
   return s;
 }

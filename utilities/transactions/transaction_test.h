@@ -91,20 +91,6 @@ class TransactionTest : public ::testing::TestWithParam<
     return s;
   }
 
-  // Use the mock object instaed of creating a new db
-  Status ReOpenWithMock(TransactionDB* mock_db) {
-    delete db;
-    db = mock_db;
-    DestroyDB(dbname, options);
-    Status s;
-    if (std::get<0>(GetParam()) == false) {
-      s = TransactionDB::Open(options, txn_db_options, dbname, &db);
-    } else {
-      s = OpenWithStackableDB();
-    }
-    return s;
-  }
-
   Status ReOpen() {
     delete db;
     DestroyDB(dbname, options);
