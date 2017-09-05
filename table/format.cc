@@ -102,7 +102,7 @@ inline uint64_t UpconvertLegacyFooterFormat(uint64_t magic_number) {
 //    <padding> to make the total size 2 * BlockHandle::kMaxEncodedLength
 //    table_magic_number (8 bytes)
 // new footer format:
-//    checksum (char, 1 byte)
+//    checksum type (char, 1 byte)
 //    metaindex handle (varint64 offset, varint64 size)
 //    index handle     (varint64 offset, varint64 size)
 //    <padding> to make the total size 2 * BlockHandle::kMaxEncodedLength + 1
@@ -278,6 +278,8 @@ Status CheckBlockChecksum(const ReadOptions& options, const Footer& footer,
     uint32_t value = DecodeFixed32(data + block_size + 1);
     uint32_t actual = 0;
     switch (footer.checksum()) {
+      case kNoChecksum:
+        break;
       case kCRC32c:
         value = crc32c::Unmask(value);
         actual = crc32c::Value(data, block_size + 1);

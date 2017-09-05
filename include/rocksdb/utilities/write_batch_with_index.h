@@ -186,9 +186,19 @@ class WriteBatchWithIndex : public WriteBatchBase {
   // regardless).
   Status GetFromBatchAndDB(DB* db, const ReadOptions& read_options,
                            const Slice& key, std::string* value);
+
+  // An overload of the the above method that receives a PinnableSlice
+  Status GetFromBatchAndDB(DB* db, const ReadOptions& read_options,
+                           const Slice& key, PinnableSlice* value);
+
   Status GetFromBatchAndDB(DB* db, const ReadOptions& read_options,
                            ColumnFamilyHandle* column_family, const Slice& key,
                            std::string* value);
+
+  // An overload of the the above method that receives a PinnableSlice
+  Status GetFromBatchAndDB(DB* db, const ReadOptions& read_options,
+                           ColumnFamilyHandle* column_family, const Slice& key,
+                           PinnableSlice* value);
 
   // Records the state of the batch for future calls to RollbackToSavePoint().
   // May be called multiple times to set multiple save points.

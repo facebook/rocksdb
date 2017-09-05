@@ -13,7 +13,6 @@ namespace rocksdb {
 namespace cassandra {
 extern const char kData[];
 extern const char kExpiringData[];
-extern const int32_t kLocalDeletionTime;
 extern const int32_t kTtl;
 extern const int8_t kColumn;
 extern const int8_t kTombstone;
@@ -38,6 +37,6 @@ void VerifyRowValueColumns(
 );
 
 int64_t ToMicroSeconds(int64_t seconds);
-
+int32_t ToSeconds(int64_t microseconds);
 }
 }

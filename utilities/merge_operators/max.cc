@@ -25,6 +25,8 @@ class MaxOperator : public MergeOperator {
     if (merge_in.existing_value) {
       max = Slice(merge_in.existing_value->data(),
                   merge_in.existing_value->size());
+    } else if (max.data() == nullptr) {
+      max = Slice();
     }
 
     for (const auto& op : merge_in.operand_list) {

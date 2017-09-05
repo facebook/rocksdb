@@ -130,9 +130,11 @@ void DumpSupportInfo(Logger* logger) {
   ROCKS_LOG_HEADER(logger, "\tZlib supported: %d", Zlib_Supported());
   ROCKS_LOG_HEADER(logger, "\tBzip supported: %d", BZip2_Supported());
   ROCKS_LOG_HEADER(logger, "\tLZ4 supported: %d", LZ4_Supported());
+  ROCKS_LOG_HEADER(logger, "\tZSTDNotFinal supported: %d",
+                   ZSTDNotFinal_Supported());
   ROCKS_LOG_HEADER(logger, "\tZSTD supported: %d", ZSTD_Supported());
-  ROCKS_LOG_HEADER(logger, "Fast CRC32 supported: %d",
-                   crc32c::IsFastCrc32Supported());
+  ROCKS_LOG_HEADER(logger, "Fast CRC32 supported: %s",
+                   crc32c::IsFastCrc32Supported().c_str());
 }
 
 int64_t kDefaultLowPriThrottledRate = 2 * 1024 * 1024;
@@ -1324,6 +1326,11 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
                                  &edit, &mutex_);
       write_thread_.ExitUnbatched(&w);
     }
+    if (s.ok()) {
+      auto* mutable_cf_options = cfd->GetLatestMutableCFOptions();
+      max_total_in_memory_state_ -= mutable_cf_options->write_buffer_size *
+                                    mutable_cf_options->max_write_buffer_number;
+    }
 
     if (!cf_support_snapshot) {
       // Dropped Column Family doesn't support snapshot. Need to recalculate
@@ -1345,9 +1352,6 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
     // later inside db_mutex.
     EraseThreadStatusCfInfo(cfd);
     assert(cfd->IsDropped());
-    auto* mutable_cf_options = cfd->GetLatestMutableCFOptions();
-    max_total_in_memory_state_ -= mutable_cf_options->write_buffer_size *
-                                  mutable_cf_options->max_write_buffer_number;
     ROCKS_LOG_INFO(immutable_db_options_.info_log,
                    "Dropped column family with id %u\n", cfd->GetID());
   } else {
@@ -1687,7 +1691,7 @@ bool DBImpl::GetProperty(ColumnFamilyHandle* column_family,
 
 bool DBImpl::GetMapProperty(ColumnFamilyHandle* column_family,
                             const Slice& property,
-                            std::map<std::string, double>* value) {
+                            std::map<std::string, std::string>* value) {
   const DBPropertyInfo* property_info = GetPropertyInfo(property);
   value->clear();
   auto cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();

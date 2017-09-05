@@ -22,11 +22,14 @@ std::map<uint64_t, Slice> slices;
 
 class MockedBlockBasedTable : public BlockBasedTable {
  public:
-  explicit MockedBlockBasedTable(Rep* rep) : BlockBasedTable(rep) {}
+  explicit MockedBlockBasedTable(Rep* rep) : BlockBasedTable(rep) {
+    // Initialize what Open normally does as much as necessary for the test
+    rep->cache_key_prefix_size = 10;
+  }
 
   virtual CachableEntry<FilterBlockReader> GetFilter(
-      const BlockHandle& filter_blk_handle, const bool is_a_filter_partition,
-      bool no_io) const override {
+      FilePrefetchBuffer*, const BlockHandle& filter_blk_handle,
+      const bool /* unused */, bool /* unused */) const override {
     Slice slice = slices[filter_blk_handle.offset()];
     auto obj = new FullFilterBlockReader(
         nullptr, true, BlockContents(slice, false, kNoCompression),

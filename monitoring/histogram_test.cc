@@ -29,33 +29,31 @@ void PopulateHistogram(Histogram& histogram,
 }
 
 void BasicOperation(Histogram& histogram) {
-  PopulateHistogram(histogram, 1, 100, 10);
+  PopulateHistogram(histogram, 1, 110, 10); // fill up to bucket [70, 110)
 
   HistogramData data;
   histogram.Data(&data);
 
-  ASSERT_LE(fabs(histogram.Percentile(100.0) - 100.0), kIota);
-  ASSERT_LE(fabs(data.percentile99 - 99.0), kIota);
-  ASSERT_LE(fabs(data.percentile95 - 95.0), kIota);
-  ASSERT_LE(fabs(data.median - 50.0), kIota);
-  ASSERT_EQ(data.average, 50.5);               // avg is acurately calculated.
-  ASSERT_LT(fabs(data.standard_deviation- 28.86), kIota); //sd is ~= 28.86
+  ASSERT_LE(fabs(histogram.Percentile(100.0) - 110.0), kIota);
+  ASSERT_LE(fabs(data.percentile99 - 108.9), kIota);  // 99 * 110 / 100
+  ASSERT_LE(fabs(data.percentile95 - 104.5), kIota);  // 95 * 110 / 100
+  ASSERT_LE(fabs(data.median - 55.0), kIota);  // 50 * 110 / 100
+  ASSERT_EQ(data.average, 55.5);  // (1 + 110) / 2
 }
 
 void MergeHistogram(Histogram& histogram, Histogram& other) {
   PopulateHistogram(histogram, 1, 100);
-  PopulateHistogram(other, 101, 200);
+  PopulateHistogram(other, 101, 250);
   histogram.Merge(other);
 
   HistogramData data;
   histogram.Data(&data);
 
-  ASSERT_LE(fabs(histogram.Percentile(100.0) - 200.0), kIota);
-  ASSERT_LE(fabs(data.percentile99 - 198.0), kIota);
-  ASSERT_LE(fabs(data.percentile95 - 190.0), kIota);
-  ASSERT_LE(fabs(data.median - 100.0), kIota);
-  ASSERT_EQ(data.average, 100.5);                // avg is acurately calculated.
-  ASSERT_LT(fabs(data.standard_deviation - 57.73), kIota); //sd is ~= 57.73
+  ASSERT_LE(fabs(histogram.Percentile(100.0) - 250.0), kIota);
+  ASSERT_LE(fabs(data.percentile99 - 247.5), kIota);  // 99 * 250 / 100
+  ASSERT_LE(fabs(data.percentile95 - 237.5), kIota);  // 95 * 250 / 100
+  ASSERT_LE(fabs(data.median - 125.0), kIota);  // 50 * 250 / 100
+  ASSERT_EQ(data.average, 125.5);  // (1 + 250) / 2
 }
 
 void EmptyHistogram(Histogram& histogram) {
@@ -85,6 +83,19 @@ TEST_F(HistogramTest, BasicOperation) {
 
   HistogramWindowingImpl histogramWindowing;
   BasicOperation(histogramWindowing);
+}
+
+TEST_F(HistogramTest, BoundaryValue) {
+  HistogramImpl histogram;
+  // - both should be in [0, 1] bucket because we place values on bucket
+  //   boundaries in the lower bucket.
+  // - all points are in [0, 1] bucket, so p50 will be 0.5
+  // - the test cannot be written with a single point since histogram won't
+  //   report percentiles lower than the min or greater than the max.
+  histogram.Add(0);
+  histogram.Add(1);
+
+  ASSERT_LE(fabs(histogram.Percentile(50.0) - 0.5), kIota);
 }
 
 TEST_F(HistogramTest, MergeHistogram) {

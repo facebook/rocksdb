@@ -357,7 +357,8 @@ Status RangeDelAggregator::AddTombstone(RangeTombstone tombstone) {
       ++new_range_dels_iter;
     }
   } else {
-    tombstone_map.emplace(tombstone.start_key_, std::move(tombstone));
+    auto start_key = tombstone.start_key_;
+    tombstone_map.emplace(start_key, std::move(tombstone));
   }
   return Status::OK();
 }
@@ -412,8 +413,8 @@ void RangeDelAggregator::AddToBuilder(
 
   // Note the order in which tombstones are stored is insignificant since we
   // insert them into a std::map on the read path.
-  bool first_added = false;
   while (stripe_map_iter != rep_->stripe_map_.end()) {
+    bool first_added = false;
     for (auto tombstone_map_iter = stripe_map_iter->second.raw_map.begin();
          tombstone_map_iter != stripe_map_iter->second.raw_map.end();
          ++tombstone_map_iter) {
