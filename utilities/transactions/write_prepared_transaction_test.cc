@@ -341,6 +341,8 @@ TEST_P(WritePreparedTransactionTest, CheckAgainstSnapshotsTest) {
 // Return true if the ith bit is set in combination represented by comb
 bool IsInCombination(size_t i, size_t comb) { return comb & (size_t(1) << i); }
 
+// This test is too slow for travis
+#ifndef TRAVIS
 // Test that CheckAgainstSnapshots will not miss a live snapshot if it is run in
 // parallel with UpdateSnapshots.
 TEST_P(WritePreparedTransactionTest, SnapshotConcurrentAccessTest) {
@@ -362,8 +364,6 @@ TEST_P(WritePreparedTransactionTest, SnapshotConcurrentAccessTest) {
   for (size_t old_size = 1;
        old_size <= WritePreparedTxnDB::DEF_SNAPSHOT_CACHE_SIZE + 2;
        old_size++) {
-    printf("."); // To signal progress
-    fflush(stdout);
     const std::vector<SequenceNumber> old_snapshots(
         snapshots.begin(), snapshots.begin() + old_size);
 
@@ -371,6 +371,8 @@ TEST_P(WritePreparedTransactionTest, SnapshotConcurrentAccessTest) {
     // create a common_snapshots for each combination.
     size_t new_comb_cnt = size_t(1) << old_size;
     for (size_t new_comb = 0; new_comb < new_comb_cnt; new_comb++) {
+      printf(".");  // To signal progress
+      fflush(stdout);
       std::vector<SequenceNumber> common_snapshots;
       for (size_t i = 0; i < old_snapshots.size(); i++) {
         if (IsInCombination(i, new_comb)) {
@@ -419,6 +421,7 @@ TEST_P(WritePreparedTransactionTest, SnapshotConcurrentAccessTest) {
     }
   }
 }
+#endif
 
 // Test WritePreparedTxnDB's IsInSnapshot against different ordering of
 // snapshot, max_committed_seq_, prepared, and commit entries.
