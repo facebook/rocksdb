@@ -1011,42 +1011,15 @@ Status AwsEnv::DeletePathInS3(const std::string& bucket_prefix,
   return Status::OK();
 }
 
-//
-// Create a new directory.
-// Create a new entry in the destination bucket and create a
-// directory in the local posix env.
-//
+// S3 has no concepts of directories, so we just have to forward the request to
+// base_env_
 Status AwsEnv::CreateDir(const std::string& dirname) {
   assert(status().ok());
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_, "[s3] CreateDir dir '%s'",
       dirname.c_str());
   Status st;
 
-  if (has_dest_bucket_) {
-    // Get bucket name
-    Aws::String bucket = GetBucket(GetDestBucketPrefix());
-    std::string dname = destname(dirname);
-    Aws::String object = Aws::String(dname.c_str(), dname.size());
-
-    // create an empty object
-    Aws::S3::Model::PutObjectRequest put_request;
-    put_request.SetBucket(bucket);
-    put_request.SetKey(object);
-    SetEncryptionParameters(put_request);
-    Aws::S3::Model::PutObjectOutcome put_outcome =
-        s3client_->PutObject(put_request);
-    bool isSuccess = put_outcome.IsSuccess();
-    if (!isSuccess) {
-      const Aws::Client::AWSError<Aws::S3::S3Errors>& error =
-          put_outcome.GetError();
-      std::string errmsg(error.GetMessage().c_str(), error.GetMessage().size());
-      Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-          "[s3] CreateDir bucket %s error in creating dir %s %s\n",
-          bucket.c_str(), dirname.c_str(), errmsg.c_str());
-      return Status::IOError(dirname, errmsg.c_str());
-    }
-  }
-  // create local dir as well.
+  // create local dir
   st = base_env_->CreateDir(dirname);
 
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_, "[s3] CreateDir dir %s %s",
@@ -1054,41 +1027,15 @@ Status AwsEnv::CreateDir(const std::string& dirname) {
   return st;
 };
 
-//
-// Directories are created as a bucket in the AWS S3 service
-// as well as a local directory via posix env.
-//
+// S3 has no concepts of directories, so we just have to forward the request to
+// base_env_
 Status AwsEnv::CreateDirIfMissing(const std::string& dirname) {
   assert(status().ok());
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_, "[s3] CreateDirIfMissing dir '%s'",
       dirname.c_str());
   Status st;
 
-  if (has_dest_bucket_) {
-    // Get bucket name
-    Aws::String bucket = GetBucket(GetDestBucketPrefix());
-    std::string dname = destname(dirname);
-    Aws::String object = Aws::String(dname.c_str(), dname.size());
-
-    // create request
-    Aws::S3::Model::PutObjectRequest put_request;
-    put_request.SetBucket(bucket);
-    put_request.SetKey(object);
-    SetEncryptionParameters(put_request);
-    Aws::S3::Model::PutObjectOutcome put_outcome =
-        s3client_->PutObject(put_request);
-    bool isSuccess = put_outcome.IsSuccess();
-    if (!isSuccess) {
-      const Aws::Client::AWSError<Aws::S3::S3Errors>& error =
-          put_outcome.GetError();
-      std::string errmsg(error.GetMessage().c_str(), error.GetMessage().size());
-      Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-          "[s3] CreateDirIfMissing error in creating bucket %s %s",
-          bucket.c_str(), errmsg.c_str());
-      return Status::IOError(dirname, errmsg.c_str());
-    }
-  }
-  // create the same directory in the posix filesystem as well
+  // create directory in base_env_
   st = base_env_->CreateDirIfMissing(dirname);
 
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
@@ -1097,36 +1044,14 @@ Status AwsEnv::CreateDirIfMissing(const std::string& dirname) {
   return st;
 };
 
+// S3 has no concepts of directories, so we just have to forward the request to
+// base_env_
 Status AwsEnv::DeleteDir(const std::string& dirname) {
   assert(status().ok());
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_, "[s3] DeleteDir src '%s'",
       dirname.c_str());
   assert(!IsSstFile(dirname));
-  Status st;
-
-  if (has_dest_bucket_) {
-    // Verify that the S3 directory has no children
-    std::vector<std::string> results;
-    st = GetChildrenFromS3(destname(dirname), GetDestBucketPrefix(), &results);
-    if (st.ok() && results.size() != 0) {
-      Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-          "[s3] DeleteDir error in deleting nonempty dir %s with %d entries",
-          dirname.c_str(), results.size());
-      for (auto name : results) {
-        Log(InfoLogLevel::DEBUG_LEVEL, info_log_, "[s3] DeleteDir entry %s",
-            name.c_str());
-      }
-      return Status::IOError("[s3] DeleteDir error in deleting nonempty dir",
-                             dirname);
-    }
-    // Delete directory from S3
-    st = DeletePathInS3(GetDestBucketPrefix(), destname(dirname));
-  }
-
-  // delete the same directory in the posix filesystem as well
-  if (st.ok()) {
-    st = base_env_->DeleteDir(dirname);
-  }
+  Status st = base_env_->DeleteDir(dirname);
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_, "[s3] DeleteDir dir %s %s",
       dirname.c_str(), st.ToString().c_str());
   return st;
