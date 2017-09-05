@@ -13,8 +13,9 @@
 #endif
 
 #include <inttypes.h>
-#include <string>
 #include <algorithm>
+#include <limits>
+#include <string>
 #include <utility>
 #include <vector>
 #include "db/column_family.h"
@@ -243,6 +244,8 @@ static const std::string num_running_flushes = "num-running-flushes";
 static const std::string actual_delayed_write_rate =
     "actual-delayed-write-rate";
 static const std::string is_write_stopped = "is-write-stopped";
+static const std::string oldest_sst_file_creation_time =
+    "oldest-sst-file-creation-time";
 
 const std::string DB::Properties::kNumFilesAtLevelPrefix =
                       rocksdb_prefix + num_files_at_level_prefix;
@@ -316,6 +319,8 @@ const std::string DB::Properties::kActualDelayedWriteRate =
     rocksdb_prefix + actual_delayed_write_rate;
 const std::string DB::Properties::kIsWriteStopped =
     rocksdb_prefix + is_write_stopped;
+const std::string DB::Properties::kEstimatedOldestDataTime =
+    rocksdb_prefix + oldest_sst_file_creation_time;
 
 const std::unordered_map<std::string, DBPropertyInfo>
     InternalStats::ppt_name_to_info = {
@@ -414,6 +419,9 @@ const std::unordered_map<std::string, DBPropertyInfo>
           nullptr}},
         {DB::Properties::kIsWriteStopped,
          {false, nullptr, &InternalStats::HandleIsWriteStopped, nullptr}},
+        {DB::Properties::kEstimatedOldestDataTime,
+         {false, nullptr, &InternalStats::HandleEstimatedOldestDataTime,
+          nullptr}},
 };
 
 const DBPropertyInfo* GetPropertyInfo(const Slice& property) {
@@ -773,6 +781,20 @@ bool InternalStats::HandleActualDelayedWriteRate(uint64_t* value, DBImpl* db,
 bool InternalStats::HandleIsWriteStopped(uint64_t* value, DBImpl* db,
                                          Version* version) {
   *value = db->write_controller().IsStopped() ? 1 : 0;
+  return true;
+}
+
+bool InternalStats::HandleEstimatedOldestDataTime(uint64_t* value, DBImpl* db,
+                                                  Version* version) {
+  TablePropertiesCollection collection;
+  auto s = cfd_->current()->GetPropertiesOfAllTables(&collection);
+  if (!s.ok()) {
+    return false;
+  }
+  *value = std::numeric_limits<uint64_t>::max();
+  for (auto& p : collection) {
+    *value = std::min(*value, p.second->creation_time);
+  }
   return true;
 }
 

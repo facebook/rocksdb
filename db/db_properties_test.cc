@@ -1309,6 +1309,41 @@ TEST_F(DBPropertiesTest, EstimateNumKeysUnderflow) {
   ASSERT_EQ(0, num_keys);
 }
 
+TEST_F(DBPropertiesTest, EstimatedOldestDataTime) {
+  std::unique_ptr<MockTimeEnv> mock_env(new MockTimeEnv(Env::Default()));
+  Options options;
+  options.env = mock_env.get();
+  options.num_levels = 2;
+  options.disable_auto_compactions = true;
+  Reopen(options);
+  uint64_t creation_time = 0;
+  ASSERT_TRUE(dbfull()->GetIntProperty(DB::Properties::kEstimatedOldestDataTime,
+                                       &creation_time));
+  ASSERT_EQ(std::numeric_limits<uint64_t>::max(), creation_time);
+  mock_env->set_current_time(100);
+  ASSERT_OK(Put("k1", "v1"));
+  ASSERT_OK(Put("k3", "v1"));
+  ASSERT_OK(Flush());
+  ASSERT_EQ("1", FilesPerLevel());
+  ASSERT_TRUE(dbfull()->GetIntProperty(DB::Properties::kEstimatedOldestDataTime,
+                                       &creation_time));
+  ASSERT_EQ(100, creation_time);
+  mock_env->set_current_time(200);
+  ASSERT_OK(Put("k2", "v2"));
+  ASSERT_OK(Flush());
+  ASSERT_EQ("2", FilesPerLevel());
+  ASSERT_TRUE(dbfull()->GetIntProperty(DB::Properties::kEstimatedOldestDataTime,
+                                       &creation_time));
+  ASSERT_EQ(100, creation_time);
+  mock_env->set_current_time(300);
+  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_EQ("0,1", FilesPerLevel());
+  ASSERT_TRUE(dbfull()->GetIntProperty(DB::Properties::kEstimatedOldestDataTime,
+                                       &creation_time));
+  ASSERT_EQ(200, creation_time);
+  Close();
+}
+
 #endif  // ROCKSDB_LITE
 }  // namespace rocksdb
 
