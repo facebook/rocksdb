@@ -341,6 +341,8 @@ TEST_P(WritePreparedTransactionTest, CheckAgainstSnapshotsTest) {
 // Return true if the ith bit is set in combination represented by comb
 bool IsInCombination(size_t i, size_t comb) { return comb & (size_t(1) << i); }
 
+// This test is too slow for travis
+#ifndef TRAVIS
 // Test that CheckAgainstSnapshots will not miss a live snapshot if it is run in
 // parallel with UpdateSnapshots.
 TEST_P(WritePreparedTransactionTest, SnapshotConcurrentAccessTest) {
@@ -419,6 +421,7 @@ TEST_P(WritePreparedTransactionTest, SnapshotConcurrentAccessTest) {
     }
   }
 }
+#endif
 
 // Test WritePreparedTxnDB's IsInSnapshot against different ordering of
 // snapshot, max_committed_seq_, prepared, and commit entries.
