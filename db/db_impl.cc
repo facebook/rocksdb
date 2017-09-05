@@ -777,9 +777,7 @@ void DBImpl::BackgroundCallPurge() {
       purge_queue_.pop_front();
 
       mutex_.Unlock();
-      Status file_deletion_status;
-      DeleteObsoleteFileImpl(file_deletion_status, job_id, fname, type, number,
-                             path_id);
+      DeleteObsoleteFileImpl(job_id, fname, type, number, path_id);
       mutex_.Lock();
     } else {
       assert(!logs_to_free_queue_.empty());
