@@ -494,7 +494,6 @@ TESTS = \
 	object_registry_test \
 	repair_test \
 	env_timed_test \
-	# Tests after this are skipped from travis pre-commit runs \
 	write_prepared_transaction_test \
 
 PARALLEL_TEST = \
