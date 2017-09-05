@@ -101,6 +101,10 @@ class CloudEnvOptions {
   // Default: empty
   std::string encryption_key_id;
 
+  // If false, it will not attempt to create cloud bucket if it doesn't exist.
+  // Default: true
+  bool create_bucket_if_missing;
+
   CloudEnvOptions(
       CloudType _cloud_type = CloudType::kAws,
       bool _keep_local_sst_files = false, bool _keep_local_log_files = true,
@@ -108,7 +112,8 @@ class CloudEnvOptions {
       uint64_t _purger_periodicity_millis = 10 * 60 * 1000,
       bool _validate_filesize = true,
       std::shared_ptr<CloudRequestCallback> _cloud_request_callback = nullptr,
-      bool _server_side_encryption = false, std::string _encryption_key_id = "")
+      bool _server_side_encryption = false, std::string _encryption_key_id = "",
+      bool _create_bucket_if_missing = true)
       : cloud_type(_cloud_type),
         keep_local_sst_files(_keep_local_sst_files),
         keep_local_log_files(_keep_local_log_files),
@@ -118,7 +123,8 @@ class CloudEnvOptions {
         validate_filesize(_validate_filesize),
         cloud_request_callback(_cloud_request_callback),
         server_side_encryption(_server_side_encryption),
-        encryption_key_id(std::move(_encryption_key_id)) {
+        encryption_key_id(std::move(_encryption_key_id)),
+        create_bucket_if_missing(_create_bucket_if_missing) {
     assert(manifest_durable_periodicity_millis == 0 ||
            keep_local_log_files == true);
   }

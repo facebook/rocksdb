@@ -240,12 +240,15 @@ AwsEnv::AwsEnv(Env* underlying_env, const std::string& src_bucket_prefix,
       Log(InfoLogLevel::INFO_LEVEL, info_log,
           "[aws] NewAwsEnv Bucket %s already exists",
           GetDestBucketPrefix().c_str());
-    } else {
+    } else if (cloud_env_options.create_bucket_if_missing) {
       Log(InfoLogLevel::INFO_LEVEL, info_log,
           "[aws] NewAwsEnv Going to create bucket %s",
           GetDestBucketPrefix().c_str());
       create_bucket_status_ = S3WritableFile::CreateBucketInS3(
           s3client_, GetDestBucketPrefix(), bucket_location_);
+    } else {
+      create_bucket_status_ = Status::NotFound(
+          "[aws] Bucket not found and create_if_missing is false");
     }
   }
   if (!create_bucket_status_.ok()) {
