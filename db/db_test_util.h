@@ -579,7 +579,7 @@ class MockTimeEnv : public EnvWrapper {
   virtual Status GetCurrentTime(int64_t* time) override {
     assert(time != nullptr);
     assert(current_time_ <= std::numeric_limits<int64_t>::max());
-    *time = current_time_;
+    *time = static_cast<int64_t>(current_time_);
     return Status::OK();
   }
 
