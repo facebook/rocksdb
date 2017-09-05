@@ -244,8 +244,8 @@ static const std::string num_running_flushes = "num-running-flushes";
 static const std::string actual_delayed_write_rate =
     "actual-delayed-write-rate";
 static const std::string is_write_stopped = "is-write-stopped";
-static const std::string oldest_sst_file_creation_time =
-    "oldest-sst-file-creation-time";
+static const std::string estimated_oldest_data_time =
+    "estimated-oldest-data-time";
 
 const std::string DB::Properties::kNumFilesAtLevelPrefix =
                       rocksdb_prefix + num_files_at_level_prefix;
@@ -320,7 +320,7 @@ const std::string DB::Properties::kActualDelayedWriteRate =
 const std::string DB::Properties::kIsWriteStopped =
     rocksdb_prefix + is_write_stopped;
 const std::string DB::Properties::kEstimatedOldestDataTime =
-    rocksdb_prefix + oldest_sst_file_creation_time;
+    rocksdb_prefix + estimated_oldest_data_time;
 
 const std::unordered_map<std::string, DBPropertyInfo>
     InternalStats::ppt_name_to_info = {
