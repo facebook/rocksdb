@@ -784,8 +784,9 @@ bool InternalStats::HandleIsWriteStopped(uint64_t* value, DBImpl* db,
   return true;
 }
 
-bool InternalStats::HandleEstimatedOldestDataTime(uint64_t* value, DBImpl* db,
-                                                  Version* version) {
+bool InternalStats::HandleEstimatedOldestDataTime(uint64_t* value,
+                                                  DBImpl* /*db*/,
+                                                  Version* /*version*/) {
   TablePropertiesCollection collection;
   auto s = cfd_->current()->GetPropertiesOfAllTables(&collection);
   if (!s.ok()) {
