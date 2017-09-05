@@ -713,11 +713,6 @@ const std::vector<SequenceNumber> WritePreparedTxnDB::GetSnapshotListFromDB(
   return db_impl_->snapshots().GetAll(nullptr, max);
 }
 
-// 10m entry, 80MB size
-size_t WritePreparedTxnDB::DEF_COMMIT_CACHE_SIZE = static_cast<size_t>(1 << 21);
-size_t WritePreparedTxnDB::DEF_SNAPSHOT_CACHE_SIZE =
-    static_cast<size_t>(1 << 7);
-
 void WritePreparedTxnDB::UpdateSnapshots(
     const std::vector<SequenceNumber>& snapshots,
     const SequenceNumber& version) {

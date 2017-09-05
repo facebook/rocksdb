@@ -475,11 +475,11 @@ std::string IsFastCrc32Supported() {
   has_fast_crc = isSSE42();
   arch = "x86";
 #endif
-  if (has_fast_crc){
+  if (has_fast_crc) {
     fast_zero_msg.append("Supported on " + arch);
   }
   fast_zero_msg.append("Not supported on " + arch);
-  return fast_zero_msg;  
+  return fast_zero_msg;
 }
 
 static Function ChosenExtend = Choose_Extend();

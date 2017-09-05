@@ -110,9 +110,17 @@ class WritePreparedTxnDBMock : public WritePreparedTxnDB {
  public:
   WritePreparedTxnDBMock(WritePreparedTxnDB* wp_db)
       : WritePreparedTxnDB(wp_db->db_impl_, wp_db->txn_db_options_) {}
+  WritePreparedTxnDBMock(WritePreparedTxnDB* wp_db, size_t snapshot_cache_size)
+      : WritePreparedTxnDB(wp_db->db_impl_, wp_db->txn_db_options_,
+                           snapshot_cache_size) {}
+  WritePreparedTxnDBMock(WritePreparedTxnDB* wp_db, size_t snapshot_cache_size,
+                         size_t commit_cache_size)
+      : WritePreparedTxnDB(wp_db->db_impl_, wp_db->txn_db_options_,
+                           snapshot_cache_size, commit_cache_size) {}
   void SetDBSnapshots(const std::vector<SequenceNumber> snapshots) {
     snapshots_ = snapshots;
   }
+  void TakeSnapshot(SequenceNumber seq) { snapshots_.push_back(seq); }
 
  protected:
   virtual const std::vector<SequenceNumber> GetSnapshotListFromDB(
@@ -327,10 +335,8 @@ TEST_P(WritePreparedTransactionTest, MaybeUpdateOldCommitMap) {
 TEST_P(WritePreparedTransactionTest, CheckAgainstSnapshotsTest) {
   std::vector<SequenceNumber> snapshots = {100l, 200l, 300l, 400l,
                                            500l, 600l, 700l};
-  // will take effect after ReOpen
-  WritePreparedTxnDB::DEF_SNAPSHOT_CACHE_SIZE = snapshots.size() / 2;
-  ReOpen();  // to restart the db
-  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+  WritePreparedTxnDBMock* wp_db = new WritePreparedTxnDBMock(
+      dynamic_cast<WritePreparedTxnDB*>(db), snapshots.size() / 2);
   assert(wp_db);
   assert(wp_db->db_impl_);
   SequenceNumber version = 1000l;
@@ -371,16 +377,13 @@ TEST_P(WritePreparedTransactionTest, SnapshotConcurrentAccessTest) {
                                                  60l, 70l, 80l, 90l, 100l};
   SequenceNumber version = 1000l;
   // Choose the cache size so that the new snapshot list could replace all the
-  // existing items in the cache and also have some overflow Will take effect
-  // after ReOpen
-  WritePreparedTxnDB::DEF_SNAPSHOT_CACHE_SIZE = (snapshots.size() - 2) / 2;
-  ReOpen();  // to restart the db
-  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+  // existing items in the cache and also have some overflow.
+  WritePreparedTxnDBMock* wp_db = new WritePreparedTxnDBMock(
+      dynamic_cast<WritePreparedTxnDB*>(db), (snapshots.size() - 2) / 2);
   assert(wp_db);
   assert(wp_db->db_impl_);
   // Add up to 2 items that do not fit into the cache
-  for (size_t old_size = 1;
-       old_size <= WritePreparedTxnDB::DEF_SNAPSHOT_CACHE_SIZE + 2;
+  for (size_t old_size = 1; old_size <= wp_db->SNAPSHOT_CACHE_SIZE + 2;
        old_size++) {
     const std::vector<SequenceNumber> old_snapshots(
         snapshots.begin(), snapshots.begin() + old_size);
@@ -415,13 +418,9 @@ TEST_P(WritePreparedTransactionTest, SnapshotConcurrentAccessTest) {
           // The critical part is when iterating the snapshot cache. Afterwards,
           // we are operating under the lock
           size_t a_range =
-              std::min(old_snapshots.size(),
-                       WritePreparedTxnDB::DEF_SNAPSHOT_CACHE_SIZE) +
-              1;
+              std::min(old_snapshots.size(), wp_db->SNAPSHOT_CACHE_SIZE) + 1;
           size_t b_range =
-              std::min(new_snapshots.size(),
-                       WritePreparedTxnDB::DEF_SNAPSHOT_CACHE_SIZE) +
-              1;
+              std::min(new_snapshots.size(), wp_db->SNAPSHOT_CACHE_SIZE) + 1;
           // Break each thread at two points
           for (size_t a1 = 1; a1 <= a_range; a1++) {
             for (size_t a2 = a1 + 1; a2 <= a_range; a2++) {
@@ -504,10 +503,9 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
   WriteOptions wo;
   // Use small commit cache to trigger lots of eviction and fast advance of
   // max_evicted_seq_
-  // will take effect after ReOpen
-  WritePreparedTxnDB::DEF_COMMIT_CACHE_SIZE = 8;
+  const size_t commit_cache_size = 8;
   // Same for snapshot cache size
-  WritePreparedTxnDB::DEF_SNAPSHOT_CACHE_SIZE = 5;
+  const size_t snapshot_cache_size = 5;
 
   // Take some preliminary snapshots first. This is to stress the data structure
   // that holds the old snapshots as it will be designed to be efficient when
@@ -527,7 +525,6 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
       uint64_t cur_txn = 0;
       // Number of snapshots taken so far
       int num_snapshots = 0;
-      std::vector<const Snapshot*> to_be_released;
       // Number of gaps applied so far
       int gap_cnt = 0;
       // The final snapshot that we will inspect
@@ -540,30 +537,25 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
       // We keep the list of txns comitted before we take the last snaphot.
       // These should be the only seq numbers that will be found in the snapshot
       std::set<uint64_t> committed_before;
-      ReOpen();  // to restart the db
-      WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+      WritePreparedTxnDBMock* wp_db =
+          new WritePreparedTxnDBMock(dynamic_cast<WritePreparedTxnDB*>(db),
+                                     snapshot_cache_size, commit_cache_size);
       assert(wp_db);
       assert(wp_db->db_impl_);
       // We continue until max advances a bit beyond the snapshot.
       while (!snapshot || wp_db->max_evicted_seq_ < snapshot + 100) {
         // do prepare for a transaction
-        wp_db->db_impl_->Put(wo, "key", "value");  // dummy put to inc db seq
         seq++;
-        ASSERT_EQ(wp_db->db_impl_->GetLatestSequenceNumber(), seq);
         wp_db->AddPrepared(seq);
         prepared.insert(seq);
 
         // If cur_txn is not started, do prepare for it.
         if (!cur_txn) {
-          wp_db->db_impl_->Put(wo, "key", "value");  // dummy put to inc db seq
           seq++;
-          ASSERT_EQ(wp_db->db_impl_->GetLatestSequenceNumber(), seq);
           cur_txn = seq;
           wp_db->AddPrepared(cur_txn);
         } else {                                     // else commit it
-          wp_db->db_impl_->Put(wo, "key", "value");  // dummy put to inc db seq
           seq++;
-          ASSERT_EQ(wp_db->db_impl_->GetLatestSequenceNumber(), seq);
           wp_db->AddCommitted(cur_txn, seq);
           if (!snapshot) {
             committed_before.insert(cur_txn);
@@ -573,20 +565,15 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
 
         if (num_snapshots < max_snapshots - 1) {
           // Take preliminary snapshots
-          auto tmp_snapshot = db->GetSnapshot();
-          to_be_released.push_back(tmp_snapshot);
+          wp_db->TakeSnapshot(seq);
           num_snapshots++;
         } else if (gap_cnt < max_gap) {
           // Wait for some gap before taking the final snapshot
           gap_cnt++;
         } else if (!snapshot) {
           // Take the final snapshot if it is not already taken
-          auto tmp_snapshot = db->GetSnapshot();
-          to_be_released.push_back(tmp_snapshot);
-          snapshot = tmp_snapshot->GetSequenceNumber();
-          // We increase the db seq artificailly by a dummy Put. Check that this
-          // technique is effective and db seq is that same as ours.
-          ASSERT_EQ(snapshot, seq);
+          snapshot = seq;
+          wp_db->TakeSnapshot(snapshot);
           num_snapshots++;
         }
 
@@ -623,9 +610,6 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
       }
       ASSERT_TRUE(wp_db->delayed_prepared_.empty());
       ASSERT_TRUE(wp_db->prepared_txns_.empty());
-      for (auto s : to_be_released) {
-        db->ReleaseSnapshot(s);
-      }
     }
   }
 }

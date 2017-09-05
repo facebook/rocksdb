@@ -167,19 +167,23 @@ class WriteCommittedTxnDB : public PessimisticTransactionDB {
 // mechanisms to tell such data apart from committed data.
 class WritePreparedTxnDB : public PessimisticTransactionDB {
  public:
-  explicit WritePreparedTxnDB(DB* db,
-                              const TransactionDBOptions& txn_db_options)
+  explicit WritePreparedTxnDB(
+      DB* db, const TransactionDBOptions& txn_db_options,
+      size_t snapshot_cache_size = DEF_SNAPSHOT_CACHE_SIZE,
+      size_t commit_cache_size = DEF_COMMIT_CACHE_SIZE)
       : PessimisticTransactionDB(db, txn_db_options),
-        SNAPSHOT_CACHE_SIZE(DEF_SNAPSHOT_CACHE_SIZE),
-        COMMIT_CACHE_SIZE(DEF_COMMIT_CACHE_SIZE) {
+        SNAPSHOT_CACHE_SIZE(snapshot_cache_size),
+        COMMIT_CACHE_SIZE(commit_cache_size) {
     init(txn_db_options);
   }
 
-  explicit WritePreparedTxnDB(StackableDB* db,
-                              const TransactionDBOptions& txn_db_options)
+  explicit WritePreparedTxnDB(
+      StackableDB* db, const TransactionDBOptions& txn_db_options,
+      size_t snapshot_cache_size = DEF_SNAPSHOT_CACHE_SIZE,
+      size_t commit_cache_size = DEF_COMMIT_CACHE_SIZE)
       : PessimisticTransactionDB(db, txn_db_options),
-        SNAPSHOT_CACHE_SIZE(DEF_SNAPSHOT_CACHE_SIZE),
-        COMMIT_CACHE_SIZE(DEF_COMMIT_CACHE_SIZE) {
+        SNAPSHOT_CACHE_SIZE(snapshot_cache_size),
+        COMMIT_CACHE_SIZE(commit_cache_size) {
     init(txn_db_options);
   }
 
@@ -320,8 +324,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // with snapshots_mutex_ and concurrent reads are safe due to std::atomic for
   // each entry. In x86_64 architecture such reads are compiled to simple read
   // instructions. 128 entries
-  // TODO(myabandeh): avoid non-const static variables
-  static size_t DEF_SNAPSHOT_CACHE_SIZE;
+  static const size_t DEF_SNAPSHOT_CACHE_SIZE = static_cast<size_t>(1 << 7);
   const size_t SNAPSHOT_CACHE_SIZE;
   unique_ptr<std::atomic<SequenceNumber>[]> snapshot_cache_;
   // 2nd list for storing snapshots. The list sorted in ascending order.
@@ -334,8 +337,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // A heap of prepared transactions. Thread-safety is provided with
   // prepared_mutex_.
   PreparedHeap prepared_txns_;
-  // TODO(myabandeh): avoid non-const static variables
-  static size_t DEF_COMMIT_CACHE_SIZE;
+  // 10m entry, 80MB size
+  static const size_t DEF_COMMIT_CACHE_SIZE = static_cast<size_t>(1 << 21);
   const size_t COMMIT_CACHE_SIZE;
   // commit_cache_ must be initialized to zero to tell apart an empty index from
   // a filled one. Thread-safety is provided with commit_cache_mutex_.
