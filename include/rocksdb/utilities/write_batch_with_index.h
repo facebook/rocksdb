@@ -17,6 +17,7 @@
 
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
+#include "rocksdb/read_callback.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "rocksdb/write_batch.h"
@@ -29,6 +30,7 @@ class Comparator;
 class DB;
 struct ReadOptions;
 struct DBOptions;
+class ReadCallback;
 
 enum WriteType {
   kPutRecord,
@@ -226,6 +228,10 @@ class WriteBatchWithIndex : public WriteBatchBase {
   void SetMaxBytes(size_t max_bytes) override;
 
  private:
+  friend class WritePreparedTxn;
+  Status GetFromBatchAndDB(DB* db, const ReadOptions& read_options,
+                           ColumnFamilyHandle* column_family, const Slice& key,
+                           PinnableSlice* value, ReadCallback* callback);
   struct Rep;
   std::unique_ptr<Rep> rep;
 };

@@ -15,6 +15,7 @@
 
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
+#include "rocksdb/read_callback.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "utilities/transactions/pessimistic_transaction.h"
 #include "utilities/transactions/transaction_lock_mgr.h"
@@ -367,6 +368,22 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   port::RWMutex old_commit_map_mutex_;
   port::RWMutex commit_cache_mutex_;
   port::RWMutex snapshots_mutex_;
+};
+
+class WritePreparedTxnReadCallback : public ReadCallback {
+ public:
+  WritePreparedTxnReadCallback(WritePreparedTxnDB* db, SequenceNumber snapshot)
+      : db_(db), snapshot_(snapshot) {}
+
+  // Will be called to see if the seq number accepted; if not it moves on to the
+  // next seq number.
+  virtual bool Callback(SequenceNumber seq) {
+    return db_->IsInSnapshot(seq, snapshot_);
+  }
+
+ private:
+  WritePreparedTxnDB* db_;
+  SequenceNumber snapshot_;
 };
 
 }  //  namespace rocksdb

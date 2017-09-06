@@ -45,6 +45,11 @@ class WritePreparedTxn : public PessimisticTransaction {
 
   virtual ~WritePreparedTxn() {}
 
+  using Transaction::Get;
+  virtual Status Get(const ReadOptions& options,
+                     ColumnFamilyHandle* column_family, const Slice& key,
+                     PinnableSlice* value) override;
+
   Status CommitBatch(WriteBatch* batch) override;
 
   Status Rollback() override;

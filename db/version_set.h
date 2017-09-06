@@ -43,6 +43,7 @@
 #include "options/db_options.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
+#include "rocksdb/read_callback.h"
 
 namespace rocksdb {
 
@@ -485,7 +486,8 @@ class Version {
   void Get(const ReadOptions&, const LookupKey& key, PinnableSlice* value,
            Status* status, MergeContext* merge_context,
            RangeDelAggregator* range_del_agg, bool* value_found = nullptr,
-           bool* key_exists = nullptr, SequenceNumber* seq = nullptr);
+           bool* key_exists = nullptr, SequenceNumber* seq = nullptr,
+           ReadCallback* callback = nullptr);
 
   // Loads some stats information from files. Call without mutex held. It needs
   // to be called before applying the version to the version set.

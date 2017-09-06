@@ -33,14 +33,12 @@ void appendToReplayLog(std::string* replay_log, ValueType type, Slice value) {
 
 }  // namespace
 
-GetContext::GetContext(const Comparator* ucmp,
-                       const MergeOperator* merge_operator, Logger* logger,
-                       Statistics* statistics, GetState init_state,
-                       const Slice& user_key, PinnableSlice* pinnable_val,
-                       bool* value_found, MergeContext* merge_context,
-                       RangeDelAggregator* _range_del_agg, Env* env,
-                       SequenceNumber* seq,
-                       PinnedIteratorsManager* _pinned_iters_mgr)
+GetContext::GetContext(
+    const Comparator* ucmp, const MergeOperator* merge_operator, Logger* logger,
+    Statistics* statistics, GetState init_state, const Slice& user_key,
+    PinnableSlice* pinnable_val, bool* value_found, MergeContext* merge_context,
+    RangeDelAggregator* _range_del_agg, Env* env, SequenceNumber* seq,
+    PinnedIteratorsManager* _pinned_iters_mgr, ReadCallback* callback)
     : ucmp_(ucmp),
       merge_operator_(merge_operator),
       logger_(logger),
@@ -54,7 +52,8 @@ GetContext::GetContext(const Comparator* ucmp,
       env_(env),
       seq_(seq),
       replay_log_(nullptr),
-      pinned_iters_mgr_(_pinned_iters_mgr) {
+      pinned_iters_mgr_(_pinned_iters_mgr),
+      callback_(callback) {
   if (seq_) {
     *seq_ = kMaxSequenceNumber;
   }
@@ -88,6 +87,11 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
   assert((state_ != kMerge && parsed_key.type != kTypeMerge) ||
          merge_context_ != nullptr);
   if (ucmp_->Equal(parsed_key.user_key, user_key_)) {
+    // If the value is not in the snapshot, skip it
+    if (!CheckCallback(parsed_key.sequence)) {
+      return false;
+    }
+
     appendToReplayLog(replay_log_, parsed_key.type, value);
 
     if (seq_ != nullptr) {
