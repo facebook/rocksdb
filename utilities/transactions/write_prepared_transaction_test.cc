@@ -108,15 +108,15 @@ TEST(PreparedHeap, BasicsTest) {
 
 class WritePreparedTxnDBMock : public WritePreparedTxnDB {
  public:
-  WritePreparedTxnDBMock(WritePreparedTxnDB* wp_db)
-      : WritePreparedTxnDB(wp_db->db_impl_, wp_db->txn_db_options_) {}
-  WritePreparedTxnDBMock(WritePreparedTxnDB* wp_db, size_t snapshot_cache_size)
-      : WritePreparedTxnDB(wp_db->db_impl_, wp_db->txn_db_options_,
-                           snapshot_cache_size) {}
-  WritePreparedTxnDBMock(WritePreparedTxnDB* wp_db, size_t snapshot_cache_size,
-                         size_t commit_cache_size)
-      : WritePreparedTxnDB(wp_db->db_impl_, wp_db->txn_db_options_,
-                           snapshot_cache_size, commit_cache_size) {}
+  WritePreparedTxnDBMock(DBImpl* db_impl, TransactionDBOptions& opt)
+      : WritePreparedTxnDB(db_impl, opt) {}
+  WritePreparedTxnDBMock(DBImpl* db_impl, TransactionDBOptions& opt,
+                         size_t snapshot_cache_size)
+      : WritePreparedTxnDB(db_impl, opt, snapshot_cache_size) {}
+  WritePreparedTxnDBMock(DBImpl* db_impl, TransactionDBOptions& opt,
+                         size_t snapshot_cache_size, size_t commit_cache_size)
+      : WritePreparedTxnDB(db_impl, opt, snapshot_cache_size,
+                           commit_cache_size) {}
   void SetDBSnapshots(const std::vector<SequenceNumber> snapshots) {
     snapshots_ = snapshots;
   }
@@ -335,10 +335,9 @@ TEST_P(WritePreparedTransactionTest, MaybeUpdateOldCommitMap) {
 TEST_P(WritePreparedTransactionTest, CheckAgainstSnapshotsTest) {
   std::vector<SequenceNumber> snapshots = {100l, 200l, 300l, 400l,
                                            500l, 600l, 700l};
-  WritePreparedTxnDBMock* wp_db = new WritePreparedTxnDBMock(
-      dynamic_cast<WritePreparedTxnDB*>(db), snapshots.size() / 2);
-  assert(wp_db);
-  assert(wp_db->db_impl_);
+  DBImpl* mock_db = new DBImpl(options, dbname);
+  std::unique_ptr<WritePreparedTxnDBMock> wp_db(new WritePreparedTxnDBMock(
+      mock_db, txn_db_options, snapshots.size() / 2));
   SequenceNumber version = 1000l;
   ASSERT_EQ(0, wp_db->snapshots_total_);
   wp_db->UpdateSnapshots(snapshots, version);
@@ -378,10 +377,9 @@ TEST_P(WritePreparedTransactionTest, SnapshotConcurrentAccessTest) {
   SequenceNumber version = 1000l;
   // Choose the cache size so that the new snapshot list could replace all the
   // existing items in the cache and also have some overflow.
-  WritePreparedTxnDBMock* wp_db = new WritePreparedTxnDBMock(
-      dynamic_cast<WritePreparedTxnDB*>(db), (snapshots.size() - 2) / 2);
-  assert(wp_db);
-  assert(wp_db->db_impl_);
+  DBImpl* mock_db = new DBImpl(options, dbname);
+  std::unique_ptr<WritePreparedTxnDBMock> wp_db(new WritePreparedTxnDBMock(
+      mock_db, txn_db_options, (snapshots.size() - 2) / 2));
   // Add up to 2 items that do not fit into the cache
   for (size_t old_size = 1; old_size <= wp_db->SNAPSHOT_CACHE_SIZE + 2;
        old_size++) {
@@ -426,9 +424,9 @@ TEST_P(WritePreparedTransactionTest, SnapshotConcurrentAccessTest) {
             for (size_t a2 = a1 + 1; a2 <= a_range; a2++) {
               for (size_t b1 = 1; b1 <= b_range; b1++) {
                 for (size_t b2 = b1 + 1; b2 <= b_range; b2++) {
-                  SnapshotConcurrentAccessTestInternal(wp_db, old_snapshots,
-                                                       new_snapshots, entry,
-                                                       version, a1, a2, b1, b2);
+                  SnapshotConcurrentAccessTestInternal(
+                      wp_db.get(), old_snapshots, new_snapshots, entry, version,
+                      a1, a2, b1, b2);
                 }
               }
             }
@@ -442,8 +440,9 @@ TEST_P(WritePreparedTransactionTest, SnapshotConcurrentAccessTest) {
 
 // This test clarifies the contract of AdvanceMaxEvictedSeq method
 TEST_P(WritePreparedTransactionTest, AdvanceMaxEvictedSeqBasicTest) {
-  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
-  WritePreparedTxnDBMock* mock = new WritePreparedTxnDBMock(wp_db);
+  DBImpl* mock_db = new DBImpl(options, dbname);
+  std::unique_ptr<WritePreparedTxnDBMock> wp_db(
+      new WritePreparedTxnDBMock(mock_db, txn_db_options));
 
   // 1. Set the initial values for max, prepared, and snapshots
   SequenceNumber zero_max = 0l;
@@ -451,49 +450,49 @@ TEST_P(WritePreparedTransactionTest, AdvanceMaxEvictedSeqBasicTest) {
   const std::vector<SequenceNumber> initial_prepared = {10,  30,  50, 100,
                                                         150, 200, 250};
   for (auto p : initial_prepared) {
-    mock->AddPrepared(p);
+    wp_db->AddPrepared(p);
   }
   // This updates the max value and also set old prepared
   SequenceNumber init_max = 100;
-  mock->AdvanceMaxEvictedSeq(zero_max, init_max);
+  wp_db->AdvanceMaxEvictedSeq(zero_max, init_max);
   const std::vector<SequenceNumber> initial_snapshots = {20, 40};
-  mock->SetDBSnapshots(initial_snapshots);
+  wp_db->SetDBSnapshots(initial_snapshots);
   // This will update the internal cache of snapshots from the DB
-  mock->UpdateSnapshots(initial_snapshots, init_max);
+  wp_db->UpdateSnapshots(initial_snapshots, init_max);
 
   // 2. Invoke AdvanceMaxEvictedSeq
   const std::vector<SequenceNumber> latest_snapshots = {20, 110, 220, 300};
-  mock->SetDBSnapshots(latest_snapshots);
+  wp_db->SetDBSnapshots(latest_snapshots);
   SequenceNumber new_max = 200;
-  mock->AdvanceMaxEvictedSeq(init_max, new_max);
+  wp_db->AdvanceMaxEvictedSeq(init_max, new_max);
 
   // 3. Verify that the state matches with AdvanceMaxEvictedSeq contract
   // a. max should be updated to new_max
-  ASSERT_EQ(mock->max_evicted_seq_, new_max);
+  ASSERT_EQ(wp_db->max_evicted_seq_, new_max);
   // b. delayed prepared should contain every txn <= max and prepared should
   // only contian txns > max
   auto it = initial_prepared.begin();
   for (; it != initial_prepared.end() && *it <= new_max; it++) {
-    ASSERT_EQ(1, mock->delayed_prepared_.erase(*it));
+    ASSERT_EQ(1, wp_db->delayed_prepared_.erase(*it));
   }
-  ASSERT_TRUE(mock->delayed_prepared_.empty());
-  for (; it != initial_prepared.end() && !mock->prepared_txns_.empty();
-       it++, mock->prepared_txns_.pop()) {
-    ASSERT_EQ(*it, mock->prepared_txns_.top());
+  ASSERT_TRUE(wp_db->delayed_prepared_.empty());
+  for (; it != initial_prepared.end() && !wp_db->prepared_txns_.empty();
+       it++, wp_db->prepared_txns_.pop()) {
+    ASSERT_EQ(*it, wp_db->prepared_txns_.top());
   }
   ASSERT_TRUE(it == initial_prepared.end());
-  ASSERT_TRUE(mock->prepared_txns_.empty());
+  ASSERT_TRUE(wp_db->prepared_txns_.empty());
   // c. snapshots should contain everything below new_max
   auto sit = latest_snapshots.begin();
   for (size_t i = 0; sit != latest_snapshots.end() && *sit <= new_max &&
-                     i < mock->snapshots_total_;
+                     i < wp_db->snapshots_total_;
        sit++, i++) {
-    ASSERT_TRUE(i < mock->snapshots_total_);
+    ASSERT_TRUE(i < wp_db->snapshots_total_);
     // This test is in small scale and the list of snapshots are assumed to be
     // within the cache size limit. This is just a safety check to double check
     // that assumption.
-    ASSERT_TRUE(i < mock->SNAPSHOT_CACHE_SIZE);
-    ASSERT_EQ(*sit, mock->snapshot_cache_[i]);
+    ASSERT_TRUE(i < wp_db->SNAPSHOT_CACHE_SIZE);
+    ASSERT_EQ(*sit, wp_db->snapshot_cache_[i]);
   }
 }
 
@@ -537,11 +536,9 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
       // We keep the list of txns comitted before we take the last snaphot.
       // These should be the only seq numbers that will be found in the snapshot
       std::set<uint64_t> committed_before;
-      WritePreparedTxnDBMock* wp_db =
-          new WritePreparedTxnDBMock(dynamic_cast<WritePreparedTxnDB*>(db),
-                                     snapshot_cache_size, commit_cache_size);
-      assert(wp_db);
-      assert(wp_db->db_impl_);
+      DBImpl* mock_db = new DBImpl(options, dbname);
+      std::unique_ptr<WritePreparedTxnDBMock> wp_db(new WritePreparedTxnDBMock(
+          mock_db, txn_db_options, snapshot_cache_size, commit_cache_size));
       // We continue until max advances a bit beyond the snapshot.
       while (!snapshot || wp_db->max_evicted_seq_ < snapshot + 100) {
         // do prepare for a transaction
