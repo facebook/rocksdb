@@ -515,9 +515,10 @@ Status DBImpl::CompactFilesImpl(
   c.reset(cfd->compaction_picker()->CompactFiles(
       compact_options, input_files, output_level, version->storage_info(),
       *cfd->GetLatestMutableCFOptions(), output_path_id));
-  if (!c) {
-    return Status::Aborted("Another Level 0 compaction is running");
-  }
+  // we already sanitized the set of input files and checked for conflicts
+  // without releasing the lock, so we're guaranteed a compaction can be formed.
+  assert(c != nullptr);
+
   c->SetInputVersion(version);
   // deletion compaction currently not allowed in CompactFiles.
   assert(!c->deletion_compaction());
