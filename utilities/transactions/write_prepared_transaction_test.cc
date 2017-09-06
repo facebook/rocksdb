@@ -117,14 +117,14 @@ class WritePreparedTxnDBMock : public WritePreparedTxnDB {
                          size_t snapshot_cache_size, size_t commit_cache_size)
       : WritePreparedTxnDB(db_impl, opt, snapshot_cache_size,
                            commit_cache_size) {}
-  void SetDBSnapshots(const std::vector<SequenceNumber> snapshots) {
+  void SetDBSnapshots(const std::vector<SequenceNumber>& snapshots) {
     snapshots_ = snapshots;
   }
   void TakeSnapshot(SequenceNumber seq) { snapshots_.push_back(seq); }
 
  protected:
   virtual const std::vector<SequenceNumber> GetSnapshotListFromDB(
-      SequenceNumber max) override {
+      SequenceNumber /* unused */) override {
     return snapshots_;
   }
 
