@@ -389,17 +389,23 @@ Status S3WritableFile::CopyToS3(const AwsEnv* env, const std::string& fname,
                                 const Aws::String& s3_bucket,
                                 const Aws::String& s3_object,
                                 uint64_t size_hint) {
-  {
-    // debugging paranoia. Files uploaded to S3 can never be zero size.
-    size_t fsize = 0;
-    Status statx = env->GetPosixEnv()->GetFileSize(fname, &fsize);
-    if (fsize == 0) {
-      Log(InfoLogLevel::ERROR_LEVEL, env->info_log_,
-          "[s3] CopyToS3 "
-          "localpath %s error zero size %s",
-          fname.c_str(), statx.ToString().c_str());
-      return Status::IOError(fname + " Zero size.");
-    }
+  Status st;
+  size_t fsize = 0;
+  // debugging paranoia. Files uploaded to S3 can never be zero size.
+  st = env->GetPosixEnv()->GetFileSize(fname, &fsize);
+  if (!st.ok()) {
+    Log(InfoLogLevel::ERROR_LEVEL, env->info_log_,
+        "[s3] CopyToS3 "
+        "localpath %s error getting size %s",
+        fname.c_str(), st.ToString().c_str());
+    return st;
+  }
+  if (fsize == 0) {
+    Log(InfoLogLevel::ERROR_LEVEL, env->info_log_,
+        "[s3] CopyToS3 "
+        "localpath %s error zero size",
+        fname.c_str());
+    return Status::IOError(fname + " Zero size.");
   }
 
   auto input_data = Aws::MakeShared<Aws::FStream>(
@@ -420,9 +426,14 @@ Status S3WritableFile::CopyToS3(const AwsEnv* env, const std::string& fname,
     const Aws::Client::AWSError<Aws::S3::S3Errors>& error =
         put_outcome.GetError();
     std::string errmsg(error.GetMessage().c_str(), error.GetMessage().size());
-    return Status::IOError(fname, errmsg);
+    st = Status::IOError(fname, errmsg);
   }
-  return Status::OK();
+
+  Log(InfoLogLevel::INFO_LEVEL, env->info_log_,
+      "[s3] CopyToS3 %s/%s, size %zu, status %s", s3_bucket.c_str(),
+      s3_object.c_str(), fsize, st.ToString().c_str());
+
+  return st;
 }
 
 //

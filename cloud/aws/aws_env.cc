@@ -978,6 +978,7 @@ Status AwsEnv::DeleteFile(const std::string& fname) {
 Status AwsEnv::DeletePathInS3(const std::string& bucket_prefix,
                               const std::string& fname) {
   assert(status().ok());
+  Status st;
   Aws::String bucket = GetBucket(bucket_prefix);
 
   // The filename is the same as the object name in the bucket
@@ -998,17 +999,16 @@ Status AwsEnv::DeletePathInS3(const std::string& bucket_prefix,
     if (s3err == Aws::S3::S3Errors::NO_SUCH_BUCKET ||
         s3err == Aws::S3::S3Errors::NO_SUCH_KEY ||
         s3err == Aws::S3::S3Errors::RESOURCE_NOT_FOUND) {
-      Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-          "[s3] S3WritableFile bucket %s error in deleting non-existent %s %s",
-          bucket.c_str(), fname.c_str(), errmsg.c_str());
-      return Status::NotFound(fname, errmsg.c_str());
+      st = Status::NotFound(fname, errmsg.c_str());
+    } else {
+      st = Status::IOError(fname, errmsg.c_str());
     }
-    Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-        "[s3] S3WritableFile bucket %s error in deleting %s %s",
-        bucket.c_str(), fname.c_str(), errmsg.c_str());
-    return Status::IOError(fname, errmsg.c_str());
   }
-  return Status::OK();
+
+  Log(InfoLogLevel::INFO_LEVEL, info_log_, "[s3] DeleteFromS3 %s/%s, status %s",
+      bucket.c_str(), object.c_str(), st.ToString().c_str());
+
+  return st;
 }
 
 // S3 has no concepts of directories, so we just have to forward the request to
