@@ -16,10 +16,6 @@ class ReadCallback {
   // Will be called to see if the seq number accepted; if not it moves on to the
   // next seq number.
   virtual bool Callback(SequenceNumber seq) = 0;
- private:
-  friend class WritePreparedTxnReadCallback;
-  // This is to ensure that this class is used only internally. We had to put it in the public API since there is currently a weird API cross in which our internal transaction implementation uses the public API of WriteBatch::GetFromBatchAndDB so we needed to make this class visible to public API.
-  ReadCallback() {};
 };
 
 }  //  namespace rocksdb

@@ -35,6 +35,7 @@
 #include "db/file_indexer.h"
 #include "db/log_reader.h"
 #include "db/range_del_aggregator.h"
+#include "db/read_callback.h"
 #include "db/table_cache.h"
 #include "db/version_builder.h"
 #include "db/version_edit.h"
@@ -43,7 +44,6 @@
 #include "options/db_options.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
-#include "rocksdb/read_callback.h"
 
 namespace rocksdb {
 
