@@ -27,9 +27,9 @@ namespace rocksdb {
 class ColumnFamilyHandle;
 class Comparator;
 class DB;
+class ReadCallback;
 struct ReadOptions;
 struct DBOptions;
-class ReadCallback;
 
 enum WriteType {
   kPutRecord,

@@ -791,6 +791,10 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(DB* db,
 Status WriteBatchWithIndex::GetFromBatchAndDB(
     DB* db, const ReadOptions& read_options, ColumnFamilyHandle* column_family,
     const Slice& key, PinnableSlice* pinnable_val, ReadCallback* callback) {
+  if (UNLIKELY(db->GetRootDB() != db)) {
+    return Status::NotSupported("The DB must be of DBImpl type");
+    // Otherwise the cast below would fail
+  }
   Status s;
   MergeContext merge_context;
   const ImmutableDBOptions& immuable_db_options =
