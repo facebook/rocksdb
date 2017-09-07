@@ -103,8 +103,8 @@ int MemTableList::NumFlushed() const {
 bool MemTableListVersion::Get(const LookupKey& key, std::string* value,
                               Status* s, MergeContext* merge_context,
                               RangeDelAggregator* range_del_agg,
-                              SequenceNumber* seq,
-                              const ReadOptions& read_opts, ReadCallback* callback) {
+                              SequenceNumber* seq, const ReadOptions& read_opts,
+                              ReadCallback* callback) {
   return GetFromList(&memlist_, key, value, s, merge_context, range_del_agg,
                      seq, read_opts, callback);
 }
@@ -119,12 +119,10 @@ bool MemTableListVersion::GetFromHistory(const LookupKey& key,
                      range_del_agg, seq, read_opts);
 }
 
-bool MemTableListVersion::GetFromList(std::list<MemTable*>* list,
-                                      const LookupKey& key, std::string* value,
-                                      Status* s, MergeContext* merge_context,
-                                      RangeDelAggregator* range_del_agg,
-                                      SequenceNumber* seq,
-                                      const ReadOptions& read_opts, ReadCallback* callback) {
+bool MemTableListVersion::GetFromList(
+    std::list<MemTable*>* list, const LookupKey& key, std::string* value,
+    Status* s, MergeContext* merge_context, RangeDelAggregator* range_del_agg,
+    SequenceNumber* seq, const ReadOptions& read_opts, ReadCallback* callback) {
   *seq = kMaxSequenceNumber;
 
   for (auto& memtable : *list) {

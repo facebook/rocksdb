@@ -576,7 +576,7 @@ static bool SaveValue(void* arg, const char* entry) {
     UnPackSequenceAndType(tag, &seq, &type);
     // If the value is not in the snapshot, skip it
     if (!s->CheckCallback(seq)) {
-      return true; // to continue to the next seq
+      return true;  // to continue to the next seq
     }
 
     s->seq = seq;

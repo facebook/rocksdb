@@ -2337,8 +2337,11 @@ TEST_F(DBTest2, ReadCallbackTest) {
   // Try to create a db with multiple layers and a memtable
   const std::string key = "foo";
   const std::string value = "bar";
-  // This test assumes that the seq start with 1 and increased by 1 after each write batch of size 1. If that behavior changes, the test needs to be updated as well.
-  // TODO(myabandeh): update this test to use the seq number that is returned by the DB instead of assuming what seq the DB used.
+  // This test assumes that the seq start with 1 and increased by 1 after each
+  // write batch of size 1. If that behavior changes, the test needs to be
+  // updated as well.
+  // TODO(myabandeh): update this test to use the seq number that is returned by
+  // the DB instead of assuming what seq the DB used.
   int i = 1;
   for (; i < 10; i++) {
     Put(key, value + std::to_string(i));
@@ -2389,11 +2392,12 @@ TEST_F(DBTest2, ReadCallbackTest) {
     Status s = dbfull()->GetImpl(roptions, dbfull()->DefaultColumnFamily(), key,
                                  &pinnable_val, &dont_care, &callback);
     ASSERT_TRUE(s.ok());
-    // Assuming that after each Put the DB increased seq by one, the value and seq number must be equal since we also inc value by 1 after each Put.
+    // Assuming that after each Put the DB increased seq by one, the value and
+    // seq number must be equal since we also inc value by 1 after each Put.
     ASSERT_EQ(value + std::to_string(seq), pinnable_val.ToString());
   }
 
-  for (auto snapshot: snapshots) {
+  for (auto snapshot : snapshots) {
     dbfull()->ReleaseSnapshot(snapshot);
   }
 }

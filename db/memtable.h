@@ -188,13 +188,15 @@ class MemTable {
   // status returned indicates a corruption or other unexpected error.
   bool Get(const LookupKey& key, std::string* value, Status* s,
            MergeContext* merge_context, RangeDelAggregator* range_del_agg,
-           SequenceNumber* seq, const ReadOptions& read_opts, ReadCallback* callback = nullptr);
+           SequenceNumber* seq, const ReadOptions& read_opts,
+           ReadCallback* callback = nullptr);
 
   bool Get(const LookupKey& key, std::string* value, Status* s,
            MergeContext* merge_context, RangeDelAggregator* range_del_agg,
            const ReadOptions& read_opts, ReadCallback* callback = nullptr) {
     SequenceNumber seq;
-    return Get(key, value, s, merge_context, range_del_agg, &seq, read_opts, callback);
+    return Get(key, value, s, merge_context, range_del_agg, &seq, read_opts,
+               callback);
   }
 
   // Attempts to update the new_value inplace, else does normal Add

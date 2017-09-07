@@ -90,7 +90,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
   if (ucmp_->Equal(parsed_key.user_key, user_key_)) {
     // If the value is not in the snapshot, skip it
     if (!CheckCallback(parsed_key.sequence)) {
-      return true; // to continue to the next seq
+      return true;  // to continue to the next seq
     }
 
     appendToReplayLog(replay_log_, parsed_key.type, value);
