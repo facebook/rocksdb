@@ -104,6 +104,8 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    info_log.get());
   ROCKS_LOG_HEADER(log, "               Options.max_file_opening_threads: %d",
                    max_file_opening_threads);
+  ROCKS_LOG_HEADER(log, "                             Options.statistics: %p",
+                   statistics.get());
   ROCKS_LOG_HEADER(log, "                              Options.use_fsync: %d",
                    use_fsync);
   ROCKS_LOG_HEADER(

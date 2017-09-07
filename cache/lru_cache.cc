@@ -465,14 +465,7 @@ LRUCache::LRUCache(size_t capacity, int num_shard_bits,
                    bool strict_capacity_limit, double high_pri_pool_ratio)
     : ShardedCache(capacity, num_shard_bits, strict_capacity_limit) {
   num_shards_ = 1 << num_shard_bits;
-#if defined(_MSC_VER)
-#pragma warning(push)
-#pragma warning(disable: 4316) // We've validated the alignment with the new operators
-#endif
   shards_ = new LRUCacheShard[num_shards_];
-#if defined(_MSC_VER)
-#pragma warning(pop)
-#endif
   SetCapacity(capacity);
   SetStrictCapacityLimit(strict_capacity_limit);
   for (int i = 0; i < num_shards_; i++) {

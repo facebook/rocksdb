@@ -2724,6 +2724,28 @@ TEST_F(DBCompactionTest, OptimizedDeletionObsoleting) {
             options.statistics->getTickerCount(COMPACTION_KEY_DROP_OBSOLETE));
 }
 
+TEST_F(DBCompactionTest, CompactFilesOverlapInL0Bug) {
+  // Regression test for bug of not pulling in L0 files that overlap the user-
+  // specified input files in time- and key-ranges.
+  Put(Key(0), "old_val");
+  Flush();
+  Put(Key(0), "new_val");
+  Flush();
+
+  ColumnFamilyMetaData cf_meta;
+  dbfull()->GetColumnFamilyMetaData(dbfull()->DefaultColumnFamily(), &cf_meta);
+  ASSERT_GE(cf_meta.levels.size(), 2);
+  ASSERT_EQ(2, cf_meta.levels[0].files.size());
+
+  // Compacting {new L0 file, L1 file} should pull in the old L0 file since it
+  // overlaps in key-range and time-range.
+  std::vector<std::string> input_filenames;
+  input_filenames.push_back(cf_meta.levels[0].files.front().name);
+  ASSERT_OK(dbfull()->CompactFiles(CompactionOptions(), input_filenames,
+                                   1 /* output_level */));
+  ASSERT_EQ("new_val", Get(Key(0)));
+}
+
 INSTANTIATE_TEST_CASE_P(DBCompactionTestWithParam, DBCompactionTestWithParam,
                         ::testing::Values(std::make_tuple(1, true),
                                           std::make_tuple(1, false),

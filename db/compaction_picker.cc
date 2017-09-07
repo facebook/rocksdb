@@ -730,10 +730,6 @@ Status CompactionPicker::SanitizeCompactionInputFilesForAllLevels(
   auto& levels = cf_meta.levels;
   auto comparator = icmp_->user_comparator();
 
-  // TODO(yhchiang): If there is any input files of L1 or up and there
-  // is at least one L0 files. All L0 files older than the L0 file needs
-  // to be included. Otherwise, it is a false conditoin
-
   // TODO(yhchiang): add is_adjustable to CompactionOptions
 
   // the smallest and largest key of the current compaction input
@@ -794,6 +790,8 @@ Status CompactionPicker::SanitizeCompactionInputFilesForAllLevels(
         }
         last_included++;
       }
+    } else if (output_level > 0) {
+      last_included = static_cast<int>(current_files.size() - 1);
     }
 
     // include all files between the first and the last compaction input files.
