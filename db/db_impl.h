@@ -635,6 +635,7 @@ class DBImpl : public DB {
 
  private:
   friend class DB;
+  friend class DBTest2_ReadCallbackTest_Test;
   friend class InternalStats;
   friend class PessimisticTransaction;
   friend class WriteCommittedTxn;
