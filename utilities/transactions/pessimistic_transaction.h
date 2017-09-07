@@ -205,26 +205,6 @@ class WriteCommittedTxn : public PessimisticTransaction {
   void operator=(const WriteCommittedTxn&);
 };
 
-// Used at commit time to check whether transaction is committing before its
-// expiration time.
-class TransactionCallback : public WriteCallback {
- public:
-  explicit TransactionCallback(PessimisticTransaction* txn) : txn_(txn) {}
-
-  Status Callback(DB* /* unused */) override {
-    if (txn_->IsExpired()) {
-      return Status::Expired();
-    } else {
-      return Status::OK();
-    }
-  }
-
-  bool AllowWriteBatching() override { return true; }
-
- private:
-  PessimisticTransaction* txn_;
-};
-
 }  // namespace rocksdb
 
 #endif  // ROCKSDB_LITE
