@@ -685,9 +685,8 @@ class DBImpl : public DB {
   // Delete any unneeded files and stale in-memory entries.
   void DeleteObsoleteFiles();
   // Delete obsolete files and log status and information of file deletion
-  void DeleteObsoleteFileImpl(Status file_deletion_status, int job_id,
-                              const std::string& fname, FileType type,
-                              uint64_t number, uint32_t path_id);
+  void DeleteObsoleteFileImpl(int job_id, const std::string& fname,
+                              FileType type, uint64_t number, uint32_t path_id);
 
   // Background process needs to call
   //     auto x = CaptureCurrentFileNumberInPendingOutputs()

@@ -310,6 +310,7 @@ typename SkipList<Key, Comparator>::Node* SkipList<Key, Comparator>::
   int level = GetMaxHeight() - 1;
   Node* last_bigger = nullptr;
   while (true) {
+    assert(x != nullptr);
     Node* next = x->Next(level);
     // Make sure the lists are sorted
     assert(x == head_ || next == nullptr || KeyIsAfterNode(next->key, x));
@@ -338,6 +339,7 @@ SkipList<Key, Comparator>::FindLessThan(const Key& key, Node** prev) const {
   // KeyIsAfter(key, last_not_after) is definitely false
   Node* last_not_after = nullptr;
   while (true) {
+    assert(x != nullptr);
     Node* next = x->Next(level);
     assert(x == head_ || next == nullptr || KeyIsAfterNode(next->key, x));
     assert(x == head_ || KeyIsAfterNode(key, x));
