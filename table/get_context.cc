@@ -6,6 +6,7 @@
 #include "table/get_context.h"
 #include "db/merge_helper.h"
 #include "db/pinned_iterators_manager.h"
+#include "db/read_callback.h"
 #include "monitoring/file_read_sample.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
@@ -89,7 +90,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
   if (ucmp_->Equal(parsed_key.user_key, user_key_)) {
     // If the value is not in the snapshot, skip it
     if (!CheckCallback(parsed_key.sequence)) {
-      return false;
+      return true; // to continue to the next seq
     }
 
     appendToReplayLog(replay_log_, parsed_key.type, value);
