@@ -148,7 +148,8 @@ class PessimisticTransactionDB : public TransactionDB {
     // Number of higher bits of a sequence number that is not used. They are
     // used to encode the value type, ...
     static const size_t PAD_BITS = 8;
-    // Number of lower bits from prepare seq that can be skipped as they are implied by the index of the entry in the array
+    // Number of lower bits from prepare seq that can be skipped as they are
+    // implied by the index of the entry in the array
     // TODO: compute it based on COMMIT_CACHE_SIZE
     static const size_t INDEX_BITS = 21;
     // Number of bits we use to encode the prepare seq
@@ -212,21 +213,25 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
  public:
   explicit WritePreparedTxnDB(
       DB* db, const TransactionDBOptions& txn_db_options,
-      size_t snapshot_cache_size = DEF_SNAPSHOT_CACHE_SIZE,
-      size_t commit_cache_size = DEF_COMMIT_CACHE_SIZE)
+      size_t snapshot_cache_bits = DEF_SNAPSHOT_CACHE_BITS,
+      size_t commit_cache_bits = DEF_COMMIT_CACHE_BITS)
       : PessimisticTransactionDB(db, txn_db_options),
-        SNAPSHOT_CACHE_SIZE(snapshot_cache_size),
-        COMMIT_CACHE_SIZE(commit_cache_size) {
+        SNAPSHOT_CACHE_BITS(snapshot_cache_bits),
+        SNAPSHOT_CACHE_SIZE(static_cast<size_t>(1 << SNAPSHOT_CACHE_BITS)),
+        COMMIT_CACHE_BITS(commit_cache_bits),
+        COMMIT_CACHE_SIZE(static_cast<size_t>(1 << COMMIT_CACHE_BITS)) {
     init(txn_db_options);
   }
 
   explicit WritePreparedTxnDB(
       StackableDB* db, const TransactionDBOptions& txn_db_options,
-      size_t snapshot_cache_size = DEF_SNAPSHOT_CACHE_SIZE,
-      size_t commit_cache_size = DEF_COMMIT_CACHE_SIZE)
+      size_t snapshot_cache_bits = DEF_SNAPSHOT_CACHE_BITS,
+      size_t commit_cache_bits = DEF_COMMIT_CACHE_BITS)
       : PessimisticTransactionDB(db, txn_db_options),
-        SNAPSHOT_CACHE_SIZE(snapshot_cache_size),
-        COMMIT_CACHE_SIZE(commit_cache_size) {
+        SNAPSHOT_CACHE_BITS(snapshot_cache_bits),
+        SNAPSHOT_CACHE_SIZE(static_cast<size_t>(1 << SNAPSHOT_CACHE_BITS)),
+        COMMIT_CACHE_BITS(commit_cache_bits),
+        COMMIT_CACHE_SIZE(static_cast<size_t>(1 << COMMIT_CACHE_BITS)) {
     init(txn_db_options);
   }
 
@@ -368,7 +373,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // with snapshots_mutex_ and concurrent reads are safe due to std::atomic for
   // each entry. In x86_64 architecture such reads are compiled to simple read
   // instructions. 128 entries
-  static const size_t DEF_SNAPSHOT_CACHE_SIZE = static_cast<size_t>(1 << 7);
+  static const size_t DEF_SNAPSHOT_CACHE_BITS = 7;
+  const size_t SNAPSHOT_CACHE_BITS;
   const size_t SNAPSHOT_CACHE_SIZE;
   unique_ptr<std::atomic<SequenceNumber>[]> snapshot_cache_;
   // 2nd list for storing snapshots. The list sorted in ascending order.
@@ -382,7 +388,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // prepared_mutex_.
   PreparedHeap prepared_txns_;
   // 10m entry, 80MB size
-  static const size_t DEF_COMMIT_CACHE_SIZE = static_cast<size_t>(1 << 21);
+  static const size_t DEF_COMMIT_CACHE_BITS = 21;
+  const size_t COMMIT_CACHE_BITS;
   const size_t COMMIT_CACHE_SIZE;
   // commit_cache_ must be initialized to zero to tell apart an empty index from
   // a filled one. Thread-safety is provided with commit_cache_mutex_.
