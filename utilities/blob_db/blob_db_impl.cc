@@ -1148,6 +1148,7 @@ std::vector<Status> BlobDBImpl::MultiGet(
 
   values->resize(keys.size());
   assert(statuses.size() == keys.size());
+  assert(values_lsm.size() == keys.size());
   for (size_t i = 0; i < keys.size(); ++i) {
     if (!statuses[i].ok()) {
       continue;

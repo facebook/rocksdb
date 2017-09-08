@@ -163,16 +163,16 @@ class BlobDB : public StackableDB {
   }
 
   using rocksdb::StackableDB::SingleDelete;
-  virtual Status SingleDelete(const WriteOptions& wopts,
-                              ColumnFamilyHandle* column_family,
-                              const Slice& key) override {
+  virtual Status SingleDelete(const WriteOptions& /*wopts*/,
+                              ColumnFamilyHandle* /*column_family*/,
+                              const Slice& /*key*/) override {
     return Status::NotSupported("Not supported operation in blob db.");
   }
 
   using rocksdb::StackableDB::Merge;
-  virtual Status Merge(const WriteOptions& options,
-                       ColumnFamilyHandle* column_family, const Slice& key,
-                       const Slice& value) override {
+  virtual Status Merge(const WriteOptions& /*options*/,
+                       ColumnFamilyHandle* /*column_family*/,
+                       const Slice& /*key*/, const Slice& /*value*/) override {
     return Status::NotSupported("Not supported operation in blob db.");
   }
 
