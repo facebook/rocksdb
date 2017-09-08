@@ -49,6 +49,9 @@ class PessimisticTransaction : public TransactionBaseImpl {
 
   Status Commit() override;
 
+  // It is basically Commit without going through Prepare phase. The write batch
+  // is also directly provided instead of expecting txn to gradually batch the
+  // transactions writes to an internal write batch.
   virtual Status CommitBatch(WriteBatch* batch) = 0;
 
   Status Rollback() override = 0;
@@ -113,6 +116,8 @@ class PessimisticTransaction : public TransactionBaseImpl {
   virtual Status PrepareInternal() = 0;
 
   virtual Status CommitWithoutPrepareInternal() = 0;
+
+  virtual Status CommitBatchInternal(WriteBatch* batch) = 0;
 
   virtual Status CommitInternal() = 0;
 
@@ -194,6 +199,8 @@ class WriteCommittedTxn : public PessimisticTransaction {
   Status PrepareInternal() override;
 
   Status CommitWithoutPrepareInternal() override;
+
+  Status CommitBatchInternal(WriteBatch* batch) override;
 
   Status CommitInternal() override;
 
