@@ -122,6 +122,15 @@ TEST(ExpiringColumnTest, ExpiringColumn) {
       == 0);
 }
 
+TEST(TombstoneTest, TombstoneCollection) {
+  std::string hex = "7fffffff80000000000000000100599f4bc300055786e9d6e9eb";
+  std::string data = DecodeHex(hex);
+  RowValue row = RowValue::Deserialize(data.c_str(), data.length());
+  EXPECT_EQ(1, row.ColumnSize());
+  row = row.RemoveTombstones(14400);
+  EXPECT_TRUE(row.Empty());
+}
+
 TEST(TombstoneTest, Tombstone) {
   int8_t mask = ColumnTypeMask::DELETION_MASK;
   int8_t index = 2;

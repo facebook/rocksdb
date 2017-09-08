@@ -298,6 +298,8 @@ bool RowValue::Empty() const {
   return columns_.empty();
 }
 
+int8_t RowValue::ColumnSize() const { return columns_.size(); }
+
 RowValue RowValue::Deserialize(const char *src, std::size_t size) {
   std::size_t offset = 0;
   assert(size >= sizeof(local_deletion_time_) + sizeof(marked_for_delete_at_));

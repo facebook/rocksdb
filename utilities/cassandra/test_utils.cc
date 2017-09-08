@@ -65,5 +65,38 @@ int64_t ToMicroSeconds(int64_t seconds) {
 int32_t ToSeconds(int64_t microseconds) {
   return (int32_t)(microseconds / (int64_t)1000000);
 }
+
+int fromHex(char c) {
+  // toupper:
+  if (c >= 'a' && c <= 'f') {
+    c -= ('a' - 'A');  // aka 0x20
+  }
+  // validation
+  if (c < '0' || (c > '9' && (c < 'A' || c > 'F'))) {
+    return -1;  // invalid not 0-9A-F hex char
+  }
+  if (c <= '9') {
+    return c - '0';
+  }
+  return c - 'A' + 10;
+}
+
+// borrowed from rocksdb/db/slice.h
+std::string DecodeHex(std::string& hexStr) {
+  std::string::size_type len = hexStr.length();
+  // Hex string must be even number of hex digits to get complete bytes back
+  assert(len % 2 == 0);
+  std::string result = "";
+  result.reserve(len / 2);
+
+  for (size_t i = 0; i < len;) {
+    int h1 = fromHex(hexStr[i++]);
+    assert(h1 >= 0);
+    int h2 = fromHex(hexStr[i++]);
+    assert(h2 >= 0);
+    result.push_back((h1 << 4) | h2);
+  }
+  return result;
+}
 }
 }
