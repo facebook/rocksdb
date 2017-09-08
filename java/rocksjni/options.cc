@@ -5730,6 +5730,19 @@ jlong Java_org_rocksdb_ReadOptions_newReadOptions(
 
 /*
  * Class:     org_rocksdb_ReadOptions
+ * Method:    copyReadOptions
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_ReadOptions_copyReadOptions(
+    JNIEnv* env, jclass jcls, jlong jhandle) {
+  auto old_read_opt = reinterpret_cast<rocksdb::ReadOptions*>(jhandle);
+  auto new_read_opt = new rocksdb::ReadOptions();
+  *new_read_opt = *old_read_opt;
+  return reinterpret_cast<jlong>(new_read_opt);
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
  * Method:    disposeInternal
  * Signature: (J)V
  */
@@ -6001,6 +6014,29 @@ void Java_org_rocksdb_ReadOptions_setReadTier(
     JNIEnv* env, jobject jobj, jlong jhandle, jbyte jread_tier) {
   reinterpret_cast<rocksdb::ReadOptions*>(jhandle)->read_tier =
       static_cast<rocksdb::ReadTier>(jread_tier);
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    setIterateUpperBound
+ * Signature: (JJ)I
+ */
+void Java_org_rocksdb_ReadOptions_setIterateUpperBound(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jupper_bound_slice_handle) {
+  reinterpret_cast<rocksdb::ReadOptions*>(jhandle)->iterate_upper_bound =
+      reinterpret_cast<rocksdb::Slice*>(jupper_bound_slice_handle);
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    iterateUpperBound
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_ReadOptions_iterateUpperBound(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto& upper_bound_slice_handle =
+      reinterpret_cast<rocksdb::ReadOptions*>(jhandle)->iterate_upper_bound;
+  return reinterpret_cast<jlong>(upper_bound_slice_handle);
 }
 
 /////////////////////////////////////////////////////////////////////
