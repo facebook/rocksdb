@@ -685,7 +685,7 @@ void WritePreparedTxnDB::AdvanceMaxEvictedSeq(SequenceNumber& prev_max,
 
   // With each change to max_evicted_seq_ fetch the live snapshots behind it.
   // We use max as the version of snapshots to identify how fresh are the
-  // snapshot list. This works because the snapshots are between -infinity and
+  // snapshot list. This works because the snapshots are between 0 and
   // max, so the larger the max, the more complete they are.
   SequenceNumber new_snapshots_version = new_max;
   std::vector<SequenceNumber> snapshots;
