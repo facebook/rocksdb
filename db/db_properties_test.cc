@@ -1309,38 +1309,100 @@ TEST_F(DBPropertiesTest, EstimateNumKeysUnderflow) {
   ASSERT_EQ(0, num_keys);
 }
 
-TEST_F(DBPropertiesTest, EstimatedOldestDataTime) {
+TEST_F(DBPropertiesTest, EstimatedEarliestKeyTimestamp) {
   std::unique_ptr<MockTimeEnv> mock_env(new MockTimeEnv(Env::Default()));
   Options options;
   options.env = mock_env.get();
   options.num_levels = 2;
   options.disable_auto_compactions = true;
+  // Disable auto flush.
+  options.max_write_buffer_number = 4;
+  options.min_write_buffer_number_to_merge = 4;
   Reopen(options);
-  uint64_t creation_time = 0;
-  ASSERT_TRUE(dbfull()->GetIntProperty(DB::Properties::kEstimatedOldestDataTime,
-                                       &creation_time));
-  ASSERT_EQ(std::numeric_limits<uint64_t>::max(), creation_time);
+  auto cfd =
+      static_cast<ColumnFamilyHandleImpl*>(dbfull()->DefaultColumnFamily())
+          ->cfd();
+  uint64_t earliest_key_timestamp = -1;
+
+  ASSERT_TRUE(dbfull()->GetIntProperty(
+      DB::Properties::kEstimatedEarliestKeyTimestamp, &earliest_key_timestamp));
+  ASSERT_EQ(std::numeric_limits<uint64_t>::max(), earliest_key_timestamp);
+
   mock_env->set_current_time(100);
   ASSERT_OK(Put("k1", "v1"));
+  ASSERT_EQ(100, cfd->mem()->ApproximateEarliestKeyTimestamp());
+  ASSERT_TRUE(dbfull()->GetIntProperty(
+      DB::Properties::kEstimatedEarliestKeyTimestamp, &earliest_key_timestamp));
+  ASSERT_EQ(100, earliest_key_timestamp);
+
+  mock_env->set_current_time(200);
+  ASSERT_OK(Delete("k1"));
+  ASSERT_OK(Put("k2", "v1"));
+  ASSERT_EQ(100, cfd->mem()->ApproximateEarliestKeyTimestamp());
+  ASSERT_TRUE(dbfull()->GetIntProperty(
+      DB::Properties::kEstimatedEarliestKeyTimestamp, &earliest_key_timestamp));
+  ASSERT_EQ(100, earliest_key_timestamp);
+
+  mock_env->set_current_time(300);
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable(cfd));
   ASSERT_OK(Put("k3", "v1"));
+  ASSERT_EQ(300, cfd->mem()->ApproximateEarliestKeyTimestamp());
+  ASSERT_EQ(1, cfd->imm()->NumNotFlushed());
+  ASSERT_EQ(0, cfd->imm()->NumFlushed());
+  ASSERT_EQ(100, cfd->imm()->ApproximateEarliestKeyTimestamp());
+  ASSERT_TRUE(dbfull()->GetIntProperty(
+      DB::Properties::kEstimatedEarliestKeyTimestamp, &earliest_key_timestamp));
+  ASSERT_EQ(100, earliest_key_timestamp);
+
+  mock_env->set_current_time(400);
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable(cfd));
+  ASSERT_OK(Put("k4", "v1"));
+  ASSERT_EQ(400, cfd->mem()->ApproximateEarliestKeyTimestamp());
+  ASSERT_EQ(2, cfd->imm()->NumNotFlushed());
+  ASSERT_EQ(0, cfd->imm()->NumFlushed());
+  ASSERT_EQ(100, cfd->imm()->ApproximateEarliestKeyTimestamp());
+  ASSERT_TRUE(dbfull()->GetIntProperty(
+      DB::Properties::kEstimatedEarliestKeyTimestamp, &earliest_key_timestamp));
+  ASSERT_EQ(100, earliest_key_timestamp);
+
   ASSERT_OK(Flush());
   ASSERT_EQ("1", FilesPerLevel());
-  ASSERT_TRUE(dbfull()->GetIntProperty(DB::Properties::kEstimatedOldestDataTime,
-                                       &creation_time));
-  ASSERT_EQ(100, creation_time);
-  mock_env->set_current_time(200);
-  ASSERT_OK(Put("k2", "v2"));
+  ASSERT_TRUE(dbfull()->GetIntProperty(
+      DB::Properties::kEstimatedEarliestKeyTimestamp, &earliest_key_timestamp));
+  ASSERT_EQ(100, earliest_key_timestamp);
+
+  mock_env->set_current_time(500);
+  ASSERT_OK(Put("k3", "v2"));
   ASSERT_OK(Flush());
   ASSERT_EQ("2", FilesPerLevel());
-  ASSERT_TRUE(dbfull()->GetIntProperty(DB::Properties::kEstimatedOldestDataTime,
-                                       &creation_time));
-  ASSERT_EQ(100, creation_time);
-  mock_env->set_current_time(300);
-  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_TRUE(dbfull()->GetIntProperty(
+      DB::Properties::kEstimatedEarliestKeyTimestamp, &earliest_key_timestamp));
+  ASSERT_EQ(100, earliest_key_timestamp);
+
+  mock_env->set_current_time(600);
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ("0,1", FilesPerLevel());
-  ASSERT_TRUE(dbfull()->GetIntProperty(DB::Properties::kEstimatedOldestDataTime,
-                                       &creation_time));
-  ASSERT_EQ(200, creation_time);
+  ASSERT_TRUE(dbfull()->GetIntProperty(
+      DB::Properties::kEstimatedEarliestKeyTimestamp, &earliest_key_timestamp));
+  ASSERT_EQ(100, earliest_key_timestamp);
+
+  mock_env->set_current_time(700);
+  for (int i = 1; i <= 4; i++) {
+    ASSERT_OK(Delete("k" + ToString(i)));
+  }
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Flush());
+  ASSERT_EQ("2,1", FilesPerLevel());
+  // Drop the two older SST files
+  Slice start("k1");
+  Slice end("k2");
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), &start, &end));
+  ASSERT_EQ("1", FilesPerLevel());
+  ASSERT_TRUE(dbfull()->GetIntProperty(
+      DB::Properties::kEstimatedEarliestKeyTimestamp, &earliest_key_timestamp));
+  ASSERT_EQ(700, earliest_key_timestamp);
+
   Close();
 }
 

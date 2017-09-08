@@ -583,17 +583,10 @@ class DB {
     //  "rocksdb.is-write-stopped" - Return 1 if write has been stopped.
     static const std::string kIsWriteStopped;
 
-    //  "rocksdb.estimated-oldest-data-time" - returns an estimation of oldest
-    //      data in the DB. The property is mainly for FIFO compaction.
-    //      It is computed from creation time of historical level-0 files.
-    //
-    //      The feature is not supported with DB created prior
-    //      to 5.7.x. If there is a SST file created by RocksDB prior to 5.7.x,
-    //      return 0.
-    //
-    //      If there are no SST files, return
-    //      std::numeric_limits<uint64_t>::max().
-    static const std::string kEstimatedOldestDataTime;
+    //  "rocksdb.estimated-earliest-key-timestamp" - returns an estimation of
+    //      oldest key timestamp in the DB. If failed to get an estimation,
+    //      return std::numeric_limits<uint64_t>::max().
+    static const std::string kEstimatedEarliestKeyTimestamp;
   };
 #endif /* ROCKSDB_LITE */
 
@@ -644,7 +637,7 @@ class DB {
   //  "rocksdb.num-running-flushes"
   //  "rocksdb.actual-delayed-write-rate"
   //  "rocksdb.is-write-stopped"
-  //  "rocksdb.oldest-sst-file-creation-time"
+  //  "rocksdb.estimated-earliest-key-timestamp"
   virtual bool GetIntProperty(ColumnFamilyHandle* column_family,
                               const Slice& property, uint64_t* value) = 0;
   virtual bool GetIntProperty(const Slice& property, uint64_t* value) {
