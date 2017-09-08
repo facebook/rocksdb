@@ -604,8 +604,8 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq,
   if (to_be_evicted) {
     auto prev_max = max_evicted_seq_.load(std::memory_order_acquire);
     if (prev_max < evicted.commit_seq) {
-      // TODO(myabandeh) inc max in larger steps to avoid frequent updates
-      auto max_evicted_seq = evicted.commit_seq;
+      // Inc max in larger steps to avoid frequent updates
+      auto max_evicted_seq = evicted.commit_seq + INC_STEP_FOR_MAX_EVICTED;
       AdvanceMaxEvictedSeq(prev_max, max_evicted_seq);
     }
     // After each eviction from commit cache, check if the commit entry should
@@ -683,30 +683,22 @@ void WritePreparedTxnDB::AdvanceMaxEvictedSeq(SequenceNumber& prev_max,
     }
   }
 
-  // With each change to max_evicted_seq_ fetch the live snapshots behind it
-  SequenceNumber curr_seq;
+  // With each change to max_evicted_seq_ fetch the live snapshots behind it.
+  // We use max as the version of snapshots to identify how fresh are the
+  // snapshot list. This works because the snapshots are between 0 and
+  // max, so the larger the max, the more complete they are.
+  SequenceNumber new_snapshots_version = new_max;
   std::vector<SequenceNumber> snapshots;
   bool update_snapshots = false;
-  {
-    InstrumentedMutex(db_impl_->mutex());
-    // We use this to identify how fresh are the snapshot list. Since this
-    // is done atomically with obtaining the snapshot list, the one with
-    // the larger seq is more fresh. If the seq is equal the full snapshot
-    // list could be different since taking snapshots does not increase
-    // the db seq. However since we only care about snapshots before the
-    // new max, such recent snapshots would not be included the in the
-    // list anyway.
-    curr_seq = db_impl_->GetLatestSequenceNumber();
-    if (curr_seq > snapshots_version_) {
-      // This is to avoid updating the snapshots_ if it already updated
-      // with a more recent vesion by a concrrent thread
-      update_snapshots = true;
-      // We only care about snapshots lower then max
-      snapshots = db_impl_->snapshots().GetAll(nullptr, new_max);
-    }
+  if (new_snapshots_version > snapshots_version_) {
+    // This is to avoid updating the snapshots_ if it already updated
+    // with a more recent vesion by a concrrent thread
+    update_snapshots = true;
+    // We only care about snapshots lower then max
+    snapshots = GetSnapshotListFromDB(new_max);
   }
   if (update_snapshots) {
-    UpdateSnapshots(snapshots, curr_seq);
+    UpdateSnapshots(snapshots, new_snapshots_version);
   }
   // TODO(myabandeh): check if it worked with relaxed ordering
   while (prev_max < new_max && !max_evicted_seq_.compare_exchange_weak(
@@ -715,10 +707,11 @@ void WritePreparedTxnDB::AdvanceMaxEvictedSeq(SequenceNumber& prev_max,
   };
 }
 
-// 10m entry, 80MB size
-size_t WritePreparedTxnDB::DEF_COMMIT_CACHE_SIZE = static_cast<size_t>(1 << 21);
-size_t WritePreparedTxnDB::DEF_SNAPSHOT_CACHE_SIZE =
-    static_cast<size_t>(1 << 7);
+const std::vector<SequenceNumber> WritePreparedTxnDB::GetSnapshotListFromDB(
+    SequenceNumber max) {
+  InstrumentedMutex(db_impl_->mutex());
+  return db_impl_->snapshots().GetAll(nullptr, max);
+}
 
 void WritePreparedTxnDB::UpdateSnapshots(
     const std::vector<SequenceNumber>& snapshots,
