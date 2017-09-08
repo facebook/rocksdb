@@ -115,6 +115,48 @@ class PessimisticTransactionDB : public TransactionDB {
     }
   };
 
+  struct CommitEntry64b {
+    constexpr CommitEntry64b() noexcept : rep_(0) {}
+
+    CommitEntry64b(const CommitEntry& entry)
+        : CommitEntry64b(entry.prep_seq, entry.commit_seq) {}
+
+    CommitEntry64b(const uint64_t ps, const uint64_t cs) {
+      assert(ps < (1ul << (PREP_BITS + INDEX_BITS)));
+      assert(ps <= cs);
+      uint64_t delta = cs - ps;
+      assert(delta < (1ul << COMMIT_BITS));
+      rep_ = ps << PAD_BITS;
+      rep_ = rep_ & cs;
+    }
+
+    void Parse(const uint64_t indexed_seq, CommitEntry* entry) {
+      assert(indexed_seq < (1ul << INDEX_BITS));
+      const uint64_t commit_filter = (1ul << COMMIT_BITS) - 1;
+      uint64_t prep_up = rep_ & ~commit_filter;
+      prep_up >>= PAD_BITS;
+      const uint64_t& prep_low = indexed_seq;
+      entry->prep_seq = prep_up & prep_low;
+
+      uint64_t delta = rep_ & commit_filter;
+      assert(delta < (1ul << COMMIT_BITS));
+      entry->commit_seq = entry->prep_seq + delta;
+    }
+
+   private:
+    uint64_t rep_;
+    // Number of higher bits of a sequence number that is not used. They are
+    // used to encode the value type, ...
+    static const size_t PAD_BITS = 8;
+    // Number of lower bits from prepare seq that can be skipped as they are implied by the index of the entry in the array
+    // TODO: compute it based on COMMIT_CACHE_SIZE
+    static const size_t INDEX_BITS = 21;
+    // Number of bits we use to encode the prepare seq
+    static const size_t PREP_BITS = 64 - PAD_BITS - INDEX_BITS;
+    // Mumber of bits we use to encode the commit seq.
+    static const size_t COMMIT_BITS = 64 - PREP_BITS;
+  };
+
  protected:
   void ReinitializeTransaction(
       Transaction* txn, const WriteOptions& write_options,
@@ -220,8 +262,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
         std::max(SNAPSHOT_CACHE_SIZE / 100, static_cast<size_t>(1));
     snapshot_cache_ = unique_ptr<std::atomic<SequenceNumber>[]>(
         new std::atomic<SequenceNumber>[SNAPSHOT_CACHE_SIZE] {});
-    commit_cache_ =
-        unique_ptr<CommitEntry[]>(new CommitEntry[COMMIT_CACHE_SIZE]{});
+    commit_cache_ = unique_ptr<std::atomic<CommitEntry64b>[]>(
+        new std::atomic<CommitEntry64b>[COMMIT_CACHE_SIZE] {});
   }
 
   // A heap with the amortized O(1) complexity for erase. It uses one extra heap
@@ -263,7 +305,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
 
   // Get the commit entry with index indexed_seq from the commit table. It
   // returns true if such entry exists.
-  bool GetCommitEntry(const uint64_t indexed_seq, CommitEntry* entry);
+  bool GetCommitEntry(const uint64_t indexed_seq, CommitEntry64b* entry_64b,
+                      CommitEntry* entry);
 
   // Rewrite the entry with the index indexed_seq in the commit table with the
   // commit entry <prep_seq, commit_seq>. If the rewrite results into eviction,
@@ -275,7 +318,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // commit entry new_entry only if the existing entry matches the
   // expected_entry. Returns false otherwise.
   bool ExchangeCommitEntry(const uint64_t indexed_seq,
-                           const CommitEntry& expected_entry,
+                           CommitEntry64b& expected_entry,
                            const CommitEntry& new_entry);
 
   // Increase max_evicted_seq_ from the previous value prev_max to the new
@@ -343,7 +386,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   const size_t COMMIT_CACHE_SIZE;
   // commit_cache_ must be initialized to zero to tell apart an empty index from
   // a filled one. Thread-safety is provided with commit_cache_mutex_.
-  unique_ptr<CommitEntry[]> commit_cache_;
+  unique_ptr<std::atomic<CommitEntry64b>[]> commit_cache_;
   // The largest evicted *commit* sequence number from the commit_cache_
   std::atomic<uint64_t> max_evicted_seq_ = {};
   // Advance max_evicted_seq_ by this value each time it needs an update. The
