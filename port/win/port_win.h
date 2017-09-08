@@ -242,7 +242,7 @@ extern void InitOnce(OnceType* once, void (*initializer)());
 
 
 inline void *cacheline_aligned_alloc(size_t size) {
-  return _aligned_malloc(CACHE_LINE_SIZE, size);
+  return _aligned_malloc(size, CACHE_LINE_SIZE);
 }
 
 inline void cacheline_aligned_free(void *memblock) {

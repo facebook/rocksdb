@@ -41,6 +41,7 @@ bool CassandraValueMergeOperator::FullMergeV2(
   }
 
   RowValue merged = RowValue::Merge(std::move(row_values));
+  merged = merged.RemoveTombstones(gc_grace_period_in_seconds_);
   merge_out->new_value.reserve(merged.Size());
   merged.Serialize(&(merge_out->new_value));
 
@@ -71,10 +72,5 @@ const char* CassandraValueMergeOperator::Name() const  {
 }
 
 } // namespace cassandra
-
-std::shared_ptr<MergeOperator>
-    MergeOperators::CreateCassandraMergeOperator() {
-  return std::make_shared<rocksdb::cassandra::CassandraValueMergeOperator>();
-}
 
 } // namespace rocksdb

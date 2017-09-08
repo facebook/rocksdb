@@ -1918,19 +1918,19 @@ TEST_F(DBTest2, AutomaticCompactionOverlapManualCompaction) {
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
 
   auto get_stat = [](std::string level_str, LevelStatType type,
-                     std::map<std::string, double> props) {
+                     std::map<std::string, std::string> props) {
     auto prop_str =
-        level_str + "." +
+        "compaction." + level_str + "." +
         InternalStats::compaction_level_stats.at(type).property_name.c_str();
     auto prop_item = props.find(prop_str);
-    return prop_item == props.end() ? 0 : prop_item->second;
+    return prop_item == props.end() ? 0 : std::stod(prop_item->second);
   };
 
   // Trivial move 2 files to L2
   ASSERT_EQ("0,0,2", FilesPerLevel());
   // Also test that the stats GetMapProperty API reporting the same result
   {
-    std::map<std::string, double> prop;
+    std::map<std::string, std::string> prop;
     ASSERT_TRUE(dbfull()->GetMapProperty("rocksdb.cfstats", &prop));
     ASSERT_EQ(0, get_stat("L0", LevelStatType::NUM_FILES, prop));
     ASSERT_EQ(0, get_stat("L1", LevelStatType::NUM_FILES, prop));
@@ -1966,7 +1966,7 @@ TEST_F(DBTest2, AutomaticCompactionOverlapManualCompaction) {
 
   // Test that the stats GetMapProperty API reporting 1 file in L2
   {
-    std::map<std::string, double> prop;
+    std::map<std::string, std::string> prop;
     ASSERT_TRUE(dbfull()->GetMapProperty("rocksdb.cfstats", &prop));
     ASSERT_EQ(1, get_stat("L2", LevelStatType::NUM_FILES, prop));
   }

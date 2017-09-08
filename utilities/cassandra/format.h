@@ -115,7 +115,7 @@ public:
   virtual int64_t Timestamp() const override;
   virtual std::size_t Size() const override;
   virtual void Serialize(std::string* dest) const override;
-
+  bool Collectable(int32_t gc_grace_period) const;
   static std::shared_ptr<Tombstone> Deserialize(const char* src,
                                                 std::size_t offset);
 
@@ -163,8 +163,9 @@ public:
   // otherwise it returns the max timestamp of containing columns.
   int64_t LastModifiedTime() const;
   void Serialize(std::string* dest) const;
-  RowValue PurgeTtl(bool* changed) const;
-  RowValue ExpireTtl(bool* changed) const;
+  RowValue RemoveExpiredColumns(bool* changed) const;
+  RowValue ConvertExpiredColumnsToTombstones(bool* changed) const;
+  RowValue RemoveTombstones(int32_t gc_grace_period) const;
   bool Empty() const;
 
   static RowValue Deserialize(const char* src, std::size_t size);
@@ -188,6 +189,8 @@ private:
     CassandraFunctionalTest, CompactionShouldPurgeExpiredColumnsIfPurgeTtlIsOn);
   FRIEND_TEST(
     CassandraFunctionalTest, CompactionShouldRemoveRowWhenAllColumnExpiredIfPurgeTtlIsOn);
+  FRIEND_TEST(CassandraFunctionalTest,
+              CompactionShouldRemoveTombstoneExceedingGCGracePeriod);
 };
 
 } // namepsace cassandrda

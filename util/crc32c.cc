@@ -18,8 +18,31 @@
 #endif
 #include "util/coding.h"
 
+#ifdef __powerpc64__
+#include "util/crc32c_ppc.h"
+#include "util/crc32c_ppc_constants.h"
+
+#if __linux__
+#include <sys/auxv.h>
+
+#ifndef PPC_FEATURE2_VEC_CRYPTO
+#define PPC_FEATURE2_VEC_CRYPTO 0x02000000
+#endif
+
+#ifndef AT_HWCAP2
+#define AT_HWCAP2 26
+#endif
+
+#endif /* __linux__ */
+
+#endif
+
 namespace rocksdb {
 namespace crc32c {
+
+#ifdef __powerpc64__
+static int arch_ppc_crc32 = 0;
+#endif
 
 static const uint32_t table0_[256] = {
   0x00000000, 0xf26b8303, 0xe13b70f7, 0x1350f3f4,
@@ -313,6 +336,15 @@ static inline void Slow_CRC32(uint64_t* l, uint8_t const **p) {
   table0_[c >> 24];
 }
 
+#if defined(HAVE_SSE42) && defined(__GNUC__)
+#if defined(__clang__)
+#if __has_cpp_attribute(gnu::target)
+__attribute__ ((target ("sse4.2")))
+#endif
+#else  // gcc supports this since 4.4
+__attribute__ ((target ("sse4.2")))
+#endif
+#endif
 static inline void Fast_CRC32(uint64_t* l, uint8_t const **p) {
 #ifndef HAVE_SSE42
   Slow_CRC32(l, p);
@@ -371,13 +403,13 @@ uint32_t ExtendImpl(uint32_t crc, const char* buf, size_t size) {
 }
 
 // Detect if SS42 or not.
+#ifndef HAVE_POWER8
 static bool isSSE42() {
 #ifndef HAVE_SSE42
   return false;
 #elif defined(__GNUC__) && defined(__x86_64__) && !defined(IOS_CROSS_COMPILE)
   uint32_t c_;
-  uint32_t d_;
-  __asm__("cpuid" : "=c"(c_), "=d"(d_) : "a"(1) : "ebx");
+  __asm__("cpuid" : "=c"(c_) : "a"(1) : "ebx", "edx");
   return c_ & (1U << 20);  // copied from CpuId.h in Folly.
 #elif defined(_WIN64)
   int info[4];
@@ -387,18 +419,70 @@ static bool isSSE42() {
   return false;
 #endif
 }
+#endif
 
 typedef uint32_t (*Function)(uint32_t, const char*, size_t);
 
+#if defined(HAVE_POWER8) && defined(HAS_ALTIVEC)
+uint32_t ExtendPPCImpl(uint32_t crc, const char *buf, size_t size) {
+  return crc32c_ppc(crc, (const unsigned char *)buf, size);
+}
+
+#if __linux__
+static int arch_ppc_probe(void) {
+  arch_ppc_crc32 = 0;
+
+#if defined(__powerpc64__)
+  if (getauxval(AT_HWCAP2) & PPC_FEATURE2_VEC_CRYPTO) arch_ppc_crc32 = 1;
+#endif /* __powerpc64__ */
+
+  return arch_ppc_crc32;
+}
+#endif  // __linux__
+
+static bool isAltiVec() {
+  if (arch_ppc_probe()) {
+    return true;
+  } else {
+    return false;
+  }
+}
+#endif
+
 static inline Function Choose_Extend() {
+#ifndef HAVE_POWER8
   return isSSE42() ? ExtendImpl<Fast_CRC32> : ExtendImpl<Slow_CRC32>;
+#else
+  return isAltiVec() ? ExtendPPCImpl : ExtendImpl<Slow_CRC32>;
+#endif
 }
 
-bool IsFastCrc32Supported() {
-  return isSSE42();
+std::string IsFastCrc32Supported() {
+  bool has_fast_crc = false;
+  std::string fast_zero_msg;
+  std::string arch;
+#ifdef HAVE_POWER8
+#ifdef HAS_ALTIVEC
+  if (arch_ppc_probe()) {
+    has_fast_crc = true;
+    arch = "PPC";
+  }
+#else
+  has_fast_crc = false;
+  arch = "PPC";
+#endif
+#else
+  has_fast_crc = isSSE42();
+  arch = "x86";
+#endif
+  if (has_fast_crc){
+    fast_zero_msg.append("Supported on " + arch);
+  }
+  fast_zero_msg.append("Not supported on " + arch);
+  return fast_zero_msg;  
 }
 
-Function ChosenExtend = Choose_Extend();
+static Function ChosenExtend = Choose_Extend();
 
 uint32_t Extend(uint32_t crc, const char* buf, size_t size) {
   return ChosenExtend(crc, buf, size);

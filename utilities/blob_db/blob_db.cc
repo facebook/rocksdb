@@ -142,16 +142,19 @@ Status BlobDB::Open(const DBOptions& db_options_input,
 
   s = bdb->OpenPhase1();
   if (!s.ok()) {
+    delete bdb;
     return s;
   }
 
   if (no_base_db) {
+    *blob_db = bdb;
     return s;
   }
 
   DB* db = nullptr;
   s = DB::Open(db_options, dbname, column_families, handles, &db);
   if (!s.ok()) {
+    delete bdb;
     return s;
   }
 

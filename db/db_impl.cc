@@ -130,9 +130,11 @@ void DumpSupportInfo(Logger* logger) {
   ROCKS_LOG_HEADER(logger, "\tZlib supported: %d", Zlib_Supported());
   ROCKS_LOG_HEADER(logger, "\tBzip supported: %d", BZip2_Supported());
   ROCKS_LOG_HEADER(logger, "\tLZ4 supported: %d", LZ4_Supported());
+  ROCKS_LOG_HEADER(logger, "\tZSTDNotFinal supported: %d",
+                   ZSTDNotFinal_Supported());
   ROCKS_LOG_HEADER(logger, "\tZSTD supported: %d", ZSTD_Supported());
-  ROCKS_LOG_HEADER(logger, "Fast CRC32 supported: %d",
-                   crc32c::IsFastCrc32Supported());
+  ROCKS_LOG_HEADER(logger, "Fast CRC32 supported: %s",
+                   crc32c::IsFastCrc32Supported().c_str());
 }
 
 int64_t kDefaultLowPriThrottledRate = 2 * 1024 * 1024;
@@ -775,9 +777,7 @@ void DBImpl::BackgroundCallPurge() {
       purge_queue_.pop_front();
 
       mutex_.Unlock();
-      Status file_deletion_status;
-      DeleteObsoleteFileImpl(file_deletion_status, job_id, fname, type, number,
-                             path_id);
+      DeleteObsoleteFileImpl(job_id, fname, type, number, path_id);
       mutex_.Lock();
     } else {
       assert(!logs_to_free_queue_.empty());
@@ -1689,7 +1689,7 @@ bool DBImpl::GetProperty(ColumnFamilyHandle* column_family,
 
 bool DBImpl::GetMapProperty(ColumnFamilyHandle* column_family,
                             const Slice& property,
-                            std::map<std::string, double>* value) {
+                            std::map<std::string, std::string>* value) {
   const DBPropertyInfo* property_info = GetPropertyInfo(property);
   value->clear();
   auto cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();

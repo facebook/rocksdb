@@ -112,7 +112,7 @@ public:
     DB* db;
     Options options;
     options.create_if_missing = true;
-    options.merge_operator.reset(new CassandraValueMergeOperator());
+    options.merge_operator.reset(new CassandraValueMergeOperator(gc_grace_period_in_seconds_));
     auto* cf_factory = new TestCompactionFilterFactory(purge_ttl_on_expiration_);
     options.compaction_filter_factory.reset(cf_factory);
     EXPECT_OK(DB::Open(options, kDbName, &db));
@@ -120,29 +120,31 @@ public:
   }
 
   bool purge_ttl_on_expiration_ = false;
+  int32_t gc_grace_period_in_seconds_ = 100;
 };
 
 // THE TEST CASES BEGIN HERE
 
 TEST_F(CassandraFunctionalTest, SimpleMergeTest) {
   CassandraStore store(OpenDb());
+  int64_t now = time(nullptr);
 
   store.Append("k1", CreateTestRowValue({
-    std::make_tuple(kTombstone, 0, 5),
-    std::make_tuple(kColumn, 1, 8),
-    std::make_tuple(kExpiringColumn, 2, 5),
+    std::make_tuple(kTombstone, 0, ToMicroSeconds(now + 5)),
+    std::make_tuple(kColumn, 1, ToMicroSeconds(now + 8)),
+    std::make_tuple(kExpiringColumn, 2, ToMicroSeconds(now + 5)),
   }));
   store.Append("k1",CreateTestRowValue({
-    std::make_tuple(kColumn, 0, 2),
-    std::make_tuple(kExpiringColumn, 1, 5),
-    std::make_tuple(kTombstone, 2, 7),
-    std::make_tuple(kExpiringColumn, 7, 17),
+    std::make_tuple(kColumn, 0, ToMicroSeconds(now + 2)),
+    std::make_tuple(kExpiringColumn, 1, ToMicroSeconds(now + 5)),
+    std::make_tuple(kTombstone, 2, ToMicroSeconds(now + 7)),
+    std::make_tuple(kExpiringColumn, 7, ToMicroSeconds(now + 17)),
   }));
   store.Append("k1", CreateTestRowValue({
-    std::make_tuple(kExpiringColumn, 0, 6),
-    std::make_tuple(kTombstone, 1, 5),
-    std::make_tuple(kColumn, 2, 4),
-    std::make_tuple(kTombstone, 11, 11),
+    std::make_tuple(kExpiringColumn, 0, ToMicroSeconds(now + 6)),
+    std::make_tuple(kTombstone, 1, ToMicroSeconds(now + 5)),
+    std::make_tuple(kColumn, 2, ToMicroSeconds(now + 4)),
+    std::make_tuple(kTombstone, 11, ToMicroSeconds(now + 11)),
   }));
 
   auto ret = store.Get("k1");
@@ -150,11 +152,11 @@ TEST_F(CassandraFunctionalTest, SimpleMergeTest) {
   ASSERT_TRUE(std::get<0>(ret));
   RowValue& merged = std::get<1>(ret);
   EXPECT_EQ(merged.columns_.size(), 5);
-  VerifyRowValueColumns(merged.columns_, 0, kExpiringColumn, 0, 6);
-  VerifyRowValueColumns(merged.columns_, 1, kColumn, 1, 8);
-  VerifyRowValueColumns(merged.columns_, 2, kTombstone, 2, 7);
-  VerifyRowValueColumns(merged.columns_, 3, kExpiringColumn, 7, 17);
-  VerifyRowValueColumns(merged.columns_, 4, kTombstone, 11, 11);
+  VerifyRowValueColumns(merged.columns_, 0, kExpiringColumn, 0, ToMicroSeconds(now + 6));
+  VerifyRowValueColumns(merged.columns_, 1, kColumn, 1, ToMicroSeconds(now + 8));
+  VerifyRowValueColumns(merged.columns_, 2, kTombstone, 2, ToMicroSeconds(now + 7));
+  VerifyRowValueColumns(merged.columns_, 3, kExpiringColumn, 7, ToMicroSeconds(now + 17));
+  VerifyRowValueColumns(merged.columns_, 4, kTombstone, 11, ToMicroSeconds(now + 11));
 }
 
 TEST_F(CassandraFunctionalTest,
@@ -241,6 +243,38 @@ TEST_F(CassandraFunctionalTest,
   store.Compact();
   ASSERT_FALSE(std::get<0>(store.Get("k1")));
 }
+
+TEST_F(CassandraFunctionalTest,
+       CompactionShouldRemoveTombstoneExceedingGCGracePeriod) {
+  purge_ttl_on_expiration_ = true;
+  CassandraStore store(OpenDb());
+  int64_t now = time(nullptr);
+
+  store.Append("k1", CreateTestRowValue({
+    std::make_tuple(kTombstone, 0, ToMicroSeconds(now - gc_grace_period_in_seconds_ - 1)),
+    std::make_tuple(kColumn, 1, ToMicroSeconds(now))
+  }));
+
+  store.Append("k2", CreateTestRowValue({
+    std::make_tuple(kColumn, 0, ToMicroSeconds(now))
+  }));
+
+  store.Flush();
+
+  store.Append("k1",CreateTestRowValue({
+    std::make_tuple(kColumn, 1, ToMicroSeconds(now)),
+  }));
+
+  store.Flush();
+  store.Compact();
+
+  auto ret = store.Get("k1");
+  ASSERT_TRUE(std::get<0>(ret));
+  RowValue& gced = std::get<1>(ret);
+  EXPECT_EQ(gced.columns_.size(), 1);
+  VerifyRowValueColumns(gced.columns_, 0, kColumn, 1, ToMicroSeconds(now));
+}
+
 
 } // namespace cassandra
 } // namespace rocksdb
