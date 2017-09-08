@@ -85,34 +85,55 @@ struct BlobDBOptions {
 class BlobDB : public StackableDB {
  public:
   using rocksdb::StackableDB::Put;
-
+  virtual Status Put(const WriteOptions& options, const Slice& key,
+                     const Slice& value) override = 0;
   virtual Status Put(const WriteOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
-                     const Slice& value) override = 0;
+                     const Slice& value) override {
+    if (column_family != DefaultColumnFamily()) {
+      return Status::NotSupported(
+          "Blob DB doesn't support non-default column family.");
+    }
+    return Put(options, key, value);
+  }
 
   using rocksdb::StackableDB::Delete;
   virtual Status Delete(const WriteOptions& options,
-                        ColumnFamilyHandle* column_family,
                         const Slice& key) override = 0;
-
-  virtual Status PutWithTTL(const WriteOptions& options,
-                            ColumnFamilyHandle* column_family, const Slice& key,
-                            const Slice& value, uint64_t ttl) = 0;
+  virtual Status Delete(const WriteOptions& options,
+                        ColumnFamilyHandle* column_family,
+                        const Slice& key) override {
+    if (column_family != DefaultColumnFamily()) {
+      return Status::NotSupported(
+          "Blob DB doesn't support non-default column family.");
+    }
+    return Delete(options, key);
+  }
 
   virtual Status PutWithTTL(const WriteOptions& options, const Slice& key,
+                            const Slice& value, uint64_t ttl) = 0;
+  virtual Status PutWithTTL(const WriteOptions& options,
+                            ColumnFamilyHandle* column_family, const Slice& key,
                             const Slice& value, uint64_t ttl) {
-    return PutWithTTL(options, DefaultColumnFamily(), key, value, ttl);
+    if (column_family != DefaultColumnFamily()) {
+      return Status::NotSupported(
+          "Blob DB doesn't support non-default column family.");
+    }
+    return PutWithTTL(options, key, value, ttl);
   }
 
   // Put with expiration. Key with expiration time equal to
   // std::numeric_limits<uint64_t>::max() means the key don't expire.
+  virtual Status PutUntil(const WriteOptions& options, const Slice& key,
+                          const Slice& value, uint64_t expiration) = 0;
   virtual Status PutUntil(const WriteOptions& options,
                           ColumnFamilyHandle* column_family, const Slice& key,
-                          const Slice& value, uint64_t expiration) = 0;
-
-  virtual Status PutUntil(const WriteOptions& options, const Slice& key,
                           const Slice& value, uint64_t expiration) {
-    return PutUntil(options, DefaultColumnFamily(), key, value, expiration);
+    if (column_family != DefaultColumnFamily()) {
+      return Status::NotSupported(
+          "Blob DB doesn't support non-default column family.");
+    }
+    return PutUntil(options, key, value, expiration);
   }
 
   using rocksdb::StackableDB::Get;
@@ -123,24 +144,51 @@ class BlobDB : public StackableDB {
   using rocksdb::StackableDB::MultiGet;
   virtual std::vector<Status> MultiGet(
       const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle*>& column_family,
       const std::vector<Slice>& keys,
       std::vector<std::string>* values) override = 0;
+  virtual std::vector<Status> MultiGet(
+      const ReadOptions& options,
+      const std::vector<ColumnFamilyHandle*>& column_families,
+      const std::vector<Slice>& keys,
+      std::vector<std::string>* values) override {
+    for (auto column_family : column_families) {
+      if (column_family != DefaultColumnFamily()) {
+        return std::vector<Status>(
+            column_families.size(),
+            Status::NotSupported(
+                "Blob DB doesn't support non-default column family."));
+      }
+    }
+    return MultiGet(options, keys, values);
+  }
 
   using rocksdb::StackableDB::SingleDelete;
-  virtual Status SingleDelete(const WriteOptions& wopts,
-                              ColumnFamilyHandle* column_family,
-                              const Slice& key) override = 0;
+  virtual Status SingleDelete(const WriteOptions& /*wopts*/,
+                              ColumnFamilyHandle* /*column_family*/,
+                              const Slice& /*key*/) override {
+    return Status::NotSupported("Not supported operation in blob db.");
+  }
 
   using rocksdb::StackableDB::Merge;
-  virtual Status Merge(const WriteOptions& options,
-                       ColumnFamilyHandle* column_family, const Slice& key,
-                       const Slice& value) override {
+  virtual Status Merge(const WriteOptions& /*options*/,
+                       ColumnFamilyHandle* /*column_family*/,
+                       const Slice& /*key*/, const Slice& /*value*/) override {
     return Status::NotSupported("Not supported operation in blob db.");
   }
 
   virtual Status Write(const WriteOptions& opts,
                        WriteBatch* updates) override = 0;
+
+  using rocksdb::StackableDB::NewIterator;
+  virtual Iterator* NewIterator(const ReadOptions& options) override = 0;
+  virtual Iterator* NewIterator(const ReadOptions& options,
+                                ColumnFamilyHandle* column_family) override {
+    if (column_family != DefaultColumnFamily()) {
+      // Blob DB doesn't support non-default column family.
+      return nullptr;
+    }
+    return NewIterator(options);
+  }
 
   // Starting point for opening a Blob DB.
   // changed_options - critical. Blob DB loads and inserts listeners
