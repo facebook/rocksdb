@@ -148,7 +148,7 @@ Status WriteCommittedTxn::CommitBatch(WriteBatch* batch) {
 
   if (can_commit) {
     txn_state_.store(AWAITING_COMMIT);
-    s = db_->Write(write_options_, batch);
+    s = CommitBatchInternal(batch);
     if (s.ok()) {
       txn_state_.store(COMMITED);
     }
@@ -302,6 +302,11 @@ Status PessimisticTransaction::Commit() {
 
 Status WriteCommittedTxn::CommitWithoutPrepareInternal() {
   Status s = db_->Write(write_options_, GetWriteBatch()->GetWriteBatch());
+  return s;
+}
+
+Status WriteCommittedTxn::CommitBatchInternal(WriteBatch* batch) {
+  Status s = db_->Write(write_options_, batch);
   return s;
 }
 
