@@ -23,6 +23,8 @@ void CloudEnvOptions::Dump(Logger* log) const {
          server_side_encryption);
   Header(log, "                  COptions.encryption_key_id: %s",
          encryption_key_id.c_str());
+  Header(log, "           COptions.create_bucket_if_missing: %s",
+         create_bucket_if_missing ? "true" : "false");
 }
 
 }  // namespace rocksdb
