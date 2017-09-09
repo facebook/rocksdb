@@ -54,6 +54,8 @@ class WritePreparedTxn : public PessimisticTransaction {
 
   Status CommitWithoutPrepareInternal() override;
 
+  Status CommitBatchInternal(WriteBatch* batch) override;
+
   Status CommitInternal() override;
 
   // TODO(myabandeh): verify that the current impl work with values being

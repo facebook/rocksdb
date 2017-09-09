@@ -814,6 +814,39 @@ TEST_F(BlobDBTest, ReadWhileGC) {
   }
 }
 
+TEST_F(BlobDBTest, ColumnFamilyNotSupported) {
+  Options options;
+  options.env = mock_env_.get();
+  mock_env_->set_now_micros(0);
+  Open(BlobDBOptions(), options);
+  ColumnFamilyHandle *default_handle = blob_db_->DefaultColumnFamily();
+  ColumnFamilyHandle *handle = nullptr;
+  std::string value;
+  std::vector<std::string> values;
+  // The call simply pass through to base db. It should succeed.
+  ASSERT_OK(
+      blob_db_->CreateColumnFamily(ColumnFamilyOptions(), "foo", &handle));
+  ASSERT_TRUE(blob_db_->Put(WriteOptions(), handle, "k", "v").IsNotSupported());
+  ASSERT_TRUE(blob_db_->PutWithTTL(WriteOptions(), handle, "k", "v", 60)
+                  .IsNotSupported());
+  ASSERT_TRUE(blob_db_->PutUntil(WriteOptions(), handle, "k", "v", 100)
+                  .IsNotSupported());
+  WriteBatch batch;
+  batch.Put("k1", "v1");
+  batch.Put(handle, "k2", "v2");
+  ASSERT_TRUE(blob_db_->Write(WriteOptions(), &batch).IsNotSupported());
+  ASSERT_TRUE(blob_db_->Get(ReadOptions(), "k1", &value).IsNotFound());
+  ASSERT_TRUE(
+      blob_db_->Get(ReadOptions(), handle, "k", &value).IsNotSupported());
+  auto statuses = blob_db_->MultiGet(ReadOptions(), {default_handle, handle},
+                                     {"k1", "k2"}, &values);
+  ASSERT_EQ(2, statuses.size());
+  ASSERT_TRUE(statuses[0].IsNotSupported());
+  ASSERT_TRUE(statuses[1].IsNotSupported());
+  ASSERT_EQ(nullptr, blob_db_->NewIterator(ReadOptions(), handle));
+  delete handle;
+}
+
 }  //  namespace blob_db
 }  //  namespace rocksdb
 

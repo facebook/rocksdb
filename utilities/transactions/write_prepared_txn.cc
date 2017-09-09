@@ -51,9 +51,21 @@ Status WritePreparedTxn::PrepareInternal() {
 }
 
 Status WritePreparedTxn::CommitWithoutPrepareInternal() {
-  // TODO(myabandeh) Implement this
-  throw std::runtime_error("Commit not Implemented");
-  return Status::OK();
+  return CommitBatchInternal(GetWriteBatch()->GetWriteBatch());
+}
+
+Status WritePreparedTxn::CommitBatchInternal(WriteBatch* batch) {
+  const bool disable_memtable = true;
+  const uint64_t no_log_ref = 0;
+  uint64_t seq_used;
+  auto s = db_impl_->WriteImpl(write_options_, batch, nullptr, nullptr,
+                               no_log_ref, !disable_memtable, &seq_used);
+  uint64_t& prepare_seq = seq_used;
+  uint64_t& commit_seq = seq_used;
+  // TODO(myabandeh): skip AddPrepared
+  wpt_db_->AddPrepared(prepare_seq);
+  wpt_db_->AddCommitted(prepare_seq, commit_seq);
+  return s;
 }
 
 Status WritePreparedTxn::CommitInternal() {
