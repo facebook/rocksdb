@@ -210,7 +210,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   };
 
   struct CommitEntry64bFormat {
-    CommitEntry64bFormat(size_t index_bits)
+    explicit CommitEntry64bFormat(size_t index_bits)
         : INDEX_BITS(index_bits),
           PREP_BITS(static_cast<size_t>(64 - PAD_BITS - INDEX_BITS)),
           COMMIT_BITS(static_cast<size_t>(64 - PREP_BITS)),

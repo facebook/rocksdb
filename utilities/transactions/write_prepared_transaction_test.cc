@@ -110,14 +110,14 @@ TEST(PreparedHeap, BasicsTest) {
 
 TEST(CommitEntry64b, BasicTest) {
   const size_t INDEX_BITS = static_cast<size_t>(21);
-  const size_t INDEX_SIZE = 1 << INDEX_BITS;
+  const size_t INDEX_SIZE = static_cast<size_t>(1ul << INDEX_BITS);
   const CommitEntry64bFormat FORMAT(static_cast<size_t>(INDEX_BITS));
   // the zero entry is reserved for un-initialized entries
   const size_t MAX_COMMIT = (1 << FORMAT.COMMIT_BITS) - 1 - 1;
   // Samples over the numbers that are covered by that many index bits
-  uint64_t is[] = {0, 1, INDEX_SIZE / 2 + 1, INDEX_SIZE - 1};
+  std::array<uint64_t, 4> is = {0, 1, INDEX_SIZE / 2 + 1, INDEX_SIZE - 1};
   // Samples over the numbers that are covered by that many commit bits
-  uint64_t ds[] = {0, 1, MAX_COMMIT / 2 + 1, MAX_COMMIT};
+  std::array<uint64_t, 4> ds = {0, 1, MAX_COMMIT / 2 + 1, MAX_COMMIT};
   // Iterate over prepare numbers that have i) cover all bits of a sequence
   // number, and ii) include some bits that fall into the range of index or
   // commit bits
