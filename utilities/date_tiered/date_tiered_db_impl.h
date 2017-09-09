@@ -56,6 +56,8 @@ class DateTieredDBImpl : public DateTieredDB {
 
   const ImmutableCFOptions ioptions_;
 
+  const InternalKeyComparator icomp_;
+
   // Storing all column family handles for time series data.
   std::vector<ColumnFamilyHandle*> handles_;
 
