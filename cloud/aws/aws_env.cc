@@ -248,7 +248,7 @@ AwsEnv::AwsEnv(Env* underlying_env, const std::string& src_bucket_prefix,
           s3client_, GetDestBucketPrefix(), bucket_location_);
     } else {
       create_bucket_status_ = Status::NotFound(
-          "[aws] Bucket not found and create_if_missing is false");
+          "[aws] Bucket not found and create_bucket_if_missing is false");
     }
   }
   if (!create_bucket_status_.ok()) {
