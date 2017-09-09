@@ -641,8 +641,8 @@ bool WritePreparedTxnDB::GetCommitEntry(const uint64_t indexed_seq,
                                         CommitEntry64b* entry_64b,
                                         CommitEntry* entry) {
   *entry_64b = commit_cache_[indexed_seq].load(std::memory_order_acquire);
-  entry_64b->Parse(indexed_seq, entry, FORMAT);
-  return (entry->commit_seq != 0);  // initialized
+  bool valid = entry_64b->Parse(indexed_seq, entry, FORMAT);
+  return valid;
 }
 
 bool WritePreparedTxnDB::AddCommitEntry(const uint64_t indexed_seq,
@@ -651,8 +651,8 @@ bool WritePreparedTxnDB::AddCommitEntry(const uint64_t indexed_seq,
   CommitEntry64b new_entry_64b(new_entry, FORMAT);
   CommitEntry64b evicted_entry_64b = commit_cache_[indexed_seq].exchange(
       new_entry_64b, std::memory_order_acq_rel);
-  evicted_entry_64b.Parse(indexed_seq, evicted_entry, FORMAT);
-  return (evicted_entry->commit_seq != 0);  // initialized
+  bool valid = evicted_entry_64b.Parse(indexed_seq, evicted_entry, FORMAT);
+  return valid;
 }
 
 bool WritePreparedTxnDB::ExchangeCommitEntry(const uint64_t indexed_seq,

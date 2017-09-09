@@ -199,6 +199,77 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // commit_seq to the commit map
   void AddCommitted(uint64_t prepare_seq, uint64_t commit_seq);
 
+  struct CommitEntry {
+    uint64_t prep_seq;
+    uint64_t commit_seq;
+    CommitEntry() : prep_seq(0), commit_seq(0) {}
+    CommitEntry(uint64_t ps, uint64_t cs) : prep_seq(ps), commit_seq(cs) {}
+    bool operator==(const CommitEntry& rhs) const {
+      return prep_seq == rhs.prep_seq && commit_seq == rhs.commit_seq;
+    }
+  };
+
+  struct CommitEntry64bFormat {
+    CommitEntry64bFormat(size_t index_bits)
+        : INDEX_BITS(index_bits),
+          PREP_BITS(static_cast<size_t>(64 - PAD_BITS - INDEX_BITS)),
+          COMMIT_BITS(static_cast<size_t>(64 - PREP_BITS)),
+          COMMIT_FILTER((1ul << COMMIT_BITS) - 1) {}
+    // Number of higher bits of a sequence number that is not used. They are
+    // used to encode the value type, ...
+    const size_t PAD_BITS = static_cast<size_t>(8);
+    // Number of lower bits from prepare seq that can be skipped as they are
+    // implied by the index of the entry in the array
+    const size_t INDEX_BITS;
+    // Number of bits we use to encode the prepare seq
+    const size_t PREP_BITS;
+    // Number of bits we use to encode the commit seq.
+    const size_t COMMIT_BITS;
+    // Filter to encode/decode commit seq
+    const uint64_t COMMIT_FILTER;
+  };
+
+  struct CommitEntry64b {
+    constexpr CommitEntry64b() noexcept : rep_(0) {}
+
+    CommitEntry64b(const CommitEntry& entry, const CommitEntry64bFormat& format)
+        : CommitEntry64b(entry.prep_seq, entry.commit_seq, format) {}
+
+    CommitEntry64b(const uint64_t ps, const uint64_t cs,
+                   const CommitEntry64bFormat& format) {
+      assert(ps < (1ul << (format.PREP_BITS + format.INDEX_BITS)));
+      assert(ps <= cs);
+      uint64_t delta = cs - ps + 1;  // make initialized delta always >= 1
+      // zero is reserved for uninitialized entries
+      assert(0 < delta);
+      assert(delta < (1ul << format.COMMIT_BITS));
+      rep_ = (ps << format.PAD_BITS) & ~format.COMMIT_FILTER;
+      rep_ = rep_ | delta;
+    }
+
+    // Return false if the entry is empty
+    bool Parse(const uint64_t indexed_seq, CommitEntry* entry,
+               const CommitEntry64bFormat& format) {
+      assert(indexed_seq < (1ul << format.INDEX_BITS));
+      uint64_t prep_up = rep_ & ~format.COMMIT_FILTER;
+      prep_up >>= format.PAD_BITS;
+      const uint64_t& prep_low = indexed_seq;
+      entry->prep_seq = prep_up | prep_low;
+
+      uint64_t delta = rep_ & format.COMMIT_FILTER;
+      // zero is reserved for uninitialized entries
+      assert(delta < (1ul << format.COMMIT_BITS));
+      if (delta == 0) {
+        return false;  // initialized entry would have non-zero delta
+      }
+      entry->commit_seq = entry->prep_seq + delta - 1;
+      return true;
+    }
+
+   private:
+    uint64_t rep_;
+  };
+
  private:
   friend class WritePreparedTransactionTest_IsInSnapshotTest_Test;
   friend class WritePreparedTransactionTest_CheckAgainstSnapshotsTest_Test;
@@ -255,67 +326,6 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
         }
       }
     }
-  };
-
-  struct CommitEntry {
-    uint64_t prep_seq;
-    uint64_t commit_seq;
-    CommitEntry() : prep_seq(0), commit_seq(0) {}
-    CommitEntry(uint64_t ps, uint64_t cs) : prep_seq(ps), commit_seq(cs) {}
-    bool operator==(const CommitEntry& rhs) const {
-      return prep_seq == rhs.prep_seq && commit_seq == rhs.commit_seq;
-    }
-  };
-
-  struct CommitEntry64bFormat {
-    CommitEntry64bFormat(size_t index_bits) :
-      INDEX_BITS(index_bits),
-      PREP_BITS(static_cast<size_t>(64 - PAD_BITS - INDEX_BITS)),
-      COMMIT_BITS(static_cast<size_t>(64 - PREP_BITS)),
-      COMMIT_FILTER((1ul << COMMIT_BITS) - 1) {}
-    // Number of higher bits of a sequence number that is not used. They are
-    // used to encode the value type, ...
-    const size_t PAD_BITS = static_cast<size_t>(8);
-    // Number of lower bits from prepare seq that can be skipped as they are
-    // implied by the index of the entry in the array
-    const size_t INDEX_BITS;
-    // Number of bits we use to encode the prepare seq
-    const size_t PREP_BITS;
-    // Number of bits we use to encode the commit seq.
-    const size_t COMMIT_BITS;
-    // Filter to encode/decode commit seq
-    const uint64_t COMMIT_FILTER;
-  };
-
-  struct CommitEntry64b {
-    constexpr CommitEntry64b() noexcept : rep_(0) {}
-
-    CommitEntry64b(const CommitEntry& entry, const CommitEntry64bFormat& format)
-        : CommitEntry64b(entry.prep_seq, entry.commit_seq, format) {}
-
-    CommitEntry64b(const uint64_t ps, const uint64_t cs, const CommitEntry64bFormat& format) {
-      assert(ps < (1ul << (format.PREP_BITS + format.INDEX_BITS)));
-      assert(ps <= cs);
-      uint64_t delta = cs - ps;
-      assert(delta < (1ul << format.COMMIT_BITS));
-      rep_ = (ps << format.PAD_BITS) & ~format.COMMIT_FILTER;
-      rep_ = rep_ & delta;
-    }
-
-    void Parse(const uint64_t indexed_seq, CommitEntry* entry, const CommitEntry64bFormat& format) {
-      assert(indexed_seq < (1ul << format.INDEX_BITS));
-      uint64_t prep_up = rep_ & ~format.COMMIT_FILTER;
-      prep_up >>= format.PAD_BITS;
-      const uint64_t& prep_low = indexed_seq;
-      entry->prep_seq = prep_up & prep_low;
-
-      uint64_t delta = rep_ & format.COMMIT_FILTER;
-      assert(delta < (1ul << format.COMMIT_BITS));
-      entry->commit_seq = entry->prep_seq + delta;
-    }
-
-   private:
-    uint64_t rep_;
   };
 
   // Get the commit entry with index indexed_seq from the commit table. It
