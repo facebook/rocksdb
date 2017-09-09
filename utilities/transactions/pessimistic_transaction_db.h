@@ -105,59 +105,6 @@ class PessimisticTransactionDB : public TransactionDB {
   std::vector<DeadlockPath> GetDeadlockInfoBuffer() override;
   void SetDeadlockInfoBufferSize(uint32_t target_size) override;
 
-  struct CommitEntry {
-    uint64_t prep_seq;
-    uint64_t commit_seq;
-    CommitEntry() : prep_seq(0), commit_seq(0) {}
-    CommitEntry(uint64_t ps, uint64_t cs) : prep_seq(ps), commit_seq(cs) {}
-    bool operator==(const CommitEntry& rhs) const {
-      return prep_seq == rhs.prep_seq && commit_seq == rhs.commit_seq;
-    }
-  };
-
-  struct CommitEntry64b {
-    constexpr CommitEntry64b() noexcept : rep_(0) {}
-
-    CommitEntry64b(const CommitEntry& entry)
-        : CommitEntry64b(entry.prep_seq, entry.commit_seq) {}
-
-    CommitEntry64b(const uint64_t ps, const uint64_t cs) {
-      assert(ps < (1ul << (PREP_BITS + INDEX_BITS)));
-      assert(ps <= cs);
-      uint64_t delta = cs - ps;
-      assert(delta < (1ul << COMMIT_BITS));
-      rep_ = ps << PAD_BITS;
-      rep_ = rep_ & cs;
-    }
-
-    void Parse(const uint64_t indexed_seq, CommitEntry* entry) {
-      assert(indexed_seq < (1ul << INDEX_BITS));
-      const uint64_t commit_filter = (1ul << COMMIT_BITS) - 1;
-      uint64_t prep_up = rep_ & ~commit_filter;
-      prep_up >>= PAD_BITS;
-      const uint64_t& prep_low = indexed_seq;
-      entry->prep_seq = prep_up & prep_low;
-
-      uint64_t delta = rep_ & commit_filter;
-      assert(delta < (1ul << COMMIT_BITS));
-      entry->commit_seq = entry->prep_seq + delta;
-    }
-
-   private:
-    uint64_t rep_;
-    // Number of higher bits of a sequence number that is not used. They are
-    // used to encode the value type, ...
-    static const size_t PAD_BITS = 8;
-    // Number of lower bits from prepare seq that can be skipped as they are
-    // implied by the index of the entry in the array
-    // TODO: compute it based on COMMIT_CACHE_SIZE
-    static const size_t INDEX_BITS = 21;
-    // Number of bits we use to encode the prepare seq
-    static const size_t PREP_BITS = 64 - PAD_BITS - INDEX_BITS;
-    // Mumber of bits we use to encode the commit seq.
-    static const size_t COMMIT_BITS = 64 - PREP_BITS;
-  };
-
  protected:
   void ReinitializeTransaction(
       Transaction* txn, const WriteOptions& write_options,
@@ -219,7 +166,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
         SNAPSHOT_CACHE_BITS(snapshot_cache_bits),
         SNAPSHOT_CACHE_SIZE(static_cast<size_t>(1 << SNAPSHOT_CACHE_BITS)),
         COMMIT_CACHE_BITS(commit_cache_bits),
-        COMMIT_CACHE_SIZE(static_cast<size_t>(1 << COMMIT_CACHE_BITS)) {
+        COMMIT_CACHE_SIZE(static_cast<size_t>(1 << COMMIT_CACHE_BITS)),
+        FORMAT(COMMIT_CACHE_BITS) {
     init(txn_db_options);
   }
 
@@ -231,7 +179,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
         SNAPSHOT_CACHE_BITS(snapshot_cache_bits),
         SNAPSHOT_CACHE_SIZE(static_cast<size_t>(1 << SNAPSHOT_CACHE_BITS)),
         COMMIT_CACHE_BITS(commit_cache_bits),
-        COMMIT_CACHE_SIZE(static_cast<size_t>(1 << COMMIT_CACHE_BITS)) {
+        COMMIT_CACHE_SIZE(static_cast<size_t>(1 << COMMIT_CACHE_BITS)),
+        FORMAT(COMMIT_CACHE_BITS) {
     init(txn_db_options);
   }
 
@@ -308,6 +257,67 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
     }
   };
 
+  struct CommitEntry {
+    uint64_t prep_seq;
+    uint64_t commit_seq;
+    CommitEntry() : prep_seq(0), commit_seq(0) {}
+    CommitEntry(uint64_t ps, uint64_t cs) : prep_seq(ps), commit_seq(cs) {}
+    bool operator==(const CommitEntry& rhs) const {
+      return prep_seq == rhs.prep_seq && commit_seq == rhs.commit_seq;
+    }
+  };
+
+  struct CommitEntry64bFormat {
+    CommitEntry64bFormat(size_t index_bits) :
+      INDEX_BITS(index_bits),
+      PREP_BITS(static_cast<size_t>(64 - PAD_BITS - INDEX_BITS)),
+      COMMIT_BITS(static_cast<size_t>(64 - PREP_BITS)),
+      COMMIT_FILTER((1ul << COMMIT_BITS) - 1) {}
+    // Number of higher bits of a sequence number that is not used. They are
+    // used to encode the value type, ...
+    const size_t PAD_BITS = static_cast<size_t>(8);
+    // Number of lower bits from prepare seq that can be skipped as they are
+    // implied by the index of the entry in the array
+    const size_t INDEX_BITS;
+    // Number of bits we use to encode the prepare seq
+    const size_t PREP_BITS;
+    // Number of bits we use to encode the commit seq.
+    const size_t COMMIT_BITS;
+    // Filter to encode/decode commit seq
+    const uint64_t COMMIT_FILTER;
+  };
+
+  struct CommitEntry64b {
+    constexpr CommitEntry64b() noexcept : rep_(0) {}
+
+    CommitEntry64b(const CommitEntry& entry, const CommitEntry64bFormat& format)
+        : CommitEntry64b(entry.prep_seq, entry.commit_seq, format) {}
+
+    CommitEntry64b(const uint64_t ps, const uint64_t cs, const CommitEntry64bFormat& format) {
+      assert(ps < (1ul << (format.PREP_BITS + format.INDEX_BITS)));
+      assert(ps <= cs);
+      uint64_t delta = cs - ps;
+      assert(delta < (1ul << format.COMMIT_BITS));
+      rep_ = (ps << format.PAD_BITS) & ~format.COMMIT_FILTER;
+      rep_ = rep_ & delta;
+    }
+
+    void Parse(const uint64_t indexed_seq, CommitEntry* entry, const CommitEntry64bFormat& format) {
+      assert(indexed_seq < (1ul << format.INDEX_BITS));
+      uint64_t prep_up = rep_ & ~format.COMMIT_FILTER;
+      prep_up >>= format.PAD_BITS;
+      const uint64_t& prep_low = indexed_seq;
+      entry->prep_seq = prep_up & prep_low;
+
+      uint64_t delta = rep_ & format.COMMIT_FILTER;
+      assert(delta < (1ul << format.COMMIT_BITS));
+      entry->commit_seq = entry->prep_seq + delta;
+    }
+
+   private:
+    uint64_t rep_;
+  };
+
   // Get the commit entry with index indexed_seq from the commit table. It
   // returns true if such entry exists.
   bool GetCommitEntry(const uint64_t indexed_seq, CommitEntry64b* entry_64b,
@@ -373,7 +383,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // with snapshots_mutex_ and concurrent reads are safe due to std::atomic for
   // each entry. In x86_64 architecture such reads are compiled to simple read
   // instructions. 128 entries
-  static const size_t DEF_SNAPSHOT_CACHE_BITS = 7;
+  static const size_t DEF_SNAPSHOT_CACHE_BITS = static_cast<size_t>(7);
   const size_t SNAPSHOT_CACHE_BITS;
   const size_t SNAPSHOT_CACHE_SIZE;
   unique_ptr<std::atomic<SequenceNumber>[]> snapshot_cache_;
@@ -388,9 +398,10 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // prepared_mutex_.
   PreparedHeap prepared_txns_;
   // 10m entry, 80MB size
-  static const size_t DEF_COMMIT_CACHE_BITS = 21;
+  static const size_t DEF_COMMIT_CACHE_BITS = static_cast<size_t>(21);
   const size_t COMMIT_CACHE_BITS;
   const size_t COMMIT_CACHE_SIZE;
+  const CommitEntry64bFormat FORMAT;
   // commit_cache_ must be initialized to zero to tell apart an empty index from
   // a filled one. Thread-safety is provided with commit_cache_mutex_.
   unique_ptr<std::atomic<CommitEntry64b>[]> commit_cache_;
