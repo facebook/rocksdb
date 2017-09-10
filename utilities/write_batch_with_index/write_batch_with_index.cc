@@ -14,7 +14,6 @@
 #include "db/db_impl.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
-#include "db/read_callback.h"
 #include "memtable/skiplist.h"
 #include "options/db_options.h"
 #include "rocksdb/comparator.h"

@@ -11,14 +11,12 @@
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
 #endif
-#include <inttypes.h>
 #include <stdint.h>
 #ifdef OS_SOLARIS
 #include <alloca.h>
 #endif
 
 #include <algorithm>
-#include <climits>
 #include <cstdio>
 #include <map>
 #include <set>
@@ -63,7 +61,6 @@
 #include "options/cf_options.h"
 #include "options/options_helper.h"
 #include "options/options_parser.h"
-#include "port/likely.h"
 #include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
@@ -74,7 +71,6 @@
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
-#include "rocksdb/version.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/block.h"
 #include "table/block_based_table_factory.h"
