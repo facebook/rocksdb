@@ -222,7 +222,8 @@ class DBImpl : public DB {
           read_options = TransactionLogIterator::ReadOptions()) override;
   virtual Status DeleteFile(std::string name) override;
   Status DeleteFilesInRange(ColumnFamilyHandle* column_family,
-                            const Slice* begin, const Slice* end);
+                            const Slice* begin, const Slice* end,
+                            bool include_end = true);
 
   virtual void GetLiveFilesMetaData(
       std::vector<LiveFileMetaData>* metadata) override;

@@ -2036,7 +2036,8 @@ Status DBImpl::DeleteFile(std::string name) {
 }
 
 Status DBImpl::DeleteFilesInRange(ColumnFamilyHandle* column_family,
-                                  const Slice* begin, const Slice* end) {
+                                  const Slice* begin, const Slice* end,
+                                  bool include_end) {
   Status status;
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   ColumnFamilyData* cfd = cfh->cfd();
@@ -2073,12 +2074,15 @@ Status DBImpl::DeleteFilesInRange(ColumnFamilyHandle* column_family,
       FileMetaData* level_file;
       for (uint32_t j = 0; j < level_files.size(); j++) {
         level_file = level_files[j];
+        int end_cmp = -1;
+        if (end != nullptr) {
+          end_cmp = cfd->internal_comparator().user_comparator()->Compare(
+                  level_file->largest.user_key(), *end);
+        }
         if (((begin == nullptr) ||
              (cfd->internal_comparator().user_comparator()->Compare(
                   level_file->smallest.user_key(), *begin) >= 0)) &&
-            ((end == nullptr) ||
-             (cfd->internal_comparator().user_comparator()->Compare(
-                  level_file->largest.user_key(), *end) <= 0))) {
+            (include_end ? end_cmp <= 0: end_cmp < 0)) {
           if (level_file->being_compacted) {
             continue;
           }
