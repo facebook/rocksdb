@@ -207,7 +207,8 @@ LIB_SOURCES =                                                   \
 
 ifeq (,$(shell $(CXX) -fsyntax-only -maltivec -xc /dev/null 2>&1))
 LIB_SOURCES_ASM =\
-  util/crc32c_ppc_asm.S
+  util/crc32c_ppc_asm.S                                         \
+  util/crc32c_ppc_fast_zero_asm.S
 LIB_SOURCES_C = \
   util/crc32c_ppc.c
 else

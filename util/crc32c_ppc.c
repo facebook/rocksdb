@@ -7,6 +7,7 @@
 //  COPYING file in the root directory of this source tree.
 
 #define CRC_TABLE
+#define FAST_ZERO_TABLE
 #include <inttypes.h>
 #include <stdlib.h>
 #include <strings.h>
@@ -24,6 +25,50 @@ static unsigned int crc32_align(unsigned int crc, unsigned char const *p,
 #endif
 
 #ifdef HAVE_POWER8
+static inline unsigned long polynomial_multiply(unsigned int a, unsigned int b) {
+        vector unsigned int va = {a, 0, 0, 0};
+        vector unsigned int vb = {b, 0, 0, 0};
+        vector unsigned long vt;
+
+        __asm__("vpmsumw %0,%1,%2" : "=v"(vt) : "v"(va), "v"(vb));
+
+        return vt[0];
+}
+
+static unsigned int reflect32(unsigned int num) {
+        /*
+         * this can be improved, but for the simplicity of licensing I have
+         * written down the first correct implementation that came to mind
+         */
+        int i;
+        unsigned int result = 0;
+        for (i=0; i<32; i++) {
+                if (num & (1 << i))
+                        result |= 1 << (31 - i);
+        }
+        return result;
+}
+                                                                                         
+unsigned int barrett_reduction(unsigned long val);
+
+static inline unsigned int gf_multiply(unsigned int a, unsigned int b) {
+        return barrett_reduction(polynomial_multiply(a, b));
+}
+
+unsigned int append_zeros(unsigned int crc, unsigned long length) {
+        unsigned long i = 0;
+
+        while (length) {
+                if (length & 1) {
+                        crc = gf_multiply(crc, crc_zero[i]);
+                }
+                i++;
+                length /= 2;
+        }
+
+        return crc;
+}
+
 unsigned int __crc32_vpmsum(unsigned int crc, unsigned char const *p,
                             unsigned long len);
 
@@ -69,14 +114,19 @@ out:
  * may be room for performance improvement here.
  */
 uint32_t crc32c_ppc(uint32_t crc, unsigned char const *data, unsigned len) {
-  unsigned char *buf2;
-
   if (!data) {
-    buf2 = (unsigned char *)malloc(len);
-    bzero(buf2, len);
-    crc = crc32_vpmsum(crc, buf2, len);
-    free(buf2);
+    /* Handle the NULL buffer case. */
+#ifdef REFLECT
+    crc = reflect32(crc);
+#endif
+
+    crc = append_zeros(crc, len);
+
+#ifdef REFLECT
+    crc = reflect32(crc);
+#endif
   } else {
+    /* Handle the valid buffer case. */
     crc = crc32_vpmsum(crc, data, (unsigned long)len);
   }
   return crc;
