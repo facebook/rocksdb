@@ -115,9 +115,9 @@ TEST(CommitEntry64b, BasicTest) {
   // the zero entry is reserved for un-initialized entries
   const size_t MAX_COMMIT = (1 << FORMAT.COMMIT_BITS) - 1 - 1;
   // Samples over the numbers that are covered by that many index bits
-  std::array<uint64_t, 4> is = {0, 1, INDEX_SIZE / 2 + 1, INDEX_SIZE - 1};
+  std::array<uint64_t, 4> is = {{0, 1, INDEX_SIZE / 2 + 1, INDEX_SIZE - 1}};
   // Samples over the numbers that are covered by that many commit bits
-  std::array<uint64_t, 4> ds = {0, 1, MAX_COMMIT / 2 + 1, MAX_COMMIT};
+  std::array<uint64_t, 4> ds = {{0, 1, MAX_COMMIT / 2 + 1, MAX_COMMIT}};
   // Iterate over prepare numbers that have i) cover all bits of a sequence
   // number, and ii) include some bits that fall into the range of index or
   // commit bits
