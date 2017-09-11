@@ -410,7 +410,7 @@ bool SomeFileOverlapsRange(
   if (smallest_user_key != nullptr) {
     // Find the earliest possible internal key for smallest_user_key
     InternalKey small;
-    small.SetMaxPossibleForUserKey(*smallest_user_key);
+    small.SetMinPossibleForUserKey(*smallest_user_key);
     index = FindFile(icmp, file_level, small.Encode());
   }
 
