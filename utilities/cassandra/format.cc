@@ -298,7 +298,7 @@ bool RowValue::Empty() const {
   return columns_.empty();
 }
 
-int8_t RowValue::ColumnSize() const { return columns_.size(); }
+size_t RowValue::ColumnSize() const { return columns_.size(); }
 
 RowValue RowValue::Deserialize(const char *src, std::size_t size) {
   std::size_t offset = 0;

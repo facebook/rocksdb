@@ -167,7 +167,7 @@ public:
   RowValue ConvertExpiredColumnsToTombstones(bool* changed) const;
   RowValue RemoveTombstones(int32_t gc_grace_period) const;
   bool Empty() const;
-  int8_t ColumnSize() const;
+  size_t ColumnSize() const;
 
   static RowValue Deserialize(const char* src, std::size_t size);
   // Merge multiple rows according to their timestamp.
