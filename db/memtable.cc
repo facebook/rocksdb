@@ -541,7 +541,7 @@ struct Saver {
   ReadCallback* callback_;
   bool CheckCallback(SequenceNumber _seq) {
     if (callback_) {
-      return callback_->Callback(_seq);
+      return callback_->IsCommitted(_seq);
     }
     return true;
   }

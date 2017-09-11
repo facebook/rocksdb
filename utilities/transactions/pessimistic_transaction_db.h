@@ -377,7 +377,7 @@ class WritePreparedTxnReadCallback : public ReadCallback {
 
   // Will be called to see if the seq number accepted; if not it moves on to the
   // next seq number.
-  virtual bool Callback(SequenceNumber seq) override {
+  virtual bool IsCommitted(SequenceNumber seq) override {
     return db_->IsInSnapshot(seq, snapshot_);
   }
 

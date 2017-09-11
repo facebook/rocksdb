@@ -15,7 +15,7 @@ class ReadCallback {
 
   // Will be called to see if the seq number accepted; if not it moves on to the
   // next seq number.
-  virtual bool Callback(SequenceNumber seq) = 0;
+  virtual bool IsCommitted(SequenceNumber seq) = 0;
 };
 
 }  //  namespace rocksdb
