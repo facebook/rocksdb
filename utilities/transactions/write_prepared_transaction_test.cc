@@ -112,6 +112,14 @@ TEST(CommitEntry64b, BasicTest) {
   const size_t INDEX_BITS = static_cast<size_t>(21);
   const size_t INDEX_SIZE = static_cast<size_t>(1ul << INDEX_BITS);
   const CommitEntry64bFormat FORMAT(static_cast<size_t>(INDEX_BITS));
+
+  // zero-initialized CommitEntry64b should inidcate an empty entry
+  CommitEntry64b empty_entry64b;
+  uint64_t empty_index = 11ul;
+  CommitEntry empty_entry;
+  bool ok = empty_entry64b.Parse(empty_index, &empty_entry, FORMAT);
+  ASSERT_FALSE(ok);
+
   // the zero entry is reserved for un-initialized entries
   const size_t MAX_COMMIT = (1 << FORMAT.COMMIT_BITS) - 1 - 1;
   // Samples over the numbers that are covered by that many index bits
@@ -128,8 +136,8 @@ TEST(CommitEntry64b, BasicTest) {
         for (uint64_t c : {p, p + d / 2, p + d}) {
           uint64_t index = p % INDEX_SIZE;
           CommitEntry before(p, c), after;
-          WritePreparedTxnDB::CommitEntry64b entry64b(before, FORMAT);
-          bool ok = entry64b.Parse(index, &after, FORMAT);
+          CommitEntry64b entry64b(before, FORMAT);
+          ok = entry64b.Parse(index, &after, FORMAT);
           ASSERT_TRUE(ok);
           if (!(before == after)) {
             printf("base %" PRIu64 " i %" PRIu64 " d %" PRIu64 " p %" PRIu64
