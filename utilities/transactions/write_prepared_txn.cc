@@ -41,12 +41,6 @@ Status WritePreparedTxn::Get(const ReadOptions& read_options,
                                         pinnable_val, &callback);
 }
 
-Status WritePreparedTxn::CommitBatch(WriteBatch* /* unused */) {
-  // TODO(myabandeh) Implement this
-  throw std::runtime_error("CommitBatch not Implemented");
-  return Status::OK();
-}
-
 Status WritePreparedTxn::PrepareInternal() {
   WriteOptions write_options = write_options_;
   write_options.disableWAL = false;
