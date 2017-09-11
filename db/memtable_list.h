@@ -54,13 +54,15 @@ class MemTableListVersion {
   // returned).  Otherwise, *seq will be set to kMaxSequenceNumber.
   bool Get(const LookupKey& key, std::string* value, Status* s,
            MergeContext* merge_context, RangeDelAggregator* range_del_agg,
-           SequenceNumber* seq, const ReadOptions& read_opts);
+           SequenceNumber* seq, const ReadOptions& read_opts,
+           ReadCallback* callback = nullptr);
 
   bool Get(const LookupKey& key, std::string* value, Status* s,
            MergeContext* merge_context, RangeDelAggregator* range_del_agg,
-           const ReadOptions& read_opts) {
+           const ReadOptions& read_opts, ReadCallback* callback = nullptr) {
     SequenceNumber seq;
-    return Get(key, value, s, merge_context, range_del_agg, &seq, read_opts);
+    return Get(key, value, s, merge_context, range_del_agg, &seq, read_opts,
+               callback);
   }
 
   // Similar to Get(), but searches the Memtable history of memtables that
@@ -117,7 +119,8 @@ class MemTableListVersion {
   bool GetFromList(std::list<MemTable*>* list, const LookupKey& key,
                    std::string* value, Status* s, MergeContext* merge_context,
                    RangeDelAggregator* range_del_agg, SequenceNumber* seq,
-                   const ReadOptions& read_opts);
+                   const ReadOptions& read_opts,
+                   ReadCallback* callback = nullptr);
 
   void AddMemTable(MemTable* m);
 

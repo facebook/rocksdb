@@ -28,6 +28,7 @@
 #include "db/flush_scheduler.h"
 #include "db/internal_stats.h"
 #include "db/log_writer.h"
+#include "db/read_callback.h"
 #include "db/snapshot_impl.h"
 #include "db/version_edit.h"
 #include "db/wal_manager.h"
@@ -634,10 +635,12 @@ class DBImpl : public DB {
 
  private:
   friend class DB;
+  friend class DBTest2_ReadCallbackTest_Test;
   friend class InternalStats;
   friend class PessimisticTransaction;
   friend class WriteCommittedTxn;
   friend class WritePreparedTxn;
+  friend class WriteBatchWithIndex;
 #ifndef ROCKSDB_LITE
   friend class ForwardIterator;
 #endif
@@ -1244,7 +1247,7 @@ class DBImpl : public DB {
   // Note: 'value_found' from KeyMayExist propagates here
   Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
                  const Slice& key, PinnableSlice* value,
-                 bool* value_found = nullptr);
+                 bool* value_found = nullptr, ReadCallback* callback = nullptr);
 
   bool GetIntPropertyInternal(ColumnFamilyData* cfd,
                               const DBPropertyInfo& property_info,
