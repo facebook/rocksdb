@@ -16,6 +16,7 @@
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
 #include "db/pinned_iterators_manager.h"
+#include "db/read_callback.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
 #include "port/port.h"
@@ -537,6 +538,13 @@ struct Saver {
   Statistics* statistics;
   bool inplace_update_support;
   Env* env_;
+  ReadCallback* callback_;
+  bool CheckCallback(SequenceNumber _seq) {
+    if (callback_) {
+      return callback_->IsCommitted(_seq);
+    }
+    return true;
+  }
 };
 }  // namespace
 
@@ -564,7 +572,14 @@ static bool SaveValue(void* arg, const char* entry) {
     // Correct user key
     const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
     ValueType type;
-    UnPackSequenceAndType(tag, &s->seq, &type);
+    SequenceNumber seq;
+    UnPackSequenceAndType(tag, &seq, &type);
+    // If the value is not in the snapshot, skip it
+    if (!s->CheckCallback(seq)) {
+      return true;  // to continue to the next seq
+    }
+
+    s->seq = seq;
 
     if ((type == kTypeValue || type == kTypeMerge) &&
         range_del_agg->ShouldDelete(Slice(key_ptr, key_length))) {
@@ -578,10 +593,12 @@ static bool SaveValue(void* arg, const char* entry) {
         Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
         *(s->status) = Status::OK();
         if (*(s->merge_in_progress)) {
-          *(s->status) = MergeHelper::TimedFullMerge(
-              merge_operator, s->key->user_key(), &v,
-              merge_context->GetOperands(), s->value, s->logger, s->statistics,
-              s->env_, nullptr /* result_operand */, true);
+          if (s->value != nullptr) {
+            *(s->status) = MergeHelper::TimedFullMerge(
+                merge_operator, s->key->user_key(), &v,
+                merge_context->GetOperands(), s->value, s->logger,
+                s->statistics, s->env_, nullptr /* result_operand */, true);
+          }
         } else if (s->value != nullptr) {
           s->value->assign(v.data(), v.size());
         }
@@ -595,10 +612,12 @@ static bool SaveValue(void* arg, const char* entry) {
       case kTypeSingleDeletion:
       case kTypeRangeDeletion: {
         if (*(s->merge_in_progress)) {
-          *(s->status) = MergeHelper::TimedFullMerge(
-              merge_operator, s->key->user_key(), nullptr,
-              merge_context->GetOperands(), s->value, s->logger, s->statistics,
-              s->env_, nullptr /* result_operand */, true);
+          if (s->value != nullptr) {
+            *(s->status) = MergeHelper::TimedFullMerge(
+                merge_operator, s->key->user_key(), nullptr,
+                merge_context->GetOperands(), s->value, s->logger,
+                s->statistics, s->env_, nullptr /* result_operand */, true);
+          }
         } else {
           *(s->status) = Status::NotFound();
         }
@@ -635,7 +654,7 @@ static bool SaveValue(void* arg, const char* entry) {
 bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
                    MergeContext* merge_context,
                    RangeDelAggregator* range_del_agg, SequenceNumber* seq,
-                   const ReadOptions& read_opts) {
+                   const ReadOptions& read_opts, ReadCallback* callback) {
   // The sequence number is updated synchronously in version_set.h
   if (IsEmpty()) {
     // Avoiding recording stats for speed.
@@ -681,6 +700,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
     saver.inplace_update_support = moptions_.inplace_update_support;
     saver.statistics = moptions_.statistics;
     saver.env_ = env_;
+    saver.callback_ = callback;
     table_->Get(key, &saver, SaveValue);
 
     *seq = saver.seq;
