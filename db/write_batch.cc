@@ -1337,13 +1337,13 @@ Status WriteBatchInternal::InsertInto(
     const WriteBatch* batch, ColumnFamilyMemTables* memtables,
     FlushScheduler* flush_scheduler, bool ignore_missing_column_families,
     uint64_t log_number, DB* db, bool concurrent_memtable_writes,
-    SequenceNumber* last_seq_used, bool* has_valid_writes) {
+    SequenceNumber* next_seq, bool* has_valid_writes) {
   MemTableInserter inserter(Sequence(batch), memtables, flush_scheduler,
                             ignore_missing_column_families, log_number, db,
                             concurrent_memtable_writes, has_valid_writes);
   Status s = batch->Iterate(&inserter);
-  if (last_seq_used != nullptr) {
-    *last_seq_used = inserter.sequence();
+  if (next_seq != nullptr) {
+    *next_seq = inserter.sequence();
   }
   if (concurrent_memtable_writes) {
     inserter.PostProcess();

@@ -160,14 +160,14 @@ class WriteBatchInternal {
                            bool concurrent_memtable_writes = false);
 
   // Convenience form of InsertInto when you have only one batch
-  // last_seq_used returns the last sequnce number used in a MemTable insert
+  // next_seq returns the seq after last sequnce number used in MemTable insert
   static Status InsertInto(const WriteBatch* batch,
                            ColumnFamilyMemTables* memtables,
                            FlushScheduler* flush_scheduler,
                            bool ignore_missing_column_families = false,
                            uint64_t log_number = 0, DB* db = nullptr,
                            bool concurrent_memtable_writes = false,
-                           SequenceNumber* last_seq_used = nullptr,
+                           SequenceNumber* next_seq = nullptr,
                            bool* has_valid_writes = nullptr);
 
   static Status InsertInto(WriteThread::Writer* writer, SequenceNumber sequence,

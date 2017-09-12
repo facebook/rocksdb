@@ -1100,12 +1100,21 @@ struct WriteOptions {
   // Default: false
   bool low_pri;
 
+  // Increase the sequence number after writing each batch, whehther memtable is
+  // disabled for that or not. Otherwise the sequence number is increased after
+  // writing each key into memtable. This implies that when memtable_disable is
+  // set, the seq is not increased at all.
+  //
+  // Default: false
+  bool seq_per_batch;
+
   WriteOptions()
       : sync(false),
         disableWAL(false),
         ignore_missing_column_families(false),
         no_slowdown(false),
-        low_pri(false) {}
+        low_pri(false),
+        seq_per_batch(false) {}
 };
 
 // Options that control flush operations
