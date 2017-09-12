@@ -61,6 +61,8 @@ Status WritePreparedTxn::CommitWithoutPrepareInternal() {
 }
 
 Status WritePreparedTxn::CommitBatchInternal(WriteBatch* batch) {
+  // In the absenese of Prepare markers, use Noop as a batch separator
+  WriteBatchInternal::InsertNoop(batch);
   const bool disable_memtable = true;
   const uint64_t no_log_ref = 0;
   uint64_t seq_used;

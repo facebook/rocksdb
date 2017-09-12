@@ -299,6 +299,10 @@ namespace {
       seen += "MarkEndPrepare(" + xid.ToString() + ")";
       return Status::OK();
     }
+    virtual Status MarkNoop() override {
+      seen += "MarkNoop()";
+      return Status::OK();
+    }
     virtual Status MarkCommit(const Slice& xid) override {
       seen += "MarkCommit(" + xid.ToString() + ")";
       return Status::OK();

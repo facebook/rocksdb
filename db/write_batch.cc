@@ -438,6 +438,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
         handler->MarkRollback(xid);
         break;
       case kTypeNoop:
+        handler->MarkNoop();
         break;
       default:
         return Status::Corruption("unknown WriteBatch tag");
@@ -838,6 +839,9 @@ class MemTableInserter : public WriteBatch::Handler {
   PostMapType mem_post_info_map_;
   // current recovered transaction we are rebuilding (recovery)
   WriteBatch* rebuilding_trx_;
+  // Increase seq number once per each write batch. Otherwise increase it once
+  // per key.
+  bool seq_per_batch_;
 
   MemPostInfoMap& GetPostMap() {
     assert(concurrent_memtable_writes_);
@@ -848,7 +852,7 @@ class MemTableInserter : public WriteBatch::Handler {
     return *reinterpret_cast<MemPostInfoMap*>(&mem_post_info_map_);
   }
 
-public:
+ public:
   // cf_mems should not be shared with concurrent inserters
  MemTableInserter(SequenceNumber _sequence, ColumnFamilyMemTables* cf_mems,
                   FlushScheduler* flush_scheduler,
@@ -866,7 +870,8 @@ public:
        concurrent_memtable_writes_(concurrent_memtable_writes),
        post_info_created_(false),
        has_valid_writes_(has_valid_writes),
-       rebuilding_trx_(nullptr) {
+       rebuilding_trx_(nullptr),
+       seq_per_batch_(false) {
    assert(cf_mems_);
   }
 
@@ -879,6 +884,12 @@ public:
 
   MemTableInserter(const MemTableInserter&) = delete;
   MemTableInserter& operator=(const MemTableInserter&) = delete;
+
+  void MaybeAdvanceSeq(bool batch_boundry = false) {
+    if (batch_boundry  == seq_per_batch_) {
+      sequence_++;
+    }
+  }
 
   void set_log_number_ref(uint64_t log) { log_number_ref_ = log; }
 
@@ -944,7 +955,7 @@ public:
 
     Status seek_status;
     if (!SeekToColumnFamily(column_family_id, &seek_status)) {
-      ++sequence_;
+      MaybeAdvanceSeq();
       return seek_status;
     }
 
@@ -998,7 +1009,7 @@ public:
     // Since all Puts are logged in trasaction logs (if enabled), always bump
     // sequence number. Even if the update eventually fails and does not result
     // in memtable add/update.
-    sequence_++;
+    MaybeAdvanceSeq();
     CheckMemtableFull();
     return Status::OK();
   }
@@ -1008,7 +1019,7 @@ public:
     MemTable* mem = cf_mems_->GetMemTable();
     mem->Add(sequence_, delete_type, key, value, concurrent_memtable_writes_,
              get_post_process_info(mem));
-    sequence_++;
+    MaybeAdvanceSeq();
     CheckMemtableFull();
     return Status::OK();
   }
@@ -1022,7 +1033,7 @@ public:
 
     Status seek_status;
     if (!SeekToColumnFamily(column_family_id, &seek_status)) {
-      ++sequence_;
+      MaybeAdvanceSeq();
       return seek_status;
     }
 
@@ -1038,7 +1049,7 @@ public:
 
     Status seek_status;
     if (!SeekToColumnFamily(column_family_id, &seek_status)) {
-      ++sequence_;
+      MaybeAdvanceSeq();
       return seek_status;
     }
 
@@ -1056,7 +1067,7 @@ public:
 
     Status seek_status;
     if (!SeekToColumnFamily(column_family_id, &seek_status)) {
-      ++sequence_;
+      MaybeAdvanceSeq();
       return seek_status;
     }
     if (db_ != nullptr) {
@@ -1086,7 +1097,7 @@ public:
 
     Status seek_status;
     if (!SeekToColumnFamily(column_family_id, &seek_status)) {
-      ++sequence_;
+      MaybeAdvanceSeq();
       return seek_status;
     }
 
@@ -1154,7 +1165,7 @@ public:
       mem->Add(sequence_, kTypeMerge, key, value);
     }
 
-    sequence_++;
+    MaybeAdvanceSeq();
     CheckMemtableFull();
     return Status::OK();
   }
@@ -1209,11 +1220,23 @@ public:
       db_->InsertRecoveredTransaction(recovering_log_number_, name.ToString(),
                                       rebuilding_trx_);
       rebuilding_trx_ = nullptr;
+      // During recovery, EndPrepare marker indicates the end of a write batch
+      const bool batch_boundry = true;
+      MaybeAdvanceSeq(batch_boundry);
     } else {
       assert(rebuilding_trx_ == nullptr);
       assert(log_number_ref_ > 0);
     }
 
+    return Status::OK();
+  }
+
+  Status MarkNoop() override {
+    if (recovering_log_number_ != 0) {
+      // During recovery, EndPrepare marker indicates the end of a write batch
+      const bool batch_boundry = true;
+      MaybeAdvanceSeq(batch_boundry);
+    }
     return Status::OK();
   }
 
@@ -1306,6 +1329,8 @@ Status WriteBatchInternal::InsertInto(WriteThread::WriteGroup& write_group,
     w->sequence = inserter.sequence();
     inserter.set_log_number_ref(w->log_ref);
     w->status = w->batch->Iterate(&inserter);
+    const bool batch_boundry = true;
+    inserter.MaybeAdvanceSeq(batch_boundry);
     if (!w->status.ok()) {
       return w->status;
     }
@@ -1327,6 +1352,8 @@ Status WriteBatchInternal::InsertInto(WriteThread::Writer* writer,
   SetSequence(writer->batch, sequence);
   inserter.set_log_number_ref(writer->log_ref);
   Status s = writer->batch->Iterate(&inserter);
+  const bool batch_boundry = true;
+  inserter.MaybeAdvanceSeq(batch_boundry);
   if (concurrent_memtable_writes) {
     inserter.PostProcess();
   }
@@ -1342,6 +1369,8 @@ Status WriteBatchInternal::InsertInto(
                             ignore_missing_column_families, log_number, db,
                             concurrent_memtable_writes, has_valid_writes);
   Status s = batch->Iterate(&inserter);
+  const bool batch_boundry = true;
+  inserter.MaybeAdvanceSeq(batch_boundry);
   if (next_seq != nullptr) {
     *next_seq = inserter.sequence();
   }
