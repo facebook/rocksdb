@@ -1,6 +1,8 @@
 # Rocksdb Change Log
 ## Unreleased
 ### Public API Change
+* `BackupableDBOptions::max_valid_backups_to_open == 0` now means no backups will be opened during BackupEngine initialization. Previously this condition disabled limiting backups opened.
+
 ### New Features
 ### Bug Fixes
 
