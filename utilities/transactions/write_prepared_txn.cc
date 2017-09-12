@@ -91,6 +91,8 @@ Status WritePreparedTxn::CommitInternal() {
   auto s = db_impl_->WriteImpl(write_options_, working_batch, nullptr, nullptr,
                                log_number_, disable_memtable, &seq_used);
   uint64_t& commit_seq = seq_used;
+  // TODO(myabandeh): Reject a commit request if AddCommitted cannot encode
+  // commit_seq. This happens if prep_seq <<< commit_seq.
   wpt_db_->AddCommitted(prepare_seq_, commit_seq);
   return s;
 }
