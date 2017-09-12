@@ -593,10 +593,12 @@ static bool SaveValue(void* arg, const char* entry) {
         Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
         *(s->status) = Status::OK();
         if (*(s->merge_in_progress)) {
-          *(s->status) = MergeHelper::TimedFullMerge(
-              merge_operator, s->key->user_key(), &v,
-              merge_context->GetOperands(), s->value, s->logger, s->statistics,
-              s->env_, nullptr /* result_operand */, true);
+          if (s->value != nullptr) {
+            *(s->status) = MergeHelper::TimedFullMerge(
+                merge_operator, s->key->user_key(), &v,
+                merge_context->GetOperands(), s->value, s->logger,
+                s->statistics, s->env_, nullptr /* result_operand */, true);
+          }
         } else if (s->value != nullptr) {
           s->value->assign(v.data(), v.size());
         }
@@ -610,10 +612,12 @@ static bool SaveValue(void* arg, const char* entry) {
       case kTypeSingleDeletion:
       case kTypeRangeDeletion: {
         if (*(s->merge_in_progress)) {
-          *(s->status) = MergeHelper::TimedFullMerge(
-              merge_operator, s->key->user_key(), nullptr,
-              merge_context->GetOperands(), s->value, s->logger, s->statistics,
-              s->env_, nullptr /* result_operand */, true);
+          if (s->value != nullptr) {
+            *(s->status) = MergeHelper::TimedFullMerge(
+                merge_operator, s->key->user_key(), nullptr,
+                merge_context->GetOperands(), s->value, s->logger,
+                s->statistics, s->env_, nullptr /* result_operand */, true);
+          }
         } else {
           *(s->status) = Status::NotFound();
         }
