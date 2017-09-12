@@ -189,7 +189,7 @@ class InternalKey {
   // user key
   void SetMinPossibleForUserKey(const Slice& _user_key) {
     AppendInternalKey(&rep_, ParsedInternalKey(_user_key, kMaxSequenceNumber,
-                                                              kValueTypeForSeek));
+                                               kValueTypeForSeek));
   }
 
   bool Valid() const {
