@@ -660,6 +660,24 @@ TEST_F(OptionsTest, DBOptionsSerialization) {
   ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(base_options, new_options));
 }
 
+TEST_F(OptionsTest, OptionsComposeDecompose) {
+  // build an Options from DBOptions + CFOptions, then decompose it to verify
+  // we get same constituent options.
+  DBOptions base_db_opts;
+  ColumnFamilyOptions base_cf_opts;
+
+  Random rnd(301);
+  test::RandomInitDBOptions(&base_db_opts, &rnd);
+  test::RandomInitCFOptions(&base_cf_opts, &rnd);
+
+  Options base_opts(base_db_opts, base_cf_opts);
+  DBOptions new_db_opts(base_opts);
+  ColumnFamilyOptions new_cf_opts(base_opts);
+
+  ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(base_db_opts, new_db_opts));
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opts, new_cf_opts));
+}
+
 TEST_F(OptionsTest, ColumnFamilyOptionsSerialization) {
   ColumnFamilyOptions base_opt, new_opt;
   Random rnd(302);
