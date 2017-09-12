@@ -94,11 +94,11 @@ public:
     obj_(obj) {
   }
 
-  template<typename ResultType,
-          ResultType (ObjectType::*MethodPtr)(Args...)>
+  template<typename ResultType2,
+          ResultType2 (ObjectType::*MethodPtr)(Args...)>
   struct Binder {
     static
-    ResultType InvokeMethod(void* obj, Args... args) {
+    ResultType2 InvokeMethod(void* obj, Args... args) {
       return (reinterpret_cast<ObjectType*>(obj)->*MethodPtr)(
         std::forward<Args>(args)...);
     }

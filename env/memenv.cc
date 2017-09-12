@@ -210,6 +210,10 @@ class RandomAccessFileImpl : public RandomAccessFile {
     file_->Unref();
   }
 
+  virtual Status Read(const RandomAccessCallback&, uint64_t, size_t, rocksdb::Slice*, char*) const override {
+    return Status::NotSupported();
+  }
+  
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
                       char* scratch) const override {
     return file_->Read(offset, n, result, scratch);

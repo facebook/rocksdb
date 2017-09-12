@@ -1352,13 +1352,13 @@ class Stats {
   // Used for async env reporting
   std::mutex    lock_;
   int id_;
-  std::atomic_uint64_t start_;
-  std::atomic_uint64_t finish_;
+  std::atomic<uint64_t> start_;
+  std::atomic<uint64_t> finish_;
   double seconds_;
-  std::atomic_uint64_t done_;
+  std::atomic<uint64_t> done_;
   uint64_t last_report_done_;
   uint64_t next_report_;
-  std::atomic_uint64_t bytes_;
+  std::atomic<uint64_t> bytes_;
   uint64_t last_op_finish_;
   uint64_t last_report_finish_;
   std::unordered_map<OperationType, std::shared_ptr<HistogramImpl>,
@@ -2004,7 +2004,7 @@ class Duration {
   const uint64_t max_seconds_;
   const int64_t  max_ops_;
   const int64_t  ops_per_stage_;
-  std::atomic_int64_t ops_;
+  std::atomic<int64_t> ops_;
   const uint64_t start_at_;
 };
 
@@ -2781,6 +2781,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
           combined_stats.Report(name);
         }
       } else if(FLAGS_run_async) {
+#ifdef OS_WIN     
         if (num_repeat > 1) {
           printf("Running benchmark for %d times\n", num_repeat);
         }
@@ -2794,6 +2795,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         if (num_repeat > 1) {
           combined_stats.Report(name);
         }
+#endif
       }
 
       if (post_process_method != nullptr) {
@@ -4518,9 +4520,9 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     ReadOptions             options_;
     Duration                duration_;
     const int32_t           conc_io_ops_;
-    std::atomic_int64_t     read_;
-    std::atomic_int64_t     found_;
-    std::atomic_int64_t     bytes_;
+    std::atomic<int64_t>     read_;
+    std::atomic<int64_t>     found_;
+    std::atomic<int64_t>     bytes_;
     std::mutex              m_;
     std::condition_variable c_;
     int32_t                 in_flight_;

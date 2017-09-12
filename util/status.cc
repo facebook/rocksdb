@@ -19,7 +19,7 @@ const char* Status::CopyState(const char* state) {
       std::strlen(state) + 1; // +1 for the null terminator
   char* const result =
       new char[cch]; 
-  strcpy_s(result, cch, state);
+  memcpy(result, state, cch);
   return result;
 }
 

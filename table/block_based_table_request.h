@@ -234,7 +234,7 @@ class TableReadMetaBlocksContext {
   // Read range_del_block
   ReadOptions             ro_default_;
   // Number of operations to complete
-  std::atomic_uint64_t    op_count_;
+  std::atomic<uint64_t>    op_count_;
 
 
   // Properties data
@@ -511,8 +511,8 @@ class CreateIndexReaderContext : private AsyncStatusCapture {
   // both block reads must succeed, however, the
   // failure is not terminal for opening
   // the table
-  std::atomic_uint64_t    pref_block_reads_;
-  std::atomic_bool        failed_; // Set if any of the reads failed
+  std::atomic<uint64_t >   pref_block_reads_;
+  std::atomic<bool>        failed_; // Set if any of the reads failed
 
   // Read the index block
   BlockContents           index_block_cont_;

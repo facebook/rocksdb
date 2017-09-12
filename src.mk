@@ -190,6 +190,12 @@ LIB_SOURCES =                                                   \
   utilities/ttl/db_ttl_impl.cc                                  \
   utilities/write_batch_with_index/write_batch_with_index.cc    \
   utilities/write_batch_with_index/write_batch_with_index_internal.cc    \
+    db/db_impl_request.cc \
+    db/version_set_request.cc \
+    db/table_cache_request.cc \
+    table/block_based_table_request.cc \
+table/format_request_context.cc \
+    util/random_read_context.cc
 
 TOOL_LIB_SOURCES = \
   tools/ldb_cmd.cc                                               \
