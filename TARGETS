@@ -15,7 +15,6 @@ rocksdb_compiler_flags = [
   "-DROCKSDB_SCHED_GETCPU_PRESENT",
   "-DROCKSDB_SUPPORT_THREAD_LOCAL",
   "-DOS_LINUX",
-  "-DROCKSDB_UBSAN_RUN",
   # Flags to enable libs we include
   "-DSNAPPY",
   "-DZLIB",
@@ -476,7 +475,9 @@ ROCKS_TESTS = [['arena_test', 'util/arena_test.cc', 'serial'],
  ['thread_list_test', 'util/thread_list_test.cc', 'serial'],
  ['thread_local_test', 'util/thread_local_test.cc', 'serial'],
  ['timer_queue_test', 'util/timer_queue_test.cc', 'serial'],
- ['transaction_test', 'utilities/transactions/transaction_test.cc', 'serial'],
+ ['transaction_test',
+  'utilities/transactions/transaction_test.cc',
+  'parallel'],
  ['ttl_test', 'utilities/ttl/ttl_test.cc', 'serial'],
  ['util_merge_operators_test',
   'utilities/util_merge_operators_test.cc',
@@ -493,7 +494,10 @@ ROCKS_TESTS = [['arena_test', 'util/arena_test.cc', 'serial'],
   'memtable/write_buffer_manager_test.cc',
   'serial'],
  ['write_callback_test', 'db/write_callback_test.cc', 'serial'],
- ['write_controller_test', 'db/write_controller_test.cc', 'serial']]
+ ['write_controller_test', 'db/write_controller_test.cc', 'serial'],
+ ['write_prepared_transaction_test',
+  'utilities/transactions/write_prepared_transaction_test.cc',
+  'serial']]
 
 
 # Generate a test rule for each entry in ROCKS_TESTS

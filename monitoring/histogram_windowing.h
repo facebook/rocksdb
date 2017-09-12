@@ -22,8 +22,8 @@ public:
                          uint64_t micros_per_window,
                          uint64_t min_num_per_window);
 
-  HistogramWindowingImpl(const HistogramImpl&) = delete;
-  HistogramWindowingImpl& operator=(const HistogramImpl&) = delete;
+  HistogramWindowingImpl(const HistogramWindowingImpl&) = delete;
+  HistogramWindowingImpl& operator=(const HistogramWindowingImpl&) = delete;
 
   ~HistogramWindowingImpl();
 

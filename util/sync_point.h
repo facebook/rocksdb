@@ -46,6 +46,7 @@ extern void TestKillRandom(std::string kill_point, int odds,
 
 #ifdef NDEBUG
 #define TEST_SYNC_POINT(x)
+#define TEST_IDX_SYNC_POINT(x, index)
 #define TEST_SYNC_POINT_CALLBACK(x, y)
 #else
 
@@ -135,6 +136,8 @@ class SyncPoint {
 // See TransactionLogIteratorRace in db_test.cc for an example use case.
 // TEST_SYNC_POINT is no op in release build.
 #define TEST_SYNC_POINT(x) rocksdb::SyncPoint::GetInstance()->Process(x)
+#define TEST_IDX_SYNC_POINT(x, index) \
+  rocksdb::SyncPoint::GetInstance()->Process(x + std::to_string(index))
 #define TEST_SYNC_POINT_CALLBACK(x, y) \
   rocksdb::SyncPoint::GetInstance()->Process(x, y)
 #endif  // NDEBUG

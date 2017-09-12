@@ -1,8 +1,14 @@
 # Rocksdb Change Log
 ## Unreleased
 ### Public API Change
+### New Features
+### Bug Fixes
+
+## 5.8.0 (08/30/2017)
+### Public API Change
 * Users of `Statistics::getHistogramString()` will see fewer histogram buckets and different bucket endpoints.
 * `Slice::compare` and BytewiseComparator `Compare` no longer accept `Slice`s containing nullptr.
+* `Transaction::Get` and `Transaction::GetForUpdate` variants with `PinnableSlice` added.
 
 ### New Features
 * Add Iterator::Refresh(), which allows users to update the iterator state so that they can avoid some initialization costs of recreating iterators.
@@ -16,6 +22,7 @@
 * Fix wrong latencies in `rocksdb.db.get.micros`, `rocksdb.db.write.micros`, and `rocksdb.sst.read.micros`.
 * Fix incorrect dropping of deletions during intra-L0 compaction.
 * Fix transient reappearance of keys covered by range deletions when memtable prefix bloom filter is enabled.
+* Fix potentially wrong file smallest key when range deletions separated by snapshot are written together.
 
 ## 5.7.0 (07/13/2017)
 ### Public API Change

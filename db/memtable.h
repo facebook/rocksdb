@@ -17,6 +17,7 @@
 #include <vector>
 #include "db/dbformat.h"
 #include "db/range_del_aggregator.h"
+#include "db/read_callback.h"
 #include "db/version_edit.h"
 #include "monitoring/instrumented_mutex.h"
 #include "options/cf_options.h"
@@ -187,13 +188,15 @@ class MemTable {
   // status returned indicates a corruption or other unexpected error.
   bool Get(const LookupKey& key, std::string* value, Status* s,
            MergeContext* merge_context, RangeDelAggregator* range_del_agg,
-           SequenceNumber* seq, const ReadOptions& read_opts);
+           SequenceNumber* seq, const ReadOptions& read_opts,
+           ReadCallback* callback = nullptr);
 
   bool Get(const LookupKey& key, std::string* value, Status* s,
            MergeContext* merge_context, RangeDelAggregator* range_del_agg,
-           const ReadOptions& read_opts) {
+           const ReadOptions& read_opts, ReadCallback* callback = nullptr) {
     SequenceNumber seq;
-    return Get(key, value, s, merge_context, range_del_agg, &seq, read_opts);
+    return Get(key, value, s, merge_context, range_del_agg, &seq, read_opts,
+               callback);
   }
 
   // Attempts to update the new_value inplace, else does normal Add

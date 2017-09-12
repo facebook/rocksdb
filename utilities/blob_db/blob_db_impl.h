@@ -205,44 +205,34 @@ class BlobDBImpl : public BlobDB {
   // how often to schedule check seq files period
   static constexpr uint32_t kCheckSeqFilesPeriodMillisecs = 10 * 1000;
 
-  using rocksdb::StackableDB::Put;
-  Status Put(const WriteOptions& options, ColumnFamilyHandle* column_family,
-             const Slice& key, const Slice& value) override;
+  using BlobDB::Put;
+  Status Put(const WriteOptions& options, const Slice& key,
+             const Slice& value) override;
 
-  using rocksdb::StackableDB::Delete;
-  Status Delete(const WriteOptions& options, ColumnFamilyHandle* column_family,
-                const Slice& key) override;
+  using BlobDB::Delete;
+  Status Delete(const WriteOptions& options, const Slice& key) override;
 
-  using rocksdb::StackableDB::SingleDelete;
-  virtual Status SingleDelete(const WriteOptions& wopts,
-                              ColumnFamilyHandle* column_family,
-                              const Slice& key) override;
-
-  using rocksdb::StackableDB::Get;
+  using BlobDB::Get;
   Status Get(const ReadOptions& read_options, ColumnFamilyHandle* column_family,
              const Slice& key, PinnableSlice* value) override;
 
-  using rocksdb::StackableDB::NewIterator;
-  virtual Iterator* NewIterator(const ReadOptions& read_options,
-                                ColumnFamilyHandle* column_family) override;
+  using BlobDB::NewIterator;
+  virtual Iterator* NewIterator(const ReadOptions& read_options) override;
 
-  using rocksdb::StackableDB::MultiGet;
+  using BlobDB::MultiGet;
   virtual std::vector<Status> MultiGet(
       const ReadOptions& read_options,
-      const std::vector<ColumnFamilyHandle*>& column_family,
       const std::vector<Slice>& keys,
       std::vector<std::string>* values) override;
 
   virtual Status Write(const WriteOptions& opts, WriteBatch* updates) override;
 
   using BlobDB::PutWithTTL;
-  Status PutWithTTL(const WriteOptions& options,
-                    ColumnFamilyHandle* column_family, const Slice& key,
+  Status PutWithTTL(const WriteOptions& options, const Slice& key,
                     const Slice& value, uint64_t ttl) override;
 
   using BlobDB::PutUntil;
-  Status PutUntil(const WriteOptions& options,
-                  ColumnFamilyHandle* column_family, const Slice& key,
+  Status PutUntil(const WriteOptions& options, const Slice& key,
                   const Slice& value_unc, uint64_t expiration) override;
 
   Status LinkToBaseDB(DB* db) override;
@@ -282,9 +272,8 @@ class BlobDBImpl : public BlobDB {
   // Return true if a snapshot is created.
   bool SetSnapshotIfNeeded(ReadOptions* read_options);
 
-  Status CommonGet(const ColumnFamilyData* cfd, const Slice& key,
-                   const std::string& index_entry, std::string* value,
-                   SequenceNumber* sequence = nullptr);
+  Status CommonGet(const Slice& key, const std::string& index_entry,
+                   std::string* value, SequenceNumber* sequence = nullptr);
 
   Slice GetCompressedSlice(const Slice& raw,
                            std::string* compression_output) const;
@@ -705,11 +694,9 @@ class BlobFile {
 
 class BlobDBIterator : public Iterator {
  public:
-  explicit BlobDBIterator(Iterator* iter, ColumnFamilyHandle* column_family,
-                          BlobDBImpl* impl, bool own_snapshot,
+  explicit BlobDBIterator(Iterator* iter, BlobDBImpl* impl, bool own_snapshot,
                           const Snapshot* snapshot)
       : iter_(iter),
-        cfh_(column_family),
         db_impl_(impl),
         own_snapshot_(own_snapshot),
         snapshot_(snapshot) {
@@ -748,7 +735,6 @@ class BlobDBIterator : public Iterator {
 
  private:
   Iterator* iter_;
-  ColumnFamilyHandle* cfh_;
   BlobDBImpl* db_impl_;
   bool own_snapshot_;
   const Snapshot* snapshot_;

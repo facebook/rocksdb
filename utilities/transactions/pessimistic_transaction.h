@@ -49,6 +49,9 @@ class PessimisticTransaction : public TransactionBaseImpl {
 
   Status Commit() override;
 
+  // It is basically Commit without going through Prepare phase. The write batch
+  // is also directly provided instead of expecting txn to gradually batch the
+  // transactions writes to an internal write batch.
   virtual Status CommitBatch(WriteBatch* batch) = 0;
 
   Status Rollback() override = 0;
@@ -113,6 +116,8 @@ class PessimisticTransaction : public TransactionBaseImpl {
   virtual Status PrepareInternal() = 0;
 
   virtual Status CommitWithoutPrepareInternal() = 0;
+
+  virtual Status CommitBatchInternal(WriteBatch* batch) = 0;
 
   virtual Status CommitInternal() = 0;
 
@@ -195,6 +200,8 @@ class WriteCommittedTxn : public PessimisticTransaction {
 
   Status CommitWithoutPrepareInternal() override;
 
+  Status CommitBatchInternal(WriteBatch* batch) override;
+
   Status CommitInternal() override;
 
   Status ValidateSnapshot(ColumnFamilyHandle* column_family, const Slice& key,
@@ -203,26 +210,6 @@ class WriteCommittedTxn : public PessimisticTransaction {
   // No copying allowed
   WriteCommittedTxn(const WriteCommittedTxn&);
   void operator=(const WriteCommittedTxn&);
-};
-
-// Used at commit time to check whether transaction is committing before its
-// expiration time.
-class TransactionCallback : public WriteCallback {
- public:
-  explicit TransactionCallback(PessimisticTransaction* txn) : txn_(txn) {}
-
-  Status Callback(DB* /* unused */) override {
-    if (txn_->IsExpired()) {
-      return Status::Expired();
-    } else {
-      return Status::OK();
-    }
-  }
-
-  bool AllowWriteBatching() override { return true; }
-
- private:
-  PessimisticTransaction* txn_;
 };
 
 }  // namespace rocksdb

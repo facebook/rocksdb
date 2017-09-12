@@ -311,14 +311,14 @@ TEST(RowValueTest, PurgeTtlShouldRemvoeAllColumnsExpired) {
   });
 
   bool changed = false;
-  auto purged = row_value.PurgeTtl(&changed);
+  auto purged = row_value.RemoveExpiredColumns(&changed);
   EXPECT_TRUE(changed);
   EXPECT_EQ(purged.columns_.size(), 3);
   VerifyRowValueColumns(purged.columns_, 0, kColumn, 0, ToMicroSeconds(now));
   VerifyRowValueColumns(purged.columns_, 1, kExpiringColumn, 2, ToMicroSeconds(now));
   VerifyRowValueColumns(purged.columns_, 2, kTombstone, 3, ToMicroSeconds(now));
 
-  purged.PurgeTtl(&changed);
+  purged.RemoveExpiredColumns(&changed);
   EXPECT_FALSE(changed);
 }
 
@@ -333,7 +333,7 @@ TEST(RowValueTest, ExpireTtlShouldConvertExpiredColumnsToTombstones) {
   });
 
   bool changed = false;
-  auto compacted = row_value.ExpireTtl(&changed);
+  auto compacted = row_value.ConvertExpiredColumnsToTombstones(&changed);
   EXPECT_TRUE(changed);
   EXPECT_EQ(compacted.columns_.size(), 4);
   VerifyRowValueColumns(compacted.columns_, 0, kColumn, 0, ToMicroSeconds(now));
@@ -341,7 +341,7 @@ TEST(RowValueTest, ExpireTtlShouldConvertExpiredColumnsToTombstones) {
   VerifyRowValueColumns(compacted.columns_, 2, kExpiringColumn, 2, ToMicroSeconds(now));
   VerifyRowValueColumns(compacted.columns_, 3, kTombstone, 3, ToMicroSeconds(now));
 
-  compacted.ExpireTtl(&changed);
+  compacted.ConvertExpiredColumnsToTombstones(&changed);
   EXPECT_FALSE(changed);
 }
 } // namespace cassandra
