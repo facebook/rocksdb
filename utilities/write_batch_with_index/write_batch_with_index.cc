@@ -19,6 +19,7 @@
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
 #include "util/arena.h"
+#include "util/cast_util.h"
 #include "utilities/write_batch_with_index/write_batch_with_index_internal.h"
 
 namespace rocksdb {
@@ -790,14 +791,11 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(DB* db,
 Status WriteBatchWithIndex::GetFromBatchAndDB(
     DB* db, const ReadOptions& read_options, ColumnFamilyHandle* column_family,
     const Slice& key, PinnableSlice* pinnable_val, ReadCallback* callback) {
-  if (UNLIKELY(db->GetRootDB() != db)) {
-    return Status::NotSupported("The DB must be of DBImpl type");
-    // Otherwise the cast below would fail
-  }
   Status s;
   MergeContext merge_context;
   const ImmutableDBOptions& immuable_db_options =
-      reinterpret_cast<DBImpl*>(db)->immutable_db_options();
+      static_cast_with_check<DBImpl, DB>(db->GetRootDB())
+          ->immutable_db_options();
 
   // Since the lifetime of the WriteBatch is the same as that of the transaction
   // we cannot pin it as otherwise the returned value will not be available
@@ -833,8 +831,9 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(
   if (!callback) {
     s = db->Get(read_options, column_family, key, pinnable_val);
   } else {
-    s = reinterpret_cast<DBImpl*>(db)->GetImpl(read_options, column_family, key,
-                                               pinnable_val, nullptr, callback);
+    s = static_cast_with_check<DBImpl, DB>(db->GetRootDB())
+            ->GetImpl(read_options, column_family, key, pinnable_val, nullptr,
+                      callback);
   }
 
   if (s.ok() || s.IsNotFound()) {  // DB Get Succeeded
