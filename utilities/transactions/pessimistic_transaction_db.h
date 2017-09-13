@@ -13,6 +13,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "db/read_callback.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/transaction_db.h"
@@ -107,6 +108,11 @@ class PessimisticTransactionDB : public TransactionDB {
   struct CommitEntry {
     uint64_t prep_seq;
     uint64_t commit_seq;
+    CommitEntry() : prep_seq(0), commit_seq(0) {}
+    CommitEntry(uint64_t ps, uint64_t cs) : prep_seq(ps), commit_seq(cs) {}
+    bool operator==(const CommitEntry& rhs) const {
+      return prep_seq == rhs.prep_seq && commit_seq == rhs.commit_seq;
+    }
   };
 
  protected:
@@ -114,8 +120,11 @@ class PessimisticTransactionDB : public TransactionDB {
       Transaction* txn, const WriteOptions& write_options,
       const TransactionOptions& txn_options = TransactionOptions());
   DBImpl* db_impl_;
+  std::shared_ptr<Logger> info_log_;
 
  private:
+  friend class WritePreparedTxnDB;
+  friend class WritePreparedTxnDBMock;
   const TransactionDBOptions txn_db_options_;
   TransactionLockMgr lock_mgr_;
 
@@ -159,17 +168,23 @@ class WriteCommittedTxnDB : public PessimisticTransactionDB {
 // mechanisms to tell such data apart from committed data.
 class WritePreparedTxnDB : public PessimisticTransactionDB {
  public:
-  explicit WritePreparedTxnDB(DB* db,
-                              const TransactionDBOptions& txn_db_options)
+  explicit WritePreparedTxnDB(
+      DB* db, const TransactionDBOptions& txn_db_options,
+      size_t snapshot_cache_size = DEF_SNAPSHOT_CACHE_SIZE,
+      size_t commit_cache_size = DEF_COMMIT_CACHE_SIZE)
       : PessimisticTransactionDB(db, txn_db_options),
-        COMMIT_CACHE_SIZE(DEF_COMMIT_CACHE_SIZE) {
+        SNAPSHOT_CACHE_SIZE(snapshot_cache_size),
+        COMMIT_CACHE_SIZE(commit_cache_size) {
     init(txn_db_options);
   }
 
-  explicit WritePreparedTxnDB(StackableDB* db,
-                              const TransactionDBOptions& txn_db_options)
+  explicit WritePreparedTxnDB(
+      StackableDB* db, const TransactionDBOptions& txn_db_options,
+      size_t snapshot_cache_size = DEF_SNAPSHOT_CACHE_SIZE,
+      size_t commit_cache_size = DEF_COMMIT_CACHE_SIZE)
       : PessimisticTransactionDB(db, txn_db_options),
-        COMMIT_CACHE_SIZE(DEF_COMMIT_CACHE_SIZE) {
+        SNAPSHOT_CACHE_SIZE(snapshot_cache_size),
+        COMMIT_CACHE_SIZE(commit_cache_size) {
     init(txn_db_options);
   }
 
@@ -190,8 +205,21 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
 
  private:
   friend class WritePreparedTransactionTest_IsInSnapshotTest_Test;
+  friend class WritePreparedTransactionTest_CheckAgainstSnapshotsTest_Test;
+  friend class WritePreparedTransactionTest_CommitMapTest_Test;
+  friend class WritePreparedTransactionTest_SnapshotConcurrentAccessTest_Test;
+  friend class WritePreparedTransactionTest;
+  friend class PreparedHeap_BasicsTest_Test;
+  friend class WritePreparedTxnDBMock;
+  friend class WritePreparedTransactionTest_AdvanceMaxEvictedSeqBasicTest_Test;
 
   void init(const TransactionDBOptions& /* unused */) {
+    // Adcance max_evicted_seq_ no more than 100 times before the cache wraps
+    // around.
+    INC_STEP_FOR_MAX_EVICTED =
+        std::max(SNAPSHOT_CACHE_SIZE / 100, static_cast<size_t>(1));
+    snapshot_cache_ = unique_ptr<std::atomic<SequenceNumber>[]>(
+        new std::atomic<SequenceNumber>[SNAPSHOT_CACHE_SIZE] {});
     commit_cache_ =
         unique_ptr<CommitEntry[]>(new CommitEntry[COMMIT_CACHE_SIZE]{});
   }
@@ -199,8 +227,10 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // A heap with the amortized O(1) complexity for erase. It uses one extra heap
   // to keep track of erased entries that are not yet on top of the main heap.
   class PreparedHeap {
-    std::priority_queue<uint64_t> heap_;
-    std::priority_queue<uint64_t> erased_heap_;
+    std::priority_queue<uint64_t, std::vector<uint64_t>, std::greater<uint64_t>>
+        heap_;
+    std::priority_queue<uint64_t, std::vector<uint64_t>, std::greater<uint64_t>>
+        erased_heap_;
 
    public:
     bool empty() { return heap_.empty(); }
@@ -213,13 +243,16 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
         heap_.pop();
         erased_heap_.pop();
       }
+      while (heap_.empty() && !erased_heap_.empty()) {
+        erased_heap_.pop();
+      }
     }
     void erase(uint64_t seq) {
       if (!heap_.empty()) {
-        if (heap_.top() < seq) {
+        if (seq < heap_.top()) {
           // Already popped, ignore it.
         } else if (heap_.top() == seq) {
-          heap_.pop();
+          pop();
         } else {  // (heap_.top() > seq)
           // Down the heap, remember to pop it later
           erased_heap_.push(seq);
@@ -230,32 +263,94 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
 
   // Get the commit entry with index indexed_seq from the commit table. It
   // returns true if such entry exists.
-  bool GetCommitEntry(uint64_t indexed_seq, CommitEntry* entry);
+  bool GetCommitEntry(const uint64_t indexed_seq, CommitEntry* entry);
+
   // Rewrite the entry with the index indexed_seq in the commit table with the
   // commit entry <prep_seq, commit_seq>. If the rewrite results into eviction,
   // sets the evicted_entry and returns true.
-  bool AddCommitEntry(uint64_t indexed_seq, CommitEntry& new_entry,
+  bool AddCommitEntry(const uint64_t indexed_seq, const CommitEntry& new_entry,
                       CommitEntry* evicted_entry);
+
   // Rewrite the entry with the index indexed_seq in the commit table with the
   // commit entry new_entry only if the existing entry matches the
   // expected_entry. Returns false otherwise.
-  bool ExchangeCommitEntry(uint64_t indexed_seq, CommitEntry& expected_entry,
-                           CommitEntry new_entry);
+  bool ExchangeCommitEntry(const uint64_t indexed_seq,
+                           const CommitEntry& expected_entry,
+                           const CommitEntry& new_entry);
+
+  // Increase max_evicted_seq_ from the previous value prev_max to the new
+  // value. This also involves taking care of prepared txns that are not
+  // committed before new_max, as well as updating the list of live snapshots at
+  // the time of updating the max. Thread-safety: this function can be called
+  // concurrently. The concurrent invocations of this function is equivalent to
+  // a serial invocation in which the last invocation is the one with the
+  // largetst new_max value.
+  void AdvanceMaxEvictedSeq(SequenceNumber& prev_max, SequenceNumber& new_max);
+
+  virtual const std::vector<SequenceNumber> GetSnapshotListFromDB(
+      SequenceNumber max);
+
+  // Update the list of snapshots corresponding to the soon-to-be-updated
+  // max_eviceted_seq_. Thread-safety: this function can be called concurrently.
+  // The concurrent invocations of this function is equivalent to a serial
+  // invocation in which the last invocation is the one with the largetst
+  // version value.
+  void UpdateSnapshots(const std::vector<SequenceNumber>& snapshots,
+                       const SequenceNumber& version);
+
+  // Check an evicted entry against live snapshots to see if it should be kept
+  // around or it can be safely discarded (and hence assume committed for all
+  // snapshots). Thread-safety: this function can be called concurrently. If it
+  // is called concurrently with multiple UpdateSnapshots, the result is the
+  // same as checking the intersection of the snapshot list before updates with
+  // the snapshot list of all the concurrent updates.
+  void CheckAgainstSnapshots(const CommitEntry& evicted);
+
+  // Add a new entry to old_commit_map_ if prep_seq <= snapshot_seq <
+  // commit_seq. Return false if checking the next snapshot(s) is not needed.
+  // This is the case if the entry already added to old_commit_map_ or none of
+  // the next snapshots could satisfy the condition. next_is_larger: the next
+  // snapshot will be a larger value
+  bool MaybeUpdateOldCommitMap(const uint64_t& prep_seq,
+                               const uint64_t& commit_seq,
+                               const uint64_t& snapshot_seq,
+                               const bool next_is_larger);
 
   // The list of live snapshots at the last time that max_evicted_seq_ advanced.
-  // The list sorted in ascending order. Thread-safety is provided with
-  // snapshots_mutex_.
+  // The list stored into two data structures: in snapshot_cache_ that is
+  // efficient for concurrent reads, and in snapshots_ if the data does not fit
+  // into snapshot_cache_. The total number of snapshots in the two lists
+  std::atomic<size_t> snapshots_total_ = {};
+  // The list sorted in ascending order. Thread-safety for writes is provided
+  // with snapshots_mutex_ and concurrent reads are safe due to std::atomic for
+  // each entry. In x86_64 architecture such reads are compiled to simple read
+  // instructions. 128 entries
+  static const size_t DEF_SNAPSHOT_CACHE_SIZE = static_cast<size_t>(1 << 7);
+  const size_t SNAPSHOT_CACHE_SIZE;
+  unique_ptr<std::atomic<SequenceNumber>[]> snapshot_cache_;
+  // 2nd list for storing snapshots. The list sorted in ascending order.
+  // Thread-safety is provided with snapshots_mutex_.
   std::vector<SequenceNumber> snapshots_;
+  // The version of the latest list of snapshots. This can be used to avoid
+  // rewrittiing a list that is concurrently updated with a more recent version.
+  SequenceNumber snapshots_version_ = 0;
+
   // A heap of prepared transactions. Thread-safety is provided with
   // prepared_mutex_.
   PreparedHeap prepared_txns_;
-  static uint64_t DEF_COMMIT_CACHE_SIZE;
-  const uint64_t COMMIT_CACHE_SIZE;
+  // 10m entry, 80MB size
+  static const size_t DEF_COMMIT_CACHE_SIZE = static_cast<size_t>(1 << 21);
+  const size_t COMMIT_CACHE_SIZE;
   // commit_cache_ must be initialized to zero to tell apart an empty index from
   // a filled one. Thread-safety is provided with commit_cache_mutex_.
   unique_ptr<CommitEntry[]> commit_cache_;
   // The largest evicted *commit* sequence number from the commit_cache_
   std::atomic<uint64_t> max_evicted_seq_ = {};
+  // Advance max_evicted_seq_ by this value each time it needs an update. The
+  // larger the value, the less frequent advances we would have. We do not want
+  // it to be too large either as it would cause stalls by doing too much
+  // maintenance work under the lock.
+  size_t INC_STEP_FOR_MAX_EVICTED = 1;
   // A map of the evicted entries from commit_cache_ that has to be kept around
   // to service the old snapshots. This is expected to be empty normally.
   // Thread-safety is provided with old_commit_map_mutex_.
@@ -273,6 +368,22 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   port::RWMutex old_commit_map_mutex_;
   port::RWMutex commit_cache_mutex_;
   port::RWMutex snapshots_mutex_;
+};
+
+class WritePreparedTxnReadCallback : public ReadCallback {
+ public:
+  WritePreparedTxnReadCallback(WritePreparedTxnDB* db, SequenceNumber snapshot)
+      : db_(db), snapshot_(snapshot) {}
+
+  // Will be called to see if the seq number accepted; if not it moves on to the
+  // next seq number.
+  virtual bool IsCommitted(SequenceNumber seq) override {
+    return db_->IsInSnapshot(seq, snapshot_);
+  }
+
+ private:
+  WritePreparedTxnDB* db_;
+  SequenceNumber snapshot_;
 };
 
 }  //  namespace rocksdb

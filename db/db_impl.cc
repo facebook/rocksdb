@@ -11,14 +11,12 @@
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
 #endif
-#include <inttypes.h>
 #include <stdint.h>
 #ifdef OS_SOLARIS
 #include <alloca.h>
 #endif
 
 #include <algorithm>
-#include <climits>
 #include <cstdio>
 #include <map>
 #include <set>
@@ -63,7 +61,6 @@
 #include "options/cf_options.h"
 #include "options/options_helper.h"
 #include "options/options_parser.h"
-#include "port/likely.h"
 #include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
@@ -74,7 +71,6 @@
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
-#include "rocksdb/version.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/block.h"
 #include "table/block_based_table_factory.h"
@@ -130,9 +126,11 @@ void DumpSupportInfo(Logger* logger) {
   ROCKS_LOG_HEADER(logger, "\tZlib supported: %d", Zlib_Supported());
   ROCKS_LOG_HEADER(logger, "\tBzip supported: %d", BZip2_Supported());
   ROCKS_LOG_HEADER(logger, "\tLZ4 supported: %d", LZ4_Supported());
+  ROCKS_LOG_HEADER(logger, "\tZSTDNotFinal supported: %d",
+                   ZSTDNotFinal_Supported());
   ROCKS_LOG_HEADER(logger, "\tZSTD supported: %d", ZSTD_Supported());
-  ROCKS_LOG_HEADER(logger, "Fast CRC32 supported: %d",
-                   crc32c::IsFastCrc32Supported());
+  ROCKS_LOG_HEADER(logger, "Fast CRC32 supported: %s",
+                   crc32c::IsFastCrc32Supported().c_str());
 }
 
 int64_t kDefaultLowPriThrottledRate = 2 * 1024 * 1024;
@@ -775,9 +773,7 @@ void DBImpl::BackgroundCallPurge() {
       purge_queue_.pop_front();
 
       mutex_.Unlock();
-      Status file_deletion_status;
-      DeleteObsoleteFileImpl(file_deletion_status, job_id, fname, type, number,
-                             path_id);
+      DeleteObsoleteFileImpl(job_id, fname, type, number, path_id);
       mutex_.Lock();
     } else {
       assert(!logs_to_free_queue_.empty());
@@ -909,7 +905,8 @@ Status DBImpl::Get(const ReadOptions& read_options,
 
 Status DBImpl::GetImpl(const ReadOptions& read_options,
                        ColumnFamilyHandle* column_family, const Slice& key,
-                       PinnableSlice* pinnable_val, bool* value_found) {
+                       PinnableSlice* pinnable_val, bool* value_found,
+                       ReadCallback* callback) {
   assert(pinnable_val != nullptr);
   StopWatch sw(env_, stats_, DB_GET);
   PERF_TIMER_GUARD(get_snapshot_time);
@@ -959,13 +956,13 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   bool done = false;
   if (!skip_memtable) {
     if (sv->mem->Get(lkey, pinnable_val->GetSelf(), &s, &merge_context,
-                     &range_del_agg, read_options)) {
+                     &range_del_agg, read_options, callback)) {
       done = true;
       pinnable_val->PinSelf();
       RecordTick(stats_, MEMTABLE_HIT);
     } else if ((s.ok() || s.IsMergeInProgress()) &&
                sv->imm->Get(lkey, pinnable_val->GetSelf(), &s, &merge_context,
-                            &range_del_agg, read_options)) {
+                            &range_del_agg, read_options, callback)) {
       done = true;
       pinnable_val->PinSelf();
       RecordTick(stats_, MEMTABLE_HIT);
@@ -977,7 +974,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   if (!done) {
     PERF_TIMER_GUARD(get_from_output_files_time);
     sv->current->Get(read_options, lkey, pinnable_val, &s, &merge_context,
-                     &range_del_agg, value_found);
+                     &range_del_agg, value_found, nullptr, nullptr, callback);
     RecordTick(stats_, MEMTABLE_MISS);
   }
 
@@ -1324,6 +1321,11 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
                                  &edit, &mutex_);
       write_thread_.ExitUnbatched(&w);
     }
+    if (s.ok()) {
+      auto* mutable_cf_options = cfd->GetLatestMutableCFOptions();
+      max_total_in_memory_state_ -= mutable_cf_options->write_buffer_size *
+                                    mutable_cf_options->max_write_buffer_number;
+    }
 
     if (!cf_support_snapshot) {
       // Dropped Column Family doesn't support snapshot. Need to recalculate
@@ -1345,9 +1347,6 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
     // later inside db_mutex.
     EraseThreadStatusCfInfo(cfd);
     assert(cfd->IsDropped());
-    auto* mutable_cf_options = cfd->GetLatestMutableCFOptions();
-    max_total_in_memory_state_ -= mutable_cf_options->write_buffer_size *
-                                  mutable_cf_options->max_write_buffer_number;
     ROCKS_LOG_INFO(immutable_db_options_.info_log,
                    "Dropped column family with id %u\n", cfd->GetID());
   } else {
@@ -1687,7 +1686,7 @@ bool DBImpl::GetProperty(ColumnFamilyHandle* column_family,
 
 bool DBImpl::GetMapProperty(ColumnFamilyHandle* column_family,
                             const Slice& property,
-                            std::map<std::string, double>* value) {
+                            std::map<std::string, std::string>* value) {
   const DBPropertyInfo* property_info = GetPropertyInfo(property);
   value->clear();
   auto cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
@@ -2056,13 +2055,13 @@ Status DBImpl::DeleteFilesInRange(ColumnFamilyHandle* column_family,
       if (begin == nullptr) {
         begin_key = nullptr;
       } else {
-        begin_storage.SetMaxPossibleForUserKey(*begin);
+        begin_storage.SetMinPossibleForUserKey(*begin);
         begin_key = &begin_storage;
       }
       if (end == nullptr) {
         end_key = nullptr;
       } else {
-        end_storage.SetMinPossibleForUserKey(*end);
+        end_storage.SetMaxPossibleForUserKey(*end);
         end_key = &end_storage;
       }
 

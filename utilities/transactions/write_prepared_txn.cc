@@ -29,6 +29,18 @@ WritePreparedTxn::WritePreparedTxn(WritePreparedTxnDB* txn_db,
   PessimisticTransaction::Initialize(txn_options);
 }
 
+Status WritePreparedTxn::Get(const ReadOptions& read_options,
+                             ColumnFamilyHandle* column_family,
+                             const Slice& key, PinnableSlice* pinnable_val) {
+  auto snapshot = GetSnapshot();
+  auto snap_seq =
+      snapshot != nullptr ? snapshot->GetSequenceNumber() : kMaxSequenceNumber;
+
+  WritePreparedTxnReadCallback callback(wpt_db_, snap_seq);
+  return write_batch_.GetFromBatchAndDB(db_, read_options, column_family, key,
+                                        pinnable_val, &callback);
+}
+
 Status WritePreparedTxn::CommitBatch(WriteBatch* /* unused */) {
   // TODO(myabandeh) Implement this
   throw std::runtime_error("CommitBatch not Implemented");
@@ -51,9 +63,21 @@ Status WritePreparedTxn::PrepareInternal() {
 }
 
 Status WritePreparedTxn::CommitWithoutPrepareInternal() {
-  // TODO(myabandeh) Implement this
-  throw std::runtime_error("Commit not Implemented");
-  return Status::OK();
+  return CommitBatchInternal(GetWriteBatch()->GetWriteBatch());
+}
+
+Status WritePreparedTxn::CommitBatchInternal(WriteBatch* batch) {
+  const bool disable_memtable = true;
+  const uint64_t no_log_ref = 0;
+  uint64_t seq_used;
+  auto s = db_impl_->WriteImpl(write_options_, batch, nullptr, nullptr,
+                               no_log_ref, !disable_memtable, &seq_used);
+  uint64_t& prepare_seq = seq_used;
+  uint64_t& commit_seq = seq_used;
+  // TODO(myabandeh): skip AddPrepared
+  wpt_db_->AddPrepared(prepare_seq);
+  wpt_db_->AddCommitted(prepare_seq, commit_seq);
+  return s;
 }
 
 Status WritePreparedTxn::CommitInternal() {

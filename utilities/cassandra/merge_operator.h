@@ -15,19 +15,23 @@ namespace cassandra {
  */
 class CassandraValueMergeOperator : public MergeOperator {
 public:
-  static std::shared_ptr<MergeOperator> CreateSharedInstance();
+ explicit CassandraValueMergeOperator(int32_t gc_grace_period_in_seconds)
+     : gc_grace_period_in_seconds_(gc_grace_period_in_seconds) {}
 
-  virtual bool FullMergeV2(const MergeOperationInput& merge_in,
-                           MergeOperationOutput* merge_out) const override;
+ virtual bool FullMergeV2(const MergeOperationInput& merge_in,
+                          MergeOperationOutput* merge_out) const override;
 
-  virtual bool PartialMergeMulti(const Slice& key,
-                                 const std::deque<Slice>& operand_list,
-                                 std::string* new_value,
-                                 Logger* logger) const override;
+ virtual bool PartialMergeMulti(const Slice& key,
+                                const std::deque<Slice>& operand_list,
+                                std::string* new_value,
+                                Logger* logger) const override;
 
-  virtual const char* Name() const override;
+ virtual const char* Name() const override;
 
-  virtual bool AllowSingleOperand() const override { return true; }
+ virtual bool AllowSingleOperand() const override { return true; }
+
+private:
+ int32_t gc_grace_period_in_seconds_;
 };
 } // namespace cassandra
 } // namespace rocksdb

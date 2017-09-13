@@ -205,44 +205,34 @@ class BlobDBImpl : public BlobDB {
   // how often to schedule check seq files period
   static constexpr uint32_t kCheckSeqFilesPeriodMillisecs = 10 * 1000;
 
-  using rocksdb::StackableDB::Put;
-  Status Put(const WriteOptions& options, ColumnFamilyHandle* column_family,
-             const Slice& key, const Slice& value) override;
+  using BlobDB::Put;
+  Status Put(const WriteOptions& options, const Slice& key,
+             const Slice& value) override;
 
-  using rocksdb::StackableDB::Delete;
-  Status Delete(const WriteOptions& options, ColumnFamilyHandle* column_family,
-                const Slice& key) override;
+  using BlobDB::Delete;
+  Status Delete(const WriteOptions& options, const Slice& key) override;
 
-  using rocksdb::StackableDB::SingleDelete;
-  virtual Status SingleDelete(const WriteOptions& wopts,
-                              ColumnFamilyHandle* column_family,
-                              const Slice& key) override;
-
-  using rocksdb::StackableDB::Get;
+  using BlobDB::Get;
   Status Get(const ReadOptions& read_options, ColumnFamilyHandle* column_family,
              const Slice& key, PinnableSlice* value) override;
 
-  using rocksdb::StackableDB::NewIterator;
-  virtual Iterator* NewIterator(const ReadOptions& read_options,
-                                ColumnFamilyHandle* column_family) override;
+  using BlobDB::NewIterator;
+  virtual Iterator* NewIterator(const ReadOptions& read_options) override;
 
-  using rocksdb::StackableDB::MultiGet;
+  using BlobDB::MultiGet;
   virtual std::vector<Status> MultiGet(
       const ReadOptions& read_options,
-      const std::vector<ColumnFamilyHandle*>& column_family,
       const std::vector<Slice>& keys,
       std::vector<std::string>* values) override;
 
   virtual Status Write(const WriteOptions& opts, WriteBatch* updates) override;
 
   using BlobDB::PutWithTTL;
-  Status PutWithTTL(const WriteOptions& options,
-                    ColumnFamilyHandle* column_family, const Slice& key,
+  Status PutWithTTL(const WriteOptions& options, const Slice& key,
                     const Slice& value, uint64_t ttl) override;
 
   using BlobDB::PutUntil;
-  Status PutUntil(const WriteOptions& options,
-                  ColumnFamilyHandle* column_family, const Slice& key,
+  Status PutUntil(const WriteOptions& options, const Slice& key,
                   const Slice& value_unc, uint64_t expiration) override;
 
   Status LinkToBaseDB(DB* db) override;
@@ -263,7 +253,7 @@ class BlobDBImpl : public BlobDB {
 
   std::vector<std::shared_ptr<BlobFile>> TEST_GetObsoleteFiles() const;
 
-  void TEST_CloseBlobFile(std::shared_ptr<BlobFile>& bfile);
+  Status TEST_CloseBlobFile(std::shared_ptr<BlobFile>& bfile);
 
   Status TEST_GCFileAndUpdateLSM(std::shared_ptr<BlobFile>& bfile,
                                  GCStats* gc_stats);
@@ -282,9 +272,8 @@ class BlobDBImpl : public BlobDB {
   // Return true if a snapshot is created.
   bool SetSnapshotIfNeeded(ReadOptions* read_options);
 
-  Status CommonGet(const ColumnFamilyData* cfd, const Slice& key,
-                   const std::string& index_entry, std::string* value,
-                   SequenceNumber* sequence = nullptr);
+  Status CommonGet(const Slice& key, const std::string& index_entry,
+                   std::string* value, SequenceNumber* sequence = nullptr);
 
   Slice GetCompressedSlice(const Slice& raw,
                            std::string* compression_output) const;
@@ -292,11 +281,6 @@ class BlobDBImpl : public BlobDB {
   // Just before flush starts acting on memtable files,
   // this handler is called.
   void OnFlushBeginHandler(DB* db, const FlushJobInfo& info);
-
-  // timer queue callback to close a file by appending a footer
-  // removes file from open files list
-  std::pair<bool, int64_t> CloseSeqWrite(std::shared_ptr<BlobFile> bfile,
-                                         bool aborted);
 
   // is this file ready for Garbage collection. if the TTL of the file
   // has expired or if threshold of the file has been evicted
@@ -308,8 +292,11 @@ class BlobDBImpl : public BlobDB {
   // collect all the blob log files from the blob directory
   Status GetAllLogFiles(std::set<std::pair<uint64_t, std::string>>* file_nums);
 
-  // appends a task into timer queue to close the file
-  void CloseIf(const std::shared_ptr<BlobFile>& bfile);
+  // Close a file by appending a footer, and removes file from open files list.
+  Status CloseBlobFile(std::shared_ptr<BlobFile> bfile);
+
+  // Close a file if its size exceeds blob_file_size
+  Status CloseBlobFileIfNeeded(std::shared_ptr<BlobFile>& bfile);
 
   uint64_t ExtractExpiration(const Slice& key, const Slice& value,
                              Slice* value_slice, std::string* new_value);
@@ -470,7 +457,7 @@ class BlobDBImpl : public BlobDB {
   // epoch or version of the open files.
   std::atomic<uint64_t> epoch_of_;
 
-  // typically we keep 4 open blob files (simple i.e. no TTL)
+  // All opened non-TTL blob files.
   std::vector<std::shared_ptr<BlobFile>> open_simple_files_;
 
   // all the blob files which are currently being appended to based
@@ -707,11 +694,9 @@ class BlobFile {
 
 class BlobDBIterator : public Iterator {
  public:
-  explicit BlobDBIterator(Iterator* iter, ColumnFamilyHandle* column_family,
-                          BlobDBImpl* impl, bool own_snapshot,
+  explicit BlobDBIterator(Iterator* iter, BlobDBImpl* impl, bool own_snapshot,
                           const Snapshot* snapshot)
       : iter_(iter),
-        cfh_(column_family),
         db_impl_(impl),
         own_snapshot_(own_snapshot),
         snapshot_(snapshot) {
@@ -750,7 +735,6 @@ class BlobDBIterator : public Iterator {
 
  private:
   Iterator* iter_;
-  ColumnFamilyHandle* cfh_;
   BlobDBImpl* db_impl_;
   bool own_snapshot_;
   const Snapshot* snapshot_;

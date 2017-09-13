@@ -16,7 +16,6 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include <algorithm>
-#include <climits>
 #include <map>
 #include <set>
 #include <string>
@@ -409,9 +408,9 @@ bool SomeFileOverlapsRange(
   // Binary search over file list
   uint32_t index = 0;
   if (smallest_user_key != nullptr) {
-    // Find the earliest possible internal key for smallest_user_key
+    // Find the leftmost possible internal key for smallest_user_key
     InternalKey small;
-    small.SetMaxPossibleForUserKey(*smallest_user_key);
+    small.SetMinPossibleForUserKey(*smallest_user_key);
     index = FindFile(icmp, file_level, small.Encode());
   }
 
@@ -965,7 +964,8 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
                   PinnableSlice* value, Status* status,
                   MergeContext* merge_context,
                   RangeDelAggregator* range_del_agg, bool* value_found,
-                  bool* key_exists, SequenceNumber* seq) {
+                  bool* key_exists, SequenceNumber* seq,
+                  ReadCallback* callback) {
   Slice ikey = k.internal_key();
   Slice user_key = k.user_key();
 
@@ -981,7 +981,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       user_comparator(), merge_operator_, info_log_, db_statistics_,
       status->ok() ? GetContext::kNotFound : GetContext::kMerge, user_key,
       value, value_found, merge_context, range_del_agg, this->env_, seq,
-      merge_operator_ ? &pinned_iters_mgr : nullptr);
+      merge_operator_ ? &pinned_iters_mgr : nullptr, callback);
 
   // Pin blocks that we read to hold merge operands
   if (merge_operator_) {
@@ -2842,11 +2842,6 @@ Status VersionSet::Recover(
         cfd = column_family_set_->GetColumnFamily(edit.column_family_);
         // this should never happen since cf_in_builders is true
         assert(cfd != nullptr);
-        if (edit.max_level_ >= cfd->current()->storage_info()->num_levels()) {
-          s = Status::InvalidArgument(
-              "db has more levels than options.num_levels");
-          break;
-        }
 
         // if it is not column family add or column family drop,
         // then it's a file add/delete, which should be forwarded
@@ -2928,6 +2923,18 @@ Status VersionSet::Recover(
     s = Status::InvalidArgument(
         "You have to open all column families. Column families not opened: " +
         list_of_not_found);
+  }
+
+  if (s.ok()) {
+    for (auto cfd : *column_family_set_) {
+      assert(builders.count(cfd->GetID()) > 0);
+      auto* builder = builders[cfd->GetID()]->version_builder();
+      if (!builder->CheckConsistencyForNumLevels()) {
+        s = Status::InvalidArgument(
+            "db has more levels than options.num_levels");
+        break;
+      }
+    }
   }
 
   if (s.ok()) {

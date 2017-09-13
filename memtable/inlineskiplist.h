@@ -483,11 +483,13 @@ InlineSkipList<Comparator>::FindLessThan(const char* key, Node** prev,
   // KeyIsAfter(key, last_not_after) is definitely false
   Node* last_not_after = nullptr;
   while (true) {
+    assert(x != nullptr);
     Node* next = x->Next(level);
     assert(x == head_ || next == nullptr || KeyIsAfterNode(next->Key(), x));
     assert(x == head_ || KeyIsAfterNode(key, x));
     if (next != last_not_after && KeyIsAfterNode(key, next)) {
       // Keep searching in this list
+      assert(next != nullptr);
       x = next;
     } else {
       if (prev != nullptr) {
@@ -863,6 +865,7 @@ void InlineSkipList<Comparator>::TEST_Validate() const {
   // levels.
   Node* nodes[kMaxPossibleHeight];
   int max_height = GetMaxHeight();
+  assert(max_height > 0);
   for (int i = 0; i < max_height; i++) {
     nodes[i] = head_;
   }
@@ -892,7 +895,7 @@ void InlineSkipList<Comparator>::TEST_Validate() const {
     }
   }
   for (int i = 1; i < max_height; i++) {
-    assert(nodes[i]->Next(i) == nullptr);
+    assert(nodes[i] != nullptr && nodes[i]->Next(i) == nullptr);
   }
 }
 

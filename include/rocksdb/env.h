@@ -1010,6 +1010,7 @@ class EnvWrapper : public Env {
     return target_->NewLogger(fname, result);
   }
   uint64_t NowMicros() override { return target_->NowMicros(); }
+  uint64_t NowNanos() override { return target_->NowNanos(); }
 
   void SleepForMicroseconds(int micros) override {
     target_->SleepForMicroseconds(micros);
@@ -1057,6 +1058,32 @@ class EnvWrapper : public Env {
 
   std::string GenerateUniqueId() override {
     return target_->GenerateUniqueId();
+  }
+
+  EnvOptions OptimizeForLogRead(const EnvOptions& env_options) const override {
+    return target_->OptimizeForLogRead(env_options);
+  }
+  EnvOptions OptimizeForManifestRead(
+      const EnvOptions& env_options) const override {
+    return target_->OptimizeForManifestRead(env_options);
+  }
+  EnvOptions OptimizeForLogWrite(const EnvOptions& env_options,
+                                 const DBOptions& db_options) const override {
+    return target_->OptimizeForLogWrite(env_options, db_options);
+  }
+  EnvOptions OptimizeForManifestWrite(
+      const EnvOptions& env_options) const override {
+    return target_->OptimizeForManifestWrite(env_options);
+  }
+  EnvOptions OptimizeForCompactionTableWrite(
+      const EnvOptions& env_options,
+      const ImmutableDBOptions& db_options) const override {
+    return target_->OptimizeForCompactionTableWrite(env_options, db_options);
+  }
+  EnvOptions OptimizeForCompactionTableRead(
+      const EnvOptions& env_options,
+      const ImmutableDBOptions& db_options) const override {
+    return target_->OptimizeForCompactionTableRead(env_options, db_options);
   }
 
  private:
