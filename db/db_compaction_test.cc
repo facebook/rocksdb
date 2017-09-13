@@ -1440,7 +1440,7 @@ TEST_F(DBCompactionTest, DeleteFileRange) {
 }
 
 TEST_F(DBCompactionTest, DeleteFilesRangeIncludeEnd) {
-  const int kNumL0Files = 3;
+  const int kNumL0Files = 4;
   const int kValSize = 4 << 10; // 4KB
   Options options = CurrentOptions();
   options.level0_file_num_compaction_trigger = kNumL0Files;
@@ -1458,7 +1458,7 @@ TEST_F(DBCompactionTest, DeleteFilesRangeIncludeEnd) {
   dbfull()->TEST_WaitForCompact();
 
   Slice begin1 = Key(0);
-  Slice end1 = Key(3);
+  Slice end1 = Key(kNumL0Files);
   ASSERT_OK(DeleteFilesInRange(db_, db_->DefaultColumnFamily(), &begin1, &end1));
 
   int32_t deleted_count1 = 0;
@@ -1485,7 +1485,7 @@ TEST_F(DBCompactionTest, DeleteFilesRangeIncludeEnd) {
   dbfull()->TEST_WaitForCompact();
 
   Slice begin2 = Key(0);
-  Slice end2 = Key(3);
+  Slice end2 = Key(kNumL0Files);
   ASSERT_OK(DeleteFilesInRange(db_, db_->DefaultColumnFamily(), &begin2, &end2, false));
 
   int32_t deleted_count2 = 0;
