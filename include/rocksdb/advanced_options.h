@@ -411,8 +411,6 @@ struct AdvancedColumnFamilyOptions {
   // Turning this feature on or off for an existing DB can cause unexpected
   // LSM tree structure so it's not recommended.
   //
-  // NOTE: this option is experimental
-  //
   // Default: false
   bool level_compaction_dynamic_level_bytes = false;
 
