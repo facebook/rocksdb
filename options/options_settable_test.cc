@@ -369,6 +369,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   options->compression_opts = CompressionOptions();
   options->hard_rate_limit = 0;
   options->soft_rate_limit = 0;
+  options->purge_redundant_kvs_while_flush = false;
   options->compaction_options_fifo = CompactionOptionsFIFO();
   options->max_mem_compaction_level = 0;
 
@@ -423,7 +424,6 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "inplace_update_support=false;"
       "compaction_style=kCompactionStyleFIFO;"
       "compaction_pri=kMinOverlappingRatio;"
-      "purge_redundant_kvs_while_flush=true;"
       "hard_pending_compaction_bytes_limit=0;"
       "disable_auto_compactions=false;"
       "report_bg_io_stats=true;",
