@@ -264,6 +264,10 @@ class DBIter final: public Iterator {
 
   Status status_;
   IterKey saved_key_;
+  // Reusable internal key data structure. This is only used inside one function
+  // and should not be used across functions. Reusing this object can reduce
+  // overhead of calling construction of the function if creating it each time.
+  ParsedInternalKey ikey_;
   std::string saved_value_;
   Slice pinned_value_;
   Direction direction_;
@@ -377,22 +381,20 @@ void DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
   uint64_t num_skipped = 0;
 
   do {
-    ParsedInternalKey ikey;
-
-    if (!ParseKey(&ikey)) {
+    if (!ParseKey(&ikey_)) {
       // Skip corrupted keys.
       iter_->Next();
       continue;
     }
 
     if (iterate_upper_bound_ != nullptr &&
-        user_comparator_->Compare(ikey.user_key, *iterate_upper_bound_) >= 0) {
+        user_comparator_->Compare(ikey_.user_key, *iterate_upper_bound_) >= 0) {
       break;
     }
 
     if (prefix_extractor_ && prefix_check &&
-        prefix_extractor_->Transform(ikey.user_key)
-          .compare(prefix_start_key_) != 0) {
+        prefix_extractor_->Transform(ikey_.user_key)
+                .compare(prefix_start_key_) != 0) {
       break;
     }
 
@@ -400,32 +402,31 @@ void DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
       return;
     }
 
-    if (ikey.sequence <= sequence_) {
-      if (skipping &&
-          user_comparator_->Compare(ikey.user_key, saved_key_.GetUserKey()) <=
-              0) {
+    if (ikey_.sequence <= sequence_) {
+      if (skipping && user_comparator_->Compare(ikey_.user_key,
+                                                saved_key_.GetUserKey()) <= 0) {
         num_skipped++;  // skip this entry
         PERF_COUNTER_ADD(internal_key_skipped_count, 1);
       } else {
         num_skipped = 0;
-        switch (ikey.type) {
+        switch (ikey_.type) {
           case kTypeDeletion:
           case kTypeSingleDeletion:
             // Arrange to skip all upcoming entries for this key since
             // they are hidden by this deletion.
             saved_key_.SetUserKey(
-                ikey.user_key,
-                !iter_->IsKeyPinned() || !pin_thru_lifetime_ /* copy */);
+                ikey_.user_key,
+                !pin_thru_lifetime_ || !iter_->IsKeyPinned() /* copy */);
             skipping = true;
             PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
             break;
           case kTypeValue:
             saved_key_.SetUserKey(
-                ikey.user_key,
-                !iter_->IsKeyPinned() || !pin_thru_lifetime_ /* copy */);
+                ikey_.user_key,
+                !pin_thru_lifetime_ || !iter_->IsKeyPinned() /* copy */);
             if (range_del_agg_.ShouldDelete(
-                    ikey, RangeDelAggregator::RangePositioningMode::
-                              kForwardTraversal)) {
+                    ikey_, RangeDelAggregator::RangePositioningMode::
+                               kForwardTraversal)) {
               // Arrange to skip all upcoming entries for this key since
               // they are hidden by this deletion.
               skipping = true;
@@ -438,11 +439,11 @@ void DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
             break;
           case kTypeMerge:
             saved_key_.SetUserKey(
-                ikey.user_key,
-                !iter_->IsKeyPinned() || !pin_thru_lifetime_ /* copy */);
+                ikey_.user_key,
+                !pin_thru_lifetime_ || !iter_->IsKeyPinned() /* copy */);
             if (range_del_agg_.ShouldDelete(
-                    ikey, RangeDelAggregator::RangePositioningMode::
-                              kForwardTraversal)) {
+                    ikey_, RangeDelAggregator::RangePositioningMode::
+                               kForwardTraversal)) {
               // Arrange to skip all upcoming entries for this key since
               // they are hidden by this deletion.
               skipping = true;
@@ -468,12 +469,12 @@ void DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
 
       // Here saved_key_ may contain some old key, or the default empty key, or
       // key assigned by some random other method. We don't care.
-      if (user_comparator_->Compare(ikey.user_key, saved_key_.GetUserKey()) <=
+      if (user_comparator_->Compare(ikey_.user_key, saved_key_.GetUserKey()) <=
           0) {
         num_skipped++;
       } else {
         saved_key_.SetUserKey(
-            ikey.user_key,
+            ikey_.user_key,
             !iter_->IsKeyPinned() || !pin_thru_lifetime_ /* copy */);
         skipping = false;
         num_skipped = 0;
