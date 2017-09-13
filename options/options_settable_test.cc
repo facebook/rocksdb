@@ -283,7 +283,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "avoid_flush_during_shutdown=false;"
                              "allow_ingest_behind=false;"
                              "concurrent_prepare=false;"
-                             "manual_wal_flush=false;",
+                             "manual_wal_flush=false;"
+                             "seq_per_batch=false;",
                              new_options));
 
   ASSERT_EQ(unset_bytes_base, NumUnsetBytes(new_options_ptr, sizeof(DBOptions),

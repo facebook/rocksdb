@@ -854,25 +854,25 @@ class MemTableInserter : public WriteBatch::Handler {
 
  public:
   // cf_mems should not be shared with concurrent inserters
- MemTableInserter(SequenceNumber _sequence, ColumnFamilyMemTables* cf_mems,
-                  FlushScheduler* flush_scheduler,
-                  bool ignore_missing_column_families,
-                  uint64_t recovering_log_number, DB* db,
-                  bool concurrent_memtable_writes,
-                  bool* has_valid_writes = nullptr)
-     : sequence_(_sequence),
-       cf_mems_(cf_mems),
-       flush_scheduler_(flush_scheduler),
-       ignore_missing_column_families_(ignore_missing_column_families),
-       recovering_log_number_(recovering_log_number),
-       log_number_ref_(0),
-       db_(reinterpret_cast<DBImpl*>(db)),
-       concurrent_memtable_writes_(concurrent_memtable_writes),
-       post_info_created_(false),
-       has_valid_writes_(has_valid_writes),
-       rebuilding_trx_(nullptr),
-       seq_per_batch_(false) {
-   assert(cf_mems_);
+  MemTableInserter(SequenceNumber _sequence, ColumnFamilyMemTables* cf_mems,
+                   FlushScheduler* flush_scheduler,
+                   bool ignore_missing_column_families,
+                   uint64_t recovering_log_number, DB* db,
+                   bool concurrent_memtable_writes,
+                   bool* has_valid_writes = nullptr, bool seq_per_batch = false)
+      : sequence_(_sequence),
+        cf_mems_(cf_mems),
+        flush_scheduler_(flush_scheduler),
+        ignore_missing_column_families_(ignore_missing_column_families),
+        recovering_log_number_(recovering_log_number),
+        log_number_ref_(0),
+        db_(reinterpret_cast<DBImpl*>(db)),
+        concurrent_memtable_writes_(concurrent_memtable_writes),
+        post_info_created_(false),
+        has_valid_writes_(has_valid_writes),
+        rebuilding_trx_(nullptr),
+        seq_per_batch_(seq_per_batch) {
+    assert(cf_mems_);
   }
 
   ~MemTableInserter() {
@@ -886,7 +886,7 @@ class MemTableInserter : public WriteBatch::Handler {
   MemTableInserter& operator=(const MemTableInserter&) = delete;
 
   void MaybeAdvanceSeq(bool batch_boundry = false) {
-    if (batch_boundry  == seq_per_batch_) {
+    if (batch_boundry == seq_per_batch_) {
       sequence_++;
     }
   }
@@ -1220,23 +1220,19 @@ class MemTableInserter : public WriteBatch::Handler {
       db_->InsertRecoveredTransaction(recovering_log_number_, name.ToString(),
                                       rebuilding_trx_);
       rebuilding_trx_ = nullptr;
-      // During recovery, EndPrepare marker indicates the end of a write batch
-      const bool batch_boundry = true;
-      MaybeAdvanceSeq(batch_boundry);
     } else {
       assert(rebuilding_trx_ == nullptr);
       assert(log_number_ref_ > 0);
     }
+    const bool batch_boundry = true;
+    MaybeAdvanceSeq(batch_boundry);
 
     return Status::OK();
   }
 
   Status MarkNoop() override {
-    if (recovering_log_number_ != 0) {
-      // During recovery, EndPrepare marker indicates the end of a write batch
-      const bool batch_boundry = true;
-      MaybeAdvanceSeq(batch_boundry);
-    }
+    const bool batch_boundry = true;
+    MaybeAdvanceSeq(batch_boundry);
     return Status::OK();
   }
 
@@ -1311,16 +1307,15 @@ class MemTableInserter : public WriteBatch::Handler {
 // 2) During Write(), in a single-threaded write thread
 // 3) During Write(), in a concurrent context where memtables has been cloned
 // The reason is that it calls memtables->Seek(), which has a stateful cache
-Status WriteBatchInternal::InsertInto(WriteThread::WriteGroup& write_group,
-                                      SequenceNumber sequence,
-                                      ColumnFamilyMemTables* memtables,
-                                      FlushScheduler* flush_scheduler,
-                                      bool ignore_missing_column_families,
-                                      uint64_t recovery_log_number, DB* db,
-                                      bool concurrent_memtable_writes) {
+Status WriteBatchInternal::InsertInto(
+    WriteThread::WriteGroup& write_group, SequenceNumber sequence,
+    ColumnFamilyMemTables* memtables, FlushScheduler* flush_scheduler,
+    bool ignore_missing_column_families, uint64_t recovery_log_number, DB* db,
+    bool concurrent_memtable_writes, bool seq_per_batch) {
   MemTableInserter inserter(sequence, memtables, flush_scheduler,
                             ignore_missing_column_families, recovery_log_number,
-                            db, concurrent_memtable_writes);
+                            db, concurrent_memtable_writes, nullptr,
+                            seq_per_batch);
   for (auto w : write_group) {
     if (!w->ShouldWriteToMemtable()) {
       continue;
@@ -1329,8 +1324,6 @@ Status WriteBatchInternal::InsertInto(WriteThread::WriteGroup& write_group,
     w->sequence = inserter.sequence();
     inserter.set_log_number_ref(w->log_ref);
     w->status = w->batch->Iterate(&inserter);
-    const bool batch_boundry = true;
-    inserter.MaybeAdvanceSeq(batch_boundry);
     if (!w->status.ok()) {
       return w->status;
     }
@@ -1352,8 +1345,6 @@ Status WriteBatchInternal::InsertInto(WriteThread::Writer* writer,
   SetSequence(writer->batch, sequence);
   inserter.set_log_number_ref(writer->log_ref);
   Status s = writer->batch->Iterate(&inserter);
-  const bool batch_boundry = true;
-  inserter.MaybeAdvanceSeq(batch_boundry);
   if (concurrent_memtable_writes) {
     inserter.PostProcess();
   }
@@ -1364,13 +1355,12 @@ Status WriteBatchInternal::InsertInto(
     const WriteBatch* batch, ColumnFamilyMemTables* memtables,
     FlushScheduler* flush_scheduler, bool ignore_missing_column_families,
     uint64_t log_number, DB* db, bool concurrent_memtable_writes,
-    SequenceNumber* next_seq, bool* has_valid_writes) {
+    SequenceNumber* next_seq, bool* has_valid_writes, bool seq_per_batch) {
   MemTableInserter inserter(Sequence(batch), memtables, flush_scheduler,
                             ignore_missing_column_families, log_number, db,
-                            concurrent_memtable_writes, has_valid_writes);
+                            concurrent_memtable_writes, has_valid_writes,
+                            seq_per_batch);
   Status s = batch->Iterate(&inserter);
-  const bool batch_boundry = true;
-  inserter.MaybeAdvanceSeq(batch_boundry);
   if (next_seq != nullptr) {
     *next_seq = inserter.sequence();
   }

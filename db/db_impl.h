@@ -1267,6 +1267,7 @@ class DBImpl : public DB {
   // 2PC these are the writes at Prepare phase.
   const bool concurrent_prepare_;
   const bool manual_wal_flush_;
+  const bool seq_per_batch_;
 };
 
 extern Options SanitizeOptions(const std::string& db,

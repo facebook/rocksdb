@@ -68,8 +68,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     return Status::NotSupported(
         "pipelined_writes is not compatible with concurrent prepares");
   }
-  if (write_options.seq_per_batch &&
-      immutable_db_options_.enable_pipelined_write) {
+  if (seq_per_batch_ && immutable_db_options_.enable_pipelined_write) {
     return Status::NotSupported(
         "pipelined_writes is not compatible with seq_per_batch");
   }
@@ -202,8 +201,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
             total_byte_size, WriteBatchInternal::ByteSize(writer->batch));
       }
     }
-    size_t seq_inc =
-        write_options.seq_per_batch ? write_group.size : total_count;
+    size_t seq_inc = seq_per_batch_ ? write_group.size : total_count;
 
     const bool concurrent_update = concurrent_prepare_;
     // Update stats while we are an exclusive group leader, so we know
@@ -262,14 +260,14 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         w.status = WriteBatchInternal::InsertInto(
             write_group, current_sequence, column_family_memtables_.get(),
             &flush_scheduler_, write_options.ignore_missing_column_families,
-            0 /*recovery_log_number*/, this);
+            0 /*recovery_log_number*/, this, parallel, seq_per_batch_);
       } else {
         SequenceNumber next_sequence = current_sequence;
         for (auto* writer : write_group) {
           if (writer->ShouldWriteToMemtable()) {
             writer->sequence = next_sequence;
           }
-          if (write_options.seq_per_batch) {
+          if (seq_per_batch_) {
             next_sequence++;
           } else if (writer->ShouldWriteToMemtable()) {
             next_sequence += WriteBatchInternal::Count(writer->batch);
@@ -438,7 +436,7 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
       memtable_write_group.status = WriteBatchInternal::InsertInto(
           memtable_write_group, w.sequence, column_family_memtables_.get(),
           &flush_scheduler_, write_options.ignore_missing_column_families,
-          0 /*log_number*/, this);
+          0 /*log_number*/, this, seq_per_batch_);
       versions_->SetLastSequence(memtable_write_group.last_sequence);
       write_thread_.ExitAsMemTableWriter(&w, memtable_write_group);
     }
@@ -532,15 +530,14 @@ Status DBImpl::WriteImplWALOnly(const WriteOptions& write_options,
   PERF_TIMER_GUARD(write_wal_time);
   // LastToBeWrittenSequence is increased inside WriteToWAL under
   // wal_write_mutex_ to ensure ordered events in WAL
-  size_t seq_inc =
-      write_options.seq_per_batch ? write_group.size : 0 /*total_count*/;
+  size_t seq_inc = seq_per_batch_ ? write_group.size : 0 /*total_count*/;
   status = ConcurrentWriteToWAL(write_group, log_used, &last_sequence, seq_inc);
   auto curr_seq = last_sequence + 1;
   for (auto* writer : write_group) {
     if (writer->CheckCallback(this)) {
       writer->sequence = curr_seq;
     }
-    if (write_options.seq_per_batch) {
+    if (seq_per_batch_) {
       curr_seq++;
     } else if (writer->CheckCallback(this)) {
       curr_seq += WriteBatchInternal::Count(writer->batch);

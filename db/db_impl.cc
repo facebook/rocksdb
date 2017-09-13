@@ -191,7 +191,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       refitting_level_(false),
       opened_successfully_(false),
       concurrent_prepare_(options.concurrent_prepare),
-      manual_wal_flush_(options.manual_wal_flush) {
+      manual_wal_flush_(options.manual_wal_flush),
+      seq_per_batch_(options.seq_per_batch) {
   env_->GetAbsolutePath(dbname, &db_absolute_path_);
 
   // Reserve ten files or so for other uses and give the rest to TableCache.

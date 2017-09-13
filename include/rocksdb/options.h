@@ -1113,7 +1113,7 @@ struct WriteOptions {
         disableWAL(false),
         ignore_missing_column_families(false),
         no_slowdown(false),
-        low_pri(false) {
+        low_pri(false) {}
 };
 
 // Options that control flush operations
