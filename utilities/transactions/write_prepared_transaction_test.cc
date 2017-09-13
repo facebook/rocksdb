@@ -40,7 +40,9 @@ using std::string;
 
 namespace rocksdb {
 
-using CommitEntry = PessimisticTransactionDB::CommitEntry;
+using CommitEntry = WritePreparedTxnDB::CommitEntry;
+using CommitEntry64b = WritePreparedTxnDB::CommitEntry64b;
+using CommitEntry64bFormat = WritePreparedTxnDB::CommitEntry64bFormat;
 
 TEST(PreparedHeap, BasicsTest) {
   WritePreparedTxnDB::PreparedHeap heap;
@@ -104,6 +106,49 @@ TEST(PreparedHeap, BasicsTest) {
   heap.pop();
   // Test that empty works
   ASSERT_TRUE(heap.empty());
+}
+
+TEST(CommitEntry64b, BasicTest) {
+  const size_t INDEX_BITS = static_cast<size_t>(21);
+  const size_t INDEX_SIZE = static_cast<size_t>(1ull << INDEX_BITS);
+  const CommitEntry64bFormat FORMAT(static_cast<size_t>(INDEX_BITS));
+
+  // zero-initialized CommitEntry64b should inidcate an empty entry
+  CommitEntry64b empty_entry64b;
+  uint64_t empty_index = 11ul;
+  CommitEntry empty_entry;
+  bool ok = empty_entry64b.Parse(empty_index, &empty_entry, FORMAT);
+  ASSERT_FALSE(ok);
+
+  // the zero entry is reserved for un-initialized entries
+  const size_t MAX_COMMIT = (1 << FORMAT.COMMIT_BITS) - 1 - 1;
+  // Samples over the numbers that are covered by that many index bits
+  std::array<uint64_t, 4> is = {{0, 1, INDEX_SIZE / 2 + 1, INDEX_SIZE - 1}};
+  // Samples over the numbers that are covered by that many commit bits
+  std::array<uint64_t, 4> ds = {{0, 1, MAX_COMMIT / 2 + 1, MAX_COMMIT}};
+  // Iterate over prepare numbers that have i) cover all bits of a sequence
+  // number, and ii) include some bits that fall into the range of index or
+  // commit bits
+  for (uint64_t base = 1; base < kMaxSequenceNumber; base *= 2) {
+    for (uint64_t i : is) {
+      for (uint64_t d : ds) {
+        uint64_t p = base + i + d;
+        for (uint64_t c : {p, p + d / 2, p + d}) {
+          uint64_t index = p % INDEX_SIZE;
+          CommitEntry before(p, c), after;
+          CommitEntry64b entry64b(before, FORMAT);
+          ok = entry64b.Parse(index, &after, FORMAT);
+          ASSERT_TRUE(ok);
+          if (!(before == after)) {
+            printf("base %" PRIu64 " i %" PRIu64 " d %" PRIu64 " p %" PRIu64
+                   " c %" PRIu64 " index %" PRIu64 "\n",
+                   base, i, d, p, c, index);
+          }
+          ASSERT_EQ(before, after);
+        }
+      }
+    }
+  }
 }
 
 class WritePreparedTxnDBMock : public WritePreparedTxnDB {
@@ -255,33 +300,35 @@ TEST_P(WritePreparedTransactionTest, CommitMapTest) {
   ASSERT_FALSE(evicted);
 
   // Should be able to read the same value
-  bool found = wp_db->GetCommitEntry(c.prep_seq % size, &e);
+  CommitEntry64b dont_care;
+  bool found = wp_db->GetCommitEntry(c.prep_seq % size, &dont_care, &e);
   ASSERT_TRUE(found);
   ASSERT_EQ(c, e);
   // Should be able to distinguish between overlapping entries
-  found = wp_db->GetCommitEntry((c.prep_seq + size) % size, &e);
+  found = wp_db->GetCommitEntry((c.prep_seq + size) % size, &dont_care, &e);
   ASSERT_TRUE(found);
   ASSERT_NE(c.prep_seq + size, e.prep_seq);
   // Should be able to detect non-existent entry
-  found = wp_db->GetCommitEntry((c.prep_seq + 1) % size, &e);
-  ASSERT_EQ(e.commit_seq, 0);
+  found = wp_db->GetCommitEntry((c.prep_seq + 1) % size, &dont_care, &e);
   ASSERT_FALSE(found);
 
   // Reject an invalid exchange
-  CommitEntry e2 = {c.prep_seq + size, c.commit_seq};
-  bool exchanged = wp_db->ExchangeCommitEntry(e2.prep_seq % size, e2, e);
+  CommitEntry e2 = {c.prep_seq + size, c.commit_seq + size};
+  CommitEntry64b e2_64b(e2, wp_db->FORMAT);
+  bool exchanged = wp_db->ExchangeCommitEntry(e2.prep_seq % size, e2_64b, e);
   ASSERT_FALSE(exchanged);
   // check whether it did actually reject that
-  found = wp_db->GetCommitEntry(e2.prep_seq % size, &e);
+  found = wp_db->GetCommitEntry(e2.prep_seq % size, &dont_care, &e);
   ASSERT_TRUE(found);
   ASSERT_EQ(c, e);
 
   // Accept a valid exchange
+  CommitEntry64b c_64b(c, wp_db->FORMAT);
   CommitEntry e3 = {c.prep_seq + size, c.commit_seq + size + 1};
-  exchanged = wp_db->ExchangeCommitEntry(c.prep_seq % size, c, e3);
+  exchanged = wp_db->ExchangeCommitEntry(c.prep_seq % size, c_64b, e3);
   ASSERT_TRUE(exchanged);
   // check whether it did actually accepted that
-  found = wp_db->GetCommitEntry(c.prep_seq % size, &e);
+  found = wp_db->GetCommitEntry(c.prep_seq % size, &dont_care, &e);
   ASSERT_TRUE(found);
   ASSERT_EQ(e3, e);
 
@@ -290,7 +337,7 @@ TEST_P(WritePreparedTransactionTest, CommitMapTest) {
   evicted = wp_db->AddCommitEntry(e4.prep_seq % size, e4, &e);
   ASSERT_TRUE(evicted);
   ASSERT_EQ(e3, e);
-  found = wp_db->GetCommitEntry(e4.prep_seq % size, &e);
+  found = wp_db->GetCommitEntry(e4.prep_seq % size, &dont_care, &e);
   ASSERT_TRUE(found);
   ASSERT_EQ(e4, e);
 }
@@ -333,11 +380,15 @@ TEST_P(WritePreparedTransactionTest, MaybeUpdateOldCommitMap) {
 }
 
 TEST_P(WritePreparedTransactionTest, CheckAgainstSnapshotsTest) {
-  std::vector<SequenceNumber> snapshots = {100l, 200l, 300l, 400l,
-                                           500l, 600l, 700l};
+  std::vector<SequenceNumber> snapshots = {100l, 200l, 300l, 400l, 500l,
+                                           600l, 700l, 800l, 900l};
+  const size_t snapshot_cache_bits = 2;
+  // Safety check to express the intended size in the test. Can be adjusted if
+  // the snapshots lists changed.
+  assert((1ul << snapshot_cache_bits) * 2 + 1 == snapshots.size());
   DBImpl* mock_db = new DBImpl(options, dbname);
-  std::unique_ptr<WritePreparedTxnDBMock> wp_db(new WritePreparedTxnDBMock(
-      mock_db, txn_db_options, snapshots.size() / 2));
+  std::unique_ptr<WritePreparedTxnDBMock> wp_db(
+      new WritePreparedTxnDBMock(mock_db, txn_db_options, snapshot_cache_bits));
   SequenceNumber version = 1000l;
   ASSERT_EQ(0, wp_db->snapshots_total_);
   wp_db->UpdateSnapshots(snapshots, version);
@@ -345,9 +396,9 @@ TEST_P(WritePreparedTransactionTest, CheckAgainstSnapshotsTest) {
   // seq numbers are chosen so that we have two of them between each two
   // snapshots. If the diff of two consecuitive seq is more than 5, there is a
   // snapshot between them.
-  std::vector<SequenceNumber> seqs = {50l,  55l,  150l, 155l, 250l, 255l,
-                                      350l, 355l, 450l, 455l, 550l, 555l,
-                                      650l, 655l, 750l, 755l};
+  std::vector<SequenceNumber> seqs = {50l,  55l,  150l, 155l, 250l, 255l, 350l,
+                                      355l, 450l, 455l, 550l, 555l, 650l, 655l,
+                                      750l, 755l, 850l, 855l, 950l, 955l};
   assert(seqs.size() > 1);
   for (size_t i = 0; i < seqs.size() - 1; i++) {
     wp_db->old_commit_map_empty_ = true;  // reset
@@ -374,12 +425,16 @@ TEST_P(WritePreparedTransactionTest, SnapshotConcurrentAccessTest) {
   // in the methods must also be added.
   const std::vector<SequenceNumber> snapshots = {10l, 20l, 30l, 40l, 50l,
                                                  60l, 70l, 80l, 90l, 100l};
+  const size_t snapshot_cache_bits = 2;
+  // Safety check to express the intended size in the test. Can be adjusted if
+  // the snapshots lists changed.
+  assert((1ul << snapshot_cache_bits) * 2 + 2 == snapshots.size());
   SequenceNumber version = 1000l;
   // Choose the cache size so that the new snapshot list could replace all the
   // existing items in the cache and also have some overflow.
   DBImpl* mock_db = new DBImpl(options, dbname);
-  std::unique_ptr<WritePreparedTxnDBMock> wp_db(new WritePreparedTxnDBMock(
-      mock_db, txn_db_options, (snapshots.size() - 2) / 2));
+  std::unique_ptr<WritePreparedTxnDBMock> wp_db(
+      new WritePreparedTxnDBMock(mock_db, txn_db_options, snapshot_cache_bits));
   // Add up to 2 items that do not fit into the cache
   for (size_t old_size = 1; old_size <= wp_db->SNAPSHOT_CACHE_SIZE + 2;
        old_size++) {
@@ -435,6 +490,7 @@ TEST_P(WritePreparedTransactionTest, SnapshotConcurrentAccessTest) {
       }
     }
   }
+  printf("\n");
 }
 #endif
 
@@ -502,9 +558,9 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
   WriteOptions wo;
   // Use small commit cache to trigger lots of eviction and fast advance of
   // max_evicted_seq_
-  const size_t commit_cache_size = 8;
+  const size_t commit_cache_bits = 3;
   // Same for snapshot cache size
-  const size_t snapshot_cache_size = 5;
+  const size_t snapshot_cache_bits = 2;
 
   // Take some preliminary snapshots first. This is to stress the data structure
   // that holds the old snapshots as it will be designed to be efficient when
@@ -538,7 +594,7 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
       std::set<uint64_t> committed_before;
       DBImpl* mock_db = new DBImpl(options, dbname);
       std::unique_ptr<WritePreparedTxnDBMock> wp_db(new WritePreparedTxnDBMock(
-          mock_db, txn_db_options, snapshot_cache_size, commit_cache_size));
+          mock_db, txn_db_options, snapshot_cache_bits, commit_cache_bits));
       // We continue until max advances a bit beyond the snapshot.
       while (!snapshot || wp_db->max_evicted_seq_ < snapshot + 100) {
         // do prepare for a transaction

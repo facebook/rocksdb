@@ -50,8 +50,6 @@ class WritePreparedTxn : public PessimisticTransaction {
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value) override;
 
-  Status CommitBatch(WriteBatch* batch) override;
-
   Status Rollback() override;
 
  private:
