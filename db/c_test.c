@@ -1549,7 +1549,6 @@ int main(int argc, char** argv) {
     rocksdb_column_family_handle_destroy(cfh1);
     rocksdb_column_family_handle_destroy(cfh2);
     rocksdb_optimistictransactiondb_close_base_db(db);
-    rocksdb_optimistictransaction_options_destroy(otxn_options);
     rocksdb_optimistictransactiondb_close(otxn_db);
 
     // Check open optimistic transaction db with column families
@@ -1585,6 +1584,7 @@ int main(int argc, char** argv) {
     rocksdb_optimistictransactiondb_close(otxn_db);
     rocksdb_destroy_db(db_options, dbname, &err);
     rocksdb_options_destroy(db_options);
+    rocksdb_optimistictransaction_options_destroy(otxn_options);
     CheckNoError(err);
   }
 
