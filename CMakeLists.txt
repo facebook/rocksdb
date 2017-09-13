@@ -32,7 +32,7 @@
 # 3. cmake ..
 # 4. make -j
 
-cmake_minimum_required(VERSION 2.6)
+cmake_minimum_required(VERSION 2.8.11)
 project(rocksdb)
 
 if(POLICY CMP0042)
@@ -98,17 +98,7 @@ else()
   endif()
 endif()
 
-if(WIN32)
-  execute_process(COMMAND powershell -noprofile -Command "Get-Date -format MM_dd_yyyy" OUTPUT_VARIABLE DATE)
-  execute_process(COMMAND powershell -noprofile -Command "Get-Date -format HH:mm:ss" OUTPUT_VARIABLE TIME)
-  string(REGEX REPLACE "(..)_(..)_..(..).*" "\\1/\\2/\\3" DATE "${DATE}")
-  string(REGEX REPLACE "(..):(.....).*" " \\1:\\2" TIME "${TIME}")
-  set(GIT_DATE_TIME "${DATE} ${TIME}")
-else()
-  execute_process(COMMAND date "+%Y/%m/%d %H:%M:%S" OUTPUT_VARIABLE DATETIME)
-  string(REGEX REPLACE "\n" "" DATETIME ${DATETIME})
-  set(GIT_DATE_TIME "${DATETIME}")
-endif()
+string(TIMESTAMP GIT_DATE_TIME "%Y/%m/%d %H:%M:%S" UTC)
 
 find_package(Git)
 
