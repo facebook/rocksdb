@@ -900,7 +900,7 @@ struct DBOptions {
   // file.
   bool manual_wal_flush = false;
 
-  // Increase the sequence number after writing each batch, whehther memtable is
+  // Increase the sequence number after writing each batch, whether memtable is
   // disabled for that or not. Otherwise the sequence number is increased after
   // writing each key into memtable. This implies that when memtable_disable is
   // set, the seq is not increased at all.

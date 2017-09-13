@@ -366,6 +366,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
 
   input.remove_prefix(WriteBatchInternal::kHeader);
   Slice key, value, blob, xid;
+  bool first_tag = true;
   int found = 0;
   Status s;
   while (s.ok() && !input.empty() && handler->Continue()) {
@@ -438,11 +439,12 @@ Status WriteBatch::Iterate(Handler* handler) const {
         handler->MarkRollback(xid);
         break;
       case kTypeNoop:
-        handler->MarkNoop();
+        handler->MarkNoop(first_tag);
         break;
       default:
         return Status::Corruption("unknown WriteBatch tag");
     }
+    first_tag = false;
   }
   if (!s.ok()) {
     return s;
@@ -1201,11 +1203,6 @@ class MemTableInserter : public WriteBatch::Handler {
       if (has_valid_writes_ != nullptr) {
         *has_valid_writes_ = true;
       }
-    } else {
-      // in non-recovery we ignore prepare markers
-      // and insert the values directly. making sure we have a
-      // log for each insertion to reference.
-      assert(log_number_ref_ > 0);
     }
 
     return Status::OK();
@@ -1222,7 +1219,6 @@ class MemTableInserter : public WriteBatch::Handler {
       rebuilding_trx_ = nullptr;
     } else {
       assert(rebuilding_trx_ == nullptr);
-      assert(log_number_ref_ > 0);
     }
     const bool batch_boundry = true;
     MaybeAdvanceSeq(batch_boundry);
@@ -1230,9 +1226,16 @@ class MemTableInserter : public WriteBatch::Handler {
     return Status::OK();
   }
 
-  Status MarkNoop() override {
-    const bool batch_boundry = true;
-    MaybeAdvanceSeq(batch_boundry);
+  Status MarkNoop(bool first_tag) override {
+    // A hack in pessimistic transaction could result into a noop at the start
+    // of the write batch, that should be ignored.
+    if (!first_tag) {
+      // In the absense of Prepare markers, a kTypeNoop tag indicates the end of
+      // a batch. This happens when write batch commits skipping the prepare
+      // phase.
+      const bool batch_boundry = true;
+      MaybeAdvanceSeq(batch_boundry);
+    }
     return Status::OK();
   }
 
@@ -1257,6 +1260,8 @@ class MemTableInserter : public WriteBatch::Handler {
         // all insertes must reference this trx log number
         log_number_ref_ = trx->log_number_;
         s = trx->batch_->Iterate(this);
+        // TODO(myabandeh): In WritePrepared txn, a commit marker should
+        // reference the log that contains the prepare marker.
         log_number_ref_ = 0;
 
         if (s.ok()) {
@@ -1267,8 +1272,15 @@ class MemTableInserter : public WriteBatch::Handler {
         }
       }
     } else {
-      // in non recovery we simply ignore this tag
+      // TODO(myabandeh): In WritePrepared txn, a commit marker should
+      // reference the log that contains the prepare marker. This is to be able
+      // to reconsutrct the prepared list after recovery.
+      // TODO(myabandeh): In WritePrepared txn, we do not reach here since
+      // disable_memtable is set for commit.
+      assert(log_number_ref_ > 0);
     }
+    const bool batch_boundry = true;
+    MaybeAdvanceSeq(batch_boundry);
 
     return s;
   }
@@ -1314,8 +1326,8 @@ Status WriteBatchInternal::InsertInto(
     bool concurrent_memtable_writes, bool seq_per_batch) {
   MemTableInserter inserter(sequence, memtables, flush_scheduler,
                             ignore_missing_column_families, recovery_log_number,
-                            db, concurrent_memtable_writes, nullptr,
-                            seq_per_batch);
+                            db, concurrent_memtable_writes,
+                            nullptr /*has_valid_writes*/, seq_per_batch);
   for (auto w : write_group) {
     if (!w->ShouldWriteToMemtable()) {
       continue;

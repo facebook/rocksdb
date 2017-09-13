@@ -552,6 +552,96 @@ TEST_P(WritePreparedTransactionTest, AdvanceMaxEvictedSeqBasicTest) {
   }
 }
 
+// This test clarfies the existing expectation from the sequence number
+// algorithm. It could detect mistakes in updating the code but it is not
+// necessarily the one acceptable way. If the algorithm is legitimately changed,
+// this unit test should be updated as well.
+TEST_P(WritePreparedTransactionTest, SeqAdvanceTest) {
+  auto pdb = reinterpret_cast<PessimisticTransactionDB*>(db);
+  DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+  auto seq = db_impl->GetLatestSequenceNumber();
+  auto exp_seq = seq;
+
+  // Test DB's internal txn. It involves no prepare phase nor a commit marker.
+  WriteOptions wopts;
+  auto s = db->Put(wopts, "key", "value");
+  // Consume one seq per batch
+  exp_seq++;
+  ASSERT_OK(s);
+  seq = db_impl->GetLatestSequenceNumber();
+  ASSERT_EQ(exp_seq, seq);
+
+  // Doing it twice might detect some bugs
+  s = db->Put(wopts, "key", "value");
+  exp_seq++;
+  ASSERT_OK(s);
+  seq = db_impl->GetLatestSequenceNumber();
+  ASSERT_EQ(exp_seq, seq);
+
+  // Testing directly writing a write batch. Functionality-wise it is equivalent
+  // to commit without prepare.
+  WriteBatch wb;
+  wb.Put("k1", "v1");
+  wb.Put("k2", "v2");
+  wb.Put("k3", "v3");
+  s = pdb->Write(wopts, &wb);
+  // Consume one seq per batch
+  exp_seq++;
+  ASSERT_OK(s);
+  seq = db_impl->GetLatestSequenceNumber();
+  ASSERT_EQ(exp_seq, seq);
+
+  // A full 2pc txn that also involves a commit marker.
+  TransactionOptions txn_options;
+  WriteOptions write_options;
+  Transaction* txn = db->BeginTransaction(write_options, txn_options);
+  s = txn->SetName("xid");
+  ASSERT_OK(s);
+  s = txn->Put(Slice("foo"), Slice("bar"));
+  s = txn->Put(Slice("foo2"), Slice("bar2"));
+  s = txn->Put(Slice("foo3"), Slice("bar3"));
+  s = txn->Put(Slice("foo4"), Slice("bar4"));
+  s = txn->Put(Slice("foo5"), Slice("bar5"));
+  ASSERT_OK(s);
+  s = txn->Prepare();
+  ASSERT_OK(s);
+  // Consume one seq per batch
+  exp_seq++;
+  s = txn->Commit();
+  ASSERT_OK(s);
+  // Consume one seq per commit marker
+  exp_seq++;
+  // Since commit marker does not write to memtable, the last seq number is not
+  // updated immedaitely. But the advance should be visible after the next
+  // write.
+
+  s = db->Put(wopts, "key", "value");
+  // Consume one seq per batch
+  exp_seq++;
+  ASSERT_OK(s);
+  seq = db_impl->GetLatestSequenceNumber();
+  ASSERT_EQ(exp_seq, seq);
+
+  // Commit without prepare. It shoudl write to DB without a commit marker.
+  txn = db->BeginTransaction(write_options, txn_options);
+  s = txn->SetName("xid2");
+  ASSERT_OK(s);
+  s = txn->Put(Slice("foo"), Slice("bar"));
+  s = txn->Put(Slice("foo2"), Slice("bar2"));
+  s = txn->Put(Slice("foo3"), Slice("bar3"));
+  s = txn->Put(Slice("foo4"), Slice("bar4"));
+  s = txn->Put(Slice("foo5"), Slice("bar5"));
+  ASSERT_OK(s);
+  s = txn->Commit();
+  ASSERT_OK(s);
+  // Consume one seq per batch
+  exp_seq++;
+  seq = db_impl->GetLatestSequenceNumber();
+  ASSERT_EQ(exp_seq, seq);
+  pdb->UnregisterTransaction(txn);
+  delete txn;
+}
+
 // Test WritePreparedTxnDB's IsInSnapshot against different ordering of
 // snapshot, max_committed_seq_, prepared, and commit entries.
 TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {

@@ -76,6 +76,8 @@ PessimisticTransactionDB::PessimisticTransactionDB(
 PessimisticTransactionDB::~PessimisticTransactionDB() {
   while (!transactions_.empty()) {
     delete transactions_.begin()->second;
+    // TODO(myabandeh): this seems to be an unsafe approach as it is not quite
+    // clear whether delete would also remove the entry from transactions_.
   }
 }
 
