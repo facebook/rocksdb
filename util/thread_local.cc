@@ -229,12 +229,14 @@ PIMAGE_TLS_CALLBACK p_thread_callback_on_exit = wintlscleanup::WinOnThreadExit;
 #endif  // _WIN64
 
 #else
+#if !defined(__MINGW32__)
 // https://github.com/couchbase/gperftools/blob/master/src/windows/port.cc
 BOOL WINAPI DllMain(HINSTANCE h, DWORD dwReason, PVOID pv) {
   if (dwReason == DLL_THREAD_DETACH)
     wintlscleanup::WinOnThreadExit(h, dwReason, pv);
   return TRUE;
 }
+#endif
 #endif
 }  // extern "C"
 
