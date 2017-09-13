@@ -414,7 +414,7 @@ static std::unordered_map<std::string, OptionTypeInfo> cf_options_type_info = {
       OptionType::kBoolean, OptionVerificationType::kNormal, false, 0}},
     {"purge_redundant_kvs_while_flush",
      {offset_of(&ColumnFamilyOptions::purge_redundant_kvs_while_flush),
-      OptionType::kBoolean, OptionVerificationType::kNormal, false, 0}},
+      OptionType::kBoolean, OptionVerificationType::kDeprecated, false, 0}},
     {"verify_checksums_in_compaction",
      {0, OptionType::kBoolean, OptionVerificationType::kDeprecated, true, 0}},
     {"soft_pending_compaction_bytes_limit",
