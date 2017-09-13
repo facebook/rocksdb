@@ -10,6 +10,7 @@
 #include "table/merging_iterator.h"
 #include <string>
 #include <vector>
+#include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/comparator.h"
@@ -35,8 +36,9 @@ const size_t kNumIterReserve = 4;
 
 class MergingIterator : public InternalIterator {
  public:
-  MergingIterator(const Comparator* comparator, InternalIterator** children,
-                  int n, bool is_arena_mode, bool prefix_seek_mode)
+  MergingIterator(const InternalKeyComparator* comparator,
+                  InternalIterator** children, int n, bool is_arena_mode,
+                  bool prefix_seek_mode)
       : is_arena_mode_(is_arena_mode),
         comparator_(comparator),
         current_(nullptr),
@@ -307,7 +309,7 @@ class MergingIterator : public InternalIterator {
   void InitMaxHeap();
 
   bool is_arena_mode_;
-  const Comparator* comparator_;
+  const InternalKeyComparator* comparator_;
   autovector<IteratorWrapper, kNumIterReserve> children_;
 
   // Cached pointer to child iterator with the current key, or nullptr if no
@@ -353,7 +355,7 @@ void MergingIterator::InitMaxHeap() {
   }
 }
 
-InternalIterator* NewMergingIterator(const Comparator* cmp,
+InternalIterator* NewMergingIterator(const InternalKeyComparator* cmp,
                                      InternalIterator** list, int n,
                                      Arena* arena, bool prefix_seek_mode) {
   assert(n >= 0);
@@ -371,8 +373,8 @@ InternalIterator* NewMergingIterator(const Comparator* cmp,
   }
 }
 
-MergeIteratorBuilder::MergeIteratorBuilder(const Comparator* comparator,
-                                           Arena* a, bool prefix_seek_mode)
+MergeIteratorBuilder::MergeIteratorBuilder(
+    const InternalKeyComparator* comparator, Arena* a, bool prefix_seek_mode)
     : first_iter(nullptr), use_merging_iter(false), arena(a) {
   auto mem = arena->AllocateAligned(sizeof(MergingIterator));
   merge_iter =

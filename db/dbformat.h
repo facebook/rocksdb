@@ -136,7 +136,11 @@ inline ValueType ExtractValueType(const Slice& internal_key) {
 
 // A comparator for internal keys that uses a specified comparator for
 // the user key portion and breaks ties by decreasing sequence number.
-class InternalKeyComparator : public Comparator {
+class InternalKeyComparator
+#ifdef NDEBUG
+    final
+#endif
+    : public Comparator {
  private:
   const Comparator* user_comparator_;
   std::string name_;
@@ -177,15 +181,15 @@ class InternalKey {
   // sets the internal key to be bigger or equal to all internal keys with this
   // user key
   void SetMaxPossibleForUserKey(const Slice& _user_key) {
-    AppendInternalKey(&rep_, ParsedInternalKey(_user_key, kMaxSequenceNumber,
-                                               kValueTypeForSeek));
+    AppendInternalKey(
+        &rep_, ParsedInternalKey(_user_key, 0, static_cast<ValueType>(0)));
   }
 
   // sets the internal key to be smaller or equal to all internal keys with this
   // user key
   void SetMinPossibleForUserKey(const Slice& _user_key) {
-    AppendInternalKey(
-        &rep_, ParsedInternalKey(_user_key, 0, static_cast<ValueType>(0)));
+    AppendInternalKey(&rep_, ParsedInternalKey(_user_key, kMaxSequenceNumber,
+                                               kValueTypeForSeek));
   }
 
   bool Valid() const {

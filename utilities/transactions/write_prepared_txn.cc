@@ -29,6 +29,18 @@ WritePreparedTxn::WritePreparedTxn(WritePreparedTxnDB* txn_db,
   PessimisticTransaction::Initialize(txn_options);
 }
 
+Status WritePreparedTxn::Get(const ReadOptions& read_options,
+                             ColumnFamilyHandle* column_family,
+                             const Slice& key, PinnableSlice* pinnable_val) {
+  auto snapshot = GetSnapshot();
+  auto snap_seq =
+      snapshot != nullptr ? snapshot->GetSequenceNumber() : kMaxSequenceNumber;
+
+  WritePreparedTxnReadCallback callback(wpt_db_, snap_seq);
+  return write_batch_.GetFromBatchAndDB(db_, read_options, column_family, key,
+                                        pinnable_val, &callback);
+}
+
 Status WritePreparedTxn::CommitBatch(WriteBatch* /* unused */) {
   // TODO(myabandeh) Implement this
   throw std::runtime_error("CommitBatch not Implemented");

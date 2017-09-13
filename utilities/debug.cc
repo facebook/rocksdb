@@ -24,7 +24,7 @@ Status GetAllKeyVersions(DB* db, Slice begin_key, Slice end_key,
 
   if (!begin_key.empty()) {
     InternalKey ikey;
-    ikey.SetMaxPossibleForUserKey(begin_key);
+    ikey.SetMinPossibleForUserKey(begin_key);
     iter->Seek(ikey.Encode());
   } else {
     iter->SeekToFirst();
