@@ -43,11 +43,9 @@ void RangeDelAggregator::InitRep(const std::vector<SequenceNumber>& snapshots) {
   rep_->pinned_iters_mgr_.StartPinning();
 }
 
-bool RangeDelAggregator::ShouldDelete(
+bool RangeDelAggregator::ShouldDeleteImpl(
     const Slice& internal_key, RangeDelAggregator::RangePositioningMode mode) {
-  if (rep_ == nullptr) {
-    return false;
-  }
+  assert(rep_ != nullptr);
   ParsedInternalKey parsed;
   if (!ParseInternalKey(internal_key, &parsed)) {
     assert(false);
@@ -55,13 +53,11 @@ bool RangeDelAggregator::ShouldDelete(
   return ShouldDelete(parsed, mode);
 }
 
-bool RangeDelAggregator::ShouldDelete(
+bool RangeDelAggregator::ShouldDeleteImpl(
     const ParsedInternalKey& parsed,
     RangeDelAggregator::RangePositioningMode mode) {
   assert(IsValueType(parsed.type));
-  if (rep_ == nullptr) {
-    return false;
-  }
+  assert(rep_ != nullptr);
   auto& positional_tombstone_map = GetPositionalTombstoneMap(parsed.sequence);
   const auto& tombstone_map = positional_tombstone_map.raw_map;
   if (tombstone_map.empty()) {
