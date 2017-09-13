@@ -164,9 +164,9 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       size_t commit_cache_bits = DEF_COMMIT_CACHE_BITS)
       : PessimisticTransactionDB(db, txn_db_options),
         SNAPSHOT_CACHE_BITS(snapshot_cache_bits),
-        SNAPSHOT_CACHE_SIZE(static_cast<size_t>(1u << SNAPSHOT_CACHE_BITS)),
+        SNAPSHOT_CACHE_SIZE(static_cast<size_t>(1ull << SNAPSHOT_CACHE_BITS)),
         COMMIT_CACHE_BITS(commit_cache_bits),
-        COMMIT_CACHE_SIZE(static_cast<size_t>(1u << COMMIT_CACHE_BITS)),
+        COMMIT_CACHE_SIZE(static_cast<size_t>(1ull << COMMIT_CACHE_BITS)),
         FORMAT(COMMIT_CACHE_BITS) {
     init(txn_db_options);
   }
@@ -177,9 +177,9 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       size_t commit_cache_bits = DEF_COMMIT_CACHE_BITS)
       : PessimisticTransactionDB(db, txn_db_options),
         SNAPSHOT_CACHE_BITS(snapshot_cache_bits),
-        SNAPSHOT_CACHE_SIZE(static_cast<size_t>(1u << SNAPSHOT_CACHE_BITS)),
+        SNAPSHOT_CACHE_SIZE(static_cast<size_t>(1ull << SNAPSHOT_CACHE_BITS)),
         COMMIT_CACHE_BITS(commit_cache_bits),
-        COMMIT_CACHE_SIZE(static_cast<size_t>(1u << COMMIT_CACHE_BITS)),
+        COMMIT_CACHE_SIZE(static_cast<size_t>(1ull << COMMIT_CACHE_BITS)),
         FORMAT(COMMIT_CACHE_BITS) {
     init(txn_db_options);
   }
@@ -214,7 +214,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
         : INDEX_BITS(index_bits),
           PREP_BITS(static_cast<size_t>(64 - PAD_BITS - INDEX_BITS)),
           COMMIT_BITS(static_cast<size_t>(64 - PREP_BITS)),
-          COMMIT_FILTER(static_cast<uint64_t>((1ul << COMMIT_BITS) - 1)) {}
+          COMMIT_FILTER(static_cast<uint64_t>((1ull << COMMIT_BITS) - 1)) {}
     // Number of higher bits of a sequence number that is not used. They are
     // used to encode the value type, ...
     const size_t PAD_BITS = static_cast<size_t>(8);
@@ -246,12 +246,12 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
     CommitEntry64b(const uint64_t ps, const uint64_t cs,
                    const CommitEntry64bFormat& format) {
       assert(ps < static_cast<uint64_t>(
-                      (1ul << (format.PREP_BITS + format.INDEX_BITS))));
+                      (1ull << (format.PREP_BITS + format.INDEX_BITS))));
       assert(ps <= cs);
       uint64_t delta = cs - ps + 1;  // make initialized delta always >= 1
       // zero is reserved for uninitialized entries
       assert(0 < delta);
-      assert(delta < static_cast<uint64_t>((1ul << format.COMMIT_BITS)));
+      assert(delta < static_cast<uint64_t>((1ull << format.COMMIT_BITS)));
       rep_ = (ps << format.PAD_BITS) & ~format.COMMIT_FILTER;
       rep_ = rep_ | delta;
     }
@@ -261,12 +261,12 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
                const CommitEntry64bFormat& format) {
       uint64_t delta = rep_ & format.COMMIT_FILTER;
       // zero is reserved for uninitialized entries
-      assert(delta < static_cast<uint64_t>((1ul << format.COMMIT_BITS)));
+      assert(delta < static_cast<uint64_t>((1ull << format.COMMIT_BITS)));
       if (delta == 0) {
         return false;  // initialized entry would have non-zero delta
       }
 
-      assert(indexed_seq < static_cast<uint64_t>((1ul << format.INDEX_BITS)));
+      assert(indexed_seq < static_cast<uint64_t>((1ull << format.INDEX_BITS)));
       uint64_t prep_up = rep_ & ~format.COMMIT_FILTER;
       prep_up >>= format.PAD_BITS;
       const uint64_t& prep_low = indexed_seq;

@@ -110,7 +110,7 @@ TEST(PreparedHeap, BasicsTest) {
 
 TEST(CommitEntry64b, BasicTest) {
   const size_t INDEX_BITS = static_cast<size_t>(21);
-  const size_t INDEX_SIZE = static_cast<size_t>(1ul << INDEX_BITS);
+  const size_t INDEX_SIZE = static_cast<size_t>(1ull << INDEX_BITS);
   const CommitEntry64bFormat FORMAT(static_cast<size_t>(INDEX_BITS));
 
   // zero-initialized CommitEntry64b should inidcate an empty entry
