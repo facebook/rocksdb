@@ -541,8 +541,9 @@ bool WritePreparedTxnDB::IsInSnapshot(uint64_t prep_seq,
     }
   }
   auto indexed_seq = prep_seq % COMMIT_CACHE_SIZE;
+  CommitEntry64b dont_care;
   CommitEntry cached;
-  bool exist = GetCommitEntry(indexed_seq, &cached);
+  bool exist = GetCommitEntry(indexed_seq, &dont_care, &cached);
   if (!exist) {
     // It is not committed, so it must be still prepared
     return false;
@@ -599,8 +600,9 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq,
   ROCKS_LOG_DEBUG(info_log_, "Txn %" PRIu64 " Committing with %" PRIu64,
                   prepare_seq, commit_seq);
   auto indexed_seq = prepare_seq % COMMIT_CACHE_SIZE;
+  CommitEntry64b evicted_64b;
   CommitEntry evicted;
-  bool to_be_evicted = GetCommitEntry(indexed_seq, &evicted);
+  bool to_be_evicted = GetCommitEntry(indexed_seq, &evicted_64b, &evicted);
   if (to_be_evicted) {
     auto prev_max = max_evicted_seq_.load(std::memory_order_acquire);
     if (prev_max < evicted.commit_seq) {
@@ -613,7 +615,7 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq,
     CheckAgainstSnapshots(evicted);
   }
   bool succ =
-      ExchangeCommitEntry(indexed_seq, evicted, {prepare_seq, commit_seq});
+      ExchangeCommitEntry(indexed_seq, evicted_64b, {prepare_seq, commit_seq});
   if (!succ) {
     // A very rare event, in which the commit entry is updated before we do.
     // Here we apply a very simple solution of retrying.
@@ -636,34 +638,32 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq,
 }
 
 bool WritePreparedTxnDB::GetCommitEntry(const uint64_t indexed_seq,
+                                        CommitEntry64b* entry_64b,
                                         CommitEntry* entry) {
-  // TODO(myabandeh): implement lock-free commit_cache_
-  ReadLock rl(&commit_cache_mutex_);
-  *entry = commit_cache_[indexed_seq];
-  return (entry->commit_seq != 0);  // initialized
+  *entry_64b = commit_cache_[indexed_seq].load(std::memory_order_acquire);
+  bool valid = entry_64b->Parse(indexed_seq, entry, FORMAT);
+  return valid;
 }
 
 bool WritePreparedTxnDB::AddCommitEntry(const uint64_t indexed_seq,
                                         const CommitEntry& new_entry,
                                         CommitEntry* evicted_entry) {
-  // TODO(myabandeh): implement lock-free commit_cache_
-  WriteLock wl(&commit_cache_mutex_);
-  *evicted_entry = commit_cache_[indexed_seq];
-  commit_cache_[indexed_seq] = new_entry;
-  return (evicted_entry->commit_seq != 0);  // initialized
+  CommitEntry64b new_entry_64b(new_entry, FORMAT);
+  CommitEntry64b evicted_entry_64b = commit_cache_[indexed_seq].exchange(
+      new_entry_64b, std::memory_order_acq_rel);
+  bool valid = evicted_entry_64b.Parse(indexed_seq, evicted_entry, FORMAT);
+  return valid;
 }
 
 bool WritePreparedTxnDB::ExchangeCommitEntry(const uint64_t indexed_seq,
-                                             const CommitEntry& expected_entry,
+                                             CommitEntry64b& expected_entry_64b,
                                              const CommitEntry& new_entry) {
-  // TODO(myabandeh): implement lock-free commit_cache_
-  WriteLock wl(&commit_cache_mutex_);
-  auto& evicted_entry = commit_cache_[indexed_seq];
-  if (evicted_entry.prep_seq != expected_entry.prep_seq) {
-    return false;
-  }
-  commit_cache_[indexed_seq] = new_entry;
-  return true;
+  auto& atomic_entry = commit_cache_[indexed_seq];
+  CommitEntry64b new_entry_64b(new_entry, FORMAT);
+  bool succ = atomic_entry.compare_exchange_strong(
+      expected_entry_64b, new_entry_64b, std::memory_order_acq_rel,
+      std::memory_order_acquire);
+  return succ;
 }
 
 void WritePreparedTxnDB::AdvanceMaxEvictedSeq(SequenceNumber& prev_max,
@@ -700,10 +700,9 @@ void WritePreparedTxnDB::AdvanceMaxEvictedSeq(SequenceNumber& prev_max,
   if (update_snapshots) {
     UpdateSnapshots(snapshots, new_snapshots_version);
   }
-  // TODO(myabandeh): check if it worked with relaxed ordering
   while (prev_max < new_max && !max_evicted_seq_.compare_exchange_weak(
-                                   prev_max, new_max, std::memory_order_release,
-                                   std::memory_order_acquire)) {
+                                   prev_max, new_max, std::memory_order_acq_rel,
+                                   std::memory_order_relaxed)) {
   };
 }
 
