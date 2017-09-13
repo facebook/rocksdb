@@ -117,8 +117,10 @@ typedef struct rocksdb_pinnableslice_t rocksdb_pinnableslice_t;
 typedef struct rocksdb_transactiondb_options_t rocksdb_transactiondb_options_t;
 typedef struct rocksdb_transactiondb_t rocksdb_transactiondb_t;
 typedef struct rocksdb_transaction_options_t rocksdb_transaction_options_t;
-typedef struct rocksdb_optimistictransactiondb_t rocksdb_optimistictransactiondb_t;
-typedef struct rocksdb_optimistictransaction_options_t rocksdb_optimistictransaction_options_t;
+typedef struct rocksdb_optimistictransactiondb_t
+    rocksdb_optimistictransactiondb_t;
+typedef struct rocksdb_optimistictransaction_options_t
+    rocksdb_optimistictransaction_options_t;
 typedef struct rocksdb_transaction_t rocksdb_transaction_t;
 typedef struct rocksdb_checkpoint_t rocksdb_checkpoint_t;
 
@@ -765,8 +767,9 @@ rocksdb_options_set_max_bytes_for_level_multiplier_additional(
     rocksdb_options_t*, int* level_values, size_t num_levels);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_enable_statistics(
     rocksdb_options_t*);
-extern ROCKSDB_LIBRARY_API void rocksdb_options_set_skip_stats_update_on_db_open(
-    rocksdb_options_t* opt, unsigned char val);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_options_set_skip_stats_update_on_db_open(rocksdb_options_t* opt,
+                                                 unsigned char val);
 
 /* returns a pointer to a malloc()-ed, null terminated string */
 extern ROCKSDB_LIBRARY_API char* rocksdb_options_statistics_get_string(
@@ -1369,6 +1372,11 @@ rocksdb_transaction_create_iterator(rocksdb_transaction_t* txn,
                                     const rocksdb_readoptions_t* options);
 
 extern ROCKSDB_LIBRARY_API rocksdb_iterator_t*
+rocksdb_transaction_create_iterator_cf(
+    rocksdb_transaction_t* txn, const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family);
+
+extern ROCKSDB_LIBRARY_API rocksdb_iterator_t*
 rocksdb_transactiondb_create_iterator(rocksdb_transactiondb_t* txn_db,
                                       const rocksdb_readoptions_t* options);
 
@@ -1382,6 +1390,20 @@ rocksdb_transactiondb_checkpoint_object_create(rocksdb_transactiondb_t* txn_db,
 extern ROCKSDB_LIBRARY_API rocksdb_optimistictransactiondb_t*
 rocksdb_optimistictransactiondb_open(const rocksdb_options_t* options,
                                      const char* name, char** errptr);
+
+extern ROCKSDB_LIBRARY_API rocksdb_optimistictransactiondb_t*
+rocksdb_optimistictransactiondb_open_column_families(
+    const rocksdb_options_t* options, const char* name, int num_column_families,
+    const char** column_family_names,
+    const rocksdb_options_t** column_family_options,
+    rocksdb_column_family_handle_t** column_family_handles, char** errptr);
+
+extern ROCKSDB_LIBRARY_API rocksdb_t*
+rocksdb_optimistictransactiondb_get_base_db(
+    rocksdb_optimistictransactiondb_t* otxn_db);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_optimistictransactiondb_close_base_db(
+    rocksdb_t* base_db);
 
 extern ROCKSDB_LIBRARY_API rocksdb_transaction_t*
 rocksdb_optimistictransaction_begin(
@@ -1440,7 +1462,6 @@ rocksdb_transaction_options_set_deadlock_detect_depth(
 extern ROCKSDB_LIBRARY_API void
 rocksdb_transaction_options_set_max_write_batch_size(
     rocksdb_transaction_options_t* opt, size_t size);
-
 
 extern ROCKSDB_LIBRARY_API rocksdb_optimistictransaction_options_t*
 rocksdb_optimistictransaction_options_create();
