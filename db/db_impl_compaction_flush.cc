@@ -826,7 +826,7 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
       cfd->ioptions()->compaction_style == kCompactionStyleFIFO) {
     manual.begin = nullptr;
   } else {
-    begin_storage.SetMaxPossibleForUserKey(*begin);
+    begin_storage.SetMinPossibleForUserKey(*begin);
     manual.begin = &begin_storage;
   }
   if (end == nullptr ||
@@ -834,7 +834,7 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
       cfd->ioptions()->compaction_style == kCompactionStyleFIFO) {
     manual.end = nullptr;
   } else {
-    end_storage.SetMinPossibleForUserKey(*end);
+    end_storage.SetMaxPossibleForUserKey(*end);
     manual.end = &end_storage;
   }
 

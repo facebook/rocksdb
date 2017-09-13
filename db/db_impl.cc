@@ -2055,13 +2055,13 @@ Status DBImpl::DeleteFilesInRange(ColumnFamilyHandle* column_family,
       if (begin == nullptr) {
         begin_key = nullptr;
       } else {
-        begin_storage.SetMaxPossibleForUserKey(*begin);
+        begin_storage.SetMinPossibleForUserKey(*begin);
         begin_key = &begin_storage;
       }
       if (end == nullptr) {
         end_key = nullptr;
       } else {
-        end_storage.SetMinPossibleForUserKey(*end);
+        end_storage.SetMaxPossibleForUserKey(*end);
         end_key = &end_storage;
       }
 
