@@ -67,6 +67,7 @@ enum ContentFlags : uint32_t {
   HAS_COMMIT = 1 << 7,
   HAS_ROLLBACK = 1 << 8,
   HAS_DELETE_RANGE = 1 << 9,
+  HAS_BLOB = 1 << 10,
 };
 
 struct BatchContentClassifier : public WriteBatch::Handler {
@@ -94,6 +95,11 @@ struct BatchContentClassifier : public WriteBatch::Handler {
 
   Status MergeCF(uint32_t, const Slice&, const Slice&) override {
     content_flags |= ContentFlags::HAS_MERGE;
+    return Status::OK();
+  }
+
+  Status PutBlobCF(uint32_t, const Slice&, const Slice&) override {
+    content_flags |= ContentFlags::HAS_BLOB;
     return Status::OK();
   }
 
@@ -415,6 +421,12 @@ Status WriteBatch::Iterate(Handler* handler) const {
         s = handler->MergeCF(column_family, key, value);
         found++;
         break;
+      case kTypeColumnFamilyBlobValue:
+      case kTypeBlobValue:
+        assert(content_flags_.load(std::memory_order_relaxed) &
+               (ContentFlags::DEFERRED | ContentFlags::HAS_BLOB));
+        s = handler->PutBlobCF(column_family, key, value);
+        found++;
       case kTypeLogData:
         handler->LogData(blob);
         break;
@@ -762,6 +774,24 @@ Status WriteBatch::Merge(ColumnFamilyHandle* column_family,
                                    value);
 }
 
+Status WriteBatchInternal::PutBlob(WriteBatch* b, uint32_t column_family_id,
+                                   const Slice& key, const Slice& value) {
+  LocalSavePoint save(b);
+  WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
+  if (column_family_id == 0) {
+    b->rep_.push_back(static_cast<char>(kTypeBlobValue));
+  } else {
+    b->rep_.push_back(static_cast<char>(kTypeColumnFamilyBlobValue));
+    PutVarint32(&b->rep_, column_family_id);
+  }
+  PutLengthPrefixedSlice(&b->rep_, key);
+  PutLengthPrefixedSlice(&b->rep_, value);
+  b->content_flags_.store(b->content_flags_.load(std::memory_order_relaxed) |
+                              ContentFlags::HAS_BLOB,
+                          std::memory_order_relaxed);
+  return save.commit();
+}
+
 Status WriteBatch::PutLogData(const Slice& blob) {
   LocalSavePoint save(this);
   rep_.push_back(static_cast<char>(kTypeLogData));
@@ -948,8 +978,8 @@ class MemTableInserter : public WriteBatch::Handler {
     return true;
   }
 
-  virtual Status PutCF(uint32_t column_family_id, const Slice& key,
-                       const Slice& value) override {
+  Status PutCFImpl(uint32_t column_family_id, const Slice& key,
+                   const Slice& value, ValueType value_type) {
     if (rebuilding_trx_ != nullptr) {
       WriteBatchInternal::Put(rebuilding_trx_, column_family_id, key, value);
       return Status::OK();
@@ -964,7 +994,7 @@ class MemTableInserter : public WriteBatch::Handler {
     MemTable* mem = cf_mems_->GetMemTable();
     auto* moptions = mem->GetMemTableOptions();
     if (!moptions->inplace_update_support) {
-      mem->Add(sequence_, kTypeValue, key, value, concurrent_memtable_writes_,
+      mem->Add(sequence_, value_type, key, value, concurrent_memtable_writes_,
                get_post_process_info(mem));
     } else if (moptions->inplace_callback == nullptr) {
       assert(!concurrent_memtable_writes_);
@@ -999,11 +1029,11 @@ class MemTableInserter : public WriteBatch::Handler {
                                                  value, &merged_value);
         if (status == UpdateStatus::UPDATED_INPLACE) {
           // prev_value is updated in-place with final value.
-          mem->Add(sequence_, kTypeValue, key, Slice(prev_buffer, prev_size));
+          mem->Add(sequence_, value_type, key, Slice(prev_buffer, prev_size));
           RecordTick(moptions->statistics, NUMBER_KEYS_WRITTEN);
         } else if (status == UpdateStatus::UPDATED) {
           // merged_value contains the final value.
-          mem->Add(sequence_, kTypeValue, key, Slice(merged_value));
+          mem->Add(sequence_, value_type, key, Slice(merged_value));
           RecordTick(moptions->statistics, NUMBER_KEYS_WRITTEN);
         }
       }
@@ -1014,6 +1044,11 @@ class MemTableInserter : public WriteBatch::Handler {
     MaybeAdvanceSeq();
     CheckMemtableFull();
     return Status::OK();
+  }
+
+  virtual Status PutCF(uint32_t column_family_id, const Slice& key,
+                       const Slice& value) override {
+    return PutCFImpl(column_family_id, key, value, kTypeValue);
   }
 
   Status DeleteImpl(uint32_t column_family_id, const Slice& key,
@@ -1170,6 +1205,12 @@ class MemTableInserter : public WriteBatch::Handler {
     MaybeAdvanceSeq();
     CheckMemtableFull();
     return Status::OK();
+  }
+
+  virtual Status PutBlobCF(uint32_t column_family_id, const Slice& key,
+                           const Slice& value) override {
+    // Same as PutCF except for value type.
+    return PutCFImpl(column_family_id, key, value, kTypeBlobValue);
   }
 
   void CheckMemtableFull() {

@@ -189,14 +189,15 @@ class MemTable {
   bool Get(const LookupKey& key, std::string* value, Status* s,
            MergeContext* merge_context, RangeDelAggregator* range_del_agg,
            SequenceNumber* seq, const ReadOptions& read_opts,
-           ReadCallback* callback = nullptr);
+           ReadCallback* callback = nullptr, bool* is_blob = nullptr);
 
   bool Get(const LookupKey& key, std::string* value, Status* s,
            MergeContext* merge_context, RangeDelAggregator* range_del_agg,
-           const ReadOptions& read_opts, ReadCallback* callback = nullptr) {
+           const ReadOptions& read_opts, ReadCallback* callback = nullptr,
+           bool* is_blob = nullptr) {
     SequenceNumber seq;
     return Get(key, value, s, merge_context, range_del_agg, &seq, read_opts,
-               callback);
+               callback, is_blob);
   }
 
   // Attempts to update the new_value inplace, else does normal Add

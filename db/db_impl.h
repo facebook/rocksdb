@@ -53,6 +53,7 @@
 
 namespace rocksdb {
 
+class ArenaWrappedDBIter;
 class MemTable;
 class TableCache;
 class Version;
@@ -124,6 +125,7 @@ class DBImpl : public DB {
                            ColumnFamilyHandle* column_family, const Slice& key,
                            std::string* value,
                            bool* value_found = nullptr) override;
+
   using DB::NewIterator;
   virtual Iterator* NewIterator(const ReadOptions& options,
                                 ColumnFamilyHandle* column_family) override;
@@ -131,6 +133,11 @@ class DBImpl : public DB {
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families,
       std::vector<Iterator*>* iterators) override;
+  ArenaWrappedDBIter* NewIteratorImpl(const ReadOptions& options,
+                                      ColumnFamilyData* cfd,
+                                      SequenceNumber snapshot,
+                                      bool allow_blob = false);
+
   virtual const Snapshot* GetSnapshot() override;
   virtual void ReleaseSnapshot(const Snapshot* snapshot) override;
   using DB::GetProperty;
@@ -1247,7 +1254,8 @@ class DBImpl : public DB {
   // Note: 'value_found' from KeyMayExist propagates here
   Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
                  const Slice& key, PinnableSlice* value,
-                 bool* value_found = nullptr, ReadCallback* callback = nullptr);
+                 bool* value_found = nullptr, ReadCallback* callback = nullptr,
+                 bool* is_blob = nullptr);
 
   bool GetIntPropertyInternal(ColumnFamilyData* cfd,
                               const DBPropertyInfo& property_info,

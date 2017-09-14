@@ -34,12 +34,15 @@ void appendToReplayLog(std::string* replay_log, ValueType type, Slice value) {
 
 }  // namespace
 
-GetContext::GetContext(
-    const Comparator* ucmp, const MergeOperator* merge_operator, Logger* logger,
-    Statistics* statistics, GetState init_state, const Slice& user_key,
-    PinnableSlice* pinnable_val, bool* value_found, MergeContext* merge_context,
-    RangeDelAggregator* _range_del_agg, Env* env, SequenceNumber* seq,
-    PinnedIteratorsManager* _pinned_iters_mgr, ReadCallback* callback)
+GetContext::GetContext(const Comparator* ucmp,
+                       const MergeOperator* merge_operator, Logger* logger,
+                       Statistics* statistics, GetState init_state,
+                       const Slice& user_key, PinnableSlice* pinnable_val,
+                       bool* value_found, MergeContext* merge_context,
+                       RangeDelAggregator* _range_del_agg, Env* env,
+                       SequenceNumber* seq,
+                       PinnedIteratorsManager* _pinned_iters_mgr,
+                       ReadCallback* callback, bool* is_blob)
     : ucmp_(ucmp),
       merge_operator_(merge_operator),
       logger_(logger),
@@ -54,7 +57,8 @@ GetContext::GetContext(
       seq_(seq),
       replay_log_(nullptr),
       pinned_iters_mgr_(_pinned_iters_mgr),
-      callback_(callback) {
+      callback_(callback),
+      is_blob_(is_blob) {
   if (seq_) {
     *seq_ = kMaxSequenceNumber;
   }
@@ -109,6 +113,13 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
       type = kTypeRangeDeletion;
     }
     switch (type) {
+      case kTypeBlobValue:
+        if (is_blob_ == nullptr) {
+          // Blob value not supported. Stop.
+          state_ = kBlobValue;
+          return false;
+        }
+      // intential fallthrough
       case kTypeValue:
         assert(state_ == kNotFound || state_ == kMerge);
         if (kNotFound == state_) {
@@ -135,6 +146,9 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
               state_ = kCorrupt;
             }
           }
+        }
+        if (is_blob_ != nullptr) {
+          *is_blob_ = (type == kTypeBlobValue);
         }
         return false;
 

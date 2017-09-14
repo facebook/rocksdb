@@ -233,6 +233,11 @@ class WriteBatch : public WriteBatchBase {
     }
     virtual void Merge(const Slice& /*key*/, const Slice& /*value*/) {}
 
+    virtual Status PutBlobCF(uint32_t /*column_family_id*/,
+                             const Slice& /*key*/, const Slice& /*value*/) {
+      return Status::InvalidArgument("PutBlobCF() not implemented");
+    }
+
     // The default implementation of LogData does nothing.
     virtual void LogData(const Slice& blob);
 

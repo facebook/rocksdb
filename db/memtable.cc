@@ -539,6 +539,8 @@ struct Saver {
   bool inplace_update_support;
   Env* env_;
   ReadCallback* callback_;
+  bool* is_blob;
+
   bool CheckCallback(SequenceNumber _seq) {
     if (callback_) {
       return callback_->IsCommitted(_seq);
@@ -581,11 +583,20 @@ static bool SaveValue(void* arg, const char* entry) {
 
     s->seq = seq;
 
-    if ((type == kTypeValue || type == kTypeMerge) &&
+    if ((type == kTypeValue || type == kTypeMerge || type == kTypeBlobValue) &&
         range_del_agg->ShouldDelete(Slice(key_ptr, key_length))) {
       type = kTypeRangeDeletion;
     }
     switch (type) {
+      case kTypeBlobValue:
+        if (s->is_blob == nullptr) {
+          ROCKS_LOG_ERROR(s->logger, "Encounter unexpected blob value.");
+          *(s->status) = Status::NotSupported(
+              "Encounter unsupported blob value. Please open DB with "
+              "rocksdb::blob_db::BlobDB instead.");
+          return false;
+        }
+      // intentional fallthrough
       case kTypeValue: {
         if (s->inplace_update_support) {
           s->mem->GetLock(s->key->user_key())->ReadLock();
@@ -606,6 +617,9 @@ static bool SaveValue(void* arg, const char* entry) {
           s->mem->GetLock(s->key->user_key())->ReadUnlock();
         }
         *(s->found_final_value) = true;
+        if (s->is_blob != nullptr) {
+          *(s->is_blob) = (type == kTypeBlobValue);
+        }
         return false;
       }
       case kTypeDeletion:
@@ -654,7 +668,8 @@ static bool SaveValue(void* arg, const char* entry) {
 bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
                    MergeContext* merge_context,
                    RangeDelAggregator* range_del_agg, SequenceNumber* seq,
-                   const ReadOptions& read_opts, ReadCallback* callback) {
+                   const ReadOptions& read_opts, ReadCallback* callback,
+                   bool* is_blob) {
   // The sequence number is updated synchronously in version_set.h
   if (IsEmpty()) {
     // Avoiding recording stats for speed.
@@ -701,6 +716,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
     saver.statistics = moptions_.statistics;
     saver.env_ = env_;
     saver.callback_ = callback;
+    saver.is_blob = is_blob;
     table_->Get(key, &saver, SaveValue);
 
     *seq = saver.seq;
