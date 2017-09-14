@@ -1547,6 +1547,34 @@ TEST_F(BackupableDBTest, CreateWhenLatestBackupCorrupted) {
   ASSERT_EQ(1, backup_infos.size());
   ASSERT_EQ(2, backup_infos[0].backup_id);
 }
+
+TEST_F(BackupableDBTest, WriteOnlyEngine) {
+  // Verify we can open a backup engine and create new ones even if reading old
+  // backups would fail with IOError. IOError is a more serious condition than
+  // corruption and would cause the engine to fail opening. So the only way to
+  // avoid is by not reading old backups at all, i.e., respecting
+  // `max_valid_backups_to_open == 0`.
+  const int kNumKeys = 5000;
+  OpenDBAndBackupEngine(true /* destroy_old_data */);
+  FillDB(db_.get(), 0 /* from */, kNumKeys);
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+  CloseDBAndBackupEngine();
+
+  backupable_options_->max_valid_backups_to_open = 0;
+  // cause any meta-file reads to fail with IOError during Open
+  test_backup_env_->SetDummySequentialFile(true);
+  test_backup_env_->SetDummySequentialFileFailReads(true);
+  OpenDBAndBackupEngine();
+  test_backup_env_->SetDummySequentialFileFailReads(false);
+  test_backup_env_->SetDummySequentialFile(false);
+
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+  std::vector<BackupInfo> backup_infos;
+  backup_engine_->GetBackupInfo(&backup_infos);
+  ASSERT_EQ(1, backup_infos.size());
+  ASSERT_EQ(2, backup_infos[0].backup_id);
+}
+
 }  // anon namespace
 
 } //  namespace rocksdb

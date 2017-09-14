@@ -11,6 +11,7 @@
 #include <functional>
 
 #include "db/db_test_util.h"
+#include "db/read_callback.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/persistent_cache.h"
@@ -2325,6 +2326,82 @@ TEST_F(DBTest2, ReduceLevel) {
   Reopen(options);
   ASSERT_EQ("0,1", FilesPerLevel());
 }
+
+// Test that ReadCallback is actually used in both memtbale and sst tables
+TEST_F(DBTest2, ReadCallbackTest) {
+  Options options;
+  options.disable_auto_compactions = true;
+  options.num_levels = 7;
+  Reopen(options);
+  std::vector<const Snapshot*> snapshots;
+  // Try to create a db with multiple layers and a memtable
+  const std::string key = "foo";
+  const std::string value = "bar";
+  // This test assumes that the seq start with 1 and increased by 1 after each
+  // write batch of size 1. If that behavior changes, the test needs to be
+  // updated as well.
+  // TODO(myabandeh): update this test to use the seq number that is returned by
+  // the DB instead of assuming what seq the DB used.
+  int i = 1;
+  for (; i < 10; i++) {
+    Put(key, value + std::to_string(i));
+    // Take a snapshot to avoid the value being removed during compaction
+    auto snapshot = dbfull()->GetSnapshot();
+    snapshots.push_back(snapshot);
+  }
+  Flush();
+  for (; i < 20; i++) {
+    Put(key, value + std::to_string(i));
+    // Take a snapshot to avoid the value being removed during compaction
+    auto snapshot = dbfull()->GetSnapshot();
+    snapshots.push_back(snapshot);
+  }
+  Flush();
+  MoveFilesToLevel(6);
+  ASSERT_EQ("0,0,0,0,0,0,2", FilesPerLevel());
+  for (; i < 30; i++) {
+    Put(key, value + std::to_string(i));
+    auto snapshot = dbfull()->GetSnapshot();
+    snapshots.push_back(snapshot);
+  }
+  Flush();
+  ASSERT_EQ("1,0,0,0,0,0,2", FilesPerLevel());
+  // And also add some values to the memtable
+  for (; i < 40; i++) {
+    Put(key, value + std::to_string(i));
+    auto snapshot = dbfull()->GetSnapshot();
+    snapshots.push_back(snapshot);
+  }
+
+  class TestReadCallback : public ReadCallback {
+   public:
+    explicit TestReadCallback(SequenceNumber snapshot) : snapshot_(snapshot) {}
+    virtual bool IsCommitted(SequenceNumber seq) override {
+      return seq <= snapshot_;
+    }
+
+   private:
+    SequenceNumber snapshot_;
+  };
+
+  for (int seq = 1; seq < i; seq++) {
+    PinnableSlice pinnable_val;
+    ReadOptions roptions;
+    TestReadCallback callback(seq);
+    bool dont_care = true;
+    Status s = dbfull()->GetImpl(roptions, dbfull()->DefaultColumnFamily(), key,
+                                 &pinnable_val, &dont_care, &callback);
+    ASSERT_TRUE(s.ok());
+    // Assuming that after each Put the DB increased seq by one, the value and
+    // seq number must be equal since we also inc value by 1 after each Put.
+    ASSERT_EQ(value + std::to_string(seq), pinnable_val.ToString());
+  }
+
+  for (auto snapshot : snapshots) {
+    dbfull()->ReleaseSnapshot(snapshot);
+  }
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

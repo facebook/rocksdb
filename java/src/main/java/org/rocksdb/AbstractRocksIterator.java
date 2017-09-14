@@ -58,6 +58,12 @@ public abstract class AbstractRocksIterator<P extends RocksObject>
     seek0(nativeHandle_, target, target.length);
   }
 
+ @Override
+ public void seekForPrev(byte[] target) {
+   assert (isOwningHandle());
+   seekForPrev0(nativeHandle_, target, target.length);
+ }
+
   @Override
   public void next() {
     assert (isOwningHandle());
@@ -97,5 +103,6 @@ public abstract class AbstractRocksIterator<P extends RocksObject>
   abstract void next0(long handle);
   abstract void prev0(long handle);
   abstract void seek0(long handle, byte[] target, int targetLen);
+  abstract void seekForPrev0(long handle, byte[] target, int targetLen);
   abstract void status0(long handle) throws RocksDBException;
 }

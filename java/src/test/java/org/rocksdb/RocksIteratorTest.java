@@ -53,6 +53,48 @@ public class RocksIteratorTest {
         assertThat(iterator.value()).isEqualTo("value2".getBytes());
         iterator.status();
       }
+
+      try (final RocksIterator iterator = db.newIterator()) {
+        iterator.seek("key0".getBytes());
+        assertThat(iterator.isValid()).isTrue();
+        assertThat(iterator.key()).isEqualTo("key1".getBytes());
+
+        iterator.seek("key1".getBytes());
+        assertThat(iterator.isValid()).isTrue();
+        assertThat(iterator.key()).isEqualTo("key1".getBytes());
+
+        iterator.seek("key1.5".getBytes());
+        assertThat(iterator.isValid()).isTrue();
+        assertThat(iterator.key()).isEqualTo("key2".getBytes());
+
+        iterator.seek("key2".getBytes());
+        assertThat(iterator.isValid()).isTrue();
+        assertThat(iterator.key()).isEqualTo("key2".getBytes());
+
+        iterator.seek("key3".getBytes());
+        assertThat(iterator.isValid()).isFalse();
+      }
+
+      try (final RocksIterator iterator = db.newIterator()) {
+        iterator.seekForPrev("key0".getBytes());
+        assertThat(iterator.isValid()).isFalse();
+
+        iterator.seekForPrev("key1".getBytes());
+        assertThat(iterator.isValid()).isTrue();
+        assertThat(iterator.key()).isEqualTo("key1".getBytes());
+
+        iterator.seekForPrev("key1.5".getBytes());
+        assertThat(iterator.isValid()).isTrue();
+        assertThat(iterator.key()).isEqualTo("key1".getBytes());
+
+        iterator.seekForPrev("key2".getBytes());
+        assertThat(iterator.isValid()).isTrue();
+        assertThat(iterator.key()).isEqualTo("key2".getBytes());
+
+        iterator.seekForPrev("key3".getBytes());
+        assertThat(iterator.isValid()).isTrue();
+        assertThat(iterator.key()).isEqualTo("key2".getBytes());
+      }
     }
   }
 }

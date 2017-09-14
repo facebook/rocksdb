@@ -493,6 +493,29 @@ void Java_org_rocksdb_WBWIRocksIterator_seek0(
 
 /*
  * Class:     org_rocksdb_WBWIRocksIterator
+ * Method:    seekForPrev0
+ * Signature: (J[BI)V
+ */
+void Java_org_rocksdb_WBWIRocksIterator_seekForPrev0(
+    JNIEnv* env, jobject jobj, jlong handle, jbyteArray jtarget,
+    jint jtarget_len) {
+  auto* it = reinterpret_cast<rocksdb::WBWIIterator*>(handle);
+  jbyte* target = env->GetByteArrayElements(jtarget, nullptr);
+  if(target == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return;
+  }
+
+  rocksdb::Slice target_slice(
+      reinterpret_cast<char*>(target), jtarget_len);
+
+  it->SeekForPrev(target_slice);
+
+  env->ReleaseByteArrayElements(jtarget, target, JNI_ABORT);
+}
+
+/*
+ * Class:     org_rocksdb_WBWIRocksIterator
  * Method:    status0
  * Signature: (J)V
  */

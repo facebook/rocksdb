@@ -4503,7 +4503,7 @@ TEST_F(DBTest, EncodeDecompressedBlockSizeTest) {
       options.compression = comp;
       DestroyAndReopen(options);
 
-      int kNumKeysWritten = 100000;
+      int kNumKeysWritten = 1000;
 
       Random rnd(301);
       for (int i = 0; i < kNumKeysWritten; ++i) {
