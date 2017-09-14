@@ -1463,6 +1463,25 @@ int main(int argc, char** argv) {
     CheckNoError(err);
     CheckTxnDBGet(txn_db, roptions, "bar", NULL);
 
+    // save point
+    rocksdb_transaction_put(txn, "foo1", 4, "hi1", 3, &err);
+    rocksdb_transaction_set_savepoint(txn);
+    CheckTxnGet(txn, roptions, "foo1", "hi1");
+    rocksdb_transaction_put(txn, "foo2", 4, "hi2", 3, &err);
+    CheckTxnGet(txn, roptions, "foo2", "hi2");
+
+    // rollback to savepoint
+    rocksdb_transaction_rollback_to_savepoint(txn, &err);
+    CheckNoError(err);
+    CheckTxnGet(txn, roptions, "foo2", NULL);
+    CheckTxnGet(txn, roptions, "foo1", "hi1");
+    CheckTxnDBGet(txn_db, roptions, "foo1", NULL);
+    CheckTxnDBGet(txn_db, roptions, "foo2", NULL);
+    rocksdb_transaction_commit(txn, &err);
+    CheckNoError(err);
+    CheckTxnDBGet(txn_db, roptions, "foo1", "hi1");
+    CheckTxnDBGet(txn_db, roptions, "foo2", NULL);
+
     // Column families.
     rocksdb_column_family_handle_t* cfh;
     cfh = rocksdb_transactiondb_create_column_family(txn_db, options,

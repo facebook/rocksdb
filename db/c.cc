@@ -3340,6 +3340,14 @@ void rocksdb_transaction_rollback(rocksdb_transaction_t* txn, char** errptr) {
   SaveError(errptr, txn->rep->Rollback());
 }
 
+void rocksdb_transaction_set_savepoint(rocksdb_transaction_t* txn) {
+  txn->rep->SetSavePoint();
+}
+
+void rocksdb_transaction_rollback_to_savepoint(rocksdb_transaction_t* txn, char** errptr) {
+  SaveError(errptr, txn->rep->RollbackToSavePoint());
+}
+
 void rocksdb_transaction_destroy(rocksdb_transaction_t* txn) {
   delete txn->rep;
   delete txn;
