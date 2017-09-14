@@ -2023,8 +2023,8 @@ void rocksdb_options_set_paranoid_checks(
   opt->rep.paranoid_checks = v;
 }
 
-void rocksdb_options_set_db_paths(rocksdb_options_t* opt, 
-                                  const rocksdb_dbpath_t** dbpath_values, 
+void rocksdb_options_set_db_paths(rocksdb_options_t* opt,
+                                  const rocksdb_dbpath_t** dbpath_values,
                                   size_t num_paths) {
   std::vector<DbPath> db_paths(num_paths);
   for (size_t i = 0; i < num_paths; ++i) {
@@ -2264,6 +2264,11 @@ void rocksdb_options_set_access_hint_on_compaction_start(
 void rocksdb_options_set_use_adaptive_mutex(
     rocksdb_options_t* opt, unsigned char v) {
   opt->rep.use_adaptive_mutex = v;
+}
+
+void rocksdb_options_set_wal_bytes_per_sync(
+    rocksdb_options_t* opt, uint64_t v) {
+  opt->rep.wal_bytes_per_sync = v;
 }
 
 void rocksdb_options_set_bytes_per_sync(

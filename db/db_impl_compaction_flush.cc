@@ -87,10 +87,11 @@ Status DBImpl::FlushMemTableToOutputFile(
       snapshots_.GetAll(&earliest_write_conflict_snapshot);
 
   FlushJob flush_job(
-      dbname_, cfd, immutable_db_options_, mutable_cf_options, env_options_,
-      versions_.get(), &mutex_, &shutting_down_, snapshot_seqs,
-      earliest_write_conflict_snapshot, job_context, log_buffer,
-      directories_.GetDbDir(), directories_.GetDataDir(0U),
+      dbname_, cfd, immutable_db_options_, mutable_cf_options,
+      env_options_for_compaction_, versions_.get(), &mutex_,
+      &shutting_down_, snapshot_seqs, earliest_write_conflict_snapshot,
+      job_context, log_buffer, directories_.GetDbDir(),
+      directories_.GetDataDir(0U),
       GetCompressionFlush(*cfd->ioptions(), mutable_cf_options), stats_,
       &event_logger_, mutable_cf_options.report_bg_io_stats);
 
@@ -532,8 +533,9 @@ Status DBImpl::CompactFilesImpl(
 
   assert(is_snapshot_supported_ || snapshots_.empty());
   CompactionJob compaction_job(
-      job_context->job_id, c.get(), immutable_db_options_, env_options_,
-      versions_.get(), &shutting_down_, log_buffer, directories_.GetDbDir(),
+      job_context->job_id, c.get(), immutable_db_options_,
+      env_options_for_compaction_, versions_.get(), &shutting_down_,
+      log_buffer, directories_.GetDbDir(),
       directories_.GetDataDir(c->output_path_id()), stats_, &mutex_, &bg_error_,
       snapshot_seqs, earliest_write_conflict_snapshot, table_cache_,
       &event_logger_, c->mutable_cf_options()->paranoid_file_checks,
@@ -1676,11 +1678,12 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 
     assert(is_snapshot_supported_ || snapshots_.empty());
     CompactionJob compaction_job(
-        job_context->job_id, c.get(), immutable_db_options_, env_options_,
-        versions_.get(), &shutting_down_, log_buffer, directories_.GetDbDir(),
+        job_context->job_id, c.get(), immutable_db_options_,
+        env_options_for_compaction_, versions_.get(), &shutting_down_,
+        log_buffer, directories_.GetDbDir(),
         directories_.GetDataDir(c->output_path_id()), stats_, &mutex_,
-        &bg_error_, snapshot_seqs, earliest_write_conflict_snapshot,
-        table_cache_, &event_logger_,
+        &bg_error_, snapshot_seqs,
+        earliest_write_conflict_snapshot, table_cache_, &event_logger_,
         c->mutable_cf_options()->paranoid_file_checks,
         c->mutable_cf_options()->report_bg_io_stats, dbname_,
         &compaction_job_stats);

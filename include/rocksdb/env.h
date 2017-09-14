@@ -45,6 +45,7 @@ class RandomRWFile;
 class Directory;
 struct DBOptions;
 struct ImmutableDBOptions;
+struct MutableDBOptions;
 class RateLimiter;
 class ThreadStatusUpdater;
 struct ThreadStatus;
@@ -411,7 +412,7 @@ class Env {
   // table files.
   virtual EnvOptions OptimizeForCompactionTableWrite(
       const EnvOptions& env_options,
-      const ImmutableDBOptions& db_options) const;
+      const ImmutableDBOptions& immutable_ops) const;
 
   // OptimizeForCompactionTableWrite will create a new EnvOptions object that
   // is a copy of the EnvOptions in the parameters, but is optimized for reading
@@ -1087,8 +1088,8 @@ class EnvWrapper : public Env {
   }
   EnvOptions OptimizeForCompactionTableWrite(
       const EnvOptions& env_options,
-      const ImmutableDBOptions& db_options) const override {
-    return target_->OptimizeForCompactionTableWrite(env_options, db_options);
+      const ImmutableDBOptions& immutable_ops) const override {
+    return target_->OptimizeForCompactionTableWrite(env_options, immutable_ops);
   }
   EnvOptions OptimizeForCompactionTableRead(
       const EnvOptions& env_options,

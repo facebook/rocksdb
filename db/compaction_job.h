@@ -56,7 +56,7 @@ class CompactionJob {
  public:
   CompactionJob(int job_id, Compaction* compaction,
                 const ImmutableDBOptions& db_options,
-                const EnvOptions& env_options, VersionSet* versions,
+                const EnvOptions env_options, VersionSet* versions,
                 const std::atomic<bool>* shutting_down, LogBuffer* log_buffer,
                 Directory* db_directory, Directory* output_directory,
                 Statistics* stats, InstrumentedMutex* db_mutex,
@@ -127,7 +127,7 @@ class CompactionJob {
   // DBImpl state
   const std::string& dbname_;
   const ImmutableDBOptions& db_options_;
-  const EnvOptions& env_options_;
+  const EnvOptions env_options_;
 
   Env* env_;
   VersionSet* versions_;
