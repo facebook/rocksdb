@@ -1455,7 +1455,8 @@ TEST_F(DBCompactionTest, DeleteFilesRangeIncludeEnd) {
     Put(Key(i + 1), vals1[i]);
     Flush();
   }
-  dbfull()->TEST_WaitForCompact();
+  CompactRangeOptions compact_options;
+  ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
 
   Slice begin1 = Key(0);
   Slice end1 = Key(kNumL0Files);
@@ -1482,7 +1483,7 @@ TEST_F(DBCompactionTest, DeleteFilesRangeIncludeEnd) {
     Put(Key(i + 1), vals2[i]);
     Flush();
   }
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
 
   Slice begin2 = Key(0);
   Slice end2 = Key(kNumL0Files);
