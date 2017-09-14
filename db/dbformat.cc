@@ -174,4 +174,13 @@ LookupKey::LookupKey(const Slice& _user_key, SequenceNumber s) {
   end_ = dst;
 }
 
+void IterKey::EnlargeBuffer(size_t key_size) {
+  // If size is smaller than buffer size, continue using current buffer,
+  // or the static allocated one, as default
+  assert(key_size > buf_size_);
+  // Need to enlarge the buffer.
+  ResetBuffer();
+  buf_ = new char[key_size];
+  buf_size_ = key_size;
+}
 }  // namespace rocksdb

@@ -504,12 +504,11 @@ class IterKey {
     // If size is smaller than buffer size, continue using current buffer,
     // or the static allocated one, as default
     if (key_size > buf_size_) {
-      // Need to enlarge the buffer.
-      ResetBuffer();
-      buf_ = new char[key_size];
-      buf_size_ = key_size;
+      EnlargeBuffer(key_size);
     }
   }
+
+  void EnlargeBuffer(size_t key_size);
 
   // No copying allowed
   IterKey(const IterKey&) = delete;
