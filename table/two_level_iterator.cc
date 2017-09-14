@@ -46,7 +46,10 @@ class TwoLevelIterator : public InternalIterator {
   virtual void Next() override;
   virtual void Prev() override;
 
-  virtual bool Valid() const override { return second_level_iter_.Valid(); }
+  virtual bool Valid() const override {
+    assert(second_level_iter_.Valid() == valid_);
+    return valid_;
+  }
   virtual Slice key() const override {
     assert(Valid());
     return second_level_iter_.key();
@@ -95,6 +98,7 @@ class TwoLevelIterator : public InternalIterator {
   TwoLevelIteratorState* state_;
   IteratorWrapper first_level_iter_;
   IteratorWrapper second_level_iter_;  // May be nullptr
+  bool valid_;
   bool need_free_iter_and_state_;
   PinnedIteratorsManager* pinned_iters_mgr_;
   Status status_;
@@ -108,6 +112,7 @@ TwoLevelIterator::TwoLevelIterator(TwoLevelIteratorState* state,
                                    bool need_free_iter_and_state)
     : state_(state),
       first_level_iter_(first_level_iter),
+      valid_(false),
       need_free_iter_and_state_(need_free_iter_and_state),
       pinned_iters_mgr_(nullptr) {}
 
@@ -115,6 +120,7 @@ void TwoLevelIterator::Seek(const Slice& target) {
   if (state_->check_prefix_may_match &&
       !state_->PrefixMayMatch(target)) {
     SetSecondLevelIterator(nullptr);
+    valid_ = false;
     return;
   }
   first_level_iter_.Seek(target);
@@ -129,12 +135,16 @@ void TwoLevelIterator::Seek(const Slice& target) {
 void TwoLevelIterator::SeekForPrev(const Slice& target) {
   if (state_->check_prefix_may_match && !state_->PrefixMayMatch(target)) {
     SetSecondLevelIterator(nullptr);
+    valid_ = false;
     return;
   }
   first_level_iter_.Seek(target);
   InitDataBlock();
   if (second_level_iter_.iter() != nullptr) {
     second_level_iter_.SeekForPrev(target);
+    valid_ = second_level_iter_.Valid();
+  } else {
+    valid_ = false;
   }
   if (!Valid()) {
     if (!first_level_iter_.Valid()) {
@@ -179,36 +189,44 @@ void TwoLevelIterator::Prev() {
 }
 
 void TwoLevelIterator::SkipEmptyDataBlocksForward() {
+  valid_ = false;
   while (second_level_iter_.iter() == nullptr ||
-         (!second_level_iter_.Valid() &&
+         (!(valid_ = second_level_iter_.Valid()) &&
           !second_level_iter_.status().IsIncomplete())) {
     // Move to next block
     if (!first_level_iter_.Valid() ||
         state_->KeyReachedUpperBound(first_level_iter_.key())) {
       SetSecondLevelIterator(nullptr);
+      valid_ = false;
       return;
     }
     first_level_iter_.Next();
     InitDataBlock();
     if (second_level_iter_.iter() != nullptr) {
       second_level_iter_.SeekToFirst();
+    } else {
+      valid_ = false;
     }
   }
 }
 
 void TwoLevelIterator::SkipEmptyDataBlocksBackward() {
+  valid_ = false;
   while (second_level_iter_.iter() == nullptr ||
-         (!second_level_iter_.Valid() &&
+         (!(valid_ = second_level_iter_.Valid()) &&
           !second_level_iter_.status().IsIncomplete())) {
     // Move to next block
     if (!first_level_iter_.Valid()) {
       SetSecondLevelIterator(nullptr);
+      valid_ = false;
       return;
     }
     first_level_iter_.Prev();
     InitDataBlock();
     if (second_level_iter_.iter() != nullptr) {
       second_level_iter_.SeekToLast();
+    } else {
+      valid_ = false;
     }
   }
 }
