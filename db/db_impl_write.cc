@@ -290,9 +290,9 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
               write_options.ignore_missing_column_families, 0 /*log_number*/,
               this, true /*concurrent_memtable_writes*/);
         }
-        if (seq_used != nullptr) {
-          *seq_used = w.sequence;
-        }
+      }
+      if (seq_used != nullptr) {
+        *seq_used = w.sequence;
       }
     }
   }
