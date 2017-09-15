@@ -650,6 +650,8 @@ void DBImpl::NotifyOnCompactionCompleted(
   if (shutting_down_.load(std::memory_order_acquire)) {
     return;
   }
+  Version* current = cfd->current();
+  current->Ref();
   // release lock while notifying events
   mutex_.Unlock();
   TEST_SYNC_POINT("DBImpl::NotifyOnCompactionCompleted::UnlockMutex");
@@ -672,7 +674,7 @@ void DBImpl::NotifyOnCompactionCompleted(
         info.input_files.push_back(fn);
         if (info.table_properties.count(fn) == 0) {
           std::shared_ptr<const TableProperties> tp;
-          auto s = cfd->current()->GetTableProperties(&tp, fmd, &fn);
+          auto s = current->GetTableProperties(&tp, fmd, &fn);
           if (s.ok()) {
             info.table_properties[fn] = tp;
           }
@@ -689,6 +691,7 @@ void DBImpl::NotifyOnCompactionCompleted(
     }
   }
   mutex_.Lock();
+  current->Unref();
   // no need to signal bg_cv_ as it will be signaled at the end of the
   // flush process.
 #endif  // ROCKSDB_LITE
