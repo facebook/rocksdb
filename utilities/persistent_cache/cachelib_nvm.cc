@@ -15,11 +15,13 @@ namespace rocksdb {
 
 Status CacheLibNvm::Insert(const Slice& key, const char* data,
                            const size_t size) {
+  // TODO(idemura): implement
   return Status();
 }
 
 Status CacheLibNvm::Lookup(const Slice& key, std::unique_ptr<char[]>* data,
                            size_t* size) {
+  // TODO(idemura): implement
   return Status();
 }
 
