@@ -64,4 +64,8 @@ Status NewPersistentCache(Env* const env, const std::string& path,
                           const std::shared_ptr<Logger>& log,
                           const bool optimized_for_nvm,
                           std::shared_ptr<PersistentCache>* cache);
+
+Status NewCacheLibNvm(Env* const env, const std::string& path,
+                      const uint64_t size, const std::shared_ptr<Logger>& log,
+                      std::shared_ptr<PersistentCache>* cache);
 }  // namespace rocksdb

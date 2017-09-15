@@ -147,7 +147,7 @@ TEST_F(PersistentCacheTierTest, DISABLED_BlockCacheInsertWithFileCreateError) {
   cache_ = NewBlockCache(Env::Default(), path_,
                          /*size=*/std::numeric_limits<uint64_t>::max(),
                          /*direct_writes=*/ false);
-  rocksdb::SyncPoint::GetInstance()->SetCallBack( 
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
     "BlockCacheTier::NewCacheFile:DeleteDir", OnDeleteDir);
 
   RunNegativeInsertTest(/*nthreads=*/ 1,
@@ -289,6 +289,12 @@ TEST_F(PersistentCacheTierTest, FactoryTest) {
     ASSERT_TRUE(cache->Stats()[0].size());
     cache.reset();
   }
+}
+
+TEST(CacheLibNvm, Basic) {
+  std::shared_ptr<PersistentCache> cache;
+  auto status = NewCacheLibNvm(Env::Default(), "", 0, nullptr, &cache);
+  ASSERT_OK(status);
 }
 
 PersistentCacheDBTest::PersistentCacheDBTest() : DBTestBase("/cache_test") {

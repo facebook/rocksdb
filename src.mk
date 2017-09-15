@@ -204,6 +204,14 @@ LIB_SOURCES =                                                   \
   utilities/ttl/db_ttl_impl.cc                                  \
   utilities/write_batch_with_index/write_batch_with_index.cc    \
   utilities/write_batch_with_index/write_batch_with_index_internal.cc    \
+  utilities/persistent_cache/cachelib_nvm.cc \
+  cachelib_nvm/nvm/NvmCache.cc \
+  cachelib_nvm/nvm/NvmDevice.cc \
+  cachelib_nvm/nvm/JobQueue.cc \
+  cachelib_nvm/nvm/LruRegions.cc \
+  cachelib_nvm/nvm/NvmIndex.cc \
+  cachelib_nvm/nvm/RegionManager.cc \
+  cachelib_nvm/nvm/NvmAllocator.cc \
 
 ifeq (,$(shell $(CXX) -fsyntax-only -maltivec -xc /dev/null 2>&1))
 LIB_SOURCES_ASM =\
