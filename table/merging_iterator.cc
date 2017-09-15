@@ -156,21 +156,7 @@ class MergingIterator : public InternalIterator {
     // true for all of the non-current children since current_ is
     // the smallest child and key() == current_->key().
     if (direction_ != kForward) {
-      // Otherwise, advance the non-current children.  We advance current_
-      // just after the if-block.
-      ClearHeaps();
-      for (auto& child : children_) {
-        if (&child != current_) {
-          child.Seek(key());
-          if (child.Valid() && comparator_->Equal(key(), child.key())) {
-            child.Next();
-          }
-        }
-        if (child.Valid()) {
-          minHeap_.push(&child);
-        }
-      }
-      direction_ = kForward;
+      SwitchToForward();
       // The loop advanced all non-current children to be > key() so current_
       // should still be strictly the smallest key.
       assert(current_ == CurrentForward());
@@ -330,6 +316,8 @@ class MergingIterator : public InternalIterator {
   std::unique_ptr<MergerMaxIterHeap> maxHeap_;
   PinnedIteratorsManager* pinned_iters_mgr_;
 
+  void SwitchToForward();
+
   IteratorWrapper* CurrentForward() const {
     assert(direction_ == kForward);
     return !minHeap_.empty() ? minHeap_.top() : nullptr;
@@ -341,6 +329,24 @@ class MergingIterator : public InternalIterator {
     return !maxHeap_->empty() ? maxHeap_->top() : nullptr;
   }
 };
+
+void MergingIterator::SwitchToForward() {
+  // Otherwise, advance the non-current children.  We advance current_
+  // just after the if-block.
+  ClearHeaps();
+  for (auto& child : children_) {
+    if (&child != current_) {
+      child.Seek(key());
+      if (child.Valid() && comparator_->Equal(key(), child.key())) {
+        child.Next();
+      }
+    }
+    if (child.Valid()) {
+      minHeap_.push(&child);
+    }
+  }
+  direction_ = kForward;
+}
 
 void MergingIterator::ClearHeaps() {
   minHeap_.clear();
