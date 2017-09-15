@@ -676,6 +676,7 @@ TEST_F(OptionsTest, OptionsComposeDecompose) {
 
   ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(base_db_opts, new_db_opts));
   ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opts, new_cf_opts));
+  delete new_cf_opts.compaction_filter;
 }
 
 TEST_F(OptionsTest, ColumnFamilyOptionsSerialization) {
