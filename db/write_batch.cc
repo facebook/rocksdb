@@ -844,6 +844,7 @@ class MemTableInserter : public WriteBatch::Handler {
   // Increase seq number once per each write batch. Otherwise increase it once
   // per key.
   bool seq_per_batch_;
+  bool write_after_commit_;
 
   MemPostInfoMap& GetPostMap() {
     assert(concurrent_memtable_writes_);
@@ -950,7 +951,7 @@ class MemTableInserter : public WriteBatch::Handler {
 
   virtual Status PutCF(uint32_t column_family_id, const Slice& key,
                        const Slice& value) override {
-    if (rebuilding_trx_ != nullptr) {
+    if (write_after_commit_ && rebuilding_trx_ != nullptr) {
       WriteBatchInternal::Put(rebuilding_trx_, column_family_id, key, value);
       return Status::OK();
     }
@@ -1028,7 +1029,7 @@ class MemTableInserter : public WriteBatch::Handler {
 
   virtual Status DeleteCF(uint32_t column_family_id,
                           const Slice& key) override {
-    if (rebuilding_trx_ != nullptr) {
+    if (write_after_commit_ && rebuilding_trx_ != nullptr) {
       WriteBatchInternal::Delete(rebuilding_trx_, column_family_id, key);
       return Status::OK();
     }
@@ -1044,7 +1045,7 @@ class MemTableInserter : public WriteBatch::Handler {
 
   virtual Status SingleDeleteCF(uint32_t column_family_id,
                                 const Slice& key) override {
-    if (rebuilding_trx_ != nullptr) {
+    if (write_after_commit_ && rebuilding_trx_ != nullptr) {
       WriteBatchInternal::SingleDelete(rebuilding_trx_, column_family_id, key);
       return Status::OK();
     }
@@ -1061,7 +1062,7 @@ class MemTableInserter : public WriteBatch::Handler {
   virtual Status DeleteRangeCF(uint32_t column_family_id,
                                const Slice& begin_key,
                                const Slice& end_key) override {
-    if (rebuilding_trx_ != nullptr) {
+    if (write_after_commit_ && rebuilding_trx_ != nullptr) {
       WriteBatchInternal::DeleteRange(rebuilding_trx_, column_family_id,
                                       begin_key, end_key);
       return Status::OK();
@@ -1092,7 +1093,7 @@ class MemTableInserter : public WriteBatch::Handler {
   virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
                          const Slice& value) override {
     assert(!concurrent_memtable_writes_);
-    if (rebuilding_trx_ != nullptr) {
+    if (write_after_commit_ && rebuilding_trx_ != nullptr) {
       WriteBatchInternal::Merge(rebuilding_trx_, column_family_id, key, value);
       return Status::OK();
     }
@@ -1257,12 +1258,12 @@ class MemTableInserter : public WriteBatch::Handler {
         // at this point individual CF lognumbers will prevent
         // duplicate re-insertion of values.
         assert(log_number_ref_ == 0);
-        // all insertes must reference this trx log number
-        log_number_ref_ = trx->log_number_;
-        s = trx->batch_->Iterate(this);
-        // TODO(myabandeh): In WritePrepared txn, a commit marker should
-        // reference the log that contains the prepare marker.
-        log_number_ref_ = 0;
+        if (write_after_commit_) {
+          // all insertes must reference this trx log number
+          log_number_ref_ = trx->log_number_;
+          s = trx->batch_->Iterate(this);
+          log_number_ref_ = 0;
+        }
 
         if (s.ok()) {
           db_->DeleteRecoveredTransaction(name.ToString());
