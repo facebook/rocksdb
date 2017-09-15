@@ -144,7 +144,7 @@ WriteBatch::WriteBatch(const WriteBatch& src)
       max_bytes_(src.max_bytes_),
       rep_(src.rep_) {}
 
-WriteBatch::WriteBatch(WriteBatch&& src)
+WriteBatch::WriteBatch(WriteBatch&& src) noexcept
     : save_points_(std::move(src.save_points_)),
       wal_term_point_(std::move(src.wal_term_point_)),
       content_flags_(src.content_flags_.load(std::memory_order_relaxed)),
@@ -1230,7 +1230,7 @@ class MemTableInserter : public WriteBatch::Handler {
     // A hack in pessimistic transaction could result into a noop at the start
     // of the write batch, that should be ignored.
     if (!first_tag) {
-      // In the absense of Prepare markers, a kTypeNoop tag indicates the end of
+      // In the absence of Prepare markers, a kTypeNoop tag indicates the end of
       // a batch. This happens when write batch commits skipping the prepare
       // phase.
       const bool batch_boundry = true;

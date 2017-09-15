@@ -307,7 +307,7 @@ class WriteBatch : public WriteBatchBase {
   explicit WriteBatch(const std::string& rep);
 
   WriteBatch(const WriteBatch& src);
-  WriteBatch(WriteBatch&& src);
+  WriteBatch(WriteBatch&& src) noexcept;
   WriteBatch& operator=(const WriteBatch& src);
   WriteBatch& operator=(WriteBatch&& src);
 
