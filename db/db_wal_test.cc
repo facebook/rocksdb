@@ -1007,7 +1007,7 @@ TEST_F(DBWALTest, AvoidFlushDuringRecovery) {
   Reopen(options);
   ASSERT_EQ("v11", Get("foo"));
   ASSERT_EQ("v12", Get("bar"));
-  ASSERT_EQ(2, TotalTableFiles());
+  ASSERT_EQ(3, TotalTableFiles());
 }
 
 TEST_F(DBWALTest, WalCleanupAfterAvoidFlushDuringRecovery) {
