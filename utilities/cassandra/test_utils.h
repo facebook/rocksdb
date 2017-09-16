@@ -38,6 +38,5 @@ void VerifyRowValueColumns(
 
 int64_t ToMicroSeconds(int64_t seconds);
 int32_t ToSeconds(int64_t microseconds);
-std::string DecodeHex(std::string& hexStr);
 }
 }

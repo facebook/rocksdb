@@ -122,13 +122,17 @@ TEST(ExpiringColumnTest, ExpiringColumn) {
       == 0);
 }
 
-TEST(TombstoneTest, TombstoneCollection) {
-  std::string hex = "7fffffff80000000000000000100599f4bc300055786e9d6e9eb";
-  std::string data = DecodeHex(hex);
-  RowValue row = RowValue::Deserialize(data.c_str(), data.length());
-  EXPECT_EQ(1, row.ColumnSize());
-  row = row.RemoveTombstones(14400);
-  EXPECT_TRUE(row.Empty());
+TEST(TombstoneTest, TombstoneCollectable) {
+  int32_t now = (int32_t)time(nullptr);
+  int32_t gc_grace_seconds = 16440;
+  EXPECT_TRUE(Tombstone(ColumnTypeMask::DELETION_MASK, 0,
+                        now - gc_grace_seconds,
+                        ToMicroSeconds(now - gc_grace_seconds))
+                  .Collectable(gc_grace_seconds));
+  EXPECT_FALSE(Tombstone(ColumnTypeMask::DELETION_MASK, 0,
+                         now - gc_grace_seconds + 1,
+                         ToMicroSeconds(now - gc_grace_seconds + 1))
+                   .Collectable(gc_grace_seconds));
 }
 
 TEST(TombstoneTest, Tombstone) {
