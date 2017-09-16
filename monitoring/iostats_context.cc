@@ -6,7 +6,6 @@
 #include <sstream>
 #include "monitoring/iostats_context_imp.h"
 #include "rocksdb/env.h"
-#include "util/thread_local.h"
 
 namespace rocksdb {
 
