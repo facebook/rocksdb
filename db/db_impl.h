@@ -772,7 +772,7 @@ class DBImpl : public DB {
 
   Status ConcurrentWriteToWAL(const WriteThread::WriteGroup& write_group,
                               uint64_t* log_used, SequenceNumber* last_sequence,
-                              int total_count);
+                              size_t seq_inc);
 
   // Used by WriteImpl to update bg_error_ if paranoid check is enabled.
   void WriteCallbackStatusCheck(const Status& status);
@@ -1267,6 +1267,7 @@ class DBImpl : public DB {
   // 2PC these are the writes at Prepare phase.
   const bool concurrent_prepare_;
   const bool manual_wal_flush_;
+  const bool seq_per_batch_;
 };
 
 extern Options SanitizeOptions(const std::string& db,

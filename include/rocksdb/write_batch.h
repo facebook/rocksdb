@@ -244,6 +244,10 @@ class WriteBatch : public WriteBatchBase {
       return Status::InvalidArgument("MarkEndPrepare() handler not defined.");
     }
 
+    virtual Status MarkNoop(bool first_tag) {
+      return Status::InvalidArgument("MarkNoop() handler not defined.");
+    }
+
     virtual Status MarkRollback(const Slice& xid) {
       return Status::InvalidArgument(
           "MarkRollbackPrepare() handler not defined.");
@@ -303,7 +307,7 @@ class WriteBatch : public WriteBatchBase {
   explicit WriteBatch(const std::string& rep);
 
   WriteBatch(const WriteBatch& src);
-  WriteBatch(WriteBatch&& src);
+  WriteBatch(WriteBatch&& src) noexcept;
   WriteBatch& operator=(const WriteBatch& src);
   WriteBatch& operator=(WriteBatch&& src);
 

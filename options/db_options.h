@@ -81,6 +81,7 @@ struct ImmutableDBOptions {
   bool allow_ingest_behind;
   bool concurrent_prepare;
   bool manual_wal_flush;
+  bool seq_per_batch;
 };
 
 struct MutableDBOptions {

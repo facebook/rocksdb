@@ -46,11 +46,12 @@ Status WritePreparedTxn::PrepareInternal() {
   write_options.disableWAL = false;
   WriteBatchInternal::MarkEndPrepare(GetWriteBatch()->GetWriteBatch(), name_);
   const bool disable_memtable = true;
-  uint64_t seq_used;
+  uint64_t seq_used = kMaxSequenceNumber;
   Status s =
       db_impl_->WriteImpl(write_options, GetWriteBatch()->GetWriteBatch(),
                           /*callback*/ nullptr, &log_number_, /*log ref*/ 0,
                           !disable_memtable, &seq_used);
+  assert(seq_used != kMaxSequenceNumber);
   prepare_seq_ = seq_used;
   wpt_db_->AddPrepared(prepare_seq_);
   return s;
@@ -61,6 +62,8 @@ Status WritePreparedTxn::CommitWithoutPrepareInternal() {
 }
 
 Status WritePreparedTxn::CommitBatchInternal(WriteBatch* batch) {
+  // In the absenese of Prepare markers, use Noop as a batch separator
+  WriteBatchInternal::InsertNoop(batch);
   const bool disable_memtable = true;
   const uint64_t no_log_ref = 0;
   uint64_t seq_used;
