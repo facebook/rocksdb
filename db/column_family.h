@@ -138,6 +138,9 @@ extern Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options);
 extern Status CheckConcurrentWritesSupported(
     const ColumnFamilyOptions& cf_options);
 
+extern Status CheckCFPathsSupported(const DBOptions& db_options,
+                                    const ColumnFamilyOptions& cf_options);
+
 extern ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
                                            const ColumnFamilyOptions& src);
 // Wrap user defined table proproties collector factories `from cf_options`

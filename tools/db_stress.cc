@@ -993,8 +993,10 @@ struct ThreadState {
 class DbStressListener : public EventListener {
  public:
   DbStressListener(const std::string& db_name,
-                   const std::vector<DbPath>& db_paths)
-      : db_name_(db_name), db_paths_(db_paths) {}
+                   const std::vector<DbPath>& db_paths,
+                   const std::vector<ColumnFamilyDescriptor>& column_families)
+      : db_name_(db_name), db_paths_(db_paths),
+        column_families_(column_families) {}
   virtual ~DbStressListener() {}
 #ifndef ROCKSDB_LITE
   virtual void OnFlushCompleted(DB* db, const FlushJobInfo& info) override {
@@ -1061,6 +1063,13 @@ class DbStressListener : public EventListener {
         return;
       }
     }
+    for (auto& cf : column_families_) {
+      for (const auto& cf_path : cf.options.cf_paths) {
+        if (cf_path.path == file_dir) {
+            return;
+        }
+      }
+    }
     assert(false);
 #endif  // !NDEBUG
   }
@@ -1093,6 +1102,7 @@ class DbStressListener : public EventListener {
  private:
   std::string db_name_;
   std::vector<DbPath> db_paths_;
+  std::vector<ColumnFamilyDescriptor> column_families_;
 };
 
 }  // namespace
@@ -2374,7 +2384,7 @@ class StressTest {
       }
       options_.listeners.clear();
       options_.listeners.emplace_back(
-          new DbStressListener(FLAGS_db, options_.db_paths));
+          new DbStressListener(FLAGS_db, options_.db_paths, cf_descriptors));
       options_.create_missing_column_families = true;
       s = DB::Open(DBOptions(options_), FLAGS_db, cf_descriptors,
                    &column_families_, &db_);

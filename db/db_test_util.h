@@ -798,7 +798,7 @@ class DBTestBase : public testing::Test {
 
   void DestroyAndReopen(const Options& options);
 
-  void Destroy(const Options& options);
+  void Destroy(const Options& options, bool delete_cf_paths = false);
 
   Status ReadOnlyReopen(const Options& options);
 
@@ -894,7 +894,8 @@ class DBTestBase : public testing::Test {
 
   std::string DumpSSTableList();
 
-  void GetSstFiles(std::string path, std::vector<std::string>* files);
+  static void GetSstFiles(Env* env, std::string path,
+                          std::vector<std::string>* files);
 
   int GetSstFileCount(std::string path);
 

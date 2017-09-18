@@ -194,17 +194,45 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
 
   versions_->AddLiveFiles(&job_context->sst_live);
   if (doing_the_full_scan) {
+
+    struct PathInformation {
+      size_t path_id_;
+      std::string path_;
+      PathInformation(size_t path_id, const std::string& path)
+          : path_id_(path_id),
+            path_(path) {}
+    };
+    std::vector<PathInformation> path_infos;
+
     for (size_t path_id = 0; path_id < immutable_db_options_.db_paths.size();
          path_id++) {
+      path_infos.emplace_back(path_id,
+                              immutable_db_options_.db_paths[path_id].path);
+    }
+
+    // Note that if cf_paths is not specified in the ColumnFamilyOptions
+    // of a particular column family, we use db_paths as the cf_paths
+    // setting. Hence, there can be multiple duplicates of files from db_paths
+    // in the following code. The duplicate are removed while identifying
+    // unique files in PurgeObsoleteFiles.
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      for (size_t path_id = 0; path_id < cfd->ioptions()->cf_paths.size();
+           path_id++) {
+        path_infos.emplace_back(path_id,
+                                cfd->ioptions()->cf_paths[path_id].path);
+      }
+    }
+
+    for (auto& path_info : path_infos) {
       // set of all files in the directory. We'll exclude files that are still
       // alive in the subsequent processings.
       std::vector<std::string> files;
-      env_->GetChildren(immutable_db_options_.db_paths[path_id].path,
-                        &files);  // Ignore errors
-      for (std::string file : files) {
+      env_->GetChildren(path_info.path_, &files);  // Ignore errors
+      for (std::string& file : files) {
         // TODO(icanadi) clean up this mess to avoid having one-off "/" prefixes
         job_context->full_scan_candidate_files.emplace_back(
-            "/" + file, static_cast<uint32_t>(path_id));
+            "/" + file, static_cast<uint32_t>(path_info.path_id_),
+            path_info.path_);
       }
     }
 
@@ -213,8 +241,9 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
       std::vector<std::string> log_files;
       env_->GetChildren(immutable_db_options_.wal_dir,
                         &log_files);  // Ignore errors
-      for (std::string log_file : log_files) {
-        job_context->full_scan_candidate_files.emplace_back(log_file, 0);
+      for (std::string& log_file : log_files) {
+        job_context->full_scan_candidate_files.emplace_back(log_file, 0,
+            immutable_db_options_.wal_dir);
       }
     }
     // Add info log files in db_log_dir
@@ -223,8 +252,9 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
       std::vector<std::string> info_log_files;
       // Ignore errors
       env_->GetChildren(immutable_db_options_.db_log_dir, &info_log_files);
-      for (std::string log_file : info_log_files) {
-        job_context->full_scan_candidate_files.emplace_back(log_file, 0);
+      for (std::string& log_file : info_log_files) {
+        job_context->full_scan_candidate_files.emplace_back(log_file, 0,
+            immutable_db_options_.db_log_dir);
       }
     }
   }
@@ -295,8 +325,12 @@ bool CompareCandidateFile(const JobContext::CandidateFileInfo& first,
     return true;
   } else if (first.file_name < second.file_name) {
     return false;
+  } else if (first.path_id > second.path_id) {
+    return true;
+  } else if (first.path_id < second.path_id) {
+    return false;
   } else {
-    return (first.path_id > second.path_id);
+    return (first.file_path > second.file_path);
   }
 }
 };  // namespace
@@ -369,21 +403,22 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state, bool schedule_only) {
   const char* kDumbDbName = "";
   for (auto file : state.sst_delete_files) {
     candidate_files.emplace_back(
-        MakeTableFileName(kDumbDbName, file->fd.GetNumber()),
-        file->fd.GetPathId());
-    if (file->table_reader_handle) {
-      table_cache_->Release(file->table_reader_handle);
+        MakeTableFileName(kDumbDbName, file.metadata->fd.GetNumber()),
+        file.metadata->fd.GetPathId(), file.path);
+    if (file.metadata->table_reader_handle) {
+      table_cache_->Release(file.metadata->table_reader_handle);
     }
-    delete file;
+    delete file.metadata;
   }
 
   for (auto file_num : state.log_delete_files) {
     if (file_num > 0) {
-      candidate_files.emplace_back(LogFileName(kDumbDbName, file_num), 0);
+      candidate_files.emplace_back(LogFileName(kDumbDbName, file_num), 0,
+          immutable_db_options_.wal_dir);
     }
   }
   for (const auto& filename : state.manifest_delete_files) {
-    candidate_files.emplace_back(filename, 0);
+    candidate_files.emplace_back(filename, 0, dbname_);
   }
 
   // dedup state.candidate_files so we don't try to delete the same
@@ -472,7 +507,7 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state, bool schedule_only) {
     if (type == kTableFile) {
       // evict from cache
       TableCache::Evict(table_cache_.get(), number);
-      fname = TableFileName(immutable_db_options_.db_paths, number, path_id);
+      fname = MakeTableFileName(candidate_file.file_path, number);
     } else {
       fname = ((type == kLogFile) ? immutable_db_options_.wal_dir : dbname_) +
               "/" + to_delete;

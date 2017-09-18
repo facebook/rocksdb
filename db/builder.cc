@@ -92,7 +92,7 @@ Status BuildTable(
     return s;
   }
 
-  std::string fname = TableFileName(ioptions.db_paths, meta->fd.GetNumber(),
+  std::string fname = TableFileName(ioptions.cf_paths, meta->fd.GetNumber(),
                                     meta->fd.GetPathId());
 #ifndef ROCKSDB_LITE
   EventHelpers::NotifyTableFileCreationStarted(

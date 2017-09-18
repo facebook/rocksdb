@@ -163,17 +163,13 @@ static Status ValidateOptions(
     if (s.ok() && db_options.allow_concurrent_memtable_write) {
       s = CheckConcurrentWritesSupported(cfd.options);
     }
+    if (s.ok()) {
+      s = CheckCFPathsSupported(db_options, cfd.options);
+    }
     if (!s.ok()) {
       return s;
     }
-    if (db_options.db_paths.size() > 1) {
-      if ((cfd.options.compaction_style != kCompactionStyleUniversal) &&
-          (cfd.options.compaction_style != kCompactionStyleLevel)) {
-        return Status::NotSupported(
-            "More than one DB paths are only supported in "
-            "universal and level compaction styles. ");
-      }
-    }
+
     if (cfd.options.compaction_options_fifo.ttl > 0) {
       if (db_options.max_open_files != -1) {
         return Status::NotSupported(
@@ -273,7 +269,9 @@ Status DBImpl::Directories::CreateAndNewDirectory(
 
 Status DBImpl::Directories::SetDirectories(
     Env* env, const std::string& dbname, const std::string& wal_dir,
-    const std::vector<DbPath>& data_paths) {
+    const std::vector<DbPath>& data_paths,
+    const std::vector<ColumnFamilyDescriptor>&
+        column_families) {
   Status s = CreateAndNewDirectory(env, dbname, &db_dir_);
   if (!s.ok()) {
     return s;
@@ -300,6 +298,35 @@ Status DBImpl::Directories::SetDirectories(
     }
   }
   assert(data_dirs_.size() == data_paths.size());
+
+  cf_data_dirs_.clear();
+  for (auto& column_family : column_families) {
+    if (!column_family.options.cf_paths.empty()) {
+      s = AddCFDirectories(env, column_family.name,
+                           column_family.options.cf_paths);
+      if (!s.ok()) {
+        return s;
+      }
+    }
+  }
+  return Status::OK();
+}
+
+Status DBImpl::Directories::AddCFDirectories(
+    Env* env, const std::string& cf_name,
+    const std::vector<DbPath>& cf_data_paths) {
+  Status s;
+  cf_data_dirs_[cf_name].clear();
+  for (auto& p : cf_data_paths) {
+    std::unique_ptr<Directory> path_directory;
+    s = CreateAndNewDirectory(env, p.path, &path_directory);
+    if (!s.ok()) {
+      return s;
+    }
+    assert(path_directory != nullptr);
+    cf_data_dirs_[cf_name].emplace_back(path_directory.release());
+  }
+  assert(cf_data_dirs_[cf_name].size() == cf_data_paths.size());
   return Status::OK();
 }
 
@@ -313,7 +340,8 @@ Status DBImpl::Recover(
   if (!read_only) {
     Status s = directories_.SetDirectories(env_, dbname_,
                                            immutable_db_options_.wal_dir,
-                                           immutable_db_options_.db_paths);
+                                           immutable_db_options_.db_paths,
+                                           column_families);
     if (!s.ok()) {
       return s;
     }
@@ -988,8 +1016,17 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
   DBImpl* impl = new DBImpl(db_options, dbname);
   s = impl->env_->CreateDirIfMissing(impl->immutable_db_options_.wal_dir);
   if (s.ok()) {
-    for (auto db_path : impl->immutable_db_options_.db_paths) {
-      s = impl->env_->CreateDirIfMissing(db_path.path);
+    std::vector<std::string> paths;
+    for (auto& db_path : impl->immutable_db_options_.db_paths) {
+      paths.emplace_back(db_path.path);
+    }
+    for (auto& cf : column_families) {
+      for (auto& cf_path : cf.options.cf_paths) {
+        paths.emplace_back(cf_path.path);
+      }
+    }
+    for (auto& path : paths) {
+      s = impl->env_->CreateDirIfMissing(path);
       if (!s.ok()) {
         break;
       }
@@ -1130,17 +1167,28 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
       impl->immutable_db_options_.sst_file_manager.get());
   if (s.ok() && sfm) {
     // Notify SstFileManager about all sst files that already exist in
-    // db_paths[0] when the DB is opened.
-    auto& db_path = impl->immutable_db_options_.db_paths[0];
-    std::vector<std::string> existing_files;
-    impl->immutable_db_options_.env->GetChildren(db_path.path, &existing_files);
-    for (auto& file_name : existing_files) {
-      uint64_t file_number;
-      FileType file_type;
-      std::string file_path = db_path.path + "/" + file_name;
-      if (ParseFileName(file_name, &file_number, &file_type) &&
-          file_type == kTableFile) {
-        sfm->OnAddFile(file_path);
+    // db_paths[0] and cf_paths[0] when the DB is opened.
+    std::vector<std::string> paths;
+    paths.emplace_back(impl->immutable_db_options_.db_paths[0].path);
+    for (auto& cf : column_families) {
+      if (!cf.options.cf_paths.empty()) {
+        paths.emplace_back(cf.options.cf_paths[0].path);
+      }
+    }
+    // Remove duplicate paths.
+    std::sort(paths.begin(), paths.end());
+    paths.erase(std::unique(paths.begin(), paths.end()), paths.end());
+    for (auto& path : paths) {
+      std::vector<std::string> existing_files;
+      impl->immutable_db_options_.env->GetChildren(path, &existing_files);
+      for (auto& file_name : existing_files) {
+        uint64_t file_number;
+        FileType file_type;
+        std::string file_path = path + "/" + file_name;
+        if (ParseFileName(file_name, &file_number, &file_type) &&
+            file_type == kTableFile) {
+          sfm->OnAddFile(file_path);
+        }
       }
     }
   }

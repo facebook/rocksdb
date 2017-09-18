@@ -458,9 +458,18 @@ void DBImpl::ScheduleBgLogWriterClose(JobContext* job_context) {
   }
 }
 
-Directory* DBImpl::Directories::GetDataDir(size_t path_id) {
-  assert(path_id < data_dirs_.size());
-  Directory* ret_dir = data_dirs_[path_id].get();
+Directory* DBImpl::Directories::GetDataDir(const std::string& cf_name,
+                                           size_t path_id) {
+  std::vector<std::unique_ptr<Directory>>* dirs;
+  auto iter = cf_data_dirs_.find(cf_name);
+  if (iter != cf_data_dirs_.end()) {
+    dirs = &(iter->second);
+  } else {
+    dirs = &data_dirs_;
+  }
+
+  assert(path_id < dirs->size());
+  Directory* ret_dir = dirs->at(path_id).get();
   if (ret_dir == nullptr) {
     // Should use db_dir_
     return db_dir_.get();
@@ -1233,6 +1242,17 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
   if (s.ok() && immutable_db_options_.allow_concurrent_memtable_write) {
     s = CheckConcurrentWritesSupported(cf_options);
   }
+  if (s.ok()) {
+    s = CheckCFPathsSupported(initial_db_options_, cf_options);
+  }
+  if (s.ok()) {
+    for (auto& cf_path : cf_options.cf_paths) {
+      s = env_->CreateDirIfMissing(cf_path.path);
+      if (!s.ok()) {
+        break;
+      }
+    }
+  }
   if (!s.ok()) {
     return s;
   }
@@ -1240,6 +1260,14 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
   SuperVersionContext sv_context(/* create_superversion */ true);
   {
     InstrumentedMutexLock l(&mutex_);
+
+    if (!cf_options.cf_paths.empty()) {
+      s = directories_.AddCFDirectories(env_, column_family_name,
+                                        cf_options.cf_paths);
+      if (!s.ok()) {
+        return s;
+      }
+    }
 
     if (versions_->GetColumnFamilySet()->GetColumnFamily(column_family_name) !=
         nullptr) {
@@ -2300,7 +2328,8 @@ Status DB::ListColumnFamilies(const DBOptions& db_options,
 Snapshot::~Snapshot() {
 }
 
-Status DestroyDB(const std::string& dbname, const Options& options) {
+Status DestroyDB(const std::string& dbname, const Options& options,
+                 const std::vector<ColumnFamilyDescriptor>& column_families) {
   const ImmutableDBOptions soptions(SanitizeOptions(dbname, options));
   Env* env = soptions.env;
   std::vector<std::string> filenames;
@@ -2333,13 +2362,47 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
       }
     }
 
+    struct PathInformation {
+      size_t path_id_;
+      std::string path_;
+      PathInformation(size_t path_id, const std::string& path)
+          : path_id_(path_id),
+            path_(path) {}
+    };
+    std::vector<PathInformation> path_infos;
+
     for (size_t path_id = 0; path_id < options.db_paths.size(); path_id++) {
-      const auto& db_path = options.db_paths[path_id];
-      env->GetChildren(db_path.path, &filenames);
+      path_infos.emplace_back(
+          PathInformation(path_id, options.db_paths[path_id].path));
+    }
+    for (auto& cf : column_families) {
+      for (size_t path_id = 0; path_id < cf.options.cf_paths.size();
+           path_id++) {
+        path_infos.emplace_back(
+            PathInformation(path_id, cf.options.cf_paths[path_id].path));
+      }
+    }
+
+    // Remove duplicate paths.
+    // Note that we compare only the actual paths but not path ids.
+    // This reason is that same path can appear at different path_ids
+    // for different column families.
+    std::sort(path_infos.begin(), path_infos.end(),
+      [](const PathInformation& first, const PathInformation& second) {
+        return first.path_ < second.path_;
+      });
+    path_infos.erase(std::unique(path_infos.begin(), path_infos.end(),
+      [](const PathInformation& first, const PathInformation& second) {
+        return first.path_ == second.path_;
+      }), path_infos.end());
+
+    for (auto& path_info : path_infos) {
+      size_t path_id = path_info.path_id_;
+      env->GetChildren(path_info.path_, &filenames);
       for (size_t i = 0; i < filenames.size(); i++) {
         if (ParseFileName(filenames[i], &number, &type) &&
             type == kTableFile) {  // Lock file will be deleted at end
-          std::string table_path = db_path.path + "/" + filenames[i];
+          std::string table_path = path_info.path_ + "/" + filenames[i];
           Status del = DeleteSSTFile(&soptions, table_path,
                                      static_cast<uint32_t>(path_id));
           if (result.ok() && !del.ok()) {

@@ -139,6 +139,28 @@ Status CheckConcurrentWritesSupported(const ColumnFamilyOptions& cf_options) {
   return Status::OK();
 }
 
+Status CheckCFPathsSupported(const DBOptions& db_options,
+                             const ColumnFamilyOptions& cf_options) {
+  // More than one cf_paths are supported only in universal
+  // and level compaction styles. This function also checks the case
+  // in which cf_paths is not specified, which results in db_paths
+  // being used.
+  if ((cf_options.compaction_style != kCompactionStyleUniversal) &&
+      (cf_options.compaction_style != kCompactionStyleLevel)) {
+    if (cf_options.cf_paths.size() > 1) {
+      return Status::NotSupported(
+          "More than one CF paths are only supported in "
+          "universal and level compaction styles. ");
+    } else if (cf_options.cf_paths.empty() &&
+               db_options.db_paths.size() > 1) {
+      return Status::NotSupported(
+          "More than one DB paths are only supported in "
+          "universal and level compaction styles. ");
+    }
+  }
+  return Status::OK();
+}
+
 ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
                                     const ColumnFamilyOptions& src) {
   ColumnFamilyOptions result = src;
@@ -258,8 +280,10 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
   }
 
   if (result.level_compaction_dynamic_level_bytes) {
+    bool multiple_db_paths = (result.cf_paths.size() > 1U ||
+        (result.cf_paths.size() == 0U && db_options.db_paths.size() > 1U));
     if (result.compaction_style != kCompactionStyleLevel ||
-        db_options.db_paths.size() > 1U) {
+        multiple_db_paths) {
       // 1. level_compaction_dynamic_level_bytes only makes sense for
       //    level-based compaction.
       // 2. we don't yet know how to make both of this feature and multiple

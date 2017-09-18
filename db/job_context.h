@@ -90,10 +90,12 @@ struct JobContext {
   struct CandidateFileInfo {
     std::string file_name;
     uint32_t path_id;
-    CandidateFileInfo(std::string name, uint32_t path)
-        : file_name(std::move(name)), path_id(path) {}
+    std::string file_path;
+    CandidateFileInfo(std::string name, uint32_t pathID, std::string path)
+        : file_name(std::move(name)), path_id(pathID), file_path(path) {}
     bool operator==(const CandidateFileInfo& other) const {
-      return file_name == other.file_name && path_id == other.path_id;
+      return file_name == other.file_name && path_id == other.path_id &&
+             file_path == other.file_path;
     }
   };
 
@@ -110,7 +112,7 @@ struct JobContext {
   std::vector<FileDescriptor> sst_live;
 
   // a list of sst files that we need to delete
-  std::vector<FileMetaData*> sst_delete_files;
+  std::vector<ObsoleteFileInfo> sst_delete_files;
 
   // a list of log files that we need to delete
   std::vector<uint64_t> log_delete_files;

@@ -395,6 +395,7 @@ static std::unordered_map<std::string, OptionTypeInfo> cf_options_type_info = {
                                      uint34_t* existing_value_size,
                                      Slice delta_value,
                                      std::string* merged_value);
+    std::vector<DbPath> cf_paths;
      */
     {"report_bg_io_stats",
      {offset_of(&ColumnFamilyOptions::report_bg_io_stats), OptionType::kBoolean,

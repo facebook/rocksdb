@@ -1008,9 +1008,14 @@ class DBImpl : public DB {
    public:
     Status SetDirectories(Env* env, const std::string& dbname,
                           const std::string& wal_dir,
-                          const std::vector<DbPath>& data_paths);
+                          const std::vector<DbPath>& data_paths,
+                          const std::vector<ColumnFamilyDescriptor>&
+                              column_families);
 
-    Directory* GetDataDir(size_t path_id);
+    Status AddCFDirectories(Env* env,const std::string& cf_name,
+                            const std::vector<DbPath>& cf_data_paths);
+
+    Directory* GetDataDir(const std::string& cf_name, size_t path_id);
 
     Directory* GetWalDir() {
       if (wal_dir_) {
@@ -1025,6 +1030,8 @@ class DBImpl : public DB {
     std::unique_ptr<Directory> db_dir_;
     std::vector<std::unique_ptr<Directory>> data_dirs_;
     std::unique_ptr<Directory> wal_dir_;
+    std::unordered_map<std::string, std::vector<std::unique_ptr<Directory>>>
+        cf_data_dirs_;
 
     Status CreateAndNewDirectory(Env* env, const std::string& dirname,
                                  std::unique_ptr<Directory>* directory) const;

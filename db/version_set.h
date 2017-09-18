@@ -677,6 +677,13 @@ class Version {
   void operator=(const Version&);
 };
 
+struct ObsoleteFileInfo {
+  FileMetaData* metadata;
+  std::string   path;
+  ObsoleteFileInfo(FileMetaData* f, const std::string& file_path)
+      : metadata(f), path(file_path) {}
+};
+
 class VersionSet {
  public:
   VersionSet(const std::string& dbname, const ImmutableDBOptions* db_options,
@@ -838,7 +845,7 @@ class VersionSet {
   // This function doesn't support leveldb SST filenames
   void GetLiveFilesMetaData(std::vector<LiveFileMetaData> *metadata);
 
-  void GetObsoleteFiles(std::vector<FileMetaData*>* files,
+  void GetObsoleteFiles(std::vector<ObsoleteFileInfo>* files,
                         std::vector<std::string>* manifest_filenames,
                         uint64_t min_pending_output);
 
@@ -904,7 +911,7 @@ class VersionSet {
   // Current size of manifest file
   uint64_t manifest_file_size_;
 
-  std::vector<FileMetaData*> obsolete_files_;
+  std::vector<ObsoleteFileInfo> obsolete_files_;
   std::vector<std::string> obsolete_manifests_;
 
   // env options for all reads and writes except compactions
