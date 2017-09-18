@@ -32,6 +32,10 @@ CompactionFilter::Decision CassandraCompactionFilter::FilterV2(
           ? row_value.RemoveExpiredColumns(&value_changed)
           : row_value.ConvertExpiredColumnsToTombstones(&value_changed);
 
+  if (value_type == ValueType::kValue) {
+    compacted = compacted.RemoveTombstones(gc_grace_period_in_seconds_);
+  }
+
   if(compacted.Empty()) {
     return Decision::kRemove;
   }

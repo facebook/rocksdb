@@ -26,9 +26,7 @@ const std::string kDbName = test::TmpDir() + "/cassandra_functional_test";
 class CassandraStore {
  public:
   explicit CassandraStore(std::shared_ptr<DB> db)
-      : db_(db),
-        merge_option_(),
-        get_option_() {
+      : db_(db), write_option_(), get_option_() {
     assert(db);
   }
 
@@ -36,8 +34,21 @@ class CassandraStore {
     std::string result;
     val.Serialize(&result);
     Slice valSlice(result.data(), result.size());
-    auto s = db_->Merge(merge_option_, key, valSlice);
+    auto s = db_->Merge(write_option_, key, valSlice);
 
+    if (s.ok()) {
+      return true;
+    } else {
+      std::cerr << "ERROR " << s.ToString() << std::endl;
+      return false;
+    }
+  }
+
+  bool Put(const std::string& key, const RowValue& val) {
+    std::string result;
+    val.Serialize(&result);
+    Slice valSlice(result.data(), result.size());
+    auto s = db_->Put(write_option_, key, valSlice);
     if (s.ok()) {
       return true;
     } else {
@@ -75,21 +86,23 @@ class CassandraStore {
 
  private:
   std::shared_ptr<DB> db_;
-  WriteOptions merge_option_;
+  WriteOptions write_option_;
   ReadOptions get_option_;
 
   DBImpl* dbfull() { return reinterpret_cast<DBImpl*>(db_.get()); }
-
 };
 
 class TestCompactionFilterFactory : public CompactionFilterFactory {
 public:
-  explicit TestCompactionFilterFactory(bool purge_ttl_on_expiration)
-    : purge_ttl_on_expiration_(purge_ttl_on_expiration) {}
+ explicit TestCompactionFilterFactory(bool purge_ttl_on_expiration,
+                                      int32_t gc_grace_period_in_seconds)
+     : purge_ttl_on_expiration_(purge_ttl_on_expiration),
+       gc_grace_period_in_seconds_(gc_grace_period_in_seconds) {}
 
-  virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
-      const CompactionFilter::Context& context) override {
-    return unique_ptr<CompactionFilter>(new CassandraCompactionFilter(purge_ttl_on_expiration_));
+ virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+     const CompactionFilter::Context& context) override {
+   return unique_ptr<CompactionFilter>(new CassandraCompactionFilter(
+       purge_ttl_on_expiration_, gc_grace_period_in_seconds_));
   }
 
   virtual const char* Name() const override {
@@ -98,6 +111,7 @@ public:
 
 private:
   bool purge_ttl_on_expiration_;
+  int32_t gc_grace_period_in_seconds_;
 };
 
 
@@ -113,7 +127,8 @@ public:
     Options options;
     options.create_if_missing = true;
     options.merge_operator.reset(new CassandraValueMergeOperator(gc_grace_period_in_seconds_));
-    auto* cf_factory = new TestCompactionFilterFactory(purge_ttl_on_expiration_);
+    auto* cf_factory = new TestCompactionFilterFactory(
+        purge_ttl_on_expiration_, gc_grace_period_in_seconds_);
     options.compaction_filter_factory.reset(cf_factory);
     EXPECT_OK(DB::Open(options, kDbName, &db));
     return std::shared_ptr<DB>(db);
@@ -275,6 +290,19 @@ TEST_F(CassandraFunctionalTest,
   VerifyRowValueColumns(gced.columns_, 0, kColumn, 1, ToMicroSeconds(now));
 }
 
+TEST_F(CassandraFunctionalTest, CompactionShouldRemoveTombstoneFromPut) {
+  purge_ttl_on_expiration_ = true;
+  CassandraStore store(OpenDb());
+  int64_t now = time(nullptr);
+
+  store.Put("k1", CreateTestRowValue({
+    std::make_tuple(kTombstone, 0, ToMicroSeconds(now - gc_grace_period_in_seconds_ - 1)),
+  }));
+
+  store.Flush();
+  store.Compact();
+  ASSERT_FALSE(std::get<0>(store.Get("k1")));
+}
 
 } // namespace cassandra
 } // namespace rocksdb
