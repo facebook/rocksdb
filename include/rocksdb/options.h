@@ -906,6 +906,8 @@ struct DBOptions {
   // set, the seq is not increased at all.
   //
   // Default: false
+  // Note: This option is experimental and meant to be used only for internal
+  // projects.
   bool seq_per_batch = false;
 };
 
