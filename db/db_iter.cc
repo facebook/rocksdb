@@ -8,8 +8,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/db_iter.h"
-#include <stdexcept>
-#include <deque>
 #include <string>
 #include <limits>
 
@@ -18,7 +16,6 @@
 #include "db/merge_helper.h"
 #include "db/pinned_iterators_manager.h"
 #include "monitoring/perf_context_imp.h"
-#include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/merge_operator.h"
