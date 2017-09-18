@@ -1046,10 +1046,12 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
       }
     }
     if (s.ok()) {
+      SuperVersionContext sv_context(/* create_superversion */ true);
       for (auto cfd : *impl->versions_->GetColumnFamilySet()) {
-        delete impl->InstallSuperVersionAndScheduleWork(
-            cfd, nullptr, *cfd->GetLatestMutableCFOptions());
+        impl->InstallSuperVersionAndScheduleWork(
+            cfd, &sv_context, *cfd->GetLatestMutableCFOptions());
       }
+      sv_context.Clean();
       if (impl->concurrent_prepare_) {
         impl->log_write_mutex_.Lock();
       }

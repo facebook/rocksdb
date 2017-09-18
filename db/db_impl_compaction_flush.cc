@@ -130,8 +130,8 @@ Status DBImpl::FlushMemTableToOutputFile(
   }
 
   if (s.ok()) {
-    InstallSuperVersionAndScheduleWorkWrapper(cfd, job_context,
-                                              mutable_cf_options);
+    InstallSuperVersionAndScheduleWork(cfd, &job_context->superversion_context,
+                                       mutable_cf_options);
     if (made_progress) {
       *made_progress = 1;
     }
@@ -573,8 +573,9 @@ Status DBImpl::CompactFilesImpl(
 
   Status status = compaction_job.Install(*c->mutable_cf_options());
   if (status.ok()) {
-    InstallSuperVersionAndScheduleWorkWrapper(
-        c->column_family_data(), job_context, *c->mutable_cf_options());
+    InstallSuperVersionAndScheduleWork(
+        c->column_family_data(), &job_context->superversion_context,
+       *c->mutable_cf_options());
   }
   c->ReleaseCompactionFiles(s);
 
@@ -707,8 +708,7 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
     return Status::InvalidArgument("Target level exceeds number of levels");
   }
 
-  std::unique_ptr<SuperVersion> superversion_to_free;
-  std::unique_ptr<SuperVersion> new_superversion(new SuperVersion());
+  SuperVersionContext sv_context(/* create_superversion */ true);
 
   Status status;
 
@@ -763,8 +763,7 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
 
     status = versions_->LogAndApply(cfd, mutable_cf_options, &edit, &mutex_,
                                     directories_.GetDbDir());
-    superversion_to_free.reset(InstallSuperVersionAndScheduleWork(
-        cfd, new_superversion.release(), mutable_cf_options));
+    InstallSuperVersionAndScheduleWork(cfd, &sv_context, mutable_cf_options);
 
     ROCKS_LOG_DEBUG(immutable_db_options_.info_log, "[%s] LogAndApply: %s\n",
                     cfd->GetName().c_str(), status.ToString().data());
@@ -776,6 +775,7 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
     }
   }
 
+  sv_context.Clean();
   refitting_level_ = false;
 
   return status;
@@ -1576,8 +1576,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     status = versions_->LogAndApply(c->column_family_data(),
                                     *c->mutable_cf_options(), c->edit(),
                                     &mutex_, directories_.GetDbDir());
-    InstallSuperVersionAndScheduleWorkWrapper(
-        c->column_family_data(), job_context, *c->mutable_cf_options());
+    InstallSuperVersionAndScheduleWork(
+        c->column_family_data(), &job_context->superversion_context,
+        *c->mutable_cf_options());
     ROCKS_LOG_BUFFER(log_buffer, "[%s] Deleted %d files\n",
                      c->column_family_data()->GetName().c_str(),
                      c->num_input_files(0));
@@ -1622,8 +1623,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                                     *c->mutable_cf_options(), c->edit(),
                                     &mutex_, directories_.GetDbDir());
     // Use latest MutableCFOptions
-    InstallSuperVersionAndScheduleWorkWrapper(
-        c->column_family_data(), job_context, *c->mutable_cf_options());
+    InstallSuperVersionAndScheduleWork(
+        c->column_family_data(), &job_context->superversion_context,
+        *c->mutable_cf_options());
 
     VersionStorageInfo::LevelSummaryStorage tmp;
     c->column_family_data()->internal_stats()->IncBytesMoved(c->output_level(),
@@ -1696,8 +1698,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 
     status = compaction_job.Install(*c->mutable_cf_options());
     if (status.ok()) {
-      InstallSuperVersionAndScheduleWorkWrapper(
-          c->column_family_data(), job_context, *c->mutable_cf_options());
+      InstallSuperVersionAndScheduleWork(
+          c->column_family_data(), &job_context->superversion_context,
+          *c->mutable_cf_options());
     }
     *made_progress = true;
   }
@@ -1863,30 +1866,21 @@ bool DBImpl::MCOverlap(ManualCompactionState* m, ManualCompactionState* m1) {
   return true;
 }
 
-// JobContext gets created and destructed outside of the lock --
+// SuperVersionContext gets created and destructed outside of the lock --
 // we
 // use this convinently to:
 // * malloc one SuperVersion() outside of the lock -- new_superversion
 // * delete SuperVersion()s outside of the lock -- superversions_to_free
 //
 // However, if InstallSuperVersionAndScheduleWork() gets called twice with the
-// same job_context, we can't reuse the SuperVersion() that got
+// same sv_context, we can't reuse the SuperVersion() that got
 // malloced because
 // first call already used it. In that rare case, we take a hit and create a
 // new SuperVersion() inside of the mutex. We do similar thing
 // for superversion_to_free
-void DBImpl::InstallSuperVersionAndScheduleWorkWrapper(
-    ColumnFamilyData* cfd, JobContext* job_context,
-    const MutableCFOptions& mutable_cf_options) {
-  mutex_.AssertHeld();
-  SuperVersion* old_superversion = InstallSuperVersionAndScheduleWork(
-      cfd, job_context->new_superversion, mutable_cf_options);
-  job_context->new_superversion = nullptr;
-  job_context->superversions_to_free.push_back(old_superversion);
-}
 
-SuperVersion* DBImpl::InstallSuperVersionAndScheduleWork(
-    ColumnFamilyData* cfd, SuperVersion* new_sv,
+void DBImpl::InstallSuperVersionAndScheduleWork(
+    ColumnFamilyData* cfd, SuperVersionContext* sv_context,
     const MutableCFOptions& mutable_cf_options) {
   mutex_.AssertHeld();
 
@@ -1898,8 +1892,11 @@ SuperVersion* DBImpl::InstallSuperVersionAndScheduleWork(
                         old_sv->mutable_cf_options.max_write_buffer_number;
   }
 
-  auto* old = cfd->InstallSuperVersion(
-      new_sv ? new_sv : new SuperVersion(), &mutex_, mutable_cf_options);
+  if (sv_context->new_superversion == nullptr) {
+    sv_context->NewSuperVersion();
+  }
+  cfd->InstallSuperVersion(sv_context, &mutex_,
+                           mutable_cf_options);
 
   // Whenever we install new SuperVersion, we might need to issue new flushes or
   // compactions.
@@ -1912,6 +1909,5 @@ SuperVersion* DBImpl::InstallSuperVersionAndScheduleWork(
       max_total_in_memory_state_ - old_memtable_size +
       mutable_cf_options.write_buffer_size *
       mutable_cf_options.max_write_buffer_number;
-  return old;
 }
 }  // namespace rocksdb
