@@ -191,6 +191,7 @@ JobExitCode NvmAllocator::startReclaim() {
       return JobExitCode::Done;
     }
     rid = regionManager_.evict();
+    reclaimCount_++;
     auto& ra = allocators_[regionManager_.getKlass(rid)];
     if (rid == ra.getRegion()) {
       md = ra.reset();
@@ -252,11 +253,12 @@ JobExitCode NvmAllocator::purgeRegion(RegionId rid, RegionMetadata* md) {
     regionManager_.unlock(rid);
     clean_.push_back(rid);
   }
-  (void)entries;
 #if CACHELIB_LOGGING
   auto dur = duration_cast<microseconds>(high_resolution_clock::now() - start);
   VLOG(2) << "Purge: " << entries << " entries in " << dur.count()
           << " us";
+#else
+  (void)entries;
 #endif
   return JobExitCode::Done;
 }

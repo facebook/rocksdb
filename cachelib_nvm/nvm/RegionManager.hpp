@@ -24,9 +24,6 @@ enum class OpenStatus {
 
   // There is another writer that has finish before this writer can proceed
   Retry,
-
-  // Writer can't proceed - slot/region is outdated
-  Cancel,
 };
 
 // In both lock modes proper draining flags are set to stop writer/reader and
@@ -52,6 +49,10 @@ class RegionManager {
                 std::unique_ptr<EvictionPolicy> policy);
   RegionManager(const RegionManager&) = delete;
   RegionManager operator=(const RegionManager&) = delete;
+
+  EvictionPolicy& getPolicy() const {
+    return *policy_;
+  }
 
   // Gets a free region if any
   RegionId getFree();

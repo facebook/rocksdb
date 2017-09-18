@@ -1,6 +1,7 @@
-#include "LruRegions.hpp"
+#include "LruPolicy.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <utility>
 
 #include "cachelib_nvm/common/Logging.hpp"
@@ -8,7 +9,7 @@
 namespace facebook {
 namespace cachelib {
 
-LruRegions::LruRegions(uint32_t regions)
+LruPolicy::LruPolicy(uint32_t regions)
     : lru_{MMType::Config(0, true, true), Node::PtrCompressor()} {
   nodes_.reserve(regions);
   for (uint32_t i = 0; i < regions; i++) {
@@ -16,15 +17,15 @@ LruRegions::LruRegions(uint32_t regions)
   }
 }
 
-void LruRegions::recordHit(RegionId id) {
+void LruPolicy::recordHit(RegionId id) {
   lru_.recordAccess(nodes_[id.index()], AccessMode::kRead);
 }
 
-void LruRegions::track(RegionId id) {
+void LruPolicy::track(RegionId id) {
   lru_.add(nodes_[id.index()]);
 }
 
-RegionId LruRegions::evict() {
+RegionId LruPolicy::evict() {
   auto it = lru_.getEvictionIterator();
   auto id = it->getId();
   lru_.remove(it);

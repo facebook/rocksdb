@@ -1,12 +1,14 @@
 #pragma once
 
+#include <atomic>
 #include <memory>
 #include <stdexcept>
 #include <vector>
 
 #include "cachelib_nvm/common/Buffer.hpp"
+#include "cachelib_nvm/nvm/FifoPolicy.hpp"
 #include "cachelib_nvm/nvm/JobQueue.hpp"
-#include "cachelib_nvm/nvm/LruRegions.hpp"
+#include "cachelib_nvm/nvm/LruPolicy.hpp"
 #include "cachelib_nvm/nvm/NvmAllocator.hpp"
 #include "cachelib_nvm/nvm/NvmIndex.hpp"
 #include "cachelib_nvm/nvm/RegionManager.hpp"
@@ -48,7 +50,7 @@ class NvmCache {
     // Regions reclaim threads.
     uint32_t reclaimThreads{1};
     // How many clean regions GC should (try to) maintain in the pool.
-    uint32_t cleanRegionsPool{2};
+    uint32_t cleanRegionsPool{1};
     // If true, IO opeartions to file must be aligned on @deviceBlock. This
     // matters when operate on the raw device. For regular file, OS takes
     // care of it.
@@ -158,9 +160,8 @@ class NvmCache {
   const bool alignedIO_{};
   const bool disableIO_{};
 
-  uint64_t hitCount_{};
-  uint64_t missCount_{};
-  uint64_t updatesIgnored_{};
+  std::atomic<uint64_t> hitCount_{};
+  std::atomic<uint64_t> missCount_{};
 };
 }
 }

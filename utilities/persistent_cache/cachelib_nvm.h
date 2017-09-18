@@ -18,7 +18,7 @@ class CacheLibNvm : public PersistentCache {
   Status Lookup(const Slice& key, std::unique_ptr<char[]>* data,
                 size_t* size) override;
 
-  bool IsCompressed() { return true; }
+  bool IsCompressed() override { return true; }
 
   StatsType Stats() override;
 

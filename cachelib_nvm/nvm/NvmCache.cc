@@ -96,8 +96,6 @@ JobExitCode NvmCache::doInsert(Buffer key, Buffer value) {
       break;
     case OpenStatus::Retry:
       return JobExitCode::Reschedule;
-    case OpenStatus::Cancel:
-      return JobExitCode::Done;
   }
   if (disableIO_ || writeEntry(slot, key.wrap(), value.wrap())) {
     index_.insert(key.wrap(), slot.offset / unit_);
@@ -123,29 +121,31 @@ Buffer NvmCache::lookup(Buffer key) {
 
 JobExitCode NvmCache::doLookup(Buffer key, Buffer& value) {
   uint32_t offset = 0;
+  auto found = false;
   if (index_.lookup(key.wrap(), offset)) {
     NvmSlot slot;
     slot.offset = offset * unit_;
     slot.rid = regionManager_.offsetToRegion(slot.offset);
     switch (allocator_.open(slot.rid)) {
-      case OpenStatus::Ready: {
+      case OpenStatus::Ready:
         slot.size = allocator_.getSizeClass(slot.rid);
-        auto found = disableIO_ || readEntry(slot, key.wrap(), value);
+        found = disableIO_ || readEntry(slot, key.wrap(), value);
         allocator_.close(slot.rid, OpenMode::Read);
         if (found) {
           regionManager_.recordHit(slot.rid);
-          hitCount_++;
-          return JobExitCode::Done;
         }
         break;
-      }
       case OpenStatus::Retry:
         return JobExitCode::Reschedule;
-      case OpenStatus::Cancel:
-        break;
     }
   }
-  missCount_++;
+  if (allocator_.getReclaimCount() == 0) {
+    if (found) {
+      hitCount_.fetch_add(1, std::memory_order::memory_order_relaxed);
+    } else {
+      missCount_.fetch_add(1, std::memory_order::memory_order_relaxed);
+    }
+  }
   return JobExitCode::Done;
 }
 
@@ -243,9 +243,8 @@ NvmCache::Stats NvmCache::collectStats() const {
   Stats stats;
   stats.index = index_.collectStats();
   stats.regionManager = regionManager_.collectStats();
-  stats.hit = hitCount_;
-  stats.miss = missCount_;
-  stats.updatesIgnored = updatesIgnored_;
+  stats.hit = hitCount_.load(std::memory_order::memory_order_relaxed);
+  stats.miss = missCount_.load(std::memory_order::memory_order_relaxed);
   return stats;
 }
 }

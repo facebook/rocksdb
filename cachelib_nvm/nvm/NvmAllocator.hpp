@@ -171,6 +171,11 @@ class NvmAllocator {
     }
   }
 
+  uint32_t getReclaimCount() const {
+    std::lock_guard<std::mutex> lock{mutex_};
+    return reclaimCount_;
+  }
+
  private:
   NvmAllocator(const NvmAllocator&) = delete;
   NvmAllocator(NvmAllocator&&) = delete;
@@ -205,6 +210,8 @@ class NvmAllocator {
   std::vector<RegionAllocator> allocators_;
 
   std::vector<RegionId> clean_;
+
+  uint32_t reclaimCount_{};
 
   // callback to remove cache entry from index
   RemoveIndexEntryCB removeIndexEntry_;

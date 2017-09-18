@@ -35,10 +35,10 @@ struct IdentityCompressor {
 }
 
 // currently tracks an LRU of regions based on their access pattern
-class LruRegions : public EvictionPolicy {
+class LruPolicy : public EvictionPolicy {
  public:
-   explicit LruRegions(uint32_t regions);
-  ~LruRegions() = default;
+  explicit LruPolicy(uint32_t regions);
+  ~LruPolicy() override = default;
 
   void recordHit(RegionId id) override;
   void track(RegionId id) override;
