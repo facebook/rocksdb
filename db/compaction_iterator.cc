@@ -25,8 +25,8 @@ CompactionEventListener::CompactionListenerValueType fromInternalValueType(
           kSingleDelete;
     case kTypeRangeDeletion:
       return CompactionEventListener::CompactionListenerValueType::kRangeDelete;
-    case kTypeBlobValue:
-      return CompactionEventListener::CompactionListenerValueType::kBlobValue;
+    case kTypeBlobIndex:
+      return CompactionEventListener::CompactionListenerValueType::kBlobIndex;
     default:
       assert(false);
       return CompactionEventListener::CompactionListenerValueType::kInvalid;

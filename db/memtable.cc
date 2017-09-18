@@ -583,12 +583,12 @@ static bool SaveValue(void* arg, const char* entry) {
 
     s->seq = seq;
 
-    if ((type == kTypeValue || type == kTypeMerge || type == kTypeBlobValue) &&
+    if ((type == kTypeValue || type == kTypeMerge || type == kTypeBlobIndex) &&
         range_del_agg->ShouldDelete(Slice(key_ptr, key_length))) {
       type = kTypeRangeDeletion;
     }
     switch (type) {
-      case kTypeBlobValue:
+      case kTypeBlobIndex:
         if (s->is_blob == nullptr) {
           ROCKS_LOG_ERROR(s->logger, "Encounter unexpected blob value.");
           *(s->status) = Status::NotSupported(
@@ -618,7 +618,7 @@ static bool SaveValue(void* arg, const char* entry) {
         }
         *(s->found_final_value) = true;
         if (s->is_blob != nullptr) {
-          *(s->is_blob) = (type == kTypeBlobValue);
+          *(s->is_blob) = (type == kTypeBlobIndex);
         }
         return false;
       }

@@ -24,7 +24,7 @@ class GetContext {
     kDeleted,
     kCorrupt,
     kMerge,  // saver contains the current merge result (the operands)
-    kBlobValue,
+    kBlobIndex,
   };
 
   GetContext(const Comparator* ucmp, const MergeOperator* merge_operator,

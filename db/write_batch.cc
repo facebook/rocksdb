@@ -422,7 +422,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
         found++;
         break;
       case kTypeColumnFamilyBlobValue:
-      case kTypeBlobValue:
+      case kTypeBlobIndex:
         assert(content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_BLOB));
         s = handler->PutBlobCF(column_family, key, value);
@@ -779,7 +779,7 @@ Status WriteBatchInternal::PutBlob(WriteBatch* b, uint32_t column_family_id,
   LocalSavePoint save(b);
   WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
   if (column_family_id == 0) {
-    b->rep_.push_back(static_cast<char>(kTypeBlobValue));
+    b->rep_.push_back(static_cast<char>(kTypeBlobIndex));
   } else {
     b->rep_.push_back(static_cast<char>(kTypeColumnFamilyBlobValue));
     PutVarint32(&b->rep_, column_family_id);
@@ -1210,7 +1210,7 @@ class MemTableInserter : public WriteBatch::Handler {
   virtual Status PutBlobCF(uint32_t column_family_id, const Slice& key,
                            const Slice& value) override {
     // Same as PutCF except for value type.
-    return PutCFImpl(column_family_id, key, value, kTypeBlobValue);
+    return PutCFImpl(column_family_id, key, value, kTypeBlobIndex);
   }
 
   void CheckMemtableFull() {

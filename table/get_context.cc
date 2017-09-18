@@ -113,10 +113,10 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
       type = kTypeRangeDeletion;
     }
     switch (type) {
-      case kTypeBlobValue:
+      case kTypeBlobIndex:
         if (is_blob_ == nullptr) {
           // Blob value not supported. Stop.
-          state_ = kBlobValue;
+          state_ = kBlobIndex;
           return false;
         }
       // intential fallthrough
@@ -148,7 +148,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
           }
         }
         if (is_blob_ != nullptr) {
-          *is_blob_ = (type == kTypeBlobValue);
+          *is_blob_ = (type == kTypeBlobIndex);
         }
         return false;
 

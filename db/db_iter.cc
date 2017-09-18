@@ -430,7 +430,7 @@ void DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
             PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
             break;
           case kTypeValue:
-          case kTypeBlobValue:
+          case kTypeBlobIndex:
             saved_key_.SetUserKey(
                 ikey_.user_key,
                 !pin_thru_lifetime_ || !iter_->IsKeyPinned() /* copy */);
@@ -442,7 +442,7 @@ void DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
               skipping = true;
               num_skipped = 0;
               PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
-            } else if (ikey.type == kTypeBlobValue) {
+            } else if (ikey.type == kTypeBlobIndex) {
               if (!allow_blob_) {
                 ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob value.");
                 status_ = Status::NotSupported(
@@ -595,7 +595,7 @@ void DBIter::MergeValuesNewToOld() {
       merge_context_.PushOperand(iter_->value(),
                                  iter_->IsValuePinned() /* operand_pinned */);
       PERF_COUNTER_ADD(internal_merge_count, 1);
-    } else if (kTypeBlobValue == ikey.type) {
+    } else if (kTypeBlobIndex == ikey.type) {
       assert(!allow_blob_);
       ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob value.");
       status_ = Status::NotSupported(
@@ -776,7 +776,7 @@ bool DBIter::FindValueForCurrentKey() {
     last_key_entry_type = ikey.type;
     switch (last_key_entry_type) {
       case kTypeValue:
-      case kTypeBlobValue:
+      case kTypeBlobIndex:
         if (range_del_agg_.ShouldDelete(
                 ikey,
                 RangeDelAggregator::RangePositioningMode::kBackwardTraversal)) {
@@ -849,7 +849,7 @@ bool DBIter::FindValueForCurrentKey() {
     case kTypeValue:
       // do nothing - we've already has value in saved_value_
       break;
-    case kTypeBlobValue:
+    case kTypeBlobIndex:
       if (!allow_blob_) {
         ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob value.");
         status_ = Status::NotSupported(
@@ -893,7 +893,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
     valid_ = false;
     return false;
   }
-  if (ikey.type == kTypeBlobValue && !allow_blob_) {
+  if (ikey.type == kTypeBlobIndex && !allow_blob_) {
     ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob value.");
     status_ = Status::NotSupported(
         "Encounter unexpected blob value. Please open DB with "
@@ -901,7 +901,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
     valid_ = false;
     return true;
   }
-  if (ikey.type == kTypeValue || ikey.type == kTypeBlobValue) {
+  if (ikey.type == kTypeValue || ikey.type == kTypeBlobIndex) {
     assert(iter_->IsValuePinned());
     pinned_value_ = iter_->value();
     valid_ = true;

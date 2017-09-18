@@ -1030,7 +1030,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
         return;
       case GetContext::kMerge:
         break;
-      case GetContext::kBlobValue:
+      case GetContext::kBlobIndex:
         ROCKS_LOG_ERROR(info_log_, "Encounter unexpected blob value.");
         *status = Status::NotSupported(
             "Encounter unexpected blob value. Please open DB with "
