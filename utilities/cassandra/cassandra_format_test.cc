@@ -122,6 +122,19 @@ TEST(ExpiringColumnTest, ExpiringColumn) {
       == 0);
 }
 
+TEST(TombstoneTest, TombstoneCollectable) {
+  int32_t now = (int32_t)time(nullptr);
+  int32_t gc_grace_seconds = 16440;
+  EXPECT_TRUE(Tombstone(ColumnTypeMask::DELETION_MASK, 0,
+                        now - gc_grace_seconds,
+                        ToMicroSeconds(now - gc_grace_seconds))
+                  .Collectable(gc_grace_seconds));
+  EXPECT_FALSE(Tombstone(ColumnTypeMask::DELETION_MASK, 0,
+                         now - gc_grace_seconds + 1,
+                         ToMicroSeconds(now - gc_grace_seconds + 1))
+                   .Collectable(gc_grace_seconds));
+}
+
 TEST(TombstoneTest, Tombstone) {
   int8_t mask = ColumnTypeMask::DELETION_MASK;
   int8_t index = 2;
