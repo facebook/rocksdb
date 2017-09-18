@@ -300,12 +300,6 @@ TEST_F(CassandraFunctionalTest, CompactionShouldRemoveTombstoneFromPut) {
   }));
 
   store.Flush();
-
-  store.Put("k2",CreateTestRowValue({
-    std::make_tuple(kColumn, 0, ToMicroSeconds(now)),
-  }));
-
-  store.Flush();
   store.Compact();
   ASSERT_FALSE(std::get<0>(store.Get("k1")));
 }
