@@ -584,68 +584,10 @@ class DBOptionsJni : public RocksDBNativeClass<
   }
 };
 
-class ColumnFamilyDescriptorJni : public JavaClass {
- public:
-  /**
-   * Get the Java Class org.rocksdb.ColumnFamilyDescriptor
-   *
-   * @param env A pointer to the Java environment
-   *
-   * @return The Java Class or nullptr if one of the
-   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
-   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
-   */
-  static jclass getJClass(JNIEnv* env) {
-    return JavaClass::getJClass(env, "org/rocksdb/ColumnFamilyDescriptor");
-  }
-
-  /**
-   * Get the Java Method: ColumnFamilyDescriptor#columnFamilyName
-   *
-   * @param env A pointer to the Java environment
-   *
-   * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
-   */
-  static jmethodID getColumnFamilyNameMethod(JNIEnv* env) {
-    jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
-      // exception occurred accessing class
-      return nullptr;
-    }
-
-    static jmethodID mid =
-        env->GetMethodID(jclazz, "columnFamilyName", "()[B");
-    assert(mid != nullptr);
-    return mid;
-  }
-
-  /**
-   * Get the Java Method: ColumnFamilyDescriptor#columnFamilyOptions
-   *
-   * @param env A pointer to the Java environment
-   *
-   * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
-   */
-  static jmethodID getColumnFamilyOptionsMethod(JNIEnv* env) {
-    jclass jclazz = getJClass(env);
-    if(jclazz == nullptr) {
-      // exception occurred accessing class
-      return nullptr;
-    }
-
-    static jmethodID mid =
-        env->GetMethodID(jclazz, "columnFamilyOptions",
-            "()Lorg/rocksdb/ColumnFamilyOptions;");
-    assert(mid != nullptr);
-    return mid;
-  }
-};
-
 // The portal class for org.rocksdb.ColumnFamilyOptions
-class ColumnFamilyOptionsJni : public RocksDBNativeClass<
-    rocksdb::ColumnFamilyOptions*, ColumnFamilyOptionsJni> {
+class ColumnFamilyOptionsJni
+    : public RocksDBNativeClass<rocksdb::ColumnFamilyOptions*,
+                                ColumnFamilyOptionsJni> {
  public:
   /**
    * Get the Java Class org.rocksdb.ColumnFamilyOptions
@@ -658,7 +600,39 @@ class ColumnFamilyOptionsJni : public RocksDBNativeClass<
    */
   static jclass getJClass(JNIEnv* env) {
     return RocksDBNativeClass::getJClass(env,
-        "org/rocksdb/ColumnFamilyOptions");
+                                         "org/rocksdb/ColumnFamilyOptions");
+  }
+
+  /**
+   * Create a new Java org.rocksdb.ColumnFamilyOptions object with the same
+   * properties as the provided C++ rocksdb::ColumnFamilyOptions object
+   *
+   * @param env A pointer to the Java environment
+   * @param cfoptions A pointer to rocksdb::ColumnFamilyOptions object
+   *
+   * @return A reference to a Java org.rocksdb.ColumnFamilyOptions object, or
+   * nullptr if an an exception occurs
+   */
+  static jobject construct(JNIEnv* env, const ColumnFamilyOptions* cfoptions) {
+    auto* cfo = new rocksdb::ColumnFamilyOptions(*cfoptions);
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    jmethodID mid = env->GetMethodID(jclazz, "<init>", "(J)V");
+    if (mid == nullptr) {
+      // exception thrown: NoSuchMethodException or OutOfMemoryError
+      return nullptr;
+    }
+
+    jobject jcfd = env->NewObject(jclazz, mid, reinterpret_cast<long>(cfo));
+    if (env->ExceptionCheck()) {
+      return nullptr;
+    }
+
+    return jcfd;
   }
 };
 
@@ -1202,7 +1176,7 @@ class SliceJni : public NativeRocksMutableObject<
       // exception occurred accessing method
       return nullptr;
     }
-    
+
     jobject jslice = env->NewObject(jclazz, mid);
     if(env->ExceptionCheck()) {
       return nullptr;
@@ -1719,7 +1693,7 @@ class WBWIRocksIteratorJni : public JavaClass {
   /**
    * Gets the value of the WBWIRocksIterator#entry
    *
-   * @param env A pointer to the Java environment 
+   * @param env A pointer to the Java environment
    * @param jwbwi_rocks_iterator A reference to a WBWIIterator
    *
    * @return A reference to a Java WBWIRocksIterator.WriteEntry object, or
@@ -2479,7 +2453,7 @@ class TickerTypeJni {
         return 0x5C;
       case rocksdb::Tickers::TICKER_ENUM_MAX:
         return 0x5D;
-      
+
       default:
         // undefined/default
         return 0x0;
@@ -3335,6 +3309,98 @@ class JniUtil {
       rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
       return nullptr;
     }
+};
+
+class ColumnFamilyDescriptorJni : public JavaClass {
+ public:
+  /**
+   * Get the Java Class org.rocksdb.ColumnFamilyDescriptor
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env, "org/rocksdb/ColumnFamilyDescriptor");
+  }
+
+  /**
+   * Create a new Java org.rocksdb.ColumnFamilyDescriptor object with the same
+   * properties as the provided C++ rocksdb::ColumnFamilyDescriptor object
+   *
+   * @param env A pointer to the Java environment
+   * @param cfd A pointer to rocksdb::ColumnFamilyDescriptor object
+   *
+   * @return A reference to a Java org.rocksdb.ColumnFamilyDescriptor object, or
+   * nullptr if an an exception occurs
+   */
+  static jobject construct(JNIEnv* env, ColumnFamilyDescriptor* cfd) {
+    jbyteArray cfname = JniUtil::copyBytes(env, cfd->name);
+    jobject cfopts = ColumnFamilyOptionsJni::construct(env, &(cfd->options));
+
+    jclass jclazz = getJClass(env);
+    if (jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    jmethodID mid = env->GetMethodID(jclazz, "<init>",
+                                     "([BLorg/rocksdb/ColumnFamilyOptions;)V");
+    if (mid == nullptr) {
+      // exception thrown: NoSuchMethodException or OutOfMemoryError
+      return nullptr;
+    }
+
+    jobject jcfd = env->NewObject(jclazz, mid, cfname, cfopts);
+    if (env->ExceptionCheck()) {
+      return nullptr;
+    }
+
+    return jcfd;
+  }
+
+  /**
+   * Get the Java Method: ColumnFamilyDescriptor#columnFamilyName
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getColumnFamilyNameMethod(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    if (jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid = env->GetMethodID(jclazz, "columnFamilyName", "()[B");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: ColumnFamilyDescriptor#columnFamilyOptions
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getColumnFamilyOptionsMethod(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    if (jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid = env->GetMethodID(
+        jclazz, "columnFamilyOptions", "()Lorg/rocksdb/ColumnFamilyOptions;");
+    assert(mid != nullptr);
+    return mid;
+  }
 };
 
 }  // namespace rocksdb
