@@ -76,6 +76,8 @@ PessimisticTransactionDB::PessimisticTransactionDB(
 PessimisticTransactionDB::~PessimisticTransactionDB() {
   while (!transactions_.empty()) {
     delete transactions_.begin()->second;
+    // TODO(myabandeh): this seems to be an unsafe approach as it is not quite
+    // clear whether delete would also remove the entry from transactions_.
   }
 }
 
@@ -196,6 +198,9 @@ Status TransactionDB::Open(
   std::vector<ColumnFamilyDescriptor> column_families_copy = column_families;
   std::vector<size_t> compaction_enabled_cf_indices;
   DBOptions db_options_2pc = db_options;
+  if (txn_db_options.write_policy == WRITE_PREPARED) {
+    db_options_2pc.seq_per_batch = true;
+  }
   PrepareWrap(&db_options_2pc, &column_families_copy,
               &compaction_enabled_cf_indices);
   s = DB::Open(db_options_2pc, dbname, column_families_copy, handles, &db);
