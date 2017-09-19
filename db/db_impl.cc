@@ -968,6 +968,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
       RecordTick(stats_, MEMTABLE_HIT);
     }
     if (!done && !s.ok() && !s.IsMergeInProgress()) {
+      ReturnAndCleanupSuperVersion(cfd, sv);
       return s;
     }
   }
