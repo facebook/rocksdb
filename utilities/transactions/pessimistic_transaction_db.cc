@@ -133,6 +133,20 @@ Status PessimisticTransactionDB::Initialize(
   return s;
 }
 
+Status WritePreparedTxnDB::Initialize(
+    const std::vector<size_t>& compaction_enabled_cf_indices,
+    const std::vector<ColumnFamilyHandle*>& handles) {
+  auto dbimpl = reinterpret_cast<DBImpl*>(GetRootDB());
+  assert(dbimpl != nullptr);
+  auto rtxns = dbimpl->recovered_transactions();
+  for (auto rtxn : rtxns) {
+    AddPrepared(rtxn.second->seq_);
+  }
+  auto s = PessimisticTransactionDB::Initialize(compaction_enabled_cf_indices,
+                                                handles);
+  return s;
+}
+
 Transaction* WriteCommittedTxnDB::BeginTransaction(
     const WriteOptions& write_options, const TransactionOptions& txn_options,
     Transaction* old_txn) {

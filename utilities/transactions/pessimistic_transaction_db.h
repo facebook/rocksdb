@@ -33,8 +33,9 @@ class PessimisticTransactionDB : public TransactionDB {
 
   virtual ~PessimisticTransactionDB();
 
-  Status Initialize(const std::vector<size_t>& compaction_enabled_cf_indices,
-                    const std::vector<ColumnFamilyHandle*>& handles);
+  virtual Status Initialize(
+      const std::vector<size_t>& compaction_enabled_cf_indices,
+      const std::vector<ColumnFamilyHandle*>& handles);
 
   Transaction* BeginTransaction(const WriteOptions& write_options,
                                 const TransactionOptions& txn_options,
@@ -185,6 +186,10 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   }
 
   virtual ~WritePreparedTxnDB() {}
+
+  virtual Status Initialize(
+      const std::vector<size_t>& compaction_enabled_cf_indices,
+      const std::vector<ColumnFamilyHandle*>& handles) override;
 
   Transaction* BeginTransaction(const WriteOptions& write_options,
                                 const TransactionOptions& txn_options,

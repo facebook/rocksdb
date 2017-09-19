@@ -855,6 +855,7 @@ class MemTableInserter : public WriteBatch::Handler {
   PostMapType mem_post_info_map_;
   // current recovered transaction we are rebuilding (recovery)
   WriteBatch* rebuilding_trx_;
+  SequenceNumber rebuilding_trx_seq_;
   // Increase seq number once per each write batch. Otherwise increase it once
   // per key.
   bool seq_per_batch_;
@@ -1215,6 +1216,7 @@ class MemTableInserter : public WriteBatch::Handler {
 
       // we are now iterating through a prepared section
       rebuilding_trx_ = new WriteBatch();
+      rebuilding_trx_seq_ = sequence_;
       if (has_valid_writes_ != nullptr) {
         *has_valid_writes_ = true;
       }
@@ -1230,7 +1232,7 @@ class MemTableInserter : public WriteBatch::Handler {
     if (recovering_log_number_ != 0) {
       assert(db_->allow_2pc());
       db_->InsertRecoveredTransaction(recovering_log_number_, name.ToString(),
-                                      rebuilding_trx_);
+                                      rebuilding_trx_, rebuilding_trx_seq_);
       rebuilding_trx_ = nullptr;
     } else {
       assert(rebuilding_trx_ == nullptr);
