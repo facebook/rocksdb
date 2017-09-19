@@ -670,6 +670,28 @@ void Java_org_rocksdb_Options_setMaxBackgroundFlushes(
 
 /*
  * Class:     org_rocksdb_Options
+ * Method:    maxBackgroundJobs
+ * Signature: (J)I
+ */
+jint Java_org_rocksdb_Options_maxBackgroundJobs(JNIEnv* env, jobject jobj,
+                                                jlong jhandle) {
+  return reinterpret_cast<rocksdb::Options*>(jhandle)->max_background_jobs;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setMaxBackgroundJobs
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_Options_setMaxBackgroundJobs(JNIEnv* env, jobject jobj,
+                                                   jlong jhandle,
+                                                   jint max_background_jobs) {
+  reinterpret_cast<rocksdb::Options*>(jhandle)->max_background_jobs =
+      static_cast<int>(max_background_jobs);
+}
+
+/*
+ * Class:     org_rocksdb_Options
  * Method:    maxLogFileSize
  * Signature: (J)J
  */
@@ -4698,6 +4720,28 @@ jint Java_org_rocksdb_DBOptions_maxBackgroundFlushes(
     JNIEnv* env, jobject jobj, jlong jhandle) {
   return reinterpret_cast<rocksdb::DBOptions*>(jhandle)->
       max_background_flushes;
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setMaxBackgroundJobs
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_DBOptions_setMaxBackgroundJobs(JNIEnv* env, jobject jobj,
+                                                     jlong jhandle,
+                                                     jint max_background_jobs) {
+  reinterpret_cast<rocksdb::DBOptions*>(jhandle)->max_background_jobs =
+      static_cast<int>(max_background_jobs);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    maxBackgroundJobs
+ * Signature: (J)I
+ */
+jint Java_org_rocksdb_DBOptions_maxBackgroundJobs(JNIEnv* env, jobject jobj,
+                                                  jlong jhandle) {
+  return reinterpret_cast<rocksdb::DBOptions*>(jhandle)->max_background_jobs;
 }
 
 /*
