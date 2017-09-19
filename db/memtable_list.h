@@ -55,15 +55,15 @@ class MemTableListVersion {
   bool Get(const LookupKey& key, std::string* value, Status* s,
            MergeContext* merge_context, RangeDelAggregator* range_del_agg,
            SequenceNumber* seq, const ReadOptions& read_opts,
-           ReadCallback* callback = nullptr, bool* is_blob = nullptr);
+           ReadCallback* callback = nullptr, bool* is_blob_index = nullptr);
 
   bool Get(const LookupKey& key, std::string* value, Status* s,
            MergeContext* merge_context, RangeDelAggregator* range_del_agg,
            const ReadOptions& read_opts, ReadCallback* callback = nullptr,
-           bool* is_blob = nullptr) {
+           bool* is_blob_index = nullptr) {
     SequenceNumber seq;
     return Get(key, value, s, merge_context, range_del_agg, &seq, read_opts,
-               callback, is_blob);
+               callback, is_blob_index);
   }
 
   // Similar to Get(), but searches the Memtable history of memtables that
@@ -121,7 +121,8 @@ class MemTableListVersion {
                    std::string* value, Status* s, MergeContext* merge_context,
                    RangeDelAggregator* range_del_agg, SequenceNumber* seq,
                    const ReadOptions& read_opts,
-                   ReadCallback* callback = nullptr, bool* is_blob = nullptr);
+                   ReadCallback* callback = nullptr,
+                   bool* is_blob_index = nullptr);
 
   void AddMemTable(MemTable* m);
 

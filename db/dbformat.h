@@ -47,7 +47,7 @@ enum ValueType : unsigned char {
   kTypeNoop = 0xD,                        // WAL only.
   kTypeColumnFamilyRangeDeletion = 0xE,   // WAL only.
   kTypeRangeDeletion = 0xF,               // meta block
-  kTypeColumnFamilyBlobValue = 0x10,      // Blob DB only
+  kTypeColumnFamilyBlobIndex = 0x10,      // Blob DB only
   kTypeBlobIndex = 0x11,                  // Blob DB only
   kMaxValue = 0x7F                        // Not used for storing records.
 };

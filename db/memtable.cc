@@ -539,7 +539,7 @@ struct Saver {
   bool inplace_update_support;
   Env* env_;
   ReadCallback* callback_;
-  bool* is_blob;
+  bool* is_blob_index;
 
   bool CheckCallback(SequenceNumber _seq) {
     if (callback_) {
@@ -589,7 +589,7 @@ static bool SaveValue(void* arg, const char* entry) {
     }
     switch (type) {
       case kTypeBlobIndex:
-        if (s->is_blob == nullptr) {
+        if (s->is_blob_index == nullptr) {
           ROCKS_LOG_ERROR(s->logger, "Encounter unexpected blob value.");
           *(s->status) = Status::NotSupported(
               "Encounter unsupported blob value. Please open DB with "
@@ -617,8 +617,8 @@ static bool SaveValue(void* arg, const char* entry) {
           s->mem->GetLock(s->key->user_key())->ReadUnlock();
         }
         *(s->found_final_value) = true;
-        if (s->is_blob != nullptr) {
-          *(s->is_blob) = (type == kTypeBlobIndex);
+        if (s->is_blob_index != nullptr) {
+          *(s->is_blob_index) = (type == kTypeBlobIndex);
         }
         return false;
       }
@@ -669,7 +669,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
                    MergeContext* merge_context,
                    RangeDelAggregator* range_del_agg, SequenceNumber* seq,
                    const ReadOptions& read_opts, ReadCallback* callback,
-                   bool* is_blob) {
+                   bool* is_blob_index) {
   // The sequence number is updated synchronously in version_set.h
   if (IsEmpty()) {
     // Avoiding recording stats for speed.
@@ -716,7 +716,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
     saver.statistics = moptions_.statistics;
     saver.env_ = env_;
     saver.callback_ = callback;
-    saver.is_blob = is_blob;
+    saver.is_blob_index = is_blob_index;
     table_->Get(key, &saver, SaveValue);
 
     *seq = saver.seq;

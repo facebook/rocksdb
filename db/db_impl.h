@@ -349,6 +349,8 @@ class DBImpl : public DB {
     return alive_log_files_.begin()->getting_flushed;
   }
 
+  Status TEST_SwitchMemtable(ColumnFamilyData* cfd = nullptr);
+
   // Force current memtable contents to be flushed.
   Status TEST_FlushMemTable(bool wait = true,
                             ColumnFamilyHandle* cfh = nullptr);
@@ -642,7 +644,6 @@ class DBImpl : public DB {
 
  private:
   friend class DB;
-  friend class DBTest2_ReadCallbackTest_Test;
   friend class InternalStats;
   friend class PessimisticTransaction;
   friend class WriteCommittedTxn;
@@ -654,7 +655,9 @@ class DBImpl : public DB {
   friend struct SuperVersion;
   friend class CompactedDBImpl;
 #ifndef NDEBUG
+  friend class DBTest2_ReadCallbackTest_Test;
   friend class XFTransactionWriteHandler;
+  friend class DBBlobIndexTest;
 #endif
   struct CompactionState;
 
@@ -1255,7 +1258,7 @@ class DBImpl : public DB {
   Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
                  const Slice& key, PinnableSlice* value,
                  bool* value_found = nullptr, ReadCallback* callback = nullptr,
-                 bool* is_blob = nullptr);
+                 bool* is_blob_index = nullptr);
 
   bool GetIntPropertyInternal(ColumnFamilyData* cfd,
                               const DBPropertyInfo& property_info,

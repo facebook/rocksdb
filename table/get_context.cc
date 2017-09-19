@@ -42,7 +42,7 @@ GetContext::GetContext(const Comparator* ucmp,
                        RangeDelAggregator* _range_del_agg, Env* env,
                        SequenceNumber* seq,
                        PinnedIteratorsManager* _pinned_iters_mgr,
-                       ReadCallback* callback, bool* is_blob)
+                       ReadCallback* callback, bool* is_blob_index)
     : ucmp_(ucmp),
       merge_operator_(merge_operator),
       logger_(logger),
@@ -58,7 +58,7 @@ GetContext::GetContext(const Comparator* ucmp,
       replay_log_(nullptr),
       pinned_iters_mgr_(_pinned_iters_mgr),
       callback_(callback),
-      is_blob_(is_blob) {
+      is_blob_index_(is_blob_index) {
   if (seq_) {
     *seq_ = kMaxSequenceNumber;
   }
@@ -114,7 +114,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
     }
     switch (type) {
       case kTypeBlobIndex:
-        if (is_blob_ == nullptr) {
+        if (is_blob_index_ == nullptr) {
           // Blob value not supported. Stop.
           state_ = kBlobIndex;
           return false;
@@ -147,8 +147,8 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
             }
           }
         }
-        if (is_blob_ != nullptr) {
-          *is_blob_ = (type == kTypeBlobIndex);
+        if (is_blob_index_ != nullptr) {
+          *is_blob_index_ = (type == kTypeBlobIndex);
         }
         return false;
 

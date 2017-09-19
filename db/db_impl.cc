@@ -907,7 +907,7 @@ Status DBImpl::Get(const ReadOptions& read_options,
 Status DBImpl::GetImpl(const ReadOptions& read_options,
                        ColumnFamilyHandle* column_family, const Slice& key,
                        PinnableSlice* pinnable_val, bool* value_found,
-                       ReadCallback* callback, bool* is_blob) {
+                       ReadCallback* callback, bool* is_blob_index) {
   assert(pinnable_val != nullptr);
   StopWatch sw(env_, stats_, DB_GET);
   PERF_TIMER_GUARD(get_snapshot_time);
@@ -957,13 +957,14 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   bool done = false;
   if (!skip_memtable) {
     if (sv->mem->Get(lkey, pinnable_val->GetSelf(), &s, &merge_context,
-                     &range_del_agg, read_options, callback, is_blob)) {
+                     &range_del_agg, read_options, callback, is_blob_index)) {
       done = true;
       pinnable_val->PinSelf();
       RecordTick(stats_, MEMTABLE_HIT);
     } else if ((s.ok() || s.IsMergeInProgress()) &&
                sv->imm->Get(lkey, pinnable_val->GetSelf(), &s, &merge_context,
-                            &range_del_agg, read_options, callback, is_blob)) {
+                            &range_del_agg, read_options, callback,
+                            is_blob_index)) {
       done = true;
       pinnable_val->PinSelf();
       RecordTick(stats_, MEMTABLE_HIT);
@@ -977,7 +978,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
     PERF_TIMER_GUARD(get_from_output_files_time);
     sv->current->Get(read_options, lkey, pinnable_val, &s, &merge_context,
                      &range_del_agg, value_found, nullptr, nullptr, callback,
-                     is_blob);
+                     is_blob_index);
     RecordTick(stats_, MEMTABLE_MISS);
   }
 

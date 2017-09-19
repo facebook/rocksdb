@@ -67,7 +67,7 @@ enum ContentFlags : uint32_t {
   HAS_COMMIT = 1 << 7,
   HAS_ROLLBACK = 1 << 8,
   HAS_DELETE_RANGE = 1 << 9,
-  HAS_BLOB = 1 << 10,
+  HAS_BLOB_INDEX = 1 << 10,
 };
 
 struct BatchContentClassifier : public WriteBatch::Handler {
@@ -98,8 +98,8 @@ struct BatchContentClassifier : public WriteBatch::Handler {
     return Status::OK();
   }
 
-  Status PutBlobCF(uint32_t, const Slice&, const Slice&) override {
-    content_flags |= ContentFlags::HAS_BLOB;
+  Status PutBlobIndexCF(uint32_t, const Slice&, const Slice&) override {
+    content_flags |= ContentFlags::HAS_BLOB_INDEX;
     return Status::OK();
   }
 
@@ -334,6 +334,17 @@ Status ReadRecordFromWriteBatch(Slice* input, char* tag,
         return Status::Corruption("bad WriteBatch Merge");
       }
       break;
+    case kTypeColumnFamilyBlobIndex:
+      if (!GetVarint32(input, column_family)) {
+        return Status::Corruption("bad WriteBatch BlobIndex");
+      }
+    // intentional fallthrough
+    case kTypeBlobIndex:
+      if (!GetLengthPrefixedSlice(input, key) ||
+          !GetLengthPrefixedSlice(input, value)) {
+        return Status::Corruption("bad WriteBatch BlobIndex");
+      }
+      break;
     case kTypeLogData:
       assert(blob != nullptr);
       if (!GetLengthPrefixedSlice(input, blob)) {
@@ -421,12 +432,13 @@ Status WriteBatch::Iterate(Handler* handler) const {
         s = handler->MergeCF(column_family, key, value);
         found++;
         break;
-      case kTypeColumnFamilyBlobValue:
+      case kTypeColumnFamilyBlobIndex:
       case kTypeBlobIndex:
         assert(content_flags_.load(std::memory_order_relaxed) &
-               (ContentFlags::DEFERRED | ContentFlags::HAS_BLOB));
-        s = handler->PutBlobCF(column_family, key, value);
+               (ContentFlags::DEFERRED | ContentFlags::HAS_BLOB_INDEX));
+        s = handler->PutBlobIndexCF(column_family, key, value);
         found++;
+        break;
       case kTypeLogData:
         handler->LogData(blob);
         break;
@@ -774,20 +786,21 @@ Status WriteBatch::Merge(ColumnFamilyHandle* column_family,
                                    value);
 }
 
-Status WriteBatchInternal::PutBlob(WriteBatch* b, uint32_t column_family_id,
-                                   const Slice& key, const Slice& value) {
+Status WriteBatchInternal::PutBlobIndex(WriteBatch* b,
+                                        uint32_t column_family_id,
+                                        const Slice& key, const Slice& value) {
   LocalSavePoint save(b);
   WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
   if (column_family_id == 0) {
     b->rep_.push_back(static_cast<char>(kTypeBlobIndex));
   } else {
-    b->rep_.push_back(static_cast<char>(kTypeColumnFamilyBlobValue));
+    b->rep_.push_back(static_cast<char>(kTypeColumnFamilyBlobIndex));
     PutVarint32(&b->rep_, column_family_id);
   }
   PutLengthPrefixedSlice(&b->rep_, key);
   PutLengthPrefixedSlice(&b->rep_, value);
   b->content_flags_.store(b->content_flags_.load(std::memory_order_relaxed) |
-                              ContentFlags::HAS_BLOB,
+                              ContentFlags::HAS_BLOB_INDEX,
                           std::memory_order_relaxed);
   return save.commit();
 }
@@ -1207,8 +1220,8 @@ class MemTableInserter : public WriteBatch::Handler {
     return Status::OK();
   }
 
-  virtual Status PutBlobCF(uint32_t column_family_id, const Slice& key,
-                           const Slice& value) override {
+  virtual Status PutBlobIndexCF(uint32_t column_family_id, const Slice& key,
+                                const Slice& value) override {
     // Same as PutCF except for value type.
     return PutCFImpl(column_family_id, key, value, kTypeBlobIndex);
   }

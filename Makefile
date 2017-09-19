@@ -378,6 +378,7 @@ TESTS = \
 	db_wal_test \
 	db_block_cache_test \
 	db_test \
+	db_blob_index_test \
 	db_bloom_filter_test \
 	db_iter_test \
 	db_log_iter_test \
@@ -1102,6 +1103,9 @@ db_test: db/db_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 db_test2: db/db_test2.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+db_blob_index_test: db/db_blob_index_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 db_block_cache_test: db/db_block_cache_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
