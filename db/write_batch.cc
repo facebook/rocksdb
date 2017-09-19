@@ -1287,12 +1287,7 @@ class MemTableInserter : public WriteBatch::Handler {
         }
       }
     } else {
-      // TODO(myabandeh): In WritePrepared txn, a commit marker should
-      // reference the log that contains the prepare marker. This is to be able
-      // to reconsutrct the prepared list after recovery.
-      // TODO(myabandeh): In WritePrepared txn, we do not reach here since
-      // disable_memtable is set for commit.
-      assert(log_number_ref_ > 0);
+      assert(!write_after_commit_ || log_number_ref_ > 0);
     }
     const bool batch_boundry = true;
     MaybeAdvanceSeq(batch_boundry);
