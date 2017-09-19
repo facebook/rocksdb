@@ -366,7 +366,11 @@ Status WriteBatch::Iterate(Handler* handler) const {
 
   input.remove_prefix(WriteBatchInternal::kHeader);
   Slice key, value, blob, xid;
-  bool first_tag = true;
+  // Sometimes a sub-batch starts with a Noop. We want to exclude such Noops as
+  // the batch boundry sybmols otherwise we would mis-count the number of
+  // batches. We do that by checking whether the accumulated batch is empty
+  // before seeing the next Noop.
+  bool empty_batch = true;
   int found = 0;
   Status s;
   while (s.ok() && !input.empty() && handler->Continue()) {
@@ -385,6 +389,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
         assert(content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_PUT));
         s = handler->PutCF(column_family, key, value);
+        empty_batch = false;
         found++;
         break;
       case kTypeColumnFamilyDeletion:
@@ -392,6 +397,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
         assert(content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_DELETE));
         s = handler->DeleteCF(column_family, key);
+        empty_batch = false;
         found++;
         break;
       case kTypeColumnFamilySingleDeletion:
@@ -399,6 +405,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
         assert(content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_SINGLE_DELETE));
         s = handler->SingleDeleteCF(column_family, key);
+        empty_batch = false;
         found++;
         break;
       case kTypeColumnFamilyRangeDeletion:
@@ -406,6 +413,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
         assert(content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_DELETE_RANGE));
         s = handler->DeleteRangeCF(column_family, key, value);
+        empty_batch = false;
         found++;
         break;
       case kTypeColumnFamilyMerge:
@@ -413,38 +421,44 @@ Status WriteBatch::Iterate(Handler* handler) const {
         assert(content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_MERGE));
         s = handler->MergeCF(column_family, key, value);
+        empty_batch = false;
         found++;
         break;
       case kTypeLogData:
         handler->LogData(blob);
+        empty_batch = true;
         break;
       case kTypeBeginPrepareXID:
         assert(content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_BEGIN_PREPARE));
         handler->MarkBeginPrepare();
+        empty_batch = false;
         break;
       case kTypeEndPrepareXID:
         assert(content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_END_PREPARE));
         handler->MarkEndPrepare(xid);
+        empty_batch = true;
         break;
       case kTypeCommitXID:
         assert(content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_COMMIT));
         handler->MarkCommit(xid);
+        empty_batch = true;
         break;
       case kTypeRollbackXID:
         assert(content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_ROLLBACK));
         handler->MarkRollback(xid);
+        empty_batch = true;
         break;
       case kTypeNoop:
-        handler->MarkNoop(first_tag);
+        handler->MarkNoop(empty_batch);
+        empty_batch = true;
         break;
       default:
         return Status::Corruption("unknown WriteBatch tag");
     }
-    first_tag = false;
   }
   if (!s.ok()) {
     return s;
@@ -1227,10 +1241,10 @@ class MemTableInserter : public WriteBatch::Handler {
     return Status::OK();
   }
 
-  Status MarkNoop(bool first_tag) override {
+  Status MarkNoop(bool empty_batch) override {
     // A hack in pessimistic transaction could result into a noop at the start
     // of the write batch, that should be ignored.
-    if (!first_tag) {
+    if (!empty_batch) {
       // In the absence of Prepare markers, a kTypeNoop tag indicates the end of
       // a batch. This happens when write batch commits skipping the prepare
       // phase.

@@ -299,8 +299,8 @@ namespace {
       seen += "MarkEndPrepare(" + xid.ToString() + ")";
       return Status::OK();
     }
-    virtual Status MarkNoop(bool first_tag) override {
-      seen += "MarkNoop(" + std::string(first_tag ? "true" : "false") + ")";
+    virtual Status MarkNoop(bool empty_batch) override {
+      seen += "MarkNoop(" + std::string(empty_batch ? "true" : "false") + ")";
       return Status::OK();
     }
     virtual Status MarkCommit(const Slice& xid) override {

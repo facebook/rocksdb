@@ -91,7 +91,9 @@ Status WritePreparedTxn::CommitInternal() {
 
   const bool disable_memtable = true;
   uint64_t seq_used;
-  // Since the prepared batch is directly written to memtable, there is already a connection between the memtable and its WAL, so there is no need to redundantly reference the log that contains the prepared data.
+  // Since the prepared batch is directly written to memtable, there is already
+  // a connection between the memtable and its WAL, so there is no need to
+  // redundantly reference the log that contains the prepared data.
   const uint64_t zero_log_number = 0ull;
   auto s = db_impl_->WriteImpl(write_options_, working_batch, nullptr, nullptr,
                                zero_log_number, disable_memtable, &seq_used);
