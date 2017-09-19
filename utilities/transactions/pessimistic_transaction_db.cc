@@ -142,6 +142,9 @@ Status WritePreparedTxnDB::Initialize(
   for (auto rtxn : rtxns) {
     AddPrepared(rtxn.second->seq_);
   }
+  SequenceNumber prev_max = max_evicted_seq_;
+  SequenceNumber last_seq = db_impl_->GetLatestSequenceNumber() - 1;
+  AdvanceMaxEvictedSeq(prev_max, last_seq);
   auto s = PessimisticTransactionDB::Initialize(compaction_enabled_cf_indices,
                                                 handles);
   return s;
