@@ -108,7 +108,7 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
 
   if (auto_tuned_) {
     static const int kRefillsPerTune = 100;
-    std::chrono::microseconds now(env_->NowMicros());
+    std::chrono::microseconds now(NowMicrosMonotonic(env_));
     if (now - tuned_time_ >=
         kRefillsPerTune * std::chrono::microseconds(refill_period_us_)) {
       Tune();
@@ -275,15 +275,15 @@ int64_t GenericRateLimiter::CalculateRefillBytesPerPeriod(
 }
 
 Status GenericRateLimiter::Tune() {
-  const int kLowWatermarkPct = 25;
-  const int kHighWatermarkPct = 75;
-  const int kAdjustFactorPct = 25;
+  const int kLowWatermarkPct = 50;
+  const int kHighWatermarkPct = 90;
+  const int kAdjustFactorPct = 5;
   // computed rate limit will be in
   // `[max_bytes_per_sec_ / kAllowedRangeFactor, max_bytes_per_sec_]`.
   const int kAllowedRangeFactor = 10;
 
   std::chrono::microseconds prev_tuned_time = tuned_time_;
-  tuned_time_ = std::chrono::microseconds(env_->NowMicros());
+  tuned_time_ = std::chrono::microseconds(NowMicrosMonotonic(env_));
 
   int64_t elapsed_intervals =
       (tuned_time_ - prev_tuned_time + std::chrono::microseconds(refill_period_us_) -
@@ -293,7 +293,9 @@ Status GenericRateLimiter::Tune() {
                         100 / elapsed_intervals;
   int64_t prev_bytes_per_sec = GetBytesPerSecond();
   int64_t new_bytes_per_sec;
-  if (drained_pct < kLowWatermarkPct) {
+  if (drained_pct == 0) {
+    new_bytes_per_sec = max_bytes_per_sec_ / kAllowedRangeFactor;
+  } else if (drained_pct < kLowWatermarkPct) {
     new_bytes_per_sec =
         std::max(max_bytes_per_sec_ / kAllowedRangeFactor,
                  prev_bytes_per_sec * 100 / (100 + kAdjustFactorPct));
