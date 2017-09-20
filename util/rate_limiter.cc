@@ -280,7 +280,7 @@ Status GenericRateLimiter::Tune() {
   const int kAdjustFactorPct = 5;
   // computed rate limit will be in
   // `[max_bytes_per_sec_ / kAllowedRangeFactor, max_bytes_per_sec_]`.
-  const int kAllowedRangeFactor = 10;
+  const int kAllowedRangeFactor = 20;
 
   std::chrono::microseconds prev_tuned_time = tuned_time_;
   tuned_time_ = std::chrono::microseconds(NowMicrosMonotonic(env_));
