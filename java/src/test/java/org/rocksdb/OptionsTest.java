@@ -459,6 +459,15 @@ public class OptionsTest {
   }
 
   @Test
+  public void maxBackgroundJobs() {
+    try (final Options opt = new Options()) {
+      final int intValue = rand.nextInt();
+      opt.setMaxBackgroundJobs(intValue);
+      assertThat(opt.maxBackgroundJobs()).isEqualTo(intValue);
+    }
+  }
+
+  @Test
   public void maxLogFileSize() throws RocksDBException {
     try (final Options opt = new Options()) {
       final long longValue = rand.nextLong();
