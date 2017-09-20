@@ -189,11 +189,10 @@ TEST_F(RateLimiterTest, AutoTuneIncreaseWhenFull) {
   special_env.time_elapse_only_sleep_ = true;
 
   auto stats = CreateDBStatistics();
-  std::unique_ptr<RateLimiter> rate_limiter(
-      new GenericRateLimiter(1000 /* rate_bytes_per_sec */,
-                             std::chrono::microseconds(kTimePerRefill).count(),
-                             10 /* fairness */, RateLimiter::Mode::kWritesOnly,
-                             &special_env, true /* auto_tuned */));
+  std::unique_ptr<RateLimiter> rate_limiter(new GenericRateLimiter(
+      1000 /* rate_bytes_per_sec */,
+      std::chrono::microseconds(kTimePerRefill).count(), 10 /* fairness */,
+      RateLimiter::Mode::kWritesOnly, &special_env, true /* auto_tuned */));
 
   // Use callback to advance time because we need to advance (1) after Request()
   // has determined the bytes are not available; and (2) before Refill()
@@ -224,7 +223,7 @@ TEST_F(RateLimiterTest, AutoTuneIncreaseWhenFull) {
   // decreases after a sequence of periods where rate limiter is not drained
   orig_bytes_per_sec = new_bytes_per_sec;
   special_env.SleepForMicroseconds(
-     kRefillsPerTune * std::chrono::microseconds(kTimePerRefill).count());
+      kRefillsPerTune * std::chrono::microseconds(kTimePerRefill).count());
   // make a request so tuner can be triggered
   rate_limiter->Request(1 /* bytes */, Env::IO_HIGH, stats.get(),
                         RateLimiter::OpType::kWrite);

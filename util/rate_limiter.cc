@@ -285,12 +285,12 @@ Status GenericRateLimiter::Tune() {
   std::chrono::microseconds prev_tuned_time = tuned_time_;
   tuned_time_ = std::chrono::microseconds(NowMicrosMonotonic(env_));
 
-  int64_t elapsed_intervals =
-      (tuned_time_ - prev_tuned_time + std::chrono::microseconds(refill_period_us_) -
-       std::chrono::microseconds(1)) /
-      std::chrono::microseconds(refill_period_us_);
-  int64_t drained_pct = (num_drains_ - prev_num_drains_) *
-                        100 / elapsed_intervals;
+  int64_t elapsed_intervals = (tuned_time_ - prev_tuned_time +
+                               std::chrono::microseconds(refill_period_us_) -
+                               std::chrono::microseconds(1)) /
+                              std::chrono::microseconds(refill_period_us_);
+  int64_t drained_pct =
+      (num_drains_ - prev_num_drains_) * 100 / elapsed_intervals;
   int64_t prev_bytes_per_sec = GetBytesPerSecond();
   int64_t new_bytes_per_sec;
   if (drained_pct == 0) {
