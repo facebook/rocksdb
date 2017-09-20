@@ -748,21 +748,26 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
   }
   // Compare the largest sequence number in all SST files with
   // the largest sequence number seen in all WALs. Abort Open() if SN from
-  // SST is larger than SN from WAL. This could happen when WAL is corrupted
-  // and some (but not all) CFs are flushed
-  for (auto cfd : *versions_->GetColumnFamilySet()) {
-    auto* vstorage = cfd->current()->storage_info();
-    if (vstorage->num_levels() <= 0 || vstorage->NumLevelFiles(0) <= 0)
-      continue;
-    SequenceNumber latest_sequence_number_SST =
-        vstorage->LevelFiles(0)[0]->largest_seqno;
-    if (latest_sequence_number_SST > max_sequence_all_WALs) {
-      ROCKS_LOG_FATAL(immutable_db_options_.info_log,
-                    "SST file is ahead of WAL:"
-                    " max sequence of all WALs: #%" PRIu64
-                    " SequenceNumber in SST: #%" PRIu64,
-                    max_sequence_all_WALs, latest_sequence_number_SST);
-      return Status::Corruption("SST file is ahead of WALs");
+  // SST is larger than SN from WAL. This could during PIT recovery when
+  // WAL is corrupted and some (but not all) CFs are flushed
+  if (immutable_db_options_.wal_recovery_mode ==
+             WALRecoveryMode::kPointInTimeRecovery) {
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      auto* vstorage = cfd->current()->storage_info();
+      if (vstorage->num_levels() <= 0 ||
+          vstorage->NumLevelFiles(0) <= 0 ||
+          max_sequence_all_WALs == 0)
+        continue;
+      SequenceNumber latest_sequence_number_SST =
+          vstorage->LevelFiles(0)[0]->largest_seqno;
+      if (latest_sequence_number_SST > max_sequence_all_WALs) {
+        ROCKS_LOG_FATAL(immutable_db_options_.info_log,
+                      "SST file is ahead of WAL:"
+                      " max sequence of all WALs: #%" PRIu64
+                      " SequenceNumber in SST: #%" PRIu64,
+                      max_sequence_all_WALs, latest_sequence_number_SST);
+        return Status::Corruption("SST file is ahead of WALs");
+      }
     }
   }
 
