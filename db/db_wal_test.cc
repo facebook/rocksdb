@@ -898,8 +898,8 @@ TEST_F(DBWALTest, kPointInTimeRecoveryCFConsistency) {
 
   ASSERT_OK(Put(1, "key3", "val3"));
   // Corrupt WAL at location of key3
-  RecoveryTestHelper::InduceCorruption(fname, static_cast<size_t>(offset_to_corrupt),
-                   static_cast<size_t>(4));
+  RecoveryTestHelper::InduceCorruption(
+      fname, static_cast<size_t>(offset_to_corrupt), static_cast<size_t>(4));
   ASSERT_OK(Put(2, "key4", "val4"));
   ASSERT_OK(Put(1, "key5", "val5"));
   Flush(2);
