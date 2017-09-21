@@ -257,7 +257,7 @@ TEST_F(DBBlobIndexTest, Iterate) {
     }
   };
 
-  auto create_iterator = [&]() -> Iterator* {
+  auto create_normal_iterator = [&]() -> Iterator* {
     return dbfull()->NewIterator(ReadOptions());
   };
 
@@ -358,18 +358,18 @@ TEST_F(DBBlobIndexTest, Iterate) {
     MoveDataTo(tier);
 
     // Normal iterator
-    verify(1, Status::kNotSupported, "", "", create_iterator);
-    verify(3, Status::kNotSupported, "", "", create_iterator);
-    verify(5, Status::kOk, get_value(5, 0), get_value(5, 0), create_iterator);
-    verify(7, Status::kOk, get_value(8, 0), get_value(6, 0), create_iterator);
-    verify(9, Status::kOk, get_value(10, 0), get_value(8, 0), create_iterator);
-    verify(11, Status::kNotSupported, "", "", create_iterator);
+    verify(1, Status::kNotSupported, "", "", create_normal_iterator);
+    verify(3, Status::kNotSupported, "", "", create_normal_iterator);
+    verify(5, Status::kOk, get_value(5, 0), get_value(5, 0), create_normal_iterator);
+    verify(7, Status::kOk, get_value(8, 0), get_value(6, 0), create_normal_iterator);
+    verify(9, Status::kOk, get_value(10, 0), get_value(8, 0), create_normal_iterator);
+    verify(11, Status::kNotSupported, "", "", create_normal_iterator);
     verify(13, Status::kOk,
            get_value(13, 2) + "," + get_value(13, 1) + "," + get_value(13, 0),
            get_value(13, 2) + "," + get_value(13, 1) + "," + get_value(13, 0),
-           create_iterator);
+           create_normal_iterator);
     verify(15, Status::kOk, get_value(16, 0), get_value(14, 0),
-           create_iterator);
+           create_normal_iterator);
 
     // Iterator with blob support
     verify(1, Status::kOk, get_value(1, 0), get_value(1, 0),
