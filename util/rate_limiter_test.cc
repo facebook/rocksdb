@@ -200,8 +200,8 @@ TEST_F(RateLimiterTest, AutoTuneIncreaseWhenFull) {
   // the next request to drain the rate limiter).
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "GenericRateLimiter::Refill", [&](void* arg) {
-        special_env.SleepForMicroseconds(
-            std::chrono::microseconds(kTimePerRefill).count());
+        special_env.SleepForMicroseconds(static_cast<int>(
+            std::chrono::microseconds(kTimePerRefill).count()));
       });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -222,8 +222,8 @@ TEST_F(RateLimiterTest, AutoTuneIncreaseWhenFull) {
 
   // decreases after a sequence of periods where rate limiter is not drained
   orig_bytes_per_sec = new_bytes_per_sec;
-  special_env.SleepForMicroseconds(
-      kRefillsPerTune * std::chrono::microseconds(kTimePerRefill).count());
+  special_env.SleepForMicroseconds(static_cast<int>(
+      kRefillsPerTune * std::chrono::microseconds(kTimePerRefill).count()));
   // make a request so tuner can be triggered
   rate_limiter->Request(1 /* bytes */, Env::IO_HIGH, stats.get(),
                         RateLimiter::OpType::kWrite);
