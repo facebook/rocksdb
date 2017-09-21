@@ -759,7 +759,7 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceConcurrentTest) {
       // form merged bactches works because the writes go to saparte queues.
       // This would result in different write groups in each run of the test. We
       // still keep the test since althgouh non-deterministic and hard to debug,
-      // it is still usefull to have. Since in this case we could finish with
+      // it is still useful to have. Since in this case we could finish with
       // commit writes that dont write to memtable, the seq is not advanced in
       // this code path. It will be after the next write. So we do one more
       // write to make the impact of last seq visible.

@@ -4655,7 +4655,7 @@ TEST_P(TransactionTest, SeqAdvanceTest) {
   const size_t NUM_BRANCHES = 8;
   // Helper function that shows if the branch is to be taken in the run
   // represented by the number n.
-  auto branch_do = [](size_t n, size_t* branch) {
+  auto branch_do = [&](size_t n, size_t* branch) {
     assert(*branch < NUM_BRANCHES);
     const size_t filter = static_cast<size_t>(1) << *branch;
     return n & filter;
