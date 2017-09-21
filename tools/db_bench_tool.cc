@@ -3212,20 +3212,6 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     if (FLAGS_thread_status_per_interval > 0) {
       options.enable_thread_tracking = true;
     }
-    if (FLAGS_rate_limiter_bytes_per_sec > 0) {
-      if (FLAGS_rate_limit_bg_reads &&
-          !FLAGS_new_table_reader_for_compaction_inputs) {
-        fprintf(stderr,
-                "rate limit compaction reads must have "
-                "new_table_reader_for_compaction_inputs set\n");
-        exit(1);
-      }
-      options.rate_limiter.reset(NewGenericRateLimiter(
-          FLAGS_rate_limiter_bytes_per_sec, 100 * 1000 /* refill_period_us */,
-          10 /* fairness */,
-          FLAGS_rate_limit_bg_reads ? RateLimiter::Mode::kReadsOnly
-                                    : RateLimiter::Mode::kWritesOnly));
-    }
 
 #ifndef ROCKSDB_LITE
     if (FLAGS_readonly && FLAGS_transaction_db) {
@@ -3258,6 +3244,21 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       FLAGS_env->LowerThreadPoolIOPriority(Env::HIGH);
     }
     options.env = FLAGS_env;
+
+    if (FLAGS_rate_limiter_bytes_per_sec > 0) {
+      if (FLAGS_rate_limit_bg_reads &&
+          !FLAGS_new_table_reader_for_compaction_inputs) {
+        fprintf(stderr,
+                "rate limit compaction reads must have "
+                "new_table_reader_for_compaction_inputs set\n");
+        exit(1);
+      }
+      options.rate_limiter.reset(NewGenericRateLimiter(
+          FLAGS_rate_limiter_bytes_per_sec, 100 * 1000 /* refill_period_us */,
+          10 /* fairness */,
+          FLAGS_rate_limit_bg_reads ? RateLimiter::Mode::kReadsOnly
+                                    : RateLimiter::Mode::kWritesOnly));
+    }
 
     if (FLAGS_num_multi_db <= 1) {
       OpenDb(options, FLAGS_db, &db_);
