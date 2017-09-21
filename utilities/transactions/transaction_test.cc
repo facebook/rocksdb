@@ -4640,8 +4640,6 @@ TEST_P(TransactionTest, MemoryLimitTest) {
   delete txn;
 }
 
-// This test is too slow for travis
-#ifndef TRAVIS
 // This test clarifies the existing expectation from the sequence number
 // algorithm. It could detect mistakes in updating the code but it is not
 // necessarily the one acceptable way. If the algorithm is legitimately changed,
@@ -4742,7 +4740,6 @@ TEST_P(TransactionTest, SeqAdvanceTest) {
   }
   }
 }
-#endif
 
 }  // namespace rocksdb
 

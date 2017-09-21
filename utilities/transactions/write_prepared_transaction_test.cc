@@ -553,8 +553,6 @@ TEST_P(WritePreparedTransactionTest, AdvanceMaxEvictedSeqBasicTest) {
   }
 }
 
-// This test is too slow for travis
-#ifndef TRAVIS
 // TODO(myabandeh): remove this redundant test after transaction_test is enabled with WRITE_PREPARED too
 // This test clarifies the existing expectation from the sequence number
 // algorithm. It could detect mistakes in updating the code but it is not
@@ -658,10 +656,7 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceTest) {
   }
   }
 }
-#endif
 
-// This test is too slow for travis
-#ifndef TRAVIS
 TEST_P(WritePreparedTransactionTest, SeqAdvanceConcurrentTest) {
   // Given the sequential run of txns, with this timeout we should never see a deadlock nor a timeout unless we have a key conflict, which should be almost infeasible.
     txn_db_options.transaction_lock_timeout = 1000;
@@ -672,15 +667,15 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceConcurrentTest) {
   // Number of different txn types we use in this test
   const size_t type_cnt = 4;
   // The size of the first write group
-  const size_t first_group_size = type_cnt;
+  const size_t first_group_size = 2; //type_cnt;
   // Total number of txns we run in each test
-  const size_t txn_cnt = type_cnt * 2;
+  const size_t txn_cnt = first_group_size * 2; //type_cnt * 2;
 
   size_t base[txn_cnt + 1] = {1, };
-  for (size_t bi = 1; bi <= type_cnt * 2; bi++) {
+  for (size_t bi = 1; bi <= txn_cnt; bi++) {
     base[bi] = base[bi-1] * type_cnt;
   }
-  const size_t max_n = std::pow(type_cnt, type_cnt * 2);
+  const size_t max_n = std::pow(type_cnt, txn_cnt);
   printf("Number of cases being tested is %" PRIu64 "\n", max_n);
   for (size_t n = 0; n < max_n; n++, ReOpen()) {
     if (n % 1000 == 0) {
@@ -771,7 +766,6 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceConcurrentTest) {
     ASSERT_EQ(exp_seq, seq);
   }
 }
-#endif
 
 // Test WritePreparedTxnDB's IsInSnapshot against different ordering of
 // snapshot, max_committed_seq_, prepared, and commit entries.
