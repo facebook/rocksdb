@@ -285,9 +285,10 @@ class WritePreparedTransactionTest : public TransactionTest {
   }
 };
 
+//TODO(myabandeh): Aslo instantiate with concurrent_prepare
 INSTANTIATE_TEST_CASE_P(WritePreparedTransactionTest,
                         WritePreparedTransactionTest,
-                        ::testing::Values(std::make_tuple(false, true,
+                        ::testing::Values(std::make_tuple(false, false,
                                                           WRITE_PREPARED)));
 
 TEST_P(WritePreparedTransactionTest, CommitMapTest) {
@@ -573,7 +574,7 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceTest) {
   for (size_t n = 0;  n < max_n; n++, ReOpen()) {
     size_t branch = 0;
   auto seq = db_impl->GetLatestSequenceNumber();
-  auto exp_seq = seq;
+  exp_seq = seq;
   // Test DB's internal txn. It involves no prepare phase nor a commit marker.
   auto s = db->Put(wopts, "key", "value");
   // Consume one seq per batch
@@ -584,11 +585,15 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceTest) {
 
   if (branch_do(n, &branch)) {
   db_impl->Flush(fopt);
+  seq = db_impl->GetLatestSequenceNumber();
+  ASSERT_EQ(exp_seq, seq);
   }
   if (branch_do(n, &branch)) {
   db_impl->FlushWAL(true);
   ReOpenNoDelete();
   db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+  seq = db_impl->GetLatestSequenceNumber();
+  ASSERT_EQ(exp_seq, seq);
   }
 
   // Doing it twice might detect some bugs
@@ -613,11 +618,15 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceTest) {
 
   if (branch_do(n, &branch)) {
   db_impl->Flush(fopt);
+  seq = db_impl->GetLatestSequenceNumber();
+  ASSERT_EQ(exp_seq, seq);
   }
   if (branch_do(n, &branch)) {
   db_impl->FlushWAL(true);
   ReOpenNoDelete();
   db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+  seq = db_impl->GetLatestSequenceNumber();
+  ASSERT_EQ(exp_seq, seq);
   }
 
   // A full 2pc txn that also involves a commit marker.
@@ -646,11 +655,15 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceTest) {
 
   if (branch_do(n, &branch)) {
   db_impl->Flush(fopt);
+  seq = db_impl->GetLatestSequenceNumber();
+  ASSERT_EQ(exp_seq, seq);
   }
   if (branch_do(n, &branch)) {
   db_impl->FlushWAL(true);
   ReOpenNoDelete();
   db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+  seq = db_impl->GetLatestSequenceNumber();
+  ASSERT_EQ(exp_seq, seq);
   }
 
   s = db->Put(wopts, "key", "value");
@@ -683,11 +696,15 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceTest) {
 
   if (branch_do(n, &branch)) {
   db_impl->Flush(fopt);
+  seq = db_impl->GetLatestSequenceNumber();
+  ASSERT_EQ(exp_seq, seq);
   }
   if (branch_do(n, &branch)) {
   db_impl->FlushWAL(true);
   ReOpenNoDelete();
   db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+  seq = db_impl->GetLatestSequenceNumber();
+  ASSERT_EQ(exp_seq, seq);
   }
   
   // Test that repaly has advanced the seq numbers the same
@@ -697,126 +714,61 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceTest) {
   }
 }
 
-TEST_P(WritePreparedTransactionTest, SeqAdvanceConcurretnTest) {
-  auto pdb = reinterpret_cast<PessimisticTransactionDB*>(db);
-  DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
-  auto seq = db_impl->GetLatestSequenceNumber();
-  auto exp_seq = seq;
+TEST_P(WritePreparedTransactionTest, SeqAdvanceConcurrentTest) {
+  // Given the sequential run of txns, with this timeout we should never see a deadlock nor a timeout unless we have a key conflict, which should be almost infeasible.
+    txn_db_options.transaction_lock_timeout = 1000;
+    txn_db_options.default_lock_timeout = 1000;
+    ReOpen();
+  FlushOptions fopt;
 
-  // Test DB's internal txn. It involves no prepare phase nor a commit marker.
-  WriteOptions wopts;
-
+  // Number of different txn types we use in this test
   const size_t type_cnt = 4;
-    std::atomic<size_t> linked(0);
-  std::function<void(size_t)> f0 = [&](size_t index) {
-    auto s = db->Put(wopts, "key" + std::to_string(index), "value");
-    // Consume one seq per batch
-    exp_seq++;
-    if (s.IsTimedOut()) { // due to lock manager granularity
-        linked++;
-    } else {
-    ASSERT_OK(s);
-    }
-  };
-  std::function<void(size_t)> f1 = [&](size_t index) {
-    WriteBatch wb;
-auto istr = std::to_string(index);
-    wb.Put("k1" + istr, "v1");
-    wb.Put("k2" + istr, "v2");
-    wb.Put("k3" + istr, "v3");
-    auto s = pdb->Write(wopts, &wb);
-    // Consume one seq per batch
-    exp_seq++;
-    if (s.IsTimedOut()) { // due to lock manager granularity
-        linked++;
-    } else {
-    ASSERT_OK(s);
-    }
-  };
-  std::function<void(size_t)> f2 = [&](size_t index) {
-    TransactionOptions txn_options;
-    WriteOptions write_options;
-    Transaction* txn = db->BeginTransaction(write_options, txn_options);
-auto istr = std::to_string(index);
-    auto s = txn->SetName("xid" + istr);
-    ASSERT_OK(s);
-    s = txn->Put(Slice("foo" + istr), Slice("bar"));
-    s = txn->Put(Slice("foo2" + istr), Slice("bar2"));
-    s = txn->Put(Slice("foo3" + istr), Slice("bar3"));
-    s = txn->Put(Slice("foo4" + istr), Slice("bar4"));
-    if (s.IsTimedOut()) { // due to lock manager granularity
-        linked++;
-    } else {
-    ASSERT_OK(s);
-    }
-    s = txn->Commit();
-    ASSERT_OK(s);
-    // Consume one seq per batch
-    exp_seq++;
-    pdb->UnregisterTransaction(txn);
-    delete txn;
-  };
-  std::function<void(size_t)> f3 = [&](size_t index) {
-    TransactionOptions txn_options;
-    WriteOptions write_options;
-    Transaction* txn = db->BeginTransaction(write_options, txn_options);
-auto istr = std::to_string(index);
-    auto s = txn->SetName("xid" + istr);
-    ASSERT_OK(s);
-    s = txn->Put(Slice("foo" + istr), Slice("bar"));
-    s = txn->Put(Slice("foo2" + istr), Slice("bar2"));
-    s = txn->Put(Slice("foo3" + istr), Slice("bar3"));
-    s = txn->Put(Slice("foo4" + istr), Slice("bar4"));
-    s = txn->Put(Slice("foo5" + istr), Slice("bar5"));
-    if (s.IsTimedOut()) { // due to lock manager granularity
-        linked++;
-    } else {
-    ASSERT_OK(s);
-    }
-    s = txn->Prepare();
-    ASSERT_OK(s);
-    // Consume one seq per batch
-    exp_seq++;
-    s = txn->Commit();
-    ASSERT_OK(s);
-    // Consume one seq per commit marker
-    exp_seq++;
-    delete txn;
-  };
+  // The size of the first write group
+  const size_t first_group_size = type_cnt;
+  // Total number of txns we run in each test
+  const size_t txn_cnt = type_cnt * 2;
 
-  size_t base[type_cnt * 2 + 1] = {1, };
+  size_t base[txn_cnt + 1] = {1, };
   for (size_t bi = 1; bi <= type_cnt * 2; bi++) {
     base[bi] = base[bi-1] * type_cnt;
   }
   const size_t max_n = std::pow(type_cnt, type_cnt * 2);
-  for (size_t n = 0; n < max_n; n++) {
-      //printf("%zu ", n);
-              std::vector<port::Thread> threads;
-    std::atomic<bool> next_group_formed(false);
-    std::atomic<bool> first_group_formed(false);
+  printf("Number of cases being tested is %" PRIu64 "\n", max_n);
+  for (size_t n = 0; n < max_n; n++, ReOpen()) {
+    if (n % 1000 == 0) {
+      printf("Tested %" PRIu64 " cases so far\n", n);
+    }
+  DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+  auto seq = db_impl->GetLatestSequenceNumber();
+  exp_seq = seq;
+  // This is increased before writing the batch for commit
+  commit_writes = 0;
+  // This is increased before txn starts linking if it expects to do a commit eventually
+  expected_commits = 0;
+  std::vector<port::Thread> threads;
 
     linked = 0;
+    std::atomic<bool> batch_formed(false);
     rocksdb::SyncPoint::GetInstance()->SetCallBack(
-        "WriteThread::JoinBatchGroup:Start", [&](void* arg) {
+        "WriteThread::EnterAsBatchGroupLeader:End", [&](void* arg) {
+        batch_formed = true;
         });
     rocksdb::SyncPoint::GetInstance()->SetCallBack(
         "WriteThread::JoinBatchGroup:Wait", [&](void* arg) {
         linked++;
         if (linked == 1) {
-        while (linked < 1 + 2 * type_cnt) {
+          // Wait until the others are linked too.
+          while (linked < first_group_size);
+        } else if (linked == 1 + first_group_size) {
+        // Make the 2nd batch of the rest of writes plus any followup commits from the first batch
+          while (linked < txn_cnt + commit_writes);
         }
-        }
+        // Then we will have one or more batches consisting of follow-up commits from the 2nd batch. There is a bit of non-determinism here but it should be tolerable.
         });
 
              rocksdb::SyncPoint::GetInstance()->EnableProcessing();
-    // Start an initial single-batch group behind which our intended group will
-    // be lined up
-    threads.emplace_back(f0, 1000);
-          while (linked < 1) {
-          };
-    for (size_t bi = 0; bi < type_cnt * 2; bi++) {
+    for (size_t bi = 0; bi < txn_cnt; bi++) {
       size_t d = (n % base[bi+1]) / base[bi]; // get the bi-th digit in number system based on type_cnt
-      //printf("%zu ", d);
      switch (d) {
        case 0:
          threads.emplace_back(f0, bi);
@@ -833,18 +785,43 @@ auto istr = std::to_string(index);
        default:
                assert(false);
      }
-     while (linked.load() <= bi) {
+     // wait to be linked
+     while (linked.load() <= bi);
+     if (bi + 1 == first_group_size) {  // after a queue of size first_group_size
+       while (!batch_formed) {}
+       // to make it more deterministic, wait until the commits are linked
+       while (linked.load() <= bi + expected_commits) {}
      }
     }
-    next_group_formed = true;
     for (auto& t : threads) {
       t.join();
     }
+    // Check if memtable inserts advanced seq number as expected
+    seq = db_impl->GetLatestSequenceNumber();
+    ASSERT_EQ(exp_seq, seq);
+
     rocksdb::SyncPoint::GetInstance()->DisableProcessing();
     rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+    // Check if recovery preserves the last sequence number
+  db_impl->FlushWAL(true);
+  ReOpenNoDelete();
+  db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+    seq = db_impl->GetLatestSequenceNumber();
+    ASSERT_EQ(exp_seq, seq);
+
+    // Check if flush preserves the last sequence number
+  db_impl->Flush(fopt);
+  seq = db_impl->GetLatestSequenceNumber();
+  ASSERT_EQ(exp_seq, seq);
+
+    // Check if recovery after flush preserves the last sequence number
+  db_impl->FlushWAL(true);
+  ReOpenNoDelete();
+  db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+    seq = db_impl->GetLatestSequenceNumber();
+    ASSERT_EQ(exp_seq, seq);
   }
-
-
 }
 
 // Test WritePreparedTxnDB's IsInSnapshot against different ordering of

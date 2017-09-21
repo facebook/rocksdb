@@ -124,6 +124,77 @@ class TransactionTest : public ::testing::TestWithParam<
     }
     return s;
   }
+
+    std::atomic<size_t> linked = {0};
+    std::atomic<size_t> exp_seq = {0};
+    std::atomic<size_t> commit_writes = {0};
+    std::atomic<size_t> expected_commits = {0};
+  std::function<void(size_t)> f0 = [&](size_t index) {
+  // Test DB's internal txn. It involves no prepare phase nor a commit marker.
+  WriteOptions wopts;
+    auto s = db->Put(wopts, "key" + std::to_string(index), "value");
+    // Consume one seq per batch
+    exp_seq++;
+    ASSERT_OK(s);
+  };
+  std::function<void(size_t)> f1 = [&](size_t index) {
+    WriteBatch wb;
+auto istr = std::to_string(index);
+    wb.Put("k1" + istr, "v1");
+    wb.Put("k2" + istr, "v2");
+    wb.Put("k3" + istr, "v3");
+  WriteOptions wopts;
+    auto s = db->Write(wopts, &wb);
+    // Consume one seq per batch
+    exp_seq++;
+    ASSERT_OK(s);
+  };
+  std::function<void(size_t)> f2 = [&](size_t index) {
+    TransactionOptions txn_options;
+    WriteOptions write_options;
+    Transaction* txn = db->BeginTransaction(write_options, txn_options);
+auto istr = std::to_string(index);
+    auto s = txn->SetName("xid" + istr);
+    ASSERT_OK(s);
+    s = txn->Put(Slice("foo" + istr), Slice("bar"));
+    s = txn->Put(Slice("foo2" + istr), Slice("bar2"));
+    s = txn->Put(Slice("foo3" + istr), Slice("bar3"));
+    s = txn->Put(Slice("foo4" + istr), Slice("bar4"));
+    ASSERT_OK(s);
+    s = txn->Commit();
+    ASSERT_OK(s);
+    // Consume one seq per batch
+    exp_seq++;
+  auto pdb = reinterpret_cast<PessimisticTransactionDB*>(db);
+    pdb->UnregisterTransaction(txn);
+    delete txn;
+  };
+  std::function<void(size_t)> f3 = [&](size_t index) {
+    TransactionOptions txn_options;
+    WriteOptions write_options;
+    Transaction* txn = db->BeginTransaction(write_options, txn_options);
+auto istr = std::to_string(index);
+    auto s = txn->SetName("xid" + istr);
+    ASSERT_OK(s);
+    s = txn->Put(Slice("foo" + istr), Slice("bar"));
+    s = txn->Put(Slice("foo2" + istr), Slice("bar2"));
+    s = txn->Put(Slice("foo3" + istr), Slice("bar3"));
+    s = txn->Put(Slice("foo4" + istr), Slice("bar4"));
+    s = txn->Put(Slice("foo5" + istr), Slice("bar5"));
+    ASSERT_OK(s);
+    expected_commits++;
+    s = txn->Prepare();
+    ASSERT_OK(s);
+    // Consume one seq per batch
+    exp_seq++;
+    commit_writes++;
+    s = txn->Commit();
+    ASSERT_OK(s);
+    // Consume one seq per commit marker
+    exp_seq++;
+    delete txn;
+  };
+
 };
 
 class MySQLStyleTransactionTest : public TransactionTest {};

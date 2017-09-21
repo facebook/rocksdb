@@ -2656,7 +2656,7 @@ void VersionSet::LogAndApplyCFHelper(VersionEdit* edit) {
   assert(edit->IsColumnFamilyManipulation());
   edit->SetNextFile(next_file_number_.load());
   // The log might have data that is not visible to memtbale and hence have not updated the last_sequence_ yet. It is also possible that the log has is expecting some new data that is not written yet. Since LastSequence is an upper bound on the sequence, it is ok to record last_to_be_written_sequence_ as the last sequence.
-  edit->SetLastSequence(last_to_be_written_sequence_);
+  edit->SetLastSequence(db_options_->concurrent_prepare ? last_to_be_written_sequence_ : last_sequence_);
   if (edit->is_column_family_drop_) {
     // if we drop column family, we have to make sure to save max column family,
     // so that we don't reuse existing ID
@@ -2680,7 +2680,7 @@ void VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd,
   }
   edit->SetNextFile(next_file_number_.load());
   // The log might have data that is not visible to memtbale and hence have not updated the last_sequence_ yet. It is also possible that the log has is expecting some new data that is not written yet. Since LastSequence is an upper bound on the sequence, it is ok to record last_to_be_written_sequence_ as the last sequence.
-  edit->SetLastSequence(last_to_be_written_sequence_);
+  edit->SetLastSequence(db_options_->concurrent_prepare ? last_to_be_written_sequence_ : last_sequence_);
 
   builder->Apply(edit);
 }

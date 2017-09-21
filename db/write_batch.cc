@@ -1342,6 +1342,8 @@ Status WriteBatchInternal::InsertInto(
                             nullptr /*has_valid_writes*/, seq_per_batch);
   for (auto w : write_group) {
     if (!w->ShouldWriteToMemtable()) {
+      inserter.MaybeAdvanceSeq(true);
+      w->sequence = inserter.sequence();
       continue;
     }
     SetSequence(w->batch, inserter.sequence());
