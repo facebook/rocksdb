@@ -37,7 +37,9 @@ TEST_F(DBWALTest, WAL) {
     writeOpt.disableWAL = true;
     ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "foo", "v2"));
 
-    ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
+    Options options = CurrentOptions();
+    options.wal_recovery_mode = WALRecoveryMode::kSkipAnyCorruptedRecords;
+    ReopenWithColumnFamilies({"default", "pikachu"}, options);
     // Both value's should be present.
     ASSERT_EQ("v2", Get(1, "bar"));
     ASSERT_EQ("v2", Get(1, "foo"));

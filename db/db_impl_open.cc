@@ -746,19 +746,22 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
   // SST is larger than SN from WAL. This could during PIT recovery when
   // WAL is corrupted and some (but not all) CFs are flushed
   if (immutable_db_options_.wal_recovery_mode ==
-      WALRecoveryMode::kPointInTimeRecovery) {
+          WALRecoveryMode::kPointInTimeRecovery ||
+      immutable_db_options_.wal_recovery_mode ==
+          WALRecoveryMode::kTolerateCorruptedTailRecords) {
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       auto* vstorage = cfd->current()->storage_info();
-      if (vstorage->num_levels() <= 0 || vstorage->NumLevelFiles(0) <= 0)
+      if (vstorage->num_levels() <= 0 || vstorage->NumLevelFiles(0) <= 0) {
         continue;
-      SequenceNumber latest_sequence_number_SST =
+      }
+      SequenceNumber latest_sequence_number_sst =
           vstorage->LevelFiles(0)[0]->largest_seqno;
-      if (latest_sequence_number_SST > *next_sequence - 1) {
+      if (latest_sequence_number_sst > *next_sequence - 1) {
         ROCKS_LOG_ERROR(immutable_db_options_.info_log,
                         "SST file is ahead of WAL:"
                         " max sequence of all WALs: #%" PRIu64
                         " SequenceNumber in SST: #%" PRIu64,
-                        *next_sequence - 1, latest_sequence_number_SST);
+                        *next_sequence - 1, latest_sequence_number_sst);
         return Status::Corruption("SST file is ahead of WALs");
       }
     }
