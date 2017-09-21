@@ -4703,6 +4703,7 @@ TEST_P(TransactionTest, SeqAdvanceTest) {
   ASSERT_OK(s);
   seq = db_impl->GetLatestSequenceNumber();
   ASSERT_EQ(exp_seq, seq);
+  delete txn;
 
   // Commit without prepare. It shoudl write to DB without a commit marker.
   txn = db->BeginTransaction(write_options, txn_options);
