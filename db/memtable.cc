@@ -590,7 +590,7 @@ static bool SaveValue(void* arg, const char* entry) {
     switch (type) {
       case kTypeBlobIndex:
         if (s->is_blob_index == nullptr) {
-          ROCKS_LOG_ERROR(s->logger, "Encounter unexpected blob value.");
+          ROCKS_LOG_ERROR(s->logger, "Encounter unexpected blob index.");
           *(s->status) = Status::NotSupported(
               "Encounter unsupported blob value. Please open DB with "
               "rocksdb::blob_db::BlobDB instead.");

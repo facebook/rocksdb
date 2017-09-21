@@ -441,9 +441,9 @@ void DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
               PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
             } else if (ikey_.type == kTypeBlobIndex) {
               if (!allow_blob_) {
-                ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob value.");
+                ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
                 status_ = Status::NotSupported(
-                    "Encounter unexpected blob value. Please open DB with "
+                    "Encounter unexpected blob index. Please open DB with "
                     "rocksdb::blob_db::BlobDB instead.");
                 valid_ = false;
               } else {
@@ -594,9 +594,9 @@ void DBIter::MergeValuesNewToOld() {
       PERF_COUNTER_ADD(internal_merge_count, 1);
     } else if (kTypeBlobIndex == ikey.type) {
       if (!allow_blob_) {
-        ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob value.");
+        ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
         status_ = Status::NotSupported(
-            "Encounter unexpected blob value. Please open DB with "
+            "Encounter unexpected blob index. Please open DB with "
             "rocksdb::blob_db::BlobDB instead.");
       } else {
         status_ =
@@ -840,9 +840,9 @@ bool DBIter::FindValueForCurrentKey() {
             env_, &pinned_value_, true);
       } else if (last_not_merge_type == kTypeBlobIndex) {
         if (!allow_blob_) {
-          ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob value.");
+          ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
           status_ = Status::NotSupported(
-              "Encounter unexpected blob value. Please open DB with "
+              "Encounter unexpected blob index. Please open DB with "
               "rocksdb::blob_db::BlobDB instead.");
         } else {
           status_ =
@@ -863,9 +863,9 @@ bool DBIter::FindValueForCurrentKey() {
       break;
     case kTypeBlobIndex:
       if (!allow_blob_) {
-        ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob value.");
+        ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
         status_ = Status::NotSupported(
-            "Encounter unexpected blob value. Please open DB with "
+            "Encounter unexpected blob index. Please open DB with "
             "rocksdb::blob_db::BlobDB instead.");
         valid_ = false;
         return true;
@@ -906,9 +906,9 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
     return false;
   }
   if (ikey.type == kTypeBlobIndex && !allow_blob_) {
-    ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob value.");
+    ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
     status_ = Status::NotSupported(
-        "Encounter unexpected blob value. Please open DB with "
+        "Encounter unexpected blob index. Please open DB with "
         "rocksdb::blob_db::BlobDB instead.");
     valid_ = false;
     return true;

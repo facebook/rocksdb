@@ -1031,9 +1031,9 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       case GetContext::kMerge:
         break;
       case GetContext::kBlobIndex:
-        ROCKS_LOG_ERROR(info_log_, "Encounter unexpected blob value.");
+        ROCKS_LOG_ERROR(info_log_, "Encounter unexpected blob index.");
         *status = Status::NotSupported(
-            "Encounter unexpected blob value. Please open DB with "
+            "Encounter unexpected blob index. Please open DB with "
             "rocksdb::blob_db::BlobDB instead.");
         return;
     }
