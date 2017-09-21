@@ -553,6 +553,9 @@ TEST_P(WritePreparedTransactionTest, AdvanceMaxEvictedSeqBasicTest) {
   }
 }
 
+// This test is too slow for travis
+#ifndef TRAVIS
+// TODO(myabandeh): remove this redundant test after transaction_test is enabled with WRITE_PREPARED too
 // This test clarifies the existing expectation from the sequence number
 // algorithm. It could detect mistakes in updating the code but it is not
 // necessarily the one acceptable way. If the algorithm is legitimately changed,
@@ -575,7 +578,7 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceTest) {
     size_t branch = 0;
   auto seq = db_impl->GetLatestSequenceNumber();
   exp_seq = seq;
-  txn0(0);
+  txn_t0(0);
   seq = db_impl->GetLatestSequenceNumber();
   ASSERT_EQ(exp_seq, seq);
 
@@ -593,11 +596,11 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceTest) {
   }
 
   // Doing it twice might detect some bugs
-  txn0(1);
+  txn_t0(1);
   seq = db_impl->GetLatestSequenceNumber();
   ASSERT_EQ(exp_seq, seq);
 
-  txn1(0);
+  txn_t1(0);
   seq = db_impl->GetLatestSequenceNumber();
   ASSERT_EQ(exp_seq, seq);
 
@@ -614,7 +617,7 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceTest) {
   ASSERT_EQ(exp_seq, seq);
   }
 
-  txn3(0);
+  txn_t3(0);
   // Since commit marker does not write to memtable, the last seq number is not
   // updated immediately. But the advance should be visible after the next
   // write.
@@ -632,12 +635,12 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceTest) {
   ASSERT_EQ(exp_seq, seq);
   }
 
-  txn0(0);
+  txn_t0(0);
   seq = db_impl->GetLatestSequenceNumber();
   ASSERT_EQ(exp_seq, seq);
   delete txn;
 
-  txn2(0);
+  txn_t2(0);
   seq = db_impl->GetLatestSequenceNumber();
   ASSERT_EQ(exp_seq, seq);
 
@@ -655,7 +658,10 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceTest) {
   }
   }
 }
+#endif
 
+// This test is too slow for travis
+#ifndef TRAVIS
 TEST_P(WritePreparedTransactionTest, SeqAdvanceConcurrentTest) {
   // Given the sequential run of txns, with this timeout we should never see a deadlock nor a timeout unless we have a key conflict, which should be almost infeasible.
     txn_db_options.transaction_lock_timeout = 1000;
@@ -713,16 +719,16 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceConcurrentTest) {
       size_t d = (n % base[bi+1]) / base[bi]; // get the bi-th digit in number system based on type_cnt
      switch (d) {
        case 0:
-         threads.emplace_back(txn0, bi);
+         threads.emplace_back(txn_t0, bi);
          break;
        case 1:
-         threads.emplace_back(txn1, bi);
+         threads.emplace_back(txn_t1, bi);
          break;
        case 2:
-         threads.emplace_back(txn2, bi);
+         threads.emplace_back(txn_t2, bi);
          break;
        case 3:
-         threads.emplace_back(txn3, bi);
+         threads.emplace_back(txn_t3, bi);
          break;
        default:
                assert(false);
@@ -765,6 +771,7 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceConcurrentTest) {
     ASSERT_EQ(exp_seq, seq);
   }
 }
+#endif
 
 // Test WritePreparedTxnDB's IsInSnapshot against different ordering of
 // snapshot, max_committed_seq_, prepared, and commit entries.
