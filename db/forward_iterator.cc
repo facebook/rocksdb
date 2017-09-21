@@ -626,8 +626,8 @@ void ForwardIterator::RenewIterators() {
     std::unique_ptr<InternalIterator> range_del_iter(
         svnew->mem->NewRangeTombstoneIterator(read_options_));
     range_del_agg.AddTombstones(std::move(range_del_iter));
-    sv_->imm->AddRangeTombstoneIterators(read_options_, &arena_,
-                                         &range_del_agg);
+    svnew->imm->AddRangeTombstoneIterators(read_options_, &arena_,
+                                           &range_del_agg);
   }
 
   const auto* vstorage = sv_->current->storage_info();
