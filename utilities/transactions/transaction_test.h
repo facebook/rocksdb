@@ -125,48 +125,49 @@ class TransactionTest : public ::testing::TestWithParam<
     return s;
   }
 
-    std::atomic<size_t> linked = {0};
-    std::atomic<size_t> exp_seq = {0};
-    std::atomic<size_t> commit_writes = {0};
-    std::atomic<size_t> expected_commits = {0};
+  std::atomic<size_t> linked = {0};
+  std::atomic<size_t> exp_seq = {0};
+  std::atomic<size_t> commit_writes = {0};
+  std::atomic<size_t> expected_commits = {0};
   std::function<void(size_t)> txn_t0 = [&](size_t index) {
-  // Test DB's internal txn. It involves no prepare phase nor a commit marker.
-  WriteOptions wopts;
+    // Test DB's internal txn. It involves no prepare phase nor a commit marker.
+    WriteOptions wopts;
     auto s = db->Put(wopts, "key" + std::to_string(index), "value");
     if (txn_db_options.write_policy == TxnDBWritePolicy::WRITE_COMMITTED) {
-    // Consume one seq per key
+      // Consume one seq per key
       exp_seq++;
     } else {
-    // Consume one seq per batch
-    exp_seq++;
+      // Consume one seq per batch
+      exp_seq++;
     }
     ASSERT_OK(s);
   };
   std::function<void(size_t)> txn_t1 = [&](size_t index) {
-  // Testing directly writing a write batch. Functionality-wise it is equivalent
-  // to commit without prepare.
+    // Testing directly writing a write batch. Functionality-wise it is
+    // equivalent to commit without prepare.
     WriteBatch wb;
-auto istr = std::to_string(index);
+    auto istr = std::to_string(index);
     wb.Put("k1" + istr, "v1");
     wb.Put("k2" + istr, "v2");
     wb.Put("k3" + istr, "v3");
-  WriteOptions wopts;
+    WriteOptions wopts;
     auto s = db->Write(wopts, &wb);
     if (txn_db_options.write_policy == TxnDBWritePolicy::WRITE_COMMITTED) {
-    // Consume one seq per key
-      exp_seq += 3;;
+      // Consume one seq per key
+      exp_seq += 3;
+      ;
     } else {
-    // Consume one seq per batch
-    exp_seq++;
+      // Consume one seq per batch
+      exp_seq++;
     }
     ASSERT_OK(s);
   };
   std::function<void(size_t)> txn_t2 = [&](size_t index) {
-  // Commit without prepare. It should write to DB without a commit marker.
+    // Commit without prepare. It should write to DB without a commit marker.
     TransactionOptions txn_options;
     WriteOptions write_options;
     Transaction* txn = db->BeginTransaction(write_options, txn_options);
-auto istr = std::to_string(index);
+    auto istr = std::to_string(index);
     auto s = txn->SetName("xid" + istr);
     ASSERT_OK(s);
     s = txn->Put(Slice("foo" + istr), Slice("bar"));
@@ -177,22 +178,22 @@ auto istr = std::to_string(index);
     s = txn->Commit();
     ASSERT_OK(s);
     if (txn_db_options.write_policy == TxnDBWritePolicy::WRITE_COMMITTED) {
-    // Consume one seq per key
+      // Consume one seq per key
       exp_seq += 4;
     } else {
-    // Consume one seq per batch
-    exp_seq++;
+      // Consume one seq per batch
+      exp_seq++;
     }
-  auto pdb = reinterpret_cast<PessimisticTransactionDB*>(db);
+    auto pdb = reinterpret_cast<PessimisticTransactionDB*>(db);
     pdb->UnregisterTransaction(txn);
     delete txn;
   };
   std::function<void(size_t)> txn_t3 = [&](size_t index) {
-  // A full 2pc txn that also involves a commit marker.
+    // A full 2pc txn that also involves a commit marker.
     TransactionOptions txn_options;
     WriteOptions write_options;
     Transaction* txn = db->BeginTransaction(write_options, txn_options);
-auto istr = std::to_string(index);
+    auto istr = std::to_string(index);
     auto s = txn->SetName("xid" + istr);
     ASSERT_OK(s);
     s = txn->Put(Slice("foo" + istr), Slice("bar"));
@@ -208,17 +209,16 @@ auto istr = std::to_string(index);
     s = txn->Commit();
     ASSERT_OK(s);
     if (txn_db_options.write_policy == TxnDBWritePolicy::WRITE_COMMITTED) {
-    // Consume one seq per key
+      // Consume one seq per key
       exp_seq += 5;
     } else {
-    // Consume one seq per batch
-    exp_seq++;
-    // Consume one seq per commit marker
-    exp_seq++;
+      // Consume one seq per batch
+      exp_seq++;
+      // Consume one seq per commit marker
+      exp_seq++;
     }
     delete txn;
   };
-
 };
 
 class MySQLStyleTransactionTest : public TransactionTest {};
