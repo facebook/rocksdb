@@ -4708,8 +4708,6 @@ TEST_P(TransactionTest, SeqAdvanceTest) {
 
   if (branch_do(n, &branch)) {
   db_impl->Flush(fopt);
-  seq = db_impl->GetLatestSequenceNumber();
-  ASSERT_EQ(exp_seq, seq);
   }
   if (branch_do(n, &branch)) {
   db_impl->FlushWAL(true);

@@ -285,11 +285,14 @@ class WritePreparedTransactionTest : public TransactionTest {
   }
 };
 
-//TODO(myabandeh): Aslo instantiate with concurrent_prepare
 INSTANTIATE_TEST_CASE_P(WritePreparedTransactionTest,
                         WritePreparedTransactionTest,
-                        ::testing::Values(std::make_tuple(false, false,
-                                                          WRITE_PREPARED)));
+                        ::testing::Values(
+                          std::make_tuple(false, true,
+                                                          WRITE_PREPARED),
+                          std::make_tuple(false, false,
+                                                          WRITE_PREPARED)
+                        ));
 
 TEST_P(WritePreparedTransactionTest, CommitMapTest) {
   WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
@@ -622,8 +625,6 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceTest) {
 
   if (branch_do(n, &branch)) {
   db_impl->Flush(fopt);
-  seq = db_impl->GetLatestSequenceNumber();
-  ASSERT_EQ(exp_seq, seq);
   }
   if (branch_do(n, &branch)) {
   db_impl->FlushWAL(true);
@@ -667,9 +668,10 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceConcurrentTest) {
   // Number of different txn types we use in this test
   const size_t type_cnt = 4;
   // The size of the first write group
-  const size_t first_group_size = 2; //type_cnt;
+  // TODO(myabandeh): This should be increase for pre-release tests
+  const size_t first_group_size = 2;
   // Total number of txns we run in each test
-  const size_t txn_cnt = first_group_size * 2; //type_cnt * 2;
+  const size_t txn_cnt = first_group_size * 2;
 
   size_t base[txn_cnt + 1] = {1, };
   for (size_t bi = 1; bi <= txn_cnt; bi++) {
@@ -738,6 +740,11 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceConcurrentTest) {
     }
     for (auto& t : threads) {
       t.join();
+    }
+    if (txn_db_options.write_policy == WRITE_PREPARED) {
+      // In this case none of the above scheduling tricks to deterministically form merged bactches works because the writes go to saparte queues. This would result in different write groups in each run of the test. We still keep the test since althgouh non-deterministic and hard to debug, it is still usefull to have.
+      // Since in this case we could finish with commit writes that dont write to memtable, the seq is not advanced in this code path. It will be after the next write. So we do one more write to make the impact of last seq visible.
+      txn_t0(0);
     }
     // Check if memtable inserts advanced seq number as expected
     seq = db_impl->GetLatestSequenceNumber();
