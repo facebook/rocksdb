@@ -129,7 +129,7 @@ class TransactionTest : public ::testing::TestWithParam<
     std::atomic<size_t> exp_seq = {0};
     std::atomic<size_t> commit_writes = {0};
     std::atomic<size_t> expected_commits = {0};
-  std::function<void(size_t)> f0 = [&](size_t index) {
+  std::function<void(size_t)> txn0 = [&](size_t index) {
   // Test DB's internal txn. It involves no prepare phase nor a commit marker.
   WriteOptions wopts;
     auto s = db->Put(wopts, "key" + std::to_string(index), "value");
@@ -137,7 +137,9 @@ class TransactionTest : public ::testing::TestWithParam<
     exp_seq++;
     ASSERT_OK(s);
   };
-  std::function<void(size_t)> f1 = [&](size_t index) {
+  std::function<void(size_t)> txn1 = [&](size_t index) {
+  // Testing directly writing a write batch. Functionality-wise it is equivalent
+  // to commit without prepare.
     WriteBatch wb;
 auto istr = std::to_string(index);
     wb.Put("k1" + istr, "v1");
@@ -149,7 +151,8 @@ auto istr = std::to_string(index);
     exp_seq++;
     ASSERT_OK(s);
   };
-  std::function<void(size_t)> f2 = [&](size_t index) {
+  std::function<void(size_t)> txn2 = [&](size_t index) {
+  // Commit without prepare. It should write to DB without a commit marker.
     TransactionOptions txn_options;
     WriteOptions write_options;
     Transaction* txn = db->BeginTransaction(write_options, txn_options);
@@ -169,7 +172,8 @@ auto istr = std::to_string(index);
     pdb->UnregisterTransaction(txn);
     delete txn;
   };
-  std::function<void(size_t)> f3 = [&](size_t index) {
+  std::function<void(size_t)> txn3 = [&](size_t index) {
+  // A full 2pc txn that also involves a commit marker.
     TransactionOptions txn_options;
     WriteOptions write_options;
     Transaction* txn = db->BeginTransaction(write_options, txn_options);
