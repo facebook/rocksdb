@@ -594,6 +594,12 @@ static bool SaveValue(void* arg, const char* entry) {
           *(s->status) = Status::NotSupported(
               "Encounter unsupported blob value. Please open DB with "
               "rocksdb::blob_db::BlobDB instead.");
+        } else if (*(s->merge_in_progress)) {
+          *(s->status) =
+              Status::NotSupported("Blob DB does not support merge operator.");
+        }
+        if (!s->status->ok()) {
+          *(s->found_final_value) = true;
           return false;
         }
       // intentional fallthrough

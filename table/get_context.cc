@@ -108,7 +108,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
 
     auto type = parsed_key.type;
     // Key matches. Process it
-    if ((type == kTypeValue || type == kTypeMerge) &&
+    if ((type == kTypeValue || type == kTypeMerge || type == kTypeBlobIndex) &&
         range_del_agg_ != nullptr && range_del_agg_->ShouldDelete(parsed_key)) {
       type = kTypeRangeDeletion;
     }

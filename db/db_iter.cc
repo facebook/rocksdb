@@ -593,11 +593,15 @@ void DBIter::MergeValuesNewToOld() {
                                  iter_->IsValuePinned() /* operand_pinned */);
       PERF_COUNTER_ADD(internal_merge_count, 1);
     } else if (kTypeBlobIndex == ikey.type) {
-      assert(!allow_blob_);
-      ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob value.");
-      status_ = Status::NotSupported(
-          "Encounter unexpected blob value. Please open DB with "
-          "rocksdb::blob_db::BlobDB instead.");
+      if (!allow_blob_) {
+        ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob value.");
+        status_ = Status::NotSupported(
+            "Encounter unexpected blob value. Please open DB with "
+            "rocksdb::blob_db::BlobDB instead.");
+      } else {
+        status_ =
+            Status::NotSupported("Blob DB does not support merge operator.");
+      }
       valid_ = false;
       return;
     } else {
@@ -706,8 +710,10 @@ void DBIter::PrevInternal() {
         !iter_->IsKeyPinned() || !pin_thru_lifetime_ /* copy */);
 
     if (FindValueForCurrentKey()) {
-      valid_ = true;
       if (!iter_->Valid()) {
+        valid_ = false;
+      }
+      if (!valid_) {
         return;
       }
       FindParseableKey(&ikey, kReverse);
@@ -824,7 +830,7 @@ bool DBIter::FindValueForCurrentKey() {
     case kTypeDeletion:
     case kTypeSingleDeletion:
     case kTypeRangeDeletion:
-      valid_ = false;
+      valid_ = true;
       return false;
     case kTypeMerge:
       current_entry_is_merged_ = true;
@@ -835,6 +841,18 @@ bool DBIter::FindValueForCurrentKey() {
             merge_operator_, saved_key_.GetUserKey(), nullptr,
             merge_context_.GetOperands(), &saved_value_, logger_, statistics_,
             env_, &pinned_value_, true);
+      } else if (last_not_merge_type == kTypeBlobIndex) {
+        if (!allow_blob_) {
+          ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob value.");
+          status_ = Status::NotSupported(
+              "Encounter unexpected blob value. Please open DB with "
+              "rocksdb::blob_db::BlobDB instead.");
+        } else {
+          status_ =
+              Status::NotSupported("Blob DB does not support merge operator.");
+        }
+        valid_ = false;
+        return true;
       } else {
         assert(last_not_merge_type == kTypeValue);
         s = MergeHelper::TimedFullMerge(
@@ -1241,7 +1259,7 @@ inline void ArenaWrappedDBIter::Prev() { db_iter_->Prev(); }
 inline Slice ArenaWrappedDBIter::key() const { return db_iter_->key(); }
 inline Slice ArenaWrappedDBIter::value() const { return db_iter_->value(); }
 inline Status ArenaWrappedDBIter::status() const { return db_iter_->status(); }
-inline bool ArenaWrappedDBIter::IsBlob() const { return db_iter_->IsBlob(); }
+bool ArenaWrappedDBIter::IsBlob() const { return db_iter_->IsBlob(); }
 inline Status ArenaWrappedDBIter::GetProperty(std::string prop_name,
                                               std::string* prop) {
   if (prop_name == "rocksdb.iterator.super-version-number") {
