@@ -9,7 +9,7 @@ sudo rm -f /etc/yum/vars/releasever
 sudo yum -y install epel-release
 
 # install all required packages for rocksdb that are available through yum
-sudo yum -y install openssl java-1.7.0-openjdk-devel zlib-devel bzip2-devel lz4-devel snappy-devel libzstd-devel
+sudo yum -y install openssl java-1.7.0-openjdk-devel zlib-devel bzip2-devel lz4-devel snappy-devel libzstd-devel jemalloc-devel
 
 # install gcc/g++ 4.8.2 from tru/devtools-2
 sudo wget -O /etc/yum.repos.d/devtools-2.repo https://people.centos.org/tru/devtools-2/devtools-2.repo
@@ -29,4 +29,3 @@ scl enable devtoolset-2 'make jclean clean'
 scl enable devtoolset-2 'PORTABLE=1 make rocksdbjavastatic'
 cp /rocksdb/java/target/librocksdbjni-* /rocksdb-build
 cp /rocksdb/java/target/rocksdbjni-* /rocksdb-build
-
