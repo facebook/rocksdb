@@ -439,7 +439,7 @@ void DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
               skipping = true;
               num_skipped = 0;
               PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
-            } else if (ikey.type == kTypeBlobIndex) {
+            } else if (ikey_.type == kTypeBlobIndex) {
               if (!allow_blob_) {
                 ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob value.");
                 status_ = Status::NotSupported(
@@ -711,9 +711,6 @@ void DBIter::PrevInternal() {
 
     if (FindValueForCurrentKey()) {
       if (!iter_->Valid()) {
-        valid_ = false;
-      }
-      if (!valid_) {
         return;
       }
       FindParseableKey(&ikey, kReverse);
@@ -824,13 +821,13 @@ bool DBIter::FindValueForCurrentKey() {
     FindParseableKey(&ikey, kReverse);
   }
 
-  is_blob_ = false;
   Status s;
+  is_blob_ = false;
   switch (last_key_entry_type) {
     case kTypeDeletion:
     case kTypeSingleDeletion:
     case kTypeRangeDeletion:
-      valid_ = true;
+      valid_ = false;
       return false;
     case kTypeMerge:
       current_entry_is_merged_ = true;
