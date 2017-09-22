@@ -372,12 +372,12 @@ bool WriteableCacheFile::PadZeros(const uint32_t size) {
     return false;
   }
 
-  char zeros_[size];
-  memset(zeros_, '0', size);
-  Slice zeros(zeros_, size);
-  CacheRecord zeros_rec(zeros,zeros);
+  unique_ptr<char[]> zeros(new char[size]);
+  memset(zeros.get(), '0', size);
+  Slice zeros_slice(zeros.get(), size);
+  CacheRecord zeros_rec(zeros_slice,zeros_slice);
   return zeros_rec.Append(&bufs_, &buf_woff_,
-                          reinterpret_cast<const char*>(zeros_), size);
+                          reinterpret_cast<const char*>(zeros.get()), size);
 }
 
 
