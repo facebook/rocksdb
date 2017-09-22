@@ -23,8 +23,8 @@
 #ifdef OS_LINUX
 #include <sys/statfs.h>
 #include <sys/syscall.h>
-#endif
 #include <sys/sysmacros.h>
+#endif
 #include <sys/time.h>
 #include <sys/types.h>
 #include <time.h>
