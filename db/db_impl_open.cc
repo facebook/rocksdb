@@ -493,6 +493,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
   bool stop_replay_by_wal_filter = false;
   bool stop_replay_for_corruption = false;
   bool flushed = false;
+  uint64_t corrupted_log_number = kMaxSequenceNumber;
   for (auto log_number : log_numbers) {
     // The previous incarnation may not have written any MANIFEST
     // records after allocating this log number.  So we manually
@@ -720,6 +721,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
         // We should ignore the error but not continue replaying
         status = Status::OK();
         stop_replay_for_corruption = true;
+        corrupted_log_number = log_number;
         ROCKS_LOG_INFO(immutable_db_options_.info_log,
                        "Point in time recovered to log #%" PRIu64
                        " seq #%" PRIu64,
@@ -741,27 +743,21 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       versions_->SetLastSequence(last_sequence);
     }
   }
-  // Compare the largest sequence number in all SST files with
-  // the largest sequence number seen in all WALs. Abort Open() if SN from
-  // SST is larger than SN from WAL. This could during PIT recovery when
-  // WAL is corrupted and some (but not all) CFs are flushed
-  if (immutable_db_options_.wal_recovery_mode ==
-          WALRecoveryMode::kPointInTimeRecovery ||
-      immutable_db_options_.wal_recovery_mode ==
-          WALRecoveryMode::kTolerateCorruptedTailRecords) {
+  // Compare the corrupted log number to all columnfamily's current log number.
+  // Abort Open() if any column family's log number is greater than
+  // the corrupted log number, which means CF contains data beyond the point of
+  // corruption. This could during PIT recovery when the WAL is corrupted and
+  // some (but not all) CFs are flushed
+  if (stop_replay_for_corruption == true &&
+      (immutable_db_options_.wal_recovery_mode ==
+           WALRecoveryMode::kPointInTimeRecovery ||
+       immutable_db_options_.wal_recovery_mode ==
+           WALRecoveryMode::kTolerateCorruptedTailRecords)) {
     for (auto cfd : *versions_->GetColumnFamilySet()) {
-      auto* vstorage = cfd->current()->storage_info();
-      if (vstorage->num_levels() <= 0 || vstorage->NumLevelFiles(0) <= 0) {
-        continue;
-      }
-      SequenceNumber latest_sequence_number_sst =
-          vstorage->LevelFiles(0)[0]->largest_seqno;
-      if (latest_sequence_number_sst > *next_sequence - 1) {
+      if (cfd->GetLogNumber() > corrupted_log_number) {
         ROCKS_LOG_ERROR(immutable_db_options_.info_log,
-                        "SST file is ahead of WAL:"
-                        " max sequence of all WALs: #%" PRIu64
-                        " SequenceNumber in SST: #%" PRIu64,
-                        *next_sequence - 1, latest_sequence_number_sst);
+                        "Column family inconsistency: SST file contains data"
+                        " beyond the point of corruption.");
         return Status::Corruption("SST file is ahead of WALs");
       }
     }
