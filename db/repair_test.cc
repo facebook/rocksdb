@@ -309,6 +309,25 @@ TEST_F(RepairTest, RepairColumnFamilyOptions) {
   }
 }
 
+TEST_F(RepairTest, DbNameContainsTrailingSlash) {
+  {
+    bool tmp;
+    if (env_->AreFilesSame("", "", &tmp).IsNotSupported()) {
+      fprintf(stderr,
+              "skipping RepairTest.DbNameContainsTrailingSlash due to "
+              "unsupported Env::AreFilesSame\n");
+      return;
+    }
+  }
+
+  Put("key", "val");
+  Flush();
+  Close();
+
+  ASSERT_OK(RepairDB(dbname_ + "/", CurrentOptions()));
+  Reopen(CurrentOptions());
+  ASSERT_EQ(Get("key"), "val");
+}
 #endif  // ROCKSDB_LITE
 }  // namespace rocksdb
 

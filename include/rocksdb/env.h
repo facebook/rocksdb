@@ -261,6 +261,11 @@ class Env {
     return Status::NotSupported("LinkFile is not supported for this Env");
   }
 
+  virtual Status AreFilesSame(const std::string& first,
+                              const std::string& second, bool* res) {
+    return Status::NotSupported("AreFilesSame is not supported for this Env");
+  }
+
   // Lock the specified file.  Used to prevent concurrent access to
   // the same db by multiple processes.  On failure, stores nullptr in
   // *lock and returns non-OK.
@@ -978,6 +983,11 @@ class EnvWrapper : public Env {
 
   Status LinkFile(const std::string& s, const std::string& t) override {
     return target_->LinkFile(s, t);
+  }
+
+  Status AreFilesSame(const std::string& first, const std::string& second,
+                      bool* res) override {
+    return target_->AreFilesSame(first, second, res);
   }
 
   Status LockFile(const std::string& f, FileLock** l) override {
