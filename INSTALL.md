@@ -27,6 +27,8 @@ CPU supports it. To print a warning if your CPU does not support SSE4.2, build w
 to build a portable binary, add `PORTABLE=1` before your make commands, like this:
 `PORTABLE=1 make static_lib`.
 
+* The default install location for `make install` is `/usr/local`. To override this use the `INSTALL_PATH` make variable. For example: `make INSTALL_PATH=/usr install`.
+
 ## Dependencies
 
 * You can link RocksDB with following compression libraries:
