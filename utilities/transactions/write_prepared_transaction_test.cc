@@ -793,6 +793,108 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceConcurrentTest) {
   }
 }
 
+// Run a couple of differnet txns among them some uncommitted. Restart the db at
+// s couple points to check whether the list of uncommitted txns are recovered
+// properly.
+TEST_P(WritePreparedTransactionTest, BasicRecoveryTest) {
+  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+
+  txn_t0(0);
+
+  TransactionOptions txn_options;
+  WriteOptions write_options;
+  size_t index = 1000;
+  Transaction* txn0 = db->BeginTransaction(write_options, txn_options);
+  auto istr0 = std::to_string(index);
+  auto s = txn0->SetName("xid" + istr0);
+  ASSERT_OK(s);
+  s = txn0->Put(Slice("foo0" + istr0), Slice("bar"));
+  ASSERT_OK(s);
+  s = txn0->Prepare();
+  auto prep_seq_0 = txn0->GetId();
+
+  txn_t1(0);
+
+  index++;
+  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+  auto istr1 = std::to_string(index);
+  s = txn1->SetName("xid" + istr1);
+  ASSERT_OK(s);
+  s = txn1->Put(Slice("foo1" + istr1), Slice("bar"));
+  ASSERT_OK(s);
+  s = txn1->Prepare();
+  auto prep_seq_1 = txn1->GetId();
+
+  txn_t2(0);
+
+  wp_db->db_impl_->FlushWAL(true);
+  ReOpenNoDelete();
+  wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+  // After recovery, all the uncommitted txns should be inserted into
+  // delayed_prepared_
+  ASSERT_TRUE(wp_db->prepared_txns_.empty());
+  ASSERT_FALSE(wp_db->delayed_prepared_empty_);
+  ASSERT_LE(prep_seq_0, wp_db->max_evicted_seq_);
+  ASSERT_LE(prep_seq_1, wp_db->max_evicted_seq_);
+  {
+    ReadLock rl(&wp_db->prepared_mutex_);
+    ASSERT_EQ(2, wp_db->delayed_prepared_.size());
+    ASSERT_TRUE(wp_db->delayed_prepared_.find(prep_seq_0) !=
+                wp_db->delayed_prepared_.end());
+    ASSERT_TRUE(wp_db->delayed_prepared_.find(prep_seq_1) !=
+                wp_db->delayed_prepared_.end());
+  }
+
+  txn_t3(0);
+
+  // Test that a recovered txns will be properly marked committed for the next
+  // recovery
+  txn1 = db->GetTransactionByName("xid" + istr1);
+  ASSERT_NE(txn1, nullptr);
+  txn1->Commit();
+
+  index++;
+  Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
+  auto istr2 = std::to_string(index);
+  s = txn2->SetName("xid" + istr2);
+  ASSERT_OK(s);
+  s = txn2->Put(Slice("foo2" + istr2), Slice("bar"));
+  ASSERT_OK(s);
+  s = txn2->Prepare();
+  auto prep_seq_2 = txn2->GetId();
+
+  wp_db->db_impl_->FlushWAL(true);
+  ReOpenNoDelete();
+  wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+  ASSERT_TRUE(wp_db->prepared_txns_.empty());
+  ASSERT_FALSE(wp_db->delayed_prepared_empty_);
+
+  {
+    ReadLock rl(&wp_db->prepared_mutex_);
+    ASSERT_EQ(2, wp_db->delayed_prepared_.size());
+    const auto& end = wp_db->delayed_prepared_.end();
+    ASSERT_NE(wp_db->delayed_prepared_.find(prep_seq_0), end);
+    ASSERT_EQ(wp_db->delayed_prepared_.find(prep_seq_1), end);
+    ASSERT_NE(wp_db->delayed_prepared_.find(prep_seq_2), end);
+  }
+  ASSERT_LE(prep_seq_0, wp_db->max_evicted_seq_);
+  ASSERT_LE(prep_seq_2, wp_db->max_evicted_seq_);
+
+  // Commit all the remaining txns
+  txn0 = db->GetTransactionByName("xid" + istr0);
+  ASSERT_NE(txn0, nullptr);
+  txn0->Commit();
+  txn2 = db->GetTransactionByName("xid" + istr2);
+  ASSERT_NE(txn2, nullptr);
+  txn2->Commit();
+
+  wp_db->db_impl_->FlushWAL(true);
+  ReOpenNoDelete();
+  wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+  ASSERT_TRUE(wp_db->prepared_txns_.empty());
+  ASSERT_TRUE(wp_db->delayed_prepared_empty_);
+}
+
 // Test WritePreparedTxnDB's IsInSnapshot against different ordering of
 // snapshot, max_committed_seq_, prepared, and commit entries.
 TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {

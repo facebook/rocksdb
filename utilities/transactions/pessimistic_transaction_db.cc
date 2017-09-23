@@ -115,6 +115,8 @@ Status PessimisticTransactionDB::Initialize(
     Transaction* real_trx = BeginTransaction(w_options, t_options, nullptr);
     assert(real_trx);
     real_trx->SetLogNumber(recovered_trx->log_number_);
+    assert(recovered_trx->seq_ != kMaxSequenceNumber);
+    real_trx->SetId(recovered_trx->seq_);
 
     s = real_trx->SetName(recovered_trx->name_);
     if (!s.ok()) {
@@ -143,7 +145,7 @@ Status WritePreparedTxnDB::Initialize(
     AddPrepared(rtxn.second->seq_);
   }
   SequenceNumber prev_max = max_evicted_seq_;
-  SequenceNumber last_seq = db_impl_->GetLatestSequenceNumber() - 1;
+  SequenceNumber last_seq = db_impl_->GetLatestSequenceNumber();
   AdvanceMaxEvictedSeq(prev_max, last_seq);
   auto s = PessimisticTransactionDB::Initialize(compaction_enabled_cf_indices,
                                                 handles);

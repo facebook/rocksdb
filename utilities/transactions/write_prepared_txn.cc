@@ -52,8 +52,9 @@ Status WritePreparedTxn::PrepareInternal() {
                           /*callback*/ nullptr, &log_number_, /*log ref*/ 0,
                           !disable_memtable, &seq_used);
   assert(seq_used != kMaxSequenceNumber);
-  prepare_seq_ = seq_used;
-  wpt_db_->AddPrepared(prepare_seq_);
+  auto prepare_seq = seq_used;
+  SetId(prepare_seq);
+  wpt_db_->AddPrepared(prepare_seq);
   return s;
 }
 
@@ -102,7 +103,8 @@ Status WritePreparedTxn::CommitInternal() {
   uint64_t& commit_seq = seq_used;
   // TODO(myabandeh): Reject a commit request if AddCommitted cannot encode
   // commit_seq. This happens if prep_seq <<< commit_seq.
-  wpt_db_->AddCommitted(prepare_seq_, commit_seq);
+  auto prepare_seq = GetId();
+  wpt_db_->AddCommitted(prepare_seq, commit_seq);
   return s;
 }
 
