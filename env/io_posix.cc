@@ -22,6 +22,9 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#if defined(__GNUC__) && __GNUC__ > 6 || (__GNUC__ == 6 && __GNUC_MINOR__ >= 3)
+#include <sys/sysmacros.h>
+#endif
 #ifdef OS_LINUX
 #include <sys/statfs.h>
 #include <sys/syscall.h>
