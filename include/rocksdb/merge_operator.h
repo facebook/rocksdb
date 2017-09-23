@@ -190,6 +190,15 @@ class MergeOperator {
   // PartialMerge/PartialMergeMulti should be implemented accordingly to handle
   // a single operand.
   virtual bool AllowSingleOperand() const { return false; }
+
+  // Allows to control when to invoke a full merge during Get.
+  // This could be used to limit the number of merge operands that are looked at
+  // during a point lookup, thereby helping in limiting the number of levels to
+  // read from.
+  // Doesn't help with iterators.
+  virtual bool ShouldMerge(const std::vector<Slice>& operands) const {
+    return false;
+  }
 };
 
 // The simpler, associative merge operator.

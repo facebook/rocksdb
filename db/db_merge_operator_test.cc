@@ -8,6 +8,7 @@
 #include "db/db_test_util.h"
 #include "db/forward_iterator.h"
 #include "port/stack_trace.h"
+#include "rocksdb/merge_operator.h"
 #include "utilities/merge_operators.h"
 
 namespace rocksdb {
@@ -17,6 +18,121 @@ class DBMergeOperatorTest : public DBTestBase {
  public:
   DBMergeOperatorTest() : DBTestBase("/db_merge_operator_test") {}
 };
+
+TEST_F(DBMergeOperatorTest, LimitMergeOperands) {
+  class LimitedStringAppenddMergeOp : public MergeOperator {
+   public:
+    LimitedStringAppenddMergeOp(int limit, char delim)
+        : limit_(limit), delim_(delim) {}
+
+    bool FullMergeV2(const MergeOperationInput& merge_in,
+                     MergeOperationOutput* merge_out) const override {
+      // Clear the *new_value for writing.
+      merge_out->new_value.clear();
+
+      if (merge_in.existing_value == nullptr &&
+          merge_in.operand_list.size() == 1) {
+        // Only one operand
+        merge_out->existing_operand = merge_in.operand_list.back();
+        return true;
+      }
+
+      // Compute the space needed for the final result.
+      size_t numBytes = 0;
+      for (auto it = merge_in.operand_list.begin();
+           it != merge_in.operand_list.end(); ++it) {
+        numBytes += it->size() + 1;  // Plus 1 for the delimiter
+      }
+
+      // Only print the delimiter after the first entry has been printed
+      bool printDelim = false;
+
+      // Prepend the *existing_value if one exists.
+      if (merge_in.existing_value) {
+        merge_out->new_value.reserve(numBytes +
+                                     merge_in.existing_value->size());
+        merge_out->new_value.append(merge_in.existing_value->data(),
+                                    merge_in.existing_value->size());
+        printDelim = true;
+      } else if (numBytes) {
+        merge_out->new_value.reserve(
+            numBytes - 1);  // Minus 1 since we have one less delimiter
+      }
+
+      // Concatenate the sequence of strings (and add a delimiter between each)
+      for (auto it = merge_in.operand_list.begin();
+           it != merge_in.operand_list.end(); ++it) {
+        if (printDelim) {
+          merge_out->new_value.append(1, delim_);
+        }
+        merge_out->new_value.append(it->data(), it->size());
+        printDelim = true;
+      }
+
+      return true;
+    }
+
+    const char* Name() const override {
+      return "DBMergeOperatorTest::LimitedStringAppendMergeOp";
+    }
+
+    bool ShouldMerge(const std::vector<Slice>& operands) const override {
+      if (operands.size() > 0 && limit_ > 0 && operands.size() >= limit_) {
+        return true;
+      }
+      return false;
+    }
+
+   private:
+    size_t limit_ = 0;
+    char delim_;
+  };
+
+  Options options;
+  options.create_if_missing = true;
+  options.merge_operator =
+      std::make_shared<LimitedStringAppenddMergeOp>(2, ',');
+  options.env = env_;
+  Reopen(options);
+  ASSERT_OK(Merge("k1", "a"));
+  ASSERT_OK(Merge("k1", "b"));
+  ASSERT_OK(Merge("k1", "c"));
+  ASSERT_OK(Merge("k1", "d"));
+  std::string value;
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k1", &value).ok());
+  ASSERT_EQ(value, "c,d");
+
+  ASSERT_OK(Merge("k2", "a"));
+  ASSERT_OK(Merge("k2", "b"));
+  ASSERT_OK(Merge("k2", "c"));
+  ASSERT_OK(Merge("k2", "d"));
+  ASSERT_OK(Flush());
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k2", &value).ok());
+  ASSERT_EQ(value, "c,d");
+
+  ASSERT_OK(Merge("k3", "ab"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Merge("k3", "bc"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Merge("k3", "cd"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Merge("k3", "de"));
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k3", &value).ok());
+  ASSERT_EQ(value, "cd,de");
+
+  ASSERT_OK(Merge("k4", "ab"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(4);
+  ASSERT_OK(Merge("k4", "bc"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(3);
+  ASSERT_OK(Merge("k4", "cd"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+  ASSERT_OK(Merge("k4", "de"));
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k4", &value).ok());
+  ASSERT_EQ(value, "cd,de");
+}
 
 TEST_F(DBMergeOperatorTest, MergeErrorOnRead) {
   Options options;

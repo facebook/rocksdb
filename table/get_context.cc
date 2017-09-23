@@ -172,6 +172,21 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
         } else {
           merge_context_->PushOperand(value, false);
         }
+        if (merge_operator_ != nullptr &&
+            merge_operator_->ShouldMerge(merge_context_->GetOperands())) {
+          state_ = kFound;
+          if (LIKELY(pinnable_val_ != nullptr)) {
+            Status merge_status = MergeHelper::TimedFullMerge(
+                merge_operator_, user_key_, nullptr,
+                merge_context_->GetOperands(), pinnable_val_->GetSelf(),
+                logger_, statistics_, env_);
+            pinnable_val_->PinSelf();
+            if (!merge_status.ok()) {
+              state_ = kCorrupt;
+            }
+          }
+          return false;
+        }
         return true;
 
       default:
