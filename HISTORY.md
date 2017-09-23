@@ -5,6 +5,7 @@
 
 ### New Features
 ### Bug Fixes
+* Fix a potential data inconsistency issue during point-in-time recovery. `DB:Open()` will abort if column family inconsistency is found during PIT recovery.
 
 ## 5.8.0 (08/30/2017)
 ### Public API Change
