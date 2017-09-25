@@ -10,6 +10,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/merge_operator.h"
 #include "utilities/merge_operators.h"
+#include "utilities/merge_operators/string_append/stringappend2.h"
 
 namespace rocksdb {
 
@@ -20,57 +21,10 @@ class DBMergeOperatorTest : public DBTestBase {
 };
 
 TEST_F(DBMergeOperatorTest, LimitMergeOperands) {
-  class LimitedStringAppendMergeOp : public MergeOperator {
+  class LimitedStringAppendMergeOp : public StringAppendTESTOperator {
    public:
     LimitedStringAppendMergeOp(int limit, char delim)
-        : limit_(limit), delim_(delim) {}
-
-    bool FullMergeV2(const MergeOperationInput& merge_in,
-                     MergeOperationOutput* merge_out) const override {
-      // Clear the *new_value for writing.
-      merge_out->new_value.clear();
-
-      if (merge_in.existing_value == nullptr &&
-          merge_in.operand_list.size() == 1) {
-        // Only one operand
-        merge_out->existing_operand = merge_in.operand_list.back();
-        return true;
-      }
-
-      // Compute the space needed for the final result.
-      size_t numBytes = 0;
-      for (auto it = merge_in.operand_list.begin();
-           it != merge_in.operand_list.end(); ++it) {
-        numBytes += it->size() + 1;  // Plus 1 for the delimiter
-      }
-
-      // Only print the delimiter after the first entry has been printed
-      bool printDelim = false;
-
-      // Prepend the *existing_value if one exists.
-      if (merge_in.existing_value) {
-        merge_out->new_value.reserve(numBytes +
-                                     merge_in.existing_value->size());
-        merge_out->new_value.append(merge_in.existing_value->data(),
-                                    merge_in.existing_value->size());
-        printDelim = true;
-      } else if (numBytes) {
-        merge_out->new_value.reserve(
-            numBytes - 1);  // Minus 1 since we have one less delimiter
-      }
-
-      // Concatenate the sequence of strings (and add a delimiter between each)
-      for (auto it = merge_in.operand_list.begin();
-           it != merge_in.operand_list.end(); ++it) {
-        if (printDelim) {
-          merge_out->new_value.append(1, delim_);
-        }
-        merge_out->new_value.append(it->data(), it->size());
-        printDelim = true;
-      }
-
-      return true;
-    }
+        : StringAppendTESTOperator(delim), limit_(limit) {}
 
     const char* Name() const override {
       return "DBMergeOperatorTest::LimitedStringAppendMergeOp";
@@ -85,7 +39,6 @@ TEST_F(DBMergeOperatorTest, LimitMergeOperands) {
 
    private:
     size_t limit_ = 0;
-    char delim_;
   };
 
   Options options;
