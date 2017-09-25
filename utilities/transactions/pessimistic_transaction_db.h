@@ -300,6 +300,7 @@ virtual Status Get(const ReadOptions& options,
   friend class WritePreparedTxnDBMock;
   friend class WritePreparedTransactionTest_AdvanceMaxEvictedSeqBasicTest_Test;
   friend class WritePreparedTransactionTest_BasicRecoveryTest_Test;
+  friend class WritePreparedTransactionTest_IsInSnapshotEmptyMapTest_Test;
 
   void init(const TransactionDBOptions& /* unused */) {
     // Adcance max_evicted_seq_ no more than 100 times before the cache wraps

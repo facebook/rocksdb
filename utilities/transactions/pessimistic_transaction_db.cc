@@ -578,11 +578,7 @@ bool WritePreparedTxnDB::IsInSnapshot(uint64_t prep_seq,
   CommitEntry64b dont_care;
   CommitEntry cached;
   bool exist = GetCommitEntry(indexed_seq, &dont_care, &cached);
-  if (!exist) {
-    // It is not committed, so it must be still prepared
-    return false;
-  }
-  if (prep_seq == cached.prep_seq) {
+  if (exist && prep_seq == cached.prep_seq) {
     // It is committed and also not evicted from commit cache
     return cached.commit_seq <= snapshot_seq;
   }
@@ -626,6 +622,7 @@ bool WritePreparedTxnDB::IsInSnapshot(uint64_t prep_seq,
 void WritePreparedTxnDB::AddPrepared(uint64_t seq) {
   printf("add prepared %lu\n", seq);
   ROCKS_LOG_DEBUG(info_log_, "Txn %" PRIu64 " Prepareing", seq);
+  assert(seq > max_evicted_seq_);
   WriteLock wl(&prepared_mutex_);
   prepared_txns_.push(seq);
 }

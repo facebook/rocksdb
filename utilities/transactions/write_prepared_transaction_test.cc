@@ -917,6 +917,20 @@ TEST_P(WritePreparedTransactionTest, BasicRecoveryTest) {
   ASSERT_TRUE(pinnable_val == ("bar0" + istr0));
 }
 
+// After recovery the commit map is empty while the max is set. The code would
+// go through a different path which requires a separate test.
+TEST_P(WritePreparedTransactionTest, IsInSnapshotEmptyMapTest) {
+  WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+  wp_db->max_evicted_seq_ = 100;
+  ASSERT_FALSE(wp_db->IsInSnapshot(50, 40));
+  ASSERT_TRUE(wp_db->IsInSnapshot(50, 50));
+  ASSERT_TRUE(wp_db->IsInSnapshot(50, 100));
+  ASSERT_TRUE(wp_db->IsInSnapshot(50, 150));
+  ASSERT_FALSE(wp_db->IsInSnapshot(100, 80));
+  ASSERT_TRUE(wp_db->IsInSnapshot(100, 100));
+  ASSERT_TRUE(wp_db->IsInSnapshot(100, 150));
+}
+
 // Test WritePreparedTxnDB's IsInSnapshot against different ordering of
 // snapshot, max_committed_seq_, prepared, and commit entries.
 TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
@@ -957,6 +971,8 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
       // We keep the list of txns comitted before we take the last snaphot.
       // These should be the only seq numbers that will be found in the snapshot
       std::set<uint64_t> committed_before;
+      // The set of commit seq numbers to be excluded from IsInSnapshot queries
+      std::set<uint64_t> commit_seqs;
       DBImpl* mock_db = new DBImpl(options, dbname);
       std::unique_ptr<WritePreparedTxnDBMock> wp_db(new WritePreparedTxnDBMock(
           mock_db, txn_db_options, snapshot_cache_bits, commit_cache_bits));
@@ -975,6 +991,7 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
         } else {                                     // else commit it
           seq++;
           wp_db->AddCommitted(cur_txn, seq);
+          commit_seqs.insert(seq);
           if (!snapshot) {
             committed_before.insert(cur_txn);
           }
@@ -999,7 +1016,8 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
         // it at each cycle to test that the system is still sound when
         // max_evicted_seq_ advances.
         if (snapshot) {
-          for (uint64_t s = 0; s <= seq; s++) {
+          for (uint64_t s = 1;
+               s <= seq && commit_seqs.find(s) == commit_seqs.end(); s++) {
             bool was_committed =
                 (committed_before.find(s) != committed_before.end());
             bool is_in_snapshot = wp_db->IsInSnapshot(s, snapshot);
