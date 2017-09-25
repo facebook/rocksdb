@@ -20,9 +20,9 @@ class DBMergeOperatorTest : public DBTestBase {
 };
 
 TEST_F(DBMergeOperatorTest, LimitMergeOperands) {
-  class LimitedStringAppenddMergeOp : public MergeOperator {
+  class LimitedStringAppendMergeOp : public MergeOperator {
    public:
-    LimitedStringAppenddMergeOp(int limit, char delim)
+    LimitedStringAppendMergeOp(int limit, char delim)
         : limit_(limit), delim_(delim) {}
 
     bool FullMergeV2(const MergeOperationInput& merge_in,
@@ -90,18 +90,23 @@ TEST_F(DBMergeOperatorTest, LimitMergeOperands) {
 
   Options options;
   options.create_if_missing = true;
+  // Use only the latest two merge operands.
   options.merge_operator =
-      std::make_shared<LimitedStringAppenddMergeOp>(2, ',');
+      std::make_shared<LimitedStringAppendMergeOp>(2, ',');
   options.env = env_;
   Reopen(options);
+  // All K1 values are in memtable.
   ASSERT_OK(Merge("k1", "a"));
   ASSERT_OK(Merge("k1", "b"));
   ASSERT_OK(Merge("k1", "c"));
   ASSERT_OK(Merge("k1", "d"));
   std::string value;
   ASSERT_TRUE(db_->Get(ReadOptions(), "k1", &value).ok());
+  // Make sure that only the latest two merge operands are used. If this was
+  // not the case the value would be "a,b,c,d".
   ASSERT_EQ(value, "c,d");
 
+  // All K2 values are flushed to L0 into a single file.
   ASSERT_OK(Merge("k2", "a"));
   ASSERT_OK(Merge("k2", "b"));
   ASSERT_OK(Merge("k2", "c"));
@@ -110,6 +115,7 @@ TEST_F(DBMergeOperatorTest, LimitMergeOperands) {
   ASSERT_TRUE(db_->Get(ReadOptions(), "k2", &value).ok());
   ASSERT_EQ(value, "c,d");
 
+  // All K3 values are flushed and are in different files.
   ASSERT_OK(Merge("k3", "ab"));
   ASSERT_OK(Flush());
   ASSERT_OK(Merge("k3", "bc"));
@@ -120,6 +126,7 @@ TEST_F(DBMergeOperatorTest, LimitMergeOperands) {
   ASSERT_TRUE(db_->Get(ReadOptions(), "k3", &value).ok());
   ASSERT_EQ(value, "cd,de");
 
+  // All K4 values are in different levels
   ASSERT_OK(Merge("k4", "ab"));
   ASSERT_OK(Flush());
   MoveFilesToLevel(4);
