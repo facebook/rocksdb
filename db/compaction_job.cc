@@ -269,9 +269,9 @@ CompactionJob::CompactionJob(
     InstrumentedMutex* db_mutex, Status* db_bg_error,
     std::vector<SequenceNumber> existing_snapshots,
     SequenceNumber earliest_write_conflict_snapshot,
-    std::shared_ptr<Cache> table_cache, EventLogger* event_logger,
-    bool paranoid_file_checks, bool measure_io_stats, const std::string& dbname,
-    CompactionJobStats* compaction_job_stats)
+    const SnapshotChecker* snapshot_checker, std::shared_ptr<Cache> table_cache,
+    EventLogger* event_logger, bool paranoid_file_checks, bool measure_io_stats,
+    const std::string& dbname, CompactionJobStats* compaction_job_stats)
     : job_id_(job_id),
       compact_(new CompactionState(compaction)),
       compaction_job_stats_(compaction_job_stats),
@@ -290,6 +290,7 @@ CompactionJob::CompactionJob(
       db_bg_error_(db_bg_error),
       existing_snapshots_(std::move(existing_snapshots)),
       earliest_write_conflict_snapshot_(earliest_write_conflict_snapshot),
+      snapshot_checker_(snapshot_checker),
       table_cache_(std::move(table_cache)),
       event_logger_(event_logger),
       paranoid_file_checks_(paranoid_file_checks),
@@ -760,9 +761,10 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   Status status;
   sub_compact->c_iter.reset(new CompactionIterator(
       input.get(), cfd->user_comparator(), &merge, versions_->LastSequence(),
-      &existing_snapshots_, earliest_write_conflict_snapshot_, env_, false,
-      range_del_agg.get(), sub_compact->compaction, compaction_filter,
-      comp_event_listener, shutting_down_));
+      &existing_snapshots_, earliest_write_conflict_snapshot_,
+      snapshot_checker_, env_, false, range_del_agg.get(),
+      sub_compact->compaction, compaction_filter, comp_event_listener,
+      shutting_down_));
   auto c_iter = sub_compact->c_iter.get();
   c_iter->SeekToFirst();
   if (c_iter->Valid() &&

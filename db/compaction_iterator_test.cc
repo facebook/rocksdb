@@ -189,8 +189,9 @@ class CompactionIteratorTest : public testing::Test {
     iter_->SeekToFirst();
     c_iter_.reset(new CompactionIterator(
         iter_.get(), cmp_, merge_helper_.get(), last_sequence, &snapshots_,
-        kMaxSequenceNumber, Env::Default(), false, range_del_agg_.get(),
-        std::move(compaction), filter, nullptr, &shutting_down_));
+        kMaxSequenceNumber, nullptr, Env::Default(), false,
+        range_del_agg_.get(), std::move(compaction), filter, nullptr,
+        &shutting_down_));
   }
 
   void AddSnapshot(SequenceNumber snapshot) { snapshots_.push_back(snapshot); }

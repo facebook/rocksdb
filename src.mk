@@ -166,7 +166,7 @@ LIB_SOURCES =                                                   \
   utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc    \
   utilities/convenience/info_log_finder.cc                      \
   utilities/date_tiered/date_tiered_db_impl.cc                  \
-  utilities/debug.cc                                        	\
+  utilities/debug.cc                                            \
   utilities/document/document_db.cc                             \
   utilities/document/json_document.cc                           \
   utilities/document/json_document_builder.cc                   \
@@ -193,14 +193,15 @@ LIB_SOURCES =                                                   \
   utilities/spatialdb/spatial_db.cc                             \
   utilities/table_properties_collectors/compact_on_deletion_collector.cc \
   utilities/transactions/optimistic_transaction_db_impl.cc      \
-  utilities/transactions/optimistic_transaction.cc         \
+  utilities/transactions/optimistic_transaction.cc              \
+  utilities/transactions/pessimistic_transaction.cc             \
+  utilities/transactions/pessimistic_transaction_db.cc          \
+  utilities/transactions/snapshot_checker.cc                    \
   utilities/transactions/transaction_base.cc                    \
-  utilities/transactions/pessimistic_transaction_db.cc                 \
   utilities/transactions/transaction_db_mutex_impl.cc           \
-  utilities/transactions/pessimistic_transaction.cc                    \
   utilities/transactions/transaction_lock_mgr.cc                \
   utilities/transactions/transaction_util.cc                    \
-  utilities/transactions/write_prepared_txn.cc     \
+  utilities/transactions/write_prepared_txn.cc                  \
   utilities/ttl/db_ttl_impl.cc                                  \
   utilities/write_batch_with_index/write_batch_with_index.cc    \
   utilities/write_batch_with_index/write_batch_with_index_internal.cc    \

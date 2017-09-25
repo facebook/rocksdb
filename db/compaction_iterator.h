@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <deque>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -20,6 +21,7 @@
 namespace rocksdb {
 
 class CompactionEventListener;
+class SnapshotChecker;
 
 class CompactionIterator {
  public:
@@ -59,7 +61,8 @@ class CompactionIterator {
   CompactionIterator(InternalIterator* input, const Comparator* cmp,
                      MergeHelper* merge_helper, SequenceNumber last_sequence,
                      std::vector<SequenceNumber>* snapshots,
-                     SequenceNumber earliest_write_conflict_snapshot, Env* env,
+                     SequenceNumber earliest_write_conflict_snapshot,
+                     const SnapshotChecker* snapshot_checker, Env* env,
                      bool expect_valid_internal_key,
                      RangeDelAggregator* range_del_agg,
                      const Compaction* compaction = nullptr,
@@ -71,7 +74,8 @@ class CompactionIterator {
   CompactionIterator(InternalIterator* input, const Comparator* cmp,
                      MergeHelper* merge_helper, SequenceNumber last_sequence,
                      std::vector<SequenceNumber>* snapshots,
-                     SequenceNumber earliest_write_conflict_snapshot, Env* env,
+                     SequenceNumber earliest_write_conflict_snapshot,
+                     const SnapshotChecker* snapshot_checker, Env* env,
                      bool expect_valid_internal_key,
                      RangeDelAggregator* range_del_agg,
                      std::unique_ptr<CompactionProxy> compaction,
@@ -125,6 +129,7 @@ class CompactionIterator {
   MergeHelper* merge_helper_;
   const std::vector<SequenceNumber>* snapshots_;
   const SequenceNumber earliest_write_conflict_snapshot_;
+  const SnapshotChecker* const snapshot_checker_;
   Env* env_;
   bool expect_valid_internal_key_;
   RangeDelAggregator* range_del_agg_;
@@ -132,7 +137,7 @@ class CompactionIterator {
   const CompactionFilter* compaction_filter_;
 #ifndef ROCKSDB_LITE
   CompactionEventListener* compaction_listener_;
-#endif  // ROCKSDB_LITE
+#endif  // !ROCKSDB_LITE
   const std::atomic<bool>* shutting_down_;
   bool bottommost_level_;
   bool valid_ = false;
@@ -188,6 +193,10 @@ class CompactionIterator {
   // is in or beyond the last file checked during the previous call
   std::vector<size_t> level_ptrs_;
   CompactionIterationStats iter_stats_;
+
+  // Only used for WritePreparedTxnDB. Mark if the current key has been
+  // committed.
+  bool current_key_commited_;
 
   bool IsShuttingDown() {
     // This is a best-effort facility, so memory_order_relaxed is sufficient.

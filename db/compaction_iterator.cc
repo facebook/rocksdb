@@ -3,7 +3,11 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include <memory>
+
 #include "db/compaction_iterator.h"
+#include "db/snapshot_checker.h"
+#include "port/likely.h"
 #include "rocksdb/listener.h"
 #include "table/internal_iterator.h"
 
@@ -37,15 +41,16 @@ CompactionEventListener::CompactionListenerValueType fromInternalValueType(
 CompactionIterator::CompactionIterator(
     InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
     SequenceNumber last_sequence, std::vector<SequenceNumber>* snapshots,
-    SequenceNumber earliest_write_conflict_snapshot, Env* env,
+    SequenceNumber earliest_write_conflict_snapshot,
+    const SnapshotChecker* snapshot_checker, Env* env,
     bool expect_valid_internal_key, RangeDelAggregator* range_del_agg,
     const Compaction* compaction, const CompactionFilter* compaction_filter,
     CompactionEventListener* compaction_listener,
     const std::atomic<bool>* shutting_down)
     : CompactionIterator(
           input, cmp, merge_helper, last_sequence, snapshots,
-          earliest_write_conflict_snapshot, env, expect_valid_internal_key,
-          range_del_agg,
+          earliest_write_conflict_snapshot, snapshot_checker, env,
+          expect_valid_internal_key, range_del_agg,
           std::unique_ptr<CompactionProxy>(
               compaction ? new CompactionProxy(compaction) : nullptr),
           compaction_filter, compaction_listener, shutting_down) {}
@@ -53,7 +58,8 @@ CompactionIterator::CompactionIterator(
 CompactionIterator::CompactionIterator(
     InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
     SequenceNumber last_sequence, std::vector<SequenceNumber>* snapshots,
-    SequenceNumber earliest_write_conflict_snapshot, Env* env,
+    SequenceNumber earliest_write_conflict_snapshot,
+    const SnapshotChecker* snapshot_checker, Env* env,
     bool expect_valid_internal_key, RangeDelAggregator* range_del_agg,
     std::unique_ptr<CompactionProxy> compaction,
     const CompactionFilter* compaction_filter,
@@ -64,6 +70,7 @@ CompactionIterator::CompactionIterator(
       merge_helper_(merge_helper),
       snapshots_(snapshots),
       earliest_write_conflict_snapshot_(earliest_write_conflict_snapshot),
+      snapshot_checker_(snapshot_checker),
       env_(env),
       expect_valid_internal_key_(expect_valid_internal_key),
       range_del_agg_(range_del_agg),
@@ -220,6 +227,7 @@ void CompactionIterator::NextFromInput() {
       has_outputted_key_ = false;
       current_user_key_sequence_ = kMaxSequenceNumber;
       current_user_key_snapshot_ = 0;
+      current_key_commited_ = (snapshot_checker_ == nullptr);
 
 #ifndef ROCKSDB_LITE
       if (compaction_listener_) {
@@ -227,7 +235,7 @@ void CompactionIterator::NextFromInput() {
                                            fromInternalValueType(ikey_.type),
                                            value_, ikey_.sequence, true);
       }
-#endif  // ROCKSDB_LITE
+#endif  // !ROCKSDB_LITE
 
       // apply the compaction filter to the first occurrence of the user key
       if (compaction_filter_ != nullptr && ikey_.type == kTypeValue &&
@@ -293,6 +301,20 @@ void CompactionIterator::NextFromInput() {
       key_ = current_key_.GetInternalKey();
       ikey_.user_key = current_key_.GetUserKey();
     }
+
+#ifndef ROCKSDB_LITE
+    // Should not compact any uncommited keys.
+    if (!current_key_commited_) {
+      assert(snapshot_checker_ != nullptr);
+      // If a key is not visible to even kMaxSequenceNumber, it is not commited.
+      current_key_commited_ =
+          snapshot_checker_->IsInSnapshot(ikey_.sequence, kMaxSequenceNumber);
+      if (!current_key_commited_) {
+        valid_ = true;
+        break;
+      }
+    }
+#endif  // !ROCKSDB_LITE
 
     // If there are no snapshots, then this kv affect visibility at tip.
     // Otherwise, search though all existing snapshots to find the earliest
@@ -568,10 +590,19 @@ void CompactionIterator::PrepareOutput() {
 inline SequenceNumber CompactionIterator::findEarliestVisibleSnapshot(
     SequenceNumber in, SequenceNumber* prev_snapshot) {
   assert(snapshots_->size());
-  SequenceNumber prev __attribute__((__unused__)) = kMaxSequenceNumber;
+  SequenceNumber prev = kMaxSequenceNumber;
+  auto is_in_snapshot = [this](SequenceNumber in, SequenceNumber snapshot) {
+#ifdef ROCKSDB_LITE
+    return snapshot >= in;
+#else
+    return (snapshot_checker_ == nullptr && snapshot >= in) ||
+           (snapshot_checker_ != nullptr &&
+            snapshot_checker_->IsInSnapshot(in, snapshot));
+#endif  // ROCKSDB_LITE
+  };
   for (const auto cur : *snapshots_) {
     assert(prev == kMaxSequenceNumber || prev <= cur);
-    if (cur >= in) {
+    if (is_in_snapshot(in, cur)) {
       *prev_snapshot = prev == kMaxSequenceNumber ? 0 : prev;
       return cur;
     }

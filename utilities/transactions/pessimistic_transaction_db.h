@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "db/read_callback.h"
+#include "db/snapshot_checker.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/transaction_db.h"
@@ -174,7 +175,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
         COMMIT_CACHE_BITS(commit_cache_bits),
         COMMIT_CACHE_SIZE(static_cast<size_t>(1ull << COMMIT_CACHE_BITS)),
         FORMAT(COMMIT_CACHE_BITS) {
-    init(txn_db_options);
+    Init(txn_db_options);
   }
 
   explicit WritePreparedTxnDB(
@@ -187,7 +188,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
         COMMIT_CACHE_BITS(commit_cache_bits),
         COMMIT_CACHE_SIZE(static_cast<size_t>(1ull << COMMIT_CACHE_BITS)),
         FORMAT(COMMIT_CACHE_BITS) {
-    init(txn_db_options);
+    Init(txn_db_options);
   }
 
   virtual ~WritePreparedTxnDB() {}
@@ -207,7 +208,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
 
   // Check whether the transaction that wrote the value with seqeunce number seq
   // is visible to the snapshot with sequence number snapshot_seq
-  bool IsInSnapshot(uint64_t seq, uint64_t snapshot_seq);
+  bool IsInSnapshot(uint64_t seq, uint64_t snapshot_seq) const;
   // Add the trasnaction with prepare sequence seq to the prepared list
   void AddPrepared(uint64_t seq);
   // Rollback a prepared txn identified with prep_seq. rollback_seq is the seq
@@ -312,16 +313,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   friend class WritePreparedTransactionTest_IsInSnapshotEmptyMapTest_Test;
   friend class WritePreparedTransactionTest_RollbackTest_Test;
 
-  void init(const TransactionDBOptions& /* unused */) {
-    // Adcance max_evicted_seq_ no more than 100 times before the cache wraps
-    // around.
-    INC_STEP_FOR_MAX_EVICTED =
-        std::max(SNAPSHOT_CACHE_SIZE / 100, static_cast<size_t>(1));
-    snapshot_cache_ = unique_ptr<std::atomic<SequenceNumber>[]>(
-        new std::atomic<SequenceNumber>[SNAPSHOT_CACHE_SIZE] {});
-    commit_cache_ = unique_ptr<std::atomic<CommitEntry64b>[]>(
-        new std::atomic<CommitEntry64b>[COMMIT_CACHE_SIZE] {});
-  }
+  void Init(const TransactionDBOptions& /* unused */);
 
   // A heap with the amortized O(1) complexity for erase. It uses one extra heap
   // to keep track of erased entries that are not yet on top of the main heap.
@@ -363,7 +355,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // Get the commit entry with index indexed_seq from the commit table. It
   // returns true if such entry exists.
   bool GetCommitEntry(const uint64_t indexed_seq, CommitEntry64b* entry_64b,
-                      CommitEntry* entry);
+                      CommitEntry* entry) const;
 
   // Rewrite the entry with the index indexed_seq in the commit table with the
   // commit entry <prep_seq, commit_seq>. If the rewrite results into eviction,
@@ -467,10 +459,10 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   std::atomic<bool> delayed_prepared_empty_ = {true};
   // Update when old_commit_map_.empty() changes. Expected to be true normally.
   std::atomic<bool> old_commit_map_empty_ = {true};
-  port::RWMutex prepared_mutex_;
-  port::RWMutex old_commit_map_mutex_;
-  port::RWMutex commit_cache_mutex_;
-  port::RWMutex snapshots_mutex_;
+  mutable port::RWMutex prepared_mutex_;
+  mutable port::RWMutex old_commit_map_mutex_;
+  mutable port::RWMutex commit_cache_mutex_;
+  mutable port::RWMutex snapshots_mutex_;
 };
 
 class WritePreparedTxnReadCallback : public ReadCallback {
