@@ -320,7 +320,7 @@ void CompactionIterator::NextFromInput() {
     if (need_skip) {
       // This case is handled below.
 #ifndef ROCKSDB_LITE
-    } else if (!current_key_committed_) {
+    } else if (UNLIKELY(!current_key_committed_)) {
       assert(snapshot_checker_ != nullptr);
       // If a key is not visible to even kMaxSequenceNumber, it is not commited.
       current_key_committed_ =
@@ -580,6 +580,13 @@ void CompactionIterator::PrepareOutput() {
       ikey_.type != kTypeMerge &&
       !cmp_->Equal(compaction_->GetLargestUserKey(), ikey_.user_key)) {
     assert(ikey_.type != kTypeDeletion && ikey_.type != kTypeSingleDeletion);
+#ifndef ROCKSDB_LITE
+    if (snapshot_checker_ != nullptr &&
+        UNLIKELY(!snapshot_checker_->IsInSnapshot(ikey_.sequence,
+                                                  earliest_snapshot_))) {
+      return;
+    }
+#endif  // !ROCKSDB_LITE
     ikey_.sequence = 0;
     current_key_.UpdateInternalKey(0, ikey_.type);
   }
@@ -605,7 +612,8 @@ SequenceNumber CompactionIterator::findEarliestVisibleSnapshot(
   return kMaxSequenceNumber;
 }
 
-SequenceNumber CompactionIterator::findEarliestVisibleSnapshotWithSnapshotChecker(
+SequenceNumber
+CompactionIterator::findEarliestVisibleSnapshotWithSnapshotChecker(
     SequenceNumber in, SequenceNumber* prev_snapshot) {
   assert(snapshots_->size());
   assert(snapshot_checker_ != nullptr);

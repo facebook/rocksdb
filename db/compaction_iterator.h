@@ -120,8 +120,8 @@ class CompactionIterator {
   // sequence numbers.
   // Employ a sequential search because the total number of
   // snapshots are typically small.
-  SequenceNumber findEarliestVisibleSnapshot(
-      SequenceNumber in, SequenceNumber* prev_snapshot);
+  SequenceNumber findEarliestVisibleSnapshot(SequenceNumber in,
+                                             SequenceNumber* prev_snapshot);
 #ifndef ROCKSDB_LITE
   SequenceNumber findEarliestVisibleSnapshotWithSnapshotChecker(
       SequenceNumber in, SequenceNumber* prev_snapshot);
