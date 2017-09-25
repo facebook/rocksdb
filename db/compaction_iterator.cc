@@ -3,9 +3,8 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include <memory>
-
 #include "db/compaction_iterator.h"
+
 #include "db/snapshot_checker.h"
 #include "port/likely.h"
 #include "rocksdb/listener.h"
@@ -217,6 +216,9 @@ void CompactionIterator::NextFromInput() {
     // Check whether the user key changed. After this if statement current_key_
     // is a copy of the current input key (maybe converted to a delete by the
     // compaction filter). ikey_.user_key is pointing to the copy.
+    //
+    // In case of WritePreparedTxnDB (snapshot_checker_ presents), compaction
+    // filter can see a prepared key before it gets committed.
     if (!has_current_user_key_ ||
         !cmp_->Equal(ikey_.user_key, current_user_key_)) {
       // First occurrence of this user key
@@ -227,7 +229,7 @@ void CompactionIterator::NextFromInput() {
       has_outputted_key_ = false;
       current_user_key_sequence_ = kMaxSequenceNumber;
       current_user_key_snapshot_ = 0;
-      current_key_commited_ = (snapshot_checker_ == nullptr);
+      current_key_committed_ = (snapshot_checker_ == nullptr);
 
 #ifndef ROCKSDB_LITE
       if (compaction_listener_) {
@@ -302,20 +304,6 @@ void CompactionIterator::NextFromInput() {
       ikey_.user_key = current_key_.GetUserKey();
     }
 
-#ifndef ROCKSDB_LITE
-    // Should not compact any uncommited keys.
-    if (!current_key_commited_) {
-      assert(snapshot_checker_ != nullptr);
-      // If a key is not visible to even kMaxSequenceNumber, it is not commited.
-      current_key_commited_ =
-          snapshot_checker_->IsInSnapshot(ikey_.sequence, kMaxSequenceNumber);
-      if (!current_key_commited_) {
-        valid_ = true;
-        break;
-      }
-    }
-#endif  // !ROCKSDB_LITE
-
     // If there are no snapshots, then this kv affect visibility at tip.
     // Otherwise, search though all existing snapshots to find the earliest
     // snapshot that is affected by this kv.
@@ -331,6 +319,16 @@ void CompactionIterator::NextFromInput() {
 
     if (need_skip) {
       // This case is handled below.
+#ifndef ROCKSDB_LITE
+    } else if (!current_key_committed_) {
+      assert(snapshot_checker_ != nullptr);
+      // If a key is not visible to even kMaxSequenceNumber, it is not commited.
+      current_key_committed_ =
+          snapshot_checker_->IsInSnapshot(ikey_.sequence, kMaxSequenceNumber);
+      if (!current_key_committed_) {
+        valid_ = true;
+      }
+#endif  // !ROCKSDB_LITE
     } else if (clear_and_output_next_key_) {
       // In the previous iteration we encountered a single delete that we could
       // not compact out.  We will keep this Put, but can drop it's data.
@@ -587,22 +585,34 @@ void CompactionIterator::PrepareOutput() {
   }
 }
 
-inline SequenceNumber CompactionIterator::findEarliestVisibleSnapshot(
+SequenceNumber CompactionIterator::findEarliestVisibleSnapshot(
     SequenceNumber in, SequenceNumber* prev_snapshot) {
   assert(snapshots_->size());
+  if (snapshot_checker_ != nullptr) {
+    return findEarliestVisibleSnapshotWithSnapshotChecker(in, prev_snapshot);
+  }
   SequenceNumber prev = kMaxSequenceNumber;
-  auto is_in_snapshot = [this](SequenceNumber in, SequenceNumber snapshot) {
-#ifdef ROCKSDB_LITE
-    return snapshot >= in;
-#else
-    return (snapshot_checker_ == nullptr && snapshot >= in) ||
-           (snapshot_checker_ != nullptr &&
-            snapshot_checker_->IsInSnapshot(in, snapshot));
-#endif  // ROCKSDB_LITE
-  };
   for (const auto cur : *snapshots_) {
     assert(prev == kMaxSequenceNumber || prev <= cur);
-    if (is_in_snapshot(in, cur)) {
+    if (cur >= in) {
+      *prev_snapshot = prev == kMaxSequenceNumber ? 0 : prev;
+      return cur;
+    }
+    prev = cur;
+    assert(prev < kMaxSequenceNumber);
+  }
+  *prev_snapshot = prev;
+  return kMaxSequenceNumber;
+}
+
+SequenceNumber CompactionIterator::findEarliestVisibleSnapshotWithSnapshotChecker(
+    SequenceNumber in, SequenceNumber* prev_snapshot) {
+  assert(snapshots_->size());
+  assert(snapshot_checker_ != nullptr);
+  SequenceNumber prev = kMaxSequenceNumber;
+  for (const auto cur : *snapshots_) {
+    assert(prev == kMaxSequenceNumber || prev <= cur);
+    if (snapshot_checker_->IsInSnapshot(in, cur)) {
       *prev_snapshot = prev == kMaxSequenceNumber ? 0 : prev;
       return cur;
     }

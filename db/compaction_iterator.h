@@ -6,7 +6,6 @@
 
 #include <algorithm>
 #include <deque>
-#include <memory>
 #include <string>
 #include <vector>
 
@@ -121,8 +120,12 @@ class CompactionIterator {
   // sequence numbers.
   // Employ a sequential search because the total number of
   // snapshots are typically small.
-  inline SequenceNumber findEarliestVisibleSnapshot(
+  SequenceNumber findEarliestVisibleSnapshot(
       SequenceNumber in, SequenceNumber* prev_snapshot);
+#ifndef ROCKSDB_LITE
+  SequenceNumber findEarliestVisibleSnapshotWithSnapshotChecker(
+      SequenceNumber in, SequenceNumber* prev_snapshot);
+#endif  // !ROCKSDB_LITE
 
   InternalIterator* input_;
   const Comparator* cmp_;
@@ -196,7 +199,7 @@ class CompactionIterator {
 
   // Only used for WritePreparedTxnDB. Mark if the current key has been
   // committed.
-  bool current_key_commited_;
+  bool current_key_committed_;
 
   bool IsShuttingDown() {
     // This is a best-effort facility, so memory_order_relaxed is sufficient.
