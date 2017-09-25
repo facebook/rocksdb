@@ -832,6 +832,7 @@ TEST_P(WritePreparedTransactionTest, BasicRecoveryTest) {
   // Check the value is not committed before restart
   s = db->Get(ropt, db->DefaultColumnFamily(), "foo0" + istr0, &pinnable_val);
   ASSERT_TRUE(s.IsNotFound());
+  pinnable_val.Reset();
 
   wp_db->db_impl_->FlushWAL(true);
   ReOpenNoDelete();
@@ -854,6 +855,7 @@ TEST_P(WritePreparedTransactionTest, BasicRecoveryTest) {
   // Check the value is not committed after restart
   s = db->Get(ropt, db->DefaultColumnFamily(), "foo0" + istr0, &pinnable_val);
   ASSERT_TRUE(s.IsNotFound());
+  pinnable_val.Reset();
 
   txn_t3(0);
 
@@ -904,6 +906,7 @@ TEST_P(WritePreparedTransactionTest, BasicRecoveryTest) {
   fflush(stdout);
   ASSERT_TRUE(s.ok());
   ASSERT_TRUE(pinnable_val == ("bar0" + istr0));
+  pinnable_val.Reset();
 
   wp_db->db_impl_->FlushWAL(true);
   ReOpenNoDelete();
@@ -915,6 +918,7 @@ TEST_P(WritePreparedTransactionTest, BasicRecoveryTest) {
   s = db->Get(ropt, db->DefaultColumnFamily(), "foo0" + istr0, &pinnable_val);
   ASSERT_TRUE(s.ok());
   ASSERT_TRUE(pinnable_val == ("bar0" + istr0));
+  pinnable_val.Reset();
 }
 
 // After recovery the commit map is empty while the max is set. The code would
