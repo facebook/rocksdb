@@ -643,6 +643,7 @@ class DBImpl : public DB {
   friend class PessimisticTransaction;
   friend class WriteCommittedTxn;
   friend class WritePreparedTxn;
+  friend class WritePreparedTxnDB;
   friend class WriteBatchWithIndex;
 #ifndef ROCKSDB_LITE
   friend class ForwardIterator;

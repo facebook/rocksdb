@@ -889,7 +889,8 @@ class MemTableInserter : public WriteBatch::Handler {
         post_info_created_(false),
         has_valid_writes_(has_valid_writes),
         rebuilding_trx_(nullptr),
-        seq_per_batch_(seq_per_batch) {
+        seq_per_batch_(seq_per_batch),
+        write_after_commit_(!seq_per_batch) {
     assert(cf_mems_);
   }
 
@@ -966,10 +967,13 @@ class MemTableInserter : public WriteBatch::Handler {
 
   virtual Status PutCF(uint32_t column_family_id, const Slice& key,
                        const Slice& value) override {
+    printf("PutCF %s\n", key.data());
     if (write_after_commit_ && rebuilding_trx_ != nullptr) {
+    printf("PutCF ooooooooo\n");
       WriteBatchInternal::Put(rebuilding_trx_, column_family_id, key, value);
       return Status::OK();
     }
+    printf("PutCF %s\n", key.data());
 
     Status seek_status;
     if (!SeekToColumnFamily(column_family_id, &seek_status)) {

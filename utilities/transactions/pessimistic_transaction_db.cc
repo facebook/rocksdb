@@ -544,9 +544,19 @@ void PessimisticTransactionDB::UnregisterTransaction(Transaction* txn) {
   transactions_.erase(it);
 }
 
+Status WritePreparedTxnDB::Get(const ReadOptions& options,
+                   ColumnFamilyHandle* column_family, const Slice& key,
+                   PinnableSlice* value) {
+  SequenceNumber last_seq = db_impl_->GetLatestSequenceNumber();
+  WritePreparedTxnReadCallback callback(this, last_seq);
+  bool* dont_care = nullptr;
+  return db_impl_->GetImpl(options, column_family, key, value, dont_care, &callback);
+}
+
 // Returns true if commit_seq <= snapshot_seq
 bool WritePreparedTxnDB::IsInSnapshot(uint64_t prep_seq,
                                       uint64_t snapshot_seq) {
+  printf("IsInSnapshot %lu ? %lu\n", prep_seq, snapshot_seq);
   // Here we try to infer the return value without looking into prepare list.
   // This would help avoiding synchronization over a shared map.
   // TODO(myabandeh): read your own writes
@@ -614,6 +624,7 @@ bool WritePreparedTxnDB::IsInSnapshot(uint64_t prep_seq,
 }
 
 void WritePreparedTxnDB::AddPrepared(uint64_t seq) {
+  printf("add prepared %lu\n", seq);
   ROCKS_LOG_DEBUG(info_log_, "Txn %" PRIu64 " Prepareing", seq);
   WriteLock wl(&prepared_mutex_);
   prepared_txns_.push(seq);
@@ -621,6 +632,7 @@ void WritePreparedTxnDB::AddPrepared(uint64_t seq) {
 
 void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq,
                                       uint64_t commit_seq) {
+  printf("Add committed %lu -> %lu\n", prepare_seq, commit_seq);
   ROCKS_LOG_DEBUG(info_log_, "Txn %" PRIu64 " Committing with %" PRIu64,
                   prepare_seq, commit_seq);
   auto indexed_seq = prepare_seq % COMMIT_CACHE_SIZE;

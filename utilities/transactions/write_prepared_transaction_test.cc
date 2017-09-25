@@ -794,7 +794,7 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceConcurrentTest) {
 }
 
 // Run a couple of differnet txns among them some uncommitted. Restart the db at
-// s couple points to check whether the list of uncommitted txns are recovered
+// a couple points to check whether the list of uncommitted txns are recovered
 // properly.
 TEST_P(WritePreparedTransactionTest, BasicRecoveryTest) {
   WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
@@ -808,7 +808,7 @@ TEST_P(WritePreparedTransactionTest, BasicRecoveryTest) {
   auto istr0 = std::to_string(index);
   auto s = txn0->SetName("xid" + istr0);
   ASSERT_OK(s);
-  s = txn0->Put(Slice("foo0" + istr0), Slice("bar"));
+  s = txn0->Put(Slice("foo0" + istr0), Slice("bar0" + istr0));
   ASSERT_OK(s);
   s = txn0->Prepare();
   auto prep_seq_0 = txn0->GetId();
@@ -827,6 +827,12 @@ TEST_P(WritePreparedTransactionTest, BasicRecoveryTest) {
 
   txn_t2(0);
 
+  ReadOptions ropt;
+  PinnableSlice pinnable_val;
+  // Check the value is not committed before restart
+  s = db->Get(ropt, db->DefaultColumnFamily(), "foo0" + istr0, &pinnable_val);
+  ASSERT_TRUE(s.IsNotFound());
+
   wp_db->db_impl_->FlushWAL(true);
   ReOpenNoDelete();
   wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
@@ -844,6 +850,10 @@ TEST_P(WritePreparedTransactionTest, BasicRecoveryTest) {
     ASSERT_TRUE(wp_db->delayed_prepared_.find(prep_seq_1) !=
                 wp_db->delayed_prepared_.end());
   }
+
+  // Check the value is not committed after restart
+  s = db->Get(ropt, db->DefaultColumnFamily(), "foo0" + istr0, &pinnable_val);
+  ASSERT_TRUE(s.IsNotFound());
 
   txn_t3(0);
 
@@ -888,11 +898,23 @@ TEST_P(WritePreparedTransactionTest, BasicRecoveryTest) {
   ASSERT_NE(txn2, nullptr);
   txn2->Commit();
 
+  // Check the value is committed after commit
+  s = db->Get(ropt, db->DefaultColumnFamily(), "foo0" + istr0, &pinnable_val);
+  printf("s is %s\n", s.ToString().c_str());
+  fflush(stdout);
+  ASSERT_TRUE(s.ok());
+  ASSERT_TRUE(pinnable_val == ("bar0" + istr0));
+
   wp_db->db_impl_->FlushWAL(true);
   ReOpenNoDelete();
   wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
   ASSERT_TRUE(wp_db->prepared_txns_.empty());
   ASSERT_TRUE(wp_db->delayed_prepared_empty_);
+
+  // Check the value is still committed after recovery
+  s = db->Get(ropt, db->DefaultColumnFamily(), "foo0" + istr0, &pinnable_val);
+  ASSERT_TRUE(s.ok());
+  ASSERT_TRUE(pinnable_val == ("bar0" + istr0));
 }
 
 // Test WritePreparedTxnDB's IsInSnapshot against different ordering of
