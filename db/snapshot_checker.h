@@ -4,8 +4,6 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
-#ifndef ROCKSDB_LITE
-
 #include "rocksdb/types.h"
 
 namespace rocksdb {
@@ -22,8 +20,18 @@ class SnapshotChecker {
                     SequenceNumber snapshot_sequence) const;
 
  private:
+#ifndef ROCKSDB_LITE
   const WritePreparedTxnDB* const txn_db_;
+#endif  // !ROCKSDB_LITE
 };
 
+#ifdef ROCKSDB_LITE
+SnapshotChecker::SnapshotChecker(WritePreparedTxnDB* txn_db) {}
+
+bool SnapshotChecker::IsInSnapshot(SequenceNumber sequence,
+                                   SequenceNumber snapshot_sequence) const {
+  return sequence <= snapshot_sequence;
+}
+#endif  // ROCKSDB_LITE
+
 }  // namespace rocksdb
-#endif  // !ROCKSDB_LITE

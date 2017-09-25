@@ -14,13 +14,13 @@
 #include "db/merge_helper.h"
 #include "db/pinned_iterators_manager.h"
 #include "db/range_del_aggregator.h"
+#include "db/snapshot_checker.h"
 #include "options/cf_options.h"
 #include "rocksdb/compaction_filter.h"
 
 namespace rocksdb {
 
 class CompactionEventListener;
-class SnapshotChecker;
 
 class CompactionIterator {
  public:
@@ -122,10 +122,8 @@ class CompactionIterator {
   // snapshots are typically small.
   SequenceNumber findEarliestVisibleSnapshot(SequenceNumber in,
                                              SequenceNumber* prev_snapshot);
-#ifndef ROCKSDB_LITE
   SequenceNumber findEarliestVisibleSnapshotWithSnapshotChecker(
       SequenceNumber in, SequenceNumber* prev_snapshot);
-#endif  // !ROCKSDB_LITE
 
   InternalIterator* input_;
   const Comparator* cmp_;

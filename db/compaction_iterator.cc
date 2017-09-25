@@ -319,7 +319,6 @@ void CompactionIterator::NextFromInput() {
 
     if (need_skip) {
       // This case is handled below.
-#ifndef ROCKSDB_LITE
     } else if (UNLIKELY(!current_key_committed_)) {
       assert(snapshot_checker_ != nullptr);
       // If a key is not visible to even kMaxSequenceNumber, it is not commited.
@@ -328,7 +327,6 @@ void CompactionIterator::NextFromInput() {
       if (!current_key_committed_) {
         valid_ = true;
       }
-#endif  // !ROCKSDB_LITE
     } else if (clear_and_output_next_key_) {
       // In the previous iteration we encountered a single delete that we could
       // not compact out.  We will keep this Put, but can drop it's data.
@@ -577,16 +575,12 @@ void CompactionIterator::PrepareOutput() {
   // only care about sequence number larger than any active snapshots.
   if ((compaction_ != nullptr && !compaction_->allow_ingest_behind()) &&
       bottommost_level_ && valid_ && ikey_.sequence <= earliest_snapshot_ &&
+      (snapshot_checker_ == nullptr ||
+       LIKELY(snapshot_checker_->IsInSnapshot(ikey_.sequence,
+                                              earliest_snapshot_))) &&
       ikey_.type != kTypeMerge &&
       !cmp_->Equal(compaction_->GetLargestUserKey(), ikey_.user_key)) {
     assert(ikey_.type != kTypeDeletion && ikey_.type != kTypeSingleDeletion);
-#ifndef ROCKSDB_LITE
-    if (snapshot_checker_ != nullptr &&
-        UNLIKELY(!snapshot_checker_->IsInSnapshot(ikey_.sequence,
-                                                  earliest_snapshot_))) {
-      return;
-    }
-#endif  // !ROCKSDB_LITE
     ikey_.sequence = 0;
     current_key_.UpdateInternalKey(0, ikey_.type);
   }
