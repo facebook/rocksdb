@@ -763,4 +763,28 @@ public class RocksDBTest {
       }
     }
   }
+
+  @Test
+  public void destroyDB() throws RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true)) {
+      String dbPath = dbFolder.getRoot().getAbsolutePath();
+      try (final RocksDB db = RocksDB.open(options, dbPath)) {
+        db.put("key1".getBytes(), "value".getBytes());
+      }
+      assertThat(dbFolder.getRoot().exists()).isTrue();
+      RocksDB.destroyDB(dbPath, options);
+      assertThat(dbFolder.getRoot().exists()).isFalse();
+    }
+  }
+
+  @Test(expected = RocksDBException.class)
+  public void destroyDBFailIfOpen() throws RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true)) {
+      String dbPath = dbFolder.getRoot().getAbsolutePath();
+      try (final RocksDB db = RocksDB.open(options, dbPath)) {
+        // Fails as the db is open and locked.
+        RocksDB.destroyDB(dbPath, options);
+      }
+    }
+  }
 }
