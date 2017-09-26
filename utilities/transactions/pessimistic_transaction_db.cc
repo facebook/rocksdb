@@ -545,12 +545,13 @@ void PessimisticTransactionDB::UnregisterTransaction(Transaction* txn) {
 }
 
 Status WritePreparedTxnDB::Get(const ReadOptions& options,
-                   ColumnFamilyHandle* column_family, const Slice& key,
-                   PinnableSlice* value) {
+                               ColumnFamilyHandle* column_family,
+                               const Slice& key, PinnableSlice* value) {
   SequenceNumber last_seq = db_impl_->GetLatestSequenceNumber();
   WritePreparedTxnReadCallback callback(this, last_seq);
   bool* dont_care = nullptr;
-  return db_impl_->GetImpl(options, column_family, key, value, dont_care, &callback);
+  return db_impl_->GetImpl(options, column_family, key, value, dont_care,
+                           &callback);
 }
 
 // Returns true if commit_seq <= snapshot_seq

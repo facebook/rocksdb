@@ -285,11 +285,12 @@ class WritePreparedTransactionTest : public TransactionTest {
   }
 };
 
-//TODO(myabandeh): enable it for concurrent_prepare
-INSTANTIATE_TEST_CASE_P(
-    WritePreparedTransactionTest, WritePreparedTransactionTest,
-    ::testing::Values(std::make_tuple(false, false, WRITE_PREPARED)));
-                      //std::make_tuple(false, true, WRITE_PREPARED)));
+// TODO(myabandeh): enable it for concurrent_prepare
+INSTANTIATE_TEST_CASE_P(WritePreparedTransactionTest,
+                        WritePreparedTransactionTest,
+                        ::testing::Values(std::make_tuple(false, false,
+                                                          WRITE_PREPARED)));
+// std::make_tuple(false, true, WRITE_PREPARED)));
 
 TEST_P(WritePreparedTransactionTest, CommitMapTest) {
   WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);

@@ -195,10 +195,10 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
                                 const TransactionOptions& txn_options,
                                 Transaction* old_txn) override;
 
-using DB::Get;
-virtual Status Get(const ReadOptions& options,
-                   ColumnFamilyHandle* column_family, const Slice& key,
-                   PinnableSlice* value) override;
+  using DB::Get;
+  virtual Status Get(const ReadOptions& options,
+                     ColumnFamilyHandle* column_family, const Slice& key,
+                     PinnableSlice* value) override;
 
   // Check whether the transaction that wrote the value with seqeunce number seq
   // is visible to the snapshot with sequence number snapshot_seq
