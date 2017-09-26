@@ -24,8 +24,7 @@ void ThreadStatusUpdater::TEST_VerifyColumnFamilyInfoMap(
     auto iter __attribute__((unused)) = cf_info_map_.find(cfd);
     if (check_exist) {
       assert(iter != cf_info_map_.end());
-      assert(iter->second);
-      assert(iter->second->cf_name == cfd->GetName());
+      assert(iter->second.cf_name == cfd->GetName());
     } else {
       assert(iter == cf_info_map_.end());
     }
