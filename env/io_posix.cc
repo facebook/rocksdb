@@ -1018,7 +1018,8 @@ PosixDirectory::~PosixDirectory() { close(fd_); }
 
 Status PosixDirectory::Fsync() {
 #ifndef OS_AIX
-  if (fsync(fd_) == -1) {
+  // Some network filesystems like CIFS do not support directory fsync
+  if (fsync(fd_) == -1 && errno != EINVAL) {
     return IOError("While fsync", "a directory", errno);
   }
 #endif
