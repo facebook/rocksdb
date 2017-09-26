@@ -285,10 +285,11 @@ class WritePreparedTransactionTest : public TransactionTest {
   }
 };
 
+//TODO(myabandeh): enable it for concurrent_prepare
 INSTANTIATE_TEST_CASE_P(
     WritePreparedTransactionTest, WritePreparedTransactionTest,
-    ::testing::Values(std::make_tuple(false, true, WRITE_PREPARED),
-                      std::make_tuple(false, false, WRITE_PREPARED)));
+    ::testing::Values(std::make_tuple(false, false, WRITE_PREPARED)));
+                      //std::make_tuple(false, true, WRITE_PREPARED)));
 
 TEST_P(WritePreparedTransactionTest, CommitMapTest) {
   WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
@@ -797,6 +798,8 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceConcurrentTest) {
 // a couple points to check whether the list of uncommitted txns are recovered
 // properly.
 TEST_P(WritePreparedTransactionTest, BasicRecoveryTest) {
+  options.disable_auto_compactions = true;
+  ReOpen();
   WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
 
   txn_t0(0);
@@ -902,8 +905,6 @@ TEST_P(WritePreparedTransactionTest, BasicRecoveryTest) {
 
   // Check the value is committed after commit
   s = db->Get(ropt, db->DefaultColumnFamily(), "foo0" + istr0, &pinnable_val);
-  printf("s is %s\n", s.ToString().c_str());
-  fflush(stdout);
   ASSERT_TRUE(s.ok());
   ASSERT_TRUE(pinnable_val == ("bar0" + istr0));
   pinnable_val.Reset();

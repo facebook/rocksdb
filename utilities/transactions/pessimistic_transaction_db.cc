@@ -556,7 +556,6 @@ Status WritePreparedTxnDB::Get(const ReadOptions& options,
 // Returns true if commit_seq <= snapshot_seq
 bool WritePreparedTxnDB::IsInSnapshot(uint64_t prep_seq,
                                       uint64_t snapshot_seq) {
-  printf("IsInSnapshot %lu ? %lu\n", prep_seq, snapshot_seq);
   // Here we try to infer the return value without looking into prepare list.
   // This would help avoiding synchronization over a shared map.
   // TODO(myabandeh): read your own writes
@@ -620,7 +619,6 @@ bool WritePreparedTxnDB::IsInSnapshot(uint64_t prep_seq,
 }
 
 void WritePreparedTxnDB::AddPrepared(uint64_t seq) {
-  printf("add prepared %lu\n", seq);
   ROCKS_LOG_DEBUG(info_log_, "Txn %" PRIu64 " Prepareing", seq);
   assert(seq > max_evicted_seq_);
   WriteLock wl(&prepared_mutex_);
@@ -629,7 +627,6 @@ void WritePreparedTxnDB::AddPrepared(uint64_t seq) {
 
 void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq,
                                       uint64_t commit_seq) {
-  printf("Add committed %lu -> %lu\n", prepare_seq, commit_seq);
   ROCKS_LOG_DEBUG(info_log_, "Txn %" PRIu64 " Committing with %" PRIu64,
                   prepare_seq, commit_seq);
   auto indexed_seq = prepare_seq % COMMIT_CACHE_SIZE;
