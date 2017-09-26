@@ -170,6 +170,12 @@ class TransactionBaseImpl : public Transaction {
     return DeleteUntracked(nullptr, key);
   }
 
+  Status SingleDeleteUntracked(ColumnFamilyHandle* column_family,
+                               const Slice& key) override;
+  Status SingleDeleteUntracked(const Slice& key) override {
+    return SingleDeleteUntracked(nullptr, key);
+  }
+
   void PutLogData(const Slice& blob) override;
 
   WriteBatchWithIndex* GetWriteBatch() override;

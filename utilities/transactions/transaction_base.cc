@@ -471,6 +471,21 @@ Status TransactionBaseImpl::DeleteUntracked(ColumnFamilyHandle* column_family,
   return s;
 }
 
+Status TransactionBaseImpl::SingleDeleteUntracked(
+    ColumnFamilyHandle* column_family, const Slice& key) {
+  Status s = TryLock(column_family, key, false /* read_only */,
+                     true /* exclusive */, true /* untracked */);
+
+  if (s.ok()) {
+    s = GetBatchForWrite()->SingleDelete(column_family, key);
+    if (s.ok()) {
+      num_deletes_++;
+    }
+  }
+
+  return s;
+}
+
 void TransactionBaseImpl::PutLogData(const Slice& blob) {
   write_batch_.PutLogData(blob);
 }
