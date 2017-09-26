@@ -1081,7 +1081,8 @@ TEST_F(DBIteratorTest, PrevAfterAndNextAfterMerge) {
   ASSERT_EQ("2", it->key().ToString());
 }
 
-TEST_F(DBIteratorTest, PinnedDataIteratorRandomized) {
+class DBIteratorTestForPinnedData : public DBIteratorTest {
+ public:
   enum TestConfig {
     NORMAL,
     CLOSE_AND_OPEN,
@@ -1089,19 +1090,19 @@ TEST_F(DBIteratorTest, PinnedDataIteratorRandomized) {
     FLUSH_EVERY_1000,
     MAX
   };
+  DBIteratorTestForPinnedData() : DBIteratorTest() {}
+  void PinnedDataIteratorRandomized(TestConfig run_config) {
+    // Generate Random data
+    Random rnd(301);
 
-  // Generate Random data
-  Random rnd(301);
+    int puts = 100000;
+    int key_pool = static_cast<int>(puts * 0.7);
+    int key_size = 100;
+    int val_size = 1000;
+    int seeks_percentage = 20;   // 20% of keys will be used to test seek()
+    int delete_percentage = 20;  // 20% of keys will be deleted
+    int merge_percentage = 20;   // 20% of keys will be added using Merge()
 
-  int puts = 100000;
-  int key_pool = static_cast<int>(puts * 0.7);
-  int key_size = 100;
-  int val_size = 1000;
-  int seeks_percentage = 20;   // 20% of keys will be used to test seek()
-  int delete_percentage = 20;  // 20% of keys will be deleted
-  int merge_percentage = 20;   // 20% of keys will be added using Merge()
-
-  for (int run_config = 0; run_config < TestConfig::MAX; run_config++) {
     Options options = CurrentOptions();
     BlockBasedTableOptions table_options;
     table_options.use_delta_encoding = false;
@@ -1246,7 +1247,24 @@ TEST_F(DBIteratorTest, PinnedDataIteratorRandomized) {
     }
 
     delete iter;
-  }
+}
+};
+
+TEST_F(DBIteratorTestForPinnedData, PinnedDataIteratorRandomizedNormal) {
+  PinnedDataIteratorRandomized(TestConfig::NORMAL);
+}
+
+TEST_F(DBIteratorTestForPinnedData, PinnedDataIteratorRandomizedCLoseAndOpen) {
+  PinnedDataIteratorRandomized(TestConfig::CLOSE_AND_OPEN);
+}
+
+TEST_F(DBIteratorTestForPinnedData,
+       PinnedDataIteratorRandomizedCompactBeforeRead) {
+  PinnedDataIteratorRandomized(TestConfig::COMPACT_BEFORE_READ);
+}
+
+TEST_F(DBIteratorTestForPinnedData, PinnedDataIteratorRandomizedFlush) {
+  PinnedDataIteratorRandomized(TestConfig::FLUSH_EVERY_1000);
 }
 
 #ifndef ROCKSDB_LITE
