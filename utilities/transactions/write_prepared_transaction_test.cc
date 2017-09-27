@@ -569,7 +569,7 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceTest) {
   const size_t NUM_BRANCHES = 8;
   // Helper function that shows if the branch is to be taken in the run
   // represented by the number n.
-  auto branch_do = [](size_t n, size_t* branch) {
+  auto branch_do = [&](size_t n, size_t* branch) {
     assert(*branch < NUM_BRANCHES);
     const size_t filter = static_cast<size_t>(1) << *branch;
     return n & filter;
@@ -681,10 +681,10 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceConcurrentTest) {
     base[bi] = base[bi - 1] * type_cnt;
   }
   const size_t max_n = std::pow(type_cnt, txn_cnt);
-  printf("Number of cases being tested is %" PRIu64 "\n", max_n);
+  printf("Number of cases being tested is %" PRIu32 "\n", max_n);
   for (size_t n = 0; n < max_n; n++, ReOpen()) {
     if (n % 1000 == 0) {
-      printf("Tested %" PRIu64 " cases so far\n", n);
+      printf("Tested %" PRIu32 " cases so far\n", n);
     }
     DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
     auto seq = db_impl->GetLatestSequenceNumber();
