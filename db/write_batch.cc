@@ -859,6 +859,7 @@ class MemTableInserter : public WriteBatch::Handler {
   // Increase seq number once per each write batch. Otherwise increase it once
   // per key.
   bool seq_per_batch_;
+  // Whether the memtable write will be done only after the commit
   bool write_after_commit_;
 
   MemPostInfoMap& GetPostMap() {
@@ -890,6 +891,9 @@ class MemTableInserter : public WriteBatch::Handler {
         has_valid_writes_(has_valid_writes),
         rebuilding_trx_(nullptr),
         seq_per_batch_(seq_per_batch),
+        // Write after commit currently uses one seq per key (instead of per
+        // batch). So seq_per_batch being false indicates write_after_commit
+        // approach.
         write_after_commit_(!seq_per_batch) {
     assert(cf_mems_);
   }
@@ -972,6 +976,7 @@ class MemTableInserter : public WriteBatch::Handler {
       if (write_after_commit_) {
         return Status::OK();
       }
+      // else insert the values to the memtable right away
     }
 
     Status seek_status;
@@ -1052,6 +1057,7 @@ class MemTableInserter : public WriteBatch::Handler {
       if (write_after_commit_) {
         return Status::OK();
       }
+      // else insert the values to the memtable right away
     }
 
     Status seek_status;
@@ -1070,6 +1076,7 @@ class MemTableInserter : public WriteBatch::Handler {
       if (write_after_commit_) {
         return Status::OK();
       }
+      // else insert the values to the memtable right away
     }
 
     Status seek_status;
@@ -1090,6 +1097,7 @@ class MemTableInserter : public WriteBatch::Handler {
       if (write_after_commit_) {
         return Status::OK();
       }
+      // else insert the values to the memtable right away
     }
 
     Status seek_status;
@@ -1122,6 +1130,7 @@ class MemTableInserter : public WriteBatch::Handler {
       if (write_after_commit_) {
         return Status::OK();
       }
+      // else insert the values to the memtable right away
     }
 
     Status seek_status;
@@ -1291,6 +1300,7 @@ class MemTableInserter : public WriteBatch::Handler {
           s = trx->batch_->Iterate(this);
           log_number_ref_ = 0;
         }
+        // else the values are already inserted before the commit
 
         if (s.ok()) {
           db_->DeleteRecoveredTransaction(name.ToString());
@@ -1300,6 +1310,9 @@ class MemTableInserter : public WriteBatch::Handler {
         }
       }
     } else {
+      // When writes are not delayed until commit, there is no disconnect
+      // between a memtable write and the WAL that supports it. So the commit
+      // need not reference any log as the only log to which it depends.
       assert(!write_after_commit_ || log_number_ref_ > 0);
     }
     const bool batch_boundry = true;

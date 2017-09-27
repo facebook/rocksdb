@@ -290,7 +290,6 @@ INSTANTIATE_TEST_CASE_P(WritePreparedTransactionTest,
                         WritePreparedTransactionTest,
                         ::testing::Values(std::make_tuple(false, false,
                                                           WRITE_PREPARED)));
-// std::make_tuple(false, true, WRITE_PREPARED)));
 
 TEST_P(WritePreparedTransactionTest, CommitMapTest) {
   WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
@@ -843,7 +842,7 @@ TEST_P(WritePreparedTransactionTest, BasicRecoveryTest) {
   wp_db->db_impl_->FlushWAL(true);
   ReOpenNoDelete();
   wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
-  // After recovery, all the uncommitted txns should be inserted into
+  // After recovery, all the uncommitted txns (0 and 1) should be inserted into
   // delayed_prepared_
   ASSERT_TRUE(wp_db->prepared_txns_.empty());
   ASSERT_FALSE(wp_db->delayed_prepared_empty_);
@@ -858,7 +857,7 @@ TEST_P(WritePreparedTransactionTest, BasicRecoveryTest) {
                 wp_db->delayed_prepared_.end());
   }
 
-  // Check the value is not committed after restart
+  // Check the value is still not committed after restart
   s = db->Get(ropt, db->DefaultColumnFamily(), "foo0" + istr0, &pinnable_val);
   ASSERT_TRUE(s.IsNotFound());
   pinnable_val.Reset();
@@ -888,6 +887,7 @@ TEST_P(WritePreparedTransactionTest, BasicRecoveryTest) {
   ASSERT_TRUE(wp_db->prepared_txns_.empty());
   ASSERT_FALSE(wp_db->delayed_prepared_empty_);
 
+  // 0 and 2 are prepared and 1 is committed
   {
     ReadLock rl(&wp_db->prepared_mutex_);
     ASSERT_EQ(2, wp_db->delayed_prepared_.size());
@@ -945,6 +945,7 @@ TEST_P(WritePreparedTransactionTest, ConflictDetectionAfterRecoveryTest) {
   ASSERT_OK(s);
   s = txn0->Prepare();
 
+  // With the same index 0 and key prefix, txn_t0 should conflict with txn0
   txn_t0_with_status(0, Status::TimedOut());
   delete txn0;
 
@@ -952,12 +953,14 @@ TEST_P(WritePreparedTransactionTest, ConflictDetectionAfterRecoveryTest) {
   db_impl->FlushWAL(true);
   ReOpenNoDelete();
 
+  // It should still conflict after the recovery
   txn_t0_with_status(0, Status::TimedOut());
 
   db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
   db_impl->FlushWAL(true);
   ReOpenNoDelete();
 
+  // Check that a recovered txn will still cause conflicts after 2nd recovery
   txn_t0_with_status(0, Status::TimedOut());
 
   txn0 = db->GetTransactionByName("xid" + istr0);
@@ -969,6 +972,7 @@ TEST_P(WritePreparedTransactionTest, ConflictDetectionAfterRecoveryTest) {
   db_impl->FlushWAL(true);
   ReOpenNoDelete();
 
+  // tnx0 is now committed and should no longer cause a conflict
   txn_t0_with_status(0, Status::OK());
 }
 
