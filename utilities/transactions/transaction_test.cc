@@ -4645,7 +4645,6 @@ TEST_P(TransactionTest, MemoryLimitTest) {
 // necessarily the one acceptable way. If the algorithm is legitimately changed,
 // this unit test should be updated as well.
 TEST_P(TransactionTest, SeqAdvanceTest) {
-  DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
   WriteOptions wopts;
   FlushOptions fopt;
 
@@ -4662,6 +4661,7 @@ TEST_P(TransactionTest, SeqAdvanceTest) {
   };
   const size_t max_n = static_cast<size_t>(1) << NUM_BRANCHES;
   for (size_t n = 0; n < max_n; n++, ReOpen()) {
+    DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
     size_t branch = 0;
     auto seq = db_impl->GetLatestSequenceNumber();
     exp_seq = seq;
