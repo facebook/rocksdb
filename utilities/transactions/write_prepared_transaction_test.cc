@@ -680,7 +680,7 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceConcurrentTest) {
   for (size_t bi = 1; bi <= txn_cnt; bi++) {
     base[bi] = base[bi - 1] * type_cnt;
   }
-  const size_t max_n = std::pow(type_cnt, txn_cnt);
+  const size_t max_n = static_cast<size_t>(std::pow(type_cnt, txn_cnt));
   printf("Number of cases being tested is %" PRIu64 "\n", max_n);
   for (size_t n = 0; n < max_n; n++, ReOpen()) {
     if (n % 1000 == 0) {
