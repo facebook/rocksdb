@@ -304,6 +304,18 @@ void CompactionIterator::NextFromInput() {
       ikey_.user_key = current_key_.GetUserKey();
     }
 
+    if (UNLIKELY(!current_key_committed_)) {
+      assert(snapshot_checker_ != nullptr);
+      // If a key is not visible to even kMaxSequenceNumber, it is not commited.
+      current_key_committed_ =
+          snapshot_checker_->IsInSnapshot(ikey_.sequence, kMaxSequenceNumber);
+      // Output uncommitted key as-is.
+      if (UNLIKELY(!current_key_committed_)) {
+        valid_ = true;
+        break;
+      }
+    }
+
     // If there are no snapshots, then this kv affect visibility at tip.
     // Otherwise, search though all existing snapshots to find the earliest
     // snapshot that is affected by this kv.
@@ -319,14 +331,6 @@ void CompactionIterator::NextFromInput() {
 
     if (need_skip) {
       // This case is handled below.
-    } else if (UNLIKELY(!current_key_committed_)) {
-      assert(snapshot_checker_ != nullptr);
-      // If a key is not visible to even kMaxSequenceNumber, it is not commited.
-      current_key_committed_ =
-          snapshot_checker_->IsInSnapshot(ikey_.sequence, kMaxSequenceNumber);
-      if (!current_key_committed_) {
-        valid_ = true;
-      }
     } else if (clear_and_output_next_key_) {
       // In the previous iteration we encountered a single delete that we could
       // not compact out.  We will keep this Put, but can drop it's data.

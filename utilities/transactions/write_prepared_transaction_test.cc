@@ -16,10 +16,13 @@
 #include <functional>
 #include <string>
 #include <thread>
+#include <tuple>
 
 #include "db/db_impl.h"
+#include "db/dbformat.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
+#include "rocksdb/types.h"
 #include "rocksdb/utilities/debug.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
@@ -1361,6 +1364,129 @@ TEST_P(WritePreparedTransactionTest, SequenceNumberZeroTest) {
   VerifyKeys({{"foo", "bar"}}, snapshot);
   VerifyInternalKeys({{"foo", "bar", 0, kTypeValue}});
   db->ReleaseSnapshot(snapshot);
+}
+
+TEST_P(WritePreparedTransactionTest, CompactionShouldKeepUncommittedKeys) {
+  // Snapshots to avoid keys get evicted.
+  std::vector<const Snapshot*> snapshots;
+  // Each key here represent a standalone test case.
+  ASSERT_OK(db->Put(WriteOptions(), "key1", "value1_1"));
+  snapshots.push_back(db->GetSnapshot());
+  ASSERT_OK(db->Put(WriteOptions(), "key2", "value2_1"));
+  snapshots.push_back(db->GetSnapshot());
+  ASSERT_OK(db->Put(WriteOptions(), "key3", "value3_1"));
+  snapshots.push_back(db->GetSnapshot());
+  ASSERT_OK(db->Put(WriteOptions(), "key4", "value4_1"));
+  snapshots.push_back(db->GetSnapshot());
+  ASSERT_OK(db->Merge(WriteOptions(), "key5", "value5_1"));
+  snapshots.push_back(db->GetSnapshot());
+  ASSERT_OK(db->Merge(WriteOptions(), "key5", "value5_2"));
+  snapshots.push_back(db->GetSnapshot());
+  ASSERT_OK(db->Put(WriteOptions(), "key6", "value6_1"));
+  snapshots.push_back(db->GetSnapshot());
+  ASSERT_OK(db->Put(WriteOptions(), "key7", "value7_1"));
+  snapshots.push_back(db->GetSnapshot());
+  ASSERT_OK(db->Flush(FlushOptions()));
+  ASSERT_OK(db->Delete(WriteOptions(), "key6"));
+  snapshots.push_back(db->GetSnapshot());
+  ASSERT_OK(db->SingleDelete(WriteOptions(), "key7"));
+  snapshots.push_back(db->GetSnapshot());
+  auto* transaction = db->BeginTransaction(WriteOptions());
+  ASSERT_OK(transaction->SetName("txn"));
+  ASSERT_OK(transaction->Put("key1", "value1_2"));
+  ASSERT_OK(transaction->Delete("key2"));
+  ASSERT_OK(transaction->SingleDelete("key3"));
+  ASSERT_OK(transaction->Merge("key4", "value4_2"));
+  ASSERT_OK(transaction->Merge("key5", "value5_3"));
+  ASSERT_OK(transaction->Put("key6", "value6_2"));
+  ASSERT_OK(transaction->Put("key7", "value7_2"));
+  // Prepare but not commit.
+  ASSERT_OK(transaction->Prepare());
+  ASSERT_OK(db->Flush(FlushOptions()));
+  for (auto* s : snapshots) {
+    db->ReleaseSnapshot(s);
+  }
+  // Dummy keys to avoid trivial move.
+  ASSERT_OK(db->Put(WriteOptions(), "a", "dummy"));
+  ASSERT_OK(db->Put(WriteOptions(), "z", "dummy"));
+  ASSERT_OK(db->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  VerifyInternalKeys({
+      {"key1", "value1_2", 11, kTypeValue},
+      {"key1", "value1_1", 0, kTypeValue},
+      {"key2", "", 11, kTypeDeletion},
+      {"key2", "value2_1", 0, kTypeValue},
+      {"key3", "", 11, kTypeSingleDeletion},
+      {"key3", "value3_1", 0, kTypeValue},
+      {"key4", "value4_2", 11, kTypeMerge},
+      {"key4", "value4_1", 0, kTypeValue},
+      {"key5", "value5_3", 11, kTypeMerge},
+      {"key5", "value5_1,value5_2", 0, kTypeValue},
+      {"key6", "value6_2", 11, kTypeValue},
+      {"key7", "value7_2", 11, kTypeValue},
+  });
+  ASSERT_OK(transaction->Commit());
+  delete transaction;
+}
+
+TEST_P(WritePreparedTransactionTest, CompactionShouldKeepSnapshotVisibleKeys) {
+  auto* txn1 = db->BeginTransaction(WriteOptions());
+  ASSERT_OK(txn1->SetName("txn1"));
+  ASSERT_OK(txn1->Put("key1", "value1_1"));
+  ASSERT_OK(txn1->Prepare());
+  ASSERT_OK(txn1->Commit());
+  delete txn1;
+  // Take a snapshots to avoid keys get evicted before compaction.
+  const Snapshot* snapshot1 = db->GetSnapshot();
+  auto* txn2 = db->BeginTransaction(WriteOptions());
+  ASSERT_OK(txn2->SetName("txn2"));
+  ASSERT_OK(txn2->Put("key2", "value2_1"));
+  ASSERT_OK(txn2->Prepare());
+  // txn1 commit before snapshot2 and it is visible to snapshot2.
+  // txn2 commit after snapshot2 and it is not visible.
+  const Snapshot* snapshot2 = db->GetSnapshot();
+  ASSERT_OK(txn2->Commit());
+  delete txn2;
+  // Take a snapshots to avoid keys get evicted before compaction.
+  const Snapshot* snapshot3 = db->GetSnapshot();
+  ASSERT_OK(db->Put(WriteOptions(), "key1", "value1_2"));
+  ASSERT_OK(db->Put(WriteOptions(), "key2", "value2_2"));
+  ASSERT_OK(db->Flush(FlushOptions()));
+  db->ReleaseSnapshot(snapshot1);
+  db->ReleaseSnapshot(snapshot3);
+  // Dummy keys to avoid trivial move.
+  ASSERT_OK(db->Put(WriteOptions(), "a", "dummy"));
+  ASSERT_OK(db->Put(WriteOptions(), "z", "dummy"));
+  ASSERT_OK(db->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  VerifyInternalKeys({
+      {"key1", "value1_2", 5, kTypeValue},
+      // "value1_1" is visible to snapshot2. Also keys at bottom level visible
+      // to earliest snapshot will output with seq = 0.
+      {"key1", "value1_1", 0, kTypeValue},
+      {"key2", "value2_2", 6, kTypeValue},
+  });
+  db->ReleaseSnapshot(snapshot2);
+}
+
+TEST_P(WritePreparedTransactionTest,
+       CompactionShouldKeepSequenceForUncommittedKeys) {
+  auto* transaction = db->BeginTransaction(WriteOptions());
+  ASSERT_OK(transaction->SetName("txn"));
+  ASSERT_OK(transaction->Put("key1", "value1"));
+  ASSERT_OK(transaction->Prepare());
+  ASSERT_OK(db->Put(WriteOptions(), "key2", "value2"));
+  ASSERT_OK(db->Flush(FlushOptions()));
+  // Dummy keys to avoid trivial move.
+  ASSERT_OK(db->Put(WriteOptions(), "a", "dummy"));
+  ASSERT_OK(db->Put(WriteOptions(), "z", "dummy"));
+  ASSERT_OK(db->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  VerifyInternalKeys({
+      // "key1" has not been committed. It keeps its sequence number.
+      {"key1", "value1", 1, kTypeValue},
+      // "key2" is committed and output with seq = 0.
+      {"key2", "value2", 0, kTypeValue},
+  });
+  ASSERT_OK(transaction->Commit());
+  delete transaction;
 }
 
 }  // namespace rocksdb
