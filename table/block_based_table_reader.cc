@@ -813,7 +813,10 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
       CachableEntry<IndexReader> index_entry;
       unique_ptr<InternalIterator> iter(
           new_table->NewIndexIterator(ReadOptions(), nullptr, &index_entry));
-      index_entry.value->CacheDependencies(pin);
+      assert(index_entry.value != nullptr || !iter->status().ok());
+      if (index_entry.value != nullptr) {
+        index_entry.value->CacheDependencies(pin);
+      }
       if (pin) {
         rep->index_entry = std::move(index_entry);
       } else {
