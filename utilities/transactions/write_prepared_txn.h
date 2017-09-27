@@ -50,8 +50,6 @@ class WritePreparedTxn : public PessimisticTransaction {
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value) override;
 
-  Status Rollback() override;
-
  private:
   friend class WritePreparedTransactionTest_BasicRecoveryTest_Test;
 
@@ -62,6 +60,8 @@ class WritePreparedTxn : public PessimisticTransaction {
   Status CommitBatchInternal(WriteBatch* batch) override;
 
   Status CommitInternal() override;
+
+  Status RollbackInternal() override;
 
   // TODO(myabandeh): verify that the current impl work with values being
   // written with prepare sequence number too.

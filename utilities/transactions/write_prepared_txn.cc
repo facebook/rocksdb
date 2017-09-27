@@ -63,7 +63,7 @@ Status WritePreparedTxn::CommitWithoutPrepareInternal() {
 }
 
 Status WritePreparedTxn::CommitBatchInternal(WriteBatch* batch) {
-  // In the absenese of Prepare markers, use Noop as a batch separator
+  // In the absense of Prepare markers, use Noop as a batch separator
   WriteBatchInternal::InsertNoop(batch);
   const bool disable_memtable = true;
   const uint64_t no_log_ref = 0;
@@ -108,10 +108,83 @@ Status WritePreparedTxn::CommitInternal() {
   return s;
 }
 
-Status WritePreparedTxn::Rollback() {
-  // TODO(myabandeh) Implement this
-  throw std::runtime_error("Rollback not Implemented");
-  return Status::OK();
+Status WritePreparedTxn::RollbackInternal() {
+  WriteBatch rollback_batch;
+  assert(prepare_seq_ != kMaxSequenceNumber);
+  assert(prepare_seq_ > 0);
+  // In the absense of Prepare markers, use Noop as a batch separator
+  WriteBatchInternal::InsertNoop(&rollback_batch);
+  PinnableSlice pinnable_val;
+  auto snap_seq = prepare_seq_ - 1;
+  struct RollbackWriteBatchBuilder : public WriteBatch::Handler {
+    DBImpl* db_;
+    ReadOptions roptions;
+    WriteOptions woptions;
+    WritePreparedTxnReadCallback callback;
+    RollbackWriteBatchBuilder(DBImpl* db, WritePreparedTxnDB* wpt_db,
+                              SequenceNumber snap_seq)
+        : db_(db), callback(wpt_db, snap_seq) {}
+
+    Status Rollback(uint32_t cf, const Slice& key) {
+      PinnableSlice pinnable_val;
+      bool found;
+      auto cf_handle = db_->GetColumnFamilyHandle(cf);
+      auto s = db_->GetImpl(roptions, cf_handle, key, &pinnable_val, &found,
+                            &callback);
+      assert(s.ok());
+      if (found) {
+        s = db_->Put(woptions, cf_handle, key, pinnable_val);
+        assert(s.ok());
+      } else {
+        // There has been no readable value before txn. By adding a delete we
+        // make sure that there will be none afterwards either.
+        s = db_->Delete(woptions, cf_handle, key);
+        assert(s.ok());
+      }
+      return s;
+    }
+
+    Status PutCF(uint32_t cf, const Slice& key, const Slice& val) override {
+      return Rollback(cf, key);
+    }
+
+    Status DeleteCF(uint32_t cf, const Slice& key) override {
+      return Rollback(cf, key);
+    }
+
+    Status SingleDeleteCF(uint32_t cf, const Slice& key) override {
+      return Rollback(cf, key);
+    }
+
+    Status MergeCF(uint32_t cf, const Slice& key, const Slice& val) override {
+      return Rollback(cf, key);
+    }
+
+    Status MarkNoop(bool) override { return Status::OK(); }
+    Status MarkBeginPrepare() override { return Status::OK(); }
+    Status MarkEndPrepare(const Slice&) override { return Status::OK(); }
+    Status MarkCommit(const Slice&) override { return Status::OK(); }
+    Status MarkRollback(const Slice&) override {
+      return Status::InvalidArgument();
+    }
+  } rollback_handler(db_impl_, wpt_db_, snap_seq);
+  auto s = rollback_batch.Iterate(&rollback_handler);
+  assert(s.ok());
+  WriteBatchInternal::MarkRollback(&rollback_batch, name_);
+  const bool disable_memtable = true;
+  const uint64_t no_log_ref = 0;
+  uint64_t seq_used = kMaxSequenceNumber;
+  s = db_impl_->WriteImpl(write_options_, &rollback_batch, nullptr, nullptr,
+                          no_log_ref, !disable_memtable, &seq_used);
+  assert(seq_used != kMaxSequenceNumber);
+  uint64_t& prepare_seq = seq_used;
+  uint64_t& commit_seq = seq_used;
+  // TODO(myabandeh): skip AddPrepared
+  wpt_db_->AddPrepared(prepare_seq);
+  wpt_db_->AddCommitted(prepare_seq, commit_seq);
+  // TODO(myabandeh): after rollback remove txn from prepared list
+
+  return s;
 }
 
 }  // namespace rocksdb

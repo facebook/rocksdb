@@ -54,7 +54,7 @@ class PessimisticTransaction : public TransactionBaseImpl {
   // transactions writes to an internal write batch.
   Status CommitBatch(WriteBatch* batch);
 
-  Status Rollback() override = 0;
+  Status Rollback() override;
 
   Status RollbackToSavePoint() override;
 
@@ -120,6 +120,8 @@ class PessimisticTransaction : public TransactionBaseImpl {
   virtual Status CommitBatchInternal(WriteBatch* batch) = 0;
 
   virtual Status CommitInternal() = 0;
+
+  virtual Status RollbackInternal() = 0;
 
   void Initialize(const TransactionOptions& txn_options);
 
@@ -191,8 +193,6 @@ class WriteCommittedTxn : public PessimisticTransaction {
 
   virtual ~WriteCommittedTxn() {}
 
-  Status Rollback() override;
-
  private:
   Status PrepareInternal() override;
 
@@ -201,6 +201,8 @@ class WriteCommittedTxn : public PessimisticTransaction {
   Status CommitBatchInternal(WriteBatch* batch) override;
 
   Status CommitInternal() override;
+
+  Status RollbackInternal() override;
 
   Status ValidateSnapshot(ColumnFamilyHandle* column_family, const Slice& key,
                           SequenceNumber prev_seqno, SequenceNumber* new_seqno);
