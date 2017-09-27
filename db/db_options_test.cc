@@ -117,6 +117,87 @@ TEST_F(DBOptionsTest, GetLatestCFOptions) {
             GetMutableCFOptionsMap(dbfull()->GetOptions(handles_[1])));
 }
 
+TEST_F(DBOptionsTest, SetBytesPerSync) {
+  const size_t kValueSize = 1024 * 1024 * 8;
+  Options options;
+  options.create_if_missing = true;
+  options.bytes_per_sync = 1024 * 1024;
+  options.use_direct_reads = false;
+  options.write_buffer_size = 400 * kValueSize;
+  options.disable_auto_compactions = true;
+  options.env = env_;
+  Reopen(options);
+  int counter = 0;
+  int low_bytes_per_sync = 0;
+  int i = 0;
+  const std::string kValue(kValueSize, 'v');
+  ASSERT_EQ(options.bytes_per_sync, dbfull()->GetDBOptions().bytes_per_sync);
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "WritableFileWriter::RangeSync:0", [&](void* arg) {
+        counter++;
+      });
+
+  WriteOptions write_opts;
+  for (; i < 40; i++) {
+    Put(Key(i), kValue, write_opts);
+  }
+  i = 0;
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  low_bytes_per_sync = counter;
+  counter = 0;
+  // 8388608 = 8 * 1024 * 1024
+  ASSERT_OK(dbfull()->SetDBOptions({{"bytes_per_sync", "8388608"}}));
+  ASSERT_EQ(8388608, dbfull()->GetDBOptions().bytes_per_sync);
+  for (; i < 40; i++) {
+    Put(Key(i), kValue, write_opts);
+  }
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_GT(counter, 0);
+  ASSERT_GT(low_bytes_per_sync, 0);
+  ASSERT_GT(low_bytes_per_sync, counter);
+}
+
+TEST_F(DBOptionsTest, SetWalBytesPerSync) {
+  const size_t kValueSize = 1024 * 1024 * 3;
+  Options options;
+  options.create_if_missing = true;
+  options.wal_bytes_per_sync = 512;
+  options.write_buffer_size = 100 * kValueSize;
+  options.disable_auto_compactions = true;
+  options.env = env_;
+  Reopen(options);
+  ASSERT_EQ(512, dbfull()->GetDBOptions().wal_bytes_per_sync);
+  int counter = 0;
+  int low_bytes_per_sync = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "WritableFileWriter::RangeSync:0", [&](void* arg) {
+        counter++;
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  const std::string kValue(kValueSize, 'v');
+  int i = 0;
+  for (; i < 10; i++) {
+    Put(Key(i), kValue);
+  }
+  // Do not flush. If we flush here, SwitchWAL will reuse old WAL file since its
+  // empty and will not get the new wal_bytes_per_sync value.
+  low_bytes_per_sync = counter;
+  //5242880 = 1024 * 1024 * 5
+  ASSERT_OK(dbfull()->SetDBOptions({{"wal_bytes_per_sync", "5242880"}}));
+  ASSERT_EQ(5242880, dbfull()->GetDBOptions().wal_bytes_per_sync);
+  counter = 0;
+  i = 0;
+  for (; i < 10; i++) {
+    Put(Key(i), kValue);
+  }
+  ASSERT_GT(counter, 0);
+  ASSERT_GT(low_bytes_per_sync, 0);
+  ASSERT_GT(low_bytes_per_sync, counter);
+}
+
 TEST_F(DBOptionsTest, SetOptionsAndReopen) {
   Random rnd(1044);
   auto rand_opts = GetRandomizedMutableCFOptionsMap(&rnd);

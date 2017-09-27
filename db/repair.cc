@@ -99,7 +99,7 @@ class Repairer {
         env_(db_options.env),
         env_options_(),
         db_options_(SanitizeOptions(dbname_, db_options)),
-        immutable_db_options_(db_options_),
+        immutable_db_options_(ImmutableDBOptions(db_options_)),
         icmp_(default_cf_opts.comparator),
         default_cf_opts_(default_cf_opts),
         default_cf_iopts_(
@@ -397,16 +397,13 @@ class Repairer {
       ro.total_order_seek = true;
       Arena arena;
       ScopedArenaIterator iter(mem->NewIterator(ro, &arena));
-      EnvOptions optimized_env_options =
-          env_->OptimizeForCompactionTableWrite(env_options_, immutable_db_options_);
-
       int64_t _current_time = 0;
       status = env_->GetCurrentTime(&_current_time);  // ignore error
       const uint64_t current_time = static_cast<uint64_t>(_current_time);
 
       status = BuildTable(
           dbname_, env_, *cfd->ioptions(), *cfd->GetLatestMutableCFOptions(),
-          optimized_env_options, table_cache_, iter.get(),
+          env_options_, table_cache_, iter.get(),
           std::unique_ptr<InternalIterator>(mem->NewRangeTombstoneIterator(ro)),
           &meta, cfd->internal_comparator(),
           cfd->int_tbl_prop_collector_factories(), cfd->GetID(), cfd->GetName(),
@@ -618,11 +615,13 @@ Status GetDefaultCFOptions(
 }  // anonymous namespace
 
 Status RepairDB(const std::string& dbname, const DBOptions& db_options,
-                const std::vector<ColumnFamilyDescriptor>& column_families) {
+                const std::vector<ColumnFamilyDescriptor>& column_families
+                ) {
   ColumnFamilyOptions default_cf_opts;
   Status status = GetDefaultCFOptions(column_families, &default_cf_opts);
   if (status.ok()) {
-    Repairer repairer(dbname, db_options, column_families, default_cf_opts,
+    Repairer repairer(dbname, db_options, column_families,
+                      default_cf_opts,
                       ColumnFamilyOptions() /* unknown_cf_opts */,
                       false /* create_unknown_cfs */);
     status = repairer.Run();
@@ -636,7 +635,8 @@ Status RepairDB(const std::string& dbname, const DBOptions& db_options,
   ColumnFamilyOptions default_cf_opts;
   Status status = GetDefaultCFOptions(column_families, &default_cf_opts);
   if (status.ok()) {
-    Repairer repairer(dbname, db_options, column_families, default_cf_opts,
+    Repairer repairer(dbname, db_options,
+                      column_families, default_cf_opts,
                       unknown_cf_opts, true /* create_unknown_cfs */);
     status = repairer.Run();
   }
@@ -646,7 +646,8 @@ Status RepairDB(const std::string& dbname, const DBOptions& db_options,
 Status RepairDB(const std::string& dbname, const Options& options) {
   DBOptions db_options(options);
   ColumnFamilyOptions cf_options(options);
-  Repairer repairer(dbname, db_options, {}, cf_options /* default_cf_opts */,
+  Repairer repairer(dbname, db_options,
+                    {}, cf_options /* default_cf_opts */,
                     cf_options /* unknown_cf_opts */,
                     true /* create_unknown_cfs */);
   return repairer.Run();

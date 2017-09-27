@@ -884,11 +884,9 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
       std::vector<SequenceNumber> snapshot_seqs =
           snapshots_.GetAll(&earliest_write_conflict_snapshot);
 
-      EnvOptions optimized_env_options =
-          env_->OptimizeForCompactionTableWrite(env_options_, immutable_db_options_);
       s = BuildTable(
           dbname_, env_, *cfd->ioptions(), mutable_cf_options,
-          optimized_env_options, cfd->table_cache(), iter.get(),
+          env_options_for_compaction_, cfd->table_cache(), iter.get(),
           std::unique_ptr<InternalIterator>(mem->NewRangeTombstoneIterator(ro)),
           &meta, cfd->internal_comparator(),
           cfd->int_tbl_prop_collector_factories(), cfd->GetID(), cfd->GetName(),

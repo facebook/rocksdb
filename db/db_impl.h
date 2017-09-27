@@ -332,7 +332,7 @@ class DBImpl : public DB {
                            ColumnFamilyHandle* column_family = nullptr,
                            bool disallow_trivial_move = false);
 
-  void TEST_HandleWALFull();
+  void TEST_SwitchWAL();
 
   bool TEST_UnableToFlushOldestLog() {
     return unable_to_flush_oldest_log_;
@@ -750,7 +750,7 @@ class DBImpl : public DB {
   Status WaitForFlushMemTable(ColumnFamilyData* cfd);
 
   // REQUIRES: mutex locked
-  Status HandleWALFull(WriteContext* write_context);
+  Status SwitchWAL(WriteContext* write_context);
 
   // REQUIRES: mutex locked
   Status HandleWriteBufferFull(WriteContext* write_context);
@@ -1167,6 +1167,9 @@ class DBImpl : public DB {
 
   // The options to access storage files
   const EnvOptions env_options_;
+
+  // Additonal options for compaction and flush
+  EnvOptions env_options_for_compaction_;
 
   // Number of running IngestExternalFile() calls.
   // REQUIRES: mutex held
