@@ -344,6 +344,10 @@ class Transaction {
   virtual Status DeleteUntracked(ColumnFamilyHandle* column_family,
                                  const SliceParts& key) = 0;
   virtual Status DeleteUntracked(const SliceParts& key) = 0;
+  virtual Status SingleDeleteUntracked(ColumnFamilyHandle* column_family,
+                                       const Slice& key) = 0;
+
+  virtual Status SingleDeleteUntracked(const Slice& key) = 0;
 
   // Similar to WriteBatch::PutLogData
   virtual void PutLogData(const Slice& blob) = 0;

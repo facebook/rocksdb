@@ -50,6 +50,11 @@ class PessimisticTransactionDB : public TransactionDB {
                         ColumnFamilyHandle* column_family,
                         const Slice& key) override;
 
+  using StackableDB::SingleDelete;
+  virtual Status SingleDelete(const WriteOptions& wopts,
+                              ColumnFamilyHandle* column_family,
+                              const Slice& key) override;
+
   using StackableDB::Merge;
   virtual Status Merge(const WriteOptions& options,
                        ColumnFamilyHandle* column_family, const Slice& key,
