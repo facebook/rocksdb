@@ -129,10 +129,12 @@ class TransactionTest : public ::testing::TestWithParam<
   std::atomic<size_t> exp_seq = {0};
   std::atomic<size_t> commit_writes = {0};
   std::atomic<size_t> expected_commits = {0};
-  std::function<void(size_t)> txn_t0 = [&](size_t index) {
+  std::function<void(size_t, Status)> txn_t0_with_status = [&](size_t index,
+                                                               Status exp_s) {
     // Test DB's internal txn. It involves no prepare phase nor a commit marker.
     WriteOptions wopts;
     auto s = db->Put(wopts, "key" + std::to_string(index), "value");
+    ASSERT_EQ(exp_s, s);
     if (txn_db_options.write_policy == TxnDBWritePolicy::WRITE_COMMITTED) {
       // Consume one seq per key
       exp_seq++;
@@ -140,7 +142,9 @@ class TransactionTest : public ::testing::TestWithParam<
       // Consume one seq per batch
       exp_seq++;
     }
-    ASSERT_OK(s);
+  };
+  std::function<void(size_t)> txn_t0 = [&](size_t index) {
+    return txn_t0_with_status(index, Status::OK());
   };
   std::function<void(size_t)> txn_t1 = [&](size_t index) {
     // Testing directly writing a write batch. Functionality-wise it is

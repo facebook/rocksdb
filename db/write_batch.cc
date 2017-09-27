@@ -967,9 +967,11 @@ class MemTableInserter : public WriteBatch::Handler {
 
   virtual Status PutCF(uint32_t column_family_id, const Slice& key,
                        const Slice& value) override {
-    if (write_after_commit_ && rebuilding_trx_ != nullptr) {
+    if (rebuilding_trx_ != nullptr) {
       WriteBatchInternal::Put(rebuilding_trx_, column_family_id, key, value);
-      return Status::OK();
+      if (write_after_commit_) {
+        return Status::OK();
+      }
     }
 
     Status seek_status;
@@ -1045,9 +1047,11 @@ class MemTableInserter : public WriteBatch::Handler {
 
   virtual Status DeleteCF(uint32_t column_family_id,
                           const Slice& key) override {
-    if (write_after_commit_ && rebuilding_trx_ != nullptr) {
+    if (rebuilding_trx_ != nullptr) {
       WriteBatchInternal::Delete(rebuilding_trx_, column_family_id, key);
-      return Status::OK();
+      if (write_after_commit_) {
+        return Status::OK();
+      }
     }
 
     Status seek_status;
@@ -1061,9 +1065,11 @@ class MemTableInserter : public WriteBatch::Handler {
 
   virtual Status SingleDeleteCF(uint32_t column_family_id,
                                 const Slice& key) override {
-    if (write_after_commit_ && rebuilding_trx_ != nullptr) {
+    if (rebuilding_trx_ != nullptr) {
       WriteBatchInternal::SingleDelete(rebuilding_trx_, column_family_id, key);
-      return Status::OK();
+      if (write_after_commit_) {
+        return Status::OK();
+      }
     }
 
     Status seek_status;
@@ -1078,10 +1084,12 @@ class MemTableInserter : public WriteBatch::Handler {
   virtual Status DeleteRangeCF(uint32_t column_family_id,
                                const Slice& begin_key,
                                const Slice& end_key) override {
-    if (write_after_commit_ && rebuilding_trx_ != nullptr) {
+    if (rebuilding_trx_ != nullptr) {
       WriteBatchInternal::DeleteRange(rebuilding_trx_, column_family_id,
                                       begin_key, end_key);
-      return Status::OK();
+      if (write_after_commit_) {
+        return Status::OK();
+      }
     }
 
     Status seek_status;
@@ -1109,9 +1117,11 @@ class MemTableInserter : public WriteBatch::Handler {
   virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
                          const Slice& value) override {
     assert(!concurrent_memtable_writes_);
-    if (write_after_commit_ && rebuilding_trx_ != nullptr) {
+    if (rebuilding_trx_ != nullptr) {
       WriteBatchInternal::Merge(rebuilding_trx_, column_family_id, key, value);
-      return Status::OK();
+      if (write_after_commit_) {
+        return Status::OK();
+      }
     }
 
     Status seek_status;

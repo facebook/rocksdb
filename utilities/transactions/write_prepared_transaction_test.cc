@@ -838,6 +838,8 @@ TEST_P(WritePreparedTransactionTest, BasicRecoveryTest) {
   ASSERT_TRUE(s.IsNotFound());
   pinnable_val.Reset();
 
+  delete txn0;
+  delete txn1;
   wp_db->db_impl_->FlushWAL(true);
   ReOpenNoDelete();
   wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
@@ -879,6 +881,7 @@ TEST_P(WritePreparedTransactionTest, BasicRecoveryTest) {
   s = txn2->Prepare();
   auto prep_seq_2 = txn2->GetId();
 
+  delete txn2;
   wp_db->db_impl_->FlushWAL(true);
   ReOpenNoDelete();
   wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
@@ -910,6 +913,8 @@ TEST_P(WritePreparedTransactionTest, BasicRecoveryTest) {
   ASSERT_TRUE(pinnable_val == ("bar0" + istr0));
   pinnable_val.Reset();
 
+  delete txn0;
+  delete txn2;
   wp_db->db_impl_->FlushWAL(true);
   ReOpenNoDelete();
   wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
@@ -921,6 +926,50 @@ TEST_P(WritePreparedTransactionTest, BasicRecoveryTest) {
   ASSERT_TRUE(s.ok());
   ASSERT_TRUE(pinnable_val == ("bar0" + istr0));
   pinnable_val.Reset();
+}
+
+// After recovery the new transactions should still conflict with recovered
+// transactions.
+TEST_P(WritePreparedTransactionTest, ConflictDetectionAfterRecoveryTest) {
+  options.disable_auto_compactions = true;
+  ReOpen();
+
+  TransactionOptions txn_options;
+  WriteOptions write_options;
+  size_t index = 0;
+  Transaction* txn0 = db->BeginTransaction(write_options, txn_options);
+  auto istr0 = std::to_string(index);
+  auto s = txn0->SetName("xid" + istr0);
+  ASSERT_OK(s);
+  s = txn0->Put(Slice("key" + istr0), Slice("bar0" + istr0));
+  ASSERT_OK(s);
+  s = txn0->Prepare();
+
+  txn_t0_with_status(0, Status::TimedOut());
+  delete txn0;
+
+  auto db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+  db_impl->FlushWAL(true);
+  ReOpenNoDelete();
+
+  txn_t0_with_status(0, Status::TimedOut());
+
+  db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+  db_impl->FlushWAL(true);
+  ReOpenNoDelete();
+
+  txn_t0_with_status(0, Status::TimedOut());
+
+  txn0 = db->GetTransactionByName("xid" + istr0);
+  ASSERT_NE(txn0, nullptr);
+  txn0->Commit();
+  delete txn0;
+
+  db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+  db_impl->FlushWAL(true);
+  ReOpenNoDelete();
+
+  txn_t0_with_status(0, Status::OK());
 }
 
 // After recovery the commit map is empty while the max is set. The code would
