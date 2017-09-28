@@ -259,12 +259,16 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
 
       assert(s.ok() || block.value == nullptr);
       if (s.ok() && block.value != nullptr) {
-        assert(block.cache_handle != nullptr);
-        if (pin) {
-          partition_map_[handle.offset()] = block;
-          RegisterCleanup(&ReleaseCachedEntry, block_cache, block.cache_handle);
+        if (block.cache_handle != nullptr) {
+          if (pin) {
+            partition_map_[handle.offset()] = block;
+            RegisterCleanup(&ReleaseCachedEntry, block_cache,
+                            block.cache_handle);
+          } else {
+            block_cache->Release(block.cache_handle);
+          }
         } else {
-          block_cache->Release(block.cache_handle);
+          delete block.value;
         }
       }
     }
