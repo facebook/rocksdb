@@ -124,6 +124,105 @@ class TransactionTest : public ::testing::TestWithParam<
     }
     return s;
   }
+
+  std::atomic<size_t> linked = {0};
+  std::atomic<size_t> exp_seq = {0};
+  std::atomic<size_t> commit_writes = {0};
+  std::atomic<size_t> expected_commits = {0};
+  std::function<void(size_t, Status)> txn_t0_with_status = [&](size_t index,
+                                                               Status exp_s) {
+    // Test DB's internal txn. It involves no prepare phase nor a commit marker.
+    WriteOptions wopts;
+    auto s = db->Put(wopts, "key" + std::to_string(index), "value");
+    ASSERT_EQ(exp_s, s);
+    if (txn_db_options.write_policy == TxnDBWritePolicy::WRITE_COMMITTED) {
+      // Consume one seq per key
+      exp_seq++;
+    } else {
+      // Consume one seq per batch
+      exp_seq++;
+    }
+  };
+  std::function<void(size_t)> txn_t0 = [&](size_t index) {
+    return txn_t0_with_status(index, Status::OK());
+  };
+  std::function<void(size_t)> txn_t1 = [&](size_t index) {
+    // Testing directly writing a write batch. Functionality-wise it is
+    // equivalent to commit without prepare.
+    WriteBatch wb;
+    auto istr = std::to_string(index);
+    wb.Put("k1" + istr, "v1");
+    wb.Put("k2" + istr, "v2");
+    wb.Put("k3" + istr, "v3");
+    WriteOptions wopts;
+    auto s = db->Write(wopts, &wb);
+    if (txn_db_options.write_policy == TxnDBWritePolicy::WRITE_COMMITTED) {
+      // Consume one seq per key
+      exp_seq += 3;
+      ;
+    } else {
+      // Consume one seq per batch
+      exp_seq++;
+    }
+    ASSERT_OK(s);
+  };
+  std::function<void(size_t)> txn_t2 = [&](size_t index) {
+    // Commit without prepare. It should write to DB without a commit marker.
+    TransactionOptions txn_options;
+    WriteOptions write_options;
+    Transaction* txn = db->BeginTransaction(write_options, txn_options);
+    auto istr = std::to_string(index);
+    auto s = txn->SetName("xid" + istr);
+    ASSERT_OK(s);
+    s = txn->Put(Slice("foo" + istr), Slice("bar"));
+    s = txn->Put(Slice("foo2" + istr), Slice("bar2"));
+    s = txn->Put(Slice("foo3" + istr), Slice("bar3"));
+    s = txn->Put(Slice("foo4" + istr), Slice("bar4"));
+    ASSERT_OK(s);
+    s = txn->Commit();
+    ASSERT_OK(s);
+    if (txn_db_options.write_policy == TxnDBWritePolicy::WRITE_COMMITTED) {
+      // Consume one seq per key
+      exp_seq += 4;
+    } else {
+      // Consume one seq per batch
+      exp_seq++;
+    }
+    auto pdb = reinterpret_cast<PessimisticTransactionDB*>(db);
+    pdb->UnregisterTransaction(txn);
+    delete txn;
+  };
+  std::function<void(size_t)> txn_t3 = [&](size_t index) {
+    // A full 2pc txn that also involves a commit marker.
+    TransactionOptions txn_options;
+    WriteOptions write_options;
+    Transaction* txn = db->BeginTransaction(write_options, txn_options);
+    auto istr = std::to_string(index);
+    auto s = txn->SetName("xid" + istr);
+    ASSERT_OK(s);
+    s = txn->Put(Slice("foo" + istr), Slice("bar"));
+    s = txn->Put(Slice("foo2" + istr), Slice("bar2"));
+    s = txn->Put(Slice("foo3" + istr), Slice("bar3"));
+    s = txn->Put(Slice("foo4" + istr), Slice("bar4"));
+    s = txn->Put(Slice("foo5" + istr), Slice("bar5"));
+    ASSERT_OK(s);
+    expected_commits++;
+    s = txn->Prepare();
+    ASSERT_OK(s);
+    commit_writes++;
+    s = txn->Commit();
+    ASSERT_OK(s);
+    if (txn_db_options.write_policy == TxnDBWritePolicy::WRITE_COMMITTED) {
+      // Consume one seq per key
+      exp_seq += 5;
+    } else {
+      // Consume one seq per batch
+      exp_seq++;
+      // Consume one seq per commit marker
+      exp_seq++;
+    }
+    delete txn;
+  };
 };
 
 class MySQLStyleTransactionTest : public TransactionTest {};

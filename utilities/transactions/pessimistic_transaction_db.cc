@@ -115,6 +115,8 @@ Status PessimisticTransactionDB::Initialize(
     Transaction* real_trx = BeginTransaction(w_options, t_options, nullptr);
     assert(real_trx);
     real_trx->SetLogNumber(recovered_trx->log_number_);
+    assert(recovered_trx->seq_ != kMaxSequenceNumber);
+    real_trx->SetId(recovered_trx->seq_);
 
     s = real_trx->SetName(recovered_trx->name_);
     if (!s.ok()) {
@@ -130,6 +132,23 @@ Status PessimisticTransactionDB::Initialize(
   if (s.ok()) {
     dbimpl->DeleteAllRecoveredTransactions();
   }
+  return s;
+}
+
+Status WritePreparedTxnDB::Initialize(
+    const std::vector<size_t>& compaction_enabled_cf_indices,
+    const std::vector<ColumnFamilyHandle*>& handles) {
+  auto dbimpl = reinterpret_cast<DBImpl*>(GetRootDB());
+  assert(dbimpl != nullptr);
+  auto rtxns = dbimpl->recovered_transactions();
+  for (auto rtxn : rtxns) {
+    AddPrepared(rtxn.second->seq_);
+  }
+  SequenceNumber prev_max = max_evicted_seq_;
+  SequenceNumber last_seq = db_impl_->GetLatestSequenceNumber();
+  AdvanceMaxEvictedSeq(prev_max, last_seq);
+  auto s = PessimisticTransactionDB::Initialize(compaction_enabled_cf_indices,
+                                                handles);
   return s;
 }
 
@@ -547,6 +566,19 @@ void PessimisticTransactionDB::UnregisterTransaction(Transaction* txn) {
   transactions_.erase(it);
 }
 
+Status WritePreparedTxnDB::Get(const ReadOptions& options,
+                               ColumnFamilyHandle* column_family,
+                               const Slice& key, PinnableSlice* value) {
+  // We are fine with the latest committed value. This could be done by
+  // specifying the snapshot as kMaxSequenceNumber.
+  WritePreparedTxnReadCallback callback(this, kMaxSequenceNumber);
+  bool* dont_care = nullptr;
+  // Note: no need to specify a snapshot for read options as no specific
+  // snapshot is requested by the user.
+  return db_impl_->GetImpl(options, column_family, key, value, dont_care,
+                           &callback);
+}
+
 // Returns true if commit_seq <= snapshot_seq
 bool WritePreparedTxnDB::IsInSnapshot(uint64_t prep_seq,
                                       uint64_t snapshot_seq) {
@@ -571,14 +603,14 @@ bool WritePreparedTxnDB::IsInSnapshot(uint64_t prep_seq,
   CommitEntry64b dont_care;
   CommitEntry cached;
   bool exist = GetCommitEntry(indexed_seq, &dont_care, &cached);
-  if (!exist) {
-    // It is not committed, so it must be still prepared
-    return false;
-  }
-  if (prep_seq == cached.prep_seq) {
+  if (exist && prep_seq == cached.prep_seq) {
     // It is committed and also not evicted from commit cache
     return cached.commit_seq <= snapshot_seq;
   }
+  // else it could be committed but not inserted in the map which could happen
+  // after recovery, or it could be committed and evicted by another commit, or
+  // never committed.
+
   // At this point we dont know if it was committed or it is still prepared
   auto max_evicted_seq = max_evicted_seq_.load(std::memory_order_acquire);
   if (max_evicted_seq < prep_seq) {
@@ -618,6 +650,7 @@ bool WritePreparedTxnDB::IsInSnapshot(uint64_t prep_seq,
 
 void WritePreparedTxnDB::AddPrepared(uint64_t seq) {
   ROCKS_LOG_DEBUG(info_log_, "Txn %" PRIu64 " Prepareing", seq);
+  assert(seq > max_evicted_seq_);
   WriteLock wl(&prepared_mutex_);
   prepared_txns_.push(seq);
 }

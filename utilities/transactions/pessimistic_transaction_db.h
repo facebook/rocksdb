@@ -33,8 +33,9 @@ class PessimisticTransactionDB : public TransactionDB {
 
   virtual ~PessimisticTransactionDB();
 
-  Status Initialize(const std::vector<size_t>& compaction_enabled_cf_indices,
-                    const std::vector<ColumnFamilyHandle*>& handles);
+  virtual Status Initialize(
+      const std::vector<size_t>& compaction_enabled_cf_indices,
+      const std::vector<ColumnFamilyHandle*>& handles);
 
   Transaction* BeginTransaction(const WriteOptions& write_options,
                                 const TransactionOptions& txn_options,
@@ -191,9 +192,18 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
 
   virtual ~WritePreparedTxnDB() {}
 
+  virtual Status Initialize(
+      const std::vector<size_t>& compaction_enabled_cf_indices,
+      const std::vector<ColumnFamilyHandle*>& handles) override;
+
   Transaction* BeginTransaction(const WriteOptions& write_options,
                                 const TransactionOptions& txn_options,
                                 Transaction* old_txn) override;
+
+  using DB::Get;
+  virtual Status Get(const ReadOptions& options,
+                     ColumnFamilyHandle* column_family, const Slice& key,
+                     PinnableSlice* value) override;
 
   // Check whether the transaction that wrote the value with seqeunce number seq
   // is visible to the snapshot with sequence number snapshot_seq
@@ -294,6 +304,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   friend class PreparedHeap_BasicsTest_Test;
   friend class WritePreparedTxnDBMock;
   friend class WritePreparedTransactionTest_AdvanceMaxEvictedSeqBasicTest_Test;
+  friend class WritePreparedTransactionTest_BasicRecoveryTest_Test;
+  friend class WritePreparedTransactionTest_IsInSnapshotEmptyMapTest_Test;
 
   void init(const TransactionDBOptions& /* unused */) {
     // Adcance max_evicted_seq_ no more than 100 times before the cache wraps

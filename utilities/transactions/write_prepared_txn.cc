@@ -52,8 +52,9 @@ Status WritePreparedTxn::PrepareInternal() {
                           /*callback*/ nullptr, &log_number_, /*log ref*/ 0,
                           !disable_memtable, &seq_used);
   assert(seq_used != kMaxSequenceNumber);
-  prepare_seq_ = seq_used;
-  wpt_db_->AddPrepared(prepare_seq_);
+  auto prepare_seq = seq_used;
+  SetId(prepare_seq);
+  wpt_db_->AddPrepared(prepare_seq);
   return s;
 }
 
@@ -66,9 +67,10 @@ Status WritePreparedTxn::CommitBatchInternal(WriteBatch* batch) {
   WriteBatchInternal::InsertNoop(batch);
   const bool disable_memtable = true;
   const uint64_t no_log_ref = 0;
-  uint64_t seq_used;
+  uint64_t seq_used = kMaxSequenceNumber;
   auto s = db_impl_->WriteImpl(write_options_, batch, nullptr, nullptr,
                                no_log_ref, !disable_memtable, &seq_used);
+  assert(seq_used != kMaxSequenceNumber);
   uint64_t& prepare_seq = seq_used;
   uint64_t& commit_seq = seq_used;
   // TODO(myabandeh): skip AddPrepared
@@ -90,13 +92,19 @@ Status WritePreparedTxn::CommitInternal() {
   working_batch->MarkWalTerminationPoint();
 
   const bool disable_memtable = true;
-  uint64_t seq_used;
+  uint64_t seq_used = kMaxSequenceNumber;
+  // Since the prepared batch is directly written to memtable, there is already
+  // a connection between the memtable and its WAL, so there is no need to
+  // redundantly reference the log that contains the prepared data.
+  const uint64_t zero_log_number = 0ull;
   auto s = db_impl_->WriteImpl(write_options_, working_batch, nullptr, nullptr,
-                               log_number_, disable_memtable, &seq_used);
+                               zero_log_number, disable_memtable, &seq_used);
+  assert(seq_used != kMaxSequenceNumber);
   uint64_t& commit_seq = seq_used;
   // TODO(myabandeh): Reject a commit request if AddCommitted cannot encode
   // commit_seq. This happens if prep_seq <<< commit_seq.
-  wpt_db_->AddCommitted(prepare_seq_, commit_seq);
+  auto prepare_seq = GetId();
+  wpt_db_->AddCommitted(prepare_seq, commit_seq);
   return s;
 }
 

@@ -510,9 +510,11 @@ class DBImpl : public DB {
     uint64_t log_number_;
     std::string name_;
     WriteBatch* batch_;
+    // The seq number of the first key in the batch
+    SequenceNumber seq_;
     explicit RecoveredTransaction(const uint64_t log, const std::string& name,
-                                  WriteBatch* batch)
-        : log_number_(log), name_(name), batch_(batch) {}
+                                  WriteBatch* batch, SequenceNumber seq)
+        : log_number_(log), name_(name), batch_(batch), seq_(seq) {}
 
     ~RecoveredTransaction() { delete batch_; }
   };
@@ -534,8 +536,9 @@ class DBImpl : public DB {
   }
 
   void InsertRecoveredTransaction(const uint64_t log, const std::string& name,
-                                  WriteBatch* batch) {
-    recovered_transactions_[name] = new RecoveredTransaction(log, name, batch);
+                                  WriteBatch* batch, SequenceNumber seq) {
+    recovered_transactions_[name] =
+        new RecoveredTransaction(log, name, batch, seq);
     MarkLogAsContainingPrepSection(log);
   }
 
@@ -640,6 +643,7 @@ class DBImpl : public DB {
   friend class PessimisticTransaction;
   friend class WriteCommittedTxn;
   friend class WritePreparedTxn;
+  friend class WritePreparedTxnDB;
   friend class WriteBatchWithIndex;
 #ifndef ROCKSDB_LITE
   friend class ForwardIterator;

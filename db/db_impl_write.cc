@@ -264,9 +264,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       } else {
         SequenceNumber next_sequence = current_sequence;
         for (auto* writer : write_group) {
-          if (writer->ShouldWriteToMemtable()) {
-            writer->sequence = next_sequence;
-          }
+          writer->sequence = next_sequence;
           if (seq_per_batch_) {
             next_sequence++;
           } else if (writer->ShouldWriteToMemtable()) {

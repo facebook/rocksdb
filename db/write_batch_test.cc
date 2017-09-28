@@ -18,7 +18,6 @@
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/scoped_arena_iterator.h"
-#include "util/logging.h"
 #include "util/string_util.h"
 #include "util/testharness.h"
 
@@ -299,8 +298,8 @@ namespace {
       seen += "MarkEndPrepare(" + xid.ToString() + ")";
       return Status::OK();
     }
-    virtual Status MarkNoop(bool first_tag) override {
-      seen += "MarkNoop(" + std::string(first_tag ? "true" : "false") + ")";
+    virtual Status MarkNoop(bool empty_batch) override {
+      seen += "MarkNoop(" + std::string(empty_batch ? "true" : "false") + ")";
       return Status::OK();
     }
     virtual Status MarkCommit(const Slice& xid) override {

@@ -48,6 +48,7 @@ uint64_t DBImpl::FindMinPrepLogReferencedByMemTable() {
   return min_log;
 }
 
+// TODO(myabandeh): Avoid using locks
 void DBImpl::MarkLogAsHavingPrepSectionFlushed(uint64_t log) {
   assert(log != 0);
   std::lock_guard<std::mutex> lock(prep_heap_mutex_);
@@ -56,6 +57,7 @@ void DBImpl::MarkLogAsHavingPrepSectionFlushed(uint64_t log) {
   it->second += 1;
 }
 
+// TODO(myabandeh): Avoid using locks
 void DBImpl::MarkLogAsContainingPrepSection(uint64_t log) {
   assert(log != 0);
   std::lock_guard<std::mutex> lock(prep_heap_mutex_);
