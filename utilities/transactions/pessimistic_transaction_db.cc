@@ -547,9 +547,12 @@ void PessimisticTransactionDB::UnregisterTransaction(Transaction* txn) {
 Status WritePreparedTxnDB::Get(const ReadOptions& options,
                                ColumnFamilyHandle* column_family,
                                const Slice& key, PinnableSlice* value) {
-  SequenceNumber last_seq = db_impl_->GetLatestSequenceNumber();
-  WritePreparedTxnReadCallback callback(this, last_seq);
+  // We are fine with the latest committed value. This could be done by
+  // specifying the snapshot as kMaxSequenceNumber.
+  WritePreparedTxnReadCallback callback(this, kMaxSequenceNumber);
   bool* dont_care = nullptr;
+  // Note: no need to specify a snapshot for read options as no specific
+  // snapshot is requested by the user.
   return db_impl_->GetImpl(options, column_family, key, value, dont_care,
                            &callback);
 }
@@ -582,6 +585,10 @@ bool WritePreparedTxnDB::IsInSnapshot(uint64_t prep_seq,
     // It is committed and also not evicted from commit cache
     return cached.commit_seq <= snapshot_seq;
   }
+  // else it could be committed but not inserted in the map which could happen
+  // after recovery, or it could be committed and evicted by another commit, or
+  // never committed.
+
   // At this point we dont know if it was committed or it is still prepared
   auto max_evicted_seq = max_evicted_seq_.load(std::memory_order_acquire);
   if (max_evicted_seq < prep_seq) {
