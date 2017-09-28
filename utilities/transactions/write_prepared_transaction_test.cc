@@ -1109,6 +1109,106 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
   }
 }
 
+void ASSERT_SAME(TransactionDB* db, Status exp_s, PinnableSlice& exp_v,
+                 Slice key) {
+  Status s;
+  PinnableSlice v;
+  ReadOptions roptions;
+  s = db->Get(roptions, db->DefaultColumnFamily(), key, &v);
+  ASSERT_EQ(exp_s, s);
+  ASSERT_TRUE(s.ok() || s.IsNotFound());
+  if (s.ok()) {
+    ASSERT_EQ(exp_v, v);
+  }
+}
+
+TEST_P(WritePreparedTransactionTest, RollbackTest) {
+  ReadOptions roptions;
+  WriteOptions woptions;
+  TransactionOptions txn_options;
+  const size_t num_keys = 4;
+  const size_t num_values = 5;
+  for (size_t ikey = 1; ikey <= num_keys; ikey++) {
+    for (size_t ivalue = 0; ivalue < num_values; ivalue++) {
+      // TODO(myabandeh): check rollback after recovery
+      for (bool crash : {false}) {
+        std::string key_str = "key" + ToString(ikey);
+        switch (ivalue) {
+          case 0:
+            break;
+          case 1:
+            ASSERT_OK(db->Put(woptions, key_str, "initvalue1"));
+            break;
+          case 2:
+            ASSERT_OK(db->Merge(woptions, key_str, "initvalue2"));
+            break;
+          case 3:
+            ASSERT_OK(db->Delete(woptions, key_str));
+            break;
+          case 4:
+            ASSERT_OK(db->SingleDelete(woptions, key_str));
+            break;
+          default:
+            assert(0);
+        }
+
+        PinnableSlice v1;
+        auto s1 =
+            db->Get(roptions, db->DefaultColumnFamily(), Slice("key1"), &v1);
+        PinnableSlice v2;
+        auto s2 =
+            db->Get(roptions, db->DefaultColumnFamily(), Slice("key2"), &v2);
+        PinnableSlice v3;
+        auto s3 =
+            db->Get(roptions, db->DefaultColumnFamily(), Slice("key3"), &v3);
+        PinnableSlice v4;
+        auto s4 =
+            db->Get(roptions, db->DefaultColumnFamily(), Slice("key4"), &v4);
+        Transaction* txn = db->BeginTransaction(woptions, txn_options);
+        auto s = txn->SetName("xid0");
+        ASSERT_OK(s);
+        s = txn->Put(Slice("key1"), Slice("value1"));
+        ASSERT_OK(s);
+        s = txn->Merge(Slice("key2"), Slice("value2"));
+        ASSERT_OK(s);
+        s = txn->Delete(Slice("key3"));
+        ASSERT_OK(s);
+        s = txn->SingleDelete(Slice("key4"));
+        ASSERT_OK(s);
+        s = txn->Prepare();
+        ASSERT_OK(s);
+
+        ASSERT_SAME(db, s1, v1, "key1");
+        ASSERT_SAME(db, s2, v2, "key2");
+        ASSERT_SAME(db, s3, v3, "key3");
+        ASSERT_SAME(db, s4, v4, "key4");
+
+        if (crash) {
+          delete txn;
+          auto db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+          db_impl->FlushWAL(true);
+          ReOpenNoDelete();
+          txn = db->GetTransactionByName("xid0");
+        }
+
+        ASSERT_SAME(db, s1, v1, "key1");
+        ASSERT_SAME(db, s2, v2, "key2");
+        ASSERT_SAME(db, s3, v3, "key3");
+        ASSERT_SAME(db, s4, v4, "key4");
+
+        s = txn->Rollback();
+        ASSERT_OK(s);
+
+        ASSERT_SAME(db, s1, v1, "key1");
+        ASSERT_SAME(db, s2, v2, "key2");
+        ASSERT_SAME(db, s3, v3, "key3");
+        ASSERT_SAME(db, s4, v4, "key4");
+        delete txn;
+      }
+    }
+  }
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
