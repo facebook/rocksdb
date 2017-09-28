@@ -813,15 +813,19 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
       CachableEntry<IndexReader> index_entry;
       unique_ptr<InternalIterator> iter(
           new_table->NewIndexIterator(ReadOptions(), nullptr, &index_entry));
-      index_entry.value->CacheDependencies(pin);
-      if (pin) {
-        rep->index_entry = std::move(index_entry);
-      } else {
-        index_entry.Release(table_options.block_cache.get());
-      }
       s = iter->status();
-
       if (s.ok()) {
+        // This is the first call to NewIndexIterator() since we're in Open().
+        // On success it should give us ownership of the `CachableEntry` by
+        // populating `index_entry`.
+        assert(index_entry.value != nullptr);
+        index_entry.value->CacheDependencies(pin);
+        if (pin) {
+          rep->index_entry = std::move(index_entry);
+        } else {
+          index_entry.Release(table_options.block_cache.get());
+        }
+
         // Hack: Call GetFilter() to implicitly add filter to the block_cache
         auto filter_entry = new_table->GetFilter();
         if (filter_entry.value != nullptr) {
