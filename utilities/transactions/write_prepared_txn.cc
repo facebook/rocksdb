@@ -182,7 +182,8 @@ Status WritePreparedTxn::RollbackInternal() {
   // TODO(myabandeh): skip AddPrepared
   wpt_db_->AddPrepared(prepare_seq);
   wpt_db_->AddCommitted(prepare_seq, commit_seq);
-  // TODO(myabandeh): after rollback remove txn from prepared list
+  // Mark the txn as rolled back
+  wpt_db_->RollbackPrepared(prepare_seq_, commit_seq);
 
   return s;
 }

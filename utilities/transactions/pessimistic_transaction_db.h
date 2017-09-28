@@ -210,6 +210,10 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   bool IsInSnapshot(uint64_t seq, uint64_t snapshot_seq);
   // Add the trasnaction with prepare sequence seq to the prepared list
   void AddPrepared(uint64_t seq);
+  // Rollback a prepared txn identified with prep_seq. rollback_seq is the seq
+  // with which the additional data is written to cancel the txn effect. It can
+  // be used to idenitfy the snapshots that overlap with the rolled back txn.
+  void RollbackPrepared(uint64_t prep_seq, uint64_t rollback_seq);
   // Add the transaction with prepare sequence prepare_seq and commit sequence
   // commit_seq to the commit map
   void AddCommitted(uint64_t prepare_seq, uint64_t commit_seq);
@@ -306,6 +310,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   friend class WritePreparedTransactionTest_AdvanceMaxEvictedSeqBasicTest_Test;
   friend class WritePreparedTransactionTest_BasicRecoveryTest_Test;
   friend class WritePreparedTransactionTest_IsInSnapshotEmptyMapTest_Test;
+  friend class WritePreparedTransactionTest_RollbackTest_Test;
 
   void init(const TransactionDBOptions& /* unused */) {
     // Adcance max_evicted_seq_ no more than 100 times before the cache wraps

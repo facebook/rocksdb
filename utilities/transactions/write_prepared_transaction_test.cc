@@ -1132,6 +1132,8 @@ TEST_P(WritePreparedTransactionTest, RollbackTest) {
     for (size_t ivalue = 0; ivalue < num_values; ivalue++) {
       // TODO(myabandeh): check rollback after recovery
       for (bool crash : {false}) {
+        ReOpen();
+        WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
         std::string key_str = "key" + ToString(ikey);
         switch (ivalue) {
           case 0:
@@ -1178,6 +1180,10 @@ TEST_P(WritePreparedTransactionTest, RollbackTest) {
         s = txn->Prepare();
         ASSERT_OK(s);
 
+        ASSERT_FALSE(wp_db->prepared_txns_.empty());
+        // TODO(myabandeh): uncomment it after rebase
+        // ASSERT_EQ(txn->GetId(), wp_db->prepared_txns_.top());
+
         ASSERT_SAME(db, s1, v1, "key1");
         ASSERT_SAME(db, s2, v2, "key2");
         ASSERT_SAME(db, s3, v3, "key3");
@@ -1188,7 +1194,11 @@ TEST_P(WritePreparedTransactionTest, RollbackTest) {
           auto db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
           db_impl->FlushWAL(true);
           ReOpenNoDelete();
+          wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
           txn = db->GetTransactionByName("xid0");
+          ASSERT_FALSE(wp_db->prepared_txns_.empty());
+          // TODO(myabandeh): uncomment it after rebase
+          // ASSERT_EQ(txn->GetId(), wp_db->prepared_txns_.top());
         }
 
         ASSERT_SAME(db, s1, v1, "key1");
@@ -1198,6 +1208,8 @@ TEST_P(WritePreparedTransactionTest, RollbackTest) {
 
         s = txn->Rollback();
         ASSERT_OK(s);
+
+        ASSERT_TRUE(wp_db->prepared_txns_.empty());
 
         ASSERT_SAME(db, s1, v1, "key1");
         ASSERT_SAME(db, s2, v2, "key2");
