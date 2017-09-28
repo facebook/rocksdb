@@ -30,7 +30,6 @@
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/thread_status_util.h"
-#include "port/likely.h"
 #include "port/port.h"
 #include "db/memtable.h"
 #include "rocksdb/db.h"
@@ -58,7 +57,7 @@ namespace rocksdb {
 FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
                    const ImmutableDBOptions& db_options,
                    const MutableCFOptions& mutable_cf_options,
-                   const EnvOptions& env_options, VersionSet* versions,
+                   const EnvOptions env_options, VersionSet* versions,
                    InstrumentedMutex* db_mutex,
                    std::atomic<bool>* shutting_down,
                    std::vector<SequenceNumber> existing_snapshots,
@@ -294,16 +293,13 @@ Status FlushJob::WriteLevel0Table() {
 
       TEST_SYNC_POINT_CALLBACK("FlushJob::WriteLevel0Table:output_compression",
                                &output_compression_);
-      EnvOptions optimized_env_options =
-          db_options_.env->OptimizeForCompactionTableWrite(env_options_, db_options_);
-
       int64_t _current_time = 0;
       db_options_.env->GetCurrentTime(&_current_time);  // ignore error
       const uint64_t current_time = static_cast<uint64_t>(_current_time);
 
       s = BuildTable(
           dbname_, db_options_.env, *cfd_->ioptions(), mutable_cf_options_,
-          optimized_env_options, cfd_->table_cache(), iter.get(),
+          env_options_, cfd_->table_cache(), iter.get(),
           std::move(range_del_iter), &meta_, cfd_->internal_comparator(),
           cfd_->int_tbl_prop_collector_factories(), cfd_->GetID(),
           cfd_->GetName(), existing_snapshots_,

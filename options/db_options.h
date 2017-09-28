@@ -59,8 +59,6 @@ struct ImmutableDBOptions {
   size_t random_access_max_buffer_size;
   size_t writable_file_max_buffer_size;
   bool use_adaptive_mutex;
-  uint64_t bytes_per_sync;
-  uint64_t wal_bytes_per_sync;
   std::vector<std::shared_ptr<EventListener>> listeners;
   bool enable_thread_tracking;
   bool enable_pipelined_write;
@@ -100,6 +98,8 @@ struct MutableDBOptions {
   uint64_t delete_obsolete_files_period_micros;
   unsigned int stats_dump_period_sec;
   int max_open_files;
+  uint64_t bytes_per_sync;
+  uint64_t wal_bytes_per_sync;
 };
 
 }  // namespace rocksdb

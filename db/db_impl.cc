@@ -181,6 +181,9 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       has_unpersisted_data_(false),
       unable_to_flush_oldest_log_(false),
       env_options_(BuildDBOptions(immutable_db_options_, mutable_db_options_)),
+      env_options_for_compaction_(env_->OptimizeForCompactionTableWrite(
+                                    env_options_,
+                                    immutable_db_options_)),
       num_running_ingest_file_(0),
 #ifndef ROCKSDB_LITE
       wal_manager_(immutable_db_options_, env_options_),
@@ -539,6 +542,7 @@ Status DBImpl::SetDBOptions(
   MutableDBOptions new_options;
   Status s;
   Status persist_options_status;
+  bool wal_changed = false;
   WriteThread::Writer w;
   WriteContext write_context;
   {
@@ -557,12 +561,25 @@ Status DBImpl::SetDBOptions(
       table_cache_.get()->SetCapacity(new_options.max_open_files == -1
                                           ? TableCache::kInfiniteCapacity
                                           : new_options.max_open_files - 10);
-
+      wal_changed = mutable_db_options_.wal_bytes_per_sync !=
+                    new_options.wal_bytes_per_sync;
+      if (new_options.bytes_per_sync == 0) {
+        new_options.bytes_per_sync = 1024 * 1024;
+      }
       mutable_db_options_ = new_options;
-
+      env_options_for_compaction_ = EnvOptions(BuildDBOptions(
+                                                immutable_db_options_,
+                                                mutable_db_options_));
+      env_options_for_compaction_ = env_->OptimizeForCompactionTableWrite(
+                                            env_options_for_compaction_,
+                                            immutable_db_options_);
+      env_options_for_compaction_.bytes_per_sync
+                                    = mutable_db_options_.bytes_per_sync;
+      env_->OptimizeForCompactionTableWrite(env_options_for_compaction_,
+                                            immutable_db_options_);
       write_thread_.EnterUnbatched(&w, &mutex_);
-      if (total_log_size_ > GetMaxTotalWalSize()) {
-        Status purge_wal_status = HandleWALFull(&write_context);
+      if (total_log_size_ > GetMaxTotalWalSize() || wal_changed) {
+        Status purge_wal_status = SwitchWAL(&write_context);
         if (!purge_wal_status.ok()) {
           ROCKS_LOG_WARN(immutable_db_options_.info_log,
                          "Unable to purge WAL files in SetDBOptions() -- %s",
