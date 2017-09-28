@@ -229,7 +229,9 @@ void CompactionIterator::NextFromInput() {
       has_outputted_key_ = false;
       current_user_key_sequence_ = kMaxSequenceNumber;
       current_user_key_snapshot_ = 0;
-      current_key_committed_ = (snapshot_checker_ == nullptr);
+      current_key_committed_ =
+          (snapshot_checker_ == nullptr ||
+           snapshot_checker_->IsInSnapshot(ikey_.sequence, kMaxSequenceNumber));
 
 #ifndef ROCKSDB_LITE
       if (compaction_listener_) {
@@ -302,18 +304,18 @@ void CompactionIterator::NextFromInput() {
       current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
       key_ = current_key_.GetInternalKey();
       ikey_.user_key = current_key_.GetUserKey();
+
+      if (UNLIKELY(!current_key_committed_)) {
+        assert(snapshot_checker_ != nullptr);
+        current_key_committed_ =
+            snapshot_checker_->IsInSnapshot(ikey_.sequence, kMaxSequenceNumber);
+      }
     }
 
     if (UNLIKELY(!current_key_committed_)) {
       assert(snapshot_checker_ != nullptr);
-      // If a key is not visible to even kMaxSequenceNumber, it is not commited.
-      current_key_committed_ =
-          snapshot_checker_->IsInSnapshot(ikey_.sequence, kMaxSequenceNumber);
-      // Output uncommitted key as-is.
-      if (UNLIKELY(!current_key_committed_)) {
-        valid_ = true;
-        break;
-      }
+      valid_ = true;
+      break;
     }
 
     // If there are no snapshots, then this kv affect visibility at tip.
@@ -590,35 +592,14 @@ void CompactionIterator::PrepareOutput() {
   }
 }
 
-SequenceNumber CompactionIterator::findEarliestVisibleSnapshot(
+inline SequenceNumber CompactionIterator::findEarliestVisibleSnapshot(
     SequenceNumber in, SequenceNumber* prev_snapshot) {
   assert(snapshots_->size());
-  if (snapshot_checker_ != nullptr) {
-    return findEarliestVisibleSnapshotWithSnapshotChecker(in, prev_snapshot);
-  }
   SequenceNumber prev = kMaxSequenceNumber;
   for (const auto cur : *snapshots_) {
     assert(prev == kMaxSequenceNumber || prev <= cur);
-    if (cur >= in) {
-      *prev_snapshot = prev == kMaxSequenceNumber ? 0 : prev;
-      return cur;
-    }
-    prev = cur;
-    assert(prev < kMaxSequenceNumber);
-  }
-  *prev_snapshot = prev;
-  return kMaxSequenceNumber;
-}
-
-SequenceNumber
-CompactionIterator::findEarliestVisibleSnapshotWithSnapshotChecker(
-    SequenceNumber in, SequenceNumber* prev_snapshot) {
-  assert(snapshots_->size());
-  assert(snapshot_checker_ != nullptr);
-  SequenceNumber prev = kMaxSequenceNumber;
-  for (const auto cur : *snapshots_) {
-    assert(prev == kMaxSequenceNumber || prev <= cur);
-    if (snapshot_checker_->IsInSnapshot(in, cur)) {
+    if (cur >= in && (snapshot_checker_ == nullptr ||
+                      snapshot_checker_->IsInSnapshot(in, cur))) {
       *prev_snapshot = prev == kMaxSequenceNumber ? 0 : prev;
       return cur;
     }

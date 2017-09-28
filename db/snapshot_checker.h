@@ -25,13 +25,4 @@ class SnapshotChecker {
 #endif  // !ROCKSDB_LITE
 };
 
-#ifdef ROCKSDB_LITE
-SnapshotChecker::SnapshotChecker(WritePreparedTxnDB* txn_db) {}
-
-bool SnapshotChecker::IsInSnapshot(SequenceNumber sequence,
-                                   SequenceNumber snapshot_sequence) const {
-  return sequence <= snapshot_sequence;
-}
-#endif  // ROCKSDB_LITE
-
 }  // namespace rocksdb

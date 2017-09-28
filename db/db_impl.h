@@ -575,9 +575,7 @@ class DBImpl : public DB {
     logs_to_free_queue_.push_back(log_writer);
   }
 
-#ifndef ROCKSDB_LITE
   void SetSnapshotChecker(SnapshotChecker* snapshot_checker);
-#endif  // !ROCKSDB_LITE
 
   InstrumentedMutex* mutex() { return &mutex_; }
 

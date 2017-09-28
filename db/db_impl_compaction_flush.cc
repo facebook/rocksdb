@@ -1915,7 +1915,6 @@ SuperVersion* DBImpl::InstallSuperVersionAndScheduleWork(
   return old;
 }
 
-#ifndef ROCKSDB_LITE
 void DBImpl::SetSnapshotChecker(SnapshotChecker* snapshot_checker) {
   InstrumentedMutexLock l(&mutex_);
   // snapshot_checker_ should only set once. If we need to set it multiple
@@ -1924,5 +1923,4 @@ void DBImpl::SetSnapshotChecker(SnapshotChecker* snapshot_checker) {
   assert(!snapshot_checker_);
   snapshot_checker_.reset(snapshot_checker);
 }
-#endif  // !ROCKSDB_LITE
 }  // namespace rocksdb

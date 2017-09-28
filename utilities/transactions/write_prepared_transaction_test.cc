@@ -16,7 +16,6 @@
 #include <functional>
 #include <string>
 #include <thread>
-#include <tuple>
 
 #include "db/db_impl.h"
 #include "db/dbformat.h"
@@ -1366,31 +1365,35 @@ TEST_P(WritePreparedTransactionTest, SequenceNumberZeroTest) {
   db->ReleaseSnapshot(snapshot);
 }
 
+// Compaction should not remove a key if it is not committed, and should
+// proceed with older versions of the key as-if the new version doesn't exist.
 TEST_P(WritePreparedTransactionTest, CompactionShouldKeepUncommittedKeys) {
+  options.disable_auto_compactions = true;
+  ReOpen();
   // Snapshots to avoid keys get evicted.
   std::vector<const Snapshot*> snapshots;
+  // Keep track of expected sequence number.
+  SequenceNumber expected_seq = 0;
+
+  auto add_key = [&](std::function<Status()> func) {
+    ASSERT_OK(func());
+    ASSERT_EQ(++expected_seq, db->GetLatestSequenceNumber());
+    snapshots.push_back(db->GetSnapshot());
+  };
+
   // Each key here represent a standalone test case.
-  ASSERT_OK(db->Put(WriteOptions(), "key1", "value1_1"));
-  snapshots.push_back(db->GetSnapshot());
-  ASSERT_OK(db->Put(WriteOptions(), "key2", "value2_1"));
-  snapshots.push_back(db->GetSnapshot());
-  ASSERT_OK(db->Put(WriteOptions(), "key3", "value3_1"));
-  snapshots.push_back(db->GetSnapshot());
-  ASSERT_OK(db->Put(WriteOptions(), "key4", "value4_1"));
-  snapshots.push_back(db->GetSnapshot());
-  ASSERT_OK(db->Merge(WriteOptions(), "key5", "value5_1"));
-  snapshots.push_back(db->GetSnapshot());
-  ASSERT_OK(db->Merge(WriteOptions(), "key5", "value5_2"));
-  snapshots.push_back(db->GetSnapshot());
-  ASSERT_OK(db->Put(WriteOptions(), "key6", "value6_1"));
-  snapshots.push_back(db->GetSnapshot());
-  ASSERT_OK(db->Put(WriteOptions(), "key7", "value7_1"));
-  snapshots.push_back(db->GetSnapshot());
+  add_key([&]() { return db->Put(WriteOptions(), "key1", "value1_1"); });
+  add_key([&]() { return db->Put(WriteOptions(), "key2", "value2_1"); });
+  add_key([&]() { return db->Put(WriteOptions(), "key3", "value3_1"); });
+  add_key([&]() { return db->Put(WriteOptions(), "key4", "value4_1"); });
+  add_key([&]() { return db->Merge(WriteOptions(), "key5", "value5_1"); });
+  add_key([&]() { return db->Merge(WriteOptions(), "key5", "value5_2"); });
+  add_key([&]() { return db->Put(WriteOptions(), "key6", "value6_1"); });
+  add_key([&]() { return db->Put(WriteOptions(), "key7", "value7_1"); });
   ASSERT_OK(db->Flush(FlushOptions()));
-  ASSERT_OK(db->Delete(WriteOptions(), "key6"));
-  snapshots.push_back(db->GetSnapshot());
-  ASSERT_OK(db->SingleDelete(WriteOptions(), "key7"));
-  snapshots.push_back(db->GetSnapshot());
+  add_key([&]() { return db->Delete(WriteOptions(), "key6"); });
+  add_key([&]() { return db->SingleDelete(WriteOptions(), "key7"); });
+
   auto* transaction = db->BeginTransaction(WriteOptions());
   ASSERT_OK(transaction->SetName("txn"));
   ASSERT_OK(transaction->Put("key1", "value1_2"));
@@ -1402,38 +1405,48 @@ TEST_P(WritePreparedTransactionTest, CompactionShouldKeepUncommittedKeys) {
   ASSERT_OK(transaction->Put("key7", "value7_2"));
   // Prepare but not commit.
   ASSERT_OK(transaction->Prepare());
+  ASSERT_EQ(++expected_seq, db->GetLatestSequenceNumber());
   ASSERT_OK(db->Flush(FlushOptions()));
   for (auto* s : snapshots) {
     db->ReleaseSnapshot(s);
   }
-  // Dummy keys to avoid trivial move.
+  // Dummy keys to avoid compaction trivially move files and get around actual
+  // compaction logic.
   ASSERT_OK(db->Put(WriteOptions(), "a", "dummy"));
   ASSERT_OK(db->Put(WriteOptions(), "z", "dummy"));
   ASSERT_OK(db->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   VerifyInternalKeys({
-      {"key1", "value1_2", 11, kTypeValue},
+      {"key1", "value1_2", expected_seq, kTypeValue},
       {"key1", "value1_1", 0, kTypeValue},
-      {"key2", "", 11, kTypeDeletion},
+      {"key2", "", expected_seq, kTypeDeletion},
       {"key2", "value2_1", 0, kTypeValue},
-      {"key3", "", 11, kTypeSingleDeletion},
+      {"key3", "", expected_seq, kTypeSingleDeletion},
       {"key3", "value3_1", 0, kTypeValue},
-      {"key4", "value4_2", 11, kTypeMerge},
+      {"key4", "value4_2", expected_seq, kTypeMerge},
       {"key4", "value4_1", 0, kTypeValue},
-      {"key5", "value5_3", 11, kTypeMerge},
+      {"key5", "value5_3", expected_seq, kTypeMerge},
       {"key5", "value5_1,value5_2", 0, kTypeValue},
-      {"key6", "value6_2", 11, kTypeValue},
-      {"key7", "value7_2", 11, kTypeValue},
+      {"key6", "value6_2", expected_seq, kTypeValue},
+      {"key7", "value7_2", expected_seq, kTypeValue},
   });
   ASSERT_OK(transaction->Commit());
   delete transaction;
 }
 
+// Compaction should keep keys visible to a snapshot based on commit sequence,
+// not just prepare sequence.
 TEST_P(WritePreparedTransactionTest, CompactionShouldKeepSnapshotVisibleKeys) {
+  options.disable_auto_compactions = true;
+  ReOpen();
+  // Keep track of expected sequence number.
+  SequenceNumber expected_seq = 0;
   auto* txn1 = db->BeginTransaction(WriteOptions());
   ASSERT_OK(txn1->SetName("txn1"));
   ASSERT_OK(txn1->Put("key1", "value1_1"));
   ASSERT_OK(txn1->Prepare());
+  ASSERT_EQ(++expected_seq, db->GetLatestSequenceNumber());
   ASSERT_OK(txn1->Commit());
+  ASSERT_EQ(++expected_seq, db->GetLatestSequenceNumber());
   delete txn1;
   // Take a snapshots to avoid keys get evicted before compaction.
   const Snapshot* snapshot1 = db->GetSnapshot();
@@ -1441,47 +1454,65 @@ TEST_P(WritePreparedTransactionTest, CompactionShouldKeepSnapshotVisibleKeys) {
   ASSERT_OK(txn2->SetName("txn2"));
   ASSERT_OK(txn2->Put("key2", "value2_1"));
   ASSERT_OK(txn2->Prepare());
+  ASSERT_EQ(++expected_seq, db->GetLatestSequenceNumber());
   // txn1 commit before snapshot2 and it is visible to snapshot2.
   // txn2 commit after snapshot2 and it is not visible.
   const Snapshot* snapshot2 = db->GetSnapshot();
   ASSERT_OK(txn2->Commit());
+  ASSERT_EQ(++expected_seq, db->GetLatestSequenceNumber());
   delete txn2;
   // Take a snapshots to avoid keys get evicted before compaction.
   const Snapshot* snapshot3 = db->GetSnapshot();
   ASSERT_OK(db->Put(WriteOptions(), "key1", "value1_2"));
+  ASSERT_EQ(++expected_seq, db->GetLatestSequenceNumber());
+  SequenceNumber seq1 = expected_seq;
   ASSERT_OK(db->Put(WriteOptions(), "key2", "value2_2"));
+  ASSERT_EQ(++expected_seq, db->GetLatestSequenceNumber());
+  SequenceNumber seq2 = expected_seq;
   ASSERT_OK(db->Flush(FlushOptions()));
   db->ReleaseSnapshot(snapshot1);
   db->ReleaseSnapshot(snapshot3);
-  // Dummy keys to avoid trivial move.
+  // Dummy keys to avoid compaction trivially move files and get around actual
+  // compaction logic.
   ASSERT_OK(db->Put(WriteOptions(), "a", "dummy"));
   ASSERT_OK(db->Put(WriteOptions(), "z", "dummy"));
   ASSERT_OK(db->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   VerifyInternalKeys({
-      {"key1", "value1_2", 5, kTypeValue},
+      {"key1", "value1_2", seq1, kTypeValue},
       // "value1_1" is visible to snapshot2. Also keys at bottom level visible
       // to earliest snapshot will output with seq = 0.
       {"key1", "value1_1", 0, kTypeValue},
-      {"key2", "value2_2", 6, kTypeValue},
+      {"key2", "value2_2", seq2, kTypeValue},
   });
   db->ReleaseSnapshot(snapshot2);
 }
 
+// Compaction should not apply the optimization to output key with sequence
+// number equal to 0 if the key is not visible to earliest snapshot, based on
+// commit sequence number.
 TEST_P(WritePreparedTransactionTest,
        CompactionShouldKeepSequenceForUncommittedKeys) {
+  options.disable_auto_compactions = true;
+  ReOpen();
+  // Keep track of expected sequence number.
+  SequenceNumber expected_seq = 0;
   auto* transaction = db->BeginTransaction(WriteOptions());
   ASSERT_OK(transaction->SetName("txn"));
   ASSERT_OK(transaction->Put("key1", "value1"));
   ASSERT_OK(transaction->Prepare());
+  ASSERT_EQ(++expected_seq, db->GetLatestSequenceNumber());
+  SequenceNumber seq1 = expected_seq;
   ASSERT_OK(db->Put(WriteOptions(), "key2", "value2"));
+  ASSERT_EQ(++expected_seq, db->GetLatestSequenceNumber());
   ASSERT_OK(db->Flush(FlushOptions()));
-  // Dummy keys to avoid trivial move.
+  // Dummy keys to avoid compaction trivially move files and get around actual
+  // compaction logic.
   ASSERT_OK(db->Put(WriteOptions(), "a", "dummy"));
   ASSERT_OK(db->Put(WriteOptions(), "z", "dummy"));
   ASSERT_OK(db->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   VerifyInternalKeys({
       // "key1" has not been committed. It keeps its sequence number.
-      {"key1", "value1", 1, kTypeValue},
+      {"key1", "value1", seq1, kTypeValue},
       // "key2" is committed and output with seq = 0.
       {"key2", "value2", 0, kTypeValue},
   });

@@ -120,9 +120,7 @@ class CompactionIterator {
   // sequence numbers.
   // Employ a sequential search because the total number of
   // snapshots are typically small.
-  SequenceNumber findEarliestVisibleSnapshot(SequenceNumber in,
-                                             SequenceNumber* prev_snapshot);
-  SequenceNumber findEarliestVisibleSnapshotWithSnapshotChecker(
+  inline SequenceNumber findEarliestVisibleSnapshot(
       SequenceNumber in, SequenceNumber* prev_snapshot);
 
   InternalIterator* input_;
