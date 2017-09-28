@@ -53,6 +53,8 @@ class WritePreparedTxn : public PessimisticTransaction {
   Status Rollback() override;
 
  private:
+  friend class WritePreparedTransactionTest_BasicRecoveryTest_Test;
+
   Status PrepareInternal() override;
 
   Status CommitWithoutPrepareInternal() override;
@@ -73,7 +75,6 @@ class WritePreparedTxn : public PessimisticTransaction {
   void operator=(const WritePreparedTxn&);
 
   WritePreparedTxnDB* wpt_db_;
-  uint64_t prepare_seq_;
 };
 
 }  // namespace rocksdb

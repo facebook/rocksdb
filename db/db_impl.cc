@@ -940,6 +940,10 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
 
   SequenceNumber snapshot;
   if (read_options.snapshot != nullptr) {
+    // Note: In WritePrepared txns this is not necessary but not harmful either.
+    // Because prep_seq > snapshot => commit_seq > snapshot so if a snapshot is
+    // specified we should be fine with skipping seq numbers that are greater
+    // than that.
     snapshot = reinterpret_cast<const SnapshotImpl*>(
         read_options.snapshot)->number_;
   } else {

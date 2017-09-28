@@ -14,6 +14,7 @@
 #include <type_traits>
 #include <vector>
 
+#include "db/dbformat.h"
 #include "db/write_callback.h"
 #include "monitoring/instrumented_mutex.h"
 #include "rocksdb/options.h"
@@ -142,6 +143,7 @@ class WriteThread {
           made_waitable(false),
           state(STATE_INIT),
           write_group(nullptr),
+          sequence(kMaxSequenceNumber),
           link_older(nullptr),
           link_newer(nullptr) {}
 
@@ -158,6 +160,7 @@ class WriteThread {
           made_waitable(false),
           state(STATE_INIT),
           write_group(nullptr),
+          sequence(kMaxSequenceNumber),
           link_older(nullptr),
           link_newer(nullptr) {}
 

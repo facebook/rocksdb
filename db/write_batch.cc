@@ -366,7 +366,11 @@ Status WriteBatch::Iterate(Handler* handler) const {
 
   input.remove_prefix(WriteBatchInternal::kHeader);
   Slice key, value, blob, xid;
-  bool first_tag = true;
+  // Sometimes a sub-batch starts with a Noop. We want to exclude such Noops as
+  // the batch boundry sybmols otherwise we would mis-count the number of
+  // batches. We do that by checking whether the accumulated batch is empty
+  // before seeing the next Noop.
+  bool empty_batch = true;
   int found = 0;
   Status s;
   while (s.ok() && !input.empty() && handler->Continue()) {
@@ -385,6 +389,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
         assert(content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_PUT));
         s = handler->PutCF(column_family, key, value);
+        empty_batch = false;
         found++;
         break;
       case kTypeColumnFamilyDeletion:
@@ -392,6 +397,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
         assert(content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_DELETE));
         s = handler->DeleteCF(column_family, key);
+        empty_batch = false;
         found++;
         break;
       case kTypeColumnFamilySingleDeletion:
@@ -399,6 +405,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
         assert(content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_SINGLE_DELETE));
         s = handler->SingleDeleteCF(column_family, key);
+        empty_batch = false;
         found++;
         break;
       case kTypeColumnFamilyRangeDeletion:
@@ -406,6 +413,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
         assert(content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_DELETE_RANGE));
         s = handler->DeleteRangeCF(column_family, key, value);
+        empty_batch = false;
         found++;
         break;
       case kTypeColumnFamilyMerge:
@@ -413,38 +421,44 @@ Status WriteBatch::Iterate(Handler* handler) const {
         assert(content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_MERGE));
         s = handler->MergeCF(column_family, key, value);
+        empty_batch = false;
         found++;
         break;
       case kTypeLogData:
         handler->LogData(blob);
+        empty_batch = true;
         break;
       case kTypeBeginPrepareXID:
         assert(content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_BEGIN_PREPARE));
         handler->MarkBeginPrepare();
+        empty_batch = false;
         break;
       case kTypeEndPrepareXID:
         assert(content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_END_PREPARE));
         handler->MarkEndPrepare(xid);
+        empty_batch = true;
         break;
       case kTypeCommitXID:
         assert(content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_COMMIT));
         handler->MarkCommit(xid);
+        empty_batch = true;
         break;
       case kTypeRollbackXID:
         assert(content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_ROLLBACK));
         handler->MarkRollback(xid);
+        empty_batch = true;
         break;
       case kTypeNoop:
-        handler->MarkNoop(first_tag);
+        handler->MarkNoop(empty_batch);
+        empty_batch = true;
         break;
       default:
         return Status::Corruption("unknown WriteBatch tag");
     }
-    first_tag = false;
   }
   if (!s.ok()) {
     return s;
@@ -841,9 +855,12 @@ class MemTableInserter : public WriteBatch::Handler {
   PostMapType mem_post_info_map_;
   // current recovered transaction we are rebuilding (recovery)
   WriteBatch* rebuilding_trx_;
+  SequenceNumber rebuilding_trx_seq_;
   // Increase seq number once per each write batch. Otherwise increase it once
   // per key.
   bool seq_per_batch_;
+  // Whether the memtable write will be done only after the commit
+  bool write_after_commit_;
 
   MemPostInfoMap& GetPostMap() {
     assert(concurrent_memtable_writes_);
@@ -873,7 +890,11 @@ class MemTableInserter : public WriteBatch::Handler {
         post_info_created_(false),
         has_valid_writes_(has_valid_writes),
         rebuilding_trx_(nullptr),
-        seq_per_batch_(seq_per_batch) {
+        seq_per_batch_(seq_per_batch),
+        // Write after commit currently uses one seq per key (instead of per
+        // batch). So seq_per_batch being false indicates write_after_commit
+        // approach.
+        write_after_commit_(!seq_per_batch) {
     assert(cf_mems_);
   }
 
@@ -952,7 +973,10 @@ class MemTableInserter : public WriteBatch::Handler {
                        const Slice& value) override {
     if (rebuilding_trx_ != nullptr) {
       WriteBatchInternal::Put(rebuilding_trx_, column_family_id, key, value);
-      return Status::OK();
+      if (write_after_commit_) {
+        return Status::OK();
+      }
+      // else insert the values to the memtable right away
     }
 
     Status seek_status;
@@ -1030,7 +1054,10 @@ class MemTableInserter : public WriteBatch::Handler {
                           const Slice& key) override {
     if (rebuilding_trx_ != nullptr) {
       WriteBatchInternal::Delete(rebuilding_trx_, column_family_id, key);
-      return Status::OK();
+      if (write_after_commit_) {
+        return Status::OK();
+      }
+      // else insert the values to the memtable right away
     }
 
     Status seek_status;
@@ -1046,7 +1073,10 @@ class MemTableInserter : public WriteBatch::Handler {
                                 const Slice& key) override {
     if (rebuilding_trx_ != nullptr) {
       WriteBatchInternal::SingleDelete(rebuilding_trx_, column_family_id, key);
-      return Status::OK();
+      if (write_after_commit_) {
+        return Status::OK();
+      }
+      // else insert the values to the memtable right away
     }
 
     Status seek_status;
@@ -1064,7 +1094,10 @@ class MemTableInserter : public WriteBatch::Handler {
     if (rebuilding_trx_ != nullptr) {
       WriteBatchInternal::DeleteRange(rebuilding_trx_, column_family_id,
                                       begin_key, end_key);
-      return Status::OK();
+      if (write_after_commit_) {
+        return Status::OK();
+      }
+      // else insert the values to the memtable right away
     }
 
     Status seek_status;
@@ -1094,7 +1127,10 @@ class MemTableInserter : public WriteBatch::Handler {
     assert(!concurrent_memtable_writes_);
     if (rebuilding_trx_ != nullptr) {
       WriteBatchInternal::Merge(rebuilding_trx_, column_family_id, key, value);
-      return Status::OK();
+      if (write_after_commit_) {
+        return Status::OK();
+      }
+      // else insert the values to the memtable right away
     }
 
     Status seek_status;
@@ -1200,6 +1236,7 @@ class MemTableInserter : public WriteBatch::Handler {
 
       // we are now iterating through a prepared section
       rebuilding_trx_ = new WriteBatch();
+      rebuilding_trx_seq_ = sequence_;
       if (has_valid_writes_ != nullptr) {
         *has_valid_writes_ = true;
       }
@@ -1215,7 +1252,7 @@ class MemTableInserter : public WriteBatch::Handler {
     if (recovering_log_number_ != 0) {
       assert(db_->allow_2pc());
       db_->InsertRecoveredTransaction(recovering_log_number_, name.ToString(),
-                                      rebuilding_trx_);
+                                      rebuilding_trx_, rebuilding_trx_seq_);
       rebuilding_trx_ = nullptr;
     } else {
       assert(rebuilding_trx_ == nullptr);
@@ -1226,10 +1263,10 @@ class MemTableInserter : public WriteBatch::Handler {
     return Status::OK();
   }
 
-  Status MarkNoop(bool first_tag) override {
+  Status MarkNoop(bool empty_batch) override {
     // A hack in pessimistic transaction could result into a noop at the start
     // of the write batch, that should be ignored.
-    if (!first_tag) {
+    if (!empty_batch) {
       // In the absence of Prepare markers, a kTypeNoop tag indicates the end of
       // a batch. This happens when write batch commits skipping the prepare
       // phase.
@@ -1257,12 +1294,13 @@ class MemTableInserter : public WriteBatch::Handler {
         // at this point individual CF lognumbers will prevent
         // duplicate re-insertion of values.
         assert(log_number_ref_ == 0);
-        // all insertes must reference this trx log number
-        log_number_ref_ = trx->log_number_;
-        s = trx->batch_->Iterate(this);
-        // TODO(myabandeh): In WritePrepared txn, a commit marker should
-        // reference the log that contains the prepare marker.
-        log_number_ref_ = 0;
+        if (write_after_commit_) {
+          // all insertes must reference this trx log number
+          log_number_ref_ = trx->log_number_;
+          s = trx->batch_->Iterate(this);
+          log_number_ref_ = 0;
+        }
+        // else the values are already inserted before the commit
 
         if (s.ok()) {
           db_->DeleteRecoveredTransaction(name.ToString());
@@ -1272,12 +1310,10 @@ class MemTableInserter : public WriteBatch::Handler {
         }
       }
     } else {
-      // TODO(myabandeh): In WritePrepared txn, a commit marker should
-      // reference the log that contains the prepare marker. This is to be able
-      // to reconsutrct the prepared list after recovery.
-      // TODO(myabandeh): In WritePrepared txn, we do not reach here since
-      // disable_memtable is set for commit.
-      assert(log_number_ref_ > 0);
+      // When writes are not delayed until commit, there is no disconnect
+      // between a memtable write and the WAL that supports it. So the commit
+      // need not reference any log as the only log to which it depends.
+      assert(!write_after_commit_ || log_number_ref_ > 0);
     }
     const bool batch_boundry = true;
     MaybeAdvanceSeq(batch_boundry);
@@ -1330,6 +1366,8 @@ Status WriteBatchInternal::InsertInto(
                             nullptr /*has_valid_writes*/, seq_per_batch);
   for (auto w : write_group) {
     if (!w->ShouldWriteToMemtable()) {
+      inserter.MaybeAdvanceSeq(true);
+      w->sequence = inserter.sequence();
       continue;
     }
     SetSequence(w->batch, inserter.sequence());

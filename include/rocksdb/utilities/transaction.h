@@ -460,6 +460,14 @@ class Transaction {
   TransactionState GetState() const { return txn_state_; }
   void SetState(TransactionState state) { txn_state_ = state; }
 
+  // NOTE: Experimental feature
+  // The globally unique id with which the transaction is identified. This id
+  // might or might not be set depending on the implementation. Similarly the
+  // implementation decides the point in lifetime of a transaction at which it
+  // assigns the id. Although currently it is the case, the id is not guaranteed
+  // to remain the same across restarts.
+  uint64_t GetId() { return id_; }
+
  protected:
   explicit Transaction(const TransactionDB* db) {}
   Transaction() {}
@@ -472,7 +480,14 @@ class Transaction {
   // Execution status of the transaction.
   std::atomic<TransactionState> txn_state_;
 
+  uint64_t id_ = 0;
+  virtual void SetId(uint64_t id) {
+    assert(id_ == 0);
+    id_ = id;
+  }
+
  private:
+  friend class PessimisticTransactionDB;
   // No copying allowed
   Transaction(const Transaction&);
   void operator=(const Transaction&);
