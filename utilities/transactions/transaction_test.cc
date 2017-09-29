@@ -1107,9 +1107,20 @@ TEST_P(TransactionTest, PersistentTwoPhaseTransactionTest) {
   // heap should not care about prepared section anymore
   ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(), 0);
 
-  // but now our memtable should be referencing the prep section
-  ASSERT_EQ(log_containing_prep,
-            db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+  switch (txn_db_options.write_policy) {
+    case WRITE_COMMITTED:
+      // but now our memtable should be referencing the prep section
+      ASSERT_EQ(log_containing_prep,
+                db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+      break;
+    case WRITE_PREPARED:
+    case WRITE_UNPREPARED:
+      // In these modes memtable do not ref the prep sections
+      ASSERT_EQ(0, db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+      break;
+    default:
+      assert(false);
+  }
 
   db_impl->TEST_FlushMemTable(true);
 
@@ -1454,9 +1465,20 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest) {
   ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(),
             txn2->GetLogNumber());
 
-  // we should see txn1s log refernced by the memtables
-  ASSERT_EQ(db_impl->TEST_FindMinPrepLogReferencedByMemTable(),
-            txn1->GetLogNumber());
+  switch (txn_db_options.write_policy) {
+    case WRITE_COMMITTED:
+      // we should see txn1s log refernced by the memtables
+      ASSERT_EQ(txn1->GetLogNumber(),
+                db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+      break;
+    case WRITE_PREPARED:
+    case WRITE_UNPREPARED:
+      // In these modes memtable do not ref the prep sections
+      ASSERT_EQ(0, db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+      break;
+    default:
+      assert(false);
+  }
 
   // flush default cf to crate new log
   s = db->Put(wopts, "foo", "bar2");
@@ -1474,17 +1496,39 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest) {
   // heap should not show any logs
   ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(), 0);
 
-  // should show the first txn log
-  ASSERT_EQ(db_impl->TEST_FindMinPrepLogReferencedByMemTable(),
-            txn1->GetLogNumber());
+  switch (txn_db_options.write_policy) {
+    case WRITE_COMMITTED:
+      // should show the first txn log
+      ASSERT_EQ(txn1->GetLogNumber(),
+                db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+      break;
+    case WRITE_PREPARED:
+    case WRITE_UNPREPARED:
+      // In these modes memtable do not ref the prep sections
+      ASSERT_EQ(0, db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+      break;
+    default:
+      assert(false);
+  }
 
   // flush only cfa memtable
   s = db_impl->TEST_FlushMemTable(true, cfa);
   ASSERT_OK(s);
 
-  // should show the first txn log
-  ASSERT_EQ(db_impl->TEST_FindMinPrepLogReferencedByMemTable(),
-            txn2->GetLogNumber());
+  switch (txn_db_options.write_policy) {
+    case WRITE_COMMITTED:
+      // should show the first txn log
+      ASSERT_EQ(txn2->GetLogNumber(),
+                db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+      break;
+    case WRITE_PREPARED:
+    case WRITE_UNPREPARED:
+      // In these modes memtable do not ref the prep sections
+      ASSERT_EQ(0, db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+      break;
+    default:
+      assert(false);
+  }
 
   // flush only cfb memtable
   s = db_impl->TEST_FlushMemTable(true, cfb);
@@ -1556,8 +1600,20 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest2) {
   ASSERT_OK(s);
 
   ASSERT_GT(db_impl->TEST_LogfileNumber(), prepare_log_no);
-  ASSERT_GT(cfh_a->cfd()->GetLogNumber(), prepare_log_no);
-  ASSERT_EQ(cfh_a->cfd()->GetLogNumber(), db_impl->TEST_LogfileNumber());
+  switch (txn_db_options.write_policy) {
+    case WRITE_COMMITTED:
+      // This cf is empty and should ref the latest log
+      ASSERT_GT(cfh_a->cfd()->GetLogNumber(), prepare_log_no);
+      ASSERT_EQ(cfh_a->cfd()->GetLogNumber(), db_impl->TEST_LogfileNumber());
+      break;
+    case WRITE_PREPARED:
+      // This cf is not flushed yet and should ref the log that has its data
+      ASSERT_EQ(cfh_a->cfd()->GetLogNumber(), prepare_log_no);
+      break;
+    case WRITE_UNPREPARED:
+    default:
+      assert(false);
+  }
   ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(),
             prepare_log_no);
   ASSERT_EQ(db_impl->TEST_FindMinPrepLogReferencedByMemTable(), 0);
@@ -1566,7 +1622,19 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest2) {
   s = txn1->Commit();
   ASSERT_OK(s);
 
-  ASSERT_EQ(db_impl->TEST_FindMinPrepLogReferencedByMemTable(), prepare_log_no);
+  switch (txn_db_options.write_policy) {
+    case WRITE_COMMITTED:
+      ASSERT_EQ(db_impl->TEST_FindMinPrepLogReferencedByMemTable(),
+                prepare_log_no);
+      break;
+    case WRITE_PREPARED:
+    case WRITE_UNPREPARED:
+      // In these modes memtable do not ref the prep sections
+      ASSERT_EQ(db_impl->TEST_FindMinPrepLogReferencedByMemTable(), 0);
+      break;
+    default:
+      assert(false);
+  }
 
   ASSERT_TRUE(!db_impl->TEST_UnableToFlushOldestLog());
 
@@ -1580,8 +1648,19 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest2) {
   // assert that cfa has a flush requested
   ASSERT_TRUE(cfh_a->cfd()->imm()->HasFlushRequested());
 
-  // cfb should not be flushed becuse it has no data from LOG A
-  ASSERT_TRUE(!cfh_b->cfd()->imm()->HasFlushRequested());
+  switch (txn_db_options.write_policy) {
+    case WRITE_COMMITTED:
+      // cfb should not be flushed becuse it has no data from LOG A
+      ASSERT_TRUE(!cfh_b->cfd()->imm()->HasFlushRequested());
+      break;
+    case WRITE_PREPARED:
+    case WRITE_UNPREPARED:
+      // cfb should be flushed becuse it has prepared data from LOG A
+      ASSERT_TRUE(cfh_b->cfd()->imm()->HasFlushRequested());
+      break;
+    default:
+      assert(false);
+  }
 
   // cfb now has data from LOG A
   s = txn2->Commit();
