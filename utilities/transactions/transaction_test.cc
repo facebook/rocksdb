@@ -784,9 +784,20 @@ TEST_P(TransactionTest, SimpleTwoPhaseTransactionTest) {
   // heap should not care about prepared section anymore
   ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(), 0);
 
-  // but now our memtable should be referencing the prep section
-  ASSERT_EQ(log_containing_prep,
-            db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+  switch (txn_db_options.write_policy) {
+    case WRITE_COMMITTED:
+      // but now our memtable should be referencing the prep section
+      ASSERT_EQ(log_containing_prep,
+                db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+      break;
+    case WRITE_PREPARED:
+    case WRITE_UNPREPARED:
+      // In these modes memtable do not ref the prep sections
+      ASSERT_EQ(0, db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+      break;
+    default:
+      assert(false);
+  }
 
   db_impl->TEST_FlushMemTable(true);
 
