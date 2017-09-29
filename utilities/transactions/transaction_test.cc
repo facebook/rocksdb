@@ -42,7 +42,7 @@ namespace rocksdb {
 // TODO(myabandeh): Instantiate the tests with other write policies
 INSTANTIATE_TEST_CASE_P(DBAsBaseDB, TransactionTest,
                         ::testing::Values(std::make_tuple(false, false,
-                                                          WRITE_COMMITTED)));
+                                                          WRITE_PREPARED)));
 INSTANTIATE_TEST_CASE_P(StackableDBAsBaseDB, TransactionTest,
                         ::testing::Values(std::make_tuple(true, false,
                                                           WRITE_COMMITTED)));
