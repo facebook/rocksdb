@@ -339,8 +339,14 @@ Status S3WritableFile::Close() {
     return status_;
   }
 
-  // upload sst file to S3
-  assert(IsSstFile(fname_));
+  // upload sst file to S3, but first remove from deletion queue if it's in
+  // there
+  uint64_t fileNumber;
+  FileType type;
+  WalFileType walType;
+  bool ok = ParseFileName(basename(fname_), &fileNumber, &type, &walType);
+  assert(ok && type == kTableFile);
+  env_->RemoveFileFromDeletionQueue(fileNumber);
   status_ = CopyToS3(env_, fname_, s3_bucket_, s3_object_, file_size);
   if (!status_.ok()) {
     Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,

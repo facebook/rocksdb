@@ -294,29 +294,38 @@ AwsEnv::AwsEnv(Env* underlying_env, const std::string& src_bucket_prefix,
       std::unique_lock<std::mutex> lk(file_deletion_lock_);
       // wait until we're shutting down or there are some files to delete
       file_deletion_cv_.wait(lk, [&]() {
-        return running_.load() == false || !files_to_delete_.empty();
+        return running_.load() == false || !files_to_delete_list_.empty();
       });
       if (running_.load() == false) {
         // we're shutting down
         break;
       }
-      assert(!files_to_delete_.empty());
-      auto deleting_file = std::move(files_to_delete_.front());
-      files_to_delete_.pop();
+      assert(!files_to_delete_list_.empty());
+      assert(files_to_delete_list_.size() == files_to_delete_map_.size());
       bool pred = file_deletion_cv_.wait_until(
-          lk, deleting_file.first + file_deletion_delay_,
+          lk, files_to_delete_list_.front().first,
           [&] { return running_.load() == false; });
       if (pred) {
         // i.e. running_ == false
         break;
       }
-      // we are ready to delete the file!
-      auto st =
-          DeletePathInS3(GetDestBucketPrefix(), destname(deleting_file.second));
-      if (!st.ok() && !st.IsNotFound()) {
-        Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-            "[s3] DeleteFile DeletePathInS3 file %s error %s",
-            deleting_file.second.c_str(), st.ToString().c_str());
+      // We need to recheck files_to_delete_list_ because it's possible that the
+      // file was removed from the list.
+      if (!files_to_delete_list_.empty() &&
+          files_to_delete_list_.front().first <=
+              std::chrono::steady_clock::now()) {
+        auto deleting_file = std::move(files_to_delete_list_.front());
+        files_to_delete_list_.pop_front();
+        files_to_delete_map_.erase(deleting_file.second);
+        auto fname =
+            MakeTableFileName(GetDestObjectPrefix(), deleting_file.second);
+        // we are ready to delete the file!
+        auto st = DeletePathInS3(GetDestBucketPrefix(), fname);
+        if (!st.ok() && !st.IsNotFound()) {
+          Log(InfoLogLevel::ERROR_LEVEL, info_log_,
+              "[s3] DeleteFile DeletePathInS3 file %s error %s", fname.c_str(),
+              st.ToString().c_str());
+        }
       }
     }
   });
@@ -928,6 +937,17 @@ Status AwsEnv::GetChildren(const std::string& path,
   return Status::OK();
 }
 
+void AwsEnv::RemoveFileFromDeletionQueue(uint64_t fileNumber) {
+  {
+    std::lock_guard<std::mutex> lk(file_deletion_lock_);
+    auto pos = files_to_delete_map_.find(fileNumber);
+    if (pos != files_to_delete_map_.end()) {
+      files_to_delete_list_.erase(pos->second);
+      files_to_delete_map_.erase(pos);
+    }
+  }
+}
+
 Status AwsEnv::DeleteFile(const std::string& fname) {
   assert(status().ok());
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_, "[s3] DeleteFile src %s",
@@ -943,11 +963,23 @@ Status AwsEnv::DeleteFile(const std::string& fname) {
 
   // Delete from destination bucket and local dir
   if (has_dest_bucket_ && (sstfile || manifest || identity)) {
-    {
+    if (sstfile) {
+      uint64_t fileNumber;
+      FileType type;
+      WalFileType walType;
+      bool ok = ParseFileName(basename(fname), &fileNumber, &type, &walType);
+      assert(ok && type == kTableFile);
       // add the remote file deletion to the queue
       std::unique_lock<std::mutex> lk(file_deletion_lock_);
-      files_to_delete_.push({std::chrono::steady_clock::now(), fname});
-      file_deletion_cv_.notify_one();
+      if (files_to_delete_map_.find(fileNumber) == files_to_delete_map_.end()) {
+        files_to_delete_list_.emplace_back(
+            std::chrono::steady_clock::now() + file_deletion_delay_,
+            fileNumber);
+        auto itr = files_to_delete_list_.end();
+        --itr;
+        files_to_delete_map_.emplace(fileNumber, std::move(itr));
+        file_deletion_cv_.notify_one();
+      }
     }
     // delete from local
     st = base_env_->DeleteFile(fname);

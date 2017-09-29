@@ -18,7 +18,8 @@
 #include <aws/s3/S3Client.h>
 #include <aws/s3/model/BucketLocationConstraint.h>
 
-#include <queue>
+#include <list>
+#include <unordered_map>
 #include <chrono>
 
 namespace rocksdb {
@@ -294,6 +295,8 @@ class AwsEnv : public CloudEnvImpl {
   void SetEncryptionParameters(
       Aws::S3::Model::PutObjectRequest& put_request) const;
 
+  void RemoveFileFromDeletionQueue(uint64_t fileNumber);
+
   void TEST_SetFileDeletionDelay(std::chrono::seconds delay) {
     std::lock_guard<std::mutex> lk(file_deletion_lock_);
     file_deletion_delay_ = delay;
@@ -335,8 +338,11 @@ class AwsEnv : public CloudEnvImpl {
   std::thread file_deletion_thread_;
   std::mutex file_deletion_lock_;
   std::condition_variable file_deletion_cv_;
-  std::queue<std::pair<std::chrono::steady_clock::time_point, std::string>>
-      files_to_delete_;
+  using FilesToDeleteList =
+      std::list<std::pair<std::chrono::steady_clock::time_point, uint64_t>>;
+  FilesToDeleteList files_to_delete_list_;
+  std::unordered_map<uint64_t, FilesToDeleteList::iterator>
+      files_to_delete_map_;
 
   Aws::S3::Model::BucketLocationConstraint bucket_location_;
 

@@ -519,15 +519,14 @@ TEST_F(CloudTest, CopyToFromS3) {
 }
 
 TEST_F(CloudTest, DelayFileDeletion) {
-  std::string fname = dbname_ + "/igor.sst";
+  std::string fname = dbname_ + "/000010.sst";
 
   // Create aws env
   cloud_env_options_.keep_local_sst_files = true;
   CreateAwsEnv();
   ((AwsEnv*)aenv_)->TEST_SetFileDeletionDelay(std::chrono::seconds(2));
 
-  // create a file
-  {
+  auto createFile = [&]() {
     unique_ptr<WritableFile> writer;
     ASSERT_OK(aenv_->NewWritableFile(fname, &writer, EnvOptions()));
 
@@ -535,17 +534,30 @@ TEST_F(CloudTest, DelayFileDeletion) {
       ASSERT_OK(writer->Append("igor"));
     }
     // sync and close file
+  };
+
+  for (int iter = 0; iter <= 1; ++iter) {
+    createFile();
+    // delete the file
+    ASSERT_OK(aenv_->DeleteFile(fname));
+    // file should still be there
+    ASSERT_OK(aenv_->FileExists(fname));
+
+    if (iter == 1) {
+      // should prevent the deletion
+      createFile();
+    }
+
+    std::this_thread::sleep_for(std::chrono::seconds(3));
+    auto st = aenv_->FileExists(fname);
+    if (iter == 0) {
+      // in iter==0 file should be deleted after 2 seconds
+      ASSERT_TRUE(st.IsNotFound());
+    } else {
+      // in iter==1 file should not be deleted because we wrote the new file
+      ASSERT_OK(st);
+    }
   }
-  // delete the file
-  ASSERT_OK(aenv_->DeleteFile(fname));
-
-  // file should still be there
-  ASSERT_OK(aenv_->FileExists(fname));
-
-  // file should be deleted after 2 seconds
-  std::this_thread::sleep_for(std::chrono::seconds(3));
-  auto st = aenv_->FileExists(fname);
-  ASSERT_TRUE(st.IsNotFound());
 }
 
 // Verify that a savepoint copies all src files to destination
