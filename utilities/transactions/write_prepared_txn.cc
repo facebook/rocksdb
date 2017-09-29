@@ -110,12 +110,13 @@ Status WritePreparedTxn::CommitInternal() {
 
 Status WritePreparedTxn::RollbackInternal() {
   WriteBatch rollback_batch;
-  assert(prepare_seq_ != kMaxSequenceNumber);
-  assert(prepare_seq_ > 0);
+  assert(GetId() != kMaxSequenceNumber);
+  assert(GetId() > 0);
   // In the absense of Prepare markers, use Noop as a batch separator
   WriteBatchInternal::InsertNoop(&rollback_batch);
   PinnableSlice pinnable_val;
-  auto snap_seq = prepare_seq_ - 1;
+  // In WritePrepared, the txn is is the same as prepare seq
+  auto snap_seq = GetId() - 1;
   struct RollbackWriteBatchBuilder : public WriteBatch::Handler {
     DBImpl* db_;
     ReadOptions roptions;
@@ -183,7 +184,7 @@ Status WritePreparedTxn::RollbackInternal() {
   wpt_db_->AddPrepared(prepare_seq);
   wpt_db_->AddCommitted(prepare_seq, commit_seq);
   // Mark the txn as rolled back
-  wpt_db_->RollbackPrepared(prepare_seq_, commit_seq);
+  wpt_db_->RollbackPrepared(GetId(), commit_seq);
 
   return s;
 }
