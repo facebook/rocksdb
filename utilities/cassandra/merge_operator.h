@@ -33,10 +33,7 @@ public:
  virtual bool AllowSingleOperand() const override { return true; }
 
  virtual bool ShouldMerge(const std::vector<Slice>& operands) const override {
-   if (operands_limit_ > 0 && operands.size() >= operands_limit_) {
-     return true;
-   }
-   return false;
+   return operands_limit_ > 0 && operands.size() >= operands_limit_;
  }
 
 private:
