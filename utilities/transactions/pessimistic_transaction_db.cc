@@ -673,6 +673,14 @@ void WritePreparedTxnDB::RollbackPrepared(uint64_t prep_seq,
   }
   WriteLock wl(&prepared_mutex_);
   prepared_txns_.erase(prep_seq);
+  bool was_empty = delayed_prepared_.empty();
+  if (!was_empty) {
+    delayed_prepared_.erase(prep_seq);
+    bool is_empty = delayed_prepared_.empty();
+    if (was_empty != is_empty) {
+      delayed_prepared_empty_.store(is_empty, std::memory_order_release);
+    }
+  }
 }
 
 void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq,

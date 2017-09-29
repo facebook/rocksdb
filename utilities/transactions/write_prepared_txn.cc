@@ -120,27 +120,29 @@ Status WritePreparedTxn::RollbackInternal() {
   struct RollbackWriteBatchBuilder : public WriteBatch::Handler {
     DBImpl* db_;
     ReadOptions roptions;
-    WriteOptions woptions;
     WritePreparedTxnReadCallback callback;
+    WriteBatch* rollback_batch_;
     RollbackWriteBatchBuilder(DBImpl* db, WritePreparedTxnDB* wpt_db,
-                              SequenceNumber snap_seq)
-        : db_(db), callback(wpt_db, snap_seq) {}
+                              SequenceNumber snap_seq, WriteBatch* dst_batch)
+        : db_(db), callback(wpt_db, snap_seq), rollback_batch_(dst_batch) {}
 
     Status Rollback(uint32_t cf, const Slice& key) {
       PinnableSlice pinnable_val;
-      bool found;
+      bool not_used;
       auto cf_handle = db_->GetColumnFamilyHandle(cf);
-      auto s = db_->GetImpl(roptions, cf_handle, key, &pinnable_val, &found,
+      auto s = db_->GetImpl(roptions, cf_handle, key, &pinnable_val, &not_used,
                             &callback);
-      assert(s.ok());
-      if (found) {
-        s = db_->Put(woptions, cf_handle, key, pinnable_val);
+      assert(s.ok() || s.IsNotFound());
+      if (s.ok()) {
+        s = rollback_batch_->Put(cf_handle, key, pinnable_val);
         assert(s.ok());
-      } else {
+      } else if (s.IsNotFound()) {
         // There has been no readable value before txn. By adding a delete we
         // make sure that there will be none afterwards either.
-        s = db_->Delete(woptions, cf_handle, key);
+        s = rollback_batch_->Delete(cf_handle, key);
         assert(s.ok());
+      } else {
+        // Unexpected status. Return it to the user.
       }
       return s;
     }
@@ -168,9 +170,12 @@ Status WritePreparedTxn::RollbackInternal() {
     Status MarkRollback(const Slice&) override {
       return Status::InvalidArgument();
     }
-  } rollback_handler(db_impl_, wpt_db_, snap_seq);
-  auto s = rollback_batch.Iterate(&rollback_handler);
+  } rollback_handler(db_impl_, wpt_db_, snap_seq, &rollback_batch);
+  auto s = GetWriteBatch()->GetWriteBatch()->Iterate(&rollback_handler);
   assert(s.ok());
+  if (!s.ok()) {
+    return s;
+  }
   WriteBatchInternal::MarkRollback(&rollback_batch, name_);
   const bool disable_memtable = true;
   const uint64_t no_log_ref = 0;

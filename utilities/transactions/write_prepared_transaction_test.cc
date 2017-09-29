@@ -1115,10 +1115,10 @@ void ASSERT_SAME(TransactionDB* db, Status exp_s, PinnableSlice& exp_v,
   PinnableSlice v;
   ReadOptions roptions;
   s = db->Get(roptions, db->DefaultColumnFamily(), key, &v);
-  ASSERT_EQ(exp_s, s);
+  ASSERT_TRUE(exp_s == s);
   ASSERT_TRUE(s.ok() || s.IsNotFound());
   if (s.ok()) {
-    ASSERT_EQ(exp_v, v);
+    ASSERT_TRUE(exp_v == v);
   }
 }
 
@@ -1179,8 +1179,11 @@ TEST_P(WritePreparedTransactionTest, RollbackTest) {
         s = txn->Prepare();
         ASSERT_OK(s);
 
-        ASSERT_FALSE(wp_db->prepared_txns_.empty());
-        ASSERT_EQ(txn->GetId(), wp_db->prepared_txns_.top());
+        {
+          ReadLock rl(&wp_db->prepared_mutex_);
+          ASSERT_FALSE(wp_db->prepared_txns_.empty());
+          ASSERT_EQ(txn->GetId(), wp_db->prepared_txns_.top());
+        }
 
         ASSERT_SAME(db, s1, v1, "key1");
         ASSERT_SAME(db, s2, v2, "key2");
@@ -1188,14 +1191,25 @@ TEST_P(WritePreparedTransactionTest, RollbackTest) {
         ASSERT_SAME(db, s4, v4, "key4");
 
         if (crash) {
-          delete txn;
+          // TODO(myabandeh): replace it with true crash (commented lines below)
+          // after compaction PR is landed.
           auto db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
-          db_impl->FlushWAL(true);
-          ReOpenNoDelete();
+          auto seq = db_impl->GetLatestSequenceNumber();
           wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
-          txn = db->GetTransactionByName("xid0");
-          ASSERT_FALSE(wp_db->prepared_txns_.empty());
-          ASSERT_EQ(txn->GetId(), wp_db->prepared_txns_.top());
+          SequenceNumber prev_max = wp_db->max_evicted_seq_;
+          wp_db->AdvanceMaxEvictedSeq(prev_max, seq);
+          //    delete txn;
+          //    auto db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+          //    db_impl->FlushWAL(true);
+          //    ReOpenNoDelete();
+          //    wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+          //    txn = db->GetTransactionByName("xid0");
+          //    ASSERT_FALSE(wp_db->delayed_prepared_empty_);
+          //    ReadLock rl(&wp_db->prepared_mutex_);
+          //    ASSERT_TRUE(wp_db->prepared_txns_.empty());
+          //    ASSERT_FALSE(wp_db->delayed_prepared_.empty());
+          //    ASSERT_TRUE(wp_db->delayed_prepared_.find(txn->GetId()) !=
+          //                wp_db->delayed_prepared_.end());
         }
 
         ASSERT_SAME(db, s1, v1, "key1");
@@ -1206,7 +1220,12 @@ TEST_P(WritePreparedTransactionTest, RollbackTest) {
         s = txn->Rollback();
         ASSERT_OK(s);
 
-        ASSERT_TRUE(wp_db->prepared_txns_.empty());
+        {
+          ASSERT_TRUE(wp_db->delayed_prepared_empty_);
+          ReadLock rl(&wp_db->prepared_mutex_);
+          ASSERT_TRUE(wp_db->prepared_txns_.empty());
+          ASSERT_TRUE(wp_db->delayed_prepared_.empty());
+        }
 
         ASSERT_SAME(db, s1, v1, "key1");
         ASSERT_SAME(db, s2, v2, "key2");
