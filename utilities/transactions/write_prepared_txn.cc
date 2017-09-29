@@ -114,9 +114,8 @@ Status WritePreparedTxn::RollbackInternal() {
   assert(GetId() > 0);
   // In the absense of Prepare markers, use Noop as a batch separator
   WriteBatchInternal::InsertNoop(&rollback_batch);
-  PinnableSlice pinnable_val;
   // In WritePrepared, the txn is is the same as prepare seq
-  auto snap_seq = GetId() - 1;
+  auto last_visible_txn = GetId() - 1;
   struct RollbackWriteBatchBuilder : public WriteBatch::Handler {
     DBImpl* db_;
     ReadOptions roptions;
@@ -170,7 +169,7 @@ Status WritePreparedTxn::RollbackInternal() {
     Status MarkRollback(const Slice&) override {
       return Status::InvalidArgument();
     }
-  } rollback_handler(db_impl_, wpt_db_, snap_seq, &rollback_batch);
+  } rollback_handler(db_impl_, wpt_db_, last_visible_txn, &rollback_batch);
   auto s = GetWriteBatch()->GetWriteBatch()->Iterate(&rollback_handler);
   assert(s.ok());
   if (!s.ok()) {
