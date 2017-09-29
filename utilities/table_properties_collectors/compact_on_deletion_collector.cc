@@ -12,26 +12,16 @@
 namespace rocksdb {
 
 CompactOnDeletionCollector::CompactOnDeletionCollector(
-    size_t sliding_window_size,
-    size_t deletion_trigger) {
-  deletion_trigger_ = deletion_trigger;
-
-  // First, compute the number of keys in each bucket.
-  bucket_size_ =
-      (sliding_window_size + kNumBuckets - 1) / kNumBuckets;
+    size_t sliding_window_size, size_t deletion_trigger)
+    : bucket_size_((sliding_window_size + kNumBuckets - 1) / kNumBuckets),
+      current_bucket_(0),
+      num_keys_in_current_bucket_(0),
+      num_deletions_in_observation_window_(0),
+      deletion_trigger_(deletion_trigger),
+      need_compaction_(false),
+      finished_(false) {
   assert(bucket_size_ > 0U);
-
-  Reset();
-}
-
-void CompactOnDeletionCollector::Reset() {
-  for (int i = 0; i < kNumBuckets; ++i) {
-    num_deletions_in_buckets_[i] = 0;
-  }
-  current_bucket_ = 0;
-  num_keys_in_current_bucket_ = 0;
-  num_deletions_in_observation_window_ = 0;
-  need_compaction_ = false;
+  memset(num_deletions_in_buckets_, 0, sizeof(size_t) * kNumBuckets);
 }
 
 // AddUserKey() will be called when a new key/value pair is inserted into the
@@ -43,6 +33,7 @@ Status CompactOnDeletionCollector::AddUserKey(
     const Slice& key, const Slice& value,
     EntryType type, SequenceNumber seq,
     uint64_t file_size) {
+  assert(!finished_);
   if (need_compaction_) {
     // If the output file already needs to be compacted, skip the check.
     return Status::OK();
