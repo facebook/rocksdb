@@ -1122,7 +1122,8 @@ Status CompactionJob::FinishCompactionOutputFile(
         nullptr /* range_del_agg */, nullptr,
         cfd->internal_stats()->GetFileReadHist(
             compact_->compaction->output_level()),
-        false);
+        false, nullptr /* arena */, false /* skip_filters */,
+        compact_->compaction->output_level());
     s = iter->status();
 
     if (s.ok() && paranoid_file_checks_) {
