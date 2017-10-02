@@ -118,13 +118,14 @@ TEST_F(DBOptionsTest, GetLatestCFOptions) {
 }
 
 TEST_F(DBOptionsTest, SetBytesPerSync) {
-  const size_t kValueSize = 1024 * 1024 * 8;
+  const size_t kValueSize = 1024 * 1024;  // 1KB
   Options options;
   options.create_if_missing = true;
   options.bytes_per_sync = 1024 * 1024;
   options.use_direct_reads = false;
   options.write_buffer_size = 400 * kValueSize;
   options.disable_auto_compactions = true;
+  options.compression = kNoCompression;
   options.env = env_;
   Reopen(options);
   int counter = 0;
@@ -138,10 +139,10 @@ TEST_F(DBOptionsTest, SetBytesPerSync) {
       });
 
   WriteOptions write_opts;
-  for (; i < 40; i++) {
+  // should sync approximately 40KB/1KB = 40 times
+  for (i = 0; i < 40; i++) {
     Put(Key(i), kValue, write_opts);
   }
-  i = 0;
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
@@ -150,7 +151,8 @@ TEST_F(DBOptionsTest, SetBytesPerSync) {
   // 8388608 = 8 * 1024 * 1024
   ASSERT_OK(dbfull()->SetDBOptions({{"bytes_per_sync", "8388608"}}));
   ASSERT_EQ(8388608, dbfull()->GetDBOptions().bytes_per_sync);
-  for (; i < 40; i++) {
+  // should sync approximately 40KB/8KB ~= 5-10 times
+  for (i = 0; i < 40; i++) {
     Put(Key(i), kValue, write_opts);
   }
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
@@ -167,6 +169,7 @@ TEST_F(DBOptionsTest, SetWalBytesPerSync) {
   options.wal_bytes_per_sync = 512;
   options.write_buffer_size = 100 * kValueSize;
   options.disable_auto_compactions = true;
+  options.compression = kNoCompression;
   options.env = env_;
   Reopen(options);
   ASSERT_EQ(512, dbfull()->GetDBOptions().wal_bytes_per_sync);
