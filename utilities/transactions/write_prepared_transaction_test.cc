@@ -1109,6 +1109,134 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
   }
 }
 
+void ASSERT_SAME(TransactionDB* db, Status exp_s, PinnableSlice& exp_v,
+                 Slice key) {
+  Status s;
+  PinnableSlice v;
+  ReadOptions roptions;
+  s = db->Get(roptions, db->DefaultColumnFamily(), key, &v);
+  ASSERT_TRUE(exp_s == s);
+  ASSERT_TRUE(s.ok() || s.IsNotFound());
+  if (s.ok()) {
+    ASSERT_TRUE(exp_v == v);
+  }
+}
+
+TEST_P(WritePreparedTransactionTest, RollbackTest) {
+  ReadOptions roptions;
+  WriteOptions woptions;
+  TransactionOptions txn_options;
+  const size_t num_keys = 4;
+  const size_t num_values = 5;
+  for (size_t ikey = 1; ikey <= num_keys; ikey++) {
+    for (size_t ivalue = 0; ivalue < num_values; ivalue++) {
+      for (bool crash : {false, true}) {
+        ReOpen();
+        WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+        std::string key_str = "key" + ToString(ikey);
+        switch (ivalue) {
+          case 0:
+            break;
+          case 1:
+            ASSERT_OK(db->Put(woptions, key_str, "initvalue1"));
+            break;
+          case 2:
+            ASSERT_OK(db->Merge(woptions, key_str, "initvalue2"));
+            break;
+          case 3:
+            ASSERT_OK(db->Delete(woptions, key_str));
+            break;
+          case 4:
+            ASSERT_OK(db->SingleDelete(woptions, key_str));
+            break;
+          default:
+            assert(0);
+        }
+
+        PinnableSlice v1;
+        auto s1 =
+            db->Get(roptions, db->DefaultColumnFamily(), Slice("key1"), &v1);
+        PinnableSlice v2;
+        auto s2 =
+            db->Get(roptions, db->DefaultColumnFamily(), Slice("key2"), &v2);
+        PinnableSlice v3;
+        auto s3 =
+            db->Get(roptions, db->DefaultColumnFamily(), Slice("key3"), &v3);
+        PinnableSlice v4;
+        auto s4 =
+            db->Get(roptions, db->DefaultColumnFamily(), Slice("key4"), &v4);
+        Transaction* txn = db->BeginTransaction(woptions, txn_options);
+        auto s = txn->SetName("xid0");
+        ASSERT_OK(s);
+        s = txn->Put(Slice("key1"), Slice("value1"));
+        ASSERT_OK(s);
+        s = txn->Merge(Slice("key2"), Slice("value2"));
+        ASSERT_OK(s);
+        s = txn->Delete(Slice("key3"));
+        ASSERT_OK(s);
+        s = txn->SingleDelete(Slice("key4"));
+        ASSERT_OK(s);
+        s = txn->Prepare();
+        ASSERT_OK(s);
+
+        {
+          ReadLock rl(&wp_db->prepared_mutex_);
+          ASSERT_FALSE(wp_db->prepared_txns_.empty());
+          ASSERT_EQ(txn->GetId(), wp_db->prepared_txns_.top());
+        }
+
+        ASSERT_SAME(db, s1, v1, "key1");
+        ASSERT_SAME(db, s2, v2, "key2");
+        ASSERT_SAME(db, s3, v3, "key3");
+        ASSERT_SAME(db, s4, v4, "key4");
+
+        if (crash) {
+          // TODO(myabandeh): replace it with true crash (commented lines below)
+          // after compaction PR is landed.
+          auto db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+          auto seq = db_impl->GetLatestSequenceNumber();
+          wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+          SequenceNumber prev_max = wp_db->max_evicted_seq_;
+          wp_db->AdvanceMaxEvictedSeq(prev_max, seq);
+          //    delete txn;
+          //    auto db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+          //    db_impl->FlushWAL(true);
+          //    ReOpenNoDelete();
+          //    wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+          //    txn = db->GetTransactionByName("xid0");
+          //    ASSERT_FALSE(wp_db->delayed_prepared_empty_);
+          //    ReadLock rl(&wp_db->prepared_mutex_);
+          //    ASSERT_TRUE(wp_db->prepared_txns_.empty());
+          //    ASSERT_FALSE(wp_db->delayed_prepared_.empty());
+          //    ASSERT_TRUE(wp_db->delayed_prepared_.find(txn->GetId()) !=
+          //                wp_db->delayed_prepared_.end());
+        }
+
+        ASSERT_SAME(db, s1, v1, "key1");
+        ASSERT_SAME(db, s2, v2, "key2");
+        ASSERT_SAME(db, s3, v3, "key3");
+        ASSERT_SAME(db, s4, v4, "key4");
+
+        s = txn->Rollback();
+        ASSERT_OK(s);
+
+        {
+          ASSERT_TRUE(wp_db->delayed_prepared_empty_);
+          ReadLock rl(&wp_db->prepared_mutex_);
+          ASSERT_TRUE(wp_db->prepared_txns_.empty());
+          ASSERT_TRUE(wp_db->delayed_prepared_.empty());
+        }
+
+        ASSERT_SAME(db, s1, v1, "key1");
+        ASSERT_SAME(db, s2, v2, "key2");
+        ASSERT_SAME(db, s3, v3, "key3");
+        ASSERT_SAME(db, s4, v4, "key4");
+        delete txn;
+      }
+    }
+  }
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
