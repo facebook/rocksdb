@@ -1260,11 +1260,12 @@ Status CompactionJob::OpenCompactionOutputFile(
 #endif  // !ROCKSDB_LITE
   // Make the output file
   unique_ptr<WritableFile> writable_file;
-  EnvOptions opt_env_opts =
-      env_->OptimizeForCompactionTableWrite(env_options_, db_options_);
+#ifndef NDEBUG
+  bool syncpoint_arg = env_options_.use_direct_writes;
   TEST_SYNC_POINT_CALLBACK("CompactionJob::OpenCompactionOutputFile",
-                           &opt_env_opts.use_direct_writes);
-  Status s = NewWritableFile(env_, fname, &writable_file, opt_env_opts);
+                           &syncpoint_arg);
+#endif
+  Status s = NewWritableFile(env_, fname, &writable_file, env_options_);
   if (!s.ok()) {
     ROCKS_LOG_ERROR(
         db_options_.info_log,
