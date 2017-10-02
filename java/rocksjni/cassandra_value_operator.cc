@@ -23,13 +23,14 @@
 /*
  * Class:     org_rocksdb_CassandraValueMergeOperator
  * Method:    newSharedCassandraValueMergeOperator
- * Signature: (I)J
+ * Signature: (II)J
  */
 jlong Java_org_rocksdb_CassandraValueMergeOperator_newSharedCassandraValueMergeOperator(
-    JNIEnv* env, jclass jclazz, jint gcGracePeriodInSeconds) {
+    JNIEnv* env, jclass jclazz, jint gcGracePeriodInSeconds,
+    jint operands_limit) {
   auto* op = new std::shared_ptr<rocksdb::MergeOperator>(
       new rocksdb::cassandra::CassandraValueMergeOperator(
-          gcGracePeriodInSeconds));
+          gcGracePeriodInSeconds, operands_limit));
   return reinterpret_cast<jlong>(op);
 }
 
