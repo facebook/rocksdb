@@ -118,13 +118,14 @@ TEST_F(DBOptionsTest, GetLatestCFOptions) {
 }
 
 TEST_F(DBOptionsTest, SetBytesPerSync) {
-  const size_t kValueSize = 1024 * 1024 * 8;
+  const size_t kValueSize = 1024 * 1024;  // 1MB
   Options options;
   options.create_if_missing = true;
   options.bytes_per_sync = 1024 * 1024;
   options.use_direct_reads = false;
   options.write_buffer_size = 400 * kValueSize;
   options.disable_auto_compactions = true;
+  options.compression = kNoCompression;
   options.env = env_;
   Reopen(options);
   int counter = 0;
@@ -138,25 +139,33 @@ TEST_F(DBOptionsTest, SetBytesPerSync) {
       });
 
   WriteOptions write_opts;
-  for (; i < 40; i++) {
+  // should sync approximately 40MB/1MB ~= 40 times.
+  for (i = 0; i < 40; i++) {
     Put(Key(i), kValue, write_opts);
   }
-  i = 0;
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   low_bytes_per_sync = counter;
+  ASSERT_GT(low_bytes_per_sync, 35);
+  ASSERT_LT(low_bytes_per_sync, 45);
+
   counter = 0;
   // 8388608 = 8 * 1024 * 1024
   ASSERT_OK(dbfull()->SetDBOptions({{"bytes_per_sync", "8388608"}}));
   ASSERT_EQ(8388608, dbfull()->GetDBOptions().bytes_per_sync);
-  for (; i < 40; i++) {
+  // should sync approximately 40MB*2/8MB ~= 10 times.
+  // data will be 40*2MB because of previous Puts too.
+  for (i = 0; i < 40; i++) {
     Put(Key(i), kValue, write_opts);
   }
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  ASSERT_GT(counter, 0);
-  ASSERT_GT(low_bytes_per_sync, 0);
+  ASSERT_GT(counter, 5);
+  ASSERT_LT(counter, 15);
+
+  // Redundant assert. But leaving it here just to get the point across that
+  // low_bytes_per_sync > counter.
   ASSERT_GT(low_bytes_per_sync, counter);
 }
 
@@ -167,6 +176,7 @@ TEST_F(DBOptionsTest, SetWalBytesPerSync) {
   options.wal_bytes_per_sync = 512;
   options.write_buffer_size = 100 * kValueSize;
   options.disable_auto_compactions = true;
+  options.compression = kNoCompression;
   options.env = env_;
   Reopen(options);
   ASSERT_EQ(512, dbfull()->GetDBOptions().wal_bytes_per_sync);
