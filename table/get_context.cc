@@ -113,15 +113,14 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
       type = kTypeRangeDeletion;
     }
     switch (type) {
+      case kTypeValue:
       case kTypeBlobIndex:
-        if (is_blob_index_ == nullptr) {
+        assert(state_ == kNotFound || state_ == kMerge);
+        if (type == kTypeBlobIndex && is_blob_index_ == nullptr) {
           // Blob value not supported. Stop.
           state_ = kBlobIndex;
           return false;
         }
-      // intential fallthrough
-      case kTypeValue:
-        assert(state_ == kNotFound || state_ == kMerge);
         if (kNotFound == state_) {
           state_ = kFound;
           if (LIKELY(pinnable_val_ != nullptr)) {
