@@ -118,7 +118,7 @@ TEST_F(DBOptionsTest, GetLatestCFOptions) {
 }
 
 TEST_F(DBOptionsTest, SetBytesPerSync) {
-  const size_t kValueSize = 1024 * 1024;  // 1KB
+  const size_t kValueSize = 1024 * 1024;  // 1MB
   Options options;
   options.create_if_missing = true;
   options.bytes_per_sync = 1024 * 1024;
@@ -139,7 +139,7 @@ TEST_F(DBOptionsTest, SetBytesPerSync) {
       });
 
   WriteOptions write_opts;
-  // should sync approximately 40KB/1KB = 40 times
+  // should sync approximately 40MB/1MB ~= 40 times.
   for (i = 0; i < 40; i++) {
     Put(Key(i), kValue, write_opts);
   }
@@ -147,18 +147,25 @@ TEST_F(DBOptionsTest, SetBytesPerSync) {
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   low_bytes_per_sync = counter;
+  ASSERT_GT(low_bytes_per_sync, 35);
+  ASSERT_LT(low_bytes_per_sync, 45);
+
   counter = 0;
   // 8388608 = 8 * 1024 * 1024
   ASSERT_OK(dbfull()->SetDBOptions({{"bytes_per_sync", "8388608"}}));
   ASSERT_EQ(8388608, dbfull()->GetDBOptions().bytes_per_sync);
-  // should sync approximately 40KB/8KB ~= 5-10 times
+  // should sync approximately 40MB*2/8MB ~= 10 times.
+  // data will be 40*2MB because of previous Puts too.
   for (i = 0; i < 40; i++) {
     Put(Key(i), kValue, write_opts);
   }
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  ASSERT_GT(counter, 0);
-  ASSERT_GT(low_bytes_per_sync, 0);
+  ASSERT_GT(counter, 5);
+  ASSERT_LT(counter, 15);
+
+  // Redundant assert. But leaving it here just to get the point across that
+  // low_bytes_per_sync > counter.
   ASSERT_GT(low_bytes_per_sync, counter);
 }
 
