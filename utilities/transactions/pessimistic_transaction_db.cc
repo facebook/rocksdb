@@ -655,6 +655,34 @@ void WritePreparedTxnDB::AddPrepared(uint64_t seq) {
   prepared_txns_.push(seq);
 }
 
+void WritePreparedTxnDB::RollbackPrepared(uint64_t prep_seq,
+                                          uint64_t rollback_seq) {
+  ROCKS_LOG_DEBUG(
+      info_log_, "Txn %" PRIu64 " rolling back with rollback seq of " PRIu64 "",
+      prep_seq, rollback_seq);
+  std::vector<SequenceNumber> snapshots =
+      GetSnapshotListFromDB(kMaxSequenceNumber);
+  // TODO(myabandeh): currently we are assuming that there is no snapshot taken
+  // when a transaciton is rolled back. This is the case the way MySQL does
+  // rollback which is after recovery. We should extend it to be able to
+  // rollback txns that overlap with exsiting snapshots.
+  assert(snapshots.size() == 0);
+  if (snapshots.size()) {
+    throw std::runtime_error(
+        "Rollback reqeust while there are live snapshots.");
+  }
+  WriteLock wl(&prepared_mutex_);
+  prepared_txns_.erase(prep_seq);
+  bool was_empty = delayed_prepared_.empty();
+  if (!was_empty) {
+    delayed_prepared_.erase(prep_seq);
+    bool is_empty = delayed_prepared_.empty();
+    if (was_empty != is_empty) {
+      delayed_prepared_empty_.store(is_empty, std::memory_order_release);
+    }
+  }
+}
+
 void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq,
                                       uint64_t commit_seq) {
   ROCKS_LOG_DEBUG(info_log_, "Txn %" PRIu64 " Committing with %" PRIu64,
