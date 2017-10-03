@@ -848,10 +848,8 @@ class MemTableInserter : public WriteBatch::Handler {
   // cause memory allocations though unused.
   // Make creation optional but do not incur
   // unique_ptr additional allocation
-  using 
-  MemPostInfoMap = std::map<MemTable*, MemTablePostProcessInfo>;
-  using
-  PostMapType = std::aligned_storage<sizeof(MemPostInfoMap)>::type;
+  using MemPostInfoMap = std::map<MemTable*, MemTablePostProcessInfo>;
+  using PostMapType = std::aligned_storage<sizeof(MemPostInfoMap)>::type;
   PostMapType mem_post_info_map_;
   // current recovered transaction we are rebuilding (recovery)
   WriteBatch* rebuilding_trx_;
@@ -1002,6 +1000,9 @@ class MemTableInserter : public WriteBatch::Handler {
         SnapshotImpl read_from_snapshot;
         read_from_snapshot.number_ = sequence_;
         ReadOptions ropts;
+        // it's going to be overwritten for sure, so no point caching data block
+        // containing the old version
+        ropts.fill_cache = false;
         ropts.snapshot = &read_from_snapshot;
 
         std::string prev_value;
