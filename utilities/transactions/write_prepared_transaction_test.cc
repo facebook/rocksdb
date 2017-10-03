@@ -869,6 +869,7 @@ TEST_P(WritePreparedTransactionTest, BasicRecoveryTest) {
   txn1 = db->GetTransactionByName("xid" + istr1);
   ASSERT_NE(txn1, nullptr);
   txn1->Commit();
+  delete txn1;
 
   index++;
   Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
