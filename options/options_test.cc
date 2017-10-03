@@ -1544,6 +1544,15 @@ TEST_F(OptionsSanityCheckTest, SanityCheck) {
 
   // merge_operator
   {
+    // Test when going from nullptr -> merge operator
+    opts.merge_operator.reset(test::RandomMergeOperator(&rnd));
+    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelLooselyCompatible));
+    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelNone));
+
+    // persist the change
+    ASSERT_OK(PersistCFOptions(opts));
+    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelExactMatch));
+
     for (int test = 0; test < 5; ++test) {
       // change the merge operator
       opts.merge_operator.reset(test::RandomMergeOperator(&rnd));
@@ -1554,6 +1563,15 @@ TEST_F(OptionsSanityCheckTest, SanityCheck) {
       ASSERT_OK(PersistCFOptions(opts));
       ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelExactMatch));
     }
+
+    // Test when going from merge operator -> nullptr
+    opts.merge_operator = nullptr;
+    ASSERT_NOK(SanityCheckCFOptions(opts, kSanityLevelLooselyCompatible));
+    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelNone));
+
+    // persist the change
+    ASSERT_OK(PersistCFOptions(opts));
+    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelExactMatch));
   }
 
   // compaction_filter

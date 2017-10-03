@@ -787,6 +787,7 @@ Status ParseColumnFamilyOption(const std::string& name,
       switch (opt_info.verification) {
         case OptionVerificationType::kByName:
         case OptionVerificationType::kByNameAllowNull:
+        case OptionVerificationType::kByNameAllowFromNull:
           return Status::NotSupported(
               "Deserializing the specified CF option " + name +
                   " is not supported");
