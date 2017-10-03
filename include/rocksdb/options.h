@@ -899,6 +899,16 @@ struct DBOptions {
   // relies on manual invocation of FlushWAL to write the WAL buffer to its
   // file.
   bool manual_wal_flush = false;
+
+  // Increase the sequence number after writing each batch, whether memtable is
+  // disabled for that or not. Otherwise the sequence number is increased after
+  // writing each key into memtable. This implies that when memtable_disable is
+  // set, the seq is not increased at all.
+  //
+  // Default: false
+  // Note: This option is experimental and meant to be used only for internal
+  // projects.
+  bool seq_per_batch = false;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

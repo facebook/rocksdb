@@ -45,6 +45,7 @@ class RandomRWFile;
 class Directory;
 struct DBOptions;
 struct ImmutableDBOptions;
+struct MutableDBOptions;
 class RateLimiter;
 class ThreadStatusUpdater;
 struct ThreadStatus;
@@ -261,6 +262,11 @@ class Env {
     return Status::NotSupported("LinkFile is not supported for this Env");
   }
 
+  virtual Status AreFilesSame(const std::string& first,
+                              const std::string& second, bool* res) {
+    return Status::NotSupported("AreFilesSame is not supported for this Env");
+  }
+
   // Lock the specified file.  Used to prevent concurrent access to
   // the same db by multiple processes.  On failure, stores nullptr in
   // *lock and returns non-OK.
@@ -406,7 +412,7 @@ class Env {
   // table files.
   virtual EnvOptions OptimizeForCompactionTableWrite(
       const EnvOptions& env_options,
-      const ImmutableDBOptions& db_options) const;
+      const ImmutableDBOptions& immutable_ops) const;
 
   // OptimizeForCompactionTableWrite will create a new EnvOptions object that
   // is a copy of the EnvOptions in the parameters, but is optimized for reading
@@ -793,7 +799,7 @@ enum InfoLogLevel : unsigned char {
 // An interface for writing log messages.
 class Logger {
  public:
-  size_t kDoNotSupportGetLogFileSize = std::numeric_limits<size_t>::max();
+  size_t kDoNotSupportGetLogFileSize = (std::numeric_limits<size_t>::max)();
 
   explicit Logger(const InfoLogLevel log_level = InfoLogLevel::INFO_LEVEL)
       : log_level_(log_level) {}
@@ -980,6 +986,11 @@ class EnvWrapper : public Env {
     return target_->LinkFile(s, t);
   }
 
+  Status AreFilesSame(const std::string& first, const std::string& second,
+                      bool* res) override {
+    return target_->AreFilesSame(first, second, res);
+  }
+
   Status LockFile(const std::string& f, FileLock** l) override {
     return target_->LockFile(f, l);
   }
@@ -1010,6 +1021,7 @@ class EnvWrapper : public Env {
     return target_->NewLogger(fname, result);
   }
   uint64_t NowMicros() override { return target_->NowMicros(); }
+  uint64_t NowNanos() override { return target_->NowNanos(); }
 
   void SleepForMicroseconds(int micros) override {
     target_->SleepForMicroseconds(micros);
@@ -1057,6 +1069,32 @@ class EnvWrapper : public Env {
 
   std::string GenerateUniqueId() override {
     return target_->GenerateUniqueId();
+  }
+
+  EnvOptions OptimizeForLogRead(const EnvOptions& env_options) const override {
+    return target_->OptimizeForLogRead(env_options);
+  }
+  EnvOptions OptimizeForManifestRead(
+      const EnvOptions& env_options) const override {
+    return target_->OptimizeForManifestRead(env_options);
+  }
+  EnvOptions OptimizeForLogWrite(const EnvOptions& env_options,
+                                 const DBOptions& db_options) const override {
+    return target_->OptimizeForLogWrite(env_options, db_options);
+  }
+  EnvOptions OptimizeForManifestWrite(
+      const EnvOptions& env_options) const override {
+    return target_->OptimizeForManifestWrite(env_options);
+  }
+  EnvOptions OptimizeForCompactionTableWrite(
+      const EnvOptions& env_options,
+      const ImmutableDBOptions& immutable_ops) const override {
+    return target_->OptimizeForCompactionTableWrite(env_options, immutable_ops);
+  }
+  EnvOptions OptimizeForCompactionTableRead(
+      const EnvOptions& env_options,
+      const ImmutableDBOptions& db_options) const override {
+    return target_->OptimizeForCompactionTableRead(env_options, db_options);
   }
 
  private:

@@ -1081,7 +1081,8 @@ TEST_F(DBIteratorTest, PrevAfterAndNextAfterMerge) {
   ASSERT_EQ("2", it->key().ToString());
 }
 
-TEST_F(DBIteratorTest, PinnedDataIteratorRandomized) {
+class DBIteratorTestForPinnedData : public DBIteratorTest {
+ public:
   enum TestConfig {
     NORMAL,
     CLOSE_AND_OPEN,
@@ -1089,19 +1090,19 @@ TEST_F(DBIteratorTest, PinnedDataIteratorRandomized) {
     FLUSH_EVERY_1000,
     MAX
   };
+  DBIteratorTestForPinnedData() : DBIteratorTest() {}
+  void PinnedDataIteratorRandomized(TestConfig run_config) {
+    // Generate Random data
+    Random rnd(301);
 
-  // Generate Random data
-  Random rnd(301);
+    int puts = 100000;
+    int key_pool = static_cast<int>(puts * 0.7);
+    int key_size = 100;
+    int val_size = 1000;
+    int seeks_percentage = 20;   // 20% of keys will be used to test seek()
+    int delete_percentage = 20;  // 20% of keys will be deleted
+    int merge_percentage = 20;   // 20% of keys will be added using Merge()
 
-  int puts = 100000;
-  int key_pool = static_cast<int>(puts * 0.7);
-  int key_size = 100;
-  int val_size = 1000;
-  int seeks_percentage = 20;   // 20% of keys will be used to test seek()
-  int delete_percentage = 20;  // 20% of keys will be deleted
-  int merge_percentage = 20;   // 20% of keys will be added using Merge()
-
-  for (int run_config = 0; run_config < TestConfig::MAX; run_config++) {
     Options options = CurrentOptions();
     BlockBasedTableOptions table_options;
     table_options.use_delta_encoding = false;
@@ -1246,7 +1247,24 @@ TEST_F(DBIteratorTest, PinnedDataIteratorRandomized) {
     }
 
     delete iter;
-  }
+}
+};
+
+TEST_F(DBIteratorTestForPinnedData, PinnedDataIteratorRandomizedNormal) {
+  PinnedDataIteratorRandomized(TestConfig::NORMAL);
+}
+
+TEST_F(DBIteratorTestForPinnedData, PinnedDataIteratorRandomizedCLoseAndOpen) {
+  PinnedDataIteratorRandomized(TestConfig::CLOSE_AND_OPEN);
+}
+
+TEST_F(DBIteratorTestForPinnedData,
+       PinnedDataIteratorRandomizedCompactBeforeRead) {
+  PinnedDataIteratorRandomized(TestConfig::COMPACT_BEFORE_READ);
+}
+
+TEST_F(DBIteratorTestForPinnedData, PinnedDataIteratorRandomizedFlush) {
+  PinnedDataIteratorRandomized(TestConfig::FLUSH_EVERY_1000);
 }
 
 #ifndef ROCKSDB_LITE
@@ -1719,12 +1737,15 @@ TEST_F(DBIteratorTest, IteratorWithLocalStatistics) {
 
   std::vector<port::Thread> threads;
   std::function<void()> reader_func_next = [&]() {
+    SetPerfLevel(kEnableCount);
+    get_perf_context()->Reset();
     Iterator* iter = db_->NewIterator(ReadOptions());
 
     iter->SeekToFirst();
     // Seek will bump ITER_BYTES_READ
-    total_bytes += iter->key().size();
-    total_bytes += iter->value().size();
+    uint64_t bytes = 0;
+    bytes += iter->key().size();
+    bytes += iter->value().size();
     while (true) {
       iter->Next();
       total_next++;
@@ -1733,20 +1754,25 @@ TEST_F(DBIteratorTest, IteratorWithLocalStatistics) {
         break;
       }
       total_next_found++;
-      total_bytes += iter->key().size();
-      total_bytes += iter->value().size();
+      bytes += iter->key().size();
+      bytes += iter->value().size();
     }
 
     delete iter;
+    ASSERT_EQ(bytes, get_perf_context()->iter_read_bytes);
+    SetPerfLevel(kDisable);
+    total_bytes += bytes;
   };
 
   std::function<void()> reader_func_prev = [&]() {
+    SetPerfLevel(kEnableCount);
     Iterator* iter = db_->NewIterator(ReadOptions());
 
     iter->SeekToLast();
     // Seek will bump ITER_BYTES_READ
-    total_bytes += iter->key().size();
-    total_bytes += iter->value().size();
+    uint64_t bytes = 0;
+    bytes += iter->key().size();
+    bytes += iter->value().size();
     while (true) {
       iter->Prev();
       total_prev++;
@@ -1755,11 +1781,14 @@ TEST_F(DBIteratorTest, IteratorWithLocalStatistics) {
         break;
       }
       total_prev_found++;
-      total_bytes += iter->key().size();
-      total_bytes += iter->value().size();
+      bytes += iter->key().size();
+      bytes += iter->value().size();
     }
 
     delete iter;
+    ASSERT_EQ(bytes, get_perf_context()->iter_read_bytes);
+    SetPerfLevel(kDisable);
+    total_bytes += bytes;
   };
 
   for (int i = 0; i < 10; i++) {

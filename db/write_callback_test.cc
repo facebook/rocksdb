@@ -137,6 +137,11 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
               options.allow_concurrent_memtable_write = allow_parallel;
               options.enable_pipelined_write = enable_pipelined_write;
               options.concurrent_prepare = two_queues;
+              if (options.enable_pipelined_write &&
+                  options.concurrent_prepare) {
+                // This combination is not supported
+                continue;
+              }
 
               ReadOptions read_options;
               DB* db;

@@ -2174,7 +2174,7 @@ std::map<std::string, size_t> MockCache::marked_data_in_cache_;
 
 // Block cache can contain raw data blocks as well as general objects. If an
 // object depends on the table to be live, it then must be destructed before the
-// table is closed. This test makese sure that the only items remains in the
+// table is closed. This test makes sure that the only items remains in the
 // cache after the table is closed are raw data blocks.
 TEST_F(BlockBasedTableTest, NoObjectInCacheAfterTableClose) {
   for (auto index_type :

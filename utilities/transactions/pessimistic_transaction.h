@@ -31,28 +31,30 @@
 namespace rocksdb {
 
 class PessimisticTransactionDB;
-class PessimisticTxn;
 
 // A transaction under pessimistic concurrency control. This class implements
 // the locking API and interfaces with the lock manager as well as the
 // pessimistic transactional db.
-class PessimisticTxn : public TransactionBaseImpl {
+class PessimisticTransaction : public TransactionBaseImpl {
  public:
-  PessimisticTxn(TransactionDB* db, const WriteOptions& write_options,
-                 const TransactionOptions& txn_options);
+  PessimisticTransaction(TransactionDB* db, const WriteOptions& write_options,
+                         const TransactionOptions& txn_options);
 
-  virtual ~PessimisticTxn();
+  virtual ~PessimisticTransaction();
 
   void Reinitialize(TransactionDB* txn_db, const WriteOptions& write_options,
                     const TransactionOptions& txn_options);
 
-  Status Prepare() override = 0;
+  Status Prepare() override;
 
-  Status Commit() override = 0;
+  Status Commit() override;
 
-  virtual Status CommitBatch(WriteBatch* batch) = 0;
+  // It is basically Commit without going through Prepare phase. The write batch
+  // is also directly provided instead of expecting txn to gradually batch the
+  // transactions writes to an internal write batch.
+  Status CommitBatch(WriteBatch* batch);
 
-  Status Rollback() override = 0;
+  Status Rollback() override;
 
   Status RollbackToSavePoint() override;
 
@@ -111,6 +113,16 @@ class PessimisticTxn : public TransactionBaseImpl {
   int64_t GetDeadlockDetectDepth() const { return deadlock_detect_depth_; }
 
  protected:
+  virtual Status PrepareInternal() = 0;
+
+  virtual Status CommitWithoutPrepareInternal() = 0;
+
+  virtual Status CommitBatchInternal(WriteBatch* batch) = 0;
+
+  virtual Status CommitInternal() = 0;
+
+  virtual Status RollbackInternal() = 0;
+
   void Initialize(const TransactionOptions& txn_options);
 
   Status LockBatch(WriteBatch* batch, TransactionKeyMap* keys_to_unlock);
@@ -170,52 +182,34 @@ class PessimisticTxn : public TransactionBaseImpl {
                           const Slice& key) override;
 
   // No copying allowed
-  PessimisticTxn(const PessimisticTxn&);
-  void operator=(const PessimisticTxn&);
+  PessimisticTransaction(const PessimisticTransaction&);
+  void operator=(const PessimisticTransaction&);
 };
 
-class WriteCommittedTxnImpl : public PessimisticTxn {
+class WriteCommittedTxn : public PessimisticTransaction {
  public:
-  WriteCommittedTxnImpl(TransactionDB* db, const WriteOptions& write_options,
-                        const TransactionOptions& txn_options);
+  WriteCommittedTxn(TransactionDB* db, const WriteOptions& write_options,
+                    const TransactionOptions& txn_options);
 
-  virtual ~WriteCommittedTxnImpl() {}
-
-  Status Prepare() override;
-
-  Status Commit() override;
-
-  Status CommitBatch(WriteBatch* batch) override;
-
-  Status Rollback() override;
+  virtual ~WriteCommittedTxn() {}
 
  private:
+  Status PrepareInternal() override;
+
+  Status CommitWithoutPrepareInternal() override;
+
+  Status CommitBatchInternal(WriteBatch* batch) override;
+
+  Status CommitInternal() override;
+
+  Status RollbackInternal() override;
+
   Status ValidateSnapshot(ColumnFamilyHandle* column_family, const Slice& key,
                           SequenceNumber prev_seqno, SequenceNumber* new_seqno);
 
   // No copying allowed
-  WriteCommittedTxnImpl(const WriteCommittedTxnImpl&);
-  void operator=(const WriteCommittedTxnImpl&);
-};
-
-// Used at commit time to check whether transaction is committing before its
-// expiration time.
-class TransactionCallback : public WriteCallback {
- public:
-  explicit TransactionCallback(PessimisticTxn* txn) : txn_(txn) {}
-
-  Status Callback(DB* db) override {
-    if (txn_->IsExpired()) {
-      return Status::Expired();
-    } else {
-      return Status::OK();
-    }
-  }
-
-  bool AllowWriteBatching() override { return true; }
-
- private:
-  PessimisticTxn* txn_;
+  WriteCommittedTxn(const WriteCommittedTxn&);
+  void operator=(const WriteCommittedTxn&);
 };
 
 }  // namespace rocksdb

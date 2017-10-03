@@ -86,21 +86,17 @@ class PartitionedFilterBlockReader : public FilterBlockReader {
  private:
   Slice GetFilterPartitionHandle(const Slice& entry);
   BlockBasedTable::CachableEntry<FilterBlockReader> GetFilterPartition(
-      Slice* handle, const bool no_io, bool* cached);
+      FilePrefetchBuffer* prefetch_buffer, Slice* handle, const bool no_io,
+      bool* cached);
+  virtual void CacheDependencies(bool pin) override;
 
   const SliceTransform* prefix_extractor_;
   std::unique_ptr<Block> idx_on_fltr_blk_;
   const Comparator& comparator_;
   const BlockBasedTable* table_;
-  std::unordered_map<uint64_t, FilterBlockReader*> filter_cache_;
-  autovector<Cache::Handle*> handle_list_;
-  struct BlockHandleCmp {
-    bool operator()(const BlockHandle& lhs, const BlockHandle& rhs) const {
-      return lhs.offset() < rhs.offset();
-    }
-  };
-  std::set<BlockHandle, BlockHandleCmp> filter_block_set_;
-  port::RWMutex mu_;
+  std::unordered_map<uint64_t,
+                     BlockBasedTable::CachableEntry<FilterBlockReader>>
+      filter_map_;
 };
 
 }  // namespace rocksdb

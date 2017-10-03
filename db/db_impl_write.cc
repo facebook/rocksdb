@@ -60,13 +60,17 @@ Status DBImpl::WriteWithCallback(const WriteOptions& write_options,
 Status DBImpl::WriteImpl(const WriteOptions& write_options,
                          WriteBatch* my_batch, WriteCallback* callback,
                          uint64_t* log_used, uint64_t log_ref,
-                         bool disable_memtable) {
+                         bool disable_memtable, uint64_t* seq_used) {
   if (my_batch == nullptr) {
     return Status::Corruption("Batch is nullptr!");
   }
   if (concurrent_prepare_ && immutable_db_options_.enable_pipelined_write) {
     return Status::NotSupported(
         "pipelined_writes is not compatible with concurrent prepares");
+  }
+  if (seq_per_batch_ && immutable_db_options_.enable_pipelined_write) {
+    return Status::NotSupported(
+        "pipelined_writes is not compatible with seq_per_batch");
   }
 
   Status status;
@@ -79,12 +83,12 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
   if (concurrent_prepare_ && disable_memtable) {
     return WriteImplWALOnly(write_options, my_batch, callback, log_used,
-                            log_ref);
+                            log_ref, seq_used);
   }
 
   if (immutable_db_options_.enable_pipelined_write) {
     return PipelinedWriteImpl(write_options, my_batch, callback, log_used,
-                              log_ref, disable_memtable);
+                              log_ref, disable_memtable, seq_used);
   }
 
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
@@ -126,6 +130,9 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   if (w.state == WriteThread::STATE_COMPLETED) {
     if (log_used != nullptr) {
       *log_used = w.log_used;
+    }
+    if (seq_used != nullptr) {
+      *seq_used = w.sequence;
     }
     // write is complete and leader has updated sequence
     return w.FinalStatus();
@@ -181,7 +188,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     // more than once to a particular key.
     bool parallel = immutable_db_options_.allow_concurrent_memtable_write &&
                     write_group.size > 1;
-    int total_count = 0;
+    size_t total_count = 0;
     uint64_t total_byte_size = 0;
     for (auto* writer : write_group) {
       if (writer->CheckCallback(this)) {
@@ -194,6 +201,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
             total_byte_size, WriteBatchInternal::ByteSize(writer->batch));
       }
     }
+    size_t seq_inc = seq_per_batch_ ? write_group.size : total_count;
 
     const bool concurrent_update = concurrent_prepare_;
     // Update stats while we are an exclusive group leader, so we know
@@ -235,15 +243,15 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         // LastToBeWrittenSequence is increased inside WriteToWAL under
         // wal_write_mutex_ to ensure ordered events in WAL
         status = ConcurrentWriteToWAL(write_group, log_used, &last_sequence,
-                                      total_count);
+                                      seq_inc);
       } else {
         // Otherwise we inc seq number for memtable writes
-        last_sequence = versions_->FetchAddLastToBeWrittenSequence(total_count);
+        last_sequence = versions_->FetchAddLastToBeWrittenSequence(seq_inc);
       }
     }
     assert(last_sequence != kMaxSequenceNumber);
     const SequenceNumber current_sequence = last_sequence + 1;
-    last_sequence += total_count;
+    last_sequence += seq_inc;
 
     if (status.ok()) {
       PERF_TIMER_GUARD(write_memtable_time);
@@ -252,12 +260,14 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         w.status = WriteBatchInternal::InsertInto(
             write_group, current_sequence, column_family_memtables_.get(),
             &flush_scheduler_, write_options.ignore_missing_column_families,
-            0 /*recovery_log_number*/, this);
+            0 /*recovery_log_number*/, this, parallel, seq_per_batch_);
       } else {
         SequenceNumber next_sequence = current_sequence;
         for (auto* writer : write_group) {
-          if (writer->ShouldWriteToMemtable()) {
-            writer->sequence = next_sequence;
+          writer->sequence = next_sequence;
+          if (seq_per_batch_) {
+            next_sequence++;
+          } else if (writer->ShouldWriteToMemtable()) {
             next_sequence += WriteBatchInternal::Count(writer->batch);
           }
         }
@@ -278,6 +288,9 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
               write_options.ignore_missing_column_families, 0 /*log_number*/,
               this, true /*concurrent_memtable_writes*/);
         }
+      }
+      if (seq_used != nullptr) {
+        *seq_used = w.sequence;
       }
     }
   }
@@ -325,7 +338,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
                                   WriteBatch* my_batch, WriteCallback* callback,
                                   uint64_t* log_used, uint64_t log_ref,
-                                  bool disable_memtable) {
+                                  bool disable_memtable, uint64_t* seq_used) {
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
   StopWatch write_sw(env_, immutable_db_options_.statistics.get(), DB_WRITE);
 
@@ -379,6 +392,7 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
     RecordTick(stats_, NUMBER_KEYS_WRITTEN, total_count);
     stats->AddDBStats(InternalStats::BYTES_WRITTEN, total_byte_size);
     RecordTick(stats_, BYTES_WRITTEN, total_byte_size);
+    MeasureTime(stats_, BYTES_PER_WRITE, total_byte_size);
 
     PERF_TIMER_STOP(write_pre_and_post_process_time);
 
@@ -420,7 +434,7 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
       memtable_write_group.status = WriteBatchInternal::InsertInto(
           memtable_write_group, w.sequence, column_family_memtables_.get(),
           &flush_scheduler_, write_options.ignore_missing_column_families,
-          0 /*log_number*/, this);
+          0 /*log_number*/, this, seq_per_batch_);
       versions_->SetLastSequence(memtable_write_group.last_sequence);
       write_thread_.ExitAsMemTableWriter(&w, memtable_write_group);
     }
@@ -440,6 +454,9 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
       write_thread_.ExitAsMemTableWriter(&w, *w.write_group);
     }
   }
+  if (seq_used != nullptr) {
+    *seq_used = w.sequence;
+  }
 
   assert(w.state == WriteThread::STATE_COMPLETED);
   return w.FinalStatus();
@@ -447,7 +464,8 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
 
 Status DBImpl::WriteImplWALOnly(const WriteOptions& write_options,
                                 WriteBatch* my_batch, WriteCallback* callback,
-                                uint64_t* log_used, uint64_t log_ref) {
+                                uint64_t* log_used, uint64_t log_ref,
+                                uint64_t* seq_used) {
   Status status;
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
   WriteThread::Writer w(write_options, my_batch, callback, log_ref,
@@ -463,6 +481,9 @@ Status DBImpl::WriteImplWALOnly(const WriteOptions& write_options,
   if (w.state == WriteThread::STATE_COMPLETED) {
     if (log_used != nullptr) {
       *log_used = w.log_used;
+    }
+    if (seq_used != nullptr) {
+      *seq_used = w.sequence;
     }
     return w.FinalStatus();
   }
@@ -507,8 +528,19 @@ Status DBImpl::WriteImplWALOnly(const WriteOptions& write_options,
   PERF_TIMER_GUARD(write_wal_time);
   // LastToBeWrittenSequence is increased inside WriteToWAL under
   // wal_write_mutex_ to ensure ordered events in WAL
-  status = ConcurrentWriteToWAL(write_group, log_used, &last_sequence,
-                                0 /*total_count*/);
+  size_t seq_inc = seq_per_batch_ ? write_group.size : 0 /*total_count*/;
+  status = ConcurrentWriteToWAL(write_group, log_used, &last_sequence, seq_inc);
+  auto curr_seq = last_sequence + 1;
+  for (auto* writer : write_group) {
+    if (writer->CheckCallback(this)) {
+      writer->sequence = curr_seq;
+    }
+    if (seq_per_batch_) {
+      curr_seq++;
+    } else if (writer->CheckCallback(this)) {
+      curr_seq += WriteBatchInternal::Count(writer->batch);
+    }
+  }
   if (status.ok() && write_options.sync) {
     // Requesting sync with concurrent_prepare_ is expected to be very rare. We
     // hance provide a simple implementation that is not necessarily efficient.
@@ -526,6 +558,9 @@ Status DBImpl::WriteImplWALOnly(const WriteOptions& write_options,
   nonmem_write_thread_.ExitAsBatchGroupLeader(write_group, w.status);
   if (status.ok()) {
     status = w.FinalStatus();
+  }
+  if (seq_used != nullptr) {
+    *seq_used = w.sequence;
   }
   return status;
 }
@@ -582,7 +617,7 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
          versions_->GetColumnFamilySet()->NumberOfColumnFamilies() == 1);
   if (UNLIKELY(status.ok() && !single_column_family_mode_ &&
                total_log_size_ > GetMaxTotalWalSize())) {
-    status = HandleWALFull(write_context);
+    status = SwitchWAL(write_context);
   }
 
   if (UNLIKELY(status.ok() && write_buffer_manager_->ShouldFlush())) {
@@ -754,7 +789,7 @@ Status DBImpl::WriteToWAL(const WriteThread::WriteGroup& write_group,
 Status DBImpl::ConcurrentWriteToWAL(const WriteThread::WriteGroup& write_group,
                                     uint64_t* log_used,
                                     SequenceNumber* last_sequence,
-                                    int total_count) {
+                                    size_t seq_inc) {
   Status status;
 
   WriteBatch tmp_batch;
@@ -772,7 +807,7 @@ Status DBImpl::ConcurrentWriteToWAL(const WriteThread::WriteGroup& write_group,
       writer->log_used = logfile_number_;
     }
   }
-  *last_sequence = versions_->FetchAddLastToBeWrittenSequence(total_count);
+  *last_sequence = versions_->FetchAddLastToBeWrittenSequence(seq_inc);
   auto sequence = *last_sequence + 1;
   WriteBatchInternal::SetSequence(merged_batch, sequence);
 
@@ -793,7 +828,7 @@ Status DBImpl::ConcurrentWriteToWAL(const WriteThread::WriteGroup& write_group,
   return status;
 }
 
-Status DBImpl::HandleWALFull(WriteContext* write_context) {
+Status DBImpl::SwitchWAL(WriteContext* write_context) {
   mutex_.AssertHeld();
   assert(write_context != nullptr);
   Status status;
@@ -1058,7 +1093,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   SuperVersion* new_superversion = nullptr;
   const MutableCFOptions mutable_cf_options = *cfd->GetLatestMutableCFOptions();
 
-  // Set current_memtble_info for memtable sealed callback
+  // Set memtable_info for memtable sealed callback
 #ifndef ROCKSDB_LITE
   MemTableInfo memtable_info;
   memtable_info.cf_name = cfd->GetName();

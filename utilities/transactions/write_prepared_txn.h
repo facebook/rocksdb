@@ -25,34 +25,44 @@
 #include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "util/autovector.h"
+#include "utilities/transactions/pessimistic_transaction.h"
+#include "utilities/transactions/pessimistic_transaction_db.h"
 #include "utilities/transactions/transaction_base.h"
-#include "utilities/transactions/transaction_impl.h"
 #include "utilities/transactions/transaction_util.h"
 
 namespace rocksdb {
 
-class TransactionDBImpl;
+class WritePreparedTxnDB;
 
 // This impl could write to DB also uncomitted data and then later tell apart
 // committed data from uncomitted data. Uncommitted data could be after the
-// Prepare phase in 2PC (WritePreparedTxnImpl) or before that
+// Prepare phase in 2PC (WritePreparedTxn) or before that
 // (WriteUnpreparedTxnImpl).
-class WritePreparedTxnImpl : public PessimisticTxn {
+class WritePreparedTxn : public PessimisticTransaction {
  public:
-  WritePreparedTxnImpl(TransactionDB* db, const WriteOptions& write_options,
-                       const TransactionOptions& txn_options);
+  WritePreparedTxn(WritePreparedTxnDB* db, const WriteOptions& write_options,
+                   const TransactionOptions& txn_options);
 
-  virtual ~WritePreparedTxnImpl() {}
+  virtual ~WritePreparedTxn() {}
 
-  Status Prepare() override;
-
-  Status Commit() override;
-
-  Status CommitBatch(WriteBatch* batch) override;
-
-  Status Rollback() override;
+  using Transaction::Get;
+  virtual Status Get(const ReadOptions& options,
+                     ColumnFamilyHandle* column_family, const Slice& key,
+                     PinnableSlice* value) override;
 
  private:
+  friend class WritePreparedTransactionTest_BasicRecoveryTest_Test;
+
+  Status PrepareInternal() override;
+
+  Status CommitWithoutPrepareInternal() override;
+
+  Status CommitBatchInternal(WriteBatch* batch) override;
+
+  Status CommitInternal() override;
+
+  Status RollbackInternal() override;
+
   // TODO(myabandeh): verify that the current impl work with values being
   // written with prepare sequence number too.
   // Status ValidateSnapshot(ColumnFamilyHandle* column_family, const Slice&
@@ -61,8 +71,10 @@ class WritePreparedTxnImpl : public PessimisticTxn {
   //                        new_seqno);
 
   // No copying allowed
-  WritePreparedTxnImpl(const WritePreparedTxnImpl&);
-  void operator=(const WritePreparedTxnImpl&);
+  WritePreparedTxn(const WritePreparedTxn&);
+  void operator=(const WritePreparedTxn&);
+
+  WritePreparedTxnDB* wpt_db_;
 };
 
 }  // namespace rocksdb

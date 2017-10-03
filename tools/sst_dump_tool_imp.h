@@ -30,10 +30,14 @@ class SstFileReader {
   uint64_t GetReadNumber() { return read_num_; }
   TableProperties* GetInitTableProperties() { return table_properties_.get(); }
 
+  Status VerifyChecksum();
   Status DumpTable(const std::string& out_filename);
   Status getStatus() { return init_result_; }
 
-  int ShowAllCompressionSizes(size_t block_size);
+  int ShowAllCompressionSizes(
+      size_t block_size,
+      const std::vector<std::pair<CompressionType, const char*>>&
+          compression_types);
 
  private:
   // Get the TableReader implementation for the sst file

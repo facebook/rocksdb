@@ -7,6 +7,7 @@
 #include <string>
 #include "db/merge_context.h"
 #include "db/range_del_aggregator.h"
+#include "db/read_callback.h"
 #include "rocksdb/env.h"
 #include "rocksdb/types.h"
 #include "table/block.h"
@@ -22,7 +23,8 @@ class GetContext {
     kFound,
     kDeleted,
     kCorrupt,
-    kMerge  // saver contains the current merge result (the operands)
+    kMerge,  // saver contains the current merge result (the operands)
+    kBlobIndex,
   };
 
   GetContext(const Comparator* ucmp, const MergeOperator* merge_operator,
@@ -30,7 +32,8 @@ class GetContext {
              const Slice& user_key, PinnableSlice* value, bool* value_found,
              MergeContext* merge_context, RangeDelAggregator* range_del_agg,
              Env* env, SequenceNumber* seq = nullptr,
-             PinnedIteratorsManager* _pinned_iters_mgr = nullptr);
+             PinnedIteratorsManager* _pinned_iters_mgr = nullptr,
+             ReadCallback* callback = nullptr, bool* is_blob_index = nullptr);
 
   void MarkKeyMayExist();
 
@@ -62,6 +65,13 @@ class GetContext {
 
   bool sample() const { return sample_; }
 
+  bool CheckCallback(SequenceNumber seq) {
+    if (callback_) {
+      return callback_->IsCommitted(seq);
+    }
+    return true;
+  }
+
  private:
   const Comparator* ucmp_;
   const MergeOperator* merge_operator_;
@@ -82,7 +92,9 @@ class GetContext {
   std::string* replay_log_;
   // Used to temporarily pin blocks when state_ == GetContext::kMerge
   PinnedIteratorsManager* pinned_iters_mgr_;
+  ReadCallback* callback_;
   bool sample_;
+  bool* is_blob_index_;
 };
 
 void replayGetContextLog(const Slice& replay_log, const Slice& user_key,

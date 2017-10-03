@@ -2235,6 +2235,10 @@ class ModelDB : public DB {
     return Status::NotSupported("Not implemented.");
   }
 
+  virtual Status VerifyChecksum() override {
+    return Status::NotSupported("Not implemented.");
+  }
+
   using DB::GetPropertiesOfAllTables;
   virtual Status GetPropertiesOfAllTables(
       ColumnFamilyHandle* column_family,
@@ -2320,9 +2324,9 @@ class ModelDB : public DB {
     return false;
   }
   using DB::GetMapProperty;
-  virtual bool GetMapProperty(ColumnFamilyHandle* column_family,
-                              const Slice& property,
-                              std::map<std::string, double>* value) override {
+  virtual bool GetMapProperty(
+      ColumnFamilyHandle* column_family, const Slice& property,
+      std::map<std::string, std::string>* value) override {
     return false;
   }
   using DB::GetAggregatedIntProperty;
@@ -2805,6 +2809,46 @@ TEST_F(DBTest, FIFOCompactionTestWithCompaction) {
   // Size limit is still guaranteed.
   ASSERT_LE(SizeAtLevel(0),
             options.compaction_options_fifo.max_table_files_size);
+}
+
+TEST_F(DBTest, FIFOCompactionStyleWithCompactionAndDelete) {
+  Options options;
+  options.compaction_style = kCompactionStyleFIFO;
+  options.write_buffer_size = 20 << 10;  // 20K
+  options.arena_block_size = 4096;
+  options.compaction_options_fifo.max_table_files_size = 1500 << 10;  // 1MB
+  options.compaction_options_fifo.allow_compaction = true;
+  options.level0_file_num_compaction_trigger = 3;
+  options.compression = kNoCompression;
+  options.create_if_missing = true;
+  options = CurrentOptions(options);
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  for (int i = 0; i < 3; i++) {
+    // Each file contains a different key which will be dropped later.
+    ASSERT_OK(Put("a" + ToString(i), RandomString(&rnd, 500)));
+    ASSERT_OK(Put("key" + ToString(i), ""));
+    ASSERT_OK(Put("z" + ToString(i), RandomString(&rnd, 500)));
+    Flush();
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  }
+  ASSERT_EQ(NumTableFilesAtLevel(0), 1);
+  for (int i = 0; i < 3; i++) {
+    ASSERT_EQ("", Get("key" + ToString(i)));
+  }
+  for (int i = 0; i < 3; i++) {
+    // Each file contains a different key which will be dropped later.
+    ASSERT_OK(Put("a" + ToString(i), RandomString(&rnd, 500)));
+    ASSERT_OK(Delete("key" + ToString(i)));
+    ASSERT_OK(Put("z" + ToString(i), RandomString(&rnd, 500)));
+    Flush();
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  }
+  ASSERT_EQ(NumTableFilesAtLevel(0), 2);
+  for (int i = 0; i < 3; i++) {
+    ASSERT_EQ("NOT_FOUND", Get("key" + ToString(i)));
+  }
 }
 
 // Check that FIFO-with-TTL is not supported with max_open_files != -1.
@@ -4459,7 +4503,7 @@ TEST_F(DBTest, EncodeDecompressedBlockSizeTest) {
       options.compression = comp;
       DestroyAndReopen(options);
 
-      int kNumKeysWritten = 100000;
+      int kNumKeysWritten = 1000;
 
       Random rnd(301);
       for (int i = 0; i < kNumKeysWritten; ++i) {

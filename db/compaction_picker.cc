@@ -292,25 +292,16 @@ Compaction* CompactionPicker::CompactFiles(
     VersionStorageInfo* vstorage, const MutableCFOptions& mutable_cf_options,
     uint32_t output_path_id) {
   assert(input_files.size());
+  // This compaction output should not overlap with a running compaction as
+  // `SanitizeCompactionInputFiles` should've checked earlier and db mutex
+  // shouldn't have been released since.
+  assert(!FilesRangeOverlapWithCompaction(input_files, output_level));
 
-  // TODO(rven ): we might be able to run concurrent level 0 compaction
-  // if the key ranges of the two compactions do not overlap, but for now
-  // we do not allow it.
-  if ((input_files[0].level == 0) && !level0_compactions_in_progress_.empty()) {
-    return nullptr;
-  }
-  // This compaction output could overlap with a running compaction
-  if (FilesRangeOverlapWithCompaction(input_files, output_level)) {
-    return nullptr;
-  }
   auto c =
       new Compaction(vstorage, ioptions_, mutable_cf_options, input_files,
                      output_level, compact_options.output_file_size_limit,
                      mutable_cf_options.max_compaction_bytes, output_path_id,
                      compact_options.compression, /* grandparents */ {}, true);
-
-  // If it's level 0 compaction, make sure we don't execute any other level 0
-  // compactions in parallel
   RegisterCompaction(c);
   return c;
 }
@@ -730,10 +721,6 @@ Status CompactionPicker::SanitizeCompactionInputFilesForAllLevels(
   auto& levels = cf_meta.levels;
   auto comparator = icmp_->user_comparator();
 
-  // TODO(yhchiang): If there is any input files of L1 or up and there
-  // is at least one L0 files. All L0 files older than the L0 file needs
-  // to be included. Otherwise, it is a false conditoin
-
   // TODO(yhchiang): add is_adjustable to CompactionOptions
 
   // the smallest and largest key of the current compaction input
@@ -794,6 +781,8 @@ Status CompactionPicker::SanitizeCompactionInputFilesForAllLevels(
         }
         last_included++;
       }
+    } else if (output_level > 0) {
+      last_included = static_cast<int>(current_files.size() - 1);
     }
 
     // include all files between the first and the last compaction input files.
@@ -1279,6 +1268,8 @@ uint32_t LevelCompactionBuilder::GetPathId(
   uint64_t level_size;
   int cur_level = 0;
 
+  // max_bytes_for_level_base denotes L1 size.
+  // We estimate L0 size to be the same as L1.
   level_size = mutable_cf_options.max_bytes_for_level_base;
 
   // Last path is the fallback
@@ -1289,8 +1280,10 @@ uint32_t LevelCompactionBuilder::GetPathId(
         return p;
       } else {
         current_path_size -= level_size;
-        level_size = static_cast<uint64_t>(
-            level_size * mutable_cf_options.max_bytes_for_level_multiplier);
+        if (cur_level > 0) {
+          level_size = static_cast<uint64_t>(
+              level_size * mutable_cf_options.max_bytes_for_level_multiplier);
+        }
         cur_level++;
         continue;
       }

@@ -66,8 +66,6 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       random_access_max_buffer_size(options.random_access_max_buffer_size),
       writable_file_max_buffer_size(options.writable_file_max_buffer_size),
       use_adaptive_mutex(options.use_adaptive_mutex),
-      bytes_per_sync(options.bytes_per_sync),
-      wal_bytes_per_sync(options.wal_bytes_per_sync),
       listeners(options.listeners),
       enable_thread_tracking(options.enable_thread_tracking),
       enable_pipelined_write(options.enable_pipelined_write),
@@ -88,7 +86,8 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       avoid_flush_during_recovery(options.avoid_flush_during_recovery),
       allow_ingest_behind(options.allow_ingest_behind),
       concurrent_prepare(options.concurrent_prepare),
-      manual_wal_flush(options.manual_wal_flush) {
+      manual_wal_flush(options.manual_wal_flush),
+      seq_per_batch(options.seq_per_batch) {
 }
 
 void ImmutableDBOptions::Dump(Logger* log) const {
@@ -104,6 +103,8 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    info_log.get());
   ROCKS_LOG_HEADER(log, "               Options.max_file_opening_threads: %d",
                    max_file_opening_threads);
+  ROCKS_LOG_HEADER(log, "                             Options.statistics: %p",
+                   statistics.get());
   ROCKS_LOG_HEADER(log, "                              Options.use_fsync: %d",
                    use_fsync);
   ROCKS_LOG_HEADER(
@@ -184,12 +185,6 @@ void ImmutableDBOptions::Dump(Logger* log) const {
   Header(
       log, "    Options.sst_file_manager.rate_bytes_per_sec: %" PRIi64,
       sst_file_manager ? sst_file_manager->GetDeleteRateBytesPerSecond() : 0);
-  ROCKS_LOG_HEADER(log,
-                   "                         Options.bytes_per_sync: %" PRIu64,
-                   bytes_per_sync);
-  ROCKS_LOG_HEADER(log,
-                   "                     Options.wal_bytes_per_sync: %" PRIu64,
-                   wal_bytes_per_sync);
   ROCKS_LOG_HEADER(log, "                      Options.wal_recovery_mode: %d",
                    wal_recovery_mode);
   ROCKS_LOG_HEADER(log, "                 Options.enable_thread_tracking: %d",
@@ -227,6 +222,7 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    concurrent_prepare);
   ROCKS_LOG_HEADER(log, "            Options.manual_wal_flush: %d",
                    manual_wal_flush);
+  ROCKS_LOG_HEADER(log, "            Options.seq_per_batch: %d", seq_per_batch);
 }
 
 MutableDBOptions::MutableDBOptions()
@@ -250,7 +246,9 @@ MutableDBOptions::MutableDBOptions(const DBOptions& options)
       delete_obsolete_files_period_micros(
           options.delete_obsolete_files_period_micros),
       stats_dump_period_sec(options.stats_dump_period_sec),
-      max_open_files(options.max_open_files) {}
+      max_open_files(options.max_open_files),
+      bytes_per_sync(options.bytes_per_sync),
+      wal_bytes_per_sync(options.wal_bytes_per_sync) {}
 
 void MutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log, "            Options.max_background_jobs: %d",
@@ -270,6 +268,12 @@ void MutableDBOptions::Dump(Logger* log) const {
                    stats_dump_period_sec);
   ROCKS_LOG_HEADER(log, "                         Options.max_open_files: %d",
                    max_open_files);
+  ROCKS_LOG_HEADER(log,
+                   "                         Options.bytes_per_sync: %" PRIu64,
+                   bytes_per_sync);
+  ROCKS_LOG_HEADER(log,
+                   "                     Options.wal_bytes_per_sync: %" PRIu64,
+                   wal_bytes_per_sync);
 }
 
 }  // namespace rocksdb

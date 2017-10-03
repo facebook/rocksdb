@@ -95,6 +95,8 @@ class StackableDB : public DB {
     return db_->IngestExternalFile(column_family, external_files, options);
   }
 
+  virtual Status VerifyChecksum() override { return db_->VerifyChecksum(); }
+
   using DB::KeyMayExist;
   virtual bool KeyMayExist(const ReadOptions& options,
                            ColumnFamilyHandle* column_family, const Slice& key,
@@ -158,9 +160,9 @@ class StackableDB : public DB {
                            const Slice& property, std::string* value) override {
     return db_->GetProperty(column_family, property, value);
   }
-  virtual bool GetMapProperty(ColumnFamilyHandle* column_family,
-                              const Slice& property,
-                              std::map<std::string, double>* value) override {
+  virtual bool GetMapProperty(
+      ColumnFamilyHandle* column_family, const Slice& property,
+      std::map<std::string, std::string>* value) override {
     return db_->GetMapProperty(column_family, property, value);
   }
 

@@ -105,8 +105,9 @@ enum Tickers : uint32_t {
   COMPACTION_KEY_DROP_OBSOLETE,     // The key is obsolete.
   COMPACTION_KEY_DROP_RANGE_DEL,    // key was covered by a range tombstone.
   COMPACTION_KEY_DROP_USER,  // user compaction function has dropped the key.
-
   COMPACTION_RANGE_DEL_DROP_OBSOLETE,  // all keys in range were deleted.
+  // Deletions obsoleted before bottom level due to file gap optimization.
+  COMPACTION_OPTIMIZED_DEL_DROP_OBSOLETE,
 
   // Number of keys written to the database via the Put and Write call's
   NUMBER_KEYS_WRITTEN,
@@ -264,7 +265,9 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {COMPACTION_KEY_DROP_RANGE_DEL, "rocksdb.compaction.key.drop.range_del"},
     {COMPACTION_KEY_DROP_USER, "rocksdb.compaction.key.drop.user"},
     {COMPACTION_RANGE_DEL_DROP_OBSOLETE,
-     "rocksdb.compaction.range_del.drop.obsolete"},
+      "rocksdb.compaction.range_del.drop.obsolete"},
+    {COMPACTION_OPTIMIZED_DEL_DROP_OBSOLETE,
+      "rocksdb.compaction.optimized.del.drop.obsolete"},
     {NUMBER_KEYS_WRITTEN, "rocksdb.number.keys.written"},
     {NUMBER_KEYS_READ, "rocksdb.number.keys.read"},
     {NUMBER_KEYS_UPDATED, "rocksdb.number.keys.updated"},

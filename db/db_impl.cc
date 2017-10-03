@@ -11,14 +11,12 @@
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
 #endif
-#include <inttypes.h>
 #include <stdint.h>
 #ifdef OS_SOLARIS
 #include <alloca.h>
 #endif
 
 #include <algorithm>
-#include <climits>
 #include <cstdio>
 #include <map>
 #include <set>
@@ -63,23 +61,23 @@
 #include "options/cf_options.h"
 #include "options/options_helper.h"
 #include "options/options_parser.h"
-#include "port/likely.h"
 #include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
-#include "rocksdb/version.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/block.h"
 #include "table/block_based_table_factory.h"
 #include "table/merging_iterator.h"
 #include "table/table_builder.h"
 #include "table/two_level_iterator.h"
+#include "tools/sst_dump_tool_imp.h"
 #include "util/auto_roll_logger.h"
 #include "util/autovector.h"
 #include "util/build_version.h"
@@ -128,9 +126,11 @@ void DumpSupportInfo(Logger* logger) {
   ROCKS_LOG_HEADER(logger, "\tZlib supported: %d", Zlib_Supported());
   ROCKS_LOG_HEADER(logger, "\tBzip supported: %d", BZip2_Supported());
   ROCKS_LOG_HEADER(logger, "\tLZ4 supported: %d", LZ4_Supported());
+  ROCKS_LOG_HEADER(logger, "\tZSTDNotFinal supported: %d",
+                   ZSTDNotFinal_Supported());
   ROCKS_LOG_HEADER(logger, "\tZSTD supported: %d", ZSTD_Supported());
-  ROCKS_LOG_HEADER(logger, "Fast CRC32 supported: %d",
-                   crc32c::IsFastCrc32Supported());
+  ROCKS_LOG_HEADER(logger, "Fast CRC32 supported: %s",
+                   crc32c::IsFastCrc32Supported().c_str());
 }
 
 int64_t kDefaultLowPriThrottledRate = 2 * 1024 * 1024;
@@ -181,6 +181,9 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       has_unpersisted_data_(false),
       unable_to_flush_oldest_log_(false),
       env_options_(BuildDBOptions(immutable_db_options_, mutable_db_options_)),
+      env_options_for_compaction_(env_->OptimizeForCompactionTableWrite(
+                                    env_options_,
+                                    immutable_db_options_)),
       num_running_ingest_file_(0),
 #ifndef ROCKSDB_LITE
       wal_manager_(immutable_db_options_, env_options_),
@@ -191,7 +194,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       refitting_level_(false),
       opened_successfully_(false),
       concurrent_prepare_(options.concurrent_prepare),
-      manual_wal_flush_(options.manual_wal_flush) {
+      manual_wal_flush_(options.manual_wal_flush),
+      seq_per_batch_(options.seq_per_batch) {
   env_->GetAbsolutePath(dbname, &db_absolute_path_);
 
   // Reserve ten files or so for other uses and give the rest to TableCache.
@@ -538,6 +542,7 @@ Status DBImpl::SetDBOptions(
   MutableDBOptions new_options;
   Status s;
   Status persist_options_status;
+  bool wal_changed = false;
   WriteThread::Writer w;
   WriteContext write_context;
   {
@@ -556,12 +561,25 @@ Status DBImpl::SetDBOptions(
       table_cache_.get()->SetCapacity(new_options.max_open_files == -1
                                           ? TableCache::kInfiniteCapacity
                                           : new_options.max_open_files - 10);
-
+      wal_changed = mutable_db_options_.wal_bytes_per_sync !=
+                    new_options.wal_bytes_per_sync;
+      if (new_options.bytes_per_sync == 0) {
+        new_options.bytes_per_sync = 1024 * 1024;
+      }
       mutable_db_options_ = new_options;
-
+      env_options_for_compaction_ = EnvOptions(BuildDBOptions(
+                                                immutable_db_options_,
+                                                mutable_db_options_));
+      env_options_for_compaction_ = env_->OptimizeForCompactionTableWrite(
+                                            env_options_for_compaction_,
+                                            immutable_db_options_);
+      env_options_for_compaction_.bytes_per_sync
+                                    = mutable_db_options_.bytes_per_sync;
+      env_->OptimizeForCompactionTableWrite(env_options_for_compaction_,
+                                            immutable_db_options_);
       write_thread_.EnterUnbatched(&w, &mutex_);
-      if (total_log_size_ > GetMaxTotalWalSize()) {
-        Status purge_wal_status = HandleWALFull(&write_context);
+      if (total_log_size_ > GetMaxTotalWalSize() || wal_changed) {
+        Status purge_wal_status = SwitchWAL(&write_context);
         if (!purge_wal_status.ok()) {
           ROCKS_LOG_WARN(immutable_db_options_.info_log,
                          "Unable to purge WAL files in SetDBOptions() -- %s",
@@ -773,9 +791,7 @@ void DBImpl::BackgroundCallPurge() {
       purge_queue_.pop_front();
 
       mutex_.Unlock();
-      Status file_deletion_status;
-      DeleteObsoleteFileImpl(file_deletion_status, job_id, fname, type, number,
-                             path_id);
+      DeleteObsoleteFileImpl(job_id, fname, type, number, path_id);
       mutex_.Lock();
     } else {
       assert(!logs_to_free_queue_.empty());
@@ -907,7 +923,8 @@ Status DBImpl::Get(const ReadOptions& read_options,
 
 Status DBImpl::GetImpl(const ReadOptions& read_options,
                        ColumnFamilyHandle* column_family, const Slice& key,
-                       PinnableSlice* pinnable_val, bool* value_found) {
+                       PinnableSlice* pinnable_val, bool* value_found,
+                       ReadCallback* callback, bool* is_blob_index) {
   assert(pinnable_val != nullptr);
   StopWatch sw(env_, stats_, DB_GET);
   PERF_TIMER_GUARD(get_snapshot_time);
@@ -923,6 +940,10 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
 
   SequenceNumber snapshot;
   if (read_options.snapshot != nullptr) {
+    // Note: In WritePrepared txns this is not necessary but not harmful either.
+    // Because prep_seq > snapshot => commit_seq > snapshot so if a snapshot is
+    // specified we should be fine with skipping seq numbers that are greater
+    // than that.
     snapshot = reinterpret_cast<const SnapshotImpl*>(
         read_options.snapshot)->number_;
   } else {
@@ -957,25 +978,28 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   bool done = false;
   if (!skip_memtable) {
     if (sv->mem->Get(lkey, pinnable_val->GetSelf(), &s, &merge_context,
-                     &range_del_agg, read_options)) {
+                     &range_del_agg, read_options, callback, is_blob_index)) {
       done = true;
       pinnable_val->PinSelf();
       RecordTick(stats_, MEMTABLE_HIT);
     } else if ((s.ok() || s.IsMergeInProgress()) &&
                sv->imm->Get(lkey, pinnable_val->GetSelf(), &s, &merge_context,
-                            &range_del_agg, read_options)) {
+                            &range_del_agg, read_options, callback,
+                            is_blob_index)) {
       done = true;
       pinnable_val->PinSelf();
       RecordTick(stats_, MEMTABLE_HIT);
     }
     if (!done && !s.ok() && !s.IsMergeInProgress()) {
+      ReturnAndCleanupSuperVersion(cfd, sv);
       return s;
     }
   }
   if (!done) {
     PERF_TIMER_GUARD(get_from_output_files_time);
     sv->current->Get(read_options, lkey, pinnable_val, &s, &merge_context,
-                     &range_del_agg, value_found);
+                     &range_del_agg, value_found, nullptr, nullptr, callback,
+                     is_blob_index);
     RecordTick(stats_, MEMTABLE_MISS);
   }
 
@@ -988,6 +1012,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
     size_t size = pinnable_val->size();
     RecordTick(stats_, BYTES_READ, size);
     MeasureTime(stats_, BYTES_PER_READ, size);
+    PERF_COUNTER_ADD(get_read_bytes, size);
   }
   return s;
 }
@@ -1115,6 +1140,7 @@ std::vector<Status> DBImpl::MultiGet(
   RecordTick(stats_, NUMBER_MULTIGET_KEYS_READ, num_keys);
   RecordTick(stats_, NUMBER_MULTIGET_BYTES_READ, bytes_read);
   MeasureTime(stats_, BYTES_PER_MULTIGET, bytes_read);
+  PERF_COUNTER_ADD(multiget_read_bytes, bytes_read);
   PERF_TIMER_STOP(get_post_process_time);
 
   return stat_list;
@@ -1320,6 +1346,11 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
                                  &edit, &mutex_);
       write_thread_.ExitUnbatched(&w);
     }
+    if (s.ok()) {
+      auto* mutable_cf_options = cfd->GetLatestMutableCFOptions();
+      max_total_in_memory_state_ -= mutable_cf_options->write_buffer_size *
+                                    mutable_cf_options->max_write_buffer_number;
+    }
 
     if (!cf_support_snapshot) {
       // Dropped Column Family doesn't support snapshot. Need to recalculate
@@ -1341,9 +1372,6 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
     // later inside db_mutex.
     EraseThreadStatusCfInfo(cfd);
     assert(cfd->IsDropped());
-    auto* mutable_cf_options = cfd->GetLatestMutableCFOptions();
-    max_total_in_memory_state_ -= mutable_cf_options->write_buffer_size *
-                                  mutable_cf_options->max_write_buffer_number;
     ROCKS_LOG_INFO(immutable_db_options_.info_log,
                    "Dropped column family with id %u\n", cfd->GetID());
   } else {
@@ -1411,71 +1439,77 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
 #endif
   } else {
     SequenceNumber latest_snapshot = versions_->LastSequence();
-    SuperVersion* sv = cfd->GetReferencedSuperVersion(&mutex_);
-
     auto snapshot =
         read_options.snapshot != nullptr
-            ? reinterpret_cast<const SnapshotImpl*>(
-                read_options.snapshot)->number_
+            ? reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)
+                  ->number_
             : latest_snapshot;
-
-    // Try to generate a DB iterator tree in continuous memory area to be
-    // cache friendly. Here is an example of result:
-    // +-------------------------------+
-    // |                               |
-    // | ArenaWrappedDBIter            |
-    // |  +                            |
-    // |  +---> Inner Iterator   ------------+
-    // |  |                            |     |
-    // |  |    +-- -- -- -- -- -- -- --+     |
-    // |  +--- | Arena                 |     |
-    // |       |                       |     |
-    // |          Allocated Memory:    |     |
-    // |       |   +-------------------+     |
-    // |       |   | DBIter            | <---+
-    // |           |  +                |
-    // |       |   |  +-> iter_  ------------+
-    // |       |   |                   |     |
-    // |       |   +-------------------+     |
-    // |       |   | MergingIterator   | <---+
-    // |           |  +                |
-    // |       |   |  +->child iter1  ------------+
-    // |       |   |  |                |          |
-    // |           |  +->child iter2  ----------+ |
-    // |       |   |  |                |        | |
-    // |       |   |  +->child iter3  --------+ | |
-    // |           |                   |      | | |
-    // |       |   +-------------------+      | | |
-    // |       |   | Iterator1         | <--------+
-    // |       |   +-------------------+      | |
-    // |       |   | Iterator2         | <------+
-    // |       |   +-------------------+      |
-    // |       |   | Iterator3         | <----+
-    // |       |   +-------------------+
-    // |       |                       |
-    // +-------+-----------------------+
-    //
-    // ArenaWrappedDBIter inlines an arena area where all the iterators in
-    // the iterator tree are allocated in the order of being accessed when
-    // querying.
-    // Laying out the iterators in the order of being accessed makes it more
-    // likely that any iterator pointer is close to the iterator it points to so
-    // that they are likely to be in the same cache line and/or page.
-    ArenaWrappedDBIter* db_iter = NewArenaWrappedDbIterator(
-        env_, read_options, *cfd->ioptions(), snapshot,
-        sv->mutable_cf_options.max_sequential_skip_in_iterations,
-        sv->version_number,
-        ((read_options.snapshot != nullptr) ? nullptr : this), cfd);
-
-    InternalIterator* internal_iter =
-        NewInternalIterator(read_options, cfd, sv, db_iter->GetArena(),
-                            db_iter->GetRangeDelAggregator());
-    db_iter->SetIterUnderDBIter(internal_iter);
-
-    return db_iter;
+    return NewIteratorImpl(read_options, cfd, snapshot);
   }
   // To stop compiler from complaining
   return nullptr;
+}
+
+ArenaWrappedDBIter* DBImpl::NewIteratorImpl(const ReadOptions& read_options,
+                                            ColumnFamilyData* cfd,
+                                            SequenceNumber snapshot,
+                                            bool allow_blob) {
+  SuperVersion* sv = cfd->GetReferencedSuperVersion(&mutex_);
+
+  // Try to generate a DB iterator tree in continuous memory area to be
+  // cache friendly. Here is an example of result:
+  // +-------------------------------+
+  // |                               |
+  // | ArenaWrappedDBIter            |
+  // |  +                            |
+  // |  +---> Inner Iterator   ------------+
+  // |  |                            |     |
+  // |  |    +-- -- -- -- -- -- -- --+     |
+  // |  +--- | Arena                 |     |
+  // |       |                       |     |
+  // |          Allocated Memory:    |     |
+  // |       |   +-------------------+     |
+  // |       |   | DBIter            | <---+
+  // |           |  +                |
+  // |       |   |  +-> iter_  ------------+
+  // |       |   |                   |     |
+  // |       |   +-------------------+     |
+  // |       |   | MergingIterator   | <---+
+  // |           |  +                |
+  // |       |   |  +->child iter1  ------------+
+  // |       |   |  |                |          |
+  // |           |  +->child iter2  ----------+ |
+  // |       |   |  |                |        | |
+  // |       |   |  +->child iter3  --------+ | |
+  // |           |                   |      | | |
+  // |       |   +-------------------+      | | |
+  // |       |   | Iterator1         | <--------+
+  // |       |   +-------------------+      | |
+  // |       |   | Iterator2         | <------+
+  // |       |   +-------------------+      |
+  // |       |   | Iterator3         | <----+
+  // |       |   +-------------------+
+  // |       |                       |
+  // +-------+-----------------------+
+  //
+  // ArenaWrappedDBIter inlines an arena area where all the iterators in
+  // the iterator tree are allocated in the order of being accessed when
+  // querying.
+  // Laying out the iterators in the order of being accessed makes it more
+  // likely that any iterator pointer is close to the iterator it points to so
+  // that they are likely to be in the same cache line and/or page.
+  ArenaWrappedDBIter* db_iter = NewArenaWrappedDbIterator(
+      env_, read_options, *cfd->ioptions(), snapshot,
+      sv->mutable_cf_options.max_sequential_skip_in_iterations,
+      sv->version_number, ((read_options.snapshot != nullptr) ? nullptr : this),
+      cfd, allow_blob);
+
+  InternalIterator* internal_iter =
+      NewInternalIterator(read_options, cfd, sv, db_iter->GetArena(),
+                          db_iter->GetRangeDelAggregator());
+  db_iter->SetIterUnderDBIter(internal_iter);
+
+  return db_iter;
 }
 
 Status DBImpl::NewIterators(
@@ -1521,28 +1555,16 @@ Status DBImpl::NewIterators(
 #endif
   } else {
     SequenceNumber latest_snapshot = versions_->LastSequence();
+    auto snapshot =
+        read_options.snapshot != nullptr
+            ? reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)
+                  ->number_
+            : latest_snapshot;
 
     for (size_t i = 0; i < column_families.size(); ++i) {
       auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(
           column_families[i])->cfd();
-      SuperVersion* sv = cfd->GetReferencedSuperVersion(&mutex_);
-
-      auto snapshot =
-          read_options.snapshot != nullptr
-              ? reinterpret_cast<const SnapshotImpl*>(
-                  read_options.snapshot)->number_
-              : latest_snapshot;
-
-      ArenaWrappedDBIter* db_iter = NewArenaWrappedDbIterator(
-          env_, read_options, *cfd->ioptions(), snapshot,
-          sv->mutable_cf_options.max_sequential_skip_in_iterations,
-          sv->version_number,
-          ((read_options.snapshot != nullptr) ? nullptr : this), cfd);
-      InternalIterator* internal_iter =
-          NewInternalIterator(read_options, cfd, sv, db_iter->GetArena(),
-                              db_iter->GetRangeDelAggregator());
-      db_iter->SetIterUnderDBIter(internal_iter);
-      iterators->push_back(db_iter);
+      iterators->push_back(NewIteratorImpl(read_options, cfd, snapshot));
     }
   }
 
@@ -1683,7 +1705,7 @@ bool DBImpl::GetProperty(ColumnFamilyHandle* column_family,
 
 bool DBImpl::GetMapProperty(ColumnFamilyHandle* column_family,
                             const Slice& property,
-                            std::map<std::string, double>* value) {
+                            std::map<std::string, std::string>* value) {
   const DBPropertyInfo* property_info = GetPropertyInfo(property);
   value->clear();
   auto cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
@@ -2052,13 +2074,13 @@ Status DBImpl::DeleteFilesInRange(ColumnFamilyHandle* column_family,
       if (begin == nullptr) {
         begin_key = nullptr;
       } else {
-        begin_storage.SetMaxPossibleForUserKey(*begin);
+        begin_storage.SetMinPossibleForUserKey(*begin);
         begin_key = &begin_storage;
       }
       if (end == nullptr) {
         end_key = nullptr;
       } else {
-        end_storage.SetMinPossibleForUserKey(*end);
+        end_storage.SetMaxPossibleForUserKey(*end);
         end_key = &end_storage;
       }
 
@@ -2298,7 +2320,7 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
     // Delete log files in the WAL dir
     for (const auto& file : walDirFiles) {
       if (ParseFileName(file, &number, &type) && type == kLogFile) {
-        Status del = env->DeleteFile(soptions.wal_dir + "/" + file);
+        Status del = env->DeleteFile(LogFileName(soptions.wal_dir, number));
         if (result.ok() && !del.ok()) {
           result = del;
         }
@@ -2738,6 +2760,54 @@ Status DBImpl::IngestExternalFile(
   }
 
   return status;
+}
+
+Status DBImpl::VerifyChecksum() {
+  Status s;
+  Options options;
+  EnvOptions env_options;
+  std::vector<ColumnFamilyData*> cfd_list;
+  {
+    InstrumentedMutexLock l(&mutex_);
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      if (!cfd->IsDropped() && cfd->initialized()) {
+        cfd->Ref();
+        cfd_list.push_back(cfd);
+      }
+    }
+  }
+  std::vector<SuperVersion*> sv_list;
+  for (auto cfd : cfd_list) {
+    sv_list.push_back(cfd->GetReferencedSuperVersion(&mutex_));
+  }
+  for (auto& sv : sv_list) {
+    VersionStorageInfo* vstorage = sv->current->storage_info();
+    for (int i = 0; i < vstorage->num_non_empty_levels() && s.ok(); i++) {
+      for (size_t j = 0; j < vstorage->LevelFilesBrief(i).num_files && s.ok();
+           j++) {
+        const auto& fd = vstorage->LevelFilesBrief(i).files[j].fd;
+        std::string fname = TableFileName(immutable_db_options_.db_paths,
+                                          fd.GetNumber(), fd.GetPathId());
+        s = rocksdb::VerifySstFileChecksum(options, env_options, fname);
+      }
+    }
+    if (!s.ok()) {
+      break;
+    }
+  }
+  {
+    InstrumentedMutexLock l(&mutex_);
+    for (auto sv : sv_list) {
+      if (sv && sv->Unref()) {
+        sv->Cleanup();
+        delete sv;
+      }
+    }
+    for (auto cfd : cfd_list) {
+        cfd->Unref();
+    }
+  }
+  return s;
 }
 
 void DBImpl::NotifyOnExternalFileIngested(

@@ -99,7 +99,7 @@ class Repairer {
         env_(db_options.env),
         env_options_(),
         db_options_(SanitizeOptions(dbname_, db_options)),
-        immutable_db_options_(db_options_),
+        immutable_db_options_(ImmutableDBOptions(db_options_)),
         icmp_(default_cf_opts.comparator),
         default_cf_opts_(default_cf_opts),
         default_cf_iopts_(
@@ -176,6 +176,7 @@ class Repairer {
       status = db_impl->NewDB();
       delete db_impl;
     }
+
     if (status.ok()) {
       // Recover using the fresh manifest created by NewDB()
       status =
@@ -246,9 +247,28 @@ class Repairer {
   Status FindFiles() {
     std::vector<std::string> filenames;
     bool found_file = false;
+    std::vector<std::string> to_search_paths;
+
     for (size_t path_id = 0; path_id < db_options_.db_paths.size(); path_id++) {
-      Status status =
-          env_->GetChildren(db_options_.db_paths[path_id].path, &filenames);
+        to_search_paths.push_back(db_options_.db_paths[path_id].path);
+    }
+
+    // search wal_dir if user uses a customize wal_dir
+    bool same = false;
+    Status status = env_->AreFilesSame(db_options_.wal_dir, dbname_, &same);
+    if (status.IsNotSupported()) {
+      same = db_options_.wal_dir == dbname_;
+      status = Status::OK();
+    } else if (!status.ok()) {
+      return status;
+    }
+
+    if (!same) {
+      to_search_paths.push_back(db_options_.wal_dir);
+    }
+
+    for (size_t path_id = 0; path_id < to_search_paths.size(); path_id++) {
+      status = env_->GetChildren(to_search_paths[path_id], &filenames);
       if (!status.ok()) {
         return status;
       }
@@ -261,14 +281,12 @@ class Repairer {
       for (size_t i = 0; i < filenames.size(); i++) {
         if (ParseFileName(filenames[i], &number, &type)) {
           if (type == kDescriptorFile) {
-            assert(path_id == 0);
             manifests_.push_back(filenames[i]);
           } else {
             if (number + 1 > next_file_number_) {
               next_file_number_ = number + 1;
             }
             if (type == kLogFile) {
-              assert(path_id == 0);
               logs_.push_back(number);
             } else if (type == kTableFile) {
               table_fds_.emplace_back(number, static_cast<uint32_t>(path_id),
@@ -288,7 +306,8 @@ class Repairer {
 
   void ConvertLogFilesToTables() {
     for (size_t i = 0; i < logs_.size(); i++) {
-      std::string logname = LogFileName(dbname_, logs_[i]);
+      // we should use LogFileName(wal_dir, logs_[i]) here. user might uses wal_dir option.
+      std::string logname = LogFileName(db_options_.wal_dir, logs_[i]);
       Status status = ConvertLogToTable(logs_[i]);
       if (!status.ok()) {
         ROCKS_LOG_WARN(db_options_.info_log,
@@ -312,7 +331,7 @@ class Repairer {
     };
 
     // Open the log file
-    std::string logname = LogFileName(dbname_, log);
+    std::string logname = LogFileName(db_options_.wal_dir, log);
     unique_ptr<SequentialFile> lfile;
     Status status = env_->NewSequentialFile(
         logname, &lfile, env_->OptimizeForLogRead(env_options_));
@@ -378,16 +397,13 @@ class Repairer {
       ro.total_order_seek = true;
       Arena arena;
       ScopedArenaIterator iter(mem->NewIterator(ro, &arena));
-      EnvOptions optimized_env_options =
-          env_->OptimizeForCompactionTableWrite(env_options_, immutable_db_options_);
-
       int64_t _current_time = 0;
       status = env_->GetCurrentTime(&_current_time);  // ignore error
       const uint64_t current_time = static_cast<uint64_t>(_current_time);
 
       status = BuildTable(
           dbname_, env_, *cfd->ioptions(), *cfd->GetLatestMutableCFOptions(),
-          optimized_env_options, table_cache_, iter.get(),
+          env_options_, table_cache_, iter.get(),
           std::unique_ptr<InternalIterator>(mem->NewRangeTombstoneIterator(ro)),
           &meta, cfd->internal_comparator(),
           cfd->int_tbl_prop_collector_factories(), cfd->GetID(), cfd->GetName(),
@@ -599,11 +615,13 @@ Status GetDefaultCFOptions(
 }  // anonymous namespace
 
 Status RepairDB(const std::string& dbname, const DBOptions& db_options,
-                const std::vector<ColumnFamilyDescriptor>& column_families) {
+                const std::vector<ColumnFamilyDescriptor>& column_families
+                ) {
   ColumnFamilyOptions default_cf_opts;
   Status status = GetDefaultCFOptions(column_families, &default_cf_opts);
   if (status.ok()) {
-    Repairer repairer(dbname, db_options, column_families, default_cf_opts,
+    Repairer repairer(dbname, db_options, column_families,
+                      default_cf_opts,
                       ColumnFamilyOptions() /* unknown_cf_opts */,
                       false /* create_unknown_cfs */);
     status = repairer.Run();
@@ -617,7 +635,8 @@ Status RepairDB(const std::string& dbname, const DBOptions& db_options,
   ColumnFamilyOptions default_cf_opts;
   Status status = GetDefaultCFOptions(column_families, &default_cf_opts);
   if (status.ok()) {
-    Repairer repairer(dbname, db_options, column_families, default_cf_opts,
+    Repairer repairer(dbname, db_options,
+                      column_families, default_cf_opts,
                       unknown_cf_opts, true /* create_unknown_cfs */);
     status = repairer.Run();
   }
@@ -627,7 +646,8 @@ Status RepairDB(const std::string& dbname, const DBOptions& db_options,
 Status RepairDB(const std::string& dbname, const Options& options) {
   DBOptions db_options(options);
   ColumnFamilyOptions cf_options(options);
-  Repairer repairer(dbname, db_options, {}, cf_options /* default_cf_opts */,
+  Repairer repairer(dbname, db_options,
+                    {}, cf_options /* default_cf_opts */,
                     cf_options /* unknown_cf_opts */,
                     true /* create_unknown_cfs */);
   return repairer.Run();

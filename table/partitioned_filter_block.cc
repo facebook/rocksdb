@@ -7,6 +7,7 @@
 
 #include <utility>
 
+#include "monitoring/perf_context_imp.h"
 #include "port/port.h"
 #include "rocksdb/filter_policy.h"
 #include "table/block.h"
@@ -100,19 +101,29 @@ PartitionedFilterBlockReader::PartitionedFilterBlockReader(
 }
 
 PartitionedFilterBlockReader::~PartitionedFilterBlockReader() {
-  {
-    ReadLock rl(&mu_);
-    for (auto it = handle_list_.begin(); it != handle_list_.end(); ++it) {
-      table_->rep_->table_options.block_cache.get()->Release(*it);
-    }
+  // TODO(myabandeh): if instead of filter object we store only the blocks in
+  // block cache, then we don't have to manually earse them from block cache
+  // here.
+  auto block_cache = table_->rep_->table_options.block_cache.get();
+  if (UNLIKELY(block_cache == nullptr)) {
+    return;
   }
   char cache_key[BlockBasedTable::kMaxCacheKeyPrefixSize + kMaxVarint64Length];
-  for (auto it = filter_block_set_.begin(); it != filter_block_set_.end();
-       ++it) {
+  BlockIter biter;
+  BlockHandle handle;
+  idx_on_fltr_blk_->NewIterator(&comparator_, &biter, true);
+  biter.SeekToFirst();
+  for (; biter.Valid(); biter.Next()) {
+    auto input = biter.value();
+    auto s = handle.DecodeFrom(&input);
+    assert(s.ok());
+    if (!s.ok()) {
+      continue;
+    }
     auto key = BlockBasedTable::GetCacheKey(table_->rep_->cache_key_prefix,
                                             table_->rep_->cache_key_prefix_size,
-                                            *it, cache_key);
-    table_->rep_->table_options.block_cache.get()->Erase(key);
+                                            handle, cache_key);
+    block_cache->Erase(key);
   }
 }
 
@@ -132,7 +143,8 @@ bool PartitionedFilterBlockReader::KeyMayMatch(
     return false;
   }
   bool cached = false;
-  auto filter_partition = GetFilterPartition(&filter_handle, no_io, &cached);
+  auto filter_partition = GetFilterPartition(nullptr /* prefetch_buffer */,
+                                             &filter_handle, no_io, &cached);
   if (UNLIKELY(!filter_partition.value)) {
     return true;
   }
@@ -164,7 +176,8 @@ bool PartitionedFilterBlockReader::PrefixMayMatch(
     return false;
   }
   bool cached = false;
-  auto filter_partition = GetFilterPartition(&filter_handle, no_io, &cached);
+  auto filter_partition = GetFilterPartition(nullptr /* prefetch_buffer */,
+                                             &filter_handle, no_io, &cached);
   if (UNLIKELY(!filter_partition.value)) {
     return true;
   }
@@ -194,51 +207,105 @@ Slice PartitionedFilterBlockReader::GetFilterPartitionHandle(
 }
 
 BlockBasedTable::CachableEntry<FilterBlockReader>
-PartitionedFilterBlockReader::GetFilterPartition(Slice* handle_value,
-                                                 const bool no_io,
-                                                 bool* cached) {
+PartitionedFilterBlockReader::GetFilterPartition(
+    FilePrefetchBuffer* prefetch_buffer, Slice* handle_value, const bool no_io,
+    bool* cached) {
   BlockHandle fltr_blk_handle;
   auto s = fltr_blk_handle.DecodeFrom(handle_value);
   assert(s.ok());
   const bool is_a_filter_partition = true;
   auto block_cache = table_->rep_->table_options.block_cache.get();
   if (LIKELY(block_cache != nullptr)) {
-    bool pin_cached_filters =
-        GetLevel() == 0 &&
-        table_->rep_->table_options.pin_l0_filter_and_index_blocks_in_cache;
-    if (pin_cached_filters) {
-      ReadLock rl(&mu_);
-      auto iter = filter_cache_.find(fltr_blk_handle.offset());
-      if (iter != filter_cache_.end()) {
+    if (filter_map_.size() != 0) {
+      auto iter = filter_map_.find(fltr_blk_handle.offset());
+      // This is a possible scenario since block cache might not have had space
+      // for the partition
+      if (iter != filter_map_.end()) {
+        PERF_COUNTER_ADD(block_cache_hit_count, 1);
         RecordTick(statistics(), BLOCK_CACHE_FILTER_HIT);
+        RecordTick(statistics(), BLOCK_CACHE_HIT);
+        RecordTick(statistics(), BLOCK_CACHE_BYTES_READ,
+                   block_cache->GetUsage(iter->second.cache_handle));
         *cached = true;
-        return {iter->second, nullptr};
+        return iter->second;
       }
     }
-    auto filter =
-        table_->GetFilter(fltr_blk_handle, is_a_filter_partition, no_io);
-    if (filter.IsSet()) {
-      WriteLock wl(&mu_);
-      filter_block_set_.insert(fltr_blk_handle);
-      if (pin_cached_filters) {
-        std::pair<uint64_t, FilterBlockReader*> pair(fltr_blk_handle.offset(),
-                                                     filter.value);
-        auto succ = filter_cache_.insert(pair).second;
-        if (succ) {
-          handle_list_.push_back(filter.cache_handle);
-        }  // Otherwise it is already inserted by a concurrent thread
-        *cached = true;
-      }
-    }
-    return filter;
+    return table_->GetFilter(/*prefetch_buffer*/ nullptr, fltr_blk_handle,
+                             is_a_filter_partition, no_io);
   } else {
-    auto filter = table_->ReadFilter(fltr_blk_handle, is_a_filter_partition);
+    auto filter = table_->ReadFilter(prefetch_buffer, fltr_blk_handle,
+                                     is_a_filter_partition);
     return {filter, nullptr};
   }
 }
 
 size_t PartitionedFilterBlockReader::ApproximateMemoryUsage() const {
   return idx_on_fltr_blk_->size();
+}
+
+// TODO(myabandeh): merge this with the same function in IndexReader
+void PartitionedFilterBlockReader::CacheDependencies(bool pin) {
+  // Before read partitions, prefetch them to avoid lots of IOs
+  auto rep = table_->rep_;
+  BlockIter biter;
+  BlockHandle handle;
+  idx_on_fltr_blk_->NewIterator(&comparator_, &biter, true);
+  // Index partitions are assumed to be consecuitive. Prefetch them all.
+  // Read the first block offset
+  biter.SeekToFirst();
+  Slice input = biter.value();
+  Status s = handle.DecodeFrom(&input);
+  assert(s.ok());
+  if (!s.ok()) {
+    ROCKS_LOG_WARN(rep->ioptions.info_log,
+                   "Could not read first index partition");
+    return;
+  }
+  uint64_t prefetch_off = handle.offset();
+
+  // Read the last block's offset
+  biter.SeekToLast();
+  input = biter.value();
+  s = handle.DecodeFrom(&input);
+  assert(s.ok());
+  if (!s.ok()) {
+    ROCKS_LOG_WARN(rep->ioptions.info_log,
+                   "Could not read last index partition");
+    return;
+  }
+  uint64_t last_off = handle.offset() + handle.size() + kBlockTrailerSize;
+  uint64_t prefetch_len = last_off - prefetch_off;
+  std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
+  auto& file = table_->rep_->file;
+  prefetch_buffer.reset(new FilePrefetchBuffer());
+  s = prefetch_buffer->Prefetch(file.get(), prefetch_off, prefetch_len);
+
+  // After prefetch, read the partitions one by one
+  biter.SeekToFirst();
+  Cache* block_cache = rep->table_options.block_cache.get();
+  for (; biter.Valid(); biter.Next()) {
+    input = biter.value();
+    s = handle.DecodeFrom(&input);
+    assert(s.ok());
+    if (!s.ok()) {
+      ROCKS_LOG_WARN(rep->ioptions.info_log, "Could not read index partition");
+      continue;
+    }
+
+    const bool no_io = true;
+    const bool is_a_filter_partition = true;
+    auto filter = table_->GetFilter(prefetch_buffer.get(), handle,
+                                    is_a_filter_partition, !no_io);
+    if (LIKELY(filter.IsSet())) {
+      if (pin) {
+        filter_map_[handle.offset()] = std::move(filter);
+      } else {
+        block_cache->Release(filter.cache_handle);
+      }
+    } else {
+      delete filter.value;
+    }
+  }
 }
 
 }  // namespace rocksdb

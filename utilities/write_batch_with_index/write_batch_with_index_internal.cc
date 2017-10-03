@@ -69,6 +69,7 @@ Status ReadableWriteBatch::GetEntryFromDataOffset(size_t data_offset,
     case kTypeLogData:
       *type = kLogDataRecord;
       break;
+    case kTypeNoop:
     case kTypeBeginPrepareXID:
     case kTypeEndPrepareXID:
     case kTypeCommitXID:

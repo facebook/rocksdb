@@ -736,12 +736,13 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   /**
-   * <p>Private constructor to be used by
+   * <p>Constructor to be used by
    * {@link #getColumnFamilyOptionsFromProps(java.util.Properties)}</p>
+   * and also called via JNI.
    *
    * @param handle native handle to ColumnFamilyOptions instance.
    */
-  private ColumnFamilyOptions(final long handle) {
+  public ColumnFamilyOptions(final long handle) {
     super(handle);
   }
 

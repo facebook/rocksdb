@@ -32,6 +32,7 @@ DateTieredDBImpl::DateTieredDBImpl(
     : db_(db),
       cf_options_(ColumnFamilyOptions(options)),
       ioptions_(ImmutableCFOptions(options)),
+      icomp_(cf_options_.comparator),
       ttl_(ttl),
       column_family_interval_(column_family_interval),
       mutex_(options.statistics.get(), db->GetEnv(), DB_MUTEX_WAIT_MICROS,
@@ -382,7 +383,7 @@ Iterator* DateTieredDBImpl::NewIterator(const ReadOptions& opts) {
       cf_options_.max_sequential_skip_in_iterations, 0);
 
   auto arena = db_iter->GetArena();
-  MergeIteratorBuilder builder(cf_options_.comparator, arena);
+  MergeIteratorBuilder builder(&icomp_, arena);
   for (auto& item : handle_map_) {
     auto handle = item.second;
     builder.AddIterator(db_impl->NewInternalIterator(

@@ -87,10 +87,11 @@ Status DBImpl::FlushMemTableToOutputFile(
       snapshots_.GetAll(&earliest_write_conflict_snapshot);
 
   FlushJob flush_job(
-      dbname_, cfd, immutable_db_options_, mutable_cf_options, env_options_,
-      versions_.get(), &mutex_, &shutting_down_, snapshot_seqs,
-      earliest_write_conflict_snapshot, job_context, log_buffer,
-      directories_.GetDbDir(), directories_.GetDataDir(0U),
+      dbname_, cfd, immutable_db_options_, mutable_cf_options,
+      env_options_for_compaction_, versions_.get(), &mutex_,
+      &shutting_down_, snapshot_seqs, earliest_write_conflict_snapshot,
+      job_context, log_buffer, directories_.GetDbDir(),
+      directories_.GetDataDir(0U),
       GetCompressionFlush(*cfd->ioptions(), mutable_cf_options), stats_,
       &event_logger_, mutable_cf_options.report_bg_io_stats);
 
@@ -515,9 +516,10 @@ Status DBImpl::CompactFilesImpl(
   c.reset(cfd->compaction_picker()->CompactFiles(
       compact_options, input_files, output_level, version->storage_info(),
       *cfd->GetLatestMutableCFOptions(), output_path_id));
-  if (!c) {
-    return Status::Aborted("Another Level 0 compaction is running");
-  }
+  // we already sanitized the set of input files and checked for conflicts
+  // without releasing the lock, so we're guaranteed a compaction can be formed.
+  assert(c != nullptr);
+
   c->SetInputVersion(version);
   // deletion compaction currently not allowed in CompactFiles.
   assert(!c->deletion_compaction());
@@ -531,8 +533,9 @@ Status DBImpl::CompactFilesImpl(
 
   assert(is_snapshot_supported_ || snapshots_.empty());
   CompactionJob compaction_job(
-      job_context->job_id, c.get(), immutable_db_options_, env_options_,
-      versions_.get(), &shutting_down_, log_buffer, directories_.GetDbDir(),
+      job_context->job_id, c.get(), immutable_db_options_,
+      env_options_for_compaction_, versions_.get(), &shutting_down_,
+      log_buffer, directories_.GetDbDir(),
       directories_.GetDataDir(c->output_path_id()), stats_, &mutex_, &bg_error_,
       snapshot_seqs, earliest_write_conflict_snapshot, table_cache_,
       &event_logger_, c->mutable_cf_options()->paranoid_file_checks,
@@ -649,6 +652,8 @@ void DBImpl::NotifyOnCompactionCompleted(
   if (shutting_down_.load(std::memory_order_acquire)) {
     return;
   }
+  Version* current = cfd->current();
+  current->Ref();
   // release lock while notifying events
   mutex_.Unlock();
   TEST_SYNC_POINT("DBImpl::NotifyOnCompactionCompleted::UnlockMutex");
@@ -671,7 +676,7 @@ void DBImpl::NotifyOnCompactionCompleted(
         info.input_files.push_back(fn);
         if (info.table_properties.count(fn) == 0) {
           std::shared_ptr<const TableProperties> tp;
-          auto s = cfd->current()->GetTableProperties(&tp, fmd, &fn);
+          auto s = current->GetTableProperties(&tp, fmd, &fn);
           if (s.ok()) {
             info.table_properties[fn] = tp;
           }
@@ -688,6 +693,7 @@ void DBImpl::NotifyOnCompactionCompleted(
     }
   }
   mutex_.Lock();
+  current->Unref();
   // no need to signal bg_cv_ as it will be signaled at the end of the
   // flush process.
 #endif  // ROCKSDB_LITE
@@ -826,7 +832,7 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
       cfd->ioptions()->compaction_style == kCompactionStyleFIFO) {
     manual.begin = nullptr;
   } else {
-    begin_storage.SetMaxPossibleForUserKey(*begin);
+    begin_storage.SetMinPossibleForUserKey(*begin);
     manual.begin = &begin_storage;
   }
   if (end == nullptr ||
@@ -834,7 +840,7 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
       cfd->ioptions()->compaction_style == kCompactionStyleFIFO) {
     manual.end = nullptr;
   } else {
-    end_storage.SetMinPossibleForUserKey(*end);
+    end_storage.SetMaxPossibleForUserKey(*end);
     manual.end = &end_storage;
   }
 
@@ -1672,11 +1678,12 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 
     assert(is_snapshot_supported_ || snapshots_.empty());
     CompactionJob compaction_job(
-        job_context->job_id, c.get(), immutable_db_options_, env_options_,
-        versions_.get(), &shutting_down_, log_buffer, directories_.GetDbDir(),
+        job_context->job_id, c.get(), immutable_db_options_,
+        env_options_for_compaction_, versions_.get(), &shutting_down_,
+        log_buffer, directories_.GetDbDir(),
         directories_.GetDataDir(c->output_path_id()), stats_, &mutex_,
-        &bg_error_, snapshot_seqs, earliest_write_conflict_snapshot,
-        table_cache_, &event_logger_,
+        &bg_error_, snapshot_seqs,
+        earliest_write_conflict_snapshot, table_cache_, &event_logger_,
         c->mutable_cf_options()->paranoid_file_checks,
         c->mutable_cf_options()->report_bg_io_stats, dbname_,
         &compaction_job_stats);

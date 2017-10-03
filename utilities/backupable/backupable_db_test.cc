@@ -843,7 +843,7 @@ TEST_F(BackupableDBTest, NoDoubleCopy) {
   ASSERT_OK(test_backup_env_->FileExists(backupdir_ + "/shared/00015.sst"));
 
   // MANIFEST file size should be only 100
-  uint64_t size;
+  uint64_t size = 0;
   test_backup_env_->GetFileSize(backupdir_ + "/private/2/MANIFEST-01", &size);
   ASSERT_EQ(100UL, size);
   test_backup_env_->GetFileSize(backupdir_ + "/shared/00015.sst", &size);
@@ -1525,6 +1525,54 @@ TEST_F(BackupableDBTest, LimitBackupsOpened) {
   ASSERT_EQ(4, backup_infos[1].backup_id);
   CloseDBAndBackupEngine();
   DestroyDB(dbname_, options_);
+}
+
+TEST_F(BackupableDBTest, CreateWhenLatestBackupCorrupted) {
+  // we should pick an ID greater than corrupted backups' IDs so creation can
+  // succeed even when latest backup is corrupted.
+  const int kNumKeys = 5000;
+  OpenDBAndBackupEngine(true /* destroy_old_data */);
+  FillDB(db_.get(), 0 /* from */, kNumKeys);
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(),
+                                            true /* flush_before_backup */));
+  ASSERT_OK(file_manager_->CorruptFile(backupdir_ + "/meta/1",
+                                       3 /* bytes_to_corrupt */));
+  CloseDBAndBackupEngine();
+
+  OpenDBAndBackupEngine();
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(),
+                                            true /* flush_before_backup */));
+  std::vector<BackupInfo> backup_infos;
+  backup_engine_->GetBackupInfo(&backup_infos);
+  ASSERT_EQ(1, backup_infos.size());
+  ASSERT_EQ(2, backup_infos[0].backup_id);
+}
+
+TEST_F(BackupableDBTest, WriteOnlyEngine) {
+  // Verify we can open a backup engine and create new ones even if reading old
+  // backups would fail with IOError. IOError is a more serious condition than
+  // corruption and would cause the engine to fail opening. So the only way to
+  // avoid is by not reading old backups at all, i.e., respecting
+  // `max_valid_backups_to_open == 0`.
+  const int kNumKeys = 5000;
+  OpenDBAndBackupEngine(true /* destroy_old_data */);
+  FillDB(db_.get(), 0 /* from */, kNumKeys);
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+  CloseDBAndBackupEngine();
+
+  backupable_options_->max_valid_backups_to_open = 0;
+  // cause any meta-file reads to fail with IOError during Open
+  test_backup_env_->SetDummySequentialFile(true);
+  test_backup_env_->SetDummySequentialFileFailReads(true);
+  OpenDBAndBackupEngine();
+  test_backup_env_->SetDummySequentialFileFailReads(false);
+  test_backup_env_->SetDummySequentialFile(false);
+
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+  std::vector<BackupInfo> backup_infos;
+  backup_engine_->GetBackupInfo(&backup_infos);
+  ASSERT_EQ(1, backup_infos.size());
+  ASSERT_EQ(2, backup_infos[0].backup_id);
 }
 
 }  // anon namespace

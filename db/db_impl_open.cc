@@ -493,6 +493,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
   bool stop_replay_by_wal_filter = false;
   bool stop_replay_for_corruption = false;
   bool flushed = false;
+  uint64_t corrupted_log_number = kMaxSequenceNumber;
   for (auto log_number : log_numbers) {
     // The previous incarnation may not have written any MANIFEST
     // records after allocating this log number.  So we manually
@@ -674,7 +675,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       status = WriteBatchInternal::InsertInto(
           &batch, column_family_memtables_.get(), &flush_scheduler_, true,
           log_number, this, false /* concurrent_memtable_writes */,
-          next_sequence, &has_valid_writes);
+          next_sequence, &has_valid_writes, seq_per_batch_);
       MaybeIgnoreError(&status);
       if (!status.ok()) {
         // We are treating this as a failure while reading since we read valid
@@ -720,6 +721,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
         // We should ignore the error but not continue replaying
         status = Status::OK();
         stop_replay_for_corruption = true;
+        corrupted_log_number = log_number;
         ROCKS_LOG_INFO(immutable_db_options_.info_log,
                        "Point in time recovered to log #%" PRIu64
                        " seq #%" PRIu64,
@@ -739,6 +741,25 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
         (versions_->LastSequence() <= last_sequence)) {
       versions_->SetLastToBeWrittenSequence(last_sequence);
       versions_->SetLastSequence(last_sequence);
+    }
+  }
+  // Compare the corrupted log number to all columnfamily's current log number.
+  // Abort Open() if any column family's log number is greater than
+  // the corrupted log number, which means CF contains data beyond the point of
+  // corruption. This could during PIT recovery when the WAL is corrupted and
+  // some (but not all) CFs are flushed
+  if (stop_replay_for_corruption == true &&
+      (immutable_db_options_.wal_recovery_mode ==
+           WALRecoveryMode::kPointInTimeRecovery ||
+       immutable_db_options_.wal_recovery_mode ==
+           WALRecoveryMode::kTolerateCorruptedTailRecords)) {
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      if (cfd->GetLogNumber() > corrupted_log_number) {
+        ROCKS_LOG_ERROR(immutable_db_options_.info_log,
+                        "Column family inconsistency: SST file contains data"
+                        " beyond the point of corruption.");
+        return Status::Corruption("SST file is ahead of WALs");
+      }
     }
   }
 
@@ -863,11 +884,9 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
       std::vector<SequenceNumber> snapshot_seqs =
           snapshots_.GetAll(&earliest_write_conflict_snapshot);
 
-      EnvOptions optimized_env_options =
-          env_->OptimizeForCompactionTableWrite(env_options_, immutable_db_options_);
       s = BuildTable(
           dbname_, env_, *cfd->ioptions(), mutable_cf_options,
-          optimized_env_options, cfd->table_cache(), iter.get(),
+          env_options_for_compaction_, cfd->table_cache(), iter.get(),
           std::unique_ptr<InternalIterator>(mem->NewRangeTombstoneIterator(ro)),
           &meta, cfd->internal_comparator(),
           cfd->int_tbl_prop_collector_factories(), cfd->GetID(), cfd->GetName(),

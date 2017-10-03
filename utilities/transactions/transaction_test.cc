@@ -5,6 +5,12 @@
 
 #ifndef ROCKSDB_LITE
 
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
+#include "utilities/transactions/transaction_test.h"
+
 #include <algorithm>
 #include <functional>
 #include <string>
@@ -17,7 +23,6 @@
 #include "rocksdb/utilities/transaction_db.h"
 #include "table/mock_table.h"
 #include "util/fault_injection_test_env.h"
-#include "util/logging.h"
 #include "util/random.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
@@ -26,6 +31,7 @@
 #include "util/transaction_test_util.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/string_append/stringappend.h"
+#include "utilities/transactions/pessimistic_transaction_db.h"
 
 #include "port/port.h"
 
@@ -33,106 +39,20 @@ using std::string;
 
 namespace rocksdb {
 
-class TransactionTest
-    : public ::testing::TestWithParam<std::tuple<bool, bool>> {
- public:
-  TransactionDB* db;
-  FaultInjectionTestEnv* env;
-  string dbname;
-  Options options;
-
-  TransactionDBOptions txn_db_options;
-
-  TransactionTest() {
-    options.create_if_missing = true;
-    options.max_write_buffer_number = 2;
-    options.write_buffer_size = 4 * 1024;
-    options.level0_file_num_compaction_trigger = 2;
-    options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
-    env = new FaultInjectionTestEnv(Env::Default());
-    options.env = env;
-    options.concurrent_prepare = std::get<1>(GetParam());
-    dbname = test::TmpDir() + "/transaction_testdb";
-
-    DestroyDB(dbname, options);
-    txn_db_options.transaction_lock_timeout = 0;
-    txn_db_options.default_lock_timeout = 0;
-    Status s;
-    if (std::get<0>(GetParam()) == false) {
-      s = TransactionDB::Open(options, txn_db_options, dbname, &db);
-    } else {
-      s = OpenWithStackableDB();
-    }
-    assert(s.ok());
-  }
-
-  ~TransactionTest() {
-    delete db;
-    DestroyDB(dbname, options);
-    delete env;
-  }
-
-  Status ReOpenNoDelete() {
-    delete db;
-    db = nullptr;
-    env->AssertNoOpenFile();
-    env->DropUnsyncedFileData();
-    env->ResetState();
-    Status s;
-    if (std::get<0>(GetParam()) == false) {
-      s = TransactionDB::Open(options, txn_db_options, dbname, &db);
-    } else {
-      s = OpenWithStackableDB();
-    }
-    return s;
-  }
-
-  Status ReOpen() {
-    delete db;
-    DestroyDB(dbname, options);
-    Status s;
-    if (std::get<0>(GetParam()) == false) {
-      s = TransactionDB::Open(options, txn_db_options, dbname, &db);
-    } else {
-      s = OpenWithStackableDB();
-    }
-    return s;
-  }
-
-  Status OpenWithStackableDB() {
-    std::vector<size_t> compaction_enabled_cf_indices;
-    std::vector<ColumnFamilyDescriptor> column_families{ColumnFamilyDescriptor(
-        kDefaultColumnFamilyName, ColumnFamilyOptions(options))};
-
-    TransactionDB::PrepareWrap(&options, &column_families,
-                               &compaction_enabled_cf_indices);
-    std::vector<ColumnFamilyHandle*> handles;
-    DB* root_db;
-    Options options_copy(options);
-    Status s =
-        DB::Open(options_copy, dbname, column_families, &handles, &root_db);
-    if (s.ok()) {
-      assert(handles.size() == 1);
-      s = TransactionDB::WrapStackableDB(
-          new StackableDB(root_db), txn_db_options,
-          compaction_enabled_cf_indices, handles, &db);
-      delete handles[0];
-    }
-    return s;
-  }
-};
-
-class MySQLStyleTransactionTest : public TransactionTest {};
-
+// TODO(myabandeh): Instantiate the tests with other write policies
 INSTANTIATE_TEST_CASE_P(DBAsBaseDB, TransactionTest,
-                        ::testing::Values(std::make_tuple(false, false)));
+                        ::testing::Values(std::make_tuple(false, false,
+                                                          WRITE_COMMITTED)));
 INSTANTIATE_TEST_CASE_P(StackableDBAsBaseDB, TransactionTest,
-                        ::testing::Values(std::make_tuple(true, false)));
-INSTANTIATE_TEST_CASE_P(MySQLStyleTransactionTest, MySQLStyleTransactionTest,
-                        ::testing::Values(std::make_tuple(false, false),
-                                          std::make_tuple(false, true),
-                                          std::make_tuple(true, false),
-                                          std::make_tuple(true, true)));
+                        ::testing::Values(std::make_tuple(true, false,
+                                                          WRITE_COMMITTED)));
+INSTANTIATE_TEST_CASE_P(
+    MySQLStyleTransactionTest, MySQLStyleTransactionTest,
+    ::testing::Values(std::make_tuple(false, false, WRITE_COMMITTED),
+                      std::make_tuple(false, true, WRITE_COMMITTED),
+                      std::make_tuple(true, false, WRITE_COMMITTED),
+                      std::make_tuple(true, true, WRITE_COMMITTED)));
+
 
 TEST_P(TransactionTest, DoubleEmptyWrite) {
   WriteOptions write_options;
@@ -462,6 +382,37 @@ TEST_P(TransactionTest, DeadlockCycleShared) {
     auto s =
         txns[i]->GetForUpdate(read_options, "0", nullptr, true /* exclusive */);
     ASSERT_TRUE(s.IsDeadlock());
+
+    // Calculate next buffer len, plateau at 5 when 5 records are inserted.
+    const uint32_t curr_dlock_buffer_len_ =
+        (i - 14 > kInitialMaxDeadlocks) ? kInitialMaxDeadlocks : (i - 14);
+
+    auto dlock_buffer = db->GetDeadlockInfoBuffer();
+    ASSERT_EQ(dlock_buffer.size(), curr_dlock_buffer_len_);
+    auto dlock_entry = dlock_buffer[0].path;
+    ASSERT_EQ(dlock_entry.size(), kInitialMaxDeadlocks);
+
+    int64_t curr_waiting_key = 0;
+
+    // Offset of each txn id from the root of the shared dlock tree's txn id.
+    int64_t offset_root = dlock_entry[0].m_txn_id - 1;
+    // Offset of the final entry in the dlock path from the root's txn id.
+    TransactionID leaf_id =
+        dlock_entry[dlock_entry.size() - 1].m_txn_id - offset_root;
+
+    for (auto it = dlock_entry.rbegin(); it != dlock_entry.rend(); it++) {
+      auto dl_node = *it;
+      ASSERT_EQ(dl_node.m_txn_id, offset_root + leaf_id);
+      ASSERT_EQ(dl_node.m_cf_id, 0);
+      ASSERT_EQ(dl_node.m_waiting_key, ToString(curr_waiting_key));
+      ASSERT_EQ(dl_node.m_exclusive, true);
+
+      if (curr_waiting_key == 0) {
+        curr_waiting_key = leaf_id;
+      }
+      curr_waiting_key /= 2;
+      leaf_id /= 2;
+    }
   }
 
   // Rollback the leaf transaction.
@@ -473,6 +424,102 @@ TEST_P(TransactionTest, DeadlockCycleShared) {
   for (auto& t : threads) {
     t.join();
   }
+
+  // Downsize the buffer and verify the 3 latest deadlocks are preserved.
+  auto dlock_buffer_before_resize = db->GetDeadlockInfoBuffer();
+  db->SetDeadlockInfoBufferSize(3);
+  auto dlock_buffer_after_resize = db->GetDeadlockInfoBuffer();
+  ASSERT_EQ(dlock_buffer_after_resize.size(), 3);
+
+  for (uint32_t i = 0; i < dlock_buffer_after_resize.size(); i++) {
+    for (uint32_t j = 0; j < dlock_buffer_after_resize[i].path.size(); j++) {
+      ASSERT_EQ(dlock_buffer_after_resize[i].path[j].m_txn_id,
+                dlock_buffer_before_resize[i].path[j].m_txn_id);
+    }
+  }
+
+  // Upsize the buffer and verify the 3 latest dealocks are preserved.
+  dlock_buffer_before_resize = db->GetDeadlockInfoBuffer();
+  db->SetDeadlockInfoBufferSize(5);
+  dlock_buffer_after_resize = db->GetDeadlockInfoBuffer();
+  ASSERT_EQ(dlock_buffer_after_resize.size(), 3);
+
+  for (uint32_t i = 0; i < dlock_buffer_before_resize.size(); i++) {
+    for (uint32_t j = 0; j < dlock_buffer_before_resize[i].path.size(); j++) {
+      ASSERT_EQ(dlock_buffer_after_resize[i].path[j].m_txn_id,
+                dlock_buffer_before_resize[i].path[j].m_txn_id);
+    }
+  }
+
+  // Downsize to 0 and verify the size is consistent.
+  dlock_buffer_before_resize = db->GetDeadlockInfoBuffer();
+  db->SetDeadlockInfoBufferSize(0);
+  dlock_buffer_after_resize = db->GetDeadlockInfoBuffer();
+  ASSERT_EQ(dlock_buffer_after_resize.size(), 0);
+
+  // Upsize from 0 to verify the size is persistent.
+  dlock_buffer_before_resize = db->GetDeadlockInfoBuffer();
+  db->SetDeadlockInfoBufferSize(3);
+  dlock_buffer_after_resize = db->GetDeadlockInfoBuffer();
+  ASSERT_EQ(dlock_buffer_after_resize.size(), 0);
+
+  // Contrived case of shared lock of cycle size 2 to verify that a shared
+  // lock causing a deadlock is correctly reported as "shared" in the buffer.
+  std::vector<Transaction*> txns_shared(2);
+
+  // Create a cycle of size 2.
+  for (uint32_t i = 0; i < 2; i++) {
+    txns_shared[i] = db->BeginTransaction(write_options, txn_options);
+    ASSERT_TRUE(txns_shared[i]);
+    auto s = txns_shared[i]->GetForUpdate(read_options, ToString(i), nullptr);
+    ASSERT_OK(s);
+  }
+
+  std::atomic<uint32_t> checkpoints_shared(0);
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "TransactionLockMgr::AcquireWithTimeout:WaitingTxn",
+      [&](void* arg) { checkpoints_shared.fetch_add(1); });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  std::vector<port::Thread> threads_shared;
+  for (uint32_t i = 0; i < 1; i++) {
+    std::function<void()> blocking_thread = [&, i] {
+      auto s =
+          txns_shared[i]->GetForUpdate(read_options, ToString(i + 1), nullptr);
+      ASSERT_OK(s);
+      txns_shared[i]->Rollback();
+      delete txns_shared[i];
+    };
+    threads_shared.emplace_back(blocking_thread);
+  }
+
+  // Wait until all threads are waiting on each other.
+  while (checkpoints_shared.load() != 1) {
+    /* sleep override */
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // Complete the cycle T2 -> T1 with a shared lock.
+  auto s = txns_shared[1]->GetForUpdate(read_options, "0", nullptr, false);
+  ASSERT_TRUE(s.IsDeadlock());
+
+  auto dlock_buffer = db->GetDeadlockInfoBuffer();
+
+  // Verify the size of the buffer and the single path.
+  ASSERT_EQ(dlock_buffer.size(), 1);
+  ASSERT_EQ(dlock_buffer[0].path.size(), 2);
+
+  // Verify the exclusivity field of the transactions in the deadlock path.
+  ASSERT_TRUE(dlock_buffer[0].path[0].m_exclusive);
+  ASSERT_FALSE(dlock_buffer[0].path[1].m_exclusive);
+  txns_shared[1]->Rollback();
+  delete txns_shared[1];
+
+  for (auto& t : threads_shared) {
+    t.join();
+  }
 }
 
 TEST_P(TransactionTest, DeadlockCycle) {
@@ -480,7 +527,8 @@ TEST_P(TransactionTest, DeadlockCycle) {
   ReadOptions read_options;
   TransactionOptions txn_options;
 
-  const uint32_t kMaxCycleLength = 50;
+  // offset by 2 from the max depth to test edge case
+  const uint32_t kMaxCycleLength = 52;
 
   txn_options.lock_timeout = 1000000;
   txn_options.deadlock_detect = true;
@@ -489,6 +537,7 @@ TEST_P(TransactionTest, DeadlockCycle) {
     // Set up a long wait for chain like this:
     //
     // T1 -> T2 -> T3 -> ... -> Tlen
+
     std::vector<Transaction*> txns(len);
 
     for (uint32_t i = 0; i < len; i++) {
@@ -509,8 +558,7 @@ TEST_P(TransactionTest, DeadlockCycle) {
     std::vector<port::Thread> threads;
     for (uint32_t i = 0; i < len - 1; i++) {
       std::function<void()> blocking_thread = [&, i] {
-        auto s =
-            txns[i]->GetForUpdate(read_options, ToString(i + 1), nullptr);
+        auto s = txns[i]->GetForUpdate(read_options, ToString(i + 1), nullptr);
         ASSERT_OK(s);
         txns[i]->Rollback();
         delete txns[i];
@@ -529,6 +577,39 @@ TEST_P(TransactionTest, DeadlockCycle) {
     // Complete the cycle Tlen -> T1
     auto s = txns[len - 1]->GetForUpdate(read_options, "0", nullptr);
     ASSERT_TRUE(s.IsDeadlock());
+
+    const uint32_t dlock_buffer_size_ = (len - 1 > 5) ? 5 : (len - 1);
+    uint32_t curr_waiting_key = 0;
+    TransactionID curr_txn_id = txns[0]->GetID();
+
+    auto dlock_buffer = db->GetDeadlockInfoBuffer();
+    ASSERT_EQ(dlock_buffer.size(), dlock_buffer_size_);
+    uint32_t check_len = len;
+    bool check_limit_flag = false;
+
+    // Special case for a deadlock path that exceeds the maximum depth.
+    if (len > 50) {
+      check_len = 0;
+      check_limit_flag = true;
+    }
+    auto dlock_entry = dlock_buffer[0].path;
+    ASSERT_EQ(dlock_entry.size(), check_len);
+    ASSERT_EQ(dlock_buffer[0].limit_exceeded, check_limit_flag);
+
+    // Iterates backwards over path verifying decreasing txn_ids.
+    for (auto it = dlock_entry.rbegin(); it != dlock_entry.rend(); it++) {
+      auto dl_node = *it;
+      ASSERT_EQ(dl_node.m_txn_id, len + curr_txn_id - 1);
+      ASSERT_EQ(dl_node.m_cf_id, 0);
+      ASSERT_EQ(dl_node.m_waiting_key, ToString(curr_waiting_key));
+      ASSERT_EQ(dl_node.m_exclusive, true);
+
+      curr_txn_id--;
+      if (curr_waiting_key == 0) {
+        curr_waiting_key = len;
+      }
+      curr_waiting_key--;
+    }
 
     // Rollback the last transaction.
     txns[len - 1]->Rollback();
@@ -1480,7 +1561,7 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest2) {
 
   // request a flush for all column families such that the earliest
   // alive log file can be killed
-  db_impl->TEST_HandleWALFull();
+  db_impl->TEST_SwitchWAL();
   // log cannot be flushed because txn2 has not been commited
   ASSERT_TRUE(!db_impl->TEST_IsLogGettingFlushed());
   ASSERT_TRUE(db_impl->TEST_UnableToFlushOldestLog());
@@ -1495,7 +1576,7 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest2) {
   s = txn2->Commit();
   ASSERT_OK(s);
 
-  db_impl->TEST_HandleWALFull();
+  db_impl->TEST_SwitchWAL();
   ASSERT_TRUE(!db_impl->TEST_UnableToFlushOldestLog());
 
   // we should see that cfb now has a flush requested
@@ -4557,6 +4638,109 @@ TEST_P(TransactionTest, MemoryLimitTest) {
 
   txn->Rollback();
   delete txn;
+}
+
+// This test clarifies the existing expectation from the sequence number
+// algorithm. It could detect mistakes in updating the code but it is not
+// necessarily the one acceptable way. If the algorithm is legitimately changed,
+// this unit test should be updated as well.
+TEST_P(TransactionTest, SeqAdvanceTest) {
+  WriteOptions wopts;
+  FlushOptions fopt;
+
+  // Do the test with NUM_BRANCHES branches in it. Each run of a test takes some
+  // of the branches. This is the same as counting a binary number where i-th
+  // bit represents whether we take branch i in the represented by the number.
+  const size_t NUM_BRANCHES = 8;
+  // Helper function that shows if the branch is to be taken in the run
+  // represented by the number n.
+  auto branch_do = [&](size_t n, size_t* branch) {
+    assert(*branch < NUM_BRANCHES);
+    const size_t filter = static_cast<size_t>(1) << *branch;
+    return n & filter;
+  };
+  const size_t max_n = static_cast<size_t>(1) << NUM_BRANCHES;
+  for (size_t n = 0; n < max_n; n++, ReOpen()) {
+    DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+    size_t branch = 0;
+    auto seq = db_impl->GetLatestSequenceNumber();
+    exp_seq = seq;
+    txn_t0(0);
+    seq = db_impl->GetLatestSequenceNumber();
+    ASSERT_EQ(exp_seq, seq);
+
+    if (branch_do(n, &branch)) {
+      db_impl->Flush(fopt);
+      seq = db_impl->GetLatestSequenceNumber();
+      ASSERT_EQ(exp_seq, seq);
+    }
+    if (branch_do(n, &branch)) {
+      db_impl->FlushWAL(true);
+      ReOpenNoDelete();
+      db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+      seq = db_impl->GetLatestSequenceNumber();
+      ASSERT_EQ(exp_seq, seq);
+    }
+
+    // Doing it twice might detect some bugs
+    txn_t0(1);
+    seq = db_impl->GetLatestSequenceNumber();
+    ASSERT_EQ(exp_seq, seq);
+
+    txn_t1(0);
+    seq = db_impl->GetLatestSequenceNumber();
+    ASSERT_EQ(exp_seq, seq);
+
+    if (branch_do(n, &branch)) {
+      db_impl->Flush(fopt);
+      seq = db_impl->GetLatestSequenceNumber();
+      ASSERT_EQ(exp_seq, seq);
+    }
+    if (branch_do(n, &branch)) {
+      db_impl->FlushWAL(true);
+      ReOpenNoDelete();
+      db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+      seq = db_impl->GetLatestSequenceNumber();
+      ASSERT_EQ(exp_seq, seq);
+    }
+
+    txn_t3(0);
+    // Since commit marker does not write to memtable, the last seq number is
+    // not updated immediately. But the advance should be visible after the next
+    // write.
+
+    if (branch_do(n, &branch)) {
+      db_impl->Flush(fopt);
+    }
+    if (branch_do(n, &branch)) {
+      db_impl->FlushWAL(true);
+      ReOpenNoDelete();
+      db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+      seq = db_impl->GetLatestSequenceNumber();
+      ASSERT_EQ(exp_seq, seq);
+    }
+
+    txn_t0(0);
+    seq = db_impl->GetLatestSequenceNumber();
+    ASSERT_EQ(exp_seq, seq);
+
+    txn_t2(0);
+    seq = db_impl->GetLatestSequenceNumber();
+    ASSERT_EQ(exp_seq, seq);
+
+    if (branch_do(n, &branch)) {
+      db_impl->Flush(fopt);
+      seq = db_impl->GetLatestSequenceNumber();
+      ASSERT_EQ(exp_seq, seq);
+    }
+    if (branch_do(n, &branch)) {
+      db_impl->FlushWAL(true);
+      ReOpenNoDelete();
+      db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+      seq = db_impl->GetLatestSequenceNumber();
+      ASSERT_EQ(exp_seq, seq);
+    }
+  }
 }
 
 }  // namespace rocksdb

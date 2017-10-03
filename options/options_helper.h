@@ -283,7 +283,8 @@ static std::unordered_map<std::string, OptionTypeInfo> db_options_type_info = {
       OptionVerificationType::kNormal, false, 0}},
     {"bytes_per_sync",
      {offsetof(struct DBOptions, bytes_per_sync), OptionType::kUInt64T,
-      OptionVerificationType::kNormal, false, 0}},
+      OptionVerificationType::kNormal, true,
+      offsetof(struct MutableDBOptions, bytes_per_sync)}},
     {"delayed_write_rate",
      {offsetof(struct DBOptions, delayed_write_rate), OptionType::kUInt64T,
       OptionVerificationType::kNormal, true,
@@ -301,7 +302,8 @@ static std::unordered_map<std::string, OptionTypeInfo> db_options_type_info = {
       offsetof(struct MutableDBOptions, max_total_wal_size)}},
     {"wal_bytes_per_sync",
      {offsetof(struct DBOptions, wal_bytes_per_sync), OptionType::kUInt64T,
-      OptionVerificationType::kNormal, false, 0}},
+      OptionVerificationType::kNormal, true,
+      offsetof(struct MutableDBOptions, wal_bytes_per_sync)}},
     {"stats_dump_period_sec",
      {offsetof(struct DBOptions, stats_dump_period_sec), OptionType::kUInt,
       OptionVerificationType::kNormal, true,
@@ -354,7 +356,11 @@ static std::unordered_map<std::string, OptionTypeInfo> db_options_type_info = {
     {"manual_wal_flush",
      {offsetof(struct DBOptions, manual_wal_flush), OptionType::kBoolean,
       OptionVerificationType::kNormal, false,
-      offsetof(struct ImmutableDBOptions, manual_wal_flush)}}};
+      offsetof(struct ImmutableDBOptions, manual_wal_flush)}},
+    {"seq_per_batch",
+     {offsetof(struct DBOptions, seq_per_batch), OptionType::kBoolean,
+      OptionVerificationType::kNormal, false,
+      offsetof(struct ImmutableDBOptions, seq_per_batch)}}};
 
 // offset_of is used to get the offset of a class data member
 // ex: offset_of(&ColumnFamilyOptions::num_levels)
@@ -414,7 +420,7 @@ static std::unordered_map<std::string, OptionTypeInfo> cf_options_type_info = {
       OptionType::kBoolean, OptionVerificationType::kNormal, false, 0}},
     {"purge_redundant_kvs_while_flush",
      {offset_of(&ColumnFamilyOptions::purge_redundant_kvs_while_flush),
-      OptionType::kBoolean, OptionVerificationType::kNormal, false, 0}},
+      OptionType::kBoolean, OptionVerificationType::kDeprecated, false, 0}},
     {"verify_checksums_in_compaction",
      {0, OptionType::kBoolean, OptionVerificationType::kDeprecated, true, 0}},
     {"soft_pending_compaction_bytes_limit",

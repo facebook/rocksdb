@@ -47,6 +47,8 @@ enum ValueType : unsigned char {
   kTypeNoop = 0xD,                        // WAL only.
   kTypeColumnFamilyRangeDeletion = 0xE,   // WAL only.
   kTypeRangeDeletion = 0xF,               // meta block
+  kTypeColumnFamilyBlobIndex = 0x10,      // Blob DB only
+  kTypeBlobIndex = 0x11,                  // Blob DB only
   kMaxValue = 0x7F                        // Not used for storing records.
 };
 
@@ -57,7 +59,7 @@ extern const ValueType kValueTypeForSeekForPrev;
 // Checks whether a type is an inline value type
 // (i.e. a type used in memtable skiplist and sst file datablock).
 inline bool IsValueType(ValueType t) {
-  return t <= kTypeMerge || t == kTypeSingleDeletion;
+  return t <= kTypeMerge || t == kTypeSingleDeletion || t == kTypeBlobIndex;
 }
 
 // Checks whether a type is from user operation
@@ -136,7 +138,11 @@ inline ValueType ExtractValueType(const Slice& internal_key) {
 
 // A comparator for internal keys that uses a specified comparator for
 // the user key portion and breaks ties by decreasing sequence number.
-class InternalKeyComparator : public Comparator {
+class InternalKeyComparator
+#ifdef NDEBUG
+    final
+#endif
+    : public Comparator {
  private:
   const Comparator* user_comparator_;
   std::string name_;
@@ -177,15 +183,15 @@ class InternalKey {
   // sets the internal key to be bigger or equal to all internal keys with this
   // user key
   void SetMaxPossibleForUserKey(const Slice& _user_key) {
-    AppendInternalKey(&rep_, ParsedInternalKey(_user_key, kMaxSequenceNumber,
-                                               kValueTypeForSeek));
+    AppendInternalKey(
+        &rep_, ParsedInternalKey(_user_key, 0, static_cast<ValueType>(0)));
   }
 
   // sets the internal key to be smaller or equal to all internal keys with this
   // user key
   void SetMinPossibleForUserKey(const Slice& _user_key) {
-    AppendInternalKey(
-        &rep_, ParsedInternalKey(_user_key, 0, static_cast<ValueType>(0)));
+    AppendInternalKey(&rep_, ParsedInternalKey(_user_key, kMaxSequenceNumber,
+                                               kValueTypeForSeek));
   }
 
   bool Valid() const {
@@ -500,12 +506,11 @@ class IterKey {
     // If size is smaller than buffer size, continue using current buffer,
     // or the static allocated one, as default
     if (key_size > buf_size_) {
-      // Need to enlarge the buffer.
-      ResetBuffer();
-      buf_ = new char[key_size];
-      buf_size_ = key_size;
+      EnlargeBuffer(key_size);
     }
   }
+
+  void EnlargeBuffer(size_t key_size);
 
   // No copying allowed
   IterKey(const IterKey&) = delete;

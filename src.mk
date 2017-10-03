@@ -193,17 +193,27 @@ LIB_SOURCES =                                                   \
   utilities/spatialdb/spatial_db.cc                             \
   utilities/table_properties_collectors/compact_on_deletion_collector.cc \
   utilities/transactions/optimistic_transaction_db_impl.cc      \
-  utilities/transactions/optimistic_transaction_impl.cc         \
+  utilities/transactions/optimistic_transaction.cc         \
   utilities/transactions/transaction_base.cc                    \
   utilities/transactions/pessimistic_transaction_db.cc                 \
   utilities/transactions/transaction_db_mutex_impl.cc           \
-  utilities/transactions/transaction_impl.cc                    \
+  utilities/transactions/pessimistic_transaction.cc                    \
   utilities/transactions/transaction_lock_mgr.cc                \
   utilities/transactions/transaction_util.cc                    \
-  utilities/transactions/write_prepared_transaction_impl.cc     \
+  utilities/transactions/write_prepared_txn.cc     \
   utilities/ttl/db_ttl_impl.cc                                  \
   utilities/write_batch_with_index/write_batch_with_index.cc    \
   utilities/write_batch_with_index/write_batch_with_index_internal.cc    \
+
+ifeq (,$(shell $(CXX) -fsyntax-only -maltivec -xc /dev/null 2>&1))
+LIB_SOURCES_ASM =\
+  util/crc32c_ppc_asm.S
+LIB_SOURCES_C = \
+  util/crc32c_ppc.c
+else
+LIB_SOURCES_ASM =
+LIB_SOURCES_C =
+endif
 
 TOOL_LIB_SOURCES = \
   tools/ldb_cmd.cc                                               \
@@ -354,6 +364,7 @@ MAIN_SOURCES =                                                    \
   utilities/table_properties_collectors/compact_on_deletion_collector_test.cc  \
   utilities/transactions/optimistic_transaction_test.cc                 \
   utilities/transactions/transaction_test.cc                            \
+  utilities/transactions/write_prepared_transaction_test.cc             \
   utilities/ttl/ttl_test.cc                                             \
   utilities/write_batch_with_index/write_batch_with_index_test.cc       \
 
@@ -379,9 +390,11 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/memtablejni.cc                                \
   java/rocksjni/merge_operator.cc                             \
   java/rocksjni/options.cc                                    \
+  java/rocksjni/options_util.cc                               \
   java/rocksjni/ratelimiterjni.cc                             \
   java/rocksjni/remove_emptyvalue_compactionfilterjni.cc      \
   java/rocksjni/cassandra_compactionfilterjni.cc              \
+  java/rocksjni/cassandra_value_operator.cc                   \
   java/rocksjni/restorejni.cc                                 \
   java/rocksjni/rocksjni.cc                                   \
   java/rocksjni/rocksdb_exception_test.cc                     \

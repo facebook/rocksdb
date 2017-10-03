@@ -28,6 +28,7 @@
 #include "db/flush_scheduler.h"
 #include "db/internal_stats.h"
 #include "db/log_writer.h"
+#include "db/read_callback.h"
 #include "db/snapshot_impl.h"
 #include "db/version_edit.h"
 #include "db/wal_manager.h"
@@ -52,6 +53,7 @@
 
 namespace rocksdb {
 
+class ArenaWrappedDBIter;
 class MemTable;
 class TableCache;
 class Version;
@@ -123,6 +125,7 @@ class DBImpl : public DB {
                            ColumnFamilyHandle* column_family, const Slice& key,
                            std::string* value,
                            bool* value_found = nullptr) override;
+
   using DB::NewIterator;
   virtual Iterator* NewIterator(const ReadOptions& options,
                                 ColumnFamilyHandle* column_family) override;
@@ -130,15 +133,20 @@ class DBImpl : public DB {
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families,
       std::vector<Iterator*>* iterators) override;
+  ArenaWrappedDBIter* NewIteratorImpl(const ReadOptions& options,
+                                      ColumnFamilyData* cfd,
+                                      SequenceNumber snapshot,
+                                      bool allow_blob = false);
+
   virtual const Snapshot* GetSnapshot() override;
   virtual void ReleaseSnapshot(const Snapshot* snapshot) override;
   using DB::GetProperty;
   virtual bool GetProperty(ColumnFamilyHandle* column_family,
                            const Slice& property, std::string* value) override;
   using DB::GetMapProperty;
-  virtual bool GetMapProperty(ColumnFamilyHandle* column_family,
-                              const Slice& property,
-                              std::map<std::string, double>* value) override;
+  virtual bool GetMapProperty(
+      ColumnFamilyHandle* column_family, const Slice& property,
+      std::map<std::string, std::string>* value) override;
   using DB::GetIntProperty;
   virtual bool GetIntProperty(ColumnFamilyHandle* column_family,
                               const Slice& property, uint64_t* value) override;
@@ -293,6 +301,8 @@ class DBImpl : public DB {
       const std::vector<std::string>& external_files,
       const IngestExternalFileOptions& ingestion_options) override;
 
+  virtual Status VerifyChecksum() override;
+
 #endif  // ROCKSDB_LITE
 
   // Similar to GetSnapshot(), but also lets the db know that this snapshot
@@ -329,7 +339,7 @@ class DBImpl : public DB {
                            ColumnFamilyHandle* column_family = nullptr,
                            bool disallow_trivial_move = false);
 
-  void TEST_HandleWALFull();
+  void TEST_SwitchWAL();
 
   bool TEST_UnableToFlushOldestLog() {
     return unable_to_flush_oldest_log_;
@@ -338,6 +348,8 @@ class DBImpl : public DB {
   bool TEST_IsLogGettingFlushed() {
     return alive_log_files_.begin()->getting_flushed;
   }
+
+  Status TEST_SwitchMemtable(ColumnFamilyData* cfd = nullptr);
 
   // Force current memtable contents to be flushed.
   Status TEST_FlushMemTable(bool wait = true,
@@ -507,9 +519,11 @@ class DBImpl : public DB {
     uint64_t log_number_;
     std::string name_;
     WriteBatch* batch_;
+    // The seq number of the first key in the batch
+    SequenceNumber seq_;
     explicit RecoveredTransaction(const uint64_t log, const std::string& name,
-                                  WriteBatch* batch)
-        : log_number_(log), name_(name), batch_(batch) {}
+                                  WriteBatch* batch, SequenceNumber seq)
+        : log_number_(log), name_(name), batch_(batch), seq_(seq) {}
 
     ~RecoveredTransaction() { delete batch_; }
   };
@@ -531,8 +545,9 @@ class DBImpl : public DB {
   }
 
   void InsertRecoveredTransaction(const uint64_t log, const std::string& name,
-                                  WriteBatch* batch) {
-    recovered_transactions_[name] = new RecoveredTransaction(log, name, batch);
+                                  WriteBatch* batch, SequenceNumber seq) {
+    recovered_transactions_[name] =
+        new RecoveredTransaction(log, name, batch, seq);
     MarkLogAsContainingPrepSection(log);
   }
 
@@ -614,16 +629,18 @@ class DBImpl : public DB {
   Status WriteImpl(const WriteOptions& options, WriteBatch* updates,
                    WriteCallback* callback = nullptr,
                    uint64_t* log_used = nullptr, uint64_t log_ref = 0,
-                   bool disable_memtable = false);
+                   bool disable_memtable = false, uint64_t* seq_used = nullptr);
 
   Status PipelinedWriteImpl(const WriteOptions& options, WriteBatch* updates,
                             WriteCallback* callback = nullptr,
                             uint64_t* log_used = nullptr, uint64_t log_ref = 0,
-                            bool disable_memtable = false);
+                            bool disable_memtable = false,
+                            uint64_t* seq_used = nullptr);
 
   Status WriteImplWALOnly(const WriteOptions& options, WriteBatch* updates,
                           WriteCallback* callback = nullptr,
-                          uint64_t* log_used = nullptr, uint64_t log_ref = 0);
+                          uint64_t* log_used = nullptr, uint64_t log_ref = 0,
+                          uint64_t* seq_used = nullptr);
 
   uint64_t FindMinLogContainingOutstandingPrep();
   uint64_t FindMinPrepLogReferencedByMemTable();
@@ -631,16 +648,20 @@ class DBImpl : public DB {
  private:
   friend class DB;
   friend class InternalStats;
-  friend class PessimisticTxn;
-  friend class WriteCommittedTxnImpl;
-  friend class WritePreparedTxnImpl;
+  friend class PessimisticTransaction;
+  friend class WriteCommittedTxn;
+  friend class WritePreparedTxn;
+  friend class WritePreparedTxnDB;
+  friend class WriteBatchWithIndex;
 #ifndef ROCKSDB_LITE
   friend class ForwardIterator;
 #endif
   friend struct SuperVersion;
   friend class CompactedDBImpl;
 #ifndef NDEBUG
+  friend class DBTest2_ReadCallbackTest_Test;
   friend class XFTransactionWriteHandler;
+  friend class DBBlobIndexTest;
 #endif
   struct CompactionState;
 
@@ -681,9 +702,8 @@ class DBImpl : public DB {
   // Delete any unneeded files and stale in-memory entries.
   void DeleteObsoleteFiles();
   // Delete obsolete files and log status and information of file deletion
-  void DeleteObsoleteFileImpl(Status file_deletion_status, int job_id,
-                              const std::string& fname, FileType type,
-                              uint64_t number, uint32_t path_id);
+  void DeleteObsoleteFileImpl(int job_id, const std::string& fname,
+                              FileType type, uint64_t number, uint32_t path_id);
 
   // Background process needs to call
   //     auto x = CaptureCurrentFileNumberInPendingOutputs()
@@ -744,7 +764,7 @@ class DBImpl : public DB {
   Status WaitForFlushMemTable(ColumnFamilyData* cfd);
 
   // REQUIRES: mutex locked
-  Status HandleWALFull(WriteContext* write_context);
+  Status SwitchWAL(WriteContext* write_context);
 
   // REQUIRES: mutex locked
   Status HandleWriteBufferFull(WriteContext* write_context);
@@ -766,7 +786,7 @@ class DBImpl : public DB {
 
   Status ConcurrentWriteToWAL(const WriteThread::WriteGroup& write_group,
                               uint64_t* log_used, SequenceNumber* last_sequence,
-                              int total_count);
+                              size_t seq_inc);
 
   // Used by WriteImpl to update bg_error_ if paranoid check is enabled.
   void WriteCallbackStatusCheck(const Status& status);
@@ -1162,6 +1182,9 @@ class DBImpl : public DB {
   // The options to access storage files
   const EnvOptions env_options_;
 
+  // Additonal options for compaction and flush
+  EnvOptions env_options_for_compaction_;
+
   // Number of running IngestExternalFile() calls.
   // REQUIRES: mutex held
   int num_running_ingest_file_;
@@ -1241,7 +1264,8 @@ class DBImpl : public DB {
   // Note: 'value_found' from KeyMayExist propagates here
   Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
                  const Slice& key, PinnableSlice* value,
-                 bool* value_found = nullptr);
+                 bool* value_found = nullptr, ReadCallback* callback = nullptr,
+                 bool* is_blob_index = nullptr);
 
   bool GetIntPropertyInternal(ColumnFamilyData* cfd,
                               const DBPropertyInfo& property_info,
@@ -1261,6 +1285,7 @@ class DBImpl : public DB {
   // 2PC these are the writes at Prepare phase.
   const bool concurrent_prepare_;
   const bool manual_wal_flush_;
+  const bool seq_per_batch_;
 };
 
 extern Options SanitizeOptions(const std::string& db,

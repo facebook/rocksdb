@@ -169,8 +169,26 @@ class Transaction {
                      ColumnFamilyHandle* column_family, const Slice& key,
                      std::string* value) = 0;
 
+  // An overload of the the above method that receives a PinnableSlice
+  // For backward compatiblity a default implementation is provided
+  virtual Status Get(const ReadOptions& options,
+                     ColumnFamilyHandle* column_family, const Slice& key,
+                     PinnableSlice* pinnable_val) {
+    assert(pinnable_val != nullptr);
+    auto s = Get(options, column_family, key, pinnable_val->GetSelf());
+    pinnable_val->PinSelf();
+    return s;
+  }
+
   virtual Status Get(const ReadOptions& options, const Slice& key,
                      std::string* value) = 0;
+  virtual Status Get(const ReadOptions& options, const Slice& key,
+                     PinnableSlice* pinnable_val) {
+    assert(pinnable_val != nullptr);
+    auto s = Get(options, key, pinnable_val->GetSelf());
+    pinnable_val->PinSelf();
+    return s;
+  }
 
   virtual std::vector<Status> MultiGet(
       const ReadOptions& options,
@@ -211,6 +229,22 @@ class Transaction {
                               ColumnFamilyHandle* column_family,
                               const Slice& key, std::string* value,
                               bool exclusive = true) = 0;
+
+  // An overload of the the above method that receives a PinnableSlice
+  // For backward compatiblity a default implementation is provided
+  virtual Status GetForUpdate(const ReadOptions& options,
+                              ColumnFamilyHandle* column_family,
+                              const Slice& key, PinnableSlice* pinnable_val,
+                              bool exclusive = true) {
+    if (pinnable_val == nullptr) {
+      std::string* null_str = nullptr;
+      return GetForUpdate(options, key, null_str);
+    } else {
+      auto s = GetForUpdate(options, key, pinnable_val->GetSelf());
+      pinnable_val->PinSelf();
+      return s;
+    }
+  }
 
   virtual Status GetForUpdate(const ReadOptions& options, const Slice& key,
                               std::string* value, bool exclusive = true) = 0;
@@ -310,6 +344,10 @@ class Transaction {
   virtual Status DeleteUntracked(ColumnFamilyHandle* column_family,
                                  const SliceParts& key) = 0;
   virtual Status DeleteUntracked(const SliceParts& key) = 0;
+  virtual Status SingleDeleteUntracked(ColumnFamilyHandle* column_family,
+                                       const Slice& key) = 0;
+
+  virtual Status SingleDeleteUntracked(const Slice& key) = 0;
 
   // Similar to WriteBatch::PutLogData
   virtual void PutLogData(const Slice& blob) = 0;
@@ -422,6 +460,14 @@ class Transaction {
   TransactionState GetState() const { return txn_state_; }
   void SetState(TransactionState state) { txn_state_ = state; }
 
+  // NOTE: Experimental feature
+  // The globally unique id with which the transaction is identified. This id
+  // might or might not be set depending on the implementation. Similarly the
+  // implementation decides the point in lifetime of a transaction at which it
+  // assigns the id. Although currently it is the case, the id is not guaranteed
+  // to remain the same across restarts.
+  uint64_t GetId() { return id_; }
+
  protected:
   explicit Transaction(const TransactionDB* db) {}
   Transaction() {}
@@ -434,7 +480,14 @@ class Transaction {
   // Execution status of the transaction.
   std::atomic<TransactionState> txn_state_;
 
+  uint64_t id_ = 0;
+  virtual void SetId(uint64_t id) {
+    assert(id_ == 0);
+    id_ = id;
+  }
+
  private:
+  friend class PessimisticTransactionDB;
   // No copying allowed
   Transaction(const Transaction&);
   void operator=(const Transaction&);

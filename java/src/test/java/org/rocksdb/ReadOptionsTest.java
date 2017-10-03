@@ -5,6 +5,7 @@
 
 package org.rocksdb;
 
+import java.util.Arrays;
 import java.util.Random;
 
 import org.junit.ClassRule;
@@ -128,6 +129,35 @@ public class ReadOptionsTest {
   }
 
   @Test
+  public void iterateUpperBound() {
+    try (final ReadOptions opt = new ReadOptions()) {
+      Slice upperBound = buildRandomSlice();
+      opt.setIterateUpperBound(upperBound);
+      assertThat(Arrays.equals(upperBound.data(), opt.iterateUpperBound().data())).isTrue();
+    }
+  }
+
+  @Test
+  public void iterateUpperBoundNull() {
+    try (final ReadOptions opt = new ReadOptions()) {
+      assertThat(opt.iterateUpperBound()).isNull();
+    }
+  }
+
+  @Test
+  public void copyConstructor() {
+    try (final ReadOptions opt = new ReadOptions()) {
+      opt.setVerifyChecksums(false);
+      opt.setFillCache(false);
+      opt.setIterateUpperBound(buildRandomSlice());
+      ReadOptions other = new ReadOptions(opt);
+      assertThat(opt.verifyChecksums()).isEqualTo(other.verifyChecksums());
+      assertThat(opt.fillCache()).isEqualTo(other.fillCache());
+      assertThat(Arrays.equals(opt.iterateUpperBound().data(), other.iterateUpperBound().data())).isTrue();
+    }
+  }
+
+  @Test
   public void failSetVerifyChecksumUninitialized() {
     try (final ReadOptions readOptions =
              setupUninitializedReadOptions(exception)) {
@@ -191,6 +221,22 @@ public class ReadOptionsTest {
     }
   }
 
+  @Test
+  public void failSetIterateUpperBoundUninitialized() {
+    try (final ReadOptions readOptions =
+             setupUninitializedReadOptions(exception)) {
+      readOptions.setIterateUpperBound(null);
+    }
+  }
+
+  @Test
+  public void failIterateUpperBoundUninitialized() {
+    try (final ReadOptions readOptions =
+             setupUninitializedReadOptions(exception)) {
+      readOptions.iterateUpperBound();
+    }
+  }
+
   private ReadOptions setupUninitializedReadOptions(
       ExpectedException exception) {
     final ReadOptions readOptions = new ReadOptions();
@@ -198,4 +244,12 @@ public class ReadOptionsTest {
     exception.expect(AssertionError.class);
     return readOptions;
   }
+
+  private Slice buildRandomSlice() {
+    final Random rand = new Random();
+    byte[] sliceBytes = new byte[rand.nextInt(100) + 1];
+    rand.nextBytes(sliceBytes);
+    return new Slice(sliceBytes);
+  }
+
 }

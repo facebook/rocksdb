@@ -196,6 +196,17 @@ class WritableFileWriter {
   Status SyncInternal(bool use_fsync);
 };
 
+class FilePrefetchBuffer {
+ public:
+  Status Prefetch(RandomAccessFileReader* reader, uint64_t offset, size_t n);
+  bool TryReadFromCache(uint64_t offset, size_t n, Slice* result) const;
+
+ private:
+  AlignedBuffer buffer_;
+  uint64_t buffer_offset_;
+  size_t buffer_len_;
+};
+
 extern Status NewWritableFile(Env* env, const std::string& fname,
                               unique_ptr<WritableFile>* result,
                               const EnvOptions& options);

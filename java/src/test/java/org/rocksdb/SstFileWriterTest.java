@@ -30,7 +30,7 @@ public class SstFileWriterTest {
 
   @Rule public TemporaryFolder parentFolder = new TemporaryFolder();
 
-  enum OpType { PUT, MERGE, DELETE }
+  enum OpType { PUT, PUT_BYTES, MERGE, MERGE_BYTES, DELETE, DELETE_BYTES}
 
   class KeyValueWithOp {
     KeyValueWithOp(String key, String value, OpType opType) {
@@ -79,15 +79,26 @@ public class SstFileWriterTest {
       for (KeyValueWithOp keyValue : keyValues) {
         Slice keySlice = new Slice(keyValue.getKey());
         Slice valueSlice = new Slice(keyValue.getValue());
+        byte[] keyBytes = keyValue.getKey().getBytes();
+        byte[] valueBytes = keyValue.getValue().getBytes();
         switch (keyValue.getOpType()) {
           case PUT:
             sstFileWriter.put(keySlice, valueSlice);
             break;
+          case PUT_BYTES:
+            sstFileWriter.put(keyBytes, valueBytes);
+            break;
           case MERGE:
             sstFileWriter.merge(keySlice, valueSlice);
             break;
+          case MERGE_BYTES:
+            sstFileWriter.merge(keyBytes, valueBytes);
+            break;
           case DELETE:
             sstFileWriter.delete(keySlice);
+            break;
+          case DELETE_BYTES:
+            sstFileWriter.delete(keyBytes);
             break;
           default:
             fail("Unsupported op type");
@@ -142,8 +153,12 @@ public class SstFileWriterTest {
     final List<KeyValueWithOp> keyValues = new ArrayList<>();
     keyValues.add(new KeyValueWithOp("key1", "value1", OpType.PUT));
     keyValues.add(new KeyValueWithOp("key2", "value2", OpType.PUT));
-    keyValues.add(new KeyValueWithOp("key3", "value3", OpType.MERGE));
-    keyValues.add(new KeyValueWithOp("key4", "", OpType.DELETE));
+    keyValues.add(new KeyValueWithOp("key3", "value3", OpType.PUT_BYTES));
+    keyValues.add(new KeyValueWithOp("key4", "value4", OpType.MERGE));
+    keyValues.add(new KeyValueWithOp("key5", "value5", OpType.MERGE_BYTES));
+    keyValues.add(new KeyValueWithOp("key6", "", OpType.DELETE));
+    keyValues.add(new KeyValueWithOp("key7", "", OpType.DELETE));
+
 
     final File sstFile = newSstFile(keyValues, false);
     final File dbFolder = parentFolder.newFolder(DB_DIRECTORY_NAME);
@@ -161,7 +176,10 @@ public class SstFileWriterTest {
       assertThat(db.get("key1".getBytes())).isEqualTo("value1".getBytes());
       assertThat(db.get("key2".getBytes())).isEqualTo("value2".getBytes());
       assertThat(db.get("key3".getBytes())).isEqualTo("value3".getBytes());
-      assertThat(db.get("key4".getBytes())).isEqualTo(null);
+      assertThat(db.get("key4".getBytes())).isEqualTo("value4".getBytes());
+      assertThat(db.get("key5".getBytes())).isEqualTo("value5".getBytes());
+      assertThat(db.get("key6".getBytes())).isEqualTo(null);
+      assertThat(db.get("key7".getBytes())).isEqualTo(null);
     }
   }
 

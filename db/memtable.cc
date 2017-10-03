@@ -16,6 +16,7 @@
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
 #include "db/pinned_iterators_manager.h"
+#include "db/read_callback.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
 #include "port/port.h"
@@ -474,7 +475,7 @@ void MemTable::Add(SequenceNumber s, ValueType type,
     }
 
     // The first sequence number inserted into the memtable
-    assert(first_seqno_ == 0 || s > first_seqno_);
+    assert(first_seqno_ == 0 || s >= first_seqno_);
     if (first_seqno_ == 0) {
       first_seqno_.store(s, std::memory_order_relaxed);
 
@@ -537,6 +538,15 @@ struct Saver {
   Statistics* statistics;
   bool inplace_update_support;
   Env* env_;
+  ReadCallback* callback_;
+  bool* is_blob_index;
+
+  bool CheckCallback(SequenceNumber _seq) {
+    if (callback_) {
+      return callback_->IsCommitted(_seq);
+    }
+    return true;
+  }
 };
 }  // namespace
 
@@ -564,13 +574,35 @@ static bool SaveValue(void* arg, const char* entry) {
     // Correct user key
     const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
     ValueType type;
-    UnPackSequenceAndType(tag, &s->seq, &type);
+    SequenceNumber seq;
+    UnPackSequenceAndType(tag, &seq, &type);
+    // If the value is not in the snapshot, skip it
+    if (!s->CheckCallback(seq)) {
+      return true;  // to continue to the next seq
+    }
 
-    if ((type == kTypeValue || type == kTypeMerge) &&
+    s->seq = seq;
+
+    if ((type == kTypeValue || type == kTypeMerge || type == kTypeBlobIndex) &&
         range_del_agg->ShouldDelete(Slice(key_ptr, key_length))) {
       type = kTypeRangeDeletion;
     }
     switch (type) {
+      case kTypeBlobIndex:
+        if (s->is_blob_index == nullptr) {
+          ROCKS_LOG_ERROR(s->logger, "Encounter unexpected blob index.");
+          *(s->status) = Status::NotSupported(
+              "Encounter unsupported blob value. Please open DB with "
+              "rocksdb::blob_db::BlobDB instead.");
+        } else if (*(s->merge_in_progress)) {
+          *(s->status) =
+              Status::NotSupported("Blob DB does not support merge operator.");
+        }
+        if (!s->status->ok()) {
+          *(s->found_final_value) = true;
+          return false;
+        }
+      // intentional fallthrough
       case kTypeValue: {
         if (s->inplace_update_support) {
           s->mem->GetLock(s->key->user_key())->ReadLock();
@@ -578,10 +610,12 @@ static bool SaveValue(void* arg, const char* entry) {
         Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
         *(s->status) = Status::OK();
         if (*(s->merge_in_progress)) {
-          *(s->status) = MergeHelper::TimedFullMerge(
-              merge_operator, s->key->user_key(), &v,
-              merge_context->GetOperands(), s->value, s->logger, s->statistics,
-              s->env_, nullptr /* result_operand */, true);
+          if (s->value != nullptr) {
+            *(s->status) = MergeHelper::TimedFullMerge(
+                merge_operator, s->key->user_key(), &v,
+                merge_context->GetOperands(), s->value, s->logger,
+                s->statistics, s->env_, nullptr /* result_operand */, true);
+          }
         } else if (s->value != nullptr) {
           s->value->assign(v.data(), v.size());
         }
@@ -589,16 +623,21 @@ static bool SaveValue(void* arg, const char* entry) {
           s->mem->GetLock(s->key->user_key())->ReadUnlock();
         }
         *(s->found_final_value) = true;
+        if (s->is_blob_index != nullptr) {
+          *(s->is_blob_index) = (type == kTypeBlobIndex);
+        }
         return false;
       }
       case kTypeDeletion:
       case kTypeSingleDeletion:
       case kTypeRangeDeletion: {
         if (*(s->merge_in_progress)) {
-          *(s->status) = MergeHelper::TimedFullMerge(
-              merge_operator, s->key->user_key(), nullptr,
-              merge_context->GetOperands(), s->value, s->logger, s->statistics,
-              s->env_, nullptr /* result_operand */, true);
+          if (s->value != nullptr) {
+            *(s->status) = MergeHelper::TimedFullMerge(
+                merge_operator, s->key->user_key(), nullptr,
+                merge_context->GetOperands(), s->value, s->logger,
+                s->statistics, s->env_, nullptr /* result_operand */, true);
+          }
         } else {
           *(s->status) = Status::NotFound();
         }
@@ -620,6 +659,14 @@ static bool SaveValue(void* arg, const char* entry) {
         *(s->merge_in_progress) = true;
         merge_context->PushOperand(
             v, s->inplace_update_support == false /* operand_pinned */);
+        if (merge_operator->ShouldMerge(merge_context->GetOperands())) {
+          *(s->status) = MergeHelper::TimedFullMerge(
+              merge_operator, s->key->user_key(), nullptr,
+              merge_context->GetOperands(), s->value, s->logger, s->statistics,
+              s->env_, nullptr /* result_operand */, true);
+          *(s->found_final_value) = true;
+          return false;
+        }
         return true;
       }
       default:
@@ -635,13 +682,22 @@ static bool SaveValue(void* arg, const char* entry) {
 bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
                    MergeContext* merge_context,
                    RangeDelAggregator* range_del_agg, SequenceNumber* seq,
-                   const ReadOptions& read_opts) {
+                   const ReadOptions& read_opts, ReadCallback* callback,
+                   bool* is_blob_index) {
   // The sequence number is updated synchronously in version_set.h
   if (IsEmpty()) {
     // Avoiding recording stats for speed.
     return false;
   }
   PERF_TIMER_GUARD(get_from_memtable_time);
+
+  std::unique_ptr<InternalIterator> range_del_iter(
+      NewRangeTombstoneIterator(read_opts));
+  Status status = range_del_agg->AddTombstones(std::move(range_del_iter));
+  if (!status.ok()) {
+    *s = status;
+    return false;
+  }
 
   Slice user_key = key.user_key();
   bool found_final_value = false;
@@ -658,13 +714,6 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
     if (prefix_bloom_) {
       PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
     }
-    std::unique_ptr<InternalIterator> range_del_iter(
-        NewRangeTombstoneIterator(read_opts));
-    Status status = range_del_agg->AddTombstones(std::move(range_del_iter));
-    if (!status.ok()) {
-      *s = status;
-      return false;
-    }
     Saver saver;
     saver.status = s;
     saver.found_final_value = &found_final_value;
@@ -680,6 +729,8 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
     saver.inplace_update_support = moptions_.inplace_update_support;
     saver.statistics = moptions_.statistics;
     saver.env_ = env_;
+    saver.callback_ = callback;
+    saver.is_blob_index = is_blob_index;
     table_->Get(key, &saver, SaveValue);
 
     *seq = saver.seq;

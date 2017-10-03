@@ -14,6 +14,7 @@
 #include <type_traits>
 #include <vector>
 
+#include "db/dbformat.h"
 #include "db/write_callback.h"
 #include "monitoring/instrumented_mutex.h"
 #include "rocksdb/options.h"
@@ -55,7 +56,7 @@ class WriteThread {
 
     // The state used to inform a waiting writer that it has become a
     // parallel memtable writer. It can be the group leader who launch the
-    // praallel writer group, or one of the followers. The writer should then
+    // parallel writer group, or one of the followers. The writer should then
     // apply its batch to the memtable concurrently and call
     // CompleteParallelMemTableWriter.
     STATE_PARALLEL_MEMTABLE_WRITER = 8,
@@ -142,6 +143,7 @@ class WriteThread {
           made_waitable(false),
           state(STATE_INIT),
           write_group(nullptr),
+          sequence(kMaxSequenceNumber),
           link_older(nullptr),
           link_newer(nullptr) {}
 
@@ -158,6 +160,7 @@ class WriteThread {
           made_waitable(false),
           state(STATE_INIT),
           write_group(nullptr),
+          sequence(kMaxSequenceNumber),
           link_older(nullptr),
           link_newer(nullptr) {}
 

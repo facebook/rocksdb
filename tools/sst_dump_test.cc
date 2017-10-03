@@ -195,7 +195,7 @@ TEST_F(SSTDumpToolTest, CompressedSizes) {
   }
 
   snprintf(usage[0], optLength, "./sst_dump");
-  snprintf(usage[1], optLength, "--show_compression_sizes");
+  snprintf(usage[1], optLength, "--command=recompress");
   snprintf(usage[2], optLength, "--file=rocksdb_sst_test.sst");
   rocksdb::SSTDumpTool tool;
   ASSERT_TRUE(!tool.Run(3, usage));

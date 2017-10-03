@@ -234,11 +234,19 @@ void LRUCacheShard::EvictFromLRU(size_t charge,
 }
 
 void* LRUCacheShard::operator new(size_t size) {
-  return rocksdb::port::cacheline_aligned_alloc(size);
+  return port::cacheline_aligned_alloc(size);
+}
+
+void* LRUCacheShard::operator new[](size_t size) {
+  return port::cacheline_aligned_alloc(size);
 }
 
 void LRUCacheShard::operator delete(void *memblock) {
-  rocksdb::port::cacheline_aligned_free(memblock);
+  port::cacheline_aligned_free(memblock);
+}
+
+void LRUCacheShard::operator delete[](void* memblock) {
+  port::cacheline_aligned_free(memblock);
 }
 
 void LRUCacheShard::SetCapacity(size_t capacity) {
@@ -457,14 +465,7 @@ LRUCache::LRUCache(size_t capacity, int num_shard_bits,
                    bool strict_capacity_limit, double high_pri_pool_ratio)
     : ShardedCache(capacity, num_shard_bits, strict_capacity_limit) {
   num_shards_ = 1 << num_shard_bits;
-#if defined(_MSC_VER)
-#pragma warning(push)
-#pragma warning(disable: 4316) // We've validated the alignment with the new operators
-#endif
   shards_ = new LRUCacheShard[num_shards_];
-#if defined(_MSC_VER)
-#pragma warning(pop)
-#endif
   SetCapacity(capacity);
   SetStrictCapacityLimit(strict_capacity_limit);
   for (int i = 0; i < num_shards_; i++) {
@@ -494,7 +495,12 @@ uint32_t LRUCache::GetHash(Handle* handle) const {
   return reinterpret_cast<const LRUHandle*>(handle)->hash;
 }
 
-void LRUCache::DisownData() { shards_ = nullptr; }
+void LRUCache::DisownData() {
+// Do not drop data if compile with ASAN to suppress leak warning.
+#ifndef __SANITIZE_ADDRESS__
+  shards_ = nullptr;
+#endif  // !__SANITIZE_ADDRESS__
+}
 
 size_t LRUCache::TEST_GetLRUSize() {
   size_t lru_size_of_all_shards = 0;

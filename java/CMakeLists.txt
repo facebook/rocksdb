@@ -25,6 +25,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/ratelimiterjni.cc
         rocksjni/remove_emptyvalue_compactionfilterjni.cc
         rocksjni/cassandra_compactionfilterjni.cc
+        rocksjni/cassandra_value_operator.cc
         rocksjni/restorejni.cc
         rocksjni/rocksdb_exception_test.cc
         rocksjni/rocksjni.cc
@@ -77,6 +78,7 @@ set(NATIVE_JAVA_CLASSES
         org.rocksdb.FlushOptions
         org.rocksdb.HashLinkedListMemTableConfig
         org.rocksdb.HashSkipListMemTableConfig
+        org.rocksdb.IngestExternalFileOptions
         org.rocksdb.Logger
         org.rocksdb.LRUCache
         org.rocksdb.MemTableConfig

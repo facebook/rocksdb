@@ -99,6 +99,9 @@ class WriteBatchInternal {
   static Status Merge(WriteBatch* batch, uint32_t column_family_id,
                       const SliceParts& key, const SliceParts& value);
 
+  static Status PutBlobIndex(WriteBatch* batch, uint32_t column_family_id,
+                             const Slice& key, const Slice& value);
+
   static Status MarkEndPrepare(WriteBatch* batch, const Slice& xid);
 
   static Status MarkRollback(WriteBatch* batch, const Slice& xid);
@@ -157,18 +160,20 @@ class WriteBatchInternal {
                            FlushScheduler* flush_scheduler,
                            bool ignore_missing_column_families = false,
                            uint64_t log_number = 0, DB* db = nullptr,
-                           bool concurrent_memtable_writes = false);
+                           bool concurrent_memtable_writes = false,
+                           bool seq_per_batch = false);
 
   // Convenience form of InsertInto when you have only one batch
-  // last_seq_used returns the last sequnce number used in a MemTable insert
+  // next_seq returns the seq after last sequnce number used in MemTable insert
   static Status InsertInto(const WriteBatch* batch,
                            ColumnFamilyMemTables* memtables,
                            FlushScheduler* flush_scheduler,
                            bool ignore_missing_column_families = false,
                            uint64_t log_number = 0, DB* db = nullptr,
                            bool concurrent_memtable_writes = false,
-                           SequenceNumber* last_seq_used = nullptr,
-                           bool* has_valid_writes = nullptr);
+                           SequenceNumber* next_seq = nullptr,
+                           bool* has_valid_writes = nullptr,
+                           bool seq_per_batch = false);
 
   static Status InsertInto(WriteThread::Writer* writer, SequenceNumber sequence,
                            ColumnFamilyMemTables* memtables,

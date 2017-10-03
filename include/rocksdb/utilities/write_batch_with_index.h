@@ -27,6 +27,7 @@ namespace rocksdb {
 class ColumnFamilyHandle;
 class Comparator;
 class DB;
+class ReadCallback;
 struct ReadOptions;
 struct DBOptions;
 
@@ -186,9 +187,19 @@ class WriteBatchWithIndex : public WriteBatchBase {
   // regardless).
   Status GetFromBatchAndDB(DB* db, const ReadOptions& read_options,
                            const Slice& key, std::string* value);
+
+  // An overload of the the above method that receives a PinnableSlice
+  Status GetFromBatchAndDB(DB* db, const ReadOptions& read_options,
+                           const Slice& key, PinnableSlice* value);
+
   Status GetFromBatchAndDB(DB* db, const ReadOptions& read_options,
                            ColumnFamilyHandle* column_family, const Slice& key,
                            std::string* value);
+
+  // An overload of the the above method that receives a PinnableSlice
+  Status GetFromBatchAndDB(DB* db, const ReadOptions& read_options,
+                           ColumnFamilyHandle* column_family, const Slice& key,
+                           PinnableSlice* value);
 
   // Records the state of the batch for future calls to RollbackToSavePoint().
   // May be called multiple times to set multiple save points.
@@ -216,6 +227,10 @@ class WriteBatchWithIndex : public WriteBatchBase {
   void SetMaxBytes(size_t max_bytes) override;
 
  private:
+  friend class WritePreparedTxn;
+  Status GetFromBatchAndDB(DB* db, const ReadOptions& read_options,
+                           ColumnFamilyHandle* column_family, const Slice& key,
+                           PinnableSlice* value, ReadCallback* callback);
   struct Rep;
   std::unique_ptr<Rep> rep;
 };

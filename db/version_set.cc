@@ -16,7 +16,6 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include <algorithm>
-#include <climits>
 #include <map>
 #include <set>
 #include <string>
@@ -409,9 +408,9 @@ bool SomeFileOverlapsRange(
   // Binary search over file list
   uint32_t index = 0;
   if (smallest_user_key != nullptr) {
-    // Find the earliest possible internal key for smallest_user_key
+    // Find the leftmost possible internal key for smallest_user_key
     InternalKey small;
-    small.SetMaxPossibleForUserKey(*smallest_user_key);
+    small.SetMinPossibleForUserKey(*smallest_user_key);
     index = FindFile(icmp, file_level, small.Encode());
   }
 
@@ -965,7 +964,8 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
                   PinnableSlice* value, Status* status,
                   MergeContext* merge_context,
                   RangeDelAggregator* range_del_agg, bool* value_found,
-                  bool* key_exists, SequenceNumber* seq) {
+                  bool* key_exists, SequenceNumber* seq, ReadCallback* callback,
+                  bool* is_blob) {
   Slice ikey = k.internal_key();
   Slice user_key = k.user_key();
 
@@ -981,7 +981,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       user_comparator(), merge_operator_, info_log_, db_statistics_,
       status->ok() ? GetContext::kNotFound : GetContext::kMerge, user_key,
       value, value_found, merge_context, range_del_agg, this->env_, seq,
-      merge_operator_ ? &pinned_iters_mgr : nullptr);
+      merge_operator_ ? &pinned_iters_mgr : nullptr, callback, is_blob);
 
   // Pin blocks that we read to hold merge operands
   if (merge_operator_) {
@@ -1030,6 +1030,12 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
         return;
       case GetContext::kMerge:
         break;
+      case GetContext::kBlobIndex:
+        ROCKS_LOG_ERROR(info_log_, "Encounter unexpected blob index.");
+        *status = Status::NotSupported(
+            "Encounter unexpected blob index. Please open DB with "
+            "rocksdb::blob_db::BlobDB instead.");
+        return;
     }
     f = fp.GetNextFile();
   }
@@ -2655,7 +2661,14 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
 void VersionSet::LogAndApplyCFHelper(VersionEdit* edit) {
   assert(edit->IsColumnFamilyManipulation());
   edit->SetNextFile(next_file_number_.load());
-  edit->SetLastSequence(last_sequence_);
+  // The log might have data that is not visible to memtbale and hence have not
+  // updated the last_sequence_ yet. It is also possible that the log has is
+  // expecting some new data that is not written yet. Since LastSequence is an
+  // upper bound on the sequence, it is ok to record
+  // last_to_be_written_sequence_ as the last sequence.
+  edit->SetLastSequence(db_options_->concurrent_prepare
+                            ? last_to_be_written_sequence_
+                            : last_sequence_);
   if (edit->is_column_family_drop_) {
     // if we drop column family, we have to make sure to save max column family,
     // so that we don't reuse existing ID
@@ -2678,7 +2691,14 @@ void VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd,
     edit->SetPrevLogNumber(prev_log_number_);
   }
   edit->SetNextFile(next_file_number_.load());
-  edit->SetLastSequence(last_sequence_);
+  // The log might have data that is not visible to memtbale and hence have not
+  // updated the last_sequence_ yet. It is also possible that the log has is
+  // expecting some new data that is not written yet. Since LastSequence is an
+  // upper bound on the sequence, it is ok to record
+  // last_to_be_written_sequence_ as the last sequence.
+  edit->SetLastSequence(db_options_->concurrent_prepare
+                            ? last_to_be_written_sequence_
+                            : last_sequence_);
 
   builder->Apply(edit);
 }
@@ -2842,11 +2862,6 @@ Status VersionSet::Recover(
         cfd = column_family_set_->GetColumnFamily(edit.column_family_);
         // this should never happen since cf_in_builders is true
         assert(cfd != nullptr);
-        if (edit.max_level_ >= cfd->current()->storage_info()->num_levels()) {
-          s = Status::InvalidArgument(
-              "db has more levels than options.num_levels");
-          break;
-        }
 
         // if it is not column family add or column family drop,
         // then it's a file add/delete, which should be forwarded
@@ -2928,6 +2943,18 @@ Status VersionSet::Recover(
     s = Status::InvalidArgument(
         "You have to open all column families. Column families not opened: " +
         list_of_not_found);
+  }
+
+  if (s.ok()) {
+    for (auto cfd : *column_family_set_) {
+      assert(builders.count(cfd->GetID()) > 0);
+      auto* builder = builders[cfd->GetID()]->version_builder();
+      if (!builder->CheckConsistencyForNumLevels()) {
+        s = Status::InvalidArgument(
+            "db has more levels than options.num_levels");
+        break;
+      }
+    }
   }
 
   if (s.ok()) {
