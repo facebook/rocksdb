@@ -5,6 +5,8 @@
 
 #include "db/snapshot_checker.h"
 
+#include <assert.h>
+
 #include "utilities/transactions/pessimistic_transaction_db.h"
 
 namespace rocksdb {
