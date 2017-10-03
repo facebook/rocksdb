@@ -94,15 +94,17 @@ enum class OptionType {
 
 enum class OptionVerificationType {
   kNormal,
-  kByName,           // The option is pointer typed so we can only verify
-                     // based on it's name.
-  kByNameAllowNull,  // Same as kByName, but it also allows the case
-                     // where one of them is a nullptr.
-  kDeprecated        // The option is no longer used in rocksdb. The RocksDB
-                     // OptionsParser will still accept this option if it
-                     // happen to exists in some Options file.  However, the
-                     // parser will not include it in serialization and
-                     // verification processes.
+  kByName,               // The option is pointer typed so we can only verify
+                         // based on it's name.
+  kByNameAllowNull,      // Same as kByName, but it also allows the case
+                         // where one of them is a nullptr.
+  kByNameAllowFromNull,  // Same as kByName, but it also allows the case
+                         // where the old option is nullptr.
+  kDeprecated            // The option is no longer used in rocksdb. The RocksDB
+                         // OptionsParser will still accept this option if it
+                         // happen to exists in some Options file.  However,
+                         // the parser will not include it in serialization
+                         // and verification processes.
 };
 
 // A struct for storing constant option information such as option name,
@@ -575,7 +577,8 @@ static std::unordered_map<std::string, OptionTypeInfo> cf_options_type_info = {
       false, 0}},
     {"merge_operator",
      {offset_of(&ColumnFamilyOptions::merge_operator),
-      OptionType::kMergeOperator, OptionVerificationType::kByName, false, 0}},
+      OptionType::kMergeOperator, OptionVerificationType::kByNameAllowFromNull,
+      false, 0}},
     {"compaction_style",
      {offset_of(&ColumnFamilyOptions::compaction_style),
       OptionType::kCompactionStyle, OptionVerificationType::kNormal, false, 0}},

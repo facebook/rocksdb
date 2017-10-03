@@ -589,6 +589,8 @@ bool AreEqualOptions(
               *reinterpret_cast<const InfoLogLevel*>(offset2));
     default:
       if (type_info.verification == OptionVerificationType::kByName ||
+          type_info.verification ==
+              OptionVerificationType::kByNameAllowFromNull ||
           type_info.verification == OptionVerificationType::kByNameAllowNull) {
         std::string value1;
         bool result =
@@ -606,6 +608,11 @@ bool AreEqualOptions(
           if (type_info.verification ==
               OptionVerificationType::kByNameAllowNull) {
             if (iter->second == kNullptrString || value1 == kNullptrString) {
+              return true;
+            }
+          } else if (type_info.verification ==
+                     OptionVerificationType::kByNameAllowFromNull) {
+            if (iter->second == kNullptrString) {
               return true;
             }
           }

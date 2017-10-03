@@ -210,6 +210,8 @@ Status GetPlainTableOptionsFromMap(
           (iter->second.verification != OptionVerificationType::kByName &&
            iter->second.verification !=
                OptionVerificationType::kByNameAllowNull &&
+           iter->second.verification !=
+               OptionVerificationType::kByNameAllowFromNull &&
            iter->second.verification != OptionVerificationType::kDeprecated)) {
         // Restore "new_options" to the default "base_options".
         *new_table_options = table_options;
