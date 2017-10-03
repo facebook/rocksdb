@@ -603,6 +603,9 @@ TEST_P(WritePreparedTransactionTest, AdvanceMaxEvictedSeqBasicTest) {
 TEST_P(WritePreparedTransactionTest, SeqAdvanceTest) {
   WriteOptions wopts;
   FlushOptions fopt;
+  
+  options.disable_auto_compactions = true;
+  ReOpen();
 
   // Do the test with NUM_BRANCHES branches in it. Each run of a test takes some
   // of the branches. This is the same as counting a binary number where i-th
