@@ -104,10 +104,10 @@ int MemTableList::NumFlushed() const {
 bool MemTableListVersion::Get(const LookupKey& key, std::string* value,
                               Status* s, MergeContext* merge_context,
                               RangeDelAggregator* range_del_agg,
-                              SequenceNumber* seq,
-                              const ReadOptions& read_opts) {
+                              SequenceNumber* seq, const ReadOptions& read_opts,
+                              bool* is_blob_index) {
   return GetFromList(&memlist_, key, value, s, merge_context, range_del_agg,
-                     seq, read_opts);
+                     seq, read_opts, is_blob_index);
 }
 
 bool MemTableListVersion::GetFromHistory(const LookupKey& key,
@@ -120,19 +120,17 @@ bool MemTableListVersion::GetFromHistory(const LookupKey& key,
                      range_del_agg, seq, read_opts);
 }
 
-bool MemTableListVersion::GetFromList(std::list<MemTable*>* list,
-                                      const LookupKey& key, std::string* value,
-                                      Status* s, MergeContext* merge_context,
-                                      RangeDelAggregator* range_del_agg,
-                                      SequenceNumber* seq,
-                                      const ReadOptions& read_opts) {
+bool MemTableListVersion::GetFromList(
+    std::list<MemTable*>* list, const LookupKey& key, std::string* value,
+    Status* s, MergeContext* merge_context, RangeDelAggregator* range_del_agg,
+    SequenceNumber* seq, const ReadOptions& read_opts, bool* is_blob_index) {
   *seq = kMaxSequenceNumber;
 
   for (auto& memtable : *list) {
     SequenceNumber current_seq = kMaxSequenceNumber;
 
     bool done = memtable->Get(key, value, s, merge_context, range_del_agg,
-                              &current_seq, read_opts);
+                              &current_seq, read_opts, is_blob_index);
     if (*seq == kMaxSequenceNumber) {
       // Store the most recent sequence number of any operation on this key.
       // Since we only care about the most recent change, we only need to

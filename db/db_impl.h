@@ -52,6 +52,7 @@
 
 namespace rocksdb {
 
+class ArenaWrappedDBIter;
 class MemTable;
 class TableCache;
 class Version;
@@ -123,6 +124,7 @@ class DBImpl : public DB {
                            ColumnFamilyHandle* column_family, const Slice& key,
                            std::string* value,
                            bool* value_found = nullptr) override;
+
   using DB::NewIterator;
   virtual Iterator* NewIterator(const ReadOptions& options,
                                 ColumnFamilyHandle* column_family) override;
@@ -130,6 +132,11 @@ class DBImpl : public DB {
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families,
       std::vector<Iterator*>* iterators) override;
+  ArenaWrappedDBIter* NewIteratorImpl(const ReadOptions& options,
+                                      ColumnFamilyData* cfd,
+                                      SequenceNumber snapshot,
+                                      bool allow_blob = false);
+
   virtual const Snapshot* GetSnapshot() override;
   virtual void ReleaseSnapshot(const Snapshot* snapshot) override;
   using DB::GetProperty;
@@ -340,6 +347,8 @@ class DBImpl : public DB {
   bool TEST_IsLogGettingFlushed() {
     return alive_log_files_.begin()->getting_flushed;
   }
+
+  Status TEST_SwitchMemtable(ColumnFamilyData* cfd = nullptr);
 
   // Force current memtable contents to be flushed.
   Status TEST_FlushMemTable(bool wait = true,
@@ -644,7 +653,9 @@ class DBImpl : public DB {
   friend struct SuperVersion;
   friend class CompactedDBImpl;
 #ifndef NDEBUG
+  friend class DBTest2_ReadCallbackTest_Test;
   friend class XFTransactionWriteHandler;
+  friend class DBBlobIndexTest;
 #endif
   struct CompactionState;
 
@@ -1245,7 +1256,7 @@ class DBImpl : public DB {
   // Note: 'value_found' from KeyMayExist propagates here
   Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
                  const Slice& key, PinnableSlice* value,
-                 bool* value_found = nullptr);
+                 bool* value_found = nullptr, bool* is_blob_index = nullptr);
 
   bool GetIntPropertyInternal(ColumnFamilyData* cfd,
                               const DBPropertyInfo& property_info,

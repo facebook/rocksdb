@@ -555,6 +555,7 @@ struct Saver {
   Statistics* statistics;
   bool inplace_update_support;
   Env* env_;
+  bool* is_blob_index;
 };
 }  // namespace
 
@@ -584,11 +585,26 @@ static bool SaveValue(void* arg, const char* entry) {
     ValueType type;
     UnPackSequenceAndType(tag, &s->seq, &type);
 
-    if ((type == kTypeValue || type == kTypeMerge) &&
+    if ((type == kTypeValue || type == kTypeMerge || type == kTypeBlobIndex) &&
         range_del_agg->ShouldDelete(Slice(key_ptr, key_length))) {
       type = kTypeRangeDeletion;
     }
     switch (type) {
+      case kTypeBlobIndex:
+        if (s->is_blob_index == nullptr) {
+          ROCKS_LOG_ERROR(s->logger, "Encounter unexpected blob index.");
+          *(s->status) = Status::NotSupported(
+              "Encounter unsupported blob value. Please open DB with "
+              "rocksdb::blob_db::BlobDB instead.");
+        } else if (*(s->merge_in_progress)) {
+          *(s->status) =
+              Status::NotSupported("Blob DB does not support merge operator.");
+        }
+        if (!s->status->ok()) {
+          *(s->found_final_value) = true;
+          return false;
+        }
+      // intentional fallthrough
       case kTypeValue: {
         if (s->inplace_update_support) {
           s->mem->GetLock(s->key->user_key())->ReadLock();
@@ -607,6 +623,9 @@ static bool SaveValue(void* arg, const char* entry) {
           s->mem->GetLock(s->key->user_key())->ReadUnlock();
         }
         *(s->found_final_value) = true;
+        if (s->is_blob_index != nullptr) {
+          *(s->is_blob_index) = (type == kTypeBlobIndex);
+        }
         return false;
       }
       case kTypeDeletion:
@@ -653,7 +672,7 @@ static bool SaveValue(void* arg, const char* entry) {
 bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
                    MergeContext* merge_context,
                    RangeDelAggregator* range_del_agg, SequenceNumber* seq,
-                   const ReadOptions& read_opts) {
+                   const ReadOptions& read_opts, bool* is_blob_index) {
   // The sequence number is updated synchronously in version_set.h
   if (IsEmpty()) {
     // Avoiding recording stats for speed.
@@ -699,6 +718,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
     saver.inplace_update_support = moptions_.inplace_update_support;
     saver.statistics = moptions_.statistics;
     saver.env_ = env_;
+    saver.is_blob_index = is_blob_index;
     table_->Get(key, &saver, SaveValue);
 
     *seq = saver.seq;
