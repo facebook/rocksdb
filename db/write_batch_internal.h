@@ -99,6 +99,9 @@ class WriteBatchInternal {
   static Status Merge(WriteBatch* batch, uint32_t column_family_id,
                       const SliceParts& key, const SliceParts& value);
 
+  static Status PutBlobIndex(WriteBatch* batch, uint32_t column_family_id,
+                             const Slice& key, const Slice& value);
+
   static Status MarkEndPrepare(WriteBatch* batch, const Slice& xid);
 
   static Status MarkRollback(WriteBatch* batch, const Slice& xid);

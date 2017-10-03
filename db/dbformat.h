@@ -47,6 +47,8 @@ enum ValueType : unsigned char {
   kTypeNoop = 0xD,                        // WAL only.
   kTypeColumnFamilyRangeDeletion = 0xE,   // WAL only.
   kTypeRangeDeletion = 0xF,               // meta block
+  kTypeColumnFamilyBlobIndex = 0x10,      // Blob DB only
+  kTypeBlobIndex = 0x11,                  // Blob DB only
   kMaxValue = 0x7F                        // Not used for storing records.
 };
 
@@ -57,7 +59,7 @@ extern const ValueType kValueTypeForSeekForPrev;
 // Checks whether a type is an inline value type
 // (i.e. a type used in memtable skiplist and sst file datablock).
 inline bool IsValueType(ValueType t) {
-  return t <= kTypeMerge || t == kTypeSingleDeletion;
+  return t <= kTypeMerge || t == kTypeSingleDeletion || t == kTypeBlobIndex;
 }
 
 // Checks whether a type is from user operation
