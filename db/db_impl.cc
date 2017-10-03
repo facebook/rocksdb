@@ -907,6 +907,15 @@ InternalIterator* DBImpl::NewInternalIterator(
     internal_iter->RegisterCleanup(CleanupIteratorState, cleanup, nullptr);
 
     return internal_iter;
+  } else {
+    // cleanup super version.
+    if (super_version->Unref()) {
+      {
+        InstrumentedMutexLock l(&mutex_);
+        super_version->Cleanup();
+      }
+      delete super_version;
+    }
   }
   return NewErrorInternalIterator(s);
 }
