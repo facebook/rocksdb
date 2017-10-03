@@ -5,7 +5,9 @@
 
 #include "db/snapshot_checker.h"
 
+#ifdef ROCKSDB_LITE
 #include <assert.h>
+#endif  // ROCKSDB_LITE
 
 #include "utilities/transactions/pessimistic_transaction_db.h"
 

@@ -114,6 +114,9 @@ class CompactionIterator {
   // compression.
   void PrepareOutput();
 
+  // Invoke compaction filter if needed.
+  void InvokeFilterIfNeeded(bool* need_skip, Slice* skip_until);
+
   // Given a sequence number, return the sequence number of the
   // earliest snapshot that this sequence number is visible in.
   // The snapshots themselves are arranged in ascending order of
@@ -193,8 +196,8 @@ class CompactionIterator {
   std::vector<size_t> level_ptrs_;
   CompactionIterationStats iter_stats_;
 
-  // Only used for WritePreparedTxnDB. Mark if the current key has been
-  // committed.
+  // Used to avoid purging uncommitted values. The application can specify
+  // uncommitted values by providing a SnapshotChecker object.
   bool current_key_committed_;
 
   bool IsShuttingDown() {

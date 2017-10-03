@@ -172,6 +172,55 @@ void CompactionIterator::Next() {
   PrepareOutput();
 }
 
+void CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
+                                              Slice* skip_until) {
+  if (compaction_filter_ != nullptr && ikey_.type == kTypeValue &&
+      (visible_at_tip_ || ikey_.sequence > latest_snapshot_ ||
+       ignore_snapshots_)) {
+    // If the user has specified a compaction filter and the sequence
+    // number is greater than any external snapshot, then invoke the
+    // filter. If the return value of the compaction filter is true,
+    // replace the entry with a deletion marker.
+    CompactionFilter::Decision filter;
+    compaction_filter_value_.clear();
+    compaction_filter_skip_until_.Clear();
+    {
+      StopWatchNano timer(env_, true);
+      filter = compaction_filter_->FilterV2(
+          compaction_->level(), ikey_.user_key,
+          CompactionFilter::ValueType::kValue, value_,
+          &compaction_filter_value_, compaction_filter_skip_until_.rep());
+      iter_stats_.total_filter_time +=
+          env_ != nullptr ? timer.ElapsedNanos() : 0;
+    }
+
+    if (filter == CompactionFilter::Decision::kRemoveAndSkipUntil &&
+        cmp_->Compare(*compaction_filter_skip_until_.rep(), ikey_.user_key) <=
+            0) {
+      // Can't skip to a key smaller than the current one.
+      // Keep the key as per FilterV2 documentation.
+      filter = CompactionFilter::Decision::kKeep;
+    }
+
+    if (filter == CompactionFilter::Decision::kRemove) {
+      // convert the current key to a delete; key_ is pointing into
+      // current_key_ at this point, so updating current_key_ updates key()
+      ikey_.type = kTypeDeletion;
+      current_key_.UpdateInternalKey(ikey_.sequence, kTypeDeletion);
+      // no value associated with delete
+      value_.clear();
+      iter_stats_.num_record_drop_user++;
+    } else if (filter == CompactionFilter::Decision::kChangeValue) {
+      value_ = compaction_filter_value_;
+    } else if (filter == CompactionFilter::Decision::kRemoveAndSkipUntil) {
+      *need_skip = true;
+      compaction_filter_skip_until_.ConvertFromUserKey(kMaxSequenceNumber,
+                                                       kValueTypeForSeek);
+      *skip_until = compaction_filter_skip_until_.Encode();
+    }
+  }
+}
+
 void CompactionIterator::NextFromInput() {
   at_next_ = false;
   valid_ = false;
@@ -216,9 +265,6 @@ void CompactionIterator::NextFromInput() {
     // Check whether the user key changed. After this if statement current_key_
     // is a copy of the current input key (maybe converted to a delete by the
     // compaction filter). ikey_.user_key is pointing to the copy.
-    //
-    // In case of WritePreparedTxnDB (snapshot_checker_ presents), compaction
-    // filter can see a prepared key before it gets committed.
     if (!has_current_user_key_ ||
         !cmp_->Equal(ikey_.user_key, current_user_key_)) {
       // First occurrence of this user key
@@ -241,51 +287,10 @@ void CompactionIterator::NextFromInput() {
       }
 #endif  // !ROCKSDB_LITE
 
-      // apply the compaction filter to the first occurrence of the user key
-      if (compaction_filter_ != nullptr && ikey_.type == kTypeValue &&
-          (visible_at_tip_ || ikey_.sequence > latest_snapshot_ ||
-           ignore_snapshots_)) {
-        // If the user has specified a compaction filter and the sequence
-        // number is greater than any external snapshot, then invoke the
-        // filter. If the return value of the compaction filter is true,
-        // replace the entry with a deletion marker.
-        CompactionFilter::Decision filter;
-        compaction_filter_value_.clear();
-        compaction_filter_skip_until_.Clear();
-        {
-          StopWatchNano timer(env_, true);
-          filter = compaction_filter_->FilterV2(
-              compaction_->level(), ikey_.user_key,
-              CompactionFilter::ValueType::kValue, value_,
-              &compaction_filter_value_, compaction_filter_skip_until_.rep());
-          iter_stats_.total_filter_time +=
-              env_ != nullptr ? timer.ElapsedNanos() : 0;
-        }
-
-        if (filter == CompactionFilter::Decision::kRemoveAndSkipUntil &&
-            cmp_->Compare(*compaction_filter_skip_until_.rep(),
-                          ikey_.user_key) <= 0) {
-          // Can't skip to a key smaller than the current one.
-          // Keep the key as per FilterV2 documentation.
-          filter = CompactionFilter::Decision::kKeep;
-        }
-
-        if (filter == CompactionFilter::Decision::kRemove) {
-          // convert the current key to a delete; key_ is pointing into
-          // current_key_ at this point, so updating current_key_ updates key()
-          ikey_.type = kTypeDeletion;
-          current_key_.UpdateInternalKey(ikey_.sequence, kTypeDeletion);
-          // no value associated with delete
-          value_.clear();
-          iter_stats_.num_record_drop_user++;
-        } else if (filter == CompactionFilter::Decision::kChangeValue) {
-          value_ = compaction_filter_value_;
-        } else if (filter == CompactionFilter::Decision::kRemoveAndSkipUntil) {
-          need_skip = true;
-          compaction_filter_skip_until_.ConvertFromUserKey(kMaxSequenceNumber,
-                                                           kValueTypeForSeek);
-          skip_until = compaction_filter_skip_until_.Encode();
-        }
+      // Apply the compaction filter to the first committed version of the user
+      // key.
+      if (current_key_committed_) {
+        InvokeFilterIfNeeded(&need_skip, &skip_until);
       }
     } else {
 #ifndef ROCKSDB_LITE
@@ -305,10 +310,18 @@ void CompactionIterator::NextFromInput() {
       key_ = current_key_.GetInternalKey();
       ikey_.user_key = current_key_.GetUserKey();
 
+      // Note that newer version of a key is ordered before older versions. If a
+      // newer version of a key is committed, so as the older version. No need
+      // to query snapshot_checker_ in that case.
       if (UNLIKELY(!current_key_committed_)) {
         assert(snapshot_checker_ != nullptr);
         current_key_committed_ =
             snapshot_checker_->IsInSnapshot(ikey_.sequence, kMaxSequenceNumber);
+        // Apply the compaction filter to the first committed version of the
+        // user key.
+        if (current_key_committed_) {
+          InvokeFilterIfNeeded(&need_skip, &skip_until);
+        }
       }
     }
 
