@@ -147,6 +147,9 @@ void ThreadPoolImpl::Impl::JoinThreads(bool wait_for_jobs_to_complete) {
 
   wait_for_jobs_to_complete_ = wait_for_jobs_to_complete;
   exit_all_threads_ = true;
+  // prevent threads from being recreated right after they're joined, in case
+  // the user is concurrently submitting jobs.
+  total_threads_limit_ = 0;
 
   lock.unlock();
 
