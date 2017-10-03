@@ -603,7 +603,7 @@ TEST_P(WritePreparedTransactionTest, AdvanceMaxEvictedSeqBasicTest) {
 TEST_P(WritePreparedTransactionTest, SeqAdvanceTest) {
   WriteOptions wopts;
   FlushOptions fopt;
-  
+
   options.disable_auto_compactions = true;
   ReOpen();
 

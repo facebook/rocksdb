@@ -400,6 +400,9 @@ class Repairer {
       int64_t _current_time = 0;
       status = env_->GetCurrentTime(&_current_time);  // ignore error
       const uint64_t current_time = static_cast<uint64_t>(_current_time);
+      // Only TransactionDB make use of snapshot_checker and repair doesn't
+      // currently support TransactionDB with prepared uncommitted keys in WAL.
+      SnapshotChecker* snapshot_checker = nullptr;
 
       status = BuildTable(
           dbname_, env_, *cfd->ioptions(), *cfd->GetLatestMutableCFOptions(),
@@ -407,7 +410,7 @@ class Repairer {
           std::unique_ptr<InternalIterator>(mem->NewRangeTombstoneIterator(ro)),
           &meta, cfd->internal_comparator(),
           cfd->int_tbl_prop_collector_factories(), cfd->GetID(), cfd->GetName(),
-          {}, kMaxSequenceNumber, nullptr /*snapshot_checker*/, kNoCompression,
+          {}, kMaxSequenceNumber, snapshot_checker, kNoCompression,
           CompressionOptions(), false, nullptr /* internal_stats */,
           TableFileCreationReason::kRecovery, nullptr /* event_logger */,
           0 /* job_id */, Env::IO_HIGH, nullptr /* table_properties */,
