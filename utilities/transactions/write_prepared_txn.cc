@@ -49,8 +49,8 @@ Status WritePreparedTxn::PrepareInternal() {
   uint64_t seq_used = kMaxSequenceNumber;
   bool collapsed = GetWriteBatch()->Collapse();
   if (collapsed) {
-      ROCKS_LOG_WARN(db_impl_->immutable_db_options().info_log,
-                     "Collapse overhead due to duplicate keys");
+    ROCKS_LOG_WARN(db_impl_->immutable_db_options().info_log,
+                   "Collapse overhead due to duplicate keys");
   }
   Status s =
       db_impl_->WriteImpl(write_options, GetWriteBatch()->GetWriteBatch(),
@@ -66,8 +66,8 @@ Status WritePreparedTxn::PrepareInternal() {
 Status WritePreparedTxn::CommitWithoutPrepareInternal() {
   bool collapsed = GetWriteBatch()->Collapse();
   if (collapsed) {
-      ROCKS_LOG_WARN(db_impl_->immutable_db_options().info_log,
-                     "Collapse overhead due to duplicate keys");
+    ROCKS_LOG_WARN(db_impl_->immutable_db_options().info_log,
+                   "Collapse overhead due to duplicate keys");
   }
   return CommitBatchInternal(GetWriteBatch()->GetWriteBatch());
 }

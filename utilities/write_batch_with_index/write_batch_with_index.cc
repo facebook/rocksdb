@@ -616,7 +616,7 @@ void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id) {
         case kTypeSingleDeletion:
         case kTypeColumnFamilyMerge:
         case kTypeMerge:
-      count++;
+          count++;
           break;
         case kTypeLogData:
         case kTypeBeginPrepareXID:
@@ -635,8 +635,8 @@ void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id) {
       collapsed_buf.append(entry_ptr.data(), entry_ptr.size());
     }
     write_batch.rep_ = std::move(collapsed_buf);
-  WriteBatchInternal::SetCount(&write_batch, count);
-  return true;
+    WriteBatchInternal::SetCount(&write_batch, count);
+    return true;
   }
 
   WBWIIterator* WriteBatchWithIndex::NewIterator() {
@@ -758,7 +758,8 @@ Status WriteBatchWithIndex::Merge(ColumnFamilyHandle* column_family,
     bool duplicate_key = size_before != size_after;
     if (duplicate_key) {
       assert(0);
-      return Status::NotSupported("Duplicate key with merge value is not supported yet");
+      return Status::NotSupported(
+          "Duplicate key with merge value is not supported yet");
     }
   }
   return s;
@@ -774,7 +775,8 @@ Status WriteBatchWithIndex::Merge(const Slice& key, const Slice& value) {
     bool duplicate_key = size_before != size_after;
     if (duplicate_key) {
       assert(0);
-      return Status::NotSupported("Duplicate key with merge value is not supported yet");
+      return Status::NotSupported(
+          "Duplicate key with merge value is not supported yet");
     }
   }
   return s;
