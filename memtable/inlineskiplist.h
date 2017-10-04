@@ -662,7 +662,7 @@ void InlineSkipList<Comparator>::FindSpliceForLevel(const char* key,
     if (next != nullptr) {
       PREFETCH(next->Next(level), 0, 1);
     }
-    if (prefetch_before) {
+    if (prefetch_before == true) {
       if (next != nullptr && level>0) {
         PREFETCH(next->Next(level-1), 0, 1);
       }
