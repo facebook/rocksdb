@@ -661,6 +661,9 @@ void InlineSkipList<Comparator>::FindSpliceForLevel(const char* key,
     if (next != nullptr) {
       PREFETCH(next->Next(level), 0, 1);
     }
+    if (next != nullptr && level>0) {
+      PREFETCH(next->Next(level-1), 0, 1);
+    }
     assert(before == head_ || next == nullptr ||
            KeyIsAfterNode(next->Key(), before));
     assert(before == head_ || KeyIsAfterNode(key, before));
