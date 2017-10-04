@@ -447,6 +447,9 @@ InlineSkipList<Comparator>::FindGreaterOrEqual(const char* key) const {
   Node* last_bigger = nullptr;
   while (true) {
     Node* next = x->Next(level);
+    if (next != nullptr) {
+      PREFETCH(next->Next(level), 0, 1);
+    }
     // Make sure the lists are sorted
     assert(x == head_ || next == nullptr || KeyIsAfterNode(next->Key(), x));
     // Make sure we haven't overshot during our search
@@ -486,6 +489,9 @@ InlineSkipList<Comparator>::FindLessThan(const char* key, Node** prev,
   while (true) {
     assert(x != nullptr);
     Node* next = x->Next(level);
+    if (next != nullptr) {
+      PREFETCH(next->Next(level), 0, 1);
+    }
     assert(x == head_ || next == nullptr || KeyIsAfterNode(next->Key(), x));
     assert(x == head_ || KeyIsAfterNode(key, x));
     if (next != last_not_after && KeyIsAfterNode(key, next)) {
@@ -536,6 +542,9 @@ uint64_t InlineSkipList<Comparator>::EstimateCount(const char* key) const {
   while (true) {
     assert(x == head_ || compare_(x->Key(), key) < 0);
     Node* next = x->Next(level);
+    if (next != nullptr) {
+      PREFETCH(next->Next(level), 0, 1);
+    }
     if (next == nullptr || compare_(next->Key(), key) >= 0) {
       if (level == 0) {
         return count;
