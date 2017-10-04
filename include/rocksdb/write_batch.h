@@ -327,6 +327,7 @@ class WriteBatch : public WriteBatchBase {
  private:
   friend class WriteBatchInternal;
   friend class LocalSavePoint;
+  friend class WriteBatchWithIndex;
   SavePoints* save_points_;
 
   // When sending a WriteBatch through WriteImpl we might want to
@@ -348,15 +349,6 @@ class WriteBatch : public WriteBatchBase {
 
   // Intentionally copyable
 };
-    class RawWriteBatch: public WriteBatch {
-      private:
-        RawWriteBatch() : WriteBatch() {}
-        friend class WritePreparedTxn;
-      public :
-        void Append(Slice slice) {
-          rep_.append(slice.data(), slice.size());
-        }
-    };
 
 }  // namespace rocksdb
 

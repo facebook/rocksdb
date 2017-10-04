@@ -578,19 +578,23 @@ void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id) {
   WriteBatchWithIndex::~WriteBatchWithIndex() {}
 
   WriteBatch* WriteBatchWithIndex::GetWriteBatch() { return &rep->write_batch; }
-  WriteBatch* WriteBatchWithIndex::GetWriteBatchCollapsed(
-      RawWriteBatch* collapsed_buf) {
+
+  bool WriteBatchWithIndex::Collapse() {
     if (rep->obsolete_offsets.size() == 0) {
-      return &rep->write_batch;
+      return false;
     }
     WriteBatch& write_batch = rep->write_batch;
     assert(write_batch.Count() != 0);
     size_t offset = WriteBatchInternal::GetFirstOffset(&write_batch);
     Slice input(write_batch.Data());
     input.remove_prefix(offset);
+    std::string collapsed_buf;
+    collapsed_buf.resize(WriteBatchInternal::kHeader);
 
+    size_t count = 0;
     Status s;
-    // Loop through all entries in Rep and add each one to the index
+    // Loop through all entries in the write batch and add keep them if they are
+    // not obsolete by a newere entry.
     while (s.ok() && !input.empty()) {
       Slice key, value, blob, xid;
       uint32_t column_family_id = 0;  // default
@@ -603,13 +607,36 @@ void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id) {
         rep->obsolete_offsets.erase(rep->obsolete_offsets.begin());
         continue;
       }
+      switch (tag) {
+        case kTypeColumnFamilyValue:
+        case kTypeValue:
+        case kTypeColumnFamilyDeletion:
+        case kTypeDeletion:
+        case kTypeColumnFamilySingleDeletion:
+        case kTypeSingleDeletion:
+        case kTypeColumnFamilyMerge:
+        case kTypeMerge:
+      count++;
+          break;
+        case kTypeLogData:
+        case kTypeBeginPrepareXID:
+        case kTypeEndPrepareXID:
+        case kTypeCommitXID:
+        case kTypeRollbackXID:
+        case kTypeNoop:
+          break;
+        default:
+          assert(0);
+      }
       size_t entry_offset = input.data() - write_batch.Data().data();
       const std::string& wb_data = write_batch.Data();
       Slice entry_ptr = Slice(wb_data.data() + last_entry_offset,
                               entry_offset - last_entry_offset);
-      collapsed_buf->Append(entry_ptr);
+      collapsed_buf.append(entry_ptr.data(), entry_ptr.size());
     }
-    return collapsed_buf;
+    write_batch.rep_ = std::move(collapsed_buf);
+  WriteBatchInternal::SetCount(&write_batch, count);
+  return true;
   }
 
   WBWIIterator* WriteBatchWithIndex::NewIterator() {
