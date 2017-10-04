@@ -348,6 +348,15 @@ class WriteBatch : public WriteBatchBase {
 
   // Intentionally copyable
 };
+    class RawWriteBatch: public WriteBatch {
+      private:
+        RawWriteBatch() : WriteBatch() {}
+        friend class WritePreparedTxn;
+      public :
+        void Append(Slice slice) {
+          rep_.append(slice.data(), slice.size());
+        }
+    };
 
 }  // namespace rocksdb
 

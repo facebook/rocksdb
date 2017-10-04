@@ -9,6 +9,7 @@
 
 #include <limits>
 #include <memory>
+#include <vector>
 
 #include "db/column_family.h"
 #include "db/db_impl.h"
@@ -399,6 +400,7 @@ struct WriteBatchWithIndex::Rep {
   WriteBatchEntrySkipList skip_list;
   bool overwrite_key;
   size_t last_entry_offset;
+  std::vector<size_t> obsolete_offsets;
 
   // Remember current offset of internal write batch, which is used as
   // the starting offset of the next record.
@@ -450,6 +452,7 @@ bool WriteBatchWithIndex::Rep::UpdateExistingEntryWithCfId(
   }
   WriteBatchIndexEntry* non_const_entry =
       const_cast<WriteBatchIndexEntry*>(iter.GetRawEntry());
+  obsolete_offsets.push_back(non_const_entry->offset);
   non_const_entry->offset = last_entry_offset;
   return true;
 }
@@ -575,6 +578,39 @@ void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id) {
   WriteBatchWithIndex::~WriteBatchWithIndex() {}
 
   WriteBatch* WriteBatchWithIndex::GetWriteBatch() { return &rep->write_batch; }
+  WriteBatch* WriteBatchWithIndex::GetWriteBatchCollapsed(
+      RawWriteBatch* collapsed_buf) {
+    if (rep->obsolete_offsets.size() == 0) {
+      return &rep->write_batch;
+    }
+    WriteBatch& write_batch = rep->write_batch;
+    assert(write_batch.Count() != 0);
+    size_t offset = WriteBatchInternal::GetFirstOffset(&write_batch);
+    Slice input(write_batch.Data());
+    input.remove_prefix(offset);
+
+    Status s;
+    // Loop through all entries in Rep and add each one to the index
+    while (s.ok() && !input.empty()) {
+      Slice key, value, blob, xid;
+      uint32_t column_family_id = 0;  // default
+      char tag = 0;
+      // set offset of current entry for call to AddNewEntry()
+      size_t last_entry_offset = input.data() - write_batch.Data().data();
+      s = ReadRecordFromWriteBatch(&input, &tag, &column_family_id, &key,
+                                   &value, &blob, &xid);
+      if (rep->obsolete_offsets.front() == last_entry_offset) {
+        rep->obsolete_offsets.erase(rep->obsolete_offsets.begin());
+        continue;
+      }
+      size_t entry_offset = input.data() - write_batch.Data().data();
+      const std::string& wb_data = write_batch.Data();
+      Slice entry_ptr = Slice(wb_data.data() + last_entry_offset,
+                              entry_offset - last_entry_offset);
+      collapsed_buf->Append(entry_ptr);
+    }
+    return collapsed_buf;
+  }
 
   WBWIIterator* WriteBatchWithIndex::NewIterator() {
     return new WBWIIteratorImpl(0, &(rep->skip_list), &rep->write_batch);
@@ -689,7 +725,14 @@ Status WriteBatchWithIndex::Merge(ColumnFamilyHandle* column_family,
   rep->SetLastEntryOffset();
   auto s = rep->write_batch.Merge(column_family, key, value);
   if (s.ok()) {
+    auto size_before = rep->obsolete_offsets.size();
     rep->AddOrUpdateIndex(column_family, key);
+    auto size_after = rep->obsolete_offsets.size();
+    bool duplicate_key = size_before != size_after;
+    if (duplicate_key) {
+      assert(0);
+      return Status::NotSupported("Duplicate key with merge value is not supported yet");
+    }
   }
   return s;
 }
@@ -698,7 +741,14 @@ Status WriteBatchWithIndex::Merge(const Slice& key, const Slice& value) {
   rep->SetLastEntryOffset();
   auto s = rep->write_batch.Merge(key, value);
   if (s.ok()) {
+    auto size_before = rep->obsolete_offsets.size();
     rep->AddOrUpdateIndex(key);
+    auto size_after = rep->obsolete_offsets.size();
+    bool duplicate_key = size_before != size_after;
+    if (duplicate_key) {
+      assert(0);
+      return Status::NotSupported("Duplicate key with merge value is not supported yet");
+    }
   }
   return s;
 }

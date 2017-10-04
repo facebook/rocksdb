@@ -134,6 +134,7 @@ class WriteBatchWithIndex : public WriteBatchBase {
 
   using WriteBatchBase::GetWriteBatch;
   WriteBatch* GetWriteBatch() override;
+  WriteBatch* GetWriteBatchCollapsed(RawWriteBatch* collapsed_buf);
 
   // Create an iterator of a column family. User can call iterator.Seek() to
   // search to the next entry of or after a key. Keys will be iterated in the
