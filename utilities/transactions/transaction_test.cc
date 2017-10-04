@@ -2780,8 +2780,12 @@ TEST_P(TransactionTest, UntrackedWrites) {
   // Untracked writes should succeed even though key was written after snapshot
   s = txn->PutUntracked("untracked", "1");
   ASSERT_OK(s);
-  s = txn->MergeUntracked("untracked", "2");
-  ASSERT_OK(s);
+  if (txn_db_options.write_policy != WRITE_PREPARED) {
+    // WRITE_PREPARED does not currently support dup merge keys.
+    // TODO(myabandeh): remove this if-then when the support is added
+    s = txn->MergeUntracked("untracked", "2");
+    ASSERT_OK(s);
+  }
   s = txn->DeleteUntracked("untracked");
   ASSERT_OK(s);
 
