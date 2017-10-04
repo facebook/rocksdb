@@ -47,7 +47,11 @@ Status WritePreparedTxn::PrepareInternal() {
   WriteBatchInternal::MarkEndPrepare(GetWriteBatch()->GetWriteBatch(), name_);
   const bool disable_memtable = true;
   uint64_t seq_used = kMaxSequenceNumber;
-  GetWriteBatch()->Collapse();
+  bool collapsed = GetWriteBatch()->Collapse();
+  if (collapsed) {
+      ROCKS_LOG_WARN(db_impl_->immutable_db_options().info_log,
+                     "Collapse overhead due to duplicate keys");
+  }
   Status s =
       db_impl_->WriteImpl(write_options, GetWriteBatch()->GetWriteBatch(),
                           /*callback*/ nullptr, &log_number_, /*log ref*/ 0,
@@ -60,7 +64,11 @@ Status WritePreparedTxn::PrepareInternal() {
 }
 
 Status WritePreparedTxn::CommitWithoutPrepareInternal() {
-  GetWriteBatch()->Collapse();
+  bool collapsed = GetWriteBatch()->Collapse();
+  if (collapsed) {
+      ROCKS_LOG_WARN(db_impl_->immutable_db_options().info_log,
+                     "Collapse overhead due to duplicate keys");
+  }
   return CommitBatchInternal(GetWriteBatch()->GetWriteBatch());
 }
 
