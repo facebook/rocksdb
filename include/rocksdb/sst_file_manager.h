@@ -64,22 +64,21 @@ class SstFileManager {
 // @param info_log: If not nullptr, info_log will be used to log errors.
 //
 // == Deletion rate limiting specific arguments ==
-// @param trash_dir: Path to the directory where deleted files will be moved
-//    to be deleted in a background thread while applying rate limiting. If this
-//    directory doesn't exist, it will be created. This directory should not be
-//    used by any other process or any other SstFileManager, Set to "" to
-//    disable deletion rate limiting.
+// @param trash_dir: Deprecated, this argument have no effect
 // @param rate_bytes_per_sec: How many bytes should be deleted per second, If
 //    this value is set to 1024 (1 Kb / sec) and we deleted a file of size 4 Kb
 //    in 1 second, we will wait for another 3 seconds before we delete other
 //    files, Set to 0 to disable deletion rate limiting.
 // @param delete_existing_trash: If set to true, the newly created
-//    SstFileManager will delete files that already exist in trash_dir.
+//    SstFileManager will delete files that already marked as trash in db_path.
 // @param status: If not nullptr, status will contain any errors that happened
 //    during creating the missing trash_dir or deleting existing files in trash.
+// @param db_path: If delete_existing_trash is passed as true, SstFileManager
+//    will get all files marked as trash in db_path to delete them.
 extern SstFileManager* NewSstFileManager(
     Env* env, std::shared_ptr<Logger> info_log = nullptr,
     std::string trash_dir = "", int64_t rate_bytes_per_sec = 0,
-    bool delete_existing_trash = true, Status* status = nullptr);
+    bool delete_existing_trash = true, Status* status = nullptr,
+    std::string db_path = "");
 
 }  // namespace rocksdb

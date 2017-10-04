@@ -19,11 +19,10 @@
 
 namespace rocksdb {
 
-DeleteScheduler::DeleteScheduler(Env* env, const std::string& trash_dir,
-                                 int64_t rate_bytes_per_sec, Logger* info_log,
+DeleteScheduler::DeleteScheduler(Env* env, int64_t rate_bytes_per_sec,
+                                 Logger* info_log,
                                  SstFileManagerImpl* sst_file_manager)
     : env_(env),
-      trash_dir_(trash_dir),
       total_trash_size_(0),
       rate_bytes_per_sec_(rate_bytes_per_sec),
       pending_files_(0),
@@ -63,11 +62,10 @@ Status DeleteScheduler::DeleteFile(const std::string& file_path) {
   }
 
   // Move file to trash
-  std::string path_in_trash;
-  s = MoveToTrash(file_path, &path_in_trash);
+  std::string trash_file;
+  s = MarkAsTrash(file_path, &trash_file);
   if (!s.ok()) {
-    ROCKS_LOG_ERROR(info_log_, "Failed to move %s to trash directory (%s)",
-                    file_path.c_str(), trash_dir_.c_str());
+    ROCKS_LOG_ERROR(info_log_, "Failed to mark %s as trash", file_path.c_str());
     s = env_->DeleteFile(file_path);
     if (s.ok()) {
       sst_file_manager_->OnDeleteFile(file_path);
@@ -78,7 +76,7 @@ Status DeleteScheduler::DeleteFile(const std::string& file_path) {
   // Add file to delete queue
   {
     InstrumentedMutexLock l(&mu_);
-    queue_.push(path_in_trash);
+    queue_.push(trash_file);
     pending_files_++;
     if (pending_files_ == 1) {
       cv_.SignalAll();
@@ -92,43 +90,50 @@ std::map<std::string, Status> DeleteScheduler::GetBackgroundErrors() {
   return bg_errors_;
 }
 
-Status DeleteScheduler::MoveToTrash(const std::string& file_path,
-                                    std::string* path_in_trash) {
-  Status s;
-  // Figure out the name of the file in trash folder
+const std::string DeleteScheduler::kTrashExtension = ".trash";
+bool DeleteScheduler::IsTrashFile(const std::string& file_path) {
+  return (file_path.size() >= kTrashExtension.size() &&
+          file_path.rfind(kTrashExtension) ==
+              file_path.size() - kTrashExtension.size());
+}
+
+Status DeleteScheduler::MarkAsTrash(const std::string& file_path,
+                                    std::string* trash_file) {
+  // Sanity check of the path
   size_t idx = file_path.rfind("/");
   if (idx == std::string::npos || idx == file_path.size() - 1) {
     return Status::InvalidArgument("file_path is corrupted");
   }
-  *path_in_trash = trash_dir_ + file_path.substr(idx);
-  std::string unique_suffix = "";
 
-  if (*path_in_trash == file_path) {
-    // This file is already in trash
+  Status s;
+  if (DeleteScheduler::IsTrashFile(file_path)) {
+    // This is already a trash file
     return s;
   }
 
+  *trash_file = file_path + kTrashExtension;
   // TODO(tec) : Implement Env::RenameFileIfNotExist and remove
   //             file_move_mu mutex.
+  int cnt = 0;
   InstrumentedMutexLock l(&file_move_mu_);
   while (true) {
-    s = env_->FileExists(*path_in_trash + unique_suffix);
+    s = env_->FileExists(*trash_file);
     if (s.IsNotFound()) {
       // We found a path for our file in trash
-      *path_in_trash += unique_suffix;
-      s = env_->RenameFile(file_path, *path_in_trash);
+      s = env_->RenameFile(file_path, *trash_file);
       break;
     } else if (s.ok()) {
       // Name conflict, generate new random suffix
-      unique_suffix = env_->GenerateUniqueId();
+      *trash_file = file_path + std::to_string(cnt) + kTrashExtension;
     } else {
       // Error during FileExists call, we cannot continue
       break;
     }
+    cnt++;
   }
   if (s.ok()) {
     uint64_t trash_file_size = 0;
-    sst_file_manager_->OnMoveFile(file_path, *path_in_trash, &trash_file_size);
+    sst_file_manager_->OnMoveFile(file_path, *trash_file, &trash_file_size);
     total_trash_size_.fetch_add(trash_file_size);
   }
   return s;

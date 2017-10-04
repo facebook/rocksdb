@@ -17,14 +17,12 @@ namespace rocksdb {
 
 #ifndef ROCKSDB_LITE
 SstFileManagerImpl::SstFileManagerImpl(Env* env, std::shared_ptr<Logger> logger,
-                                       const std::string& trash_dir,
                                        int64_t rate_bytes_per_sec)
     : env_(env),
       logger_(logger),
       total_files_size_(0),
       max_allowed_space_(0),
-      delete_scheduler_(env, trash_dir, rate_bytes_per_sec, logger.get(),
-                        this) {}
+      delete_scheduler_(env, rate_bytes_per_sec, logger.get(), this) {}
 
 SstFileManagerImpl::~SstFileManagerImpl() {}
 
@@ -130,28 +128,28 @@ void SstFileManagerImpl::OnDeleteFileImpl(const std::string& file_path) {
 SstFileManager* NewSstFileManager(Env* env, std::shared_ptr<Logger> info_log,
                                   std::string trash_dir,
                                   int64_t rate_bytes_per_sec,
-                                  bool delete_existing_trash, Status* status) {
+                                  bool delete_existing_trash, Status* status,
+                                  std::string db_path) {
   SstFileManagerImpl* res =
-      new SstFileManagerImpl(env, info_log, trash_dir, rate_bytes_per_sec);
+      new SstFileManagerImpl(env, info_log, rate_bytes_per_sec);
 
   Status s;
-  if (trash_dir != "") {
-    s = env->CreateDirIfMissing(trash_dir);
+  if (db_path != "") {
+    // Check if there are any files marked as trash in DB directory
+    std::vector<std::string> files_in_db_path;
+    s = env->GetChildren(db_path, &files_in_db_path);
     if (s.ok() && delete_existing_trash) {
-      std::vector<std::string> files_in_trash;
-      s = env->GetChildren(trash_dir, &files_in_trash);
-      if (s.ok()) {
-        for (const std::string& trash_file : files_in_trash) {
-          if (trash_file == "." || trash_file == "..") {
-            continue;
-          }
+      for (const std::string& f : files_in_db_path) {
+        if (!DeleteScheduler::IsTrashFile(f)) {
+          // not a trash file
+          continue;
+        }
 
-          std::string path_in_trash = trash_dir + "/" + trash_file;
-          res->OnAddFile(path_in_trash);
-          Status file_delete = res->ScheduleFileDeletion(path_in_trash);
-          if (s.ok() && !file_delete.ok()) {
-            s = file_delete;
-          }
+        std::string trash_file = db_path + "/" + f;
+        res->OnAddFile(trash_file);
+        Status file_delete = res->ScheduleFileDeletion(trash_file);
+        if (s.ok() && !file_delete.ok()) {
+          s = file_delete;
         }
       }
     }
@@ -169,7 +167,8 @@ SstFileManager* NewSstFileManager(Env* env, std::shared_ptr<Logger> info_log,
 SstFileManager* NewSstFileManager(Env* env, std::shared_ptr<Logger> info_log,
                                   std::string trash_dir,
                                   int64_t rate_bytes_per_sec,
-                                  bool delete_existing_trash, Status* status) {
+                                  bool delete_existing_trash, Status* status,
+                                  std::string db_path) {
   if (status) {
     *status =
         Status::NotSupported("SstFileManager is not supported in ROCKSDB_LITE");
