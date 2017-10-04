@@ -45,9 +45,12 @@
 #include <stdlib.h>
 #include <algorithm>
 #include <atomic>
+#include <type_traits>
 #include "port/likely.h"
 #include "port/port.h"
+#include "rocksdb/slice.h"
 #include "util/allocator.h"
+#include "util/coding.h"
 #include "util/random.h"
 
 namespace rocksdb {
@@ -59,6 +62,9 @@ class InlineSkipList {
   struct Splice;
 
  public:
+  using DecodedKey = \
+    typename std::remove_reference<Comparator>::type::DecodedType;
+
   static const uint16_t kMaxPossibleHeight = 32;
 
   // Create a new InlineSkipList object that will use "cmp" for comparing
@@ -212,6 +218,7 @@ class InlineSkipList {
   // Return true if key is greater than the data stored in "n".  Null n
   // is considered infinite.  n should not be head_.
   bool KeyIsAfterNode(const char* key, Node* n) const;
+  bool KeyIsAfterNode(const DecodedKey& key, Node* n) const;
 
   // Returns the earliest node with a key >= key.
   // Return nullptr if there is no such node.
@@ -241,12 +248,12 @@ class InlineSkipList {
   // a node that is after the key.  after should be nullptr if a good after
   // node isn't conveniently available.
   template<bool prefetch_before>
-  void FindSpliceForLevel(const char* key, Node* before, Node* after, int level,
+  void FindSpliceForLevel(const DecodedKey& key, Node* before, Node* after, int level,
                           Node** out_prev, Node** out_next);
 
   // Recomputes Splice levels from highest_level (inclusive) down to
   // lowest_level (inclusive).
-  void RecomputeSpliceLevels(const char* key, Splice* splice,
+  void RecomputeSpliceLevels(const DecodedKey& key, Splice* splice,
                              int recompute_level);
 
   // No copying allowed
@@ -429,6 +436,14 @@ int InlineSkipList<Comparator>::RandomHeight() {
 
 template <class Comparator>
 bool InlineSkipList<Comparator>::KeyIsAfterNode(const char* key,
+                                                Node* n) const {
+  // nullptr n is considered infinite
+  assert(n != head_);
+  return (n != nullptr) && (compare_(n->Key(), key) < 0);
+}
+
+template <class Comparator>
+bool InlineSkipList<Comparator>::KeyIsAfterNode(const DecodedKey& key,
                                                 Node* n) const {
   // nullptr n is considered infinite
   assert(n != head_);
@@ -654,7 +669,7 @@ bool InlineSkipList<Comparator>::InsertWithHint(const char* key, void** hint) {
 
 template <class Comparator>
 template <bool prefetch_before>
-void InlineSkipList<Comparator>::FindSpliceForLevel(const char* key,
+void InlineSkipList<Comparator>::FindSpliceForLevel(const DecodedKey& key,
                                                     Node* before, Node* after,
                                                     int level, Node** out_prev,
                                                     Node** out_next) {
@@ -682,7 +697,7 @@ void InlineSkipList<Comparator>::FindSpliceForLevel(const char* key,
 }
 
 template <class Comparator>
-void InlineSkipList<Comparator>::RecomputeSpliceLevels(const char* key,
+void InlineSkipList<Comparator>::RecomputeSpliceLevels(const DecodedKey& key,
                                                        Splice* splice,
                                                        int recompute_level) {
   assert(recompute_level > 0);
@@ -698,6 +713,7 @@ template <bool UseCAS>
 bool InlineSkipList<Comparator>::Insert(const char* key, Splice* splice,
                                         bool allow_partial_splice_fix) {
   Node* x = reinterpret_cast<Node*>(const_cast<char*>(key)) - 1;
+  const DecodedKey key_decoded = compare_.decode_key(key);
   int height = x->UnstashHeight();
   assert(height >= 1 && height <= kMaxHeight_);
 
@@ -765,7 +781,8 @@ bool InlineSkipList<Comparator>::Insert(const char* key, Splice* splice,
         // our chances of success.
         ++recompute_height;
       } else if (splice->prev_[recompute_height] != head_ &&
-                 !KeyIsAfterNode(key, splice->prev_[recompute_height])) {
+                 !KeyIsAfterNode(key_decoded,
+                                 splice->prev_[recompute_height])) {
         // key is from before splice
         if (allow_partial_splice_fix) {
           // skip all levels with the same node without more comparisons
@@ -777,7 +794,8 @@ bool InlineSkipList<Comparator>::Insert(const char* key, Splice* splice,
           // we're pessimistic, recompute everything
           recompute_height = max_height;
         }
-      } else if (KeyIsAfterNode(key, splice->next_[recompute_height])) {
+      } else if (KeyIsAfterNode(key_decoded,
+                                splice->next_[recompute_height])) {
         // key is from after splice
         if (allow_partial_splice_fix) {
           Node* bad = splice->next_[recompute_height];
@@ -795,7 +813,7 @@ bool InlineSkipList<Comparator>::Insert(const char* key, Splice* splice,
   }
   assert(recompute_height <= max_height);
   if (recompute_height > 0) {
-    RecomputeSpliceLevels(key, splice, recompute_height);
+    RecomputeSpliceLevels(key_decoded, splice, recompute_height);
   }
 
   bool splice_is_valid = true;
@@ -827,8 +845,8 @@ bool InlineSkipList<Comparator>::Insert(const char* key, Splice* splice,
         // search, because it should be unlikely that lots of nodes have
         // been inserted between prev[i] and next[i]. No point in using
         // next[i] as the after hint, because we know it is stale.
-        FindSpliceForLevel<false>(key, splice->prev_[i], nullptr, i, &splice->prev_[i],
-                           &splice->next_[i]);
+        FindSpliceForLevel<false>(key_decoded, splice->prev_[i], nullptr, i,
+                                  &splice->prev_[i], &splice->next_[i]);
 
         // Since we've narrowed the bracket for level i, we might have
         // violated the Splice constraint between i and i-1.  Make sure
@@ -842,8 +860,8 @@ bool InlineSkipList<Comparator>::Insert(const char* key, Splice* splice,
     for (int i = 0; i < height; ++i) {
       if (i >= recompute_height &&
           splice->prev_[i]->Next(i) != splice->next_[i]) {
-        FindSpliceForLevel<false>(key, splice->prev_[i], nullptr, i, &splice->prev_[i],
-                           &splice->next_[i]);
+        FindSpliceForLevel<false>(key_decoded, splice->prev_[i], nullptr, i,
+                                  &splice->prev_[i], &splice->next_[i]);
       }
       // Checking for duplicate keys on the level 0 is sufficient
       if (UNLIKELY(i == 0 && splice->next_[i] != nullptr &&

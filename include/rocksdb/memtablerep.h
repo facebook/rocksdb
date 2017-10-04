@@ -39,17 +39,19 @@
 #include <stdexcept>
 #include <stdint.h>
 #include <stdlib.h>
+#include <rocksdb/slice.h>
 
 namespace rocksdb {
 
 class Arena;
 class Allocator;
 class LookupKey;
-class Slice;
 class SliceTransform;
 class Logger;
 
 typedef void* KeyHandle;
+
+extern Slice GetLengthPrefixedSlice(const char* data);
 
 class MemTableRep {
  public:
@@ -57,6 +59,14 @@ class MemTableRep {
   // concatenated with values.
   class KeyComparator {
    public:
+    typedef rocksdb::Slice DecodedType;
+
+    virtual DecodedType decode_key(const char* key) const {
+      // The format of key is frozen and can be terated as a part of the API
+      // contract. Refer to MemTable::Add for details.
+      return GetLengthPrefixedSlice(key);
+    }
+
     // Compare a and b. Return a negative value if a is less than b, 0 if they
     // are equal, and a positive value if a is greater than b
     virtual int operator()(const char* prefix_len_key1,
