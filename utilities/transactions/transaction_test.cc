@@ -4156,6 +4156,11 @@ TEST_P(TransactionTest, SingleDeleteTest) {
 }
 
 TEST_P(TransactionTest, MergeTest) {
+  if (txn_db_options.write_policy == WRITE_PREPARED) {
+    // WRITE_PREPARED does not currently support dup merge keys.
+    // TODO(myabandeh): remove this if-then when the support is added
+    return;
+  }
   WriteOptions write_options;
   ReadOptions read_options;
   string value;
