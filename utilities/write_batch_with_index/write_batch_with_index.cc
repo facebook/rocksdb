@@ -756,7 +756,7 @@ Status WriteBatchWithIndex::Merge(ColumnFamilyHandle* column_family,
     rep->AddOrUpdateIndex(column_family, key);
     auto size_after = rep->obsolete_offsets.size();
     bool duplicate_key = size_before != size_after;
-    if (duplicate_key) {
+    if (!allow_dup_merge && duplicate_key) {
       assert(0);
       return Status::NotSupported(
           "Duplicate key with merge value is not supported yet");
@@ -773,7 +773,7 @@ Status WriteBatchWithIndex::Merge(const Slice& key, const Slice& value) {
     rep->AddOrUpdateIndex(key);
     auto size_after = rep->obsolete_offsets.size();
     bool duplicate_key = size_before != size_after;
-    if (duplicate_key) {
+    if (!allow_dup_merge && duplicate_key) {
       assert(0);
       return Status::NotSupported(
           "Duplicate key with merge value is not supported yet");

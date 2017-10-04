@@ -27,6 +27,7 @@ WritePreparedTxn::WritePreparedTxn(WritePreparedTxnDB* txn_db,
     : PessimisticTransaction(txn_db, write_options, txn_options),
       wpt_db_(txn_db) {
   PessimisticTransaction::Initialize(txn_options);
+  GetWriteBatch()->DisableDuplicateMergeKeys();
 }
 
 Status WritePreparedTxn::Get(const ReadOptions& read_options,
