@@ -826,6 +826,10 @@ DEFINE_int32(rate_limit_delay_max_milliseconds, 1000,
 
 DEFINE_uint64(rate_limiter_bytes_per_sec, 0, "Set options.rate_limiter value.");
 
+DEFINE_bool(rate_limiter_auto_tuned, false,
+            "Enable dynamic adjustment of rate limit according to demand for "
+            "background I/O");
+
 DEFINE_bool(rate_limit_bg_reads, false,
             "Use options.rate_limiter on compaction reads");
 
@@ -3257,7 +3261,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
           FLAGS_rate_limiter_bytes_per_sec, 100 * 1000 /* refill_period_us */,
           10 /* fairness */,
           FLAGS_rate_limit_bg_reads ? RateLimiter::Mode::kReadsOnly
-                                    : RateLimiter::Mode::kWritesOnly));
+                                    : RateLimiter::Mode::kWritesOnly,
+          FLAGS_rate_limiter_auto_tuned));
     }
 
     if (FLAGS_num_multi_db <= 1) {
