@@ -33,7 +33,7 @@ WritePreparedTxn::WritePreparedTxn(WritePreparedTxnDB* txn_db,
 Status WritePreparedTxn::Get(const ReadOptions& read_options,
                              ColumnFamilyHandle* column_family,
                              const Slice& key, PinnableSlice* pinnable_val) {
-  auto snapshot = GetSnapshot();
+  auto snapshot = read_options.snapshot;
   auto snap_seq =
       snapshot != nullptr ? snapshot->GetSequenceNumber() : kMaxSequenceNumber;
 
