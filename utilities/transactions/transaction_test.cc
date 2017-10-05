@@ -4679,6 +4679,7 @@ Status TransactionStressTestInserter(TransactionDB* db,
 }  // namespace
 
 TEST_P(MySQLStyleTransactionTest, TransactionStressTest) {
+  // TODO(myabandeh): remove these after compaction for WritePrepared is fixed
   options.db_write_buffer_size = 1024 * 1024 * 1024;
   options.write_buffer_size = 1024 * 1024 * 1024;
   options.disable_auto_compactions = true;
