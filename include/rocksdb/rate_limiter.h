@@ -127,9 +127,13 @@ class RateLimiter {
 // 1/fairness chance even though high-pri requests exist to avoid starvation.
 // You should be good by leaving it at default 10.
 // @mode: Mode indicates which types of operations count against the limit.
+// @auto_tuned: Enables dynamic adjustment of rate limit within the range
+//              `[rate_bytes_per_sec / 20, rate_bytes_per_sec]`, according to
+//              the recent demand for background I/O.
 extern RateLimiter* NewGenericRateLimiter(
     int64_t rate_bytes_per_sec, int64_t refill_period_us = 100 * 1000,
     int32_t fairness = 10,
-    RateLimiter::Mode mode = RateLimiter::Mode::kWritesOnly);
+    RateLimiter::Mode mode = RateLimiter::Mode::kWritesOnly,
+    bool auto_tuned = false);
 
 }  // namespace rocksdb

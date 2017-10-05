@@ -12,8 +12,12 @@
 #endif
 
 #include "util/rate_limiter.h"
+
 #include <inttypes.h>
+#include <chrono>
 #include <limits>
+
+#include "db/db_test_util.h"
 #include "rocksdb/env.h"
 #include "util/random.h"
 #include "util/sync_point.h"
@@ -25,7 +29,9 @@ namespace rocksdb {
 class RateLimiterTest : public testing::Test {};
 
 TEST_F(RateLimiterTest, OverflowRate) {
-  GenericRateLimiter limiter(port::kMaxInt64, 1000, 10);
+  GenericRateLimiter limiter(port::kMaxInt64, 1000, 10,
+                             RateLimiter::Mode::kWritesOnly, Env::Default(),
+                             false /* auto_tuned */);
   ASSERT_GT(limiter.GetSingleBurstBytes(), 1000000000ll);
 }
 
@@ -36,9 +42,9 @@ TEST_F(RateLimiterTest, StartStop) {
 TEST_F(RateLimiterTest, Modes) {
   for (auto mode : {RateLimiter::Mode::kWritesOnly,
                     RateLimiter::Mode::kReadsOnly, RateLimiter::Mode::kAllIo}) {
-    GenericRateLimiter limiter(2000 /* rate_bytes_per_sec */,
-                               1000 * 1000 /* refill_period_us */,
-                               10 /* fairness */, mode);
+    GenericRateLimiter limiter(
+        2000 /* rate_bytes_per_sec */, 1000 * 1000 /* refill_period_us */,
+        10 /* fairness */, mode, Env::Default(), false /* auto_tuned */);
     limiter.Request(1000 /* bytes */, Env::IO_HIGH, nullptr /* stats */,
                     RateLimiter::OpType::kRead);
     if (mode == RateLimiter::Mode::kWritesOnly) {
@@ -147,7 +153,9 @@ TEST_F(RateLimiterTest, LimitChangeTest) {
     // refill per second
     for (int iter = 0; iter < 2; iter++) {
       std::shared_ptr<RateLimiter> limiter =
-          std::make_shared<GenericRateLimiter>(target, refill_period, 10);
+          std::make_shared<GenericRateLimiter>(
+              target, refill_period, 10, RateLimiter::Mode::kWritesOnly,
+              Env::Default(), false /* auto_tuned */);
       rocksdb::SyncPoint::GetInstance()->LoadDependency(
           {{"GenericRateLimiter::Request",
             "RateLimiterTest::LimitChangeTest:changeLimitStart"},
@@ -170,6 +178,57 @@ TEST_F(RateLimiterTest, LimitChangeTest) {
               target / 1024, new_limit / 1024, refill_period / 1000);
     }
   }
+}
+
+TEST_F(RateLimiterTest, AutoTuneIncreaseWhenFull) {
+  const std::chrono::seconds kTimePerRefill(1);
+  const int kRefillsPerTune = 100;  // needs to match util/rate_limiter.cc
+
+  SpecialEnv special_env(Env::Default());
+  special_env.no_slowdown_ = true;
+  special_env.time_elapse_only_sleep_ = true;
+
+  auto stats = CreateDBStatistics();
+  std::unique_ptr<RateLimiter> rate_limiter(new GenericRateLimiter(
+      1000 /* rate_bytes_per_sec */,
+      std::chrono::microseconds(kTimePerRefill).count(), 10 /* fairness */,
+      RateLimiter::Mode::kWritesOnly, &special_env, true /* auto_tuned */));
+
+  // Use callback to advance time because we need to advance (1) after Request()
+  // has determined the bytes are not available; and (2) before Refill()
+  // computes the next refill time (ensuring refill time in the future allows
+  // the next request to drain the rate limiter).
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "GenericRateLimiter::Refill", [&](void* arg) {
+        special_env.SleepForMicroseconds(static_cast<int>(
+            std::chrono::microseconds(kTimePerRefill).count()));
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  // verify rate limit increases after a sequence of periods where rate limiter
+  // is always drained
+  int64_t orig_bytes_per_sec = rate_limiter->GetSingleBurstBytes();
+  rate_limiter->Request(orig_bytes_per_sec, Env::IO_HIGH, stats.get(),
+                        RateLimiter::OpType::kWrite);
+  while (std::chrono::microseconds(special_env.NowMicros()) <=
+         kRefillsPerTune * kTimePerRefill) {
+    rate_limiter->Request(orig_bytes_per_sec, Env::IO_HIGH, stats.get(),
+                          RateLimiter::OpType::kWrite);
+  }
+  int64_t new_bytes_per_sec = rate_limiter->GetSingleBurstBytes();
+  ASSERT_GT(new_bytes_per_sec, orig_bytes_per_sec);
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+
+  // decreases after a sequence of periods where rate limiter is not drained
+  orig_bytes_per_sec = new_bytes_per_sec;
+  special_env.SleepForMicroseconds(static_cast<int>(
+      kRefillsPerTune * std::chrono::microseconds(kTimePerRefill).count()));
+  // make a request so tuner can be triggered
+  rate_limiter->Request(1 /* bytes */, Env::IO_HIGH, stats.get(),
+                        RateLimiter::OpType::kWrite);
+  new_bytes_per_sec = rate_limiter->GetSingleBurstBytes();
+  ASSERT_LT(new_bytes_per_sec, orig_bytes_per_sec);
 }
 
 }  // namespace rocksdb
