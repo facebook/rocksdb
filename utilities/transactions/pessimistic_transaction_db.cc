@@ -589,6 +589,11 @@ bool WritePreparedTxnDB::IsInSnapshot(uint64_t prep_seq,
   // TODO(myabandeh): read your own writes
   // TODO(myabandeh): optimize this. This sequence of checks must be correct but
   // not necessary efficient
+  if (prep_seq == 0) {
+    // Compaction will output keys to bottom-level with sequence number 0 if
+    // it is visible to the earliest snapshot.
+    return true;
+  }
   if (snapshot_seq < prep_seq) {
     // snapshot_seq < prep_seq <= commit_seq => snapshot_seq < commit_seq
     return false;
