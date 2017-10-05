@@ -484,6 +484,7 @@ Status DBImpl::SetOptions(ColumnFamilyHandle* column_family,
   Status s;
   Status persist_options_status;
   WriteThread::Writer w;
+  SuperVersionContext sv_context(/* create_superversion */ true);
   {
     InstrumentedMutexLock l(&mutex_);
     s = cfd->SetOptions(options_map);
@@ -496,14 +497,13 @@ Status DBImpl::SetOptions(ColumnFamilyHandle* column_family,
       // Trigger possible flush/compactions. This has to be before we persist
       // options to file, otherwise there will be a deadlock with writer
       // thread.
-      auto* old_sv =
-          InstallSuperVersionAndScheduleWork(cfd, nullptr, new_options);
-      delete old_sv;
+      InstallSuperVersionAndScheduleWork(cfd, &sv_context, new_options);
 
       persist_options_status = WriteOptionsFile(
           false /*need_mutex_lock*/, true /*need_enter_write_thread*/);
     }
   }
+  sv_context.Clean();
 
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "SetOptions() on column family [%s], inputs:",
@@ -1229,6 +1229,7 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
     return s;
   }
 
+  SuperVersionContext sv_context(/* create_superversion */ true);
   {
     InstrumentedMutexLock l(&mutex_);
 
@@ -1260,8 +1261,8 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
       auto* cfd =
           versions_->GetColumnFamilySet()->GetColumnFamily(column_family_name);
       assert(cfd != nullptr);
-      delete InstallSuperVersionAndScheduleWork(
-          cfd, nullptr, *cfd->GetLatestMutableCFOptions());
+      InstallSuperVersionAndScheduleWork(
+              cfd, &sv_context, *cfd->GetLatestMutableCFOptions());
 
       if (!cfd->mem()->IsSnapshotSupported()) {
         is_snapshot_supported_ = false;
@@ -1280,6 +1281,7 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
     }
   }  // InstrumentedMutexLock l(&mutex_)
 
+  sv_context.Clean();
   // this is outside the mutex
   if (s.ok()) {
     NewThreadStatusCfInfo(
@@ -2035,8 +2037,9 @@ Status DBImpl::DeleteFile(std::string name) {
     status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
                                     &edit, &mutex_, directories_.GetDbDir());
     if (status.ok()) {
-      InstallSuperVersionAndScheduleWorkWrapper(
-          cfd, &job_context, *cfd->GetLatestMutableCFOptions());
+      InstallSuperVersionAndScheduleWork(
+          cfd, &job_context.superversion_context,
+          *cfd->GetLatestMutableCFOptions());
     }
     FindObsoleteFiles(&job_context, false);
   }  // lock released here
@@ -2113,8 +2116,9 @@ Status DBImpl::DeleteFilesInRange(ColumnFamilyHandle* column_family,
     status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
                                     &edit, &mutex_, directories_.GetDbDir());
     if (status.ok()) {
-      InstallSuperVersionAndScheduleWorkWrapper(
-          cfd, &job_context, *cfd->GetLatestMutableCFOptions());
+      InstallSuperVersionAndScheduleWork(
+          cfd, &job_context.superversion_context,
+          *cfd->GetLatestMutableCFOptions());
     }
     for (auto* deleted_file : deleted_files) {
       deleted_file->being_compacted = false;
@@ -2678,6 +2682,7 @@ Status DBImpl::IngestExternalFile(
     return status;
   }
 
+  SuperVersionContext sv_context(/* create_superversion */ true);
   TEST_SYNC_POINT("DBImpl::AddFile:Start");
   {
     // Lock db mutex
@@ -2726,8 +2731,8 @@ Status DBImpl::IngestExternalFile(
                                  &mutex_, directories_.GetDbDir());
     }
     if (status.ok()) {
-      delete InstallSuperVersionAndScheduleWork(cfd, nullptr,
-                                                *mutable_cf_options);
+      InstallSuperVersionAndScheduleWork(cfd, &sv_context,
+                                         *mutable_cf_options);
     }
 
     // Resume writes to the DB
@@ -2753,6 +2758,7 @@ Status DBImpl::IngestExternalFile(
   // mutex_ is unlocked here
 
   // Cleanup
+  sv_context.Clean();
   ingestion_job.Cleanup(status);
 
   if (status.ok()) {

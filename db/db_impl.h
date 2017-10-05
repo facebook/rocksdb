@@ -666,13 +666,14 @@ class DBImpl : public DB {
   struct CompactionState;
 
   struct WriteContext {
-    autovector<SuperVersion*> superversions_to_free_;
+    SuperVersionContext superversion_context;
     autovector<MemTable*> memtables_to_free_;
 
+    explicit WriteContext(bool create_superversion = false)
+        : superversion_context(create_superversion) {}
+
     ~WriteContext() {
-      for (auto& sv : superversions_to_free_) {
-        delete sv;
-      }
+      superversion_context.Clean();
       for (auto& m : memtables_to_free_) {
         delete m;
       }
@@ -1236,17 +1237,13 @@ class DBImpl : public DB {
 
   // Background threads call this function, which is just a wrapper around
   // the InstallSuperVersion() function. Background threads carry
-  // job_context which can have new_superversion already
+  // sv_context which can have new_superversion already
   // allocated.
-  void InstallSuperVersionAndScheduleWorkWrapper(
-      ColumnFamilyData* cfd, JobContext* job_context,
-      const MutableCFOptions& mutable_cf_options);
-
   // All ColumnFamily state changes go through this function. Here we analyze
   // the new state and we schedule background work if we detect that the new
   // state needs flush or compaction.
-  SuperVersion* InstallSuperVersionAndScheduleWork(
-      ColumnFamilyData* cfd, SuperVersion* new_sv,
+  void InstallSuperVersionAndScheduleWork(
+      ColumnFamilyData* cfd, SuperVersionContext* sv_context,
       const MutableCFOptions& mutable_cf_options);
 
 #ifndef ROCKSDB_LITE

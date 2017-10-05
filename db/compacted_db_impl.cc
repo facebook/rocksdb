@@ -93,6 +93,7 @@ std::vector<Status> CompactedDBImpl::MultiGet(const ReadOptions& options,
 }
 
 Status CompactedDBImpl::Init(const Options& options) {
+  SuperVersionContext sv_context(/* create_superversion */ true);
   mutex_.Lock();
   ColumnFamilyDescriptor cf(kDefaultColumnFamilyName,
                             ColumnFamilyOptions(options));
@@ -100,9 +101,10 @@ Status CompactedDBImpl::Init(const Options& options) {
   if (s.ok()) {
     cfd_ = reinterpret_cast<ColumnFamilyHandleImpl*>(
               DefaultColumnFamily())->cfd();
-    delete cfd_->InstallSuperVersion(new SuperVersion(), &mutex_);
+    cfd_->InstallSuperVersion(&sv_context, &mutex_);
   }
   mutex_.Unlock();
+  sv_context.Clean();
   if (!s.ok()) {
     return s;
   }

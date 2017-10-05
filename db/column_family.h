@@ -41,6 +41,7 @@ class DBImpl;
 class LogBuffer;
 class InstrumentedMutex;
 class InstrumentedMutexLock;
+struct SuperVersionContext;
 
 extern const double kIncSlowdownRatio;
 
@@ -95,6 +96,7 @@ struct SuperVersion {
   MutableCFOptions mutable_cf_options;
   // Version number of the current SuperVersion
   uint64_t version_number;
+  WriteStallCondition write_stall_condition;
 
   InstrumentedMutex* db_mutex;
 
@@ -311,11 +313,11 @@ class ColumnFamilyData {
   // As argument takes a pointer to allocated SuperVersion to enable
   // the clients to allocate SuperVersion outside of mutex.
   // IMPORTANT: Only call this from DBImpl::InstallSuperVersion()
-  SuperVersion* InstallSuperVersion(SuperVersion* new_superversion,
-                                    InstrumentedMutex* db_mutex,
-                                    const MutableCFOptions& mutable_cf_options);
-  SuperVersion* InstallSuperVersion(SuperVersion* new_superversion,
-                                    InstrumentedMutex* db_mutex);
+  void InstallSuperVersion(SuperVersionContext* sv_context,
+                           InstrumentedMutex* db_mutex,
+                           const MutableCFOptions& mutable_cf_options);
+  void InstallSuperVersion(SuperVersionContext* sv_context,
+                           InstrumentedMutex* db_mutex);
 
   void ResetThreadLocalSuperVersions();
 
@@ -330,7 +332,7 @@ class ColumnFamilyData {
   // recalculation of compaction score. These values are used in
   // DBImpl::MakeRoomForWrite function to decide, if it need to make
   // a write stall
-  void RecalculateWriteStallConditions(
+  WriteStallCondition RecalculateWriteStallConditions(
       const MutableCFOptions& mutable_cf_options);
 
   void set_initialized() { initialized_.store(true); }

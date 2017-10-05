@@ -1090,7 +1090,6 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   }
   uint64_t new_log_number =
       creating_new_log ? versions_->NewFileNumber() : logfile_number_;
-  SuperVersion* new_superversion = nullptr;
   const MutableCFOptions mutable_cf_options = *cfd->GetLatestMutableCFOptions();
 
   // Set memtable_info for memtable sealed callback
@@ -1146,7 +1145,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
     if (s.ok()) {
       SequenceNumber seq = versions_->LastSequence();
       new_mem = cfd->ConstructNewMemtable(mutable_cf_options, seq);
-      new_superversion = new SuperVersion();
+      context->superversion_context.NewSuperVersion();
     }
 
 #ifndef ROCKSDB_LITE
@@ -1204,8 +1203,8 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   cfd->imm()->Add(cfd->mem(), &context->memtables_to_free_);
   new_mem->Ref();
   cfd->SetMemtable(new_mem);
-  context->superversions_to_free_.push_back(InstallSuperVersionAndScheduleWork(
-      cfd, new_superversion, mutable_cf_options));
+  InstallSuperVersionAndScheduleWork(cfd, &context->superversion_context,
+                                     mutable_cf_options);
   if (concurrent_prepare_) {
     nonmem_write_thread_.ExitUnbatched(&nonmem_w);
   }
