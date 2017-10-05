@@ -686,12 +686,17 @@ class PosixEnv : public Env {
   }
 
   static uint64_t gettid() {
+#if defined(OS_LINUX) && defined(__NR_gettid)
+    pid_t tid = syscall(__NR_gettid);
+    return static_cast<uint64_t>(tid);
+#else
     pthread_t tid = pthread_self();
     return gettid(tid);
+#endif  // defined(OS_LINUX) && defined(__NR_gettid)
   }
 
   virtual uint64_t GetThreadID() const override {
-    return gettid(pthread_self());
+    return gettid();
   }
 
   virtual Status NewLogger(const std::string& fname,
