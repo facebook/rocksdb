@@ -180,7 +180,8 @@ class WriteBatchInternal {
                            FlushScheduler* flush_scheduler,
                            bool ignore_missing_column_families = false,
                            uint64_t log_number = 0, DB* db = nullptr,
-                           bool concurrent_memtable_writes = false);
+                           bool concurrent_memtable_writes = false,
+                           bool seq_per_batch = false);
 
   static Status Append(WriteBatch* dst, const WriteBatch* src,
                        const bool WAL_only = false);

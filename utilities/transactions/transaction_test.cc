@@ -48,11 +48,10 @@ INSTANTIATE_TEST_CASE_P(StackableDBAsBaseDB, TransactionTest,
                                                           WRITE_PREPARED)));
 INSTANTIATE_TEST_CASE_P(
     MySQLStyleTransactionTest, MySQLStyleTransactionTest,
-    ::testing::Values(std::make_tuple(false, false, WRITE_COMMITTED),
+    ::testing::Values(std::make_tuple(false, false, WRITE_PREPARED),
                       std::make_tuple(false, true, WRITE_COMMITTED),
                       std::make_tuple(true, false, WRITE_COMMITTED),
                       std::make_tuple(true, true, WRITE_COMMITTED)));
-
 
 TEST_P(TransactionTest, DoubleEmptyWrite) {
   WriteOptions write_options;
@@ -4680,6 +4679,10 @@ Status TransactionStressTestInserter(TransactionDB* db,
 }  // namespace
 
 TEST_P(MySQLStyleTransactionTest, TransactionStressTest) {
+  options.db_write_buffer_size = 1024 * 1024 * 1024;
+  options.write_buffer_size = 1024 * 1024 * 1024;
+  options.disable_auto_compactions = true;
+  ReOpen();
   const size_t num_threads = 4;
   const size_t num_transactions_per_thread = 10000;
   const size_t num_sets = 3;
