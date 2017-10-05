@@ -576,7 +576,11 @@ Status WritePreparedTxnDB::Get(const ReadOptions& options,
                                const Slice& key, PinnableSlice* value) {
   // We are fine with the latest committed value. This could be done by
   // specifying the snapshot as kMaxSequenceNumber.
-  WritePreparedTxnReadCallback callback(this, kMaxSequenceNumber);
+  SequenceNumber seq = kMaxSequenceNumber;
+  if (options.snapshot != nullptr) {
+    seq = options.snapshot->GetSequenceNumber();
+  }
+  WritePreparedTxnReadCallback callback(this, seq);
   bool* dont_care = nullptr;
   // Note: no need to specify a snapshot for read options as no specific
   // snapshot is requested by the user.
