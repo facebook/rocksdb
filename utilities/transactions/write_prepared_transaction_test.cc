@@ -20,6 +20,7 @@
 #include "db/db_impl.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
+#include "rocksdb/utilities/debug.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "table/mock_table.h"
@@ -282,6 +283,45 @@ class WritePreparedTransactionTest : public TransactionTest {
       ASSERT_FALSE(wp_db->old_commit_map_empty_);
     }
     rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  }
+
+  // Verify value of keys.
+  void VerifyKeys(const std::unordered_map<std::string, std::string>& data,
+                  const Snapshot* snapshot = nullptr) {
+    std::string value;
+    ReadOptions read_options;
+    read_options.snapshot = snapshot;
+    for (auto& kv : data) {
+      auto s = db->Get(read_options, kv.first, &value);
+      ASSERT_TRUE(s.ok() || s.IsNotFound());
+      if (s.ok()) {
+        if (kv.second != value) {
+          printf("key = %s\n", kv.first.c_str());
+        }
+        ASSERT_EQ(kv.second, value);
+      } else {
+        ASSERT_EQ(kv.second, "NOT_FOUND");
+      }
+    }
+  }
+
+  // Verify all versions of keys.
+  void VerifyInternalKeys(const std::vector<KeyVersion>& expected_versions) {
+    std::vector<KeyVersion> versions;
+    ASSERT_OK(GetAllKeyVersions(db, expected_versions.front().user_key,
+                                expected_versions.back().user_key, &versions));
+    ASSERT_EQ(expected_versions.size(), versions.size());
+    for (size_t i = 0; i < versions.size(); i++) {
+      ASSERT_EQ(expected_versions[i].user_key, versions[i].user_key);
+      ASSERT_EQ(expected_versions[i].sequence, versions[i].sequence);
+      ASSERT_EQ(expected_versions[i].type, versions[i].type);
+      if (versions[i].type != kTypeDeletion &&
+          versions[i].type != kTypeSingleDeletion) {
+        ASSERT_EQ(expected_versions[i].value, versions[i].value);
+      }
+      // Range delete not supported.
+      assert(expected_versions[i].type != kTypeRangeDeletion);
+    }
   }
 };
 
@@ -1302,6 +1342,25 @@ TEST_P(WritePreparedTransactionTest, DuplicateKeyTest) {
     s = db->Get(ropt, db->DefaultColumnFamily(), "foo4", &pinnable_val);
     ASSERT_TRUE(s.IsNotFound());
   }
+}
+
+TEST_P(WritePreparedTransactionTest, SequenceNumberZeroTest) {
+  ASSERT_OK(db->Put(WriteOptions(), "foo", "bar"));
+  VerifyKeys({{"foo", "bar"}});
+  const Snapshot* snapshot = db->GetSnapshot();
+  ASSERT_OK(db->Flush(FlushOptions()));
+  // Dummy keys to avoid compaction trivially move files and get around actual
+  // compaction logic.
+  ASSERT_OK(db->Put(WriteOptions(), "a", "dummy"));
+  ASSERT_OK(db->Put(WriteOptions(), "z", "dummy"));
+  ASSERT_OK(db->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  // Compaction will output keys with sequence number 0, if it is visible to
+  // earliest snapshot. Make sure IsInSnapshot() report sequence number 0 is
+  // visible to any snapshot.
+  VerifyKeys({{"foo", "bar"}});
+  VerifyKeys({{"foo", "bar"}}, snapshot);
+  VerifyInternalKeys({{"foo", "bar", 0, kTypeValue}});
+  db->ReleaseSnapshot(snapshot);
 }
 
 }  // namespace rocksdb
