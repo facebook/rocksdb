@@ -233,8 +233,8 @@ class WriteBatchWithIndex : public WriteBatchBase {
   // remove the duplicate keys. The index will not be updated after this.
   // Returns false if collapse was not necessary
   bool Collapse();
-  void DisableDuplicateMergeKeys() { allow_dup_merge = false; }
-  bool allow_dup_merge = true;
+  void DisableDuplicateMergeKeys() { allow_dup_merge_ = false; }
+  bool allow_dup_merge_ = true;
 
   Status GetFromBatchAndDB(DB* db, const ReadOptions& read_options,
                            ColumnFamilyHandle* column_family, const Slice& key,

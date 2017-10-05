@@ -7,7 +7,6 @@
 
 #include "rocksdb/utilities/write_batch_with_index.h"
 
-#include <limits>
 #include <memory>
 #include <vector>
 
@@ -635,7 +634,7 @@ void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id) {
       collapsed_buf.append(entry_ptr.data(), entry_ptr.size());
     }
     write_batch.rep_ = std::move(collapsed_buf);
-    WriteBatchInternal::SetCount(&write_batch, count);
+    WriteBatchInternal::SetCount(&write_batch, static_cast<int>(count));
     return true;
   }
 
@@ -756,7 +755,7 @@ Status WriteBatchWithIndex::Merge(ColumnFamilyHandle* column_family,
     rep->AddOrUpdateIndex(column_family, key);
     auto size_after = rep->obsolete_offsets.size();
     bool duplicate_key = size_before != size_after;
-    if (!allow_dup_merge && duplicate_key) {
+    if (!allow_dup_merge_ && duplicate_key) {
       assert(0);
       return Status::NotSupported(
           "Duplicate key with merge value is not supported yet");
@@ -773,7 +772,7 @@ Status WriteBatchWithIndex::Merge(const Slice& key, const Slice& value) {
     rep->AddOrUpdateIndex(key);
     auto size_after = rep->obsolete_offsets.size();
     bool duplicate_key = size_before != size_after;
-    if (!allow_dup_merge && duplicate_key) {
+    if (!allow_dup_merge_ && duplicate_key) {
       assert(0);
       return Status::NotSupported(
           "Duplicate key with merge value is not supported yet");
