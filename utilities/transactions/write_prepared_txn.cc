@@ -27,6 +27,7 @@ WritePreparedTxn::WritePreparedTxn(WritePreparedTxnDB* txn_db,
     : PessimisticTransaction(txn_db, write_options, txn_options),
       wpt_db_(txn_db) {
   PessimisticTransaction::Initialize(txn_options);
+  GetWriteBatch()->DisableDuplicateMergeKeys();
 }
 
 Status WritePreparedTxn::Get(const ReadOptions& read_options,
@@ -47,6 +48,11 @@ Status WritePreparedTxn::PrepareInternal() {
   WriteBatchInternal::MarkEndPrepare(GetWriteBatch()->GetWriteBatch(), name_);
   const bool disable_memtable = true;
   uint64_t seq_used = kMaxSequenceNumber;
+  bool collapsed = GetWriteBatch()->Collapse();
+  if (collapsed) {
+    ROCKS_LOG_WARN(db_impl_->immutable_db_options().info_log,
+                   "Collapse overhead due to duplicate keys");
+  }
   Status s =
       db_impl_->WriteImpl(write_options, GetWriteBatch()->GetWriteBatch(),
                           /*callback*/ nullptr, &log_number_, /*log ref*/ 0,
@@ -59,11 +65,17 @@ Status WritePreparedTxn::PrepareInternal() {
 }
 
 Status WritePreparedTxn::CommitWithoutPrepareInternal() {
+  bool collapsed = GetWriteBatch()->Collapse();
+  if (collapsed) {
+    ROCKS_LOG_WARN(db_impl_->immutable_db_options().info_log,
+                   "Collapse overhead due to duplicate keys");
+  }
   return CommitBatchInternal(GetWriteBatch()->GetWriteBatch());
 }
 
 Status WritePreparedTxn::CommitBatchInternal(WriteBatch* batch) {
-  // In the absense of Prepare markers, use Noop as a batch separator
+  // TODO(myabandeh): handle the duplicate keys in the batch
+  // In the absence of Prepare markers, use Noop as a batch separator
   WriteBatchInternal::InsertNoop(batch);
   const bool disable_memtable = true;
   const uint64_t no_log_ref = 0;
@@ -112,7 +124,7 @@ Status WritePreparedTxn::RollbackInternal() {
   WriteBatch rollback_batch;
   assert(GetId() != kMaxSequenceNumber);
   assert(GetId() > 0);
-  // In the absense of Prepare markers, use Noop as a batch separator
+  // In the absence of Prepare markers, use Noop as a batch separator
   WriteBatchInternal::InsertNoop(&rollback_batch);
   // In WritePrepared, the txn is is the same as prepare seq
   auto last_visible_txn = GetId() - 1;
