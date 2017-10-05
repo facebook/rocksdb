@@ -45,7 +45,7 @@ INSTANTIATE_TEST_CASE_P(DBAsBaseDB, TransactionTest,
                                                           WRITE_PREPARED)));
 INSTANTIATE_TEST_CASE_P(StackableDBAsBaseDB, TransactionTest,
                         ::testing::Values(std::make_tuple(true, false,
-                                                          WRITE_COMMITTED)));
+                                                          WRITE_PREPARED)));
 INSTANTIATE_TEST_CASE_P(
     MySQLStyleTransactionTest, MySQLStyleTransactionTest,
     ::testing::Values(std::make_tuple(false, false, WRITE_COMMITTED),
