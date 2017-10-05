@@ -1011,6 +1011,14 @@ struct ReadOptions {
   // Default: 0
   uint64_t max_skippable_internal_keys;
 
+  // When set to true, iterator Seek() will try to find the key in current
+  // iterator position's vicinity (such as in the same file or in the same data
+  // block). This optimization does not apply to the first Seek() on an iterator
+  // and it only applies to forward Seek(), i.e. when the target key is bigger
+  // than the current iterator key.
+  // Default: false
+  bool optimize_successive_forward_seeks;
+
   ReadOptions();
   ReadOptions(bool cksum, bool cache);
 };

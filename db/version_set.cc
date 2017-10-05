@@ -535,6 +535,14 @@ class LevelFileIteratorState : public TwoLevelIteratorState {
                *read_options_.iterate_upper_bound) >= 0;
   }
 
+  bool Compare(const Slice& a, const Slice& b) const override {
+    return icomparator_.Compare(a, b);
+  }
+
+  bool OptimizeSuccessiveForwardSeeks() const override {
+    return read_options_.optimize_successive_forward_seeks;
+  }
+
  private:
   TableCache* table_cache_;
   const ReadOptions read_options_;
