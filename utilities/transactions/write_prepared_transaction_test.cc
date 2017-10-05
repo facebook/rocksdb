@@ -1515,7 +1515,7 @@ TEST_P(WritePreparedTransactionTest, CompactionShouldKeepSnapshotVisibleKeys) {
 TEST_P(WritePreparedTransactionTest,
        CompactionShouldKeepSnapshotVisibleKeysRandomized) {
   constexpr size_t kNumTransactions = 10;
-  constexpr size_t kNumIterations = 15;
+  constexpr size_t kNumIterations = 1000;
 
   std::vector<Transaction*> transactions(kNumTransactions, nullptr);
   std::vector<size_t> versions(kNumTransactions, 0);
