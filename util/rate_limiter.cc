@@ -289,20 +289,31 @@ Status GenericRateLimiter::Tune() {
                                std::chrono::microseconds(refill_period_us_) -
                                std::chrono::microseconds(1)) /
                               std::chrono::microseconds(refill_period_us_);
+  // We tune every kRefillsPerTune intervals, so the overflow and division-by-
+  // zero conditions should never happen.
+  assert(num_drains_ - prev_num_drains_ <= port::kMaxInt64 / 100);
+  assert(elapsed_intervals > 0);
   int64_t drained_pct =
       (num_drains_ - prev_num_drains_) * 100 / elapsed_intervals;
+
   int64_t prev_bytes_per_sec = GetBytesPerSecond();
   int64_t new_bytes_per_sec;
   if (drained_pct == 0) {
     new_bytes_per_sec = max_bytes_per_sec_ / kAllowedRangeFactor;
   } else if (drained_pct < kLowWatermarkPct) {
+    // sanitize to prevent overflow
+    int64_t sanitized_prev_bytes_per_sec =
+        std::min(prev_bytes_per_sec, port::kMaxInt64 / 100);
     new_bytes_per_sec =
         std::max(max_bytes_per_sec_ / kAllowedRangeFactor,
-                 prev_bytes_per_sec * 100 / (100 + kAdjustFactorPct));
+                 sanitized_prev_bytes_per_sec * 100 / (100 + kAdjustFactorPct));
   } else if (drained_pct > kHighWatermarkPct) {
+    // sanitize to prevent overflow
+    int64_t sanitized_prev_bytes_per_sec = std::min(
+        prev_bytes_per_sec, port::kMaxInt64 / (100 + kAdjustFactorPct));
     new_bytes_per_sec =
         std::min(max_bytes_per_sec_,
-                 prev_bytes_per_sec * (100 + kAdjustFactorPct) / 100);
+                 sanitized_prev_bytes_per_sec * (100 + kAdjustFactorPct) / 100);
   } else {
     new_bytes_per_sec = prev_bytes_per_sec;
   }
