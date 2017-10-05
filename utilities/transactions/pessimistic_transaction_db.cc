@@ -465,6 +465,8 @@ Status PessimisticTransactionDB::Write(const WriteOptions& opts,
   // concurrent transactions.
   Transaction* txn = BeginInternalTransaction(opts);
   txn->DisableIndexing();
+  // TODO(myabandeh): indexing being disabled we need another machanism to
+  // detect duplicattes in the input patch
 
   auto txn_impl =
       static_cast_with_check<PessimisticTransaction, Transaction>(txn);

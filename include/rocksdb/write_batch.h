@@ -327,6 +327,10 @@ class WriteBatch : public WriteBatchBase {
  private:
   friend class WriteBatchInternal;
   friend class LocalSavePoint;
+  // TODO(myabandeh): this is needed for a hack to collapse the write batch and
+  // remove duplicate keys. Remove it when the hack is replaced with a propper
+  // solution.
+  friend class WriteBatchWithIndex;
   SavePoints* save_points_;
 
   // When sending a WriteBatch through WriteImpl we might want to
