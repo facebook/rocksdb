@@ -1636,6 +1636,50 @@ TEST_P(WritePreparedTransactionTest,
   delete transaction;
 }
 
+TEST_P(WritePreparedTransactionTest, Iterate) {
+  auto verify_state = [](Iterator* iter, const std::string& key, const std::string& value) {
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(key, iter->key().ToString());
+    ASSERT_EQ(value, iter->value().ToString());
+  };
+
+  auto verify_iter = [&](const std::string& expected_val) {
+    Iterator* iter = db->NewIterator(ReadOptions());
+    // Seek
+    iter->Seek("foo");
+    verify_state(iter, "foo", expected_val);
+    // Next
+    iter->Seek("a");
+    verify_state(iter, "a", "va");
+    iter->Next();
+    verify_state(iter, "foo", expected_val);
+    // SeekForPrev
+    iter->SeekForPrev("y");
+    verify_state(iter, "foo", expected_val);
+    // Prev
+    iter->SeekForPrev("z");
+    verify_state(iter, "z", "vz");
+    iter->Prev();
+    verify_state(iter, "foo", expected_val);
+    delete iter;
+  };
+
+  ASSERT_OK(db->Put(WriteOptions(), "foo", "v1"));
+  auto* transaction = db->BeginTransaction(WriteOptions());
+  ASSERT_OK(transaction->SetName("txn"));
+  ASSERT_OK(transaction->Put("foo", "v2"));
+  ASSERT_OK(transaction->Prepare());
+  VerifyKeys({{"foo", "v1"}});
+  // dummy keys
+  ASSERT_OK(db->Put(WriteOptions(), "a", "va"));
+  ASSERT_OK(db->Put(WriteOptions(), "z", "vz"));
+  verify_iter("v1");
+  ASSERT_OK(transaction->Commit());
+  VerifyKeys({{"foo", "v2"}});
+  verify_iter("v2");
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
