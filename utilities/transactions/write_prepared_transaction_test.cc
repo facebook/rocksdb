@@ -1513,7 +1513,7 @@ TEST_P(WritePreparedTransactionTest, CompactionShouldKeepSnapshotVisibleKeys) {
 // A more complex test to verify compaction/flush should keep keys visible
 // to snapshots.
 TEST_P(WritePreparedTransactionTest,
-       DISABLED_CompactionShouldKeepSnapshotVisibleKeysRandomized) {
+       CompactionShouldKeepSnapshotVisibleKeysRandomized) {
   constexpr size_t kNumTransactions = 10;
   constexpr size_t kNumIterations = 1000;
 
