@@ -140,6 +140,7 @@ Status DB::OpenForReadOnly(
   *dbptr = nullptr;
   handles->clear();
 
+  SuperVersionContext sv_context(/* create_superversion */ true);
   DBImplReadOnly* impl = new DBImplReadOnly(db_options, dbname);
   impl->mutex_.Lock();
   Status s = impl->Recover(column_families, true /* read only */,
@@ -158,10 +159,12 @@ Status DB::OpenForReadOnly(
   }
   if (s.ok()) {
     for (auto cfd : *impl->versions_->GetColumnFamilySet()) {
-      delete cfd->InstallSuperVersion(new SuperVersion(), &impl->mutex_);
+      sv_context.NewSuperVersion();
+      cfd->InstallSuperVersion(&sv_context, &impl->mutex_);
     }
   }
   impl->mutex_.Unlock();
+  sv_context.Clean();
   if (s.ok()) {
     *dbptr = impl;
     for (auto* h : *handles) {

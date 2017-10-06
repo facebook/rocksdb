@@ -5160,6 +5160,19 @@ TEST_F(DBTest, HardLimit) {
 }
 
 #ifndef ROCKSDB_LITE
+class WriteStallListener : public EventListener {
+ public:
+  WriteStallListener() : condition_(WriteStallCondition::kNormal) {}
+  void OnStallConditionsChanged(const WriteStallInfo& info) override {
+    condition_ = info.condition.cur;
+  }
+  bool CheckCondition(WriteStallCondition expected) {
+    return expected == condition_;
+  }
+ private:
+  WriteStallCondition condition_;
+};
+
 TEST_F(DBTest, SoftLimit) {
   Options options = CurrentOptions();
   options.env = env_;
@@ -5175,6 +5188,8 @@ TEST_F(DBTest, SoftLimit) {
   options.max_bytes_for_level_multiplier = 10;
   options.max_background_compactions = 1;
   options.compression = kNoCompression;
+  WriteStallListener* listener = new WriteStallListener();
+  options.listeners.emplace_back(listener);
 
   Reopen(options);
 
@@ -5214,6 +5229,7 @@ TEST_F(DBTest, SoftLimit) {
     Flush();
   }
   ASSERT_TRUE(dbfull()->TEST_write_controler().NeedsDelay());
+  ASSERT_TRUE(listener->CheckCondition(WriteStallCondition::kDelayed));
 
   sleeping_task_low.WakeUp();
   sleeping_task_low.WaitUntilDone();
@@ -5224,6 +5240,7 @@ TEST_F(DBTest, SoftLimit) {
   // The L1 file size is around 30KB.
   ASSERT_EQ(NumTableFilesAtLevel(1), 1);
   ASSERT_TRUE(!dbfull()->TEST_write_controler().NeedsDelay());
+  ASSERT_TRUE(listener->CheckCondition(WriteStallCondition::kNormal));
 
   // Only allow one compactin going through.
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
@@ -5258,6 +5275,7 @@ TEST_F(DBTest, SoftLimit) {
   // doesn't trigger soft_pending_compaction_bytes_limit
   ASSERT_EQ(NumTableFilesAtLevel(1), 1);
   ASSERT_TRUE(!dbfull()->TEST_write_controler().NeedsDelay());
+  ASSERT_TRUE(listener->CheckCondition(WriteStallCondition::kNormal));
 
   // Create 3 L0 files, making score of L0 to be 3, higher than L0.
   for (int i = 0; i < 3; i++) {
@@ -5278,11 +5296,13 @@ TEST_F(DBTest, SoftLimit) {
   // triggerring soft_pending_compaction_bytes_limit
   ASSERT_EQ(NumTableFilesAtLevel(1), 1);
   ASSERT_TRUE(dbfull()->TEST_write_controler().NeedsDelay());
+  ASSERT_TRUE(listener->CheckCondition(WriteStallCondition::kDelayed));
 
   sleeping_task_low.WakeUp();
   sleeping_task_low.WaitUntilSleeping();
 
   ASSERT_TRUE(!dbfull()->TEST_write_controler().NeedsDelay());
+  ASSERT_TRUE(listener->CheckCondition(WriteStallCondition::kNormal));
 
   // shrink level base so L2 will hit soft limit easier.
   ASSERT_OK(dbfull()->SetOptions({
@@ -5292,6 +5312,7 @@ TEST_F(DBTest, SoftLimit) {
   Put("", "");
   Flush();
   ASSERT_TRUE(dbfull()->TEST_write_controler().NeedsDelay());
+  ASSERT_TRUE(listener->CheckCondition(WriteStallCondition::kDelayed));
 
   sleeping_task_low.WaitUntilSleeping();
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();

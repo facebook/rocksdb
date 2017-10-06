@@ -86,6 +86,22 @@ enum class BackgroundErrorReason {
   kMemTable,
 };
 
+enum class WriteStallCondition {
+  kNormal,
+  kDelayed,
+  kStopped,
+};
+
+struct WriteStallInfo {
+  // the name of the column family
+  std::string cf_name;
+  // state of the write controller
+  struct {
+    WriteStallCondition cur;
+    WriteStallCondition prev;
+  } condition;
+};
+
 #ifndef ROCKSDB_LITE
 
 struct TableFileDeletionInfo {
@@ -371,6 +387,14 @@ class EventListener {
   // computations or blocking calls in this function.
   virtual void OnBackgroundError(BackgroundErrorReason /* reason */,
                                  Status* /* bg_error */) {}
+
+  // A call-back function for RocksDB which will be called whenever a change
+  // of superversion triggers a change of the stall conditions.
+  //
+  // Note that the this function must be implemented in a way such that
+  // it should not run for an extended period of time before the function
+  // returns.  Otherwise, RocksDB may be blocked.
+  virtual void OnStallConditionsChanged(const WriteStallInfo& /*info*/) {}
 
   // Factory method to return CompactionEventListener. If multiple listeners
   // provides CompactionEventListner, only the first one will be used.
