@@ -954,5 +954,12 @@ bool WritePreparedTxnDB::MaybeUpdateOldCommitMap(
   return next_is_larger;
 }
 
+WritePreparedTxnDB::~WritePreparedTxnDB() {
+  // At this point there could be running compaction/flush holding a
+  // SnapshotChecker, which holds a pointer back to WritePreparedTxnDB.
+  // Make sure those jobs finished before destructing WritePreparedTxnDB.
+  db_impl_->CancelAllBackgroundWork(true/*wait*/);
+}
+
 }  //  namespace rocksdb
 #endif  // ROCKSDB_LITE
