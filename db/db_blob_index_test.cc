@@ -89,9 +89,9 @@ class DBBlobIndexTest : public DBTestBase {
   }
 
   ArenaWrappedDBIter* GetBlobIterator() {
-    return dbfull()->NewIteratorImpl(ReadOptions(), cfd(),
-                                     dbfull()->GetLatestSequenceNumber(),
-                                     true /*allow_blob*/);
+    return dbfull()->NewIteratorImpl(
+        ReadOptions(), cfd(), dbfull()->GetLatestSequenceNumber(),
+        nullptr /*read_callback*/, true /*allow_blob*/);
   }
 
   Options GetTestOptions() {

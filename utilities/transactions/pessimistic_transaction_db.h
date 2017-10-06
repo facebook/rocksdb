@@ -13,6 +13,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "db/db_iter.h"
 #include "db/read_callback.h"
 #include "db/snapshot_checker.h"
 #include "rocksdb/db.h"
@@ -205,6 +206,16 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value) override;
+
+  using DB::NewIterator;
+  virtual Iterator* NewIterator(const ReadOptions& options,
+                                ColumnFamilyHandle* column_family) override;
+
+  using DB::NewIterators;
+  virtual Status NewIterators(
+      const ReadOptions& options,
+      const std::vector<ColumnFamilyHandle*>& column_families,
+      std::vector<Iterator*>* iterators) override;
 
   // Check whether the transaction that wrote the value with seqeunce number seq
   // is visible to the snapshot with sequence number snapshot_seq
@@ -479,6 +490,39 @@ class WritePreparedTxnReadCallback : public ReadCallback {
  private:
   WritePreparedTxnDB* db_;
   SequenceNumber snapshot_;
+};
+
+class WritePreparedTxnDBIterator final : public Iterator {
+ public:
+  WritePreparedTxnDBIterator(ArenaWrappedDBIter* db_iter,
+                             std::shared_ptr<ManagedSnapshot>& snapshot,
+                             WritePreparedTxnReadCallback* callback)
+      : Iterator(),
+        db_iter_(db_iter),
+        snapshot_(snapshot),
+        callback_(callback) {}
+  virtual ~WritePreparedTxnDBIterator() = default;
+
+  virtual bool Valid() const override { return db_iter_->Valid(); }
+  virtual void SeekToFirst() override { db_iter_->SeekToFirst(); }
+  virtual void SeekToLast() override { db_iter_->SeekToLast(); }
+  virtual void Seek(const Slice& target) override { db_iter_->Seek(target); }
+  virtual void SeekForPrev(const Slice& target) override {
+    db_iter_->SeekForPrev(target);
+  }
+  virtual void Next() override { db_iter_->Next(); }
+  virtual void Prev() override { db_iter_->Prev(); }
+  virtual Slice key() const override { return db_iter_->key(); }
+  virtual Slice value() const override { return db_iter_->value(); }
+  virtual Status status() const override { return db_iter_->status(); }
+  virtual Status Refresh() override { return db_iter_->Refresh(); }
+
+ private:
+  std::unique_ptr<ArenaWrappedDBIter> db_iter_;
+
+  // Keeping snapshot and read callback for RAII.
+  std::shared_ptr<ManagedSnapshot> snapshot_;
+  std::unique_ptr<WritePreparedTxnReadCallback> callback_;
 };
 
 }  //  namespace rocksdb

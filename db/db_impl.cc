@@ -1440,12 +1440,9 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
         sv->mutable_cf_options.max_sequential_skip_in_iterations);
 #endif
   } else {
-    SequenceNumber latest_snapshot = versions_->LastSequence();
-    auto snapshot =
-        read_options.snapshot != nullptr
-            ? reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)
-                  ->number_
-            : latest_snapshot;
+    auto snapshot = read_options.snapshot != nullptr
+                        ? read_options.snapshot->GetSequenceNumber()
+                        : versions_->LastSequence();
     return NewIteratorImpl(read_options, cfd, snapshot);
   }
   // To stop compiler from complaining
@@ -1455,6 +1452,7 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
 ArenaWrappedDBIter* DBImpl::NewIteratorImpl(const ReadOptions& read_options,
                                             ColumnFamilyData* cfd,
                                             SequenceNumber snapshot,
+                                            ReadCallback* read_callback,
                                             bool allow_blob) {
   SuperVersion* sv = cfd->GetReferencedSuperVersion(&mutex_);
 
@@ -1504,7 +1502,7 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(const ReadOptions& read_options,
       env_, read_options, *cfd->ioptions(), snapshot,
       sv->mutable_cf_options.max_sequential_skip_in_iterations,
       sv->version_number, ((read_options.snapshot != nullptr) ? nullptr : this),
-      cfd, allow_blob);
+      cfd, read_callback, allow_blob);
 
   InternalIterator* internal_iter =
       NewInternalIterator(read_options, cfd, sv, db_iter->GetArena(),
@@ -1556,13 +1554,9 @@ Status DBImpl::NewIterators(
     }
 #endif
   } else {
-    SequenceNumber latest_snapshot = versions_->LastSequence();
-    auto snapshot =
-        read_options.snapshot != nullptr
-            ? reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)
-                  ->number_
-            : latest_snapshot;
-
+    auto snapshot = read_options.snapshot != nullptr
+                        ? read_options.snapshot->GetSequenceNumber()
+                        : versions_->LastSequence();
     for (size_t i = 0; i < column_families.size(); ++i) {
       auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(
           column_families[i])->cfd();
