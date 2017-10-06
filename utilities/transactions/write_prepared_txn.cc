@@ -26,14 +26,13 @@ WritePreparedTxn::WritePreparedTxn(WritePreparedTxnDB* txn_db,
                                    const TransactionOptions& txn_options)
     : PessimisticTransaction(txn_db, write_options, txn_options),
       wpt_db_(txn_db) {
-  PessimisticTransaction::Initialize(txn_options);
   GetWriteBatch()->DisableDuplicateMergeKeys();
 }
 
 Status WritePreparedTxn::Get(const ReadOptions& read_options,
                              ColumnFamilyHandle* column_family,
                              const Slice& key, PinnableSlice* pinnable_val) {
-  auto snapshot = GetSnapshot();
+  auto snapshot = read_options.snapshot;
   auto snap_seq =
       snapshot != nullptr ? snapshot->GetSequenceNumber() : kMaxSequenceNumber;
 
@@ -95,9 +94,7 @@ Status WritePreparedTxn::CommitInternal() {
   // We take the commit-time batch and append the Commit marker.
   // The Memtable will ignore the Commit marker in non-recovery mode
   WriteBatch* working_batch = GetCommitTimeWriteBatch();
-  // TODO(myabandeh): prevent the users from writing to txn after the prepare
-  // phase
-  assert(working_batch->Count() == 0);
+  const bool empty = working_batch->Count() == 0;
   WriteBatchInternal::MarkCommit(working_batch, name_);
 
   // any operations appended to this working_batch will be ignored from WAL
@@ -109,14 +106,21 @@ Status WritePreparedTxn::CommitInternal() {
   // a connection between the memtable and its WAL, so there is no need to
   // redundantly reference the log that contains the prepared data.
   const uint64_t zero_log_number = 0ull;
-  auto s = db_impl_->WriteImpl(write_options_, working_batch, nullptr, nullptr,
-                               zero_log_number, disable_memtable, &seq_used);
+  auto s = db_impl_->WriteImpl(
+      write_options_, working_batch, nullptr, nullptr, zero_log_number,
+      empty ? disable_memtable : !disable_memtable, &seq_used);
   assert(seq_used != kMaxSequenceNumber);
   uint64_t& commit_seq = seq_used;
   // TODO(myabandeh): Reject a commit request if AddCommitted cannot encode
   // commit_seq. This happens if prep_seq <<< commit_seq.
   auto prepare_seq = GetId();
   wpt_db_->AddCommitted(prepare_seq, commit_seq);
+  if (!empty) {
+    // Commit the data that is accompnaied with the commit marker
+    // TODO(myabandeh): skip AddPrepared
+    wpt_db_->AddPrepared(commit_seq);
+    wpt_db_->AddCommitted(commit_seq, commit_seq);
+  }
   return s;
 }
 

@@ -112,7 +112,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       w.status = WriteBatchInternal::InsertInto(
           &w, w.sequence, &column_family_memtables, &flush_scheduler_,
           write_options.ignore_missing_column_families, 0 /*log_number*/, this,
-          true /*concurrent_memtable_writes*/);
+          true /*concurrent_memtable_writes*/, seq_per_batch_);
     }
 
     if (write_thread_.CompleteParallelMemTableWriter(&w)) {
@@ -286,7 +286,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
           w.status = WriteBatchInternal::InsertInto(
               &w, w.sequence, &column_family_memtables, &flush_scheduler_,
               write_options.ignore_missing_column_families, 0 /*log_number*/,
-              this, true /*concurrent_memtable_writes*/);
+              this, true /*concurrent_memtable_writes*/, seq_per_batch_);
         }
       }
       if (seq_used != nullptr) {

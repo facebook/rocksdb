@@ -1421,8 +1421,8 @@ Status WriteBatchInternal::InsertInto(
                             nullptr /*has_valid_writes*/, seq_per_batch);
   for (auto w : write_group) {
     if (!w->ShouldWriteToMemtable()) {
-      inserter.MaybeAdvanceSeq(true);
       w->sequence = inserter.sequence();
+      inserter.MaybeAdvanceSeq(true);
       continue;
     }
     SetSequence(w->batch, inserter.sequence());
@@ -1436,17 +1436,16 @@ Status WriteBatchInternal::InsertInto(
   return Status::OK();
 }
 
-Status WriteBatchInternal::InsertInto(WriteThread::Writer* writer,
-                                      SequenceNumber sequence,
-                                      ColumnFamilyMemTables* memtables,
-                                      FlushScheduler* flush_scheduler,
-                                      bool ignore_missing_column_families,
-                                      uint64_t log_number, DB* db,
-                                      bool concurrent_memtable_writes) {
+Status WriteBatchInternal::InsertInto(
+    WriteThread::Writer* writer, SequenceNumber sequence,
+    ColumnFamilyMemTables* memtables, FlushScheduler* flush_scheduler,
+    bool ignore_missing_column_families, uint64_t log_number, DB* db,
+    bool concurrent_memtable_writes, bool seq_per_batch) {
   assert(writer->ShouldWriteToMemtable());
   MemTableInserter inserter(sequence, memtables, flush_scheduler,
                             ignore_missing_column_families, log_number, db,
-                            concurrent_memtable_writes);
+                            concurrent_memtable_writes,
+                            nullptr /*has_valid_writes*/, seq_per_batch);
   SetSequence(writer->batch, sequence);
   inserter.set_log_number_ref(writer->log_ref);
   Status s = writer->batch->Iterate(&inserter);
