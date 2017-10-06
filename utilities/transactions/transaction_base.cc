@@ -55,6 +55,7 @@ void TransactionBaseImpl::Reinitialize(DB* db,
                                        const WriteOptions& write_options) {
   Clear();
   ClearSnapshot();
+  id_ = 0;
   db_ = db;
   name_.clear();
   log_number_ = 0;
