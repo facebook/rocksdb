@@ -29,6 +29,7 @@ struct FileMetaData;
 class Env;
 struct EnvOptions;
 class Iterator;
+class SnapshotChecker;
 class TableCache;
 class VersionEdit;
 class TableBuilder;
@@ -71,7 +72,7 @@ extern Status BuildTable(
     uint32_t column_family_id, const std::string& column_family_name,
     std::vector<SequenceNumber> snapshots,
     SequenceNumber earliest_write_conflict_snapshot,
-    const CompressionType compression,
+    SnapshotChecker* snapshot_checker, const CompressionType compression,
     const CompressionOptions& compression_opts, bool paranoid_file_checks,
     InternalStats* internal_stats, TableFileCreationReason reason,
     EventLogger* event_logger = nullptr, int job_id = 0,

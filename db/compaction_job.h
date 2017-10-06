@@ -45,12 +45,13 @@
 
 namespace rocksdb {
 
+class Arena;
 class MemTable;
+class SnapshotChecker;
 class TableCache;
 class Version;
 class VersionEdit;
 class VersionSet;
-class Arena;
 
 class CompactionJob {
  public:
@@ -63,6 +64,7 @@ class CompactionJob {
                 Status* db_bg_error,
                 std::vector<SequenceNumber> existing_snapshots,
                 SequenceNumber earliest_write_conflict_snapshot,
+                const SnapshotChecker* snapshot_checker,
                 std::shared_ptr<Cache> table_cache, EventLogger* event_logger,
                 bool paranoid_file_checks, bool measure_io_stats,
                 const std::string& dbname,
@@ -148,6 +150,8 @@ class CompactionJob {
   // checking by a transaction.  For any user-key newer than this snapshot, we
   // should make sure not to remove evidence that a write occurred.
   SequenceNumber earliest_write_conflict_snapshot_;
+
+  const SnapshotChecker* const snapshot_checker_;
 
   std::shared_ptr<Cache> table_cache_;
 

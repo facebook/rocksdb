@@ -29,6 +29,7 @@
 #include "db/internal_stats.h"
 #include "db/log_writer.h"
 #include "db/read_callback.h"
+#include "db/snapshot_checker.h"
 #include "db/snapshot_impl.h"
 #include "db/version_edit.h"
 #include "db/wal_manager.h"
@@ -53,13 +54,13 @@
 
 namespace rocksdb {
 
+class Arena;
 class ArenaWrappedDBIter;
 class MemTable;
 class TableCache;
 class Version;
 class VersionEdit;
 class VersionSet;
-class Arena;
 class WriteCallback;
 struct JobContext;
 struct ExternalSstFileInfo;
@@ -573,6 +574,9 @@ class DBImpl : public DB {
   void AddToLogsToFreeQueue(log::Writer* log_writer) {
     logs_to_free_queue_.push_back(log_writer);
   }
+
+  void SetSnapshotChecker(SnapshotChecker* snapshot_checker);
+
   InstrumentedMutex* mutex() { return &mutex_; }
 
   Status NewDB();
@@ -1230,6 +1234,10 @@ class DBImpl : public DB {
   // where we are deleteing arbitrary elements and the up heaping.
   std::unordered_map<uint64_t, uint64_t> prepared_section_completed_;
   std::mutex prep_heap_mutex_;
+
+  // Callback for compaction to check if a key is visible to a snapshot.
+  // REQUIRES: mutex held
+  std::unique_ptr<SnapshotChecker> snapshot_checker_;
 
   // No copying allowed
   DBImpl(const DBImpl&);
