@@ -92,7 +92,8 @@ Options::Options()
       allow_mmap_writes(true),
       is_fd_close_on_exec(true),
       skip_log_error_on_recovery(false),
-      stats_dump_period_sec(3600),
+    //   stats_dump_period_sec(3600),
+      stats_dump_period_sec(60), //1min
       block_size_deviation (10),
       advise_random_on_open(true),
       access_hint_on_compaction_start(NORMAL),
