@@ -191,7 +191,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
     Init(txn_db_options);
   }
 
-  virtual ~WritePreparedTxnDB() {}
+  virtual ~WritePreparedTxnDB();
 
   virtual Status Initialize(
       const std::vector<size_t>& compaction_enabled_cf_indices,
