@@ -1738,16 +1738,6 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
 
   static const WriteOptions kGarbageCollectionWriteOptions = []() {
     WriteOptions write_options;
-    // TODO(yiwu): Disable WAL for garbage colection to make it compatible with
-    // use cases that don't use WAL. However without WAL there are at least
-    // two issues with crash:
-    // 1. If a key is dropped from blob file (e.g. due to TTL), right before a
-    //    crash, the key may still presents in LSM after restart.
-    // 2. If a key is relocated to another blob file, right before a crash,
-    //    after restart the new offset may be lost with the old offset pointing
-    //    to the removed blob file.
-    // We need to have better recovery mechanism to address these issues.
-    write_options.disableWAL = true;
     // It is ok to ignore column families that were dropped.
     write_options.ignore_missing_column_families = true;
     return write_options;
