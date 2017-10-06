@@ -1351,7 +1351,8 @@ TEST_P(WritePreparedTransactionTest, DuplicateKeyTest) {
 
 TEST_P(WritePreparedTransactionTest, DisableGCDuringRecoveryTest) {
   // Use large buffer to avoid memtable flush after 1024 insertions
-  options.write_buffer_size = 1024 * 1024 ReOpen();
+  options.write_buffer_size = 1024 * 1024;
+  ReOpen();
   std::vector<KeyVersion> versions;
   for (uint64_t i = 1; i <= 1024; i++) {
     std::string v = "bar" + ToString(i);
