@@ -181,6 +181,8 @@ class CompactionIteratorTest : public testing::Test {
       compaction_proxy_ = new FakeCompaction();
       compaction.reset(compaction_proxy_);
     }
+    // TODO(yiwu) add a mock snapshot checker and add test for it.
+    SnapshotChecker* snapshot_checker = nullptr;
 
     merge_helper_.reset(new MergeHelper(Env::Default(), cmp_, merge_op, filter,
                                         nullptr, false, 0, 0, nullptr,
@@ -189,8 +191,9 @@ class CompactionIteratorTest : public testing::Test {
     iter_->SeekToFirst();
     c_iter_.reset(new CompactionIterator(
         iter_.get(), cmp_, merge_helper_.get(), last_sequence, &snapshots_,
-        kMaxSequenceNumber, Env::Default(), false, range_del_agg_.get(),
-        std::move(compaction), filter, nullptr, &shutting_down_));
+        kMaxSequenceNumber, snapshot_checker, Env::Default(), false,
+        range_del_agg_.get(), std::move(compaction), filter, nullptr,
+        &shutting_down_));
   }
 
   void AddSnapshot(SequenceNumber snapshot) { snapshots_.push_back(snapshot); }

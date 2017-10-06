@@ -147,6 +147,9 @@ Status WritePreparedTxnDB::Initialize(
   SequenceNumber prev_max = max_evicted_seq_;
   SequenceNumber last_seq = db_impl_->GetLatestSequenceNumber();
   AdvanceMaxEvictedSeq(prev_max, last_seq);
+
+  db_impl_->SetSnapshotChecker(new SnapshotChecker(this));
+
   auto s = PessimisticTransactionDB::Initialize(compaction_enabled_cf_indices,
                                                 handles);
   return s;
@@ -573,7 +576,11 @@ Status WritePreparedTxnDB::Get(const ReadOptions& options,
                                const Slice& key, PinnableSlice* value) {
   // We are fine with the latest committed value. This could be done by
   // specifying the snapshot as kMaxSequenceNumber.
-  WritePreparedTxnReadCallback callback(this, kMaxSequenceNumber);
+  SequenceNumber seq = kMaxSequenceNumber;
+  if (options.snapshot != nullptr) {
+    seq = options.snapshot->GetSequenceNumber();
+  }
+  WritePreparedTxnReadCallback callback(this, seq);
   bool* dont_care = nullptr;
   // Note: no need to specify a snapshot for read options as no specific
   // snapshot is requested by the user.
@@ -581,9 +588,20 @@ Status WritePreparedTxnDB::Get(const ReadOptions& options,
                            &callback);
 }
 
+void WritePreparedTxnDB::Init(const TransactionDBOptions& /* unused */) {
+  // Adcance max_evicted_seq_ no more than 100 times before the cache wraps
+  // around.
+  INC_STEP_FOR_MAX_EVICTED =
+      std::max(SNAPSHOT_CACHE_SIZE / 100, static_cast<size_t>(1));
+  snapshot_cache_ = unique_ptr<std::atomic<SequenceNumber>[]>(
+      new std::atomic<SequenceNumber>[SNAPSHOT_CACHE_SIZE] {});
+  commit_cache_ = unique_ptr<std::atomic<CommitEntry64b>[]>(
+      new std::atomic<CommitEntry64b>[COMMIT_CACHE_SIZE] {});
+}
+
 // Returns true if commit_seq <= snapshot_seq
 bool WritePreparedTxnDB::IsInSnapshot(uint64_t prep_seq,
-                                      uint64_t snapshot_seq) {
+                                      uint64_t snapshot_seq) const {
   // Here we try to infer the return value without looking into prepare list.
   // This would help avoiding synchronization over a shared map.
   // TODO(myabandeh): read your own writes
@@ -734,7 +752,7 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq,
 
 bool WritePreparedTxnDB::GetCommitEntry(const uint64_t indexed_seq,
                                         CommitEntry64b* entry_64b,
-                                        CommitEntry* entry) {
+                                        CommitEntry* entry) const {
   *entry_64b = commit_cache_[indexed_seq].load(std::memory_order_acquire);
   bool valid = entry_64b->Parse(indexed_seq, entry, FORMAT);
   return valid;

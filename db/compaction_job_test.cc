@@ -250,11 +250,14 @@ class CompactionJobTest : public testing::Test {
     LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
     mutex_.Lock();
     EventLogger event_logger(db_options_.info_log.get());
-    CompactionJob compaction_job(
-        0, &compaction, db_options_, env_options_, versions_.get(),
-        &shutting_down_, &log_buffer, nullptr, nullptr, nullptr, &mutex_,
-        &bg_error_, snapshots, earliest_write_conflict_snapshot, table_cache_,
-        &event_logger, false, false, dbname_, &compaction_job_stats_);
+    // TODO(yiwu) add a mock snapshot checker and add test for it.
+    SnapshotChecker* snapshot_checker = nullptr;
+    CompactionJob compaction_job(0, &compaction, db_options_, env_options_,
+                                 versions_.get(), &shutting_down_, &log_buffer,
+                                 nullptr, nullptr, nullptr, &mutex_, &bg_error_,
+                                 snapshots, earliest_write_conflict_snapshot,
+                                 snapshot_checker, table_cache_, &event_logger,
+                                 false, false, dbname_, &compaction_job_stats_);
 
     VerifyInitializationOfCompactionJobStats(compaction_job_stats_);
 
