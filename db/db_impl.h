@@ -1300,6 +1300,7 @@ class DBImpl : public DB {
   const bool concurrent_prepare_;
   const bool manual_wal_flush_;
   const bool seq_per_batch_;
+  const bool use_custom_gc_;
 };
 
 extern Options SanitizeOptions(const std::string& db,

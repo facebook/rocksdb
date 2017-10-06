@@ -8,16 +8,40 @@
 
 namespace rocksdb {
 
+// Callback class that control GC of duplicate keys in flush/compaction
+class SnapshotChecker {
+ public:
+  virtual ~SnapshotChecker() {}
+  virtual bool IsInSnapshot(SequenceNumber sequence,
+                            SequenceNumber snapshot_sequence) const = 0;
+};
+
+class DisableGCSnapshotChecker : public SnapshotChecker {
+ public:
+  virtual ~DisableGCSnapshotChecker() {}
+  virtual bool IsInSnapshot(SequenceNumber sequence,
+                            SequenceNumber snapshot_sequence) const {
+    // By returning false, we prevent all the values from being GCed
+    return false;
+  }
+  static DisableGCSnapshotChecker* Instance() { return &instance_; }
+
+ protected:
+  static DisableGCSnapshotChecker instance_;
+  explicit DisableGCSnapshotChecker() {}
+};
+
 class WritePreparedTxnDB;
 
 // Callback class created by WritePreparedTxnDB to check if a key
 // is visible by a snapshot.
-class SnapshotChecker {
+class WritePreparedSnapshotChecker : public SnapshotChecker {
  public:
-  explicit SnapshotChecker(WritePreparedTxnDB* txn_db);
+  explicit WritePreparedSnapshotChecker(WritePreparedTxnDB* txn_db);
+  virtual ~WritePreparedSnapshotChecker() {}
 
-  bool IsInSnapshot(SequenceNumber sequence,
-                    SequenceNumber snapshot_sequence) const;
+  virtual bool IsInSnapshot(SequenceNumber sequence,
+                            SequenceNumber snapshot_sequence) const override;
 
  private:
 #ifndef ROCKSDB_LITE

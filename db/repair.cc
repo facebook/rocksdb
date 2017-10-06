@@ -400,11 +400,7 @@ class Repairer {
       int64_t _current_time = 0;
       status = env_->GetCurrentTime(&_current_time);  // ignore error
       const uint64_t current_time = static_cast<uint64_t>(_current_time);
-      // Only TransactionDB make use of snapshot_checker and repair doesn't
-      // currently support TransactionDB with uncommitted prepared keys in WAL.
-      // TODO(yiwu) Support repairing TransactionDB.
-      SnapshotChecker* snapshot_checker = nullptr;
-
+      SnapshotChecker* snapshot_checker = DisableGCSnapshotChecker::Instance();
       status = BuildTable(
           dbname_, env_, *cfd->ioptions(), *cfd->GetLatestMutableCFOptions(),
           env_options_, table_cache_, iter.get(),
