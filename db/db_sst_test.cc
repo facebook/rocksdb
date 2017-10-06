@@ -327,11 +327,10 @@ TEST_F(DBSSTTest, RateLimitedDelete) {
   options.disable_auto_compactions = true;
   options.env = env_;
 
-  std::string trash_dir = test::TmpDir(env_) + "/trash";
   int64_t rate_bytes_per_sec = 1024 * 10;  // 10 Kbs / Sec
   Status s;
   options.sst_file_manager.reset(
-      NewSstFileManager(env_, nullptr, trash_dir, 0, false, &s));
+      NewSstFileManager(env_, nullptr, "", 0, false, &s));
   ASSERT_OK(s);
   options.sst_file_manager->SetDeleteRateBytesPerSecond(rate_bytes_per_sec);
   auto sfm = static_cast<SstFileManagerImpl*>(options.sst_file_manager.get());
@@ -377,6 +376,45 @@ TEST_F(DBSSTTest, RateLimitedDelete) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(DBSSTTest, SstFileManagerClearTrash) {
+  std::vector<std::string> directories;
+  std::vector<std::pair<std::string, bool>> all_files;
+
+  for (int i = 0; i < 10; i++) {
+    std::string dir = test::TmpDir(env_);
+
+    directories.push_back(dir);
+    all_files.emplace_back(dir + "/file.sst", false);
+    all_files.emplace_back(dir + "/file.trash", true);
+    all_files.emplace_back(dir + "/file.log", false);
+    all_files.emplace_back(dir + "/file.trash.trash", true);
+    all_files.emplace_back(dir + "/file.sst.trash", true);
+    all_files.emplace_back(dir + "/file.sst.tras", false);
+    all_files.emplace_back(dir + "/file.log.trash", true);
+    all_files.emplace_back(dir + "/file.log.trash.sst", false);
+  }
+
+  for (auto& f : all_files) {
+    ASSERT_OK(WriteStringToFile(env_, "anc", f.first));
+  }
+
+  Status s;
+  SstFileManager* sfm =
+      NewSstFileManager(env_, nullptr, "", 0, true, &s, directories);
+  delete sfm;
+  ASSERT_OK(s);
+
+  for (auto& f : all_files) {
+    std::string file_path = f.first;
+    bool is_trash = f.second;
+    s = env_->FileExists(file_path);
+    if (is_trash) {
+      ASSERT_NOK(s);
+    } else {
+      ASSERT_OK(s);
+    }
+  }
+}
 // Create a DB with 2 db_paths, and generate multiple files in the 2
 // db_paths using CompactRangeOptions, make sure that files that were
 // deleted from first db_path were deleted using DeleteScheduler and
@@ -394,11 +432,10 @@ TEST_F(DBSSTTest, DeleteSchedulerMultipleDBPaths) {
   options.db_paths.emplace_back(dbname_ + "_2", 1024 * 100);
   options.env = env_;
 
-  std::string trash_dir = test::TmpDir(env_) + "/trash";
   int64_t rate_bytes_per_sec = 1024 * 1024;  // 1 Mb / Sec
   Status s;
-  options.sst_file_manager.reset(NewSstFileManager(
-      env_, nullptr, trash_dir, rate_bytes_per_sec, false, &s));
+  options.sst_file_manager.reset(
+      NewSstFileManager(env_, nullptr, "", rate_bytes_per_sec, false, &s));
   ASSERT_OK(s);
   auto sfm = static_cast<SstFileManagerImpl*>(options.sst_file_manager.get());
   sfm->delete_scheduler()->TEST_SetMaxTrashDBRatio(1.1);
@@ -460,9 +497,8 @@ TEST_F(DBSSTTest, DestroyDBWithRateLimitedDelete) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   options.env = env_;
-  std::string trash_dir = test::TmpDir(env_) + "/trash";
   options.sst_file_manager.reset(
-      NewSstFileManager(env_, nullptr, trash_dir, 0, false, &s));
+      NewSstFileManager(env_, nullptr, "", 0, false, &s));
   ASSERT_OK(s);
   DestroyAndReopen(options);
 

@@ -8,6 +8,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "rocksdb/status.h"
 
@@ -73,12 +74,14 @@ class SstFileManager {
 //    SstFileManager will delete files that already marked as trash in db_path.
 // @param status: If not nullptr, status will contain any errors that happened
 //    during creating the missing trash_dir or deleting existing files in trash.
-// @param db_path: If delete_existing_trash is passed as true, SstFileManager
-//    will get all files marked as trash in db_path to delete them.
+// @param paths: If passed, we will check if there are any files that are marked
+//    as trash in the passed paths so that they will schedule there deletes.
+//    This argument is used to clean up if the DB was shutdown without deleting
+//    all trash files.
 extern SstFileManager* NewSstFileManager(
     Env* env, std::shared_ptr<Logger> info_log = nullptr,
     std::string trash_dir = "", int64_t rate_bytes_per_sec = 0,
     bool delete_existing_trash = true, Status* status = nullptr,
-    std::string db_path = "");
+    std::vector<std::string> paths = {});
 
 }  // namespace rocksdb

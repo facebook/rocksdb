@@ -129,23 +129,27 @@ SstFileManager* NewSstFileManager(Env* env, std::shared_ptr<Logger> info_log,
                                   std::string trash_dir,
                                   int64_t rate_bytes_per_sec,
                                   bool delete_existing_trash, Status* status,
-                                  std::string db_path) {
+                                  std::vector<std::string> paths) {
   SstFileManagerImpl* res =
       new SstFileManagerImpl(env, info_log, rate_bytes_per_sec);
 
   Status s;
-  if (db_path != "") {
-    // Check if there are any files marked as trash in DB directory
-    std::vector<std::string> files_in_db_path;
-    s = env->GetChildren(db_path, &files_in_db_path);
-    if (s.ok() && delete_existing_trash) {
-      for (const std::string& f : files_in_db_path) {
-        if (!DeleteScheduler::IsTrashFile(f)) {
-          // not a trash file
+  if (delete_existing_trash) {
+    for (const std::string& current_path : paths) {
+      // Check if there are any files marked as trash in this path
+      std::vector<std::string> files_in_path;
+      Status ls_status = env->GetChildren(current_path, &files_in_path);
+      if (s.ok() && !ls_status.ok()) {
+        s = ls_status;
+        continue;
+      }
+      for (const std::string& current_file : files_in_path) {
+        if (!DeleteScheduler::IsTrashFile(current_file)) {
+          // not a trash file, skip
           continue;
         }
 
-        std::string trash_file = db_path + "/" + f;
+        std::string trash_file = current_path + "/" + current_file;
         res->OnAddFile(trash_file);
         Status file_delete = res->ScheduleFileDeletion(trash_file);
         if (s.ok() && !file_delete.ok()) {
