@@ -971,7 +971,10 @@ void BlobDBImpl::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
     auto blob_file = bfile_pair.second;
     LiveFileMetaData filemetadata;
     filemetadata.size = blob_file->GetFileSize();
-    //filemetadata.db_path = blob_file.PathName();
+    filemetadata.name = blob_file->PathName();
+    auto cfh =
+        reinterpret_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily());
+    filemetadata.column_family_name = cfh->GetName();
     metadata->emplace_back(filemetadata);
   }
 }
