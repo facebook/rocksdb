@@ -951,11 +951,11 @@ Status BlobDBImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
 Status BlobDBImpl::GetLiveFiles(std::vector<std::string>& ret,
                                 uint64_t* manifest_file_size,
                                 bool flush_memtable) {
+  ReadLock rl(&mutex_);
   Status s = db_->GetLiveFiles(ret, manifest_file_size, flush_memtable);
   if (!s.ok()) {
     return s;
   }
-  ReadLock rl(&mutex_);
   ret.reserve(ret.size() + blob_files_.size());
   for (auto bfile_pair : blob_files_) {
     auto blob_file = bfile_pair.second;
@@ -965,8 +965,8 @@ Status BlobDBImpl::GetLiveFiles(std::vector<std::string>& ret,
 }
 
 void BlobDBImpl::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
-  db_->GetLiveFilesMetaData(metadata);
   ReadLock rl(&mutex_);
+  db_->GetLiveFilesMetaData(metadata);
   for (auto bfile_pair : blob_files_) {
     auto blob_file = bfile_pair.second;
     LiveFileMetaData filemetadata;
