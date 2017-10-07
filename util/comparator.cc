@@ -17,7 +17,7 @@
 
 namespace rocksdb {
 
-Comparator::~Comparator() { }
+Comparator::~Comparator() {}
 
 namespace {
 class BytewiseComparatorImpl : public Comparator {
