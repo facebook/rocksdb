@@ -3608,7 +3608,7 @@ class ColumnFamilyDescriptorJni : public JavaClass {
    * nullptr if an an exception occurs
    */
   static jobject construct(JNIEnv* env, ColumnFamilyDescriptor* cfd) {
-    jbyteArray cfname = JniUtil::copyBytes(env, cfd->name);
+    jbyteArray jcf_name = JniUtil::copyBytes(env, cfd->name);
     jobject cfopts = ColumnFamilyOptionsJni::construct(env, &(cfd->options));
 
     jclass jclazz = getJClass(env);
@@ -3621,11 +3621,13 @@ class ColumnFamilyDescriptorJni : public JavaClass {
                                      "([BLorg/rocksdb/ColumnFamilyOptions;)V");
     if (mid == nullptr) {
       // exception thrown: NoSuchMethodException or OutOfMemoryError
+      env->DeleteLocalRef(jcf_name);
       return nullptr;
     }
 
-    jobject jcfd = env->NewObject(jclazz, mid, cfname, cfopts);
+    jobject jcfd = env->NewObject(jclazz, mid, jcf_name, cfopts);
     if (env->ExceptionCheck()) {
+      env->DeleteLocalRef(jcf_name);
       return nullptr;
     }
 

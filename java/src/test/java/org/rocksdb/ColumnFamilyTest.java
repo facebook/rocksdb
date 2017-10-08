@@ -12,6 +12,7 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 
 public class ColumnFamilyTest {
@@ -22,6 +23,31 @@ public class ColumnFamilyTest {
 
   @Rule
   public TemporaryFolder dbFolder = new TemporaryFolder();
+
+  @Test
+  public void columnFamilyDescriptorName() throws RocksDBException {
+    final byte[] cfName = "some_name".getBytes(UTF_8);
+
+    try(final ColumnFamilyOptions cfOptions = new ColumnFamilyOptions()) {
+      final ColumnFamilyDescriptor cfDescriptor =
+              new ColumnFamilyDescriptor(cfName, cfOptions);
+      assertThat(cfDescriptor.getName()).isEqualTo(cfName);
+    }
+  }
+
+  @Test
+  public void columnFamilyDescriptorOptions() throws RocksDBException {
+    final byte[] cfName = "some_name".getBytes(UTF_8);
+
+    try(final ColumnFamilyOptions cfOptions = new ColumnFamilyOptions()
+            .setCompressionType(CompressionType.BZLIB2_COMPRESSION)) {
+      final ColumnFamilyDescriptor cfDescriptor =
+          new ColumnFamilyDescriptor(cfName, cfOptions);
+
+        assertThat(cfDescriptor.getOptions().compressionType())
+            .isEqualTo(CompressionType.BZLIB2_COMPRESSION);
+    }
+  }
 
   @Test
   public void listColumnFamilies() throws RocksDBException {
@@ -47,6 +73,9 @@ public class ColumnFamilyTest {
       try {
         assertThat(cfh).isNotNull();
 
+        assertThat(cfh.getName()).isEqualTo("default".getBytes(UTF_8));
+        assertThat(cfh.getID()).isEqualTo(0);
+
         final byte[] key = "key".getBytes();
         final byte[] value = "value".getBytes();
 
@@ -64,15 +93,25 @@ public class ColumnFamilyTest {
 
   @Test
   public void createColumnFamily() throws RocksDBException {
+    final byte[] cfName = "new_cf".getBytes(UTF_8);
+    final ColumnFamilyDescriptor cfDescriptor = new ColumnFamilyDescriptor(cfName,
+            new ColumnFamilyOptions());
+
     try (final Options options = new Options().setCreateIfMissing(true);
          final RocksDB db = RocksDB.open(options,
-             dbFolder.getRoot().getAbsolutePath())) {
-      final ColumnFamilyHandle columnFamilyHandle = db.createColumnFamily(
-          new ColumnFamilyDescriptor("new_cf".getBytes(),
-              new ColumnFamilyOptions()));
+                 dbFolder.getRoot().getAbsolutePath())) {
+
+      final ColumnFamilyHandle columnFamilyHandle = db.createColumnFamily(cfDescriptor);
+
       try {
+        assertThat(columnFamilyHandle.getName()).isEqualTo(cfName);
+        assertThat(columnFamilyHandle.getID()).isEqualTo(1);
+
+        final ColumnFamilyDescriptor latestDescriptor = columnFamilyHandle.getDescriptor();
+        assertThat(latestDescriptor.getName()).isEqualTo(cfName);
+
         final List<byte[]> columnFamilyNames = RocksDB.listColumnFamilies(
-            options, dbFolder.getRoot().getAbsolutePath());
+                options, dbFolder.getRoot().getAbsolutePath());
         assertThat(columnFamilyNames).isNotNull();
         assertThat(columnFamilyNames.size()).isGreaterThan(0);
         assertThat(columnFamilyNames.size()).isEqualTo(2);
