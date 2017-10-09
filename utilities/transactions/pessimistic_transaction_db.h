@@ -311,6 +311,9 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
     uint64_t rep_;
   };
 
+  // Struct to hold ownership of snapshot and read callback for cleanup.
+  struct IteratorState;
+
  private:
   friend class WritePreparedTransactionTest_IsInSnapshotTest_Test;
   friend class WritePreparedTransactionTest_CheckAgainstSnapshotsTest_Test;
@@ -490,39 +493,6 @@ class WritePreparedTxnReadCallback : public ReadCallback {
  private:
   WritePreparedTxnDB* db_;
   SequenceNumber snapshot_;
-};
-
-// Wrapper around ArenaWrappedDBIter, which owns the snapshot and read
-// callback.
-class WritePreparedTxnDBIterator final : public Iterator {
- public:
-  WritePreparedTxnDBIterator(ArenaWrappedDBIter* db_iter,
-                             std::shared_ptr<ManagedSnapshot>& snapshot,
-                             WritePreparedTxnReadCallback* callback)
-      : snapshot_(snapshot), callback_(), db_iter_(db_iter) {}
-  virtual ~WritePreparedTxnDBIterator() = default;
-
-  virtual bool Valid() const override { return db_iter_->Valid(); }
-  virtual void SeekToFirst() override { db_iter_->SeekToFirst(); }
-  virtual void SeekToLast() override { db_iter_->SeekToLast(); }
-  virtual void Seek(const Slice& target) override { db_iter_->Seek(target); }
-  virtual void SeekForPrev(const Slice& target) override {
-    db_iter_->SeekForPrev(target);
-  }
-  virtual void Next() override { db_iter_->Next(); }
-  virtual void Prev() override { db_iter_->Prev(); }
-  virtual Slice key() const override { return db_iter_->key(); }
-  virtual Slice value() const override { return db_iter_->value(); }
-  virtual Status status() const override { return db_iter_->status(); }
-  virtual Status Refresh() override { return db_iter_->Refresh(); }
-
- private:
-  // Owns of snapshot and read callback. Declare them before db_iter_ to
-  // let them destroy after db_iter destroys.
-  std::shared_ptr<ManagedSnapshot> snapshot_;
-  std::unique_ptr<WritePreparedTxnReadCallback> callback_;
-
-  std::unique_ptr<ArenaWrappedDBIter> db_iter_;
 };
 
 }  //  namespace rocksdb

@@ -588,6 +588,22 @@ Status WritePreparedTxnDB::Get(const ReadOptions& options,
                            &callback);
 }
 
+// Struct to hold ownership of snapshot and read callback for iterator cleanup.
+struct WritePreparedTxnDB::IteratorState {
+  IteratorState(WritePreparedTxnDB* txn_db, SequenceNumber sequence,
+                std::shared_ptr<ManagedSnapshot> s)
+      : callback(txn_db, sequence), snapshot(s) {}
+
+  WritePreparedTxnReadCallback callback;
+  std::shared_ptr<ManagedSnapshot> snapshot;
+};
+
+namespace {
+static void CleanupWritePreparedTxnDBIterator(void* arg1, void* arg2) {
+  delete reinterpret_cast<WritePreparedTxnDB::IteratorState*>(arg1);
+}
+}  // anonymous namespace
+
 Iterator* WritePreparedTxnDB::NewIterator(const ReadOptions& options,
                                           ColumnFamilyHandle* column_family) {
   std::shared_ptr<ManagedSnapshot> own_snapshot = nullptr;
@@ -601,11 +617,11 @@ Iterator* WritePreparedTxnDB::NewIterator(const ReadOptions& options,
   }
   assert(snapshot_seq != kMaxSequenceNumber);
   auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
-  auto* callback = new WritePreparedTxnReadCallback(this, snapshot_seq);
+  auto* state = new IteratorState(this, snapshot_seq, own_snapshot);
   auto* db_iter =
-      db_impl_->NewIteratorImpl(options, cfd, snapshot_seq, callback);
-  assert(db_iter != nullptr);
-  return new WritePreparedTxnDBIterator(db_iter, own_snapshot, callback);
+      db_impl_->NewIteratorImpl(options, cfd, snapshot_seq, &state->callback);
+  db_iter->RegisterCleanup(CleanupWritePreparedTxnDBIterator, state, nullptr);
+  return db_iter;
 }
 
 Status WritePreparedTxnDB::NewIterators(
@@ -625,11 +641,11 @@ Status WritePreparedTxnDB::NewIterators(
   iterators->reserve(column_families.size());
   for (auto* column_family : column_families) {
     auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
-    auto* callback = new WritePreparedTxnReadCallback(this, snapshot_seq);
+    auto* state = new IteratorState(this, snapshot_seq, own_snapshot);
     auto* db_iter =
-        db_impl_->NewIteratorImpl(options, cfd, snapshot_seq, callback);
-    iterators->push_back(
-        new WritePreparedTxnDBIterator(db_iter, own_snapshot, callback));
+        db_impl_->NewIteratorImpl(options, cfd, snapshot_seq, &state->callback);
+    db_iter->RegisterCleanup(CleanupWritePreparedTxnDBIterator, state, nullptr);
+    iterators->push_back(db_iter);
   }
   return Status::OK();
 }
