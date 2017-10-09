@@ -492,15 +492,14 @@ class WritePreparedTxnReadCallback : public ReadCallback {
   SequenceNumber snapshot_;
 };
 
+// Wrapper around ArenaWrappedDBIter, which owns the snapshot and read
+// callback.
 class WritePreparedTxnDBIterator final : public Iterator {
  public:
   WritePreparedTxnDBIterator(ArenaWrappedDBIter* db_iter,
                              std::shared_ptr<ManagedSnapshot>& snapshot,
                              WritePreparedTxnReadCallback* callback)
-      : Iterator(),
-        db_iter_(db_iter),
-        snapshot_(snapshot),
-        callback_(callback) {}
+      : snapshot_(snapshot), callback_(), db_iter_(db_iter) {}
   virtual ~WritePreparedTxnDBIterator() = default;
 
   virtual bool Valid() const override { return db_iter_->Valid(); }
@@ -518,11 +517,12 @@ class WritePreparedTxnDBIterator final : public Iterator {
   virtual Status Refresh() override { return db_iter_->Refresh(); }
 
  private:
-  std::unique_ptr<ArenaWrappedDBIter> db_iter_;
-
-  // Keeping snapshot and read callback for RAII.
+  // Owns of snapshot and read callback. Declare them before db_iter_ to
+  // let them destroy after db_iter destroys.
   std::shared_ptr<ManagedSnapshot> snapshot_;
   std::unique_ptr<WritePreparedTxnReadCallback> callback_;
+
+  std::unique_ptr<ArenaWrappedDBIter> db_iter_;
 };
 
 }  //  namespace rocksdb

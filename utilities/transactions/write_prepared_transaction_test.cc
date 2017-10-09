@@ -1637,7 +1637,8 @@ TEST_P(WritePreparedTransactionTest,
 }
 
 TEST_P(WritePreparedTransactionTest, Iterate) {
-  auto verify_state = [](Iterator* iter, const std::string& key, const std::string& value) {
+  auto verify_state = [](Iterator* iter, const std::string& key,
+                         const std::string& value) {
     ASSERT_TRUE(iter->Valid());
     ASSERT_OK(iter->status());
     ASSERT_EQ(key, iter->key().ToString());

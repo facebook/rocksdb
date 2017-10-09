@@ -34,7 +34,7 @@ extern Iterator* NewDBIterator(Env* env, const ReadOptions& read_options,
                                InternalIterator* internal_iter,
                                const SequenceNumber& sequence,
                                uint64_t max_sequential_skip_in_iterations,
-                               ReadCallback* read_callback = nullptr,
+                               ReadCallback* read_callback,
                                bool allow_blob = false);
 
 // A wrapper iterator which wraps DB Iterator and the arena, with which the DB
