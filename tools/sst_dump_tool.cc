@@ -192,6 +192,7 @@ int SstFileReader::ShowAllCompressionSizes(
   ReadOptions read_options;
   Options opts;
   const ImmutableCFOptions imoptions(opts);
+  const MutableCFOptions mutable_cf_options(opts);
   rocksdb::InternalKeyComparator ikc(opts.comparator);
   std::vector<std::unique_ptr<IntTblPropCollectorFactory> >
       block_based_table_factories;
@@ -203,11 +204,10 @@ int SstFileReader::ShowAllCompressionSizes(
       CompressionOptions compress_opt;
       std::string column_family_name;
       int unknown_level = -1;
-      TableBuilderOptions tb_opts(imoptions, ikc, &block_based_table_factories,
-                                  i.first, compress_opt,
-                                  nullptr /* compression_dict */,
-                                  false /* skip_filters */, column_family_name,
-                                  unknown_level);
+      TableBuilderOptions tb_opts(imoptions, mutable_cf_options, ikc,
+                                  &block_based_table_factories, i.first,
+                                  compress_opt, false /* skip_filters */,
+                                  column_family_name, unknown_level);
       uint64_t file_size = CalculateCompressedTableSize(tb_opts, block_size);
       fprintf(stdout, "Compression: %s", i.second);
       fprintf(stdout, " Size: %" PRIu64 "\n", file_size);

@@ -77,14 +77,13 @@ TableBuilder* BlockBasedTableFactory::NewTableBuilder(
     const TableBuilderOptions& table_builder_options, uint32_t column_family_id,
     WritableFileWriter* file) const {
   auto table_builder = new BlockBasedTableBuilder(
-      table_builder_options.ioptions, table_options_,
-      table_builder_options.internal_comparator,
+      table_builder_options.ioptions, table_builder_options.mutable_cf_options,
+      table_options_, table_builder_options.internal_comparator,
       table_builder_options.int_tbl_prop_collector_factories, column_family_id,
       file, table_builder_options.compression_type,
       table_builder_options.compression_opts,
-      table_builder_options.compression_dict,
       table_builder_options.skip_filters,
-      table_builder_options.column_family_name,
+      table_builder_options.column_family_name, table_builder_options.level,
       table_builder_options.creation_time,
       table_builder_options.oldest_key_time);
 

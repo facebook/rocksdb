@@ -48,33 +48,32 @@ struct TableReaderOptions {
 struct TableBuilderOptions {
   TableBuilderOptions(
       const ImmutableCFOptions& _ioptions,
+      const MutableCFOptions& _mutable_cf_options,
       const InternalKeyComparator& _internal_comparator,
       const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
           _int_tbl_prop_collector_factories,
       CompressionType _compression_type,
-      const CompressionOptions& _compression_opts,
-      const std::string* _compression_dict, bool _skip_filters,
+      const CompressionOptions& _compression_opts, bool _skip_filters,
       const std::string& _column_family_name, int _level,
       const uint64_t _creation_time = 0, const int64_t _oldest_key_time = 0)
       : ioptions(_ioptions),
+        mutable_cf_options(_mutable_cf_options),
         internal_comparator(_internal_comparator),
         int_tbl_prop_collector_factories(_int_tbl_prop_collector_factories),
         compression_type(_compression_type),
         compression_opts(_compression_opts),
-        compression_dict(_compression_dict),
         skip_filters(_skip_filters),
         column_family_name(_column_family_name),
         level(_level),
         creation_time(_creation_time),
         oldest_key_time(_oldest_key_time) {}
   const ImmutableCFOptions& ioptions;
+  const MutableCFOptions& mutable_cf_options;
   const InternalKeyComparator& internal_comparator;
   const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
       int_tbl_prop_collector_factories;
   CompressionType compression_type;
   const CompressionOptions& compression_opts;
-  // Data for presetting the compression library's dictionary, or nullptr.
-  const std::string* compression_dict;
   bool skip_filters;  // only used by BlockBasedTableBuilder
   const std::string& column_family_name;
   int level; // what level this table/file is on, -1 for "not set, don't know"

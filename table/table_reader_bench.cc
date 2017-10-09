@@ -85,6 +85,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
   DB* db = nullptr;
   Status s;
   const ImmutableCFOptions ioptions(opts);
+  const MutableCFOptions mutable_cf_options(opts);
   unique_ptr<WritableFileWriter> file_writer;
   if (!through_db) {
     unique_ptr<WritableFile> file;
@@ -96,12 +97,11 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
     file_writer.reset(new WritableFileWriter(std::move(file), env_options));
     int unknown_level = -1;
     tb = opts.table_factory->NewTableBuilder(
-        TableBuilderOptions(ioptions, ikc, &int_tbl_prop_collector_factories,
+        TableBuilderOptions(ioptions, mutable_cf_options, ikc,
+                            &int_tbl_prop_collector_factories,
                             CompressionType::kNoCompression,
-                            CompressionOptions(),
-                            nullptr /* compression_dict */,
-                            false /* skip_filters */, kDefaultColumnFamilyName,
-                            unknown_level),
+                            CompressionOptions(), false /* skip_filters */,
+                            kDefaultColumnFamilyName, unknown_level),
         0 /* column_family_id */, file_writer.get());
   } else {
     s = DB::Open(opts, dbname, &db);
