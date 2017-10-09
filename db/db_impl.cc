@@ -1413,6 +1413,7 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
   }
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
+  ReadCallback* read_callback = nullptr;  // No read callback provided.
   if (read_options.managed) {
 #ifdef ROCKSDB_LITE
     // not supported in lite version
@@ -1437,16 +1438,14 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
     return NewDBIterator(
         env_, read_options, *cfd->ioptions(), cfd->user_comparator(), iter,
         kMaxSequenceNumber,
-        sv->mutable_cf_options.max_sequential_skip_in_iterations);
+        sv->mutable_cf_options.max_sequential_skip_in_iterations,
+        read_callback);
 #endif
   } else {
-    SequenceNumber latest_snapshot = versions_->LastSequence();
-    auto snapshot =
-        read_options.snapshot != nullptr
-            ? reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)
-                  ->number_
-            : latest_snapshot;
-    return NewIteratorImpl(read_options, cfd, snapshot);
+    auto snapshot = read_options.snapshot != nullptr
+                        ? read_options.snapshot->GetSequenceNumber()
+                        : versions_->LastSequence();
+    return NewIteratorImpl(read_options, cfd, snapshot, read_callback);
   }
   // To stop compiler from complaining
   return nullptr;
@@ -1455,6 +1454,7 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
 ArenaWrappedDBIter* DBImpl::NewIteratorImpl(const ReadOptions& read_options,
                                             ColumnFamilyData* cfd,
                                             SequenceNumber snapshot,
+                                            ReadCallback* read_callback,
                                             bool allow_blob) {
   SuperVersion* sv = cfd->GetReferencedSuperVersion(&mutex_);
 
@@ -1503,8 +1503,8 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(const ReadOptions& read_options,
   ArenaWrappedDBIter* db_iter = NewArenaWrappedDbIterator(
       env_, read_options, *cfd->ioptions(), snapshot,
       sv->mutable_cf_options.max_sequential_skip_in_iterations,
-      sv->version_number, ((read_options.snapshot != nullptr) ? nullptr : this),
-      cfd, allow_blob);
+      sv->version_number, read_callback,
+      ((read_options.snapshot != nullptr) ? nullptr : this), cfd, allow_blob);
 
   InternalIterator* internal_iter =
       NewInternalIterator(read_options, cfd, sv, db_iter->GetArena(),
@@ -1522,6 +1522,7 @@ Status DBImpl::NewIterators(
     return Status::NotSupported(
         "ReadTier::kPersistedData is not yet supported in iterators.");
   }
+  ReadCallback* read_callback = nullptr;  // No read callback provided.
   iterators->clear();
   iterators->reserve(column_families.size());
   if (read_options.managed) {
@@ -1552,21 +1553,19 @@ Status DBImpl::NewIterators(
       iterators->push_back(NewDBIterator(
           env_, read_options, *cfd->ioptions(), cfd->user_comparator(), iter,
           kMaxSequenceNumber,
-          sv->mutable_cf_options.max_sequential_skip_in_iterations));
+          sv->mutable_cf_options.max_sequential_skip_in_iterations,
+          read_callback));
     }
 #endif
   } else {
-    SequenceNumber latest_snapshot = versions_->LastSequence();
-    auto snapshot =
-        read_options.snapshot != nullptr
-            ? reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)
-                  ->number_
-            : latest_snapshot;
-
+    auto snapshot = read_options.snapshot != nullptr
+                        ? read_options.snapshot->GetSequenceNumber()
+                        : versions_->LastSequence();
     for (size_t i = 0; i < column_families.size(); ++i) {
       auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(
           column_families[i])->cfd();
-      iterators->push_back(NewIteratorImpl(read_options, cfd, snapshot));
+      iterators->push_back(
+          NewIteratorImpl(read_options, cfd, snapshot, read_callback));
     }
   }
 

@@ -588,6 +588,68 @@ Status WritePreparedTxnDB::Get(const ReadOptions& options,
                            &callback);
 }
 
+// Struct to hold ownership of snapshot and read callback for iterator cleanup.
+struct WritePreparedTxnDB::IteratorState {
+  IteratorState(WritePreparedTxnDB* txn_db, SequenceNumber sequence,
+                std::shared_ptr<ManagedSnapshot> s)
+      : callback(txn_db, sequence), snapshot(s) {}
+
+  WritePreparedTxnReadCallback callback;
+  std::shared_ptr<ManagedSnapshot> snapshot;
+};
+
+namespace {
+static void CleanupWritePreparedTxnDBIterator(void* arg1, void* arg2) {
+  delete reinterpret_cast<WritePreparedTxnDB::IteratorState*>(arg1);
+}
+}  // anonymous namespace
+
+Iterator* WritePreparedTxnDB::NewIterator(const ReadOptions& options,
+                                          ColumnFamilyHandle* column_family) {
+  std::shared_ptr<ManagedSnapshot> own_snapshot = nullptr;
+  SequenceNumber snapshot_seq = kMaxSequenceNumber;
+  if (options.snapshot != nullptr) {
+    snapshot_seq = options.snapshot->GetSequenceNumber();
+  } else {
+    auto* snapshot = db_impl_->GetSnapshot();
+    snapshot_seq = snapshot->GetSequenceNumber();
+    own_snapshot = std::make_shared<ManagedSnapshot>(db_impl_, snapshot);
+  }
+  assert(snapshot_seq != kMaxSequenceNumber);
+  auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
+  auto* state = new IteratorState(this, snapshot_seq, own_snapshot);
+  auto* db_iter =
+      db_impl_->NewIteratorImpl(options, cfd, snapshot_seq, &state->callback);
+  db_iter->RegisterCleanup(CleanupWritePreparedTxnDBIterator, state, nullptr);
+  return db_iter;
+}
+
+Status WritePreparedTxnDB::NewIterators(
+    const ReadOptions& options,
+    const std::vector<ColumnFamilyHandle*>& column_families,
+    std::vector<Iterator*>* iterators) {
+  std::shared_ptr<ManagedSnapshot> own_snapshot = nullptr;
+  SequenceNumber snapshot_seq = kMaxSequenceNumber;
+  if (options.snapshot != nullptr) {
+    snapshot_seq = options.snapshot->GetSequenceNumber();
+  } else {
+    auto* snapshot = db_impl_->GetSnapshot();
+    snapshot_seq = snapshot->GetSequenceNumber();
+    own_snapshot = std::make_shared<ManagedSnapshot>(db_impl_, snapshot);
+  }
+  iterators->clear();
+  iterators->reserve(column_families.size());
+  for (auto* column_family : column_families) {
+    auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
+    auto* state = new IteratorState(this, snapshot_seq, own_snapshot);
+    auto* db_iter =
+        db_impl_->NewIteratorImpl(options, cfd, snapshot_seq, &state->callback);
+    db_iter->RegisterCleanup(CleanupWritePreparedTxnDBIterator, state, nullptr);
+    iterators->push_back(db_iter);
+  }
+  return Status::OK();
+}
+
 void WritePreparedTxnDB::Init(const TransactionDBOptions& /* unused */) {
   // Adcance max_evicted_seq_ no more than 100 times before the cache wraps
   // around.

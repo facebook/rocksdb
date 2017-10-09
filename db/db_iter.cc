@@ -102,7 +102,8 @@ class DBIter final: public Iterator {
   DBIter(Env* _env, const ReadOptions& read_options,
          const ImmutableCFOptions& cf_options, const Comparator* cmp,
          InternalIterator* iter, SequenceNumber s, bool arena_mode,
-         uint64_t max_sequential_skip_in_iterations, bool allow_blob)
+         uint64_t max_sequential_skip_in_iterations,
+         ReadCallback* read_callback, bool allow_blob)
       : arena_mode_(arena_mode),
         env_(_env),
         logger_(cf_options.info_log),
@@ -120,6 +121,7 @@ class DBIter final: public Iterator {
         total_order_seek_(read_options.total_order_seek),
         range_del_agg_(cf_options.internal_comparator, s,
                        true /* collapse_deletions */),
+        read_callback_(read_callback),
         allow_blob_(allow_blob) {
     RecordTick(statistics_, NO_ITERATORS);
     prefix_extractor_ = cf_options.prefix_extractor;
@@ -226,6 +228,7 @@ class DBIter final: public Iterator {
   bool ParseKey(ParsedInternalKey* key);
   void MergeValuesNewToOld();
   bool TooManyInternalKeysSkipped(bool increment = true);
+  bool IsVisible(SequenceNumber sequence);
 
   // Temporarily pin the blocks that we encounter until ReleaseTempPinnedData()
   // is called
@@ -293,6 +296,7 @@ class DBIter final: public Iterator {
   RangeDelAggregator range_del_agg_;
   LocalStatistics local_stats_;
   PinnedIteratorsManager pinned_iters_mgr_;
+  ReadCallback* read_callback_;
   bool allow_blob_;
   bool is_blob_;
 
@@ -408,7 +412,7 @@ void DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
       return;
     }
 
-    if (ikey_.sequence <= sequence_) {
+    if (IsVisible(ikey_.sequence)) {
       if (skipping && user_comparator_->Compare(ikey_.user_key,
                                                 saved_key_.GetUserKey()) <= 0) {
         num_skipped++;  // skip this entry
@@ -674,7 +678,7 @@ void DBIter::ReverseToBackward() {
            user_comparator_->Compare(ikey.user_key, saved_key_.GetUserKey()) >
                0) {
       assert(ikey.sequence != kMaxSequenceNumber);
-      if (ikey.sequence > sequence_) {
+      if (!IsVisible(ikey.sequence)) {
         PERF_COUNTER_ADD(internal_recent_skipped_count, 1);
       } else {
         PERF_COUNTER_ADD(internal_key_skipped_count, 1);
@@ -762,7 +766,7 @@ bool DBIter::FindValueForCurrentKey() {
   ReleaseTempPinnedData();
   TempPinData();
   size_t num_skipped = 0;
-  while (iter_->Valid() && ikey.sequence <= sequence_ &&
+  while (iter_->Valid() && IsVisible(ikey.sequence) &&
          user_comparator_->Equal(ikey.user_key, saved_key_.GetUserKey())) {
     if (TooManyInternalKeysSkipped()) {
       return false;
@@ -1001,7 +1005,7 @@ void DBIter::FindPrevUserKey() {
   while (iter_->Valid() &&
          ((cmp = user_comparator_->Compare(ikey.user_key,
                                            saved_key_.GetUserKey())) == 0 ||
-          (cmp > 0 && ikey.sequence > sequence_))) {
+          (cmp > 0 && !IsVisible(ikey.sequence)))) {
     if (TooManyInternalKeysSkipped()) {
       return;
     }
@@ -1019,7 +1023,7 @@ void DBIter::FindPrevUserKey() {
       }
     }
     assert(ikey.sequence != kMaxSequenceNumber);
-    if (ikey.sequence > sequence_) {
+    if (!IsVisible(ikey.sequence)) {
       PERF_COUNTER_ADD(internal_recent_skipped_count, 1);
     } else {
       PERF_COUNTER_ADD(internal_key_skipped_count, 1);
@@ -1039,6 +1043,11 @@ bool DBIter::TooManyInternalKeysSkipped(bool increment) {
     num_internal_keys_skipped_++;
   }
   return false;
+}
+
+bool DBIter::IsVisible(SequenceNumber sequence) {
+  return sequence <= sequence_ &&
+         (read_callback_ == nullptr || read_callback_->IsCommitted(sequence));
 }
 
 // Skip all unparseable keys
@@ -1225,10 +1234,11 @@ Iterator* NewDBIterator(Env* env, const ReadOptions& read_options,
                         InternalIterator* internal_iter,
                         const SequenceNumber& sequence,
                         uint64_t max_sequential_skip_in_iterations,
-                        bool allow_blob) {
-  DBIter* db_iter = new DBIter(
-      env, read_options, cf_options, user_key_comparator, internal_iter,
-      sequence, false, max_sequential_skip_in_iterations, allow_blob);
+                        ReadCallback* read_callback, bool allow_blob) {
+  DBIter* db_iter =
+      new DBIter(env, read_options, cf_options, user_key_comparator,
+                 internal_iter, sequence, false,
+                 max_sequential_skip_in_iterations, read_callback, allow_blob);
   return db_iter;
 }
 
@@ -1273,11 +1283,13 @@ void ArenaWrappedDBIter::Init(Env* env, const ReadOptions& read_options,
                               const ImmutableCFOptions& cf_options,
                               const SequenceNumber& sequence,
                               uint64_t max_sequential_skip_in_iteration,
-                              uint64_t version_number, bool allow_blob) {
+                              uint64_t version_number,
+                              ReadCallback* read_callback, bool allow_blob) {
   auto mem = arena_.AllocateAligned(sizeof(DBIter));
   db_iter_ = new (mem)
       DBIter(env, read_options, cf_options, cf_options.user_comparator, nullptr,
-             sequence, true, max_sequential_skip_in_iteration, allow_blob);
+             sequence, true, max_sequential_skip_in_iteration, read_callback,
+             allow_blob);
   sv_number_ = version_number;
 }
 
@@ -1297,7 +1309,7 @@ Status ArenaWrappedDBIter::Refresh() {
     SuperVersion* sv = cfd_->GetReferencedSuperVersion(db_impl_->mutex());
     Init(env, read_options_, *(cfd_->ioptions()), latest_seq,
          sv->mutable_cf_options.max_sequential_skip_in_iterations,
-         cur_sv_number, allow_blob_);
+         cur_sv_number, read_callback_, allow_blob_);
 
     InternalIterator* internal_iter = db_impl_->NewInternalIterator(
         read_options_, cfd_, sv, &arena_, db_iter_->GetRangeDelAggregator());
@@ -1313,12 +1325,15 @@ ArenaWrappedDBIter* NewArenaWrappedDbIterator(
     Env* env, const ReadOptions& read_options,
     const ImmutableCFOptions& cf_options, const SequenceNumber& sequence,
     uint64_t max_sequential_skip_in_iterations, uint64_t version_number,
-    DBImpl* db_impl, ColumnFamilyData* cfd, bool allow_blob) {
+    ReadCallback* read_callback, DBImpl* db_impl, ColumnFamilyData* cfd,
+    bool allow_blob) {
   ArenaWrappedDBIter* iter = new ArenaWrappedDBIter();
   iter->Init(env, read_options, cf_options, sequence,
-             max_sequential_skip_in_iterations, version_number, allow_blob);
+             max_sequential_skip_in_iterations, version_number, read_callback,
+             allow_blob);
   if (db_impl != nullptr && cfd != nullptr) {
-    iter->StoreRefreshInfo(read_options, db_impl, cfd, allow_blob);
+    iter->StoreRefreshInfo(read_options, db_impl, cfd, read_callback,
+                           allow_blob);
   }
 
   return iter;

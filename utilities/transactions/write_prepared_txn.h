@@ -50,6 +50,11 @@ class WritePreparedTxn : public PessimisticTransaction {
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value) override;
 
+  using Transaction::GetIterator;
+  virtual Iterator* GetIterator(const ReadOptions& options) override;
+  virtual Iterator* GetIterator(const ReadOptions& options,
+                                ColumnFamilyHandle* column_family) override;
+
  private:
   friend class WritePreparedTransactionTest_BasicRecoveryTest_Test;
 

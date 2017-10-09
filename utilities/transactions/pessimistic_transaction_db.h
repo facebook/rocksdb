@@ -13,6 +13,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "db/db_iter.h"
 #include "db/read_callback.h"
 #include "db/snapshot_checker.h"
 #include "rocksdb/db.h"
@@ -206,6 +207,16 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value) override;
 
+  using DB::NewIterator;
+  virtual Iterator* NewIterator(const ReadOptions& options,
+                                ColumnFamilyHandle* column_family) override;
+
+  using DB::NewIterators;
+  virtual Status NewIterators(
+      const ReadOptions& options,
+      const std::vector<ColumnFamilyHandle*>& column_families,
+      std::vector<Iterator*>* iterators) override;
+
   // Check whether the transaction that wrote the value with seqeunce number seq
   // is visible to the snapshot with sequence number snapshot_seq
   bool IsInSnapshot(uint64_t seq, uint64_t snapshot_seq) const;
@@ -299,6 +310,9 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
    private:
     uint64_t rep_;
   };
+
+  // Struct to hold ownership of snapshot and read callback for cleanup.
+  struct IteratorState;
 
  private:
   friend class WritePreparedTransactionTest_IsInSnapshotTest_Test;

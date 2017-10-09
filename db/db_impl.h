@@ -137,6 +137,7 @@ class DBImpl : public DB {
   ArenaWrappedDBIter* NewIteratorImpl(const ReadOptions& options,
                                       ColumnFamilyData* cfd,
                                       SequenceNumber snapshot,
+                                      ReadCallback* read_callback,
                                       bool allow_blob = false);
 
   virtual const Snapshot* GetSnapshot() override;

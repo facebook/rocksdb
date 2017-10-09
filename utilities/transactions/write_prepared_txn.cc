@@ -41,6 +41,23 @@ Status WritePreparedTxn::Get(const ReadOptions& read_options,
                                         pinnable_val, &callback);
 }
 
+Iterator* WritePreparedTxn::GetIterator(const ReadOptions& options) {
+  // Make sure to get iterator from WritePrepareTxnDB, not the root db.
+  Iterator* db_iter = wpt_db_->NewIterator(options);
+  assert(db_iter);
+
+  return write_batch_.NewIteratorWithBase(db_iter);
+}
+
+Iterator* WritePreparedTxn::GetIterator(const ReadOptions& options,
+                                        ColumnFamilyHandle* column_family) {
+  // Make sure to get iterator from WritePrepareTxnDB, not the root db.
+  Iterator* db_iter = wpt_db_->NewIterator(options, column_family);
+  assert(db_iter);
+
+  return write_batch_.NewIteratorWithBase(db_iter);
+}
+
 Status WritePreparedTxn::PrepareInternal() {
   WriteOptions write_options = write_options_;
   write_options.disableWAL = false;
