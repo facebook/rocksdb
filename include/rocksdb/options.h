@@ -1089,6 +1089,7 @@ struct WriteOptions {
 
   // If true, writes will not first go to the write ahead log,
   // and the write may got lost after a crash.
+  // Default: false
   bool disableWAL;
 
   // If true and if user is trying to write to column families that don't exist
@@ -1099,6 +1100,7 @@ struct WriteOptions {
 
   // If true and we need to wait or sleep for the write request, fails
   // immediately with Status::Incomplete().
+  // Default: false
   bool no_slowdown;
 
   // If true, this write request is of lower priority if compaction is
