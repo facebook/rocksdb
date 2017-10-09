@@ -1679,6 +1679,7 @@ TEST_P(WritePreparedTransactionTest, Iterate) {
   ASSERT_OK(transaction->Commit());
   VerifyKeys({{"foo", "v2"}});
   verify_iter("v2");
+  delete transaction;
 }
 
 }  // namespace rocksdb
