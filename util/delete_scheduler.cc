@@ -90,6 +90,31 @@ std::map<std::string, Status> DeleteScheduler::GetBackgroundErrors() {
   return bg_errors_;
 }
 
+Status DeleteScheduler::CleanupDirectory(const std::string& path) {
+  Status s;
+  // Check if there are any files marked as trash in this path
+  std::vector<std::string> files_in_path;
+  s = env_->GetChildren(path, &files_in_path);
+  if (!s.ok()) {
+    return s;
+  }
+  for (const std::string& current_file : files_in_path) {
+    if (!DeleteScheduler::IsTrashFile(current_file)) {
+      // not a trash file, skip
+      continue;
+    }
+
+    std::string trash_file = path + "/" + current_file;
+    sst_file_manager_->OnAddFile(trash_file);
+    Status file_delete = DeleteFile(trash_file);
+    if (s.ok() && !file_delete.ok()) {
+      s = file_delete;
+    }
+  }
+
+  return s;
+}
+
 const std::string DeleteScheduler::kTrashExtension = ".trash";
 bool DeleteScheduler::IsTrashFile(const std::string& file_path) {
   return (file_path.size() >= kTrashExtension.size() &&

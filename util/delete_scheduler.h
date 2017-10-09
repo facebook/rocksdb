@@ -58,6 +58,9 @@ class DeleteScheduler {
 
   uint64_t GetTotalTrashSize() { return total_trash_size_.load(); }
 
+  // Check if there are any .trash filse in path, and schedule there deletion
+  Status CleanupDirectory(const std::string& path);
+
   void TEST_SetMaxTrashDBRatio(double r) {
     assert(r >= 0);
     max_trash_db_ratio_ = r;

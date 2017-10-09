@@ -376,45 +376,6 @@ TEST_F(DBSSTTest, RateLimitedDelete) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-TEST_F(DBSSTTest, SstFileManagerClearTrash) {
-  std::vector<std::string> directories;
-  std::vector<std::pair<std::string, bool>> all_files;
-
-  for (int i = 0; i < 10; i++) {
-    std::string dir = test::TmpDir(env_);
-
-    directories.push_back(dir);
-    all_files.emplace_back(dir + "/file.sst", false);
-    all_files.emplace_back(dir + "/file.trash", true);
-    all_files.emplace_back(dir + "/file.log", false);
-    all_files.emplace_back(dir + "/file.trash.trash", true);
-    all_files.emplace_back(dir + "/file.sst.trash", true);
-    all_files.emplace_back(dir + "/file.sst.tras", false);
-    all_files.emplace_back(dir + "/file.log.trash", true);
-    all_files.emplace_back(dir + "/file.log.trash.sst", false);
-  }
-
-  for (auto& f : all_files) {
-    ASSERT_OK(WriteStringToFile(env_, "anc", f.first));
-  }
-
-  Status s;
-  SstFileManager* sfm =
-      NewSstFileManager(env_, nullptr, "", 0, true, &s, directories);
-  delete sfm;
-  ASSERT_OK(s);
-
-  for (auto& f : all_files) {
-    std::string file_path = f.first;
-    bool is_trash = f.second;
-    s = env_->FileExists(file_path);
-    if (is_trash) {
-      ASSERT_NOK(s);
-    } else {
-      ASSERT_OK(s);
-    }
-  }
-}
 // Create a DB with 2 db_paths, and generate multiple files in the 2
 // db_paths using CompactRangeOptions, make sure that files that were
 // deleted from first db_path were deleted using DeleteScheduler and

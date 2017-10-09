@@ -128,30 +128,25 @@ void SstFileManagerImpl::OnDeleteFileImpl(const std::string& file_path) {
 SstFileManager* NewSstFileManager(Env* env, std::shared_ptr<Logger> info_log,
                                   std::string trash_dir,
                                   int64_t rate_bytes_per_sec,
-                                  bool delete_existing_trash, Status* status,
-                                  std::vector<std::string> paths) {
+                                  bool delete_existing_trash, Status* status) {
   SstFileManagerImpl* res =
       new SstFileManagerImpl(env, info_log, rate_bytes_per_sec);
 
+  // trash_dir is deprecated and not needed anymore, but if user passed it
+  // we will still remove files in it.
   Status s;
-  if (delete_existing_trash) {
-    for (const std::string& current_path : paths) {
-      // Check if there are any files marked as trash in this path
-      std::vector<std::string> files_in_path;
-      Status ls_status = env->GetChildren(current_path, &files_in_path);
-      if (s.ok() && !ls_status.ok()) {
-        s = ls_status;
-        continue;
-      }
-      for (const std::string& current_file : files_in_path) {
-        if (!DeleteScheduler::IsTrashFile(current_file)) {
-          // not a trash file, skip
+  if (delete_existing_trash && trash_dir != "") {
+    std::vector<std::string> files_in_trash;
+    s = env->GetChildren(trash_dir, &files_in_trash);
+    if (s.ok()) {
+      for (const std::string& trash_file : files_in_trash) {
+        if (trash_file == "." || trash_file == "..") {
           continue;
         }
 
-        std::string trash_file = current_path + "/" + current_file;
-        res->OnAddFile(trash_file);
-        Status file_delete = res->ScheduleFileDeletion(trash_file);
+        std::string path_in_trash = trash_dir + "/" + trash_file;
+        res->OnAddFile(path_in_trash);
+        Status file_delete = res->ScheduleFileDeletion(path_in_trash);
         if (s.ok() && !file_delete.ok()) {
           s = file_delete;
         }
@@ -171,8 +166,7 @@ SstFileManager* NewSstFileManager(Env* env, std::shared_ptr<Logger> info_log,
 SstFileManager* NewSstFileManager(Env* env, std::shared_ptr<Logger> info_log,
                                   std::string trash_dir,
                                   int64_t rate_bytes_per_sec,
-                                  bool delete_existing_trash, Status* status,
-                                  std::string db_path) {
+                                  bool delete_existing_trash, Status* status) {
   if (status) {
     *status =
         Status::NotSupported("SstFileManager is not supported in ROCKSDB_LITE");
