@@ -1325,7 +1325,7 @@ ArenaWrappedDBIter* NewArenaWrappedDbIterator(
     Env* env, const ReadOptions& read_options,
     const ImmutableCFOptions& cf_options, const SequenceNumber& sequence,
     uint64_t max_sequential_skip_in_iterations, uint64_t version_number,
-    DBImpl* db_impl, ColumnFamilyData* cfd, ReadCallback* read_callback,
+    ReadCallback* read_callback, DBImpl* db_impl, ColumnFamilyData* cfd,
     bool allow_blob) {
   ArenaWrappedDBIter* iter = new ArenaWrappedDBIter();
   iter->Init(env, read_options, cf_options, sequence,

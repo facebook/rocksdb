@@ -103,7 +103,7 @@ extern ArenaWrappedDBIter* NewArenaWrappedDbIterator(
     Env* env, const ReadOptions& read_options,
     const ImmutableCFOptions& cf_options, const SequenceNumber& sequence,
     uint64_t max_sequential_skip_in_iterations, uint64_t version_number,
-    DBImpl* db_impl = nullptr, ColumnFamilyData* cfd = nullptr,
-    ReadCallback* read_callback = nullptr, bool allow_blob = false);
+    ReadCallback* read_callback, DBImpl* db_impl = nullptr,
+    ColumnFamilyData* cfd = nullptr, bool allow_blob = false);
 
 }  // namespace rocksdb
