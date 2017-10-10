@@ -227,6 +227,12 @@ class BlobDBImpl : public BlobDB {
 
   virtual Status Write(const WriteOptions& opts, WriteBatch* updates) override;
 
+  virtual Status GetLiveFiles(std::vector<std::string>&,
+                              uint64_t* manifest_file_size,
+                              bool flush_memtable = true) override;
+  virtual void GetLiveFilesMetaData(
+      std::vector<LiveFileMetaData>* ) override;
+
   using BlobDB::PutWithTTL;
   Status PutWithTTL(const WriteOptions& options, const Slice& key,
                     const Slice& value, uint64_t ttl) override;
