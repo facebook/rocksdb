@@ -788,6 +788,7 @@ void MemTable::Update(SequenceNumber seq,
           assert((unsigned)((p + value.size()) - entry) ==
                  (unsigned)(VarintLength(key_length) + key_length +
                             VarintLength(value.size()) + value.size()));
+          RecordTick(moptions_.statistics, NUMBER_KEYS_UPDATED);
           return;
         }
       }
