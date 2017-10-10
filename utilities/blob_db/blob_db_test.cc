@@ -847,6 +847,30 @@ TEST_F(BlobDBTest, ColumnFamilyNotSupported) {
   delete handle;
 }
 
+TEST_F(BlobDBTest, GetLiveFilesMetaData) {
+  Random rnd(301);
+  BlobDBOptions bdb_options;
+  bdb_options.disable_background_tasks = true;
+  Open(bdb_options);
+  std::map<std::string, std::string> data;
+  for (size_t i = 0; i < 100; i++) {
+    PutRandom("key" + ToString(i), &rnd, &data);
+  }
+  auto *bdb_impl = static_cast<BlobDBImpl *>(blob_db_);
+  std::vector<LiveFileMetaData> metadata;
+  bdb_impl->GetLiveFilesMetaData(&metadata);
+  ASSERT_EQ(1U, metadata.size());
+  std::string filename = dbname_ + "/blob_dir/000001.blob";
+  ASSERT_EQ(filename, metadata[0].name);
+  ASSERT_EQ("default", metadata[0].column_family_name);
+  std::vector<std::string> livefile;
+  uint64_t mfs;
+  bdb_impl->GetLiveFiles(livefile, &mfs, false);
+  ASSERT_EQ(4U, livefile.size());
+  ASSERT_EQ(filename, livefile[3]);
+  VerifyDB(data);
+}
+
 }  //  namespace blob_db
 }  //  namespace rocksdb
 
