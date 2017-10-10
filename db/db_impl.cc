@@ -908,14 +908,7 @@ InternalIterator* DBImpl::NewInternalIterator(
 
     return internal_iter;
   } else {
-    // cleanup super version.
-    if (super_version->Unref()) {
-      {
-        InstrumentedMutexLock l(&mutex_);
-        super_version->Cleanup();
-      }
-      delete super_version;
-    }
+    ReturnAndCleanupSuperVersion(cfd, super_version);
   }
   return NewErrorInternalIterator(s);
 }
