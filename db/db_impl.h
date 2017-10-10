@@ -371,6 +371,9 @@ class DBImpl : public DB {
   // Return the current manifest file no.
   uint64_t TEST_Current_Manifest_FileNo();
 
+  // Returns the number that'll be assigned to the next file that's created.
+  uint64_t TEST_Current_Next_FileNo();
+
   // get total level0 file size. Only for testing.
   uint64_t TEST_GetLevel0TotalSize();
 

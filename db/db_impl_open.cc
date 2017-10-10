@@ -498,7 +498,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     // The previous incarnation may not have written any MANIFEST
     // records after allocating this log number.  So we manually
     // update the file number allocation counter in VersionSet.
-    versions_->MarkFileNumberUsedDuringRecovery(log_number);
+    versions_->MarkFileNumberUsed(log_number);
     // Open the log file
     std::string fname = LogFileName(immutable_db_options_.wal_dir, log_number);
 
@@ -817,7 +817,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       // not actually used. that is because VersionSet assumes
       // VersionSet::next_file_number_ always to be strictly greater than any
       // log number
-      versions_->MarkFileNumberUsedDuringRecovery(max_log_number + 1);
+      versions_->MarkFileNumberUsed(max_log_number + 1);
       status = versions_->LogAndApply(
           cfd, *cfd->GetLatestMutableCFOptions(), edit, &mutex_);
       if (!status.ok()) {

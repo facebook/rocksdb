@@ -569,6 +569,8 @@ class Repairer {
                      table->meta.largest, table->min_sequence,
                      table->max_sequence, table->meta.marked_for_compaction);
       }
+      assert(next_file_number_ > 0);
+      vset_.MarkFileNumberUsed(next_file_number_ - 1);
       mutex_.Lock();
       Status status = vset_.LogAndApply(
           cfd, *cfd->GetLatestMutableCFOptions(), &edit, &mutex_,
