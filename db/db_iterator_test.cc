@@ -1997,6 +1997,19 @@ TEST_F(DBIteratorTest, Refresh) {
   iter.reset();
 }
 
+TEST_F(DBIteratorTest, CreationFailure) {
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::NewInternalIterator:StatusCallback", [](void* arg) {
+        *(reinterpret_cast<Status*>(arg)) = Status::Corruption("test status");
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Iterator* iter = db_->NewIterator(ReadOptions());
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_TRUE(iter->status().IsCorruption());
+  delete iter;
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
