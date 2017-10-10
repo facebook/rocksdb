@@ -726,8 +726,8 @@ class VersionSet {
   }
 
   // Mark the specified file number as used.
-  // REQUIRED: this is only called during single-threaded recovery
-  void MarkFileNumberUsedDuringRecovery(uint64_t number);
+  // REQUIRED: this is only called during single-threaded recovery or repair.
+  void MarkFileNumberUsed(uint64_t number);
 
   // Return the log file number for the log file that is currently
   // being compacted, or zero if there is no such log file.

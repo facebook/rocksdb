@@ -2928,8 +2928,8 @@ Status VersionSet::Recover(
 
     column_family_set_->UpdateMaxColumnFamily(max_column_family);
 
-    MarkFileNumberUsedDuringRecovery(previous_log_number);
-    MarkFileNumberUsedDuringRecovery(log_number);
+    MarkFileNumberUsed(previous_log_number);
+    MarkFileNumberUsed(log_number);
   }
 
   // there were some column families in the MANIFEST that weren't specified
@@ -3373,9 +3373,9 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
 }
 #endif  // ROCKSDB_LITE
 
-void VersionSet::MarkFileNumberUsedDuringRecovery(uint64_t number) {
-  // only called during recovery which is single threaded, so this works because
-  // there can't be concurrent calls
+void VersionSet::MarkFileNumberUsed(uint64_t number) {
+  // only called during recovery and repair which are single threaded, so this
+  // works because there can't be concurrent calls
   if (next_file_number_.load(std::memory_order_relaxed) <= number) {
     next_file_number_.store(number + 1, std::memory_order_relaxed);
   }
