@@ -1281,9 +1281,20 @@ uint32_t LevelCompactionBuilder::GetPathId(
       } else {
         current_path_size -= level_size;
         if (cur_level > 0) {
-          level_size = static_cast<uint64_t>(
+          if (ioptions.level_compaction_dynamic_level_bytes) {
+            // Currently, level_compaction_dynamic_level_bytes is ignored when 
+            // multiple db paths are specified. https://github.com/facebook/
+            // rocksdb/blob/master/db/column_family.cc. 
+            // Still, adding this check to avoid accidentally using 
+            // max_bytes_for_level_multiplier_additional
+            level_size = static_cast<uint64_t>( 
               level_size * mutable_cf_options.max_bytes_for_level_multiplier);
-        }
+          } else {
+            level_size = static_cast<uint64_t>(
+              level_size * mutable_cf_options.max_bytes_for_level_multiplier 
+                * mutable_cf_options.MaxBytesMultiplerAdditional(cur_level));
+          }
+	}
         cur_level++;
         continue;
       }
