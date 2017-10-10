@@ -124,15 +124,17 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
     result.avoid_flush_during_recovery = false;
   }
 
+#ifndef ROCKSDB_LITE
   // When the DB is stopped, it's possible that there are some .trash files that
   // were not deleted yet, when we open the DB we will find these .trash files
   // and schedule them to be deleted
-  if (result.sst_file_manager) {
-    auto sfm = static_cast<SstFileManagerImpl*>(result.sst_file_manager.get());
+  auto sfm = static_cast<SstFileManagerImpl*>(result.sst_file_manager.get());
+  if (sfm) {
     for (size_t i = 0; i < result.db_paths.size(); i++) {
       sfm->delete_scheduler()->CleanupDirectory(result.db_paths[i].path);
     }
   }
+#endif
 
   return result;
 }
