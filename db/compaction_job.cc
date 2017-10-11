@@ -282,6 +282,7 @@ CompactionJob::CompactionJob(
       db_options_(db_options),
       env_options_(env_options),
       env_(db_options.env),
+      env_options_for_compaction_(env_->OptimizeForCompactionTableRead(env_options, db_options_)),
       versions_(versions),
       shutting_down_(shutting_down),
       preserve_deletes_seqnum_(preserve_deletes_seqnum),
@@ -680,7 +681,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   std::unique_ptr<RangeDelAggregator> range_del_agg(
       new RangeDelAggregator(cfd->internal_comparator(), existing_snapshots_));
   std::unique_ptr<InternalIterator> input(versions_->MakeInputIterator(
-      sub_compact->compaction, range_del_agg.get()));
+      sub_compact->compaction, range_del_agg.get(), env_options_for_compaction_));
 
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_PROCESS_KV);

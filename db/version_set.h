@@ -812,8 +812,9 @@ class VersionSet {
 
   // Create an iterator that reads over the compaction inputs for "*c".
   // The caller should delete the iterator when no longer needed.
-  InternalIterator* MakeInputIterator(const Compaction* c,
-                                      RangeDelAggregator* range_del_agg);
+  InternalIterator* MakeInputIterator(
+      const Compaction* c, RangeDelAggregator* range_del_agg,
+      const EnvOptions& env_options_compactions);
 
   // Add all files listed in any live version to *live.
   void AddLiveFiles(std::vector<FileDescriptor>* live_list);
@@ -915,10 +916,6 @@ class VersionSet {
 
   // env options for all reads and writes except compactions
   EnvOptions env_options_;
-
-  // env options used for compactions. This is a copy of
-  // env_options_ but with readaheads set to readahead_compactions_.
-  const EnvOptions env_options_compactions_;
 
   // No copying allowed
   VersionSet(const VersionSet&);

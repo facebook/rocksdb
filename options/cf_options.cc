@@ -65,7 +65,6 @@ ImmutableCFOptions::ImmutableCFOptions(const ImmutableDBOptions& db_options,
           db_options.access_hint_on_compaction_start),
       new_table_reader_for_compaction_inputs(
           db_options.new_table_reader_for_compaction_inputs),
-      compaction_readahead_size(db_options.compaction_readahead_size),
       num_levels(cf_options.num_levels),
       optimize_filters_for_hits(cf_options.optimize_filters_for_hits),
       force_consistency_checks(cf_options.force_consistency_checks),

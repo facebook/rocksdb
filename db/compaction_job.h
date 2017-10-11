@@ -134,6 +134,7 @@ class CompactionJob {
   const EnvOptions env_options_;
 
   Env* env_;
+  EnvOptions env_options_for_compaction_;
   VersionSet* versions_;
   const std::atomic<bool>* shutting_down_;
   const SequenceNumber preserve_deletes_seqnum_;
