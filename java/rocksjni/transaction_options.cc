@@ -47,6 +47,28 @@ void Java_org_rocksdb_TransactionOptions_setSetSnapshot(JNIEnv* env,
 
 /*
  * Class:     org_rocksdb_TransactionOptions
+ * Method:    isDeadlockDetect
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_TransactionOptions_isDeadlockDetect(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opts = reinterpret_cast<rocksdb::TransactionOptions*>(jhandle);
+  return opts->deadlock_detect;
+}
+
+/*
+* Class:     org_rocksdb_TransactionOptions
+* Method:    setDeadlockDetect
+* Signature: (JZ)V
+*/
+void Java_org_rocksdb_TransactionOptions_setDeadlockDetect(
+    JNIEnv* env, jobject jobj, jlong jhandle, jboolean jdeadlock_detect) {
+  auto* opts = reinterpret_cast<rocksdb::TransactionOptions*>(jhandle);
+  opts->deadlock_detect = jdeadlock_detect;
+}
+
+/*
+ * Class:     org_rocksdb_TransactionOptions
  * Method:    getLockTimeout
  * Signature: (J)J
  */
@@ -87,6 +109,50 @@ void Java_org_rocksdb_TransactionOptions_setExpiration(JNIEnv* env,
     jobject jobj, jlong jhandle, jlong jexpiration) {
   auto* opts = reinterpret_cast<rocksdb::TransactionOptions*>(jhandle);
   opts->expiration = jexpiration;
+}
+
+/*
+ * Class:     org_rocksdb_TransactionOptions
+ * Method:    getDeadlockDetectDepth
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_TransactionOptions_getDeadlockDetectDepth(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opts = reinterpret_cast<rocksdb::TransactionOptions*>(jhandle);
+  return opts->deadlock_detect_depth;
+}
+
+/*
+* Class:     org_rocksdb_TransactionOptions
+* Method:    setDeadlockDetectDepth
+* Signature: (JJ)V
+*/
+void Java_org_rocksdb_TransactionOptions_setDeadlockDetectDepth(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jdeadlock_detect_depth) {
+  auto* opts = reinterpret_cast<rocksdb::TransactionOptions*>(jhandle);
+  opts->deadlock_detect_depth = jdeadlock_detect_depth;
+}
+
+/*
+* Class:     org_rocksdb_TransactionOptions
+* Method:    getMaxWriteBatchSize
+* Signature: (J)J
+*/
+jlong Java_org_rocksdb_TransactionOptions_getMaxWriteBatchSize(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opts = reinterpret_cast<rocksdb::TransactionOptions*>(jhandle);
+  return opts->max_write_batch_size;
+}
+
+/*
+* Class:     org_rocksdb_TransactionOptions
+* Method:    setMaxWriteBatchSize
+* Signature: (JJ)V
+*/
+void Java_org_rocksdb_TransactionOptions_setMaxWriteBatchSize(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jmax_write_batch_size) {
+  auto* opts = reinterpret_cast<rocksdb::TransactionOptions*>(jhandle);
+  opts->max_write_batch_size = jmax_write_batch_size;
 }
 
 /*

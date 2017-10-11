@@ -116,4 +116,16 @@ public class OptimisticTransactionDBTest {
       }
     }
   }
+
+  @Test
+  public void baseDB() throws RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true);
+         final OptimisticTransactionDB otdb = OptimisticTransactionDB.open(options,
+             dbFolder.getRoot().getAbsolutePath())) {
+      assertThat(otdb).isNotNull();
+      final RocksDB db = otdb.getBaseDB();
+      assertThat(db).isNotNull();
+      assertThat(db.isOwningHandle()).isFalse();
+    }
+  }
 }

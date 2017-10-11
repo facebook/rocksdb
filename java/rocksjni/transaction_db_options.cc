@@ -12,6 +12,8 @@
 
 #include "rocksdb/utilities/transaction_db.h"
 
+#include "rocksjni/portal.h"
+
 /*
  * Class:     org_rocksdb_TransactionDBOptions
  * Method:    newTransactionDBOptions
@@ -109,6 +111,29 @@ void Java_org_rocksdb_TransactionDBOptions_setDefaultLockTimeout(
     JNIEnv* env, jobject jobj, jlong jhandle, jlong jdefault_lock_timeout) {
   auto* opts = reinterpret_cast<rocksdb::TransactionDBOptions*>(jhandle);
   opts->default_lock_timeout = jdefault_lock_timeout;
+}
+
+/*
+ * Class:     org_rocksdb_TransactionDBOptions
+ * Method:    getWritePolicy
+ * Signature: (J)B
+ */
+jbyte Java_org_rocksdb_TransactionDBOptions_getWritePolicy(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opts = reinterpret_cast<rocksdb::TransactionDBOptions*>(jhandle);
+  return rocksdb::TxnDBWritePolicyJni::toJavaTxnDBWritePolicy(opts->write_policy);
+}
+
+/*
+* Class:     org_rocksdb_TransactionDBOptions
+* Method:    setWritePolicy
+* Signature: (JB)V
+*/
+void Java_org_rocksdb_TransactionDBOptions_setWritePolicy(
+    JNIEnv* env, jobject jobj, jlong jhandle, jbyte jwrite_policy) {
+  auto* opts = reinterpret_cast<rocksdb::TransactionDBOptions*>(jhandle);
+  opts->write_policy =
+      rocksdb::TxnDBWritePolicyJni::toCppTxnDBWritePolicy(jwrite_policy);
 }
 
 /*

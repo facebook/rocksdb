@@ -52,4 +52,13 @@ public class TransactionDBOptionsTest {
     }
   }
 
+  @Test
+  public void writePolicy() {
+    try (final TransactionDBOptions opt = new TransactionDBOptions()) {
+      final TxnDBWritePolicy writePolicy = TxnDBWritePolicy.WRITE_UNPREPARED;  // non-default
+      opt.setWritePolicy(writePolicy);
+      assertThat(opt.getWritePolicy()).isEqualTo(writePolicy);
+    }
+  }
+
 }

@@ -7,6 +7,10 @@
 // for rocksdb::TransactionDB.
 
 #include <jni.h>
+#include <functional>
+#include <memory>
+#include <utility>
+
 
 #include "include/org_rocksdb_TransactionDB.h"
 
@@ -281,6 +285,139 @@ jlongArray Java_org_rocksdb_TransactionDB_getAllPreparedTransactions(
   }
 
   return jtxns;
+}
+
+/*
+ * Class:     org_rocksdb_TransactionDB
+ * Method:    getLockStatusData
+ * Signature: (J)Ljava/util/Map;
+ */
+jobject Java_org_rocksdb_TransactionDB_getLockStatusData(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* txn_db = reinterpret_cast<rocksdb::TransactionDB*>(jhandle);
+  const std::unordered_multimap<uint32_t, rocksdb::KeyLockInfo> lock_status_data =
+      txn_db->GetLockStatusData();
+  const jobject jlock_status_data = rocksdb::HashMapJni::construct(env,
+        static_cast<uint32_t>(lock_status_data.size()));
+  if (jlock_status_data == nullptr) {
+      // exception occurred
+      return nullptr;
+  }
+
+  const rocksdb::HashMapJni::FnMapKV<const int32_t, const rocksdb::KeyLockInfo> fn_map_kv =
+      [env, txn_db, &lock_status_data](const std::pair<const int32_t, const rocksdb::KeyLockInfo>& pair) {
+          const jobject jlong_column_family_id =
+              rocksdb::LongJni::valueOf(env, pair.first);
+          if (jlong_column_family_id == nullptr) {
+              // an error occurred
+              return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
+          }
+          const jobject jkey_lock_info =
+              rocksdb::KeyLockInfoJni::construct(env, pair.second);
+          if (jkey_lock_info == nullptr) {
+             // an error occurred
+             return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
+          }
+          return std::unique_ptr<std::pair<jobject, jobject>>(new std::pair<jobject, jobject>(jlong_column_family_id,
+              jkey_lock_info));
+      };
+
+  if(!rocksdb::HashMapJni::putAll(env, jlock_status_data,
+      lock_status_data.begin(), lock_status_data.end(), fn_map_kv)) {
+    // exception occcurred
+    return nullptr;
+  }
+
+  return jlock_status_data;
+}
+
+/*
+* Class:     org_rocksdb_TransactionDB
+* Method:    getDeadlockInfoBuffer
+* Signature: (J)[Lorg/rocksdb/TransactionDB/DeadlockPath;
+*/
+jobjectArray Java_org_rocksdb_TransactionDB_getDeadlockInfoBuffer(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* txn_db = reinterpret_cast<rocksdb::TransactionDB*>(jhandle);
+  const std::vector<rocksdb::DeadlockPath> deadlock_info_buffer =
+      txn_db->GetDeadlockInfoBuffer();
+
+  const jsize deadlock_info_buffer_len =
+      static_cast<jsize>(deadlock_info_buffer.size());
+  jobjectArray jdeadlock_info_buffer =
+      env->NewObjectArray(deadlock_info_buffer_len,
+        rocksdb::DeadlockPathJni::getJClass(env), nullptr);
+  if (jdeadlock_info_buffer == nullptr) {
+      // exception thrown: OutOfMemoryError
+      return nullptr;
+  }
+  jsize jdeadlock_info_buffer_offset = 0;
+
+  auto buf_end = deadlock_info_buffer.end();
+  for (auto buf_it = deadlock_info_buffer.begin(); buf_it != buf_end; ++buf_it) {
+    const rocksdb::DeadlockPath deadlock_path = *buf_it;
+    const std::vector<rocksdb::DeadlockInfo> deadlock_infos
+        = deadlock_path.path;
+    const jsize deadlock_infos_len =
+        static_cast<jsize>(deadlock_info_buffer.size());
+    jobjectArray jdeadlock_infos = env->NewObjectArray(deadlock_infos_len,
+        rocksdb::DeadlockInfoJni::getJClass(env), nullptr);
+    if (jdeadlock_infos == nullptr) {
+        // exception thrown: OutOfMemoryError
+        env->DeleteLocalRef(jdeadlock_info_buffer);
+        return nullptr;
+    }
+    jsize jdeadlock_infos_offset = 0;
+
+    auto infos_end = deadlock_infos.end();
+    for (auto infos_it = deadlock_infos.begin(); infos_it != infos_end; ++infos_it) {
+        const rocksdb::DeadlockInfo deadlock_info = *infos_it;
+        const jobject jdeadlock_info = rocksdb::TransactionDBJni::newDeadlockInfo(
+            env, jobj, deadlock_info.m_txn_id, deadlock_info.m_cf_id,
+            deadlock_info.m_waiting_key, deadlock_info.m_exclusive);
+        if (jdeadlock_info == nullptr) {
+            // exception occcurred
+            env->DeleteLocalRef(jdeadlock_info_buffer);
+            return nullptr;
+        }
+        env->SetObjectArrayElement(jdeadlock_infos, jdeadlock_infos_offset++, jdeadlock_info);
+        if (env->ExceptionCheck()) {
+            // exception thrown: ArrayIndexOutOfBoundsException or ArrayStoreException
+            env->DeleteLocalRef(jdeadlock_info);
+            env->DeleteLocalRef(jdeadlock_info_buffer);
+            return nullptr;
+        }
+    }
+
+    const jobject jdeadlock_path =
+        rocksdb::DeadlockPathJni::construct(env, jdeadlock_infos,
+            deadlock_path.limit_exceeded);
+    if(jdeadlock_path == nullptr) {
+        // exception occcurred
+        env->DeleteLocalRef(jdeadlock_info_buffer);
+        return nullptr;
+    }
+    env->SetObjectArrayElement(jdeadlock_info_buffer, jdeadlock_info_buffer_offset++, jdeadlock_path);
+    if (env->ExceptionCheck()) {
+        // exception thrown: ArrayIndexOutOfBoundsException or ArrayStoreException
+        env->DeleteLocalRef(jdeadlock_path);
+        env->DeleteLocalRef(jdeadlock_info_buffer);
+        return nullptr;
+    }
+  }
+
+  return jdeadlock_info_buffer;
+}
+
+/*
+* Class:     org_rocksdb_TransactionDB
+* Method:    setDeadlockInfoBufferSize
+* Signature: (JI)V
+*/
+void Java_org_rocksdb_TransactionDB_setDeadlockInfoBufferSize(
+    JNIEnv* env, jobject jobj, jlong jhandle, jint jdeadlock_info_buffer_size) {
+  auto* txn_db = reinterpret_cast<rocksdb::TransactionDB*>(jhandle);
+  txn_db->SetDeadlockInfoBufferSize(jdeadlock_info_buffer_size);
 }
 
 /*

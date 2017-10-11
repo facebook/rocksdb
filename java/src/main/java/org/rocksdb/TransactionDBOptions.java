@@ -156,7 +156,7 @@ public class TransactionDBOptions extends RocksObject {
    }
 
 //  /**
-//   * If set, the {@link TransactionDB} will use this implemenation of a mutex
+//   * If set, the {@link TransactionDB} will use this implementation of a mutex
 //   * and condition variable for all transaction locking instead of the default
 //   * mutex/condvar implementation.
 //   *
@@ -168,6 +168,36 @@ public class TransactionDBOptions extends RocksObject {
 //      final TransactionDBMutexFactory transactionDbMutexFactory) {
 //
 //  }
+
+  /**
+   * The policy for when to write the data into the DB. The default policy is to
+   * write only the committed data {@link TxnDBWritePolicy#WRITE_COMMITTED}.
+   * The data could be written before the commit phase. The DB then needs to
+   * provide the mechanisms to tell apart committed from uncommitted data.
+   *
+   * @return The write policy.
+   */
+  public TxnDBWritePolicy getWritePolicy() {
+    assert(isOwningHandle());
+    return TxnDBWritePolicy.getTxnDBWritePolicy(getWritePolicy(nativeHandle_));
+  }
+
+  /**
+   * The policy for when to write the data into the DB. The default policy is to
+   * write only the committed data {@link TxnDBWritePolicy#WRITE_COMMITTED}.
+   * The data could be written before the commit phase. The DB then needs to
+   * provide the mechanisms to tell apart committed from uncommitted data.
+   *
+   * @param writePolicy The write policy.
+   *
+   * @return this TransactionDBOptions instance
+   */
+  public TransactionDBOptions setWritePolicy(
+      final TxnDBWritePolicy writePolicy) {
+    assert(isOwningHandle());
+    setWritePolicy(nativeHandle_, writePolicy.getValue());
+    return this;
+  }
 
   private native static long newTransactionDBOptions();
   private native long getMaxNumLocks(final long handle);
@@ -181,5 +211,7 @@ public class TransactionDBOptions extends RocksObject {
   private native long getDefaultLockTimeout(final long handle);
   private native void setDefaultLockTimeout(final long handle,
       final long transactionLockTimeout);
+  private native byte getWritePolicy(final long handle);
+  private native void setWritePolicy(final long handle, final byte writePolicy);
   @Override protected final native void disposeInternal(final long handle);
 }

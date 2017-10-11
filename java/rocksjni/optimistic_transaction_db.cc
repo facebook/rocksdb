@@ -246,6 +246,18 @@ jlong Java_org_rocksdb_OptimisticTransactionDB_beginTransaction_1withOld__JJJJ(
 
 /*
  * Class:     org_rocksdb_OptimisticTransactionDB
+ * Method:    getBaseDB
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_OptimisticTransactionDB_getBaseDB(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* optimistic_txn_db =
+      reinterpret_cast<rocksdb::OptimisticTransactionDB*>(jhandle);
+  return reinterpret_cast<jlong>(optimistic_txn_db->GetBaseDB());
+}
+
+/*
+ * Class:     org_rocksdb_OptimisticTransactionDB
  * Method:    disposeInternal
  * Signature: (J)V
  */

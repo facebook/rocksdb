@@ -144,6 +144,17 @@ public class OptimisticTransactionDB extends RocksDB
     return oldTransaction;
   }
 
+  /**
+   * Get the underlying database that was opened.
+   *
+   * @return The underlying database that was opened.
+   */
+  public RocksDB getBaseDB() {
+    final RocksDB db = new RocksDB(getBaseDB(nativeHandle_));
+    db.disOwnNativeHandle();
+    return db;
+  }
+
   protected static native long open(final long optionsHandle,
       final String path) throws RocksDBException;
   protected static native long[] open(final long handle, final String path,
@@ -159,5 +170,6 @@ public class OptimisticTransactionDB extends RocksDB
       final long writeOptionsHandle,
       final long optimisticTransactionOptionsHandle,
       final long oldTransactionHandle);
+  private native long getBaseDB(final long handle);
   @Override protected final native void disposeInternal(final long handle);
 }

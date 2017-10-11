@@ -17,11 +17,20 @@ public class TransactionOptionsTest {
       getPlatformSpecificRandomFactory();
 
   @Test
-  public void setSnapshot() {
+  public void snapshot() {
     try (final TransactionOptions opt = new TransactionOptions()) {
       final boolean boolValue = rand.nextBoolean();
       opt.setSetSnapshot(boolValue);
       assertThat(opt.isSetSnapshot()).isEqualTo(boolValue);
+    }
+  }
+
+  @Test
+  public void deadlockDetect() {
+    try (final TransactionOptions opt = new TransactionOptions()) {
+      final boolean boolValue = rand.nextBoolean();
+      opt.setDeadlockDetect(boolValue);
+      assertThat(opt.isDeadlockDetect()).isEqualTo(boolValue);
     }
   }
 
@@ -40,6 +49,24 @@ public class TransactionOptionsTest {
       final long longValue = rand.nextLong();
       opt.setExpiration(longValue);
       assertThat(opt.getExpiration()).isEqualTo(longValue);
+    }
+  }
+
+  @Test
+  public void deadlockDetectDepth() {
+    try (final TransactionOptions opt = new TransactionOptions()) {
+      final long longValue = rand.nextLong();
+      opt.setDeadlockDetectDepth(longValue);
+      assertThat(opt.getDeadlockDetectDepth()).isEqualTo(longValue);
+    }
+  }
+
+  @Test
+  public void maxWriteBatchSize() {
+    try (final TransactionOptions opt = new TransactionOptions()) {
+      final long longValue = rand.nextLong();
+      opt.setMaxWriteBatchSize(longValue);
+      assertThat(opt.getMaxWriteBatchSize()).isEqualTo(longValue);
     }
   }
 }

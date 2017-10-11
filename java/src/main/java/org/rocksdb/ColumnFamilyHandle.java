@@ -63,8 +63,6 @@ public class ColumnFamilyHandle extends RocksObject {
 
   @Override
   public boolean equals(final Object o) {
-    assert(isOwningHandle());
-
     if (this == o) {
       return true;
     }
@@ -80,7 +78,6 @@ public class ColumnFamilyHandle extends RocksObject {
 
   @Override
   public int hashCode() {
-    assert(isOwningHandle());
     return Objects.hash(getName(), getID(), rocksDB_.nativeHandle_);
   }
 
