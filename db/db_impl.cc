@@ -894,6 +894,7 @@ InternalIterator* DBImpl::NewInternalIterator(
                                                          range_del_agg);
     }
   }
+  TEST_SYNC_POINT_CALLBACK("DBImpl::NewInternalIterator:StatusCallback", &s);
   if (s.ok()) {
     // Collect iterators for files in L0 - Ln
     if (read_options.read_tier != kMemtableTier) {
@@ -907,8 +908,10 @@ InternalIterator* DBImpl::NewInternalIterator(
     internal_iter->RegisterCleanup(CleanupIteratorState, cleanup, nullptr);
 
     return internal_iter;
+  } else {
+    CleanupSuperVersion(super_version);
   }
-  return NewErrorInternalIterator(s);
+  return NewErrorInternalIterator(s, arena);
 }
 
 ColumnFamilyHandle* DBImpl::DefaultColumnFamily() const {
@@ -1819,21 +1822,23 @@ SuperVersion* DBImpl::GetAndRefSuperVersion(uint32_t column_family_id) {
   return GetAndRefSuperVersion(cfd);
 }
 
+void DBImpl::CleanupSuperVersion(SuperVersion* sv) {
+  // Release SuperVersion
+  if (sv->Unref()) {
+    {
+      InstrumentedMutexLock l(&mutex_);
+      sv->Cleanup();
+    }
+    delete sv;
+    RecordTick(stats_, NUMBER_SUPERVERSION_CLEANUPS);
+  }
+  RecordTick(stats_, NUMBER_SUPERVERSION_RELEASES);
+}
+
 void DBImpl::ReturnAndCleanupSuperVersion(ColumnFamilyData* cfd,
                                           SuperVersion* sv) {
-  bool unref_sv = !cfd->ReturnThreadLocalSuperVersion(sv);
-
-  if (unref_sv) {
-    // Release SuperVersion
-    if (sv->Unref()) {
-      {
-        InstrumentedMutexLock l(&mutex_);
-        sv->Cleanup();
-      }
-      delete sv;
-      RecordTick(stats_, NUMBER_SUPERVERSION_CLEANUPS);
-    }
-    RecordTick(stats_, NUMBER_SUPERVERSION_RELEASES);
+  if (!cfd->ReturnThreadLocalSuperVersion(sv)) {
+    CleanupSuperVersion(sv);
   }
 }
 

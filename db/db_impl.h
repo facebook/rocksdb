@@ -477,6 +477,9 @@ class DBImpl : public DB {
   // mutex is held.
   SuperVersion* GetAndRefSuperVersion(uint32_t column_family_id);
 
+  // Un-reference the super version and clean it up if it is the last reference.
+  void CleanupSuperVersion(SuperVersion* sv);
+
   // Un-reference the super version and return it to thread local cache if
   // needed. If it is the last reference of the super version. Clean it up
   // after un-referencing it.
