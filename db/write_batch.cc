@@ -1034,7 +1034,6 @@ class MemTableInserter : public WriteBatch::Handler {
     } else if (moptions->inplace_callback == nullptr) {
       assert(!concurrent_memtable_writes_);
       mem->Update(sequence_, key, value);
-      RecordTick(moptions->statistics, NUMBER_KEYS_UPDATED);
     } else {
       assert(!concurrent_memtable_writes_);
       if (mem->UpdateCallback(sequence_, key, value)) {
