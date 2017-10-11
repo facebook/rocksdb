@@ -854,6 +854,10 @@ SuperVersion* ColumnFamilyData::GetReferencedSuperVersion(
   sv = GetThreadLocalSuperVersion(db_mutex);
   sv->Ref();
   if (!ReturnThreadLocalSuperVersion(sv)) {
+    // This Unref() corresponds to the Ref() in GetThreadLocalSuperVersion()
+    // when the thread-local pointer was populated. So, the Ref() earlier in
+    // this function still prevents the returned SuperVersion* from being
+    // deleted out from under the caller.
     sv->Unref();
   }
   return sv;
