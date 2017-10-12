@@ -146,12 +146,19 @@ void Java_org_rocksdb_Options_setComparatorHandle__JI(
 /*
  * Class:     org_rocksdb_Options
  * Method:    setComparatorHandle
- * Signature: (JJ)V
+ * Signature: (JJZ)V
  */
-void Java_org_rocksdb_Options_setComparatorHandle__JJ(
-    JNIEnv* env, jobject jobj, jlong jopt_handle, jlong jcomparator_handle) {
-  reinterpret_cast<rocksdb::Options*>(jopt_handle)->comparator =
-      reinterpret_cast<rocksdb::Comparator*>(jcomparator_handle);
+void Java_org_rocksdb_Options_setComparatorHandle__JJZ(
+    JNIEnv* env, jobject jobj, jlong jopt_handle, jlong jcomparator_handle,
+    jboolean is_direct) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jopt_handle);
+  if(is_direct) {
+    opt->comparator =
+        reinterpret_cast<rocksdb::DirectComparatorJniCallback*>(jcomparator_handle);
+  } else {
+    opt->comparator =
+        reinterpret_cast<rocksdb::ComparatorJniCallback*>(jcomparator_handle);
+  }
 }
 
 /*
@@ -431,7 +438,7 @@ void Java_org_rocksdb_Options_setDbPaths(
           jtarget_sizes, ptr_jtarget_size, JNI_ABORT);
       return;
     }
-    std::string path = rocksdb::JniUtil::copyString(
+    std::string path = rocksdb::JniUtil::copyStdString(
         env, static_cast<jstring>(jpath), &has_exception);
     env->DeleteLocalRef(jpath);
 
@@ -2953,12 +2960,19 @@ void Java_org_rocksdb_ColumnFamilyOptions_setComparatorHandle__JI(
 /*
  * Class:     org_rocksdb_ColumnFamilyOptions
  * Method:    setComparatorHandle
- * Signature: (JJ)V
+ * Signature: (JJZ)V
  */
-void Java_org_rocksdb_ColumnFamilyOptions_setComparatorHandle__JJ(
-    JNIEnv* env, jobject jobj, jlong jopt_handle, jlong jcomparator_handle) {
-  reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jopt_handle)->comparator =
-      reinterpret_cast<rocksdb::Comparator*>(jcomparator_handle);
+void Java_org_rocksdb_ColumnFamilyOptions_setComparatorHandle__JJZ(
+    JNIEnv* env, jobject jobj, jlong jopt_handle, jlong jcomparator_handle,
+    jboolean is_direct) {
+  auto* opt = reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jopt_handle);
+  if(is_direct) {
+    opt->comparator =
+        reinterpret_cast<rocksdb::DirectComparatorJniCallback*>(jcomparator_handle);
+  } else {
+    opt->comparator =
+        reinterpret_cast<rocksdb::ComparatorJniCallback*>(jcomparator_handle);
+  }
 }
 
 /*
@@ -3003,6 +3017,21 @@ void Java_org_rocksdb_ColumnFamilyOptions_setCompactionFilterHandle(
   reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jopt_handle)->
       compaction_filter = reinterpret_cast<rocksdb::CompactionFilter*>
         (jcompactionfilter_handle);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    setCompactionFilterFactoryHandle
+ * Signature: (JJ)V
+ */
+void JNICALL Java_org_rocksdb_ColumnFamilyOptions_setCompactionFilterFactoryHandle(
+    JNIEnv* env , jobject jobj, jlong jopt_handle,
+    jlong jcompactionfilterfactory_handle) {
+  auto* cff_factory =
+      reinterpret_cast<std::shared_ptr<rocksdb::CompactionFilterFactory> *>(
+          jcompactionfilterfactory_handle);
+  reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jopt_handle)->
+      compaction_filter_factory = *cff_factory;
 }
 
 /*
@@ -4486,7 +4515,7 @@ void Java_org_rocksdb_DBOptions_setDbPaths(
           jtarget_sizes, ptr_jtarget_size, JNI_ABORT);
       return;
     }
-    std::string path = rocksdb::JniUtil::copyString(
+    std::string path = rocksdb::JniUtil::copyStdString(
         env, static_cast<jstring>(jpath), &has_exception);
     env->DeleteLocalRef(jpath);
 

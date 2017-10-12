@@ -112,11 +112,14 @@ public class WriteBatch extends AbstractWriteBatch {
    * Handler callback for iterating over the contents of a batch.
    */
   public static abstract class Handler
-      extends AbstractImmutableNativeReference {
-    private final long nativeHandle_;
+      extends RocksCallbackObject {
     public Handler() {
-      super(true);
-      this.nativeHandle_ = createNewHandler0();
+      super(null);
+    }
+
+    @Override
+    protected long initializeNative(final long... nativeParameterHandles) {
+      return createNewHandler0();
     }
 
     public abstract void put(byte[] key, byte[] value);
@@ -139,15 +142,6 @@ public class WriteBatch extends AbstractWriteBatch {
       return true;
     }
 
-    /**
-     * Deletes underlying C++ handler pointer.
-     */
-    @Override
-    protected void disposeInternal() {
-      disposeInternal(nativeHandle_);
-    }
-
     private native long createNewHandler0();
-    private native void disposeInternal(final long handle);
   }
 }

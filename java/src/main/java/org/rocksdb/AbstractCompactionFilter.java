@@ -14,6 +14,35 @@ package org.rocksdb;
 public abstract class AbstractCompactionFilter<T extends AbstractSlice<?>>
     extends RocksObject {
 
+  public static class Context {
+    private final boolean fullCompaction;
+    private final boolean manualCompaction;
+
+    public Context(final boolean fullCompaction, final boolean manualCompaction) {
+      this.fullCompaction = fullCompaction;
+      this.manualCompaction = manualCompaction;
+    }
+
+    /**
+     * Does this compaction run include all data files
+     *
+     * @return true if this is a full compaction run
+     */
+    public boolean isFullCompaction() {
+      return fullCompaction;
+    }
+
+    /**
+     * Is this compaction requested by the client,
+     * or is it occurring as an automatic compaction process
+     *
+     * @return true if the compaction was initiated by the client
+     */
+    public boolean isManualCompaction() {
+      return manualCompaction;
+    }
+  }
+
   protected AbstractCompactionFilter(final long nativeHandle) {
     super(nativeHandle);
   }

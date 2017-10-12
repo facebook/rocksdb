@@ -13,24 +13,9 @@ namespace rocksdb {
 BaseComparatorJniCallback::BaseComparatorJniCallback(
     JNIEnv* env, jobject jComparator,
     const ComparatorJniCallbackOptions* copt)
-    : mtx_compare(new port::Mutex(copt->use_adaptive_mutex)),
+    : JniCallback(env, jComparator),
+    mtx_compare(new port::Mutex(copt->use_adaptive_mutex)),
     mtx_findShortestSeparator(new port::Mutex(copt->use_adaptive_mutex)) {
-  // Note: Comparator methods may be accessed by multiple threads,
-  // so we ref the jvm not the env
-  const jint rs = env->GetJavaVM(&m_jvm);
-  if(rs != JNI_OK) {
-    // exception thrown
-    return;
-  }
-
-  // Note: we want to access the Java Comparator instance
-  // across multiple method calls, so we create a global ref
-  assert(jComparator != nullptr);
-  m_jComparator = env->NewGlobalRef(jComparator);
-  if(m_jComparator == nullptr) {
-    // exception thrown: OutOfMemoryError
-    return;
-  }
 
   // Note: The name of a Comparator will not change during it's lifetime,
   // so we cache it in a global var
@@ -39,7 +24,7 @@ BaseComparatorJniCallback::BaseComparatorJniCallback(
     // exception thrown: NoSuchMethodException or OutOfMemoryError
     return;
   }
-  jstring jsName = (jstring)env->CallObjectMethod(m_jComparator, jNameMethodId);
+  jstring jsName = (jstring)env->CallObjectMethod(m_jcallback_obj, jNameMethodId);
   if(env->ExceptionCheck()) {
     // exception thrown
     return;
@@ -74,18 +59,18 @@ BaseComparatorJniCallback::BaseComparatorJniCallback(
 }
 
 const char* BaseComparatorJniCallback::Name() const {
-  return m_name.c_str();
+  return m_name.get();
 }
 
 int BaseComparatorJniCallback::Compare(const Slice& a, const Slice& b) const {
   jboolean attached_thread = JNI_FALSE;
-  JNIEnv* env = JniUtil::getJniEnv(m_jvm, &attached_thread);
+  JNIEnv* env = getJniEnv(&attached_thread);
   assert(env != nullptr);
 
   // TODO(adamretter): slice objects can potentially be cached using thread
   // local variables to avoid locking. Could make this configurable depending on
   // performance.
-  mtx_compare->Lock();
+  mtx_compare.get()->Lock();
 
   bool pending_exception =
       AbstractSliceJni::setHandle(env, m_jSliceA, &a, JNI_FALSE);
@@ -94,7 +79,7 @@ int BaseComparatorJniCallback::Compare(const Slice& a, const Slice& b) const {
       // exception thrown from setHandle or descendant
       env->ExceptionDescribe(); // print out exception to stderr
     }
-    JniUtil::releaseJniEnv(m_jvm, attached_thread);
+    releaseJniEnv(attached_thread);
     return 0;
   }
 
@@ -105,15 +90,15 @@ int BaseComparatorJniCallback::Compare(const Slice& a, const Slice& b) const {
       // exception thrown from setHandle or descendant
       env->ExceptionDescribe(); // print out exception to stderr
     }
-    JniUtil::releaseJniEnv(m_jvm, attached_thread);
+    releaseJniEnv(attached_thread);
     return 0;
   }
-  
+
   jint result =
-    env->CallIntMethod(m_jComparator, m_jCompareMethodId, m_jSliceA,
+    env->CallIntMethod(m_jcallback_obj, m_jCompareMethodId, m_jSliceA,
       m_jSliceB);
 
-  mtx_compare->Unlock();
+  mtx_compare.get()->Unlock();
 
   if(env->ExceptionCheck()) {
     // exception thrown from CallIntMethod
@@ -121,19 +106,19 @@ int BaseComparatorJniCallback::Compare(const Slice& a, const Slice& b) const {
     result = 0; // we could not get a result from java callback so use 0
   }
 
-  JniUtil::releaseJniEnv(m_jvm, attached_thread);
+  releaseJniEnv(attached_thread);
 
   return result;
 }
 
 void BaseComparatorJniCallback::FindShortestSeparator(
-  std::string* start, const Slice& limit) const {
+    std::string* start, const Slice& limit) const {
   if (start == nullptr) {
     return;
   }
 
   jboolean attached_thread = JNI_FALSE;
-  JNIEnv* env = JniUtil::getJniEnv(m_jvm, &attached_thread);
+  JNIEnv* env = getJniEnv(&attached_thread);
   assert(env != nullptr);
 
   const char* startUtf = start->c_str();
@@ -143,21 +128,21 @@ void BaseComparatorJniCallback::FindShortestSeparator(
     if(env->ExceptionCheck()) {
       env->ExceptionDescribe(); // print out exception to stderr
     }
-    JniUtil::releaseJniEnv(m_jvm, attached_thread);
+    releaseJniEnv(attached_thread);
     return;
   }
   if(env->ExceptionCheck()) {
     // exception thrown: OutOfMemoryError
     env->ExceptionDescribe(); // print out exception to stderr
     env->DeleteLocalRef(jsStart);
-    JniUtil::releaseJniEnv(m_jvm, attached_thread);
+    releaseJniEnv(attached_thread);
     return;
   }
 
   // TODO(adamretter): slice object can potentially be cached using thread local
   // variable to avoid locking. Could make this configurable depending on
   // performance.
-  mtx_findShortestSeparator->Lock();
+  mtx_findShortestSeparator.get()->Lock();
 
   bool pending_exception =
       AbstractSliceJni::setHandle(env, m_jSliceLimit, &limit, JNI_FALSE);
@@ -169,21 +154,21 @@ void BaseComparatorJniCallback::FindShortestSeparator(
     if(jsStart != nullptr) {
       env->DeleteLocalRef(jsStart);
     }
-    JniUtil::releaseJniEnv(m_jvm, attached_thread);
+    releaseJniEnv(attached_thread);
     return;
   }
 
   jstring jsResultStart =
-    (jstring)env->CallObjectMethod(m_jComparator,
+    (jstring)env->CallObjectMethod(m_jcallback_obj,
       m_jFindShortestSeparatorMethodId, jsStart, m_jSliceLimit);
 
-  mtx_findShortestSeparator->Unlock();
+  mtx_findShortestSeparator.get()->Unlock();
 
   if(env->ExceptionCheck()) {
     // exception thrown from CallObjectMethod
     env->ExceptionDescribe();  // print out exception to stderr
     env->DeleteLocalRef(jsStart);
-    JniUtil::releaseJniEnv(m_jvm, attached_thread);
+    releaseJniEnv(attached_thread);
     return;
   }
 
@@ -192,29 +177,29 @@ void BaseComparatorJniCallback::FindShortestSeparator(
   if (jsResultStart != nullptr) {
     // update start with result
     jboolean has_exception = JNI_FALSE;
-    std::string result = JniUtil::copyString(env, jsResultStart,
+    std::unique_ptr<const char[]> result_start = JniUtil::copyString(env, jsResultStart,
         &has_exception);  // also releases jsResultStart
     if (has_exception == JNI_TRUE) {
       if (env->ExceptionCheck()) {
         env->ExceptionDescribe();  // print out exception to stderr
       }
-      JniUtil::releaseJniEnv(m_jvm, attached_thread);
+      releaseJniEnv(attached_thread);
       return;
     }
 
-    *start = result;
+    start->assign(result_start.get());
   }
-
-  JniUtil::releaseJniEnv(m_jvm, attached_thread);
+  releaseJniEnv(attached_thread);
 }
 
-void BaseComparatorJniCallback::FindShortSuccessor(std::string* key) const {
+void BaseComparatorJniCallback::FindShortSuccessor(
+    std::string* key) const {
   if (key == nullptr) {
     return;
   }
 
   jboolean attached_thread = JNI_FALSE;
-  JNIEnv* env = JniUtil::getJniEnv(m_jvm, &attached_thread);
+  JNIEnv* env = getJniEnv(&attached_thread);
   assert(env != nullptr);
 
   const char* keyUtf = key->c_str();
@@ -224,25 +209,25 @@ void BaseComparatorJniCallback::FindShortSuccessor(std::string* key) const {
     if(env->ExceptionCheck()) {
       env->ExceptionDescribe(); // print out exception to stderr
     }
-    JniUtil::releaseJniEnv(m_jvm, attached_thread);
+    releaseJniEnv(attached_thread);
     return;
   } else if(env->ExceptionCheck()) {
     // exception thrown: OutOfMemoryError
     env->ExceptionDescribe(); // print out exception to stderr
     env->DeleteLocalRef(jsKey);
-    JniUtil::releaseJniEnv(m_jvm, attached_thread);
+    releaseJniEnv(attached_thread);
     return;
   }
 
   jstring jsResultKey =
-    (jstring)env->CallObjectMethod(m_jComparator,
+    (jstring)env->CallObjectMethod(m_jcallback_obj,
       m_jFindShortSuccessorMethodId, jsKey);
 
   if(env->ExceptionCheck()) {
     // exception thrown from CallObjectMethod
     env->ExceptionDescribe(); // print out exception to stderr
     env->DeleteLocalRef(jsKey);
-    JniUtil::releaseJniEnv(m_jvm, attached_thread);
+    releaseJniEnv(attached_thread);
     return;
   }
 
@@ -251,31 +236,20 @@ void BaseComparatorJniCallback::FindShortSuccessor(std::string* key) const {
   if (jsResultKey != nullptr) {
     // updates key with result, also releases jsResultKey.
     jboolean has_exception = JNI_FALSE;
-    std::string result = JniUtil::copyString(env, jsResultKey, &has_exception);
+    std::unique_ptr<const char[]> result_key = JniUtil::copyString(env, jsResultKey,
+        &has_exception);    // also releases jsResultKey
     if (has_exception == JNI_TRUE) {
       if (env->ExceptionCheck()) {
         env->ExceptionDescribe();  // print out exception to stderr
       }
-      JniUtil::releaseJniEnv(m_jvm, attached_thread);
+      releaseJniEnv(attached_thread);
       return;
     }
 
-    *key = result;
+    key->assign(result_key.get());
   }
 
-  JniUtil::releaseJniEnv(m_jvm, attached_thread);
-}
-
-BaseComparatorJniCallback::~BaseComparatorJniCallback() {
-  jboolean attached_thread = JNI_FALSE;
-  JNIEnv* env = JniUtil::getJniEnv(m_jvm, &attached_thread);
-  assert(env != nullptr);
-
-  if(m_jComparator != nullptr) {
-    env->DeleteGlobalRef(m_jComparator);
-  }
-
-  JniUtil::releaseJniEnv(m_jvm, attached_thread);
+  releaseJniEnv(attached_thread);
 }
 
 ComparatorJniCallback::ComparatorJniCallback(
@@ -303,7 +277,7 @@ ComparatorJniCallback::ComparatorJniCallback(
 
 ComparatorJniCallback::~ComparatorJniCallback() {
   jboolean attached_thread = JNI_FALSE;
-  JNIEnv* env = JniUtil::getJniEnv(m_jvm, &attached_thread);
+  JNIEnv* env = getJniEnv(&attached_thread);
   assert(env != nullptr);
 
   if(m_jSliceA != nullptr) {
@@ -318,7 +292,7 @@ ComparatorJniCallback::~ComparatorJniCallback() {
     env->DeleteGlobalRef(m_jSliceLimit);
   }
 
-  JniUtil::releaseJniEnv(m_jvm, attached_thread);
+  releaseJniEnv(attached_thread);
 }
 
 DirectComparatorJniCallback::DirectComparatorJniCallback(
@@ -346,7 +320,7 @@ DirectComparatorJniCallback::DirectComparatorJniCallback(
 
 DirectComparatorJniCallback::~DirectComparatorJniCallback() {
   jboolean attached_thread = JNI_FALSE;
-  JNIEnv* env = JniUtil::getJniEnv(m_jvm, &attached_thread);
+  JNIEnv* env = getJniEnv(&attached_thread);
   assert(env != nullptr);
 
   if(m_jSliceA != nullptr) {
@@ -361,6 +335,6 @@ DirectComparatorJniCallback::~DirectComparatorJniCallback() {
     env->DeleteGlobalRef(m_jSliceLimit);
   }
 
-  JniUtil::releaseJniEnv(m_jvm, attached_thread);
+  releaseJniEnv(attached_thread);
 }
 }  // namespace rocksdb
