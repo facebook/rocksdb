@@ -282,6 +282,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "avoid_flush_during_recovery=false;"
                              "avoid_flush_during_shutdown=false;"
                              "allow_ingest_behind=false;"
+                             "preserve_deletes=false;"
                              "concurrent_prepare=false;"
                              "manual_wal_flush=false;"
                              "seq_per_batch=false;",

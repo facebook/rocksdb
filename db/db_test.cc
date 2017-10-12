@@ -2459,6 +2459,8 @@ class ModelDB : public DB {
 
   virtual SequenceNumber GetLatestSequenceNumber() const override { return 0; }
 
+  virtual void SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) override {}
+
   virtual ColumnFamilyHandle* DefaultColumnFamily() const override {
     return nullptr;
   }
