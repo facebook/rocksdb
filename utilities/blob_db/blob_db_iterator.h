@@ -37,25 +37,21 @@ class BlobDBIterator : public Iterator {
   }
 
   void SeekToFirst() override {
-    assert(Valid());
     iter_->SeekToFirst();
     UpdateBlobValue();
   }
 
   void SeekToLast() override {
-    assert(Valid());
     iter_->SeekToLast();
     UpdateBlobValue();
   }
 
   void Seek(const Slice& target) override {
-    assert(Valid());
     iter_->Seek(target);
     UpdateBlobValue();
   }
 
   void SeekForPrev(const Slice& target) override {
-    assert(Valid());
     iter_->SeekForPrev(target);
     UpdateBlobValue();
   }
