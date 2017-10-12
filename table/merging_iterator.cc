@@ -108,19 +108,16 @@ class MergingIterator : public InternalIterator {
     ClearHeaps();
     for (auto& child : children_) {
       {
-        PERF_TIMER_GUARD(seek_child_seek_time);
         child.Seek(target);
       }
       PERF_COUNTER_ADD(seek_child_seek_count, 1);
 
       if (child.Valid()) {
-        PERF_TIMER_GUARD(seek_min_heap_time);
         minHeap_.push(&child);
       }
     }
     direction_ = kForward;
     {
-      PERF_TIMER_GUARD(seek_min_heap_time);
       current_ = CurrentForward();
     }
   }
@@ -131,19 +128,16 @@ class MergingIterator : public InternalIterator {
 
     for (auto& child : children_) {
       {
-        PERF_TIMER_GUARD(seek_child_seek_time);
         child.SeekForPrev(target);
       }
       PERF_COUNTER_ADD(seek_child_seek_count, 1);
 
       if (child.Valid()) {
-        PERF_TIMER_GUARD(seek_max_heap_time);
         maxHeap_->push(&child);
       }
     }
     direction_ = kReverse;
     {
-      PERF_TIMER_GUARD(seek_max_heap_time);
       current_ = CurrentReverse();
     }
   }

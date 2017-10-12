@@ -356,7 +356,6 @@ void DBIter::Next() {
 // performing a seek without a key (e.g. SeekToFirst). Set to
 // prefix_same_as_start_ for other iterations.
 inline void DBIter::FindNextUserEntry(bool skipping, bool prefix_check) {
-  PERF_TIMER_GUARD(find_next_user_entry_time);
   FindNextUserEntryInternal(skipping, prefix_check);
 }
 

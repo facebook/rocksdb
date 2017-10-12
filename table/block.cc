@@ -138,7 +138,6 @@ void BlockIter::Prev() {
 }
 
 void BlockIter::Seek(const Slice& target) {
-  PERF_TIMER_GUARD(block_seek_nanos);
   if (data_ == nullptr) {  // Not init yet
     return;
   }
