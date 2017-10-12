@@ -58,9 +58,6 @@ class DeleteScheduler {
 
   uint64_t GetTotalTrashSize() { return total_trash_size_.load(); }
 
-  // Check if there are any .trash filse in path, and schedule there deletion
-  Status CleanupDirectory(const std::string& path);
-
   void TEST_SetMaxTrashDBRatio(double r) {
     assert(r >= 0);
     max_trash_db_ratio_ = r;
@@ -68,6 +65,11 @@ class DeleteScheduler {
 
   static const std::string kTrashExtension;
   static bool IsTrashFile(const std::string& file_path);
+
+  // Check if there are any .trash filse in path, and schedule there deletion
+  // Or delete immediately if sst_file_manager is nullptr
+  static Status CleanupDirectory(Env* env, SstFileManagerImpl* sfm,
+                                 const std::string& path);
 
  private:
   Status MarkAsTrash(const std::string& file_path, std::string* path_in_trash);
