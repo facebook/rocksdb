@@ -298,16 +298,3 @@ jlong Java_org_rocksdb_WriteBatch_00024Handler_createNewHandler0(
   auto* wbjnic = new rocksdb::WriteBatchHandlerJniCallback(env, jobj);
   return reinterpret_cast<jlong>(wbjnic);
 }
-
-/*
- * Class:     org_rocksdb_WriteBatch_Handler
- * Method:    disposeInternal
- * Signature: (J)V
- */
-void Java_org_rocksdb_WriteBatch_00024Handler_disposeInternal(
-    JNIEnv* env, jobject jobj, jlong handle) {
-  auto* wbjnic =
-      reinterpret_cast<rocksdb::WriteBatchHandlerJniCallback*>(handle);
-  assert(wbjnic != nullptr);
-  delete wbjnic;
-}

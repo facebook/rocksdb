@@ -12,16 +12,7 @@
 namespace rocksdb {
 WriteBatchHandlerJniCallback::WriteBatchHandlerJniCallback(
     JNIEnv* env, jobject jWriteBatchHandler)
-    : m_env(env) {
-
-  // Note: we want to access the Java WriteBatchHandler instance
-  // across multiple method calls, so we create a global ref
-  assert(jWriteBatchHandler != nullptr);
-  m_jWriteBatchHandler = env->NewGlobalRef(jWriteBatchHandler);
-  if(m_jWriteBatchHandler == nullptr) {
-    // exception thrown: OutOfMemoryError
-    return;
-  }
+    : JniCallback(env, jWriteBatchHandler), m_env(env) {
 
   m_jPutMethodId = WriteBatchHandlerJni::getPutMethodId(env);
   if(m_jPutMethodId == nullptr) {
@@ -83,7 +74,7 @@ void WriteBatchHandlerJniCallback::Put(const Slice& key, const Slice& value) {
   }
 
   m_env->CallVoidMethod(
-      m_jWriteBatchHandler,
+      m_jcallback_obj,
       m_jPutMethodId,
       j_key,
       j_value);
@@ -130,7 +121,7 @@ void WriteBatchHandlerJniCallback::Merge(const Slice& key, const Slice& value) {
   }
 
   m_env->CallVoidMethod(
-      m_jWriteBatchHandler,
+      m_jcallback_obj,
       m_jMergeMethodId,
       j_key,
       j_value);
@@ -165,7 +156,7 @@ void WriteBatchHandlerJniCallback::Delete(const Slice& key) {
   }
 
   m_env->CallVoidMethod(
-      m_jWriteBatchHandler,
+      m_jcallback_obj,
       m_jDeleteMethodId,
       j_key);
   if(m_env->ExceptionCheck()) {
@@ -202,7 +193,7 @@ void WriteBatchHandlerJniCallback::DeleteRange(const Slice& beginKey,
     return;
   }
 
-  m_env->CallVoidMethod(m_jWriteBatchHandler, m_jDeleteRangeMethodId,
+  m_env->CallVoidMethod(m_jcallback_obj, m_jDeleteRangeMethodId,
                         j_beginKey, j_endKey);
   if (m_env->ExceptionCheck()) {
     // exception thrown
@@ -236,7 +227,7 @@ void WriteBatchHandlerJniCallback::LogData(const Slice& blob) {
   }
 
   m_env->CallVoidMethod(
-      m_jWriteBatchHandler,
+      m_jcallback_obj,
       m_jLogDataMethodId,
       j_blob);
   if(m_env->ExceptionCheck()) {
@@ -255,7 +246,7 @@ void WriteBatchHandlerJniCallback::LogData(const Slice& blob) {
 
 bool WriteBatchHandlerJniCallback::Continue() {
   jboolean jContinue = m_env->CallBooleanMethod(
-      m_jWriteBatchHandler,
+      m_jcallback_obj,
       m_jContinueMethodId);
   if(m_env->ExceptionCheck()) {
     // exception thrown
@@ -278,6 +269,9 @@ bool WriteBatchHandlerJniCallback::Continue() {
  *     exception occurs
  */
 jbyteArray WriteBatchHandlerJniCallback::sliceToJArray(const Slice& s) {
+
+  // TODO(AR) move to JniUtil
+
   jbyteArray ja = m_env->NewByteArray(static_cast<jsize>(s.size()));
   if(ja == nullptr) {
     // exception thrown: OutOfMemoryError
@@ -296,11 +290,5 @@ jbyteArray WriteBatchHandlerJniCallback::sliceToJArray(const Slice& s) {
   }
 
   return ja;
-}
-
-WriteBatchHandlerJniCallback::~WriteBatchHandlerJniCallback() {
-  if(m_jWriteBatchHandler != nullptr) {
-    m_env->DeleteGlobalRef(m_jWriteBatchHandler);
-  }
 }
 }  // namespace rocksdb
