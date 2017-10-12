@@ -687,7 +687,7 @@ TEST_F(BlobDBTest, GCOldestSimpleBlobFileWhenOutOfSpace) {
 
 TEST_F(BlobDBTest, ReadWhileGC) {
   // run the same test for Get(), MultiGet() and Iterator each.
-  for (int i = 0; i < 3; i++) {
+  for (int i = 0; i < 2; i++) {
     BlobDBOptions bdb_options;
     bdb_options.disable_background_tasks = true;
     Open(bdb_options);
@@ -710,17 +710,10 @@ TEST_F(BlobDBTest, ReadWhileGC) {
         break;
       case 1:
         SyncPoint::GetInstance()->LoadDependency(
-            {{"BlobDBImpl::MultiGet:AfterIndexEntryGet:1",
+            {{"BlobDBIterator::UpdateBlobValue:Start:1",
               "BlobDBTest::ReadWhileGC:1"},
              {"BlobDBTest::ReadWhileGC:2",
-              "BlobDBImpl::MultiGet:AfterIndexEntryGet:2"}});
-        break;
-      case 2:
-        SyncPoint::GetInstance()->LoadDependency(
-            {{"BlobDBIterator::value:BeforeGetBlob:1",
-              "BlobDBTest::ReadWhileGC:1"},
-             {"BlobDBTest::ReadWhileGC:2",
-              "BlobDBIterator::value:BeforeGetBlob:2"}});
+              "BlobDBIterator::UpdateBlobValue:Start:2"}});
         break;
     }
     SyncPoint::GetInstance()->EnableProcessing();
@@ -735,12 +728,6 @@ TEST_F(BlobDBTest, ReadWhileGC) {
           ASSERT_EQ("bar", value);
           break;
         case 1:
-          statuses = blob_db_->MultiGet(ReadOptions(), {"foo"}, &values);
-          ASSERT_EQ(1, statuses.size());
-          ASSERT_EQ(1, values.size());
-          ASSERT_EQ("bar", values[0]);
-          break;
-        case 2:
           // VerifyDB use iterator to scan the DB.
           VerifyDB({{"foo", "bar"}});
           break;

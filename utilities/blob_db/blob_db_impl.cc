@@ -32,6 +32,7 @@
 #include "util/random.h"
 #include "util/sync_point.h"
 #include "util/timer_queue.h"
+#include "utilities/blob_db/blob_db_iterator.h"
 #include "utilities/transactions/optimistic_transaction.h"
 #include "utilities/transactions/optimistic_transaction_db_impl.h"
 
@@ -78,7 +79,7 @@ class BlobHandle {
 
   void EncodeTo(std::string* dst) const;
 
-  Status DecodeFrom(Slice* input);
+  Status DecodeFrom(const Slice& input);
 
   void clear();
 
@@ -109,10 +110,12 @@ void BlobHandle::clear() {
   compression_ = kNoCompression;
 }
 
-Status BlobHandle::DecodeFrom(Slice* input) {
-  if (GetVarint64(input, &file_number_) && GetVarint64(input, &offset_) &&
-      GetVarint64(input, &size_)) {
-    compression_ = static_cast<CompressionType>(input->data()[0]);
+Status BlobHandle::DecodeFrom(const Slice& input) {
+  Slice s(input);
+  Slice* p = &s;
+  if (GetVarint64(p, &file_number_) && GetVarint64(p, &offset_) &&
+      GetVarint64(p, &size_)) {
+    compression_ = static_cast<CompressionType>(p->data()[0]);
     return Status::OK();
   } else {
     clear();
@@ -149,8 +152,7 @@ void EvictAllVersionsCompactionListener::InternalListener::OnCompaction(
       value_type ==
           CompactionEventListener::CompactionListenerValueType::kValue) {
     BlobHandle handle;
-    Slice lsmval(existing_value);
-    Status s = handle.DecodeFrom(&lsmval);
+    Status s = handle.DecodeFrom(existing_value);
     if (s.ok()) {
       if (impl_->debug_level_ >= 3)
         ROCKS_LOG_INFO(impl_->db_options_.info_log,
@@ -827,8 +829,8 @@ Status BlobDBImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
         extendTTL(&(bfile->ttl_range_), expiration);
       }
 
-      return WriteBatchInternal::Put(&updates_blob_, column_family_id, key,
-                                     index_entry);
+      return WriteBatchInternal::PutBlobIndex(&updates_blob_, column_family_id,
+                                              key, index_entry);
     }
 
     virtual Status DeleteCF(uint32_t column_family_id,
@@ -1022,7 +1024,9 @@ Status BlobDBImpl::PutUntil(const WriteOptions& options, const Slice& key,
   }
 
   WriteBatch batch;
-  batch.Put(key, index_entry);
+  uint32_t column_family_id =
+      reinterpret_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily())->GetID();
+  WriteBatchInternal::PutBlobIndex(&batch, column_family_id, key, index_entry);
 
   // this goes to the base db and can be expensive
   s = db_->Write(options, &batch);
@@ -1112,21 +1116,16 @@ std::vector<Status> BlobDBImpl::MultiGet(
   // fetch and index entry and reading from the file.
   ReadOptions ro(read_options);
   bool snapshot_created = SetSnapshotIfNeeded(&ro);
-  std::vector<std::string> values_lsm;
-  values_lsm.resize(keys.size());
-  auto statuses = db_->MultiGet(ro, keys, &values_lsm);
-  TEST_SYNC_POINT("BlobDBImpl::MultiGet:AfterIndexEntryGet:1");
-  TEST_SYNC_POINT("BlobDBImpl::MultiGet:AfterIndexEntryGet:2");
 
-  values->resize(keys.size());
-  assert(statuses.size() == keys.size());
-  assert(values_lsm.size() == keys.size());
-  for (size_t i = 0; i < keys.size(); ++i) {
-    if (!statuses[i].ok()) {
-      continue;
-    }
-    Status s = CommonGet(keys[i], values_lsm[i], &((*values)[i]));
-    statuses[i] = s;
+  std::vector<Status> statuses;
+  statuses.reserve(keys.size());
+  values->clear();
+  values->reserve(keys.size());
+  PinnableSlice value;
+  for (size_t i = 0; i < keys.size(); i++) {
+    statuses.push_back(Get(ro, DefaultColumnFamily(), keys[i], &value));
+    values->push_back(value.ToString());
+    value.Reset();
   }
   if (snapshot_created) {
     db_->ReleaseSnapshot(ro.snapshot);
@@ -1143,12 +1142,11 @@ bool BlobDBImpl::SetSnapshotIfNeeded(ReadOptions* read_options) {
   return true;
 }
 
-Status BlobDBImpl::CommonGet(const Slice& key, const std::string& index_entry,
-                             std::string* value) {
+Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
+                                PinnableSlice* value) {
   assert(value != nullptr);
-  Slice index_entry_slice(index_entry);
   BlobHandle handle;
-  Status s = handle.DecodeFrom(&index_entry_slice);
+  Status s = handle.DecodeFrom(index_entry);
   if (!s.ok()) return s;
 
   // offset has to have certain min, as we will read CRC
@@ -1179,9 +1177,8 @@ Status BlobDBImpl::CommonGet(const Slice& key, const std::string& index_entry,
     bfile = hitr->second;
   }
 
-  // 0 - size
-  if (!handle.size() && value != nullptr) {
-    value->clear();
+  if (handle.size() == 0 && value != nullptr) {
+    value->PinSelf("");
     return Status::OK();
   }
 
@@ -1189,7 +1186,7 @@ Status BlobDBImpl::CommonGet(const Slice& key, const std::string& index_entry,
   std::shared_ptr<RandomAccessFileReader> reader =
       GetOrOpenRandomAccessReader(bfile, env_, env_options_);
 
-  std::string* valueptr = value;
+  std::string* valueptr = value->GetSelf();
   std::string value_c;
   if (bdb_options_.compression != kNoCompression) {
     valueptr = &value_c;
@@ -1251,8 +1248,10 @@ Status BlobDBImpl::CommonGet(const Slice& key, const std::string& index_entry,
         blob_value.data(), blob_value.size(), &contents,
         kBlockBasedTableVersionFormat, Slice(), bdb_options_.compression,
         *(cfh->cfd()->ioptions()));
-    *value = contents.data.ToString();
+    *(value->GetSelf()) = contents.data.ToString();
   }
+
+  value->PinSelf();
 
   return s;
 }
@@ -1271,27 +1270,21 @@ Status BlobDBImpl::Get(const ReadOptions& read_options,
   bool snapshot_created = SetSnapshotIfNeeded(&ro);
 
   Status s;
-  std::string index_entry;
-  s = db_->Get(ro, key, &index_entry);
+  bool is_blob_index = false;
+  s = db_impl_->GetImpl(ro, column_family, key, value, nullptr /*value_found*/,
+                        nullptr /*read_callback*/, &is_blob_index);
   TEST_SYNC_POINT("BlobDBImpl::Get:AfterIndexEntryGet:1");
   TEST_SYNC_POINT("BlobDBImpl::Get:AfterIndexEntryGet:2");
   if (s.ok()) {
-    s = CommonGet(key, index_entry, value->GetSelf());
-    value->PinSelf();
+    if (is_blob_index) {
+      PinnableSlice index_entry = std::move(*value);
+      s = GetBlobValue(key, index_entry, value);
+    }
   }
   if (snapshot_created) {
     db_->ReleaseSnapshot(ro.snapshot);
   }
   return s;
-}
-
-Slice BlobDBIterator::value() const {
-  TEST_SYNC_POINT("BlobDBIterator::value:BeforeGetBlob:1");
-  TEST_SYNC_POINT("BlobDBIterator::value:BeforeGetBlob:2");
-  Slice index_entry = iter_->value();
-  Status s =
-      db_impl_->CommonGet(iter_->key(), index_entry.ToString(false), &vpart_);
-  return Slice(vpart_);
 }
 
 std::pair<bool, int64_t> BlobDBImpl::SanityCheck(bool aborted) {
@@ -1411,14 +1404,13 @@ bool BlobDBImpl::FindFileAndEvictABlob(uint64_t file_number, uint64_t key_size,
   return true;
 }
 
-bool BlobDBImpl::MarkBlobDeleted(const Slice& key, const Slice& lsmValue) {
-  Slice val(lsmValue);
+bool BlobDBImpl::MarkBlobDeleted(const Slice& key, const Slice& index_entry) {
   BlobHandle handle;
-  Status s = handle.DecodeFrom(&val);
+  Status s = handle.DecodeFrom(index_entry);
   if (!s.ok()) {
     ROCKS_LOG_INFO(db_options_.info_log,
                    "Could not parse lsm val in MarkBlobDeleted %s",
-                   lsmValue.ToString().c_str());
+                   index_entry.ToString().c_str());
     return false;
   }
   bool succ = FindFileAndEvictABlob(handle.filenumber(), key.size(),
@@ -1733,9 +1725,8 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
 
     // TODO(yiwu): We should have an override of GetForUpdate returning a
     // PinnableSlice.
-    Slice index_entry_slice(index_entry);
     BlobHandle handle;
-    s = handle.DecodeFrom(&index_entry_slice);
+    s = handle.DecodeFrom(index_entry);
     if (!s.ok()) {
       ROCKS_LOG_ERROR(db_options_.info_log,
                       "Error while decoding index entry: %s",
@@ -2195,12 +2186,20 @@ std::pair<bool, int64_t> BlobDBImpl::RunGC(bool aborted) {
 }
 
 Iterator* BlobDBImpl::NewIterator(const ReadOptions& read_options) {
+  auto* cfd =
+      reinterpret_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily())->cfd();
   // Get a snapshot to avoid blob file get deleted between we
   // fetch and index entry and reading from the file.
-  ReadOptions ro(read_options);
-  bool snapshot_created = SetSnapshotIfNeeded(&ro);
-  return new BlobDBIterator(db_->NewIterator(ro), this, snapshot_created,
-                            ro.snapshot);
+  ManagedSnapshot* own_snapshot = nullptr;
+  const Snapshot* snapshot = read_options.snapshot;
+  if (snapshot == nullptr) {
+    own_snapshot = new ManagedSnapshot(db_);
+    snapshot = own_snapshot->snapshot();
+  }
+  auto* iter = db_impl_->NewIteratorImpl(
+      read_options, cfd, snapshot->GetSequenceNumber(),
+      nullptr /*read_callback*/, true /*allow_blob*/);
+  return new BlobDBIterator(own_snapshot, iter, this);
 }
 
 Status DestroyBlobDB(const std::string& dbname, const Options& options,
