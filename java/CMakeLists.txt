@@ -22,6 +22,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/memtablejni.cc
         rocksjni/merge_operator.cc
         rocksjni/options.cc
+        rocksjni/options_util.cc
         rocksjni/ratelimiterjni.cc
         rocksjni/remove_emptyvalue_compactionfilterjni.cc
         rocksjni/cassandra_compactionfilterjni.cc
@@ -85,6 +86,7 @@ set(NATIVE_JAVA_CLASSES
         org.rocksdb.MergeOperator
         org.rocksdb.NativeLibraryLoader
         org.rocksdb.Options
+        org.rocksdb.OptionsUtil
         org.rocksdb.PlainTableConfig
         org.rocksdb.RateLimiter
         org.rocksdb.ReadOptions
