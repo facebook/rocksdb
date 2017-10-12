@@ -303,7 +303,8 @@ class DBImpl : public DB {
   // TODO(andrewkr): this API need to be aware of range deletion operations
   Status GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
                                  bool cache_only, SequenceNumber* seq,
-                                 bool* found_record_for_key);
+                                 bool* found_record_for_key,
+                                 bool* is_blob_index = nullptr);
 
   using DB::IngestExternalFile;
   virtual Status IngestExternalFile(

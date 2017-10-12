@@ -593,7 +593,7 @@ TEST_F(BlobDBTest, GCRelocateKeyWhileOverwriting) {
   ASSERT_OK(blob_db_impl->TEST_CloseBlobFile(blob_files[0]));
 
   SyncPoint::GetInstance()->LoadDependency(
-      {{"BlobDBImpl::GCFileAndUpdateLSM:AfterGetForUpdate",
+      {{"BlobDBImpl::GCFileAndUpdateLSM:AfterGetFromBaseDB",
         "BlobDBImpl::PutUntil:Start"},
        {"BlobDBImpl::PutUntil:Finish",
         "BlobDBImpl::GCFileAndUpdateLSM:BeforeRelocate"}});
@@ -630,7 +630,7 @@ TEST_F(BlobDBTest, GCExpiredKeyWhileOverwriting) {
   mock_env_->set_now_micros(300 * 1000000);
 
   SyncPoint::GetInstance()->LoadDependency(
-      {{"BlobDBImpl::GCFileAndUpdateLSM:AfterGetForUpdate",
+      {{"BlobDBImpl::GCFileAndUpdateLSM:AfterGetFromBaseDB",
         "BlobDBImpl::PutUntil:Start"},
        {"BlobDBImpl::PutUntil:Finish",
         "BlobDBImpl::GCFileAndUpdateLSM:BeforeDelete"}});

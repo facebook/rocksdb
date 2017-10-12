@@ -73,14 +73,16 @@ class MemTableListVersion {
   bool GetFromHistory(const LookupKey& key, std::string* value, Status* s,
                       MergeContext* merge_context,
                       RangeDelAggregator* range_del_agg, SequenceNumber* seq,
-                      const ReadOptions& read_opts);
+                      const ReadOptions& read_opts,
+                      bool* is_blob_index = nullptr);
   bool GetFromHistory(const LookupKey& key, std::string* value, Status* s,
                       MergeContext* merge_context,
                       RangeDelAggregator* range_del_agg,
-                      const ReadOptions& read_opts) {
+                      const ReadOptions& read_opts,
+                      bool* is_blob_index = nullptr) {
     SequenceNumber seq;
     return GetFromHistory(key, value, s, merge_context, range_del_agg, &seq,
-                          read_opts);
+                          read_opts, is_blob_index);
   }
 
   Status AddRangeTombstoneIterators(const ReadOptions& read_opts, Arena* arena,

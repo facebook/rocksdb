@@ -281,6 +281,8 @@ class BlobDBImpl : public BlobDB {
 #endif  //  !NDEBUG
 
  private:
+  class GarbageCollectionWriteCallback;
+
   Status OpenPhase1();
 
   // Create a snapshot if there isn't one in read options.
@@ -424,10 +426,6 @@ class BlobDBImpl : public BlobDB {
   DBImpl* db_impl_;
   Env* env_;
   TTLExtractor* ttl_extractor_;
-
-  // Optimistic Transaction DB used during Garbage collection
-  // for atomicity
-  std::unique_ptr<OptimisticTransactionDBImpl> opt_db_;
 
   // a boolean to capture whether write_options has been set
   std::atomic<bool> wo_set_;

@@ -33,8 +33,6 @@
 #include "util/sync_point.h"
 #include "util/timer_queue.h"
 #include "utilities/blob_db/blob_db_iterator.h"
-#include "utilities/transactions/optimistic_transaction.h"
-#include "utilities/transactions/optimistic_transaction_db_impl.h"
 
 namespace {
 int kBlockBasedTableVersionFormat = 2;
@@ -213,8 +211,6 @@ Status BlobDBImpl::LinkToBaseDB(DB* db) {
 
   env_ = db_->GetEnv();
 
-  opt_db_.reset(new OptimisticTransactionDBImpl(db, false));
-
   Status s = env_->CreateDirIfMissing(blob_dir_);
   if (!s.ok()) {
     ROCKS_LOG_WARN(db_options_.info_log,
@@ -239,7 +235,6 @@ BlobDBOptions BlobDBImpl::GetBlobDBOptions() const { return bdb_options_; }
 BlobDBImpl::BlobDBImpl(DB* db, const BlobDBOptions& blob_db_options)
     : BlobDB(db),
       db_impl_(static_cast_with_check<DBImpl, DB>(db)),
-      opt_db_(new OptimisticTransactionDBImpl(db, false)),
       wo_set_(false),
       bdb_options_(blob_db_options),
       db_options_(db->GetOptions()),
@@ -1026,21 +1021,22 @@ Status BlobDBImpl::PutUntil(const WriteOptions& options, const Slice& key,
   WriteBatch batch;
   uint32_t column_family_id =
       reinterpret_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily())->GetID();
-  WriteBatchInternal::PutBlobIndex(&batch, column_family_id, key, index_entry);
+  s = WriteBatchInternal::PutBlobIndex(&batch, column_family_id, key,
+                                       index_entry);
 
   // this goes to the base db and can be expensive
-  s = db_->Write(options, &batch);
-
-  // this is the sequence number of the write.
-  SequenceNumber sn = WriteBatchInternal::Sequence(&batch);
-  bfile->ExtendSequenceRange(sn);
-
-  if (expiration != kNoExpiration) {
-    extendTTL(&(bfile->ttl_range_), expiration);
+  if (s.ok()) {
+    s = db_->Write(options, &batch);
   }
 
   if (s.ok()) {
-    s = CloseBlobFileIfNeeded(bfile);
+    // this is the sequence number of the write.
+    SequenceNumber sn = WriteBatchInternal::Sequence(&batch);
+    bfile->ExtendSequenceRange(sn);
+
+    if (expiration != kNoExpiration) {
+      extendTTL(&(bfile->ttl_range_), expiration);
+    }
   }
 
   TEST_SYNC_POINT("BlobDBImpl::PutUntil:Finish");
@@ -1610,7 +1606,52 @@ std::pair<bool, int64_t> BlobDBImpl::WaStats(bool aborted) {
   return std::make_pair(true, -1);
 }
 
-////////////////////////////////////////////////////////////////////////////////
+// Write callback for garbage collection to check if key has been updated
+// since last read. Similar to how OptimisticTransaction works. See inline
+// comment in GCFileAndUpdateLSM().
+class BlobDBImpl::GarbageCollectionWriteCallback : public WriteCallback {
+ public:
+  GarbageCollectionWriteCallback(ColumnFamilyData* cfd, const Slice& key,
+                                 SequenceNumber upper_bound)
+      : cfd_(cfd), key_(key), upper_bound_(upper_bound) {}
+
+  virtual Status Callback(DB* db) override {
+    auto* db_impl = reinterpret_cast<DBImpl*>(db);
+    auto* sv = db_impl->GetAndRefSuperVersion(cfd_);
+    SequenceNumber latest_seq = 0;
+    bool found_record_for_key = false;
+    bool is_blob_index = false;
+    Status s = db_impl->GetLatestSequenceForKey(
+        sv, key_, false /*cache_only*/, &latest_seq, &found_record_for_key,
+        &is_blob_index);
+    db_impl->ReturnAndCleanupSuperVersion(cfd_, sv);
+    if (!s.ok() && !s.IsNotFound()) {
+      // Error.
+      assert(!s.IsBusy());
+      return s;
+    }
+    if (s.IsNotFound()) {
+      assert(!found_record_for_key);
+      return Status::Busy("Key deleted");
+    }
+    assert(found_record_for_key);
+    assert(is_blob_index);
+    if (latest_seq > upper_bound_) {
+      return Status::Busy("Key overwritten");
+    }
+    return s;
+  }
+
+  virtual bool AllowWriteBatching() override { return false; }
+
+ private:
+  ColumnFamilyData* cfd_;
+  // Key to check
+  Slice key_;
+  // Upper bound of sequence number to proceed.
+  SequenceNumber upper_bound_;
+};
+
 // iterate over the blobs sequentially and check if the blob sequence number
 // is the latest. If it is the latest, preserve it, otherwise delete it
 // if it is TTL based, and the TTL has expired, then
@@ -1623,7 +1664,6 @@ std::pair<bool, int64_t> BlobDBImpl::WaStats(bool aborted) {
 //
 // if it is not TTL based, then we can blow the key if the key has been
 // DELETED in the LSM
-////////////////////////////////////////////////////////////////////////////////
 Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
                                       GCStats* gc_stats) {
   uint64_t now = EpochNow();
@@ -1648,13 +1688,13 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
 
   bool first_gc = bfptr->gc_once_after_open_;
 
-  ColumnFamilyHandle* cfh = bfptr->GetColumnFamily(db_);
+  auto* cfh = bfptr->GetColumnFamily(db_);
+  auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
+  auto column_family_id = cfd->GetID();
   bool has_ttl = header.HasTTL();
 
   // this reads the key but skips the blob
   Reader::ReadLevel shallow = Reader::kReadHeaderKey;
-
-  assert(opt_db_);
 
   bool no_relocation_ttl = (has_ttl && now >= bfptr->GetTTLRange().second);
 
@@ -1675,56 +1715,50 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
   BlobLogRecord record;
   std::shared_ptr<BlobFile> newfile;
   std::shared_ptr<Writer> new_writer;
-  Transaction* transaction = nullptr;
   uint64_t blob_offset = 0;
-  bool retry = false;
-
-  static const WriteOptions kGarbageCollectionWriteOptions = []() {
-    WriteOptions write_options;
-    // It is ok to ignore column families that were dropped.
-    write_options.ignore_missing_column_families = true;
-    return write_options;
-  }();
 
   while (true) {
     assert(s.ok());
-    if (retry) {
-      // Retry in case transaction fail with Status::TryAgain.
-      retry = false;
-    } else {
-      // Read the next blob record.
-      Status read_record_status =
-          reader->ReadRecord(&record, shallow, &blob_offset);
-      // Exit if we reach the end of blob file.
-      // TODO(yiwu): properly handle ReadRecord error.
-      if (!read_record_status.ok()) {
-        break;
-      }
-      gc_stats->blob_count++;
-    }
 
-    transaction =
-        opt_db_->BeginTransaction(kGarbageCollectionWriteOptions,
-                                  OptimisticTransactionOptions(), transaction);
-
-    std::string index_entry;
-    Status get_status = transaction->GetForUpdate(ReadOptions(), cfh,
-                                                  record.Key(), &index_entry);
-    TEST_SYNC_POINT("BlobDBImpl::GCFileAndUpdateLSM:AfterGetForUpdate");
-    if (get_status.IsNotFound()) {
-      // Key has been deleted. Drop the blob record.
-      continue;
+    // Read the next blob record.
+    Status read_record_status =
+        reader->ReadRecord(&record, shallow, &blob_offset);
+    // Exit if we reach the end of blob file.
+    // TODO(yiwu): properly handle ReadRecord error.
+    if (!read_record_status.ok()) {
+      break;
     }
-    if (!get_status.ok()) {
+    gc_stats->blob_count++;
+
+    // Similar to OptimisticTransaction, we obtain latest_seq from
+    // base DB, which is guaranteed to be no smaller than the sequence of
+    // current key. We use a WriteCallback on write to check the key sequence
+    // on write. If the key sequence is larger than latest_seq, we know
+    // a new versions is inserted and the old blob can be disgard.
+    //
+    // We cannot use OptimisticTransaction because we need to pass
+    // is_blob_index flag to GetImpl.
+    SequenceNumber latest_seq = GetLatestSequenceNumber();
+    bool is_blob_index = false;
+    PinnableSlice index_entry;
+    Status get_status = db_impl_->GetImpl(
+        ReadOptions(), cfh, record.Key(), &index_entry, nullptr /*value_found*/,
+        nullptr /*read_callback*/, &is_blob_index);
+    TEST_SYNC_POINT("BlobDBImpl::GCFileAndUpdateLSM:AfterGetFromBaseDB");
+    if (!get_status.ok() && !get_status.ok()) {
+      // error
       s = get_status;
       ROCKS_LOG_ERROR(db_options_.info_log,
                       "Error while getting index entry: %s",
                       s.ToString().c_str());
       break;
     }
+    if (get_status.IsNotFound() || !is_blob_index) {
+      // Either the key is deleted or updated with a newer version whish is
+      // inlined in LSM.
+      continue;
+    }
 
-    // TODO(yiwu): We should have an override of GetForUpdate returning a
-    // PinnableSlice.
     BlobHandle handle;
     s = handle.DecodeFrom(index_entry);
     if (!s.ok()) {
@@ -1739,21 +1773,24 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
       continue;
     }
 
+    GarbageCollectionWriteCallback callback(cfd, record.Key(), latest_seq);
+
     // If key has expired, remove it from base DB.
     if (no_relocation_ttl || (has_ttl && now >= record.GetTTL())) {
       gc_stats->num_deletes++;
       gc_stats->deleted_size += record.GetBlobSize();
       TEST_SYNC_POINT("BlobDBImpl::GCFileAndUpdateLSM:BeforeDelete");
-      transaction->Delete(cfh, record.Key());
-      Status delete_status = transaction->Commit();
+      WriteBatch delete_batch;
+      Status delete_status = delete_batch.Delete(record.Key());
+      if (delete_status.ok()) {
+        delete_status = db_impl_->WriteWithCallback(WriteOptions(),
+                                                    &delete_batch, &callback);
+      }
       if (delete_status.ok()) {
         gc_stats->delete_succeeded++;
       } else if (delete_status.IsBusy()) {
         // The key is overwritten in the meanwhile. Drop the blob record.
         gc_stats->overwritten_while_delete++;
-      } else if (delete_status.IsTryAgain()) {
-        // Retry the transaction.
-        retry = true;
       } else {
         // We hit an error.
         s = delete_status;
@@ -1820,29 +1857,27 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
         BlobLogRecord::kHeaderSize + record.Key().size() + record.Blob().size();
 
     TEST_SYNC_POINT("BlobDBImpl::GCFileAndUpdateLSM:BeforeRelocate");
-    transaction->Put(cfh, record.Key(), new_index_entry);
-    Status put_status = transaction->Commit();
-    if (put_status.ok()) {
+    WriteBatch rewrite_batch;
+    Status rewrite_status = WriteBatchInternal::PutBlobIndex(
+        &rewrite_batch, column_family_id, record.Key(), new_index_entry);
+    if (rewrite_status.ok()) {
+      rewrite_status = db_impl_->WriteWithCallback(WriteOptions(),
+                                                   &rewrite_batch, &callback);
+    }
+    if (rewrite_status.ok()) {
       gc_stats->relocate_succeeded++;
-    } else if (put_status.IsBusy()) {
+    } else if (rewrite_status.IsBusy()) {
       // The key is overwritten in the meanwhile. Drop the blob record.
       gc_stats->overwritten_while_relocate++;
-    } else if (put_status.IsTryAgain()) {
-      // Retry the transaction.
-      // TODO(yiwu): On retry, we can reuse the new blob record.
-      retry = true;
     } else {
       // We hit an error.
-      s = put_status;
+      s = rewrite_status;
       ROCKS_LOG_ERROR(db_options_.info_log, "Error while relocating key: %s",
                       s.ToString().c_str());
       break;
     }
   }  // end of ReadRecord loop
 
-  if (transaction != nullptr) {
-    delete transaction;
-  }
   ROCKS_LOG_INFO(
       db_options_.info_log,
       "%s blob file %" PRIu64
