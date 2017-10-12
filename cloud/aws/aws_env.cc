@@ -558,9 +558,10 @@ Status AwsEnv::NewRandomAccessFile(const std::string& fname,
           return Status::IOError(msg);
         }
       }
-    }
-
-    if (!st.ok()) {
+    } else if (!st.ok()) {
+      // Only execute this code path if keep_local_sst_files == false. If it's
+      // true, we will never use S3ReadableFile to read; we copy the file
+      // locally and read using base_env.
       S3ReadableFile* f = nullptr;
       if (!st.ok() && has_dest_bucket_) {
         // read from dest S3
