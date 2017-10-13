@@ -681,6 +681,10 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
         // We are treating this as a failure while reading since we read valid
         // blocks that do not form coherent data
         reporter.Corruption(record.size(), status);
+        if (immutable_db_options_.wal_recovery_mode == WALRecoveryMode::kSkipAnyCorruptedRecords) {
+          // We should ignore all errors unconditionally
+          status = Status::OK();
+        }
         continue;
       }
 
