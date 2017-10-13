@@ -25,6 +25,15 @@ class Cleanable {
  public:
   Cleanable();
   ~Cleanable();
+
+  // No copy constructor and copy assignment allowed.
+  Cleanable(Cleanable&) = delete;
+  Cleanable& operator=(Cleanable&) = delete;
+
+  // Move consturctor and move assignment is allowed.
+  Cleanable(Cleanable&&);
+  Cleanable& operator=(Cleanable&&);
+
   // Clients are allowed to register function/arg1/arg2 triples that
   // will be invoked when this iterator is destroyed.
   //
