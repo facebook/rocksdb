@@ -307,7 +307,7 @@ MAIN_SOURCES =                                                    \
   memtable/skiplist_test.cc                                             \
   memtable/write_buffer_manager_test.cc                                 \
   monitoring/histogram_test.cc                                          \
-  monitoring/iostats_context_st.cc                                    \
+  monitoring/iostats_context_test.cc                                    \
   monitoring/statistics_test.cc                                         \
   options/options_test.cc                                               \
   table/block_based_filter_block_test.cc                                \
@@ -337,7 +337,7 @@ MAIN_SOURCES =                                                    \
   util/filelock_test.cc                                                 \
   util/log_write_bench.cc                                               \
   util/rate_limiter_test.cc                                             \
-	util/slice_test.cc																										\
+  util/slice_test.cc                                                    \
   util/slice_transform_test.cc                                          \
   util/timer_queue_test.cc                                              \
   util/thread_list_test.cc                                              \
