@@ -5,8 +5,6 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
-#include <time.h>
-
 #include <atomic>
 #include <memory>
 
@@ -19,8 +17,6 @@
 
 namespace rocksdb {
 namespace blob_db {
-
-class BloobDBImpl;
 
 class BlobFile {
   friend class BlobDBImpl;
@@ -86,7 +82,7 @@ class BlobFile {
   mutable port::RWMutex mutex_;
 
   // time when the random access reader was last created.
-  std::atomic<std::time_t> last_access_;
+  std::atomic<std::int64_t> last_access_;
 
   // last time file was fsync'd/fdatasyncd
   std::atomic<uint64_t> last_fsync_;
