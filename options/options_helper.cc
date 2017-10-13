@@ -262,62 +262,73 @@ bool ParseVectorCompressionType(
   return true;
 }
 
-bool SerializeFIFOCompactionOptions(
-    const CompactionOptionsFIFO& options, std::string* value) {
-  std::string fields;
-  Status s = GetStringFromStruct<CompactionOptionsFIFO>(&fields, options, fifo_compaction_options_type_info, ";");
+
+// This is to handle backward compatibility, where compaction_options_fifo
+// could be assigned a single scalar value, say, like "23", which would be
+// assigned to max_table_files_size.
+bool FIFOCompactionOptionsSpecialCase(const std::string& opt_str, CompactionOptionsFIFO* options) {
+  if (opt_str.find("=") != std::string::npos) {
+    // New format. Go do your new parsing using ParseStructOptions.
+    return false;
+  }
+
+  // Old format. Parse just a single uint64_t value.
+  options->max_table_files_size = ParseUint64(opt_str);
+  return true;
+}
+
+template<typename T>
+bool SerializeStruct(
+    const T& options, std::string* value,
+    std::unordered_map<std::string, OptionTypeInfo> type_info_map) {
+  std::string opt_str;
+  Status s = GetStringFromStruct<T>(&opt_str, options, type_info_map, ";");
   if (!s.ok()) {
     return false;
   }
-  *value = "{" + fields + "}";
+  *value = "{" + opt_str + "}";
   return true;
 }
 
-bool ParseSingleFIFOCompactionOption(const std::string& option,
-    CompactionOptionsFIFO* compaction_options_fifo) {
-  size_t end = option.find('=');
-  if (end == std::string::npos) {
-    // This is to enable backward compatibility, where compaction_options_fifo
-    // was assigned a single scalar value, say, like "23", which would be
-    // assigned to max_table_files_size.
-    compaction_options_fifo->max_table_files_size = ParseUint64(option);
-    return true;
-  } else {
-    std::string key = option.substr(0, end);
-    std::string value = option.substr(end + 1);
-    auto iter = fifo_compaction_options_type_info.find(key);
-    if (iter == fifo_compaction_options_type_info.end()) {
-      return false;
-    }
-    const auto& opt_info = iter->second;
-    return ParseOptionHelper(
-        reinterpret_cast<char*>(compaction_options_fifo) + opt_info.mutable_offset,
-        opt_info.type, value);
+template <typename T>
+bool ParseSingleStructOption(const std::string& opt_val_str, T* options,
+    std::unordered_map<std::string, OptionTypeInfo> type_info_map) {
+  size_t end = opt_val_str.find('=');
+  std::string key = opt_val_str.substr(0, end);
+  std::string value = opt_val_str.substr(end + 1);
+  auto iter = type_info_map.find(key);
+  if (iter == type_info_map.end()) {
+    return false;
   }
+  const auto& opt_info = iter->second;
+  return ParseOptionHelper(
+      reinterpret_cast<char*>(options) + opt_info.mutable_offset,
+      opt_info.type, value);
   return true;
 }
 
-bool ParseFIFOCompactionOptions(
-    const std::string& value,
-    CompactionOptionsFIFO* compaction_options_fifo) {
+template <typename T>
+bool ParseStructOptions(const std::string& opt_str, T* options,
+    std::unordered_map<std::string, OptionTypeInfo> type_info_map) {
+  assert (!opt_str.empty());
+
   size_t start = 0;
-  if (value[0] == '{') {
+  if (opt_str[0] == '{') {
     start++;
   }
-  while((start != std::string::npos) && (start < value.size())) {
-    if (value[start] == '}') {
+  while((start != std::string::npos) && (start < opt_str.size())) {
+    if (opt_str[start] == '}') {
       break;
     }
-    size_t end = value.find(';', start);
+    size_t end = opt_str.find(';', start);
     size_t len = (end == std::string::npos) ? end : end - start;
-    if (!ParseSingleFIFOCompactionOption(value.substr(start, len), compaction_options_fifo)) {
+    if (!ParseSingleStructOption(opt_str.substr(start, len), options, type_info_map)) {
       return false;
     }
     start = (end == std::string::npos) ? end : end + 1;
   }
   return true;
 }
-
 
 bool ParseSliceTransformHelper(
     const std::string& kFixedPrefixName, const std::string& kCappedPrefixName,
@@ -444,8 +455,12 @@ bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
           info_log_level_string_map, value,
           reinterpret_cast<InfoLogLevel*>(opt_address));
     case OptionType::kCompactionOptionsFIFO:
-      return ParseFIFOCompactionOptions(value,
-          reinterpret_cast<CompactionOptionsFIFO*>(opt_address));
+      if (!FIFOCompactionOptionsSpecialCase(value, reinterpret_cast<CompactionOptionsFIFO*>(opt_address))) {
+        return ParseStructOptions<CompactionOptionsFIFO>(value,
+            reinterpret_cast<CompactionOptionsFIFO*>(opt_address),
+            fifo_compaction_options_type_info);
+      }
+      return true;
     default:
       return false;
   }
@@ -611,8 +626,9 @@ bool SerializeSingleOptionHelper(const char* opt_address,
           info_log_level_string_map,
           *reinterpret_cast<const InfoLogLevel*>(opt_address), value);
     case OptionType::kCompactionOptionsFIFO: {
-      return SerializeFIFOCompactionOptions(
-          *reinterpret_cast<const CompactionOptionsFIFO*>(opt_address), value);
+      return SerializeStruct<CompactionOptionsFIFO>(
+          *reinterpret_cast<const CompactionOptionsFIFO*>(opt_address), value,
+          fifo_compaction_options_type_info);
     }
     default:
       return false;
