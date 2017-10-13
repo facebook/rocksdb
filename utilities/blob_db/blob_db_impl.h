@@ -9,7 +9,6 @@
 
 #include <atomic>
 #include <condition_variable>
-#include <ctime>
 #include <limits>
 #include <list>
 #include <memory>

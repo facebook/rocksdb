@@ -5,6 +5,8 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
+#include <time.h>
+
 #include <atomic>
 #include <memory>
 
