@@ -21,6 +21,19 @@ Cleanable::Cleanable() {
 
 Cleanable::~Cleanable() { DoCleanup(); }
 
+Cleanable::Cleanable(Cleanable&& other) {
+  *this = std::move(other);
+}
+
+Cleanable& Cleanable::operator=(Cleanable&& other) {
+  if (this != &other) {
+    cleanup_ = other.cleanup_;
+    other.cleanup_.function = nullptr;
+    other.cleanup_.next = nullptr;
+  }
+  return *this;
+}
+
 // If the entire linked list was on heap we could have simply add attach one
 // link list to another. However the head is an embeded object to avoid the cost
 // of creating objects for most of the use cases when the Cleanable has only one
