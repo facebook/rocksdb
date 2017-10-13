@@ -3,15 +3,15 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 #ifndef ROCKSDB_LITE
+#include "utilities/blob_db/blob_file.h"
 
 #include <stdio.h>
-#include <chrono>
 #include <cinttypes>
 #include <memory>
-#include "utilities/blob_db/blob_db_impl.h"
 
 #include "util/filename.h"
 #include "util/logging.h"
+#include "utilities/blob_db/blob_db_impl.h"
 
 namespace rocksdb {
 
@@ -193,8 +193,10 @@ void BlobFile::CloseRandomAccessLocked() {
 std::shared_ptr<RandomAccessFileReader> BlobFile::GetOrOpenRandomAccessReader(
     Env* env, const EnvOptions& env_options, bool* fresh_open) {
   *fresh_open = false;
-  last_access_ =
-      std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+  int64_t current_time = 0;
+  env->GetCurrentTime(&current_time);
+  last_access_.store(current_time);
+
   {
     ReadLock lockbfile_r(&mutex_);
     if (ra_file_reader_) return ra_file_reader_;
