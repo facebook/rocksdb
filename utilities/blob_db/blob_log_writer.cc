@@ -133,7 +133,12 @@ Status Writer::EmitPhysicalRecord(const std::string& headerbuf,
   Status s = dest_->Append(Slice(headerbuf));
   if (s.ok()) {
     s = dest_->Append(key);
-    if (s.ok()) s = dest_->Append(val);
+  }
+  if (s.ok()) {
+    s = dest_->Append(val);
+  }
+  if (s.ok()) {
+    s = dest_->Flush();
   }
 
   *key_offset = block_offset_ + BlobLogRecord::kHeaderSize;
