@@ -3,15 +3,16 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 #ifndef ROCKSDB_LITE
+#include "utilities/blob_db/blob_file.h"
 
 #include <stdio.h>
 #include <chrono>
 #include <cinttypes>
 #include <memory>
-#include "utilities/blob_db/blob_db_impl.h"
 
 #include "util/filename.h"
 #include "util/logging.h"
+#include "utilities/blob_db/blob_db_impl.h"
 
 namespace rocksdb {
 
