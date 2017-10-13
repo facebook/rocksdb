@@ -38,7 +38,6 @@ namespace rocksdb {
 class DBImpl;
 class ColumnFamilyHandle;
 class ColumnFamilyData;
-class OptimisticTransactionDBImpl;
 struct FlushJobInfo;
 
 namespace blob_db {
