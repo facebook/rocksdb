@@ -86,11 +86,16 @@ class BlobDBTest : public testing::Test {
     }
   }
 
-  void PutRandom(const std::string &key, Random *rnd,
+  void PutRandom(const std::string& key, Random* rnd,
+                 std::map<std::string, std::string> *data = nullptr) {
+    PutRandom(blob_db_, key, rnd, data);
+  }
+
+  void PutRandom(DB* db, const std::string &key, Random *rnd,
                  std::map<std::string, std::string> *data = nullptr) {
     int len = rnd->Next() % kMaxBlobSize + 1;
     std::string value = test::RandomHumanReadableString(rnd, len);
-    ASSERT_OK(blob_db_->Put(WriteOptions(), Slice(key), Slice(value)));
+    ASSERT_OK(db->Put(WriteOptions(), Slice(key), Slice(value)));
     if (data != nullptr) {
       (*data)[key] = value;
     }
@@ -116,9 +121,12 @@ class BlobDBTest : public testing::Test {
   }
 
   // Verify blob db contain expected data and nothing more.
-  // TODO(yiwu): Verify blob files are consistent with data in LSM.
   void VerifyDB(const std::map<std::string, std::string> &data) {
-    Iterator *iter = blob_db_->NewIterator(ReadOptions());
+    VerifyDB(blob_db_, data);
+  }
+
+  void VerifyDB(DB* db, const std::map<std::string, std::string> &data) {
+    Iterator *iter = db->NewIterator(ReadOptions());
     iter->SeekToFirst();
     for (auto &p : data) {
       ASSERT_TRUE(iter->Valid());
@@ -819,6 +827,58 @@ TEST_F(BlobDBTest, GetLiveFilesMetaData) {
   ASSERT_EQ(4U, livefile.size());
   ASSERT_EQ(filename, livefile[3]);
   VerifyDB(data);
+}
+
+TEST_F(BlobDBTest, MigrateFromPlainRocksDB) {
+  constexpr size_t kNumKey = 20;
+  constexpr size_t kNumIteration = 10;
+  Random rnd(301);
+  std::map<std::string, std::string> data;
+  std::vector<bool> is_blob(kNumKey, false);
+
+  // Write to plain rocksdb.
+  Options options;
+  options.create_if_missing = true;
+  DB* db = nullptr;
+  ASSERT_OK(DB::Open(options, dbname_, &db));
+  for (size_t i = 0; i < kNumIteration; i++) {
+    auto key_index = rnd.Next() % kNumKey;
+    std::string key = "key" + ToString(key_index);
+    PutRandom(db, key, &rnd, &data);
+  }
+  VerifyDB(db, data);
+  delete db;
+  db = nullptr;
+
+  // Open as blob db. Verify it can read existing data.
+  Open();
+  VerifyDB(blob_db_, data);
+  for (size_t i = 0; i < kNumIteration; i++) {
+    auto key_index = rnd.Next() % kNumKey;
+    std::string key = "key" + ToString(key_index);
+    is_blob[key_index] = true;
+    PutRandom(blob_db_, key, &rnd, &data);
+  }
+  VerifyDB(blob_db_, data);
+  delete blob_db_;
+  blob_db_ = nullptr;
+
+  // Verify plain db return error for keys written by blob db.
+  ASSERT_OK(DB::Open(options, dbname_, &db));
+  std::string value;
+  for (size_t i = 0; i < kNumKey; i++) {
+    std::string key = "key" + ToString(i);
+    Status s = db->Get(ReadOptions(), key, &value);
+    if (data.count(key) == 0) {
+      ASSERT_TRUE(s.IsNotFound());
+    } else if (is_blob[i]) {
+      ASSERT_TRUE(s.IsNotSupported());
+    } else {
+      ASSERT_OK(s);
+      ASSERT_EQ(data[key], value);
+    }
+  }
+  delete db;
 }
 
 }  //  namespace blob_db
