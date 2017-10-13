@@ -26,8 +26,9 @@
 
 namespace rocksdb {
 
-template<typename T>
-Status GetStringFromStruct(std::string* opt_string, const T& options,
+template <typename T>
+Status GetStringFromStruct(
+    std::string* opt_string, const T& options,
     const std::unordered_map<std::string, OptionTypeInfo> type_info,
     const std::string& delimiter);
 
@@ -262,11 +263,11 @@ bool ParseVectorCompressionType(
   return true;
 }
 
-
 // This is to handle backward compatibility, where compaction_options_fifo
 // could be assigned a single scalar value, say, like "23", which would be
 // assigned to max_table_files_size.
-bool FIFOCompactionOptionsSpecialCase(const std::string& opt_str, CompactionOptionsFIFO* options) {
+bool FIFOCompactionOptionsSpecialCase(const std::string& opt_str,
+                                      CompactionOptionsFIFO* options) {
   if (opt_str.find("=") != std::string::npos) {
     // New format. Go do your new parsing using ParseStructOptions.
     return false;
@@ -277,7 +278,7 @@ bool FIFOCompactionOptionsSpecialCase(const std::string& opt_str, CompactionOpti
   return true;
 }
 
-template<typename T>
+template <typename T>
 bool SerializeStruct(
     const T& options, std::string* value,
     std::unordered_map<std::string, OptionTypeInfo> type_info_map) {
@@ -291,7 +292,8 @@ bool SerializeStruct(
 }
 
 template <typename T>
-bool ParseSingleStructOption(const std::string& opt_val_str, T* options,
+bool ParseSingleStructOption(
+    const std::string& opt_val_str, T* options,
     std::unordered_map<std::string, OptionTypeInfo> type_info_map) {
   size_t end = opt_val_str.find('=');
   std::string key = opt_val_str.substr(0, end);
@@ -302,27 +304,29 @@ bool ParseSingleStructOption(const std::string& opt_val_str, T* options,
   }
   const auto& opt_info = iter->second;
   return ParseOptionHelper(
-      reinterpret_cast<char*>(options) + opt_info.mutable_offset,
-      opt_info.type, value);
+      reinterpret_cast<char*>(options) + opt_info.mutable_offset, opt_info.type,
+      value);
   return true;
 }
 
 template <typename T>
-bool ParseStructOptions(const std::string& opt_str, T* options,
+bool ParseStructOptions(
+    const std::string& opt_str, T* options,
     std::unordered_map<std::string, OptionTypeInfo> type_info_map) {
-  assert (!opt_str.empty());
+  assert(!opt_str.empty());
 
   size_t start = 0;
   if (opt_str[0] == '{') {
     start++;
   }
-  while((start != std::string::npos) && (start < opt_str.size())) {
+  while ((start != std::string::npos) && (start < opt_str.size())) {
     if (opt_str[start] == '}') {
       break;
     }
     size_t end = opt_str.find(';', start);
     size_t len = (end == std::string::npos) ? end : end - start;
-    if (!ParseSingleStructOption(opt_str.substr(start, len), options, type_info_map)) {
+    if (!ParseSingleStructOption(opt_str.substr(start, len), options,
+                                 type_info_map)) {
       return false;
     }
     start = (end == std::string::npos) ? end : end + 1;
@@ -455,9 +459,10 @@ bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
           info_log_level_string_map, value,
           reinterpret_cast<InfoLogLevel*>(opt_address));
     case OptionType::kCompactionOptionsFIFO:
-      if (!FIFOCompactionOptionsSpecialCase(value, reinterpret_cast<CompactionOptionsFIFO*>(opt_address))) {
-        return ParseStructOptions<CompactionOptionsFIFO>(value,
-            reinterpret_cast<CompactionOptionsFIFO*>(opt_address),
+      if (!FIFOCompactionOptionsSpecialCase(
+              value, reinterpret_cast<CompactionOptionsFIFO*>(opt_address))) {
+        return ParseStructOptions<CompactionOptionsFIFO>(
+            value, reinterpret_cast<CompactionOptionsFIFO*>(opt_address),
             fifo_compaction_options_type_info);
       }
       return true;
@@ -889,12 +894,11 @@ Status ParseColumnFamilyOption(const std::string& name,
   return Status::OK();
 }
 
-template<typename T>
-bool SerializeSingleStructOption(std::string* opt_string,
-                                    const T& options,
-                                    const std::unordered_map<std::string, OptionTypeInfo> type_info,
-                                    const std::string& name,
-                                    const std::string& delimiter) {
+template <typename T>
+bool SerializeSingleStructOption(
+    std::string* opt_string, const T& options,
+    const std::unordered_map<std::string, OptionTypeInfo> type_info,
+    const std::string& name, const std::string& delimiter) {
   auto iter = type_info.find(name);
   if (iter == type_info.end()) {
     return false;
@@ -910,22 +914,22 @@ bool SerializeSingleStructOption(std::string* opt_string,
   return result;
 }
 
-template<typename T>
-Status GetStringFromStruct(std::string* opt_string, const T& options,
+template <typename T>
+Status GetStringFromStruct(
+    std::string* opt_string, const T& options,
     const std::unordered_map<std::string, OptionTypeInfo> type_info,
     const std::string& delimiter) {
   assert(opt_string);
   opt_string->clear();
-  for (auto iter = type_info.begin();
-       iter != type_info.end(); ++iter) {
+  for (auto iter = type_info.begin(); iter != type_info.end(); ++iter) {
     if (iter->second.verification == OptionVerificationType::kDeprecated) {
       // If the option is no longer used in rocksdb and marked as deprecated,
       // we skip it in the serialization.
       continue;
     }
     std::string single_output;
-    bool result = SerializeSingleStructOption<T>(&single_output, options,
-        type_info, iter->first, delimiter);
+    bool result = SerializeSingleStructOption<T>(
+        &single_output, options, type_info, iter->first, delimiter);
     if (result) {
       opt_string->append(single_output);
     } else {
@@ -940,13 +944,15 @@ Status GetStringFromStruct(std::string* opt_string, const T& options,
 Status GetStringFromDBOptions(std::string* opt_string,
                               const DBOptions& db_options,
                               const std::string& delimiter) {
-  return GetStringFromStruct<DBOptions>(opt_string, db_options, db_options_type_info, delimiter);
+  return GetStringFromStruct<DBOptions>(opt_string, db_options,
+                                        db_options_type_info, delimiter);
 }
 
 Status GetStringFromColumnFamilyOptions(std::string* opt_string,
                                         const ColumnFamilyOptions& cf_options,
                                         const std::string& delimiter) {
-  return GetStringFromStruct<ColumnFamilyOptions>(opt_string, cf_options, cf_options_type_info, delimiter);
+  return GetStringFromStruct<ColumnFamilyOptions>(
+      opt_string, cf_options, cf_options_type_info, delimiter);
 }
 
 Status GetStringFromCompressionType(std::string* compression_str,

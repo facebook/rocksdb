@@ -1288,11 +1288,11 @@ uint32_t LevelCompactionBuilder::GetPathId(
             // Still, adding this check to avoid accidentally using
             // max_bytes_for_level_multiplier_additional
             level_size = static_cast<uint64_t>(
-              level_size * mutable_cf_options.max_bytes_for_level_multiplier);
+                level_size * mutable_cf_options.max_bytes_for_level_multiplier);
           } else {
             level_size = static_cast<uint64_t>(
-              level_size * mutable_cf_options.max_bytes_for_level_multiplier
-                * mutable_cf_options.MaxBytesMultiplerAdditional(cur_level));
+                level_size * mutable_cf_options.max_bytes_for_level_multiplier *
+                mutable_cf_options.MaxBytesMultiplerAdditional(cur_level));
           }
 	}
         cur_level++;
@@ -1467,7 +1467,8 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
   // 2. there are a few files older than ttl, but deleting them will not bring
   //    the total size to be less than max_table_files_size threshold.
   if (inputs[0].files.empty() ||
-      total_size > mutable_cf_options.compaction_options_fifo.max_table_files_size) {
+      total_size >
+          mutable_cf_options.compaction_options_fifo.max_table_files_size) {
     return nullptr;
   }
 
@@ -1493,7 +1494,8 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
   const std::vector<FileMetaData*>& level_files = vstorage->LevelFiles(kLevel0);
   uint64_t total_size = GetTotalFilesSize(level_files);
 
-  if (total_size <= mutable_cf_options.compaction_options_fifo.max_table_files_size ||
+  if (total_size <=
+          mutable_cf_options.compaction_options_fifo.max_table_files_size ||
       level_files.size() == 0) {
     // total size not exceeded
     if (mutable_cf_options.compaction_options_fifo.allow_compaction &&
@@ -1516,11 +1518,12 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
       }
     }
 
-    ROCKS_LOG_BUFFER(log_buffer,
-                     "[%s] FIFO compaction: nothing to do. Total size %" PRIu64
-                     ", max size %" PRIu64 "\n",
-                     cf_name.c_str(), total_size,
-                     mutable_cf_options.compaction_options_fifo.max_table_files_size);
+    ROCKS_LOG_BUFFER(
+        log_buffer,
+        "[%s] FIFO compaction: nothing to do. Total size %" PRIu64
+        ", max size %" PRIu64 "\n",
+        cf_name.c_str(), total_size,
+        mutable_cf_options.compaction_options_fifo.max_table_files_size);
     return nullptr;
   }
 
@@ -1547,7 +1550,8 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
                      "[%s] FIFO compaction: picking file %" PRIu64
                      " with size %s for deletion",
                      cf_name.c_str(), f->fd.GetNumber(), tmp_fsize);
-    if (total_size <= mutable_cf_options.compaction_options_fifo.max_table_files_size) {
+    if (total_size <=
+        mutable_cf_options.compaction_options_fifo.max_table_files_size) {
       break;
     }
   }
