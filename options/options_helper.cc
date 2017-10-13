@@ -26,6 +26,11 @@
 
 namespace rocksdb {
 
+template<typename T>
+Status GetStringFromStruct(std::string* opt_string, const T& options,
+    const std::unordered_map<std::string, OptionTypeInfo> type_info,
+    const std::string& delimiter);
+
 DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
                          const MutableDBOptions& mutable_db_options) {
   DBOptions options;
@@ -165,6 +170,8 @@ ColumnFamilyOptions BuildColumnFamilyOptions(
     cf_opts.max_bytes_for_level_multiplier_additional.emplace_back(value);
   }
 
+  cf_opts.compaction_options_fifo = mutable_cf_options.compaction_options_fifo;
+
   // Misc options
   cf_opts.max_sequential_skip_in_iterations =
       mutable_cf_options.max_sequential_skip_in_iterations;
@@ -251,6 +258,65 @@ bool ParseVectorCompressionType(
       compression_per_level->emplace_back(type);
       start = end + 1;
     }
+  }
+  return true;
+}
+
+bool SerializeFIFOCompactionOptions(
+    const CompactionOptionsFIFO& options, std::string* value) {
+  std::string fields;
+  Status s = GetStringFromStruct<CompactionOptionsFIFO>(&fields, options, fifo_compaction_options_type_info, ";");
+  if (!s.ok()) {
+    return false;
+  }
+  *value = "{" + fields + "}";
+  return true;
+}
+
+bool ParseSingleFIFOCompactionOption(const std::string& option,
+    CompactionOptionsFIFO* compaction_options_fifo) {
+  size_t end = option.find('=');
+  if (end == std::string::npos) {
+    // This is to enable backward compatibility, where compaction_options_fifo
+    // was assigned a single scalar value, say, like "23", which would be
+    // assigned to max_table_files_size.
+    compaction_options_fifo->max_table_files_size = ParseUint64(option);
+    // compaction_options_fifo->ttl = 0;
+    // compaction_options_fifo->allow_compaction = false;
+    return true;
+  } else {
+    std::string key = option.substr(0, end);
+    std::string value = option.substr(end + 1);
+    if (key == "max_table_files_size") {
+      compaction_options_fifo->max_table_files_size = ParseUint64(value);
+    } else if (key == "ttl") {
+      compaction_options_fifo->ttl = ParseUint64(value);
+    } else if (key == "allow_compaction") {
+      compaction_options_fifo->allow_compaction = ParseBoolean("", value);
+    } else {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool ParseFIFOCompactionOptions(
+    const std::string& value,
+    CompactionOptionsFIFO* compaction_options_fifo) {
+  size_t start = 0;
+  if (value[0] == '{') {
+    start++;
+  }
+  while((start != std::string::npos) && (start < value.size())) {
+    if (value[start] == '}') {
+      break;
+    }
+    size_t end = value.find(';', start);
+    size_t len = (end == std::string::npos) ? end : end - start;
+    if (!ParseSingleFIFOCompactionOption(value.substr(start, len), compaction_options_fifo)) {
+      return false;
+    }
+    start = (end == std::string::npos) ? end : end + 1;
   }
   return true;
 }
@@ -379,6 +445,9 @@ bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
       return ParseEnum<InfoLogLevel>(
           info_log_level_string_map, value,
           reinterpret_cast<InfoLogLevel*>(opt_address));
+    case OptionType::kCompactionOptionsFIFO:
+      return ParseFIFOCompactionOptions(value,
+          reinterpret_cast<CompactionOptionsFIFO*>(opt_address));
     default:
       return false;
   }
@@ -543,6 +612,10 @@ bool SerializeSingleOptionHelper(const char* opt_address,
       return SerializeEnum<InfoLogLevel>(
           info_log_level_string_map,
           *reinterpret_cast<const InfoLogLevel*>(opt_address), value);
+    case OptionType::kCompactionOptionsFIFO: {
+      return SerializeFIFOCompactionOptions(
+          *reinterpret_cast<const CompactionOptionsFIFO*>(opt_address), value);
+    }
     default:
       return false;
   }
@@ -768,9 +841,6 @@ Status ParseColumnFamilyOption(const std::string& name,
         new_options->compression_opts.max_dict_bytes =
             ParseInt(value.substr(start, value.size() - start));
       }
-    } else if (name == "compaction_options_fifo") {
-      new_options->compaction_options_fifo.max_table_files_size =
-          ParseUint64(value);
     } else {
       auto iter = cf_options_type_info.find(name);
       if (iter == cf_options_type_info.end()) {
@@ -805,17 +875,19 @@ Status ParseColumnFamilyOption(const std::string& name,
   return Status::OK();
 }
 
-bool SerializeSingleDBOption(std::string* opt_string,
-                             const DBOptions& db_options,
-                             const std::string& name,
-                             const std::string& delimiter) {
-  auto iter = db_options_type_info.find(name);
-  if (iter == db_options_type_info.end()) {
+template<typename T>
+bool SerializeSingleStructOption(std::string* opt_string,
+                                    const T& options,
+                                    const std::unordered_map<std::string, OptionTypeInfo> type_info,
+                                    const std::string& name,
+                                    const std::string& delimiter) {
+  auto iter = type_info.find(name);
+  if (iter == type_info.end()) {
     return false;
   }
   auto& opt_info = iter->second;
   const char* opt_address =
-      reinterpret_cast<const char*>(&db_options) + opt_info.offset;
+      reinterpret_cast<const char*>(&options) + opt_info.offset;
   std::string value;
   bool result = SerializeSingleOptionHelper(opt_address, opt_info.type, &value);
   if (result) {
@@ -824,63 +896,22 @@ bool SerializeSingleDBOption(std::string* opt_string,
   return result;
 }
 
-Status GetStringFromDBOptions(std::string* opt_string,
-                              const DBOptions& db_options,
-                              const std::string& delimiter) {
+template<typename T>
+Status GetStringFromStruct(std::string* opt_string, const T& options,
+    const std::unordered_map<std::string, OptionTypeInfo> type_info,
+    const std::string& delimiter) {
   assert(opt_string);
   opt_string->clear();
-  for (auto iter = db_options_type_info.begin();
-       iter != db_options_type_info.end(); ++iter) {
+  for (auto iter = type_info.begin();
+       iter != type_info.end(); ++iter) {
     if (iter->second.verification == OptionVerificationType::kDeprecated) {
       // If the option is no longer used in rocksdb and marked as deprecated,
       // we skip it in the serialization.
       continue;
     }
     std::string single_output;
-    bool result = SerializeSingleDBOption(&single_output, db_options,
-                                          iter->first, delimiter);
-    assert(result);
-    if (result) {
-      opt_string->append(single_output);
-    }
-  }
-  return Status::OK();
-}
-
-bool SerializeSingleColumnFamilyOption(std::string* opt_string,
-                                       const ColumnFamilyOptions& cf_options,
-                                       const std::string& name,
-                                       const std::string& delimiter) {
-  auto iter = cf_options_type_info.find(name);
-  if (iter == cf_options_type_info.end()) {
-    return false;
-  }
-  auto& opt_info = iter->second;
-  const char* opt_address =
-      reinterpret_cast<const char*>(&cf_options) + opt_info.offset;
-  std::string value;
-  bool result = SerializeSingleOptionHelper(opt_address, opt_info.type, &value);
-  if (result) {
-    *opt_string = name + "=" + value + delimiter;
-  }
-  return result;
-}
-
-Status GetStringFromColumnFamilyOptions(std::string* opt_string,
-                                        const ColumnFamilyOptions& cf_options,
-                                        const std::string& delimiter) {
-  assert(opt_string);
-  opt_string->clear();
-  for (auto iter = cf_options_type_info.begin();
-       iter != cf_options_type_info.end(); ++iter) {
-    if (iter->second.verification == OptionVerificationType::kDeprecated) {
-      // If the option is no longer used in rocksdb and marked as deprecated,
-      // we skip it in the serialization.
-      continue;
-    }
-    std::string single_output;
-    bool result = SerializeSingleColumnFamilyOption(&single_output, cf_options,
-                                                    iter->first, delimiter);
+    bool result = SerializeSingleStructOption<T>(&single_output, options,
+        type_info, iter->first, delimiter);
     if (result) {
       opt_string->append(single_output);
     } else {
@@ -890,6 +921,18 @@ Status GetStringFromColumnFamilyOptions(std::string* opt_string,
     assert(result);
   }
   return Status::OK();
+}
+
+Status GetStringFromDBOptions(std::string* opt_string,
+                              const DBOptions& db_options,
+                              const std::string& delimiter) {
+  return GetStringFromStruct<DBOptions>(opt_string, db_options, db_options_type_info, delimiter);
+}
+
+Status GetStringFromColumnFamilyOptions(std::string* opt_string,
+                                        const ColumnFamilyOptions& cf_options,
+                                        const std::string& delimiter) {
+  return GetStringFromStruct<ColumnFamilyOptions>(opt_string, cf_options, cf_options_type_info, delimiter);
 }
 
 Status GetStringFromCompressionType(std::string* compression_str,

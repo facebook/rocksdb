@@ -496,7 +496,7 @@ TEST_F(CompactionPickerTest, NeedsCompactionFIFO) {
   const uint64_t kMaxSize = kFileSize * kFileCount / 2;
 
   fifo_options_.max_table_files_size = kMaxSize;
-  ioptions_.compaction_options_fifo = fifo_options_;
+  mutable_cf_options_.compaction_options_fifo = fifo_options_;
   FIFOCompactionPicker fifo_compaction_picker(ioptions_, &icmp_);
   UpdateVersionStorageInfo();
   // must return false when there's no files.

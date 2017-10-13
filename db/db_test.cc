@@ -4289,6 +4289,9 @@ TEST_F(DBTest, DynamicCompactionOptions) {
   }
   dbfull()->TEST_WaitForCompact();
   ASSERT_LT(NumTableFilesAtLevel(0), 4);
+
+  // Test compaction_options_fifo
+  //ASSERT_OK(dbfull()->SetOptions({{"compaction_options_fifo", "1048576:10:1"}}));
 }
 #endif  // ROCKSDB_LITE
 
