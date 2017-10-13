@@ -69,21 +69,11 @@ Status Reader::ReadRecord(BlobLogRecord* record, ReadLevel level,
     *blob_offset = next_byte_ + record->GetKeySize();
   }
   switch (level) {
-    case kReadHdrFooter:
+    case kReadHeader:
       file_->Skip(kb_size);
       next_byte_ += kb_size;
-      status =
-          file_->Read(BlobLogRecord::kFooterSize, &buffer_, GetReadBuffer());
-      next_byte_ += buffer_.size();
-      if (!status.ok()) return status;
-      if (buffer_.size() != BlobLogRecord::kFooterSize) {
-        return Status::IOError("EOF reached before record footer");
-      }
 
-      status = record->DecodeFooterFrom(buffer_);
-      return status;
-
-    case kReadHdrKeyFooter:
+    case kReadHeaderKey:
       record->ResizeKeyBuffer(record->GetKeySize());
       status = file_->Read(record->GetKeySize(), &record->key_,
                            record->GetKeyBuffer());
@@ -103,18 +93,7 @@ Status Reader::ReadRecord(BlobLogRecord* record, ReadLevel level,
       file_->Skip(record->GetBlobSize());
       next_byte_ += record->GetBlobSize();
 
-      status =
-          file_->Read(BlobLogRecord::kFooterSize, &buffer_, GetReadBuffer());
-      next_byte_ += buffer_.size();
-      if (!status.ok()) return status;
-      if (buffer_.size() != BlobLogRecord::kFooterSize) {
-        return Status::IOError("EOF reached during footer read");
-      }
-
-      status = record->DecodeFooterFrom(buffer_);
-      return status;
-
-    case kReadHdrKeyBlobFooter:
+    case kReadHeaderKeyBlob:
       record->ResizeKeyBuffer(record->GetKeySize());
       status = file_->Read(record->GetKeySize(), &record->key_,
                            record->GetKeyBuffer());
@@ -146,21 +125,8 @@ Status Reader::ReadRecord(BlobLogRecord* record, ReadLevel level,
       if (blob_crc != record->checksum_) {
         return Status::Corruption("Blob Checksum mismatch");
       }
-
-      status =
-          file_->Read(BlobLogRecord::kFooterSize, &buffer_, GetReadBuffer());
-      next_byte_ += buffer_.size();
-      if (!status.ok()) return status;
-      if (buffer_.size() != BlobLogRecord::kFooterSize) {
-        return Status::IOError("EOF reached during blob footer read");
-      }
-
-      status = record->DecodeFooterFrom(buffer_);
-      return status;
-    default:
-      assert(0);
-      return status;
   }
+  return status;
 }
 
 }  // namespace blob_db

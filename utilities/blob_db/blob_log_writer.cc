@@ -2,7 +2,6 @@
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
-//
 #ifndef ROCKSDB_LITE
 
 #include "utilities/blob_db/blob_log_writer.h"
@@ -53,7 +52,7 @@ Status Writer::WriteHeader(const BlobLogHeader& header) {
 
 Status Writer::AppendFooter(const BlobLogFooter& footer) {
   assert(block_offset_ != 0);
-  assert(last_elem_type_ == kEtFileHdr || last_elem_type_ == kEtFooter);
+  assert(last_elem_type_ == kEtFileHdr || last_elem_type_ == kEtRecord);
 
   std::string str;
   footer.EncodeTo(&str);
@@ -73,7 +72,7 @@ Status Writer::AddRecord(const Slice& key, const Slice& val,
                          uint64_t* key_offset, uint64_t* blob_offset,
                          uint64_t ttl) {
   assert(block_offset_ != 0);
-  assert(last_elem_type_ == kEtFileHdr || last_elem_type_ == kEtFooter);
+  assert(last_elem_type_ == kEtFileHdr || last_elem_type_ == kEtRecord);
 
   std::string buf;
   ConstructBlobHeader(&buf, key, val, ttl, -1);
@@ -85,7 +84,7 @@ Status Writer::AddRecord(const Slice& key, const Slice& val,
 Status Writer::AddRecord(const Slice& key, const Slice& val,
                          uint64_t* key_offset, uint64_t* blob_offset) {
   assert(block_offset_ != 0);
-  assert(last_elem_type_ == kEtFileHdr || last_elem_type_ == kEtFooter);
+  assert(last_elem_type_ == kEtFileHdr || last_elem_type_ == kEtRecord);
 
   std::string buf;
   ConstructBlobHeader(&buf, key, val, -1, -1);
@@ -141,25 +140,6 @@ Status Writer::EmitPhysicalRecord(const std::string& headerbuf,
   *blob_offset = *key_offset + key.size();
   block_offset_ = *blob_offset + val.size();
   last_elem_type_ = kEtRecord;
-  return s;
-}
-
-Status Writer::AddRecordFooter(const SequenceNumber& seq) {
-  assert(last_elem_type_ == kEtRecord);
-
-  std::string buf;
-  PutFixed64(&buf, seq);
-
-  uint32_t footer_crc = crc32c::Extend(0, buf.c_str(), buf.size());
-  footer_crc = crc32c::Mask(footer_crc);
-  PutFixed32(&buf, footer_crc);
-
-  Status s = dest_->Append(Slice(buf));
-  block_offset_ += BlobLogRecord::kFooterSize;
-
-  if (s.ok()) dest_->Flush();
-
-  last_elem_type_ = kEtFooter;
   return s;
 }
 
