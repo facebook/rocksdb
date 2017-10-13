@@ -281,21 +281,18 @@ bool ParseSingleFIFOCompactionOption(const std::string& option,
     // was assigned a single scalar value, say, like "23", which would be
     // assigned to max_table_files_size.
     compaction_options_fifo->max_table_files_size = ParseUint64(option);
-    // compaction_options_fifo->ttl = 0;
-    // compaction_options_fifo->allow_compaction = false;
     return true;
   } else {
     std::string key = option.substr(0, end);
     std::string value = option.substr(end + 1);
-    if (key == "max_table_files_size") {
-      compaction_options_fifo->max_table_files_size = ParseUint64(value);
-    } else if (key == "ttl") {
-      compaction_options_fifo->ttl = ParseUint64(value);
-    } else if (key == "allow_compaction") {
-      compaction_options_fifo->allow_compaction = ParseBoolean("", value);
-    } else {
+    auto iter = fifo_compaction_options_type_info.find(key);
+    if (iter == fifo_compaction_options_type_info.end()) {
       return false;
     }
+    const auto& opt_info = iter->second;
+    return ParseOptionHelper(
+        reinterpret_cast<char*>(compaction_options_fifo) + opt_info.mutable_offset,
+        opt_info.type, value);
   }
   return true;
 }
@@ -320,6 +317,7 @@ bool ParseFIFOCompactionOptions(
   }
   return true;
 }
+
 
 bool ParseSliceTransformHelper(
     const std::string& kFixedPrefixName, const std::string& kCappedPrefixName,
