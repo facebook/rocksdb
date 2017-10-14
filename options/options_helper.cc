@@ -283,7 +283,7 @@ bool SerializeStruct(
     const T& options, std::string* value,
     std::unordered_map<std::string, OptionTypeInfo> type_info_map) {
   std::string opt_str;
-  Status s = GetStringFromStruct<T>(&opt_str, options, type_info_map, ";");
+  Status s = GetStringFromStruct(&opt_str, options, type_info_map, ";");
   if (!s.ok()) {
     return false;
   }
@@ -458,7 +458,7 @@ bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
       return ParseEnum<InfoLogLevel>(
           info_log_level_string_map, value,
           reinterpret_cast<InfoLogLevel*>(opt_address));
-    case OptionType::kCompactionOptionsFIFO:
+    case OptionType::kCompactionOptionsFIFO: {
       if (!FIFOCompactionOptionsSpecialCase(
               value, reinterpret_cast<CompactionOptionsFIFO*>(opt_address))) {
         return ParseStructOptions<CompactionOptionsFIFO>(
@@ -466,6 +466,7 @@ bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
             fifo_compaction_options_type_info);
       }
       return true;
+    }
     default:
       return false;
   }

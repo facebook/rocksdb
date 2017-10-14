@@ -179,9 +179,6 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.compaction_pri, kOldestSmallestSeqFirst);
   ASSERT_EQ(new_cf_opt.compaction_options_fifo.max_table_files_size,
             static_cast<uint64_t>(23));
-  // ASSERT_EQ(new_cf_opt.compaction_options_fifo.ttl,
-  //           static_cast<uint64_t>(7));
-  // ASSERT_EQ(new_cf_opt.compaction_options_fifo.allow_compaction, true);
   ASSERT_EQ(new_cf_opt.max_sequential_skip_in_iterations,
             static_cast<uint64_t>(24));
   ASSERT_EQ(new_cf_opt.inplace_update_support, true);

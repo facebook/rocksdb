@@ -598,8 +598,6 @@ bool AreEqualOptions(
       }
       return false;
     }
-      // return (*reinterpret_cast<const CompactionOptionsFIFO*>(offset1) ==
-      //         *reinterpret_cast<const CompactionOptionsFIFO*>(offset2));
     default:
       if (type_info.verification == OptionVerificationType::kByName ||
           type_info.verification ==
