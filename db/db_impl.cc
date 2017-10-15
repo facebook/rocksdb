@@ -1616,6 +1616,25 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
   {
     InstrumentedMutexLock l(&mutex_);
     snapshots_.Delete(casted_s);
+    uint64_t oldest_snapshot;
+    if (snapshots_.empty()) {
+      oldest_snapshot = versions_->LastSequence();
+    } else {
+      oldest_snapshot = snapshots_.oldest()->number_;
+    }
+    // TODO(ajkr): can we store lowest snapshot seqnum that triggers bottom file
+    // compaction, thus avoiding iterating CFDs when there is definitely nothing
+    // to compact?
+    for (auto* cfd : *versions_->GetColumnFamilySet()) {
+      cfd->current()->storage_info()->UpdateOldestSnapshot(oldest_snapshot);
+      if (!cfd->current()
+               ->storage_info()
+               ->BottommostFilesMarkedForCompaction()
+               .empty()) {
+        SchedulePendingCompaction(cfd);
+        MaybeScheduleFlushOrCompaction();
+      }
+    }
   }
   delete casted_s;
 }
