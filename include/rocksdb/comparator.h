@@ -21,7 +21,7 @@ class Slice;
 // from multiple threads.
 class Comparator {
  public:
-  virtual ~Comparator();
+  virtual ~Comparator() {}
 
   // Three-way comparison.  Returns value:
   //   < 0 iff "a" < "b",
