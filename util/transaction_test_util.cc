@@ -132,6 +132,7 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
       } else {
         batch.Put(key, sum);
       }
+      bytes_inserted_ += key.size() + sum.size();
     }
   }
 
