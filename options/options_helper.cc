@@ -26,12 +26,6 @@
 
 namespace rocksdb {
 
-template <typename T>
-Status GetStringFromStruct(
-    std::string* opt_string, const T& options,
-    const std::unordered_map<std::string, OptionTypeInfo> type_info,
-    const std::string& delimiter);
-
 DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
                          const MutableDBOptions& mutable_db_options) {
   DBOptions options;
@@ -188,6 +182,12 @@ ColumnFamilyOptions BuildColumnFamilyOptions(
 }
 
 #ifndef ROCKSDB_LITE
+
+template <typename T>
+Status GetStringFromStruct(
+    std::string* opt_string, const T& options,
+    const std::unordered_map<std::string, OptionTypeInfo> type_info,
+    const std::string& delimiter);
 
 namespace {
 template <typename T>
