@@ -2316,15 +2316,21 @@ TEST_F(DBTest2, ReduceLevel) {
   Put("foo", "bar");
   Flush();
   MoveFilesToLevel(6);
+#ifndef ROCKSDB_LITE
   ASSERT_EQ("0,0,0,0,0,0,1", FilesPerLevel());
+#endif  // !ROCKSDB_LITE
   CompactRangeOptions compact_options;
   compact_options.change_level = true;
   compact_options.target_level = 1;
   dbfull()->CompactRange(compact_options, nullptr, nullptr);
+#ifndef ROCKSDB_LITE
   ASSERT_EQ("0,1", FilesPerLevel());
+#endif  // !ROCKSDB_LITE
   options.num_levels = 3;
   Reopen(options);
+#ifndef ROCKSDB_LITE
   ASSERT_EQ("0,1", FilesPerLevel());
+#endif  // !ROCKSDB_LITE
 }
 
 // Test that ReadCallback is actually used in both memtbale and sst tables
@@ -2358,14 +2364,18 @@ TEST_F(DBTest2, ReadCallbackTest) {
   }
   Flush();
   MoveFilesToLevel(6);
+#ifndef ROCKSDB_LITE
   ASSERT_EQ("0,0,0,0,0,0,2", FilesPerLevel());
+#endif  // !ROCKSDB_LITE
   for (; i < 30; i++) {
     Put(key, value + std::to_string(i));
     auto snapshot = dbfull()->GetSnapshot();
     snapshots.push_back(snapshot);
   }
   Flush();
+#ifndef ROCKSDB_LITE
   ASSERT_EQ("1,0,0,0,0,0,2", FilesPerLevel());
+#endif  // !ROCKSDB_LITE
   // And also add some values to the memtable
   for (; i < 40; i++) {
     Put(key, value + std::to_string(i));

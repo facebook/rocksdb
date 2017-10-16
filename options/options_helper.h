@@ -42,6 +42,9 @@ static std::map<CompactionStopStyle, std::string>
         {kCompactionStopStyleSimilarSize, "kCompactionStopStyleSimilarSize"},
         {kCompactionStopStyleTotalSize, "kCompactionStopStyleTotalSize"}};
 
+static std::unordered_map<std::string, ChecksumType> checksum_type_string_map =
+    {{"kNoChecksum", kNoChecksum}, {"kCRC32c", kCRC32c}, {"kxxHash", kxxHash}};
+
 #ifndef ROCKSDB_LITE
 
 Status GetMutableOptionsFromStrings(
@@ -608,9 +611,6 @@ static std::unordered_map<std::string, BlockBasedTableOptions::IndexType>
 
 static std::unordered_map<std::string, EncodingType> encoding_type_string_map =
     {{"kPlain", kPlain}, {"kPrefix", kPrefix}};
-
-static std::unordered_map<std::string, ChecksumType> checksum_type_string_map =
-    {{"kNoChecksum", kNoChecksum}, {"kCRC32c", kCRC32c}, {"kxxHash", kxxHash}};
 
 static std::unordered_map<std::string, CompactionStyle>
     compaction_style_string_map = {
