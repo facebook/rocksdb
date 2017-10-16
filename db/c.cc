@@ -1973,6 +1973,11 @@ void rocksdb_options_optimize_universal_style_compaction(
   opt->rep.OptimizeUniversalStyleCompaction(memtable_memory_budget);
 }
 
+void rocksdb_options_set_allow_ingest_behind(
+    rocksdb_options_t* opt, unsigned char v) {
+  opt->rep.allow_ingest_behind = v;
+}
+
 void rocksdb_options_set_compaction_filter(
     rocksdb_options_t* opt,
     rocksdb_compactionfilter_t* filter) {
@@ -2955,6 +2960,12 @@ void rocksdb_ingestexternalfileoptions_set_allow_blocking_flush(
     rocksdb_ingestexternalfileoptions_t* opt,
     unsigned char allow_blocking_flush) {
   opt->rep.allow_blocking_flush = allow_blocking_flush;
+}
+
+void rocksdb_ingestexternalfileoptions_set_ingest_behind(
+    rocksdb_ingestexternalfileoptions_t* opt,
+    unsigned char ingest_behind) {
+  opt->rep.ingest_behind = ingest_behind;
 }
 
 void rocksdb_ingestexternalfileoptions_destroy(
