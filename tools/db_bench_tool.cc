@@ -4944,6 +4944,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     if (FLAGS_perf_level > rocksdb::PerfLevel::kDisable) {
       thread->stats.AddMessage(get_perf_context()->ToString());
     }
+    thread->stats.AddBytes(static_cast<int64_t>(inserter.GetBytesInserted()));
   }
 
   // Verifies consistency of data after RandomTransaction() has been run.
