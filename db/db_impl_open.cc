@@ -575,7 +575,9 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       SequenceNumber sequence = WriteBatchInternal::Sequence(&batch);
 
       if (immutable_db_options_.wal_recovery_mode ==
-          WALRecoveryMode::kPointInTimeRecovery) {
+          WALRecoveryMode::kPointInTimeRecovery ||
+          immutable_db_options_.wal_recovery_mode ==
+          WALRecoveryMode::kTolerateCorruptedTailRecords ) {
         // In point-in-time recovery mode, if sequence id of log files are
         // consecutive, we continue recovery despite corruption. This could
         // happen when we open and write to a corrupted DB, where sequence id
@@ -721,6 +723,8 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
         // We should ignore all errors unconditionally
         status = Status::OK();
       } else if (immutable_db_options_.wal_recovery_mode ==
+                 WALRecoveryMode::kTolerateCorruptedTailRecords ||
+                 immutable_db_options_.wal_recovery_mode ==
                  WALRecoveryMode::kPointInTimeRecovery) {
         // We should ignore the error but not continue replaying
         status = Status::OK();
@@ -732,8 +736,6 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
                        log_number, *next_sequence);
       } else {
         assert(immutable_db_options_.wal_recovery_mode ==
-                   WALRecoveryMode::kTolerateCorruptedTailRecords ||
-               immutable_db_options_.wal_recovery_mode ==
                    WALRecoveryMode::kAbsoluteConsistency);
         return status;
       }

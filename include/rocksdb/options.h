@@ -275,7 +275,7 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
 enum class WALRecoveryMode : char {
   // Original levelDB recovery
   // We tolerate incomplete record in trailing data on all logs
-  // Use case : This is legacy behavior (default)
+  // Use case : This is now equivalent to PointInTimeRecovery (default)
   kTolerateCorruptedTailRecords = 0x00,
   // Recover from clean shutdown
   // We don't expect to find any corruption in the WAL
