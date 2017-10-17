@@ -1025,6 +1025,8 @@ Status BlobDBImpl::PutUntil(const WriteOptions& options, const Slice& key,
     if (expiration != kNoExpiration) {
       extendTTL(&(bfile->ttl_range_), expiration);
     }
+
+    s = CloseBlobFileIfNeeded(bfile);
   }
 
   TEST_SYNC_POINT("BlobDBImpl::PutUntil:Finish");
