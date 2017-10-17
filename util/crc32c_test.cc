@@ -25,13 +25,13 @@ TEST(CRC, StandardResults) {
   memset(buf, 0xff, sizeof(buf));
   ASSERT_EQ(0x62a8ab43U, Value(buf, sizeof(buf)));
 
-  for (char i = 0; i < 32; i++) {
-    buf[i] = i;
+  for (int i = 0; i < 32; i++) {
+    buf[i] = static_cast<char>(i);
   }
   ASSERT_EQ(0x46dd794eU, Value(buf, sizeof(buf)));
 
-  for (char i = 0; i < 32; i++) {
-    buf[i] = 31 - i;
+  for (int i = 0; i < 32; i++) {
+    buf[i] = static_cast<char>(31 - i);
   }
   ASSERT_EQ(0x113fdb5cU, Value(buf, sizeof(buf)));
 
