@@ -15,6 +15,7 @@
 
 namespace rocksdb {
 
+// conversion' conversion from 'type1' to 'type2', possible loss of data
 #pragma warning(disable : 4244)
 char* EncodeVarint32(char* dst, uint32_t v) {
   // Operate on characters as unsigneds

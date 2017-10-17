@@ -411,7 +411,7 @@ void print_help() {
 
 int SSTDumpTool::Run(int argc, char** argv) {
   const char* dir_or_file = nullptr;
-  uint64_t read_num = uint64_t(-1);
+  uint64_t read_num = std::numeric_limits<uint64_t>::max();
   std::string command;
 
   char junk;
