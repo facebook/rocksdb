@@ -32,9 +32,9 @@ namespace blob_db {
 class Reader {
  public:
   enum ReadLevel {
-    kReadHdrFooter,
-    kReadHdrKeyFooter,
-    kReadHdrKeyBlobFooter,
+    kReadHeader,
+    kReadHeaderKey,
+    kReadHeaderKeyBlob,
   };
 
   // Create a reader that will return log records from "*file".
@@ -61,7 +61,7 @@ class Reader {
   // will only be valid until the next mutating operation on this
   // reader or the next mutation to *scratch.
   // If blob_offset is non-null, return offset of the blob through it.
-  Status ReadRecord(BlobLogRecord* record, ReadLevel level = kReadHdrFooter,
+  Status ReadRecord(BlobLogRecord* record, ReadLevel level = kReadHeader,
                     uint64_t* blob_offset = nullptr);
 
   SequentialFileReader* file() { return file_.get(); }

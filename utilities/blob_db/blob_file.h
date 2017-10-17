@@ -147,6 +147,11 @@ class BlobFile {
     return header_.HasTimestamp();
   }
 
+  void ExtendSequenceRange(SequenceNumber sequence) {
+    sn_range_.first = std::min(sn_range_.first, sequence);
+    sn_range_.second = std::max(sn_range_.second, sequence);
+  }
+
   std::shared_ptr<Writer> GetWriter() const { return log_writer_; }
 
   void Fsync();

@@ -2,7 +2,6 @@
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
-//
 #pragma once
 
 #ifndef ROCKSDB_LITE
@@ -53,8 +52,6 @@ class Writer {
                             const Slice& val, uint64_t* key_offset,
                             uint64_t* blob_offset);
 
-  Status AddRecordFooter(const SequenceNumber& sn);
-
   Status AppendFooter(const BlobLogFooter& footer);
 
   Status WriteHeader(const BlobLogHeader& header);
@@ -89,7 +86,7 @@ class Writer {
   Writer& operator=(const Writer&) = delete;
 
  public:
-  enum ElemType { kEtNone, kEtFileHdr, kEtRecord, kEtFooter, kEtFileFooter };
+  enum ElemType { kEtNone, kEtFileHdr, kEtRecord, kEtFileFooter };
   ElemType last_elem_type_;
 };
 

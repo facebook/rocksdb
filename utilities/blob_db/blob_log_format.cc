@@ -224,7 +224,6 @@ BlobLogRecord::BlobLogRecord()
       blob_size_(0),
       time_val_(0),
       ttl_val_(0),
-      sn_(0),
       type_(0),
       subtype_(0) {}
 
@@ -249,7 +248,6 @@ void BlobLogRecord::Clear() {
   blob_size_ = 0;
   time_val_ = 0;
   ttl_val_ = 0;
-  sn_ = 0;
   type_ = subtype_ = 0;
   key_.clear();
   blob_.clear();
@@ -284,30 +282,6 @@ Status BlobLogRecord::DecodeHeaderFrom(const Slice& hdrslice) {
   }
   if (!GetFixed32(&input, &checksum_)) {
     return Status::Corruption("Invalid Blob Record Header: checksum");
-  }
-
-  return Status::OK();
-}
-
-Status BlobLogRecord::DecodeFooterFrom(const Slice& footerslice) {
-  Slice input = footerslice;
-  if (input.size() < kFooterSize) {
-    return Status::Corruption("Invalid Blob Record Footer: size");
-  }
-
-  uint32_t f_crc = crc32c::Extend(0, input.data(), 8);
-  f_crc = crc32c::Mask(f_crc);
-
-  if (!GetFixed64(&input, &sn_)) {
-    return Status::Corruption("Invalid Blob Record Footer: sn");
-  }
-
-  if (!GetFixed32(&input, &footer_cksum_)) {
-    return Status::Corruption("Invalid Blob Record Footer: cksum");
-  }
-
-  if (f_crc != footer_cksum_) {
-    return Status::Corruption("Record Checksum mismatch: footer_cksum");
   }
 
   return Status::OK();

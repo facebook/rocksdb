@@ -188,8 +188,6 @@ class BlobLogRecord {
   uint64_t blob_size_;
   uint64_t time_val_;
   uint64_t ttl_val_;
-  SequenceNumber sn_;
-  uint32_t footer_cksum_;
   char type_;
   char subtype_;
   Slice key_;
@@ -218,8 +216,6 @@ class BlobLogRecord {
   // = 42
   static const size_t kHeaderSize = 4 + 4 + 8 + 8 + 4 + 8 + 1 + 1;
 
-  static const size_t kFooterSize = 8 + 4;
-
  public:
   BlobLogRecord();
 
@@ -245,17 +241,11 @@ class BlobLogRecord {
 
   char subtype() const { return subtype_; }
 
-  SequenceNumber GetSN() const { return sn_; }
-
   uint32_t header_checksum() const { return header_cksum_; }
 
   uint32_t checksum() const { return checksum_; }
 
-  uint32_t footer_checksum() const { return footer_cksum_; }
-
   Status DecodeHeaderFrom(const Slice& hdrslice);
-
-  Status DecodeFooterFrom(const Slice& footerslice);
 };
 
 }  // namespace blob_db
