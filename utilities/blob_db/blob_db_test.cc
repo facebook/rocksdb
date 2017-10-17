@@ -88,9 +88,14 @@ class BlobDBTest : public testing::Test {
 
   void PutRandom(const std::string &key, Random *rnd,
                  std::map<std::string, std::string> *data = nullptr) {
+    PutRandom(blob_db_, key, rnd, data);
+  }
+
+  void PutRandom(DB *db, const std::string &key, Random *rnd,
+                 std::map<std::string, std::string> *data = nullptr) {
     int len = rnd->Next() % kMaxBlobSize + 1;
     std::string value = test::RandomHumanReadableString(rnd, len);
-    ASSERT_OK(blob_db_->Put(WriteOptions(), Slice(key), Slice(value)));
+    ASSERT_OK(db->Put(WriteOptions(), Slice(key), Slice(value)));
     if (data != nullptr) {
       (*data)[key] = value;
     }
@@ -116,9 +121,12 @@ class BlobDBTest : public testing::Test {
   }
 
   // Verify blob db contain expected data and nothing more.
-  // TODO(yiwu): Verify blob files are consistent with data in LSM.
   void VerifyDB(const std::map<std::string, std::string> &data) {
-    Iterator *iter = blob_db_->NewIterator(ReadOptions());
+    VerifyDB(blob_db_, data);
+  }
+
+  void VerifyDB(DB *db, const std::map<std::string, std::string> &data) {
+    Iterator *iter = db->NewIterator(ReadOptions());
     iter->SeekToFirst();
     for (auto &p : data) {
       ASSERT_TRUE(iter->Valid());
@@ -593,7 +601,7 @@ TEST_F(BlobDBTest, GCRelocateKeyWhileOverwriting) {
   ASSERT_OK(blob_db_impl->TEST_CloseBlobFile(blob_files[0]));
 
   SyncPoint::GetInstance()->LoadDependency(
-      {{"BlobDBImpl::GCFileAndUpdateLSM:AfterGetForUpdate",
+      {{"BlobDBImpl::GCFileAndUpdateLSM:AfterGetFromBaseDB",
         "BlobDBImpl::PutUntil:Start"},
        {"BlobDBImpl::PutUntil:Finish",
         "BlobDBImpl::GCFileAndUpdateLSM:BeforeRelocate"}});
@@ -630,7 +638,7 @@ TEST_F(BlobDBTest, GCExpiredKeyWhileOverwriting) {
   mock_env_->set_now_micros(300 * 1000000);
 
   SyncPoint::GetInstance()->LoadDependency(
-      {{"BlobDBImpl::GCFileAndUpdateLSM:AfterGetForUpdate",
+      {{"BlobDBImpl::GCFileAndUpdateLSM:AfterGetFromBaseDB",
         "BlobDBImpl::PutUntil:Start"},
        {"BlobDBImpl::PutUntil:Finish",
         "BlobDBImpl::GCFileAndUpdateLSM:BeforeDelete"}});
@@ -687,7 +695,7 @@ TEST_F(BlobDBTest, GCOldestSimpleBlobFileWhenOutOfSpace) {
 
 TEST_F(BlobDBTest, ReadWhileGC) {
   // run the same test for Get(), MultiGet() and Iterator each.
-  for (int i = 0; i < 3; i++) {
+  for (int i = 0; i < 2; i++) {
     BlobDBOptions bdb_options;
     bdb_options.disable_background_tasks = true;
     Open(bdb_options);
@@ -710,17 +718,10 @@ TEST_F(BlobDBTest, ReadWhileGC) {
         break;
       case 1:
         SyncPoint::GetInstance()->LoadDependency(
-            {{"BlobDBImpl::MultiGet:AfterIndexEntryGet:1",
+            {{"BlobDBIterator::UpdateBlobValue:Start:1",
               "BlobDBTest::ReadWhileGC:1"},
              {"BlobDBTest::ReadWhileGC:2",
-              "BlobDBImpl::MultiGet:AfterIndexEntryGet:2"}});
-        break;
-      case 2:
-        SyncPoint::GetInstance()->LoadDependency(
-            {{"BlobDBIterator::value:BeforeGetBlob:1",
-              "BlobDBTest::ReadWhileGC:1"},
-             {"BlobDBTest::ReadWhileGC:2",
-              "BlobDBIterator::value:BeforeGetBlob:2"}});
+              "BlobDBIterator::UpdateBlobValue:Start:2"}});
         break;
     }
     SyncPoint::GetInstance()->EnableProcessing();
@@ -735,12 +736,6 @@ TEST_F(BlobDBTest, ReadWhileGC) {
           ASSERT_EQ("bar", value);
           break;
         case 1:
-          statuses = blob_db_->MultiGet(ReadOptions(), {"foo"}, &values);
-          ASSERT_EQ(1, statuses.size());
-          ASSERT_EQ(1, values.size());
-          ASSERT_EQ("bar", values[0]);
-          break;
-        case 2:
           // VerifyDB use iterator to scan the DB.
           VerifyDB({{"foo", "bar"}});
           break;
@@ -832,6 +827,58 @@ TEST_F(BlobDBTest, GetLiveFilesMetaData) {
   ASSERT_EQ(4U, livefile.size());
   ASSERT_EQ(filename, livefile[3]);
   VerifyDB(data);
+}
+
+TEST_F(BlobDBTest, MigrateFromPlainRocksDB) {
+  constexpr size_t kNumKey = 20;
+  constexpr size_t kNumIteration = 10;
+  Random rnd(301);
+  std::map<std::string, std::string> data;
+  std::vector<bool> is_blob(kNumKey, false);
+
+  // Write to plain rocksdb.
+  Options options;
+  options.create_if_missing = true;
+  DB *db = nullptr;
+  ASSERT_OK(DB::Open(options, dbname_, &db));
+  for (size_t i = 0; i < kNumIteration; i++) {
+    auto key_index = rnd.Next() % kNumKey;
+    std::string key = "key" + ToString(key_index);
+    PutRandom(db, key, &rnd, &data);
+  }
+  VerifyDB(db, data);
+  delete db;
+  db = nullptr;
+
+  // Open as blob db. Verify it can read existing data.
+  Open();
+  VerifyDB(blob_db_, data);
+  for (size_t i = 0; i < kNumIteration; i++) {
+    auto key_index = rnd.Next() % kNumKey;
+    std::string key = "key" + ToString(key_index);
+    is_blob[key_index] = true;
+    PutRandom(blob_db_, key, &rnd, &data);
+  }
+  VerifyDB(blob_db_, data);
+  delete blob_db_;
+  blob_db_ = nullptr;
+
+  // Verify plain db return error for keys written by blob db.
+  ASSERT_OK(DB::Open(options, dbname_, &db));
+  std::string value;
+  for (size_t i = 0; i < kNumKey; i++) {
+    std::string key = "key" + ToString(i);
+    Status s = db->Get(ReadOptions(), key, &value);
+    if (data.count(key) == 0) {
+      ASSERT_TRUE(s.IsNotFound());
+    } else if (is_blob[i]) {
+      ASSERT_TRUE(s.IsNotSupported());
+    } else {
+      ASSERT_OK(s);
+      ASSERT_EQ(data[key], value);
+    }
+  }
+  delete db;
 }
 
 }  //  namespace blob_db

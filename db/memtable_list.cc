@@ -109,14 +109,13 @@ bool MemTableListVersion::Get(const LookupKey& key, std::string* value,
                      seq, read_opts, callback, is_blob_index);
 }
 
-bool MemTableListVersion::GetFromHistory(const LookupKey& key,
-                                         std::string* value, Status* s,
-                                         MergeContext* merge_context,
-                                         RangeDelAggregator* range_del_agg,
-                                         SequenceNumber* seq,
-                                         const ReadOptions& read_opts) {
+bool MemTableListVersion::GetFromHistory(
+    const LookupKey& key, std::string* value, Status* s,
+    MergeContext* merge_context, RangeDelAggregator* range_del_agg,
+    SequenceNumber* seq, const ReadOptions& read_opts, bool* is_blob_index) {
   return GetFromList(&memlist_history_, key, value, s, merge_context,
-                     range_del_agg, seq, read_opts);
+                     range_del_agg, seq, read_opts, nullptr /*read_callback*/,
+                     is_blob_index);
 }
 
 bool MemTableListVersion::GetFromList(
