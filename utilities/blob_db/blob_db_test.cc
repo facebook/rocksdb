@@ -541,43 +541,6 @@ TEST_F(BlobDBTest, MultipleWriters) {
   VerifyDB(data);
 }
 
-// Test sequence number store in blob file is correct.
-TEST_F(BlobDBTest, SequenceNumber) {
-  Random rnd(301);
-  BlobDBOptions bdb_options;
-  bdb_options.disable_background_tasks = true;
-  Open(bdb_options);
-  SequenceNumber sequence = blob_db_->GetLatestSequenceNumber();
-  BlobDBImpl *blob_db_impl =
-      static_cast_with_check<BlobDBImpl, BlobDB>(blob_db_);
-  for (int i = 0; i < 100; i++) {
-    std::string key = "key" + ToString(i);
-    PutRandom(key, &rnd);
-    sequence += 1;
-    ASSERT_EQ(sequence, blob_db_->GetLatestSequenceNumber());
-    SequenceNumber actual_sequence = 0;
-    ASSERT_OK(blob_db_impl->TEST_GetSequenceNumber(key, &actual_sequence));
-    ASSERT_EQ(sequence, actual_sequence);
-  }
-  for (int i = 0; i < 100; i++) {
-    WriteBatch batch;
-    size_t batch_size = rnd.Next() % 10 + 1;
-    for (size_t k = 0; k < batch_size; k++) {
-      std::string value = test::RandomHumanReadableString(&rnd, 1000);
-      ASSERT_OK(batch.Put("key" + ToString(i) + "-" + ToString(k), value));
-    }
-    ASSERT_OK(blob_db_->Write(WriteOptions(), &batch));
-    for (size_t k = 0; k < batch_size; k++) {
-      std::string key = "key" + ToString(i) + "-" + ToString(k);
-      sequence++;
-      SequenceNumber actual_sequence;
-      ASSERT_OK(blob_db_impl->TEST_GetSequenceNumber(key, &actual_sequence));
-      ASSERT_EQ(sequence, actual_sequence);
-    }
-    ASSERT_EQ(sequence, blob_db_->GetLatestSequenceNumber());
-  }
-}
-
 TEST_F(BlobDBTest, GCAfterOverwriteKeys) {
   Random rnd(301);
   BlobDBOptions bdb_options;

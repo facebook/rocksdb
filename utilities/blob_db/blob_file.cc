@@ -5,8 +5,14 @@
 #ifndef ROCKSDB_LITE
 #include "utilities/blob_db/blob_file.h"
 
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
+#include <inttypes.h>
 #include <stdio.h>
-#include <cinttypes>
+
+#include <algorithm>
 #include <memory>
 
 #include "util/filename.h"
