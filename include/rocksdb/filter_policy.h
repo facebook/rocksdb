@@ -46,7 +46,10 @@ class FilterBitsBuilder {
   virtual Slice Finish(std::unique_ptr<const char[]>* buf) = 0;
 
   // Calculate num of entries fit into a space.
+#if defined(_MSC_VER)
+#pragma warning(push)
 #pragma warning(disable : 4702) // unreachable code
+#endif
   virtual int CalculateNumEntry(const uint32_t space) {
 #ifndef ROCKSDB_LITE
     throw std::runtime_error("CalculateNumEntry not Implemented");
@@ -55,7 +58,9 @@ class FilterBitsBuilder {
 #endif
     return 0;
   }
-#pragma warning(default : 4702) // unreachable code
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
 };
 
 // A class that checks if a key can be in filter
