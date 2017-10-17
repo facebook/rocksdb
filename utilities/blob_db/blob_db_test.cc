@@ -86,12 +86,12 @@ class BlobDBTest : public testing::Test {
     }
   }
 
-  void PutRandom(const std::string& key, Random* rnd,
+  void PutRandom(const std::string &key, Random *rnd,
                  std::map<std::string, std::string> *data = nullptr) {
     PutRandom(blob_db_, key, rnd, data);
   }
 
-  void PutRandom(DB* db, const std::string &key, Random *rnd,
+  void PutRandom(DB *db, const std::string &key, Random *rnd,
                  std::map<std::string, std::string> *data = nullptr) {
     int len = rnd->Next() % kMaxBlobSize + 1;
     std::string value = test::RandomHumanReadableString(rnd, len);
@@ -125,7 +125,7 @@ class BlobDBTest : public testing::Test {
     VerifyDB(blob_db_, data);
   }
 
-  void VerifyDB(DB* db, const std::map<std::string, std::string> &data) {
+  void VerifyDB(DB *db, const std::map<std::string, std::string> &data) {
     Iterator *iter = db->NewIterator(ReadOptions());
     iter->SeekToFirst();
     for (auto &p : data) {
@@ -839,7 +839,7 @@ TEST_F(BlobDBTest, MigrateFromPlainRocksDB) {
   // Write to plain rocksdb.
   Options options;
   options.create_if_missing = true;
-  DB* db = nullptr;
+  DB *db = nullptr;
   ASSERT_OK(DB::Open(options, dbname_, &db));
   for (size_t i = 0; i < kNumIteration; i++) {
     auto key_index = rnd.Next() % kNumKey;
