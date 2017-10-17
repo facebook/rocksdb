@@ -32,6 +32,9 @@
 #include "FbsonDocument.h"
 #include "FbsonStream.h"
 
+// conversion' conversion from 'type1' to 'type2', possible loss of data
+// Can not disable as the warnings are emitted at the point of
+// template instantiation
 #pragma warning(disable : 4244)
 
 namespace fbson {
