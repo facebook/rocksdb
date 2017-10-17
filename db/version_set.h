@@ -158,7 +158,6 @@ class VersionStorageInfo {
   // Check whether each file in this version is bottommost (i.e., nothing in its
   // key-range could possibly exist in an older file/level).
   // REQUIRES: This version has not been saved
-  // REQUIRES: DB mutex held
   void UpdateBottommostFiles();
 
   // Updates the oldest snapshot and related internal state, like the bottommost
@@ -453,8 +452,16 @@ class VersionStorageInfo {
   autovector<std::pair<int, FileMetaData*>>
       bottommost_files_marked_for_compaction_;
 
+  // Threshold for needing to mark another bottommost file. Maintain it so we
+  // can quickly check when releasing a snapshot whether more bottommost files
+  // became eligible for compaction. It's defined as the min of the max nonzero
+  // seqnums of unmarked bottommost files.
+  SequenceNumber bottommost_files_mark_threshold_ = kMaxSequenceNumber;
+
   // Monotonically increases as we release old snapshots. Zero indicates no
-  // snapshots have been released yet.
+  // snapshots have been released yet. When no snapshots remain we set it to the
+  // current seqnum, which needs to be protected as a snapshot can still be
+  // created that references it.
   SequenceNumber oldest_snapshot_seqnum_ = 0;
 
   // Level that should be compacted next and its compaction score.

@@ -1622,9 +1622,6 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
     } else {
       oldest_snapshot = snapshots_.oldest()->number_;
     }
-    // TODO(ajkr): can we store lowest snapshot seqnum that triggers bottom file
-    // compaction, thus avoiding iterating CFDs when there is definitely nothing
-    // to compact?
     for (auto* cfd : *versions_->GetColumnFamilySet()) {
       cfd->current()->storage_info()->UpdateOldestSnapshot(oldest_snapshot);
       if (!cfd->current()
