@@ -994,18 +994,6 @@ Status BlobDBImpl::PutUntil(const WriteOptions& options, const Slice& key,
   std::string headerbuf;
   Writer::ConstructBlobHeader(&headerbuf, key, value, expiration, -1);
 
-  // this is another more safer way to do it, where you keep the writeLock
-  // for the entire write path. this will increase latency and reduce
-  // throughput
-  // WriteLock lockbfile_w(&bfile->mutex_);
-  // std::shared_ptr<Writer> writer =
-  // CheckOrCreateWriterLocked(bfile);
-
-  if (debug_level_ >= 3)
-    ROCKS_LOG_DEBUG(
-        db_options_.info_log, ">Adding KEY FILE: %s: KEY: %s VALSZ: %d",
-        bfile->PathName().c_str(), key.ToString().c_str(), value.size());
-
   std::string index_entry;
   Status s = AppendBlob(bfile, headerbuf, key, value, &index_entry);
   if (!s.ok()) {
