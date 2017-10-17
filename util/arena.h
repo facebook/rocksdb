@@ -82,7 +82,7 @@ class Arena : public Allocator {
   }
 
  private:
-  char inline_block_[kInlineSize] __attribute__((__aligned__(sizeof(void*))));
+  char inline_block_[kInlineSize] __attribute__((__aligned__(alignof(max_align_t))));
   // Number of bytes allocated in one block
   const size_t kBlockSize;
   // Array of new[] allocated memory blocks
