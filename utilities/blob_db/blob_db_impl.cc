@@ -768,9 +768,9 @@ Status BlobDBImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
     uint32_t default_cf_id_;
 
    public:
-    explicit BlobInserter(BlobDBImpl* impl, SequenceNumber sequence)
+    BlobInserter(BlobDBImpl* impl, SequenceNumber seq)
         : impl_(impl),
-          sequence_(sequence),
+          sequence_(seq),
           has_put_(false),
           default_cf_id_(reinterpret_cast<ColumnFamilyHandleImpl*>(
                              impl_->DefaultColumnFamily())
