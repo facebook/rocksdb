@@ -252,8 +252,6 @@ class BlobDBImpl : public BlobDB {
   ~BlobDBImpl();
 
 #ifndef NDEBUG
-  Status TEST_GetSequenceNumber(const Slice& key, SequenceNumber* sequence);
-
   std::vector<std::shared_ptr<BlobFile>> TEST_GetBlobFiles() const;
 
   std::vector<std::shared_ptr<BlobFile>> TEST_GetObsoleteFiles() const;
@@ -278,7 +276,7 @@ class BlobDBImpl : public BlobDB {
   bool SetSnapshotIfNeeded(ReadOptions* read_options);
 
   Status CommonGet(const Slice& key, const std::string& index_entry,
-                   std::string* value, SequenceNumber* sequence = nullptr);
+                   std::string* value);
 
   Slice GetCompressedSlice(const Slice& raw,
                            std::string* compression_output) const;
@@ -309,9 +307,6 @@ class BlobDBImpl : public BlobDB {
   Status AppendBlob(const std::shared_ptr<BlobFile>& bfile,
                     const std::string& headerbuf, const Slice& key,
                     const Slice& value, std::string* index_entry);
-
-  Status AppendSN(const std::shared_ptr<BlobFile>& bfile,
-                  const SequenceNumber& sn);
 
   // find an existing blob log file based on the expiration unix epoch
   // if such a file does not exist, return nullptr

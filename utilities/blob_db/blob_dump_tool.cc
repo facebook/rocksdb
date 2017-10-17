@@ -185,7 +185,7 @@ Status BlobDumpTool::DumpRecord(DisplayType show_key, DisplayType show_blob,
   uint32_t header_crc =
       crc32c::Extend(0, slice.data(), slice.size() - 2 * sizeof(uint32_t));
   *offset += BlobLogRecord::kHeaderSize;
-  s = Read(*offset, key_size + blob_size + BlobLogRecord::kFooterSize, &slice);
+  s = Read(*offset, key_size + blob_size, &slice);
   if (!s.ok()) {
     return s;
   }
@@ -207,15 +207,7 @@ Status BlobDumpTool::DumpRecord(DisplayType show_key, DisplayType show_blob,
       DumpSlice(Slice(slice.data() + key_size, blob_size), show_blob);
     }
   }
-  Slice footer_slice(slice.data() + record.GetKeySize() + record.GetBlobSize(),
-                     BlobLogRecord::kFooterSize);
-  s = record.DecodeFooterFrom(footer_slice);
-  if (!s.ok()) {
-    return s;
-  }
-  fprintf(stdout, "  footer CRC : %" PRIu32 "\n", record.footer_checksum());
-  fprintf(stdout, "  sequence   : %" PRIu64 "\n", record.GetSN());
-  *offset += key_size + blob_size + BlobLogRecord::kFooterSize;
+  *offset += key_size + blob_size;
   return s;
 }
 
