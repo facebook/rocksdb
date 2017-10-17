@@ -139,7 +139,9 @@ class DBIter final: public Iterator {
     if (pinned_iters_mgr_.PinningEnabled()) {
       pinned_iters_mgr_.ReleasePinnedData();
     }
-    RecordTick(statistics_, NO_ITERATORS, -1);
+    // Compiler warning issue filed:
+    // https://github.com/facebook/rocksdb/issues/3013
+    RecordTick(statistics_, NO_ITERATORS, uint64_t(-1));
     local_stats_.BumpGlobalStatistics(statistics_);
     if (!arena_mode_) {
       delete iter_;

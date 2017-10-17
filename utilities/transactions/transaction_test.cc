@@ -1153,10 +1153,10 @@ TEST_P(TransactionTest, DISABLED_TwoPhaseMultiThreadTest) {
     if (id % 2 == 0) {
       txn_options.expiration = 1000000;
     }
-    TransactionName name("xid_" + std::string(1, 'A' + id));
+    TransactionName name("xid_" + std::string(1, 'A' + char(id)));
     Transaction* txn = db->BeginTransaction(write_options, txn_options);
     ASSERT_OK(txn->SetName(name));
-    for (int i = 0; i < 10; i++) {
+    for (char i = 0; i < 10; i++) {
       std::string key(name + "_" + std::string(1, 'A' + i));
       ASSERT_OK(txn->Put(key, "val"));
     }
@@ -1208,8 +1208,8 @@ TEST_P(TransactionTest, DISABLED_TwoPhaseMultiThreadTest) {
   std::string value;
   Status s;
   for (uint32_t t = 0; t < NUM_TXN_THREADS; t++) {
-    TransactionName name("xid_" + std::string(1, 'A' + t));
-    for (int i = 0; i < 10; i++) {
+    TransactionName name("xid_" + std::string(1, 'A' + char(t)));
+    for (char i = 0; i < 10; i++) {
       std::string key(name + "_" + std::string(1, 'A' + i));
       s = db->Get(read_options, key, &value);
       ASSERT_OK(s);

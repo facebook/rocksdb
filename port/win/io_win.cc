@@ -675,7 +675,6 @@ Status WinRandomAccessImpl::ReadImpl(uint64_t offset, size_t n, Slice* result,
   }
 
   size_t left = n;
-  char* dest = scratch;
 
   SSIZE_T r = PositionedReadInternal(scratch, left, offset);
   if (r > 0) {

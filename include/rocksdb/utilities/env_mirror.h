@@ -73,6 +73,8 @@ class EnvMirror : public EnvWrapper {
     assert(as == bs);
     return as;
   }
+// logical operation on address of string constant
+#pragma warning(disable : 4130)
   Status GetChildren(const std::string& dir,
                      std::vector<std::string>* r) override {
     std::vector<std::string> ar, br;
@@ -87,6 +89,7 @@ class EnvMirror : public EnvWrapper {
     *r = ar;
     return as;
   }
+#pragma warning(default : 4130)
   Status DeleteFile(const std::string& f) override {
     Status as = a_->DeleteFile(f);
     Status bs = b_->DeleteFile(f);

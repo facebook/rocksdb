@@ -32,6 +32,8 @@
 #include "FbsonDocument.h"
 #include "FbsonStream.h"
 
+#pragma warning(disable : 4244)
+
 namespace fbson {
 
 template <class OS_TYPE>
