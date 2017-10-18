@@ -148,7 +148,7 @@ Status WritePreparedTxnDB::Initialize(
   SequenceNumber last_seq = db_impl_->GetLatestSequenceNumber();
   AdvanceMaxEvictedSeq(prev_max, last_seq);
 
-  db_impl_->SetSnapshotChecker(new SnapshotChecker(this));
+  db_impl_->SetSnapshotChecker(new WritePreparedSnapshotChecker(this));
 
   auto s = PessimisticTransactionDB::Initialize(compaction_enabled_cf_indices,
                                                 handles);

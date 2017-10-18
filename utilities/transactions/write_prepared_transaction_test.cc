@@ -1349,6 +1349,28 @@ TEST_P(WritePreparedTransactionTest, DuplicateKeyTest) {
   }
 }
 
+TEST_P(WritePreparedTransactionTest, DisableGCDuringRecoveryTest) {
+  // Use large buffer to avoid memtable flush after 1024 insertions
+  options.write_buffer_size = 1024 * 1024;
+  ReOpen();
+  std::vector<KeyVersion> versions;
+  for (uint64_t i = 1; i <= 1024; i++) {
+    std::string v = "bar" + ToString(i);
+    ASSERT_OK(db->Put(WriteOptions(), "foo", v));
+    VerifyKeys({{"foo", v}});
+    KeyVersion kv = {"foo", v, i, kTypeValue};
+    versions.emplace_back(kv);
+  }
+  std::reverse(std::begin(versions), std::end(versions));
+  VerifyInternalKeys(versions);
+  DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+  db_impl->FlushWAL(true);
+  // Use small buffer to ensure memtable flush during recovery
+  options.write_buffer_size = 1024;
+  ReOpenNoDelete();
+  VerifyInternalKeys(versions);
+}
+
 TEST_P(WritePreparedTransactionTest, SequenceNumberZeroTest) {
   ASSERT_OK(db->Put(WriteOptions(), "foo", "bar"));
   VerifyKeys({{"foo", "bar"}});
