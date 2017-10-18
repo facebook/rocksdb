@@ -77,8 +77,7 @@ typedef SSIZE_T ssize_t;
 
 namespace rocksdb {
 
-// Prevent unreferenced local var warning
-#define PREFETCH(addr, rw, locality) (void*) addr; (void)rw;(void)locality;
+#define PREFETCH(addr, rw, locality)
 
 namespace port {
 
