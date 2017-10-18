@@ -330,7 +330,7 @@ class WritePreparedTransactionTest : public TransactionTest {
 // TODO(myabandeh): enable it for concurrent_prepare
 INSTANTIATE_TEST_CASE_P(WritePreparedTransactionTest,
                         WritePreparedTransactionTest,
-                        ::testing::Values(std::make_tuple(false, false,
+                        ::testing::Values(std::make_tuple(false, true,
                                                           WRITE_PREPARED)));
 
 TEST_P(WritePreparedTransactionTest, CommitMapTest) {
@@ -800,7 +800,7 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceConcurrentTest) {
     for (auto& t : threads) {
       t.join();
     }
-    if (txn_db_options.write_policy == WRITE_PREPARED) {
+    if (options.concurrent_prepare) {
       // In this case none of the above scheduling tricks to deterministically
       // form merged bactches works because the writes go to saparte queues.
       // This would result in different write groups in each run of the test. We
@@ -809,6 +809,7 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceConcurrentTest) {
       // commit writes that dont write to memtable, the seq is not advanced in
       // this code path. It will be after the next write. So we do one more
       // write to make the impact of last seq visible.
+      // TODO(myabandeh): Add a deterministic unit test for concurrent_prepare
       txn_t0(0);
     }
     // Check if memtable inserts advanced seq number as expected
@@ -1489,7 +1490,10 @@ TEST_P(WritePreparedTransactionTest, CompactionShouldKeepSnapshotVisibleKeys) {
   ASSERT_OK(txn1->Prepare());
   ASSERT_EQ(++expected_seq, db->GetLatestSequenceNumber());
   ASSERT_OK(txn1->Commit());
-  ASSERT_EQ(++expected_seq, db->GetLatestSequenceNumber());
+  ++expected_seq;
+  if (!options.concurrent_prepare) {
+    ASSERT_EQ(expected_seq, db->GetLatestSequenceNumber());
+  }  // else the seq is visible after the next write
   delete txn1;
   // Take a snapshots to avoid keys get evicted before compaction.
   const Snapshot* snapshot1 = db->GetSnapshot();
@@ -1502,7 +1506,10 @@ TEST_P(WritePreparedTransactionTest, CompactionShouldKeepSnapshotVisibleKeys) {
   // txn2 commit after snapshot2 and it is not visible.
   const Snapshot* snapshot2 = db->GetSnapshot();
   ASSERT_OK(txn2->Commit());
-  ASSERT_EQ(++expected_seq, db->GetLatestSequenceNumber());
+  ++expected_seq;
+  if (!options.concurrent_prepare) {
+    ASSERT_EQ(expected_seq, db->GetLatestSequenceNumber());
+  }  // else the seq is visible after the next write
   delete txn2;
   // Take a snapshots to avoid keys get evicted before compaction.
   const Snapshot* snapshot3 = db->GetSnapshot();
