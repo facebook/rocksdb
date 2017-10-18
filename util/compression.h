@@ -46,8 +46,9 @@ namespace rocksdb {
 inline bool Snappy_Supported() {
 #ifdef SNAPPY
   return true;
-#endif
+#else
   return false;
+#endif
 }
 
 inline bool Zlib_Supported() {
@@ -60,37 +61,42 @@ inline bool Zlib_Supported() {
 inline bool BZip2_Supported() {
 #ifdef BZIP2
   return true;
-#endif
+#else
   return false;
+#endif
 }
 
 inline bool LZ4_Supported() {
 #ifdef LZ4
   return true;
-#endif
+#else
   return false;
+#endif
 }
 
 inline bool XPRESS_Supported() {
 #ifdef XPRESS
   return true;
-#endif
+#else
   return false;
+#endif
 }
 
 inline bool ZSTD_Supported() {
 #ifdef ZSTD
   // ZSTD format is finalized since version 0.8.0.
   return (ZSTD_versionNumber() >= 800);
-#endif
+#else
   return false;
+#endif
 }
 
 inline bool ZSTDNotFinal_Supported() {
 #ifdef ZSTD
   return true;
-#endif
+#else
   return false;
+#endif
 }
 
 inline bool CompressionTypeSupported(CompressionType compression_type) {
@@ -159,9 +165,9 @@ inline bool Snappy_Compress(const CompressionOptions& opts, const char* input,
   snappy::RawCompress(input, length, &(*output)[0], &outlen);
   output->resize(outlen);
   return true;
-#endif
-
+#else
   return false;
+#endif
 }
 
 inline bool Snappy_GetUncompressedLength(const char* input, size_t length,
@@ -708,16 +714,18 @@ inline bool LZ4HC_Compress(const CompressionOptions& opts,
 inline bool XPRESS_Compress(const char* input, size_t length, std::string* output) {
 #ifdef XPRESS
   return port::xpress::Compress(input, length, output);
-#endif
+#else
   return false;
+#endif
 }
 
 inline char* XPRESS_Uncompress(const char* input_data, size_t input_length,
   int* decompress_size) {
 #ifdef XPRESS
   return port::xpress::Decompress(input_data, input_length, decompress_size);
-#endif
+#else
   return nullptr;
+#endif
 }
 
 

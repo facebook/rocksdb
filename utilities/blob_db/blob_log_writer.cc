@@ -87,7 +87,7 @@ Status Writer::AddRecord(const Slice& key, const Slice& val,
   assert(last_elem_type_ == kEtFileHdr || last_elem_type_ == kEtRecord);
 
   std::string buf;
-  ConstructBlobHeader(&buf, key, val, -1, -1);
+  ConstructBlobHeader(&buf, key, val, 0, -1);
 
   Status s = EmitPhysicalRecord(buf, key, val, key_offset, blob_offset);
   return s;

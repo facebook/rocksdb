@@ -3365,7 +3365,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         db->db = db->opt_txn_db->GetBaseDB();
       }
     } else if (FLAGS_transaction_db) {
-      TransactionDB* ptr;
+      TransactionDB* ptr = nullptr;
       TransactionDBOptions txn_db_options;
       s = CreateLoggerFromOptions(db_name, options, &options.info_log);
       if (s.ok()) {
@@ -3376,7 +3376,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       }
     } else if (FLAGS_use_blob_db) {
       blob_db::BlobDBOptions blob_db_options;
-      blob_db::BlobDB* ptr;
+      blob_db::BlobDB* ptr = nullptr;
       s = blob_db::BlobDB::Open(options, blob_db_options, db_name, &ptr);
       if (s.ok()) {
         db->db = ptr;

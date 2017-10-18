@@ -15,6 +15,11 @@
 
 namespace rocksdb {
 
+// conversion' conversion from 'type1' to 'type2', possible loss of data
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4244)
+#endif
 char* EncodeVarint32(char* dst, uint32_t v) {
   // Operate on characters as unsigneds
   unsigned char* ptr = reinterpret_cast<unsigned char*>(dst);
@@ -42,6 +47,9 @@ char* EncodeVarint32(char* dst, uint32_t v) {
   }
   return reinterpret_cast<char*>(ptr);
 }
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
 
 const char* GetVarint32PtrFallback(const char* p, const char* limit,
                                    uint32_t* value) {

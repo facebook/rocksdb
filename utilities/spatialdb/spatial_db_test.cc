@@ -224,7 +224,7 @@ namespace {
 std::string RandomStr(Random* rnd) {
   std::string r;
   for (int k = 0; k < 10; ++k) {
-    r.push_back(rnd->Uniform(26) + 'a');
+    r.push_back(static_cast<char>(rnd->Uniform(26)) + 'a');
   }
   return r;
 }
