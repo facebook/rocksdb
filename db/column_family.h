@@ -266,7 +266,7 @@ class ColumnFamilyData {
                                   int level) const;
 
   // A flag to tell a manual compaction is to compact all levels together
-  // instad of for specific level.
+  // instead of a specific level.
   static const int kCompactAllLevels;
   // A flag to tell a manual compaction's output is base level.
   static const int kCompactToBaseLevel;
