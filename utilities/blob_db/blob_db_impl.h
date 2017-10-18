@@ -18,6 +18,7 @@
 #include <utility>
 #include <vector>
 
+#include "db/db_iter.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/db.h"
 #include "rocksdb/listener.h"
@@ -37,7 +38,6 @@ namespace rocksdb {
 class DBImpl;
 class ColumnFamilyHandle;
 class ColumnFamilyData;
-class OptimisticTransactionDBImpl;
 struct FlushJobInfo;
 
 namespace blob_db {
@@ -215,8 +215,19 @@ class BlobDBImpl : public BlobDB {
   Status Get(const ReadOptions& read_options, ColumnFamilyHandle* column_family,
              const Slice& key, PinnableSlice* value) override;
 
+  Status GetBlobValue(const Slice& key, const Slice& index_entry,
+                      PinnableSlice* value);
+
   using BlobDB::NewIterator;
   virtual Iterator* NewIterator(const ReadOptions& read_options) override;
+
+  using BlobDB::NewIterators;
+  virtual Status NewIterators(
+      const ReadOptions& read_options,
+      const std::vector<ColumnFamilyHandle*>& column_families,
+      std::vector<Iterator*>* iterators) override {
+    return Status::NotSupported("Not implemented");
+  }
 
   using BlobDB::MultiGet;
   virtual std::vector<Status> MultiGet(
@@ -269,14 +280,13 @@ class BlobDBImpl : public BlobDB {
 #endif  //  !NDEBUG
 
  private:
+  class GarbageCollectionWriteCallback;
+
   Status OpenPhase1();
 
   // Create a snapshot if there isn't one in read options.
   // Return true if a snapshot is created.
   bool SetSnapshotIfNeeded(ReadOptions* read_options);
-
-  Status CommonGet(const Slice& key, const std::string& index_entry,
-                   std::string* value);
 
   Slice GetCompressedSlice(const Slice& raw,
                            std::string* compression_output) const;
@@ -416,10 +426,6 @@ class BlobDBImpl : public BlobDB {
   Env* env_;
   TTLExtractor* ttl_extractor_;
 
-  // Optimistic Transaction DB used during Garbage collection
-  // for atomicity
-  std::unique_ptr<OptimisticTransactionDBImpl> opt_db_;
-
   // a boolean to capture whether write_options has been set
   std::atomic<bool> wo_set_;
   WriteOptions write_options_;
@@ -525,55 +531,6 @@ class BlobDBImpl : public BlobDB {
   bool open_p1_done_;
 
   uint32_t debug_level_;
-};
-
-class BlobDBIterator : public Iterator {
- public:
-  explicit BlobDBIterator(Iterator* iter, BlobDBImpl* impl, bool own_snapshot,
-                          const Snapshot* snapshot)
-      : iter_(iter),
-        db_impl_(impl),
-        own_snapshot_(own_snapshot),
-        snapshot_(snapshot) {
-    assert(iter != nullptr);
-    assert(snapshot != nullptr);
-  }
-
-  ~BlobDBIterator() {
-    if (own_snapshot_) {
-      db_impl_->ReleaseSnapshot(snapshot_);
-    }
-    delete iter_;
-  }
-
-  bool Valid() const override { return iter_->Valid(); }
-
-  void SeekToFirst() override { iter_->SeekToFirst(); }
-
-  void SeekToLast() override { iter_->SeekToLast(); }
-
-  void Seek(const Slice& target) override { iter_->Seek(target); }
-
-  void SeekForPrev(const Slice& target) override { iter_->SeekForPrev(target); }
-
-  void Next() override { iter_->Next(); }
-
-  void Prev() override { iter_->Prev(); }
-
-  Slice key() const override { return iter_->key(); }
-
-  Slice value() const override;
-
-  Status status() const override { return iter_->status(); }
-
-  // Iterator::Refresh() not supported.
-
- private:
-  Iterator* iter_;
-  BlobDBImpl* db_impl_;
-  bool own_snapshot_;
-  const Snapshot* snapshot_;
-  mutable std::string vpart_;
 };
 
 }  // namespace blob_db
