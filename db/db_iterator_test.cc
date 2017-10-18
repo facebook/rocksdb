@@ -2010,6 +2010,71 @@ TEST_F(DBIteratorTest, CreationFailure) {
   delete iter;
 }
 
+TEST_F(DBIteratorTest, TableFilter) {
+  ASSERT_OK(Put("a", "1"));
+  dbfull()->Flush(FlushOptions());
+  ASSERT_OK(Put("b", "2"));
+  ASSERT_OK(Put("c", "3"));
+  dbfull()->Flush(FlushOptions());
+  ASSERT_OK(Put("d", "4"));
+  ASSERT_OK(Put("e", "5"));
+  ASSERT_OK(Put("f", "6"));
+  dbfull()->Flush(FlushOptions());
+
+  // Ensure the table_filter callback is called once for each table.
+  {
+    std::set<uint64_t> unseen {1, 2, 3};
+    ReadOptions opts;
+    opts.table_filter = [&](const TableProperties& props) {
+      auto it = unseen.find(props.num_entries);
+      if (it == unseen.end()) {
+        ADD_FAILURE() << "saw table properties with an unexpected " << props.num_entries << " entries";
+      } else {
+        unseen.erase(it);
+      }
+      return true;
+    };
+    auto iter = db_->NewIterator(opts);
+    iter->SeekToFirst();
+    ASSERT_EQ(IterStatus(iter), "a->1");
+    iter->Next();
+    ASSERT_EQ(IterStatus(iter), "b->2");
+    iter->Next();
+    ASSERT_EQ(IterStatus(iter), "c->3");
+    iter->Next();
+    ASSERT_EQ(IterStatus(iter), "d->4");
+    iter->Next();
+    ASSERT_EQ(IterStatus(iter), "e->5");
+    iter->Next();
+    ASSERT_EQ(IterStatus(iter), "f->6");
+    iter->Next();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_TRUE(unseen.empty());
+    delete iter;
+  }
+
+  // Ensure returning false in the table_filter hides the keys from that table
+  // during iteration.
+  {
+    ReadOptions opts;
+    opts.table_filter = [](const TableProperties& props) {
+      return props.num_entries != 2;
+    };
+    auto iter = db_->NewIterator(opts);
+    iter->SeekToFirst();
+    ASSERT_EQ(IterStatus(iter), "a->1");
+    iter->Next();
+    ASSERT_EQ(IterStatus(iter), "d->4");
+    iter->Next();
+    ASSERT_EQ(IterStatus(iter), "e->5");
+    iter->Next();
+    ASSERT_EQ(IterStatus(iter), "f->6");
+    iter->Next();
+    ASSERT_FALSE(iter->Valid());
+    delete iter;
+  }
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
