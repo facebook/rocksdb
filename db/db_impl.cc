@@ -182,8 +182,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       unable_to_flush_oldest_log_(false),
       env_options_(BuildDBOptions(immutable_db_options_, mutable_db_options_)),
       env_options_for_compaction_(env_->OptimizeForCompactionTableWrite(
-                                    env_options_,
-                                    immutable_db_options_)),
+          env_options_, immutable_db_options_)),
       num_running_ingest_file_(0),
 #ifndef ROCKSDB_LITE
       wal_manager_(immutable_db_options_, env_options_),
@@ -195,7 +194,9 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       opened_successfully_(false),
       concurrent_prepare_(options.concurrent_prepare),
       manual_wal_flush_(options.manual_wal_flush),
-      seq_per_batch_(options.seq_per_batch) {
+      seq_per_batch_(options.seq_per_batch),
+      // TODO(myabandeh): revise this when we change options.seq_per_batch
+      use_custom_gc_(options.seq_per_batch) {
   env_->GetAbsolutePath(dbname, &db_absolute_path_);
 
   // Reserve ten files or so for other uses and give the rest to TableCache.

@@ -883,10 +883,10 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
       SequenceNumber earliest_write_conflict_snapshot;
       std::vector<SequenceNumber> snapshot_seqs =
           snapshots_.GetAll(&earliest_write_conflict_snapshot);
-      // Only TransactionDB passes snapshot_checker and it creates it after db
-      // open. Just pass nullptr here.
-      SnapshotChecker* snapshot_checker = nullptr;
-
+      auto snapshot_checker = snapshot_checker_.get();
+      if (use_custom_gc_ && snapshot_checker == nullptr) {
+        snapshot_checker = DisableGCSnapshotChecker::Instance();
+      }
       s = BuildTable(
           dbname_, env_, *cfd->ioptions(), mutable_cf_options,
           env_options_for_compaction_, cfd->table_cache(), iter.get(),
