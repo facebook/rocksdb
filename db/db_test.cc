@@ -4292,21 +4292,26 @@ TEST_F(DBTest, DynamicCompactionOptions) {
 }
 #endif  // ROCKSDB_LITE
 
-// Test dynamic compaction_options_fifo
+// Test dynamic FIFO copmaction options.
+// This test covers just option parsing and makes sure that the options are
+// correctly assigned. Also look at DBOptionsTest.SetFIFOCompactionOptions
+// test which makes sure that the FIFO compaction funcionality is working
+// as expected on dynamically changing the options.
+// Even more FIFOCompactionTests are at DBTest.FIFOCompaction* .
 TEST_F(DBTest, DynamicFIFOCompactionOptions) {
   Options options;
   options.create_if_missing = true;
   DestroyAndReopen(options);
 
-  ASSERT_OK(dbfull()->SetOptions({{"compaction_options_fifo", "11"}}));
+  // Initial defaults
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.max_table_files_size,
-            11);
+            1024 * 1024 * 1024);
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.ttl, 0);
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.allow_compaction,
             false);
 
   ASSERT_OK(dbfull()->SetOptions(
-      {{"compaction_options_fifo", "{max_table_files_size=23}"}}));
+      {{"compaction_options_fifo", "{max_table_files_size=23;}"}}));
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.max_table_files_size,
             23);
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.ttl, 0);
