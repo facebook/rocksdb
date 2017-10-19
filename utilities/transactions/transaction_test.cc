@@ -39,7 +39,6 @@ using std::string;
 
 namespace rocksdb {
 
-// TODO(myabandeh): Instantiate the tests with concurrent_prepare
 INSTANTIATE_TEST_CASE_P(
     DBAsBaseDB, TransactionTest,
     ::testing::Values(std::make_tuple(false, false, WRITE_COMMITTED),
@@ -4755,6 +4754,9 @@ TEST_P(TransactionTest, MemoryLimitTest) {
 TEST_P(TransactionTest, SeqAdvanceTest) {
   WriteOptions wopts;
   FlushOptions fopt;
+
+  options.disable_auto_compactions = true;
+  ReOpen();
 
   // Do the test with NUM_BRANCHES branches in it. Each run of a test takes some
   // of the branches. This is the same as counting a binary number where i-th

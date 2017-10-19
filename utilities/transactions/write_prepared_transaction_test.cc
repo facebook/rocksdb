@@ -327,7 +327,6 @@ class WritePreparedTransactionTest : public TransactionTest {
   }
 };
 
-// TODO(myabandeh): enable it for concurrent_prepare
 INSTANTIATE_TEST_CASE_P(
     WritePreparedTransactionTest, WritePreparedTransactionTest,
     ::testing::Values(std::make_tuple(false, false, WRITE_PREPARED),
@@ -592,112 +591,6 @@ TEST_P(WritePreparedTransactionTest, AdvanceMaxEvictedSeqBasicTest) {
     // that assumption.
     ASSERT_TRUE(i < wp_db->SNAPSHOT_CACHE_SIZE);
     ASSERT_EQ(*sit, wp_db->snapshot_cache_[i]);
-  }
-}
-
-// TODO(myabandeh): remove this redundant test after transaction_test is enabled
-// with WRITE_PREPARED too This test clarifies the existing expectation from the
-// sequence number algorithm. It could detect mistakes in updating the code but
-// it is not necessarily the one acceptable way. If the algorithm is
-// legitimately changed, this unit test should be updated as well.
-TEST_P(WritePreparedTransactionTest, SeqAdvanceTest) {
-  WriteOptions wopts;
-  FlushOptions fopt;
-
-  options.disable_auto_compactions = true;
-  ReOpen();
-
-  // Do the test with NUM_BRANCHES branches in it. Each run of a test takes some
-  // of the branches. This is the same as counting a binary number where i-th
-  // bit represents whether we take branch i in the represented by the number.
-  const size_t NUM_BRANCHES = 8;
-  // Helper function that shows if the branch is to be taken in the run
-  // represented by the number n.
-  auto branch_do = [&](size_t n, size_t* branch) {
-    assert(*branch < NUM_BRANCHES);
-    const size_t filter = static_cast<size_t>(1) << *branch;
-    return n & filter;
-  };
-  const size_t max_n = static_cast<size_t>(1) << NUM_BRANCHES;
-  for (size_t n = 0; n < max_n; n++, ReOpen()) {
-    DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
-    size_t branch = 0;
-    auto seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
-    exp_seq = seq;
-    txn_t0(0);
-    seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
-    ASSERT_EQ(exp_seq, seq);
-
-    if (branch_do(n, &branch)) {
-      db_impl->Flush(fopt);
-      seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
-      ASSERT_EQ(exp_seq, seq);
-    }
-    if (branch_do(n, &branch)) {
-      db_impl->FlushWAL(true);
-      ReOpenNoDelete();
-      db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
-      seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
-      ASSERT_EQ(exp_seq, seq);
-    }
-
-    // Doing it twice might detect some bugs
-    txn_t0(1);
-    seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
-    ASSERT_EQ(exp_seq, seq);
-
-    txn_t1(0);
-    seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
-    ASSERT_EQ(exp_seq, seq);
-
-    if (branch_do(n, &branch)) {
-      db_impl->Flush(fopt);
-      seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
-      ASSERT_EQ(exp_seq, seq);
-    }
-    if (branch_do(n, &branch)) {
-      db_impl->FlushWAL(true);
-      ReOpenNoDelete();
-      db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
-      seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
-      ASSERT_EQ(exp_seq, seq);
-    }
-
-    txn_t3(0);
-    seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
-    ASSERT_EQ(exp_seq, seq);
-
-    if (branch_do(n, &branch)) {
-      db_impl->Flush(fopt);
-    }
-    if (branch_do(n, &branch)) {
-      db_impl->FlushWAL(true);
-      ReOpenNoDelete();
-      db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
-      seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
-      ASSERT_EQ(exp_seq, seq);
-    }
-
-    txn_t0(0);
-    seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
-    ASSERT_EQ(exp_seq, seq);
-
-    txn_t2(0);
-    seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
-    ASSERT_EQ(exp_seq, seq);
-
-    if (branch_do(n, &branch)) {
-      db_impl->Flush(fopt);
-      seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
-      ASSERT_EQ(exp_seq, seq);
-    }
-    if (branch_do(n, &branch)) {
-      db_impl->FlushWAL(true);
-      ReOpenNoDelete();
-      db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
-      seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
-      ASSERT_EQ(exp_seq, seq);
-    }
   }
 }
 
