@@ -24,6 +24,31 @@ class DBTestCompactionFilter : public DBTestBase {
   DBTestCompactionFilter() : DBTestBase("/db_compaction_filter_test") {}
 };
 
+// Param variant of DBTestBase::ChangeCompactOptions
+class DBTestCompactionFilterWithCompactParam : public DBTestCompactionFilter, public ::testing::WithParamInterface<DBTestBase::OptionConfig>  {
+  public:
+DBTestCompactionFilterWithCompactParam() : DBTestCompactionFilter() {
+  option_config_ = GetParam();
+    Destroy(last_options_);
+    auto options = CurrentOptions();
+    if (option_config_ == kDefault || option_config_ == kUniversalCompaction) {
+    options.create_if_missing = true;
+    }
+    if (option_config_ == kLevelSubcompactions || option_config_ == kUniversalCompactionMultiLevel) {
+    assert(options.max_subcompactions > 1);
+    }
+    TryReopen(options);
+}
+};
+
+INSTANTIATE_TEST_CASE_P(
+    DBTestCompactionFilterWithCompactOption, DBTestCompactionFilterWithCompactParam,
+    ::testing::Values(DBTestBase::OptionConfig::kDefault,
+                      DBTestBase::OptionConfig::kUniversalCompaction,
+                      DBTestBase::OptionConfig::kUniversalCompactionMultiLevel,
+                      DBTestBase::OptionConfig::kLevelSubcompactions
+                      ));
+
 class KeepFilter : public CompactionFilter {
  public:
   virtual bool Filter(int level, const Slice& key, const Slice& value,
@@ -440,8 +465,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilterDeletesAll) {
 }
 #endif  // ROCKSDB_LITE
 
-TEST_F(DBTestCompactionFilter, CompactionFilterWithValueChange) {
-  do {
+TEST_P(DBTestCompactionFilterWithCompactParam, CompactionFilterWithValueChange) {
     Options options = CurrentOptions();
     options.num_levels = 3;
     options.compaction_filter_factory =
@@ -498,7 +522,6 @@ TEST_F(DBTestCompactionFilter, CompactionFilterWithValueChange) {
       std::string newvalue = Get(1, key);
       ASSERT_EQ(newvalue.compare(NEW_VALUE), 0);
     }
-  } while (ChangeCompactOptions());
 }
 
 TEST_F(DBTestCompactionFilter, CompactionFilterWithMergeOperator) {
