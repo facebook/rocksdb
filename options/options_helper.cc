@@ -306,7 +306,6 @@ bool ParseSingleStructOption(
   return ParseOptionHelper(
       reinterpret_cast<char*>(options) + opt_info.mutable_offset, opt_info.type,
       value);
-  return true;
 }
 
 template <typename T>
