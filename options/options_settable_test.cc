@@ -371,7 +371,6 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   options->hard_rate_limit = 0;
   options->soft_rate_limit = 0;
   options->purge_redundant_kvs_while_flush = false;
-  options->compaction_options_fifo = CompactionOptionsFIFO();
   options->max_mem_compaction_level = 0;
 
   char* new_options_ptr = new char[sizeof(ColumnFamilyOptions)];
@@ -427,7 +426,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "compaction_pri=kMinOverlappingRatio;"
       "hard_pending_compaction_bytes_limit=0;"
       "disable_auto_compactions=false;"
-      "report_bg_io_stats=true;",
+      "report_bg_io_stats=true;"
+      "compaction_options_fifo={max_table_files_size=3;ttl=100;allow_compaction=false;};",
       new_options));
 
   ASSERT_EQ(unset_bytes_base,
