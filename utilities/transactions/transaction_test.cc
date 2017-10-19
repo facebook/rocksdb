@@ -45,15 +45,13 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Values(std::make_tuple(false, false, WRITE_COMMITTED),
                       std::make_tuple(false, true, WRITE_COMMITTED),
                       std::make_tuple(false, false, WRITE_PREPARED),
-                      std::make_tuple(false, true, WRITE_PREPARED)
-                      ));
+                      std::make_tuple(false, true, WRITE_PREPARED)));
 INSTANTIATE_TEST_CASE_P(
     StackableDBAsBaseDB, TransactionTest,
     ::testing::Values(std::make_tuple(true, false, WRITE_COMMITTED),
                       std::make_tuple(true, true, WRITE_COMMITTED),
                       std::make_tuple(true, false, WRITE_PREPARED),
-                      std::make_tuple(true, true, WRITE_PREPARED)
-                      ));
+                      std::make_tuple(true, true, WRITE_PREPARED)));
 INSTANTIATE_TEST_CASE_P(
     MySQLStyleTransactionTest, MySQLStyleTransactionTest,
     ::testing::Values(std::make_tuple(false, false, WRITE_COMMITTED),
@@ -63,8 +61,7 @@ INSTANTIATE_TEST_CASE_P(
                       std::make_tuple(false, false, WRITE_PREPARED),
                       std::make_tuple(false, true, WRITE_PREPARED),
                       std::make_tuple(true, false, WRITE_PREPARED),
-                      std::make_tuple(true, true, WRITE_PREPARED)
-                      ));
+                      std::make_tuple(true, true, WRITE_PREPARED)));
 
 TEST_P(TransactionTest, DoubleEmptyWrite) {
   WriteOptions write_options;
@@ -4790,7 +4787,7 @@ TEST_P(TransactionTest, SeqAdvanceTest) {
       ReOpenNoDelete();
       db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
       seq = db_impl->GetLatestSequenceNumber();
-        ASSERT_EQ(exp_seq, seq);
+      ASSERT_EQ(exp_seq, seq);
     }
 
     // Doing it twice might detect some bugs
@@ -4812,7 +4809,7 @@ TEST_P(TransactionTest, SeqAdvanceTest) {
       ReOpenNoDelete();
       db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
       seq = db_impl->GetLatestSequenceNumber();
-        ASSERT_EQ(exp_seq, seq);
+      ASSERT_EQ(exp_seq, seq);
     }
 
     txn_t3(0);
@@ -4829,7 +4826,7 @@ TEST_P(TransactionTest, SeqAdvanceTest) {
       ReOpenNoDelete();
       db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
       seq = db_impl->GetLatestSequenceNumber();
-        ASSERT_EQ(exp_seq, seq);
+      ASSERT_EQ(exp_seq, seq);
     }
 
     txn_t0(0);
@@ -4850,7 +4847,7 @@ TEST_P(TransactionTest, SeqAdvanceTest) {
       ReOpenNoDelete();
       db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
       seq = db_impl->GetLatestSequenceNumber();
-        ASSERT_EQ(exp_seq, seq);
+      ASSERT_EQ(exp_seq, seq);
     }
   }
 }

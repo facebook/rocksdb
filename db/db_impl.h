@@ -220,7 +220,7 @@ class DBImpl : public DB {
 
   virtual SequenceNumber GetLatestSequenceNumber() const override;
   virtual SequenceNumber IncAndFetchSequenceNumber();
- SequenceNumber TEST_GetLatestVisibleSequenceNumber() const;
+  SequenceNumber TEST_GetLatestVisibleSequenceNumber() const;
 
   bool HasActiveSnapshotLaterThanSN(SequenceNumber sn);
 

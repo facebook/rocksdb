@@ -328,8 +328,8 @@ class WritePreparedTransactionTest : public TransactionTest {
 };
 
 // TODO(myabandeh): enable it for concurrent_prepare
-INSTANTIATE_TEST_CASE_P(WritePreparedTransactionTest,
-                        WritePreparedTransactionTest,
+INSTANTIATE_TEST_CASE_P(
+    WritePreparedTransactionTest, WritePreparedTransactionTest,
     ::testing::Values(std::make_tuple(false, false, WRITE_PREPARED),
                       std::make_tuple(false, true, WRITE_PREPARED)));
 
@@ -804,8 +804,8 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceConcurrentTest) {
       // form merged bactches works because the writes go to saparte queues.
       // This would result in different write groups in each run of the test. We
       // still keep the test since althgouh non-deterministic and hard to debug,
-      // it is still useful to have. 
-    // TODO(myabandeh): Add a deterministic unit test for concurrent_prepare
+      // it is still useful to have.
+      // TODO(myabandeh): Add a deterministic unit test for concurrent_prepare
     }
 
     // Check if memtable inserts advanced seq number as expected
@@ -1398,7 +1398,7 @@ TEST_P(WritePreparedTransactionTest, SequenceNumberZeroTest) {
 TEST_P(WritePreparedTransactionTest, CompactionShouldKeepUncommittedKeys) {
   options.disable_auto_compactions = true;
   ReOpen();
-    DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+  DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
   // Snapshots to avoid keys get evicted.
   std::vector<const Snapshot*> snapshots;
   // Keep track of expected sequence number.
@@ -1408,7 +1408,7 @@ TEST_P(WritePreparedTransactionTest, CompactionShouldKeepUncommittedKeys) {
     ASSERT_OK(func());
     expected_seq++;
     if (options.concurrent_prepare) {
-    expected_seq++; // 1 for commit
+      expected_seq++;  // 1 for commit
     }
     ASSERT_EQ(expected_seq, db_impl->TEST_GetLatestVisibleSequenceNumber());
     snapshots.push_back(db->GetSnapshot());
@@ -1516,14 +1516,14 @@ TEST_P(WritePreparedTransactionTest, CompactionShouldKeepSnapshotVisibleKeys) {
   // Take a snapshots to avoid keys get evicted before compaction.
   const Snapshot* snapshot3 = db->GetSnapshot();
   ASSERT_OK(db->Put(WriteOptions(), "key1", "value1_2"));
-  expected_seq ++; // 1 for write
+  expected_seq++;  // 1 for write
   SequenceNumber seq1 = expected_seq;
   if (options.concurrent_prepare) {
     expected_seq++;  // 1 for commit
   }
   ASSERT_EQ(expected_seq, db_impl->TEST_GetLatestVisibleSequenceNumber());
   ASSERT_OK(db->Put(WriteOptions(), "key2", "value2_2"));
-  expected_seq ++; // 1 for write
+  expected_seq++;  // 1 for write
   SequenceNumber seq2 = expected_seq;
   if (options.concurrent_prepare) {
     expected_seq++;  // 1 for commit

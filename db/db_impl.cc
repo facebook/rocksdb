@@ -1608,8 +1608,7 @@ const Snapshot* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary) {
   auto snapshot_seq = concurrent_prepare_ && seq_per_batch_
                           ? versions_->LastToBeWrittenSequence()
                           : versions_->LastSequence();
-  return snapshots_.New(s, snapshot_seq, unix_time,
-                        is_write_conflict_boundary);
+  return snapshots_.New(s, snapshot_seq, unix_time, is_write_conflict_boundary);
 }
 
 void DBImpl::ReleaseSnapshot(const Snapshot* s) {
