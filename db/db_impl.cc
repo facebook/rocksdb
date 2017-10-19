@@ -1411,6 +1411,7 @@ bool DBImpl::KeyMayExist(const ReadOptions& read_options,
 
 Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
                               ColumnFamilyHandle* column_family) {
+  Iterator* result = nullptr;
   if (read_options.read_tier == kPersistedTier) {
     return NewErrorIterator(Status::NotSupported(
         "ReadTier::kPersistedData is not yet supported in iterators."));
@@ -1421,25 +1422,27 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
   if (read_options.managed) {
 #ifdef ROCKSDB_LITE
     // not supported in lite version
-    return NewErrorIterator(Status::InvalidArgument(
+    result =  NewErrorIterator(Status::InvalidArgument(
         "Managed Iterators not supported in RocksDBLite."));
 #else
     if ((read_options.tailing) || (read_options.snapshot != nullptr) ||
         (is_snapshot_supported_)) {
-      return new ManagedIterator(this, read_options, cfd);
-    }
-    // Managed iter not supported
-    return NewErrorIterator(Status::InvalidArgument(
+      result = new ManagedIterator(this, read_options, cfd);
+    } else {
+      // Managed iter not supported
+      result = NewErrorIterator(Status::InvalidArgument(
         "Managed Iterators not supported without snapshots."));
+    }
 #endif
   } else if (read_options.tailing) {
 #ifdef ROCKSDB_LITE
     // not supported in lite version
-    return nullptr;
+    result = nullptr;
+
 #else
     SuperVersion* sv = cfd->GetReferencedSuperVersion(&mutex_);
     auto iter = new ForwardIterator(this, read_options, cfd, sv);
-    return NewDBIterator(
+    result = NewDBIterator(
         env_, read_options, *cfd->ioptions(), cfd->user_comparator(), iter,
         kMaxSequenceNumber,
         sv->mutable_cf_options.max_sequential_skip_in_iterations,
@@ -1449,10 +1452,9 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
     auto snapshot = read_options.snapshot != nullptr
                         ? read_options.snapshot->GetSequenceNumber()
                         : versions_->LastSequence();
-    return NewIteratorImpl(read_options, cfd, snapshot, read_callback);
+    result = NewIteratorImpl(read_options, cfd, snapshot, read_callback);
   }
-  // To stop compiler from complaining
-  return nullptr;
+  return result;
 }
 
 ArenaWrappedDBIter* DBImpl::NewIteratorImpl(const ReadOptions& read_options,

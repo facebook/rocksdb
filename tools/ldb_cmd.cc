@@ -2806,7 +2806,7 @@ void DumpSstFile(std::string filename, bool output_hex, bool show_properties) {
   }
   // no verification
   rocksdb::SstFileReader reader(filename, false, output_hex);
-  Status st = reader.ReadSequential(true, -1, false,  // has_from
+  Status st = reader.ReadSequential(true, std::numeric_limits<uint64_t>::max(), false,  // has_from
                                     from_key, false,  // has_to
                                     to_key);
   if (!st.ok()) {

@@ -409,8 +409,8 @@ template <typename Key, class Comparator>
 SkipList<Key, Comparator>::SkipList(const Comparator cmp, Allocator* allocator,
                                     int32_t max_height,
                                     int32_t branching_factor)
-    : kMaxHeight_(max_height),
-      kBranching_(branching_factor),
+    : kMaxHeight_(static_cast<uint16_t>(max_height)),
+      kBranching_(static_cast<uint16_t>(branching_factor)),
       kScaledInverseBranching_((Random::kMaxNext + 1) / kBranching_),
       compare_(cmp),
       allocator_(allocator),

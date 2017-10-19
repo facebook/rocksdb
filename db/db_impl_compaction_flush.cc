@@ -894,15 +894,15 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
   while (!manual.done) {
     assert(HasPendingManualCompaction());
     manual_conflict = false;
-    Compaction* compaction;
+    Compaction* compaction = nullptr;
     if (ShouldntRunManualCompaction(&manual) || (manual.in_progress == true) ||
         scheduled ||
-        ((manual.manual_end = &manual.tmp_storage1) &&
-         ((compaction = manual.cfd->CompactRange(
-               *manual.cfd->GetLatestMutableCFOptions(), manual.input_level,
-               manual.output_level, manual.output_path_id, manual.begin,
-               manual.end, &manual.manual_end, &manual_conflict)) == nullptr) &&
-         manual_conflict)) {
+        (((manual.manual_end = &manual.tmp_storage1) != nullptr) &&
+             ((compaction = manual.cfd->CompactRange(
+                  *manual.cfd->GetLatestMutableCFOptions(), manual.input_level,
+                  manual.output_level, manual.output_path_id, manual.begin,
+                  manual.end, &manual.manual_end, &manual_conflict)) == nullptr &&
+         manual_conflict))) {
       // exclusive manual compactions should not see a conflict during
       // CompactRange
       assert(!exclusive || !manual_conflict);
