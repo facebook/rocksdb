@@ -1135,13 +1135,22 @@ void LevelCompactionBuilder::SetupInitialFiles() {
     parent_index_ = base_index_ = -1;
     PickFilesMarkedForCompaction();
     if (start_level_inputs_.empty()) {
-      for (auto& level_file : vstorage_->BottommostFilesMarkedForCompaction()) {
-        assert(!level_file.second->being_compacted);
+      size_t i;
+      for (i = 0; i < vstorage_->BottommostFilesMarkedForCompaction().size();
+           ++i) {
+        auto& level_and_file =
+            vstorage_->BottommostFilesMarkedForCompaction()[i];
+        assert(!level_and_file.second->being_compacted);
         start_level_inputs_.level = output_level_ = start_level_ =
-            level_file.first;
-        start_level_inputs_.files = {level_file.second};
-        // found the compaction!
-        break;
+            level_and_file.first;
+        start_level_inputs_.files = {level_and_file.second};
+        if (compaction_picker_->ExpandInputsToCleanCut(cf_name_, vstorage_,
+                                                       &start_level_inputs_)) {
+          break;
+        }
+      }
+      if (i == vstorage_->BottommostFilesMarkedForCompaction().size()) {
+        start_level_inputs_.clear();
       }
     }
     if (!start_level_inputs_.empty()) {
