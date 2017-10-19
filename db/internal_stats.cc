@@ -787,6 +787,10 @@ bool InternalStats::HandleIsWriteStopped(uint64_t* value, DBImpl* db,
 bool InternalStats::HandleEstimatedEarliestKeyTimestamp(uint64_t* value,
                                                         DBImpl* /*db*/,
                                                         Version* /*version*/) {
+  // TODO(yiwu): The property is currently available is there's no compaction,
+  // e.g. FIFO compaction with compaction_options_fifo.allow_compactions
+  // disbled. This is because we don't propagate earliest_key_time on
+  // compaction.
   TablePropertiesCollection collection;
   auto s = cfd_->current()->GetPropertiesOfAllTables(&collection);
   if (!s.ok()) {
@@ -798,7 +802,7 @@ bool InternalStats::HandleEstimatedEarliestKeyTimestamp(uint64_t* value,
   }
   *value = std::min({cfd_->mem()->ApproximateEarliestKeyTimestamp(),
                      cfd_->imm()->ApproximateEarliestKeyTimestamp(), *value});
-  return true;
+  return *value < std::numeric_limits<uint64_t>::max();
 }
 
 void InternalStats::DumpDBStats(std::string* value) {

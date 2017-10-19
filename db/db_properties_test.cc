@@ -1322,11 +1322,11 @@ TEST_F(DBPropertiesTest, EstimatedEarliestKeyTimestamp) {
   auto cfd =
       static_cast<ColumnFamilyHandleImpl*>(dbfull()->DefaultColumnFamily())
           ->cfd();
-  uint64_t earliest_key_timestamp = -1;
+  uint64_t earliest_key_timestamp = 0;
 
-  ASSERT_TRUE(dbfull()->GetIntProperty(
+  // Not supported if no data.
+  ASSERT_FALSE(dbfull()->GetIntProperty(
       DB::Properties::kEstimatedEarliestKeyTimestamp, &earliest_key_timestamp));
-  ASSERT_EQ(std::numeric_limits<uint64_t>::max(), earliest_key_timestamp);
 
   mock_env->set_current_time(100);
   ASSERT_OK(Put("k1", "v1"));
@@ -1379,29 +1379,12 @@ TEST_F(DBPropertiesTest, EstimatedEarliestKeyTimestamp) {
       DB::Properties::kEstimatedEarliestKeyTimestamp, &earliest_key_timestamp));
   ASSERT_EQ(100, earliest_key_timestamp);
 
+  // Not supported if compaction is enabled.
   mock_env->set_current_time(600);
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ("0,1", FilesPerLevel());
-  ASSERT_TRUE(dbfull()->GetIntProperty(
+  ASSERT_FALSE(dbfull()->GetIntProperty(
       DB::Properties::kEstimatedEarliestKeyTimestamp, &earliest_key_timestamp));
-  ASSERT_EQ(100, earliest_key_timestamp);
-
-  mock_env->set_current_time(700);
-  for (int i = 1; i <= 4; i++) {
-    ASSERT_OK(Delete("k" + ToString(i)));
-  }
-  ASSERT_OK(Flush());
-  ASSERT_OK(Put("foo", "bar"));
-  ASSERT_OK(Flush());
-  ASSERT_EQ("2,1", FilesPerLevel());
-  // Drop the two older SST files
-  Slice start("k1");
-  Slice end("k2");
-  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), &start, &end));
-  ASSERT_EQ("1", FilesPerLevel());
-  ASSERT_TRUE(dbfull()->GetIntProperty(
-      DB::Properties::kEstimatedEarliestKeyTimestamp, &earliest_key_timestamp));
-  ASSERT_EQ(700, earliest_key_timestamp);
 
   Close();
 }

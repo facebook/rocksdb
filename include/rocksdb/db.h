@@ -584,8 +584,9 @@ class DB {
     static const std::string kIsWriteStopped;
 
     //  "rocksdb.estimated-earliest-key-timestamp" - returns an estimation of
-    //      oldest key timestamp in the DB. If failed to get an estimation,
-    //      return std::numeric_limits<uint64_t>::max().
+    //      oldest key timestamp in the DB. Currently only available for
+    //      FIFO compaction with
+    //      compaction_options_fifo.allow_compaction = false.
     static const std::string kEstimatedEarliestKeyTimestamp;
   };
 #endif /* ROCKSDB_LITE */

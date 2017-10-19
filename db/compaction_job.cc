@@ -1312,16 +1312,13 @@ Status CompactionJob::OpenCompactionOutputFile(
     output_file_creation_time = static_cast<uint64_t>(_current_time);
   }
 
-  uint64_t earliest_key_time =
-      sub_compact->compaction->InputFileEarliestKeyTime();
-
   sub_compact->builder.reset(NewTableBuilder(
       *cfd->ioptions(), cfd->internal_comparator(),
       cfd->int_tbl_prop_collector_factories(), cfd->GetID(), cfd->GetName(),
       sub_compact->outfile.get(), sub_compact->compaction->output_compression(),
       cfd->ioptions()->compression_opts,
       sub_compact->compaction->output_level(), &sub_compact->compression_dict,
-      skip_filters, output_file_creation_time, earliest_key_time));
+      skip_filters, output_file_creation_time));
   LogFlush(db_options_.info_log);
   return s;
 }

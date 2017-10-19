@@ -9,6 +9,7 @@
 * Support dynamically changing `ColumnFamilyOptions::compaction_options_fifo`.
 * Introduce `EventListener::OnStallConditionsChanged()` callback. Users can implement it to be notified when user writes are stalled, stopped, or resumed.
 * Add a new db properties "rocksdb.estimated-oldest-data-time". The property is useful only for FIFO compaction and is only an approximation based on SST file creation time.
+* Add a new db properties "rocksdb.estimated-oldest-data-time" to return oldest data timestamp. Currently the property is available only for FIFO compaction with compaction_options_fifo.allow_compaction = false.
 
 ### Bug Fixes
 * Fix a potential data inconsistency issue during point-in-time recovery. `DB:Open()` will abort if column family inconsistency is found during PIT recovery.

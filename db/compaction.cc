@@ -14,7 +14,6 @@
 #endif
 
 #include <inttypes.h>
-#include <limits>
 #include <vector>
 
 #include "db/column_family.h"
@@ -468,33 +467,14 @@ bool Compaction::ShouldFormSubcompactions() const {
 uint64_t Compaction::MaxInputFileCreationTime() const {
   uint64_t max_creation_time = 0;
   for (const auto& file : inputs_[0].files) {
-    // Table reader will not be loaded if max_open_files != -1.
-    if (file->fd.table_reader == nullptr) {
-      continue;
-    }
-    auto table_properties = file->fd.table_reader->GetTableProperties();
-    if (table_properties != nullptr) {
-      max_creation_time =
-          std::max(max_creation_time, table_properties->creation_time);
+    if (file->fd.table_reader != nullptr &&
+        file->fd.table_reader->GetTableProperties() != nullptr) {
+      uint64_t creation_time =
+          file->fd.table_reader->GetTableProperties()->creation_time;
+      max_creation_time = std::max(max_creation_time, creation_time);
     }
   }
   return max_creation_time;
-}
-
-uint64_t Compaction::InputFileEarliestKeyTime() const {
-  uint64_t earliest_time = std::numeric_limits<uint64_t>::max();
-  for (const auto& level : inputs_) {
-    for (const auto& file : level.files) {
-      // Table reader will not be loaded if max_open_files != -1.
-      if (file->fd.table_reader == nullptr) {
-        continue;
-      }
-      auto table_properties = file->fd.table_reader->GetTableProperties();
-      earliest_time =
-          std::min(earliest_time, table_properties->earliest_key_time);
-    }
-  }
-  return earliest_time;
 }
 
 }  // namespace rocksdb

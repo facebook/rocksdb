@@ -243,8 +243,6 @@ class Compaction {
 
   uint64_t MaxInputFileCreationTime() const;
 
-  uint64_t InputFileEarliestKeyTime() const;
-
  private:
   // mark (or clear) all files that are being compacted
   void MarkFilesBeingCompacted(bool mark_as_compacted);
