@@ -43,11 +43,17 @@ namespace rocksdb {
 INSTANTIATE_TEST_CASE_P(
     DBAsBaseDB, TransactionTest,
     ::testing::Values(std::make_tuple(false, false, WRITE_COMMITTED),
-                      std::make_tuple(false, false, WRITE_PREPARED)));
+                      std::make_tuple(false, true, WRITE_COMMITTED),
+                      std::make_tuple(false, false, WRITE_PREPARED),
+                      std::make_tuple(false, true, WRITE_PREPARED)
+                      ));
 INSTANTIATE_TEST_CASE_P(
     StackableDBAsBaseDB, TransactionTest,
     ::testing::Values(std::make_tuple(true, false, WRITE_COMMITTED),
-                      std::make_tuple(true, false, WRITE_PREPARED)));
+                      std::make_tuple(true, true, WRITE_COMMITTED),
+                      std::make_tuple(true, false, WRITE_PREPARED),
+                      std::make_tuple(true, true, WRITE_PREPARED)
+                      ));
 INSTANTIATE_TEST_CASE_P(
     MySQLStyleTransactionTest, MySQLStyleTransactionTest,
     ::testing::Values(std::make_tuple(false, false, WRITE_COMMITTED),
@@ -55,7 +61,10 @@ INSTANTIATE_TEST_CASE_P(
                       std::make_tuple(true, false, WRITE_COMMITTED),
                       std::make_tuple(true, true, WRITE_COMMITTED),
                       std::make_tuple(false, false, WRITE_PREPARED),
-                      std::make_tuple(true, false, WRITE_PREPARED)));
+                      std::make_tuple(false, true, WRITE_PREPARED),
+                      std::make_tuple(true, false, WRITE_PREPARED),
+                      std::make_tuple(true, true, WRITE_PREPARED)
+                      ));
 
 TEST_P(TransactionTest, DoubleEmptyWrite) {
   WriteOptions write_options;
@@ -4768,12 +4777,12 @@ TEST_P(TransactionTest, SeqAdvanceTest) {
     auto seq = db_impl->GetLatestSequenceNumber();
     exp_seq = seq;
     txn_t0(0);
-    seq = db_impl->GetLatestSequenceNumber();
+    seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
     ASSERT_EQ(exp_seq, seq);
 
     if (branch_do(n, &branch)) {
       db_impl->Flush(fopt);
-      seq = db_impl->GetLatestSequenceNumber();
+      seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
       ASSERT_EQ(exp_seq, seq);
     }
     if (branch_do(n, &branch)) {
@@ -4781,21 +4790,21 @@ TEST_P(TransactionTest, SeqAdvanceTest) {
       ReOpenNoDelete();
       db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
       seq = db_impl->GetLatestSequenceNumber();
-      ASSERT_EQ(exp_seq, seq);
+        ASSERT_EQ(exp_seq, seq);
     }
 
     // Doing it twice might detect some bugs
     txn_t0(1);
-    seq = db_impl->GetLatestSequenceNumber();
+    seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
     ASSERT_EQ(exp_seq, seq);
 
     txn_t1(0);
-    seq = db_impl->GetLatestSequenceNumber();
+    seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
     ASSERT_EQ(exp_seq, seq);
 
     if (branch_do(n, &branch)) {
       db_impl->Flush(fopt);
-      seq = db_impl->GetLatestSequenceNumber();
+      seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
       ASSERT_EQ(exp_seq, seq);
     }
     if (branch_do(n, &branch)) {
@@ -4803,36 +4812,37 @@ TEST_P(TransactionTest, SeqAdvanceTest) {
       ReOpenNoDelete();
       db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
       seq = db_impl->GetLatestSequenceNumber();
-      ASSERT_EQ(exp_seq, seq);
+        ASSERT_EQ(exp_seq, seq);
     }
 
     txn_t3(0);
-    // Since commit marker does not write to memtable, the last seq number is
-    // not updated immediately. But the advance should be visible after the next
-    // write.
+    seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
+    ASSERT_EQ(exp_seq, seq);
 
     if (branch_do(n, &branch)) {
       db_impl->Flush(fopt);
+      seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
+      ASSERT_EQ(exp_seq, seq);
     }
     if (branch_do(n, &branch)) {
       db_impl->FlushWAL(true);
       ReOpenNoDelete();
       db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
       seq = db_impl->GetLatestSequenceNumber();
-      ASSERT_EQ(exp_seq, seq);
+        ASSERT_EQ(exp_seq, seq);
     }
 
     txn_t0(0);
-    seq = db_impl->GetLatestSequenceNumber();
+    seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
     ASSERT_EQ(exp_seq, seq);
 
     txn_t2(0);
-    seq = db_impl->GetLatestSequenceNumber();
+    seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
     ASSERT_EQ(exp_seq, seq);
 
     if (branch_do(n, &branch)) {
       db_impl->Flush(fopt);
-      seq = db_impl->GetLatestSequenceNumber();
+      seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
       ASSERT_EQ(exp_seq, seq);
     }
     if (branch_do(n, &branch)) {
@@ -4840,7 +4850,7 @@ TEST_P(TransactionTest, SeqAdvanceTest) {
       ReOpenNoDelete();
       db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
       seq = db_impl->GetLatestSequenceNumber();
-      ASSERT_EQ(exp_seq, seq);
+        ASSERT_EQ(exp_seq, seq);
     }
   }
 }
