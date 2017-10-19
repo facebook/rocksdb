@@ -31,7 +31,6 @@ struct ImmutableCFOptions {
   CompactionPri compaction_pri;
 
   CompactionOptionsUniversal compaction_options_universal;
-  CompactionOptionsFIFO compaction_options_fifo;
 
   const SliceTransform* prefix_extractor;
 
@@ -149,6 +148,7 @@ struct MutableCFOptions {
         max_bytes_for_level_multiplier(options.max_bytes_for_level_multiplier),
         max_bytes_for_level_multiplier_additional(
             options.max_bytes_for_level_multiplier_additional),
+        compaction_options_fifo(options.compaction_options_fifo),
         max_sequential_skip_in_iterations(
             options.max_sequential_skip_in_iterations),
         paranoid_file_checks(options.paranoid_file_checks),
@@ -176,6 +176,7 @@ struct MutableCFOptions {
         target_file_size_multiplier(0),
         max_bytes_for_level_base(0),
         max_bytes_for_level_multiplier(0),
+        compaction_options_fifo(),
         max_sequential_skip_in_iterations(0),
         paranoid_file_checks(false),
         report_bg_io_stats(false),
@@ -222,6 +223,7 @@ struct MutableCFOptions {
   uint64_t max_bytes_for_level_base;
   double max_bytes_for_level_multiplier;
   std::vector<int> max_bytes_for_level_multiplier_additional;
+  CompactionOptionsFIFO compaction_options_fifo;
 
   // Misc options
   uint64_t max_sequential_skip_in_iterations;

@@ -1328,6 +1328,7 @@ void VersionStorageInfo::EstimateCompactionBytesNeeded(
 
 namespace {
 uint32_t GetExpiredTtlFilesCount(const ImmutableCFOptions& ioptions,
+                                 const MutableCFOptions& mutable_cf_options,
                                  const std::vector<FileMetaData*>& files) {
   uint32_t ttl_expired_files_count = 0;
 
@@ -1341,8 +1342,8 @@ uint32_t GetExpiredTtlFilesCount(const ImmutableCFOptions& ioptions,
         auto creation_time =
             f->fd.table_reader->GetTableProperties()->creation_time;
         if (creation_time > 0 &&
-            creation_time <
-                (current_time - ioptions.compaction_options_fifo.ttl)) {
+            creation_time < (current_time -
+                             mutable_cf_options.compaction_options_fifo.ttl)) {
           ttl_expired_files_count++;
         }
       }
@@ -1389,19 +1390,19 @@ void VersionStorageInfo::ComputeCompactionScore(
       }
 
       if (compaction_style_ == kCompactionStyleFIFO) {
-        score =
-            static_cast<double>(total_size) /
-            immutable_cf_options.compaction_options_fifo.max_table_files_size;
-        if (immutable_cf_options.compaction_options_fifo.allow_compaction) {
+        score = static_cast<double>(total_size) /
+                mutable_cf_options.compaction_options_fifo.max_table_files_size;
+        if (mutable_cf_options.compaction_options_fifo.allow_compaction) {
           score = std::max(
               static_cast<double>(num_sorted_runs) /
                   mutable_cf_options.level0_file_num_compaction_trigger,
               score);
         }
-        if (immutable_cf_options.compaction_options_fifo.ttl > 0) {
-          score = std::max(static_cast<double>(GetExpiredTtlFilesCount(
-                               immutable_cf_options, files_[level])),
-                           score);
+        if (mutable_cf_options.compaction_options_fifo.ttl > 0) {
+          score = std::max(
+              static_cast<double>(GetExpiredTtlFilesCount(
+                  immutable_cf_options, mutable_cf_options, files_[level])),
+              score);
         }
 
       } else {

@@ -82,6 +82,7 @@ enum class OptionType {
   kComparator,
   kCompactionFilter,
   kCompactionFilterFactory,
+  kCompactionOptionsFIFO,
   kMergeOperator,
   kMemTableRepFactory,
   kBlockBasedTableIndexType,
@@ -587,7 +588,26 @@ static std::unordered_map<std::string, OptionTypeInfo> cf_options_type_info = {
       OptionType::kCompactionStyle, OptionVerificationType::kNormal, false, 0}},
     {"compaction_pri",
      {offset_of(&ColumnFamilyOptions::compaction_pri),
-      OptionType::kCompactionPri, OptionVerificationType::kNormal, false, 0}}};
+      OptionType::kCompactionPri, OptionVerificationType::kNormal, false, 0}},
+    {"compaction_options_fifo",
+     {offset_of(&ColumnFamilyOptions::compaction_options_fifo),
+      OptionType::kCompactionOptionsFIFO, OptionVerificationType::kNormal, true,
+      offsetof(struct MutableCFOptions, compaction_options_fifo)}}};
+
+static std::unordered_map<std::string, OptionTypeInfo>
+    fifo_compaction_options_type_info = {
+        {"max_table_files_size",
+         {offset_of(&CompactionOptionsFIFO::max_table_files_size),
+          OptionType::kUInt64T, OptionVerificationType::kNormal, true,
+          offsetof(struct CompactionOptionsFIFO, max_table_files_size)}},
+        {"ttl",
+         {offset_of(&CompactionOptionsFIFO::ttl), OptionType::kUInt64T,
+          OptionVerificationType::kNormal, true,
+          offsetof(struct CompactionOptionsFIFO, ttl)}},
+        {"allow_compaction",
+         {offset_of(&CompactionOptionsFIFO::allow_compaction),
+          OptionType::kBoolean, OptionVerificationType::kNormal, true,
+          offsetof(struct CompactionOptionsFIFO, allow_compaction)}}};
 
 static std::unordered_map<std::string, CompressionType>
     compression_type_string_map = {

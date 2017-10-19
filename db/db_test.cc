@@ -4292,6 +4292,72 @@ TEST_F(DBTest, DynamicCompactionOptions) {
 }
 #endif  // ROCKSDB_LITE
 
+// Test dynamic FIFO copmaction options.
+// This test covers just option parsing and makes sure that the options are
+// correctly assigned. Also look at DBOptionsTest.SetFIFOCompactionOptions
+// test which makes sure that the FIFO compaction funcionality is working
+// as expected on dynamically changing the options.
+// Even more FIFOCompactionTests are at DBTest.FIFOCompaction* .
+TEST_F(DBTest, DynamicFIFOCompactionOptions) {
+  Options options;
+  options.create_if_missing = true;
+  DestroyAndReopen(options);
+
+  // Initial defaults
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.max_table_files_size,
+            1024 * 1024 * 1024);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.ttl, 0);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.allow_compaction,
+            false);
+
+  ASSERT_OK(dbfull()->SetOptions(
+      {{"compaction_options_fifo", "{max_table_files_size=23;}"}}));
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.max_table_files_size,
+            23);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.ttl, 0);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.allow_compaction,
+            false);
+
+  ASSERT_OK(dbfull()->SetOptions({{"compaction_options_fifo", "{ttl=97}"}}));
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.max_table_files_size,
+            23);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.ttl, 97);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.allow_compaction,
+            false);
+
+  ASSERT_OK(dbfull()->SetOptions({{"compaction_options_fifo", "{ttl=203;}"}}));
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.max_table_files_size,
+            23);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.ttl, 203);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.allow_compaction,
+            false);
+
+  ASSERT_OK(dbfull()->SetOptions(
+      {{"compaction_options_fifo", "{allow_compaction=true;}"}}));
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.max_table_files_size,
+            23);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.ttl, 203);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.allow_compaction,
+            true);
+
+  ASSERT_OK(dbfull()->SetOptions(
+      {{"compaction_options_fifo", "{max_table_files_size=31;ttl=19;}"}}));
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.max_table_files_size,
+            31);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.ttl, 19);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.allow_compaction,
+            true);
+
+  ASSERT_OK(dbfull()->SetOptions(
+      {{"compaction_options_fifo",
+        "{max_table_files_size=51;ttl=49;allow_compaction=true;}"}}));
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.max_table_files_size,
+            51);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.ttl, 49);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.allow_compaction,
+            true);
+}
+
 TEST_F(DBTest, FileCreationRandomFailure) {
   Options options;
   options.env = env_;

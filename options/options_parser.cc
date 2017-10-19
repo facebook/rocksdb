@@ -587,6 +587,17 @@ bool AreEqualOptions(
     case OptionType::kInfoLogLevel:
       return (*reinterpret_cast<const InfoLogLevel*>(offset1) ==
               *reinterpret_cast<const InfoLogLevel*>(offset2));
+    case OptionType::kCompactionOptionsFIFO: {
+      CompactionOptionsFIFO lhs =
+          *reinterpret_cast<const CompactionOptionsFIFO*>(offset1);
+      CompactionOptionsFIFO rhs =
+          *reinterpret_cast<const CompactionOptionsFIFO*>(offset2);
+      if (lhs.max_table_files_size == rhs.max_table_files_size &&
+          lhs.ttl == rhs.ttl && lhs.allow_compaction == rhs.allow_compaction) {
+        return true;
+      }
+      return false;
+    }
     default:
       if (type_info.verification == OptionVerificationType::kByName ||
           type_info.verification ==
