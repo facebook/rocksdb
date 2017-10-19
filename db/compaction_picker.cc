@@ -1294,7 +1294,7 @@ uint32_t LevelCompactionBuilder::GetPathId(
                 level_size * mutable_cf_options.max_bytes_for_level_multiplier *
                 mutable_cf_options.MaxBytesMultiplerAdditional(cur_level));
           }
-	}
+        }
         cur_level++;
         continue;
       }
