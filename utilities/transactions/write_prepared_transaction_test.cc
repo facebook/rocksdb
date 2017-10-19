@@ -330,8 +330,8 @@ class WritePreparedTransactionTest : public TransactionTest {
 // TODO(myabandeh): enable it for concurrent_prepare
 INSTANTIATE_TEST_CASE_P(WritePreparedTransactionTest,
                         WritePreparedTransactionTest,
-                        ::testing::Values(std::make_tuple(false, true,
-                                                          WRITE_PREPARED)));
+    ::testing::Values(std::make_tuple(false, false, WRITE_PREPARED),
+                      std::make_tuple(false, true, WRITE_PREPARED)));
 
 TEST_P(WritePreparedTransactionTest, CommitMapTest) {
   WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
@@ -622,51 +622,50 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceTest) {
   for (size_t n = 0; n < max_n; n++, ReOpen()) {
     DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
     size_t branch = 0;
-    auto seq = db_impl->GetLatestSequenceNumber();
+    auto seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
     exp_seq = seq;
     txn_t0(0);
-    seq = db_impl->GetLatestSequenceNumber();
+    seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
     ASSERT_EQ(exp_seq, seq);
 
     if (branch_do(n, &branch)) {
       db_impl->Flush(fopt);
-      seq = db_impl->GetLatestSequenceNumber();
+      seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
       ASSERT_EQ(exp_seq, seq);
     }
     if (branch_do(n, &branch)) {
       db_impl->FlushWAL(true);
       ReOpenNoDelete();
       db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
-      seq = db_impl->GetLatestSequenceNumber();
+      seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
       ASSERT_EQ(exp_seq, seq);
     }
 
     // Doing it twice might detect some bugs
     txn_t0(1);
-    seq = db_impl->GetLatestSequenceNumber();
+    seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
     ASSERT_EQ(exp_seq, seq);
 
     txn_t1(0);
-    seq = db_impl->GetLatestSequenceNumber();
+    seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
     ASSERT_EQ(exp_seq, seq);
 
     if (branch_do(n, &branch)) {
       db_impl->Flush(fopt);
-      seq = db_impl->GetLatestSequenceNumber();
+      seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
       ASSERT_EQ(exp_seq, seq);
     }
     if (branch_do(n, &branch)) {
       db_impl->FlushWAL(true);
       ReOpenNoDelete();
       db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
-      seq = db_impl->GetLatestSequenceNumber();
+      seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
       ASSERT_EQ(exp_seq, seq);
     }
 
     txn_t3(0);
-    // Since commit marker does not write to memtable, the last seq number is
-    // not updated immediately. But the advance should be visible after the next
-    // write.
+    seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
+    ASSERT_EQ(exp_seq, seq);
 
     if (branch_do(n, &branch)) {
       db_impl->Flush(fopt);
@@ -675,28 +674,28 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceTest) {
       db_impl->FlushWAL(true);
       ReOpenNoDelete();
       db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
-      seq = db_impl->GetLatestSequenceNumber();
+      seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
       ASSERT_EQ(exp_seq, seq);
     }
 
     txn_t0(0);
-    seq = db_impl->GetLatestSequenceNumber();
+    seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
     ASSERT_EQ(exp_seq, seq);
 
     txn_t2(0);
-    seq = db_impl->GetLatestSequenceNumber();
+    seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
     ASSERT_EQ(exp_seq, seq);
 
     if (branch_do(n, &branch)) {
       db_impl->Flush(fopt);
-      seq = db_impl->GetLatestSequenceNumber();
+      seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
       ASSERT_EQ(exp_seq, seq);
     }
     if (branch_do(n, &branch)) {
       db_impl->FlushWAL(true);
       ReOpenNoDelete();
       db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
-      seq = db_impl->GetLatestSequenceNumber();
+      seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
       ASSERT_EQ(exp_seq, seq);
     }
   }
@@ -732,7 +731,7 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceConcurrentTest) {
       printf("Tested %" PRIu64 " cases so far\n", n);
     }
     DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
-    auto seq = db_impl->GetLatestSequenceNumber();
+    auto seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
     exp_seq = seq;
     // This is increased before writing the batch for commit
     commit_writes = 0;
@@ -805,19 +804,22 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceConcurrentTest) {
       // form merged bactches works because the writes go to saparte queues.
       // This would result in different write groups in each run of the test. We
       // still keep the test since althgouh non-deterministic and hard to debug,
-      // it is still useful to have. Since in this case we could finish with
-      // commit writes that dont write to memtable, the seq is not advanced in
-      // this code path. It will be after the next write. So we do one more
-      // write to make the impact of last seq visible.
-      // TODO(myabandeh): Add a deterministic unit test for concurrent_prepare
-      txn_t0(0);
+      // it is still useful to have. 
+    // TODO(myabandeh): Add a deterministic unit test for concurrent_prepare
     }
+
     // Check if memtable inserts advanced seq number as expected
-    seq = db_impl->GetLatestSequenceNumber();
+    seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
     ASSERT_EQ(exp_seq, seq);
 
     rocksdb::SyncPoint::GetInstance()->DisableProcessing();
     rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+    // The latest seq might be due to a commit without prepare and hence not
+    // persisted in the WAL. To make the verification of seq after recovery
+    // easier we write in a transaction with prepare which makes the latest seq
+    // to be persisted via the commitmarker.
+    txn_t3(0);
 
     // Check if recovery preserves the last sequence number
     db_impl->FlushWAL(true);
@@ -1396,6 +1398,7 @@ TEST_P(WritePreparedTransactionTest, SequenceNumberZeroTest) {
 TEST_P(WritePreparedTransactionTest, CompactionShouldKeepUncommittedKeys) {
   options.disable_auto_compactions = true;
   ReOpen();
+    DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
   // Snapshots to avoid keys get evicted.
   std::vector<const Snapshot*> snapshots;
   // Keep track of expected sequence number.
@@ -1403,7 +1406,11 @@ TEST_P(WritePreparedTransactionTest, CompactionShouldKeepUncommittedKeys) {
 
   auto add_key = [&](std::function<Status()> func) {
     ASSERT_OK(func());
-    ASSERT_EQ(++expected_seq, db->GetLatestSequenceNumber());
+    expected_seq++;
+    if (options.concurrent_prepare) {
+    expected_seq++; // 1 for commit
+    }
+    ASSERT_EQ(expected_seq, db_impl->TEST_GetLatestVisibleSequenceNumber());
     snapshots.push_back(db->GetSnapshot());
   };
 
@@ -1490,10 +1497,8 @@ TEST_P(WritePreparedTransactionTest, CompactionShouldKeepSnapshotVisibleKeys) {
   ASSERT_OK(txn1->Prepare());
   ASSERT_EQ(++expected_seq, db->GetLatestSequenceNumber());
   ASSERT_OK(txn1->Commit());
-  ++expected_seq;
-  if (!options.concurrent_prepare) {
-    ASSERT_EQ(expected_seq, db->GetLatestSequenceNumber());
-  }  // else the seq is visible after the next write
+  DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+  ASSERT_EQ(++expected_seq, db_impl->TEST_GetLatestVisibleSequenceNumber());
   delete txn1;
   // Take a snapshots to avoid keys get evicted before compaction.
   const Snapshot* snapshot1 = db->GetSnapshot();
@@ -1506,19 +1511,24 @@ TEST_P(WritePreparedTransactionTest, CompactionShouldKeepSnapshotVisibleKeys) {
   // txn2 commit after snapshot2 and it is not visible.
   const Snapshot* snapshot2 = db->GetSnapshot();
   ASSERT_OK(txn2->Commit());
-  ++expected_seq;
-  if (!options.concurrent_prepare) {
-    ASSERT_EQ(expected_seq, db->GetLatestSequenceNumber());
-  }  // else the seq is visible after the next write
+  ASSERT_EQ(++expected_seq, db_impl->TEST_GetLatestVisibleSequenceNumber());
   delete txn2;
   // Take a snapshots to avoid keys get evicted before compaction.
   const Snapshot* snapshot3 = db->GetSnapshot();
   ASSERT_OK(db->Put(WriteOptions(), "key1", "value1_2"));
-  ASSERT_EQ(++expected_seq, db->GetLatestSequenceNumber());
+  expected_seq ++; // 1 for write
   SequenceNumber seq1 = expected_seq;
+  if (options.concurrent_prepare) {
+    expected_seq++;  // 1 for commit
+  }
+  ASSERT_EQ(expected_seq, db_impl->TEST_GetLatestVisibleSequenceNumber());
   ASSERT_OK(db->Put(WriteOptions(), "key2", "value2_2"));
-  ASSERT_EQ(++expected_seq, db->GetLatestSequenceNumber());
+  expected_seq ++; // 1 for write
   SequenceNumber seq2 = expected_seq;
+  if (options.concurrent_prepare) {
+    expected_seq++;  // 1 for commit
+  }
+  ASSERT_EQ(expected_seq, db_impl->TEST_GetLatestVisibleSequenceNumber());
   ASSERT_OK(db->Flush(FlushOptions()));
   db->ReleaseSnapshot(snapshot1);
   db->ReleaseSnapshot(snapshot3);

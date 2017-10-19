@@ -219,6 +219,8 @@ class DBImpl : public DB {
   virtual Status SyncWAL() override;
 
   virtual SequenceNumber GetLatestSequenceNumber() const override;
+  virtual SequenceNumber IncAndFetchSequenceNumber();
+ SequenceNumber TEST_GetLatestVisibleSequenceNumber() const;
 
   bool HasActiveSnapshotLaterThanSN(SequenceNumber sn);
 

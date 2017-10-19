@@ -58,6 +58,8 @@ class WritePreparedTxn : public PessimisticTransaction {
  private:
   friend class WritePreparedTransactionTest_BasicRecoveryTest_Test;
 
+  SequenceNumber GetACommitSeqNumber(SequenceNumber prep_seq);
+
   Status PrepareInternal() override;
 
   Status CommitWithoutPrepareInternal() override;
