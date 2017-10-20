@@ -100,7 +100,7 @@ void LRUHandleTable::Resize() {
 }
 
 LRUCacheShard::LRUCacheShard()
-    : high_pri_pool_usage_(0), usage_(0), lru_usage_(0) {
+    : high_pri_pool_usage_(0), high_pri_pool_ratio_(0), usage_(0), lru_usage_(0) {
   // Make empty circular linked list
   lru_.next = &lru_;
   lru_.prev = &lru_;
