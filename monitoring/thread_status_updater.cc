@@ -254,6 +254,7 @@ void ThreadStatusUpdater::EraseColumnFamilyInfo(const void* cf_key) {
     assert(db_pair != db_key_map_.end());
     size_t result __attribute__((unused)) = db_pair->second.erase(cf_key);
     assert(result);
+    (result);
     cf_info_map_.erase(cf_pair);
   }
 }

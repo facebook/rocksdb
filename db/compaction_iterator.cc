@@ -142,6 +142,8 @@ void CompactionIterator::Next() {
       // MergeUntil stops when it encounters a corrupt key and does not
       // include them in the result, so we expect the keys here to be valid.
       assert(valid_key);
+      // Stop compiler from complaining
+      (valid_key);
       // Keep current_key_ in sync.
       current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
       key_ = current_key_.GetInternalKey();
@@ -336,6 +338,7 @@ void CompactionIterator::NextFromInput() {
     // snapshot that is affected by this kv.
     SequenceNumber last_sequence __attribute__((__unused__)) =
         current_user_key_sequence_;
+    (last_sequence);
     current_user_key_sequence_ = ikey_.sequence;
     SequenceNumber last_snapshot = current_user_key_snapshot_;
     SequenceNumber prev_snapshot = 0;  // 0 means no previous snapshot
@@ -543,6 +546,7 @@ void CompactionIterator::NextFromInput() {
         // MergeUntil stops when it encounters a corrupt key and does not
         // include them in the result, so we expect the keys here to valid.
         assert(valid_key);
+        (valid_key);
         // Keep current_key_ in sync.
         current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
         key_ = current_key_.GetInternalKey();

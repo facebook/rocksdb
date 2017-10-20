@@ -483,6 +483,7 @@ void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id) {
   bool success __attribute__((__unused__)) =
       ReadKeyFromWriteBatchEntry(&entry_ptr, &key, column_family_id != 0);
   assert(success);
+  (success);
 
     auto* mem = arena.Allocate(sizeof(WriteBatchIndexEntry));
     auto* index_entry =

@@ -1681,7 +1681,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     int output_level  __attribute__((unused)) = c->output_level();
     TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCompaction:NonTrivial",
                              &output_level);
-
+    (output_level);
     SequenceNumber earliest_write_conflict_snapshot;
     std::vector<SequenceNumber> snapshot_seqs =
         snapshots_.GetAll(&earliest_write_conflict_snapshot);

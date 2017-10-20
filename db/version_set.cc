@@ -1921,6 +1921,7 @@ void VersionStorageInfo::ExtendFileRangeOverlappingInterval(
     if (user_cmp->Compare(file_limit, user_begin) >= 0) {
       *start_index = i;
       assert((count++, true));
+      (count);
     } else {
       break;
     }

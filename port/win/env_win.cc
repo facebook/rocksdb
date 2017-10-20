@@ -76,6 +76,7 @@ WinEnvIO::WinEnvIO(Env* hosted_env)
     LARGE_INTEGER qpf;
     BOOL ret = QueryPerformanceFrequency(&qpf);
     assert(ret == TRUE);
+    (ret);
     perf_counter_frequency_ = qpf.QuadPart;
   }
 

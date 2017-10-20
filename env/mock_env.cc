@@ -381,6 +381,7 @@ class TestMemLogger : public Logger {
       memset(&t, 0, sizeof(t));
       auto ret __attribute__((__unused__)) = localtime_r(&seconds, &t);
       assert(ret);
+      (ret);
       p += snprintf(p, limit - p,
                     "%04d/%02d/%02d-%02d:%02d:%02d.%06d ",
                     t.tm_year + 1900,

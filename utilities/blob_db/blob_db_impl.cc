@@ -1314,6 +1314,7 @@ Status BlobDBImpl::CloseBlobFile(std::shared_ptr<BlobFile> bfile) {
     if (bfile->HasTTL()) {
       size_t erased __attribute__((__unused__)) = open_blob_files_.erase(bfile);
       assert(erased == 1);
+      (erased);
     } else {
       auto iter = std::find(open_simple_files_.begin(),
                             open_simple_files_.end(), bfile);

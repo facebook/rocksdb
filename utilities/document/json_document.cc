@@ -50,6 +50,7 @@ void InitJSONDocument(std::unique_ptr<char[]>* data,
   assert(res);
   uint32_t bytesWritten __attribute__((unused)) = f(writer);
   assert(bytesWritten != 0);
+  (bytesWritten);
   res = writer.writeEndArray();
   assert(res);
   char* buf = new char[writer.getOutput()->getSize()];
