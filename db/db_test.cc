@@ -4290,7 +4290,6 @@ TEST_F(DBTest, DynamicCompactionOptions) {
   dbfull()->TEST_WaitForCompact();
   ASSERT_LT(NumTableFilesAtLevel(0), 4);
 }
-#endif  // ROCKSDB_LITE
 
 // Test dynamic FIFO copmaction options.
 // This test covers just option parsing and makes sure that the options are
@@ -4357,6 +4356,7 @@ TEST_F(DBTest, DynamicFIFOCompactionOptions) {
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.allow_compaction,
             true);
 }
+#endif  // ROCKSDB_LITE
 
 TEST_F(DBTest, FileCreationRandomFailure) {
   Options options;
