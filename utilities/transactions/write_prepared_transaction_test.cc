@@ -1250,11 +1250,16 @@ TEST_P(WritePreparedTransactionTest, DisableGCDuringRecoveryTest) {
   options.write_buffer_size = 1024 * 1024;
   ReOpen();
   std::vector<KeyVersion> versions;
+  uint64_t seq = 0;
   for (uint64_t i = 1; i <= 1024; i++) {
     std::string v = "bar" + ToString(i);
     ASSERT_OK(db->Put(WriteOptions(), "foo", v));
     VerifyKeys({{"foo", v}});
-    KeyVersion kv = {"foo", v, i, kTypeValue};
+    seq++;  // one for the key/value
+    KeyVersion kv = {"foo", v, seq, kTypeValue};
+    if (options.concurrent_prepare) {
+      seq++;  // one for the commit
+    }
     versions.emplace_back(kv);
   }
   std::reverse(std::begin(versions), std::end(versions));
