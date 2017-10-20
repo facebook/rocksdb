@@ -63,9 +63,9 @@ bool BlockCacheTierMetadata::Lookup(const Slice& key, LBA* lba) {
 BlockInfo* BlockCacheTierMetadata::Remove(const Slice& key) {
   BlockInfo lookup_key(key);
   BlockInfo* binfo = nullptr;
-  bool ok __attribute__((__unused__)) = block_index_.Erase(&lookup_key, &binfo);
+  bool ok __attribute__((__unused__));
+  ok = block_index_.Erase(&lookup_key, &binfo);
   assert(ok);
-  (ok);
   return binfo;
 }
 

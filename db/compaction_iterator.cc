@@ -137,13 +137,11 @@ void CompactionIterator::Next() {
     if (merge_out_iter_.Valid()) {
       key_ = merge_out_iter_.key();
       value_ = merge_out_iter_.value();
-      bool valid_key __attribute__((__unused__)) =
-          ParseInternalKey(key_, &ikey_);
+      bool valid_key __attribute__((__unused__));
+      valid_key =  ParseInternalKey(key_, &ikey_);
       // MergeUntil stops when it encounters a corrupt key and does not
       // include them in the result, so we expect the keys here to be valid.
       assert(valid_key);
-      // Stop compiler from complaining
-      (valid_key);
       // Keep current_key_ in sync.
       current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
       key_ = current_key_.GetInternalKey();
@@ -336,9 +334,8 @@ void CompactionIterator::NextFromInput() {
     // If there are no snapshots, then this kv affect visibility at tip.
     // Otherwise, search though all existing snapshots to find the earliest
     // snapshot that is affected by this kv.
-    SequenceNumber last_sequence __attribute__((__unused__)) =
-        current_user_key_sequence_;
-    (last_sequence);
+    SequenceNumber last_sequence __attribute__((__unused__));
+    last_sequence = current_user_key_sequence_;
     current_user_key_sequence_ = ikey_.sequence;
     SequenceNumber last_snapshot = current_user_key_snapshot_;
     SequenceNumber prev_snapshot = 0;  // 0 means no previous snapshot
@@ -541,12 +538,11 @@ void CompactionIterator::NextFromInput() {
         //       These will be correctly set below.
         key_ = merge_out_iter_.key();
         value_ = merge_out_iter_.value();
-        bool valid_key __attribute__((__unused__)) =
-            ParseInternalKey(key_, &ikey_);
+        bool valid_key __attribute__((__unused__));
+        valid_key = ParseInternalKey(key_, &ikey_);
         // MergeUntil stops when it encounters a corrupt key and does not
         // include them in the result, so we expect the keys here to valid.
         assert(valid_key);
-        (valid_key);
         // Keep current_key_ in sync.
         current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
         key_ = current_key_.GetInternalKey();

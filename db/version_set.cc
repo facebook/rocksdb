@@ -1912,7 +1912,8 @@ void VersionStorageInfo::ExtendFileRangeOverlappingInterval(
 #endif
   *start_index = mid_index + 1;
   *end_index = mid_index;
-  int count __attribute__((unused)) = 0;
+  int count __attribute__((unused));
+  count = 0;
 
   // check backwards from 'mid' to lower indices
   for (int i = mid_index; i >= 0 ; i--) {
@@ -1921,7 +1922,6 @@ void VersionStorageInfo::ExtendFileRangeOverlappingInterval(
     if (user_cmp->Compare(file_limit, user_begin) >= 0) {
       *start_index = i;
       assert((count++, true));
-      (count);
     } else {
       break;
     }
