@@ -663,12 +663,14 @@ class Version {
   Version* next_;               // Next version in linked list
   Version* prev_;               // Previous version in linked list
   int refs_;                    // Number of live refs to this version
+  const EnvOptions env_options_;
 
   // A version number that uniquely represents this version. This is
   // used for debugging and logging purposes only.
   uint64_t version_number_;
 
-  Version(ColumnFamilyData* cfd, VersionSet* vset, uint64_t version_number = 0);
+  Version(ColumnFamilyData* cfd, VersionSet* vset, const EnvOptions& env_opt,
+          uint64_t version_number = 0);
 
   ~Version();
 
@@ -844,6 +846,10 @@ class VersionSet {
 
   ColumnFamilySet* GetColumnFamilySet() { return column_family_set_.get(); }
   const EnvOptions& env_options() { return env_options_; }
+  void ChangeEnvOptions(const MutableDBOptions& new_options) {
+    env_options_.writable_file_max_buffer_size =
+        new_options.writable_file_max_buffer_size;
+  }
 
   static uint64_t GetNumLiveVersions(Version* dummy_versions);
 
@@ -908,7 +914,7 @@ class VersionSet {
   std::vector<std::string> obsolete_manifests_;
 
   // env options for all reads and writes except compactions
-  const EnvOptions& env_options_;
+  EnvOptions env_options_;
 
   // env options used for compactions. This is a copy of
   // env_options_ but with readaheads set to readahead_compactions_.
