@@ -2023,12 +2023,13 @@ TEST_F(DBIteratorTest, TableFilter) {
 
   // Ensure the table_filter callback is called once for each table.
   {
-    std::set<uint64_t> unseen {1, 2, 3};
+    std::set<uint64_t> unseen{1, 2, 3};
     ReadOptions opts;
     opts.table_filter = [&](const TableProperties& props) {
       auto it = unseen.find(props.num_entries);
       if (it == unseen.end()) {
-        ADD_FAILURE() << "saw table properties with an unexpected " << props.num_entries << " entries";
+        ADD_FAILURE() << "saw table properties with an unexpected "
+                      << props.num_entries << " entries";
       } else {
         unseen.erase(it);
       }
