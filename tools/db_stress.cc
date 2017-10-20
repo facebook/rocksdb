@@ -355,6 +355,14 @@ DEFINE_int32(compact_files_one_in, 0,
              "If non-zero, then CompactFiles() will be called one for every N "
              "operations IN AVERAGE.  0 indicates CompactFiles() is disabled.");
 
+DEFINE_int32(acquire_snapshot_one_in, 0,
+             "If non-zero, then acquires a snapshot once every N operations on "
+             "average.");
+
+DEFINE_uint64(snapshot_hold_ops, 0,
+              "If non-zero, then releases snapshots N operations after they're "
+              "acquired.");
+
 static bool ValidateInt32Percent(const char* flagname, int32_t value) {
   if (value < 0 || value>100) {
     fprintf(stderr, "Invalid value for --%s: %d, 0<= pct <=100 \n",
@@ -1649,6 +1657,7 @@ class StressTest {
     const int delRangeBound = delBound + (int)FLAGS_delrangepercent;
 
     thread->stats.Start();
+    std::queue<std::pair<uint64_t, const Snapshot*> > snapshot_queue;
     for (uint64_t i = 0; i < FLAGS_ops_per_thread; i++) {
       if (thread->shared->HasVerificationFailedYet()) {
         break;
@@ -1768,6 +1777,16 @@ class StressTest {
         }
       }
 #endif                // !ROCKSDB_LITE
+      if (FLAGS_acquire_snapshot_one_in > 0 &&
+          thread->rand.Uniform(FLAGS_acquire_snapshot_one_in) == 0) {
+        snapshot_queue.emplace(
+            std::min(FLAGS_ops_per_thread - 1, i + FLAGS_snapshot_hold_ops),
+            db_->GetSnapshot());
+      }
+      if (!snapshot_queue.empty() && i == snapshot_queue.front().first) {
+        db_->ReleaseSnapshot(snapshot_queue.front().second);
+        snapshot_queue.pop();
+      }
 
       const double completed_ratio =
           static_cast<double>(i) / FLAGS_ops_per_thread;
