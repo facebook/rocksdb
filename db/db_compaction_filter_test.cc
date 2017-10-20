@@ -33,11 +33,12 @@ class DBTestCompactionFilterWithCompactParam
     option_config_ = GetParam();
     Destroy(last_options_);
     auto options = CurrentOptions();
-    if (option_config_ == kDefault || option_config_ == kUniversalCompaction) {
+    if (option_config_ == kDefault || option_config_ == kUniversalCompaction ||
+        option_config_ == kUniversalCompactionMultiLevel) {
       options.create_if_missing = true;
     }
     if (option_config_ == kLevelSubcompactions ||
-        option_config_ == kUniversalCompactionMultiLevel) {
+        option_config_ == kUniversalSubcompactions) {
       assert(options.max_subcompactions > 1);
     }
     TryReopen(options);
@@ -50,7 +51,8 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Values(DBTestBase::OptionConfig::kDefault,
                       DBTestBase::OptionConfig::kUniversalCompaction,
                       DBTestBase::OptionConfig::kUniversalCompactionMultiLevel,
-                      DBTestBase::OptionConfig::kLevelSubcompactions));
+                      DBTestBase::OptionConfig::kLevelSubcompactions,
+                      DBTestBase::OptionConfig::kUniversalSubcompactions));
 
 class KeepFilter : public CompactionFilter {
  public:
