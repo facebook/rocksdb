@@ -352,8 +352,8 @@ class MemTable {
 
   const MemTableOptions* GetMemTableOptions() const { return &moptions_; }
 
-  uint64_t ApproximateEarliestKeyTimestamp() const {
-    return earliest_time_.load(std::memory_order_relaxed);
+  uint64_t ApproximateOldestKeyTime() const {
+    return oldest_key_time_.load(std::memory_order_relaxed);
   }
 
  private:
@@ -420,7 +420,7 @@ class MemTable {
   std::unordered_map<Slice, void*, SliceHasher> insert_hints_;
 
   // Timestamp of oldest key
-  std::atomic<uint64_t> earliest_time_;
+  std::atomic<uint64_t> oldest_key_time_;
 
   // Returns a heuristic flush decision
   bool ShouldFlushNow() const;
@@ -428,7 +428,7 @@ class MemTable {
   // Updates flush_state_ using ShouldFlushNow()
   void UpdateFlushState();
 
-  void UpdateEarliestKeyTimestamp();
+  void UpdateOldestKeyTime();
 
   // No copying allowed
   MemTable(const MemTable&);

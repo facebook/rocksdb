@@ -764,7 +764,7 @@ TEST_F(BlobDBTest, ReadWhileGC) {
 TEST_F(BlobDBTest, ColumnFamilyNotSupported) {
   Options options;
   options.env = mock_env_.get();
-  mock_env_->set_now_micros(0);
+  mock_env_->set_current_time(0);
   Open(BlobDBOptions(), options);
   ColumnFamilyHandle *default_handle = blob_db_->DefaultColumnFamily();
   ColumnFamilyHandle *handle = nullptr;

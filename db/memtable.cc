@@ -99,7 +99,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       env_(ioptions.env),
       insert_with_hint_prefix_extractor_(
           ioptions.memtable_insert_with_hint_prefix_extractor),
-      earliest_time_(std::numeric_limits<uint64_t>::max()) {
+      oldest_key_time_(std::numeric_limits<uint64_t>::max()) {
   UpdateFlushState();
   // something went wrong if we need to flush before inserting anything
   assert(!ShouldScheduleFlush());
@@ -205,16 +205,16 @@ void MemTable::UpdateFlushState() {
   }
 }
 
-void MemTable::UpdateEarliestKeyTimestamp() {
-  uint64_t earliest_time = earliest_time_.load(std::memory_order_relaxed);
-  if (earliest_time == std::numeric_limits<uint64_t>::max()) {
+void MemTable::UpdateOldestKeyTime() {
+  uint64_t oldest_key_time = oldest_key_time_.load(std::memory_order_relaxed);
+  if (oldest_key_time == std::numeric_limits<uint64_t>::max()) {
     int64_t current_time = 0;
     auto s = env_->GetCurrentTime(&current_time);
     if (s.ok()) {
       assert(current_time >= 0);
       // If fail, the timestamp is already set.
-      earliest_time_.compare_exchange_strong(
-          earliest_time, static_cast<uint64_t>(current_time),
+      oldest_key_time_.compare_exchange_strong(
+          oldest_key_time, static_cast<uint64_t>(current_time),
           std::memory_order_relaxed, std::memory_order_relaxed);
     }
   }
@@ -534,7 +534,7 @@ void MemTable::Add(SequenceNumber s, ValueType type,
   if (is_range_del_table_empty_ && type == kTypeRangeDeletion) {
     is_range_del_table_empty_ = false;
   }
-  UpdateEarliestKeyTimestamp();
+  UpdateOldestKeyTime();
 }
 
 // Callback from MemTable::Get()

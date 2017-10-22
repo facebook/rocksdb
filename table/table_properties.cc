@@ -139,7 +139,7 @@ std::string TableProperties::ToString(
 
   AppendProperty(result, "creation time", creation_time, prop_delim, kv_delim);
 
-  AppendProperty(result, "time stamp of earliest key", earliest_key_time,
+  AppendProperty(result, "time stamp of earliest key", oldest_key_time,
                  prop_delim, kv_delim);
 
   return result;
@@ -194,8 +194,8 @@ const std::string TablePropertiesNames::kPropertyCollectors =
     "rocksdb.property.collectors";
 const std::string TablePropertiesNames::kCompression = "rocksdb.compression";
 const std::string TablePropertiesNames::kCreationTime = "rocksdb.creation.time";
-const std::string TablePropertiesNames::kEarliestKeyTime =
-    "rocksdb.earliest.key.time";
+const std::string TablePropertiesNames::kOldestKeyTime =
+    "rocksdb.oldest.key.time";
 
 extern const std::string kPropertiesBlock = "rocksdb.properties";
 // Old property block name for backward compatibility

@@ -300,8 +300,8 @@ Status FlushJob::WriteLevel0Table() {
       db_options_.env->GetCurrentTime(&_current_time);  // ignore error
       const uint64_t current_time = static_cast<uint64_t>(_current_time);
 
-      uint64_t earliest_key_time =
-          mems_.front()->ApproximateEarliestKeyTimestamp();
+      uint64_t oldest_key_time =
+          mems_.front()->ApproximateOldestKeyTime();
 
       s = BuildTable(
           dbname_, db_options_.env, *cfd_->ioptions(), mutable_cf_options_,
@@ -314,7 +314,7 @@ Status FlushJob::WriteLevel0Table() {
           mutable_cf_options_.paranoid_file_checks, cfd_->internal_stats(),
           TableFileCreationReason::kFlush, event_logger_, job_context_->job_id,
           Env::IO_HIGH, &table_properties_, 0 /* level */, current_time,
-          earliest_key_time);
+          oldest_key_time);
       LogFlush(db_options_.info_log);
     }
     ROCKS_LOG_INFO(db_options_.info_log,

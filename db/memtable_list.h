@@ -225,7 +225,7 @@ class MemTableList {
   size_t ApproximateUnflushedMemTablesMemoryUsage();
 
   // Returns an estimate of the timestamp of the earliest key.
-  uint64_t ApproximateEarliestKeyTimestamp() const;
+  uint64_t ApproximateOldestKeyTime() const;
 
   // Request a flush of all existing memtables to storage.  This will
   // cause future calls to IsFlushPending() to return true if this list is

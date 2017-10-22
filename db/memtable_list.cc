@@ -449,9 +449,9 @@ size_t MemTableList::ApproximateUnflushedMemTablesMemoryUsage() {
 
 size_t MemTableList::ApproximateMemoryUsage() { return current_memory_usage_; }
 
-uint64_t MemTableList::ApproximateEarliestKeyTimestamp() const {
+uint64_t MemTableList::ApproximateOldestKeyTime() const {
   if (!current_->memlist_.empty()) {
-    return current_->memlist_.back()->ApproximateEarliestKeyTimestamp();
+    return current_->memlist_.back()->ApproximateOldestKeyTime();
   }
   return std::numeric_limits<uint64_t>::max();
 }

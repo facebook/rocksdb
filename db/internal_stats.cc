@@ -244,8 +244,8 @@ static const std::string num_running_flushes = "num-running-flushes";
 static const std::string actual_delayed_write_rate =
     "actual-delayed-write-rate";
 static const std::string is_write_stopped = "is-write-stopped";
-static const std::string estimated_earliest_key_timestamp =
-    "estimated-earliest-key-timestamp";
+static const std::string estimated_oldest_key_time =
+    "estimated-oldest-key-time";
 
 const std::string DB::Properties::kNumFilesAtLevelPrefix =
                       rocksdb_prefix + num_files_at_level_prefix;
@@ -319,8 +319,8 @@ const std::string DB::Properties::kActualDelayedWriteRate =
     rocksdb_prefix + actual_delayed_write_rate;
 const std::string DB::Properties::kIsWriteStopped =
     rocksdb_prefix + is_write_stopped;
-const std::string DB::Properties::kEstimatedEarliestKeyTimestamp =
-    rocksdb_prefix + estimated_earliest_key_timestamp;
+const std::string DB::Properties::kEstimatedOldestKeyTime =
+    rocksdb_prefix + estimated_oldest_key_time;
 
 const std::unordered_map<std::string, DBPropertyInfo>
     InternalStats::ppt_name_to_info = {
@@ -419,8 +419,8 @@ const std::unordered_map<std::string, DBPropertyInfo>
           nullptr}},
         {DB::Properties::kIsWriteStopped,
          {false, nullptr, &InternalStats::HandleIsWriteStopped, nullptr}},
-        {DB::Properties::kEstimatedEarliestKeyTimestamp,
-         {false, nullptr, &InternalStats::HandleEstimatedEarliestKeyTimestamp,
+        {DB::Properties::kEstimatedOldestKeyTime,
+         {false, nullptr, &InternalStats::HandleEstimatedOldestKeyTime,
           nullptr}},
 };
 
@@ -784,12 +784,12 @@ bool InternalStats::HandleIsWriteStopped(uint64_t* value, DBImpl* db,
   return true;
 }
 
-bool InternalStats::HandleEstimatedEarliestKeyTimestamp(uint64_t* value,
+bool InternalStats::HandleEstimatedOldestKeyTime(uint64_t* value,
                                                         DBImpl* /*db*/,
                                                         Version* /*version*/) {
   // TODO(yiwu): The property is currently available is there's no compaction,
   // e.g. FIFO compaction with compaction_options_fifo.allow_compactions
-  // disbled. This is because we don't propagate earliest_key_time on
+  // disbled. This is because we don't propagate oldest_key_time on
   // compaction.
   TablePropertiesCollection collection;
   auto s = cfd_->current()->GetPropertiesOfAllTables(&collection);
@@ -798,10 +798,10 @@ bool InternalStats::HandleEstimatedEarliestKeyTimestamp(uint64_t* value,
   }
   *value = std::numeric_limits<uint64_t>::max();
   for (auto& p : collection) {
-    *value = std::min(*value, p.second->earliest_key_time);
+    *value = std::min(*value, p.second->oldest_key_time);
   }
-  *value = std::min({cfd_->mem()->ApproximateEarliestKeyTimestamp(),
-                     cfd_->imm()->ApproximateEarliestKeyTimestamp(), *value});
+  *value = std::min({cfd_->mem()->ApproximateOldestKeyTime(),
+                     cfd_->imm()->ApproximateOldestKeyTime(), *value});
   return *value < std::numeric_limits<uint64_t>::max();
 }
 

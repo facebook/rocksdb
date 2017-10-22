@@ -1309,7 +1309,7 @@ TEST_F(DBPropertiesTest, EstimateNumKeysUnderflow) {
   ASSERT_EQ(0, num_keys);
 }
 
-TEST_F(DBPropertiesTest, EstimatedEarliestKeyTimestamp) {
+TEST_F(DBPropertiesTest, EstimatedOldestKeyTime) {
   std::unique_ptr<MockTimeEnv> mock_env(new MockTimeEnv(Env::Default()));
   Options options;
   options.env = mock_env.get();
@@ -1326,49 +1326,49 @@ TEST_F(DBPropertiesTest, EstimatedEarliestKeyTimestamp) {
 
   // Not supported if no data.
   ASSERT_FALSE(dbfull()->GetIntProperty(
-      DB::Properties::kEstimatedEarliestKeyTimestamp, &earliest_key_timestamp));
+      DB::Properties::kEstimatedOldestKeyTime, &earliest_key_timestamp));
 
   mock_env->set_current_time(100);
   ASSERT_OK(Put("k1", "v1"));
-  ASSERT_EQ(100, cfd->mem()->ApproximateEarliestKeyTimestamp());
+  ASSERT_EQ(100, cfd->mem()->ApproximateOldestKeyTime());
   ASSERT_TRUE(dbfull()->GetIntProperty(
-      DB::Properties::kEstimatedEarliestKeyTimestamp, &earliest_key_timestamp));
+      DB::Properties::kEstimatedOldestKeyTime, &earliest_key_timestamp));
   ASSERT_EQ(100, earliest_key_timestamp);
 
   mock_env->set_current_time(200);
   ASSERT_OK(Delete("k1"));
   ASSERT_OK(Put("k2", "v1"));
-  ASSERT_EQ(100, cfd->mem()->ApproximateEarliestKeyTimestamp());
+  ASSERT_EQ(100, cfd->mem()->ApproximateOldestKeyTime());
   ASSERT_TRUE(dbfull()->GetIntProperty(
-      DB::Properties::kEstimatedEarliestKeyTimestamp, &earliest_key_timestamp));
+      DB::Properties::kEstimatedOldestKeyTime, &earliest_key_timestamp));
   ASSERT_EQ(100, earliest_key_timestamp);
 
   mock_env->set_current_time(300);
   ASSERT_OK(dbfull()->TEST_SwitchMemtable(cfd));
   ASSERT_OK(Put("k3", "v1"));
-  ASSERT_EQ(300, cfd->mem()->ApproximateEarliestKeyTimestamp());
+  ASSERT_EQ(300, cfd->mem()->ApproximateOldestKeyTime());
   ASSERT_EQ(1, cfd->imm()->NumNotFlushed());
   ASSERT_EQ(0, cfd->imm()->NumFlushed());
-  ASSERT_EQ(100, cfd->imm()->ApproximateEarliestKeyTimestamp());
+  ASSERT_EQ(100, cfd->imm()->ApproximateOldestKeyTime());
   ASSERT_TRUE(dbfull()->GetIntProperty(
-      DB::Properties::kEstimatedEarliestKeyTimestamp, &earliest_key_timestamp));
+      DB::Properties::kEstimatedOldestKeyTime, &earliest_key_timestamp));
   ASSERT_EQ(100, earliest_key_timestamp);
 
   mock_env->set_current_time(400);
   ASSERT_OK(dbfull()->TEST_SwitchMemtable(cfd));
   ASSERT_OK(Put("k4", "v1"));
-  ASSERT_EQ(400, cfd->mem()->ApproximateEarliestKeyTimestamp());
+  ASSERT_EQ(400, cfd->mem()->ApproximateOldestKeyTime());
   ASSERT_EQ(2, cfd->imm()->NumNotFlushed());
   ASSERT_EQ(0, cfd->imm()->NumFlushed());
-  ASSERT_EQ(100, cfd->imm()->ApproximateEarliestKeyTimestamp());
+  ASSERT_EQ(100, cfd->imm()->ApproximateOldestKeyTime());
   ASSERT_TRUE(dbfull()->GetIntProperty(
-      DB::Properties::kEstimatedEarliestKeyTimestamp, &earliest_key_timestamp));
+      DB::Properties::kEstimatedOldestKeyTime, &earliest_key_timestamp));
   ASSERT_EQ(100, earliest_key_timestamp);
 
   ASSERT_OK(Flush());
   ASSERT_EQ("1", FilesPerLevel());
   ASSERT_TRUE(dbfull()->GetIntProperty(
-      DB::Properties::kEstimatedEarliestKeyTimestamp, &earliest_key_timestamp));
+      DB::Properties::kEstimatedOldestKeyTime, &earliest_key_timestamp));
   ASSERT_EQ(100, earliest_key_timestamp);
 
   mock_env->set_current_time(500);
@@ -1376,7 +1376,7 @@ TEST_F(DBPropertiesTest, EstimatedEarliestKeyTimestamp) {
   ASSERT_OK(Flush());
   ASSERT_EQ("2", FilesPerLevel());
   ASSERT_TRUE(dbfull()->GetIntProperty(
-      DB::Properties::kEstimatedEarliestKeyTimestamp, &earliest_key_timestamp));
+      DB::Properties::kEstimatedOldestKeyTime, &earliest_key_timestamp));
   ASSERT_EQ(100, earliest_key_timestamp);
 
   // Not supported if compaction is enabled.
@@ -1384,7 +1384,7 @@ TEST_F(DBPropertiesTest, EstimatedEarliestKeyTimestamp) {
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ("0,1", FilesPerLevel());
   ASSERT_FALSE(dbfull()->GetIntProperty(
-      DB::Properties::kEstimatedEarliestKeyTimestamp, &earliest_key_timestamp));
+      DB::Properties::kEstimatedOldestKeyTime, &earliest_key_timestamp));
 
   Close();
 }
