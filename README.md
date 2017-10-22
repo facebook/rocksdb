@@ -1,7 +1,10 @@
 ## RocksDB-Cloud: A Key-Value Store for Cloud Applications
 
-[![Build Status](https://travis-ci.org/facebook/rocksdb.svg?branch=master)](https://travis-ci.org/facebook/rocksdb)
+[![Build Status](https://travis-ci.org/rockset/rocksdb-cloud.svg?branch=master)](https://travis-ci.org/rockset/rocksdb-cloud)
+<!---
+TODO(rockset): Create the rocksdb-cloud project in appveyor.
 [![Build status](https://ci.appveyor.com/api/projects/status/fbgfu0so3afcno78/branch/master?svg=true)](https://ci.appveyor.com/project/Facebook/rocksdb/branch/master)
+-->
 
 RocksDB-Cloud is a C++ library that brings the power of RocksDB to AWS, Google Cloud and Microsoft Azure.
 It leverages the power of RocksDB to provide fast key-value access to data stored
@@ -18,9 +21,9 @@ RocksDB-Cloud provides three main advantages for AWS environments:
 2. A rocksdb instance is cloneable. RocksDB-Cloud support a primitive called zero-copy-clone() that allows a slave instance of rocksdb on another machine to clone an existing db. Both master and slave rocksdb instance can run in parallel and they share some set of common database files.
 3. A rocksdb instance can leverage hierarchical storage. The entire rocksdb storage footprint need not be resident on local storage. S3 contains the entire database and the local storage contains only the files that are in the working set.
 
-### Inherits from RocksDB: 
+### Inherits from RocksDB:
 
-RocksDB-Cloud is API compatible and data format compatible with [RocksDB](https://github.com/facebook/rocksdb). 
+RocksDB-Cloud is API compatible and data format compatible with [RocksDB](https://github.com/facebook/rocksdb).
 
 RocksDB is developed and maintained by Facebook Database Engineering Team.
 It is built on earlier work on LevelDB by Sanjay Ghemawat (sanjay@google.com)
