@@ -144,6 +144,10 @@ class TransactionTest : public ::testing::TestWithParam<
     } else {
       // Consume one seq per batch
       exp_seq++;
+      if (options.concurrent_prepare) {
+        // Consume one seq for commit
+        exp_seq++;
+      }
     }
   };
   std::function<void(size_t)> txn_t0 = [&](size_t index) {
@@ -162,10 +166,13 @@ class TransactionTest : public ::testing::TestWithParam<
     if (txn_db_options.write_policy == TxnDBWritePolicy::WRITE_COMMITTED) {
       // Consume one seq per key
       exp_seq += 3;
-      ;
     } else {
       // Consume one seq per batch
       exp_seq++;
+      if (options.concurrent_prepare) {
+        // Consume one seq for commit
+        exp_seq++;
+      }
     }
     ASSERT_OK(s);
   };
@@ -190,6 +197,10 @@ class TransactionTest : public ::testing::TestWithParam<
     } else {
       // Consume one seq per batch
       exp_seq++;
+      if (options.concurrent_prepare) {
+        // Consume one seq for commit
+        exp_seq++;
+      }
     }
     auto pdb = reinterpret_cast<PessimisticTransactionDB*>(db);
     pdb->UnregisterTransaction(txn);

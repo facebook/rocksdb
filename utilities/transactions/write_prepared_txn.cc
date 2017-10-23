@@ -89,6 +89,14 @@ Status WritePreparedTxn::CommitWithoutPrepareInternal() {
   return CommitBatchInternal(GetWriteBatch()->GetWriteBatch());
 }
 
+SequenceNumber WritePreparedTxn::GetACommitSeqNumber(SequenceNumber prep_seq) {
+  if (db_impl_->immutable_db_options().concurrent_prepare) {
+    return db_impl_->IncAndFetchSequenceNumber();
+  } else {
+    return prep_seq;
+  }
+}
+
 Status WritePreparedTxn::CommitBatchInternal(WriteBatch* batch) {
   // TODO(myabandeh): handle the duplicate keys in the batch
   // In the absence of Prepare markers, use Noop as a batch separator
@@ -100,7 +108,7 @@ Status WritePreparedTxn::CommitBatchInternal(WriteBatch* batch) {
                                no_log_ref, !disable_memtable, &seq_used);
   assert(seq_used != kMaxSequenceNumber);
   uint64_t& prepare_seq = seq_used;
-  uint64_t& commit_seq = seq_used;
+  uint64_t commit_seq = GetACommitSeqNumber(prepare_seq);
   // TODO(myabandeh): skip AddPrepared
   wpt_db_->AddPrepared(prepare_seq);
   wpt_db_->AddCommitted(prepare_seq, commit_seq);
@@ -136,7 +144,8 @@ Status WritePreparedTxn::CommitInternal() {
     // Commit the data that is accompnaied with the commit marker
     // TODO(myabandeh): skip AddPrepared
     wpt_db_->AddPrepared(commit_seq);
-    wpt_db_->AddCommitted(commit_seq, commit_seq);
+    uint64_t commit_seq_2 = GetACommitSeqNumber(commit_seq);
+    wpt_db_->AddCommitted(commit_seq, commit_seq_2);
   }
   return s;
 }
@@ -216,7 +225,7 @@ Status WritePreparedTxn::RollbackInternal() {
                           no_log_ref, !disable_memtable, &seq_used);
   assert(seq_used != kMaxSequenceNumber);
   uint64_t& prepare_seq = seq_used;
-  uint64_t& commit_seq = seq_used;
+  uint64_t commit_seq = GetACommitSeqNumber(prepare_seq);
   // TODO(myabandeh): skip AddPrepared
   wpt_db_->AddPrepared(prepare_seq);
   wpt_db_->AddCommitted(prepare_seq, commit_seq);

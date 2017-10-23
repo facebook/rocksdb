@@ -219,6 +219,11 @@ class DBImpl : public DB {
   virtual Status SyncWAL() override;
 
   virtual SequenceNumber GetLatestSequenceNumber() const override;
+  virtual SequenceNumber IncAndFetchSequenceNumber();
+  // Returns LastToBeWrittenSequence in concurrent_prepare_ && seq_per_batch_
+  // mode and LastSequence otherwise. This is useful when visiblility depends
+  // also on data written to the WAL but not to the memtable.
+  SequenceNumber TEST_GetLatestVisibleSequenceNumber() const;
 
   bool HasActiveSnapshotLaterThanSN(SequenceNumber sn);
 
