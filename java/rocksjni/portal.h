@@ -290,8 +290,14 @@ class StatusJni : public RocksDBNativeClass<rocksdb::Status*, StatusJni> {
         return 0x2;
       case rocksdb::Status::SubCode::kLockLimit:
         return 0x3;
-      case rocksdb::Status::SubCode::kMaxSubCode:
-        return 0x7E;
+      case rocksdb::Status::SubCode::kNoSpace:
+        return 0x4;
+      case rocksdb::Status::SubCode::kDeadlock:
+        return 0x5;
+      case rocksdb::Status::SubCode::kStaleFile:
+        return 0x6;
+      case rocksdb::Status::SubCode::kMemoryLimit:
+        return 0x7;
       default:
         return 0x7F;  // undefined
     }
