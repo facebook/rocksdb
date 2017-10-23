@@ -15,6 +15,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
+#include "rocksdb/universal_compaction.h"
 
 namespace rocksdb {
 
@@ -63,6 +64,8 @@ enum class OptionType {
   kCompactionFilter,
   kCompactionFilterFactory,
   kCompactionOptionsFIFO,
+  kCompactionOptionsUniversal,
+  kCompactionStopStyle,
   kMergeOperator,
   kMemTableRepFactory,
   kBlockBasedTableIndexType,
