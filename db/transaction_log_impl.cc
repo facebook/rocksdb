@@ -246,8 +246,7 @@ void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
     currentStatus_ = Status::NotFound("Gap in sequence numbers");
     // In seq_per_batch mode, gaps in the seq are possible so the strict mode
     // should be disabled
-    return SeekToStartSequence(currentFileIndex_,
-                               true && !options_->seq_per_batch);
+    return SeekToStartSequence(currentFileIndex_, !options_->seq_per_batch);
   }
 
   struct BatchCounter : public WriteBatch::Handler {
