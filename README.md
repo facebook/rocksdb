@@ -1,6 +1,7 @@
 ## RocksDB-Cloud: A Key-Value Store for Cloud Applications
 
 [![Build Status](https://travis-ci.org/rockset/rocksdb-cloud.svg?branch=master)](https://travis-ci.org/rockset/rocksdb-cloud)
+[Applatix](https://oss.applatix.net/app/timeline)
 <!---
 TODO(rockset): Create the rocksdb-cloud project in appveyor.
 [![Build status](https://ci.appveyor.com/api/projects/status/fbgfu0so3afcno78/branch/master?svg=true)](https://ci.appveyor.com/project/Facebook/rocksdb/branch/master)
