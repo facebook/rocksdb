@@ -1015,6 +1015,11 @@ Status ColumnFamilyData::SetOptions(
 }
 #endif  // ROCKSDB_LITE
 
+// REQUIRES: DB mutex held
+Env::WriteLifeTimeHint ColumnFamilyData::CalculateSSTWriteHint(int level) {
+  return Env::WLTH_NOT_SET;
+}
+
 ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
                                  const ImmutableDBOptions* db_options,
                                  const EnvOptions& env_options,

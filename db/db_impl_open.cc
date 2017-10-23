@@ -893,6 +893,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
     const uint64_t current_time = static_cast<uint64_t>(_current_time);
 
     {
+      auto write_hint = cfd->CalculateSSTWriteHint(0);
       mutex_.Unlock();
 
       SequenceNumber earliest_write_conflict_snapshot;
@@ -913,7 +914,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
           cfd->ioptions()->compression_opts, paranoid_file_checks,
           cfd->internal_stats(), TableFileCreationReason::kRecovery,
           &event_logger_, job_id, Env::IO_HIGH, nullptr /* table_properties */,
-          -1 /* level */, current_time);
+          -1 /* level */, current_time, write_hint);
       LogFlush(immutable_db_options_.info_log);
       ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
                       "[%s] [WriteLevel0TableForRecovery]"
@@ -1007,6 +1008,7 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
     return s;
   }
   impl->mutex_.Lock();
+  auto write_hint = impl->CalculateWALWriteHint();
   // Handles create_if_missing, error_if_exists
   s = impl->Recover(column_families);
   if (s.ok()) {
@@ -1022,6 +1024,7 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
         LogFileName(impl->immutable_db_options_.wal_dir, new_log_number),
         &lfile, opt_env_options);
     if (s.ok()) {
+      lfile->SetWriteLifeTimeHint(write_hint);
       lfile->SetPreallocationBlockSize(
           impl->GetWalPreallocateBlockSize(max_write_buffer_size));
       {
