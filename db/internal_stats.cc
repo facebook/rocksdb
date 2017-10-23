@@ -244,8 +244,7 @@ static const std::string num_running_flushes = "num-running-flushes";
 static const std::string actual_delayed_write_rate =
     "actual-delayed-write-rate";
 static const std::string is_write_stopped = "is-write-stopped";
-static const std::string estimated_oldest_key_time =
-    "estimated-oldest-key-time";
+static const std::string estimate_oldest_key_time = "estimate-oldest-key-time";
 
 const std::string DB::Properties::kNumFilesAtLevelPrefix =
                       rocksdb_prefix + num_files_at_level_prefix;
@@ -319,8 +318,8 @@ const std::string DB::Properties::kActualDelayedWriteRate =
     rocksdb_prefix + actual_delayed_write_rate;
 const std::string DB::Properties::kIsWriteStopped =
     rocksdb_prefix + is_write_stopped;
-const std::string DB::Properties::kEstimatedOldestKeyTime =
-    rocksdb_prefix + estimated_oldest_key_time;
+const std::string DB::Properties::kEstimateOldestKeyTime =
+    rocksdb_prefix + estimate_oldest_key_time;
 
 const std::unordered_map<std::string, DBPropertyInfo>
     InternalStats::ppt_name_to_info = {
@@ -419,8 +418,8 @@ const std::unordered_map<std::string, DBPropertyInfo>
           nullptr}},
         {DB::Properties::kIsWriteStopped,
          {false, nullptr, &InternalStats::HandleIsWriteStopped, nullptr}},
-        {DB::Properties::kEstimatedOldestKeyTime,
-         {false, nullptr, &InternalStats::HandleEstimatedOldestKeyTime,
+        {DB::Properties::kEstimateOldestKeyTime,
+         {false, nullptr, &InternalStats::HandleEstimateOldestKeyTime,
           nullptr}},
 };
 
@@ -784,13 +783,17 @@ bool InternalStats::HandleIsWriteStopped(uint64_t* value, DBImpl* db,
   return true;
 }
 
-bool InternalStats::HandleEstimatedOldestKeyTime(uint64_t* value,
-                                                        DBImpl* /*db*/,
-                                                        Version* /*version*/) {
-  // TODO(yiwu): The property is currently available is there's no compaction,
-  // e.g. FIFO compaction with compaction_options_fifo.allow_compactions
-  // disbled. This is because we don't propagate oldest_key_time on
-  // compaction.
+bool InternalStats::HandleEstimateOldestKeyTime(uint64_t* value, DBImpl* /*db*/,
+                                                Version* /*version*/) {
+  // TODO(yiwu): The property is currently available for fifo compaction
+  // with allow_compaction = false. This is because we don't propagate
+  // oldest_key_time on compaction.
+  if (cfd_->ioptions()->compaction_style != kCompactionStyleFIFO ||
+      cfd_->GetCurrentMutableCFOptions()
+          ->compaction_options_fifo.allow_compaction) {
+    return false;
+  }
+
   TablePropertiesCollection collection;
   auto s = cfd_->current()->GetPropertiesOfAllTables(&collection);
   if (!s.ok()) {
