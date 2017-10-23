@@ -582,6 +582,12 @@ class DB {
 
     //  "rocksdb.is-write-stopped" - Return 1 if write has been stopped.
     static const std::string kIsWriteStopped;
+
+    //  "rocksdb.estimate-oldest-key-time" - returns an estimation of
+    //      oldest key timestamp in the DB. Currently only available for
+    //      FIFO compaction with
+    //      compaction_options_fifo.allow_compaction = false.
+    static const std::string kEstimateOldestKeyTime;
   };
 #endif /* ROCKSDB_LITE */
 
@@ -632,6 +638,7 @@ class DB {
   //  "rocksdb.num-running-flushes"
   //  "rocksdb.actual-delayed-write-rate"
   //  "rocksdb.is-write-stopped"
+  //  "rocksdb.estimate-oldest-key-time"
   virtual bool GetIntProperty(ColumnFamilyHandle* column_family,
                               const Slice& property, uint64_t* value) = 0;
   virtual bool GetIntProperty(const Slice& property, uint64_t* value) {

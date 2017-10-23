@@ -26,21 +26,9 @@ class BlobDBTest : public testing::Test {
  public:
   const int kMaxBlobSize = 1 << 14;
 
-  class MockEnv : public EnvWrapper {
-   public:
-    MockEnv() : EnvWrapper(Env::Default()) {}
-
-    void set_now_micros(uint64_t now_micros) { now_micros_ = now_micros; }
-
-    uint64_t NowMicros() override { return now_micros_; }
-
-   private:
-    uint64_t now_micros_ = 0;
-  };
-
   BlobDBTest()
       : dbname_(test::TmpDir() + "/blob_db_test"),
-        mock_env_(new MockEnv()),
+        mock_env_(new MockTimeEnv(Env::Default())),
         blob_db_(nullptr) {
     Status s = DestroyBlobDB(dbname_, Options(), BlobDBOptions());
     assert(s.ok());
@@ -155,7 +143,7 @@ class BlobDBTest : public testing::Test {
   }
 
   const std::string dbname_;
-  std::unique_ptr<MockEnv> mock_env_;
+  std::unique_ptr<MockTimeEnv> mock_env_;
   std::shared_ptr<TTLExtractor> ttl_extractor_;
   BlobDB *blob_db_;
 };  // class BlobDBTest
@@ -182,13 +170,13 @@ TEST_F(BlobDBTest, PutWithTTL) {
   bdb_options.disable_background_tasks = true;
   Open(bdb_options, options);
   std::map<std::string, std::string> data;
-  mock_env_->set_now_micros(50 * 1000000);
+  mock_env_->set_current_time(50);
   for (size_t i = 0; i < 100; i++) {
     uint64_t ttl = rnd.Next() % 100;
     PutRandomWithTTL("key" + ToString(i), ttl, &rnd,
                      (ttl <= 50 ? nullptr : &data));
   }
-  mock_env_->set_now_micros(100 * 1000000);
+  mock_env_->set_current_time(100);
   auto *bdb_impl = static_cast<BlobDBImpl *>(blob_db_);
   auto blob_files = bdb_impl->TEST_GetBlobFiles();
   ASSERT_EQ(1, blob_files.size());
@@ -211,13 +199,13 @@ TEST_F(BlobDBTest, PutUntil) {
   bdb_options.disable_background_tasks = true;
   Open(bdb_options, options);
   std::map<std::string, std::string> data;
-  mock_env_->set_now_micros(50 * 1000000);
+  mock_env_->set_current_time(50);
   for (size_t i = 0; i < 100; i++) {
     uint64_t expiration = rnd.Next() % 100 + 50;
     PutRandomUntil("key" + ToString(i), expiration, &rnd,
                    (expiration <= 100 ? nullptr : &data));
   }
-  mock_env_->set_now_micros(100 * 1000000);
+  mock_env_->set_current_time(100);
   auto *bdb_impl = static_cast<BlobDBImpl *>(blob_db_);
   auto blob_files = bdb_impl->TEST_GetBlobFiles();
   ASSERT_EQ(1, blob_files.size());
@@ -244,12 +232,13 @@ TEST_F(BlobDBTest, TTLExtrator_NoTTL) {
   bdb_options.disable_background_tasks = true;
   Open(bdb_options, options);
   std::map<std::string, std::string> data;
-  mock_env_->set_now_micros(0);
+  mock_env_->set_current_time(0);
   for (size_t i = 0; i < 100; i++) {
     PutRandom("key" + ToString(i), &rnd, &data);
   }
   // very far in the future..
-  mock_env_->set_now_micros(std::numeric_limits<uint64_t>::max() - 10);
+  mock_env_->set_current_time(std::numeric_limits<uint64_t>::max() / 1000000 -
+                              10);
   auto *bdb_impl = static_cast<BlobDBImpl *>(blob_db_);
   auto blob_files = bdb_impl->TEST_GetBlobFiles();
   ASSERT_EQ(1, blob_files.size());
@@ -290,11 +279,11 @@ TEST_F(BlobDBTest, TTLExtractor_ExtractTTL) {
   bdb_options.ttl_extractor = ttl_extractor_;
   bdb_options.disable_background_tasks = true;
   Open(bdb_options, options);
-  mock_env_->set_now_micros(50 * 1000000);
+  mock_env_->set_current_time(50);
   for (size_t i = 0; i < 100; i++) {
     PutRandom("key" + ToString(i), &rnd);
   }
-  mock_env_->set_now_micros(100 * 1000000);
+  mock_env_->set_current_time(100);
   auto *bdb_impl = static_cast<BlobDBImpl *>(blob_db_);
   auto blob_files = bdb_impl->TEST_GetBlobFiles();
   ASSERT_EQ(1, blob_files.size());
@@ -337,11 +326,11 @@ TEST_F(BlobDBTest, TTLExtractor_ExtractExpiration) {
   bdb_options.ttl_extractor = ttl_extractor_;
   bdb_options.disable_background_tasks = true;
   Open(bdb_options, options);
-  mock_env_->set_now_micros(50 * 1000000);
+  mock_env_->set_current_time(50);
   for (size_t i = 0; i < 100; i++) {
     PutRandom("key" + ToString(i), &rnd);
   }
-  mock_env_->set_now_micros(100 * 1000000);
+  mock_env_->set_current_time(100);
   auto *bdb_impl = static_cast<BlobDBImpl *>(blob_db_);
   auto blob_files = bdb_impl->TEST_GetBlobFiles();
   ASSERT_EQ(1, blob_files.size());
@@ -385,7 +374,7 @@ TEST_F(BlobDBTest, TTLExtractor_ChangeValue) {
   bdb_options.disable_background_tasks = true;
   Open(bdb_options, options);
   std::map<std::string, std::string> data;
-  mock_env_->set_now_micros(50 * 1000000);
+  mock_env_->set_current_time(50);
   for (size_t i = 0; i < 100; i++) {
     int len = rnd.Next() % kMaxBlobSize + 1;
     std::string key = "key" + ToString(i);
@@ -398,7 +387,7 @@ TEST_F(BlobDBTest, TTLExtractor_ChangeValue) {
       data[key] = value;
     }
   }
-  mock_env_->set_now_micros(100 * 1000000);
+  mock_env_->set_current_time(100);
   auto *bdb_impl = static_cast<BlobDBImpl *>(blob_db_);
   auto blob_files = bdb_impl->TEST_GetBlobFiles();
   ASSERT_EQ(1, blob_files.size());
@@ -628,14 +617,14 @@ TEST_F(BlobDBTest, GCExpiredKeyWhileOverwriting) {
   BlobDBOptions bdb_options;
   bdb_options.disable_background_tasks = true;
   Open(bdb_options, options);
-  mock_env_->set_now_micros(100 * 1000000);
+  mock_env_->set_current_time(100);
   ASSERT_OK(blob_db_->PutUntil(WriteOptions(), "foo", "v1", 200));
   BlobDBImpl *blob_db_impl =
       static_cast_with_check<BlobDBImpl, BlobDB>(blob_db_);
   auto blob_files = blob_db_impl->TEST_GetBlobFiles();
   ASSERT_EQ(1, blob_files.size());
   ASSERT_OK(blob_db_impl->TEST_CloseBlobFile(blob_files[0]));
-  mock_env_->set_now_micros(300 * 1000000);
+  mock_env_->set_current_time(300);
 
   SyncPoint::GetInstance()->LoadDependency(
       {{"BlobDBImpl::GCFileAndUpdateLSM:AfterGetFromBaseDB",
@@ -775,7 +764,7 @@ TEST_F(BlobDBTest, ReadWhileGC) {
 TEST_F(BlobDBTest, ColumnFamilyNotSupported) {
   Options options;
   options.env = mock_env_.get();
-  mock_env_->set_now_micros(0);
+  mock_env_->set_current_time(0);
   Open(BlobDBOptions(), options);
   ColumnFamilyHandle *default_handle = blob_db_->DefaultColumnFamily();
   ColumnFamilyHandle *handle = nullptr;
