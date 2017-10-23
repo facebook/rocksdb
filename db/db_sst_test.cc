@@ -702,8 +702,9 @@ TEST_F(DBSSTTest, GetTotalSstFilesSize) {
                                        &total_sst_files_size));
   // Live SST files = 1 (compacted file)
   // Total SST files = 6 (5 original files + compacted file)
-  ASSERT_EQ(live_sst_files_size, 1 * single_file_size);
-  ASSERT_EQ(total_sst_files_size, 6 * single_file_size);
+  ASSERT_GT(live_sst_files_size, 1 * single_file_size * 0.9);
+  ASSERT_LT(live_sst_files_size, 1 * single_file_size * 1.1);
+  ASSERT_EQ(total_sst_files_size, 5 * single_file_size + live_sst_files_size);
 
   // hold current version
   std::unique_ptr<Iterator> iter2(dbfull()->NewIterator(ReadOptions()));
@@ -724,14 +725,14 @@ TEST_F(DBSSTTest, GetTotalSstFilesSize) {
                                        &total_sst_files_size));
   // Live SST files = 0
   // Total SST files = 6 (5 original files + compacted file)
-  ASSERT_EQ(total_sst_files_size, 6 * single_file_size);
+  ASSERT_EQ(total_sst_files_size, 5 * single_file_size + live_sst_files_size);
 
   iter1.reset();
   ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.total-sst-files-size",
                                        &total_sst_files_size));
   // Live SST files = 0
   // Total SST files = 1 (compacted file)
-  ASSERT_EQ(total_sst_files_size, 1 * single_file_size);
+  ASSERT_EQ(total_sst_files_size, live_sst_files_size);
 
   iter2.reset();
   ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.total-sst-files-size",
