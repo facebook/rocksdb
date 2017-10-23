@@ -10,6 +10,7 @@
 #endif
 
 #include <inttypes.h>
+#include <limits>
 #include <string>
 #include "db/memtable.h"
 #include "db/version_set.h"
@@ -447,6 +448,13 @@ size_t MemTableList::ApproximateUnflushedMemTablesMemoryUsage() {
 }
 
 size_t MemTableList::ApproximateMemoryUsage() { return current_memory_usage_; }
+
+uint64_t MemTableList::ApproximateOldestKeyTime() const {
+  if (!current_->memlist_.empty()) {
+    return current_->memlist_.back()->ApproximateOldestKeyTime();
+  }
+  return std::numeric_limits<uint64_t>::max();
+}
 
 void MemTableList::InstallNewVersion() {
   if (current_->refs_ == 1) {

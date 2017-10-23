@@ -276,6 +276,7 @@ struct BlockBasedTableBuilder::Rep {
   uint32_t column_family_id;
   const std::string& column_family_name;
   uint64_t creation_time = 0;
+  uint64_t oldest_key_time = std::numeric_limits<uint64_t>::max();
 
   std::vector<std::unique_ptr<IntTblPropCollector>> table_properties_collectors;
 
@@ -288,7 +289,8 @@ struct BlockBasedTableBuilder::Rep {
       const CompressionType _compression_type,
       const CompressionOptions& _compression_opts,
       const std::string* _compression_dict, const bool skip_filters,
-      const std::string& _column_family_name, const uint64_t _creation_time)
+      const std::string& _column_family_name, const uint64_t _creation_time,
+      const uint64_t _oldest_key_time)
       : ioptions(_ioptions),
         table_options(table_opt),
         internal_comparator(icomparator),
@@ -305,7 +307,8 @@ struct BlockBasedTableBuilder::Rep {
                 table_options, data_block)),
         column_family_id(_column_family_id),
         column_family_name(_column_family_name),
-        creation_time(_creation_time) {
+        creation_time(_creation_time),
+        oldest_key_time(_oldest_key_time) {
     if (table_options.index_type ==
         BlockBasedTableOptions::kTwoLevelIndexSearch) {
       p_index_builder_ = PartitionedIndexBuilder::CreateIndexBuilder(
@@ -344,7 +347,8 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
     const CompressionType compression_type,
     const CompressionOptions& compression_opts,
     const std::string* compression_dict, const bool skip_filters,
-    const std::string& column_family_name, const uint64_t creation_time) {
+    const std::string& column_family_name, const uint64_t creation_time,
+    const uint64_t oldest_key_time) {
   BlockBasedTableOptions sanitized_table_options(table_options);
   if (sanitized_table_options.format_version == 0 &&
       sanitized_table_options.checksum != kCRC32c) {
@@ -360,7 +364,8 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
   rep_ = new Rep(ioptions, sanitized_table_options, internal_comparator,
                  int_tbl_prop_collector_factories, column_family_id, file,
                  compression_type, compression_opts, compression_dict,
-                 skip_filters, column_family_name, creation_time);
+                 skip_filters, column_family_name, creation_time,
+                 oldest_key_time);
 
   if (rep_->filter_builder != nullptr) {
     rep_->filter_builder->StartBlock(0);
@@ -738,6 +743,7 @@ Status BlockBasedTableBuilder::Finish() {
             r->p_index_builder_->EstimateTopLevelIndexSize(r->offset);
       }
       r->props.creation_time = r->creation_time;
+      r->props.oldest_key_time = r->oldest_key_time;
 
       // Add basic properties
       property_block_builder.AddTableProperty(r->props);

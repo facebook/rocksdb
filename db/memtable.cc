@@ -9,8 +9,9 @@
 
 #include "db/memtable.h"
 
-#include <memory>
 #include <algorithm>
+#include <limits>
+#include <memory>
 
 #include "db/dbformat.h"
 #include "db/merge_context.h"
@@ -97,7 +98,8 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       flush_state_(FLUSH_NOT_REQUESTED),
       env_(ioptions.env),
       insert_with_hint_prefix_extractor_(
-          ioptions.memtable_insert_with_hint_prefix_extractor) {
+          ioptions.memtable_insert_with_hint_prefix_extractor),
+      oldest_key_time_(std::numeric_limits<uint64_t>::max()) {
   UpdateFlushState();
   // something went wrong if we need to flush before inserting anything
   assert(!ShouldScheduleFlush());
@@ -200,6 +202,21 @@ void MemTable::UpdateFlushState() {
     flush_state_.compare_exchange_strong(state, FLUSH_REQUESTED,
                                          std::memory_order_relaxed,
                                          std::memory_order_relaxed);
+  }
+}
+
+void MemTable::UpdateOldestKeyTime() {
+  uint64_t oldest_key_time = oldest_key_time_.load(std::memory_order_relaxed);
+  if (oldest_key_time == std::numeric_limits<uint64_t>::max()) {
+    int64_t current_time = 0;
+    auto s = env_->GetCurrentTime(&current_time);
+    if (s.ok()) {
+      assert(current_time >= 0);
+      // If fail, the timestamp is already set.
+      oldest_key_time_.compare_exchange_strong(
+          oldest_key_time, static_cast<uint64_t>(current_time),
+          std::memory_order_relaxed, std::memory_order_relaxed);
+    }
   }
 }
 
@@ -517,6 +534,7 @@ void MemTable::Add(SequenceNumber s, ValueType type,
   if (is_range_del_table_empty_ && type == kTypeRangeDeletion) {
     is_range_del_table_empty_ = false;
   }
+  UpdateOldestKeyTime();
 }
 
 // Callback from MemTable::Get()
