@@ -210,7 +210,7 @@ int DBImpl::TEST_BGFlushesAllowed() const {
 }
 
 SequenceNumber DBImpl::TEST_GetLatestVisibleSequenceNumber() const {
-  if (concurrent_prepare_) {
+  if (concurrent_prepare_ && seq_per_batch_) {
     return versions_->LastToBeWrittenSequence();
   } else {
     return versions_->LastSequence();

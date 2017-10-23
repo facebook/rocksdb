@@ -1457,6 +1457,8 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
         read_callback);
 #endif
   } else {
+    // Note: no need to consider the special case of concurrent_prepare_ &&
+    // seq_per_batch_ since NewIterator is overridden in WritePreparedTxnDB
     auto snapshot = read_options.snapshot != nullptr
                         ? read_options.snapshot->GetSequenceNumber()
                         : versions_->LastSequence();
@@ -1572,6 +1574,8 @@ Status DBImpl::NewIterators(
     }
 #endif
   } else {
+    // Note: no need to consider the special case of concurrent_prepare_ &&
+    // seq_per_batch_ since NewIterators is overridden in WritePreparedTxnDB
     auto snapshot = read_options.snapshot != nullptr
                         ? read_options.snapshot->GetSequenceNumber()
                         : versions_->LastSequence();
