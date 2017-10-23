@@ -743,6 +743,10 @@ SequenceNumber DBImpl::GetLatestSequenceNumber() const {
   return versions_->LastSequence();
 }
 
+SequenceNumber DBImpl::IncAndFetchSequenceNumber() {
+  return versions_->FetchAddLastToBeWrittenSequence(1ull) + 1ull;
+}
+
 InternalIterator* DBImpl::NewInternalIterator(
     Arena* arena, RangeDelAggregator* range_del_agg,
     ColumnFamilyHandle* column_family) {
@@ -957,7 +961,9 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
     // super versipon because a flush happening in between may compact
     // away data for the snapshot, but the snapshot is earlier than the
     // data overwriting it, so users may see wrong results.
-    snapshot = versions_->LastSequence();
+    snapshot = concurrent_prepare_ && seq_per_batch_
+                   ? versions_->LastToBeWrittenSequence()
+                   : versions_->LastSequence();
   }
   TEST_SYNC_POINT("DBImpl::GetImpl:3");
   TEST_SYNC_POINT("DBImpl::GetImpl:4");
@@ -1048,7 +1054,9 @@ std::vector<Status> DBImpl::MultiGet(
     snapshot = reinterpret_cast<const SnapshotImpl*>(
         read_options.snapshot)->number_;
   } else {
-    snapshot = versions_->LastSequence();
+    snapshot = concurrent_prepare_ && seq_per_batch_
+                   ? versions_->LastToBeWrittenSequence()
+                   : versions_->LastSequence();
   }
   for (auto mgd_iter : multiget_cf_data) {
     mgd_iter.second->super_version =
@@ -1445,6 +1453,8 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
         read_callback);
 #endif
   } else {
+    // Note: no need to consider the special case of concurrent_prepare_ &&
+    // seq_per_batch_ since NewIterator is overridden in WritePreparedTxnDB
     auto snapshot = read_options.snapshot != nullptr
                         ? read_options.snapshot->GetSequenceNumber()
                         : versions_->LastSequence();
@@ -1560,6 +1570,8 @@ Status DBImpl::NewIterators(
     }
 #endif
   } else {
+    // Note: no need to consider the special case of concurrent_prepare_ &&
+    // seq_per_batch_ since NewIterators is overridden in WritePreparedTxnDB
     auto snapshot = read_options.snapshot != nullptr
                         ? read_options.snapshot->GetSequenceNumber()
                         : versions_->LastSequence();
@@ -1593,8 +1605,10 @@ const Snapshot* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary) {
     delete s;
     return nullptr;
   }
-  return snapshots_.New(s, versions_->LastSequence(), unix_time,
-                        is_write_conflict_boundary);
+  auto snapshot_seq = concurrent_prepare_ && seq_per_batch_
+                          ? versions_->LastToBeWrittenSequence()
+                          : versions_->LastSequence();
+  return snapshots_.New(s, snapshot_seq, unix_time, is_write_conflict_boundary);
 }
 
 void DBImpl::ReleaseSnapshot(const Snapshot* s) {

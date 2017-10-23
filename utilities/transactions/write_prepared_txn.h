@@ -45,11 +45,17 @@ class WritePreparedTxn : public PessimisticTransaction {
 
   virtual ~WritePreparedTxn() {}
 
+  // To make WAL commit markers visible, the snapshot will be based on the last
+  // seq in the WAL, LastToBeWrittenSquence, as opposed to the last seq in the
+  // memtable.
   using Transaction::Get;
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value) override;
 
+  // To make WAL commit markers visible, the snapshot will be based on the last
+  // seq in the WAL, LastToBeWrittenSquence, as opposed to the last seq in the
+  // memtable.
   using Transaction::GetIterator;
   virtual Iterator* GetIterator(const ReadOptions& options) override;
   virtual Iterator* GetIterator(const ReadOptions& options,
@@ -58,12 +64,20 @@ class WritePreparedTxn : public PessimisticTransaction {
  private:
   friend class WritePreparedTransactionTest_BasicRecoveryTest_Test;
 
+  SequenceNumber GetACommitSeqNumber(SequenceNumber prep_seq);
+
   Status PrepareInternal() override;
 
   Status CommitWithoutPrepareInternal() override;
 
   Status CommitBatchInternal(WriteBatch* batch) override;
 
+  // Since the data is already written to memtables at the Prepare phase, the
+  // commit entails writing only a commit marker in the WAL. The sequence number
+  // of the commit marker is then the commit timestamp of the transaction. To
+  // make the commit timestamp visible to readers, their snapshot is based on
+  // the last seq in the WAL, LastToBeWrittenSquence, as opposed to the last seq
+  // in the memtable.
   Status CommitInternal() override;
 
   Status RollbackInternal() override;

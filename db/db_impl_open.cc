@@ -580,7 +580,11 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
         // consecutive, we continue recovery despite corruption. This could
         // happen when we open and write to a corrupted DB, where sequence id
         // will start from the last sequence id we recovered.
-        if (sequence == *next_sequence) {
+        if (sequence == *next_sequence ||
+            // With seq_per_batch_, if previous run was with concurrent_prepare_
+            // then gap in the sequence numbers is expected by the commits
+            // without prepares.
+            (seq_per_batch_ && sequence >= *next_sequence)) {
           stop_replay_for_corruption = false;
         }
         if (stop_replay_for_corruption) {
