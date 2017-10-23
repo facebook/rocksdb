@@ -169,6 +169,11 @@ size_t LRUCacheShard::TEST_GetLRUSize() {
   return lru_size;
 }
 
+double LRUCacheShard::TEST_GetHighPriPoolRatio() {
+  MutexLock l(&mutex_);
+  return high_pri_pool_ratio_;
+}
+
 void LRUCacheShard::LRU_Remove(LRUHandle* e) {
   assert(e->next != nullptr);
   assert(e->prev != nullptr);
@@ -511,6 +516,14 @@ size_t LRUCache::TEST_GetLRUSize() {
     lru_size_of_all_shards += shards_[i].TEST_GetLRUSize();
   }
   return lru_size_of_all_shards;
+}
+
+double LRUCache::TEST_GetHighPriPoolRatio() {
+  double result = 0.0;
+  if (num_shards_ > 0) {
+    result = shards_[0].TEST_GetHighPriPoolRatio();
+  }
+  return result;
 }
 
 std::shared_ptr<Cache> NewLRUCache(size_t capacity, int num_shard_bits,

@@ -16,6 +16,8 @@
 #include <unordered_map>
 #include <inttypes.h>
 
+#include "cache/lru_cache.h"
+#include "cache/sharded_cache.h"
 #include "options/options_helper.h"
 #include "options/options_parser.h"
 #include "options/options_sanity_check.h"
@@ -529,6 +531,65 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
   ASSERT_EQ(table_opt.cache_index_and_filter_blocks,
             new_opt.cache_index_and_filter_blocks);
   ASSERT_EQ(table_opt.filter_policy, new_opt.filter_policy);
+
+  // make sure default values of block cache are overwritten
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(table_opt,
+             "cache_index_and_filter_blocks=1;"
+             "block_cache=1M:4:true:0.5;"
+             "block_cache_compressed=1M:4:true:0.5",
+             &new_opt));
+  ASSERT_TRUE(new_opt.cache_index_and_filter_blocks);
+  ASSERT_TRUE(new_opt.block_cache != nullptr);
+  ASSERT_EQ(new_opt.block_cache->GetCapacity(), 1024UL*1024UL);
+  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
+                new_opt.block_cache)->GetNumShardBits(), 4);
+  ASSERT_EQ(new_opt.block_cache->HasStrictCapacityLimit(), true);
+  ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(
+                new_opt.block_cache)->TEST_GetHighPriPoolRatio(), 0.5);
+  ASSERT_TRUE(new_opt.block_cache_compressed != nullptr);
+  ASSERT_EQ(new_opt.block_cache_compressed->GetCapacity(), 1024UL*1024UL);
+  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
+                new_opt.block_cache_compressed)->GetNumShardBits(), 4);
+  ASSERT_EQ(new_opt.block_cache_compressed->HasStrictCapacityLimit(), true);
+  ASSERT_EQ(std::dynamic_pointer_cast<LRUCache>(
+                new_opt.block_cache_compressed)->TEST_GetHighPriPoolRatio(),
+                0.5);
+
+  // options in block cache other than cache_size are optional to maintain
+  // backward compatibility. Check with 3 cache options.
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(table_opt,
+             "cache_index_and_filter_blocks=1;"
+             "block_cache=1M:6:false;"
+             "block_cache_compressed=1M:6:false",
+             &new_opt));
+  ASSERT_TRUE(new_opt.cache_index_and_filter_blocks);
+  ASSERT_TRUE(new_opt.block_cache != nullptr);
+  ASSERT_EQ(new_opt.block_cache->GetCapacity(), 1024UL*1024UL);
+  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
+                new_opt.block_cache)->GetNumShardBits(), 6);
+  ASSERT_EQ(new_opt.block_cache->HasStrictCapacityLimit(), false);
+  ASSERT_TRUE(new_opt.block_cache_compressed != nullptr);
+  ASSERT_EQ(new_opt.block_cache_compressed->GetCapacity(), 1024UL*1024UL);
+  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
+                new_opt.block_cache_compressed)->GetNumShardBits(), 6);
+  ASSERT_EQ(new_opt.block_cache_compressed->HasStrictCapacityLimit(), false);
+
+  // options in block cache other than cache_size are optional to maintain
+  // backward compatibility. Check with 2 cache options.
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(table_opt,
+             "cache_index_and_filter_blocks=1;"
+             "block_cache=1M:5;"
+             "block_cache_compressed=1M:5",
+             &new_opt));
+  ASSERT_TRUE(new_opt.cache_index_and_filter_blocks);
+  ASSERT_TRUE(new_opt.block_cache != nullptr);
+  ASSERT_EQ(new_opt.block_cache->GetCapacity(), 1024UL*1024UL);
+  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
+                new_opt.block_cache)->GetNumShardBits(), 5);
+  ASSERT_TRUE(new_opt.block_cache_compressed != nullptr);
+  ASSERT_EQ(new_opt.block_cache_compressed->GetCapacity(), 1024UL*1024UL);
+  ASSERT_EQ(std::dynamic_pointer_cast<ShardedCache>(
+                new_opt.block_cache_compressed)->GetNumShardBits(), 5);
 }
 #endif  // !ROCKSDB_LITE
 
