@@ -1315,7 +1315,7 @@ TEST_F(DBPropertiesTest, EstimateOldestKeyTime) {
   Options options;
   options.env = mock_env.get();
 
-  // "rocksdb.estimated-oldest-key-time" only available to fifo compaction.
+  // "rocksdb.estimate-oldest-key-time" only available to fifo compaction.
   mock_env->set_current_time(100);
   for (auto compaction : {kCompactionStyleLevel, kCompactionStyleUniversal,
                           kCompactionStyleNone}) {
