@@ -279,7 +279,8 @@ Status WinMmapFile::MapNewRegion() {
 
     if (hMap_ != NULL) {
       // Unmap the previous one
-      BOOL ret = ::CloseHandle(hMap_);
+      BOOL ret;
+      ret = ::CloseHandle(hMap_);
       assert(ret);
       hMap_ = NULL;
     }
@@ -1020,7 +1021,8 @@ Status WinDirectory::Fsync() { return Status::OK(); }
 /// WinFileLock
 
 WinFileLock::~WinFileLock() {
-  BOOL ret = ::CloseHandle(hFile_);
+  BOOL ret;
+  ret = ::CloseHandle(hFile_);
   assert(ret);
 }
 

@@ -463,7 +463,8 @@ ColumnFamilyData::~ColumnFamilyData() {
   if (dummy_versions_ != nullptr) {
     // List must be empty
     assert(dummy_versions_->TEST_Next() == dummy_versions_);
-    bool deleted __attribute__((unused)) = dummy_versions_->Unref();
+    bool deleted __attribute__((unused));
+    deleted = dummy_versions_->Unref();
     assert(deleted);
   }
 

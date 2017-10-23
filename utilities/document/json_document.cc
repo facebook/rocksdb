@@ -48,7 +48,8 @@ void InitJSONDocument(std::unique_ptr<char[]>* data,
   fbson::FbsonWriter writer;
   bool res __attribute__((unused)) = writer.writeStartArray();
   assert(res);
-  uint32_t bytesWritten __attribute__((unused)) = f(writer);
+  uint32_t bytesWritten __attribute__((unused));
+  bytesWritten = f(writer);
   assert(bytesWritten != 0);
   res = writer.writeEndArray();
   assert(res);
