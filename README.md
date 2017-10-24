@@ -21,7 +21,8 @@ Start with example usage here: https://github.com/facebook/rocksdb/tree/master/e
 See the [github wiki](https://github.com/facebook/rocksdb/wiki) for more explanation.
 
 The public interface is in `include/`.  Callers should not include or
-rely on the details of any other header files in this package.  Those
-internal APIs may be changed without warning.
+rely on the details of any other header files in this package. 
+
+Note: Those internal APIs may be changed without warning.
 
 Design discussions are conducted in https://www.facebook.com/groups/rocksdb.dev/
