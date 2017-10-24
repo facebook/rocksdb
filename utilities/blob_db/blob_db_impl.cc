@@ -33,6 +33,7 @@
 #include "util/sync_point.h"
 #include "util/timer_queue.h"
 #include "utilities/blob_db/blob_db_iterator.h"
+#include "utilities/blob_db/blob_index.h"
 
 namespace {
 int kBlockBasedTableVersionFormat = 2;
@@ -49,77 +50,7 @@ void extendTimestamps(rocksdb::blob_db::tsrange_t* ts_range, uint64_t ts) {
 }  // end namespace
 
 namespace rocksdb {
-
 namespace blob_db {
-
-// BlobHandle is a pointer to the blob that is stored in the LSM
-class BlobHandle {
- public:
-  BlobHandle()
-      : file_number_(std::numeric_limits<uint64_t>::max()),
-        offset_(std::numeric_limits<uint64_t>::max()),
-        size_(std::numeric_limits<uint64_t>::max()),
-        compression_(kNoCompression) {}
-
-  uint64_t filenumber() const { return file_number_; }
-  void set_filenumber(uint64_t fn) { file_number_ = fn; }
-
-  // The offset of the block in the file.
-  uint64_t offset() const { return offset_; }
-  void set_offset(uint64_t _offset) { offset_ = _offset; }
-
-  // The size of the stored block
-  uint64_t size() const { return size_; }
-  void set_size(uint64_t _size) { size_ = _size; }
-
-  CompressionType compression() const { return compression_; }
-  void set_compression(CompressionType t) { compression_ = t; }
-
-  void EncodeTo(std::string* dst) const;
-
-  Status DecodeFrom(const Slice& input);
-
-  void clear();
-
- private:
-  uint64_t file_number_;
-  uint64_t offset_;
-  uint64_t size_;
-  CompressionType compression_;
-};
-
-void BlobHandle::EncodeTo(std::string* dst) const {
-  // Sanity check that all fields have been set
-  assert(offset_ != std::numeric_limits<uint64_t>::max());
-  assert(size_ != std::numeric_limits<uint64_t>::max());
-  assert(file_number_ != std::numeric_limits<uint64_t>::max());
-
-  dst->reserve(30);
-  PutVarint64(dst, file_number_);
-  PutVarint64(dst, offset_);
-  PutVarint64(dst, size_);
-  dst->push_back(static_cast<unsigned char>(compression_));
-}
-
-void BlobHandle::clear() {
-  file_number_ = std::numeric_limits<uint64_t>::max();
-  offset_ = std::numeric_limits<uint64_t>::max();
-  size_ = std::numeric_limits<uint64_t>::max();
-  compression_ = kNoCompression;
-}
-
-Status BlobHandle::DecodeFrom(const Slice& input) {
-  Slice s(input);
-  Slice* p = &s;
-  if (GetVarint64(p, &file_number_) && GetVarint64(p, &offset_) &&
-      GetVarint64(p, &size_)) {
-    compression_ = static_cast<CompressionType>(p->data()[0]);
-    return Status::OK();
-  } else {
-    clear();
-    return Status::Corruption("bad blob handle");
-  }
-}
 
 Random blob_rgen(static_cast<uint32_t>(time(nullptr)));
 
@@ -149,19 +80,20 @@ void EvictAllVersionsCompactionListener::InternalListener::OnCompaction(
   if (!is_new &&
       value_type ==
           CompactionEventListener::CompactionListenerValueType::kValue) {
-    BlobHandle handle;
-    Status s = handle.DecodeFrom(existing_value);
+    BlobIndex blob_index;
+    Status s = blob_index.DecodeFrom(existing_value);
     if (s.ok()) {
       if (impl_->debug_level_ >= 3)
-        ROCKS_LOG_INFO(impl_->db_options_.info_log,
-                       "CALLBACK COMPACTED OUT KEY: %s SN: %d "
-                       "NEW: %d FN: %" PRIu64 " OFFSET: %" PRIu64
-                       " SIZE: %" PRIu64,
-                       key.ToString().c_str(), sn, is_new, handle.filenumber(),
-                       handle.offset(), handle.size());
+        ROCKS_LOG_INFO(
+            impl_->db_options_.info_log,
+            "CALLBACK COMPACTED OUT KEY: %s SN: %d "
+            "NEW: %d FN: %" PRIu64 " OFFSET: %" PRIu64 " SIZE: %" PRIu64,
+            key.ToString().c_str(), sn, is_new, blob_index.file_number(),
+            blob_index.offset(), blob_index.size());
 
-      impl_->override_vals_q_.enqueue({handle.filenumber(), key.size(),
-                                       handle.offset(), handle.size(), sn});
+      impl_->override_vals_q_.enqueue({blob_index.file_number(), key.size(),
+                                       blob_index.offset(), blob_index.size(),
+                                       sn});
     }
   } else {
     if (impl_->debug_level_ >= 3)
@@ -1086,12 +1018,8 @@ Status BlobDBImpl::AppendBlob(const std::shared_ptr<BlobFile>& bfile,
   last_period_write_ += size_put;
   total_blob_space_ += size_put;
 
-  BlobHandle handle;
-  handle.set_filenumber(bfile->BlobFileNumber());
-  handle.set_size(value.size());
-  handle.set_offset(blob_offset);
-  handle.set_compression(bdb_options_.compression);
-  handle.EncodeTo(index_entry);
+  BlobIndex::EncodeBlob(index_entry, bfile->BlobFileNumber(), blob_offset,
+                        value.size(), bdb_options_.compression);
 
   if (debug_level_ >= 3)
     ROCKS_LOG_INFO(db_options_.info_log,
@@ -1138,29 +1066,34 @@ bool BlobDBImpl::SetSnapshotIfNeeded(ReadOptions* read_options) {
 Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
                                 PinnableSlice* value) {
   assert(value != nullptr);
-  BlobHandle handle;
-  Status s = handle.DecodeFrom(index_entry);
-  if (!s.ok()) return s;
+  BlobIndex blob_index;
+  Status s = blob_index.DecodeFrom(index_entry);
+  if (!s.ok()) {
+    return s;
+  }
+  assert(!blob_index.IsInlined());
+  assert(!blob_index.HasTTL());
 
   // offset has to have certain min, as we will read CRC
   // later from the Blob Header, which needs to be also a
   // valid offset.
-  if (handle.offset() <
+  if (blob_index.offset() <
       (BlobLogHeader::kHeaderSize + BlobLogRecord::kHeaderSize + key.size())) {
     if (debug_level_ >= 2) {
-      ROCKS_LOG_ERROR(
-          db_options_.info_log,
-          "Invalid blob handle file_number: %" PRIu64 " blob_offset: %" PRIu64
-          " blob_size: %" PRIu64 " key: %s",
-          handle.filenumber(), handle.offset(), handle.size(), key.data());
+      ROCKS_LOG_ERROR(db_options_.info_log,
+                      "Invalid blob index file_number: %" PRIu64
+                      " blob_offset: %" PRIu64 " blob_size: %" PRIu64
+                      " key: %s",
+                      blob_index.file_number(), blob_index.offset(),
+                      blob_index.size(), key.data());
     }
-    return Status::NotFound("Blob Not Found, although found in LSM");
+    return Status::NotFound("Invalid blob offset");
   }
 
   std::shared_ptr<BlobFile> bfile;
   {
     ReadLock rl(&mutex_);
-    auto hitr = blob_files_.find(handle.filenumber());
+    auto hitr = blob_files_.find(blob_index.file_number());
 
     // file was deleted
     if (hitr == blob_files_.end()) {
@@ -1170,7 +1103,7 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
     bfile = hitr->second;
   }
 
-  if (handle.size() == 0 && value != nullptr) {
+  if (blob_index.size() == 0 && value != nullptr) {
     value->PinSelf("");
     return Status::OK();
   }
@@ -1186,19 +1119,19 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
   }
 
   // allocate the buffer. This is safe in C++11
-  valueptr->resize(handle.size());
+  valueptr->resize(blob_index.size());
   char* buffer = &(*valueptr)[0];
 
   Slice blob_value;
-  s = reader->Read(handle.offset(), handle.size(), &blob_value, buffer);
-  if (!s.ok() || blob_value.size() != handle.size()) {
+  s = reader->Read(blob_index.offset(), blob_index.size(), &blob_value, buffer);
+  if (!s.ok() || blob_value.size() != blob_index.size()) {
     if (debug_level_ >= 2) {
       ROCKS_LOG_ERROR(db_options_.info_log,
                       "Failed to read blob from file: %s blob_offset: %" PRIu64
                       " blob_size: %" PRIu64 " read: %d key: %s status: '%s'",
-                      bfile->PathName().c_str(), handle.offset(), handle.size(),
-                      static_cast<int>(blob_value.size()), key.data(),
-                      s.ToString().c_str());
+                      bfile->PathName().c_str(), blob_index.offset(),
+                      blob_index.size(), static_cast<int>(blob_value.size()),
+                      key.data(), s.ToString().c_str());
     }
     return Status::NotFound("Blob Not Found as couldnt retrieve Blob");
   }
@@ -1208,15 +1141,15 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
   std::string crc_str;
   crc_str.resize(sizeof(uint32_t));
   char* crc_buffer = &(crc_str[0]);
-  s = reader->Read(handle.offset() - (key.size() + sizeof(uint32_t)),
+  s = reader->Read(blob_index.offset() - (key.size() + sizeof(uint32_t)),
                    sizeof(uint32_t), &crc_slice, crc_buffer);
   if (!s.ok() || !GetFixed32(&crc_slice, &crc_exp)) {
     if (debug_level_ >= 2) {
       ROCKS_LOG_ERROR(db_options_.info_log,
                       "Failed to fetch blob crc file: %s blob_offset: %" PRIu64
                       " blob_size: %" PRIu64 " key: %s status: '%s'",
-                      bfile->PathName().c_str(), handle.offset(), handle.size(),
-                      key.data(), s.ToString().c_str());
+                      bfile->PathName().c_str(), blob_index.offset(),
+                      blob_index.size(), key.data(), s.ToString().c_str());
     }
     return Status::NotFound("Blob Not Found as couldnt retrieve CRC");
   }
@@ -1228,8 +1161,8 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
       ROCKS_LOG_ERROR(db_options_.info_log,
                       "Blob crc mismatch file: %s blob_offset: %" PRIu64
                       " blob_size: %" PRIu64 " key: %s status: '%s'",
-                      bfile->PathName().c_str(), handle.offset(), handle.size(),
-                      key.data(), s.ToString().c_str());
+                      bfile->PathName().c_str(), blob_index.offset(),
+                      blob_index.size(), key.data(), s.ToString().c_str());
     }
     return Status::Corruption("Corruption. Blob CRC mismatch");
   }
@@ -1399,16 +1332,16 @@ bool BlobDBImpl::FindFileAndEvictABlob(uint64_t file_number, uint64_t key_size,
 }
 
 bool BlobDBImpl::MarkBlobDeleted(const Slice& key, const Slice& index_entry) {
-  BlobHandle handle;
-  Status s = handle.DecodeFrom(index_entry);
+  BlobIndex blob_index;
+  Status s = blob_index.DecodeFrom(index_entry);
   if (!s.ok()) {
     ROCKS_LOG_INFO(db_options_.info_log,
                    "Could not parse lsm val in MarkBlobDeleted %s",
                    index_entry.ToString().c_str());
     return false;
   }
-  bool succ = FindFileAndEvictABlob(handle.filenumber(), key.size(),
-                                    handle.offset(), handle.size());
+  bool succ = FindFileAndEvictABlob(blob_index.file_number(), key.size(),
+                                    blob_index.offset(), blob_index.size());
   return succ;
 }
 
@@ -1757,16 +1690,16 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
       continue;
     }
 
-    BlobHandle handle;
-    s = handle.DecodeFrom(index_entry);
+    BlobIndex blob_index;
+    s = blob_index.DecodeFrom(index_entry);
     if (!s.ok()) {
       ROCKS_LOG_ERROR(db_options_.info_log,
                       "Error while decoding index entry: %s",
                       s.ToString().c_str());
       break;
     }
-    if (handle.filenumber() != bfptr->BlobFileNumber() ||
-        handle.offset() != blob_offset) {
+    if (blob_index.file_number() != bfptr->BlobFileNumber() ||
+        blob_index.offset() != blob_offset) {
       // Key has been overwritten. Drop the blob record.
       continue;
     }
@@ -1843,12 +1776,9 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
     s = new_writer->AddRecord(record.Key(), record.Blob(), &new_key_offset,
                               &new_blob_offset, record.GetTTL());
 
-    BlobHandle new_handle;
-    new_handle.set_filenumber(newfile->BlobFileNumber());
-    new_handle.set_size(record.Blob().size());
-    new_handle.set_offset(new_blob_offset);
-    new_handle.set_compression(bdb_options_.compression);
-    new_handle.EncodeTo(&new_index_entry);
+    BlobIndex::EncodeBlob(&new_index_entry, newfile->BlobFileNumber(),
+                          new_blob_offset, record.Blob().size(),
+                          bdb_options_.compression);
 
     newfile->blob_count_++;
     newfile->file_size_ +=
