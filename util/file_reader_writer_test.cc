@@ -4,9 +4,19 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 #include "util/file_reader_writer.h"
+#include "rocksdb/async/callables.h"
+#include "rocksdb/async/asyncthreadpool.h"
+
+#include "db/db_test_util.h"
+#include "rocksdb/env.h"
+#include "port/port.h"
 #include <algorithm>
+#include <fstream>
 #include <vector>
+
+#include "util/aligned_buffer.h"
 #include "util/random.h"
+#include "util/random_read_context.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 
@@ -230,6 +240,256 @@ INSTANTIATE_TEST_CASE_P(
 INSTANTIATE_TEST_CASE_P(
     NExceedReadaheadTest, ReadaheadRandomAccessFileTest,
     ::testing::ValuesIn(ReadaheadRandomAccessFileTest::GetReadaheadSizeList()));
+
+// Async testing
+#ifdef OS_WIN
+// Helper for quickly generating random data.
+class RandomGenerator {
+private:
+  std::string data_;
+  size_t      pos_;
+
+public:
+  RandomGenerator(size_t valsize, double compression_ratio) :
+    pos_(0) {
+    // We use a limited amount of data over and over again and ensure
+    // that it is larger than the compression window (32KB), and also
+    // large enough to serve all typical value sizes we want to write.
+    Random rnd(301);
+    std::string piece;
+    while (data_.size() < std::max<size_t>(1048576U, valsize)) {
+      // Add a short fragment that is as compressible as specified
+      // by FLAGS_compression_ratio.
+      test::CompressibleString(&rnd, compression_ratio, 100, &piece);
+      data_.append(piece);
+    }
+  }
+
+  Slice Generate(size_t len) {
+    assert(len <= data_.size());
+    if (pos_ + len > data_.size()) {
+      pos_ = 0;
+    }
+    pos_ += len;
+    return Slice(data_.data() + pos_ - len, len);
+  }
+};
+
+class RandomAccessReaderTest : 
+  public testing::Test,
+  public testing::WithParamInterface<bool> {
+
+public:
+
+  PTP_POOL              tp_pool_;
+  bool     direct_io_;
+  std::string fileName_;
+
+  RandomAccessReaderTest() : tp_pool_(nullptr) {
+
+    tp_pool_ = CreateWindowsThreadPool(5, 10);
+
+    direct_io_ = GetParam();
+
+    // Generate a file for reading
+    fileName_ = test::TmpDir();
+    fileName_ += "/io_completion.bin";
+
+    {
+      std::ofstream os(fileName_, std::ios::binary | std::ios::out);
+
+      // Writing 64 K so we can issue 8 reads 8K each
+      //
+      RandomGenerator gen(10 * 1024U, 0.5);
+      uint64_t sizeWritten = 0;
+      while (sizeWritten < 1024 * 64U) {
+        Slice data = gen.Generate(4096);
+        os.write(data.data(), data.size());
+        sizeWritten += data.size();
+      }
+      os.flush();
+      os.close();
+    }
+
+  }
+
+  ~RandomAccessReaderTest() {
+    unlink(fileName_.c_str());
+    if (tp_pool_ != nullptr) {
+      CloseThreadpool(tp_pool_);
+    }
+  }
+};
+
+struct Customer {
+
+  using Ctx = async::RandomFileReadContext;
+
+  HANDLE           hEvent_ = NULL;
+  std::aligned_storage<sizeof(Ctx)>::type ra_context_;
+  AlignedBuffer  buffer_;
+  Slice          result_;
+  uint64_t       offset_;
+  size_t         n_;
+
+  Ctx& GetCtxRef() {
+    return *reinterpret_cast<Ctx*>(&ra_context_);
+  }
+
+  Customer(RandomAccessFileReader* reader, uint64_t offset, size_t n,
+          bool create_event = true) :
+    offset_(offset),
+    n_(n) {
+
+    if(create_event) {
+      hEvent_ = CreateEvent(NULL, TRUE, FALSE, NULL);
+      assert(NULL != hEvent_);
+    }
+
+    buffer_.Alignment(reader->file()->GetRequiredBufferAlignment());
+    buffer_.AllocateNewBuffer(n);
+
+    auto data = reader->GetReadContextData();
+
+    new (&ra_context_) Ctx(reader->file(), data.env_, data.stats_,
+      data.file_read_hist_, data.hist_type_, reader->use_direct_io(),
+      reader->file()->GetRequiredBufferAlignment());
+
+    GetCtxRef().PrepareRead(offset, n, &result_, buffer_.BufferStart());
+  }
+
+  Status RequestRead() {
+    return GetCtxRef().RequestRandomRead(GetCallback());
+  }
+
+  ~Customer() {
+    if (hEvent_ != NULL) {
+      CloseHandle(hEvent_);
+    }
+
+    GetCtxRef().~Ctx();
+  }
+
+  Slice* GetResult() {
+    return &result_;
+  }
+
+  void Wait() {
+    assert(hEvent_ != NULL);
+    if(hEvent_ != NULL) {
+      auto ret = WaitForSingleObject(hEvent_, INFINITE);
+      assert(ret == WAIT_OBJECT_0);
+    }
+  }
+
+  void Reset() {
+    assert(hEvent_ != NULL);
+    ResetEvent(hEvent_);
+  }
+
+  async::Callable<Status, const Status&, const Slice&>
+  GetCallback() {
+    async::CallableFactory<Customer, Status, const Status&, const Slice&>
+      factory(this);
+    return factory.GetCallable<&Customer::OnIOCompletion>();
+  }
+
+  // IO Completion callback
+  Status OnIOCompletion(const Status& status, const Slice& slice) {
+
+    GetCtxRef().OnRandomReadComplete(status, slice);
+
+    std::cout << "Async Bytes on offset: " << offset_ <<
+    " requested size: " << n_ << " bytes read: " << slice.size() <<
+      " status: " << status.ToString() << std::endl;
+
+    assert(result_.size() == n_);
+    // We are expecting to point to our buffer here
+    assert(result_.data() == buffer_.BufferStart());
+
+    SetEvent(hEvent_);
+
+    return status;
+  }
+};
+
+// Windows specific because of one line
+TEST_P(RandomAccessReaderTest, TestAsyncRead) {
+
+  Env* env = Env::Default();
+  // This moves tp_handle_
+  auto io_tp(env->CreateAsyncThreadPool(tp_pool_));
+
+  EnvOptions options;
+  options.use_direct_reads = direct_io_;
+  options.use_async_reads = true;
+  options.async_threadpool = io_tp.get();
+
+  std::unique_ptr<RandomAccessFile> file;
+  Status s = env->NewRandomAccessFile(fileName_, &file, options);
+  ASSERT_OK(s);
+
+  std::unique_ptr<RandomAccessFileReader> f_reader(new RandomAccessFileReader(std::move(file),
+    env));
+
+  {
+    // Single wait
+    // Make sure that offsets and sizes are not factors of
+    // page size
+    Customer customer(f_reader.get(), 815, 8 * 1024 - 256);
+
+    Status status = customer.RequestRead();
+
+    if (status.IsIOPending()) {
+      customer.Wait();
+    }  else if (status.ok()) {
+      std::cout <<
+        "Sync read bytes: " << customer.GetResult()->size() << std::endl;
+    }  else {
+       std::cout << "Read failed: " << status.ToString() << std::endl;
+    }
+  }
+
+  // Now several threads at once
+  {
+    const size_t ncustomers = 12;
+    std::vector<port::Thread> threads;
+    threads.reserve(ncustomers);
+
+    auto t = [&f_reader] (size_t cust, size_t size) {
+
+      uint64_t offset = 1024 * cust + 37;
+      Customer customer(f_reader.get(), offset, size);
+
+      Status status = customer.RequestRead();
+
+      if (status.IsIOPending()) {
+        customer.Wait();
+      } else if (status.ok()) {
+        std::cout <<
+          "Sync read bytes: " << customer.GetResult()->size() << std::endl;
+      }  else {
+          std::cout << "Read failed: " << status.ToString() << std::endl;
+      }
+    };
+
+    for (size_t n = 0; n < ncustomers; ++n) {
+      threads.emplace_back(t, n, 8 * 1024 - 257);
+    }
+
+    for (auto& th : threads) {
+      th.join();
+    }
+  }
+
+  io_tp->CloseThreadPool();
+}
+
+INSTANTIATE_TEST_CASE_P(
+  TestAsyncRead, RandomAccessReaderTest,
+  ::testing::ValuesIn({ false, true }));
+
+#endif
 
 }  // namespace rocksdb
 

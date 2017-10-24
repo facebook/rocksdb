@@ -20,6 +20,7 @@
 #include <string>
 #include <unordered_map>
 
+#include "rocksdb/async/callables.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
@@ -432,6 +433,19 @@ class TableFactory {
       unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
       unique_ptr<TableReader>* table_reader,
       bool prefetch_index_and_filter_in_cache = true) const = 0;
+
+  // Async version of NewTableReader
+  // On sync completion, the table reader is returned via an output
+  // parameter table_reader as with sync version.
+  // On async completion, a pointer is passed via a callback parameter
+  virtual Status NewTableReader(
+    const async::Callable<Status, const Status&,
+      std::unique_ptr<TableReader>&&>& cb,
+    const TableReaderOptions& table_reader_options,
+    std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
+    std::unique_ptr<TableReader>* table_reader,
+    bool prefetch_index_and_filter_in_cache = true) const = 0;
+
 
   // Return a table builder to write to a file for this table type.
   //

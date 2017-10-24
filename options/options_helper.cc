@@ -36,6 +36,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.paranoid_checks = immutable_db_options.paranoid_checks;
   options.env = immutable_db_options.env;
   options.rate_limiter = immutable_db_options.rate_limiter;
+  options.async_threadpool = immutable_db_options.async_threadpool;
   options.sst_file_manager = immutable_db_options.sst_file_manager;
   options.info_log = immutable_db_options.info_log;
   options.info_log_level = immutable_db_options.info_log_level;
@@ -73,6 +74,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.use_direct_reads = immutable_db_options.use_direct_reads;
   options.use_direct_io_for_flush_and_compaction =
       immutable_db_options.use_direct_io_for_flush_and_compaction;
+  options.use_async_reads = immutable_db_options.use_async_reads;
   options.allow_fallocate = immutable_db_options.allow_fallocate;
   options.is_fd_close_on_exec = immutable_db_options.is_fd_close_on_exec;
   options.stats_dump_period_sec = mutable_db_options.stats_dump_period_sec;

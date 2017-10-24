@@ -9,6 +9,7 @@
 
 #pragma once
 #include <memory>
+#include "rocksdb/async/callables.h"
 #include "table/internal_iterator.h"
 
 namespace rocksdb {
@@ -43,9 +44,25 @@ class TableReader {
                                         const InternalKeyComparator* = nullptr,
                                         bool skip_filters = false) = 0;
 
+  virtual Status NewIterator(
+    const async::Callable<Status, const Status&, InternalIterator*>& cb,
+    const ReadOptions& read_options,
+    InternalIterator** internal_iterator,
+    Arena* arena = nullptr, const InternalKeyComparator* = nullptr,
+    bool skip_filters = false) {
+    return Status::NotSupported();
+  }
+
   virtual InternalIterator* NewRangeTombstoneIterator(
       const ReadOptions& read_options) {
     return nullptr;
+  }
+
+  virtual Status NewRangeTombstoneIterator(
+    const async::Callable<Status,const Status&, InternalIterator*>& cb,
+    const ReadOptions& read_options,
+    InternalIterator** internal_iterator) {
+    return Status::NotSupported();
   }
 
   // Given a key, return an approximate byte offset in the file where
@@ -81,6 +98,13 @@ class TableReader {
   //               option is effective only for block-based table format.
   virtual Status Get(const ReadOptions& readOptions, const Slice& key,
                      GetContext* get_context, bool skip_filters = false) = 0;
+
+  virtual Status Get(const async::Callable<Status, const Status&>&,
+                     const ReadOptions& readOptions,
+                     const Slice&,
+                     GetContext*, bool skip_filters = false) {
+    return Status::NotSupported();
+  }
 
   // Prefetch data corresponding to a give range of keys
   // Typically this functionality is required for table implementations that

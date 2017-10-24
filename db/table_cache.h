@@ -33,6 +33,11 @@ class GetContext;
 class HistogramImpl;
 class InternalIterator;
 
+namespace async {
+class TableCacheGetContext;
+class TableCacheNewTombIterContext;
+}
+
 class TableCache {
  public:
   TableCache(const ImmutableCFOptions& ioptions,
@@ -63,6 +68,18 @@ class TableCache {
       const InternalKeyComparator& internal_comparator,
       const FileDescriptor& file_fd, HistogramImpl* file_read_hist,
       bool skip_filters, int level);
+
+  using
+  NewIteratorCallback =
+      async::Callable<Status, const Status&, InternalIterator*, TableReader*>;
+  Status NewIterator(const NewIteratorCallback& cb,
+    const ReadOptions& options, const EnvOptions& toptions,
+    const InternalKeyComparator& internal_comparator,
+    const FileDescriptor& file_fd, RangeDelAggregator* range_del_agg,
+    InternalIterator** iterator,
+    TableReader** table_reader_ptr = nullptr,
+    HistogramImpl* file_read_hist = nullptr, bool for_compaction = false,
+    Arena* arena = nullptr, bool skip_filters = false, int level = -1);
 
   // If a seek to internal key "k" in specified file finds an entry,
   // call (*handle_result)(arg, found_key, found_value) repeatedly until
@@ -96,8 +113,19 @@ class TableCache {
                    bool skip_filters = false, int level = -1,
                    bool prefetch_index_and_filter_in_cache = true);
 
+  Status FindTable(const async::Callable
+      <Status, const Status&, Cache::Handle*>& cb,
+      const EnvOptions& env_options,
+      const InternalKeyComparator& internal_comparator,
+      const FileDescriptor& file_fd, Cache::Handle** handle,
+      const bool no_io = false, bool record_read_stats = true,
+      HistogramImpl* file_read_hist = nullptr,
+      bool skip_filters = false, int level = -1,
+      bool prefetch_index_and_filter_in_cache = true);
+
+
   // Get TableReader from a cache handle.
-  TableReader* GetTableReaderFromHandle(Cache::Handle* handle);
+  TableReader* GetTableReaderFromHandle(Cache::Handle* handle) const;
 
   // Get the table properties of a given table.
   // @no_io: indicates if we should load table to the cache if it is not present
@@ -110,6 +138,14 @@ class TableCache {
                             const FileDescriptor& file_meta,
                             std::shared_ptr<const TableProperties>* properties,
                             bool no_io = false);
+
+  Status GetTableProperties(async::Callable<Status,const Status&,
+      std::shared_ptr<const TableProperties>&&>& cb,
+      const EnvOptions& env_options,
+      const InternalKeyComparator& internal_comparator,
+      const FileDescriptor& file_meta,
+      std::shared_ptr<const TableProperties>* properties,
+      bool no_io = false);
 
   // Return total memory usage of the table reader of the file.
   // 0 if table reader of the file is not loaded.
@@ -124,6 +160,22 @@ class TableCache {
   // Capacity of the backing Cache that indicates inifinite TableCache capacity.
   // For example when max_open_files is -1 we set the backing Cache to this.
   static const int kInfiniteCapacity = 0x400000;
+  
+  const ImmutableCFOptions& GetIOptions() const {
+    return ioptions_;
+  }
+
+  const EnvOptions& GetEnvOptions() const {
+    return env_options_;
+  }
+
+  Cache* GetCache() const {
+    return cache_;
+  }
+
+  const std::string& GetRowCacheId() const {
+    return row_cache_id_;
+  }
 
  private:
   // Build a table reader
@@ -141,5 +193,33 @@ class TableCache {
   Cache* const cache_;
   std::string row_cache_id_;
 };
+
+namespace table_cache_detail {
+
+template <class T> inline
+void DeleteEntry(const Slice& key, void* value) {
+  T* typed_value = reinterpret_cast<T*>(value);
+  delete typed_value;
+}
+
+inline Slice GetSliceForFileNumber(const uint64_t* file_number) {
+  return Slice(reinterpret_cast<const char*>(file_number),
+    sizeof(*file_number));
+}
+
+void UnrefEntry(void* arg1, void* arg2);
+
+void DeleteTableReader(void* arg1, void* arg2);
+
+#ifndef ROCKSDB_LITE
+
+inline void AppendVarint64(IterKey* key, uint64_t v) {
+  char buf[10];
+  auto ptr = EncodeVarint64(buf, v);
+  key->TrimAppend(key->Size(), buf, ptr - buf);
+}
+
+#endif  // ROCKSDB_LITE
+}  // namespace table_cache_detail
 
 }  // namespace rocksdb

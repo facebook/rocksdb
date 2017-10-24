@@ -7,6 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "db/db_impl_request.h"
 #include "db/db_test_util.h"
 #include "db/forward_iterator.h"
 
@@ -482,6 +483,16 @@ Options DBTestBase::GetOptions(
   if (set_block_based_table_factory) {
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   }
+  if (options_override.use_async_reads) {
+    options.use_async_reads = true;
+    options.async_threadpool = options_override.async_threadpool;
+    assert(options.async_threadpool);
+  }
+
+  options.use_direct_reads = options_override.use_direct_reads;
+  options.use_direct_io_for_flush_and_compaction = 
+    options_override.use_direct_io_for_flush_and_compaction;
+
   options.env = env_;
   options.create_if_missing = true;
   options.fail_if_options_file_error = true;
@@ -663,6 +674,53 @@ std::string DBTestBase::Get(int cf, const std::string& k,
   options.snapshot = snapshot;
   std::string result;
   Status s = db_->Get(options, handles_[cf], k, &result);
+  if (s.IsNotFound()) {
+    result = "NOT_FOUND";
+  } else if (!s.ok()) {
+    result = s.ToString();
+  }
+  return result;
+}
+
+std::string DBTestBase::GetAsync(const std::string& k,
+  const Snapshot* snapshot) {
+  ReadOptions options;
+  options.verify_checksums = true;
+  options.snapshot = snapshot;
+  auto cf = db_->DefaultColumnFamily();
+
+  std::string result;
+
+  anon::GetSyncer syncer;
+  Status s = async::DBImplGetContext::RequestGet(syncer.GetCallable(), db_,
+    options, cf, k, nullptr, &result);
+
+  if (s.IsIOPending()) {
+    syncer.Wait();
+    s = syncer.GetStatus();
+  }
+  if (s.IsNotFound()) {
+    result = "NOT_FOUND";
+  } else if (!s.ok()) {
+    result = s.ToString();
+  }
+  return result;
+}
+
+std::string DBTestBase::GetAsync(int cf, const std::string& k,
+  const Snapshot * snapshot) {
+  ReadOptions options;
+  options.verify_checksums = true;
+  options.snapshot = snapshot;
+  std::string result;
+  anon::GetSyncer syncer;
+  Status s = async::DBImplGetContext::RequestGet(syncer.GetCallable(), db_,
+    options, handles_[cf], k, nullptr, &result);
+
+  if (s.IsIOPending()) {
+    syncer.Wait();
+    s = syncer.GetStatus();
+  }
   if (s.IsNotFound()) {
     result = "NOT_FOUND";
   } else if (!s.ok()) {
@@ -1137,7 +1195,6 @@ void DBTestBase::validateNumberOfEntries(int numValues, int cf) {
   int seq = numValues;
   while (iter->Valid()) {
     ParsedInternalKey ikey;
-    ikey.sequence = -1;
     ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), true);
 
     // checks sequence number for updates
@@ -1358,5 +1415,16 @@ uint64_t DBTestBase::GetNumberOfSstFilesForColumnFamily(
   return result;
 }
 #endif  // ROCKSDB_LITE
+
+#ifdef OS_WIN
+PTP_POOL CreateWindowsThreadPool(uint32_t min_threads, uint32_t max_threads) {
+  assert(min_threads != max_threads); // Not what you want
+  PTP_POOL pool = CreateThreadpool(NULL);
+  BOOL ret = SetThreadpoolThreadMinimum(pool, min_threads);
+  assert(ret);
+  SetThreadpoolThreadMaximum(pool, max_threads);
+  return pool;
+}
+#endif
 
 }  // namespace rocksdb

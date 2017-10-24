@@ -22,8 +22,6 @@
 
 #include <windows.h>
 
-#define snprintf _snprintf
-
 // Ok for uniqueness
 int geteuid() {
   int result = 0;

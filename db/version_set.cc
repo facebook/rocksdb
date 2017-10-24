@@ -22,6 +22,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include "db/table_cache_request.h"
 #include "db/compaction.h"
 #include "db/internal_stats.h"
 #include "db/log_reader.h"
@@ -32,6 +33,7 @@
 #include "db/pinned_iterators_manager.h"
 #include "db/table_cache.h"
 #include "db/version_builder.h"
+#include "db/version_set_request.h"
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
@@ -53,263 +55,7 @@
 
 namespace rocksdb {
 
-namespace {
-
-// Find File in LevelFilesBrief data structure
-// Within an index range defined by left and right
-int FindFileInRange(const InternalKeyComparator& icmp,
-    const LevelFilesBrief& file_level,
-    const Slice& key,
-    uint32_t left,
-    uint32_t right) {
-  while (left < right) {
-    uint32_t mid = (left + right) / 2;
-    const FdWithKeyRange& f = file_level.files[mid];
-    if (icmp.InternalKeyComparator::Compare(f.largest_key, key) < 0) {
-      // Key at "mid.largest" is < "target".  Therefore all
-      // files at or before "mid" are uninteresting.
-      left = mid + 1;
-    } else {
-      // Key at "mid.largest" is >= "target".  Therefore all files
-      // after "mid" are uninteresting.
-      right = mid;
-    }
-  }
-  return right;
-}
-
-// Class to help choose the next file to search for the particular key.
-// Searches and returns files level by level.
-// We can search level-by-level since entries never hop across
-// levels. Therefore we are guaranteed that if we find data
-// in a smaller level, later levels are irrelevant (unless we
-// are MergeInProgress).
-class FilePicker {
- public:
-  FilePicker(std::vector<FileMetaData*>* files, const Slice& user_key,
-             const Slice& ikey, autovector<LevelFilesBrief>* file_levels,
-             unsigned int num_levels, FileIndexer* file_indexer,
-             const Comparator* user_comparator,
-             const InternalKeyComparator* internal_comparator)
-      : num_levels_(num_levels),
-        curr_level_(static_cast<unsigned int>(-1)),
-        returned_file_level_(static_cast<unsigned int>(-1)),
-        hit_file_level_(static_cast<unsigned int>(-1)),
-        search_left_bound_(0),
-        search_right_bound_(FileIndexer::kLevelMaxIndex),
-#ifndef NDEBUG
-        files_(files),
-#endif
-        level_files_brief_(file_levels),
-        is_hit_file_last_in_level_(false),
-        user_key_(user_key),
-        ikey_(ikey),
-        file_indexer_(file_indexer),
-        user_comparator_(user_comparator),
-        internal_comparator_(internal_comparator) {
-    // Setup member variables to search first level.
-    search_ended_ = !PrepareNextLevel();
-    if (!search_ended_) {
-      // Prefetch Level 0 table data to avoid cache miss if possible.
-      for (unsigned int i = 0; i < (*level_files_brief_)[0].num_files; ++i) {
-        auto* r = (*level_files_brief_)[0].files[i].fd.table_reader;
-        if (r) {
-          r->Prepare(ikey);
-        }
-      }
-    }
-  }
-
-  int GetCurrentLevel() { return returned_file_level_; }
-
-  FdWithKeyRange* GetNextFile() {
-    while (!search_ended_) {  // Loops over different levels.
-      while (curr_index_in_curr_level_ < curr_file_level_->num_files) {
-        // Loops over all files in current level.
-        FdWithKeyRange* f = &curr_file_level_->files[curr_index_in_curr_level_];
-        hit_file_level_ = curr_level_;
-        is_hit_file_last_in_level_ =
-            curr_index_in_curr_level_ == curr_file_level_->num_files - 1;
-        int cmp_largest = -1;
-
-        // Do key range filtering of files or/and fractional cascading if:
-        // (1) not all the files are in level 0, or
-        // (2) there are more than 3 current level files
-        // If there are only 3 or less current level files in the system, we skip
-        // the key range filtering. In this case, more likely, the system is
-        // highly tuned to minimize number of tables queried by each query,
-        // so it is unlikely that key range filtering is more efficient than
-        // querying the files.
-        if (num_levels_ > 1 || curr_file_level_->num_files > 3) {
-          // Check if key is within a file's range. If search left bound and
-          // right bound point to the same find, we are sure key falls in
-          // range.
-          assert(
-              curr_level_ == 0 ||
-              curr_index_in_curr_level_ == start_index_in_curr_level_ ||
-              user_comparator_->Compare(user_key_,
-                ExtractUserKey(f->smallest_key)) <= 0);
-
-          int cmp_smallest = user_comparator_->Compare(user_key_,
-              ExtractUserKey(f->smallest_key));
-          if (cmp_smallest >= 0) {
-            cmp_largest = user_comparator_->Compare(user_key_,
-                ExtractUserKey(f->largest_key));
-          }
-
-          // Setup file search bound for the next level based on the
-          // comparison results
-          if (curr_level_ > 0) {
-            file_indexer_->GetNextLevelIndex(curr_level_,
-                                            curr_index_in_curr_level_,
-                                            cmp_smallest, cmp_largest,
-                                            &search_left_bound_,
-                                            &search_right_bound_);
-          }
-          // Key falls out of current file's range
-          if (cmp_smallest < 0 || cmp_largest > 0) {
-            if (curr_level_ == 0) {
-              ++curr_index_in_curr_level_;
-              continue;
-            } else {
-              // Search next level.
-              break;
-            }
-          }
-        }
-#ifndef NDEBUG
-        // Sanity check to make sure that the files are correctly sorted
-        if (prev_file_) {
-          if (curr_level_ != 0) {
-            int comp_sign = internal_comparator_->Compare(
-                prev_file_->largest_key, f->smallest_key);
-            assert(comp_sign < 0);
-          } else {
-            // level == 0, the current file cannot be newer than the previous
-            // one. Use compressed data structure, has no attribute seqNo
-            assert(curr_index_in_curr_level_ > 0);
-            assert(!NewestFirstBySeqNo(files_[0][curr_index_in_curr_level_],
-                  files_[0][curr_index_in_curr_level_-1]));
-          }
-        }
-        prev_file_ = f;
-#endif
-        returned_file_level_ = curr_level_;
-        if (curr_level_ > 0 && cmp_largest < 0) {
-          // No more files to search in this level.
-          search_ended_ = !PrepareNextLevel();
-        } else {
-          ++curr_index_in_curr_level_;
-        }
-        return f;
-      }
-      // Start searching next level.
-      search_ended_ = !PrepareNextLevel();
-    }
-    // Search ended.
-    return nullptr;
-  }
-
-  // getter for current file level
-  // for GET_HIT_L0, GET_HIT_L1 & GET_HIT_L2_AND_UP counts
-  unsigned int GetHitFileLevel() { return hit_file_level_; }
-
-  // Returns true if the most recent "hit file" (i.e., one returned by
-  // GetNextFile()) is at the last index in its level.
-  bool IsHitFileLastInLevel() { return is_hit_file_last_in_level_; }
-
- private:
-  unsigned int num_levels_;
-  unsigned int curr_level_;
-  unsigned int returned_file_level_;
-  unsigned int hit_file_level_;
-  int32_t search_left_bound_;
-  int32_t search_right_bound_;
-#ifndef NDEBUG
-  std::vector<FileMetaData*>* files_;
-#endif
-  autovector<LevelFilesBrief>* level_files_brief_;
-  bool search_ended_;
-  bool is_hit_file_last_in_level_;
-  LevelFilesBrief* curr_file_level_;
-  unsigned int curr_index_in_curr_level_;
-  unsigned int start_index_in_curr_level_;
-  Slice user_key_;
-  Slice ikey_;
-  FileIndexer* file_indexer_;
-  const Comparator* user_comparator_;
-  const InternalKeyComparator* internal_comparator_;
-#ifndef NDEBUG
-  FdWithKeyRange* prev_file_;
-#endif
-
-  // Setup local variables to search next level.
-  // Returns false if there are no more levels to search.
-  bool PrepareNextLevel() {
-    curr_level_++;
-    while (curr_level_ < num_levels_) {
-      curr_file_level_ = &(*level_files_brief_)[curr_level_];
-      if (curr_file_level_->num_files == 0) {
-        // When current level is empty, the search bound generated from upper
-        // level must be [0, -1] or [0, FileIndexer::kLevelMaxIndex] if it is
-        // also empty.
-        assert(search_left_bound_ == 0);
-        assert(search_right_bound_ == -1 ||
-               search_right_bound_ == FileIndexer::kLevelMaxIndex);
-        // Since current level is empty, it will need to search all files in
-        // the next level
-        search_left_bound_ = 0;
-        search_right_bound_ = FileIndexer::kLevelMaxIndex;
-        curr_level_++;
-        continue;
-      }
-
-      // Some files may overlap each other. We find
-      // all files that overlap user_key and process them in order from
-      // newest to oldest. In the context of merge-operator, this can occur at
-      // any level. Otherwise, it only occurs at Level-0 (since Put/Deletes
-      // are always compacted into a single entry).
-      int32_t start_index;
-      if (curr_level_ == 0) {
-        // On Level-0, we read through all files to check for overlap.
-        start_index = 0;
-      } else {
-        // On Level-n (n>=1), files are sorted. Binary search to find the
-        // earliest file whose largest key >= ikey. Search left bound and
-        // right bound are used to narrow the range.
-        if (search_left_bound_ == search_right_bound_) {
-          start_index = search_left_bound_;
-        } else if (search_left_bound_ < search_right_bound_) {
-          if (search_right_bound_ == FileIndexer::kLevelMaxIndex) {
-            search_right_bound_ =
-                static_cast<int32_t>(curr_file_level_->num_files) - 1;
-          }
-          start_index =
-              FindFileInRange(*internal_comparator_, *curr_file_level_, ikey_,
-                              static_cast<uint32_t>(search_left_bound_),
-                              static_cast<uint32_t>(search_right_bound_));
-        } else {
-          // search_left_bound > search_right_bound, key does not exist in
-          // this level. Since no comparison is done in this level, it will
-          // need to search all files in the next level.
-          search_left_bound_ = 0;
-          search_right_bound_ = FileIndexer::kLevelMaxIndex;
-          curr_level_++;
-          continue;
-        }
-      }
-      start_index_in_curr_level_ = start_index;
-      curr_index_in_curr_level_ = start_index;
-#ifndef NDEBUG
-      prev_file_ = nullptr;
-#endif
-      return true;
-    }
-    // curr_level_ = num_levels_. So, no more levels to search.
-    return false;
-  }
-};
-}  // anonymous namespace
+using namespace versionset_detail;
 
 VersionStorageInfo::~VersionStorageInfo() { delete[] files_; }
 
@@ -445,27 +191,58 @@ class LevelFileNumIterator : public InternalIterator {
   virtual void Seek(const Slice& target) override {
     index_ = FindFile(icmp_, *flevel_, target);
   }
+  Status RequestSeek(const Callback&, const Slice& target) override {
+    index_ = FindFile(icmp_, *flevel_, target);
+    return Status::OK();
+  }
   virtual void SeekForPrev(const Slice& target) override {
     SeekForPrevImpl(target, &icmp_);
   }
-
+  Status RequestSeekForPrev(const Callback&, const Slice& target) override {
+    // This iterator is always sync and we are fine to
+    // default to sync impl
+    SeekForPrevImpl(target, &icmp_);
+    return Status::OK();
+  }
   virtual void SeekToFirst() override { index_ = 0; }
+  Status RequestSeekToFirst(const Callback&) override {
+    index_ = 0; 
+    return Status::OK();
+  }
   virtual void SeekToLast() override {
     index_ = (flevel_->num_files == 0)
                  ? 0
                  : static_cast<uint32_t>(flevel_->num_files) - 1;
   }
+  Status RequestSeekToLast(const Callback&) override {
+    index_ = (flevel_->num_files == 0)
+      ? 0
+      : static_cast<uint32_t>(flevel_->num_files) - 1;
+    return Status::OK();
+  }
   virtual void Next() override {
     assert(Valid());
     index_++;
   }
-  virtual void Prev() override {
+  Status RequestNext(const Callback&) override {
+    assert(Valid());
+    index_++;
+    return Status::OK();
+  }
+  void PrevImpl() {
     assert(Valid());
     if (index_ == 0) {
       index_ = static_cast<uint32_t>(flevel_->num_files);  // Marks as invalid
     } else {
       index_--;
     }
+  }
+  virtual void Prev() override {
+    PrevImpl();
+  }
+  Status RequestPrev(const Callback&) override {
+    PrevImpl();
+    return Status::OK();
   }
   Slice key() const override {
     assert(Valid());
@@ -499,6 +276,7 @@ class LevelFileIteratorState : public TwoLevelIteratorState {
                          bool prefix_enabled, bool skip_filters, int level,
                          RangeDelAggregator* range_del_agg)
       : TwoLevelIteratorState(prefix_enabled),
+        cb_(),
         table_cache_(table_cache),
         read_options_(read_options),
         env_options_(env_options),
@@ -522,6 +300,34 @@ class LevelFileIteratorState : public TwoLevelIteratorState {
         for_compaction_, nullptr /* arena */, skip_filters_, level_);
   }
 
+  Status NewSecondaryIterator(const async::Callable<Status, const Status&, InternalIterator*>& cb,
+    const Slice& meta_handle, InternalIterator** iterator) override {
+
+    if (meta_handle.size() != sizeof(FileDescriptor)) {
+      Status s(Status::Corruption("FileReader invoked with unexpected value"));
+      *iterator = NewErrorInternalIterator(s);
+      return s;
+    }
+
+    const FileDescriptor* fd =
+      reinterpret_cast<const FileDescriptor*>(meta_handle.data());
+
+    // We assume this Iterator State is not subject to multi-threaded
+    // access and secondary iterators are created one at a time
+    cb_ = cb;
+
+    async::CallableFactory<LevelFileIteratorState, Status, const Status&,
+      InternalIterator*, TableReader*>
+      f(this);
+    auto on_iterator_shim = f.GetCallable<&LevelFileIteratorState::OnNewIterator>();
+
+    return async::TableCacheNewIteratorContext::RequestCreate(on_iterator_shim,
+      table_cache_, read_options_, env_options_, icomparator_, *fd, range_del_agg_, iterator,
+      nullptr /* don't need reference to table */, file_read_hist_, 
+      for_compaction_, nullptr /* arena */, skip_filters_, level_);
+  }
+
+
   bool PrefixMayMatch(const Slice& internal_key) override {
     return true;
   }
@@ -534,6 +340,17 @@ class LevelFileIteratorState : public TwoLevelIteratorState {
   }
 
  private:
+
+   // This is just a forwarding shim which reuses cb_ member
+   // we assume this is not subject to MT access so cb_ would be preserved
+   // across the async call
+   Status OnNewIterator(const Status& s, InternalIterator* iter, TableReader*) {
+     assert(cb_);
+     cb_.Invoke(s, iter);
+     return s;
+   }
+
+  async::Callable<Status, const Status&, InternalIterator*> cb_;
   TableCache* table_cache_;
   const ReadOptions read_options_;
   const EnvOptions& env_options_;
@@ -589,15 +406,17 @@ Status Version::GetTableProperties(std::shared_ptr<const TableProperties>* tp,
 
   // 2. Table is not present in table cache, we'll read the table properties
   // directly from the properties block in the file.
+  EnvOptions sync_eoptions(vset_->env_options_);
+  sync_eoptions.use_async_reads = false;
   std::unique_ptr<RandomAccessFile> file;
   if (fname != nullptr) {
     s = ioptions->env->NewRandomAccessFile(
-        *fname, &file, vset_->env_options_);
+        *fname, &file, sync_eoptions);
   } else {
     s = ioptions->env->NewRandomAccessFile(
         TableFileName(vset_->db_options_->db_paths, file_meta->fd.GetNumber(),
                       file_meta->fd.GetPathId()),
-        &file, vset_->env_options_);
+        &file, sync_eoptions);
   }
   if (!s.ok()) {
     return s;
@@ -847,21 +666,37 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
     // For levels > 0, we can use a concatenating iterator that sequentially
     // walks through the non-overlapping files in the level, opening them
     // lazily.
-    auto* mem = arena->AllocateAligned(sizeof(LevelFileIteratorState));
-    auto* state = new (mem)
-        LevelFileIteratorState(cfd_->table_cache(), read_options, soptions,
-                               cfd_->internal_comparator(),
-                               cfd_->internal_stats()->GetFileReadHist(level),
-                               false /* for_compaction */,
-                               cfd_->ioptions()->prefix_extractor != nullptr,
-                               IsFilterSkipped(level), level, range_del_agg);
-    mem = arena->AllocateAligned(sizeof(LevelFileNumIterator));
-    auto* first_level_iter = new (mem) LevelFileNumIterator(
-        cfd_->internal_comparator(), &storage_info_.LevelFilesBrief(level));
-    merge_iter_builder->AddIterator(
-        NewTwoLevelIterator(state, first_level_iter, arena, false));
+    merge_iter_builder->AddIterator(CreateTwoLevelIterator(read_options, soptions,
+      range_del_agg, arena, level));
   }
 }
+
+InternalIterator* Version::CreateTwoLevelIterator(const ReadOptions& read_options, const EnvOptions& soptions,
+  RangeDelAggregator* range_del_agg, Arena* arena, int level) {
+  auto* mem = arena->AllocateAligned(sizeof(LevelFileIteratorState));
+  auto* state = new (mem)
+    LevelFileIteratorState(cfd_->table_cache(), read_options, soptions,
+      cfd_->internal_comparator(),
+      cfd_->internal_stats()->GetFileReadHist(level),
+      false /* for_compaction */,
+      cfd_->ioptions()->prefix_extractor != nullptr,
+      IsFilterSkipped(level), level, range_del_agg);
+  mem = arena->AllocateAligned(sizeof(LevelFileNumIterator));
+  auto* first_level_iter = new (mem) LevelFileNumIterator(
+    cfd_->internal_comparator(), &storage_info_.LevelFilesBrief(level));
+#ifdef ROCKSDB_ASYNC_TESTING
+    return NewTwoLevelBlockAsyncIterator(state, first_level_iter, arena, false);
+#else
+  InternalIterator* result = nullptr;
+  if (soptions.use_async_reads) {
+    result = NewTwoLevelBlockAsyncIterator(state, first_level_iter, arena, false);
+  } else {
+    result = NewTwoLevelIterator(state, first_level_iter, arena, false);
+  }
+  return result;
+#endif
+}
+
 
 void Version::AddRangeDelIteratorsForLevel(
     const ReadOptions& read_options, const EnvOptions& soptions, int level,
@@ -954,93 +789,9 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
                   MergeContext* merge_context,
                   RangeDelAggregator* range_del_agg, bool* value_found,
                   bool* key_exists, SequenceNumber* seq) {
-  Slice ikey = k.internal_key();
-  Slice user_key = k.user_key();
-
-  assert(status->ok() || status->IsMergeInProgress());
-
-  if (key_exists != nullptr) {
-    // will falsify below if not found
-    *key_exists = true;
-  }
-
-  PinnedIteratorsManager pinned_iters_mgr;
-  GetContext get_context(
-      user_comparator(), merge_operator_, info_log_, db_statistics_,
-      status->ok() ? GetContext::kNotFound : GetContext::kMerge, user_key,
-      value, value_found, merge_context, range_del_agg, this->env_, seq,
-      merge_operator_ ? &pinned_iters_mgr : nullptr);
-
-  // Pin blocks that we read to hold merge operands
-  if (merge_operator_) {
-    pinned_iters_mgr.StartPinning();
-  }
-
-  FilePicker fp(
-      storage_info_.files_, user_key, ikey, &storage_info_.level_files_brief_,
-      storage_info_.num_non_empty_levels_, &storage_info_.file_indexer_,
-      user_comparator(), internal_comparator());
-  FdWithKeyRange* f = fp.GetNextFile();
-  while (f != nullptr) {
-    *status = table_cache_->Get(
-        read_options, *internal_comparator(), f->fd, ikey, &get_context,
-        cfd_->internal_stats()->GetFileReadHist(fp.GetHitFileLevel()),
-        IsFilterSkipped(static_cast<int>(fp.GetHitFileLevel()),
-                        fp.IsHitFileLastInLevel()),
-        fp.GetCurrentLevel());
-    // TODO: examine the behavior for corrupted key
-    if (!status->ok()) {
-      return;
-    }
-
-    switch (get_context.State()) {
-      case GetContext::kNotFound:
-        // Keep searching in other files
-        break;
-      case GetContext::kFound:
-        if (fp.GetHitFileLevel() == 0) {
-          RecordTick(db_statistics_, GET_HIT_L0);
-        } else if (fp.GetHitFileLevel() == 1) {
-          RecordTick(db_statistics_, GET_HIT_L1);
-        } else if (fp.GetHitFileLevel() >= 2) {
-          RecordTick(db_statistics_, GET_HIT_L2_AND_UP);
-        }
-        return;
-      case GetContext::kDeleted:
-        // Use empty error message for speed
-        *status = Status::NotFound();
-        return;
-      case GetContext::kCorrupt:
-        *status = Status::Corruption("corrupted key for ", user_key);
-        return;
-      case GetContext::kMerge:
-        break;
-    }
-    f = fp.GetNextFile();
-  }
-
-  if (GetContext::kMerge == get_context.State()) {
-    if (!merge_operator_) {
-      *status =  Status::InvalidArgument(
-          "merge_operator is not properly initialized.");
-      return;
-    }
-    // merge_operands are in saver and we hit the beginning of the key history
-    // do a final merge of nullptr and operands;
-    std::string* str_value = value != nullptr ? value->GetSelf() : nullptr;
-    *status = MergeHelper::TimedFullMerge(
-        merge_operator_, user_key, nullptr, merge_context->GetOperands(),
-        str_value, info_log_, db_statistics_, env_,
-        nullptr /* result_operand */, true);
-    if (LIKELY(value != nullptr)) {
-      value->PinSelf();
-    }
-  } else {
-    if (key_exists != nullptr) {
-      *key_exists = false;
-    }
-    *status = Status::NotFound(); // Use an empty error message for speed
-  }
+  *status = async::VersionSetGetContext::Get(this, read_options, k, value,
+            status, merge_context, range_del_agg, value_found,
+            key_exists, seq);
 }
 
 bool Version::IsFilterSkipped(int level, bool is_file_last_in_level) {
@@ -1860,6 +1611,7 @@ void VersionStorageInfo::ExtendFileRangeOverlappingInterval(
     if (user_cmp->Compare(file_limit, user_begin) >= 0) {
       *start_index = i;
       assert((count++, true));
+      (count);
     } else {
       break;
     }
@@ -3535,7 +3287,8 @@ InternalIterator* VersionSet::MakeInputIterator(
         }
       } else {
         // Create concatenating iterator for the files from this level
-        list[num++] = NewTwoLevelIterator(
+#ifdef ROCKSDB_ASYNC_TESTING
+        list[num++] = NewTwoLevelBlockAsyncIterator(
             new LevelFileIteratorState(
                 cfd->table_cache(), read_options, env_options_compactions_,
                 cfd->internal_comparator(),
@@ -3545,6 +3298,18 @@ InternalIterator* VersionSet::MakeInputIterator(
                 range_del_agg),
             new LevelFileNumIterator(cfd->internal_comparator(),
                                      c->input_levels(which)));
+#else
+       list[num++] = NewTwoLevelIterator(
+          new LevelFileIteratorState(
+            cfd->table_cache(), read_options, env_options_compactions_,
+            cfd->internal_comparator(),
+            nullptr /* no per level latency histogram */,
+            true /* for_compaction */, false /* prefix enabled */,
+            false /* skip_filters */, (int)which /* level */,
+            range_del_agg),
+          new LevelFileNumIterator(cfd->internal_comparator(),
+            c->input_levels(which)));
+#endif // ROCKSDB_ASYNC_TESTING
       }
     }
   }

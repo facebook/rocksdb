@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "port/win/io_win.h"
+#include "port/win/iocompletion.h"
 
 #include "monitoring/iostats_context_imp.h"
 #include "util/aligned_buffer.h"
@@ -282,6 +283,7 @@ Status WinMmapFile::MapNewRegion() {
       // Unmap the previous one
       BOOL ret = ::CloseHandle(hMap_);
       assert(ret);
+      (ret);
       hMap_ = NULL;
     }
 
@@ -549,8 +551,8 @@ size_t WinMmapFile::GetUniqueId(char* id, size_t max_size) const {
 // WinSequentialFile
 
 WinSequentialFile::WinSequentialFile(const std::string& fname, HANDLE f,
-                                     const EnvOptions& options)
-    : WinFileData(fname, f, options.use_direct_reads) {}
+  const EnvOptions& options)
+  : WinFileData(fname, f, options.use_direct_reads) {}
 
 WinSequentialFile::~WinSequentialFile() {
   assert(hFile_ != INVALID_HANDLE_VALUE);
@@ -650,18 +652,34 @@ SSIZE_T WinRandomAccessImpl::PositionedReadInternal(char* src,
 inline
 WinRandomAccessImpl::WinRandomAccessImpl(WinFileData* file_base,
   size_t alignment,
-  const EnvOptions& options) :
+  const EnvOptions& options,
+  std::unique_ptr<IOCompletion>&& iocompl) :
     file_base_(file_base),
-    alignment_(alignment) {
+    alignment_(alignment),
+    iocompl_(std::move(iocompl)) {
 
   assert(!options.use_mmap_reads);
+}
+
+inline
+WinRandomAccessImpl::~WinRandomAccessImpl() {
+  // Close file before iocompl if we deal with async
+  // reads
+  if (iocompl_) {
+    file_base_->CloseFile();
+  }
 }
 
 inline
 Status WinRandomAccessImpl::ReadImpl(uint64_t offset, size_t n, Slice* result,
   char* scratch) const {
 
-  Status s;
+  assert(iocompl_ == nullptr);
+
+  if (n > std::numeric_limits<DWORD>::max()) {
+    return Status::InvalidArgument(
+      "WinRandomAccessImpl::ReadImpl: n exceeds maximum");
+  }
 
   // Check buffer alignment
   if (file_base_->use_direct_io()) {
@@ -670,13 +688,14 @@ Status WinRandomAccessImpl::ReadImpl(uint64_t offset, size_t n, Slice* result,
     }
   }
 
+  Status s;
+
   if (n == 0) {
     *result = Slice(scratch, 0);
     return s;
   }
 
   size_t left = n;
-  char* dest = scratch;
 
   SSIZE_T r = PositionedReadInternal(scratch, left, offset);
   if (r > 0) {
@@ -695,14 +714,141 @@ Status WinRandomAccessImpl::ReadImpl(uint64_t offset, size_t n, Slice* result,
   return s;
 }
 
+struct WinIOOverlapped : public OVERLAPPED {
+
+  using
+  RequestCallback = RandomAccessFile::RandomAccessCallback;
+
+  RequestCallback     cb_;
+  char*               buffer_;
+
+  WinIOOverlapped(const RequestCallback& cb, uint64_t offset,
+    char* buffer) :
+    cb_(cb),
+    buffer_(buffer) {
+
+    ZeroMemory(this, sizeof(OVERLAPPED));
+
+    ULARGE_INTEGER offsetUnion;
+    offsetUnion.QuadPart = offset;
+    Offset = offsetUnion.LowPart;
+    OffsetHigh = offsetUnion.HighPart;
+  }
+
+  ~WinIOOverlapped() {
+  }
+
+  Slice GetResultSlice(uint64_t len) const {
+    return Slice(buffer_, len);
+  }
+};
+
+Status WinRandomAccessImpl::RequestReadImpl(const RandomAccessFile::RandomAccessCallback& cb, uint64_t offset, size_t n, Slice * result,
+  char * scratch) const {
+
+  assert(iocompl_ != nullptr);
+
+  if (n > std::numeric_limits<DWORD>::max()) {
+    return Status::InvalidArgument(
+      "WinRandomAccessImpl::RequestReadImpl: n exceeds maximum");
+  }
+
+  // Check buffer alignment
+  if (file_base_->use_direct_io()) {
+    if (!IsAligned(alignment_, scratch)) {
+      return Status::InvalidArgument(
+        "WinRandomAccessImpl::RequestReadImpl: scratch is not properly aligned");
+    }
+  }
+
+  Status s;
+
+  std::unique_ptr<WinIOOverlapped> overlapped(new WinIOOverlapped(cb, offset,
+    scratch));
+
+  unsigned long bytesRead = 0;
+
+  // Let the TP know we are about to start
+  // Must do it on every IO
+  iocompl_->Start();
+
+  BOOL ret = ReadFile(file_base_->GetFileHandle(), scratch,
+    static_cast<DWORD>(n), &bytesRead,
+    overlapped.get());
+
+  // Operation completed sync
+  if (ret == TRUE) {
+    iocompl_->Cancel();
+    // We choose not to invoke callback and return in sync
+    *result = Slice(scratch, bytesRead);
+    return s;
+  }
+
+  DWORD lastError = GetLastError();
+  if (lastError == ERROR_IO_PENDING) {
+    // Async operation has been initiated
+    overlapped.release();
+    // We may want to mention file name here
+    return Status::IOPending();
+  }
+
+  // Operation failed
+  iocompl_->Cancel();
+
+  // We handle EOF as a success with zero bytes read
+  if (lastError == ERROR_HANDLE_EOF) {
+    *result = Slice(scratch, 0);
+    return s;
+  }
+
+  // We have some other error
+  return IOErrorFromWindowsError("WinRandomAccessImpl::RequestReadImpl: "
+    "Failed to initiate async Read()",
+    lastError);
+}
+
+void WinRandomAccessImpl::OnAsyncReadCompletion(
+  PTP_CALLBACK_INSTANCE /* Instance */,
+  PVOID /* Context */, PVOID Overlapped, ULONG IoResult, 
+  ULONG_PTR NumberOfBytesTransferred, PTP_IO /* ptp_io */) {
+
+  std::unique_ptr<WinIOOverlapped> overlapped(
+    reinterpret_cast<WinIOOverlapped*>(Overlapped));
+
+  Status status;
+  Slice slice;
+
+  if (IoResult == ERROR_HANDLE_EOF) {
+    slice = overlapped->GetResultSlice(0);
+  }  else if (IoResult == NO_ERROR) {
+    slice = overlapped->GetResultSlice(NumberOfBytesTransferred);
+  }  else {
+    slice = overlapped->GetResultSlice(0);
+    status = port::IOErrorFromWindowsError("Async read failed: ",
+      IoResult);
+  }
+
+  auto cb = overlapped->cb_;
+  // Free the structure here as no longer needed
+  // When pooling overlapped structures we will want
+  // to release it asap
+  // Also release in this arena
+  overlapped.reset();
+
+  // Invoke callback and further processing continues on this thread
+  status.async(true);
+  cb.Invoke(status, slice);
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 /// WinRandomAccessFile
 
 WinRandomAccessFile::WinRandomAccessFile(const std::string& fname, HANDLE hFile,
                                          size_t alignment,
-                                         const EnvOptions& options)
+                                         const EnvOptions& options,
+                                         std::unique_ptr<IOCompletion>&& iocompl)
     : WinFileData(fname, hFile, options.use_direct_reads),
-      WinRandomAccessImpl(this, alignment, options) {}
+      WinRandomAccessImpl(this, alignment, options, std::move(iocompl)) {}
 
 WinRandomAccessFile::~WinRandomAccessFile() {
 }
@@ -710,6 +856,11 @@ WinRandomAccessFile::~WinRandomAccessFile() {
 Status WinRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
   char* scratch) const {
   return ReadImpl(offset, n, result, scratch);
+}
+
+Status WinRandomAccessFile::RequestRead(const RandomAccessCallback& cb, uint64_t offset, size_t n, Slice * result,
+  char * scratch) const {
+  return RequestReadImpl(cb, offset, n, result, scratch);
 }
 
 Status WinRandomAccessFile::InvalidateCache(size_t offset, size_t length) {
@@ -742,7 +893,7 @@ WinWritableImpl::WinWritableImpl(WinFileData* file_data, size_t alignment)
 
   // Query current position in case ReopenWritableFile is called
   // This position is only important for buffered writes
-  // for unbuffered writes we explicitely specify the position.
+  // for unbuffered writes we explicitly specify the position.
   LARGE_INTEGER zero_move;
   zero_move.QuadPart = 0; // Do not move
   LARGE_INTEGER pos;
@@ -834,8 +985,9 @@ Status WinWritableImpl::PositionedAppendImpl(const Slice& data, uint64_t offset)
     auto lastError = GetLastError();
     s = IOErrorFromWindowsError(
       "Failed to pwrite for: " + file_data_->GetName(), lastError);
-  }
-  else {
+  } else {
+    // With positional write it is not clear at all
+    // if this actually extends the filesize
     assert(size_t(ret) == data.size());
     // For sequential write this would be simple
     // size extension by data.size()
@@ -886,7 +1038,8 @@ inline
 Status WinWritableImpl::SyncImpl() {
   Status s;
   // Calls flush buffers
-  if (fsync(file_data_->GetFileHandle()) < 0) {
+  if (!file_data_->use_direct_io() &&
+      fsync(file_data_->GetFileHandle()) < 0) {
     auto lastError = GetLastError();
     s = IOErrorFromWindowsError(
         "fsync failed at Sync() for: " + file_data_->GetName(), lastError);
@@ -988,7 +1141,7 @@ WinRandomRWFile::WinRandomRWFile(const std::string& fname, HANDLE hFile,
                                  size_t alignment, const EnvOptions& options)
     : WinFileData(fname, hFile,
                   options.use_direct_reads && options.use_direct_writes),
-      WinRandomAccessImpl(this, alignment, options),
+      WinRandomAccessImpl(this, alignment, options, std::unique_ptr<IOCompletion>()),
       WinWritableImpl(this, alignment) {}
 
 bool WinRandomRWFile::use_direct_io() const { return WinFileData::use_direct_io(); }
@@ -1029,7 +1182,9 @@ Status WinDirectory::Fsync() { return Status::OK(); }
 WinFileLock::~WinFileLock() {
   BOOL ret = ::CloseHandle(hFile_);
   assert(ret);
+  (ret);
 }
 
 }
 }
+

@@ -8,6 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
+#include "rocksdb/async/callables.h"
+#include "rocksdb/async/asyncthreadpool.h"
 #include "rocksdb/perf_context.h"
 #if !defined(ROCKSDB_LITE)
 #include "util/sync_point.h"
@@ -16,8 +18,27 @@
 namespace rocksdb {
 
 class DBBasicTest : public DBTestBase {
- public:
-  DBBasicTest() : DBTestBase("/db_basic_test") {}
+public:
+  DBBasicTest() : DBTestBase("/db_basic_test") {
+#ifdef OS_WIN
+    thread_pool_ = CreateWindowsThreadPool(32);
+    async_tp_ = env_->CreateAsyncThreadPool(thread_pool_);
+#endif
+  }
+  ~DBBasicTest() {
+#ifdef OS_WIN
+    async_tp_.reset();
+    CloseThreadpool(thread_pool_);
+#endif
+  }
+
+private:
+#ifdef OS_WIN
+   PTP_POOL  thread_pool_;
+#endif
+// Accessible to the tests
+protected:
+  std::shared_ptr<async::AsyncThreadPool> async_tp_;
 };
 
 TEST_F(DBBasicTest, OpenWhenOpen) {
@@ -41,7 +62,7 @@ TEST_F(DBBasicTest, ReadOnlyDB) {
   Close();
 
   auto options = CurrentOptions();
-  assert(options.env = env_);
+  assert(options.env == env_);
   ASSERT_OK(ReadOnlyReopen(options));
   ASSERT_EQ("v3", Get("foo"));
   ASSERT_EQ("v2", Get("bar"));
@@ -166,6 +187,74 @@ TEST_F(DBBasicTest, CompactedDB) {
   ASSERT_EQ(s.ToString(),
             "Not implemented: Not supported operation in read only mode.");
 }
+
+#ifdef OS_WIN
+TEST_F(DBBasicTest, CompactedDBAsync) {
+  const uint64_t kFileSize = 1 << 20;
+
+  anon::OptionsOverride opt_override;
+  opt_override.async_threadpool = async_tp_;
+  opt_override.use_async_reads = true;
+  opt_override.use_direct_reads = true;
+
+  Options options = CurrentOptions(opt_override);
+  options.disable_auto_compactions = true;
+  options.write_buffer_size = kFileSize;
+  options.target_file_size_base = kFileSize;
+  options.max_bytes_for_level_base = 1 << 30;
+  options.compression = kNoCompression;
+
+  Reopen(options);
+  // 1 L0 file, use CompactedDB if max_open_files = -1
+  ASSERT_OK(Put("aaa", DummyString(kFileSize / 2, '1')));
+  Flush();
+  Close();
+
+  options.max_open_files = -1;
+
+  Reopen(options);
+  // Add more L0 files
+  ASSERT_OK(Put("bbb", DummyString(kFileSize / 2, '2')));
+  Flush();
+  ASSERT_OK(Put("aaa", DummyString(kFileSize / 2, 'a')));
+  Flush();
+  ASSERT_OK(Put("bbb", DummyString(kFileSize / 2, 'b')));
+  ASSERT_OK(Put("eee", DummyString(kFileSize / 2, 'e')));
+  Flush();
+  Close();
+
+  // Full compaction
+  Reopen(options);
+  // Add more keys
+  ASSERT_OK(Put("fff", DummyString(kFileSize / 2, 'f')));
+  ASSERT_OK(Put("hhh", DummyString(kFileSize / 2, 'h')));
+  ASSERT_OK(Put("iii", DummyString(kFileSize / 2, 'i')));
+  ASSERT_OK(Put("jjj", DummyString(kFileSize / 2, 'j')));
+  db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_EQ(3, NumTableFilesAtLevel(1));
+  Close();
+
+  // CompactedDB
+  Reopen(options);
+  Put("new", "value");
+  ASSERT_EQ("NOT_FOUND", GetAsync("abc"));
+  ASSERT_EQ(DummyString(kFileSize / 2, 'a'), GetAsync("aaa"));
+  ASSERT_EQ(DummyString(kFileSize / 2, 'b'), GetAsync("bbb"));
+  ASSERT_EQ("NOT_FOUND", GetAsync("ccc"));
+  ASSERT_EQ(DummyString(kFileSize / 2, 'e'), GetAsync("eee"));
+  ASSERT_EQ(DummyString(kFileSize / 2, 'f'), GetAsync("fff"));
+  ASSERT_EQ("NOT_FOUND", GetAsync("ggg"));
+  ASSERT_EQ(DummyString(kFileSize / 2, 'h'), GetAsync("hhh"));
+  ASSERT_EQ(DummyString(kFileSize / 2, 'i'), GetAsync("iii"));
+  ASSERT_EQ(DummyString(kFileSize / 2, 'j'), GetAsync("jjj"));
+  ASSERT_EQ("NOT_FOUND", GetAsync("kkk"));
+
+  Reopen(options);
+  // Add a key
+  ASSERT_OK(Put("fff", DummyString(kFileSize / 2, 'f')));
+  Close();
+}
+#endif
 
 TEST_F(DBBasicTest, LevelLimitReopen) {
   Options options = CurrentOptions();
@@ -322,6 +411,7 @@ TEST_F(DBBasicTest, FlushEmptyColumnFamily) {
   Options options = CurrentOptions();
   // disable compaction
   options.disable_auto_compactions = true;
+
   WriteOptions writeOpt = WriteOptions();
   writeOpt.disableWAL = true;
   options.max_write_buffer_number = 2;
@@ -351,6 +441,56 @@ TEST_F(DBBasicTest, FlushEmptyColumnFamily) {
   sleeping_task_low.WakeUp();
   sleeping_task_low.WaitUntilDone();
 }
+
+#ifdef OS_WIN
+TEST_F(DBBasicTest, FlushEmptyColumnFamilyAsync) {
+  // Block flush thread and disable compaction thread
+  env_->SetBackgroundThreads(1, Env::HIGH);
+  env_->SetBackgroundThreads(1, Env::LOW);
+  test::SleepingBackgroundTask sleeping_task_low;
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
+    Env::Priority::LOW);
+  test::SleepingBackgroundTask sleeping_task_high;
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+    &sleeping_task_high, Env::Priority::HIGH);
+
+  anon::OptionsOverride opt_override;
+  opt_override.async_threadpool = async_tp_;
+  opt_override.use_async_reads = true;
+  Options options = CurrentOptions(opt_override);
+  // disable compaction
+  options.disable_auto_compactions = true;
+
+  WriteOptions writeOpt = WriteOptions();
+  writeOpt.disableWAL = true;
+  options.max_write_buffer_number = 2;
+  options.min_write_buffer_number_to_merge = 1;
+  options.max_write_buffer_number_to_maintain = 1;
+  CreateAndReopenWithCF({ "pikachu" }, options);
+
+  // Compaction can still go through even if no thread can flush the
+  // mem table.
+  ASSERT_OK(Flush(0));
+  ASSERT_OK(Flush(1));
+
+  // Insert can go through
+  ASSERT_OK(dbfull()->Put(writeOpt, handles_[0], "foo", "v1"));
+  ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "bar", "v1"));
+
+  ASSERT_EQ("v1", GetAsync(0, "foo"));
+  ASSERT_EQ("v1", GetAsync(1, "bar"));
+
+  sleeping_task_high.WakeUp();
+  sleeping_task_high.WaitUntilDone();
+
+  // Flush can still go through.
+  ASSERT_OK(Flush(0));
+  ASSERT_OK(Flush(1));
+
+  sleeping_task_low.WakeUp();
+  sleeping_task_low.WaitUntilDone();
+}
+#endif
 
 TEST_F(DBBasicTest, FLUSH) {
   do {

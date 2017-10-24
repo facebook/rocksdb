@@ -187,7 +187,7 @@ Status CuckooTableBuilder::MakeHashTable(std::vector<CuckooBucket>* buckets) {
   buckets->resize(hash_table_size_ + cuckoo_block_size_ - 1);
   uint32_t make_space_for_key_call_id = 0;
   for (uint32_t vector_idx = 0; vector_idx < num_entries_; vector_idx++) {
-    uint64_t bucket_id;
+    uint64_t bucket_id = 0;
     bool bucket_found = false;
     autovector<uint64_t> hash_vals;
     Slice user_key = GetUserKey(vector_idx);

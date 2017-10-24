@@ -125,12 +125,20 @@ inline bool DynamicBloom::MayContain(const Slice& key) const {
   return (MayContainHash(hash_func_(key)));
 }
 
+#if defined(_MSC_VER)
+#pragma warning(push)
+// local variable is initialized but not referenced
+#pragma warning(disable : 4189) 
+#endif
 inline void DynamicBloom::Prefetch(uint32_t h) {
   if (kNumBlocks != 0) {
     uint32_t b = ((h >> 11 | (h << 21)) % kNumBlocks) * (CACHE_LINE_SIZE * 8);
     PREFETCH(&(data_[b / 8]), 0, 3);
   }
 }
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
 
 inline bool DynamicBloom::MayContainHash(uint32_t h) const {
   assert(IsInitialized());

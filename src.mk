@@ -22,8 +22,10 @@ LIB_SOURCES =                                                   \
   db/db_impl_debug.cc                                           \
   db/db_impl_experimental.cc                                    \
   db/db_impl_readonly.cc                                        \
+  db/db_impl_request.cc                                         \
   db/db_info_dumper.cc                                          \
   db/db_iter.cc                                                 \
+  db/db_iter_async.cc                                           \
   db/dbformat.cc                                                \
   db/event_helpers.cc                                           \
   db/experimental.cc                                            \
@@ -32,6 +34,7 @@ LIB_SOURCES =                                                   \
   db/flush_job.cc                                               \
   db/flush_scheduler.cc                                         \
   db/forward_iterator.cc                                        \
+  db/forward_iterator_async.cc                                  \
   db/internal_stats.cc                                          \
   db/log_reader.cc                                              \
   db/log_writer.cc                                              \
@@ -45,11 +48,13 @@ LIB_SOURCES =                                                   \
   db/repair.cc                                                  \
   db/snapshot_impl.cc                                           \
   db/table_cache.cc                                             \
+  db/table_cache_request.cc                                     \
   db/table_properties_collector.cc                              \
   db/transaction_log_impl.cc                                    \
   db/version_builder.cc                                         \
   db/version_edit.cc                                            \
   db/version_set.cc                                             \
+  db/version_set_request.cc                                     \
   db/wal_manager.cc                                             \
   db/write_batch.cc                                             \
   db/write_batch_base.cc                                        \
@@ -94,6 +99,7 @@ LIB_SOURCES =                                                   \
   table/block_based_table_builder.cc                            \
   table/block_based_table_factory.cc                            \
   table/block_based_table_reader.cc                             \
+  table/block_based_table_request.cc                            \
   table/block_builder.cc                                        \
   table/block_prefix_index.cc                                   \
   table/bloom_block.cc                                          \
@@ -102,11 +108,13 @@ LIB_SOURCES =                                                   \
   table/cuckoo_table_reader.cc                                  \
   table/flush_block_policy.cc                                   \
   table/format.cc                                               \
+  table/format_request_context.cc                               \
   table/full_filter_block.cc                                    \
   table/get_context.cc                                          \
   table/index_builder.cc                                        \
   table/iterator.cc                                             \
   table/merging_iterator.cc                                     \
+  table/merging_iterator_async.cc                               \
   table/meta_blocks.cc                                          \
   table/partitioned_filter_block.cc                             \
   table/persistent_cache_helper.cc                              \
@@ -118,6 +126,7 @@ LIB_SOURCES =                                                   \
   table/sst_file_writer.cc                                      \
   table/table_properties.cc                                     \
   table/two_level_iterator.cc                                   \
+  table/two_level_iter_block_based_async.cc                     \
   tools/dump/db_dump_tool.cc                                    \
   util/arena.cc                                                 \
   util/auto_roll_logger.cc                                      \
@@ -139,6 +148,7 @@ LIB_SOURCES =                                                   \
   util/log_buffer.cc                                            \
   util/murmurhash.cc                                            \
   util/random.cc                                                \
+  util/random_read_context.cc                                   \
   util/rate_limiter.cc                                          \
   util/slice.cc                                                 \
   util/sst_file_manager_impl.cc                                 \

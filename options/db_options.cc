@@ -29,6 +29,7 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       paranoid_checks(options.paranoid_checks),
       env(options.env),
       rate_limiter(options.rate_limiter),
+      async_threadpool(options.async_threadpool),
       sst_file_manager(options.sst_file_manager),
       info_log(options.info_log),
       info_log_level(options.info_log_level),
@@ -54,6 +55,7 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       use_direct_reads(options.use_direct_reads),
       use_direct_io_for_flush_and_compaction(
           options.use_direct_io_for_flush_and_compaction),
+      use_async_reads(options.use_async_reads),
       allow_fallocate(options.allow_fallocate),
       is_fd_close_on_exec(options.is_fd_close_on_exec),
       advise_random_on_open(options.advise_random_on_open),
@@ -131,6 +133,8 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    "                       "
                    "Options.use_direct_io_for_flush_and_compaction: %d",
                    use_direct_io_for_flush_and_compaction);
+  ROCKS_LOG_HEADER(log, "                       Options.use_async_reads: %d",
+                   use_async_reads);
   ROCKS_LOG_HEADER(log, "         Options.create_missing_column_families: %d",
                    create_missing_column_families);
   ROCKS_LOG_HEADER(log, "                             Options.db_log_dir: %s",
@@ -175,8 +179,10 @@ void ImmutableDBOptions::Dump(Logger* log) const {
       writable_file_max_buffer_size);
   ROCKS_LOG_HEADER(log, "                     Options.use_adaptive_mutex: %d",
                    use_adaptive_mutex);
+  ROCKS_LOG_HEADER(log, "                           Options.async_threadpool: %p",
+                   async_threadpool.get());
   ROCKS_LOG_HEADER(log, "                           Options.rate_limiter: %p",
-                   rate_limiter.get());
+                 rate_limiter.get());
   Header(
       log, "    Options.sst_file_manager.rate_bytes_per_sec: %" PRIi64,
       sst_file_manager ? sst_file_manager->GetDeleteRateBytesPerSecond() : 0);

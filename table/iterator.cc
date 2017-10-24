@@ -93,6 +93,67 @@ Status Iterator::GetProperty(std::string prop_name, std::string* prop) {
   return Status::InvalidArgument("Undentified property.");
 }
 
+Status Iterator::RequestSeekToFirst(const Callback&) {
+  assert(false);
+  return Status::NotSupported("IteratorMethod not supported");
+}
+
+Status Iterator::RequestSeekToLast(const Callback&) {
+  assert(false);
+  return Status::NotSupported("IteratorMethod not supported");
+}
+
+Status Iterator::RequestSeek(const Callback&, const Slice& target) {
+  assert(false);
+  return Status::NotSupported("IteratorMethod not supported");
+}
+
+Status Iterator::RequestSeekForPrev(const Callback&, const Slice& target) {
+  assert(false);
+  return Status::NotSupported("IteratorMethod not supported");
+}
+
+Status Iterator::RequestNext(const Callback&) {
+  assert(false);
+  return Status::NotSupported("IteratorMethod not supported");
+}
+
+Status Iterator::RequestPrev(const Callback&) {
+  assert(false);
+  return Status::NotSupported("IteratorMethod not supported");
+}
+
+Status InternalIterator::RequestSeekToFirst(const Callback&) {
+  assert(false);
+  return Status::NotSupported("IteratorMethod not supported");
+}
+
+Status InternalIterator::RequestSeekToLast(const Callback&) {
+  assert(false);
+  return Status::NotSupported("IteratorMethod not supported");
+}
+
+Status InternalIterator::RequestSeek(const Callback&, const Slice& target) {
+  assert(false);
+  return Status::NotSupported("IteratorMethod not supported");
+}
+
+Status InternalIterator::RequestSeekForPrev(const Callback&, const Slice& target) {
+  assert(false);
+  return Status::NotSupported("IteratorMethod not supported");
+}
+
+Status InternalIterator::RequestNext(const Callback&) {
+  assert(false);
+  return Status::NotSupported("IteratorMethod not supported");
+}
+
+Status InternalIterator::RequestPrev(const Callback&) {
+  assert(false);
+  return Status::NotSupported("IteratorMethod not supported");
+}
+
+
 namespace {
 class EmptyIterator : public Iterator {
  public:

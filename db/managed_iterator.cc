@@ -79,7 +79,7 @@ ManagedIterator::ManagedIterator(DBImpl* db, const ReadOptions& read_options,
     snapshot_created_ = true;
   }
   cfh_.SetCFD(cfd);
-  mutable_iter_ = unique_ptr<Iterator>(db->NewIterator(read_options_, &cfh_));
+  mutable_iter_.reset(db->NewIterator(read_options_, &cfh_));
 }
 
 ManagedIterator::~ManagedIterator() {
@@ -208,7 +208,7 @@ Status ManagedIterator::status() const { return status_; }
 
 void ManagedIterator::RebuildIterator() {
   svnum_ = cfd_->GetSuperVersionNumber();
-  mutable_iter_ = unique_ptr<Iterator>(db_->NewIterator(read_options_, &cfh_));
+  mutable_iter_.reset(db_->NewIterator(read_options_, &cfh_));
 }
 
 void ManagedIterator::UpdateCurrent() {

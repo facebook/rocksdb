@@ -8,7 +8,11 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "port/win/env_win.h"
-#include "port/win/win_thread.h"
+
+#include "port/port.h"
+#include "port/dirent.h"
+
+
 #include <algorithm>
 #include <ctime>
 #include <thread>
@@ -27,14 +31,22 @@
 #include "port/dirent.h"
 #include "port/win/win_logger.h"
 #include "port/win/io_win.h"
+#include "port/win/iocompletion.h"
+#include "port/win/win_logger.h"
+#include "port/win/win_thread.h"
+#include "port/win/winasyncthreadpoolimpl.h"
 
 #include "monitoring/iostats_context_imp.h"
 
 #include "monitoring/thread_status_updater.h"
 #include "monitoring/thread_status_util.h"
 
-#include <rpc.h>  // for uuid generation
+#include <rpc.h>  // For UUID generation
 #include <windows.h>
+#include <winioctl.h>
+#include "strsafe.h"
+
+#include <algorithm>
 
 namespace rocksdb {
 
@@ -43,6 +55,8 @@ ThreadStatusUpdater* CreateThreadStatusUpdater() {
 }
 
 namespace {
+
+static const size_t kSectorSize = 512; // Sector size used when physical sector size could not be obtained from device.
 
 // RAII helpers for HANDLEs
 const auto CloseHandleFunc = [](HANDLE h) { ::CloseHandle(h); };
@@ -61,7 +75,7 @@ namespace port {
 
 WinEnvIO::WinEnvIO(Env* hosted_env)
   :   hosted_env_(hosted_env),
-      page_size_(4 * 1012),
+      page_size_(4 * 1024),
       allocation_granularity_(page_size_),
       perf_counter_frequency_(0),
       GetSystemTimePreciseAsFileTime_(NULL) {
@@ -76,6 +90,7 @@ WinEnvIO::WinEnvIO(Env* hosted_env)
     LARGE_INTEGER qpf;
     BOOL ret = QueryPerformanceFrequency(&qpf);
     assert(ret == TRUE);
+    (ret);
     perf_counter_frequency_ = qpf.QuadPart;
   }
 
@@ -149,6 +164,7 @@ Status WinEnvIO::NewSequentialFile(const std::string& fname,
 Status WinEnvIO::NewRandomAccessFile(const std::string& fname,
   std::unique_ptr<RandomAccessFile>* result,
   const EnvOptions& options) {
+
   result->reset();
   Status s;
 
@@ -160,6 +176,17 @@ Status WinEnvIO::NewRandomAccessFile(const std::string& fname,
     fileFlags |= FILE_FLAG_NO_BUFFERING;
   } else {
     fileFlags |= FILE_FLAG_RANDOM_ACCESS;
+  }
+
+  if (options.use_async_reads && !options.use_mmap_reads) {
+
+    fileFlags |= FILE_FLAG_OVERLAPPED;
+
+    if (options.use_async_reads && 
+        options.async_threadpool == nullptr) {
+      return Status::InvalidArgument(
+        "WinEnvIO::NewRandomAccessFile async_threadpool not provided");
+    }
   }
 
   /// Shared access is necessary for corruption test to pass
@@ -230,7 +257,27 @@ Status WinEnvIO::NewRandomAccessFile(const std::string& fname,
       fileGuard.release();
     }
   } else {
-    result->reset(new WinRandomAccessFile(fname, hFile, page_size_, options));
+
+    std::unique_ptr<IOCompletion> iocompl;
+    if (options.use_async_reads && !options.use_mmap_reads) {
+      auto tp = reinterpret_cast<WinAsyncThreadPool*>(
+        options.async_threadpool);
+
+      iocompl = tp->MakeIOCompletion(hFile, &WinRandomAccessImpl::OnAsyncReadCompletion);
+      if (!iocompl) {
+        auto lastError = GetLastError();
+        return IOErrorFromWindowsError(fname, lastError);
+      }
+
+      // Do not require setting an event since we are using a compl port
+      // and in case the operation completes sync we do not want
+      // a callback dispatch
+      SetFileCompletionNotificationModes(hFile,
+        FILE_SKIP_SET_EVENT_ON_HANDLE | FILE_SKIP_COMPLETION_PORT_ON_SUCCESS);
+    }
+
+    result->reset(new WinRandomAccessFile(fname, hFile, std::max(GetSectorSize(fname), page_size_),
+      options, std::move(iocompl)));
     fileGuard.release();
   }
   return s;
@@ -264,8 +311,7 @@ Status WinEnvIO::OpenWritableFile(const std::string& fname,
 
   if (local_options.use_mmap_writes) {
     desired_access |= GENERIC_READ;
-  }
-  else {
+  } else {
     // Adding this solely for tests to pass (fault_injection_test,
     // wal_manager_test).
     shared_mode |= (FILE_SHARE_WRITE | FILE_SHARE_DELETE);
@@ -805,6 +851,57 @@ bool WinEnvIO::DirExists(const std::string& dname) {
   return false;
 }
 
+size_t WinEnvIO::GetSectorSize(const std::string& fname) {
+  size_t sector_size = kSectorSize;
+
+  // obtain device handle
+  char devicename[7] = "\\\\.\\";
+  HRESULT hr = StringCchCatN(devicename, ARRAYSIZE(devicename), fname.c_str(), 2);
+
+  if (FAILED(hr)) {
+    return sector_size;
+  }
+
+  HANDLE hDevice = CreateFile(devicename, 0, 0,
+                    nullptr, OPEN_EXISTING,
+                    FILE_ATTRIBUTE_NORMAL, nullptr);
+
+  if (hDevice == INVALID_HANDLE_VALUE) {
+    return sector_size;
+  }
+
+  STORAGE_PROPERTY_QUERY spropertyquery;
+  spropertyquery.PropertyId = StorageAccessAlignmentProperty;
+  spropertyquery.QueryType = PropertyStandardQuery;
+
+  BYTE output_buffer[sizeof(STORAGE_ACCESS_ALIGNMENT_DESCRIPTOR)];
+  DWORD output_bytes = 0;
+
+  BOOL ret = DeviceIoControl(hDevice, IOCTL_STORAGE_QUERY_PROPERTY,
+              &spropertyquery, sizeof(spropertyquery), output_buffer,
+              sizeof(STORAGE_ACCESS_ALIGNMENT_DESCRIPTOR), &output_bytes, nullptr);
+
+  if (ret) {
+    sector_size = ((STORAGE_ACCESS_ALIGNMENT_DESCRIPTOR *)output_buffer)->BytesPerLogicalSector;
+  } else {
+    // many devices do not support StorageProcessAlignmentProperty. Any failure here and we
+    // fall back to logical alignment
+
+    DISK_GEOMETRY_EX geometry = { 0 };
+    ret = DeviceIoControl(hDevice, IOCTL_DISK_GET_DRIVE_GEOMETRY,
+           nullptr, 0, &geometry, sizeof(geometry), nullptr, nullptr);
+    if (ret) {
+      sector_size = geometry.Geometry.BytesPerSector;
+    }
+  }
+
+  if (hDevice != INVALID_HANDLE_VALUE) {
+    CloseHandle(hDevice);
+  }
+
+  return sector_size;
+}
+
 ////////////////////////////////////////////////////////////////////////
 // WinEnvThreads
 
@@ -1074,6 +1171,13 @@ unsigned int  WinEnv::GetThreadPoolQueueLen(Env::Priority pri) const {
 
 uint64_t WinEnv::GetThreadID() const {
   return winenv_threads_.GetThreadID();
+}
+
+// Expecting PTP_POOL
+std::unique_ptr<async::AsyncThreadPool> WinEnv::CreateAsyncThreadPool(void * context) {
+  std::unique_ptr<async::AsyncThreadPool> pool ( 
+    new WinAsyncThreadPool(reinterpret_cast<PTP_POOL>(context)));
+  return pool;
 }
 
 void WinEnv::SleepForMicroseconds(int micros) {

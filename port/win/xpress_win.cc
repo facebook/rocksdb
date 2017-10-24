@@ -17,10 +17,6 @@
 
 #ifdef XPRESS
 
-#ifdef JEMALLOC
-#include <jemalloc/jemalloc.h>
-#endif
-
 // Put this under ifdef so windows systems w/o this
 // can still build
 #include <compressapi.h>
@@ -43,22 +39,6 @@ auto CloseDecompressorFun = [](void* h) {
     ::CloseDecompressor(reinterpret_cast<DECOMPRESSOR_HANDLE>(h));
   }
 };
-
-
-#ifdef JEMALLOC
-// Make sure compressors use our jemalloc if redirected
-PVOID CompressorAlloc(PVOID, SIZE_T size) {
-  return je_malloc(size);
-}
-
-VOID CompressorFree(PVOID, PVOID p) {
-  if (p != NULL) {
-    je_free(p);
-  }
-}
-
-#endif
-
 }
 
 bool Compress(const char* input, size_t length, std::string* output) {
@@ -72,17 +52,6 @@ bool Compress(const char* input, size_t length, std::string* output) {
   }
 
   COMPRESS_ALLOCATION_ROUTINES* allocRoutinesPtr = nullptr;
-
-#ifdef JEMALLOC
-  COMPRESS_ALLOCATION_ROUTINES allocationRoutines;
-
-  //  Init. allocation routines
-  allocationRoutines.Allocate = CompressorAlloc;
-  allocationRoutines.Free = CompressorFree;
-  allocationRoutines.UserContext = NULL;
-
-  allocRoutinesPtr = &allocationRoutines;
-#endif
 
   COMPRESSOR_HANDLE compressor = NULL;
 
@@ -168,16 +137,6 @@ char* Decompress(const char* input_data, size_t input_length,
   }
 
   COMPRESS_ALLOCATION_ROUTINES* allocRoutinesPtr = nullptr;
-
-#ifdef JEMALLOC
-  COMPRESS_ALLOCATION_ROUTINES allocationRoutines;
-
-  //  Init. allocation routines
-  allocationRoutines.Allocate = CompressorAlloc;
-  allocationRoutines.Free = CompressorFree;
-  allocationRoutines.UserContext = NULL;
-  allocRoutinesPtr = &allocationRoutines;
-#endif
 
   DECOMPRESSOR_HANDLE decompressor = NULL;
 

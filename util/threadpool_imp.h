@@ -22,6 +22,8 @@ class ThreadPoolImpl : public ThreadPool {
   ThreadPoolImpl();
   ~ThreadPoolImpl();
 
+  ThreadPoolImpl(const ThreadPoolImpl&) = delete;
+  ThreadPoolImpl& operator=(const ThreadPoolImpl&) = delete;
   ThreadPoolImpl(ThreadPoolImpl&&) = delete;
   ThreadPoolImpl& operator=(ThreadPoolImpl&&) = delete;
 

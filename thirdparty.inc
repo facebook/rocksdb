@@ -65,6 +65,7 @@ endif ()
 #
 # Edit these 4 lines to define paths to Snappy
 #
+
 set(SNAPPY_HOME $ENV{THIRDPARTY_HOME}/Snappy.Library)
 set(SNAPPY_INCLUDE ${SNAPPY_HOME}/inc/inc)
 set(SNAPPY_LIB_DEBUG ${SNAPPY_HOME}/bin/debug/amd64/snappy.lib)
@@ -80,6 +81,7 @@ else ()
 endif ()
 
 if (${USE_SNAPPY} EQUAL 1)
+
   message(STATUS "SNAPPY library is enabled")
   
   if(DEFINED ENV{SNAPPY_INCLUDE})
@@ -93,7 +95,7 @@ if (${USE_SNAPPY} EQUAL 1)
   if(DEFINED ENV{SNAPPY_LIB_RELEASE})
     set(SNAPPY_LIB_RELEASE $ENV{SNAPPY_LIB_RELEASE})
   endif()
-  
+
   set(SNAPPY_CXX_FLAGS -DSNAPPY)
   set(SNAPPY_LIBS debug ${SNAPPY_LIB_DEBUG} optimized ${SNAPPY_LIB_RELEASE})
 
@@ -227,7 +229,7 @@ endif ()
 
 if (${USE_JEMALLOC} EQUAL 1)
   message(STATUS "JEMALLOC library is enabled")
-  set(JEMALLOC_CXX_FLAGS "-DJEMALLOC -DJEMALLOC_EXPORT= ")
+  set(JEMALLOC_CXX_FLAGS "-DROCKSDB_JEMALLOC -DJEMALLOC_EXPORT= ")
   
   if(DEFINED ENV{JEMALLOC_INCLUDE})
     set(JEMALLOC_INCLUDE $ENV{JEMALLOC_INCLUDE})
@@ -258,7 +260,7 @@ if (${USE_JEMALLOC} EQUAL 1)
     add_definitions(-DJEMALLOC_NON_INIT)
     message(STATUS "JEMALLOC NONINIT version")
   endif()
-  
+ 
 else ()
   set (ARTIFACT_SUFFIX "")
   message(STATUS "JEMALLOC library is disabled")

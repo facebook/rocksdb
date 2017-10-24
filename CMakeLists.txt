@@ -165,7 +165,7 @@ target_include_directories(build_version PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/util)
 if(MSVC)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zi /nologo /EHsc /GS /Gd /GR /GF /fp:precise /Zc:wchar_t /Zc:forScope /errorReport:queue")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /FC /d2Zi+ /W3 /wd4127 /wd4800 /wd4996 /wd4351")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /FC /d2Zi+ /W4 /wd4127 /wd4800 /wd4996 /wd4351 /wd4100 /wd4204")
 else()
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -W -Wextra -Wall")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wsign-compare -Wshadow -Wno-unused-parameter -Wno-unused-variable -Woverloaded-virtual -Wnon-virtual-dtor -Wno-missing-field-initializers")
@@ -529,8 +529,23 @@ set(SOURCES
         utilities/write_batch_with_index/write_batch_with_index_internal.cc
         $<TARGET_OBJECTS:build_version>)
 
+# Async related things got here for now
+list(APPEND SOURCES
+    db/db_impl_request.cc
+    db/db_iter_async.cc
+    db/forward_iterator_async.cc
+    db/table_cache_request.cc
+    db/version_set_request.cc
+    table/block_based_table_request.cc
+    table/format_request_context.cc
+    table/merging_iterator_async.cc
+    table/two_level_iter_block_based_async.cc
+    util/random_read_context.cc)
+
 if(WIN32)
   list(APPEND SOURCES
+    port/win/asyncthreadpoolimpl.cc
+    port/win/iocompletion.cc
     port/win/io_win.cc
     port/win/env_win.cc
     port/win/env_default.cc
@@ -543,6 +558,11 @@ else()
     port/port_posix.cc
     env/env_posix.cc
     env/io_posix.cc)
+endif()
+
+if(WIN32 AND WITH_JEMALLOC)
+  list(APPEND SOURCES
+    port/win/win_jemalloc.cc)
 endif()
 
 set(ROCKSDB_STATIC_LIB rocksdb${ARTIFACT_SUFFIX})

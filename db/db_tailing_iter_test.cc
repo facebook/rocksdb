@@ -145,13 +145,21 @@ TEST_F(DBTestTailingIterator, TailingIteratorTrimSeekToNext) {
   bool file_iters_renewed_copy = false;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "ForwardIterator::SeekInternal:Return", [&](void* arg) {
+#ifdef ROCKSDB_ASYNC_TESTING
+    ForwardIteratorAsync* fiter = reinterpret_cast<ForwardIteratorAsync*>(arg);
+#else
         ForwardIterator* fiter = reinterpret_cast<ForwardIterator*>(arg);
+#endif
         ASSERT_TRUE(!file_iters_deleted ||
                     fiter->TEST_CheckDeletedIters(&deleted_iters, &num_iters));
       });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "ForwardIterator::Next:Return", [&](void* arg) {
+#ifdef ROCKSDB_ASYNC_TESTING
+    ForwardIteratorAsync* fiter = reinterpret_cast<ForwardIteratorAsync*>(arg);
+#else
         ForwardIterator* fiter = reinterpret_cast<ForwardIterator*>(arg);
+#endif
         ASSERT_TRUE(!file_iters_deleted ||
                     fiter->TEST_CheckDeletedIters(&deleted_iters, &num_iters));
       });

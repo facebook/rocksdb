@@ -102,6 +102,7 @@ struct SuperVersion {
   SuperVersion() = default;
   ~SuperVersion();
   SuperVersion* Ref();
+  SuperVersion* Ref2();
   // If Unref() returns true, Cleanup() should be called with mutex held
   // before deleting this SuperVersion.
   bool Unref();

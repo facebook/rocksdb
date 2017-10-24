@@ -28,11 +28,15 @@
 #include <atomic>
 #include <condition_variable>
 #include <cstddef>
+#include <functional>
 #include <mutex>
 #include <thread>
 #include <unordered_map>
 
+#include "async/async_absorber.h"
+#include "async/context_pool.h"
 #include "db/db_impl.h"
+#include "db/db_impl_request.h"
 #include "db/version_set.h"
 #include "hdfs/env_hdfs.h"
 #include "monitoring/histogram.h"
@@ -74,6 +78,8 @@
 #include <io.h>  // open/close
 #endif
 
+#include "rocksdb/async/asyncthreadpool.h"
+
 using GFLAGS::ParseCommandLineFlags;
 using GFLAGS::RegisterFlagValidator;
 using GFLAGS::SetUsageMessage;
@@ -86,10 +92,10 @@ DEFINE_string(
     "fillrandom,"
     "filluniquerandomdeterministic,"
     "overwrite,"
-    "readrandom,"
     "newiterator,"
     "newiteratorwhilewriting,"
     "seekrandom,"
+    "seekrandomasync,"
     "seekrandomwhilewriting,"
     "seekrandomwhilemerging,"
     "readseq,"
@@ -97,6 +103,7 @@ DEFINE_string(
     "compact,"
     "compactall,"
     "readrandom,"
+    "readrandomasync,"
     "multireadrandom,"
     "readseq,"
     "readtocache,"
@@ -139,6 +146,7 @@ DEFINE_string(
     "\treadtocache   -- 1 thread reading database sequentially\n"
     "\treadreverse   -- read N times in reverse order\n"
     "\treadrandom    -- read N times in random order\n"
+    "\treadrandomasync - read N times in random order using async API. Each completion starts another read.\n"
     "\treadmissing   -- read N missing keys in random order\n"
     "\treadwhilewriting      -- 1 writer, N threads doing random "
     "reads\n"
@@ -158,6 +166,8 @@ DEFINE_string(
     "operations. Must be used with merge_operator\n"
     "\tnewiterator   -- repeated iterator creation\n"
     "\tseekrandom    -- N random seeks, call Next seek_nexts times "
+    "per seek\n"
+    "\tseekrandomasync    -- N random seeks, call Next seek_nexts times using async interfaces."
     "per seek\n"
     "\tseekrandomwhilewriting -- seekrandom and 1 thread doing "
     "overwrite\n"
@@ -217,6 +227,12 @@ DEFINE_int64(seed, 0, "Seed base for random number generators. "
 
 DEFINE_int32(threads, 1, "Number of concurrent threads to run.");
 
+DEFINE_bool(run_async, false, 
+  "Use async API. The bench needs to have an async implementation");
+
+DEFINE_int32(conc_io_ops, 1,
+  "Run this number of concurrent io ops per thread");
+
 DEFINE_int32(duration, 0, "Time in seconds for the random-ops tests to run."
              " When 0 then num & reads determine the test duration");
 
@@ -224,7 +240,7 @@ DEFINE_int32(value_size, 100, "Size of each value");
 
 DEFINE_int32(seek_nexts, 0,
              "How many times to call Next() after Seek() in "
-             "fillseekseq, seekrandom, seekrandomwhilewriting and "
+             "fillseekseq, , seekrandomasync, seekrandomwhilewriting and "
              "seekrandomwhilemerging");
 
 DEFINE_bool(reverse_iterator, false,
@@ -1351,14 +1367,16 @@ static std::unordered_map<OperationType, std::string, std::hash<unsigned char>>
 class CombinedStats;
 class Stats {
  private:
+  // Used for async env reporting
+  std::mutex    lock_;
   int id_;
-  uint64_t start_;
-  uint64_t finish_;
+  std::atomic<uint64_t> start_;
+  std::atomic<uint64_t> finish_;
   double seconds_;
-  uint64_t done_;
+  std::atomic<uint64_t> done_;
   uint64_t last_report_done_;
   uint64_t next_report_;
-  uint64_t bytes_;
+  std::atomic<uint64_t> bytes_;
   uint64_t last_op_finish_;
   uint64_t last_report_finish_;
   std::unordered_map<OperationType, std::shared_ptr<HistogramImpl>,
@@ -1369,7 +1387,31 @@ class Stats {
   friend class CombinedStats;
 
  public:
-  Stats() { Start(-1); }
+  Stats() { 
+    Start(-1);
+  }
+
+  Stats(Stats&& o) : Stats() {
+    *this = std::move(o);
+  }
+
+  Stats& operator=(Stats&& o) {
+    id_ = o.id_;
+    start_ = o.start_.load(std::memory_order_relaxed);
+    finish_ = o.finish_.load(std::memory_order_relaxed);
+    seconds_ = o.seconds_;
+    done_ = o.done_.load(std::memory_order_relaxed);
+    last_report_done_ = o.last_report_done_;
+    next_report_ = o.next_report_;
+    bytes_ = o.bytes_.load(std::memory_order_relaxed);
+    last_op_finish_ = o.last_op_finish_;
+    last_report_finish_ = o.last_report_finish_;
+    hist_ = std::move(o.hist_);
+    message_ = std::move(o.message_);
+    exclude_from_merge_ = o.exclude_from_merge_;
+    reporter_agent_ = o.reporter_agent_;
+    return *this;
+  }
 
   void SetReporterAgent(ReporterAgent* reporter_agent) {
     reporter_agent_ = reporter_agent;
@@ -1385,7 +1427,7 @@ class Stats {
     bytes_ = 0;
     seconds_ = 0;
     start_ = FLAGS_env->NowMicros();
-    finish_ = start_;
+    finish_ = start_.load();
     last_report_finish_ = start_;
     message_.clear();
     // When set, stats from this thread won't be merged with others.
@@ -1405,11 +1447,13 @@ class Stats {
       }
     }
 
-    done_ += other.done_;
-    bytes_ += other.bytes_;
+    done_.fetch_add(other.done_, std::memory_order_relaxed);
+    bytes_.fetch_add(other.bytes_, std::memory_order_relaxed);
     seconds_ += other.seconds_;
-    if (other.start_ < start_) start_ = other.start_;
-    if (other.finish_ > finish_) finish_ = other.finish_;
+    auto other_start = other.start_.load();
+    auto other_finish = other.finish_.load();
+    if (other_start < start_) start_ = other_start;
+    if (other_finish > finish_) finish_ = other_finish;
 
     // Just keep the messages from one thread
     if (message_.empty()) message_ = other.message_;
@@ -1467,26 +1511,30 @@ class Stats {
     if (reporter_agent_) {
       reporter_agent_->ReportFinishedOps(num_ops);
     }
-    if (FLAGS_histogram) {
-      uint64_t now = FLAGS_env->NowMicros();
-      uint64_t micros = now - last_op_finish_;
 
-      if (hist_.find(op_type) == hist_.end())
-      {
-        auto hist_temp = std::make_shared<HistogramImpl>();
-        hist_.insert({op_type, std::move(hist_temp)});
-      }
-      hist_[op_type]->Add(micros);
+    {
+      if (FLAGS_histogram) {
+        uint64_t now = FLAGS_env->NowMicros();
+        uint64_t micros = now - last_op_finish_;
 
-      if (micros > 20000 && !FLAGS_stats_interval) {
-        fprintf(stderr, "long op: %" PRIu64 " micros%30s\r", micros, "");
-        fflush(stderr);
+        auto& impl = hist_[op_type];
+        if (!impl) {
+          impl = std::move(std::make_shared<HistogramImpl>());
+        }
+        impl->Add(micros);
+        last_op_finish_ = now;
+
+        if (micros > 20000 && !FLAGS_stats_interval) {
+          fprintf(stderr, "long op: %" PRIu64 " micros%30s\r", micros, "");
+          fflush(stderr);
+        }
       }
-      last_op_finish_ = now;
     }
 
-    done_ += num_ops;
-    if (done_ >= next_report_) {
+    auto done = done_.fetch_add(num_ops, std::memory_order_relaxed)
+      + num_ops;
+
+    if (done >= next_report_) {
       if (!FLAGS_stats_interval) {
         if      (next_report_ < 1000)   next_report_ += 100;
         else if (next_report_ < 5000)   next_report_ += 500;
@@ -1495,7 +1543,8 @@ class Stats {
         else if (next_report_ < 100000) next_report_ += 10000;
         else if (next_report_ < 500000) next_report_ += 50000;
         else                            next_report_ += 100000;
-        fprintf(stderr, "... finished %" PRIu64 " ops%30s\r", done_, "");
+        fprintf(stderr, "... finished %" PRIu64 " ops%30s\r", 
+          done, "");
       } else {
         uint64_t now = FLAGS_env->NowMicros();
         int64_t usecs_since_last = now - last_report_finish_;
@@ -1515,10 +1564,10 @@ class Stats {
                   "(%.1f,%.1f) ops/second in (%.6f,%.6f) seconds\n",
                   FLAGS_env->TimeToString(now/1000000).c_str(),
                   id_,
-                  done_ - last_report_done_, done_,
-                  (done_ - last_report_done_) /
+                  done - last_report_done_, done,
+                  (done - last_report_done_) /
                   (usecs_since_last / 1000000.0),
-                  done_ / ((now - start_) / 1000000.0),
+                  done / ((now - start_) / 1000000.0),
                   (now - last_report_finish_) / 1000000.0,
                   (now - start_) / 1000000.0);
 
@@ -1576,8 +1625,132 @@ class Stats {
     }
   }
 
+  void FinishedOps(DBWithColumnFamilies* db_with_cfh, DB* db, int64_t num_ops,
+    uint64_t elapsed_us, enum OperationType op_type = kOthers) {
+
+    if (reporter_agent_) {
+      reporter_agent_->ReportFinishedOps(num_ops);
+    }
+
+    auto done = done_.fetch_add(num_ops, std::memory_order_relaxed)
+      + num_ops;
+
+    bool run_report = false;
+    int64_t  usecs_since_last = 0;
+    uint64_t now = FLAGS_env->NowMicros();
+    {
+      std::lock_guard<std::mutex> lg(lock_);
+
+      if (FLAGS_histogram) {
+        auto& impl = hist_[op_type];
+        if (!impl) {
+          impl = std::move(std::make_shared<HistogramImpl>());
+        }
+        impl->Add(elapsed_us);
+
+        if (elapsed_us > 20000 && !FLAGS_stats_interval) {
+          fprintf(stderr, "long op: %" PRIu64 " micros%30s\r", elapsed_us, "");
+          fflush(stderr);
+        }
+      }
+
+      run_report = done >= next_report_;
+      usecs_since_last = now - last_report_finish_;
+
+      if (run_report) {
+        if (!FLAGS_stats_interval) {
+          if (next_report_ < 1000)   next_report_ += 100;
+          else if (next_report_ < 5000)   next_report_ += 500;
+          else if (next_report_ < 10000)  next_report_ += 1000;
+          else if (next_report_ < 50000)  next_report_ += 5000;
+          else if (next_report_ < 100000) next_report_ += 10000;
+          else if (next_report_ < 500000) next_report_ += 50000;
+          else                            next_report_ += 100000;
+          fprintf(stderr, "... finished %" PRIu64 " ops%30s\r",
+            done, "");
+        } else {
+
+          last_report_finish_ = now;
+          last_report_done_ = done_;
+
+          // Determine whether to print status where interval is either
+          // each N operations or each N seconds.
+
+          if (FLAGS_stats_interval_seconds &&
+            usecs_since_last < (FLAGS_stats_interval_seconds * 1000000)) {
+            // Don't check again for this many operations
+            next_report_ += FLAGS_stats_interval;
+          } else {
+            next_report_ += FLAGS_stats_interval;
+          }
+        }
+      } else {
+        return;
+      }
+    }
+
+    if (!FLAGS_stats_interval_seconds ||
+      usecs_since_last >= (FLAGS_stats_interval_seconds * 1000000)) {
+
+      fprintf(stderr,
+        "%s ... thread %d: (%" PRIu64 ",%" PRIu64 ") ops and "
+        "(%.1f,%.1f) ops/second in (%.6f,%.6f) seconds\n",
+        FLAGS_env->TimeToString(now / 1000000).c_str(),
+        id_,
+        done - last_report_done_, done,
+        (done - last_report_done_) /
+        (usecs_since_last / 1000000.0),
+        done / ((now - start_) / 1000000.0),
+        (now - last_report_finish_) / 1000000.0,
+        (now - start_) / 1000000.0);
+
+      if (id_ == 0 && FLAGS_stats_per_interval) {
+        std::string stats;
+
+        if (db_with_cfh && db_with_cfh->num_created.load()) {
+          for (size_t i = 0; i < db_with_cfh->num_created.load(); ++i) {
+            if (db->GetProperty(db_with_cfh->cfh[i], "rocksdb.cfstats",
+              &stats))
+              fprintf(stderr, "%s\n", stats.c_str());
+            if (FLAGS_show_table_properties) {
+              for (int level = 0; level < FLAGS_num_levels; ++level) {
+                if (db->GetProperty(
+                  db_with_cfh->cfh[i],
+                  "rocksdb.aggregated-table-properties-at-level" +
+                  ToString(level),
+                  &stats)) {
+                  if (stats.find("# entries=0") == std::string::npos) {
+                    fprintf(stderr, "Level[%d]: %s\n", level,
+                      stats.c_str());
+                  }
+                }
+              }
+            }
+          }
+        } else if (db) {
+          if (db->GetProperty("rocksdb.stats", &stats)) {
+            fprintf(stderr, "%s\n", stats.c_str());
+          }
+          if (FLAGS_show_table_properties) {
+            for (int level = 0; level < FLAGS_num_levels; ++level) {
+              if (db->GetProperty(
+                "rocksdb.aggregated-table-properties-at-level" +
+                ToString(level),
+                &stats)) {
+                if (stats.find("# entries=0") == std::string::npos) {
+                  fprintf(stderr, "Level[%d]: %s\n", level, stats.c_str());
+                }
+              }
+            }
+          }
+        }
+      }
+      fflush(stderr);
+    }
+  }
+
   void AddBytes(int64_t n) {
-    bytes_ += n;
+    bytes_.fetch_add(n, std::memory_order_relaxed);
   }
 
   void Report(const Slice& name) {
@@ -1741,45 +1914,116 @@ struct ThreadState {
 
   /* implicit */ ThreadState(int index)
       : tid(index),
-        rand((FLAGS_seed ? FLAGS_seed : 1000) + index) {
+        rand((FLAGS_seed ? FLAGS_seed : 1000) + index),
+        stats() {
   }
+};
+
+class Benchmark;
+class AsyncBenchBase {
+public:
+
+  // Initialized before invocation
+  void SetState(Benchmark* bm,
+    SharedState* shared,
+    ThreadState* thread) {
+    bm_ = bm;
+    shared_ = shared;
+    thread_ = thread;
+  }
+
+  virtual std::unique_ptr<AsyncBenchBase> Clone() = 0;
+
+  virtual void Run() = 0;
+
+  virtual ~AsyncBenchBase() {}
+
+protected:
+
+  AsyncBenchBase() :
+    bm_(nullptr),
+    shared_(nullptr),
+    thread_(nullptr) {
+  }
+
+  AsyncBenchBase(const AsyncBenchBase&) = default;
+  AsyncBenchBase& operator=(const AsyncBenchBase&) = default;
+
+  void SetThreadPerfLevel() {
+    SetPerfLevel(static_cast<PerfLevel> (shared_->perf_level));
+  }
+
+  // Concrete class invokes this when all threads
+  // when the hosting thread start running it
+  // Once this method returns start doing
+  // benchmarks specific things
+  void OnInitialized() {
+    {
+      MutexLock l(&shared_->mu);
+      shared_->num_initialized++;
+      if (shared_->num_initialized >= shared_->total) {
+        shared_->cv.SignalAll();
+      }
+      while (!shared_->start) {
+        shared_->cv.Wait();
+      }
+    }
+    SetPerfLevel(static_cast<PerfLevel> (shared_->perf_level));
+    thread_->stats.Start(thread_->tid);
+  }
+
+  void OnComplete() {
+    thread_->stats.Stop();
+    MutexLock l(&shared_->mu);
+    shared_->num_done++;
+    if (shared_->num_done >= shared_->total) {
+      shared_->cv.SignalAll();
+    }
+  }
+
+  Benchmark*            bm_;
+  SharedState*          shared_;
+  ThreadState*          thread_;
 };
 
 class Duration {
  public:
-  Duration(uint64_t max_seconds, int64_t max_ops, int64_t ops_per_stage = 0) {
-    max_seconds_ = max_seconds;
-    max_ops_= max_ops;
-    ops_per_stage_ = (ops_per_stage > 0) ? ops_per_stage : max_ops;
-    ops_ = 0;
-    start_at_ = FLAGS_env->NowMicros();
+  Duration(uint64_t max_seconds, int64_t max_ops, int64_t ops_per_stage = 0) :
+   max_seconds_(max_seconds),
+   max_ops_(max_ops),
+   ops_per_stage_ ((ops_per_stage > 0) ? ops_per_stage : max_ops),
+   ops_(0),
+   start_at_(FLAGS_env->NowMicros()) {
   }
 
-  int64_t GetStage() { return std::min(ops_, max_ops_ - 1) / ops_per_stage_; }
+  int64_t GetStage() const { 
+    return std::min(ops_.load(std::memory_order_relaxed), max_ops_ - 1) / ops_per_stage_;
+  }
 
   bool Done(int64_t increment) {
     if (increment <= 0) increment = 1;    // avoid Done(0) and infinite loops
-    ops_ += increment;
+    auto ops = ops_.fetch_add(increment, std::memory_order_relaxed) 
+      + increment;
 
     if (max_seconds_) {
       // Recheck every appx 1000 ops (exact iff increment is factor of 1000)
-      if ((ops_/1000) != ((ops_-increment)/1000)) {
+      if ((ops/1000) != ((ops-increment)/1000)) {
         uint64_t now = FLAGS_env->NowMicros();
         return ((now - start_at_) / 1000000) >= max_seconds_;
       } else {
         return false;
       }
     } else {
-      return ops_ > max_ops_;
+      return ops > max_ops_;
     }
   }
 
  private:
-  uint64_t max_seconds_;
-  int64_t max_ops_;
-  int64_t ops_per_stage_;
-  int64_t ops_;
-  uint64_t start_at_;
+  const uint64_t max_seconds_;
+  const int64_t  max_ops_;
+  const int64_t  ops_per_stage_;
+  std::atomic<int64_t> ops_;
+  const uint64_t start_at_;
 };
 
 class Benchmark {
@@ -1787,6 +2031,13 @@ class Benchmark {
   std::shared_ptr<Cache> cache_;
   std::shared_ptr<Cache> compressed_cache_;
   std::shared_ptr<const FilterPolicy> filter_policy_;
+
+#ifdef OS_WIN
+  PTP_POOL                                 thread_pool_;
+  std::shared_ptr<async::AsyncThreadPool>  async_tp_;
+  std::unique_ptr<AsyncBenchBase>          bench_func_;
+#endif
+
   const SliceTransform* prefix_extractor_;
   DBWithColumnFamilies db_;
   std::vector<DBWithColumnFamilies> multi_dbs_;
@@ -2053,6 +2304,9 @@ class Benchmark {
                            ? NewBloomFilterPolicy(FLAGS_bloom_bits,
                                                   FLAGS_use_block_based_filter)
                            : nullptr),
+#ifdef OS_WIN
+        thread_pool_(nullptr),
+#endif
         prefix_extractor_(NewFixedPrefixTransform(FLAGS_prefix_size)),
         num_(FLAGS_num),
         value_size_(FLAGS_value_size),
@@ -2094,6 +2348,17 @@ class Benchmark {
       FLAGS_env = new ReportFileOpEnv(rocksdb::Env::Default());
     }
 
+#ifdef OS_WIN
+    if (FLAGS_run_async) {
+      const uint32_t maxThreads = 500;
+      SYSTEM_INFO sinfo;
+      GetSystemInfo(&sinfo);
+      uint32_t minThreads = sinfo.dwNumberOfProcessors * 2;
+      thread_pool_ = CreateWindowsThreadPool(minThreads, maxThreads);
+      async_tp_ = FLAGS_env->CreateAsyncThreadPool(thread_pool_);
+    }
+#endif
+
     if (FLAGS_prefix_size > FLAGS_key_size) {
       fprintf(stderr, "prefix size is larger than key size");
       exit(1);
@@ -2132,6 +2397,12 @@ class Benchmark {
       // this will leak, but we're shutting down so nobody cares
       cache_->DisownData();
     }
+#ifdef OS_WIN
+    if (thread_pool_ != nullptr) {
+      async_tp_.reset();
+      CloseThreadpool(thread_pool_);
+    }
+#endif
   }
 
   Slice AllocateKey(std::unique_ptr<const char[]>* key_guard) {
@@ -2238,6 +2509,12 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     if (!SanityCheck()) {
       exit(1);
     }
+
+    if (FLAGS_run_async) {
+      open_options_.use_async_reads = true;
+      open_options_.async_threadpool = std::move(async_tp_);
+    }
+
     Open(&open_options_);
     PrintHeader();
     std::stringstream benchmark_stream(FLAGS_benchmarks);
@@ -2362,6 +2639,12 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         method = &Benchmark::ReadReverse;
       } else if (name == "readrandom") {
         method = &Benchmark::ReadRandom;
+      } else if (name == "readrandomasync") {
+        bench_func_.reset(new ReadRandomAsync());
+        if (!FLAGS_run_async) {
+          fprintf(stdout, "run_async must be enabled\n");
+          exit(1);
+        }
       } else if (name == "readrandomfast") {
         method = &Benchmark::ReadRandomFast;
       } else if (name == "multireadrandom") {
@@ -2378,7 +2661,13 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         method = &Benchmark::IteratorCreationWhileWriting;
       } else if (name == "seekrandom") {
         method = &Benchmark::SeekRandom;
-      } else if (name == "seekrandomwhilewriting") {
+      } else if (name == "seekrandomasync") {
+        bench_func_.reset(new SeekRandomAsync());
+        if (!FLAGS_run_async) {
+          fprintf(stdout, "run_async must be enabled\n");
+          exit(1);
+        }
+      }  else if (name == "seekrandomwhilewriting") {
         num_threads++;  // Add extra thread for writing
         method = &Benchmark::SeekRandomWhileWriting;
       } else if (name == "seekrandomwhilemerging") {
@@ -2512,7 +2801,24 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         if (num_repeat > 1) {
           combined_stats.Report(name);
         }
+      } else if(FLAGS_run_async) {
+#ifdef OS_WIN
+        if (num_repeat > 1) {
+          printf("Running benchmark for %d times\n", num_repeat);
+        }
+
+        CombinedStats combined_stats;
+        for (int i = 0; i < num_repeat; i++) {
+          Stats stats = RunBenchmarkAsync(num_threads, name);
+          combined_stats.AddStats(stats);
+        }
+
+        if (num_repeat > 1) {
+          combined_stats.Report(name);
+        }
+#endif
       }
+
       if (post_process_method != nullptr) {
         (this->*post_process_method)();
       }
@@ -2642,6 +2948,70 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 
     return merge_stats;
   }
+#ifdef OS_WIN
+  // Will start standalone dispatcher threads
+  // but I/O completion will run on a windows threadpool
+  Stats RunBenchmarkAsync(int n, Slice name) {
+
+    assert(bench_func_);
+
+    RandomReadAsyncShared shared;
+    shared.total = n;
+    shared.num_initialized = 0;
+    shared.num_done = 0;
+    shared.start = false;
+
+    std::unique_ptr<ReporterAgent> reporter_agent;
+    if (FLAGS_report_interval_seconds > 0) {
+      reporter_agent.reset(new ReporterAgent(FLAGS_env, FLAGS_report_file,
+        FLAGS_report_interval_seconds));
+    }
+
+    std::vector<std::unique_ptr<ThreadState>> states;
+    std::vector<std::unique_ptr<AsyncBenchBase>> benches;
+    std::vector<port::Thread>  threads;
+    states.resize(n);
+    benches.resize(n);
+    threads.reserve(n);
+
+    for (int i = 0; i < n; i++) {
+
+      states[i].reset(new ThreadState(i));
+      states[i]->stats.SetReporterAgent(reporter_agent.get());
+      states[i]->shared = &shared;
+
+      benches[i] = std::move(bench_func_->Clone());
+      benches[i]->SetState(this, &shared, states[i].get());
+      port::Thread t(&AsyncBenchBase::Run, benches[i].get());
+      threads.push_back(std::move(t));
+    }
+
+    shared.mu.Lock();
+    while (shared.num_initialized < n) {
+      shared.cv.Wait();
+    }
+
+    shared.start = true;
+    shared.cv.SignalAll();
+    while (shared.num_done < n) {
+      shared.cv.Wait();
+    }
+    shared.mu.Unlock();
+
+    for (auto& t : threads) {
+      t.join();
+    }
+
+    // Stats for some threads can be excluded.
+    Stats merge_stats;
+    for (int i = 0; i < n; i++) {
+      merge_stats.Merge(states[i]->stats);
+    }
+    merge_stats.Report(name);
+
+    return merge_stats;
+  }
+#endif
 
   void Crc32c(ThreadState* thread) {
     // Checksum about 500MB of data total
@@ -3956,6 +4326,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 
     Duration duration(FLAGS_duration, reads_);
     while (!duration.Done(1)) {
+
       DBWithColumnFamilies* db_with_cfh = SelectDBWithCfh(thread);
       // We use same key_rand as seed for key and column family so that we can
       // deterministically find the cfh corresponding to a particular key, as it
@@ -4007,6 +4378,247 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       thread->stats.AddMessage(get_perf_context()->ToString());
     }
   }
+
+  struct RandomReadContext;
+
+  // Faciliates a pool of memory allocations for the context
+  struct RandomReadAsyncShared : public SharedState {
+    using
+    CtxPtr = async::ContextPool<RandomReadContext>::Ptr;
+
+    async::ContextPool<RandomReadContext> pool_;
+    RandomReadAsyncShared() : SharedState() {}
+  };
+
+  class ReadRandomAsync : public AsyncBenchBase {
+  public:
+
+    explicit
+    ReadRandomAsync() :
+      options_(FLAGS_verify_checksum, true),
+      duration_(FLAGS_duration, FLAGS_reads),
+      conc_io_ops_(FLAGS_conc_io_ops),
+      read_(0),
+      found_(0),
+      bytes_(0),
+      in_flight_(0),
+      start_(0) {
+    }
+
+    std::unique_ptr<AsyncBenchBase> Clone() override {
+      std::unique_ptr<AsyncBenchBase> result(new ReadRandomAsync(*this));
+      return result;
+    }
+
+  private:
+
+    friend struct RandomReadContext;
+
+    using
+    CtxPtr = RandomReadAsyncShared::CtxPtr;
+
+    RandomReadAsyncShared* GetShared() const {
+      return reinterpret_cast<RandomReadAsyncShared*>(shared_);
+    }
+
+    CtxPtr AcquireInitContext() {
+      // May want to cache the allocation key
+      std::unique_ptr<const char[]> guard;
+      auto key = bm_->AllocateKey(&guard);
+      int64_t key_rand = bm_->GetRandomKey(&thread_->rand);
+      bm_->GenerateKeyFromInt(key_rand, FLAGS_num, &key);
+
+      auto shared = GetShared();
+
+      CtxPtr result = shared->pool_.Get(this, std::move(guard), std::move(key));
+      result->db_with_cfh_ = bm_->SelectDBWithCfh(thread_);
+
+      if (LIKELY(FLAGS_pin_slice == 1)) {
+        result->pinnable_val_.Reset();
+      }
+      return result;
+    }
+
+    Status RequestGet() {
+
+      CtxPtr ctx = AcquireInitContext();
+      ctx->start_ = FLAGS_env->NowMicros();
+
+      Status s;
+      if (LIKELY(FLAGS_pin_slice == 1)) {
+        s = async::DBImplGetContext::RequestGet(ctx->GetCallback(), ctx->db_with_cfh_->db, options_,
+          ctx->db_with_cfh_->db->DefaultColumnFamily(), ctx->key_, &ctx->pinnable_val_, nullptr);
+      } else {
+        s = async::DBImplGetContext::RequestGet(ctx->GetCallback(), ctx->db_with_cfh_->db, options_,
+          ctx->db_with_cfh_->db->DefaultColumnFamily(), ctx->key_, nullptr, &ctx->value_);
+      }
+
+      // CtxPtr will return the pool on destruction
+      if (!s.IsIOPending()) {
+        s = ctx->OnReadComplete(s);
+      } else {
+        ctx.release();
+      }
+      return s;
+    }
+
+    // Thread entry point
+    void Run() override {
+      OnInitialized();
+
+      bool done = false;
+      int32_t in_flight = in_flight_;
+
+      {
+        std::unique_lock<std::mutex> l(m_);
+        while (!done || in_flight_ > 0) {
+
+          if (!done) {
+            while (in_flight_ < conc_io_ops_) {
+              Status s = RequestGet();
+              if (s.IsIOPending()) {
+                ++in_flight_;
+                ++in_flight;
+              } else {
+                // to properly account things that were done
+                ++in_flight;
+              }
+            }
+          }
+
+          c_.wait(l);
+
+          if (!done) {
+            assert(in_flight >= in_flight_);
+            auto diff = in_flight - in_flight_;
+            if (diff > 0) {
+              done = duration_.Done(diff);
+            }
+          }
+          in_flight = in_flight_;
+        }
+      }
+
+      char msg[100];
+      snprintf(msg, sizeof(msg), "(%" PRIu64 " of %" PRIu64 " found)\n",
+        found_.load(std::memory_order_relaxed),
+        read_.load(std::memory_order_relaxed));
+
+      fprintf(stderr, "tid: %d %" PRIu64 " %s\n",
+        thread_->tid, bytes_.load(std::memory_order_relaxed), msg);
+
+      thread_->stats.AddBytes(bytes_.load(std::memory_order_relaxed));
+      thread_->stats.AddMessage(msg);
+
+      if (FLAGS_perf_level > rocksdb::PerfLevel::kDisable) {
+        thread_->stats.AddMessage(get_perf_context()->ToString());
+      }
+      // Notify we are done
+      OnComplete();
+    }
+
+    void RequestOnThreadPool() {
+      SetThreadPerfLevel();
+      Status s = RequestGet();
+      if (!s.IsIOPending()) {
+        ReadComplete(nullptr);
+      }
+    }
+
+    void ReadComplete(RandomReadContext* ctx) {
+
+      if (ctx != nullptr) {
+        GetShared()->pool_.Release(ctx);
+      }
+
+      {
+        std::lock_guard<std::mutex> l(m_);
+        --in_flight_;
+      }
+      c_.notify_one();
+    }
+
+    ReadRandomAsync(const ReadRandomAsync&) :
+      ReadRandomAsync() {
+    }
+    // We use this only for cloning before we start
+    ReadRandomAsync& operator=(const ReadRandomAsync&) {
+      return *this;
+    }
+
+    ReadOptions             options_;
+    Duration                duration_;
+    const int32_t           conc_io_ops_;
+    std::atomic<int64_t>     read_;
+    std::atomic<int64_t>     found_;
+    std::atomic<int64_t>     bytes_;
+    std::mutex              m_;
+    std::condition_variable c_;
+    int32_t                 in_flight_;
+    uint64_t                start_;
+  };
+
+  struct RandomReadContext : public async::AsyncStatusCapture {
+
+    using
+    CtxPtr = RandomReadAsyncShared::CtxPtr;
+
+    RandomReadContext(ReadRandomAsync* bench,
+      std::unique_ptr<const char[]>&& key_guard,
+      Slice&& key) :
+      bench_(bench),
+      db_with_cfh_(nullptr),
+      key_guard_(std::move(key_guard)),
+      key_(key),
+      start_() {
+    }
+
+    async::Callable<Status, const Status&>
+      GetCallback() {
+      async::CallableFactory<RandomReadContext, Status, const Status&> f(this);
+      return f.GetCallable<&RandomReadContext::OnReadComplete>();
+    }
+
+    Status OnReadComplete(const Status& status) {
+      async(status);
+
+      bench_->read_.fetch_add(1, std::memory_order_relaxed);
+
+      if (status.IsNotFound()) {
+        fprintf(stderr, "%s\n", key_.ToString(true).c_str());
+      }
+
+      if (status.ok()) {
+        bench_->found_.fetch_add(1, std::memory_order_relaxed);
+        bench_->bytes_.fetch_add(key_.size() +
+          (FLAGS_pin_slice == 1 ? pinnable_val_.size() : value_.size()),
+          std::memory_order_relaxed);
+      } else if (!status.IsNotFound()) {
+        fprintf(stderr, "Get returned an error: %s\n",
+          status.ToString().c_str());
+        abort();
+      }
+
+      auto elapsed_us = FLAGS_env->NowMicros() - start_;
+
+      bench_->thread_->stats.FinishedOps(db_with_cfh_,
+        db_with_cfh_->db, 1, elapsed_us, kRead);
+
+      if (async()) {
+        // ping on continue
+        bench_->ReadComplete(this);
+      }
+      return status;
+    }
+
+    ReadRandomAsync*      bench_;
+    DBWithColumnFamilies* db_with_cfh_;
+    std::unique_ptr<const char[]> key_guard_;
+    Slice                 key_;
+    std::string           value_;
+    PinnableSlice         pinnable_val_;
+    uint64_t              start_;
+  };
 
   // Calls MultiGet over a list of keys from a random distribution.
   // Returns the total number of keys found.
@@ -4075,6 +4687,226 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       BGWriter(thread, kWrite);
     }
   }
+
+  class SeekRandomAsync : public AsyncBenchBase {
+  public:
+
+    SeekRandomAsync() : 
+      options_(FLAGS_verify_checksum, true),
+      multi_syncer_(this) {
+      options_.tailing = FLAGS_use_tailing_iterator;
+    }
+
+    SeekRandomAsync(const SeekRandomAsync&) = delete;
+    SeekRandomAsync& operator=(const SeekRandomAsync&) = delete;
+
+    // Clone simply gives a new instance
+    std::unique_ptr<AsyncBenchBase> Clone() override {
+      std::unique_ptr<AsyncBenchBase> result(new SeekRandomAsync());
+      return result;
+    }
+
+    void Run() override {
+      // Run the warm up creation of the iterators
+      Status s;
+      PopulateIterators();
+      OnInitialized();
+
+      int64_t read = 0;
+      int64_t found = 0;
+      int64_t bytes = 0;
+
+      async::IteratorOpSyncer op_syncer;
+      auto op_cb = op_syncer.GetCallable();
+
+      std::unique_ptr<const char[]> key_guard;
+      Slice key = bm_->AllocateKey(&key_guard);
+
+      Duration duration(FLAGS_duration, bm_->reads_);
+      char value_buffer[256];
+      while (!duration.Done(1)) {
+        if (!FLAGS_use_tailing_iterator) {
+          PopulateIterators();
+        }
+        // Pick a Iterator to use
+        Iterator* iter_to_use = nullptr;
+        if (iters_.size() == 1) {
+          iter_to_use = iters_[0].get();
+        } else {
+          assert(iters_.size() > 1);
+          auto idx = thread_->rand.Next() % iters_.size();
+          assert(idx >= 0);
+          iter_to_use = iters_[idx].get();
+        }
+        assert(iter_to_use != nullptr);
+
+        bm_->GenerateKeyFromInt(thread_->rand.Next() % FLAGS_num, FLAGS_num, &key);
+#if _DEBUG
+        // Some test code
+        op_syncer.Reset();
+        s = iter_to_use->RequestSeekToFirst(op_cb);
+        if (s.IsIOPending()) {
+          op_syncer.Wait();
+        }
+        // We expect this to always succeed
+        assert(iter_to_use->status().ok());
+
+        op_syncer.Reset();
+        s = iter_to_use->RequestSeekToLast(op_cb);
+        if (s.IsIOPending()) {
+          op_syncer.Wait();
+        }
+        // We expect this to always succeed
+        assert(iter_to_use->status().ok());
+
+        op_syncer.Reset();
+        s = iter_to_use->RequestSeekForPrev(op_cb, key);;
+        if (s.IsIOPending()) {
+          op_syncer.Wait();
+        }
+#endif
+
+        op_syncer.Reset();
+        s = iter_to_use->RequestSeek(op_cb, key);
+        if (s.IsIOPending()) {
+          op_syncer.Wait();
+        }
+
+        read++;
+        if (iter_to_use->Valid() && iter_to_use->key().compare(key) == 0) {
+          found++;
+        }
+
+        for (int j = 0; j < FLAGS_seek_nexts && iter_to_use->Valid(); ++j) {
+          // Copy out iterator's value to make sure we read them.
+          Slice value = iter_to_use->value();
+          memcpy(value_buffer, value.data(),
+            std::min(value.size(), sizeof(value_buffer)));
+          bytes += iter_to_use->key().size() + iter_to_use->value().size();
+
+          op_syncer.Reset();
+          if (!FLAGS_reverse_iterator) {
+            s = iter_to_use->RequestNext(op_cb);
+          } else {
+            s = iter_to_use->RequestPrev(op_cb);
+          }
+          if (s.IsIOPending()) {
+            op_syncer.Wait();
+          }
+          assert(iter_to_use->status().ok());
+        }
+
+        if (thread_->shared->read_rate_limiter.get() != nullptr &&
+          read % 256 == 255) {
+          thread_->shared->read_rate_limiter->Request(256, Env::IO_HIGH,
+            nullptr /* stats */);
+        }
+        thread_->stats.FinishedOps(&bm_->db_, bm_->db_.db, 1, kSeek);
+      }
+
+      iters_.clear();
+
+      char msg[100];
+      snprintf(msg, sizeof(msg), "(%" PRIu64 " of %" PRIu64 " found)\n",
+        found, read);
+      thread_->stats.AddBytes(bytes);
+      thread_->stats.AddMessage(msg);
+      if (FLAGS_perf_level > rocksdb::PerfLevel::kDisable) {
+        thread_->stats.AddMessage(get_perf_context()->ToString());
+      }
+
+      OnComplete();
+    }
+
+  private:
+
+    class MultiIteratorCreateSyncer : 
+      public async::AsyncAbsorber {
+      SeekRandomAsync* host_;
+      std::mutex       m_;
+      async::CallableFactory<MultiIteratorCreateSyncer, Status, Iterator*> f_;
+      size_t          expected_;
+    public:
+      explicit 
+      MultiIteratorCreateSyncer(SeekRandomAsync* host) :
+        host_(host),
+        f_(this),
+        expected_(0) {}
+
+      void SetExpected(size_t expected) {
+        expected_ = expected;
+      }
+
+      MultiIteratorCreateSyncer(const MultiIteratorCreateSyncer&) = delete;
+      MultiIteratorCreateSyncer& operator=(const MultiIteratorCreateSyncer&) = delete;
+
+      void AddIterator(Iterator* iter) {
+        size_t result = 0;
+        {
+          std::lock_guard<std::mutex> l(m_);
+          host_->iters_.emplace_back(iter);
+          assert(expected_ > 0);
+          result = --expected_;
+        }
+        if (result == 0) {
+          Notify();
+        }
+      }
+      async::Callable<Status,Iterator*>
+      GetCallable() {
+        return f_.GetCallable<&MultiIteratorCreateSyncer::OnNewIterator>();
+      }
+      Status OnNewIterator(Iterator* iter) {
+        assert(iter != nullptr);
+        AddIterator(iter);
+        return iter->status();
+      }
+    };
+
+    void PopulateIterators() {
+      iters_.clear();
+      if (bm_->db_.db != nullptr) {
+        // Creating a single iterator
+        iters_.reserve(1U);
+        single_syncer_.Reset();
+        Iterator* iter = nullptr;
+        Status s = async::DBImplNewIteratorContext::RequestCreate(single_syncer_.GetCallable(),
+          bm_->db_.db, options_, bm_->db_.db->DefaultColumnFamily(), &iter);
+        if (s.IsIOPending()) {
+          single_syncer_.Wait();
+          iter = single_syncer_.GetResult();
+        }
+        assert(iter != nullptr);
+        iters_.emplace_back(iter);
+      } else {
+        assert(!bm_->multi_dbs_.empty());
+        Status s;
+        iters_.reserve(bm_->multi_dbs_.size());
+        // The callback must be called the number of databases
+        // otherwise we hang on Wait()
+        multi_syncer_.Reset();
+        multi_syncer_.SetExpected(bm_->multi_dbs_.size());
+        for (const auto& db_with_cfh : bm_->multi_dbs_) {
+          Iterator* iter = nullptr;
+           s = async::DBImplNewIteratorContext::RequestCreate(multi_syncer_.GetCallable(),
+             db_with_cfh.db, options_, db_with_cfh.db->DefaultColumnFamily(), &iter);
+           if (!s.IsIOPending()) {
+             // sync return, we get the iter right away
+             assert(iter != nullptr);
+             multi_syncer_.AddIterator(iter);
+           }
+        }
+        // Wait for everything to complete
+        multi_syncer_.Wait();
+      }
+      assert(!iters_.empty());
+    }
+
+    ReadOptions options_;
+    std::vector<std::unique_ptr<Iterator>> iters_;
+    async::NewDBIteratorSyncer single_syncer_;
+    MultiIteratorCreateSyncer  multi_syncer_;
+  };
 
   void SeekRandom(ThreadState* thread) {
     int64_t read = 0;
@@ -5094,6 +5926,17 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     }
     fprintf(stdout, "\n%s\n", stats.c_str());
   }
+#ifdef OS_WIN
+  PTP_POOL CreateWindowsThreadPool(uint32_t min_threads, uint32_t max_threads) {
+    assert(min_threads != max_threads); // Not what you want
+    PTP_POOL pool = CreateThreadpool(NULL);
+    BOOL ret = SetThreadpoolThreadMinimum(pool, min_threads);
+    assert(ret);
+    (ret);
+    SetThreadpoolThreadMaximum(pool, max_threads);
+    return pool;
+  }
+#endif
 };
 
 int db_bench_tool(int argc, char** argv) {

@@ -171,6 +171,8 @@ public:
 
   uint64_t GetPerfCounterFrequency() const { return perf_counter_frequency_; }
 
+  static size_t GetSectorSize(const std::string& fname);
+
 private:
   // Returns true iff the named directory exists and is a directory.
   virtual bool DirExists(const std::string& dname);
@@ -285,6 +287,10 @@ public:
   unsigned int GetThreadPoolQueueLen(Env::Priority pri) const override;
 
   uint64_t GetThreadID() const override;
+
+  // Expecting PTP_POOL
+  std::unique_ptr<async::AsyncThreadPool> CreateAsyncThreadPool(void* 
+    context) override;
 
   void SleepForMicroseconds(int micros) override;
 

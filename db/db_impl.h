@@ -30,6 +30,7 @@
 #include "db/log_writer.h"
 #include "db/snapshot_impl.h"
 #include "db/version_edit.h"
+#include "db/version_set_request.h"
 #include "db/wal_manager.h"
 #include "db/write_controller.h"
 #include "db/write_thread.h"
@@ -63,6 +64,11 @@ struct JobContext;
 struct ExternalSstFileInfo;
 struct MemTableInfo;
 
+namespace async {
+class DBImplGetContext;
+class DBImplNewIteratorContext;
+}
+
 class DBImpl : public DB {
  public:
   DBImpl(const DBOptions& options, const std::string& dbname);
@@ -93,6 +99,11 @@ class DBImpl : public DB {
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value) override;
+
+  virtual Status Get(const GetCallback& cb, const ReadOptions& options,
+    ColumnFamilyHandle* column_family, const Slice& key,
+    std::string* value) override;
+
   using DB::MultiGet;
   virtual std::vector<Status> MultiGet(
       const ReadOptions& options,
@@ -555,6 +566,7 @@ class DBImpl : public DB {
   Status NewDB();
 
  protected:
+
   Env* const env_;
   const std::string dbname_;
   unique_ptr<VersionSet> versions_;
@@ -628,6 +640,7 @@ class DBImpl : public DB {
   friend class TransactionImpl;
 #ifndef ROCKSDB_LITE
   friend class ForwardIterator;
+  friend class ForwardIteratorAsync;
 #endif
   friend struct SuperVersion;
   friend class CompactedDBImpl;
@@ -635,6 +648,9 @@ class DBImpl : public DB {
   friend class XFTransactionWriteHandler;
 #endif
   struct CompactionState;
+
+  friend class async::DBImplGetContext;
+  friend class async::DBImplNewIteratorContext;
 
   struct WriteContext {
     autovector<SuperVersion*> superversions_to_free_;
@@ -1205,5 +1221,24 @@ static void ClipToRange(T* ptr, V minvalue, V maxvalue) {
   if (static_cast<V>(*ptr) > maxvalue) *ptr = maxvalue;
   if (static_cast<V>(*ptr) < minvalue) *ptr = minvalue;
 }
+
+namespace db_impl_detail {
+struct IterState {
+  IterState(DBImpl* _db, InstrumentedMutex* _mu, SuperVersion* _super_version,
+    bool _background_purge)
+    : db(_db),
+    mu(_mu),
+    super_version(_super_version),
+    background_purge(_background_purge) {}
+
+  DBImpl* db;
+  InstrumentedMutex* mu;
+  SuperVersion* super_version;
+  bool background_purge;
+};
+
+void CleanupIteratorState(void* arg1, void* arg2);
+
+} // namespace db_impl_detail
 
 }  // namespace rocksdb

@@ -281,12 +281,13 @@ class MemTableIterator : public InternalIterator {
 #endif
 
   virtual bool Valid() const override { return valid_; }
-  virtual void Seek(const Slice& k) override {
+
+  void SeekImpl(const Slice& k) {
     PERF_TIMER_GUARD(seek_on_memtable_time);
     PERF_COUNTER_ADD(seek_on_memtable_count, 1);
     if (bloom_ != nullptr) {
       if (!bloom_->MayContain(
-              prefix_extractor_->Transform(ExtractUserKey(k)))) {
+        prefix_extractor_->Transform(ExtractUserKey(k)))) {
         PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
         valid_ = false;
         return;
@@ -297,12 +298,20 @@ class MemTableIterator : public InternalIterator {
     iter_->Seek(k, nullptr);
     valid_ = iter_->Valid();
   }
-  virtual void SeekForPrev(const Slice& k) override {
+  virtual void Seek(const Slice& k) override {
+    SeekImpl(k);
+  }
+  Status RequestSeek(const Callback&, const Slice& k) override {
+    SeekImpl(k);
+    return Status::OK();
+  }
+
+  void SeekForPrevImpl(const Slice& k) {
     PERF_TIMER_GUARD(seek_on_memtable_time);
     PERF_COUNTER_ADD(seek_on_memtable_count, 1);
     if (bloom_ != nullptr) {
       if (!bloom_->MayContain(
-              prefix_extractor_->Transform(ExtractUserKey(k)))) {
+        prefix_extractor_->Transform(ExtractUserKey(k)))) {
         PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
         valid_ = false;
         return;
@@ -319,13 +328,30 @@ class MemTableIterator : public InternalIterator {
       Prev();
     }
   }
+  virtual void SeekForPrev(const Slice& k) override {
+    SeekForPrevImpl(k);
+  }
+  Status RequestSeekForPrev(const Callback&, const Slice& k) override {
+    SeekForPrevImpl(k);
+    return Status::OK();
+  }
   virtual void SeekToFirst() override {
     iter_->SeekToFirst();
     valid_ = iter_->Valid();
   }
+  Status RequestSeekToFirst(const Callback&) override {
+    iter_->SeekToFirst();
+    valid_ = iter_->Valid();
+    return Status::OK();
+  }
   virtual void SeekToLast() override {
     iter_->SeekToLast();
     valid_ = iter_->Valid();
+  }
+  Status RequestSeekToLast(const Callback&) override {
+    iter_->SeekToLast();
+    valid_ = iter_->Valid();
+    return Status::OK();
   }
   virtual void Next() override {
     PERF_COUNTER_ADD(next_on_memtable_count, 1);
@@ -333,12 +359,27 @@ class MemTableIterator : public InternalIterator {
     iter_->Next();
     valid_ = iter_->Valid();
   }
+  Status RequestNext(const Callback&) override {
+    PERF_COUNTER_ADD(next_on_memtable_count, 1);
+    assert(Valid());
+    iter_->Next();
+    valid_ = iter_->Valid();
+    return Status::OK();
+  }
   virtual void Prev() override {
     PERF_COUNTER_ADD(prev_on_memtable_count, 1);
     assert(Valid());
     iter_->Prev();
     valid_ = iter_->Valid();
   }
+  Status RequestPrev(const Callback&) override {
+    PERF_COUNTER_ADD(prev_on_memtable_count, 1);
+    assert(Valid());
+    iter_->Prev();
+    valid_ = iter_->Valid();
+    return Status::OK();
+  }
+
   virtual Slice key() const override {
     assert(Valid());
     return GetLengthPrefixedSlice(iter_->key());

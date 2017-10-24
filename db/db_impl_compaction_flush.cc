@@ -851,7 +851,7 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
     manual_conflict = false;
     if (ShouldntRunManualCompaction(&manual) || (manual.in_progress == true) ||
         scheduled ||
-        ((manual.manual_end = &manual.tmp_storage1)&&(
+        (nullptr != (manual.manual_end = &manual.tmp_storage1)&&(
              (manual.compaction = manual.cfd->CompactRange(
                   *manual.cfd->GetLatestMutableCFOptions(), manual.input_level,
                   manual.output_level, manual.output_path_id, manual.begin,
@@ -1573,7 +1573,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     // Clear Instrument
     ThreadStatusUtil::ResetThreadStatus();
   } else {
-    int output_level  __attribute__((unused)) = c->output_level();
+    int output_level  __attribute__((unused));
+    output_level = c->output_level();
     TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCompaction:NonTrivial",
                              &output_level);
 

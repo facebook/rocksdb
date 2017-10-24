@@ -25,7 +25,23 @@ class StopWatch {
         start_time_((stats_enabled_ || elapsed != nullptr) ? env->NowMicros()
                                                            : 0) {}
 
-  ~StopWatch() {
+  StopWatch(Env* const env, Statistics* statistics, const uint32_t hist_type,
+    bool dont_start, uint64_t* elapsed = nullptr)
+    : env_(env),
+    statistics_(statistics),
+    hist_type_(hist_type),
+    elapsed_(elapsed),
+    overwrite_(true),
+    stats_enabled_(statistics && statistics->HistEnabledForType(hist_type)),
+    start_time_(((stats_enabled_ || elapsed != nullptr) && !dont_start) ? env->NowMicros()
+      : 0) {
+    }
+
+  void start() { start_time_ = env_->NowMicros(); }
+
+  bool stats_enabled() const { return stats_enabled_; }
+
+  void elapsed() {
     if (elapsed_) {
       if (overwrite_) {
         *elapsed_ = env_->NowMicros() - start_time_;
@@ -33,11 +49,26 @@ class StopWatch {
         *elapsed_ += env_->NowMicros() - start_time_;
       }
     }
+
     if (stats_enabled_) {
       statistics_->measureTime(hist_type_,
-          (elapsed_ != nullptr) ? *elapsed_ :
-                                  (env_->NowMicros() - start_time_));
+        (elapsed_ != nullptr) ? *elapsed_ :
+        (env_->NowMicros() - start_time_));
     }
+  }
+
+  void disarm() {
+    elapsed_ = nullptr;
+    stats_enabled_ = false;
+  }
+
+  void elapse_and_disarm() {
+    elapsed();
+    disarm();
+  }
+
+  ~StopWatch() {
+    elapsed();
   }
 
   uint64_t start_time() const { return start_time_; }
@@ -49,7 +80,7 @@ class StopWatch {
   uint64_t* elapsed_;
   bool overwrite_;
   bool stats_enabled_;
-  const uint64_t start_time_;
+  uint64_t start_time_;
 };
 
 // a nano second precision stopwatch

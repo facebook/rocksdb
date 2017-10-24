@@ -20,6 +20,7 @@
 #define STORAGE_ROCKSDB_INCLUDE_ITERATOR_H_
 
 #include <string>
+#include "rocksdb/async/callables.h"
 #include "rocksdb/cleanable.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
@@ -62,6 +63,25 @@ class Iterator : public Cleanable {
   // true iff the iterator was not positioned at the first entry in source.
   // REQUIRES: Valid()
   virtual void Prev() = 0;
+
+  // Async methods. They all have Status as a ret
+  // to either indicate async or another condition took
+  // place lower in the stack
+  using
+  Callback = async::Callable<Status, const Status&>;
+
+  virtual Status RequestSeekToFirst(const Callback&);
+
+  virtual Status RequestSeekToLast(const Callback&);
+
+  virtual Status RequestSeek(const Callback&, const Slice& target);
+
+  virtual Status RequestSeekForPrev(const Callback&, const Slice& target);
+
+  virtual Status RequestNext(const Callback&);
+
+  virtual Status RequestPrev(const Callback&);
+
 
   // Return the key for the current entry.  The underlying storage for
   // the returned slice is valid only until the next modification of

@@ -61,7 +61,14 @@ void BlockIter::Next() {
   ParseNextKey();
 }
 
-void BlockIter::Prev() {
+Status BlockIter::RequestNext(const Callback&) {
+  assert(Valid());
+  ParseNextKey();
+  return Status::OK();
+}
+
+inline
+void BlockIter::PrevImpl() {
   assert(Valid());
 
   assert(prev_entries_idx_ == -1 ||
@@ -135,7 +142,17 @@ void BlockIter::Prev() {
   prev_entries_idx_ = static_cast<int32_t>(prev_entries_.size()) - 1;
 }
 
-void BlockIter::Seek(const Slice& target) {
+void BlockIter::Prev() {
+  PrevImpl();
+}
+
+Status BlockIter::RequestPrev(const Callback&) {
+  PrevImpl();
+  return Status::OK();
+}
+
+inline
+void BlockIter::SeekImpl(const Slice& target) {
   PERF_TIMER_GUARD(block_seek_nanos);
   if (data_ == nullptr) {  // Not init yet
     return;
@@ -161,7 +178,17 @@ void BlockIter::Seek(const Slice& target) {
   }
 }
 
-void BlockIter::SeekForPrev(const Slice& target) {
+void BlockIter::Seek(const Slice& target) {
+  SeekImpl(target);
+}
+
+Status BlockIter::RequestSeek(const Callback&, const Slice& target) {
+  SeekImpl(target);
+  return Status::OK();
+}
+
+inline
+void BlockIter::SeekForPrevImpl(const Slice& target) {
   PERF_TIMER_GUARD(block_seek_nanos);
   if (data_ == nullptr) {  // Not init yet
     return;
@@ -187,6 +214,15 @@ void BlockIter::SeekForPrev(const Slice& target) {
   }
 }
 
+void BlockIter::SeekForPrev(const Slice& target) {
+  SeekForPrevImpl(target);
+}
+
+Status BlockIter::RequestSeekForPrev(const Callback&, const Slice& target) {
+  SeekForPrevImpl(target);
+  return Status::OK();
+}
+
 void BlockIter::SeekToFirst() {
   if (data_ == nullptr) {  // Not init yet
     return;
@@ -195,7 +231,18 @@ void BlockIter::SeekToFirst() {
   ParseNextKey();
 }
 
-void BlockIter::SeekToLast() {
+Status BlockIter::RequestSeekToFirst(const Callback&) {
+  Status s;
+  if (data_ == nullptr) {  // Not init yet
+    return s;
+  }
+  SeekToRestartPoint(0);
+  ParseNextKey();
+  return s;
+}
+
+inline
+void BlockIter::SeekToLastImpl() {
   if (data_ == nullptr) {  // Not init yet
     return;
   }
@@ -203,6 +250,15 @@ void BlockIter::SeekToLast() {
   while (ParseNextKey() && NextEntryOffset() < restarts_) {
     // Keep skipping
   }
+}
+
+void BlockIter::SeekToLast() {
+  SeekToLastImpl();
+}
+
+Status BlockIter::RequestSeekToLast(const Callback&) {
+  SeekToLastImpl();
+  return Status::OK();
 }
 
 void BlockIter::CorruptionError() {
