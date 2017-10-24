@@ -664,6 +664,7 @@ TEST_F(BlobDBTest, GCOldestSimpleBlobFileWhenOutOfSpace) {
   Options options;
   options.env = mock_env_.get();
   BlobDBOptions bdb_options;
+  bdb_options.is_fifo = true;
   bdb_options.blob_dir_size = 100;
   bdb_options.blob_file_size = 100;
   bdb_options.disable_background_tasks = true;
