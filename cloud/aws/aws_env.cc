@@ -180,6 +180,9 @@ AwsEnv::AwsEnv(Env* underlying_env, const std::string& src_bucket_prefix,
   // Setup how retries need to be done
   config.retryStrategy =
       std::make_shared<AwsRetryStrategy>(cloud_env_options, info_log_);
+  if (cloud_env_options.request_timeout_ms != 0) {
+    config.requestTimeoutMs = cloud_env_options.request_timeout_ms;
+  }
 
   if (!GetSrcBucketPrefix().empty()) {
     has_src_bucket_ = true;

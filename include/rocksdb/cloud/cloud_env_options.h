@@ -105,6 +105,10 @@ class CloudEnvOptions {
   // Default: true
   bool create_bucket_if_missing;
 
+  // request timeout for requests from the cloud storage. A value of 0
+  // means the default timeout assigned by the underlying cloud storage.
+  uint64_t request_timeout_ms;
+
   CloudEnvOptions(
       CloudType _cloud_type = CloudType::kAws,
       bool _keep_local_sst_files = false, bool _keep_local_log_files = true,
@@ -113,7 +117,8 @@ class CloudEnvOptions {
       bool _validate_filesize = true,
       std::shared_ptr<CloudRequestCallback> _cloud_request_callback = nullptr,
       bool _server_side_encryption = false, std::string _encryption_key_id = "",
-      bool _create_bucket_if_missing = true)
+      bool _create_bucket_if_missing = true,
+      uint64_t _request_timeout_ms = 0)
       : cloud_type(_cloud_type),
         keep_local_sst_files(_keep_local_sst_files),
         keep_local_log_files(_keep_local_log_files),
@@ -124,7 +129,9 @@ class CloudEnvOptions {
         cloud_request_callback(_cloud_request_callback),
         server_side_encryption(_server_side_encryption),
         encryption_key_id(std::move(_encryption_key_id)),
-        create_bucket_if_missing(_create_bucket_if_missing) {
+        create_bucket_if_missing(_create_bucket_if_missing),
+        request_timeout_ms(_request_timeout_ms) {
+
     assert(manifest_durable_periodicity_millis == 0 ||
            keep_local_log_files == true);
   }
