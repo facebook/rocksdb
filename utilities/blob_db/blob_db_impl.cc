@@ -110,7 +110,6 @@ BlobDBImpl::BlobDBImpl(const std::string& dbname,
       db_impl_(nullptr),
       env_(db_options.env),
       ttl_extractor_(blob_db_options.ttl_extractor.get()),
-      wo_set_(false),
       bdb_options_(blob_db_options),
       db_options_(db_options),
       env_options_(db_options),
@@ -167,7 +166,6 @@ BlobDBOptions BlobDBImpl::GetBlobDBOptions() const { return bdb_options_; }
 BlobDBImpl::BlobDBImpl(DB* db, const BlobDBOptions& blob_db_options)
     : BlobDB(db),
       db_impl_(static_cast_with_check<DBImpl, DB>(db)),
-      wo_set_(false),
       bdb_options_(blob_db_options),
       db_options_(db->GetOptions()),
       env_options_(db_->GetOptions()),
@@ -542,17 +540,6 @@ std::shared_ptr<Writer> BlobDBImpl::CheckOrCreateWriterLocked(
   return writer;
 }
 
-void BlobDBImpl::UpdateWriteOptions(const WriteOptions& options) {
-  if (!wo_set_.load(std::memory_order_relaxed)) {
-    // DCLP
-    WriteLock wl(&mutex_);
-    if (!wo_set_.load(std::memory_order_acquire)) {
-      wo_set_.store(true, std::memory_order_release);
-      write_options_ = options;
-    }
-  }
-}
-
 std::shared_ptr<BlobFile> BlobDBImpl::SelectBlobFile() {
   uint32_t val = blob_rgen.Next();
   {
@@ -668,14 +655,6 @@ std::shared_ptr<BlobFile> BlobDBImpl::SelectBlobFileTTL(uint64_t expiration) {
   return bfile;
 }
 
-Status BlobDBImpl::Put(const WriteOptions& options, const Slice& key,
-                       const Slice& value) {
-  std::string new_value;
-  Slice value_slice;
-  uint64_t expiration = ExtractExpiration(key, value, &value_slice, &new_value);
-  return PutUntil(options, key, value_slice, expiration);
-}
-
 Status BlobDBImpl::Delete(const WriteOptions& options, const Slice& key) {
   SequenceNumber lsn = db_impl_->GetLatestSequenceNumber();
   Status s = db_->Delete(options, key);
@@ -685,79 +664,41 @@ Status BlobDBImpl::Delete(const WriteOptions& options, const Slice& key) {
   return s;
 }
 
-Status BlobDBImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
+Status BlobDBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
   class BlobInserter : public WriteBatch::Handler {
    private:
-    BlobDBImpl* impl_;
-    SequenceNumber sequence_;
-    WriteBatch updates_blob_;
-    std::shared_ptr<BlobFile> last_file_;
-    bool has_put_;
-    std::string new_value_;
+    const WriteOptions& options_;
+    BlobDBImpl* blob_db_impl_;
     uint32_t default_cf_id_;
+    SequenceNumber sequence_;
+    WriteBatch batch_;
 
    public:
-    BlobInserter(BlobDBImpl* impl, SequenceNumber seq)
-        : impl_(impl),
-          sequence_(seq),
-          has_put_(false),
-          default_cf_id_(reinterpret_cast<ColumnFamilyHandleImpl*>(
-                             impl_->DefaultColumnFamily())
-                             ->cfd()
-                             ->GetID()) {}
+    BlobInserter(const WriteOptions& options, BlobDBImpl* blob_db_impl,
+                 uint32_t default_cf_id, SequenceNumber seq)
+        : options_(options),
+          blob_db_impl_(blob_db_impl),
+          default_cf_id_(default_cf_id),
+          sequence_(seq) {}
 
     SequenceNumber sequence() { return sequence_; }
 
-    WriteBatch* updates_blob() { return &updates_blob_; }
-
-    std::shared_ptr<BlobFile>& last_file() { return last_file_; }
-
-    bool has_put() { return has_put_; }
+    WriteBatch* batch() { return &batch_; }
 
     virtual Status PutCF(uint32_t column_family_id, const Slice& key,
-                         const Slice& value_slice) override {
+                         const Slice& value) override {
       if (column_family_id != default_cf_id_) {
         return Status::NotSupported(
             "Blob DB doesn't support non-default column family.");
       }
-      Slice value_unc;
-      uint64_t expiration =
-          impl_->ExtractExpiration(key, value_slice, &value_unc, &new_value_);
-
-      std::shared_ptr<BlobFile> bfile =
-          (expiration != kNoExpiration)
-              ? impl_->SelectBlobFileTTL(expiration)
-              : ((last_file_) ? last_file_ : impl_->SelectBlobFile());
-      if (last_file_ && last_file_ != bfile) {
-        return Status::NotFound("too many blob files");
-      }
-
-      if (!bfile) {
-        return Status::NotFound("blob file not found");
-      }
-
-      last_file_ = bfile;
-      has_put_ = true;
-
-      std::string compression_output;
-      Slice value = impl_->GetCompressedSlice(value_unc, &compression_output);
-
-      std::string headerbuf;
-      Writer::ConstructBlobHeader(&headerbuf, key, value, expiration, -1);
-      std::string index_entry;
-      Status s = impl_->AppendBlob(bfile, headerbuf, key, value, &index_entry);
-      if (!s.ok()) {
-        return s;
-      }
-      bfile->ExtendSequenceRange(sequence_);
+      std::string new_value;
+      Slice value_slice;
+      uint64_t expiration = blob_db_impl_->ExtractExpiration(
+          key, value, &value_slice, &new_value);
+      Status s = blob_db_impl_->PutBlobValue(options_, key, value_slice,
+                                             expiration, sequence_, &batch_);
       sequence_++;
-
-      if (expiration != kNoExpiration) {
-        extendTTL(&(bfile->ttl_range_), expiration);
-      }
-
-      return WriteBatchInternal::PutBlobIndex(&updates_blob_, column_family_id,
-                                              key, index_entry);
+      return s;
     }
 
     virtual Status DeleteCF(uint32_t column_family_id,
@@ -766,9 +707,9 @@ Status BlobDBImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
         return Status::NotSupported(
             "Blob DB doesn't support non-default column family.");
       }
-      WriteBatchInternal::Delete(&updates_blob_, column_family_id, key);
+      Status s = WriteBatchInternal::Delete(&batch_, column_family_id, key);
       sequence_++;
-      return Status::OK();
+      return s;
     }
 
     virtual Status DeleteRange(uint32_t column_family_id,
@@ -777,10 +718,10 @@ Status BlobDBImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
         return Status::NotSupported(
             "Blob DB doesn't support non-default column family.");
       }
-      WriteBatchInternal::DeleteRange(&updates_blob_, column_family_id,
-                                      begin_key, end_key);
+      Status s = WriteBatchInternal::DeleteRange(&batch_, column_family_id,
+                                                 begin_key, end_key);
       sequence_++;
-      return Status::OK();
+      return s;
     }
 
     virtual Status SingleDeleteCF(uint32_t /*column_family_id*/,
@@ -794,32 +735,25 @@ Status BlobDBImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
     }
 
     virtual void LogData(const Slice& blob) override {
-      updates_blob_.PutLogData(blob);
+      batch_.PutLogData(blob);
     }
   };
 
   MutexLock l(&write_mutex_);
 
-  SequenceNumber current_seq = db_impl_->GetLatestSequenceNumber() + 1;
-  BlobInserter blob_inserter(this, current_seq);
+  uint32_t default_cf_id =
+      reinterpret_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily())->GetID();
+  SequenceNumber current_seq = GetLatestSequenceNumber() + 1;
+  BlobInserter blob_inserter(options, this, default_cf_id, current_seq);
   Status s = updates->Iterate(&blob_inserter);
   if (!s.ok()) {
     return s;
   }
-  s = db_->Write(opts, blob_inserter.updates_blob());
+  s = db_->Write(options, blob_inserter.batch());
   if (!s.ok()) {
     return s;
   }
-  assert(current_seq ==
-         WriteBatchInternal::Sequence(blob_inserter.updates_blob()));
-  assert(blob_inserter.sequence() ==
-         current_seq + WriteBatchInternal::Count(blob_inserter.updates_blob()));
-  if (blob_inserter.has_put()) {
-    s = CloseBlobFileIfNeeded(blob_inserter.last_file());
-    if (!s.ok()) {
-      return s;
-    }
-  }
+  assert(blob_inserter.sequence() == GetLatestSequenceNumber() + 1);
 
   // add deleted key to list of keys that have been deleted for book-keeping
   class DeleteBookkeeper : public WriteBatch::Handler {
@@ -888,12 +822,93 @@ void BlobDBImpl::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
   }
 }
 
+Status BlobDBImpl::Put(const WriteOptions& options, const Slice& key,
+                       const Slice& value) {
+  std::string new_value;
+  Slice value_slice;
+  uint64_t expiration = ExtractExpiration(key, value, &value_slice, &new_value);
+  return PutUntil(options, key, value_slice, expiration);
+}
+
 Status BlobDBImpl::PutWithTTL(const WriteOptions& options,
                               const Slice& key, const Slice& value,
                               uint64_t ttl) {
   uint64_t now = EpochNow();
-  assert(std::numeric_limits<uint64_t>::max() - now > ttl);
-  return PutUntil(options, key, value, now + ttl);
+  uint64_t expiration = kNoExpiration - now > ttl ? now + ttl : kNoExpiration;
+  return PutUntil(options, key, value, expiration);
+}
+
+Status BlobDBImpl::PutUntil(const WriteOptions& options, const Slice& key,
+                            const Slice& value, uint64_t expiration) {
+  MutexLock l(&write_mutex_);
+  SequenceNumber sequence = GetLatestSequenceNumber() + 1;
+  WriteBatch batch;
+  Status s = PutBlobValue(options, key, value, expiration, sequence, &batch);
+  if (s.ok()) {
+    s = db_->Write(options, &batch);
+  }
+  return s;
+}
+
+Status BlobDBImpl::PutBlobValue(const WriteOptions& options, const Slice& key,
+                                const Slice& value, uint64_t expiration,
+                                SequenceNumber sequence, WriteBatch* batch) {
+  TEST_SYNC_POINT("BlobDBImpl::PutBlobValue:Start");
+  Status s;
+  std::string index_entry;
+  uint32_t column_family_id =
+      reinterpret_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily())->GetID();
+  if (value.size() < bdb_options_.min_blob_size) {
+    if (expiration == kNoExpiration) {
+      // Put as normal value
+      s = batch->Put(key, value);
+    } else {
+      // Inlined with TTL
+      BlobIndex::EncodeInlinedTTL(&index_entry, expiration, value);
+      s = WriteBatchInternal::PutBlobIndex(batch, column_family_id, key,
+                                           index_entry);
+    }
+  } else {
+    std::shared_ptr<BlobFile> bfile = (expiration != kNoExpiration)
+                                          ? SelectBlobFileTTL(expiration)
+                                          : SelectBlobFile();
+
+    if (!bfile) {
+      return Status::NotFound("Blob file not found");
+    }
+
+    std::string compression_output;
+    Slice value_compressed = GetCompressedSlice(value, &compression_output);
+
+    std::string headerbuf;
+    Writer::ConstructBlobHeader(&headerbuf, key, value_compressed, expiration,
+                                -1);
+
+    s = AppendBlob(bfile, headerbuf, key, value_compressed, expiration,
+                   &index_entry);
+
+    if (s.ok()) {
+      bfile->ExtendSequenceRange(sequence);
+      if (expiration != kNoExpiration) {
+        extendTTL(&(bfile->ttl_range_), expiration);
+      }
+      s = CloseBlobFileIfNeeded(bfile);
+      if (s.ok()) {
+        s = WriteBatchInternal::PutBlobIndex(batch, column_family_id, key,
+                                             index_entry);
+      }
+    } else {
+      ROCKS_LOG_ERROR(db_options_.info_log,
+                      "Failed to append blob to FILE: %s: KEY: %s VALSZ: %d"
+                      " status: '%s' blob_file: '%s'",
+                      bfile->PathName().c_str(), key.ToString().c_str(),
+                      value.size(), s.ToString().c_str(),
+                      bfile->DumpState().c_str());
+    }
+  }
+
+  TEST_SYNC_POINT("BlobDBImpl::PutBlobValue:Finish");
+  return s;
 }
 
 Slice BlobDBImpl::GetCompressedSlice(const Slice& raw,
@@ -906,63 +921,6 @@ Slice BlobDBImpl::GetCompressedSlice(const Slice& raw,
   CompressBlock(raw, compression_opts, &ct, kBlockBasedTableVersionFormat,
                 Slice(), compression_output);
   return *compression_output;
-}
-
-Status BlobDBImpl::PutUntil(const WriteOptions& options, const Slice& key,
-                            const Slice& value_unc, uint64_t expiration) {
-  TEST_SYNC_POINT("BlobDBImpl::PutUntil:Start");
-  MutexLock l(&write_mutex_);
-  UpdateWriteOptions(options);
-
-  std::shared_ptr<BlobFile> bfile = (expiration != kNoExpiration)
-                                        ? SelectBlobFileTTL(expiration)
-                                        : SelectBlobFile();
-
-  if (!bfile) return Status::NotFound("Blob file not found");
-
-  std::string compression_output;
-  Slice value = GetCompressedSlice(value_unc, &compression_output);
-
-  std::string headerbuf;
-  Writer::ConstructBlobHeader(&headerbuf, key, value, expiration, -1);
-
-  std::string index_entry;
-  Status s = AppendBlob(bfile, headerbuf, key, value, &index_entry);
-  if (!s.ok()) {
-    ROCKS_LOG_ERROR(db_options_.info_log,
-                    "Failed to append blob to FILE: %s: KEY: %s VALSZ: %d"
-                    " status: '%s' blob_file: '%s'",
-                    bfile->PathName().c_str(), key.ToString().c_str(),
-                    value.size(), s.ToString().c_str(),
-                    bfile->DumpState().c_str());
-    return s;
-  }
-
-  WriteBatch batch;
-  uint32_t column_family_id =
-      reinterpret_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily())->GetID();
-  s = WriteBatchInternal::PutBlobIndex(&batch, column_family_id, key,
-                                       index_entry);
-
-  // this goes to the base db and can be expensive
-  if (s.ok()) {
-    s = db_->Write(options, &batch);
-  }
-
-  if (s.ok()) {
-    // this is the sequence number of the write.
-    SequenceNumber sn = WriteBatchInternal::Sequence(&batch);
-    bfile->ExtendSequenceRange(sn);
-
-    if (expiration != kNoExpiration) {
-      extendTTL(&(bfile->ttl_range_), expiration);
-    }
-
-    s = CloseBlobFileIfNeeded(bfile);
-  }
-
-  TEST_SYNC_POINT("BlobDBImpl::PutUntil:Finish");
-  return s;
 }
 
 uint64_t BlobDBImpl::ExtractExpiration(const Slice& key, const Slice& value,
@@ -981,7 +939,8 @@ uint64_t BlobDBImpl::ExtractExpiration(const Slice& key, const Slice& value,
 
 Status BlobDBImpl::AppendBlob(const std::shared_ptr<BlobFile>& bfile,
                               const std::string& headerbuf, const Slice& key,
-                              const Slice& value, std::string* index_entry) {
+                              const Slice& value, uint64_t expiration,
+                              std::string* index_entry) {
   auto size_put = BlobLogRecord::kHeaderSize + key.size() + value.size();
   if (bdb_options_.blob_dir_size > 0 &&
       (total_blob_space_.load() + size_put) > bdb_options_.blob_dir_size) {
@@ -1018,14 +977,14 @@ Status BlobDBImpl::AppendBlob(const std::shared_ptr<BlobFile>& bfile,
   last_period_write_ += size_put;
   total_blob_space_ += size_put;
 
-  BlobIndex::EncodeBlob(index_entry, bfile->BlobFileNumber(), blob_offset,
-                        value.size(), bdb_options_.compression);
-
-  if (debug_level_ >= 3)
-    ROCKS_LOG_INFO(db_options_.info_log,
-                   ">Adding KEY FILE: %s: BC: %d OFFSET: %d SZ: %d",
-                   bfile->PathName().c_str(), bfile->blob_count_.load(),
-                   blob_offset, value.size());
+  if (expiration == kNoExpiration) {
+    BlobIndex::EncodeBlob(index_entry, bfile->BlobFileNumber(), blob_offset,
+                          value.size(), bdb_options_.compression);
+  } else {
+    BlobIndex::EncodeBlobTTL(index_entry, expiration, bfile->BlobFileNumber(),
+                             blob_offset, value.size(),
+                             bdb_options_.compression);
+  }
 
   return s;
 }
@@ -1071,8 +1030,19 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
   if (!s.ok()) {
     return s;
   }
-  assert(!blob_index.IsInlined());
-  assert(!blob_index.HasTTL());
+  if (blob_index.HasTTL() && blob_index.expiration() <= EpochNow()) {
+    return Status::NotFound("Key expired");
+  }
+  if (blob_index.IsInlined()) {
+    // TODO(yiwu): If index_entry is a PinnableSlice, we can also pin the same
+    // memory buffer to avoid extra copy.
+    value->PinSelf(blob_index.value());
+    return Status::OK();
+  }
+  if (blob_index.size() == 0) {
+    value->PinSelf("");
+    return Status::OK();
+  }
 
   // offset has to have certain min, as we will read CRC
   // later from the Blob Header, which needs to be also a

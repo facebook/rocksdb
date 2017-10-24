@@ -15,6 +15,7 @@
 #include <set>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -24,6 +25,7 @@
 #include "rocksdb/listener.h"
 #include "rocksdb/options.h"
 #include "rocksdb/wal_filter.h"
+#include "util/autovector.h"
 #include "util/mpsc.h"
 #include "util/mutexlock.h"
 #include "util/timer_queue.h"
@@ -249,7 +251,7 @@ class BlobDBImpl : public BlobDB {
 
   using BlobDB::PutUntil;
   Status PutUntil(const WriteOptions& options, const Slice& key,
-                  const Slice& value_unc, uint64_t expiration) override;
+                  const Slice& value, uint64_t expiration) override;
 
   Status LinkToBaseDB(DB* db) override;
 
@@ -314,9 +316,14 @@ class BlobDBImpl : public BlobDB {
   uint64_t ExtractExpiration(const Slice& key, const Slice& value,
                              Slice* value_slice, std::string* new_value);
 
+  Status PutBlobValue(const WriteOptions& options, const Slice& key,
+                      const Slice& value, uint64_t expiration,
+                      SequenceNumber sequence, WriteBatch* batch);
+
   Status AppendBlob(const std::shared_ptr<BlobFile>& bfile,
                     const std::string& headerbuf, const Slice& key,
-                    const Slice& value, std::string* index_entry);
+                    const Slice& value, uint64_t expiration,
+                    std::string* index_entry);
 
   // find an existing blob log file based on the expiration unix epoch
   // if such a file does not exist, return nullptr
@@ -326,8 +333,6 @@ class BlobDBImpl : public BlobDB {
   std::shared_ptr<BlobFile> SelectBlobFile();
 
   std::shared_ptr<BlobFile> FindBlobFileLocked(uint64_t expiration) const;
-
-  void UpdateWriteOptions(const WriteOptions& options);
 
   void Shutdown();
 
@@ -425,10 +430,6 @@ class BlobDBImpl : public BlobDB {
   DBImpl* db_impl_;
   Env* env_;
   TTLExtractor* ttl_extractor_;
-
-  // a boolean to capture whether write_options has been set
-  std::atomic<bool> wo_set_;
-  WriteOptions write_options_;
 
   // the options that govern the behavior of Blob Storage
   BlobDBOptions bdb_options_;

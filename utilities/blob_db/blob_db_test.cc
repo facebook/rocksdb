@@ -591,8 +591,8 @@ TEST_F(BlobDBTest, GCRelocateKeyWhileOverwriting) {
 
   SyncPoint::GetInstance()->LoadDependency(
       {{"BlobDBImpl::GCFileAndUpdateLSM:AfterGetFromBaseDB",
-        "BlobDBImpl::PutUntil:Start"},
-       {"BlobDBImpl::PutUntil:Finish",
+        "BlobDBImpl::PutBlobValue:Start"},
+       {"BlobDBImpl::PutBlobValue:Finish",
         "BlobDBImpl::GCFileAndUpdateLSM:BeforeRelocate"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
@@ -628,8 +628,8 @@ TEST_F(BlobDBTest, GCExpiredKeyWhileOverwriting) {
 
   SyncPoint::GetInstance()->LoadDependency(
       {{"BlobDBImpl::GCFileAndUpdateLSM:AfterGetFromBaseDB",
-        "BlobDBImpl::PutUntil:Start"},
-       {"BlobDBImpl::PutUntil:Finish",
+        "BlobDBImpl::PutBlobValue:Start"},
+       {"BlobDBImpl::PutBlobValue:Finish",
         "BlobDBImpl::GCFileAndUpdateLSM:BeforeDelete"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
