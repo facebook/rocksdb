@@ -25,7 +25,6 @@
 #include "rocksdb/listener.h"
 #include "rocksdb/options.h"
 #include "rocksdb/wal_filter.h"
-#include "util/autovector.h"
 #include "util/mpsc.h"
 #include "util/mutexlock.h"
 #include "util/timer_queue.h"
