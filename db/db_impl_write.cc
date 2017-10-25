@@ -85,6 +85,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     return WriteImplWALOnly(write_options, my_batch, callback, log_used,
                             log_ref, seq_used);
   }
+  // Otherwise IsLastestPersistentState optimization does not make sense
+  assert(!my_batch->IsLastestPersistentState() || disable_memtable);
 
   if (immutable_db_options_.enable_pipelined_write) {
     return PipelinedWriteImpl(write_options, my_batch, callback, log_used,
@@ -675,9 +677,11 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
 }
 
 WriteBatch* DBImpl::MergeBatch(const WriteThread::WriteGroup& write_group,
-                               WriteBatch* tmp_batch, size_t* write_with_wal) {
+                               WriteBatch* tmp_batch, size_t* write_with_wal,
+                               WriteBatch** to_be_cached_state) {
   assert(write_with_wal != nullptr);
   assert(tmp_batch != nullptr);
+  assert(*to_be_cached_state == nullptr);
   WriteBatch* merged_batch = nullptr;
   *write_with_wal = 0;
   auto* leader = write_group.leader;
@@ -687,6 +691,9 @@ WriteBatch* DBImpl::MergeBatch(const WriteThread::WriteGroup& write_group,
     // contains one batch, that batch should be written to the WAL,
     // and the batch is not wanting to be truncated
     merged_batch = leader->batch;
+    if (merged_batch->IsLastestPersistentState()) {
+      *to_be_cached_state = merged_batch;
+    }
     *write_with_wal = 1;
   } else {
     // WAL needs all of the batches flattened into a single batch.
@@ -697,6 +704,10 @@ WriteBatch* DBImpl::MergeBatch(const WriteThread::WriteGroup& write_group,
       if (writer->ShouldWriteToWAL()) {
         WriteBatchInternal::Append(merged_batch, writer->batch,
                                    /*WAL_only*/ true);
+    if (writer->batch->IsLastestPersistentState()) {
+      // We only need to cache the last such write batch
+      *to_be_cached_state = writer->batch;
+    }
         (*write_with_wal)++;
       }
     }
@@ -731,8 +742,9 @@ Status DBImpl::WriteToWAL(const WriteThread::WriteGroup& write_group,
   Status status;
 
   size_t write_with_wal = 0;
+  WriteBatch* to_be_cached_state = nullptr;
   WriteBatch* merged_batch =
-      MergeBatch(write_group, &tmp_batch_, &write_with_wal);
+      MergeBatch(write_group, &tmp_batch_, &write_with_wal, &to_be_cached_state);
   if (merged_batch == write_group.leader->batch) {
     write_group.leader->log_used = logfile_number_;
   } else if (write_with_wal > 1) {
@@ -745,6 +757,9 @@ Status DBImpl::WriteToWAL(const WriteThread::WriteGroup& write_group,
 
   uint64_t log_size;
   status = WriteToWAL(*merged_batch, log_writer, log_used, &log_size);
+  if (to_be_cached_state) {
+    cached_recoverable_state_ = *to_be_cached_state;
+  }
 
   if (status.ok() && need_log_sync) {
     StopWatch sw(env_, stats_, WAL_FILE_SYNC_MICROS);
@@ -794,8 +809,9 @@ Status DBImpl::ConcurrentWriteToWAL(const WriteThread::WriteGroup& write_group,
 
   WriteBatch tmp_batch;
   size_t write_with_wal = 0;
+  WriteBatch* to_be_cached_state = nullptr;
   WriteBatch* merged_batch =
-      MergeBatch(write_group, &tmp_batch, &write_with_wal);
+      MergeBatch(write_group, &tmp_batch, &write_with_wal, &to_be_cached_state);
 
   // We need to lock log_write_mutex_ since logs_ and alive_log_files might be
   // pushed back concurrently
@@ -814,6 +830,9 @@ Status DBImpl::ConcurrentWriteToWAL(const WriteThread::WriteGroup& write_group,
   log::Writer* log_writer = logs_.back().writer;
   uint64_t log_size;
   status = WriteToWAL(*merged_batch, log_writer, log_used, &log_size);
+  if (to_be_cached_state) {
+    cached_recoverable_state_ = *to_be_cached_state;
+  }
   log_write_mutex_.Unlock();
 
   if (status.ok()) {
@@ -826,6 +845,33 @@ Status DBImpl::ConcurrentWriteToWAL(const WriteThread::WriteGroup& write_group,
     RecordTick(stats_, WRITE_WITH_WAL, write_with_wal);
   }
   return status;
+}
+
+Status DBImpl::WriteRecoverableState() {
+  if (WriteBatchInternal::Count(&cached_recoverable_state_) > 0) {
+    bool dont_care_bool;
+    SequenceNumber next_seq;
+    InstrumentedMutexLock wl(&log_write_mutex_);
+    if (concurrent_prepare_) {
+      log_write_mutex_.Lock();
+    }
+      SequenceNumber seq = versions_->LastSequence();
+          WriteBatchInternal::SetSequence(&cached_recoverable_state_, ++seq);
+    auto status = WriteBatchInternal::InsertInto(
+        &cached_recoverable_state_, column_family_memtables_.get(),
+        &flush_scheduler_, true, 0 /*recovery_log_number*/, this,
+        false /* concurrent_memtable_writes */, &next_seq, &dont_care_bool,
+        seq_per_batch_);
+      versions_->SetLastSequence(--next_seq);
+    if (concurrent_prepare_) {
+      log_write_mutex_.Unlock();
+    }
+    if (status.ok()) {
+      cached_recoverable_state_.Clear();
+    }
+    return status;
+  }
+  return Status::OK();
 }
 
 Status DBImpl::SwitchWAL(WriteContext* write_context) {

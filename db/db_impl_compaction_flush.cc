@@ -957,9 +957,14 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       write_thread_.EnterUnbatched(&w, &mutex_);
     }
 
+    // Recoverable state is persisted in WAL. After memtable swtich WAL might be deleted, so we write the state to memtable to be persisted as well.
+    s = WriteRecoverableState();
+
+    if (s.ok()) {
     // SwitchMemtable() will release and reacquire mutex
     // during execution
     s = SwitchMemtable(cfd, &context);
+    }
 
     if (!writes_stopped) {
       write_thread_.ExitUnbatched(&w);

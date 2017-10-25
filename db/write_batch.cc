@@ -280,6 +280,14 @@ bool WriteBatch::HasRollback() const {
   return (ComputeContentFlags() & ContentFlags::HAS_ROLLBACK) != 0;
 }
 
+bool WriteBatch::IsLastestPersistentState() const {
+  return is_latest_persistent_state_;
+}
+
+void WriteBatch::SetAsLastestPersistentState() {
+  is_latest_persistent_state_ = true;
+}
+
 Status ReadRecordFromWriteBatch(Slice* input, char* tag,
                                 uint32_t* column_family, Slice* key,
                                 Slice* value, Slice* blob, Slice* xid) {

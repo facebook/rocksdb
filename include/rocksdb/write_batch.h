@@ -306,6 +306,11 @@ class WriteBatch : public WriteBatchBase {
   // Returns trie if MarkRollback will be called during Iterate
   bool HasRollback() const;
 
+  // This write batch includes the latest state that should be persisted. Such
+  // state meant to be used only during recovery.
+  bool IsLastestPersistentState() const;
+void SetAsLastestPersistentState();
+
   using WriteBatchBase::GetWriteBatch;
   WriteBatch* GetWriteBatch() override { return this; }
 
@@ -346,6 +351,9 @@ class WriteBatch : public WriteBatchBase {
 
   // Maximum size of rep_.
   size_t max_bytes_;
+
+  // Is the content of the batch is the application latest state that meant only to be usedfor recovery?
+  bool is_latest_persistent_state_ = false;
 
  protected:
   std::string rep_;  // See comment in write_batch.cc for the format of rep_

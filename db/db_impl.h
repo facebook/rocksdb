@@ -669,6 +669,9 @@ class DBImpl : public DB {
 
   uint64_t FindMinLogContainingOutstandingPrep();
   uint64_t FindMinPrepLogReferencedByMemTable();
+  // write cached_recoverable_state_ to memtable if it is not empty
+  // The writer must be the leader in write_thread_ and holding mutex_
+  Status WriteRecoverableState();
 
  private:
   friend class DB;
@@ -800,7 +803,7 @@ class DBImpl : public DB {
                          WriteContext* write_context);
 
   WriteBatch* MergeBatch(const WriteThread::WriteGroup& write_group,
-                         WriteBatch* tmp_batch, size_t* write_with_wal);
+                         WriteBatch* tmp_batch, size_t* write_with_wal, WriteBatch** to_be_cached_state);
 
   Status WriteToWAL(const WriteBatch& merged_batch, log::Writer* log_writer,
                     uint64_t* log_used, uint64_t* log_size);
@@ -990,6 +993,11 @@ class DBImpl : public DB {
   std::deque<LogWriterNumber> logs_;
   // Signaled when getting_synced becomes false for some of the logs_.
   InstrumentedCondVar log_sync_cv_;
+  // This is the app-level state that is written to the WAL but will be used
+  // only during recovery. Using this feature enables not writing the state to
+  // memtable on norma writes and hence improving the throughput.
+  // It is protected by log_write_mutex_ when concurrent_prepare_ is enabled. Otherwise only the heaad of write_thread_ can access it.
+  WriteBatch cached_recoverable_state_;
   std::atomic<uint64_t> total_log_size_;
   // only used for dynamically adjusting max_total_wal_size. it is a sum of
   // [write_buffer_size * max_write_buffer_number] over all column families

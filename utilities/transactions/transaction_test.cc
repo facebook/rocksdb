@@ -707,10 +707,13 @@ TEST_P(TransactionTest, CommitTimeBatchFailTest) {
 }
 
 TEST_P(TransactionTest, SimpleTwoPhaseTransactionTest) {
+  for (bool cwb4recovery: {true, false}) {
+    ReOpen();
   WriteOptions write_options;
   ReadOptions read_options;
 
   TransactionOptions txn_options;
+  txn_options.use_only_last_commit_time_write_batch_for_recovery = cwb4recovery;
 
   string value;
   Status s;
@@ -772,6 +775,7 @@ TEST_P(TransactionTest, SimpleTwoPhaseTransactionTest) {
   ASSERT_OK(s);
   ASSERT_EQ(value, "bar");
 
+  if (!cwb4recovery) {
   s = db->Get(read_options, "gtid", &value);
   ASSERT_OK(s);
   ASSERT_EQ(value, "dogs");
@@ -779,6 +783,7 @@ TEST_P(TransactionTest, SimpleTwoPhaseTransactionTest) {
   s = db->Get(read_options, "gtid2", &value);
   ASSERT_OK(s);
   ASSERT_EQ(value, "cats");
+  }
 
   // we already committed
   s = txn->Commit();
@@ -813,6 +818,21 @@ TEST_P(TransactionTest, SimpleTwoPhaseTransactionTest) {
   ASSERT_EQ(0, db_impl->TEST_FindMinPrepLogReferencedByMemTable());
 
   delete txn;
+
+  if (cwb4recovery) {
+  // kill and reopen to trigger recovery
+  s = ReOpenNoDelete();
+  ASSERT_OK(s);
+  s = db->Get(read_options, "gtid", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ(value, "dogs");
+
+  s = db->Get(read_options, "gtid2", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ(value, "cats");
+  }
+
+  }
 }
 
 TEST_P(TransactionTest, TwoPhaseNameTest) {
@@ -873,12 +893,19 @@ TEST_P(TransactionTest, TwoPhaseNameTest) {
 }
 
 TEST_P(TransactionTest, TwoPhaseEmptyWriteTest) {
+  for (bool cwb4recovery: {true, false}) {
+  for (bool test_with_empty_wal: {true, false}) {
+    if (!cwb4recovery && test_with_empty_wal) {
+      continue;
+    }
+    ReOpen();
   Status s;
   std::string value;
 
   WriteOptions write_options;
   ReadOptions read_options;
   TransactionOptions txn_options;
+  txn_options.use_only_last_commit_time_write_batch_for_recovery = cwb4recovery;
   Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
   ASSERT_TRUE(txn1);
   Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
@@ -906,11 +933,27 @@ TEST_P(TransactionTest, TwoPhaseEmptyWriteTest) {
   s = txn2->Commit();
   ASSERT_OK(s);
 
+  delete txn2;
+  if (!cwb4recovery) {
   s = db->Get(read_options, "foo", &value);
   ASSERT_OK(s);
   ASSERT_EQ(value, "bar");
+  } else {
+    if (test_with_empty_wal) {
+ DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+ db_impl->TEST_FlushMemTable(true);
+    }
+    db->FlushWAL(true);
+  // kill and reopen to trigger recovery
+  s = ReOpenNoDelete();
+  ASSERT_OK(s);
+  s = db->Get(read_options, "foo", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ(value, "bar");
+  }
 
-  delete txn2;
+  }
+  }
 }
 
 TEST_P(TransactionTest, TwoPhaseExpirationTest) {
