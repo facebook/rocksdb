@@ -704,10 +704,10 @@ WriteBatch* DBImpl::MergeBatch(const WriteThread::WriteGroup& write_group,
       if (writer->ShouldWriteToWAL()) {
         WriteBatchInternal::Append(merged_batch, writer->batch,
                                    /*WAL_only*/ true);
-    if (writer->batch->IsLatestPersistentState()) {
-      // We only need to cache the last of such write batch
-      *to_be_cached_state = writer->batch;
-    }
+        if (writer->batch->IsLatestPersistentState()) {
+          // We only need to cache the last of such write batch
+          *to_be_cached_state = writer->batch;
+        }
         (*write_with_wal)++;
       }
     }
@@ -743,8 +743,8 @@ Status DBImpl::WriteToWAL(const WriteThread::WriteGroup& write_group,
 
   size_t write_with_wal = 0;
   WriteBatch* to_be_cached_state = nullptr;
-  WriteBatch* merged_batch =
-      MergeBatch(write_group, &tmp_batch_, &write_with_wal, &to_be_cached_state);
+  WriteBatch* merged_batch = MergeBatch(write_group, &tmp_batch_,
+                                        &write_with_wal, &to_be_cached_state);
   if (merged_batch == write_group.leader->batch) {
     write_group.leader->log_used = logfile_number_;
   } else if (write_with_wal > 1) {
@@ -854,16 +854,16 @@ Status DBImpl::WriteRecoverableState() {
     if (concurrent_prepare_) {
       log_write_mutex_.Lock();
     }
-      SequenceNumber seq = versions_->LastSequence();
-      printf("WriteRecoverableState seq before %ld\n", versions_->LastSequence());
-          WriteBatchInternal::SetSequence(&cached_recoverable_state_, ++seq);
+    SequenceNumber seq = versions_->LastSequence();
+    printf("WriteRecoverableState seq before %ld\n", versions_->LastSequence());
+    WriteBatchInternal::SetSequence(&cached_recoverable_state_, ++seq);
     auto status = WriteBatchInternal::InsertInto(
         &cached_recoverable_state_, column_family_memtables_.get(),
         &flush_scheduler_, true, 0 /*recovery_log_number*/, this,
         false /* concurrent_memtable_writes */, &next_seq, &dont_care_bool,
         seq_per_batch_);
-      versions_->SetLastSequence(--next_seq);
-      printf("WriteRecoverableState seq after %ld\n", versions_->LastSequence());
+    versions_->SetLastSequence(--next_seq);
+    printf("WriteRecoverableState seq after %ld\n", versions_->LastSequence());
     if (concurrent_prepare_) {
       log_write_mutex_.Unlock();
     }

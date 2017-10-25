@@ -309,7 +309,7 @@ class WriteBatch : public WriteBatchBase {
   // This write batch includes the latest state that should be persisted. Such
   // state meant to be used only during recovery.
   bool IsLatestPersistentState() const;
-void SetAsLastestPersistentState();
+  void SetAsLastestPersistentState();
 
   using WriteBatchBase::GetWriteBatch;
   WriteBatch* GetWriteBatch() override { return this; }
@@ -352,8 +352,10 @@ void SetAsLastestPersistentState();
   // Maximum size of rep_.
   size_t max_bytes_;
 
-  // Is the content of the batch the application's latest state that meant only to be used for recovery?
-  // Refer to TransactionOptions::use_only_the_last_commit_time_batch_for_recovery for more details.
+  // Is the content of the batch the application's latest state that meant only
+  // to be used for recovery? Refer to
+  // TransactionOptions::use_only_the_last_commit_time_batch_for_recovery for
+  // more details.
   bool is_latest_persistent_state_ = false;
 
  protected:
