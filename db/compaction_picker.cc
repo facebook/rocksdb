@@ -387,7 +387,10 @@ bool CompactionPicker::SetupOtherInputs(
   assert(output_level_inputs->empty());
   const int input_level = inputs->level;
   const int output_level = output_level_inputs->level;
-  assert(input_level != output_level);
+  if (input_level == output_level) {
+    // no possibility of conflict
+    return true;
+  }
 
   // For now, we only support merging two levels, start level and output level.
   // We need to assert other levels are empty.
@@ -938,6 +941,9 @@ void CompactionPicker::UnregisterCompaction(Compaction* c) {
 
 bool LevelCompactionPicker::NeedsCompaction(
     const VersionStorageInfo* vstorage) const {
+  if (!vstorage->BottommostFilesMarkedForCompaction().empty()) {
+    return true;
+  }
   if (!vstorage->FilesMarkedForCompaction().empty()) {
     return true;
   }
@@ -1128,7 +1134,28 @@ void LevelCompactionBuilder::SetupInitialFiles() {
     is_manual_ = true;
     parent_index_ = base_index_ = -1;
     PickFilesMarkedForCompaction();
-    if (!start_level_inputs_.empty()) {
+    if (start_level_inputs_.empty()) {
+      size_t i;
+      for (i = 0; i < vstorage_->BottommostFilesMarkedForCompaction().size();
+           ++i) {
+        auto& level_and_file =
+            vstorage_->BottommostFilesMarkedForCompaction()[i];
+        assert(!level_and_file.second->being_compacted);
+        start_level_inputs_.level = output_level_ = start_level_ =
+            level_and_file.first;
+        start_level_inputs_.files = {level_and_file.second};
+        if (compaction_picker_->ExpandInputsToCleanCut(cf_name_, vstorage_,
+                                                       &start_level_inputs_)) {
+          break;
+        }
+      }
+      if (i == vstorage_->BottommostFilesMarkedForCompaction().size()) {
+        start_level_inputs_.clear();
+      } else {
+        assert(!start_level_inputs_.empty());
+        compaction_reason_ = CompactionReason::kBottommostFiles;
+      }
+    } else {
       compaction_reason_ = CompactionReason::kFilesMarkedForCompaction;
     }
   }

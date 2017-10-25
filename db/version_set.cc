@@ -931,6 +931,7 @@ VersionStorageInfo::VersionStorageInfo(
     current_num_non_deletions_ = ref_vstorage->current_num_non_deletions_;
     current_num_deletions_ = ref_vstorage->current_num_deletions_;
     current_num_samples_ = ref_vstorage->current_num_samples_;
+    oldest_snapshot_seqnum_ = ref_vstorage->oldest_snapshot_seqnum_;
   }
 }
 
@@ -1090,6 +1091,7 @@ void Version::PrepareApply(
   storage_info_.GenerateFileIndexer();
   storage_info_.GenerateLevelFilesBrief();
   storage_info_.GenerateLevel0NonOverlapping();
+  storage_info_.GenerateBottommostFiles();
 }
 
 bool Version::MaybeInitializeFileMetaData(FileMetaData* file_meta) {
@@ -1447,6 +1449,7 @@ void VersionStorageInfo::ComputeCompactionScore(
     }
   }
   ComputeFilesMarkedForCompaction();
+  ComputeBottommostFilesMarkedForCompaction();
   EstimateCompactionBytesNeeded(mutable_cf_options);
 }
 
@@ -1522,6 +1525,7 @@ void VersionStorageInfo::AddFile(int level, FileMetaData* f, Logger* info_log) {
 // 4. GenerateFileIndexer();
 // 5. GenerateLevelFilesBrief();
 // 6. GenerateLevel0NonOverlapping();
+// 7. GenerateBottommostFiles();
 void VersionStorageInfo::SetFinalized() {
   finalized_ = true;
 #ifndef NDEBUG
@@ -1694,6 +1698,58 @@ void VersionStorageInfo::GenerateLevel0NonOverlapping() {
     if (internal_comparator_->Compare(prev.largest_key, f.smallest_key) >= 0) {
       level0_non_overlapping_ = false;
       break;
+    }
+  }
+}
+
+void VersionStorageInfo::GenerateBottommostFiles() {
+  assert(!finalized_);
+  assert(bottommost_files_.empty());
+  for (size_t level = 0; level < level_files_brief_.size(); ++level) {
+    for (size_t file_idx = 0; file_idx < level_files_brief_[level].num_files;
+         ++file_idx) {
+      const FdWithKeyRange& f = level_files_brief_[level].files[file_idx];
+      int l0_file_idx;
+      if (level == 0) {
+        l0_file_idx = static_cast<int>(file_idx);
+      } else {
+        l0_file_idx = -1;
+      }
+      if (!RangeMightExistAfterSortedRun(f.smallest_key, f.largest_key,
+                                         static_cast<int>(level),
+                                         l0_file_idx)) {
+        bottommost_files_.emplace_back(static_cast<int>(level),
+                                       f.file_metadata);
+      }
+    }
+  }
+}
+
+void VersionStorageInfo::UpdateOldestSnapshot(SequenceNumber seqnum) {
+  assert(seqnum >= oldest_snapshot_seqnum_);
+  oldest_snapshot_seqnum_ = seqnum;
+  if (oldest_snapshot_seqnum_ > bottommost_files_mark_threshold_) {
+    ComputeBottommostFilesMarkedForCompaction();
+  }
+}
+
+void VersionStorageInfo::ComputeBottommostFilesMarkedForCompaction() {
+  bottommost_files_marked_for_compaction_.clear();
+  bottommost_files_mark_threshold_ = kMaxSequenceNumber;
+  for (auto& level_and_file : bottommost_files_) {
+    if (!level_and_file.second->being_compacted &&
+        level_and_file.second->largest_seqno != 0 &&
+        level_and_file.second->num_deletions > 1) {
+      // largest_seqno might be nonzero due to containing the final key in an
+      // earlier compaction, whose seqnum we didn't zero out. Multiple deletions
+      // ensures the file really contains deleted or overwritten keys.
+      if (level_and_file.second->largest_seqno < oldest_snapshot_seqnum_) {
+        bottommost_files_marked_for_compaction_.push_back(level_and_file);
+      } else {
+        bottommost_files_mark_threshold_ =
+            std::min(bottommost_files_mark_threshold_,
+                     level_and_file.second->largest_seqno);
+      }
     }
   }
 }
@@ -2251,6 +2307,36 @@ uint64_t VersionStorageInfo::EstimateLiveDataSize() const {
   return size;
 }
 
+bool VersionStorageInfo::RangeMightExistAfterSortedRun(
+    const Slice& smallest_key, const Slice& largest_key, int last_level,
+    int last_l0_idx) {
+  assert((last_l0_idx != -1) == (last_level == 0));
+  // TODO(ajkr): this preserves earlier behavior where we considered an L0 file
+  // bottommost only if it's the oldest L0 file and there are no files on older
+  // levels. It'd be better to consider it bottommost if there's no overlap in
+  // older levels/files.
+  if (last_level == 0 &&
+      last_l0_idx != static_cast<int>(LevelFiles(0).size() - 1)) {
+    return true;
+  }
+
+  // Checks whether there are files living beyond the `last_level`. If lower
+  // levels have files, it checks for overlap between [`smallest_key`,
+  // `largest_key`] and those files. Bottomlevel optimizations can be made if
+  // there are no files in lower levels or if there is no overlap with the files
+  // in the lower levels.
+  for (int level = last_level + 1; level < num_levels(); level++) {
+    // The range is not in the bottommost level if there are files in lower
+    // levels when the `last_level` is 0 or if there are files in lower levels
+    // which overlap with [`smallest_key`, `largest_key`].
+    if (files_[level].size() > 0 &&
+        (last_level == 0 ||
+         OverlapInLevel(level, &smallest_key, &largest_key))) {
+      return true;
+    }
+  }
+  return false;
+}
 
 void Version::AddLiveFiles(std::vector<FileDescriptor>* live) {
   for (int level = 0; level < storage_info_.num_levels(); level++) {

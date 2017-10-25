@@ -135,6 +135,18 @@ class VersionStorageInfo {
   // ComputeCompactionScore()
   void ComputeFilesMarkedForCompaction();
 
+  // This computes bottommost_files_marked_for_compaction_ and is called by
+  // ComputeCompactionScore() or UpdateOldestSnapshot().
+  //
+  // Among bottommost files (assumes they've already been computed), marks the
+  // ones that have keys that would be eliminated if recompacted, according to
+  // the seqnum of the oldest existing snapshot. Must be called every time
+  // oldest snapshot changes as that is when bottom-level files can become
+  // eligible for compaction.
+  //
+  // REQUIRES: DB mutex held
+  void ComputeBottommostFilesMarkedForCompaction();
+
   // Generate level_files_brief_ from files_
   void GenerateLevelFilesBrief();
   // Sort all files for this version based on their file size and
@@ -146,6 +158,16 @@ class VersionStorageInfo {
   bool level0_non_overlapping() const {
     return level0_non_overlapping_;
   }
+
+  // Check whether each file in this version is bottommost (i.e., nothing in its
+  // key-range could possibly exist in an older file/level).
+  // REQUIRES: This version has not been saved
+  void GenerateBottommostFiles();
+
+  // Updates the oldest snapshot and related internal state, like the bottommost
+  // files marked for compaction.
+  // REQUIRES: DB mutex held
+  void UpdateOldestSnapshot(SequenceNumber oldest_snapshot_seqnum);
 
   int MaxInputLevel() const;
   int MaxOutputLevel(bool allow_ingest_behind) const;
@@ -264,6 +286,14 @@ class VersionStorageInfo {
     return files_marked_for_compaction_;
   }
 
+  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  // REQUIRES: DB mutex held during access
+  const autovector<std::pair<int, FileMetaData*>>&
+  BottommostFilesMarkedForCompaction() const {
+    assert(finalized_);
+    return bottommost_files_marked_for_compaction_;
+  }
+
   int base_level() const { return base_level_; }
 
   // REQUIRES: lock is held
@@ -357,6 +387,16 @@ class VersionStorageInfo {
 
   bool force_consistency_checks() const { return force_consistency_checks_; }
 
+  // Returns whether any key in [`smallest_key`, `largest_key`] could appear in
+  // an older L0 file than `last_l0_idx` or in a greater level than `last_level`
+  //
+  // @param last_level Level after which we check for overlap
+  // @param last_l0_idx If `last_level == 0`, index of L0 file after which we
+  //    check for overlap; otherwise, must be -1
+  bool RangeMightExistAfterSortedRun(const Slice& smallest_key,
+                                     const Slice& largest_key, int last_level,
+                                     int last_l0_idx);
+
  private:
   const InternalKeyComparator* internal_comparator_;
   const Comparator* user_comparator_;
@@ -405,6 +445,28 @@ class VersionStorageInfo {
   // currently being compacted. It is protected by DB mutex. It is calculated in
   // ComputeCompactionScore()
   autovector<std::pair<int, FileMetaData*>> files_marked_for_compaction_;
+
+  // These files are considered bottommost because none of their keys can exist
+  // at lower levels. They are not necessarily all in the same level. The marked
+  // ones are eligible for compaction because they contain duplicate key
+  // versions that are no longer protected by snapshot. These variables are
+  // protected by DB mutex and are calculated in `GenerateBottommostFiles()` and
+  // `ComputeBottommostFilesMarkedForCompaction()`.
+  autovector<std::pair<int, FileMetaData*>> bottommost_files_;
+  autovector<std::pair<int, FileMetaData*>>
+      bottommost_files_marked_for_compaction_;
+
+  // Threshold for needing to mark another bottommost file. Maintain it so we
+  // can quickly check when releasing a snapshot whether more bottommost files
+  // became eligible for compaction. It's defined as the min of the max nonzero
+  // seqnums of unmarked bottommost files.
+  SequenceNumber bottommost_files_mark_threshold_ = kMaxSequenceNumber;
+
+  // Monotonically increases as we release old snapshots. Zero indicates no
+  // snapshots have been released yet. When no snapshots remain we set it to the
+  // current seqnum, which needs to be protected as a snapshot can still be
+  // created that references it.
+  SequenceNumber oldest_snapshot_seqnum_ = 0;
 
   // Level that should be compacted next and its compaction score.
   // Score < 1 means compaction is not strictly needed.  These fields
