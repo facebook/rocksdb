@@ -145,7 +145,7 @@ Status WritePreparedTxn::CommitInternal() {
   // commit_seq. This happens if prep_seq <<< commit_seq.
   auto prepare_seq = GetId();
   wpt_db_->AddCommitted(prepare_seq, commit_seq);
-  if (!empty) {
+  if (!empty && !for_recovery) {
     // Commit the data that is accompnaied with the commit marker
     // TODO(myabandeh): skip AddPrepared
     wpt_db_->AddPrepared(commit_seq);
