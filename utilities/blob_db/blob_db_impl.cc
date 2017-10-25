@@ -1050,6 +1050,14 @@ uint64_t BlobDBImpl::ExtractExpiration(const Slice& key, const Slice& value,
 Status BlobDBImpl::AppendBlob(const std::shared_ptr<BlobFile>& bfile,
                               const std::string& headerbuf, const Slice& key,
                               const Slice& value, std::string* index_entry) {
+  auto size_put = BlobLogRecord::kHeaderSize + key.size() + value.size();
+  if (bdb_options_.blob_dir_size > 0 &&
+      (total_blob_space_.load() + size_put) > bdb_options_.blob_dir_size) {
+    if (!bdb_options_.is_fifo) {
+      return Status::NoSpace("Blob DB reached the maximum configured size.");
+    }
+  }
+
   Status s;
 
   uint64_t blob_offset = 0;
@@ -1073,7 +1081,6 @@ Status BlobDBImpl::AppendBlob(const std::shared_ptr<BlobFile>& bfile,
 
   // increment blob count
   bfile->blob_count_++;
-  auto size_put = BlobLogRecord::kHeaderSize + key.size() + value.size();
 
   bfile->file_size_ += size_put;
   last_period_write_ += size_put;
