@@ -1260,8 +1260,9 @@ bool BlobDBImpl::FileDeleteOk_SnapshotCheckLocked(
 
   SequenceNumber esn = bfile->GetSNRange().first;
 
-  // this is not correct.
-  // you want to check that there are no snapshots in the
+  // TODO(yiwu): Here we should check instead if there is an active snapshot
+  // lies between the first sequence in the file, and the last sequence by
+  // the time the file finished being garbage collect.
   bool notok = db_impl_->HasActiveSnapshotLaterThanSN(esn);
   if (notok) {
     ROCKS_LOG_INFO(db_options_.info_log,
