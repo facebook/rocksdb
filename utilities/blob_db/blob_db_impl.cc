@@ -1054,7 +1054,7 @@ Status BlobDBImpl::AppendBlob(const std::shared_ptr<BlobFile>& bfile,
   if (bdb_options_.blob_dir_size > 0 &&
       (total_blob_space_.load() + size_put) > bdb_options_.blob_dir_size) {
     if (!bdb_options_.is_fifo) {
-      return Status::IOError("Blob DB reached the maximum configured size.");
+      return Status::NoSpace("Blob DB reached the maximum configured size.");
     }
   }
 
