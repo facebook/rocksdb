@@ -3,8 +3,8 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "rocksdb/slice.h"
 #include "port/stack_trace.h"
+#include "rocksdb/slice.h"
 #include "util/testharness.h"
 
 namespace rocksdb {
@@ -12,7 +12,9 @@ namespace rocksdb {
 class SliceTest : public testing::Test {};
 
 namespace {
-void BumpCounter(void* arg1, void* arg2) { (*reinterpret_cast<int*>(arg1))++; }
+void BumpCounter(void* arg1, void* arg2) {
+  (*reinterpret_cast<int*>(arg1))++;
+}
 }  // anonymous namespace
 
 TEST_F(SliceTest, PinnableSliceMoveConstruct) {

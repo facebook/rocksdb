@@ -21,7 +21,9 @@ Cleanable::Cleanable() {
 
 Cleanable::~Cleanable() { DoCleanup(); }
 
-Cleanable::Cleanable(Cleanable&& other) { *this = std::move(other); }
+Cleanable::Cleanable(Cleanable&& other) {
+  *this = std::move(other);
+}
 
 Cleanable& Cleanable::operator=(Cleanable&& other) {
   if (this != &other) {
