@@ -759,6 +759,7 @@ Status DBImpl::WriteToWAL(const WriteThread::WriteGroup& write_group,
   status = WriteToWAL(*merged_batch, log_writer, log_used, &log_size);
   if (to_be_cached_state) {
     cached_recoverable_state_ = *to_be_cached_state;
+      cached_recoverable_state_empty_ = false;
   }
 
   if (status.ok() && need_log_sync) {
@@ -832,6 +833,7 @@ Status DBImpl::ConcurrentWriteToWAL(const WriteThread::WriteGroup& write_group,
   status = WriteToWAL(*merged_batch, log_writer, log_used, &log_size);
   if (to_be_cached_state) {
     cached_recoverable_state_ = *to_be_cached_state;
+      cached_recoverable_state_empty_ = false;
   }
   log_write_mutex_.Unlock();
 
@@ -848,7 +850,7 @@ Status DBImpl::ConcurrentWriteToWAL(const WriteThread::WriteGroup& write_group,
 }
 
 Status DBImpl::WriteRecoverableState() {
-  if (WriteBatchInternal::Count(&cached_recoverable_state_) > 0) {
+      if(!cached_recoverable_state_empty_) {
     bool dont_care_bool;
     SequenceNumber next_seq;
     if (concurrent_prepare_) {
@@ -867,6 +869,7 @@ Status DBImpl::WriteRecoverableState() {
     }
     if (status.ok()) {
       cached_recoverable_state_.Clear();
+      cached_recoverable_state_empty_ = true;
     }
     return status;
   }
