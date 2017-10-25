@@ -217,9 +217,6 @@ class BlobDBImpl : public BlobDB {
   Status Get(const ReadOptions& read_options, ColumnFamilyHandle* column_family,
              const Slice& key, PinnableSlice* value) override;
 
-  Status GetBlobValue(const Slice& key, const Slice& index_entry,
-                      PinnableSlice* value);
-
   using BlobDB::NewIterator;
   virtual Iterator* NewIterator(const ReadOptions& read_options) override;
 
@@ -265,6 +262,9 @@ class BlobDBImpl : public BlobDB {
   ~BlobDBImpl();
 
 #ifndef NDEBUG
+  Status TEST_GetBlobValue(const Slice& key, const Slice& index_entry,
+                           PinnableSlice* value);
+
   std::vector<std::shared_ptr<BlobFile>> TEST_GetBlobFiles() const;
 
   std::vector<std::shared_ptr<BlobFile>> TEST_GetObsoleteFiles() const;
@@ -289,6 +289,9 @@ class BlobDBImpl : public BlobDB {
   // Create a snapshot if there isn't one in read options.
   // Return true if a snapshot is created.
   bool SetSnapshotIfNeeded(ReadOptions* read_options);
+
+  Status GetBlobValue(const Slice& key, const Slice& index_entry,
+                      PinnableSlice* value);
 
   Slice GetCompressedSlice(const Slice& raw,
                            std::string* compression_output) const;

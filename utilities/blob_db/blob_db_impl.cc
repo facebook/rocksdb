@@ -872,7 +872,6 @@ Status BlobDBImpl::PutBlobValue(const WriteOptions& options, const Slice& key,
     std::shared_ptr<BlobFile> bfile = (expiration != kNoExpiration)
                                           ? SelectBlobFileTTL(expiration)
                                           : SelectBlobFile();
-
     if (!bfile) {
       return Status::NotFound("Blob file not found");
     }
@@ -2169,6 +2168,11 @@ Status DestroyBlobDB(const std::string& dbname, const Options& options,
 }
 
 #ifndef NDEBUG
+Status BlobDBImpl::TEST_GetBlobValue(const Slice& key, const Slice& index_entry,
+                                     PinnableSlice* value) {
+  return GetBlobValue(key, index_entry, value);
+}
+
 std::vector<std::shared_ptr<BlobFile>> BlobDBImpl::TEST_GetBlobFiles() const {
   ReadLock l(&mutex_);
   std::vector<std::shared_ptr<BlobFile>> blob_files;
