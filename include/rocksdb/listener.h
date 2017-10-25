@@ -77,6 +77,9 @@ enum class CompactionReason {
   kManualCompaction,
   // DB::SuggestCompactRange() marked files for compaction
   kFilesMarkedForCompaction,
+  // [Level] Automatic compaction within bottommost level to cleanup duplicate
+  // versions of same user key, usually due to a released snapshot.
+  kBottommostFiles,
 };
 
 enum class BackgroundErrorReason {
