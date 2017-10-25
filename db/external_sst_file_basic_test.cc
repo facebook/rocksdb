@@ -37,15 +37,15 @@ class ExternalSSTFileBasicTest : public DBTestBase {
     return db_->IngestExternalFile(files, opts);
   }
 
-  Status GenerateAndAddExternalFile(
-      const Options options, std::vector<int> keys,
-      const std::vector<ValueType>& value_types, int file_id,
-      std::map<std::string, std::string>* true_data) {
-    assert(value_types.size() == 1 || keys.size() == value_types.size());
-    std::string file_path = sst_files_dir_ + ToString(file_id);
+  Status GenerateExternalFile(const Options options, std::vector<int> keys,
+                              const std::vector<ValueType>& value_types,
+                              int file_id,
+                              std::map<std::string, std::string>* true_data,
+                              std::string* file_path) {
+    *file_path = sst_files_dir_ + ToString(file_id);
     SstFileWriter sst_file_writer(EnvOptions(), options);
 
-    Status s = sst_file_writer.Open(file_path);
+    Status s = sst_file_writer.Open(*file_path);
     if (!s.ok()) {
       return s;
     }
@@ -76,7 +76,18 @@ class ExternalSSTFileBasicTest : public DBTestBase {
         return s;
       }
     }
-    s = sst_file_writer.Finish();
+    return sst_file_writer.Finish();
+  }
+
+  Status GenerateAndAddExternalFile(
+      const Options options, std::vector<int> keys,
+      const std::vector<ValueType>& value_types, int file_id,
+      std::map<std::string, std::string>* true_data) {
+    assert(value_types.size() == 1 || keys.size() == value_types.size());
+
+    std::string file_path;
+    Status s = GenerateExternalFile(options, keys, value_types, file_id,
+                                    true_data, &file_path);
 
     if (s.ok()) {
       IngestExternalFileOptions ifo;
@@ -604,6 +615,29 @@ TEST_F(ExternalSSTFileBasicTest, IngestionWithRangeDeletions) {
   ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), last_seqno);
   ASSERT_EQ(4, NumTableFilesAtLevel(0));
   ASSERT_EQ(1, NumTableFilesAtLevel(options.num_levels - 1));
+}
+
+TEST_F(ExternalSSTFileBasicTest, SetGlobalSeqno) {
+  Options options = CurrentOptions();
+  Reopen(options);
+
+  std::string file_path;
+  std::map<std::string, std::string> true_data;
+  ASSERT_OK(GenerateExternalFile(options, {1, 2},
+                                 {ValueType::kTypeValue, ValueType::kTypeValue},
+                                 1, &true_data, &file_path));
+
+  uint64_t seqno, offset;
+  SequenceNumber global_seqno = 111;
+  ASSERT_OK(db_->SetExternalFileGlobalSeqno(db_->DefaultColumnFamily(),
+                                            file_path, global_seqno));
+  ASSERT_OK(db_->GetExternalFileGlobalSeqnoInfo(db_->DefaultColumnFamily(),
+                                                file_path, &seqno, &offset));
+
+  ASSERT_GT(offset, 0);
+  ASSERT_EQ(seqno, global_seqno);
+
+  DestroyAndRecreateExternalSSTFilesDir();
 }
 
 #endif  // ROCKSDB_LITE

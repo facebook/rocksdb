@@ -75,6 +75,7 @@
 #include "table/block.h"
 #include "table/block_based_table_factory.h"
 #include "table/merging_iterator.h"
+#include "table/sst_file_writer_collectors.h"
 #include "table/table_builder.h"
 #include "table/two_level_iterator.h"
 #include "tools/sst_dump_tool_imp.h"
@@ -2848,6 +2849,98 @@ void DBImpl::WaitForIngestFile() {
   while (num_running_ingest_file_ > 0) {
     bg_cv_.Wait();
   }
+}
+
+Status DBImpl::GetExternalFileGlobalSeqnoInfo(ColumnFamilyHandle* column_family,
+                                              const std::string& external_file,
+                                              uint64_t* seqno,
+                                              uint64_t* offset) {
+  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  auto cfd = cfh->cfd();
+
+  // Get external file size
+  uint64_t file_size;
+  Status status = env_->GetFileSize(external_file, &file_size);
+  if (!status.ok()) {
+    return status;
+  }
+
+  // Create TableReader for external file
+  std::unique_ptr<TableReader> table_reader;
+  std::unique_ptr<RandomAccessFile> sst_file;
+  std::unique_ptr<RandomAccessFileReader> sst_file_reader;
+  status = env_->NewRandomAccessFile(external_file, &sst_file, env_options_);
+  if (!status.ok()) {
+    return status;
+  }
+  sst_file_reader.reset(
+      new RandomAccessFileReader(std::move(sst_file), external_file));
+  status = cfd->ioptions()->table_factory->NewTableReader(
+      TableReaderOptions(*cfd->ioptions(), env_options_,
+                         cfd->internal_comparator()),
+      std::move(sst_file_reader), file_size, &table_reader);
+  if (!status.ok()) {
+    return status;
+  }
+
+  // Get the external file properties
+  auto props = table_reader->GetTableProperties();
+  const auto& uprops = props->user_collected_properties;
+
+  // Get table version
+  auto version_iter = uprops.find(ExternalSstFilePropertyNames::kVersion);
+  if (version_iter == uprops.end()) {
+    return Status::Corruption("External file version not found");
+  }
+  auto version = DecodeFixed32(version_iter->second.c_str());
+
+  auto seqno_iter = uprops.find(ExternalSstFilePropertyNames::kGlobalSeqno);
+  if (version == 2) {
+    // version 2 imply that we have global sequence number
+    if (seqno_iter == uprops.end()) {
+      return Status::Corruption(
+          "External file global sequence number not found");
+    }
+
+    // Set the global sequence number
+    *seqno = DecodeFixed64(seqno_iter->second.c_str());
+    *offset = props->properties_offsets.at(
+        ExternalSstFilePropertyNames::kGlobalSeqno);
+
+    if (*offset == 0) {
+      return Status::Corruption("Was not able to find file global seqno field");
+    }
+  } else if (version == 1) {
+    // SST file V1 should not have global seqno field
+    assert(seqno_iter == uprops.end());
+    return Status::InvalidArgument(
+        "External SST file V1 does not support global seqno");
+  } else {
+    return Status::InvalidArgument("External file version is not supported");
+  }
+  return status;
+}
+
+// Reset sst file's global_seqno to a specified number.
+Status DBImpl::SetExternalFileGlobalSeqno(ColumnFamilyHandle* column_family,
+                                          const std::string& external_file,
+                                          SequenceNumber seqno) {
+  uint64_t origin_seqno, global_seqno_offset;
+  Status s = GetExternalFileGlobalSeqnoInfo(
+      column_family, external_file, &origin_seqno, &global_seqno_offset);
+  if (!s.ok()) {
+    return s;
+  }
+
+  std::unique_ptr<RandomRWFile> rwfile;
+  s = env_->NewRandomRWFile(external_file, &rwfile, env_options_);
+  if (!s.ok()) {
+    return s;
+  }
+
+  std::string seqno_val;
+  PutFixed64(&seqno_val, seqno);
+  return rwfile->Write(global_seqno_offset, seqno_val);
 }
 
 #endif  // ROCKSDB_LITE

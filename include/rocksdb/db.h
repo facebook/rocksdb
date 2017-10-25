@@ -976,6 +976,18 @@ class DB {
     return IngestExternalFile(DefaultColumnFamily(), external_files, options);
   }
 
+  virtual Status GetExternalFileGlobalSeqnoInfo(
+      ColumnFamilyHandle* column_family, const std::string& external_file,
+      uint64_t* seqno, uint64_t* offset) {
+    return Status::OK();
+  }
+
+  virtual Status SetExternalFileGlobalSeqno(ColumnFamilyHandle* column_family,
+                                            const std::string& external_file,
+                                            SequenceNumber seqno) {
+    return Status::OK();
+  }
+
   virtual Status VerifyChecksum() = 0;
 
   // AddFile() is deprecated, please use IngestExternalFile()

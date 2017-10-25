@@ -314,6 +314,14 @@ class DBImpl : public DB {
 
   virtual Status VerifyChecksum() override;
 
+  virtual Status GetExternalFileGlobalSeqnoInfo(
+      ColumnFamilyHandle* column_family, const std::string& external_file,
+      uint64_t* seqno, uint64_t* offset) override;
+
+  virtual Status SetExternalFileGlobalSeqno(ColumnFamilyHandle* column_family,
+                                            const std::string& external_file,
+                                            SequenceNumber seqno) override;
+
 #endif  // ROCKSDB_LITE
 
   // Similar to GetSnapshot(), but also lets the db know that this snapshot
