@@ -234,7 +234,9 @@ MutableDBOptions::MutableDBOptions()
       max_total_wal_size(0),
       delete_obsolete_files_period_micros(6ULL * 60 * 60 * 1000000),
       stats_dump_period_sec(600),
-      max_open_files(-1) {}
+      max_open_files(-1),
+      bytes_per_sync(0),
+      wal_bytes_per_sync(0) {}
 
 MutableDBOptions::MutableDBOptions(const DBOptions& options)
     : max_background_jobs(options.max_background_jobs),
