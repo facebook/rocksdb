@@ -715,6 +715,14 @@ void DBIter::PrevInternal() {
         ExtractUserKey(iter_->key()),
         !iter_->IsKeyPinned() || !pin_thru_lifetime_ /* copy */);
 
+    if (prefix_extractor_ && prefix_same_as_start_ &&
+        prefix_extractor_->Transform(saved_key_.GetUserKey())
+                .compare(prefix_start_key_) != 0) {
+      // Current key does not have the same prefix as start
+      valid_ = false;
+      return;
+    }
+
     if (FindValueForCurrentKey()) {
       if (!iter_->Valid()) {
         return;
@@ -722,11 +730,6 @@ void DBIter::PrevInternal() {
       FindParseableKey(&ikey, kReverse);
       if (user_comparator_->Equal(ikey.user_key, saved_key_.GetUserKey())) {
         FindPrevUserKey();
-      }
-      if (valid_ && prefix_extractor_ && prefix_same_as_start_ &&
-          prefix_extractor_->Transform(saved_key_.GetUserKey())
-                  .compare(prefix_start_key_) != 0) {
-        valid_ = false;
       }
       return;
     }
