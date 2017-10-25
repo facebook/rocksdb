@@ -653,6 +653,7 @@ TEST_F(BlobDBTest, GCOldestSimpleBlobFileWhenOutOfSpace) {
   Options options;
   options.env = mock_env_.get();
   BlobDBOptions bdb_options;
+  bdb_options.is_fifo = true;
   bdb_options.blob_dir_size = 100;
   bdb_options.blob_file_size = 100;
   bdb_options.disable_background_tasks = true;
@@ -868,6 +869,29 @@ TEST_F(BlobDBTest, MigrateFromPlainRocksDB) {
     }
   }
   delete db;
+}
+
+// Test to verify that a NoSpace IOError Status is returned on reaching
+// blob_dir_size limit. 
+TEST_F(BlobDBTest, OutOfSpace) {
+  // Use mock env to stop wall clock.
+  Options options;
+  options.env = mock_env_.get();
+  BlobDBOptions bdb_options;
+  bdb_options.blob_dir_size = 150;
+  bdb_options.disable_background_tasks = true;
+  Open(bdb_options);
+
+  // Each stored blob has an overhead of about 42 bytes currently.
+  // So a small key + a 100 byte blob should take up ~150 bytes in the db.
+  std::string value(100, 'v');
+  ASSERT_OK(blob_db_->PutWithTTL(WriteOptions(), "key1", value, 60));
+
+  // Putting another blob should fail as ading it would exceed the blob_dir_size
+  // limit.
+  Status s = blob_db_->PutWithTTL(WriteOptions(), "key2", value, 60);
+  ASSERT_TRUE(s.IsIOError());
+  ASSERT_TRUE(s.IsNoSpace());
 }
 
 }  //  namespace blob_db
