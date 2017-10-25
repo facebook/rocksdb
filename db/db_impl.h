@@ -1317,7 +1317,7 @@ class DBImpl : public DB {
 
   size_t GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
   Env::WriteLifeTimeHint CalculateWALWriteHint() {
-    return Env::WLTH_NOT_SET;
+    return Env::WLTH_SHORT;
   }
 
   // When set, we use a seprate queue for writes that dont write to memtable. In
