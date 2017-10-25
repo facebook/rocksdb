@@ -1091,7 +1091,7 @@ void Version::PrepareApply(
   storage_info_.GenerateFileIndexer();
   storage_info_.GenerateLevelFilesBrief();
   storage_info_.GenerateLevel0NonOverlapping();
-  storage_info_.UpdateBottommostFiles();
+  storage_info_.GenerateBottommostFiles();
 }
 
 bool Version::MaybeInitializeFileMetaData(FileMetaData* file_meta) {
@@ -1525,7 +1525,7 @@ void VersionStorageInfo::AddFile(int level, FileMetaData* f, Logger* info_log) {
 // 4. GenerateFileIndexer();
 // 5. GenerateLevelFilesBrief();
 // 6. GenerateLevel0NonOverlapping();
-// 7. UpdateBottommostFiles();
+// 7. GenerateBottommostFiles();
 void VersionStorageInfo::SetFinalized() {
   finalized_ = true;
 #ifndef NDEBUG
@@ -1702,7 +1702,7 @@ void VersionStorageInfo::GenerateLevel0NonOverlapping() {
   }
 }
 
-void VersionStorageInfo::UpdateBottommostFiles() {
+void VersionStorageInfo::GenerateBottommostFiles() {
   assert(!finalized_);
   assert(bottommost_files_.empty());
   for (size_t level = 0; level < level_files_brief_.size(); ++level) {

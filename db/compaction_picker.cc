@@ -1151,9 +1151,11 @@ void LevelCompactionBuilder::SetupInitialFiles() {
       }
       if (i == vstorage_->BottommostFilesMarkedForCompaction().size()) {
         start_level_inputs_.clear();
+      } else {
+        assert(!start_level_inputs_.empty());
+        compaction_reason_ = CompactionReason::kBottommostFiles;
       }
-    }
-    if (!start_level_inputs_.empty()) {
+    } else {
       compaction_reason_ = CompactionReason::kFilesMarkedForCompaction;
     }
   }

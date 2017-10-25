@@ -137,9 +137,13 @@ class VersionStorageInfo {
 
   // This computes bottommost_files_marked_for_compaction_ and is called by
   // ComputeCompactionScore() or UpdateOldestSnapshot().
+  //
   // Among bottommost files (assumes they've already been computed), marks the
   // ones that have keys that would be eliminated if recompacted, according to
-  // the seqnum of the oldest existing snapshot.
+  // the seqnum of the oldest existing snapshot. Must be called every time
+  // oldest snapshot changes as that is when bottom-level files can become
+  // eligible for compaction.
+  //
   // REQUIRES: DB mutex held
   void ComputeBottommostFilesMarkedForCompaction();
 
@@ -158,7 +162,7 @@ class VersionStorageInfo {
   // Check whether each file in this version is bottommost (i.e., nothing in its
   // key-range could possibly exist in an older file/level).
   // REQUIRES: This version has not been saved
-  void UpdateBottommostFiles();
+  void GenerateBottommostFiles();
 
   // Updates the oldest snapshot and related internal state, like the bottommost
   // files marked for compaction.
@@ -446,7 +450,7 @@ class VersionStorageInfo {
   // at lower levels. They are not necessarily all in the same level. The marked
   // ones are eligible for compaction because they contain duplicate key
   // versions that are no longer protected by snapshot. These variables are
-  // protected by DB mutex and are calculated in `UpdateBottommostFiles()` and
+  // protected by DB mutex and are calculated in `GenerateBottommostFiles()` and
   // `ComputeBottommostFilesMarkedForCompaction()`.
   autovector<std::pair<int, FileMetaData*>> bottommost_files_;
   autovector<std::pair<int, FileMetaData*>>
