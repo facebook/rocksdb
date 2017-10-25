@@ -664,81 +664,79 @@ Status BlobDBImpl::Delete(const WriteOptions& options, const Slice& key) {
   return s;
 }
 
+class BlobDBImpl::BlobInserter : public WriteBatch::Handler {
+ private:
+  const WriteOptions& options_;
+  BlobDBImpl* blob_db_impl_;
+  uint32_t default_cf_id_;
+  SequenceNumber sequence_;
+  WriteBatch batch_;
+
+ public:
+  BlobInserter(const WriteOptions& options, BlobDBImpl* blob_db_impl,
+               uint32_t default_cf_id, SequenceNumber seq)
+      : options_(options),
+        blob_db_impl_(blob_db_impl),
+        default_cf_id_(default_cf_id),
+        sequence_(seq) {}
+
+  SequenceNumber sequence() { return sequence_; }
+
+  WriteBatch* batch() { return &batch_; }
+
+  virtual Status PutCF(uint32_t column_family_id, const Slice& key,
+                       const Slice& value) override {
+    if (column_family_id != default_cf_id_) {
+      return Status::NotSupported(
+          "Blob DB doesn't support non-default column family.");
+    }
+    std::string new_value;
+    Slice value_slice;
+    uint64_t expiration =
+        blob_db_impl_->ExtractExpiration(key, value, &value_slice, &new_value);
+    Status s = blob_db_impl_->PutBlobValue(options_, key, value_slice,
+                                           expiration, sequence_, &batch_);
+    sequence_++;
+    return s;
+  }
+
+  virtual Status DeleteCF(uint32_t column_family_id,
+                          const Slice& key) override {
+    if (column_family_id != default_cf_id_) {
+      return Status::NotSupported(
+          "Blob DB doesn't support non-default column family.");
+    }
+    Status s = WriteBatchInternal::Delete(&batch_, column_family_id, key);
+    sequence_++;
+    return s;
+  }
+
+  virtual Status DeleteRange(uint32_t column_family_id, const Slice& begin_key,
+                             const Slice& end_key) {
+    if (column_family_id != default_cf_id_) {
+      return Status::NotSupported(
+          "Blob DB doesn't support non-default column family.");
+    }
+    Status s = WriteBatchInternal::DeleteRange(&batch_, column_family_id,
+                                               begin_key, end_key);
+    sequence_++;
+    return s;
+  }
+
+  virtual Status SingleDeleteCF(uint32_t /*column_family_id*/,
+                                const Slice& /*key*/) override {
+    return Status::NotSupported("Not supported operation in blob db.");
+  }
+
+  virtual Status MergeCF(uint32_t /*column_family_id*/, const Slice& /*key*/,
+                         const Slice& /*value*/) override {
+    return Status::NotSupported("Not supported operation in blob db.");
+  }
+
+  virtual void LogData(const Slice& blob) override { batch_.PutLogData(blob); }
+};
+
 Status BlobDBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
-  class BlobInserter : public WriteBatch::Handler {
-   private:
-    const WriteOptions& options_;
-    BlobDBImpl* blob_db_impl_;
-    uint32_t default_cf_id_;
-    SequenceNumber sequence_;
-    WriteBatch batch_;
-
-   public:
-    BlobInserter(const WriteOptions& options, BlobDBImpl* blob_db_impl,
-                 uint32_t default_cf_id, SequenceNumber seq)
-        : options_(options),
-          blob_db_impl_(blob_db_impl),
-          default_cf_id_(default_cf_id),
-          sequence_(seq) {}
-
-    SequenceNumber sequence() { return sequence_; }
-
-    WriteBatch* batch() { return &batch_; }
-
-    virtual Status PutCF(uint32_t column_family_id, const Slice& key,
-                         const Slice& value) override {
-      if (column_family_id != default_cf_id_) {
-        return Status::NotSupported(
-            "Blob DB doesn't support non-default column family.");
-      }
-      std::string new_value;
-      Slice value_slice;
-      uint64_t expiration = blob_db_impl_->ExtractExpiration(
-          key, value, &value_slice, &new_value);
-      Status s = blob_db_impl_->PutBlobValue(options_, key, value_slice,
-                                             expiration, sequence_, &batch_);
-      sequence_++;
-      return s;
-    }
-
-    virtual Status DeleteCF(uint32_t column_family_id,
-                            const Slice& key) override {
-      if (column_family_id != default_cf_id_) {
-        return Status::NotSupported(
-            "Blob DB doesn't support non-default column family.");
-      }
-      Status s = WriteBatchInternal::Delete(&batch_, column_family_id, key);
-      sequence_++;
-      return s;
-    }
-
-    virtual Status DeleteRange(uint32_t column_family_id,
-                               const Slice& begin_key, const Slice& end_key) {
-      if (column_family_id != default_cf_id_) {
-        return Status::NotSupported(
-            "Blob DB doesn't support non-default column family.");
-      }
-      Status s = WriteBatchInternal::DeleteRange(&batch_, column_family_id,
-                                                 begin_key, end_key);
-      sequence_++;
-      return s;
-    }
-
-    virtual Status SingleDeleteCF(uint32_t /*column_family_id*/,
-                                  const Slice& /*key*/) override {
-      return Status::NotSupported("Not supported operation in blob db.");
-    }
-
-    virtual Status MergeCF(uint32_t /*column_family_id*/, const Slice& /*key*/,
-                           const Slice& /*value*/) override {
-      return Status::NotSupported("Not supported operation in blob db.");
-    }
-
-    virtual void LogData(const Slice& blob) override {
-      batch_.PutLogData(blob);
-    }
-  };
-
   MutexLock l(&write_mutex_);
 
   uint32_t default_cf_id =

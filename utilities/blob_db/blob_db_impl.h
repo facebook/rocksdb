@@ -283,6 +283,7 @@ class BlobDBImpl : public BlobDB {
 
  private:
   class GarbageCollectionWriteCallback;
+  class BlobInserter;
 
   Status OpenPhase1();
 
