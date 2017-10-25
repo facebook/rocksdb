@@ -280,7 +280,7 @@ bool WriteBatch::HasRollback() const {
   return (ComputeContentFlags() & ContentFlags::HAS_ROLLBACK) != 0;
 }
 
-bool WriteBatch::IsLastestPersistentState() const {
+bool WriteBatch::IsLatestPersistentState() const {
   return is_latest_persistent_state_;
 }
 

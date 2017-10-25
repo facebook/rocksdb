@@ -122,7 +122,7 @@ Status WritePreparedTxn::CommitInternal() {
   const bool empty = working_batch->Count() == 0;
   WriteBatchInternal::MarkCommit(working_batch, name_);
 
-  const bool for_recovery = use_only_last_commit_time_write_batch_for_recovery_;
+  const bool for_recovery = use_only_the_last_commit_time_batch_for_recovery_;
   if (!empty && for_recovery) {
   // When not writing to memtable, we can still cache the latest write batch. The cached batch will be written to memtable in WriteRecoverableState during FlushMemTable
     working_batch->SetAsLastestPersistentState();

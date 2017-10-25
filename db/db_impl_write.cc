@@ -72,6 +72,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     return Status::NotSupported(
         "pipelined_writes is not compatible with seq_per_batch");
   }
+  // Otherwise IsLatestPersistentState optimization does not make sense
+  assert(!my_batch->IsLatestPersistentState() || disable_memtable);
 
   Status status;
   if (write_options.low_pri) {
@@ -85,8 +87,6 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     return WriteImplWALOnly(write_options, my_batch, callback, log_used,
                             log_ref, seq_used);
   }
-  // Otherwise IsLastestPersistentState optimization does not make sense
-  assert(!my_batch->IsLastestPersistentState() || disable_memtable);
 
   if (immutable_db_options_.enable_pipelined_write) {
     return PipelinedWriteImpl(write_options, my_batch, callback, log_used,
@@ -691,7 +691,7 @@ WriteBatch* DBImpl::MergeBatch(const WriteThread::WriteGroup& write_group,
     // contains one batch, that batch should be written to the WAL,
     // and the batch is not wanting to be truncated
     merged_batch = leader->batch;
-    if (merged_batch->IsLastestPersistentState()) {
+    if (merged_batch->IsLatestPersistentState()) {
       *to_be_cached_state = merged_batch;
     }
     *write_with_wal = 1;
@@ -704,8 +704,8 @@ WriteBatch* DBImpl::MergeBatch(const WriteThread::WriteGroup& write_group,
       if (writer->ShouldWriteToWAL()) {
         WriteBatchInternal::Append(merged_batch, writer->batch,
                                    /*WAL_only*/ true);
-    if (writer->batch->IsLastestPersistentState()) {
-      // We only need to cache the last such write batch
+    if (writer->batch->IsLatestPersistentState()) {
+      // We only need to cache the last of such write batch
       *to_be_cached_state = writer->batch;
     }
         (*write_with_wal)++;
@@ -851,11 +851,11 @@ Status DBImpl::WriteRecoverableState() {
   if (WriteBatchInternal::Count(&cached_recoverable_state_) > 0) {
     bool dont_care_bool;
     SequenceNumber next_seq;
-    InstrumentedMutexLock wl(&log_write_mutex_);
     if (concurrent_prepare_) {
       log_write_mutex_.Lock();
     }
       SequenceNumber seq = versions_->LastSequence();
+      printf("WriteRecoverableState seq before %ld\n", versions_->LastSequence());
           WriteBatchInternal::SetSequence(&cached_recoverable_state_, ++seq);
     auto status = WriteBatchInternal::InsertInto(
         &cached_recoverable_state_, column_family_memtables_.get(),
@@ -863,6 +863,7 @@ Status DBImpl::WriteRecoverableState() {
         false /* concurrent_memtable_writes */, &next_seq, &dont_care_bool,
         seq_per_batch_);
       versions_->SetLastSequence(--next_seq);
+      printf("WriteRecoverableState seq after %ld\n", versions_->LastSequence());
     if (concurrent_prepare_) {
       log_write_mutex_.Unlock();
     }

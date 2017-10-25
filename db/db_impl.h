@@ -995,7 +995,7 @@ class DBImpl : public DB {
   InstrumentedCondVar log_sync_cv_;
   // This is the app-level state that is written to the WAL but will be used
   // only during recovery. Using this feature enables not writing the state to
-  // memtable on norma writes and hence improving the throughput.
+  // memtable on normal writes and hence improving the throughput.
   // It is protected by log_write_mutex_ when concurrent_prepare_ is enabled. Otherwise only the heaad of write_thread_ can access it.
   WriteBatch cached_recoverable_state_;
   std::atomic<uint64_t> total_log_size_;

@@ -713,7 +713,7 @@ TEST_P(TransactionTest, SimpleTwoPhaseTransactionTest) {
   ReadOptions read_options;
 
   TransactionOptions txn_options;
-  txn_options.use_only_last_commit_time_write_batch_for_recovery = cwb4recovery;
+  txn_options.use_only_the_last_commit_time_batch_for_recovery = cwb4recovery;
 
   string value;
   Status s;
@@ -905,7 +905,7 @@ TEST_P(TransactionTest, TwoPhaseEmptyWriteTest) {
   WriteOptions write_options;
   ReadOptions read_options;
   TransactionOptions txn_options;
-  txn_options.use_only_last_commit_time_write_batch_for_recovery = cwb4recovery;
+  txn_options.use_only_the_last_commit_time_batch_for_recovery = cwb4recovery;
   Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
   ASSERT_TRUE(txn1);
   Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
