@@ -2813,6 +2813,42 @@ TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace8) {
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
+
+
+TEST_F(DBIteratorTest, SeekPrefixTombstones) {
+  ReadOptions ro;
+  Options options;
+  options.prefix_extractor.reset(NewNoopTransform());
+  TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+  internal_iter->AddDeletion("b");
+  internal_iter->AddDeletion("c");
+  internal_iter->AddDeletion("d");
+  internal_iter->AddDeletion("e");
+  internal_iter->AddDeletion("f");
+  internal_iter->AddDeletion("g");
+  internal_iter->Finish();
+
+  ro.prefix_same_as_start = true;
+  std::unique_ptr<Iterator> db_iter(NewDBIterator(
+      env_, ro, ImmutableCFOptions(options), BytewiseComparator(),
+      internal_iter, 10, options.max_sequential_skip_in_iterations,
+      nullptr /*read_callback*/));
+
+  int skipped_keys = 0;
+
+  get_perf_context()->Reset();
+  db_iter->SeekForPrev("z");
+  skipped_keys =
+      static_cast<int>(get_perf_context()->internal_key_skipped_count);
+  ASSERT_EQ(skipped_keys, 0);
+
+  get_perf_context()->Reset();
+  db_iter->Seek("a");
+  skipped_keys =
+      static_cast<int>(get_perf_context()->internal_key_skipped_count);
+  ASSERT_EQ(skipped_keys, 0);
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
