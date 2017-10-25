@@ -855,7 +855,6 @@ Status DBImpl::WriteRecoverableState() {
       log_write_mutex_.Lock();
     }
     SequenceNumber seq = versions_->LastSequence();
-    printf("WriteRecoverableState seq before %ld\n", versions_->LastSequence());
     WriteBatchInternal::SetSequence(&cached_recoverable_state_, ++seq);
     auto status = WriteBatchInternal::InsertInto(
         &cached_recoverable_state_, column_family_memtables_.get(),
@@ -863,7 +862,6 @@ Status DBImpl::WriteRecoverableState() {
         false /* concurrent_memtable_writes */, &next_seq, &dont_care_bool,
         seq_per_batch_);
     versions_->SetLastSequence(--next_seq);
-    printf("WriteRecoverableState seq after %ld\n", versions_->LastSequence());
     if (concurrent_prepare_) {
       log_write_mutex_.Unlock();
     }
