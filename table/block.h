@@ -262,15 +262,27 @@ class BlockIter : public InternalIterator {
 
   virtual void Next() override;
 
+  Status RequestNext(const Callback&) override;
+
   virtual void Prev() override;
+
+  Status RequestPrev(const Callback&) override;
 
   virtual void Seek(const Slice& target) override;
 
+  Status RequestSeek(const Callback&, const Slice& target) override;
+
   virtual void SeekForPrev(const Slice& target) override;
+
+  Status RequestSeekForPrev(const Callback&, const Slice& target) override;
 
   virtual void SeekToFirst() override;
 
+  Status RequestSeekToFirst(const Callback&) override;
+
   virtual void SeekToLast() override;
+
+  Status RequestSeekToLast(const Callback&) override;
 
 #ifndef NDEBUG
   ~BlockIter() {
@@ -339,6 +351,14 @@ class BlockIter : public InternalIterator {
   std::string prev_entries_keys_buff_;
   std::vector<CachedPrevEntry> prev_entries_;
   int32_t prev_entries_idx_ = -1;
+
+  void PrevImpl();
+
+  void SeekImpl(const Slice& target);
+
+  void SeekForPrevImpl(const Slice& target);
+
+  void SeekToLastImpl();
 
   inline int Compare(const Slice& a, const Slice& b) const {
     return comparator_->Compare(a, b);

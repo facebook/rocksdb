@@ -21,6 +21,7 @@ namespace rocksdb {
 // cache locality.
 class IteratorWrapper {
  public:
+  using Callback = InternalIterator::Callback;
   IteratorWrapper() : iter_(nullptr), valid_(false) {}
   explicit IteratorWrapper(InternalIterator* _iter) : iter_(nullptr) {
     Set(_iter);
@@ -69,6 +70,59 @@ class IteratorWrapper {
   void SeekToFirst()        { assert(iter_); iter_->SeekToFirst(); Update(); }
   void SeekToLast()         { assert(iter_); iter_->SeekToLast();  Update(); }
 
+  // All Async overloads require Update() follow up call on async return
+  // i.e. when the interface returns IOPending status
+  Status RequestNext(const Callback& cb) {
+    assert(iter_); 
+    Status s = iter_->RequestNext(cb);
+    if (!s.IsIOPending()) {
+      Update();
+    }
+    return s;
+  }
+
+  Status RequestPrev(const Callback& cb) {
+    assert(iter_); 
+    Status s = iter_->RequestPrev(cb);
+    if (!s.IsIOPending()) {
+      Update();
+    }
+    return s;
+  }
+
+  Status RequestSeek(const Callback& cb, const Slice& k) {
+    assert(iter_); 
+    Status s = iter_->RequestSeek(cb, k);
+    if (!s.IsIOPending()) {
+      Update();
+    }
+    return s;
+  }
+  Status RequestSeekForPrev(const Callback& cb, const Slice& k) {
+    assert(iter_);
+    Status s = iter_->RequestSeekForPrev(cb, k);
+    if (!s.IsIOPending()) {
+      Update();
+    }
+    return s;
+  }
+  Status RequestSeekToFirst(const Callback& cb) {
+    assert(iter_);
+    Status s = iter_->RequestSeekToFirst(cb);
+    if (!s.IsIOPending()) {
+      Update();
+    }
+    return s;
+  }
+  Status RequestSeekToLast(const Callback& cb) {
+    assert(iter_); 
+    Status s = iter_->RequestSeekToLast(cb);
+    if (!s.IsIOPending()) {
+      Update();
+    }
+    return s;
+  }
+
   void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) {
     assert(iter_);
     iter_->SetPinnedItersMgr(pinned_iters_mgr);
@@ -83,6 +137,9 @@ class IteratorWrapper {
   }
 
  private:
+
+  friend class MergingIteratorAsync;
+  friend class TwoLevelIteratorBlockBasedAsync;
   void Update() {
     valid_ = iter_->Valid();
     if (valid_) {

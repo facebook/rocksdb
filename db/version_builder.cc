@@ -7,6 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "rocksdb/async/callables.h"
 #include "db/version_builder.h"
 
 #ifndef __STDC_FORMAT_MACROS
@@ -24,9 +25,11 @@
 #include <utility>
 #include <vector>
 
+#include "async/async_absorber.h"
 #include "db/dbformat.h"
 #include "db/internal_stats.h"
 #include "db/table_cache.h"
+#include "db/table_cache_request.h"
 #include "db/version_set.h"
 #include "port/port.h"
 #include "table/table_reader.h"
@@ -335,6 +338,7 @@ class VersionBuilder::Rep {
 
     std::atomic<size_t> next_file_meta_idx(0);
     std::function<void()> load_handlers_func = [&]() {
+      Status s;
       while (true) {
         size_t file_idx = next_file_meta_idx.fetch_add(1);
         if (file_idx >= files_meta.size()) {
@@ -343,12 +347,32 @@ class VersionBuilder::Rep {
 
         auto* file_meta = files_meta[file_idx].first;
         int level = files_meta[file_idx].second;
-        table_cache_->FindTable(env_options_,
-                                *(base_vstorage_->InternalComparator()),
-                                file_meta->fd, &file_meta->table_reader_handle,
-                                false /*no_io */, true /* record_read_stats */,
-                                internal_stats->GetFileReadHist(level), false,
-                                level, prefetch_index_and_filter_in_cache);
+
+        if (env_options_.use_async_reads) {
+
+          async::FindTableSyncer call_syncer;
+          s = async::TableCacheFindTableContext::RequestFind(call_syncer.GetCallback(),
+              table_cache_, env_options_,
+              *(base_vstorage_->InternalComparator()), file_meta->fd,
+              &file_meta->table_reader_handle,
+              false /*no_io */, true /* record_read_stats */,
+              internal_stats->GetFileReadHist(level), false /* skip filters */,
+              level, prefetch_index_and_filter_in_cache);
+
+          if (s.IsIOPending()) {
+            call_syncer.Wait();
+            file_meta->table_reader_handle = call_syncer.GetResult();
+          }
+
+        } else {
+          s = async::TableCacheFindTableContext::Find(table_cache_, env_options_,
+              *(base_vstorage_->InternalComparator()), file_meta->fd,
+              &file_meta->table_reader_handle,
+              false /*no_io */, true /* record_read_stats */,
+              internal_stats->GetFileReadHist(level), false /* skip filters */,
+              level, prefetch_index_and_filter_in_cache);
+        }
+
         if (file_meta->table_reader_handle != nullptr) {
           // Load table_reader
           file_meta->fd.table_reader = table_cache_->GetTableReaderFromHandle(

@@ -151,6 +151,7 @@ static std::unordered_map<std::string, OptionTypeInfo> db_options_type_info = {
       std::shared_ptr<DeleteScheduler> delete_scheduler;
       std::shared_ptr<Logger> info_log;
       std::shared_ptr<RateLimiter> rate_limiter;
+      std::shared_ptr<async::AsyncThreadPool> async_threadpool;
       std::shared_ptr<Statistics> statistics;
       std::vector<DbPath> db_paths;
       std::vector<std::shared_ptr<EventListener>> listeners;
@@ -170,11 +171,14 @@ static std::unordered_map<std::string, OptionTypeInfo> db_options_type_info = {
     {"use_direct_reads",
      {offsetof(struct DBOptions, use_direct_reads), OptionType::kBoolean,
       OptionVerificationType::kNormal, false, 0}},
-    {"use_direct_writes",
-     {0, OptionType::kBoolean, OptionVerificationType::kDeprecated, false, 0}},
+    { "use_direct_writes",
+      { 0, OptionType::kBoolean, OptionVerificationType::kDeprecated, false, 0 } },
     {"use_direct_io_for_flush_and_compaction",
      {offsetof(struct DBOptions, use_direct_io_for_flush_and_compaction),
       OptionType::kBoolean, OptionVerificationType::kNormal, false, 0}},
+    { "use_async_reads",
+      { offsetof(struct DBOptions, use_async_reads), OptionType::kBoolean,
+      OptionVerificationType::kNormal, false, 0 } },
     {"allow_2pc",
      {offsetof(struct DBOptions, allow_2pc), OptionType::kBoolean,
       OptionVerificationType::kNormal, false, 0}},

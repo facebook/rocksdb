@@ -29,6 +29,7 @@ extern bool ShouldReportDetailedTime(Env* env, Statistics* stats);
 
 // the length of the magic number in bytes.
 const int kMagicNumberLengthByte = 8;
+const uint32_t DefaultStackBufferSize = 5000;
 
 // BlockHandle is a pointer to the extent of a file that stores a data
 // block or a meta block.
@@ -201,7 +202,7 @@ struct BlockContents {
 
   BlockContents(BlockContents&& other) ROCKSDB_NOEXCEPT { *this = std::move(other); }
 
-  BlockContents& operator=(BlockContents&& other) {
+  BlockContents& operator=(BlockContents&& other) ROCKSDB_NOEXCEPT {
     data = std::move(other.data);
     cachable = other.cachable;
     compression_type = other.compression_type;

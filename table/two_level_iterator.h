@@ -8,6 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
+
+#include "rocksdb/async/callables.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/env.h"
 #include "table/iterator_wrapper.h"
@@ -17,18 +19,28 @@ namespace rocksdb {
 struct ReadOptions;
 class InternalKeyComparator;
 class Arena;
+class Allocator;
 
 struct TwoLevelIteratorState {
   explicit TwoLevelIteratorState(bool _check_prefix_may_match)
-      : check_prefix_may_match(_check_prefix_may_match) {}
+      : check_prefix_may_match(_check_prefix_may_match),
+        allocator_(nullptr) {}
+
+  TwoLevelIteratorState(bool _check_prefix_may_match,
+    Allocator* allocator)
+    : check_prefix_may_match(_check_prefix_may_match),
+    allocator_(allocator) {}
 
   virtual ~TwoLevelIteratorState() {}
   virtual InternalIterator* NewSecondaryIterator(const Slice& handle) = 0;
+  virtual Status NewSecondaryIterator(const async::Callable<Status,
+    const Status&, InternalIterator*>&, const Slice& handle, InternalIterator**);
   virtual bool PrefixMayMatch(const Slice& internal_key) = 0;
   virtual bool KeyReachedUpperBound(const Slice& internal_key) = 0;
 
   // If call PrefixMayMatch()
   bool check_prefix_may_match;
+  Allocator*  allocator_; // arena
 };
 
 
@@ -49,5 +61,9 @@ struct TwoLevelIteratorState {
 extern InternalIterator* NewTwoLevelIterator(
     TwoLevelIteratorState* state, InternalIterator* first_level_iter,
     Arena* arena = nullptr, bool need_free_iter_and_state = true);
+
+extern InternalIterator* NewTwoLevelBlockAsyncIterator(
+  TwoLevelIteratorState* state, InternalIterator* first_level_iter,
+  Arena* arena = nullptr, bool need_free_iter_and_state = true);
 
 }  // namespace rocksdb

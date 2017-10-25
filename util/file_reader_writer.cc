@@ -16,6 +16,7 @@
 #include "monitoring/iostats_context_imp.h"
 #include "port/port.h"
 #include "util/random.h"
+#include "util/random_read_context.h"
 #include "util/rate_limiter.h"
 #include "util/sync_point.h"
 
@@ -71,39 +72,14 @@ Status SequentialFileReader::Skip(uint64_t n) {
 
 Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
                                     char* scratch) const {
-  Status s;
-  uint64_t elapsed = 0;
-  {
-    StopWatch sw(env_, stats_, hist_type_,
-                 (stats_ != nullptr) ? &elapsed : nullptr);
-    IOSTATS_TIMER_GUARD(read_nanos);
-    if (use_direct_io()) {
-#ifndef ROCKSDB_LITE
-      size_t alignment = file_->GetRequiredBufferAlignment();
-      size_t aligned_offset = TruncateToPageBoundary(alignment, offset);
-      size_t offset_advance = offset - aligned_offset;
-      size_t size = Roundup(offset + n, alignment) - aligned_offset;
-      size_t r = 0;
-      AlignedBuffer buf;
-      buf.Alignment(alignment);
-      buf.AllocateNewBuffer(size);
-      Slice tmp;
-      s = file_->Read(aligned_offset, size, &tmp, buf.BufferStart());
-      if (s.ok() && offset_advance < tmp.size()) {
-        buf.Size(tmp.size());
-        r = buf.Read(scratch, offset_advance,
-                            std::min(tmp.size() - offset_advance, n));
-      }
-      *result = Slice(scratch, r);
-#endif  // !ROCKSDB_LITE
-    } else {
-      s = file_->Read(offset, n, result, scratch);
-    }
-    IOSTATS_ADD_IF_POSITIVE(bytes_read, result->size());
-  }
-  if (stats_ != nullptr && file_read_hist_ != nullptr) {
-    file_read_hist_->Add(elapsed);
-  }
+
+  // No callback supplied
+  async::RandomFileReadContext req_ctx(file_.get(), env_, stats_, file_read_hist_,
+                        hist_type_, use_direct_io(),
+    file_->GetRequiredBufferAlignment());
+  req_ctx.PrepareRead(offset, n, result, scratch);
+  Status s = req_ctx.RandomRead();
+  req_ctx.OnRandomReadComplete(s, *result);
   return s;
 }
 

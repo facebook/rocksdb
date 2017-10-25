@@ -17,6 +17,14 @@
 
 namespace rocksdb {
 
+Status TwoLevelIteratorState::NewSecondaryIterator(const async::Callable<Status, const Status&,
+  InternalIterator*>&, const Slice & handle, InternalIterator**) {
+  // This is to indicate that this needs to be implemented if called
+  assert(false);
+  return Status::NotSupported("TwoLevelIteratorState");
+}
+
+
 namespace {
 
 class TwoLevelIterator : public InternalIterator {

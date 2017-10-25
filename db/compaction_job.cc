@@ -24,6 +24,7 @@
 #include <utility>
 #include <vector>
 
+#include "async/async_absorber.h"
 #include "db/builder.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
@@ -34,6 +35,7 @@
 #include "db/memtable_list.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
+#include "db/table_cache_request.h"
 #include "db/version_set.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/perf_context_imp.h"
@@ -1086,22 +1088,44 @@ Status CompactionJob::FinishCompactionOutputFile(
     // We set for_compaction to false and don't OptimizeForCompactionTableRead
     // here because this is a special case after we finish the table building
     // No matter whether use_direct_io_for_flush_and_compaction is true,
-    // we will regrad this verification as user reads since the goal is
+    // we will regard this verification as user reads since the goal is
     // to cache it here for further user reads
-    InternalIterator* iter = cfd->table_cache()->NewIterator(
-        ReadOptions(), env_options_, cfd->internal_comparator(), meta->fd,
-        nullptr /* range_del_agg */, nullptr,
+    ReadOptions read_options;
+    std::unique_ptr<InternalIterator> iter;
+    InternalIterator* result = nullptr;
+    if (env_options_.use_async_reads) {
+      async::NewIteratorSyncer syncer;
+      s = async::TableCacheNewIteratorContext::RequestCreate(syncer.GetCallable(),
+        cfd->table_cache(), read_options,
+        env_options_, cfd->internal_comparator(), meta->fd, nullptr /* range_del_agg */,
+        &result, nullptr /* table_reader */,
         cfd->internal_stats()->GetFileReadHist(
-            compact_->compaction->output_level()),
-        false);
-    s = iter->status();
+          compact_->compaction->output_level()),
+        false /* for_compaction */);
 
-    if (s.ok() && paranoid_file_checks_) {
+      if (s.IsIOPending()) {
+        syncer.Wait();
+        iter.reset(syncer.GetResult());
+      } else {
+        iter.reset(result);
+      }
+    } else {
+      async::TableCacheNewIteratorContext::Create(cfd->table_cache(), read_options,
+        env_options_, cfd->internal_comparator(), meta->fd, nullptr /* range_del_agg */,
+        &result, nullptr /* table_reader */,
+        cfd->internal_stats()->GetFileReadHist(
+          compact_->compaction->output_level()),
+          false /* for_compaction */);
+      iter.reset(result);
+    }
+
+
+    s = iter->status();
+    /// XXX: Async iteration is not implemented yet
+    if (s.ok() && paranoid_file_checks_ && !env_options_.use_async_reads) {
       for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {}
       s = iter->status();
     }
-
-    delete iter;
 
     // Output to event logger and fire events.
     if (s.ok()) {

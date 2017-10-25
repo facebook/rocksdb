@@ -59,4 +59,39 @@ class MergeIteratorBuilder {
   Arena* arena;
 };
 
+extern InternalIterator* NewMergingIteratorAsync(const Comparator* comparator,
+  InternalIterator** children, int n,
+  Arena* arena = nullptr,
+  bool prefix_seek_mode = false);
+
+
+class MergingIteratorAsync;
+
+class MergeIteratorBuilderAsync {
+public:
+  // comparator: the comparator used in merging comparator
+  // arena: where the merging iterator needs to be allocated from.
+  MergeIteratorBuilderAsync(const Comparator* comparator, Arena* arena,
+    bool prefix_seek_mode = false);
+  ~MergeIteratorBuilderAsync() {}
+
+  // Add iter to the merging iterator.
+  void AddIterator(InternalIterator* iter);
+
+  // Get arena used to build the merging iterator. It is called one a child
+  // iterator needs to be allocated.
+  Arena* GetArena() {
+    return arena;
+  }
+
+  // Return the result merging iterator.
+  InternalIterator* Finish();
+
+private:
+  MergingIteratorAsync* merge_iter;
+  InternalIterator* first_iter;
+  bool use_merging_iter;
+  Arena* arena;
+};
+
 }  // namespace rocksdb

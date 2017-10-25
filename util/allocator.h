@@ -54,4 +54,43 @@ class AllocTracker {
   void operator=(const AllocTracker&);
 };
 
+// Utility helpers to allocate on the managed allocator if possible
+// if not default on heap allocation
+namespace allocator_details {
+// Destroy, do not free
+template<class T>
+struct Destructor {
+  bool managed_ = false;
+  void operator()(T* t) const {
+    assert(t != nullptr);
+    if (managed_) {
+      t->~T();
+    } else {
+      delete t;
+    }
+  }
+};
+}
+
+template<class T, class ...Args> inline
+std::unique_ptr<T, allocator_details::Destructor<T>> TryAllocateOnAllocator(
+    Allocator* allocator, Args... args) {
+
+  using D = allocator_details::Destructor<T>;
+  D d;
+  T* v = nullptr;
+
+  if (allocator != nullptr) {
+    auto* mem = allocator->AllocateAligned(sizeof(T));
+    v = new (mem) T(args..., true);
+    d.managed_ = true;
+  } else {
+    v = new T(args..., false);
+  }
+
+  std::unique_ptr<T, D> result(v, d);
+  return result;
+}
+
+
 }  // namespace rocksdb

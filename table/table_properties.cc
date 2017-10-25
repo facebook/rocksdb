@@ -185,22 +185,24 @@ extern const std::string kRangeDelBlock = "rocksdb.range_del";
 
 // Seek to the properties block.
 // Return true if it successfully seeks to the properties block.
-Status SeekToPropertiesBlock(InternalIterator* meta_iter, bool* is_found) {
-  Status status = SeekToMetaBlock(meta_iter, kPropertiesBlock, is_found);
+Status SeekToPropertiesBlock(InternalIterator* meta_iter, bool* is_found,
+                             BlockHandle* block_handle) {
+  Status status = SeekToMetaBlock(meta_iter, kPropertiesBlock, is_found, block_handle);
   if (!*is_found && status.ok()) {
-    status = SeekToMetaBlock(meta_iter, kPropertiesBlockOldName, is_found);
+    status = SeekToMetaBlock(meta_iter, kPropertiesBlockOldName, is_found, block_handle);
   }
   return status;
 }
 
 // Seek to the compression dictionary block.
 // Return true if it successfully seeks to that block.
-Status SeekToCompressionDictBlock(InternalIterator* meta_iter, bool* is_found) {
-  return SeekToMetaBlock(meta_iter, kCompressionDictBlock, is_found);
+Status SeekToCompressionDictBlock(InternalIterator* meta_iter, bool* is_found,
+                                  BlockHandle* block_handle) {
+  return SeekToMetaBlock(meta_iter, kCompressionDictBlock, is_found, block_handle);
 }
 
 Status SeekToRangeDelBlock(InternalIterator* meta_iter, bool* is_found,
-                           BlockHandle* block_handle = nullptr) {
+                           BlockHandle* block_handle) {
   return SeekToMetaBlock(meta_iter, kRangeDelBlock, is_found, block_handle);
 }
 

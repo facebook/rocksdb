@@ -194,6 +194,14 @@ void MemTableListVersion::AddIterators(
   }
 }
 
+void MemTableListVersion::AddIterators(
+  const ReadOptions& options, MergeIteratorBuilderAsync* merge_iter_builder) {
+  for (auto& m : memlist_) {
+    merge_iter_builder->AddIterator(
+      m->NewIterator(options, merge_iter_builder->GetArena()));
+  }
+}
+
 uint64_t MemTableListVersion::GetTotalNumEntries() const {
   uint64_t total_num = 0;
   for (auto& m : memlist_) {

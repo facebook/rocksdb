@@ -41,6 +41,23 @@ class FilterBitsBuilder {
   // The return value of this function would be the filter bits,
   // The ownership of actual data is set to buf
   virtual Slice Finish(std::unique_ptr<const char[]>* buf) = 0;
+
+  // Calculate num of entries fit into a space.
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4702) // unreachable code
+#endif
+  virtual int CalculateNumEntry(const uint32_t space) {
+#ifndef ROCKSDB_LITE
+    throw std::runtime_error("CalculateNumEntry not Implemented");
+#else
+    abort();
+#endif
+    return 0;
+  }
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
 };
 
 // A class that checks if a key can be in filter

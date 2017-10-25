@@ -290,6 +290,11 @@ SuperVersion* SuperVersion::Ref() {
   return this;
 }
 
+SuperVersion* SuperVersion::Ref2() {
+  refs.fetch_add(2, std::memory_order_relaxed);
+  return this;
+}
+
 bool SuperVersion::Unref() {
   // fetch_sub returns the previous value of ref
   uint32_t previous_refs = refs.fetch_sub(1);
@@ -463,7 +468,8 @@ ColumnFamilyData::~ColumnFamilyData() {
   if (dummy_versions_ != nullptr) {
     // List must be empty
     assert(dummy_versions_->TEST_Next() == dummy_versions_);
-    bool deleted __attribute__((unused)) = dummy_versions_->Unref();
+    bool deleted __attribute__((unused));
+    deleted = dummy_versions_->Unref();
     assert(deleted);
   }
 
@@ -841,13 +847,7 @@ Compaction* ColumnFamilyData::CompactRange(
 
 SuperVersion* ColumnFamilyData::GetReferencedSuperVersion(
     InstrumentedMutex* db_mutex) {
-  SuperVersion* sv = nullptr;
-  sv = GetThreadLocalSuperVersion(db_mutex);
-  sv->Ref();
-  if (!ReturnThreadLocalSuperVersion(sv)) {
-    sv->Unref();
-  }
-  return sv;
+  return GetThreadLocalSuperVersion(db_mutex);
 }
 
 SuperVersion* ColumnFamilyData::GetThreadLocalSuperVersion(
@@ -861,15 +861,27 @@ SuperVersion* ColumnFamilyData::GetThreadLocalSuperVersion(
   // local pointer to guarantee exclusive access. If the thread local pointer
   // is being used while a new SuperVersion is installed, the cached
   // SuperVersion can become stale. In that case, the background thread would
-  // have swapped in kSVObsolete. We re-check the value at when returning
-  // SuperVersion back to thread local, with an atomic compare and swap.
-  // The superversion will need to be released if detected to be stale.
+  // have swapped in kSVObsolete. We detect the fact on the next acquisition of the
+  // Sueprversion either by the fact that the ptr we obtain during the swap kSVObsolete
+  // or the super_version_number has moved on. In the async version we allow returning
+  // the superversion from another thread. This is no longer returning but simply
+  // dereferencing it and, claning and destroying if necessary. For this reason we perform
+  // the following changes for async:
+  // - We always obtain the ref count
+  // - we only keep kSVInUse for the time to obtain the refcount (or to referesh from
+  //   the latest)
+  // - We no longer swap and check for InUse before returning. For that reason
+  //  ReturnThreadLocalSuperVersion() now always returns false so  the DB public API would
+  //  always deref and cleanup under mutex is necessary.
+  // - GetReferencedSuperVersion() simply forwards the call to GetThreadLocalSuperVersion()
+  //   because it is always referenced now.
   void* ptr = local_sv_->Swap(SuperVersion::kSVInUse);
   // Invariant:
   // (1) Scrape (always) installs kSVObsolete in ThreadLocal storage
   // (2) the Swap above (always) installs kSVInUse, ThreadLocal storage
-  // should only keep kSVInUse before ReturnThreadLocalSuperVersion call
-  // (if no Scrape happens).
+  // no longer keeps InUse for the whole duration but only to obtain the refcount.
+  // This increases the window for Scrape to obsolete the current version.
+  // The refcount is required for async version at the cost of the atomic decrement.
   assert(ptr != SuperVersion::kSVInUse);
   sv = static_cast<SuperVersion*>(ptr);
   if (sv == SuperVersion::kSVObsolete ||
@@ -887,30 +899,22 @@ SuperVersion* ColumnFamilyData::GetThreadLocalSuperVersion(
     } else {
       db_mutex->Lock();
     }
-    sv = super_version_->Ref();
+    // Increase by two
+    sv = super_version_->Ref2();
     db_mutex->Unlock();
 
     delete sv_to_delete;
+  } else {
+    sv->Ref();
   }
   assert(sv != nullptr);
+  local_sv_->Reset(sv);
   return sv;
 }
 
 bool ColumnFamilyData::ReturnThreadLocalSuperVersion(SuperVersion* sv) {
   assert(sv != nullptr);
-  // Put the SuperVersion back
-  void* expected = SuperVersion::kSVInUse;
-  if (local_sv_->CompareAndSwap(static_cast<void*>(sv), expected)) {
-    // When we see kSVInUse in the ThreadLocal, we are sure ThreadLocal
-    // storage has not been altered and no Scrape has happened. The
-    // SuperVersion is still current.
-    return true;
-  } else {
-    // ThreadLocal scrape happened in the process of this GetImpl call (after
-    // thread local Swap() at the beginning and before CompareAndSwap()).
-    // This means the SuperVersion it holds is obsolete.
-    assert(expected == SuperVersion::kSVObsolete);
-  }
+  // Cause the caller always Unref()
   return false;
 }
 

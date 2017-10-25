@@ -31,6 +31,7 @@
 
 #include "db/builder.h"
 #include "db/compaction_job.h"
+#include "db/db_impl_request.h"
 #include "db/db_info_dumper.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
@@ -766,22 +767,9 @@ void DBImpl::BackgroundCallPurge() {
   mutex_.Unlock();
 }
 
-namespace {
-struct IterState {
-  IterState(DBImpl* _db, InstrumentedMutex* _mu, SuperVersion* _super_version,
-            bool _background_purge)
-      : db(_db),
-        mu(_mu),
-        super_version(_super_version),
-        background_purge(_background_purge) {}
+namespace db_impl_detail {
 
-  DBImpl* db;
-  InstrumentedMutex* mu;
-  SuperVersion* super_version;
-  bool background_purge;
-};
-
-static void CleanupIteratorState(void* arg1, void* arg2) {
+void CleanupIteratorState(void* arg1, void* arg2) {
   IterState* state = reinterpret_cast<IterState*>(arg1);
 
   if (state->super_version->Unref()) {
@@ -816,7 +804,9 @@ static void CleanupIteratorState(void* arg1, void* arg2) {
 
   delete state;
 }
-}  // namespace
+}  // namespace db_impl_detail
+
+using namespace db_impl_detail;
 
 InternalIterator* DBImpl::NewInternalIterator(
     const ReadOptions& read_options, ColumnFamilyData* cfd,
@@ -869,15 +859,28 @@ ColumnFamilyHandle* DBImpl::DefaultColumnFamily() const {
   return default_cf_handle_;
 }
 
+// Async version of the entry point
+Status DBImpl::Get(const GetCallback& cb, const ReadOptions& options,
+                  ColumnFamilyHandle* column_family, const Slice& key,
+                  std::string* value) {
+  return async::DBImplGetContext::RequestGet(cb, this, options, column_family,
+      key, nullptr, value);
+}
+
 Status DBImpl::Get(const ReadOptions& read_options,
                    ColumnFamilyHandle* column_family, const Slice& key,
                    PinnableSlice* value) {
-  return GetImpl(read_options, column_family, key, value);
+  return async::DBImplGetContext::Get(this, read_options, column_family,
+    key, value, nullptr);
 }
 
 Status DBImpl::GetImpl(const ReadOptions& read_options,
                        ColumnFamilyHandle* column_family, const Slice& key,
                        PinnableSlice* pinnable_val, bool* value_found) {
+
+  // temp to find out if we forgot some path
+  assert(false);
+
   assert(pinnable_val != nullptr);
   StopWatch sw(env_, stats_, DB_GET);
   PERF_TIMER_GUARD(get_snapshot_time);
@@ -1336,7 +1339,8 @@ bool DBImpl::KeyMayExist(const ReadOptions& read_options,
   ReadOptions roptions = read_options;
   roptions.read_tier = kBlockCacheTier; // read from block cache only
   PinnableSlice pinnable_val;
-  auto s = GetImpl(roptions, column_family, key, &pinnable_val, value_found);
+  auto s = async::DBImplGetContext::Get(this, roptions, column_family,
+    key, &pinnable_val, nullptr, value_found);
   value->assign(pinnable_val.data(), pinnable_val.size());
 
   // If block_cache is enabled and the index block of the table didn't
@@ -1347,6 +1351,7 @@ bool DBImpl::KeyMayExist(const ReadOptions& read_options,
 
 Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
                               ColumnFamilyHandle* column_family) {
+  Iterator* result = nullptr;
   if (read_options.read_tier == kPersistedTier) {
     return NewErrorIterator(Status::NotSupported(
         "ReadTier::kPersistedData is not yet supported in iterators."));
@@ -1356,31 +1361,38 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
   if (read_options.managed) {
 #ifdef ROCKSDB_LITE
     // not supported in lite version
-    return NewErrorIterator(Status::InvalidArgument(
+    result =  NewErrorIterator(Status::InvalidArgument(
         "Managed Iterators not supported in RocksDBLite."));
 #else
     if ((read_options.tailing) || (read_options.snapshot != nullptr) ||
         (is_snapshot_supported_)) {
-      return new ManagedIterator(this, read_options, cfd);
-    }
-    // Managed iter not supported
-    return NewErrorIterator(Status::InvalidArgument(
+      result = new ManagedIterator(this, read_options, cfd);
+    } else {
+      // Managed iter not supported
+      result = NewErrorIterator(Status::InvalidArgument(
         "Managed Iterators not supported without snapshots."));
+    }
 #endif
   } else if (read_options.tailing) {
 #ifdef ROCKSDB_LITE
     // not supported in lite version
-    return nullptr;
+    result = nullptr;
+#elif defined(ROCKSDB_ASYNC_TESTING)
+    result = async::DBImplNewIteratorContext::Create(this, read_options, column_family);
 #else
     SuperVersion* sv = cfd->GetReferencedSuperVersion(&mutex_);
     auto iter = new ForwardIterator(this, read_options, cfd, sv);
-    return NewDBIterator(
+    result = NewDBIterator(
         env_, read_options, *cfd->ioptions(), cfd->user_comparator(), iter,
         kMaxSequenceNumber,
         sv->mutable_cf_options.max_sequential_skip_in_iterations,
         sv->version_number);
 #endif
   } else {
+#ifdef ROCKSDB_ASYNC_TESTING
+    result= async::DBImplNewIteratorContext::Create(this, read_options, column_family);
+#else
+
     SequenceNumber latest_snapshot = versions_->LastSequence();
     SuperVersion* sv = cfd->GetReferencedSuperVersion(&mutex_);
 
@@ -1442,10 +1454,10 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
                             db_iter->GetRangeDelAggregator());
     db_iter->SetIterUnderDBIter(internal_iter);
 
-    return db_iter;
+    result = db_iter;
+#endif // ROCKSD_ASYNC_TESTING
   }
-  // To stop compiler from complaining
-  return nullptr;
+  return result;
 }
 
 Status DBImpl::NewIterators(
@@ -1482,12 +1494,21 @@ Status DBImpl::NewIterators(
     for (auto cfh : column_families) {
       auto cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
       SuperVersion* sv = cfd->GetReferencedSuperVersion(&mutex_);
+#ifdef ROCKSDB_ASYNC_TESTING
+      auto iter = ForwardIteratorAsync::Create(this, read_options, cfd, sv);
+      iterators->push_back(NewDBIteratorAsync(
+        env_, read_options, *cfd->ioptions(), cfd->user_comparator(), iter,
+        kMaxSequenceNumber,
+        sv->mutable_cf_options.max_sequential_skip_in_iterations,
+        sv->version_number));
+#else
       auto iter = new ForwardIterator(this, read_options, cfd, sv);
       iterators->push_back(NewDBIterator(
           env_, read_options, *cfd->ioptions(), cfd->user_comparator(), iter,
           kMaxSequenceNumber,
           sv->mutable_cf_options.max_sequential_skip_in_iterations,
           sv->version_number));
+#endif // ROCKSDB_ASYNC_TESTING
     }
 #endif
   } else {
@@ -1503,8 +1524,11 @@ Status DBImpl::NewIterators(
               ? reinterpret_cast<const SnapshotImpl*>(
                   read_options.snapshot)->number_
               : latest_snapshot;
-
+#ifdef ROCKSDB_ASYNC_TESTING
+      ArenaWrappedDBIterAsync* db_iter = NewArenaWrappedDbIteratorAsync(
+#else
       ArenaWrappedDBIter* db_iter = NewArenaWrappedDbIterator(
+#endif
           env_, read_options, *cfd->ioptions(), cfd->user_comparator(),
           snapshot, sv->mutable_cf_options.max_sequential_skip_in_iterations,
           sv->version_number);

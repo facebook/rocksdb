@@ -62,6 +62,21 @@ class CuckooTableFactory : public TableFactory {
       unique_ptr<TableReader>* table,
       bool prefetch_index_and_filter_in_cache = true) const override;
 
+  // Async version of NewTableReader
+  // On sync completion, the table reader is returned via an output
+  // parameter table_reader as with sync version.
+  // On async completion, a pointer is passed via a callback parameter
+  // and the recipient is expected to take ownership of the object
+  Status NewTableReader(
+    const async::Callable<Status, const Status&,
+    std::unique_ptr<TableReader>&&>& cb,
+    const TableReaderOptions& table_reader_options,
+    unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
+    unique_ptr<TableReader>* table_reader,
+    bool prefetch_index_and_filter_in_cache) const override {
+    return Status::NotSupported();
+  }
+
   TableBuilder* NewTableBuilder(
       const TableBuilderOptions& table_builder_options,
       uint32_t column_family_id, WritableFileWriter* file) const override;

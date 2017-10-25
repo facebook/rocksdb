@@ -308,7 +308,6 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
     ASSERT_OK(iter->status());
     while (iter->Valid()) {
       ParsedInternalKey ikey(Slice(), 0, kTypeValue);
-      ikey.sequence = -1;
       ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), true);
       total++;
       if (ikey.sequence != 0) {
@@ -617,7 +616,6 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextManual) {
     ASSERT_OK(iter->status());
     while (iter->Valid()) {
       ParsedInternalKey ikey(Slice(), 0, kTypeValue);
-      ikey.sequence = -1;
       ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), true);
       total++;
       if (ikey.sequence != 0) {

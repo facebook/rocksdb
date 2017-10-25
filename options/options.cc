@@ -124,6 +124,7 @@ DBOptions::DBOptions(const Options& options)
       paranoid_checks(options.paranoid_checks),
       env(options.env),
       rate_limiter(options.rate_limiter),
+      async_threadpool(options.async_threadpool),
       sst_file_manager(options.sst_file_manager),
       info_log(options.info_log),
       info_log_level(options.info_log_level),
@@ -156,6 +157,7 @@ DBOptions::DBOptions(const Options& options)
       use_direct_reads(options.use_direct_reads),
       use_direct_io_for_flush_and_compaction(
           options.use_direct_io_for_flush_and_compaction),
+      use_async_reads(options.use_async_reads),
       allow_fallocate(options.allow_fallocate),
       is_fd_close_on_exec(options.is_fd_close_on_exec),
       skip_log_error_on_recovery(options.skip_log_error_on_recovery),
