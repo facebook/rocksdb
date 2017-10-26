@@ -833,7 +833,7 @@ TEST_F(DBWALTest, kTolerateCorruptedTailRecords) {
         } else {
           options.wal_recovery_mode =
               WALRecoveryMode::kTolerateCorruptedTailRecords;
-          ASSERT_NOK(TryReopen(options));
+          ASSERT_OK(TryReopen(options));
         }
       }
     }

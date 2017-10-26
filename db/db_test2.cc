@@ -561,6 +561,7 @@ TEST_F(DBTest2, WalFilterTest) {
     // Reopen database with option to use WAL filter
     options = OptionsForLogIterTest();
     options.wal_filter = &test_wal_filter;
+    options.wal_recovery_mode = WALRecoveryMode::kAbsoluteConsistency;
     Status status =
       TryReopenWithColumnFamilies({ "default", "pikachu" }, options);
     if (wal_processing_option ==
