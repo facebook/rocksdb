@@ -73,6 +73,7 @@ These are just simple examples of how RocksDB is used. The full documentation is
 
 Here are some specific details about the RocksDB implementation:
 
-- [Architecture Guide](https://github.com/facebook/rocksdb/wiki/Rocksdb-Architecture-Guide)
-- [Format of an immutable Table file](https://github.com/facebook/rocksdb/wiki/Rocksdb-Table-Format)
+- [Architecture basics](https://github.com/facebook/rocksdb/wiki/RocksDB-Basics)
+- [Format of an BlockBasedTable file](https://github.com/facebook/rocksdb/wiki/Rocksdb-BlockBasedTable-Format)
+- [Format of an PlainTable file](https://github.com/facebook/rocksdb/wiki/PlainTable-Format)
 - [Format of a log file](https://github.com/facebook/rocksdb/wiki/Write-Ahead-Log-File-Format)
