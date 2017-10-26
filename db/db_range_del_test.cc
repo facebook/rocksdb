@@ -49,6 +49,10 @@ TEST_F(DBRangeDelTest, FlushOutputHasOnlyRangeTombstones) {
   ASSERT_EQ(1, NumTableFilesAtLevel(0));
 }
 
+TEST_F(DBRangeDelTest, BasicCallDeleteRangeWithoutCF) {
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), "dr1", "dr2"));
+}
+
 TEST_F(DBRangeDelTest, CompactionOutputHasOnlyRangeTombstone) {
   Options opts = CurrentOptions();
   opts.disable_auto_compactions = true;

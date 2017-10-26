@@ -280,6 +280,10 @@ class DB {
   virtual Status DeleteRange(const WriteOptions& options,
                              ColumnFamilyHandle* column_family,
                              const Slice& begin_key, const Slice& end_key);
+  virtual Status DeleteRange(const WriteOptions& options,
+                             const Slice& begin_key, const Slice& end_key) {
+    return DeleteRange(options, DefaultColumnFamily(), begin_key, end_key);
+  }
 
   // Merge the database entry for "key" with "value".  Returns OK on success,
   // and a non-OK status on error. The semantics of this operation is
