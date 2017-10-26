@@ -87,6 +87,8 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
       stats_(stats),
       event_logger_(event_logger),
       measure_io_stats_(measure_io_stats),
+      edit_(nullptr),
+      base_(nullptr),
       pick_memtable_called(false) {
   // Update the thread status to indicate flush.
   ReportStartedFlush();
