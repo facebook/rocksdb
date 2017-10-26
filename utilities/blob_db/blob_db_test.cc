@@ -128,6 +128,9 @@ class BlobDBTest : public testing::Test {
     Iterator *iter = db->NewIterator(ReadOptions());
     iter->SeekToFirst();
     for (auto &p : data) {
+      if (!iter->Valid()) {
+        printf("s = %s\n", iter->status().ToString().c_str());
+      }
       ASSERT_TRUE(iter->Valid());
       ASSERT_EQ(p.first, iter->key().ToString());
       ASSERT_EQ(p.second, iter->value().ToString());
@@ -256,6 +259,7 @@ TEST_F(BlobDBTest, PutUntil) {
   ASSERT_EQ(100 - data.size(), gc_stats.num_deletes);
   ASSERT_EQ(data.size(), gc_stats.num_relocate);
   VerifyDB(data);
+  ASSERT_FALSE(true);
 }
 
 TEST_F(BlobDBTest, TTLExtrator_NoTTL) {
@@ -1012,11 +1016,11 @@ TEST_F(BlobDBTest, InlineSmallValues) {
     ttl_file = blob_files[1];
   }
   ASSERT_FALSE(non_ttl_file->HasTTL());
-  ASSERT_EQ(first_non_ttl_seq, non_ttl_file->GetSNRange().first);
-  ASSERT_EQ(last_non_ttl_seq, non_ttl_file->GetSNRange().second);
+  ASSERT_EQ(first_non_ttl_seq, non_ttl_file->GetSequenceRange().first);
+  ASSERT_EQ(last_non_ttl_seq, non_ttl_file->GetSequenceRange().second);
   ASSERT_TRUE(ttl_file->HasTTL());
-  ASSERT_EQ(first_ttl_seq, ttl_file->GetSNRange().first);
-  ASSERT_EQ(last_ttl_seq, ttl_file->GetSNRange().second);
+  ASSERT_EQ(first_ttl_seq, ttl_file->GetSequenceRange().first);
+  ASSERT_EQ(last_ttl_seq, ttl_file->GetSequenceRange().second);
 }
 
 }  //  namespace blob_db

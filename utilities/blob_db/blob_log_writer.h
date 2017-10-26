@@ -37,24 +37,29 @@ class Writer {
   explicit Writer(std::unique_ptr<WritableFileWriter>&& dest,
                   uint64_t log_number, uint64_t bpsync, bool use_fsync,
                   uint64_t boffset = 0);
-  ~Writer();
 
-  static void ConstructBlobHeader(std::string* headerbuf, const Slice& key,
-                                  const Slice& val, uint64_t ttl, int64_t ts);
+  ~Writer() = default;
+
+  // No copying allowed
+  Writer(const Writer&) = delete;
+  Writer& operator=(const Writer&) = delete;
+
+  static void ConstructBlobHeader(std::string* buf, const Slice& key,
+                                  const Slice& val, uint64_t expiration);
 
   Status AddRecord(const Slice& key, const Slice& val, uint64_t* key_offset,
                    uint64_t* blob_offset);
 
-  Status AddRecord(const Slice& key, const Slice& val, uint64_t* key_offset,
-                   uint64_t* blob_offset, uint64_t ttl);
+  Status AddRecord(const Slice& key, const Slice& val, uint64_t expiration,
+                   uint64_t* key_offset, uint64_t* blob_offset);
 
   Status EmitPhysicalRecord(const std::string& headerbuf, const Slice& key,
                             const Slice& val, uint64_t* key_offset,
                             uint64_t* blob_offset);
 
-  Status AppendFooter(const BlobLogFooter& footer);
+  Status AppendFooter(BlobLogFooter& footer);
 
-  Status WriteHeader(const BlobLogHeader& header);
+  Status WriteHeader(BlobLogHeader& header);
 
   WritableFileWriter* file() { return dest_.get(); }
 
@@ -75,15 +80,6 @@ class Writer {
   uint64_t bytes_per_sync_;
   uint64_t next_sync_offset_;
   bool use_fsync_;
-
-  // crc32c values for all supported record types.  These are
-  // pre-computed to reduce the overhead of computing the crc of the
-  // record type stored in the header.
-  uint32_t type_crc_[kMaxRecordType + 1];
-
-  // No copying allowed
-  Writer(const Writer&) = delete;
-  Writer& operator=(const Writer&) = delete;
 
  public:
   enum ElemType { kEtNone, kEtFileHdr, kEtRecord, kEtFileFooter };
