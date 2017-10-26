@@ -4,7 +4,6 @@
 #pragma once
 
 #include <stdint.h>
-#include <limits>
 #include <map>
 #include <string>
 #include "rocksdb/status.h"
@@ -164,8 +163,8 @@ struct TableProperties {
   // The time when the SST file was created.
   // Since SST files are immutable, this is equivalent to last modified time.
   uint64_t creation_time = 0;
-  // Timestamp of the earliest key
-  uint64_t oldest_key_time = std::numeric_limits<uint64_t>::max();
+  // Timestamp of the earliest key. 0 means unknown.
+  uint64_t oldest_key_time = 0;
 
   // Name of the column family with which this SST file is associated.
   // If column family is unknown, `column_family_name` will be an empty string.
