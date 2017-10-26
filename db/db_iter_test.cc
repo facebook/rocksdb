@@ -2849,6 +2849,74 @@ TEST_F(DBIteratorTest, SeekPrefixTombstones) {
   ASSERT_EQ(skipped_keys, 0);
 }
 
+TEST_F(DBIteratorTest, SeekToFirstLowerBound) {
+  const int kNumKeys = 3;
+  for (int i = 0; i < kNumKeys + 2; ++i) {
+    // + 2 for two special cases: lower bound before and lower bound after the
+    // internal iterator's keys
+    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+    for (int j = 1; j <= kNumKeys; ++j) {
+      internal_iter->AddPut(std::to_string(j), "val");
+    }
+    internal_iter->Finish();
+
+    ReadOptions ro;
+    auto lower_bound_str = std::to_string(i);
+    Slice lower_bound(lower_bound_str);
+    ro.iterate_lower_bound = &lower_bound;
+    Options options;
+    std::unique_ptr<Iterator> db_iter(NewDBIterator(
+        env_, ro, ImmutableCFOptions(options), BytewiseComparator(),
+        internal_iter, 10 /* sequence */,
+        options.max_sequential_skip_in_iterations, nullptr /* read_callback */));
+
+    db_iter->SeekToFirst();
+    if (i == kNumKeys + 1) {
+      // lower bound was beyond the last key
+      ASSERT_FALSE(db_iter->Valid());
+    } else {
+      ASSERT_TRUE(db_iter->Valid());
+      int expected;
+      if (i == 0) {
+        // lower bound was before the first key
+        expected = 1;
+      } else {
+        // lower bound was at the ith key
+        expected = i;
+      }
+      ASSERT_EQ(std::to_string(expected), db_iter->key().ToString());
+    }
+  }
+}
+
+TEST_F(DBIteratorTest, PrevLowerBound) {
+  const int kNumKeys = 3;
+  const int kLowerBound = 2;
+  TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+  for (int j = 1; j <= kNumKeys; ++j) {
+    internal_iter->AddPut(std::to_string(j), "val");
+  }
+  internal_iter->Finish();
+
+  ReadOptions ro;
+  auto lower_bound_str = std::to_string(kLowerBound);
+  Slice lower_bound(lower_bound_str);
+  ro.iterate_lower_bound = &lower_bound;
+  Options options;
+  std::unique_ptr<Iterator> db_iter(NewDBIterator(
+      env_, ro, ImmutableCFOptions(options), BytewiseComparator(),
+      internal_iter, 10 /* sequence */,
+      options.max_sequential_skip_in_iterations, nullptr /* read_callback */));
+
+  db_iter->SeekToLast();
+  for (int i = kNumKeys; i >= kLowerBound; --i) {
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(std::to_string(i), db_iter->key().ToString());
+    db_iter->Prev();
+  }
+  ASSERT_FALSE(db_iter->Valid());
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
