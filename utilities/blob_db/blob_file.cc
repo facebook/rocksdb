@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <memory>
 
+#include "db/dbformat.h"
 #include "util/filename.h"
 #include "util/logging.h"
 #include "utilities/blob_db/blob_db_impl.h"
@@ -36,7 +37,7 @@ BlobFile::BlobFile()
       gc_once_after_open_(false),
       ttl_range_(std::make_pair(0, 0)),
       time_range_(std::make_pair(0, 0)),
-      sn_range_(std::make_pair(0, 0)),
+      sn_range_(std::make_pair(kMaxSequenceNumber, 0)),
       last_access_(-1),
       last_fsync_(0),
       header_valid_(false) {}
@@ -55,7 +56,7 @@ BlobFile::BlobFile(const BlobDBImpl* p, const std::string& bdir, uint64_t fn)
       gc_once_after_open_(false),
       ttl_range_(std::make_pair(0, 0)),
       time_range_(std::make_pair(0, 0)),
-      sn_range_(std::make_pair(0, 0)),
+      sn_range_(std::make_pair(kMaxSequenceNumber, 0)),
       last_access_(-1),
       last_fsync_(0),
       header_valid_(false) {}
