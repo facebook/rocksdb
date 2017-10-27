@@ -272,7 +272,10 @@ bool Compaction::KeyNotExistsBeyondOutputLevel(
   assert(input_version_ != nullptr);
   assert(level_ptrs != nullptr);
   assert(level_ptrs->size() == static_cast<size_t>(number_levels_));
-  if (cfd_->ioptions()->compaction_style == kCompactionStyleLevel) {
+  if (bottommost_level_) {
+    return true;
+  } else if (output_level_ != 0 &&
+             cfd_->ioptions()->compaction_style == kCompactionStyleLevel) {
     if (output_level_ == 0) {
       return false;
     }
@@ -296,7 +299,7 @@ bool Compaction::KeyNotExistsBeyondOutputLevel(
     }
     return true;
   } else {
-    return bottommost_level_;
+    return false;
   }
 }
 
