@@ -116,6 +116,7 @@ class DBIter final: public Iterator {
         current_entry_is_merged_(false),
         statistics_(cf_options.statistics),
         num_internal_keys_skipped_(0),
+        iterate_lower_bound_(read_options.iterate_lower_bound),
         iterate_upper_bound_(read_options.iterate_upper_bound),
         prefix_same_as_start_(read_options.prefix_same_as_start),
         pin_thru_lifetime_(read_options.pin_data),
@@ -287,6 +288,7 @@ class DBIter final: public Iterator {
   uint64_t max_skip_;
   uint64_t max_skippable_internal_keys_;
   uint64_t num_internal_keys_skipped_;
+  const Slice* iterate_lower_bound_;
   const Slice* iterate_upper_bound_;
   IterKey prefix_start_buf_;
   Slice prefix_start_key_;
@@ -725,6 +727,14 @@ void DBIter::PrevInternal() {
       return;
     }
 
+    if (iterate_lower_bound_ != nullptr &&
+        user_comparator_->Compare(saved_key_.GetUserKey(),
+                                  *iterate_lower_bound_) < 0) {
+      // We've iterated earlier than the user-specified lower bound.
+      valid_ = false;
+      return;
+    }
+
     if (FindValueForCurrentKey()) {
       if (!iter_->Valid()) {
         return;
@@ -1155,6 +1165,10 @@ void DBIter::SeekToFirst() {
   // because prefix seek will be used.
   if (prefix_extractor_ != nullptr) {
     max_skip_ = std::numeric_limits<uint64_t>::max();
+  }
+  if (iterate_lower_bound_ != nullptr) {
+    Seek(*iterate_lower_bound_);
+    return;
   }
   direction_ = kForward;
   ReleaseTempPinnedData();

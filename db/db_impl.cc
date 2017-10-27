@@ -1641,7 +1641,7 @@ bool DBImpl::HasActiveSnapshotLaterThanSN(SequenceNumber sn) {
   if (snapshots_.empty()) {
     return false;
   }
-  return (snapshots_.newest()->GetSequenceNumber() > sn);
+  return (snapshots_.newest()->GetSequenceNumber() >= sn);
 }
 
 #ifndef ROCKSDB_LITE
