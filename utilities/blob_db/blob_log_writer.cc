@@ -10,8 +10,8 @@
 #include <string>
 #include "rocksdb/env.h"
 #include "util/coding.h"
-#include "util/crc32c.h"
 #include "util/file_reader_writer.h"
+#include "utilities/blob_db/blob_log_format.h"
 
 namespace rocksdb {
 namespace blob_db {
@@ -24,18 +24,11 @@ Writer::Writer(unique_ptr<WritableFileWriter>&& dest, uint64_t log_number,
       bytes_per_sync_(bpsync),
       next_sync_offset_(0),
       use_fsync_(use_fs),
-      last_elem_type_(kEtNone) {
-  for (int i = 0; i <= kMaxRecordType; i++) {
-    char t = static_cast<char>(i);
-    type_crc_[i] = crc32c::Value(&t, 1);
-  }
-}
-
-Writer::~Writer() {}
+      last_elem_type_(kEtNone) {}
 
 void Writer::Sync() { dest_->Sync(use_fsync_); }
 
-Status Writer::WriteHeader(const BlobLogHeader& header) {
+Status Writer::WriteHeader(BlobLogHeader& header) {
   assert(block_offset_ == 0);
   assert(last_elem_type_ == kEtNone);
   std::string str;
@@ -50,7 +43,7 @@ Status Writer::WriteHeader(const BlobLogHeader& header) {
   return s;
 }
 
-Status Writer::AppendFooter(const BlobLogFooter& footer) {
+Status Writer::AppendFooter(BlobLogFooter& footer) {
   assert(block_offset_ != 0);
   assert(last_elem_type_ == kEtFileHdr || last_elem_type_ == kEtRecord);
 
@@ -69,13 +62,13 @@ Status Writer::AppendFooter(const BlobLogFooter& footer) {
 }
 
 Status Writer::AddRecord(const Slice& key, const Slice& val,
-                         uint64_t* key_offset, uint64_t* blob_offset,
-                         uint64_t ttl) {
+                         uint64_t expiration, uint64_t* key_offset,
+                         uint64_t* blob_offset) {
   assert(block_offset_ != 0);
   assert(last_elem_type_ == kEtFileHdr || last_elem_type_ == kEtRecord);
 
   std::string buf;
-  ConstructBlobHeader(&buf, key, val, ttl, -1);
+  ConstructBlobHeader(&buf, key, val, expiration);
 
   Status s = EmitPhysicalRecord(buf, key, val, key_offset, blob_offset);
   return s;
@@ -87,44 +80,19 @@ Status Writer::AddRecord(const Slice& key, const Slice& val,
   assert(last_elem_type_ == kEtFileHdr || last_elem_type_ == kEtRecord);
 
   std::string buf;
-  ConstructBlobHeader(&buf, key, val, 0, -1);
+  ConstructBlobHeader(&buf, key, val, 0);
 
   Status s = EmitPhysicalRecord(buf, key, val, key_offset, blob_offset);
   return s;
 }
 
-void Writer::ConstructBlobHeader(std::string* headerbuf, const Slice& key,
-                                 const Slice& val, uint64_t ttl, int64_t ts) {
-  headerbuf->reserve(BlobLogRecord::kHeaderSize);
-
-  uint32_t key_size = static_cast<uint32_t>(key.size());
-  PutFixed32(headerbuf, key_size);
-  PutFixed64(headerbuf, val.size());
-
-  PutFixed64(headerbuf, ttl);
-  PutFixed64(headerbuf, ts);
-
-  RecordType t = kFullType;
-  headerbuf->push_back(static_cast<char>(t));
-
-  RecordSubType st = kRegularType;
-  if (ttl != kNoExpiration) {
-    st = kTTLType;
-  }
-  headerbuf->push_back(static_cast<char>(st));
-
-  uint32_t header_crc = 0;
-  header_crc =
-      crc32c::Extend(header_crc, headerbuf->c_str(), headerbuf->size());
-  header_crc = crc32c::Extend(header_crc, key.data(), key.size());
-  header_crc = crc32c::Mask(header_crc);
-  PutFixed32(headerbuf, header_crc);
-
-  uint32_t crc = 0;
-  // Compute the crc of the record type and the payload.
-  crc = crc32c::Extend(crc, val.data(), val.size());
-  crc = crc32c::Mask(crc);  // Adjust for storage
-  PutFixed32(headerbuf, crc);
+void Writer::ConstructBlobHeader(std::string* buf, const Slice& key,
+                                 const Slice& val, uint64_t expiration) {
+  BlobLogRecord record;
+  record.key = key;
+  record.value = val;
+  record.expiration = expiration;
+  record.EncodeHeaderTo(buf);
 }
 
 Status Writer::EmitPhysicalRecord(const std::string& headerbuf,

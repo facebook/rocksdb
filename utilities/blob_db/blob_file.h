@@ -13,10 +13,13 @@
 #include "rocksdb/options.h"
 #include "util/file_reader_writer.h"
 #include "utilities/blob_db/blob_log_format.h"
+#include "utilities/blob_db/blob_log_reader.h"
 #include "utilities/blob_db/blob_log_writer.h"
 
 namespace rocksdb {
 namespace blob_db {
+
+class BlobDBImpl;
 
 class BlobFile {
   friend class BlobDBImpl;
@@ -33,6 +36,10 @@ class BlobFile {
   // the above 2 are created during file creation and never changed
   // after that
   uint64_t file_number_;
+
+  // If true, the keys in this file all has TTL. Otherwise all keys don't
+  // have TTL.
+  bool has_ttl_;
 
   // number of blobs in the file
   std::atomic<uint64_t> blob_count_;
@@ -62,14 +69,9 @@ class BlobFile {
   // should this file been gc'd once to reconcile lost deletes/compactions
   std::atomic<bool> gc_once_after_open_;
 
-  // et - lt of the blobs
-  ttlrange_t ttl_range_;
+  ExpirationRange expiration_range_;
 
-  // et - lt of the timestamp of the KV pairs.
-  tsrange_t time_range_;
-
-  // ESN - LSN of the blobs
-  snrange_t sn_range_;
+  SequenceRange sequence_range_;
 
   // Sequential/Append writer for blobs
   std::shared_ptr<Writer> log_writer_;
@@ -96,7 +98,7 @@ class BlobFile {
 
   ~BlobFile();
 
-  ColumnFamilyHandle* GetColumnFamily(DB* db);
+  uint32_t column_family_id() const;
 
   // Returns log file's pathname relative to the main db dir
   // Eg. For a live-log-file = blob_dir/000003.blob
@@ -128,29 +130,28 @@ class BlobFile {
   }
 
   // All Get functions which are not atomic, will need ReadLock on the mutex
-  tsrange_t GetTimeRange() const {
-    assert(HasTimestamp());
-    return time_range_;
+
+  ExpirationRange GetExpirationRange() const { return expiration_range_; }
+
+  void ExtendExpirationRange(uint64_t expiration) {
+    expiration_range_.first = std::min(expiration_range_.first, expiration);
+    expiration_range_.second = std::max(expiration_range_.second, expiration);
   }
 
-  ttlrange_t GetTTLRange() const { return ttl_range_; }
+  SequenceRange GetSequenceRange() const { return sequence_range_; }
 
-  snrange_t GetSNRange() const { return sn_range_; }
-
-  bool HasTTL() const {
-    assert(header_valid_);
-    return header_.HasTTL();
-  }
-
-  bool HasTimestamp() const {
-    assert(header_valid_);
-    return header_.HasTimestamp();
+  void SetSequenceRange(SequenceRange sequence_range) {
+    sequence_range_ = sequence_range;
   }
 
   void ExtendSequenceRange(SequenceNumber sequence) {
-    sn_range_.first = std::min(sn_range_.first, sequence);
-    sn_range_.second = std::max(sn_range_.second, sequence);
+    sequence_range_.first = std::min(sequence_range_.first, sequence);
+    sequence_range_.second = std::max(sequence_range_.second, sequence);
   }
+
+  bool HasTTL() const { return has_ttl_; }
+
+  void SetHasTTL(bool has_ttl) { has_ttl_ = has_ttl; }
 
   std::shared_ptr<Writer> GetWriter() const { return log_writer_; }
 
@@ -174,11 +175,9 @@ class BlobFile {
   // previously closed file
   Status SetFromFooterLocked(const BlobLogFooter& footer);
 
-  void set_time_range(const tsrange_t& tr) { time_range_ = tr; }
-
-  void set_ttl_range(const ttlrange_t& ttl) { ttl_range_ = ttl; }
-
-  void SetSNRange(const snrange_t& snr) { sn_range_ = snr; }
+  void set_expiration_range(const ExpirationRange& expiration_range) {
+    expiration_range_ = expiration_range;
+  }
 
   // The following functions are atomic, and don't need locks
   void SetFileSize(uint64_t fs) { file_size_ = fs; }
