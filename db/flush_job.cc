@@ -16,7 +16,6 @@
 #include <inttypes.h>
 
 #include <algorithm>
-#include <limits>
 #include <vector>
 
 #include "db/builder.h"

@@ -10,7 +10,6 @@
 #include "table/block_based_table_builder.h"
 
 #include <assert.h>
-#include <inttypes.h>
 #include <stdio.h>
 
 #include <list>
@@ -276,7 +275,7 @@ struct BlockBasedTableBuilder::Rep {
   uint32_t column_family_id;
   const std::string& column_family_name;
   uint64_t creation_time = 0;
-  uint64_t oldest_key_time = std::numeric_limits<uint64_t>::max();
+  uint64_t oldest_key_time = 0;
 
   std::vector<std::unique_ptr<IntTblPropCollector>> table_properties_collectors;
 
