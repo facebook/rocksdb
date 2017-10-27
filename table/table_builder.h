@@ -10,7 +10,6 @@
 #pragma once
 
 #include <stdint.h>
-#include <limits>
 #include <string>
 #include <utility>
 #include <vector>
@@ -56,8 +55,7 @@ struct TableBuilderOptions {
       const CompressionOptions& _compression_opts,
       const std::string* _compression_dict, bool _skip_filters,
       const std::string& _column_family_name, int _level,
-      const uint64_t _creation_time = 0,
-      const int64_t _oldest_key_time = std::numeric_limits<uint64_t>::max())
+      const uint64_t _creation_time = 0, const int64_t _oldest_key_time = 0)
       : ioptions(_ioptions),
         internal_comparator(_internal_comparator),
         int_tbl_prop_collector_factories(_int_tbl_prop_collector_factories),
