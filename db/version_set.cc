@@ -1726,7 +1726,9 @@ void VersionStorageInfo::GenerateBottommostFiles() {
 }
 
 void VersionStorageInfo::UpdateOldestSnapshot(SequenceNumber seqnum) {
-  assert(seqnum >= oldest_snapshot_seqnum_);
+  if (seqnum <= oldest_snapshot_seqnum_) {
+    return;
+  }
   oldest_snapshot_seqnum_ = seqnum;
   if (oldest_snapshot_seqnum_ > bottommost_files_mark_threshold_) {
     ComputeBottommostFilesMarkedForCompaction();
