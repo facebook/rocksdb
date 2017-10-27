@@ -80,7 +80,10 @@ CompactionIterator::CompactionIterator(
 #endif  // ROCKSDB_LITE
       shutting_down_(shutting_down),
       ignore_snapshots_(false),
-      merge_out_iter_(merge_helper_) {
+      current_user_key_sequence_(0),
+      current_user_key_snapshot_(0),
+      merge_out_iter_(merge_helper_),
+      current_key_committed_(false) {
   assert(compaction_filter_ == nullptr || compaction_ != nullptr);
   bottommost_level_ =
       compaction_ == nullptr ? false : compaction_->bottommost_level();
