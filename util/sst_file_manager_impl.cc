@@ -17,14 +17,12 @@ namespace rocksdb {
 
 #ifndef ROCKSDB_LITE
 SstFileManagerImpl::SstFileManagerImpl(Env* env, std::shared_ptr<Logger> logger,
-                                       const std::string& trash_dir,
                                        int64_t rate_bytes_per_sec)
     : env_(env),
       logger_(logger),
       total_files_size_(0),
       max_allowed_space_(0),
-      delete_scheduler_(env, trash_dir, rate_bytes_per_sec, logger.get(),
-                        this) {}
+      delete_scheduler_(env, rate_bytes_per_sec, logger.get(), this) {}
 
 SstFileManagerImpl::~SstFileManagerImpl() {}
 
@@ -132,26 +130,25 @@ SstFileManager* NewSstFileManager(Env* env, std::shared_ptr<Logger> info_log,
                                   int64_t rate_bytes_per_sec,
                                   bool delete_existing_trash, Status* status) {
   SstFileManagerImpl* res =
-      new SstFileManagerImpl(env, info_log, trash_dir, rate_bytes_per_sec);
+      new SstFileManagerImpl(env, info_log, rate_bytes_per_sec);
 
+  // trash_dir is deprecated and not needed anymore, but if user passed it
+  // we will still remove files in it.
   Status s;
-  if (trash_dir != "") {
-    s = env->CreateDirIfMissing(trash_dir);
-    if (s.ok() && delete_existing_trash) {
-      std::vector<std::string> files_in_trash;
-      s = env->GetChildren(trash_dir, &files_in_trash);
-      if (s.ok()) {
-        for (const std::string& trash_file : files_in_trash) {
-          if (trash_file == "." || trash_file == "..") {
-            continue;
-          }
+  if (delete_existing_trash && trash_dir != "") {
+    std::vector<std::string> files_in_trash;
+    s = env->GetChildren(trash_dir, &files_in_trash);
+    if (s.ok()) {
+      for (const std::string& trash_file : files_in_trash) {
+        if (trash_file == "." || trash_file == "..") {
+          continue;
+        }
 
-          std::string path_in_trash = trash_dir + "/" + trash_file;
-          res->OnAddFile(path_in_trash);
-          Status file_delete = res->ScheduleFileDeletion(path_in_trash);
-          if (s.ok() && !file_delete.ok()) {
-            s = file_delete;
-          }
+        std::string path_in_trash = trash_dir + "/" + trash_file;
+        res->OnAddFile(path_in_trash);
+        Status file_delete = res->ScheduleFileDeletion(path_in_trash);
+        if (s.ok() && !file_delete.ok()) {
+          s = file_delete;
         }
       }
     }
