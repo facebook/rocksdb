@@ -10,7 +10,6 @@
 #include "table/block_based_table_builder.h"
 
 #include <assert.h>
-#include <inttypes.h>
 #include <stdio.h>
 
 #include <list>
