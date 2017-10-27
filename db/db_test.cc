@@ -223,6 +223,10 @@ TEST_F(DBTest, SkipDelay) {
 
   for (bool sync : {true, false}) {
     for (bool disableWAL : {true, false}) {
+      if (sync && disableWAL) {
+        // sync and disableWAL is incompatible.
+        continue;
+      }
       // Use a small number to ensure a large delay that is still effective
       // when we do Put
       // TODO(myabandeh): this is time dependent and could potentially make
