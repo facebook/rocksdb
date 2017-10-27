@@ -647,9 +647,18 @@ TEST_F(DBSSTTest, OpenDBWithInfiniteMaxOpenFiles) {
 }
 
 TEST_F(DBSSTTest, GetTotalSstFilesSize) {
+  // We don't propagate oldest-key-time table property on compaction and
+  // just write 0 as default value. This affect the exact table size, since
+  // we encode table properties as varint64. Force time to be 0 to work around
+  // it. Should remove the workaround after we propagate the property on
+  // compaction.
+  std::unique_ptr<MockTimeEnv> mock_env(new MockTimeEnv(Env::Default()));
+  mock_env->set_current_time(0);
+
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   options.compression = kNoCompression;
+  options.env = mock_env.get();
   DestroyAndReopen(options);
   // Generate 5 files in L0
   for (int i = 0; i < 5; i++) {
@@ -698,13 +707,9 @@ TEST_F(DBSSTTest, GetTotalSstFilesSize) {
   ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.total-sst-files-size",
                                        &total_sst_files_size));
   // Live SST files = 1 (compacted file)
-  // The 5 bytes difference comes from oldest-key-time table property isn't
-  // propagated on compaction. It is written with default value
-  // std::numeric_limits<uint64_t>::max as varint64.
-  ASSERT_EQ(live_sst_files_size, 1 * single_file_size + 5);
-
-  // Total SST files = 5 original files + compacted file
-  ASSERT_EQ(total_sst_files_size, 5 * single_file_size + live_sst_files_size);
+  // Total SST files = 6 (5 original files + compacted file)
+  ASSERT_EQ(live_sst_files_size, 1 * single_file_size);
+  ASSERT_EQ(total_sst_files_size, 6 * single_file_size);
 
   // hold current version
   std::unique_ptr<Iterator> iter2(dbfull()->NewIterator(ReadOptions()));
@@ -725,14 +730,14 @@ TEST_F(DBSSTTest, GetTotalSstFilesSize) {
                                        &total_sst_files_size));
   // Live SST files = 0
   // Total SST files = 6 (5 original files + compacted file)
-  ASSERT_EQ(total_sst_files_size, 5 * single_file_size + live_sst_files_size);
+  ASSERT_EQ(total_sst_files_size, 6 * single_file_size);
 
   iter1.reset();
   ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.total-sst-files-size",
                                        &total_sst_files_size));
   // Live SST files = 0
   // Total SST files = 1 (compacted file)
-  ASSERT_EQ(total_sst_files_size, live_sst_files_size);
+  ASSERT_EQ(total_sst_files_size, 1 * single_file_size);
 
   iter2.reset();
   ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.total-sst-files-size",
@@ -740,6 +745,9 @@ TEST_F(DBSSTTest, GetTotalSstFilesSize) {
   // Live SST files = 0
   // Total SST files = 0
   ASSERT_EQ(total_sst_files_size, 0);
+
+  // Close db before mock_env destruct.
+  Close();
 }
 
 TEST_F(DBSSTTest, GetTotalSstFilesSizeVersionsFilesShared) {
