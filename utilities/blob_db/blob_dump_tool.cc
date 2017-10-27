@@ -18,7 +18,6 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/env.h"
 #include "util/coding.h"
-#include "util/crc32c.h"
 #include "util/string_util.h"
 
 namespace rocksdb {

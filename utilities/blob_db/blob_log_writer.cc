@@ -10,7 +10,6 @@
 #include <string>
 #include "rocksdb/env.h"
 #include "util/coding.h"
-#include "util/crc32c.h"
 #include "util/file_reader_writer.h"
 #include "utilities/blob_db/blob_log_format.h"
 
