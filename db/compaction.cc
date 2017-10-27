@@ -295,9 +295,8 @@ bool Compaction::KeyNotExistsBeyondOutputLevel(
       }
     }
     return true;
-  } else {
-    return false;
   }
+  return false;
 }
 
 // Mark (or clear) each file that is being compacted
