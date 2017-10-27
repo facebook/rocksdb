@@ -196,7 +196,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       manual_wal_flush_(options.manual_wal_flush),
       seq_per_batch_(options.seq_per_batch),
       // TODO(myabandeh): revise this when we change options.seq_per_batch
-      use_custom_gc_(options.seq_per_batch) {
+      use_custom_gc_(options.seq_per_batch),
+      preserve_deletes_(options.preserve_deletes) {
   env_->GetAbsolutePath(dbname, &db_absolute_path_);
 
   // Reserve ten files or so for other uses and give the rest to TableCache.
@@ -218,6 +219,11 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
   immutable_db_options_.Dump(immutable_db_options_.info_log.get());
   mutable_db_options_.Dump(immutable_db_options_.info_log.get());
   DumpSupportInfo(immutable_db_options_.info_log.get());
+
+  // always open the DB with 0 here, which means if preserve_deletes_==true
+  // we won't drop any deletion markers until SetPreserveDeletesSequenceNumber()
+  // is called by client and this seqnum is advanced.
+  preserve_deletes_seqnum_.store(0);
 }
 
 // Will lock the mutex_,  will wait for completion if wait is true
@@ -745,6 +751,10 @@ SequenceNumber DBImpl::GetLatestSequenceNumber() const {
 
 SequenceNumber DBImpl::IncAndFetchSequenceNumber() {
   return versions_->FetchAddLastToBeWrittenSequence(1ull) + 1ull;
+}
+
+void DBImpl::SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) {
+  preserve_deletes_seqnum_.store(seqnum);
 }
 
 InternalIterator* DBImpl::NewInternalIterator(

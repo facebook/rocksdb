@@ -874,6 +874,10 @@ class DB {
   // The sequence number of the most recent transaction.
   virtual SequenceNumber GetLatestSequenceNumber() const = 0;
 
+  // Instructs DB to preserve deletes with sequence numbers >= passed seqnum.
+  // Has no effect if DBOptions.preserve_deletes is set to false.
+  virtual void SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) = 0;
+
 #ifndef ROCKSDB_LITE
 
   // Prevent file deletions. Compactions will continue to occur,
