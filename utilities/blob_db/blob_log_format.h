@@ -53,7 +53,7 @@ struct BlobLogHeader {
   Status DecodeFrom(Slice slice);
 };
 
-// Format of blob log file footer (44 bytes):
+// Format of blob log file footer (48 bytes):
 //
 //    +--------------+------------+-------------------+-------------------+------------+
 //    | magic number | blob count | expiration range  |  sequence range   | footer CRC |

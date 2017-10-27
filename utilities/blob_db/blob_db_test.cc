@@ -128,9 +128,6 @@ class BlobDBTest : public testing::Test {
     Iterator *iter = db->NewIterator(ReadOptions());
     iter->SeekToFirst();
     for (auto &p : data) {
-      if (!iter->Valid()) {
-        printf("s = %s\n", iter->status().ToString().c_str());
-      }
       ASSERT_TRUE(iter->Valid());
       ASSERT_EQ(p.first, iter->key().ToString());
       ASSERT_EQ(p.second, iter->value().ToString());
@@ -259,7 +256,6 @@ TEST_F(BlobDBTest, PutUntil) {
   ASSERT_EQ(100 - data.size(), gc_stats.num_deletes);
   ASSERT_EQ(data.size(), gc_stats.num_relocate);
   VerifyDB(data);
-  ASSERT_FALSE(true);
 }
 
 TEST_F(BlobDBTest, TTLExtrator_NoTTL) {
