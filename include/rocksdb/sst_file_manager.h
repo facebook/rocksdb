@@ -20,6 +20,7 @@ class Logger;
 // SstFileManager is used to track SST files in the DB and control there
 // deletion rate.
 // All SstFileManager public functions are thread-safe.
+// SstFileManager is not extensible.
 class SstFileManager {
  public:
   virtual ~SstFileManager() {}
@@ -70,7 +71,8 @@ class SstFileManager {
 //    this value is set to 1024 (1 Kb / sec) and we deleted a file of size 4 Kb
 //    in 1 second, we will wait for another 3 seconds before we delete other
 //    files, Set to 0 to disable deletion rate limiting.
-// @param delete_existing_trash: Deprecated, this argument have no effect
+// @param delete_existing_trash: Deprecated, this argument have no effect, but
+//    if user provide trash_dir we will schedule deletes for files in the dir
 // @param status: If not nullptr, status will contain any errors that happened
 //    during creating the missing trash_dir or deleting existing files in trash.
 extern SstFileManager* NewSstFileManager(

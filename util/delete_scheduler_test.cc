@@ -536,6 +536,27 @@ TEST_F(DeleteSchedulerTest, ImmediateDeleteOn25PercDBSize) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(DeleteSchedulerTest, IsTrashCheck) {
+  // Trash files
+  ASSERT_TRUE(DeleteScheduler::IsTrashFile("x.trash"));
+  ASSERT_TRUE(DeleteScheduler::IsTrashFile(".trash"));
+  ASSERT_TRUE(DeleteScheduler::IsTrashFile("abc.sst.trash"));
+  ASSERT_TRUE(DeleteScheduler::IsTrashFile("/a/b/c/abc..sst.trash"));
+  ASSERT_TRUE(DeleteScheduler::IsTrashFile("log.trash"));
+  ASSERT_TRUE(DeleteScheduler::IsTrashFile("^^^^^.log.trash"));
+  ASSERT_TRUE(DeleteScheduler::IsTrashFile("abc.t.trash"));
+
+  // Not trash files
+  ASSERT_FALSE(DeleteScheduler::IsTrashFile("abc.sst"));
+  ASSERT_FALSE(DeleteScheduler::IsTrashFile("abc.txt"));
+  ASSERT_FALSE(DeleteScheduler::IsTrashFile("/a/b/c/abc.sst"));
+  ASSERT_FALSE(DeleteScheduler::IsTrashFile("/a/b/c/abc.sstrash"));
+  ASSERT_FALSE(DeleteScheduler::IsTrashFile("^^^^^.trashh"));
+  ASSERT_FALSE(DeleteScheduler::IsTrashFile("abc.ttrash"));
+  ASSERT_FALSE(DeleteScheduler::IsTrashFile(".ttrash"));
+  ASSERT_FALSE(DeleteScheduler::IsTrashFile("abc.trashx"));
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

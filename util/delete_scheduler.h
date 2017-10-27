@@ -66,7 +66,7 @@ class DeleteScheduler {
   static const std::string kTrashExtension;
   static bool IsTrashFile(const std::string& file_path);
 
-  // Check if there are any .trash filse in path, and schedule there deletion
+  // Check if there are any .trash filse in path, and schedule their deletion
   // Or delete immediately if sst_file_manager is nullptr
   static Status CleanupDirectory(Env* env, SstFileManagerImpl* sfm,
                                  const std::string& path);

@@ -64,6 +64,7 @@ Status DeleteScheduler::DeleteFile(const std::string& file_path) {
   // Move file to trash
   std::string trash_file;
   s = MarkAsTrash(file_path, &trash_file);
+
   if (!s.ok()) {
     ROCKS_LOG_ERROR(info_log_, "Failed to mark %s as trash", file_path.c_str());
     s = env_->DeleteFile(file_path);
@@ -72,6 +73,11 @@ Status DeleteScheduler::DeleteFile(const std::string& file_path) {
     }
     return s;
   }
+
+  // Update the total trash size
+  uint64_t trash_file_size = 0;
+  env_->GetFileSize(trash_file, &trash_file_size);
+  total_trash_size_.fetch_add(trash_file_size);
 
   // Add file to delete queue
   {
@@ -166,9 +172,7 @@ Status DeleteScheduler::MarkAsTrash(const std::string& file_path,
     cnt++;
   }
   if (s.ok()) {
-    uint64_t trash_file_size = 0;
-    sst_file_manager_->OnMoveFile(file_path, *trash_file, &trash_file_size);
-    total_trash_size_.fetch_add(trash_file_size);
+    sst_file_manager_->OnMoveFile(file_path, *trash_file);
   }
   return s;
 }
