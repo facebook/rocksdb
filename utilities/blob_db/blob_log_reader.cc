@@ -7,10 +7,8 @@
 
 #include "utilities/blob_db/blob_log_reader.h"
 
-#include <cstdio>
-#include "rocksdb/env.h"
-#include "util/coding.h"
-#include "util/crc32c.h"
+#include <algorithm>
+
 #include "util/file_reader_writer.h"
 
 namespace rocksdb {
@@ -18,115 +16,79 @@ namespace blob_db {
 
 Reader::Reader(std::shared_ptr<Logger> info_log,
                unique_ptr<SequentialFileReader>&& _file)
-    : info_log_(info_log), file_(std::move(_file)), buffer_(), next_byte_(0) {
-  backing_store_.resize(kBlockSize);
-}
+    : info_log_(info_log), file_(std::move(_file)), buffer_(), next_byte_(0) {}
 
-Reader::~Reader() {}
+Status Reader::ReadSlice(uint64_t size, Slice* slice, std::string* buf) {
+  buf->reserve(size);
+  Status s = file_->Read(size, slice, &(*buf)[0]);
+  next_byte_ += size;
+  if (!s.ok()) {
+    return s;
+  }
+  if (slice->size() != size) {
+    return Status::Corruption("EOF reached while reading record");
+  }
+  return s;
+}
 
 Status Reader::ReadHeader(BlobLogHeader* header) {
   assert(file_.get() != nullptr);
   assert(next_byte_ == 0);
-  Status status =
-      file_->Read(BlobLogHeader::kHeaderSize, &buffer_, GetReadBuffer());
-  next_byte_ += buffer_.size();
-  if (!status.ok()) return status;
-
-  if (buffer_.size() != BlobLogHeader::kHeaderSize) {
-    return Status::IOError("EOF reached before file header");
+  Status s = ReadSlice(BlobLogHeader::kSize, &buffer_, &backing_store_);
+  if (!s.ok()) {
+    return s;
   }
 
-  status = header->DecodeFrom(buffer_);
-  return status;
+  if (buffer_.size() != BlobLogHeader::kSize) {
+    return Status::Corruption("EOF reached before file header");
+  }
+
+  return header->DecodeFrom(buffer_);
 }
 
 Status Reader::ReadRecord(BlobLogRecord* record, ReadLevel level,
                           uint64_t* blob_offset) {
-  record->Clear();
-  buffer_.clear();
-  backing_store_[0] = '\0';
-
-  Status status =
-      file_->Read(BlobLogRecord::kHeaderSize, &buffer_, GetReadBuffer());
-  next_byte_ += buffer_.size();
-  if (!status.ok()) return status;
+  Status s = ReadSlice(BlobLogRecord::kHeaderSize, &buffer_, &backing_store_);
+  if (!s.ok()) {
+    return s;
+  }
   if (buffer_.size() != BlobLogRecord::kHeaderSize) {
-    return Status::IOError("EOF reached before record header");
+    return Status::Corruption("EOF reached before record header");
   }
 
-  status = record->DecodeHeaderFrom(buffer_);
-  if (!status.ok()) {
-    return status;
+  s = record->DecodeHeaderFrom(buffer_);
+  if (!s.ok()) {
+    return s;
   }
 
-  uint32_t header_crc = 0;
-  uint32_t blob_crc = 0;
-  size_t crc_data_size = BlobLogRecord::kHeaderSize - 2 * sizeof(uint32_t);
-  header_crc = crc32c::Extend(header_crc, buffer_.data(), crc_data_size);
-
-  uint64_t kb_size = record->GetKeySize() + record->GetBlobSize();
+  uint64_t kb_size = record->key_size + record->value_size;
   if (blob_offset != nullptr) {
-    *blob_offset = next_byte_ + record->GetKeySize();
+    *blob_offset = next_byte_ + record->key_size;
   }
+
   switch (level) {
     case kReadHeader:
-      file_->Skip(kb_size);
+      file_->Skip(record->key_size + record->value_size);
       next_byte_ += kb_size;
+      break;
 
     case kReadHeaderKey:
-      record->ResizeKeyBuffer(record->GetKeySize());
-      status = file_->Read(record->GetKeySize(), &record->key_,
-                           record->GetKeyBuffer());
-      next_byte_ += record->key_.size();
-      if (!status.ok()) return status;
-      if (record->key_.size() != record->GetKeySize()) {
-        return Status::IOError("EOF reached before key read");
-      }
-
-      header_crc =
-          crc32c::Extend(header_crc, record->key_.data(), record->GetKeySize());
-      header_crc = crc32c::Mask(header_crc);
-      if (header_crc != record->header_cksum_) {
-        return Status::Corruption("Record Checksum mismatch: header_cksum");
-      }
-
-      file_->Skip(record->GetBlobSize());
-      next_byte_ += record->GetBlobSize();
+      s = ReadSlice(record->key_size, &record->key, &record->key_buf);
+      file_->Skip(record->value_size);
+      next_byte_ += record->value_size;
+      break;
 
     case kReadHeaderKeyBlob:
-      record->ResizeKeyBuffer(record->GetKeySize());
-      status = file_->Read(record->GetKeySize(), &record->key_,
-                           record->GetKeyBuffer());
-      next_byte_ += record->key_.size();
-      if (!status.ok()) return status;
-      if (record->key_.size() != record->GetKeySize()) {
-        return Status::IOError("EOF reached before key read");
+      s = ReadSlice(record->key_size, &record->key, &record->key_buf);
+      if (s.ok()) {
+        s = ReadSlice(record->value_size, &record->value, &record->value_buf);
       }
-
-      header_crc =
-          crc32c::Extend(header_crc, record->key_.data(), record->GetKeySize());
-      header_crc = crc32c::Mask(header_crc);
-      if (header_crc != record->header_cksum_) {
-        return Status::Corruption("Record Checksum mismatch: header_cksum");
+      if (s.ok()) {
+        s = record->CheckBlobCRC();
       }
-
-      record->ResizeBlobBuffer(record->GetBlobSize());
-      status = file_->Read(record->GetBlobSize(), &record->blob_,
-                           record->GetBlobBuffer());
-      next_byte_ += record->blob_.size();
-      if (!status.ok()) return status;
-      if (record->blob_.size() != record->GetBlobSize()) {
-        return Status::IOError("EOF reached during blob read");
-      }
-
-      blob_crc =
-          crc32c::Extend(blob_crc, record->blob_.data(), record->blob_.size());
-      blob_crc = crc32c::Mask(blob_crc);
-      if (blob_crc != record->checksum_) {
-        return Status::Corruption("Blob Checksum mismatch");
-      }
+      break;
   }
-  return status;
+  return s;
 }
 
 }  // namespace blob_db

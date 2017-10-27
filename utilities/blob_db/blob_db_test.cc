@@ -1012,11 +1012,11 @@ TEST_F(BlobDBTest, InlineSmallValues) {
     ttl_file = blob_files[1];
   }
   ASSERT_FALSE(non_ttl_file->HasTTL());
-  ASSERT_EQ(first_non_ttl_seq, non_ttl_file->GetSNRange().first);
-  ASSERT_EQ(last_non_ttl_seq, non_ttl_file->GetSNRange().second);
+  ASSERT_EQ(first_non_ttl_seq, non_ttl_file->GetSequenceRange().first);
+  ASSERT_EQ(last_non_ttl_seq, non_ttl_file->GetSequenceRange().second);
   ASSERT_TRUE(ttl_file->HasTTL());
-  ASSERT_EQ(first_ttl_seq, ttl_file->GetSNRange().first);
-  ASSERT_EQ(last_ttl_seq, ttl_file->GetSNRange().second);
+  ASSERT_EQ(first_ttl_seq, ttl_file->GetSequenceRange().first);
+  ASSERT_EQ(last_ttl_seq, ttl_file->GetSequenceRange().second);
 }
 
 }  //  namespace blob_db
