@@ -961,14 +961,24 @@ struct ReadOptions {
   // Default: nullptr
   const Snapshot* snapshot;
 
+  // `iterate_lower_bound` defines the smallest key at which the backward
+  // iterator can return an entry. Once the bound is passed, Valid() will be
+  // false. `iterate_lower_bound` is inclusive ie the bound value is a valid
+  // entry.
+  //
+  // If prefix_extractor is not null, the Seek target and `iterate_lower_bound`
+  // need to have the same prefix. This is because ordering is not guaranteed
+  // outside of prefix domain.
+  //
+  // Default: nullptr
+  const Slice* iterate_lower_bound;
+
   // "iterate_upper_bound" defines the extent upto which the forward iterator
   // can returns entries. Once the bound is reached, Valid() will be false.
   // "iterate_upper_bound" is exclusive ie the bound value is
   // not a valid entry.  If iterator_extractor is not null, the Seek target
   // and iterator_upper_bound need to have the same prefix.
   // This is because ordering is not guaranteed outside of prefix domain.
-  // There is no lower bound on the iterator. If needed, that can be easily
-  // implemented.
   //
   // Default: nullptr
   const Slice* iterate_upper_bound;

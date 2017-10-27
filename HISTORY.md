@@ -1,6 +1,7 @@
 # Rocksdb Change Log
 ### New Features
 * Upon snapshot release, recompact bottommost files containing deleted/overwritten keys that previously could not be dropped due to the snapshot. This alleviates space-amp caused by long-held snapshots.
+* Support lower bound on iterators specified via `ReadOptions::iterate_lower_bound`.
 
 ## 5.7.4 (08/31/2017)
 No significant changes.
