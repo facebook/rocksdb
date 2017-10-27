@@ -17,10 +17,6 @@
 
 #ifdef XPRESS
 
-#ifdef JEMALLOC
-#include <jemalloc/jemalloc.h>
-#endif
-
 // Put this under ifdef so windows systems w/o this
 // can still build
 #include <compressapi.h>
@@ -43,22 +39,6 @@ auto CloseDecompressorFun = [](void* h) {
     ::CloseDecompressor(reinterpret_cast<DECOMPRESSOR_HANDLE>(h));
   }
 };
-
-
-#ifdef JEMALLOC
-// Make sure compressors use our jemalloc if redirected
-PVOID CompressorAlloc(PVOID, SIZE_T size) {
-  return je_malloc(size);
-}
-
-VOID CompressorFree(PVOID, PVOID p) {
-  if (p != NULL) {
-    je_free(p);
-  }
-}
-
-#endif
-
 }
 
 bool Compress(const char* input, size_t length, std::string* output) {
@@ -73,17 +53,6 @@ bool Compress(const char* input, size_t length, std::string* output) {
 
   COMPRESS_ALLOCATION_ROUTINES* allocRoutinesPtr = nullptr;
 
-#ifdef JEMALLOC
-  COMPRESS_ALLOCATION_ROUTINES allocationRoutines;
-
-  //  Init. allocation routines
-  allocationRoutines.Allocate = CompressorAlloc;
-  allocationRoutines.Free = CompressorFree;
-  allocationRoutines.UserContext = NULL;
-
-  allocRoutinesPtr = &allocationRoutines;
-#endif
-
   COMPRESSOR_HANDLE compressor = NULL;
 
   BOOL success = CreateCompressor(
@@ -94,17 +63,17 @@ bool Compress(const char* input, size_t length, std::string* output) {
   if (!success) {
 #ifdef _DEBUG
     std::cerr << "XPRESS: Failed to create Compressor LastError: " <<
-       GetLastError() << std::endl;
+      GetLastError() << std::endl;
 #endif
     return false;
   }
 
   std::unique_ptr<void, decltype(CloseCompressorFun)>
-     compressorGuard(compressor, CloseCompressorFun);
+    compressorGuard(compressor, CloseCompressorFun);
 
   SIZE_T compressedBufferSize = 0;
 
- //  Query compressed buffer size.
+  //  Query compressed buffer size.
   success = ::Compress(
     compressor,                 //  Compressor Handle
     const_cast<char*>(input),   //  Input buffer
@@ -123,8 +92,8 @@ bool Compress(const char* input, size_t length, std::string* output) {
         "XPRESS: Failed to estimate compressed buffer size LastError " <<
         lastError << std::endl;
 #endif
-       return false;
-     }
+      return false;
+    }
   }
 
   assert(compressedBufferSize > 0);
@@ -146,7 +115,7 @@ bool Compress(const char* input, size_t length, std::string* output) {
   if (!success) {
 #ifdef _DEBUG
     std::cerr << "XPRESS: Failed to compress LastError " <<
-       GetLastError() << std::endl;
+      GetLastError() << std::endl;
 #endif
     return false;
   }
@@ -169,16 +138,6 @@ char* Decompress(const char* input_data, size_t input_length,
 
   COMPRESS_ALLOCATION_ROUTINES* allocRoutinesPtr = nullptr;
 
-#ifdef JEMALLOC
-  COMPRESS_ALLOCATION_ROUTINES allocationRoutines;
-
-  //  Init. allocation routines
-  allocationRoutines.Allocate = CompressorAlloc;
-  allocationRoutines.Free = CompressorFree;
-  allocationRoutines.UserContext = NULL;
-  allocRoutinesPtr = &allocationRoutines;
-#endif
-
   DECOMPRESSOR_HANDLE decompressor = NULL;
 
   BOOL success = CreateDecompressor(
@@ -190,7 +149,7 @@ char* Decompress(const char* input_data, size_t input_length,
   if (!success) {
 #ifdef _DEBUG
     std::cerr << "XPRESS: Failed to create Decompressor LastError "
-              << GetLastError() << std::endl;
+      << GetLastError() << std::endl;
 #endif
     return nullptr;
   }
@@ -215,8 +174,8 @@ char* Decompress(const char* input_data, size_t input_length,
     if (lastError != ERROR_INSUFFICIENT_BUFFER) {
 #ifdef _DEBUG
       std::cerr
-          << "XPRESS: Failed to estimate decompressed buffer size LastError "
-          << lastError << std::endl;
+        << "XPRESS: Failed to estimate decompressed buffer size LastError "
+        << lastError << std::endl;
 #endif
       return nullptr;
     }
