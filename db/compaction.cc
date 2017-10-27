@@ -276,9 +276,6 @@ bool Compaction::KeyNotExistsBeyondOutputLevel(
     return true;
   } else if (output_level_ != 0 &&
              cfd_->ioptions()->compaction_style == kCompactionStyleLevel) {
-    if (output_level_ == 0) {
-      return false;
-    }
     // Maybe use binary search to find right entry instead of linear search?
     const Comparator* user_cmp = cfd_->user_comparator();
     for (int lvl = output_level_ + 1; lvl < number_levels_; lvl++) {
