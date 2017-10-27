@@ -100,7 +100,9 @@ void LRUHandleTable::Resize() {
 }
 
 LRUCacheShard::LRUCacheShard()
-    : high_pri_pool_usage_(0), high_pri_pool_ratio_(0), usage_(0), lru_usage_(0) {
+    : capacity_(0), high_pri_pool_usage_(0), strict_capacity_limit_(false),
+      high_pri_pool_ratio_(0), high_pri_pool_capacity_(0), usage_(0),
+      lru_usage_(0) {
   // Make empty circular linked list
   lru_.next = &lru_;
   lru_.prev = &lru_;
@@ -353,6 +355,7 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   e->deleter = deleter;
   e->charge = charge;
   e->key_length = key.size();
+  e->flags = 0;
   e->hash = hash;
   e->refs = (handle == nullptr
                  ? 1
