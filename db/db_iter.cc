@@ -115,6 +115,7 @@ class DBIter final: public Iterator {
         valid_(false),
         current_entry_is_merged_(false),
         statistics_(cf_options.statistics),
+        num_internal_keys_skipped_(0),
         iterate_lower_bound_(read_options.iterate_lower_bound),
         iterate_upper_bound_(read_options.iterate_upper_bound),
         prefix_same_as_start_(read_options.prefix_same_as_start),
@@ -123,7 +124,8 @@ class DBIter final: public Iterator {
         range_del_agg_(cf_options.internal_comparator, s,
                        true /* collapse_deletions */),
         read_callback_(read_callback),
-        allow_blob_(allow_blob) {
+        allow_blob_(allow_blob),
+        is_blob_(false) {
     RecordTick(statistics_, NO_ITERATORS);
     prefix_extractor_ = cf_options.prefix_extractor;
     max_skip_ = max_sequential_skip_in_iterations;
