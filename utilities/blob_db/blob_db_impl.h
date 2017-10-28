@@ -279,8 +279,6 @@ class BlobDBImpl : public BlobDB {
 
   void TEST_RunGC();
 
-  void TEST_ObsoleteFile(std::shared_ptr<BlobFile>& bfile);
-
   void TEST_DeleteObsoleteFiles();
 #endif  //  !NDEBUG
 
@@ -411,6 +409,7 @@ class BlobDBImpl : public BlobDB {
 
   // checks if there is no snapshot which is referencing the
   // blobs
+  bool VisibleToActiveSnapshot(const std::shared_ptr<BlobFile>& file);
   bool FileDeleteOk_SnapshotCheckLocked(const std::shared_ptr<BlobFile>& bfile);
 
   bool MarkBlobDeleted(const Slice& key, const Slice& lsmValue);
