@@ -9,7 +9,6 @@
 #include "db/db_test_util.h"
 #include "db/write_batch_internal.h"
 #include "port/stack_trace.h"
-#include "util/sync_point.h"
 
 namespace rocksdb {
 
@@ -20,6 +19,17 @@ class DBWriteTest : public DBTestBase, public testing::WithParamInterface<int> {
 
   void Open() { DBTestBase::Reopen(GetOptions(GetParam())); }
 };
+
+// It is invalid to do sync write while disabling WAL.
+TEST_P(DBWriteTest, SyncAndDisableWAL) {
+  WriteOptions write_options;
+  write_options.sync = true;
+  write_options.disableWAL = true;
+  ASSERT_TRUE(dbfull()->Put(write_options, "foo", "bar").IsInvalidArgument());
+  WriteBatch batch;
+  ASSERT_OK(batch.Put("foo", "bar"));
+  ASSERT_TRUE(dbfull()->Write(write_options, &batch).IsInvalidArgument());
+}
 
 // Sequence number should be return through input write batch.
 TEST_P(DBWriteTest, ReturnSeuqneceNumber) {
