@@ -9,7 +9,6 @@
 #include "db/db_test_util.h"
 #include "db/write_batch_internal.h"
 #include "port/stack_trace.h"
-#include "util/sync_point.h"
 
 namespace rocksdb {
 

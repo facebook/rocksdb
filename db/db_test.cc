@@ -60,7 +60,6 @@
 #include "util/compression.h"
 #include "util/file_reader_writer.h"
 #include "util/filename.h"
-#include "util/hash.h"
 #include "util/mutexlock.h"
 #include "util/rate_limiter.h"
 #include "util/string_util.h"
