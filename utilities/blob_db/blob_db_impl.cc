@@ -1727,6 +1727,8 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
     GarbageCollectionWriteCallback callback(cfd, record.key, latest_seq);
 
     // If key has expired, remove it from base DB.
+    // TODO(yiwu): Blob indexes will be remove by BlobIndexCompactionFilter.
+    // We can just drop the blob record.
     if (no_relocation_ttl || (has_ttl && now >= record.expiration)) {
       gc_stats->num_deletes++;
       gc_stats->deleted_size += record.value_size;
