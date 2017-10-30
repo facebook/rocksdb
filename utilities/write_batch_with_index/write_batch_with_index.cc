@@ -954,6 +954,7 @@ Status WriteBatchWithIndex::RollbackToSavePoint() {
 
   if (s.ok()) {
     s = rep->ReBuildIndex();
+    rep->obsolete_offsets.clear();
   }
 
   return s;
