@@ -62,7 +62,7 @@ bool blobf_compare_ttl::operator()(const std::shared_ptr<BlobFile>& lhs,
   if (lhs->expiration_range_.first > rhs->expiration_range_.first) {
     return false;
   }
-  return lhs->BlobFileNumber() > rhs->BlobFileNumber();
+  return lhs->BlobFileNumber() < rhs->BlobFileNumber();
 }
 
 void EvictAllVersionsCompactionListener::InternalListener::OnCompaction(
@@ -926,15 +926,41 @@ uint64_t BlobDBImpl::ExtractExpiration(const Slice& key, const Slice& value,
   return has_expiration ? expiration : kNoExpiration;
 }
 
+std::shared_ptr<BlobFile> BlobDBImpl::GetOldestBlobFile() {
+  std::vector<std::shared_ptr<BlobFile>> blob_files;
+  CopyBlobFiles(&blob_files);
+  if (blob_files.empty()) {
+    return nullptr;
+  }
+  blobf_compare_ttl compare;
+  return *std::min_element(blob_files.begin(), blob_files.end(), compare);
+}
+
+bool BlobDBImpl::EvictOldestBlobFile() {
+  auto oldest_file = GetOldestBlobFile();
+  if (oldest_file == nullptr) {
+    return false;
+  }
+
+  WriteLock wl(&mutex_);
+  oldest_file->SetCanBeDeleted();
+  obsolete_files_.push_front(oldest_file);
+  return true;
+}
+
 Status BlobDBImpl::AppendBlob(const std::shared_ptr<BlobFile>& bfile,
                               const std::string& headerbuf, const Slice& key,
                               const Slice& value, uint64_t expiration,
                               std::string* index_entry) {
   auto size_put = BlobLogRecord::kHeaderSize + key.size() + value.size();
-  if (bdb_options_.blob_dir_size > 0 &&
-      (total_blob_space_.load() + size_put) > bdb_options_.blob_dir_size) {
-    if (!bdb_options_.is_fifo) {
-      return Status::NoSpace("Blob DB reached the maximum configured size.");
+  uint64_t current_space_util = total_blob_space_.load();
+  if (bdb_options_.blob_dir_size > 0) {
+    if (current_space_util + size_put > bdb_options_.blob_dir_size) {
+      return Status::NoSpace("Write failed, as writing it would exceed blob_dir_size limit.");
+    }
+    if (((current_space_util + size_put) >
+        kEvictOldestFileAtSize * bdb_options_.blob_dir_size) && bdb_options_.is_fifo) {
+      EvictOldestBlobFile();
     }
   }
 

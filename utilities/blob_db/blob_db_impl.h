@@ -205,6 +205,10 @@ class BlobDBImpl : public BlobDB {
   // how often to schedule check seq files period
   static constexpr uint32_t kCheckSeqFilesPeriodMillisecs = 10 * 1000;
 
+  // when should oldest file be evicted:
+  // on reaching 90% of blob_dir_size
+  static constexpr double kEvictOldestFileAtSize = 0.9;
+
   using BlobDB::Put;
   Status Put(const WriteOptions& options, const Slice& key,
              const Slice& value) override;
@@ -428,6 +432,10 @@ class BlobDBImpl : public BlobDB {
       size_t files_to_collect);
 
   uint64_t EpochNow() { return env_->NowMicros() / 1000000; }
+
+  std::shared_ptr<BlobFile> GetOldestBlobFile();
+
+  bool EvictOldestBlobFile();
 
   // the base DB
   DBImpl* db_impl_;
