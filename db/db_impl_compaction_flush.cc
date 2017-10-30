@@ -947,7 +947,8 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     WriteContext context;
     InstrumentedMutexLock guard_lock(&mutex_);
 
-    if (cfd->imm()->NumNotFlushed() == 0 && cfd->mem()->IsEmpty() && cached_recoverable_state_empty_.load() ) {
+    if (cfd->imm()->NumNotFlushed() == 0 && cfd->mem()->IsEmpty() &&
+        cached_recoverable_state_empty_.load()) {
       // Nothing to flush
       return Status::OK();
     }
@@ -956,10 +957,6 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     if (!writes_stopped) {
       write_thread_.EnterUnbatched(&w, &mutex_);
     }
-
-    // Recoverable state is persisted in WAL. After memtable switch, WAL might
-    // be deleted, so we write the state to memtable to be persisted as well.
-    s = WriteRecoverableState();
 
     if (s.ok()) {
       // SwitchMemtable() will release and reacquire mutex

@@ -280,14 +280,6 @@ bool WriteBatch::HasRollback() const {
   return (ComputeContentFlags() & ContentFlags::HAS_ROLLBACK) != 0;
 }
 
-bool WriteBatch::IsLatestPersistentState() const {
-  return is_latest_persistent_state_;
-}
-
-void WriteBatch::SetAsLastestPersistentState() {
-  is_latest_persistent_state_ = true;
-}
-
 Status ReadRecordFromWriteBatch(Slice* input, char* tag,
                                 uint32_t* column_family, Slice* key,
                                 Slice* value, Slice* blob, Slice* xid) {
@@ -500,6 +492,14 @@ Status WriteBatch::Iterate(Handler* handler) const {
   } else {
     return Status::OK();
   }
+}
+
+bool WriteBatchInternal::IsLatestPersistentState(const WriteBatch* b) {
+  return b->is_latest_persistent_state_;
+}
+
+void WriteBatchInternal::SetAsLastestPersistentState(WriteBatch* b) {
+  b->is_latest_persistent_state_ = true;
 }
 
 int WriteBatchInternal::Count(const WriteBatch* b) {

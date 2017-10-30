@@ -127,7 +127,7 @@ Status WritePreparedTxn::CommitInternal() {
     // When not writing to memtable, we can still cache the latest write batch.
     // The cached batch will be written to memtable in WriteRecoverableState
     // during FlushMemTable
-    working_batch->SetAsLastestPersistentState();
+    WriteBatchInternal::SetAsLastestPersistentState(working_batch);
   }
 
   const bool disable_memtable = true;

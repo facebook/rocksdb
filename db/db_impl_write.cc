@@ -73,7 +73,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         "pipelined_writes is not compatible with seq_per_batch");
   }
   // Otherwise IsLatestPersistentState optimization does not make sense
-  assert(!my_batch->IsLatestPersistentState() || disable_memtable);
+  assert(!WriteBatchInternal::IsLatestPersistentState(my_batch) ||
+         disable_memtable);
 
   Status status;
   if (write_options.low_pri) {
@@ -691,7 +692,7 @@ WriteBatch* DBImpl::MergeBatch(const WriteThread::WriteGroup& write_group,
     // contains one batch, that batch should be written to the WAL,
     // and the batch is not wanting to be truncated
     merged_batch = leader->batch;
-    if (merged_batch->IsLatestPersistentState()) {
+    if (WriteBatchInternal::IsLatestPersistentState(merged_batch)) {
       *to_be_cached_state = merged_batch;
     }
     *write_with_wal = 1;
@@ -704,7 +705,7 @@ WriteBatch* DBImpl::MergeBatch(const WriteThread::WriteGroup& write_group,
       if (writer->ShouldWriteToWAL()) {
         WriteBatchInternal::Append(merged_batch, writer->batch,
                                    /*WAL_only*/ true);
-        if (writer->batch->IsLatestPersistentState()) {
+        if (WriteBatchInternal::IsLatestPersistentState(writer->batch)) {
           // We only need to cache the last of such write batch
           *to_be_cached_state = writer->batch;
         }
@@ -850,7 +851,8 @@ Status DBImpl::ConcurrentWriteToWAL(const WriteThread::WriteGroup& write_group,
 }
 
 Status DBImpl::WriteRecoverableState() {
-      if(!cached_recoverable_state_empty_) {
+  mutex_.AssertHeld();
+  if (!cached_recoverable_state_empty_) {
     bool dont_care_bool;
     SequenceNumber next_seq;
     if (concurrent_prepare_) {
@@ -1114,6 +1116,13 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   log::Writer* new_log = nullptr;
   MemTable* new_mem = nullptr;
 
+  // Recoverable state is persisted in WAL. After memtable switch, WAL might
+  // be deleted, so we write the state to memtable to be persisted as well.
+  Status s = WriteRecoverableState();
+  if (!s.ok()) {
+    return s;
+  }
+
   // In case of pipelined write is enabled, wait for all pending memtable
   // writers.
   if (immutable_db_options_.enable_pipelined_write) {
@@ -1157,7 +1166,6 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   const auto preallocate_block_size =
     GetWalPreallocateBlockSize(mutable_cf_options.write_buffer_size);
   mutex_.Unlock();
-  Status s;
   {
     if (creating_new_log) {
       EnvOptions opt_env_opt =

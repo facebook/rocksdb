@@ -306,11 +306,6 @@ class WriteBatch : public WriteBatchBase {
   // Returns trie if MarkRollback will be called during Iterate
   bool HasRollback() const;
 
-  // This write batch includes the latest state that should be persisted. Such
-  // state meant to be used only during recovery.
-  bool IsLatestPersistentState() const;
-  void SetAsLastestPersistentState();
-
   using WriteBatchBase::GetWriteBatch;
   WriteBatch* GetWriteBatch() override { return this; }
 
