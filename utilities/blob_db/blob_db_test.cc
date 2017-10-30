@@ -83,7 +83,7 @@ class BlobDBTest : public testing::Test {
       data->erase(key);
     }
   }
-  
+
   Status PutUntil(const Slice &key, const Slice &value, uint64_t expiration) {
     return blob_db_->PutUntil(WriteOptions(), key, value, expiration);
   }
@@ -1202,10 +1202,14 @@ TEST_F(BlobDBTest, FilterExpiredBlobIndex) {
   VerifyDB(data);
 
   mock_env_->set_current_time(kCompactTime);
+  // Take a snapshot before compaction. Make sure expired blob indexes is
+  // filtered regardless of snapshot.
+  const Snapshot *snapshot = blob_db_->GetSnapshot();
   // Issue manual compaction to trigger compaction filter.
   ASSERT_OK(blob_db_->CompactRange(CompactRangeOptions(),
                                    blob_db_->DefaultColumnFamily(), nullptr,
                                    nullptr));
+  blob_db_->ReleaseSnapshot(snapshot);
   // Verify expired blob index are filtered.
   std::vector<KeyVersion> versions;
   GetAllKeyVersions(blob_db_, "", "", &versions);

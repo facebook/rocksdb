@@ -18,12 +18,17 @@ class BlobIndexCompactionFilter : public CompactionFilter {
   explicit BlobIndexCompactionFilter(uint64_t current_time)
       : current_time_(current_time) {}
 
-  virtual const char* Name() const { return "BlobIndexCompactionFilter"; }
+  virtual const char* Name() const override {
+    return "BlobIndexCompactionFilter";
+  }
+
+  // Filter expired blob indexes regardless of snapshots.
+  virtual bool IgnoreSnapshots() const override { return true; }
 
   virtual Decision FilterV2(int /*level*/, const Slice& /*key*/,
                             ValueType value_type, const Slice& value,
                             std::string* /*new_value*/,
-                            std::string* /*skip_until*/) const {
+                            std::string* /*skip_until*/) const override {
     if (value_type != kBlobIndex) {
       return Decision::kKeep;
     }
@@ -48,12 +53,12 @@ class BlobIndexCompactionFilterFactory : public CompactionFilterFactory {
  public:
   explicit BlobIndexCompactionFilterFactory(Env* env) : env_(env) {}
 
-  virtual const char* Name() const {
+  virtual const char* Name() const override {
     return "BlobIndexCompactionFilterFactory";
   }
 
   virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
-      const CompactionFilter::Context& /*context*/) {
+      const CompactionFilter::Context& /*context*/) override {
     int64_t current_time = 0;
     Status s = env_->GetCurrentTime(&current_time);
     if (!s.ok()) {
