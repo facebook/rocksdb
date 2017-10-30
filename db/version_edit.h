@@ -144,6 +144,7 @@ struct FdWithKeyRange {
 
   FdWithKeyRange()
       : fd(),
+        file_metadata(nullptr),
         smallest_key(),
         largest_key() {
   }
