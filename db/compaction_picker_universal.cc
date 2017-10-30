@@ -35,7 +35,7 @@ namespace {
 // and the index of the file in that level
 
 struct InputFileInfo {
-  InputFileInfo() : f(nullptr) {}
+  InputFileInfo() : f(nullptr), level(0), index(0) {}
 
   FileMetaData* f;
   size_t level;
