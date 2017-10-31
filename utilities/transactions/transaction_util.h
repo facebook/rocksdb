@@ -54,7 +54,8 @@ class TransactionUtil {
   static Status CheckKeyForConflicts(DBImpl* db_impl,
                                      ColumnFamilyHandle* column_family,
                                      const std::string& key,
-                                     SequenceNumber snap_seq, bool cache_only, ReadCallback* snap_checker = nullptr);
+                                     SequenceNumber snap_seq, bool cache_only,
+                                     ReadCallback* snap_checker = nullptr);
 
   // For each key,SequenceNumber pair in the TransactionKeyMap, this function
   // will verify there have been no writes to the key in the db since that
@@ -72,7 +73,8 @@ class TransactionUtil {
  private:
   static Status CheckKey(DBImpl* db_impl, SuperVersion* sv,
                          SequenceNumber earliest_seq, SequenceNumber snap_seq,
-                         const std::string& key, bool cache_only, ReadCallback* snap_checker = nullptr);
+                         const std::string& key, bool cache_only,
+                         ReadCallback* snap_checker = nullptr);
 };
 
 }  // namespace rocksdb

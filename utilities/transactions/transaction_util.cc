@@ -22,11 +22,9 @@
 
 namespace rocksdb {
 
-Status TransactionUtil::CheckKeyForConflicts(DBImpl* db_impl,
-                                             ColumnFamilyHandle* column_family,
-                                             const std::string& key,
-                                             SequenceNumber snap_seq,
-                                             bool cache_only, ReadCallback* snap_checker) {
+Status TransactionUtil::CheckKeyForConflicts(
+    DBImpl* db_impl, ColumnFamilyHandle* column_family, const std::string& key,
+    SequenceNumber snap_seq, bool cache_only, ReadCallback* snap_checker) {
   Status result;
 
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
@@ -42,7 +40,8 @@ Status TransactionUtil::CheckKeyForConflicts(DBImpl* db_impl,
     SequenceNumber earliest_seq =
         db_impl->GetEarliestMemTableSequenceNumber(sv, true);
 
-    result = CheckKey(db_impl, sv, earliest_seq, snap_seq, key, cache_only, snap_checker);
+    result = CheckKey(db_impl, sv, earliest_seq, snap_seq, key, cache_only,
+                      snap_checker);
 
     db_impl->ReturnAndCleanupSuperVersion(cfd, sv);
   }
@@ -52,8 +51,9 @@ Status TransactionUtil::CheckKeyForConflicts(DBImpl* db_impl,
 
 Status TransactionUtil::CheckKey(DBImpl* db_impl, SuperVersion* sv,
                                  SequenceNumber earliest_seq,
-                                 SequenceNumber snap_seq, const std::string& key,
-                                 bool cache_only, ReadCallback* snap_checker) {
+                                 SequenceNumber snap_seq,
+                                 const std::string& key, bool cache_only,
+                                 ReadCallback* snap_checker) {
   Status result;
   bool need_to_read_sst = false;
 
