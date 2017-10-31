@@ -43,10 +43,10 @@ struct BlobLogHeader {
   static constexpr size_t kSize = 30;
 
   uint32_t version = kVersion1;
-  uint32_t column_family_id;
-  CompressionType compression;
-  bool has_ttl;
-  ExpirationRange expiration_range;
+  uint32_t column_family_id = 0;
+  CompressionType compression = kNoCompression;
+  bool has_ttl = false;
+  ExpirationRange expiration_range = std::make_pair(0, 0);
 
   void EncodeTo(std::string* dst);
 
@@ -68,10 +68,10 @@ struct BlobLogHeader {
 struct BlobLogFooter {
   static constexpr size_t kSize = 48;
 
-  uint64_t blob_count;
-  ExpirationRange expiration_range;
-  SequenceRange sequence_range;
-  uint32_t crc;
+  uint64_t blob_count = 0;
+  ExpirationRange expiration_range = std::make_pair(0, 0);
+  SequenceRange sequence_range = std::make_pair(0, 0);
+  uint32_t crc = 0;
 
   void EncodeTo(std::string* dst);
 
