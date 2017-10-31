@@ -1782,9 +1782,11 @@ class StressTest {
             std::min(FLAGS_ops_per_thread - 1, i + FLAGS_snapshot_hold_ops),
             db_->GetSnapshot());
       }
-      if (!snapshot_queue_.empty() && i == snapshot_queue_.front().first) {
-        db_->ReleaseSnapshot(snapshot_queue_.front().second);
-        snapshot_queue_.pop();
+      if (!snapshot_queue_.empty()) {
+        while (i == snapshot_queue_.front().first) {
+          db_->ReleaseSnapshot(snapshot_queue_.front().second);
+          snapshot_queue_.pop();
+        }
       }
 
       const double completed_ratio =
