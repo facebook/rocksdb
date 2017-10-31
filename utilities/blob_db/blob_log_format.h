@@ -43,10 +43,10 @@ struct BlobLogHeader {
   static constexpr size_t kSize = 30;
 
   uint32_t version = kVersion1;
-  uint32_t column_family_id;
-  CompressionType compression;
-  bool has_ttl;
-  ExpirationRange expiration_range;
+  uint32_t column_family_id = 0;
+  CompressionType compression = kNoCompression;
+  bool has_ttl = false;
+  ExpirationRange expiration_range = std::make_pair(0, 0);
 
   void EncodeTo(std::string* dst);
 
@@ -68,10 +68,10 @@ struct BlobLogHeader {
 struct BlobLogFooter {
   static constexpr size_t kSize = 48;
 
-  uint64_t blob_count;
-  ExpirationRange expiration_range;
-  SequenceRange sequence_range;
-  uint32_t crc;
+  uint64_t blob_count = 0;
+  ExpirationRange expiration_range = std::make_pair(0, 0);
+  SequenceRange sequence_range = std::make_pair(0, 0);
+  uint32_t crc = 0;
 
   void EncodeTo(std::string* dst);
 
@@ -101,11 +101,11 @@ struct BlobLogRecord {
   // header include fields up to blob CRC
   static constexpr size_t kHeaderSize = 32;
 
-  uint64_t key_size;
-  uint64_t value_size;
-  uint64_t expiration;
-  uint32_t header_crc;
-  uint32_t blob_crc;
+  uint64_t key_size = 0;
+  uint64_t value_size = 0;
+  uint64_t expiration = 0;
+  uint32_t header_crc = 0;
+  uint32_t blob_crc = 0;
   Slice key;
   Slice value;
   std::string key_buf;
