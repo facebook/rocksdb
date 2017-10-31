@@ -305,7 +305,7 @@ class BlobDBImpl : public BlobDB {
   // tt - current time
   // last_id - the id of the non-TTL file to evict
   bool ShouldGCFile(std::shared_ptr<BlobFile> bfile, uint64_t now,
-                    bool is_oldest_simple_blob_file, std::string* reason);
+                    bool is_oldest_non_ttl_file, std::string* reason);
 
   // collect all the blob log files from the blob directory
   Status GetAllLogFiles(std::set<std::pair<uint64_t, std::string>>* file_nums);
@@ -370,13 +370,7 @@ class BlobDBImpl : public BlobDB {
 
   std::pair<bool, int64_t> EvictCompacted(bool aborted);
 
-  bool CallbackEvictsImpl(std::shared_ptr<BlobFile> bfile);
-
   std::pair<bool, int64_t> RemoveTimerQ(TimerQueue* tq, bool aborted);
-
-  std::pair<bool, int64_t> CallbackEvicts(TimerQueue* tq,
-                                          std::shared_ptr<BlobFile> bfile,
-                                          bool aborted);
 
   // Adds the background tasks to the timer queue
   void StartBackgroundTasks();
@@ -467,12 +461,12 @@ class BlobDBImpl : public BlobDB {
   // epoch or version of the open files.
   std::atomic<uint64_t> epoch_of_;
 
-  // All opened non-TTL blob files.
-  std::vector<std::shared_ptr<BlobFile>> open_simple_files_;
+  // opened non-TTL blob file.
+  std::shared_ptr<BlobFile> open_non_ttl_file_;
 
   // all the blob files which are currently being appended to based
   // on variety of incoming TTL's
-  std::multiset<std::shared_ptr<BlobFile>, blobf_compare_ttl> open_blob_files_;
+  std::multiset<std::shared_ptr<BlobFile>, blobf_compare_ttl> open_ttl_files_;
 
   // packet of information to put in lockess delete(s) queue
   struct delete_packet_t {
@@ -504,9 +498,6 @@ class BlobDBImpl : public BlobDB {
 
   // timer based queue to execute tasks
   TimerQueue tqueue_;
-
-  // timer queues to call eviction callbacks.
-  std::vector<std::shared_ptr<TimerQueue>> cb_threads_;
 
   // only accessed in GC thread, hence not atomic. The epoch of the
   // GC task. Each execution is one epoch. Helps us in allocating
