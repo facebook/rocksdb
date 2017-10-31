@@ -985,6 +985,7 @@ struct ThreadState {
   Random rand;  // Has different seeds for different threads
   SharedState* shared;
   Stats stats;
+  std::queue<std::pair<uint64_t, const Snapshot*> > snapshot_queue;
 
   ThreadState(uint32_t index, SharedState* _shared)
       : tid(index), rand(1000 + index + _shared->GetSeed()), shared(_shared) {}
@@ -1665,6 +1666,10 @@ class StressTest {
         {
           thread->stats.FinishedSingleOp();
           MutexLock l(thread->shared->GetMutex());
+          while (!thread->snapshot_queue.empty()) {
+            db_->ReleaseSnapshot(thread->snapshot_queue.front().second);
+            thread->snapshot_queue.pop();
+          }
           thread->shared->IncVotedReopen();
           if (thread->shared->AllVotedReopen()) {
             thread->shared->GetStressTest()->Reopen();
@@ -1778,14 +1783,14 @@ class StressTest {
 #endif                // !ROCKSDB_LITE
       if (FLAGS_acquire_snapshot_one_in > 0 &&
           thread->rand.Uniform(FLAGS_acquire_snapshot_one_in) == 0) {
-        snapshot_queue_.emplace(
+        thread->snapshot_queue.emplace(
             std::min(FLAGS_ops_per_thread - 1, i + FLAGS_snapshot_hold_ops),
             db_->GetSnapshot());
       }
-      if (!snapshot_queue_.empty()) {
-        while (i == snapshot_queue_.front().first) {
-          db_->ReleaseSnapshot(snapshot_queue_.front().second);
-          snapshot_queue_.pop();
+      if (!thread->snapshot_queue.empty()) {
+        while (i == thread->snapshot_queue.front().first) {
+          db_->ReleaseSnapshot(thread->snapshot_queue.front().second);
+          thread->snapshot_queue.pop();
         }
       }
 
@@ -2398,10 +2403,6 @@ class StressTest {
   }
 
   void Reopen() {
-    while (!snapshot_queue_.empty()) {
-      db_->ReleaseSnapshot(snapshot_queue_.front().second);
-      snapshot_queue_.pop();
-    }
     for (auto cf : column_families_) {
       delete cf;
     }
@@ -2427,7 +2428,6 @@ class StressTest {
   std::shared_ptr<Cache> cache_;
   std::shared_ptr<Cache> compressed_cache_;
   std::shared_ptr<const FilterPolicy> filter_policy_;
-  std::queue<std::pair<uint64_t, const Snapshot*> > snapshot_queue_;
   DB* db_;
   Options options_;
   std::vector<ColumnFamilyHandle*> column_families_;
