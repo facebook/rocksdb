@@ -268,7 +268,6 @@ TEST_F(BlobDBTest, TTLExtrator_NoTTL) {
   bdb_options.ttl_range_secs = 1000;
   bdb_options.min_blob_size = 0;
   bdb_options.blob_file_size = 256 * 1000 * 1000;
-  bdb_options.num_concurrent_simple_blobs = 1;
   bdb_options.ttl_extractor = ttl_extractor_;
   bdb_options.disable_background_tasks = true;
   Open(bdb_options, options);
