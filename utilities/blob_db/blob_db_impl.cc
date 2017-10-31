@@ -552,6 +552,8 @@ std::shared_ptr<BlobFile> BlobDBImpl::SelectBlobFile() {
   bfile->file_size_ = BlobLogHeader::kSize;
   bfile->header_.compression = bdb_options_.compression;
   bfile->header_.has_ttl = false;
+  bfile->header_.column_family_id =
+      reinterpret_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily())->GetID();
   bfile->header_valid_ = true;
   bfile->SetHasTTL(false);
 
@@ -615,6 +617,9 @@ std::shared_ptr<BlobFile> BlobDBImpl::SelectBlobFileTTL(uint64_t expiration) {
   bfile->header_.expiration_range = expiration_range;
   bfile->header_.compression = bdb_options_.compression;
   bfile->header_.has_ttl = true;
+  bfile->header_.column_family_id =
+      reinterpret_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily())->GetID();
+  ;
   bfile->header_valid_ = true;
   bfile->SetHasTTL(true);
   bfile->file_size_ = BlobLogHeader::kSize;
