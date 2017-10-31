@@ -576,7 +576,7 @@ Status Version::GetTableProperties(std::shared_ptr<const TableProperties>* tp,
   auto table_cache = cfd_->table_cache();
   auto ioptions = cfd_->ioptions();
   Status s = table_cache->GetTableProperties(
-      vset_->env_options_, cfd_->internal_comparator(), file_meta->fd,
+      env_options_, cfd_->internal_comparator(), file_meta->fd,
       tp, true /* no io */);
   if (s.ok()) {
     return s;
@@ -599,7 +599,7 @@ Status Version::GetTableProperties(std::shared_ptr<const TableProperties>* tp,
       TableFileName(vset_->db_options_->db_paths, file_meta->fd.GetNumber(),
                     file_meta->fd.GetPathId());
   }
-  s = ioptions->env->NewRandomAccessFile(file_name, &file, vset_->env_options_);
+  s = ioptions->env->NewRandomAccessFile(file_name, &file, env_options_);
   if (!s.ok()) {
     return s;
   }
@@ -711,7 +711,7 @@ size_t Version::GetMemoryUsageByTableReaders() {
   for (auto& file_level : storage_info_.level_files_brief_) {
     for (size_t i = 0; i < file_level.num_files; i++) {
       total_usage += cfd_->table_cache()->GetMemoryUsageByTableReader(
-          vset_->env_options_, cfd_->internal_comparator(),
+          env_options_, cfd_->internal_comparator(),
           file_level.files[i].fd);
     }
   }
@@ -936,7 +936,7 @@ VersionStorageInfo::VersionStorageInfo(
 }
 
 Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
-                 uint64_t version_number)
+                 const EnvOptions& env_opt, uint64_t version_number)
     : env_(vset->env_),
       cfd_(column_family_data),
       info_log_((cfd_ == nullptr) ? nullptr : cfd_->ioptions()->info_log),
@@ -959,6 +959,7 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
       next_(this),
       prev_(this),
       refs_(0),
+      env_options_(env_opt),
       version_number_(version_number) {}
 
 void Version::Get(const ReadOptions& read_options, const LookupKey& k,
@@ -2532,7 +2533,8 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
     LogAndApplyCFHelper(w.edit_list.front());
     batch_edits.push_back(w.edit_list.front());
   } else {
-    v = new Version(column_family_data, this, current_version_number_++);
+    v = new Version(column_family_data, this, env_options_,
+                    current_version_number_++);
     builder_guard.reset(new BaseReferencedVersionBuilder(column_family_data));
     auto* builder = builder_guard->version_builder();
     for (const auto& writer : manifest_writers_) {
@@ -2577,7 +2579,7 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
   // Unlock during expensive operations. New writes cannot get here
   // because &w is ensuring that all new writes get queued.
   {
-
+    EnvOptions opt_env_opts = env_->OptimizeForManifestWrite(env_options_);
     mu->Unlock();
 
     TEST_SYNC_POINT("VersionSet::LogAndApply:WriteManifest");
@@ -2599,7 +2601,6 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
       ROCKS_LOG_INFO(db_options_->info_log, "Creating manifest %" PRIu64 "\n",
                      pending_manifest_file_number_);
       unique_ptr<WritableFile> descriptor_file;
-      EnvOptions opt_env_opts = env_->OptimizeForManifestWrite(env_options_);
       s = NewWritableFile(
           env_, DescriptorFileName(dbname_, pending_manifest_file_number_),
           &descriptor_file, opt_env_opts);
@@ -3064,7 +3065,8 @@ Status VersionSet::Recover(
             false /* prefetch_index_and_filter_in_cache */);
       }
 
-      Version* v = new Version(cfd, this, current_version_number_++);
+      Version* v =
+          new Version(cfd, this, env_options_, current_version_number_++);
       builder->SaveTo(v->storage_info());
 
       // Install recovered version
@@ -3422,7 +3424,8 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
       assert(builders_iter != builders.end());
       auto builder = builders_iter->second->version_builder();
 
-      Version* v = new Version(cfd, this, current_version_number_++);
+      Version* v =
+          new Version(cfd, this, env_options_, current_version_number_++);
       builder->SaveTo(v->storage_info());
       v->PrepareApply(*cfd->GetLatestMutableCFOptions(), false);
 
@@ -3634,7 +3637,7 @@ uint64_t VersionSet::ApproximateSize(Version* v, const FdWithKeyRange& f,
     // approximate offset of "key" within the table.
     TableReader* table_reader_ptr;
     InternalIterator* iter = v->cfd_->table_cache()->NewIterator(
-        ReadOptions(), env_options_, v->cfd_->internal_comparator(), f.fd,
+        ReadOptions(), v->env_options_, v->cfd_->internal_comparator(), f.fd,
         nullptr /* range_del_agg */, &table_reader_ptr);
     if (table_reader_ptr != nullptr) {
       result = table_reader_ptr->ApproximateOffsetOf(key);
@@ -3865,7 +3868,7 @@ ColumnFamilyData* VersionSet::CreateColumnFamily(
     const ColumnFamilyOptions& cf_options, VersionEdit* edit) {
   assert(edit->is_column_family_add_);
 
-  Version* dummy_versions = new Version(nullptr, this);
+  Version* dummy_versions = new Version(nullptr, this, env_options_);
   // Ref() dummy version once so that later we can call Unref() to delete it
   // by avoiding calling "delete" explicitly (~Version is private)
   dummy_versions->Ref();
@@ -3873,7 +3876,8 @@ ColumnFamilyData* VersionSet::CreateColumnFamily(
       edit->column_family_name_, edit->column_family_, dummy_versions,
       cf_options);
 
-  Version* v = new Version(new_cfd, this, current_version_number_++);
+  Version* v =
+      new Version(new_cfd, this, env_options_, current_version_number_++);
 
   // Fill level target base information.
   v->storage_info()->CalculateBaseBytes(*new_cfd->ioptions(),
