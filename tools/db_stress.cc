@@ -1657,7 +1657,6 @@ class StressTest {
     const int delRangeBound = delBound + (int)FLAGS_delrangepercent;
 
     thread->stats.Start();
-    std::queue<std::pair<uint64_t, const Snapshot*> > snapshot_queue;
     for (uint64_t i = 0; i < FLAGS_ops_per_thread; i++) {
       if (thread->shared->HasVerificationFailedYet()) {
         break;
@@ -1779,13 +1778,13 @@ class StressTest {
 #endif                // !ROCKSDB_LITE
       if (FLAGS_acquire_snapshot_one_in > 0 &&
           thread->rand.Uniform(FLAGS_acquire_snapshot_one_in) == 0) {
-        snapshot_queue.emplace(
+        snapshot_queue_.emplace(
             std::min(FLAGS_ops_per_thread - 1, i + FLAGS_snapshot_hold_ops),
             db_->GetSnapshot());
       }
-      if (!snapshot_queue.empty() && i == snapshot_queue.front().first) {
-        db_->ReleaseSnapshot(snapshot_queue.front().second);
-        snapshot_queue.pop();
+      if (!snapshot_queue_.empty() && i == snapshot_queue_.front().first) {
+        db_->ReleaseSnapshot(snapshot_queue_.front().second);
+        snapshot_queue_.pop();
       }
 
       const double completed_ratio =
@@ -2397,6 +2396,10 @@ class StressTest {
   }
 
   void Reopen() {
+    while (!snapshot_queue_.empty()) {
+      db_->ReleaseSnapshot(snapshot_queue_.front().second);
+      snapshot_queue_.pop();
+    }
     for (auto cf : column_families_) {
       delete cf;
     }
@@ -2422,6 +2425,7 @@ class StressTest {
   std::shared_ptr<Cache> cache_;
   std::shared_ptr<Cache> compressed_cache_;
   std::shared_ptr<const FilterPolicy> filter_policy_;
+  std::queue<std::pair<uint64_t, const Snapshot*> > snapshot_queue_;
   DB* db_;
   Options options_;
   std::vector<ColumnFamilyHandle*> column_families_;
