@@ -53,6 +53,7 @@ struct ExternalSstFileInfo;
 class WriteBatch;
 class Env;
 class EventListener;
+enum EntryType;
 
 using std::unique_ptr;
 
@@ -98,6 +99,29 @@ struct Range {
   Range() { }
   Range(const Slice& s, const Slice& l) : start(s), limit(l) { }
 };
+
+// <user key, seqeence number and entry type> tuple.
+struct FullKey {
+  Slice user_key;
+  SequenceNumber sequence;
+  EntryType type;
+
+  FullKey()
+      : sequence(0)
+  {}  // Intentionally left uninitialized (for speed)
+  FullKey(const Slice& u, const SequenceNumber& seq, EntryType t)
+      : user_key(u), sequence(seq), type(t) { }
+  std::string DebugString(bool hex = false) const;
+
+  void clear() {
+    user_key.clear();
+    sequence = 0;
+    type = EntryType::kEntryPut;
+  }
+};
+
+// Parse slice representing internal key to FullKey
+bool ParseFullKey(const Slice& internal_key, FullKey* result);
 
 // A collections of table properties objects, where
 //  key: is the table's file name.
