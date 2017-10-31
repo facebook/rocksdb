@@ -263,6 +263,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         last_sequence = versions_->FetchAddLastAllocatedSequence(seq_inc);
       }
     }
+    TEST_SYNC_POINT("DBImpl::WriteImpl:FinishWriteToWAL");
     assert(last_sequence != kMaxSequenceNumber);
     const SequenceNumber current_sequence = last_sequence + 1;
     last_sequence += seq_inc;
@@ -348,7 +349,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       versions_->SetLastSequence(last_sequence);
     }
     MemTableInsertStatusCheck(w.status);
-    write_thread_.ExitAsBatchGroupLeader(write_group, w.status);
+    write_thread_.ExitAsBatchGroupLeader(write_group, status);
   }
 
   if (status.ok()) {
