@@ -101,11 +101,11 @@ struct BlobLogRecord {
   // header include fields up to blob CRC
   static constexpr size_t kHeaderSize = 32;
 
-  uint64_t key_size;
-  uint64_t value_size;
-  uint64_t expiration;
-  uint32_t header_crc;
-  uint32_t blob_crc;
+  uint64_t key_size = 0;
+  uint64_t value_size = 0;
+  uint64_t expiration = 0;
+  uint32_t header_crc = 0;
+  uint32_t blob_crc = 0;
   Slice key;
   Slice value;
   std::string key_buf;
