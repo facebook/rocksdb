@@ -186,8 +186,6 @@ void BlobDBOptions::Dump(Logger* log) const {
                    bytes_per_sync);
   ROCKS_LOG_HEADER(log, "             blob_db_options.blob_file_size: %" PRIu64,
                    blob_file_size);
-  ROCKS_LOG_HEADER(log, "blob_db_options.num_concurrent_simple_blobs: %" PRIu32,
-                   num_concurrent_simple_blobs);
   ROCKS_LOG_HEADER(log, "              blob_db_options.ttl_extractor: %p",
                    ttl_extractor.get());
   ROCKS_LOG_HEADER(log, "                blob_db_options.compression: %d",
