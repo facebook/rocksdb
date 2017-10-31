@@ -2389,11 +2389,11 @@ TEST_F(DBIteratorTest, DBIteratorTestDifferentialSnapshots) {
     std::string values[4] = {"1c", "2c", "3c", "4b"};
     int i = 0;
     for (db_iter->SeekToFirst(); db_iter->Valid(); db_iter->Next()) {
-      ParsedInternalKey ikey;
-      ParseInternalKey(db_iter->key(), &ikey);
-      ASSERT_EQ(user_keys[i], ikey.user_key.ToString());
-      ASSERT_EQ(ValueType::kTypeValue, ikey.type);
-      ASSERT_EQ(seqnums[i], ikey.sequence);
+      FullKey fkey;
+      ParseFullKey(db_iter->key(), &fkey);
+      ASSERT_EQ(user_keys[i], fkey.user_key.ToString());
+      ASSERT_EQ(EntryType::kEntryPut, fkey.type);
+      ASSERT_EQ(seqnums[i], fkey.sequence);
       ASSERT_EQ(values[i], db_iter->value().ToString());
       i++;
     }
@@ -2420,17 +2420,17 @@ TEST_F(DBIteratorTest, DBIteratorTestDifferentialSnapshots) {
                     options.max_sequential_skip_in_iterations, nullptr));
     // Expecting InternalKeys in [5,8] range with correct type
     int seqnums[4] = {5,8,11,13};
-    ValueType key_types[4] = {ValueType::kTypeDeletion,ValueType::kTypeDeletion,
-      ValueType::kTypeDeletion,ValueType::kTypeValue};
+    EntryType key_types[4] = {EntryType::kEntryDelete,EntryType::kEntryDelete,
+      EntryType::kEntryDelete,EntryType::kEntryPut};
     std::string user_keys[4] = {"1","2","3","4"};
     std::string values[4] = {"", "", "", "4b"};
     int i = 0;
     for (db_iter->SeekToFirst(); db_iter->Valid(); db_iter->Next()) {
-      ParsedInternalKey ikey;
-      ParseInternalKey(db_iter->key(), &ikey);
-      ASSERT_EQ(user_keys[i], ikey.user_key.ToString());
-      ASSERT_EQ(key_types[i], ikey.type);
-      ASSERT_EQ(seqnums[i], ikey.sequence);
+      FullKey fkey;
+      ParseFullKey(db_iter->key(), &fkey);
+      ASSERT_EQ(user_keys[i], fkey.user_key.ToString());
+      ASSERT_EQ(key_types[i], fkey.type);
+      ASSERT_EQ(seqnums[i], fkey.sequence);
       ASSERT_EQ(values[i], db_iter->value().ToString());
       i++;
     }
