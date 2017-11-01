@@ -13,7 +13,7 @@
 
 #include <cstring>
 
-#include "options/options_parser.h"
+#include "options/options_helper.h"
 #include "rocksdb/convenience.h"
 #include "util/testharness.h"
 
