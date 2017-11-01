@@ -753,8 +753,13 @@ SequenceNumber DBImpl::IncAndFetchSequenceNumber() {
   return versions_->FetchAddLastToBeWrittenSequence(1ull) + 1ull;
 }
 
-void DBImpl::SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) {
-  preserve_deletes_seqnum_.store(seqnum);
+bool DBImpl::SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) {
+  if (seqnum > preserve_deletes_seqnum_.load()) {
+    preserve_deletes_seqnum_.store(seqnum);
+    return true;
+  } else {
+    return false;
+  }
 }
 
 InternalIterator* DBImpl::NewInternalIterator(
@@ -1430,6 +1435,15 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
     return NewErrorIterator(Status::NotSupported(
         "ReadTier::kPersistedData is not yet supported in iterators."));
   }
+  // if iterator wants internal keys, we can only proceed if
+  // we can guarantee the deletes haven't been processed yet
+  if (immutable_db_options_.preserve_deletes &&
+      read_options.iter_start_seqnum > 0 &&
+      read_options.iter_start_seqnum < preserve_deletes_seqnum_.load()) {
+        return NewErrorIterator(Status::InvalidArgument(
+          "Iterator requested internal keys which are too old and are not"
+          " guaranteed to be preserved, try larger iter_start_seqnum opt."));
+      }
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
   ReadCallback* read_callback = nullptr;  // No read callback provided.

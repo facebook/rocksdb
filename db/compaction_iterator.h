@@ -71,7 +71,7 @@ class CompactionIterator {
                      const CompactionFilter* compaction_filter = nullptr,
                      CompactionEventListener* compaction_listener = nullptr,
                      const std::atomic<bool>* shutting_down = nullptr,
-                     const std::atomic<SequenceNumber>* preserve_deletes_seqnum = nullptr);
+                     const SequenceNumber preserve_deletes_seqnum = 0);
 
   // Constructor with custom CompactionProxy, used for tests.
   CompactionIterator(InternalIterator* input, const Comparator* cmp,
@@ -85,7 +85,7 @@ class CompactionIterator {
                      const CompactionFilter* compaction_filter = nullptr,
                      CompactionEventListener* compaction_listener = nullptr,
                      const std::atomic<bool>* shutting_down = nullptr,
-                     const std::atomic<SequenceNumber>* preserve_deletes_seqnum = nullptr);
+                     const SequenceNumber preserve_deletes_seqnum = 0);
 
   ~CompactionIterator();
 
@@ -151,7 +151,7 @@ class CompactionIterator {
   CompactionEventListener* compaction_listener_;
 #endif  // !ROCKSDB_LITE
   const std::atomic<bool>* shutting_down_;
-  const std::atomic<SequenceNumber>* preserve_deletes_seqnum_;
+  const SequenceNumber preserve_deletes_seqnum_;
   bool bottommost_level_;
   bool valid_ = false;
   bool visible_at_tip_;

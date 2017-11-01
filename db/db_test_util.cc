@@ -667,8 +667,8 @@ Status DBTestBase::SingleDelete(int cf, const std::string& k) {
   return db_->SingleDelete(WriteOptions(), handles_[cf], k);
 }
 
-void DBTestBase::SetPreserveDeletesSequenceNumber(SequenceNumber sn) {
-  db_->SetPreserveDeletesSequenceNumber(sn);
+bool DBTestBase::SetPreserveDeletesSequenceNumber(SequenceNumber sn) {
+  return db_->SetPreserveDeletesSequenceNumber(sn);
 }
 
 std::string DBTestBase::Get(const std::string& k, const Snapshot* snapshot) {

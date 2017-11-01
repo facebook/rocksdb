@@ -265,7 +265,7 @@ CompactionJob::CompactionJob(
     int job_id, Compaction* compaction, const ImmutableDBOptions& db_options,
     const EnvOptions env_options, VersionSet* versions,
     const std::atomic<bool>* shutting_down,
-    const std::atomic<SequenceNumber>* preserve_deletes_seqnum,
+    const SequenceNumber preserve_deletes_seqnum,
     LogBuffer* log_buffer,
     Directory* db_directory, Directory* output_directory, Statistics* stats,
     InstrumentedMutex* db_mutex, Status* db_bg_error,

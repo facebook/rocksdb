@@ -100,29 +100,6 @@ struct Range {
   Range(const Slice& s, const Slice& l) : start(s), limit(l) { }
 };
 
-// <user key, seqeence number and entry type> tuple.
-struct FullKey {
-  Slice user_key;
-  SequenceNumber sequence;
-  EntryType type;
-
-  FullKey()
-      : sequence(0)
-  {}  // Intentionally left uninitialized (for speed)
-  FullKey(const Slice& u, const SequenceNumber& seq, EntryType t)
-      : user_key(u), sequence(seq), type(t) { }
-  std::string DebugString(bool hex = false) const;
-
-  void clear() {
-    user_key.clear();
-    sequence = 0;
-    type = EntryType::kEntryPut;
-  }
-};
-
-// Parse slice representing internal key to FullKey
-bool ParseFullKey(const Slice& internal_key, FullKey* result);
-
 // A collections of table properties objects, where
 //  key: is the table's file name.
 //  value: the table properties object of the given table.
@@ -900,7 +877,11 @@ class DB {
 
   // Instructs DB to preserve deletes with sequence numbers >= passed seqnum.
   // Has no effect if DBOptions.preserve_deletes is set to false.
-  virtual void SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) = 0;
+  // This function assumes that user calls this function with monotonically
+  // increasing seqnums (otherwise we can't guarantee that a particular delete
+  // hasn't been already processed); returns true if the value was successfully
+  // updated, false if user attempted to call if with seqnum <= current value.
+  virtual bool SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) = 0;
 
 #ifndef ROCKSDB_LITE
 

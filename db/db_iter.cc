@@ -462,6 +462,9 @@ void DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
             if (start_seqnum_ > 0) {
               // we are taking incremental snapshot here
               // incremental snapshots aren't supported on DB with range deletes
+              assert(!(
+                (ikey_.type == kTypeBlobIndex) && (start_seqnum_ > 0)
+              ));
               if (ikey_.sequence >= start_seqnum_) {
                 saved_key_.SetInternalKey(ikey_);
                 valid_ = true;

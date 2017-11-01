@@ -255,7 +255,7 @@ class CompactionJobTest : public testing::Test {
     SnapshotChecker* snapshot_checker = nullptr;
     CompactionJob compaction_job(0, &compaction, db_options_, env_options_,
                                  versions_.get(), &shutting_down_,
-                                 &preserve_deletes_seqnum_, &log_buffer,
+                                 preserve_deletes_seqnum_, &log_buffer,
                                  nullptr, nullptr, nullptr, &mutex_, &bg_error_,
                                  snapshots, earliest_write_conflict_snapshot,
                                  snapshot_checker, table_cache_, &event_logger,
@@ -295,7 +295,7 @@ class CompactionJobTest : public testing::Test {
   std::unique_ptr<VersionSet> versions_;
   InstrumentedMutex mutex_;
   std::atomic<bool> shutting_down_;
-  std::atomic<SequenceNumber> preserve_deletes_seqnum_;
+  SequenceNumber preserve_deletes_seqnum_;
   std::shared_ptr<mock::MockTableFactory> mock_table_factory_;
   CompactionJobStats compaction_job_stats_;
   ColumnFamilyData* cfd_;

@@ -46,7 +46,7 @@ CompactionIterator::CompactionIterator(
     const Compaction* compaction, const CompactionFilter* compaction_filter,
     CompactionEventListener* compaction_listener,
     const std::atomic<bool>* shutting_down,
-    const std::atomic<SequenceNumber>* preserve_deletes_seqnum)
+    const SequenceNumber preserve_deletes_seqnum)
     : CompactionIterator(
           input, cmp, merge_helper, last_sequence, snapshots,
           earliest_write_conflict_snapshot, snapshot_checker, env,
@@ -66,7 +66,7 @@ CompactionIterator::CompactionIterator(
     const CompactionFilter* compaction_filter,
     CompactionEventListener* compaction_listener,
     const std::atomic<bool>* shutting_down,
-    const std::atomic<SequenceNumber>* preserve_deletes_seqnum
+    const SequenceNumber preserve_deletes_seqnum
   )
     : input_(input),
       cmp_(cmp),
@@ -634,8 +634,7 @@ inline SequenceNumber CompactionIterator::findEarliestVisibleSnapshot(
 // needed and disables seqnum zero-out in PrepareOutput for recent keys.
 inline bool CompactionIterator::ikeyNotNeededForIncrementalSnapshot() {
   return (!compaction_->preserve_deletes()) ||
-         (preserve_deletes_seqnum_ == nullptr) ||
-         (ikey_.sequence < preserve_deletes_seqnum_->load());
+         (ikey_.sequence < preserve_deletes_seqnum_);
 }
 
 }  // namespace rocksdb

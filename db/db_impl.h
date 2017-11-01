@@ -225,7 +225,7 @@ class DBImpl : public DB {
   // also on data written to the WAL but not to the memtable.
   SequenceNumber TEST_GetLatestVisibleSequenceNumber() const;
 
-  virtual void SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) override;
+  virtual bool SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) override;
 
   bool HasActiveSnapshotLaterThanSN(SequenceNumber sn);
 

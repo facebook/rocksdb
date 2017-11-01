@@ -894,6 +894,8 @@ struct DBOptions {
   // Clients are responsible to periodically call this method to advance
   // the cutoff time. If this method is never called and preserve_deletes
   // is set to true NO deletes will ever be processed.
+  // At the moment this only keeps normal deletes, SingleDeletes will
+  // not be preserved.
   // DEFAULT: false
   // Immutable (TODO: make it dynamically changeable)
   bool preserve_deletes = false;
