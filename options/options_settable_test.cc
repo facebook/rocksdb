@@ -13,7 +13,7 @@
 
 #include <cstring>
 
-#include "options/options_parser.h"
+#include "options/options_helper.h"
 #include "rocksdb/convenience.h"
 #include "util/testharness.h"
 
@@ -427,7 +427,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "hard_pending_compaction_bytes_limit=0;"
       "disable_auto_compactions=false;"
       "report_bg_io_stats=true;"
-      "compaction_options_fifo={max_table_files_size=3;ttl=100;allow_compaction=false;};",
+      "compaction_options_fifo={max_table_files_size=3;ttl=100;allow_"
+      "compaction=false;};",
       new_options));
 
   ASSERT_EQ(unset_bytes_base,
