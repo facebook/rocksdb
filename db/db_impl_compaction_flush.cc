@@ -958,11 +958,8 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       write_thread_.EnterUnbatched(&w, &mutex_);
     }
 
-    if (s.ok()) {
-      // SwitchMemtable() will release and reacquire mutex
-      // during execution
-      s = SwitchMemtable(cfd, &context);
-    }
+    // SwitchMemtable() will release and reacquire mutex during execution
+    s = SwitchMemtable(cfd, &context);
 
     if (!writes_stopped) {
       write_thread_.ExitUnbatched(&w);
