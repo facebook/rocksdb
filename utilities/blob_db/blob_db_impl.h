@@ -424,7 +424,9 @@ class BlobDBImpl : public BlobDB {
   bool FindFileAndEvictABlob(uint64_t file_number, uint64_t key_size,
                              uint64_t blob_offset, uint64_t blob_size);
 
-  void CopyBlobFiles(std::vector<std::shared_ptr<BlobFile>>* bfiles_copy);
+  void CopyBlobFiles(
+      std::vector<std::shared_ptr<BlobFile>>* bfiles_copy,
+      std::function<bool(const std::shared_ptr<BlobFile>&)> predicate = {});
 
   void FilterSubsetOfFiles(
       const std::vector<std::shared_ptr<BlobFile>>& blob_files,
@@ -432,6 +434,8 @@ class BlobDBImpl : public BlobDB {
       size_t files_to_collect);
 
   uint64_t EpochNow() { return env_->NowMicros() / 1000000; }
+
+  Status CheckSize(size_t blob_size);
 
   std::shared_ptr<BlobFile> GetOldestBlobFile();
 
@@ -543,6 +547,8 @@ class BlobDBImpl : public BlobDB {
   bool open_p1_done_;
 
   uint32_t debug_level_;
+
+  std::atomic<bool> oldest_file_evicted_;
 };
 
 }  // namespace blob_db
