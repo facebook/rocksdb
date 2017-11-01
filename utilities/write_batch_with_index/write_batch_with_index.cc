@@ -583,6 +583,7 @@ void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id) {
     if (rep->obsolete_offsets.size() == 0) {
       return false;
     }
+    std::sort(rep->obsolete_offsets.begin(), rep->obsolete_offsets.end());
     WriteBatch& write_batch = rep->write_batch;
     assert(write_batch.Count() != 0);
     size_t offset = WriteBatchInternal::GetFirstOffset(&write_batch);
@@ -953,6 +954,7 @@ Status WriteBatchWithIndex::RollbackToSavePoint() {
 
   if (s.ok()) {
     s = rep->ReBuildIndex();
+    rep->obsolete_offsets.clear();
   }
 
   return s;
