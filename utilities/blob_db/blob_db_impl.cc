@@ -838,6 +838,7 @@ Status BlobDBImpl::PutWithTTL(const WriteOptions& options,
 
 Status BlobDBImpl::PutUntil(const WriteOptions& options, const Slice& key,
                             const Slice& value, uint64_t expiration) {
+  TEST_SYNC_POINT("BlobDBImpl::PutUntil:Start");
   MutexLock l(&write_mutex_);
   SequenceNumber sequence = GetLatestSequenceNumber() + 1;
   WriteBatch batch;
@@ -845,13 +846,13 @@ Status BlobDBImpl::PutUntil(const WriteOptions& options, const Slice& key,
   if (s.ok()) {
     s = db_->Write(options, &batch);
   }
+  TEST_SYNC_POINT("BlobDBImpl::PutUntil:Finish");
   return s;
 }
 
 Status BlobDBImpl::PutBlobValue(const WriteOptions& options, const Slice& key,
                                 const Slice& value, uint64_t expiration,
                                 SequenceNumber sequence, WriteBatch* batch) {
-  TEST_SYNC_POINT("BlobDBImpl::PutBlobValue:Start");
   Status s;
   std::string index_entry;
   uint32_t column_family_id =
@@ -903,7 +904,6 @@ Status BlobDBImpl::PutBlobValue(const WriteOptions& options, const Slice& key,
     }
   }
 
-  TEST_SYNC_POINT("BlobDBImpl::PutBlobValue:Finish");
   return s;
 }
 
