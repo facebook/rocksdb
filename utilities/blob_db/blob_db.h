@@ -72,9 +72,9 @@ struct BlobDBOptions {
   CompressionType compression = kNoCompression;
 
   // If enabled, blob DB periodically cleanup stale data by rewriting remaining
-  // live data in blob files to new files. By disabling garbage collection,
+  // live data in blob files to new files. If garbage collection is not enabled,
   // blob files will be cleanup based on TTL.
-  bool disable_auto_garbage_collection = true;
+  bool enable_garbage_collection = false;
 
   // Disable all background job. Used for test only.
   bool disable_background_tasks = false;

@@ -57,14 +57,14 @@ Status BlobDB::OpenAndLoad(const Options& options,
   {
     MutexLock l(&listener_mutex);
     all_blobdb_listeners.push_back(fblistener);
-    if (!bdb_options.disable_auto_garbage_collection) {
+    if (bdb_options.enable_garbage_collection) {
       all_blobdb_listeners.push_back(ce_listener);
     }
     all_wal_filters.push_back(rw_filter);
   }
 
   changed_options->listeners.emplace_back(fblistener);
-  if (!bdb_options.disable_auto_garbage_collection) {
+  if (bdb_options.enable_garbage_collection) {
     changed_options->listeners.emplace_back(ce_listener);
   }
   changed_options->wal_filter = rw_filter.get();
@@ -75,7 +75,7 @@ Status BlobDB::OpenAndLoad(const Options& options,
   BlobDBImpl* bdb = new BlobDBImpl(dbname, bdb_options, db_options);
 
   fblistener->SetImplPtr(bdb);
-  if (!bdb_options.disable_auto_garbage_collection) {
+  if (bdb_options.enable_garbage_collection) {
     ce_listener->SetImplPtr(bdb);
   }
   rw_filter->SetImplPtr(bdb);
@@ -130,7 +130,7 @@ Status BlobDB::Open(const DBOptions& db_options_input,
   ReconcileWalFilter_t rw_filter = std::make_shared<BlobReconcileWalFilter>();
 
   db_options.listeners.emplace_back(fblistener);
-  if (!bdb_options.disable_auto_garbage_collection) {
+  if (bdb_options.enable_garbage_collection) {
     db_options.listeners.emplace_back(ce_listener);
   }
   db_options.wal_filter = rw_filter.get();
@@ -138,7 +138,7 @@ Status BlobDB::Open(const DBOptions& db_options_input,
   {
     MutexLock l(&listener_mutex);
     all_blobdb_listeners.push_back(fblistener);
-    if (!bdb_options.disable_auto_garbage_collection) {
+    if (bdb_options.enable_garbage_collection) {
       all_blobdb_listeners.push_back(ce_listener);
     }
     all_wal_filters.push_back(rw_filter);
@@ -147,7 +147,7 @@ Status BlobDB::Open(const DBOptions& db_options_input,
   // we need to open blob db first so that recovery can happen
   BlobDBImpl* bdb = new BlobDBImpl(dbname, bdb_options, db_options);
   fblistener->SetImplPtr(bdb);
-  if (!bdb_options.disable_auto_garbage_collection) {
+  if (bdb_options.enable_garbage_collection) {
     ce_listener->SetImplPtr(bdb);
   }
   rw_filter->SetImplPtr(bdb);
@@ -184,31 +184,27 @@ Status BlobDB::Open(const DBOptions& db_options_input,
 BlobDB::BlobDB(DB* db) : StackableDB(db) {}
 
 void BlobDBOptions::Dump(Logger* log) const {
-  ROCKS_LOG_HEADER(log, "                       blob_db_options.blob_dir: %s",
+  ROCKS_LOG_HEADER(log, "                 blob_db_options.blob_dir: %s",
                    blob_dir.c_str());
-  ROCKS_LOG_HEADER(log, "                  blob_db_options.path_relative: %d",
+  ROCKS_LOG_HEADER(log, "            blob_db_options.path_relative: %d",
                    path_relative);
-  ROCKS_LOG_HEADER(log, "                        blob_db_options.is_fifo: %d",
+  ROCKS_LOG_HEADER(log, "                  blob_db_options.is_fifo: %d",
                    is_fifo);
-  ROCKS_LOG_HEADER(log,
-                   "                  blob_db_options.blob_dir_size: %" PRIu64,
+  ROCKS_LOG_HEADER(log, "            blob_db_options.blob_dir_size: %" PRIu64,
                    blob_dir_size);
-  ROCKS_LOG_HEADER(log,
-                   "                 blob_db_options.ttl_range_secs: %" PRIu32,
+  ROCKS_LOG_HEADER(log, "           blob_db_options.ttl_range_secs: %" PRIu32,
                    ttl_range_secs);
-  ROCKS_LOG_HEADER(log,
-                   "                 blob_db_options.bytes_per_sync: %" PRIu64,
+  ROCKS_LOG_HEADER(log, "           blob_db_options.bytes_per_sync: %" PRIu64,
                    bytes_per_sync);
-  ROCKS_LOG_HEADER(log,
-                   "                 blob_db_options.blob_file_size: %" PRIu64,
+  ROCKS_LOG_HEADER(log, "           blob_db_options.blob_file_size: %" PRIu64,
                    blob_file_size);
-  ROCKS_LOG_HEADER(log, "                  blob_db_options.ttl_extractor: %p",
+  ROCKS_LOG_HEADER(log, "            blob_db_options.ttl_extractor: %p",
                    ttl_extractor.get());
-  ROCKS_LOG_HEADER(log, "                    blob_db_options.compression: %d",
+  ROCKS_LOG_HEADER(log, "              blob_db_options.compression: %d",
                    static_cast<int>(compression));
-  ROCKS_LOG_HEADER(log, "blob_db_options.disable_auto_garbage_collection: %d",
-                   disable_auto_garbage_collection);
-  ROCKS_LOG_HEADER(log, "       blob_db_options.disable_background_tasks: %d",
+  ROCKS_LOG_HEADER(log, "blob_db_options.enable_garbage_collection: %d",
+                   enable_garbage_collection);
+  ROCKS_LOG_HEADER(log, " blob_db_options.disable_background_tasks: %d",
                    disable_background_tasks);
 }
 
