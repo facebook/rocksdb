@@ -1634,9 +1634,9 @@ TEST_P(WritePreparedTransactionTest, WP_WC_BackwardCompatibility) {
   CrossCompatibilityTest(WRITE_COMMITTED, WRITE_PREPARED);
 }
 
-// Test that we can change write policy from WriteCommitted to WritePrepared after a clean shutdown (which would empty the WAL)
-TEST_P(WritePreparedTransactionTest, WP_WC_ForwardCompatibility) {
-  CrossCompatibilityTest(WRITE_COMMITTED, WRITE_PREPARED);
+// Test that we can change write policy from WritePrepare back to WriteCommitted after a clean shutdown (which would empty the WAL)
+TEST_P(WritePreparedTransactionTest, WC_WP_ForwardCompatibility) {
+  CrossCompatibilityTest(WRITE_PREPARED, WRITE_COMMITTED);
 }
 
 }  // namespace rocksdb

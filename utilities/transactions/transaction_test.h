@@ -238,6 +238,7 @@ class TransactionTest : public ::testing::TestWithParam<
     delete txn;
   };
 
+// Test that we can change write policy after a clean shutdown (which would empty the WAL)
 void CrossCompatibilityTest(TxnDBWritePolicy from_policy, TxnDBWritePolicy to_policy) {
   TransactionOptions txn_options;
   ReadOptions read_options;
@@ -272,8 +273,12 @@ void CrossCompatibilityTest(TxnDBWritePolicy from_policy, TxnDBWritePolicy to_po
         WriteBatch wb;
         committed_kvs[k] = v;
         wb.Put(k, v);
+        // TODO(myabandeh): remove this when we supprot duplicatae keys in
+        // db->Write method
+        if (from_policy != WRITE_PREPARED) {
         committed_kvs[k] = v2;
         wb.Put(k, v2);
+        }
         s = db->Write(write_options, &wb);
         ASSERT_OK(s);
       } break;
