@@ -145,6 +145,7 @@ class PessimisticTransaction : public TransactionBaseImpl {
   uint64_t expiration_time_;
 
  private:
+  friend class TransactionTest_ValidateSnapshotTest_Test;
   // Used to create unique ids for transactions.
   static std::atomic<TransactionID> txn_id_counter_;
 
@@ -179,8 +180,9 @@ class PessimisticTransaction : public TransactionBaseImpl {
   // Whether to perform deadlock detection or not.
   int64_t deadlock_detect_depth_;
 
-  Status ValidateSnapshot(ColumnFamilyHandle* column_family, const Slice& key,
-                          SequenceNumber prev_seqno, SequenceNumber* new_seqno);
+  virtual Status ValidateSnapshot(ColumnFamilyHandle* column_family,
+                                  const Slice& key, SequenceNumber prev_seqno,
+                                  SequenceNumber* new_seqno);
 
   void UnlockGetForUpdate(ColumnFamilyHandle* column_family,
                           const Slice& key) override;
@@ -207,9 +209,6 @@ class WriteCommittedTxn : public PessimisticTransaction {
   Status CommitInternal() override;
 
   Status RollbackInternal() override;
-
-  Status ValidateSnapshot(ColumnFamilyHandle* column_family, const Slice& key,
-                          SequenceNumber prev_seqno, SequenceNumber* new_seqno);
 
   // No copying allowed
   WriteCommittedTxn(const WriteCommittedTxn&);
