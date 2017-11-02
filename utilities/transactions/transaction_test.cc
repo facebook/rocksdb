@@ -110,6 +110,47 @@ TEST_P(TransactionTest, SuccessTest) {
   delete txn;
 }
 
+// This test clarifies the contract of ValidateSnapshot
+TEST_P(TransactionTest, ValidateSnapshotTest) {
+  for (bool with_2pc : {true, false}) {
+    ReOpen();
+    WriteOptions write_options;
+    ReadOptions read_options;
+    string value;
+    Status s;
+
+    Transaction* txn1 =
+        db->BeginTransaction(write_options, TransactionOptions());
+    ASSERT_TRUE(txn1);
+    s = txn1->Put(Slice("foo"), Slice("bar1"));
+    ASSERT_OK(s);
+    if (with_2pc) {
+      s = txn1->SetName("xid1");
+      ASSERT_OK(s);
+      s = txn1->Prepare();
+      ASSERT_OK(s);
+    }
+
+    Transaction* txn2 =
+        db->BeginTransaction(write_options, TransactionOptions());
+    ASSERT_TRUE(txn2);
+    txn2->SetSnapshot();
+
+    s = txn1->Commit();
+    ASSERT_OK(s);
+    delete txn1;
+
+    SequenceNumber dont_care;
+    auto pes_txn2 = dynamic_cast<PessimisticTransaction*>(txn2);
+    // Test the simple case where the key is not tracked yet
+    auto trakced_seq = kMaxSequenceNumber;
+    s = pes_txn2->ValidateSnapshot(db->DefaultColumnFamily(), "foo",
+                                   trakced_seq, &dont_care);
+    ASSERT_TRUE(s.IsBusy());
+    delete txn2;
+  }
+}
+
 TEST_P(TransactionTest, WaitingTxn) {
   WriteOptions write_options;
   ReadOptions read_options;

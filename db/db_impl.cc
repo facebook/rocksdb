@@ -1644,8 +1644,8 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
     uint64_t oldest_snapshot;
     if (snapshots_.empty()) {
       oldest_snapshot = concurrent_prepare_ && seq_per_batch_
-                              ? versions_->LastToBeWrittenSequence()
-                              : versions_->LastSequence();
+                            ? versions_->LastToBeWrittenSequence()
+                            : versions_->LastSequence();
     } else {
       oldest_snapshot = snapshots_.oldest()->number_;
     }
