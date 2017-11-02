@@ -17,9 +17,7 @@
 * Add a new db property "rocksdb.estimate-oldest-key-time" to return oldest data timestamp. The property is available only for FIFO compaction with compaction_options_fifo.allow_compaction = false.
 * Upon snapshot release, recompact bottommost files containing deleted/overwritten keys that previously could not be dropped due to the snapshot. This alleviates space-amp caused by long-held snapshots.
 * Support lower bound on iterators specified via `ReadOptions::iterate_lower_bound`.
-* Support for differential snapshots (via iterator emitting the sequence of key-values
-representing the difference between DB state at two different sequence numbers). Supports preserving and
-emitting puts and regular deletes, doesn't support SingleDeletes, MergeOperator, Blobs and Range Deletes.
+* Support for differential snapshots (via iterator emitting the sequence of key-values representing the difference between DB state at two different sequence numbers). Supports preserving and emitting puts and regular deletes, doesn't support SingleDeletes, MergeOperator, Blobs and Range Deletes.
 
 ### Bug Fixes
 * Fix a potential data inconsistency issue during point-in-time recovery. `DB:Open()` will abort if column family inconsistency is found during PIT recovery.
