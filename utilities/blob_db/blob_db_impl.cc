@@ -956,10 +956,24 @@ bool BlobDBImpl::EvictOldestBlobFile() {
   }
 
   WriteLock wl(&mutex_);
-  oldest_file->SetCanBeDeleted();
-  obsolete_files_.push_front(oldest_file);
-  oldest_file_evicted_.store(true);
-  return true;
+  // Double check the file is not obsolete by others
+  if (oldest_file_evicted_ == false && !oldest_file->Obsolete()) {
+    auto expiration_range = oldest_file->GetExpirationRange();
+    ROCKS_LOG_INFO(db_options_.info_log,
+                   "Evict oldest blob file since DB out of space. Current "
+                   "space used: %" PRIu64 ", blob dir size: %" PRIu64
+                   ", evicted blob file #%" PRIu64
+                   " with expiration range (%" PRIu64 ", %" PRIu64 ").",
+                   total_blob_space_.load(), bdb_options_.blob_dir_size,
+                   oldest_file->BlobFileNumber(), expiration_range.first,
+                   expiration_range.second);
+    oldest_file->MarkObsolete(oldest_file->GetSequenceRange().second);
+    obsolete_files_.push_back(oldest_file);
+    oldest_file_evicted_.store(true);
+    return true;
+  }
+
+  return false;
 }
 
 Status BlobDBImpl::CheckSize(size_t blob_size) {
@@ -1299,27 +1313,12 @@ Status BlobDBImpl::CloseBlobFileIfNeeded(std::shared_ptr<BlobFile>& bfile) {
   return CloseBlobFile(bfile);
 }
 
-bool BlobDBImpl::FileDeleteOk_SnapshotCheckLocked(
+bool BlobDBImpl::VisibleToActiveSnapshot(
     const std::shared_ptr<BlobFile>& bfile) {
   assert(bfile->Obsolete());
-
-  SequenceNumber esn = bfile->GetSequenceRange().first;
-
-  // TODO(yiwu): Here we should check instead if there is an active snapshot
-  // lies between the first sequence in the file, and the last sequence by
-  // the time the file finished being garbage collect.
-  bool notok = db_impl_->HasActiveSnapshotLaterThanSN(esn);
-  if (notok) {
-    ROCKS_LOG_INFO(db_options_.info_log,
-                   "Could not delete file due to snapshot failure %s",
-                   bfile->PathName().c_str());
-    return false;
-  } else {
-    ROCKS_LOG_INFO(db_options_.info_log,
-                   "Will delete file due to snapshot success %s",
-                   bfile->PathName().c_str());
-    return true;
-  }
+  SequenceNumber first_sequence = bfile->GetSequenceRange().first;
+  SequenceNumber obsolete_sequence = bfile->GetObsoleteSequence();
+  return db_impl_->HasActiveSnapshotInRange(first_sequence, obsolete_sequence);
 }
 
 bool BlobDBImpl::FindFileAndEvictABlob(uint64_t file_number, uint64_t key_size,
@@ -1697,7 +1696,7 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
         ReadOptions(), cfh, record.key, &index_entry, nullptr /*value_found*/,
         nullptr /*read_callback*/, &is_blob_index);
     TEST_SYNC_POINT("BlobDBImpl::GCFileAndUpdateLSM:AfterGetFromBaseDB");
-    if (!get_status.ok() && !get_status.ok()) {
+    if (!get_status.ok() && !get_status.IsNotFound()) {
       // error
       s = get_status;
       ROCKS_LOG_ERROR(db_options_.info_log,
@@ -1814,6 +1813,8 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
                                                    &rewrite_batch, &callback);
     }
     if (rewrite_status.ok()) {
+      newfile->ExtendSequenceRange(
+          WriteBatchInternal::Sequence(&rewrite_batch));
       gc_stats->relocate_succeeded++;
     } else if (rewrite_status.IsBusy()) {
       // The key is overwritten in the meanwhile. Drop the blob record.
@@ -1826,6 +1827,17 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
       break;
     }
   }  // end of ReadRecord loop
+
+  if (s.ok()) {
+    SequenceNumber obsolete_sequence =
+        newfile == nullptr ? bfptr->GetSequenceRange().second + 1
+                           : newfile->GetSequenceRange().second;
+    bfptr->MarkObsolete(obsolete_sequence);
+    if (!first_gc) {
+      WriteLock wl(&mutex_);
+      obsolete_files_.push_back(bfptr);
+    }
+  }
 
   ROCKS_LOG_INFO(
       db_options_.info_log,
@@ -1935,11 +1947,17 @@ std::pair<bool, int64_t> BlobDBImpl::DeleteObsoleteFiles(bool aborted) {
     auto bfile = *iter;
     {
       ReadLock lockbfile_r(&bfile->mutex_);
-      if (!FileDeleteOk_SnapshotCheckLocked(bfile)) {
+      if (VisibleToActiveSnapshot(bfile)) {
+        ROCKS_LOG_INFO(db_options_.info_log,
+                       "Could not delete file due to snapshot failure %s",
+                       bfile->PathName().c_str());
         ++iter;
         continue;
       }
     }
+    ROCKS_LOG_INFO(db_options_.info_log,
+                   "Will delete file due to snapshot success %s",
+                   bfile->PathName().c_str());
 
     blob_files_.erase(bfile->BlobFileNumber());
     Status s = env_->DeleteFile(bfile->PathName());
@@ -2069,8 +2087,6 @@ std::pair<bool, int64_t> BlobDBImpl::RunGC(bool aborted) {
   FilterSubsetOfFiles(blob_files, &to_process, current_epoch_,
                       files_to_collect);
 
-  // in this collect the set of files, which became obsolete
-  std::vector<std::shared_ptr<BlobFile>> obsoletes;
   for (auto bfile : to_process) {
     GCStats gc_stats;
     Status s = GCFileAndUpdateLSM(bfile, &gc_stats);
@@ -2084,16 +2100,6 @@ std::pair<bool, int64_t> BlobDBImpl::RunGC(bool aborted) {
       bfile->deleted_size_ = gc_stats.deleted_size;
       bfile->deleted_count_ = gc_stats.num_deletes;
       bfile->gc_once_after_open_ = false;
-    } else {
-      obsoletes.push_back(bfile);
-    }
-  }
-
-  if (!obsoletes.empty()) {
-    WriteLock wl(&mutex_);
-    for (auto bfile : obsoletes) {
-      bfile->SetCanBeDeleted();
-      obsolete_files_.push_front(bfile);
     }
   }
 
@@ -2190,16 +2196,6 @@ Status BlobDBImpl::TEST_GCFileAndUpdateLSM(std::shared_ptr<BlobFile>& bfile,
 }
 
 void BlobDBImpl::TEST_RunGC() { RunGC(false /*abort*/); }
-
-void BlobDBImpl::TEST_ObsoleteFile(std::shared_ptr<BlobFile>& bfile) {
-  uint64_t number = bfile->BlobFileNumber();
-  assert(blob_files_.count(number) > 0);
-  bfile->SetCanBeDeleted();
-  {
-    WriteLock l(&mutex_);
-    obsolete_files_.push_back(bfile);
-  }
-}
 #endif  //  !NDEBUG
 
 }  // namespace blob_db
