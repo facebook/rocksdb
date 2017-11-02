@@ -237,6 +237,104 @@ class TransactionTest : public ::testing::TestWithParam<
     }
     delete txn;
   };
+
+void CrossCompatibilityTest(TxnDBWritePolicy from_policy, TxnDBWritePolicy to_policy) {
+  TransactionOptions txn_options;
+  ReadOptions read_options;
+  WriteOptions write_options;
+  uint32_t index = 0;
+  Random rnd(1103);
+  options.write_buffer_size = 1024;  // To create more sst files
+  std::unordered_map<std::string, std::string> committed_kvs;
+  Transaction* txn;
+
+  txn_db_options.write_policy = from_policy;
+  ReOpen();
+
+  for (int i = 0; i < 1024; i++) {
+    auto istr = std::to_string(index);
+    auto k = Slice("foo-" + istr).ToString();
+    auto v = Slice("bar-" + istr).ToString();
+    // For test the duplicate keys
+    auto v2 = Slice("bar2-" + istr).ToString();
+    auto type = rnd.Uniform(4);
+    Status s;
+    switch (type) {
+      case 0:
+        committed_kvs[k] = v;
+        s = db->Put(write_options, k, v);
+        ASSERT_OK(s);
+        committed_kvs[k] = v2;
+        s = db->Put(write_options, k, v2);
+        ASSERT_OK(s);
+        break;
+      case 1: {
+        WriteBatch wb;
+        committed_kvs[k] = v;
+        wb.Put(k, v);
+        committed_kvs[k] = v2;
+        wb.Put(k, v2);
+        s = db->Write(write_options, &wb);
+        ASSERT_OK(s);
+      } break;
+      case 2:
+      case 3:
+        txn = db->BeginTransaction(write_options, txn_options);
+        s = txn->SetName("xid" + istr);
+        ASSERT_OK(s);
+        committed_kvs[k] = v;
+        s = txn->Put(k, v);
+        ASSERT_OK(s);
+        // Test the duplicate keys
+        committed_kvs[k] = v;
+        s = txn->Put(k, v);
+        ASSERT_OK(s);
+        if (type == 3) {
+          s = txn->Prepare();
+          ASSERT_OK(s);
+        }
+        s = txn->Commit();
+        ASSERT_OK(s);
+        if (type == 2) {
+          auto pdb = reinterpret_cast<PessimisticTransactionDB*>(db);
+          // TODO(myabandeh): this is counter-intuitive. The destructor should
+          // also do the unregistering.
+          pdb->UnregisterTransaction(txn);
+        }
+        delete txn;
+        break;
+      default:
+        assert(0);
+    }
+
+    index++;
+  }  // for i
+
+  txn_db_options.write_policy = to_policy;
+  auto db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+  // Before upgrade/downgrade the WAL must be emptied
+  db_impl->TEST_FlushMemTable();
+  ReOpenNoDelete();
+  db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+  // Check that WAL is empty
+  VectorLogPtr log_files;
+  db_impl->GetSortedWalFiles(log_files);
+  ASSERT_EQ(0, log_files.size());
+  // ASSERT_EQ(0, log_files[0]->SizeFileBytes());
+
+  for (auto& kv : committed_kvs) {
+    std::string value;
+    auto s = db->Get(read_options, kv.first, &value);
+    if (s.IsNotFound()) {
+      printf("key = %s\n", kv.first.c_str());
+    }
+    ASSERT_OK(s);
+    if (kv.second != value) {
+      printf("key = %s\n", kv.first.c_str());
+    }
+    ASSERT_EQ(kv.second, value);
+  }
+}
 };
 
 class MySQLStyleTransactionTest : public TransactionTest {};
