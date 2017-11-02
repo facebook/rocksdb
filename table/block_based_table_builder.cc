@@ -301,6 +301,7 @@ struct BlockBasedTableBuilder::Rep {
         compression_type(_compression_type),
         compression_opts(_compression_opts),
         compression_dict(_compression_dict),
+        compressed_cache_key_prefix_size(0),
         flush_block_policy(
             table_options.flush_block_policy_factory->NewFlushBlockPolicy(
                 table_options, data_block)),
