@@ -700,12 +700,15 @@ TEST_F(BlobDBTest, GCExpiredKeyWhileOverwriting) {
   VerifyDB({{"foo", "v2"}});
 }
 
-TEST_F(BlobDBTest, GCOldestSimpleBlobFileWhenOutOfSpace) {
+// This test is no longer valid since we now return an error when we go
+// over the configured blob_dir_size.
+// The test needs to be re-written later in such a way that writes continue
+// after a GC happens.
+TEST_F(BlobDBTest, DISABLED_GCOldestSimpleBlobFileWhenOutOfSpace) {
   // Use mock env to stop wall clock.
   Options options;
   options.env = mock_env_.get();
   BlobDBOptions bdb_options;
-  bdb_options.is_fifo = true;
   bdb_options.blob_dir_size = 100;
   bdb_options.blob_file_size = 100;
   bdb_options.min_blob_size = 0;
@@ -927,7 +930,7 @@ TEST_F(BlobDBTest, MigrateFromPlainRocksDB) {
 }
 
 // Test to verify that a NoSpace IOError Status is returned on reaching
-// blob_dir_size limit. 
+// blob_dir_size limit.
 TEST_F(BlobDBTest, OutOfSpace) {
   // Use mock env to stop wall clock.
   Options options;
@@ -947,6 +950,41 @@ TEST_F(BlobDBTest, OutOfSpace) {
   Status s = blob_db_->PutWithTTL(WriteOptions(), "key2", value, 60);
   ASSERT_TRUE(s.IsIOError());
   ASSERT_TRUE(s.IsNoSpace());
+}
+
+TEST_F(BlobDBTest, EvictOldestFileWhenCloseToSpaceLimit) {
+  // Use mock env to stop wall clock.
+  Options options;
+  BlobDBOptions bdb_options;
+  bdb_options.blob_dir_size = 270;
+  bdb_options.blob_file_size = 100;
+  bdb_options.disable_background_tasks = true;
+  bdb_options.is_fifo = true;
+  Open(bdb_options);
+
+  // Each stored blob has an overhead of about 32 bytes currently.
+  // So a 100 byte blob should take up 132 bytes.
+  std::string value(100, 'v');
+  ASSERT_OK(blob_db_->PutWithTTL(WriteOptions(), "key1", value, 10));
+
+  auto *bdb_impl = static_cast<BlobDBImpl *>(blob_db_);
+  auto blob_files = bdb_impl->TEST_GetBlobFiles();
+  ASSERT_EQ(1, blob_files.size());
+
+  // Adding another 100 byte blob would take the total size to 264 bytes
+  // (2*132), which is more than 90% of blob_dir_size. So, the oldest file
+  // should be evicted and put in obsolete files list.
+  ASSERT_OK(blob_db_->PutWithTTL(WriteOptions(), "key2", value, 60));
+
+  auto obsolete_files = bdb_impl->TEST_GetObsoleteFiles();
+  ASSERT_EQ(1, obsolete_files.size());
+  ASSERT_TRUE(obsolete_files[0]->Immutable());
+  ASSERT_EQ(blob_files[0]->BlobFileNumber(),
+            obsolete_files[0]->BlobFileNumber());
+
+  bdb_impl->TEST_DeleteObsoleteFiles();
+  obsolete_files = bdb_impl->TEST_GetObsoleteFiles();
+  ASSERT_TRUE(obsolete_files.empty());
 }
 
 TEST_F(BlobDBTest, InlineSmallValues) {
