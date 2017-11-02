@@ -304,6 +304,10 @@ class StackableDB : public DB {
     return db_->GetLatestSequenceNumber();
   }
 
+  virtual bool SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) override {
+    return db_->SetPreserveDeletesSequenceNumber(seqnum);
+  }
+
   virtual Status GetSortedWalFiles(VectorLogPtr& files) override {
     return db_->GetSortedWalFiles(files);
   }

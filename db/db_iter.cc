@@ -9,6 +9,7 @@
 
 #include "db/db_iter.h"
 #include <string>
+#include <iostream>
 #include <limits>
 
 #include "db/dbformat.h"
@@ -125,7 +126,8 @@ class DBIter final: public Iterator {
                        true /* collapse_deletions */),
         read_callback_(read_callback),
         allow_blob_(allow_blob),
-        is_blob_(false) {
+        is_blob_(false),
+        start_seqnum_(read_options.iter_start_seqnum) {
     RecordTick(statistics_, NO_ITERATORS);
     prefix_extractor_ = cf_options.prefix_extractor;
     max_skip_ = max_sequential_skip_in_iterations;
@@ -164,7 +166,12 @@ class DBIter final: public Iterator {
   virtual bool Valid() const override { return valid_; }
   virtual Slice key() const override {
     assert(valid_);
-    return saved_key_.GetUserKey();
+    if(start_seqnum_ > 0) {
+      return saved_key_.GetInternalKey();
+    } else {
+      return saved_key_.GetUserKey();
+    }
+
   }
   virtual Slice value() const override {
     assert(valid_);
@@ -305,6 +312,9 @@ class DBIter final: public Iterator {
   ReadCallback* read_callback_;
   bool allow_blob_;
   bool is_blob_;
+  // for diff snapshots we want the lower bound on the seqnum;
+  // if this value > 0 iterator will return internal keys
+  SequenceNumber start_seqnum_;
 
   // No copying allowed
   DBIter(const DBIter&);
@@ -430,40 +440,70 @@ void DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
           case kTypeSingleDeletion:
             // Arrange to skip all upcoming entries for this key since
             // they are hidden by this deletion.
-            saved_key_.SetUserKey(
+            // if iterartor specified start_seqnum we
+            // 1) return internal key, including the type
+            // 2) return ikey only if ikey.seqnum >= start_seqnum_
+            // not that if deletion seqnum is < start_seqnum_ we
+            // just skip it like in normal iterator.
+            if (start_seqnum_ > 0 && ikey_.sequence >= start_seqnum_)  {
+              saved_key_.SetInternalKey(ikey_);
+              valid_=true;
+              return;
+            } else {
+              saved_key_.SetUserKey(
                 ikey_.user_key,
                 !pin_thru_lifetime_ || !iter_->IsKeyPinned() /* copy */);
-            skipping = true;
-            PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
+                skipping = true;
+                PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
+            }
             break;
           case kTypeValue:
           case kTypeBlobIndex:
-            saved_key_.SetUserKey(
-                ikey_.user_key,
-                !pin_thru_lifetime_ || !iter_->IsKeyPinned() /* copy */);
-            if (range_del_agg_.ShouldDelete(
-                    ikey_, RangeDelAggregator::RangePositioningMode::
-                               kForwardTraversal)) {
-              // Arrange to skip all upcoming entries for this key since
-              // they are hidden by this deletion.
-              skipping = true;
-              num_skipped = 0;
-              PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
-            } else if (ikey_.type == kTypeBlobIndex) {
-              if (!allow_blob_) {
-                ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
-                status_ = Status::NotSupported(
-                    "Encounter unexpected blob index. Please open DB with "
-                    "rocksdb::blob_db::BlobDB instead.");
-                valid_ = false;
-              } else {
-                is_blob_ = true;
+            if (start_seqnum_ > 0) {
+              // we are taking incremental snapshot here
+              // incremental snapshots aren't supported on DB with range deletes
+              assert(!(
+                (ikey_.type == kTypeBlobIndex) && (start_seqnum_ > 0)
+              ));
+              if (ikey_.sequence >= start_seqnum_) {
+                saved_key_.SetInternalKey(ikey_);
                 valid_ = true;
+                return;
+              } else {
+                // this key and all previous versions shouldn't be included,
+                // skipping
+                saved_key_.SetUserKey(ikey_.user_key,
+                  !pin_thru_lifetime_ || !iter_->IsKeyPinned() /* copy */);
+                skipping = true;
               }
-              return;
             } else {
-              valid_ = true;
-              return;
+              saved_key_.SetUserKey(
+                  ikey_.user_key,
+                  !pin_thru_lifetime_ || !iter_->IsKeyPinned() /* copy */);
+              if (range_del_agg_.ShouldDelete(
+                      ikey_, RangeDelAggregator::RangePositioningMode::
+                                 kForwardTraversal)) {
+                // Arrange to skip all upcoming entries for this key since
+                // they are hidden by this deletion.
+                skipping = true;
+                num_skipped = 0;
+                PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
+              } else if (ikey_.type == kTypeBlobIndex) {
+                if (!allow_blob_) {
+                  ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
+                  status_ = Status::NotSupported(
+                      "Encounter unexpected blob index. Please open DB with "
+                      "rocksdb::blob_db::BlobDB instead.");
+                  valid_ = false;
+                } else {
+                  is_blob_ = true;
+                  valid_ = true;
+                }
+                return;
+              } else {
+                valid_ = true;
+                return;
+              }
             }
             break;
           case kTypeMerge:

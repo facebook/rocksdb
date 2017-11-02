@@ -225,6 +225,8 @@ class DBImpl : public DB {
   // also on data written to the WAL but not to the memtable.
   SequenceNumber TEST_GetLatestVisibleSequenceNumber() const;
 
+  virtual bool SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) override;
+
   bool HasActiveSnapshotLaterThanSN(SequenceNumber sn);
 
 #ifndef ROCKSDB_LITE
@@ -1319,6 +1321,13 @@ class DBImpl : public DB {
   const bool manual_wal_flush_;
   const bool seq_per_batch_;
   const bool use_custom_gc_;
+
+  // Clients must periodically call SetPreserveDeletesSequenceNumber()
+  // to advance this seqnum. Default value is 0 which means ALL deletes are
+  // preserved. Note that this has no effect if DBOptions.preserve_deletes
+  // is set to false.
+  std::atomic<SequenceNumber> preserve_deletes_seqnum_;
+  const bool preserve_deletes_;
 };
 
 extern Options SanitizeOptions(const std::string& db,

@@ -2364,6 +2364,80 @@ TEST_F(DBIteratorTest, DBIterator14) {
   ASSERT_EQ(db_iter->value().ToString(), "4");
 }
 
+TEST_F(DBIteratorTest, DBIteratorTestDifferentialSnapshots) {
+  { // test that KVs earlier that iter_start_seqnum are filtered out
+    ReadOptions ro;
+    ro.iter_start_seqnum=5;
+    Options options;
+    options.statistics = rocksdb::CreateDBStatistics();
+
+    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+    for (size_t i = 0; i < 10; ++i) {
+      internal_iter->AddPut(std::to_string(i), std::to_string(i) + "a");
+      internal_iter->AddPut(std::to_string(i), std::to_string(i) + "b");
+      internal_iter->AddPut(std::to_string(i), std::to_string(i) + "c");
+    }
+    internal_iter->Finish();
+
+    std::unique_ptr<Iterator> db_iter(
+      NewDBIterator(env_, ro, ImmutableCFOptions(options), BytewiseComparator(),
+                    internal_iter, 13,
+                    options.max_sequential_skip_in_iterations, nullptr));
+    // Expecting InternalKeys in [5,8] range with correct type
+    int seqnums[4] = {5,8,11,13};
+    std::string user_keys[4] = {"1","2","3","4"};
+    std::string values[4] = {"1c", "2c", "3c", "4b"};
+    int i = 0;
+    for (db_iter->SeekToFirst(); db_iter->Valid(); db_iter->Next()) {
+      FullKey fkey;
+      ParseFullKey(db_iter->key(), &fkey);
+      ASSERT_EQ(user_keys[i], fkey.user_key.ToString());
+      ASSERT_EQ(EntryType::kEntryPut, fkey.type);
+      ASSERT_EQ(seqnums[i], fkey.sequence);
+      ASSERT_EQ(values[i], db_iter->value().ToString());
+      i++;
+    }
+    ASSERT_EQ(i, 4);
+  }
+
+  { // Test that deletes are returned correctly as internal KVs
+    ReadOptions ro;
+    ro.iter_start_seqnum=5;
+    Options options;
+    options.statistics = rocksdb::CreateDBStatistics();
+
+    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+    for (size_t i = 0; i < 10; ++i) {
+      internal_iter->AddPut(std::to_string(i), std::to_string(i) + "a");
+      internal_iter->AddPut(std::to_string(i), std::to_string(i) + "b");
+      internal_iter->AddDeletion(std::to_string(i));
+    }
+    internal_iter->Finish();
+
+    std::unique_ptr<Iterator> db_iter(
+      NewDBIterator(env_, ro, ImmutableCFOptions(options), BytewiseComparator(),
+                    internal_iter, 13,
+                    options.max_sequential_skip_in_iterations, nullptr));
+    // Expecting InternalKeys in [5,8] range with correct type
+    int seqnums[4] = {5,8,11,13};
+    EntryType key_types[4] = {EntryType::kEntryDelete,EntryType::kEntryDelete,
+      EntryType::kEntryDelete,EntryType::kEntryPut};
+    std::string user_keys[4] = {"1","2","3","4"};
+    std::string values[4] = {"", "", "", "4b"};
+    int i = 0;
+    for (db_iter->SeekToFirst(); db_iter->Valid(); db_iter->Next()) {
+      FullKey fkey;
+      ParseFullKey(db_iter->key(), &fkey);
+      ASSERT_EQ(user_keys[i], fkey.user_key.ToString());
+      ASSERT_EQ(key_types[i], fkey.type);
+      ASSERT_EQ(seqnums[i], fkey.sequence);
+      ASSERT_EQ(values[i], db_iter->value().ToString());
+      i++;
+    }
+    ASSERT_EQ(i, 4);
+  }
+}
+
 class DBIterWithMergeIterTest : public testing::Test {
  public:
   DBIterWithMergeIterTest()
