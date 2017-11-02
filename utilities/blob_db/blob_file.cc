@@ -15,6 +15,8 @@
 #include <algorithm>
 #include <memory>
 
+#include "db/column_family.h"
+#include "db/db_impl.h"
 #include "db/dbformat.h"
 #include "util/filename.h"
 #include "util/logging.h"
@@ -27,6 +29,7 @@ namespace blob_db {
 BlobFile::BlobFile()
     : parent_(nullptr),
       file_number_(0),
+      has_ttl_(false),
       blob_count_(0),
       gc_epoch_(-1),
       file_size_(0),
@@ -35,9 +38,8 @@ BlobFile::BlobFile()
       closed_(false),
       can_be_deleted_(false),
       gc_once_after_open_(false),
-      ttl_range_(std::make_pair(0, 0)),
-      time_range_(std::make_pair(0, 0)),
-      sn_range_(std::make_pair(kMaxSequenceNumber, 0)),
+      expiration_range_({0, 0}),
+      sequence_range_({kMaxSequenceNumber, 0}),
       last_access_(-1),
       last_fsync_(0),
       header_valid_(false) {}
@@ -46,6 +48,7 @@ BlobFile::BlobFile(const BlobDBImpl* p, const std::string& bdir, uint64_t fn)
     : parent_(p),
       path_to_dir_(bdir),
       file_number_(fn),
+      has_ttl_(false),
       blob_count_(0),
       gc_epoch_(-1),
       file_size_(0),
@@ -54,9 +57,8 @@ BlobFile::BlobFile(const BlobDBImpl* p, const std::string& bdir, uint64_t fn)
       closed_(false),
       can_be_deleted_(false),
       gc_once_after_open_(false),
-      ttl_range_(std::make_pair(0, 0)),
-      time_range_(std::make_pair(0, 0)),
-      sn_range_(std::make_pair(kMaxSequenceNumber, 0)),
+      expiration_range_({0, 0}),
+      sequence_range_({kMaxSequenceNumber, 0}),
       last_access_(-1),
       last_fsync_(0),
       header_valid_(false) {}
@@ -70,6 +72,13 @@ BlobFile::~BlobFile() {
       // "File could not be deleted %s", pn.c_str());
     }
   }
+}
+
+uint32_t BlobFile::column_family_id() const {
+  // TODO(yiwu): Should return column family id encoded in blob file after
+  // we add blob db column family support.
+  return reinterpret_cast<ColumnFamilyHandle*>(parent_->DefaultColumnFamily())
+      ->GetID();
 }
 
 std::string BlobFile::PathName() const {
@@ -101,13 +110,14 @@ std::string BlobFile::DumpState() const {
            "path: %s fn: %" PRIu64 " blob_count: %" PRIu64 " gc_epoch: %" PRIu64
            " file_size: %" PRIu64 " deleted_count: %" PRIu64
            " deleted_size: %" PRIu64
-           " closed: %d can_be_deleted: %d ttl_range: (%" PRIu64 ", %" PRIu64
-           ") sn_range: (%" PRIu64 " %" PRIu64 "), writer: %d reader: %d",
+           " closed: %d can_be_deleted: %d expiration_range: (%" PRIu64
+           ", %" PRIu64 ") sequence_range: (%" PRIu64 " %" PRIu64
+           "), writer: %d reader: %d",
            path_to_dir_.c_str(), file_number_, blob_count_.load(),
            gc_epoch_.load(), file_size_.load(), deleted_count_, deleted_size_,
-           closed_.load(), can_be_deleted_.load(), ttl_range_.first,
-           ttl_range_.second, sn_range_.first, sn_range_.second,
-           (!!log_writer_), (!!ra_file_reader_));
+           closed_.load(), can_be_deleted_.load(), expiration_range_.first,
+           expiration_range_.second, sequence_range_.first,
+           sequence_range_.second, (!!log_writer_), (!!ra_file_reader_));
   return str;
 }
 
@@ -122,17 +132,18 @@ Status BlobFile::WriteFooterAndCloseLocked() {
                  "File is being closed after footer %s", PathName().c_str());
 
   BlobLogFooter footer;
-  footer.blob_count_ = blob_count_;
-  if (HasTTL()) footer.set_ttl_range(ttl_range_);
+  footer.blob_count = blob_count_;
+  if (HasTTL()) {
+    footer.expiration_range = expiration_range_;
+  }
 
-  footer.sn_range_ = sn_range_;
-  if (HasTimestamp()) footer.set_time_range(time_range_);
+  footer.sequence_range = sequence_range_;
 
   // this will close the file and reset the Writable File Pointer.
   Status s = log_writer_->AppendFooter(footer);
   if (s.ok()) {
     closed_ = true;
-    file_size_ += BlobLogFooter::kFooterSize;
+    file_size_ += BlobLogFooter::kSize;
   } else {
     ROCKS_LOG_ERROR(parent_->db_options_.info_log,
                     "Failure to read Header for blob-file %s",
@@ -144,20 +155,20 @@ Status BlobFile::WriteFooterAndCloseLocked() {
 }
 
 Status BlobFile::ReadFooter(BlobLogFooter* bf) {
-  if (file_size_ < (BlobLogHeader::kHeaderSize + BlobLogFooter::kFooterSize)) {
+  if (file_size_ < (BlobLogHeader::kSize + BlobLogFooter::kSize)) {
     return Status::IOError("File does not have footer", PathName());
   }
 
-  uint64_t footer_offset = file_size_ - BlobLogFooter::kFooterSize;
+  uint64_t footer_offset = file_size_ - BlobLogFooter::kSize;
   // assume that ra_file_reader_ is valid before we enter this
   assert(ra_file_reader_);
 
   Slice result;
-  char scratch[BlobLogFooter::kFooterSize + 10];
-  Status s = ra_file_reader_->Read(footer_offset, BlobLogFooter::kFooterSize,
-                                   &result, scratch);
+  char scratch[BlobLogFooter::kSize + 10];
+  Status s = ra_file_reader_->Read(footer_offset, BlobLogFooter::kSize, &result,
+                                   scratch);
   if (!s.ok()) return s;
-  if (result.size() != BlobLogFooter::kFooterSize) {
+  if (result.size() != BlobLogFooter::kSize) {
     // should not happen
     return Status::IOError("EOF reached before footer");
   }
@@ -167,21 +178,12 @@ Status BlobFile::ReadFooter(BlobLogFooter* bf) {
 }
 
 Status BlobFile::SetFromFooterLocked(const BlobLogFooter& footer) {
-  if (footer.HasTTL() != header_.HasTTL()) {
-    return Status::Corruption("has_ttl mismatch");
-  }
-  if (footer.HasTimestamp() != header_.HasTimestamp()) {
-    return Status::Corruption("has_ts mismatch");
-  }
-
   // assume that file has been fully fsync'd
   last_fsync_.store(file_size_);
-  blob_count_ = footer.GetBlobCount();
-  ttl_range_ = footer.GetTTLRange();
-  time_range_ = footer.GetTimeRange();
-  sn_range_ = footer.GetSNRange();
+  blob_count_ = footer.blob_count;
+  expiration_range_ = footer.expiration_range;
+  sequence_range_ = footer.sequence_range;
   closed_ = true;
-
   return Status::OK();
 }
 
@@ -227,10 +229,6 @@ std::shared_ptr<RandomAccessFileReader> BlobFile::GetOrOpenRandomAccessReader(
                                                              PathName());
   *fresh_open = true;
   return ra_file_reader_;
-}
-
-ColumnFamilyHandle* BlobFile::GetColumnFamily(DB* db) {
-  return db->DefaultColumnFamily();
 }
 
 }  // namespace blob_db

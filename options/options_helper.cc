@@ -91,7 +91,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.random_access_max_buffer_size =
       immutable_db_options.random_access_max_buffer_size;
   options.writable_file_max_buffer_size =
-      immutable_db_options.writable_file_max_buffer_size;
+      mutable_db_options.writable_file_max_buffer_size;
   options.use_adaptive_mutex = immutable_db_options.use_adaptive_mutex;
   options.listeners = immutable_db_options.listeners;
   options.enable_thread_tracking = immutable_db_options.enable_thread_tracking;

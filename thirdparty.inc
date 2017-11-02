@@ -8,8 +8,6 @@ set(USE_SNAPPY_DEFAULT 0)        # SNAPPY is disabled by default, enable with -D
 set(USE_LZ4_DEFAULT 0)           # LZ4 is disabled by default, enable with -DLZ4=1 cmake command line agrument
 set(USE_ZLIB_DEFAULT 0)          # ZLIB is disabled by default, enable with -DZLIB=1 cmake command line agrument
 set(USE_XPRESS_DEFAULT 0)        # XPRESS is disabled by default, enable with -DXPRESS=1 cmake command line agrument
-set(USE_JEMALLOC_DEFAULT 0)      # JEMALLOC is disabled by default, enable with -DJEMALLOC=1 cmake command line agrument
-set(USE_JENONINIT_DEFAULT 1)     # Default is enabled do not call je_init/je_uninit as the newer versions do not have it disable with -DJENONINIT=0
 
 #
 # This example assumes all the libraries locate in directories under THIRDPARTY_HOME environment variable
@@ -219,15 +217,15 @@ set(JEMALLOC_LIB_RELEASE ${JEMALLOC_HOME}/bin/retail/amd64/jemalloc.lib)
 #
 # Don't touch these lines
 #
-if (DEFINED JEMALLOC)
-  set(USE_JEMALLOC ${JEMALLOC})
-else ()
-  set(USE_JEMALLOC ${USE_JEMALLOC_DEFAULT})
-endif ()
 
-if (${USE_JEMALLOC} EQUAL 1)
+# For compatibilty with previous
+if(JEMALLOC)
+  set(WITH_JEMALLOC ON)
+endif()
+
+if (WITH_JEMALLOC)
   message(STATUS "JEMALLOC library is enabled")
-  set(JEMALLOC_CXX_FLAGS "-DJEMALLOC -DJEMALLOC_EXPORT= ")
+  set(JEMALLOC_CXX_FLAGS "-DROCKSDB_JEMALLOC -DJEMALLOC_EXPORT= ")
   
   if(DEFINED ENV{JEMALLOC_INCLUDE})
     set(JEMALLOC_INCLUDE $ENV{JEMALLOC_INCLUDE})
@@ -248,16 +246,7 @@ if (${USE_JEMALLOC} EQUAL 1)
   set (THIRDPARTY_LIBS ${THIRDPARTY_LIBS} ${JEMALLOC_LIBS})
   set (ARTIFACT_SUFFIX "_je")
   
-  set(USE_JENONINIT USE_JENONINIT_DEFAULT)
- 
-  if(JENONINIT)
-    set(USE_JENONINIT ${JENONINIT})
-  endif()
-  
-  if(${USE_JENONINIT} EQUAL 1)
-    add_definitions(-DJEMALLOC_NON_INIT)
-    message(STATUS "JEMALLOC NONINIT version")
-  endif()
+  set(WITH_JEMALLOC ON)
   
 else ()
   set (ARTIFACT_SUFFIX "")

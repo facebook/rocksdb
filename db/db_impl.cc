@@ -580,6 +580,7 @@ Status DBImpl::SetDBOptions(
       env_options_for_compaction_ = env_->OptimizeForCompactionTableWrite(
                                             env_options_for_compaction_,
                                             immutable_db_options_);
+      versions_->ChangeEnvOptions(mutable_db_options_);
       write_thread_.EnterUnbatched(&w, &mutex_);
       if (total_log_size_ > GetMaxTotalWalSize() || wal_changed) {
         Status purge_wal_status = SwitchWAL(&write_context);
@@ -1642,7 +1643,9 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
     snapshots_.Delete(casted_s);
     uint64_t oldest_snapshot;
     if (snapshots_.empty()) {
-      oldest_snapshot = versions_->LastSequence();
+      oldest_snapshot = concurrent_prepare_ && seq_per_batch_
+                              ? versions_->LastToBeWrittenSequence()
+                              : versions_->LastSequence();
     } else {
       oldest_snapshot = snapshots_.oldest()->number_;
     }

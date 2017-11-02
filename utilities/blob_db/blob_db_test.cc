@@ -268,7 +268,6 @@ TEST_F(BlobDBTest, TTLExtrator_NoTTL) {
   bdb_options.ttl_range_secs = 1000;
   bdb_options.min_blob_size = 0;
   bdb_options.blob_file_size = 256 * 1000 * 1000;
-  bdb_options.num_concurrent_simple_blobs = 1;
   bdb_options.ttl_extractor = ttl_extractor_;
   bdb_options.disable_background_tasks = true;
   Open(bdb_options, options);
@@ -1012,11 +1011,11 @@ TEST_F(BlobDBTest, InlineSmallValues) {
     ttl_file = blob_files[1];
   }
   ASSERT_FALSE(non_ttl_file->HasTTL());
-  ASSERT_EQ(first_non_ttl_seq, non_ttl_file->GetSNRange().first);
-  ASSERT_EQ(last_non_ttl_seq, non_ttl_file->GetSNRange().second);
+  ASSERT_EQ(first_non_ttl_seq, non_ttl_file->GetSequenceRange().first);
+  ASSERT_EQ(last_non_ttl_seq, non_ttl_file->GetSequenceRange().second);
   ASSERT_TRUE(ttl_file->HasTTL());
-  ASSERT_EQ(first_ttl_seq, ttl_file->GetSNRange().first);
-  ASSERT_EQ(last_ttl_seq, ttl_file->GetSNRange().second);
+  ASSERT_EQ(first_ttl_seq, ttl_file->GetSequenceRange().first);
+  ASSERT_EQ(last_ttl_seq, ttl_file->GetSequenceRange().second);
 }
 
 }  //  namespace blob_db

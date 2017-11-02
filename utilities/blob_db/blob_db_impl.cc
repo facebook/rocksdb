@@ -37,16 +37,6 @@
 
 namespace {
 int kBlockBasedTableVersionFormat = 2;
-
-void extendTTL(rocksdb::blob_db::ttlrange_t* ttl_range, uint64_t ttl) {
-  ttl_range->first = std::min(ttl_range->first, ttl);
-  ttl_range->second = std::max(ttl_range->second, ttl);
-}
-
-void extendTimestamps(rocksdb::blob_db::tsrange_t* ts_range, uint64_t ts) {
-  ts_range->first = std::min(ts_range->first, ts);
-  ts_range->second = std::max(ts_range->second, ts);
-}
 }  // end namespace
 
 namespace rocksdb {
@@ -66,10 +56,12 @@ WalFilter::WalProcessingOption BlobReconcileWalFilter::LogRecordFound(
 
 bool blobf_compare_ttl::operator()(const std::shared_ptr<BlobFile>& lhs,
                                    const std::shared_ptr<BlobFile>& rhs) const {
-  if (lhs->ttl_range_.first < rhs->ttl_range_.first) return true;
-
-  if (lhs->ttl_range_.first > rhs->ttl_range_.first) return false;
-
+  if (lhs->expiration_range_.first < rhs->expiration_range_.first) {
+    return true;
+  }
+  if (lhs->expiration_range_.first > rhs->expiration_range_.first) {
+    return false;
+  }
   return lhs->BlobFileNumber() > rhs->BlobFileNumber();
 }
 
@@ -332,6 +324,7 @@ Status BlobDBImpl::OpenAllFiles() {
                       bfpath.c_str(), s1.ToString().c_str(), size_bytes);
       continue;
     }
+    bfptr->SetHasTTL(bfptr->header_.has_ttl);
     bfptr->header_valid_ = true;
 
     std::shared_ptr<RandomAccessFileReader> ra_reader =
@@ -355,10 +348,8 @@ Status BlobDBImpl::OpenAllFiles() {
                      "File found incomplete (w/o footer) %s", bfpath.c_str());
 
       // sequentially iterate over the file and read all the records
-      ttlrange_t ttl_range(std::numeric_limits<uint32_t>::max(),
-                           std::numeric_limits<uint32_t>::min());
-      tsrange_t ts_range(std::numeric_limits<uint32_t>::max(),
-                         std::numeric_limits<uint32_t>::min());
+      ExpirationRange expiration_range(std::numeric_limits<uint32_t>::max(),
+                                       std::numeric_limits<uint32_t>::min());
 
       uint64_t blob_count = 0;
       BlobLogRecord record;
@@ -369,10 +360,10 @@ Status BlobDBImpl::OpenAllFiles() {
       while (reader->ReadRecord(&record, shallow).ok()) {
         ++blob_count;
         if (bfptr->HasTTL()) {
-          extendTTL(&ttl_range, record.GetTTL());
-        }
-        if (bfptr->HasTimestamp()) {
-          extendTimestamps(&ts_range, record.GetTimeVal());
+          expiration_range.first =
+              std::min(expiration_range.first, record.expiration);
+          expiration_range.second =
+              std::max(expiration_range.second, record.expiration);
         }
         record_start = reader->GetNextByte();
       }
@@ -391,24 +382,21 @@ Status BlobDBImpl::OpenAllFiles() {
       }
 
       bfptr->SetBlobCount(blob_count);
-      bfptr->SetSNRange({0, 0});
-
-      if (bfptr->HasTimestamp()) bfptr->set_time_range(ts_range);
+      bfptr->SetSequenceRange({0, 0});
 
       ROCKS_LOG_INFO(db_options_.info_log,
                      "Blob File: %s blob_count: %" PRIu64
-                     " size_bytes: %" PRIu64 " ts: %d ttl: %d",
-                     bfpath.c_str(), blob_count, size_bytes,
-                     bfptr->HasTimestamp(), bfptr->HasTTL());
+                     " size_bytes: %" PRIu64 " has_ttl: %d",
+                     bfpath.c_str(), blob_count, size_bytes, bfptr->HasTTL());
 
       if (bfptr->HasTTL()) {
-        ttl_range.second =
-            std::max(ttl_range.second,
-                     ttl_range.first + (uint32_t)bdb_options_.ttl_range_secs);
-        bfptr->set_ttl_range(ttl_range);
+        expiration_range.second = std::max(
+            expiration_range.second,
+            expiration_range.first + (uint32_t)bdb_options_.ttl_range_secs);
+        bfptr->set_expiration_range(expiration_range);
 
         uint64_t now = EpochNow();
-        if (ttl_range.second < now) {
+        if (expiration_range.second < now) {
           Status fstatus = CreateWriterLocked(bfptr);
           if (fstatus.ok()) fstatus = bfptr->WriteFooterAndCloseLocked();
           if (!fstatus.ok()) {
@@ -418,13 +406,14 @@ Status BlobDBImpl::OpenAllFiles() {
                 bfpath.c_str(), fstatus.ToString().c_str());
             continue;
           } else {
-            ROCKS_LOG_ERROR(db_options_.info_log,
-                            "Blob File Closed: %s now: %d ttl_range: (%d, %d)",
-                            bfpath.c_str(), now, ttl_range.first,
-                            ttl_range.second);
+            ROCKS_LOG_ERROR(
+                db_options_.info_log,
+                "Blob File Closed: %s now: %d expiration_range: (%d, %d)",
+                bfpath.c_str(), now, expiration_range.first,
+                expiration_range.second);
           }
         } else {
-          open_blob_files_.insert(bfptr);
+          open_ttl_files_.insert(bfptr);
         }
       }
     }
@@ -483,9 +472,9 @@ Status BlobDBImpl::CreateWriterLocked(const std::shared_ptr<BlobFile>& bfile) {
   }
 
   Writer::ElemType et = Writer::kEtNone;
-  if (bfile->file_size_ == BlobLogHeader::kHeaderSize) {
+  if (bfile->file_size_ == BlobLogHeader::kSize) {
     et = Writer::kEtFileHdr;
-  } else if (bfile->file_size_ > BlobLogHeader::kHeaderSize) {
+  } else if (bfile->file_size_ > BlobLogHeader::kSize) {
     et = Writer::kEtRecord;
   } else if (bfile->file_size_) {
     ROCKS_LOG_WARN(db_options_.info_log,
@@ -504,26 +493,26 @@ Status BlobDBImpl::CreateWriterLocked(const std::shared_ptr<BlobFile>& bfile) {
 
 std::shared_ptr<BlobFile> BlobDBImpl::FindBlobFileLocked(
     uint64_t expiration) const {
-  if (open_blob_files_.empty()) return nullptr;
+  if (open_ttl_files_.empty()) return nullptr;
 
   std::shared_ptr<BlobFile> tmp = std::make_shared<BlobFile>();
-  tmp->ttl_range_ = std::make_pair(expiration, 0);
+  tmp->expiration_range_ = std::make_pair(expiration, 0);
 
-  auto citr = open_blob_files_.equal_range(tmp);
-  if (citr.first == open_blob_files_.end()) {
-    assert(citr.second == open_blob_files_.end());
+  auto citr = open_ttl_files_.equal_range(tmp);
+  if (citr.first == open_ttl_files_.end()) {
+    assert(citr.second == open_ttl_files_.end());
 
-    std::shared_ptr<BlobFile> check = *(open_blob_files_.rbegin());
-    return (check->ttl_range_.second < expiration) ? nullptr : check;
+    std::shared_ptr<BlobFile> check = *(open_ttl_files_.rbegin());
+    return (check->expiration_range_.second < expiration) ? nullptr : check;
   }
 
   if (citr.first != citr.second) return *(citr.first);
 
   auto finditr = citr.second;
-  if (finditr != open_blob_files_.begin()) --finditr;
+  if (finditr != open_ttl_files_.begin()) --finditr;
 
-  bool b2 = (*finditr)->ttl_range_.second < expiration;
-  bool b1 = (*finditr)->ttl_range_.first > expiration;
+  bool b2 = (*finditr)->expiration_range_.second < expiration;
+  bool b1 = (*finditr)->expiration_range_.first > expiration;
 
   return (b1 || b2) ? nullptr : (*finditr);
 }
@@ -541,11 +530,17 @@ std::shared_ptr<Writer> BlobDBImpl::CheckOrCreateWriterLocked(
 }
 
 std::shared_ptr<BlobFile> BlobDBImpl::SelectBlobFile() {
-  uint32_t val = blob_rgen.Next();
   {
     ReadLock rl(&mutex_);
-    if (open_simple_files_.size() == bdb_options_.num_concurrent_simple_blobs)
-      return open_simple_files_[val % bdb_options_.num_concurrent_simple_blobs];
+    if (open_non_ttl_file_ != nullptr) {
+      return open_non_ttl_file_;
+    }
+  }
+
+  // CHECK again
+  WriteLock wl(&mutex_);
+  if (open_non_ttl_file_ != nullptr) {
+    return open_non_ttl_file_;
   }
 
   std::shared_ptr<BlobFile> bfile = NewBlobFile("SelectBlobFile");
@@ -560,15 +555,13 @@ std::shared_ptr<BlobFile> BlobDBImpl::SelectBlobFile() {
     return nullptr;
   }
 
-  bfile->file_size_ = BlobLogHeader::kHeaderSize;
-  bfile->header_.compression_ = bdb_options_.compression;
+  bfile->file_size_ = BlobLogHeader::kSize;
+  bfile->header_.compression = bdb_options_.compression;
+  bfile->header_.has_ttl = false;
+  bfile->header_.column_family_id =
+      reinterpret_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily())->GetID();
   bfile->header_valid_ = true;
-
-  // CHECK again
-  WriteLock wl(&mutex_);
-  if (open_simple_files_.size() == bdb_options_.num_concurrent_simple_blobs) {
-    return open_simple_files_[val % bdb_options_.num_concurrent_simple_blobs];
-  }
+  bfile->SetHasTTL(false);
 
   Status s = writer->WriteHeader(bfile->header_);
   if (!s.ok()) {
@@ -581,7 +574,7 @@ std::shared_ptr<BlobFile> BlobDBImpl::SelectBlobFile() {
 
   dir_change_.store(true);
   blob_files_.insert(std::make_pair(bfile->BlobFileNumber(), bfile));
-  open_simple_files_.push_back(bfile);
+  open_non_ttl_file_ = bfile;
   return bfile;
 }
 
@@ -603,7 +596,7 @@ std::shared_ptr<BlobFile> BlobDBImpl::SelectBlobFileTTL(uint64_t expiration) {
   uint64_t exp_low =
       (expiration / bdb_options_.ttl_range_secs) * bdb_options_.ttl_range_secs;
   uint64_t exp_high = exp_low + bdb_options_.ttl_range_secs;
-  ttlrange_t ttl_guess = std::make_pair(exp_low, exp_high);
+  ExpirationRange expiration_range = std::make_pair(exp_low, exp_high);
 
   bfile = NewBlobFile("SelectBlobFileTTL");
   assert(bfile);
@@ -621,14 +614,19 @@ std::shared_ptr<BlobFile> BlobDBImpl::SelectBlobFileTTL(uint64_t expiration) {
     return nullptr;
   }
 
-  bfile->header_.set_ttl_guess(ttl_guess);
-  bfile->header_.compression_ = bdb_options_.compression;
+  bfile->header_.expiration_range = expiration_range;
+  bfile->header_.compression = bdb_options_.compression;
+  bfile->header_.has_ttl = true;
+  bfile->header_.column_family_id =
+      reinterpret_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily())->GetID();
+  ;
   bfile->header_valid_ = true;
-  bfile->file_size_ = BlobLogHeader::kHeaderSize;
+  bfile->SetHasTTL(true);
+  bfile->file_size_ = BlobLogHeader::kSize;
 
   // set the first value of the range, since that is
-  // concrete at this time.  also necessary to add to open_blob_files_
-  bfile->ttl_range_ = ttl_guess;
+  // concrete at this time.  also necessary to add to open_ttl_files_
+  bfile->expiration_range_ = expiration_range;
 
   WriteLock wl(&mutex_);
   // in case the epoch has shifted in the interim, then check
@@ -649,7 +647,7 @@ std::shared_ptr<BlobFile> BlobDBImpl::SelectBlobFileTTL(uint64_t expiration) {
 
   dir_change_.store(true);
   blob_files_.insert(std::make_pair(bfile->BlobFileNumber(), bfile));
-  open_blob_files_.insert(bfile);
+  open_ttl_files_.insert(bfile);
   epoch_of_++;
 
   return bfile;
@@ -878,8 +876,7 @@ Status BlobDBImpl::PutBlobValue(const WriteOptions& options, const Slice& key,
     Slice value_compressed = GetCompressedSlice(value, &compression_output);
 
     std::string headerbuf;
-    Writer::ConstructBlobHeader(&headerbuf, key, value_compressed, expiration,
-                                -1);
+    Writer::ConstructBlobHeader(&headerbuf, key, value_compressed, expiration);
 
     s = AppendBlob(bfile, headerbuf, key, value_compressed, expiration,
                    &index_entry);
@@ -887,7 +884,7 @@ Status BlobDBImpl::PutBlobValue(const WriteOptions& options, const Slice& key,
     if (s.ok()) {
       bfile->ExtendSequenceRange(sequence);
       if (expiration != kNoExpiration) {
-        extendTTL(&(bfile->ttl_range_), expiration);
+        bfile->ExtendExpirationRange(expiration);
       }
       s = CloseBlobFileIfNeeded(bfile);
       if (s.ok()) {
@@ -1045,7 +1042,7 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
   // later from the Blob Header, which needs to be also a
   // valid offset.
   if (blob_index.offset() <
-      (BlobLogHeader::kHeaderSize + BlobLogRecord::kHeaderSize + key.size())) {
+      (BlobLogHeader::kSize + BlobLogRecord::kHeaderSize + key.size())) {
     if (debug_level_ >= 2) {
       ROCKS_LOG_ERROR(db_options_.info_log,
                       "Invalid blob index file_number: %" PRIu64
@@ -1085,7 +1082,9 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
     valueptr = &value_c;
   }
 
-  // allocate the buffer. This is safe in C++11
+  // Allocate the buffer. This is safe in C++11
+  // Note that std::string::reserved() does not work, since previous value
+  // of the buffer can be larger than blob_index.size().
   valueptr->resize(blob_index.size());
   char* buffer = &(*valueptr)[0];
 
@@ -1103,6 +1102,7 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
     return Status::NotFound("Blob Not Found as couldnt retrieve Blob");
   }
 
+  // TODO(yiwu): Add an option to skip crc checking.
   Slice crc_slice;
   uint32_t crc_exp;
   std::string crc_str;
@@ -1121,7 +1121,8 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
     return Status::NotFound("Blob Not Found as couldnt retrieve CRC");
   }
 
-  uint32_t crc = crc32c::Extend(0, blob_value.data(), blob_value.size());
+  uint32_t crc = crc32c::Value(key.data(), key.size());
+  crc = crc32c::Extend(crc, blob_value.data(), blob_value.size());
   crc = crc32c::Mask(crc);  // Adjust for storage
   if (crc != crc_exp) {
     if (debug_level_ >= 2) {
@@ -1134,6 +1135,8 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
     return Status::Corruption("Corruption. Blob CRC mismatch");
   }
 
+  // TODO(yiwu): Should use compression flag in the blob file instead of
+  // current compression option.
   if (bdb_options_.compression != kNoCompression) {
     BlockContents contents;
     auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily());
@@ -1189,9 +1192,9 @@ std::pair<bool, int64_t> BlobDBImpl::SanityCheck(bool aborted) {
                  blob_files_.size());
 
   ROCKS_LOG_INFO(db_options_.info_log, "Number of open files %" PRIu64,
-                 open_blob_files_.size());
+                 open_ttl_files_.size());
 
-  for (auto bfile : open_blob_files_) {
+  for (auto bfile : open_ttl_files_) {
     assert(!bfile->Immutable());
   }
 
@@ -1204,7 +1207,7 @@ std::pair<bool, int64_t> BlobDBImpl::SanityCheck(bool aborted) {
         "Blob File %s %" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRIu64,
         bfile->PathName().c_str(), bfile->GetFileSize(), bfile->BlobCount(),
         bfile->deleted_count_, bfile->deleted_size_,
-        (bfile->ttl_range_.second - epoch_now));
+        (bfile->expiration_range_.second - epoch_now));
   }
 
   // reschedule
@@ -1212,6 +1215,7 @@ std::pair<bool, int64_t> BlobDBImpl::SanityCheck(bool aborted) {
 }
 
 Status BlobDBImpl::CloseBlobFile(std::shared_ptr<BlobFile> bfile) {
+  assert(bfile != nullptr);
   Status s;
   ROCKS_LOG_INFO(db_options_.info_log, "Close blob file %" PRIu64,
                  bfile->BlobFileNumber());
@@ -1220,13 +1224,11 @@ Status BlobDBImpl::CloseBlobFile(std::shared_ptr<BlobFile> bfile) {
 
     if (bfile->HasTTL()) {
       size_t erased __attribute__((__unused__));
-      erased = open_blob_files_.erase(bfile);
+      erased = open_ttl_files_.erase(bfile);
       assert(erased == 1);
     } else {
-      auto iter = std::find(open_simple_files_.begin(),
-                            open_simple_files_.end(), bfile);
-      assert(iter != open_simple_files_.end());
-      open_simple_files_.erase(iter);
+      assert(bfile == open_non_ttl_file_);
+      open_non_ttl_file_ = nullptr;
     }
   }
 
@@ -1256,7 +1258,7 @@ bool BlobDBImpl::FileDeleteOk_SnapshotCheckLocked(
     const std::shared_ptr<BlobFile>& bfile) {
   assert(bfile->Obsolete());
 
-  SequenceNumber esn = bfile->GetSNRange().first;
+  SequenceNumber esn = bfile->GetSequenceRange().first;
 
   // TODO(yiwu): Here we should check instead if there is an active snapshot
   // lies between the first sequence in the file, and the last sequence by
@@ -1409,11 +1411,11 @@ std::pair<bool, int64_t> BlobDBImpl::CheckSeqFiles(bool aborted) {
     uint64_t epoch_now = EpochNow();
 
     ReadLock rl(&mutex_);
-    for (auto bfile : open_blob_files_) {
+    for (auto bfile : open_ttl_files_) {
       {
         ReadLock lockbfile_r(&bfile->mutex_);
 
-        if (bfile->ttl_range_.second > epoch_now) continue;
+        if (bfile->expiration_range_.second > epoch_now) continue;
         process_files.push_back(bfile);
       }
     }
@@ -1434,14 +1436,14 @@ std::pair<bool, int64_t> BlobDBImpl::FsyncFiles(bool aborted) {
   std::vector<std::shared_ptr<BlobFile>> process_files;
   {
     ReadLock rl(&mutex_);
-    for (auto fitr : open_blob_files_) {
+    for (auto fitr : open_ttl_files_) {
       if (fitr->NeedsFsync(true, bdb_options_.bytes_per_sync))
         process_files.push_back(fitr);
     }
 
-    for (auto fitr : open_simple_files_) {
-      if (fitr->NeedsFsync(true, bdb_options_.bytes_per_sync))
-        process_files.push_back(fitr);
+    if (open_non_ttl_file_ != nullptr &&
+        open_non_ttl_file_->NeedsFsync(true, bdb_options_.bytes_per_sync)) {
+      process_files.push_back(open_non_ttl_file_);
     }
   }
 
@@ -1587,22 +1589,24 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
 
   bool first_gc = bfptr->gc_once_after_open_;
 
-  auto* cfh = bfptr->GetColumnFamily(db_);
+  auto* cfh =
+      db_impl_->GetColumnFamilyHandleUnlocked(bfptr->column_family_id());
   auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
   auto column_family_id = cfd->GetID();
-  bool has_ttl = header.HasTTL();
+  bool has_ttl = header.has_ttl;
 
   // this reads the key but skips the blob
   Reader::ReadLevel shallow = Reader::kReadHeaderKey;
 
-  bool no_relocation_ttl = (has_ttl && now >= bfptr->GetTTLRange().second);
+  bool no_relocation_ttl =
+      (has_ttl && now >= bfptr->GetExpirationRange().second);
 
   bool no_relocation_lsmdel = false;
   {
     ReadLock lockbfile_r(&bfptr->mutex_);
-    no_relocation_lsmdel = (bfptr->GetFileSize() ==
-                            (BlobLogHeader::kHeaderSize + bfptr->deleted_size_ +
-                             BlobLogFooter::kFooterSize));
+    no_relocation_lsmdel =
+        (bfptr->GetFileSize() ==
+         (BlobLogHeader::kSize + bfptr->deleted_size_ + BlobLogFooter::kSize));
   }
 
   bool no_relocation = no_relocation_ttl || no_relocation_lsmdel;
@@ -1641,7 +1645,7 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
     bool is_blob_index = false;
     PinnableSlice index_entry;
     Status get_status = db_impl_->GetImpl(
-        ReadOptions(), cfh, record.Key(), &index_entry, nullptr /*value_found*/,
+        ReadOptions(), cfh, record.key, &index_entry, nullptr /*value_found*/,
         nullptr /*read_callback*/, &is_blob_index);
     TEST_SYNC_POINT("BlobDBImpl::GCFileAndUpdateLSM:AfterGetFromBaseDB");
     if (!get_status.ok() && !get_status.ok()) {
@@ -1672,15 +1676,15 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
       continue;
     }
 
-    GarbageCollectionWriteCallback callback(cfd, record.Key(), latest_seq);
+    GarbageCollectionWriteCallback callback(cfd, record.key, latest_seq);
 
     // If key has expired, remove it from base DB.
-    if (no_relocation_ttl || (has_ttl && now >= record.GetTTL())) {
+    if (no_relocation_ttl || (has_ttl && now >= record.expiration)) {
       gc_stats->num_deletes++;
-      gc_stats->deleted_size += record.GetBlobSize();
+      gc_stats->deleted_size += record.value_size;
       TEST_SYNC_POINT("BlobDBImpl::GCFileAndUpdateLSM:BeforeDelete");
       WriteBatch delete_batch;
-      Status delete_status = delete_batch.Delete(record.Key());
+      Status delete_status = delete_batch.Delete(record.key);
       if (delete_status.ok()) {
         delete_status = db_impl_->WriteWithCallback(WriteOptions(),
                                                     &delete_batch, &callback);
@@ -1719,7 +1723,7 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
       newfile->header_ = std::move(header);
       // Can't use header beyond this point
       newfile->header_valid_ = true;
-      newfile->file_size_ = BlobLogHeader::kHeaderSize;
+      newfile->file_size_ = BlobLogHeader::kSize;
       s = new_writer->WriteHeader(newfile->header_);
 
       if (!s.ok()) {
@@ -1741,21 +1745,21 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
     uint64_t new_blob_offset = 0;
     uint64_t new_key_offset = 0;
     // write the blob to the blob log.
-    s = new_writer->AddRecord(record.Key(), record.Blob(), &new_key_offset,
-                              &new_blob_offset, record.GetTTL());
+    s = new_writer->AddRecord(record.key, record.value, record.expiration,
+                              &new_key_offset, &new_blob_offset);
 
     BlobIndex::EncodeBlob(&new_index_entry, newfile->BlobFileNumber(),
-                          new_blob_offset, record.Blob().size(),
+                          new_blob_offset, record.value.size(),
                           bdb_options_.compression);
 
     newfile->blob_count_++;
     newfile->file_size_ +=
-        BlobLogRecord::kHeaderSize + record.Key().size() + record.Blob().size();
+        BlobLogRecord::kHeaderSize + record.key.size() + record.value.size();
 
     TEST_SYNC_POINT("BlobDBImpl::GCFileAndUpdateLSM:BeforeRelocate");
     WriteBatch rewrite_batch;
     Status rewrite_status = WriteBatchInternal::PutBlobIndex(
-        &rewrite_batch, column_family_id, record.Key(), new_index_entry);
+        &rewrite_batch, column_family_id, record.key, new_index_entry);
     if (rewrite_status.ok()) {
       rewrite_status = db_impl_->WriteWithCallback(WriteOptions(),
                                                    &rewrite_batch, &callback);
@@ -1795,11 +1799,11 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
 // but under the asusmption that this is only called when a
 // file is Immutable, we can reduce the critical section
 bool BlobDBImpl::ShouldGCFile(std::shared_ptr<BlobFile> bfile, uint64_t now,
-                              bool is_oldest_simple_blob_file,
+                              bool is_oldest_non_ttl_file,
                               std::string* reason) {
   if (bfile->HasTTL()) {
-    ttlrange_t ttl_range = bfile->GetTTLRange();
-    if (now > ttl_range.second) {
+    ExpirationRange expiration_range = bfile->GetExpirationRange();
+    if (now > expiration_range.second) {
       *reason = "entire file ttl expired";
       return true;
     }
@@ -1853,7 +1857,7 @@ bool BlobDBImpl::ShouldGCFile(std::shared_ptr<BlobFile> bfile, uint64_t now,
     return false;
   }
 
-  if (is_oldest_simple_blob_file) {
+  if (is_oldest_non_ttl_file) {
     *reason = "out of space and is the oldest simple blob file";
     return true;
   }
@@ -1919,71 +1923,6 @@ std::pair<bool, int64_t> BlobDBImpl::DeleteObsoleteFiles(bool aborted) {
   return std::make_pair(!aborted, -1);
 }
 
-bool BlobDBImpl::CallbackEvictsImpl(std::shared_ptr<BlobFile> bfile) {
-  std::shared_ptr<Reader> reader =
-      bfile->OpenSequentialReader(env_, db_options_, env_options_);
-  if (!reader) {
-    ROCKS_LOG_ERROR(
-        db_options_.info_log,
-        "File sequential reader could not be opened for evict callback: %s",
-        bfile->PathName().c_str());
-    return false;
-  }
-
-  ReadLock lockbfile_r(&bfile->mutex_);
-
-  BlobLogHeader header;
-  Status s = reader->ReadHeader(&header);
-  if (!s.ok()) {
-    ROCKS_LOG_ERROR(
-        db_options_.info_log,
-        "Failure to read header for blob-file during evict callback %s",
-        bfile->PathName().c_str());
-    return false;
-  }
-
-  ColumnFamilyHandle* cfh = bfile->GetColumnFamily(db_);
-  BlobLogRecord record;
-  Reader::ReadLevel full = Reader::kReadHeaderKeyBlob;
-  while (reader->ReadRecord(&record, full).ok()) {
-    bdb_options_.gc_evict_cb_fn(cfh, record.Key(), record.Blob());
-  }
-
-  return true;
-}
-
-std::pair<bool, int64_t> BlobDBImpl::RemoveTimerQ(TimerQueue* tq,
-                                                  bool aborted) {
-  WriteLock wl(&mutex_);
-  for (auto itr = cb_threads_.begin(); itr != cb_threads_.end(); ++itr) {
-    if ((*itr).get() != tq) continue;
-
-    cb_threads_.erase(itr);
-    break;
-  }
-  return std::make_pair(false, -1);
-}
-
-std::pair<bool, int64_t> BlobDBImpl::CallbackEvicts(
-    TimerQueue* tq, std::shared_ptr<BlobFile> bfile, bool aborted) {
-  if (aborted) return std::make_pair(false, -1);
-  bool succ = CallbackEvictsImpl(bfile);
-  if (succ) {
-    ROCKS_LOG_DEBUG(db_options_.info_log, "Eviction callbacks completed %s",
-                    bfile->PathName().c_str());
-  }
-
-  WriteLock wl(&mutex_);
-  bfile->SetCanBeDeleted();
-  obsolete_files_.push_front(bfile);
-  if (tq) {
-    // all of the callbacks have been processed
-    tqueue_.add(0, std::bind(&BlobDBImpl::RemoveTimerQ, this, tq,
-                             std::placeholders::_1));
-  }
-  return std::make_pair(false, -1);
-}
-
 void BlobDBImpl::CopyBlobFiles(
     std::vector<std::shared_ptr<BlobFile>>* bfiles_copy) {
   ReadLock rl(&mutex_);
@@ -2005,7 +1944,7 @@ void BlobDBImpl::FilterSubsetOfFiles(
   uint64_t now = EpochNow();
 
   size_t files_processed = 0;
-  bool simple_blob_file_found = false;
+  bool non_ttl_file_found = false;
   for (auto bfile : blob_files) {
     if (files_processed >= files_to_collect) break;
     // if this is the first time processing the file
@@ -2025,29 +1964,28 @@ void BlobDBImpl::FilterSubsetOfFiles(
     // then it should not be GC'd
     if (bfile->Obsolete() || !bfile->Immutable()) continue;
 
-    bool is_oldest_simple_blob_file = false;
-    if (!simple_blob_file_found && !bfile->HasTTL()) {
-      is_oldest_simple_blob_file = true;
-      simple_blob_file_found = true;
+    bool is_oldest_non_ttl_file = false;
+    if (!non_ttl_file_found && !bfile->HasTTL()) {
+      is_oldest_non_ttl_file = true;
+      non_ttl_file_found = true;
     }
 
     std::string reason;
-    bool shouldgc =
-        ShouldGCFile(bfile, now, is_oldest_simple_blob_file, &reason);
+    bool shouldgc = ShouldGCFile(bfile, now, is_oldest_non_ttl_file, &reason);
     if (!shouldgc) {
       ROCKS_LOG_DEBUG(db_options_.info_log,
                       "File has been skipped for GC ttl %s %" PRIu64 " %" PRIu64
                       " reason='%s'",
                       bfile->PathName().c_str(), now,
-                      bfile->GetTTLRange().second, reason.c_str());
+                      bfile->GetExpirationRange().second, reason.c_str());
       continue;
     }
 
     ROCKS_LOG_INFO(db_options_.info_log,
                    "File has been chosen for GC ttl %s %" PRIu64 " %" PRIu64
                    " reason='%s'",
-                   bfile->PathName().c_str(), now, bfile->GetTTLRange().second,
-                   reason.c_str());
+                   bfile->PathName().c_str(), now,
+                   bfile->GetExpirationRange().second, reason.c_str());
     to_process->push_back(bfile);
   }
 }
@@ -2091,25 +2029,11 @@ std::pair<bool, int64_t> BlobDBImpl::RunGC(bool aborted) {
   }
 
   if (!obsoletes.empty()) {
-    bool evict_cb = (!!bdb_options_.gc_evict_cb_fn);
-    std::shared_ptr<TimerQueue> tq;
-    if (evict_cb) tq = std::make_shared<TimerQueue>();
-
-    // if evict callback is present, first schedule the callback thread
     WriteLock wl(&mutex_);
     for (auto bfile : obsoletes) {
-      bool last_file = (bfile == obsoletes.back());
-
-      if (!evict_cb) {
-        bfile->SetCanBeDeleted();
-        obsolete_files_.push_front(bfile);
-      } else {
-        tq->add(0, std::bind(&BlobDBImpl::CallbackEvicts, this,
-                             (last_file) ? tq.get() : nullptr, bfile,
-                             std::placeholders::_1));
-      }
+      bfile->SetCanBeDeleted();
+      obsolete_files_.push_front(bfile);
     }
-    if (evict_cb) cb_threads_.emplace_back(tq);
   }
 
   // reschedule

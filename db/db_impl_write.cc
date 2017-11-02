@@ -64,6 +64,9 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   if (my_batch == nullptr) {
     return Status::Corruption("Batch is nullptr!");
   }
+  if (write_options.sync && write_options.disableWAL) {
+    return Status::InvalidArgument("Sync writes has to enable WAL.");
+  }
   if (concurrent_prepare_ && immutable_db_options_.enable_pipelined_write) {
     return Status::NotSupported(
         "pipelined_writes is not compatible with concurrent prepares");
@@ -154,7 +157,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
   mutex_.Lock();
 
-  bool need_log_sync = !write_options.disableWAL && write_options.sync;
+  bool need_log_sync = write_options.sync;
   bool need_log_dir_sync = need_log_sync && !log_dir_synced_;
   if (!concurrent_prepare_ || !disable_memtable) {
     // With concurrent writes we do preprocess only in the write thread that

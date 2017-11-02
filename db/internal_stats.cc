@@ -802,10 +802,15 @@ bool InternalStats::HandleEstimateOldestKeyTime(uint64_t* value, DBImpl* /*db*/,
   *value = std::numeric_limits<uint64_t>::max();
   for (auto& p : collection) {
     *value = std::min(*value, p.second->oldest_key_time);
+    if (*value == 0) {
+      break;
+    }
   }
-  *value = std::min({cfd_->mem()->ApproximateOldestKeyTime(),
-                     cfd_->imm()->ApproximateOldestKeyTime(), *value});
-  return *value < std::numeric_limits<uint64_t>::max();
+  if (*value > 0) {
+    *value = std::min({cfd_->mem()->ApproximateOldestKeyTime(),
+                       cfd_->imm()->ApproximateOldestKeyTime(), *value});
+  }
+  return *value > 0 && *value < std::numeric_limits<uint64_t>::max();
 }
 
 void InternalStats::DumpDBStats(std::string* value) {

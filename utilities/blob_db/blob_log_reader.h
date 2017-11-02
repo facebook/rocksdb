@@ -7,11 +7,9 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <cstdint>
 #include <memory>
 #include <string>
 
-#include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "utilities/blob_db/blob_log_format.h"
@@ -51,7 +49,11 @@ class Reader {
   Reader(std::shared_ptr<Logger> info_log,
          std::unique_ptr<SequentialFileReader>&& file);
 
-  ~Reader();
+  ~Reader() = default;
+
+  // No copying allowed
+  Reader(const Reader&) = delete;
+  Reader& operator=(const Reader&) = delete;
 
   Status ReadHeader(BlobLogHeader* header);
 
@@ -64,6 +66,8 @@ class Reader {
   Status ReadRecord(BlobLogRecord* record, ReadLevel level = kReadHeader,
                     uint64_t* blob_offset = nullptr);
 
+  Status ReadSlice(uint64_t size, Slice* slice, std::string* buf);
+
   SequentialFileReader* file() { return file_.get(); }
 
   void ResetNextByte() { next_byte_ = 0; }
@@ -71,9 +75,6 @@ class Reader {
   uint64_t GetNextByte() const { return next_byte_; }
 
   const SequentialFileReader* file_reader() const { return file_.get(); }
-
- private:
-  char* GetReadBuffer() { return &(backing_store_[0]); }
 
  private:
   std::shared_ptr<Logger> info_log_;
@@ -84,10 +85,6 @@ class Reader {
 
   // which byte to read next. For asserting proper usage
   uint64_t next_byte_;
-
-  // No copying allowed
-  Reader(const Reader&) = delete;
-  Reader& operator=(const Reader&) = delete;
 };
 
 }  // namespace blob_db
