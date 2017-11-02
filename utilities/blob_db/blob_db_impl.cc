@@ -69,6 +69,7 @@ void EvictAllVersionsCompactionListener::InternalListener::OnCompaction(
     int level, const Slice& key,
     CompactionEventListener::CompactionListenerValueType value_type,
     const Slice& existing_value, const SequenceNumber& sn, bool is_new) {
+  assert(impl_->bdb_options_.enable_garbage_collection);
   if (!is_new &&
       value_type ==
           CompactionEventListener::CompactionListenerValueType::kValue) {
@@ -213,12 +214,14 @@ void BlobDBImpl::StartBackgroundTasks() {
       std::bind(&BlobDBImpl::ReclaimOpenFiles, this, std::placeholders::_1));
   tqueue_.add(kGCCheckPeriodMillisecs,
               std::bind(&BlobDBImpl::RunGC, this, std::placeholders::_1));
-  tqueue_.add(
-      kDeleteCheckPeriodMillisecs,
-      std::bind(&BlobDBImpl::EvictDeletions, this, std::placeholders::_1));
-  tqueue_.add(
-      kDeleteCheckPeriodMillisecs,
-      std::bind(&BlobDBImpl::EvictCompacted, this, std::placeholders::_1));
+  if (bdb_options_.enable_garbage_collection) {
+    tqueue_.add(
+        kDeleteCheckPeriodMillisecs,
+        std::bind(&BlobDBImpl::EvictDeletions, this, std::placeholders::_1));
+    tqueue_.add(
+        kDeleteCheckPeriodMillisecs,
+        std::bind(&BlobDBImpl::EvictCompacted, this, std::placeholders::_1));
+  }
   tqueue_.add(
       kDeleteObsoleteFilesPeriodMillisecs,
       std::bind(&BlobDBImpl::DeleteObsoleteFiles, this, std::placeholders::_1));
@@ -659,8 +662,10 @@ Status BlobDBImpl::Delete(const WriteOptions& options, const Slice& key) {
   SequenceNumber lsn = db_impl_->GetLatestSequenceNumber();
   Status s = db_->Delete(options, key);
 
-  // add deleted key to list of keys that have been deleted for book-keeping
-  delete_keys_q_.enqueue({DefaultColumnFamily(), key.ToString(), lsn});
+  if (bdb_options_.enable_garbage_collection) {
+    // add deleted key to list of keys that have been deleted for book-keeping
+    delete_keys_q_.enqueue({DefaultColumnFamily(), key.ToString(), lsn});
+  }
   return s;
 }
 
@@ -780,11 +785,13 @@ Status BlobDBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
     SequenceNumber sequence_;
   };
 
-  // add deleted key to list of keys that have been deleted for book-keeping
-  DeleteBookkeeper delete_bookkeeper(this, current_seq);
-  updates->Iterate(&delete_bookkeeper);
+  if (bdb_options_.enable_garbage_collection) {
+    // add deleted key to list of keys that have been deleted for book-keeping
+    DeleteBookkeeper delete_bookkeeper(this, current_seq);
+    s = updates->Iterate(&delete_bookkeeper);
+  }
 
-  return Status::OK();
+  return s;
 }
 
 Status BlobDBImpl::GetLiveFiles(std::vector<std::string>& ret,
@@ -1318,6 +1325,7 @@ bool BlobDBImpl::FileDeleteOk_SnapshotCheckLocked(
 bool BlobDBImpl::FindFileAndEvictABlob(uint64_t file_number, uint64_t key_size,
                                        uint64_t blob_offset,
                                        uint64_t blob_size) {
+  assert(bdb_options_.enable_garbage_collection);
   (void)blob_offset;
   std::shared_ptr<BlobFile> bfile;
   {
@@ -1340,6 +1348,7 @@ bool BlobDBImpl::FindFileAndEvictABlob(uint64_t file_number, uint64_t key_size,
 }
 
 bool BlobDBImpl::MarkBlobDeleted(const Slice& key, const Slice& index_entry) {
+  assert(bdb_options_.enable_garbage_collection);
   BlobIndex blob_index;
   Status s = blob_index.DecodeFrom(index_entry);
   if (!s.ok()) {
@@ -1354,6 +1363,7 @@ bool BlobDBImpl::MarkBlobDeleted(const Slice& key, const Slice& index_entry) {
 }
 
 std::pair<bool, int64_t> BlobDBImpl::EvictCompacted(bool aborted) {
+  assert(bdb_options_.enable_garbage_collection);
   if (aborted) return std::make_pair(false, -1);
 
   override_packet_t packet;
@@ -1377,6 +1387,7 @@ std::pair<bool, int64_t> BlobDBImpl::EvictCompacted(bool aborted) {
 }
 
 std::pair<bool, int64_t> BlobDBImpl::EvictDeletions(bool aborted) {
+  assert(bdb_options_.enable_garbage_collection);
   if (aborted) return std::make_pair(false, -1);
 
   ColumnFamilyHandle* last_cfh = nullptr;
@@ -1882,10 +1893,12 @@ bool BlobDBImpl::ShouldGCFile(std::shared_ptr<BlobFile> bfile, uint64_t now,
 
   ReadLock lockbfile_r(&bfile->mutex_);
 
-  if ((bfile->deleted_size_ * 100.0 / bfile->file_size_.load()) >
-      kPartialExpirationPercentage) {
-    *reason = "deleted simple blobs beyond threshold";
-    return true;
+  if (bdb_options_.enable_garbage_collection) {
+    if ((bfile->deleted_size_ * 100.0 / bfile->file_size_.load()) >
+        kPartialExpirationPercentage) {
+      *reason = "deleted simple blobs beyond threshold";
+      return true;
+    }
   }
 
   // if we haven't reached limits of disk space, don't DELETE
