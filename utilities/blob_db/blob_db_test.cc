@@ -63,6 +63,22 @@ class BlobDBTest : public testing::Test {
     }
   }
 
+  BlobDBImpl *blob_db_impl() {
+    return reinterpret_cast<BlobDBImpl *>(blob_db_);
+  }
+
+  Status Put(const Slice &key, const Slice &value) {
+    return blob_db_->Put(WriteOptions(), key, value);
+  }
+
+  void Delete(const std::string &key,
+              std::map<std::string, std::string> *data = nullptr) {
+    ASSERT_OK(blob_db_->Delete(WriteOptions(), key));
+    if (data != nullptr) {
+      data->erase(key);
+    }
+  }
+
   void PutRandomWithTTL(const std::string &key, uint64_t ttl, Random *rnd,
                         std::map<std::string, std::string> *data = nullptr) {
     int len = rnd->Next() % kMaxBlobSize + 1;
@@ -108,14 +124,6 @@ class BlobDBTest : public testing::Test {
     ASSERT_OK(batch->Put(key, value));
     if (data != nullptr) {
       (*data)[key] = value;
-    }
-  }
-
-  void Delete(const std::string &key,
-              std::map<std::string, std::string> *data = nullptr) {
-    ASSERT_OK(blob_db_->Delete(WriteOptions(), key));
-    if (data != nullptr) {
-      data->erase(key);
     }
   }
 
@@ -593,16 +601,14 @@ TEST_F(BlobDBTest, GCAfterOverwriteKeys) {
   bdb_options.min_blob_size = 0;
   bdb_options.disable_background_tasks = true;
   Open(bdb_options);
-  BlobDBImpl *blob_db_impl =
-      static_cast_with_check<BlobDBImpl, BlobDB>(blob_db_);
   DBImpl *db_impl = static_cast_with_check<DBImpl, DB>(blob_db_->GetBaseDB());
   std::map<std::string, std::string> data;
   for (int i = 0; i < 200; i++) {
     PutRandom("key" + ToString(i), &rnd, &data);
   }
-  auto blob_files = blob_db_impl->TEST_GetBlobFiles();
+  auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
   ASSERT_EQ(1, blob_files.size());
-  ASSERT_OK(blob_db_impl->TEST_CloseBlobFile(blob_files[0]));
+  ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_files[0]));
   // Test for data in SST
   size_t new_keys = 0;
   for (int i = 0; i < 100; i++) {
@@ -620,7 +626,7 @@ TEST_F(BlobDBTest, GCAfterOverwriteKeys) {
     }
   }
   GCStats gc_stats;
-  ASSERT_OK(blob_db_impl->TEST_GCFileAndUpdateLSM(blob_files[0], &gc_stats));
+  ASSERT_OK(blob_db_impl()->TEST_GCFileAndUpdateLSM(blob_files[0], &gc_stats));
   ASSERT_EQ(200, gc_stats.blob_count);
   ASSERT_EQ(0, gc_stats.num_deletes);
   ASSERT_EQ(200 - new_keys, gc_stats.num_relocate);
@@ -634,11 +640,9 @@ TEST_F(BlobDBTest, GCRelocateKeyWhileOverwriting) {
   bdb_options.disable_background_tasks = true;
   Open(bdb_options);
   ASSERT_OK(blob_db_->Put(WriteOptions(), "foo", "v1"));
-  BlobDBImpl *blob_db_impl =
-      static_cast_with_check<BlobDBImpl, BlobDB>(blob_db_);
-  auto blob_files = blob_db_impl->TEST_GetBlobFiles();
+  auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
   ASSERT_EQ(1, blob_files.size());
-  ASSERT_OK(blob_db_impl->TEST_CloseBlobFile(blob_files[0]));
+  ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_files[0]));
 
   SyncPoint::GetInstance()->LoadDependency(
       {{"BlobDBImpl::GCFileAndUpdateLSM:AfterGetFromBaseDB",
@@ -651,7 +655,7 @@ TEST_F(BlobDBTest, GCRelocateKeyWhileOverwriting) {
       [this]() { ASSERT_OK(blob_db_->Put(WriteOptions(), "foo", "v2")); });
 
   GCStats gc_stats;
-  ASSERT_OK(blob_db_impl->TEST_GCFileAndUpdateLSM(blob_files[0], &gc_stats));
+  ASSERT_OK(blob_db_impl()->TEST_GCFileAndUpdateLSM(blob_files[0], &gc_stats));
   ASSERT_EQ(1, gc_stats.blob_count);
   ASSERT_EQ(0, gc_stats.num_deletes);
   ASSERT_EQ(1, gc_stats.num_relocate);
@@ -671,11 +675,9 @@ TEST_F(BlobDBTest, GCExpiredKeyWhileOverwriting) {
   Open(bdb_options, options);
   mock_env_->set_current_time(100);
   ASSERT_OK(blob_db_->PutUntil(WriteOptions(), "foo", "v1", 200));
-  BlobDBImpl *blob_db_impl =
-      static_cast_with_check<BlobDBImpl, BlobDB>(blob_db_);
-  auto blob_files = blob_db_impl->TEST_GetBlobFiles();
+  auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
   ASSERT_EQ(1, blob_files.size());
-  ASSERT_OK(blob_db_impl->TEST_CloseBlobFile(blob_files[0]));
+  ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_files[0]));
   mock_env_->set_current_time(300);
 
   SyncPoint::GetInstance()->LoadDependency(
@@ -690,7 +692,7 @@ TEST_F(BlobDBTest, GCExpiredKeyWhileOverwriting) {
   });
 
   GCStats gc_stats;
-  ASSERT_OK(blob_db_impl->TEST_GCFileAndUpdateLSM(blob_files[0], &gc_stats));
+  ASSERT_OK(blob_db_impl()->TEST_GCFileAndUpdateLSM(blob_files[0], &gc_stats));
   ASSERT_EQ(1, gc_stats.blob_count);
   ASSERT_EQ(1, gc_stats.num_deletes);
   ASSERT_EQ(0, gc_stats.delete_succeeded);
@@ -719,9 +721,7 @@ TEST_F(BlobDBTest, DISABLED_GCOldestSimpleBlobFileWhenOutOfSpace) {
   for (int i = 0; i < 10; i++) {
     ASSERT_OK(blob_db_->Put(WriteOptions(), "key" + ToString(i), value));
   }
-  BlobDBImpl *blob_db_impl =
-      static_cast_with_check<BlobDBImpl, BlobDB>(blob_db_);
-  auto blob_files = blob_db_impl->TEST_GetBlobFiles();
+  auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
   ASSERT_EQ(11, blob_files.size());
   ASSERT_TRUE(blob_files[0]->HasTTL());
   ASSERT_TRUE(blob_files[0]->Immutable());
@@ -731,9 +731,9 @@ TEST_F(BlobDBTest, DISABLED_GCOldestSimpleBlobFileWhenOutOfSpace) {
       ASSERT_TRUE(blob_files[i]->Immutable());
     }
   }
-  blob_db_impl->TEST_RunGC();
+  blob_db_impl()->TEST_RunGC();
   // The oldest simple blob file (i.e. blob_files[1]) has been selected for GC.
-  auto obsolete_files = blob_db_impl->TEST_GetObsoleteFiles();
+  auto obsolete_files = blob_db_impl()->TEST_GetObsoleteFiles();
   ASSERT_EQ(1, obsolete_files.size());
   ASSERT_EQ(blob_files[1]->BlobFileNumber(),
             obsolete_files[0]->BlobFileNumber());
@@ -747,13 +747,11 @@ TEST_F(BlobDBTest, ReadWhileGC) {
     bdb_options.disable_background_tasks = true;
     Open(bdb_options);
     blob_db_->Put(WriteOptions(), "foo", "bar");
-    BlobDBImpl *blob_db_impl =
-        static_cast_with_check<BlobDBImpl, BlobDB>(blob_db_);
-    auto blob_files = blob_db_impl->TEST_GetBlobFiles();
+    auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
     ASSERT_EQ(1, blob_files.size());
     std::shared_ptr<BlobFile> bfile = blob_files[0];
     uint64_t bfile_number = bfile->BlobFileNumber();
-    ASSERT_OK(blob_db_impl->TEST_CloseBlobFile(bfile));
+    ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(bfile));
 
     switch (i) {
       case 0:
@@ -791,17 +789,16 @@ TEST_F(BlobDBTest, ReadWhileGC) {
 
     TEST_SYNC_POINT("BlobDBTest::ReadWhileGC:1");
     GCStats gc_stats;
-    ASSERT_OK(blob_db_impl->TEST_GCFileAndUpdateLSM(bfile, &gc_stats));
+    ASSERT_OK(blob_db_impl()->TEST_GCFileAndUpdateLSM(bfile, &gc_stats));
     ASSERT_EQ(1, gc_stats.blob_count);
     ASSERT_EQ(1, gc_stats.num_relocate);
     ASSERT_EQ(1, gc_stats.relocate_succeeded);
-    blob_db_impl->TEST_ObsoleteFile(blob_files[0]);
-    blob_db_impl->TEST_DeleteObsoleteFiles();
+    blob_db_impl()->TEST_DeleteObsoleteFiles();
     // The file shouln't be deleted
-    blob_files = blob_db_impl->TEST_GetBlobFiles();
+    blob_files = blob_db_impl()->TEST_GetBlobFiles();
     ASSERT_EQ(2, blob_files.size());
     ASSERT_EQ(bfile_number, blob_files[0]->BlobFileNumber());
-    auto obsolete_files = blob_db_impl->TEST_GetObsoleteFiles();
+    auto obsolete_files = blob_db_impl()->TEST_GetObsoleteFiles();
     ASSERT_EQ(1, obsolete_files.size());
     ASSERT_EQ(bfile_number, obsolete_files[0]->BlobFileNumber());
     TEST_SYNC_POINT("BlobDBTest::ReadWhileGC:2");
@@ -809,13 +806,82 @@ TEST_F(BlobDBTest, ReadWhileGC) {
     SyncPoint::GetInstance()->DisableProcessing();
 
     // The file is deleted this time
-    blob_db_impl->TEST_DeleteObsoleteFiles();
-    blob_files = blob_db_impl->TEST_GetBlobFiles();
+    blob_db_impl()->TEST_DeleteObsoleteFiles();
+    blob_files = blob_db_impl()->TEST_GetBlobFiles();
     ASSERT_EQ(1, blob_files.size());
     ASSERT_NE(bfile_number, blob_files[0]->BlobFileNumber());
-    ASSERT_EQ(0, blob_db_impl->TEST_GetObsoleteFiles().size());
+    ASSERT_EQ(0, blob_db_impl()->TEST_GetObsoleteFiles().size());
     VerifyDB({{"foo", "bar"}});
     Destroy();
+  }
+}
+
+TEST_F(BlobDBTest, SnapshotAndGarbageCollection) {
+  BlobDBOptions bdb_options;
+  bdb_options.min_blob_size = 0;
+  bdb_options.disable_background_tasks = true;
+  // i = when to take snapshot
+  for (int i = 0; i < 4; i++) {
+    for (bool delete_key : {true, false}) {
+      const Snapshot *snapshot = nullptr;
+      Destroy();
+      Open(bdb_options);
+      // First file
+      ASSERT_OK(Put("key1", "value"));
+      if (i == 0) {
+        snapshot = blob_db_->GetSnapshot();
+      }
+      auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
+      ASSERT_EQ(1, blob_files.size());
+      ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_files[0]));
+      // Second file
+      ASSERT_OK(Put("key2", "value"));
+      if (i == 1) {
+        snapshot = blob_db_->GetSnapshot();
+      }
+      blob_files = blob_db_impl()->TEST_GetBlobFiles();
+      ASSERT_EQ(2, blob_files.size());
+      auto bfile = blob_files[1];
+      ASSERT_FALSE(bfile->Immutable());
+      ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(bfile));
+      // Third file
+      ASSERT_OK(Put("key3", "value"));
+      if (i == 2) {
+        snapshot = blob_db_->GetSnapshot();
+      }
+      if (delete_key) {
+        Delete("key2");
+      }
+      GCStats gc_stats;
+      ASSERT_OK(blob_db_impl()->TEST_GCFileAndUpdateLSM(bfile, &gc_stats));
+      ASSERT_TRUE(bfile->Obsolete());
+      ASSERT_EQ(1, gc_stats.blob_count);
+      if (delete_key) {
+        ASSERT_EQ(0, gc_stats.num_relocate);
+        ASSERT_EQ(bfile->GetSequenceRange().second + 1,
+                  bfile->GetObsoleteSequence());
+      } else {
+        ASSERT_EQ(1, gc_stats.num_relocate);
+        ASSERT_EQ(blob_db_->GetLatestSequenceNumber(),
+                  bfile->GetObsoleteSequence());
+      }
+      if (i == 3) {
+        snapshot = blob_db_->GetSnapshot();
+      }
+      size_t num_files = delete_key ? 3 : 4;
+      ASSERT_EQ(num_files, blob_db_impl()->TEST_GetBlobFiles().size());
+      blob_db_impl()->TEST_DeleteObsoleteFiles();
+      if (i == 0 || i == 3 || (i == 2 && delete_key)) {
+        // The snapshot shouldn't see data in bfile
+        ASSERT_EQ(num_files - 1, blob_db_impl()->TEST_GetBlobFiles().size());
+      } else {
+        // The snapshot will see data in bfile, so the file shouldn't be deleted
+        ASSERT_EQ(num_files, blob_db_impl()->TEST_GetBlobFiles().size());
+        blob_db_->ReleaseSnapshot(snapshot);
+        blob_db_impl()->TEST_DeleteObsoleteFiles();
+        ASSERT_EQ(num_files - 1, blob_db_impl()->TEST_GetBlobFiles().size());
+      }
+    }
   }
 }
 
@@ -962,7 +1028,7 @@ TEST_F(BlobDBTest, EvictOldestFileWhenCloseToSpaceLimit) {
   bdb_options.is_fifo = true;
   Open(bdb_options);
 
-  // Each stored blob has an overhead of about 32 bytes currently.
+  // Each stored blob has an overhead of 32 bytes currently.
   // So a 100 byte blob should take up 132 bytes.
   std::string value(100, 'v');
   ASSERT_OK(blob_db_->PutWithTTL(WriteOptions(), "key1", value, 10));

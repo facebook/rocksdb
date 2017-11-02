@@ -1663,12 +1663,10 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
   delete casted_s;
 }
 
-bool DBImpl::HasActiveSnapshotLaterThanSN(SequenceNumber sn) {
+bool DBImpl::HasActiveSnapshotInRange(SequenceNumber lower_bound,
+                                      SequenceNumber upper_bound) {
   InstrumentedMutexLock l(&mutex_);
-  if (snapshots_.empty()) {
-    return false;
-  }
-  return (snapshots_.newest()->GetSequenceNumber() >= sn);
+  return snapshots_.HasSnapshotInRange(lower_bound, upper_bound);
 }
 
 #ifndef ROCKSDB_LITE

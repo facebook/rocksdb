@@ -108,6 +108,22 @@ class SnapshotList {
     return ret;
   }
 
+  // Whether there is an active snapshot in range [lower_bound, upper_bound).
+  bool HasSnapshotInRange(SequenceNumber lower_bound,
+                          SequenceNumber upper_bound) {
+    if (empty()) {
+      return false;
+    }
+    const SnapshotImpl* s = &list_;
+    while (s->next_ != &list_) {
+      if (s->next_->number_ >= lower_bound) {
+        return s->next_->number_ < upper_bound;
+      }
+      s = s->next_;
+    }
+    return false;
+  }
+
   // get the sequence number of the most recent snapshot
   SequenceNumber GetNewest() {
     if (empty()) {
