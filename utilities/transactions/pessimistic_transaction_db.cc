@@ -11,7 +11,6 @@
 
 #include "utilities/transactions/pessimistic_transaction_db.h"
 
-#include <inttypes.h>
 #include <string>
 #include <unordered_set>
 #include <vector>

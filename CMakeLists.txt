@@ -577,12 +577,12 @@ if(WIN32)
     port/win/win_logger.cc
     port/win/win_thread.cc
     port/win/xpress_win.cc)
-	
+
 if(WITH_JEMALLOC)
   list(APPEND SOURCES
     port/win/win_jemalloc.cc)
 endif()
-	
+
 else()
   list(APPEND SOURCES
     port/port_posix.cc

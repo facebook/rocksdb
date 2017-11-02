@@ -20,7 +20,6 @@
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/transaction_db.h"
-#include "util/cast_util.h"
 #include "util/mutexlock.h"
 #include "util/sync_point.h"
 #include "utilities/transactions/pessimistic_transaction.h"
@@ -509,7 +508,7 @@ WritePreparedTxnDB::~WritePreparedTxnDB() {
   // At this point there could be running compaction/flush holding a
   // SnapshotChecker, which holds a pointer back to WritePreparedTxnDB.
   // Make sure those jobs finished before destructing WritePreparedTxnDB.
-  db_impl_->CancelAllBackgroundWork(true/*wait*/);
+  db_impl_->CancelAllBackgroundWork(true /*wait*/);
 }
 
 }  //  namespace rocksdb
