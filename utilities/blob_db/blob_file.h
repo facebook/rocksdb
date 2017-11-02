@@ -63,8 +63,12 @@ class BlobFile {
   std::atomic<bool> closed_;
 
   // has a pass of garbage collection successfully finished on this file
-  // can_be_deleted_ still needs to do iterator/snapshot checks
-  std::atomic<bool> can_be_deleted_;
+  // obsolete_ still needs to do iterator/snapshot checks
+  std::atomic<bool> obsolete_;
+
+  // The last sequence number by the time the file marked as obsolete.
+  // Data in this file is visible to a snapshot taken before the sequence.
+  SequenceNumber obsolete_sequence_;
 
   // should this file been gc'd once to reconcile lost deletes/compactions
   std::atomic<bool> gc_once_after_open_;
@@ -90,6 +94,8 @@ class BlobFile {
   std::atomic<uint64_t> last_fsync_;
 
   bool header_valid_;
+
+  SequenceNumber garbage_collection_finish_sequence_;
 
  public:
   BlobFile();
@@ -117,13 +123,27 @@ class BlobFile {
   std::string DumpState() const;
 
   // if the file has gone through GC and blobs have been relocated
-  bool Obsolete() const { return can_be_deleted_.load(); }
+  bool Obsolete() const {
+    assert(Immutable() || !obsolete_.load());
+    return obsolete_.load();
+  }
+
+  // Mark file as obsolete by garbage collection. The file is not visible to
+  // snapshots with sequence greater or equal to the given sequence.
+  void MarkObsolete(SequenceNumber sequence);
+
+  SequenceNumber GetObsoleteSequence() const {
+    assert(Obsolete());
+    return obsolete_sequence_;
+  }
 
   // if the file is not taking any more appends.
   bool Immutable() const { return closed_.load(); }
 
   // we will assume this is atomic
   bool NeedsFsync(bool hard, uint64_t bytes_per_sync) const;
+
+  void Fsync();
 
   uint64_t GetFileSize() const {
     return file_size_.load(std::memory_order_acquire);
@@ -155,8 +175,6 @@ class BlobFile {
 
   std::shared_ptr<Writer> GetWriter() const { return log_writer_; }
 
-  void Fsync();
-
  private:
   std::shared_ptr<Reader> OpenSequentialReader(
       Env* env, const DBOptions& db_options,
@@ -183,8 +201,6 @@ class BlobFile {
   void SetFileSize(uint64_t fs) { file_size_ = fs; }
 
   void SetBlobCount(uint64_t bc) { blob_count_ = bc; }
-
-  void SetCanBeDeleted() { can_be_deleted_ = true; }
 };
 }  // namespace blob_db
 }  // namespace rocksdb

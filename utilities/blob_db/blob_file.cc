@@ -36,7 +36,7 @@ BlobFile::BlobFile()
       deleted_count_(0),
       deleted_size_(0),
       closed_(false),
-      can_be_deleted_(false),
+      obsolete_(false),
       gc_once_after_open_(false),
       expiration_range_({0, 0}),
       sequence_range_({kMaxSequenceNumber, 0}),
@@ -55,7 +55,7 @@ BlobFile::BlobFile(const BlobDBImpl* p, const std::string& bdir, uint64_t fn)
       deleted_count_(0),
       deleted_size_(0),
       closed_(false),
-      can_be_deleted_(false),
+      obsolete_(false),
       gc_once_after_open_(false),
       expiration_range_({0, 0}),
       sequence_range_({kMaxSequenceNumber, 0}),
@@ -64,7 +64,7 @@ BlobFile::BlobFile(const BlobDBImpl* p, const std::string& bdir, uint64_t fn)
       header_valid_(false) {}
 
 BlobFile::~BlobFile() {
-  if (can_be_deleted_) {
+  if (obsolete_) {
     std::string pn(PathName());
     Status s = Env::Default()->DeleteFile(PathName());
     if (!s.ok()) {
@@ -110,15 +110,19 @@ std::string BlobFile::DumpState() const {
            "path: %s fn: %" PRIu64 " blob_count: %" PRIu64 " gc_epoch: %" PRIu64
            " file_size: %" PRIu64 " deleted_count: %" PRIu64
            " deleted_size: %" PRIu64
-           " closed: %d can_be_deleted: %d expiration_range: (%" PRIu64
-           ", %" PRIu64 ") sequence_range: (%" PRIu64 " %" PRIu64
-           "), writer: %d reader: %d",
+           " closed: %d obsolete: %d expiration_range: (%" PRIu64 ", %" PRIu64
+           ") sequence_range: (%" PRIu64 " %" PRIu64 "), writer: %d reader: %d",
            path_to_dir_.c_str(), file_number_, blob_count_.load(),
            gc_epoch_.load(), file_size_.load(), deleted_count_, deleted_size_,
-           closed_.load(), can_be_deleted_.load(), expiration_range_.first,
+           closed_.load(), obsolete_.load(), expiration_range_.first,
            expiration_range_.second, sequence_range_.first,
            sequence_range_.second, (!!log_writer_), (!!ra_file_reader_));
   return str;
+}
+
+void BlobFile::MarkObsolete(SequenceNumber sequence) {
+  obsolete_sequence_ = sequence;
+  obsolete_.store(true);
 }
 
 bool BlobFile::NeedsFsync(bool hard, uint64_t bytes_per_sync) const {
