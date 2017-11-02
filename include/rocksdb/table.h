@@ -87,9 +87,6 @@ struct BlockBasedTableOptions {
     // `Options.prefix_extractor` is provided.
     kHashSearch,
 
-    // TODO(myabandeh): this feature is in experimental phase and shall not be
-    // used in production; either remove the feature or remove this comment if
-    // it is ready to be used in production.
     // A two-level index implementation. Both levels are binary search indexes.
     kTwoLevelIndexSearch,
   };
@@ -158,10 +155,8 @@ struct BlockBasedTableOptions {
   // Note: currently this option requires kTwoLevelIndexSearch to be set as
   // well.
   // TODO(myabandeh): remove the note above once the limitation is lifted
-  // TODO(myabandeh): this feature is in experimental phase and shall not be
-  // used in production; either remove the feature or remove this comment if
-  // it is ready to be used in production.
-  // Use partitioned full filters for each SST file
+  // Use partitioned full filters for each SST file. This option is
+  // incompatibile with block-based filters.
   bool partition_filters = false;
 
   // Use delta encoding to compress keys in blocks.
