@@ -347,6 +347,12 @@ class WriteBatch : public WriteBatchBase {
   // Maximum size of rep_.
   size_t max_bytes_;
 
+  // Is the content of the batch the application's latest state that meant only
+  // to be used for recovery? Refer to
+  // TransactionOptions::use_only_the_last_commit_time_batch_for_recovery for
+  // more details.
+  bool is_latest_persistent_state_ = false;
+
  protected:
   std::string rep_;  // See comment in write_batch.cc for the format of rep_
 

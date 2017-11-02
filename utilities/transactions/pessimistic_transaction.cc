@@ -82,6 +82,8 @@ void PessimisticTransaction::Initialize(const TransactionOptions& txn_options) {
   if (expiration_time_ > 0) {
     txn_db_impl_->InsertExpirableTransaction(txn_id_, this);
   }
+  use_only_the_last_commit_time_batch_for_recovery_ =
+      txn_options.use_only_the_last_commit_time_batch_for_recovery;
 }
 
 PessimisticTransaction::~PessimisticTransaction() {

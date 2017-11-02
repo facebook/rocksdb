@@ -114,16 +114,17 @@ class PessimisticTransactionDB : public TransactionDB {
   void SetDeadlockInfoBufferSize(uint32_t target_size) override;
 
  protected:
+  DBImpl* db_impl_;
+  std::shared_ptr<Logger> info_log_;
+  const TransactionDBOptions txn_db_options_;
+
   void ReinitializeTransaction(
       Transaction* txn, const WriteOptions& write_options,
       const TransactionOptions& txn_options = TransactionOptions());
-  DBImpl* db_impl_;
-  std::shared_ptr<Logger> info_log_;
 
  private:
   friend class WritePreparedTxnDB;
   friend class WritePreparedTxnDBMock;
-  const TransactionDBOptions txn_db_options_;
   TransactionLockMgr lock_mgr_;
 
   // Must be held when adding/dropping column families.
