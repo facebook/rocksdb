@@ -205,6 +205,10 @@ class BlobDBImpl : public BlobDB {
   // how often to schedule check seq files period
   static constexpr uint32_t kCheckSeqFilesPeriodMillisecs = 10 * 1000;
 
+  // when should oldest file be evicted:
+  // on reaching 90% of blob_dir_size
+  static constexpr double kEvictOldestFileAtSize = 0.9;
+
   using BlobDB::Put;
   Status Put(const WriteOptions& options, const Slice& key,
              const Slice& value) override;
@@ -414,7 +418,9 @@ class BlobDBImpl : public BlobDB {
   bool FindFileAndEvictABlob(uint64_t file_number, uint64_t key_size,
                              uint64_t blob_offset, uint64_t blob_size);
 
-  void CopyBlobFiles(std::vector<std::shared_ptr<BlobFile>>* bfiles_copy);
+  void CopyBlobFiles(
+      std::vector<std::shared_ptr<BlobFile>>* bfiles_copy,
+      std::function<bool(const std::shared_ptr<BlobFile>&)> predicate = {});
 
   void FilterSubsetOfFiles(
       const std::vector<std::shared_ptr<BlobFile>>& blob_files,
@@ -422,6 +428,12 @@ class BlobDBImpl : public BlobDB {
       size_t files_to_collect);
 
   uint64_t EpochNow() { return env_->NowMicros() / 1000000; }
+
+  Status CheckSize(size_t blob_size);
+
+  std::shared_ptr<BlobFile> GetOldestBlobFile();
+
+  bool EvictOldestBlobFile();
 
   // the base DB
   DBImpl* db_impl_;
@@ -526,6 +538,8 @@ class BlobDBImpl : public BlobDB {
   bool open_p1_done_;
 
   uint32_t debug_level_;
+
+  std::atomic<bool> oldest_file_evicted_;
 };
 
 }  // namespace blob_db
