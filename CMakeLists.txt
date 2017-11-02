@@ -554,6 +554,7 @@ set(SOURCES
         utilities/transactions/transaction_lock_mgr.cc
         utilities/transactions/transaction_util.cc
         utilities/transactions/write_prepared_txn.cc
+        utilities/transactions/write_prepared_txn_db.cc
         utilities/ttl/db_ttl_impl.cc
         utilities/write_batch_with_index/write_batch_with_index.cc
         utilities/write_batch_with_index/write_batch_with_index_internal.cc
@@ -576,12 +577,12 @@ if(WIN32)
     port/win/win_logger.cc
     port/win/win_thread.cc
     port/win/xpress_win.cc)
-	
+
 if(WITH_JEMALLOC)
   list(APPEND SOURCES
     port/win/win_jemalloc.cc)
 endif()
-	
+
 else()
   list(APPEND SOURCES
     port/port_posix.cc

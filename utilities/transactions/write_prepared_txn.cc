@@ -15,7 +15,7 @@
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "utilities/transactions/pessimistic_transaction.h"
-#include "utilities/transactions/pessimistic_transaction_db.h"
+#include "utilities/transactions/write_prepared_txn_db.h"
 
 namespace rocksdb {
 
