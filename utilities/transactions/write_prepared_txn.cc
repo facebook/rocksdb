@@ -122,8 +122,13 @@ Status WritePreparedTxn::CommitInternal() {
   const bool empty = working_batch->Count() == 0;
   WriteBatchInternal::MarkCommit(working_batch, name_);
 
-  // any operations appended to this working_batch will be ignored from WAL
-  working_batch->MarkWalTerminationPoint();
+  const bool for_recovery = use_only_the_last_commit_time_batch_for_recovery_;
+  if (!empty && for_recovery) {
+    // When not writing to memtable, we can still cache the latest write batch.
+    // The cached batch will be written to memtable in WriteRecoverableState
+    // during FlushMemTable
+    WriteBatchInternal::SetAsLastestPersistentState(working_batch);
+  }
 
   const bool disable_memtable = true;
   uint64_t seq_used = kMaxSequenceNumber;
@@ -133,14 +138,14 @@ Status WritePreparedTxn::CommitInternal() {
   const uint64_t zero_log_number = 0ull;
   auto s = db_impl_->WriteImpl(
       write_options_, working_batch, nullptr, nullptr, zero_log_number,
-      empty ? disable_memtable : !disable_memtable, &seq_used);
+      empty || for_recovery ? disable_memtable : !disable_memtable, &seq_used);
   assert(seq_used != kMaxSequenceNumber);
   uint64_t& commit_seq = seq_used;
   // TODO(myabandeh): Reject a commit request if AddCommitted cannot encode
   // commit_seq. This happens if prep_seq <<< commit_seq.
   auto prepare_seq = GetId();
   wpt_db_->AddCommitted(prepare_seq, commit_seq);
-  if (!empty) {
+  if (!empty && !for_recovery) {
     // Commit the data that is accompnaied with the commit marker
     // TODO(myabandeh): skip AddPrepared
     wpt_db_->AddPrepared(commit_seq);

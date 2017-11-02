@@ -113,6 +113,10 @@ class PessimisticTransaction : public TransactionBaseImpl {
   int64_t GetDeadlockDetectDepth() const { return deadlock_detect_depth_; }
 
  protected:
+  // Refer to
+  // TransactionOptions::use_only_the_last_commit_time_batch_for_recovery
+  bool use_only_the_last_commit_time_batch_for_recovery_ = false;
+
   virtual Status PrepareInternal() = 0;
 
   virtual Status CommitWithoutPrepareInternal() = 0;

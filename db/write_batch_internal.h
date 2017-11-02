@@ -189,6 +189,11 @@ class WriteBatchInternal {
   // Returns the byte size of appending a WriteBatch with ByteSize
   // leftByteSize and a WriteBatch with ByteSize rightByteSize
   static size_t AppendedByteSize(size_t leftByteSize, size_t rightByteSize);
+
+  // This write batch includes the latest state that should be persisted. Such
+  // state meant to be used only during recovery.
+  static void SetAsLastestPersistentState(WriteBatch* b);
+  static bool IsLatestPersistentState(const WriteBatch* b);
 };
 
 // LocalSavePoint is similar to a scope guard

@@ -494,6 +494,14 @@ Status WriteBatch::Iterate(Handler* handler) const {
   }
 }
 
+bool WriteBatchInternal::IsLatestPersistentState(const WriteBatch* b) {
+  return b->is_latest_persistent_state_;
+}
+
+void WriteBatchInternal::SetAsLastestPersistentState(WriteBatch* b) {
+  b->is_latest_persistent_state_ = true;
+}
+
 int WriteBatchInternal::Count(const WriteBatch* b) {
   return DecodeFixed32(b->rep_.data() + 8);
 }
