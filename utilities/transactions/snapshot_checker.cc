@@ -9,7 +9,7 @@
 #include <assert.h>
 #endif  // ROCKSDB_LITE
 
-#include "utilities/transactions/pessimistic_transaction_db.h"
+#include "utilities/transactions/write_prepared_txn_db.h"
 
 namespace rocksdb {
 
