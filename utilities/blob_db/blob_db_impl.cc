@@ -1893,10 +1893,12 @@ bool BlobDBImpl::ShouldGCFile(std::shared_ptr<BlobFile> bfile, uint64_t now,
 
   ReadLock lockbfile_r(&bfile->mutex_);
 
-  if ((bfile->deleted_size_ * 100.0 / bfile->file_size_.load()) >
-      kPartialExpirationPercentage) {
-    *reason = "deleted simple blobs beyond threshold";
-    return true;
+  if (!bdb_options_.disable_auto_garbage_collection) {
+    if ((bfile->deleted_size_ * 100.0 / bfile->file_size_.load()) >
+        kPartialExpirationPercentage) {
+      *reason = "deleted simple blobs beyond threshold";
+      return true;
+    }
   }
 
   // if we haven't reached limits of disk space, don't DELETE
