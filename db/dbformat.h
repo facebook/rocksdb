@@ -106,6 +106,8 @@ extern uint64_t PackSequenceAndType(uint64_t seq, ValueType t);
 // and the ValueType in *t.
 extern void UnPackSequenceAndType(uint64_t packed, uint64_t* seq, ValueType* t);
 
+EntryType GetEntryType(ValueType value_type);
+
 // Append the serialization of "key" to *result.
 extern void AppendInternalKey(std::string* result,
                               const ParsedInternalKey& key);
