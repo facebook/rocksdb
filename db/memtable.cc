@@ -39,10 +39,10 @@
 
 namespace rocksdb {
 
-MemTableOptions::MemTableOptions(const ImmutableCFOptions& ioptions,
-                                 const MutableCFOptions& mutable_cf_options)
-    : write_buffer_size(mutable_cf_options.write_buffer_size),
-      arena_block_size(mutable_cf_options.arena_block_size),
+ImmutableMemTableOptions::ImmutableMemTableOptions(
+    const ImmutableCFOptions& ioptions,
+    const MutableCFOptions& mutable_cf_options)
+    : arena_block_size(mutable_cf_options.arena_block_size),
       memtable_prefix_bloom_bits(
           static_cast<uint32_t>(
               static_cast<double>(mutable_cf_options.write_buffer_size) *
@@ -83,6 +83,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       data_size_(0),
       num_entries_(0),
       num_deletes_(0),
+      write_buffer_size_(mutable_cf_options.write_buffer_size),
       flush_in_progress_(false),
       flush_completed_(false),
       file_number_(0),
@@ -136,6 +137,7 @@ size_t MemTable::ApproximateMemoryUsage() {
 }
 
 bool MemTable::ShouldFlushNow() const {
+  size_t write_buffer_size = write_buffer_size_.load(std::memory_order_relaxed);
   // In a lot of times, we cannot allocate arena blocks that exactly matches the
   // buffer size. Thus we have to decide if we should over-allocate or
   // under-allocate.
@@ -153,16 +155,14 @@ bool MemTable::ShouldFlushNow() const {
   // if we can still allocate one more block without exceeding the
   // over-allocation ratio, then we should not flush.
   if (allocated_memory + kArenaBlockSize <
-      moptions_.write_buffer_size +
-      kArenaBlockSize * kAllowOverAllocationRatio) {
+      write_buffer_size + kArenaBlockSize * kAllowOverAllocationRatio) {
     return false;
   }
 
-  // if user keeps adding entries that exceeds moptions.write_buffer_size,
-  // we need to flush earlier even though we still have much available
-  // memory left.
-  if (allocated_memory > moptions_.write_buffer_size +
-      kArenaBlockSize * kAllowOverAllocationRatio) {
+  // if user keeps adding entries that exceeds write_buffer_size, we need to
+  // flush earlier even though we still have much available memory left.
+  if (allocated_memory >
+      write_buffer_size + kArenaBlockSize * kAllowOverAllocationRatio) {
     return true;
   }
 
@@ -265,7 +265,8 @@ class MemTableIterator : public InternalIterator {
         comparator_(mem.comparator_),
         valid_(false),
         arena_mode_(arena != nullptr),
-        value_pinned_(!mem.GetMemTableOptions()->inplace_update_support) {
+        value_pinned_(
+            !mem.GetImmutableMemTableOptions()->inplace_update_support) {
     if (use_range_del_table) {
       iter_ = mem.range_del_table_->GetIterator(arena);
     } else if (prefix_extractor_ != nullptr && !read_options.total_order_seek) {
