@@ -1027,6 +1027,7 @@ TEST_F(DBTest2, PresetCompressionDict) {
   const size_t kL0FileBytes = 128 << 10;
   const size_t kApproxPerBlockOverheadBytes = 50;
   const int kNumL0Files = 5;
+  const int kZstdTrainFactor = 16;
 
   Options options;
   options.env = CurrentOptions().env; // Make sure to use any custom env that the test is configured with.
@@ -1059,17 +1060,34 @@ TEST_F(DBTest2, PresetCompressionDict) {
   for (auto compression_type : compression_types) {
     options.compression = compression_type;
     size_t prev_out_bytes;
-    for (int i = 0; i < 2; ++i) {
+    for (int i = 0; i < 3; ++i) {
       // First iteration: compress without preset dictionary
       // Second iteration: compress with preset dictionary
-      // To make sure the compression dictionary was actually used, we verify
-      // the compressed size is smaller in the second iteration. Also in the
-      // second iteration, verify the data we get out is the same data we put
-      // in.
-      if (i) {
-        options.compression_opts.max_dict_bytes = kBlockSizeBytes;
-      } else {
-        options.compression_opts.max_dict_bytes = 0;
+      // Third iteration (zstd only): compress with zstd-trained dictionary
+      //
+      // To make sure the compression dictionary has the intended effect, we
+      // verify the compressed size is smaller in successive iterations. Also in
+      // the non-first iterations, verify the data we get out is the same data
+      // we put in.
+      switch (i) {
+        case 0:
+          options.compression_opts.max_dict_bytes = 0;
+          options.compression_opts.zstd_max_train_bytes = 0;
+          break;
+        case 1:
+          options.compression_opts.max_dict_bytes = kBlockSizeBytes;
+          options.compression_opts.zstd_max_train_bytes = 0;
+          break;
+        case 2:
+          if (compression_type != kZSTD) {
+            continue;
+          }
+          options.compression_opts.max_dict_bytes = kBlockSizeBytes;
+          options.compression_opts.zstd_max_train_bytes =
+              kZstdTrainFactor * kBlockSizeBytes;
+          break;
+        default:
+          assert(false);
       }
 
       options.statistics = rocksdb::CreateDBStatistics();
