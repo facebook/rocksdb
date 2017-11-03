@@ -327,7 +327,6 @@ class TransactionTest : public ::testing::TestWithParam<
     VectorLogPtr log_files;
     db_impl->GetSortedWalFiles(log_files);
     ASSERT_EQ(0, log_files.size());
-    // ASSERT_EQ(0, log_files[0]->SizeFileBytes());
 
     for (auto& kv : committed_kvs) {
       std::string value;

@@ -267,6 +267,11 @@ class WriteBatch : public WriteBatchBase {
     // iteration is halted. Otherwise, it continues iterating. The default
     // implementation always returns true.
     virtual bool Continue();
+   protected:
+    friend class WriteBatch;
+    virtual bool WriteAfterCommit() const {
+      return true;
+    }
   };
   Status Iterate(Handler* handler) const;
 
