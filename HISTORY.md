@@ -1,4 +1,7 @@
 # Rocksdb Change Log
+## 5.8.2 (11/03/2017)
+No major changes.
+
 ## 5.8.1 (10/23/2017)
 ### New Features
 * Add a new db property "rocksdb.estimate-oldest-key-time" to return oldest data timestamp. The property is available only for FIFO compaction with compaction_options_fifo.allow_compaction = false.
