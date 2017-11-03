@@ -949,6 +949,10 @@ void ColumnFamilyData::InstallSuperVersion(
       RecalculateWriteStallConditions(mutable_cf_options);
 
   if (old_superversion != nullptr) {
+    if (old_superversion->mutable_cf_options.write_buffer_size !=
+        mutable_cf_options.write_buffer_size) {
+      mem_->UpdateWriteBufferSize(mutable_cf_options.write_buffer_size);
+    }
     if (old_superversion->write_stall_condition !=
         new_superversion->write_stall_condition) {
       sv_context->PushWriteStallNotification(
