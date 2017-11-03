@@ -883,6 +883,7 @@ TEST_F(BlobDBTest, SnapshotAndGarbageCollection) {
       if (i == 0 || i == 3 || (i == 2 && delete_key)) {
         // The snapshot shouldn't see data in bfile
         ASSERT_EQ(num_files - 1, blob_db_impl()->TEST_GetBlobFiles().size());
+        blob_db_->ReleaseSnapshot(snapshot);
       } else {
         // The snapshot will see data in bfile, so the file shouldn't be deleted
         ASSERT_EQ(num_files, blob_db_impl()->TEST_GetBlobFiles().size());
