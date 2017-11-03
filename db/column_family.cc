@@ -123,6 +123,22 @@ Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options) {
           " is not linked with the binary.");
     }
   }
+  if (cf_options.compression_opts.zstd_max_train_bytes > 0) {
+    if (!CompressionTypeSupported(CompressionType::kZSTD)) {
+      // Dictionary trainer is available since v0.6.1, but ZSTD was marked
+      // stable only since v0.8.0. For now we enable the feature in stable
+      // versions only.
+      return Status::InvalidArgument(
+          "zstd dictionary trainer cannot be used because " +
+          CompressionTypeToString(CompressionType::kZSTD) +
+          " is not linked with the binary.");
+    }
+    if (cf_options.compression_opts.max_dict_bytes == 0) {
+      return Status::InvalidArgument(
+          "The dictionary size limit (`CompressionOptions::max_dict_bytes`) "
+          "should be nonzero if we're using zstd's dictionary generator.");
+    }
+  }
   return Status::OK();
 }
 
