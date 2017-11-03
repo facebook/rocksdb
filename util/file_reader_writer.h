@@ -201,6 +201,7 @@ class WritableFileWriter {
 
 class FilePrefetchBuffer {
  public:
+  FilePrefetchBuffer() : buffer_offset_(0), buffer_len_(0) {}
   Status Prefetch(RandomAccessFileReader* reader, uint64_t offset, size_t n);
   bool TryReadFromCache(uint64_t offset, size_t n, Slice* result) const;
 
