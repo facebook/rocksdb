@@ -470,7 +470,7 @@ class Transaction {
 
  protected:
   explicit Transaction(const TransactionDB* db) {}
-  Transaction() {}
+  Transaction() : log_number_(0), txn_state_(STARTED) {}
 
   // the log in which the prepared section for this txn resides
   // (for two phase commit)
