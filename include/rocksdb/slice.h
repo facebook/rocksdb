@@ -150,6 +150,8 @@ class PinnableSlice : public Slice, public Cleanable {
       } else {
         buf_ = other.buf_;
       }
+      other.pinned_ = false;
+      other.buf_ = &other.self_space_;
     }
     return *this;
   }
