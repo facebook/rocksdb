@@ -461,9 +461,12 @@ Status WriteBatch::Iterate(Handler* handler) const {
                (ContentFlags::DEFERRED | ContentFlags::HAS_BEGIN_PREPARE));
         handler->MarkBeginPrepare();
         empty_batch = false;
-          assert(handler->WriteAfterCommit());
+        assert(handler->WriteAfterCommit());
         if (!handler->WriteAfterCommit()) {
-          s = Status::Corruption("WriteCommitted txn tag when write_after_commit_ is disabled (in WritePrepared mode). If it is not due to corruption, the WAL must be emptied before changing the WritePolicy.");
+          s = Status::Corruption(
+              "WriteCommitted txn tag when write_after_commit_ is disabled (in "
+              "WritePrepared mode). If it is not due to corruption, the WAL "
+              "must be emptied before changing the WritePolicy.");
         }
         break;
       case kTypeBeginPersistedPrepareXID:
@@ -471,9 +474,12 @@ Status WriteBatch::Iterate(Handler* handler) const {
                (ContentFlags::DEFERRED | ContentFlags::HAS_BEGIN_PREPARE));
         handler->MarkBeginPrepare();
         empty_batch = false;
-          assert(!handler->WriteAfterCommit());
+        assert(!handler->WriteAfterCommit());
         if (handler->WriteAfterCommit()) {
-          s = Status::Corruption("WritePrepared txn tag when write_after_commit_ is enabled (in default WriteCommitted mode). If it is not due to corruption, the WAL must be emptied before changing the WritePolicy.");
+          s = Status::Corruption(
+              "WritePrepared txn tag when write_after_commit_ is enabled (in "
+              "default WriteCommitted mode). If it is not due to corruption, "
+              "the WAL must be emptied before changing the WritePolicy.");
         }
         break;
         break;
@@ -594,7 +600,8 @@ Status WriteBatchInternal::InsertNoop(WriteBatch* b) {
   return Status::OK();
 }
 
-Status WriteBatchInternal::MarkEndPrepare(WriteBatch* b, const Slice& xid, bool write_after_commit) {
+Status WriteBatchInternal::MarkEndPrepare(WriteBatch* b, const Slice& xid,
+                                          bool write_after_commit) {
   // a manually constructed batch can only contain one prepare section
   assert(b->rep_[12] == static_cast<char>(kTypeNoop));
 
@@ -608,7 +615,7 @@ Status WriteBatchInternal::MarkEndPrepare(WriteBatch* b, const Slice& xid, bool 
   // rewrite noop as begin marker
   b->rep_[12] =
       static_cast<char>(write_after_commit ? kTypeBeginPrepareXID
-                                            : kTypeBeginPersistedPrepareXID);
+                                           : kTypeBeginPersistedPrepareXID);
   b->rep_.push_back(static_cast<char>(kTypeEndPrepareXID));
   PutLengthPrefixedSlice(&b->rep_, xid);
   b->content_flags_.store(b->content_flags_.load(std::memory_order_relaxed) |
@@ -941,10 +948,9 @@ class MemTableInserter : public WriteBatch::Handler {
     return *reinterpret_cast<MemPostInfoMap*>(&mem_post_info_map_);
   }
 
-  protected:
-    virtual bool WriteAfterCommit() const {
-      return write_after_commit_;
-    }
+ protected:
+  virtual bool WriteAfterCommit() const { return write_after_commit_; }
+
  public:
   // cf_mems should not be shared with concurrent inserters
   MemTableInserter(SequenceNumber _sequence, ColumnFamilyMemTables* cf_mems,
@@ -982,9 +988,7 @@ class MemTableInserter : public WriteBatch::Handler {
   MemTableInserter(const MemTableInserter&) = delete;
   MemTableInserter& operator=(const MemTableInserter&) = delete;
 
-  virtual bool WriterAfterCommit() const {
-    return write_after_commit_;
-  }
+  virtual bool WriterAfterCommit() const { return write_after_commit_; }
 
   void MaybeAdvanceSeq(bool batch_boundry = false) {
     if (batch_boundry == seq_per_batch_) {

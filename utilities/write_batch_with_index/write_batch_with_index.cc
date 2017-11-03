@@ -560,8 +560,8 @@ void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id) {
         case kTypeNoop:
           break;
         default:
-          return Status::Corruption(
-              "unknown WriteBatch tag in ReBuildIndex", ToString(static_cast<unsigned int>(tag)));
+          return Status::Corruption("unknown WriteBatch tag in ReBuildIndex",
+                                    ToString(static_cast<unsigned int>(tag)));
       }
     }
 
