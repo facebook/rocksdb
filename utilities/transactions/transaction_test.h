@@ -241,7 +241,7 @@ class TransactionTest : public ::testing::TestWithParam<
   // Test that we can change write policy after a clean shutdown (which would
   // empty the WAL)
   void CrossCompatibilityTest(TxnDBWritePolicy from_policy,
-                              TxnDBWritePolicy to_policy) {
+                              TxnDBWritePolicy to_policy, bool empty_wal) {
     TransactionOptions txn_options;
     ReadOptions read_options;
     WriteOptions write_options;
@@ -275,9 +275,9 @@ class TransactionTest : public ::testing::TestWithParam<
           WriteBatch wb;
           committed_kvs[k] = v;
           wb.Put(k, v);
-          // TODO(myabandeh): remove this when we supprot duplicatae keys in
+          // TODO(myabandeh): remove this when we supprot duplicate keys in
           // db->Write method
-          if (from_policy != WRITE_PREPARED) {
+          if (false) {
             committed_kvs[k] = v2;
             wb.Put(k, v2);
           }
@@ -292,9 +292,12 @@ class TransactionTest : public ::testing::TestWithParam<
           committed_kvs[k] = v;
           s = txn->Put(k, v);
           ASSERT_OK(s);
-          // Test the duplicate keys
-          committed_kvs[k] = v;
-          s = txn->Put(k, v);
+          // TODO(myabandeh): remove this when we supprot duplicate keys in
+          // db->Write method
+          if (false) {
+            committed_kvs[k] = v2;
+            s = txn->Put(k, v2);
+          }
           ASSERT_OK(s);
           if (type == 3) {
             s = txn->Prepare();
@@ -320,8 +323,20 @@ class TransactionTest : public ::testing::TestWithParam<
     txn_db_options.write_policy = to_policy;
     auto db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
     // Before upgrade/downgrade the WAL must be emptied
-    db_impl->TEST_FlushMemTable();
-    ReOpenNoDelete();
+    if (empty_wal) {
+      db_impl->TEST_FlushMemTable();
+    } else {
+      db_impl->FlushWAL(true);
+    }
+    auto s = ReOpenNoDelete();
+    if (empty_wal) {
+      ASSERT_OK(s);
+    } else {
+      // Test that we can detect the WAL that is produced by an incompatbile
+      // WritePolicy and fail fast before mis-interpreting the WAL.
+      ASSERT_TRUE(s.IsNotSupported());
+      return;
+    }
     db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
     // Check that WAL is empty
     VectorLogPtr log_files;
@@ -330,7 +345,7 @@ class TransactionTest : public ::testing::TestWithParam<
 
     for (auto& kv : committed_kvs) {
       std::string value;
-      auto s = db->Get(read_options, kv.first, &value);
+      s = db->Get(read_options, kv.first, &value);
       if (s.IsNotFound()) {
         printf("key = %s\n", kv.first.c_str());
       }

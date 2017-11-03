@@ -461,9 +461,8 @@ Status WriteBatch::Iterate(Handler* handler) const {
                (ContentFlags::DEFERRED | ContentFlags::HAS_BEGIN_PREPARE));
         handler->MarkBeginPrepare();
         empty_batch = false;
-        assert(handler->WriteAfterCommit());
         if (!handler->WriteAfterCommit()) {
-          s = Status::Corruption(
+          s = Status::NotSupported(
               "WriteCommitted txn tag when write_after_commit_ is disabled (in "
               "WritePrepared mode). If it is not due to corruption, the WAL "
               "must be emptied before changing the WritePolicy.");
@@ -474,14 +473,12 @@ Status WriteBatch::Iterate(Handler* handler) const {
                (ContentFlags::DEFERRED | ContentFlags::HAS_BEGIN_PREPARE));
         handler->MarkBeginPrepare();
         empty_batch = false;
-        assert(!handler->WriteAfterCommit());
         if (handler->WriteAfterCommit()) {
-          s = Status::Corruption(
+          s = Status::NotSupported(
               "WritePrepared txn tag when write_after_commit_ is enabled (in "
               "default WriteCommitted mode). If it is not due to corruption, "
               "the WAL must be emptied before changing the WritePolicy.");
         }
-        break;
         break;
       case kTypeEndPrepareXID:
         assert(content_flags_.load(std::memory_order_relaxed) &
