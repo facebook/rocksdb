@@ -91,7 +91,7 @@ class ConcurrentArena : public Allocator {
     char* free_begin_;
     std::atomic<size_t> allocated_and_unused_;
 
-    Shard() : allocated_and_unused_(0) {}
+    Shard() : free_begin_(nullptr), allocated_and_unused_(0) {}
   };
 
 #ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
