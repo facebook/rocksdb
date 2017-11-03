@@ -992,7 +992,7 @@ public:
     }
 
     MemTable* mem = cf_mems_->GetMemTable();
-    auto* moptions = mem->GetMemTableOptions();
+    auto* moptions = mem->GetImmutableMemTableOptions();
     if (!moptions->inplace_update_support) {
       mem->Add(sequence_, value_type, key, value, concurrent_memtable_writes_,
                get_post_process_info(mem));
@@ -1139,7 +1139,7 @@ public:
     }
 
     MemTable* mem = cf_mems_->GetMemTable();
-    auto* moptions = mem->GetMemTableOptions();
+    auto* moptions = mem->GetImmutableMemTableOptions();
     bool perform_merge = false;
 
     // If we pass DB through and options.max_successive_merges is hit
