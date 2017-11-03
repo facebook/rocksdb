@@ -47,10 +47,15 @@ class BlobDBTest : public testing::Test {
 
   ~BlobDBTest() { Destroy(); }
 
+  Status TryOpen(BlobDBOptions bdb_options = BlobDBOptions(),
+                 Options options = Options()) {
+    options.create_if_missing = true;
+    return BlobDB::Open(options, bdb_options, dbname_, &blob_db_);
+  }
+
   void Open(BlobDBOptions bdb_options = BlobDBOptions(),
             Options options = Options()) {
-    options.create_if_missing = true;
-    ASSERT_OK(BlobDB::Open(options, bdb_options, dbname_, &blob_db_));
+    ASSERT_OK(TryOpen(bdb_options, options));
   }
 
   void Destroy() {
@@ -77,6 +82,10 @@ class BlobDBTest : public testing::Test {
     if (data != nullptr) {
       data->erase(key);
     }
+  }
+
+  Status PutUntil(const Slice &key, const Slice &value, uint64_t expiration) {
+    return blob_db_->PutUntil(WriteOptions(), key, value, expiration);
   }
 
   void PutRandomWithTTL(const std::string &key, uint64_t ttl, Random *rnd,
@@ -1120,6 +1129,95 @@ TEST_F(BlobDBTest, InlineSmallValues) {
   ASSERT_TRUE(ttl_file->HasTTL());
   ASSERT_EQ(first_ttl_seq, ttl_file->GetSequenceRange().first);
   ASSERT_EQ(last_ttl_seq, ttl_file->GetSequenceRange().second);
+}
+
+TEST_F(BlobDBTest, CompactionFilterNotSupported) {
+  class TestCompactionFilter : public CompactionFilter {
+    virtual const char *Name() const { return "TestCompactionFilter"; }
+  };
+  class TestCompactionFilterFactory : public CompactionFilterFactory {
+    virtual const char *Name() const { return "TestCompactionFilterFactory"; }
+    virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+        const CompactionFilter::Context & /*context*/) {
+      return std::unique_ptr<CompactionFilter>(new TestCompactionFilter());
+    }
+  };
+  for (int i = 0; i < 2; i++) {
+    Options options;
+    if (i == 0) {
+      options.compaction_filter = new TestCompactionFilter();
+    } else {
+      options.compaction_filter_factory.reset(
+          new TestCompactionFilterFactory());
+    }
+    ASSERT_TRUE(TryOpen(BlobDBOptions(), options).IsNotSupported());
+    delete options.compaction_filter;
+  }
+}
+
+TEST_F(BlobDBTest, FilterExpiredBlobIndex) {
+  constexpr size_t kNumKeys = 100;
+  constexpr size_t kNumPuts = 1000;
+  constexpr uint64_t kMaxExpiration = 1000;
+  constexpr uint64_t kCompactTime = 500;
+  constexpr uint64_t kMinBlobSize = 100;
+  Random rnd(301);
+  mock_env_->set_current_time(0);
+  BlobDBOptions bdb_options;
+  bdb_options.min_blob_size = kMinBlobSize;
+  bdb_options.disable_background_tasks = true;
+  Options options;
+  options.env = mock_env_.get();
+  Open(bdb_options, options);
+
+  std::map<std::string, std::string> data;
+  std::map<std::string, std::string> data_after_compact;
+  for (size_t i = 0; i < kNumPuts; i++) {
+    bool is_small_value = rnd.Next() % 2;
+    bool has_ttl = rnd.Next() % 2;
+    uint64_t expiration = rnd.Next() % kMaxExpiration;
+    int len = is_small_value ? 10 : 200;
+    std::string key = "key" + ToString(rnd.Next() % kNumKeys);
+    std::string value = test::RandomHumanReadableString(&rnd, len);
+    if (!has_ttl) {
+      if (is_small_value) {
+        std::string blob_entry;
+        BlobIndex::EncodeInlinedTTL(&blob_entry, expiration, value);
+        // Fake blob index with TTL. See what it will do.
+        ASSERT_GT(kMinBlobSize, blob_entry.size());
+        value = blob_entry;
+      }
+      ASSERT_OK(Put(key, value));
+      data_after_compact[key] = value;
+    } else {
+      ASSERT_OK(PutUntil(key, value, expiration));
+      if (expiration <= kCompactTime) {
+        data_after_compact.erase(key);
+      } else {
+        data_after_compact[key] = value;
+      }
+    }
+    data[key] = value;
+  }
+  VerifyDB(data);
+
+  mock_env_->set_current_time(kCompactTime);
+  // Take a snapshot before compaction. Make sure expired blob indexes is
+  // filtered regardless of snapshot.
+  const Snapshot *snapshot = blob_db_->GetSnapshot();
+  // Issue manual compaction to trigger compaction filter.
+  ASSERT_OK(blob_db_->CompactRange(CompactRangeOptions(),
+                                   blob_db_->DefaultColumnFamily(), nullptr,
+                                   nullptr));
+  blob_db_->ReleaseSnapshot(snapshot);
+  // Verify expired blob index are filtered.
+  std::vector<KeyVersion> versions;
+  GetAllKeyVersions(blob_db_, "", "", &versions);
+  ASSERT_EQ(data_after_compact.size(), versions.size());
+  for (auto &version : versions) {
+    ASSERT_TRUE(data_after_compact.count(version.user_key) > 0);
+  }
+  VerifyDB(data_after_compact);
 }
 
 }  //  namespace blob_db
