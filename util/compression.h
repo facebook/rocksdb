@@ -806,9 +806,9 @@ inline std::string ZSTD_TrainDictionary(const std::string& samples,
   // only since v0.8.0. For now we enable the feature in stable versions only.
 #if ZSTD_VERSION_NUMBER >= 800  // v0.8.0+
   std::string dict_data(max_dict_bytes, '\0');
-  size_t dict_len =
-      ZDICT_trainFromBuffer(&dict_data[0], max_dict_bytes, &samples[0],
-                            &sample_lens[0], sample_lens.size());
+  size_t dict_len = ZDICT_trainFromBuffer(
+      &dict_data[0], max_dict_bytes, &samples[0], &sample_lens[0],
+      static_cast<unsigned>(sample_lens.size()));
   if (ZDICT_isError(dict_len)) {
     return "";
   }
