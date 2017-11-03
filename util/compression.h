@@ -805,16 +805,16 @@ inline std::string ZSTD_TrainDictionary(const std::string& samples,
   // Dictionary trainer is available since v0.6.1, but ZSTD was marked stable
   // only since v0.8.0. For now we enable the feature in stable versions only.
 #if ZSTD_VERSION_NUMBER >= 800  // v0.8.0+
-  std::unique_ptr<char[]> dict_data(new char[max_dict_bytes]);
+  std::string dict_data(max_dict_bytes, '\0');
   size_t dict_len =
       ZDICT_trainFromBuffer(&dict_data[0], max_dict_bytes, &samples[0],
                             &sample_lens[0], sample_lens.size());
   if (ZDICT_isError(dict_len)) {
     return "";
   }
-  // TODO(ajkr): we may be able to avoid this copy by storing
-  // compression_dict in something other than std::string.
-  return std::string(&dict_data[0], dict_len);
+  assert(dict_len <= max_dict_bytes);
+  dict_data.resize(dict_len);
+  return dict_data;
 #else   // up to v0.7.x
   assert(false);
   return "";
