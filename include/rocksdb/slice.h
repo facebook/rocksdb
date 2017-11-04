@@ -150,6 +150,10 @@ class PinnableSlice : public Slice, public Cleanable {
       } else {
         buf_ = other.buf_;
       }
+      // Re-initialize the other PinnablaeSlice.
+      other.self_space_.clear();
+      other.buf_ = &other.self_space_;
+      other.pinned_ = false;
     }
     return *this;
   }
