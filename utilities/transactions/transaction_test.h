@@ -113,11 +113,10 @@ class TransactionTest : public ::testing::TestWithParam<
     std::vector<ColumnFamilyHandle*> handles;
     DB* root_db;
     Options options_copy(options);
-    if (txn_db_options.write_policy == WRITE_PREPARED) {
-      options_copy.seq_per_batch = true;
-    }
-    Status s =
-        DB::Open(options_copy, dbname, column_families, &handles, &root_db);
+    const bool use_seq_per_batch =
+        txn_db_options.write_policy == WRITE_PREPARED;
+    Status s = DBImpl::Open(options_copy, dbname, column_families, &handles,
+                            &root_db, use_seq_per_batch);
     if (s.ok()) {
       assert(handles.size() == 1);
       s = TransactionDB::WrapStackableDB(

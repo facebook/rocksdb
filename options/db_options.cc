@@ -86,8 +86,7 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       allow_ingest_behind(options.allow_ingest_behind),
       preserve_deletes(options.preserve_deletes),
       concurrent_prepare(options.concurrent_prepare),
-      manual_wal_flush(options.manual_wal_flush),
-      seq_per_batch(options.seq_per_batch) {
+      manual_wal_flush(options.manual_wal_flush) {
 }
 
 void ImmutableDBOptions::Dump(Logger* log) const {
@@ -221,7 +220,6 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    concurrent_prepare);
   ROCKS_LOG_HEADER(log, "            Options.manual_wal_flush: %d",
                    manual_wal_flush);
-  ROCKS_LOG_HEADER(log, "            Options.seq_per_batch: %d", seq_per_batch);
 }
 
 MutableDBOptions::MutableDBOptions()

@@ -79,7 +79,6 @@ struct ImmutableDBOptions {
   bool preserve_deletes;
   bool concurrent_prepare;
   bool manual_wal_flush;
-  bool seq_per_batch;
 };
 
 struct MutableDBOptions {

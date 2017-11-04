@@ -136,7 +136,8 @@ void DumpSupportInfo(Logger* logger) {
 int64_t kDefaultLowPriThrottledRate = 2 * 1024 * 1024;
 } // namespace
 
-DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
+DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
+               const bool seq_per_batch)
     : env_(options.env),
       dbname_(dbname),
       initial_db_options_(SanitizeOptions(dbname, options)),
@@ -185,7 +186,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
           env_options_, immutable_db_options_)),
       num_running_ingest_file_(0),
 #ifndef ROCKSDB_LITE
-      wal_manager_(immutable_db_options_, env_options_),
+      wal_manager_(immutable_db_options_, env_options_, seq_per_batch),
 #endif  // ROCKSDB_LITE
       event_logger_(immutable_db_options_.info_log.get()),
       bg_work_paused_(0),
@@ -194,9 +195,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       opened_successfully_(false),
       concurrent_prepare_(options.concurrent_prepare),
       manual_wal_flush_(options.manual_wal_flush),
-      seq_per_batch_(options.seq_per_batch),
-      // TODO(myabandeh): revise this when we change options.seq_per_batch
-      use_custom_gc_(options.seq_per_batch),
+      seq_per_batch_(seq_per_batch),
+      use_custom_gc_(seq_per_batch),
       preserve_deletes_(options.preserve_deletes) {
   env_->GetAbsolutePath(dbname, &db_absolute_path_);
 

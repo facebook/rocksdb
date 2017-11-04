@@ -68,7 +68,8 @@ struct MemTableInfo;
 
 class DBImpl : public DB {
  public:
-  DBImpl(const DBOptions& options, const std::string& dbname);
+  DBImpl(const DBOptions& options, const std::string& dbname,
+         const bool seq_per_batch = false);
   virtual ~DBImpl();
 
   // Implementations of the DB interface
@@ -603,6 +604,12 @@ class DBImpl : public DB {
   InstrumentedMutex* mutex() { return &mutex_; }
 
   Status NewDB();
+
+  // This is to be used only by internal rocksdb classes.
+  static Status Open(const DBOptions& db_options, const std::string& name,
+                     const std::vector<ColumnFamilyDescriptor>& column_families,
+                     std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
+                     const bool seq_per_batch);
 
  protected:
   Env* const env_;
@@ -1319,6 +1326,12 @@ class DBImpl : public DB {
   // 2PC these are the writes at Prepare phase.
   const bool concurrent_prepare_;
   const bool manual_wal_flush_;
+  // Increase the sequence number after writing each batch, whether memtable is
+  // disabled for that or not. Otherwise the sequence number is increased after
+  // writing each key into memtable. This implies that when memtable_disable is
+  // set, the seq is not increased at all.
+  //
+  // Default: false
   const bool seq_per_batch_;
   const bool use_custom_gc_;
 
