@@ -47,6 +47,7 @@ TEST_F(SliceTest, PinnableSliceMoveConstruct) {
     ASSERT_EQ("bar", s2->ToString());
     s2->RegisterCleanup(BumpCounter, &orig_cleanup, nullptr);
     *s2 = std::move(*s1);
+    ASSERT_FALSE(s1->IsPinned());
     ASSERT_EQ("foo", s2->ToString());
     ASSERT_EQ(1, orig_cleanup);
     ASSERT_EQ(0, moved_cleanup);
