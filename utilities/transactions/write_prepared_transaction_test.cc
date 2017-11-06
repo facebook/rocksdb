@@ -625,7 +625,7 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceConcurrentTest) {
       printf("Tested %" ROCKSDB_PRIszt " cases so far\n", n);
     }
     DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
-    auto seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
+    auto seq = db_impl->TEST_GetLastVisibleSequence();
     exp_seq = seq;
     // This is increased before writing the batch for commit
     commit_writes = 0;
@@ -703,7 +703,7 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceConcurrentTest) {
     }
 
     // Check if memtable inserts advanced seq number as expected
-    seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
+    seq = db_impl->TEST_GetLastVisibleSequence();
     ASSERT_EQ(exp_seq, seq);
 
     rocksdb::SyncPoint::GetInstance()->DisableProcessing();
@@ -1309,7 +1309,7 @@ TEST_P(WritePreparedTransactionTest, CompactionShouldKeepUncommittedKeys) {
     if (options.concurrent_prepare) {
       expected_seq++;  // 1 for commit
     }
-    ASSERT_EQ(expected_seq, db_impl->TEST_GetLatestVisibleSequenceNumber());
+    ASSERT_EQ(expected_seq, db_impl->TEST_GetLastVisibleSequence());
     snapshots.push_back(db->GetSnapshot());
   };
 
@@ -1397,7 +1397,7 @@ TEST_P(WritePreparedTransactionTest, CompactionShouldKeepSnapshotVisibleKeys) {
   ASSERT_EQ(++expected_seq, db->GetLatestSequenceNumber());
   ASSERT_OK(txn1->Commit());
   DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
-  ASSERT_EQ(++expected_seq, db_impl->TEST_GetLatestVisibleSequenceNumber());
+  ASSERT_EQ(++expected_seq, db_impl->TEST_GetLastVisibleSequence());
   delete txn1;
   // Take a snapshots to avoid keys get evicted before compaction.
   const Snapshot* snapshot1 = db->GetSnapshot();
@@ -1410,7 +1410,7 @@ TEST_P(WritePreparedTransactionTest, CompactionShouldKeepSnapshotVisibleKeys) {
   // txn2 commit after snapshot2 and it is not visible.
   const Snapshot* snapshot2 = db->GetSnapshot();
   ASSERT_OK(txn2->Commit());
-  ASSERT_EQ(++expected_seq, db_impl->TEST_GetLatestVisibleSequenceNumber());
+  ASSERT_EQ(++expected_seq, db_impl->TEST_GetLastVisibleSequence());
   delete txn2;
   // Take a snapshots to avoid keys get evicted before compaction.
   const Snapshot* snapshot3 = db->GetSnapshot();
@@ -1420,14 +1420,14 @@ TEST_P(WritePreparedTransactionTest, CompactionShouldKeepSnapshotVisibleKeys) {
   if (options.concurrent_prepare) {
     expected_seq++;  // 1 for commit
   }
-  ASSERT_EQ(expected_seq, db_impl->TEST_GetLatestVisibleSequenceNumber());
+  ASSERT_EQ(expected_seq, db_impl->TEST_GetLastVisibleSequence());
   ASSERT_OK(db->Put(WriteOptions(), "key2", "value2_2"));
   expected_seq++;  // 1 for write
   SequenceNumber seq2 = expected_seq;
   if (options.concurrent_prepare) {
     expected_seq++;  // 1 for commit
   }
-  ASSERT_EQ(expected_seq, db_impl->TEST_GetLatestVisibleSequenceNumber());
+  ASSERT_EQ(expected_seq, db_impl->TEST_GetLastVisibleSequence());
   ASSERT_OK(db->Flush(FlushOptions()));
   db->ReleaseSnapshot(snapshot1);
   db->ReleaseSnapshot(snapshot3);

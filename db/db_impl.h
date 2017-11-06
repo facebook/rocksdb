@@ -221,10 +221,10 @@ class DBImpl : public DB {
 
   virtual SequenceNumber GetLatestSequenceNumber() const override;
   virtual SequenceNumber IncAndFetchSequenceNumber();
-  // Returns LastToBeWrittenSequence in concurrent_prepare_ && seq_per_batch_
-  // mode and LastSequence otherwise. This is useful when visiblility depends
+  // Returns LastSequence in allocate_seq_only_for_data_
+  // mode and LastAllocatedSequence otherwise. This is useful when visiblility depends
   // also on data written to the WAL but not to the memtable.
-  SequenceNumber TEST_GetLatestVisibleSequenceNumber() const;
+  SequenceNumber TEST_GetLastVisibleSequence() const;
 
   virtual bool SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) override;
 
@@ -1328,11 +1328,13 @@ class DBImpl : public DB {
   const bool manual_wal_flush_;
   // Increase the sequence number after writing each batch, whether memtable is
   // disabled for that or not. Otherwise the sequence number is increased after
-  // writing each key into memtable. This implies that when memtable_disable is
+  // writing each key into memtable. This implies that when disable_memtable is
   // set, the seq is not increased at all.
   //
   // Default: false
   const bool seq_per_batch_;
+  // A sequence number is allocated only for data written to DB. Otherwise it could also be allocated for operational purposes such as commit timestamp of a transaction.
+  const bool allocate_seq_only_for_data_;
   const bool use_custom_gc_;
 
   // Clients must periodically call SetPreserveDeletesSequenceNumber()

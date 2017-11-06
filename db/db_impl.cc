@@ -196,6 +196,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       concurrent_prepare_(options.concurrent_prepare),
       manual_wal_flush_(options.manual_wal_flush),
       seq_per_batch_(seq_per_batch),
+      // When concurrent_prepare_ and seq_per_batch_ are both enabled we sometimes allocate a seq also to indicate the commit timestmamp of a transaction. In such cases last_sequence_ would not indicate the last visible sequence number in memtable and should not be used for snapshots. It should use last_allocated_sequence_ instaed but also needs other mechanisms to exclude the data that after last_sequence_ and before last_allocated_sequence_ from the snapshot. In WritePreparedTxn this property is ensured since such data are not committed yet.
+      allocate_seq_only_for_data_(!(seq_per_batch && options.concurrent_prepare)),
       use_custom_gc_(seq_per_batch),
       preserve_deletes_(options.preserve_deletes) {
   env_->GetAbsolutePath(dbname, &db_absolute_path_);
@@ -751,7 +753,7 @@ SequenceNumber DBImpl::GetLatestSequenceNumber() const {
 }
 
 SequenceNumber DBImpl::IncAndFetchSequenceNumber() {
-  return versions_->FetchAddLastToBeWrittenSequence(1ull) + 1ull;
+  return versions_->FetchAddLastAllocatedSequence(1ull) + 1ull;
 }
 
 bool DBImpl::SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) {
@@ -977,9 +979,9 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
     // super versipon because a flush happening in between may compact
     // away data for the snapshot, but the snapshot is earlier than the
     // data overwriting it, so users may see wrong results.
-    snapshot = concurrent_prepare_ && seq_per_batch_
-                   ? versions_->LastToBeWrittenSequence()
-                   : versions_->LastSequence();
+    snapshot = allocate_seq_only_for_data_
+                   ? versions_->LastSequence()
+                   : versions_->LastAllocatedSequence();
   }
   TEST_SYNC_POINT("DBImpl::GetImpl:3");
   TEST_SYNC_POINT("DBImpl::GetImpl:4");
@@ -1070,9 +1072,9 @@ std::vector<Status> DBImpl::MultiGet(
     snapshot = reinterpret_cast<const SnapshotImpl*>(
         read_options.snapshot)->number_;
   } else {
-    snapshot = concurrent_prepare_ && seq_per_batch_
-                   ? versions_->LastToBeWrittenSequence()
-                   : versions_->LastSequence();
+    snapshot = allocate_seq_only_for_data_
+                   ? versions_->LastSequence()
+                   : versions_->LastAllocatedSequence();
   }
   for (auto mgd_iter : multiget_cf_data) {
     mgd_iter.second->super_version =
@@ -1478,8 +1480,7 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
         read_callback);
 #endif
   } else {
-    // Note: no need to consider the special case of concurrent_prepare_ &&
-    // seq_per_batch_ since NewIterator is overridden in WritePreparedTxnDB
+    // Note: no need to consider the special case of allocate_seq_only_for_data_==false since NewIterator is overridden in WritePreparedTxnDB
     auto snapshot = read_options.snapshot != nullptr
                         ? read_options.snapshot->GetSequenceNumber()
                         : versions_->LastSequence();
@@ -1595,8 +1596,7 @@ Status DBImpl::NewIterators(
     }
 #endif
   } else {
-    // Note: no need to consider the special case of concurrent_prepare_ &&
-    // seq_per_batch_ since NewIterators is overridden in WritePreparedTxnDB
+    // Note: no need to consider the special case of allocate_seq_only_for_data_==false since NewIterators is overridden in WritePreparedTxnDB
     auto snapshot = read_options.snapshot != nullptr
                         ? read_options.snapshot->GetSequenceNumber()
                         : versions_->LastSequence();
@@ -1630,9 +1630,9 @@ const Snapshot* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary) {
     delete s;
     return nullptr;
   }
-  auto snapshot_seq = concurrent_prepare_ && seq_per_batch_
-                          ? versions_->LastToBeWrittenSequence()
-                          : versions_->LastSequence();
+    auto snapshot_seq = allocate_seq_only_for_data_
+                   ? versions_->LastSequence()
+                   : versions_->LastAllocatedSequence();
   return snapshots_.New(s, snapshot_seq, unix_time, is_write_conflict_boundary);
 }
 
@@ -1643,9 +1643,9 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
     snapshots_.Delete(casted_s);
     uint64_t oldest_snapshot;
     if (snapshots_.empty()) {
-      oldest_snapshot = concurrent_prepare_ && seq_per_batch_
-                            ? versions_->LastToBeWrittenSequence()
-                            : versions_->LastSequence();
+    oldest_snapshot = allocate_seq_only_for_data_
+                   ? versions_->LastSequence()
+                   : versions_->LastAllocatedSequence();
     } else {
       oldest_snapshot = snapshots_.oldest()->number_;
     }

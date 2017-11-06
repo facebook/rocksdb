@@ -4856,12 +4856,12 @@ TEST_P(TransactionTest, SeqAdvanceTest) {
     auto seq = db_impl->GetLatestSequenceNumber();
     exp_seq = seq;
     txn_t0(0);
-    seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
+    seq = db_impl->TEST_GetLastVisibleSequence();
     ASSERT_EQ(exp_seq, seq);
 
     if (branch_do(n, &branch)) {
       db_impl->Flush(fopt);
-      seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
+      seq = db_impl->TEST_GetLastVisibleSequence();
       ASSERT_EQ(exp_seq, seq);
     }
     if (branch_do(n, &branch)) {
@@ -4874,16 +4874,16 @@ TEST_P(TransactionTest, SeqAdvanceTest) {
 
     // Doing it twice might detect some bugs
     txn_t0(1);
-    seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
+    seq = db_impl->TEST_GetLastVisibleSequence();
     ASSERT_EQ(exp_seq, seq);
 
     txn_t1(0);
-    seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
+    seq = db_impl->TEST_GetLastVisibleSequence();
     ASSERT_EQ(exp_seq, seq);
 
     if (branch_do(n, &branch)) {
       db_impl->Flush(fopt);
-      seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
+      seq = db_impl->TEST_GetLastVisibleSequence();
       ASSERT_EQ(exp_seq, seq);
     }
     if (branch_do(n, &branch)) {
@@ -4895,12 +4895,12 @@ TEST_P(TransactionTest, SeqAdvanceTest) {
     }
 
     txn_t3(0);
-    seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
+    seq = db_impl->TEST_GetLastVisibleSequence();
     ASSERT_EQ(exp_seq, seq);
 
     if (branch_do(n, &branch)) {
       db_impl->Flush(fopt);
-      seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
+      seq = db_impl->TEST_GetLastVisibleSequence();
       ASSERT_EQ(exp_seq, seq);
     }
     if (branch_do(n, &branch)) {
@@ -4912,16 +4912,16 @@ TEST_P(TransactionTest, SeqAdvanceTest) {
     }
 
     txn_t0(0);
-    seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
+    seq = db_impl->TEST_GetLastVisibleSequence();
     ASSERT_EQ(exp_seq, seq);
 
     txn_t2(0);
-    seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
+    seq = db_impl->TEST_GetLastVisibleSequence();
     ASSERT_EQ(exp_seq, seq);
 
     if (branch_do(n, &branch)) {
       db_impl->Flush(fopt);
-      seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
+      seq = db_impl->TEST_GetLastVisibleSequence();
       ASSERT_EQ(exp_seq, seq);
     }
     if (branch_do(n, &branch)) {

@@ -246,13 +246,13 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     } else {
       if (status.ok() && !write_options.disableWAL) {
         PERF_TIMER_GUARD(write_wal_time);
-        // LastToBeWrittenSequence is increased inside WriteToWAL under
+        // LastAllocatedSequence is increased inside WriteToWAL under
         // wal_write_mutex_ to ensure ordered events in WAL
         status = ConcurrentWriteToWAL(write_group, log_used, &last_sequence,
                                       seq_inc);
       } else {
         // Otherwise we inc seq number for memtable writes
-        last_sequence = versions_->FetchAddLastToBeWrittenSequence(seq_inc);
+        last_sequence = versions_->FetchAddLastAllocatedSequence(seq_inc);
       }
     }
     assert(last_sequence != kMaxSequenceNumber);
@@ -532,7 +532,7 @@ Status DBImpl::WriteImplWALOnly(const WriteOptions& write_options,
   PERF_TIMER_STOP(write_pre_and_post_process_time);
 
   PERF_TIMER_GUARD(write_wal_time);
-  // LastToBeWrittenSequence is increased inside WriteToWAL under
+  // LastAllocatedSequence is increased inside WriteToWAL under
   // wal_write_mutex_ to ensure ordered events in WAL
   size_t seq_inc = seq_per_batch_ ? write_group.size : 0 /*total_count*/;
   status = ConcurrentWriteToWAL(write_group, log_used, &last_sequence, seq_inc);
@@ -828,7 +828,7 @@ Status DBImpl::ConcurrentWriteToWAL(const WriteThread::WriteGroup& write_group,
       writer->log_used = logfile_number_;
     }
   }
-  *last_sequence = versions_->FetchAddLastToBeWrittenSequence(seq_inc);
+  *last_sequence = versions_->FetchAddLastAllocatedSequence(seq_inc);
   auto sequence = *last_sequence + 1;
   WriteBatchInternal::SetSequence(merged_batch, sequence);
 
