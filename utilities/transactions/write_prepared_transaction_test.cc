@@ -693,13 +693,13 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceConcurrentTest) {
     for (auto& t : threads) {
       t.join();
     }
-    if (options.concurrent_prepare) {
+    if (options.two_write_queues) {
       // In this case none of the above scheduling tricks to deterministically
       // form merged bactches works because the writes go to saparte queues.
       // This would result in different write groups in each run of the test. We
       // still keep the test since althgouh non-deterministic and hard to debug,
       // it is still useful to have.
-      // TODO(myabandeh): Add a deterministic unit test for concurrent_prepare
+      // TODO(myabandeh): Add a deterministic unit test for two_write_queues
     }
 
     // Check if memtable inserts advanced seq number as expected
@@ -1258,7 +1258,7 @@ TEST_P(WritePreparedTransactionTest, DisableGCDuringRecoveryTest) {
     VerifyKeys({{"foo", v}});
     seq++;  // one for the key/value
     KeyVersion kv = {"foo", v, seq, kTypeValue};
-    if (options.concurrent_prepare) {
+    if (options.two_write_queues) {
       seq++;  // one for the commit
     }
     versions.emplace_back(kv);
@@ -1306,7 +1306,7 @@ TEST_P(WritePreparedTransactionTest, CompactionShouldKeepUncommittedKeys) {
   auto add_key = [&](std::function<Status()> func) {
     ASSERT_OK(func());
     expected_seq++;
-    if (options.concurrent_prepare) {
+    if (options.two_write_queues) {
       expected_seq++;  // 1 for commit
     }
     ASSERT_EQ(expected_seq, db_impl->TEST_GetLastVisibleSequence());
@@ -1417,14 +1417,14 @@ TEST_P(WritePreparedTransactionTest, CompactionShouldKeepSnapshotVisibleKeys) {
   ASSERT_OK(db->Put(WriteOptions(), "key1", "value1_2"));
   expected_seq++;  // 1 for write
   SequenceNumber seq1 = expected_seq;
-  if (options.concurrent_prepare) {
+  if (options.two_write_queues) {
     expected_seq++;  // 1 for commit
   }
   ASSERT_EQ(expected_seq, db_impl->TEST_GetLastVisibleSequence());
   ASSERT_OK(db->Put(WriteOptions(), "key2", "value2_2"));
   expected_seq++;  // 1 for write
   SequenceNumber seq2 = expected_seq;
-  if (options.concurrent_prepare) {
+  if (options.two_write_queues) {
     expected_seq++;  // 1 for commit
   }
   ASSERT_EQ(expected_seq, db_impl->TEST_GetLastVisibleSequence());

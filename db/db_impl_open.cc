@@ -592,7 +592,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
         // happen when we open and write to a corrupted DB, where sequence id
         // will start from the last sequence id we recovered.
         if (sequence == *next_sequence ||
-            // With seq_per_batch_, if previous run was with concurrent_prepare_
+            // With seq_per_batch_, if previous run was with two_write_queues_
             // then allocate_seq_only_for_data_ was disabled and a gap in the
             // sequence numbers in the log is expected by the commits without
             // prepares.
@@ -846,13 +846,13 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
   if (data_seen && !flushed) {
     // Mark these as alive so they'll be considered for deletion later by
     // FindObsoleteFiles()
-    if (concurrent_prepare_) {
+    if (two_write_queues_) {
       log_write_mutex_.Lock();
     }
     for (auto log_number : log_numbers) {
       alive_log_files_.push_back(LogFileNumberSize(log_number));
     }
-    if (concurrent_prepare_) {
+    if (two_write_queues_) {
       log_write_mutex_.Unlock();
     }
   }
@@ -1080,12 +1080,12 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
             cfd, &sv_context, *cfd->GetLatestMutableCFOptions());
       }
       sv_context.Clean();
-      if (impl->concurrent_prepare_) {
+      if (impl->two_write_queues_) {
         impl->log_write_mutex_.Lock();
       }
       impl->alive_log_files_.push_back(
           DBImpl::LogFileNumberSize(impl->logfile_number_));
-      if (impl->concurrent_prepare_) {
+      if (impl->two_write_queues_) {
         impl->log_write_mutex_.Unlock();
       }
       impl->DeleteObsoleteFiles();

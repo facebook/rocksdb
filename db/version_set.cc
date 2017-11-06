@@ -2755,9 +2755,8 @@ void VersionSet::LogAndApplyCFHelper(VersionEdit* edit) {
   // expecting some new data that is not written yet. Since LastSequence is an
   // upper bound on the sequence, it is ok to record
   // last_allocated_sequence_ as the last sequence.
-  edit->SetLastSequence(db_options_->concurrent_prepare
-                            ? last_allocated_sequence_
-                            : last_sequence_);
+  edit->SetLastSequence(db_options_->two_write_queues ? last_allocated_sequence_
+                                                      : last_sequence_);
   if (edit->is_column_family_drop_) {
     // if we drop column family, we have to make sure to save max column family,
     // so that we don't reuse existing ID
@@ -2785,9 +2784,8 @@ void VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd,
   // expecting some new data that is not written yet. Since LastSequence is an
   // upper bound on the sequence, it is ok to record
   // last_allocated_sequence_ as the last sequence.
-  edit->SetLastSequence(db_options_->concurrent_prepare
-                            ? last_allocated_sequence_
-                            : last_sequence_);
+  edit->SetLastSequence(db_options_->two_write_queues ? last_allocated_sequence_
+                                                      : last_sequence_);
 
   builder->Apply(edit);
 }

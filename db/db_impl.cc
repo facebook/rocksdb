@@ -193,10 +193,10 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       bg_compaction_paused_(0),
       refitting_level_(false),
       opened_successfully_(false),
-      concurrent_prepare_(options.concurrent_prepare),
+      two_write_queues_(options.two_write_queues),
       manual_wal_flush_(options.manual_wal_flush),
       seq_per_batch_(seq_per_batch),
-      // When concurrent_prepare_ and seq_per_batch_ are both enabled we
+      // When two_write_queues_ and seq_per_batch_ are both enabled we
       // sometimes allocate a seq also to indicate the commit timestmamp of a
       // transaction. In such cases last_sequence_ would not indicate the last
       // visible sequence number in memtable and should not be used for
@@ -205,8 +205,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       // and before last_allocated_sequence_ from the snapshot. In
       // WritePreparedTxn this property is ensured since such data are not
       // committed yet.
-      allocate_seq_only_for_data_(
-          !(seq_per_batch && options.concurrent_prepare)),
+      allocate_seq_only_for_data_(!(seq_per_batch && options.two_write_queues)),
       // Since seq_per_batch_ is currently set only by WritePreparedTxn which
       // requires a custom gc for compaction, we use that to set use_custom_gc_
       // as well.
@@ -2769,7 +2768,7 @@ Status DBImpl::IngestExternalFile(
     WriteThread::Writer w;
     write_thread_.EnterUnbatched(&w, &mutex_);
     WriteThread::Writer nonmem_w;
-    if (concurrent_prepare_) {
+    if (two_write_queues_) {
       nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
     }
 
@@ -2812,7 +2811,7 @@ Status DBImpl::IngestExternalFile(
     }
 
     // Resume writes to the DB
-    if (concurrent_prepare_) {
+    if (two_write_queues_) {
       nonmem_write_thread_.ExitUnbatched(&nonmem_w);
     }
     write_thread_.ExitUnbatched(&w);

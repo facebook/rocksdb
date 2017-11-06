@@ -54,7 +54,7 @@ class TransactionTest : public ::testing::TestWithParam<
     options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
     env = new FaultInjectionTestEnv(Env::Default());
     options.env = env;
-    options.concurrent_prepare = std::get<1>(GetParam());
+    options.two_write_queues = std::get<1>(GetParam());
     dbname = test::TmpDir() + "/transaction_testdb";
 
     DestroyDB(dbname, options);
@@ -143,7 +143,7 @@ class TransactionTest : public ::testing::TestWithParam<
     } else {
       // Consume one seq per batch
       exp_seq++;
-      if (options.concurrent_prepare) {
+      if (options.two_write_queues) {
         // Consume one seq for commit
         exp_seq++;
       }
@@ -168,7 +168,7 @@ class TransactionTest : public ::testing::TestWithParam<
     } else {
       // Consume one seq per batch
       exp_seq++;
-      if (options.concurrent_prepare) {
+      if (options.two_write_queues) {
         // Consume one seq for commit
         exp_seq++;
       }
@@ -196,7 +196,7 @@ class TransactionTest : public ::testing::TestWithParam<
     } else {
       // Consume one seq per batch
       exp_seq++;
-      if (options.concurrent_prepare) {
+      if (options.two_write_queues) {
         // Consume one seq for commit
         exp_seq++;
       }
