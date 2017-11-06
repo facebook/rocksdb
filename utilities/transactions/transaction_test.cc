@@ -19,6 +19,7 @@
 #include "db/db_impl.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
+#include "rocksdb/perf_context.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "table/mock_table.h"
@@ -187,15 +188,18 @@ TEST_P(TransactionTest, WaitingTxn) {
         ASSERT_EQ(cf_id, 0);
       });
 
+  get_perf_context()->Reset();
   // lock key in default cf
   s = txn1->GetForUpdate(read_options, "foo", &value);
   ASSERT_OK(s);
   ASSERT_EQ(value, "bar");
+  ASSERT_EQ(get_perf_context()->key_lock_wait_count, 0);
 
   // lock key in cfa
   s = txn1->GetForUpdate(read_options, cfa, "foo", &value);
   ASSERT_OK(s);
   ASSERT_EQ(value, "bar");
+  ASSERT_EQ(get_perf_context()->key_lock_wait_count, 0);
 
   auto lock_data = db->GetLockStatusData();
   // Locked keys exist in both column family.
@@ -231,6 +235,8 @@ TEST_P(TransactionTest, WaitingTxn) {
   s = txn2->GetForUpdate(read_options, "foo", &value);
   ASSERT_TRUE(s.IsTimedOut());
   ASSERT_EQ(s.ToString(), "Operation timed out: Timeout waiting to lock key");
+  ASSERT_EQ(get_perf_context()->key_lock_wait_count, 1);
+  ASSERT_GE(get_perf_context()->key_lock_wait_time, 0);
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();

@@ -20,6 +20,7 @@
 #include <string>
 #include <vector>
 
+#include "monitoring/perf_context_imp.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/utilities/transaction_db_mutex.h"
 #include "util/cast_util.h"
@@ -347,6 +348,8 @@ Status TransactionLockMgr::AcquireWithTimeout(
                          &expire_time_hint, &wait_ids);
 
   if (!result.ok() && timeout != 0) {
+    PERF_TIMER_GUARD(key_lock_wait_time);
+    PERF_COUNTER_ADD(key_lock_wait_count, 1);
     // If we weren't able to acquire the lock, we will keep retrying as long
     // as the timeout allows.
     bool timed_out = false;
