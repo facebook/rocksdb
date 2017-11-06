@@ -773,8 +773,7 @@ class VersionSet {
   void SetLastSequence(uint64_t s) {
     assert(s >= last_sequence_);
     // Last visible seqeunce must always be less than last written seq
-    assert(!db_options_->concurrent_prepare ||
-           s <= last_allocated_sequence_);
+    assert(!db_options_->concurrent_prepare || s <= last_allocated_sequence_);
     last_sequence_.store(s, std::memory_order_release);
   }
 
@@ -894,7 +893,8 @@ class VersionSet {
   uint64_t pending_manifest_file_number_;
   // The last seq visible to reads
   std::atomic<uint64_t> last_sequence_;
-  // The last seq that is already allocated. The seq might or might not have appreated in memtable.
+  // The last seq that is already allocated. The seq might or might not have
+  // appreated in memtable.
   std::atomic<uint64_t> last_allocated_sequence_;
   uint64_t prev_log_number_;  // 0 or backing store for memtable being compacted
 

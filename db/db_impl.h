@@ -222,8 +222,8 @@ class DBImpl : public DB {
   virtual SequenceNumber GetLatestSequenceNumber() const override;
   virtual SequenceNumber IncAndFetchSequenceNumber();
   // Returns LastSequence in allocate_seq_only_for_data_
-  // mode and LastAllocatedSequence otherwise. This is useful when visiblility depends
-  // also on data written to the WAL but not to the memtable.
+  // mode and LastAllocatedSequence otherwise. This is useful when visiblility
+  // depends also on data written to the WAL but not to the memtable.
   SequenceNumber TEST_GetLastVisibleSequence() const;
 
   virtual bool SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) override;
@@ -1333,9 +1333,13 @@ class DBImpl : public DB {
   //
   // Default: false
   const bool seq_per_batch_;
-  // A sequence number is allocated only for data written to DB. Otherwise it could also be allocated for operational purposes such as commit timestamp of a transaction.
+  // A sequence number is allocated only for data written to DB. Otherwise it
+  // could also be allocated for operational purposes such as commit timestamp
+  // of a transaction.
   const bool allocate_seq_only_for_data_;
-  // It indicates that a customized gc algorithm must be used for flush/compaction and if it is not provided vis SnapshotChecker, we should disable gc to be safe.
+  // It indicates that a customized gc algorithm must be used for
+  // flush/compaction and if it is not provided vis SnapshotChecker, we should
+  // disable gc to be safe.
   const bool use_custom_gc_;
 
   // Clients must periodically call SetPreserveDeletesSequenceNumber()
