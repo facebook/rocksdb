@@ -198,6 +198,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       seq_per_batch_(seq_per_batch),
       // When concurrent_prepare_ and seq_per_batch_ are both enabled we sometimes allocate a seq also to indicate the commit timestmamp of a transaction. In such cases last_sequence_ would not indicate the last visible sequence number in memtable and should not be used for snapshots. It should use last_allocated_sequence_ instaed but also needs other mechanisms to exclude the data that after last_sequence_ and before last_allocated_sequence_ from the snapshot. In WritePreparedTxn this property is ensured since such data are not committed yet.
       allocate_seq_only_for_data_(!(seq_per_batch && options.concurrent_prepare)),
+      // Since seq_per_batch_ is currently set only by WritePreparedTxn which requires a custom gc for compaction, we use that to set use_custom_gc_ as well.
       use_custom_gc_(seq_per_batch),
       preserve_deletes_(options.preserve_deletes) {
   env_->GetAbsolutePath(dbname, &db_absolute_path_);

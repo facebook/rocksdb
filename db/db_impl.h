@@ -1335,6 +1335,7 @@ class DBImpl : public DB {
   const bool seq_per_batch_;
   // A sequence number is allocated only for data written to DB. Otherwise it could also be allocated for operational purposes such as commit timestamp of a transaction.
   const bool allocate_seq_only_for_data_;
+  // It indicates that a customized gc algorithm must be used for flush/compaction and if it is not provided vis SnapshotChecker, we should disable gc to be safe.
   const bool use_custom_gc_;
 
   // Clients must periodically call SetPreserveDeletesSequenceNumber()
