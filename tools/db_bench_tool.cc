@@ -721,6 +721,10 @@ DEFINE_int32(compression_max_dict_bytes, 0,
              "Maximum size of dictionary used to prime the compression "
              "library.");
 
+DEFINE_int32(compression_zstd_max_train_bytes, 0,
+             "Maximum size of training data passed to zstd's dictionary "
+             "trainer.");
+
 static bool ValidateCompressionLevel(const char* flagname, int32_t value) {
   if (value < -1 || value > 9) {
     fprintf(stderr, "Invalid value for --%s: %d, must be between -1 and 9\n",
@@ -3134,8 +3138,6 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     options.level0_slowdown_writes_trigger =
       FLAGS_level0_slowdown_writes_trigger;
     options.compression = FLAGS_compression_type_e;
-    options.compression_opts.level = FLAGS_compression_level;
-    options.compression_opts.max_dict_bytes = FLAGS_compression_max_dict_bytes;
     options.WAL_ttl_seconds = FLAGS_wal_ttl_seconds;
     options.WAL_size_limit_MB = FLAGS_wal_size_limit_MB;
     options.max_total_wal_size = FLAGS_max_total_wal_size;
@@ -3235,6 +3237,10 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     options.create_if_missing = !FLAGS_use_existing_db;
     options.dump_malloc_stats = FLAGS_dump_malloc_stats;
 
+    options.compression_opts.level = FLAGS_compression_level;
+    options.compression_opts.max_dict_bytes = FLAGS_compression_max_dict_bytes;
+    options.compression_opts.zstd_max_train_bytes =
+        FLAGS_compression_zstd_max_train_bytes;
     if (FLAGS_row_cache_size) {
       if (FLAGS_cache_numshardbits >= 1) {
         options.row_cache =
