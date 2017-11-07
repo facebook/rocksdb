@@ -51,6 +51,7 @@
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/utilities/blob_db.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/options_util.h"
@@ -68,7 +69,6 @@
 #include "util/testutil.h"
 #include "util/transaction_test_util.h"
 #include "util/xxhash.h"
-#include "utilities/blob_db/blob_db.h"
 #include "utilities/merge_operators.h"
 #include "utilities/persistent_cache/block_cache_tier.h"
 

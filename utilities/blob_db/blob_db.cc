@@ -9,7 +9,7 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
-#include "utilities/blob_db/blob_db.h"
+#include "rocksdb/utilities/blob_db.h"
 
 #include <inttypes.h>
 
