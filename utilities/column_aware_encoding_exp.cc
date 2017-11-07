@@ -21,7 +21,6 @@
 #include "table/block_based_table_builder.h"
 #include "table/block_based_table_reader.h"
 #include "table/format.h"
-#include "tools/sst_dump_tool_imp.h"
 #include "util/compression.h"
 #include "util/stop_watch.h"
 #include "utilities/col_buf_encoder.h"
