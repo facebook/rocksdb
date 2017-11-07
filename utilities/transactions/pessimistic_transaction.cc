@@ -520,6 +520,8 @@ Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
   } else {
     // If a snapshot is set, we need to make sure the key hasn't been modified
     // since the snapshot.  This must be done after we locked the key.
+    // TODO(myabandeh): If previously_locked then there is no need to validate
+    // snapshot since the new snapshot cannot be less than previous one.
     if (s.ok()) {
       s = ValidateSnapshot(column_family, key, current_seqno, &new_seqno);
 
@@ -539,6 +541,8 @@ Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
     }
   }
 
+  // TODO(myabandeh): If previously_locked then there is no need to track the
+  // key again.
   if (s.ok()) {
     // Let base class know we've conflict checked this key.
     TrackKey(cfh_id, key_str, new_seqno, read_only, exclusive);
@@ -555,6 +559,10 @@ Status PessimisticTransaction::ValidateSnapshot(
   assert(snapshot_);
 
   SequenceNumber seq = snapshot_->GetSequenceNumber();
+  // TODO(myabandeh): Since the first time the new_seqno is set to the snapshot
+  // sequence number, and snapshot sequence number can only increase by new
+  // snapshots, I am not sure how this inequality could be false except for the
+  // inital case where pref_seqno is kMaxSequenceNumber.
   if (prev_seqno <= seq) {
     // If the key has been previous validated at a sequence number earlier
     // than the curent snapshot's sequence number, we already know it has not
