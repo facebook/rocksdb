@@ -5183,7 +5183,9 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 
   void Compact(ThreadState* thread) {
     DB* db = SelectDB(thread);
-    db->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+    CompactRangeOptions cro;
+    cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+    db->CompactRange(cro, nullptr, nullptr);
   }
 
   void CompactAll() {
