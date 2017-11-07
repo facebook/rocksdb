@@ -4,7 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #ifndef ROCKSDB_LITE
 
-#include "utilities/blob_db/blob_db.h"
+#include "rocksdb/utilities/blob_db.h"
 #include "util/coding.h"
 
 namespace rocksdb {

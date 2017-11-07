@@ -14,13 +14,13 @@
 
 #include "db/db_test_util.h"
 #include "port/port.h"
+#include "rocksdb/utilities/blob_db.h"
 #include "rocksdb/utilities/debug.h"
 #include "util/cast_util.h"
 #include "util/random.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
 #include "util/testharness.h"
-#include "utilities/blob_db/blob_db.h"
 #include "utilities/blob_db/blob_db_impl.h"
 #include "utilities/blob_db/blob_index.h"
 
