@@ -64,7 +64,7 @@ struct MemTablePostProcessInfo {
 };
 
 // Note:  Many of the methods in this class have comments indicating that
-// external synchromization is required as these methods are not thread-safe.
+// external synchronization is required as these methods are not thread-safe.
 // It is up to higher layers of code to decide how to prevent concurrent
 // invokation of these methods.  This is usually done by acquiring either
 // the db mutex or the single writer thread.
