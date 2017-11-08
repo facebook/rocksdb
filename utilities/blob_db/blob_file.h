@@ -41,6 +41,9 @@ class BlobFile {
   // have TTL.
   bool has_ttl_;
 
+  // Compression type of blobs in the file
+  CompressionType compression_;
+
   // number of blobs in the file
   std::atomic<uint64_t> blob_count_;
 
@@ -172,6 +175,12 @@ class BlobFile {
   bool HasTTL() const { return has_ttl_; }
 
   void SetHasTTL(bool has_ttl) { has_ttl_ = has_ttl; }
+
+  CompressionType compression() const { return compression_; }
+
+  void SetCompression(CompressionType compression) {
+    compression_ = compression;
+  }
 
   std::shared_ptr<Writer> GetWriter() const { return log_writer_; }
 

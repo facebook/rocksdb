@@ -58,6 +58,14 @@ class BlobDBTest : public testing::Test {
     ASSERT_OK(TryOpen(bdb_options, options));
   }
 
+  void Reopen(BlobDBOptions bdb_options = BlobDBOptions(),
+              Options options = Options()) {
+    assert(blob_db_ != nullptr);
+    delete blob_db_;
+    blob_db_ = nullptr;
+    Open(bdb_options, options);
+  }
+
   void Destroy() {
     if (blob_db_) {
       Options options = blob_db_->GetOptions();
@@ -573,6 +581,24 @@ TEST_F(BlobDBTest, Compression) {
   }
   VerifyDB(data);
 }
+
+TEST_F(BlobDBTest, DecompressAfterReopen) {
+  Random rnd(301);
+  BlobDBOptions bdb_options;
+  bdb_options.min_blob_size = 0;
+  bdb_options.disable_background_tasks = true;
+  bdb_options.compression = CompressionType::kSnappyCompression;
+  Open(bdb_options);
+  std::map<std::string, std::string> data;
+  for (size_t i = 0; i < 100; i++) {
+    PutRandom("put-key" + ToString(i), &rnd, &data);
+  }
+  VerifyDB(data);
+  bdb_options.compression = CompressionType::kNoCompression;
+  Reopen(bdb_options);
+  VerifyDB(data);
+}
+
 #endif
 
 TEST_F(BlobDBTest, MultipleWriters) {

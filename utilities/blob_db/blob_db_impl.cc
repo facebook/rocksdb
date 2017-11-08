@@ -330,6 +330,7 @@ Status BlobDBImpl::OpenAllFiles() {
       continue;
     }
     bfptr->SetHasTTL(bfptr->header_.has_ttl);
+    bfptr->SetCompression(bfptr->header_.compression);
     bfptr->header_valid_ = true;
 
     std::shared_ptr<RandomAccessFileReader> ra_reader =
@@ -567,6 +568,7 @@ std::shared_ptr<BlobFile> BlobDBImpl::SelectBlobFile() {
       reinterpret_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily())->GetID();
   bfile->header_valid_ = true;
   bfile->SetHasTTL(false);
+  bfile->SetCompression(bdb_options_.compression);
 
   Status s = writer->WriteHeader(bfile->header_);
   if (!s.ok()) {
@@ -627,6 +629,7 @@ std::shared_ptr<BlobFile> BlobDBImpl::SelectBlobFileTTL(uint64_t expiration) {
   ;
   bfile->header_valid_ = true;
   bfile->SetHasTTL(true);
+  bfile->SetCompression(bdb_options_.compression);
   bfile->file_size_ = BlobLogHeader::kSize;
 
   // set the first value of the range, since that is
@@ -882,6 +885,7 @@ Status BlobDBImpl::PutBlobValue(const WriteOptions& options, const Slice& key,
       return Status::NotFound("Blob file not found");
     }
 
+    assert(bfile->compression() == bdb_options_.compression);
     std::string compression_output;
     Slice value_compressed = GetCompressedSlice(value, &compression_output);
 
@@ -1196,12 +1200,12 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
 
   // TODO(yiwu): Should use compression flag in the blob file instead of
   // current compression option.
-  if (bdb_options_.compression != kNoCompression) {
+  if (bfile->compression() != kNoCompression) {
     BlockContents contents;
     auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily());
     s = UncompressBlockContentsForCompressionType(
         blob_value.data(), blob_value.size(), &contents,
-        kBlockBasedTableVersionFormat, Slice(), bdb_options_.compression,
+        kBlockBasedTableVersionFormat, Slice(), bfile->compression(),
         *(cfh->cfd()->ioptions()));
     *(value->GetSelf()) = contents.data.ToString();
   }
