@@ -494,9 +494,19 @@ bool LDBCommand::ParseStringOption(
 }
 
 Options LDBCommand::PrepareOptionsForOpenDB() {
-
-  Options opt = options_;
-  opt.create_if_missing = false;
+  ColumnFamilyOptions* cf_opts;
+  auto column_families_iter =
+      std::find_if(column_families_.begin(), column_families_.end(),
+                   [this](const ColumnFamilyDescriptor& cf_desc) {
+                     return cf_desc.name == column_family_name_;
+                   });
+  if (column_families_iter != column_families_.end()) {
+    cf_opts = &column_families_iter->options;
+  } else {
+    cf_opts = static_cast<ColumnFamilyOptions*>(&options_);
+  }
+  DBOptions* db_opts = static_cast<DBOptions*>(&options_);
+  db_opts->create_if_missing = false;
 
   std::map<std::string, std::string>::const_iterator itr;
 
@@ -525,33 +535,33 @@ Options LDBCommand::PrepareOptionsForOpenDB() {
   }
 
   if (use_table_options) {
-    opt.table_factory.reset(NewBlockBasedTableFactory(table_options));
+    cf_opts->table_factory.reset(NewBlockBasedTableFactory(table_options));
   }
 
   itr = option_map_.find(ARG_AUTO_COMPACTION);
   if (itr != option_map_.end()) {
-    opt.disable_auto_compactions = ! StringToBool(itr->second);
+    cf_opts->disable_auto_compactions = !StringToBool(itr->second);
   }
 
   itr = option_map_.find(ARG_COMPRESSION_TYPE);
   if (itr != option_map_.end()) {
     std::string comp = itr->second;
     if (comp == "no") {
-      opt.compression = kNoCompression;
+      cf_opts->compression = kNoCompression;
     } else if (comp == "snappy") {
-      opt.compression = kSnappyCompression;
+      cf_opts->compression = kSnappyCompression;
     } else if (comp == "zlib") {
-      opt.compression = kZlibCompression;
+      cf_opts->compression = kZlibCompression;
     } else if (comp == "bzip2") {
-      opt.compression = kBZip2Compression;
+      cf_opts->compression = kBZip2Compression;
     } else if (comp == "lz4") {
-      opt.compression = kLZ4Compression;
+      cf_opts->compression = kLZ4Compression;
     } else if (comp == "lz4hc") {
-      opt.compression = kLZ4HCCompression;
+      cf_opts->compression = kLZ4HCCompression;
     } else if (comp == "xpress") {
-      opt.compression = kXpressCompression;
+      cf_opts->compression = kXpressCompression;
     } else if (comp == "zstd") {
-      opt.compression = kZSTD;
+      cf_opts->compression = kZSTD;
     } else {
       // Unknown compression.
       exec_state_ =
@@ -563,7 +573,7 @@ Options LDBCommand::PrepareOptionsForOpenDB() {
   if (ParseIntOption(option_map_, ARG_COMPRESSION_MAX_DICT_BYTES,
                      compression_max_dict_bytes, exec_state_)) {
     if (compression_max_dict_bytes >= 0) {
-      opt.compression_opts.max_dict_bytes = compression_max_dict_bytes;
+      cf_opts->compression_opts.max_dict_bytes = compression_max_dict_bytes;
     } else {
       exec_state_ = LDBCommandExecuteResult::Failed(
           ARG_COMPRESSION_MAX_DICT_BYTES + " must be >= 0.");
@@ -574,7 +584,7 @@ Options LDBCommand::PrepareOptionsForOpenDB() {
   if (ParseIntOption(option_map_, ARG_DB_WRITE_BUFFER_SIZE,
         db_write_buffer_size, exec_state_)) {
     if (db_write_buffer_size >= 0) {
-      opt.db_write_buffer_size = db_write_buffer_size;
+      db_opts->db_write_buffer_size = db_write_buffer_size;
     } else {
       exec_state_ = LDBCommandExecuteResult::Failed(ARG_DB_WRITE_BUFFER_SIZE +
                                                     " must be >= 0.");
@@ -585,7 +595,7 @@ Options LDBCommand::PrepareOptionsForOpenDB() {
   if (ParseIntOption(option_map_, ARG_WRITE_BUFFER_SIZE, write_buffer_size,
         exec_state_)) {
     if (write_buffer_size > 0) {
-      opt.write_buffer_size = write_buffer_size;
+      cf_opts->write_buffer_size = write_buffer_size;
     } else {
       exec_state_ = LDBCommandExecuteResult::Failed(ARG_WRITE_BUFFER_SIZE +
                                                     " must be > 0.");
@@ -595,30 +605,33 @@ Options LDBCommand::PrepareOptionsForOpenDB() {
   int file_size;
   if (ParseIntOption(option_map_, ARG_FILE_SIZE, file_size, exec_state_)) {
     if (file_size > 0) {
-      opt.target_file_size_base = file_size;
+      cf_opts->target_file_size_base = file_size;
     } else {
       exec_state_ =
           LDBCommandExecuteResult::Failed(ARG_FILE_SIZE + " must be > 0.");
     }
   }
 
-  if (opt.db_paths.size() == 0) {
-    opt.db_paths.emplace_back(db_path_, std::numeric_limits<uint64_t>::max());
+  if (db_opts->db_paths.size() == 0) {
+    db_opts->db_paths.emplace_back(db_path_,
+                                   std::numeric_limits<uint64_t>::max());
   }
 
   int fix_prefix_len;
   if (ParseIntOption(option_map_, ARG_FIX_PREFIX_LEN, fix_prefix_len,
                      exec_state_)) {
     if (fix_prefix_len > 0) {
-      opt.prefix_extractor.reset(
+      cf_opts->prefix_extractor.reset(
           NewFixedPrefixTransform(static_cast<size_t>(fix_prefix_len)));
     } else {
       exec_state_ =
           LDBCommandExecuteResult::Failed(ARG_FIX_PREFIX_LEN + " must be > 0.");
     }
   }
-
-  return opt;
+  // TODO(ajkr): this return value doesn't reflect the CF options changed, so
+  // subcommands that rely on this won't see the effect of CF-related CLI args.
+  // Such subcommands need to be changed to properly support CFs.
+  return options_;
 }
 
 bool LDBCommand::ParseKeyValue(const std::string& line, std::string* key,
