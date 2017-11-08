@@ -14,10 +14,22 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     linux64.vm.box = "bento/centos-6.10"
   end
 
+  config.vm.define "musl64" do |musl64|
+    musl64.vm.box = "williamyeh/centos7-docker"
+    musl64.vm.provision :shell, path: "build-linux-alpine.sh"
+  end
+
   config.vm.provider "virtualbox" do |v|
     v.memory = 2048
     v.cpus = 4
     v.customize ["modifyvm", :id, "--nictype1", "virtio" ]
+  end
+
+  if Vagrant.has_plugin?("vagrant-cachier")
+    config.cache.scope = :box
+  end
+  if Vagrant.has_plugin?("vagrant-vbguest")
+    config.vbguest.no_install = true
   end
 
   config.vm.provision :shell, path: "build-linux-centos.sh"

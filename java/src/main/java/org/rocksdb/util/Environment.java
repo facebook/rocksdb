@@ -1,9 +1,12 @@
 // Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 package org.rocksdb.util;
 
+import java.io.File;
+
 public class Environment {
   private static String OS = System.getProperty("os.name").toLowerCase();
   private static String ARCH = System.getProperty("os.arch").toLowerCase();
+  private static boolean MUSL_LIBC = new File("/lib/libc.musl-x86_64.so.1").canRead();
 
   public static boolean isAarch64() {
     return ARCH.contains("aarch64");
@@ -38,6 +41,10 @@ public class Environment {
         OS.contains("nux");
   }
 
+  public static boolean isMuslLibc() {
+    return MUSL_LIBC;
+  }
+
   public static boolean isSolaris() {
     return OS.contains("sunos");
   }
@@ -68,6 +75,8 @@ public class Environment {
         return String.format("%sjni-linux-%s", name, ARCH);
       } else if (isS390x()) {
         return String.format("%sjni-linux%s", name, ARCH);
+      } else if (isMuslLibc()) {
+        return String.format("%sjni-musl%s", name, arch);
       } else {
         return String.format("%sjni-linux%s", name, arch);
       }

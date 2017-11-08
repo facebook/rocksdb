@@ -16,14 +16,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 public class EnvironmentTest {
   private final static String ARCH_FIELD_NAME = "ARCH";
   private final static String OS_FIELD_NAME = "OS";
+  private final static String MUSL_LIBC_FIELD_NAME = "MUSL_LIBC";
 
   private static String INITIAL_OS;
   private static String INITIAL_ARCH;
+  private static Boolean INITIAL_MUSL_LIBC;
 
   @BeforeClass
   public static void saveState() {
     INITIAL_ARCH = getEnvironmentClassField(ARCH_FIELD_NAME);
     INITIAL_OS = getEnvironmentClassField(OS_FIELD_NAME);
+    INITIAL_MUSL_LIBC = getEnvironmentClassField(MUSL_LIBC_FIELD_NAME);
   }
 
   @Test
@@ -92,7 +95,17 @@ public class EnvironmentTest {
         isEqualTo("librocksdbjni-linux64.so");
     assertThat(Environment.getSharedLibraryFileName("rocksdb")).
         isEqualTo("librocksdbjni.so");
+    // Linux musl-libc (Alpine)
+    setEnvironmentClassField(MUSL_LIBC_FIELD_NAME, true);
+    assertThat(Environment.isWindows()).isFalse();
+    assertThat(Environment.getJniLibraryExtension()).
+        isEqualTo(".so");
+    assertThat(Environment.getJniLibraryFileName("rocksdb")).
+        isEqualTo("librocksdbjni-musl64.so");
+    assertThat(Environment.getSharedLibraryFileName("rocksdb")).
+        isEqualTo("librocksdbjni.so");
     // UNIX
+    setEnvironmentClassField(MUSL_LIBC_FIELD_NAME, false);
     setEnvironmentClassFields("Unix", "x64");
     assertThat(Environment.isWindows()).isFalse();
     assertThat(Environment.getJniLibraryExtension()).
@@ -154,9 +167,10 @@ public class EnvironmentTest {
   public static void restoreState() {
     setEnvironmentClassField(OS_FIELD_NAME, INITIAL_OS);
     setEnvironmentClassField(ARCH_FIELD_NAME, INITIAL_ARCH);
+    setEnvironmentClassField(MUSL_LIBC_FIELD_NAME, INITIAL_MUSL_LIBC);
   }
 
-  private static String getEnvironmentClassField(String fieldName) {
+  private static <T> T getEnvironmentClassField(String fieldName) {
     final Field field;
     try {
       field = Environment.class.getDeclaredField(fieldName);
@@ -164,13 +178,13 @@ public class EnvironmentTest {
       final Field modifiersField = Field.class.getDeclaredField("modifiers");
       modifiersField.setAccessible(true);
       modifiersField.setInt(field, field.getModifiers() & ~Modifier.FINAL);
-      return (String)field.get(null);
+      return (T)field.get(null);
     } catch (NoSuchFieldException | IllegalAccessException e) {
       throw new RuntimeException(e);
     }
   }
 
-  private static void setEnvironmentClassField(String fieldName, String value) {
+  private static void setEnvironmentClassField(String fieldName, Object value) {
     final Field field;
     try {
       field = Environment.class.getDeclaredField(fieldName);
