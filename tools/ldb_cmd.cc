@@ -312,13 +312,11 @@ LDBCommand::LDBCommand(const std::map<std::string, std::string>& options,
 
 void LDBCommand::OpenDB() {
   Options opt;
-  bool opt_set = false;
   if (!create_if_missing_ && try_load_options_) {
     Status s = LoadLatestOptions(db_path_, Env::Default(), &opt,
                                  &column_families_, ignore_unknown_options_);
-    if (s.ok()) {
-      opt_set = true;
-    } else if (!s.IsNotFound()) {
+    options_ = opt;
+    if (!s.ok()) {
       // Option file exists but load option file error.
       std::string msg = s.ToString();
       exec_state_ = LDBCommandExecuteResult::Failed(msg);
@@ -326,9 +324,7 @@ void LDBCommand::OpenDB() {
       return;
     }
   }
-  if (!opt_set) {
-    opt = PrepareOptionsForOpenDB();
-  }
+  opt = PrepareOptionsForOpenDB();
   if (!exec_state_.IsNotStarted()) {
     return;
   }
@@ -348,7 +344,7 @@ void LDBCommand::OpenDB() {
     }
     db_ = db_ttl_;
   } else {
-    if (!opt_set && column_families_.empty()) {
+    if (column_families_.empty()) {
       // Try to figure out column family lists
       std::vector<std::string> cf_list;
       st = DB::ListColumnFamilies(DBOptions(), db_path_, &cf_list);
