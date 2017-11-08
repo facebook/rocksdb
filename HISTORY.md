@@ -1,4 +1,7 @@
 # Rocksdb Change Log
+## 5.8.3 (11/08/2017)
+No major changes.
+
 ## 5.8.2 (11/03/2017)
 No major changes.
 
