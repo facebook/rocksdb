@@ -313,8 +313,7 @@ class TransactionBaseImpl : public Transaction {
 
   // Map from column_family_id to map of keys that are involved in this
   // transaction.
-  // Pessimistic Transactions will do conflict checking before adding a key
-  // by calling TrackKey().
+  // For Pessimistic Transactions this is the list of locked keys.
   // Optimistic Transactions will wait till commit time to do conflict checking.
   TransactionKeyMap tracked_keys_;
 
