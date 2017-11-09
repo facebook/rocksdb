@@ -83,7 +83,8 @@ class WritePreparedTxn : public PessimisticTransaction {
   Status RollbackInternal() override;
 
   virtual Status ValidateSnapshot(ColumnFamilyHandle* column_family,
-                                  const Slice& key, SequenceNumber prev_seqno,
+                                  const Slice& key,
+                                  SequenceNumber tracked_at_seq,
                                   SequenceNumber* new_seqno) override;
 
   // No copying allowed

@@ -97,7 +97,7 @@ void TransactionBaseImpl::SetSnapshotIfNeeded() {
 
 Status TransactionBaseImpl::TryLock(ColumnFamilyHandle* column_family,
                                     const SliceParts& key, bool read_only,
-                                    bool exclusive, bool untracked) {
+                                    bool exclusive, bool skip_validate) {
   size_t key_size = 0;
   for (int i = 0; i < key.num_parts; ++i) {
     key_size += key.parts[i].size();
@@ -110,7 +110,7 @@ Status TransactionBaseImpl::TryLock(ColumnFamilyHandle* column_family,
     str.append(key.parts[i].data(), key.parts[i].size());
   }
 
-  return TryLock(column_family, str, read_only, exclusive, untracked);
+  return TryLock(column_family, str, read_only, exclusive, skip_validate);
 }
 
 void TransactionBaseImpl::SetSavePoint() {
@@ -398,7 +398,7 @@ Status TransactionBaseImpl::SingleDelete(ColumnFamilyHandle* column_family,
 Status TransactionBaseImpl::PutUntracked(ColumnFamilyHandle* column_family,
                                          const Slice& key, const Slice& value) {
   Status s = TryLock(column_family, key, false /* read_only */,
-                     true /* exclusive */, true /* untracked */);
+                     true /* exclusive */, true /* skip_validate */);
 
   if (s.ok()) {
     s = GetBatchForWrite()->Put(column_family, key, value);
@@ -414,7 +414,7 @@ Status TransactionBaseImpl::PutUntracked(ColumnFamilyHandle* column_family,
                                          const SliceParts& key,
                                          const SliceParts& value) {
   Status s = TryLock(column_family, key, false /* read_only */,
-                     true /* exclusive */, true /* untracked */);
+                     true /* exclusive */, true /* skip_validate */);
 
   if (s.ok()) {
     s = GetBatchForWrite()->Put(column_family, key, value);
@@ -430,7 +430,7 @@ Status TransactionBaseImpl::MergeUntracked(ColumnFamilyHandle* column_family,
                                            const Slice& key,
                                            const Slice& value) {
   Status s = TryLock(column_family, key, false /* read_only */,
-                     true /* exclusive */, true /* untracked */);
+                     true /* exclusive */, true /* skip_validate */);
 
   if (s.ok()) {
     s = GetBatchForWrite()->Merge(column_family, key, value);
@@ -445,7 +445,7 @@ Status TransactionBaseImpl::MergeUntracked(ColumnFamilyHandle* column_family,
 Status TransactionBaseImpl::DeleteUntracked(ColumnFamilyHandle* column_family,
                                             const Slice& key) {
   Status s = TryLock(column_family, key, false /* read_only */,
-                     true /* exclusive */, true /* untracked */);
+                     true /* exclusive */, true /* skip_validate */);
 
   if (s.ok()) {
     s = GetBatchForWrite()->Delete(column_family, key);
@@ -460,7 +460,7 @@ Status TransactionBaseImpl::DeleteUntracked(ColumnFamilyHandle* column_family,
 Status TransactionBaseImpl::DeleteUntracked(ColumnFamilyHandle* column_family,
                                             const SliceParts& key) {
   Status s = TryLock(column_family, key, false /* read_only */,
-                     true /* exclusive */, true /* untracked */);
+                     true /* exclusive */, true /* skip_validate */);
 
   if (s.ok()) {
     s = GetBatchForWrite()->Delete(column_family, key);
@@ -475,7 +475,7 @@ Status TransactionBaseImpl::DeleteUntracked(ColumnFamilyHandle* column_family,
 Status TransactionBaseImpl::SingleDeleteUntracked(
     ColumnFamilyHandle* column_family, const Slice& key) {
   Status s = TryLock(column_family, key, false /* read_only */,
-                     true /* exclusive */, true /* untracked */);
+                     true /* exclusive */, true /* skip_validate */);
 
   if (s.ok()) {
     s = GetBatchForWrite()->SingleDelete(column_family, key);
