@@ -24,17 +24,24 @@
 
 namespace rocksdb {
 
-SstFileReader::SstFileReader(const std::string& file_path, bool verify_checksum,
-                             bool output_hex, bool verbose)
+SstFileReader::SstFileReader(
+    const std::string& file_path, bool verify_checksum,
+    std::function<void(const Slice&, const Slice&, SequenceNumber, ValueType)>
+        kv_handler,
+    std::function<void(const std::string&)> info_handler,
+    std::function<void(const std::string&)> err_handler)
     : file_name_(file_path),
       read_num_(0),
       verify_checksum_(verify_checksum),
-      output_hex_(output_hex),
-      verbose_(verbose),
+      kv_handler_(kv_handler),
+      info_handler_(info_handler),
+      err_handler_(err_handler),
       ioptions_(options_),
       internal_comparator_(BytewiseComparator()) {
-  if (verbose_) {
-    fprintf(stdout, "Process %s\n", file_path.c_str());
+  if (info_handler_) {
+    char buf[128];
+    int len = snprintf(buf, 128, "Process %s\n", file_path.c_str());
+    info_handler_(std::string(buf, len));
   }
   init_result_ = GetTableReader(file_name_);
 }
@@ -171,8 +178,11 @@ int SstFileReader::ShowAllCompressionSizes(
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
       block_based_table_factories;
 
-  if (verbose_) {
-    fprintf(stdout, "Block Size: %" ROCKSDB_PRIszt "\n", block_size);
+  if (info_handler_) {
+    char buf[64];
+    int len =
+        snprintf(buf, 64, "Block Size: %" ROCKSDB_PRIszt "\n", block_size);
+    info_handler_(std::string(buf, len));
   }
 
   for (auto& i : compression_types) {
@@ -185,12 +195,17 @@ int SstFileReader::ShowAllCompressionSizes(
           nullptr /* compression_dict */, false /* skip_filters */,
           column_family_name, unknown_level);
       uint64_t file_size = CalculateCompressedTableSize(tb_opts, block_size);
-      if (verbose_) {
-        fprintf(stdout, "Compression: %s", i.second);
-        fprintf(stdout, " Size: %" PRIu64 "\n", file_size);
+      if (info_handler_) {
+        char buf[128];
+        int len = snprintf(buf, 128, "Compression: %s Size: %" PRIu64 "\n",
+                           i.second, file_size);
+        info_handler_(std::string(buf, len));
       }
-    } else if (verbose_) {
-      fprintf(stdout, "Unsupported compression type: %s.\n", i.second);
+    } else if (info_handler_) {
+      char buf[128];
+      int len =
+          snprintf(buf, 128, "Unsupported compression type: %s.\n", i.second);
+      info_handler_(std::string(buf, len));
     }
   }
   return 0;
@@ -204,8 +219,8 @@ Status SstFileReader::ReadTableProperties(uint64_t table_magic_number,
                                           ioptions_, &table_properties);
   if (s.ok()) {
     table_properties_.reset(table_properties);
-  } else if (verbose_) {
-    fprintf(stdout, "Not able to read table properties\n");
+  } else if (err_handler_) {
+    err_handler_(std::string("Not able to read table properties\n"));
   }
   return s;
 }
@@ -216,8 +231,8 @@ Status SstFileReader::SetTableOptionsByMagicNumber(
   if (table_magic_number == kBlockBasedTableMagicNumber ||
       table_magic_number == kLegacyBlockBasedTableMagicNumber) {
     options_.table_factory = std::make_shared<BlockBasedTableFactory>();
-    if (verbose_) {
-      fprintf(stdout, "Sst file format: block-based\n");
+    if (info_handler_) {
+      info_handler_(std::string("Sst file format: block-based\n"));
     }
     auto& props = table_properties_->user_collected_properties;
     auto pos = props.find(BlockBasedTablePropertyNames::kIndexType);
@@ -243,8 +258,8 @@ Status SstFileReader::SetTableOptionsByMagicNumber(
     plain_table_options.full_scan_mode = true;
 
     options_.table_factory.reset(NewPlainTableFactory(plain_table_options));
-    if (verbose_) {
-      fprintf(stdout, "Sst file format: plain table\n");
+    if (info_handler_) {
+      info_handler_(std::string("Sst file format: plain table\n"));
     }
   } else {
     char error_msg_buffer[80];
@@ -260,16 +275,16 @@ Status SstFileReader::SetTableOptionsByMagicNumber(
 Status SstFileReader::SetOldTableOptions() {
   assert(table_properties_ == nullptr);
   options_.table_factory = std::make_shared<BlockBasedTableFactory>();
-  if (verbose_) {
-    fprintf(stdout, "Sst file format: block-based(old version)\n");
+  if (info_handler_) {
+    info_handler_(std::string("Sst file format: block-based(old version)\n"));
   }
 
   return Status::OK();
 }
 
-Status SstFileReader::ReadSequential(bool print_kv, uint64_t read_num,
-                                     bool has_from, const std::string& from_key,
-                                     bool has_to, const std::string& to_key,
+Status SstFileReader::ReadSequential(uint64_t read_num, bool has_from,
+                                     const std::string& from_key, bool has_to,
+                                     const std::string& to_key,
                                      bool use_from_as_prefix) {
   if (!table_reader_) {
     return init_result_;
@@ -293,9 +308,11 @@ Status SstFileReader::ReadSequential(bool print_kv, uint64_t read_num,
 
     ParsedInternalKey ikey;
     if (!ParseInternalKey(key, &ikey)) {
-      if (verbose_) {
-        std::cerr << "Internal Key [" << key.ToString(true /* in hex*/)
-                  << "] parse error!\n";
+      if (err_handler_) {
+        std::string err_msg = "Internal Key [" +
+                              key.ToString(true /* in hex*/) +
+                              "] parse error!\n";
+        err_handler_(err_msg);
       }
       continue;
     }
@@ -310,9 +327,8 @@ Status SstFileReader::ReadSequential(bool print_kv, uint64_t read_num,
       break;
     }
 
-    if (print_kv && verbose_) {
-      fprintf(stdout, "%s => %s\n", ikey.DebugString(output_hex_).c_str(),
-              value.ToString(output_hex_).c_str());
+    if (kv_handler_) {
+      kv_handler_(key, value, ikey.sequence, ikey.type);
     }
   }
 
