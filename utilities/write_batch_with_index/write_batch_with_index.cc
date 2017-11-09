@@ -604,7 +604,8 @@ void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id) {
       size_t last_entry_offset = input.data() - write_batch.Data().data();
       s = ReadRecordFromWriteBatch(&input, &tag, &column_family_id, &key,
                                    &value, &blob, &xid);
-      if (rep->obsolete_offsets.front() == last_entry_offset) {
+      if (!rep->obsolete_offsets.empty() && 
+        rep->obsolete_offsets.front() == last_entry_offset) {
         rep->obsolete_offsets.erase(rep->obsolete_offsets.begin());
         continue;
       }
