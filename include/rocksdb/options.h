@@ -205,8 +205,7 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   CompressionType compression;
 
   // Compression algorithm that will be used for the bottommost level that
-  // contain files. If level-compaction is used, this option will only affect
-  // levels after base level.
+  // contain files.
   //
   // Default: kDisableCompressionOption (Disabled)
   CompressionType bottommost_compression = kDisableCompressionOption;

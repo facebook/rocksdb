@@ -1152,7 +1152,7 @@ class CompactionCompressionListener : public EventListener {
     }
 
     if (db_options_->bottommost_compression != kDisableCompressionOption &&
-        ci.output_level == bottommost_level && ci.output_level >= 2) {
+        ci.output_level == bottommost_level) {
       ASSERT_EQ(ci.compression, db_options_->bottommost_compression);
     } else if (db_options_->compression_per_level.size() != 0) {
       ASSERT_EQ(ci.compression,
