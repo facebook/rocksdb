@@ -330,6 +330,7 @@ Status BlobDBImpl::OpenAllFiles() {
       continue;
     }
     bfptr->SetHasTTL(bfptr->header_.has_ttl);
+    bfptr->SetCompression(bfptr->header_.compression);
     bfptr->header_valid_ = true;
 
     std::shared_ptr<RandomAccessFileReader> ra_reader =
@@ -567,6 +568,7 @@ std::shared_ptr<BlobFile> BlobDBImpl::SelectBlobFile() {
       reinterpret_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily())->GetID();
   bfile->header_valid_ = true;
   bfile->SetHasTTL(false);
+  bfile->SetCompression(bdb_options_.compression);
 
   Status s = writer->WriteHeader(bfile->header_);
   if (!s.ok()) {
@@ -627,6 +629,7 @@ std::shared_ptr<BlobFile> BlobDBImpl::SelectBlobFileTTL(uint64_t expiration) {
   ;
   bfile->header_valid_ = true;
   bfile->SetHasTTL(true);
+  bfile->SetCompression(bdb_options_.compression);
   bfile->file_size_ = BlobLogHeader::kSize;
 
   // set the first value of the range, since that is
@@ -742,13 +745,22 @@ class BlobDBImpl::BlobInserter : public WriteBatch::Handler {
 };
 
 Status BlobDBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
-  MutexLock l(&write_mutex_);
 
   uint32_t default_cf_id =
       reinterpret_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily())->GetID();
+  // TODO(yiwu): In case there are multiple writers the latest sequence would
+  // not be the actually sequence we are writting. Need to get the sequence
+  // from write batch after DB write instead.
   SequenceNumber current_seq = GetLatestSequenceNumber() + 1;
+  Status s;
   BlobInserter blob_inserter(options, this, default_cf_id, current_seq);
-  Status s = updates->Iterate(&blob_inserter);
+  {
+    // Release write_mutex_ before DB write to avoid race condition with
+    // flush begin listener, which also require write_mutex_ to sync
+    // blob files.
+    MutexLock l(&write_mutex_);
+    s = updates->Iterate(&blob_inserter);
+  }
   if (!s.ok()) {
     return s;
   }
@@ -756,7 +768,6 @@ Status BlobDBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
   if (!s.ok()) {
     return s;
   }
-  assert(blob_inserter.sequence() == GetLatestSequenceNumber() + 1);
 
   // add deleted key to list of keys that have been deleted for book-keeping
   class DeleteBookkeeper : public WriteBatch::Handler {
@@ -846,10 +857,19 @@ Status BlobDBImpl::PutWithTTL(const WriteOptions& options,
 Status BlobDBImpl::PutUntil(const WriteOptions& options, const Slice& key,
                             const Slice& value, uint64_t expiration) {
   TEST_SYNC_POINT("BlobDBImpl::PutUntil:Start");
-  MutexLock l(&write_mutex_);
-  SequenceNumber sequence = GetLatestSequenceNumber() + 1;
+  Status s;
   WriteBatch batch;
-  Status s = PutBlobValue(options, key, value, expiration, sequence, &batch);
+  {
+    // Release write_mutex_ before DB write to avoid race condition with
+    // flush begin listener, which also require write_mutex_ to sync
+    // blob files.
+    MutexLock l(&write_mutex_);
+    // TODO(yiwu): In case there are multiple writers the latest sequence would
+    // not be the actually sequence we are writting. Need to get the sequence
+    // from write batch after DB write instead.
+    SequenceNumber sequence = GetLatestSequenceNumber() + 1;
+    s = PutBlobValue(options, key, value, expiration, sequence, &batch);
+  }
   if (s.ok()) {
     s = db_->Write(options, &batch);
   }
@@ -882,6 +902,7 @@ Status BlobDBImpl::PutBlobValue(const WriteOptions& options, const Slice& key,
       return Status::NotFound("Blob file not found");
     }
 
+    assert(bfile->compression() == bdb_options_.compression);
     std::string compression_output;
     Slice value_compressed = GetCompressedSlice(value, &compression_output);
 
@@ -1194,14 +1215,12 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
     return Status::Corruption("Corruption. Blob CRC mismatch");
   }
 
-  // TODO(yiwu): Should use compression flag in the blob file instead of
-  // current compression option.
-  if (bdb_options_.compression != kNoCompression) {
+  if (bfile->compression() != kNoCompression) {
     BlockContents contents;
     auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily());
     s = UncompressBlockContentsForCompressionType(
         blob_value.data(), blob_value.size(), &contents,
-        kBlockBasedTableVersionFormat, Slice(), bdb_options_.compression,
+        kBlockBasedTableVersionFormat, Slice(), bfile->compression(),
         *(cfh->cfd()->ioptions()));
     *(value->GetSelf()) = contents.data.ToString();
   }
