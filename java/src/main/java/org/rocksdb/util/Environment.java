@@ -2,11 +2,21 @@
 package org.rocksdb.util;
 
 import java.io.File;
+import java.io.IOException;
 
 public class Environment {
   private static String OS = System.getProperty("os.name").toLowerCase();
   private static String ARCH = System.getProperty("os.arch").toLowerCase();
-  private static boolean MUSL_LIBC = new File("/lib/libc.musl-x86_64.so.1").canRead();
+  private static boolean MUSL_LIBC;
+
+  static {
+    try {
+      Process p = new ProcessBuilder("/bin/sh", "-c", "ldd /bin/sh | grep -q musl").start();
+      MUSL_LIBC = (p.waitFor() == 0);
+    } catch (IOException | InterruptedException e) {
+      MUSL_LIBC = false;
+    }
+  }
 
   public static boolean isAarch64() {
     return ARCH.contains("aarch64");
