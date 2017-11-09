@@ -11,6 +11,8 @@
 #include "rocksdb/env.h"
 #include "rocksdb/types.h"
 #include "table/block.h"
+#include "rocksdb/statistics.h"
+
 
 namespace rocksdb {
 class MergeContext;
@@ -26,6 +28,12 @@ class GetContext {
     kMerge,  // saver contains the current merge result (the operands)
     kBlobIndex,
   };
+  uint32_t BLOCK_CACHE_MISS_ticker;
+  uint32_t BLOCK_CACHE_BYTES_WRITE_ticker;
+  uint32_t BLOCK_CACHE_ADD_ticker;
+  uint32_t BLOCK_CACHE_DATA_MISS_ticker;
+  uint32_t BLOCK_CACHE_DATA_BYTES_INSERT_ticker;
+  uint32_t BLOCK_CACHE_DATA_ADD_ticker;
 
   GetContext(const Comparator* ucmp, const MergeOperator* merge_operator,
              Logger* logger, Statistics* statistics, GetState init_state,

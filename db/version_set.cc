@@ -980,10 +980,17 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       storage_info_.num_non_empty_levels_, &storage_info_.file_indexer_,
       user_comparator(), internal_comparator());
   FdWithKeyRange* f = fp.GetNextFile();
+  uint32_t BLOCK_CACHE_MISS_before = get_context.BLOCK_CACHE_MISS_ticker;
+  uint32_t BLOCK_CACHE_BYTES_WRITE_before = get_context.BLOCK_CACHE_BYTES_WRITE_ticker;
+  uint32_t BLOCK_CACHE_ADD_ticker_before = get_context.BLOCK_CACHE_ADD_ticker;
+  uint32_t BLOCK_CACHE_DATA_MISS_before = get_context.BLOCK_CACHE_DATA_MISS_ticker;
+  uint32_t BLOCK_CACHE_DATA_BYTES_INSERT_before = get_context.BLOCK_CACHE_DATA_BYTES_INSERT_ticker;
+  uint32_t BLOCK_CACHE_DATA_ADD_before = get_context.BLOCK_CACHE_DATA_ADD_ticker;
   while (f != nullptr) {
     if (get_context.sample()) {
       sample_file_read_inc(f->file_metadata);
     }
+
     *status = table_cache_->Get(
         read_options, *internal_comparator(), f->fd, ikey, &get_context,
         cfd_->internal_stats()->GetFileReadHist(fp.GetHitFileLevel()),
@@ -1025,6 +1032,25 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
         return;
     }
     f = fp.GetNextFile();
+  }
+
+  if (get_context.BLOCK_CACHE_MISS_ticker - BLOCK_CACHE_MISS_before > 0) {
+    RecordTick(db_statistics_, BLOCK_CACHE_MISS, get_context.BLOCK_CACHE_MISS_ticker - BLOCK_CACHE_MISS_before);
+  }
+  if (get_context.BLOCK_CACHE_BYTES_WRITE_ticker - BLOCK_CACHE_BYTES_WRITE_before> 0) {
+    RecordTick(db_statistics_, BLOCK_CACHE_BYTES_WRITE, get_context.BLOCK_CACHE_BYTES_WRITE_ticker - BLOCK_CACHE_BYTES_WRITE_before);
+  }
+  if (get_context.BLOCK_CACHE_ADD_ticker - BLOCK_CACHE_ADD_ticker_before> 0) {
+    RecordTick(db_statistics_, BLOCK_CACHE_ADD, get_context.BLOCK_CACHE_ADD_ticker - BLOCK_CACHE_ADD_ticker_before);
+  }
+  if (get_context.BLOCK_CACHE_DATA_MISS_ticker - BLOCK_CACHE_DATA_MISS_before > 0) {
+    RecordTick(db_statistics_, BLOCK_CACHE_DATA_MISS, get_context.BLOCK_CACHE_DATA_MISS_ticker - BLOCK_CACHE_DATA_MISS_before);
+  }
+  if (get_context.BLOCK_CACHE_DATA_BYTES_INSERT_ticker - BLOCK_CACHE_DATA_BYTES_INSERT_before > 0) {
+    RecordTick(db_statistics_, BLOCK_CACHE_DATA_BYTES_INSERT, get_context.BLOCK_CACHE_DATA_BYTES_INSERT_ticker - BLOCK_CACHE_DATA_BYTES_INSERT_before);
+  }
+  if (get_context.BLOCK_CACHE_DATA_ADD_ticker - BLOCK_CACHE_DATA_ADD_before> 0) {
+    RecordTick(db_statistics_, BLOCK_CACHE_DATA_ADD, get_context.BLOCK_CACHE_DATA_ADD_ticker - BLOCK_CACHE_DATA_ADD_before);
   }
 
   if (GetContext::kMerge == get_context.State()) {
