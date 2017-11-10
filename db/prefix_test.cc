@@ -879,8 +879,6 @@ TEST_F(PrefixTest, PrefixSeekModePrev3) {
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   ParseCommandLineFlags(&argc, &argv, true);
-  std::cout << kDbName << "\n";
-
   return RUN_ALL_TESTS();
 }
 

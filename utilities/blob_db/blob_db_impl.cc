@@ -288,13 +288,13 @@ Status BlobDBImpl::OpenAllFiles() {
                  "BlobDir files path: %s count: %d min: %" PRIu64
                  " max: %" PRIu64,
                  blob_dir_.c_str(), static_cast<int>(file_nums.size()),
-                 (file_nums.empty()) ? -1 : (file_nums.begin())->first,
-                 (file_nums.empty()) ? -1 : (file_nums.end())->first);
+                 (file_nums.empty()) ? -1 : file_nums.cbegin()->first,
+                 (file_nums.empty()) ? -1 : file_nums.crbegin()->first);
 
   if (!file_nums.empty())
     next_file_number_.store((file_nums.rbegin())->first + 1);
 
-  for (auto f_iter : file_nums) {
+  for (auto& f_iter : file_nums) {
     std::string bfpath = BlobFileName(blob_dir_, f_iter.first);
     uint64_t size_bytes;
     Status s1 = env_->GetFileSize(bfpath, &size_bytes);
