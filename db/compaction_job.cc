@@ -297,7 +297,8 @@ CompactionJob::CompactionJob(
       table_cache_(std::move(table_cache)),
       event_logger_(event_logger),
       paranoid_file_checks_(paranoid_file_checks),
-      measure_io_stats_(measure_io_stats) {
+      measure_io_stats_(measure_io_stats),
+      write_hint_(Env::WLTH_NOT_SET) {
   assert(log_buffer_ != nullptr);
   const auto* cfd = compact_->compaction->column_family_data();
   ThreadStatusUtil::SetColumnFamily(cfd, cfd->ioptions()->env,
@@ -368,6 +369,8 @@ void CompactionJob::Prepare() {
   assert(c->column_family_data()->current()->storage_info()
       ->NumLevelFiles(compact_->compaction->level()) > 0);
 
+  write_hint_ = c->column_family_data()->CalculateSSTWriteHint(
+    c->output_level());
   // Is this compaction producing files at the bottommost level?
   bottommost_level_ = c->bottommost_level();
 
@@ -1305,6 +1308,7 @@ Status CompactionJob::OpenCompactionOutputFile(
 
   sub_compact->outputs.push_back(out);
   writable_file->SetIOPriority(Env::IO_LOW);
+  writable_file->SetWriteLifeTimeHint(write_hint_);
   writable_file->SetPreallocationBlockSize(static_cast<size_t>(
       sub_compact->compaction->OutputFilePreallocationSize()));
   sub_compact->outfile.reset(new WritableFileWriter(

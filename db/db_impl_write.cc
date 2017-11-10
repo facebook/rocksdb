@@ -1168,6 +1168,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
       BuildDBOptions(immutable_db_options_, mutable_db_options_);
   const auto preallocate_block_size =
     GetWalPreallocateBlockSize(mutable_cf_options.write_buffer_size);
+  auto write_hint = CalculateWALWriteHint();
   mutex_.Unlock();
   {
     if (creating_new_log) {
@@ -1193,6 +1194,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
         // use preallocate_block_size instead
         // of calling GetWalPreallocateBlockSize()
         lfile->SetPreallocationBlockSize(preallocate_block_size);
+        lfile->SetWriteLifeTimeHint(write_hint);
         unique_ptr<WritableFileWriter> file_writer(
             new WritableFileWriter(std::move(lfile), opt_env_opt));
         new_log = new log::Writer(
