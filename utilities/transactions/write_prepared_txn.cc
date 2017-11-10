@@ -93,7 +93,12 @@ Status WritePreparedTxn::CommitWithoutPrepareInternal() {
 
 SequenceNumber WritePreparedTxn::GetACommitSeqNumber(SequenceNumber prep_seq) {
   if (db_impl_->immutable_db_options().two_write_queues) {
-    return db_impl_->IncAndFetchSequenceNumber();
+    auto s = db_impl_->IncAndFetchSequenceNumber();
+#ifndef NDEBUG
+    MutexLock l(&wpt_db_->seq_for_metadata_mutex_);
+    wpt_db_->seq_for_metadata.push_back(s);
+#endif
+    return s;
   } else {
     return prep_seq;
   }
@@ -161,8 +166,6 @@ Status WritePreparedTxn::RollbackInternal() {
   WriteBatch rollback_batch;
   assert(GetId() != kMaxSequenceNumber);
   assert(GetId() > 0);
-  // In the absence of Prepare markers, use Noop as a batch separator
-  WriteBatchInternal::InsertNoop(&rollback_batch);
   // In WritePrepared, the txn is is the same as prepare seq
   auto last_visible_txn = GetId() - 1;
   struct RollbackWriteBatchBuilder : public WriteBatch::Handler {
@@ -227,6 +230,7 @@ Status WritePreparedTxn::RollbackInternal() {
   if (!s.ok()) {
     return s;
   }
+  // The Rollback marker will be used as a batch separator
   WriteBatchInternal::MarkRollback(&rollback_batch, name_);
   const bool disable_memtable = true;
   const uint64_t no_log_ref = 0;
