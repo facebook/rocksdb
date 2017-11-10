@@ -2962,6 +2962,12 @@ void rocksdb_ingestexternalfileoptions_set_allow_blocking_flush(
   opt->rep.allow_blocking_flush = allow_blocking_flush;
 }
 
+void rocksdb_ingestexternalfileoptions_set_ingest_behind(
+    rocksdb_ingestexternalfileoptions_t* opt,
+    unsigned char ingest_behind) {
+  opt->rep.ingest_behind = ingest_behind;
+}
+
 void rocksdb_ingestexternalfileoptions_destroy(
     rocksdb_ingestexternalfileoptions_t* opt) {
   delete opt;
