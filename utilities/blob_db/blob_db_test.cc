@@ -71,8 +71,8 @@ class BlobDBTest : public testing::Test {
       Options options = blob_db_->GetOptions();
       BlobDBOptions bdb_options = blob_db_->GetBlobDBOptions();
       delete blob_db_;
-      ASSERT_OK(DestroyBlobDB(dbname_, options, bdb_options));
       blob_db_ = nullptr;
+      ASSERT_OK(DestroyBlobDB(dbname_, options, bdb_options));
     }
   }
 
