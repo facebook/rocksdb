@@ -152,6 +152,16 @@ class Env {
                                      unique_ptr<RandomAccessFile>* result,
                                      const EnvOptions& options)
                                      = 0;
+  // These values match Linux definition
+  // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/include/uapi/linux/fcntl.h#n56
+  enum WriteLifeTimeHint {
+    WLTH_NOT_SET = 0, // No hint information set
+    WLTH_NONE,        // No hints about write life time
+    WLTH_SHORT,       // Data written has a short life time
+    WLTH_MEDIUM,      // Data written has a medium life time
+    WLTH_LONG,        // Data written has a long life time
+    WLTH_EXTREME,     // Data written has an extremely long life time
+  };
 
   // Create an object that writes to a new file with the specified
   // name.  Deletes any existing file with the same name and creates a
@@ -573,7 +583,8 @@ class WritableFile {
   WritableFile()
     : last_preallocated_block_(0),
       preallocation_block_size_(0),
-      io_priority_(Env::IO_TOTAL) {
+      io_priority_(Env::IO_TOTAL),
+      write_hint_(Env::WLTH_NOT_SET) {
   }
   virtual ~WritableFile();
 
@@ -650,6 +661,11 @@ class WritableFile {
 
   virtual Env::IOPriority GetIOPriority() { return io_priority_; }
 
+  virtual void SetWriteLifeTimeHint(Env::WriteLifeTimeHint hint) {
+    write_hint_ = hint;
+  }
+
+  virtual Env::WriteLifeTimeHint GetWriteLifeTimeHint() { return write_hint_; }
   /*
    * Get the size of valid data in the file.
    */
@@ -738,6 +754,7 @@ class WritableFile {
   friend class WritableFileMirror;
 
   Env::IOPriority io_priority_;
+  Env::WriteLifeTimeHint write_hint_;
 };
 
 // A file abstraction for random reading and writing.

@@ -1316,6 +1316,9 @@ class DBImpl : public DB {
   bool MCOverlap(ManualCompactionState* m, ManualCompactionState* m1);
 
   size_t GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
+  Env::WriteLifeTimeHint CalculateWALWriteHint() {
+    return Env::WLTH_SHORT;
+  }
 
   // When set, we use a seprate queue for writes that dont write to memtable. In
   // 2PC these are the writes at Prepare phase.
