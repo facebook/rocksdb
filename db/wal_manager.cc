@@ -115,7 +115,7 @@ Status WalManager::GetUpdatesSince(
   }
   iter->reset(new TransactionLogIteratorImpl(
       db_options_.wal_dir, &db_options_, read_options, env_options_, seq,
-      std::move(wal_files), version_set));
+      std::move(wal_files), version_set, seq_per_batch_));
   return (*iter)->status();
 }
 

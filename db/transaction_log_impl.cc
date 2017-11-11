@@ -19,7 +19,8 @@ TransactionLogIteratorImpl::TransactionLogIteratorImpl(
     const std::string& dir, const ImmutableDBOptions* options,
     const TransactionLogIterator::ReadOptions& read_options,
     const EnvOptions& soptions, const SequenceNumber seq,
-    std::unique_ptr<VectorLogPtr> files, VersionSet const* const versions)
+    std::unique_ptr<VectorLogPtr> files, VersionSet const* const versions,
+    const bool seq_per_batch)
     : dir_(dir),
       options_(options),
       read_options_(read_options),
@@ -31,7 +32,8 @@ TransactionLogIteratorImpl::TransactionLogIteratorImpl(
       currentFileIndex_(0),
       currentBatchSeq_(0),
       currentLastSeq_(0),
-      versions_(versions) {
+      versions_(versions),
+      seq_per_batch_(seq_per_batch) {
   assert(files_ != nullptr);
   assert(versions_ != nullptr);
 
@@ -241,12 +243,12 @@ void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
     }
     startingSequenceNumber_ = expectedSeq;
     // currentStatus_ will be set to Ok if reseek succeeds
-    // Note: this is still ok in seq_pre_batch_ && concurrent_preparep_ mode
+    // Note: this is still ok in seq_pre_batch_ && two_write_queuesp_ mode
     // that allows gaps in the WAL since it will still skip over the gap.
     currentStatus_ = Status::NotFound("Gap in sequence numbers");
-    // In seq_per_batch mode, gaps in the seq are possible so the strict mode
+    // In seq_per_batch_ mode, gaps in the seq are possible so the strict mode
     // should be disabled
-    return SeekToStartSequence(currentFileIndex_, !options_->seq_per_batch);
+    return SeekToStartSequence(currentFileIndex_, !seq_per_batch_);
   }
 
   struct BatchCounter : public WriteBatch::Handler {
@@ -284,7 +286,7 @@ void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
   };
 
   currentBatchSeq_ = WriteBatchInternal::Sequence(batch.get());
-  if (options_->seq_per_batch) {
+  if (seq_per_batch_) {
     BatchCounter counter(currentBatchSeq_);
     batch->Iterate(&counter);
     currentLastSeq_ = counter.sequence_;

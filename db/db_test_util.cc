@@ -486,7 +486,7 @@ Options DBTestBase::GetOptions(
     }
     case kConcurrentWALWrites: {
       // This options optimize 2PC commit path
-      options.concurrent_prepare = true;
+      options.two_write_queues = true;
       options.manual_wal_flush = true;
       break;
     }
