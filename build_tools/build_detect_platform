@@ -444,9 +444,7 @@ if test "$USE_HDFS"; then
   JAVA_LDFLAGS="$JAVA_LDFLAGS $HDFS_LDFLAGS"
 fi
 
-if test "$USE_SSE"; then
-  COMMON_FLAGS="$COMMON_FLAGS -msse4.2"
-elif test -z "$PORTABLE"; then
+if test -z "$PORTABLE"; then
   if test -n "`echo $TARGET_ARCHITECTURE | grep ^ppc64`"; then
     # Tune for this POWER processor, treating '+' models as base models
     POWER=`LD_SHOW_AUXV=1 /bin/true | grep AT_PLATFORM | grep -E -o power[0-9]+`
@@ -455,7 +453,11 @@ elif test -z "$PORTABLE"; then
     COMMON_FLAGS="$COMMON_FLAGS -march=z10 "
   elif [ "$TARGET_OS" != AIX ] && [ "$TARGET_OS" != SunOS ]; then
     COMMON_FLAGS="$COMMON_FLAGS -march=native "
+  elif test "$USE_SSE"; then
+    COMMON_FLAGS="$COMMON_FLAGS -msse4.2"
   fi
+elif test "$USE_SSE"; then
+  COMMON_FLAGS="$COMMON_FLAGS -msse4.2"
 fi
 
 $CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null <<EOF
