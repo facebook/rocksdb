@@ -247,30 +247,29 @@ Status WritePreparedTxn::RollbackInternal() {
 
 Status WritePreparedTxn::ValidateSnapshot(ColumnFamilyHandle* column_family,
                                           const Slice& key,
-                                          SequenceNumber prev_seqno,
-                                          SequenceNumber* new_seqno) {
+                                          SequenceNumber* tracked_at_seq) {
   assert(snapshot_);
 
   SequenceNumber snap_seq = snapshot_->GetSequenceNumber();
-  // prev_seqno is either max or the last snapshot with which this key was
+  // tracked_at_seq is either max or the last snapshot with which this key was
   // trackeed so there is no need to apply the IsInSnapshot to this comparison
-  // here as prev_seqno is not a prepare seq.
-  if (prev_seqno <= snap_seq) {
+  // here as tracked_at_seq is not a prepare seq.
+  if (*tracked_at_seq <= snap_seq) {
     // If the key has been previous validated at a sequence number earlier
     // than the curent snapshot's sequence number, we already know it has not
     // been modified.
     return Status::OK();
   }
 
-  *new_seqno = snap_seq;
+  *tracked_at_seq = snap_seq;
 
   ColumnFamilyHandle* cfh =
       column_family ? column_family : db_impl_->DefaultColumnFamily();
 
   WritePreparedTxnReadCallback snap_checker(wpt_db_, snap_seq);
-  return TransactionUtil::CheckKeyForConflicts(
-      db_impl_, cfh, key.ToString(), snapshot_->GetSequenceNumber(),
-      false /* cache_only */, &snap_checker);
+  return TransactionUtil::CheckKeyForConflicts(db_impl_, cfh, key.ToString(),
+                                               snap_seq, false /* cache_only */,
+                                               &snap_checker);
 }
 
 }  // namespace rocksdb

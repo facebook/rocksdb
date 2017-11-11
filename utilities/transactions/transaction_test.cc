@@ -141,12 +141,11 @@ TEST_P(TransactionTest, ValidateSnapshotTest) {
     ASSERT_OK(s);
     delete txn1;
 
-    SequenceNumber dont_care;
     auto pes_txn2 = dynamic_cast<PessimisticTransaction*>(txn2);
     // Test the simple case where the key is not tracked yet
     auto trakced_seq = kMaxSequenceNumber;
     s = pes_txn2->ValidateSnapshot(db->DefaultColumnFamily(), "foo",
-                                   trakced_seq, &dont_care);
+                                   &trakced_seq);
     ASSERT_TRUE(s.IsBusy());
     delete txn2;
   }
