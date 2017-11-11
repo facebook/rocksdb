@@ -68,7 +68,8 @@ struct MemTableInfo;
 
 class DBImpl : public DB {
  public:
-  DBImpl(const DBOptions& options, const std::string& dbname);
+  DBImpl(const DBOptions& options, const std::string& dbname,
+         const bool seq_per_batch = false);
   virtual ~DBImpl();
 
   // Implementations of the DB interface
@@ -220,10 +221,10 @@ class DBImpl : public DB {
 
   virtual SequenceNumber GetLatestSequenceNumber() const override;
   virtual SequenceNumber IncAndFetchSequenceNumber();
-  // Returns LastToBeWrittenSequence in concurrent_prepare_ && seq_per_batch_
-  // mode and LastSequence otherwise. This is useful when visiblility depends
-  // also on data written to the WAL but not to the memtable.
-  SequenceNumber TEST_GetLatestVisibleSequenceNumber() const;
+  // Returns LastSequence in allocate_seq_only_for_data_
+  // mode and LastAllocatedSequence otherwise. This is useful when visiblility
+  // depends also on data written to the WAL but not to the memtable.
+  SequenceNumber TEST_GetLastVisibleSequence() const;
 
   virtual bool SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) override;
 
@@ -606,6 +607,12 @@ class DBImpl : public DB {
 
   Status NewDB();
 
+  // This is to be used only by internal rocksdb classes.
+  static Status Open(const DBOptions& db_options, const std::string& name,
+                     const std::vector<ColumnFamilyDescriptor>& column_families,
+                     std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
+                     const bool seq_per_batch);
+
  protected:
   Env* const env_;
   const std::string dbname_;
@@ -905,12 +912,12 @@ class DBImpl : public DB {
   FileLock* db_lock_;
 
   // In addition to mutex_, log_write_mutex_ protected writes to logs_ and
-  // logfile_number_. With concurrent_prepare it also protects alive_log_files_,
+  // logfile_number_. With two_write_queues it also protects alive_log_files_,
   // and log_empty_. Refer to the definition of each variable below for more
   // details.
   InstrumentedMutex log_write_mutex_;
   // State below is protected by mutex_
-  // With concurrent_prepare enabled, some of the variables that accessed during
+  // With two_write_queues enabled, some of the variables that accessed during
   // WriteToWAL need different synchronization: log_empty_, alive_log_files_,
   // logs_, logfile_number_. Refer to the definition of each variable below for
   // more description.
@@ -935,10 +942,10 @@ class DBImpl : public DB {
   std::deque<uint64_t>
       log_recycle_files;  // a list of log files that we can recycle
   bool log_dir_synced_;
-  // Without concurrent_prepare, read and writes to log_empty_ are protected by
+  // Without two_write_queues, read and writes to log_empty_ are protected by
   // mutex_. Since it is currently updated/read only in write_thread_, it can be
   // accessed from the same write_thread_ without any locks. With
-  // concurrent_prepare writes, where it can be updated in different threads,
+  // two_write_queues writes, where it can be updated in different threads,
   // read and writes are protected by log_write_mutex_ instead. This is to avoid
   // expesnive mutex_ lock during WAL write, which update log_empty_.
   bool log_empty_;
@@ -975,10 +982,10 @@ class DBImpl : public DB {
     // true for some prefix of logs_
     bool getting_synced = false;
   };
-  // Without concurrent_prepare, read and writes to alive_log_files_ are
+  // Without two_write_queues, read and writes to alive_log_files_ are
   // protected by mutex_. However since back() is never popped, and push_back()
   // is done only from write_thread_, the same thread can access the item
-  // reffered by back() without mutex_. With concurrent_prepare_, writes
+  // reffered by back() without mutex_. With two_write_queues_, writes
   // are protected by locking both mutex_ and log_write_mutex_, and reads must
   // be under either mutex_ or log_write_mutex_.
   std::deque<LogFileNumberSize> alive_log_files_;
@@ -1003,7 +1010,7 @@ class DBImpl : public DB {
   // memtable on normal writes and hence improving the throughput. Each new
   // write of the state will replace the previous state entirely even if the
   // keys in the two consecuitive states do not overlap.
-  // It is protected by log_write_mutex_ when concurrent_prepare_ is enabled.
+  // It is protected by log_write_mutex_ when two_write_queues_ is enabled.
   // Otherwise only the heaad of write_thread_ can access it.
   WriteBatch cached_recoverable_state_;
   std::atomic<bool> cached_recoverable_state_empty_ = {true};
@@ -1322,9 +1329,22 @@ class DBImpl : public DB {
 
   // When set, we use a seprate queue for writes that dont write to memtable. In
   // 2PC these are the writes at Prepare phase.
-  const bool concurrent_prepare_;
+  const bool two_write_queues_;
   const bool manual_wal_flush_;
+  // Increase the sequence number after writing each batch, whether memtable is
+  // disabled for that or not. Otherwise the sequence number is increased after
+  // writing each key into memtable. This implies that when disable_memtable is
+  // set, the seq is not increased at all.
+  //
+  // Default: false
   const bool seq_per_batch_;
+  // A sequence number is allocated only for data written to DB. Otherwise it
+  // could also be allocated for operational purposes such as commit timestamp
+  // of a transaction.
+  const bool allocate_seq_only_for_data_;
+  // It indicates that a customized gc algorithm must be used for
+  // flush/compaction and if it is not provided vis SnapshotChecker, we should
+  // disable gc to be safe.
   const bool use_custom_gc_;
 
   // Clients must periodically call SetPreserveDeletesSequenceNumber()

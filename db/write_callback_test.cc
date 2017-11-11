@@ -136,9 +136,8 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
               options.create_if_missing = true;
               options.allow_concurrent_memtable_write = allow_parallel;
               options.enable_pipelined_write = enable_pipelined_write;
-              options.concurrent_prepare = two_queues;
-              if (options.enable_pipelined_write &&
-                  options.concurrent_prepare) {
+              options.two_write_queues = two_queues;
+              if (options.enable_pipelined_write && options.two_write_queues) {
                 // This combination is not supported
                 continue;
               }

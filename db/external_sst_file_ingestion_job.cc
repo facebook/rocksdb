@@ -164,7 +164,7 @@ Status ExternalSstFileIngestionJob::Run() {
     // if the dont overlap with any ranges since we have snapshots
     force_global_seqno = true;
   }
-  // It is safe to use this instead of LastToBeWrittenSequence since we are
+  // It is safe to use this instead of LastAllocatedSequence since we are
   // the only active writer, and hence they are equal
   const SequenceNumber last_seqno = versions_->LastSequence();
   SuperVersion* super_version = cfd_->GetSuperVersion();
@@ -199,7 +199,7 @@ Status ExternalSstFileIngestionJob::Run() {
   }
 
   if (consumed_seqno) {
-    versions_->SetLastToBeWrittenSequence(last_seqno + 1);
+    versions_->SetLastAllocatedSequence(last_seqno + 1);
     versions_->SetLastSequence(last_seqno + 1);
   }
 

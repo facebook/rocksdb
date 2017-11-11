@@ -592,9 +592,10 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
         // happen when we open and write to a corrupted DB, where sequence id
         // will start from the last sequence id we recovered.
         if (sequence == *next_sequence ||
-            // With seq_per_batch_, if previous run was with concurrent_prepare_
-            // then gap in the sequence numbers is expected by the commits
-            // without prepares.
+            // With seq_per_batch_, if previous run was with two_write_queues_
+            // then allocate_seq_only_for_data_ was disabled and a gap in the
+            // sequence numbers in the log is expected by the commits without
+            // prepares.
             (seq_per_batch_ && sequence >= *next_sequence)) {
           stop_replay_for_corruption = false;
         }
@@ -754,7 +755,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     auto last_sequence = *next_sequence - 1;
     if ((*next_sequence != kMaxSequenceNumber) &&
         (versions_->LastSequence() <= last_sequence)) {
-      versions_->SetLastToBeWrittenSequence(last_sequence);
+      versions_->SetLastAllocatedSequence(last_sequence);
       versions_->SetLastSequence(last_sequence);
     }
   }
@@ -845,13 +846,13 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
   if (data_seen && !flushed) {
     // Mark these as alive so they'll be considered for deletion later by
     // FindObsoleteFiles()
-    if (concurrent_prepare_) {
+    if (two_write_queues_) {
       log_write_mutex_.Lock();
     }
     for (auto log_number : log_numbers) {
       alive_log_files_.push_back(LogFileNumberSize(log_number));
     }
-    if (concurrent_prepare_) {
+    if (two_write_queues_) {
       log_write_mutex_.Unlock();
     }
   }
@@ -967,6 +968,15 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
 Status DB::Open(const DBOptions& db_options, const std::string& dbname,
                 const std::vector<ColumnFamilyDescriptor>& column_families,
                 std::vector<ColumnFamilyHandle*>* handles, DB** dbptr) {
+  const bool seq_per_batch = true;
+  return DBImpl::Open(db_options, dbname, column_families, handles, dbptr,
+                      !seq_per_batch);
+}
+
+Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
+                    const std::vector<ColumnFamilyDescriptor>& column_families,
+                    std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
+                    const bool seq_per_batch) {
   Status s = SanitizeOptionsByTable(db_options, column_families);
   if (!s.ok()) {
     return s;
@@ -986,7 +996,7 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
         std::max(max_write_buffer_size, cf.options.write_buffer_size);
   }
 
-  DBImpl* impl = new DBImpl(db_options, dbname);
+  DBImpl* impl = new DBImpl(db_options, dbname, seq_per_batch);
   s = impl->env_->CreateDirIfMissing(impl->immutable_db_options_.wal_dir);
   if (s.ok()) {
     for (auto db_path : impl->immutable_db_options_.db_paths) {
@@ -1073,12 +1083,12 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
             cfd, &sv_context, *cfd->GetLatestMutableCFOptions());
       }
       sv_context.Clean();
-      if (impl->concurrent_prepare_) {
+      if (impl->two_write_queues_) {
         impl->log_write_mutex_.Lock();
       }
       impl->alive_log_files_.push_back(
           DBImpl::LogFileNumberSize(impl->logfile_number_));
-      if (impl->concurrent_prepare_) {
+      if (impl->two_write_queues_) {
         impl->log_write_mutex_.Unlock();
       }
       impl->DeleteObsoleteFiles();

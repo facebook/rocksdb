@@ -77,9 +77,8 @@ struct ImmutableDBOptions {
   bool avoid_flush_during_recovery;
   bool allow_ingest_behind;
   bool preserve_deletes;
-  bool concurrent_prepare;
+  bool two_write_queues;
   bool manual_wal_flush;
-  bool seq_per_batch;
 };
 
 struct MutableDBOptions {
