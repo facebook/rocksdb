@@ -182,8 +182,7 @@ class PessimisticTransaction : public TransactionBaseImpl {
 
   virtual Status ValidateSnapshot(ColumnFamilyHandle* column_family,
                                   const Slice& key,
-                                  SequenceNumber tracked_at_seq,
-                                  SequenceNumber* new_seqno);
+                                  SequenceNumber* tracked_at_seq);
 
   void UnlockGetForUpdate(ColumnFamilyHandle* column_family,
                           const Slice& key) override;

@@ -531,6 +531,8 @@ void TransactionBaseImpl::TrackKey(uint32_t cfh_id, const std::string& key,
 }
 
 // Add a key to the given TransactionKeyMap
+// seq for pessimistic transactions is the sequence number from which we know
+// there has not been a concurrent update to the key.
 void TransactionBaseImpl::TrackKey(TransactionKeyMap* key_map, uint32_t cfh_id,
                                    const std::string& key, SequenceNumber seq,
                                    bool read_only, bool exclusive) {
@@ -543,6 +545,10 @@ void TransactionBaseImpl::TrackKey(TransactionKeyMap* key_map, uint32_t cfh_id,
     // Now tracking this key with an earlier sequence number
     iter->second.seq = seq;
   }
+  // else we do not update the seq. The smaller the tracked seq, the stronger it
+  // the guarantee since it implies from the seq onward there has not been a
+  // concurrent update to the key. So we update the seq if it implies stronger
+  // guarantees, i.e., if it is smaller than the existing trakced seq.
 
   if (read_only) {
     iter->second.num_reads++;

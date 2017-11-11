@@ -242,22 +242,21 @@ Status WritePreparedTxn::RollbackInternal() {
 
 Status WritePreparedTxn::ValidateSnapshot(ColumnFamilyHandle* column_family,
                                           const Slice& key,
-                                          SequenceNumber tracked_at_seq,
-                                          SequenceNumber* new_tracked_at_seq) {
+                                          SequenceNumber* tracked_at_seq) {
   assert(snapshot_);
 
   SequenceNumber snap_seq = snapshot_->GetSequenceNumber();
   // tracked_at_seq is either max or the last snapshot with which this key was
   // trackeed so there is no need to apply the IsInSnapshot to this comparison
   // here as tracked_at_seq is not a prepare seq.
-  if (tracked_at_seq <= snap_seq) {
+  if (*tracked_at_seq <= snap_seq) {
     // If the key has been previous validated at a sequence number earlier
     // than the curent snapshot's sequence number, we already know it has not
     // been modified.
     return Status::OK();
   }
 
-  *new_tracked_at_seq = snap_seq;
+  *tracked_at_seq = snap_seq;
 
   ColumnFamilyHandle* cfh =
       column_family ? column_family : db_impl_->DefaultColumnFamily();
