@@ -33,7 +33,8 @@ class SstFileManagerImpl;
 class DeleteScheduler {
  public:
   DeleteScheduler(Env* env, int64_t rate_bytes_per_sec, Logger* info_log,
-                  SstFileManagerImpl* sst_file_manager);
+                  SstFileManagerImpl* sst_file_manager,
+                  double max_trash_db_ratio);
 
   ~DeleteScheduler();
 
@@ -57,11 +58,6 @@ class DeleteScheduler {
   std::map<std::string, Status> GetBackgroundErrors();
 
   uint64_t GetTotalTrashSize() { return total_trash_size_.load(); }
-
-  void TEST_SetMaxTrashDBRatio(double r) {
-    assert(r >= 0);
-    max_trash_db_ratio_ = r;
-  }
 
   static const std::string kTrashExtension;
   static bool IsTrashFile(const std::string& file_path);
@@ -105,8 +101,9 @@ class DeleteScheduler {
   InstrumentedMutex file_move_mu_;
   Logger* info_log_;
   SstFileManagerImpl* sst_file_manager_;
-  // If the trash size constitutes for more than 25% of the total DB size
-  // we will start deleting new files passed to DeleteScheduler immediately
+  // If the trash size constitutes for more than this fraction  of the total
+  // DB size we will start deleting new files passed to DeleteScheduler
+  // immediately
   double max_trash_db_ratio_ = 0.25;
   static const uint64_t kMicrosInSecond = 1000 * 1000LL;
 };
