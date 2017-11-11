@@ -78,7 +78,7 @@ Status ReadableWriteBatch::GetEntryFromDataOffset(size_t data_offset,
       *type = kXIDRecord;
       break;
     default:
-      return Status::Corruption("unknown WriteBatch tag",
+      return Status::Corruption("unknown WriteBatch tag ",
                                 ToString(static_cast<unsigned int>(tag)));
   }
   return Status::OK();

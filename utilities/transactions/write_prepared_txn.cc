@@ -220,7 +220,7 @@ Status WritePreparedTxn::RollbackInternal() {
     }
 
    protected:
-    virtual bool WriteAfterCommit() const { return false; }
+    virtual bool WriteAfterCommit() const override { return false; }
   } rollback_handler(db_impl_, wpt_db_, last_visible_txn, &rollback_batch);
   auto s = GetWriteBatch()->GetWriteBatch()->Iterate(&rollback_handler);
   assert(s.ok());
