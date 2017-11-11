@@ -120,6 +120,9 @@ class WriteBatchBase {
 
   // Sets the maximum size of the write batch in bytes. 0 means no limit.
   virtual void SetMaxBytes(size_t max_bytes) = 0;
+
+  // Append other batches to this one
+  virtual Status AppendBatches(WriteBatch** batches, size_t count) = 0;
 };
 
 }  // namespace rocksdb

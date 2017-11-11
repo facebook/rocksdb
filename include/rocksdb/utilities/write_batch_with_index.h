@@ -226,6 +226,9 @@ class WriteBatchWithIndex : public WriteBatchBase {
 
   void SetMaxBytes(size_t max_bytes) override;
 
+  // Append other batches to this one
+  Status AppendBatches(WriteBatch**, size_t) override;
+
  private:
   friend class WritePreparedTxn;
   // TODO(myabandeh): this is hackish, non-efficient solution to enable the e2e
