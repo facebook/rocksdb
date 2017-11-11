@@ -90,7 +90,7 @@ Status WritePreparedTxn::CommitWithoutPrepareInternal() {
 }
 
 SequenceNumber WritePreparedTxn::GetACommitSeqNumber(SequenceNumber prep_seq) {
-  if (db_impl_->immutable_db_options().concurrent_prepare) {
+  if (db_impl_->immutable_db_options().two_write_queues) {
     return db_impl_->IncAndFetchSequenceNumber();
   } else {
     return prep_seq;

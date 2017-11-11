@@ -284,6 +284,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "allow_ingest_behind=false;"
                              "preserve_deletes=false;"
                              "concurrent_prepare=false;"
+                             "two_write_queues=false;"
                              "manual_wal_flush=false;"
                              "seq_per_batch=false;",
                              new_options));

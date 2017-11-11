@@ -357,21 +357,21 @@ static std::unordered_map<std::string, OptionTypeInfo> db_options_type_info = {
       OptionVerificationType::kNormal, false,
       offsetof(struct ImmutableDBOptions, allow_ingest_behind)}},
     {"preserve_deletes",
-      {offsetof(struct DBOptions, preserve_deletes), OptionType::kBoolean,
+     {offsetof(struct DBOptions, preserve_deletes), OptionType::kBoolean,
       OptionVerificationType::kNormal, false,
       offsetof(struct ImmutableDBOptions, preserve_deletes)}},
-    {"concurrent_prepare",
-     {offsetof(struct DBOptions, concurrent_prepare), OptionType::kBoolean,
+    {"concurrent_prepare",  // Deprecated by two_write_queues
+     {0, OptionType::kBoolean, OptionVerificationType::kDeprecated, false, 0}},
+    {"two_write_queues",
+     {offsetof(struct DBOptions, two_write_queues), OptionType::kBoolean,
       OptionVerificationType::kNormal, false,
-      offsetof(struct ImmutableDBOptions, concurrent_prepare)}},
+      offsetof(struct ImmutableDBOptions, two_write_queues)}},
     {"manual_wal_flush",
      {offsetof(struct DBOptions, manual_wal_flush), OptionType::kBoolean,
       OptionVerificationType::kNormal, false,
       offsetof(struct ImmutableDBOptions, manual_wal_flush)}},
     {"seq_per_batch",
-     {offsetof(struct DBOptions, seq_per_batch), OptionType::kBoolean,
-      OptionVerificationType::kNormal, false,
-      offsetof(struct ImmutableDBOptions, seq_per_batch)}}};
+     {0, OptionType::kBoolean, OptionVerificationType::kDeprecated, false, 0}}};
 
 // offset_of is used to get the offset of a class data member
 // ex: offset_of(&ColumnFamilyOptions::num_levels)
