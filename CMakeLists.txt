@@ -930,3 +930,5 @@ option(WITH_TOOLS "build with tools" ON)
 if(WITH_TOOLS)
   add_subdirectory(tools)
 endif()
+
+# set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -msse4.1")
