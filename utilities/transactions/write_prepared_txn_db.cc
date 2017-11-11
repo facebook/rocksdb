@@ -99,6 +99,8 @@ Iterator* WritePreparedTxnDB::NewIterator(const ReadOptions& options,
     snapshot_seq = options.snapshot->GetSequenceNumber();
   } else {
     auto* snapshot = db_impl_->GetSnapshot();
+    // We take a snapshot to make sure that the related data in the commit map
+    // are not deleted.
     snapshot_seq = snapshot->GetSequenceNumber();
     own_snapshot = std::make_shared<ManagedSnapshot>(db_impl_, snapshot);
   }
@@ -121,6 +123,8 @@ Status WritePreparedTxnDB::NewIterators(
     snapshot_seq = options.snapshot->GetSequenceNumber();
   } else {
     auto* snapshot = db_impl_->GetSnapshot();
+    // We take a snapshot to make sure that the related data in the commit map
+    // are not deleted.
     snapshot_seq = snapshot->GetSequenceNumber();
     own_snapshot = std::make_shared<ManagedSnapshot>(db_impl_, snapshot);
   }
