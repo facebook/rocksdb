@@ -728,6 +728,12 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     }
 
     if (!status.ok()) {
+      if (status.IsNotSupported()) {
+        // We should not treat NotSupported as corruption. It is rather a clear
+        // sign that we are processing a WAL that is produced by an incompatible
+        // version of the code.
+        return status;
+      }
       if (immutable_db_options_.wal_recovery_mode ==
           WALRecoveryMode::kSkipAnyCorruptedRecords) {
         // We should ignore all errors unconditionally

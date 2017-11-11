@@ -61,7 +61,9 @@ Iterator* WritePreparedTxn::GetIterator(const ReadOptions& options,
 Status WritePreparedTxn::PrepareInternal() {
   WriteOptions write_options = write_options_;
   write_options.disableWAL = false;
-  WriteBatchInternal::MarkEndPrepare(GetWriteBatch()->GetWriteBatch(), name_);
+  const bool write_after_commit = true;
+  WriteBatchInternal::MarkEndPrepare(GetWriteBatch()->GetWriteBatch(), name_,
+                                     !write_after_commit);
   const bool disable_memtable = true;
   uint64_t seq_used = kMaxSequenceNumber;
   bool collapsed = GetWriteBatch()->Collapse();
@@ -216,6 +218,9 @@ Status WritePreparedTxn::RollbackInternal() {
     Status MarkRollback(const Slice&) override {
       return Status::InvalidArgument();
     }
+
+   protected:
+    virtual bool WriteAfterCommit() const override { return false; }
   } rollback_handler(db_impl_, wpt_db_, last_visible_txn, &rollback_batch);
   auto s = GetWriteBatch()->GetWriteBatch()->Iterate(&rollback_handler);
   assert(s.ok());

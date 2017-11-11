@@ -102,7 +102,8 @@ class WriteBatchInternal {
   static Status PutBlobIndex(WriteBatch* batch, uint32_t column_family_id,
                              const Slice& key, const Slice& value);
 
-  static Status MarkEndPrepare(WriteBatch* batch, const Slice& xid);
+  static Status MarkEndPrepare(WriteBatch* batch, const Slice& xid,
+                               const bool write_after_commit = true);
 
   static Status MarkRollback(WriteBatch* batch, const Slice& xid);
 
