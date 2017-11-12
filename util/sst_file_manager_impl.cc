@@ -95,6 +95,14 @@ void SstFileManagerImpl::SetDeleteRateBytesPerSecond(int64_t delete_rate) {
   return delete_scheduler_.SetRateBytesPerSecond(delete_rate);
 }
 
+double SstFileManagerImpl::GetMaxTrashDBRatio() {
+  return delete_scheduler_.GetMaxTrashDBRatio();
+}
+
+void SstFileManagerImpl::SetMaxTrashDBRatio(double r) {
+  return delete_scheduler_.SetMaxTrashDBRatio(r);
+}
+
 Status SstFileManagerImpl::ScheduleFileDeletion(const std::string& file_path) {
   return delete_scheduler_.DeleteFile(file_path);
 }

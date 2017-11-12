@@ -68,6 +68,12 @@ class SstFileManagerImpl : public SstFileManager {
   // Update the delete rate limit in bytes per second.
   virtual void SetDeleteRateBytesPerSecond(int64_t delete_rate) override;
 
+  // Return trash/DB size ratio where new files will be deleted immediately
+  virtual double GetMaxTrashDBRatio() override;
+
+  // Update trash/DB size ratio where new files will be deleted immediately
+  virtual void SetMaxTrashDBRatio(double ratio) override;
+
   // Mark file as trash and schedule it's deletion.
   virtual Status ScheduleFileDeletion(const std::string& file_path);
 

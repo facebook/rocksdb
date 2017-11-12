@@ -53,7 +53,7 @@ Status DeleteScheduler::DeleteFile(const std::string& file_path) {
   Status s;
   if (rate_bytes_per_sec_.load() <= 0 ||
       total_trash_size_.load() >
-          sst_file_manager_->GetTotalSize() * max_trash_db_ratio_) {
+          sst_file_manager_->GetTotalSize() * max_trash_db_ratio_.load()) {
     // Rate limiting is disabled or trash size makes up more than
     // max_trash_db_ratio_ (default 25%) of the total DB size
     TEST_SYNC_POINT("DeleteScheduler::DeleteFile");
