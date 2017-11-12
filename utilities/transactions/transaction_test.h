@@ -264,7 +264,7 @@ class TransactionTest : public ::testing::TestWithParam<
       exp_seq++;
       // Consume one seq per rollback batch
       exp_seq++;
-      if (options.concurrent_prepare) {
+      if (options.two_write_queues) {
         // Consume one seq for rollback commit
         exp_seq++;
       }

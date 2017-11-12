@@ -716,7 +716,7 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceConcurrentTest) {
     // The latest seq might be due to a commit without prepare and hence not
     // persisted in the WAL. We need to discount such seqs if they are not
     // continued by any seq consued by a value write.
-    if (options.concurrent_prepare) {
+    if (options.two_write_queues) {
       WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
       MutexLock l(&wp_db->seq_for_metadata_mutex_);
       auto& vec = wp_db->seq_for_metadata;
@@ -737,7 +737,7 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceConcurrentTest) {
     db_impl->FlushWAL(true);
     ReOpenNoDelete();
     db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
-    seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
+    seq = db_impl->TEST_GetLastVisibleSequence();
     ASSERT_EQ(exp_seq, seq);
 
     // Check if flush preserves the last sequence number

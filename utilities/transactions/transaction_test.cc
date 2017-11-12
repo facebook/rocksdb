@@ -4925,7 +4925,7 @@ TEST_P(TransactionTest, SeqAdvanceTest) {
 
     if (branch_do(n, &branch)) {
       db_impl->Flush(fopt);
-      seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
+      seq = db_impl->TEST_GetLastVisibleSequence();
       ASSERT_EQ(exp_seq, seq);
     }
     if (!short_test && branch_do(n, &branch)) {
