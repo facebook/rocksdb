@@ -143,16 +143,13 @@ class PinnableSlice : public Slice, public Cleanable {
       Slice::operator=(other);
       Cleanable::operator=(std::move(other));
       pinned_ = other.pinned_;
-      if (!pinned_ && other.buf_ == &other.self_space_) {
-        self_space_ = std::move(other.self_space_);
-        buf_ = &self_space_;
+      if (!pinned_) {
+        *buf_ = std::move(*other.buf_);
         data_ = buf_->data();
-      } else {
-        buf_ = other.buf_;
       }
       // Re-initialize the other PinnablaeSlice.
-      other.self_space_.clear();
-      other.buf_ = &other.self_space_;
+      assert(buf_ != other.buf_);
+      other.buf_->clear();
       other.pinned_ = false;
     }
     return *this;
