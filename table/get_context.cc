@@ -87,6 +87,18 @@ void GetContext::SaveValue(const Slice& value, SequenceNumber seq) {
   }
 }
 
+void GetContext::update_counter(int counter_ind, int val) {
+  if (counter_ind < 0 || counter_ind > 5) return;
+  switch (counter_ind) {
+    case 0: BLOCK_CACHE_MISS_ticker+=val;
+    case 1: BLOCK_CACHE_BYTES_WRITE_ticker+=val;
+    case 2: BLOCK_CACHE_ADD_ticker+=val;
+    case 3: BLOCK_CACHE_DATA_MISS_ticker+=val;
+    case 4: BLOCK_CACHE_DATA_BYTES_INSERT_ticker+=val;
+    case 5: BLOCK_CACHE_DATA_ADD_ticker+=val;
+  }
+}
+
 bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
                            const Slice& value, Cleanable* value_pinner) {
   assert((state_ != kMerge && parsed_key.type != kTypeMerge) ||

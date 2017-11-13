@@ -143,14 +143,14 @@ Cache::Handle* GetEntryFromCache(Cache* block_cache, const Slice& key,
   } else {
     // overall cache miss
     if (get_context != nullptr) {
-      get_context->BLOCK_CACHE_MISS_ticker++;
+      get_context->update_counter(0, 1);
     }
     else {
       RecordTick(statistics, BLOCK_CACHE_MISS);
     }
     // block-type specific cache miss
     if (block_cache_miss_ticker == BLOCK_CACHE_DATA_MISS && get_context != nullptr) {
-      get_context->BLOCK_CACHE_DATA_MISS_ticker++;
+      get_context->update_counter(3, 1);
     }
     else
       RecordTick(statistics, block_cache_miss_ticker);
@@ -1037,8 +1037,8 @@ Status BlockBasedTable::GetDataBlockFromCache(
       if (s.ok()) {
         if (get_context != nullptr)
         {
-          get_context->BLOCK_CACHE_ADD_ticker++;
-          get_context->BLOCK_CACHE_BYTES_WRITE_ticker += block->value->usable_size();
+          get_context->update_counter(2, 1);
+          get_context->update_counter(1, block->value->usable_size());
         }
         else {
           RecordTick(statistics, BLOCK_CACHE_ADD);
@@ -1051,8 +1051,8 @@ Status BlockBasedTable::GetDataBlockFromCache(
                      block->value->usable_size());
         } else {
           if (get_context != nullptr) {
-            get_context->BLOCK_CACHE_DATA_ADD_ticker++;
-            get_context->BLOCK_CACHE_DATA_BYTES_INSERT_ticker += block->value->usable_size();
+            get_context->update_counter(5, 1);
+            get_context->update_counter(4, block->value->usable_size());
           }
           else {
             RecordTick(statistics, BLOCK_CACHE_DATA_ADD);
@@ -1133,8 +1133,8 @@ Status BlockBasedTable::PutDataBlockToCache(
     if (s.ok()) {
       assert(block->cache_handle != nullptr);
       if (get_context != nullptr) {
-        get_context->BLOCK_CACHE_ADD_ticker++;
-        get_context->BLOCK_CACHE_BYTES_WRITE_ticker+=block->value->usable_size();
+        get_context->update_counter(2, 1);
+        get_context->update_counter(1, block->value->usable_size());
       }
       else {
         RecordTick(statistics, BLOCK_CACHE_ADD);
@@ -1147,8 +1147,8 @@ Status BlockBasedTable::PutDataBlockToCache(
                    block->value->usable_size());
       } else {
         if (get_context != nullptr) {
-          get_context->BLOCK_CACHE_DATA_ADD_ticker++;
-          get_context->BLOCK_CACHE_DATA_BYTES_INSERT_ticker+=block->value->usable_size();
+          get_context->update_counter(5, 1);
+          get_context->update_counter(4, block->value->usable_size());
         }
         else {
         RecordTick(statistics, BLOCK_CACHE_DATA_ADD);
@@ -1293,8 +1293,8 @@ BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
               : Cache::Priority::LOW);
       if (s.ok()) {
         if (get_context != nullptr) {
-          get_context->BLOCK_CACHE_ADD_ticker++;
-          get_context->BLOCK_CACHE_BYTES_WRITE_ticker+=filter->size();
+          get_context->update_counter(2, 1);
+          get_context->update_counter(1, filter->size());
           RecordTick(statistics, BLOCK_CACHE_FILTER_ADD);
           RecordTick(statistics, BLOCK_CACHE_FILTER_BYTES_INSERT, filter->size());
         }
@@ -1376,8 +1376,8 @@ InternalIterator* BlockBasedTable::NewIndexIterator(
     if (s.ok()) {
       size_t usable_size = index_reader->usable_size();
       if (get_context!= nullptr) {
-        get_context->BLOCK_CACHE_ADD_ticker++;
-        get_context->BLOCK_CACHE_BYTES_WRITE_ticker += usable_size;
+        get_context->update_counter(2, 1);
+        get_context->update_counter(1, usable_size);
       }
       else {
         RecordTick(statistics, BLOCK_CACHE_ADD);

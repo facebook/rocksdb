@@ -80,6 +80,8 @@ class GetContext {
     return true;
   }
 
+  void update_counter(int counter_ind, int val);
+
  private:
   const Comparator* ucmp_;
   const MergeOperator* merge_operator_;
