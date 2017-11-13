@@ -980,12 +980,9 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       storage_info_.num_non_empty_levels_, &storage_info_.file_indexer_,
       user_comparator(), internal_comparator());
   FdWithKeyRange* f = fp.GetNextFile();
-  uint32_t BLOCK_CACHE_MISS_before = get_context.BLOCK_CACHE_MISS_ticker;
-  uint32_t BLOCK_CACHE_BYTES_WRITE_before = get_context.BLOCK_CACHE_BYTES_WRITE_ticker;
-  uint32_t BLOCK_CACHE_ADD_ticker_before = get_context.BLOCK_CACHE_ADD_ticker;
-  uint32_t BLOCK_CACHE_DATA_MISS_before = get_context.BLOCK_CACHE_DATA_MISS_ticker;
-  uint32_t BLOCK_CACHE_DATA_BYTES_INSERT_before = get_context.BLOCK_CACHE_DATA_BYTES_INSERT_ticker;
-  uint32_t BLOCK_CACHE_DATA_ADD_before = get_context.BLOCK_CACHE_DATA_ADD_ticker;
+  uint32_t tickers_before[Tickers::TICKER_ENUM_MAX];
+  std::copy(std::begin(get_context.tickers_value), std::end(get_context.tickers_value), std::begin(tickers_before));
+
   while (f != nullptr) {
     if (get_context.sample()) {
       sample_file_read_inc(f->file_metadata);
@@ -1002,9 +999,19 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       return;
     }
 
+    if (get_context.State() != GetContext::kNotFound &&
+        get_context.State() != GetContext::kMerge) {
+        for (uint32_t t = 0; t < Tickers::TICKER_ENUM_MAX; t++) {
+          if (get_context.tickers_value[t] > tickers_before[t]) {
+            RecordTick(db_statistics_, t, get_context.tickers_value[t] - tickers_before[t]);
+          }
+        }
+    }
     switch (get_context.State()) {
       case GetContext::kNotFound:
         // Keep searching in other files
+        break;
+      case GetContext::kMerge:
         break;
       case GetContext::kFound:
         if (fp.GetHitFileLevel() == 0) {
@@ -1022,8 +1029,6 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       case GetContext::kCorrupt:
         *status = Status::Corruption("corrupted key for ", user_key);
         return;
-      case GetContext::kMerge:
-        break;
       case GetContext::kBlobIndex:
         ROCKS_LOG_ERROR(info_log_, "Encounter unexpected blob index.");
         *status = Status::NotSupported(
@@ -1034,25 +1039,11 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     f = fp.GetNextFile();
   }
 
-  if (get_context.BLOCK_CACHE_MISS_ticker - BLOCK_CACHE_MISS_before > 0) {
-    RecordTick(db_statistics_, BLOCK_CACHE_MISS, get_context.BLOCK_CACHE_MISS_ticker - BLOCK_CACHE_MISS_before);
+  for (uint32_t t = 0; t < Tickers::TICKER_ENUM_MAX; t++) {
+    if (get_context.tickers_value[t] > tickers_before[t]) {
+      RecordTick(db_statistics_, t, get_context.tickers_value[t] - tickers_before[t]);
+    }
   }
-  if (get_context.BLOCK_CACHE_BYTES_WRITE_ticker - BLOCK_CACHE_BYTES_WRITE_before> 0) {
-    RecordTick(db_statistics_, BLOCK_CACHE_BYTES_WRITE, get_context.BLOCK_CACHE_BYTES_WRITE_ticker - BLOCK_CACHE_BYTES_WRITE_before);
-  }
-  if (get_context.BLOCK_CACHE_ADD_ticker - BLOCK_CACHE_ADD_ticker_before> 0) {
-    RecordTick(db_statistics_, BLOCK_CACHE_ADD, get_context.BLOCK_CACHE_ADD_ticker - BLOCK_CACHE_ADD_ticker_before);
-  }
-  if (get_context.BLOCK_CACHE_DATA_MISS_ticker - BLOCK_CACHE_DATA_MISS_before > 0) {
-    RecordTick(db_statistics_, BLOCK_CACHE_DATA_MISS, get_context.BLOCK_CACHE_DATA_MISS_ticker - BLOCK_CACHE_DATA_MISS_before);
-  }
-  if (get_context.BLOCK_CACHE_DATA_BYTES_INSERT_ticker - BLOCK_CACHE_DATA_BYTES_INSERT_before > 0) {
-    RecordTick(db_statistics_, BLOCK_CACHE_DATA_BYTES_INSERT, get_context.BLOCK_CACHE_DATA_BYTES_INSERT_ticker - BLOCK_CACHE_DATA_BYTES_INSERT_before);
-  }
-  if (get_context.BLOCK_CACHE_DATA_ADD_ticker - BLOCK_CACHE_DATA_ADD_before> 0) {
-    RecordTick(db_statistics_, BLOCK_CACHE_DATA_ADD, get_context.BLOCK_CACHE_DATA_ADD_ticker - BLOCK_CACHE_DATA_ADD_before);
-  }
-
   if (GetContext::kMerge == get_context.State()) {
     if (!merge_operator_) {
       *status =  Status::InvalidArgument(

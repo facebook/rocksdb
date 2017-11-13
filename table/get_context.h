@@ -28,12 +28,7 @@ class GetContext {
     kMerge,  // saver contains the current merge result (the operands)
     kBlobIndex,
   };
-  uint32_t BLOCK_CACHE_MISS_ticker;
-  uint32_t BLOCK_CACHE_BYTES_WRITE_ticker;
-  uint32_t BLOCK_CACHE_ADD_ticker;
-  uint32_t BLOCK_CACHE_DATA_MISS_ticker;
-  uint32_t BLOCK_CACHE_DATA_BYTES_INSERT_ticker;
-  uint32_t BLOCK_CACHE_DATA_ADD_ticker;
+  uint32_t tickers_value[Tickers::TICKER_ENUM_MAX];
 
   GetContext(const Comparator* ucmp, const MergeOperator* merge_operator,
              Logger* logger, Statistics* statistics, GetState init_state,
@@ -80,7 +75,7 @@ class GetContext {
     return true;
   }
 
-  void update_counter(int counter_ind, int val);
+  void record_counters(Tickers ticker, int val);
 
  private:
   const Comparator* ucmp_;
