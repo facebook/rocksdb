@@ -26,7 +26,8 @@ namespace rocksdb {
 
 SstFileReader::SstFileReader(
     const std::string& file_path, bool verify_checksum,
-    std::function<void(const Slice&, const Slice&, SequenceNumber, ValueType)>
+    std::function<void(const Slice&, const Slice&, SequenceNumber,
+                       unsigned char)>
         kv_handler,
     std::function<void(const std::string&)> info_handler,
     std::function<void(const std::string&)> err_handler)
@@ -36,8 +37,8 @@ SstFileReader::SstFileReader(
       kv_handler_(kv_handler),
       info_handler_(info_handler),
       err_handler_(err_handler),
-      ioptions_(options_),
-      internal_comparator_(BytewiseComparator()) {
+      ioptions_(new ImmutableCFOptions(options_)),
+      internal_comparator_(new InternalKeyComparator(BytewiseComparator())) {
   if (info_handler_) {
     char buf[128];
     int len = snprintf(buf, 128, "Process %s\n", file_path.c_str());
@@ -86,7 +87,7 @@ Status SstFileReader::GetTableReader(const std::string& file_path) {
       options_.env->NewRandomAccessFile(file_path, &file, soptions_);
       file_.reset(new RandomAccessFileReader(std::move(file), file_path));
     }
-    options_.comparator = &internal_comparator_;
+    options_.comparator = internal_comparator_.get();
     // For old sst format, ReadTableProperties might fail but file can be read
     if (ReadTableProperties(magic_number, file_.get(), file_size).ok()) {
       SetTableOptionsByMagicNumber(magic_number);
@@ -96,7 +97,7 @@ Status SstFileReader::GetTableReader(const std::string& file_path) {
   }
 
   if (s.ok()) {
-    s = NewTableReader(ioptions_, soptions_, internal_comparator_, file_size,
+    s = NewTableReader(*ioptions_, soptions_, *internal_comparator_, file_size,
                        &table_reader_);
   }
   return s;
@@ -110,14 +111,14 @@ Status SstFileReader::NewTableReader(
   // BlockBasedTable
   if (BlockBasedTableFactory::kName == options_.table_factory->Name()) {
     return options_.table_factory->NewTableReader(
-        TableReaderOptions(ioptions_, soptions_, internal_comparator_,
+        TableReaderOptions(*ioptions_, soptions_, *internal_comparator_,
                            /*skip_filters=*/false),
         std::move(file_), file_size, &table_reader_, /*enable_prefetch=*/false);
   }
 
   // For all other factory implementation
   return options_.table_factory->NewTableReader(
-      TableReaderOptions(ioptions_, soptions_, internal_comparator_),
+      TableReaderOptions(*ioptions_, soptions_, *internal_comparator_),
       std::move(file_), file_size, &table_reader_);
 }
 
@@ -216,7 +217,7 @@ Status SstFileReader::ReadTableProperties(uint64_t table_magic_number,
                                           uint64_t file_size) {
   TableProperties* table_properties = nullptr;
   Status s = rocksdb::ReadTableProperties(file, file_size, table_magic_number,
-                                          ioptions_, &table_properties);
+                                          *ioptions_, &table_properties);
   if (s.ok()) {
     table_properties_.reset(table_properties);
   } else if (err_handler_) {

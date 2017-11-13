@@ -267,14 +267,10 @@ int SSTDumpTool::Run(int argc, char** argv) {
       filename = std::string(dir_or_file) + "/" + filename;
     }
 
-    std::function<void(const Slice&, const Slice&, SequenceNumber, ValueType)>
-        kv_handler = nullptr;
-    if (command == "scan") {
-      kv_handler = rocksdb::DefaultKvHandler(output_hex);
-    }
-    rocksdb::SstFileReader reader(filename, verify_checksum, kv_handler,
-                                  rocksdb::DefaultInfoHandler(),
-                                  rocksdb::DefaultErrHandler());
+    rocksdb::SstFileReader reader(
+        filename, verify_checksum,
+        (command == "scan" ? rocksdb::DefaultKvHandler(output_hex) : false),
+        rocksdb::DefaultInfoHandler(), rocksdb::DefaultErrHandler());
     if (!reader.getStatus().ok()) {
       fprintf(stderr, "%s: %s\n", filename.c_str(),
               reader.getStatus().ToString().c_str());
