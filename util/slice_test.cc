@@ -62,6 +62,16 @@ TEST_F(SliceTest, PinnableSliceMoveConstruct) {
   }
 }
 
+TEST_F(SliceTest, PinnableSliceMoveWithNonDefaultStorage) {
+  std::string storage;
+  PinnableSlice s1(&storage);
+  PinnableSlice s2;
+  s2.PinSelf("foo");
+  s1 = std::move(s2);
+  ASSERT_EQ("foo", s1.ToString());
+  ASSERT_EQ("foo", storage);
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
