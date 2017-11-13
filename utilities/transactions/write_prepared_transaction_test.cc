@@ -1152,25 +1152,18 @@ TEST_P(WritePreparedTransactionTest, RollbackTest) {
         ASSERT_SAME(db, s4, v4, "key4");
 
         if (crash) {
-          // TODO(myabandeh): replace it with true crash (commented lines below)
-          // after compaction PR is landed.
+          delete txn;
           auto db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
-          auto seq = db_impl->GetLatestSequenceNumber();
+          db_impl->FlushWAL(true);
+          ReOpenNoDelete();
           wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
-          SequenceNumber prev_max = wp_db->max_evicted_seq_;
-          wp_db->AdvanceMaxEvictedSeq(prev_max, seq);
-          //    delete txn;
-          //    auto db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
-          //    db_impl->FlushWAL(true);
-          //    ReOpenNoDelete();
-          //    wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
-          //    txn = db->GetTransactionByName("xid0");
-          //    ASSERT_FALSE(wp_db->delayed_prepared_empty_);
-          //    ReadLock rl(&wp_db->prepared_mutex_);
-          //    ASSERT_TRUE(wp_db->prepared_txns_.empty());
-          //    ASSERT_FALSE(wp_db->delayed_prepared_.empty());
-          //    ASSERT_TRUE(wp_db->delayed_prepared_.find(txn->GetId()) !=
-          //                wp_db->delayed_prepared_.end());
+          txn = db->GetTransactionByName("xid0");
+          ASSERT_FALSE(wp_db->delayed_prepared_empty_);
+          ReadLock rl(&wp_db->prepared_mutex_);
+          ASSERT_TRUE(wp_db->prepared_txns_.empty());
+          ASSERT_FALSE(wp_db->delayed_prepared_.empty());
+          ASSERT_TRUE(wp_db->delayed_prepared_.find(txn->GetId()) !=
+                      wp_db->delayed_prepared_.end());
         }
 
         ASSERT_SAME(db, s1, v1, "key1");
