@@ -466,6 +466,11 @@ bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
       }
       return true;
     }
+    case OptionType::kLRUCacheOptions: {
+      return ParseStructOptions<LRUCacheOptions>(value,
+          reinterpret_cast<LRUCacheOptions*>(opt_address),
+          lru_cache_options_type_info);
+    }
     default:
       return false;
   }

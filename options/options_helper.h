@@ -93,6 +93,7 @@ enum class OptionType {
   kWALRecoveryMode,
   kAccessHint,
   kInfoLogLevel,
+  kLRUCacheOptions,
   kUnknown
 };
 
@@ -609,6 +610,23 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kBoolean, OptionVerificationType::kNormal, true,
           offsetof(struct CompactionOptionsFIFO, allow_compaction)}}};
 
+static std::unordered_map<std::string, OptionTypeInfo>
+    lru_cache_options_type_info = {
+        {"capacity", {offset_of(&LRUCacheOptions::capacity),
+          OptionType::kSizeT, OptionVerificationType::kNormal, true,
+          offsetof(struct LRUCacheOptions, capacity)}},
+        {"num_shard_bits", {offset_of(&LRUCacheOptions::num_shard_bits),
+          OptionType::kInt, OptionVerificationType::kNormal, true,
+          offsetof(struct LRUCacheOptions, num_shard_bits)}},
+        {"strict_capacity_limit",
+         {offset_of(&LRUCacheOptions::strict_capacity_limit),
+          OptionType::kBoolean, OptionVerificationType::kNormal, true,
+          offsetof(struct LRUCacheOptions, strict_capacity_limit)}},
+        {"high_pri_pool_ratio",
+         {offset_of(&LRUCacheOptions::high_pri_pool_ratio),
+          OptionType::kDouble, OptionVerificationType::kNormal, true,
+          offsetof(struct LRUCacheOptions, high_pri_pool_ratio)}}};
+
 static std::unordered_map<std::string, CompressionType>
     compression_type_string_map = {
         {"kNoCompression", kNoCompression},
@@ -674,6 +692,7 @@ extern Status StringToMap(
 
 extern bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
                               const std::string& value);
+
 #endif  // !ROCKSDB_LITE
 
 }  // namespace rocksdb

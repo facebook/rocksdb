@@ -292,38 +292,23 @@ std::string ParseBlockBasedTableOption(const std::string& name,
     // if the input string is not escaped, it means this function is
     // invoked from SetOptions, which takes the old format.
     if (name == "block_cache" || name == "block_cache_compressed") {
-      // Expect the following format
-      // size:int:bool:double for
-      // cache_size:num_shard_bits:strict_capacity_limit:high_pri_pool_ratio.
-      // Except cache_size, other options are optional.
+      // cache options can be specified in the following format
+      //   "block_cache={capacity=1M;num_shard_bits=4;
+      //    strict_capacity_limit=true;high_pri_pool_ratio=0.5;}"
+      // To support backward compatibility, the following format
+      // is also supported.
+      //   "block_cache=1M"
       std::shared_ptr<Cache> cache;
-
-      std::vector<std::string> cache_opts = StringSplit(value, ':');
-      size_t cache_opts_len = cache_opts.size();
-      if (cache_opts_len <= 0 || cache_opts_len > 4) {
-        return "Invalid number of cache options.";
-      }
-
-      size_t cache_size = ParseSizeT(trim(cache_opts[0]));
-      if (cache_opts_len > 1) {
-        int num_shard_bits = ParseInt(trim(cache_opts[1]));
-        if (cache_opts_len > 2) {
-          bool strict_capacity_limit = ParseBoolean(name,
-                                                    trim(cache_opts[2]));
-          if (cache_opts_len > 3) {
-            double high_pri_pool_ratio = ParseDouble(trim(cache_opts[3]));
-            cache = NewLRUCache(cache_size, num_shard_bits,
-                                strict_capacity_limit,
-                                high_pri_pool_ratio);
-          } else {
-            cache = NewLRUCache(cache_size, num_shard_bits,
-                                strict_capacity_limit);
-          }
-        } else {
-          cache = NewLRUCache(cache_size, num_shard_bits);
-        }
+      // block_cache is specified in format block_cache=<cache_size>.
+      if (value.find('=') == std::string::npos) {
+        cache = NewLRUCache(ParseSizeT(value));
       } else {
-        cache = NewLRUCache(cache_size);
+        LRUCacheOptions cache_opts;
+        if(!ParseOptionHelper(reinterpret_cast<char*>(&cache_opts),
+                              OptionType::kLRUCacheOptions, value)) {
+          return "Invalid cache options";
+        }
+        cache = NewLRUCache(cache_opts);
       }
 
       if (name == "block_cache") {

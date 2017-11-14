@@ -526,6 +526,12 @@ double LRUCache::TEST_GetHighPriPoolRatio() {
   return result;
 }
 
+std::shared_ptr<Cache> NewLRUCache(const LRUCacheOptions& cache_opts) {
+  return NewLRUCache(cache_opts.capacity, cache_opts.num_shard_bits,
+                     cache_opts.strict_capacity_limit,
+                     cache_opts.high_pri_pool_ratio);
+}
+
 std::shared_ptr<Cache> NewLRUCache(size_t capacity, int num_shard_bits,
                                    bool strict_capacity_limit,
                                    double high_pri_pool_ratio) {
