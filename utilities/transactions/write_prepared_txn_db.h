@@ -179,6 +179,12 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // Struct to hold ownership of snapshot and read callback for cleanup.
   struct IteratorState;
 
+#ifndef NDEBUG
+  // For unit tests we can track of the seq numbers that are used for metadata as opposed to actual key/values
+  std::vector<uint64_t> seq_for_metadata;
+  mutable port::Mutex seq_for_metadata_mutex_;
+#endif
+
  private:
   friend class WritePreparedTransactionTest_IsInSnapshotTest_Test;
   friend class WritePreparedTransactionTest_CheckAgainstSnapshotsTest_Test;
