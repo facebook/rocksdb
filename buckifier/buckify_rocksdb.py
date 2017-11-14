@@ -120,6 +120,23 @@ def generate_targets(repo_path):
         src_mk.get("BENCH_LIB_SOURCES", []) +
         ["util/testutil.cc"],
         [":rocksdb_lib"])
+    # tools
+    TARGETS.add_binary(
+        "db_bench",
+        ["tools/db_bench.cc"],
+        [":rocksdb_tools_lib"])
+    TARGETS.add_binary(
+        "ldb",
+        ["tools/ldb.cc"],
+        [":rocksdb_tools_lib"])
+    TARGETS.add_binary(
+        "sst_dump",
+        ["tools/sst_dump.cc"],
+        [":rocksdb_tools_lib"])
+    TARGETS.add_binary(
+        "blob_dump",
+        ["tools/blob_dump.cc"],
+        [":rocksdb_tools_lib"])
 
     # test for every test we found in the Makefile
     for test in sorted(tests):
