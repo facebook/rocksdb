@@ -440,6 +440,16 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
       continue;
     }
 
+    // If compaction type is not universal, check overlap directly. No need to
+    // open files and Seeking kv pairs or reading delete range marks.
+    if (compaction_style != kCompactionStyleUniversal) {
+      if (IngestedFileFitInLevel(file_to_ingest, lvl)) {
+        target_level = lvl;
+        continue;
+      }
+      break;
+    }
+
     if (vstorage->NumLevelFiles(lvl) > 0) {
       bool overlap_with_level = false;
       status = IngestedFileOverlapWithLevel(sv, file_to_ingest, lvl,
@@ -476,7 +486,8 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
 
     // We dont overlap with any keys in this level, but we still need to check
     // if our file can fit in it
-    if (IngestedFileFitInLevel(file_to_ingest, lvl)) {
+    if (compaction_style == kCompactionStyleUniversal &&
+        IngestedFileFitInLevel(file_to_ingest, lvl)) {
       target_level = lvl;
     }
   }
