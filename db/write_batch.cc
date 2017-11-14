@@ -1457,11 +1457,13 @@ Status WriteBatchInternal::InsertInto(
                             db, concurrent_memtable_writes,
                             nullptr /*has_valid_writes*/, seq_per_batch);
   for (auto w : write_group) {
+    if (w->CallbackFailed()) {
+      continue;
+    }
     w->sequence = inserter.sequence();
     if (!w->ShouldWriteToMemtable()) {
-      if (!w->CallbackFailed()) {
-        inserter.MaybeAdvanceSeq(true);
-      }
+      // In seq_per_batch_ mode this advances the seq by one.
+      inserter.MaybeAdvanceSeq(true);
       continue;
     }
     SetSequence(w->batch, inserter.sequence());

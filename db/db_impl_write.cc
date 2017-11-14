@@ -271,18 +271,24 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       PERF_TIMER_GUARD(write_memtable_time);
 
       if (!parallel) {
+        // w.sequence will be set inside InsertInto
         w.status = WriteBatchInternal::InsertInto(
             write_group, current_sequence, column_family_memtables_.get(),
             &flush_scheduler_, write_options.ignore_missing_column_families,
             0 /*recovery_log_number*/, this, parallel, seq_per_batch_);
       } else {
         SequenceNumber next_sequence = current_sequence;
+        // Note: the logic for advancing seq here must be consistent with the
+        // logic in WriteBatchInternal::InsertInto(write_group...) as well as
+        // with WriteBatchInternal::InsertInto(write_batch...) that is called on
+        // the merged batch during recovery from the WAL.
         for (auto* writer : write_group) {
+          if (writer->CallbackFailed()) {
+            continue;
+          }
           writer->sequence = next_sequence;
           if (seq_per_batch_) {
-            if (!writer->CallbackFailed()) {
-              next_sequence++;
-            }
+            next_sequence++;
           } else if (writer->ShouldWriteToMemtable()) {
             next_sequence += WriteBatchInternal::Count(writer->batch);
           }
@@ -548,14 +554,14 @@ Status DBImpl::WriteImplWALOnly(const WriteOptions& write_options,
   status = ConcurrentWriteToWAL(write_group, log_used, &last_sequence, seq_inc);
   auto curr_seq = last_sequence + 1;
   for (auto* writer : write_group) {
-    if (!writer->CallbackFailed()) {
-      writer->sequence = curr_seq;
+    if (writer->CallbackFailed()) {
+      continue;
     }
+    writer->sequence = curr_seq;
     if (seq_per_batch_) {
       curr_seq++;
-    } else if (!writer->CallbackFailed()) {
-      curr_seq += WriteBatchInternal::Count(writer->batch);
     }
+    // else seq advances only by memtable writes
   }
   if (status.ok() && write_options.sync) {
     // Requesting sync with two_write_queues_ is expected to be very rare. We
