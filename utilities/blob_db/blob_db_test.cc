@@ -150,6 +150,18 @@ class BlobDBTest : public testing::Test {
   }
 
   void VerifyDB(DB *db, const std::map<std::string, std::string> &data) {
+    // Verify normal Get
+    auto* cfh = db->DefaultColumnFamily();
+    for (auto &p : data) {
+      PinnableSlice value_slice;
+      ASSERT_OK(db->Get(ReadOptions(), cfh, p.first, &value_slice));
+      ASSERT_EQ(p.second, value_slice.ToString());
+      std::string value;
+      ASSERT_OK(db->Get(ReadOptions(), cfh, p.first, &value));
+      ASSERT_EQ(p.second, value);
+    }
+
+    // Verify iterators
     Iterator *iter = db->NewIterator(ReadOptions());
     iter->SeekToFirst();
     for (auto &p : data) {

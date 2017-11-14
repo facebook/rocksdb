@@ -1245,18 +1245,15 @@ Status BlobDBImpl::Get(const ReadOptions& read_options,
 
   Status s;
   bool is_blob_index = false;
-  PinnableSlice index_entry;
-  s = db_impl_->GetImpl(ro, column_family, key, &index_entry,
+  s = db_impl_->GetImpl(ro, column_family, key, value,
                         nullptr /*value_found*/, nullptr /*read_callback*/,
                         &is_blob_index);
   TEST_SYNC_POINT("BlobDBImpl::Get:AfterIndexEntryGet:1");
   TEST_SYNC_POINT("BlobDBImpl::Get:AfterIndexEntryGet:2");
-  if (s.ok()) {
-    if (!is_blob_index) {
-      *value = std::move(index_entry);
-    } else {
-      s = GetBlobValue(key, index_entry, value);
-    }
+  if (s.ok() && is_blob_index) {
+    std::string index_entry = value->ToString();
+    value->Reset();
+    s = GetBlobValue(key, index_entry, value);
   }
   if (snapshot_created) {
     db_->ReleaseSnapshot(ro.snapshot);
