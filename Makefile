@@ -494,7 +494,6 @@ TESTS = \
 	repair_test \
 	env_timed_test \
 	write_prepared_transaction_test \
-	slice_test \
 
 PARALLEL_TEST = \
 	backupable_db_test \
@@ -1476,9 +1475,6 @@ range_del_aggregator_test: db/range_del_aggregator_test.o db/db_test_util.o $(LI
 	$(AM_LINK)
 
 blob_db_test: utilities/blob_db/blob_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_LINK)
-
-slice_test: util/slice_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 #-------------------------------------------------
