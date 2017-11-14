@@ -980,6 +980,7 @@ class MemTableInserter : public WriteBatch::Handler {
       reinterpret_cast<MemPostInfoMap*>
         (&mem_post_info_map_)->~MemPostInfoMap();
     }
+    delete rebuilding_trx_;
   }
 
   MemTableInserter(const MemTableInserter&) = delete;
