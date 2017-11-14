@@ -11,7 +11,6 @@
 // four bytes at a time.
 
 #include "util/crc32c.h"
-
 #include <stdint.h>
 #ifdef HAVE_SSE42
 #include <nmmintrin.h>
@@ -37,12 +36,6 @@
 #endif /* __linux__ */
 
 #endif
-
-// #if FOLLY_HAS_CPP_ATTRIBUTE(clang::fallthrough)
-// #define FOLLY_FALLTHROUGH [[clang::fallthrough]]
-// #else
-// #define FOLLY_FALLTHROUGH
-// #endif
 
 namespace rocksdb {
 namespace crc32c {
@@ -350,7 +343,7 @@ static inline void Fast_CRC32(uint64_t* l, uint8_t const **p) {
   *l = _mm_crc32_u64(*l, LE_LOAD64(*p));
   *p += 8;
 #else
-  *l =  (static_cast<unsigned int>(*l), LE_LOAD32(*p));
+  *l = _mm_crc32_u32(static_cast<unsigned int>(*l), LE_LOAD32(*p));
   *p += 4;
   *l = _mm_crc32_u32(static_cast<unsigned int>(*l), LE_LOAD32(*p));
   *p += 4;
@@ -448,13 +441,6 @@ static bool isAltiVec() {
 }
 #endif
 
-static inline Function Choose_Extend() {
-#ifndef HAVE_POWER8
-  return isSSE42() ? ExtendImpl<Fast_CRC32> : ExtendImpl<Slow_CRC32>;
-#else
-  return isAltiVec() ? ExtendPPCImpl : ExtendImpl<Slow_CRC32>;
-#endif
-}
 
 std::string IsFastCrc32Supported() {
   bool has_fast_crc = false;
@@ -483,15 +469,41 @@ std::string IsFastCrc32Supported() {
   return fast_zero_msg;
 }
 
-static Function ChosenExtend = Choose_Extend();
 
-// --------------------yingsu-----------------------
+/*
+ * Copyright 2016 Ferry Toth, Exalon Delft BV, The Netherlands
+ *  This software is provided 'as-is', without any express or implied
+ * warranty.  In no event will the author be held liable for any damages
+ * arising from the use of this software.
+ *  Permission is granted to anyone to use this software for any purpose,
+ * including commercial applications, and to alter it and redistribute it
+ * freely, subject to the following restrictions:
+ *  1. The origin of this software must not be misrepresented; you must not
+ *   claim that you wrote the original software. If you use this software
+ *   in a product, an acknowledgment in the product documentation would be
+ *   appreciated but is not required.
+ * 2. Altered source versions must be plainly marked as such, and must not be
+ *   misrepresented as being the original software.
+ * 3. This notice may not be removed or altered from any source distribution.
+ *  Ferry Toth
+ * ftoth@exalondelft.nl
+ *
+ * https://github.com/htot/crc32c
+ *
+ * Modified by Facebook
+ *
+ * Original intel whitepaper:
+ * "Fast CRC Computation for iSCSI Polynomial Using CRC32 Instruction"
+ * https://www.intel.com/content/dam/www/public/us/en/documents/white-papers/crc-iscsi-polynomial-crc32-instruction-paper.pdf
+ *
+ * This version is from the folly library, created by Dave Watson <davejwatson@fb.com>
+ *
+*/
 #ifdef HAVE_SSE42
 #define CRCtriplet(crc, buf, offset)                  \
   crc##0 = _mm_crc32_u64(crc##0, *(buf##0 + offset)); \
   crc##1 = _mm_crc32_u64(crc##1, *(buf##1 + offset)); \
   crc##2 = _mm_crc32_u64(crc##2, *(buf##2 + offset));
-//  FOLLY_FALLTHROUGH;
 
 #define CRCduplet(crc, buf, offset)                   \
   crc##0 = _mm_crc32_u64(crc##0, *(buf##0 + offset)); \
@@ -499,7 +511,6 @@ static Function ChosenExtend = Choose_Extend();
 
 #define CRCsinglet(crc, buf, offset)                    \
   crc = _mm_crc32_u64(crc, *(uint64_t*)(buf + offset));
-//  FOLLY_FALLTHROUGH;
 
 
 // Numbers taken directly from intel whitepaper.
@@ -576,7 +587,7 @@ const uint64_t clmul_constants[] = {
  * CombineCRC performs pclmulqdq multiplication of 2 partial CRC's and a well
  * chosen constant and xor's these with the remaining CRC.
  */
-uint64_t CombineCRC(
+uint64_t inline CombineCRC(
     size_t block_size,
     uint64_t crc0,
     uint64_t crc1,
@@ -597,8 +608,7 @@ uint64_t CombineCRC(
 
 
 /* Compute CRC-32C using the Intel hardware instruction. */
-//FOLLY_TARGET_ATTRIBUTE("sse4.2")
-uint32_t crc32c_3way(const uint8_t* buf, size_t len, uint32_t crc) {
+uint32_t crc32c_3way(uint32_t crc, const char* buf, size_t len) {
   const unsigned char* next = (const unsigned char*)buf;
   unsigned long count;
   uint64_t crc0, crc1, crc2;
@@ -608,6 +618,7 @@ uint32_t crc32c_3way(const uint8_t* buf, size_t len, uint32_t crc) {
     // if len > 216 then align and use triplets
     if (len > 216) {
       {
+        // Work on the bytes (< 8) before the first 8-byte alignment addr starts
         // create this block actually prevent 2 asignments
         uint32_t crc32bit = crc0;
         unsigned long align = (8 - (uintptr_t)next) & 7; // byte to boundary
@@ -628,6 +639,7 @@ uint32_t crc32c_3way(const uint8_t* buf, size_t len, uint32_t crc) {
         crc0 = crc32bit;
       }
 
+      // Now work on the remaining blocks
       count = len / 24; // number of triplets
       len %= 24; // bytes remaining
       unsigned long n = count >> 7; // #blocks = first block + full blocks
@@ -916,7 +928,6 @@ uint32_t crc32c_3way(const uint8_t* buf, size_t len, uint32_t crc) {
                 next1 = next0 + 128; // from here on all blocks are 128 long
                 next2 = next1 + 128;
               }
-              //FOLLY_FALLTHROUGH;
             case 0:;
           } while (n > 0);
       }
@@ -1003,18 +1014,30 @@ uint32_t crc32c_3way(const uint8_t* buf, size_t len, uint32_t crc) {
   }
 }
 
-#endif
+#endif //HAVE_SSE42
 
-// --------------------yingsu-----------------------
-
-uint32_t Extend(uint32_t crc, const char* buf, size_t size) {
-#ifndef THREEWAY_CRC32C
-  return ChosenExtend(crc, buf, size);
+static inline Function Choose_Extend() {
+#ifndef HAVE_POWER8
+  if (isSSE42()) {
+#ifndef NO_THREEWAY_CRC32C
+    return crc32c_3way;
 #else
-  cout << "calling 3 way SSE code" << endl;
-  return crc32c_3way(buf, size, crc);
+    return ExtendImpl<Fast_CRC32>;
+#endif  // NO_THREEWAY_CRC32C
+  }
+  else {
+    return ExtendImpl<Slow_CRC32>;
+  }
+#else  //HAVE_POWER8
+  return isAltiVec() ? ExtendPPCImpl : ExtendImpl<Slow_CRC32>;
 #endif
 }
+
+static Function ChosenExtend = Choose_Extend();
+uint32_t Extend(uint32_t crc, const char* buf, size_t size) {
+  return ChosenExtend(crc, buf, size);
+}
+
 
 }  // namespace crc32c
 }  // namespace rocksdb
