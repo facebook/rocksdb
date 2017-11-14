@@ -1457,13 +1457,14 @@ Status WriteBatchInternal::InsertInto(
                             db, concurrent_memtable_writes,
                             nullptr /*has_valid_writes*/, seq_per_batch);
   for (auto w : write_group) {
+    w->sequence = inserter.sequence();
     if (!w->ShouldWriteToMemtable()) {
-      w->sequence = inserter.sequence();
-      inserter.MaybeAdvanceSeq(true);
+      if (!w->CallbackFailed()) {
+        inserter.MaybeAdvanceSeq(true);
+      }
       continue;
     }
     SetSequence(w->batch, inserter.sequence());
-    w->sequence = inserter.sequence();
     inserter.set_log_number_ref(w->log_ref);
     w->status = w->batch->Iterate(&inserter);
     if (!w->status.ok()) {
