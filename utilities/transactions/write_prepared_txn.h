@@ -46,7 +46,7 @@ class WritePreparedTxn : public PessimisticTransaction {
   virtual ~WritePreparedTxn() {}
 
   // To make WAL commit markers visible, the snapshot will be based on the last
-  // seq in the WAL, LastToBeWrittenSquence, as opposed to the last seq in the
+  // seq in the WAL, LastAllocatedSequence, as opposed to the last seq in the
   // memtable.
   using Transaction::Get;
   virtual Status Get(const ReadOptions& options,
@@ -54,7 +54,7 @@ class WritePreparedTxn : public PessimisticTransaction {
                      PinnableSlice* value) override;
 
   // To make WAL commit markers visible, the snapshot will be based on the last
-  // seq in the WAL, LastToBeWrittenSquence, as opposed to the last seq in the
+  // seq in the WAL, LastAllocatedSequence, as opposed to the last seq in the
   // memtable.
   using Transaction::GetIterator;
   virtual Iterator* GetIterator(const ReadOptions& options) override;
@@ -76,18 +76,15 @@ class WritePreparedTxn : public PessimisticTransaction {
   // commit entails writing only a commit marker in the WAL. The sequence number
   // of the commit marker is then the commit timestamp of the transaction. To
   // make the commit timestamp visible to readers, their snapshot is based on
-  // the last seq in the WAL, LastToBeWrittenSquence, as opposed to the last seq
+  // the last seq in the WAL, LastAllocatedSequence, as opposed to the last seq
   // in the memtable.
   Status CommitInternal() override;
 
   Status RollbackInternal() override;
 
-  // TODO(myabandeh): verify that the current impl work with values being
-  // written with prepare sequence number too.
-  // Status ValidateSnapshot(ColumnFamilyHandle* column_family, const Slice&
-  // key,
-  //                        SequenceNumber prev_seqno, SequenceNumber*
-  //                        new_seqno);
+  virtual Status ValidateSnapshot(ColumnFamilyHandle* column_family,
+                                  const Slice& key,
+                                  SequenceNumber* tracked_at_seq) override;
 
   // No copying allowed
   WritePreparedTxn(const WritePreparedTxn&);

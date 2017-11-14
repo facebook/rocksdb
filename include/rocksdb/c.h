@@ -857,6 +857,8 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_bytes_per_sync(
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_wal_bytes_per_sync(
         rocksdb_options_t*, uint64_t);
 extern ROCKSDB_LIBRARY_API void
+rocksdb_options_set_writable_file_max_buffer_size(rocksdb_options_t*, uint64_t);
+extern ROCKSDB_LIBRARY_API void
 rocksdb_options_set_allow_concurrent_memtable_write(rocksdb_options_t*,
                                                     unsigned char);
 extern ROCKSDB_LIBRARY_API void
@@ -1167,6 +1169,10 @@ extern ROCKSDB_LIBRARY_API void
 rocksdb_ingestexternalfileoptions_set_allow_blocking_flush(
     rocksdb_ingestexternalfileoptions_t* opt,
     unsigned char allow_blocking_flush);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_ingestexternalfileoptions_set_ingest_behind(
+    rocksdb_ingestexternalfileoptions_t* opt,
+    unsigned char ingest_behind);
 extern ROCKSDB_LIBRARY_API void rocksdb_ingestexternalfileoptions_destroy(
     rocksdb_ingestexternalfileoptions_t* opt);
 

@@ -209,11 +209,11 @@ int DBImpl::TEST_BGFlushesAllowed() const {
   return GetBGJobLimits().max_flushes;
 }
 
-SequenceNumber DBImpl::TEST_GetLatestVisibleSequenceNumber() const {
-  if (concurrent_prepare_ && seq_per_batch_) {
-    return versions_->LastToBeWrittenSequence();
-  } else {
+SequenceNumber DBImpl::TEST_GetLastVisibleSequence() const {
+  if (allocate_seq_only_for_data_) {
     return versions_->LastSequence();
+  } else {
+    return versions_->LastAllocatedSequence();
   }
 }
 

@@ -730,7 +730,7 @@ class RecoveryTestHelper {
         batch.Put(key, value);
         WriteBatchInternal::SetSequence(&batch, seq);
         current_log_writer->AddRecord(WriteBatchInternal::Contents(&batch));
-        versions->SetLastToBeWrittenSequence(seq);
+        versions->SetLastAllocatedSequence(seq);
         versions->SetLastSequence(seq);
       }
     }

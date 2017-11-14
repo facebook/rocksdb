@@ -333,6 +333,8 @@ EnvOptions Env::OptimizeForLogWrite(const EnvOptions& env_options,
                                     const DBOptions& db_options) const {
   EnvOptions optimized_env_options(env_options);
   optimized_env_options.bytes_per_sync = db_options.wal_bytes_per_sync;
+  optimized_env_options.writable_file_max_buffer_size =
+      db_options.writable_file_max_buffer_size;
   return optimized_env_options;
 }
 

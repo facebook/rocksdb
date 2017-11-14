@@ -252,11 +252,11 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
       }
       job_context->size_log_to_delete += earliest.size;
       total_log_size_ -= earliest.size;
-      if (concurrent_prepare_) {
+      if (two_write_queues_) {
         log_write_mutex_.Lock();
       }
       alive_log_files_.pop_front();
-      if (concurrent_prepare_) {
+      if (two_write_queues_) {
         log_write_mutex_.Unlock();
       }
       // Current log should always stay alive since it can't have

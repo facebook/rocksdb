@@ -15,7 +15,7 @@
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "utilities/transactions/pessimistic_transaction.h"
-#include "utilities/transactions/pessimistic_transaction_db.h"
+#include "utilities/transactions/write_prepared_txn_db.h"
 
 namespace rocksdb {
 
@@ -61,7 +61,9 @@ Iterator* WritePreparedTxn::GetIterator(const ReadOptions& options,
 Status WritePreparedTxn::PrepareInternal() {
   WriteOptions write_options = write_options_;
   write_options.disableWAL = false;
-  WriteBatchInternal::MarkEndPrepare(GetWriteBatch()->GetWriteBatch(), name_);
+  const bool write_after_commit = true;
+  WriteBatchInternal::MarkEndPrepare(GetWriteBatch()->GetWriteBatch(), name_,
+                                     !write_after_commit);
   const bool disable_memtable = true;
   uint64_t seq_used = kMaxSequenceNumber;
   bool collapsed = GetWriteBatch()->Collapse();
@@ -90,7 +92,7 @@ Status WritePreparedTxn::CommitWithoutPrepareInternal() {
 }
 
 SequenceNumber WritePreparedTxn::GetACommitSeqNumber(SequenceNumber prep_seq) {
-  if (db_impl_->immutable_db_options().concurrent_prepare) {
+  if (db_impl_->immutable_db_options().two_write_queues) {
     return db_impl_->IncAndFetchSequenceNumber();
   } else {
     return prep_seq;
@@ -122,8 +124,13 @@ Status WritePreparedTxn::CommitInternal() {
   const bool empty = working_batch->Count() == 0;
   WriteBatchInternal::MarkCommit(working_batch, name_);
 
-  // any operations appended to this working_batch will be ignored from WAL
-  working_batch->MarkWalTerminationPoint();
+  const bool for_recovery = use_only_the_last_commit_time_batch_for_recovery_;
+  if (!empty && for_recovery) {
+    // When not writing to memtable, we can still cache the latest write batch.
+    // The cached batch will be written to memtable in WriteRecoverableState
+    // during FlushMemTable
+    WriteBatchInternal::SetAsLastestPersistentState(working_batch);
+  }
 
   const bool disable_memtable = true;
   uint64_t seq_used = kMaxSequenceNumber;
@@ -133,14 +140,14 @@ Status WritePreparedTxn::CommitInternal() {
   const uint64_t zero_log_number = 0ull;
   auto s = db_impl_->WriteImpl(
       write_options_, working_batch, nullptr, nullptr, zero_log_number,
-      empty ? disable_memtable : !disable_memtable, &seq_used);
+      empty || for_recovery ? disable_memtable : !disable_memtable, &seq_used);
   assert(seq_used != kMaxSequenceNumber);
   uint64_t& commit_seq = seq_used;
   // TODO(myabandeh): Reject a commit request if AddCommitted cannot encode
   // commit_seq. This happens if prep_seq <<< commit_seq.
   auto prepare_seq = GetId();
   wpt_db_->AddCommitted(prepare_seq, commit_seq);
-  if (!empty) {
+  if (!empty && !for_recovery) {
     // Commit the data that is accompnaied with the commit marker
     // TODO(myabandeh): skip AddPrepared
     wpt_db_->AddPrepared(commit_seq);
@@ -211,6 +218,9 @@ Status WritePreparedTxn::RollbackInternal() {
     Status MarkRollback(const Slice&) override {
       return Status::InvalidArgument();
     }
+
+   protected:
+    virtual bool WriteAfterCommit() const override { return false; }
   } rollback_handler(db_impl_, wpt_db_, last_visible_txn, &rollback_batch);
   auto s = GetWriteBatch()->GetWriteBatch()->Iterate(&rollback_handler);
   assert(s.ok());
@@ -233,6 +243,33 @@ Status WritePreparedTxn::RollbackInternal() {
   wpt_db_->RollbackPrepared(GetId(), commit_seq);
 
   return s;
+}
+
+Status WritePreparedTxn::ValidateSnapshot(ColumnFamilyHandle* column_family,
+                                          const Slice& key,
+                                          SequenceNumber* tracked_at_seq) {
+  assert(snapshot_);
+
+  SequenceNumber snap_seq = snapshot_->GetSequenceNumber();
+  // tracked_at_seq is either max or the last snapshot with which this key was
+  // trackeed so there is no need to apply the IsInSnapshot to this comparison
+  // here as tracked_at_seq is not a prepare seq.
+  if (*tracked_at_seq <= snap_seq) {
+    // If the key has been previous validated at a sequence number earlier
+    // than the curent snapshot's sequence number, we already know it has not
+    // been modified.
+    return Status::OK();
+  }
+
+  *tracked_at_seq = snap_seq;
+
+  ColumnFamilyHandle* cfh =
+      column_family ? column_family : db_impl_->DefaultColumnFamily();
+
+  WritePreparedTxnReadCallback snap_checker(wpt_db_, snap_seq);
+  return TransactionUtil::CheckKeyForConflicts(db_impl_, cfh, key.ToString(),
+                                               snap_seq, false /* cache_only */,
+                                               &snap_checker);
 }
 
 }  // namespace rocksdb

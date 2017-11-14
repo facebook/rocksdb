@@ -57,7 +57,6 @@ struct ImmutableDBOptions {
   bool new_table_reader_for_compaction_inputs;
   size_t compaction_readahead_size;
   size_t random_access_max_buffer_size;
-  size_t writable_file_max_buffer_size;
   bool use_adaptive_mutex;
   std::vector<std::shared_ptr<EventListener>> listeners;
   bool enable_thread_tracking;
@@ -77,9 +76,9 @@ struct ImmutableDBOptions {
   bool dump_malloc_stats;
   bool avoid_flush_during_recovery;
   bool allow_ingest_behind;
-  bool concurrent_prepare;
+  bool preserve_deletes;
+  bool two_write_queues;
   bool manual_wal_flush;
-  bool seq_per_batch;
 };
 
 struct MutableDBOptions {
@@ -93,6 +92,7 @@ struct MutableDBOptions {
   int base_background_compactions;
   int max_background_compactions;
   bool avoid_flush_during_shutdown;
+  size_t writable_file_max_buffer_size;
   uint64_t delayed_write_rate;
   uint64_t max_total_wal_size;
   uint64_t delete_obsolete_files_period_micros;

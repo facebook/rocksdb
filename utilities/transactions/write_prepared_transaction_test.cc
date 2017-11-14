@@ -36,6 +36,7 @@
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/string_append/stringappend.h"
 #include "utilities/transactions/pessimistic_transaction_db.h"
+#include "utilities/transactions/write_prepared_txn_db.h"
 
 #include "port/port.h"
 
@@ -624,7 +625,7 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceConcurrentTest) {
       printf("Tested %" ROCKSDB_PRIszt " cases so far\n", n);
     }
     DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
-    auto seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
+    auto seq = db_impl->TEST_GetLastVisibleSequence();
     exp_seq = seq;
     // This is increased before writing the batch for commit
     commit_writes = 0;
@@ -692,17 +693,17 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceConcurrentTest) {
     for (auto& t : threads) {
       t.join();
     }
-    if (options.concurrent_prepare) {
+    if (options.two_write_queues) {
       // In this case none of the above scheduling tricks to deterministically
       // form merged bactches works because the writes go to saparte queues.
       // This would result in different write groups in each run of the test. We
       // still keep the test since althgouh non-deterministic and hard to debug,
       // it is still useful to have.
-      // TODO(myabandeh): Add a deterministic unit test for concurrent_prepare
+      // TODO(myabandeh): Add a deterministic unit test for two_write_queues
     }
 
     // Check if memtable inserts advanced seq number as expected
-    seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
+    seq = db_impl->TEST_GetLastVisibleSequence();
     ASSERT_EQ(exp_seq, seq);
 
     rocksdb::SyncPoint::GetInstance()->DisableProcessing();
@@ -1257,7 +1258,7 @@ TEST_P(WritePreparedTransactionTest, DisableGCDuringRecoveryTest) {
     VerifyKeys({{"foo", v}});
     seq++;  // one for the key/value
     KeyVersion kv = {"foo", v, seq, kTypeValue};
-    if (options.concurrent_prepare) {
+    if (options.two_write_queues) {
       seq++;  // one for the commit
     }
     versions.emplace_back(kv);
@@ -1305,10 +1306,10 @@ TEST_P(WritePreparedTransactionTest, CompactionShouldKeepUncommittedKeys) {
   auto add_key = [&](std::function<Status()> func) {
     ASSERT_OK(func());
     expected_seq++;
-    if (options.concurrent_prepare) {
+    if (options.two_write_queues) {
       expected_seq++;  // 1 for commit
     }
-    ASSERT_EQ(expected_seq, db_impl->TEST_GetLatestVisibleSequenceNumber());
+    ASSERT_EQ(expected_seq, db_impl->TEST_GetLastVisibleSequence());
     snapshots.push_back(db->GetSnapshot());
   };
 
@@ -1396,7 +1397,7 @@ TEST_P(WritePreparedTransactionTest, CompactionShouldKeepSnapshotVisibleKeys) {
   ASSERT_EQ(++expected_seq, db->GetLatestSequenceNumber());
   ASSERT_OK(txn1->Commit());
   DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
-  ASSERT_EQ(++expected_seq, db_impl->TEST_GetLatestVisibleSequenceNumber());
+  ASSERT_EQ(++expected_seq, db_impl->TEST_GetLastVisibleSequence());
   delete txn1;
   // Take a snapshots to avoid keys get evicted before compaction.
   const Snapshot* snapshot1 = db->GetSnapshot();
@@ -1409,24 +1410,24 @@ TEST_P(WritePreparedTransactionTest, CompactionShouldKeepSnapshotVisibleKeys) {
   // txn2 commit after snapshot2 and it is not visible.
   const Snapshot* snapshot2 = db->GetSnapshot();
   ASSERT_OK(txn2->Commit());
-  ASSERT_EQ(++expected_seq, db_impl->TEST_GetLatestVisibleSequenceNumber());
+  ASSERT_EQ(++expected_seq, db_impl->TEST_GetLastVisibleSequence());
   delete txn2;
   // Take a snapshots to avoid keys get evicted before compaction.
   const Snapshot* snapshot3 = db->GetSnapshot();
   ASSERT_OK(db->Put(WriteOptions(), "key1", "value1_2"));
   expected_seq++;  // 1 for write
   SequenceNumber seq1 = expected_seq;
-  if (options.concurrent_prepare) {
+  if (options.two_write_queues) {
     expected_seq++;  // 1 for commit
   }
-  ASSERT_EQ(expected_seq, db_impl->TEST_GetLatestVisibleSequenceNumber());
+  ASSERT_EQ(expected_seq, db_impl->TEST_GetLastVisibleSequence());
   ASSERT_OK(db->Put(WriteOptions(), "key2", "value2_2"));
   expected_seq++;  // 1 for write
   SequenceNumber seq2 = expected_seq;
-  if (options.concurrent_prepare) {
+  if (options.two_write_queues) {
     expected_seq++;  // 1 for commit
   }
-  ASSERT_EQ(expected_seq, db_impl->TEST_GetLatestVisibleSequenceNumber());
+  ASSERT_EQ(expected_seq, db_impl->TEST_GetLastVisibleSequence());
   ASSERT_OK(db->Flush(FlushOptions()));
   db->ReleaseSnapshot(snapshot1);
   db->ReleaseSnapshot(snapshot3);
@@ -1626,6 +1627,34 @@ TEST_P(WritePreparedTransactionTest, Iterate) {
   VerifyKeys({{"foo", "v2"}});
   verify_iter("v2");
   delete transaction;
+}
+
+// Test that we can change write policy from WriteCommitted to WritePrepared
+// after a clean shutdown (which would empty the WAL)
+TEST_P(WritePreparedTransactionTest, WP_WC_DBBackwardCompatibility) {
+  bool empty_wal = true;
+  CrossCompatibilityTest(WRITE_COMMITTED, WRITE_PREPARED, empty_wal);
+}
+
+// Test that we fail fast if WAL is not emptied between changing the write
+// policy from WriteCommitted to WritePrepared
+TEST_P(WritePreparedTransactionTest, WP_WC_WALBackwardIncompatibility) {
+  bool empty_wal = true;
+  CrossCompatibilityTest(WRITE_COMMITTED, WRITE_PREPARED, !empty_wal);
+}
+
+// Test that we can change write policy from WritePrepare back to WriteCommitted
+// after a clean shutdown (which would empty the WAL)
+TEST_P(WritePreparedTransactionTest, WC_WP_ForwardCompatibility) {
+  bool empty_wal = true;
+  CrossCompatibilityTest(WRITE_PREPARED, WRITE_COMMITTED, empty_wal);
+}
+
+// Test that we fail fast if WAL is not emptied between changing the write
+// policy from WriteCommitted to WritePrepared
+TEST_P(WritePreparedTransactionTest, WC_WP_WALForwardIncompatibility) {
+  bool empty_wal = true;
+  CrossCompatibilityTest(WRITE_PREPARED, WRITE_COMMITTED, !empty_wal);
 }
 
 }  // namespace rocksdb

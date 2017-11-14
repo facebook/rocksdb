@@ -205,6 +205,10 @@ class BlobDBImpl : public BlobDB {
   // how often to schedule check seq files period
   static constexpr uint32_t kCheckSeqFilesPeriodMillisecs = 10 * 1000;
 
+  // when should oldest file be evicted:
+  // on reaching 90% of blob_dir_size
+  static constexpr double kEvictOldestFileAtSize = 0.9;
+
   using BlobDB::Put;
   Status Put(const WriteOptions& options, const Slice& key,
              const Slice& value) override;
@@ -275,8 +279,6 @@ class BlobDBImpl : public BlobDB {
 
   void TEST_RunGC();
 
-  void TEST_ObsoleteFile(std::shared_ptr<BlobFile>& bfile);
-
   void TEST_DeleteObsoleteFiles();
 #endif  //  !NDEBUG
 
@@ -305,7 +307,7 @@ class BlobDBImpl : public BlobDB {
   // tt - current time
   // last_id - the id of the non-TTL file to evict
   bool ShouldGCFile(std::shared_ptr<BlobFile> bfile, uint64_t now,
-                    bool is_oldest_simple_blob_file, std::string* reason);
+                    bool is_oldest_non_ttl_file, std::string* reason);
 
   // collect all the blob log files from the blob directory
   Status GetAllLogFiles(std::set<std::pair<uint64_t, std::string>>* file_nums);
@@ -370,13 +372,7 @@ class BlobDBImpl : public BlobDB {
 
   std::pair<bool, int64_t> EvictCompacted(bool aborted);
 
-  bool CallbackEvictsImpl(std::shared_ptr<BlobFile> bfile);
-
   std::pair<bool, int64_t> RemoveTimerQ(TimerQueue* tq, bool aborted);
-
-  std::pair<bool, int64_t> CallbackEvicts(TimerQueue* tq,
-                                          std::shared_ptr<BlobFile> bfile,
-                                          bool aborted);
 
   // Adds the background tasks to the timer queue
   void StartBackgroundTasks();
@@ -413,6 +409,7 @@ class BlobDBImpl : public BlobDB {
 
   // checks if there is no snapshot which is referencing the
   // blobs
+  bool VisibleToActiveSnapshot(const std::shared_ptr<BlobFile>& file);
   bool FileDeleteOk_SnapshotCheckLocked(const std::shared_ptr<BlobFile>& bfile);
 
   bool MarkBlobDeleted(const Slice& key, const Slice& lsmValue);
@@ -420,7 +417,9 @@ class BlobDBImpl : public BlobDB {
   bool FindFileAndEvictABlob(uint64_t file_number, uint64_t key_size,
                              uint64_t blob_offset, uint64_t blob_size);
 
-  void CopyBlobFiles(std::vector<std::shared_ptr<BlobFile>>* bfiles_copy);
+  void CopyBlobFiles(
+      std::vector<std::shared_ptr<BlobFile>>* bfiles_copy,
+      std::function<bool(const std::shared_ptr<BlobFile>&)> predicate = {});
 
   void FilterSubsetOfFiles(
       const std::vector<std::shared_ptr<BlobFile>>& blob_files,
@@ -428,6 +427,12 @@ class BlobDBImpl : public BlobDB {
       size_t files_to_collect);
 
   uint64_t EpochNow() { return env_->NowMicros() / 1000000; }
+
+  Status CheckSize(size_t blob_size);
+
+  std::shared_ptr<BlobFile> GetOldestBlobFile();
+
+  bool EvictOldestBlobFile();
 
   // the base DB
   DBImpl* db_impl_;
@@ -467,12 +472,12 @@ class BlobDBImpl : public BlobDB {
   // epoch or version of the open files.
   std::atomic<uint64_t> epoch_of_;
 
-  // All opened non-TTL blob files.
-  std::vector<std::shared_ptr<BlobFile>> open_simple_files_;
+  // opened non-TTL blob file.
+  std::shared_ptr<BlobFile> open_non_ttl_file_;
 
   // all the blob files which are currently being appended to based
   // on variety of incoming TTL's
-  std::multiset<std::shared_ptr<BlobFile>, blobf_compare_ttl> open_blob_files_;
+  std::multiset<std::shared_ptr<BlobFile>, blobf_compare_ttl> open_ttl_files_;
 
   // packet of information to put in lockess delete(s) queue
   struct delete_packet_t {
@@ -505,9 +510,6 @@ class BlobDBImpl : public BlobDB {
   // timer based queue to execute tasks
   TimerQueue tqueue_;
 
-  // timer queues to call eviction callbacks.
-  std::vector<std::shared_ptr<TimerQueue>> cb_threads_;
-
   // only accessed in GC thread, hence not atomic. The epoch of the
   // GC task. Each execution is one epoch. Helps us in allocating
   // files to one execution
@@ -535,6 +537,8 @@ class BlobDBImpl : public BlobDB {
   bool open_p1_done_;
 
   uint32_t debug_level_;
+
+  std::atomic<bool> oldest_file_evicted_;
 };
 
 }  // namespace blob_db

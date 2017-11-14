@@ -829,6 +829,8 @@ class DBTestBase : public testing::Test {
 
   Status SingleDelete(int cf, const std::string& k);
 
+  bool SetPreserveDeletesSequenceNumber(SequenceNumber sn);
+
   std::string Get(const std::string& k, const Snapshot* snapshot = nullptr);
 
   std::string Get(int cf, const std::string& k,

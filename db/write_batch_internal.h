@@ -102,7 +102,8 @@ class WriteBatchInternal {
   static Status PutBlobIndex(WriteBatch* batch, uint32_t column_family_id,
                              const Slice& key, const Slice& value);
 
-  static Status MarkEndPrepare(WriteBatch* batch, const Slice& xid);
+  static Status MarkEndPrepare(WriteBatch* batch, const Slice& xid,
+                               const bool write_after_commit = true);
 
   static Status MarkRollback(WriteBatch* batch, const Slice& xid);
 
@@ -189,6 +190,11 @@ class WriteBatchInternal {
   // Returns the byte size of appending a WriteBatch with ByteSize
   // leftByteSize and a WriteBatch with ByteSize rightByteSize
   static size_t AppendedByteSize(size_t leftByteSize, size_t rightByteSize);
+
+  // This write batch includes the latest state that should be persisted. Such
+  // state meant to be used only during recovery.
+  static void SetAsLastestPersistentState(WriteBatch* b);
+  static bool IsLatestPersistentState(const WriteBatch* b);
 };
 
 // LocalSavePoint is similar to a scope guard

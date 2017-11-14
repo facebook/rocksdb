@@ -205,8 +205,7 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   CompressionType compression;
 
   // Compression algorithm that will be used for the bottommost level that
-  // contain files. If level-compaction is used, this option will only affect
-  // levels after base level.
+  // contain files.
   //
   // Default: kDisableCompressionOption (Disabled)
   CompressionType bottommost_compression = kDisableCompressionOption;
@@ -888,27 +887,29 @@ struct DBOptions {
   // Immutable.
   bool allow_ingest_behind = false;
 
+  // Needed to support differential snapshots.
+  // If set to true then DB will only process deletes with sequence number
+  // less than what was set by SetPreserveDeletesSequenceNumber(uint64_t ts).
+  // Clients are responsible to periodically call this method to advance
+  // the cutoff time. If this method is never called and preserve_deletes
+  // is set to true NO deletes will ever be processed.
+  // At the moment this only keeps normal deletes, SingleDeletes will
+  // not be preserved.
+  // DEFAULT: false
+  // Immutable (TODO: make it dynamically changeable)
+  bool preserve_deletes = false;
+
   // If enabled it uses two queues for writes, one for the ones with
   // disable_memtable and one for the ones that also write to memtable. This
   // allows the memtable writes not to lag behind other writes. It can be used
   // to optimize MySQL 2PC in which only the commits, which are serial, write to
   // memtable.
-  bool concurrent_prepare = false;
+  bool two_write_queues = false;
 
   // If true WAL is not flushed automatically after each write. Instead it
   // relies on manual invocation of FlushWAL to write the WAL buffer to its
   // file.
   bool manual_wal_flush = false;
-
-  // Increase the sequence number after writing each batch, whether memtable is
-  // disabled for that or not. Otherwise the sequence number is increased after
-  // writing each key into memtable. This implies that when memtable_disable is
-  // set, the seq is not increased at all.
-  //
-  // Default: false
-  // Note: This option is experimental and meant to be used only for internal
-  // projects.
-  bool seq_per_batch = false;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)
@@ -1080,6 +1081,13 @@ struct ReadOptions {
   // no impact on point lookups.
   // Default: empty (every table will be scanned)
   std::function<bool(const TableProperties&)> table_filter;
+
+  // Needed to support differential snapshots. Has 2 effects:
+  // 1) Iterator will skip all internal keys with seqnum < iter_start_seqnum
+  // 2) if this param > 0 iterator will return INTERNAL keys instead of
+  //    user keys; e.g. return tombstones as well.
+  // Default: 0 (don't filter by seqnum, return user keys)
+  SequenceNumber iter_start_seqnum;
 
   ReadOptions();
   ReadOptions(bool cksum, bool cache);

@@ -2276,6 +2276,11 @@ void rocksdb_options_set_bytes_per_sync(
   opt->rep.bytes_per_sync = v;
 }
 
+void rocksdb_options_set_writable_file_max_buffer_size(rocksdb_options_t* opt,
+                                                       uint64_t v) {
+  opt->rep.writable_file_max_buffer_size = v;
+}
+
 void rocksdb_options_set_allow_concurrent_memtable_write(rocksdb_options_t* opt,
                                                          unsigned char v) {
   opt->rep.allow_concurrent_memtable_write = v;
@@ -2955,6 +2960,12 @@ void rocksdb_ingestexternalfileoptions_set_allow_blocking_flush(
     rocksdb_ingestexternalfileoptions_t* opt,
     unsigned char allow_blocking_flush) {
   opt->rep.allow_blocking_flush = allow_blocking_flush;
+}
+
+void rocksdb_ingestexternalfileoptions_set_ingest_behind(
+    rocksdb_ingestexternalfileoptions_t* opt,
+    unsigned char ingest_behind) {
+  opt->rep.ingest_behind = ingest_behind;
 }
 
 void rocksdb_ingestexternalfileoptions_destroy(

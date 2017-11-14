@@ -663,12 +663,14 @@ class Version {
   Version* next_;               // Next version in linked list
   Version* prev_;               // Previous version in linked list
   int refs_;                    // Number of live refs to this version
+  const EnvOptions env_options_;
 
   // A version number that uniquely represents this version. This is
   // used for debugging and logging purposes only.
   uint64_t version_number_;
 
-  Version(ColumnFamilyData* cfd, VersionSet* vset, uint64_t version_number = 0);
+  Version(ColumnFamilyData* cfd, VersionSet* vset, const EnvOptions& env_opt,
+          uint64_t version_number = 0);
 
   ~Version();
 
@@ -763,28 +765,27 @@ class VersionSet {
   }
 
   // Note: memory_order_acquire must be sufficient.
-  uint64_t LastToBeWrittenSequence() const {
-    return last_to_be_written_sequence_.load(std::memory_order_seq_cst);
+  uint64_t LastAllocatedSequence() const {
+    return last_allocated_sequence_.load(std::memory_order_seq_cst);
   }
 
   // Set the last sequence number to s.
   void SetLastSequence(uint64_t s) {
     assert(s >= last_sequence_);
     // Last visible seqeunce must always be less than last written seq
-    assert(!db_options_->concurrent_prepare ||
-           s <= last_to_be_written_sequence_);
+    assert(!db_options_->two_write_queues || s <= last_allocated_sequence_);
     last_sequence_.store(s, std::memory_order_release);
   }
 
   // Note: memory_order_release must be sufficient
-  void SetLastToBeWrittenSequence(uint64_t s) {
-    assert(s >= last_to_be_written_sequence_);
-    last_to_be_written_sequence_.store(s, std::memory_order_seq_cst);
+  void SetLastAllocatedSequence(uint64_t s) {
+    assert(s >= last_allocated_sequence_);
+    last_allocated_sequence_.store(s, std::memory_order_seq_cst);
   }
 
   // Note: memory_order_release must be sufficient
-  uint64_t FetchAddLastToBeWrittenSequence(uint64_t s) {
-    return last_to_be_written_sequence_.fetch_add(s, std::memory_order_seq_cst);
+  uint64_t FetchAddLastAllocatedSequence(uint64_t s) {
+    return last_allocated_sequence_.fetch_add(s, std::memory_order_seq_cst);
   }
 
   // Mark the specified file number as used.
@@ -844,6 +845,10 @@ class VersionSet {
 
   ColumnFamilySet* GetColumnFamilySet() { return column_family_set_.get(); }
   const EnvOptions& env_options() { return env_options_; }
+  void ChangeEnvOptions(const MutableDBOptions& new_options) {
+    env_options_.writable_file_max_buffer_size =
+        new_options.writable_file_max_buffer_size;
+  }
 
   static uint64_t GetNumLiveVersions(Version* dummy_versions);
 
@@ -888,8 +893,9 @@ class VersionSet {
   uint64_t pending_manifest_file_number_;
   // The last seq visible to reads
   std::atomic<uint64_t> last_sequence_;
-  // The last seq with which a writer has written/will write.
-  std::atomic<uint64_t> last_to_be_written_sequence_;
+  // The last seq that is already allocated. The seq might or might not have
+  // appreated in memtable.
+  std::atomic<uint64_t> last_allocated_sequence_;
   uint64_t prev_log_number_;  // 0 or backing store for memtable being compacted
 
   // Opened lazily
@@ -908,7 +914,7 @@ class VersionSet {
   std::vector<std::string> obsolete_manifests_;
 
   // env options for all reads and writes except compactions
-  const EnvOptions& env_options_;
+  EnvOptions env_options_;
 
   // env options used for compactions. This is a copy of
   // env_options_ but with readaheads set to readahead_compactions_.

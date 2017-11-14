@@ -53,6 +53,7 @@ struct ExternalSstFileInfo;
 class WriteBatch;
 class Env;
 class EventListener;
+enum EntryType;
 
 using std::unique_ptr;
 
@@ -873,6 +874,14 @@ class DB {
 
   // The sequence number of the most recent transaction.
   virtual SequenceNumber GetLatestSequenceNumber() const = 0;
+
+  // Instructs DB to preserve deletes with sequence numbers >= passed seqnum.
+  // Has no effect if DBOptions.preserve_deletes is set to false.
+  // This function assumes that user calls this function with monotonically
+  // increasing seqnums (otherwise we can't guarantee that a particular delete
+  // hasn't been already processed); returns true if the value was successfully
+  // updated, false if user attempted to call if with seqnum <= current value.
+  virtual bool SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) = 0;
 
 #ifndef ROCKSDB_LITE
 
