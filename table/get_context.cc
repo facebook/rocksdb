@@ -87,9 +87,9 @@ void GetContext::SaveValue(const Slice& value, SequenceNumber seq) {
   }
 }
 
-void GetContext::record_counters(Tickers ticker, int val) {
+void GetContext::record_counters(Tickers ticker, size_t val) {
   if (ticker == Tickers::TICKER_ENUM_MAX) return;
-  tickers_value[ticker] += val;
+  tickers_value[ticker] += static_cast<uint32_t> (val);
 }
 
 bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,

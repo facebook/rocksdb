@@ -9,10 +9,9 @@
 #include "db/range_del_aggregator.h"
 #include "db/read_callback.h"
 #include "rocksdb/env.h"
+#include "rocksdb/statistics.h"
 #include "rocksdb/types.h"
 #include "table/block.h"
-#include "rocksdb/statistics.h"
-
 
 namespace rocksdb {
 class MergeContext;
@@ -75,7 +74,7 @@ class GetContext {
     return true;
   }
 
-  void record_counters(Tickers ticker, int val);
+  void record_counters(Tickers ticker, size_t val);
 
  private:
   const Comparator* ucmp_;
