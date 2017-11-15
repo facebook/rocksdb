@@ -15,13 +15,13 @@ LIB_SOURCES =                                                   \
   db/convenience.cc                                             \
   db/db_filesnapshot.cc                                         \
   db/db_impl.cc                                                 \
-  db/db_impl_write.cc                                           \
   db/db_impl_compaction_flush.cc                                \
-  db/db_impl_files.cc                                           \
-  db/db_impl_open.cc                                            \
   db/db_impl_debug.cc                                           \
   db/db_impl_experimental.cc                                    \
+  db/db_impl_files.cc                                           \
+  db/db_impl_open.cc                                            \
   db/db_impl_readonly.cc                                        \
+  db/db_impl_write.cc                                           \
   db/db_info_dumper.cc                                          \
   db/db_iter.cc                                                 \
   db/dbformat.cc                                                \
@@ -155,9 +155,9 @@ LIB_SOURCES =                                                   \
   utilities/blob_db/blob_db.cc                                  \
   utilities/blob_db/blob_db_impl.cc                             \
   utilities/blob_db/blob_file.cc                                \
+  utilities/blob_db/blob_log_format.cc                          \
   utilities/blob_db/blob_log_reader.cc                          \
   utilities/blob_db/blob_log_writer.cc                          \
-  utilities/blob_db/blob_log_format.cc                          \
   utilities/blob_db/ttl_extractor.cc                            \
   utilities/cassandra/cassandra_compaction_filter.cc            \
   utilities/cassandra/format.cc                                 \
@@ -192,8 +192,8 @@ LIB_SOURCES =                                                   \
   utilities/simulator_cache/sim_cache.cc                        \
   utilities/spatialdb/spatial_db.cc                             \
   utilities/table_properties_collectors/compact_on_deletion_collector.cc \
-  utilities/transactions/optimistic_transaction_db_impl.cc      \
   utilities/transactions/optimistic_transaction.cc              \
+  utilities/transactions/optimistic_transaction_db_impl.cc      \
   utilities/transactions/pessimistic_transaction.cc             \
   utilities/transactions/pessimistic_transaction_db.cc          \
   utilities/transactions/snapshot_checker.cc                    \
@@ -218,10 +218,10 @@ LIB_SOURCES_C =
 endif
 
 TOOL_LIB_SOURCES = \
-  tools/ldb_cmd.cc                                               \
-  tools/ldb_tool.cc                                              \
-  tools/sst_dump_tool.cc                                         \
-  utilities/blob_db/blob_dump_tool.cc                            \
+  tools/ldb_cmd.cc                                              \
+  tools/ldb_tool.cc                                             \
+  tools/sst_dump_tool.cc                                        \
+  utilities/blob_db/blob_dump_tool.cc                           \
 
 MOCK_LIB_SOURCES = \
   table/mock_table.cc \
@@ -231,19 +231,19 @@ BENCH_LIB_SOURCES = \
   tools/db_bench_tool.cc                                        \
 
 EXP_LIB_SOURCES = \
-  utilities/col_buf_encoder.cc                                          \
-  utilities/col_buf_decoder.cc                                          \
+  utilities/col_buf_decoder.cc                                  \
+  utilities/col_buf_encoder.cc                                  \
   utilities/column_aware_encoding_util.cc
 
 TEST_LIB_SOURCES = \
-  util/testharness.cc                                                   \
-  util/testutil.cc                                                      \
-  db/db_test_util.cc                                                    \
-  utilities/cassandra/test_utils.cc                                     \
+  db/db_test_util.cc                                            \
+  util/testharness.cc                                           \
+  util/testutil.cc                                              \
+  utilities/cassandra/test_utils.cc                             \
 
-MAIN_SOURCES =                                                    \
-  cache/cache_bench.cc                                                   \
-  cache/cache_test.cc                                                    \
+MAIN_SOURCES =                                                          \
+  cache/cache_bench.cc                                                  \
+  cache/cache_test.cc                                                   \
   db/column_family_test.cc                                              \
   db/compaction_job_stats_test.cc                                       \
   db/compaction_job_test.cc                                             \
@@ -258,7 +258,7 @@ MAIN_SOURCES =                                                    \
   db/db_compaction_test.cc                                              \
   db/db_dynamic_level_test.cc                                           \
   db/db_encryption_test.cc                                              \
-  db/db_flush_test.cc                                                    \
+  db/db_flush_test.cc                                                   \
   db/db_inplace_update_test.cc                                          \
   db/db_io_failure_test.cc                                              \
   db/db_iter_test.cc                                                    \
