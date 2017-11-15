@@ -662,6 +662,12 @@ class DBImpl : public DB {
 
   void EraseThreadStatusDbInfo() const;
 
+  // If disable_memtable is set the application logic must guarantee that the
+  // batch will still be skipped from memtable during the recovery. In
+  // WriteCommitted it is guarnateed since disable_memtable is used for prepare
+  // batch which will be written to memtable later during the commit, and in
+  // WritePrepared it is guaranteed since it will be used only for WAL markers
+  // which will never be written to memtable.
   Status WriteImpl(const WriteOptions& options, WriteBatch* updates,
                    WriteCallback* callback = nullptr,
                    uint64_t* log_used = nullptr, uint64_t log_ref = 0,
