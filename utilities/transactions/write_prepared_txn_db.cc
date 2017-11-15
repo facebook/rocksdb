@@ -215,6 +215,7 @@ bool WritePreparedTxnDB::IsInSnapshot(uint64_t prep_seq,
   }
   {
     // We should not normally reach here
+    // TODO(myabandeh): check only if snapshot_seq is in the list of snaphots
     ReadLock rl(&old_commit_map_mutex_);
     auto old_commit_entry = old_commit_map_.find(prep_seq);
     if (old_commit_entry == old_commit_map_.end() ||

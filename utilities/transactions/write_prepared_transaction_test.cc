@@ -605,12 +605,13 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceConcurrentTest) {
   FlushOptions fopt;
 
   // Number of different txn types we use in this test
-  const size_t type_cnt = 4;
+  const size_t type_cnt = 5;
   // The size of the first write group
   // TODO(myabandeh): This should be increase for pre-release tests
   const size_t first_group_size = 2;
   // Total number of txns we run in each test
-  const size_t txn_cnt = first_group_size * 2;
+  // TODO(myabandeh): This should be increase for pre-release tests
+  const size_t txn_cnt = first_group_size + 1;
 
   size_t base[txn_cnt + 1] = {
       1,
@@ -675,6 +676,9 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceConcurrentTest) {
         case 3:
           threads.emplace_back(txn_t3, bi);
           break;
+        case 4:
+          threads.emplace_back(txn_t3, bi);
+          break;
         default:
           assert(false);
       }
@@ -710,16 +714,30 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceConcurrentTest) {
     rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
 
     // The latest seq might be due to a commit without prepare and hence not
-    // persisted in the WAL. To make the verification of seq after recovery
-    // easier we write in a transaction with prepare which makes the latest seq
-    // to be persisted via the commitmarker.
-    txn_t3(0);
+    // persisted in the WAL. We need to discount such seqs if they are not
+    // continued by any seq consued by a value write.
+    if (options.two_write_queues) {
+      WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+      MutexLock l(&wp_db->seq_for_metadata_mutex_);
+      auto& vec = wp_db->seq_for_metadata;
+      std::sort(vec.begin(), vec.end());
+      // going backward discount any last seq consumed for metadata until we see
+      // a seq that is consumed for actualy key/values.
+      auto rit = vec.rbegin();
+      for (; rit != vec.rend(); ++rit) {
+        if (*rit == exp_seq) {
+          exp_seq--;
+        } else {
+          break;
+        }
+      }
+    }
 
     // Check if recovery preserves the last sequence number
     db_impl->FlushWAL(true);
     ReOpenNoDelete();
     db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
-    seq = db_impl->GetLatestSequenceNumber();
+    seq = db_impl->TEST_GetLastVisibleSequence();
     ASSERT_EQ(exp_seq, seq);
 
     // Check if flush preserves the last sequence number
@@ -1134,25 +1152,18 @@ TEST_P(WritePreparedTransactionTest, RollbackTest) {
         ASSERT_SAME(db, s4, v4, "key4");
 
         if (crash) {
-          // TODO(myabandeh): replace it with true crash (commented lines below)
-          // after compaction PR is landed.
+          delete txn;
           auto db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
-          auto seq = db_impl->GetLatestSequenceNumber();
+          db_impl->FlushWAL(true);
+          ReOpenNoDelete();
           wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
-          SequenceNumber prev_max = wp_db->max_evicted_seq_;
-          wp_db->AdvanceMaxEvictedSeq(prev_max, seq);
-          //    delete txn;
-          //    auto db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
-          //    db_impl->FlushWAL(true);
-          //    ReOpenNoDelete();
-          //    wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
-          //    txn = db->GetTransactionByName("xid0");
-          //    ASSERT_FALSE(wp_db->delayed_prepared_empty_);
-          //    ReadLock rl(&wp_db->prepared_mutex_);
-          //    ASSERT_TRUE(wp_db->prepared_txns_.empty());
-          //    ASSERT_FALSE(wp_db->delayed_prepared_.empty());
-          //    ASSERT_TRUE(wp_db->delayed_prepared_.find(txn->GetId()) !=
-          //                wp_db->delayed_prepared_.end());
+          txn = db->GetTransactionByName("xid0");
+          ASSERT_FALSE(wp_db->delayed_prepared_empty_);
+          ReadLock rl(&wp_db->prepared_mutex_);
+          ASSERT_TRUE(wp_db->prepared_txns_.empty());
+          ASSERT_FALSE(wp_db->delayed_prepared_.empty());
+          ASSERT_TRUE(wp_db->delayed_prepared_.find(txn->GetId()) !=
+                      wp_db->delayed_prepared_.end());
         }
 
         ASSERT_SAME(db, s1, v1, "key1");
