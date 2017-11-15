@@ -307,6 +307,46 @@ cpp_library(
     external_deps = rocksdb_external_deps,
 )
 
+cpp_binary(
+  name = "db_bench",
+  srcs = ["tools/db_bench.cc"],
+  deps = [":rocksdb_tools_lib"],
+  preprocessor_flags = rocksdb_preprocessor_flags,
+  arch_preprocessor_flags = rocksdb_arch_preprocessor_flags,
+  compiler_flags = rocksdb_compiler_flags,
+  external_deps = rocksdb_external_deps,
+)
+
+cpp_binary(
+  name = "ldb",
+  srcs = ["tools/ldb.cc"],
+  deps = [":rocksdb_tools_lib"],
+  preprocessor_flags = rocksdb_preprocessor_flags,
+  arch_preprocessor_flags = rocksdb_arch_preprocessor_flags,
+  compiler_flags = rocksdb_compiler_flags,
+  external_deps = rocksdb_external_deps,
+)
+
+cpp_binary(
+  name = "sst_dump",
+  srcs = ["tools/sst_dump.cc"],
+  deps = [":rocksdb_tools_lib"],
+  preprocessor_flags = rocksdb_preprocessor_flags,
+  arch_preprocessor_flags = rocksdb_arch_preprocessor_flags,
+  compiler_flags = rocksdb_compiler_flags,
+  external_deps = rocksdb_external_deps,
+)
+
+cpp_binary(
+  name = "blob_dump",
+  srcs = ["tools/blob_dump.cc"],
+  deps = [":rocksdb_tools_lib"],
+  preprocessor_flags = rocksdb_preprocessor_flags,
+  arch_preprocessor_flags = rocksdb_arch_preprocessor_flags,
+  compiler_flags = rocksdb_compiler_flags,
+  external_deps = rocksdb_external_deps,
+)
+
 cpp_library(
     name = "env_basic_test_lib",
     headers = AutoHeaders.RECURSIVE_GLOB,
