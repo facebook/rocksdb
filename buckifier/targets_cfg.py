@@ -6,7 +6,7 @@ rocksdb_target_header = """
 import os
 
 TARGETS_PATH = os.path.dirname(__file__)
-REPO_PATH = "rocksdb/src/"
+REPO_PATH = TARGETS_PATH[(TARGETS_PATH.find('fbcode/') + len('fbcode/')):] + "/"
 BUCK_BINS = "buck-out/gen/" + REPO_PATH
 TEST_RUNNER = REPO_PATH + "buckifier/rocks_test_runner.sh"
 rocksdb_compiler_flags = [
