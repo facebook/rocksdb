@@ -865,12 +865,15 @@ uint64_t PosixWritableFile::GetFileSize() { return filesize_; }
 
 void PosixWritableFile::SetWriteLifeTimeHint(Env::WriteLifeTimeHint hint) {
 #ifdef OS_LINUX
+// Suppress Valgrind "Unimplemented functionality" error.
+#ifndef ROCKSDB_VALGRIND_RUN
   if (hint == write_hint_) {
     return;
   }
   if (fcntl(fd_, F_SET_RW_HINT, &hint) == 0) {
     write_hint_ = hint;
   }
+#endif
 #endif
 }
 
