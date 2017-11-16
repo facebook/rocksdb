@@ -21,15 +21,18 @@ depend on gflags. You will need to have gflags installed to run `make all`. This
 use binaries compiled by `make all` in production.
 
 * By default the binary we produce is optimized for the platform you're compiling on
-(-march=native or the equivalent). If you want to build a portable binary, add 'PORTABLE=1' before
-your make commands, like this: `PORTABLE=1 make static_lib`. If you want to build a binary that
-makes use of SSE4, add 'USE_SSE=1' before your make commands, like this: `USE_SSE=1 make static_lib`.
+(`-march=native` or the equivalent). SSE4.2 will thus be enabled automatically if your
+CPU supports it. To print a warning if your CPU does not support SSE4.2, build with
+`USE_SSE=1 make static_lib` or, if using CMake, `cmake -DFORCE_SSE42=ON`. If you want
+to build a portable binary, add `PORTABLE=1` before your make commands, like this:
+`PORTABLE=1 make static_lib`.
 
 ## Dependencies
 
 * You can link RocksDB with following compression libraries:
   - [zlib](http://www.zlib.net/) - a library for data compression.
   - [bzip2](http://www.bzip.org/) - a library for data compression.
+  - [lz4](https://github.com/lz4/lz4) - a library for extremely fast data compression.
   - [snappy](http://google.github.io/snappy/) - a library for fast
       data compression.
   - [zstandard](http://www.zstd.net) - Fast real-time compression
@@ -51,6 +54,7 @@ makes use of SSE4, add 'USE_SSE=1' before your make commands, like this: `USE_SS
       `sudo apt-get install libsnappy-dev`.
     * Install zlib. Try: `sudo apt-get install zlib1g-dev`.
     * Install bzip2: `sudo apt-get install libbz2-dev`.
+    * Install lz4: `sudo apt-get install liblz4-dev`.
     * Install zstandard: `sudo apt-get install libzstd-dev`.
 
 * **Linux - CentOS / RHEL**
@@ -63,26 +67,29 @@ makes use of SSE4, add 'USE_SSE=1' before your make commands, like this: `USE_SS
               git checkout v2.0
               ./configure && make && sudo make install
 
-      **Notice**: Once installed, please add the include path for gflags to your CPATH env var and the
-      lib path to LIBRARY_PATH. If installed with default settings, the lib will be /usr/local/lib
-      and the include path will be /usr/local/include.
+      **Notice**: Once installed, please add the include path for gflags to your `CPATH` environment variable and the
+      lib path to `LIBRARY_PATH`. If installed with default settings, the include path will be `/usr/local/include`
+      and the lib path will be `/usr/local/lib`.
 
     * Install snappy:
 
-              wget https://github.com/google/snappy/releases/download/1.1.4/snappy-1.1.4.tar.gz
-              tar -xzvf snappy-1.1.4.tar.gz
-              cd snappy-1.1.4
-              ./configure && make && sudo make install
+              sudo yum install snappy snappy-devel
 
     * Install zlib:
 
-              sudo yum install zlib
-              sudo yum install zlib-devel
+              sudo yum install zlib zlib-devel
 
     * Install bzip2:
 
-              sudo yum install bzip2
-              sudo yum install bzip2-devel
+              sudo yum install bzip2 bzip2-devel
+
+    * Install lz4:
+
+              sudo yum install lz4-devel
+
+    * Install ASAN (optional for debugging):
+
+              sudo yum install libasan
 
     * Install zstandard:
 
@@ -106,6 +113,8 @@ makes use of SSE4, add 'USE_SSE=1' before your make commands, like this: `USE_SS
 * **Windows**:
   * For building with MS Visual Studio 13 you will need Update 4 installed.
   * Read and follow the instructions at CMakeLists.txt
+  * Or install via [vcpkg](https://github.com/microsoft/vcpkg) 
+       * run `vcpkg install rocksdb`
 
 * **AIX 6.1**
     * Install AIX Toolbox rpms with gcc

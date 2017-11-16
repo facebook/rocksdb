@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // This file implements the "bridge" between Java and C++ and enables
 // calling C++ rocksdb::SstFileWriter methods
@@ -74,17 +74,150 @@ void Java_org_rocksdb_SstFileWriter_open(JNIEnv *env, jobject jobj,
 
 /*
  * Class:     org_rocksdb_SstFileWriter
- * Method:    add
+ * Method:    put
  * Signature: (JJJ)V
  */
-void Java_org_rocksdb_SstFileWriter_add(JNIEnv *env, jobject jobj,
-                                        jlong jhandle, jlong jkey_handle,
-                                        jlong jvalue_handle) {
+void Java_org_rocksdb_SstFileWriter_put__JJJ(JNIEnv *env, jobject jobj,
+                                             jlong jhandle, jlong jkey_handle,
+                                             jlong jvalue_handle) {
   auto *key_slice = reinterpret_cast<rocksdb::Slice *>(jkey_handle);
   auto *value_slice = reinterpret_cast<rocksdb::Slice *>(jvalue_handle);
   rocksdb::Status s =
-      reinterpret_cast<rocksdb::SstFileWriter *>(jhandle)->Add(*key_slice,
-          *value_slice);
+    reinterpret_cast<rocksdb::SstFileWriter *>(jhandle)->Put(*key_slice,
+                                                             *value_slice);
+  if (!s.ok()) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  }
+}
+
+/*
+ * Class:     org_rocksdb_SstFileWriter
+ * Method:    put
+ * Signature: (JJJ)V
+ */
+ void Java_org_rocksdb_SstFileWriter_put__J_3B_3B(JNIEnv *env, jobject jobj,
+                                                  jlong jhandle, jbyteArray jkey,
+                                                  jbyteArray jval) {
+  jbyte* key = env->GetByteArrayElements(jkey, nullptr);
+  if(key == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return;
+  }
+  rocksdb::Slice key_slice(
+      reinterpret_cast<char*>(key),  env->GetArrayLength(jkey));
+
+  jbyte* value = env->GetByteArrayElements(jval, nullptr);
+  if(value == nullptr) {
+    // exception thrown: OutOfMemoryError
+    env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
+    return;
+  }
+  rocksdb::Slice value_slice(
+      reinterpret_cast<char*>(value),  env->GetArrayLength(jval));
+
+  rocksdb::Status s =
+  reinterpret_cast<rocksdb::SstFileWriter *>(jhandle)->Put(key_slice,
+                                                           value_slice);
+
+  env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
+  env->ReleaseByteArrayElements(jval, value, JNI_ABORT);
+
+  if (!s.ok()) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  }
+}
+
+/*
+ * Class:     org_rocksdb_SstFileWriter
+ * Method:    merge
+ * Signature: (JJJ)V
+ */
+void Java_org_rocksdb_SstFileWriter_merge__JJJ(JNIEnv *env, jobject jobj,
+                                               jlong jhandle, jlong jkey_handle,
+                                               jlong jvalue_handle) {
+  auto *key_slice = reinterpret_cast<rocksdb::Slice *>(jkey_handle);
+  auto *value_slice = reinterpret_cast<rocksdb::Slice *>(jvalue_handle);
+  rocksdb::Status s =
+    reinterpret_cast<rocksdb::SstFileWriter *>(jhandle)->Merge(*key_slice,
+                                                               *value_slice);
+  if (!s.ok()) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  }
+}
+
+/*
+ * Class:     org_rocksdb_SstFileWriter
+ * Method:    merge
+ * Signature: (J[B[B)V
+ */
+void Java_org_rocksdb_SstFileWriter_merge__J_3B_3B(JNIEnv *env, jobject jobj,
+                                                   jlong jhandle, jbyteArray jkey,
+                                                   jbyteArray jval) {
+
+  jbyte* key = env->GetByteArrayElements(jkey, nullptr);
+  if(key == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return;
+  }
+  rocksdb::Slice key_slice(
+      reinterpret_cast<char*>(key),  env->GetArrayLength(jkey));
+
+  jbyte* value = env->GetByteArrayElements(jval, nullptr);
+  if(value == nullptr) {
+    // exception thrown: OutOfMemoryError
+    env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
+    return;
+  }
+  rocksdb::Slice value_slice(
+      reinterpret_cast<char*>(value),  env->GetArrayLength(jval));
+
+  rocksdb::Status s =
+    reinterpret_cast<rocksdb::SstFileWriter *>(jhandle)->Merge(key_slice,
+                                                               value_slice);
+
+  env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
+  env->ReleaseByteArrayElements(jval, value, JNI_ABORT);
+
+  if (!s.ok()) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  }
+}
+
+/*
+ * Class:     org_rocksdb_SstFileWriter
+ * Method:    delete
+ * Signature: (JJJ)V
+ */
+void Java_org_rocksdb_SstFileWriter_delete__J_3B(JNIEnv *env, jobject jobj,
+                                               jlong jhandle, jbyteArray jkey) {
+  jbyte* key = env->GetByteArrayElements(jkey, nullptr);
+  if(key == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return;
+  }
+  rocksdb::Slice key_slice(
+      reinterpret_cast<char*>(key),  env->GetArrayLength(jkey));
+
+  rocksdb::Status s =
+    reinterpret_cast<rocksdb::SstFileWriter *>(jhandle)->Delete(key_slice);
+
+  env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
+
+  if (!s.ok()) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  }
+}
+
+/*
+ * Class:     org_rocksdb_SstFileWriter
+ * Method:    delete
+ * Signature: (JJJ)V
+ */
+ void Java_org_rocksdb_SstFileWriter_delete__JJ(JNIEnv *env, jobject jobj,
+  jlong jhandle, jlong jkey_handle) {
+  auto *key_slice = reinterpret_cast<rocksdb::Slice *>(jkey_handle);
+  rocksdb::Status s =
+    reinterpret_cast<rocksdb::SstFileWriter *>(jhandle)->Delete(*key_slice);
   if (!s.ok()) {
     rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
   }

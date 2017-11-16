@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -169,12 +167,9 @@ Status PosixSequentialFile::Read(size_t n, Slice* result, char* scratch) {
       clearerr(file_);
     } else {
       // A partial read with an error: return a non-ok status
-      s = IOError(filename_, errno);
+      s = IOError("While reading file sequentially", filename_, errno);
     }
   }
-  // we need to fadvise away the entire range of pages because
-  // we do not want readahead pages to be cached under buffered io
-  Fadvise(fd_, 0, 0, POSIX_FADV_DONTNEED);  // free OS pages
   return s;
 }
 
@@ -209,7 +204,9 @@ Status PosixSequentialFile::PositionedRead(uint64_t offset, size_t n,
   }
   if (r < 0) {
     // An error: return a non-ok status
-    s = IOError(filename_, errno);
+    s = IOError(
+        "While pread " + ToString(n) + " bytes from offset " + ToString(offset),
+        filename_, errno);
   }
   *result = Slice(scratch, (r < 0) ? 0 : n - left);
   return s;
@@ -217,7 +214,8 @@ Status PosixSequentialFile::PositionedRead(uint64_t offset, size_t n,
 
 Status PosixSequentialFile::Skip(uint64_t n) {
   if (fseek(file_, static_cast<long int>(n), SEEK_CUR)) {
-    return IOError(filename_, errno);
+    return IOError("While fseek to skip " + ToString(n) + " bytes", filename_,
+                   errno);
   }
   return Status::OK();
 }
@@ -230,7 +228,9 @@ Status PosixSequentialFile::InvalidateCache(size_t offset, size_t length) {
     // free OS pages
     int ret = Fadvise(fd_, offset, length, POSIX_FADV_DONTNEED);
     if (ret != 0) {
-      return IOError(filename_, errno);
+      return IOError("While fadvise NotNeeded offset " + ToString(offset) +
+                         " len " + ToString(length),
+                     filename_, errno);
     }
   }
   return Status::OK();
@@ -338,7 +338,9 @@ Status PosixRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
   }
   if (r < 0) {
     // An error: return a non-ok status
-    s = IOError(filename_, errno);
+    s = IOError(
+        "While pread offset " + ToString(offset) + " len " + ToString(n),
+        filename_, errno);
   }
   *result = Slice(scratch, (r < 0) ? 0 : n - left);
   return s;
@@ -358,7 +360,9 @@ Status PosixRandomAccessFile::Prefetch(uint64_t offset, size_t n) {
     r = fcntl(fd_, F_RDADVISE, &advice);
 #endif
     if (r == -1) {
-      s = IOError(filename_, errno);
+      s = IOError("While prefetching offset " + ToString(offset) + " len " +
+                      ToString(n),
+                  filename_, errno);
     }
   }
   return s;
@@ -408,7 +412,9 @@ Status PosixRandomAccessFile::InvalidateCache(size_t offset, size_t length) {
   if (ret == 0) {
     return Status::OK();
   }
-  return IOError(filename_, errno);
+  return IOError("While fadvise NotNeeded offset " + ToString(offset) +
+                     " len " + ToString(length),
+                 filename_, errno);
 #endif
 }
 
@@ -441,7 +447,9 @@ Status PosixMmapReadableFile::Read(uint64_t offset, size_t n, Slice* result,
   Status s;
   if (offset > length_) {
     *result = Slice();
-    return IOError(filename_, EINVAL);
+    return IOError("While mmap read offset " + ToString(offset) +
+                       " larger than file length " + ToString(length_),
+                   filename_, EINVAL);
   } else if (offset + n > length_) {
     n = static_cast<size_t>(length_ - offset);
   }
@@ -458,7 +466,9 @@ Status PosixMmapReadableFile::InvalidateCache(size_t offset, size_t length) {
   if (ret == 0) {
     return Status::OK();
   }
-  return IOError(filename_, errno);
+  return IOError("While fadvise not needed. Offset " + ToString(offset) +
+                     " len" + ToString(length),
+                 filename_, errno);
 #endif
 }
 
@@ -475,7 +485,7 @@ Status PosixMmapFile::UnmapCurrentRegion() {
   if (base_ != nullptr) {
     int munmap_status = munmap(base_, limit_ - base_);
     if (munmap_status != 0) {
-      return IOError(filename_, munmap_status);
+      return IOError("While munmap", filename_, munmap_status);
     }
     file_offset_ += limit_ - base_;
     base_ = nullptr;
@@ -538,7 +548,7 @@ Status PosixMmapFile::Msync() {
   last_sync_ = dst_;
   TEST_KILL_RANDOM("PosixMmapFile::Msync:0", rocksdb_kill_odds);
   if (msync(base_ + p1, p2 - p1 + page_size_, MS_SYNC) < 0) {
-    return IOError(filename_, errno);
+    return IOError("While msync", filename_, errno);
   }
   return Status::OK();
 }
@@ -589,6 +599,7 @@ Status PosixMmapFile::Append(const Slice& data) {
     }
 
     size_t n = (left <= avail) ? left : avail;
+    assert(dst_);
     memcpy(dst_, src, n);
     dst_ += n;
     src += n;
@@ -603,17 +614,17 @@ Status PosixMmapFile::Close() {
 
   s = UnmapCurrentRegion();
   if (!s.ok()) {
-    s = IOError(filename_, errno);
+    s = IOError("While closing mmapped file", filename_, errno);
   } else if (unused > 0) {
     // Trim the extra space at the end of the file
     if (ftruncate(fd_, file_offset_ - unused) < 0) {
-      s = IOError(filename_, errno);
+      s = IOError("While ftruncating mmaped file", filename_, errno);
     }
   }
 
   if (close(fd_) < 0) {
     if (s.ok()) {
-      s = IOError(filename_, errno);
+      s = IOError("While closing mmapped file", filename_, errno);
     }
   }
 
@@ -627,7 +638,7 @@ Status PosixMmapFile::Flush() { return Status::OK(); }
 
 Status PosixMmapFile::Sync() {
   if (fdatasync(fd_) < 0) {
-    return IOError(filename_, errno);
+    return IOError("While fdatasync mmapped file", filename_, errno);
   }
 
   return Msync();
@@ -638,7 +649,7 @@ Status PosixMmapFile::Sync() {
  */
 Status PosixMmapFile::Fsync() {
   if (fsync(fd_) < 0) {
-    return IOError(filename_, errno);
+    return IOError("While fsync mmaped file", filename_, errno);
   }
 
   return Msync();
@@ -663,7 +674,7 @@ Status PosixMmapFile::InvalidateCache(size_t offset, size_t length) {
   if (ret == 0) {
     return Status::OK();
   }
-  return IOError(filename_, errno);
+  return IOError("While fadvise NotNeeded mmapped file", filename_, errno);
 #endif
 }
 
@@ -681,7 +692,9 @@ Status PosixMmapFile::Allocate(uint64_t offset, uint64_t len) {
   if (alloc_status == 0) {
     return Status::OK();
   } else {
-    return IOError(filename_, errno);
+    return IOError(
+        "While fallocate offset " + ToString(offset) + " len " + ToString(len),
+        filename_, errno);
   }
 }
 #endif
@@ -724,7 +737,7 @@ Status PosixWritableFile::Append(const Slice& data) {
       if (errno == EINTR) {
         continue;
       }
-      return IOError(filename_, errno);
+      return IOError("While appending to file", filename_, errno);
     }
     left -= done;
     src += done;
@@ -748,7 +761,8 @@ Status PosixWritableFile::PositionedAppend(const Slice& data, uint64_t offset) {
       if (errno == EINTR) {
         continue;
       }
-      return IOError(filename_, errno);
+      return IOError("While pwrite to file at offset " + ToString(offset),
+                     filename_, errno);
     }
     left -= done;
     offset += done;
@@ -762,7 +776,8 @@ Status PosixWritableFile::Truncate(uint64_t size) {
   Status s;
   int r = ftruncate(fd_, size);
   if (r < 0) {
-    s = IOError(filename_, errno);
+    s = IOError("While ftruncate file to size " + ToString(size), filename_,
+                errno);
   } else {
     filesize_ = size;
   }
@@ -799,10 +814,11 @@ Status PosixWritableFile::Close() {
     // While we work with Travis-CI team to figure out if this is a
     // quirk of Docker/AUFS, we will comment this out.
     struct stat file_stats;
-    fstat(fd_, &file_stats);
+    int result = fstat(fd_, &file_stats);
     // After ftruncate, we check whether ftruncate has the correct behavior.
     // If not, we should hack it with FALLOC_FL_PUNCH_HOLE
-    if ((file_stats.st_size + file_stats.st_blksize - 1) /
+    if (result == 0 &&
+        (file_stats.st_size + file_stats.st_blksize - 1) /
             file_stats.st_blksize !=
         file_stats.st_blocks / (file_stats.st_blksize / 512)) {
       IOSTATS_TIMER_GUARD(allocate_nanos);
@@ -815,7 +831,7 @@ Status PosixWritableFile::Close() {
   }
 
   if (close(fd_) < 0) {
-    s = IOError(filename_, errno);
+    s = IOError("While closing file after writing", filename_, errno);
   }
   fd_ = -1;
   return s;
@@ -826,14 +842,14 @@ Status PosixWritableFile::Flush() { return Status::OK(); }
 
 Status PosixWritableFile::Sync() {
   if (fdatasync(fd_) < 0) {
-    return IOError(filename_, errno);
+    return IOError("While fdatasync", filename_, errno);
   }
   return Status::OK();
 }
 
 Status PosixWritableFile::Fsync() {
   if (fsync(fd_) < 0) {
-    return IOError(filename_, errno);
+    return IOError("While fsync", filename_, errno);
   }
   return Status::OK();
 }
@@ -854,7 +870,7 @@ Status PosixWritableFile::InvalidateCache(size_t offset, size_t length) {
   if (ret == 0) {
     return Status::OK();
   }
-  return IOError(filename_, errno);
+  return IOError("While fadvise NotNeeded", filename_, errno);
 #endif
 }
 
@@ -873,7 +889,9 @@ Status PosixWritableFile::Allocate(uint64_t offset, uint64_t len) {
   if (alloc_status == 0) {
     return Status::OK();
   } else {
-    return IOError(filename_, errno);
+    return IOError(
+        "While fallocate offset " + ToString(offset) + " len " + ToString(len),
+        filename_, errno);
   }
 }
 #endif
@@ -886,7 +904,9 @@ Status PosixWritableFile::RangeSync(uint64_t offset, uint64_t nbytes) {
       static_cast<off_t>(nbytes), SYNC_FILE_RANGE_WRITE) == 0) {
     return Status::OK();
   } else {
-    return IOError(filename_, errno);
+    return IOError("While sync_file_range offset " + ToString(offset) +
+                       " bytes " + ToString(nbytes),
+                   filename_, errno);
   }
 }
 #endif
@@ -922,7 +942,9 @@ Status PosixRandomRWFile::Write(uint64_t offset, const Slice& data) {
         // write was interrupted, try again.
         continue;
       }
-      return IOError(filename_, errno);
+      return IOError(
+          "While write random read/write file at offset " + ToString(offset),
+          filename_, errno);
     }
 
     // Wrote `done` bytes
@@ -946,7 +968,9 @@ Status PosixRandomRWFile::Read(uint64_t offset, size_t n, Slice* result,
         // read was interrupted, try again.
         continue;
       }
-      return IOError(filename_, errno);
+      return IOError("While reading random read/write file offset " +
+                         ToString(offset) + " len " + ToString(n),
+                     filename_, errno);
     } else if (done == 0) {
       // Nothing more to read
       break;
@@ -966,21 +990,21 @@ Status PosixRandomRWFile::Flush() { return Status::OK(); }
 
 Status PosixRandomRWFile::Sync() {
   if (fdatasync(fd_) < 0) {
-    return IOError(filename_, errno);
+    return IOError("While fdatasync random read/write file", filename_, errno);
   }
   return Status::OK();
 }
 
 Status PosixRandomRWFile::Fsync() {
   if (fsync(fd_) < 0) {
-    return IOError(filename_, errno);
+    return IOError("While fsync random read/write file", filename_, errno);
   }
   return Status::OK();
 }
 
 Status PosixRandomRWFile::Close() {
   if (close(fd_) < 0) {
-    return IOError(filename_, errno);
+    return IOError("While close random read/write file", filename_, errno);
   }
   fd_ = -1;
   return Status::OK();
@@ -995,7 +1019,7 @@ PosixDirectory::~PosixDirectory() { close(fd_); }
 Status PosixDirectory::Fsync() {
 #ifndef OS_AIX
   if (fsync(fd_) == -1) {
-    return IOError("directory", errno);
+    return IOError("While fsync", "a directory", errno);
   }
 #endif
   return Status::OK();

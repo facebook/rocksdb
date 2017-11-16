@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
@@ -57,10 +57,10 @@ const size_t kDefaultPageSize = 4 * 1024;
 // Options while opening a file to read/write
 struct EnvOptions {
 
-  // construct with default Options
+  // Construct with default Options
   EnvOptions();
 
-  // construct from Options
+  // Construct from Options
   explicit EnvOptions(const DBOptions& options);
 
    // If true, then use mmap to read data
@@ -95,10 +95,10 @@ struct EnvOptions {
   // WAL writes
   bool fallocate_with_keep_size = true;
 
-  // See DBOPtions doc
+  // See DBOptions doc
   size_t compaction_readahead_size;
 
-  // See DBOPtions doc
+  // See DBOptions doc
   size_t random_access_max_buffer_size;
 
   // See DBOptions doc
@@ -173,8 +173,7 @@ class Env {
   virtual Status ReopenWritableFile(const std::string& fname,
                                     unique_ptr<WritableFile>* result,
                                     const EnvOptions& options) {
-    Status s;
-    return s;
+    return Status::NotSupported();
   }
 
   // Reuse an existing file by renaming it and opening it as writable.
@@ -183,7 +182,7 @@ class Env {
                                    unique_ptr<WritableFile>* result,
                                    const EnvOptions& options);
 
-  // Open `fname` for random read and write, if file dont exist the file
+  // Open `fname` for random read and write, if file doesn't exist the file
   // will be created.  On success, stores a pointer to the new file in
   // *result and returns OK.  On failure returns non-OK.
   //
@@ -284,7 +283,7 @@ class Env {
   virtual Status UnlockFile(FileLock* lock) = 0;
 
   // Priority for scheduling job in thread pool
-  enum Priority { LOW, HIGH, TOTAL };
+  enum Priority { BOTTOM, LOW, HIGH, TOTAL };
 
   // Priority for requesting bytes in rate limiter scheduler
   enum IOPriority {
@@ -318,7 +317,7 @@ class Env {
   // Wait for all threads started by StartThread to terminate.
   virtual void WaitForJoin() {}
 
-  // Get thread pool queue length for specific thrad pool.
+  // Get thread pool queue length for specific thread pool.
   virtual unsigned int GetThreadPoolQueueLen(Priority pri = LOW) const {
     return 0;
   }
@@ -354,6 +353,7 @@ class Env {
   virtual Status GetHostName(char* name, uint64_t len) = 0;
 
   // Get the number of seconds since the Epoch, 1970-01-01 00:00:00 (UTC).
+  // Only overwrites *unix_time on success.
   virtual Status GetCurrentTime(int64_t* unix_time) = 0;
 
   // Get full directory name for this db.
@@ -364,6 +364,7 @@ class Env {
   // for this environment. 'LOW' is the default pool.
   // default number: 1
   virtual void SetBackgroundThreads(int number, Priority pri = LOW) = 0;
+  virtual int GetBackgroundThreads(Priority pri = LOW) = 0;
 
   // Enlarge number of background worker threads of a specific thread pool
   // for this environment if it is smaller than specified. 'LOW' is the default
@@ -380,6 +381,16 @@ class Env {
   virtual std::string GenerateUniqueId();
 
   // OptimizeForLogWrite will create a new EnvOptions object that is a copy of
+  // the EnvOptions in the parameters, but is optimized for reading log files.
+  virtual EnvOptions OptimizeForLogRead(const EnvOptions& env_options) const;
+
+  // OptimizeForManifestRead will create a new EnvOptions object that is a copy
+  // of the EnvOptions in the parameters, but is optimized for reading manifest
+  // files.
+  virtual EnvOptions OptimizeForManifestRead(
+      const EnvOptions& env_options) const;
+
+  // OptimizeForLogWrite will create a new EnvOptions object that is a copy of
   // the EnvOptions in the parameters, but is optimized for writing log files.
   // Default implementation returns the copy of the same object.
   virtual EnvOptions OptimizeForLogWrite(const EnvOptions& env_options,
@@ -390,16 +401,16 @@ class Env {
   virtual EnvOptions OptimizeForManifestWrite(
       const EnvOptions& env_options) const;
 
-  // OptimizeForCompactionTableWrite will create a new EnvOptions object that is a copy
-  // of the EnvOptions in the parameters, but is optimized for writing table
-  // files. Default implementation returns the copy of the same object.
+  // OptimizeForCompactionTableWrite will create a new EnvOptions object that is
+  // a copy of the EnvOptions in the parameters, but is optimized for writing
+  // table files.
   virtual EnvOptions OptimizeForCompactionTableWrite(
       const EnvOptions& env_options,
       const ImmutableDBOptions& db_options) const;
 
-  // OptimizeForCompactionTableWrite will create a new EnvOptions object that is a copy
-  // of the EnvOptions in the parameters, but is optimized for reading table
-  // files. Default implementation returns the copy of the same object.
+  // OptimizeForCompactionTableWrite will create a new EnvOptions object that
+  // is a copy of the EnvOptions in the parameters, but is optimized for reading
+  // table files.
   virtual EnvOptions OptimizeForCompactionTableRead(
       const EnvOptions& env_options,
       const ImmutableDBOptions& db_options) const;
@@ -468,8 +479,6 @@ class SequentialFile {
   // aligned buffer for Direct I/O
   virtual size_t GetRequiredBufferAlignment() const { return kDefaultPageSize; }
 
-  virtual void Rewind() {}
-
   // Remove any kind of caching of data from the offset to offset+length
   // of this file. If the length is 0, then it refers to the end of file.
   // If the system is not caching the file contents, then this is a noop.
@@ -518,7 +527,7 @@ class RandomAccessFile {
   // may not have been modified.
   //
   // This function guarantees, for IDs from a given environment, two unique ids
-  // cannot be made equal to eachother by adding arbitrary bytes to one of
+  // cannot be made equal to each other by adding arbitrary bytes to one of
   // them. That is, no unique ID is the prefix of another.
   //
   // This function guarantees that the returned ID will not be interpretable as
@@ -689,7 +698,7 @@ class WritableFile {
       return;
     }
     // If this write would cross one or more preallocation blocks,
-    // determine what the last preallocation block necesessary to
+    // determine what the last preallocation block necessary to
     // cover this write would be and Allocate to that point.
     const auto block_size = preallocation_block_size_;
     size_t new_last_preallocated_block =
@@ -784,7 +793,7 @@ enum InfoLogLevel : unsigned char {
 // An interface for writing log messages.
 class Logger {
  public:
-  size_t kDoNotSupportGetLogFileSize = std::numeric_limits<size_t>::max();
+  size_t kDoNotSupportGetLogFileSize = (std::numeric_limits<size_t>::max)();
 
   explicit Logger(const InfoLogLevel log_level = InfoLogLevel::INFO_LEVEL)
       : log_level_(log_level) {}
@@ -892,7 +901,7 @@ class EnvWrapper : public Env {
  public:
   // Initialize an EnvWrapper that delegates all calls to *t
   explicit EnvWrapper(Env* t) : target_(t) { }
-  virtual ~EnvWrapper();
+  ~EnvWrapper() override;
 
   // Return the target to which this Env forwards all calls
   Env* target() const { return target_; }
@@ -927,8 +936,8 @@ class EnvWrapper : public Env {
                          const EnvOptions& options) override {
     return target_->NewRandomRWFile(fname, result, options);
   }
-  virtual Status NewDirectory(const std::string& name,
-                              unique_ptr<Directory>* result) override {
+  Status NewDirectory(const std::string& name,
+                      unique_ptr<Directory>* result) override {
     return target_->NewDirectory(name, result);
   }
   Status FileExists(const std::string& f) override {
@@ -990,15 +999,14 @@ class EnvWrapper : public Env {
     return target_->StartThread(f, a);
   }
   void WaitForJoin() override { return target_->WaitForJoin(); }
-  virtual unsigned int GetThreadPoolQueueLen(
-      Priority pri = LOW) const override {
+  unsigned int GetThreadPoolQueueLen(Priority pri = LOW) const override {
     return target_->GetThreadPoolQueueLen(pri);
   }
-  virtual Status GetTestDirectory(std::string* path) override {
+  Status GetTestDirectory(std::string* path) override {
     return target_->GetTestDirectory(path);
   }
-  virtual Status NewLogger(const std::string& fname,
-                           shared_ptr<Logger>* result) override {
+  Status NewLogger(const std::string& fname,
+                   shared_ptr<Logger>* result) override {
     return target_->NewLogger(fname, result);
   }
   uint64_t NowMicros() override { return target_->NowMicros(); }
@@ -1018,6 +1026,9 @@ class EnvWrapper : public Env {
   }
   void SetBackgroundThreads(int num, Priority pri) override {
     return target_->SetBackgroundThreads(num, pri);
+  }
+  int GetBackgroundThreads(Priority pri) override {
+    return target_->GetBackgroundThreads(pri);
   }
 
   void IncBackgroundThreadsIfNeeded(int num, Priority pri) override {
@@ -1042,6 +1053,10 @@ class EnvWrapper : public Env {
 
   uint64_t GetThreadID() const override {
     return target_->GetThreadID();
+  }
+
+  std::string GenerateUniqueId() override {
+    return target_->GenerateUniqueId();
   }
 
  private:
@@ -1083,10 +1098,10 @@ class WritableFileWrapper : public WritableFile {
     return target_->InvalidateCache(offset, length);
   }
 
-  virtual void SetPreallocationBlockSize(size_t size) override {
+  void SetPreallocationBlockSize(size_t size) override {
     target_->SetPreallocationBlockSize(size);
   }
-  virtual void PrepareWrite(size_t offset, size_t len) override {
+  void PrepareWrite(size_t offset, size_t len) override {
     target_->PrepareWrite(offset, len);
   }
 

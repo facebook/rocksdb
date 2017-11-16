@@ -1,14 +1,13 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include <map>
 
 #include "rocksdb/filter_policy.h"
 
+#include "table/full_filter_bits_builder.h"
 #include "table/index_builder.h"
 #include "table/partitioned_filter_block.h"
 #include "util/coding.h"
@@ -23,11 +22,14 @@ std::map<uint64_t, Slice> slices;
 
 class MockedBlockBasedTable : public BlockBasedTable {
  public:
-  explicit MockedBlockBasedTable(Rep* rep) : BlockBasedTable(rep) {}
+  explicit MockedBlockBasedTable(Rep* rep) : BlockBasedTable(rep) {
+    // Initialize what Open normally does as much as necessary for the test
+    rep->cache_key_prefix_size = 10;
+  }
 
   virtual CachableEntry<FilterBlockReader> GetFilter(
-      const BlockHandle& filter_blk_handle, const bool is_a_filter_partition,
-      bool no_io) const override {
+      FilePrefetchBuffer*, const BlockHandle& filter_blk_handle,
+      const bool /* unused */, bool /* unused */) const override {
     Slice slice = slices[filter_blk_handle.offset()];
     auto obj = new FullFilterBlockReader(
         nullptr, true, BlockContents(slice, false, kNoCompression),
@@ -64,6 +66,18 @@ class PartitionedFilterBlockTest : public testing::Test {
     return max_index_size;
   }
 
+  uint64_t MaxFilterSize() {
+    uint32_t dont_care1, dont_care2;
+    int num_keys = sizeof(keys) / sizeof(*keys);
+    auto filter_bits_reader = dynamic_cast<rocksdb::FullFilterBitsBuilder*>(
+        table_options_.filter_policy->GetFilterBitsBuilder());
+    assert(filter_bits_reader);
+    auto partition_size =
+        filter_bits_reader->CalculateSpace(num_keys, &dont_care1, &dont_care2);
+    delete filter_bits_reader;
+    return partition_size + table_options_.block_size_deviation;
+  }
+
   int last_offset = 10;
   BlockHandle Write(const Slice& slice) {
     BlockHandle bh(last_offset + 1, slice.size());
@@ -78,10 +92,16 @@ class PartitionedFilterBlockTest : public testing::Test {
 
   PartitionedFilterBlockBuilder* NewBuilder(
       PartitionedIndexBuilder* const p_index_builder) {
+    assert(table_options_.block_size_deviation <= 100);
+    auto partition_size = static_cast<uint32_t>(
+        table_options_.metadata_block_size *
+        ( 100 - table_options_.block_size_deviation));
+    partition_size = std::max(partition_size, static_cast<uint32_t>(1));
     return new PartitionedFilterBlockBuilder(
         nullptr, table_options_.whole_key_filtering,
         table_options_.filter_policy->GetFilterBitsBuilder(),
-        table_options_.index_block_restart_interval, p_index_builder);
+        table_options_.index_block_restart_interval, p_index_builder,
+        partition_size);
   }
 
   std::unique_ptr<MockedBlockBasedTable> table;
@@ -261,7 +281,8 @@ TEST_F(PartitionedFilterBlockTest, OneBlockPerKey) {
 
 TEST_F(PartitionedFilterBlockTest, PartitionCount) {
   int num_keys = sizeof(keys) / sizeof(*keys);
-  table_options_.metadata_block_size = MaxIndexSize();
+  table_options_.metadata_block_size =
+      std::max(MaxIndexSize(), MaxFilterSize());
   int partitions = TestBlockPerKey();
   ASSERT_EQ(partitions, 1);
   // A low number ensures cutting a block after each key

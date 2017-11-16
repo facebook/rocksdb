@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -375,6 +373,7 @@ Compaction* UniversalCompactionPicker::PickCompaction(
               c->inputs(0)->size());
 
   RegisterCompaction(c);
+  vstorage->ComputeCompactionScore(ioptions_, mutable_cf_options);
 
   TEST_SYNC_POINT_CALLBACK("UniversalCompactionPicker::PickCompaction:Return",
                            c);
@@ -568,6 +567,13 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSortedRuns(
     output_level = sorted_runs[first_index_after].level - 1;
   }
 
+  // last level is reserved for the files ingested behind
+  if (ioptions_.allow_ingest_behind &&
+      (output_level == vstorage->num_levels() - 1)) {
+    assert(output_level > 1);
+    output_level--;
+  }
+
   std::vector<CompactionInputFiles> inputs(vstorage->num_levels());
   for (size_t i = 0; i < inputs.size(); ++i) {
     inputs[i].level = start_level + static_cast<int>(i);
@@ -614,7 +620,7 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSizeAmp(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     VersionStorageInfo* vstorage, double score,
     const std::vector<SortedRun>& sorted_runs, LogBuffer* log_buffer) {
-  // percentage flexibilty while reducing size amplification
+  // percentage flexibility while reducing size amplification
   uint64_t ratio =
       ioptions_.compaction_options_universal.max_size_amplification_percent;
 
@@ -719,13 +725,20 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSizeAmp(
                      cf_name.c_str(), file_num_buf);
   }
 
+  // output files at the bottom most level, unless it's reserved
+  int output_level = vstorage->num_levels() - 1;
+  // last level is reserved for the files ingested behind
+  if (ioptions_.allow_ingest_behind) {
+    assert(output_level > 1);
+    output_level--;
+  }
+
   return new Compaction(
       vstorage, ioptions_, mutable_cf_options, std::move(inputs),
-      vstorage->num_levels() - 1,
-      mutable_cf_options.MaxFileSizeForLevel(vstorage->num_levels() - 1),
+      output_level, mutable_cf_options.MaxFileSizeForLevel(output_level),
       /* max_grandparent_overlap_bytes */ LLONG_MAX, path_id,
       GetCompressionType(ioptions_, vstorage, mutable_cf_options,
-                         vstorage->num_levels() - 1, 1),
+                         output_level, 1),
       /* grandparents */ {}, /* is manual */ false, score,
       false /* deletion_compaction */,
       CompactionReason::kUniversalSizeAmplification);

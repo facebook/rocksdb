@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -59,6 +57,12 @@ class TableCache {
       TableReader** table_reader_ptr = nullptr,
       HistogramImpl* file_read_hist = nullptr, bool for_compaction = false,
       Arena* arena = nullptr, bool skip_filters = false, int level = -1);
+
+  InternalIterator* NewRangeTombstoneIterator(
+      const ReadOptions& options, const EnvOptions& toptions,
+      const InternalKeyComparator& internal_comparator,
+      const FileDescriptor& file_fd, HistogramImpl* file_read_hist,
+      bool skip_filters, int level);
 
   // If a seek to internal key "k" in specified file finds an entry,
   // call (*handle_result)(arg, found_key, found_value) repeatedly until
@@ -130,7 +134,8 @@ class TableCache {
                         HistogramImpl* file_read_hist,
                         unique_ptr<TableReader>* table_reader,
                         bool skip_filters = false, int level = -1,
-                        bool prefetch_index_and_filter_in_cache = true);
+                        bool prefetch_index_and_filter_in_cache = true,
+                        bool for_compaction = false);
 
   const ImmutableCFOptions& ioptions_;
   const EnvOptions& env_options_;

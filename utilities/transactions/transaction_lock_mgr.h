@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
 #ifndef ROCKSDB_LITE
@@ -19,7 +17,7 @@
 #include "util/autovector.h"
 #include "util/hash_map.h"
 #include "util/thread_local.h"
-#include "utilities/transactions/transaction_impl.h"
+#include "utilities/transactions/pessimistic_transaction.h"
 
 namespace rocksdb {
 
@@ -28,13 +26,35 @@ struct LockInfo;
 struct LockMap;
 struct LockMapStripe;
 
+struct DeadlockInfoBuffer {
+ private:
+  std::vector<DeadlockPath> paths_buffer_;
+  uint32_t buffer_idx_;
+  std::mutex paths_buffer_mutex_;
+  std::vector<DeadlockPath> Normalize();
+
+ public:
+  explicit DeadlockInfoBuffer(uint32_t n_latest_dlocks)
+      : paths_buffer_(n_latest_dlocks), buffer_idx_(0) {}
+  void AddNewPath(DeadlockPath path);
+  void Resize(uint32_t target_size);
+  std::vector<DeadlockPath> PrepareBuffer();
+};
+
+struct TrackedTrxInfo {
+  autovector<TransactionID> m_neighbors;
+  uint32_t m_cf_id;
+  std::string m_waiting_key;
+  bool m_exclusive;
+};
+
 class Slice;
-class TransactionDBImpl;
+class PessimisticTransactionDB;
 
 class TransactionLockMgr {
  public:
   TransactionLockMgr(TransactionDB* txn_db, size_t default_num_stripes,
-                     int64_t max_num_locks,
+                     int64_t max_num_locks, uint32_t max_num_deadlocks,
                      std::shared_ptr<TransactionDBMutexFactory> factory);
 
   ~TransactionLockMgr();
@@ -49,21 +69,23 @@ class TransactionLockMgr {
 
   // Attempt to lock key.  If OK status is returned, the caller is responsible
   // for calling UnLock() on this key.
-  Status TryLock(TransactionImpl* txn, uint32_t column_family_id,
+  Status TryLock(PessimisticTransaction* txn, uint32_t column_family_id,
                  const std::string& key, Env* env, bool exclusive);
 
   // Unlock a key locked by TryLock().  txn must be the same Transaction that
   // locked this key.
-  void UnLock(const TransactionImpl* txn, const TransactionKeyMap* keys,
+  void UnLock(const PessimisticTransaction* txn, const TransactionKeyMap* keys,
               Env* env);
-  void UnLock(TransactionImpl* txn, uint32_t column_family_id,
+  void UnLock(PessimisticTransaction* txn, uint32_t column_family_id,
               const std::string& key, Env* env);
 
   using LockStatusData = std::unordered_multimap<uint32_t, KeyLockInfo>;
   LockStatusData GetLockStatusData();
+  std::vector<DeadlockPath> GetDeadlockInfoBuffer();
+  void Resize(uint32_t);
 
  private:
-  TransactionDBImpl* txn_db_impl_;
+  PessimisticTransactionDB* txn_db_impl_;
 
   // Default number of lock map stripes per column family
   const size_t default_num_stripes_;
@@ -94,7 +116,8 @@ class TransactionLockMgr {
   // Maps from waitee -> number of waiters.
   HashMap<TransactionID, int> rev_wait_txn_map_;
   // Maps from waiter -> waitee.
-  HashMap<TransactionID, autovector<TransactionID>> wait_txn_map_;
+  HashMap<TransactionID, TrackedTrxInfo> wait_txn_map_;
+  DeadlockInfoBuffer dlock_buffer_;
 
   // Used to allocate mutexes/condvars to use when locking keys
   std::shared_ptr<TransactionDBMutexFactory> mutex_factory_;
@@ -104,7 +127,7 @@ class TransactionLockMgr {
 
   std::shared_ptr<LockMap> GetLockMap(uint32_t column_family_id);
 
-  Status AcquireWithTimeout(TransactionImpl* txn, LockMap* lock_map,
+  Status AcquireWithTimeout(PessimisticTransaction* txn, LockMap* lock_map,
                             LockMapStripe* stripe, uint32_t column_family_id,
                             const std::string& key, Env* env, int64_t timeout,
                             const LockInfo& lock_info);
@@ -114,14 +137,16 @@ class TransactionLockMgr {
                        const LockInfo& lock_info, uint64_t* wait_time,
                        autovector<TransactionID>* txn_ids);
 
-  void UnLockKey(const TransactionImpl* txn, const std::string& key,
+  void UnLockKey(const PessimisticTransaction* txn, const std::string& key,
                  LockMapStripe* stripe, LockMap* lock_map, Env* env);
 
-  bool IncrementWaiters(const TransactionImpl* txn,
+  bool IncrementWaiters(const PessimisticTransaction* txn,
+                        const autovector<TransactionID>& wait_ids,
+                        const std::string& key, const uint32_t& cf_id,
+                        const bool& exclusive);
+  void DecrementWaiters(const PessimisticTransaction* txn,
                         const autovector<TransactionID>& wait_ids);
-  void DecrementWaiters(const TransactionImpl* txn,
-                        const autovector<TransactionID>& wait_ids);
-  void DecrementWaitersImpl(const TransactionImpl* txn,
+  void DecrementWaitersImpl(const PessimisticTransaction* txn,
                             const autovector<TransactionID>& wait_ids);
 
   // No copying allowed

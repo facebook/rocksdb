@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2012 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -110,14 +108,13 @@ class FilterBlockReader {
 
   bool whole_key_filtering() const { return whole_key_filtering_; }
 
-  int GetLevel() const { return level_; }
-  void SetLevel(int level) { level_ = level; }
-
   // convert this object to a human readable form
   virtual std::string ToString() const {
     std::string error_msg("Unsupported filter \n");
     return error_msg;
   }
+
+  virtual void CacheDependencies(bool pin) {}
 
  protected:
   bool whole_key_filtering_;

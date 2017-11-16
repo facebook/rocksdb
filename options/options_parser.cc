@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef ROCKSDB_LITE
 
@@ -16,6 +16,7 @@
 #include "options/options_helper.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
+#include "util/cast_util.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
 
@@ -84,7 +85,8 @@ Status PersistRocksDBOptions(const DBOptions& db_opt,
       writable->Append("[" + opt_section_titles[kOptionSectionTableOptions] +
                        tf->Name() + " \"" + EscapeOptionString(cf_names[i]) +
                        "\"]\n  ");
-      s = GetStringFromTableFactory(&options_file_content, tf, "\n  ");
+      options_file_content.clear();
+      s = tf->GetOptionString(&options_file_content, "\n  ");
       if (!s.ok()) {
         return s;
       }
@@ -233,7 +235,8 @@ bool ReadOneLine(std::istringstream* iss, SequentialFile* seq_file,
 }
 }  // namespace
 
-Status RocksDBOptionsParser::Parse(const std::string& file_name, Env* env) {
+Status RocksDBOptionsParser::Parse(const std::string& file_name, Env* env,
+                                   bool ignore_unknown_options) {
   Reset();
 
   std::unique_ptr<SequentialFile> seq_file;
@@ -260,7 +263,7 @@ Status RocksDBOptionsParser::Parse(const std::string& file_name, Env* env) {
       continue;
     }
     if (IsSection(line)) {
-      s = EndSection(section, title, argument, opt_map);
+      s = EndSection(section, title, argument, opt_map, ignore_unknown_options);
       opt_map.clear();
       if (!s.ok()) {
         return s;
@@ -280,7 +283,7 @@ Status RocksDBOptionsParser::Parse(const std::string& file_name, Env* env) {
     }
   }
 
-  s = EndSection(section, title, argument, opt_map);
+  s = EndSection(section, title, argument, opt_map, ignore_unknown_options);
   opt_map.clear();
   if (!s.ok()) {
     return s;
@@ -389,10 +392,12 @@ Status RocksDBOptionsParser::ParseVersionNumber(const std::string& ver_name,
 Status RocksDBOptionsParser::EndSection(
     const OptionSection section, const std::string& section_title,
     const std::string& section_arg,
-    const std::unordered_map<std::string, std::string>& opt_map) {
+    const std::unordered_map<std::string, std::string>& opt_map,
+    bool ignore_unknown_options) {
   Status s;
   if (section == kOptionSectionDBOptions) {
-    s = GetDBOptionsFromMap(DBOptions(), opt_map, &db_opt_, true);
+    s = GetDBOptionsFromMap(DBOptions(), opt_map, &db_opt_, true,
+                            ignore_unknown_options);
     if (!s.ok()) {
       return s;
     }
@@ -404,7 +409,8 @@ Status RocksDBOptionsParser::EndSection(
     cf_names_.emplace_back(section_arg);
     cf_opts_.emplace_back();
     s = GetColumnFamilyOptionsFromMap(ColumnFamilyOptions(), opt_map,
-                                      &cf_opts_.back(), true);
+                                      &cf_opts_.back(), true,
+                                      ignore_unknown_options);
     if (!s.ok()) {
       return s;
     }
@@ -423,7 +429,7 @@ Status RocksDBOptionsParser::EndSection(
     s = GetTableFactoryFromMap(
         section_title.substr(
             opt_section_titles[kOptionSectionTableOptions].size()),
-        opt_map, &(cf_opt->table_factory));
+        opt_map, &(cf_opt->table_factory), ignore_unknown_options);
     if (!s.ok()) {
       return s;
     }
@@ -503,6 +509,7 @@ namespace {
 bool AreEqualDoubles(const double a, const double b) {
   return (fabs(a - b) < 0.00001);
 }
+}  // namespace
 
 bool AreEqualOptions(
     const char* opt1, const char* opt2, const OptionTypeInfo& type_info,
@@ -609,16 +616,14 @@ bool AreEqualOptions(
   }
 }
 
-}  // namespace
-
 Status RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
     const DBOptions& db_opt, const std::vector<std::string>& cf_names,
     const std::vector<ColumnFamilyOptions>& cf_opts,
     const std::string& file_name, Env* env,
-    OptionsSanityCheckLevel sanity_check_level) {
+    OptionsSanityCheckLevel sanity_check_level, bool ignore_unknown_options) {
   RocksDBOptionsParser parser;
   std::unique_ptr<SequentialFile> seq_file;
-  Status s = parser.Parse(file_name, env);
+  Status s = parser.Parse(file_name, env, ignore_unknown_options);
   if (!s.ok()) {
     return s;
   }
@@ -758,59 +763,23 @@ Status RocksDBOptionsParser::VerifyCFOptions(
   return Status::OK();
 }
 
-Status RocksDBOptionsParser::VerifyBlockBasedTableFactory(
-    const BlockBasedTableFactory* base_tf,
-    const BlockBasedTableFactory* file_tf,
-    OptionsSanityCheckLevel sanity_check_level) {
-  if ((base_tf != nullptr) != (file_tf != nullptr) &&
-      sanity_check_level > kSanityLevelNone) {
-    return Status::Corruption(
-        "[RocksDBOptionsParser]: Inconsistent TableFactory class type");
-  }
-  if (base_tf == nullptr) {
-    return Status::OK();
-  }
-  assert(file_tf != nullptr);
-
-  const auto& base_opt = base_tf->table_options();
-  const auto& file_opt = file_tf->table_options();
-
-  for (auto& pair : block_based_table_type_info) {
-    if (pair.second.verification == OptionVerificationType::kDeprecated) {
-      // We skip checking deprecated variables as they might
-      // contain random values since they might not be initialized
-      continue;
-    }
-    if (BBTOptionSanityCheckLevel(pair.first) <= sanity_check_level) {
-      if (!AreEqualOptions(reinterpret_cast<const char*>(&base_opt),
-                           reinterpret_cast<const char*>(&file_opt),
-                           pair.second, pair.first, nullptr)) {
-        return Status::Corruption(
-            "[RocksDBOptionsParser]: "
-            "failed the verification on BlockBasedTableOptions::",
-            pair.first);
-      }
-    }
-  }
-  return Status::OK();
-}
-
 Status RocksDBOptionsParser::VerifyTableFactory(
     const TableFactory* base_tf, const TableFactory* file_tf,
     OptionsSanityCheckLevel sanity_check_level) {
   if (base_tf && file_tf) {
     if (sanity_check_level > kSanityLevelNone &&
-        base_tf->Name() != file_tf->Name()) {
+        std::string(base_tf->Name()) != std::string(file_tf->Name())) {
       return Status::Corruption(
           "[RocksDBOptionsParser]: "
           "failed the verification on TableFactory->Name()");
     }
-    auto s = VerifyBlockBasedTableFactory(
-        dynamic_cast<const BlockBasedTableFactory*>(base_tf),
-        dynamic_cast<const BlockBasedTableFactory*>(file_tf),
-        sanity_check_level);
-    if (!s.ok()) {
-      return s;
+    if (base_tf->Name() == BlockBasedTableFactory::kName) {
+      return VerifyBlockBasedTableFactory(
+          static_cast_with_check<const BlockBasedTableFactory,
+                                 const TableFactory>(base_tf),
+          static_cast_with_check<const BlockBasedTableFactory,
+                                 const TableFactory>(file_tf),
+          sanity_check_level);
     }
     // TODO(yhchiang): add checks for other table factory types
   } else {

@@ -99,6 +99,18 @@ function main() {
 
   make static_lib
   make install INSTALL_PATH=package
+
+  cd package
+
+  LIB_DIR=lib
+  if [[ -z "$ARCH" ]]; then
+      ARCH=$(getconf LONG_BIT)
+  fi
+  if [[ ("$FPM_OUTPUT" = "rpm") && ($ARCH -eq 64) ]]; then
+      mv lib lib64
+      LIB_DIR=lib64
+  fi
+
   fpm \
     -s dir \
     -t $FPM_OUTPUT \
@@ -110,7 +122,7 @@ function main() {
     --license BSD \
     --vendor Facebook \
     --description "RocksDB is an embeddable persistent key-value store for fast storage." \
-    package
+    include $LIB_DIR
 }
 
 main $@

@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -24,7 +22,7 @@
 
 namespace rocksdb {
 
-LRUHandleTable::LRUHandleTable() : length_(0), elems_(0), list_(nullptr) {
+LRUHandleTable::LRUHandleTable() : list_(nullptr), length_(0), elems_(0) {
   Resize();
 }
 
@@ -102,7 +100,7 @@ void LRUHandleTable::Resize() {
 }
 
 LRUCacheShard::LRUCacheShard()
-    : usage_(0), lru_usage_(0), high_pri_pool_usage_(0) {
+    : high_pri_pool_usage_(0), usage_(0), lru_usage_(0) {
   // Make empty circular linked list
   lru_.next = &lru_;
   lru_.prev = &lru_;
@@ -157,6 +155,16 @@ void LRUCacheShard::ApplyToAllCacheEntries(void (*callback)(void*, size_t),
 void LRUCacheShard::TEST_GetLRUList(LRUHandle** lru, LRUHandle** lru_low_pri) {
   *lru = &lru_;
   *lru_low_pri = lru_low_pri_;
+}
+
+size_t LRUCacheShard::TEST_GetLRUSize() {
+  LRUHandle* lru_handle = lru_.next;
+  size_t lru_size = 0;
+  while (lru_handle != &lru_) {
+    lru_size++;
+    lru_handle = lru_handle->next;
+  }
+  return lru_size;
 }
 
 void LRUCacheShard::LRU_Remove(LRUHandle* e) {
@@ -223,6 +231,22 @@ void LRUCacheShard::EvictFromLRU(size_t charge,
     usage_ -= old->charge;
     deleted->push_back(old);
   }
+}
+
+void* LRUCacheShard::operator new(size_t size) {
+  return port::cacheline_aligned_alloc(size);
+}
+
+void* LRUCacheShard::operator new[](size_t size) {
+  return port::cacheline_aligned_alloc(size);
+}
+
+void LRUCacheShard::operator delete(void *memblock) {
+  port::cacheline_aligned_free(memblock);
+}
+
+void LRUCacheShard::operator delete[](void* memblock) {
+  port::cacheline_aligned_free(memblock);
 }
 
 void LRUCacheShard::SetCapacity(size_t capacity) {
@@ -440,11 +464,18 @@ std::string LRUCacheShard::GetPrintableOptions() const {
 LRUCache::LRUCache(size_t capacity, int num_shard_bits,
                    bool strict_capacity_limit, double high_pri_pool_ratio)
     : ShardedCache(capacity, num_shard_bits, strict_capacity_limit) {
-  int num_shards = 1 << num_shard_bits;
-  shards_ = new LRUCacheShard[num_shards];
+  num_shards_ = 1 << num_shard_bits;
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable: 4316) // We've validated the alignment with the new operators
+#endif
+  shards_ = new LRUCacheShard[num_shards_];
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
   SetCapacity(capacity);
   SetStrictCapacityLimit(strict_capacity_limit);
-  for (int i = 0; i < num_shards; i++) {
+  for (int i = 0; i < num_shards_; i++) {
     shards_[i].SetHighPriorityPoolRatio(high_pri_pool_ratio);
   }
 }
@@ -471,7 +502,20 @@ uint32_t LRUCache::GetHash(Handle* handle) const {
   return reinterpret_cast<const LRUHandle*>(handle)->hash;
 }
 
-void LRUCache::DisownData() { shards_ = nullptr; }
+void LRUCache::DisownData() {
+// Do not drop data if compile with ASAN to suppress leak warning.
+#ifndef __SANITIZE_ADDRESS__
+  shards_ = nullptr;
+#endif  // !__SANITIZE_ADDRESS__
+}
+
+size_t LRUCache::TEST_GetLRUSize() {
+  size_t lru_size_of_all_shards = 0;
+  for (int i = 0; i < num_shards_; i++) {
+    lru_size_of_all_shards += shards_[i].TEST_GetLRUSize();
+  }
+  return lru_size_of_all_shards;
+}
 
 std::shared_ptr<Cache> NewLRUCache(size_t capacity, int num_shard_bits,
                                    bool strict_capacity_limit,

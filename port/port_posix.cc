@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -185,6 +183,25 @@ int GetMaxOpenFiles() {
 #endif
   return -1;
 }
+
+void *cacheline_aligned_alloc(size_t size) {
+#if __GNUC__ < 5 && defined(__SANITIZE_ADDRESS__)
+  return malloc(size);
+#elif defined(_ISOC11_SOURCE)
+  return aligned_alloc(CACHE_LINE_SIZE, size);
+#elif ( _POSIX_C_SOURCE >= 200112L || _XOPEN_SOURCE >= 600 || defined(__APPLE__))
+  void *m;
+  errno = posix_memalign(&m, CACHE_LINE_SIZE, size);
+  return errno ? NULL : m;
+#else
+  return malloc(size);
+#endif
+}
+
+void cacheline_aligned_free(void *memblock) {
+  free(memblock);
+}
+
 
 }  // namespace port
 }  // namespace rocksdb

@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -300,6 +298,8 @@ class PartitionedIndexBuilder : public IndexBuilder {
       const BlockHandle& last_partition_block_handle) override;
 
   virtual size_t EstimatedSize() const override;
+  size_t EstimateTopLevelIndexSize(uint64_t) const;
+  size_t NumPartitions() const;
 
   inline bool ShouldCutFilterBlock() {
     // Current policy is to align the partitions of index and filters
@@ -311,6 +311,10 @@ class PartitionedIndexBuilder : public IndexBuilder {
   }
 
   std::string& GetPartitionKey() { return sub_index_last_key_; }
+
+  // Called when an external entity (such as filter partition builder) request
+  // cutting the next partition
+  void RequestPartitionCut();
 
  private:
   void MakeNewSubIndexBuilder();
@@ -329,6 +333,9 @@ class PartitionedIndexBuilder : public IndexBuilder {
   // true if Finish is called once but not complete yet.
   bool finishing_indexes = false;
   const BlockBasedTableOptions& table_opt_;
+  // true if an external entity (such as filter partition builder) request
+  // cutting the next partition
+  bool partition_cut_requested_ = true;
   // true if it should cut the next filter partition block
   bool cut_filter_block = false;
 };

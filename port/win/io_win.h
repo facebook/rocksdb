@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -301,7 +299,7 @@ class WinWritableImpl {
  protected:
   WinFileData* file_data_;
   const uint64_t alignment_;
-  uint64_t filesize_;      // How much data is actually written disk
+  uint64_t next_write_offset_; // Needed because Windows does not support O_APPEND
   uint64_t reservedsize_;  // how far we have reserved space
 
   virtual Status PreallocateInternal(uint64_t spaceToReserve);
@@ -324,14 +322,14 @@ class WinWritableImpl {
 
   Status SyncImpl();
 
-  uint64_t GetFileSizeImpl() {
+  uint64_t GetFileNextWriteOffset() {
     // Double accounting now here with WritableFileWriter
     // and this size will be wrong when unbuffered access is used
     // but tests implement their own writable files and do not use
     // WritableFileWrapper
     // so we need to squeeze a square peg through
     // a round hole here.
-    return filesize_;
+    return next_write_offset_;
   }
 
   Status AllocateImpl(uint64_t offset, uint64_t len);

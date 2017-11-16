@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -171,6 +169,7 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
       bottommost_level_(IsBottommostLevel(output_level_, vstorage, inputs_)),
       is_full_compaction_(IsFullCompaction(vstorage, inputs_)),
       is_manual_compaction_(_manual_compaction),
+      is_trivial_move_(false),
       compaction_reason_(_compaction_reason) {
   MarkFilesBeingCompacted(true);
   if (is_manual_compaction_) {
@@ -285,28 +284,32 @@ bool Compaction::KeyNotExistsBeyondOutputLevel(
   assert(input_version_ != nullptr);
   assert(level_ptrs != nullptr);
   assert(level_ptrs->size() == static_cast<size_t>(number_levels_));
-  assert(cfd_->ioptions()->compaction_style != kCompactionStyleFIFO);
-  if (cfd_->ioptions()->compaction_style == kCompactionStyleUniversal) {
-    return bottommost_level_;
-  }
-  // Maybe use binary search to find right entry instead of linear search?
-  const Comparator* user_cmp = cfd_->user_comparator();
-  for (int lvl = output_level_ + 1; lvl < number_levels_; lvl++) {
-    const std::vector<FileMetaData*>& files = input_vstorage_->LevelFiles(lvl);
-    for (; level_ptrs->at(lvl) < files.size(); level_ptrs->at(lvl)++) {
-      auto* f = files[level_ptrs->at(lvl)];
-      if (user_cmp->Compare(user_key, f->largest.user_key()) <= 0) {
-        // We've advanced far enough
-        if (user_cmp->Compare(user_key, f->smallest.user_key()) >= 0) {
-          // Key falls in this file's range, so definitely
-          // exists beyond output level
-          return false;
+  if (cfd_->ioptions()->compaction_style == kCompactionStyleLevel) {
+    if (output_level_ == 0) {
+      return false;
+    }
+    // Maybe use binary search to find right entry instead of linear search?
+    const Comparator* user_cmp = cfd_->user_comparator();
+    for (int lvl = output_level_ + 1; lvl < number_levels_; lvl++) {
+      const std::vector<FileMetaData*>& files =
+          input_vstorage_->LevelFiles(lvl);
+      for (; level_ptrs->at(lvl) < files.size(); level_ptrs->at(lvl)++) {
+        auto* f = files[level_ptrs->at(lvl)];
+        if (user_cmp->Compare(user_key, f->largest.user_key()) <= 0) {
+          // We've advanced far enough
+          if (user_cmp->Compare(user_key, f->smallest.user_key()) >= 0) {
+            // Key falls in this file's range, so definitely
+            // exists beyond output level
+            return false;
+          }
+          break;
         }
-        break;
       }
     }
+    return true;
+  } else {
+    return bottommost_level_;
   }
-  return true;
 }
 
 // Mark (or clear) each file that is being compacted
@@ -459,6 +462,19 @@ bool Compaction::ShouldFormSubcompactions() const {
   } else {
     return false;
   }
+}
+
+uint64_t Compaction::MaxInputFileCreationTime() const {
+  uint64_t max_creation_time = 0;
+  for (const auto& file : inputs_[0].files) {
+    if (file->fd.table_reader != nullptr &&
+        file->fd.table_reader->GetTableProperties() != nullptr) {
+      uint64_t creation_time =
+          file->fd.table_reader->GetTableProperties()->creation_time;
+      max_creation_time = std::max(max_creation_time, creation_time);
+    }
+  }
+  return max_creation_time;
 }
 
 }  // namespace rocksdb

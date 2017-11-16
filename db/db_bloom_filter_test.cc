@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -688,12 +686,12 @@ class BloomStatsTestWithParam
     }
     options_.env = env_;
 
-    perf_context.Reset();
+    get_perf_context()->Reset();
     DestroyAndReopen(options_);
   }
 
   ~BloomStatsTestWithParam() {
-    perf_context.Reset();
+    get_perf_context()->Reset();
     Destroy(options_);
   }
 
@@ -726,33 +724,33 @@ TEST_P(BloomStatsTestWithParam, BloomStatsTest) {
 
   // check memtable bloom stats
   ASSERT_EQ(value1, Get(key1));
-  ASSERT_EQ(1, perf_context.bloom_memtable_hit_count);
+  ASSERT_EQ(1, get_perf_context()->bloom_memtable_hit_count);
   ASSERT_EQ(value3, Get(key3));
-  ASSERT_EQ(2, perf_context.bloom_memtable_hit_count);
-  ASSERT_EQ(0, perf_context.bloom_memtable_miss_count);
+  ASSERT_EQ(2, get_perf_context()->bloom_memtable_hit_count);
+  ASSERT_EQ(0, get_perf_context()->bloom_memtable_miss_count);
 
   ASSERT_EQ("NOT_FOUND", Get(key2));
-  ASSERT_EQ(1, perf_context.bloom_memtable_miss_count);
-  ASSERT_EQ(2, perf_context.bloom_memtable_hit_count);
+  ASSERT_EQ(1, get_perf_context()->bloom_memtable_miss_count);
+  ASSERT_EQ(2, get_perf_context()->bloom_memtable_hit_count);
 
   // sanity checks
-  ASSERT_EQ(0, perf_context.bloom_sst_hit_count);
-  ASSERT_EQ(0, perf_context.bloom_sst_miss_count);
+  ASSERT_EQ(0, get_perf_context()->bloom_sst_hit_count);
+  ASSERT_EQ(0, get_perf_context()->bloom_sst_miss_count);
 
   Flush();
 
   // sanity checks
-  ASSERT_EQ(0, perf_context.bloom_sst_hit_count);
-  ASSERT_EQ(0, perf_context.bloom_sst_miss_count);
+  ASSERT_EQ(0, get_perf_context()->bloom_sst_hit_count);
+  ASSERT_EQ(0, get_perf_context()->bloom_sst_miss_count);
 
   // check SST bloom stats
   ASSERT_EQ(value1, Get(key1));
-  ASSERT_EQ(1, perf_context.bloom_sst_hit_count);
+  ASSERT_EQ(1, get_perf_context()->bloom_sst_hit_count);
   ASSERT_EQ(value3, Get(key3));
-  ASSERT_EQ(2, perf_context.bloom_sst_hit_count);
+  ASSERT_EQ(2, get_perf_context()->bloom_sst_hit_count);
 
   ASSERT_EQ("NOT_FOUND", Get(key2));
-  ASSERT_EQ(1, perf_context.bloom_sst_miss_count);
+  ASSERT_EQ(1, get_perf_context()->bloom_sst_miss_count);
 }
 
 // Same scenario as in BloomStatsTest but using an iterator
@@ -773,21 +771,21 @@ TEST_P(BloomStatsTestWithParam, BloomStatsTestWithIter) {
   ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ(value1, iter->value().ToString());
-  ASSERT_EQ(1, perf_context.bloom_memtable_hit_count);
-  ASSERT_EQ(0, perf_context.bloom_memtable_miss_count);
+  ASSERT_EQ(1, get_perf_context()->bloom_memtable_hit_count);
+  ASSERT_EQ(0, get_perf_context()->bloom_memtable_miss_count);
 
   iter->Seek(key3);
   ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ(value3, iter->value().ToString());
-  ASSERT_EQ(2, perf_context.bloom_memtable_hit_count);
-  ASSERT_EQ(0, perf_context.bloom_memtable_miss_count);
+  ASSERT_EQ(2, get_perf_context()->bloom_memtable_hit_count);
+  ASSERT_EQ(0, get_perf_context()->bloom_memtable_miss_count);
 
   iter->Seek(key2);
   ASSERT_OK(iter->status());
   ASSERT_TRUE(!iter->Valid());
-  ASSERT_EQ(1, perf_context.bloom_memtable_miss_count);
-  ASSERT_EQ(2, perf_context.bloom_memtable_hit_count);
+  ASSERT_EQ(1, get_perf_context()->bloom_memtable_miss_count);
+  ASSERT_EQ(2, get_perf_context()->bloom_memtable_hit_count);
 
   Flush();
 
@@ -798,19 +796,19 @@ TEST_P(BloomStatsTestWithParam, BloomStatsTestWithIter) {
   ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ(value1, iter->value().ToString());
-  ASSERT_EQ(1, perf_context.bloom_sst_hit_count);
+  ASSERT_EQ(1, get_perf_context()->bloom_sst_hit_count);
 
   iter->Seek(key3);
   ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ(value3, iter->value().ToString());
-  ASSERT_EQ(2, perf_context.bloom_sst_hit_count);
+  ASSERT_EQ(2, get_perf_context()->bloom_sst_hit_count);
 
   iter->Seek(key2);
   ASSERT_OK(iter->status());
   ASSERT_TRUE(!iter->Valid());
-  ASSERT_EQ(1, perf_context.bloom_sst_miss_count);
-  ASSERT_EQ(2, perf_context.bloom_sst_hit_count);
+  ASSERT_EQ(1, get_perf_context()->bloom_sst_miss_count);
+  ASSERT_EQ(2, get_perf_context()->bloom_sst_hit_count);
 }
 
 INSTANTIATE_TEST_CASE_P(BloomStatsTestWithParam, BloomStatsTestWithParam,

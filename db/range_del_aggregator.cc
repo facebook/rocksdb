@@ -1,9 +1,7 @@
 //  Copyright (c) 2016-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include "db/range_del_aggregator.h"
 
@@ -359,7 +357,8 @@ Status RangeDelAggregator::AddTombstone(RangeTombstone tombstone) {
       ++new_range_dels_iter;
     }
   } else {
-    tombstone_map.emplace(tombstone.start_key_, std::move(tombstone));
+    auto start_key = tombstone.start_key_;
+    tombstone_map.emplace(start_key, std::move(tombstone));
   }
   return Status::OK();
 }
@@ -414,8 +413,8 @@ void RangeDelAggregator::AddToBuilder(
 
   // Note the order in which tombstones are stored is insignificant since we
   // insert them into a std::map on the read path.
-  bool first_added = false;
   while (stripe_map_iter != rep_->stripe_map_.end()) {
+    bool first_added = false;
     for (auto tombstone_map_iter = stripe_map_iter->second.raw_map.begin();
          tombstone_map_iter != stripe_map_iter->second.raw_map.end();
          ++tombstone_map_iter) {
@@ -454,7 +453,7 @@ void RangeDelAggregator::AddToBuilder(
       builder->Add(ikey_and_end_key.first.Encode(), ikey_and_end_key.second);
       if (!first_added) {
         first_added = true;
-        InternalKey smallest_candidate = std::move(ikey_and_end_key.first);;
+        InternalKey smallest_candidate = std::move(ikey_and_end_key.first);
         if (lower_bound != nullptr &&
             icmp_.user_comparator()->Compare(smallest_candidate.user_key(),
                                              *lower_bound) <= 0) {

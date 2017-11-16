@@ -2,17 +2,22 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
-rocksdb_target_header = """REPO_PATH = "internal_repo_rocksdb/repo/"
+rocksdb_target_header = """
+import os
+
+TARGETS_PATH = os.path.dirname(__file__)
+REPO_PATH = "rocksdb/src/"
 BUCK_BINS = "buck-out/gen/" + REPO_PATH
 TEST_RUNNER = REPO_PATH + "buckifier/rocks_test_runner.sh"
 rocksdb_compiler_flags = [
-  "-msse",
-  "-msse4.2",
   "-fno-builtin-memcmp",
   "-DROCKSDB_PLATFORM_POSIX",
   "-DROCKSDB_LIB_IO_POSIX",
   "-DROCKSDB_FALLOCATE_PRESENT",
   "-DROCKSDB_MALLOC_USABLE_SIZE",
+  "-DROCKSDB_RANGESYNC_PRESENT",
+  "-DROCKSDB_SCHED_GETCPU_PRESENT",
+  "-DROCKSDB_SUPPORT_THREAD_LOCAL",
   "-DOS_LINUX",
   # Flags to enable libs we include
   "-DSNAPPY",
@@ -35,7 +40,7 @@ rocksdb_external_deps = [
   ('lz4', None, 'lz4'),
   ('zstd', None),
   ('tbb', None),
-  ("numa", "2.0.8", "numa"),
+  ("numa", None, "numa"),
   ("googletest", None, "gtest"),
 ]
 
@@ -44,6 +49,10 @@ rocksdb_preprocessor_flags = [
   "-I" + REPO_PATH + "include/",
   "-I" + REPO_PATH,
 ]
+
+rocksdb_arch_preprocessor_flags = {
+  "x86_64": ["-DHAVE_SSE42"],
+}
 """
 
 
@@ -54,6 +63,7 @@ cpp_library(
     srcs = [%s],
     deps = [%s],
     preprocessor_flags = rocksdb_preprocessor_flags,
+    arch_preprocessor_flags = rocksdb_arch_preprocessor_flags,
     compiler_flags = rocksdb_compiler_flags,
     external_deps = rocksdb_external_deps,
 )
@@ -65,6 +75,7 @@ cpp_binary(
   srcs = [%s],
   deps = [%s],
   preprocessor_flags = rocksdb_preprocessor_flags,
+  arch_preprocessor_flags = rocksdb_arch_preprocessor_flags,
   compiler_flags = rocksdb_compiler_flags,
   external_deps = rocksdb_external_deps,
 )
@@ -87,6 +98,7 @@ for test_cfg in ROCKS_TESTS:
       srcs = [test_cc],
       deps = [":rocksdb_test_lib"],
       preprocessor_flags = rocksdb_preprocessor_flags,
+      arch_preprocessor_flags = rocksdb_arch_preprocessor_flags,
       compiler_flags = rocksdb_compiler_flags,
       external_deps = rocksdb_external_deps,
     )

@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 #include <string>
 #include <vector>
 
@@ -18,28 +16,6 @@ namespace rocksdb {
 class DBMergeOperatorTest : public DBTestBase {
  public:
   DBMergeOperatorTest() : DBTestBase("/db_merge_operator_test") {}
-};
-
-// A test merge operator mimics put but also fails if one of merge operands is
-// "corrupted".
-class TestPutOperator : public MergeOperator {
- public:
-  virtual bool FullMergeV2(const MergeOperationInput& merge_in,
-                           MergeOperationOutput* merge_out) const override {
-    if (merge_in.existing_value != nullptr &&
-        *(merge_in.existing_value) == "corrupted") {
-      return false;
-    }
-    for (auto value : merge_in.operand_list) {
-      if (value == "corrupted") {
-        return false;
-      }
-    }
-    merge_out->existing_operand = merge_in.operand_list.back();
-    return true;
-  }
-
-  virtual const char* Name() const override { return "TestPutOperator"; }
 };
 
 TEST_F(DBMergeOperatorTest, MergeErrorOnRead) {

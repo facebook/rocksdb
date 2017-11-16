@@ -211,6 +211,9 @@ class AwsEnv : public CloudEnvImpl {
   virtual void SetBackgroundThreads(int number, Priority pri = LOW) override {
     base_env_->SetBackgroundThreads(number, pri);
   }
+  int GetBackgroundThreads(Priority pri) override {
+    return base_env_->GetBackgroundThreads(pri);
+  }
 
   virtual void IncBackgroundThreadsIfNeeded(int number, Priority pri) override {
     base_env_->IncBackgroundThreadsIfNeeded(number, pri);

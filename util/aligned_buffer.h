@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -97,20 +95,31 @@ public:
   }
 
   // Allocates a new buffer and sets bufstart_ to the aligned first byte
-  void AllocateNewBuffer(size_t requestedCapacity) {
-
+  void AllocateNewBuffer(size_t requested_capacity, bool copy_data = false) {
     assert(alignment_ > 0);
     assert((alignment_ & (alignment_ - 1)) == 0);
 
-    size_t size = Roundup(requestedCapacity, alignment_);
-    buf_.reset(new char[size + alignment_]);
+    if (copy_data && requested_capacity < cursize_) {
+      // If we are downsizing to a capacity that is smaller than the current
+      // data in the buffer. Ignore the request.
+      return;
+    }
 
-    char* p = buf_.get();
-    bufstart_ = reinterpret_cast<char*>(
-      (reinterpret_cast<uintptr_t>(p)+(alignment_ - 1)) &
-      ~static_cast<uintptr_t>(alignment_ - 1));
-    capacity_ = size;
-    cursize_ = 0;
+    size_t new_capacity = Roundup(requested_capacity, alignment_);
+    char* new_buf = new char[new_capacity + alignment_];
+    char* new_bufstart = reinterpret_cast<char*>(
+        (reinterpret_cast<uintptr_t>(new_buf) + (alignment_ - 1)) &
+        ~static_cast<uintptr_t>(alignment_ - 1));
+
+    if (copy_data) {
+      memcpy(new_bufstart, bufstart_, cursize_);
+    } else {
+      cursize_ = 0;
+    }
+
+    bufstart_ = new_bufstart;
+    capacity_ = new_capacity;
+    buf_.reset(new_buf);
   }
   // Used for write
   // Returns the number of bytes appended

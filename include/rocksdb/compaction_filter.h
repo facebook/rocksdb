@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 // Copyright (c) 2013 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
@@ -135,19 +135,19 @@ class CompactionFilter {
   //      *skip_until <= key is treated the same as Decision::kKeep
   //      (since the range [key, *skip_until) is empty).
   //
-  //      The keys are skipped even if there are snapshots containing them,
-  //      as if IgnoreSnapshots() was true; i.e. values removed
-  //      by kRemoveAndSkipUntil can disappear from a snapshot - beware
-  //      if you're using TransactionDB or DB::GetSnapshot().
-  //
-  //      Another warning: if value for a key was overwritten or merged into
-  //      (multiple Put()s or Merge()s), and compaction filter skips this key
-  //      with kRemoveAndSkipUntil, it's possible that it will remove only
-  //      the new value, exposing the old value that was supposed to be
-  //      overwritten.
-  //
-  //      If you use kRemoveAndSkipUntil, consider also reducing
-  //      compaction_readahead_size option.
+  //      Caveats:
+  //       - The keys are skipped even if there are snapshots containing them,
+  //         as if IgnoreSnapshots() was true; i.e. values removed
+  //         by kRemoveAndSkipUntil can disappear from a snapshot - beware
+  //         if you're using TransactionDB or DB::GetSnapshot().
+  //       - If value for a key was overwritten or merged into (multiple Put()s
+  //         or Merge()s), and compaction filter skips this key with
+  //         kRemoveAndSkipUntil, it's possible that it will remove only
+  //         the new value, exposing the old value that was supposed to be
+  //         overwritten.
+  //       - Doesn't work with PlainTableFactory in prefix mode.
+  //       - If you use kRemoveAndSkipUntil, consider also reducing
+  //         compaction_readahead_size option.
   //
   // Note: If you are using a TransactionDB, it is not recommended to filter
   // out or modify merge operands (ValueType::kMergeOperand).
@@ -182,7 +182,7 @@ class CompactionFilter {
   // will be called even if the keys were written before the last snapshot.
   // This behavior is to be used only when we want to delete a set of keys
   // irrespective of snapshots. In particular, care should be taken
-  // to understand that the values of thesekeys will change even if we are
+  // to understand that the values of these keys will change even if we are
   // using a snapshot.
   virtual bool IgnoreSnapshots() const { return false; }
 

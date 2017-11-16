@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc. All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef ROCKSDB_LITE
 
@@ -116,7 +116,7 @@ class CuckooReaderTest : public testing::Test {
     std::unique_ptr<RandomAccessFile> read_file;
     ASSERT_OK(env->NewRandomAccessFile(fname, &read_file, env_options));
     unique_ptr<RandomAccessFileReader> file_reader(
-        new RandomAccessFileReader(std::move(read_file)));
+        new RandomAccessFileReader(std::move(read_file), fname));
     const ImmutableCFOptions ioptions(options);
     CuckooTableReader reader(ioptions, std::move(file_reader), file_size, ucomp,
                              GetSliceHash);
@@ -144,7 +144,7 @@ class CuckooReaderTest : public testing::Test {
     std::unique_ptr<RandomAccessFile> read_file;
     ASSERT_OK(env->NewRandomAccessFile(fname, &read_file, env_options));
     unique_ptr<RandomAccessFileReader> file_reader(
-        new RandomAccessFileReader(std::move(read_file)));
+        new RandomAccessFileReader(std::move(read_file), fname));
     const ImmutableCFOptions ioptions(options);
     CuckooTableReader reader(ioptions, std::move(file_reader), file_size, ucomp,
                              GetSliceHash);
@@ -322,7 +322,7 @@ TEST_F(CuckooReaderTest, WhenKeyNotFound) {
   std::unique_ptr<RandomAccessFile> read_file;
   ASSERT_OK(env->NewRandomAccessFile(fname, &read_file, env_options));
   unique_ptr<RandomAccessFileReader> file_reader(
-      new RandomAccessFileReader(std::move(read_file)));
+      new RandomAccessFileReader(std::move(read_file), fname));
   const ImmutableCFOptions ioptions(options);
   CuckooTableReader reader(ioptions, std::move(file_reader), file_size, ucmp,
                            GetSliceHash);
@@ -428,7 +428,7 @@ void WriteFile(const std::vector<std::string>& keys,
   std::unique_ptr<RandomAccessFile> read_file;
   ASSERT_OK(env->NewRandomAccessFile(fname, &read_file, env_options));
   unique_ptr<RandomAccessFileReader> file_reader(
-      new RandomAccessFileReader(std::move(read_file)));
+      new RandomAccessFileReader(std::move(read_file), fname));
 
   const ImmutableCFOptions ioptions(options);
   CuckooTableReader reader(ioptions, std::move(file_reader), file_size,
@@ -460,7 +460,7 @@ void ReadKeys(uint64_t num, uint32_t batch_size) {
   std::unique_ptr<RandomAccessFile> read_file;
   ASSERT_OK(env->NewRandomAccessFile(fname, &read_file, env_options));
   unique_ptr<RandomAccessFileReader> file_reader(
-      new RandomAccessFileReader(std::move(read_file)));
+      new RandomAccessFileReader(std::move(read_file), fname));
 
   const ImmutableCFOptions ioptions(options);
   CuckooTableReader reader(ioptions, std::move(file_reader), file_size,
@@ -517,7 +517,7 @@ TEST_F(CuckooReaderTest, TestReadPerformance) {
     return;
   }
   double hash_ratio = 0.95;
-  // These numbers are chosen to have a hash utilizaiton % close to
+  // These numbers are chosen to have a hash utilization % close to
   // 0.9, 0.75, 0.6 and 0.5 respectively.
   // They all create 128 M buckets.
   std::vector<uint64_t> nums = {120*1024*1024, 100*1024*1024, 80*1024*1024,

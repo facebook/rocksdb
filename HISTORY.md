@@ -1,5 +1,62 @@
 # Rocksdb Change Log
 ## Unreleased
+### Public API Change
+### New Features
+### Bug Fixes
+
+## 5.8.0 (08/30/2017)
+### Public API Change
+* Users of `Statistics::getHistogramString()` will see fewer histogram buckets and different bucket endpoints.
+* `Slice::compare` and BytewiseComparator `Compare` no longer accept `Slice`s containing nullptr.
+* `Transaction::Get` and `Transaction::GetForUpdate` variants with `PinnableSlice` added.
+
+### New Features
+* Add Iterator::Refresh(), which allows users to update the iterator state so that they can avoid some initialization costs of recreating iterators.
+* Replace dynamic_cast<> (except unit test) so people can choose to build with RTTI off. With make, release mode is by default built with -fno-rtti and debug mode is built without it. Users can override it by setting USE_RTTI=0 or 1.
+* Universal compactions including the bottom level can be executed in a dedicated thread pool. This alleviates head-of-line blocking in the compaction queue, which cause write stalling, particularly in multi-instance use cases. Users can enable this feature via `Env::SetBackgroundThreads(N, Env::Priority::BOTTOM)`, where `N > 0`.
+* Allow merge operator to be called even with a single merge operand during compactions, by appropriately overriding `MergeOperator::AllowSingleOperand`.
+* Add `DB::VerifyChecksum()`, which verifies the checksums in all SST files in a running DB.
+* Block-based table support for disabling checksums by setting `BlockBasedTableOptions::checksum = kNoChecksum`.
+
+### Bug Fixes
+* Fix wrong latencies in `rocksdb.db.get.micros`, `rocksdb.db.write.micros`, and `rocksdb.sst.read.micros`.
+* Fix incorrect dropping of deletions during intra-L0 compaction.
+* Fix transient reappearance of keys covered by range deletions when memtable prefix bloom filter is enabled.
+* Fix potentially wrong file smallest key when range deletions separated by snapshot are written together.
+
+## 5.7.0 (07/13/2017)
+### Public API Change
+* DB property "rocksdb.sstables" now prints keys in hex form.
+
+### New Features
+* Measure estimated number of reads per file. The information can be accessed through DB::GetColumnFamilyMetaData or "rocksdb.sstables" DB property.
+* RateLimiter support for throttling background reads, or throttling the sum of background reads and writes. This can give more predictable I/O usage when compaction reads more data than it writes, e.g., due to lots of deletions.
+* [Experimental] FIFO compaction with TTL support. It can be enabled by setting CompactionOptionsFIFO.ttl > 0.
+* Introduce `EventListener::OnBackgroundError()` callback. Users can implement it to be notified of errors causing the DB to enter read-only mode, and optionally override them.
+* Partitioned Index/Filters exiting the experimental mode. To enable partitioned indexes set index_type to kTwoLevelIndexSearch and to further enable partitioned filters set partition_filters to true. To configure the partition size set metadata_block_size.
+
+
+### Bug Fixes
+* Fix discarding empty compaction output files when `DeleteRange()` is used together with subcompactions.
+
+## 5.6.0 (06/06/2017)
+### Public API Change
+* Scheduling flushes and compactions in the same thread pool is no longer supported by setting `max_background_flushes=0`. Instead, users can achieve this by configuring their high-pri thread pool to have zero threads.
+* Replace `Options::max_background_flushes`, `Options::max_background_compactions`, and `Options::base_background_compactions` all with `Options::max_background_jobs`, which automatically decides how many threads to allocate towards flush/compaction.
+* options.delayed_write_rate by default take the value of options.rate_limiter rate.
+* Replace global variable `IOStatsContext iostats_context` with `IOStatsContext* get_iostats_context()`; replace global variable `PerfContext perf_context` with `PerfContext* get_perf_context()`.
+
+### New Features
+* Change ticker/histogram statistics implementations to use core-local storage. This improves aggregation speed compared to our previous thread-local approach, particularly for applications with many threads.
+* Users can pass a cache object to write buffer manager, so that they can cap memory usage for memtable and block cache using one single limit.
+* Flush will be triggered when 7/8 of the limit introduced by write_buffer_manager or db_write_buffer_size is triggered, so that the hard threshold is hard to hit.
+* Introduce WriteOptions.low_pri. If it is true, low priority writes will be throttled if the compaction is behind.
+* `DB::IngestExternalFile()` now supports ingesting files into a database containing range deletions.
+
+### Bug Fixes
+* Shouldn't ignore return value of fsync() in flush.
+
+## 5.5.0 (05/17/2017)
 ### New Features
 * FIFO compaction to support Intra L0 compaction too with CompactionOptionsFIFO.allow_compaction=true.
 * DB::ResetStats() to reset internal stats.
@@ -8,6 +65,13 @@
 * Introduce WriteBatch::PopSavePoint to pop the most recent save point explicitly.
 * Support dynamically change `max_open_files` option via SetDBOptions()
 * Added DB::CreateColumnFamilie() and DB::DropColumnFamilies() to bulk create/drop column families.
+* Add debugging function `GetAllKeyVersions` to see internal versions of a range of keys.
+* Support file ingestion with universal compaction style
+* Support file ingestion behind with option `allow_ingest_behind`
+* New option enable_pipelined_write which may improve write throughput in case writing from multiple threads and WAL enabled.
+
+### Bug Fixes
+* Fix the bug that Direct I/O uses direct reads for non-SST file
 
 ## 5.4.0 (04/11/2017)
 ### Public API Change
@@ -251,7 +315,7 @@
 * Added a new way to report QPS from db_bench (check out --report_file and --report_interval_seconds)
 * Added a cache for individual rows. See DBOptions::row_cache for more info.
 * Several new features on EventListener (see include/rocksdb/listener.h):
- - OnCompationCompleted() now returns per-compaciton job statistics, defined in include/rocksdb/compaction_job_stats.h.
+ - OnCompationCompleted() now returns per-compaction job statistics, defined in include/rocksdb/compaction_job_stats.h.
  - Added OnTableFileCreated() and OnTableFileDeleted().
 * Add compaction_options_universal.enable_trivial_move to true, to allow trivial move while performing universal compaction. Trivial move will happen only when all the input files are non overlapping.
 

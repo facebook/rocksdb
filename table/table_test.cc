@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -429,7 +427,7 @@ class MemTableConstructor: public Constructor {
     ImmutableCFOptions ioptions(options_);
     memtable_ =
         new MemTable(internal_comparator_, ioptions, MutableCFOptions(options_),
-                     wb, kMaxSequenceNumber);
+                     wb, kMaxSequenceNumber, 0 /* column_family_id */);
     memtable_->Ref();
   }
   ~MemTableConstructor() {
@@ -443,7 +441,7 @@ class MemTableConstructor: public Constructor {
     ImmutableCFOptions mem_ioptions(ioptions);
     memtable_ = new MemTable(internal_comparator_, mem_ioptions,
                              MutableCFOptions(options_), write_buffer_manager_,
-                             kMaxSequenceNumber);
+                             kMaxSequenceNumber, 0 /* column_family_id */);
     memtable_->Ref();
     int seq = 1;
     for (const auto kv : kv_map) {
@@ -2085,14 +2083,14 @@ TEST_F(BlockBasedTableTest, BlockReadCountTest) {
       GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                              GetContext::kNotFound, user_key, &value, nullptr,
                              nullptr, nullptr, nullptr);
-      perf_context.Reset();
+      get_perf_context()->Reset();
       ASSERT_OK(reader->Get(ReadOptions(), encoded_key, &get_context));
       if (index_and_filter_in_cache) {
         // data, index and filter block
-        ASSERT_EQ(perf_context.block_read_count, 3);
+        ASSERT_EQ(get_perf_context()->block_read_count, 3);
       } else {
         // just the data block
-        ASSERT_EQ(perf_context.block_read_count, 1);
+        ASSERT_EQ(get_perf_context()->block_read_count, 1);
       }
       ASSERT_EQ(get_context.State(), GetContext::kFound);
       ASSERT_STREQ(value.data(), "hello");
@@ -2106,22 +2104,22 @@ TEST_F(BlockBasedTableTest, BlockReadCountTest) {
       get_context = GetContext(options.comparator, nullptr, nullptr, nullptr,
                                GetContext::kNotFound, user_key, &value, nullptr,
                                nullptr, nullptr, nullptr);
-      perf_context.Reset();
+      get_perf_context()->Reset();
       ASSERT_OK(reader->Get(ReadOptions(), encoded_key, &get_context));
       ASSERT_EQ(get_context.State(), GetContext::kNotFound);
 
       if (index_and_filter_in_cache) {
         if (bloom_filter_type == 0) {
           // with block-based, we read index and then the filter
-          ASSERT_EQ(perf_context.block_read_count, 2);
+          ASSERT_EQ(get_perf_context()->block_read_count, 2);
         } else {
           // with full-filter, we read filter first and then we stop
-          ASSERT_EQ(perf_context.block_read_count, 1);
+          ASSERT_EQ(get_perf_context()->block_read_count, 1);
         }
       } else {
         // filter is already in memory and it figures out that the key doesn't
         // exist
-        ASSERT_EQ(perf_context.block_read_count, 0);
+        ASSERT_EQ(get_perf_context()->block_read_count, 0);
       }
     }
   }
@@ -2176,7 +2174,7 @@ std::map<std::string, size_t> MockCache::marked_data_in_cache_;
 
 // Block cache can contain raw data blocks as well as general objects. If an
 // object depends on the table to be live, it then must be destructed before the
-// table is closed. This test makese sure that the only items remains in the
+// table is closed. This test makes sure that the only items remains in the
 // cache after the table is closed are raw data blocks.
 TEST_F(BlockBasedTableTest, NoObjectInCacheAfterTableClose) {
   for (auto index_type :
@@ -2594,8 +2592,9 @@ TEST_F(MemTableTest, Simple) {
   options.memtable_factory = table_factory;
   ImmutableCFOptions ioptions(options);
   WriteBufferManager wb(options.db_write_buffer_size);
-  MemTable* memtable = new MemTable(cmp, ioptions, MutableCFOptions(options),
-                                    &wb, kMaxSequenceNumber);
+  MemTable* memtable =
+      new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
+                   kMaxSequenceNumber, 0 /* column_family_id */);
   memtable->Ref();
   WriteBatch batch;
   WriteBatchInternal::SetSequence(&batch, 100);

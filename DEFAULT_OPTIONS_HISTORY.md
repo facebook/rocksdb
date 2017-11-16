@@ -1,5 +1,8 @@
 # RocksDB default options change log
 ## Unreleased
+* delayed_write_rate takes the rate given by rate_limiter if not specified.
+
+## 5.2
 * Change the default of delayed slowdown value to 16MB/s and further increase the L0 stop condition to 36 files.
 
 ## 5.0 (11/17/2016)

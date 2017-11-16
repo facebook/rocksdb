@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
 
@@ -46,17 +46,26 @@ class TransactionBaseImpl : public Transaction {
 
   Status RollbackToSavePoint() override;
 
+  using Transaction::Get;
   Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
              const Slice& key, std::string* value) override;
+
+  Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
+             const Slice& key, PinnableSlice* value) override;
 
   Status Get(const ReadOptions& options, const Slice& key,
              std::string* value) override {
     return Get(options, db_->DefaultColumnFamily(), key, value);
   }
 
+  using Transaction::GetForUpdate;
   Status GetForUpdate(const ReadOptions& options,
                       ColumnFamilyHandle* column_family, const Slice& key,
                       std::string* value, bool exclusive) override;
+
+  Status GetForUpdate(const ReadOptions& options,
+                      ColumnFamilyHandle* column_family, const Slice& key,
+                      PinnableSlice* pinnable_val, bool exclusive) override;
 
   Status GetForUpdate(const ReadOptions& options, const Slice& key,
                       std::string* value, bool exclusive) override {

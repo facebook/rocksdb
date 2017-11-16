@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -139,6 +137,7 @@ DBOptions::DBOptions(const Options& options)
       wal_dir(options.wal_dir),
       delete_obsolete_files_period_micros(
           options.delete_obsolete_files_period_micros),
+      max_background_jobs(options.max_background_jobs),
       base_background_compactions(options.base_background_compactions),
       max_background_compactions(options.max_background_compactions),
       max_subcompactions(options.max_subcompactions),
@@ -176,6 +175,7 @@ DBOptions::DBOptions(const Options& options)
       listeners(options.listeners),
       enable_thread_tracking(options.enable_thread_tracking),
       delayed_write_rate(options.delayed_write_rate),
+      enable_pipelined_write(options.enable_pipelined_write),
       allow_concurrent_memtable_write(options.allow_concurrent_memtable_write),
       enable_write_thread_adaptive_yield(
           options.enable_write_thread_adaptive_yield),
@@ -190,7 +190,8 @@ DBOptions::DBOptions(const Options& options)
       fail_if_options_file_error(options.fail_if_options_file_error),
       dump_malloc_stats(options.dump_malloc_stats),
       avoid_flush_during_recovery(options.avoid_flush_during_recovery),
-      avoid_flush_during_shutdown(options.avoid_flush_during_shutdown) {
+      avoid_flush_during_shutdown(options.avoid_flush_during_shutdown),
+      allow_ingest_behind(options.allow_ingest_behind) {
 }
 
 void DBOptions::Dump(Logger* log) const {
@@ -364,6 +365,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     ROCKS_LOG_HEADER(log,
                      "Options.compaction_options_fifo.allow_compaction: %d",
                      compaction_options_fifo.allow_compaction);
+    ROCKS_LOG_HEADER(log, "Options.compaction_options_fifo.ttl: %" PRIu64,
+                     compaction_options_fifo.ttl);
     std::string collector_names;
     for (const auto& collector_factory : table_properties_collector_factories) {
       collector_names.append(collector_factory->Name());
@@ -453,7 +456,6 @@ Options::PrepareForBulkLoad()
   // to L1. This is helpful so that all files that are
   // input to the manual compaction are all at L0.
   max_background_compactions = 2;
-  base_background_compactions = 2;
 
   // The compaction would create large files in L1.
   target_file_size_base = 256 * 1024 * 1024;
@@ -484,10 +486,11 @@ DBOptions* DBOptions::OldDefaults(int rocksdb_major_version,
   if (rocksdb_major_version < 5 ||
       (rocksdb_major_version == 5 && rocksdb_minor_version < 2)) {
     delayed_write_rate = 2 * 1024U * 1024U;
+  } else if (rocksdb_major_version < 5 ||
+             (rocksdb_major_version == 5 && rocksdb_minor_version < 6)) {
+    delayed_write_rate = 16 * 1024U * 1024U;
   }
-
   max_open_files = 5000;
-  base_background_compactions = -1;
   wal_recovery_mode = WALRecoveryMode::kTolerateCorruptedTailRecords;
   return this;
 }
@@ -599,37 +602,37 @@ DBOptions* DBOptions::IncreaseParallelism(int total_threads) {
 #endif  // !ROCKSDB_LITE
 
 ReadOptions::ReadOptions()
-    : verify_checksums(true),
-      fill_cache(true),
-      snapshot(nullptr),
+    : snapshot(nullptr),
       iterate_upper_bound(nullptr),
+      readahead_size(0),
+      max_skippable_internal_keys(0),
       read_tier(kReadAllTier),
+      verify_checksums(true),
+      fill_cache(true),
       tailing(false),
       managed(false),
       total_order_seek(false),
       prefix_same_as_start(false),
       pin_data(false),
       background_purge_on_iterator_cleanup(false),
-      readahead_size(0),
       ignore_range_deletions(false),
-      max_skippable_internal_keys(0),
       optimize_successive_forward_seeks(false) {}
 
 ReadOptions::ReadOptions(bool cksum, bool cache)
-    : verify_checksums(cksum),
-      fill_cache(cache),
-      snapshot(nullptr),
+    : snapshot(nullptr),
       iterate_upper_bound(nullptr),
+      readahead_size(0),
+      max_skippable_internal_keys(0),
       read_tier(kReadAllTier),
+      verify_checksums(cksum),
+      fill_cache(cache),
       tailing(false),
       managed(false),
       total_order_seek(false),
       prefix_same_as_start(false),
       pin_data(false),
       background_purge_on_iterator_cleanup(false),
-      readahead_size(0),
       ignore_range_deletions(false),
-      max_skippable_internal_keys(0),
       optimize_successive_forward_seeks(false) {}
 
 }  // namespace rocksdb

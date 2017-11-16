@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include <rocksdb/compaction_filter.h>
 #include <rocksdb/db.h>
@@ -59,7 +59,11 @@ int main() {
 
   MyFilter filter;
 
-  system("rm -rf /tmp/rocksmergetest");
+  int ret = system("rm -rf /tmp/rocksmergetest");
+  if (ret != 0) {
+    fprintf(stderr, "Error deleting /tmp/rocksmergetest, code: %d\n", ret);
+    return ret;
+  }
   rocksdb::Options options;
   options.create_if_missing = true;
   options.merge_operator.reset(new MyMerge);

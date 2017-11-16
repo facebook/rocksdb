@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -76,10 +74,18 @@ FilterBlockBuilder* CreateFilterBlockBuilder(
   } else {
     if (table_opt.partition_filters) {
       assert(p_index_builder != nullptr);
+      // Since after partition cut request from filter builder it takes time
+      // until index builder actully cuts the partition, we take the lower bound
+      // as partition size.
+      assert(table_opt.block_size_deviation <= 100);
+      auto partition_size = static_cast<uint32_t>(
+          table_opt.metadata_block_size *
+          (100 - table_opt.block_size_deviation));
+      partition_size = std::max(partition_size, static_cast<uint32_t>(1));
       return new PartitionedFilterBlockBuilder(
           opt.prefix_extractor, table_opt.whole_key_filtering,
           filter_bits_builder, table_opt.index_block_restart_interval,
-          p_index_builder);
+          p_index_builder, partition_size);
     } else {
       return new FullFilterBlockBuilder(opt.prefix_extractor,
                                         table_opt.whole_key_filtering,
@@ -249,6 +255,7 @@ struct BlockBasedTableBuilder::Rep {
 
   InternalKeySliceTransform internal_prefix_transform;
   std::unique_ptr<IndexBuilder> index_builder;
+  PartitionedIndexBuilder* p_index_builder_ = nullptr;
 
   std::string last_key;
   const CompressionType compression_type;
@@ -268,6 +275,7 @@ struct BlockBasedTableBuilder::Rep {
   std::unique_ptr<FlushBlockPolicy> flush_block_policy;
   uint32_t column_family_id;
   const std::string& column_family_name;
+  uint64_t creation_time = 0;
 
   std::vector<std::unique_ptr<IntTblPropCollector>> table_properties_collectors;
 
@@ -280,7 +288,7 @@ struct BlockBasedTableBuilder::Rep {
       const CompressionType _compression_type,
       const CompressionOptions& _compression_opts,
       const std::string* _compression_dict, const bool skip_filters,
-      const std::string& _column_family_name)
+      const std::string& _column_family_name, const uint64_t _creation_time)
       : ioptions(_ioptions),
         table_options(table_opt),
         internal_comparator(icomparator),
@@ -296,13 +304,13 @@ struct BlockBasedTableBuilder::Rep {
             table_options.flush_block_policy_factory->NewFlushBlockPolicy(
                 table_options, data_block)),
         column_family_id(_column_family_id),
-        column_family_name(_column_family_name) {
-    PartitionedIndexBuilder* p_index_builder = nullptr;
+        column_family_name(_column_family_name),
+        creation_time(_creation_time) {
     if (table_options.index_type ==
         BlockBasedTableOptions::kTwoLevelIndexSearch) {
-      p_index_builder = PartitionedIndexBuilder::CreateIndexBuilder(
+      p_index_builder_ = PartitionedIndexBuilder::CreateIndexBuilder(
           &internal_comparator, table_options);
-      index_builder.reset(p_index_builder);
+      index_builder.reset(p_index_builder_);
     } else {
       index_builder.reset(IndexBuilder::CreateIndexBuilder(
           table_options.index_type, &internal_comparator,
@@ -312,7 +320,7 @@ struct BlockBasedTableBuilder::Rep {
       filter_builder = nullptr;
     } else {
       filter_builder.reset(
-          CreateFilterBlockBuilder(_ioptions, table_options, p_index_builder));
+          CreateFilterBlockBuilder(_ioptions, table_options, p_index_builder_));
     }
 
     for (auto& collector_factories : *int_tbl_prop_collector_factories) {
@@ -336,7 +344,7 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
     const CompressionType compression_type,
     const CompressionOptions& compression_opts,
     const std::string* compression_dict, const bool skip_filters,
-    const std::string& column_family_name) {
+    const std::string& column_family_name, const uint64_t creation_time) {
   BlockBasedTableOptions sanitized_table_options(table_options);
   if (sanitized_table_options.format_version == 0 &&
       sanitized_table_options.checksum != kCRC32c) {
@@ -352,7 +360,7 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
   rep_ = new Rep(ioptions, sanitized_table_options, internal_comparator,
                  int_tbl_prop_collector_factories, column_family_id, file,
                  compression_type, compression_opts, compression_dict,
-                 skip_filters, column_family_name);
+                 skip_filters, column_family_name, creation_time);
 
   if (rep_->filter_builder != nullptr) {
     rep_->filter_builder->StartBlock(0);
@@ -535,6 +543,7 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
   StopWatch sw(r->ioptions.env, r->ioptions.statistics, WRITE_RAW_BLOCK_MICROS);
   handle->set_offset(r->offset);
   handle->set_size(block_contents.size());
+  assert(r->status.ok());
   r->status = r->file->Append(block_contents);
   if (r->status.ok()) {
     char trailer[kBlockTrailerSize];
@@ -542,9 +551,8 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
     char* trailer_without_type = trailer + 1;
     switch (r->table_options.checksum) {
       case kNoChecksum:
-        // we don't support no checksum yet
-        assert(false);
-        // intentional fallthrough
+        EncodeFixed32(trailer_without_type, 0);
+        break;
       case kCRC32c: {
         auto crc = crc32c::Value(block_contents.data(), block_contents.size());
         crc = crc32c::Extend(crc, trailer, 1);  // Extend to cover block type
@@ -561,6 +569,7 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
       }
     }
 
+    assert(r->status.ok());
     r->status = r->file->Append(Slice(trailer, kBlockTrailerSize));
     if (r->status.ok()) {
       r->status = InsertBlockInCache(block_contents, type, handle);
@@ -721,6 +730,14 @@ Status BlockBasedTableBuilder::Finish() {
       }
       property_collectors_names += "]";
       r->props.property_collectors_names = property_collectors_names;
+      if (r->table_options.index_type ==
+          BlockBasedTableOptions::kTwoLevelIndexSearch) {
+        assert(r->p_index_builder_ != nullptr);
+        r->props.index_partitions = r->p_index_builder_->NumPartitions();
+        r->props.top_level_index_size =
+            r->p_index_builder_->EstimateTopLevelIndexSize(r->offset);
+      }
+      r->props.creation_time = r->creation_time;
 
       // Add basic properties
       property_block_builder.AddTableProperty(r->props);
@@ -797,6 +814,7 @@ Status BlockBasedTableBuilder::Finish() {
     footer.set_checksum(r->table_options.checksum);
     std::string footer_encoding;
     footer.EncodeTo(&footer_encoding);
+    assert(r->status.ok());
     r->status = r->file->Append(footer_encoding);
     if (r->status.ok()) {
       r->offset += footer_encoding.size();

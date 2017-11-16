@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -24,8 +22,9 @@ namespace rocksdb {
 
 class GenericRateLimiter : public RateLimiter {
  public:
-  GenericRateLimiter(int64_t refill_bytes,
-      int64_t refill_period_us, int32_t fairness);
+  GenericRateLimiter(int64_t refill_bytes, int64_t refill_period_us,
+                     int32_t fairness,
+                     RateLimiter::Mode mode = RateLimiter::Mode::kWritesOnly);
 
   virtual ~GenericRateLimiter();
 
@@ -62,6 +61,10 @@ class GenericRateLimiter : public RateLimiter {
     return total_requests_[pri];
   }
 
+  virtual int64_t GetBytesPerSecond() const override {
+    return rate_bytes_per_sec_;
+  }
+
  private:
   void Refill();
   int64_t CalculateRefillBytesPerPeriod(int64_t rate_bytes_per_sec);
@@ -75,6 +78,8 @@ class GenericRateLimiter : public RateLimiter {
   const int64_t kMinRefillBytesPerPeriod = 100;
 
   const int64_t refill_period_us_;
+
+  int64_t rate_bytes_per_sec_;
   // This variable can be changed dynamically.
   std::atomic<int64_t> refill_bytes_per_period_;
   Env* const env_;

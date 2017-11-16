@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -780,7 +778,7 @@ TEST_F(DBTestCompactionFilter, SkipUntil) {
 
   cfilter_skips = 0;
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  // Numberof skips in tables: 2, 3, 3, 3.
+  // Number of skips in tables: 2, 3, 3, 3.
   ASSERT_EQ(11, cfilter_skips);
 
   for (int table = 0; table < 4; ++table) {
@@ -799,6 +797,43 @@ TEST_F(DBTestCompactionFilter, SkipUntil) {
       }
     }
   }
+}
+
+TEST_F(DBTestCompactionFilter, SkipUntilWithBloomFilter) {
+  BlockBasedTableOptions table_options;
+  table_options.whole_key_filtering = false;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(100, false));
+
+  Options options = CurrentOptions();
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.prefix_extractor.reset(NewCappedPrefixTransform(9));
+  options.compaction_filter_factory = std::make_shared<SkipEvenFilterFactory>();
+  options.disable_auto_compactions = true;
+  options.create_if_missing = true;
+  DestroyAndReopen(options);
+
+  Put("0000000010", "v10");
+  Put("0000000020", "v20"); // skipped
+  Put("0000000050", "v50");
+  Flush();
+
+  cfilter_skips = 0;
+  EXPECT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  EXPECT_EQ(1, cfilter_skips);
+
+  Status s;
+  std::string val;
+
+  s = db_->Get(ReadOptions(), "0000000010", &val);
+  ASSERT_OK(s);
+  EXPECT_EQ("v10", val);
+
+  s = db_->Get(ReadOptions(), "0000000020", &val);
+  EXPECT_TRUE(s.IsNotFound());
+
+  s = db_->Get(ReadOptions(), "0000000050", &val);
+  ASSERT_OK(s);
+  EXPECT_EQ("v50", val);
 }
 
 }  // namespace rocksdb

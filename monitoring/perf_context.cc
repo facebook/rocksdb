@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 
 #include <sstream>
@@ -11,20 +9,30 @@
 
 namespace rocksdb {
 
-#if defined(NPERF_CONTEXT) || defined(IOS_CROSS_COMPILE)
-  PerfContext perf_context;
-#elif defined(_MSC_VER)
-  __declspec(thread) PerfContext perf_context;
+#if defined(NPERF_CONTEXT) || !defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
+PerfContext perf_context;
 #else
-  #if defined(OS_SOLARIS)
-    __thread PerfContext perf_context_;
-  #else
-    __thread PerfContext perf_context;
-  #endif
+#if defined(OS_SOLARIS)
+__thread PerfContext perf_context_;
+#else
+__thread PerfContext perf_context;
+#endif
 #endif
 
+PerfContext* get_perf_context() {
+#if defined(NPERF_CONTEXT) || !defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
+  return &perf_context;
+#else
+#if defined(OS_SOLARIS)
+  return &perf_context_;
+#else
+  return &perf_context;
+#endif
+#endif
+}
+
 void PerfContext::Reset() {
-#if !defined(NPERF_CONTEXT) && !defined(IOS_CROSS_COMPILE)
+#ifndef NPERF_CONTEXT
   user_key_comparison_count = 0;
   block_cache_hit_count = 0;
   block_read_count = 0;
@@ -32,6 +40,9 @@ void PerfContext::Reset() {
   block_read_time = 0;
   block_checksum_time = 0;
   block_decompress_time = 0;
+  get_read_bytes = 0;
+  multiget_read_bytes = 0;
+  iter_read_bytes = 0;
   internal_key_skipped_count = 0;
   internal_delete_skipped_count = 0;
   internal_recent_skipped_count = 0;
@@ -98,7 +109,7 @@ void PerfContext::Reset() {
   }
 
 std::string PerfContext::ToString(bool exclude_zero_counters) const {
-#if defined(NPERF_CONTEXT) || defined(IOS_CROSS_COMPILE)
+#ifdef NPERF_CONTEXT
   return "";
 #else
   std::ostringstream ss;
@@ -109,6 +120,9 @@ std::string PerfContext::ToString(bool exclude_zero_counters) const {
   PERF_CONTEXT_OUTPUT(block_read_time);
   PERF_CONTEXT_OUTPUT(block_checksum_time);
   PERF_CONTEXT_OUTPUT(block_decompress_time);
+  PERF_CONTEXT_OUTPUT(get_read_bytes);
+  PERF_CONTEXT_OUTPUT(multiget_read_bytes);
+  PERF_CONTEXT_OUTPUT(iter_read_bytes);
   PERF_CONTEXT_OUTPUT(internal_key_skipped_count);
   PERF_CONTEXT_OUTPUT(internal_delete_skipped_count);
   PERF_CONTEXT_OUTPUT(internal_recent_skipped_count);
@@ -167,11 +181,5 @@ std::string PerfContext::ToString(bool exclude_zero_counters) const {
   return ss.str();
 #endif
 }
-
-#if defined(OS_SOLARIS)
-PerfContext *getPerfContext() {
-  return &perf_context_;
-}
-#endif
 
 }

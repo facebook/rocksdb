@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -22,6 +20,7 @@
 #include "db/log_format.h"
 #include "db/version_set.h"
 #include "rocksdb/cache.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/env.h"
 #include "rocksdb/table.h"
 #include "rocksdb/write_batch.h"
@@ -154,7 +153,7 @@ class CorruptionTest : public testing::Test {
     struct stat sbuf;
     if (stat(fname.c_str(), &sbuf) != 0) {
       const char* msg = strerror(errno);
-      ASSERT_TRUE(false) << fname << ": " << msg;
+      FAIL() << fname << ": " << msg;
     }
 
     if (offset < 0) {
@@ -181,6 +180,9 @@ class CorruptionTest : public testing::Test {
     }
     s = WriteStringToFile(Env::Default(), contents, fname);
     ASSERT_TRUE(s.ok()) << s.ToString();
+    Options options;
+    EnvOptions env_options;
+    ASSERT_NOK(VerifySstFileChecksum(options, env_options, fname));
   }
 
   void Corrupt(FileType filetype, int offset, int bytes_to_corrupt) {
@@ -215,7 +217,7 @@ class CorruptionTest : public testing::Test {
         return;
       }
     }
-    ASSERT_TRUE(false) << "no file found at level";
+    FAIL() << "no file found at level";
   }
 
 
@@ -314,6 +316,7 @@ TEST_F(CorruptionTest, TableFile) {
 
   Corrupt(kTableFile, 100, 1);
   Check(99, 99);
+  ASSERT_NOK(dbi->VerifyChecksum());
 }
 
 TEST_F(CorruptionTest, TableFileIndexData) {
@@ -329,9 +332,11 @@ TEST_F(CorruptionTest, TableFileIndexData) {
   // corrupt an index block of an entire file
   Corrupt(kTableFile, -2000, 500);
   Reopen();
+  dbi = reinterpret_cast<DBImpl*>(db_);
   // one full file should be readable, since only one was corrupted
   // the other file should be fully non-readable, since index was corrupted
   Check(5000, 5000);
+  ASSERT_NOK(dbi->VerifyChecksum());
 }
 
 TEST_F(CorruptionTest, MissingDescriptor) {
@@ -391,10 +396,12 @@ TEST_F(CorruptionTest, CompactionInputError) {
 
   Corrupt(kTableFile, 100, 1);
   Check(9, 9);
+  ASSERT_NOK(dbi->VerifyChecksum());
 
   // Force compactions by writing lots of values
   Build(10000);
   Check(10000, 10000);
+  ASSERT_NOK(dbi->VerifyChecksum());
 }
 
 TEST_F(CorruptionTest, CompactionInputErrorParanoid) {
@@ -426,6 +433,7 @@ TEST_F(CorruptionTest, CompactionInputErrorParanoid) {
 
   CorruptTableFileAtLevel(0, 100, 1);
   Check(9, 9);
+  ASSERT_NOK(dbi->VerifyChecksum());
 
   // Write must eventually fail because of corrupted table
   Status s;
@@ -447,6 +455,7 @@ TEST_F(CorruptionTest, UnrelatedKeys) {
   DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
   dbi->TEST_FlushMemTable();
   Corrupt(kTableFile, 100, 1);
+  ASSERT_NOK(dbi->VerifyChecksum());
 
   std::string tmp1, tmp2;
   ASSERT_OK(db_->Put(WriteOptions(), Key(1000, &tmp1), Value(1000, &tmp2)));

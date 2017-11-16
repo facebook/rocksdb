@@ -177,6 +177,9 @@ class CloudEnvWrapper : public CloudEnvImpl {
   void SetBackgroundThreads(int num, Priority pri) override {
     return base_env_->SetBackgroundThreads(num, pri);
   }
+  int GetBackgroundThreads(Priority pri) override {
+    return base_env_->GetBackgroundThreads(pri);
+  }
 
   void IncBackgroundThreadsIfNeeded(int num, Priority pri) override {
     return base_env_->IncBackgroundThreadsIfNeeded(num, pri);

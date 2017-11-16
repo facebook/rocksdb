@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef ROCKSDB_LITE
 #ifndef __STDC_FORMAT_MACROS
@@ -47,17 +45,18 @@ Status TransactionLogIteratorImpl::OpenLogFile(
   Env* env = options_->env;
   unique_ptr<SequentialFile> file;
   Status s;
+  EnvOptions optimized_env_options = env->OptimizeForLogRead(soptions_);
   if (logFile->Type() == kArchivedLogFile) {
     std::string fname = ArchivedLogFileName(dir_, logFile->LogNumber());
-    s = env->NewSequentialFile(fname, &file, soptions_);
+    s = env->NewSequentialFile(fname, &file, optimized_env_options);
   } else {
     std::string fname = LogFileName(dir_, logFile->LogNumber());
-    s = env->NewSequentialFile(fname, &file, soptions_);
+    s = env->NewSequentialFile(fname, &file, optimized_env_options);
     if (!s.ok()) {
       //  If cannot open file in DB directory.
       //  Try the archive dir, as it could have moved in the meanwhile.
       fname = ArchivedLogFileName(dir_, logFile->LogNumber());
-      s = env->NewSequentialFile(fname, &file, soptions_);
+      s = env->NewSequentialFile(fname, &file, optimized_env_options);
     }
   }
   if (s.ok()) {

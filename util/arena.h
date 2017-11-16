@@ -1,9 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-//  This source code is also licensed under the GPLv2 license found in the
-//  COPYING file in the root directory of this source tree.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -40,7 +38,8 @@ class Arena : public Allocator {
   // huge_page_size: if 0, don't use huge page TLB. If > 0 (should set to the
   // supported hugepage size of the system), block allocation will try huge
   // page TLB first. If allocation fails, will fall back to normal case.
-  explicit Arena(size_t block_size = kMinBlockSize, size_t huge_page_size = 0);
+  explicit Arena(size_t block_size = kMinBlockSize,
+                 AllocTracker* tracker = nullptr, size_t huge_page_size = 0);
   ~Arena();
 
   char* Allocate(size_t bytes) override;
@@ -78,6 +77,10 @@ class Arena : public Allocator {
 
   size_t BlockSize() const override { return kBlockSize; }
 
+  bool IsInInlineBlock() const {
+    return blocks_.empty();
+  }
+
  private:
   char inline_block_[kInlineSize] __attribute__((__aligned__(sizeof(void*))));
   // Number of bytes allocated in one block
@@ -114,6 +117,7 @@ class Arena : public Allocator {
 
   // Bytes of memory in blocks allocated so far
   size_t blocks_memory_ = 0;
+  AllocTracker* tracker_;
 };
 
 inline char* Arena::Allocate(size_t bytes) {

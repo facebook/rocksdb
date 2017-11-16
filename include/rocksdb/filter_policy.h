@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 // Copyright (c) 2012 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
@@ -20,8 +20,11 @@
 #ifndef STORAGE_ROCKSDB_INCLUDE_FILTER_POLICY_H_
 #define STORAGE_ROCKSDB_INCLUDE_FILTER_POLICY_H_
 
-#include <string>
 #include <memory>
+#include <stdexcept>
+#include <stdlib.h>
+#include <string>
+#include <vector>
 
 namespace rocksdb {
 
@@ -41,6 +44,16 @@ class FilterBitsBuilder {
   // The return value of this function would be the filter bits,
   // The ownership of actual data is set to buf
   virtual Slice Finish(std::unique_ptr<const char[]>* buf) = 0;
+
+  // Calculate num of entries fit into a space.
+  virtual int CalculateNumEntry(const uint32_t space) {
+#ifndef ROCKSDB_LITE
+    throw std::runtime_error("CalculateNumEntry not Implemented");
+#else
+    abort();
+#endif
+    return 0;
+  }
 };
 
 // A class that checks if a key can be in filter
@@ -112,7 +125,7 @@ class FilterPolicy {
 //
 // bits_per_key: bits per key in bloom filter. A good value for bits_per_key
 // is 10, which yields a filter with ~ 1% false positive rate.
-// use_block_based_builder: use block based filter rather than full fiter.
+// use_block_based_builder: use block based filter rather than full filter.
 // If you want to builder full filter, it needs to be set to false.
 //
 // Callers must delete the result after any database that is using the
