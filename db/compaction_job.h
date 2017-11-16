@@ -131,9 +131,10 @@ class CompactionJob {
   // DBImpl state
   const std::string& dbname_;
   const ImmutableDBOptions& db_options_;
-  const EnvOptions env_options_for_write_;
+  const EnvOptions env_options_;
 
   Env* env_;
+  // env_option optimized for compaction table reads
   EnvOptions env_optiosn_for_read_;
   VersionSet* versions_;
   const std::atomic<bool>* shutting_down_;

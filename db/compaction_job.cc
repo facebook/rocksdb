@@ -279,7 +279,7 @@ CompactionJob::CompactionJob(
       compaction_stats_(1),
       dbname_(dbname),
       db_options_(db_options),
-      env_options_for_write_(env_options),
+      env_options_(env_options),
       env_(db_options.env),
       env_optiosn_for_read_(
           env_->OptimizeForCompactionTableRead(env_options, db_options_)),
@@ -1138,8 +1138,8 @@ Status CompactionJob::FinishCompactionOutputFile(
     // we will regrad this verification as user reads since the goal is
     // to cache it here for further user reads
     InternalIterator* iter = cfd->table_cache()->NewIterator(
-        ReadOptions(), env_options_for_write_, cfd->internal_comparator(),
-        meta->fd, nullptr /* range_del_agg */, nullptr,
+        ReadOptions(), env_options_, cfd->internal_comparator(), meta->fd,
+        nullptr /* range_del_agg */, nullptr,
         cfd->internal_stats()->GetFileReadHist(
             compact_->compaction->output_level()),
         false, nullptr /* arena */, false /* skip_filters */,
@@ -1282,12 +1282,11 @@ Status CompactionJob::OpenCompactionOutputFile(
   // Make the output file
   unique_ptr<WritableFile> writable_file;
 #ifndef NDEBUG
-  bool syncpoint_arg = env_options_for_write_.use_direct_writes;
+  bool syncpoint_arg = env_options_.use_direct_writes;
   TEST_SYNC_POINT_CALLBACK("CompactionJob::OpenCompactionOutputFile",
                            &syncpoint_arg);
 #endif
-  Status s =
-      NewWritableFile(env_, fname, &writable_file, env_options_for_write_);
+  Status s = NewWritableFile(env_, fname, &writable_file, env_options_);
   if (!s.ok()) {
     ROCKS_LOG_ERROR(
         db_options_.info_log,
@@ -1313,9 +1312,8 @@ Status CompactionJob::OpenCompactionOutputFile(
   writable_file->SetWriteLifeTimeHint(write_hint_);
   writable_file->SetPreallocationBlockSize(static_cast<size_t>(
       sub_compact->compaction->OutputFilePreallocationSize()));
-  sub_compact->outfile.reset(
-      new WritableFileWriter(std::move(writable_file), env_options_for_write_,
-                             db_options_.statistics.get()));
+  sub_compact->outfile.reset(new WritableFileWriter(
+      std::move(writable_file), env_options_, db_options_.statistics.get()));
 
   // If the Column family flag is to only optimize filters for hits,
   // we can skip creating filters if this is the bottommost_level where

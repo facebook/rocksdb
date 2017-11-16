@@ -182,7 +182,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       has_unpersisted_data_(false),
       unable_to_flush_oldest_log_(false),
       env_options_(BuildDBOptions(immutable_db_options_, mutable_db_options_)),
-      env_options_for_compaction_read_(env_->OptimizeForCompactionTableWrite(
+      env_options_for_compaction_(env_->OptimizeForCompactionTableWrite(
           env_options_, immutable_db_options_)),
       num_running_ingest_file_(0),
 #ifndef ROCKSDB_LITE
@@ -587,14 +587,14 @@ Status DBImpl::SetDBOptions(
         new_options.bytes_per_sync = 1024 * 1024;
       }
       mutable_db_options_ = new_options;
-      env_options_for_compaction_read_ = EnvOptions(
+      env_options_for_compaction_ = EnvOptions(
           BuildDBOptions(immutable_db_options_, mutable_db_options_));
-      env_options_for_compaction_read_ = env_->OptimizeForCompactionTableWrite(
-          env_options_for_compaction_read_, immutable_db_options_);
+      env_options_for_compaction_ = env_->OptimizeForCompactionTableWrite(
+          env_options_for_compaction_, immutable_db_options_);
       versions_->ChangeEnvOptions(mutable_db_options_);
-      env_options_for_compaction_read_ = env_->OptimizeForCompactionTableRead(
-          env_options_for_compaction_read_, immutable_db_options_);
-      env_options_for_compaction_read_.compaction_readahead_size =
+      env_options_for_compaction_ = env_->OptimizeForCompactionTableRead(
+          env_options_for_compaction_, immutable_db_options_);
+      env_options_for_compaction_.compaction_readahead_size =
           mutable_db_options_.compaction_readahead_size;
       write_thread_.EnterUnbatched(&w, &mutex_);
       if (total_log_size_ > GetMaxTotalWalSize() || wal_changed) {
