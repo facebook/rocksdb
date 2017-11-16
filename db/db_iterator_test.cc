@@ -2080,70 +2080,69 @@ TEST_F(DBIteratorTest, SkipStatistics) {
   Options options = CurrentOptions();
   options.statistics = rocksdb::CreateDBStatistics();
   DestroyAndReopen(options);
+ 
   int skip_count = 0;
 
-    // write one kv to the database.
-    ASSERT_OK(Put("a", "1"));
-    ASSERT_OK(Put("b", "1"));
-    ASSERT_OK(Put("c", "1"));
-    ASSERT_OK(Flush());
-    ASSERT_OK(Put("d", "1"));
-    ASSERT_OK(Put("e", "1"));
-    ASSERT_OK(Put("f", "1"));
-    ASSERT_OK(Put("a", "2"));
-    ASSERT_OK(Put("b", "2"));
-    ASSERT_OK(Flush());
-    ASSERT_OK(Delete("d"));
-    ASSERT_OK(Delete("e"));
-    ASSERT_OK(Delete("f"));
+  // write a bunch of kvs to the database.
+  ASSERT_OK(Put("a", "1"));
+  ASSERT_OK(Put("b", "1"));
+  ASSERT_OK(Put("c", "1"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("d", "1"));
+  ASSERT_OK(Put("e", "1"));
+  ASSERT_OK(Put("f", "1"));
+  ASSERT_OK(Put("a", "2"));
+  ASSERT_OK(Put("b", "2"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Delete("d"));
+  ASSERT_OK(Delete("e"));
+  ASSERT_OK(Delete("f"));
 
-    // scan using non-blocking iterator. We should find it because
-    // it is in memtable.
-    Iterator* iter = db_->NewIterator(ReadOptions());
-    int count = 0;
-    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-      ASSERT_OK(iter->status());
-      count++;
-    }
-    ASSERT_EQ(count, 3);
-    delete iter;
+  Iterator* iter = db_->NewIterator(ReadOptions());
+  int count = 0;
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    ASSERT_OK(iter->status());
+    count++;
+  }
+  ASSERT_EQ(count, 3);
+  delete iter;
   skip_count += 8; // 3 deletes + 3 original keys + 2 lower in sequence
-    ASSERT_EQ(skip_count, TestGetTickerCount(options, NUMBER_ITER_SKIP));
+  ASSERT_EQ(skip_count, TestGetTickerCount(options, NUMBER_ITER_SKIP));
 
-    iter = db_->NewIterator(ReadOptions());
-    count = 0;
-    for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
-      ASSERT_OK(iter->status());
-      count++;
-    }
-    ASSERT_EQ(count, 3);
-    delete iter;
+  iter = db_->NewIterator(ReadOptions());
+  count = 0;
+  for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
+    ASSERT_OK(iter->status());
+    count++;
+  }
+  ASSERT_EQ(count, 3);
+  delete iter;
   skip_count += 8; // Same as above, but in reverse order
-    ASSERT_EQ(skip_count, TestGetTickerCount(options, NUMBER_ITER_SKIP));
+  ASSERT_EQ(skip_count, TestGetTickerCount(options, NUMBER_ITER_SKIP));
 
-    ASSERT_OK(Put("aa", "1"));
-    ASSERT_OK(Put("ab", "1"));
-    ASSERT_OK(Put("ac", "1"));
-    ASSERT_OK(Put("ad", "1"));
-    ASSERT_OK(Flush());
-    ASSERT_OK(Delete("ab"));
-    ASSERT_OK(Delete("ac"));
-    ASSERT_OK(Delete("ad"));
+  ASSERT_OK(Put("aa", "1"));
+  ASSERT_OK(Put("ab", "1"));
+  ASSERT_OK(Put("ac", "1"));
+  ASSERT_OK(Put("ad", "1"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Delete("ab"));
+  ASSERT_OK(Delete("ac"));
+  ASSERT_OK(Delete("ad"));
 
-    ReadOptions ro;
-    Slice prefix("b");
-    ro.iterate_upper_bound = &prefix;
+  ReadOptions ro;
+  Slice prefix("b");
+  ro.iterate_upper_bound = &prefix;
 
-    iter = db_->NewIterator(ro);
-    count = 0;
-    for(iter->Seek("aa"); iter->Valid(); iter->Next()) {
-      ASSERT_OK(iter->status());
-      count++;
-    }
-    ASSERT_EQ(count, 1);
-    delete iter;
-    skip_count += 7; // 3 deletes + 3 original keys + 1 key matching upper bound
-    ASSERT_EQ(23, TestGetTickerCount(options, NUMBER_ITER_SKIP));
+  iter = db_->NewIterator(ro);
+  count = 0;
+  for(iter->Seek("aa"); iter->Valid(); iter->Next()) {
+    ASSERT_OK(iter->status());
+    count++;
+  }
+  ASSERT_EQ(count, 1);
+  delete iter;
+  skip_count += 7; // 3 deletes + 3 original keys + 1 key matching upper bound
+  ASSERT_EQ(23, TestGetTickerCount(options, NUMBER_ITER_SKIP));
 }
 
 }  // namespace rocksdb
