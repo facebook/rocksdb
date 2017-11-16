@@ -87,7 +87,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.new_table_reader_for_compaction_inputs =
       immutable_db_options.new_table_reader_for_compaction_inputs;
   options.compaction_readahead_size =
-      immutable_db_options.compaction_readahead_size;
+      mutable_db_options.compaction_readahead_size;
   options.random_access_max_buffer_size =
       immutable_db_options.random_access_max_buffer_size;
   options.writable_file_max_buffer_size =
