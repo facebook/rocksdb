@@ -583,7 +583,7 @@ const uint64_t clmul_constants[] = {
 };
 
 // Compute the crc32c value for buffer smaller than 8
-void inline align_to_8(
+inline void align_to_8(
     size_t len,
     uint64_t& crc0, // crc so far, updated on return
     const unsigned char*& next) { // next data pointer, updated on return
@@ -603,12 +603,11 @@ void inline align_to_8(
   crc0 = crc32bit;
 }
 
-
 //
 // CombineCRC performs pclmulqdq multiplication of 2 partial CRC's and a well
 // chosen constant and xor's these with the remaining CRC.
 //
-uint64_t inline CombineCRC(
+inline uint64_t CombineCRC(
     size_t block_size,
     uint64_t crc0,
     uint64_t crc1,
@@ -626,7 +625,6 @@ uint64_t inline CombineCRC(
   crc2 = _mm_crc32_u64(crc2, crc0);
   return crc2;
 }
-
 
 // Compute CRC-32C using the Intel hardware instruction.
 uint32_t crc32c_3way(uint32_t crc, const char* buf, size_t len) {
