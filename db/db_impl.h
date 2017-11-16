@@ -1239,7 +1239,7 @@ class DBImpl : public DB {
   const EnvOptions env_options_;
 
   // Additonal options for compaction and flush
-  EnvOptions env_options_for_compaction_;
+  EnvOptions env_options_for_compaction_read_;
 
   // Number of running IngestExternalFile() calls.
   // REQUIRES: mutex held

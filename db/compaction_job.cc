@@ -265,8 +265,7 @@ CompactionJob::CompactionJob(
     int job_id, Compaction* compaction, const ImmutableDBOptions& db_options,
     const EnvOptions env_options, VersionSet* versions,
     const std::atomic<bool>* shutting_down,
-    const SequenceNumber preserve_deletes_seqnum,
-    LogBuffer* log_buffer,
+    const SequenceNumber preserve_deletes_seqnum, LogBuffer* log_buffer,
     Directory* db_directory, Directory* output_directory, Statistics* stats,
     InstrumentedMutex* db_mutex, Status* db_bg_error,
     std::vector<SequenceNumber> existing_snapshots,
@@ -280,9 +279,10 @@ CompactionJob::CompactionJob(
       compaction_stats_(1),
       dbname_(dbname),
       db_options_(db_options),
-      env_options_(env_options),
+      env_options_for_write_(env_options),
       env_(db_options.env),
-      env_options_for_compaction_(env_->OptimizeForCompactionTableRead(env_options, db_options_)),
+      env_optiosn_for_read_(
+          env_->OptimizeForCompactionTableRead(env_options, db_options_)),
       versions_(versions),
       shutting_down_(shutting_down),
       preserve_deletes_seqnum_(preserve_deletes_seqnum),
@@ -681,7 +681,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   std::unique_ptr<RangeDelAggregator> range_del_agg(
       new RangeDelAggregator(cfd->internal_comparator(), existing_snapshots_));
   std::unique_ptr<InternalIterator> input(versions_->MakeInputIterator(
-      sub_compact->compaction, range_del_agg.get(), env_options_for_compaction_));
+      sub_compact->compaction, range_del_agg.get(), env_optiosn_for_read_));
 
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_PROCESS_KV);
@@ -1138,8 +1138,8 @@ Status CompactionJob::FinishCompactionOutputFile(
     // we will regrad this verification as user reads since the goal is
     // to cache it here for further user reads
     InternalIterator* iter = cfd->table_cache()->NewIterator(
-        ReadOptions(), env_options_, cfd->internal_comparator(), meta->fd,
-        nullptr /* range_del_agg */, nullptr,
+        ReadOptions(), env_options_for_write_, cfd->internal_comparator(),
+        meta->fd, nullptr /* range_del_agg */, nullptr,
         cfd->internal_stats()->GetFileReadHist(
             compact_->compaction->output_level()),
         false, nullptr /* arena */, false /* skip_filters */,
@@ -1282,11 +1282,12 @@ Status CompactionJob::OpenCompactionOutputFile(
   // Make the output file
   unique_ptr<WritableFile> writable_file;
 #ifndef NDEBUG
-  bool syncpoint_arg = env_options_.use_direct_writes;
+  bool syncpoint_arg = env_options_for_write_.use_direct_writes;
   TEST_SYNC_POINT_CALLBACK("CompactionJob::OpenCompactionOutputFile",
                            &syncpoint_arg);
 #endif
-  Status s = NewWritableFile(env_, fname, &writable_file, env_options_);
+  Status s =
+      NewWritableFile(env_, fname, &writable_file, env_options_for_write_);
   if (!s.ok()) {
     ROCKS_LOG_ERROR(
         db_options_.info_log,
@@ -1312,8 +1313,9 @@ Status CompactionJob::OpenCompactionOutputFile(
   writable_file->SetWriteLifeTimeHint(write_hint_);
   writable_file->SetPreallocationBlockSize(static_cast<size_t>(
       sub_compact->compaction->OutputFilePreallocationSize()));
-  sub_compact->outfile.reset(new WritableFileWriter(
-      std::move(writable_file), env_options_, db_options_.statistics.get()));
+  sub_compact->outfile.reset(
+      new WritableFileWriter(std::move(writable_file), env_options_for_write_,
+                             db_options_.statistics.get()));
 
   // If the Column family flag is to only optimize filters for hits,
   // we can skip creating filters if this is the bottommost_level where

@@ -131,10 +131,10 @@ class CompactionJob {
   // DBImpl state
   const std::string& dbname_;
   const ImmutableDBOptions& db_options_;
-  const EnvOptions env_options_;
+  const EnvOptions env_options_for_write_;
 
   Env* env_;
-  EnvOptions env_options_for_compaction_;
+  EnvOptions env_optiosn_for_read_;
   VersionSet* versions_;
   const std::atomic<bool>* shutting_down_;
   const SequenceNumber preserve_deletes_seqnum_;

@@ -912,7 +912,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
       }
       s = BuildTable(
           dbname_, env_, *cfd->ioptions(), mutable_cf_options,
-          env_options_for_compaction_, cfd->table_cache(), iter.get(),
+          env_options_for_compaction_read_, cfd->table_cache(), iter.get(),
           std::unique_ptr<InternalIterator>(mem->NewRangeTombstoneIterator(ro)),
           &meta, cfd->internal_comparator(),
           cfd->int_tbl_prop_collector_factories(), cfd->GetID(), cfd->GetName(),
