@@ -95,9 +95,8 @@ Status S3ReadableFile::Read(uint64_t offset, size_t n, Slice* result,
   // drop it later.
   size_t rangeLen = (n != 0 ? n : 1);
   char buffer[512];
-  int ret =
-      snprintf(buffer, sizeof(buffer), "bytes=%ld-%ld", offset,
-               offset + rangeLen - 1);
+  int ret = snprintf(buffer, sizeof(buffer), "bytes=%ld-%ld", offset,
+                     offset + rangeLen - 1);
   if (ret < 0) {
     Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
         "[s3] S3ReadableFile vsnprintf error %s offset %ld rangelen %ld\n",
@@ -239,7 +238,8 @@ Status S3WritableFile::BucketExistsInS3(
 // Create bucket in S3 if it does not already exist.
 //
 Status S3WritableFile::CreateBucketInS3(
-    std::shared_ptr<AwsS3ClientWrapper> client, const std::string& bucket_prefix,
+    std::shared_ptr<AwsS3ClientWrapper> client,
+    const std::string& bucket_prefix,
     const Aws::S3::Model::BucketLocationConstraint& location) {
   // specify region for the bucket
   Aws::S3::Model::CreateBucketConfiguration conf;
@@ -300,13 +300,13 @@ S3WritableFile::S3WritableFile(AwsEnv* env, const std::string& local_fname,
 }
 
 S3WritableFile::~S3WritableFile() {
-    if (temp_file_ != nullptr) {
-      Close();
-    }
+  if (temp_file_ != nullptr) {
+    Close();
+  }
 }
 
 Status S3WritableFile::Close() {
-  if (temp_file_ == nullptr) { // already closed
+  if (temp_file_ == nullptr) {  // already closed
     return status_;
   }
   Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
@@ -445,11 +445,9 @@ Status S3WritableFile::CopyToS3(const AwsEnv* env, const std::string& fname,
 //
 // Copy S3 object to specified file
 //
-Status S3WritableFile::CopyFromS3(AwsEnv* env,
-                                  const Aws::String& s3_bucket,
+Status S3WritableFile::CopyFromS3(AwsEnv* env, const Aws::String& s3_bucket,
                                   const std::string& source_object,
                                   const std::string& destination_pathname) {
-
   Status s;
   Env* localenv = env->GetBaseEnv();
   std::string tmp_destination = destination_pathname + ".tmp";
@@ -458,9 +456,10 @@ Status S3WritableFile::CopyFromS3(AwsEnv* env,
   Aws::S3::Model::GetObjectRequest getObjectRequest;
   getObjectRequest.SetBucket(s3_bucket);
   getObjectRequest.SetKey(key);
-  getObjectRequest.SetResponseStreamFactory([tmp_destination](){
+  getObjectRequest.SetResponseStreamFactory([tmp_destination]() {
     return Aws::New<Aws::FStream>(Aws::Utils::ARRAY_ALLOCATION_TAG,
-                                  tmp_destination, std::ios_base::out); });
+                                  tmp_destination, std::ios_base::out);
+  });
   auto get_outcome = env->s3client_->GetObject(getObjectRequest);
 
   bool isSuccess = get_outcome.IsSuccess();
@@ -479,7 +478,7 @@ Status S3WritableFile::CopyFromS3(AwsEnv* env,
   uint64_t file_size;
   s = localenv->GetFileSize(tmp_destination, &file_size);
   if (file_size == 0) {
-    s = Status::IOError(tmp_destination +  "Zero size.");
+    s = Status::IOError(tmp_destination + "Zero size.");
     Log(InfoLogLevel::ERROR_LEVEL, env->info_log_,
         "[s3] CopyFromS3 "
         "bucket %s bucketpath %s size %ld. %s",
@@ -503,8 +502,10 @@ Status S3WritableFile::CopyManifestToS3(uint64_t size_hint, bool force) {
   Status stat;
 
   uint64_t now = env_->NowMicros();
-  if (is_manifest_ && (force ||
-      (manifest_last_sync_time_ + 1000 * manifest_durable_periodicity_millis_ < now))) {
+  if (is_manifest_ &&
+      (force ||
+       (manifest_last_sync_time_ + 1000 * manifest_durable_periodicity_millis_ <
+        now))) {
     // Upload manifest file only if it has not been uploaded in the last
     // manifest_durable_periodicity_millis_  milliseconds.
     stat = CopyToS3(env_, fname_, s3_bucket_, s3_object_, size_hint);

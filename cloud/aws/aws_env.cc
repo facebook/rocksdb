@@ -44,7 +44,6 @@ class AwsS3ClientWrapper::Timer {
   uint64_t start_;
 };
 
-
 AwsS3ClientWrapper::AwsS3ClientWrapper(
     std::unique_ptr<Aws::S3::S3Client> client,
     std::shared_ptr<CloudRequestCallback> cloud_request_callback)
@@ -146,7 +145,6 @@ AwsEnv::AwsEnv(Env* underlying_env, const std::string& src_bucket_prefix,
   dest_object_prefix_ = trim(dest_object_prefix_);
   dest_bucket_region_ = trim(dest_bucket_region_);
 
-
   unique_ptr<Aws::Auth::AWSCredentials> creds;
   if (!cloud_env_options.credentials.access_key_id.empty() &&
       !cloud_env_options.credentials.secret_key.empty()) {
@@ -203,8 +201,8 @@ AwsEnv::AwsEnv(Env* underlying_env, const std::string& src_bucket_prefix,
     if (src_bucket_region_ == dest_bucket_region_) {
       // alls good
     } else {
-      create_bucket_status_ = Status::InvalidArgument(
-              "Two different regions not supported");
+      create_bucket_status_ =
+          Status::InvalidArgument("Two different regions not supported");
       Log(InfoLogLevel::ERROR_LEVEL, info_log,
           "[aws] NewAwsEnv Buckets %s, %s in two different regions %s, %s "
           "is not supported",
@@ -541,7 +539,7 @@ Status AwsEnv::NewRandomAccessFile(const std::string& fname,
         uint64_t local_size = 0;
         Status stax = base_env_->GetFileSize(fname, &local_size);
         if (!stax.ok()) {
-            return stax;
+          return stax;
         }
         stax = Status::NotFound();
         if (has_dest_bucket_) {
@@ -853,11 +851,11 @@ Status AwsEnv::GetChildrenFromS3(const std::string& path,
     // The new starting point
     marker = res.GetNextMarker();
     if (marker.empty()) {
-        // If response does not include the NextMaker and it is
-        // truncated, you can use the value of the last Key in the response
-        // as the marker in the subsequent request because all objects
-        // are returned in alphabetical order
-        marker = objs.back().GetKey();
+      // If response does not include the NextMaker and it is
+      // truncated, you can use the value of the last Key in the response
+      // as the marker in the subsequent request because all objects
+      // are returned in alphabetical order
+      marker = objs.back().GetKey();
     }
   }
   return Status::OK();
@@ -1413,9 +1411,8 @@ Status AwsEnv::GetPathForDbid(const std::string& bucket_prefix,
   } else {
     st = Status::NotFound("GetPathForDbid");
   }
-  Log(InfoLogLevel::INFO_LEVEL, info_log_,
-      "[s3] %s GetPathForDbid dbid %s %s", bucket.c_str(), dbid.c_str(),
-      st.ToString().c_str());
+  Log(InfoLogLevel::INFO_LEVEL, info_log_, "[s3] %s GetPathForDbid dbid %s %s",
+      bucket.c_str(), dbid.c_str(), st.ToString().c_str());
   return st;
 };
 
@@ -1471,8 +1468,7 @@ Status AwsEnv::DeleteDbid(const std::string& bucket_prefix,
 Status AwsEnv::ListObjects(const std::string& bucket_name_prefix,
                            const std::string& bucket_object_prefix,
                            BucketObjectMetadata* meta) {
-  Status st = GetChildrenFromS3(bucket_object_prefix,
-                                bucket_name_prefix,
+  Status st = GetChildrenFromS3(bucket_object_prefix, bucket_name_prefix,
                                 &meta->pathnames);
   return st;
 }
@@ -1493,8 +1489,8 @@ Status AwsEnv::ExistsObject(const std::string& bucket_name_prefix,
 Status AwsEnv::GetObjectSize(const std::string& bucket_name_prefix,
                              const std::string& bucket_object_path,
                              size_t* filesize) {
-  return GetFileInfoInS3(bucket_name_prefix, bucket_object_path,
-                         filesize, nullptr);
+  return GetFileInfoInS3(bucket_name_prefix, bucket_object_path, filesize,
+                         nullptr);
 }
 
 // Copy the specified cloud object from one location in the cloud
@@ -1533,8 +1529,8 @@ Status AwsEnv::CopyObject(const std::string& bucket_name_prefix_src,
     return Status::IOError(dest_object.c_str(), errmsg.c_str());
   }
   Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-      "[aws] S3WritableFile src path %s copied to %s %s",
-      src_url.c_str(), dest_object.c_str(), st.ToString().c_str());
+      "[aws] S3WritableFile src path %s copied to %s %s", src_url.c_str(),
+      dest_object.c_str(), st.ToString().c_str());
   return st;
 }
 
@@ -1551,7 +1547,6 @@ void AwsEnv::SetEncryptionParameters(
     }
   }
 }
-
 
 //
 // prepends the configured src object path name
@@ -1597,10 +1592,10 @@ Status AwsEnv::NewAwsEnv(Env* base_env, const std::string& src_bucket_prefix,
   if (!base_env) {
     base_env = Env::Default();
   }
-  AwsEnv* aenv = new AwsEnv(base_env, src_bucket_prefix, src_object_prefix,
-                            src_bucket_region,
-                            dest_bucket_prefix, dest_object_prefix, dest_bucket_region,
-                            cloud_options, info_log);
+  AwsEnv* aenv =
+      new AwsEnv(base_env, src_bucket_prefix, src_object_prefix,
+                 src_bucket_region, dest_bucket_prefix, dest_object_prefix,
+                 dest_bucket_region, cloud_options, info_log);
   if (aenv == nullptr) {
     status = Status::IOError("No More memory");
   } else if (!aenv->status().ok()) {
