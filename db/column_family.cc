@@ -930,6 +930,13 @@ SuperVersion* ColumnFamilyData::InstallSuperVersion(
   super_version_ = new_superversion;
   ++super_version_number_;
   super_version_->version_number = super_version_number_;
+  if (old_superversion != nullptr) {
+    if (old_superversion->mutable_cf_options.write_buffer_size !=
+        mutable_cf_options.write_buffer_size) {
+      mem_->UpdateWriteBufferSize(mutable_cf_options.write_buffer_size);
+    }
+  }
+
   // Reset SuperVersions cached in thread local storage
   ResetThreadLocalSuperVersions();
 

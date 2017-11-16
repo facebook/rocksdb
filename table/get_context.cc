@@ -33,14 +33,12 @@ void appendToReplayLog(std::string* replay_log, ValueType type, Slice value) {
 
 }  // namespace
 
-GetContext::GetContext(const Comparator* ucmp,
-                       const MergeOperator* merge_operator, Logger* logger,
-                       Statistics* statistics, GetState init_state,
-                       const Slice& user_key, PinnableSlice* pinnable_val,
-                       bool* value_found, MergeContext* merge_context,
-                       RangeDelAggregator* _range_del_agg, Env* env,
-                       SequenceNumber* seq,
-                       PinnedIteratorsManager* _pinned_iters_mgr)
+GetContext::GetContext(
+    const Comparator* ucmp, const MergeOperator* merge_operator, Logger* logger,
+    Statistics* statistics, GetState init_state, const Slice& user_key,
+    PinnableSlice* pinnable_val, bool* value_found, MergeContext* merge_context,
+    RangeDelAggregator* _range_del_agg, Env* env, SequenceNumber* seq,
+    PinnedIteratorsManager* _pinned_iters_mgr, bool* is_blob_index)
     : ucmp_(ucmp),
       merge_operator_(merge_operator),
       logger_(logger),
@@ -54,7 +52,8 @@ GetContext::GetContext(const Comparator* ucmp,
       env_(env),
       seq_(seq),
       replay_log_(nullptr),
-      pinned_iters_mgr_(_pinned_iters_mgr) {
+      pinned_iters_mgr_(_pinned_iters_mgr),
+      is_blob_index_(is_blob_index) {
   if (seq_) {
     *seq_ = kMaxSequenceNumber;
   }
@@ -99,13 +98,19 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
 
     auto type = parsed_key.type;
     // Key matches. Process it
-    if ((type == kTypeValue || type == kTypeMerge) &&
+    if ((type == kTypeValue || type == kTypeMerge || type == kTypeBlobIndex) &&
         range_del_agg_ != nullptr && range_del_agg_->ShouldDelete(parsed_key)) {
       type = kTypeRangeDeletion;
     }
     switch (type) {
       case kTypeValue:
+      case kTypeBlobIndex:
         assert(state_ == kNotFound || state_ == kMerge);
+        if (type == kTypeBlobIndex && is_blob_index_ == nullptr) {
+          // Blob value not supported. Stop.
+          state_ = kBlobIndex;
+          return false;
+        }
         if (kNotFound == state_) {
           state_ = kFound;
           if (LIKELY(pinnable_val_ != nullptr)) {
@@ -130,6 +135,9 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
               state_ = kCorrupt;
             }
           }
+        }
+        if (is_blob_index_ != nullptr) {
+          *is_blob_index_ = (type == kTypeBlobIndex);
         }
         return false;
 

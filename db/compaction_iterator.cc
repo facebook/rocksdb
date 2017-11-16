@@ -25,6 +25,8 @@ CompactionEventListener::CompactionListenerValueType fromInternalValueType(
           kSingleDelete;
     case kTypeRangeDeletion:
       return CompactionEventListener::CompactionListenerValueType::kRangeDelete;
+    case kTypeBlobIndex:
+      return CompactionEventListener::CompactionListenerValueType::kBlobIndex;
     default:
       assert(false);
       return CompactionEventListener::CompactionListenerValueType::kInvalid;
@@ -228,7 +230,8 @@ void CompactionIterator::NextFromInput() {
 #endif  // ROCKSDB_LITE
 
       // apply the compaction filter to the first occurrence of the user key
-      if (compaction_filter_ != nullptr && ikey_.type == kTypeValue &&
+      if (compaction_filter_ != nullptr && 
+          (ikey_.type == kTypeValue || ikey_.type == kTypeBlobIndex) &&
           (visible_at_tip_ || ikey_.sequence > latest_snapshot_ ||
            ignore_snapshots_)) {
         // If the user has specified a compaction filter and the sequence
@@ -238,11 +241,13 @@ void CompactionIterator::NextFromInput() {
         CompactionFilter::Decision filter;
         compaction_filter_value_.clear();
         compaction_filter_skip_until_.Clear();
+        CompactionFilter::ValueType value_type =
+            ikey_.type == kTypeValue ? CompactionFilter::ValueType::kValue
+                                     : CompactionFilter::ValueType::kBlobIndex;
         {
           StopWatchNano timer(env_, true);
           filter = compaction_filter_->FilterV2(
-              compaction_->level(), ikey_.user_key,
-              CompactionFilter::ValueType::kValue, value_,
+              compaction_->level(), ikey_.user_key, value_type, value_,
               &compaction_filter_value_, compaction_filter_skip_until_.rep());
           iter_stats_.total_filter_time +=
               env_ != nullptr ? timer.ElapsedNanos() : 0;

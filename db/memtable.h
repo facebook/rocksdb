@@ -35,11 +35,9 @@ class MemTableIterator;
 class MergeContext;
 class InternalIterator;
 
-struct MemTableOptions {
-  explicit MemTableOptions(
-      const ImmutableCFOptions& ioptions,
-      const MutableCFOptions& mutable_cf_options);
-  size_t write_buffer_size;
+struct ImmutableMemTableOptions {
+  explicit ImmutableMemTableOptions(const ImmutableCFOptions& ioptions,
+                                    const MutableCFOptions& mutable_cf_options);
   size_t arena_block_size;
   uint32_t memtable_prefix_bloom_bits;
   size_t memtable_huge_page_size;
@@ -187,13 +185,15 @@ class MemTable {
   // status returned indicates a corruption or other unexpected error.
   bool Get(const LookupKey& key, std::string* value, Status* s,
            MergeContext* merge_context, RangeDelAggregator* range_del_agg,
-           SequenceNumber* seq, const ReadOptions& read_opts);
+           SequenceNumber* seq, const ReadOptions& read_opts,
+           bool* is_blob_index = nullptr);
 
   bool Get(const LookupKey& key, std::string* value, Status* s,
            MergeContext* merge_context, RangeDelAggregator* range_del_agg,
-           const ReadOptions& read_opts) {
+           const ReadOptions& read_opts, bool* is_blob_index = nullptr) {
     SequenceNumber seq;
-    return Get(key, value, s, merge_context, range_del_agg, &seq, read_opts);
+    return Get(key, value, s, merge_context, range_del_agg, &seq, read_opts,
+               is_blob_index);
   }
 
   // Attempts to update the new_value inplace, else does normal Add
@@ -256,6 +256,18 @@ class MemTable {
   // operations on the same MemTable (unless this Memtable is immutable).
   uint64_t num_deletes() const {
     return num_deletes_.load(std::memory_order_relaxed);
+  }
+
+  // Dynamically change the memtable's capacity. If set below the current usage,
+  // the next key added will trigger a flush. Can only increase size when
+  // memtable prefix bloom is disabled, since we can't easily allocate more
+  // space.
+  void UpdateWriteBufferSize(size_t new_write_buffer_size) {
+    if (prefix_bloom_ == nullptr ||
+        new_write_buffer_size < write_buffer_size_) {
+      write_buffer_size_.store(new_write_buffer_size,
+                               std::memory_order_relaxed);
+    }
   }
 
   // Returns the edits area that is needed for flushing the memtable
@@ -346,7 +358,13 @@ class MemTable {
     return comparator_.comparator;
   }
 
-  const MemTableOptions* GetMemTableOptions() const { return &moptions_; }
+  const ImmutableMemTableOptions* GetImmutableMemTableOptions() const {
+    return &moptions_;
+  }
+
+  uint64_t ApproximateOldestKeyTime() const {
+    return oldest_key_time_.load(std::memory_order_relaxed);
+  }
 
  private:
   enum FlushStateEnum { FLUSH_NOT_REQUESTED, FLUSH_REQUESTED, FLUSH_SCHEDULED };
@@ -356,7 +374,7 @@ class MemTable {
   friend class MemTableList;
 
   KeyComparator comparator_;
-  const MemTableOptions moptions_;
+  const ImmutableMemTableOptions moptions_;
   int refs_;
   const size_t kArenaBlockSize;
   AllocTracker mem_tracker_;
@@ -369,6 +387,9 @@ class MemTable {
   std::atomic<uint64_t> data_size_;
   std::atomic<uint64_t> num_entries_;
   std::atomic<uint64_t> num_deletes_;
+
+  // Dynamically changeable memtable option
+  std::atomic<size_t> write_buffer_size_;
 
   // These are used to manage memtable flushes to storage
   bool flush_in_progress_; // started the flush
@@ -411,11 +432,16 @@ class MemTable {
   // Insert hints for each prefix.
   std::unordered_map<Slice, void*, SliceHasher> insert_hints_;
 
+  // Timestamp of oldest key
+  std::atomic<uint64_t> oldest_key_time_;
+
   // Returns a heuristic flush decision
   bool ShouldFlushNow() const;
 
   // Updates flush_state_ using ShouldFlushNow()
   void UpdateFlushState();
+
+  void UpdateOldestKeyTime();
 
   // No copying allowed
   MemTable(const MemTable&);

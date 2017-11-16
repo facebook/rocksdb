@@ -50,7 +50,8 @@ TableBuilder* NewTableBuilder(
     WritableFileWriter* file, const CompressionType compression_type,
     const CompressionOptions& compression_opts, int level,
     const std::string* compression_dict = nullptr,
-    const bool skip_filters = false, const uint64_t creation_time = 0);
+    const bool skip_filters = false, const uint64_t creation_time = 0,
+    const uint64_t oldest_key_time = 0);
 
 // Build a Table file from the contents of *iter.  The generated file
 // will be named according to number specified in meta. On success, the rest of
@@ -77,6 +78,6 @@ extern Status BuildTable(
     EventLogger* event_logger = nullptr, int job_id = 0,
     const Env::IOPriority io_priority = Env::IO_HIGH,
     TableProperties* table_properties = nullptr, int level = -1,
-    const uint64_t creation_time = 0);
+    const uint64_t creation_time = 0, const uint64_t oldest_key_time = 0);
 
 }  // namespace rocksdb

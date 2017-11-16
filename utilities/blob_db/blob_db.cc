@@ -26,6 +26,7 @@
 #include "table/block_builder.h"
 #include "util/file_reader_writer.h"
 #include "util/filename.h"
+#include "utilities/blob_db/blob_compaction_filter.h"
 #include "utilities/blob_db/blob_db_impl.h"
 
 namespace rocksdb {
@@ -45,6 +46,11 @@ Status BlobDB::OpenAndLoad(const Options& options,
                            const BlobDBOptions& bdb_options,
                            const std::string& dbname, BlobDB** blob_db,
                            Options* changed_options) {
+  if (options.compaction_filter != nullptr ||
+      options.compaction_filter_factory != nullptr) {
+    return Status::NotSupported("Blob DB doesn't support compaction filter.");
+  }
+
   *changed_options = options;
   *blob_db = nullptr;
 
@@ -57,12 +63,18 @@ Status BlobDB::OpenAndLoad(const Options& options,
   {
     MutexLock l(&listener_mutex);
     all_blobdb_listeners.push_back(fblistener);
-    all_blobdb_listeners.push_back(ce_listener);
+    if (bdb_options.enable_garbage_collection) {
+      all_blobdb_listeners.push_back(ce_listener);
+    }
     all_wal_filters.push_back(rw_filter);
   }
 
+  changed_options->compaction_filter_factory.reset(
+      new BlobIndexCompactionFilterFactory(options.env));
   changed_options->listeners.emplace_back(fblistener);
-  changed_options->listeners.emplace_back(ce_listener);
+  if (bdb_options.enable_garbage_collection) {
+    changed_options->listeners.emplace_back(ce_listener);
+  }
   changed_options->wal_filter = rw_filter.get();
 
   DBOptions db_options(*changed_options);
@@ -71,7 +83,9 @@ Status BlobDB::OpenAndLoad(const Options& options,
   BlobDBImpl* bdb = new BlobDBImpl(dbname, bdb_options, db_options);
 
   fblistener->SetImplPtr(bdb);
-  ce_listener->SetImplPtr(bdb);
+  if (bdb_options.enable_garbage_collection) {
+    ce_listener->SetImplPtr(bdb);
+  }
   rw_filter->SetImplPtr(bdb);
 
   Status s = bdb->OpenPhase1();
@@ -106,6 +120,11 @@ Status BlobDB::Open(const DBOptions& db_options_input,
                     const std::vector<ColumnFamilyDescriptor>& column_families,
                     std::vector<ColumnFamilyHandle*>* handles, BlobDB** blob_db,
                     bool no_base_db) {
+  if (column_families.size() != 1 ||
+      column_families[0].name != kDefaultColumnFamilyName) {
+    return Status::NotSupported(
+        "Blob DB doesn't support non-default column family.");
+  }
   *blob_db = nullptr;
   Status s;
 
@@ -124,34 +143,52 @@ Status BlobDB::Open(const DBOptions& db_options_input,
   ReconcileWalFilter_t rw_filter = std::make_shared<BlobReconcileWalFilter>();
 
   db_options.listeners.emplace_back(fblistener);
-  db_options.listeners.emplace_back(ce_listener);
+  if (bdb_options.enable_garbage_collection) {
+    db_options.listeners.emplace_back(ce_listener);
+  }
   db_options.wal_filter = rw_filter.get();
 
   {
     MutexLock l(&listener_mutex);
     all_blobdb_listeners.push_back(fblistener);
-    all_blobdb_listeners.push_back(ce_listener);
+    if (bdb_options.enable_garbage_collection) {
+      all_blobdb_listeners.push_back(ce_listener);
+    }
     all_wal_filters.push_back(rw_filter);
   }
+
+  ColumnFamilyOptions cf_options(column_families[0].options);
+  if (cf_options.compaction_filter != nullptr ||
+      cf_options.compaction_filter_factory != nullptr) {
+    return Status::NotSupported("Blob DB doesn't support compaction filter.");
+  }
+  cf_options.compaction_filter_factory.reset(
+      new BlobIndexCompactionFilterFactory(db_options.env));
+  ColumnFamilyDescriptor cf_descriptor(kDefaultColumnFamilyName, cf_options);
 
   // we need to open blob db first so that recovery can happen
   BlobDBImpl* bdb = new BlobDBImpl(dbname, bdb_options, db_options);
   fblistener->SetImplPtr(bdb);
-  ce_listener->SetImplPtr(bdb);
+  if (bdb_options.enable_garbage_collection) {
+    ce_listener->SetImplPtr(bdb);
+  }
   rw_filter->SetImplPtr(bdb);
 
   s = bdb->OpenPhase1();
   if (!s.ok()) {
+    delete bdb;
     return s;
   }
 
   if (no_base_db) {
+    *blob_db = bdb;
     return s;
   }
 
   DB* db = nullptr;
-  s = DB::Open(db_options, dbname, column_families, handles, &db);
+  s = DB::Open(db_options, dbname, {cf_descriptor}, handles, &db);
   if (!s.ok()) {
+    delete bdb;
     return s;
   }
 
@@ -169,27 +206,27 @@ Status BlobDB::Open(const DBOptions& db_options_input,
 BlobDB::BlobDB(DB* db) : StackableDB(db) {}
 
 void BlobDBOptions::Dump(Logger* log) const {
-  ROCKS_LOG_HEADER(log, "                   blob_db_options.blob_dir: %s",
+  ROCKS_LOG_HEADER(log, "                 blob_db_options.blob_dir: %s",
                    blob_dir.c_str());
-  ROCKS_LOG_HEADER(log, "              blob_db_options.path_relative: %d",
+  ROCKS_LOG_HEADER(log, "            blob_db_options.path_relative: %d",
                    path_relative);
-  ROCKS_LOG_HEADER(log, "                    blob_db_options.is_fifo: %d",
+  ROCKS_LOG_HEADER(log, "                  blob_db_options.is_fifo: %d",
                    is_fifo);
-  ROCKS_LOG_HEADER(log, "              blob_db_options.blob_dir_size: %" PRIu64,
+  ROCKS_LOG_HEADER(log, "            blob_db_options.blob_dir_size: %" PRIu64,
                    blob_dir_size);
-  ROCKS_LOG_HEADER(log, "             blob_db_options.ttl_range_secs: %" PRIu32,
+  ROCKS_LOG_HEADER(log, "           blob_db_options.ttl_range_secs: %" PRIu32,
                    ttl_range_secs);
-  ROCKS_LOG_HEADER(log, "             blob_db_options.bytes_per_sync: %" PRIu64,
+  ROCKS_LOG_HEADER(log, "           blob_db_options.bytes_per_sync: %" PRIu64,
                    bytes_per_sync);
-  ROCKS_LOG_HEADER(log, "             blob_db_options.blob_file_size: %" PRIu64,
+  ROCKS_LOG_HEADER(log, "           blob_db_options.blob_file_size: %" PRIu64,
                    blob_file_size);
-  ROCKS_LOG_HEADER(log, "blob_db_options.num_concurrent_simple_blobs: %" PRIu32,
-                   num_concurrent_simple_blobs);
-  ROCKS_LOG_HEADER(log, "              blob_db_options.ttl_extractor: %p",
+  ROCKS_LOG_HEADER(log, "            blob_db_options.ttl_extractor: %p",
                    ttl_extractor.get());
-  ROCKS_LOG_HEADER(log, "                blob_db_options.compression: %d",
+  ROCKS_LOG_HEADER(log, "              blob_db_options.compression: %d",
                    static_cast<int>(compression));
-  ROCKS_LOG_HEADER(log, "   blob_db_options.disable_background_tasks: %d",
+  ROCKS_LOG_HEADER(log, "blob_db_options.enable_garbage_collection: %d",
+                   enable_garbage_collection);
+  ROCKS_LOG_HEADER(log, " blob_db_options.disable_background_tasks: %d",
                    disable_background_tasks);
 }
 

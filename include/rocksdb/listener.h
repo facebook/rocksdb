@@ -206,6 +206,7 @@ class CompactionEventListener {
     kDelete,
     kSingleDelete,
     kRangeDelete,
+    kBlobIndex,
     kInvalid,
   };
 

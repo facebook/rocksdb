@@ -713,6 +713,7 @@ if(WITH_TESTS)
         db/corruption_test.cc
         db/cuckoo_table_db_test.cc
         db/db_basic_test.cc
+        db/db_blob_index_test.cc
         db/db_block_cache_test.cc
         db/db_bloom_filter_test.cc
         db/db_compaction_filter_test.cc
@@ -778,6 +779,7 @@ if(WITH_TESTS)
         options/options_test.cc
         table/block_based_filter_block_test.cc
         table/block_test.cc
+        table/cleanable_test.cc
         table/cuckoo_table_builder_test.cc
         table/cuckoo_table_reader_test.cc
         table/full_filter_block_test.cc

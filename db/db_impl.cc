@@ -909,7 +909,8 @@ Status DBImpl::Get(const ReadOptions& read_options,
 
 Status DBImpl::GetImpl(const ReadOptions& read_options,
                        ColumnFamilyHandle* column_family, const Slice& key,
-                       PinnableSlice* pinnable_val, bool* value_found) {
+                       PinnableSlice* pinnable_val, bool* value_found,
+                       bool* is_blob_index) {
   assert(pinnable_val != nullptr);
   StopWatch sw(env_, stats_, DB_GET);
   PERF_TIMER_GUARD(get_snapshot_time);
@@ -959,13 +960,13 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   bool done = false;
   if (!skip_memtable) {
     if (sv->mem->Get(lkey, pinnable_val->GetSelf(), &s, &merge_context,
-                     &range_del_agg, read_options)) {
+                     &range_del_agg, read_options, is_blob_index)) {
       done = true;
       pinnable_val->PinSelf();
       RecordTick(stats_, MEMTABLE_HIT);
     } else if ((s.ok() || s.IsMergeInProgress()) &&
                sv->imm->Get(lkey, pinnable_val->GetSelf(), &s, &merge_context,
-                            &range_del_agg, read_options)) {
+                            &range_del_agg, read_options, is_blob_index)) {
       done = true;
       pinnable_val->PinSelf();
       RecordTick(stats_, MEMTABLE_HIT);
@@ -977,7 +978,8 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   if (!done) {
     PERF_TIMER_GUARD(get_from_output_files_time);
     sv->current->Get(read_options, lkey, pinnable_val, &s, &merge_context,
-                     &range_del_agg, value_found);
+                     &range_del_agg, value_found, nullptr, nullptr,
+                     is_blob_index);
     RecordTick(stats_, MEMTABLE_MISS);
   }
 
@@ -1417,71 +1419,77 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
 #endif
   } else {
     SequenceNumber latest_snapshot = versions_->LastSequence();
-    SuperVersion* sv = cfd->GetReferencedSuperVersion(&mutex_);
-
     auto snapshot =
         read_options.snapshot != nullptr
-            ? reinterpret_cast<const SnapshotImpl*>(
-                read_options.snapshot)->number_
+            ? reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)
+                  ->number_
             : latest_snapshot;
-
-    // Try to generate a DB iterator tree in continuous memory area to be
-    // cache friendly. Here is an example of result:
-    // +-------------------------------+
-    // |                               |
-    // | ArenaWrappedDBIter            |
-    // |  +                            |
-    // |  +---> Inner Iterator   ------------+
-    // |  |                            |     |
-    // |  |    +-- -- -- -- -- -- -- --+     |
-    // |  +--- | Arena                 |     |
-    // |       |                       |     |
-    // |          Allocated Memory:    |     |
-    // |       |   +-------------------+     |
-    // |       |   | DBIter            | <---+
-    // |           |  +                |
-    // |       |   |  +-> iter_  ------------+
-    // |       |   |                   |     |
-    // |       |   +-------------------+     |
-    // |       |   | MergingIterator   | <---+
-    // |           |  +                |
-    // |       |   |  +->child iter1  ------------+
-    // |       |   |  |                |          |
-    // |           |  +->child iter2  ----------+ |
-    // |       |   |  |                |        | |
-    // |       |   |  +->child iter3  --------+ | |
-    // |           |                   |      | | |
-    // |       |   +-------------------+      | | |
-    // |       |   | Iterator1         | <--------+
-    // |       |   +-------------------+      | |
-    // |       |   | Iterator2         | <------+
-    // |       |   +-------------------+      |
-    // |       |   | Iterator3         | <----+
-    // |       |   +-------------------+
-    // |       |                       |
-    // +-------+-----------------------+
-    //
-    // ArenaWrappedDBIter inlines an arena area where all the iterators in
-    // the iterator tree are allocated in the order of being accessed when
-    // querying.
-    // Laying out the iterators in the order of being accessed makes it more
-    // likely that any iterator pointer is close to the iterator it points to so
-    // that they are likely to be in the same cache line and/or page.
-    ArenaWrappedDBIter* db_iter = NewArenaWrappedDbIterator(
-        env_, read_options, *cfd->ioptions(), snapshot,
-        sv->mutable_cf_options.max_sequential_skip_in_iterations,
-        sv->version_number,
-        ((read_options.snapshot != nullptr) ? nullptr : this), cfd);
-
-    InternalIterator* internal_iter =
-        NewInternalIterator(read_options, cfd, sv, db_iter->GetArena(),
-                            db_iter->GetRangeDelAggregator());
-    db_iter->SetIterUnderDBIter(internal_iter);
-
-    return db_iter;
+    return NewIteratorImpl(read_options, cfd, snapshot);
   }
   // To stop compiler from complaining
   return nullptr;
+}
+
+ArenaWrappedDBIter* DBImpl::NewIteratorImpl(const ReadOptions& read_options,
+                                            ColumnFamilyData* cfd,
+                                            SequenceNumber snapshot,
+                                            bool allow_blob) {
+  SuperVersion* sv = cfd->GetReferencedSuperVersion(&mutex_);
+
+  // Try to generate a DB iterator tree in continuous memory area to be
+  // cache friendly. Here is an example of result:
+  // +-------------------------------+
+  // |                               |
+  // | ArenaWrappedDBIter            |
+  // |  +                            |
+  // |  +---> Inner Iterator   ------------+
+  // |  |                            |     |
+  // |  |    +-- -- -- -- -- -- -- --+     |
+  // |  +--- | Arena                 |     |
+  // |       |                       |     |
+  // |          Allocated Memory:    |     |
+  // |       |   +-------------------+     |
+  // |       |   | DBIter            | <---+
+  // |           |  +                |
+  // |       |   |  +-> iter_  ------------+
+  // |       |   |                   |     |
+  // |       |   +-------------------+     |
+  // |       |   | MergingIterator   | <---+
+  // |           |  +                |
+  // |       |   |  +->child iter1  ------------+
+  // |       |   |  |                |          |
+  // |           |  +->child iter2  ----------+ |
+  // |       |   |  |                |        | |
+  // |       |   |  +->child iter3  --------+ | |
+  // |           |                   |      | | |
+  // |       |   +-------------------+      | | |
+  // |       |   | Iterator1         | <--------+
+  // |       |   +-------------------+      | |
+  // |       |   | Iterator2         | <------+
+  // |       |   +-------------------+      |
+  // |       |   | Iterator3         | <----+
+  // |       |   +-------------------+
+  // |       |                       |
+  // +-------+-----------------------+
+  //
+  // ArenaWrappedDBIter inlines an arena area where all the iterators in
+  // the iterator tree are allocated in the order of being accessed when
+  // querying.
+  // Laying out the iterators in the order of being accessed makes it more
+  // likely that any iterator pointer is close to the iterator it points to so
+  // that they are likely to be in the same cache line and/or page.
+  ArenaWrappedDBIter* db_iter = NewArenaWrappedDbIterator(
+      env_, read_options, *cfd->ioptions(), snapshot,
+      sv->mutable_cf_options.max_sequential_skip_in_iterations,
+      sv->version_number, ((read_options.snapshot != nullptr) ? nullptr : this),
+      cfd, allow_blob);
+
+  InternalIterator* internal_iter =
+      NewInternalIterator(read_options, cfd, sv, db_iter->GetArena(),
+                          db_iter->GetRangeDelAggregator());
+  db_iter->SetIterUnderDBIter(internal_iter);
+
+  return db_iter;
 }
 
 Status DBImpl::NewIterators(
@@ -1527,28 +1535,16 @@ Status DBImpl::NewIterators(
 #endif
   } else {
     SequenceNumber latest_snapshot = versions_->LastSequence();
+    auto snapshot =
+        read_options.snapshot != nullptr
+            ? reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)
+                  ->number_
+            : latest_snapshot;
 
     for (size_t i = 0; i < column_families.size(); ++i) {
       auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(
           column_families[i])->cfd();
-      SuperVersion* sv = cfd->GetReferencedSuperVersion(&mutex_);
-
-      auto snapshot =
-          read_options.snapshot != nullptr
-              ? reinterpret_cast<const SnapshotImpl*>(
-                  read_options.snapshot)->number_
-              : latest_snapshot;
-
-      ArenaWrappedDBIter* db_iter = NewArenaWrappedDbIterator(
-          env_, read_options, *cfd->ioptions(), snapshot,
-          sv->mutable_cf_options.max_sequential_skip_in_iterations,
-          sv->version_number,
-          ((read_options.snapshot != nullptr) ? nullptr : this), cfd);
-      InternalIterator* internal_iter =
-          NewInternalIterator(read_options, cfd, sv, db_iter->GetArena(),
-                              db_iter->GetRangeDelAggregator());
-      db_iter->SetIterUnderDBIter(internal_iter);
-      iterators->push_back(db_iter);
+      iterators->push_back(NewIteratorImpl(read_options, cfd, snapshot));
     }
   }
 
@@ -1587,12 +1583,10 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
   delete casted_s;
 }
 
-bool DBImpl::HasActiveSnapshotLaterThanSN(SequenceNumber sn) {
+bool DBImpl::HasActiveSnapshotInRange(SequenceNumber lower_bound,
+                                      SequenceNumber upper_bound) {
   InstrumentedMutexLock l(&mutex_);
-  if (snapshots_.empty()) {
-    return false;
-  }
-  return (snapshots_.newest()->GetSequenceNumber() > sn);
+  return snapshots_.HasSnapshotInRange(lower_bound, upper_bound);
 }
 
 #ifndef ROCKSDB_LITE
@@ -2532,7 +2526,8 @@ SequenceNumber DBImpl::GetEarliestMemTableSequenceNumber(SuperVersion* sv,
 #ifndef ROCKSDB_LITE
 Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
                                        bool cache_only, SequenceNumber* seq,
-                                       bool* found_record_for_key) {
+                                       bool* found_record_for_key,
+                                       bool* is_blob_index) {
   Status s;
   MergeContext merge_context;
   RangeDelAggregator range_del_agg(sv->mem->GetInternalKeyComparator(),
@@ -2547,7 +2542,7 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
 
   // Check if there is a record for this key in the latest memtable
   sv->mem->Get(lkey, nullptr, &s, &merge_context, &range_del_agg, seq,
-               read_options);
+               read_options, is_blob_index);
 
   if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
     // unexpected error reading memtable.
@@ -2566,7 +2561,7 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
 
   // Check if there is a record for this key in the immutable memtables
   sv->imm->Get(lkey, nullptr, &s, &merge_context, &range_del_agg, seq,
-               read_options);
+               read_options, is_blob_index);
 
   if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
     // unexpected error reading memtable.
@@ -2585,7 +2580,7 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
 
   // Check if there is a record for this key in the immutable memtables
   sv->imm->GetFromHistory(lkey, nullptr, &s, &merge_context, &range_del_agg,
-                          seq, read_options);
+                          seq, read_options, is_blob_index);
 
   if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
     // unexpected error reading memtable.
@@ -2609,7 +2604,7 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
     // Check tables
     sv->current->Get(read_options, lkey, nullptr, &s, &merge_context,
                      &range_del_agg, nullptr /* value_found */,
-                     found_record_for_key, seq);
+                     found_record_for_key, seq, is_blob_index);
 
     if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
       // unexpected error reading SST files
