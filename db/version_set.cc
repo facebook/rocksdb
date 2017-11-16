@@ -980,7 +980,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       storage_info_.num_non_empty_levels_, &storage_info_.file_indexer_,
       user_comparator(), internal_comparator());
   FdWithKeyRange* f = fp.GetNextFile();
-  uint32_t tickers_before[Tickers::TICKER_ENUM_MAX];
+  uint32_t tickers_before[Tickers::TICKER_ENUM_MAX] = {0};
   std::copy(std::begin(get_context.tickers_value),
             std::end(get_context.tickers_value), std::begin(tickers_before));
 

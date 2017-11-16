@@ -74,7 +74,7 @@ class GetContext {
     return true;
   }
 
-  void record_counters(Tickers ticker, size_t val);
+  void RecordCounters(Tickers ticker, size_t val);
 
  private:
   const Comparator* ucmp_;
