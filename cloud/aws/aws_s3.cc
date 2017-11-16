@@ -350,7 +350,8 @@ Status S3WritableFile::Close() {
   uint64_t fileNumber;
   FileType type;
   WalFileType walType;
-  bool ok = ParseFileName(basename(fname_), &fileNumber, &type, &walType);
+  bool ok __attribute__((unused)) =
+      ParseFileName(basename(fname_), &fileNumber, &type, &walType);
   assert(ok && type == kTableFile);
   env_->RemoveFileFromDeletionQueue(fileNumber);
   status_ = CopyToS3(env_, fname_, s3_bucket_, s3_object_, file_size);

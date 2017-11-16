@@ -969,7 +969,8 @@ Status AwsEnv::DeleteFile(const std::string& fname) {
       uint64_t fileNumber;
       FileType type;
       WalFileType walType;
-      bool ok = ParseFileName(basename(fname), &fileNumber, &type, &walType);
+      bool ok __attribute__((unused)) =
+          ParseFileName(basename(fname), &fileNumber, &type, &walType);
       assert(ok && type == kTableFile);
       // add the remote file deletion to the queue
       std::unique_lock<std::mutex> lk(file_deletion_lock_);
