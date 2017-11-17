@@ -25,26 +25,6 @@ ColumnFamilyOptions BuildColumnFamilyOptions(
     const ColumnFamilyOptions& ioptions,
     const MutableCFOptions& mutable_cf_options);
 
-static std::map<CompactionStyle, std::string> compaction_style_to_string = {
-    {kCompactionStyleLevel, "kCompactionStyleLevel"},
-    {kCompactionStyleUniversal, "kCompactionStyleUniversal"},
-    {kCompactionStyleFIFO, "kCompactionStyleFIFO"},
-    {kCompactionStyleNone, "kCompactionStyleNone"}};
-
-static std::map<CompactionPri, std::string> compaction_pri_to_string = {
-    {kByCompensatedSize, "kByCompensatedSize"},
-    {kOldestLargestSeqFirst, "kOldestLargestSeqFirst"},
-    {kOldestSmallestSeqFirst, "kOldestSmallestSeqFirst"},
-    {kMinOverlappingRatio, "kMinOverlappingRatio"}};
-
-static std::map<CompactionStopStyle, std::string>
-    compaction_stop_style_to_string = {
-        {kCompactionStopStyleSimilarSize, "kCompactionStopStyleSimilarSize"},
-        {kCompactionStopStyleTotalSize, "kCompactionStopStyleTotalSize"}};
-
-static std::unordered_map<std::string, ChecksumType> checksum_type_string_map =
-    {{"kNoChecksum", kNoChecksum}, {"kCRC32c", kCRC32c}, {"kxxHash", kxxHash}};
-
 #ifndef ROCKSDB_LITE
 
 Status GetMutableOptionsFromStrings(
@@ -373,81 +353,71 @@ static std::unordered_map<std::string, OptionTypeInfo> db_options_type_info = {
       offsetof(struct ImmutableDBOptions, manual_wal_flush)}},
     {"seq_per_batch",
      {0, OptionType::kBoolean, OptionVerificationType::kDeprecated, false, 0}}};
-
-class OptionsHelper {
- public:
-  static std::unordered_map<std::string, OptionTypeInfo> cf_options_type_info;
-  static std::unordered_map<std::string, OptionTypeInfo>
-      fifo_compaction_options_type_info;
-  static ColumnFamilyOptions dummy_cf_options;
-  static CompactionOptionsFIFO dummy_comp_options;
-};
-
-static std::unordered_map<std::string, CompressionType>
-    compression_type_string_map = {
-        {"kNoCompression", kNoCompression},
-        {"kSnappyCompression", kSnappyCompression},
-        {"kZlibCompression", kZlibCompression},
-        {"kBZip2Compression", kBZip2Compression},
-        {"kLZ4Compression", kLZ4Compression},
-        {"kLZ4HCCompression", kLZ4HCCompression},
-        {"kXpressCompression", kXpressCompression},
-        {"kZSTD", kZSTD},
-        {"kZSTDNotFinalCompression", kZSTDNotFinalCompression},
-        {"kDisableCompressionOption", kDisableCompressionOption}};
-
-static std::unordered_map<std::string, BlockBasedTableOptions::IndexType>
-    block_base_table_index_type_string_map = {
-        {"kBinarySearch", BlockBasedTableOptions::IndexType::kBinarySearch},
-        {"kHashSearch", BlockBasedTableOptions::IndexType::kHashSearch},
-        {"kTwoLevelIndexSearch",
-         BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch}};
-
-static std::unordered_map<std::string, EncodingType> encoding_type_string_map =
-    {{"kPlain", kPlain}, {"kPrefix", kPrefix}};
-
-static std::unordered_map<std::string, CompactionStyle>
-    compaction_style_string_map = {
-        {"kCompactionStyleLevel", kCompactionStyleLevel},
-        {"kCompactionStyleUniversal", kCompactionStyleUniversal},
-        {"kCompactionStyleFIFO", kCompactionStyleFIFO},
-        {"kCompactionStyleNone", kCompactionStyleNone}};
-
-static std::unordered_map<std::string, CompactionPri>
-    compaction_pri_string_map = {
-        {"kByCompensatedSize", kByCompensatedSize},
-        {"kOldestLargestSeqFirst", kOldestLargestSeqFirst},
-        {"kOldestSmallestSeqFirst", kOldestSmallestSeqFirst},
-        {"kMinOverlappingRatio", kMinOverlappingRatio}};
-
-static std::unordered_map<std::string,
-                          WALRecoveryMode> wal_recovery_mode_string_map = {
-    {"kTolerateCorruptedTailRecords",
-     WALRecoveryMode::kTolerateCorruptedTailRecords},
-    {"kAbsoluteConsistency", WALRecoveryMode::kAbsoluteConsistency},
-    {"kPointInTimeRecovery", WALRecoveryMode::kPointInTimeRecovery},
-    {"kSkipAnyCorruptedRecords", WALRecoveryMode::kSkipAnyCorruptedRecords}};
-
-static std::unordered_map<std::string, DBOptions::AccessHint>
-    access_hint_string_map = {{"NONE", DBOptions::AccessHint::NONE},
-                              {"NORMAL", DBOptions::AccessHint::NORMAL},
-                              {"SEQUENTIAL", DBOptions::AccessHint::SEQUENTIAL},
-                              {"WILLNEED", DBOptions::AccessHint::WILLNEED}};
-
-static std::unordered_map<std::string, InfoLogLevel> info_log_level_string_map =
-    {{"DEBUG_LEVEL", InfoLogLevel::DEBUG_LEVEL},
-     {"INFO_LEVEL", InfoLogLevel::INFO_LEVEL},
-     {"WARN_LEVEL", InfoLogLevel::WARN_LEVEL},
-     {"ERROR_LEVEL", InfoLogLevel::ERROR_LEVEL},
-     {"FATAL_LEVEL", InfoLogLevel::FATAL_LEVEL},
-     {"HEADER_LEVEL", InfoLogLevel::HEADER_LEVEL}};
-
 extern Status StringToMap(
     const std::string& opts_str,
     std::unordered_map<std::string, std::string>* opts_map);
 
 extern bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
                               const std::string& value);
+#endif  // !ROCKSDB_LITE
+
+struct OptionsHelper {
+  static std::map<CompactionStyle, std::string> compaction_style_to_string;
+  static std::map<CompactionPri, std::string> compaction_pri_to_string;
+  static std::map<CompactionStopStyle, std::string>
+      compaction_stop_style_to_string;
+  static std::unordered_map<std::string, ChecksumType> checksum_type_string_map;
+#ifndef ROCKSDB_LITE
+  static std::unordered_map<std::string, OptionTypeInfo> cf_options_type_info;
+  static std::unordered_map<std::string, OptionTypeInfo>
+      fifo_compaction_options_type_info;
+  static std::unordered_map<std::string, OptionTypeInfo> db_options_type_info;
+  static std::unordered_map<std::string, CompressionType>
+      compression_type_string_map;
+  static std::unordered_map<std::string, BlockBasedTableOptions::IndexType>
+      block_base_table_index_type_string_map;
+  static std::unordered_map<std::string, EncodingType> encoding_type_string_map;
+  static std::unordered_map<std::string, CompactionStyle>
+      compaction_style_string_map;
+  static std::unordered_map<std::string, CompactionPri>
+      compaction_pri_string_map;
+  static std::unordered_map<std::string, WALRecoveryMode>
+      wal_recovery_mode_string_map;
+  static std::unordered_map<std::string, DBOptions::AccessHint>
+      access_hint_string_map;
+  static std::unordered_map<std::string, InfoLogLevel>
+      info_log_level_string_map;
+  static ColumnFamilyOptions dummy_cf_options;
+  static CompactionOptionsFIFO dummy_comp_options;
+#endif  // !ROCKSDB_LITE
+};
+
+// Some aliasing
+static auto& compaction_style_to_string =
+    OptionsHelper::compaction_style_to_string;
+static auto& compaction_pri_to_string = OptionsHelper::compaction_pri_to_string;
+static auto& compaction_stop_style_to_string =
+    OptionsHelper::compaction_stop_style_to_string;
+static auto& checksum_type_string_map = OptionsHelper::checksum_type_string_map;
+#ifndef ROCKSDB_LITE
+static auto& cf_options_type_info = OptionsHelper::cf_options_type_info;
+static auto& fifo_compaction_options_type_info =
+    OptionsHelper::fifo_compaction_options_type_info;
+static auto& db_options_type_info = OptionsHelper::db_options_type_info;
+static auto& compression_type_string_map =
+    OptionsHelper::compression_type_string_map;
+static auto& block_base_table_index_type_string_map =
+    OptionsHelper::block_base_table_index_type_string_map;
+static auto& encoding_type_string_map = OptionsHelper::encoding_type_string_map;
+static auto& compaction_style_string_map =
+    OptionsHelper::compaction_style_string_map;
+static auto& compaction_pri_string_map =
+    OptionsHelper::compaction_pri_string_map;
+static auto& wal_recovery_mode_string_map =
+    OptionsHelper::wal_recovery_mode_string_map;
+static auto& access_hint_string_map = OptionsHelper::access_hint_string_map;
+static auto& info_log_level_string_map =
+    OptionsHelper::info_log_level_string_map;
 #endif  // !ROCKSDB_LITE
 
 }  // namespace rocksdb
