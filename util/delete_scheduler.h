@@ -43,7 +43,7 @@ class DeleteScheduler {
 
   // Set delete rate limit in bytes per second
   void SetRateBytesPerSecond(int64_t bytes_per_sec) {
-    return rate_bytes_per_sec_.store(bytes_per_sec);
+    rate_bytes_per_sec_.store(bytes_per_sec);
   }
 
   // Mark file as trash directory and schedule it's deletion
@@ -67,7 +67,7 @@ class DeleteScheduler {
   // Update trash/DB size ratio where new files will be deleted immediately
   void SetMaxTrashDBRatio(double r) {
     assert(r >= 0);
-    return max_trash_db_ratio_.store(r);
+    max_trash_db_ratio_.store(r);
   }
 
   static const std::string kTrashExtension;
