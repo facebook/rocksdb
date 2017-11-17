@@ -622,10 +622,11 @@ Status ExternalSstFileIngestionJob::IngestedFileOverlapWithLevel(
   // Files are opened lazily when the iterator needs them, thus range deletions
   // are also added lazily to the aggregator. We need to check for range
   // deletion overlap only in the case where there's no point-key overlap. Then,
-  // we've already opened the file containing the first key after the range, and
-  // iterated backward to the last key before the range. So any files maybe
-  // containing range deletions overlapping the ingested file must have been
-  // opened and had their range deletions added to the aggregator.
+  // we've already opened the file with range containing the ingested file's
+  // begin key, and iterated through all files until the one containing the
+  // ingested file's end key. So any files maybe containing range deletions
+  // overlapping the ingested file must have been opened and had their range
+  // deletions added to the aggregator.
   RangeDelAggregator range_del_agg(cfd_->internal_comparator(),
                                    {} /* snapshots */,
                                    false /* collapse_deletions */);
