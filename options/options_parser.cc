@@ -748,7 +748,7 @@ Status RocksDBOptionsParser::VerifyCFOptions(
     const ColumnFamilyOptions& persisted_opt,
     const std::unordered_map<std::string, std::string>* persisted_opt_map,
     OptionsSanityCheckLevel sanity_check_level) {
-  for (auto& pair : cf_options_type_info) {
+  for (auto& pair : OptionsHelper::cf_options_type_info) {
     if (pair.second.verification == OptionVerificationType::kDeprecated) {
       // We skip checking deprecated variables as they might
       // contain random values since they might not be initialized
