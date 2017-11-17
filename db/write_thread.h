@@ -82,6 +82,12 @@ class WriteThread {
     std::atomic<size_t> running;
     size_t size = 0;
 
+    void UpdateStatus(const Status& s) {
+      if (status.ok() && !s.ok()) {
+        status = s;
+      }
+    }
+
     struct Iterator {
       Writer* writer;
       Writer* last_writer;
@@ -124,7 +130,7 @@ class WriteThread {
     std::atomic<uint8_t> state;  // write under StateMutex() or pre-link
     WriteGroup* write_group;
     SequenceNumber sequence;  // the sequence number to use for the first key
-    Status status;            // status of memtable inserter
+    Status status;            // (WAL + memtable) write status
     Status callback_status;   // status returned by callback->Callback()
     std::aligned_storage<sizeof(std::mutex)>::type state_mutex_bytes;
     std::aligned_storage<sizeof(std::condition_variable)>::type state_cv_bytes;
@@ -278,8 +284,7 @@ class WriteThread {
   // and wakes up the next leader (if any).
   //
   // WriteGroup* write_group: the write group
-  // Status status:           Status of write operation
-  void ExitAsBatchGroupLeader(WriteGroup& write_group, Status status);
+  void ExitAsBatchGroupLeader(WriteGroup& write_group);
 
   // Exit batch group on behalf of batch group leader.
   void ExitAsBatchGroupFollower(Writer* w);

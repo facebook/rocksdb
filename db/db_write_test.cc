@@ -8,8 +8,8 @@
 #include <thread>
 #include <vector>
 #include "db/db_test_util.h"
-#include "db/write_thread.h"
 #include "db/write_batch_internal.h"
+#include "db/write_thread.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "util/fault_injection_test_env.h"
@@ -108,11 +108,6 @@ TEST_P(DBWriteTest, IOErrorOnWALWritePropagateToWriteThreadFollower) {
             // busy waiting
           }
         }
-      });
-  SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::WriteImpl::FinishWriteToWAL", [&](void* /*arg*/) {
-        // Reactivate file system immediate after the first WAL write.
-        mock_env->SetFilesystemActive(true);
       });
   SyncPoint::GetInstance()->EnableProcessing();
   for (int i = 0; i < kNumThreads; i++) {

@@ -502,7 +502,7 @@ bool WriteThread::CompleteParallelMemTableWriter(Writer* w) {
   auto* write_group = w->write_group;
   if (!w->status.ok()) {
     std::lock_guard<std::mutex> guard(write_group->leader->StateMutex());
-    write_group->status = w->status;
+    write_group->UpdateStatus(w->status);
   }
 
   if (write_group->running-- > 1) {
@@ -520,15 +520,14 @@ void WriteThread::ExitAsBatchGroupFollower(Writer* w) {
 
   assert(w->state == STATE_PARALLEL_MEMTABLE_WRITER);
   assert(write_group->status.ok());
-  ExitAsBatchGroupLeader(*write_group, write_group->status);
+  ExitAsBatchGroupLeader(*write_group);
   assert(w->status.ok());
   assert(w->state == STATE_COMPLETED);
   SetState(write_group->leader, STATE_COMPLETED);
 }
 
 static WriteThread::AdaptationContext eabgl_ctx("ExitAsBatchGroupLeader");
-void WriteThread::ExitAsBatchGroupLeader(WriteGroup& write_group,
-                                         Status status) {
+void WriteThread::ExitAsBatchGroupLeader(WriteGroup& write_group) {
   Writer* leader = write_group.leader;
   Writer* last_writer = write_group.last_writer;
   assert(leader->link_older == nullptr);
@@ -537,7 +536,7 @@ void WriteThread::ExitAsBatchGroupLeader(WriteGroup& write_group,
     // Notify writers don't write to memtable to exit.
     for (Writer* w = last_writer; w != leader;) {
       Writer* next = w->link_older;
-      w->status = status;
+      w->status = write_group.status;
       if (!w->ShouldWriteToMemtable()) {
         CompleteFollower(w, write_group);
       }
@@ -564,8 +563,9 @@ void WriteThread::ExitAsBatchGroupLeader(WriteGroup& write_group,
       next_leader->link_older = nullptr;
       SetState(next_leader, STATE_GROUP_LEADER);
     }
-    AwaitState(leader, STATE_MEMTABLE_WRITER_LEADER |
-                           STATE_PARALLEL_MEMTABLE_WRITER | STATE_COMPLETED,
+    AwaitState(leader,
+               STATE_MEMTABLE_WRITER_LEADER | STATE_PARALLEL_MEMTABLE_WRITER |
+                   STATE_COMPLETED,
                &eabgl_ctx);
   } else {
     Writer* head = newest_writer_.load(std::memory_order_acquire);
@@ -601,7 +601,7 @@ void WriteThread::ExitAsBatchGroupLeader(WriteGroup& write_group,
     // leader now
 
     while (last_writer != leader) {
-      last_writer->status = status;
+      last_writer->status = write_group.status;
       // we need to read link_older before calling SetState, because as soon
       // as it is marked committed the other thread's Await may return and
       // deallocate the Writer.
