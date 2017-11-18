@@ -299,6 +299,12 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
   delete[] new_options_ptr;
 }
 
+template <typename T1, typename T2>
+inline int offset_of(T1 T2::*member) {
+  static T2 obj;
+  return int(size_t(&(obj.*member)) - size_t(&obj));
+}
+
 // If the test fails, likely a new option is added to ColumnFamilyOptions
 // but it cannot be set through GetColumnFamilyOptionsFromString(), or the
 // test is not updated accordingly.
