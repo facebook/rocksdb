@@ -80,7 +80,6 @@ class DBIter final: public Iterator {
     }
 
     void BumpGlobalStatistics(Statistics* global_statistics) {
-      skip_count_ -= (next_found_count_ + prev_found_count_);
       RecordTick(global_statistics, NUMBER_DB_NEXT, next_count_);
       RecordTick(global_statistics, NUMBER_DB_NEXT_FOUND, next_found_count_);
       RecordTick(global_statistics, NUMBER_DB_PREV, prev_count_);
@@ -274,6 +273,9 @@ class DBIter final: public Iterator {
 
   inline void ResetInternalKeysSkippedCounter() {
     local_stats_.skip_count_ += num_internal_keys_skipped_;
+    if (valid_) {
+      local_stats_.skip_count_--;
+    }
     num_internal_keys_skipped_ = 0;
   }
 
@@ -1151,7 +1153,6 @@ void DBIter::Seek(const Slice& target) {
     if (statistics_ != nullptr) {
       if (valid_) {
         // Decrement since we don't want to count this key as skipped
-        local_stats_.skip_count_--;
         RecordTick(statistics_, NUMBER_DB_SEEK_FOUND);
         RecordTick(statistics_, ITER_BYTES_READ, key().size() + value().size());
         PERF_COUNTER_ADD(iter_read_bytes, key().size() + value().size());
@@ -1195,7 +1196,6 @@ void DBIter::SeekForPrev(const Slice& target) {
     }
     if (statistics_ != nullptr) {
       if (valid_) {
-        local_stats_.skip_count_--;
         RecordTick(statistics_, NUMBER_DB_SEEK_FOUND);
         RecordTick(statistics_, ITER_BYTES_READ, key().size() + value().size());
         PERF_COUNTER_ADD(iter_read_bytes, key().size() + value().size());
@@ -1242,7 +1242,6 @@ void DBIter::SeekToFirst() {
         RecordTick(statistics_, NUMBER_DB_SEEK_FOUND);
         RecordTick(statistics_, ITER_BYTES_READ, key().size() + value().size());
         PERF_COUNTER_ADD(iter_read_bytes, key().size() + value().size());
-        local_stats_.skip_count_--;
       }
     }
   } else {
@@ -1280,7 +1279,8 @@ void DBIter::SeekToLast() {
     if (!Valid()) {
       return;
     } else if (user_comparator_->Equal(*iterate_upper_bound_, key())) {
-      Prev();
+      ReleaseTempPinnedData();
+      PrevInternal();
     }
   } else {
     PrevInternal();
@@ -1288,7 +1288,6 @@ void DBIter::SeekToLast() {
   if (statistics_ != nullptr) {
     RecordTick(statistics_, NUMBER_DB_SEEK);
     if (valid_) {
-      local_stats_.skip_count_--;
       RecordTick(statistics_, NUMBER_DB_SEEK_FOUND);
       RecordTick(statistics_, ITER_BYTES_READ, key().size() + value().size());
       PERF_COUNTER_ADD(iter_read_bytes, key().size() + value().size());

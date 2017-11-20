@@ -2152,7 +2152,8 @@ TEST_F(DBIteratorTest, SkipStatistics) {
   }
   ASSERT_EQ(count, 2);
   delete iter;
-  skip_count += 7; // 3 deletes + 3 original keys + old value of "a"
+  // 3 deletes + 3 original keys + 2 keys of "b" + lower sequence of "a"
+  skip_count += 9;
   ASSERT_EQ(skip_count, TestGetTickerCount(options, NUMBER_ITER_SKIP));
 }
 
