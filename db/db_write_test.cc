@@ -112,9 +112,9 @@ TEST_P(DBWriteTest, IOErrorOnWALWritePropagateToWriteThreadFollower) {
   SyncPoint::GetInstance()->EnableProcessing();
   for (int i = 0; i < kNumThreads; i++) {
     threads.push_back(port::Thread(
-        [&](int i) {
+        [&](int index) {
           // All threads should fail.
-          ASSERT_FALSE(Put("key" + ToString(i), "value").ok());
+          ASSERT_FALSE(Put("key" + ToString(index), "value").ok());
         },
         i));
   }
