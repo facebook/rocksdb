@@ -80,6 +80,7 @@ class DBIter final: public Iterator {
     }
 
     void BumpGlobalStatistics(Statistics* global_statistics) {
+      skip_count_ -= (next_found_count_ + prev_found_count_);
       RecordTick(global_statistics, NUMBER_DB_NEXT, next_count_);
       RecordTick(global_statistics, NUMBER_DB_NEXT_FOUND, next_found_count_);
       RecordTick(global_statistics, NUMBER_DB_PREV, prev_count_);
@@ -151,6 +152,7 @@ class DBIter final: public Iterator {
     // Compiler warning issue filed:
     // https://github.com/facebook/rocksdb/issues/3013
     RecordTick(statistics_, NO_ITERATORS, uint64_t(-1));
+    ResetInternalKeysSkippedCounter();
     local_stats_.BumpGlobalStatistics(statistics_);
     if (!arena_mode_) {
       delete iter_;
@@ -271,6 +273,7 @@ class DBIter final: public Iterator {
   }
 
   inline void ResetInternalKeysSkippedCounter() {
+    local_stats_.skip_count_ += num_internal_keys_skipped_;
     num_internal_keys_skipped_ = 0;
   }
 
@@ -365,8 +368,6 @@ void DBIter::Next() {
   }
   FindNextUserEntry(true /* skipping the current user key */, prefix_same_as_start_);
   if (statistics_ != nullptr && valid_) {
-    // Decrement since we don't want to count this key as skipped
-    local_stats_.skip_count_--;
     local_stats_.next_found_count_++;
     local_stats_.bytes_read_ += (key().size() + value().size());
   }
@@ -689,7 +690,6 @@ void DBIter::Prev() {
   if (statistics_ != nullptr) {
     local_stats_.prev_count_++;
     if (valid_) {
-      local_stats_.skip_count_--;
       local_stats_.prev_found_count_++;
       local_stats_.bytes_read_ += (key().size() + value().size());
     }
@@ -1105,7 +1105,6 @@ bool DBIter::TooManyInternalKeysSkipped(bool increment) {
     return true;
   } else if (increment) {
     num_internal_keys_skipped_++;
-    local_stats_.skip_count_++;
   }
   return false;
 }
@@ -1151,6 +1150,8 @@ void DBIter::Seek(const Slice& target) {
     }
     if (statistics_ != nullptr) {
       if (valid_) {
+        // Decrement since we don't want to count this key as skipped
+        local_stats_.skip_count_--;
         RecordTick(statistics_, NUMBER_DB_SEEK_FOUND);
         RecordTick(statistics_, ITER_BYTES_READ, key().size() + value().size());
         PERF_COUNTER_ADD(iter_read_bytes, key().size() + value().size());
@@ -1194,6 +1195,7 @@ void DBIter::SeekForPrev(const Slice& target) {
     }
     if (statistics_ != nullptr) {
       if (valid_) {
+        local_stats_.skip_count_--;
         RecordTick(statistics_, NUMBER_DB_SEEK_FOUND);
         RecordTick(statistics_, ITER_BYTES_READ, key().size() + value().size());
         PERF_COUNTER_ADD(iter_read_bytes, key().size() + value().size());

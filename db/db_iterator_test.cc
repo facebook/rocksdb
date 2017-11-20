@@ -2080,7 +2080,7 @@ TEST_F(DBIteratorTest, SkipStatistics) {
   Options options = CurrentOptions();
   options.statistics = rocksdb::CreateDBStatistics();
   DestroyAndReopen(options);
- 
+
   int skip_count = 0;
 
   // write a bunch of kvs to the database.
@@ -2141,8 +2141,19 @@ TEST_F(DBIteratorTest, SkipStatistics) {
   }
   ASSERT_EQ(count, 1);
   delete iter;
-  skip_count += 7; // 3 deletes + 3 original keys + 1 key matching upper bound
-  ASSERT_EQ(23, TestGetTickerCount(options, NUMBER_ITER_SKIP));
+  skip_count += 6; // 3 deletes + 3 original keys
+  ASSERT_EQ(skip_count, TestGetTickerCount(options, NUMBER_ITER_SKIP));
+
+  iter = db_->NewIterator(ro);
+  count = 0;
+  for(iter->SeekToLast(); iter->Valid(); iter->Prev()) {
+    ASSERT_OK(iter->status());
+    count++;
+  }
+  ASSERT_EQ(count, 2);
+  delete iter;
+  skip_count += 7; // 3 deletes + 3 original keys + old value of "a"
+  ASSERT_EQ(skip_count, TestGetTickerCount(options, NUMBER_ITER_SKIP));
 }
 
 }  // namespace rocksdb
