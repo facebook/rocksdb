@@ -134,9 +134,6 @@ bool BlobFile::NeedsFsync(bool hard, uint64_t bytes_per_sync) const {
 }
 
 Status BlobFile::WriteFooterAndCloseLocked() {
-  ROCKS_LOG_INFO(parent_->db_options_.info_log,
-                 "File is being closed after footer %s", PathName().c_str());
-
   BlobLogFooter footer;
   footer.blob_count = blob_count_;
   if (HasTTL()) {
@@ -152,7 +149,7 @@ Status BlobFile::WriteFooterAndCloseLocked() {
     file_size_ += BlobLogFooter::kSize;
   } else {
     ROCKS_LOG_ERROR(parent_->db_options_.info_log,
-                    "Failure to read Header for blob-file %s",
+                    "Failure to append footer to blob-file %s",
                     PathName().c_str());
   }
   // delete the sequential writer
