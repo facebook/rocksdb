@@ -76,6 +76,7 @@ class DBIter final: public Iterator {
       prev_count_ = 0;
       prev_found_count_ = 0;
       bytes_read_ = 0;
+      skip_count_ = 0;
     }
 
     void BumpGlobalStatistics(Statistics* global_statistics) {
@@ -84,6 +85,7 @@ class DBIter final: public Iterator {
       RecordTick(global_statistics, NUMBER_DB_PREV, prev_count_);
       RecordTick(global_statistics, NUMBER_DB_PREV_FOUND, prev_found_count_);
       RecordTick(global_statistics, ITER_BYTES_READ, bytes_read_);
+      RecordTick(global_statistics, NUMBER_ITER_SKIP, skip_count_);
       PERF_COUNTER_ADD(iter_read_bytes, bytes_read_);
       ResetCounters();
     }
@@ -98,6 +100,8 @@ class DBIter final: public Iterator {
     uint64_t prev_found_count_;
     // Map to Tickers::ITER_BYTES_READ
     uint64_t bytes_read_;
+    // Map to Tickers::NUMBER_ITER_SKIP
+    uint64_t skip_count_;
   };
 
   DBIter(Env* _env, const ReadOptions& read_options,
@@ -147,6 +151,7 @@ class DBIter final: public Iterator {
     // Compiler warning issue filed:
     // https://github.com/facebook/rocksdb/issues/3013
     RecordTick(statistics_, NO_ITERATORS, uint64_t(-1));
+    ResetInternalKeysSkippedCounter();
     local_stats_.BumpGlobalStatistics(statistics_);
     if (!arena_mode_) {
       delete iter_;
@@ -267,6 +272,10 @@ class DBIter final: public Iterator {
   }
 
   inline void ResetInternalKeysSkippedCounter() {
+    local_stats_.skip_count_ += num_internal_keys_skipped_;
+    if (valid_) {
+      local_stats_.skip_count_--;
+    }
     num_internal_keys_skipped_ = 0;
   }
 
@@ -1143,6 +1152,7 @@ void DBIter::Seek(const Slice& target) {
     }
     if (statistics_ != nullptr) {
       if (valid_) {
+        // Decrement since we don't want to count this key as skipped
         RecordTick(statistics_, NUMBER_DB_SEEK_FOUND);
         RecordTick(statistics_, ITER_BYTES_READ, key().size() + value().size());
         PERF_COUNTER_ADD(iter_read_bytes, key().size() + value().size());
@@ -1269,7 +1279,8 @@ void DBIter::SeekToLast() {
     if (!Valid()) {
       return;
     } else if (user_comparator_->Equal(*iterate_upper_bound_, key())) {
-      Prev();
+      ReleaseTempPinnedData();
+      PrevInternal();
     }
   } else {
     PrevInternal();
