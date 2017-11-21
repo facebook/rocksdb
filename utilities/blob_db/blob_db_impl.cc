@@ -1295,8 +1295,9 @@ std::pair<bool, int64_t> BlobDBImpl::SanityCheck(bool aborted) {
 Status BlobDBImpl::CloseBlobFile(std::shared_ptr<BlobFile> bfile) {
   assert(bfile != nullptr);
   Status s;
-  ROCKS_LOG_INFO(db_options_.info_log, "Close blob file %" PRIu64,
-                 bfile->BlobFileNumber());
+  ROCKS_LOG_INFO(db_options_.info_log,
+                 "Closing blob file %" PRIu64 ". Path: %s",
+                 bfile->BlobFileNumber(), bfile->PathName().c_str());
   {
     WriteLock wl(&mutex_);
 
