@@ -223,6 +223,9 @@ enum Tickers : uint32_t {
   // Number of refill intervals where rate limiter's bytes are fully consumed.
   NUMBER_RATE_LIMITER_DRAINS,
 
+  // Number of internal keys skipped by Iterator
+  NUMBER_ITER_SKIP,
+
   TICKER_ENUM_MAX
 };
 
@@ -328,6 +331,7 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {READ_AMP_ESTIMATE_USEFUL_BYTES, "rocksdb.read.amp.estimate.useful.bytes"},
     {READ_AMP_TOTAL_READ_BYTES, "rocksdb.read.amp.total.read.bytes"},
     {NUMBER_RATE_LIMITER_DRAINS, "rocksdb.number.rate_limiter.drains"},
+    {NUMBER_ITER_SKIP, "rocksdb.number.iter.skip"},
 };
 
 /**
