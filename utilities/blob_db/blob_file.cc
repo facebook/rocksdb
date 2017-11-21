@@ -147,10 +147,6 @@ Status BlobFile::WriteFooterAndCloseLocked() {
   if (s.ok()) {
     closed_ = true;
     file_size_ += BlobLogFooter::kSize;
-  } else {
-    ROCKS_LOG_ERROR(parent_->db_options_.info_log,
-                    "Failure to append footer to blob-file %s",
-                    PathName().c_str());
   }
   // delete the sequential writer
   log_writer_.reset();
