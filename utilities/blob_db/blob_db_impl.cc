@@ -1738,7 +1738,8 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
                       s.ToString().c_str());
       break;
     }
-    if (blob_index.file_number() != bfptr->BlobFileNumber() ||
+    if (blob_index.IsInlined() ||
+        blob_index.file_number() != bfptr->BlobFileNumber() ||
         blob_index.offset() != blob_offset) {
       // Key has been overwritten. Drop the blob record.
       continue;
