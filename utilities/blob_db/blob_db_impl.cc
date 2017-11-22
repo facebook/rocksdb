@@ -1734,6 +1734,8 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
     if (get_status.IsNotFound() || !is_blob_index) {
       // Either the key is deleted or updated with a newer version whish is
       // inlined in LSM.
+      gc_stats->num_keys_overwritten++;
+      gc_stats->bytes_overwritten += record.record_size();
       continue;
     }
 
