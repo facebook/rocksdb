@@ -10,7 +10,9 @@
 #include <memory>
 #include <string>
 
+#include "rocksdb/env.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
 #include "utilities/blob_db/blob_log_format.h"
 
@@ -37,17 +39,8 @@ class Reader {
 
   // Create a reader that will return log records from "*file".
   // "*file" must remain live while this Reader is in use.
-  //
-  // If "reporter" is non-nullptr, it is notified whenever some data is
-  // dropped due to a detected corruption.  "*reporter" must remain
-  // live while this Reader is in use.
-  //
-  // If "checksum" is true, verify checksums if available.
-  //
-  // The Reader will start reading at the first record located at physical
-  // position >= initial_offset within the file.
-  Reader(std::shared_ptr<Logger> info_log,
-         std::unique_ptr<SequentialFileReader>&& file);
+  Reader(std::unique_ptr<SequentialFileReader>&& file, Env* env,
+         Statistics* statistics);
 
   ~Reader() = default;
 
@@ -77,8 +70,9 @@ class Reader {
   const SequentialFileReader* file_reader() const { return file_.get(); }
 
  private:
-  std::shared_ptr<Logger> info_log_;
   const std::unique_ptr<SequentialFileReader> file_;
+  Env* env_;
+  Statistics* statistics_;
 
   std::string backing_store_;
   Slice buffer_;

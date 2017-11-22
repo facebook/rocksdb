@@ -70,7 +70,8 @@ Status BlobDB::OpenAndLoad(const Options& options,
   }
 
   changed_options->compaction_filter_factory.reset(
-      new BlobIndexCompactionFilterFactory(options.env));
+      new BlobIndexCompactionFilterFactory(options.env,
+                                           options.statistics.get()));
   changed_options->listeners.emplace_back(fblistener);
   if (bdb_options.enable_garbage_collection) {
     changed_options->listeners.emplace_back(ce_listener);
@@ -163,7 +164,8 @@ Status BlobDB::Open(const DBOptions& db_options_input,
     return Status::NotSupported("Blob DB doesn't support compaction filter.");
   }
   cf_options.compaction_filter_factory.reset(
-      new BlobIndexCompactionFilterFactory(db_options.env));
+      new BlobIndexCompactionFilterFactory(db_options.env,
+                                           db_options.statistics.get()));
   ColumnFamilyDescriptor cf_descriptor(kDefaultColumnFamilyName, cf_options);
 
   // we need to open blob db first so that recovery can happen
