@@ -16,9 +16,9 @@
 namespace rocksdb {
 namespace blob_db {
 
-Reader::Reader(unique_ptr<SequentialFileReader>&& file, Env* env,
+Reader::Reader(unique_ptr<SequentialFileReader>&& file_reader, Env* env,
                Statistics* statistics)
-    : file_(std::move(file)),
+    : file_(std::move(file_reader)),
       env_(env),
       statistics_(statistics),
       buffer_(),

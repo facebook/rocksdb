@@ -39,7 +39,7 @@ class Reader {
 
   // Create a reader that will return log records from "*file".
   // "*file" must remain live while this Reader is in use.
-  Reader(std::unique_ptr<SequentialFileReader>&& file, Env* env,
+  Reader(std::unique_ptr<SequentialFileReader>&& file_reader, Env* env,
          Statistics* statistics);
 
   ~Reader() = default;
