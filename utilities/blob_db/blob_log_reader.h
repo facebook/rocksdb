@@ -61,13 +61,9 @@ class Reader {
 
   Status ReadSlice(uint64_t size, Slice* slice, std::string* buf);
 
-  SequentialFileReader* file() { return file_.get(); }
-
   void ResetNextByte() { next_byte_ = 0; }
 
   uint64_t GetNextByte() const { return next_byte_; }
-
-  const SequentialFileReader* file_reader() const { return file_.get(); }
 
  private:
   const std::unique_ptr<SequentialFileReader> file_;

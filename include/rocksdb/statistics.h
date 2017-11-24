@@ -225,7 +225,7 @@ enum Tickers : uint32_t {
 
   // Number of internal keys skipped by Iterator
   NUMBER_ITER_SKIP,
-  
+
   // BlobDB specific stats
   BLOB_DB_NUM_PUT,
   BLOB_DB_NUM_WRITE,
