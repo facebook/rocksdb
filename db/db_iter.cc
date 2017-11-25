@@ -1134,6 +1134,13 @@ void DBIter::Seek(const Slice& target) {
   saved_key_.Clear();
   saved_key_.SetInternalKey(target, sequence_);
 
+  if (iterate_upper_bound_ != nullptr &&
+      user_comparator_->Compare(saved_key_.GetUserKey(),
+                                *iterate_lower_bound_) < 0) {
+    saved_key_.Clear();
+    saved_key_.SetInternalKey(*iterate_lower_bound_, sequence_);
+  }
+
   {
     PERF_TIMER_GUARD(seek_internal_seek_time);
     iter_->Seek(saved_key_.GetInternalKey());
