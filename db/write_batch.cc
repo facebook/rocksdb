@@ -988,6 +988,16 @@ class MemTableInserter : public WriteBatch::Handler {
 
   virtual bool WriterAfterCommit() const { return write_after_commit_; }
 
+  // The batch seq is regularly restarted; In normal mode it is set when
+  // MemTableInserter is constructed in the write thread and in recovery mode it
+  // is set when a batch, which is tagged with seq, is read from the WAL.
+  // Within a sequenced batch, which could be a merge of multiple batches, we
+  // have two policies to advance the seq: i) seq_per_key (default) and ii)
+  // seq_per_batch. To implement the latter we need to mark the boundry between
+  // the individual batches. The approach is this: 1) Use the terminating
+  // markers to indicate the boundry (kTypeEndPrepareXID, kTypeCommitXID,
+  // kTypeRollbackXID) 2) Terminate a batch with kTypeNoop in the absense of a
+  // natural boundy marker.
   void MaybeAdvanceSeq(bool batch_boundry = false) {
     if (batch_boundry == seq_per_batch_) {
       sequence_++;
@@ -1430,6 +1440,9 @@ class MemTableInserter : public WriteBatch::Handler {
       // in non recovery we simply ignore this tag
     }
 
+    const bool batch_boundry = true;
+    MaybeAdvanceSeq(batch_boundry);
+
     return Status::OK();
   }
 
@@ -1458,13 +1471,16 @@ Status WriteBatchInternal::InsertInto(
                             db, concurrent_memtable_writes,
                             nullptr /*has_valid_writes*/, seq_per_batch);
   for (auto w : write_group) {
+    if (w->CallbackFailed()) {
+      continue;
+    }
+    w->sequence = inserter.sequence();
     if (!w->ShouldWriteToMemtable()) {
-      w->sequence = inserter.sequence();
+      // In seq_per_batch_ mode this advances the seq by one.
       inserter.MaybeAdvanceSeq(true);
       continue;
     }
     SetSequence(w->batch, inserter.sequence());
-    w->sequence = inserter.sequence();
     inserter.set_log_number_ref(w->log_ref);
     w->status = w->batch->Iterate(&inserter);
     if (!w->status.ok()) {

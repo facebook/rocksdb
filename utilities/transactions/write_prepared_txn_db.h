@@ -72,6 +72,13 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value) override;
 
+  using DB::MultiGet;
+  virtual std::vector<Status> MultiGet(
+      const ReadOptions& options,
+      const std::vector<ColumnFamilyHandle*>& column_family,
+      const std::vector<Slice>& keys,
+      std::vector<std::string>* values) override;
+
   using DB::NewIterator;
   virtual Iterator* NewIterator(const ReadOptions& options,
                                 ColumnFamilyHandle* column_family) override;
@@ -178,6 +185,12 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
 
   // Struct to hold ownership of snapshot and read callback for cleanup.
   struct IteratorState;
+
+#ifndef NDEBUG
+  // For unit tests we can track of the seq numbers that are used for metadata as opposed to actual key/values
+  std::vector<uint64_t> seq_for_metadata;
+  mutable port::Mutex seq_for_metadata_mutex_;
+#endif
 
  private:
   friend class WritePreparedTransactionTest_IsInSnapshotTest_Test;

@@ -692,6 +692,32 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   ASSERT_LE(NumTableFilesAtLevel(0), 5);
 }
 
+TEST_F(DBOptionsTest, CompactionReadaheadSizeChange) {
+  SpecialEnv env(env_);
+  Options options;
+  options.env = &env;
+
+  options.compaction_readahead_size = 0;
+  options.new_table_reader_for_compaction_inputs = true;
+  options.level0_file_num_compaction_trigger = 2;
+  const std::string kValue(1024, 'v');
+  Reopen(options);
+
+  ASSERT_EQ(0, dbfull()->GetDBOptions().compaction_readahead_size);
+  ASSERT_OK(dbfull()->SetDBOptions({{"compaction_readahead_size", "256"}}));
+  ASSERT_EQ(256, dbfull()->GetDBOptions().compaction_readahead_size);
+  for (int i = 0; i < 1024; i++) {
+    Put(Key(i), kValue);
+  }
+  Flush();
+  for (int i = 0; i < 1024 * 2; i++) {
+    Put(Key(i), kValue);
+  }
+  Flush();
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(256, env_->compaction_readahead_size_);
+  Close();
+}
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb

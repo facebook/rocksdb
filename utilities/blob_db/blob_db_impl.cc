@@ -1295,8 +1295,9 @@ std::pair<bool, int64_t> BlobDBImpl::SanityCheck(bool aborted) {
 Status BlobDBImpl::CloseBlobFile(std::shared_ptr<BlobFile> bfile) {
   assert(bfile != nullptr);
   Status s;
-  ROCKS_LOG_INFO(db_options_.info_log, "Close blob file %" PRIu64,
-                 bfile->BlobFileNumber());
+  ROCKS_LOG_INFO(db_options_.info_log,
+                 "Closing blob file %" PRIu64 ". Path: %s",
+                 bfile->BlobFileNumber(), bfile->PathName().c_str());
   {
     WriteLock wl(&mutex_);
 
@@ -1737,7 +1738,8 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
                       s.ToString().c_str());
       break;
     }
-    if (blob_index.file_number() != bfptr->BlobFileNumber() ||
+    if (blob_index.IsInlined() ||
+        blob_index.file_number() != bfptr->BlobFileNumber() ||
         blob_index.offset() != blob_offset) {
       // Key has been overwritten. Drop the blob record.
       continue;
