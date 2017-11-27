@@ -440,6 +440,16 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
       continue;
     }
 
+    // If compaction type is not universal, check overlap directly. No need to
+    // open files and Seeking kv pairs or reading delete range marks.
+    if (compaction_style != kCompactionStyleUniversal) {
+      if (IngestedFileFitInLevel(file_to_ingest, lvl)) {
+        target_level = lvl;
+        continue;
+      }
+      break;
+    }
+
     if (vstorage->NumLevelFiles(lvl) > 0) {
       bool overlap_with_level = false;
       status = IngestedFileOverlapWithLevel(sv, file_to_ingest, lvl,
@@ -476,7 +486,8 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
 
     // We dont overlap with any keys in this level, but we still need to check
     // if our file can fit in it
-    if (IngestedFileFitInLevel(file_to_ingest, lvl)) {
+    if (compaction_style == kCompactionStyleUniversal &&
+        IngestedFileFitInLevel(file_to_ingest, lvl)) {
       target_level = lvl;
     }
   }
@@ -643,17 +654,18 @@ Status ExternalSstFileIngestionJob::IngestedFileOverlapWithLevel(
                                     nullptr /* range_del_agg */);
   ScopedArenaIterator level_iter(merge_iter_builder.Finish());
 
-  std::vector<InternalIterator*> level_range_del_iters;
-  sv->current->AddRangeDelIteratorsForLevel(ro, env_options_, lvl,
-                                            &level_range_del_iters);
-  std::unique_ptr<InternalIterator> level_range_del_iter(NewMergingIterator(
-      &cfd_->internal_comparator(),
-      level_range_del_iters.empty() ? nullptr : &level_range_del_iters[0],
-      static_cast<int>(level_range_del_iters.size())));
-
   Status status = IngestedFileOverlapWithIteratorRange(
       file_to_ingest, level_iter.get(), overlap_with_level);
   if (status.ok() && *overlap_with_level == false) {
+    // lazy construct range_del_iters to reduce potential reading.
+    std::vector<InternalIterator*> level_range_del_iters;
+    sv->current->AddRangeDelIteratorsForLevel(ro, env_options_, lvl,
+                                              &level_range_del_iters);
+    std::unique_ptr<InternalIterator> level_range_del_iter(NewMergingIterator(
+        &cfd_->internal_comparator(),
+        level_range_del_iters.empty() ? nullptr : &level_range_del_iters[0],
+        static_cast<int>(level_range_del_iters.size())));
+
     status = IngestedFileOverlapWithRangeDeletions(
         file_to_ingest, level_range_del_iter.get(), overlap_with_level);
   }
