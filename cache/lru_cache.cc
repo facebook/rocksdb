@@ -169,7 +169,7 @@ size_t LRUCacheShard::TEST_GetLRUSize() {
   return lru_size;
 }
 
-double LRUCacheShard::TEST_GetHighPriPoolRatio() {
+double LRUCacheShard::GetHighPriPoolRatio() {
   MutexLock l(&mutex_);
   return high_pri_pool_ratio_;
 }
@@ -518,10 +518,10 @@ size_t LRUCache::TEST_GetLRUSize() {
   return lru_size_of_all_shards;
 }
 
-double LRUCache::TEST_GetHighPriPoolRatio() {
+double LRUCache::GetHighPriPoolRatio() {
   double result = 0.0;
   if (num_shards_ > 0) {
-    result = shards_[0].TEST_GetHighPriPoolRatio();
+    result = shards_[0].GetHighPriPoolRatio();
   }
   return result;
 }
