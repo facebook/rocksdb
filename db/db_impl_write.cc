@@ -577,7 +577,7 @@ Status DBImpl::WriteImplWALOnly(const WriteOptions& write_options,
   if (!w.CallbackFailed()) {
     WriteCallbackStatusCheck(status);
   }
-  nonmem_write_thread_.ExitAsBatchGroupLeader(write_group, w.status);
+  nonmem_write_thread_.ExitAsBatchGroupLeader(write_group, status);
   if (status.ok()) {
     status = w.FinalStatus();
   }
