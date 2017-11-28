@@ -62,8 +62,9 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
                    std::atomic<bool>* shutting_down,
                    std::vector<SequenceNumber> existing_snapshots,
                    SequenceNumber earliest_write_conflict_snapshot,
-                   JobContext* job_context, LogBuffer* log_buffer,
-                   Directory* db_directory, Directory* output_file_directory,
+                   SnapshotChecker* snapshot_checker, JobContext* job_context,
+                   LogBuffer* log_buffer, Directory* db_directory,
+                   Directory* output_file_directory,
                    CompressionType output_compression, Statistics* stats,
                    EventLogger* event_logger, bool measure_io_stats)
     : dbname_(dbname),
@@ -76,6 +77,7 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
       shutting_down_(shutting_down),
       existing_snapshots_(std::move(existing_snapshots)),
       earliest_write_conflict_snapshot_(earliest_write_conflict_snapshot),
+      snapshot_checker_(snapshot_checker),
       job_context_(job_context),
       log_buffer_(log_buffer),
       db_directory_(db_directory),
@@ -84,6 +86,8 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
       stats_(stats),
       event_logger_(event_logger),
       measure_io_stats_(measure_io_stats),
+      edit_(nullptr),
+      base_(nullptr),
       pick_memtable_called(false) {
   // Update the thread status to indicate flush.
   ReportStartedFlush();
@@ -242,6 +246,7 @@ Status FlushJob::WriteLevel0Table() {
   const uint64_t start_micros = db_options_.env->NowMicros();
   Status s;
   {
+    auto write_hint = cfd_->CalculateSSTWriteHint(0);
     db_mutex_->Unlock();
     if (log_buffer_) {
       log_buffer_->FlushBufferToLog();
@@ -297,17 +302,21 @@ Status FlushJob::WriteLevel0Table() {
       db_options_.env->GetCurrentTime(&_current_time);  // ignore error
       const uint64_t current_time = static_cast<uint64_t>(_current_time);
 
+      uint64_t oldest_key_time =
+          mems_.front()->ApproximateOldestKeyTime();
+
       s = BuildTable(
           dbname_, db_options_.env, *cfd_->ioptions(), mutable_cf_options_,
           env_options_, cfd_->table_cache(), iter.get(),
           std::move(range_del_iter), &meta_, cfd_->internal_comparator(),
           cfd_->int_tbl_prop_collector_factories(), cfd_->GetID(),
           cfd_->GetName(), existing_snapshots_,
-          earliest_write_conflict_snapshot_, output_compression_,
-          cfd_->ioptions()->compression_opts,
+          earliest_write_conflict_snapshot_, snapshot_checker_,
+          output_compression_, cfd_->ioptions()->compression_opts,
           mutable_cf_options_.paranoid_file_checks, cfd_->internal_stats(),
           TableFileCreationReason::kFlush, event_logger_, job_context_->job_id,
-          Env::IO_HIGH, &table_properties_, 0 /* level */, current_time);
+          Env::IO_HIGH, &table_properties_, 0 /* level */, current_time,
+          oldest_key_time, write_hint);
       LogFlush(db_options_.info_log);
     }
     ROCKS_LOG_INFO(db_options_.info_log,

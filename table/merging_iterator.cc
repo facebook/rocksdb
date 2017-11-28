@@ -387,10 +387,20 @@ MergeIteratorBuilder::MergeIteratorBuilder(
       new (mem) MergingIterator(comparator, nullptr, 0, true, prefix_seek_mode);
 }
 
+MergeIteratorBuilder::~MergeIteratorBuilder() {
+  if (first_iter != nullptr) {
+    first_iter->~InternalIterator();
+  }
+  if (merge_iter != nullptr) {
+    merge_iter->~MergingIterator();
+  }
+}
+
 void MergeIteratorBuilder::AddIterator(InternalIterator* iter) {
   if (!use_merging_iter && first_iter != nullptr) {
     merge_iter->AddIterator(first_iter);
     use_merging_iter = true;
+    first_iter = nullptr;
   }
   if (use_merging_iter) {
     merge_iter->AddIterator(iter);
@@ -400,13 +410,15 @@ void MergeIteratorBuilder::AddIterator(InternalIterator* iter) {
 }
 
 InternalIterator* MergeIteratorBuilder::Finish() {
+  InternalIterator* ret = nullptr;
   if (!use_merging_iter) {
-    return first_iter;
+    ret = first_iter;
+    first_iter = nullptr;
   } else {
-    auto ret = merge_iter;
+    ret = merge_iter;
     merge_iter = nullptr;
-    return ret;
   }
+  return ret;
 }
 
 }  // namespace rocksdb

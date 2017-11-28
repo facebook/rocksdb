@@ -89,9 +89,9 @@ class DBBlobIndexTest : public DBTestBase {
   }
 
   ArenaWrappedDBIter* GetBlobIterator() {
-    return dbfull()->NewIteratorImpl(ReadOptions(), cfd(),
-                                     dbfull()->GetLatestSequenceNumber(),
-                                     true /*allow_blob*/);
+    return dbfull()->NewIteratorImpl(
+        ReadOptions(), cfd(), dbfull()->GetLatestSequenceNumber(),
+        nullptr /*read_callback*/, true /*allow_blob*/);
   }
 
   Options GetTestOptions() {
@@ -123,7 +123,9 @@ class DBBlobIndexTest : public DBTestBase {
         ASSERT_OK(Flush());
         ASSERT_OK(
             dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+#ifndef ROCKSDB_LITE
         ASSERT_EQ("0,1", FilesPerLevel());
+#endif  // !ROCKSDB_LITE
         break;
     }
   }

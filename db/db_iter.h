@@ -34,6 +34,7 @@ extern Iterator* NewDBIterator(Env* env, const ReadOptions& read_options,
                                InternalIterator* internal_iter,
                                const SequenceNumber& sequence,
                                uint64_t max_sequential_skip_in_iterations,
+                               ReadCallback* read_callback,
                                bool allow_blob = false);
 
 // A wrapper iterator which wraps DB Iterator and the arena, with which the DB
@@ -72,13 +73,15 @@ class ArenaWrappedDBIter : public Iterator {
             const ImmutableCFOptions& cf_options,
             const SequenceNumber& sequence,
             uint64_t max_sequential_skip_in_iterations, uint64_t version_number,
-            bool allow_blob);
+            ReadCallback* read_callback, bool allow_blob);
 
   void StoreRefreshInfo(const ReadOptions& read_options, DBImpl* db_impl,
-                        ColumnFamilyData* cfd, bool allow_blob) {
+                        ColumnFamilyData* cfd, ReadCallback* read_callback,
+                        bool allow_blob) {
     read_options_ = read_options;
     db_impl_ = db_impl;
     cfd_ = cfd;
+    read_callback_ = read_callback;
     allow_blob_ = allow_blob;
   }
 
@@ -89,6 +92,7 @@ class ArenaWrappedDBIter : public Iterator {
   ColumnFamilyData* cfd_ = nullptr;
   DBImpl* db_impl_ = nullptr;
   ReadOptions read_options_;
+  ReadCallback* read_callback_;
   bool allow_blob_ = false;
 };
 
@@ -99,7 +103,7 @@ extern ArenaWrappedDBIter* NewArenaWrappedDbIterator(
     Env* env, const ReadOptions& read_options,
     const ImmutableCFOptions& cf_options, const SequenceNumber& sequence,
     uint64_t max_sequential_skip_in_iterations, uint64_t version_number,
-    DBImpl* db_impl = nullptr, ColumnFamilyData* cfd = nullptr,
-    bool allow_blob = false);
+    ReadCallback* read_callback, DBImpl* db_impl = nullptr,
+    ColumnFamilyData* cfd = nullptr, bool allow_blob = false);
 
 }  // namespace rocksdb

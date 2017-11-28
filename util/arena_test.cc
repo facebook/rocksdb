@@ -91,14 +91,15 @@ static void ApproximateMemoryUsageTest(size_t huge_page_size) {
   ASSERT_EQ(kZero, arena.ApproximateMemoryUsage());
 
   // allocate inline bytes
+  const size_t kAlignUnit = alignof(max_align_t);
   EXPECT_TRUE(arena.IsInInlineBlock());
-  arena.AllocateAligned(8);
+  arena.AllocateAligned(kAlignUnit);
   EXPECT_TRUE(arena.IsInInlineBlock());
-  arena.AllocateAligned(Arena::kInlineSize / 2 - 16);
+  arena.AllocateAligned(Arena::kInlineSize / 2 - (2 * kAlignUnit));
   EXPECT_TRUE(arena.IsInInlineBlock());
   arena.AllocateAligned(Arena::kInlineSize / 2);
   EXPECT_TRUE(arena.IsInInlineBlock());
-  ASSERT_EQ(arena.ApproximateMemoryUsage(), Arena::kInlineSize - 8);
+  ASSERT_EQ(arena.ApproximateMemoryUsage(), Arena::kInlineSize - kAlignUnit);
   ASSERT_PRED2(CheckMemoryAllocated, arena.MemoryAllocatedBytes(),
                Arena::kInlineSize);
 

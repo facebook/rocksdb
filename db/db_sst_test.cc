@@ -327,15 +327,14 @@ TEST_F(DBSSTTest, RateLimitedDelete) {
   options.disable_auto_compactions = true;
   options.env = env_;
 
-  std::string trash_dir = test::TmpDir(env_) + "/trash";
   int64_t rate_bytes_per_sec = 1024 * 10;  // 10 Kbs / Sec
   Status s;
   options.sst_file_manager.reset(
-      NewSstFileManager(env_, nullptr, trash_dir, 0, false, &s));
+      NewSstFileManager(env_, nullptr, "", 0, false, &s, 0));
   ASSERT_OK(s);
   options.sst_file_manager->SetDeleteRateBytesPerSecond(rate_bytes_per_sec);
   auto sfm = static_cast<SstFileManagerImpl*>(options.sst_file_manager.get());
-  sfm->delete_scheduler()->TEST_SetMaxTrashDBRatio(1.1);
+  sfm->delete_scheduler()->SetMaxTrashDBRatio(1.1);
 
   ASSERT_OK(TryReopen(options));
   // Create 4 files in L0
@@ -394,14 +393,14 @@ TEST_F(DBSSTTest, DeleteSchedulerMultipleDBPaths) {
   options.db_paths.emplace_back(dbname_ + "_2", 1024 * 100);
   options.env = env_;
 
-  std::string trash_dir = test::TmpDir(env_) + "/trash";
   int64_t rate_bytes_per_sec = 1024 * 1024;  // 1 Mb / Sec
   Status s;
-  options.sst_file_manager.reset(NewSstFileManager(
-      env_, nullptr, trash_dir, rate_bytes_per_sec, false, &s));
+  options.sst_file_manager.reset(
+      NewSstFileManager(env_, nullptr, "", rate_bytes_per_sec, false, &s,
+                        /* max_trash_db_ratio= */ 1.1));
+
   ASSERT_OK(s);
   auto sfm = static_cast<SstFileManagerImpl*>(options.sst_file_manager.get());
-  sfm->delete_scheduler()->TEST_SetMaxTrashDBRatio(1.1);
 
   DestroyAndReopen(options);
 
@@ -460,9 +459,8 @@ TEST_F(DBSSTTest, DestroyDBWithRateLimitedDelete) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   options.env = env_;
-  std::string trash_dir = test::TmpDir(env_) + "/trash";
   options.sst_file_manager.reset(
-      NewSstFileManager(env_, nullptr, trash_dir, 0, false, &s));
+      NewSstFileManager(env_, nullptr, "", 0, false, &s, 0));
   ASSERT_OK(s);
   DestroyAndReopen(options);
 
@@ -480,7 +478,7 @@ TEST_F(DBSSTTest, DestroyDBWithRateLimitedDelete) {
   auto sfm = static_cast<SstFileManagerImpl*>(options.sst_file_manager.get());
 
   sfm->SetDeleteRateBytesPerSecond(1024 * 1024);
-  sfm->delete_scheduler()->TEST_SetMaxTrashDBRatio(1.1);
+  sfm->delete_scheduler()->SetMaxTrashDBRatio(1.1);
   ASSERT_OK(DestroyDB(dbname_, options));
   sfm->WaitForEmptyTrash();
   // We have deleted the 4 sst files in the delete_scheduler
@@ -650,9 +648,18 @@ TEST_F(DBSSTTest, OpenDBWithInfiniteMaxOpenFiles) {
 }
 
 TEST_F(DBSSTTest, GetTotalSstFilesSize) {
+  // We don't propagate oldest-key-time table property on compaction and
+  // just write 0 as default value. This affect the exact table size, since
+  // we encode table properties as varint64. Force time to be 0 to work around
+  // it. Should remove the workaround after we propagate the property on
+  // compaction.
+  std::unique_ptr<MockTimeEnv> mock_env(new MockTimeEnv(Env::Default()));
+  mock_env->set_current_time(0);
+
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   options.compression = kNoCompression;
+  options.env = mock_env.get();
   DestroyAndReopen(options);
   // Generate 5 files in L0
   for (int i = 0; i < 5; i++) {
@@ -739,6 +746,9 @@ TEST_F(DBSSTTest, GetTotalSstFilesSize) {
   // Live SST files = 0
   // Total SST files = 0
   ASSERT_EQ(total_sst_files_size, 0);
+
+  // Close db before mock_env destruct.
+  Close();
 }
 
 TEST_F(DBSSTTest, GetTotalSstFilesSizeVersionsFilesShared) {

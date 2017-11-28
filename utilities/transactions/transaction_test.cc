@@ -19,6 +19,7 @@
 #include "db/db_impl.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
+#include "rocksdb/perf_context.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "table/mock_table.h"
@@ -39,20 +40,25 @@ using std::string;
 
 namespace rocksdb {
 
-// TODO(myabandeh): Instantiate the tests with other write policies
-INSTANTIATE_TEST_CASE_P(DBAsBaseDB, TransactionTest,
-                        ::testing::Values(std::make_tuple(false, false,
-                                                          WRITE_COMMITTED)));
-INSTANTIATE_TEST_CASE_P(StackableDBAsBaseDB, TransactionTest,
-                        ::testing::Values(std::make_tuple(true, false,
-                                                          WRITE_COMMITTED)));
+INSTANTIATE_TEST_CASE_P(
+    DBAsBaseDB, TransactionTest,
+    ::testing::Values(std::make_tuple(false, false, WRITE_COMMITTED),
+                      std::make_tuple(false, true, WRITE_COMMITTED),
+                      std::make_tuple(false, true, WRITE_PREPARED)));
+INSTANTIATE_TEST_CASE_P(
+    StackableDBAsBaseDB, TransactionTest,
+    ::testing::Values(std::make_tuple(true, true, WRITE_COMMITTED),
+                      std::make_tuple(true, true, WRITE_PREPARED)));
 INSTANTIATE_TEST_CASE_P(
     MySQLStyleTransactionTest, MySQLStyleTransactionTest,
     ::testing::Values(std::make_tuple(false, false, WRITE_COMMITTED),
                       std::make_tuple(false, true, WRITE_COMMITTED),
                       std::make_tuple(true, false, WRITE_COMMITTED),
-                      std::make_tuple(true, true, WRITE_COMMITTED)));
-
+                      std::make_tuple(true, true, WRITE_COMMITTED),
+                      std::make_tuple(false, false, WRITE_PREPARED),
+                      std::make_tuple(false, true, WRITE_PREPARED),
+                      std::make_tuple(true, false, WRITE_PREPARED),
+                      std::make_tuple(true, true, WRITE_PREPARED)));
 
 TEST_P(TransactionTest, DoubleEmptyWrite) {
   WriteOptions write_options;
@@ -105,6 +111,46 @@ TEST_P(TransactionTest, SuccessTest) {
   delete txn;
 }
 
+// This test clarifies the contract of ValidateSnapshot
+TEST_P(TransactionTest, ValidateSnapshotTest) {
+  for (bool with_2pc : {true, false}) {
+    ReOpen();
+    WriteOptions write_options;
+    ReadOptions read_options;
+    string value;
+    Status s;
+
+    Transaction* txn1 =
+        db->BeginTransaction(write_options, TransactionOptions());
+    ASSERT_TRUE(txn1);
+    s = txn1->Put(Slice("foo"), Slice("bar1"));
+    ASSERT_OK(s);
+    if (with_2pc) {
+      s = txn1->SetName("xid1");
+      ASSERT_OK(s);
+      s = txn1->Prepare();
+      ASSERT_OK(s);
+    }
+
+    Transaction* txn2 =
+        db->BeginTransaction(write_options, TransactionOptions());
+    ASSERT_TRUE(txn2);
+    txn2->SetSnapshot();
+
+    s = txn1->Commit();
+    ASSERT_OK(s);
+    delete txn1;
+
+    auto pes_txn2 = dynamic_cast<PessimisticTransaction*>(txn2);
+    // Test the simple case where the key is not tracked yet
+    auto trakced_seq = kMaxSequenceNumber;
+    s = pes_txn2->ValidateSnapshot(db->DefaultColumnFamily(), "foo",
+                                   &trakced_seq);
+    ASSERT_TRUE(s.IsBusy());
+    delete txn2;
+  }
+}
+
 TEST_P(TransactionTest, WaitingTxn) {
   WriteOptions write_options;
   ReadOptions read_options;
@@ -141,15 +187,18 @@ TEST_P(TransactionTest, WaitingTxn) {
         ASSERT_EQ(cf_id, 0);
       });
 
+  get_perf_context()->Reset();
   // lock key in default cf
   s = txn1->GetForUpdate(read_options, "foo", &value);
   ASSERT_OK(s);
   ASSERT_EQ(value, "bar");
+  ASSERT_EQ(get_perf_context()->key_lock_wait_count, 0);
 
   // lock key in cfa
   s = txn1->GetForUpdate(read_options, cfa, "foo", &value);
   ASSERT_OK(s);
   ASSERT_EQ(value, "bar");
+  ASSERT_EQ(get_perf_context()->key_lock_wait_count, 0);
 
   auto lock_data = db->GetLockStatusData();
   // Locked keys exist in both column family.
@@ -185,6 +234,8 @@ TEST_P(TransactionTest, WaitingTxn) {
   s = txn2->GetForUpdate(read_options, "foo", &value);
   ASSERT_TRUE(s.IsTimedOut());
   ASSERT_EQ(s.ToString(), "Operation timed out: Timeout waiting to lock key");
+  ASSERT_EQ(get_perf_context()->key_lock_wait_count, 1);
+  ASSERT_GE(get_perf_context()->key_lock_wait_time, 0);
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -699,101 +750,131 @@ TEST_P(TransactionTest, CommitTimeBatchFailTest) {
 }
 
 TEST_P(TransactionTest, SimpleTwoPhaseTransactionTest) {
-  WriteOptions write_options;
-  ReadOptions read_options;
+  for (bool cwb4recovery : {true, false}) {
+    ReOpen();
+    WriteOptions write_options;
+    ReadOptions read_options;
 
-  TransactionOptions txn_options;
+    TransactionOptions txn_options;
+    txn_options.use_only_the_last_commit_time_batch_for_recovery = cwb4recovery;
 
-  string value;
-  Status s;
+    string value;
+    Status s;
 
-  DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+    DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
 
-  Transaction* txn = db->BeginTransaction(write_options, txn_options);
-  s = txn->SetName("xid");
-  ASSERT_OK(s);
+    Transaction* txn = db->BeginTransaction(write_options, txn_options);
+    s = txn->SetName("xid");
+    ASSERT_OK(s);
 
-  ASSERT_EQ(db->GetTransactionByName("xid"), txn);
+    ASSERT_EQ(db->GetTransactionByName("xid"), txn);
 
-  // transaction put
-  s = txn->Put(Slice("foo"), Slice("bar"));
-  ASSERT_OK(s);
-  ASSERT_EQ(1, txn->GetNumPuts());
+    // transaction put
+    s = txn->Put(Slice("foo"), Slice("bar"));
+    ASSERT_OK(s);
+    ASSERT_EQ(1, txn->GetNumPuts());
 
-  // regular db put
-  s = db->Put(write_options, Slice("foo2"), Slice("bar2"));
-  ASSERT_OK(s);
-  ASSERT_EQ(1, txn->GetNumPuts());
+    // regular db put
+    s = db->Put(write_options, Slice("foo2"), Slice("bar2"));
+    ASSERT_OK(s);
+    ASSERT_EQ(1, txn->GetNumPuts());
 
-  // regular db read
-  db->Get(read_options, "foo2", &value);
-  ASSERT_EQ(value, "bar2");
+    // regular db read
+    db->Get(read_options, "foo2", &value);
+    ASSERT_EQ(value, "bar2");
 
-  // commit time put
-  txn->GetCommitTimeWriteBatch()->Put(Slice("gtid"), Slice("dogs"));
-  txn->GetCommitTimeWriteBatch()->Put(Slice("gtid2"), Slice("cats"));
+    // commit time put
+    txn->GetCommitTimeWriteBatch()->Put(Slice("gtid"), Slice("dogs"));
+    txn->GetCommitTimeWriteBatch()->Put(Slice("gtid2"), Slice("cats"));
 
-  // nothing has been prepped yet
-  ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(), 0);
+    // nothing has been prepped yet
+    ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(), 0);
 
-  s = txn->Prepare();
-  ASSERT_OK(s);
+    s = txn->Prepare();
+    ASSERT_OK(s);
 
-  // data not im mem yet
-  s = db->Get(read_options, Slice("foo"), &value);
-  ASSERT_TRUE(s.IsNotFound());
-  s = db->Get(read_options, Slice("gtid"), &value);
-  ASSERT_TRUE(s.IsNotFound());
+    // data not im mem yet
+    s = db->Get(read_options, Slice("foo"), &value);
+    ASSERT_TRUE(s.IsNotFound());
+    s = db->Get(read_options, Slice("gtid"), &value);
+    ASSERT_TRUE(s.IsNotFound());
 
-  // find trans in list of prepared transactions
-  std::vector<Transaction*> prepared_trans;
-  db->GetAllPreparedTransactions(&prepared_trans);
-  ASSERT_EQ(prepared_trans.size(), 1);
-  ASSERT_EQ(prepared_trans.front()->GetName(), "xid");
+    // find trans in list of prepared transactions
+    std::vector<Transaction*> prepared_trans;
+    db->GetAllPreparedTransactions(&prepared_trans);
+    ASSERT_EQ(prepared_trans.size(), 1);
+    ASSERT_EQ(prepared_trans.front()->GetName(), "xid");
 
-  auto log_containing_prep =
-      db_impl->TEST_FindMinLogContainingOutstandingPrep();
-  ASSERT_GT(log_containing_prep, 0);
+    auto log_containing_prep =
+        db_impl->TEST_FindMinLogContainingOutstandingPrep();
+    ASSERT_GT(log_containing_prep, 0);
 
-  // make commit
-  s = txn->Commit();
-  ASSERT_OK(s);
+    // make commit
+    s = txn->Commit();
+    ASSERT_OK(s);
 
-  // value is now available
-  s = db->Get(read_options, "foo", &value);
-  ASSERT_OK(s);
-  ASSERT_EQ(value, "bar");
+    // value is now available
+    s = db->Get(read_options, "foo", &value);
+    ASSERT_OK(s);
+    ASSERT_EQ(value, "bar");
 
-  s = db->Get(read_options, "gtid", &value);
-  ASSERT_OK(s);
-  ASSERT_EQ(value, "dogs");
+    if (!cwb4recovery) {
+      s = db->Get(read_options, "gtid", &value);
+      ASSERT_OK(s);
+      ASSERT_EQ(value, "dogs");
 
-  s = db->Get(read_options, "gtid2", &value);
-  ASSERT_OK(s);
-  ASSERT_EQ(value, "cats");
+      s = db->Get(read_options, "gtid2", &value);
+      ASSERT_OK(s);
+      ASSERT_EQ(value, "cats");
+    }
 
-  // we already committed
-  s = txn->Commit();
-  ASSERT_EQ(s, Status::InvalidArgument());
+    // we already committed
+    s = txn->Commit();
+    ASSERT_EQ(s, Status::InvalidArgument());
 
-  // no longer is prpared results
-  db->GetAllPreparedTransactions(&prepared_trans);
-  ASSERT_EQ(prepared_trans.size(), 0);
-  ASSERT_EQ(db->GetTransactionByName("xid"), nullptr);
+    // no longer is prpared results
+    db->GetAllPreparedTransactions(&prepared_trans);
+    ASSERT_EQ(prepared_trans.size(), 0);
+    ASSERT_EQ(db->GetTransactionByName("xid"), nullptr);
 
-  // heap should not care about prepared section anymore
-  ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(), 0);
+    // heap should not care about prepared section anymore
+    ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(), 0);
 
-  // but now our memtable should be referencing the prep section
-  ASSERT_EQ(log_containing_prep,
-            db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+    switch (txn_db_options.write_policy) {
+      case WRITE_COMMITTED:
+        // but now our memtable should be referencing the prep section
+        ASSERT_EQ(log_containing_prep,
+                  db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+        break;
+      case WRITE_PREPARED:
+      case WRITE_UNPREPARED:
+        // In these modes memtable do not ref the prep sections
+        ASSERT_EQ(0, db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+        break;
+      default:
+        assert(false);
+    }
 
-  db_impl->TEST_FlushMemTable(true);
+    db_impl->TEST_FlushMemTable(true);
 
-  // after memtable flush we can now relese the log
-  ASSERT_EQ(0, db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+    // after memtable flush we can now relese the log
+    ASSERT_EQ(0, db_impl->TEST_FindMinPrepLogReferencedByMemTable());
 
-  delete txn;
+    delete txn;
+
+    if (cwb4recovery) {
+      // kill and reopen to trigger recovery
+      s = ReOpenNoDelete();
+      ASSERT_OK(s);
+      s = db->Get(read_options, "gtid", &value);
+      ASSERT_OK(s);
+      ASSERT_EQ(value, "dogs");
+
+      s = db->Get(read_options, "gtid2", &value);
+      ASSERT_OK(s);
+      ASSERT_EQ(value, "cats");
+    }
+  }
 }
 
 TEST_P(TransactionTest, TwoPhaseNameTest) {
@@ -854,44 +935,67 @@ TEST_P(TransactionTest, TwoPhaseNameTest) {
 }
 
 TEST_P(TransactionTest, TwoPhaseEmptyWriteTest) {
-  Status s;
-  std::string value;
+  for (bool cwb4recovery : {true, false}) {
+    for (bool test_with_empty_wal : {true, false}) {
+      if (!cwb4recovery && test_with_empty_wal) {
+        continue;
+      }
+      ReOpen();
+      Status s;
+      std::string value;
 
-  WriteOptions write_options;
-  ReadOptions read_options;
-  TransactionOptions txn_options;
-  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
-  ASSERT_TRUE(txn1);
-  Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
-  ASSERT_TRUE(txn2);
+      WriteOptions write_options;
+      ReadOptions read_options;
+      TransactionOptions txn_options;
+      txn_options.use_only_the_last_commit_time_batch_for_recovery =
+          cwb4recovery;
+      Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+      ASSERT_TRUE(txn1);
+      Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
+      ASSERT_TRUE(txn2);
 
-  s = txn1->SetName("joe");
-  ASSERT_OK(s);
+      s = txn1->SetName("joe");
+      ASSERT_OK(s);
 
-  s = txn2->SetName("bob");
-  ASSERT_OK(s);
+      s = txn2->SetName("bob");
+      ASSERT_OK(s);
 
-  s = txn1->Prepare();
-  ASSERT_OK(s);
+      s = txn1->Prepare();
+      ASSERT_OK(s);
 
-  s = txn1->Commit();
-  ASSERT_OK(s);
+      s = txn1->Commit();
+      ASSERT_OK(s);
 
-  delete txn1;
+      delete txn1;
 
-  txn2->GetCommitTimeWriteBatch()->Put(Slice("foo"), Slice("bar"));
+      txn2->GetCommitTimeWriteBatch()->Put(Slice("foo"), Slice("bar"));
 
-  s = txn2->Prepare();
-  ASSERT_OK(s);
+      s = txn2->Prepare();
+      ASSERT_OK(s);
 
-  s = txn2->Commit();
-  ASSERT_OK(s);
+      s = txn2->Commit();
+      ASSERT_OK(s);
 
-  s = db->Get(read_options, "foo", &value);
-  ASSERT_OK(s);
-  ASSERT_EQ(value, "bar");
-
-  delete txn2;
+      delete txn2;
+      if (!cwb4recovery) {
+        s = db->Get(read_options, "foo", &value);
+        ASSERT_OK(s);
+        ASSERT_EQ(value, "bar");
+      } else {
+        if (test_with_empty_wal) {
+          DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+          db_impl->TEST_FlushMemTable(true);
+        }
+        db->FlushWAL(true);
+        // kill and reopen to trigger recovery
+        s = ReOpenNoDelete();
+        ASSERT_OK(s);
+        s = db->Get(read_options, "foo", &value);
+        ASSERT_OK(s);
+        ASSERT_EQ(value, "bar");
+      }
+    }
+  }
 }
 
 TEST_P(TransactionTest, TwoPhaseExpirationTest) {
@@ -1096,9 +1200,20 @@ TEST_P(TransactionTest, PersistentTwoPhaseTransactionTest) {
   // heap should not care about prepared section anymore
   ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(), 0);
 
-  // but now our memtable should be referencing the prep section
-  ASSERT_EQ(log_containing_prep,
-            db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+  switch (txn_db_options.write_policy) {
+    case WRITE_COMMITTED:
+      // but now our memtable should be referencing the prep section
+      ASSERT_EQ(log_containing_prep,
+                db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+      break;
+    case WRITE_PREPARED:
+    case WRITE_UNPREPARED:
+      // In these modes memtable do not ref the prep sections
+      ASSERT_EQ(0, db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+      break;
+    default:
+      assert(false);
+  }
 
   db_impl->TEST_FlushMemTable(true);
 
@@ -1128,11 +1243,11 @@ TEST_P(TransactionTest, DISABLED_TwoPhaseMultiThreadTest) {
     if (id % 2 == 0) {
       txn_options.expiration = 1000000;
     }
-    TransactionName name("xid_" + std::string(1, 'A' + id));
+    TransactionName name("xid_" + std::string(1, 'A' + static_cast<char>(id)));
     Transaction* txn = db->BeginTransaction(write_options, txn_options);
     ASSERT_OK(txn->SetName(name));
     for (int i = 0; i < 10; i++) {
-      std::string key(name + "_" + std::string(1, 'A' + i));
+      std::string key(name + "_" + std::string(1, static_cast<char>('A' + i)));
       ASSERT_OK(txn->Put(key, "val"));
     }
     ASSERT_OK(txn->Prepare());
@@ -1183,9 +1298,9 @@ TEST_P(TransactionTest, DISABLED_TwoPhaseMultiThreadTest) {
   std::string value;
   Status s;
   for (uint32_t t = 0; t < NUM_TXN_THREADS; t++) {
-    TransactionName name("xid_" + std::string(1, 'A' + t));
+    TransactionName name("xid_" + std::string(1, 'A' + static_cast<char>(t)));
     for (int i = 0; i < 10; i++) {
-      std::string key(name + "_" + std::string(1, 'A' + i));
+      std::string key(name + "_" + std::string(1, static_cast<char>('A' + i)));
       s = db->Get(read_options, key, &value);
       ASSERT_OK(s);
       ASSERT_EQ(value, "val");
@@ -1443,9 +1558,20 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest) {
   ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(),
             txn2->GetLogNumber());
 
-  // we should see txn1s log refernced by the memtables
-  ASSERT_EQ(db_impl->TEST_FindMinPrepLogReferencedByMemTable(),
-            txn1->GetLogNumber());
+  switch (txn_db_options.write_policy) {
+    case WRITE_COMMITTED:
+      // we should see txn1s log refernced by the memtables
+      ASSERT_EQ(txn1->GetLogNumber(),
+                db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+      break;
+    case WRITE_PREPARED:
+    case WRITE_UNPREPARED:
+      // In these modes memtable do not ref the prep sections
+      ASSERT_EQ(0, db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+      break;
+    default:
+      assert(false);
+  }
 
   // flush default cf to crate new log
   s = db->Put(wopts, "foo", "bar2");
@@ -1463,17 +1589,39 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest) {
   // heap should not show any logs
   ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(), 0);
 
-  // should show the first txn log
-  ASSERT_EQ(db_impl->TEST_FindMinPrepLogReferencedByMemTable(),
-            txn1->GetLogNumber());
+  switch (txn_db_options.write_policy) {
+    case WRITE_COMMITTED:
+      // should show the first txn log
+      ASSERT_EQ(txn1->GetLogNumber(),
+                db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+      break;
+    case WRITE_PREPARED:
+    case WRITE_UNPREPARED:
+      // In these modes memtable do not ref the prep sections
+      ASSERT_EQ(0, db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+      break;
+    default:
+      assert(false);
+  }
 
   // flush only cfa memtable
   s = db_impl->TEST_FlushMemTable(true, cfa);
   ASSERT_OK(s);
 
-  // should show the first txn log
-  ASSERT_EQ(db_impl->TEST_FindMinPrepLogReferencedByMemTable(),
-            txn2->GetLogNumber());
+  switch (txn_db_options.write_policy) {
+    case WRITE_COMMITTED:
+      // should show the first txn log
+      ASSERT_EQ(txn2->GetLogNumber(),
+                db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+      break;
+    case WRITE_PREPARED:
+    case WRITE_UNPREPARED:
+      // In these modes memtable do not ref the prep sections
+      ASSERT_EQ(0, db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+      break;
+    default:
+      assert(false);
+  }
 
   // flush only cfb memtable
   s = db_impl->TEST_FlushMemTable(true, cfb);
@@ -1545,8 +1693,20 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest2) {
   ASSERT_OK(s);
 
   ASSERT_GT(db_impl->TEST_LogfileNumber(), prepare_log_no);
-  ASSERT_GT(cfh_a->cfd()->GetLogNumber(), prepare_log_no);
-  ASSERT_EQ(cfh_a->cfd()->GetLogNumber(), db_impl->TEST_LogfileNumber());
+  switch (txn_db_options.write_policy) {
+    case WRITE_COMMITTED:
+      // This cf is empty and should ref the latest log
+      ASSERT_GT(cfh_a->cfd()->GetLogNumber(), prepare_log_no);
+      ASSERT_EQ(cfh_a->cfd()->GetLogNumber(), db_impl->TEST_LogfileNumber());
+      break;
+    case WRITE_PREPARED:
+      // This cf is not flushed yet and should ref the log that has its data
+      ASSERT_EQ(cfh_a->cfd()->GetLogNumber(), prepare_log_no);
+      break;
+    case WRITE_UNPREPARED:
+    default:
+      assert(false);
+  }
   ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(),
             prepare_log_no);
   ASSERT_EQ(db_impl->TEST_FindMinPrepLogReferencedByMemTable(), 0);
@@ -1555,7 +1715,19 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest2) {
   s = txn1->Commit();
   ASSERT_OK(s);
 
-  ASSERT_EQ(db_impl->TEST_FindMinPrepLogReferencedByMemTable(), prepare_log_no);
+  switch (txn_db_options.write_policy) {
+    case WRITE_COMMITTED:
+      ASSERT_EQ(db_impl->TEST_FindMinPrepLogReferencedByMemTable(),
+                prepare_log_no);
+      break;
+    case WRITE_PREPARED:
+    case WRITE_UNPREPARED:
+      // In these modes memtable do not ref the prep sections
+      ASSERT_EQ(db_impl->TEST_FindMinPrepLogReferencedByMemTable(), 0);
+      break;
+    default:
+      assert(false);
+  }
 
   ASSERT_TRUE(!db_impl->TEST_UnableToFlushOldestLog());
 
@@ -1569,8 +1741,19 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest2) {
   // assert that cfa has a flush requested
   ASSERT_TRUE(cfh_a->cfd()->imm()->HasFlushRequested());
 
-  // cfb should not be flushed becuse it has no data from LOG A
-  ASSERT_TRUE(!cfh_b->cfd()->imm()->HasFlushRequested());
+  switch (txn_db_options.write_policy) {
+    case WRITE_COMMITTED:
+      // cfb should not be flushed becuse it has no data from LOG A
+      ASSERT_TRUE(!cfh_b->cfd()->imm()->HasFlushRequested());
+      break;
+    case WRITE_PREPARED:
+    case WRITE_UNPREPARED:
+      // cfb should be flushed becuse it has prepared data from LOG A
+      ASSERT_TRUE(cfh_b->cfd()->imm()->HasFlushRequested());
+      break;
+    default:
+      assert(false);
+  }
 
   // cfb now has data from LOG A
   s = txn2->Commit();
@@ -2690,8 +2873,12 @@ TEST_P(TransactionTest, UntrackedWrites) {
   // Untracked writes should succeed even though key was written after snapshot
   s = txn->PutUntracked("untracked", "1");
   ASSERT_OK(s);
-  s = txn->MergeUntracked("untracked", "2");
-  ASSERT_OK(s);
+  if (txn_db_options.write_policy != WRITE_PREPARED) {
+    // WRITE_PREPARED does not currently support dup merge keys.
+    // TODO(myabandeh): remove this if-then when the support is added
+    s = txn->MergeUntracked("untracked", "2");
+    ASSERT_OK(s);
+  }
   s = txn->DeleteUntracked("untracked");
   ASSERT_OK(s);
 
@@ -4062,6 +4249,11 @@ TEST_P(TransactionTest, SingleDeleteTest) {
 }
 
 TEST_P(TransactionTest, MergeTest) {
+  if (txn_db_options.write_policy == WRITE_PREPARED) {
+    // WRITE_PREPARED does not currently support dup merge keys.
+    // TODO(myabandeh): remove this if-then when the support is added
+    return;
+  }
   WriteOptions write_options;
   ReadOptions read_options;
   string value;
@@ -4645,13 +4837,18 @@ TEST_P(TransactionTest, MemoryLimitTest) {
 // necessarily the one acceptable way. If the algorithm is legitimately changed,
 // this unit test should be updated as well.
 TEST_P(TransactionTest, SeqAdvanceTest) {
+  // TODO(myabandeh): must be test with false before new releases
+  const bool short_test = true;
   WriteOptions wopts;
   FlushOptions fopt;
+
+  options.disable_auto_compactions = true;
+  ReOpen();
 
   // Do the test with NUM_BRANCHES branches in it. Each run of a test takes some
   // of the branches. This is the same as counting a binary number where i-th
   // bit represents whether we take branch i in the represented by the number.
-  const size_t NUM_BRANCHES = 8;
+  const size_t NUM_BRANCHES = short_test ? 6 : 10;
   // Helper function that shows if the branch is to be taken in the run
   // represented by the number n.
   auto branch_do = [&](size_t n, size_t* branch) {
@@ -4666,15 +4863,15 @@ TEST_P(TransactionTest, SeqAdvanceTest) {
     auto seq = db_impl->GetLatestSequenceNumber();
     exp_seq = seq;
     txn_t0(0);
-    seq = db_impl->GetLatestSequenceNumber();
+    seq = db_impl->TEST_GetLastVisibleSequence();
     ASSERT_EQ(exp_seq, seq);
 
     if (branch_do(n, &branch)) {
       db_impl->Flush(fopt);
-      seq = db_impl->GetLatestSequenceNumber();
+      seq = db_impl->TEST_GetLastVisibleSequence();
       ASSERT_EQ(exp_seq, seq);
     }
-    if (branch_do(n, &branch)) {
+    if (!short_test && branch_do(n, &branch)) {
       db_impl->FlushWAL(true);
       ReOpenNoDelete();
       db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
@@ -4684,19 +4881,19 @@ TEST_P(TransactionTest, SeqAdvanceTest) {
 
     // Doing it twice might detect some bugs
     txn_t0(1);
-    seq = db_impl->GetLatestSequenceNumber();
+    seq = db_impl->TEST_GetLastVisibleSequence();
     ASSERT_EQ(exp_seq, seq);
 
     txn_t1(0);
-    seq = db_impl->GetLatestSequenceNumber();
+    seq = db_impl->TEST_GetLastVisibleSequence();
     ASSERT_EQ(exp_seq, seq);
 
     if (branch_do(n, &branch)) {
       db_impl->Flush(fopt);
-      seq = db_impl->GetLatestSequenceNumber();
+      seq = db_impl->TEST_GetLastVisibleSequence();
       ASSERT_EQ(exp_seq, seq);
     }
-    if (branch_do(n, &branch)) {
+    if (!short_test && branch_do(n, &branch)) {
       db_impl->FlushWAL(true);
       ReOpenNoDelete();
       db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
@@ -4705,14 +4902,15 @@ TEST_P(TransactionTest, SeqAdvanceTest) {
     }
 
     txn_t3(0);
-    // Since commit marker does not write to memtable, the last seq number is
-    // not updated immediately. But the advance should be visible after the next
-    // write.
+    seq = db_impl->TEST_GetLastVisibleSequence();
+    ASSERT_EQ(exp_seq, seq);
 
     if (branch_do(n, &branch)) {
       db_impl->Flush(fopt);
+      seq = db_impl->TEST_GetLastVisibleSequence();
+      ASSERT_EQ(exp_seq, seq);
     }
-    if (branch_do(n, &branch)) {
+    if (!short_test && branch_do(n, &branch)) {
       db_impl->FlushWAL(true);
       ReOpenNoDelete();
       db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
@@ -4720,20 +4918,34 @@ TEST_P(TransactionTest, SeqAdvanceTest) {
       ASSERT_EQ(exp_seq, seq);
     }
 
-    txn_t0(0);
-    seq = db_impl->GetLatestSequenceNumber();
-    ASSERT_EQ(exp_seq, seq);
+    txn_t4(0);
+    seq = db_impl->TEST_GetLastVisibleSequence();
 
-    txn_t2(0);
-    seq = db_impl->GetLatestSequenceNumber();
     ASSERT_EQ(exp_seq, seq);
 
     if (branch_do(n, &branch)) {
       db_impl->Flush(fopt);
+      seq = db_impl->TEST_GetLastVisibleSequence();
+      ASSERT_EQ(exp_seq, seq);
+    }
+    if (!short_test && branch_do(n, &branch)) {
+      db_impl->FlushWAL(true);
+      ReOpenNoDelete();
+      db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
       seq = db_impl->GetLatestSequenceNumber();
       ASSERT_EQ(exp_seq, seq);
     }
+
+    txn_t2(0);
+    seq = db_impl->TEST_GetLastVisibleSequence();
+    ASSERT_EQ(exp_seq, seq);
+
     if (branch_do(n, &branch)) {
+      db_impl->Flush(fopt);
+      seq = db_impl->TEST_GetLastVisibleSequence();
+      ASSERT_EQ(exp_seq, seq);
+    }
+    if (!short_test && branch_do(n, &branch)) {
       db_impl->FlushWAL(true);
       ReOpenNoDelete();
       db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());

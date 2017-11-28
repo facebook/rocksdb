@@ -336,15 +336,6 @@ static inline void Slow_CRC32(uint64_t* l, uint8_t const **p) {
   table0_[c >> 24];
 }
 
-#if defined(HAVE_SSE42) && defined(__GNUC__)
-#if defined(__clang__)
-#if __has_cpp_attribute(gnu::target)
-__attribute__ ((target ("sse4.2")))
-#endif
-#else  // gcc supports this since 4.4
-__attribute__ ((target ("sse4.2")))
-#endif
-#endif
 static inline void Fast_CRC32(uint64_t* l, uint8_t const **p) {
 #ifndef HAVE_SSE42
   Slow_CRC32(l, p);
@@ -478,7 +469,9 @@ std::string IsFastCrc32Supported() {
   if (has_fast_crc) {
     fast_zero_msg.append("Supported on " + arch);
   }
-  fast_zero_msg.append("Not supported on " + arch);
+  else {
+    fast_zero_msg.append("Not supported on " + arch);
+  }
   return fast_zero_msg;
 }
 

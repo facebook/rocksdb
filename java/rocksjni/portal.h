@@ -10,10 +10,12 @@
 #ifndef JAVA_ROCKSJNI_PORTAL_H_
 #define JAVA_ROCKSJNI_PORTAL_H_
 
+#include <cstring>
 #include <jni.h>
 #include <functional>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -22,6 +24,7 @@
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/backupable_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
+#include "rocksjni/compaction_filter_factory_jnicallback.h"
 #include "rocksjni/comparatorjnicallback.h"
 #include "rocksjni/loggerjnicallback.h"
 #include "rocksjni/writebatchhandlerjnicallback.h"
@@ -287,8 +290,14 @@ class StatusJni : public RocksDBNativeClass<rocksdb::Status*, StatusJni> {
         return 0x2;
       case rocksdb::Status::SubCode::kLockLimit:
         return 0x3;
-      case rocksdb::Status::SubCode::kMaxSubCode:
-        return 0x7E;
+      case rocksdb::Status::SubCode::kNoSpace:
+        return 0x4;
+      case rocksdb::Status::SubCode::kDeadlock:
+        return 0x5;
+      case rocksdb::Status::SubCode::kStaleFile:
+        return 0x6;
+      case rocksdb::Status::SubCode::kMemoryLimit:
+        return 0x7;
       default:
         return 0x7F;  // undefined
     }
@@ -627,7 +636,7 @@ class ColumnFamilyOptionsJni
       return nullptr;
     }
 
-    jobject jcfd = env->NewObject(jclazz, mid, reinterpret_cast<long>(cfo));
+    jobject jcfd = env->NewObject(jclazz, mid, reinterpret_cast<jlong>(cfo));
     if (env->ExceptionCheck()) {
       return nullptr;
     }
@@ -1011,6 +1020,69 @@ class ComparatorOptionsJni : public RocksDBNativeClass<
    */
   static jclass getJClass(JNIEnv* env) {
     return RocksDBNativeClass::getJClass(env, "org/rocksdb/ComparatorOptions");
+  }
+};
+
+// The portal class for org.rocksdb.AbstractCompactionFilterFactory
+class AbstractCompactionFilterFactoryJni : public RocksDBNativeClass<
+    const rocksdb::CompactionFilterFactoryJniCallback*,
+    AbstractCompactionFilterFactoryJni> {
+ public:
+  /**
+   * Get the Java Class org.rocksdb.AbstractCompactionFilterFactory
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
+  static jclass getJClass(JNIEnv* env) {
+    return RocksDBNativeClass::getJClass(env,
+        "org/rocksdb/AbstractCompactionFilterFactory");
+  }
+
+  /**
+   * Get the Java Method: AbstractCompactionFilterFactory#name
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getNameMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid = env->GetMethodID(
+        jclazz, "name", "()Ljava/lang/String;");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: AbstractCompactionFilterFactory#createCompactionFilter
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getCreateCompactionFilterMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid = env->GetMethodID(jclazz,
+      "createCompactionFilter",
+      "(ZZ)J");
+    assert(mid != nullptr);
+    return mid;
   }
 };
 
@@ -2451,8 +2523,10 @@ class TickerTypeJni {
         return 0x5B;
       case rocksdb::Tickers::NUMBER_RATE_LIMITER_DRAINS:
         return 0x5C;
-      case rocksdb::Tickers::TICKER_ENUM_MAX:
+      case rocksdb::Tickers::NUMBER_ITER_SKIP:
         return 0x5D;
+      case rocksdb::Tickers::TICKER_ENUM_MAX:
+        return 0x5E;
 
       default:
         // undefined/default
@@ -2651,6 +2725,8 @@ class TickerTypeJni {
       case 0x5C:
         return rocksdb::Tickers::NUMBER_RATE_LIMITER_DRAINS;
       case 0x5D:
+        return rocksdb::Tickers::NUMBER_ITER_SKIP;
+      case 0x5E:
         return rocksdb::Tickers::TICKER_ENUM_MAX;
 
       default:
@@ -2989,6 +3065,46 @@ class JniUtil {
     }
 
     /**
+     * Copies a jstring to a C-style null-terminated byte string
+     * and releases the original jstring
+     *
+     * The jstring is copied as UTF-8
+     *
+     * If an exception occurs, then JNIEnv::ExceptionCheck()
+     * will have been called
+     *
+     * @param env (IN) A pointer to the java environment
+     * @param js (IN) The java string to copy
+     * @param has_exception (OUT) will be set to JNI_TRUE
+     *     if an OutOfMemoryError exception occurs
+     *
+     * @return A pointer to the copied string, or a
+     *     nullptr if has_exception == JNI_TRUE
+     */
+    static std::unique_ptr<char[]> copyString(JNIEnv* env, jstring js,
+        jboolean* has_exception) {
+      const char *utf = env->GetStringUTFChars(js, nullptr);
+      if(utf == nullptr) {
+        // exception thrown: OutOfMemoryError
+        env->ExceptionCheck();
+        *has_exception = JNI_TRUE;
+        return nullptr;
+      } else if(env->ExceptionCheck()) {
+        // exception thrown
+        env->ReleaseStringUTFChars(js, utf);
+        *has_exception = JNI_TRUE;
+        return nullptr;
+      }
+
+      const jsize utf_len = env->GetStringUTFLength(js);
+      std::unique_ptr<char[]> str(new char[utf_len + 1]);  // Note: + 1 is needed for the c_str null terminator
+      std::strcpy(str.get(), utf);
+      env->ReleaseStringUTFChars(js, utf);
+      *has_exception = JNI_FALSE;
+      return str;
+    }
+
+    /**
      * Copies a jstring to a std::string
      * and releases the original jstring
      *
@@ -3003,8 +3119,8 @@ class JniUtil {
      * @return A std:string copy of the jstring, or an
      *     empty std::string if has_exception == JNI_TRUE
      */
-    static std::string copyString(JNIEnv* env, jstring js,
-        jboolean* has_exception) {
+    static std::string copyStdString(JNIEnv* env, jstring js,
+      jboolean* has_exception) {
       const char *utf = env->GetStringUTFChars(js, nullptr);
       if(utf == nullptr) {
         // exception thrown: OutOfMemoryError

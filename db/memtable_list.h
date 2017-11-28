@@ -73,14 +73,16 @@ class MemTableListVersion {
   bool GetFromHistory(const LookupKey& key, std::string* value, Status* s,
                       MergeContext* merge_context,
                       RangeDelAggregator* range_del_agg, SequenceNumber* seq,
-                      const ReadOptions& read_opts);
+                      const ReadOptions& read_opts,
+                      bool* is_blob_index = nullptr);
   bool GetFromHistory(const LookupKey& key, std::string* value, Status* s,
                       MergeContext* merge_context,
                       RangeDelAggregator* range_del_agg,
-                      const ReadOptions& read_opts) {
+                      const ReadOptions& read_opts,
+                      bool* is_blob_index = nullptr) {
     SequenceNumber seq;
     return GetFromHistory(key, value, s, merge_context, range_del_agg, &seq,
-                          read_opts);
+                          read_opts, is_blob_index);
   }
 
   Status AddRangeTombstoneIterators(const ReadOptions& read_opts, Arena* arena,
@@ -221,6 +223,9 @@ class MemTableList {
   // Returns an estimate of the number of bytes of data used by
   // the unflushed mem-tables.
   size_t ApproximateUnflushedMemTablesMemoryUsage();
+
+  // Returns an estimate of the timestamp of the earliest key.
+  uint64_t ApproximateOldestKeyTime() const;
 
   // Request a flush of all existing memtables to storage.  This will
   // cause future calls to IsFlushPending() to return true if this list is

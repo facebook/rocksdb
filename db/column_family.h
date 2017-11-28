@@ -41,6 +41,7 @@ class DBImpl;
 class LogBuffer;
 class InstrumentedMutex;
 class InstrumentedMutexLock;
+struct SuperVersionContext;
 
 extern const double kIncSlowdownRatio;
 
@@ -76,7 +77,7 @@ class ColumnFamilyHandleImpl : public ColumnFamilyHandle {
 class ColumnFamilyHandleInternal : public ColumnFamilyHandleImpl {
  public:
   ColumnFamilyHandleInternal()
-      : ColumnFamilyHandleImpl(nullptr, nullptr, nullptr) {}
+      : ColumnFamilyHandleImpl(nullptr, nullptr, nullptr), internal_cfd_(nullptr) {}
 
   void SetCFD(ColumnFamilyData* _cfd) { internal_cfd_ = _cfd; }
   virtual ColumnFamilyData* cfd() const override { return internal_cfd_; }
@@ -95,6 +96,7 @@ struct SuperVersion {
   MutableCFOptions mutable_cf_options;
   // Version number of the current SuperVersion
   uint64_t version_number;
+  WriteStallCondition write_stall_condition;
 
   InstrumentedMutex* db_mutex;
 
@@ -264,7 +266,7 @@ class ColumnFamilyData {
                                   int level) const;
 
   // A flag to tell a manual compaction is to compact all levels together
-  // instad of for specific level.
+  // instead of a specific level.
   static const int kCompactAllLevels;
   // A flag to tell a manual compaction's output is base level.
   static const int kCompactToBaseLevel;
@@ -311,11 +313,11 @@ class ColumnFamilyData {
   // As argument takes a pointer to allocated SuperVersion to enable
   // the clients to allocate SuperVersion outside of mutex.
   // IMPORTANT: Only call this from DBImpl::InstallSuperVersion()
-  SuperVersion* InstallSuperVersion(SuperVersion* new_superversion,
-                                    InstrumentedMutex* db_mutex,
-                                    const MutableCFOptions& mutable_cf_options);
-  SuperVersion* InstallSuperVersion(SuperVersion* new_superversion,
-                                    InstrumentedMutex* db_mutex);
+  void InstallSuperVersion(SuperVersionContext* sv_context,
+                           InstrumentedMutex* db_mutex,
+                           const MutableCFOptions& mutable_cf_options);
+  void InstallSuperVersion(SuperVersionContext* sv_context,
+                           InstrumentedMutex* db_mutex);
 
   void ResetThreadLocalSuperVersions();
 
@@ -330,12 +332,14 @@ class ColumnFamilyData {
   // recalculation of compaction score. These values are used in
   // DBImpl::MakeRoomForWrite function to decide, if it need to make
   // a write stall
-  void RecalculateWriteStallConditions(
+  WriteStallCondition RecalculateWriteStallConditions(
       const MutableCFOptions& mutable_cf_options);
 
   void set_initialized() { initialized_.store(true); }
 
   bool initialized() const { return initialized_.load(); }
+
+  Env::WriteLifeTimeHint CalculateSSTWriteHint(int level);
 
  private:
   friend class ColumnFamilySet;

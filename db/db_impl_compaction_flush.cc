@@ -86,10 +86,14 @@ Status DBImpl::FlushMemTableToOutputFile(
   std::vector<SequenceNumber> snapshot_seqs =
       snapshots_.GetAll(&earliest_write_conflict_snapshot);
 
+  auto snapshot_checker = snapshot_checker_.get();
+  if (use_custom_gc_ && snapshot_checker == nullptr) {
+    snapshot_checker = DisableGCSnapshotChecker::Instance();
+  }
   FlushJob flush_job(
       dbname_, cfd, immutable_db_options_, mutable_cf_options,
-      env_options_for_compaction_, versions_.get(), &mutex_,
-      &shutting_down_, snapshot_seqs, earliest_write_conflict_snapshot,
+      env_options_for_compaction_, versions_.get(), &mutex_, &shutting_down_,
+      snapshot_seqs, earliest_write_conflict_snapshot, snapshot_checker,
       job_context, log_buffer, directories_.GetDbDir(),
       directories_.GetDataDir(0U),
       GetCompressionFlush(*cfd->ioptions(), mutable_cf_options), stats_,
@@ -130,8 +134,8 @@ Status DBImpl::FlushMemTableToOutputFile(
   }
 
   if (s.ok()) {
-    InstallSuperVersionAndScheduleWorkWrapper(cfd, job_context,
-                                              mutable_cf_options);
+    InstallSuperVersionAndScheduleWork(cfd, &job_context->superversion_context,
+                                       mutable_cf_options);
     if (made_progress) {
       *made_progress = 1;
     }
@@ -531,14 +535,19 @@ Status DBImpl::CompactFilesImpl(
   auto pending_outputs_inserted_elem =
       CaptureCurrentFileNumberInPendingOutputs();
 
+  auto snapshot_checker = snapshot_checker_.get();
+  if (use_custom_gc_ && snapshot_checker == nullptr) {
+    snapshot_checker = DisableGCSnapshotChecker::Instance();
+  }
   assert(is_snapshot_supported_ || snapshots_.empty());
   CompactionJob compaction_job(
       job_context->job_id, c.get(), immutable_db_options_,
       env_options_for_compaction_, versions_.get(), &shutting_down_,
-      log_buffer, directories_.GetDbDir(),
+      preserve_deletes_seqnum_.load(), log_buffer, directories_.GetDbDir(),
       directories_.GetDataDir(c->output_path_id()), stats_, &mutex_, &bg_error_,
-      snapshot_seqs, earliest_write_conflict_snapshot, table_cache_,
-      &event_logger_, c->mutable_cf_options()->paranoid_file_checks,
+      snapshot_seqs, earliest_write_conflict_snapshot, snapshot_checker,
+      table_cache_, &event_logger_,
+      c->mutable_cf_options()->paranoid_file_checks,
       c->mutable_cf_options()->report_bg_io_stats, dbname_,
       nullptr);  // Here we pass a nullptr for CompactionJobStats because
                  // CompactFiles does not trigger OnCompactionCompleted(),
@@ -573,8 +582,9 @@ Status DBImpl::CompactFilesImpl(
 
   Status status = compaction_job.Install(*c->mutable_cf_options());
   if (status.ok()) {
-    InstallSuperVersionAndScheduleWorkWrapper(
-        c->column_family_data(), job_context, *c->mutable_cf_options());
+    InstallSuperVersionAndScheduleWork(
+        c->column_family_data(), &job_context->superversion_context,
+       *c->mutable_cf_options());
   }
   c->ReleaseCompactionFiles(s);
 
@@ -707,8 +717,7 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
     return Status::InvalidArgument("Target level exceeds number of levels");
   }
 
-  std::unique_ptr<SuperVersion> superversion_to_free;
-  std::unique_ptr<SuperVersion> new_superversion(new SuperVersion());
+  SuperVersionContext sv_context(/* create_superversion */ true);
 
   Status status;
 
@@ -763,8 +772,7 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
 
     status = versions_->LogAndApply(cfd, mutable_cf_options, &edit, &mutex_,
                                     directories_.GetDbDir());
-    superversion_to_free.reset(InstallSuperVersionAndScheduleWork(
-        cfd, new_superversion.release(), mutable_cf_options));
+    InstallSuperVersionAndScheduleWork(cfd, &sv_context, mutable_cf_options);
 
     ROCKS_LOG_DEBUG(immutable_db_options_.info_log, "[%s] LogAndApply: %s\n",
                     cfd->GetName().c_str(), status.ToString().data());
@@ -776,6 +784,7 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
     }
   }
 
+  sv_context.Clean();
   refitting_level_ = false;
 
   return status;
@@ -886,15 +895,15 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
   while (!manual.done) {
     assert(HasPendingManualCompaction());
     manual_conflict = false;
-    Compaction* compaction;
+    Compaction* compaction = nullptr;
     if (ShouldntRunManualCompaction(&manual) || (manual.in_progress == true) ||
         scheduled ||
-        ((manual.manual_end = &manual.tmp_storage1) &&
-         ((compaction = manual.cfd->CompactRange(
-               *manual.cfd->GetLatestMutableCFOptions(), manual.input_level,
-               manual.output_level, manual.output_path_id, manual.begin,
-               manual.end, &manual.manual_end, &manual_conflict)) == nullptr) &&
-         manual_conflict)) {
+        (((manual.manual_end = &manual.tmp_storage1) != nullptr) &&
+             ((compaction = manual.cfd->CompactRange(
+                  *manual.cfd->GetLatestMutableCFOptions(), manual.input_level,
+                  manual.output_level, manual.output_path_id, manual.begin,
+                  manual.end, &manual.manual_end, &manual_conflict)) == nullptr &&
+         manual_conflict))) {
       // exclusive manual compactions should not see a conflict during
       // CompactRange
       assert(!exclusive || !manual_conflict);
@@ -939,7 +948,8 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     WriteContext context;
     InstrumentedMutexLock guard_lock(&mutex_);
 
-    if (cfd->imm()->NumNotFlushed() == 0 && cfd->mem()->IsEmpty()) {
+    if (cfd->imm()->NumNotFlushed() == 0 && cfd->mem()->IsEmpty() &&
+        cached_recoverable_state_empty_.load()) {
       // Nothing to flush
       return Status::OK();
     }
@@ -949,8 +959,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       write_thread_.EnterUnbatched(&w, &mutex_);
     }
 
-    // SwitchMemtable() will release and reacquire mutex
-    // during execution
+    // SwitchMemtable() will release and reacquire mutex during execution
     s = SwitchMemtable(cfd, &context);
 
     if (!writes_stopped) {
@@ -1576,8 +1585,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     status = versions_->LogAndApply(c->column_family_data(),
                                     *c->mutable_cf_options(), c->edit(),
                                     &mutex_, directories_.GetDbDir());
-    InstallSuperVersionAndScheduleWorkWrapper(
-        c->column_family_data(), job_context, *c->mutable_cf_options());
+    InstallSuperVersionAndScheduleWork(
+        c->column_family_data(), &job_context->superversion_context,
+        *c->mutable_cf_options());
     ROCKS_LOG_BUFFER(log_buffer, "[%s] Deleted %d files\n",
                      c->column_family_data()->GetName().c_str(),
                      c->num_input_files(0));
@@ -1622,8 +1632,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                                     *c->mutable_cf_options(), c->edit(),
                                     &mutex_, directories_.GetDbDir());
     // Use latest MutableCFOptions
-    InstallSuperVersionAndScheduleWorkWrapper(
-        c->column_family_data(), job_context, *c->mutable_cf_options());
+    InstallSuperVersionAndScheduleWork(
+        c->column_family_data(), &job_context->superversion_context,
+        *c->mutable_cf_options());
 
     VersionStorageInfo::LevelSummaryStorage tmp;
     c->column_family_data()->internal_stats()->IncBytesMoved(c->output_level(),
@@ -1668,22 +1679,26 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     env_->Schedule(&DBImpl::BGWorkBottomCompaction, ca, Env::Priority::BOTTOM,
                    this, &DBImpl::UnscheduleCallback);
   } else {
-    int output_level  __attribute__((unused)) = c->output_level();
+    int output_level  __attribute__((unused));
+    output_level = c->output_level();
     TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCompaction:NonTrivial",
                              &output_level);
-
     SequenceNumber earliest_write_conflict_snapshot;
     std::vector<SequenceNumber> snapshot_seqs =
         snapshots_.GetAll(&earliest_write_conflict_snapshot);
 
+    auto snapshot_checker = snapshot_checker_.get();
+    if (use_custom_gc_ && snapshot_checker == nullptr) {
+      snapshot_checker = DisableGCSnapshotChecker::Instance();
+    }
     assert(is_snapshot_supported_ || snapshots_.empty());
     CompactionJob compaction_job(
         job_context->job_id, c.get(), immutable_db_options_,
         env_options_for_compaction_, versions_.get(), &shutting_down_,
-        log_buffer, directories_.GetDbDir(),
+        preserve_deletes_seqnum_.load(), log_buffer, directories_.GetDbDir(),
         directories_.GetDataDir(c->output_path_id()), stats_, &mutex_,
-        &bg_error_, snapshot_seqs,
-        earliest_write_conflict_snapshot, table_cache_, &event_logger_,
+        &bg_error_, snapshot_seqs, earliest_write_conflict_snapshot,
+        snapshot_checker, table_cache_, &event_logger_,
         c->mutable_cf_options()->paranoid_file_checks,
         c->mutable_cf_options()->report_bg_io_stats, dbname_,
         &compaction_job_stats);
@@ -1696,8 +1711,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 
     status = compaction_job.Install(*c->mutable_cf_options());
     if (status.ok()) {
-      InstallSuperVersionAndScheduleWorkWrapper(
-          c->column_family_data(), job_context, *c->mutable_cf_options());
+      InstallSuperVersionAndScheduleWork(
+          c->column_family_data(), &job_context->superversion_context,
+          *c->mutable_cf_options());
     }
     *made_progress = true;
   }
@@ -1863,30 +1879,21 @@ bool DBImpl::MCOverlap(ManualCompactionState* m, ManualCompactionState* m1) {
   return true;
 }
 
-// JobContext gets created and destructed outside of the lock --
+// SuperVersionContext gets created and destructed outside of the lock --
 // we
 // use this convinently to:
 // * malloc one SuperVersion() outside of the lock -- new_superversion
 // * delete SuperVersion()s outside of the lock -- superversions_to_free
 //
 // However, if InstallSuperVersionAndScheduleWork() gets called twice with the
-// same job_context, we can't reuse the SuperVersion() that got
+// same sv_context, we can't reuse the SuperVersion() that got
 // malloced because
 // first call already used it. In that rare case, we take a hit and create a
 // new SuperVersion() inside of the mutex. We do similar thing
 // for superversion_to_free
-void DBImpl::InstallSuperVersionAndScheduleWorkWrapper(
-    ColumnFamilyData* cfd, JobContext* job_context,
-    const MutableCFOptions& mutable_cf_options) {
-  mutex_.AssertHeld();
-  SuperVersion* old_superversion = InstallSuperVersionAndScheduleWork(
-      cfd, job_context->new_superversion, mutable_cf_options);
-  job_context->new_superversion = nullptr;
-  job_context->superversions_to_free.push_back(old_superversion);
-}
 
-SuperVersion* DBImpl::InstallSuperVersionAndScheduleWork(
-    ColumnFamilyData* cfd, SuperVersion* new_sv,
+void DBImpl::InstallSuperVersionAndScheduleWork(
+    ColumnFamilyData* cfd, SuperVersionContext* sv_context,
     const MutableCFOptions& mutable_cf_options) {
   mutex_.AssertHeld();
 
@@ -1898,8 +1905,11 @@ SuperVersion* DBImpl::InstallSuperVersionAndScheduleWork(
                         old_sv->mutable_cf_options.max_write_buffer_number;
   }
 
-  auto* old = cfd->InstallSuperVersion(
-      new_sv ? new_sv : new SuperVersion(), &mutex_, mutable_cf_options);
+  if (sv_context->new_superversion == nullptr) {
+    sv_context->NewSuperVersion();
+  }
+  cfd->InstallSuperVersion(sv_context, &mutex_,
+                           mutable_cf_options);
 
   // Whenever we install new SuperVersion, we might need to issue new flushes or
   // compactions.
@@ -1912,6 +1922,14 @@ SuperVersion* DBImpl::InstallSuperVersionAndScheduleWork(
       max_total_in_memory_state_ - old_memtable_size +
       mutable_cf_options.write_buffer_size *
       mutable_cf_options.max_write_buffer_number;
-  return old;
+}
+
+void DBImpl::SetSnapshotChecker(SnapshotChecker* snapshot_checker) {
+  InstrumentedMutexLock l(&mutex_);
+  // snapshot_checker_ should only set once. If we need to set it multiple
+  // times, we need to make sure the old one is not deleted while it is still
+  // using by a compaction job.
+  assert(!snapshot_checker_);
+  snapshot_checker_.reset(snapshot_checker);
 }
 }  // namespace rocksdb

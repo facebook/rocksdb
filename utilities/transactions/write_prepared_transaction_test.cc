@@ -18,8 +18,11 @@
 #include <thread>
 
 #include "db/db_impl.h"
+#include "db/dbformat.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
+#include "rocksdb/types.h"
+#include "rocksdb/utilities/debug.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "table/mock_table.h"
@@ -33,6 +36,7 @@
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/string_append/stringappend.h"
 #include "utilities/transactions/pessimistic_transaction_db.h"
+#include "utilities/transactions/write_prepared_txn_db.h"
 
 #include "port/port.h"
 
@@ -283,13 +287,65 @@ class WritePreparedTransactionTest : public TransactionTest {
     }
     rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   }
+
+  // Verify value of keys.
+  void VerifyKeys(const std::unordered_map<std::string, std::string>& data,
+                  const Snapshot* snapshot = nullptr) {
+    std::string value;
+    ReadOptions read_options;
+    read_options.snapshot = snapshot;
+    for (auto& kv : data) {
+      auto s = db->Get(read_options, kv.first, &value);
+      ASSERT_TRUE(s.ok() || s.IsNotFound());
+      if (s.ok()) {
+        if (kv.second != value) {
+          printf("key = %s\n", kv.first.c_str());
+        }
+        ASSERT_EQ(kv.second, value);
+      } else {
+        ASSERT_EQ(kv.second, "NOT_FOUND");
+      }
+
+      // Try with MultiGet API too
+      std::vector<std::string> values;
+      auto s_vec = db->MultiGet(read_options, {db->DefaultColumnFamily()},
+                                {kv.first}, &values);
+      ASSERT_EQ(1, values.size());
+      ASSERT_EQ(1, s_vec.size());
+      s = s_vec[0];
+      ASSERT_TRUE(s.ok() || s.IsNotFound());
+      if (s.ok()) {
+        ASSERT_TRUE(kv.second == values[0]);
+      } else {
+        ASSERT_EQ(kv.second, "NOT_FOUND");
+      }
+    }
+  }
+
+  // Verify all versions of keys.
+  void VerifyInternalKeys(const std::vector<KeyVersion>& expected_versions) {
+    std::vector<KeyVersion> versions;
+    ASSERT_OK(GetAllKeyVersions(db, expected_versions.front().user_key,
+                                expected_versions.back().user_key, &versions));
+    ASSERT_EQ(expected_versions.size(), versions.size());
+    for (size_t i = 0; i < versions.size(); i++) {
+      ASSERT_EQ(expected_versions[i].user_key, versions[i].user_key);
+      ASSERT_EQ(expected_versions[i].sequence, versions[i].sequence);
+      ASSERT_EQ(expected_versions[i].type, versions[i].type);
+      if (versions[i].type != kTypeDeletion &&
+          versions[i].type != kTypeSingleDeletion) {
+        ASSERT_EQ(expected_versions[i].value, versions[i].value);
+      }
+      // Range delete not supported.
+      assert(expected_versions[i].type != kTypeRangeDeletion);
+    }
+  }
 };
 
-// TODO(myabandeh): enable it for concurrent_prepare
-INSTANTIATE_TEST_CASE_P(WritePreparedTransactionTest,
-                        WritePreparedTransactionTest,
-                        ::testing::Values(std::make_tuple(false, false,
-                                                          WRITE_PREPARED)));
+INSTANTIATE_TEST_CASE_P(
+    WritePreparedTransactionTest, WritePreparedTransactionTest,
+    ::testing::Values(std::make_tuple(false, false, WRITE_PREPARED),
+                      std::make_tuple(false, true, WRITE_PREPARED)));
 
 TEST_P(WritePreparedTransactionTest, CommitMapTest) {
   WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
@@ -553,110 +609,6 @@ TEST_P(WritePreparedTransactionTest, AdvanceMaxEvictedSeqBasicTest) {
   }
 }
 
-// TODO(myabandeh): remove this redundant test after transaction_test is enabled
-// with WRITE_PREPARED too This test clarifies the existing expectation from the
-// sequence number algorithm. It could detect mistakes in updating the code but
-// it is not necessarily the one acceptable way. If the algorithm is
-// legitimately changed, this unit test should be updated as well.
-TEST_P(WritePreparedTransactionTest, SeqAdvanceTest) {
-  WriteOptions wopts;
-  FlushOptions fopt;
-
-  // Do the test with NUM_BRANCHES branches in it. Each run of a test takes some
-  // of the branches. This is the same as counting a binary number where i-th
-  // bit represents whether we take branch i in the represented by the number.
-  const size_t NUM_BRANCHES = 8;
-  // Helper function that shows if the branch is to be taken in the run
-  // represented by the number n.
-  auto branch_do = [&](size_t n, size_t* branch) {
-    assert(*branch < NUM_BRANCHES);
-    const size_t filter = static_cast<size_t>(1) << *branch;
-    return n & filter;
-  };
-  const size_t max_n = static_cast<size_t>(1) << NUM_BRANCHES;
-  for (size_t n = 0; n < max_n; n++, ReOpen()) {
-    DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
-    size_t branch = 0;
-    auto seq = db_impl->GetLatestSequenceNumber();
-    exp_seq = seq;
-    txn_t0(0);
-    seq = db_impl->GetLatestSequenceNumber();
-    ASSERT_EQ(exp_seq, seq);
-
-    if (branch_do(n, &branch)) {
-      db_impl->Flush(fopt);
-      seq = db_impl->GetLatestSequenceNumber();
-      ASSERT_EQ(exp_seq, seq);
-    }
-    if (branch_do(n, &branch)) {
-      db_impl->FlushWAL(true);
-      ReOpenNoDelete();
-      db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
-      seq = db_impl->GetLatestSequenceNumber();
-      ASSERT_EQ(exp_seq, seq);
-    }
-
-    // Doing it twice might detect some bugs
-    txn_t0(1);
-    seq = db_impl->GetLatestSequenceNumber();
-    ASSERT_EQ(exp_seq, seq);
-
-    txn_t1(0);
-    seq = db_impl->GetLatestSequenceNumber();
-    ASSERT_EQ(exp_seq, seq);
-
-    if (branch_do(n, &branch)) {
-      db_impl->Flush(fopt);
-      seq = db_impl->GetLatestSequenceNumber();
-      ASSERT_EQ(exp_seq, seq);
-    }
-    if (branch_do(n, &branch)) {
-      db_impl->FlushWAL(true);
-      ReOpenNoDelete();
-      db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
-      seq = db_impl->GetLatestSequenceNumber();
-      ASSERT_EQ(exp_seq, seq);
-    }
-
-    txn_t3(0);
-    // Since commit marker does not write to memtable, the last seq number is
-    // not updated immediately. But the advance should be visible after the next
-    // write.
-
-    if (branch_do(n, &branch)) {
-      db_impl->Flush(fopt);
-    }
-    if (branch_do(n, &branch)) {
-      db_impl->FlushWAL(true);
-      ReOpenNoDelete();
-      db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
-      seq = db_impl->GetLatestSequenceNumber();
-      ASSERT_EQ(exp_seq, seq);
-    }
-
-    txn_t0(0);
-    seq = db_impl->GetLatestSequenceNumber();
-    ASSERT_EQ(exp_seq, seq);
-
-    txn_t2(0);
-    seq = db_impl->GetLatestSequenceNumber();
-    ASSERT_EQ(exp_seq, seq);
-
-    if (branch_do(n, &branch)) {
-      db_impl->Flush(fopt);
-      seq = db_impl->GetLatestSequenceNumber();
-      ASSERT_EQ(exp_seq, seq);
-    }
-    if (branch_do(n, &branch)) {
-      db_impl->FlushWAL(true);
-      ReOpenNoDelete();
-      db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
-      seq = db_impl->GetLatestSequenceNumber();
-      ASSERT_EQ(exp_seq, seq);
-    }
-  }
-}
-
 TEST_P(WritePreparedTransactionTest, SeqAdvanceConcurrentTest) {
   // Given the sequential run of txns, with this timeout we should never see a
   // deadlock nor a timeout unless we have a key conflict, which should be
@@ -667,12 +619,13 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceConcurrentTest) {
   FlushOptions fopt;
 
   // Number of different txn types we use in this test
-  const size_t type_cnt = 4;
+  const size_t type_cnt = 5;
   // The size of the first write group
   // TODO(myabandeh): This should be increase for pre-release tests
   const size_t first_group_size = 2;
   // Total number of txns we run in each test
-  const size_t txn_cnt = first_group_size * 2;
+  // TODO(myabandeh): This should be increase for pre-release tests
+  const size_t txn_cnt = first_group_size + 1;
 
   size_t base[txn_cnt + 1] = {
       1,
@@ -681,13 +634,13 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceConcurrentTest) {
     base[bi] = base[bi - 1] * type_cnt;
   }
   const size_t max_n = static_cast<size_t>(std::pow(type_cnt, txn_cnt));
-  printf("Number of cases being tested is %" PRIu64 "\n", max_n);
+  printf("Number of cases being tested is %" ROCKSDB_PRIszt "\n", max_n);
   for (size_t n = 0; n < max_n; n++, ReOpen()) {
     if (n % 1000 == 0) {
-      printf("Tested %" PRIu64 " cases so far\n", n);
+      printf("Tested %" ROCKSDB_PRIszt " cases so far\n", n);
     }
     DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
-    auto seq = db_impl->GetLatestSequenceNumber();
+    auto seq = db_impl->TEST_GetLastVisibleSequence();
     exp_seq = seq;
     // This is increased before writing the batch for commit
     commit_writes = 0;
@@ -737,6 +690,9 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceConcurrentTest) {
         case 3:
           threads.emplace_back(txn_t3, bi);
           break;
+        case 4:
+          threads.emplace_back(txn_t3, bi);
+          break;
         default:
           assert(false);
       }
@@ -755,29 +711,47 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceConcurrentTest) {
     for (auto& t : threads) {
       t.join();
     }
-    if (txn_db_options.write_policy == WRITE_PREPARED) {
+    if (options.two_write_queues) {
       // In this case none of the above scheduling tricks to deterministically
       // form merged bactches works because the writes go to saparte queues.
       // This would result in different write groups in each run of the test. We
       // still keep the test since althgouh non-deterministic and hard to debug,
-      // it is still useful to have. Since in this case we could finish with
-      // commit writes that dont write to memtable, the seq is not advanced in
-      // this code path. It will be after the next write. So we do one more
-      // write to make the impact of last seq visible.
-      txn_t0(0);
+      // it is still useful to have.
+      // TODO(myabandeh): Add a deterministic unit test for two_write_queues
     }
+
     // Check if memtable inserts advanced seq number as expected
-    seq = db_impl->GetLatestSequenceNumber();
+    seq = db_impl->TEST_GetLastVisibleSequence();
     ASSERT_EQ(exp_seq, seq);
 
     rocksdb::SyncPoint::GetInstance()->DisableProcessing();
     rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
 
+    // The latest seq might be due to a commit without prepare and hence not
+    // persisted in the WAL. We need to discount such seqs if they are not
+    // continued by any seq consued by a value write.
+    if (options.two_write_queues) {
+      WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
+      MutexLock l(&wp_db->seq_for_metadata_mutex_);
+      auto& vec = wp_db->seq_for_metadata;
+      std::sort(vec.begin(), vec.end());
+      // going backward discount any last seq consumed for metadata until we see
+      // a seq that is consumed for actualy key/values.
+      auto rit = vec.rbegin();
+      for (; rit != vec.rend(); ++rit) {
+        if (*rit == exp_seq) {
+          exp_seq--;
+        } else {
+          break;
+        }
+      }
+    }
+
     // Check if recovery preserves the last sequence number
     db_impl->FlushWAL(true);
     ReOpenNoDelete();
     db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
-    seq = db_impl->GetLatestSequenceNumber();
+    seq = db_impl->TEST_GetLastVisibleSequence();
     ASSERT_EQ(exp_seq, seq);
 
     // Check if flush preserves the last sequence number
@@ -869,6 +843,7 @@ TEST_P(WritePreparedTransactionTest, BasicRecoveryTest) {
   txn1 = db->GetTransactionByName("xid" + istr1);
   ASSERT_NE(txn1, nullptr);
   txn1->Commit();
+  delete txn1;
 
   index++;
   Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
@@ -1120,6 +1095,19 @@ void ASSERT_SAME(TransactionDB* db, Status exp_s, PinnableSlice& exp_v,
   if (s.ok()) {
     ASSERT_TRUE(exp_v == v);
   }
+
+  // Try with MultiGet API too
+  std::vector<std::string> values;
+  auto s_vec =
+      db->MultiGet(roptions, {db->DefaultColumnFamily()}, {key}, &values);
+  ASSERT_EQ(1, values.size());
+  ASSERT_EQ(1, s_vec.size());
+  s = s_vec[0];
+  ASSERT_TRUE(exp_s == s);
+  ASSERT_TRUE(s.ok() || s.IsNotFound());
+  if (s.ok()) {
+    ASSERT_TRUE(exp_v == values[0]);
+  }
 }
 
 TEST_P(WritePreparedTransactionTest, RollbackTest) {
@@ -1191,25 +1179,18 @@ TEST_P(WritePreparedTransactionTest, RollbackTest) {
         ASSERT_SAME(db, s4, v4, "key4");
 
         if (crash) {
-          // TODO(myabandeh): replace it with true crash (commented lines below)
-          // after compaction PR is landed.
+          delete txn;
           auto db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
-          auto seq = db_impl->GetLatestSequenceNumber();
+          db_impl->FlushWAL(true);
+          ReOpenNoDelete();
           wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
-          SequenceNumber prev_max = wp_db->max_evicted_seq_;
-          wp_db->AdvanceMaxEvictedSeq(prev_max, seq);
-          //    delete txn;
-          //    auto db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
-          //    db_impl->FlushWAL(true);
-          //    ReOpenNoDelete();
-          //    wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
-          //    txn = db->GetTransactionByName("xid0");
-          //    ASSERT_FALSE(wp_db->delayed_prepared_empty_);
-          //    ReadLock rl(&wp_db->prepared_mutex_);
-          //    ASSERT_TRUE(wp_db->prepared_txns_.empty());
-          //    ASSERT_FALSE(wp_db->delayed_prepared_.empty());
-          //    ASSERT_TRUE(wp_db->delayed_prepared_.find(txn->GetId()) !=
-          //                wp_db->delayed_prepared_.end());
+          txn = db->GetTransactionByName("xid0");
+          ASSERT_FALSE(wp_db->delayed_prepared_empty_);
+          ReadLock rl(&wp_db->prepared_mutex_);
+          ASSERT_TRUE(wp_db->prepared_txns_.empty());
+          ASSERT_FALSE(wp_db->delayed_prepared_.empty());
+          ASSERT_TRUE(wp_db->delayed_prepared_.find(txn->GetId()) !=
+                      wp_db->delayed_prepared_.end());
         }
 
         ASSERT_SAME(db, s1, v1, "key1");
@@ -1235,6 +1216,483 @@ TEST_P(WritePreparedTransactionTest, RollbackTest) {
       }
     }
   }
+}
+
+// TODO(myabandeh): move it to transaction_test when it is extended to
+// WROTE_PREPARED.
+
+// Test that the transactional db can handle duplicate keys in the write batch
+TEST_P(WritePreparedTransactionTest, DuplicateKeyTest) {
+  for (bool do_prepare : {true, false}) {
+    TransactionOptions txn_options;
+    WriteOptions write_options;
+    Transaction* txn0 = db->BeginTransaction(write_options, txn_options);
+    auto s = txn0->SetName("xid");
+    ASSERT_OK(s);
+    s = txn0->Put(Slice("foo0"), Slice("bar0a"));
+    ASSERT_OK(s);
+    s = txn0->Put(Slice("foo0"), Slice("bar0b"));
+    ASSERT_OK(s);
+    s = txn0->Put(Slice("foo1"), Slice("bar1"));
+    ASSERT_OK(s);
+    s = txn0->Merge(Slice("foo2"), Slice("bar2a"));
+    ASSERT_OK(s);
+    // TODO(myabandeh): enable this after duplicatae merge keys are supported
+    // s = txn0->Merge(Slice("foo2"), Slice("bar2a"));
+    // ASSERT_OK(s);
+    s = txn0->Put(Slice("foo2"), Slice("bar2b"));
+    ASSERT_OK(s);
+    s = txn0->Put(Slice("foo3"), Slice("bar3"));
+    ASSERT_OK(s);
+    // TODO(myabandeh): enable this after duplicatae merge keys are supported
+    // s = txn0->Merge(Slice("foo3"), Slice("bar3"));
+    // ASSERT_OK(s);
+    s = txn0->Put(Slice("foo4"), Slice("bar4"));
+    ASSERT_OK(s);
+    s = txn0->Delete(Slice("foo4"));
+    ASSERT_OK(s);
+    s = txn0->SingleDelete(Slice("foo4"));
+    ASSERT_OK(s);
+    if (do_prepare) {
+      s = txn0->Prepare();
+      ASSERT_OK(s);
+    }
+    s = txn0->Commit();
+    ASSERT_OK(s);
+    if (!do_prepare) {
+      auto pdb = reinterpret_cast<PessimisticTransactionDB*>(db);
+      pdb->UnregisterTransaction(txn0);
+    }
+    delete txn0;
+    ReadOptions ropt;
+    PinnableSlice pinnable_val;
+
+    s = db->Get(ropt, db->DefaultColumnFamily(), "foo0", &pinnable_val);
+    ASSERT_OK(s);
+    ASSERT_TRUE(pinnable_val == ("bar0b"));
+    s = db->Get(ropt, db->DefaultColumnFamily(), "foo1", &pinnable_val);
+    ASSERT_OK(s);
+    ASSERT_TRUE(pinnable_val == ("bar1"));
+    s = db->Get(ropt, db->DefaultColumnFamily(), "foo2", &pinnable_val);
+    ASSERT_OK(s);
+    ASSERT_TRUE(pinnable_val == ("bar2b"));
+    s = db->Get(ropt, db->DefaultColumnFamily(), "foo3", &pinnable_val);
+    ASSERT_OK(s);
+    ASSERT_TRUE(pinnable_val == ("bar3"));
+    s = db->Get(ropt, db->DefaultColumnFamily(), "foo4", &pinnable_val);
+    ASSERT_TRUE(s.IsNotFound());
+  }
+}
+
+TEST_P(WritePreparedTransactionTest, DisableGCDuringRecoveryTest) {
+  // Use large buffer to avoid memtable flush after 1024 insertions
+  options.write_buffer_size = 1024 * 1024;
+  ReOpen();
+  std::vector<KeyVersion> versions;
+  uint64_t seq = 0;
+  for (uint64_t i = 1; i <= 1024; i++) {
+    std::string v = "bar" + ToString(i);
+    ASSERT_OK(db->Put(WriteOptions(), "foo", v));
+    VerifyKeys({{"foo", v}});
+    seq++;  // one for the key/value
+    KeyVersion kv = {"foo", v, seq, kTypeValue};
+    if (options.two_write_queues) {
+      seq++;  // one for the commit
+    }
+    versions.emplace_back(kv);
+  }
+  std::reverse(std::begin(versions), std::end(versions));
+  VerifyInternalKeys(versions);
+  DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+  db_impl->FlushWAL(true);
+  // Use small buffer to ensure memtable flush during recovery
+  options.write_buffer_size = 1024;
+  ReOpenNoDelete();
+  VerifyInternalKeys(versions);
+}
+
+TEST_P(WritePreparedTransactionTest, SequenceNumberZeroTest) {
+  ASSERT_OK(db->Put(WriteOptions(), "foo", "bar"));
+  VerifyKeys({{"foo", "bar"}});
+  const Snapshot* snapshot = db->GetSnapshot();
+  ASSERT_OK(db->Flush(FlushOptions()));
+  // Dummy keys to avoid compaction trivially move files and get around actual
+  // compaction logic.
+  ASSERT_OK(db->Put(WriteOptions(), "a", "dummy"));
+  ASSERT_OK(db->Put(WriteOptions(), "z", "dummy"));
+  ASSERT_OK(db->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  // Compaction will output keys with sequence number 0, if it is visible to
+  // earliest snapshot. Make sure IsInSnapshot() report sequence number 0 is
+  // visible to any snapshot.
+  VerifyKeys({{"foo", "bar"}});
+  VerifyKeys({{"foo", "bar"}}, snapshot);
+  VerifyInternalKeys({{"foo", "bar", 0, kTypeValue}});
+  db->ReleaseSnapshot(snapshot);
+}
+
+// Compaction should not remove a key if it is not committed, and should
+// proceed with older versions of the key as-if the new version doesn't exist.
+TEST_P(WritePreparedTransactionTest, CompactionShouldKeepUncommittedKeys) {
+  options.disable_auto_compactions = true;
+  ReOpen();
+  DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+  // Snapshots to avoid keys get evicted.
+  std::vector<const Snapshot*> snapshots;
+  // Keep track of expected sequence number.
+  SequenceNumber expected_seq = 0;
+
+  auto add_key = [&](std::function<Status()> func) {
+    ASSERT_OK(func());
+    expected_seq++;
+    if (options.two_write_queues) {
+      expected_seq++;  // 1 for commit
+    }
+    ASSERT_EQ(expected_seq, db_impl->TEST_GetLastVisibleSequence());
+    snapshots.push_back(db->GetSnapshot());
+  };
+
+  // Each key here represent a standalone test case.
+  add_key([&]() { return db->Put(WriteOptions(), "key1", "value1_1"); });
+  add_key([&]() { return db->Put(WriteOptions(), "key2", "value2_1"); });
+  add_key([&]() { return db->Put(WriteOptions(), "key3", "value3_1"); });
+  add_key([&]() { return db->Put(WriteOptions(), "key4", "value4_1"); });
+  add_key([&]() { return db->Merge(WriteOptions(), "key5", "value5_1"); });
+  add_key([&]() { return db->Merge(WriteOptions(), "key5", "value5_2"); });
+  add_key([&]() { return db->Put(WriteOptions(), "key6", "value6_1"); });
+  add_key([&]() { return db->Put(WriteOptions(), "key7", "value7_1"); });
+  ASSERT_OK(db->Flush(FlushOptions()));
+  add_key([&]() { return db->Delete(WriteOptions(), "key6"); });
+  add_key([&]() { return db->SingleDelete(WriteOptions(), "key7"); });
+
+  auto* transaction = db->BeginTransaction(WriteOptions());
+  ASSERT_OK(transaction->SetName("txn"));
+  ASSERT_OK(transaction->Put("key1", "value1_2"));
+  ASSERT_OK(transaction->Delete("key2"));
+  ASSERT_OK(transaction->SingleDelete("key3"));
+  ASSERT_OK(transaction->Merge("key4", "value4_2"));
+  ASSERT_OK(transaction->Merge("key5", "value5_3"));
+  ASSERT_OK(transaction->Put("key6", "value6_2"));
+  ASSERT_OK(transaction->Put("key7", "value7_2"));
+  // Prepare but not commit.
+  ASSERT_OK(transaction->Prepare());
+  ASSERT_EQ(++expected_seq, db->GetLatestSequenceNumber());
+  ASSERT_OK(db->Flush(FlushOptions()));
+  for (auto* s : snapshots) {
+    db->ReleaseSnapshot(s);
+  }
+  // Dummy keys to avoid compaction trivially move files and get around actual
+  // compaction logic.
+  ASSERT_OK(db->Put(WriteOptions(), "a", "dummy"));
+  ASSERT_OK(db->Put(WriteOptions(), "z", "dummy"));
+  ASSERT_OK(db->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  VerifyKeys({
+      {"key1", "value1_1"},
+      {"key2", "value2_1"},
+      {"key3", "value3_1"},
+      {"key4", "value4_1"},
+      {"key5", "value5_1,value5_2"},
+      {"key6", "NOT_FOUND"},
+      {"key7", "NOT_FOUND"},
+  });
+  VerifyInternalKeys({
+      {"key1", "value1_2", expected_seq, kTypeValue},
+      {"key1", "value1_1", 0, kTypeValue},
+      {"key2", "", expected_seq, kTypeDeletion},
+      {"key2", "value2_1", 0, kTypeValue},
+      {"key3", "", expected_seq, kTypeSingleDeletion},
+      {"key3", "value3_1", 0, kTypeValue},
+      {"key4", "value4_2", expected_seq, kTypeMerge},
+      {"key4", "value4_1", 0, kTypeValue},
+      {"key5", "value5_3", expected_seq, kTypeMerge},
+      {"key5", "value5_1,value5_2", 0, kTypeValue},
+      {"key6", "value6_2", expected_seq, kTypeValue},
+      {"key7", "value7_2", expected_seq, kTypeValue},
+  });
+  ASSERT_OK(transaction->Commit());
+  VerifyKeys({
+      {"key1", "value1_2"},
+      {"key2", "NOT_FOUND"},
+      {"key3", "NOT_FOUND"},
+      {"key4", "value4_1,value4_2"},
+      {"key5", "value5_1,value5_2,value5_3"},
+      {"key6", "value6_2"},
+      {"key7", "value7_2"},
+  });
+  delete transaction;
+}
+
+// Compaction should keep keys visible to a snapshot based on commit sequence,
+// not just prepare sequence.
+TEST_P(WritePreparedTransactionTest, CompactionShouldKeepSnapshotVisibleKeys) {
+  options.disable_auto_compactions = true;
+  ReOpen();
+  // Keep track of expected sequence number.
+  SequenceNumber expected_seq = 0;
+  auto* txn1 = db->BeginTransaction(WriteOptions());
+  ASSERT_OK(txn1->SetName("txn1"));
+  ASSERT_OK(txn1->Put("key1", "value1_1"));
+  ASSERT_OK(txn1->Prepare());
+  ASSERT_EQ(++expected_seq, db->GetLatestSequenceNumber());
+  ASSERT_OK(txn1->Commit());
+  DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+  ASSERT_EQ(++expected_seq, db_impl->TEST_GetLastVisibleSequence());
+  delete txn1;
+  // Take a snapshots to avoid keys get evicted before compaction.
+  const Snapshot* snapshot1 = db->GetSnapshot();
+  auto* txn2 = db->BeginTransaction(WriteOptions());
+  ASSERT_OK(txn2->SetName("txn2"));
+  ASSERT_OK(txn2->Put("key2", "value2_1"));
+  ASSERT_OK(txn2->Prepare());
+  ASSERT_EQ(++expected_seq, db->GetLatestSequenceNumber());
+  // txn1 commit before snapshot2 and it is visible to snapshot2.
+  // txn2 commit after snapshot2 and it is not visible.
+  const Snapshot* snapshot2 = db->GetSnapshot();
+  ASSERT_OK(txn2->Commit());
+  ASSERT_EQ(++expected_seq, db_impl->TEST_GetLastVisibleSequence());
+  delete txn2;
+  // Take a snapshots to avoid keys get evicted before compaction.
+  const Snapshot* snapshot3 = db->GetSnapshot();
+  ASSERT_OK(db->Put(WriteOptions(), "key1", "value1_2"));
+  expected_seq++;  // 1 for write
+  SequenceNumber seq1 = expected_seq;
+  if (options.two_write_queues) {
+    expected_seq++;  // 1 for commit
+  }
+  ASSERT_EQ(expected_seq, db_impl->TEST_GetLastVisibleSequence());
+  ASSERT_OK(db->Put(WriteOptions(), "key2", "value2_2"));
+  expected_seq++;  // 1 for write
+  SequenceNumber seq2 = expected_seq;
+  if (options.two_write_queues) {
+    expected_seq++;  // 1 for commit
+  }
+  ASSERT_EQ(expected_seq, db_impl->TEST_GetLastVisibleSequence());
+  ASSERT_OK(db->Flush(FlushOptions()));
+  db->ReleaseSnapshot(snapshot1);
+  db->ReleaseSnapshot(snapshot3);
+  // Dummy keys to avoid compaction trivially move files and get around actual
+  // compaction logic.
+  ASSERT_OK(db->Put(WriteOptions(), "a", "dummy"));
+  ASSERT_OK(db->Put(WriteOptions(), "z", "dummy"));
+  ASSERT_OK(db->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  VerifyKeys({{"key1", "value1_2"}, {"key2", "value2_2"}});
+  VerifyKeys({{"key1", "value1_1"}, {"key2", "NOT_FOUND"}}, snapshot2);
+  VerifyInternalKeys({
+      {"key1", "value1_2", seq1, kTypeValue},
+      // "value1_1" is visible to snapshot2. Also keys at bottom level visible
+      // to earliest snapshot will output with seq = 0.
+      {"key1", "value1_1", 0, kTypeValue},
+      {"key2", "value2_2", seq2, kTypeValue},
+  });
+  db->ReleaseSnapshot(snapshot2);
+}
+
+// A more complex test to verify compaction/flush should keep keys visible
+// to snapshots.
+TEST_P(WritePreparedTransactionTest,
+       CompactionShouldKeepSnapshotVisibleKeysRandomized) {
+  constexpr size_t kNumTransactions = 10;
+  constexpr size_t kNumIterations = 1000;
+
+  std::vector<Transaction*> transactions(kNumTransactions, nullptr);
+  std::vector<size_t> versions(kNumTransactions, 0);
+  std::unordered_map<std::string, std::string> current_data;
+  std::vector<const Snapshot*> snapshots;
+  std::vector<std::unordered_map<std::string, std::string>> snapshot_data;
+
+  Random rnd(1103);
+  options.disable_auto_compactions = true;
+  ReOpen();
+
+  for (size_t i = 0; i < kNumTransactions; i++) {
+    std::string key = "key" + ToString(i);
+    std::string value = "value0";
+    ASSERT_OK(db->Put(WriteOptions(), key, value));
+    current_data[key] = value;
+  }
+  VerifyKeys(current_data);
+
+  for (size_t iter = 0; iter < kNumIterations; iter++) {
+    auto r = rnd.Next() % (kNumTransactions + 1);
+    if (r < kNumTransactions) {
+      std::string key = "key" + ToString(r);
+      if (transactions[r] == nullptr) {
+        std::string value = "value" + ToString(versions[r] + 1);
+        auto* txn = db->BeginTransaction(WriteOptions());
+        ASSERT_OK(txn->SetName("txn" + ToString(r)));
+        ASSERT_OK(txn->Put(key, value));
+        ASSERT_OK(txn->Prepare());
+        transactions[r] = txn;
+      } else {
+        std::string value = "value" + ToString(++versions[r]);
+        ASSERT_OK(transactions[r]->Commit());
+        delete transactions[r];
+        transactions[r] = nullptr;
+        current_data[key] = value;
+      }
+    } else {
+      auto* snapshot = db->GetSnapshot();
+      VerifyKeys(current_data, snapshot);
+      snapshots.push_back(snapshot);
+      snapshot_data.push_back(current_data);
+    }
+    VerifyKeys(current_data);
+  }
+  // Take a last snapshot to test compaction with uncommitted prepared
+  // transaction.
+  snapshots.push_back(db->GetSnapshot());
+  snapshot_data.push_back(current_data);
+
+  assert(snapshots.size() == snapshot_data.size());
+  for (size_t i = 0; i < snapshots.size(); i++) {
+    VerifyKeys(snapshot_data[i], snapshots[i]);
+  }
+  ASSERT_OK(db->Flush(FlushOptions()));
+  for (size_t i = 0; i < snapshots.size(); i++) {
+    VerifyKeys(snapshot_data[i], snapshots[i]);
+  }
+  // Dummy keys to avoid compaction trivially move files and get around actual
+  // compaction logic.
+  ASSERT_OK(db->Put(WriteOptions(), "a", "dummy"));
+  ASSERT_OK(db->Put(WriteOptions(), "z", "dummy"));
+  ASSERT_OK(db->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  for (size_t i = 0; i < snapshots.size(); i++) {
+    VerifyKeys(snapshot_data[i], snapshots[i]);
+  }
+  // cleanup
+  for (size_t i = 0; i < kNumTransactions; i++) {
+    if (transactions[i] == nullptr) {
+      continue;
+    }
+    ASSERT_OK(transactions[i]->Commit());
+    delete transactions[i];
+  }
+  for (size_t i = 0; i < snapshots.size(); i++) {
+    db->ReleaseSnapshot(snapshots[i]);
+  }
+}
+
+// Compaction should not apply the optimization to output key with sequence
+// number equal to 0 if the key is not visible to earliest snapshot, based on
+// commit sequence number.
+TEST_P(WritePreparedTransactionTest,
+       CompactionShouldKeepSequenceForUncommittedKeys) {
+  options.disable_auto_compactions = true;
+  ReOpen();
+  // Keep track of expected sequence number.
+  SequenceNumber expected_seq = 0;
+  auto* transaction = db->BeginTransaction(WriteOptions());
+  ASSERT_OK(transaction->SetName("txn"));
+  ASSERT_OK(transaction->Put("key1", "value1"));
+  ASSERT_OK(transaction->Prepare());
+  ASSERT_EQ(++expected_seq, db->GetLatestSequenceNumber());
+  SequenceNumber seq1 = expected_seq;
+  ASSERT_OK(db->Put(WriteOptions(), "key2", "value2"));
+  ASSERT_EQ(++expected_seq, db->GetLatestSequenceNumber());
+  ASSERT_OK(db->Flush(FlushOptions()));
+  // Dummy keys to avoid compaction trivially move files and get around actual
+  // compaction logic.
+  ASSERT_OK(db->Put(WriteOptions(), "a", "dummy"));
+  ASSERT_OK(db->Put(WriteOptions(), "z", "dummy"));
+  ASSERT_OK(db->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  VerifyKeys({
+      {"key1", "NOT_FOUND"},
+      {"key2", "value2"},
+  });
+  VerifyInternalKeys({
+      // "key1" has not been committed. It keeps its sequence number.
+      {"key1", "value1", seq1, kTypeValue},
+      // "key2" is committed and output with seq = 0.
+      {"key2", "value2", 0, kTypeValue},
+  });
+  ASSERT_OK(transaction->Commit());
+  VerifyKeys({
+      {"key1", "value1"},
+      {"key2", "value2"},
+  });
+  delete transaction;
+}
+
+TEST_P(WritePreparedTransactionTest, Iterate) {
+  auto verify_state = [](Iterator* iter, const std::string& key,
+                         const std::string& value) {
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    ASSERT_EQ(key, iter->key().ToString());
+    ASSERT_EQ(value, iter->value().ToString());
+  };
+
+  auto verify_iter = [&](const std::string& expected_val) {
+    // Get iterator from a concurrent transaction and make sure it has the
+    // same view as an iterator from the DB.
+    auto* txn = db->BeginTransaction(WriteOptions());
+
+    for (int i = 0; i < 2; i++) {
+      Iterator* iter = (i == 0)
+          ? db->NewIterator(ReadOptions())
+          : txn->GetIterator(ReadOptions());
+      // Seek
+      iter->Seek("foo");
+      verify_state(iter, "foo", expected_val);
+      // Next
+      iter->Seek("a");
+      verify_state(iter, "a", "va");
+      iter->Next();
+      verify_state(iter, "foo", expected_val);
+      // SeekForPrev
+      iter->SeekForPrev("y");
+      verify_state(iter, "foo", expected_val);
+      // Prev
+      iter->SeekForPrev("z");
+      verify_state(iter, "z", "vz");
+      iter->Prev();
+      verify_state(iter, "foo", expected_val);
+      delete iter;
+    }
+    delete txn;
+  };
+
+  ASSERT_OK(db->Put(WriteOptions(), "foo", "v1"));
+  auto* transaction = db->BeginTransaction(WriteOptions());
+  ASSERT_OK(transaction->SetName("txn"));
+  ASSERT_OK(transaction->Put("foo", "v2"));
+  ASSERT_OK(transaction->Prepare());
+  VerifyKeys({{"foo", "v1"}});
+  // dummy keys
+  ASSERT_OK(db->Put(WriteOptions(), "a", "va"));
+  ASSERT_OK(db->Put(WriteOptions(), "z", "vz"));
+  verify_iter("v1");
+  ASSERT_OK(transaction->Commit());
+  VerifyKeys({{"foo", "v2"}});
+  verify_iter("v2");
+  delete transaction;
+}
+
+// Test that we can change write policy from WriteCommitted to WritePrepared
+// after a clean shutdown (which would empty the WAL)
+TEST_P(WritePreparedTransactionTest, WP_WC_DBBackwardCompatibility) {
+  bool empty_wal = true;
+  CrossCompatibilityTest(WRITE_COMMITTED, WRITE_PREPARED, empty_wal);
+}
+
+// Test that we fail fast if WAL is not emptied between changing the write
+// policy from WriteCommitted to WritePrepared
+TEST_P(WritePreparedTransactionTest, WP_WC_WALBackwardIncompatibility) {
+  bool empty_wal = true;
+  CrossCompatibilityTest(WRITE_COMMITTED, WRITE_PREPARED, !empty_wal);
+}
+
+// Test that we can change write policy from WritePrepare back to WriteCommitted
+// after a clean shutdown (which would empty the WAL)
+TEST_P(WritePreparedTransactionTest, WC_WP_ForwardCompatibility) {
+  bool empty_wal = true;
+  CrossCompatibilityTest(WRITE_PREPARED, WRITE_COMMITTED, empty_wal);
+}
+
+// Test that we fail fast if WAL is not emptied between changing the write
+// policy from WriteCommitted to WritePrepared
+TEST_P(WritePreparedTransactionTest, WC_WP_WALForwardIncompatibility) {
+  bool empty_wal = true;
+  CrossCompatibilityTest(WRITE_PREPARED, WRITE_COMMITTED, !empty_wal);
 }
 
 }  // namespace rocksdb

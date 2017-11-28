@@ -60,6 +60,10 @@ uint64_t DBImpl::TEST_Current_Manifest_FileNo() {
   return versions_->manifest_file_number();
 }
 
+uint64_t DBImpl::TEST_Current_Next_FileNo() {
+  return versions_->current_next_file_number();
+}
+
 Status DBImpl::TEST_CompactRange(int level, const Slice* begin,
                                  const Slice* end,
                                  ColumnFamilyHandle* column_family,
@@ -203,6 +207,14 @@ int DBImpl::TEST_BGCompactionsAllowed() const {
 int DBImpl::TEST_BGFlushesAllowed() const {
   InstrumentedMutexLock l(&mutex_);
   return GetBGJobLimits().max_flushes;
+}
+
+SequenceNumber DBImpl::TEST_GetLastVisibleSequence() const {
+  if (allocate_seq_only_for_data_) {
+    return versions_->LastSequence();
+  } else {
+    return versions_->LastAllocatedSequence();
+  }
 }
 
 }  // namespace rocksdb

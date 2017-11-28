@@ -15,10 +15,10 @@ package org.rocksdb;
  *   @see org.rocksdb.DirectComparator
  */
 public abstract class AbstractComparator<T extends AbstractSlice<?>>
-    extends AbstractImmutableNativeReference {
+    extends RocksCallbackObject {
 
-  protected AbstractComparator() {
-    super(true);
+  protected AbstractComparator(final ComparatorOptions copt) {
+    super(copt.nativeHandle_);
   }
 
   /**
@@ -87,20 +87,4 @@ public abstract class AbstractComparator<T extends AbstractSlice<?>>
   public String findShortSuccessor(final String key) {
       return null;
   }
-
-  /**
-   * Deletes underlying C++ comparator pointer.
-   *
-   * Note that this function should be called only after all
-   * RocksDB instances referencing the comparator are closed.
-   * Otherwise an undefined behavior will occur.
-   */
-  @Override
-  protected void disposeInternal() {
-    disposeInternal(getNativeHandle());
-  }
-
-  protected abstract long getNativeHandle();
-
-  private native void disposeInternal(final long handle);
 }

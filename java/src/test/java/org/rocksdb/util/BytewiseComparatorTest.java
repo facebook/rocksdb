@@ -41,13 +41,18 @@ public class BytewiseComparatorTest {
       final Path dbDir = Files.createTempDirectory("comparator_db_test");
       try(final RocksDB db = openDatabase(dbDir,
           BuiltinComparator.BYTEWISE_COMPARATOR)) {
+
         final Random rnd = new Random(rand_seed);
-        doRandomIterationTest(
-            db,
-            toJavaComparator(new BytewiseComparator(new ComparatorOptions())),
-            rnd,
-            8, 100, 3
-        );
+        try(final ComparatorOptions copt2 = new ComparatorOptions();
+            final Comparator comparator2 = new BytewiseComparator(copt2)) {
+          final java.util.Comparator<String> jComparator = toJavaComparator(comparator2);
+          doRandomIterationTest(
+              db,
+              jComparator,
+              rnd,
+              8, 100, 3
+          );
+        }
       } finally {
         removeData(dbDir);
       }
@@ -63,15 +68,21 @@ public class BytewiseComparatorTest {
       throws IOException, RocksDBException {
     for(int rand_seed = 301; rand_seed < 306; rand_seed++) {
       final Path dbDir = Files.createTempDirectory("comparator_db_test");
-      try(final RocksDB db = openDatabase(dbDir, new BytewiseComparator(
-          new ComparatorOptions()))) {
+      try(final ComparatorOptions copt = new ComparatorOptions();
+          final Comparator comparator = new BytewiseComparator(copt);
+          final RocksDB db = openDatabase(dbDir, comparator)) {
+
         final Random rnd = new Random(rand_seed);
-        doRandomIterationTest(
-            db,
-            toJavaComparator(new BytewiseComparator(new ComparatorOptions())),
-            rnd,
-            8, 100, 3
-        );
+        try(final ComparatorOptions copt2 = new ComparatorOptions();
+            final Comparator comparator2 = new BytewiseComparator(copt2)) {
+          final java.util.Comparator<String> jComparator = toJavaComparator(comparator2);
+          doRandomIterationTest(
+              db,
+              jComparator,
+              rnd,
+              8, 100, 3
+          );
+        }
       } finally {
         removeData(dbDir);
       }
@@ -89,15 +100,18 @@ public class BytewiseComparatorTest {
       final Path dbDir = Files.createTempDirectory("comparator_db_test");
       try(final RocksDB db = openDatabase(dbDir,
           BuiltinComparator.BYTEWISE_COMPARATOR)) {
+
         final Random rnd = new Random(rand_seed);
-        doRandomIterationTest(
-            db,
-            toJavaComparator(new DirectBytewiseComparator(
-                new ComparatorOptions())
-            ),
-            rnd,
-            8, 100, 3
-        );
+        try(final ComparatorOptions copt2 = new ComparatorOptions();
+            final DirectComparator comparator2 = new DirectBytewiseComparator(copt2)) {
+          final java.util.Comparator<String> jComparator = toJavaComparator(comparator2);
+          doRandomIterationTest(
+              db,
+              jComparator,
+              rnd,
+              8, 100, 3
+          );
+        }
       } finally {
         removeData(dbDir);
       }
@@ -113,17 +127,21 @@ public class BytewiseComparatorTest {
       throws IOException, RocksDBException {
     for(int rand_seed = 301; rand_seed < 306; rand_seed++) {
       final Path dbDir = Files.createTempDirectory("comparator_db_test");
-      try(final RocksDB db = openDatabase(dbDir, new DirectBytewiseComparator(
-            new ComparatorOptions()))) {
+      try (final ComparatorOptions copt = new ComparatorOptions();
+          final DirectComparator comparator = new DirectBytewiseComparator(copt);
+          final RocksDB db = openDatabase(dbDir, comparator)) {
+
         final Random rnd = new Random(rand_seed);
-        doRandomIterationTest(
-            db,
-            toJavaComparator(new DirectBytewiseComparator(
-                new ComparatorOptions())
-            ),
-            rnd,
-            8, 100, 3
-        );
+        try(final ComparatorOptions copt2 = new ComparatorOptions();
+            final DirectComparator comparator2 = new DirectBytewiseComparator(copt2)) {
+          final java.util.Comparator<String> jComparator = toJavaComparator(comparator2);
+          doRandomIterationTest(
+              db,
+              jComparator,
+              rnd,
+              8, 100, 3
+          );
+        }
       } finally {
         removeData(dbDir);
       }
@@ -141,15 +159,18 @@ public class BytewiseComparatorTest {
       final Path dbDir = Files.createTempDirectory("comparator_db_test");
       try(final RocksDB db = openDatabase(dbDir,
           BuiltinComparator.REVERSE_BYTEWISE_COMPARATOR)) {
+
         final Random rnd = new Random(rand_seed);
-        doRandomIterationTest(
-            db,
-            toJavaComparator(
-                new ReverseBytewiseComparator(new ComparatorOptions())
-            ),
-            rnd,
-            8, 100, 3
-        );
+        try(final ComparatorOptions copt2 = new ComparatorOptions();
+            final Comparator comparator2 = new ReverseBytewiseComparator(copt2)) {
+          final java.util.Comparator<String> jComparator = toJavaComparator(comparator2);
+          doRandomIterationTest(
+              db,
+              jComparator,
+              rnd,
+              8, 100, 3
+          );
+        }
       } finally {
         removeData(dbDir);
       }
@@ -163,20 +184,23 @@ public class BytewiseComparatorTest {
   @Test
   public void java_vs_java_reverseBytewiseComparator()
       throws IOException, RocksDBException {
-
     for(int rand_seed = 301; rand_seed < 306; rand_seed++) {
       final Path dbDir = Files.createTempDirectory("comparator_db_test");
-      try(final RocksDB db = openDatabase(dbDir, new ReverseBytewiseComparator(
-            new ComparatorOptions()))) {
+      try (final ComparatorOptions copt = new ComparatorOptions();
+           final Comparator comparator = new ReverseBytewiseComparator(copt);
+           final RocksDB db = openDatabase(dbDir, comparator)) {
+
         final Random rnd = new Random(rand_seed);
-        doRandomIterationTest(
-            db,
-            toJavaComparator(
-                new ReverseBytewiseComparator(new ComparatorOptions())
-            ),
-            rnd,
-            8, 100, 3
-        );
+        try(final ComparatorOptions copt2 = new ComparatorOptions();
+            final Comparator comparator2 = new ReverseBytewiseComparator(copt2)) {
+          final java.util.Comparator<String> jComparator = toJavaComparator(comparator2);
+          doRandomIterationTest(
+              db,
+              jComparator,
+              rnd,
+              8, 100, 3
+          );
+        }
       } finally {
         removeData(dbDir);
       }

@@ -83,6 +83,9 @@ class RandomTransactionInserter {
   // write any data.
   uint64_t GetFailureCount() { return failure_count_; }
 
+  // Returns the sum of user keys/values Put() to the DB.
+  size_t GetBytesInserted() { return bytes_inserted_; }
+
  private:
   // Input options
   Random64* rand_;
@@ -96,6 +99,8 @@ class RandomTransactionInserter {
 
   // Number of failed insert batches attempted
   uint64_t failure_count_ = 0;
+
+  size_t bytes_inserted_ = 0;
 
   // Status returned by most recent insert operation
   Status last_status_;

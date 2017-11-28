@@ -19,7 +19,8 @@ TransactionLogIteratorImpl::TransactionLogIteratorImpl(
     const std::string& dir, const ImmutableDBOptions* options,
     const TransactionLogIterator::ReadOptions& read_options,
     const EnvOptions& soptions, const SequenceNumber seq,
-    std::unique_ptr<VectorLogPtr> files, VersionSet const* const versions)
+    std::unique_ptr<VectorLogPtr> files, VersionSet const* const versions,
+    const bool seq_per_batch)
     : dir_(dir),
       options_(options),
       read_options_(read_options),
@@ -31,7 +32,8 @@ TransactionLogIteratorImpl::TransactionLogIteratorImpl(
       currentFileIndex_(0),
       currentBatchSeq_(0),
       currentLastSeq_(0),
-      versions_(versions) {
+      versions_(versions),
+      seq_per_batch_(seq_per_batch) {
   assert(files_ != nullptr);
   assert(versions_ != nullptr);
 
@@ -241,13 +243,57 @@ void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
     }
     startingSequenceNumber_ = expectedSeq;
     // currentStatus_ will be set to Ok if reseek succeeds
+    // Note: this is still ok in seq_pre_batch_ && two_write_queuesp_ mode
+    // that allows gaps in the WAL since it will still skip over the gap.
     currentStatus_ = Status::NotFound("Gap in sequence numbers");
-    return SeekToStartSequence(currentFileIndex_, true);
+    // In seq_per_batch_ mode, gaps in the seq are possible so the strict mode
+    // should be disabled
+    return SeekToStartSequence(currentFileIndex_, !seq_per_batch_);
   }
 
+  struct BatchCounter : public WriteBatch::Handler {
+    SequenceNumber sequence_;
+    BatchCounter(SequenceNumber sequence) : sequence_(sequence) {}
+    Status MarkNoop(bool empty_batch) override {
+      if (!empty_batch) {
+        sequence_++;
+      }
+      return Status::OK();
+    }
+    Status MarkEndPrepare(const Slice&) override {
+      sequence_++;
+      return Status::OK();
+    }
+    Status MarkCommit(const Slice&) override {
+      sequence_++;
+      return Status::OK();
+    }
+
+    Status PutCF(uint32_t cf, const Slice& key, const Slice& val) override {
+      return Status::OK();
+    }
+    Status DeleteCF(uint32_t cf, const Slice& key) override {
+      return Status::OK();
+    }
+    Status SingleDeleteCF(uint32_t cf, const Slice& key) override {
+      return Status::OK();
+    }
+    Status MergeCF(uint32_t cf, const Slice& key, const Slice& val) override {
+      return Status::OK();
+    }
+    Status MarkBeginPrepare() override { return Status::OK(); }
+    Status MarkRollback(const Slice&) override { return Status::OK(); }
+  };
+
   currentBatchSeq_ = WriteBatchInternal::Sequence(batch.get());
-  currentLastSeq_ = currentBatchSeq_ +
-                    WriteBatchInternal::Count(batch.get()) - 1;
+  if (seq_per_batch_) {
+    BatchCounter counter(currentBatchSeq_);
+    batch->Iterate(&counter);
+    currentLastSeq_ = counter.sequence_;
+  } else {
+    currentLastSeq_ =
+        currentBatchSeq_ + WriteBatchInternal::Count(batch.get()) - 1;
+  }
   // currentBatchSeq_ can only change here
   assert(currentLastSeq_ <= versions_->LastSequence());
 

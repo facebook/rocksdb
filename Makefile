@@ -108,11 +108,9 @@ CFLAGS +=  -DHAVE_POWER8
 HAVE_POWER8=1
 endif
 
-# if we're compiling for release, compile without debug code (-DNDEBUG) and
-# don't treat warnings as errors
+# if we're compiling for release, compile without debug code (-DNDEBUG)
 ifeq ($(DEBUG_LEVEL),0)
 OPT += -DNDEBUG
-DISABLE_WARNING_AS_ERROR=1
 
 ifneq ($(USE_RTTI), 1)
 	CXXFLAGS += -fno-rtti
@@ -237,6 +235,11 @@ ifdef COMPILE_WITH_UBSAN
 	EXEC_LDFLAGS += -fsanitize=undefined
 	PLATFORM_CCFLAGS += -fsanitize=undefined -DROCKSDB_UBSAN_RUN
 	PLATFORM_CXXFLAGS += -fsanitize=undefined -DROCKSDB_UBSAN_RUN
+endif
+
+ifdef ROCKSDB_VALGRIND_RUN
+	PLATFORM_CCFLAGS += -DROCKSDB_VALGRIND_RUN
+	PLATFORM_CXXFLAGS += -DROCKSDB_VALGRIND_RUN
 endif
 
 ifndef DISABLE_JEMALLOC
@@ -872,7 +875,7 @@ ubsan_crash_test:
 	$(MAKE) clean
 
 valgrind_test:
-	DISABLE_JEMALLOC=1 $(MAKE) valgrind_check
+	ROCKSDB_VALGRIND_RUN=1 DISABLE_JEMALLOC=1 $(MAKE) valgrind_check
 
 valgrind_check: $(TESTS)
 	$(MAKE) DRIVER="$(VALGRIND_VER) $(VALGRIND_OPTS)" gen_parallel_tests
@@ -1272,7 +1275,7 @@ env_test: env/env_test.o $(LIBOBJECTS) $(TESTHARNESS)
 fault_injection_test: db/fault_injection_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-rate_limiter_test: util/rate_limiter_test.o $(LIBOBJECTS) $(TESTHARNESS)
+rate_limiter_test: util/rate_limiter_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 delete_scheduler_test: util/delete_scheduler_test.o $(LIBOBJECTS) $(TESTHARNESS)

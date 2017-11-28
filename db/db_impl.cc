@@ -136,7 +136,8 @@ void DumpSupportInfo(Logger* logger) {
 int64_t kDefaultLowPriThrottledRate = 2 * 1024 * 1024;
 } // namespace
 
-DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
+DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
+               const bool seq_per_batch)
     : env_(options.env),
       dbname_(dbname),
       initial_db_options_(SanitizeOptions(dbname, options)),
@@ -182,20 +183,34 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       unable_to_flush_oldest_log_(false),
       env_options_(BuildDBOptions(immutable_db_options_, mutable_db_options_)),
       env_options_for_compaction_(env_->OptimizeForCompactionTableWrite(
-                                    env_options_,
-                                    immutable_db_options_)),
+          env_options_, immutable_db_options_)),
       num_running_ingest_file_(0),
 #ifndef ROCKSDB_LITE
-      wal_manager_(immutable_db_options_, env_options_),
+      wal_manager_(immutable_db_options_, env_options_, seq_per_batch),
 #endif  // ROCKSDB_LITE
       event_logger_(immutable_db_options_.info_log.get()),
       bg_work_paused_(0),
       bg_compaction_paused_(0),
       refitting_level_(false),
       opened_successfully_(false),
-      concurrent_prepare_(options.concurrent_prepare),
+      two_write_queues_(options.two_write_queues),
       manual_wal_flush_(options.manual_wal_flush),
-      seq_per_batch_(options.seq_per_batch) {
+      seq_per_batch_(seq_per_batch),
+      // When two_write_queues_ and seq_per_batch_ are both enabled we
+      // sometimes allocate a seq also to indicate the commit timestmamp of a
+      // transaction. In such cases last_sequence_ would not indicate the last
+      // visible sequence number in memtable and should not be used for
+      // snapshots. It should use last_allocated_sequence_ instaed but also
+      // needs other mechanisms to exclude the data that after last_sequence_
+      // and before last_allocated_sequence_ from the snapshot. In
+      // WritePreparedTxn this property is ensured since such data are not
+      // committed yet.
+      allocate_seq_only_for_data_(!(seq_per_batch && options.two_write_queues)),
+      // Since seq_per_batch_ is currently set only by WritePreparedTxn which
+      // requires a custom gc for compaction, we use that to set use_custom_gc_
+      // as well.
+      use_custom_gc_(seq_per_batch),
+      preserve_deletes_(options.preserve_deletes) {
   env_->GetAbsolutePath(dbname, &db_absolute_path_);
 
   // Reserve ten files or so for other uses and give the rest to TableCache.
@@ -217,6 +232,11 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
   immutable_db_options_.Dump(immutable_db_options_.info_log.get());
   mutable_db_options_.Dump(immutable_db_options_.info_log.get());
   DumpSupportInfo(immutable_db_options_.info_log.get());
+
+  // always open the DB with 0 here, which means if preserve_deletes_==true
+  // we won't drop any deletion markers until SetPreserveDeletesSequenceNumber()
+  // is called by client and this seqnum is advanced.
+  preserve_deletes_seqnum_.store(0);
 }
 
 // Will lock the mutex_,  will wait for completion if wait is true
@@ -484,6 +504,7 @@ Status DBImpl::SetOptions(ColumnFamilyHandle* column_family,
   Status s;
   Status persist_options_status;
   WriteThread::Writer w;
+  SuperVersionContext sv_context(/* create_superversion */ true);
   {
     InstrumentedMutexLock l(&mutex_);
     s = cfd->SetOptions(options_map);
@@ -496,14 +517,13 @@ Status DBImpl::SetOptions(ColumnFamilyHandle* column_family,
       // Trigger possible flush/compactions. This has to be before we persist
       // options to file, otherwise there will be a deadlock with writer
       // thread.
-      auto* old_sv =
-          InstallSuperVersionAndScheduleWork(cfd, nullptr, new_options);
-      delete old_sv;
+      InstallSuperVersionAndScheduleWork(cfd, &sv_context, new_options);
 
       persist_options_status = WriteOptionsFile(
           false /*need_mutex_lock*/, true /*need_enter_write_thread*/);
     }
   }
+  sv_context.Clean();
 
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "SetOptions() on column family [%s], inputs:",
@@ -567,16 +587,15 @@ Status DBImpl::SetDBOptions(
         new_options.bytes_per_sync = 1024 * 1024;
       }
       mutable_db_options_ = new_options;
-      env_options_for_compaction_ = EnvOptions(BuildDBOptions(
-                                                immutable_db_options_,
-                                                mutable_db_options_));
+      env_options_for_compaction_ = EnvOptions(
+          BuildDBOptions(immutable_db_options_, mutable_db_options_));
       env_options_for_compaction_ = env_->OptimizeForCompactionTableWrite(
-                                            env_options_for_compaction_,
-                                            immutable_db_options_);
-      env_options_for_compaction_.bytes_per_sync
-                                    = mutable_db_options_.bytes_per_sync;
-      env_->OptimizeForCompactionTableWrite(env_options_for_compaction_,
-                                            immutable_db_options_);
+          env_options_for_compaction_, immutable_db_options_);
+      versions_->ChangeEnvOptions(mutable_db_options_);
+      env_options_for_compaction_ = env_->OptimizeForCompactionTableRead(
+          env_options_for_compaction_, immutable_db_options_);
+      env_options_for_compaction_.compaction_readahead_size =
+          mutable_db_options_.compaction_readahead_size;
       write_thread_.EnterUnbatched(&w, &mutex_);
       if (total_log_size_ > GetMaxTotalWalSize() || wal_changed) {
         Status purge_wal_status = SwitchWAL(&write_context);
@@ -746,6 +765,19 @@ SequenceNumber DBImpl::GetLatestSequenceNumber() const {
   return versions_->LastSequence();
 }
 
+SequenceNumber DBImpl::IncAndFetchSequenceNumber() {
+  return versions_->FetchAddLastAllocatedSequence(1ull) + 1ull;
+}
+
+bool DBImpl::SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) {
+  if (seqnum > preserve_deletes_seqnum_.load()) {
+    preserve_deletes_seqnum_.store(seqnum);
+    return true;
+  } else {
+    return false;
+  }
+}
+
 InternalIterator* DBImpl::NewInternalIterator(
     Arena* arena, RangeDelAggregator* range_del_agg,
     ColumnFamilyHandle* column_family) {
@@ -894,6 +926,7 @@ InternalIterator* DBImpl::NewInternalIterator(
                                                          range_del_agg);
     }
   }
+  TEST_SYNC_POINT_CALLBACK("DBImpl::NewInternalIterator:StatusCallback", &s);
   if (s.ok()) {
     // Collect iterators for files in L0 - Ln
     if (read_options.read_tier != kMemtableTier) {
@@ -907,8 +940,10 @@ InternalIterator* DBImpl::NewInternalIterator(
     internal_iter->RegisterCleanup(CleanupIteratorState, cleanup, nullptr);
 
     return internal_iter;
+  } else {
+    CleanupSuperVersion(super_version);
   }
-  return NewErrorInternalIterator(s);
+  return NewErrorInternalIterator(s, arena);
 }
 
 ColumnFamilyHandle* DBImpl::DefaultColumnFamily() const {
@@ -957,7 +992,8 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
     // super versipon because a flush happening in between may compact
     // away data for the snapshot, but the snapshot is earlier than the
     // data overwriting it, so users may see wrong results.
-    snapshot = versions_->LastSequence();
+    snapshot = allocate_seq_only_for_data_ ? versions_->LastSequence()
+                                           : versions_->LastAllocatedSequence();
   }
   TEST_SYNC_POINT("DBImpl::GetImpl:3");
   TEST_SYNC_POINT("DBImpl::GetImpl:4");
@@ -1048,7 +1084,8 @@ std::vector<Status> DBImpl::MultiGet(
     snapshot = reinterpret_cast<const SnapshotImpl*>(
         read_options.snapshot)->number_;
   } else {
-    snapshot = versions_->LastSequence();
+    snapshot = allocate_seq_only_for_data_ ? versions_->LastSequence()
+                                           : versions_->LastAllocatedSequence();
   }
   for (auto mgd_iter : multiget_cf_data) {
     mgd_iter.second->super_version =
@@ -1229,6 +1266,7 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
     return s;
   }
 
+  SuperVersionContext sv_context(/* create_superversion */ true);
   {
     InstrumentedMutexLock l(&mutex_);
 
@@ -1260,8 +1298,8 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
       auto* cfd =
           versions_->GetColumnFamilySet()->GetColumnFamily(column_family_name);
       assert(cfd != nullptr);
-      delete InstallSuperVersionAndScheduleWork(
-          cfd, nullptr, *cfd->GetLatestMutableCFOptions());
+      InstallSuperVersionAndScheduleWork(
+              cfd, &sv_context, *cfd->GetLatestMutableCFOptions());
 
       if (!cfd->mem()->IsSnapshotSupported()) {
         is_snapshot_supported_ = false;
@@ -1280,6 +1318,7 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
     }
   }  // InstrumentedMutexLock l(&mutex_)
 
+  sv_context.Clean();
   // this is outside the mutex
   if (s.ok()) {
     NewThreadStatusCfInfo(
@@ -1405,54 +1444,68 @@ bool DBImpl::KeyMayExist(const ReadOptions& read_options,
 
 Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
                               ColumnFamilyHandle* column_family) {
+  Iterator* result = nullptr;
   if (read_options.read_tier == kPersistedTier) {
     return NewErrorIterator(Status::NotSupported(
         "ReadTier::kPersistedData is not yet supported in iterators."));
   }
+  // if iterator wants internal keys, we can only proceed if
+  // we can guarantee the deletes haven't been processed yet
+  if (immutable_db_options_.preserve_deletes &&
+      read_options.iter_start_seqnum > 0 &&
+      read_options.iter_start_seqnum < preserve_deletes_seqnum_.load()) {
+        return NewErrorIterator(Status::InvalidArgument(
+          "Iterator requested internal keys which are too old and are not"
+          " guaranteed to be preserved, try larger iter_start_seqnum opt."));
+      }
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
+  ReadCallback* read_callback = nullptr;  // No read callback provided.
   if (read_options.managed) {
 #ifdef ROCKSDB_LITE
     // not supported in lite version
-    return NewErrorIterator(Status::InvalidArgument(
+    result =  NewErrorIterator(Status::InvalidArgument(
         "Managed Iterators not supported in RocksDBLite."));
 #else
     if ((read_options.tailing) || (read_options.snapshot != nullptr) ||
         (is_snapshot_supported_)) {
-      return new ManagedIterator(this, read_options, cfd);
-    }
-    // Managed iter not supported
-    return NewErrorIterator(Status::InvalidArgument(
+      result = new ManagedIterator(this, read_options, cfd);
+    } else {
+      // Managed iter not supported
+      result = NewErrorIterator(Status::InvalidArgument(
         "Managed Iterators not supported without snapshots."));
+    }
 #endif
   } else if (read_options.tailing) {
 #ifdef ROCKSDB_LITE
     // not supported in lite version
-    return nullptr;
+    result = nullptr;
+
 #else
     SuperVersion* sv = cfd->GetReferencedSuperVersion(&mutex_);
     auto iter = new ForwardIterator(this, read_options, cfd, sv);
-    return NewDBIterator(
+    result = NewDBIterator(
         env_, read_options, *cfd->ioptions(), cfd->user_comparator(), iter,
         kMaxSequenceNumber,
-        sv->mutable_cf_options.max_sequential_skip_in_iterations);
+        sv->mutable_cf_options.max_sequential_skip_in_iterations,
+        read_callback);
 #endif
   } else {
-    SequenceNumber latest_snapshot = versions_->LastSequence();
-    auto snapshot =
-        read_options.snapshot != nullptr
-            ? reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)
-                  ->number_
-            : latest_snapshot;
-    return NewIteratorImpl(read_options, cfd, snapshot);
+    // Note: no need to consider the special case of
+    // allocate_seq_only_for_data_==false since NewIterator is overridden in
+    // WritePreparedTxnDB
+    auto snapshot = read_options.snapshot != nullptr
+                        ? read_options.snapshot->GetSequenceNumber()
+                        : versions_->LastSequence();
+    result = NewIteratorImpl(read_options, cfd, snapshot, read_callback);
   }
-  // To stop compiler from complaining
-  return nullptr;
+  return result;
 }
 
 ArenaWrappedDBIter* DBImpl::NewIteratorImpl(const ReadOptions& read_options,
                                             ColumnFamilyData* cfd,
                                             SequenceNumber snapshot,
+                                            ReadCallback* read_callback,
                                             bool allow_blob) {
   SuperVersion* sv = cfd->GetReferencedSuperVersion(&mutex_);
 
@@ -1501,8 +1554,8 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(const ReadOptions& read_options,
   ArenaWrappedDBIter* db_iter = NewArenaWrappedDbIterator(
       env_, read_options, *cfd->ioptions(), snapshot,
       sv->mutable_cf_options.max_sequential_skip_in_iterations,
-      sv->version_number, ((read_options.snapshot != nullptr) ? nullptr : this),
-      cfd, allow_blob);
+      sv->version_number, read_callback,
+      ((read_options.snapshot != nullptr) ? nullptr : this), cfd, allow_blob);
 
   InternalIterator* internal_iter =
       NewInternalIterator(read_options, cfd, sv, db_iter->GetArena(),
@@ -1520,6 +1573,7 @@ Status DBImpl::NewIterators(
     return Status::NotSupported(
         "ReadTier::kPersistedData is not yet supported in iterators.");
   }
+  ReadCallback* read_callback = nullptr;  // No read callback provided.
   iterators->clear();
   iterators->reserve(column_families.size());
   if (read_options.managed) {
@@ -1550,21 +1604,22 @@ Status DBImpl::NewIterators(
       iterators->push_back(NewDBIterator(
           env_, read_options, *cfd->ioptions(), cfd->user_comparator(), iter,
           kMaxSequenceNumber,
-          sv->mutable_cf_options.max_sequential_skip_in_iterations));
+          sv->mutable_cf_options.max_sequential_skip_in_iterations,
+          read_callback));
     }
 #endif
   } else {
-    SequenceNumber latest_snapshot = versions_->LastSequence();
-    auto snapshot =
-        read_options.snapshot != nullptr
-            ? reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)
-                  ->number_
-            : latest_snapshot;
-
+    // Note: no need to consider the special case of
+    // allocate_seq_only_for_data_==false since NewIterators is overridden in
+    // WritePreparedTxnDB
+    auto snapshot = read_options.snapshot != nullptr
+                        ? read_options.snapshot->GetSequenceNumber()
+                        : versions_->LastSequence();
     for (size_t i = 0; i < column_families.size(); ++i) {
       auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(
           column_families[i])->cfd();
-      iterators->push_back(NewIteratorImpl(read_options, cfd, snapshot));
+      iterators->push_back(
+          NewIteratorImpl(read_options, cfd, snapshot, read_callback));
     }
   }
 
@@ -1590,8 +1645,10 @@ const Snapshot* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary) {
     delete s;
     return nullptr;
   }
-  return snapshots_.New(s, versions_->LastSequence(), unix_time,
-                        is_write_conflict_boundary);
+  auto snapshot_seq = allocate_seq_only_for_data_
+                          ? versions_->LastSequence()
+                          : versions_->LastAllocatedSequence();
+  return snapshots_.New(s, snapshot_seq, unix_time, is_write_conflict_boundary);
 }
 
 void DBImpl::ReleaseSnapshot(const Snapshot* s) {
@@ -1599,16 +1656,32 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
   {
     InstrumentedMutexLock l(&mutex_);
     snapshots_.Delete(casted_s);
+    uint64_t oldest_snapshot;
+    if (snapshots_.empty()) {
+      oldest_snapshot = allocate_seq_only_for_data_
+                            ? versions_->LastSequence()
+                            : versions_->LastAllocatedSequence();
+    } else {
+      oldest_snapshot = snapshots_.oldest()->number_;
+    }
+    for (auto* cfd : *versions_->GetColumnFamilySet()) {
+      cfd->current()->storage_info()->UpdateOldestSnapshot(oldest_snapshot);
+      if (!cfd->current()
+               ->storage_info()
+               ->BottommostFilesMarkedForCompaction()
+               .empty()) {
+        SchedulePendingCompaction(cfd);
+        MaybeScheduleFlushOrCompaction();
+      }
+    }
   }
   delete casted_s;
 }
 
-bool DBImpl::HasActiveSnapshotLaterThanSN(SequenceNumber sn) {
+bool DBImpl::HasActiveSnapshotInRange(SequenceNumber lower_bound,
+                                      SequenceNumber upper_bound) {
   InstrumentedMutexLock l(&mutex_);
-  if (snapshots_.empty()) {
-    return false;
-  }
-  return (snapshots_.newest()->GetSequenceNumber() > sn);
+  return snapshots_.HasSnapshotInRange(lower_bound, upper_bound);
 }
 
 #ifndef ROCKSDB_LITE
@@ -1818,21 +1891,23 @@ SuperVersion* DBImpl::GetAndRefSuperVersion(uint32_t column_family_id) {
   return GetAndRefSuperVersion(cfd);
 }
 
+void DBImpl::CleanupSuperVersion(SuperVersion* sv) {
+  // Release SuperVersion
+  if (sv->Unref()) {
+    {
+      InstrumentedMutexLock l(&mutex_);
+      sv->Cleanup();
+    }
+    delete sv;
+    RecordTick(stats_, NUMBER_SUPERVERSION_CLEANUPS);
+  }
+  RecordTick(stats_, NUMBER_SUPERVERSION_RELEASES);
+}
+
 void DBImpl::ReturnAndCleanupSuperVersion(ColumnFamilyData* cfd,
                                           SuperVersion* sv) {
-  bool unref_sv = !cfd->ReturnThreadLocalSuperVersion(sv);
-
-  if (unref_sv) {
-    // Release SuperVersion
-    if (sv->Unref()) {
-      {
-        InstrumentedMutexLock l(&mutex_);
-        sv->Cleanup();
-      }
-      delete sv;
-      RecordTick(stats_, NUMBER_SUPERVERSION_CLEANUPS);
-    }
-    RecordTick(stats_, NUMBER_SUPERVERSION_RELEASES);
+  if (!cfd->ReturnThreadLocalSuperVersion(sv)) {
+    CleanupSuperVersion(sv);
   }
 }
 
@@ -2035,8 +2110,9 @@ Status DBImpl::DeleteFile(std::string name) {
     status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
                                     &edit, &mutex_, directories_.GetDbDir());
     if (status.ok()) {
-      InstallSuperVersionAndScheduleWorkWrapper(
-          cfd, &job_context, *cfd->GetLatestMutableCFOptions());
+      InstallSuperVersionAndScheduleWork(
+          cfd, &job_context.superversion_context,
+          *cfd->GetLatestMutableCFOptions());
     }
     FindObsoleteFiles(&job_context, false);
   }  // lock released here
@@ -2113,8 +2189,9 @@ Status DBImpl::DeleteFilesInRange(ColumnFamilyHandle* column_family,
     status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
                                     &edit, &mutex_, directories_.GetDbDir());
     if (status.ok()) {
-      InstallSuperVersionAndScheduleWorkWrapper(
-          cfd, &job_context, *cfd->GetLatestMutableCFOptions());
+      InstallSuperVersionAndScheduleWork(
+          cfd, &job_context.superversion_context,
+          *cfd->GetLatestMutableCFOptions());
     }
     for (auto* deleted_file : deleted_files) {
       deleted_file->being_compacted = false;
@@ -2548,7 +2625,8 @@ SequenceNumber DBImpl::GetEarliestMemTableSequenceNumber(SuperVersion* sv,
 #ifndef ROCKSDB_LITE
 Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
                                        bool cache_only, SequenceNumber* seq,
-                                       bool* found_record_for_key) {
+                                       bool* found_record_for_key,
+                                       bool* is_blob_index) {
   Status s;
   MergeContext merge_context;
   RangeDelAggregator range_del_agg(sv->mem->GetInternalKeyComparator(),
@@ -2563,7 +2641,7 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
 
   // Check if there is a record for this key in the latest memtable
   sv->mem->Get(lkey, nullptr, &s, &merge_context, &range_del_agg, seq,
-               read_options);
+               read_options, nullptr /*read_callback*/, is_blob_index);
 
   if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
     // unexpected error reading memtable.
@@ -2582,7 +2660,7 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
 
   // Check if there is a record for this key in the immutable memtables
   sv->imm->Get(lkey, nullptr, &s, &merge_context, &range_del_agg, seq,
-               read_options);
+               read_options, nullptr /*read_callback*/, is_blob_index);
 
   if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
     // unexpected error reading memtable.
@@ -2601,7 +2679,7 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
 
   // Check if there is a record for this key in the immutable memtables
   sv->imm->GetFromHistory(lkey, nullptr, &s, &merge_context, &range_del_agg,
-                          seq, read_options);
+                          seq, read_options, is_blob_index);
 
   if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
     // unexpected error reading memtable.
@@ -2625,7 +2703,8 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
     // Check tables
     sv->current->Get(read_options, lkey, nullptr, &s, &merge_context,
                      &range_del_agg, nullptr /* value_found */,
-                     found_record_for_key, seq);
+                     found_record_for_key, seq, nullptr /*read_callback*/,
+                     is_blob_index);
 
     if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
       // unexpected error reading SST files
@@ -2678,6 +2757,7 @@ Status DBImpl::IngestExternalFile(
     return status;
   }
 
+  SuperVersionContext sv_context(/* create_superversion */ true);
   TEST_SYNC_POINT("DBImpl::AddFile:Start");
   {
     // Lock db mutex
@@ -2688,7 +2768,7 @@ Status DBImpl::IngestExternalFile(
     WriteThread::Writer w;
     write_thread_.EnterUnbatched(&w, &mutex_);
     WriteThread::Writer nonmem_w;
-    if (concurrent_prepare_) {
+    if (two_write_queues_) {
       nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
     }
 
@@ -2726,12 +2806,12 @@ Status DBImpl::IngestExternalFile(
                                  &mutex_, directories_.GetDbDir());
     }
     if (status.ok()) {
-      delete InstallSuperVersionAndScheduleWork(cfd, nullptr,
-                                                *mutable_cf_options);
+      InstallSuperVersionAndScheduleWork(cfd, &sv_context,
+                                         *mutable_cf_options);
     }
 
     // Resume writes to the DB
-    if (concurrent_prepare_) {
+    if (two_write_queues_) {
       nonmem_write_thread_.ExitUnbatched(&nonmem_w);
     }
     write_thread_.ExitUnbatched(&w);
@@ -2753,6 +2833,7 @@ Status DBImpl::IngestExternalFile(
   // mutex_ is unlocked here
 
   // Cleanup
+  sv_context.Clean();
   ingestion_job.Cleanup(status);
 
   if (status.ok()) {
