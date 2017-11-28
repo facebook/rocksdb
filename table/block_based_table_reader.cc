@@ -2423,11 +2423,19 @@ void BlockBasedTable::DumpKeyValue(const Slice& key, const Slice& value,
   std::string res_key(""), res_value("");
   char cspace = ' ';
   for (size_t i = 0; i < str_key.size(); i++) {
-    res_key.append(&str_key[i], 1);
+    if (str_key[i] == '\0') {
+      res_key.append("\\0", 2);
+    } else {
+      res_key.append(&str_key[i], 1);
+    }
     res_key.append(1, cspace);
   }
   for (size_t i = 0; i < str_value.size(); i++) {
-    res_value.append(&str_value[i], 1);
+    if (str_value[i] == '\0') {
+      res_value.append("\\0", 2);
+    } else {
+      res_value.append(&str_value[i], 1);
+    }
     res_value.append(1, cspace);
   }
 
