@@ -348,7 +348,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       versions_->SetLastSequence(last_sequence);
     }
     MemTableInsertStatusCheck(w.status);
-    write_thread_.ExitAsBatchGroupLeader(write_group, w.status);
+    write_thread_.ExitAsBatchGroupLeader(write_group, status);
   }
 
   if (status.ok()) {
@@ -577,7 +577,7 @@ Status DBImpl::WriteImplWALOnly(const WriteOptions& write_options,
   if (!w.CallbackFailed()) {
     WriteCallbackStatusCheck(status);
   }
-  nonmem_write_thread_.ExitAsBatchGroupLeader(write_group, w.status);
+  nonmem_write_thread_.ExitAsBatchGroupLeader(write_group, status);
   if (status.ok()) {
     status = w.FinalStatus();
   }
