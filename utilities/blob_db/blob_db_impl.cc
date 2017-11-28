@@ -159,6 +159,8 @@ BlobDBOptions BlobDBImpl::GetBlobDBOptions() const { return bdb_options_; }
 BlobDBImpl::BlobDBImpl(DB* db, const BlobDBOptions& blob_db_options)
     : BlobDB(db),
       db_impl_(static_cast_with_check<DBImpl, DB>(db)),
+      env_(nullptr),
+      ttl_extractor_(nullptr),
       bdb_options_(blob_db_options),
       db_options_(db->GetOptions()),
       env_options_(db_->GetOptions()),
@@ -170,6 +172,8 @@ BlobDBImpl::BlobDBImpl(DB* db, const BlobDBOptions& blob_db_options)
       current_epoch_(0),
       open_file_count_(0),
       total_blob_space_(0),
+      open_p1_done_(false),
+      debug_level_(0),
       oldest_file_evicted_(false) {
   if (!bdb_options_.blob_dir.empty())
     blob_dir_ = (bdb_options_.path_relative)
