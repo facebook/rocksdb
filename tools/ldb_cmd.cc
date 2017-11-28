@@ -311,11 +311,9 @@ LDBCommand::LDBCommand(const std::map<std::string, std::string>& options,
 }
 
 void LDBCommand::OpenDB() {
-  Options opt;
   if (!create_if_missing_ && try_load_options_) {
-    Status s = LoadLatestOptions(db_path_, Env::Default(), &opt,
+    Status s = LoadLatestOptions(db_path_, Env::Default(), &options_,
                                  &column_families_, ignore_unknown_options_);
-    options_ = opt;
     if (!s.ok()) {
       // Option file exists but load option file error.
       std::string msg = s.ToString();
@@ -324,7 +322,7 @@ void LDBCommand::OpenDB() {
       return;
     }
   }
-  opt = PrepareOptionsForOpenDB();
+  options_ = PrepareOptionsForOpenDB();
   if (!exec_state_.IsNotStarted()) {
     return;
   }
@@ -338,9 +336,9 @@ void LDBCommand::OpenDB() {
           "ldb doesn't support TTL DB with multiple column families");
     }
     if (is_read_only_) {
-      st = DBWithTTL::Open(opt, db_path_, &db_ttl_, 0, true);
+      st = DBWithTTL::Open(options_, db_path_, &db_ttl_, 0, true);
     } else {
-      st = DBWithTTL::Open(opt, db_path_, &db_ttl_);
+      st = DBWithTTL::Open(options_, db_path_, &db_ttl_);
     }
     db_ = db_ttl_;
   } else {
@@ -355,22 +353,22 @@ void LDBCommand::OpenDB() {
       if (st.ok() && cf_list.size() > 1) {
         // Ignore single column family DB.
         for (auto cf_name : cf_list) {
-          column_families_.emplace_back(cf_name, opt);
+          column_families_.emplace_back(cf_name, options_);
         }
       }
     }
     if (is_read_only_) {
       if (column_families_.empty()) {
-        st = DB::OpenForReadOnly(opt, db_path_, &db_);
+        st = DB::OpenForReadOnly(options_, db_path_, &db_);
       } else {
-        st = DB::OpenForReadOnly(opt, db_path_, column_families_,
+        st = DB::OpenForReadOnly(options_, db_path_, column_families_,
                                  &handles_opened, &db_);
       }
     } else {
       if (column_families_.empty()) {
-        st = DB::Open(opt, db_path_, &db_);
+        st = DB::Open(options_, db_path_, &db_);
       } else {
-        st = DB::Open(opt, db_path_, column_families_, &handles_opened, &db_);
+        st = DB::Open(options_, db_path_, column_families_, &handles_opened, &db_);
       }
     }
   }
@@ -400,8 +398,6 @@ void LDBCommand::OpenDB() {
       CloseDB();
     }
   }
-
-  options_ = opt;
 }
 
 void LDBCommand::CloseDB() {
