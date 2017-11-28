@@ -100,8 +100,8 @@ std::shared_ptr<Reader> BlobFile::OpenSequentialReader(
   std::unique_ptr<SequentialFileReader> sfile_reader;
   sfile_reader.reset(new SequentialFileReader(std::move(sfile)));
 
-  std::shared_ptr<Reader> log_reader =
-      std::make_shared<Reader>(db_options.info_log, std::move(sfile_reader));
+  std::shared_ptr<Reader> log_reader = std::make_shared<Reader>(
+      std::move(sfile_reader), db_options.env, db_options.statistics.get());
 
   return log_reader;
 }

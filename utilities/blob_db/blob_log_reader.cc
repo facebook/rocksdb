@@ -9,22 +9,30 @@
 
 #include <algorithm>
 
+#include "monitoring/statistics.h"
 #include "util/file_reader_writer.h"
+#include "util/stop_watch.h"
 
 namespace rocksdb {
 namespace blob_db {
 
-Reader::Reader(std::shared_ptr<Logger> info_log,
-               unique_ptr<SequentialFileReader>&& _file)
-    : info_log_(info_log), file_(std::move(_file)), buffer_(), next_byte_(0) {}
+Reader::Reader(unique_ptr<SequentialFileReader>&& file_reader, Env* env,
+               Statistics* statistics)
+    : file_(std::move(file_reader)),
+      env_(env),
+      statistics_(statistics),
+      buffer_(),
+      next_byte_(0) {}
 
 Status Reader::ReadSlice(uint64_t size, Slice* slice, std::string* buf) {
+  StopWatch read_sw(env_, statistics_, BLOB_DB_BLOB_FILE_READ_MICROS);
   buf->reserve(size);
   Status s = file_->Read(size, slice, &(*buf)[0]);
   next_byte_ += size;
   if (!s.ok()) {
     return s;
   }
+  RecordTick(statistics_, BLOB_DB_BLOB_FILE_BYTES_READ, slice->size());
   if (slice->size() != size) {
     return Status::Corruption("EOF reached while reading record");
   }
