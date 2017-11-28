@@ -1,9 +1,8 @@
 # Rocksdb Change Log
-## Unreleased
-### Public API Change
-### New Features
+## 5.9.1 (11/28/2017)
 ### Bug Fixes
 * Fix IOError on WAL write doesn't propagate to write group follower
+* Fix calculating filter partition target size
 
 ## 5.9.0 (11/1/2017)
 ### Public API Change
