@@ -509,7 +509,11 @@ class SpecialEnv : public EnvWrapper {
 
   virtual Status DeleteFile(const std::string& fname) override {
     delete_count_.fetch_add(1);
-    return target()->DeleteFile(fname);
+    if (!drop_file_delete_) {
+      return target()->DeleteFile(fname);
+    } else {
+      return Status::OK();
+    }
   }
 
   Random rnd_;
@@ -575,6 +579,9 @@ class SpecialEnv : public EnvWrapper {
   std::atomic<bool> is_wal_sync_thread_safe_{true};
 
   std::atomic<size_t> compaction_readahead_size_;
+
+  // Drop file deletes on the floor if this flag is set
+  bool drop_file_delete_;
 };
 
 class MockTimeEnv : public EnvWrapper {
