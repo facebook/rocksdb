@@ -1826,6 +1826,26 @@ void rocksdb_block_based_options_set_block_restart_interval(
   options->rep.block_restart_interval = block_restart_interval;
 }
 
+void rocksdb_block_based_options_set_index_block_restart_interval(
+    rocksdb_block_based_table_options_t* options, int index_block_restart_interval) {
+  options->rep.index_block_restart_interval = index_block_restart_interval;
+}
+
+void rocksdb_block_based_options_set_metadata_block_size(
+    rocksdb_block_based_table_options_t* options, uint64_t metadata_block_size) {
+  options->rep.metadata_block_size = metadata_block_size;
+}
+
+void rocksdb_block_based_options_set_partition_filters(
+    rocksdb_block_based_table_options_t* options, unsigned char partition_filters) {
+  options->rep.partition_filters = partition_filters;
+}
+
+void rocksdb_block_based_options_set_use_delta_encoding(
+    rocksdb_block_based_table_options_t* options, unsigned char use_delta_encoding) {
+  options->rep.use_delta_encoding = use_delta_encoding;
+}
+
 void rocksdb_block_based_options_set_filter_policy(
     rocksdb_block_based_table_options_t* options,
     rocksdb_filterpolicy_t* filter_policy) {
@@ -1879,6 +1899,11 @@ void rocksdb_block_based_options_set_cache_index_and_filter_blocks(
   options->rep.cache_index_and_filter_blocks = v;
 }
 
+void rocksdb_block_based_options_set_cache_index_and_filter_blocks_with_high_priority(
+    rocksdb_block_based_table_options_t* options, unsigned char v) {
+  options->rep.cache_index_and_filter_blocks_with_high_priority = v;
+}
+
 void rocksdb_block_based_options_set_pin_l0_filter_and_index_blocks_in_cache(
     rocksdb_block_based_table_options_t* options, unsigned char v) {
   options->rep.pin_l0_filter_and_index_blocks_in_cache = v;
@@ -1892,7 +1917,6 @@ void rocksdb_options_set_block_based_table_factory(
         rocksdb::NewBlockBasedTableFactory(table_options->rep));
   }
 }
-
 
 rocksdb_cuckoo_table_options_t*
 rocksdb_cuckoo_options_create() {
