@@ -1,7 +1,5 @@
 # Rocksdb Change Log
-## Unreleased
-### Public API Change
-### New Features
+## 5.7.5 (11/28/2017)
 ### Bug Fixes
 * Fix IOError on WAL write doesn't propagate to write group follower
 
