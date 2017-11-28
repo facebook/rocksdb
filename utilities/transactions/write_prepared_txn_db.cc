@@ -75,6 +75,22 @@ Status WritePreparedTxnDB::Get(const ReadOptions& options,
                            &callback);
 }
 
+std::vector<Status> WritePreparedTxnDB::MultiGet(
+    const ReadOptions& options,
+    const std::vector<ColumnFamilyHandle*>& column_family,
+    const std::vector<Slice>& keys, std::vector<std::string>* values) {
+  assert(values);
+  size_t num_keys = keys.size();
+  values->resize(num_keys);
+
+  std::vector<Status> stat_list(num_keys);
+  for (size_t i = 0; i < num_keys; ++i) {
+    std::string* value = values ? &(*values)[i] : nullptr;
+    stat_list[i] = this->Get(options, column_family[i], keys[i], value);
+  }
+  return stat_list;
+}
+
 // Struct to hold ownership of snapshot and read callback for iterator cleanup.
 struct WritePreparedTxnDB::IteratorState {
   IteratorState(WritePreparedTxnDB* txn_db, SequenceNumber sequence,
