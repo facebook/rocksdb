@@ -111,6 +111,8 @@ struct BlobLogRecord {
   std::string key_buf;
   std::string value_buf;
 
+  uint64_t record_size() const { return kHeaderSize + key_size + value_size; }
+
   void EncodeHeaderTo(std::string* dst);
 
   Status DecodeHeaderFrom(Slice src);

@@ -10,7 +10,9 @@
 #include <memory>
 #include <string>
 
+#include "rocksdb/env.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
 #include "utilities/blob_db/blob_log_format.h"
@@ -34,9 +36,9 @@ class Writer {
   // Create a writer that will append data to "*dest".
   // "*dest" must be initially empty.
   // "*dest" must remain live while this Writer is in use.
-  explicit Writer(std::unique_ptr<WritableFileWriter>&& dest,
-                  uint64_t log_number, uint64_t bpsync, bool use_fsync,
-                  uint64_t boffset = 0);
+  Writer(std::unique_ptr<WritableFileWriter>&& dest, Env* env,
+         Statistics* statistics, uint64_t log_number, uint64_t bpsync,
+         bool use_fsync, uint64_t boffset = 0);
 
   ~Writer() = default;
 
@@ -75,6 +77,8 @@ class Writer {
 
  private:
   std::unique_ptr<WritableFileWriter> dest_;
+  Env* env_;
+  Statistics* statistics_;
   uint64_t log_number_;
   uint64_t block_offset_;  // Current offset in block
   uint64_t bytes_per_sync_;

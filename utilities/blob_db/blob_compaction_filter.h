@@ -5,6 +5,7 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
+#include "monitoring/statistics.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/env.h"
 #include "utilities/blob_db/blob_index.h"
@@ -15,8 +16,12 @@ namespace blob_db {
 // CompactionFilter to delete expired blob index from base DB.
 class BlobIndexCompactionFilter : public CompactionFilter {
  public:
-  explicit BlobIndexCompactionFilter(uint64_t current_time)
-      : current_time_(current_time) {}
+  BlobIndexCompactionFilter(uint64_t current_time, Statistics* statistics)
+      : current_time_(current_time), statistics_(statistics) {}
+
+  virtual ~BlobIndexCompactionFilter() {
+    RecordTick(statistics_, BLOB_DB_BLOB_INDEX_EXPIRED, expired_count_);
+  }
 
   virtual const char* Name() const override {
     return "BlobIndexCompactionFilter";
@@ -40,6 +45,7 @@ class BlobIndexCompactionFilter : public CompactionFilter {
     }
     if (blob_index.HasTTL() && blob_index.expiration() <= current_time_) {
       // Expired
+      expired_count_++;
       return Decision::kRemove;
     }
     return Decision::kKeep;
@@ -47,11 +53,16 @@ class BlobIndexCompactionFilter : public CompactionFilter {
 
  private:
   const uint64_t current_time_;
+  Statistics* statistics_;
+  // It is safe to not using std::atomic since the compaction filter, created
+  // from a compaction filter factroy, will not be called from multiple threads.
+  mutable uint64_t expired_count_ = 0;
 };
 
 class BlobIndexCompactionFilterFactory : public CompactionFilterFactory {
  public:
-  explicit BlobIndexCompactionFilterFactory(Env* env) : env_(env) {}
+  BlobIndexCompactionFilterFactory(Env* env, Statistics* statistics)
+      : env_(env), statistics_(statistics) {}
 
   virtual const char* Name() const override {
     return "BlobIndexCompactionFilterFactory";
@@ -65,12 +76,13 @@ class BlobIndexCompactionFilterFactory : public CompactionFilterFactory {
       return nullptr;
     }
     assert(current_time >= 0);
-    return std::unique_ptr<CompactionFilter>(
-        new BlobIndexCompactionFilter(static_cast<uint64_t>(current_time)));
+    return std::unique_ptr<CompactionFilter>(new BlobIndexCompactionFilter(
+        static_cast<uint64_t>(current_time), statistics_));
   }
 
  private:
   Env* env_;
+  Statistics* statistics_;
 };
 
 }  // namespace blob_db
