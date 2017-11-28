@@ -155,7 +155,7 @@ bool RangeDelAggregator::IsRangeOverlapped(const Slice& start,
       if (icmp_.user_comparator()->Compare(start, tombstone.end_key_) < 0 &&
           icmp_.user_comparator()->Compare(tombstone.start_key_, end) <= 0 &&
           icmp_.user_comparator()->Compare(tombstone.start_key_,
-                                           tombstone.end_key_) != 0) {
+                                           tombstone.end_key_) < 0) {
         return true;
       }
     }

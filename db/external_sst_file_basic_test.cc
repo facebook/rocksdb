@@ -605,8 +605,9 @@ TEST_F(ExternalSSTFileBasicTest, IngestionWithRangeDeletions) {
   ASSERT_EQ(1, NumTableFilesAtLevel(kNumLevels - 2));
   ASSERT_EQ(1, NumTableFilesAtLevel(options.num_levels - 1));
 
-  // overlaps with memtable, so flush is triggered (thus file count increases by
-  // two at this step).
+  // ingested file overlaps with memtable, so flush is triggered before the file
+  // is ingested such that the ingested data is considered newest. So L0 file
+  // count increases by two.
   ASSERT_OK(GenerateAndAddExternalFile(
       options, {100, 140}, {ValueType::kTypeValue, ValueType::kTypeValue},
       file_id++, &true_data));
