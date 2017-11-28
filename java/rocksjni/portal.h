@@ -636,7 +636,7 @@ class ColumnFamilyOptionsJni
       return nullptr;
     }
 
-    jobject jcfd = env->NewObject(jclazz, mid, reinterpret_cast<long>(cfo));
+    jobject jcfd = env->NewObject(jclazz, mid, reinterpret_cast<jlong>(cfo));
     if (env->ExceptionCheck()) {
       return nullptr;
     }
