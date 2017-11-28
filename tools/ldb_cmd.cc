@@ -279,6 +279,7 @@ LDBCommand::LDBCommand(const std::map<std::string, std::string>& options,
                        const std::vector<std::string>& flags, bool is_read_only,
                        const std::vector<std::string>& valid_cmd_line_options)
     : db_(nullptr),
+      db_ttl_(nullptr),
       is_read_only_(is_read_only),
       is_key_hex_(false),
       is_value_hex_(false),
