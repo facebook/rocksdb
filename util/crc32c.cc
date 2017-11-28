@@ -9,7 +9,6 @@
 //
 // A portable implementation of crc32c, optimized to handle
 // four bytes at a time.
-#include <iostream>
 #include "util/crc32c.h"
 #include <stdint.h>
 #ifdef HAVE_SSE42
@@ -629,16 +628,17 @@ inline uint64_t CombineCRC(
 // Compute CRC-32C using the Intel hardware instruction.
 uint32_t crc32c_3way(uint32_t crc, const char* buf, size_t len) {
   const unsigned char* next = (const unsigned char*)buf;
-  unsigned long count;
+  uint64_t count;
   uint64_t crc0, crc1, crc2;
   crc0 = crc;
+
 
   if (len >= 8) {
     // if len > 216 then align and use triplets
     if (len > 216) {
       {
         // Work on the bytes (< 8) before the first 8-byte alignment addr starts
-        unsigned long align_bytes = (8 - (uintptr_t)next) & 7;
+        uint64_t align_bytes = (8 - (uintptr_t)next) & 7;
         len -= align_bytes;
         align_to_8(align_bytes, crc0, next);
       }
@@ -646,8 +646,8 @@ uint32_t crc32c_3way(uint32_t crc, const char* buf, size_t len) {
       // Now work on the remaining blocks
       count = len / 24; // number of triplets
       len %= 24; // bytes remaining
-      unsigned long n = count >> 7; // #blocks = first block + full blocks
-      unsigned long block_size = count & 127;
+      uint64_t n = count >> 7; // #blocks = first block + full blocks
+      uint64_t block_size = count & 127;
       if (block_size == 0) {
         block_size = 128;
       } else {
@@ -937,7 +937,7 @@ uint32_t crc32c_3way(uint32_t crc, const char* buf, size_t len) {
       }
       next = (const unsigned char*)next2;
     }
-    unsigned count2 = len >> 3; // 216 of less bytes is 27 or less singlets
+    uint64_t count2 = len >> 3; // 216 of less bytes is 27 or less singlets
     len = len & 7;
     next += (count2 * 8);
     switch (count2) {

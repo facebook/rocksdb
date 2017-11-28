@@ -7,7 +7,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include <iostream>
 #include "util/crc32c.h"
 #include "util/testharness.h"
 
@@ -103,7 +102,7 @@ TEST(CRC, StandardResults) {
 
 #else
 
-  // 3-Way Crc32c tests ported from folly. See T20949442
+  // 3-Way Crc32c tests ported from folly.
   // Test 1: single computation
   for (auto expected : expectedResults) {
     uint32_t result = Extend(~0U, buffer + expected.offset, expected.length);
