@@ -491,6 +491,11 @@ bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
       }
       return true;
     }
+    case OptionType::kLRUCacheOptions: {
+      return ParseStructOptions<LRUCacheOptions>(value,
+          reinterpret_cast<LRUCacheOptions*>(opt_address),
+          lru_cache_options_type_info);
+    }
     default:
       return false;
   }
@@ -1519,6 +1524,7 @@ std::unordered_map<std::string, InfoLogLevel>
 
 ColumnFamilyOptions OptionsHelper::dummy_cf_options;
 CompactionOptionsFIFO OptionsHelper::dummy_comp_options;
+LRUCacheOptions OptionsHelper::dummy_lru_cache_options;
 
 // offset_of is used to get the offset of a class data member
 // ex: offset_of(&ColumnFamilyOptions::num_levels)
@@ -1543,6 +1549,11 @@ template <typename T1>
 int offset_of(T1 CompactionOptionsFIFO::*member) {
   return int(size_t(&(OptionsHelper::dummy_comp_options.*member)) -
              size_t(&OptionsHelper::dummy_comp_options));
+}
+template <typename T1>
+int offset_of(T1 LRUCacheOptions::*member) {
+  return int(size_t(&(OptionsHelper::dummy_lru_cache_options.*member)) -
+             size_t(&OptionsHelper::dummy_lru_cache_options));
 }
 
 std::unordered_map<std::string, OptionTypeInfo>
@@ -1787,6 +1798,23 @@ std::unordered_map<std::string, OptionTypeInfo>
          {offset_of(&CompactionOptionsFIFO::allow_compaction),
           OptionType::kBoolean, OptionVerificationType::kNormal, true,
           offsetof(struct CompactionOptionsFIFO, allow_compaction)}}};
+
+std::unordered_map<std::string, OptionTypeInfo>
+    OptionsHelper::lru_cache_options_type_info = {
+        {"capacity", {offset_of(&LRUCacheOptions::capacity),
+          OptionType::kSizeT, OptionVerificationType::kNormal, true,
+          offsetof(struct LRUCacheOptions, capacity)}},
+        {"num_shard_bits", {offset_of(&LRUCacheOptions::num_shard_bits),
+          OptionType::kInt, OptionVerificationType::kNormal, true,
+          offsetof(struct LRUCacheOptions, num_shard_bits)}},
+        {"strict_capacity_limit",
+         {offset_of(&LRUCacheOptions::strict_capacity_limit),
+          OptionType::kBoolean, OptionVerificationType::kNormal, true,
+          offsetof(struct LRUCacheOptions, strict_capacity_limit)}},
+        {"high_pri_pool_ratio",
+         {offset_of(&LRUCacheOptions::high_pri_pool_ratio),
+          OptionType::kDouble, OptionVerificationType::kNormal, true,
+          offsetof(struct LRUCacheOptions, high_pri_pool_ratio)}}};
 
 #endif  // !ROCKSDB_LITE
 
