@@ -376,6 +376,7 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
 
 Status ExternalSstFileIngestionJob::IngestedFilesOverlapWithMemtables(
     SuperVersion* sv, bool* overlap) {
+  *overlap = false;
   // Create an InternalIterator over all memtables
   Arena arena;
   ReadOptions ro;
@@ -391,26 +392,33 @@ Status ExternalSstFileIngestionJob::IngestedFilesOverlapWithMemtables(
     memtable_range_del_iters.push_back(active_range_del_iter);
   }
   sv->imm->AddRangeTombstoneIterators(ro, &memtable_range_del_iters);
-  std::unique_ptr<InternalIterator> memtable_range_del_iter(NewMergingIterator(
-      &cfd_->internal_comparator(),
-      memtable_range_del_iters.empty() ? nullptr : &memtable_range_del_iters[0],
-      static_cast<int>(memtable_range_del_iters.size())));
-
+  RangeDelAggregator range_del_agg(cfd_->internal_comparator(),
+                                   {} /* snapshots */,
+                                   false /* collapse_deletions */);
   Status status;
-  *overlap = false;
-  for (IngestedFileInfo& f : files_to_ingest_) {
-    status =
-        IngestedFileOverlapWithIteratorRange(&f, memtable_iter.get(), overlap);
-    if (!status.ok() || *overlap == true) {
-      break;
-    }
-    status = IngestedFileOverlapWithRangeDeletions(
-        &f, memtable_range_del_iter.get(), overlap);
-    if (!status.ok() || *overlap == true) {
-      break;
+  {
+    std::unique_ptr<InternalIterator> memtable_range_del_iter(
+        NewMergingIterator(&cfd_->internal_comparator(),
+                           memtable_range_del_iters.empty()
+                               ? nullptr
+                               : &memtable_range_del_iters[0],
+                           static_cast<int>(memtable_range_del_iters.size())));
+    status = range_del_agg.AddTombstones(std::move(memtable_range_del_iter));
+  }
+  if (status.ok()) {
+    for (IngestedFileInfo& f : files_to_ingest_) {
+      status = IngestedFileOverlapWithIteratorRange(&f, memtable_iter.get(),
+                                                    overlap);
+      if (!status.ok() || *overlap == true) {
+        break;
+      }
+      if (range_del_agg.IsRangeOverlapped(f.smallest_user_key,
+                                          f.largest_user_key)) {
+        *overlap = true;
+        break;
+      }
     }
   }
-
   return status;
 }
 
@@ -575,34 +583,6 @@ Status ExternalSstFileIngestionJob::IngestedFileOverlapWithIteratorRange(
   return iter->status();
 }
 
-Status ExternalSstFileIngestionJob::IngestedFileOverlapWithRangeDeletions(
-    const IngestedFileInfo* file_to_ingest, InternalIterator* range_del_iter,
-    bool* overlap) {
-  auto* vstorage = cfd_->current()->storage_info();
-  auto* ucmp = vstorage->InternalComparator()->user_comparator();
-
-  *overlap = false;
-  if (range_del_iter != nullptr) {
-    for (range_del_iter->SeekToFirst(); range_del_iter->Valid();
-         range_del_iter->Next()) {
-      ParsedInternalKey parsed_key;
-      if (!ParseInternalKey(range_del_iter->key(), &parsed_key)) {
-        return Status::Corruption("corrupted range deletion key: " +
-                                  range_del_iter->key().ToString());
-      }
-      RangeTombstone range_del(parsed_key, range_del_iter->value());
-      if (ucmp->Compare(range_del.start_key_,
-                        file_to_ingest->largest_user_key) <= 0 &&
-          ucmp->Compare(file_to_ingest->smallest_user_key,
-                        range_del.end_key_) <= 0) {
-        *overlap = true;
-        break;
-      }
-    }
-  }
-  return Status::OK();
-}
-
 bool ExternalSstFileIngestionJob::IngestedFileFitInLevel(
     const IngestedFileInfo* file_to_ingest, int level) {
   if (level == 0) {
@@ -639,23 +619,26 @@ Status ExternalSstFileIngestionJob::IngestedFileOverlapWithLevel(
   ro.total_order_seek = true;
   MergeIteratorBuilder merge_iter_builder(&cfd_->internal_comparator(),
                                           &arena);
+  // Files are opened lazily when the iterator needs them, thus range deletions
+  // are also added lazily to the aggregator. We need to check for range
+  // deletion overlap only in the case where there's no point-key overlap. Then,
+  // we've already opened the file with range containing the ingested file's
+  // begin key, and iterated through all files until the one containing the
+  // ingested file's end key. So any files maybe containing range deletions
+  // overlapping the ingested file must have been opened and had their range
+  // deletions added to the aggregator.
+  RangeDelAggregator range_del_agg(cfd_->internal_comparator(),
+                                   {} /* snapshots */,
+                                   false /* collapse_deletions */);
   sv->current->AddIteratorsForLevel(ro, env_options_, &merge_iter_builder, lvl,
-                                    nullptr /* range_del_agg */);
+                                    &range_del_agg);
   ScopedArenaIterator level_iter(merge_iter_builder.Finish());
-
-  std::vector<InternalIterator*> level_range_del_iters;
-  sv->current->AddRangeDelIteratorsForLevel(ro, env_options_, lvl,
-                                            &level_range_del_iters);
-  std::unique_ptr<InternalIterator> level_range_del_iter(NewMergingIterator(
-      &cfd_->internal_comparator(),
-      level_range_del_iters.empty() ? nullptr : &level_range_del_iters[0],
-      static_cast<int>(level_range_del_iters.size())));
-
   Status status = IngestedFileOverlapWithIteratorRange(
       file_to_ingest, level_iter.get(), overlap_with_level);
-  if (status.ok() && *overlap_with_level == false) {
-    status = IngestedFileOverlapWithRangeDeletions(
-        file_to_ingest, level_range_del_iter.get(), overlap_with_level);
+  if (status.ok() && *overlap_with_level == false &&
+      range_del_agg.IsRangeOverlapped(file_to_ingest->smallest_user_key,
+                                      file_to_ingest->largest_user_key)) {
+    *overlap_with_level = true;
   }
   return status;
 }

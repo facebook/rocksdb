@@ -525,10 +525,6 @@ class Version {
                             MergeIteratorBuilder* merger_iter_builder,
                             int level, RangeDelAggregator* range_del_agg);
 
-  void AddRangeDelIteratorsForLevel(
-      const ReadOptions& read_options, const EnvOptions& soptions, int level,
-      std::vector<InternalIterator*>* range_del_iters);
-
   // Lookup the value for key.  If found, store it in *val and
   // return OK.  Else return a non-OK status.
   // Uses *operands to store merge_operator operations to apply later.
