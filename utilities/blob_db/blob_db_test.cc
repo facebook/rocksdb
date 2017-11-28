@@ -260,8 +260,8 @@ TEST_F(BlobDBTest, PutWithTTL) {
   ASSERT_OK(bdb_impl->TEST_CloseBlobFile(blob_files[0]));
   GCStats gc_stats;
   ASSERT_OK(bdb_impl->TEST_GCFileAndUpdateLSM(blob_files[0], &gc_stats));
-  ASSERT_EQ(100 - data.size(), gc_stats.num_deletes);
-  ASSERT_EQ(data.size(), gc_stats.num_relocate);
+  ASSERT_EQ(100 - data.size(), gc_stats.num_keys_expired);
+  ASSERT_EQ(data.size(), gc_stats.num_keys_relocated);
   VerifyDB(data);
 }
 
@@ -290,8 +290,8 @@ TEST_F(BlobDBTest, PutUntil) {
   ASSERT_OK(bdb_impl->TEST_CloseBlobFile(blob_files[0]));
   GCStats gc_stats;
   ASSERT_OK(bdb_impl->TEST_GCFileAndUpdateLSM(blob_files[0], &gc_stats));
-  ASSERT_EQ(100 - data.size(), gc_stats.num_deletes);
-  ASSERT_EQ(data.size(), gc_stats.num_relocate);
+  ASSERT_EQ(100 - data.size(), gc_stats.num_keys_expired);
+  ASSERT_EQ(data.size(), gc_stats.num_keys_relocated);
   VerifyDB(data);
 }
 
@@ -323,8 +323,8 @@ TEST_F(BlobDBTest, TTLExtrator_NoTTL) {
   ASSERT_OK(bdb_impl->TEST_CloseBlobFile(blob_files[0]));
   GCStats gc_stats;
   ASSERT_OK(bdb_impl->TEST_GCFileAndUpdateLSM(blob_files[0], &gc_stats));
-  ASSERT_EQ(0, gc_stats.num_deletes);
-  ASSERT_EQ(100, gc_stats.num_relocate);
+  ASSERT_EQ(0, gc_stats.num_keys_expired);
+  ASSERT_EQ(100, gc_stats.num_keys_relocated);
   VerifyDB(data);
 }
 
@@ -370,8 +370,8 @@ TEST_F(BlobDBTest, TTLExtractor_ExtractTTL) {
   GCStats gc_stats;
   ASSERT_OK(bdb_impl->TEST_GCFileAndUpdateLSM(blob_files[0], &gc_stats));
   auto &data = static_cast<TestTTLExtractor *>(ttl_extractor_.get())->data;
-  ASSERT_EQ(100 - data.size(), gc_stats.num_deletes);
-  ASSERT_EQ(data.size(), gc_stats.num_relocate);
+  ASSERT_EQ(100 - data.size(), gc_stats.num_keys_expired);
+  ASSERT_EQ(data.size(), gc_stats.num_keys_relocated);
   VerifyDB(data);
 }
 
@@ -418,8 +418,8 @@ TEST_F(BlobDBTest, TTLExtractor_ExtractExpiration) {
   GCStats gc_stats;
   ASSERT_OK(bdb_impl->TEST_GCFileAndUpdateLSM(blob_files[0], &gc_stats));
   auto &data = static_cast<TestTTLExtractor *>(ttl_extractor_.get())->data;
-  ASSERT_EQ(100 - data.size(), gc_stats.num_deletes);
-  ASSERT_EQ(data.size(), gc_stats.num_relocate);
+  ASSERT_EQ(100 - data.size(), gc_stats.num_keys_expired);
+  ASSERT_EQ(data.size(), gc_stats.num_keys_relocated);
   VerifyDB(data);
 }
 
@@ -475,8 +475,8 @@ TEST_F(BlobDBTest, TTLExtractor_ChangeValue) {
   ASSERT_OK(bdb_impl->TEST_CloseBlobFile(blob_files[0]));
   GCStats gc_stats;
   ASSERT_OK(bdb_impl->TEST_GCFileAndUpdateLSM(blob_files[0], &gc_stats));
-  ASSERT_EQ(100 - data.size(), gc_stats.num_deletes);
-  ASSERT_EQ(data.size(), gc_stats.num_relocate);
+  ASSERT_EQ(100 - data.size(), gc_stats.num_keys_expired);
+  ASSERT_EQ(data.size(), gc_stats.num_keys_relocated);
   VerifyDB(data);
 }
 
@@ -675,8 +675,8 @@ TEST_F(BlobDBTest, GCAfterOverwriteKeys) {
   GCStats gc_stats;
   ASSERT_OK(blob_db_impl()->TEST_GCFileAndUpdateLSM(blob_files[0], &gc_stats));
   ASSERT_EQ(200, gc_stats.blob_count);
-  ASSERT_EQ(0, gc_stats.num_deletes);
-  ASSERT_EQ(200 - new_keys, gc_stats.num_relocate);
+  ASSERT_EQ(0, gc_stats.num_keys_expired);
+  ASSERT_EQ(200 - new_keys, gc_stats.num_keys_relocated);
   VerifyDB(data);
 }
 
@@ -704,10 +704,9 @@ TEST_F(BlobDBTest, GCRelocateKeyWhileOverwriting) {
   GCStats gc_stats;
   ASSERT_OK(blob_db_impl()->TEST_GCFileAndUpdateLSM(blob_files[0], &gc_stats));
   ASSERT_EQ(1, gc_stats.blob_count);
-  ASSERT_EQ(0, gc_stats.num_deletes);
-  ASSERT_EQ(1, gc_stats.num_relocate);
-  ASSERT_EQ(0, gc_stats.relocate_succeeded);
-  ASSERT_EQ(1, gc_stats.overwritten_while_relocate);
+  ASSERT_EQ(0, gc_stats.num_keys_expired);
+  ASSERT_EQ(1, gc_stats.num_keys_overwritten);
+  ASSERT_EQ(0, gc_stats.num_keys_relocated);
   writer.join();
   VerifyDB({{"foo", "v2"}});
 }
@@ -741,10 +740,8 @@ TEST_F(BlobDBTest, GCExpiredKeyWhileOverwriting) {
   GCStats gc_stats;
   ASSERT_OK(blob_db_impl()->TEST_GCFileAndUpdateLSM(blob_files[0], &gc_stats));
   ASSERT_EQ(1, gc_stats.blob_count);
-  ASSERT_EQ(1, gc_stats.num_deletes);
-  ASSERT_EQ(0, gc_stats.delete_succeeded);
-  ASSERT_EQ(1, gc_stats.overwritten_while_delete);
-  ASSERT_EQ(0, gc_stats.num_relocate);
+  ASSERT_EQ(1, gc_stats.num_keys_expired);
+  ASSERT_EQ(0, gc_stats.num_keys_relocated);
   writer.join();
   VerifyDB({{"foo", "v2"}});
 }
@@ -838,8 +835,7 @@ TEST_F(BlobDBTest, ReadWhileGC) {
     GCStats gc_stats;
     ASSERT_OK(blob_db_impl()->TEST_GCFileAndUpdateLSM(bfile, &gc_stats));
     ASSERT_EQ(1, gc_stats.blob_count);
-    ASSERT_EQ(1, gc_stats.num_relocate);
-    ASSERT_EQ(1, gc_stats.relocate_succeeded);
+    ASSERT_EQ(1, gc_stats.num_keys_relocated);
     blob_db_impl()->TEST_DeleteObsoleteFiles();
     // The file shouln't be deleted
     blob_files = blob_db_impl()->TEST_GetBlobFiles();
@@ -904,11 +900,11 @@ TEST_F(BlobDBTest, SnapshotAndGarbageCollection) {
       ASSERT_TRUE(bfile->Obsolete());
       ASSERT_EQ(1, gc_stats.blob_count);
       if (delete_key) {
-        ASSERT_EQ(0, gc_stats.num_relocate);
+        ASSERT_EQ(0, gc_stats.num_keys_relocated);
         ASSERT_EQ(bfile->GetSequenceRange().second + 1,
                   bfile->GetObsoleteSequence());
       } else {
-        ASSERT_EQ(1, gc_stats.num_relocate);
+        ASSERT_EQ(1, gc_stats.num_keys_relocated);
         ASSERT_EQ(blob_db_->GetLatestSequenceNumber(),
                   bfile->GetObsoleteSequence());
       }

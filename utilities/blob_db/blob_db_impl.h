@@ -24,6 +24,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/options.h"
+#include "rocksdb/statistics.h"
 #include "rocksdb/wal_filter.h"
 #include "util/mpsc.h"
 #include "util/mutexlock.h"
@@ -135,16 +136,12 @@ struct blobf_compare_ttl {
 
 struct GCStats {
   uint64_t blob_count = 0;
-  uint64_t num_deletes = 0;
-  uint64_t deleted_size = 0;
-  uint64_t retry_delete = 0;
-  uint64_t delete_succeeded = 0;
-  uint64_t overwritten_while_delete = 0;
-  uint64_t num_relocate = 0;
-  uint64_t retry_relocate = 0;
-  uint64_t relocate_succeeded = 0;
-  uint64_t overwritten_while_relocate = 0;
-  std::shared_ptr<BlobFile> newfile = nullptr;
+  uint64_t num_keys_overwritten = 0;
+  uint64_t num_keys_expired = 0;
+  uint64_t num_keys_relocated = 0;
+  uint64_t bytes_overwritten = 0;
+  uint64_t bytes_expired = 0;
+  uint64_t bytes_relocated = 0;
 };
 
 /**
@@ -177,10 +174,6 @@ class BlobDBImpl : public BlobDB {
 
   // how many periods of stats do we keep.
   static constexpr uint32_t kWriteAmplificationStatsPeriods = 24;
-
-  // what is the length of any period
-  static constexpr uint32_t kWriteAmplificationStatsPeriodMillisecs =
-      3600 * 1000;
 
   // we will garbage collect blob files in
   // which entire files have expired. However if the
@@ -292,6 +285,10 @@ class BlobDBImpl : public BlobDB {
   // Return true if a snapshot is created.
   bool SetSnapshotIfNeeded(ReadOptions* read_options);
 
+  Status GetImpl(const ReadOptions& read_options,
+                 ColumnFamilyHandle* column_family, const Slice& key,
+                 PinnableSlice* value);
+
   Status GetBlobValue(const Slice& key, const Slice& index_entry,
                       PinnableSlice* value);
 
@@ -363,9 +360,6 @@ class BlobDBImpl : public BlobDB {
   // task will close random readers, which are kept around for
   // efficiency
   std::pair<bool, int64_t> ReclaimOpenFiles(bool aborted);
-
-  // periodically print write amplification statistics
-  std::pair<bool, int64_t> WaStats(bool aborted);
 
   // background task to do book-keeping of deleted keys
   std::pair<bool, int64_t> EvictDeletions(bool aborted);
@@ -444,6 +438,9 @@ class BlobDBImpl : public BlobDB {
   DBOptions db_options_;
   EnvOptions env_options_;
 
+  // Raw pointer of statistic. db_options_ has a shared_ptr to hold ownership.
+  Statistics* statistics_;
+
   // name of the database directory
   std::string dbname_;
 
@@ -518,18 +515,6 @@ class BlobDBImpl : public BlobDB {
   // number of files opened for random access/GET
   // counter is used to monitor and close excess RA files.
   std::atomic<uint32_t> open_file_count_;
-
-  // should hold mutex to modify
-  // STATISTICS for WA of Blob Files due to GC
-  // collect by default 24 hourly periods
-  std::list<uint64_t> all_periods_write_;
-  std::list<uint64_t> all_periods_ampl_;
-
-  std::atomic<uint64_t> last_period_write_;
-  std::atomic<uint64_t> last_period_ampl_;
-
-  uint64_t total_periods_write_;
-  uint64_t total_periods_ampl_;
 
   // total size of all blob files at a given time
   std::atomic<uint64_t> total_blob_space_;
