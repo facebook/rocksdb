@@ -141,12 +141,11 @@ TEST_P(TransactionTest, ValidateSnapshotTest) {
     ASSERT_OK(s);
     delete txn1;
 
-    SequenceNumber dont_care;
     auto pes_txn2 = dynamic_cast<PessimisticTransaction*>(txn2);
     // Test the simple case where the key is not tracked yet
     auto trakced_seq = kMaxSequenceNumber;
     s = pes_txn2->ValidateSnapshot(db->DefaultColumnFamily(), "foo",
-                                   trakced_seq, &dont_care);
+                                   &trakced_seq);
     ASSERT_TRUE(s.IsBusy());
     delete txn2;
   }
@@ -4838,6 +4837,8 @@ TEST_P(TransactionTest, MemoryLimitTest) {
 // necessarily the one acceptable way. If the algorithm is legitimately changed,
 // this unit test should be updated as well.
 TEST_P(TransactionTest, SeqAdvanceTest) {
+  // TODO(myabandeh): must be test with false before new releases
+  const bool short_test = true;
   WriteOptions wopts;
   FlushOptions fopt;
 
@@ -4847,7 +4848,7 @@ TEST_P(TransactionTest, SeqAdvanceTest) {
   // Do the test with NUM_BRANCHES branches in it. Each run of a test takes some
   // of the branches. This is the same as counting a binary number where i-th
   // bit represents whether we take branch i in the represented by the number.
-  const size_t NUM_BRANCHES = 8;
+  const size_t NUM_BRANCHES = short_test ? 6 : 10;
   // Helper function that shows if the branch is to be taken in the run
   // represented by the number n.
   auto branch_do = [&](size_t n, size_t* branch) {
@@ -4862,15 +4863,15 @@ TEST_P(TransactionTest, SeqAdvanceTest) {
     auto seq = db_impl->GetLatestSequenceNumber();
     exp_seq = seq;
     txn_t0(0);
-    seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
+    seq = db_impl->TEST_GetLastVisibleSequence();
     ASSERT_EQ(exp_seq, seq);
 
     if (branch_do(n, &branch)) {
       db_impl->Flush(fopt);
-      seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
+      seq = db_impl->TEST_GetLastVisibleSequence();
       ASSERT_EQ(exp_seq, seq);
     }
-    if (branch_do(n, &branch)) {
+    if (!short_test && branch_do(n, &branch)) {
       db_impl->FlushWAL(true);
       ReOpenNoDelete();
       db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
@@ -4880,19 +4881,19 @@ TEST_P(TransactionTest, SeqAdvanceTest) {
 
     // Doing it twice might detect some bugs
     txn_t0(1);
-    seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
+    seq = db_impl->TEST_GetLastVisibleSequence();
     ASSERT_EQ(exp_seq, seq);
 
     txn_t1(0);
-    seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
+    seq = db_impl->TEST_GetLastVisibleSequence();
     ASSERT_EQ(exp_seq, seq);
 
     if (branch_do(n, &branch)) {
       db_impl->Flush(fopt);
-      seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
+      seq = db_impl->TEST_GetLastVisibleSequence();
       ASSERT_EQ(exp_seq, seq);
     }
-    if (branch_do(n, &branch)) {
+    if (!short_test && branch_do(n, &branch)) {
       db_impl->FlushWAL(true);
       ReOpenNoDelete();
       db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
@@ -4901,15 +4902,15 @@ TEST_P(TransactionTest, SeqAdvanceTest) {
     }
 
     txn_t3(0);
-    seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
+    seq = db_impl->TEST_GetLastVisibleSequence();
     ASSERT_EQ(exp_seq, seq);
 
     if (branch_do(n, &branch)) {
       db_impl->Flush(fopt);
-      seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
+      seq = db_impl->TEST_GetLastVisibleSequence();
       ASSERT_EQ(exp_seq, seq);
     }
-    if (branch_do(n, &branch)) {
+    if (!short_test && branch_do(n, &branch)) {
       db_impl->FlushWAL(true);
       ReOpenNoDelete();
       db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
@@ -4917,20 +4918,34 @@ TEST_P(TransactionTest, SeqAdvanceTest) {
       ASSERT_EQ(exp_seq, seq);
     }
 
-    txn_t0(0);
-    seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
-    ASSERT_EQ(exp_seq, seq);
+    txn_t4(0);
+    seq = db_impl->TEST_GetLastVisibleSequence();
 
-    txn_t2(0);
-    seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
     ASSERT_EQ(exp_seq, seq);
 
     if (branch_do(n, &branch)) {
       db_impl->Flush(fopt);
-      seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
+      seq = db_impl->TEST_GetLastVisibleSequence();
       ASSERT_EQ(exp_seq, seq);
     }
+    if (!short_test && branch_do(n, &branch)) {
+      db_impl->FlushWAL(true);
+      ReOpenNoDelete();
+      db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+      seq = db_impl->GetLatestSequenceNumber();
+      ASSERT_EQ(exp_seq, seq);
+    }
+
+    txn_t2(0);
+    seq = db_impl->TEST_GetLastVisibleSequence();
+    ASSERT_EQ(exp_seq, seq);
+
     if (branch_do(n, &branch)) {
+      db_impl->Flush(fopt);
+      seq = db_impl->TEST_GetLastVisibleSequence();
+      ASSERT_EQ(exp_seq, seq);
+    }
+    if (!short_test && branch_do(n, &branch)) {
       db_impl->FlushWAL(true);
       ReOpenNoDelete();
       db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());

@@ -265,8 +265,7 @@ CompactionJob::CompactionJob(
     int job_id, Compaction* compaction, const ImmutableDBOptions& db_options,
     const EnvOptions env_options, VersionSet* versions,
     const std::atomic<bool>* shutting_down,
-    const SequenceNumber preserve_deletes_seqnum,
-    LogBuffer* log_buffer,
+    const SequenceNumber preserve_deletes_seqnum, LogBuffer* log_buffer,
     Directory* db_directory, Directory* output_directory, Statistics* stats,
     InstrumentedMutex* db_mutex, Status* db_bg_error,
     std::vector<SequenceNumber> existing_snapshots,
@@ -282,6 +281,8 @@ CompactionJob::CompactionJob(
       db_options_(db_options),
       env_options_(env_options),
       env_(db_options.env),
+      env_optiosn_for_read_(
+          env_->OptimizeForCompactionTableRead(env_options, db_options_)),
       versions_(versions),
       shutting_down_(shutting_down),
       preserve_deletes_seqnum_(preserve_deletes_seqnum),
@@ -297,7 +298,8 @@ CompactionJob::CompactionJob(
       table_cache_(std::move(table_cache)),
       event_logger_(event_logger),
       paranoid_file_checks_(paranoid_file_checks),
-      measure_io_stats_(measure_io_stats) {
+      measure_io_stats_(measure_io_stats),
+      write_hint_(Env::WLTH_NOT_SET) {
   assert(log_buffer_ != nullptr);
   const auto* cfd = compact_->compaction->column_family_data();
   ThreadStatusUtil::SetColumnFamily(cfd, cfd->ioptions()->env,
@@ -368,6 +370,8 @@ void CompactionJob::Prepare() {
   assert(c->column_family_data()->current()->storage_info()
       ->NumLevelFiles(compact_->compaction->level()) > 0);
 
+  write_hint_ = c->column_family_data()->CalculateSSTWriteHint(
+    c->output_level());
   // Is this compaction producing files at the bottommost level?
   bottommost_level_ = c->bottommost_level();
 
@@ -677,7 +681,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   std::unique_ptr<RangeDelAggregator> range_del_agg(
       new RangeDelAggregator(cfd->internal_comparator(), existing_snapshots_));
   std::unique_ptr<InternalIterator> input(versions_->MakeInputIterator(
-      sub_compact->compaction, range_del_agg.get()));
+      sub_compact->compaction, range_del_agg.get(), env_optiosn_for_read_));
 
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_PROCESS_KV);
@@ -1305,6 +1309,7 @@ Status CompactionJob::OpenCompactionOutputFile(
 
   sub_compact->outputs.push_back(out);
   writable_file->SetIOPriority(Env::IO_LOW);
+  writable_file->SetWriteLifeTimeHint(write_hint_);
   writable_file->SetPreallocationBlockSize(static_cast<size_t>(
       sub_compact->compaction->OutputFilePreallocationSize()));
   sub_compact->outfile.reset(new WritableFileWriter(

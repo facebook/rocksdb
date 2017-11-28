@@ -321,9 +321,9 @@ class Transaction {
   // gets committed successfully.  But unlike Transaction::Put(),
   // no conflict checking will be done for this key.
   //
-  // If this Transaction was created on a TransactionDB, this function will
-  // still acquire locks necessary to make sure this write doesn't cause
-  // conflicts in other transactions and may return Status::Busy().
+  // If this Transaction was created on a PessimisticTransactionDB, this
+  // function will still acquire locks necessary to make sure this write doesn't
+  // cause conflicts in other transactions and may return Status::Busy().
   virtual Status PutUntracked(ColumnFamilyHandle* column_family,
                               const Slice& key, const Slice& value) = 0;
   virtual Status PutUntracked(const Slice& key, const Slice& value) = 0;

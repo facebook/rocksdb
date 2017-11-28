@@ -874,22 +874,6 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
   }
 }
 
-void Version::AddRangeDelIteratorsForLevel(
-    const ReadOptions& read_options, const EnvOptions& soptions, int level,
-    std::vector<InternalIterator*>* range_del_iters) {
-  range_del_iters->clear();
-  for (size_t i = 0; i < storage_info_.LevelFilesBrief(level).num_files; i++) {
-    const auto& file = storage_info_.LevelFilesBrief(level).files[i];
-    auto* range_del_iter = cfd_->table_cache()->NewRangeTombstoneIterator(
-        read_options, soptions, cfd_->internal_comparator(), file.fd,
-        cfd_->internal_stats()->GetFileReadHist(level),
-        false /* skip_filters */, level);
-    if (range_del_iter != nullptr) {
-      range_del_iters->push_back(range_del_iter);
-    }
-  }
-}
-
 VersionStorageInfo::VersionStorageInfo(
     const InternalKeyComparator* internal_comparator,
     const Comparator* user_comparator, int levels,
@@ -2414,13 +2398,11 @@ VersionSet::VersionSet(const std::string& dbname,
       manifest_file_number_(0),  // Filled by Recover()
       pending_manifest_file_number_(0),
       last_sequence_(0),
-      last_to_be_written_sequence_(0),
+      last_allocated_sequence_(0),
       prev_log_number_(0),
       current_version_number_(0),
       manifest_file_size_(0),
-      env_options_(storage_options),
-      env_options_compactions_(
-          env_->OptimizeForCompactionTableRead(env_options_, *db_options_)) {}
+      env_options_(storage_options) {}
 
 void CloseTables(void* ptr, size_t) {
   TableReader* table_reader = reinterpret_cast<TableReader*>(ptr);
@@ -2754,10 +2736,9 @@ void VersionSet::LogAndApplyCFHelper(VersionEdit* edit) {
   // updated the last_sequence_ yet. It is also possible that the log has is
   // expecting some new data that is not written yet. Since LastSequence is an
   // upper bound on the sequence, it is ok to record
-  // last_to_be_written_sequence_ as the last sequence.
-  edit->SetLastSequence(db_options_->concurrent_prepare
-                            ? last_to_be_written_sequence_
-                            : last_sequence_);
+  // last_allocated_sequence_ as the last sequence.
+  edit->SetLastSequence(db_options_->two_write_queues ? last_allocated_sequence_
+                                                      : last_sequence_);
   if (edit->is_column_family_drop_) {
     // if we drop column family, we have to make sure to save max column family,
     // so that we don't reuse existing ID
@@ -2784,10 +2765,9 @@ void VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd,
   // updated the last_sequence_ yet. It is also possible that the log has is
   // expecting some new data that is not written yet. Since LastSequence is an
   // upper bound on the sequence, it is ok to record
-  // last_to_be_written_sequence_ as the last sequence.
-  edit->SetLastSequence(db_options_->concurrent_prepare
-                            ? last_to_be_written_sequence_
-                            : last_sequence_);
+  // last_allocated_sequence_ as the last sequence.
+  edit->SetLastSequence(db_options_->two_write_queues ? last_allocated_sequence_
+                                                      : last_sequence_);
 
   builder->Apply(edit);
 }
@@ -3077,7 +3057,7 @@ Status VersionSet::Recover(
 
     manifest_file_size_ = current_manifest_file_size;
     next_file_number_.store(next_file + 1);
-    last_to_be_written_sequence_ = last_sequence;
+    last_allocated_sequence_ = last_sequence;
     last_sequence_ = last_sequence;
     prev_log_number_ = previous_log_number;
 
@@ -3448,7 +3428,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
     }
 
     next_file_number_.store(next_file + 1);
-    last_to_be_written_sequence_ = last_sequence;
+    last_allocated_sequence_ = last_sequence;
     last_sequence_ = last_sequence;
     prev_log_number_ = previous_log_number;
 
@@ -3690,7 +3670,8 @@ void VersionSet::AddLiveFiles(std::vector<FileDescriptor>* live_list) {
 }
 
 InternalIterator* VersionSet::MakeInputIterator(
-    const Compaction* c, RangeDelAggregator* range_del_agg) {
+    const Compaction* c, RangeDelAggregator* range_del_agg,
+    const EnvOptions& env_options_compactions) {
   auto cfd = c->column_family_data();
   ReadOptions read_options;
   read_options.verify_checksums = true;
@@ -3715,8 +3696,8 @@ InternalIterator* VersionSet::MakeInputIterator(
         const LevelFilesBrief* flevel = c->input_levels(which);
         for (size_t i = 0; i < flevel->num_files; i++) {
           list[num++] = cfd->table_cache()->NewIterator(
-              read_options, env_options_compactions_,
-              cfd->internal_comparator(), flevel->files[i].fd, range_del_agg,
+              read_options, env_options_compactions, cfd->internal_comparator(),
+              flevel->files[i].fd, range_del_agg,
               nullptr /* table_reader_ptr */,
               nullptr /* no per level latency histogram */,
               true /* for_compaction */, nullptr /* arena */,
@@ -3726,7 +3707,7 @@ InternalIterator* VersionSet::MakeInputIterator(
         // Create concatenating iterator for the files from this level
         list[num++] = NewTwoLevelIterator(
             new LevelFileIteratorState(
-                cfd->table_cache(), read_options, env_options_compactions_,
+                cfd->table_cache(), read_options, env_options_compactions,
                 cfd->internal_comparator(),
                 nullptr /* no per level latency histogram */,
                 true /* for_compaction */, false /* prefix enabled */,

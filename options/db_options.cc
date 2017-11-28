@@ -62,7 +62,6 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       access_hint_on_compaction_start(options.access_hint_on_compaction_start),
       new_table_reader_for_compaction_inputs(
           options.new_table_reader_for_compaction_inputs),
-      compaction_readahead_size(options.compaction_readahead_size),
       random_access_max_buffer_size(options.random_access_max_buffer_size),
       use_adaptive_mutex(options.use_adaptive_mutex),
       listeners(options.listeners),
@@ -85,9 +84,8 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       avoid_flush_during_recovery(options.avoid_flush_during_recovery),
       allow_ingest_behind(options.allow_ingest_behind),
       preserve_deletes(options.preserve_deletes),
-      concurrent_prepare(options.concurrent_prepare),
-      manual_wal_flush(options.manual_wal_flush),
-      seq_per_batch(options.seq_per_batch) {
+      two_write_queues(options.two_write_queues),
+      manual_wal_flush(options.manual_wal_flush) {
 }
 
 void ImmutableDBOptions::Dump(Logger* log) const {
@@ -170,9 +168,6 @@ void ImmutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log, " Options.new_table_reader_for_compaction_inputs: %d",
                    new_table_reader_for_compaction_inputs);
   ROCKS_LOG_HEADER(
-      log, "              Options.compaction_readahead_size: %" ROCKSDB_PRIszt,
-      compaction_readahead_size);
-  ROCKS_LOG_HEADER(
       log, "          Options.random_access_max_buffer_size: %" ROCKSDB_PRIszt,
       random_access_max_buffer_size);
   ROCKS_LOG_HEADER(log, "                     Options.use_adaptive_mutex: %d",
@@ -217,11 +212,10 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    allow_ingest_behind);
   ROCKS_LOG_HEADER(log, "            Options.preserve_deletes: %d",
                    preserve_deletes);
-  ROCKS_LOG_HEADER(log, "            Options.concurrent_prepare: %d",
-                   concurrent_prepare);
+  ROCKS_LOG_HEADER(log, "            Options.two_write_queues: %d",
+                   two_write_queues);
   ROCKS_LOG_HEADER(log, "            Options.manual_wal_flush: %d",
                    manual_wal_flush);
-  ROCKS_LOG_HEADER(log, "            Options.seq_per_batch: %d", seq_per_batch);
 }
 
 MutableDBOptions::MutableDBOptions()
@@ -236,7 +230,8 @@ MutableDBOptions::MutableDBOptions()
       stats_dump_period_sec(600),
       max_open_files(-1),
       bytes_per_sync(0),
-      wal_bytes_per_sync(0) {}
+      wal_bytes_per_sync(0),
+      compaction_readahead_size(0) {}
 
 MutableDBOptions::MutableDBOptions(const DBOptions& options)
     : max_background_jobs(options.max_background_jobs),
@@ -251,7 +246,8 @@ MutableDBOptions::MutableDBOptions(const DBOptions& options)
       stats_dump_period_sec(options.stats_dump_period_sec),
       max_open_files(options.max_open_files),
       bytes_per_sync(options.bytes_per_sync),
-      wal_bytes_per_sync(options.wal_bytes_per_sync) {}
+      wal_bytes_per_sync(options.wal_bytes_per_sync),
+      compaction_readahead_size(options.compaction_readahead_size) {}
 
 void MutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log, "            Options.max_background_jobs: %d",
@@ -280,6 +276,9 @@ void MutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log,
                    "                     Options.wal_bytes_per_sync: %" PRIu64,
                    wal_bytes_per_sync);
+  ROCKS_LOG_HEADER(log,
+                   "      Options.compaction_readahead_size: %" ROCKSDB_PRIszt,
+                   compaction_readahead_size);
 }
 
 }  // namespace rocksdb

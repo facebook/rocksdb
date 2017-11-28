@@ -924,6 +924,7 @@ class DB {
   // Retrieve the sorted list of all wal files with earliest file first
   virtual Status GetSortedWalFiles(VectorLogPtr& files) = 0;
 
+  // Note: this API is not yet consistent with WritePrepared transactions.
   // Sets iter to an iterator that is positioned at a write-batch containing
   // seq_number. If the sequence number is non existent, it returns an iterator
   // at the first available seq_no after the requested seq_no

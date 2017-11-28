@@ -61,7 +61,9 @@ Iterator* WritePreparedTxn::GetIterator(const ReadOptions& options,
 Status WritePreparedTxn::PrepareInternal() {
   WriteOptions write_options = write_options_;
   write_options.disableWAL = false;
-  WriteBatchInternal::MarkEndPrepare(GetWriteBatch()->GetWriteBatch(), name_);
+  const bool write_after_commit = true;
+  WriteBatchInternal::MarkEndPrepare(GetWriteBatch()->GetWriteBatch(), name_,
+                                     !write_after_commit);
   const bool disable_memtable = true;
   uint64_t seq_used = kMaxSequenceNumber;
   bool collapsed = GetWriteBatch()->Collapse();
@@ -90,8 +92,13 @@ Status WritePreparedTxn::CommitWithoutPrepareInternal() {
 }
 
 SequenceNumber WritePreparedTxn::GetACommitSeqNumber(SequenceNumber prep_seq) {
-  if (db_impl_->immutable_db_options().concurrent_prepare) {
-    return db_impl_->IncAndFetchSequenceNumber();
+  if (db_impl_->immutable_db_options().two_write_queues) {
+    auto s = db_impl_->IncAndFetchSequenceNumber();
+#ifndef NDEBUG
+    MutexLock l(&wpt_db_->seq_for_metadata_mutex_);
+    wpt_db_->seq_for_metadata.push_back(s);
+#endif
+    return s;
   } else {
     return prep_seq;
   }
@@ -159,8 +166,6 @@ Status WritePreparedTxn::RollbackInternal() {
   WriteBatch rollback_batch;
   assert(GetId() != kMaxSequenceNumber);
   assert(GetId() > 0);
-  // In the absence of Prepare markers, use Noop as a batch separator
-  WriteBatchInternal::InsertNoop(&rollback_batch);
   // In WritePrepared, the txn is is the same as prepare seq
   auto last_visible_txn = GetId() - 1;
   struct RollbackWriteBatchBuilder : public WriteBatch::Handler {
@@ -216,12 +221,16 @@ Status WritePreparedTxn::RollbackInternal() {
     Status MarkRollback(const Slice&) override {
       return Status::InvalidArgument();
     }
+
+   protected:
+    virtual bool WriteAfterCommit() const override { return false; }
   } rollback_handler(db_impl_, wpt_db_, last_visible_txn, &rollback_batch);
   auto s = GetWriteBatch()->GetWriteBatch()->Iterate(&rollback_handler);
   assert(s.ok());
   if (!s.ok()) {
     return s;
   }
+  // The Rollback marker will be used as a batch separator
   WriteBatchInternal::MarkRollback(&rollback_batch, name_);
   const bool disable_memtable = true;
   const uint64_t no_log_ref = 0;
@@ -242,30 +251,29 @@ Status WritePreparedTxn::RollbackInternal() {
 
 Status WritePreparedTxn::ValidateSnapshot(ColumnFamilyHandle* column_family,
                                           const Slice& key,
-                                          SequenceNumber prev_seqno,
-                                          SequenceNumber* new_seqno) {
+                                          SequenceNumber* tracked_at_seq) {
   assert(snapshot_);
 
   SequenceNumber snap_seq = snapshot_->GetSequenceNumber();
-  // prev_seqno is either max or the last snapshot with which this key was
+  // tracked_at_seq is either max or the last snapshot with which this key was
   // trackeed so there is no need to apply the IsInSnapshot to this comparison
-  // here as prev_seqno is not a prepare seq.
-  if (prev_seqno <= snap_seq) {
+  // here as tracked_at_seq is not a prepare seq.
+  if (*tracked_at_seq <= snap_seq) {
     // If the key has been previous validated at a sequence number earlier
     // than the curent snapshot's sequence number, we already know it has not
     // been modified.
     return Status::OK();
   }
 
-  *new_seqno = snap_seq;
+  *tracked_at_seq = snap_seq;
 
   ColumnFamilyHandle* cfh =
       column_family ? column_family : db_impl_->DefaultColumnFamily();
 
   WritePreparedTxnReadCallback snap_checker(wpt_db_, snap_seq);
-  return TransactionUtil::CheckKeyForConflicts(
-      db_impl_, cfh, key.ToString(), snapshot_->GetSequenceNumber(),
-      false /* cache_only */, &snap_checker);
+  return TransactionUtil::CheckKeyForConflicts(db_impl_, cfh, key.ToString(),
+                                               snap_seq, false /* cache_only */,
+                                               &snap_checker);
 }
 
 }  // namespace rocksdb

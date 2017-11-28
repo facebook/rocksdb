@@ -75,6 +75,22 @@ Status WritePreparedTxnDB::Get(const ReadOptions& options,
                            &callback);
 }
 
+std::vector<Status> WritePreparedTxnDB::MultiGet(
+    const ReadOptions& options,
+    const std::vector<ColumnFamilyHandle*>& column_family,
+    const std::vector<Slice>& keys, std::vector<std::string>* values) {
+  assert(values);
+  size_t num_keys = keys.size();
+  values->resize(num_keys);
+
+  std::vector<Status> stat_list(num_keys);
+  for (size_t i = 0; i < num_keys; ++i) {
+    std::string* value = values ? &(*values)[i] : nullptr;
+    stat_list[i] = this->Get(options, column_family[i], keys[i], value);
+  }
+  return stat_list;
+}
+
 // Struct to hold ownership of snapshot and read callback for iterator cleanup.
 struct WritePreparedTxnDB::IteratorState {
   IteratorState(WritePreparedTxnDB* txn_db, SequenceNumber sequence,
@@ -99,6 +115,8 @@ Iterator* WritePreparedTxnDB::NewIterator(const ReadOptions& options,
     snapshot_seq = options.snapshot->GetSequenceNumber();
   } else {
     auto* snapshot = db_impl_->GetSnapshot();
+    // We take a snapshot to make sure that the related data in the commit map
+    // are not deleted.
     snapshot_seq = snapshot->GetSequenceNumber();
     own_snapshot = std::make_shared<ManagedSnapshot>(db_impl_, snapshot);
   }
@@ -121,6 +139,8 @@ Status WritePreparedTxnDB::NewIterators(
     snapshot_seq = options.snapshot->GetSequenceNumber();
   } else {
     auto* snapshot = db_impl_->GetSnapshot();
+    // We take a snapshot to make sure that the related data in the commit map
+    // are not deleted.
     snapshot_seq = snapshot->GetSequenceNumber();
     own_snapshot = std::make_shared<ManagedSnapshot>(db_impl_, snapshot);
   }
@@ -211,6 +231,7 @@ bool WritePreparedTxnDB::IsInSnapshot(uint64_t prep_seq,
   }
   {
     // We should not normally reach here
+    // TODO(myabandeh): check only if snapshot_seq is in the list of snaphots
     ReadLock rl(&old_commit_map_mutex_);
     auto old_commit_entry = old_commit_map_.find(prep_seq);
     if (old_commit_entry == old_commit_map_.end() ||

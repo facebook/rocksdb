@@ -21,7 +21,8 @@ namespace rocksdb {
 
 DeleteScheduler::DeleteScheduler(Env* env, int64_t rate_bytes_per_sec,
                                  Logger* info_log,
-                                 SstFileManagerImpl* sst_file_manager)
+                                 SstFileManagerImpl* sst_file_manager,
+                                 double max_trash_db_ratio)
     : env_(env),
       total_trash_size_(0),
       rate_bytes_per_sec_(rate_bytes_per_sec),
@@ -29,8 +30,10 @@ DeleteScheduler::DeleteScheduler(Env* env, int64_t rate_bytes_per_sec,
       closing_(false),
       cv_(&mu_),
       info_log_(info_log),
-      sst_file_manager_(sst_file_manager) {
+      sst_file_manager_(sst_file_manager),
+      max_trash_db_ratio_(max_trash_db_ratio) {
   assert(sst_file_manager != nullptr);
+  assert(max_trash_db_ratio >= 0);
   bg_thread_.reset(
       new port::Thread(&DeleteScheduler::BackgroundEmptyTrash, this));
 }
@@ -50,7 +53,7 @@ Status DeleteScheduler::DeleteFile(const std::string& file_path) {
   Status s;
   if (rate_bytes_per_sec_.load() <= 0 ||
       total_trash_size_.load() >
-          sst_file_manager_->GetTotalSize() * max_trash_db_ratio_) {
+          sst_file_manager_->GetTotalSize() * max_trash_db_ratio_.load()) {
     // Rate limiting is disabled or trash size makes up more than
     // max_trash_db_ratio_ (default 25%) of the total DB size
     TEST_SYNC_POINT("DeleteScheduler::DeleteFile");

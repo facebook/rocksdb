@@ -284,6 +284,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "allow_ingest_behind=false;"
                              "preserve_deletes=false;"
                              "concurrent_prepare=false;"
+                             "two_write_queues=false;"
                              "manual_wal_flush=false;"
                              "seq_per_batch=false;",
                              new_options));
@@ -296,6 +297,12 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
 
   delete[] options_ptr;
   delete[] new_options_ptr;
+}
+
+template <typename T1, typename T2>
+inline int offset_of(T1 T2::*member) {
+  static T2 obj;
+  return int(size_t(&(obj.*member)) - size_t(&obj));
 }
 
 // If the test fails, likely a new option is added to ColumnFamilyOptions

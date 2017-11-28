@@ -291,11 +291,31 @@ std::string ParseBlockBasedTableOption(const std::string& name,
   if (!input_strings_escaped) {
     // if the input string is not escaped, it means this function is
     // invoked from SetOptions, which takes the old format.
-    if (name == "block_cache") {
-      new_options->block_cache = NewLRUCache(ParseSizeT(value));
-      return "";
-    } else if (name == "block_cache_compressed") {
-      new_options->block_cache_compressed = NewLRUCache(ParseSizeT(value));
+    if (name == "block_cache" || name == "block_cache_compressed") {
+      // cache options can be specified in the following format
+      //   "block_cache={capacity=1M;num_shard_bits=4;
+      //    strict_capacity_limit=true;high_pri_pool_ratio=0.5;}"
+      // To support backward compatibility, the following format
+      // is also supported.
+      //   "block_cache=1M"
+      std::shared_ptr<Cache> cache;
+      // block_cache is specified in format block_cache=<cache_size>.
+      if (value.find('=') == std::string::npos) {
+        cache = NewLRUCache(ParseSizeT(value));
+      } else {
+        LRUCacheOptions cache_opts;
+        if(!ParseOptionHelper(reinterpret_cast<char*>(&cache_opts),
+                              OptionType::kLRUCacheOptions, value)) {
+          return "Invalid cache options";
+        }
+        cache = NewLRUCache(cache_opts);
+      }
+
+      if (name == "block_cache") {
+        new_options->block_cache = cache;
+      } else {
+        new_options->block_cache_compressed = cache;
+      }
       return "";
     } else if (name == "filter_policy") {
       // Expect the following format

@@ -134,6 +134,8 @@ class CompactionJob {
   const EnvOptions env_options_;
 
   Env* env_;
+  // env_option optimized for compaction table reads
+  EnvOptions env_optiosn_for_read_;
   VersionSet* versions_;
   const std::atomic<bool>* shutting_down_;
   const SequenceNumber preserve_deletes_seqnum_;
@@ -167,6 +169,7 @@ class CompactionJob {
   std::vector<Slice> boundaries_;
   // Stores the approx size of keys covered in the range of each subcompaction
   std::vector<uint64_t> sizes_;
+  Env::WriteLifeTimeHint write_hint_;
 };
 
 }  // namespace rocksdb
