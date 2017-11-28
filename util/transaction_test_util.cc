@@ -67,6 +67,7 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
   Status s;
   WriteBatch batch;
   std::string value;
+  static std::atomic<uint64_t> total;
 
   // pick a random number to use to increment a key in each set
   uint64_t incr = (rand_->Next() % 100) + 1;
@@ -76,8 +77,8 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
   // For each set, pick a key at random and increment it
   for (uint8_t i = 0; i < num_sets_; i++) {
     uint64_t int_value = 0;
+    // four digits and zero end char
     char prefix_buf[5];
-    // prefix_buf needs to be large enough to hold a uint16 in string form
 
     // key format:  [SET#][random#]
     std::string rand_key = ToString(rand_->Next() % num_keys_);
@@ -145,6 +146,7 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
       assert(strlen(name) < 64 - 1);
       txn->SetName(name);
       s = txn->Prepare();
+  printf("ptotal %lu incr %lu txn: %lu\n", total.load(), incr, txn->GetId());
       s = txn->Commit();
 
       if (!s.ok()) {
@@ -168,6 +170,9 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
                   s.ToString().c_str());
         }
       }
+      uint64_t ptotal = total;
+      total += incr;
+  printf("ptotal %lu atotal %lu incr %lu\n", ptotal, total.load(), incr);
 
     } else {
       s = db->Write(write_options_, &batch);
@@ -179,6 +184,7 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
     }
   } else {
     if (txn != nullptr) {
+  printf("rollback ptotal %lu incr %lu\n", total.load(), incr);
       txn->Rollback();
     }
   }
@@ -195,16 +201,25 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
   return !unexpected_error;
 }
 
-Status RandomTransactionInserter::Verify(DB* db, uint16_t num_sets) {
+Status RandomTransactionInserter::Verify(DB* db, uint16_t num_sets,
+                                         bool take_snapshot) {
   uint64_t prev_total = 0;
+
+  ReadOptions roptions;
+  if (take_snapshot) {
+    roptions.snapshot = db->GetSnapshot();
+  printf("GetSnapshot %lu\n", roptions.snapshot->GetSequenceNumber());
+  fflush(stdout);
+  }
 
   // For each set of keys with the same prefix, sum all the values
   for (uint32_t i = 0; i < num_sets; i++) {
-    char prefix_buf[6];
+    // four digits and zero end char
+    char prefix_buf[5];
     snprintf(prefix_buf, sizeof(prefix_buf), "%.4u", i + 1);
     uint64_t total = 0;
 
-    Iterator* iter = db->NewIterator(ReadOptions());
+    Iterator* iter = db->NewIterator(roptions);
 
     for (iter->Seek(Slice(prefix_buf, 4)); iter->Valid(); iter->Next()) {
       Slice key = iter->key();
@@ -228,7 +243,7 @@ Status RandomTransactionInserter::Verify(DB* db, uint16_t num_sets) {
 
     if (i > 0) {
       if (total != prev_total) {
-        fprintf(stderr,
+        fprintf(stdout,
                 "RandomTransactionVerify found inconsistent totals. "
                 "Set[%" PRIu32 "]: %" PRIu64 ", Set[%" PRIu32 "]: %" PRIu64
                 " \n",
@@ -237,6 +252,9 @@ Status RandomTransactionInserter::Verify(DB* db, uint16_t num_sets) {
       }
     }
     prev_total = total;
+  }
+  if (take_snapshot) {
+    db->ReleaseSnapshot(roptions.snapshot);
   }
 
   return Status::OK();

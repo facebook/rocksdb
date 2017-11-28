@@ -69,7 +69,7 @@ class RandomTransactionInserter {
   bool DBInsert(DB* db);
 
   // Returns OK if Invariant is true.
-  static Status Verify(DB* db, uint16_t num_sets);
+  static Status Verify(DB* db, uint16_t num_sets, bool take_snapshot = false);
 
   // Returns the status of the previous Insert operation
   Status GetLastStatus() { return last_status_; }

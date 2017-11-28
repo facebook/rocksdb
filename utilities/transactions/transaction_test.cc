@@ -4781,16 +4781,30 @@ TEST_P(MySQLStyleTransactionTest, TransactionStressTest) {
   // to make this test interesting.
 
   std::vector<port::Thread> threads;
+  std::vector<port::Thread> checker_threads;
+  std::atomic<uint32_t> finished = {0};
 
   std::function<void()> call_inserter = [&] {
     ASSERT_OK(TransactionStressTestInserter(db, num_transactions_per_thread,
                                             num_sets, num_keys_per_set));
+    finished++;
+  };
+  std::function<void()> call_checker = [&] {
+    bool take_snapshot = true;
+    // Verify that data is consistent
+    while (finished < num_threads) {
+      Status s = RandomTransactionInserter::Verify(db, num_sets, take_snapshot);
+      ASSERT_OK(s);
+    }
   };
 
   // Create N threads that use RandomTransactionInserter to write
   // many transactions.
   for (uint32_t i = 0; i < num_threads; i++) {
     threads.emplace_back(call_inserter);
+  }
+  for (uint32_t i = 0; i < 1; i++) {
+    threads.emplace_back(call_checker);
   }
 
   // Wait for all threads to run
