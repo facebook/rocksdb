@@ -57,6 +57,14 @@ class SstFileManager {
   // zero means disable delete rate limiting and delete files immediately
   // thread-safe
   virtual void SetDeleteRateBytesPerSecond(int64_t delete_rate) = 0;
+
+  // Return trash/DB size ratio where new files will be deleted immediately
+  // thread-safe
+  virtual double GetMaxTrashDBRatio() = 0;
+
+  // Update trash/DB size ratio where new files will be deleted immediately
+  // thread-safe
+  virtual void SetMaxTrashDBRatio(double ratio) = 0;
 };
 
 // Create a new SstFileManager that can be shared among multiple RocksDB
@@ -75,9 +83,13 @@ class SstFileManager {
 //    if user provide trash_dir we will schedule deletes for files in the dir
 // @param status: If not nullptr, status will contain any errors that happened
 //    during creating the missing trash_dir or deleting existing files in trash.
+// @param max_trash_db_ratio: If the trash size constitutes for more than this
+//    fraction of the total DB size we will start deleting new files passed to
+//    DeleteScheduler immediately
 extern SstFileManager* NewSstFileManager(
     Env* env, std::shared_ptr<Logger> info_log = nullptr,
     std::string trash_dir = "", int64_t rate_bytes_per_sec = 0,
-    bool delete_existing_trash = true, Status* status = nullptr);
+    bool delete_existing_trash = true, Status* status = nullptr,
+    double max_trash_db_ratio = 0.25);
 
 }  // namespace rocksdb

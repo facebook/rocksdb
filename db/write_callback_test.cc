@@ -126,6 +126,7 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
       {false, false, true, false, true},
   };
 
+  for (auto& seq_per_batch : {true, false}) {
   for (auto& two_queues : {true, false}) {
     for (auto& allow_parallel : {true, false}) {
       for (auto& allow_batching : {true, false}) {
@@ -137,6 +138,10 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
               options.allow_concurrent_memtable_write = allow_parallel;
               options.enable_pipelined_write = enable_pipelined_write;
               options.two_write_queues = two_queues;
+              if (options.enable_pipelined_write && seq_per_batch) {
+                // This combination is not supported
+                continue;
+              }
               if (options.enable_pipelined_write && options.two_write_queues) {
                 // This combination is not supported
                 continue;
@@ -147,7 +152,18 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
               DBImpl* db_impl;
 
               DestroyDB(dbname, options);
-              ASSERT_OK(DB::Open(options, dbname, &db));
+
+              DBOptions db_options(options);
+              ColumnFamilyOptions cf_options(options);
+              std::vector<ColumnFamilyDescriptor> column_families;
+              column_families.push_back(
+                  ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
+              std::vector<ColumnFamilyHandle*> handles;
+              auto open_s = DBImpl::Open(db_options, dbname, column_families,
+                                         &handles, &db, seq_per_batch);
+              ASSERT_OK(open_s);
+              assert(handles.size() == 1);
+              delete handles[0];
 
               db_impl = dynamic_cast<DBImpl*>(db);
               ASSERT_TRUE(db_impl);
@@ -263,9 +279,12 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
                   string sval(10, my_key);
                   write_op.Put(skey, sval);
 
-                  if (!write_op.callback_.should_fail_) {
+                  if (!write_op.callback_.should_fail_ && !seq_per_batch) {
                     seq.fetch_add(1);
                   }
+                }
+                if (!write_op.callback_.should_fail_ && seq_per_batch) {
+                  seq.fetch_add(1);
                 }
 
                 WriteOptions woptions;
@@ -309,7 +328,7 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
                 }
               }
 
-              ASSERT_EQ(seq.load(), db_impl->GetLatestSequenceNumber());
+              ASSERT_EQ(seq.load(), db_impl->TEST_GetLastVisibleSequence());
 
               delete db;
               DestroyDB(dbname, options);
@@ -318,6 +337,7 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
         }
       }
     }
+}
 }
 }
 

@@ -72,6 +72,13 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value) override;
 
+  using DB::MultiGet;
+  virtual std::vector<Status> MultiGet(
+      const ReadOptions& options,
+      const std::vector<ColumnFamilyHandle*>& column_family,
+      const std::vector<Slice>& keys,
+      std::vector<std::string>* values) override;
+
   using DB::NewIterator;
   virtual Iterator* NewIterator(const ReadOptions& options,
                                 ColumnFamilyHandle* column_family) override;
