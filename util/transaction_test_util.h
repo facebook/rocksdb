@@ -90,7 +90,7 @@ class RandomTransactionInserter {
   // Input options
   Random64* rand_;
   const WriteOptions write_options_;
-  const ReadOptions read_options_;
+  ReadOptions read_options_;
   const uint64_t num_keys_;
   const uint16_t num_sets_;
 

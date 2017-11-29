@@ -46,8 +46,16 @@ RandomTransactionInserter::~RandomTransactionInserter() {
 bool RandomTransactionInserter::TransactionDBInsert(
     TransactionDB* db, const TransactionOptions& txn_options) {
   txn_ = db->BeginTransaction(write_options_, txn_options, txn_);
-
-  return DoInsert(nullptr, txn_, false);
+  bool take_snapshot = rand_->OneIn(2);
+  if (take_snapshot) {
+    read_options_.snapshot = db->GetSnapshot();
+  }
+  auto res = DoInsert(nullptr, txn_, false);
+  if (take_snapshot) {
+    db->ReleaseSnapshot(read_options_.snapshot);
+    read_options_.snapshot = nullptr;
+  }
+  return res;
 }
 
 bool RandomTransactionInserter::OptimisticTransactionDBInsert(
