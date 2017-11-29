@@ -114,7 +114,7 @@ if not is_opt_mode:
         test_cc = test_cfg[1]
         ttype = "gtest" if test_cfg[2] == "parallel" else "simple"
         test_bin = test_name + "_bin"
-    
+
         cpp_binary (
           name = test_bin,
           srcs = [test_cc],
@@ -124,7 +124,7 @@ if not is_opt_mode:
           compiler_flags = rocksdb_compiler_flags,
           external_deps = rocksdb_external_deps,
         )
-    
+
         custom_unittest(
           name = test_name,
           type = ttype,
