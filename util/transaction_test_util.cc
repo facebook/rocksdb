@@ -10,6 +10,7 @@
 
 #include "util/transaction_test_util.h"
 
+#include <algorithm>
 #include <inttypes.h>
 #include <string>
 #include <thread>
@@ -74,8 +75,12 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
 
   bool unexpected_error = false;
 
+  std::vector<uint16_t> set_vec(num_sets_);
+  std::iota(set_vec.begin(), set_vec.end(), 0);
+  std::random_shuffle(set_vec.begin(), set_vec.end(),
+                      [&](uint64_t r) { return rand_->Uniform(r); });
   // For each set, pick a key at random and increment it
-  for (uint8_t i = 0; i < num_sets_; i++) {
+  for (uint16_t i: set_vec) {
     uint64_t int_value = 0;
     // four digits and zero end char
     char prefix_buf[5];
@@ -204,6 +209,8 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
 Status RandomTransactionInserter::Verify(DB* db, uint16_t num_sets,
                                          bool take_snapshot) {
   uint64_t prev_total = 0;
+  uint32_t prev_i = 0;
+  bool prev_assigned = false;
 
   ReadOptions roptions;
   if (take_snapshot) {
@@ -212,8 +219,11 @@ Status RandomTransactionInserter::Verify(DB* db, uint16_t num_sets,
   //fflush(stdout);
   }
 
+  std::vector<uint16_t> set_vec(num_sets);
+  std::iota(set_vec.begin(), set_vec.end(), 0);
+  std::random_shuffle(set_vec.begin(), set_vec.end());
   // For each set of keys with the same prefix, sum all the values
-  for (uint32_t i = 0; i < num_sets; i++) {
+  for (uint16_t i: set_vec) {
     // four digits and zero end char
     char prefix_buf[5];
     snprintf(prefix_buf, sizeof(prefix_buf), "%.4u", i + 1);
@@ -241,17 +251,17 @@ Status RandomTransactionInserter::Verify(DB* db, uint16_t num_sets,
     }
     delete iter;
 
-    if (i > 0) {
-      if (total != prev_total) {
+      if (prev_assigned && total != prev_total) {
         fprintf(stdout,
                 "RandomTransactionVerify found inconsistent totals. "
                 "Set[%" PRIu32 "]: %" PRIu64 ", Set[%" PRIu32 "]: %" PRIu64
                 " \n",
-                i - 1, prev_total, i, total);
+                prev_i, prev_total, i, total);
         return Status::Corruption();
       }
-    }
     prev_total = total;
+    prev_i = i;
+    prev_assigned = true;
   }
   if (take_snapshot) {
     db->ReleaseSnapshot(roptions.snapshot);

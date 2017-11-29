@@ -4774,8 +4774,9 @@ Status TransactionStressTestInserter(TransactionDB* db,
 
 TEST_P(MySQLStyleTransactionTest, TransactionStressTest) {
   const size_t num_threads = 4;
+  const size_t num_checkers = 2;
   const size_t num_transactions_per_thread = 10000;
-  const size_t num_sets = 3;
+  const uint16_t num_sets = 3;
   const size_t num_keys_per_set = 100;
   // Setting the key-space to be 100 keys should cause enough write-conflicts
   // to make this test interesting.
@@ -4803,7 +4804,7 @@ TEST_P(MySQLStyleTransactionTest, TransactionStressTest) {
   for (uint32_t i = 0; i < num_threads; i++) {
     threads.emplace_back(call_inserter);
   }
-  for (uint32_t i = 0; i < 1; i++) {
+  for (uint32_t i = 0; i < num_checkers; i++) {
     threads.emplace_back(call_checker);
   }
 
