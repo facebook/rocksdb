@@ -2128,7 +2128,8 @@ Status DBImpl::DeleteFile(std::string name) {
 }
 
 Status DBImpl::DeleteFilesInRange(ColumnFamilyHandle* column_family,
-                                  const Slice* begin, const Slice* end) {
+                                  const Slice* begin_userkey,
+                                  const Slice* end_userkey) {
   Status status;
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   ColumnFamilyData* cfd = cfh->cfd();
@@ -2140,45 +2141,69 @@ Status DBImpl::DeleteFilesInRange(ColumnFamilyHandle* column_family,
     Version* input_version = cfd->current();
 
     auto* vstorage = input_version->storage_info();
-    for (int i = 1; i < cfd->NumberLevels(); i++) {
+    Slice begin_userkey_storage, end_userkey_storage;
+    if (begin_userkey != nullptr) {
+      begin_userkey_storage = *begin_userkey;
+      begin_userkey = &begin_userkey_storage;
+    }
+    if (end_userkey != nullptr) {
+      end_userkey_storage = *end_userkey;
+      end_userkey = &end_userkey_storage;
+    }
+    for (int i = cfd->NumberLevels() - 1; i >= 1; i--) {
       if (vstorage->LevelFiles(i).empty() ||
-          !vstorage->OverlapInLevel(i, begin, end)) {
+          !vstorage->OverlapInLevel(i, begin_userkey, end_userkey)) {
         continue;
       }
       std::vector<FileMetaData*> level_files;
-      InternalKey begin_storage, end_storage, *begin_key, *end_key;
-      if (begin == nullptr) {
-        begin_key = nullptr;
+      InternalKey begin_internalkey_storage, end_internalkey_storage,
+          *begin_internalkey, *end_internalkey;
+      if (begin_userkey == nullptr) {
+        begin_internalkey = nullptr;
       } else {
-        begin_storage.SetMinPossibleForUserKey(*begin);
-        begin_key = &begin_storage;
+        begin_internalkey_storage.SetMinPossibleForUserKey(*begin_userkey);
+        begin_internalkey = &begin_internalkey_storage;
       }
-      if (end == nullptr) {
-        end_key = nullptr;
+      if (end_userkey == nullptr) {
+        end_internalkey = nullptr;
       } else {
-        end_storage.SetMaxPossibleForUserKey(*end);
-        end_key = &end_storage;
+        end_internalkey_storage.SetMaxPossibleForUserKey(*end_userkey);
+        end_internalkey = &end_internalkey_storage;
       }
 
-      vstorage->GetOverlappingInputs(i, begin_key, end_key, &level_files, -1,
-                                     nullptr, false);
-      FileMetaData* level_file;
-      for (uint32_t j = 0; j < level_files.size(); j++) {
-        level_file = level_files[j];
-        if (((begin == nullptr) ||
-             (cfd->internal_comparator().user_comparator()->Compare(
-                  level_file->smallest.user_key(), *begin) >= 0)) &&
-            ((end == nullptr) ||
-             (cfd->internal_comparator().user_comparator()->Compare(
-                  level_file->largest.user_key(), *end) <= 0))) {
-          if (level_file->being_compacted) {
-            continue;
-          }
-          edit.SetColumnFamily(cfd->GetID());
-          edit.DeleteFile(i, level_file->fd.GetNumber());
-          deleted_files.push_back(level_file);
-          level_file->being_compacted = true;
+      vstorage->GetCleanInputsWithinInterval(
+          i, begin_internalkey, end_internalkey, &level_files, -1, nullptr);
+      if (level_files.empty()) {
+        // Nothing to do in this level, so there's nothing to do in the higher
+        // levels either.
+        break;
+      }
+      // Update the endpoints so that the range deleted at higher levels is a
+      // subset of the range deleted at this level.
+      if (begin_userkey != nullptr) {
+        begin_userkey_storage = level_files.front()->smallest.user_key();
+      }
+      if (end_userkey != nullptr) {
+        end_userkey_storage = level_files.front()->largest.user_key();
+      }
+      for (auto* level_file : level_files) {
+        Slice begin_userkey_compare = level_file->smallest.user_key();
+        if (cfd->internal_comparator().user_comparator()->Compare(
+                begin_userkey_storage, begin_userkey_compare) >= 0) {
+          begin_userkey_storage = begin_userkey_compare;
         }
+        Slice end_userkey_compare = level_file->largest.user_key();
+        if (cfd->internal_comparator().user_comparator()->Compare(
+                end_userkey_storage, end_userkey_compare) <= 0) {
+          end_userkey_storage = end_userkey_compare;
+        }
+        if (level_file->being_compacted) {
+          continue;
+        }
+        edit.SetColumnFamily(cfd->GetID());
+        edit.DeleteFile(i, level_file->fd.GetNumber());
+        deleted_files.push_back(level_file);
+        level_file->being_compacted = true;
       }
     }
     if (edit.GetDeletedFiles().empty()) {

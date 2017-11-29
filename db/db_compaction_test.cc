@@ -1517,6 +1517,92 @@ TEST_F(DBCompactionTest, DeleteFileRange) {
   ASSERT_GT(old_num_files, new_num_files);
 }
 
+TEST_F(DBCompactionTest, DeleteFilesInRangeFixReappearanceBug) {
+  Options options = CurrentOptions();
+  options.write_buffer_size = 10 * 1024 * 1024;
+  options.max_bytes_for_level_multiplier = 2;
+  options.num_levels = 4;
+  options.level0_file_num_compaction_trigger = 3;
+  options.max_background_compactions = 3;
+
+  DestroyAndReopen(options);
+  int32_t value_size = 10 * 1024;  // 10 KB
+
+  /*
+    Test scenario:
+    L1: {1 2 3} {4 5 6 7 8 9} {10 11 12 13}
+    L2: {1 2 3 4 5 6 7 8} {9 10 11 12 13 14}
+
+    DeleteRange [5,7) then DeleteFilesInRange [2, 12]
+    Then make sure indices 5 and 6 are gone.
+  */
+
+  Random rnd(301);
+  std::map<int32_t, std::string> values;
+
+  for (int32_t i = 0; i <= 14; i++) {
+    values[i] = RandomString(&rnd, value_size);
+    ASSERT_OK(Put(Key(i), values[i]));
+    if (i == 8 || i == 14) {
+      ASSERT_OK(Flush());
+    }
+  }
+  dbfull()->TEST_WaitForFlushMemTable();
+  ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr, nullptr));
+  ASSERT_OK(dbfull()->TEST_CompactRange(1, nullptr, nullptr, nullptr));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ("0,0,2", FilesPerLevel(0));
+
+  for (int32_t i = 1; i <= 13; i++) {
+    values[i] = RandomString(&rnd, value_size);
+    ASSERT_OK(Put(Key(i), values[i]));
+    if (i == 3 || i == 9 || i == 13) {
+      ASSERT_OK(Flush());
+      dbfull()->TEST_WaitForFlushMemTable();
+      ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr, nullptr));
+      ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    }
+  }
+  ASSERT_EQ("0,3,2", FilesPerLevel(0));
+
+  // Delete slots 5 and 6.
+  db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), Key(5), Key(7));
+  ASSERT_OK(Flush());
+
+  ASSERT_EQ("1,3,2", FilesPerLevel(0));
+  // Put the deletion flag into the SST file in level 1.
+  ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr, nullptr));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ("0,3,2", FilesPerLevel(0));
+
+  {
+    std::string begin_string = Key(2);
+    std::string end_string = Key(12);
+    Slice begin_slice(begin_string);
+    Slice end_slice(end_string);
+    ASSERT_OK(
+        DeleteFilesInRange(db_, db_->DefaultColumnFamily(), &begin_slice,
+                           &end_slice));
+    ASSERT_OK(Flush());
+    dbfull()->TEST_WaitForFlushMemTable();
+  }
+  // Should not have deleted the level 1 SST file [4,9]
+  // because it touches undeleted files in level 2.
+  ASSERT_EQ("0,3,2", FilesPerLevel(0));
+
+  // Check that all values still exist except for keys 5 and 6.
+  for (int32_t i = 0; i <= 14; i++) {
+    if (i <= 4 || i >= 7) {
+      ASSERT_EQ(Get(Key(i)), values[i]);
+    } else {
+      ReadOptions roptions;
+      std::string result;
+      Status s = db_->Get(roptions, Key(i), &result);
+      ASSERT_TRUE(s.IsNotFound() || s.ok());
+    }
+  }
+}
+
 TEST_P(DBCompactionTestWithParam, TrivialMoveToLastLevelWithFiles) {
   int32_t trivial_move = 0;
   int32_t non_trivial_move = 0;
