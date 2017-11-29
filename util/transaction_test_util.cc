@@ -146,7 +146,7 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
       assert(strlen(name) < 64 - 1);
       txn->SetName(name);
       s = txn->Prepare();
-  printf("ptotal %lu incr %lu txn: %lu\n", total.load(), incr, txn->GetId());
+  //printf("ptotal %lu incr %lu txn: %lu\n", total.load(), incr, txn->GetId());
       s = txn->Commit();
 
       if (!s.ok()) {
@@ -170,9 +170,9 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
                   s.ToString().c_str());
         }
       }
-      uint64_t ptotal = total;
-      total += incr;
-  printf("ptotal %lu atotal %lu incr %lu\n", ptotal, total.load(), incr);
+      //uint64_t ptotal = total;
+      //total += incr;
+  //printf("ptotal %lu atotal %lu incr %lu\n", ptotal, total.load(), incr);
 
     } else {
       s = db->Write(write_options_, &batch);
@@ -184,7 +184,7 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
     }
   } else {
     if (txn != nullptr) {
-  printf("rollback ptotal %lu incr %lu\n", total.load(), incr);
+  //printf("rollback ptotal %lu incr %lu\n", total.load(), incr);
       txn->Rollback();
     }
   }
@@ -208,8 +208,8 @@ Status RandomTransactionInserter::Verify(DB* db, uint16_t num_sets,
   ReadOptions roptions;
   if (take_snapshot) {
     roptions.snapshot = db->GetSnapshot();
-  printf("GetSnapshot %lu\n", roptions.snapshot->GetSequenceNumber());
-  fflush(stdout);
+  //printf("GetSnapshot %lu\n", roptions.snapshot->GetSequenceNumber());
+  //fflush(stdout);
   }
 
   // For each set of keys with the same prefix, sum all the values
