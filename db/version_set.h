@@ -765,12 +765,23 @@ class VersionSet {
     return last_allocated_sequence_.load(std::memory_order_seq_cst);
   }
 
+  // Note: memory_order_acquire must be sufficient.
+  uint64_t LastPublishedSequence() const {
+    return last_published_sequence_.load(std::memory_order_seq_cst);
+  }
+
   // Set the last sequence number to s.
   void SetLastSequence(uint64_t s) {
     assert(s >= last_sequence_);
     // Last visible seqeunce must always be less than last written seq
     assert(!db_options_->two_write_queues || s <= last_allocated_sequence_);
     last_sequence_.store(s, std::memory_order_release);
+  }
+
+  // Note: memory_order_release must be sufficient
+  void SetLastPublishedSequence(uint64_t s) {
+    assert(s >= last_published_sequence_);
+    last_published_sequence_.store(s, std::memory_order_seq_cst);
   }
 
   // Note: memory_order_release must be sufficient
@@ -893,6 +904,10 @@ class VersionSet {
   // The last seq that is already allocated. The seq might or might not have
   // appreated in memtable.
   std::atomic<uint64_t> last_allocated_sequence_;
+  // The last allocated sequence that is also published to the readers. This is
+  // used only when allocate_seq_only_for_data_ is not set. Otherwise
+  // last_sequence_ also indicates the last published seq.
+  std::atomic<uint64_t> last_published_sequence_;
   uint64_t prev_log_number_;  // 0 or backing store for memtable being compacted
 
   // Opened lazily

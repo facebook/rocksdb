@@ -765,8 +765,8 @@ SequenceNumber DBImpl::GetLatestSequenceNumber() const {
   return versions_->LastSequence();
 }
 
-SequenceNumber DBImpl::IncAndFetchSequenceNumber() {
-  return versions_->FetchAddLastAllocatedSequence(1ull) + 1ull;
+void DBImpl::SetLastPublishedSequence(SequenceNumber seq) {
+  versions_->SetLastPublishedSequence(seq);
 }
 
 bool DBImpl::SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) {
@@ -993,7 +993,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
     // away data for the snapshot, but the snapshot is earlier than the
     // data overwriting it, so users may see wrong results.
     snapshot = allocate_seq_only_for_data_ ? versions_->LastSequence()
-                                           : versions_->LastAllocatedSequence();
+                                           : versions_->LastPublishedSequence();
   }
   TEST_SYNC_POINT("DBImpl::GetImpl:3");
   TEST_SYNC_POINT("DBImpl::GetImpl:4");
@@ -1085,7 +1085,7 @@ std::vector<Status> DBImpl::MultiGet(
         read_options.snapshot)->number_;
   } else {
     snapshot = allocate_seq_only_for_data_ ? versions_->LastSequence()
-                                           : versions_->LastAllocatedSequence();
+                                           : versions_->LastPublishedSequence();
   }
   for (auto mgd_iter : multiget_cf_data) {
     mgd_iter.second->super_version =
@@ -1647,7 +1647,7 @@ const Snapshot* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary) {
   }
   auto snapshot_seq = allocate_seq_only_for_data_
                           ? versions_->LastSequence()
-                          : versions_->LastAllocatedSequence();
+                          : versions_->LastPublishedSequence();
   return snapshots_.New(s, snapshot_seq, unix_time, is_write_conflict_boundary);
 }
 
@@ -1660,7 +1660,7 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
     if (snapshots_.empty()) {
       oldest_snapshot = allocate_seq_only_for_data_
                             ? versions_->LastSequence()
-                            : versions_->LastAllocatedSequence();
+                            : versions_->LastPublishedSequence();
     } else {
       oldest_snapshot = snapshots_.oldest()->number_;
     }

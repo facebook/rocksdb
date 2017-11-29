@@ -221,7 +221,7 @@ class DBImpl : public DB {
   virtual Status SyncWAL() override;
 
   virtual SequenceNumber GetLatestSequenceNumber() const override;
-  virtual SequenceNumber IncAndFetchSequenceNumber();
+  virtual void SetLastPublishedSequence(SequenceNumber seq);
   // Returns LastSequence in allocate_seq_only_for_data_
   // mode and LastAllocatedSequence otherwise. This is useful when visiblility
   // depends also on data written to the WAL but not to the memtable.
@@ -708,6 +708,7 @@ class DBImpl : public DB {
   friend class CompactedDBImpl;
 #ifndef NDEBUG
   friend class DBTest2_ReadCallbackTest_Test;
+  friend class WriteCallbackTest_WriteWithCallbackTest_Test;
   friend class XFTransactionWriteHandler;
   friend class DBBlobIndexTest;
 #endif

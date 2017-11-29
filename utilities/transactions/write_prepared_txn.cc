@@ -104,8 +104,8 @@ Status WritePreparedTxn::CommitBatchInternal(WriteBatch* batch) {
   uint64_t& prepare_seq = seq_used;
   // Commit the batch by writing an empty batch to the queue that will release
   // the commit sequence number to readers.
-  WritePreparedCommitEntryPreReleaseCallback update_commit_map(wpt_db_,
-                                                               prepare_seq);
+  WritePreparedCommitEntryPreReleaseCallback update_commit_map(
+      wpt_db_, db_impl_, prepare_seq);
   WriteBatch empty_batch;
   empty_batch.PutLogData(Slice());
   // In the absence of Prepare markers, use Noop as a batch separator
@@ -137,7 +137,7 @@ Status WritePreparedTxn::CommitInternal() {
   auto prepare_seq = GetId();
   const bool includes_data = !empty && !for_recovery;
   WritePreparedCommitEntryPreReleaseCallback update_commit_map(
-      wpt_db_, prepare_seq, includes_data);
+      wpt_db_, db_impl_, prepare_seq, includes_data);
   const bool disable_memtable = !includes_data;
   uint64_t seq_used = kMaxSequenceNumber;
   // Since the prepared batch is directly written to memtable, there is already
@@ -233,8 +233,8 @@ Status WritePreparedTxn::RollbackInternal() {
   uint64_t& prepare_seq = seq_used;
   // Commit the batch by writing an empty batch to the queue that will release
   // the commit sequence number to readers.
-  WritePreparedCommitEntryPreReleaseCallback update_commit_map(wpt_db_,
-                                                               prepare_seq);
+  WritePreparedCommitEntryPreReleaseCallback update_commit_map(
+      wpt_db_, db_impl_, prepare_seq);
   WriteBatch empty_batch;
   empty_batch.PutLogData(Slice());
   // In the absence of Prepare markers, use Noop as a batch separator

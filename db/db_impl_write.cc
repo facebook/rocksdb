@@ -125,7 +125,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     if (write_thread_.CompleteParallelMemTableWriter(&w)) {
       // we're responsible for exit batch group
       for (auto* writer : *(w.write_group)) {
-        if (writer->pre_release_callback) {
+        if (!writer->CallbackFailed() && writer->pre_release_callback) {
+          assert(writer->sequence != kMaxSequenceNumber);
           Status ws = writer->pre_release_callback->Callback(writer->sequence);
           if (!ws.ok()) {
             status = ws;
@@ -357,7 +358,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   if (should_exit_batch_group) {
     if (status.ok()) {
       for (auto* writer : write_group) {
-        if (writer->pre_release_callback) {
+        if (!writer->CallbackFailed() && writer->pre_release_callback) {
+          assert(writer->sequence != kMaxSequenceNumber);
           Status ws = writer->pre_release_callback->Callback(writer->sequence);
           if (!ws.ok()) {
             status = ws;
@@ -600,7 +602,8 @@ Status DBImpl::WriteImplWALOnly(const WriteOptions& write_options,
   }
   if (status.ok()) {
     for (auto* writer : write_group) {
-      if (writer->pre_release_callback) {
+      if (!writer->CallbackFailed() && writer->pre_release_callback) {
+        assert(writer->sequence != kMaxSequenceNumber);
         Status ws = writer->pre_release_callback->Callback(writer->sequence);
         if (!ws.ok()) {
           status = ws;
