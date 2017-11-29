@@ -727,26 +727,6 @@ TEST_P(WritePreparedTransactionTest, SeqAdvanceConcurrentTest) {
     rocksdb::SyncPoint::GetInstance()->DisableProcessing();
     rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
 
-    // The latest seq might be due to a commit without prepare and hence not
-    // persisted in the WAL. We need to discount such seqs if they are not
-    // continued by any seq consued by a value write.
-    if (options.two_write_queues) {
-      WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
-      MutexLock l(&wp_db->seq_for_metadata_mutex_);
-      auto& vec = wp_db->seq_for_metadata;
-      std::sort(vec.begin(), vec.end());
-      // going backward discount any last seq consumed for metadata until we see
-      // a seq that is consumed for actualy key/values.
-      auto rit = vec.rbegin();
-      for (; rit != vec.rend(); ++rit) {
-        if (*rit == exp_seq) {
-          exp_seq--;
-        } else {
-          break;
-        }
-      }
-    }
-
     // Check if recovery preserves the last sequence number
     db_impl->FlushWAL(true);
     ReOpenNoDelete();
@@ -1296,9 +1276,7 @@ TEST_P(WritePreparedTransactionTest, DisableGCDuringRecoveryTest) {
     VerifyKeys({{"foo", v}});
     seq++;  // one for the key/value
     KeyVersion kv = {"foo", v, seq, kTypeValue};
-    if (options.two_write_queues) {
       seq++;  // one for the commit
-    }
     versions.emplace_back(kv);
   }
   std::reverse(std::begin(versions), std::end(versions));
@@ -1344,9 +1322,7 @@ TEST_P(WritePreparedTransactionTest, CompactionShouldKeepUncommittedKeys) {
   auto add_key = [&](std::function<Status()> func) {
     ASSERT_OK(func());
     expected_seq++;
-    if (options.two_write_queues) {
       expected_seq++;  // 1 for commit
-    }
     ASSERT_EQ(expected_seq, db_impl->TEST_GetLastVisibleSequence());
     snapshots.push_back(db->GetSnapshot());
   };
@@ -1455,16 +1431,12 @@ TEST_P(WritePreparedTransactionTest, CompactionShouldKeepSnapshotVisibleKeys) {
   ASSERT_OK(db->Put(WriteOptions(), "key1", "value1_2"));
   expected_seq++;  // 1 for write
   SequenceNumber seq1 = expected_seq;
-  if (options.two_write_queues) {
     expected_seq++;  // 1 for commit
-  }
   ASSERT_EQ(expected_seq, db_impl->TEST_GetLastVisibleSequence());
   ASSERT_OK(db->Put(WriteOptions(), "key2", "value2_2"));
   expected_seq++;  // 1 for write
   SequenceNumber seq2 = expected_seq;
-  if (options.two_write_queues) {
     expected_seq++;  // 1 for commit
-  }
   ASSERT_EQ(expected_seq, db_impl->TEST_GetLastVisibleSequence());
   ASSERT_OK(db->Flush(FlushOptions()));
   db->ReleaseSnapshot(snapshot1);
@@ -1587,7 +1559,10 @@ TEST_P(WritePreparedTransactionTest,
   ASSERT_EQ(++expected_seq, db->GetLatestSequenceNumber());
   SequenceNumber seq1 = expected_seq;
   ASSERT_OK(db->Put(WriteOptions(), "key2", "value2"));
-  ASSERT_EQ(++expected_seq, db->GetLatestSequenceNumber());
+  DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+  expected_seq++;  // one for data
+  expected_seq++;  // one for commit
+  ASSERT_EQ(expected_seq, db_impl->TEST_GetLastVisibleSequence());
   ASSERT_OK(db->Flush(FlushOptions()));
   // Dummy keys to avoid compaction trivially move files and get around actual
   // compaction logic.

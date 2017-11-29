@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "db/db_iter.h"
+#include "db/pre_release_callback.h"
 #include "db/read_callback.h"
 #include "db/snapshot_checker.h"
 #include "rocksdb/db.h"
@@ -185,12 +186,6 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
 
   // Struct to hold ownership of snapshot and read callback for cleanup.
   struct IteratorState;
-
-#ifndef NDEBUG
-  // For unit tests we can track of the seq numbers that are used for metadata as opposed to actual key/values
-  std::vector<uint64_t> seq_for_metadata;
-  mutable port::Mutex seq_for_metadata_mutex_;
-#endif
 
  private:
   friend class WritePreparedTransactionTest_IsInSnapshotTest_Test;
@@ -371,6 +366,30 @@ class WritePreparedTxnReadCallback : public ReadCallback {
  private:
   WritePreparedTxnDB* db_;
   SequenceNumber snapshot_;
+};
+
+class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
+ public:
+  WritePreparedCommitEntryPreReleaseCallback(WritePreparedTxnDB* db,
+                                             SequenceNumber prep_seq,
+                                             bool includes_data = false)
+      : db_(db), prep_seq_(prep_seq), includes_data_(includes_data) {}
+
+  virtual Status Callback(SequenceNumber commit_seq) {
+    db_->AddCommitted(prep_seq_, commit_seq);
+    if (includes_data_) {
+      // Commit the data that is accompnaied with the commit marker
+      // TODO(myabandeh): skip AddPrepared
+      db_->AddPrepared(commit_seq);
+      db_->AddCommitted(commit_seq, commit_seq);
+    }
+    return Status::OK();
+  }
+
+ private:
+  WritePreparedTxnDB* db_;
+  SequenceNumber prep_seq_;
+  bool includes_data_;
 };
 
 }  //  namespace rocksdb

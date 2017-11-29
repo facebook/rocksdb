@@ -454,7 +454,8 @@ Status WriteBatch::Iterate(Handler* handler) const {
         break;
       case kTypeLogData:
         handler->LogData(blob);
-        empty_batch = true;
+        // A batch might have nothing but LogData. It is still a batch.
+        empty_batch = false;
         break;
       case kTypeBeginPrepareXID:
         assert(content_flags_.load(std::memory_order_relaxed) &
