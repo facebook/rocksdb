@@ -46,6 +46,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.max_total_wal_size = mutable_db_options.max_total_wal_size;
   options.statistics = immutable_db_options.statistics;
   options.use_fsync = immutable_db_options.use_fsync;
+  options.disable_data_sync = immutable_db_options.disable_data_sync;
   options.db_paths = immutable_db_options.db_paths;
   options.db_log_dir = immutable_db_options.db_log_dir;
   options.wal_dir = immutable_db_options.wal_dir;
@@ -1269,10 +1270,11 @@ std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct DBOptions, create_missing_column_families),
           OptionType::kBoolean, OptionVerificationType::kNormal, false, 0}},
         {"disableDataSync",
-         {0, OptionType::kBoolean, OptionVerificationType::kDeprecated, false,
+         {0, OptionType::kBoolean, OptionVerificationType::kNormal, false,
           0}},
         {"disable_data_sync",  // for compatibility
-         {0, OptionType::kBoolean, OptionVerificationType::kDeprecated, false,
+         {offsetof(struct DBOptions, disable_data_sync), 
+          OptionType::kBoolean, OptionVerificationType::kNormal, false,
           0}},
         {"enable_thread_tracking",
          {offsetof(struct DBOptions, enable_thread_tracking),
@@ -1307,6 +1309,9 @@ std::unordered_map<std::string, OptionTypeInfo>
           OptionVerificationType::kNormal, false, 0}},
         {"use_fsync",
          {offsetof(struct DBOptions, use_fsync), OptionType::kBoolean,
+          OptionVerificationType::kNormal, false, 0}},
+        {"disable_data_sync",
+         {offsetof(struct DBOptions, disable_data_sync), OptionType::kBoolean,
           OptionVerificationType::kNormal, false, 0}},
         {"max_background_jobs",
          {offsetof(struct DBOptions, max_background_jobs), OptionType::kInt,

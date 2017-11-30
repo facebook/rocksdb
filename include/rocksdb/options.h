@@ -415,6 +415,12 @@ struct DBOptions {
   // would make no difference. Refer to fdatasync definition in this code base.
   bool use_fsync = false;
 
+  // If true, then every store to stable storage will issue a fdatasync.
+  // This parameter should be set to true while storing data to
+  // filesystem like ext3 that can lose files after a reboot.
+  // Default: false
+  bool disable_data_sync = false;
+
   // A list of paths where SST files can be put into, with its target size.
   // Newer data is placed into paths specified earlier in the vector while
   // older data gradually moves to paths specified later in the vector.

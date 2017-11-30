@@ -546,7 +546,7 @@ Status CompactionJob::Run() {
     thread.join();
   }
 
-  if (output_directory_) {
+  if (output_directory_ && !db_options_.disable_data_sync) {
     output_directory_->Fsync();
   }
 
@@ -1102,7 +1102,7 @@ Status CompactionJob::FinishCompactionOutputFile(
   sub_compact->total_bytes += current_bytes;
 
   // Finish and check for file errors
-  if (s.ok()) {
+  if (s.ok() && !db_options_.disable_data_sync) {
     StopWatch sw(env_, stats_, COMPACTION_OUTFILE_SYNC_MICROS);
     s = sub_compact->outfile->Sync(db_options_.use_fsync);
   }

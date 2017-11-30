@@ -717,12 +717,14 @@ Status DBImpl::SyncWAL() {
   RecordTick(stats_, WAL_FILE_SYNCED);
   Status status;
   for (log::Writer* log : logs_to_sync) {
-    status = log->file()->SyncWithoutFlush(immutable_db_options_.use_fsync);
-    if (!status.ok()) {
-      break;
+    if (!immutable_db_options_.disable_data_sync) {
+      status = log->file()->SyncWithoutFlush(immutable_db_options_.use_fsync);
+      if (!status.ok()) {
+        break;
+      }
     }
   }
-  if (status.ok() && need_log_dir_sync) {
+  if (status.ok() && need_log_dir_sync && !immutable_db_options_.disable_data_sync) {
     status = directories_.GetWalDir()->Fsync();
   }
   TEST_SYNC_POINT("DBWALTest::SyncWALNotWaitWrite:2");
