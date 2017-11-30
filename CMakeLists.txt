@@ -249,6 +249,20 @@ if(WITH_UBSAN)
   endif()
 endif()
 
+find_package(NUMA)
+if(NUMA_FOUND)
+  add_definitions(-DNUMA)
+  include_directories(${NUMA_INCLUDE_DIR})
+  list(APPEND THIRDPARTY_LIBS ${NUMA_LIBRARIES})
+endif()
+
+find_package(TBB)
+if(TBB_FOUND)
+  add_definitions(-DTBB)
+  include_directories(${TBB_INCLUDE_DIR})
+  list(APPEND THIRDPARTY_LIBS ${TBB_LIBRARIES})
+endif()
+
 # Used to run CI build and tests so we can run faster
 set(OPTIMIZE_DEBUG_DEFAULT 0)        # Debug build is unoptimized by default use -DOPTDBG=1 to optimize
 
@@ -316,11 +330,8 @@ if(NOT WIN32)
 endif()
 
 option(WITH_FALLOCATE "build with fallocate" ON)
-
 if(WITH_FALLOCATE)
-  set(CMAKE_REQUIRED_FLAGS ${CMAKE_C_FLAGS})
-  include(CheckCSourceCompiles)
-  CHECK_C_SOURCE_COMPILES("
+  CHECK_CXX_SOURCE_COMPILES("
 #include <fcntl.h>
 #include <linux/falloc.h>
 int main() {
@@ -333,10 +344,36 @@ int main() {
   endif()
 endif()
 
-include(CheckFunctionExists)
-CHECK_FUNCTION_EXISTS(malloc_usable_size HAVE_MALLOC_USABLE_SIZE)
+CHECK_CXX_SOURCE_COMPILES("
+#include <fcntl.h>
+int main() {
+  int fd = open(\"/dev/null\", 0);
+  sync_file_range(fd, 0, 1024, SYNC_FILE_RANGE_WRITE);
+}
+" HAVE_SYNC_FILE_RANGE_WRITE)
+if(HAVE_SYNC_FILE_RANGE_WRITE)
+  add_definitions(-DROCKSDB_RANGESYNC_PRESENT)
+endif()
+
+CHECK_CXX_SOURCE_COMPILES("
+#include <pthread.h>
+int main() {
+  (void) PTHREAD_MUTEX_ADAPTIVE_NP;
+}
+" HAVE_PTHREAD_MUTEX_ADAPTIVE_NP)
+if(HAVE_PTHREAD_MUTEX_ADAPTIVE_NP)
+  add_definitions(-DROCKSDB_PTHREAD_ADAPTIVE_MUTEX)
+endif()
+
+include(CheckCXXSymbolExists)
+check_cxx_symbol_exists(malloc_usable_size malloc.h HAVE_MALLOC_USABLE_SIZE)
 if(HAVE_MALLOC_USABLE_SIZE)
   add_definitions(-DROCKSDB_MALLOC_USABLE_SIZE)
+endif()
+
+check_cxx_symbol_exists(sched_getcpu sched.h HAVE_SCHED_GETCPU)
+if(HAVE_SCHED_GETCPU)
+  add_definitions(-DROCKSDB_SCHED_GETCPU_PRESENT)
 endif()
 
 include_directories(${PROJECT_SOURCE_DIR})
