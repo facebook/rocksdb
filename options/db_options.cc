@@ -35,6 +35,7 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       max_file_opening_threads(options.max_file_opening_threads),
       statistics(options.statistics),
       use_fsync(options.use_fsync),
+      disable_data_sync(options.disable_data_sync),
       db_paths(options.db_paths),
       db_log_dir(options.db_log_dir),
       wal_dir(options.wal_dir),
@@ -105,6 +106,8 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    statistics.get());
   ROCKS_LOG_HEADER(log, "                              Options.use_fsync: %d",
                    use_fsync);
+  ROCKS_LOG_HEADER(log, "                      Options.disable_data_sync: %d",
+                   disable_data_sync);
   ROCKS_LOG_HEADER(
       log, "                      Options.max_log_file_size: %" ROCKSDB_PRIszt,
       max_log_file_size);

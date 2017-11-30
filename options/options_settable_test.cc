@@ -197,6 +197,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
       {offsetof(struct DBOptions, wal_filter), sizeof(const WalFilter*)},
   };
 
+
   char* options_ptr = new char[sizeof(DBOptions)];
 
   // Count padding bytes by setting all bytes in the memory to a special char,
@@ -237,6 +238,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "base_background_compactions=3;"
                              "max_background_compactions=33;"
                              "use_fsync=true;"
+                             "disable_data_sync=true;"
+                             "disable_data_sync=true;"
                              "use_adaptive_mutex=false;"
                              "max_total_wal_size=4295005604;"
                              "compaction_readahead_size=0;"
