@@ -239,7 +239,6 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "max_background_compactions=33;"
                              "use_fsync=true;"
                              "disable_data_sync=true;"
-                             "disable_data_sync=true;"
                              "use_adaptive_mutex=false;"
                              "max_total_wal_size=4295005604;"
                              "compaction_readahead_size=0;"
