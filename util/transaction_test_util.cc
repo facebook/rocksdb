@@ -10,8 +10,8 @@
 
 #include "util/transaction_test_util.h"
 
-#include <algorithm>
 #include <inttypes.h>
+#include <algorithm>
 #include <string>
 #include <thread>
 

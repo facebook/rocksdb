@@ -74,7 +74,8 @@ class RandomTransactionInserter {
                       std::string* full_key, bool* unexpected_error);
 
   // Returns OK if Invariant is true.
-  static Status Verify(DB* db, uint16_t num_sets, uint64_t num_keys_per_set = 0, bool take_snapshot = false, Random64* rand = nullptr);
+  static Status Verify(DB* db, uint16_t num_sets, uint64_t num_keys_per_set = 0,
+                       bool take_snapshot = false, Random64* rand = nullptr);
 
   // Returns the status of the previous Insert operation
   Status GetLastStatus() { return last_status_; }

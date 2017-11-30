@@ -833,7 +833,7 @@ TEST_P(TransactionTest, SimpleTwoPhaseTransactionTest) {
     s = txn->Commit();
     ASSERT_EQ(s, Status::InvalidArgument());
 
-    // no longer is prpared results
+    // no longer is prepared results
     db->GetAllPreparedTransactions(&prepared_trans);
     ASSERT_EQ(prepared_trans.size(), 0);
     ASSERT_EQ(db->GetTransactionByName("xid"), nullptr);
@@ -1190,7 +1190,7 @@ TEST_P(TransactionTest, PersistentTwoPhaseTransactionTest) {
   s = txn->Commit();
   ASSERT_EQ(s, Status::InvalidArgument());
 
-  // no longer is prpared results
+  // no longer is prepared results
   prepared_trans.clear();
   db->GetAllPreparedTransactions(&prepared_trans);
   ASSERT_EQ(prepared_trans.size(), 0);
@@ -4773,10 +4773,11 @@ Status TransactionStressTestInserter(TransactionDB* db,
 }
 }  // namespace
 
-// Worker threads add a number to a key from each set of keys. The checker threads verify that the sum of all keys in each set are equal.
+// Worker threads add a number to a key from each set of keys. The checker
+// threads verify that the sum of all keys in each set are equal.
 TEST_P(MySQLStyleTransactionTest, TransactionStressTest) {
-  const size_t num_workers = 4; // worker threads count
-  const size_t num_checkers = 2; // checker threads count
+  const size_t num_workers = 4;   // worker threads count
+  const size_t num_checkers = 2;  // checker threads count
   const size_t num_transactions_per_thread = 10000;
   const uint16_t num_sets = 3;
   const size_t num_keys_per_set = 100;
@@ -4797,7 +4798,8 @@ TEST_P(MySQLStyleTransactionTest, TransactionStressTest) {
     Random64 rand(seed);
     // Verify that data is consistent
     while (finished < num_workers) {
-      Status s = RandomTransactionInserter::Verify(db, num_sets, num_keys_per_set, TAKE_SNAPSHOT, &rand);
+      Status s = RandomTransactionInserter::Verify(
+          db, num_sets, num_keys_per_set, TAKE_SNAPSHOT, &rand);
       ASSERT_OK(s);
     }
   };
@@ -4815,7 +4817,8 @@ TEST_P(MySQLStyleTransactionTest, TransactionStressTest) {
   }
 
   // Verify that data is consistent
-  Status s = RandomTransactionInserter::Verify(db, num_sets, num_keys_per_set, !TAKE_SNAPSHOT);
+  Status s = RandomTransactionInserter::Verify(db, num_sets, num_keys_per_set,
+                                               !TAKE_SNAPSHOT);
   ASSERT_OK(s);
 }
 
