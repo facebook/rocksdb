@@ -168,8 +168,11 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
       snprintf(name, 64, "txn%zu-%d", hasher(std::this_thread::get_id()),
                txn_id_++);
       assert(strlen(name) < 64 - 1);
-      txn->SetName(name);
-      s = txn->Prepare();
+      if (!rand_->OneIn(10)) {
+        // also try commit without prpare
+        txn->SetName(name);
+        s = txn->Prepare();
+      }
       s = txn->Commit();
 
       if (!s.ok()) {
