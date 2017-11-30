@@ -1064,11 +1064,10 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotTest) {
   }
 }
 
-void ASSERT_SAME(TransactionDB* db, Status exp_s, PinnableSlice& exp_v,
-                 Slice key) {
+void ASSERT_SAME(ReadOptions roptions, TransactionDB* db, Status exp_s,
+                 PinnableSlice& exp_v, Slice key) {
   Status s;
   PinnableSlice v;
-  ReadOptions roptions;
   s = db->Get(roptions, db->DefaultColumnFamily(), key, &v);
   ASSERT_TRUE(exp_s == s);
   ASSERT_TRUE(s.ok() || s.IsNotFound());
@@ -1088,6 +1087,11 @@ void ASSERT_SAME(TransactionDB* db, Status exp_s, PinnableSlice& exp_v,
   if (s.ok()) {
     ASSERT_TRUE(exp_v == values[0]);
   }
+}
+
+void ASSERT_SAME(TransactionDB* db, Status exp_s, PinnableSlice& exp_v,
+                 Slice key) {
+  ASSERT_SAME(ReadOptions(), db, exp_s, exp_v, key);
 }
 
 TEST_P(WritePreparedTransactionTest, RollbackTest) {
@@ -1640,6 +1644,50 @@ TEST_P(WritePreparedTransactionTest, Iterate) {
   VerifyKeys({{"foo", "v2"}});
   verify_iter("v2");
   delete transaction;
+}
+
+// Test that updating the commit map will not affect the existing snapshots
+TEST_P(WritePreparedTransactionTest, AtomicCommit) {
+  for (bool skip_prepare : {true, false}) {
+    rocksdb::SyncPoint::GetInstance()->LoadDependency({
+        {"WritePreparedTxnDB::AddCommitted:start",
+         "AtomicCommit::GetSnapshot:start"},
+        {"AtomicCommit::Get:end",
+         "WritePreparedTxnDB::AddCommitted:start:pause"},
+        {"WritePreparedTxnDB::AddCommitted:end", "AtomicCommit::Get2:start"},
+        {"AtomicCommit::Get2:end",
+         "WritePreparedTxnDB::AddCommitted:end:pause:"},
+    });
+    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+    rocksdb::port::Thread write_thread([&]() {
+      if (skip_prepare) {
+        db->Put(WriteOptions(), Slice("key"), Slice("value"));
+      } else {
+        Transaction* txn =
+            db->BeginTransaction(WriteOptions(), TransactionOptions());
+        ASSERT_OK(txn->SetName("xid"));
+        ASSERT_OK(txn->Put(Slice("key"), Slice("value")));
+        ASSERT_OK(txn->Prepare());
+        ASSERT_OK(txn->Commit());
+        delete txn;
+      }
+    });
+    rocksdb::port::Thread read_thread([&]() {
+      ReadOptions roptions;
+      TEST_SYNC_POINT("AtomicCommit::GetSnapshot:start");
+      roptions.snapshot = db->GetSnapshot();
+      PinnableSlice val;
+      auto s = db->Get(roptions, db->DefaultColumnFamily(), "key", &val);
+      TEST_SYNC_POINT("AtomicCommit::Get:end");
+      TEST_SYNC_POINT("AtomicCommit::Get2:start");
+      ASSERT_SAME(roptions, db, s, val, "key");
+      TEST_SYNC_POINT("AtomicCommit::Get2:end");
+      db->ReleaseSnapshot(roptions.snapshot);
+    });
+    read_thread.join();
+    write_thread.join();
+    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  }
 }
 
 // Test that we can change write policy from WriteCommitted to WritePrepared
