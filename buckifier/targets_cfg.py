@@ -2,11 +2,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
-rocksdb_target_header = """import os
-
-TARGETS_PATH = os.path.dirname(__file__)
-
-REPO_PATH = TARGETS_PATH[(TARGETS_PATH.find('fbcode/') + len('fbcode/')):] + "/"
+rocksdb_target_header = """REPO_PATH = package_name() + "/"
 
 BUCK_BINS = "buck-out/gen/" + REPO_PATH
 
