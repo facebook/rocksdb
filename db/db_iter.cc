@@ -1188,7 +1188,7 @@ void DBIter::SeekForPrev(const Slice& target) {
       user_comparator_->Compare(saved_key_.GetUserKey(),
                                 *iterate_upper_bound_) >= 0) {
     saved_key_.Clear();
-    saved_key_.SetInternalKey(*iterate_upper_bound_, 0);
+    saved_key_.SetInternalKey(*iterate_upper_bound_, kMaxSequenceNumber);
   }
 
   {
