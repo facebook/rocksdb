@@ -53,6 +53,15 @@ rocksdb_arch_preprocessor_flags = {
     "x86_64": ["-DHAVE_SSE42"],
 }
 
+build_mode = read_config("fbcode", "build_mode")
+
+is_opt_mode = build_mode.startswith("opt")
+
+# -DNDEBUG is added by default in opt mode in fbcode. But adding it twice
+# doesn't harm and avoid forgetting to add it.
+if is_opt_mode:
+    rocksdb_compiler_flags.append("-DNDEBUG")
+
 cpp_library(
     name = "rocksdb_lib",
     srcs = [
@@ -1016,28 +1025,31 @@ ROCKS_TESTS = [
 ]
 
 # Generate a test rule for each entry in ROCKS_TESTS
-for test_cfg in ROCKS_TESTS:
-    test_name = test_cfg[0]
-    test_cc = test_cfg[1]
-    ttype = "gtest" if test_cfg[2] == "parallel" else "simple"
-    test_bin = test_name + "_bin"
-
-    cpp_binary (
-      name = test_bin,
-      srcs = [test_cc],
-      deps = [":rocksdb_test_lib"],
-      preprocessor_flags = rocksdb_preprocessor_flags,
-      arch_preprocessor_flags = rocksdb_arch_preprocessor_flags,
-      compiler_flags = rocksdb_compiler_flags,
-      external_deps = rocksdb_external_deps,
-    )
-
-    custom_unittest(
-      name = test_name,
-      type = ttype,
-      deps = [":" + test_bin],
-      command = [TEST_RUNNER, BUCK_BINS + test_bin]
-    )
+# Do not build the tests in opt mode, since SyncPoint and other test code
+# will not be included.
+if not is_opt_mode:
+    for test_cfg in ROCKS_TESTS:
+        test_name = test_cfg[0]
+        test_cc = test_cfg[1]
+        ttype = "gtest" if test_cfg[2] == "parallel" else "simple"
+        test_bin = test_name + "_bin"
+    
+        cpp_binary (
+          name = test_bin,
+          srcs = [test_cc],
+          deps = [":rocksdb_test_lib"],
+          preprocessor_flags = rocksdb_preprocessor_flags,
+          arch_preprocessor_flags = rocksdb_arch_preprocessor_flags,
+          compiler_flags = rocksdb_compiler_flags,
+          external_deps = rocksdb_external_deps,
+        )
+    
+        custom_unittest(
+          name = test_name,
+          type = ttype,
+          deps = [":" + test_bin],
+          command = [TEST_RUNNER, BUCK_BINS + test_bin]
+        )
 
 custom_unittest(
     name = "make_rocksdbjavastatic",
