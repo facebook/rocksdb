@@ -11,16 +11,15 @@ int main() {
 }
 #else
 
-#include <gflags/gflags.h>
-
 #include "monitoring/histogram.h"
 #include "rocksdb/env.h"
 #include "util/file_reader_writer.h"
+#include "util/gflags_compat.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 
-using GFLAGS::ParseCommandLineFlags;
-using GFLAGS::SetUsageMessage;
+using GFLAGS_NAMESPACE::ParseCommandLineFlags;
+using GFLAGS_NAMESPACE::SetUsageMessage;
 
 // A simple benchmark to simulate transactional logs
 

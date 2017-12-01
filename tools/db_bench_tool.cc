@@ -20,7 +20,6 @@
 #include <unistd.h>
 #endif
 #include <fcntl.h>
-#include <gflags/gflags.h>
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -61,6 +60,7 @@
 #include "util/cast_util.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
+#include "util/gflags_compat.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
 #include "util/stderr_logger.h"
@@ -76,9 +76,9 @@
 #include <io.h>  // open/close
 #endif
 
-using GFLAGS::ParseCommandLineFlags;
-using GFLAGS::RegisterFlagValidator;
-using GFLAGS::SetUsageMessage;
+using GFLAGS_NAMESPACE::ParseCommandLineFlags;
+using GFLAGS_NAMESPACE::RegisterFlagValidator;
+using GFLAGS_NAMESPACE::SetUsageMessage;
 
 DEFINE_string(
     benchmarks,
