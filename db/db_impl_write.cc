@@ -57,6 +57,9 @@ Status DBImpl::WriteWithCallback(const WriteOptions& write_options,
 }
 #endif  // ROCKSDB_LITE
 
+// The main write queue. This is the only write queue that updates LastSequence.
+// When using one write queue, the same sequence also indicates the last
+// published sequence.
 Status DBImpl::WriteImpl(const WriteOptions& write_options,
                          WriteBatch* my_batch, WriteCallback* callback,
                          uint64_t* log_used, uint64_t log_ref,
@@ -506,6 +509,9 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
   return w.FinalStatus();
 }
 
+// The 2nd write queue. If enabled it will be used only for WAL-only writes.
+// This is the only queue that updates LastPublishedSequence which is only
+// applicable in a two-queue setting.
 Status DBImpl::WriteImplWALOnly(const WriteOptions& write_options,
                                 WriteBatch* my_batch, WriteCallback* callback,
                                 uint64_t* log_used, uint64_t log_ref,
@@ -929,6 +935,7 @@ Status DBImpl::WriteRecoverableState() {
       versions_->FetchAddLastAllocatedSequence(last_seq - seq);
     }
     versions_->SetLastSequence(last_seq);
+    versions_->SetLastPublishedSequence(last_seq);
     if (two_write_queues_) {
       log_write_mutex_.Unlock();
     }

@@ -222,7 +222,7 @@ class DBImpl : public DB {
 
   virtual SequenceNumber GetLatestSequenceNumber() const override;
   virtual void SetLastPublishedSequence(SequenceNumber seq);
-  // Returns LastSequence in allocate_seq_only_for_data_
+  // Returns LastSequence in last_seq_same_as_publish_seq_
   // mode and LastAllocatedSequence otherwise. This is useful when visiblility
   // depends also on data written to the WAL but not to the memtable.
   SequenceNumber TEST_GetLastVisibleSequence() const;
@@ -1348,10 +1348,9 @@ class DBImpl : public DB {
   //
   // Default: false
   const bool seq_per_batch_;
-  // A sequence number is allocated only for data written to DB. Otherwise it
-  // could also be allocated for operational purposes such as commit timestamp
-  // of a transaction.
-  const bool allocate_seq_only_for_data_;
+  // LastSequence also indicates last published sequence visibile to the
+  // readers. Otherwise LastPublishedSequence should be used.
+  const bool last_seq_same_as_publish_seq_;
   // It indicates that a customized gc algorithm must be used for
   // flush/compaction and if it is not provided vis SnapshotChecker, we should
   // disable gc to be safe.

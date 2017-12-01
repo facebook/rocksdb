@@ -370,6 +370,8 @@ class WritePreparedTxnReadCallback : public ReadCallback {
 
 class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
  public:
+  // includes_data indicates that the commit also writes non-empty
+  // CommitTimeWriteBatch to memtable, which needs to be committed separately.
   WritePreparedCommitEntryPreReleaseCallback(WritePreparedTxnDB* db,
                                              DBImpl* db_impl,
                                              SequenceNumber prep_seq,

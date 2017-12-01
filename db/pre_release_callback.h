@@ -22,7 +22,8 @@ class PreReleaseCallback {
   // the write thread. If the callback fails, this function returns a non-OK
   // status, the sequence number will not be released, and same status will be
   // propagated to all the writers in the write group.
-// seq is the sequence number that is used for this write and will be released.
+  // seq is the sequence number that is used for this write and will be
+  // released.
   virtual Status Callback(SequenceNumber seq) = 0;
 };
 
