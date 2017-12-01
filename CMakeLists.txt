@@ -249,6 +249,13 @@ if(WITH_UBSAN)
   endif()
 endif()
 
+find_package(gflags)
+if(gflags_FOUND)
+  add_definitions(-DGFLAGS=gflags)
+  include_directories(${gflags_INCLUDE_DIR})
+  list(APPEND THIRDPARTY_LIBS ${gflags_LIBRARIES})
+endif()
+
 # Used to run CI build and tests so we can run faster
 set(OPTIMIZE_DEBUG_DEFAULT 0)        # Debug build is unoptimized by default use -DOPTDBG=1 to optimize
 
