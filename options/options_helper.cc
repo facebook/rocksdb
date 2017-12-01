@@ -1541,6 +1541,7 @@ std::unordered_map<std::string, InfoLogLevel>
 ColumnFamilyOptions OptionsHelper::dummy_cf_options;
 CompactionOptionsFIFO OptionsHelper::dummy_comp_options;
 LRUCacheOptions OptionsHelper::dummy_lru_cache_options;
+CompactionOptionsUniversal OptionsHelper::dummy_comp_options_universal;
 
 // offset_of is used to get the offset of a class data member
 // ex: offset_of(&ColumnFamilyOptions::num_levels)
@@ -1570,6 +1571,11 @@ template <typename T1>
 int offset_of(T1 LRUCacheOptions::*member) {
   return int(size_t(&(OptionsHelper::dummy_lru_cache_options.*member)) -
              size_t(&OptionsHelper::dummy_lru_cache_options));
+}
+template <typename T1>
+int offset_of(T1 CompactionOptionsUniversal::*member) {
+  return int(size_t(&(OptionsHelper::dummy_comp_options_universal.*member)) -
+             size_t(&OptionsHelper::dummy_comp_options_universal));
 }
 
 std::unordered_map<std::string, OptionTypeInfo>
