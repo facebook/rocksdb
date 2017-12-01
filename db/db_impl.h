@@ -28,6 +28,7 @@
 #include "db/flush_scheduler.h"
 #include "db/internal_stats.h"
 #include "db/log_writer.h"
+#include "db/pre_release_callback.h"
 #include "db/read_callback.h"
 #include "db/snapshot_checker.h"
 #include "db/snapshot_impl.h"
@@ -220,8 +221,8 @@ class DBImpl : public DB {
   virtual Status SyncWAL() override;
 
   virtual SequenceNumber GetLatestSequenceNumber() const override;
-  virtual SequenceNumber IncAndFetchSequenceNumber();
-  // Returns LastSequence in allocate_seq_only_for_data_
+  virtual void SetLastPublishedSequence(SequenceNumber seq);
+  // Returns LastSequence in last_seq_same_as_publish_seq_
   // mode and LastAllocatedSequence otherwise. This is useful when visiblility
   // depends also on data written to the WAL but not to the memtable.
   SequenceNumber TEST_GetLastVisibleSequence() const;
@@ -671,7 +672,8 @@ class DBImpl : public DB {
   Status WriteImpl(const WriteOptions& options, WriteBatch* updates,
                    WriteCallback* callback = nullptr,
                    uint64_t* log_used = nullptr, uint64_t log_ref = 0,
-                   bool disable_memtable = false, uint64_t* seq_used = nullptr);
+                   bool disable_memtable = false, uint64_t* seq_used = nullptr,
+                   PreReleaseCallback* pre_release_callback = nullptr);
 
   Status PipelinedWriteImpl(const WriteOptions& options, WriteBatch* updates,
                             WriteCallback* callback = nullptr,
@@ -682,7 +684,8 @@ class DBImpl : public DB {
   Status WriteImplWALOnly(const WriteOptions& options, WriteBatch* updates,
                           WriteCallback* callback = nullptr,
                           uint64_t* log_used = nullptr, uint64_t log_ref = 0,
-                          uint64_t* seq_used = nullptr);
+                          uint64_t* seq_used = nullptr,
+                          PreReleaseCallback* pre_release_callback = nullptr);
 
   uint64_t FindMinLogContainingOutstandingPrep();
   uint64_t FindMinPrepLogReferencedByMemTable();
@@ -705,6 +708,7 @@ class DBImpl : public DB {
   friend class CompactedDBImpl;
 #ifndef NDEBUG
   friend class DBTest2_ReadCallbackTest_Test;
+  friend class WriteCallbackTest_WriteWithCallbackTest_Test;
   friend class XFTransactionWriteHandler;
   friend class DBBlobIndexTest;
 #endif
@@ -1344,10 +1348,9 @@ class DBImpl : public DB {
   //
   // Default: false
   const bool seq_per_batch_;
-  // A sequence number is allocated only for data written to DB. Otherwise it
-  // could also be allocated for operational purposes such as commit timestamp
-  // of a transaction.
-  const bool allocate_seq_only_for_data_;
+  // LastSequence also indicates last published sequence visibile to the
+  // readers. Otherwise LastPublishedSequence should be used.
+  const bool last_seq_same_as_publish_seq_;
   // It indicates that a customized gc algorithm must be used for
   // flush/compaction and if it is not provided vis SnapshotChecker, we should
   // disable gc to be safe.

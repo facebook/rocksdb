@@ -1384,9 +1384,9 @@ Status ArenaWrappedDBIter::Refresh() {
     return Status::NotSupported("Creating renew iterator is not allowed.");
   }
   assert(db_iter_ != nullptr);
-  // TODO(yiwu): For allocate_seq_only_for_data_==false, this is not the correct
-  // behavior. Will be corrected automatically when we take a snapshot here for
-  // the case of WritePreparedTxnDB.
+  // TODO(yiwu): For last_seq_same_as_publish_seq_==false, this is not the
+  // correct behavior. Will be corrected automatically when we take a snapshot
+  // here for the case of WritePreparedTxnDB.
   SequenceNumber latest_seq = db_impl_->GetLatestSequenceNumber();
   uint64_t cur_sv_number = cfd_->GetSuperVersionNumber();
   if (sv_number_ != cur_sv_number) {

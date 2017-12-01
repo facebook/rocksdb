@@ -200,6 +200,7 @@ Status ExternalSstFileIngestionJob::Run() {
 
   if (consumed_seqno) {
     versions_->SetLastAllocatedSequence(last_seqno + 1);
+    versions_->SetLastPublishedSequence(last_seqno + 1);
     versions_->SetLastSequence(last_seqno + 1);
   }
 

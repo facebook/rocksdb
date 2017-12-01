@@ -765,12 +765,23 @@ class VersionSet {
     return last_allocated_sequence_.load(std::memory_order_seq_cst);
   }
 
+  // Note: memory_order_acquire must be sufficient.
+  uint64_t LastPublishedSequence() const {
+    return last_published_sequence_.load(std::memory_order_seq_cst);
+  }
+
   // Set the last sequence number to s.
   void SetLastSequence(uint64_t s) {
     assert(s >= last_sequence_);
     // Last visible seqeunce must always be less than last written seq
     assert(!db_options_->two_write_queues || s <= last_allocated_sequence_);
     last_sequence_.store(s, std::memory_order_release);
+  }
+
+  // Note: memory_order_release must be sufficient
+  void SetLastPublishedSequence(uint64_t s) {
+    assert(s >= last_published_sequence_);
+    last_published_sequence_.store(s, std::memory_order_seq_cst);
   }
 
   // Note: memory_order_release must be sufficient
@@ -888,11 +899,21 @@ class VersionSet {
   uint64_t manifest_file_number_;
   uint64_t options_file_number_;
   uint64_t pending_manifest_file_number_;
-  // The last seq visible to reads
+  // The last seq visible to reads. It normally indicates the last sequence in
+  // the memtable but when using two write queues it could also indicate the
+  // last sequence in the WAL visible to reads.
   std::atomic<uint64_t> last_sequence_;
-  // The last seq that is already allocated. The seq might or might not have
-  // appreated in memtable.
+  // The last seq that is already allocated. It is applicable only when we have
+  // two write queues. In that case seq might or might not have appreated in
+  // memtable but it is expected to appear in the WAL.
+  // We have last_sequence <= last_allocated_sequence_
   std::atomic<uint64_t> last_allocated_sequence_;
+  // The last allocated sequence that is also published to the readers. This is
+  // applicable only when last_seq_same_as_publish_seq_ is not set. Otherwise
+  // last_sequence_ also indicates the last published seq.
+  // We have last_sequence <= last_published_seqeunce_ <=
+  // last_allocated_sequence_
+  std::atomic<uint64_t> last_published_sequence_;
   uint64_t prev_log_number_;  // 0 or backing store for memtable being compacted
 
   // Opened lazily
