@@ -227,23 +227,11 @@ EOF
     # check if the namespace is gflags
     $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null << EOF
       #include <gflags/gflags.h>
-      using namespace gflags;
       int main() {}
 EOF
     if [ "$?" = 0 ]; then
-        COMMON_FLAGS="$COMMON_FLAGS -DGFLAGS=gflags"
+        COMMON_FLAGS="$COMMON_FLAGS -DGFLAGS=1"
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
-    else
-      # check if namespace is google
-      $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null << EOF
-        #include <gflags/gflags.h>
-        using namespace google;
-        int main() {}
-EOF
-      if [ "$?" = 0 ]; then
-          COMMON_FLAGS="$COMMON_FLAGS -DGFLAGS=google"
-          PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
-      fi
     fi
 
     # Test whether zlib library is installed
