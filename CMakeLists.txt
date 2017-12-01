@@ -169,7 +169,7 @@ if(PORTABLE)
   # MSVC does not need a separate compiler flag to enable SSE4.2; if nmmintrin.h
   # is available, it is available by default.
   if(FORCE_SSE42 AND NOT MSVC)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -msse4.2")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -msse4.2 -mpclmul")
   endif()
 else()
   if(MSVC)
@@ -181,13 +181,18 @@ endif()
 
 include(CheckCXXSourceCompiles)
 if(NOT MSVC)
-  set(CMAKE_REQUIRED_FLAGS "-msse4.2")
+  set(CMAKE_REQUIRED_FLAGS "-msse4.2 -mpclmul")
 endif()
 CHECK_CXX_SOURCE_COMPILES("
 #include <cstdint>
 #include <nmmintrin.h>
+#include <wmmintrin.h>
 int main() {
   volatile uint32_t x = _mm_crc32_u32(0, 0);
+  const auto a = _mm_set_epi64x(0, 0);
+  const auto b = _mm_set_epi64x(0, 0);
+  const auto c = _mm_clmulepi64_si128(a, b, 0x00);
+  auto d = _mm_cvtsi128_si64(c);
 }
 " HAVE_SSE42)
 unset(CMAKE_REQUIRED_FLAGS)
@@ -564,7 +569,7 @@ if(HAVE_SSE42 AND NOT FORCE_SSE42)
   if(NOT MSVC)
 set_source_files_properties(
   util/crc32c.cc
-      PROPERTIES COMPILE_FLAGS "-msse4.2")
+      PROPERTIES COMPILE_FLAGS "-msse4.2 -mpclmul")
   endif()
 endif()
 
