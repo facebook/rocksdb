@@ -386,15 +386,21 @@ TEST_P(DBTestUniversalCompaction, DynamicUniversalCompactionSizeAmplification) {
   CreateAndReopenWithCF({"pikachu"}, options);
 
   // Trigger compaction if size amplification exceeds 110% without reopening DB
-  ASSERT_EQ(dbfull()->GetOptions(handles_[1]).compaction_options_universal.max_size_amplification_percent,
-      200);
+  ASSERT_EQ(dbfull()
+                ->GetOptions(handles_[1])
+                .compaction_options_universal.max_size_amplification_percent,
+            200);
   ASSERT_OK(dbfull()->SetOptions(handles_[1],
-      {{"compaction_options_universal", "{max_size_amplification_percent=110;}"}}));
-  ASSERT_EQ(dbfull()->GetOptions(handles_[1]).compaction_options_universal.max_size_amplification_percent,
-      110);
+                                 {{"compaction_options_universal",
+                                   "{max_size_amplification_percent=110;}"}}));
+  ASSERT_EQ(dbfull()
+                ->GetOptions(handles_[1])
+                .compaction_options_universal.max_size_amplification_percent,
+            110);
   ASSERT_OK(dbfull()->TEST_GetLatestMutableCFOptions(handles_[1],
-      &mutable_cf_options));
-  ASSERT_EQ(110, mutable_cf_options.compaction_options_universal.max_size_amplification_percent);
+                                                     &mutable_cf_options));
+  ASSERT_EQ(110, mutable_cf_options.compaction_options_universal
+                     .max_size_amplification_percent);
 
   Random rnd(301);
   int key_idx = 0;

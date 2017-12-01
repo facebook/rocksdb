@@ -606,7 +606,8 @@ bool AreEqualOptions(
       if (lhs.size_ratio == rhs.size_ratio &&
           lhs.min_merge_width == rhs.min_merge_width &&
           lhs.max_merge_width == rhs.max_merge_width &&
-          lhs.max_size_amplification_percent == rhs.max_size_amplification_percent &&
+          lhs.max_size_amplification_percent ==
+              rhs.max_size_amplification_percent &&
           lhs.compression_size_percent == rhs.compression_size_percent &&
           lhs.stop_style == rhs.stop_style &&
           lhs.allow_trivial_move == rhs.allow_trivial_move) {

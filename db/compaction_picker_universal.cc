@@ -204,7 +204,8 @@ void UniversalCompactionPicker::SortedRun::DumpSizeInfo(
 
 std::vector<UniversalCompactionPicker::SortedRun>
 UniversalCompactionPicker::CalculateSortedRuns(
-    const VersionStorageInfo& vstorage, const ImmutableCFOptions& ioptions, const MutableCFOptions& mutable_cf_options) {
+    const VersionStorageInfo& vstorage, const ImmutableCFOptions& ioptions,
+    const MutableCFOptions& mutable_cf_options) {
   std::vector<UniversalCompactionPicker::SortedRun> ret;
   for (FileMetaData* f : vstorage.LevelFiles(0)) {
     ret.emplace_back(0, f, f->fd.GetFileSize(), f->compensated_file_size,
@@ -218,7 +219,8 @@ UniversalCompactionPicker::CalculateSortedRuns(
     for (FileMetaData* f : vstorage.LevelFiles(level)) {
       total_compensated_size += f->compensated_file_size;
       total_size += f->fd.GetFileSize();
-      if (mutable_cf_options.compaction_options_universal.allow_trivial_move == true) {
+      if (mutable_cf_options.compaction_options_universal.allow_trivial_move ==
+          true) {
         if (f->being_compacted) {
           being_compacted = f->being_compacted;
         }
@@ -227,7 +229,8 @@ UniversalCompactionPicker::CalculateSortedRuns(
         // non-zero level, all the files should share the same being_compacted
         // value.
         // This assumption is only valid when
-        // mutable_cf_options.compaction_options_universal.allow_trivial_move is false
+        // mutable_cf_options.compaction_options_universal.allow_trivial_move is
+        // false
         assert(is_first || f->being_compacted == being_compacted);
       }
       if (is_first) {
@@ -278,7 +281,8 @@ Compaction* UniversalCompactionPicker::PickCompaction(
   } else {
     // Size amplification is within limits. Try reducing read
     // amplification while maintaining file size ratios.
-    unsigned int ratio = mutable_cf_options.compaction_options_universal.size_ratio;
+    unsigned int ratio =
+        mutable_cf_options.compaction_options_universal.size_ratio;
 
     if ((c = PickCompactionToReduceSortedRuns(
              cf_name, mutable_cf_options, vstorage, score, ratio, UINT_MAX,
@@ -326,7 +330,8 @@ Compaction* UniversalCompactionPicker::PickCompaction(
     return nullptr;
   }
 
-  if (mutable_cf_options.compaction_options_universal.allow_trivial_move == true) {
+  if (mutable_cf_options.compaction_options_universal.allow_trivial_move ==
+      true) {
     c->set_is_trivial_move(IsInputFilesNonOverlapping(c));
   }
 
@@ -380,7 +385,8 @@ Compaction* UniversalCompactionPicker::PickCompaction(
 }
 
 uint32_t UniversalCompactionPicker::GetPathId(
-    const ImmutableCFOptions& ioptions, const MutableCFOptions& mutable_cf_options, uint64_t file_size) {
+    const ImmutableCFOptions& ioptions,
+    const MutableCFOptions& mutable_cf_options, uint64_t file_size) {
   // Two conditions need to be satisfied:
   // (1) the target path needs to be able to hold the file's size
   // (2) Total size left in this and previous paths need to be not
@@ -397,8 +403,8 @@ uint32_t UniversalCompactionPicker::GetPathId(
   // that case. We need to improve it.
   uint64_t accumulated_size = 0;
   uint64_t future_size =
-      file_size * (100 - mutable_cf_options.compaction_options_universal.size_ratio) /
-      100;
+      file_size *
+      (100 - mutable_cf_options.compaction_options_universal.size_ratio) / 100;
   uint32_t p = 0;
   assert(!ioptions.db_paths.empty());
   for (; p < ioptions.db_paths.size() - 1; p++) {
@@ -555,7 +561,8 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSortedRuns(
   for (unsigned int i = 0; i < first_index_after; i++) {
     estimated_total_size += sorted_runs[i].size;
   }
-  uint32_t path_id = GetPathId(ioptions_, mutable_cf_options, estimated_total_size);
+  uint32_t path_id =
+      GetPathId(ioptions_, mutable_cf_options, estimated_total_size);
   int start_level = sorted_runs[start_index].level;
   int output_level;
   if (first_index_after == sorted_runs.size()) {
@@ -620,8 +627,8 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSizeAmp(
     VersionStorageInfo* vstorage, double score,
     const std::vector<SortedRun>& sorted_runs, LogBuffer* log_buffer) {
   // percentage flexibility while reducing size amplification
-  uint64_t ratio =
-      mutable_cf_options.compaction_options_universal.max_size_amplification_percent;
+  uint64_t ratio = mutable_cf_options.compaction_options_universal
+                       .max_size_amplification_percent;
 
   unsigned int candidate_count = 0;
   uint64_t candidate_size = 0;
@@ -699,7 +706,8 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSizeAmp(
   for (size_t loop = start_index; loop < sorted_runs.size(); loop++) {
     estimated_total_size += sorted_runs[loop].size;
   }
-  uint32_t path_id = GetPathId(ioptions_, mutable_cf_options, estimated_total_size);
+  uint32_t path_id =
+      GetPathId(ioptions_, mutable_cf_options, estimated_total_size);
   int start_level = sorted_runs[start_index].level;
 
   std::vector<CompactionInputFiles> inputs(vstorage->num_levels());
