@@ -249,6 +249,13 @@ if(WITH_UBSAN)
   endif()
 endif()
 
+find_package(gflags)
+if(gflags_FOUND)
+  add_definitions(-DGFLAGS=1)
+  include_directories(${gflags_INCLUDE_DIR})
+  list(APPEND THIRDPARTY_LIBS ${gflags_LIBRARIES})
+endif()
+
 find_package(NUMA)
 if(NUMA_FOUND)
   add_definitions(-DNUMA)
