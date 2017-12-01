@@ -18,24 +18,24 @@ int main() {
 #endif
 
 #include <inttypes.h>
-#include <gflags/gflags.h>
 #include <vector>
 #include <string>
 #include <map>
 
-#include "table/meta_blocks.h"
 #include "table/cuckoo_table_builder.h"
-#include "table/cuckoo_table_reader.h"
 #include "table/cuckoo_table_factory.h"
+#include "table/cuckoo_table_reader.h"
 #include "table/get_context.h"
+#include "table/meta_blocks.h"
 #include "util/arena.h"
+#include "util/gflags_compat.h"
 #include "util/random.h"
 #include "util/string_util.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 
-using GFLAGS::ParseCommandLineFlags;
-using GFLAGS::SetUsageMessage;
+using GFLAGS_NAMESPACE::ParseCommandLineFlags;
+using GFLAGS_NAMESPACE::SetUsageMessage;
 
 DEFINE_string(file_dir, "", "Directory where the files will be created"
     " for benchmark. Added for using tmpfs.");
