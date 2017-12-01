@@ -369,7 +369,8 @@ void LDBCommand::OpenDB() {
       if (column_families_.empty()) {
         st = DB::Open(options_, db_path_, &db_);
       } else {
-        st = DB::Open(options_, db_path_, column_families_, &handles_opened, &db_);
+        st = DB::Open(options_, db_path_, column_families_, &handles_opened,
+                      &db_);
       }
     }
   }

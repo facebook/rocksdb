@@ -290,8 +290,24 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
                 WriteOptions woptions;
                 woptions.disableWAL = !enable_WAL;
                 woptions.sync = enable_WAL;
-                Status s = db_impl->WriteWithCallback(
-                    woptions, &write_op.write_batch_, &write_op.callback_);
+                Status s;
+                if (seq_per_batch && two_queues) {
+                  class PublishSeqCallback : public PreReleaseCallback {
+                   public:
+                    PublishSeqCallback(DBImpl* db_impl) : db_impl_(db_impl) {}
+                    virtual Status Callback(SequenceNumber last_seq) {
+                      db_impl_->SetLastPublishedSequence(last_seq);
+                      return Status::OK();
+                    }
+                    DBImpl* db_impl_;
+                  } publish_seq_callback(db_impl);
+                  s = db_impl->WriteImpl(woptions, &write_op.write_batch_,
+                                         &write_op.callback_, nullptr, 0, false,
+                                         nullptr, &publish_seq_callback);
+                } else {
+                  s = db_impl->WriteWithCallback(
+                      woptions, &write_op.write_batch_, &write_op.callback_);
+                }
 
                 if (write_op.callback_.should_fail_) {
                   ASSERT_TRUE(s.IsBusy());

@@ -512,7 +512,7 @@ Status PessimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
     if (tracked_at_seq == kMaxSequenceNumber) {
       // Since we haven't checked a snapshot, we only know this key has not
       // been modified since after we locked it.
-      // Note: when allocate_seq_only_for_data_==false this is less than the
+      // Note: when last_seq_same_as_publish_seq_==false this is less than the
       // latest allocated seq but it is ok since i) this is just a heuristic
       // used only as a hint to avoid actual check for conflicts, ii) this would
       // cause a false positive only if the snapthot is taken right after the

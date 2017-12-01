@@ -144,6 +144,7 @@ class CompactionJobTest : public testing::Test {
 
   void SetLastSequence(const SequenceNumber sequence_number) {
     versions_->SetLastAllocatedSequence(sequence_number + 1);
+    versions_->SetLastPublishedSequence(sequence_number + 1);
     versions_->SetLastSequence(sequence_number + 1);
   }
 
