@@ -201,10 +201,10 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       // memtable is the same as last seq published to the readers. When it is
       // enabled but seq_per_batch_ is disabled, last seq in memtable still
       // indicates last published seq since wal-only writes that go to the 2nd
-      // queue do not consune a sequence number. Otherwise writes performed by
+      // queue do not consume a sequence number. Otherwise writes performed by
       // the 2nd queue could change what is visible to the readers. In this
       // cases, last_seq_same_as_publish_seq_==false, the 2nd queue maintains a
-      // separate variable to indicate teh last published sequence.
+      // separate variable to indicate the last published sequence.
       last_seq_same_as_publish_seq_(
           !(seq_per_batch && options.two_write_queues)),
       // Since seq_per_batch_ is currently set only by WritePreparedTxn which
