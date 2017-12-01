@@ -1517,6 +1517,66 @@ TEST_F(DBCompactionTest, DeleteFileRange) {
   ASSERT_GT(old_num_files, new_num_files);
 }
 
+TEST_F(DBCompactionTest, DeleteFilesRangeIncludeEnd) {
+  const int kNumL0Files = 4;
+  const int kValSize = 4 << 10; // 4KB
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = kNumL0Files;
+  options.target_file_size_base = 1 << 10; // 1KB
+  DestroyAndReopen(options);
+
+  Random rnd1(301);
+  std::string vals1[kNumL0Files];
+  for (int i = 0; i < kNumL0Files; ++i) {
+    vals1[i] = RandomString(&rnd1, kValSize);
+    Put(Key(i), vals1[i]);
+    Put(Key(i + 1), vals1[i]);
+    Flush();
+  }
+  CompactRangeOptions compact_options;
+  ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
+
+  Slice begin1 = Key(0);
+  Slice end1 = Key(kNumL0Files);
+  ASSERT_OK(DeleteFilesInRange(db_, db_->DefaultColumnFamily(), &begin1, &end1));
+
+  int32_t deleted_count1 = 0;
+  for (int32_t i = 0; i <= kNumL0Files; ++i) {
+    ReadOptions roptions;
+    std::string result;
+    Status s = db_->Get(roptions, Key(i), &result);
+    if (s.IsNotFound()) deleted_count1++;
+  }
+
+  Options options2 = CurrentOptions();
+  options2.level0_file_num_compaction_trigger = kNumL0Files;
+  options2.target_file_size_base = 1 << 10; // 1KB
+  DestroyAndReopen(options2);
+
+  Random rnd2(301);
+  std::string vals2[kNumL0Files];
+  for (int i = 0; i < kNumL0Files; ++i) {
+    vals2[i] = RandomString(&rnd2, kValSize);
+    Put(Key(i), vals2[i]);
+    Put(Key(i + 1), vals2[i]);
+    Flush();
+  }
+  ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
+
+  Slice begin2 = Key(0);
+  Slice end2 = Key(kNumL0Files);
+  ASSERT_OK(DeleteFilesInRange(db_, db_->DefaultColumnFamily(), &begin2, &end2, false));
+
+  int32_t deleted_count2 = 0;
+  for (int32_t i = 0; i <= kNumL0Files; ++i) {
+    ReadOptions roptions;
+    std::string result;
+    Status s = db_->Get(roptions, Key(i), &result);
+    if (s.IsNotFound()) deleted_count2++;
+  }
+  ASSERT_LT(deleted_count2, deleted_count1);
+}
+
 TEST_P(DBCompactionTestWithParam, TrivialMoveToLastLevelWithFiles) {
   int32_t trivial_move = 0;
   int32_t non_trivial_move = 0;

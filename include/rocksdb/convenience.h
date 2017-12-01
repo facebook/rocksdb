@@ -328,7 +328,8 @@ void CancelAllBackgroundWork(DB* db, bool wait = false);
 // entirely in the range.
 // Snapshots before the delete might not see the data in the given range.
 Status DeleteFilesInRange(DB* db, ColumnFamilyHandle* column_family,
-                          const Slice* begin, const Slice* end);
+                          const Slice* begin, const Slice* end,
+                          bool include_end = true);
 
 // Verify the checksum of file
 Status VerifySstFileChecksum(const Options& options,

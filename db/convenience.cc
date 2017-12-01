@@ -19,9 +19,9 @@ void CancelAllBackgroundWork(DB* db, bool wait) {
 }
 
 Status DeleteFilesInRange(DB* db, ColumnFamilyHandle* column_family,
-                          const Slice* begin, const Slice* end) {
+                          const Slice* begin, const Slice* end, bool include_end) {
   return (static_cast_with_check<DBImpl, DB>(db->GetRootDB()))
-      ->DeleteFilesInRange(column_family, begin, end);
+      ->DeleteFilesInRange(column_family, begin, end, include_end);
 }
 
 Status VerifySstFileChecksum(const Options& options,
