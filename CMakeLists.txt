@@ -251,7 +251,7 @@ endif()
 
 find_package(gflags)
 if(gflags_FOUND)
-  add_definitions(-DGFLAGS=gflags)
+  add_definitions(-DGFLAGS=1)
   include_directories(${gflags_INCLUDE_DIR})
   list(APPEND THIRDPARTY_LIBS ${gflags_LIBRARIES})
 endif()
