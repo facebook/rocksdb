@@ -57,10 +57,14 @@ Status DBImpl::WriteWithCallback(const WriteOptions& write_options,
 }
 #endif  // ROCKSDB_LITE
 
+// The main write queue. This is the only write queue that updates LastSequence.
+// When using one write queue, the same sequence also indicates the last
+// published sequence.
 Status DBImpl::WriteImpl(const WriteOptions& write_options,
                          WriteBatch* my_batch, WriteCallback* callback,
                          uint64_t* log_used, uint64_t log_ref,
-                         bool disable_memtable, uint64_t* seq_used) {
+                         bool disable_memtable, uint64_t* seq_used,
+                         PreReleaseCallback* pre_release_callback) {
   if (my_batch == nullptr) {
     return Status::Corruption("Batch is nullptr!");
   }
@@ -89,7 +93,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
   if (two_write_queues_ && disable_memtable) {
     return WriteImplWALOnly(write_options, my_batch, callback, log_used,
-                            log_ref, seq_used);
+                            log_ref, seq_used, pre_release_callback);
   }
 
   if (immutable_db_options_.enable_pipelined_write) {
@@ -99,7 +103,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
   WriteThread::Writer w(write_options, my_batch, callback, log_ref,
-                        disable_memtable);
+                        disable_memtable, pre_release_callback);
 
   if (!write_options.disableWAL) {
     RecordTick(stats_, WRITE_WITH_WAL);
@@ -123,6 +127,17 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
     if (write_thread_.CompleteParallelMemTableWriter(&w)) {
       // we're responsible for exit batch group
+      for (auto* writer : *(w.write_group)) {
+        if (!writer->CallbackFailed() && writer->pre_release_callback) {
+          assert(writer->sequence != kMaxSequenceNumber);
+          Status ws = writer->pre_release_callback->Callback(writer->sequence);
+          if (!ws.ok()) {
+            status = ws;
+            break;
+          }
+        }
+      }
+      // TODO(myabandeh): propagate status to write_group
       auto last_sequence = w.write_group->last_sequence;
       versions_->SetLastSequence(last_sequence);
       MemTableInsertStatusCheck(w.status);
@@ -345,6 +360,16 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   }
   if (should_exit_batch_group) {
     if (status.ok()) {
+      for (auto* writer : write_group) {
+        if (!writer->CallbackFailed() && writer->pre_release_callback) {
+          assert(writer->sequence != kMaxSequenceNumber);
+          Status ws = writer->pre_release_callback->Callback(writer->sequence);
+          if (!ws.ok()) {
+            status = ws;
+            break;
+          }
+        }
+      }
       versions_->SetLastSequence(last_sequence);
     }
     MemTableInsertStatusCheck(w.status);
@@ -484,14 +509,18 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
   return w.FinalStatus();
 }
 
+// The 2nd write queue. If enabled it will be used only for WAL-only writes.
+// This is the only queue that updates LastPublishedSequence which is only
+// applicable in a two-queue setting.
 Status DBImpl::WriteImplWALOnly(const WriteOptions& write_options,
                                 WriteBatch* my_batch, WriteCallback* callback,
                                 uint64_t* log_used, uint64_t log_ref,
-                                uint64_t* seq_used) {
+                                uint64_t* seq_used,
+                                PreReleaseCallback* pre_release_callback) {
   Status status;
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
   WriteThread::Writer w(write_options, my_batch, callback, log_ref,
-                        true /* disable_memtable */);
+                        true /* disable_memtable */, pre_release_callback);
   if (write_options.disableWAL) {
     return status;
   }
@@ -576,6 +605,18 @@ Status DBImpl::WriteImplWALOnly(const WriteOptions& write_options,
 
   if (!w.CallbackFailed()) {
     WriteCallbackStatusCheck(status);
+  }
+  if (status.ok()) {
+    for (auto* writer : write_group) {
+      if (!writer->CallbackFailed() && writer->pre_release_callback) {
+        assert(writer->sequence != kMaxSequenceNumber);
+        Status ws = writer->pre_release_callback->Callback(writer->sequence);
+        if (!ws.ok()) {
+          status = ws;
+          break;
+        }
+      }
+    }
   }
   nonmem_write_thread_.ExitAsBatchGroupLeader(write_group, status);
   if (status.ok()) {
@@ -883,13 +924,18 @@ Status DBImpl::WriteRecoverableState() {
       log_write_mutex_.Lock();
     }
     SequenceNumber seq = versions_->LastSequence();
-    WriteBatchInternal::SetSequence(&cached_recoverable_state_, ++seq);
+    WriteBatchInternal::SetSequence(&cached_recoverable_state_, seq + 1);
     auto status = WriteBatchInternal::InsertInto(
         &cached_recoverable_state_, column_family_memtables_.get(),
         &flush_scheduler_, true, 0 /*recovery_log_number*/, this,
         false /* concurrent_memtable_writes */, &next_seq, &dont_care_bool,
         seq_per_batch_);
-    versions_->SetLastSequence(--next_seq);
+    auto last_seq = next_seq - 1;
+    if (two_write_queues_) {
+      versions_->FetchAddLastAllocatedSequence(last_seq - seq);
+    }
+    versions_->SetLastSequence(last_seq);
+    versions_->SetLastPublishedSequence(last_seq);
     if (two_write_queues_) {
       log_write_mutex_.Unlock();
     }

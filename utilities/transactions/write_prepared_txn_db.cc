@@ -283,6 +283,8 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq,
                                       uint64_t commit_seq) {
   ROCKS_LOG_DEBUG(info_log_, "Txn %" PRIu64 " Committing with %" PRIu64,
                   prepare_seq, commit_seq);
+  TEST_SYNC_POINT("WritePreparedTxnDB::AddCommitted:start");
+  TEST_SYNC_POINT("WritePreparedTxnDB::AddCommitted:start:pause");
   auto indexed_seq = prepare_seq % COMMIT_CACHE_SIZE;
   CommitEntry64b evicted_64b;
   CommitEntry evicted;
@@ -319,6 +321,8 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq,
       }
     }
   }
+  TEST_SYNC_POINT("WritePreparedTxnDB::AddCommitted:end");
+  TEST_SYNC_POINT("WritePreparedTxnDB::AddCommitted:end:pause");
 }
 
 bool WritePreparedTxnDB::GetCommitEntry(const uint64_t indexed_seq,

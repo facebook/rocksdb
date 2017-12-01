@@ -731,6 +731,7 @@ class RecoveryTestHelper {
         WriteBatchInternal::SetSequence(&batch, seq);
         current_log_writer->AddRecord(WriteBatchInternal::Contents(&batch));
         versions->SetLastAllocatedSequence(seq);
+        versions->SetLastPublishedSequence(seq);
         versions->SetLastSequence(seq);
       }
     }

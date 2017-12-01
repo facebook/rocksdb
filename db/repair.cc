@@ -549,6 +549,7 @@ class Repairer {
       }
     }
     vset_.SetLastAllocatedSequence(max_sequence);
+    vset_.SetLastPublishedSequence(max_sequence);
     vset_.SetLastSequence(max_sequence);
 
     for (const auto& cf_id_and_tables : cf_id_to_tables) {

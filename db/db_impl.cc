@@ -196,16 +196,17 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       two_write_queues_(options.two_write_queues),
       manual_wal_flush_(options.manual_wal_flush),
       seq_per_batch_(seq_per_batch),
-      // When two_write_queues_ and seq_per_batch_ are both enabled we
-      // sometimes allocate a seq also to indicate the commit timestmamp of a
-      // transaction. In such cases last_sequence_ would not indicate the last
-      // visible sequence number in memtable and should not be used for
-      // snapshots. It should use last_allocated_sequence_ instaed but also
-      // needs other mechanisms to exclude the data that after last_sequence_
-      // and before last_allocated_sequence_ from the snapshot. In
-      // WritePreparedTxn this property is ensured since such data are not
-      // committed yet.
-      allocate_seq_only_for_data_(!(seq_per_batch && options.two_write_queues)),
+      // last_sequencee_ is always maintained by the main queue that also writes
+      // to the memtable. When two_write_queues_ is disabled last seq in
+      // memtable is the same as last seq published to the readers. When it is
+      // enabled but seq_per_batch_ is disabled, last seq in memtable still
+      // indicates last published seq since wal-only writes that go to the 2nd
+      // queue do not consume a sequence number. Otherwise writes performed by
+      // the 2nd queue could change what is visible to the readers. In this
+      // cases, last_seq_same_as_publish_seq_==false, the 2nd queue maintains a
+      // separate variable to indicate the last published sequence.
+      last_seq_same_as_publish_seq_(
+          !(seq_per_batch && options.two_write_queues)),
       // Since seq_per_batch_ is currently set only by WritePreparedTxn which
       // requires a custom gc for compaction, we use that to set use_custom_gc_
       // as well.
@@ -765,8 +766,8 @@ SequenceNumber DBImpl::GetLatestSequenceNumber() const {
   return versions_->LastSequence();
 }
 
-SequenceNumber DBImpl::IncAndFetchSequenceNumber() {
-  return versions_->FetchAddLastAllocatedSequence(1ull) + 1ull;
+void DBImpl::SetLastPublishedSequence(SequenceNumber seq) {
+  versions_->SetLastPublishedSequence(seq);
 }
 
 bool DBImpl::SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) {
@@ -992,8 +993,9 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
     // super versipon because a flush happening in between may compact
     // away data for the snapshot, but the snapshot is earlier than the
     // data overwriting it, so users may see wrong results.
-    snapshot = allocate_seq_only_for_data_ ? versions_->LastSequence()
-                                           : versions_->LastAllocatedSequence();
+    snapshot = last_seq_same_as_publish_seq_
+                   ? versions_->LastSequence()
+                   : versions_->LastPublishedSequence();
   }
   TEST_SYNC_POINT("DBImpl::GetImpl:3");
   TEST_SYNC_POINT("DBImpl::GetImpl:4");
@@ -1084,8 +1086,9 @@ std::vector<Status> DBImpl::MultiGet(
     snapshot = reinterpret_cast<const SnapshotImpl*>(
         read_options.snapshot)->number_;
   } else {
-    snapshot = allocate_seq_only_for_data_ ? versions_->LastSequence()
-                                           : versions_->LastAllocatedSequence();
+    snapshot = last_seq_same_as_publish_seq_
+                   ? versions_->LastSequence()
+                   : versions_->LastPublishedSequence();
   }
   for (auto mgd_iter : multiget_cf_data) {
     mgd_iter.second->super_version =
@@ -1492,7 +1495,7 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
 #endif
   } else {
     // Note: no need to consider the special case of
-    // allocate_seq_only_for_data_==false since NewIterator is overridden in
+    // last_seq_same_as_publish_seq_==false since NewIterator is overridden in
     // WritePreparedTxnDB
     auto snapshot = read_options.snapshot != nullptr
                         ? read_options.snapshot->GetSequenceNumber()
@@ -1610,7 +1613,7 @@ Status DBImpl::NewIterators(
 #endif
   } else {
     // Note: no need to consider the special case of
-    // allocate_seq_only_for_data_==false since NewIterators is overridden in
+    // last_seq_same_as_publish_seq_==false since NewIterators is overridden in
     // WritePreparedTxnDB
     auto snapshot = read_options.snapshot != nullptr
                         ? read_options.snapshot->GetSequenceNumber()
@@ -1645,9 +1648,9 @@ const Snapshot* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary) {
     delete s;
     return nullptr;
   }
-  auto snapshot_seq = allocate_seq_only_for_data_
+  auto snapshot_seq = last_seq_same_as_publish_seq_
                           ? versions_->LastSequence()
-                          : versions_->LastAllocatedSequence();
+                          : versions_->LastPublishedSequence();
   return snapshots_.New(s, snapshot_seq, unix_time, is_write_conflict_boundary);
 }
 
@@ -1658,9 +1661,9 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
     snapshots_.Delete(casted_s);
     uint64_t oldest_snapshot;
     if (snapshots_.empty()) {
-      oldest_snapshot = allocate_seq_only_for_data_
+      oldest_snapshot = last_seq_same_as_publish_seq_
                             ? versions_->LastSequence()
-                            : versions_->LastAllocatedSequence();
+                            : versions_->LastPublishedSequence();
     } else {
       oldest_snapshot = snapshots_.oldest()->number_;
     }
