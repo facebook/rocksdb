@@ -476,6 +476,7 @@ if [ "$?" = 0 ]; then
   COMMON_FLAGS="$COMMON_FLAGS -DHAVE_SSE42"
 elif test "$USE_SSE"; then
   echo "warning: USE_SSE specified but compiler could not use SSE intrinsics, disabling"
+  exit 1
 fi
 
 # iOS doesn't support thread-local storage, but this check would erroneously
