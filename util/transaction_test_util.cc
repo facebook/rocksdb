@@ -48,11 +48,11 @@ bool RandomTransactionInserter::TransactionDBInsert(
   txn_ = db->BeginTransaction(write_options_, txn_options, txn_);
   bool take_snapshot = rand_->OneIn(2);
   if (take_snapshot) {
-    read_options_.snapshot = db->GetSnapshot();
+    txn_->SetSnapshot();
+    read_options_.snapshot = txn_->GetSnapshot();
   }
   auto res = DoInsert(nullptr, txn_, false);
   if (take_snapshot) {
-    db->ReleaseSnapshot(read_options_.snapshot);
     read_options_.snapshot = nullptr;
   }
   return res;
@@ -74,6 +74,7 @@ bool RandomTransactionInserter::DBInsert(DB* db) {
 Status RandomTransactionInserter::DBGet(DB* db, Transaction* txn,
                                         ReadOptions& read_options,
                                         uint16_t set_i, uint64_t ikey,
+                                        bool get_for_update,
                                         uint64_t* int_value,
                                         std::string* full_key,
                                         bool* unexpected_error) {
@@ -90,7 +91,11 @@ Status RandomTransactionInserter::DBGet(DB* db, Transaction* txn,
 
   std::string value;
   if (txn != nullptr) {
-    s = txn->GetForUpdate(read_options, key, &value);
+    if (get_for_update) {
+      s = txn->GetForUpdate(read_options, key, &value);
+    } else {
+      s = txn->Get(read_options, key, &value);
+    }
   } else {
     s = db->Get(read_options, key, &value);
   }
@@ -129,8 +134,9 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
     uint64_t int_value = 0;
     std::string full_key;
     uint64_t rand_key = rand_->Next() % num_keys_;
-    s = DBGet(db, txn, read_options_, set_i, rand_key, &int_value, &full_key,
-              &unexpected_error);
+    const bool get_for_update = txn ? rand_->OneIn(2) : false;
+    s = DBGet(db, txn, read_options_, set_i, rand_key, get_for_update,
+              &int_value, &full_key, &unexpected_error);
     Slice key(full_key);
     if (!s.ok()) {
       // Optimistic transactions should never return non-ok status here.
@@ -148,7 +154,11 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
       std::string sum = ToString(int_value + incr);
       if (txn != nullptr) {
         s = txn->Put(key, sum);
-        if (!s.ok()) {
+        if (!get_for_update && (s.IsBusy() || s.IsTimedOut())) {
+          // If the initial get was not for update, then the key is not locked
+          // before put and put could fail due to concurrent writes.
+          break;
+        } else if (!s.ok()) {
           // Since we did a GetForUpdate, Put should not fail.
           fprintf(stderr, "Put returned an unexpected error: %s\n",
                   s.ToString().c_str());
@@ -172,8 +182,10 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
         // also try commit without prpare
         txn->SetName(name);
         s = txn->Prepare();
+        assert(s.ok());
       }
       s = txn->Commit();
+      assert(s.ok());
 
       if (!s.ok()) {
         if (is_optimistic) {
@@ -256,8 +268,9 @@ Status RandomTransactionInserter::Verify(DB* db, uint16_t num_sets,
         std::string dont_care;
         uint64_t int_value = 0;
         bool unexpected_error = false;
-        Status s = DBGet(db, nullptr, roptions, set_i, k, &int_value,
-                         &dont_care, &unexpected_error);
+        const bool FOR_UPDATE = false;
+        Status s = DBGet(db, nullptr, roptions, set_i, k, FOR_UPDATE,
+                         &int_value, &dont_care, &unexpected_error);
         assert(s.ok());
         assert(!unexpected_error);
         total += int_value;

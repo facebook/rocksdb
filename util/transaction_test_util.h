@@ -70,8 +70,9 @@ class RandomTransactionInserter {
 
   // Get the ikey'th key from set set_i
   static Status DBGet(DB* db, Transaction* txn, ReadOptions& read_options,
-                      uint16_t set_i, uint64_t ikey, uint64_t* int_value,
-                      std::string* full_key, bool* unexpected_error);
+                      uint16_t set_i, uint64_t ikey, bool get_for_update,
+                      uint64_t* int_value, std::string* full_key,
+                      bool* unexpected_error);
 
   // Returns OK if Invariant is true.
   static Status Verify(DB* db, uint16_t num_sets, uint64_t num_keys_per_set = 0,
