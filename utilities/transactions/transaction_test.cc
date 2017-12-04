@@ -4776,6 +4776,9 @@ Status TransactionStressTestInserter(TransactionDB* db,
 // Worker threads add a number to a key from each set of keys. The checker
 // threads verify that the sum of all keys in each set are equal.
 TEST_P(MySQLStyleTransactionTest, TransactionStressTest) {
+  // Small write buffer to trigger more compactions
+  options.write_buffer_size = 1024;
+  ReOpenNoDelete();
   const size_t num_workers = 4;   // worker threads count
   const size_t num_checkers = 2;  // checker threads count
   const size_t num_transactions_per_thread = 10000;

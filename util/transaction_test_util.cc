@@ -71,13 +71,10 @@ bool RandomTransactionInserter::DBInsert(DB* db) {
   return DoInsert(db, nullptr, false);
 }
 
-Status RandomTransactionInserter::DBGet(DB* db, Transaction* txn,
-                                        ReadOptions& read_options,
-                                        uint16_t set_i, uint64_t ikey,
-                                        bool get_for_update,
-                                        uint64_t* int_value,
-                                        std::string* full_key,
-                                        bool* unexpected_error) {
+Status RandomTransactionInserter::DBGet(
+    DB* db, Transaction* txn, ReadOptions& read_options, uint16_t set_i,
+    uint64_t ikey, bool get_for_update, uint64_t* int_value,
+    std::string* full_key, bool* unexpected_error) {
   Status s;
   // four digits and zero end char
   char prefix_buf[5];
@@ -184,7 +181,15 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
         s = txn->Prepare();
         assert(s.ok());
       }
-      s = txn->Commit();
+      // TODO(myabandeh): enable this when WritePreparedTxnDB::RollbackPrepared
+      // is updated to handle in-the-middle rollbacks.
+      if (!rand_->OneIn(0)) {
+        s = txn->Commit();
+      } else {
+        // Also try 5% rollback
+        s = txn->Rollback();
+        assert(s.ok());
+      }
       assert(s.ok());
 
       if (!s.ok()) {
@@ -218,7 +223,7 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
     }
   } else {
     if (txn != nullptr) {
-      txn->Rollback();
+      assert(txn->Rollback().ok());
     }
   }
 
