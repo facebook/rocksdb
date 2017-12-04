@@ -12,6 +12,7 @@
 
 #include <inttypes.h>
 #include <algorithm>
+#include <numeric>
 #include <string>
 #include <thread>
 
@@ -175,7 +176,7 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
       snprintf(name, 64, "txn%zu-%d", hasher(std::this_thread::get_id()),
                txn_id_++);
       assert(strlen(name) < 64 - 1);
-      if (!rand_->OneIn(10)) {
+      if (!is_optimistic && !rand_->OneIn(10)) {
         // also try commit without prpare
         txn->SetName(name);
         s = txn->Prepare();
@@ -190,7 +191,7 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
         s = txn->Rollback();
         assert(s.ok());
       }
-      assert(s.ok());
+      assert(is_optimistic || s.ok());
 
       if (!s.ok()) {
         if (is_optimistic) {
