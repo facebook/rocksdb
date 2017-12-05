@@ -1667,6 +1667,9 @@ class StressTest {
           thread->stats.FinishedSingleOp();
           MutexLock l(thread->shared->GetMutex());
           while (!thread->snapshot_queue.empty()) {
+            // TODO(myabandeh): use of these snapshots for reading tests. we can
+            // do two reads, one when the snapshot is taken and one when it is
+            // removed and check if they are equal.
             db_->ReleaseSnapshot(thread->snapshot_queue.front().second);
             thread->snapshot_queue.pop();
           }
@@ -1813,6 +1816,8 @@ class StressTest {
       if (prob_op >= 0 && prob_op < (int)FLAGS_readpercent) {
         // OPERATION read
         if (!FLAGS_test_batches_snapshots) {
+          // TODO(myabandeh): it is ok (and simpler) not to assign the read
+          // snapshot to use the existing Verify logic
           Status s = db_->Get(read_opts, column_family, key, &from_db);
           if (s.ok()) {
             // found case
@@ -1885,8 +1890,10 @@ class StressTest {
           shared->Put(rand_column_family, rand_key, value_base);
           Status s;
           if (FLAGS_use_merge) {
+            // TODO(myabandeh): use 2PC for txns
             s = db_->Merge(write_opts, column_family, key, v);
           } else {
+            // TODO(myabandeh): use 2PC for txns
             s = db_->Put(write_opts, column_family, key, v);
           }
           if (!s.ok()) {
@@ -1921,6 +1928,7 @@ class StressTest {
           // otherwise.
           if (shared->AllowsOverwrite(rand_column_family, rand_key)) {
             shared->Delete(rand_column_family, rand_key);
+            // TODO(myabandeh): use 2PC for txns
             Status s = db_->Delete(write_opts, column_family, key);
             thread->stats.AddDeletes(1);
             if (!s.ok()) {
@@ -1929,6 +1937,7 @@ class StressTest {
             }
           } else {
             shared->SingleDelete(rand_column_family, rand_key);
+            // TODO(myabandeh): use 2PC for txns
             Status s = db_->SingleDelete(write_opts, column_family, key);
             thread->stats.AddSingleDeletes(1);
             if (!s.ok()) {
@@ -1972,6 +1981,7 @@ class StressTest {
           int covered = shared->DeleteRange(
               rand_column_family, rand_key,
               rand_key + FLAGS_range_deletion_width);
+          // TODO(myabandeh): use 2PC for txns
           Status s = db_->DeleteRange(write_opts, column_family, key, end_key);
           if (!s.ok()) {
             fprintf(stderr, "delete range error: %s\n",
@@ -2382,6 +2392,7 @@ class StressTest {
       options_.listeners.emplace_back(
           new DbStressListener(FLAGS_db, options_.db_paths));
       options_.create_missing_column_families = true;
+      // TODO(myabandeh): open txn db
       s = DB::Open(DBOptions(options_), FLAGS_db, cf_descriptors,
                    &column_families_, &db_);
       assert(!s.ok() || column_families_.size() ==
