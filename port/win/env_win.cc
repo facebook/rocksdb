@@ -252,9 +252,9 @@ Status WinEnvIO::OpenWritableFile(const std::string& fname,
 
   DWORD fileFlags = FILE_ATTRIBUTE_NORMAL;
 
-    if (!local_options.use_os_buffer && !local_options.use_mmap_writes) {
-      fileFlags = FILE_FLAG_NO_BUFFERING | FILE_FLAG_WRITE_THROUGH;
-    }
+  if (!local_options.use_direct_writes && !local_options.use_mmap_writes) {
+    fileFlags = FILE_FLAG_NO_BUFFERING | FILE_FLAG_WRITE_THROUGH;
+  }
 
   // Desired access. We are want to write only here but if we want to memory
   // map
