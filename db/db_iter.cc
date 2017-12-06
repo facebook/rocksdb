@@ -640,6 +640,7 @@ void DBIter::MergeValuesNewToOld() {
           merge_operator_, ikey.user_key, &val, merge_context_.GetOperands(),
           &saved_value_, logger_, statistics_, env_, &pinned_value_, true);
       if (!s.ok()) {
+        valid_ = false;
         status_ = s;
       }
       // iter_ is positioned after put
@@ -677,6 +678,7 @@ void DBIter::MergeValuesNewToOld() {
                                   &saved_value_, logger_, statistics_, env_,
                                   &pinned_value_, true);
   if (!s.ok()) {
+    valid_ = false;
     status_ = s;
   }
 }
@@ -946,8 +948,10 @@ bool DBIter::FindValueForCurrentKey() {
       assert(false);
       break;
   }
-  valid_ = true;
-  if (!s.ok()) {
+  if (s.ok()) {
+    valid_ = true;
+  } else {
+    valid_ = false;
     status_ = s;
   }
   return true;
@@ -1023,8 +1027,10 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
       iter_->Seek(last_key);
       RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);
     }
-    valid_ = true;
-    if (!s.ok()) {
+    if (s.ok()) {
+      valid_ = true;
+    } else {
+      valid_ = false;
       status_ = s;
     }
     return true;
@@ -1035,8 +1041,10 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
                                   &val, merge_context_.GetOperands(),
                                   &saved_value_, logger_, statistics_, env_,
                                   &pinned_value_, true);
-  valid_ = true;
-  if (!s.ok()) {
+  if (s.ok()) {
+    valid_ = true;
+  } else {
+    valid_ = false;
     status_ = s;
   }
   return true;

@@ -4,6 +4,7 @@
 ### New Features
 ### Bug Fixes
 * Fix IOError on WAL write doesn't propagate to write group follower
+* Make iterator invalid on merge error.
 
 ## 5.9.0 (11/1/2017)
 ### Public API Change
