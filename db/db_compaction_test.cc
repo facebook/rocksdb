@@ -1443,7 +1443,9 @@ TEST_F(DBCompactionTest, DeleteFileRangeFileEndpointsOverlapBug) {
   // regression test for #2833: groups of files whose user-keys overlap at the
   // endpoints could be split by `DeleteFilesInRange`. This caused old data to
   // reappear, either because a new version of the key was removed, or a range
-  // deletion was partially dropped.
+  // deletion was partially dropped. It could also cause non-overlapping
+  // invariant to be violated if the files dropped by DeleteFilesInRange were
+  // a subset of files that a range deletion spans.
   const int kNumL0Files = 2;
   const int kValSize = 8 << 10;  // 8KB
   Options options = CurrentOptions();
@@ -1451,14 +1453,24 @@ TEST_F(DBCompactionTest, DeleteFileRangeFileEndpointsOverlapBug) {
   options.target_file_size_base = 1 << 10;  // 1KB
   DestroyAndReopen(options);
 
-  // Desired file contents in L1:
-  // File 1:               1 -> vals[0], 2 -> vals[1]
-  // File 0: 0 -> vals[0], 1 -> vals[1]
-  //
   // The snapshot prevents key 1 from having its old version dropped. The low
   // `target_file_size_base` ensures two keys will be in each output file.
   const Snapshot* snapshot = nullptr;
   Random rnd(301);
+  // The value indicates which flush the key belonged to, which is enough
+  // for us to determine the keys' relative ages. After L0 flushes finish,
+  // files look like:
+  //
+  // File 0: 0 -> vals[0], 1 -> vals[0]
+  // File 1:               1 -> vals[1], 2 -> vals[1]
+  //
+  // Then L0->L1 compaction happens, which outputs keys as follows:
+  //
+  // File 0: 0 -> vals[0], 1 -> vals[1]
+  // File 1:               1 -> vals[0], 2 -> vals[1]
+  //
+  // DeleteFilesInRange shouldn't be allowed to drop just file 0, as that
+  // would cause `1 -> vals[0]` (an older key) to reappear.
   std::string vals[kNumL0Files];
   for (int i = 0; i < kNumL0Files; ++i) {
     vals[i] = RandomString(&rnd, kValSize);
