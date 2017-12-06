@@ -382,6 +382,16 @@ TEST_P(DBTestUniversalCompaction, DynamicUniversalCompactionSizeAmplification) {
   options.target_file_size_base = 32 << 10;  // 32KB
   options.level0_file_num_compaction_trigger = 3;
   DestroyAndReopen(options);
+
+  int total_picked_compactions = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "UniversalCompactionPicker::PickCompaction:Return", [&](void* arg) {
+        if (arg) {
+          total_picked_compactions++;
+        }
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
   MutableCFOptions mutable_cf_options;
   CreateAndReopenWithCF({"pikachu"}, options);
 
@@ -427,6 +437,7 @@ TEST_P(DBTestUniversalCompaction, DynamicUniversalCompactionSizeAmplification) {
 
   // Verify that size amplification did occur
   ASSERT_EQ(NumSortedRuns(1), 1);
+  ASSERT_EQ(total_picked_compactions, 1);
 }
 
 TEST_P(DBTestUniversalCompaction, CompactFilesOnUniversalCompaction) {
