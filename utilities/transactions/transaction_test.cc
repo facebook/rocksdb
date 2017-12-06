@@ -44,6 +44,7 @@ INSTANTIATE_TEST_CASE_P(
     DBAsBaseDB, TransactionTest,
     ::testing::Values(std::make_tuple(false, false, WRITE_COMMITTED),
                       std::make_tuple(false, true, WRITE_COMMITTED),
+                      std::make_tuple(false, false, WRITE_PREPARED),
                       std::make_tuple(false, true, WRITE_PREPARED)));
 INSTANTIATE_TEST_CASE_P(
     StackableDBAsBaseDB, TransactionTest,
@@ -832,7 +833,7 @@ TEST_P(TransactionTest, SimpleTwoPhaseTransactionTest) {
     s = txn->Commit();
     ASSERT_EQ(s, Status::InvalidArgument());
 
-    // no longer is prpared results
+    // no longer is prepared results
     db->GetAllPreparedTransactions(&prepared_trans);
     ASSERT_EQ(prepared_trans.size(), 0);
     ASSERT_EQ(db->GetTransactionByName("xid"), nullptr);
@@ -1189,7 +1190,7 @@ TEST_P(TransactionTest, PersistentTwoPhaseTransactionTest) {
   s = txn->Commit();
   ASSERT_EQ(s, Status::InvalidArgument());
 
-  // no longer is prpared results
+  // no longer is prepared results
   prepared_trans.clear();
   db->GetAllPreparedTransactions(&prepared_trans);
   ASSERT_EQ(prepared_trans.size(), 0);
@@ -4772,34 +4773,55 @@ Status TransactionStressTestInserter(TransactionDB* db,
 }
 }  // namespace
 
+// Worker threads add a number to a key from each set of keys. The checker
+// threads verify that the sum of all keys in each set are equal.
 TEST_P(MySQLStyleTransactionTest, TransactionStressTest) {
-  const size_t num_threads = 4;
+  // Small write buffer to trigger more compactions
+  options.write_buffer_size = 1024;
+  ReOpenNoDelete();
+  const size_t num_workers = 4;   // worker threads count
+  const size_t num_checkers = 2;  // checker threads count
   const size_t num_transactions_per_thread = 10000;
-  const size_t num_sets = 3;
+  const uint16_t num_sets = 3;
   const size_t num_keys_per_set = 100;
   // Setting the key-space to be 100 keys should cause enough write-conflicts
   // to make this test interesting.
 
   std::vector<port::Thread> threads;
+  std::atomic<uint32_t> finished = {0};
+  bool TAKE_SNAPSHOT = true;
 
   std::function<void()> call_inserter = [&] {
     ASSERT_OK(TransactionStressTestInserter(db, num_transactions_per_thread,
                                             num_sets, num_keys_per_set));
+    finished++;
+  };
+  std::function<void()> call_checker = [&] {
+    size_t seed = std::hash<std::thread::id>()(std::this_thread::get_id());
+    Random64 rand(seed);
+    // Verify that data is consistent
+    while (finished < num_workers) {
+      Status s = RandomTransactionInserter::Verify(
+          db, num_sets, num_keys_per_set, TAKE_SNAPSHOT, &rand);
+      ASSERT_OK(s);
+    }
   };
 
-  // Create N threads that use RandomTransactionInserter to write
-  // many transactions.
-  for (uint32_t i = 0; i < num_threads; i++) {
+  for (uint32_t i = 0; i < num_workers; i++) {
     threads.emplace_back(call_inserter);
   }
+  for (uint32_t i = 0; i < num_checkers; i++) {
+    threads.emplace_back(call_checker);
+  }
 
-  // Wait for all threads to run
+  // Wait for all threads to finish
   for (auto& t : threads) {
     t.join();
   }
 
   // Verify that data is consistent
-  Status s = RandomTransactionInserter::Verify(db, num_sets);
+  Status s = RandomTransactionInserter::Verify(db, num_sets, num_keys_per_set,
+                                               !TAKE_SNAPSHOT);
   ASSERT_OK(s);
 }
 

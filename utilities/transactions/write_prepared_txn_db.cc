@@ -168,6 +168,10 @@ void WritePreparedTxnDB::Init(const TransactionDBOptions& /* unused */) {
       new std::atomic<CommitEntry64b>[COMMIT_CACHE_SIZE] {});
 }
 
+#define ROCKSDB_LOG_DETAILS(LGR, FMT, ...) \
+  ;  // due to overhead by default skip such lines
+// ROCKS_LOG_DEBUG(LGR, FMT, ##__VA_ARGS__)
+
 // Returns true if commit_seq <= snapshot_seq
 bool WritePreparedTxnDB::IsInSnapshot(uint64_t prep_seq,
                                       uint64_t snapshot_seq) const {
@@ -179,10 +183,16 @@ bool WritePreparedTxnDB::IsInSnapshot(uint64_t prep_seq,
   if (prep_seq == 0) {
     // Compaction will output keys to bottom-level with sequence number 0 if
     // it is visible to the earliest snapshot.
+    ROCKSDB_LOG_DETAILS(
+        info_log_, "IsInSnapshot %" PRIu64 " in %" PRIu64 " returns %" PRId32,
+        prep_seq, snapshot_seq, 1);
     return true;
   }
   if (snapshot_seq < prep_seq) {
     // snapshot_seq < prep_seq <= commit_seq => snapshot_seq < commit_seq
+    ROCKSDB_LOG_DETAILS(
+        info_log_, "IsInSnapshot %" PRIu64 " in %" PRIu64 " returns %" PRId32,
+        prep_seq, snapshot_seq, 0);
     return false;
   }
   if (!delayed_prepared_empty_.load(std::memory_order_acquire)) {
@@ -190,6 +200,9 @@ bool WritePreparedTxnDB::IsInSnapshot(uint64_t prep_seq,
     ReadLock rl(&prepared_mutex_);
     if (delayed_prepared_.find(prep_seq) != delayed_prepared_.end()) {
       // Then it is not committed yet
+      ROCKSDB_LOG_DETAILS(
+          info_log_, "IsInSnapshot %" PRIu64 " in %" PRIu64 " returns %" PRId32,
+          prep_seq, snapshot_seq, 0);
       return false;
     }
   }
@@ -199,6 +212,9 @@ bool WritePreparedTxnDB::IsInSnapshot(uint64_t prep_seq,
   bool exist = GetCommitEntry(indexed_seq, &dont_care, &cached);
   if (exist && prep_seq == cached.prep_seq) {
     // It is committed and also not evicted from commit cache
+    ROCKSDB_LOG_DETAILS(
+        info_log_, "IsInSnapshot %" PRIu64 " in %" PRIu64 " returns %" PRId32,
+        prep_seq, snapshot_seq, cached.commit_seq <= snapshot_seq);
     return cached.commit_seq <= snapshot_seq;
   }
   // else it could be committed but not inserted in the map which could happen
@@ -209,6 +225,9 @@ bool WritePreparedTxnDB::IsInSnapshot(uint64_t prep_seq,
   auto max_evicted_seq = max_evicted_seq_.load(std::memory_order_acquire);
   if (max_evicted_seq < prep_seq) {
     // Not evicted from cache and also not present, so must be still prepared
+    ROCKSDB_LOG_DETAILS(
+        info_log_, "IsInSnapshot %" PRIu64 " in %" PRIu64 " returns %" PRId32,
+        prep_seq, snapshot_seq, 0);
     return false;
   }
   // When advancing max_evicted_seq_, we move older entires from prepared to
@@ -221,12 +240,18 @@ bool WritePreparedTxnDB::IsInSnapshot(uint64_t prep_seq,
     // only (iii) is the case: committed
     // commit_seq <= max_evicted_seq_ < snapshot_seq => commit_seq <
     // snapshot_seq
+    ROCKSDB_LOG_DETAILS(
+        info_log_, "IsInSnapshot %" PRIu64 " in %" PRIu64 " returns %" PRId32,
+        prep_seq, snapshot_seq, 1);
     return true;
   }
   // else (ii) might be the case: check the commit data saved for this snapshot.
   // If there was no overlapping commit entry, then it is committed with a
   // commit_seq lower than any live snapshot, including snapshot_seq.
   if (old_commit_map_empty_.load(std::memory_order_acquire)) {
+    ROCKSDB_LOG_DETAILS(
+        info_log_, "IsInSnapshot %" PRIu64 " in %" PRIu64 " returns %" PRId32,
+        prep_seq, snapshot_seq, 1);
     return true;
   }
   {
@@ -236,15 +261,21 @@ bool WritePreparedTxnDB::IsInSnapshot(uint64_t prep_seq,
     auto old_commit_entry = old_commit_map_.find(prep_seq);
     if (old_commit_entry == old_commit_map_.end() ||
         old_commit_entry->second <= snapshot_seq) {
+      ROCKSDB_LOG_DETAILS(
+          info_log_, "IsInSnapshot %" PRIu64 " in %" PRIu64 " returns %" PRId32,
+          prep_seq, snapshot_seq, 1);
       return true;
     }
   }
   // (ii) it the case: it is committed but after the snapshot_seq
+  ROCKSDB_LOG_DETAILS(
+      info_log_, "IsInSnapshot %" PRIu64 " in %" PRIu64 " returns %" PRId32,
+      prep_seq, snapshot_seq, 0);
   return false;
 }
 
 void WritePreparedTxnDB::AddPrepared(uint64_t seq) {
-  ROCKS_LOG_DEBUG(info_log_, "Txn %" PRIu64 " Prepareing", seq);
+  ROCKSDB_LOG_DETAILS(info_log_, "Txn %" PRIu64 " Prepareing", seq);
   // TODO(myabandeh): Add a runtime check to ensure the following assert.
   assert(seq > max_evicted_seq_);
   WriteLock wl(&prepared_mutex_);
@@ -253,7 +284,7 @@ void WritePreparedTxnDB::AddPrepared(uint64_t seq) {
 
 void WritePreparedTxnDB::RollbackPrepared(uint64_t prep_seq,
                                           uint64_t rollback_seq) {
-  ROCKS_LOG_DEBUG(
+  ROCKSDB_LOG_DETAILS(
       info_log_, "Txn %" PRIu64 " rolling back with rollback seq of " PRIu64 "",
       prep_seq, rollback_seq);
   std::vector<SequenceNumber> snapshots =
@@ -281,8 +312,8 @@ void WritePreparedTxnDB::RollbackPrepared(uint64_t prep_seq,
 
 void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq,
                                       uint64_t commit_seq) {
-  ROCKS_LOG_DEBUG(info_log_, "Txn %" PRIu64 " Committing with %" PRIu64,
-                  prepare_seq, commit_seq);
+  ROCKSDB_LOG_DETAILS(info_log_, "Txn %" PRIu64 " Committing with %" PRIu64,
+                      prepare_seq, commit_seq);
   TEST_SYNC_POINT("WritePreparedTxnDB::AddCommitted:start");
   TEST_SYNC_POINT("WritePreparedTxnDB::AddCommitted:start:pause");
   auto indexed_seq = prepare_seq % COMMIT_CACHE_SIZE;
