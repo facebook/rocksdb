@@ -24,7 +24,6 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string>
 #include <sys/types.h>
 #include <atomic>
 #include <condition_variable>
@@ -2726,7 +2725,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
   void Crc32c(ThreadState* thread) {
     // Checksum about 500MB of data total
     const int size = FLAGS_block_size; // use --block_size option for db_bench
-    std::string labels = "(" + std::to_string(FLAGS_block_size) + " per op)";
+    std::string labels = "(" + ToString(FLAGS_block_size) + " per op)";
     const char* label = labels.c_str();
 
     std::string data(size, 'x');

@@ -419,7 +419,7 @@ static bool isPCLMULQDQ() {
 #elif defined(__GNUC__) && defined(__x86_64__) && !defined(IOS_CROSS_COMPILE)
   uint32_t c_;
   __asm__("cpuid" : "=c"(c_) : "a"(1) : "ebx", "edx");
-  return c_ & (1U << 1);  // PCLMULQDQ is in bit 1
+  return c_ & (1U << 1);  // PCLMULQDQ is in bit 1 (not bit 0)
 #elif defined(_WIN64)
   int info[4];
   __cpuidex(info, 0x00000001, 0);
@@ -1029,27 +1029,19 @@ static inline Function Choose_Extend() {
 #ifndef HAVE_POWER8
   if (isSSE42()) {
     if (isPCLMULQDQ()) {
-#ifndef NO_THREEWAY_CRC32C  // should use crc32c_3way when possible
-
-#ifdef HAVE_SSE42  // crc32c_3way was defined under HAVE_SSE42
+#if defined HAVE_SSE42  && defined HAVE_PCLMUL && !defined NO_THREEWAY_CRC32C 
       return crc32c_3way;
-#else  // not defined HAVE_SSE42
-      return ExtendImpl<Fast_CRC32>;
-#endif  // HAVE_SSE42
-
-#else  // defined NO_THREEWAY_CRC32C, should use Fast_CRC32 when possible
-    return ExtendImpl<Fast_CRC32>;
-#endif // NO_THREEWAY_CRC32C
-
-    }  // end isPCLMULQDQ()
-    else {  // PCLMULQDQ not supported during run time
+#else
+    return ExtendImpl<Fast_CRC32>; // Fast_CRC32 will check HAVE_SSE42 itself
+#endif
+    }
+    else {  // no runtime PCLMULQDQ support but has SSE42 support
       return ExtendImpl<Fast_CRC32>;
     }
-  }  // end isSSE42()
+  } // end of isSSE42()
   else {
     return ExtendImpl<Slow_CRC32>;
   }
-
 #else  //HAVE_POWER8
   return isAltiVec() ? ExtendPPCImpl : ExtendImpl<Slow_CRC32>;
 #endif
