@@ -17,7 +17,7 @@ class PinnedIteratorsManager;
 
 class InternalIterator : public Cleanable {
  public:
-  InternalIterator() {}
+  InternalIterator() : filtered_out_(false) {}
   virtual ~InternalIterator() {}
 
   // An iterator is either positioned at a key/value pair, or
@@ -69,6 +69,8 @@ class InternalIterator : public Cleanable {
   // satisfied without doing some IO, then this returns Status::Incomplete().
   virtual Status status() const = 0;
 
+  bool filtered_out() const { return filtered_out_; }
+
   // Pass the PinnedIteratorsManager to the Iterator, most Iterators dont
   // communicate with PinnedIteratorsManager so default implementation is no-op
   // but for Iterators that need to communicate with PinnedIteratorsManager
@@ -105,6 +107,8 @@ class InternalIterator : public Cleanable {
       Prev();
     }
   }
+
+  bool filtered_out_;
 
  private:
   // No copying allowed
