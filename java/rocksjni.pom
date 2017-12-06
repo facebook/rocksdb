@@ -10,13 +10,18 @@
     <artifactId>rocksdbjni</artifactId>
     <!-- Version will be automatically replaced -->
     <version>-</version>
-    <description>RocksDB fat jar that contains .so files for linux32 and linux64, and jnilib files
-        for Mac OSX.
+    <description>RocksDB fat jar that contains .so files for linux32 and linux64, jnilib files
+        for Mac OSX, and a .dll for Windows x64.
     </description>
     <licenses>
         <license>
             <name>Apache License 2.0</name>
             <url>http://www.apache.org/licenses/LICENSE-2.0.html</url>
+            <distribution>repo</distribution>
+        </license>
+        <license>
+            <name>GNU General Public License, version 2</name>
+            <url>http://www.gnu.org/licenses/gpl-2.0.html</url>
             <distribution>repo</distribution>
         </license>
     </licenses>
@@ -102,7 +107,7 @@
                                 <name>Xenu</name>
                             </defaults>
                             <source>
-                                String fileContents = new File("${project.basedir}/../include/rocksdb/version.h").getText('UTF-8')
+                                String fileContents = new File(project.basedir.absolutePath + '/../include/rocksdb/version.h').getText('UTF-8')
                                 matcher = (fileContents =~ /(?s).*ROCKSDB_MAJOR ([0-9]+).*?/)
                                 String major_version = matcher.getAt(0).getAt(1)
                                 matcher = (fileContents =~ /(?s).*ROCKSDB_MINOR ([0-9]+).*?/)

@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef ROCKSDB_LITE
 
@@ -24,10 +24,10 @@ class Statistics;
 
 Status ReadableWriteBatch::GetEntryFromDataOffset(size_t data_offset,
                                                   WriteType* type, Slice* Key,
-                                                  Slice* value,
-                                                  Slice* blob) const {
+                                                  Slice* value, Slice* blob,
+                                                  Slice* xid) const {
   if (type == nullptr || Key == nullptr || value == nullptr ||
-      blob == nullptr) {
+      blob == nullptr || xid == nullptr) {
     return Status::InvalidArgument("Output parameters cannot be null");
   }
 
@@ -42,8 +42,8 @@ Status ReadableWriteBatch::GetEntryFromDataOffset(size_t data_offset,
   Slice input = Slice(rep_.data() + data_offset, rep_.size() - data_offset);
   char tag;
   uint32_t column_family;
-  Status s =
-      ReadRecordFromWriteBatch(&input, &tag, &column_family, Key, value, blob);
+  Status s = ReadRecordFromWriteBatch(&input, &tag, &column_family, Key, value,
+                                      blob, xid);
 
   switch (tag) {
     case kTypeColumnFamilyValue:
@@ -58,6 +58,10 @@ Status ReadableWriteBatch::GetEntryFromDataOffset(size_t data_offset,
     case kTypeSingleDeletion:
       *type = kSingleDeleteRecord;
       break;
+    case kTypeColumnFamilyRangeDeletion:
+    case kTypeRangeDeletion:
+      *type = kDeleteRangeRecord;
+      break;
     case kTypeColumnFamilyMerge:
     case kTypeMerge:
       *type = kMergeRecord;
@@ -65,8 +69,17 @@ Status ReadableWriteBatch::GetEntryFromDataOffset(size_t data_offset,
     case kTypeLogData:
       *type = kLogDataRecord;
       break;
+    case kTypeNoop:
+    case kTypeBeginPrepareXID:
+    case kTypeBeginPersistedPrepareXID:
+    case kTypeEndPrepareXID:
+    case kTypeCommitXID:
+    case kTypeRollbackXID:
+      *type = kXIDRecord;
+      break;
     default:
-      return Status::Corruption("unknown WriteBatch tag");
+      return Status::Corruption("unknown WriteBatch tag ",
+                                ToString(static_cast<unsigned int>(tag)));
   }
   return Status::OK();
 }
@@ -86,27 +99,16 @@ int WriteBatchEntryComparator::operator()(
     return 1;
   }
 
-  Status s;
   Slice key1, key2;
   if (entry1->search_key == nullptr) {
-    Slice value, blob;
-    WriteType write_type;
-    s = write_batch_->GetEntryFromDataOffset(entry1->offset, &write_type, &key1,
-                                             &value, &blob);
-    if (!s.ok()) {
-      return 1;
-    }
+    key1 = Slice(write_batch_->Data().data() + entry1->key_offset,
+                 entry1->key_size);
   } else {
     key1 = *(entry1->search_key);
   }
   if (entry2->search_key == nullptr) {
-    Slice value, blob;
-    WriteType write_type;
-    s = write_batch_->GetEntryFromDataOffset(entry2->offset, &write_type, &key2,
-                                             &value, &blob);
-    if (!s.ok()) {
-      return -1;
-    }
+    key2 = Slice(write_batch_->Data().data() + entry2->key_offset,
+                 entry2->key_size);
   } else {
     key2 = *(entry2->search_key);
   }
@@ -125,16 +127,16 @@ int WriteBatchEntryComparator::operator()(
 int WriteBatchEntryComparator::CompareKey(uint32_t column_family,
                                           const Slice& key1,
                                           const Slice& key2) const {
-  auto comparator_for_cf = cf_comparator_map_.find(column_family);
-  if (comparator_for_cf != cf_comparator_map_.end()) {
-    return comparator_for_cf->second->Compare(key1, key2);
+  if (column_family < cf_comparators_.size() &&
+      cf_comparators_[column_family] != nullptr) {
+    return cf_comparators_[column_family]->Compare(key1, key2);
   } else {
     return default_comparator_->Compare(key1, key2);
   }
 }
 
 WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
-    const DBOptions& options, WriteBatchWithIndex* batch,
+    const ImmutableDBOptions& immuable_db_options, WriteBatchWithIndex* batch,
     ColumnFamilyHandle* column_family, const Slice& key,
     MergeContext* merge_context, WriteBatchEntryComparator* cmp,
     std::string* value, bool overwrite_key, Status* s) {
@@ -151,7 +153,7 @@ WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
   // TODO(agiardullo): consider adding support for reverse iteration
   iter->Seek(key);
   while (iter->Valid()) {
-    const WriteEntry& entry = iter->Entry();
+    const WriteEntry entry = iter->Entry();
     if (cmp->CompareKey(cf_id, entry.key, key) != 0) {
       break;
     }
@@ -170,9 +172,9 @@ WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
     iter->Prev();
   }
 
-  const Slice* entry_value = nullptr;
+  Slice entry_value;
   while (iter->Valid()) {
-    const WriteEntry& entry = iter->Entry();
+    const WriteEntry entry = iter->Entry();
     if (cmp->CompareKey(cf_id, entry.key, key) != 0) {
       // Unexpected error or we've reached a different next key
       break;
@@ -181,7 +183,7 @@ WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
     switch (entry.type) {
       case kPutRecord: {
         result = WriteBatchWithIndexInternal::Result::kFound;
-        entry_value = &entry.value;
+        entry_value = entry.value;
         break;
       }
       case kMergeRecord: {
@@ -194,7 +196,8 @@ WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
         result = WriteBatchWithIndexInternal::Result::kDeleted;
         break;
       }
-      case kLogDataRecord: {
+      case kLogDataRecord:
+      case kXIDRecord: {
         // ignore
         break;
       }
@@ -237,13 +240,17 @@ WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
           result = WriteBatchWithIndexInternal::Result::kError;
           return result;
         }
-        Statistics* statistics = options.statistics.get();
-        Env* env = options.env;
-        Logger* logger = options.info_log.get();
+        Statistics* statistics = immuable_db_options.statistics.get();
+        Env* env = immuable_db_options.env;
+        Logger* logger = immuable_db_options.info_log.get();
 
-        *s = MergeHelper::TimedFullMerge(
-            key, entry_value, merge_context->GetOperands(), merge_operator,
-            statistics, env, logger, value);
+        if (merge_operator) {
+          *s = MergeHelper::TimedFullMerge(merge_operator, key, &entry_value,
+                                           merge_context->GetOperands(), value,
+                                           logger, statistics, env);
+        } else {
+          *s = Status::InvalidArgument("Options::merge_operator must be set");
+        }
         if ((*s).ok()) {
           result = WriteBatchWithIndexInternal::Result::kFound;
         } else {
@@ -251,7 +258,7 @@ WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
         }
       } else {  // nothing to merge
         if (result == WriteBatchWithIndexInternal::Result::kFound) {  // PUT
-          value->assign(entry_value->data(), entry_value->size());
+          value->assign(entry_value.data(), entry_value.size());
         }
       }
     }

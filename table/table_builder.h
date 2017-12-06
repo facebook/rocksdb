@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -14,10 +14,10 @@
 #include <utility>
 #include <vector>
 #include "db/table_properties_collector.h"
+#include "options/cf_options.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table_properties.h"
 #include "util/file_reader_writer.h"
-#include "util/mutable_cf_options.h"
 
 namespace rocksdb {
 
@@ -29,17 +29,20 @@ struct TableReaderOptions {
   TableReaderOptions(const ImmutableCFOptions& _ioptions,
                      const EnvOptions& _env_options,
                      const InternalKeyComparator& _internal_comparator,
-                     bool _skip_filters = false)
+                     bool _skip_filters = false, int _level = -1)
       : ioptions(_ioptions),
         env_options(_env_options),
         internal_comparator(_internal_comparator),
-        skip_filters(_skip_filters) {}
+        skip_filters(_skip_filters),
+        level(_level) {}
 
   const ImmutableCFOptions& ioptions;
   const EnvOptions& env_options;
   const InternalKeyComparator& internal_comparator;
   // This is only used for BlockBasedTable (reader)
   bool skip_filters;
+  // what level this table/file is on, -1 for "not set, don't know"
+  int level;
 };
 
 struct TableBuilderOptions {
@@ -49,21 +52,34 @@ struct TableBuilderOptions {
       const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
           _int_tbl_prop_collector_factories,
       CompressionType _compression_type,
-      const CompressionOptions& _compression_opts, bool _skip_filters)
+      const CompressionOptions& _compression_opts,
+      const std::string* _compression_dict, bool _skip_filters,
+      const std::string& _column_family_name, int _level,
+      const uint64_t _creation_time = 0, const int64_t _oldest_key_time = 0)
       : ioptions(_ioptions),
         internal_comparator(_internal_comparator),
         int_tbl_prop_collector_factories(_int_tbl_prop_collector_factories),
         compression_type(_compression_type),
         compression_opts(_compression_opts),
-        skip_filters(_skip_filters) {}
+        compression_dict(_compression_dict),
+        skip_filters(_skip_filters),
+        column_family_name(_column_family_name),
+        level(_level),
+        creation_time(_creation_time),
+        oldest_key_time(_oldest_key_time) {}
   const ImmutableCFOptions& ioptions;
   const InternalKeyComparator& internal_comparator;
   const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
       int_tbl_prop_collector_factories;
   CompressionType compression_type;
   const CompressionOptions& compression_opts;
-  // This is only used for BlockBasedTableBuilder
-  bool skip_filters = false;
+  // Data for presetting the compression library's dictionary, or nullptr.
+  const std::string* compression_dict;
+  bool skip_filters;  // only used by BlockBasedTableBuilder
+  const std::string& column_family_name;
+  int level; // what level this table/file is on, -1 for "not set, don't know"
+  const uint64_t creation_time;
+  const int64_t oldest_key_time;
 };
 
 // TableBuilder provides the interface used to build a Table

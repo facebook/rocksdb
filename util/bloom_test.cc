@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2012 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -15,16 +15,17 @@ int main() {
 }
 #else
 
-#include <gflags/gflags.h>
 #include <vector>
 
 #include "rocksdb/filter_policy.h"
+#include "table/full_filter_bits_builder.h"
+#include "util/arena.h"
+#include "util/gflags_compat.h"
 #include "util/logging.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
-#include "util/arena.h"
 
-using GFLAGS::ParseCommandLineFlags;
+using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 
 DEFINE_int32(bits_per_key, 10, "");
 
@@ -33,7 +34,9 @@ namespace rocksdb {
 static const int kVerbose = 1;
 
 static Slice Key(int i, char* buffer) {
-  memcpy(buffer, &i, sizeof(i));
+  std::string s;
+  PutFixed32(&s, static_cast<uint32_t>(i));
+  memcpy(buffer, s.c_str(), sizeof(i));
   return Slice(buffer, sizeof(i));
 }
 
@@ -193,6 +196,10 @@ class FullBloomTest : public testing::Test {
     delete policy_;
   }
 
+  FullFilterBitsBuilder* GetFullFilterBitsBuilder() {
+    return dynamic_cast<FullFilterBitsBuilder*>(bits_builder_.get());
+  }
+
   void Reset() {
     bits_builder_.reset(policy_->GetFilterBitsBuilder());
     bits_reader_.reset(nullptr);
@@ -232,6 +239,19 @@ class FullBloomTest : public testing::Test {
     return result / 10000.0;
   }
 };
+
+TEST_F(FullBloomTest, FilterSize) {
+  uint32_t dont_care1, dont_care2;
+  auto full_bits_builder = GetFullFilterBitsBuilder();
+  for (int n = 1; n < 100; n++) {
+    auto space = full_bits_builder->CalculateSpace(n, &dont_care1, &dont_care2);
+    auto n2 = full_bits_builder->CalculateNumEntry(space);
+    ASSERT_GE(n2, n);
+    auto space2 =
+        full_bits_builder->CalculateSpace(n2, &dont_care1, &dont_care2);
+    ASSERT_EQ(space, space2);
+  }
+}
 
 TEST_F(FullBloomTest, FullEmptyFilter) {
   // Empty filter is not match, at this level

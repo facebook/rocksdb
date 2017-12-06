@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
@@ -17,7 +17,6 @@ int main() {
 // Block forward_iterator_bench under MAC and Windows
 int main() { return 0; }
 #else
-#include <gflags/gflags.h>
 #include <semaphore.h>
 #include <atomic>
 #include <bitset>
@@ -30,10 +29,12 @@ int main() { return 0; }
 #include <random>
 #include <thread>
 
+#include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
+#include "util/gflags_compat.h"
 #include "util/testharness.h"
 
 const int MAX_SHARDS = 100000;
@@ -94,7 +95,7 @@ struct Reader {
   explicit Reader(std::vector<ShardState>* shard_states, rocksdb::DB* db)
       : shard_states_(shard_states), db_(db) {
     sem_init(&sem_, 0, 0);
-    thread_ = std::thread(&Reader::run, this);
+    thread_ = port::Thread(&Reader::run, this);
   }
 
   void run() {
@@ -193,7 +194,7 @@ struct Reader {
   char pad1[128] __attribute__((__unused__));
   std::vector<ShardState>* shard_states_;
   rocksdb::DB* db_;
-  std::thread thread_;
+  rocksdb::port::Thread thread_;
   sem_t sem_;
   std::mutex queue_mutex_;
   std::bitset<MAX_SHARDS + 1> shards_pending_set_;
@@ -206,7 +207,7 @@ struct Writer {
   explicit Writer(std::vector<ShardState>* shard_states, rocksdb::DB* db)
       : shard_states_(shard_states), db_(db) {}
 
-  void start() { thread_ = std::thread(&Writer::run, this); }
+  void start() { thread_ = port::Thread(&Writer::run, this); }
 
   void run() {
     std::queue<std::chrono::steady_clock::time_point> workq;
@@ -263,7 +264,7 @@ struct Writer {
   char pad1[128] __attribute__((__unused__));
   std::vector<ShardState>* shard_states_;
   rocksdb::DB* db_;
-  std::thread thread_;
+  rocksdb::port::Thread thread_;
   char pad2[128] __attribute__((__unused__));
 };
 
@@ -313,12 +314,12 @@ struct StatsThread {
   rocksdb::DB* db_;
   std::mutex cvm_;
   std::condition_variable cv_;
-  std::thread thread_;
+  rocksdb::port::Thread thread_;
   std::atomic<bool> done_{false};
 };
 
 int main(int argc, char** argv) {
-  GFLAGS::ParseCommandLineFlags(&argc, &argv, true);
+  GFLAGS_NAMESPACE::ParseCommandLineFlags(&argc, &argv, true);
 
   std::mt19937 rng{std::random_device()()};
   rocksdb::Status status;
@@ -330,7 +331,7 @@ int main(int argc, char** argv) {
   options.compaction_style = rocksdb::CompactionStyle::kCompactionStyleNone;
   options.level0_slowdown_writes_trigger = 99999;
   options.level0_stop_writes_trigger = 99999;
-  options.allow_os_buffer = false;
+  options.use_direct_io_for_flush_and_compaction = true;
   options.write_buffer_size = FLAGS_memtable_size;
   rocksdb::BlockBasedTableOptions table_options;
   table_options.block_cache = rocksdb::NewLRUCache(FLAGS_block_cache_size);

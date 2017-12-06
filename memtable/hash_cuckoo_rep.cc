@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 
 #ifndef ROCKSDB_LITE
@@ -16,7 +16,7 @@
 #include <vector>
 
 #include "db/memtable.h"
-#include "db/skiplist.h"
+#include "memtable/skiplist.h"
 #include "memtable/stl_wrappers.h"
 #include "port/port.h"
 #include "rocksdb/memtablerep.h"
@@ -40,8 +40,7 @@ struct CuckooStep {
 
   CuckooStep() : bucket_id_(-1), prev_step_id_(kNullStep), depth_(1) {}
 
-  // MSVC does not support = default yet
-  CuckooStep(CuckooStep&& o) ROCKSDB_NOEXCEPT { *this = std::move(o); }
+  CuckooStep(CuckooStep&& o) = default;
 
   CuckooStep& operator=(CuckooStep&& rhs) {
     bucket_id_ = std::move(rhs.bucket_id_);
@@ -60,8 +59,7 @@ struct CuckooStep {
 class HashCuckooRep : public MemTableRep {
  public:
   explicit HashCuckooRep(const MemTableRep::KeyComparator& compare,
-                         MemTableAllocator* allocator,
-                         const size_t bucket_count,
+                         Allocator* allocator, const size_t bucket_count,
                          const unsigned int hash_func_count,
                          const size_t approximate_entry_size)
       : MemTableRep(allocator),
@@ -153,6 +151,10 @@ class HashCuckooRep : public MemTableRep {
     // Advance to the first entry with a key >= target
     virtual void Seek(const Slice& user_key, const char* memtable_key) override;
 
+    // Retreat to the last entry with a key <= target
+    virtual void SeekForPrev(const Slice& user_key,
+                             const char* memtable_key) override;
+
     // Position at the first entry in collection.
     // Final state of iterator is Valid() iff collection is not empty.
     virtual void SeekToFirst() override;
@@ -193,7 +195,7 @@ class HashCuckooRep : public MemTableRep {
  private:
   const MemTableRep::KeyComparator& compare_;
   // the pointer to Allocator to allocate memory, immutable after construction.
-  MemTableAllocator* const allocator_;
+  Allocator* const allocator_;
   // the number of hash bucket in the hash table.
   const size_t bucket_count_;
   // approximate size of each entry
@@ -594,6 +596,12 @@ void HashCuckooRep::Iterator::Seek(const Slice& user_key,
                           }).first;
 }
 
+// Retreat to the last entry with a key <= target
+void HashCuckooRep::Iterator::SeekForPrev(const Slice& user_key,
+                                          const char* memtable_key) {
+  assert(false);
+}
+
 // Position at the first entry in collection.
 // Final state of iterator is Valid() iff collection is not empty.
 void HashCuckooRep::Iterator::SeekToFirst() {
@@ -614,7 +622,7 @@ void HashCuckooRep::Iterator::SeekToLast() {
 }  // anom namespace
 
 MemTableRep* HashCuckooRepFactory::CreateMemTableRep(
-    const MemTableRep::KeyComparator& compare, MemTableAllocator* allocator,
+    const MemTableRep::KeyComparator& compare, Allocator* allocator,
     const SliceTransform* transform, Logger* logger) {
   // The estimated average fullness.  The write performance of any close hash
   // degrades as the fullness of the mem-table increases.  Setting kFullness

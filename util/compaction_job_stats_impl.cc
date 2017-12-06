@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include "rocksdb/compaction_job_stats.h"
 
@@ -38,6 +38,9 @@ void CompactionJobStats::Reset() {
   file_range_sync_nanos = 0;
   file_fsync_nanos = 0;
   file_prepare_write_nanos = 0;
+
+  num_single_del_fallthru = 0;
+  num_single_del_mismatch = 0;
 }
 
 void CompactionJobStats::Add(const CompactionJobStats& stats) {
@@ -67,6 +70,9 @@ void CompactionJobStats::Add(const CompactionJobStats& stats) {
   file_range_sync_nanos += stats.file_range_sync_nanos;
   file_fsync_nanos += stats.file_fsync_nanos;
   file_prepare_write_nanos += stats.file_prepare_write_nanos;
+
+  num_single_del_fallthru += stats.num_single_del_fallthru;
+  num_single_del_mismatch += stats.num_single_del_mismatch;
 }
 
 #else

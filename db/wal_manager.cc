@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -18,21 +18,22 @@
 #include <vector>
 #include <memory>
 
-#include "db/filename.h"
-#include "db/transaction_log_impl.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
+#include "db/transaction_log_impl.h"
 #include "db/write_batch_internal.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/write_batch.h"
+#include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
+#include "util/filename.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
-#include "util/sync_point.h"
 #include "util/string_util.h"
+#include "util/sync_point.h"
 
 namespace rocksdb {
 
@@ -73,9 +74,8 @@ Status WalManager::GetSortedWalFiles(VectorLogPtr& files) {
   uint64_t latest_archived_log_number = 0;
   if (!files.empty()) {
     latest_archived_log_number = files.back()->LogNumber();
-    Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
-        "Latest Archived log: %" PRIu64,
-        latest_archived_log_number);
+    ROCKS_LOG_INFO(db_options_.info_log, "Latest Archived log: %" PRIu64,
+                   latest_archived_log_number);
   }
 
   files.reserve(files.size() + logs.size());
@@ -87,8 +87,8 @@ Status WalManager::GetSortedWalFiles(VectorLogPtr& files) {
       // same log in both db dir and archived dir. Simply
       // ignore the one in db dir. Note that, if we read
       // archived dir first, we would have missed the log file.
-      Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
-          "%s already moved to archive", log->PathName().c_str());
+      ROCKS_LOG_WARN(db_options_.info_log, "%s already moved to archive",
+                     log->PathName().c_str());
     }
   }
 
@@ -115,7 +115,7 @@ Status WalManager::GetUpdatesSince(
   }
   iter->reset(new TransactionLogIteratorImpl(
       db_options_.wal_dir, &db_options_, read_options, env_options_, seq,
-      std::move(wal_files), version_set));
+      std::move(wal_files), version_set, seq_per_batch_));
   return (*iter)->status();
 }
 
@@ -128,8 +128,8 @@ Status WalManager::GetUpdatesSince(
 //    b. get sorted non-empty archived logs
 //    c. delete what should be deleted
 void WalManager::PurgeObsoleteWALFiles() {
-  bool const ttl_enabled = db_options_.WAL_ttl_seconds > 0;
-  bool const size_limit_enabled = db_options_.WAL_size_limit_MB > 0;
+  bool const ttl_enabled = db_options_.wal_ttl_seconds > 0;
+  bool const size_limit_enabled = db_options_.wal_size_limit_mb > 0;
   if (!ttl_enabled && !size_limit_enabled) {
     return;
   }
@@ -137,14 +137,14 @@ void WalManager::PurgeObsoleteWALFiles() {
   int64_t current_time;
   Status s = env_->GetCurrentTime(&current_time);
   if (!s.ok()) {
-    Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
-        "Can't get current time: %s", s.ToString().c_str());
+    ROCKS_LOG_ERROR(db_options_.info_log, "Can't get current time: %s",
+                    s.ToString().c_str());
     assert(false);
     return;
   }
   uint64_t const now_seconds = static_cast<uint64_t>(current_time);
   uint64_t const time_to_check = (ttl_enabled && !size_limit_enabled)
-                                     ? db_options_.WAL_ttl_seconds / 2
+                                     ? db_options_.wal_ttl_seconds / 2
                                      : kDefaultIntervalToDeleteObsoleteWAL;
 
   if (purge_wal_files_last_run_ + time_to_check > now_seconds) {
@@ -157,8 +157,8 @@ void WalManager::PurgeObsoleteWALFiles() {
   std::vector<std::string> files;
   s = env_->GetChildren(archival_dir, &files);
   if (!s.ok()) {
-    Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
-        "Can't get archive files: %s", s.ToString().c_str());
+    ROCKS_LOG_ERROR(db_options_.info_log, "Can't get archive files: %s",
+                    s.ToString().c_str());
     assert(false);
     return;
   }
@@ -175,17 +175,16 @@ void WalManager::PurgeObsoleteWALFiles() {
         uint64_t file_m_time;
         s = env_->GetFileModificationTime(file_path, &file_m_time);
         if (!s.ok()) {
-          Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
-              "Can't get file mod time: %s: %s",
-              file_path.c_str(), s.ToString().c_str());
+          ROCKS_LOG_WARN(db_options_.info_log,
+                         "Can't get file mod time: %s: %s", file_path.c_str(),
+                         s.ToString().c_str());
           continue;
         }
-        if (now_seconds - file_m_time > db_options_.WAL_ttl_seconds) {
+        if (now_seconds - file_m_time > db_options_.wal_ttl_seconds) {
           s = env_->DeleteFile(file_path);
           if (!s.ok()) {
-            Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
-                "Can't delete file: %s: %s",
-                file_path.c_str(), s.ToString().c_str());
+            ROCKS_LOG_WARN(db_options_.info_log, "Can't delete file: %s: %s",
+                           file_path.c_str(), s.ToString().c_str());
             continue;
           } else {
             MutexLock l(&read_first_record_cache_mutex_);
@@ -199,9 +198,9 @@ void WalManager::PurgeObsoleteWALFiles() {
         uint64_t file_size;
         s = env_->GetFileSize(file_path, &file_size);
         if (!s.ok()) {
-          Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
-              "Unable to get file size: %s: %s",
-              file_path.c_str(), s.ToString().c_str());
+          ROCKS_LOG_ERROR(db_options_.info_log,
+                          "Unable to get file size: %s: %s", file_path.c_str(),
+                          s.ToString().c_str());
           return;
         } else {
           if (file_size > 0) {
@@ -210,9 +209,9 @@ void WalManager::PurgeObsoleteWALFiles() {
           } else {
             s = env_->DeleteFile(file_path);
             if (!s.ok()) {
-              Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
-                  "Unable to delete file: %s: %s",
-                  file_path.c_str(), s.ToString().c_str());
+              ROCKS_LOG_WARN(db_options_.info_log,
+                             "Unable to delete file: %s: %s", file_path.c_str(),
+                             s.ToString().c_str());
               continue;
             } else {
               MutexLock l(&read_first_record_cache_mutex_);
@@ -229,7 +228,7 @@ void WalManager::PurgeObsoleteWALFiles() {
   }
 
   size_t const files_keep_num =
-      db_options_.WAL_size_limit_MB * 1024 * 1024 / log_file_size;
+      db_options_.wal_size_limit_mb * 1024 * 1024 / log_file_size;
   if (log_files_num <= files_keep_num) {
     return;
   }
@@ -239,9 +238,9 @@ void WalManager::PurgeObsoleteWALFiles() {
   GetSortedWalsOfType(archival_dir, archived_logs, kArchivedLogFile);
 
   if (files_del_num > archived_logs.size()) {
-    Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
-        "Trying to delete more archived log files than "
-        "exist. Deleting all");
+    ROCKS_LOG_WARN(db_options_.info_log,
+                   "Trying to delete more archived log files than "
+                   "exist. Deleting all");
     files_del_num = archived_logs.size();
   }
 
@@ -249,9 +248,8 @@ void WalManager::PurgeObsoleteWALFiles() {
     std::string const file_path = archived_logs[i]->PathName();
     s = env_->DeleteFile(db_options_.wal_dir + "/" + file_path);
     if (!s.ok()) {
-      Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
-          "Unable to delete file: %s: %s", file_path.c_str(),
-          s.ToString().c_str());
+      ROCKS_LOG_WARN(db_options_.info_log, "Unable to delete file: %s: %s",
+                     file_path.c_str(), s.ToString().c_str());
       continue;
     } else {
       MutexLock l(&read_first_record_cache_mutex_);
@@ -267,17 +265,17 @@ void WalManager::ArchiveWALFile(const std::string& fname, uint64_t number) {
   Status s = env_->RenameFile(fname, archived_log_name);
   // The sync point below is used in (DBTest,TransactionLogIteratorRace)
   TEST_SYNC_POINT("WalManager::PurgeObsoleteFiles:2");
-  Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
-      "Move log file %s to %s -- %s\n", fname.c_str(),
-      archived_log_name.c_str(), s.ToString().c_str());
+  ROCKS_LOG_INFO(db_options_.info_log, "Move log file %s to %s -- %s\n",
+                 fname.c_str(), archived_log_name.c_str(),
+                 s.ToString().c_str());
 }
 
 namespace {
 struct CompareLogByPointer {
   bool operator()(const std::unique_ptr<LogFile>& a,
                   const std::unique_ptr<LogFile>& b) {
-    LogFileImpl* a_impl = dynamic_cast<LogFileImpl*>(a.get());
-    LogFileImpl* b_impl = dynamic_cast<LogFileImpl*>(b.get());
+    LogFileImpl* a_impl = static_cast_with_check<LogFileImpl, LogFile>(a.get());
+    LogFileImpl* b_impl = static_cast_with_check<LogFileImpl, LogFile>(b.get());
     return *a_impl < *b_impl;
   }
 };
@@ -367,8 +365,8 @@ Status WalManager::ReadFirstRecord(const WalFileType type,
                                    SequenceNumber* sequence) {
   *sequence = 0;
   if (type != kAliveLogFile && type != kArchivedLogFile) {
-    Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
-        "[WalManger] Unknown file type %s", ToString(type).c_str());
+    ROCKS_LOG_ERROR(db_options_.info_log, "[WalManger] Unknown file type %s",
+                    ToString(type).c_str());
     return Status::NotSupported(
         "File Type Not Known " + ToString(type));
   }
@@ -383,7 +381,7 @@ Status WalManager::ReadFirstRecord(const WalFileType type,
   Status s;
   if (type == kAliveLogFile) {
     std::string fname = LogFileName(db_options_.wal_dir, number);
-    s = ReadFirstLine(fname, sequence);
+    s = ReadFirstLine(fname, number, sequence);
     if (env_->FileExists(fname).ok() && !s.ok()) {
       // return any error that is not caused by non-existing file
       return s;
@@ -394,7 +392,7 @@ Status WalManager::ReadFirstRecord(const WalFileType type,
     //  check if the file got moved to archive.
     std::string archived_file =
         ArchivedLogFileName(db_options_.wal_dir, number);
-    s = ReadFirstLine(archived_file, sequence);
+    s = ReadFirstLine(archived_file, number, sequence);
     // maybe the file was deleted from archive dir. If that's the case, return
     // Status::OK(). The caller with identify this as empty file because
     // *sequence == 0
@@ -413,6 +411,7 @@ Status WalManager::ReadFirstRecord(const WalFileType type,
 // the function returns status.ok() and sequence == 0 if the file exists, but is
 // empty
 Status WalManager::ReadFirstLine(const std::string& fname,
+                                 const uint64_t number,
                                  SequenceNumber* sequence) {
   struct LogReporter : public log::Reader::Reporter {
     Env* env;
@@ -422,10 +421,9 @@ Status WalManager::ReadFirstLine(const std::string& fname,
     Status* status;
     bool ignore_error;  // true if db_options_.paranoid_checks==false
     virtual void Corruption(size_t bytes, const Status& s) override {
-      Log(InfoLogLevel::WARN_LEVEL, info_log,
-          "[WalManager] %s%s: dropping %d bytes; %s",
-          (this->ignore_error ? "(ignoring error) " : ""), fname,
-          static_cast<int>(bytes), s.ToString().c_str());
+      ROCKS_LOG_WARN(info_log, "[WalManager] %s%s: dropping %d bytes; %s",
+                     (this->ignore_error ? "(ignoring error) " : ""), fname,
+                     static_cast<int>(bytes), s.ToString().c_str());
       if (this->status->ok()) {
         // only keep the first error
         *this->status = s;
@@ -434,7 +432,8 @@ Status WalManager::ReadFirstLine(const std::string& fname,
   };
 
   std::unique_ptr<SequentialFile> file;
-  Status status = env_->NewSequentialFile(fname, &file, env_options_);
+  Status status = env_->NewSequentialFile(
+      fname, &file, env_->OptimizeForLogRead(env_options_));
   unique_ptr<SequentialFileReader> file_reader(
       new SequentialFileReader(std::move(file)));
 
@@ -449,13 +448,13 @@ Status WalManager::ReadFirstLine(const std::string& fname,
   reporter.status = &status;
   reporter.ignore_error = !db_options_.paranoid_checks;
   log::Reader reader(db_options_.info_log, std::move(file_reader), &reporter,
-                     true /*checksum*/, 0 /*initial_offset*/, *sequence);
+                     true /*checksum*/, 0 /*initial_offset*/, number);
   std::string scratch;
   Slice record;
 
   if (reader.ReadRecord(&record, &scratch) &&
       (status.ok() || !db_options_.paranoid_checks)) {
-    if (record.size() < 12) {
+    if (record.size() < WriteBatchInternal::kHeader) {
       reporter.Corruption(record.size(),
                           Status::Corruption("log record too small"));
       // TODO read record's till the first no corrupt entry?

@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef ROCKSDB_LITE
 
@@ -20,25 +20,32 @@
 #include <string>
 #include <vector>
 
+#include "monitoring/perf_context_imp.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/utilities/transaction_db_mutex.h"
-#include "util/autovector.h"
+#include "util/cast_util.h"
 #include "util/murmurhash.h"
+#include "util/sync_point.h"
 #include "util/thread_local.h"
-#include "utilities/transactions/transaction_db_impl.h"
+#include "utilities/transactions/pessimistic_transaction_db.h"
 
 namespace rocksdb {
 
 struct LockInfo {
-  TransactionID txn_id;
+  bool exclusive;
+  autovector<TransactionID> txn_ids;
 
   // Transaction locks are not valid after this time in us
   uint64_t expiration_time;
 
-  LockInfo(TransactionID id, uint64_t time)
-      : txn_id(id), expiration_time(time) {}
+  LockInfo(TransactionID id, uint64_t time, bool ex)
+      : exclusive(ex), expiration_time(time) {
+    txn_ids.push_back(id);
+  }
   LockInfo(const LockInfo& lock_info)
-      : txn_id(lock_info.txn_id), expiration_time(lock_info.expiration_time) {}
+      : exclusive(lock_info.exclusive),
+        txn_ids(lock_info.txn_ids),
+        expiration_time(lock_info.expiration_time) {}
 };
 
 struct LockMapStripe {
@@ -90,6 +97,64 @@ struct LockMap {
   size_t GetStripe(const std::string& key) const;
 };
 
+void DeadlockInfoBuffer::AddNewPath(DeadlockPath path) {
+  std::lock_guard<std::mutex> lock(paths_buffer_mutex_);
+
+  if (paths_buffer_.empty()) {
+    return;
+  }
+
+  paths_buffer_[buffer_idx_] = path;
+  buffer_idx_ = (buffer_idx_ + 1) % paths_buffer_.size();
+}
+
+void DeadlockInfoBuffer::Resize(uint32_t target_size) {
+  std::lock_guard<std::mutex> lock(paths_buffer_mutex_);
+
+  paths_buffer_ = Normalize();
+
+  // Drop the deadlocks that will no longer be needed ater the normalize
+  if (target_size < paths_buffer_.size()) {
+    paths_buffer_.erase(
+        paths_buffer_.begin(),
+        paths_buffer_.begin() + (paths_buffer_.size() - target_size));
+    buffer_idx_ = 0;
+  }
+  // Resize the buffer to the target size and restore the buffer's idx
+  else {
+    auto prev_size = paths_buffer_.size();
+    paths_buffer_.resize(target_size);
+    buffer_idx_ = (uint32_t)prev_size;
+  }
+}
+
+std::vector<DeadlockPath> DeadlockInfoBuffer::Normalize() {
+  auto working = paths_buffer_;
+
+  if (working.empty()) {
+    return working;
+  }
+
+  // Next write occurs at a nonexistent path's slot
+  if (paths_buffer_[buffer_idx_].empty()) {
+    working.resize(buffer_idx_);
+  } else {
+    std::rotate(working.begin(), working.begin() + buffer_idx_, working.end());
+  }
+
+  return working;
+}
+
+std::vector<DeadlockPath> DeadlockInfoBuffer::PrepareBuffer() {
+  std::lock_guard<std::mutex> lock(paths_buffer_mutex_);
+
+  // Reversing the normalized vector returns the latest deadlocks first
+  auto working = Normalize();
+  std::reverse(working.begin(), working.end());
+
+  return working;
+}
+
 namespace {
 void UnrefLockMapsCache(void* ptr) {
   // Called when a thread exits or a ThreadLocalPtr gets destroyed.
@@ -101,14 +166,17 @@ void UnrefLockMapsCache(void* ptr) {
 
 TransactionLockMgr::TransactionLockMgr(
     TransactionDB* txn_db, size_t default_num_stripes, int64_t max_num_locks,
+    uint32_t max_num_deadlocks,
     std::shared_ptr<TransactionDBMutexFactory> mutex_factory)
     : txn_db_impl_(nullptr),
       default_num_stripes_(default_num_stripes),
       max_num_locks_(max_num_locks),
-      mutex_factory_(mutex_factory),
-      lock_maps_cache_(new ThreadLocalPtr(&UnrefLockMapsCache)) {
-  txn_db_impl_ = dynamic_cast<TransactionDBImpl*>(txn_db);
-  assert(txn_db_impl_);
+      lock_maps_cache_(new ThreadLocalPtr(&UnrefLockMapsCache)),
+      dlock_buffer_(max_num_deadlocks),
+      mutex_factory_(mutex_factory) {
+  assert(txn_db);
+  txn_db_impl_ =
+      static_cast_with_check<PessimisticTransactionDB, TransactionDB>(txn_db);
 }
 
 TransactionLockMgr::~TransactionLockMgr() {}
@@ -135,8 +203,8 @@ void TransactionLockMgr::AddColumnFamily(uint32_t column_family_id) {
 
 void TransactionLockMgr::RemoveColumnFamily(uint32_t column_family_id) {
   // Remove lock_map for this column family.  Since the lock map is stored
-  // as a shared ptr, concurrent transactions can still keep keep using it
-  // until they release their reference to it.
+  // as a shared ptr, concurrent transactions can still keep using it
+  // until they release their references to it.
   {
     InstrumentedMutexLock l(&lock_map_mutex_);
 
@@ -191,7 +259,8 @@ std::shared_ptr<LockMap> TransactionLockMgr::GetLockMap(
 // transaction.
 // If false, sets *expire_time to the expiration time of the lock according
 // to Env->GetMicros() or 0 if no expiration.
-bool TransactionLockMgr::IsLockExpired(const LockInfo& lock_info, Env* env,
+bool TransactionLockMgr::IsLockExpired(TransactionID txn_id,
+                                       const LockInfo& lock_info, Env* env,
                                        uint64_t* expire_time) {
   auto now = env->NowMicros();
 
@@ -202,20 +271,27 @@ bool TransactionLockMgr::IsLockExpired(const LockInfo& lock_info, Env* env,
     // return how many microseconds until lock will be expired
     *expire_time = lock_info.expiration_time;
   } else {
-    bool success =
-        txn_db_impl_->TryStealingExpiredTransactionLocks(lock_info.txn_id);
-    if (!success) {
-      expired = false;
+    for (auto id : lock_info.txn_ids) {
+      if (txn_id == id) {
+        continue;
+      }
+
+      bool success = txn_db_impl_->TryStealingExpiredTransactionLocks(id);
+      if (!success) {
+        expired = false;
+        break;
+      }
+      *expire_time = 0;
     }
-    *expire_time = 0;
   }
 
   return expired;
 }
 
-Status TransactionLockMgr::TryLock(const TransactionImpl* txn,
+Status TransactionLockMgr::TryLock(PessimisticTransaction* txn,
                                    uint32_t column_family_id,
-                                   const std::string& key, Env* env) {
+                                   const std::string& key, Env* env,
+                                   bool exclusive) {
   // Lookup lock map for this column family id
   std::shared_ptr<LockMap> lock_map_ptr = GetLockMap(column_family_id);
   LockMap* lock_map = lock_map_ptr.get();
@@ -232,18 +308,18 @@ Status TransactionLockMgr::TryLock(const TransactionImpl* txn,
   assert(lock_map->lock_map_stripes_.size() > stripe_num);
   LockMapStripe* stripe = lock_map->lock_map_stripes_.at(stripe_num);
 
-  LockInfo lock_info(txn->GetTxnID(), txn->GetExpirationTime());
+  LockInfo lock_info(txn->GetID(), txn->GetExpirationTime(), exclusive);
   int64_t timeout = txn->GetLockTimeout();
 
-  return AcquireWithTimeout(lock_map, stripe, key, env, timeout, lock_info);
+  return AcquireWithTimeout(txn, lock_map, stripe, column_family_id, key, env,
+                            timeout, lock_info);
 }
 
 // Helper function for TryLock().
-Status TransactionLockMgr::AcquireWithTimeout(LockMap* lock_map,
-                                              LockMapStripe* stripe,
-                                              const std::string& key, Env* env,
-                                              int64_t timeout,
-                                              const LockInfo& lock_info) {
+Status TransactionLockMgr::AcquireWithTimeout(
+    PessimisticTransaction* txn, LockMap* lock_map, LockMapStripe* stripe,
+    uint32_t column_family_id, const std::string& key, Env* env,
+    int64_t timeout, const LockInfo& lock_info) {
   Status result;
   uint64_t start_time = 0;
   uint64_t end_time = 0;
@@ -267,10 +343,13 @@ Status TransactionLockMgr::AcquireWithTimeout(LockMap* lock_map,
 
   // Acquire lock if we are able to
   uint64_t expire_time_hint = 0;
-  result =
-      AcquireLocked(lock_map, stripe, key, env, lock_info, &expire_time_hint);
+  autovector<TransactionID> wait_ids;
+  result = AcquireLocked(lock_map, stripe, key, env, lock_info,
+                         &expire_time_hint, &wait_ids);
 
   if (!result.ok() && timeout != 0) {
+    PERF_TIMER_GUARD(key_lock_wait_time);
+    PERF_COUNTER_ADD(key_lock_wait_count, 1);
     // If we weren't able to acquire the lock, we will keep retrying as long
     // as the timeout allows.
     bool timed_out = false;
@@ -287,6 +366,23 @@ Status TransactionLockMgr::AcquireWithTimeout(LockMap* lock_map,
         cv_end_time = end_time;
       }
 
+      assert(result.IsBusy() || wait_ids.size() != 0);
+
+      // We are dependent on a transaction to finish, so perform deadlock
+      // detection.
+      if (wait_ids.size() != 0) {
+        if (txn->IsDeadlockDetect()) {
+          if (IncrementWaiters(txn, wait_ids, key, column_family_id,
+                               lock_info.exclusive)) {
+            result = Status::Busy(Status::SubCode::kDeadlock);
+            stripe->stripe_mutex->UnLock();
+            return result;
+          }
+        }
+        txn->SetWaitingTxn(wait_ids, column_family_id, &key);
+      }
+
+      TEST_SYNC_POINT("TransactionLockMgr::AcquireWithTimeout:WaitingTxn");
       if (cv_end_time < 0) {
         // Wait indefinitely
         result = stripe->stripe_cv->Wait(stripe->stripe_mutex);
@@ -295,6 +391,13 @@ Status TransactionLockMgr::AcquireWithTimeout(LockMap* lock_map,
         if (static_cast<uint64_t>(cv_end_time) > now) {
           result = stripe->stripe_cv->WaitFor(stripe->stripe_mutex,
                                               cv_end_time - now);
+        }
+      }
+
+      if (wait_ids.size() != 0) {
+        txn->ClearWaitingTxn();
+        if (txn->IsDeadlockDetect()) {
+          DecrementWaiters(txn, wait_ids);
         }
       }
 
@@ -307,7 +410,7 @@ Status TransactionLockMgr::AcquireWithTimeout(LockMap* lock_map,
 
       if (result.ok() || result.IsTimedOut()) {
         result = AcquireLocked(lock_map, stripe, key, env, lock_info,
-                               &expire_time_hint);
+                               &expire_time_hint, &wait_ids);
       }
     } while (!result.ok() && !timed_out);
   }
@@ -315,6 +418,103 @@ Status TransactionLockMgr::AcquireWithTimeout(LockMap* lock_map,
   stripe->stripe_mutex->UnLock();
 
   return result;
+}
+
+void TransactionLockMgr::DecrementWaiters(
+    const PessimisticTransaction* txn,
+    const autovector<TransactionID>& wait_ids) {
+  std::lock_guard<std::mutex> lock(wait_txn_map_mutex_);
+  DecrementWaitersImpl(txn, wait_ids);
+}
+
+void TransactionLockMgr::DecrementWaitersImpl(
+    const PessimisticTransaction* txn,
+    const autovector<TransactionID>& wait_ids) {
+  auto id = txn->GetID();
+  assert(wait_txn_map_.Contains(id));
+  wait_txn_map_.Delete(id);
+
+  for (auto wait_id : wait_ids) {
+    rev_wait_txn_map_.Get(wait_id)--;
+    if (rev_wait_txn_map_.Get(wait_id) == 0) {
+      rev_wait_txn_map_.Delete(wait_id);
+    }
+  }
+}
+
+bool TransactionLockMgr::IncrementWaiters(
+    const PessimisticTransaction* txn,
+    const autovector<TransactionID>& wait_ids, const std::string& key,
+    const uint32_t& cf_id, const bool& exclusive) {
+  auto id = txn->GetID();
+  std::vector<int> queue_parents(txn->GetDeadlockDetectDepth());
+  std::vector<TransactionID> queue_values(txn->GetDeadlockDetectDepth());
+  std::lock_guard<std::mutex> lock(wait_txn_map_mutex_);
+  assert(!wait_txn_map_.Contains(id));
+
+  wait_txn_map_.Insert(id, {wait_ids, cf_id, key, exclusive});
+
+  for (auto wait_id : wait_ids) {
+    if (rev_wait_txn_map_.Contains(wait_id)) {
+      rev_wait_txn_map_.Get(wait_id)++;
+    } else {
+      rev_wait_txn_map_.Insert(wait_id, 1);
+    }
+  }
+
+  // No deadlock if nobody is waiting on self.
+  if (!rev_wait_txn_map_.Contains(id)) {
+    return false;
+  }
+
+  const auto* next_ids = &wait_ids;
+  int parent = -1;
+  for (int tail = 0, head = 0; head < txn->GetDeadlockDetectDepth(); head++) {
+    int i = 0;
+    if (next_ids) {
+      for (; i < static_cast<int>(next_ids->size()) &&
+             tail + i < txn->GetDeadlockDetectDepth();
+           i++) {
+        queue_values[tail + i] = (*next_ids)[i];
+        queue_parents[tail + i] = parent;
+      }
+      tail += i;
+    }
+
+    // No more items in the list, meaning no deadlock.
+    if (tail == head) {
+      return false;
+    }
+
+    auto next = queue_values[head];
+    if (next == id) {
+      std::vector<DeadlockInfo> path;
+      while (head != -1) {
+        assert(wait_txn_map_.Contains(queue_values[head]));
+
+        auto extracted_info = wait_txn_map_.Get(queue_values[head]);
+        path.push_back({queue_values[head], extracted_info.m_cf_id,
+                        extracted_info.m_waiting_key,
+                        extracted_info.m_exclusive});
+        head = queue_parents[head];
+      }
+      std::reverse(path.begin(), path.end());
+      dlock_buffer_.AddNewPath(DeadlockPath(path));
+      DecrementWaitersImpl(txn, wait_ids);
+      return true;
+    } else if (!wait_txn_map_.Contains(next)) {
+      next_ids = nullptr;
+      continue;
+    } else {
+      parent = head;
+      next_ids = &(wait_txn_map_.Get(next).m_neighbors);
+    }
+  }
+
+  // Wait cycle too big, just assume deadlock.
+  dlock_buffer_.AddNewPath(DeadlockPath(true));
+  DecrementWaitersImpl(txn, wait_ids);
+  return true;
 }
 
 // Try to lock this key after we have acquired the mutex.
@@ -325,23 +525,48 @@ Status TransactionLockMgr::AcquireLocked(LockMap* lock_map,
                                          LockMapStripe* stripe,
                                          const std::string& key, Env* env,
                                          const LockInfo& txn_lock_info,
-                                         uint64_t* expire_time) {
+                                         uint64_t* expire_time,
+                                         autovector<TransactionID>* txn_ids) {
+  assert(txn_lock_info.txn_ids.size() == 1);
+
   Status result;
   // Check if this key is already locked
   if (stripe->keys.find(key) != stripe->keys.end()) {
     // Lock already held
-
     LockInfo& lock_info = stripe->keys.at(key);
-    if (lock_info.txn_id != txn_lock_info.txn_id) {
-      // locked by another txn.  Check if it's expired
-      if (IsLockExpired(lock_info, env, expire_time)) {
-        // lock is expired, can steal it
-        lock_info.txn_id = txn_lock_info.txn_id;
+    assert(lock_info.txn_ids.size() == 1 || !lock_info.exclusive);
+
+    if (lock_info.exclusive || txn_lock_info.exclusive) {
+      if (lock_info.txn_ids.size() == 1 &&
+          lock_info.txn_ids[0] == txn_lock_info.txn_ids[0]) {
+        // The list contains one txn and we're it, so just take it.
+        lock_info.exclusive = txn_lock_info.exclusive;
         lock_info.expiration_time = txn_lock_info.expiration_time;
-        // lock_cnt does not change
       } else {
-        result = Status::TimedOut(Status::SubCode::kLockTimeout);
+        // Check if it's expired. Skips over txn_lock_info.txn_ids[0] in case
+        // it's there for a shared lock with multiple holders which was not
+        // caught in the first case.
+        if (IsLockExpired(txn_lock_info.txn_ids[0], lock_info, env,
+                          expire_time)) {
+          // lock is expired, can steal it
+          lock_info.txn_ids = txn_lock_info.txn_ids;
+          lock_info.exclusive = txn_lock_info.exclusive;
+          lock_info.expiration_time = txn_lock_info.expiration_time;
+          // lock_cnt does not change
+        } else {
+          result = Status::TimedOut(Status::SubCode::kLockTimeout);
+          *txn_ids = lock_info.txn_ids;
+        }
       }
+    } else {
+      // We are requesting shared access to a shared lock, so just grant it.
+      lock_info.txn_ids.push_back(txn_lock_info.txn_ids[0]);
+      // Using std::max means that expiration time never goes down even when
+      // a transaction is removed from the list. The correct solution would be
+      // to track expiry for every transaction, but this would also work for
+      // now.
+      lock_info.expiration_time =
+          std::max(lock_info.expiration_time, txn_lock_info.expiration_time);
     }
   } else {  // Lock not held.
     // Check lock limit
@@ -362,7 +587,44 @@ Status TransactionLockMgr::AcquireLocked(LockMap* lock_map,
   return result;
 }
 
-void TransactionLockMgr::UnLock(TransactionImpl* txn, uint32_t column_family_id,
+void TransactionLockMgr::UnLockKey(const PessimisticTransaction* txn,
+                                   const std::string& key,
+                                   LockMapStripe* stripe, LockMap* lock_map,
+                                   Env* env) {
+  TransactionID txn_id = txn->GetID();
+
+  auto stripe_iter = stripe->keys.find(key);
+  if (stripe_iter != stripe->keys.end()) {
+    auto& txns = stripe_iter->second.txn_ids;
+    auto txn_it = std::find(txns.begin(), txns.end(), txn_id);
+    // Found the key we locked.  unlock it.
+    if (txn_it != txns.end()) {
+      if (txns.size() == 1) {
+        stripe->keys.erase(stripe_iter);
+      } else {
+        auto last_it = txns.end() - 1;
+        if (txn_it != last_it) {
+          *txn_it = *last_it;
+        }
+        txns.pop_back();
+      }
+
+      if (max_num_locks_ > 0) {
+        // Maintain lock count if there is a limit on the number of locks.
+        assert(lock_map->lock_cnt.load(std::memory_order_relaxed) > 0);
+        lock_map->lock_cnt--;
+      }
+    }
+  } else {
+    // This key is either not locked or locked by someone else.  This should
+    // only happen if the unlocking transaction has expired.
+    assert(txn->GetExpirationTime() > 0 &&
+           txn->GetExpirationTime() < env->NowMicros());
+  }
+}
+
+void TransactionLockMgr::UnLock(PessimisticTransaction* txn,
+                                uint32_t column_family_id,
                                 const std::string& key, Env* env) {
   std::shared_ptr<LockMap> lock_map_ptr = GetLockMap(column_family_id);
   LockMap* lock_map = lock_map_ptr.get();
@@ -376,36 +638,16 @@ void TransactionLockMgr::UnLock(TransactionImpl* txn, uint32_t column_family_id,
   assert(lock_map->lock_map_stripes_.size() > stripe_num);
   LockMapStripe* stripe = lock_map->lock_map_stripes_.at(stripe_num);
 
-  TransactionID txn_id = txn->GetTxnID();
-
   stripe->stripe_mutex->Lock();
-
-  const auto& iter = stripe->keys.find(key);
-  if (iter != stripe->keys.end() && iter->second.txn_id == txn_id) {
-    // Found the key we locked.  unlock it.
-    stripe->keys.erase(iter);
-    if (max_num_locks_ > 0) {
-      // Maintain lock count if there is a limit on the number of locks.
-      assert(lock_map->lock_cnt.load(std::memory_order_relaxed) > 0);
-      lock_map->lock_cnt--;
-    }
-  } else {
-    // This key is either not locked or locked by someone else.  This should
-    // only happen if the unlocking transaction has expired.
-    assert(txn->GetExpirationTime() > 0 &&
-           txn->GetExpirationTime() < env->NowMicros());
-  }
-
+  UnLockKey(txn, key, stripe, lock_map, env);
   stripe->stripe_mutex->UnLock();
 
   // Signal waiting threads to retry locking
   stripe->stripe_cv->NotifyAll();
 }
 
-void TransactionLockMgr::UnLock(const TransactionImpl* txn,
+void TransactionLockMgr::UnLock(const PessimisticTransaction* txn,
                                 const TransactionKeyMap* key_map, Env* env) {
-  TransactionID txn_id = txn->GetTxnID();
-
   for (auto& key_map_iter : *key_map) {
     uint32_t column_family_id = key_map_iter.first;
     auto& keys = key_map_iter.second;
@@ -440,22 +682,7 @@ void TransactionLockMgr::UnLock(const TransactionImpl* txn,
       stripe->stripe_mutex->Lock();
 
       for (const std::string* key : stripe_keys) {
-        const auto& iter = stripe->keys.find(*key);
-        if (iter != stripe->keys.end() && iter->second.txn_id == txn_id) {
-          // Found the key we locked.  unlock it.
-          stripe->keys.erase(iter);
-          if (max_num_locks_ > 0) {
-            // Maintain lock count if there is a limit on the number of locks.
-            assert(lock_map->lock_cnt.load(std::memory_order_relaxed) > 0);
-            lock_map->lock_cnt--;
-          }
-        } else {
-          // This key is either not locked or locked by someone else.  This
-          // should only
-          // happen if the unlocking transaction has expired.
-          assert(txn->GetExpirationTime() > 0 &&
-                 txn->GetExpirationTime() < env->NowMicros());
-        }
+        UnLockKey(txn, *key, stripe, lock_map, env);
       }
 
       stripe->stripe_mutex->UnLock();
@@ -464,6 +691,54 @@ void TransactionLockMgr::UnLock(const TransactionImpl* txn,
       stripe->stripe_cv->NotifyAll();
     }
   }
+}
+
+TransactionLockMgr::LockStatusData TransactionLockMgr::GetLockStatusData() {
+  LockStatusData data;
+  // Lock order here is important. The correct order is lock_map_mutex_, then
+  // for every column family ID in ascending order lock every stripe in
+  // ascending order.
+  InstrumentedMutexLock l(&lock_map_mutex_);
+
+  std::vector<uint32_t> cf_ids;
+  for (const auto& map : lock_maps_) {
+    cf_ids.push_back(map.first);
+  }
+  std::sort(cf_ids.begin(), cf_ids.end());
+
+  for (auto i : cf_ids) {
+    const auto& stripes = lock_maps_[i]->lock_map_stripes_;
+    // Iterate and lock all stripes in ascending order.
+    for (const auto& j : stripes) {
+      j->stripe_mutex->Lock();
+      for (const auto& it : j->keys) {
+        struct KeyLockInfo info;
+        info.exclusive = it.second.exclusive;
+        info.key = it.first;
+        for (const auto& id : it.second.txn_ids) {
+          info.ids.push_back(id);
+        }
+        data.insert({i, info});
+      }
+    }
+  }
+
+  // Unlock everything. Unlocking order is not important.
+  for (auto i : cf_ids) {
+    const auto& stripes = lock_maps_[i]->lock_map_stripes_;
+    for (const auto& j : stripes) {
+      j->stripe_mutex->UnLock();
+    }
+  }
+
+  return data;
+}
+std::vector<DeadlockPath> TransactionLockMgr::GetDeadlockInfoBuffer() {
+  return dlock_buffer_.PrepareBuffer();
+}
+
+void TransactionLockMgr::Resize(uint32_t target_size) {
+  dlock_buffer_.Resize(target_size);
 }
 
 }  //  namespace rocksdb

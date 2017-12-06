@@ -1,13 +1,16 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 package org.rocksdb;
 
+import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Random;
+
 import org.junit.ClassRule;
 import org.junit.Test;
 
@@ -25,985 +28,844 @@ public class OptionsTest {
 
   @Test
   public void setIncreaseParallelism() {
-    Options opt = null;
-    try {
-      opt = new Options();
+    try (final Options opt = new Options()) {
       final int threads = Runtime.getRuntime().availableProcessors() * 2;
       opt.setIncreaseParallelism(threads);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void writeBufferSize() throws RocksDBException {
-    Options opt = null;
-    try {
-      opt = new Options();
-      long longValue = rand.nextLong();
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
       opt.setWriteBufferSize(longValue);
       assertThat(opt.writeBufferSize()).isEqualTo(longValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void maxWriteBufferNumber() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      int intValue = rand.nextInt();
+    try (final Options opt = new Options()) {
+      final int intValue = rand.nextInt();
       opt.setMaxWriteBufferNumber(intValue);
       assertThat(opt.maxWriteBufferNumber()).isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void minWriteBufferNumberToMerge() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      int intValue = rand.nextInt();
+    try (final Options opt = new Options()) {
+      final int intValue = rand.nextInt();
       opt.setMinWriteBufferNumberToMerge(intValue);
       assertThat(opt.minWriteBufferNumberToMerge()).isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void numLevels() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      int intValue = rand.nextInt();
+    try (final Options opt = new Options()) {
+      final int intValue = rand.nextInt();
       opt.setNumLevels(intValue);
       assertThat(opt.numLevels()).isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void levelZeroFileNumCompactionTrigger() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      int intValue = rand.nextInt();
+    try (final Options opt = new Options()) {
+      final int intValue = rand.nextInt();
       opt.setLevelZeroFileNumCompactionTrigger(intValue);
       assertThat(opt.levelZeroFileNumCompactionTrigger()).isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void levelZeroSlowdownWritesTrigger() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      int intValue = rand.nextInt();
+    try (final Options opt = new Options()) {
+      final int intValue = rand.nextInt();
       opt.setLevelZeroSlowdownWritesTrigger(intValue);
       assertThat(opt.levelZeroSlowdownWritesTrigger()).isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void levelZeroStopWritesTrigger() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      int intValue = rand.nextInt();
+    try (final Options opt = new Options()) {
+      final int intValue = rand.nextInt();
       opt.setLevelZeroStopWritesTrigger(intValue);
       assertThat(opt.levelZeroStopWritesTrigger()).isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void targetFileSizeBase() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      long longValue = rand.nextLong();
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
       opt.setTargetFileSizeBase(longValue);
       assertThat(opt.targetFileSizeBase()).isEqualTo(longValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void targetFileSizeMultiplier() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      int intValue = rand.nextInt();
+    try (final Options opt = new Options()) {
+      final int intValue = rand.nextInt();
       opt.setTargetFileSizeMultiplier(intValue);
       assertThat(opt.targetFileSizeMultiplier()).isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void maxBytesForLevelBase() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      long longValue = rand.nextLong();
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
       opt.setMaxBytesForLevelBase(longValue);
       assertThat(opt.maxBytesForLevelBase()).isEqualTo(longValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void levelCompactionDynamicLevelBytes() {
-    Options opt = null;
-    try {
-      opt = new Options();
+    try (final Options opt = new Options()) {
       final boolean boolValue = rand.nextBoolean();
       opt.setLevelCompactionDynamicLevelBytes(boolValue);
       assertThat(opt.levelCompactionDynamicLevelBytes())
           .isEqualTo(boolValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void maxBytesForLevelMultiplier() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      int intValue = rand.nextInt();
-      opt.setMaxBytesForLevelMultiplier(intValue);
-      assertThat(opt.maxBytesForLevelMultiplier()).isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
+    try (final Options opt = new Options()) {
+      final double doubleValue = rand.nextDouble();
+      opt.setMaxBytesForLevelMultiplier(doubleValue);
+      assertThat(opt.maxBytesForLevelMultiplier()).isEqualTo(doubleValue);
     }
   }
 
   @Test
-  public void expandedCompactionFactor() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      int intValue = rand.nextInt();
-      opt.setExpandedCompactionFactor(intValue);
-      assertThat(opt.expandedCompactionFactor()).isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
+  public void maxBytesForLevelMultiplierAdditional() {
+    try (final Options opt = new Options()) {
+      final int intValue1 = rand.nextInt();
+      final int intValue2 = rand.nextInt();
+      final int[] ints = new int[]{intValue1, intValue2};
+      opt.setMaxBytesForLevelMultiplierAdditional(ints);
+      assertThat(opt.maxBytesForLevelMultiplierAdditional()).isEqualTo(ints);
     }
   }
 
   @Test
-  public void sourceCompactionFactor() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      int intValue = rand.nextInt();
-      opt.setSourceCompactionFactor(intValue);
-      assertThat(opt.sourceCompactionFactor()).isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
+  public void maxCompactionBytes() {
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
+      opt.setMaxCompactionBytes(longValue);
+      assertThat(opt.maxCompactionBytes()).isEqualTo(longValue);
     }
   }
 
   @Test
-  public void maxGrandparentOverlapFactor() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      int intValue = rand.nextInt();
-      opt.setMaxGrandparentOverlapFactor(intValue);
-      assertThat(opt.maxGrandparentOverlapFactor()).isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
+  public void softPendingCompactionBytesLimit() {
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
+      opt.setSoftPendingCompactionBytesLimit(longValue);
+      assertThat(opt.softPendingCompactionBytesLimit()).isEqualTo(longValue);
     }
   }
 
   @Test
-  public void softRateLimit() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      double doubleValue = rand.nextDouble();
-      opt.setSoftRateLimit(doubleValue);
-      assertThat(opt.softRateLimit()).isEqualTo(doubleValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
+  public void hardPendingCompactionBytesLimit() {
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
+      opt.setHardPendingCompactionBytesLimit(longValue);
+      assertThat(opt.hardPendingCompactionBytesLimit()).isEqualTo(longValue);
     }
   }
 
   @Test
-  public void hardRateLimit() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      double doubleValue = rand.nextDouble();
-      opt.setHardRateLimit(doubleValue);
-      assertThat(opt.hardRateLimit()).isEqualTo(doubleValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
+  public void level0FileNumCompactionTrigger() {
+    try (final Options opt = new Options()) {
+      final int intValue = rand.nextInt();
+      opt.setLevel0FileNumCompactionTrigger(intValue);
+      assertThat(opt.level0FileNumCompactionTrigger()).isEqualTo(intValue);
     }
   }
 
   @Test
-  public void rateLimitDelayMaxMilliseconds() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      int intValue = rand.nextInt();
-      opt.setRateLimitDelayMaxMilliseconds(intValue);
-      assertThat(opt.rateLimitDelayMaxMilliseconds()).isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
+  public void level0SlowdownWritesTrigger() {
+    try (final Options opt = new Options()) {
+      final int intValue = rand.nextInt();
+      opt.setLevel0SlowdownWritesTrigger(intValue);
+      assertThat(opt.level0SlowdownWritesTrigger()).isEqualTo(intValue);
+    }
+  }
+
+  @Test
+  public void level0StopWritesTrigger() {
+    try (final Options opt = new Options()) {
+      final int intValue = rand.nextInt();
+      opt.setLevel0StopWritesTrigger(intValue);
+      assertThat(opt.level0StopWritesTrigger()).isEqualTo(intValue);
     }
   }
 
   @Test
   public void arenaBlockSize() throws RocksDBException {
-    Options opt = null;
-    try {
-      opt = new Options();
-      long longValue = rand.nextLong();
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
       opt.setArenaBlockSize(longValue);
       assertThat(opt.arenaBlockSize()).isEqualTo(longValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void disableAutoCompactions() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      boolean boolValue = rand.nextBoolean();
+    try (final Options opt = new Options()) {
+      final boolean boolValue = rand.nextBoolean();
       opt.setDisableAutoCompactions(boolValue);
       assertThat(opt.disableAutoCompactions()).isEqualTo(boolValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
-    }
-  }
-
-  @Test
-  public void purgeRedundantKvsWhileFlush() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      boolean boolValue = rand.nextBoolean();
-      opt.setPurgeRedundantKvsWhileFlush(boolValue);
-      assertThat(opt.purgeRedundantKvsWhileFlush()).isEqualTo(boolValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
-    }
-  }
-
-  @Test
-  public void verifyChecksumsInCompaction() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      boolean boolValue = rand.nextBoolean();
-      opt.setVerifyChecksumsInCompaction(boolValue);
-      assertThat(opt.verifyChecksumsInCompaction()).isEqualTo(boolValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
-    }
-  }
-
-  @Test
-  public void filterDeletes() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      boolean boolValue = rand.nextBoolean();
-      opt.setFilterDeletes(boolValue);
-      assertThat(opt.filterDeletes()).isEqualTo(boolValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void maxSequentialSkipInIterations() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      long longValue = rand.nextLong();
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
       opt.setMaxSequentialSkipInIterations(longValue);
       assertThat(opt.maxSequentialSkipInIterations()).isEqualTo(longValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void inplaceUpdateSupport() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      boolean boolValue = rand.nextBoolean();
+    try (final Options opt = new Options()) {
+      final boolean boolValue = rand.nextBoolean();
       opt.setInplaceUpdateSupport(boolValue);
       assertThat(opt.inplaceUpdateSupport()).isEqualTo(boolValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void inplaceUpdateNumLocks() throws RocksDBException {
-    Options opt = null;
-    try {
-      opt = new Options();
-      long longValue = rand.nextLong();
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
       opt.setInplaceUpdateNumLocks(longValue);
       assertThat(opt.inplaceUpdateNumLocks()).isEqualTo(longValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
-  public void memtablePrefixBloomBits() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      int intValue = rand.nextInt();
-      opt.setMemtablePrefixBloomBits(intValue);
-      assertThat(opt.memtablePrefixBloomBits()).isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
+  public void memtablePrefixBloomSizeRatio() {
+    try (final Options opt = new Options()) {
+      final double doubleValue = rand.nextDouble();
+      opt.setMemtablePrefixBloomSizeRatio(doubleValue);
+      assertThat(opt.memtablePrefixBloomSizeRatio()).isEqualTo(doubleValue);
     }
   }
 
   @Test
-  public void memtablePrefixBloomProbes() {
-    Options opt = null;
-    try {
-      int intValue = rand.nextInt();
-      opt = new Options();
-      opt.setMemtablePrefixBloomProbes(intValue);
-      assertThat(opt.memtablePrefixBloomProbes()).isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
+  public void memtableHugePageSize() {
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
+      opt.setMemtableHugePageSize(longValue);
+      assertThat(opt.memtableHugePageSize()).isEqualTo(longValue);
     }
   }
 
   @Test
   public void bloomLocality() {
-    Options opt = null;
-    try {
-      int intValue = rand.nextInt();
-      opt = new Options();
+    try (final Options opt = new Options()) {
+      final int intValue = rand.nextInt();
       opt.setBloomLocality(intValue);
       assertThat(opt.bloomLocality()).isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void maxSuccessiveMerges() throws RocksDBException {
-    Options opt = null;
-    try {
-      long longValue = rand.nextLong();
-      opt = new Options();
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
       opt.setMaxSuccessiveMerges(longValue);
       assertThat(opt.maxSuccessiveMerges()).isEqualTo(longValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
-    }
-  }
-
-  @Test
-  public void minPartialMergeOperands() {
-    Options opt = null;
-    try {
-      int intValue = rand.nextInt();
-      opt = new Options();
-      opt.setMinPartialMergeOperands(intValue);
-      assertThat(opt.minPartialMergeOperands()).isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void optimizeFiltersForHits() {
-    Options opt = null;
-    try {
-      boolean aBoolean = rand.nextBoolean();
-      opt = new Options();
+    try (final Options opt = new Options()) {
+      final boolean aBoolean = rand.nextBoolean();
       opt.setOptimizeFiltersForHits(aBoolean);
       assertThat(opt.optimizeFiltersForHits()).isEqualTo(aBoolean);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void createIfMissing() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      boolean boolValue = rand.nextBoolean();
+    try (final Options opt = new Options()) {
+      final boolean boolValue = rand.nextBoolean();
       opt.setCreateIfMissing(boolValue);
       assertThat(opt.createIfMissing()).
           isEqualTo(boolValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void createMissingColumnFamilies() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      boolean boolValue = rand.nextBoolean();
+    try (final Options opt = new Options()) {
+      final boolean boolValue = rand.nextBoolean();
       opt.setCreateMissingColumnFamilies(boolValue);
       assertThat(opt.createMissingColumnFamilies()).
           isEqualTo(boolValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void errorIfExists() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      boolean boolValue = rand.nextBoolean();
+    try (final Options opt = new Options()) {
+      final boolean boolValue = rand.nextBoolean();
       opt.setErrorIfExists(boolValue);
       assertThat(opt.errorIfExists()).isEqualTo(boolValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void paranoidChecks() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      boolean boolValue = rand.nextBoolean();
+    try (final Options opt = new Options()) {
+      final boolean boolValue = rand.nextBoolean();
       opt.setParanoidChecks(boolValue);
       assertThat(opt.paranoidChecks()).
           isEqualTo(boolValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void maxTotalWalSize() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      long longValue = rand.nextLong();
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
       opt.setMaxTotalWalSize(longValue);
       assertThat(opt.maxTotalWalSize()).
           isEqualTo(longValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void maxOpenFiles() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      int intValue = rand.nextInt();
+    try (final Options opt = new Options()) {
+      final int intValue = rand.nextInt();
       opt.setMaxOpenFiles(intValue);
       assertThat(opt.maxOpenFiles()).isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
-  public void disableDataSync() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      boolean boolValue = rand.nextBoolean();
-      opt.setDisableDataSync(boolValue);
-      assertThat(opt.disableDataSync()).
-          isEqualTo(boolValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
+  public void maxFileOpeningThreads() {
+    try (final Options opt = new Options()) {
+      final int intValue = rand.nextInt();
+      opt.setMaxFileOpeningThreads(intValue);
+      assertThat(opt.maxFileOpeningThreads()).isEqualTo(intValue);
     }
   }
 
   @Test
   public void useFsync() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      boolean boolValue = rand.nextBoolean();
+    try (final Options opt = new Options()) {
+      final boolean boolValue = rand.nextBoolean();
       opt.setUseFsync(boolValue);
       assertThat(opt.useFsync()).isEqualTo(boolValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
+    }
+  }
+
+  @Test
+  public void dbPaths() {
+    final List<DbPath> dbPaths = new ArrayList<>();
+    dbPaths.add(new DbPath(Paths.get("/a"), 10));
+    dbPaths.add(new DbPath(Paths.get("/b"), 100));
+    dbPaths.add(new DbPath(Paths.get("/c"), 1000));
+
+    try (final Options opt = new Options()) {
+      assertThat(opt.dbPaths()).isEqualTo(Collections.emptyList());
+
+      opt.setDbPaths(dbPaths);
+
+      assertThat(opt.dbPaths()).isEqualTo(dbPaths);
     }
   }
 
   @Test
   public void dbLogDir() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      String str = "path/to/DbLogDir";
+    try (final Options opt = new Options()) {
+      final String str = "path/to/DbLogDir";
       opt.setDbLogDir(str);
       assertThat(opt.dbLogDir()).isEqualTo(str);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void walDir() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      String str = "path/to/WalDir";
+    try (final Options opt = new Options()) {
+      final String str = "path/to/WalDir";
       opt.setWalDir(str);
       assertThat(opt.walDir()).isEqualTo(str);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void deleteObsoleteFilesPeriodMicros() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      long longValue = rand.nextLong();
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
       opt.setDeleteObsoleteFilesPeriodMicros(longValue);
       assertThat(opt.deleteObsoleteFilesPeriodMicros()).
           isEqualTo(longValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
+    }
+  }
+
+  @Test
+  public void baseBackgroundCompactions() {
+    try (final Options opt = new Options()) {
+      final int intValue = rand.nextInt();
+      opt.setBaseBackgroundCompactions(intValue);
+      assertThat(opt.baseBackgroundCompactions()).
+          isEqualTo(intValue);
     }
   }
 
   @Test
   public void maxBackgroundCompactions() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      int intValue = rand.nextInt();
+    try (final Options opt = new Options()) {
+      final int intValue = rand.nextInt();
       opt.setMaxBackgroundCompactions(intValue);
       assertThat(opt.maxBackgroundCompactions()).
           isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
+    }
+  }
+
+  @Test
+  public void maxSubcompactions() {
+    try (final Options opt = new Options()) {
+      final int intValue = rand.nextInt();
+      opt.setMaxSubcompactions(intValue);
+      assertThat(opt.maxSubcompactions()).
+          isEqualTo(intValue);
     }
   }
 
   @Test
   public void maxBackgroundFlushes() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      int intValue = rand.nextInt();
+    try (final Options opt = new Options()) {
+      final int intValue = rand.nextInt();
       opt.setMaxBackgroundFlushes(intValue);
       assertThat(opt.maxBackgroundFlushes()).
           isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
+    }
+  }
+
+  @Test
+  public void maxBackgroundJobs() {
+    try (final Options opt = new Options()) {
+      final int intValue = rand.nextInt();
+      opt.setMaxBackgroundJobs(intValue);
+      assertThat(opt.maxBackgroundJobs()).isEqualTo(intValue);
     }
   }
 
   @Test
   public void maxLogFileSize() throws RocksDBException {
-    Options opt = null;
-    try {
-      opt = new Options();
-      long longValue = rand.nextLong();
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
       opt.setMaxLogFileSize(longValue);
       assertThat(opt.maxLogFileSize()).isEqualTo(longValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void logFileTimeToRoll() throws RocksDBException {
-    Options opt = null;
-    try {
-      opt = new Options();
-      long longValue = rand.nextLong();
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
       opt.setLogFileTimeToRoll(longValue);
       assertThat(opt.logFileTimeToRoll()).
           isEqualTo(longValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void keepLogFileNum() throws RocksDBException {
-    Options opt = null;
-    try {
-      opt = new Options();
-      long longValue = rand.nextLong();
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
       opt.setKeepLogFileNum(longValue);
       assertThat(opt.keepLogFileNum()).isEqualTo(longValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
+    }
+  }
+
+  @Test
+  public void recycleLogFileNum() throws RocksDBException {
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
+      opt.setRecycleLogFileNum(longValue);
+      assertThat(opt.recycleLogFileNum()).isEqualTo(longValue);
     }
   }
 
   @Test
   public void maxManifestFileSize() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      long longValue = rand.nextLong();
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
       opt.setMaxManifestFileSize(longValue);
       assertThat(opt.maxManifestFileSize()).
           isEqualTo(longValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void tableCacheNumshardbits() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      int intValue = rand.nextInt();
+    try (final Options opt = new Options()) {
+      final int intValue = rand.nextInt();
       opt.setTableCacheNumshardbits(intValue);
       assertThat(opt.tableCacheNumshardbits()).
           isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void walSizeLimitMB() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      long longValue = rand.nextLong();
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
       opt.setWalSizeLimitMB(longValue);
       assertThat(opt.walSizeLimitMB()).isEqualTo(longValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void walTtlSeconds() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      long longValue = rand.nextLong();
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
       opt.setWalTtlSeconds(longValue);
       assertThat(opt.walTtlSeconds()).isEqualTo(longValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void manifestPreallocationSize() throws RocksDBException {
-    Options opt = null;
-    try {
-      opt = new Options();
-      long longValue = rand.nextLong();
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
       opt.setManifestPreallocationSize(longValue);
       assertThat(opt.manifestPreallocationSize()).
           isEqualTo(longValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
-  public void allowOsBuffer() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      boolean boolValue = rand.nextBoolean();
-      opt.setAllowOsBuffer(boolValue);
-      assertThat(opt.allowOsBuffer()).isEqualTo(boolValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
+  public void useDirectReads() {
+    try(final Options opt = new Options()) {
+      final boolean boolValue = rand.nextBoolean();
+      opt.setUseDirectReads(boolValue);
+      assertThat(opt.useDirectReads()).isEqualTo(boolValue);
+    }
+  }
+
+  @Test
+  public void useDirectIoForFlushAndCompaction() {
+    try(final Options opt = new Options()) {
+      final boolean boolValue = rand.nextBoolean();
+      opt.setUseDirectIoForFlushAndCompaction(boolValue);
+      assertThat(opt.useDirectIoForFlushAndCompaction()).isEqualTo(boolValue);
+    }
+  }
+
+  @Test
+  public void allowFAllocate() {
+    try (final Options opt = new Options()) {
+      final boolean boolValue = rand.nextBoolean();
+      opt.setAllowFAllocate(boolValue);
+      assertThat(opt.allowFAllocate()).isEqualTo(boolValue);
     }
   }
 
   @Test
   public void allowMmapReads() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      boolean boolValue = rand.nextBoolean();
+    try (final Options opt = new Options()) {
+      final boolean boolValue = rand.nextBoolean();
       opt.setAllowMmapReads(boolValue);
       assertThat(opt.allowMmapReads()).isEqualTo(boolValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void allowMmapWrites() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      boolean boolValue = rand.nextBoolean();
+    try (final Options opt = new Options()) {
+      final boolean boolValue = rand.nextBoolean();
       opt.setAllowMmapWrites(boolValue);
       assertThat(opt.allowMmapWrites()).isEqualTo(boolValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void isFdCloseOnExec() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      boolean boolValue = rand.nextBoolean();
+    try (final Options opt = new Options()) {
+      final boolean boolValue = rand.nextBoolean();
       opt.setIsFdCloseOnExec(boolValue);
       assertThat(opt.isFdCloseOnExec()).isEqualTo(boolValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void statsDumpPeriodSec() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      int intValue = rand.nextInt();
+    try (final Options opt = new Options()) {
+      final int intValue = rand.nextInt();
       opt.setStatsDumpPeriodSec(intValue);
       assertThat(opt.statsDumpPeriodSec()).isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void adviseRandomOnOpen() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      boolean boolValue = rand.nextBoolean();
+    try (final Options opt = new Options()) {
+      final boolean boolValue = rand.nextBoolean();
       opt.setAdviseRandomOnOpen(boolValue);
       assertThat(opt.adviseRandomOnOpen()).isEqualTo(boolValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
+    }
+  }
+
+  @Test
+  public void dbWriteBufferSize() {
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
+      opt.setDbWriteBufferSize(longValue);
+      assertThat(opt.dbWriteBufferSize()).isEqualTo(longValue);
+    }
+  }
+
+  @Test
+  public void accessHintOnCompactionStart() {
+    try (final Options opt = new Options()) {
+      final AccessHint accessHint = AccessHint.SEQUENTIAL;
+      opt.setAccessHintOnCompactionStart(accessHint);
+      assertThat(opt.accessHintOnCompactionStart()).isEqualTo(accessHint);
+    }
+  }
+
+  @Test
+  public void newTableReaderForCompactionInputs() {
+    try (final Options opt = new Options()) {
+      final boolean boolValue = rand.nextBoolean();
+      opt.setNewTableReaderForCompactionInputs(boolValue);
+      assertThat(opt.newTableReaderForCompactionInputs()).isEqualTo(boolValue);
+    }
+  }
+
+  @Test
+  public void compactionReadaheadSize() {
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
+      opt.setCompactionReadaheadSize(longValue);
+      assertThat(opt.compactionReadaheadSize()).isEqualTo(longValue);
+    }
+  }
+
+  @Test
+  public void randomAccessMaxBufferSize() {
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
+      opt.setRandomAccessMaxBufferSize(longValue);
+      assertThat(opt.randomAccessMaxBufferSize()).isEqualTo(longValue);
+    }
+  }
+
+  @Test
+  public void writableFileMaxBufferSize() {
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
+      opt.setWritableFileMaxBufferSize(longValue);
+      assertThat(opt.writableFileMaxBufferSize()).isEqualTo(longValue);
     }
   }
 
   @Test
   public void useAdaptiveMutex() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      boolean boolValue = rand.nextBoolean();
+    try (final Options opt = new Options()) {
+      final boolean boolValue = rand.nextBoolean();
       opt.setUseAdaptiveMutex(boolValue);
       assertThat(opt.useAdaptiveMutex()).isEqualTo(boolValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void bytesPerSync() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      long longValue = rand.nextLong();
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
       opt.setBytesPerSync(longValue);
       assertThat(opt.bytesPerSync()).isEqualTo(longValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
+    }
+  }
+
+  @Test
+  public void walBytesPerSync() {
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
+      opt.setWalBytesPerSync(longValue);
+      assertThat(opt.walBytesPerSync()).isEqualTo(longValue);
+    }
+  }
+
+  @Test
+  public void enableThreadTracking() {
+    try (final Options opt = new Options()) {
+      final boolean boolValue = rand.nextBoolean();
+      opt.setEnableThreadTracking(boolValue);
+      assertThat(opt.enableThreadTracking()).isEqualTo(boolValue);
+    }
+  }
+
+  @Test
+  public void delayedWriteRate() {
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
+      opt.setDelayedWriteRate(longValue);
+      assertThat(opt.delayedWriteRate()).isEqualTo(longValue);
+    }
+  }
+
+  @Test
+  public void allowConcurrentMemtableWrite() {
+    try (final Options opt = new Options()) {
+      final boolean boolValue = rand.nextBoolean();
+      opt.setAllowConcurrentMemtableWrite(boolValue);
+      assertThat(opt.allowConcurrentMemtableWrite()).isEqualTo(boolValue);
+    }
+  }
+
+  @Test
+  public void enableWriteThreadAdaptiveYield() {
+    try (final Options opt = new Options()) {
+      final boolean boolValue = rand.nextBoolean();
+      opt.setEnableWriteThreadAdaptiveYield(boolValue);
+      assertThat(opt.enableWriteThreadAdaptiveYield()).isEqualTo(boolValue);
+    }
+  }
+
+  @Test
+  public void writeThreadMaxYieldUsec() {
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
+      opt.setWriteThreadMaxYieldUsec(longValue);
+      assertThat(opt.writeThreadMaxYieldUsec()).isEqualTo(longValue);
+    }
+  }
+
+  @Test
+  public void writeThreadSlowYieldUsec() {
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
+      opt.setWriteThreadSlowYieldUsec(longValue);
+      assertThat(opt.writeThreadSlowYieldUsec()).isEqualTo(longValue);
+    }
+  }
+
+  @Test
+  public void skipStatsUpdateOnDbOpen() {
+    try (final Options opt = new Options()) {
+      final boolean boolValue = rand.nextBoolean();
+      opt.setSkipStatsUpdateOnDbOpen(boolValue);
+      assertThat(opt.skipStatsUpdateOnDbOpen()).isEqualTo(boolValue);
+    }
+  }
+
+  @Test
+  public void walRecoveryMode() {
+    try (final Options opt = new Options()) {
+      for (final WALRecoveryMode walRecoveryMode : WALRecoveryMode.values()) {
+        opt.setWalRecoveryMode(walRecoveryMode);
+        assertThat(opt.walRecoveryMode()).isEqualTo(walRecoveryMode);
       }
+    }
+  }
+
+  @Test
+  public void allow2pc() {
+    try (final Options opt = new Options()) {
+      final boolean boolValue = rand.nextBoolean();
+      opt.setAllow2pc(boolValue);
+      assertThat(opt.allow2pc()).isEqualTo(boolValue);
+    }
+  }
+
+  @Test
+  public void rowCache() {
+    try (final Options opt = new Options()) {
+      assertThat(opt.rowCache()).isNull();
+
+      try(final Cache lruCache = new LRUCache(1000)) {
+        opt.setRowCache(lruCache);
+        assertThat(opt.rowCache()).isEqualTo(lruCache);
+      }
+
+      try(final Cache clockCache = new ClockCache(1000)) {
+        opt.setRowCache(clockCache);
+        assertThat(opt.rowCache()).isEqualTo(clockCache);
+      }
+    }
+  }
+
+  @Test
+  public void failIfOptionsFileError() {
+    try (final Options opt = new Options()) {
+      final boolean boolValue = rand.nextBoolean();
+      opt.setFailIfOptionsFileError(boolValue);
+      assertThat(opt.failIfOptionsFileError()).isEqualTo(boolValue);
+    }
+  }
+
+  @Test
+  public void dumpMallocStats() {
+    try (final Options opt = new Options()) {
+      final boolean boolValue = rand.nextBoolean();
+      opt.setDumpMallocStats(boolValue);
+      assertThat(opt.dumpMallocStats()).isEqualTo(boolValue);
+    }
+  }
+
+  @Test
+  public void avoidFlushDuringRecovery() {
+    try (final Options opt = new Options()) {
+      final boolean boolValue = rand.nextBoolean();
+      opt.setAvoidFlushDuringRecovery(boolValue);
+      assertThat(opt.avoidFlushDuringRecovery()).isEqualTo(boolValue);
+    }
+  }
+
+  @Test
+  public void avoidFlushDuringShutdown() {
+    try (final Options opt = new Options()) {
+      final boolean boolValue = rand.nextBoolean();
+      opt.setAvoidFlushDuringShutdown(boolValue);
+      assertThat(opt.avoidFlushDuringShutdown()).isEqualTo(boolValue);
     }
   }
 
   @Test
   public void env() {
-    Options options = null;
-    try {
-      options = new Options();
-      Env env = Env.getDefault();
+    try (final Options options = new Options();
+         final Env env = Env.getDefault()) {
       options.setEnv(env);
       assertThat(options.getEnv()).isSameAs(env);
-    } finally {
-      if (options != null) {
-        options.dispose();
-      }
     }
   }
 
   @Test
   public void linkageOfPrepMethods() {
-    Options options = null;
-    try {
-      options = new Options();
+    try (final Options options = new Options()) {
       options.optimizeUniversalStyleCompaction();
       options.optimizeUniversalStyleCompaction(4000);
       options.optimizeLevelStyleCompaction();
       options.optimizeLevelStyleCompaction(3000);
       options.optimizeForPointLookup(10);
+      options.optimizeForSmallDb();
       options.prepareForBulkLoad();
-    } finally {
-      if (options != null) {
-        options.dispose();
-      }
     }
   }
 
   @Test
   public void compressionTypes() {
-    Options options = null;
-    try {
-      options = new Options();
-      for (CompressionType compressionType :
+    try (final Options options = new Options()) {
+      for (final CompressionType compressionType :
           CompressionType.values()) {
         options.setCompressionType(compressionType);
         assertThat(options.compressionType()).
@@ -1011,53 +873,41 @@ public class OptionsTest {
         assertThat(CompressionType.valueOf("NO_COMPRESSION")).
             isEqualTo(CompressionType.NO_COMPRESSION);
       }
-    } finally {
-      if (options != null) {
-        options.dispose();
-      }
     }
   }
 
   @Test
   public void compressionPerLevel() {
-    ColumnFamilyOptions columnFamilyOptions = null;
-    try {
-      columnFamilyOptions = new ColumnFamilyOptions();
-      assertThat(columnFamilyOptions.compressionPerLevel()).isEmpty();
+    try (final Options options = new Options()) {
+      assertThat(options.compressionPerLevel()).isEmpty();
       List<CompressionType> compressionTypeList =
           new ArrayList<>();
-      for (int i=0; i < columnFamilyOptions.numLevels(); i++) {
+      for (int i = 0; i < options.numLevels(); i++) {
         compressionTypeList.add(CompressionType.NO_COMPRESSION);
       }
-      columnFamilyOptions.setCompressionPerLevel(compressionTypeList);
-      compressionTypeList = columnFamilyOptions.compressionPerLevel();
+      options.setCompressionPerLevel(compressionTypeList);
+      compressionTypeList = options.compressionPerLevel();
       for (final CompressionType compressionType : compressionTypeList) {
         assertThat(compressionType).isEqualTo(
             CompressionType.NO_COMPRESSION);
-      }
-    } finally {
-      if (columnFamilyOptions != null) {
-        columnFamilyOptions.dispose();
       }
     }
   }
 
   @Test
   public void differentCompressionsPerLevel() {
-    ColumnFamilyOptions columnFamilyOptions = null;
-    try {
-      columnFamilyOptions = new ColumnFamilyOptions();
-      columnFamilyOptions.setNumLevels(3);
+    try (final Options options = new Options()) {
+      options.setNumLevels(3);
 
-      assertThat(columnFamilyOptions.compressionPerLevel()).isEmpty();
+      assertThat(options.compressionPerLevel()).isEmpty();
       List<CompressionType> compressionTypeList = new ArrayList<>();
 
       compressionTypeList.add(CompressionType.BZLIB2_COMPRESSION);
       compressionTypeList.add(CompressionType.SNAPPY_COMPRESSION);
       compressionTypeList.add(CompressionType.LZ4_COMPRESSION);
 
-      columnFamilyOptions.setCompressionPerLevel(compressionTypeList);
-      compressionTypeList = columnFamilyOptions.compressionPerLevel();
+      options.setCompressionPerLevel(compressionTypeList);
+      compressionTypeList = options.compressionPerLevel();
 
       assertThat(compressionTypeList.size()).isEqualTo(3);
       assertThat(compressionTypeList).
@@ -1066,19 +916,41 @@ public class OptionsTest {
               CompressionType.SNAPPY_COMPRESSION,
               CompressionType.LZ4_COMPRESSION);
 
-    } finally {
-      if (columnFamilyOptions != null) {
-        columnFamilyOptions.dispose();
+    }
+  }
+
+  @Test
+  public void bottommostCompressionType() {
+    try (final Options options = new Options()) {
+      assertThat(options.bottommostCompressionType())
+          .isEqualTo(CompressionType.DISABLE_COMPRESSION_OPTION);
+
+      for (final CompressionType compressionType : CompressionType.values()) {
+        options.setBottommostCompressionType(compressionType);
+        assertThat(options.bottommostCompressionType())
+            .isEqualTo(compressionType);
       }
     }
   }
 
   @Test
+  public void compressionOptions() {
+    try (final Options options = new Options();
+         final CompressionOptions compressionOptions = new CompressionOptions()
+             .setMaxDictBytes(123)) {
+
+      options.setCompressionOptions(compressionOptions);
+      assertThat(options.compressionOptions())
+          .isEqualTo(compressionOptions);
+      assertThat(options.compressionOptions().maxDictBytes())
+          .isEqualTo(123);
+    }
+  }
+
+  @Test
   public void compactionStyles() {
-    Options options = null;
-    try {
-      options = new Options();
-      for (CompactionStyle compactionStyle :
+    try (final Options options = new Options()) {
+      for (final CompactionStyle compactionStyle :
           CompactionStyle.values()) {
         options.setCompactionStyle(compactionStyle);
         assertThat(options.compactionStyle()).
@@ -1086,18 +958,12 @@ public class OptionsTest {
         assertThat(CompactionStyle.valueOf("FIFO")).
             isEqualTo(CompactionStyle.FIFO);
       }
-    } finally {
-      if (options != null) {
-        options.dispose();
-      }
     }
   }
 
   @Test
   public void maxTableFilesSizeFIFO() {
-    Options opt = null;
-    try {
-      opt = new Options();
+    try (final Options opt = new Options()) {
       long longValue = rand.nextLong();
       // Size has to be positive
       longValue = (longValue < 0) ? -longValue : longValue;
@@ -1105,71 +971,42 @@ public class OptionsTest {
       opt.setMaxTableFilesSizeFIFO(longValue);
       assertThat(opt.maxTableFilesSizeFIFO()).
           isEqualTo(longValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
-  public void rateLimiterConfig() {
-    Options options = null;
-    Options anotherOptions = null;
-    RateLimiterConfig rateLimiterConfig;
-    try {
-      options = new Options();
-      rateLimiterConfig = new GenericRateLimiterConfig(1000, 100 * 1000, 1);
-      options.setRateLimiterConfig(rateLimiterConfig);
+  public void rateLimiter() {
+    try (final Options options = new Options();
+         final Options anotherOptions = new Options();
+         final RateLimiter rateLimiter =
+             new RateLimiter(1000, 100 * 1000, 1)) {
+      options.setRateLimiter(rateLimiter);
       // Test with parameter initialization
-      anotherOptions = new Options();
-      anotherOptions.setRateLimiterConfig(
-          new GenericRateLimiterConfig(1000));
-    } finally {
-      if (options != null) {
-        options.dispose();
-      }
-      if (anotherOptions != null) {
-        anotherOptions.dispose();
-      }
+      anotherOptions.setRateLimiter(
+          new RateLimiter(1000));
     }
   }
 
   @Test
   public void shouldSetTestPrefixExtractor() {
-    Options options = null;
-    try {
-      options = new Options();
+    try (final Options options = new Options()) {
       options.useFixedLengthPrefixExtractor(100);
       options.useFixedLengthPrefixExtractor(10);
-    } finally {
-      if (options != null) {
-        options.dispose();
-      }
     }
   }
 
   @Test
   public void shouldSetTestCappedPrefixExtractor() {
-    Options options = null;
-    try {
-      options = new Options();
+    try (final Options options = new Options()) {
       options.useCappedPrefixExtractor(100);
       options.useCappedPrefixExtractor(10);
-    } finally {
-      if (options != null) {
-        options.dispose();
-      }
     }
   }
-
 
   @Test
   public void shouldTestMemTableFactoryName()
       throws RocksDBException {
-    Options options = null;
-    try {
-      options = new Options();
+    try (final Options options = new Options()) {
       options.setMemTableConfig(new VectorMemTableConfig());
       assertThat(options.memTableFactoryName()).
           isEqualTo("VectorRepFactory");
@@ -1177,32 +1014,91 @@ public class OptionsTest {
           new HashLinkedListMemTableConfig());
       assertThat(options.memTableFactoryName()).
           isEqualTo("HashLinkedListRepFactory");
-    } finally {
-      if (options != null) {
-        options.dispose();
-      }
     }
   }
 
   @Test
   public void statistics() {
-    Options options = null;
-    Options anotherOptions = null;
-    try {
-      options = new Options();
-      Statistics statistics = options.createStatistics().
-          statisticsPtr();
-      assertThat(statistics).isNotNull();
-      anotherOptions = new Options();
-      statistics = anotherOptions.statisticsPtr();
-      assertThat(statistics).isNotNull();
-    } finally {
-      if (options != null) {
-        options.dispose();
+    try(final Options options = new Options()) {
+      final Statistics statistics = options.statistics();
+      assertThat(statistics).isNull();
+    }
+
+    try(final Statistics statistics = new Statistics();
+        final Options options = new Options().setStatistics(statistics);
+        final Statistics stats = options.statistics()) {
+      assertThat(stats).isNotNull();
+    }
+  }
+
+  @Test
+  public void maxWriteBufferNumberToMaintain() {
+    try (final Options options = new Options()) {
+      int intValue = rand.nextInt();
+      // Size has to be positive
+      intValue = (intValue < 0) ? -intValue : intValue;
+      intValue = (intValue == 0) ? intValue + 1 : intValue;
+      options.setMaxWriteBufferNumberToMaintain(intValue);
+      assertThat(options.maxWriteBufferNumberToMaintain()).
+          isEqualTo(intValue);
+    }
+  }
+
+  @Test
+  public void compactionPriorities() {
+    try (final Options options = new Options()) {
+      for (final CompactionPriority compactionPriority :
+          CompactionPriority.values()) {
+        options.setCompactionPriority(compactionPriority);
+        assertThat(options.compactionPriority()).
+            isEqualTo(compactionPriority);
       }
-      if (anotherOptions != null) {
-        anotherOptions.dispose();
-      }
+    }
+  }
+
+  @Test
+  public void reportBgIoStats() {
+    try (final Options options = new Options()) {
+      final boolean booleanValue = true;
+      options.setReportBgIoStats(booleanValue);
+      assertThat(options.reportBgIoStats()).
+          isEqualTo(booleanValue);
+    }
+  }
+
+  @Test
+  public void compactionOptionsUniversal() {
+    try (final Options options = new Options();
+         final CompactionOptionsUniversal optUni = new CompactionOptionsUniversal()
+             .setCompressionSizePercent(7)) {
+      options.setCompactionOptionsUniversal(optUni);
+      assertThat(options.compactionOptionsUniversal()).
+          isEqualTo(optUni);
+      assertThat(options.compactionOptionsUniversal().compressionSizePercent())
+          .isEqualTo(7);
+    }
+  }
+
+  @Test
+  public void compactionOptionsFIFO() {
+    try (final Options options = new Options();
+         final CompactionOptionsFIFO optFifo = new CompactionOptionsFIFO()
+             .setMaxTableFilesSize(2000)) {
+      options.setCompactionOptionsFIFO(optFifo);
+      assertThat(options.compactionOptionsFIFO()).
+          isEqualTo(optFifo);
+      assertThat(options.compactionOptionsFIFO().maxTableFilesSize())
+          .isEqualTo(2000);
+    }
+  }
+
+  @Test
+  public void forceConsistencyChecks() {
+    try (final Options options = new Options()) {
+      final boolean booleanValue = true;
+      options.setForceConsistencyChecks(booleanValue);
+      assertThat(options.forceConsistencyChecks()).
+          isEqualTo(booleanValue);
     }
   }
 }

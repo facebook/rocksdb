@@ -1,20 +1,23 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
 #include <algorithm>
 #include <cassert>
-#include <stdexcept>
+#include <initializer_list>
 #include <iterator>
+#include <stdexcept>
 #include <vector>
 
 namespace rocksdb {
 
 #ifdef ROCKSDB_LITE
 template <class T, size_t kSize = 8>
-class autovector : public std::vector<T> {};
+class autovector : public std::vector<T> {
+  using std::vector<T>::vector;
+};
 #else
 // A vector that leverages pre-allocated stack-based array to achieve better
 // performance for array with small amount of items.
@@ -93,16 +96,16 @@ class autovector {
       return old;
     }
 
-    self_type operator-(difference_type len) {
+    self_type operator-(difference_type len) const {
       return self_type(vect_, index_ - len);
     }
 
-    difference_type operator-(const self_type& other) {
+    difference_type operator-(const self_type& other) const {
       assert(vect_ == other.vect_);
       return index_ - other.index_;
     }
 
-    self_type operator+(difference_type len) {
+    self_type operator+(difference_type len) const {
       return self_type(vect_, index_ + len);
     }
 
@@ -121,10 +124,22 @@ class autovector {
       assert(vect_->size() >= index_);
       return (*vect_)[index_];
     }
+
+    const_reference operator*() const {
+      assert(vect_->size() >= index_);
+      return (*vect_)[index_];
+    }
+
     pointer operator->() {
       assert(vect_->size() >= index_);
       return &(*vect_)[index_];
     }
+
+    const_pointer operator->() const {
+      assert(vect_->size() >= index_);
+      return &(*vect_)[index_];
+    }
+
 
     // -- Logical Operators
     bool operator==(const self_type& other) const {
@@ -165,6 +180,13 @@ class autovector {
   typedef std::reverse_iterator<const_iterator> const_reverse_iterator;
 
   autovector() = default;
+
+  autovector(std::initializer_list<T> init_list) {
+    for (const T& item : init_list) {
+      push_back(item);
+    }
+  }
+
   ~autovector() = default;
 
   // -- Immutable operations
@@ -272,11 +294,6 @@ class autovector {
   autovector(const autovector& other) { assign(other); }
 
   autovector& operator=(const autovector& other) { return assign(other); }
-
-  // move operation are disallowed since it is very hard to make sure both
-  // autovectors are allocated from the same function stack.
-  autovector& operator=(autovector&& other) = delete;
-  autovector(autovector&& other) = delete;
 
   // -- Iterator Operations
   iterator begin() { return iterator(this, 0); }

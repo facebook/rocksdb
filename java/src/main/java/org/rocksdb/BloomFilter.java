@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 package org.rocksdb;
 
@@ -22,8 +22,6 @@ public class BloomFilter extends Filter {
 
   private static final int DEFAULT_BITS_PER_KEY = 10;
   private static final boolean DEFAULT_MODE = true;
-  private final int bitsPerKey_;
-  private final boolean useBlockBasedMode_;
 
   /**
    * BloomFilter constructor
@@ -73,17 +71,9 @@ public class BloomFilter extends Filter {
    * @param useBlockBasedMode use block based mode or full filter mode
    */
   public BloomFilter(final int bitsPerKey, final boolean useBlockBasedMode) {
-    super();
-    bitsPerKey_ = bitsPerKey;
-    useBlockBasedMode_ = useBlockBasedMode;
-    createNewFilter();
+    super(createNewBloomFilter(bitsPerKey, useBlockBasedMode));
   }
 
-  @Override
-  protected final void createNewFilter() {
-    createNewBloomFilter(bitsPerKey_, useBlockBasedMode_);
-  }
-
-  private native void createNewBloomFilter(int bitsKeyKey,
-      boolean useBlockBasedMode);
+  private native static long createNewBloomFilter(final int bitsKeyKey,
+      final boolean useBlockBasedMode);
 }

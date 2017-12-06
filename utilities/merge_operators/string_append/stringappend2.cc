@@ -21,20 +21,22 @@ StringAppendTESTOperator::StringAppendTESTOperator(char delim_char)
 }
 
 // Implementation for the merge operation (concatenates two strings)
-bool StringAppendTESTOperator::FullMerge(
-    const Slice& key,
-    const Slice* existing_value,
-    const std::deque<std::string>& operands,
-    std::string* new_value,
-    Logger* logger) const {
-
+bool StringAppendTESTOperator::FullMergeV2(
+    const MergeOperationInput& merge_in,
+    MergeOperationOutput* merge_out) const {
   // Clear the *new_value for writing.
-  assert(new_value);
-  new_value->clear();
+  merge_out->new_value.clear();
+
+  if (merge_in.existing_value == nullptr && merge_in.operand_list.size() == 1) {
+    // Only one operand
+    merge_out->existing_operand = merge_in.operand_list.back();
+    return true;
+  }
 
   // Compute the space needed for the final result.
   size_t numBytes = 0;
-  for(auto it = operands.begin(); it != operands.end(); ++it) {
+  for (auto it = merge_in.operand_list.begin();
+       it != merge_in.operand_list.end(); ++it) {
     numBytes += it->size() + 1;   // Plus 1 for the delimiter
   }
 
@@ -42,20 +44,23 @@ bool StringAppendTESTOperator::FullMerge(
   bool printDelim = false;
 
   // Prepend the *existing_value if one exists.
-  if (existing_value) {
-    new_value->reserve(numBytes + existing_value->size());
-    new_value->append(existing_value->data(), existing_value->size());
+  if (merge_in.existing_value) {
+    merge_out->new_value.reserve(numBytes + merge_in.existing_value->size());
+    merge_out->new_value.append(merge_in.existing_value->data(),
+                                merge_in.existing_value->size());
     printDelim = true;
   } else if (numBytes) {
-    new_value->reserve(numBytes-1); // Minus 1 since we have one less delimiter
+    merge_out->new_value.reserve(
+        numBytes - 1);  // Minus 1 since we have one less delimiter
   }
 
   // Concatenate the sequence of strings (and add a delimiter between each)
-  for(auto it = operands.begin(); it != operands.end(); ++it) {
+  for (auto it = merge_in.operand_list.begin();
+       it != merge_in.operand_list.end(); ++it) {
     if (printDelim) {
-      new_value->append(1,delim_);
+      merge_out->new_value.append(1, delim_);
     }
-    new_value->append(*it);
+    merge_out->new_value.append(it->data(), it->size());
     printDelim = true;
   }
 

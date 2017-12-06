@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 package org.rocksdb;
 
@@ -26,616 +26,362 @@ public class ColumnFamilyOptionsTest {
 
   @Test
   public void getColumnFamilyOptionsFromProps() {
-    ColumnFamilyOptions opt = null;
-    try {
+    Properties properties = new Properties();
+    properties.put("write_buffer_size", "112");
+    properties.put("max_write_buffer_number", "13");
+
+    try (final ColumnFamilyOptions opt = ColumnFamilyOptions.
+        getColumnFamilyOptionsFromProps(properties)) {
       // setup sample properties
-      Properties properties = new Properties();
-      properties.put("write_buffer_size", "112");
-      properties.put("max_write_buffer_number", "13");
-      opt = ColumnFamilyOptions.
-          getColumnFamilyOptionsFromProps(properties);
       assertThat(opt).isNotNull();
       assertThat(String.valueOf(opt.writeBufferSize())).
           isEqualTo(properties.get("write_buffer_size"));
       assertThat(String.valueOf(opt.maxWriteBufferNumber())).
           isEqualTo(properties.get("max_write_buffer_number"));
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void failColumnFamilyOptionsFromPropsWithIllegalValue() {
-    ColumnFamilyOptions opt = null;
-    try {
-      // setup sample properties
-      Properties properties = new Properties();
-      properties.put("tomato", "1024");
-      properties.put("burger", "2");
-      opt = ColumnFamilyOptions.
-          getColumnFamilyOptionsFromProps(properties);
+    // setup sample properties
+    final Properties properties = new Properties();
+    properties.put("tomato", "1024");
+    properties.put("burger", "2");
+
+    try (final ColumnFamilyOptions opt =
+             ColumnFamilyOptions.getColumnFamilyOptionsFromProps(properties)) {
       assertThat(opt).isNull();
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test(expected = IllegalArgumentException.class)
   public void failColumnFamilyOptionsFromPropsWithNullValue() {
-    ColumnFamilyOptions.getColumnFamilyOptionsFromProps(null);
+    try (final ColumnFamilyOptions opt =
+             ColumnFamilyOptions.getColumnFamilyOptionsFromProps(null)) {
+    }
   }
 
   @Test(expected = IllegalArgumentException.class)
   public void failColumnFamilyOptionsFromPropsWithEmptyProps() {
-    ColumnFamilyOptions.getColumnFamilyOptionsFromProps(
-        new Properties());
+    try (final ColumnFamilyOptions opt =
+             ColumnFamilyOptions.getColumnFamilyOptionsFromProps(
+                 new Properties())) {
+    }
   }
 
   @Test
   public void writeBufferSize() throws RocksDBException {
-    ColumnFamilyOptions opt = null;
-    try {
-      opt = new ColumnFamilyOptions();
-      long longValue = rand.nextLong();
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+      final long longValue = rand.nextLong();
       opt.setWriteBufferSize(longValue);
       assertThat(opt.writeBufferSize()).isEqualTo(longValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void maxWriteBufferNumber() {
-    ColumnFamilyOptions opt = null;
-    try {
-      opt = new ColumnFamilyOptions();
-      int intValue = rand.nextInt();
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+      final int intValue = rand.nextInt();
       opt.setMaxWriteBufferNumber(intValue);
       assertThat(opt.maxWriteBufferNumber()).isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void minWriteBufferNumberToMerge() {
-    ColumnFamilyOptions opt = null;
-    try {
-      opt = new ColumnFamilyOptions();
-      int intValue = rand.nextInt();
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+      final int intValue = rand.nextInt();
       opt.setMinWriteBufferNumberToMerge(intValue);
       assertThat(opt.minWriteBufferNumberToMerge()).isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void numLevels() {
-    ColumnFamilyOptions opt = null;
-    try {
-      opt = new ColumnFamilyOptions();
-      int intValue = rand.nextInt();
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+      final int intValue = rand.nextInt();
       opt.setNumLevels(intValue);
       assertThat(opt.numLevels()).isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void levelZeroFileNumCompactionTrigger() {
-    ColumnFamilyOptions opt = null;
-    try {
-      opt = new ColumnFamilyOptions();
-      int intValue = rand.nextInt();
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+      final int intValue = rand.nextInt();
       opt.setLevelZeroFileNumCompactionTrigger(intValue);
       assertThat(opt.levelZeroFileNumCompactionTrigger()).isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void levelZeroSlowdownWritesTrigger() {
-    ColumnFamilyOptions opt = null;
-    try {
-      opt = new ColumnFamilyOptions();
-      int intValue = rand.nextInt();
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+      final int intValue = rand.nextInt();
       opt.setLevelZeroSlowdownWritesTrigger(intValue);
       assertThat(opt.levelZeroSlowdownWritesTrigger()).isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void levelZeroStopWritesTrigger() {
-    ColumnFamilyOptions opt = null;
-    try {
-      opt = new ColumnFamilyOptions();
-      int intValue = rand.nextInt();
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+      final int intValue = rand.nextInt();
       opt.setLevelZeroStopWritesTrigger(intValue);
       assertThat(opt.levelZeroStopWritesTrigger()).isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void targetFileSizeBase() {
-    ColumnFamilyOptions opt = null;
-    try {
-      opt = new ColumnFamilyOptions();
-      long longValue = rand.nextLong();
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+      final long longValue = rand.nextLong();
       opt.setTargetFileSizeBase(longValue);
       assertThat(opt.targetFileSizeBase()).isEqualTo(longValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void targetFileSizeMultiplier() {
-    ColumnFamilyOptions opt = null;
-    try {
-      opt = new ColumnFamilyOptions();
-      int intValue = rand.nextInt();
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+      final int intValue = rand.nextInt();
       opt.setTargetFileSizeMultiplier(intValue);
       assertThat(opt.targetFileSizeMultiplier()).isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void maxBytesForLevelBase() {
-    ColumnFamilyOptions opt = null;
-    try {
-      opt = new ColumnFamilyOptions();
-      long longValue = rand.nextLong();
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+      final long longValue = rand.nextLong();
       opt.setMaxBytesForLevelBase(longValue);
       assertThat(opt.maxBytesForLevelBase()).isEqualTo(longValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void levelCompactionDynamicLevelBytes() {
-    ColumnFamilyOptions opt = null;
-    try {
-      opt = new ColumnFamilyOptions();
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
       final boolean boolValue = rand.nextBoolean();
       opt.setLevelCompactionDynamicLevelBytes(boolValue);
       assertThat(opt.levelCompactionDynamicLevelBytes())
           .isEqualTo(boolValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void maxBytesForLevelMultiplier() {
-    ColumnFamilyOptions opt = null;
-    try {
-      opt = new ColumnFamilyOptions();
-      int intValue = rand.nextInt();
-      opt.setMaxBytesForLevelMultiplier(intValue);
-      assertThat(opt.maxBytesForLevelMultiplier()).isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+      final double doubleValue = rand.nextDouble();
+      opt.setMaxBytesForLevelMultiplier(doubleValue);
+      assertThat(opt.maxBytesForLevelMultiplier()).isEqualTo(doubleValue);
     }
   }
 
   @Test
-  public void expandedCompactionFactor() {
-    ColumnFamilyOptions opt = null;
-    try {
-      opt = new ColumnFamilyOptions();
-      int intValue = rand.nextInt();
-      opt.setExpandedCompactionFactor(intValue);
-      assertThat(opt.expandedCompactionFactor()).isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
+  public void maxBytesForLevelMultiplierAdditional() {
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+      final int intValue1 = rand.nextInt();
+      final int intValue2 = rand.nextInt();
+      final int[] ints = new int[]{intValue1, intValue2};
+      opt.setMaxBytesForLevelMultiplierAdditional(ints);
+      assertThat(opt.maxBytesForLevelMultiplierAdditional()).isEqualTo(ints);
     }
   }
 
   @Test
-  public void sourceCompactionFactor() {
-    ColumnFamilyOptions opt = null;
-    try {
-      opt = new ColumnFamilyOptions();
-      int intValue = rand.nextInt();
-      opt.setSourceCompactionFactor(intValue);
-      assertThat(opt.sourceCompactionFactor()).isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
+  public void maxCompactionBytes() {
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+      final long longValue = rand.nextLong();
+      opt.setMaxCompactionBytes(longValue);
+      assertThat(opt.maxCompactionBytes()).isEqualTo(longValue);
     }
   }
 
   @Test
-  public void maxGrandparentOverlapFactor() {
-    ColumnFamilyOptions opt = null;
-    try {
-      opt = new ColumnFamilyOptions();
-      int intValue = rand.nextInt();
-      opt.setMaxGrandparentOverlapFactor(intValue);
-      assertThat(opt.maxGrandparentOverlapFactor()).isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
+  public void softPendingCompactionBytesLimit() {
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+      final long longValue = rand.nextLong();
+      opt.setSoftPendingCompactionBytesLimit(longValue);
+      assertThat(opt.softPendingCompactionBytesLimit()).isEqualTo(longValue);
     }
   }
 
   @Test
-  public void softRateLimit() {
-    ColumnFamilyOptions opt = null;
-    try {
-      opt = new ColumnFamilyOptions();
-      double doubleValue = rand.nextDouble();
-      opt.setSoftRateLimit(doubleValue);
-      assertThat(opt.softRateLimit()).isEqualTo(doubleValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
+  public void hardPendingCompactionBytesLimit() {
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+      final long longValue = rand.nextLong();
+      opt.setHardPendingCompactionBytesLimit(longValue);
+      assertThat(opt.hardPendingCompactionBytesLimit()).isEqualTo(longValue);
     }
   }
 
   @Test
-  public void hardRateLimit() {
-    ColumnFamilyOptions opt = null;
-    try {
-      opt = new ColumnFamilyOptions();
-      double doubleValue = rand.nextDouble();
-      opt.setHardRateLimit(doubleValue);
-      assertThat(opt.hardRateLimit()).isEqualTo(doubleValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
+  public void level0FileNumCompactionTrigger() {
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+      final int intValue = rand.nextInt();
+      opt.setLevel0FileNumCompactionTrigger(intValue);
+      assertThat(opt.level0FileNumCompactionTrigger()).isEqualTo(intValue);
     }
   }
 
   @Test
-  public void rateLimitDelayMaxMilliseconds() {
-    ColumnFamilyOptions opt = null;
-    try {
-      opt = new ColumnFamilyOptions();
-      int intValue = rand.nextInt();
-      opt.setRateLimitDelayMaxMilliseconds(intValue);
-      assertThat(opt.rateLimitDelayMaxMilliseconds()).isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
+  public void level0SlowdownWritesTrigger() {
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+      final int intValue = rand.nextInt();
+      opt.setLevel0SlowdownWritesTrigger(intValue);
+      assertThat(opt.level0SlowdownWritesTrigger()).isEqualTo(intValue);
+    }
+  }
+
+  @Test
+  public void level0StopWritesTrigger() {
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+      final int intValue = rand.nextInt();
+      opt.setLevel0StopWritesTrigger(intValue);
+      assertThat(opt.level0StopWritesTrigger()).isEqualTo(intValue);
     }
   }
 
   @Test
   public void arenaBlockSize() throws RocksDBException {
-    ColumnFamilyOptions opt = null;
-    try {
-      opt = new ColumnFamilyOptions();
-      long longValue = rand.nextLong();
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+      final long longValue = rand.nextLong();
       opt.setArenaBlockSize(longValue);
       assertThat(opt.arenaBlockSize()).isEqualTo(longValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void disableAutoCompactions() {
-    ColumnFamilyOptions opt = null;
-    try {
-      opt = new ColumnFamilyOptions();
-      boolean boolValue = rand.nextBoolean();
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+      final boolean boolValue = rand.nextBoolean();
       opt.setDisableAutoCompactions(boolValue);
       assertThat(opt.disableAutoCompactions()).isEqualTo(boolValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
-    }
-  }
-
-  @Test
-  public void purgeRedundantKvsWhileFlush() {
-    ColumnFamilyOptions opt = null;
-    try {
-      opt = new ColumnFamilyOptions();
-      boolean boolValue = rand.nextBoolean();
-      opt.setPurgeRedundantKvsWhileFlush(boolValue);
-      assertThat(opt.purgeRedundantKvsWhileFlush()).isEqualTo(boolValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
-    }
-  }
-
-  @Test
-  public void verifyChecksumsInCompaction() {
-    ColumnFamilyOptions opt = null;
-    try {
-      opt = new ColumnFamilyOptions();
-      boolean boolValue = rand.nextBoolean();
-      opt.setVerifyChecksumsInCompaction(boolValue);
-      assertThat(opt.verifyChecksumsInCompaction()).isEqualTo(boolValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
-    }
-  }
-
-  @Test
-  public void filterDeletes() {
-    ColumnFamilyOptions opt = null;
-    try {
-      opt = new ColumnFamilyOptions();
-      boolean boolValue = rand.nextBoolean();
-      opt.setFilterDeletes(boolValue);
-      assertThat(opt.filterDeletes()).isEqualTo(boolValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void maxSequentialSkipInIterations() {
-    ColumnFamilyOptions opt = null;
-    try {
-      opt = new ColumnFamilyOptions();
-      long longValue = rand.nextLong();
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+      final long longValue = rand.nextLong();
       opt.setMaxSequentialSkipInIterations(longValue);
       assertThat(opt.maxSequentialSkipInIterations()).isEqualTo(longValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void inplaceUpdateSupport() {
-    ColumnFamilyOptions opt = null;
-    try {
-      opt = new ColumnFamilyOptions();
-      boolean boolValue = rand.nextBoolean();
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+      final boolean boolValue = rand.nextBoolean();
       opt.setInplaceUpdateSupport(boolValue);
       assertThat(opt.inplaceUpdateSupport()).isEqualTo(boolValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void inplaceUpdateNumLocks() throws RocksDBException {
-    ColumnFamilyOptions opt = null;
-    try {
-      opt = new ColumnFamilyOptions();
-      long longValue = rand.nextLong();
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+      final long longValue = rand.nextLong();
       opt.setInplaceUpdateNumLocks(longValue);
       assertThat(opt.inplaceUpdateNumLocks()).isEqualTo(longValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
-  public void memtablePrefixBloomBits() {
-    ColumnFamilyOptions opt = null;
-    try {
-      opt = new ColumnFamilyOptions();
-      int intValue = rand.nextInt();
-      opt.setMemtablePrefixBloomBits(intValue);
-      assertThat(opt.memtablePrefixBloomBits()).isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
+  public void memtablePrefixBloomSizeRatio() {
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+      final double doubleValue = rand.nextDouble();
+      opt.setMemtablePrefixBloomSizeRatio(doubleValue);
+      assertThat(opt.memtablePrefixBloomSizeRatio()).isEqualTo(doubleValue);
     }
   }
 
   @Test
-  public void memtablePrefixBloomProbes() {
-    ColumnFamilyOptions opt = null;
-    try {
-      int intValue = rand.nextInt();
-      opt = new ColumnFamilyOptions();
-      opt.setMemtablePrefixBloomProbes(intValue);
-      assertThat(opt.memtablePrefixBloomProbes()).isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
+  public void memtableHugePageSize() {
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+      final long longValue = rand.nextLong();
+      opt.setMemtableHugePageSize(longValue);
+      assertThat(opt.memtableHugePageSize()).isEqualTo(longValue);
     }
   }
 
   @Test
   public void bloomLocality() {
-    ColumnFamilyOptions opt = null;
-    try {
-      int intValue = rand.nextInt();
-      opt = new ColumnFamilyOptions();
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+      final int intValue = rand.nextInt();
       opt.setBloomLocality(intValue);
       assertThat(opt.bloomLocality()).isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void maxSuccessiveMerges() throws RocksDBException {
-    ColumnFamilyOptions opt = null;
-    try {
-      long longValue = rand.nextLong();
-      opt = new ColumnFamilyOptions();
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+      final long longValue = rand.nextLong();
       opt.setMaxSuccessiveMerges(longValue);
       assertThat(opt.maxSuccessiveMerges()).isEqualTo(longValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
-    }
-  }
-
-  @Test
-  public void minPartialMergeOperands() {
-    ColumnFamilyOptions opt = null;
-    try {
-      int intValue = rand.nextInt();
-      opt = new ColumnFamilyOptions();
-      opt.setMinPartialMergeOperands(intValue);
-      assertThat(opt.minPartialMergeOperands()).isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void optimizeFiltersForHits() {
-    ColumnFamilyOptions opt = null;
-    try {
-      boolean aBoolean = rand.nextBoolean();
-      opt = new ColumnFamilyOptions();
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+      final boolean aBoolean = rand.nextBoolean();
       opt.setOptimizeFiltersForHits(aBoolean);
       assertThat(opt.optimizeFiltersForHits()).isEqualTo(aBoolean);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void memTable() throws RocksDBException {
-    ColumnFamilyOptions opt = null;
-    try {
-      opt = new ColumnFamilyOptions();
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
       opt.setMemTableConfig(new HashLinkedListMemTableConfig());
       assertThat(opt.memTableFactoryName()).
           isEqualTo("HashLinkedListRepFactory");
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void comparator() throws RocksDBException {
-    ColumnFamilyOptions opt = null;
-    try {
-      opt = new ColumnFamilyOptions();
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
       opt.setComparator(BuiltinComparator.BYTEWISE_COMPARATOR);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 
   @Test
   public void linkageOfPrepMethods() {
-    ColumnFamilyOptions options = null;
-    try {
-      options = new ColumnFamilyOptions();
+    try (final ColumnFamilyOptions options = new ColumnFamilyOptions()) {
       options.optimizeUniversalStyleCompaction();
       options.optimizeUniversalStyleCompaction(4000);
       options.optimizeLevelStyleCompaction();
       options.optimizeLevelStyleCompaction(3000);
       options.optimizeForPointLookup(10);
-    } finally {
-      if (options != null) {
-        options.dispose();
-      }
+      options.optimizeForSmallDb();
     }
   }
 
   @Test
   public void shouldSetTestPrefixExtractor() {
-    ColumnFamilyOptions options = null;
-    try {
-      options = new ColumnFamilyOptions();
+    try (final ColumnFamilyOptions options = new ColumnFamilyOptions()) {
       options.useFixedLengthPrefixExtractor(100);
       options.useFixedLengthPrefixExtractor(10);
-    } finally {
-      if (options != null) {
-        options.dispose();
-      }
     }
   }
 
-
   @Test
   public void shouldSetTestCappedPrefixExtractor() {
-    ColumnFamilyOptions options = null;
-    try {
-      options = new ColumnFamilyOptions();
+    try (final ColumnFamilyOptions options = new ColumnFamilyOptions()) {
       options.useCappedPrefixExtractor(100);
       options.useCappedPrefixExtractor(10);
-    } finally {
-      if (options != null) {
-        options.dispose();
-      }
     }
   }
 
   @Test
   public void compressionTypes() {
-    ColumnFamilyOptions columnFamilyOptions = null;
-    try {
-      columnFamilyOptions = new ColumnFamilyOptions();
-      for (CompressionType compressionType :
+    try (final ColumnFamilyOptions columnFamilyOptions
+             = new ColumnFamilyOptions()) {
+      for (final CompressionType compressionType :
           CompressionType.values()) {
         columnFamilyOptions.setCompressionType(compressionType);
         assertThat(columnFamilyOptions.compressionType()).
@@ -643,21 +389,16 @@ public class ColumnFamilyOptionsTest {
         assertThat(CompressionType.valueOf("NO_COMPRESSION")).
             isEqualTo(CompressionType.NO_COMPRESSION);
       }
-    } finally {
-      if (columnFamilyOptions != null) {
-        columnFamilyOptions.dispose();
-      }
     }
   }
 
   @Test
   public void compressionPerLevel() {
-    ColumnFamilyOptions columnFamilyOptions = null;
-    try {
-      columnFamilyOptions = new ColumnFamilyOptions();
+    try (final ColumnFamilyOptions columnFamilyOptions
+             = new ColumnFamilyOptions()) {
       assertThat(columnFamilyOptions.compressionPerLevel()).isEmpty();
       List<CompressionType> compressionTypeList = new ArrayList<>();
-      for (int i=0; i < columnFamilyOptions.numLevels(); i++) {
+      for (int i = 0; i < columnFamilyOptions.numLevels(); i++) {
         compressionTypeList.add(CompressionType.NO_COMPRESSION);
       }
       columnFamilyOptions.setCompressionPerLevel(compressionTypeList);
@@ -666,18 +407,13 @@ public class ColumnFamilyOptionsTest {
         assertThat(compressionType).isEqualTo(
             CompressionType.NO_COMPRESSION);
       }
-    } finally {
-      if (columnFamilyOptions != null) {
-        columnFamilyOptions.dispose();
-      }
     }
   }
 
   @Test
   public void differentCompressionsPerLevel() {
-    ColumnFamilyOptions columnFamilyOptions = null;
-    try {
-      columnFamilyOptions = new ColumnFamilyOptions();
+    try (final ColumnFamilyOptions columnFamilyOptions
+             = new ColumnFamilyOptions()) {
       columnFamilyOptions.setNumLevels(3);
 
       assertThat(columnFamilyOptions.compressionPerLevel()).isEmpty();
@@ -697,38 +433,57 @@ public class ColumnFamilyOptionsTest {
               CompressionType.SNAPPY_COMPRESSION,
               CompressionType.LZ4_COMPRESSION);
 
-    } finally {
-      if (columnFamilyOptions != null) {
-        columnFamilyOptions.dispose();
+    }
+  }
+
+  @Test
+  public void bottommostCompressionType() {
+    try (final ColumnFamilyOptions columnFamilyOptions
+             = new ColumnFamilyOptions()) {
+      assertThat(columnFamilyOptions.bottommostCompressionType())
+          .isEqualTo(CompressionType.DISABLE_COMPRESSION_OPTION);
+
+      for (final CompressionType compressionType : CompressionType.values()) {
+        columnFamilyOptions.setBottommostCompressionType(compressionType);
+        assertThat(columnFamilyOptions.bottommostCompressionType())
+            .isEqualTo(compressionType);
       }
     }
   }
 
   @Test
+  public void compressionOptions() {
+    try (final ColumnFamilyOptions columnFamilyOptions
+             = new ColumnFamilyOptions();
+        final CompressionOptions compressionOptions = new CompressionOptions()
+          .setMaxDictBytes(123)) {
+
+      columnFamilyOptions.setCompressionOptions(compressionOptions);
+      assertThat(columnFamilyOptions.compressionOptions())
+          .isEqualTo(compressionOptions);
+      assertThat(columnFamilyOptions.compressionOptions().maxDictBytes())
+          .isEqualTo(123);
+    }
+  }
+
+  @Test
   public void compactionStyles() {
-    ColumnFamilyOptions ColumnFamilyOptions = null;
-    try {
-      ColumnFamilyOptions = new ColumnFamilyOptions();
-      for (CompactionStyle compactionStyle :
+    try (final ColumnFamilyOptions columnFamilyOptions
+             = new ColumnFamilyOptions()) {
+      for (final CompactionStyle compactionStyle :
           CompactionStyle.values()) {
-        ColumnFamilyOptions.setCompactionStyle(compactionStyle);
-        assertThat(ColumnFamilyOptions.compactionStyle()).
+        columnFamilyOptions.setCompactionStyle(compactionStyle);
+        assertThat(columnFamilyOptions.compactionStyle()).
             isEqualTo(compactionStyle);
         assertThat(CompactionStyle.valueOf("FIFO")).
             isEqualTo(CompactionStyle.FIFO);
-      }
-    } finally {
-      if (ColumnFamilyOptions != null) {
-        ColumnFamilyOptions.dispose();
       }
     }
   }
 
   @Test
   public void maxTableFilesSizeFIFO() {
-    ColumnFamilyOptions opt = null;
-    try {
-      opt = new ColumnFamilyOptions();
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
       long longValue = rand.nextLong();
       // Size has to be positive
       longValue = (longValue < 0) ? -longValue : longValue;
@@ -736,10 +491,77 @@ public class ColumnFamilyOptionsTest {
       opt.setMaxTableFilesSizeFIFO(longValue);
       assertThat(opt.maxTableFilesSizeFIFO()).
           isEqualTo(longValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
+    }
+  }
+
+  @Test
+  public void maxWriteBufferNumberToMaintain() {
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+      int intValue = rand.nextInt();
+      // Size has to be positive
+      intValue = (intValue < 0) ? -intValue : intValue;
+      intValue = (intValue == 0) ? intValue + 1 : intValue;
+      opt.setMaxWriteBufferNumberToMaintain(intValue);
+      assertThat(opt.maxWriteBufferNumberToMaintain()).
+          isEqualTo(intValue);
+    }
+  }
+
+  @Test
+  public void compactionPriorities() {
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+      for (final CompactionPriority compactionPriority :
+          CompactionPriority.values()) {
+        opt.setCompactionPriority(compactionPriority);
+        assertThat(opt.compactionPriority()).
+            isEqualTo(compactionPriority);
       }
+    }
+  }
+
+  @Test
+  public void reportBgIoStats() {
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+      final boolean booleanValue = true;
+      opt.setReportBgIoStats(booleanValue);
+      assertThat(opt.reportBgIoStats()).
+          isEqualTo(booleanValue);
+    }
+  }
+
+  @Test
+  public void compactionOptionsUniversal() {
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions();
+        final CompactionOptionsUniversal optUni = new CompactionOptionsUniversal()
+          .setCompressionSizePercent(7)) {
+      opt.setCompactionOptionsUniversal(optUni);
+      assertThat(opt.compactionOptionsUniversal()).
+          isEqualTo(optUni);
+      assertThat(opt.compactionOptionsUniversal().compressionSizePercent())
+          .isEqualTo(7);
+    }
+  }
+
+  @Test
+  public void compactionOptionsFIFO() {
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions();
+         final CompactionOptionsFIFO optFifo = new CompactionOptionsFIFO()
+             .setMaxTableFilesSize(2000)) {
+      opt.setCompactionOptionsFIFO(optFifo);
+      assertThat(opt.compactionOptionsFIFO()).
+          isEqualTo(optFifo);
+      assertThat(opt.compactionOptionsFIFO().maxTableFilesSize())
+          .isEqualTo(2000);
+    }
+  }
+
+  @Test
+  public void forceConsistencyChecks() {
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+      final boolean booleanValue = true;
+      opt.setForceConsistencyChecks(booleanValue);
+      assertThat(opt.forceConsistencyChecks()).
+          isEqualTo(booleanValue);
     }
   }
 }

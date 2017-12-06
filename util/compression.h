@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -35,6 +35,13 @@
 
 #if defined(ZSTD)
 #include <zstd.h>
+#if ZSTD_VERSION_NUMBER >= 800  // v0.8.0+
+#include <zdict.h>
+#endif  // ZSTD_VERSION_NUMBER >= 800
+#endif  // ZSTD
+
+#if defined(XPRESS)
+#include "port/xpress.h"
 #endif
 
 namespace rocksdb {
@@ -42,8 +49,9 @@ namespace rocksdb {
 inline bool Snappy_Supported() {
 #ifdef SNAPPY
   return true;
-#endif
+#else
   return false;
+#endif
 }
 
 inline bool Zlib_Supported() {
@@ -56,22 +64,42 @@ inline bool Zlib_Supported() {
 inline bool BZip2_Supported() {
 #ifdef BZIP2
   return true;
-#endif
+#else
   return false;
+#endif
 }
 
 inline bool LZ4_Supported() {
 #ifdef LZ4
   return true;
-#endif
+#else
   return false;
+#endif
+}
+
+inline bool XPRESS_Supported() {
+#ifdef XPRESS
+  return true;
+#else
+  return false;
+#endif
 }
 
 inline bool ZSTD_Supported() {
 #ifdef ZSTD
-  return true;
-#endif
+  // ZSTD format is finalized since version 0.8.0.
+  return (ZSTD_versionNumber() >= 800);
+#else
   return false;
+#endif
+}
+
+inline bool ZSTDNotFinal_Supported() {
+#ifdef ZSTD
+  return true;
+#else
+  return false;
+#endif
 }
 
 inline bool CompressionTypeSupported(CompressionType compression_type) {
@@ -88,7 +116,11 @@ inline bool CompressionTypeSupported(CompressionType compression_type) {
       return LZ4_Supported();
     case kLZ4HCCompression:
       return LZ4_Supported();
+    case kXpressCompression:
+      return XPRESS_Supported();
     case kZSTDNotFinalCompression:
+      return ZSTDNotFinal_Supported();
+    case kZSTD:
       return ZSTD_Supported();
     default:
       assert(false);
@@ -110,8 +142,12 @@ inline std::string CompressionTypeToString(CompressionType compression_type) {
       return "LZ4";
     case kLZ4HCCompression:
       return "LZ4HC";
-    case kZSTDNotFinalCompression:
+    case kXpressCompression:
+      return "Xpress";
+    case kZSTD:
       return "ZSTD";
+    case kZSTDNotFinalCompression:
+      return "ZSTDNotFinal";
     default:
       assert(false);
       return "";
@@ -133,9 +169,9 @@ inline bool Snappy_Compress(const CompressionOptions& opts, const char* input,
   snappy::RawCompress(input, length, &(*output)[0], &outlen);
   output->resize(outlen);
   return true;
-#endif
-
+#else
   return false;
+#endif
 }
 
 inline bool Snappy_GetUncompressedLength(const char* input, size_t length,
@@ -181,10 +217,12 @@ inline bool GetDecompressedSizeInfo(const char** input_data,
 // block header
 // compress_format_version == 2 -- decompressed size is included in the block
 // header in varint32 format
+// @param compression_dict Data for presetting the compression library's
+//    dictionary.
 inline bool Zlib_Compress(const CompressionOptions& opts,
-                          uint32_t compress_format_version,
-                          const char* input, size_t length,
-                          ::std::string* output) {
+                          uint32_t compress_format_version, const char* input,
+                          size_t length, ::std::string* output,
+                          const Slice& compression_dict = Slice()) {
 #ifdef ZLIB
   if (length > std::numeric_limits<uint32_t>::max()) {
     // Can't compress more than 4GB
@@ -214,6 +252,17 @@ inline bool Zlib_Compress(const CompressionOptions& opts,
     return false;
   }
 
+  if (compression_dict.size()) {
+    // Initialize the compression library's dictionary
+    st = deflateSetDictionary(
+        &_stream, reinterpret_cast<const Bytef*>(compression_dict.data()),
+        static_cast<unsigned int>(compression_dict.size()));
+    if (st != Z_OK) {
+      deflateEnd(&_stream);
+      return false;
+    }
+  }
+
   // Compress the input, and put compressed data in output.
   _stream.next_in = (Bytef *)input;
   _stream.avail_in = static_cast<unsigned int>(length);
@@ -222,27 +271,18 @@ inline bool Zlib_Compress(const CompressionOptions& opts,
   _stream.avail_out = static_cast<unsigned int>(length);
   _stream.next_out = reinterpret_cast<Bytef*>(&(*output)[output_header_len]);
 
-  bool done = false;
-  while (!done) {
-    st = deflate(&_stream, Z_FINISH);
-    switch (st) {
-      case Z_STREAM_END:
-        done = true;
-        break;
-      case Z_OK:
-        // No output space. This means the compression is bigger than
-        // decompressed size. Just fail the compression in that case.
-        // Intentional fallback (to failure case)
-      case Z_BUF_ERROR:
-      default:
-        deflateEnd(&_stream);
-        return false;
-    }
+  bool compressed = false;
+  st = deflate(&_stream, Z_FINISH);
+  if (st == Z_STREAM_END) {
+    compressed = true;
+    output->resize(output->size() - _stream.avail_out);
   }
+  // The only return value we really care about is Z_STREAM_END.
+  // Z_OK means insufficient output space. This means the compression is
+  // bigger than decompressed size. Just fail the compression in that case.
 
-  output->resize(output->size() - _stream.avail_out + output_header_len);
   deflateEnd(&_stream);
-  return true;
+  return compressed;
 #endif
   return false;
 }
@@ -251,9 +291,12 @@ inline bool Zlib_Compress(const CompressionOptions& opts,
 // block header
 // compress_format_version == 2 -- decompressed size is included in the block
 // header in varint32 format
+// @param compression_dict Data for presetting the compression library's
+//    dictionary.
 inline char* Zlib_Uncompress(const char* input_data, size_t input_length,
                              int* decompress_size,
                              uint32_t compress_format_version,
+                             const Slice& compression_dict = Slice(),
                              int windowBits = -14) {
 #ifdef ZLIB
   uint32_t output_len = 0;
@@ -281,6 +324,16 @@ inline char* Zlib_Uncompress(const char* input_data, size_t input_length,
       windowBits > 0 ? windowBits + 32 : windowBits);
   if (st != Z_OK) {
     return nullptr;
+  }
+
+  if (compression_dict.size()) {
+    // Initialize the compression library's dictionary
+    st = inflateSetDictionary(
+        &_stream, reinterpret_cast<const Bytef*>(compression_dict.data()),
+        static_cast<unsigned int>(compression_dict.size()));
+    if (st != Z_OK) {
+      return nullptr;
+    }
   }
 
   _stream.next_in = (Bytef *)input_data;
@@ -376,25 +429,18 @@ inline bool BZip2_Compress(const CompressionOptions& opts,
   _stream.avail_out = static_cast<unsigned int>(length);
   _stream.next_out = reinterpret_cast<char*>(&(*output)[output_header_len]);
 
-  while (_stream.next_in != nullptr && _stream.avail_in != 0) {
-    st = BZ2_bzCompress(&_stream, BZ_FINISH);
-    switch (st) {
-      case BZ_STREAM_END:
-        break;
-      case BZ_FINISH_OK:
-        // No output space. This means the compression is bigger than
-        // decompressed size. Just fail the compression in that case
-        // Intentional fallback (to failure case)
-      case BZ_SEQUENCE_ERROR:
-      default:
-        BZ2_bzCompressEnd(&_stream);
-        return false;
-    }
+  bool compressed = false;
+  st = BZ2_bzCompress(&_stream, BZ_FINISH);
+  if (st == BZ_STREAM_END) {
+    compressed = true;
+    output->resize(output->size() - _stream.avail_out);
   }
+  // The only return value we really care about is BZ_STREAM_END.
+  // BZ_FINISH_OK means insufficient output space. This means the compression
+  // is bigger than decompressed size. Just fail the compression in that case.
 
-  output->resize(output->size() - _stream.avail_out + output_header_len);
   BZ2_bzCompressEnd(&_stream);
-  return true;
+  return compressed;
 #endif
   return false;
 }
@@ -482,9 +528,12 @@ inline char* BZip2_Uncompress(const char* input_data, size_t input_length,
 // block header using memcpy, which makes database non-portable)
 // compress_format_version == 2 -- decompressed size is included in the block
 // header in varint32 format
+// @param compression_dict Data for presetting the compression library's
+//    dictionary.
 inline bool LZ4_Compress(const CompressionOptions& opts,
                          uint32_t compress_format_version, const char* input,
-                         size_t length, ::std::string* output) {
+                         size_t length, ::std::string* output,
+                         const Slice compression_dict = Slice()) {
 #ifdef LZ4
   if (length > std::numeric_limits<uint32_t>::max()) {
     // Can't compress more than 4GB
@@ -504,18 +553,37 @@ inline bool LZ4_Compress(const CompressionOptions& opts,
     char* p = const_cast<char*>(output->c_str());
     memcpy(p, &length, sizeof(length));
   }
+  int compress_bound = LZ4_compressBound(static_cast<int>(length));
+  output->resize(static_cast<size_t>(output_header_len + compress_bound));
 
-  int compressBound = LZ4_compressBound(static_cast<int>(length));
-  output->resize(static_cast<size_t>(output_header_len + compressBound));
-  int outlen =
-      LZ4_compress_limitedOutput(input, &(*output)[output_header_len],
-                                 static_cast<int>(length), compressBound);
+  int outlen;
+#if LZ4_VERSION_NUMBER >= 10400  // r124+
+  LZ4_stream_t* stream = LZ4_createStream();
+  if (compression_dict.size()) {
+    LZ4_loadDict(stream, compression_dict.data(),
+                 static_cast<int>(compression_dict.size()));
+  }
+#if LZ4_VERSION_NUMBER >= 10700  // r129+
+  outlen = LZ4_compress_fast_continue(
+      stream, input, &(*output)[output_header_len], static_cast<int>(length),
+      compress_bound, 1);
+#else  // up to r128
+  outlen = LZ4_compress_limitedOutput_continue(
+      stream, input, &(*output)[output_header_len], static_cast<int>(length),
+      compress_bound);
+#endif
+  LZ4_freeStream(stream);
+#else   // up to r123
+  outlen = LZ4_compress_limitedOutput(input, &(*output)[output_header_len],
+                                      static_cast<int>(length), compress_bound);
+#endif  // LZ4_VERSION_NUMBER >= 10400
+
   if (outlen == 0) {
     return false;
   }
   output->resize(static_cast<size_t>(output_header_len + outlen));
   return true;
-#endif
+#endif  // LZ4
   return false;
 }
 
@@ -523,9 +591,12 @@ inline bool LZ4_Compress(const CompressionOptions& opts,
 // block header using memcpy, which makes database non-portable)
 // compress_format_version == 2 -- decompressed size is included in the block
 // header in varint32 format
+// @param compression_dict Data for presetting the compression library's
+//    dictionary.
 inline char* LZ4_Uncompress(const char* input_data, size_t input_length,
                             int* decompress_size,
-                            uint32_t compress_format_version) {
+                            uint32_t compress_format_version,
+                            const Slice& compression_dict = Slice()) {
 #ifdef LZ4
   uint32_t output_len = 0;
   if (compress_format_version == 2) {
@@ -544,17 +615,31 @@ inline char* LZ4_Uncompress(const char* input_data, size_t input_length,
     input_length -= 8;
     input_data += 8;
   }
+
   char* output = new char[output_len];
+#if LZ4_VERSION_NUMBER >= 10400  // r124+
+  LZ4_streamDecode_t* stream = LZ4_createStreamDecode();
+  if (compression_dict.size()) {
+    LZ4_setStreamDecode(stream, compression_dict.data(),
+                        static_cast<int>(compression_dict.size()));
+  }
+  *decompress_size = LZ4_decompress_safe_continue(
+      stream, input_data, output, static_cast<int>(input_length),
+      static_cast<int>(output_len));
+  LZ4_freeStreamDecode(stream);
+#else   // up to r123
   *decompress_size =
       LZ4_decompress_safe(input_data, output, static_cast<int>(input_length),
                           static_cast<int>(output_len));
+#endif  // LZ4_VERSION_NUMBER >= 10400
+
   if (*decompress_size < 0) {
     delete[] output;
     return nullptr;
   }
   assert(*decompress_size == static_cast<int>(output_len));
   return output;
-#endif
+#endif  // LZ4
   return nullptr;
 }
 
@@ -562,9 +647,12 @@ inline char* LZ4_Uncompress(const char* input_data, size_t input_length,
 // block header using memcpy, which makes database non-portable)
 // compress_format_version == 2 -- decompressed size is included in the block
 // header in varint32 format
+// @param compression_dict Data for presetting the compression library's
+//    dictionary.
 inline bool LZ4HC_Compress(const CompressionOptions& opts,
                            uint32_t compress_format_version, const char* input,
-                           size_t length, ::std::string* output) {
+                           size_t length, ::std::string* output,
+                           const Slice& compression_dict = Slice()) {
 #ifdef LZ4
   if (length > std::numeric_limits<uint32_t>::max()) {
     // Can't compress more than 4GB
@@ -584,30 +672,72 @@ inline bool LZ4HC_Compress(const CompressionOptions& opts,
     char* p = const_cast<char*>(output->c_str());
     memcpy(p, &length, sizeof(length));
   }
+  int compress_bound = LZ4_compressBound(static_cast<int>(length));
+  output->resize(static_cast<size_t>(output_header_len + compress_bound));
 
-  int compressBound = LZ4_compressBound(static_cast<int>(length));
-  output->resize(static_cast<size_t>(output_header_len + compressBound));
   int outlen;
-#ifdef LZ4_VERSION_MAJOR  // they only started defining this since r113
+#if LZ4_VERSION_NUMBER >= 10400  // r124+
+  LZ4_streamHC_t* stream = LZ4_createStreamHC();
+  LZ4_resetStreamHC(stream, opts.level);
+  const char* compression_dict_data =
+      compression_dict.size() > 0 ? compression_dict.data() : nullptr;
+  size_t compression_dict_size = compression_dict.size();
+  LZ4_loadDictHC(stream, compression_dict_data,
+                 static_cast<int>(compression_dict_size));
+
+#if LZ4_VERSION_NUMBER >= 10700  // r129+
+  outlen =
+      LZ4_compress_HC_continue(stream, input, &(*output)[output_header_len],
+                               static_cast<int>(length), compress_bound);
+#else   // r124-r128
+  outlen = LZ4_compressHC_limitedOutput_continue(
+      stream, input, &(*output)[output_header_len], static_cast<int>(length),
+      compress_bound);
+#endif  // LZ4_VERSION_NUMBER >= 10700
+  LZ4_freeStreamHC(stream);
+
+#elif LZ4_VERSION_MAJOR  // r113-r123
   outlen = LZ4_compressHC2_limitedOutput(input, &(*output)[output_header_len],
                                          static_cast<int>(length),
-                                         compressBound, opts.level);
-#else
+                                         compress_bound, opts.level);
+#else                    // up to r112
   outlen =
       LZ4_compressHC_limitedOutput(input, &(*output)[output_header_len],
-                                   static_cast<int>(length), compressBound);
-#endif
+                                   static_cast<int>(length), compress_bound);
+#endif                   // LZ4_VERSION_NUMBER >= 10400
+
   if (outlen == 0) {
     return false;
   }
   output->resize(static_cast<size_t>(output_header_len + outlen));
   return true;
-#endif
+#endif  // LZ4
   return false;
 }
 
+inline bool XPRESS_Compress(const char* input, size_t length, std::string* output) {
+#ifdef XPRESS
+  return port::xpress::Compress(input, length, output);
+#else
+  return false;
+#endif
+}
+
+inline char* XPRESS_Uncompress(const char* input_data, size_t input_length,
+  int* decompress_size) {
+#ifdef XPRESS
+  return port::xpress::Decompress(input_data, input_length, decompress_size);
+#else
+  return nullptr;
+#endif
+}
+
+
+// @param compression_dict Data for presetting the compression library's
+//    dictionary.
 inline bool ZSTD_Compress(const CompressionOptions& opts, const char* input,
-                          size_t length, ::std::string* output) {
+                          size_t length, ::std::string* output,
+                          const Slice& compression_dict = Slice()) {
 #ifdef ZSTD
   if (length > std::numeric_limits<uint32_t>::max()) {
     // Can't compress more than 4GB
@@ -619,8 +749,17 @@ inline bool ZSTD_Compress(const CompressionOptions& opts, const char* input,
 
   size_t compressBound = ZSTD_compressBound(length);
   output->resize(static_cast<size_t>(output_header_len + compressBound));
-  size_t outlen = ZSTD_compress(&(*output)[output_header_len], compressBound,
-                                input, length, opts.level);
+  size_t outlen;
+#if ZSTD_VERSION_NUMBER >= 500  // v0.5.0+
+  ZSTD_CCtx* context = ZSTD_createCCtx();
+  outlen = ZSTD_compress_usingDict(
+      context, &(*output)[output_header_len], compressBound, input, length,
+      compression_dict.data(), compression_dict.size(), opts.level);
+  ZSTD_freeCCtx(context);
+#else  // up to v0.4.x
+  outlen = ZSTD_compress(&(*output)[output_header_len], compressBound, input,
+                         length, opts.level);
+#endif  // ZSTD_VERSION_NUMBER >= 500
   if (outlen == 0) {
     return false;
   }
@@ -630,8 +769,11 @@ inline bool ZSTD_Compress(const CompressionOptions& opts, const char* input,
   return false;
 }
 
+// @param compression_dict Data for presetting the compression library's
+//    dictionary.
 inline char* ZSTD_Uncompress(const char* input_data, size_t input_length,
-                             int* decompress_size) {
+                             int* decompress_size,
+                             const Slice& compression_dict = Slice()) {
 #ifdef ZSTD
   uint32_t output_len = 0;
   if (!compression::GetDecompressedSizeInfo(&input_data, &input_length,
@@ -640,13 +782,60 @@ inline char* ZSTD_Uncompress(const char* input_data, size_t input_length,
   }
 
   char* output = new char[output_len];
-  size_t actual_output_length =
+  size_t actual_output_length;
+#if ZSTD_VERSION_NUMBER >= 500  // v0.5.0+
+  ZSTD_DCtx* context = ZSTD_createDCtx();
+  actual_output_length = ZSTD_decompress_usingDict(
+      context, output, output_len, input_data, input_length,
+      compression_dict.data(), compression_dict.size());
+  ZSTD_freeDCtx(context);
+#else  // up to v0.4.x
+  actual_output_length =
       ZSTD_decompress(output, output_len, input_data, input_length);
+#endif  // ZSTD_VERSION_NUMBER >= 500
   assert(actual_output_length == output_len);
   *decompress_size = static_cast<int>(actual_output_length);
   return output;
 #endif
   return nullptr;
+}
+
+inline std::string ZSTD_TrainDictionary(const std::string& samples,
+                                        const std::vector<size_t>& sample_lens,
+                                        size_t max_dict_bytes) {
+  // Dictionary trainer is available since v0.6.1, but ZSTD was marked stable
+  // only since v0.8.0. For now we enable the feature in stable versions only.
+#if ZSTD_VERSION_NUMBER >= 800  // v0.8.0+
+  std::string dict_data(max_dict_bytes, '\0');
+  size_t dict_len = ZDICT_trainFromBuffer(
+      &dict_data[0], max_dict_bytes, &samples[0], &sample_lens[0],
+      static_cast<unsigned>(sample_lens.size()));
+  if (ZDICT_isError(dict_len)) {
+    return "";
+  }
+  assert(dict_len <= max_dict_bytes);
+  dict_data.resize(dict_len);
+  return dict_data;
+#else   // up to v0.7.x
+  assert(false);
+  return "";
+#endif  // ZSTD_VERSION_NUMBER >= 800
+}
+
+inline std::string ZSTD_TrainDictionary(const std::string& samples,
+                                        size_t sample_len_shift,
+                                        size_t max_dict_bytes) {
+  // Dictionary trainer is available since v0.6.1, but ZSTD was marked stable
+  // only since v0.8.0. For now we enable the feature in stable versions only.
+#if ZSTD_VERSION_NUMBER >= 800  // v0.8.0+
+  // skips potential partial sample at the end of "samples"
+  size_t num_samples = samples.size() >> sample_len_shift;
+  std::vector<size_t> sample_lens(num_samples, 1 << sample_len_shift);
+  return ZSTD_TrainDictionary(samples, sample_lens, max_dict_bytes);
+#else   // up to v0.7.x
+  assert(false);
+  return "";
+#endif  // ZSTD_VERSION_NUMBER >= 800
 }
 
 }  // namespace rocksdb

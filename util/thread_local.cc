@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -14,8 +14,145 @@
 
 namespace rocksdb {
 
-#if ROCKSDB_SUPPORT_THREAD_LOCAL
-__thread ThreadLocalPtr::ThreadData* ThreadLocalPtr::StaticMeta::tls_ = nullptr;
+struct Entry {
+  Entry() : ptr(nullptr) {}
+  Entry(const Entry& e) : ptr(e.ptr.load(std::memory_order_relaxed)) {}
+  std::atomic<void*> ptr;
+};
+
+class StaticMeta;
+
+// This is the structure that is declared as "thread_local" storage.
+// The vector keep list of atomic pointer for all instances for "current"
+// thread. The vector is indexed by an Id that is unique in process and
+// associated with one ThreadLocalPtr instance. The Id is assigned by a
+// global StaticMeta singleton. So if we instantiated 3 ThreadLocalPtr
+// instances, each thread will have a ThreadData with a vector of size 3:
+//     ---------------------------------------------------
+//     |          | instance 1 | instance 2 | instnace 3 |
+//     ---------------------------------------------------
+//     | thread 1 |    void*   |    void*   |    void*   | <- ThreadData
+//     ---------------------------------------------------
+//     | thread 2 |    void*   |    void*   |    void*   | <- ThreadData
+//     ---------------------------------------------------
+//     | thread 3 |    void*   |    void*   |    void*   | <- ThreadData
+//     ---------------------------------------------------
+struct ThreadData {
+  explicit ThreadData(ThreadLocalPtr::StaticMeta* _inst)
+    : entries(),
+      next(nullptr),
+      prev(nullptr),
+      inst(_inst) {}
+  std::vector<Entry> entries;
+  ThreadData* next;
+  ThreadData* prev;
+  ThreadLocalPtr::StaticMeta* inst;
+};
+
+class ThreadLocalPtr::StaticMeta {
+public:
+  StaticMeta();
+
+  // Return the next available Id
+  uint32_t GetId();
+  // Return the next available Id without claiming it
+  uint32_t PeekId() const;
+  // Return the given Id back to the free pool. This also triggers
+  // UnrefHandler for associated pointer value (if not NULL) for all threads.
+  void ReclaimId(uint32_t id);
+
+  // Return the pointer value for the given id for the current thread.
+  void* Get(uint32_t id) const;
+  // Reset the pointer value for the given id for the current thread.
+  void Reset(uint32_t id, void* ptr);
+  // Atomically swap the supplied ptr and return the previous value
+  void* Swap(uint32_t id, void* ptr);
+  // Atomically compare and swap the provided value only if it equals
+  // to expected value.
+  bool CompareAndSwap(uint32_t id, void* ptr, void*& expected);
+  // Reset all thread local data to replacement, and return non-nullptr
+  // data for all existing threads
+  void Scrape(uint32_t id, autovector<void*>* ptrs, void* const replacement);
+  // Update res by applying func on each thread-local value. Holds a lock that
+  // prevents unref handler from running during this call, but clients must
+  // still provide external synchronization since the owning thread can
+  // access the values without internal locking, e.g., via Get() and Reset().
+  void Fold(uint32_t id, FoldFunc func, void* res);
+
+  // Register the UnrefHandler for id
+  void SetHandler(uint32_t id, UnrefHandler handler);
+
+  // protect inst, next_instance_id_, free_instance_ids_, head_,
+  // ThreadData.entries
+  //
+  // Note that here we prefer function static variable instead of the usual
+  // global static variable.  The reason is that c++ destruction order of
+  // static variables in the reverse order of their construction order.
+  // However, C++ does not guarantee any construction order when global
+  // static variables are defined in different files, while the function
+  // static variables are initialized when their function are first called.
+  // As a result, the construction order of the function static variables
+  // can be controlled by properly invoke their first function calls in
+  // the right order.
+  //
+  // For instance, the following function contains a function static
+  // variable.  We place a dummy function call of this inside
+  // Env::Default() to ensure the construction order of the construction
+  // order.
+  static port::Mutex* Mutex();
+
+  // Returns the member mutex of the current StaticMeta.  In general,
+  // Mutex() should be used instead of this one.  However, in case where
+  // the static variable inside Instance() goes out of scope, MemberMutex()
+  // should be used.  One example is OnThreadExit() function.
+  port::Mutex* MemberMutex() { return &mutex_; }
+
+private:
+  // Get UnrefHandler for id with acquiring mutex
+  // REQUIRES: mutex locked
+  UnrefHandler GetHandler(uint32_t id);
+
+  // Triggered before a thread terminates
+  static void OnThreadExit(void* ptr);
+
+  // Add current thread's ThreadData to the global chain
+  // REQUIRES: mutex locked
+  void AddThreadData(ThreadData* d);
+
+  // Remove current thread's ThreadData from the global chain
+  // REQUIRES: mutex locked
+  void RemoveThreadData(ThreadData* d);
+
+  static ThreadData* GetThreadLocal();
+
+  uint32_t next_instance_id_;
+  // Used to recycle Ids in case ThreadLocalPtr is instantiated and destroyed
+  // frequently. This also prevents it from blowing up the vector space.
+  autovector<uint32_t> free_instance_ids_;
+  // Chain all thread local structure together. This is necessary since
+  // when one ThreadLocalPtr gets destroyed, we need to loop over each
+  // thread's version of pointer corresponding to that instance and
+  // call UnrefHandler for it.
+  ThreadData head_;
+
+  std::unordered_map<uint32_t, UnrefHandler> handler_map_;
+
+  // The private mutex.  Developers should always use Mutex() instead of
+  // using this variable directly.
+  port::Mutex mutex_;
+#ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
+  // Thread local storage
+  static __thread ThreadData* tls_;
+#endif
+
+  // Used to make thread exit trigger possible if !defined(OS_MACOSX).
+  // Otherwise, used to retrieve thread data.
+  pthread_key_t pthread_key_;
+};
+
+
+#ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
+__thread ThreadData* ThreadLocalPtr::StaticMeta::tls_ = nullptr;
 #endif
 
 // Windows doesn't support a per-thread destructor with its
@@ -41,13 +178,13 @@ namespace wintlscleanup {
 
 // This is set to OnThreadExit in StaticMeta singleton constructor
 UnrefHandler thread_local_inclass_routine = nullptr;
-pthread_key_t thread_local_key = -1;
+pthread_key_t thread_local_key = pthread_key_t (-1);
 
 // Static callback function to call with each thread termination.
 void NTAPI WinOnThreadExit(PVOID module, DWORD reason, PVOID reserved) {
   // We decided to punt on PROCESS_EXIT
   if (DLL_THREAD_DETACH == reason) {
-    if (thread_local_key != -1 && thread_local_inclass_routine != nullptr) {
+    if (thread_local_key != pthread_key_t(-1) && thread_local_inclass_routine != nullptr) {
       void* tls = pthread_getspecific(thread_local_key);
       if (tls != nullptr) {
         thread_local_inclass_routine(tls);
@@ -58,22 +195,11 @@ void NTAPI WinOnThreadExit(PVOID module, DWORD reason, PVOID reserved) {
 
 }  // wintlscleanup
 
-#ifdef _WIN64
-
-#pragma comment(linker, "/include:_tls_used")
-#pragma comment(linker, "/include:p_thread_callback_on_exit")
-
-#else  // _WIN64
-
-#pragma comment(linker, "/INCLUDE:__tls_used")
-#pragma comment(linker, "/INCLUDE:_p_thread_callback_on_exit")
-
-#endif  // _WIN64
-
 // extern "C" suppresses C++ name mangling so we know the symbol name for the
 // linker /INCLUDE:symbol pragma above.
 extern "C" {
 
+#ifdef _MSC_VER
 // The linker must not discard thread_callback_on_exit.  (We force a reference
 // to this variable with a linker /include:symbol pragma to ensure that.) If
 // this variable is discarded, the OnThreadExit function will never be called.
@@ -89,6 +215,9 @@ const PIMAGE_TLS_CALLBACK p_thread_callback_on_exit =
 // Reset the default section.
 #pragma const_seg()
 
+#pragma comment(linker, "/include:_tls_used")
+#pragma comment(linker, "/include:p_thread_callback_on_exit")
+
 #else  // _WIN64
 
 #pragma data_seg(".CRT$XLB")
@@ -96,15 +225,24 @@ PIMAGE_TLS_CALLBACK p_thread_callback_on_exit = wintlscleanup::WinOnThreadExit;
 // Reset the default section.
 #pragma data_seg()
 
+#pragma comment(linker, "/INCLUDE:__tls_used")
+#pragma comment(linker, "/INCLUDE:_p_thread_callback_on_exit")
+
 #endif  // _WIN64
 
+#else
+// https://github.com/couchbase/gperftools/blob/master/src/windows/port.cc
+BOOL WINAPI DllMain(HINSTANCE h, DWORD dwReason, PVOID pv) {
+  if (dwReason == DLL_THREAD_DETACH)
+    wintlscleanup::WinOnThreadExit(h, dwReason, pv);
+  return TRUE;
+}
+#endif
 }  // extern "C"
 
 #endif  // OS_WIN
 
-void ThreadLocalPtr::InitSingletons() {
-  ThreadLocalPtr::StaticMeta::InitSingletons();
-}
+void ThreadLocalPtr::InitSingletons() { ThreadLocalPtr::Instance(); }
 
 ThreadLocalPtr::StaticMeta* ThreadLocalPtr::Instance() {
   // Here we prefer function static variable instead of global
@@ -115,7 +253,7 @@ ThreadLocalPtr::StaticMeta* ThreadLocalPtr::Instance() {
   //
   // Note that here we decide to make "inst" a static pointer w/o deleting
   // it at the end instead of a static variable.  This is to avoid the following
-  // destruction order desester happens when a child thread using ThreadLocalPtr
+  // destruction order disaster happens when a child thread using ThreadLocalPtr
   // dies AFTER the main thread dies:  When a child thread happens to use
   // ThreadLocalPtr, it will try to delete its thread-local data on its
   // OnThreadExit when the child thread dies.  However, OnThreadExit depends
@@ -128,15 +266,12 @@ ThreadLocalPtr::StaticMeta* ThreadLocalPtr::Instance() {
   // of using __thread.  The major difference between thread_local and __thread
   // is that thread_local supports dynamic construction and destruction of
   // non-primitive typed variables.  As a result, we can guarantee the
-  // desturction order even when the main thread dies before any child threads.
-  // However, thread_local requires gcc 4.8 and is not supported in all the
-  // compilers that accepts -std=c++11 (e.g., the default clang on Mac), while
-  // the current RocksDB still accept gcc 4.7.
+  // destruction order even when the main thread dies before any child threads.
+  // However, thread_local is not supported in all compilers that accept -std=c++11
+  // (e.g., eg Mac with XCode < 8. XCode 8+ supports thread_local).
   static ThreadLocalPtr::StaticMeta* inst = new ThreadLocalPtr::StaticMeta();
   return inst;
 }
-
-void ThreadLocalPtr::StaticMeta::InitSingletons() { Mutex(); }
 
 port::Mutex* ThreadLocalPtr::StaticMeta::Mutex() { return &Instance()->mutex_; }
 
@@ -169,7 +304,10 @@ void ThreadLocalPtr::StaticMeta::OnThreadExit(void* ptr) {
   delete tls;
 }
 
-ThreadLocalPtr::StaticMeta::StaticMeta() : next_instance_id_(0), head_(this) {
+ThreadLocalPtr::StaticMeta::StaticMeta()
+  : next_instance_id_(0),
+    head_(this),
+    pthread_key_(0) {
   if (pthread_key_create(&pthread_key_, &OnThreadExit) != 0) {
     abort();
   }
@@ -189,7 +327,7 @@ ThreadLocalPtr::StaticMeta::StaticMeta() : next_instance_id_(0), head_(this) {
 #if !defined(OS_WIN)
   static struct A {
     ~A() {
-#if !(ROCKSDB_SUPPORT_THREAD_LOCAL)
+#ifndef ROCKSDB_SUPPORT_THREAD_LOCAL
       ThreadData* tls_ =
         static_cast<ThreadData*>(pthread_getspecific(Instance()->pthread_key_));
 #endif
@@ -210,7 +348,7 @@ ThreadLocalPtr::StaticMeta::StaticMeta() : next_instance_id_(0), head_(this) {
 #endif
 }
 
-void ThreadLocalPtr::StaticMeta::AddThreadData(ThreadLocalPtr::ThreadData* d) {
+void ThreadLocalPtr::StaticMeta::AddThreadData(ThreadData* d) {
   Mutex()->AssertHeld();
   d->next = &head_;
   d->prev = head_.prev;
@@ -219,15 +357,15 @@ void ThreadLocalPtr::StaticMeta::AddThreadData(ThreadLocalPtr::ThreadData* d) {
 }
 
 void ThreadLocalPtr::StaticMeta::RemoveThreadData(
-    ThreadLocalPtr::ThreadData* d) {
+    ThreadData* d) {
   Mutex()->AssertHeld();
   d->next->prev = d->prev;
   d->prev->next = d->next;
   d->next = d->prev = d;
 }
 
-ThreadLocalPtr::ThreadData* ThreadLocalPtr::StaticMeta::GetThreadLocal() {
-#if !(ROCKSDB_SUPPORT_THREAD_LOCAL)
+ThreadData* ThreadLocalPtr::StaticMeta::GetThreadLocal() {
+#ifndef ROCKSDB_SUPPORT_THREAD_LOCAL
   // Make this local variable name look like a member variable so that we
   // can share all the code below
   ThreadData* tls_ =
@@ -311,6 +449,22 @@ void ThreadLocalPtr::StaticMeta::Scrape(uint32_t id, autovector<void*>* ptrs,
   }
 }
 
+void ThreadLocalPtr::StaticMeta::Fold(uint32_t id, FoldFunc func, void* res) {
+  MutexLock l(Mutex());
+  for (ThreadData* t = head_.next; t != &head_; t = t->next) {
+    if (id < t->entries.size()) {
+      void* ptr = t->entries[id].ptr.load();
+      if (ptr != nullptr) {
+        func(ptr, res);
+      }
+    }
+  }
+}
+
+uint32_t ThreadLocalPtr::TEST_PeekId() {
+  return Instance()->PeekId();
+}
+
 void ThreadLocalPtr::StaticMeta::SetHandler(uint32_t id, UnrefHandler handler) {
   MutexLock l(Mutex());
   handler_map_[id] = handler;
@@ -390,6 +544,10 @@ bool ThreadLocalPtr::CompareAndSwap(void* ptr, void*& expected) {
 
 void ThreadLocalPtr::Scrape(autovector<void*>* ptrs, void* const replacement) {
   Instance()->Scrape(id_, ptrs, replacement);
+}
+
+void ThreadLocalPtr::Fold(FoldFunc func, void* res) {
+  Instance()->Fold(id_, func, res);
 }
 
 }  // namespace rocksdb

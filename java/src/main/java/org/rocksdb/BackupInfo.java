@@ -1,19 +1,18 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 package org.rocksdb;
 
 /**
  * Instances of this class describe a Backup made by
- * {@link org.rocksdb.BackupableDB}.
+ * {@link org.rocksdb.BackupEngine}.
  */
 public class BackupInfo {
 
   /**
    * Package private constructor used to create instances
-   * of BackupInfo by {@link org.rocksdb.BackupableDB} and
-   * {@link org.rocksdb.RestoreBackupableDB}.
+   * of BackupInfo by {@link org.rocksdb.BackupEngine}
    *
    * @param backupId id of backup
    * @param timestamp timestamp of backup

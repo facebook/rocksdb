@@ -1,12 +1,13 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include "db/write_controller.h"
 
 #include <atomic>
 #include <cassert>
+#include <ratio>
 #include "rocksdb/env.h"
 
 namespace rocksdb {
@@ -33,17 +34,19 @@ WriteController::GetCompactionPressureToken() {
       new CompactionPressureToken(this));
 }
 
-bool WriteController::IsStopped() const { return total_stopped_ > 0; }
+bool WriteController::IsStopped() const {
+  return total_stopped_.load(std::memory_order_relaxed) > 0;
+}
 // This is inside DB mutex, so we can't sleep and need to minimize
 // frequency to get time.
 // If it turns out to be a performance issue, we can redesign the thread
 // synchronization model here.
 // The function trust caller will sleep micros returned.
 uint64_t WriteController::GetDelay(Env* env, uint64_t num_bytes) {
-  if (total_stopped_ > 0) {
+  if (total_stopped_.load(std::memory_order_relaxed) > 0) {
     return 0;
   }
-  if (total_delayed_ == 0) {
+  if (total_delayed_.load(std::memory_order_relaxed) == 0) {
     return 0;
   }
 
@@ -56,7 +59,7 @@ uint64_t WriteController::GetDelay(Env* env, uint64_t num_bytes) {
   }
   // The frequency to get time inside DB mutex is less than one per refill
   // interval.
-  auto time_now = env->NowMicros();
+  auto time_now = NowMicrosMonotonic(env);
 
   uint64_t sleep_debt = 0;
   uint64_t time_since_last_refill = 0;
@@ -103,6 +106,10 @@ uint64_t WriteController::GetDelay(Env* env, uint64_t num_bytes) {
   return sleep_amount;
 }
 
+uint64_t WriteController::NowMicrosMonotonic(Env* env) {
+  return env->NowNanos() / std::milli::den;
+}
+
 StopWriteToken::~StopWriteToken() {
   assert(controller_->total_stopped_ >= 1);
   --controller_->total_stopped_;
@@ -110,7 +117,7 @@ StopWriteToken::~StopWriteToken() {
 
 DelayWriteToken::~DelayWriteToken() {
   controller_->total_delayed_--;
-  assert(controller_->total_delayed_ >= 0);
+  assert(controller_->total_delayed_.load() >= 0);
 }
 
 CompactionPressureToken::~CompactionPressureToken() {

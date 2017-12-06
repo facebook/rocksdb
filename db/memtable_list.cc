@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 #include "db/memtable_list.h"
 
@@ -10,16 +10,18 @@
 #endif
 
 #include <inttypes.h>
+#include <limits>
 #include <string>
-#include "rocksdb/db.h"
 #include "db/memtable.h"
 #include "db/version_set.h"
+#include "monitoring/thread_status_util.h"
+#include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
-#include "table/merger.h"
+#include "table/merging_iterator.h"
 #include "util/coding.h"
 #include "util/log_buffer.h"
-#include "util/thread_status_util.h"
+#include "util/sync_point.h"
 
 namespace rocksdb {
 
@@ -101,32 +103,42 @@ int MemTableList::NumFlushed() const {
 // Operands stores the list of merge operations to apply, so far.
 bool MemTableListVersion::Get(const LookupKey& key, std::string* value,
                               Status* s, MergeContext* merge_context,
-                              SequenceNumber* seq) {
-  return GetFromList(&memlist_, key, value, s, merge_context, seq);
+                              RangeDelAggregator* range_del_agg,
+                              SequenceNumber* seq, const ReadOptions& read_opts,
+                              ReadCallback* callback, bool* is_blob_index) {
+  return GetFromList(&memlist_, key, value, s, merge_context, range_del_agg,
+                     seq, read_opts, callback, is_blob_index);
 }
 
-bool MemTableListVersion::GetFromHistory(const LookupKey& key,
-                                         std::string* value, Status* s,
-                                         MergeContext* merge_context,
-                                         SequenceNumber* seq) {
-  return GetFromList(&memlist_history_, key, value, s, merge_context, seq);
+bool MemTableListVersion::GetFromHistory(
+    const LookupKey& key, std::string* value, Status* s,
+    MergeContext* merge_context, RangeDelAggregator* range_del_agg,
+    SequenceNumber* seq, const ReadOptions& read_opts, bool* is_blob_index) {
+  return GetFromList(&memlist_history_, key, value, s, merge_context,
+                     range_del_agg, seq, read_opts, nullptr /*read_callback*/,
+                     is_blob_index);
 }
 
-bool MemTableListVersion::GetFromList(std::list<MemTable*>* list,
-                                      const LookupKey& key, std::string* value,
-                                      Status* s, MergeContext* merge_context,
-                                      SequenceNumber* seq) {
+bool MemTableListVersion::GetFromList(
+    std::list<MemTable*>* list, const LookupKey& key, std::string* value,
+    Status* s, MergeContext* merge_context, RangeDelAggregator* range_del_agg,
+    SequenceNumber* seq, const ReadOptions& read_opts, ReadCallback* callback,
+    bool* is_blob_index) {
   *seq = kMaxSequenceNumber;
 
   for (auto& memtable : *list) {
     SequenceNumber current_seq = kMaxSequenceNumber;
 
-    bool done = memtable->Get(key, value, s, merge_context, &current_seq);
+    bool done = memtable->Get(key, value, s, merge_context, range_del_agg,
+                              &current_seq, read_opts, callback, is_blob_index);
     if (*seq == kMaxSequenceNumber) {
       // Store the most recent sequence number of any operation on this key.
       // Since we only care about the most recent change, we only need to
       // return the first operation found when searching memtables in
       // reverse-chronological order.
+      // current_seq would be equal to kMaxSequenceNumber if the value was to be
+      // skipped. This allows seq to be assigned again when the next value is
+      // read.
       *seq = current_seq;
     }
 
@@ -134,8 +146,38 @@ bool MemTableListVersion::GetFromList(std::list<MemTable*>* list,
       assert(*seq != kMaxSequenceNumber);
       return true;
     }
+    if (!done && !s->ok() && !s->IsMergeInProgress() && !s->IsNotFound()) {
+      return false;
+    }
   }
   return false;
+}
+
+Status MemTableListVersion::AddRangeTombstoneIterators(
+    const ReadOptions& read_opts, Arena* arena,
+    RangeDelAggregator* range_del_agg) {
+  assert(range_del_agg != nullptr);
+  for (auto& m : memlist_) {
+    std::unique_ptr<InternalIterator> range_del_iter(
+        m->NewRangeTombstoneIterator(read_opts));
+    Status s = range_del_agg->AddTombstones(std::move(range_del_iter));
+    if (!s.ok()) {
+      return s;
+    }
+  }
+  return Status::OK();
+}
+
+Status MemTableListVersion::AddRangeTombstoneIterators(
+    const ReadOptions& read_opts,
+    std::vector<InternalIterator*>* range_del_iters) {
+  for (auto& m : memlist_) {
+    auto* range_del_iter = m->NewRangeTombstoneIterator(read_opts);
+    if (range_del_iter != nullptr) {
+      range_del_iters->push_back(range_del_iter);
+    }
+  }
+  return Status::OK();
 }
 
 void MemTableListVersion::AddIterators(
@@ -162,13 +204,15 @@ uint64_t MemTableListVersion::GetTotalNumEntries() const {
   return total_num;
 }
 
-uint64_t MemTableListVersion::ApproximateSize(const Slice& start_ikey,
-                                              const Slice& end_ikey) {
-  uint64_t total_size = 0;
+MemTable::MemTableStats MemTableListVersion::ApproximateStats(
+    const Slice& start_ikey, const Slice& end_ikey) {
+  MemTable::MemTableStats total_stats = {0, 0};
   for (auto& m : memlist_) {
-    total_size += m->ApproximateSize(start_ikey, end_ikey);
+    auto mStats = m->ApproximateStats(start_ikey, end_ikey);
+    total_stats.size += mStats.size;
+    total_stats.count += mStats.count;
   }
-  return total_size;
+  return total_stats;
 }
 
 uint64_t MemTableListVersion::GetTotalNumDeletes() const {
@@ -297,56 +341,81 @@ Status MemTableList::InstallMemtableFlushResults(
   // if some other thread is already committing, then return
   Status s;
   if (commit_in_progress_) {
+    TEST_SYNC_POINT("MemTableList::InstallMemtableFlushResults:InProgress");
     return s;
   }
 
   // Only a single thread can be executing this piece of code
   commit_in_progress_ = true;
 
-  // scan all memtables from the earliest, and commit those
-  // (in that order) that have finished flushing. Memetables
-  // are always committed in the order that they were created.
-  while (!current_->memlist_.empty() && s.ok()) {
-    MemTable* m = current_->memlist_.back();  // get the last element
-    if (!m->flush_completed_) {
+  // Retry until all completed flushes are committed. New flushes can finish
+  // while the current thread is writing manifest where mutex is released.
+  while (s.ok()) {
+    auto& memlist = current_->memlist_;
+    if (memlist.empty() || !memlist.back()->flush_completed_) {
       break;
     }
-
-    LogToBuffer(log_buffer, "[%s] Level-0 commit table #%" PRIu64 " started",
-                cfd->GetName().c_str(), m->file_number_);
-
-    // this can release and reacquire the mutex.
-    s = vset->LogAndApply(cfd, mutable_cf_options, &m->edit_, mu, db_directory);
-
-    // we will be changing the version in the next code path,
-    // so we better create a new one, since versions are immutable
-    InstallNewVersion();
-
-    // All the later memtables that have the same filenum
-    // are part of the same batch. They can be committed now.
-    uint64_t mem_id = 1;  // how many memtables have been flushed.
-    do {
-      if (s.ok()) { // commit new state
-        LogToBuffer(log_buffer, "[%s] Level-0 commit table #%" PRIu64
-                                ": memtable #%" PRIu64 " done",
-                    cfd->GetName().c_str(), m->file_number_, mem_id);
-        assert(m->file_number_ > 0);
-        current_->Remove(m, to_delete);
-      } else {
-        // commit failed. setup state so that we can flush again.
-        LogToBuffer(log_buffer, "Level-0 commit table #%" PRIu64
-                                ": memtable #%" PRIu64 " failed",
-                    m->file_number_, mem_id);
-        m->flush_completed_ = false;
-        m->flush_in_progress_ = false;
-        m->edit_.Clear();
-        num_flush_not_started_++;
-        m->file_number_ = 0;
-        imm_flush_needed.store(true, std::memory_order_release);
+    // scan all memtables from the earliest, and commit those
+    // (in that order) that have finished flushing. Memetables
+    // are always committed in the order that they were created.
+    uint64_t batch_file_number = 0;
+    size_t batch_count = 0;
+    autovector<VersionEdit*> edit_list;
+    // enumerate from the last (earliest) element to see how many batch finished
+    for (auto it = memlist.rbegin(); it != memlist.rend(); ++it) {
+      MemTable* m = *it;
+      if (!m->flush_completed_) {
+        break;
       }
-      ++mem_id;
-    } while (!current_->memlist_.empty() && (m = current_->memlist_.back()) &&
-             m->file_number_ == file_number);
+      if (it == memlist.rbegin() || batch_file_number != m->file_number_) {
+        batch_file_number = m->file_number_;
+        ROCKS_LOG_BUFFER(log_buffer,
+                         "[%s] Level-0 commit table #%" PRIu64 " started",
+                         cfd->GetName().c_str(), m->file_number_);
+        edit_list.push_back(&m->edit_);
+      }
+      batch_count++;
+    }
+
+    if (batch_count > 0) {
+      // this can release and reacquire the mutex.
+      s = vset->LogAndApply(cfd, mutable_cf_options, edit_list, mu,
+                            db_directory);
+
+      // we will be changing the version in the next code path,
+      // so we better create a new one, since versions are immutable
+      InstallNewVersion();
+
+      // All the later memtables that have the same filenum
+      // are part of the same batch. They can be committed now.
+      uint64_t mem_id = 1;  // how many memtables have been flushed.
+      if (s.ok()) {         // commit new state
+        while (batch_count-- > 0) {
+          MemTable* m = current_->memlist_.back();
+          ROCKS_LOG_BUFFER(log_buffer, "[%s] Level-0 commit table #%" PRIu64
+                                       ": memtable #%" PRIu64 " done",
+                           cfd->GetName().c_str(), m->file_number_, mem_id);
+          assert(m->file_number_ > 0);
+          current_->Remove(m, to_delete);
+          ++mem_id;
+        }
+      } else {
+        for (auto it = current_->memlist_.rbegin(); batch_count-- > 0; it++) {
+          MemTable* m = *it;
+          // commit failed. setup state so that we can flush again.
+          ROCKS_LOG_BUFFER(log_buffer, "Level-0 commit table #%" PRIu64
+                                       ": memtable #%" PRIu64 " failed",
+                           m->file_number_, mem_id);
+          m->flush_completed_ = false;
+          m->flush_in_progress_ = false;
+          m->edit_.Clear();
+          num_flush_not_started_++;
+          m->file_number_ = 0;
+          imm_flush_needed.store(true, std::memory_order_release);
+          ++mem_id;
+        }
+      }
+    }
   }
   commit_in_progress_ = false;
   return s;
@@ -380,6 +449,13 @@ size_t MemTableList::ApproximateUnflushedMemTablesMemoryUsage() {
 
 size_t MemTableList::ApproximateMemoryUsage() { return current_memory_usage_; }
 
+uint64_t MemTableList::ApproximateOldestKeyTime() const {
+  if (!current_->memlist_.empty()) {
+    return current_->memlist_.back()->ApproximateOldestKeyTime();
+  }
+  return std::numeric_limits<uint64_t>::max();
+}
+
 void MemTableList::InstallNewVersion() {
   if (current_->refs_ == 1) {
     // we're the only one using the version, just keep using it
@@ -390,6 +466,26 @@ void MemTableList::InstallNewVersion() {
     current_->Ref();
     version->Unref();
   }
+}
+
+uint64_t MemTableList::GetMinLogContainingPrepSection() {
+  uint64_t min_log = 0;
+
+  for (auto& m : current_->memlist_) {
+    // this mem has been flushed it no longer
+    // needs to hold on the its prep section
+    if (m->flush_completed_) {
+      continue;
+    }
+
+    auto log = m->GetMinLogContainingPrepSection();
+
+    if (log > 0 && (min_log == 0 || log < min_log)) {
+      min_log = log;
+    }
+  }
+
+  return min_log;
 }
 
 }  // namespace rocksdb

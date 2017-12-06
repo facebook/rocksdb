@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include <rocksdb/compaction_filter.h>
 #include <rocksdb/db.h>
@@ -10,19 +10,18 @@
 
 class MyMerge : public rocksdb::MergeOperator {
  public:
-  bool FullMerge(const rocksdb::Slice& key,
-                 const rocksdb::Slice* existing_value,
-                 const std::deque<std::string>& operand_list,
-                 std::string* new_value,
-                 rocksdb::Logger* logger) const override {
-    new_value->clear();
-    if (existing_value != nullptr) {
-      new_value->assign(existing_value->data(), existing_value->size());
+  virtual bool FullMergeV2(const MergeOperationInput& merge_in,
+                           MergeOperationOutput* merge_out) const override {
+    merge_out->new_value.clear();
+    if (merge_in.existing_value != nullptr) {
+      merge_out->new_value.assign(merge_in.existing_value->data(),
+                                  merge_in.existing_value->size());
     }
-    for (const std::string& m : operand_list) {
-      fprintf(stderr, "Merge(%s)\n", m.c_str());
-      assert(m != "bad");  // the compaction filter filters out bad values
-      new_value->assign(m);
+    for (const rocksdb::Slice& m : merge_in.operand_list) {
+      fprintf(stderr, "Merge(%s)\n", m.ToString().c_str());
+      // the compaction filter filters out bad values
+      assert(m.ToString() != "bad");
+      merge_out->new_value.assign(m.data(), m.size());
     }
     return true;
   }
@@ -60,7 +59,11 @@ int main() {
 
   MyFilter filter;
 
-  system("rm -rf /tmp/rocksmergetest");
+  int ret = system("rm -rf /tmp/rocksmergetest");
+  if (ret != 0) {
+    fprintf(stderr, "Error deleting /tmp/rocksmergetest, code: %d\n", ret);
+    return ret;
+  }
   rocksdb::Options options;
   options.create_if_missing = true;
   options.merge_operator.reset(new MyMerge);
@@ -78,7 +81,7 @@ int main() {
   db->Merge(wopts, "3", "data3");
   db->CompactRange(rocksdb::CompactRangeOptions(), nullptr, nullptr);
   fprintf(stderr, "filter.count_ = %d\n", filter.count_);
-  assert(filter.count_ == 1);
+  assert(filter.count_ == 0);
   fprintf(stderr, "filter.merge_count_ = %d\n", filter.merge_count_);
-  assert(filter.merge_count_ == 5);
+  assert(filter.merge_count_ == 6);
 }

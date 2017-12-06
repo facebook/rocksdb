@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef GFLAGS
 #include <cstdio>
@@ -18,20 +18,21 @@ int main() {
 #include <inttypes.h>
 #include <algorithm>
 #include <atomic>
+#include <functional>
 #include <memory>
 #include <thread>
 #include <vector>
-#include <gflags/gflags.h>
 
 #include "dynamic_bloom.h"
 #include "port/port.h"
 #include "util/arena.h"
+#include "util/gflags_compat.h"
 #include "util/logging.h"
+#include "util/stop_watch.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
-#include "util/stop_watch.h"
 
-using GFLAGS::ParseCommandLineFlags;
+using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 
 DEFINE_int32(bits_per_key, 10, "");
 DEFINE_int32(num_probes, 6, "");
@@ -201,6 +202,7 @@ TEST_F(DynamicBloomTest, perf) {
     }
     ASSERT_EQ(count, num_keys);
     elapsed = timer.ElapsedNanos();
+    assert(count > 0);
     fprintf(stderr, "standard bloom, avg query latency %" PRIu64 "\n",
             elapsed / count);
 
@@ -227,6 +229,7 @@ TEST_F(DynamicBloomTest, perf) {
     }
 
     elapsed = timer.ElapsedNanos();
+    assert(count > 0);
     fprintf(stderr,
             "blocked bloom(enable locality), avg query latency %" PRIu64 "\n",
             elapsed / count);
@@ -242,7 +245,7 @@ TEST_F(DynamicBloomTest, concurrent_with_perf) {
   uint32_t locality_limit = FLAGS_enable_perf ? 1 : 0;
 
   uint32_t num_threads = 4;
-  std::vector<std::thread> threads;
+  std::vector<port::Thread> threads;
 
   for (uint32_t m = 1; m <= m_limit; ++m) {
     for (uint32_t locality = 0; locality <= locality_limit; ++locality) {

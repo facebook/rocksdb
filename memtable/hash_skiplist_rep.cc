@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 
 #ifndef ROCKSDB_LITE
@@ -16,7 +16,7 @@
 #include "port/port.h"
 #include "util/murmurhash.h"
 #include "db/memtable.h"
-#include "db/skiplist.h"
+#include "memtable/skiplist.h"
 
 namespace rocksdb {
 namespace {
@@ -24,7 +24,7 @@ namespace {
 class HashSkipListRep : public MemTableRep {
  public:
   HashSkipListRep(const MemTableRep::KeyComparator& compare,
-                  MemTableAllocator* allocator, const SliceTransform* transform,
+                  Allocator* allocator, const SliceTransform* transform,
                   size_t bucket_size, int32_t skiplist_height,
                   int32_t skiplist_branching_factor);
 
@@ -63,7 +63,7 @@ class HashSkipListRep : public MemTableRep {
 
   const MemTableRep::KeyComparator& compare_;
   // immutable after construction
-  MemTableAllocator* const allocator_;
+  Allocator* const allocator_;
 
   inline size_t GetHash(const Slice& slice) const {
     return MurmurHash(slice.data(), static_cast<int>(slice.size()), 0) %
@@ -128,6 +128,13 @@ class HashSkipListRep : public MemTableRep {
                 memtable_key : EncodeKey(&tmp_, internal_key);
         iter_.Seek(encoded_key);
       }
+    }
+
+    // Retreat to the last entry with a key <= target
+    virtual void SeekForPrev(const Slice& internal_key,
+                             const char* memtable_key) override {
+      // not supported
+      assert(false);
     }
 
     // Position at the first entry in collection.
@@ -214,6 +221,8 @@ class HashSkipListRep : public MemTableRep {
     virtual void Prev() override {}
     virtual void Seek(const Slice& internal_key,
                       const char* memtable_key) override {}
+    virtual void SeekForPrev(const Slice& internal_key,
+                             const char* memtable_key) override {}
     virtual void SeekToFirst() override {}
     virtual void SeekToLast() override {}
 
@@ -222,7 +231,7 @@ class HashSkipListRep : public MemTableRep {
 };
 
 HashSkipListRep::HashSkipListRep(const MemTableRep::KeyComparator& compare,
-                                 MemTableAllocator* allocator,
+                                 Allocator* allocator,
                                  const SliceTransform* transform,
                                  size_t bucket_size, int32_t skiplist_height,
                                  int32_t skiplist_branching_factor)
@@ -325,7 +334,7 @@ MemTableRep::Iterator* HashSkipListRep::GetDynamicPrefixIterator(Arena* arena) {
 } // anon namespace
 
 MemTableRep* HashSkipListRepFactory::CreateMemTableRep(
-    const MemTableRep::KeyComparator& compare, MemTableAllocator* allocator,
+    const MemTableRep::KeyComparator& compare, Allocator* allocator,
     const SliceTransform* transform, Logger* logger) {
   return new HashSkipListRep(compare, allocator, transform, bucket_count_,
                              skiplist_height_, skiplist_branching_factor_);

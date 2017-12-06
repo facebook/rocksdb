@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef ROCKSDB_LITE
 #include "table/cuckoo_table_builder.h"
@@ -52,7 +52,8 @@ CuckooTableBuilder::CuckooTableBuilder(
     uint32_t max_num_hash_table, uint32_t max_search_depth,
     const Comparator* user_comparator, uint32_t cuckoo_block_size,
     bool use_module_hash, bool identity_as_first_hash,
-    uint64_t (*get_slice_hash)(const Slice&, uint32_t, uint64_t))
+    uint64_t (*get_slice_hash)(const Slice&, uint32_t, uint64_t),
+    uint32_t column_family_id, const std::string& column_family_name)
     : num_hash_func_(2),
       file_(file),
       max_hash_table_ratio_(max_hash_table_ratio),
@@ -76,6 +77,8 @@ CuckooTableBuilder::CuckooTableBuilder(
   properties_.num_data_blocks = 1;
   properties_.index_size = 0;
   properties_.filter_size = 0;
+  properties_.column_family_id = column_family_id;
+  properties_.column_family_name = column_family_name;
 }
 
 void CuckooTableBuilder::Add(const Slice& key, const Slice& value) {
@@ -184,7 +187,7 @@ Status CuckooTableBuilder::MakeHashTable(std::vector<CuckooBucket>* buckets) {
   buckets->resize(hash_table_size_ + cuckoo_block_size_ - 1);
   uint32_t make_space_for_key_call_id = 0;
   for (uint32_t vector_idx = 0; vector_idx < num_entries_; vector_idx++) {
-    uint64_t bucket_id;
+    uint64_t bucket_id = 0;
     bool bucket_found = false;
     autovector<uint64_t> hash_vals;
     Slice user_key = GetUserKey(vector_idx);

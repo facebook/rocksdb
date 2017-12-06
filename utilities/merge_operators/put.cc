@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include <memory>
 #include "rocksdb/slice.h"
@@ -57,12 +57,33 @@ class PutOperator : public MergeOperator {
   }
 };
 
+class PutOperatorV2 : public PutOperator {
+  virtual bool FullMerge(const Slice& key, const Slice* existing_value,
+                         const std::deque<std::string>& operand_sequence,
+                         std::string* new_value,
+                         Logger* logger) const override {
+    assert(false);
+    return false;
+  }
+
+  virtual bool FullMergeV2(const MergeOperationInput& merge_in,
+                           MergeOperationOutput* merge_out) const override {
+    // Put basically only looks at the current/latest value
+    assert(!merge_in.operand_list.empty());
+    merge_out->existing_operand = merge_in.operand_list.back();
+    return true;
+  }
+};
+
 } // end of anonymous namespace
 
 namespace rocksdb {
 
-std::shared_ptr<MergeOperator> MergeOperators::CreatePutOperator() {
+std::shared_ptr<MergeOperator> MergeOperators::CreateDeprecatedPutOperator() {
   return std::make_shared<PutOperator>();
 }
 
+std::shared_ptr<MergeOperator> MergeOperators::CreatePutOperator() {
+  return std::make_shared<PutOperatorV2>();
+}
 }

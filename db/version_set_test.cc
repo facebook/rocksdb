@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -109,8 +109,8 @@ class VersionStorageInfoTest : public testing::Test {
         logger_(new CountingLogger()),
         options_(GetOptionsWithNumLevels(6, logger_)),
         ioptions_(options_),
-        mutable_cf_options_(options_, ioptions_),
-        vstorage_(&icmp_, ucmp_, 6, kCompactionStyleLevel, nullptr) {}
+        mutable_cf_options_(options_),
+        vstorage_(&icmp_, ucmp_, 6, kCompactionStyleLevel, nullptr, false) {}
 
   ~VersionStorageInfoTest() {
     for (int i = 0; i < vstorage_.num_levels(); i++) {
@@ -166,13 +166,13 @@ TEST_F(VersionStorageInfoTest, MaxBytesForLevelDynamic) {
   Add(5, 2U, "3", "4", 550U);
   vstorage_.CalculateBaseBytes(ioptions_, mutable_cf_options_);
   ASSERT_EQ(0, logger_->log_count);
-  ASSERT_EQ(vstorage_.MaxBytesForLevel(4), 210U);
+  ASSERT_EQ(vstorage_.MaxBytesForLevel(4), 1000U);
   ASSERT_EQ(vstorage_.base_level(), 4);
 
   Add(4, 3U, "3", "4", 550U);
   vstorage_.CalculateBaseBytes(ioptions_, mutable_cf_options_);
   ASSERT_EQ(0, logger_->log_count);
-  ASSERT_EQ(vstorage_.MaxBytesForLevel(4), 210U);
+  ASSERT_EQ(vstorage_.MaxBytesForLevel(4), 1000U);
   ASSERT_EQ(vstorage_.base_level(), 4);
 
   Add(3, 4U, "3", "4", 250U);
@@ -180,7 +180,7 @@ TEST_F(VersionStorageInfoTest, MaxBytesForLevelDynamic) {
   vstorage_.CalculateBaseBytes(ioptions_, mutable_cf_options_);
   ASSERT_EQ(1, logger_->log_count);
   ASSERT_EQ(vstorage_.MaxBytesForLevel(4), 1005U);
-  ASSERT_EQ(vstorage_.MaxBytesForLevel(3), 201U);
+  ASSERT_EQ(vstorage_.MaxBytesForLevel(3), 1000U);
   ASSERT_EQ(vstorage_.base_level(), 3);
 
   Add(1, 6U, "3", "4", 5U);
@@ -191,7 +191,7 @@ TEST_F(VersionStorageInfoTest, MaxBytesForLevelDynamic) {
   ASSERT_GT(vstorage_.MaxBytesForLevel(4), 1005U);
   ASSERT_GT(vstorage_.MaxBytesForLevel(3), 1005U);
   ASSERT_EQ(vstorage_.MaxBytesForLevel(2), 1005U);
-  ASSERT_EQ(vstorage_.MaxBytesForLevel(1), 201U);
+  ASSERT_EQ(vstorage_.MaxBytesForLevel(1), 1000U);
   ASSERT_EQ(vstorage_.base_level(), 1);
 }
 
@@ -229,7 +229,7 @@ TEST_F(VersionStorageInfoTest, MaxBytesForLevelDynamicLargeLevel) {
   ASSERT_EQ(vstorage_.MaxBytesForLevel(5), 3000U * kOneGB);
   ASSERT_EQ(vstorage_.MaxBytesForLevel(4), 300U * kOneGB);
   ASSERT_EQ(vstorage_.MaxBytesForLevel(3), 30U * kOneGB);
-  ASSERT_EQ(vstorage_.MaxBytesForLevel(2), 3U * kOneGB);
+  ASSERT_EQ(vstorage_.MaxBytesForLevel(2), 10U * kOneGB);
   ASSERT_EQ(vstorage_.base_level(), 2);
   ASSERT_EQ(0, logger_->log_count);
 }

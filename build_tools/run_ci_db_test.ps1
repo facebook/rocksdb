@@ -1,24 +1,58 @@
 # This script enables you running RocksDB tests by running
-# All the tests in parallel and utilizing all the cores
-# For db_test the script first lists and parses the tests
-# and then fires them up in parallel using async PS Job functionality
-# Run the script from the enlistment
+# All the tests concurrently and utilizing all the cores
 Param(
-  [switch]$EnableJE = $false,  # Use je executable
-  [switch]$EnableRerun = $false, # Rerun failed tests sequentially at the end
-  [string]$WorkFolder = "",  # Direct tests to use that folder
-  [int]$Limit = -1, # -1 means run all otherwise limit for testing purposes
-  [string]$Exclude = "", # Expect a comma separated list, no spaces
-  [string]$Run = "db_test",  # Run db_test|tests|testname1,testname2...
+  [switch]$EnableJE = $false,  # Look for and use test executable, append _je to listed exclusions
+  [switch]$RunAll = $false,    # Will attempt discover all *_test[_je].exe binaries and run all
+                               # of them as Google suites. I.e. It will run test cases concurrently
+                               # except those mentioned as $Run, those will run as individual test cases
+                               # And any execlued with $ExcludeExes or $ExcludeCases
+                               # It will also not run any individual test cases
+                               # excluded but $ExcludeCasese
+  [switch]$RunAllExe = $false, # Look for and use test exdcutables, append _je to exclusions automatically
+                               # It will attempt to run them in parallel w/o breaking them up on individual
+                               # test cases. Those listed with $ExcludeExes will be excluded
+  [string]$SuiteRun = "",      # Split test suites in test cases and run in parallel, not compatible with $RunAll
+  [string]$Run = "",           # Run specified executables in parallel but do not split to test cases
+  [string]$ExcludeCases = "",  # Exclude test cases, expects a comma separated list, no spaces
+                               # Takes effect when $RunAll or $SuiteRun is specified. Must have full
+                               # Test cases name including a group and a parameter if any
+  [string]$ExcludeExes = "",   # Exclude exes from consideration, expects a comma separated list,
+                               # no spaces. Takes effect only when $RunAll is specified
+  [string]$WorkFolder = "",    # Direct tests to use that folder. SSD or Ram drive are better options.
    # Number of async tasks that would run concurrently. Recommend a number below 64.
    # However, CPU utlization really depends on the storage media. Recommend ram based disk.
    # a value of 1 will run everything serially
-  [int]$Concurrency = 16
+  [int]$Concurrency = 8,
+  [int]$Limit = -1 # -1 means do not limit for test purposes
 )
 
 # Folders and commands must be fullpath to run assuming
 # the current folder is at the root of the git enlistment
-Get-Date
+$StartDate = (Get-Date)
+$StartDate
+
+
+$DebugPreference = "Continue"
+
+# These tests are not google test suites and we should guard
+# Against running them as suites
+$RunOnly = New-Object System.Collections.Generic.HashSet[string]
+$RunOnly.Add("c_test") | Out-Null
+$RunOnly.Add("compact_on_deletion_collector_test") | Out-Null
+$RunOnly.Add("merge_test") | Out-Null
+$RunOnly.Add("stringappend_test") | Out-Null # Apparently incorrectly written
+$RunOnly.Add("backupable_db_test") | Out-Null # Disabled
+$RunOnly.Add("timer_queue_test") | Out-Null # Not a gtest
+
+if($RunAll -and $SuiteRun -ne "") {
+    Write-Error "$RunAll and $SuiteRun are not compatible"
+    exit 1
+}
+
+if($RunAllExe -and $Run -ne "") {
+    Write-Error "$RunAllExe and $Run are not compatible"
+    exit 1
+}
 
 # If running under Appveyor assume that root
 [string]$Appveyor = $Env:APPVEYOR_BUILD_FOLDER
@@ -46,29 +80,32 @@ if($WorkFolder -eq "") {
   $Env:TEST_TMPDIR = $WorkFolder
 }
 
-# Use JEMALLOC executables
-if($EnableJE) {
-    $db_test = -Join ($BinariesFolder, "db_test_je.exe")
-} else {
-    $db_test = -Join ($BinariesFolder, "db_test.exe")
-}
-
 Write-Output "Root: $RootFolder, WorkFolder: $WorkFolder"
-Write-Output "Binaries: $BinariesFolder db_test: $db_test"
-
-#Exclusions that we do not want to run
-$ExcludeTests = New-Object System.Collections.Generic.HashSet[string]
-
-
-if($Exclude -ne "") {
-    Write-Host "Exclude: $Exclude"
-    $l = $Exclude -split ' '
-    ForEach($t in $l) { $ExcludeTests.Add($t) | Out-Null }
-}
+Write-Output "BinariesFolder: $BinariesFolder, LogFolder: $LogFolder"
 
 # Create test directories in the current folder
 md -Path $WorkFolder -ErrorAction Ignore | Out-Null
 md -Path $LogFolder -ErrorAction Ignore | Out-Null
+
+
+$ExcludeCasesSet = New-Object System.Collections.Generic.HashSet[string]
+if($ExcludeCases -ne "") {
+    Write-Host "ExcludeCases: $ExcludeCases"
+    $l = $ExcludeCases -split ' '
+    ForEach($t in $l) { 
+      $ExcludeCasesSet.Add($t) | Out-Null
+    }
+}
+
+$ExcludeExesSet = New-Object System.Collections.Generic.HashSet[string]
+if($ExcludeExes -ne "") {
+    Write-Host "ExcludeExe: $ExcludeExes"
+    $l = $ExcludeExes -split ' '
+    ForEach($t in $l) { 
+      $ExcludeExesSet.Add($t) | Out-Null
+    }
+}
+
 
 # Extract the names of its tests by running db_test with --gtest_list_tests.
 # This filter removes the "#"-introduced comments, and expands to
@@ -87,28 +124,33 @@ md -Path $LogFolder -ErrorAction Ignore | Out-Null
 #   DBTest.WriteEmptyBatch
 #   MultiThreaded/MultiThreadedDBTest.MultiThreaded/0
 #   MultiThreaded/MultiThreadedDBTest.MultiThreaded/1
+#
 # Output into the parameter in a form TestName -> Log File Name
-function Normalize-DbTests($HashTable) {
+function ExtractTestCases([string]$GTestExe, $HashTable) {
 
     $Tests = @()
 # Run db_test to get a list of tests and store it into $a array
-    &$db_test --gtest_list_tests | tee -Variable Tests | Out-Null
+    &$GTestExe --gtest_list_tests | tee -Variable Tests | Out-Null
 
     # Current group
     $Group=""
 
     ForEach( $l in $Tests) {
-      # Trailing dot is a test group
-      if( $l -match "\.$") {
+
+      # Leading whitespace is fine
+      $l = $l -replace '^\s+',''
+      # Trailing dot is a test group but no whitespace
+      if ($l -match "\.$" -and $l -notmatch "\s+") {
         $Group = $l
       }  else {
         # Otherwise it is a test name, remove leading space
-        $test = $l -replace '^\s+',''
+        $test = $l
         # remove trailing comment if any and create a log name
         $test = $test -replace '\s+\#.*',''
         $test = "$Group$test"
 
-        if($ExcludeTests.Contains($test)) {
+        if($ExcludeCasesSet.Contains($test)) {
+            Write-Warning "$test case is excluded"
             continue
         }
 
@@ -124,59 +166,157 @@ function Normalize-DbTests($HashTable) {
 
 # The function removes trailing .exe siffix if any,
 # creates a name for the log file
+# Then adds the test name if it was not excluded into
+# a HashTable in a form of test_name -> log_path
 function MakeAndAdd([string]$token, $HashTable) {
+
     $test_name = $token -replace '.exe$', ''
     $log_name =  -join ($test_name, ".log")
     $log_path = -join ($LogFolder, $log_name)
-    if(!$ExcludeTests.Contains($test_name)) {
-        $HashTable.Add($test_name, $log_path)
-    } else {
-        Write-Warning "Test $test_name is excluded"
-    }
+    $HashTable.Add($test_name, $log_path)
 }
 
-# The function scans build\Debug folder to discover
-# Test executables. It then populates a table with
-# Test executable name -> Log file
-function Discover-TestBinaries([string]$Pattern, $HashTable) {
+# This function takes a list of Suites to run
+# Lists all the test cases in each of the suite
+# and populates HashOfHashes
+# Ordered by suite(exe) @{ Exe = @{ TestCase = LogName }}
+function ProcessSuites($ListOfSuites, $HashOfHashes) {
 
-    $Exclusions = @("db_test*", "db_sanity_test*")
+  $suite_list = $ListOfSuites
+  # Problem: if you run --gtest_list_tests on
+  # a non Google Test executable then it will start executing
+  # and we will get nowhere
+  ForEach($suite in $suite_list) {
 
-    $p = -join ($BinariesFolder, $pattern)
-
-    Write-Host "Path: $p"
-
-    dir -Path $p -Exclude $Exclusions | ForEach-Object {
-       MakeAndAdd -token ($_.Name) -HashTable $HashTable
+    if($RunOnly.Contains($suite)) {
+      Write-Warning "$suite is excluded from running as Google test suite"
+      continue
     }
-}
 
-$TestsToRun = [ordered]@{}
-
-if($Run -ceq "db_test") {
-    Normalize-DbTests -HashTable $TestsToRun
-} elseif($Run -ceq "tests") {
     if($EnableJE) {
-        $pattern = "*_test_je.exe"
+      $suite += "_je"
+    }
+
+    $Cases = [ordered]@{}
+    $Cases.Clear()
+    $suite_exe = -Join ($BinariesFolder, $suite)
+    ExtractTestCases -GTestExe $suite_exe -HashTable $Cases
+    if($Cases.Count -gt 0) {
+      $HashOfHashes.Add($suite, $Cases);
+    }
+  }
+
+  # Make logs and run
+  if($CasesToRun.Count -lt 1) {
+     Write-Error "Failed to extract tests from $SuiteRun"
+     exit 1
+  }
+
+}
+
+# This will contain all test executables to run
+
+# Hash table that contains all non suite
+# Test executable to run
+$TestExes = [ordered]@{}
+
+# Check for test exe that are not
+# Google Test Suites
+# Since this is explicitely mentioned it is not subject
+# for exclusions
+if($Run -ne "") {
+
+  $test_list = $Run -split ' '
+  ForEach($t in $test_list) {
+
+    if($EnableJE) {
+      $t += "_je"
+    }
+    MakeAndAdd -token $t -HashTable $TestExes
+  }
+
+  if($TestExes.Count -lt 1) {
+     Write-Error "Failed to extract tests from $Run"
+     exit 1
+  }
+} elseif($RunAllExe) {
+  # Discover all the test binaries
+  if($EnableJE) {
+    $pattern = "*_test_je.exe"
+  } else {
+    $pattern = "*_test.exe"
+  }
+
+  $search_path = -join ($BinariesFolder, $pattern)
+  Write-Host "Binaries Search Path: $search_path"
+
+  $DiscoveredExe = @()
+  dir -Path $search_path | ForEach-Object {
+     $DiscoveredExe += ($_.Name)     
+  }
+
+  # Remove exclusions
+  ForEach($e in $DiscoveredExe) {
+    $e = $e -replace '.exe$', ''
+    $bare_name = $e -replace '_je$', ''
+
+    if($ExcludeExesSet.Contains($bare_name)) {
+      Write-Warning "Test $e is excluded"
+      continue
+    }
+    MakeAndAdd -token $e -HashTable $TestExes
+  }
+
+  if($TestExes.Count -lt 1) {
+     Write-Error "Failed to discover test executables"
+     exit 1
+  }
+}
+
+# Ordered by exe @{ Exe = @{ TestCase = LogName }}
+$CasesToRun = [ordered]@{}
+
+if($SuiteRun -ne "") {
+  $suite_list = $SuiteRun -split ' '
+  ProcessSuites -ListOfSuites $suite_list -HashOfHashes $CasesToRun
+} elseif ($RunAll) {
+# Discover all the test binaries
+  if($EnableJE) {
+    $pattern = "*_test_je.exe"
+  } else {
+    $pattern = "*_test.exe"
+  }
+
+  $search_path = -join ($BinariesFolder, $pattern)
+  Write-Host "Binaries Search Path: $search_path"
+
+  $ListOfExe = @()
+  dir -Path $search_path | ForEach-Object {
+     $ListOfExe += ($_.Name)     
+  }
+
+  # Exclude those in RunOnly from running as suites
+  $ListOfSuites = @()
+  ForEach($e in $ListOfExe) {
+
+    $e = $e -replace '.exe$', ''
+    $bare_name = $e -replace '_je$', ''
+
+    if($ExcludeExesSet.Contains($bare_name)) {
+      Write-Warning "Test $e is excluded"
+      continue
+    }
+
+    if($RunOnly.Contains($bare_name)) {
+      MakeAndAdd -token $e -HashTable $TestExes
     } else {
-        $pattern = "*_test.exe"
+      $ListOfSuites += $bare_name
     }
-    Discover-TestBinaries -Pattern $pattern -HashTable $TestsToRun
-} else {
+  }
 
-    $test_list = $Run -split ' '
-
-    ForEach($t in $test_list) {
-       MakeAndAdd -token $t -HashTable $TestsToRun
-    }
+  ProcessSuites -ListOfSuites $ListOfSuites -HashOfHashes $CasesToRun
 }
 
-$NumTestsToStart = $TestsToRun.Count
-if($Limit -ge 0 -and $NumTestsToStart -gt $Limit) {
-    $NumTestsToStart = $Limit
-}
-
-Write-Host "Attempting to start: $NumTestsToStart tests"
 
 # Invoke a test with a filter and redirect all output
 $InvokeTestCase = {
@@ -192,13 +332,13 @@ $InvokeTestAsync = {
 
 # Hash that contains tests to rerun if any failed
 # Those tests will be rerun sequentially
-$Rerun = [ordered]@{}
+# $Rerun = [ordered]@{}
 # Test limiting factor here
-$count = 0
+[int]$count = 0
 # Overall status
 [bool]$success = $true;
 
-function RunJobs($TestToLog, [int]$ConcurrencyVal, [bool]$AddForRerun)
+function RunJobs($Suites, $TestCmds, [int]$ConcurrencyVal)
 {
     # Array to wait for any of the running jobs
     $jobs = @()
@@ -207,36 +347,67 @@ function RunJobs($TestToLog, [int]$ConcurrencyVal, [bool]$AddForRerun)
 
     # Wait for all to finish and get the results
     while(($JobToLog.Count -gt 0) -or
-          ($TestToLog.Count -gt 0)) {
+          ($TestCmds.Count -gt 0) -or 
+           ($Suites.Count -gt 0)) {
 
         # Make sure we have maximum concurrent jobs running if anything
         # and the $Limit either not set or allows to proceed
         while(($JobToLog.Count -lt $ConcurrencyVal) -and
-              (($TestToLog.Count -gt 0) -and
+              ((($TestCmds.Count -gt 0) -or ($Suites.Count -gt 0)) -and
               (($Limit -lt 0) -or ($count -lt $Limit)))) {
 
+            # We always favore suites to run if available
+            [string]$exe_name = ""
+            [string]$log_path = ""
+            $Cases = @{}
 
-            # We only need the first key
-            foreach($key in $TestToLog.keys) {
-                $k = $key
+            if($Suites.Count -gt 0) {
+              # Will the first one
+              ForEach($e in $Suites.Keys) {
+                $exe_name = $e
+                $Cases = $Suites[$e]
                 break
-            }
+              }
+              [string]$test_case = ""
+              [string]$log_path = ""
+              ForEach($c in $Cases.Keys) {
+                 $test_case = $c
+                 $log_path = $Cases[$c]
+                 break
+              }
 
-            Write-Host "Starting $k"
-            $log_path = ($TestToLog.$k)
+              Write-Host "Starting $exe_name::$test_case"
+              [string]$Exe =  -Join ($BinariesFolder, $exe_name)
+              $job = Start-Job -Name "$exe_name::$test_case" -ArgumentList @($Exe,$test_case,$log_path) -ScriptBlock $InvokeTestCase
+              $JobToLog.Add($job, $log_path)
 
-            if($Run -ceq "db_test") {
-              $job = Start-Job -Name $k -ScriptBlock $InvokeTestCase -ArgumentList @($db_test,$k,$log_path)
+              $Cases.Remove($test_case)
+              if($Cases.Count -lt 1) {
+                $Suites.Remove($exe_name)
+              }
+
+            } elseif ($TestCmds.Count -gt 0) {
+
+               ForEach($e in $TestCmds.Keys) {
+                 $exe_name = $e
+                 $log_path = $TestCmds[$e]
+                 break
+               }
+
+              Write-Host "Starting $exe_name"
+              [string]$Exe =  -Join ($BinariesFolder, $exe_name)
+              $job = Start-Job -Name $exe_name -ScriptBlock $InvokeTestAsync -ArgumentList @($Exe,$log_path)
+              $JobToLog.Add($job, $log_path)
+
+              $TestCmds.Remove($exe_name)
+
             } else {
-              [string]$Exe =  -Join ($BinariesFolder, $k)
-               $job = Start-Job -Name $k -ScriptBlock $InvokeTestAsync -ArgumentList @($exe,$log_path)
+                Write-Error "In the job loop but nothing to run"
+                exit 1
             }
-
-            $JobToLog.Add($job, $log_path)
-            $TestToLog.Remove($k)
 
             ++$count
-        }
+        } # End of Job starting loop
 
         if($JobToLog.Count -lt 1) {
           break
@@ -281,9 +452,6 @@ function RunJobs($TestToLog, [int]$ConcurrencyVal, [bool]$AddForRerun)
                 $success = $false;
                 Write-Warning $message
                 $log_content | Write-Warning
-                if($AddForRerun) {
-                    $Rerun.Add($completed.Name, $log)
-                }
             } else {
                 Write-Host $message
             }
@@ -295,16 +463,14 @@ function RunJobs($TestToLog, [int]$ConcurrencyVal, [bool]$AddForRerun)
     }
 }
 
-RunJobs -TestToLog $TestsToRun -ConcurrencyVal $Concurrency -AddForRerun $EnableRerun
+RunJobs -Suites $CasesToRun -TestCmds $TestExes -ConcurrencyVal $Concurrency
 
-if($Rerun.Count -gt 0) {
-    Write-Host "Rerunning " ($Rerun.Count) " tests sequentially"
-    $success = $true
-    $count = 0
-    RunJobs -TestToLog $Rerun -ConcurrencyVal 1 -AddForRerun $false
-}
+$EndDate = (Get-Date)
 
-Get-Date
+New-TimeSpan -Start $StartDate -End $EndDate | 
+  ForEach-Object { 
+    "Elapsed time: {0:g}" -f $_
+  }
 
 
 if(!$success) {
@@ -312,7 +478,9 @@ if(!$success) {
 # So we simply exit
 #    Remove-Job -Job $jobs -Force
 # indicate failure using this exit code
-    exit 12345
+    exit 1
  }
+
+ exit 0
 
  

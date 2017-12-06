@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
 
@@ -20,7 +20,7 @@ struct SstFileMetaData;
 
 // The metadata that describes a column family.
 struct ColumnFamilyMetaData {
-  ColumnFamilyMetaData() : size(0), name("") {}
+  ColumnFamilyMetaData() : size(0), file_count(0), name("") {}
   ColumnFamilyMetaData(const std::string& _name, uint64_t _size,
                        const std::vector<LevelMetaData>&& _levels) :
       size(_size), name(_name), levels(_levels) {}
@@ -54,18 +54,31 @@ struct LevelMetaData {
 
 // The metadata that describes a SST file.
 struct SstFileMetaData {
-  SstFileMetaData() {}
-  SstFileMetaData(const std::string& _file_name,
-                  const std::string& _path, uint64_t _size,
-                  SequenceNumber _smallest_seqno,
+  SstFileMetaData()
+      : size(0),
+        name(""),
+        db_path(""),
+        smallest_seqno(0),
+        largest_seqno(0),
+        smallestkey(""),
+        largestkey(""),
+        num_reads_sampled(0),
+        being_compacted(false) {}
+  SstFileMetaData(const std::string& _file_name, const std::string& _path,
+                  uint64_t _size, SequenceNumber _smallest_seqno,
                   SequenceNumber _largest_seqno,
                   const std::string& _smallestkey,
-                  const std::string& _largestkey,
-                  bool _being_compacted) :
-    size(_size), name(_file_name),
-    db_path(_path), smallest_seqno(_smallest_seqno), largest_seqno(_largest_seqno),
-    smallestkey(_smallestkey), largestkey(_largestkey),
-    being_compacted(_being_compacted) {}
+                  const std::string& _largestkey, uint64_t _num_reads_sampled,
+                  bool _being_compacted)
+      : size(_size),
+        name(_file_name),
+        db_path(_path),
+        smallest_seqno(_smallest_seqno),
+        largest_seqno(_largest_seqno),
+        smallestkey(_smallestkey),
+        largestkey(_largestkey),
+        num_reads_sampled(_num_reads_sampled),
+        being_compacted(_being_compacted) {}
 
   // File size in bytes.
   uint64_t size;
@@ -78,6 +91,7 @@ struct SstFileMetaData {
   SequenceNumber largest_seqno;   // Largest sequence number in file.
   std::string smallestkey;     // Smallest user defined key in the file.
   std::string largestkey;      // Largest user defined key in the file.
+  uint64_t num_reads_sampled;  // How many times the file is read.
   bool being_compacted;  // true if the file is currently being compacted.
 };
 
@@ -86,7 +100,4 @@ struct LiveFileMetaData : SstFileMetaData {
   std::string column_family_name;  // Name of the column family
   int level;               // Level at which this file resides.
 };
-
-
-
 }  // namespace rocksdb

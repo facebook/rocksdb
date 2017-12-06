@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
@@ -12,6 +12,7 @@
 
 #ifndef ROCKSDB_LITE
 
+#include <memory>
 #include <string>
 
 #include "rocksdb/comparator.h"
@@ -26,6 +27,7 @@ namespace rocksdb {
 class ColumnFamilyHandle;
 class Comparator;
 class DB;
+class ReadCallback;
 struct ReadOptions;
 struct DBOptions;
 
@@ -34,7 +36,9 @@ enum WriteType {
   kMergeRecord,
   kDeleteRecord,
   kSingleDeleteRecord,
-  kLogDataRecord
+  kDeleteRangeRecord,
+  kLogDataRecord,
+  kXIDRecord,
 };
 
 // an entry for Put, Merge, Delete, or SingleDelete entry for write batches.
@@ -57,6 +61,8 @@ class WBWIIterator {
   virtual void SeekToLast() = 0;
 
   virtual void Seek(const Slice& key) = 0;
+
+  virtual void SeekForPrev(const Slice& key) = 0;
 
   virtual void Next() = 0;
 
@@ -83,37 +89,45 @@ class WriteBatchWithIndex : public WriteBatchBase {
   // interface, or we can't find a column family from the column family handle
   // passed in, backup_index_comparator will be used for the column family.
   // reserved_bytes: reserved bytes in underlying WriteBatch
+  // max_bytes: maximum size of underlying WriteBatch in bytes
   // overwrite_key: if true, overwrite the key in the index when inserting
   //                the same key as previously, so iterator will never
   //                show two entries with the same key.
   explicit WriteBatchWithIndex(
       const Comparator* backup_index_comparator = BytewiseComparator(),
-      size_t reserved_bytes = 0, bool overwrite_key = false);
-  virtual ~WriteBatchWithIndex();
+      size_t reserved_bytes = 0, bool overwrite_key = false,
+      size_t max_bytes = 0);
+
+  ~WriteBatchWithIndex() override;
 
   using WriteBatchBase::Put;
-  void Put(ColumnFamilyHandle* column_family, const Slice& key,
-           const Slice& value) override;
-
-  void Put(const Slice& key, const Slice& value) override;
-
-  using WriteBatchBase::Merge;
-  void Merge(ColumnFamilyHandle* column_family, const Slice& key,
+  Status Put(ColumnFamilyHandle* column_family, const Slice& key,
              const Slice& value) override;
 
-  void Merge(const Slice& key, const Slice& value) override;
+  Status Put(const Slice& key, const Slice& value) override;
+
+  using WriteBatchBase::Merge;
+  Status Merge(ColumnFamilyHandle* column_family, const Slice& key,
+               const Slice& value) override;
+
+  Status Merge(const Slice& key, const Slice& value) override;
 
   using WriteBatchBase::Delete;
-  void Delete(ColumnFamilyHandle* column_family, const Slice& key) override;
-  void Delete(const Slice& key) override;
+  Status Delete(ColumnFamilyHandle* column_family, const Slice& key) override;
+  Status Delete(const Slice& key) override;
 
   using WriteBatchBase::SingleDelete;
-  void SingleDelete(ColumnFamilyHandle* column_family,
-                    const Slice& key) override;
-  void SingleDelete(const Slice& key) override;
+  Status SingleDelete(ColumnFamilyHandle* column_family,
+                      const Slice& key) override;
+  Status SingleDelete(const Slice& key) override;
+
+  using WriteBatchBase::DeleteRange;
+  Status DeleteRange(ColumnFamilyHandle* column_family, const Slice& begin_key,
+                     const Slice& end_key) override;
+  Status DeleteRange(const Slice& begin_key, const Slice& end_key) override;
 
   using WriteBatchBase::PutLogData;
-  void PutLogData(const Slice& blob) override;
+  Status PutLogData(const Slice& blob) override;
 
   using WriteBatchBase::Clear;
   void Clear() override;
@@ -173,9 +187,19 @@ class WriteBatchWithIndex : public WriteBatchBase {
   // regardless).
   Status GetFromBatchAndDB(DB* db, const ReadOptions& read_options,
                            const Slice& key, std::string* value);
+
+  // An overload of the the above method that receives a PinnableSlice
+  Status GetFromBatchAndDB(DB* db, const ReadOptions& read_options,
+                           const Slice& key, PinnableSlice* value);
+
   Status GetFromBatchAndDB(DB* db, const ReadOptions& read_options,
                            ColumnFamilyHandle* column_family, const Slice& key,
                            std::string* value);
+
+  // An overload of the the above method that receives a PinnableSlice
+  Status GetFromBatchAndDB(DB* db, const ReadOptions& read_options,
+                           ColumnFamilyHandle* column_family, const Slice& key,
+                           PinnableSlice* value);
 
   // Records the state of the batch for future calls to RollbackToSavePoint().
   // May be called multiple times to set multiple save points.
@@ -194,9 +218,29 @@ class WriteBatchWithIndex : public WriteBatchBase {
   //         or other Status on corruption.
   Status RollbackToSavePoint() override;
 
+  // Pop the most recent save point.
+  // If there is no previous call to SetSavePoint(), Status::NotFound()
+  // will be returned.
+  // Otherwise returns Status::OK().
+  Status PopSavePoint() override;
+
+  void SetMaxBytes(size_t max_bytes) override;
+
  private:
+  friend class WritePreparedTxn;
+  // TODO(myabandeh): this is hackish, non-efficient solution to enable the e2e
+  // unit tests. Replace it with a proper solution. Collapse the WriteBatch to
+  // remove the duplicate keys. The index will not be updated after this.
+  // Returns false if collapse was not necessary
+  bool Collapse();
+  void DisableDuplicateMergeKeys() { allow_dup_merge_ = false; }
+  bool allow_dup_merge_ = true;
+
+  Status GetFromBatchAndDB(DB* db, const ReadOptions& read_options,
+                           ColumnFamilyHandle* column_family, const Slice& key,
+                           PinnableSlice* value, ReadCallback* callback);
   struct Rep;
-  Rep* rep;
+  std::unique_ptr<Rep> rep;
 };
 
 }  // namespace rocksdb

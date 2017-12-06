@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -13,13 +13,36 @@
 #include "util/crc32c.h"
 
 #include <stdint.h>
-#ifdef __SSE4_2__
+#ifdef HAVE_SSE42
 #include <nmmintrin.h>
 #endif
 #include "util/coding.h"
 
+#ifdef __powerpc64__
+#include "util/crc32c_ppc.h"
+#include "util/crc32c_ppc_constants.h"
+
+#if __linux__
+#include <sys/auxv.h>
+
+#ifndef PPC_FEATURE2_VEC_CRYPTO
+#define PPC_FEATURE2_VEC_CRYPTO 0x02000000
+#endif
+
+#ifndef AT_HWCAP2
+#define AT_HWCAP2 26
+#endif
+
+#endif /* __linux__ */
+
+#endif
+
 namespace rocksdb {
 namespace crc32c {
+
+#ifdef __powerpc64__
+static int arch_ppc_crc32 = 0;
+#endif
 
 static const uint32_t table0_[256] = {
   0x00000000, 0xf26b8303, 0xe13b70f7, 0x1350f3f4,
@@ -291,12 +314,10 @@ static inline uint32_t LE_LOAD32(const uint8_t *p) {
   return DecodeFixed32(reinterpret_cast<const char*>(p));
 }
 
-#ifdef __SSE4_2__
-#ifdef __LP64__
+#if defined(HAVE_SSE42) && (defined(__LP64__) || defined(_WIN64))
 static inline uint64_t LE_LOAD64(const uint8_t *p) {
   return DecodeFixed64(reinterpret_cast<const char*>(p));
 }
-#endif
 #endif
 
 static inline void Slow_CRC32(uint64_t* l, uint8_t const **p) {
@@ -316,8 +337,9 @@ static inline void Slow_CRC32(uint64_t* l, uint8_t const **p) {
 }
 
 static inline void Fast_CRC32(uint64_t* l, uint8_t const **p) {
-#ifdef __SSE4_2__
-#ifdef __LP64__
+#ifndef HAVE_SSE42
+  Slow_CRC32(l, p);
+#elif defined(__LP64__) || defined(_WIN64)
   *l = _mm_crc32_u64(*l, LE_LOAD64(*p));
   *p += 8;
 #else
@@ -325,9 +347,6 @@ static inline void Fast_CRC32(uint64_t* l, uint8_t const **p) {
   *p += 4;
   *l = _mm_crc32_u32(static_cast<unsigned int>(*l), LE_LOAD32(*p));
   *p += 4;
-#endif
-#else
-  Slow_CRC32(l, p);
 #endif
 }
 
@@ -375,32 +394,88 @@ uint32_t ExtendImpl(uint32_t crc, const char* buf, size_t size) {
 }
 
 // Detect if SS42 or not.
+#ifndef HAVE_POWER8
 static bool isSSE42() {
-#if defined(__GNUC__) && defined(__x86_64__) && !defined(IOS_CROSS_COMPILE)
+#ifndef HAVE_SSE42
+  return false;
+#elif defined(__GNUC__) && defined(__x86_64__) && !defined(IOS_CROSS_COMPILE)
   uint32_t c_;
-  uint32_t d_;
-  __asm__("cpuid" : "=c"(c_), "=d"(d_) : "a"(1) : "ebx");
+  __asm__("cpuid" : "=c"(c_) : "a"(1) : "ebx", "edx");
   return c_ & (1U << 20);  // copied from CpuId.h in Folly.
+#elif defined(_WIN64)
+  int info[4];
+  __cpuidex(info, 0x00000001, 0);
+  return (info[2] & ((int)1 << 20)) != 0;
 #else
   return false;
 #endif
 }
+#endif
 
 typedef uint32_t (*Function)(uint32_t, const char*, size_t);
 
-static inline Function Choose_Extend() {
-  return isSSE42() ? ExtendImpl<Fast_CRC32> : ExtendImpl<Slow_CRC32>;
+#if defined(HAVE_POWER8) && defined(HAS_ALTIVEC)
+uint32_t ExtendPPCImpl(uint32_t crc, const char *buf, size_t size) {
+  return crc32c_ppc(crc, (const unsigned char *)buf, size);
 }
 
-bool IsFastCrc32Supported() {
-#ifdef __SSE4_2__
-  return isSSE42();
+#if __linux__
+static int arch_ppc_probe(void) {
+  arch_ppc_crc32 = 0;
+
+#if defined(__powerpc64__)
+  if (getauxval(AT_HWCAP2) & PPC_FEATURE2_VEC_CRYPTO) arch_ppc_crc32 = 1;
+#endif /* __powerpc64__ */
+
+  return arch_ppc_crc32;
+}
+#endif  // __linux__
+
+static bool isAltiVec() {
+  if (arch_ppc_probe()) {
+    return true;
+  } else {
+    return false;
+  }
+}
+#endif
+
+static inline Function Choose_Extend() {
+#ifndef HAVE_POWER8
+  return isSSE42() ? ExtendImpl<Fast_CRC32> : ExtendImpl<Slow_CRC32>;
 #else
-  return false;
+  return isAltiVec() ? ExtendPPCImpl : ExtendImpl<Slow_CRC32>;
 #endif
 }
 
-Function ChosenExtend = Choose_Extend();
+std::string IsFastCrc32Supported() {
+  bool has_fast_crc = false;
+  std::string fast_zero_msg;
+  std::string arch;
+#ifdef HAVE_POWER8
+#ifdef HAS_ALTIVEC
+  if (arch_ppc_probe()) {
+    has_fast_crc = true;
+    arch = "PPC";
+  }
+#else
+  has_fast_crc = false;
+  arch = "PPC";
+#endif
+#else
+  has_fast_crc = isSSE42();
+  arch = "x86";
+#endif
+  if (has_fast_crc) {
+    fast_zero_msg.append("Supported on " + arch);
+  }
+  else {
+    fast_zero_msg.append("Not supported on " + arch);
+  }
+  return fast_zero_msg;
+}
+
+static Function ChosenExtend = Choose_Extend();
 
 uint32_t Extend(uint32_t crc, const char* buf, size_t size) {
   return ChosenExtend(crc, buf, size);

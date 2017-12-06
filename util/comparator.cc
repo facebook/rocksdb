@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -16,8 +16,6 @@
 #include "util/logging.h"
 
 namespace rocksdb {
-
-Comparator::~Comparator() { }
 
 namespace {
 class BytewiseComparatorImpl : public Comparator {
@@ -49,13 +47,41 @@ class BytewiseComparatorImpl : public Comparator {
     if (diff_index >= min_length) {
       // Do not shorten if one string is a prefix of the other
     } else {
-      uint8_t diff_byte = static_cast<uint8_t>((*start)[diff_index]);
-      if (diff_byte < static_cast<uint8_t>(0xff) &&
-          diff_byte + 1 < static_cast<uint8_t>(limit[diff_index])) {
+      uint8_t start_byte = static_cast<uint8_t>((*start)[diff_index]);
+      uint8_t limit_byte = static_cast<uint8_t>(limit[diff_index]);
+      if (start_byte >= limit_byte) {
+        // Cannot shorten since limit is smaller than start or start is
+        // already the shortest possible.
+        return;
+      }
+      assert(start_byte < limit_byte);
+
+      if (diff_index < limit.size() - 1 || start_byte + 1 < limit_byte) {
         (*start)[diff_index]++;
         start->resize(diff_index + 1);
-        assert(Compare(*start, limit) < 0);
+      } else {
+        //     v
+        // A A 1 A A A
+        // A A 2
+        //
+        // Incrementing the current byte will make start bigger than limit, we
+        // will skip this byte, and find the first non 0xFF byte in start and
+        // increment it.
+        diff_index++;
+
+        while (diff_index < start->size()) {
+          // Keep moving until we find the first non 0xFF byte to
+          // increment it
+          if (static_cast<uint8_t>((*start)[diff_index]) <
+              static_cast<uint8_t>(0xff)) {
+            (*start)[diff_index]++;
+            start->resize(diff_index + 1);
+            break;
+          }
+          diff_index++;
+        }
       }
+      assert(Compare(*start, limit) < 0);
     }
   }
 

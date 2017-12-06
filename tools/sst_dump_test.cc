@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2012 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -58,10 +58,14 @@ void createSST(const std::string& file_name,
       int_tbl_prop_collector_factories;
   unique_ptr<WritableFileWriter> file_writer(
       new WritableFileWriter(std::move(file), EnvOptions()));
+  std::string column_family_name;
+  int unknown_level = -1;
   tb.reset(opts.table_factory->NewTableBuilder(
       TableBuilderOptions(imoptions, ikc, &int_tbl_prop_collector_factories,
                           CompressionType::kNoCompression, CompressionOptions(),
-                          false),
+                          nullptr /* compression_dict */,
+                          false /* skip_filters */, column_family_name,
+                          unknown_level),
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       file_writer.get()));
 
@@ -191,7 +195,7 @@ TEST_F(SSTDumpToolTest, CompressedSizes) {
   }
 
   snprintf(usage[0], optLength, "./sst_dump");
-  snprintf(usage[1], optLength, "--show_compression_sizes");
+  snprintf(usage[1], optLength, "--command=recompress");
   snprintf(usage[2], optLength, "--file=rocksdb_sst_test.sst");
   rocksdb::SSTDumpTool tool;
   ASSERT_TRUE(!tool.Run(3, usage));

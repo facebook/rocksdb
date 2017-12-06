@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include <cstdio>
 #include <cstdlib>
@@ -186,7 +186,7 @@ class SanityTestZSTDCompression : public SanityTest {
  public:
   explicit SanityTestZSTDCompression(const std::string& path)
       : SanityTest(path) {
-    options_.compression = kZSTDNotFinalCompression;
+    options_.compression = kZSTD;
   }
   virtual Options GetOptions() const override { return options_; }
   virtual std::string Name() const override { return "ZSTDCompression"; }
@@ -230,6 +230,9 @@ class SanityTestBloomFilter : public SanityTest {
 
 namespace {
 bool RunSanityTests(const std::string& command, const std::string& path) {
+  bool result = true;
+// Suppress false positive clang static anaylzer warnings.
+#ifndef __clang_analyzer__
   std::vector<SanityTest*> sanity_tests = {
       new SanityTestBasic(path),
       new SanityTestSpecialComparator(path),
@@ -248,7 +251,6 @@ bool RunSanityTests(const std::string& command, const std::string& path) {
   } else {
     fprintf(stderr, "Verifying...\n");
   }
-  bool result = true;
   for (auto sanity_test : sanity_tests) {
     Status s;
     fprintf(stderr, "%s -- ", sanity_test->Name().c_str());
@@ -266,6 +268,7 @@ bool RunSanityTests(const std::string& command, const std::string& path) {
 
     delete sanity_test;
   }
+#endif  // __clang_analyzer__
   return result;
 }
 }  // namespace

@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 package org.rocksdb;
 
@@ -27,8 +27,7 @@ public class WriteBatch extends AbstractWriteBatch {
    * Constructs a WriteBatch instance.
    */
   public WriteBatch() {
-    super();
-    newWriteBatch(0);
+    this(0);
   }
 
   /**
@@ -37,8 +36,7 @@ public class WriteBatch extends AbstractWriteBatch {
    * @param reserved_bytes reserved size for WriteBatch
    */
   public WriteBatch(final int reserved_bytes) {
-    nativeHandle_ = 0;
-    newWriteBatch(reserved_bytes);
+    super(newWriteBatch(reserved_bytes));
   }
 
   /**
@@ -50,7 +48,7 @@ public class WriteBatch extends AbstractWriteBatch {
    * @throws RocksDBException If we cannot iterate over the batch
    */
   public void iterate(final Handler handler) throws RocksDBException {
-    iterate(handler.nativeHandle_);
+    iterate(nativeHandle_, handler.nativeHandle_);
   }
 
   /**
@@ -61,40 +59,73 @@ public class WriteBatch extends AbstractWriteBatch {
    * @param nativeHandle address of native instance.
    */
   WriteBatch(final long nativeHandle) {
-    super();
-    disOwnNativeHandle();
-    nativeHandle_ = nativeHandle;
+    this(nativeHandle, false);
   }
 
-  @Override final native void disposeInternal(long handle);
-  @Override final native int count0();
-  @Override final native void put(byte[] key, int keyLen, byte[] value, int valueLen);
-  @Override final native void put(byte[] key, int keyLen, byte[] value, int valueLen,
-      long cfHandle);
-  @Override final native void merge(byte[] key, int keyLen, byte[] value, int valueLen);
-  @Override final native void merge(byte[] key, int keyLen, byte[] value, int valueLen,
-      long cfHandle);
-  @Override final native void remove(byte[] key, int keyLen);
-  @Override final native void remove(byte[] key, int keyLen, long cfHandle);
-  @Override final native void putLogData(byte[] blob, int blobLen);
-  @Override final native void clear0();
+  /**
+   * <p>Private WriteBatch constructor which is used to construct
+   * WriteBatch instances. </p>
+   *
+   * @param nativeHandle address of native instance.
+   * @param owningNativeHandle whether to own this reference from the C++ side or not
+   */
+  WriteBatch(final long nativeHandle, final boolean owningNativeHandle) {
+    super(nativeHandle);
+    if(!owningNativeHandle)
+      disOwnNativeHandle();
+  }
 
-  private native void newWriteBatch(int reserved_bytes);
-  private native void iterate(long handlerHandle) throws RocksDBException;
+  @Override protected final native void disposeInternal(final long handle);
+  @Override final native int count0(final long handle);
+  @Override final native void put(final long handle, final byte[] key,
+      final int keyLen, final byte[] value, final int valueLen);
+  @Override final native void put(final long handle, final byte[] key,
+      final int keyLen, final byte[] value, final int valueLen,
+      final long cfHandle);
+  @Override final native void merge(final long handle, final byte[] key,
+      final int keyLen, final byte[] value, final int valueLen);
+  @Override final native void merge(final long handle, final byte[] key,
+      final int keyLen, final byte[] value, final int valueLen,
+      final long cfHandle);
+  @Override final native void remove(final long handle, final byte[] key,
+      final int keyLen);
+  @Override final native void remove(final long handle, final byte[] key,
+      final int keyLen, final long cfHandle);
+  @Override
+  final native void deleteRange(final long handle, final byte[] beginKey, final int beginKeyLen,
+      final byte[] endKey, final int endKeyLen);
+  @Override
+  final native void deleteRange(final long handle, final byte[] beginKey, final int beginKeyLen,
+      final byte[] endKey, final int endKeyLen, final long cfHandle);
+  @Override final native void putLogData(final long handle,
+      final byte[] blob, final int blobLen);
+  @Override final native void clear0(final long handle);
+  @Override final native void setSavePoint0(final long handle);
+  @Override final native void rollbackToSavePoint0(final long handle);
+
+  private native static long newWriteBatch(final int reserved_bytes);
+  private native void iterate(final long handle, final long handlerHandle)
+      throws RocksDBException;
 
 
   /**
    * Handler callback for iterating over the contents of a batch.
    */
-  public static abstract class Handler extends RocksObject {
+  public static abstract class Handler
+      extends RocksCallbackObject {
     public Handler() {
-      super();
-      createNewHandler0();
+      super(null);
+    }
+
+    @Override
+    protected long initializeNative(final long... nativeParameterHandles) {
+      return createNewHandler0();
     }
 
     public abstract void put(byte[] key, byte[] value);
     public abstract void merge(byte[] key, byte[] value);
     public abstract void delete(byte[] key);
+    public abstract void deleteRange(byte[] beginKey, byte[] endKey);
     public abstract void logData(byte[] blob);
 
     /**
@@ -111,16 +142,6 @@ public class WriteBatch extends AbstractWriteBatch {
       return true;
     }
 
-    /**
-     * Deletes underlying C++ handler pointer.
-     */
-    @Override
-    protected void disposeInternal() {
-      assert(isInitialized());
-      disposeInternal(nativeHandle_);
-    }
-
-    private native void createNewHandler0();
-    private native void disposeInternal(long handle);
+    private native long createNewHandler0();
   }
 }

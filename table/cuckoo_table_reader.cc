@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -45,7 +45,7 @@ CuckooTableReader::CuckooTableReader(
   }
   TableProperties* props = nullptr;
   status_ = ReadTableProperties(file_.get(), file_size, kCuckooTableMagicNumber,
-      ioptions.env, ioptions.info_log, &props);
+      ioptions, &props);
   if (!status_.ok()) {
     return;
   }
@@ -187,6 +187,7 @@ class CuckooTableIterator : public InternalIterator {
   void SeekToFirst() override;
   void SeekToLast() override;
   void Seek(const Slice& target) override;
+  void SeekForPrev(const Slice& target) override;
   void Next() override;
   void Prev() override;
   Slice key() const override;
@@ -298,6 +299,11 @@ void CuckooTableIterator::Seek(const Slice& target) {
   PrepareKVAtCurrIdx();
 }
 
+void CuckooTableIterator::SeekForPrev(const Slice& target) {
+  // Not supported
+  assert(false);
+}
+
 bool CuckooTableIterator::Valid() const {
   return curr_key_idx_ < sorted_bucket_ids_.size();
 }
@@ -316,7 +322,7 @@ void CuckooTableIterator::PrepareKVAtCurrIdx() {
     curr_key_.SetInternalKey(Slice(offset, reader_->user_key_length_),
                              0, kTypeValue);
   } else {
-    curr_key_.SetKey(Slice(offset, reader_->key_length_));
+    curr_key_.SetInternalKey(Slice(offset, reader_->key_length_));
   }
   curr_value_ = Slice(offset + reader_->key_length_, reader_->value_length_);
 }
@@ -346,7 +352,7 @@ void CuckooTableIterator::Prev() {
 
 Slice CuckooTableIterator::key() const {
   assert(Valid());
-  return curr_key_.GetKey();
+  return curr_key_.GetInternalKey();
 }
 
 Slice CuckooTableIterator::value() const {
@@ -362,10 +368,6 @@ InternalIterator* CuckooTableReader::NewIterator(
   if (!status().ok()) {
     return NewErrorInternalIterator(
         Status::Corruption("CuckooTableReader status is not okay."), arena);
-  }
-  if (read_options.total_order_seek) {
-    return NewErrorInternalIterator(
-        Status::InvalidArgument("total_order_seek is not supported."), arena);
   }
   CuckooTableIterator* iter;
   if (arena == nullptr) {

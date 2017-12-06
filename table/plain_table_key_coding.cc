@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef ROCKSDB_LITE
 #include "table/plain_table_key_coding.h"
@@ -112,10 +112,10 @@ Status PlainTableKeyEncoder::AppendKey(const Slice& key,
 
     Slice prefix =
         prefix_extractor_->Transform(Slice(key.data(), user_key_size));
-    if (key_count_for_prefix_ == 0 || prefix != pre_prefix_.GetKey() ||
+    if (key_count_for_prefix_ == 0 || prefix != pre_prefix_.GetUserKey() ||
         key_count_for_prefix_ % index_sparseness_ == 0) {
       key_count_for_prefix_ = 1;
-      pre_prefix_.SetKey(prefix);
+      pre_prefix_.SetUserKey(prefix);
       size_bytes_pos += EncodeSize(kFullKey, user_key_size, size_bytes);
       Status s = file->Append(Slice(size_bytes, size_bytes_pos));
       if (!s.ok()) {
@@ -128,10 +128,11 @@ Status PlainTableKeyEncoder::AppendKey(const Slice& key,
         // For second key within a prefix, need to encode prefix length
         size_bytes_pos +=
             EncodeSize(kPrefixFromPreviousKey,
-                       static_cast<uint32_t>(pre_prefix_.GetKey().size()),
+                       static_cast<uint32_t>(pre_prefix_.GetUserKey().size()),
                        size_bytes + size_bytes_pos);
       }
-      uint32_t prefix_len = static_cast<uint32_t>(pre_prefix_.GetKey().size());
+      uint32_t prefix_len =
+          static_cast<uint32_t>(pre_prefix_.GetUserKey().size());
       size_bytes_pos += EncodeSize(kKeySuffix, user_key_size - prefix_len,
                                    size_bytes + size_bytes_pos);
       Status s = file->Append(Slice(size_bytes, size_bytes_pos));
@@ -315,9 +316,10 @@ Status PlainTableKeyDecoder::NextPlainEncodingKey(uint32_t start_offset,
   }
   if (!file_reader_.file_info()->is_mmap_mode) {
     cur_key_.SetInternalKey(*parsed_key);
-    parsed_key->user_key = Slice(cur_key_.GetKey().data(), user_key_size);
+    parsed_key->user_key =
+        Slice(cur_key_.GetInternalKey().data(), user_key_size);
     if (internal_key != nullptr) {
-      *internal_key = cur_key_.GetKey();
+      *internal_key = cur_key_.GetInternalKey();
     }
   } else if (internal_key != nullptr) {
     if (decoded_internal_key_valid) {
@@ -325,7 +327,7 @@ Status PlainTableKeyDecoder::NextPlainEncodingKey(uint32_t start_offset,
     } else {
       // Need to copy out the internal key
       cur_key_.SetInternalKey(*parsed_key);
-      *internal_key = cur_key_.GetKey();
+      *internal_key = cur_key_.GetInternalKey();
     }
   }
   return Status::OK();
@@ -369,12 +371,13 @@ Status PlainTableKeyDecoder::NextPrefixEncodingKey(
           // users, because after reading value for the key, the key might
           // be invalid.
           cur_key_.SetInternalKey(*parsed_key);
-          saved_user_key_ = cur_key_.GetKey();
+          saved_user_key_ = cur_key_.GetUserKey();
           if (!file_reader_.file_info()->is_mmap_mode) {
-            parsed_key->user_key = Slice(cur_key_.GetKey().data(), size);
+            parsed_key->user_key =
+                Slice(cur_key_.GetInternalKey().data(), size);
           }
           if (internal_key != nullptr) {
-            *internal_key = cur_key_.GetKey();
+            *internal_key = cur_key_.GetInternalKey();
           }
         } else {
           if (internal_key != nullptr) {
@@ -421,16 +424,16 @@ Status PlainTableKeyDecoder::NextPrefixEncodingKey(
           cur_key_.Reserve(prefix_len_ + size);
           cur_key_.SetInternalKey(tmp, *parsed_key);
           parsed_key->user_key =
-              Slice(cur_key_.GetKey().data(), prefix_len_ + size);
-          saved_user_key_ = cur_key_.GetKey();
+              Slice(cur_key_.GetInternalKey().data(), prefix_len_ + size);
+          saved_user_key_ = cur_key_.GetUserKey();
         } else {
           cur_key_.Reserve(prefix_len_ + size);
           cur_key_.SetInternalKey(Slice(saved_user_key_.data(), prefix_len_),
                                   *parsed_key);
         }
-        parsed_key->user_key = ExtractUserKey(cur_key_.GetKey());
+        parsed_key->user_key = cur_key_.GetUserKey();
         if (internal_key != nullptr) {
-          *internal_key = cur_key_.GetKey();
+          *internal_key = cur_key_.GetInternalKey();
         }
         break;
       }

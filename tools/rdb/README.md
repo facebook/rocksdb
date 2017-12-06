@@ -16,7 +16,7 @@ JavaScript binding for RocksDB within a Node application.
 ### Installation
 
 NOTE: If your default `python` binary is not a version of python2, add
-the arguments `--python /path/to/python2` to the the `node-gyp` commands.
+the arguments `--python /path/to/python2` to the `node-gyp` commands.
 
 1. Make sure you have the static library (i.e. "librocksdb.a") in the root
 directory of your rocksdb installation. If not, `cd` there and run

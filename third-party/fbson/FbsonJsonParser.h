@@ -1,12 +1,7 @@
-/*
- *  Copyright (c) 2011-present, Facebook, Inc.
- *  All rights reserved.
- *
- *  This source code is licensed under the BSD-style license found in the
- *  LICENSE file in the root directory of this source tree. An additional grant
- *  of patent rights can be found in the PATENTS file in the same directory.
- *
- */
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 /*
  * This file defines FbsonJsonParserT (template) and FbsonJsonParser.
@@ -40,7 +35,7 @@
  * string to an id, and store the dictionary id in FBSON to save space. The
  * purpose of using an external dictionary is more towards a collection of
  * documents (which has common keys) rather than a single document, so that
- * space saving will be siginificant.
+ * space saving will be significant.
  *
  * ** Endianness **
  * Note: FBSON serialization doesn't assume endianness of the server. However

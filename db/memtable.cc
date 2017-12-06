@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -9,107 +9,135 @@
 
 #include "db/memtable.h"
 
-#include <memory>
 #include <algorithm>
 #include <limits>
+#include <memory>
 
 #include "db/dbformat.h"
 #include "db/merge_context.h"
-#include "db/writebuffer.h"
+#include "db/merge_helper.h"
+#include "db/pinned_iterators_manager.h"
+#include "db/read_callback.h"
+#include "monitoring/perf_context_imp.h"
+#include "monitoring/statistics.h"
+#include "port/port.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/write_buffer_manager.h"
 #include "table/internal_iterator.h"
-#include "table/merger.h"
+#include "table/iterator_wrapper.h"
+#include "table/merging_iterator.h"
 #include "util/arena.h"
+#include "util/autovector.h"
 #include "util/coding.h"
+#include "util/memory_usage.h"
 #include "util/murmurhash.h"
 #include "util/mutexlock.h"
-#include "util/perf_context_imp.h"
-#include "util/statistics.h"
-#include "util/stop_watch.h"
 
 namespace rocksdb {
 
-MemTableOptions::MemTableOptions(
+ImmutableMemTableOptions::ImmutableMemTableOptions(
     const ImmutableCFOptions& ioptions,
     const MutableCFOptions& mutable_cf_options)
-  : write_buffer_size(mutable_cf_options.write_buffer_size),
-    arena_block_size(mutable_cf_options.arena_block_size),
-    memtable_prefix_bloom_bits(mutable_cf_options.memtable_prefix_bloom_bits),
-    memtable_prefix_bloom_probes(
-        mutable_cf_options.memtable_prefix_bloom_probes),
-    memtable_prefix_bloom_huge_page_tlb_size(
-        mutable_cf_options.memtable_prefix_bloom_huge_page_tlb_size),
-    inplace_update_support(ioptions.inplace_update_support),
-    inplace_update_num_locks(mutable_cf_options.inplace_update_num_locks),
-    inplace_callback(ioptions.inplace_callback),
-    max_successive_merges(mutable_cf_options.max_successive_merges),
-    filter_deletes(mutable_cf_options.filter_deletes),
-    statistics(ioptions.statistics),
-    merge_operator(ioptions.merge_operator),
-    info_log(ioptions.info_log) {}
+    : arena_block_size(mutable_cf_options.arena_block_size),
+      memtable_prefix_bloom_bits(
+          static_cast<uint32_t>(
+              static_cast<double>(mutable_cf_options.write_buffer_size) *
+              mutable_cf_options.memtable_prefix_bloom_size_ratio) *
+          8u),
+      memtable_huge_page_size(mutable_cf_options.memtable_huge_page_size),
+      inplace_update_support(ioptions.inplace_update_support),
+      inplace_update_num_locks(mutable_cf_options.inplace_update_num_locks),
+      inplace_callback(ioptions.inplace_callback),
+      max_successive_merges(mutable_cf_options.max_successive_merges),
+      statistics(ioptions.statistics),
+      merge_operator(ioptions.merge_operator),
+      info_log(ioptions.info_log) {}
 
 MemTable::MemTable(const InternalKeyComparator& cmp,
                    const ImmutableCFOptions& ioptions,
                    const MutableCFOptions& mutable_cf_options,
-                   WriteBuffer* write_buffer, SequenceNumber earliest_seq)
+                   WriteBufferManager* write_buffer_manager,
+                   SequenceNumber latest_seq, uint32_t column_family_id)
     : comparator_(cmp),
       moptions_(ioptions, mutable_cf_options),
       refs_(0),
       kArenaBlockSize(OptimizeBlockSize(moptions_.arena_block_size)),
-      arena_(moptions_.arena_block_size, 0),
-      allocator_(&arena_, write_buffer),
+      mem_tracker_(write_buffer_manager),
+      arena_(
+          moptions_.arena_block_size,
+          (write_buffer_manager != nullptr && write_buffer_manager->enabled())
+              ? &mem_tracker_
+              : nullptr,
+          mutable_cf_options.memtable_huge_page_size),
       table_(ioptions.memtable_factory->CreateMemTableRep(
-          comparator_, &allocator_, ioptions.prefix_extractor,
-          ioptions.info_log)),
+          comparator_, &arena_, ioptions.prefix_extractor, ioptions.info_log,
+          column_family_id)),
+      range_del_table_(SkipListFactory().CreateMemTableRep(
+          comparator_, &arena_, nullptr /* transform */, ioptions.info_log,
+          column_family_id)),
+      is_range_del_table_empty_(true),
       data_size_(0),
       num_entries_(0),
       num_deletes_(0),
+      write_buffer_size_(mutable_cf_options.write_buffer_size),
       flush_in_progress_(false),
       flush_completed_(false),
       file_number_(0),
       first_seqno_(0),
-      earliest_seqno_(earliest_seq),
+      earliest_seqno_(latest_seq),
+      creation_seq_(latest_seq),
       mem_next_logfile_number_(0),
+      min_prep_log_referenced_(0),
       locks_(moptions_.inplace_update_support
                  ? moptions_.inplace_update_num_locks
                  : 0),
       prefix_extractor_(ioptions.prefix_extractor),
       flush_state_(FLUSH_NOT_REQUESTED),
-      env_(ioptions.env) {
+      env_(ioptions.env),
+      insert_with_hint_prefix_extractor_(
+          ioptions.memtable_insert_with_hint_prefix_extractor),
+      oldest_key_time_(std::numeric_limits<uint64_t>::max()) {
   UpdateFlushState();
   // something went wrong if we need to flush before inserting anything
   assert(!ShouldScheduleFlush());
 
   if (prefix_extractor_ && moptions_.memtable_prefix_bloom_bits > 0) {
     prefix_bloom_.reset(new DynamicBloom(
-        &allocator_,
-        moptions_.memtable_prefix_bloom_bits, ioptions.bloom_locality,
-        moptions_.memtable_prefix_bloom_probes, nullptr,
-        moptions_.memtable_prefix_bloom_huge_page_tlb_size,
+        &arena_, moptions_.memtable_prefix_bloom_bits, ioptions.bloom_locality,
+        6 /* hard coded 6 probes */, nullptr, moptions_.memtable_huge_page_size,
         ioptions.info_log));
   }
 }
 
-MemTable::~MemTable() { assert(refs_ == 0); }
+MemTable::~MemTable() {
+  mem_tracker_.FreeMem();
+  assert(refs_ == 0);
+}
 
 size_t MemTable::ApproximateMemoryUsage() {
-  size_t arena_usage = arena_.ApproximateMemoryUsage();
-  size_t table_usage = table_->ApproximateMemoryUsage();
-  // let MAX_USAGE =  std::numeric_limits<size_t>::max()
-  // then if arena_usage + total_usage >= MAX_USAGE, return MAX_USAGE.
-  // the following variation is to avoid numeric overflow.
-  if (arena_usage >= std::numeric_limits<size_t>::max() - table_usage) {
-    return std::numeric_limits<size_t>::max();
+  autovector<size_t> usages = {arena_.ApproximateMemoryUsage(),
+                               table_->ApproximateMemoryUsage(),
+                               range_del_table_->ApproximateMemoryUsage(),
+                               rocksdb::ApproximateMemoryUsage(insert_hints_)};
+  size_t total_usage = 0;
+  for (size_t usage : usages) {
+    // If usage + total_usage >= kMaxSizet, return kMaxSizet.
+    // the following variation is to avoid numeric overflow.
+    if (usage >= port::kMaxSizet - total_usage) {
+      return port::kMaxSizet;
+    }
+    total_usage += usage;
   }
   // otherwise, return the actual usage
-  return arena_usage + table_usage;
+  return total_usage;
 }
 
 bool MemTable::ShouldFlushNow() const {
+  size_t write_buffer_size = write_buffer_size_.load(std::memory_order_relaxed);
   // In a lot of times, we cannot allocate arena blocks that exactly matches the
   // buffer size. Thus we have to decide if we should over-allocate or
   // under-allocate.
@@ -120,22 +148,21 @@ bool MemTable::ShouldFlushNow() const {
 
   // If arena still have room for new block allocation, we can safely say it
   // shouldn't flush.
-  auto allocated_memory =
-      table_->ApproximateMemoryUsage() + arena_.MemoryAllocatedBytes();
+  auto allocated_memory = table_->ApproximateMemoryUsage() +
+                          range_del_table_->ApproximateMemoryUsage() +
+                          arena_.MemoryAllocatedBytes();
 
   // if we can still allocate one more block without exceeding the
   // over-allocation ratio, then we should not flush.
   if (allocated_memory + kArenaBlockSize <
-      moptions_.write_buffer_size +
-      kArenaBlockSize * kAllowOverAllocationRatio) {
+      write_buffer_size + kArenaBlockSize * kAllowOverAllocationRatio) {
     return false;
   }
 
-  // if user keeps adding entries that exceeds moptions.write_buffer_size,
-  // we need to flush earlier even though we still have much available
-  // memory left.
-  if (allocated_memory > moptions_.write_buffer_size +
-      kArenaBlockSize * kAllowOverAllocationRatio) {
+  // if user keeps adding entries that exceeds write_buffer_size, we need to
+  // flush earlier even though we still have much available memory left.
+  if (allocated_memory >
+      write_buffer_size + kArenaBlockSize * kAllowOverAllocationRatio) {
     return true;
   }
 
@@ -178,6 +205,21 @@ void MemTable::UpdateFlushState() {
   }
 }
 
+void MemTable::UpdateOldestKeyTime() {
+  uint64_t oldest_key_time = oldest_key_time_.load(std::memory_order_relaxed);
+  if (oldest_key_time == std::numeric_limits<uint64_t>::max()) {
+    int64_t current_time = 0;
+    auto s = env_->GetCurrentTime(&current_time);
+    if (s.ok()) {
+      assert(current_time >= 0);
+      // If fail, the timestamp is already set.
+      oldest_key_time_.compare_exchange_strong(
+          oldest_key_time, static_cast<uint64_t>(current_time),
+          std::memory_order_relaxed, std::memory_order_relaxed);
+    }
+  }
+}
+
 int MemTable::KeyComparator::operator()(const char* prefix_len_key1,
                                         const char* prefix_len_key2) const {
   // Internal keys are encoded as length-prefixed strings.
@@ -216,13 +258,18 @@ const char* EncodeKey(std::string* scratch, const Slice& target) {
 
 class MemTableIterator : public InternalIterator {
  public:
-  MemTableIterator(
-      const MemTable& mem, const ReadOptions& read_options, Arena* arena)
+  MemTableIterator(const MemTable& mem, const ReadOptions& read_options,
+                   Arena* arena, bool use_range_del_table = false)
       : bloom_(nullptr),
         prefix_extractor_(mem.prefix_extractor_),
+        comparator_(mem.comparator_),
         valid_(false),
-        arena_mode_(arena != nullptr) {
-    if (prefix_extractor_ != nullptr && !read_options.total_order_seek) {
+        arena_mode_(arena != nullptr),
+        value_pinned_(
+            !mem.GetImmutableMemTableOptions()->inplace_update_support) {
+    if (use_range_del_table) {
+      iter_ = mem.range_del_table_->GetIterator(arena);
+    } else if (prefix_extractor_ != nullptr && !read_options.total_order_seek) {
       bloom_ = mem.prefix_bloom_.get();
       iter_ = mem.table_->GetDynamicPrefixIterator(arena);
     } else {
@@ -231,12 +278,26 @@ class MemTableIterator : public InternalIterator {
   }
 
   ~MemTableIterator() {
+#ifndef NDEBUG
+    // Assert that the MemTableIterator is never deleted while
+    // Pinning is Enabled.
+    assert(!pinned_iters_mgr_ ||
+           (pinned_iters_mgr_ && !pinned_iters_mgr_->PinningEnabled()));
+#endif
     if (arena_mode_) {
       iter_->~Iterator();
     } else {
       delete iter_;
     }
   }
+
+#ifndef NDEBUG
+  virtual void SetPinnedItersMgr(
+      PinnedIteratorsManager* pinned_iters_mgr) override {
+    pinned_iters_mgr_ = pinned_iters_mgr;
+  }
+  PinnedIteratorsManager* pinned_iters_mgr_ = nullptr;
+#endif
 
   virtual bool Valid() const override { return valid_; }
   virtual void Seek(const Slice& k) override {
@@ -255,6 +316,28 @@ class MemTableIterator : public InternalIterator {
     iter_->Seek(k, nullptr);
     valid_ = iter_->Valid();
   }
+  virtual void SeekForPrev(const Slice& k) override {
+    PERF_TIMER_GUARD(seek_on_memtable_time);
+    PERF_COUNTER_ADD(seek_on_memtable_count, 1);
+    if (bloom_ != nullptr) {
+      if (!bloom_->MayContain(
+              prefix_extractor_->Transform(ExtractUserKey(k)))) {
+        PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
+        valid_ = false;
+        return;
+      } else {
+        PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
+      }
+    }
+    iter_->Seek(k, nullptr);
+    valid_ = iter_->Valid();
+    if (!Valid()) {
+      SeekToLast();
+    }
+    while (Valid() && comparator_.comparator.Compare(k, key()) < 0) {
+      Prev();
+    }
+  }
   virtual void SeekToFirst() override {
     iter_->SeekToFirst();
     valid_ = iter_->Valid();
@@ -264,11 +347,13 @@ class MemTableIterator : public InternalIterator {
     valid_ = iter_->Valid();
   }
   virtual void Next() override {
+    PERF_COUNTER_ADD(next_on_memtable_count, 1);
     assert(Valid());
     iter_->Next();
     valid_ = iter_->Valid();
   }
   virtual void Prev() override {
+    PERF_COUNTER_ADD(prev_on_memtable_count, 1);
     assert(Valid());
     iter_->Prev();
     valid_ = iter_->Valid();
@@ -285,27 +370,24 @@ class MemTableIterator : public InternalIterator {
 
   virtual Status status() const override { return Status::OK(); }
 
-  virtual Status PinData() override {
-    // memtable data is always pinned
-    return Status::OK();
-  }
-
-  virtual Status ReleasePinnedData() override {
-    // memtable data is always pinned
-    return Status::OK();
-  }
-
   virtual bool IsKeyPinned() const override {
     // memtable data is always pinned
     return true;
   }
 
+  virtual bool IsValuePinned() const override {
+    // memtable value is always pinned, except if we allow inplace update.
+    return value_pinned_;
+  }
+
  private:
   DynamicBloom* bloom_;
   const SliceTransform* const prefix_extractor_;
+  const MemTable::KeyComparator comparator_;
   MemTableRep::Iterator* iter_;
   bool valid_;
   bool arena_mode_;
+  bool value_pinned_;
 
   // No copying allowed
   MemTableIterator(const MemTableIterator&);
@@ -319,34 +401,45 @@ InternalIterator* MemTable::NewIterator(const ReadOptions& read_options,
   return new (mem) MemTableIterator(*this, read_options, arena);
 }
 
+InternalIterator* MemTable::NewRangeTombstoneIterator(
+    const ReadOptions& read_options) {
+  if (read_options.ignore_range_deletions || is_range_del_table_empty_) {
+    return nullptr;
+  }
+  return new MemTableIterator(*this, read_options, nullptr /* arena */,
+                              true /* use_range_del_table */);
+}
+
 port::RWMutex* MemTable::GetLock(const Slice& key) {
   static murmur_hash hash;
   return &locks_[hash(key) % locks_.size()];
 }
 
-uint64_t MemTable::ApproximateSize(const Slice& start_ikey,
-                                   const Slice& end_ikey) {
+MemTable::MemTableStats MemTable::ApproximateStats(const Slice& start_ikey,
+                                                   const Slice& end_ikey) {
   uint64_t entry_count = table_->ApproximateNumEntries(start_ikey, end_ikey);
+  entry_count += range_del_table_->ApproximateNumEntries(start_ikey, end_ikey);
   if (entry_count == 0) {
-    return 0;
+    return {0, 0};
   }
   uint64_t n = num_entries_.load(std::memory_order_relaxed);
   if (n == 0) {
-    return 0;
+    return {0, 0};
   }
   if (entry_count > n) {
-    // table_->ApproximateNumEntries() is just an estimate so it can be larger
-    // than actual entries we have. Cap it to entries we have to limit the
-    // inaccuracy.
+    // (range_del_)table_->ApproximateNumEntries() is just an estimate so it can
+    // be larger than actual entries we have. Cap it to entries we have to limit
+    // the inaccuracy.
     entry_count = n;
   }
   uint64_t data_size = data_size_.load(std::memory_order_relaxed);
-  return entry_count * (data_size / n);
+  return {entry_count * (data_size / n), entry_count};
 }
 
 void MemTable::Add(SequenceNumber s, ValueType type,
                    const Slice& key, /* user key */
-                   const Slice& value, bool allow_concurrent) {
+                   const Slice& value, bool allow_concurrent,
+                   MemTablePostProcessInfo* post_process_info) {
   // Format of an entry is concatenation of:
   //  key_size     : varint32 of internal_key.size()
   //  key bytes    : char[internal_key.size()]
@@ -359,10 +452,13 @@ void MemTable::Add(SequenceNumber s, ValueType type,
                                internal_key_size + VarintLength(val_size) +
                                val_size;
   char* buf = nullptr;
-  KeyHandle handle = table_->Allocate(encoded_len, &buf);
+  std::unique_ptr<MemTableRep>& table =
+      type == kTypeRangeDeletion ? range_del_table_ : table_;
+  KeyHandle handle = table->Allocate(encoded_len, &buf);
 
   char* p = EncodeVarint32(buf, internal_key_size);
   memcpy(p, key.data(), key_size);
+  Slice key_slice(p, key_size);
   p += key_size;
   uint64_t packed = PackSequenceAndType(s, type);
   EncodeFixed64(p, packed);
@@ -371,7 +467,14 @@ void MemTable::Add(SequenceNumber s, ValueType type,
   memcpy(p, value.data(), val_size);
   assert((unsigned)(p + val_size - buf) == (unsigned)encoded_len);
   if (!allow_concurrent) {
-    table_->Insert(handle);
+    // Extract prefix for insert with hint.
+    if (insert_with_hint_prefix_extractor_ != nullptr &&
+        insert_with_hint_prefix_extractor_->InDomain(key_slice)) {
+      Slice prefix = insert_with_hint_prefix_extractor_->Transform(key_slice);
+      table->InsertWithHint(handle, &insert_hints_[prefix]);
+    } else {
+      table->Insert(handle);
+    }
 
     // this is a bit ugly, but is the way to avoid locked instructions
     // when incrementing an atomic
@@ -390,7 +493,7 @@ void MemTable::Add(SequenceNumber s, ValueType type,
     }
 
     // The first sequence number inserted into the memtable
-    assert(first_seqno_ == 0 || s > first_seqno_);
+    assert(first_seqno_ == 0 || s >= first_seqno_);
     if (first_seqno_ == 0) {
       first_seqno_.store(s, std::memory_order_relaxed);
 
@@ -400,13 +503,16 @@ void MemTable::Add(SequenceNumber s, ValueType type,
       }
       assert(first_seqno_.load() >= earliest_seqno_.load());
     }
+    assert(post_process_info == nullptr);
+    UpdateFlushState();
   } else {
-    table_->InsertConcurrently(handle);
+    table->InsertConcurrently(handle);
 
-    num_entries_.fetch_add(1, std::memory_order_relaxed);
-    data_size_.fetch_add(encoded_len, std::memory_order_relaxed);
+    assert(post_process_info != nullptr);
+    post_process_info->num_entries++;
+    post_process_info->data_size += encoded_len;
     if (type == kTypeDeletion) {
-      num_deletes_.fetch_add(1, std::memory_order_relaxed);
+      post_process_info->num_deletes++;
     }
 
     if (prefix_bloom_) {
@@ -426,8 +532,10 @@ void MemTable::Add(SequenceNumber s, ValueType type,
         !first_seqno_.compare_exchange_weak(cur_earliest_seqno, s)) {
     }
   }
-
-  UpdateFlushState();
+  if (is_range_del_table_empty_ && type == kTypeRangeDeletion) {
+    is_range_del_table_empty_ = false;
+  }
+  UpdateOldestKeyTime();
 }
 
 // Callback from MemTable::Get()
@@ -443,20 +551,31 @@ struct Saver {
   const MergeOperator* merge_operator;
   // the merge operations encountered;
   MergeContext* merge_context;
+  RangeDelAggregator* range_del_agg;
   MemTable* mem;
   Logger* logger;
   Statistics* statistics;
   bool inplace_update_support;
   Env* env_;
+  ReadCallback* callback_;
+  bool* is_blob_index;
+
+  bool CheckCallback(SequenceNumber _seq) {
+    if (callback_) {
+      return callback_->IsCommitted(_seq);
+    }
+    return true;
+  }
 };
 }  // namespace
 
 static bool SaveValue(void* arg, const char* entry) {
   Saver* s = reinterpret_cast<Saver*>(arg);
   MergeContext* merge_context = s->merge_context;
+  RangeDelAggregator* range_del_agg = s->range_del_agg;
   const MergeOperator* merge_operator = s->merge_operator;
 
-  assert(s != nullptr && merge_context != nullptr);
+  assert(s != nullptr && merge_context != nullptr && range_del_agg != nullptr);
 
   // entry format is:
   //    klength  varint32
@@ -474,9 +593,35 @@ static bool SaveValue(void* arg, const char* entry) {
     // Correct user key
     const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
     ValueType type;
-    UnPackSequenceAndType(tag, &s->seq, &type);
+    SequenceNumber seq;
+    UnPackSequenceAndType(tag, &seq, &type);
+    // If the value is not in the snapshot, skip it
+    if (!s->CheckCallback(seq)) {
+      return true;  // to continue to the next seq
+    }
 
+    s->seq = seq;
+
+    if ((type == kTypeValue || type == kTypeMerge || type == kTypeBlobIndex) &&
+        range_del_agg->ShouldDelete(Slice(key_ptr, key_length))) {
+      type = kTypeRangeDeletion;
+    }
     switch (type) {
+      case kTypeBlobIndex:
+        if (s->is_blob_index == nullptr) {
+          ROCKS_LOG_ERROR(s->logger, "Encounter unexpected blob index.");
+          *(s->status) = Status::NotSupported(
+              "Encounter unsupported blob value. Please open DB with "
+              "rocksdb::blob_db::BlobDB instead.");
+        } else if (*(s->merge_in_progress)) {
+          *(s->status) =
+              Status::NotSupported("Blob DB does not support merge operator.");
+        }
+        if (!s->status->ok()) {
+          *(s->found_final_value) = true;
+          return false;
+        }
+      // intentional fallthrough
       case kTypeValue: {
         if (s->inplace_update_support) {
           s->mem->GetLock(s->key->user_key())->ReadLock();
@@ -484,21 +629,11 @@ static bool SaveValue(void* arg, const char* entry) {
         Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
         *(s->status) = Status::OK();
         if (*(s->merge_in_progress)) {
-          assert(merge_operator);
-          bool merge_success = false;
-          {
-            StopWatchNano timer(s->env_, s->statistics != nullptr);
-            PERF_TIMER_GUARD(merge_operator_time_nanos);
-            merge_success = merge_operator->FullMerge(
-                s->key->user_key(), &v, merge_context->GetOperands(), s->value,
-                s->logger);
-            RecordTick(s->statistics, MERGE_OPERATION_TOTAL_TIME,
-                       timer.ElapsedNanos());
-          }
-          if (!merge_success) {
-            RecordTick(s->statistics, NUMBER_MERGE_FAILURES);
-            *(s->status) =
-                Status::Corruption("Error: Could not perform merge.");
+          if (s->value != nullptr) {
+            *(s->status) = MergeHelper::TimedFullMerge(
+                merge_operator, s->key->user_key(), &v,
+                merge_context->GetOperands(), s->value, s->logger,
+                s->statistics, s->env_, nullptr /* result_operand */, true);
           }
         } else if (s->value != nullptr) {
           s->value->assign(v.data(), v.size());
@@ -507,27 +642,20 @@ static bool SaveValue(void* arg, const char* entry) {
           s->mem->GetLock(s->key->user_key())->ReadUnlock();
         }
         *(s->found_final_value) = true;
+        if (s->is_blob_index != nullptr) {
+          *(s->is_blob_index) = (type == kTypeBlobIndex);
+        }
         return false;
       }
       case kTypeDeletion:
-      case kTypeSingleDeletion: {
+      case kTypeSingleDeletion:
+      case kTypeRangeDeletion: {
         if (*(s->merge_in_progress)) {
-          assert(merge_operator != nullptr);
-          *(s->status) = Status::OK();
-          bool merge_success = false;
-          {
-            StopWatchNano timer(s->env_, s->statistics != nullptr);
-            PERF_TIMER_GUARD(merge_operator_time_nanos);
-            merge_success = merge_operator->FullMerge(
-                s->key->user_key(), nullptr, merge_context->GetOperands(),
-                s->value, s->logger);
-            RecordTick(s->statistics, MERGE_OPERATION_TOTAL_TIME,
-                       timer.ElapsedNanos());
-          }
-          if (!merge_success) {
-            RecordTick(s->statistics, NUMBER_MERGE_FAILURES);
-            *(s->status) =
-                Status::Corruption("Error: Could not perform merge.");
+          if (s->value != nullptr) {
+            *(s->status) = MergeHelper::TimedFullMerge(
+                merge_operator, s->key->user_key(), nullptr,
+                merge_context->GetOperands(), s->value, s->logger,
+                s->statistics, s->env_, nullptr /* result_operand */, true);
           }
         } else {
           *(s->status) = Status::NotFound();
@@ -548,7 +676,16 @@ static bool SaveValue(void* arg, const char* entry) {
         }
         Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
         *(s->merge_in_progress) = true;
-        merge_context->PushOperand(v);
+        merge_context->PushOperand(
+            v, s->inplace_update_support == false /* operand_pinned */);
+        if (merge_operator->ShouldMerge(merge_context->GetOperands())) {
+          *(s->status) = MergeHelper::TimedFullMerge(
+              merge_operator, s->key->user_key(), nullptr,
+              merge_context->GetOperands(), s->value, s->logger, s->statistics,
+              s->env_, nullptr /* result_operand */, true);
+          *(s->found_final_value) = true;
+          return false;
+        }
         return true;
       }
       default:
@@ -562,13 +699,24 @@ static bool SaveValue(void* arg, const char* entry) {
 }
 
 bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
-                   MergeContext* merge_context, SequenceNumber* seq) {
+                   MergeContext* merge_context,
+                   RangeDelAggregator* range_del_agg, SequenceNumber* seq,
+                   const ReadOptions& read_opts, ReadCallback* callback,
+                   bool* is_blob_index) {
   // The sequence number is updated synchronously in version_set.h
   if (IsEmpty()) {
     // Avoiding recording stats for speed.
     return false;
   }
   PERF_TIMER_GUARD(get_from_memtable_time);
+
+  std::unique_ptr<InternalIterator> range_del_iter(
+      NewRangeTombstoneIterator(read_opts));
+  Status status = range_del_agg->AddTombstones(std::move(range_del_iter));
+  if (!status.ok()) {
+    *s = status;
+    return false;
+  }
 
   Slice user_key = key.user_key();
   bool found_final_value = false;
@@ -594,11 +742,14 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
     saver.seq = kMaxSequenceNumber;
     saver.mem = this;
     saver.merge_context = merge_context;
+    saver.range_del_agg = range_del_agg;
     saver.merge_operator = moptions_.merge_operator;
     saver.logger = moptions_.info_log;
     saver.inplace_update_support = moptions_.inplace_update_support;
     saver.statistics = moptions_.statistics;
     saver.env_ = env_;
+    saver.callback_ = callback;
+    saver.is_blob_index = is_blob_index;
     table_->Get(key, &saver, SaveValue);
 
     *seq = saver.seq;
@@ -642,29 +793,23 @@ void MemTable::Update(SequenceNumber seq,
       ValueType type;
       SequenceNumber unused;
       UnPackSequenceAndType(tag, &unused, &type);
-      switch (type) {
-        case kTypeValue: {
-          Slice prev_value = GetLengthPrefixedSlice(key_ptr + key_length);
-          uint32_t prev_size = static_cast<uint32_t>(prev_value.size());
-          uint32_t new_size = static_cast<uint32_t>(value.size());
+      if (type == kTypeValue) {
+        Slice prev_value = GetLengthPrefixedSlice(key_ptr + key_length);
+        uint32_t prev_size = static_cast<uint32_t>(prev_value.size());
+        uint32_t new_size = static_cast<uint32_t>(value.size());
 
-          // Update value, if new value size  <= previous value size
-          if (new_size <= prev_size ) {
-            char* p = EncodeVarint32(const_cast<char*>(key_ptr) + key_length,
-                                     new_size);
-            WriteLock wl(GetLock(lkey.user_key()));
-            memcpy(p, value.data(), value.size());
-            assert((unsigned)((p + value.size()) - entry) ==
-                   (unsigned)(VarintLength(key_length) + key_length +
-                              VarintLength(value.size()) + value.size()));
-            return;
-          }
+        // Update value, if new value size  <= previous value size
+        if (new_size <= prev_size) {
+          char* p =
+              EncodeVarint32(const_cast<char*>(key_ptr) + key_length, new_size);
+          WriteLock wl(GetLock(lkey.user_key()));
+          memcpy(p, value.data(), value.size());
+          assert((unsigned)((p + value.size()) - entry) ==
+                 (unsigned)(VarintLength(key_length) + key_length +
+                            VarintLength(value.size()) + value.size()));
+          RecordTick(moptions_.statistics, NUMBER_KEYS_UPDATED);
+          return;
         }
-        default:
-          // If the latest value is kTypeDeletion, kTypeMerge or kTypeLogData
-          // we don't have enough space for update inplace
-            Add(seq, kTypeValue, key, value);
-            return;
       }
     }
   }
@@ -793,6 +938,19 @@ void MemTableRep::Get(const LookupKey& k, void* callback_args,
        iter->Valid() && callback_func(callback_args, iter->key());
        iter->Next()) {
   }
+}
+
+void MemTable::RefLogContainingPrepSection(uint64_t log) {
+  assert(log > 0);
+  auto cur = min_prep_log_referenced_.load();
+  while ((log < cur || cur == 0) &&
+         !min_prep_log_referenced_.compare_exchange_strong(cur, log)) {
+    cur = min_prep_log_referenced_.load();
+  }
+}
+
+uint64_t MemTable::GetMinLogContainingPrepSection() {
+  return min_prep_log_referenced_.load();
 }
 
 }  // namespace rocksdb

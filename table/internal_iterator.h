@@ -1,16 +1,19 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 
 #pragma once
 
 #include <string>
+#include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/status.h"
 
 namespace rocksdb {
+
+class PinnedIteratorsManager;
 
 class InternalIterator : public Cleanable {
  public:
@@ -33,6 +36,11 @@ class InternalIterator : public Cleanable {
   // The iterator is Valid() after this call iff the source contains
   // an entry that comes at or past target.
   virtual void Seek(const Slice& target) = 0;
+
+  // Position at the first key in the source that at or before target
+  // The iterator is Valid() after this call iff the source contains
+  // an entry that comes at or before target.
+  virtual void SeekForPrev(const Slice& target) = 0;
 
   // Moves to the next entry in the source.  After this call, Valid() is
   // true iff the iterator was not positioned at the last entry in the source.
@@ -61,26 +69,41 @@ class InternalIterator : public Cleanable {
   // satisfied without doing some IO, then this returns Status::Incomplete().
   virtual Status status() const = 0;
 
-  // Make sure that all current and future data blocks used by this iterator
-  // will be pinned in memory and will not be released except when
-  // ReleasePinnedData() is called or the iterator is deleted.
-  virtual Status PinData() { return Status::NotSupported(""); }
+  // Pass the PinnedIteratorsManager to the Iterator, most Iterators dont
+  // communicate with PinnedIteratorsManager so default implementation is no-op
+  // but for Iterators that need to communicate with PinnedIteratorsManager
+  // they will implement this function and use the passed pointer to communicate
+  // with PinnedIteratorsManager.
+  virtual void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) {}
 
-  // Release all blocks that were pinned because of PinData() and no future
-  // blocks will be pinned.
-  virtual Status ReleasePinnedData() { return Status::NotSupported(""); }
-
-  // If true, this means that the Slice returned by key() is valid as long
-  // as the iterator is not deleted and ReleasePinnedData() is not called.
+  // If true, this means that the Slice returned by key() is valid as long as
+  // PinnedIteratorsManager::ReleasePinnedData is not called and the
+  // Iterator is not deleted.
   //
   // IsKeyPinned() is guaranteed to always return true if
-  //  - PinData() is called
+  //  - Iterator is created with ReadOptions::pin_data = true
   //  - DB tables were created with BlockBasedTableOptions::use_delta_encoding
   //    set to false.
   virtual bool IsKeyPinned() const { return false; }
 
+  // If true, this means that the Slice returned by value() is valid as long as
+  // PinnedIteratorsManager::ReleasePinnedData is not called and the
+  // Iterator is not deleted.
+  virtual bool IsValuePinned() const { return false; }
+
   virtual Status GetProperty(std::string prop_name, std::string* prop) {
     return Status::NotSupported("");
+  }
+
+ protected:
+  void SeekForPrevImpl(const Slice& target, const Comparator* cmp) {
+    Seek(target);
+    if (!Valid()) {
+      SeekToLast();
+    }
+    while (Valid() && cmp->Compare(target, key()) < 0) {
+      Prev();
+    }
   }
 
  private:

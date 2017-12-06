@@ -29,16 +29,15 @@
 #include "table/plain_table_key_coding.h"
 #include "table/get_context.h"
 
+#include "monitoring/histogram.h"
+#include "monitoring/perf_context_imp.h"
 #include "util/arena.h"
 #include "util/coding.h"
 #include "util/dynamic_bloom.h"
 #include "util/hash.h"
-#include "util/histogram.h"
 #include "util/murmurhash.h"
-#include "util/perf_context_imp.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
-
 
 namespace rocksdb {
 
@@ -64,6 +63,8 @@ class PlainTableIterator : public InternalIterator {
   void SeekToLast() override;
 
   void Seek(const Slice& target) override;
+
+  void SeekForPrev(const Slice& target) override;
 
   void Next() override;
 
@@ -128,22 +129,23 @@ Status PlainTableReader::Open(const ImmutableCFOptions& ioptions,
 
   TableProperties* props = nullptr;
   auto s = ReadTableProperties(file.get(), file_size, kPlainTableMagicNumber,
-                               ioptions.env, ioptions.info_log, &props);
+                               ioptions, &props);
   if (!s.ok()) {
     return s;
   }
 
   assert(hash_table_ratio >= 0.0);
   auto& user_props = props->user_collected_properties;
-  auto prefix_extractor_in_file =
-      user_props.find(PlainTablePropertyNames::kPrefixExtractorName);
+  auto prefix_extractor_in_file = props->prefix_extractor_name;
 
-  if (!full_scan_mode && prefix_extractor_in_file != user_props.end()) {
+  if (!full_scan_mode &&
+      !prefix_extractor_in_file.empty() /* old version sst file*/
+      && prefix_extractor_in_file != "nullptr") {
     if (!ioptions.prefix_extractor) {
       return Status::InvalidArgument(
           "Prefix extractor is missing when opening a PlainTable built "
           "using a prefix extractor");
-    } else if (prefix_extractor_in_file->second.compare(
+    } else if (prefix_extractor_in_file.compare(
                    ioptions.prefix_extractor->Name()) != 0) {
       return Status::InvalidArgument(
           "Prefix extractor given doesn't match the one used to build "
@@ -190,15 +192,12 @@ void PlainTableReader::SetupForCompaction() {
 InternalIterator* PlainTableReader::NewIterator(const ReadOptions& options,
                                                 Arena* arena,
                                                 bool skip_filters) {
-  if (options.total_order_seek && !IsTotalOrderMode()) {
-    return NewErrorInternalIterator(
-        Status::InvalidArgument("total_order_seek not supported"), arena);
-  }
+  bool use_prefix_seek = !IsTotalOrderMode() && !options.total_order_seek;
   if (arena == nullptr) {
-    return new PlainTableIterator(this, prefix_extractor_ != nullptr);
+    return new PlainTableIterator(this, use_prefix_seek);
   } else {
     auto mem = arena->AllocateAligned(sizeof(PlainTableIterator));
-    return new (mem) PlainTableIterator(this, prefix_extractor_ != nullptr);
+    return new (mem) PlainTableIterator(this, use_prefix_seek);
   }
 }
 
@@ -291,21 +290,26 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
   assert(props != nullptr);
   table_properties_.reset(props);
 
-  BlockContents bloom_block_contents;
-  auto s = ReadMetaBlock(file_info_.file.get(), file_size_,
-                         kPlainTableMagicNumber, ioptions_.env,
-                         BloomBlockBuilder::kBloomBlock, &bloom_block_contents);
+  BlockContents index_block_contents;
+  Status s = ReadMetaBlock(file_info_.file.get(), nullptr /* prefetch_buffer */,
+                           file_size_, kPlainTableMagicNumber, ioptions_,
+                           PlainTableIndexBuilder::kPlainTableIndexBlock,
+                           &index_block_contents);
+
   bool index_in_file = s.ok();
 
-  BlockContents index_block_contents;
-  s = ReadMetaBlock(
-      file_info_.file.get(), file_size_, kPlainTableMagicNumber, ioptions_.env,
-      PlainTableIndexBuilder::kPlainTableIndexBlock, &index_block_contents);
-
-  index_in_file &= s.ok();
+  BlockContents bloom_block_contents;
+  bool bloom_in_file = false;
+  // We only need to read the bloom block if index block is in file.
+  if (index_in_file) {
+    s = ReadMetaBlock(file_info_.file.get(), nullptr /* prefetch_buffer */,
+                      file_size_, kPlainTableMagicNumber, ioptions_,
+                      BloomBlockBuilder::kBloomBlock, &bloom_block_contents);
+    bloom_in_file = s.ok() && bloom_block_contents.data.size() > 0;
+  }
 
   Slice* bloom_block;
-  if (index_in_file) {
+  if (bloom_in_file) {
     // If bloom_block_contents.allocation is not empty (which will be the case
     // for non-mmap mode), it holds the alloated memory for the bloom block.
     // It needs to be kept alive to keep `bloom_block` valid.
@@ -315,8 +319,6 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
     bloom_block = nullptr;
   }
 
-  // index_in_file == true only if there are kBloomBlock and
-  // kPlainTableIndexBlock in file
   Slice* index_block;
   if (index_in_file) {
     // If index_block_contents.allocation is not empty (which will be the case
@@ -352,7 +354,7 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
                             huge_page_tlb_size, ioptions_.info_log);
       }
     }
-  } else {
+  } else if (bloom_in_file) {
     enable_bloom_ = true;
     auto num_blocks_property = props->user_collected_properties.find(
         PlainTablePropertyNames::kNumBloomBlocks);
@@ -369,6 +371,10 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
         const_cast<unsigned char*>(
             reinterpret_cast<const unsigned char*>(bloom_block->data())),
         static_cast<uint32_t>(bloom_block->size()) * 8, num_blocks);
+  } else {
+    // Index in file but no bloom in file. Disable bloom filter in this case.
+    enable_bloom_ = false;
+    bloom_bits_per_key = 0;
   }
 
   PlainTableIndexBuilder index_builder(&arena_, ioptions_, index_sparseness,
@@ -632,9 +638,22 @@ void PlainTableIterator::SeekToLast() {
 }
 
 void PlainTableIterator::Seek(const Slice& target) {
+  if (use_prefix_seek_ != !table_->IsTotalOrderMode()) {
+    // This check is done here instead of NewIterator() to permit creating an
+    // iterator with total_order_seek = true even if we won't be able to Seek()
+    // it. This is needed for compaction: it creates iterator with
+    // total_order_seek = true but usually never does Seek() on it,
+    // only SeekToFirst().
+    status_ =
+        Status::InvalidArgument(
+          "total_order_seek not implemented for PlainTable.");
+    offset_ = next_offset_ = table_->file_info_.data_end_offset;
+    return;
+  }
+
   // If the user doesn't set prefix seek option and we are not able to do a
   // total Seek(). assert failure.
-  if (!use_prefix_seek_) {
+  if (table_->IsTotalOrderMode()) {
     if (table_->full_scan_mode_) {
       status_ =
           Status::InvalidArgument("Seek() is not allowed in full scan mode.");
@@ -685,6 +704,12 @@ void PlainTableIterator::Seek(const Slice& target) {
   } else {
     offset_ = table_->file_info_.data_end_offset;
   }
+}
+
+void PlainTableIterator::SeekForPrev(const Slice& target) {
+  assert(false);
+  status_ =
+      Status::NotSupported("SeekForPrev() is not supported in PlainTable");
 }
 
 void PlainTableIterator::Next() {

@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
 #include <stddef.h>
@@ -15,7 +15,7 @@ struct CompactionJobStats {
   // Aggregate the CompactionJobStats from another instance with this one
   void Add(const CompactionJobStats& stats);
 
-  // the elapsed time in micro of this compaction.
+  // the elapsed time of this compaction in microseconds.
   uint64_t elapsed_micros;
 
   // the number of compaction input records.
@@ -61,7 +61,7 @@ struct CompactionJobStats {
   uint64_t num_corrupt_keys;
 
   // Following counters are only populated if
-  // options.compaction_measure_io_stats = true;
+  // options.report_bg_io_stats = true;
 
   // Time spent on file's Append() call.
   uint64_t file_write_nanos;
@@ -81,5 +81,11 @@ struct CompactionJobStats {
 
   std::string smallest_output_key_prefix;
   std::string largest_output_key_prefix;
+
+  // number of single-deletes which do not meet a put
+  uint64_t num_single_del_fallthru;
+
+  // number of single-deletes which meet something other than a put
+  uint64_t num_single_del_mismatch;
 };
 }  // namespace rocksdb

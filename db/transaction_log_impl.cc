@@ -1,25 +1,26 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef ROCKSDB_LITE
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
 #endif
 
-#include <inttypes.h>
 #include "db/transaction_log_impl.h"
+#include <inttypes.h>
 #include "db/write_batch_internal.h"
 #include "util/file_reader_writer.h"
 
 namespace rocksdb {
 
 TransactionLogIteratorImpl::TransactionLogIteratorImpl(
-    const std::string& dir, const DBOptions* options,
+    const std::string& dir, const ImmutableDBOptions* options,
     const TransactionLogIterator::ReadOptions& read_options,
     const EnvOptions& soptions, const SequenceNumber seq,
-    std::unique_ptr<VectorLogPtr> files, VersionSet const* const versions)
+    std::unique_ptr<VectorLogPtr> files, VersionSet const* const versions,
+    const bool seq_per_batch)
     : dir_(dir),
       options_(options),
       read_options_(read_options),
@@ -31,7 +32,8 @@ TransactionLogIteratorImpl::TransactionLogIteratorImpl(
       currentFileIndex_(0),
       currentBatchSeq_(0),
       currentLastSeq_(0),
-      versions_(versions) {
+      versions_(versions),
+      seq_per_batch_(seq_per_batch) {
   assert(files_ != nullptr);
   assert(versions_ != nullptr);
 
@@ -45,17 +47,18 @@ Status TransactionLogIteratorImpl::OpenLogFile(
   Env* env = options_->env;
   unique_ptr<SequentialFile> file;
   Status s;
+  EnvOptions optimized_env_options = env->OptimizeForLogRead(soptions_);
   if (logFile->Type() == kArchivedLogFile) {
     std::string fname = ArchivedLogFileName(dir_, logFile->LogNumber());
-    s = env->NewSequentialFile(fname, &file, soptions_);
+    s = env->NewSequentialFile(fname, &file, optimized_env_options);
   } else {
     std::string fname = LogFileName(dir_, logFile->LogNumber());
-    s = env->NewSequentialFile(fname, &file, soptions_);
+    s = env->NewSequentialFile(fname, &file, optimized_env_options);
     if (!s.ok()) {
       //  If cannot open file in DB directory.
       //  Try the archive dir, as it could have moved in the meanwhile.
       fname = ArchivedLogFileName(dir_, logFile->LogNumber());
-      s = env->NewSequentialFile(fname, &file, soptions_);
+      s = env->NewSequentialFile(fname, &file, optimized_env_options);
     }
   }
   if (s.ok()) {
@@ -107,7 +110,7 @@ void TransactionLogIteratorImpl::SeekToStartSequence(
     return;
   }
   while (RestrictedRead(&record, &scratch)) {
-    if (record.size() < 12) {
+    if (record.size() < WriteBatchInternal::kHeader) {
       reporter_.Corruption(
         record.size(), Status::Corruption("very small log record"));
       continue;
@@ -167,7 +170,7 @@ void TransactionLogIteratorImpl::NextImpl(bool internal) {
       currentLogReader_->UnmarkEOF();
     }
     while (RestrictedRead(&record, &scratch)) {
-      if (record.size() < 12) {
+      if (record.size() < WriteBatchInternal::kHeader) {
         reporter_.Corruption(
           record.size(), Status::Corruption("very small log record"));
         continue;
@@ -240,17 +243,61 @@ void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
     }
     startingSequenceNumber_ = expectedSeq;
     // currentStatus_ will be set to Ok if reseek succeeds
+    // Note: this is still ok in seq_pre_batch_ && two_write_queuesp_ mode
+    // that allows gaps in the WAL since it will still skip over the gap.
     currentStatus_ = Status::NotFound("Gap in sequence numbers");
-    return SeekToStartSequence(currentFileIndex_, true);
+    // In seq_per_batch_ mode, gaps in the seq are possible so the strict mode
+    // should be disabled
+    return SeekToStartSequence(currentFileIndex_, !seq_per_batch_);
   }
 
+  struct BatchCounter : public WriteBatch::Handler {
+    SequenceNumber sequence_;
+    BatchCounter(SequenceNumber sequence) : sequence_(sequence) {}
+    Status MarkNoop(bool empty_batch) override {
+      if (!empty_batch) {
+        sequence_++;
+      }
+      return Status::OK();
+    }
+    Status MarkEndPrepare(const Slice&) override {
+      sequence_++;
+      return Status::OK();
+    }
+    Status MarkCommit(const Slice&) override {
+      sequence_++;
+      return Status::OK();
+    }
+
+    Status PutCF(uint32_t cf, const Slice& key, const Slice& val) override {
+      return Status::OK();
+    }
+    Status DeleteCF(uint32_t cf, const Slice& key) override {
+      return Status::OK();
+    }
+    Status SingleDeleteCF(uint32_t cf, const Slice& key) override {
+      return Status::OK();
+    }
+    Status MergeCF(uint32_t cf, const Slice& key, const Slice& val) override {
+      return Status::OK();
+    }
+    Status MarkBeginPrepare() override { return Status::OK(); }
+    Status MarkRollback(const Slice&) override { return Status::OK(); }
+  };
+
   currentBatchSeq_ = WriteBatchInternal::Sequence(batch.get());
-  currentLastSeq_ = currentBatchSeq_ +
-                    WriteBatchInternal::Count(batch.get()) - 1;
+  if (seq_per_batch_) {
+    BatchCounter counter(currentBatchSeq_);
+    batch->Iterate(&counter);
+    currentLastSeq_ = counter.sequence_;
+  } else {
+    currentLastSeq_ =
+        currentBatchSeq_ + WriteBatchInternal::Count(batch.get()) - 1;
+  }
   // currentBatchSeq_ can only change here
   assert(currentLastSeq_ <= versions_->LastSequence());
 
-  currentBatch_ = move(batch);
+  currentBatch_ = std::move(batch);
   isValid_ = true;
   currentStatus_ = Status::OK();
 }
@@ -262,10 +309,9 @@ Status TransactionLogIteratorImpl::OpenLogReader(const LogFile* logFile) {
     return s;
   }
   assert(file);
-  currentLogReader_.reset(new log::Reader(options_->info_log,
-					  std::move(file), &reporter_,
-                                          read_options_.verify_checksums_, 0,
-                                          logFile->LogNumber()));
+  currentLogReader_.reset(new log::Reader(
+      options_->info_log, std::move(file), &reporter_,
+      read_options_.verify_checksums_, 0, logFile->LogNumber()));
   return Status::OK();
 }
 }  //  namespace rocksdb

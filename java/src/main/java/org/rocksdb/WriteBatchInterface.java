@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 package org.rocksdb;
 
@@ -76,6 +76,39 @@ public interface WriteBatchInterface {
     void remove(ColumnFamilyHandle columnFamilyHandle, byte[] key);
 
     /**
+     * Removes the database entries in the range ["beginKey", "endKey"), i.e.,
+     * including "beginKey" and excluding "endKey". a non-OK status on error. It
+     * is not an error if no keys exist in the range ["beginKey", "endKey").
+     *
+     * Delete the database entry (if any) for "key". Returns OK on success, and a
+     * non-OK status on error. It is not an error if "key" did not exist in the
+     * database.
+     *
+     * @param beginKey
+     *          First key to delete within database (included)
+     * @param endKey
+     *          Last key to delete within database (excluded)
+     */
+    void deleteRange(byte[] beginKey, byte[] endKey);
+
+    /**
+     * Removes the database entries in the range ["beginKey", "endKey"), i.e.,
+     * including "beginKey" and excluding "endKey". a non-OK status on error. It
+     * is not an error if no keys exist in the range ["beginKey", "endKey").
+     *
+     * Delete the database entry (if any) for "key". Returns OK on success, and a
+     * non-OK status on error. It is not an error if "key" did not exist in the
+     * database.
+     *
+     * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
+     * @param beginKey
+     *          First key to delete within database (included)
+     * @param endKey
+     *          Last key to delete within database (excluded)
+     */
+    void deleteRange(ColumnFamilyHandle columnFamilyHandle, byte[] beginKey, byte[] endKey);
+
+    /**
      * Append a blob of arbitrary size to the records in this batch. The blob will
      * be stored in the transaction log but not in any other file. In particular,
      * it will not be persisted to the SST files. When iterating over this
@@ -95,4 +128,19 @@ public interface WriteBatchInterface {
      * Clear all updates buffered in this batch
      */
     void clear();
+
+    /**
+     * Records the state of the batch for future calls to RollbackToSavePoint().
+     * May be called multiple times to set multiple save points.
+     */
+    void setSavePoint();
+
+    /**
+     * Remove all entries in this batch (Put, Merge, Delete, PutLogData) since
+     * the most recent call to SetSavePoint() and removes the most recent save
+     * point.
+     *
+     * @throws RocksDBException if there is no previous call to SetSavePoint()
+     */
+    void rollbackToSavePoint() throws RocksDBException;
 }

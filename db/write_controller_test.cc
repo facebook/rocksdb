@@ -1,8 +1,10 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
+#include <ratio>
+
 #include "db/write_controller.h"
 
 #include "rocksdb/env.h"
@@ -16,12 +18,13 @@ class TimeSetEnv : public EnvWrapper {
  public:
   explicit TimeSetEnv() : EnvWrapper(nullptr) {}
   uint64_t now_micros_ = 6666;
-  virtual uint64_t NowMicros() override { return now_micros_; }
+  virtual uint64_t NowNanos() override { return now_micros_ * std::milli::den; }
 };
 
 TEST_F(WriteControllerTest, ChangeDelayRateTest) {
   TimeSetEnv env;
-  WriteController controller(10000000u);
+  WriteController controller(40000000u);  // also set max delayed rate
+  controller.set_delayed_write_rate(10000000u);
   auto delay_token_0 =
       controller.GetDelayToken(controller.delayed_write_rate());
   ASSERT_EQ(static_cast<uint64_t>(2000000),
@@ -35,8 +38,9 @@ TEST_F(WriteControllerTest, ChangeDelayRateTest) {
   auto delay_token_3 = controller.GetDelayToken(20000000u);
   ASSERT_EQ(static_cast<uint64_t>(1000000),
             controller.GetDelay(&env, 20000000u));
+  // This is more than max rate. Max delayed rate will be used.
   auto delay_token_4 =
-      controller.GetDelayToken(controller.delayed_write_rate() * 2);
+      controller.GetDelayToken(controller.delayed_write_rate() * 3);
   ASSERT_EQ(static_cast<uint64_t>(500000),
             controller.GetDelay(&env, 20000000u));
 }

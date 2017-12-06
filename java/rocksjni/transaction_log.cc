@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // This file implements the "bridge" between Java and C++ and enables
 // calling c++ rocksdb::Iterator methods from Java side.
@@ -67,12 +67,5 @@ jobject Java_org_rocksdb_TransactionLogIterator_getBatch(
     JNIEnv* env, jobject jobj, jlong handle) {
   rocksdb::BatchResult batch_result =
       reinterpret_cast<rocksdb::TransactionLogIterator*>(handle)->GetBatch();
-  jclass jclazz = env->FindClass(
-      "org/rocksdb/TransactionLogIterator$BatchResult");
-  assert(jclazz != nullptr);
-  jmethodID mid = env->GetMethodID(
-      jclazz, "<init>", "(Lorg/rocksdb/TransactionLogIterator;JJ)V");
-  assert(mid != nullptr);
-  return env->NewObject(jclazz, mid, jobj,
-      batch_result.sequence, batch_result.writeBatchPtr.release());
+  return rocksdb::BatchResultJni::construct(env, batch_result);
 }

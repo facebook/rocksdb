@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 package org.rocksdb;
 
 import org.junit.ClassRule;
@@ -17,89 +17,64 @@ public class SliceTest {
 
   @Test
   public void slice() {
-    Slice slice = null;
-    Slice otherSlice = null;
-    Slice thirdSlice = null;
-    try {
-      slice = new Slice("testSlice");
+    try (final Slice slice = new Slice("testSlice")) {
       assertThat(slice.empty()).isFalse();
       assertThat(slice.size()).isEqualTo(9);
       assertThat(slice.data()).isEqualTo("testSlice".getBytes());
+    }
 
-      otherSlice = new Slice("otherSlice".getBytes());
+    try (final Slice otherSlice = new Slice("otherSlice".getBytes())) {
       assertThat(otherSlice.data()).isEqualTo("otherSlice".getBytes());
+    }
 
-      thirdSlice = new Slice("otherSlice".getBytes(), 5);
+    try (final Slice thirdSlice = new Slice("otherSlice".getBytes(), 5)) {
       assertThat(thirdSlice.data()).isEqualTo("Slice".getBytes());
-    } finally {
-      if (slice != null) {
-        slice.dispose();
-      }
-      if (otherSlice != null) {
-        otherSlice.dispose();
-      }
-      if (thirdSlice != null) {
-        thirdSlice.dispose();
-      }
+    }
+  }
+
+  @Test
+  public void sliceClear() {
+    try (final Slice slice = new Slice("abc")) {
+      assertThat(slice.toString()).isEqualTo("abc");
+      slice.clear();
+      assertThat(slice.toString()).isEmpty();
+      slice.clear();  // make sure we don't double-free
+    }
+  }
+
+  @Test
+  public void sliceRemovePrefix() {
+    try (final Slice slice = new Slice("abc")) {
+      assertThat(slice.toString()).isEqualTo("abc");
+      slice.removePrefix(1);
+      assertThat(slice.toString()).isEqualTo("bc");
     }
   }
 
   @Test
   public void sliceEquals() {
-    Slice slice = null;
-    Slice slice2 = null;
-    try {
-      slice = new Slice("abc");
-      slice2 = new Slice("abc");
+    try (final Slice slice = new Slice("abc");
+         final Slice slice2 = new Slice("abc")) {
       assertThat(slice.equals(slice2)).isTrue();
       assertThat(slice.hashCode() == slice2.hashCode()).isTrue();
-    } finally {
-      if (slice != null) {
-        slice.dispose();
-      }
-      if (slice2 != null) {
-        slice2.dispose();
-      }
     }
   }
 
-
   @Test
   public void sliceStartWith() {
-    Slice slice = null;
-    Slice match = null;
-    Slice noMatch = null;
-    try {
-      slice = new Slice("matchpoint");
-      match = new Slice("mat");
-      noMatch = new Slice("nomatch");
-
-      //assertThat(slice.startsWith(match)).isTrue();
+    try (final Slice slice = new Slice("matchpoint");
+         final Slice match = new Slice("mat");
+         final Slice noMatch = new Slice("nomatch")) {
+      assertThat(slice.startsWith(match)).isTrue();
       assertThat(slice.startsWith(noMatch)).isFalse();
-    } finally {
-      if (slice != null) {
-        slice.dispose();
-      }
-      if (match != null) {
-        match.dispose();
-      }
-      if (noMatch != null) {
-        noMatch.dispose();
-      }
     }
   }
 
   @Test
   public void sliceToString() {
-    Slice slice = null;
-    try {
-      slice = new Slice("stringTest");
+    try (final Slice slice = new Slice("stringTest")) {
       assertThat(slice.toString()).isEqualTo("stringTest");
       assertThat(slice.toString(true)).isNotEqualTo("");
-    } finally {
-      if (slice != null) {
-        slice.dispose();
-      }
     }
   }
 }

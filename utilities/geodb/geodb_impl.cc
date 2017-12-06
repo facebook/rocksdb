@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 #ifndef ROCKSDB_LITE
 
@@ -11,14 +11,13 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
-#include <vector>
+#include <limits>
 #include <map>
 #include <string>
-#include <limits>
-#include "db/filename.h"
+#include <vector>
 #include "util/coding.h"
+#include "util/filename.h"
 #include "util/string_util.h"
-
 
 //
 // There are two types of keys. The first type of key-values

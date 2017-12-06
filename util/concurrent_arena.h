@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -14,6 +14,7 @@
 #include "port/likely.h"
 #include "util/allocator.h"
 #include "util/arena.h"
+#include "util/core_local.h"
 #include "util/mutexlock.h"
 #include "util/thread_local.h"
 
@@ -43,6 +44,7 @@ class ConcurrentArena : public Allocator {
   // shards compute their shard_block_size as a fraction of block_size
   // that varies according to the hardware concurrency level.
   explicit ConcurrentArena(size_t block_size = Arena::kMinBlockSize,
+                           AllocTracker* tracker = nullptr,
                            size_t huge_page_size = 0);
 
   char* Allocate(size_t bytes) override {
@@ -63,9 +65,7 @@ class ConcurrentArena : public Allocator {
 
   size_t ApproximateMemoryUsage() const {
     std::unique_lock<SpinMutex> lock(arena_mutex_, std::defer_lock);
-    if (index_mask_ != 0) {
-      lock.lock();
-    }
+    lock.lock();
     return arena_.ApproximateMemoryUsage() - ShardAllocatedAndUnused();
   }
 
@@ -91,22 +91,20 @@ class ConcurrentArena : public Allocator {
     char* free_begin_;
     std::atomic<size_t> allocated_and_unused_;
 
-    Shard() : allocated_and_unused_(0) {}
+    Shard() : free_begin_(nullptr), allocated_and_unused_(0) {}
   };
 
-#if ROCKSDB_SUPPORT_THREAD_LOCAL
-  static __thread uint32_t tls_cpuid;
+#ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
+  static __thread size_t tls_cpuid;
 #else
-  enum ZeroFirstEnum : uint32_t { tls_cpuid = 0 };
+  enum ZeroFirstEnum : size_t { tls_cpuid = 0 };
 #endif
 
   char padding0[56] ROCKSDB_FIELD_UNUSED;
 
   size_t shard_block_size_;
 
-  // shards_[i & index_mask_] is valid
-  size_t index_mask_;
-  std::unique_ptr<Shard[]> shards_;
+  CoreLocalArray<Shard> shards_;
 
   Arena arena_;
   mutable SpinMutex arena_mutex_;
@@ -120,15 +118,16 @@ class ConcurrentArena : public Allocator {
 
   size_t ShardAllocatedAndUnused() const {
     size_t total = 0;
-    for (size_t i = 0; i <= index_mask_; ++i) {
-      total += shards_[i].allocated_and_unused_.load(std::memory_order_relaxed);
+    for (size_t i = 0; i < shards_.Size(); ++i) {
+      total += shards_.AccessAtCore(i)->allocated_and_unused_.load(
+          std::memory_order_relaxed);
     }
     return total;
   }
 
   template <typename Func>
   char* AllocateImpl(size_t bytes, bool force_arena, const Func& func) {
-    uint32_t cpu;
+    size_t cpu;
 
     // Go directly to the arena if the allocation is too large, or if
     // we've never needed to Repick() and the arena mutex is available
@@ -137,7 +136,8 @@ class ConcurrentArena : public Allocator {
     std::unique_lock<SpinMutex> arena_lock(arena_mutex_, std::defer_lock);
     if (bytes > shard_block_size_ / 4 || force_arena ||
         ((cpu = tls_cpuid) == 0 &&
-         !shards_[0].allocated_and_unused_.load(std::memory_order_relaxed) &&
+         !shards_.AccessAtCore(0)->allocated_and_unused_.load(
+             std::memory_order_relaxed) &&
          arena_lock.try_lock())) {
       if (!arena_lock.owns_lock()) {
         arena_lock.lock();
@@ -148,7 +148,7 @@ class ConcurrentArena : public Allocator {
     }
 
     // pick a shard from which to allocate
-    Shard* s = &shards_[cpu & index_mask_];
+    Shard* s = shards_.AccessAtCore(cpu & (shards_.Size() - 1));
     if (!s->mutex.try_lock()) {
       s = Repick();
       s->mutex.lock();
@@ -164,6 +164,21 @@ class ConcurrentArena : public Allocator {
       // size, we adjust our request to avoid arena waste.
       auto exact = arena_allocated_and_unused_.load(std::memory_order_relaxed);
       assert(exact == arena_.AllocatedAndUnused());
+
+      if (exact >= bytes && arena_.IsInInlineBlock()) {
+        // If we haven't exhausted arena's inline block yet, allocate from arena
+        // directly. This ensures that we'll do the first few small allocations
+        // without allocating any blocks.
+        // In particular this prevents empty memtables from using
+        // disproportionately large amount of memory: a memtable allocates on
+        // the order of 1 KB of memory when created; we wouldn't want to
+        // allocate a full arena block (typically a few megabytes) for that,
+        // especially if there are thousands of empty memtables.
+        auto rv = func();
+        Fixup();
+        return rv;
+      }
+
       avail = exact >= shard_block_size_ / 2 && exact < shard_block_size_ * 2
                   ? exact
                   : shard_block_size_;

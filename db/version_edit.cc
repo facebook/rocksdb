@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -10,10 +10,11 @@
 #include "db/version_edit.h"
 
 #include "db/version_set.h"
+#include "rocksdb/slice.h"
 #include "util/coding.h"
 #include "util/event_logger.h"
+#include "util/string_util.h"
 #include "util/sync_point.h"
-#include "rocksdb/slice.h"
 
 namespace rocksdb {
 
@@ -82,30 +83,24 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
     PutLengthPrefixedSlice(dst, comparator_);
   }
   if (has_log_number_) {
-    PutVarint32(dst, kLogNumber);
-    PutVarint64(dst, log_number_);
+    PutVarint32Varint64(dst, kLogNumber, log_number_);
   }
   if (has_prev_log_number_) {
-    PutVarint32(dst, kPrevLogNumber);
-    PutVarint64(dst, prev_log_number_);
+    PutVarint32Varint64(dst, kPrevLogNumber, prev_log_number_);
   }
   if (has_next_file_number_) {
-    PutVarint32(dst, kNextFileNumber);
-    PutVarint64(dst, next_file_number_);
+    PutVarint32Varint64(dst, kNextFileNumber, next_file_number_);
   }
   if (has_last_sequence_) {
-    PutVarint32(dst, kLastSequence);
-    PutVarint64(dst, last_sequence_);
+    PutVarint32Varint64(dst, kLastSequence, last_sequence_);
   }
   if (has_max_column_family_) {
-    PutVarint32(dst, kMaxColumnFamily);
-    PutVarint32(dst, max_column_family_);
+    PutVarint32Varint32(dst, kMaxColumnFamily, max_column_family_);
   }
 
   for (const auto& deleted : deleted_files_) {
-    PutVarint32(dst, kDeletedFile);
-    PutVarint32(dst, deleted.first /* level */);
-    PutVarint64(dst, deleted.second /* file number */);
+    PutVarint32Varint32Varint64(dst, kDeletedFile, deleted.first /* level */,
+                                deleted.second /* file number */);
   }
 
   for (size_t i = 0; i < new_files_.size(); i++) {
@@ -124,8 +119,7 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
     } else {
       PutVarint32(dst, kNewFile3);
     }
-    PutVarint32(dst, new_files_[i].first);  // level
-    PutVarint64(dst, f.fd.GetNumber());
+    PutVarint32Varint64(dst, new_files_[i].first /* level */, f.fd.GetNumber());
     if (f.fd.GetPathId() != 0 && !has_customized_fields) {
       // kNewFile3
       PutVarint32(dst, f.fd.GetPathId());
@@ -133,8 +127,7 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
     PutVarint64(dst, f.fd.GetFileSize());
     PutLengthPrefixedSlice(dst, f.smallest.Encode());
     PutLengthPrefixedSlice(dst, f.largest.Encode());
-    PutVarint64(dst, f.smallest_seqno);
-    PutVarint64(dst, f.largest_seqno);
+    PutVarint64Varint64(dst, f.smallest_seqno, f.largest_seqno);
     if (has_customized_fields) {
       // Customized fields' format:
       // +-----------------------------+
@@ -181,8 +174,7 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
 
   // 0 is default and does not need to be explicitly written
   if (column_family_ != 0) {
-    PutVarint32(dst, kColumnFamily);
-    PutVarint32(dst, column_family_);
+    PutVarint32Varint32(dst, kColumnFamily, column_family_);
   }
 
   if (is_column_family_add_) {

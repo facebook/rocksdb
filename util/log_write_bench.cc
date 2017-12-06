@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef GFLAGS
 #include <cstdio>
@@ -11,15 +11,15 @@ int main() {
 }
 #else
 
-#include <gflags/gflags.h>
-
+#include "monitoring/histogram.h"
 #include "rocksdb/env.h"
-#include "util/histogram.h"
+#include "util/file_reader_writer.h"
+#include "util/gflags_compat.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 
-using GFLAGS::ParseCommandLineFlags;
-using GFLAGS::SetUsageMessage;
+using GFLAGS_NAMESPACE::ParseCommandLineFlags;
+using GFLAGS_NAMESPACE::SetUsageMessage;
 
 // A simple benchmark to simulate transactional logs
 
@@ -33,24 +33,25 @@ namespace rocksdb {
 void RunBenchmark() {
   std::string file_name = test::TmpDir() + "/log_write_benchmark.log";
   Env* env = Env::Default();
-  EnvOptions env_options;
-  env_options.use_mmap_writes = false;
+  EnvOptions env_options = env->OptimizeForLogWrite(EnvOptions());
   env_options.bytes_per_sync = FLAGS_bytes_per_sync;
   unique_ptr<WritableFile> file;
   env->NewWritableFile(file_name, &file, env_options);
+  unique_ptr<WritableFileWriter> writer;
+  writer.reset(new WritableFileWriter(std::move(file), env_options));
 
   std::string record;
-  record.assign('X', FLAGS_record_size);
+  record.assign(FLAGS_record_size, 'X');
 
   HistogramImpl hist;
 
   uint64_t start_time = env->NowMicros();
   for (int i = 0; i < FLAGS_num_records; i++) {
     uint64_t start_nanos = env->NowNanos();
-    file->Append(record);
-    file->Flush();
+    writer->Append(record);
+    writer->Flush();
     if (FLAGS_enable_sync) {
-      file->Sync();
+      writer->Sync(false);
     }
     hist.Add(env->NowNanos() - start_nanos);
 

@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 package org.rocksdb;
 
@@ -15,7 +15,11 @@ package org.rocksdb;
  *   @see org.rocksdb.DirectComparator
  */
 public abstract class AbstractComparator<T extends AbstractSlice<?>>
-    extends RocksObject {
+    extends RocksCallbackObject {
+
+  protected AbstractComparator(final ComparatorOptions copt) {
+    super(copt.nativeHandle_);
+  }
 
   /**
    * The name of the comparator.  Used to check for comparator
@@ -83,18 +87,4 @@ public abstract class AbstractComparator<T extends AbstractSlice<?>>
   public String findShortSuccessor(final String key) {
       return null;
   }
-
-  /**
-   * Deletes underlying C++ comparator pointer.
-   *
-   * Note that this function should be called only after all
-   * RocksDB instances referencing the comparator are closed.
-   * Otherwise an undefined behavior will occur.
-   */
-  @Override protected void disposeInternal() {
-    assert(isInitialized());
-    disposeInternal(nativeHandle_);
-  }
-
-  private native void disposeInternal(long handle);
 }

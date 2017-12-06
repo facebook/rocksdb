@@ -1,10 +1,10 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # REQUIRE: db_bench binary exists in the current directory
 
 if [ $# -ne 1 ]; then
   echo -n "./benchmark.sh [bulkload/fillseq/overwrite/filluniquerandom/"
   echo    "readrandom/readwhilewriting/readwhilemerging/updaterandom/"
-  echo    "mergerandom/randomtransaction]"
+  echo    "mergerandom/randomtransaction/compact]"
   exit 0
 fi
 
@@ -49,17 +49,18 @@ mb_written_per_sec=${MB_WRITE_PER_SEC:-0}
 # Only for tests that do range scans
 num_nexts_per_seek=${NUM_NEXTS_PER_SEEK:-10}
 cache_size=${CACHE_SIZE:-$((1 * G))}
+compression_max_dict_bytes=${COMPRESSION_MAX_DICT_BYTES:-0}
+compression_type=${COMPRESSION_TYPE:-snappy}
 duration=${DURATION:-0}
 
 num_keys=${NUM_KEYS:-$((1 * G))}
-key_size=20
+key_size=${KEY_SIZE:-20}
 value_size=${VALUE_SIZE:-400}
 block_size=${BLOCK_SIZE:-8192}
 
 const_params="
   --db=$DB_DIR \
   --wal_dir=$WAL_DIR \
-  --disable_data_sync=0 \
   \
   --num=$num_keys \
   --num_levels=6 \
@@ -68,24 +69,23 @@ const_params="
   --block_size=$block_size \
   --cache_size=$cache_size \
   --cache_numshardbits=6 \
-  --compression_type=snappy \
-  --min_level_to_compress=3 \
+  --compression_max_dict_bytes=$compression_max_dict_bytes \
   --compression_ratio=0.5 \
+  --compression_type=$compression_type \
   --level_compaction_dynamic_level_bytes=true \
   --bytes_per_sync=$((8 * M)) \
   --cache_index_and_filter_blocks=0 \
+  --pin_l0_filter_and_index_blocks_in_cache=1 \
   --benchmark_write_rate_limit=$(( 1024 * 1024 * $mb_written_per_sec )) \
   \
   --hard_rate_limit=3 \
   --rate_limit_delay_max_milliseconds=1000000 \
   --write_buffer_size=$((128 * M)) \
-  --max_write_buffer_number=8 \
   --target_file_size_base=$((128 * M)) \
   --max_bytes_for_level_base=$((1 * G)) \
   \
   --verify_checksum=1 \
   --delete_obsolete_files_period_micros=$((60 * M)) \
-  --max_grandparent_overlap_factor=8 \
   --max_bytes_for_level_multiplier=8 \
   \
   --statistics=0 \
@@ -106,8 +106,16 @@ if [ $duration -gt 0 ]; then
   const_params="$const_params --duration=$duration"
 fi
 
-params_w="$const_params $l0_config --max_background_compactions=16 --max_background_flushes=7"
-params_bulkload="$const_params --max_background_compactions=16 --max_background_flushes=7 \
+params_w="$const_params \
+          $l0_config \
+          --max_background_compactions=16 \
+          --max_write_buffer_number=8 \
+          --max_background_flushes=7"
+
+params_bulkload="$const_params \
+                 --max_background_compactions=16 \
+                 --max_write_buffer_number=8 \
+                 --max_background_flushes=7 \
                  --level0_file_num_compaction_trigger=$((10 * M)) \
                  --level0_slowdown_writes_trigger=$((10 * M)) \
                  --level0_stop_writes_trigger=$((10 * M))"
@@ -117,14 +125,16 @@ params_bulkload="$const_params --max_background_compactions=16 --max_background_
 # For universal compaction, these level0_* options mean total sorted of runs in
 # LSM. In level-based compaction, it means number of L0 files.
 #
-params_level_compact="$const_params --max_background_compactions=16 \
-                --max_background_flushes=7 \
+params_level_compact="$const_params \
+                --max_background_flushes=4 \
+                --max_write_buffer_number=4 \
                 --level0_file_num_compaction_trigger=4 \
                 --level0_slowdown_writes_trigger=16 \
                 --level0_stop_writes_trigger=20"
 
-params_univ_compact="$const_params --max_background_compactions=16 \
-                --max_background_flushes=7 \
+params_univ_compact="$const_params \
+                --max_background_flushes=4 \
+                --max_write_buffer_number=4 \
                 --level0_file_num_compaction_trigger=8 \
                 --level0_slowdown_writes_trigger=16 \
                 --level0_stop_writes_trigger=20"
@@ -187,6 +197,14 @@ function run_bulkload {
   eval $cmd
 }
 
+#
+# Parameter description:
+#
+# $1 - 1 if I/O statistics should be collected.
+# $2 - compaction type to use (level=0, universal=1).
+# $3 - number of subcompactions.
+# $4 - number of maximum background compactions.
+#
 function run_manual_compaction_worker {
   # This runs with a vector memtable and the WAL disabled to load faster.
   # It is still crash safe and the client can discover where to restart a
@@ -214,6 +232,7 @@ function run_manual_compaction_worker {
        --subcompactions=$3 \
        --memtablerep=vector \
        --disable_wal=1 \
+       --max_background_compactions=$4 \
        --seed=$( date +%s ) \
        2>&1 | tee -a $fillrandom_output_file"
 
@@ -237,6 +256,7 @@ function run_manual_compaction_worker {
        --compaction_measure_io_stats=$1 \
        --compaction_style=$2 \
        --subcompactions=$3 \
+       --max_background_compactions=$4 \
        ;}
        2>&1 | tee -a $man_compact_output_log"
 
@@ -254,21 +274,19 @@ function run_univ_compaction {
   # Values: kCompactionStyleLevel = 0x0, kCompactionStyleUniversal = 0x1.
   compaction_style=1
 
-  # Get the basic understanding about impact of scaling out the subcompactions
-  # by allowing the usage of { 1, 2, 4, 8, 16 } threads for different runs.
-  subcompactions=("1" "2" "4" "8" "16")
+  # Define a set of benchmarks.
+  subcompactions=(1 2 4 8 16)
+  max_background_compactions=(16 16 8 4 2)
 
-  # Do the real work of running various experiments.
+  i=0
+  total=${#subcompactions[@]}
 
-  # Run the compaction benchmark which is based on bulkload. It pretty much
-  # consists of running manual compaction with different number of subcompaction
-  # threads.
-  log_suffix=1
-
-  for ((i=0; i < ${#subcompactions[@]}; i++))
+  # Execute a set of benchmarks to cover variety of scenarios.
+  while [ "$i" -lt "$total" ]
   do
-    run_manual_compaction_worker $io_stats $compaction_style ${subcompactions[$i]} $log_suffix
-    ((log_suffix++))
+    run_manual_compaction_worker $io_stats $compaction_style ${subcompactions[$i]} \
+      ${max_background_compactions[$i]}
+    ((i++))
   done
 }
 
@@ -487,7 +505,7 @@ for job in ${jobs[@]}; do
     echo "Complete $job in $((end-start)) seconds" | tee -a $schedule
   fi
 
-  echo -e "ops/sec\tmb/sec\tSize-GB\tL0_MB\tSum_GB\tW-Amp\tW-MB/s\tusec/op\tp50\tp75\tp99\tp99.9\tp99.99\tUptime\tStall-time\tStall%\tTest"
+  echo -e "ops/sec\tmb/sec\tSize-GB\tL0_GB\tSum_GB\tW-Amp\tW-MB/s\tusec/op\tp50\tp75\tp99\tp99.9\tp99.99\tUptime\tStall-time\tStall%\tTest"
   tail -1 $output_dir/report.txt
 
 done

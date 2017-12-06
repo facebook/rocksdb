@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // This file implements the "bridge" between Java and C++ and enables
 // calling c++ rocksdb::WriteBatch methods testing from Java side.
@@ -9,30 +9,30 @@
 
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
-#include "db/writebuffer.h"
 #include "include/org_rocksdb_WriteBatch.h"
-#include "include/org_rocksdb_WriteBatch_Handler.h"
 #include "include/org_rocksdb_WriteBatchTest.h"
 #include "include/org_rocksdb_WriteBatchTestInternalHelper.h"
+#include "include/org_rocksdb_WriteBatch_Handler.h"
+#include "options/cf_options.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
-#include "rocksdb/immutable_options.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/status.h"
 #include "rocksdb/write_batch.h"
+#include "rocksdb/write_buffer_manager.h"
 #include "rocksjni/portal.h"
 #include "table/scoped_arena_iterator.h"
-#include "util/logging.h"
+#include "util/string_util.h"
 #include "util/testharness.h"
 
 /*
  * Class:     org_rocksdb_WriteBatchTest
  * Method:    getContents
- * Signature: (Lorg/rocksdb/WriteBatch;)[B
+ * Signature: (J)[B
  */
 jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(
-    JNIEnv* env, jclass jclazz, jobject jobj) {
-  rocksdb::WriteBatch* b = rocksdb::WriteBatchJni::getHandle(env, jobj);
+    JNIEnv* env, jclass jclazz, jlong jwb_handle) {
+  auto* b = reinterpret_cast<rocksdb::WriteBatch*>(jwb_handle);
   assert(b != nullptr);
 
   // todo: Currently the following code is directly copied from
@@ -42,12 +42,12 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(
   rocksdb::InternalKeyComparator cmp(rocksdb::BytewiseComparator());
   auto factory = std::make_shared<rocksdb::SkipListFactory>();
   rocksdb::Options options;
-  rocksdb::WriteBuffer wb(options.db_write_buffer_size);
+  rocksdb::WriteBufferManager wb(options.db_write_buffer_size);
   options.memtable_factory = factory;
   rocksdb::MemTable* mem = new rocksdb::MemTable(
       cmp, rocksdb::ImmutableCFOptions(options),
-      rocksdb::MutableCFOptions(options, rocksdb::ImmutableCFOptions(options)),
-      &wb, rocksdb::kMaxSequenceNumber);
+      rocksdb::MutableCFOptions(options), &wb, rocksdb::kMaxSequenceNumber,
+      0 /* column_family_id */);
   mem->Ref();
   std::string state;
   rocksdb::ColumnFamilyMemTablesDefault cf_mems_default(mem);
@@ -59,9 +59,11 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(
       rocksdb::ReadOptions(), &arena));
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     rocksdb::ParsedInternalKey ikey;
-    memset(reinterpret_cast<void*>(&ikey), 0, sizeof(ikey));
+    ikey.clear();
     bool parsed = rocksdb::ParseInternalKey(iter->key(), &ikey);
-    assert(parsed);
+    if (!parsed) {
+      assert(parsed);
+    }
     switch (ikey.type) {
       case rocksdb::kTypeValue:
         state.append("Put(");
@@ -100,8 +102,18 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(
   delete mem->Unref();
 
   jbyteArray jstate = env->NewByteArray(static_cast<jsize>(state.size()));
+  if(jstate == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return nullptr;
+  }
+
   env->SetByteArrayRegion(jstate, 0, static_cast<jsize>(state.size()),
-                          reinterpret_cast<const jbyte*>(state.c_str()));
+                          const_cast<jbyte*>(reinterpret_cast<const jbyte*>(state.c_str())));
+  if(env->ExceptionCheck()) {
+    // exception thrown: ArrayIndexOutOfBoundsException
+    env->DeleteLocalRef(jstate);
+    return nullptr;
+  }
 
   return jstate;
 }
@@ -109,11 +121,11 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(
 /*
  * Class:     org_rocksdb_WriteBatchTestInternalHelper
  * Method:    setSequence
- * Signature: (Lorg/rocksdb/WriteBatch;J)V
+ * Signature: (JJ)V
  */
 void Java_org_rocksdb_WriteBatchTestInternalHelper_setSequence(
-    JNIEnv* env, jclass jclazz, jobject jobj, jlong jsn) {
-  rocksdb::WriteBatch* wb = rocksdb::WriteBatchJni::getHandle(env, jobj);
+    JNIEnv* env, jclass jclazz, jlong jwb_handle, jlong jsn) {
+  auto* wb = reinterpret_cast<rocksdb::WriteBatch*>(jwb_handle);
   assert(wb != nullptr);
 
   rocksdb::WriteBatchInternal::SetSequence(
@@ -123,11 +135,11 @@ void Java_org_rocksdb_WriteBatchTestInternalHelper_setSequence(
 /*
  * Class:     org_rocksdb_WriteBatchTestInternalHelper
  * Method:    sequence
- * Signature: (Lorg/rocksdb/WriteBatch;)J
+ * Signature: (J)J
  */
 jlong Java_org_rocksdb_WriteBatchTestInternalHelper_sequence(
-    JNIEnv* env, jclass jclazz, jobject jobj) {
-  rocksdb::WriteBatch* wb = rocksdb::WriteBatchJni::getHandle(env, jobj);
+    JNIEnv* env, jclass jclazz, jlong jwb_handle) {
+  auto* wb = reinterpret_cast<rocksdb::WriteBatch*>(jwb_handle);
   assert(wb != nullptr);
 
   return static_cast<jlong>(rocksdb::WriteBatchInternal::Sequence(wb));
@@ -136,13 +148,13 @@ jlong Java_org_rocksdb_WriteBatchTestInternalHelper_sequence(
 /*
  * Class:     org_rocksdb_WriteBatchTestInternalHelper
  * Method:    append
- * Signature: (Lorg/rocksdb/WriteBatch;Lorg/rocksdb/WriteBatch;)V
+ * Signature: (JJ)V
  */
 void Java_org_rocksdb_WriteBatchTestInternalHelper_append(
-    JNIEnv* env, jclass jclazz, jobject jwb1, jobject jwb2) {
-  rocksdb::WriteBatch* wb1 = rocksdb::WriteBatchJni::getHandle(env, jwb1);
+    JNIEnv* env, jclass jclazz, jlong jwb_handle_1, jlong jwb_handle_2) {
+  auto* wb1 = reinterpret_cast<rocksdb::WriteBatch*>(jwb_handle_1);
   assert(wb1 != nullptr);
-  rocksdb::WriteBatch* wb2 = rocksdb::WriteBatchJni::getHandle(env, jwb2);
+  auto* wb2 = reinterpret_cast<rocksdb::WriteBatch*>(jwb_handle_2);
   assert(wb2 != nullptr);
 
   rocksdb::WriteBatchInternal::Append(wb1, wb2);

@@ -1,7 +1,7 @@
 // Copyright (c) 2014, Vlad Balan (vlad.gm@gmail.com).  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 package org.rocksdb;
 
@@ -9,9 +9,11 @@ package org.rocksdb;
  * StringAppendOperator is a merge operator that concatenates
  * two strings.
  */
-public class StringAppendOperator implements MergeOperator {
-    @Override public long newMergeOperatorHandle() {
-        return newMergeOperatorHandleImpl();
+public class StringAppendOperator extends MergeOperator {
+    public StringAppendOperator() {
+        super(newSharedStringAppendOperator());
     }
-    private native long newMergeOperatorHandleImpl();
+
+    private native static long newSharedStringAppendOperator();
+    @Override protected final native void disposeInternal(final long handle);
 }

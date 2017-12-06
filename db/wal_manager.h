@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -17,26 +17,26 @@
 #include <string>
 #include <memory>
 
-#include "port/port.h"
-
-#include "rocksdb/env.h"
-#include "rocksdb/options.h"
-#include "rocksdb/types.h"
-#include "rocksdb/transaction_log.h"
-#include "rocksdb/status.h"
-
 #include "db/version_set.h"
+#include "options/db_options.h"
+#include "port/port.h"
+#include "rocksdb/env.h"
+#include "rocksdb/status.h"
+#include "rocksdb/transaction_log.h"
+#include "rocksdb/types.h"
 
 namespace rocksdb {
 
 #ifndef ROCKSDB_LITE
 class WalManager {
  public:
-  WalManager(const DBOptions& db_options, const EnvOptions& env_options)
+  WalManager(const ImmutableDBOptions& db_options,
+             const EnvOptions& env_options, const bool seq_per_batch = false)
       : db_options_(db_options),
         env_options_(env_options),
         env_(db_options.env),
-        purge_wal_files_last_run_(0) {}
+        purge_wal_files_last_run_(0),
+        seq_per_batch_(seq_per_batch) {}
 
   Status GetSortedWalFiles(VectorLogPtr& files);
 
@@ -54,9 +54,9 @@ class WalManager {
     return ReadFirstRecord(type, number, sequence);
   }
 
-  Status TEST_ReadFirstLine(const std::string& fname,
+  Status TEST_ReadFirstLine(const std::string& fname, const uint64_t number,
                             SequenceNumber* sequence) {
-    return ReadFirstLine(fname, sequence);
+    return ReadFirstLine(fname, number, sequence);
   }
 
  private:
@@ -71,10 +71,11 @@ class WalManager {
   Status ReadFirstRecord(const WalFileType type, const uint64_t number,
                          SequenceNumber* sequence);
 
-  Status ReadFirstLine(const std::string& fname, SequenceNumber* sequence);
+  Status ReadFirstLine(const std::string& fname, const uint64_t number,
+                       SequenceNumber* sequence);
 
   // ------- state from DBImpl ------
-  const DBOptions& db_options_;
+  const ImmutableDBOptions& db_options_;
   const EnvOptions& env_options_;
   Env* env_;
 
@@ -85,6 +86,8 @@ class WalManager {
 
   // last time when PurgeObsoleteWALFiles ran.
   uint64_t purge_wal_files_last_run_;
+
+  bool seq_per_batch_;
 
   // obsolete files will be deleted every this seconds if ttl deletion is
   // enabled and archive size_limit is disabled.

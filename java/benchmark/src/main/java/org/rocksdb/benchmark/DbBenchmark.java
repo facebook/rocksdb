@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 /**
  * Copyright (C) 2011 the original author or authors.
  * See the notice.md file distributed with this work for additional
@@ -21,10 +21,14 @@
  */
 package org.rocksdb.benchmark;
 
+import java.io.IOException;
 import java.lang.Runnable;
 import java.lang.Math;
 import java.io.File;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
 import java.nio.ByteBuffer;
+import java.nio.file.Files;
 import java.util.Collection;
 import java.util.Date;
 import java.util.EnumMap;
@@ -539,10 +543,9 @@ public class DbBenchmark {
         (Integer)flags_.get(Flag.max_background_compactions));
     options.setMaxBackgroundFlushes(
         (Integer)flags_.get(Flag.max_background_flushes));
+    options.setMaxBackgroundJobs((Integer) flags_.get(Flag.max_background_jobs));
     options.setMaxOpenFiles(
         (Integer)flags_.get(Flag.open_files));
-    options.setDisableDataSync(
-        (Boolean)flags_.get(Flag.disable_data_sync));
     options.setUseFsync(
         (Boolean)flags_.get(Flag.use_fsync));
     options.setWalDir(
@@ -565,42 +568,34 @@ public class DbBenchmark {
         (Integer)flags_.get(Flag.bloom_locality));
     options.setMinWriteBufferNumberToMerge(
         (Integer)flags_.get(Flag.min_write_buffer_number_to_merge));
-    options.setMemtablePrefixBloomBits(
-        (Integer)flags_.get(Flag.memtable_bloom_bits));
+    options.setMemtablePrefixBloomSizeRatio((Double) flags_.get(Flag.memtable_bloom_size_ratio));
     options.setNumLevels(
         (Integer)flags_.get(Flag.num_levels));
     options.setTargetFileSizeBase(
         (Integer)flags_.get(Flag.target_file_size_base));
-    options.setTargetFileSizeMultiplier(
-        (Integer)flags_.get(Flag.target_file_size_multiplier));
+    options.setTargetFileSizeMultiplier((Integer)flags_.get(Flag.target_file_size_multiplier));
     options.setMaxBytesForLevelBase(
         (Integer)flags_.get(Flag.max_bytes_for_level_base));
-    options.setMaxBytesForLevelMultiplier(
-        (Integer)flags_.get(Flag.max_bytes_for_level_multiplier));
+    options.setMaxBytesForLevelMultiplier((Double) flags_.get(Flag.max_bytes_for_level_multiplier));
     options.setLevelZeroStopWritesTrigger(
         (Integer)flags_.get(Flag.level0_stop_writes_trigger));
     options.setLevelZeroSlowdownWritesTrigger(
         (Integer)flags_.get(Flag.level0_slowdown_writes_trigger));
     options.setLevelZeroFileNumCompactionTrigger(
         (Integer)flags_.get(Flag.level0_file_num_compaction_trigger));
-    options.setSoftRateLimit(
-        (Double)flags_.get(Flag.soft_rate_limit));
-    options.setHardRateLimit(
-        (Double)flags_.get(Flag.hard_rate_limit));
-    options.setRateLimitDelayMaxMilliseconds(
-        (Integer)flags_.get(Flag.rate_limit_delay_max_milliseconds));
-    options.setMaxGrandparentOverlapFactor(
-        (Integer)flags_.get(Flag.max_grandparent_overlap_factor));
+    options.setMaxCompactionBytes(
+        (Long) flags_.get(Flag.max_compaction_bytes));
     options.setDisableAutoCompactions(
         (Boolean)flags_.get(Flag.disable_auto_compactions));
-    options.setSourceCompactionFactor(
-        (Integer)flags_.get(Flag.source_compaction_factor));
-    options.setFilterDeletes(
-        (Boolean)flags_.get(Flag.filter_deletes));
     options.setMaxSuccessiveMerges(
         (Integer)flags_.get(Flag.max_successive_merges));
     options.setWalTtlSeconds((Long)flags_.get(Flag.wal_ttl_seconds));
     options.setWalSizeLimitMB((Long)flags_.get(Flag.wal_size_limit_MB));
+    if(flags_.get(Flag.java_comparator) != null) {
+      options.setComparator(
+          (AbstractComparator)flags_.get(Flag.java_comparator));
+    }
+
     /* TODO(yhchiang): enable the following parameters
     options.setCompressionType((String)flags_.get(Flag.compression_type));
     options.setCompressionLevel((Integer)flags_.get(Flag.compression_level));
@@ -774,6 +769,7 @@ public class DbBenchmark {
   }
 
   private void open(Options options) throws RocksDBException {
+    System.out.println("Using database directory: " + databaseDir_);
     db_ = RocksDB.open(options, databaseDir_);
   }
 
@@ -975,7 +971,7 @@ public class DbBenchmark {
         return Integer.parseInt(value);
       }
     },
-    write_buffer_size(4 * SizeUnit.MB,
+    write_buffer_size(4L * SizeUnit.MB,
         "Number of bytes to buffer in memtable before compacting\n" +
         "\t(initialized to default value by 'main'.)") {
       @Override public Object parseValue(String value) {
@@ -1053,7 +1049,7 @@ public class DbBenchmark {
         return Integer.parseInt(value);
       }
     },
-    numdistinct(1000,
+    numdistinct(1000L,
         "Number of distinct keys to use. Used in RandomWithVerify to\n" +
         "\tread/write on fewer keys so that gets are more likely to find the\n" +
         "\tkey and puts are more likely to update the same key.") {
@@ -1061,7 +1057,7 @@ public class DbBenchmark {
         return Long.parseLong(value);
       }
     },
-    merge_keys(-1,
+    merge_keys(-1L,
         "Number of distinct keys to use for MergeRandom and\n" +
         "\tReadRandomMergeRandom.\n" +
         "\tIf negative, there will be FLAGS_num keys.") {
@@ -1121,6 +1117,14 @@ public class DbBenchmark {
         return Integer.parseInt(value);
       }
     },
+    max_background_jobs(defaultOptions_.maxBackgroundJobs(),
+        "The maximum number of concurrent background jobs\n"
+            + "\tthat can occur in parallel.") {
+      @Override
+      public Object parseValue(String value) {
+        return Integer.parseInt(value);
+      }
+    },
     /* TODO(yhchiang): enable the following
     compaction_style((int32_t) defaultOptions_.compactionStyle(),
         "style of compaction: level-based vs universal.") {
@@ -1166,7 +1170,7 @@ public class DbBenchmark {
         return Long.parseLong(value);
       }
     },
-    compressed_cache_size(-1,
+    compressed_cache_size(-1L,
         "Number of bytes to use as a cache of compressed data.") {
       @Override public Object parseValue(String value) {
         return Long.parseLong(value);
@@ -1185,10 +1189,10 @@ public class DbBenchmark {
         return Integer.parseInt(value);
       }
     },
-    memtable_bloom_bits(0,"Bloom filter bits per key for memtable.\n" +
-        "\tNegative means no bloom filter.") {
+    memtable_bloom_size_ratio(0.0d, "Ratio of memtable used by the bloom filter.\n"
+            + "\t0 means no bloom filter.") {
       @Override public Object parseValue(String value) {
-        return Integer.parseInt(value);
+        return Double.parseDouble(value);
       }
     },
     cache_numshardbits(-1,"Number of shards for the block cache\n" +
@@ -1209,19 +1213,13 @@ public class DbBenchmark {
         return parseBoolean(value);
       }
     },
-    writes(-1,"Number of write operations to do. If negative, do\n" +
+    writes(-1L, "Number of write operations to do. If negative, do\n" +
         "\t--num reads.") {
       @Override public Object parseValue(String value) {
         return Long.parseLong(value);
       }
     },
     sync(false,"Sync all writes to disk.") {
-      @Override public Object parseValue(String value) {
-        return parseBoolean(value);
-      }
-    },
-    disable_data_sync(false,"If true, do not wait until data is\n" +
-        "\tsynced to disk.") {
       @Override public Object parseValue(String value) {
         return parseBoolean(value);
       }
@@ -1258,10 +1256,10 @@ public class DbBenchmark {
         return Integer.parseInt(value);
       }
     },
-    max_bytes_for_level_multiplier(10,
+    max_bytes_for_level_multiplier(10.0d,
         "A multiplier to compute max bytes for level-N (N >= 2)") {
       @Override public Object parseValue(String value) {
-        return Integer.parseInt(value);
+        return Double.parseDouble(value);
       }
     },
     level0_stop_writes_trigger(12,"Number of files in level-0\n" +
@@ -1340,7 +1338,7 @@ public class DbBenchmark {
         return Integer.parseInt(value);
       }
     },
-    stats_interval(0,"Stats are reported every N operations when\n" +
+    stats_interval(0L, "Stats are reported every N operations when\n" +
         "\tthis is greater than zero. When 0 the interval grows over time.") {
       @Override public Object parseValue(String value) {
         return Long.parseLong(value);
@@ -1357,12 +1355,12 @@ public class DbBenchmark {
         return Integer.parseInt(value);
       }
     },
-    soft_rate_limit(0.0,"") {
+    soft_rate_limit(0.0d,"") {
       @Override public Object parseValue(String value) {
         return Double.parseDouble(value);
       }
     },
-    hard_rate_limit(0.0,"When not equal to 0 this make threads\n" +
+    hard_rate_limit(0.0d,"When not equal to 0 this make threads\n" +
         "\tsleep at each stats reporting interval until the compaction\n" +
         "\tscore for all levels is less than or equal to this value.") {
       @Override public Object parseValue(String value) {
@@ -1376,11 +1374,10 @@ public class DbBenchmark {
         return Integer.parseInt(value);
       }
     },
-    max_grandparent_overlap_factor(10,"Control maximum bytes of\n" +
-        "\toverlaps in grandparent (i.e., level+2) before we stop building a\n" +
-        "\tsingle file in a level->level+1 compaction.") {
+    max_compaction_bytes(0L, "Limit number of bytes in one compaction to be lower than this\n" +
+            "\threshold. But it's not guaranteed.") {
       @Override public Object parseValue(String value) {
-        return Integer.parseInt(value);
+        return Long.parseLong(value);
       }
     },
     readonly(false,"Run read only benchmarks.") {
@@ -1391,13 +1388,6 @@ public class DbBenchmark {
     disable_auto_compactions(false,"Do not auto trigger compactions.") {
       @Override public Object parseValue(String value) {
         return parseBoolean(value);
-      }
-    },
-    source_compaction_factor(1,"Cap the size of data in level-K for\n" +
-        "\ta compaction run that compacts Level-K with Level-(K+1) (for\n" +
-        "\tK >= 1)") {
-      @Override public Object parseValue(String value) {
-        return Integer.parseInt(value);
       }
     },
     wal_ttl_seconds(0L,"Set the TTL for the WAL Files in seconds.") {
@@ -1412,12 +1402,18 @@ public class DbBenchmark {
       }
     },
     /* TODO(yhchiang): enable the following
-    bufferedio(rocksdb::EnvOptions().use_os_buffer,
-        "Allow buffered io using OS buffers.") {
+    direct_reads(rocksdb::EnvOptions().use_direct_reads,
+        "Allow direct I/O reads.") {
       @Override public Object parseValue(String value) {
         return parseBoolean(value);
       }
-    },
+      },
+    direct_writes(rocksdb::EnvOptions().use_direct_reads,
+      "Allow direct I/O reads.") {
+      @Override public Object parseValue(String value) {
+      return parseBoolean(value);
+      }
+      },
     */
     mmap_read(false,
         "Allow reads to occur via mmap-ing files.") {
@@ -1475,7 +1471,7 @@ public class DbBenchmark {
         return Integer.parseInt(value);
       }
     },
-    db("/tmp/rocksdbjni-bench",
+    db(getTempDir("rocksdb-jni"),
        "Use the db with the following name.") {
       @Override public Object parseValue(String value) {
         return value;
@@ -1485,6 +1481,31 @@ public class DbBenchmark {
         "environment.") {
       @Override public Object parseValue(String value) {
         return parseBoolean(value);
+      }
+    },
+    java_comparator(null, "Class name of a Java Comparator to use instead\n" +
+        "\tof the default C++ ByteWiseComparatorImpl. Must be available on\n" +
+        "\tthe classpath") {
+      @Override
+      protected Object parseValue(final String value) {
+        try {
+          final ComparatorOptions copt = new ComparatorOptions();
+          final Class<AbstractComparator> clsComparator =
+              (Class<AbstractComparator>)Class.forName(value);
+          final Constructor cstr =
+              clsComparator.getConstructor(ComparatorOptions.class);
+          return cstr.newInstance(copt);
+        } catch(final ClassNotFoundException cnfe) {
+          throw new IllegalArgumentException("Java Comparator '" + value + "'" +
+              " not found on the classpath", cnfe);
+        } catch(final NoSuchMethodException nsme) {
+          throw new IllegalArgumentException("Java Comparator '" + value + "'" +
+              " does not have a public ComparatorOptions constructor", nsme);
+        } catch(final IllegalAccessException | InstantiationException
+            | InvocationTargetException ie) {
+          throw new IllegalArgumentException("Unable to construct Java" +
+              " Comparator '" + value + "'", ie);
+        }
       }
     };
 
@@ -1514,6 +1535,18 @@ public class DbBenchmark {
 
     private final Object defaultValue_;
     private final String desc_;
+  }
+
+  private final static String DEFAULT_TEMP_DIR = "/tmp";
+
+  private static String getTempDir(final String dirName) {
+    try {
+      return Files.createTempDirectory(dirName).toAbsolutePath().toString();
+    } catch(final IOException ioe) {
+      System.err.println("Unable to create temp directory, defaulting to: " +
+          DEFAULT_TEMP_DIR);
+      return DEFAULT_TEMP_DIR + File.pathSeparator + dirName;
+    }
   }
 
   private static class RandomGenerator {

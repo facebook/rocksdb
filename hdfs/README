@@ -12,8 +12,8 @@ underlying filesystem.
 If you want to compile rocksdb with hdfs support, please set the following
 environment variables appropriately (also defined in setup.sh for convenience)
    USE_HDFS=1
-   JAVA_HOME=/usr/local/jdk-6u22-64
-   LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/jdk-6u22-64/jre/lib/amd64/server:/usr/local/jdk-6u22-64/jre/lib/amd64/:./snappy/libs
+   JAVA_HOME=/usr/local/jdk-7u79-64
+   LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/jdk-7u79-64/jre/lib/amd64/server:/usr/local/jdk-7u79-64/jre/lib/amd64/:./snappy/libs
    make clean all db_bench
 
 To run dbbench,

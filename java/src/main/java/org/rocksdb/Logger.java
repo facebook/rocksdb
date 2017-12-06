@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 package org.rocksdb;
 
@@ -35,7 +35,10 @@ package org.rocksdb;
  * {@link org.rocksdb.InfoLogLevel#FATAL_LEVEL}.
  * </p>
  */
-public abstract class Logger extends RocksObject {
+public abstract class Logger extends RocksCallbackObject {
+
+  private final static long WITH_OPTIONS = 0;
+  private final static long WITH_DBOPTIONS = 1;
 
   /**
    * <p>AbstractLogger constructor.</p>
@@ -47,7 +50,8 @@ public abstract class Logger extends RocksObject {
    * @param options {@link org.rocksdb.Options} instance.
    */
   public Logger(final Options options) {
-    createNewLoggerOptions(options.nativeHandle_);
+    super(options.nativeHandle_, WITH_OPTIONS);
+
   }
 
   /**
@@ -60,7 +64,18 @@ public abstract class Logger extends RocksObject {
    * @param dboptions {@link org.rocksdb.DBOptions} instance.
    */
   public Logger(final DBOptions dboptions) {
-    createNewLoggerDbOptions(dboptions.nativeHandle_);
+    super(dboptions.nativeHandle_, WITH_DBOPTIONS);
+  }
+
+  @Override
+  protected long initializeNative(long... nativeParameterHandles) {
+    if(nativeParameterHandles[1] == WITH_OPTIONS) {
+      return createNewLoggerOptions(nativeParameterHandles[0]);
+    } else if(nativeParameterHandles[1] == WITH_DBOPTIONS) {
+      return createNewLoggerDbOptions(nativeParameterHandles[0]);
+    } else {
+      throw new IllegalArgumentException();
+    }
   }
 
   /**
@@ -85,24 +100,23 @@ public abstract class Logger extends RocksObject {
   protected abstract void log(InfoLogLevel infoLogLevel,
       String logMsg);
 
-  /**
-   * Deletes underlying C++ slice pointer.
-   * Note that this function should be called only after all
-   * RocksDB instances referencing the slice are closed.
-   * Otherwise an undefined behavior will occur.
-   */
-  @Override
-  protected void disposeInternal() {
-    assert(isInitialized());
-    disposeInternal(nativeHandle_);
-  }
-
-  protected native void createNewLoggerOptions(
+  protected native long createNewLoggerOptions(
       long options);
-  protected native void createNewLoggerDbOptions(
+  protected native long createNewLoggerDbOptions(
       long dbOptions);
   protected native void setInfoLogLevel(long handle,
       byte infoLogLevel);
   protected native byte infoLogLevel(long handle);
-  private native void disposeInternal(long handle);
+
+  /**
+   * We override {@link RocksCallbackObject#disposeInternal()}
+   * as disposing of a rocksdb::LoggerJniCallback requires
+   * a slightly different approach as it is a std::shared_ptr
+   */
+  @Override
+  protected void disposeInternal() {
+    disposeInternal(nativeHandle_);
+  }
+
+  private native void disposeInternal(final long handle);
 }

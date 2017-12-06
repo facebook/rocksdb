@@ -57,12 +57,7 @@ public class TransactionLogIterator extends RocksObject {
    * @param nativeHandle address to native address.
    */
   TransactionLogIterator(final long nativeHandle) {
-    super();
-    nativeHandle_ = nativeHandle;
-  }
-
-  @Override protected void disposeInternal() {
-    disposeInternal(nativeHandle_);
+    super(nativeHandle);
   }
 
   /**
@@ -70,7 +65,7 @@ public class TransactionLogIterator extends RocksObject {
    * by a TransactionLogIterator containing a sequence
    * number and a {@link WriteBatch} instance.</p>
    */
-  public final class BatchResult {
+  public static final class BatchResult {
     /**
      * <p>Constructor of BatchResult class.</p>
      *
@@ -81,7 +76,7 @@ public class TransactionLogIterator extends RocksObject {
     public BatchResult(final long sequenceNumber,
         final long nativeHandle) {
       sequenceNumber_ = sequenceNumber;
-      writeBatch_ = new WriteBatch(nativeHandle);
+      writeBatch_ = new WriteBatch(nativeHandle, true);
     }
 
     /**
@@ -107,7 +102,7 @@ public class TransactionLogIterator extends RocksObject {
     private final WriteBatch writeBatch_;
   }
 
-  private native void disposeInternal(long handle);
+  @Override protected final native void disposeInternal(final long handle);
   private native boolean isValid(long handle);
   private native void next(long handle);
   private native void status(long handle)

@@ -1,15 +1,15 @@
 version: 1.0.{build}
+image: Visual Studio 2015
 before_build:
 - md %APPVEYOR_BUILD_FOLDER%\build
 - cd %APPVEYOR_BUILD_FOLDER%\build
-- cmake -G "Visual Studio 12 Win64" -DOPTDBG=1 ..
+- cmake -G "Visual Studio 14 2015 Win64" -DOPTDBG=1 -DXPRESS=1 -DPORTABLE=1 ..
 - cd ..
 build:
   project: build\rocksdb.sln
   parallel: true
-  verbosity: minimal
+  verbosity: normal
 test:
 test_script:
-- ps: build_tools\run_ci_db_test.ps1 -EnableRerun -Run db_test -Exclude DBTest.Randomized,DBTest.FileCreationRandomFailure -Concurrency 18
-- ps: build_tools\run_ci_db_test.ps1 -Run env_test -Concurrency 1
+- ps: build_tools\run_ci_db_test.ps1 -SuiteRun db_basic_test,db_test2,db_test,env_basic_test,env_test -Concurrency 8
 

@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -26,12 +26,12 @@ TEST(CRC, StandardResults) {
   ASSERT_EQ(0x62a8ab43U, Value(buf, sizeof(buf)));
 
   for (int i = 0; i < 32; i++) {
-    buf[i] = i;
+    buf[i] = static_cast<char>(i);
   }
   ASSERT_EQ(0x46dd794eU, Value(buf, sizeof(buf)));
 
   for (int i = 0; i < 32; i++) {
-    buf[i] = 31 - i;
+    buf[i] = static_cast<char>(31 - i);
   }
   ASSERT_EQ(0x113fdb5cU, Value(buf, sizeof(buf)));
 

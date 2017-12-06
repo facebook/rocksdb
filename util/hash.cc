@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -31,26 +31,21 @@ uint32_t Hash(const char* data, size_t n, uint32_t seed) {
 
   // Pick up remaining bytes
   switch (limit - data) {
-    // Note: It would be better if this was cast to unsigned char, but that
-    // would be a disk format change since we previously didn't have any cast
-    // at all (so gcc used signed char).
-    // To understand the difference between shifting unsigned and signed chars,
-    // let's use 250 as an example. unsigned char will be 250, while signed char
-    // will be -6. Bit-wise, they are equivalent: 11111010. However, when
-    // converting negative number (signed char) to int, it will be converted
-    // into negative int (of equivalent value, which is -6), while converting
-    // positive number (unsigned char) will be converted to 250. Bitwise,
-    // this looks like this:
-    // signed char 11111010 -> int 11111111111111111111111111111010
-    // unsigned char 11111010 -> int 00000000000000000000000011111010
+    // Note: The original hash implementation used data[i] << shift, which
+    // promotes the char to int and then performs the shift. If the char is
+    // negative, the shift is undefined behavior in C++. The hash algorithm is
+    // part of the format definition, so we cannot change it; to obtain the same
+    // behavior in a legal way we just cast to uint32_t, which will do
+    // sign-extension. To guarantee compatibility with architectures where chars
+    // are unsigned we first cast the char to int8_t.
     case 3:
-      h += static_cast<uint32_t>(static_cast<signed char>(data[2]) << 16);
+      h += static_cast<uint32_t>(static_cast<int8_t>(data[2])) << 16;
     // fall through
     case 2:
-      h += static_cast<uint32_t>(static_cast<signed char>(data[1]) << 8);
+      h += static_cast<uint32_t>(static_cast<int8_t>(data[1])) << 8;
     // fall through
     case 1:
-      h += static_cast<uint32_t>(static_cast<signed char>(data[0]));
+      h += static_cast<uint32_t>(static_cast<int8_t>(data[0]));
       h *= m;
       h ^= (h >> r);
       break;

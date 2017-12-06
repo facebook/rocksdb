@@ -34,6 +34,9 @@
 // Sometimes it's desirable to build Google Test by compiling a single file.
 // This file serves this purpose.
 
+// Suppress clang analyzer warnings.
+#ifndef __clang_analyzer__
+
 // This line ensures that gtest.h can be compiled on its own, even
 // when it's fused.
 #include "gtest/gtest.h"
@@ -108,7 +111,6 @@
 
 #ifndef GTEST_INCLUDE_GTEST_GTEST_SPI_H_
 #define GTEST_INCLUDE_GTEST_GTEST_SPI_H_
-
 
 namespace testing {
 
@@ -671,7 +673,7 @@ GTEST_API_ bool ShouldShard(const char* total_shards_str,
 
 // Parses the environment variable var as an Int32. If it is unset,
 // returns default_val. If it is not an Int32, prints an error and
-// and aborts.
+// aborts.
 GTEST_API_ Int32 Int32FromEnvOrDie(const char* env_var, Int32 default_val);
 
 // Given the total number of shards, the shard index, and the test id,
@@ -3205,7 +3207,7 @@ std::string CodePointToUtf8(UInt32 code_point) {
   return str;
 }
 
-// The following two functions only make sense if the the system
+// The following two functions only make sense if the system
 // uses UTF-16 for wide string encoding. All supported systems
 // with 16 bit wchar_t (Windows, Cygwin, Symbian OS) do use UTF-16.
 
@@ -8227,7 +8229,7 @@ FilePath FilePath::RemoveExtension(const char* extension) const {
   return *this;
 }
 
-// Returns a pointer to the last occurence of a valid path separator in
+// Returns a pointer to the last occurrence of a valid path separator in
 // the FilePath. On Windows, for example, both '/' and '\' are valid path
 // separators. Returns NULL if no path separator was found.
 const char* FilePath::FindLastPathSeparator() const {
@@ -8674,8 +8676,8 @@ void Notification::WaitForNotification() {
 }
 
 Mutex::Mutex()
-    : type_(kDynamic),
-      owner_thread_id_(0),
+    : owner_thread_id_(0),
+      type_(kDynamic),
       critical_section_init_phase_(0),
       critical_section_(new CRITICAL_SECTION) {
   ::InitializeCriticalSection(critical_section_);
@@ -10255,3 +10257,5 @@ const char* TypedTestCasePState::VerifyRegisteredTestNames(
 
 }  // namespace internal
 }  // namespace testing
+
+#endif  // __clang_analyzer__

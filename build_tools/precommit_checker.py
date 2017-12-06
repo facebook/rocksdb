@@ -1,4 +1,4 @@
-#!/usr/local/fbcode/gcc-4.8.1-glibc-2.17-fb/bin/python2.7
+#!/usr/local/fbcode/gcc-4.9-glibc-2.20-fb/bin/python2.7
 
 from __future__ import absolute_import
 from __future__ import division
@@ -12,17 +12,15 @@ import re
 import os
 import time
 
+
 #
 # Simple logger
 #
 
-
 class Log:
 
-    LOG_FILE = "/tmp/precommit-check.log"
-
-    def __init__(self):
-        self.filename = Log.LOG_FILE
+    def __init__(self, filename):
+        self.filename = filename
         self.f = open(self.filename, 'w+', 0)
 
     def caption(self, str):
@@ -52,9 +50,9 @@ class Log:
 
 class Env(object):
 
-    def __init__(self, tests):
+    def __init__(self, logfile, tests):
         self.tests = tests
-        self.log = Log()
+        self.log = Log(logfile)
 
     def shell(self, cmd, path=os.getcwd()):
         if path:
@@ -87,15 +85,16 @@ class Env(object):
 
 class PreCommitChecker(Env):
 
-    def __init__(self, tests):
-        Env.__init__(self, tests)
+    def __init__(self, args):
+        Env.__init__(self, args.logfile, args.tests)
+        self.ignore_failure = args.ignore_failure
 
     #
     #   Get commands for a given job from the determinator file
     #
     def get_commands(self, test):
         status, out = self.GetOutput(
-            "build_tools/rocksdb-lego-determinator %s" % test, ".")
+            "RATIO=1 build_tools/rocksdb-lego-determinator %s" % test, ".")
         return status, out
 
     #
@@ -144,6 +143,7 @@ class PreCommitChecker(Env):
         self.print_row("TEST", "RESULT")
         self.print_separator()
 
+        result = True
         for test in self.tests:
             start_time = time.time()
             self.print_test(test)
@@ -152,11 +152,14 @@ class PreCommitChecker(Env):
             if not result:
                 self.log.error("Error running test %s" % test)
                 self.print_result("FAIL (%dm)" % elapsed_min)
-                return False
-            self.print_result("PASS (%dm)" % elapsed_min)
+                if not self.ignore_failure:
+                    return False
+                result = False
+            else:
+                self.print_result("PASS (%dm)" % elapsed_min)
 
         self.print_separator()
-        return True
+        return result
 
     #
     # Print a line
@@ -182,17 +185,24 @@ class PreCommitChecker(Env):
 #
 parser = argparse.ArgumentParser(description='RocksDB pre-commit checker.')
 
+# --log <logfile>
+parser.add_argument('--logfile', default='/tmp/precommit-check.log',
+                    help='Log file. Default is /tmp/precommit-check.log')
+# --ignore_failure
+parser.add_argument('--ignore_failure', action='store_true', default=False,
+                    help='Stop when an error occurs')
 # <test ....>
-parser.add_argument('test', nargs='+',
-                    help='CI test(s) to run. e.g: unit punit asan tsan')
-
-print("Please follow log %s" % Log.LOG_FILE)
+parser.add_argument('tests', nargs='+',
+                    help='CI test(s) to run. e.g: unit punit asan tsan ubsan')
 
 args = parser.parse_args()
-checker = PreCommitChecker(args.test)
+checker = PreCommitChecker(args)
+
+print("Please follow log %s" % checker.log.filename)
 
 if not checker.run_tests():
-    print("Error running tests. Please check log file %s" % Log.LOG_FILE)
+    print("Error running tests. Please check log file %s"
+          % checker.log.filename)
     sys.exit(1)
 
 sys.exit(0)

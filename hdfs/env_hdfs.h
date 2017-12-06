@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 
 #pragma once
@@ -106,7 +106,7 @@ class HdfsEnv : public Env {
   }
 
   virtual int UnSchedule(void* tag, Priority pri) {
-    posixEnv->UnSchedule(tag, pri);
+    return posixEnv->UnSchedule(tag, pri);
   }
 
   virtual void StartThread(void (*function)(void* arg), void* arg) {
@@ -147,6 +147,10 @@ class HdfsEnv : public Env {
 
   virtual void SetBackgroundThreads(int number, Priority pri = LOW) {
     posixEnv->SetBackgroundThreads(number, pri);
+  }
+
+  virtual int GetBackgroundThreads(Priority pri = LOW) {
+    return posixEnv->GetBackgroundThreads(pri);
   }
 
   virtual void IncBackgroundThreadsIfNeeded(int number, Priority pri) override {
@@ -356,6 +360,7 @@ class HdfsEnv : public Env {
   }
 
   virtual void SetBackgroundThreads(int number, Priority pri = LOW) override {}
+  virtual int GetBackgroundThreads(Priority pri = LOW) override { return 0; }
   virtual void IncBackgroundThreadsIfNeeded(int number, Priority pri) override {
   }
   virtual std::string TimeToString(uint64_t number) override { return ""; }

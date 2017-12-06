@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // This file defines the structures for exposing run-time status of any
 // rocksdb-related thread.  Such run-time status can be obtained via
@@ -20,12 +20,10 @@
 #include <utility>
 #include <vector>
 
-#ifndef ROCKSDB_USING_THREAD_STATUS
-#define ROCKSDB_USING_THREAD_STATUS \
-    !defined(ROCKSDB_LITE) && \
+#if !defined(ROCKSDB_LITE) && \
     !defined(NROCKSDB_THREAD_STATUS) && \
-    !defined(OS_MACOSX) && \
-    !defined(IOS_CROSS_COMPILE)
+    defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
+#define ROCKSDB_USING_THREAD_STATUS
 #endif
 
 namespace rocksdb {
@@ -147,7 +145,7 @@ struct ThreadStatus {
   // The operation (high-level action) that the current thread is involved.
   const OperationType operation_type;
 
-  // The elapsed time in micros of the current thread operation.
+  // The elapsed time of the current thread operation in microseconds.
   const uint64_t op_elapsed_micros;
 
   // An integer showing the current stage where the thread is involved

@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
@@ -33,14 +33,14 @@ class Status {
   Status& operator=(const Status& s);
   Status(Status&& s)
 #if !(defined _MSC_VER) || ((defined _MSC_VER) && (_MSC_VER >= 1900))
-    noexcept
+      noexcept
 #endif
-  ;
+      ;
   Status& operator=(Status&& s)
 #if !(defined _MSC_VER) || ((defined _MSC_VER) && (_MSC_VER >= 1900))
-    noexcept
+      noexcept
 #endif
-  ;
+      ;
   bool operator==(const Status& rhs) const;
   bool operator!=(const Status& rhs) const;
 
@@ -58,7 +58,7 @@ class Status {
     kAborted = 10,
     kBusy = 11,
     kExpired = 12,
-    kTryAgain = 13,
+    kTryAgain = 13
   };
 
   Code code() const { return code_; }
@@ -68,10 +68,17 @@ class Status {
     kMutexTimeout = 1,
     kLockTimeout = 2,
     kLockLimit = 3,
+    kNoSpace = 4,
+    kDeadlock = 5,
+    kStaleFile = 6,
+    kMemoryLimit = 7,
     kMaxSubCode
   };
 
   SubCode subcode() const { return subcode_; }
+
+  // Returns a C style string indicating the message of the Status
+  const char* getState() const { return state_; }
 
   // Return a success status.
   static Status OK() { return Status(); }
@@ -155,6 +162,16 @@ class Status {
     return Status(kTryAgain, msg, msg2);
   }
 
+  static Status NoSpace() { return Status(kIOError, kNoSpace); }
+  static Status NoSpace(const Slice& msg, const Slice& msg2 = Slice()) {
+    return Status(kIOError, kNoSpace, msg, msg2);
+  }
+
+  static Status MemoryLimit() { return Status(kAborted, kMemoryLimit); }
+  static Status MemoryLimit(const Slice& msg, const Slice& msg2 = Slice()) {
+    return Status(kAborted, kMemoryLimit, msg, msg2);
+  }
+
   // Returns true iff the status indicates success.
   bool ok() const { return code() == kOk; }
 
@@ -186,9 +203,15 @@ class Status {
 
   bool IsAborted() const { return code() == kAborted; }
 
+  bool IsLockLimit() const {
+    return code() == kAborted && subcode() == kLockLimit;
+  }
+
   // Returns true iff the status indicates that a resource is Busy and
   // temporarily could not be acquired.
   bool IsBusy() const { return code() == kBusy; }
+
+  bool IsDeadlock() const { return code() == kBusy && subcode() == kDeadlock; }
 
   // Returns true iff the status indicated that the operation has Expired.
   bool IsExpired() const { return code() == kExpired; }
@@ -197,6 +220,22 @@ class Status {
   // This usually means that the operation failed, but may succeed if
   // re-attempted.
   bool IsTryAgain() const { return code() == kTryAgain; }
+
+  // Returns true iff the status indicates a NoSpace error
+  // This is caused by an I/O error returning the specific "out of space"
+  // error condition. Stricto sensu, an NoSpace error is an I/O error
+  // with a specific subcode, enabling users to take the appropriate action
+  // if needed
+  bool IsNoSpace() const {
+    return (code() == kIOError) && (subcode() == kNoSpace);
+  }
+
+  // Returns true iff the status indicates a memory limit error.  There may be
+  // cases where we limit the memory used in certain operations (eg. the size
+  // of a write batch) in order to avoid out of memory exceptions.
+  bool IsMemoryLimit() const {
+    return (code() == kAborted) && (subcode() == kMemoryLimit);
+  }
 
   // Return a string representation of this status suitable for printing.
   // Returns the string "OK" for success.
@@ -217,7 +256,10 @@ class Status {
   explicit Status(Code _code, SubCode _subcode = kNone)
       : code_(_code), subcode_(_subcode), state_(nullptr) {}
 
-  Status(Code _code, const Slice& msg, const Slice& msg2);
+  Status(Code _code, SubCode _subcode, const Slice& msg, const Slice& msg2);
+  Status(Code _code, const Slice& msg, const Slice& msg2)
+      : Status(_code, kNone, msg, msg2) {}
+
   static const char* CopyState(const char* s);
 };
 
@@ -227,7 +269,7 @@ inline Status::Status(const Status& s) : code_(s.code_), subcode_(s.subcode_) {
 inline Status& Status::operator=(const Status& s) {
   // The following condition catches both aliasing (when this == &s),
   // and the common case where both s and *this are ok.
-  if(this != &s) {
+  if (this != &s) {
     code_ = s.code_;
     subcode_ = s.subcode_;
     delete[] state_;
@@ -238,23 +280,23 @@ inline Status& Status::operator=(const Status& s) {
 
 inline Status::Status(Status&& s)
 #if !(defined _MSC_VER) || ((defined _MSC_VER) && (_MSC_VER >= 1900))
-noexcept
+    noexcept
 #endif
-  : Status() {
+    : Status() {
   *this = std::move(s);
 }
 
 inline Status& Status::operator=(Status&& s)
 #if !(defined _MSC_VER) || ((defined _MSC_VER) && (_MSC_VER >= 1900))
-noexcept
+    noexcept
 #endif
 {
-  if(this != &s) {
+  if (this != &s) {
     code_ = std::move(s.code_);
     s.code_ = kOk;
     subcode_ = std::move(s.subcode_);
     s.subcode_ = kNone;
-    delete [] state_;
+    delete[] state_;
     state_ = nullptr;
     std::swap(state_, s.state_);
   }

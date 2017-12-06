@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef ROCKSDB_LITE
 
@@ -44,7 +44,7 @@ Status PlainTableIndex::InitFromRawData(Slice data) {
 PlainTableIndex::IndexSearchResult PlainTableIndex::GetOffset(
     uint32_t prefix_hash, uint32_t* bucket_value) const {
   int bucket = GetBucketIdFromHash(prefix_hash, index_size_);
-  *bucket_value = index_[bucket];
+  GetUnaligned(index_ + bucket, bucket_value);
   if ((*bucket_value & kSubIndexMask) == kSubIndexMask) {
     *bucket_value ^= kSubIndexMask;
     return kSubindex;
@@ -102,9 +102,8 @@ Slice PlainTableIndexBuilder::Finish() {
   BucketizeIndexes(&hash_to_offsets, &entries_per_bucket);
 
   keys_per_prefix_hist_.Add(num_keys_per_prefix_);
-  Log(InfoLogLevel::INFO_LEVEL, ioptions_.info_log,
-      "Number of Keys per prefix Histogram: %s",
-      keys_per_prefix_hist_.ToString().c_str());
+  ROCKS_LOG_INFO(ioptions_.info_log, "Number of Keys per prefix Histogram: %s",
+                 keys_per_prefix_hist_.ToString().c_str());
 
   // From the temp data structure, populate indexes.
   return FillIndexes(hash_to_offsets, entries_per_bucket);
@@ -158,9 +157,9 @@ void PlainTableIndexBuilder::BucketizeIndexes(
 Slice PlainTableIndexBuilder::FillIndexes(
     const std::vector<IndexRecord*>& hash_to_offsets,
     const std::vector<uint32_t>& entries_per_bucket) {
-  Log(InfoLogLevel::DEBUG_LEVEL, ioptions_.info_log,
-      "Reserving %" PRIu32 " bytes for plain table's sub_index",
-      sub_index_size_);
+  ROCKS_LOG_DEBUG(ioptions_.info_log,
+                  "Reserving %" PRIu32 " bytes for plain table's sub_index",
+                  sub_index_size_);
   auto total_allocate_size = GetTotalSize();
   char* allocated = arena_->AllocateAligned(
       total_allocate_size, huge_page_tlb_size_, ioptions_.info_log);
@@ -176,15 +175,15 @@ Slice PlainTableIndexBuilder::FillIndexes(
     switch (num_keys_for_bucket) {
       case 0:
         // No key for bucket
-        index[i] = PlainTableIndex::kMaxFileSize;
+        PutUnaligned(index + i, (uint32_t)PlainTableIndex::kMaxFileSize);
         break;
       case 1:
         // point directly to the file offset
-        index[i] = hash_to_offsets[i]->offset;
+        PutUnaligned(index + i, hash_to_offsets[i]->offset);
         break;
       default:
         // point to second level indexes.
-        index[i] = sub_index_offset | PlainTableIndex::kSubIndexMask;
+        PutUnaligned(index + i, sub_index_offset | PlainTableIndex::kSubIndexMask);
         char* prev_ptr = &sub_index[sub_index_offset];
         char* cur_ptr = EncodeVarint32(prev_ptr, num_keys_for_bucket);
         sub_index_offset += static_cast<uint32_t>(cur_ptr - prev_ptr);
@@ -203,9 +202,9 @@ Slice PlainTableIndexBuilder::FillIndexes(
   }
   assert(sub_index_offset == sub_index_size_);
 
-  Log(InfoLogLevel::DEBUG_LEVEL, ioptions_.info_log,
-      "hash table size: %d, suffix_map length %" ROCKSDB_PRIszt, index_size_,
-      sub_index_size_);
+  ROCKS_LOG_DEBUG(ioptions_.info_log,
+                  "hash table size: %d, suffix_map length %" ROCKSDB_PRIszt,
+                  index_size_, sub_index_size_);
   return Slice(allocated, GetTotalSize());
 }
 

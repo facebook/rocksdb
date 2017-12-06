@@ -17,13 +17,13 @@ import argparse
 #       simple_default_params < blackbox|whitebox_simple_default_params < args
 
 default_params = {
+    "acquire_snapshot_one_in": 10000,
     "block_size": 16384,
     "cache_size": 1048576,
+    "use_clock_cache": "false",
     "delpercent": 5,
     "destroy_db_initially": 0,
-    "disable_data_sync": 0,
     "disable_wal": 0,
-    "filter_deletes": lambda: random.randint(0, 1),
     "allow_concurrent_memtable_write": 0,
     "iterpercent": 10,
     "max_background_compactions": 20,
@@ -38,6 +38,7 @@ default_params = {
     "progress_reports": 0,
     "readpercent": 45,
     "reopen": 20,
+    "snapshot_hold_ops": 100000,
     "sync": 0,
     "target_file_size_base": 2097152,
     "target_file_size_multiplier": 2,
@@ -45,6 +46,10 @@ default_params = {
     "verify_checksum": 1,
     "write_buffer_size": 4 * 1024 * 1024,
     "writepercent": 35,
+    "log2_keys_per_lock": 2,
+    "subcompactions": lambda: random.randint(1, 4),
+    "use_merge": lambda: random.randint(0, 1),
+    "use_full_merge_v1": lambda: random.randint(0, 1),
 }
 
 
@@ -75,17 +80,18 @@ whitebox_default_params = {
     "ops_per_thread": 200000,
     "test_batches_snapshots": lambda: random.randint(0, 1),
     "write_buffer_size": 4 * 1024 * 1024,
+    "subcompactions": lambda: random.randint(1, 4),
+    "random_kill_odd": 888887,
 }
 
 simple_default_params = {
     "block_size": 16384,
     "cache_size": 1048576,
+    "use_clock_cache": "false",
     "column_families": 1,
     "delpercent": 5,
     "destroy_db_initially": 0,
-    "disable_data_sync": 0,
     "disable_wal": 0,
-    "filter_deletes": lambda: random.randint(0, 1),
     "allow_concurrent_memtable_write": lambda: random.randint(0, 1),
     "iterpercent": 10,
     "max_background_compactions": 1,
@@ -107,6 +113,7 @@ simple_default_params = {
     "verify_checksum": 1,
     "write_buffer_size": 32 * 1024 * 1024,
     "writepercent": 35,
+    "subcompactions": lambda: random.randint(1, 4),
 }
 
 blackbox_simple_default_params = {
@@ -125,15 +132,14 @@ whitebox_simple_default_params = {
     "open_files": 500000,
     "ops_per_thread": 200000,
     "write_buffer_size": 32 * 1024 * 1024,
+    "subcompactions": lambda: random.randint(1, 4),
 }
 
 
 def finalize_and_sanitize(src_params):
     dest_params = dict([(k,  v() if callable(v) else v)
                         for (k, v) in src_params.items()])
-    # --allow_concurrent_memtable_write with --filter_deletes is not supported.
     if dest_params.get("allow_concurrent_memtable_write", 1) == 1:
-        dest_params["filter_deletes"] = 0
         dest_params["memtablerep"] = "skip_list"
     return dest_params
 
@@ -162,11 +168,12 @@ def gen_cmd_params(args):
 
 
 def gen_cmd(params):
-    cmd = './db_stress ' + ' '.join(
+    cmd = ['./db_stress'] + [
         '--{0}={1}'.format(k, v)
         for k, v in finalize_and_sanitize(params).items()
-        if k not in set(['test_type', 'simple', 'duration', 'interval'])
-        and v is not None)
+        if k not in set(['test_type', 'simple', 'duration', 'interval',
+                         'random_kill_odd'])
+        and v is not None]
     return cmd
 
 
@@ -182,7 +189,8 @@ def blackbox_crash_main(args):
           + "total-duration=" + str(cmd_params['duration']) + "\n"
           + "threads=" + str(cmd_params['threads']) + "\n"
           + "ops_per_thread=" + str(cmd_params['ops_per_thread']) + "\n"
-          + "write_buffer_size=" + str(cmd_params['write_buffer_size']) + "\n")
+          + "write_buffer_size=" + str(cmd_params['write_buffer_size']) + "\n"
+          + "subcompactions=" + str(cmd_params['subcompactions']) + "\n")
 
     while time.time() < exit_time:
         run_had_errors = False
@@ -190,10 +198,9 @@ def blackbox_crash_main(args):
 
         cmd = gen_cmd(dict(cmd_params.items() + {'db': dbname}.items()))
 
-        child = subprocess.Popen([cmd],
-                                 stderr=subprocess.PIPE, shell=True)
+        child = subprocess.Popen(cmd, stderr=subprocess.PIPE)
         print("Running db_stress with pid=%d: %s\n\n"
-              % (child.pid, cmd))
+              % (child.pid, ' '.join(cmd)))
 
         stop_early = False
         while time.time() < killtime:
@@ -215,9 +222,10 @@ def blackbox_crash_main(args):
 
         while True:
             line = child.stderr.readline().strip()
-            if line != '':
+            if line != '' and not line.startswith('WARNING'):
                 run_had_errors = True
-                print('***' + line + '^')
+                print('stderr has error message:')
+                print('***' + line + '***')
             else:
                 break
 
@@ -244,11 +252,12 @@ def whitebox_crash_main(args):
           + "total-duration=" + str(cmd_params['duration']) + "\n"
           + "threads=" + str(cmd_params['threads']) + "\n"
           + "ops_per_thread=" + str(cmd_params['ops_per_thread']) + "\n"
-          + "write_buffer_size=" + str(cmd_params['write_buffer_size']) + "\n")
+          + "write_buffer_size=" + str(cmd_params['write_buffer_size']) + "\n"
+          + "subcompactions=" + str(cmd_params['subcompactions']) + "\n")
 
     total_check_mode = 4
     check_mode = 0
-    kill_random_test = 888887
+    kill_random_test = cmd_params['random_kill_odd']
     kill_mode = 0
 
     while time.time() < exit_time:
@@ -272,6 +281,8 @@ def whitebox_crash_main(args):
                     + "WritableFileWriter::WriteBuffered",
                 })
             elif kill_mode == 2:
+                # TODO: May need to adjust random odds if kill_random_test
+                # is too small.
                 additional_opts.update({
                     "kill_random_test": (kill_random_test / 5000 + 1),
                     "kill_prefix_blacklist": "WritableFileWriter::Append,"
@@ -306,11 +317,10 @@ def whitebox_crash_main(args):
         cmd = gen_cmd(dict(cmd_params.items() + additional_opts.items()
                            + {'db': dbname}.items()))
 
-        print "Running:" + cmd + "\n"
+        print "Running:" + ' '.join(cmd) + "\n"
 
-        popen = subprocess.Popen([cmd], stdout=subprocess.PIPE,
-                                 stderr=subprocess.STDOUT,
-                                 shell=True)
+        popen = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                 stderr=subprocess.STDOUT)
         stdoutdata, stderrdata = popen.communicate()
         retncode = popen.returncode
         msg = ("check_mode={0}, kill option={1}, exitcode={2}\n".format(

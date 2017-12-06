@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 package org.rocksdb;
 
@@ -25,8 +25,7 @@ public abstract class AbstractRocksIterator<P extends RocksObject>
 
   protected AbstractRocksIterator(final P parent,
       final long nativeHandle) {
-    super();
-    nativeHandle_ = nativeHandle;
+    super(nativeHandle);
     // parent must point to a valid RocksDB instance.
     assert (parent != null);
     // RocksIterator must hold a reference to the related parent instance
@@ -37,43 +36,49 @@ public abstract class AbstractRocksIterator<P extends RocksObject>
 
   @Override
   public boolean isValid() {
-    assert (isInitialized());
+    assert (isOwningHandle());
     return isValid0(nativeHandle_);
   }
 
   @Override
   public void seekToFirst() {
-    assert (isInitialized());
+    assert (isOwningHandle());
     seekToFirst0(nativeHandle_);
   }
 
   @Override
   public void seekToLast() {
-    assert (isInitialized());
+    assert (isOwningHandle());
     seekToLast0(nativeHandle_);
   }
 
   @Override
   public void seek(byte[] target) {
-    assert (isInitialized());
+    assert (isOwningHandle());
     seek0(nativeHandle_, target, target.length);
   }
 
+ @Override
+ public void seekForPrev(byte[] target) {
+   assert (isOwningHandle());
+   seekForPrev0(nativeHandle_, target, target.length);
+ }
+
   @Override
   public void next() {
-    assert (isInitialized());
+    assert (isOwningHandle());
     next0(nativeHandle_);
   }
 
   @Override
   public void prev() {
-    assert (isInitialized());
+    assert (isOwningHandle());
     prev0(nativeHandle_);
   }
 
   @Override
   public void status() throws RocksDBException {
-    assert (isInitialized());
+    assert (isOwningHandle());
     status0(nativeHandle_);
   }
 
@@ -87,20 +92,17 @@ public abstract class AbstractRocksIterator<P extends RocksObject>
    */
   @Override
   protected void disposeInternal() {
-    synchronized (parent_) {
-      assert (isInitialized());
-      if (parent_.isInitialized()) {
+      if (parent_.isOwningHandle()) {
         disposeInternal(nativeHandle_);
       }
-    }
   }
 
-  abstract void disposeInternal(long handle);
   abstract boolean isValid0(long handle);
   abstract void seekToFirst0(long handle);
   abstract void seekToLast0(long handle);
   abstract void next0(long handle);
   abstract void prev0(long handle);
   abstract void seek0(long handle, byte[] target, int targetLen);
+  abstract void seekForPrev0(long handle, byte[] target, int targetLen);
   abstract void status0(long handle) throws RocksDBException;
 }

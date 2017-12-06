@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -12,6 +12,7 @@
 #include <cctype>
 #include <sstream>
 
+#include "db/memtable_list.h"
 #include "port/port.h"
 #include "util/file_reader_writer.h"
 
@@ -93,9 +94,13 @@ class Uint64ComparatorImpl : public Comparator {
     assert(a.size() == sizeof(uint64_t) && b.size() == sizeof(uint64_t));
     const uint64_t* left = reinterpret_cast<const uint64_t*>(a.data());
     const uint64_t* right = reinterpret_cast<const uint64_t*>(b.data());
-    if (*left == *right) {
+    uint64_t leftValue;
+    uint64_t rightValue;
+    GetUnaligned(left, &leftValue);
+    GetUnaligned(right, &rightValue);
+    if (leftValue == rightValue) {
       return 0;
-    } else if (*left < *right) {
+    } else if (leftValue < rightValue) {
       return -1;
     } else {
       return 1;
@@ -113,7 +118,7 @@ class Uint64ComparatorImpl : public Comparator {
 };
 }  // namespace
 
-static port::OnceType once = LEVELDB_ONCE_INIT;
+static port::OnceType once;
 static const Comparator* uint64comp;
 
 static void InitModule() {
@@ -132,7 +137,8 @@ WritableFileWriter* GetWritableFileWriter(WritableFile* wf) {
 
 RandomAccessFileReader* GetRandomAccessFileReader(RandomAccessFile* raf) {
   unique_ptr<RandomAccessFile> file(raf);
-  return new RandomAccessFileReader(std::move(file));
+  return new RandomAccessFileReader(std::move(file),
+                                    "[test RandomAccessFileReader]");
 }
 
 SequentialFileReader* GetSequentialFileReader(SequentialFile* se) {
@@ -193,6 +199,7 @@ const SliceTransform* RandomSliceTransform(Random* rnd, int pre_defined) {
 BlockBasedTableOptions RandomBlockBasedTableOptions(Random* rnd) {
   BlockBasedTableOptions opt;
   opt.cache_index_and_filter_blocks = rnd->Uniform(2);
+  opt.pin_l0_filter_and_index_blocks_in_cache = rnd->Uniform(2);
   opt.index_type = rnd->Uniform(2) ? BlockBasedTableOptions::kBinarySearch
                                    : BlockBasedTableOptions::kHashSearch;
   opt.hash_index_allow_collision = rnd->Uniform(2);
@@ -239,10 +246,10 @@ void RandomInitDBOptions(DBOptions* db_opt, Random* rnd) {
   db_opt->advise_random_on_open = rnd->Uniform(2);
   db_opt->allow_mmap_reads = rnd->Uniform(2);
   db_opt->allow_mmap_writes = rnd->Uniform(2);
-  db_opt->allow_os_buffer = rnd->Uniform(2);
+  db_opt->use_direct_reads = rnd->Uniform(2);
+  db_opt->use_direct_io_for_flush_and_compaction = rnd->Uniform(2);
   db_opt->create_if_missing = rnd->Uniform(2);
   db_opt->create_missing_column_families = rnd->Uniform(2);
-  db_opt->disableDataSync = rnd->Uniform(2);
   db_opt->enable_thread_tracking = rnd->Uniform(2);
   db_opt->error_if_exists = rnd->Uniform(2);
   db_opt->is_fd_close_on_exec = rnd->Uniform(2);
@@ -252,6 +259,8 @@ void RandomInitDBOptions(DBOptions* db_opt, Random* rnd) {
   db_opt->use_adaptive_mutex = rnd->Uniform(2);
   db_opt->use_fsync = rnd->Uniform(2);
   db_opt->recycle_log_file_num = rnd->Uniform(2);
+  db_opt->avoid_flush_during_recovery = rnd->Uniform(2);
+  db_opt->avoid_flush_during_shutdown = rnd->Uniform(2);
 
   // int options
   db_opt->max_background_compactions = rnd->Uniform(100);
@@ -293,53 +302,60 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, Random* rnd) {
   cf_opt->compaction_style = (CompactionStyle)(rnd->Uniform(4));
 
   // boolean options
-  cf_opt->compaction_measure_io_stats = rnd->Uniform(2);
+  cf_opt->report_bg_io_stats = rnd->Uniform(2);
   cf_opt->disable_auto_compactions = rnd->Uniform(2);
-  cf_opt->filter_deletes = rnd->Uniform(2);
   cf_opt->inplace_update_support = rnd->Uniform(2);
   cf_opt->level_compaction_dynamic_level_bytes = rnd->Uniform(2);
   cf_opt->optimize_filters_for_hits = rnd->Uniform(2);
   cf_opt->paranoid_file_checks = rnd->Uniform(2);
   cf_opt->purge_redundant_kvs_while_flush = rnd->Uniform(2);
-  cf_opt->verify_checksums_in_compaction = rnd->Uniform(2);
+  cf_opt->force_consistency_checks = rnd->Uniform(2);
+  cf_opt->compaction_options_fifo.allow_compaction = rnd->Uniform(2);
 
   // double options
   cf_opt->hard_rate_limit = static_cast<double>(rnd->Uniform(10000)) / 13;
   cf_opt->soft_rate_limit = static_cast<double>(rnd->Uniform(10000)) / 13;
+  cf_opt->memtable_prefix_bloom_size_ratio =
+      static_cast<double>(rnd->Uniform(10000)) / 20000.0;
 
   // int options
-  cf_opt->expanded_compaction_factor = rnd->Uniform(100);
   cf_opt->level0_file_num_compaction_trigger = rnd->Uniform(100);
   cf_opt->level0_slowdown_writes_trigger = rnd->Uniform(100);
   cf_opt->level0_stop_writes_trigger = rnd->Uniform(100);
   cf_opt->max_bytes_for_level_multiplier = rnd->Uniform(100);
-  cf_opt->max_grandparent_overlap_factor = rnd->Uniform(100);
   cf_opt->max_mem_compaction_level = rnd->Uniform(100);
   cf_opt->max_write_buffer_number = rnd->Uniform(100);
   cf_opt->max_write_buffer_number_to_maintain = rnd->Uniform(100);
   cf_opt->min_write_buffer_number_to_merge = rnd->Uniform(100);
   cf_opt->num_levels = rnd->Uniform(100);
-  cf_opt->source_compaction_factor = rnd->Uniform(100);
   cf_opt->target_file_size_multiplier = rnd->Uniform(100);
+
+  // vector int options
+  cf_opt->max_bytes_for_level_multiplier_additional.resize(cf_opt->num_levels);
+  for (int i = 0; i < cf_opt->num_levels; i++) {
+    cf_opt->max_bytes_for_level_multiplier_additional[i] = rnd->Uniform(100);
+  }
 
   // size_t options
   cf_opt->arena_block_size = rnd->Uniform(10000);
   cf_opt->inplace_update_num_locks = rnd->Uniform(10000);
   cf_opt->max_successive_merges = rnd->Uniform(10000);
-  cf_opt->memtable_prefix_bloom_huge_page_tlb_size = rnd->Uniform(10000);
+  cf_opt->memtable_huge_page_size = rnd->Uniform(10000);
   cf_opt->write_buffer_size = rnd->Uniform(10000);
 
   // uint32_t options
   cf_opt->bloom_locality = rnd->Uniform(10000);
-  cf_opt->memtable_prefix_bloom_bits = rnd->Uniform(10000);
-  cf_opt->memtable_prefix_bloom_probes = rnd->Uniform(10000);
-  cf_opt->min_partial_merge_operands = rnd->Uniform(10000);
   cf_opt->max_bytes_for_level_base = rnd->Uniform(10000);
 
   // uint64_t options
   static const uint64_t uint_max = static_cast<uint64_t>(UINT_MAX);
   cf_opt->max_sequential_skip_in_iterations = uint_max + rnd->Uniform(10000);
   cf_opt->target_file_size_base = uint_max + rnd->Uniform(10000);
+  cf_opt->max_compaction_bytes =
+      cf_opt->target_file_size_base * rnd->Uniform(100);
+  cf_opt->compaction_options_fifo.max_table_files_size =
+      uint_max + rnd->Uniform(10000);
+  cf_opt->compaction_options_fifo.ttl = uint_max + rnd->Uniform(10000);
 
   // unsigned int options
   cf_opt->rate_limit_delay_max_milliseconds = rnd->Uniform(10000);
@@ -358,6 +374,31 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, Random* rnd) {
   cf_opt->compression = RandomCompressionType(rnd);
   RandomCompressionTypeVector(cf_opt->num_levels,
                               &cf_opt->compression_per_level, rnd);
+}
+
+Status DestroyDir(Env* env, const std::string& dir) {
+  Status s;
+  if (env->FileExists(dir).IsNotFound()) {
+    return s;
+  }
+  std::vector<std::string> files_in_dir;
+  s = env->GetChildren(dir, &files_in_dir);
+  if (s.ok()) {
+    for (auto& file_in_dir : files_in_dir) {
+      if (file_in_dir == "." || file_in_dir == "..") {
+        continue;
+      }
+      s = env->DeleteFile(dir + "/" + file_in_dir);
+      if (!s.ok()) {
+        break;
+      }
+    }
+  }
+
+  if (s.ok()) {
+    s = env->DeleteDir(dir);
+  }
+  return s;
 }
 
 }  // namespace test

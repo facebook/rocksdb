@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #if !(defined GFLAGS) || defined(ROCKSDB_LITE)
 
@@ -18,9 +18,9 @@ int main() {
 
 #else
 
-#include <gflags/gflags.h>
 #include "rocksdb/convenience.h"
 #include "rocksdb/db_dump_tool.h"
+#include "util/gflags_compat.h"
 
 DEFINE_string(dump_location, "", "Path to the dump file that will be loaded");
 DEFINE_string(db_path, "", "Path to the db that we will undump the file into");
@@ -29,7 +29,7 @@ DEFINE_string(db_options, "",
               "Options string used to open the database that will be loaded");
 
 int main(int argc, char **argv) {
-  GFLAGS::ParseCommandLineFlags(&argc, &argv, true);
+  GFLAGS_NAMESPACE::ParseCommandLineFlags(&argc, &argv, true);
 
   if (FLAGS_db_path == "" || FLAGS_dump_location == "") {
     fprintf(stderr, "Please set --db_path and --dump_location\n");

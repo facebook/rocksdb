@@ -4,12 +4,12 @@
 
 #ifndef ROCKSDB_LITE
 
+#include <map>
 #include <memory>
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/utilities/db_ttl.h"
+#include "util/string_util.h"
 #include "util/testharness.h"
-#include "util/logging.h"
-#include <map>
 #ifndef OS_WIN
 #include <unistd.h>
 #endif
@@ -36,7 +36,7 @@ class SpecialTimeEnv : public EnvWrapper {
   }
 
  private:
-  int64_t current_time_;
+  int64_t current_time_ = 0;
 };
 
 class TtlTest : public testing::Test {
@@ -47,7 +47,7 @@ class TtlTest : public testing::Test {
     options_.create_if_missing = true;
     options_.env = env_.get();
     // ensure that compaction is kicked in to always strip timestamp from kvs
-    options_.max_grandparent_overlap_factor = 0;
+    options_.max_compaction_bytes = 1;
     // compaction should take place always from level0 for determinism
     db_ttl_ = nullptr;
     DestroyDB(dbname_, Options());
@@ -131,7 +131,7 @@ class TtlTest : public testing::Test {
           batch.Delete(kv_it_->first);
           break;
         default:
-          ASSERT_TRUE(false);
+          FAIL();
       }
     }
     db_ttl_->Write(wopts, &batch);
@@ -184,12 +184,12 @@ class TtlTest : public testing::Test {
       if (ret == false || value_found == false) {
         fprintf(stderr, "KeyMayExist could not find key=%s in the database but"
                         " should have\n", kv.first.c_str());
-        ASSERT_TRUE(false);
+        FAIL();
       } else if (val.compare(kv.second) != 0) {
         fprintf(stderr, " value for key=%s present in database is %s but"
                         " should be %s\n", kv.first.c_str(), val.c_str(),
                         kv.second.c_str());
-        ASSERT_TRUE(false);
+        FAIL();
       }
     }
   }
@@ -239,18 +239,18 @@ class TtlTest : public testing::Test {
         } else {
           fprintf(stderr, "is present in db but was expected to be absent\n");
         }
-        ASSERT_TRUE(false);
+        FAIL();
       } else if (s.ok()) {
           if (test_compaction_change && v.compare(kNewValue_) != 0) {
             fprintf(stderr, " value for key=%s present in database is %s but "
                             " should be %s\n", kv_it_->first.c_str(), v.c_str(),
                             kNewValue_.c_str());
-            ASSERT_TRUE(false);
+            FAIL();
           } else if (!test_compaction_change && v.compare(kv_it_->second) !=0) {
             fprintf(stderr, " value for key=%s present in database is %s but "
                             " should be %s\n", kv_it_->first.c_str(), v.c_str(),
                             kv_it_->second.c_str());
-            ASSERT_TRUE(false);
+            FAIL();
           }
       }
     }

@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 
 #ifndef ROCKSDB_LITE
@@ -9,15 +9,15 @@
 
 #include <algorithm>
 #include <atomic>
+#include "db/memtable.h"
+#include "memtable/skiplist.h"
+#include "monitoring/histogram.h"
+#include "port/port.h"
 #include "rocksdb/memtablerep.h"
-#include "util/arena.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
-#include "port/port.h"
-#include "util/histogram.h"
+#include "util/arena.h"
 #include "util/murmurhash.h"
-#include "db/memtable.h"
-#include "db/skiplist.h"
 
 namespace rocksdb {
 namespace {
@@ -56,7 +56,7 @@ struct SkipListBucketHeader {
   MemtableSkipList skip_list;
 
   explicit SkipListBucketHeader(const MemTableRep::KeyComparator& cmp,
-                                MemTableAllocator* allocator, uint32_t count)
+                                Allocator* allocator, uint32_t count)
       : Counting_header(this,  // Pointing to itself to indicate header type.
                         count),
         skip_list(cmp, allocator) {}
@@ -162,7 +162,7 @@ struct Node {
 class HashLinkListRep : public MemTableRep {
  public:
   HashLinkListRep(const MemTableRep::KeyComparator& compare,
-                  MemTableAllocator* allocator, const SliceTransform* transform,
+                  Allocator* allocator, const SliceTransform* transform,
                   size_t bucket_size, uint32_t threshold_use_skiplist,
                   size_t huge_page_tlb_size, Logger* logger,
                   int bucket_entries_logging_threshold,
@@ -247,8 +247,18 @@ class HashLinkListRep : public MemTableRep {
     return (n != nullptr) && (compare_(n->key, key) < 0);
   }
 
+  bool KeyIsAfterOrAtNode(const Slice& internal_key, const Node* n) const {
+    // nullptr n is considered infinite
+    return (n != nullptr) && (compare_(n->key, internal_key) <= 0);
+  }
+
+  bool KeyIsAfterOrAtNode(const Key& key, const Node* n) const {
+    // nullptr n is considered infinite
+    return (n != nullptr) && (compare_(n->key, key) <= 0);
+  }
 
   Node* FindGreaterOrEqualInBucket(Node* head, const Slice& key) const;
+  Node* FindLessOrEqualInBucket(Node* head, const Slice& key) const;
 
   class FullListIterator : public MemTableRep::Iterator {
    public:
@@ -289,6 +299,15 @@ class HashLinkListRep : public MemTableRep {
           (memtable_key != nullptr) ?
               memtable_key : EncodeKey(&tmp_, internal_key);
       iter_.Seek(encoded_key);
+    }
+
+    // Retreat to the last entry with a key <= target
+    virtual void SeekForPrev(const Slice& internal_key,
+                             const char* memtable_key) override {
+      const char* encoded_key = (memtable_key != nullptr)
+                                    ? memtable_key
+                                    : EncodeKey(&tmp_, internal_key);
+      iter_.SeekForPrev(encoded_key);
     }
 
     // Position at the first entry in collection.
@@ -346,6 +365,14 @@ class HashLinkListRep : public MemTableRep {
                       const char* memtable_key) override {
       node_ = hash_link_list_rep_->FindGreaterOrEqualInBucket(head_,
                                                               internal_key);
+    }
+
+    // Retreat to the last entry with a key <= target
+    virtual void SeekForPrev(const Slice& internal_key,
+                             const char* memtable_key) override {
+      // Since we do not support Prev()
+      // We simply do not support SeekForPrev
+      Reset(nullptr);
     }
 
     // Position at the first entry in collection.
@@ -406,7 +433,7 @@ class HashLinkListRep : public MemTableRep {
         } else {
           IterKey encoded_key;
           encoded_key.EncodeLengthPrefixedKey(k);
-          skip_list_iter_->Seek(encoded_key.GetKey().data());
+          skip_list_iter_->Seek(encoded_key.GetUserKey().data());
         }
       } else {
         // The bucket is organized as a linked list
@@ -458,6 +485,8 @@ class HashLinkListRep : public MemTableRep {
     virtual void Prev() override {}
     virtual void Seek(const Slice& user_key,
                       const char* memtable_key) override {}
+    virtual void SeekForPrev(const Slice& user_key,
+                             const char* memtable_key) override {}
     virtual void SeekToFirst() override {}
     virtual void SeekToLast() override {}
 
@@ -465,14 +494,11 @@ class HashLinkListRep : public MemTableRep {
   };
 };
 
-HashLinkListRep::HashLinkListRep(const MemTableRep::KeyComparator& compare,
-                                 MemTableAllocator* allocator,
-                                 const SliceTransform* transform,
-                                 size_t bucket_size,
-                                 uint32_t threshold_use_skiplist,
-                                 size_t huge_page_tlb_size, Logger* logger,
-                                 int bucket_entries_logging_threshold,
-                                 bool if_log_bucket_dist_when_flash)
+HashLinkListRep::HashLinkListRep(
+    const MemTableRep::KeyComparator& compare, Allocator* allocator,
+    const SliceTransform* transform, size_t bucket_size,
+    uint32_t threshold_use_skiplist, size_t huge_page_tlb_size, Logger* logger,
+    int bucket_entries_logging_threshold, bool if_log_bucket_dist_when_flash)
     : MemTableRep(allocator),
       bucket_size_(bucket_size),
       // Threshold to use skip list doesn't make sense if less than 3, so we
@@ -800,7 +826,7 @@ Node* HashLinkListRep::FindGreaterOrEqualInBucket(Node* head,
 } // anon namespace
 
 MemTableRep* HashLinkListRepFactory::CreateMemTableRep(
-    const MemTableRep::KeyComparator& compare, MemTableAllocator* allocator,
+    const MemTableRep::KeyComparator& compare, Allocator* allocator,
     const SliceTransform* transform, Logger* logger) {
   return new HashLinkListRep(compare, allocator, transform, bucket_count_,
                              threshold_use_skiplist_, huge_page_tlb_size_,

@@ -1,16 +1,16 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
-
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include "db/db_impl_readonly.h"
 
 #include "db/compacted_db_impl.h"
 #include "db/db_impl.h"
-#include "db/merge_context.h"
 #include "db/db_iter.h"
-#include "util/perf_context_imp.h"
+#include "db/merge_context.h"
+#include "db/range_del_aggregator.h"
+#include "monitoring/perf_context_imp.h"
 
 namespace rocksdb {
 
@@ -19,8 +19,9 @@ namespace rocksdb {
 DBImplReadOnly::DBImplReadOnly(const DBOptions& db_options,
                                const std::string& dbname)
     : DBImpl(db_options, dbname) {
-  Log(INFO_LEVEL, db_options_.info_log, "Opening the db in read only mode");
-  LogFlush(db_options_.info_log);
+  ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                 "Opening the db in read only mode");
+  LogFlush(immutable_db_options_.info_log);
 }
 
 DBImplReadOnly::~DBImplReadOnly() {
@@ -29,18 +30,23 @@ DBImplReadOnly::~DBImplReadOnly() {
 // Implementations of the DB interface
 Status DBImplReadOnly::Get(const ReadOptions& read_options,
                            ColumnFamilyHandle* column_family, const Slice& key,
-                           std::string* value) {
+                           PinnableSlice* pinnable_val) {
+  assert(pinnable_val != nullptr);
   Status s;
   SequenceNumber snapshot = versions_->LastSequence();
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
   SuperVersion* super_version = cfd->GetSuperVersion();
   MergeContext merge_context;
+  RangeDelAggregator range_del_agg(cfd->internal_comparator(), snapshot);
   LookupKey lkey(key, snapshot);
-  if (super_version->mem->Get(lkey, value, &s, &merge_context)) {
+  if (super_version->mem->Get(lkey, pinnable_val->GetSelf(), &s, &merge_context,
+                              &range_del_agg, read_options)) {
+    pinnable_val->PinSelf();
   } else {
     PERF_TIMER_GUARD(get_from_output_files_time);
-    super_version->current->Get(read_options, lkey, value, &s, &merge_context);
+    super_version->current->Get(read_options, lkey, pinnable_val, &s,
+                                &merge_context, &range_del_agg);
   }
   return s;
 }
@@ -51,16 +57,18 @@ Iterator* DBImplReadOnly::NewIterator(const ReadOptions& read_options,
   auto cfd = cfh->cfd();
   SuperVersion* super_version = cfd->GetSuperVersion()->Ref();
   SequenceNumber latest_snapshot = versions_->LastSequence();
+  ReadCallback* read_callback = nullptr;  // No read callback provided.
   auto db_iter = NewArenaWrappedDbIterator(
-      env_, *cfd->ioptions(), cfd->user_comparator(),
+      env_, read_options, *cfd->ioptions(),
       (read_options.snapshot != nullptr
            ? reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)
                  ->number_
            : latest_snapshot),
       super_version->mutable_cf_options.max_sequential_skip_in_iterations,
-      super_version->version_number);
-  auto internal_iter = NewInternalIterator(
-      read_options, cfd, super_version, db_iter->GetArena());
+      super_version->version_number, read_callback);
+  auto internal_iter =
+      NewInternalIterator(read_options, cfd, super_version, db_iter->GetArena(),
+                          db_iter->GetRangeDelAggregator());
   db_iter->SetIterUnderDBIter(internal_iter);
   return db_iter;
 }
@@ -69,6 +77,7 @@ Status DBImplReadOnly::NewIterators(
     const ReadOptions& read_options,
     const std::vector<ColumnFamilyHandle*>& column_families,
     std::vector<Iterator*>* iterators) {
+  ReadCallback* read_callback = nullptr;  // No read callback provided.
   if (iterators == nullptr) {
     return Status::InvalidArgument("iterators not allowed to be nullptr");
   }
@@ -80,15 +89,16 @@ Status DBImplReadOnly::NewIterators(
     auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
     auto* sv = cfd->GetSuperVersion()->Ref();
     auto* db_iter = NewArenaWrappedDbIterator(
-        env_, *cfd->ioptions(), cfd->user_comparator(),
+        env_, read_options, *cfd->ioptions(),
         (read_options.snapshot != nullptr
              ? reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)
                    ->number_
              : latest_snapshot),
         sv->mutable_cf_options.max_sequential_skip_in_iterations,
-        sv->version_number);
-    auto* internal_iter = NewInternalIterator(
-        read_options, cfd, sv, db_iter->GetArena());
+        sv->version_number, read_callback);
+    auto* internal_iter =
+        NewInternalIterator(read_options, cfd, sv, db_iter->GetArena(),
+                            db_iter->GetRangeDelAggregator());
     db_iter->SetIterUnderDBIter(internal_iter);
     iterators->push_back(db_iter);
   }
@@ -132,6 +142,7 @@ Status DB::OpenForReadOnly(
   *dbptr = nullptr;
   handles->clear();
 
+  SuperVersionContext sv_context(/* create_superversion */ true);
   DBImplReadOnly* impl = new DBImplReadOnly(db_options, dbname);
   impl->mutex_.Lock();
   Status s = impl->Recover(column_families, true /* read only */,
@@ -150,10 +161,12 @@ Status DB::OpenForReadOnly(
   }
   if (s.ok()) {
     for (auto cfd : *impl->versions_->GetColumnFamilySet()) {
-      delete cfd->InstallSuperVersion(new SuperVersion(), &impl->mutex_);
+      sv_context.NewSuperVersion();
+      cfd->InstallSuperVersion(&sv_context, &impl->mutex_);
     }
   }
   impl->mutex_.Unlock();
+  sv_context.Clean();
   if (s.ok()) {
     *dbptr = impl;
     for (auto* h : *handles) {

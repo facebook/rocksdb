@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -18,12 +18,13 @@ class DBTestInPlaceUpdate : public DBTestBase {
 
 TEST_F(DBTestInPlaceUpdate, InPlaceUpdate) {
   do {
-    Options options;
+    Options options = CurrentOptions();
     options.create_if_missing = true;
     options.inplace_update_support = true;
     options.env = env_;
     options.write_buffer_size = 100000;
-    options = CurrentOptions(options);
+    options.allow_concurrent_memtable_write = false;
+    Reopen(options);
     CreateAndReopenWithCF({"pikachu"}, options);
 
     // Update key with values of smaller size
@@ -41,12 +42,13 @@ TEST_F(DBTestInPlaceUpdate, InPlaceUpdate) {
 
 TEST_F(DBTestInPlaceUpdate, InPlaceUpdateLargeNewValue) {
   do {
-    Options options;
+    Options options = CurrentOptions();
     options.create_if_missing = true;
     options.inplace_update_support = true;
     options.env = env_;
     options.write_buffer_size = 100000;
-    options = CurrentOptions(options);
+    options.allow_concurrent_memtable_write = false;
+    Reopen(options);
     CreateAndReopenWithCF({"pikachu"}, options);
 
     // Update key with values of larger size
@@ -64,7 +66,7 @@ TEST_F(DBTestInPlaceUpdate, InPlaceUpdateLargeNewValue) {
 
 TEST_F(DBTestInPlaceUpdate, InPlaceUpdateCallbackSmallerSize) {
   do {
-    Options options;
+    Options options = CurrentOptions();
     options.create_if_missing = true;
     options.inplace_update_support = true;
 
@@ -72,7 +74,8 @@ TEST_F(DBTestInPlaceUpdate, InPlaceUpdateCallbackSmallerSize) {
     options.write_buffer_size = 100000;
     options.inplace_callback =
       rocksdb::DBTestInPlaceUpdate::updateInPlaceSmallerSize;
-    options = CurrentOptions(options);
+    options.allow_concurrent_memtable_write = false;
+    Reopen(options);
     CreateAndReopenWithCF({"pikachu"}, options);
 
     // Update key with values of smaller size
@@ -92,7 +95,7 @@ TEST_F(DBTestInPlaceUpdate, InPlaceUpdateCallbackSmallerSize) {
 
 TEST_F(DBTestInPlaceUpdate, InPlaceUpdateCallbackSmallerVarintSize) {
   do {
-    Options options;
+    Options options = CurrentOptions();
     options.create_if_missing = true;
     options.inplace_update_support = true;
 
@@ -100,7 +103,8 @@ TEST_F(DBTestInPlaceUpdate, InPlaceUpdateCallbackSmallerVarintSize) {
     options.write_buffer_size = 100000;
     options.inplace_callback =
       rocksdb::DBTestInPlaceUpdate::updateInPlaceSmallerVarintSize;
-    options = CurrentOptions(options);
+    options.allow_concurrent_memtable_write = false;
+    Reopen(options);
     CreateAndReopenWithCF({"pikachu"}, options);
 
     // Update key with values of smaller varint size
@@ -120,7 +124,7 @@ TEST_F(DBTestInPlaceUpdate, InPlaceUpdateCallbackSmallerVarintSize) {
 
 TEST_F(DBTestInPlaceUpdate, InPlaceUpdateCallbackLargeNewValue) {
   do {
-    Options options;
+    Options options = CurrentOptions();
     options.create_if_missing = true;
     options.inplace_update_support = true;
 
@@ -128,7 +132,8 @@ TEST_F(DBTestInPlaceUpdate, InPlaceUpdateCallbackLargeNewValue) {
     options.write_buffer_size = 100000;
     options.inplace_callback =
       rocksdb::DBTestInPlaceUpdate::updateInPlaceLargerSize;
-    options = CurrentOptions(options);
+    options.allow_concurrent_memtable_write = false;
+    Reopen(options);
     CreateAndReopenWithCF({"pikachu"}, options);
 
     // Update key with values of larger size
@@ -146,15 +151,16 @@ TEST_F(DBTestInPlaceUpdate, InPlaceUpdateCallbackLargeNewValue) {
 
 TEST_F(DBTestInPlaceUpdate, InPlaceUpdateCallbackNoAction) {
   do {
-    Options options;
+    Options options = CurrentOptions();
     options.create_if_missing = true;
     options.inplace_update_support = true;
 
     options.env = env_;
     options.write_buffer_size = 100000;
     options.inplace_callback =
-      rocksdb::DBTestInPlaceUpdate::updateInPlaceNoAction;
-    options = CurrentOptions(options);
+        rocksdb::DBTestInPlaceUpdate::updateInPlaceNoAction;
+    options.allow_concurrent_memtable_write = false;
+    Reopen(options);
     CreateAndReopenWithCF({"pikachu"}, options);
 
     // Callback function requests no actions from db

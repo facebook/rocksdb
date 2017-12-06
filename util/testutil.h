@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -72,6 +72,7 @@ class ErrorEnv : public EnvWrapper {
   }
 };
 
+#ifndef NDEBUG
 // An internal comparator that just forward comparing results from the
 // user comparator in it. Can be used to test entities that have no dependency
 // on internal key structure but consumes InternalKeyComparator, like
@@ -94,6 +95,7 @@ class PlainInternalKeyComparator : public InternalKeyComparator {
     user_comparator()->FindShortSuccessor(key);
   }
 };
+#endif
 
 // A test comparator which compare two strings in this way:
 // (1) first compare prefix of 8 bytes in alphabet order,
@@ -157,6 +159,16 @@ class VectorIterator : public InternalIterator {
   virtual void Seek(const Slice& target) override {
     current_ = std::lower_bound(keys_.begin(), keys_.end(), target.ToString()) -
                keys_.begin();
+  }
+
+  virtual void SeekForPrev(const Slice& target) override {
+    current_ = std::upper_bound(keys_.begin(), keys_.end(), target.ToString()) -
+               keys_.begin();
+    if (!Valid()) {
+      SeekToLast();
+    } else {
+      Prev();
+    }
   }
 
   virtual void Next() override { current_++; }
@@ -226,6 +238,86 @@ class StringSink: public WritableFile {
   }
 
  private:
+  Slice* reader_contents_;
+  size_t last_flush_;
+};
+
+// A wrapper around a StringSink to give it a RandomRWFile interface
+class RandomRWStringSink : public RandomRWFile {
+ public:
+  explicit RandomRWStringSink(StringSink* ss) : ss_(ss) {}
+
+  Status Write(uint64_t offset, const Slice& data) {
+    if (offset + data.size() > ss_->contents_.size()) {
+      ss_->contents_.resize(offset + data.size(), '\0');
+    }
+
+    char* pos = const_cast<char*>(ss_->contents_.data() + offset);
+    memcpy(pos, data.data(), data.size());
+    return Status::OK();
+  }
+
+  Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const {
+    *result = Slice(nullptr, 0);
+    if (offset < ss_->contents_.size()) {
+      size_t str_res_sz =
+          std::min(static_cast<size_t>(ss_->contents_.size() - offset), n);
+      *result = Slice(ss_->contents_.data() + offset, str_res_sz);
+    }
+    return Status::OK();
+  }
+
+  Status Flush() { return Status::OK(); }
+
+  Status Sync() { return Status::OK(); }
+
+  Status Close() { return Status::OK(); }
+
+  const std::string& contents() const { return ss_->contents(); }
+
+ private:
+  StringSink* ss_;
+};
+
+// Like StringSink, this writes into a string.  Unlink StringSink, it
+// has some initial content and overwrites it, just like a recycled
+// log file.
+class OverwritingStringSink : public WritableFile {
+ public:
+  explicit OverwritingStringSink(Slice* reader_contents)
+      : WritableFile(),
+        contents_(""),
+        reader_contents_(reader_contents),
+        last_flush_(0) {}
+
+  const std::string& contents() const { return contents_; }
+
+  virtual Status Truncate(uint64_t size) override {
+    contents_.resize(static_cast<size_t>(size));
+    return Status::OK();
+  }
+  virtual Status Close() override { return Status::OK(); }
+  virtual Status Flush() override {
+    if (last_flush_ < contents_.size()) {
+      assert(reader_contents_->size() >= contents_.size());
+      memcpy((char*)reader_contents_->data() + last_flush_,
+             contents_.data() + last_flush_, contents_.size() - last_flush_);
+      last_flush_ = contents_.size();
+    }
+    return Status::OK();
+  }
+  virtual Status Sync() override { return Status::OK(); }
+  virtual Status Append(const Slice& slice) override {
+    contents_.append(slice.data(), slice.size());
+    return Status::OK();
+  }
+  void Drop(size_t bytes) {
+    contents_.resize(contents_.size() - bytes);
+    if (last_flush_ > contents_.size()) last_flush_ = contents_.size();
+  }
+
+ private:
+  std::string contents_;
   Slice* reader_contents_;
   size_t last_flush_;
 };
@@ -571,10 +663,8 @@ class ChanglingMergeOperator : public MergeOperator {
 
   void SetName(const std::string& name) { name_ = name; }
 
-  virtual bool FullMerge(const Slice& key, const Slice* existing_value,
-                         const std::deque<std::string>& operand_list,
-                         std::string* new_value,
-                         Logger* logger) const override {
+  virtual bool FullMergeV2(const MergeOperationInput& merge_in,
+                           MergeOperationOutput* merge_out) const override {
     return false;
   }
   virtual bool PartialMergeMulti(const Slice& key,
@@ -649,6 +739,8 @@ const SliceTransform* RandomSliceTransform(Random* rnd, int pre_defined = -1);
 TableFactory* RandomTableFactory(Random* rnd, int pre_defined = -1);
 
 std::string RandomName(Random* rnd, const size_t len);
+
+Status DestroyDir(Env* env, const std::string& dir);
 
 }  // namespace test
 }  // namespace rocksdb

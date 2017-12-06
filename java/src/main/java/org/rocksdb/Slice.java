@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 package org.rocksdb;
 
@@ -14,6 +14,13 @@ package org.rocksdb;
  * values consider using {@link org.rocksdb.DirectSlice}</p>
  */
 public class Slice extends AbstractSlice<byte[]> {
+
+  /**
+   * Indicates whether we have to free the memory pointed to by the Slice
+   */
+  private volatile boolean cleared;
+  private volatile long internalBufferOffset = 0;
+
   /**
    * <p>Called from JNI to construct a new Java Slice
    * without an underlying C++ object set
@@ -27,9 +34,32 @@ public class Slice extends AbstractSlice<byte[]> {
    * Slice objects through this, they are not creating underlying C++ Slice
    * objects, and so there is nothing to free (dispose) from Java.</p>
    */
+  @SuppressWarnings("unused")
   private Slice() {
     super();
-    disOwnNativeHandle();
+  }
+
+  /**
+   * <p>Package-private Slice constructor which is used to construct
+   * Slice instances from C++ side. As the reference to this
+   * object is also managed from C++ side the handle will be disowned.</p>
+   *
+   * @param nativeHandle address of native instance.
+   */
+  Slice(final long nativeHandle) {
+    this(nativeHandle, false);
+  }
+
+  /**
+   * <p>Package-private Slice constructor which is used to construct
+   * Slice instances using a handle. </p>
+   *
+   * @param nativeHandle address of native instance.
+   * @param owningNativeHandle whether to own this reference from the C++ side or not
+   */
+  Slice(final long nativeHandle, final boolean owningNativeHandle) {
+    super();
+    setNativeHandle(nativeHandle, owningNativeHandle);
   }
 
   /**
@@ -39,8 +69,7 @@ public class Slice extends AbstractSlice<byte[]> {
    * @param str String value.
    */
   public Slice(final String str) {
-    super();
-    createNewSliceFromString(str);
+    super(createNewSliceFromString(str));
   }
 
   /**
@@ -51,8 +80,7 @@ public class Slice extends AbstractSlice<byte[]> {
    * @param offset offset within the byte array.
    */
   public Slice(final byte[] data, final int offset) {
-    super();
-    createNewSlice0(data, offset);
+    super(createNewSlice0(data, offset));
   }
 
   /**
@@ -62,8 +90,19 @@ public class Slice extends AbstractSlice<byte[]> {
    * @param data byte array.
    */
   public Slice(final byte[] data) {
-    super();
-    createNewSlice1(data);
+    super(createNewSlice1(data));
+  }
+
+  @Override
+  public void clear() {
+    clear0(getNativeHandle(), !cleared, internalBufferOffset);
+    cleared = true;
+  }
+
+  @Override
+  public void removePrefix(final int n) {
+    removePrefix0(getNativeHandle(), n);
+    this.internalBufferOffset += n;
   }
 
   /**
@@ -77,12 +116,20 @@ public class Slice extends AbstractSlice<byte[]> {
    */
   @Override
   protected void disposeInternal() {
-    disposeInternalBuf(nativeHandle_);
-    super.disposeInternal();
+    final long nativeHandle = getNativeHandle();
+    if(!cleared) {
+      disposeInternalBuf(nativeHandle, internalBufferOffset);
+    }
+    super.disposeInternal(nativeHandle);
   }
 
   @Override protected final native byte[] data0(long handle);
-  private native void createNewSlice0(byte[] data, int length);
-  private native void createNewSlice1(byte[] data);
-  private native void disposeInternalBuf(long handle);
+  private native static long createNewSlice0(final byte[] data,
+      final int length);
+  private native static long createNewSlice1(final byte[] data);
+  private native void clear0(long handle, boolean internalBuffer,
+      long internalBufferOffset);
+  private native void removePrefix0(long handle, int length);
+  private native void disposeInternalBuf(final long handle,
+      long internalBufferOffset);
 }

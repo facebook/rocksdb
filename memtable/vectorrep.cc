@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 #ifndef ROCKSDB_LITE
 #include "rocksdb/memtablerep.h"
@@ -25,8 +25,7 @@ using namespace stl_wrappers;
 
 class VectorRep : public MemTableRep {
  public:
-  VectorRep(const KeyComparator& compare, MemTableAllocator* allocator,
-            size_t count);
+  VectorRep(const KeyComparator& compare, Allocator* allocator, size_t count);
 
   // Insert key into the collection. (The caller will pack key and value into a
   // single buffer and pass that in as the parameter to Insert)
@@ -83,6 +82,10 @@ class VectorRep : public MemTableRep {
     // Advance to the first entry with a key >= target
     virtual void Seek(const Slice& user_key, const char* memtable_key) override;
 
+    // Advance to the first entry with a key <= target
+    virtual void SeekForPrev(const Slice& user_key,
+                             const char* memtable_key) override;
+
     // Position at the first entry in collection.
     // Final state of iterator is Valid() iff collection is not empty.
     virtual void SeekToFirst() override;
@@ -132,13 +135,15 @@ size_t VectorRep::ApproximateMemoryUsage() {
     );
 }
 
-VectorRep::VectorRep(const KeyComparator& compare, MemTableAllocator* allocator,
+VectorRep::VectorRep(const KeyComparator& compare, Allocator* allocator,
                      size_t count)
-  : MemTableRep(allocator),
-    bucket_(new Bucket()),
-    immutable_(false),
-    sorted_(false),
-    compare_(compare) { bucket_.get()->reserve(count); }
+    : MemTableRep(allocator),
+      bucket_(new Bucket()),
+      immutable_(false),
+      sorted_(false),
+      compare_(compare) {
+  bucket_.get()->reserve(count);
+}
 
 VectorRep::Iterator::Iterator(class VectorRep* vrep,
                    std::shared_ptr<std::vector<const char*>> bucket,
@@ -221,6 +226,12 @@ void VectorRep::Iterator::Seek(const Slice& user_key,
                           }).first;
 }
 
+// Advance to the first entry with a key <= target
+void VectorRep::Iterator::SeekForPrev(const Slice& user_key,
+                                      const char* memtable_key) {
+  assert(false);
+}
+
 // Position at the first entry in collection.
 // Final state of iterator is Valid() iff collection is not empty.
 void VectorRep::Iterator::SeekToFirst() {
@@ -284,7 +295,7 @@ MemTableRep::Iterator* VectorRep::GetIterator(Arena* arena) {
 } // anon namespace
 
 MemTableRep* VectorRepFactory::CreateMemTableRep(
-    const MemTableRep::KeyComparator& compare, MemTableAllocator* allocator,
+    const MemTableRep::KeyComparator& compare, Allocator* allocator,
     const SliceTransform*, Logger* logger) {
   return new VectorRep(compare, allocator, count_);
 }

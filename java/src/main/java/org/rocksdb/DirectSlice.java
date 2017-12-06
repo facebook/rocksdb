@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 package org.rocksdb;
 
@@ -16,25 +16,30 @@ import java.nio.ByteBuffer;
  * values consider using @see org.rocksdb.Slice
  */
 public class DirectSlice extends AbstractSlice<ByteBuffer> {
-  //TODO(AR) only needed by WriteBatchWithIndexTest until JDK8
   public final static DirectSlice NONE = new DirectSlice();
+
+  /**
+   * Indicates whether we have to free the memory pointed to by the Slice
+   */
+  private final boolean internalBuffer;
+  private volatile boolean cleared = false;
+  private volatile long internalBufferOffset = 0;
 
   /**
    * Called from JNI to construct a new Java DirectSlice
    * without an underlying C++ object set
    * at creation time.
    *
-   * Note: You should be aware that
-   * {@see org.rocksdb.RocksObject#disOwnNativeHandle()} is intentionally
-   * called from the default DirectSlice constructor, and that it is marked as
-   * package-private. This is so that developers cannot construct their own default
-   * DirectSlice objects (at present). As developers cannot construct their own
-   * DirectSlice objects through this, they are not creating underlying C++
-   * DirectSlice objects, and so there is nothing to free (dispose) from Java.
+   * Note: You should be aware that it is intentionally marked as
+   * package-private. This is so that developers cannot construct their own
+   * default DirectSlice objects (at present). As developers cannot construct
+   * their own DirectSlice objects through this, they are not creating
+   * underlying C++ DirectSlice objects, and so there is nothing to free
+   * (dispose) from Java.
    */
   DirectSlice() {
     super();
-    disOwnNativeHandle();
+    this.internalBuffer = false;
   }
 
   /**
@@ -45,8 +50,8 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
    * @param str The string
    */
   public DirectSlice(final String str) {
-    super();
-    createNewSliceFromString(str);
+    super(createNewSliceFromString(str));
+    this.internalBuffer = true;
   }
 
   /**
@@ -58,9 +63,8 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
    * @param length The length of the data to use for the slice
    */
   public DirectSlice(final ByteBuffer data, final int length) {
-    super();
-    assert(data.isDirect());
-    createNewDirectSlice0(data, length);
+    super(createNewDirectSlice0(ensureDirect(data), length));
+    this.internalBuffer = false;
   }
 
   /**
@@ -71,9 +75,15 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
    * @param data The bugger containing the data
    */
   public DirectSlice(final ByteBuffer data) {
-    super();
-    assert(data.isDirect());
-    createNewDirectSlice1(data);
+    super(createNewDirectSlice1(ensureDirect(data)));
+    this.internalBuffer = false;
+  }
+
+  private static ByteBuffer ensureDirect(final ByteBuffer data) {
+    if(!data.isDirect()) {
+      throw new IllegalArgumentException("The ByteBuffer must be direct");
+    }
+    return data;
   }
 
   /**
@@ -84,35 +94,39 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
    *
    * @return the requested byte
    */
-  public byte get(int offset) {
-    assert (isInitialized());
-    return get0(nativeHandle_, offset);
+  public byte get(final int offset) {
+    return get0(getNativeHandle(), offset);
   }
 
-  /**
-   * Clears the backing slice
-   */
+  @Override
   public void clear() {
-    assert (isInitialized());
-    clear0(nativeHandle_);
+    clear0(getNativeHandle(), !cleared && internalBuffer, internalBufferOffset);
+    cleared = true;
   }
 
-  /**
-   * Drops the specified {@code n}
-   * number of bytes from the start
-   * of the backing slice
-   *
-   * @param n The number of bytes to drop
-   */
+  @Override
   public void removePrefix(final int n) {
-    assert (isInitialized());
-    removePrefix0(nativeHandle_, n);
+    removePrefix0(getNativeHandle(), n);
+    this.internalBufferOffset += n;
   }
 
-  private native void createNewDirectSlice0(ByteBuffer data, int length);
-  private native void createNewDirectSlice1(ByteBuffer data);
+  @Override
+  protected void disposeInternal() {
+    final long nativeHandle = getNativeHandle();
+    if(!cleared && internalBuffer) {
+      disposeInternalBuf(nativeHandle, internalBufferOffset);
+    }
+    disposeInternal(nativeHandle);
+  }
+
+  private native static long createNewDirectSlice0(final ByteBuffer data,
+      final int length);
+  private native static long createNewDirectSlice1(final ByteBuffer data);
   @Override protected final native ByteBuffer data0(long handle);
   private native byte get0(long handle, int offset);
-  private native void clear0(long handle);
+  private native void clear0(long handle, boolean internalBuffer,
+      long internalBufferOffset);
   private native void removePrefix0(long handle, int length);
+  private native void disposeInternalBuf(final long handle,
+      long internalBufferOffset);
 }

@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
@@ -20,32 +20,11 @@
 #define STORAGE_ROCKSDB_INCLUDE_ITERATOR_H_
 
 #include <string>
+#include "rocksdb/cleanable.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 
 namespace rocksdb {
-
-class Cleanable {
- public:
-  Cleanable();
-  ~Cleanable();
-  // Clients are allowed to register function/arg1/arg2 triples that
-  // will be invoked when this iterator is destroyed.
-  //
-  // Note that unlike all of the preceding methods, this method is
-  // not abstract and therefore clients should not override it.
-  typedef void (*CleanupFunction)(void* arg1, void* arg2);
-  void RegisterCleanup(CleanupFunction function, void* arg1, void* arg2);
-
- protected:
-  struct Cleanup {
-    CleanupFunction function;
-    void* arg1;
-    void* arg2;
-    Cleanup* next;
-  };
-  Cleanup cleanup_;
-};
 
 class Iterator : public Cleanable {
  public:
@@ -68,6 +47,11 @@ class Iterator : public Cleanable {
   // The iterator is Valid() after this call iff the source contains
   // an entry that comes at or past target.
   virtual void Seek(const Slice& target) = 0;
+
+  // Position at the last key in the source that at or before target
+  // The iterator is Valid() after this call iff the source contains
+  // an entry that comes at or before target.
+  virtual void SeekForPrev(const Slice& target) {}
 
   // Moves to the next entry in the source.  After this call, Valid() is
   // true iff the iterator was not positioned at the last entry in the source.
@@ -96,15 +80,20 @@ class Iterator : public Cleanable {
   // satisfied without doing some IO, then this returns Status::Incomplete().
   virtual Status status() const = 0;
 
+  // If supported, renew the iterator to represent the latest state. The
+  // iterator will be invalidated after the call. Not supported if
+  // ReadOptions.snapshot is given when creating the iterator.
+  virtual Status Refresh() {
+    return Status::NotSupported("Refresh() is not supported");
+  }
+
   // Property "rocksdb.iterator.is-key-pinned":
   //   If returning "1", this means that the Slice returned by key() is valid
-  //   as long as the iterator is not deleted and ReleasePinnedData() is not
-  //   called.
+  //   as long as the iterator is not deleted.
   //   It is guaranteed to always return "1" if
   //      - Iterator created with ReadOptions::pin_data = true
   //      - DB tables were created with
-  //      BlockBasedTableOptions::use_delta_encoding
-  //        set to false.
+  //        BlockBasedTableOptions::use_delta_encoding = false.
   // Property "rocksdb.iterator.super-version-number":
   //   LSM version used by the iterator. The same format as DB Property
   //   kCurrentSuperVersionNumber. See its comment for more information.

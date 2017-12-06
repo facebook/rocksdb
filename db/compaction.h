@@ -1,17 +1,17 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
+#include "db/version_set.h"
+#include "options/cf_options.h"
 #include "util/arena.h"
 #include "util/autovector.h"
-#include "util/mutable_cf_options.h"
-#include "db/version_set.h"
 
 namespace rocksdb {
 
@@ -35,9 +35,10 @@ class CompactionFilter;
 class Compaction {
  public:
   Compaction(VersionStorageInfo* input_version,
+             const ImmutableCFOptions& immutable_cf_options,
              const MutableCFOptions& mutable_cf_options,
              std::vector<CompactionInputFiles> inputs, int output_level,
-             uint64_t target_file_size, uint64_t max_grandparent_overlap_bytes,
+             uint64_t target_file_size, uint64_t max_compaction_bytes,
              uint32_t output_path_id, CompressionType compression,
              std::vector<FileMetaData*> grandparents,
              bool manual_compaction = false, double score = -1,
@@ -98,13 +99,16 @@ class Compaction {
   // input level.
   // REQUIREMENT: "compaction_input_level" must be >= 0 and
   //              < "input_levels()"
-  const std::vector<FileMetaData*>* inputs(size_t compaction_input_level) {
+  const std::vector<FileMetaData*>* inputs(
+      size_t compaction_input_level) const {
     assert(compaction_input_level < inputs_.size());
     return &inputs_[compaction_input_level].files;
   }
 
+  const std::vector<CompactionInputFiles>* inputs() { return &inputs_; }
+
   // Returns the LevelFilesBrief of the specified compaction input level.
-  LevelFilesBrief* input_levels(size_t compaction_input_level) {
+  const LevelFilesBrief* input_levels(size_t compaction_input_level) const {
     return &input_levels_[compaction_input_level];
   }
 
@@ -132,10 +136,6 @@ class Compaction {
   bool KeyNotExistsBeyondOutputLevel(const Slice& user_key,
                                      std::vector<size_t>* level_ptrs) const;
 
-  // Returns true iff we should stop building the current output
-  // before processing "internal_key".
-  bool ShouldStopBefore(const Slice& internal_key);
-
   // Clear all files to indicate that they are not being compacted
   // Delete this compaction from the list of running compactions.
   //
@@ -151,13 +151,13 @@ class Compaction {
   double score() const { return score_; }
 
   // Is this compaction creating a file in the bottom most level?
-  bool bottommost_level() { return bottommost_level_; }
+  bool bottommost_level() const { return bottommost_level_; }
 
   // Does this compaction include all sst files?
-  bool is_full_compaction() { return is_full_compaction_; }
+  bool is_full_compaction() const { return is_full_compaction_; }
 
   // Was this compaction triggered manually by the client?
-  bool is_manual_compaction() { return is_manual_compaction_; }
+  bool is_manual_compaction() const { return is_manual_compaction_; }
 
   // Used when allow_trivial_move option is set in
   // Universal compaction. If all the input files are
@@ -170,19 +170,27 @@ class Compaction {
   // Used when allow_trivial_move option is set in
   // Universal compaction. Returns true, if the input files
   // are non-overlapping and can be trivially moved.
-  bool is_trivial_move() { return is_trivial_move_; }
+  bool is_trivial_move() const { return is_trivial_move_; }
 
   // How many total levels are there?
   int number_levels() const { return number_levels_; }
 
+  // Return the ImmutableCFOptions that should be used throughout the compaction
+  // procedure
+  const ImmutableCFOptions* immutable_cf_options() const {
+    return &immutable_cf_options_;
+  }
+
   // Return the MutableCFOptions that should be used throughout the compaction
   // procedure
-  const MutableCFOptions* mutable_cf_options() { return &mutable_cf_options_; }
+  const MutableCFOptions* mutable_cf_options() const {
+    return &mutable_cf_options_;
+  }
 
   // Returns the size in bytes that the output file should be preallocated to.
   // In level compaction, that is max_file_size_. In universal compaction, that
   // is the sum of all input file sizes.
-  uint64_t OutputFilePreallocationSize();
+  uint64_t OutputFilePreallocationSize() const;
 
   void SetInputVersion(Version* input_version);
 
@@ -221,9 +229,19 @@ class Compaction {
     output_table_properties_ = std::move(tp);
   }
 
+  Slice GetSmallestUserKey() const { return smallest_user_key_; }
+
   Slice GetLargestUserKey() const { return largest_user_key_; }
 
   CompactionReason compaction_reason() { return compaction_reason_; }
+
+  const std::vector<FileMetaData*>& grandparents() const {
+    return grandparents_;
+  }
+
+  uint64_t max_compaction_bytes() const { return max_compaction_bytes_; }
+
+  uint64_t MaxInputFileCreationTime() const;
 
  private:
   // mark (or clear) all files that are being compacted
@@ -243,11 +261,14 @@ class Compaction {
   static bool IsFullCompaction(VersionStorageInfo* vstorage,
                                const std::vector<CompactionInputFiles>& inputs);
 
+  VersionStorageInfo* input_vstorage_;
+
   const int start_level_;    // the lowest level to be compacted
   const int output_level_;  // levels to which output files are stored
   uint64_t max_output_file_size_;
-  uint64_t max_grandparent_overlap_bytes_;
-  MutableCFOptions mutable_cf_options_;
+  uint64_t max_compaction_bytes_;
+  const ImmutableCFOptions immutable_cf_options_;
+  const MutableCFOptions mutable_cf_options_;
   Version* input_version_;
   VersionEdit edit_;
   const int number_levels_;
@@ -265,13 +286,9 @@ class Compaction {
   // A copy of inputs_, organized more closely in memory
   autovector<LevelFilesBrief, 2> input_levels_;
 
-  // State used to check for number of of overlapping grandparent files
+  // State used to check for number of overlapping grandparent files
   // (grandparent == "output_level_ + 1")
   std::vector<FileMetaData*> grandparents_;
-  size_t grandparent_index_;   // Index in grandparent_starts_
-  bool seen_key_;              // Some output key has been seen
-  uint64_t overlapped_bytes_;  // Bytes of overlap between current output
-                               // and grandparent files
   const double score_;         // score that was used to pick this compaction.
 
   // Is this compaction creating a file in the bottom most level?
@@ -291,6 +308,9 @@ class Compaction {
 
   // table properties of output files
   TablePropertiesCollection output_table_properties_;
+
+  // smallest user keys in compaction
+  Slice smallest_user_key_;
 
   // largest user keys in compaction
   Slice largest_user_key_;

@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef ROCKSDB_LITE
 
@@ -31,6 +31,7 @@
 #include "rocksdb/utilities/stackable_db.h"
 #include "util/coding.h"
 #include "utilities/spatialdb/utils.h"
+#include "port/port.h"
 
 namespace rocksdb {
 namespace spatial {
@@ -603,7 +604,7 @@ class SpatialDBImpl : public SpatialDB {
     Status s;
     int threads_running = 0;
 
-    std::vector<std::thread> threads;
+    std::vector<port::Thread> threads;
 
     for (auto cfh : column_families) {
       threads.emplace_back([&, cfh] {
@@ -697,7 +698,6 @@ DBOptions GetDBOptionsFromSpatialDBOptions(const SpatialDBOptions& options) {
   db_options.statistics = CreateDBStatistics();
   if (options.bulk_load) {
     db_options.stats_dump_period_sec = 600;
-    db_options.disableDataSync = true;
   } else {
     db_options.stats_dump_period_sec = 1800;  // 30min
   }
@@ -713,7 +713,7 @@ ColumnFamilyOptions GetColumnFamilyOptions(const SpatialDBOptions& options,
   column_family_options.target_file_size_base = 64 * 1024 * 1024;      // 64MB
   column_family_options.level0_file_num_compaction_trigger = 2;
   column_family_options.level0_slowdown_writes_trigger = 16;
-  column_family_options.level0_slowdown_writes_trigger = 32;
+  column_family_options.level0_stop_writes_trigger = 32;
   // only compress levels >= 2
   column_family_options.compression_per_level.resize(
       column_family_options.num_levels);

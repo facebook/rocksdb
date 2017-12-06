@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 #ifndef ROCKSDB_LITE
 
 #include "rocksdb/utilities/json_document.h"
@@ -48,7 +48,8 @@ void InitJSONDocument(std::unique_ptr<char[]>* data,
   fbson::FbsonWriter writer;
   bool res __attribute__((unused)) = writer.writeStartArray();
   assert(res);
-  uint32_t bytesWritten __attribute__((unused)) = f(writer);
+  uint32_t bytesWritten __attribute__((unused));
+  bytesWritten = f(writer);
   assert(bytesWritten != 0);
   res = writer.writeEndArray();
   assert(res);
@@ -287,7 +288,6 @@ JSONDocument::Type JSONDocument::type() const {
       return JSONDocument::kArray;
 
     case fbson::FbsonType::T_Binary:
-      assert(false);
     default:
       assert(false);
   }
