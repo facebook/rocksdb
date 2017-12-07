@@ -38,8 +38,6 @@ int main() {
 #include <chrono>
 #include <exception>
 #include <thread>
-#include "rocksdb/utilities/transaction.h"
-#include "rocksdb/utilities/transaction_db.h"
 
 #include "db/db_impl.h"
 #include "db/version_set.h"
@@ -53,6 +51,8 @@ int main() {
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/utilities/db_ttl.h"
+#include "rocksdb/utilities/transaction.h"
+#include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/write_batch.h"
 #include "util/coding.h"
 #include "util/compression.h"
@@ -983,23 +983,23 @@ class SharedState {
 
 const uint32_t SharedState::SENTINEL = 0xffffffff;
 
-struct SnapshotState {
-  const Snapshot* snapshot;
-  // The cf from which we did a Get at this stapshot
-  int cf_at;
-  // The key with which we did a Get at this stapshot
-  std::string key;
-  // The status of the Get
-  Status status;
-  // The value of the Get
-  std::string value;
-};
 // Per-thread state for concurrent executions of the same benchmark.
 struct ThreadState {
-  uint32_t tid; // 0..n-1
-  Random rand;  // Has different seeds for different threads
+  uint32_t tid;  // 0..n-1
+  Random rand;   // Has different seeds for different threads
   SharedState* shared;
   Stats stats;
+  struct SnapshotState {
+    const Snapshot* snapshot;
+    // The cf from which we did a Get at this stapshot
+    int cf_at;
+    // The key with which we did a Get at this stapshot
+    std::string key;
+    // The status of the Get
+    Status status;
+    // The value of the Get
+    std::string value;
+  };
   std::queue<std::pair<uint64_t, SnapshotState> > snapshot_queue;
 
   ThreadState(uint32_t index, SharedState* _shared)
@@ -1332,12 +1332,16 @@ class StressTest {
   }
 
  private:
-  void ASSERT_SAME(ReadOptions roptions, DB* db, ColumnFamilyHandle* cf,
-                   Status exp_s, PinnableSlice& exp_v, Slice key) {
+  void ASSERT_SAME(DB* db, ColumnFamilyHandle* cf,
+                   ThreadState::SnapshotState& snap_state) {
+    ReadOptions ropt;
+    ropt.snapshot = snap_state.snapshot;
+    PinnableSlice exp_v(&snap_state.value);
+    exp_v.PinSelf();
     Status s;
     PinnableSlice v;
-    s = db->Get(roptions, cf, key, &v);
-    assert(exp_s == s);
+    s = db->Get(ropt, cf, snap_state.key, &v);
+    assert(snap_state.status == s);
     assert(s.ok() || s.IsNotFound());
     if (s.ok()) {
       assert(exp_v == v);
@@ -1717,9 +1721,6 @@ class StressTest {
           thread->stats.FinishedSingleOp();
           MutexLock l(thread->shared->GetMutex());
           while (!thread->snapshot_queue.empty()) {
-            // TODO(myabandeh): use of these snapshots for reading tests. we can
-            // do two reads, one when the snapshot is taken and one when it is
-            // removed and check if they are equal.
             db_->ReleaseSnapshot(
                 thread->snapshot_queue.front().second.snapshot);
             thread->snapshot_queue.pop();
@@ -1858,9 +1859,8 @@ class StressTest {
         ropt.snapshot = snapshot;
         std::string value_at;
         auto status_at = db_->Get(ropt, column_family, key, &value_at);
-        SnapshotState snap_state = {snapshot, rand_column_family, keystr,
-                                    status_at, value_at};
-        assert(snap_state.snapshot);
+        ThreadState::SnapshotState snap_state = {snapshot, rand_column_family,
+                                                 keystr, status_at, value_at};
         thread->snapshot_queue.emplace(
             std::min(FLAGS_ops_per_thread - 1, i + FLAGS_snapshot_hold_ops),
             snap_state);
@@ -1868,14 +1868,8 @@ class StressTest {
       while (!thread->snapshot_queue.empty() &&
              i == thread->snapshot_queue.front().first) {
         auto snap_state = thread->snapshot_queue.front().second;
-        ReadOptions ropt;
-        assert(thread->snapshot_queue.front().second.snapshot);
         assert(snap_state.snapshot);
-        ropt.snapshot = snap_state.snapshot;
-        PinnableSlice exp_v(&snap_state.value);
-        exp_v.PinSelf();
-        ASSERT_SAME(ropt, db_, column_families_[snap_state.cf_at],
-                    snap_state.status, exp_v, snap_state.key);
+        ASSERT_SAME(db_, column_families_[snap_state.cf_at], snap_state);
         db_->ReleaseSnapshot(snap_state.snapshot);
         thread->snapshot_queue.pop();
       }
@@ -1884,8 +1878,6 @@ class StressTest {
       if (prob_op >= 0 && prob_op < (int)FLAGS_readpercent) {
         // OPERATION read
         if (!FLAGS_test_batches_snapshots) {
-          // TODO(myabandeh): it is ok (and simpler) not to assign the read
-          // snapshot to use the existing Verify logic
           Status s = db_->Get(read_opts, column_family, key, &from_db);
           if (s.ok()) {
             // found case
@@ -1958,7 +1950,6 @@ class StressTest {
           shared->Put(rand_column_family, rand_key, value_base);
           Status s;
           if (FLAGS_use_merge) {
-            // TODO(myabandeh): use 2PC for txns
             if (!FLAGS_use_txn) {
               s = db_->Merge(write_opts, column_family, key, v);
             } else {
@@ -1968,7 +1959,6 @@ class StressTest {
               s = CommitTxn(txn);
             }
           } else {
-            // TODO(myabandeh): use 2PC for txns
             if (!FLAGS_use_txn) {
               s = db_->Put(write_opts, column_family, key, v);
             } else {
@@ -2010,7 +2000,6 @@ class StressTest {
           // otherwise.
           if (shared->AllowsOverwrite(rand_column_family, rand_key)) {
             shared->Delete(rand_column_family, rand_key);
-            // TODO(myabandeh): use 2PC for txns
             Status s;
             if (!FLAGS_use_txn) {
               s = db_->Delete(write_opts, column_family, key);
@@ -2027,7 +2016,6 @@ class StressTest {
             }
           } else {
             shared->SingleDelete(rand_column_family, rand_key);
-            // TODO(myabandeh): use 2PC for txns
             Status s;
             if (!FLAGS_use_txn) {
               s = db_->SingleDelete(write_opts, column_family, key);
@@ -2492,7 +2480,6 @@ class StressTest {
       options_.listeners.emplace_back(
           new DbStressListener(FLAGS_db, options_.db_paths));
       options_.create_missing_column_families = true;
-      // TODO(myabandeh): open txn db
       if (!FLAGS_use_txn) {
         s = DB::Open(DBOptions(options_), FLAGS_db, cf_descriptors,
                      &column_families_, &db_);
