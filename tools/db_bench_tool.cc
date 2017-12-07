@@ -670,10 +670,30 @@ DEFINE_uint64(fifo_compaction_ttl, 0, "TTL for the SST Files in seconds.");
 // Blob DB Options
 DEFINE_bool(use_blob_db, false,
             "Open a BlobDB instance. "
-            "Required for largevalue benchmark.");
+            "Required for large value benchmark.");
 
-DEFINE_bool(blob_db_enable_gc, false,
-            "Enable BlobDB garbage collection");
+DEFINE_bool(blob_db_enable_gc, false, "Enable BlobDB garbage collection.");
+
+DEFINE_bool(blob_db_is_fifo, false, "Enable FIFO eviction strategy in BlobDB.");
+
+DEFINE_uint64(blob_db_dir_size, 0,
+              "Max size limit of the directory where blob files are stored.");
+
+DEFINE_uint64(blob_db_max_ttl_range, 86400,
+              "TTL range to generate BlobDB data (in seconds).");
+
+DEFINE_uint64(blob_db_ttl_range_secs, 3600,
+              "TTL bucket size to use when creating blob files.");
+
+DEFINE_uint64(blob_db_min_blob_size, 0,
+              "Smallest blob to store in a file. Blobs smaller than this "
+              "will be inlined with the key in the LSM tree.");
+
+DEFINE_uint64(blob_db_bytes_per_sync, 0, "Bytes to sync blob file at.");
+
+DEFINE_uint64(blob_db_file_size, 256 * 1024 * 1024,
+              "Target size of each blob file.");
+
 #endif  // ROCKSDB_LITE
 
 DEFINE_bool(report_bg_io_stats, false,
@@ -3391,6 +3411,12 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     } else if (FLAGS_use_blob_db) {
       blob_db::BlobDBOptions blob_db_options;
       blob_db_options.enable_garbage_collection = FLAGS_blob_db_enable_gc;
+      blob_db_options.is_fifo = FLAGS_blob_db_is_fifo;
+      blob_db_options.blob_dir_size = FLAGS_blob_db_dir_size;
+      blob_db_options.ttl_range_secs = FLAGS_blob_db_ttl_range_secs;
+      blob_db_options.min_blob_size = FLAGS_blob_db_min_blob_size;
+      blob_db_options.bytes_per_sync = FLAGS_blob_db_bytes_per_sync;
+      blob_db_options.blob_file_size = FLAGS_blob_db_file_size;
       blob_db::BlobDB* ptr = nullptr;
       s = blob_db::BlobDB::Open(options, blob_db_options, db_name, &ptr);
       if (s.ok()) {
@@ -3575,7 +3601,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         if (use_blob_db_) {
 #ifndef ROCKSDB_LITE
           Slice val = gen.Generate(value_size_);
-          int ttl = rand() % 86400;
+          int ttl = rand() % FLAGS_blob_db_max_ttl_range;
           blob_db::BlobDB* blobdb =
               static_cast<blob_db::BlobDB*>(db_with_cfh->db);
           s = blobdb->PutWithTTL(write_options_, key, val, ttl);
