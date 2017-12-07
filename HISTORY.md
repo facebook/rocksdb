@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 5.8.8 (12/6/2017)
+### Bug Fixes
+* Fix possible corruption to LSM structure when `DeleteFilesInRange()` deletes a subset of files spanned by a `DeleteRange()` marker.
+
 ## 5.8.7 (11/28/2017)
 ### Bug Fixes
 * Fix IOError on WAL write doesn't propagate to write group follower
