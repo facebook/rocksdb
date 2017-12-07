@@ -2062,25 +2062,19 @@ Status DBImpl::DeleteFilesInRange(ColumnFamilyHandle* column_family,
         end_key = &end_storage;
       }
 
-      vstorage->GetOverlappingInputs(i, begin_key, end_key, &level_files, -1,
-                                     nullptr, false);
+      vstorage->GetCleanInputsWithinInterval(i, begin_key, end_key,
+                                             &level_files, -1 /* hint_index */,
+                                             nullptr /* file_index */);
       FileMetaData* level_file;
       for (uint32_t j = 0; j < level_files.size(); j++) {
         level_file = level_files[j];
-        if (((begin == nullptr) ||
-             (cfd->internal_comparator().user_comparator()->Compare(
-                  level_file->smallest.user_key(), *begin) >= 0)) &&
-            ((end == nullptr) ||
-             (cfd->internal_comparator().user_comparator()->Compare(
-                  level_file->largest.user_key(), *end) <= 0))) {
-          if (level_file->being_compacted) {
-            continue;
-          }
-          edit.SetColumnFamily(cfd->GetID());
-          edit.DeleteFile(i, level_file->fd.GetNumber());
-          deleted_files.push_back(level_file);
-          level_file->being_compacted = true;
+        if (level_file->being_compacted) {
+          continue;
         }
+        edit.SetColumnFamily(cfd->GetID());
+        edit.DeleteFile(i, level_file->fd.GetNumber());
+        deleted_files.push_back(level_file);
+        level_file->being_compacted = true;
       }
     }
     if (edit.GetDeletedFiles().empty()) {
