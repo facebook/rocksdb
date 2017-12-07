@@ -279,7 +279,8 @@ Status WinMmapFile::MapNewRegion() {
 
     if (hMap_ != NULL) {
       // Unmap the previous one
-      BOOL ret = ::CloseHandle(hMap_);
+      BOOL ret;
+      ret = ::CloseHandle(hMap_);
       assert(ret);
       hMap_ = NULL;
     }
@@ -675,7 +676,6 @@ Status WinRandomAccessImpl::ReadImpl(uint64_t offset, size_t n, Slice* result,
   }
 
   size_t left = n;
-  char* dest = scratch;
 
   SSIZE_T r = PositionedReadInternal(scratch, left, offset);
   if (r > 0) {
@@ -1021,7 +1021,8 @@ Status WinDirectory::Fsync() { return Status::OK(); }
 /// WinFileLock
 
 WinFileLock::~WinFileLock() {
-  BOOL ret = ::CloseHandle(hFile_);
+  BOOL ret;
+  ret = ::CloseHandle(hFile_);
   assert(ret);
 }
 

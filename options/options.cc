@@ -99,100 +99,11 @@ ColumnFamilyOptions::ColumnFamilyOptions()
           std::shared_ptr<TableFactory>(new BlockBasedTableFactory())) {}
 
 ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
-    : AdvancedColumnFamilyOptions(options),
-      comparator(options.comparator),
-      merge_operator(options.merge_operator),
-      compaction_filter(options.compaction_filter),
-      compaction_filter_factory(options.compaction_filter_factory),
-      write_buffer_size(options.write_buffer_size),
-      compression(options.compression),
-      bottommost_compression(options.bottommost_compression),
-      compression_opts(options.compression_opts),
-      level0_file_num_compaction_trigger(
-          options.level0_file_num_compaction_trigger),
-      prefix_extractor(options.prefix_extractor),
-      max_bytes_for_level_base(options.max_bytes_for_level_base),
-      disable_auto_compactions(options.disable_auto_compactions),
-      table_factory(options.table_factory) {}
+    : ColumnFamilyOptions(*static_cast<const ColumnFamilyOptions*>(&options)) {}
 
 DBOptions::DBOptions() {}
-
 DBOptions::DBOptions(const Options& options)
-    : create_if_missing(options.create_if_missing),
-      create_missing_column_families(options.create_missing_column_families),
-      error_if_exists(options.error_if_exists),
-      paranoid_checks(options.paranoid_checks),
-      env(options.env),
-      rate_limiter(options.rate_limiter),
-      sst_file_manager(options.sst_file_manager),
-      info_log(options.info_log),
-      info_log_level(options.info_log_level),
-      max_open_files(options.max_open_files),
-      max_file_opening_threads(options.max_file_opening_threads),
-      max_total_wal_size(options.max_total_wal_size),
-      statistics(options.statistics),
-      use_fsync(options.use_fsync),
-      db_paths(options.db_paths),
-      db_log_dir(options.db_log_dir),
-      wal_dir(options.wal_dir),
-      delete_obsolete_files_period_micros(
-          options.delete_obsolete_files_period_micros),
-      max_background_jobs(options.max_background_jobs),
-      base_background_compactions(options.base_background_compactions),
-      max_background_compactions(options.max_background_compactions),
-      max_subcompactions(options.max_subcompactions),
-      max_background_flushes(options.max_background_flushes),
-      max_log_file_size(options.max_log_file_size),
-      log_file_time_to_roll(options.log_file_time_to_roll),
-      keep_log_file_num(options.keep_log_file_num),
-      recycle_log_file_num(options.recycle_log_file_num),
-      max_manifest_file_size(options.max_manifest_file_size),
-      table_cache_numshardbits(options.table_cache_numshardbits),
-      WAL_ttl_seconds(options.WAL_ttl_seconds),
-      WAL_size_limit_MB(options.WAL_size_limit_MB),
-      manifest_preallocation_size(options.manifest_preallocation_size),
-      allow_mmap_reads(options.allow_mmap_reads),
-      allow_mmap_writes(options.allow_mmap_writes),
-      use_direct_reads(options.use_direct_reads),
-      use_direct_io_for_flush_and_compaction(
-          options.use_direct_io_for_flush_and_compaction),
-      allow_fallocate(options.allow_fallocate),
-      is_fd_close_on_exec(options.is_fd_close_on_exec),
-      skip_log_error_on_recovery(options.skip_log_error_on_recovery),
-      stats_dump_period_sec(options.stats_dump_period_sec),
-      advise_random_on_open(options.advise_random_on_open),
-      db_write_buffer_size(options.db_write_buffer_size),
-      write_buffer_manager(options.write_buffer_manager),
-      access_hint_on_compaction_start(options.access_hint_on_compaction_start),
-      new_table_reader_for_compaction_inputs(
-          options.new_table_reader_for_compaction_inputs),
-      compaction_readahead_size(options.compaction_readahead_size),
-      random_access_max_buffer_size(options.random_access_max_buffer_size),
-      writable_file_max_buffer_size(options.writable_file_max_buffer_size),
-      use_adaptive_mutex(options.use_adaptive_mutex),
-      bytes_per_sync(options.bytes_per_sync),
-      wal_bytes_per_sync(options.wal_bytes_per_sync),
-      listeners(options.listeners),
-      enable_thread_tracking(options.enable_thread_tracking),
-      delayed_write_rate(options.delayed_write_rate),
-      enable_pipelined_write(options.enable_pipelined_write),
-      allow_concurrent_memtable_write(options.allow_concurrent_memtable_write),
-      enable_write_thread_adaptive_yield(
-          options.enable_write_thread_adaptive_yield),
-      write_thread_max_yield_usec(options.write_thread_max_yield_usec),
-      write_thread_slow_yield_usec(options.write_thread_slow_yield_usec),
-      skip_stats_update_on_db_open(options.skip_stats_update_on_db_open),
-      wal_recovery_mode(options.wal_recovery_mode),
-      row_cache(options.row_cache),
-#ifndef ROCKSDB_LITE
-      wal_filter(options.wal_filter),
-#endif  // ROCKSDB_LITE
-      fail_if_options_file_error(options.fail_if_options_file_error),
-      dump_malloc_stats(options.dump_malloc_stats),
-      avoid_flush_during_recovery(options.avoid_flush_during_recovery),
-      avoid_flush_during_shutdown(options.avoid_flush_during_shutdown),
-      allow_ingest_behind(options.allow_ingest_behind) {
-}
+    : DBOptions(*static_cast<const DBOptions*>(&options)) {}
 
 void DBOptions::Dump(Logger* log) const {
     ImmutableDBOptions(*this).Dump(log);
@@ -592,8 +503,7 @@ ColumnFamilyOptions* ColumnFamilyOptions::OptimizeUniversalStyleCompaction(
 }
 
 DBOptions* DBOptions::IncreaseParallelism(int total_threads) {
-  max_background_compactions = total_threads - 1;
-  max_background_flushes = 1;
+  max_background_jobs = total_threads;
   env->SetBackgroundThreads(total_threads, Env::LOW);
   env->SetBackgroundThreads(1, Env::HIGH);
   return this;
@@ -603,6 +513,7 @@ DBOptions* DBOptions::IncreaseParallelism(int total_threads) {
 
 ReadOptions::ReadOptions()
     : snapshot(nullptr),
+      iterate_lower_bound(nullptr),
       iterate_upper_bound(nullptr),
       readahead_size(0),
       max_skippable_internal_keys(0),
@@ -615,10 +526,12 @@ ReadOptions::ReadOptions()
       prefix_same_as_start(false),
       pin_data(false),
       background_purge_on_iterator_cleanup(false),
-      ignore_range_deletions(false) {}
+      ignore_range_deletions(false),
+      iter_start_seqnum(0) {}
 
 ReadOptions::ReadOptions(bool cksum, bool cache)
     : snapshot(nullptr),
+      iterate_lower_bound(nullptr),
       iterate_upper_bound(nullptr),
       readahead_size(0),
       max_skippable_internal_keys(0),
@@ -631,6 +544,7 @@ ReadOptions::ReadOptions(bool cksum, bool cache)
       prefix_same_as_start(false),
       pin_data(false),
       background_purge_on_iterator_cleanup(false),
-      ignore_range_deletions(false) {}
+      ignore_range_deletions(false),
+      iter_start_seqnum(0) {}
 
 }  // namespace rocksdb

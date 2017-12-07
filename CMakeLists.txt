@@ -32,7 +32,7 @@
 # 3. cmake ..
 # 4. make -j
 
-cmake_minimum_required(VERSION 2.6)
+cmake_minimum_required(VERSION 2.8.12)
 project(rocksdb)
 
 if(POLICY CMP0042)
@@ -41,10 +41,10 @@ endif()
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake/modules/")
 
+option(WITH_JEMALLOC "build with JeMalloc" OFF)
 if(MSVC)
   include(${CMAKE_CURRENT_SOURCE_DIR}/thirdparty.inc)
 else()
-  option(WITH_JEMALLOC "build with JeMalloc" OFF)
   if(CMAKE_SYSTEM_NAME MATCHES "FreeBSD")
     # FreeBSD has jemaloc as default malloc
     # but it does not have all the jemalloc files in include/...
@@ -98,17 +98,7 @@ else()
   endif()
 endif()
 
-if(WIN32)
-  execute_process(COMMAND powershell -noprofile -Command "Get-Date -format MM_dd_yyyy" OUTPUT_VARIABLE DATE)
-  execute_process(COMMAND powershell -noprofile -Command "Get-Date -format HH:mm:ss" OUTPUT_VARIABLE TIME)
-  string(REGEX REPLACE "(..)_(..)_..(..).*" "\\1/\\2/\\3" DATE "${DATE}")
-  string(REGEX REPLACE "(..):(.....).*" " \\1:\\2" TIME "${TIME}")
-  set(GIT_DATE_TIME "${DATE} ${TIME}")
-else()
-  execute_process(COMMAND date "+%Y/%m/%d %H:%M:%S" OUTPUT_VARIABLE DATETIME)
-  string(REGEX REPLACE "\n" "" DATETIME ${DATETIME})
-  set(GIT_DATE_TIME "${DATETIME}")
-endif()
+string(TIMESTAMP GIT_DATE_TIME "%Y/%m/%d %H:%M:%S" UTC)
 
 find_package(Git)
 
@@ -155,10 +145,10 @@ target_include_directories(build_version PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/util)
 if(MSVC)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zi /nologo /EHsc /GS /Gd /GR /GF /fp:precise /Zc:wchar_t /Zc:forScope /errorReport:queue")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /FC /d2Zi+ /W3 /wd4127 /wd4800 /wd4996 /wd4351")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /FC /d2Zi+ /W4 /wd4127 /wd4800 /wd4996 /wd4351 /wd4100 /wd4204 /wd4324")
 else()
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -W -Wextra -Wall")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wsign-compare -Wshadow -Wno-unused-parameter -Wno-unused-variable -Woverloaded-virtual -Wnon-virtual-dtor -Wno-missing-field-initializers")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wsign-compare -Wshadow -Wno-unused-parameter -Wno-unused-variable -Woverloaded-virtual -Wnon-virtual-dtor -Wno-missing-field-initializers -Wno-strict-aliasing")
   if(MINGW)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-format")
   endif()
@@ -189,8 +179,10 @@ else()
   endif()
 endif()
 
-set(CMAKE_REQUIRED_FLAGS ${CMAKE_CXX_FLAGS})
 include(CheckCXXSourceCompiles)
+if(NOT MSVC)
+  set(CMAKE_REQUIRED_FLAGS "-msse4.2")
+endif()
 CHECK_CXX_SOURCE_COMPILES("
 #include <cstdint>
 #include <nmmintrin.h>
@@ -198,6 +190,7 @@ int main() {
   volatile uint32_t x = _mm_crc32_u32(0, 0);
 }
 " HAVE_SSE42)
+unset(CMAKE_REQUIRED_FLAGS)
 if(HAVE_SSE42)
   add_definitions(-DHAVE_SSE42)
 elseif(FORCE_SSE42)
@@ -254,6 +247,27 @@ if(WITH_UBSAN)
   if(WITH_JEMALLOC)
     message(FATAL "UBSAN does not work well with JeMalloc")
   endif()
+endif()
+
+find_package(gflags)
+if(gflags_FOUND)
+  add_definitions(-DGFLAGS=1)
+  include_directories(${gflags_INCLUDE_DIR})
+  list(APPEND THIRDPARTY_LIBS ${gflags_LIBRARIES})
+endif()
+
+find_package(NUMA)
+if(NUMA_FOUND)
+  add_definitions(-DNUMA)
+  include_directories(${NUMA_INCLUDE_DIR})
+  list(APPEND THIRDPARTY_LIBS ${NUMA_LIBRARIES})
+endif()
+
+find_package(TBB)
+if(TBB_FOUND)
+  add_definitions(-DTBB)
+  include_directories(${TBB_INCLUDE_DIR})
+  list(APPEND THIRDPARTY_LIBS ${TBB_LIBRARIES})
 endif()
 
 # Used to run CI build and tests so we can run faster
@@ -323,11 +337,8 @@ if(NOT WIN32)
 endif()
 
 option(WITH_FALLOCATE "build with fallocate" ON)
-
 if(WITH_FALLOCATE)
-  set(CMAKE_REQUIRED_FLAGS ${CMAKE_C_FLAGS})
-  include(CheckCSourceCompiles)
-  CHECK_C_SOURCE_COMPILES("
+  CHECK_CXX_SOURCE_COMPILES("
 #include <fcntl.h>
 #include <linux/falloc.h>
 int main() {
@@ -340,10 +351,36 @@ int main() {
   endif()
 endif()
 
-include(CheckFunctionExists)
-CHECK_FUNCTION_EXISTS(malloc_usable_size HAVE_MALLOC_USABLE_SIZE)
+CHECK_CXX_SOURCE_COMPILES("
+#include <fcntl.h>
+int main() {
+  int fd = open(\"/dev/null\", 0);
+  sync_file_range(fd, 0, 1024, SYNC_FILE_RANGE_WRITE);
+}
+" HAVE_SYNC_FILE_RANGE_WRITE)
+if(HAVE_SYNC_FILE_RANGE_WRITE)
+  add_definitions(-DROCKSDB_RANGESYNC_PRESENT)
+endif()
+
+CHECK_CXX_SOURCE_COMPILES("
+#include <pthread.h>
+int main() {
+  (void) PTHREAD_MUTEX_ADAPTIVE_NP;
+}
+" HAVE_PTHREAD_MUTEX_ADAPTIVE_NP)
+if(HAVE_PTHREAD_MUTEX_ADAPTIVE_NP)
+  add_definitions(-DROCKSDB_PTHREAD_ADAPTIVE_MUTEX)
+endif()
+
+include(CheckCXXSymbolExists)
+check_cxx_symbol_exists(malloc_usable_size malloc.h HAVE_MALLOC_USABLE_SIZE)
 if(HAVE_MALLOC_USABLE_SIZE)
   add_definitions(-DROCKSDB_MALLOC_USABLE_SIZE)
+endif()
+
+check_cxx_symbol_exists(sched_getcpu sched.h HAVE_SCHED_GETCPU)
+if(HAVE_SCHED_GETCPU)
+  add_definitions(-DROCKSDB_SCHED_GETCPU_PRESENT)
 endif()
 
 include_directories(${PROJECT_SOURCE_DIR})
@@ -553,17 +590,27 @@ set(SOURCES
         utilities/table_properties_collectors/compact_on_deletion_collector.cc
         utilities/transactions/optimistic_transaction_db_impl.cc
         utilities/transactions/optimistic_transaction.cc
-        utilities/transactions/transaction_base.cc
-        utilities/transactions/pessimistic_transaction_db.cc
-        utilities/transactions/transaction_db_mutex_impl.cc
         utilities/transactions/pessimistic_transaction.cc
+        utilities/transactions/pessimistic_transaction_db.cc
+        utilities/transactions/snapshot_checker.cc
+        utilities/transactions/transaction_base.cc
+        utilities/transactions/transaction_db_mutex_impl.cc
         utilities/transactions/transaction_lock_mgr.cc
         utilities/transactions/transaction_util.cc
         utilities/transactions/write_prepared_txn.cc
+        utilities/transactions/write_prepared_txn_db.cc
         utilities/ttl/db_ttl_impl.cc
         utilities/write_batch_with_index/write_batch_with_index.cc
         utilities/write_batch_with_index/write_batch_with_index_internal.cc
         $<TARGET_OBJECTS:build_version>)
+
+if(HAVE_SSE42 AND NOT FORCE_SSE42)
+  if(NOT MSVC)
+set_source_files_properties(
+  util/crc32c.cc
+      PROPERTIES COMPILE_FLAGS "-msse4.2")
+  endif()
+endif()
 
 if(WIN32)
   list(APPEND SOURCES
@@ -574,6 +621,12 @@ if(WIN32)
     port/win/win_logger.cc
     port/win/win_thread.cc
     port/win/xpress_win.cc)
+
+if(WITH_JEMALLOC)
+  list(APPEND SOURCES
+    port/win/win_jemalloc.cc)
+endif()
+
 else()
   list(APPEND SOURCES
     port/port_posix.cc
@@ -713,6 +766,7 @@ if(WITH_TESTS)
         db/corruption_test.cc
         db/cuckoo_table_db_test.cc
         db/db_basic_test.cc
+        db/db_blob_index_test.cc
         db/db_block_cache_test.cc
         db/db_bloom_filter_test.cc
         db/db_compaction_filter_test.cc
@@ -778,6 +832,7 @@ if(WITH_TESTS)
         options/options_test.cc
         table/block_based_filter_block_test.cc
         table/block_test.cc
+        table/cleanable_test.cc
         table/cuckoo_table_builder_test.cc
         table/cuckoo_table_reader_test.cc
         table/full_filter_block_test.cc

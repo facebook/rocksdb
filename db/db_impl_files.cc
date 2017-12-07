@@ -48,6 +48,7 @@ uint64_t DBImpl::FindMinPrepLogReferencedByMemTable() {
   return min_log;
 }
 
+// TODO(myabandeh): Avoid using locks
 void DBImpl::MarkLogAsHavingPrepSectionFlushed(uint64_t log) {
   assert(log != 0);
   std::lock_guard<std::mutex> lock(prep_heap_mutex_);
@@ -56,6 +57,7 @@ void DBImpl::MarkLogAsHavingPrepSectionFlushed(uint64_t log) {
   it->second += 1;
 }
 
+// TODO(myabandeh): Avoid using locks
 void DBImpl::MarkLogAsContainingPrepSection(uint64_t log) {
   assert(log != 0);
   std::lock_guard<std::mutex> lock(prep_heap_mutex_);
@@ -250,11 +252,11 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
       }
       job_context->size_log_to_delete += earliest.size;
       total_log_size_ -= earliest.size;
-      if (concurrent_prepare_) {
+      if (two_write_queues_) {
         log_write_mutex_.Lock();
       }
       alive_log_files_.pop_front();
-      if (concurrent_prepare_) {
+      if (two_write_queues_) {
         log_write_mutex_.Unlock();
       }
       // Current log should always stay alive since it can't have
@@ -300,9 +302,10 @@ bool CompareCandidateFile(const JobContext::CandidateFileInfo& first,
 };  // namespace
 
 // Delete obsolete files and log status and information of file deletion
-void DBImpl::DeleteObsoleteFileImpl(Status file_deletion_status, int job_id,
-                                    const std::string& fname, FileType type,
-                                    uint64_t number, uint32_t path_id) {
+void DBImpl::DeleteObsoleteFileImpl(int job_id, const std::string& fname,
+                                    FileType type, uint64_t number,
+                                    uint32_t path_id) {
+  Status file_deletion_status;
   if (type == kTableFile) {
     file_deletion_status =
         DeleteSSTFile(&immutable_db_options_, fname, path_id);
@@ -488,8 +491,7 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state, bool schedule_only) {
       InstrumentedMutexLock guard_lock(&mutex_);
       SchedulePendingPurge(fname, type, number, path_id, state.job_id);
     } else {
-      DeleteObsoleteFileImpl(file_deletion_status, state.job_id, fname, type,
-                             number, path_id);
+      DeleteObsoleteFileImpl(state.job_id, fname, type, number, path_id);
     }
   }
 

@@ -114,7 +114,7 @@ to build a portable binary, add `PORTABLE=1` before your make commands, like thi
   * For building with MS Visual Studio 13 you will need Update 4 installed.
   * Read and follow the instructions at CMakeLists.txt
   * Or install via [vcpkg](https://github.com/microsoft/vcpkg) 
-       * run `vcpkg install rocksdb`
+       * run `vcpkg install rocksdb:x64-windows`
 
 * **AIX 6.1**
     * Install AIX Toolbox rpms with gcc

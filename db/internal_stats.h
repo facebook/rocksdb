@@ -86,14 +86,14 @@ class InternalStats {
   static const std::map<LevelStatType, LevelStat> compaction_level_stats;
 
   enum InternalCFStatsType {
-    LEVEL0_SLOWDOWN_TOTAL,
-    LEVEL0_SLOWDOWN_WITH_COMPACTION,
-    MEMTABLE_COMPACTION,
-    MEMTABLE_SLOWDOWN,
-    LEVEL0_NUM_FILES_TOTAL,
-    LEVEL0_NUM_FILES_WITH_COMPACTION,
-    SOFT_PENDING_COMPACTION_BYTES_LIMIT,
-    HARD_PENDING_COMPACTION_BYTES_LIMIT,
+    L0_FILE_COUNT_LIMIT_SLOWDOWNS,
+    LOCKED_L0_FILE_COUNT_LIMIT_SLOWDOWNS,
+    MEMTABLE_LIMIT_STOPS,
+    MEMTABLE_LIMIT_SLOWDOWNS,
+    L0_FILE_COUNT_LIMIT_STOPS,
+    LOCKED_L0_FILE_COUNT_LIMIT_STOPS,
+    PENDING_COMPACTION_BYTES_LIMIT_SLOWDOWNS,
+    PENDING_COMPACTION_BYTES_LIMIT_STOPS,
     WRITE_STALLS_ENUM_MAX,
     BYTES_FLUSHED,
     BYTES_INGESTED_ADD_FILE,
@@ -477,6 +477,8 @@ class InternalStats {
   bool HandleActualDelayedWriteRate(uint64_t* value, DBImpl* db,
                                     Version* version);
   bool HandleIsWriteStopped(uint64_t* value, DBImpl* db, Version* version);
+  bool HandleEstimateOldestKeyTime(uint64_t* value, DBImpl* db,
+                                   Version* version);
 
   // Total number of background errors encountered. Every time a flush task
   // or compaction task fails, this counter is incremented. The failure can
@@ -496,14 +498,14 @@ class InternalStats {
 class InternalStats {
  public:
   enum InternalCFStatsType {
-    LEVEL0_SLOWDOWN_TOTAL,
-    LEVEL0_SLOWDOWN_WITH_COMPACTION,
-    MEMTABLE_COMPACTION,
-    MEMTABLE_SLOWDOWN,
-    LEVEL0_NUM_FILES_TOTAL,
-    LEVEL0_NUM_FILES_WITH_COMPACTION,
-    SOFT_PENDING_COMPACTION_BYTES_LIMIT,
-    HARD_PENDING_COMPACTION_BYTES_LIMIT,
+    L0_FILE_COUNT_LIMIT_SLOWDOWNS,
+    LOCKED_L0_FILE_COUNT_LIMIT_SLOWDOWNS,
+    MEMTABLE_LIMIT_STOPS,
+    MEMTABLE_LIMIT_SLOWDOWNS,
+    L0_FILE_COUNT_LIMIT_STOPS,
+    LOCKED_L0_FILE_COUNT_LIMIT_STOPS,
+    PENDING_COMPACTION_BYTES_LIMIT_SLOWDOWNS,
+    PENDING_COMPACTION_BYTES_LIMIT_STOPS,
     WRITE_STALLS_ENUM_MAX,
     BYTES_FLUSHED,
     BYTES_INGESTED_ADD_FILE,

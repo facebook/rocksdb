@@ -23,6 +23,7 @@
 #ifdef OS_LINUX
 #include <sys/statfs.h>
 #include <sys/syscall.h>
+#include <sys/sysmacros.h>
 #endif
 #include <sys/time.h>
 #include <sys/types.h>
@@ -427,8 +428,6 @@ class PosixEnv : public Env {
       result->reset(new PosixWritableFile(fname, fd, no_mmap_writes_options));
     }
     return s;
-
-    return s;
   }
 
   virtual Status NewRandomRWFile(const std::string& fname,
@@ -590,6 +589,26 @@ class PosixEnv : public Env {
       result = IOError("while link file to " + target, src, errno);
     }
     return result;
+  }
+
+  virtual Status AreFilesSame(const std::string& first,
+                              const std::string& second, bool* res) override {
+    struct stat statbuf[2];
+    if (stat(first.c_str(), &statbuf[0]) != 0) {
+      return IOError("stat file", first, errno);
+    }
+    if (stat(second.c_str(), &statbuf[1]) != 0) {
+      return IOError("stat file", second, errno);
+    }
+
+    if (major(statbuf[0].st_dev) != major(statbuf[1].st_dev) ||
+        minor(statbuf[0].st_dev) != minor(statbuf[1].st_dev) ||
+        statbuf[0].st_ino != statbuf[1].st_ino) {
+      *res = false;
+    } else {
+      *res = true;
+    }
+    return Status::OK();
   }
 
   virtual Status LockFile(const std::string& fname, FileLock** lock) override {
@@ -813,6 +832,8 @@ class PosixEnv : public Env {
     // breaks TransactionLogIteratorStallAtLastRecord unit test. Fix the unit
     // test and make this false
     optimized.fallocate_with_keep_size = true;
+    optimized.writable_file_max_buffer_size =
+        db_options.writable_file_max_buffer_size;
     return optimized;
   }
 

@@ -90,23 +90,47 @@ struct CompressionOptions {
   int window_bits;
   int level;
   int strategy;
-  // Maximum size of dictionary used to prime the compression library. Currently
-  // this dictionary will be constructed by sampling the first output file in a
-  // subcompaction when the target level is bottommost. This dictionary will be
-  // loaded into the compression library before compressing/uncompressing each
-  // data block of subsequent files in the subcompaction. Effectively, this
-  // improves compression ratios when there are repetitions across data blocks.
-  // A value of 0 indicates the feature is disabled.
+
+  // Maximum size of dictionaries used to prime the compression library.
+  // Enabling dictionary can improve compression ratios when there are
+  // repetitions across data blocks.
+  //
+  // The dictionary is created by sampling the SST file data. If
+  // `zstd_max_train_bytes` is nonzero, the samples are passed through zstd's
+  // dictionary generator. Otherwise, the random samples are used directly as
+  // the dictionary.
+  //
+  // When compression dictionary is disabled, we compress and write each block
+  // before buffering data for the next one. When compression dictionary is
+  // enabled, we buffer all SST file data in-memory so we can sample it, as data
+  // can only be compressed and written after the dictionary has been finalized.
+  // So users of this feature may see increased memory usage.
+  //
   // Default: 0.
   uint32_t max_dict_bytes;
 
+  // Maximum size of training data passed to zstd's dictionary trainer. Using
+  // zstd's dictionary trainer can achieve even better compression ratio
+  // improvements than using `max_dict_bytes` alone.
+  //
+  // The training data will be used to generate a dictionary of max_dict_bytes.
+  //
+  // Default: 0.
+  uint32_t zstd_max_train_bytes;
+
   CompressionOptions()
-      : window_bits(-14), level(-1), strategy(0), max_dict_bytes(0) {}
-  CompressionOptions(int wbits, int _lev, int _strategy, int _max_dict_bytes)
+      : window_bits(-14),
+        level(-1),
+        strategy(0),
+        max_dict_bytes(0),
+        zstd_max_train_bytes(0) {}
+  CompressionOptions(int wbits, int _lev, int _strategy, int _max_dict_bytes,
+                     int _zstd_max_train_bytes)
       : window_bits(wbits),
         level(_lev),
         strategy(_strategy),
-        max_dict_bytes(_max_dict_bytes) {}
+        max_dict_bytes(_max_dict_bytes),
+        zstd_max_train_bytes(_zstd_max_train_bytes) {}
 };
 
 enum UpdateStatus {    // Return status For inplace update callback
@@ -411,8 +435,6 @@ struct AdvancedColumnFamilyOptions {
   // Turning this feature on or off for an existing DB can cause unexpected
   // LSM tree structure so it's not recommended.
   //
-  // NOTE: this option is experimental
-  //
   // Default: false
   bool level_compaction_dynamic_level_bytes = false;
 
@@ -462,6 +484,10 @@ struct AdvancedColumnFamilyOptions {
   CompactionOptionsUniversal compaction_options_universal;
 
   // The options for FIFO compaction style
+  //
+  // Dynamically changeable through SetOptions() API
+  // Dynamic change example:
+  // SetOption("compaction_options_fifo", "{max_table_files_size=100;ttl=2;}")
   CompactionOptionsFIFO compaction_options_fifo;
 
   // An iteration->Next() sequentially skips over keys with the same

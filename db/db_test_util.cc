@@ -465,7 +465,7 @@ Options DBTestBase::GetOptions(
       options.use_direct_io_for_flush_and_compaction = true;
       options.compaction_readahead_size = 2 * 1024 * 1024;
 #if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && \
-    !defined(OS_AIX)
+    !defined(OS_AIX) && !defined(OS_OPENBSD)
       rocksdb::SyncPoint::GetInstance()->SetCallBack(
           "NewWritableFile:O_DIRECT", [&](void* arg) {
             int* val = static_cast<int*>(arg);
@@ -486,7 +486,7 @@ Options DBTestBase::GetOptions(
     }
     case kConcurrentWALWrites: {
       // This options optimize 2PC commit path
-      options.concurrent_prepare = true;
+      options.two_write_queues = true;
       options.manual_wal_flush = true;
       break;
     }
@@ -665,6 +665,10 @@ Status DBTestBase::SingleDelete(const std::string& k) {
 
 Status DBTestBase::SingleDelete(int cf, const std::string& k) {
   return db_->SingleDelete(WriteOptions(), handles_[cf], k);
+}
+
+bool DBTestBase::SetPreserveDeletesSequenceNumber(SequenceNumber sn) {
+  return db_->SetPreserveDeletesSequenceNumber(sn);
 }
 
 std::string DBTestBase::Get(const std::string& k, const Snapshot* snapshot) {
@@ -1169,7 +1173,7 @@ void DBTestBase::validateNumberOfEntries(int numValues, int cf) {
   int seq = numValues;
   while (iter->Valid()) {
     ParsedInternalKey ikey;
-    ikey.sequence = -1;
+    ikey.clear();
     ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), true);
 
     // checks sequence number for updates

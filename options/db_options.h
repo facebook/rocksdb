@@ -55,12 +55,8 @@ struct ImmutableDBOptions {
   std::shared_ptr<WriteBufferManager> write_buffer_manager;
   DBOptions::AccessHint access_hint_on_compaction_start;
   bool new_table_reader_for_compaction_inputs;
-  size_t compaction_readahead_size;
   size_t random_access_max_buffer_size;
-  size_t writable_file_max_buffer_size;
   bool use_adaptive_mutex;
-  uint64_t bytes_per_sync;
-  uint64_t wal_bytes_per_sync;
   std::vector<std::shared_ptr<EventListener>> listeners;
   bool enable_thread_tracking;
   bool enable_pipelined_write;
@@ -79,7 +75,8 @@ struct ImmutableDBOptions {
   bool dump_malloc_stats;
   bool avoid_flush_during_recovery;
   bool allow_ingest_behind;
-  bool concurrent_prepare;
+  bool preserve_deletes;
+  bool two_write_queues;
   bool manual_wal_flush;
 };
 
@@ -94,11 +91,15 @@ struct MutableDBOptions {
   int base_background_compactions;
   int max_background_compactions;
   bool avoid_flush_during_shutdown;
+  size_t writable_file_max_buffer_size;
   uint64_t delayed_write_rate;
   uint64_t max_total_wal_size;
   uint64_t delete_obsolete_files_period_micros;
   unsigned int stats_dump_period_sec;
   int max_open_files;
+  uint64_t bytes_per_sync;
+  uint64_t wal_bytes_per_sync;
+  size_t compaction_readahead_size;
 };
 
 }  // namespace rocksdb

@@ -400,8 +400,7 @@ static bool isSSE42() {
   return false;
 #elif defined(__GNUC__) && defined(__x86_64__) && !defined(IOS_CROSS_COMPILE)
   uint32_t c_;
-  uint32_t d_;
-  __asm__("cpuid" : "=c"(c_), "=d"(d_) : "a"(1) : "ebx");
+  __asm__("cpuid" : "=c"(c_) : "a"(1) : "ebx", "edx");
   return c_ & (1U << 20);  // copied from CpuId.h in Folly.
 #elif defined(_WIN64)
   int info[4];
@@ -467,14 +466,16 @@ std::string IsFastCrc32Supported() {
   has_fast_crc = isSSE42();
   arch = "x86";
 #endif
-  if (has_fast_crc){
+  if (has_fast_crc) {
     fast_zero_msg.append("Supported on " + arch);
   }
-  fast_zero_msg.append("Not supported on " + arch);
-  return fast_zero_msg;  
+  else {
+    fast_zero_msg.append("Not supported on " + arch);
+  }
+  return fast_zero_msg;
 }
 
-Function ChosenExtend = Choose_Extend();
+static Function ChosenExtend = Choose_Extend();
 
 uint32_t Extend(uint32_t crc, const char* buf, size_t size) {
   return ChosenExtend(crc, buf, size);

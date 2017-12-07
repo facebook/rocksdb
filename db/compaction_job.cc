@@ -38,7 +38,6 @@
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/thread_status_util.h"
-#include "port/likely.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
@@ -264,15 +263,16 @@ void CompactionJob::AggregateStatistics() {
 
 CompactionJob::CompactionJob(
     int job_id, Compaction* compaction, const ImmutableDBOptions& db_options,
-    const EnvOptions& env_options, VersionSet* versions,
-    const std::atomic<bool>* shutting_down, LogBuffer* log_buffer,
+    const EnvOptions env_options, VersionSet* versions,
+    const std::atomic<bool>* shutting_down,
+    const SequenceNumber preserve_deletes_seqnum, LogBuffer* log_buffer,
     Directory* db_directory, Directory* output_directory, Statistics* stats,
     InstrumentedMutex* db_mutex, Status* db_bg_error,
     std::vector<SequenceNumber> existing_snapshots,
     SequenceNumber earliest_write_conflict_snapshot,
-    std::shared_ptr<Cache> table_cache, EventLogger* event_logger,
-    bool paranoid_file_checks, bool measure_io_stats, const std::string& dbname,
-    CompactionJobStats* compaction_job_stats)
+    const SnapshotChecker* snapshot_checker, std::shared_ptr<Cache> table_cache,
+    EventLogger* event_logger, bool paranoid_file_checks, bool measure_io_stats,
+    const std::string& dbname, CompactionJobStats* compaction_job_stats)
     : job_id_(job_id),
       compact_(new CompactionState(compaction)),
       compaction_job_stats_(compaction_job_stats),
@@ -281,8 +281,11 @@ CompactionJob::CompactionJob(
       db_options_(db_options),
       env_options_(env_options),
       env_(db_options.env),
+      env_optiosn_for_read_(
+          env_->OptimizeForCompactionTableRead(env_options, db_options_)),
       versions_(versions),
       shutting_down_(shutting_down),
+      preserve_deletes_seqnum_(preserve_deletes_seqnum),
       log_buffer_(log_buffer),
       db_directory_(db_directory),
       output_directory_(output_directory),
@@ -291,10 +294,12 @@ CompactionJob::CompactionJob(
       db_bg_error_(db_bg_error),
       existing_snapshots_(std::move(existing_snapshots)),
       earliest_write_conflict_snapshot_(earliest_write_conflict_snapshot),
+      snapshot_checker_(snapshot_checker),
       table_cache_(std::move(table_cache)),
       event_logger_(event_logger),
       paranoid_file_checks_(paranoid_file_checks),
-      measure_io_stats_(measure_io_stats) {
+      measure_io_stats_(measure_io_stats),
+      write_hint_(Env::WLTH_NOT_SET) {
   assert(log_buffer_ != nullptr);
   const auto* cfd = compact_->compaction->column_family_data();
   ThreadStatusUtil::SetColumnFamily(cfd, cfd->ioptions()->env,
@@ -365,6 +370,8 @@ void CompactionJob::Prepare() {
   assert(c->column_family_data()->current()->storage_info()
       ->NumLevelFiles(compact_->compaction->level()) > 0);
 
+  write_hint_ = c->column_family_data()->CalculateSSTWriteHint(
+    c->output_level());
   // Is this compaction producing files at the bottommost level?
   bottommost_level_ = c->bottommost_level();
 
@@ -674,7 +681,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   std::unique_ptr<RangeDelAggregator> range_del_agg(
       new RangeDelAggregator(cfd->internal_comparator(), existing_snapshots_));
   std::unique_ptr<InternalIterator> input(versions_->MakeInputIterator(
-      sub_compact->compaction, range_del_agg.get()));
+      sub_compact->compaction, range_del_agg.get(), env_optiosn_for_read_));
 
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_PROCESS_KV);
@@ -699,15 +706,18 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       sub_compact->compaction->mutable_cf_options();
 
   // To build compression dictionary, we sample the first output file, assuming
-  // it'll reach the maximum length, and then use the dictionary for compressing
-  // subsequent output files. The dictionary may be less than max_dict_bytes if
-  // the first output file's length is less than the maximum.
+  // it'll reach the maximum length. We optionally pass these samples through
+  // zstd's dictionary trainer, or just use them directly. Then, the dictionary
+  // is used for compressing subsequent output files in the same subcompaction.
+  const bool kUseZstdTrainer =
+      cfd->ioptions()->compression_opts.zstd_max_train_bytes > 0;
+  const size_t kSampleBytes =
+      kUseZstdTrainer ? cfd->ioptions()->compression_opts.zstd_max_train_bytes
+                      : cfd->ioptions()->compression_opts.max_dict_bytes;
   const int kSampleLenShift = 6;  // 2^6 = 64-byte samples
   std::set<size_t> sample_begin_offsets;
-  if (bottommost_level_ &&
-      cfd->ioptions()->compression_opts.max_dict_bytes > 0) {
-    const size_t kMaxSamples =
-        cfd->ioptions()->compression_opts.max_dict_bytes >> kSampleLenShift;
+  if (bottommost_level_ && kSampleBytes > 0) {
+    const size_t kMaxSamples = kSampleBytes >> kSampleLenShift;
     const size_t kOutFileLen = mutable_cf_options->MaxFileSizeForLevel(
         compact_->compaction->output_level());
     if (kOutFileLen != port::kMaxSizet) {
@@ -761,9 +771,10 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   Status status;
   sub_compact->c_iter.reset(new CompactionIterator(
       input.get(), cfd->user_comparator(), &merge, versions_->LastSequence(),
-      &existing_snapshots_, earliest_write_conflict_snapshot_, env_, false,
-      range_del_agg.get(), sub_compact->compaction, compaction_filter,
-      comp_event_listener, shutting_down_));
+      &existing_snapshots_, earliest_write_conflict_snapshot_,
+      snapshot_checker_, env_, false, range_del_agg.get(),
+      sub_compact->compaction, compaction_filter, comp_event_listener,
+      shutting_down_, preserve_deletes_seqnum_));
   auto c_iter = sub_compact->c_iter.get();
   c_iter->SeekToFirst();
   if (c_iter->Valid() &&
@@ -776,11 +787,11 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   }
   const auto& c_iter_stats = c_iter->iter_stats();
   auto sample_begin_offset_iter = sample_begin_offsets.cbegin();
-  // data_begin_offset and compression_dict are only valid while generating
+  // data_begin_offset and dict_sample_data are only valid while generating
   // dictionary from the first output file.
   size_t data_begin_offset = 0;
-  std::string compression_dict;
-  compression_dict.reserve(cfd->ioptions()->compression_opts.max_dict_bytes);
+  std::string dict_sample_data;
+  dict_sample_data.reserve(kSampleBytes);
 
   while (status.ok() && !cfd->IsDropped() && c_iter->Valid()) {
     // Invariant: c_iter.status() is guaranteed to be OK if c_iter->Valid()
@@ -852,7 +863,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
             data_elmt_copy_len =
                 data_end_offset - (data_begin_offset + data_elmt_copy_offset);
           }
-          compression_dict.append(&data_elmt.data()[data_elmt_copy_offset],
+          dict_sample_data.append(&data_elmt.data()[data_elmt_copy_offset],
                                   data_elmt_copy_len);
           if (sample_end_offset > data_end_offset) {
             // Didn't finish sample. Try to finish it with the next data_elmt.
@@ -907,9 +918,15 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       RecordDroppedKeys(range_del_out_stats,
                         &sub_compact->compaction_job_stats);
       if (sub_compact->outputs.size() == 1) {
-        // Use dictionary from first output file for compression of subsequent
-        // files.
-        sub_compact->compression_dict = std::move(compression_dict);
+        // Use samples from first output file to create dictionary for
+        // compression of subsequent files.
+        if (kUseZstdTrainer) {
+          sub_compact->compression_dict = ZSTD_TrainDictionary(
+              dict_sample_data, kSampleLenShift,
+              cfd->ioptions()->compression_opts.max_dict_bytes);
+        } else {
+          sub_compact->compression_dict = std::move(dict_sample_data);
+        }
       }
     }
   }
@@ -1040,6 +1057,7 @@ Status CompactionJob::FinishCompactionOutputFile(
   auto meta = &sub_compact->current_output()->meta;
   if (s.ok()) {
     Slice lower_bound_guard, upper_bound_guard;
+    std::string smallest_user_key;
     const Slice *lower_bound, *upper_bound;
     if (sub_compact->outputs.size() == 1) {
       // For the first output table, include range tombstones before the min key
@@ -1049,7 +1067,8 @@ Status CompactionJob::FinishCompactionOutputFile(
       // For subsequent output tables, only include range tombstones from min
       // key onwards since the previous file was extended to contain range
       // tombstones falling before min key.
-      lower_bound_guard = meta->smallest.user_key();
+      smallest_user_key = meta->smallest.user_key().ToString(false /*hex*/);
+      lower_bound_guard = Slice(smallest_user_key);
       lower_bound = &lower_bound_guard;
     } else {
       lower_bound = nullptr;
@@ -1067,16 +1086,18 @@ Status CompactionJob::FinishCompactionOutputFile(
     range_del_agg->AddToBuilder(sub_compact->builder.get(), lower_bound,
                                 upper_bound, meta, range_del_out_stats,
                                 bottommost_level_);
+    meta->marked_for_compaction = sub_compact->builder->NeedCompact();
   }
   const uint64_t current_entries = sub_compact->builder->NumEntries();
-  meta->marked_for_compaction = sub_compact->builder->NeedCompact();
   if (s.ok()) {
     s = sub_compact->builder->Finish();
   } else {
     sub_compact->builder->Abandon();
   }
   const uint64_t current_bytes = sub_compact->builder->FileSize();
-  meta->fd.file_size = current_bytes;
+  if (s.ok()) {
+    meta->fd.file_size = current_bytes;
+  }
   sub_compact->current_output()->finished = true;
   sub_compact->total_bytes += current_bytes;
 
@@ -1121,7 +1142,8 @@ Status CompactionJob::FinishCompactionOutputFile(
         nullptr /* range_del_agg */, nullptr,
         cfd->internal_stats()->GetFileReadHist(
             compact_->compaction->output_level()),
-        false);
+        false, nullptr /* arena */, false /* skip_filters */,
+        compact_->compaction->output_level());
     s = iter->status();
 
     if (s.ok() && paranoid_file_checks_) {
@@ -1144,17 +1166,24 @@ Status CompactionJob::FinishCompactionOutputFile(
                      meta->marked_for_compaction ? " (need compaction)" : "");
     }
   }
-  std::string fname = TableFileName(db_options_.db_paths, meta->fd.GetNumber(),
-                                    meta->fd.GetPathId());
+  std::string fname;
+  FileDescriptor output_fd;
+  if (meta != nullptr) {
+    fname = TableFileName(db_options_.db_paths, meta->fd.GetNumber(),
+                          meta->fd.GetPathId());
+    output_fd = meta->fd;
+  } else {
+    fname = "(nil)";
+  }
   EventHelpers::LogAndNotifyTableFileCreationFinished(
       event_logger_, cfd->ioptions()->listeners, dbname_, cfd->GetName(), fname,
-      job_id_, meta->fd, tp, TableFileCreationReason::kCompaction, s);
+      job_id_, output_fd, tp, TableFileCreationReason::kCompaction, s);
 
 #ifndef ROCKSDB_LITE
   // Report new file to SstFileManagerImpl
   auto sfm =
       static_cast<SstFileManagerImpl*>(db_options_.sst_file_manager.get());
-  if (sfm && meta->fd.GetPathId() == 0) {
+  if (sfm && meta != nullptr && meta->fd.GetPathId() == 0) {
     auto fn = TableFileName(cfd->ioptions()->db_paths, meta->fd.GetNumber(),
                             meta->fd.GetPathId());
     sfm->OnAddFile(fn);
@@ -1252,11 +1281,12 @@ Status CompactionJob::OpenCompactionOutputFile(
 #endif  // !ROCKSDB_LITE
   // Make the output file
   unique_ptr<WritableFile> writable_file;
-  EnvOptions opt_env_opts =
-      env_->OptimizeForCompactionTableWrite(env_options_, db_options_);
+#ifndef NDEBUG
+  bool syncpoint_arg = env_options_.use_direct_writes;
   TEST_SYNC_POINT_CALLBACK("CompactionJob::OpenCompactionOutputFile",
-                           &opt_env_opts.use_direct_writes);
-  Status s = NewWritableFile(env_, fname, &writable_file, opt_env_opts);
+                           &syncpoint_arg);
+#endif
+  Status s = NewWritableFile(env_, fname, &writable_file, env_options_);
   if (!s.ok()) {
     ROCKS_LOG_ERROR(
         db_options_.info_log,
@@ -1279,6 +1309,7 @@ Status CompactionJob::OpenCompactionOutputFile(
 
   sub_compact->outputs.push_back(out);
   writable_file->SetIOPriority(Env::IO_LOW);
+  writable_file->SetWriteLifeTimeHint(write_hint_);
   writable_file->SetPreallocationBlockSize(static_cast<size_t>(
       sub_compact->compaction->OutputFilePreallocationSize()));
   sub_compact->outfile.reset(new WritableFileWriter(

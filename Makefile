@@ -108,11 +108,9 @@ CFLAGS +=  -DHAVE_POWER8
 HAVE_POWER8=1
 endif
 
-# if we're compiling for release, compile without debug code (-DNDEBUG) and
-# don't treat warnings as errors
+# if we're compiling for release, compile without debug code (-DNDEBUG)
 ifeq ($(DEBUG_LEVEL),0)
 OPT += -DNDEBUG
-DISABLE_WARNING_AS_ERROR=1
 
 ifneq ($(USE_RTTI), 1)
 	CXXFLAGS += -fno-rtti
@@ -237,6 +235,11 @@ ifdef COMPILE_WITH_UBSAN
 	EXEC_LDFLAGS += -fsanitize=undefined
 	PLATFORM_CCFLAGS += -fsanitize=undefined -DROCKSDB_UBSAN_RUN
 	PLATFORM_CXXFLAGS += -fsanitize=undefined -DROCKSDB_UBSAN_RUN
+endif
+
+ifdef ROCKSDB_VALGRIND_RUN
+	PLATFORM_CCFLAGS += -DROCKSDB_VALGRIND_RUN
+	PLATFORM_CXXFLAGS += -DROCKSDB_VALGRIND_RUN
 endif
 
 ifndef DISABLE_JEMALLOC
@@ -378,6 +381,7 @@ TESTS = \
 	db_wal_test \
 	db_block_cache_test \
 	db_test \
+	db_blob_index_test \
 	db_bloom_filter_test \
 	db_iter_test \
 	db_log_iter_test \
@@ -741,7 +745,7 @@ gen_parallel_tests:
 # 107.816 PASS t/DBTest.EncodeDecompressedBlockSizeTest
 #
 slow_test_regexp = \
-	^t/run-table_test-HarnessTest.Randomized$$|^t/run-db_test-.*(?:FileCreationRandomFailure|EncodeDecompressedBlockSizeTest)$$|^.*RecoverFromCorruptedWALWithoutFlush$$
+	^.*SnapshotConcurrentAccessTest.*$$|^t/run-table_test-HarnessTest.Randomized$$|^t/run-db_test-.*(?:FileCreationRandomFailure|EncodeDecompressedBlockSizeTest)$$|^.*RecoverFromCorruptedWALWithoutFlush$$
 prioritize_long_running_tests =						\
   perl -pe 's,($(slow_test_regexp)),100 $$1,'				\
     | sort -k1,1gr							\
@@ -871,7 +875,7 @@ ubsan_crash_test:
 	$(MAKE) clean
 
 valgrind_test:
-	DISABLE_JEMALLOC=1 $(MAKE) valgrind_check
+	ROCKSDB_VALGRIND_RUN=1 DISABLE_JEMALLOC=1 $(MAKE) valgrind_check
 
 valgrind_check: $(TESTS)
 	$(MAKE) DRIVER="$(VALGRIND_VER) $(VALGRIND_OPTS)" gen_parallel_tests
@@ -1104,6 +1108,9 @@ db_test: db/db_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 db_test2: db/db_test2.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+db_blob_index_test: db/db_blob_index_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 db_block_cache_test: db/db_block_cache_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
@@ -1268,7 +1275,7 @@ env_test: env/env_test.o $(LIBOBJECTS) $(TESTHARNESS)
 fault_injection_test: db/fault_injection_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-rate_limiter_test: util/rate_limiter_test.o $(LIBOBJECTS) $(TESTHARNESS)
+rate_limiter_test: util/rate_limiter_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 delete_scheduler_test: util/delete_scheduler_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -1689,6 +1696,14 @@ rocksdbjavastaticreleasedocker: rocksdbjavastatic
 	cd java;jar -cf target/$(ROCKSDB_JAR_ALL) HISTORY*.md
 	cd java/target;jar -uf $(ROCKSDB_JAR_ALL) librocksdbjni-*.so librocksdbjni-*.jnilib
 	cd java/target/classes;jar -uf ../$(ROCKSDB_JAR_ALL) org/rocksdb/*.class org/rocksdb/util/*.class
+
+rocksdbjavastaticdockerppc64le:
+	mkdir -p java/target
+	DOCKER_LINUX_PPC64LE_CONTAINER=`docker ps -aqf name=rocksdb_linux_ppc64le-be`; \
+	if [ -z "$$DOCKER_LINUX_PPC64LE_CONTAINER" ]; then \
+		docker container create --attach stdin --attach stdout --attach stderr --volume `pwd`:/rocksdb-host --name rocksdb_linux_ppc64le-be evolvedbinary/rocksjava:centos7_ppc64le-be /rocksdb-host/java/crossbuild/docker-build-linux-centos.sh; \
+	fi
+	docker start -a rocksdb_linux_ppc64le-be
 
 rocksdbjavastaticpublish: rocksdbjavastaticrelease rocksdbjavastaticpublishcentral
 

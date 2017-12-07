@@ -1,13 +1,16 @@
 # This script enables you running RocksDB tests by running
 # All the tests concurrently and utilizing all the cores
 Param(
-  [switch]$EnableJE = $false,  # Look for and use _je executable, append _je to listed exclusions
+  [switch]$EnableJE = $false,  # Look for and use test executable, append _je to listed exclusions
   [switch]$RunAll = $false,    # Will attempt discover all *_test[_je].exe binaries and run all
                                # of them as Google suites. I.e. It will run test cases concurrently
                                # except those mentioned as $Run, those will run as individual test cases
                                # And any execlued with $ExcludeExes or $ExcludeCases
                                # It will also not run any individual test cases
                                # excluded but $ExcludeCasese
+  [switch]$RunAllExe = $false, # Look for and use test exdcutables, append _je to exclusions automatically
+                               # It will attempt to run them in parallel w/o breaking them up on individual
+                               # test cases. Those listed with $ExcludeExes will be excluded
   [string]$SuiteRun = "",      # Split test suites in test cases and run in parallel, not compatible with $RunAll
   [string]$Run = "",           # Run specified executables in parallel but do not split to test cases
   [string]$ExcludeCases = "",  # Exclude test cases, expects a comma separated list, no spaces
@@ -39,10 +42,15 @@ $RunOnly.Add("compact_on_deletion_collector_test") | Out-Null
 $RunOnly.Add("merge_test") | Out-Null
 $RunOnly.Add("stringappend_test") | Out-Null # Apparently incorrectly written
 $RunOnly.Add("backupable_db_test") | Out-Null # Disabled
-
+$RunOnly.Add("timer_queue_test") | Out-Null # Not a gtest
 
 if($RunAll -and $SuiteRun -ne "") {
     Write-Error "$RunAll and $SuiteRun are not compatible"
+    exit 1
+}
+
+if($RunAllExe -and $Run -ne "") {
+    Write-Error "$RunAllExe and $Run are not compatible"
     exit 1
 }
 
@@ -131,12 +139,8 @@ function ExtractTestCases([string]$GTestExe, $HashTable) {
 
       # Leading whitespace is fine
       $l = $l -replace '^\s+',''
-      # but no whitespace any other place
-      if($l -match "\s+") {
-        continue
-      }
       # Trailing dot is a test group but no whitespace
-      elseif ( $l -match "\.$" ) {
+      if ($l -match "\.$" -and $l -notmatch "\s+") {
         $Group = $l
       }  else {
         # Otherwise it is a test name, remove leading space
@@ -223,18 +227,48 @@ $TestExes = [ordered]@{}
 if($Run -ne "") {
 
   $test_list = $Run -split ' '
-
   ForEach($t in $test_list) {
 
     if($EnableJE) {
       $t += "_je"
     }
-
     MakeAndAdd -token $t -HashTable $TestExes
   }
 
   if($TestExes.Count -lt 1) {
      Write-Error "Failed to extract tests from $Run"
+     exit 1
+  }
+} elseif($RunAllExe) {
+  # Discover all the test binaries
+  if($EnableJE) {
+    $pattern = "*_test_je.exe"
+  } else {
+    $pattern = "*_test.exe"
+  }
+
+  $search_path = -join ($BinariesFolder, $pattern)
+  Write-Host "Binaries Search Path: $search_path"
+
+  $DiscoveredExe = @()
+  dir -Path $search_path | ForEach-Object {
+     $DiscoveredExe += ($_.Name)     
+  }
+
+  # Remove exclusions
+  ForEach($e in $DiscoveredExe) {
+    $e = $e -replace '.exe$', ''
+    $bare_name = $e -replace '_je$', ''
+
+    if($ExcludeExesSet.Contains($bare_name)) {
+      Write-Warning "Test $e is excluded"
+      continue
+    }
+    MakeAndAdd -token $e -HashTable $TestExes
+  }
+
+  if($TestExes.Count -lt 1) {
+     Write-Error "Failed to discover test executables"
      exit 1
   }
 }
@@ -245,16 +279,13 @@ $CasesToRun = [ordered]@{}
 if($SuiteRun -ne "") {
   $suite_list = $SuiteRun -split ' '
   ProcessSuites -ListOfSuites $suite_list -HashOfHashes $CasesToRun
-}
-
-if($RunAll) {
+} elseif ($RunAll) {
 # Discover all the test binaries
   if($EnableJE) {
     $pattern = "*_test_je.exe"
   } else {
     $pattern = "*_test.exe"
   }
-
 
   $search_path = -join ($BinariesFolder, $pattern)
   Write-Host "Binaries Search Path: $search_path"
@@ -286,8 +317,6 @@ if($RunAll) {
   ProcessSuites -ListOfSuites $ListOfSuites -HashOfHashes $CasesToRun
 }
 
-
-Write-Host "Attempting to start: $NumTestsToStart tests"
 
 # Invoke a test with a filter and redirect all output
 $InvokeTestCase = {
@@ -365,6 +394,7 @@ function RunJobs($Suites, $TestCmds, [int]$ConcurrencyVal)
                  break
                }
 
+              Write-Host "Starting $exe_name"
               [string]$Exe =  -Join ($BinariesFolder, $exe_name)
               $job = Start-Job -Name $exe_name -ScriptBlock $InvokeTestAsync -ArgumentList @($Exe,$log_path)
               $JobToLog.Add($job, $log_path)

@@ -19,10 +19,10 @@ uint64_t DBImpl::TEST_GetLevel0TotalSize() {
   return default_cf_handle_->cfd()->current()->storage_info()->NumLevelBytes(0);
 }
 
-void DBImpl::TEST_HandleWALFull() {
+void DBImpl::TEST_SwitchWAL() {
   WriteContext write_context;
   InstrumentedMutexLock l(&mutex_);
-  HandleWALFull(&write_context);
+  SwitchWAL(&write_context);
 }
 
 int64_t DBImpl::TEST_MaxNextLevelOverlappingBytes(
@@ -60,6 +60,10 @@ uint64_t DBImpl::TEST_Current_Manifest_FileNo() {
   return versions_->manifest_file_number();
 }
 
+uint64_t DBImpl::TEST_Current_Next_FileNo() {
+  return versions_->current_next_file_number();
+}
+
 Status DBImpl::TEST_CompactRange(int level, const Slice* begin,
                                  const Slice* end,
                                  ColumnFamilyHandle* column_family,
@@ -78,6 +82,15 @@ Status DBImpl::TEST_CompactRange(int level, const Slice* begin,
           : level + 1;
   return RunManualCompaction(cfd, level, output_level, 0, begin, end, true,
                              disallow_trivial_move);
+}
+
+Status DBImpl::TEST_SwitchMemtable(ColumnFamilyData* cfd) {
+  WriteContext write_context;
+  InstrumentedMutexLock l(&mutex_);
+  if (cfd == nullptr) {
+    cfd = default_cf_handle_->cfd();
+  }
+  return SwitchMemtable(cfd, &write_context);
 }
 
 Status DBImpl::TEST_FlushMemTable(bool wait, ColumnFamilyHandle* cfh) {
@@ -194,6 +207,14 @@ int DBImpl::TEST_BGCompactionsAllowed() const {
 int DBImpl::TEST_BGFlushesAllowed() const {
   InstrumentedMutexLock l(&mutex_);
   return GetBGJobLimits().max_flushes;
+}
+
+SequenceNumber DBImpl::TEST_GetLastVisibleSequence() const {
+  if (last_seq_same_as_publish_seq_) {
+    return versions_->LastSequence();
+  } else {
+    return versions_->LastAllocatedSequence();
+  }
 }
 
 }  // namespace rocksdb

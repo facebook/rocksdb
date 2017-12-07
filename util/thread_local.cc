@@ -38,7 +38,11 @@ class StaticMeta;
 //     | thread 3 |    void*   |    void*   |    void*   | <- ThreadData
 //     ---------------------------------------------------
 struct ThreadData {
-  explicit ThreadData(ThreadLocalPtr::StaticMeta* _inst) : entries(), inst(_inst) {}
+  explicit ThreadData(ThreadLocalPtr::StaticMeta* _inst)
+    : entries(),
+      next(nullptr),
+      prev(nullptr),
+      inst(_inst) {}
   std::vector<Entry> entries;
   ThreadData* next;
   ThreadData* prev;
@@ -174,7 +178,7 @@ namespace wintlscleanup {
 
 // This is set to OnThreadExit in StaticMeta singleton constructor
 UnrefHandler thread_local_inclass_routine = nullptr;
-pthread_key_t thread_local_key = -1;
+pthread_key_t thread_local_key = pthread_key_t (-1);
 
 // Static callback function to call with each thread termination.
 void NTAPI WinOnThreadExit(PVOID module, DWORD reason, PVOID reserved) {
@@ -300,7 +304,10 @@ void ThreadLocalPtr::StaticMeta::OnThreadExit(void* ptr) {
   delete tls;
 }
 
-ThreadLocalPtr::StaticMeta::StaticMeta() : next_instance_id_(0), head_(this) {
+ThreadLocalPtr::StaticMeta::StaticMeta()
+  : next_instance_id_(0),
+    head_(this),
+    pthread_key_(0) {
   if (pthread_key_create(&pthread_key_, &OnThreadExit) != 0) {
     abort();
   }

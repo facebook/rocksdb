@@ -17,7 +17,8 @@ extern bool SaveValue(void* arg, const ParsedInternalKey& parsed_key,
 
 CompactedDBImpl::CompactedDBImpl(
   const DBOptions& options, const std::string& dbname)
-  : DBImpl(options, dbname) {
+  : DBImpl(options, dbname), cfd_(nullptr), version_(nullptr),
+    user_comparator_(nullptr) {
 }
 
 CompactedDBImpl::~CompactedDBImpl() {
@@ -93,6 +94,7 @@ std::vector<Status> CompactedDBImpl::MultiGet(const ReadOptions& options,
 }
 
 Status CompactedDBImpl::Init(const Options& options) {
+  SuperVersionContext sv_context(/* create_superversion */ true);
   mutex_.Lock();
   ColumnFamilyDescriptor cf(kDefaultColumnFamilyName,
                             ColumnFamilyOptions(options));
@@ -100,9 +102,10 @@ Status CompactedDBImpl::Init(const Options& options) {
   if (s.ok()) {
     cfd_ = reinterpret_cast<ColumnFamilyHandleImpl*>(
               DefaultColumnFamily())->cfd();
-    delete cfd_->InstallSuperVersion(new SuperVersion(), &mutex_);
+    cfd_->InstallSuperVersion(&sv_context, &mutex_);
   }
   mutex_.Unlock();
+  sv_context.Clean();
   if (!s.ok()) {
     return s;
   }

@@ -39,14 +39,22 @@ jlong Java_org_rocksdb_WriteBatchWithIndex_newWriteBatchWithIndex__Z(
 /*
  * Class:     org_rocksdb_WriteBatchWithIndex
  * Method:    newWriteBatchWithIndex
- * Signature: (JIZ)J
+ * Signature: (JZIZ)J
  */
-jlong Java_org_rocksdb_WriteBatchWithIndex_newWriteBatchWithIndex__JIZ(
+jlong Java_org_rocksdb_WriteBatchWithIndex_newWriteBatchWithIndex__JZIZ(
     JNIEnv* env, jclass jcls, jlong jfallback_index_comparator_handle,
-    jint jreserved_bytes, jboolean joverwrite_key) {
+    jboolean is_direct, jint jreserved_bytes, jboolean joverwrite_key) {
+rocksdb::Comparator *fallback_comparator = nullptr;
+if(is_direct) {
+  fallback_comparator =
+      reinterpret_cast<rocksdb::DirectComparatorJniCallback*>(jfallback_index_comparator_handle);
+} else {
+  fallback_comparator =
+      reinterpret_cast<rocksdb::ComparatorJniCallback*>(jfallback_index_comparator_handle);
+}
   auto* wbwi =
       new rocksdb::WriteBatchWithIndex(
-          reinterpret_cast<rocksdb::Comparator*>(jfallback_index_comparator_handle),
+          fallback_comparator,
           static_cast<size_t>(jreserved_bytes), static_cast<bool>(joverwrite_key));
   return reinterpret_cast<jlong>(wbwi);
 }
@@ -487,6 +495,29 @@ void Java_org_rocksdb_WBWIRocksIterator_seek0(
       reinterpret_cast<char*>(target), jtarget_len);
 
   it->Seek(target_slice);
+
+  env->ReleaseByteArrayElements(jtarget, target, JNI_ABORT);
+}
+
+/*
+ * Class:     org_rocksdb_WBWIRocksIterator
+ * Method:    seekForPrev0
+ * Signature: (J[BI)V
+ */
+void Java_org_rocksdb_WBWIRocksIterator_seekForPrev0(
+    JNIEnv* env, jobject jobj, jlong handle, jbyteArray jtarget,
+    jint jtarget_len) {
+  auto* it = reinterpret_cast<rocksdb::WBWIIterator*>(handle);
+  jbyte* target = env->GetByteArrayElements(jtarget, nullptr);
+  if(target == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return;
+  }
+
+  rocksdb::Slice target_slice(
+      reinterpret_cast<char*>(target), jtarget_len);
+
+  it->SeekForPrev(target_slice);
 
   env->ReleaseByteArrayElements(jtarget, target, JNI_ABORT);
 }

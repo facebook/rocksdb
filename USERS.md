@@ -5,12 +5,14 @@ At Facebook, we use RocksDB as storage engines in multiple data management servi
 
 1. MyRocks -- https://github.com/MySQLOnRocksDB/mysql-5.6
 2. MongoRocks -- https://github.com/mongodb-partners/mongo-rocks
-3. ZippyDB --  Facebook's distributed key-value store with Paxos-style replication, built on top of RocksDB.[*] https://www.youtube.com/watch?v=DfiN7pG0D0khtt
-4. Laser -- Laser is a high query throughput, low (millisecond) latency, key-value storage service built on top of RocksDB.[*]
+3. ZippyDB --  Facebook's distributed key-value store with Paxos-style replication, built on top of RocksDB.[1] https://www.youtube.com/watch?v=DfiN7pG0D0khtt
+4. Laser -- Laser is a high query throughput, low (millisecond) latency, key-value storage service built on top of RocksDB.[1]
 4. Dragon -- a distributed graph query engine. https://code.facebook.com/posts/1737605303120405/dragon-a-distributed-graph-query-engine/
-5. Stylus -- a low-level stream processing framework writtenin C++.[*]
+5. Stylus -- a low-level stream processing framework writtenin C++.[1]
+6. LogDevice -- a distributed data store for logs [2]
 
-[*] https://research.facebook.com/publications/realtime-data-processing-at-facebook/
+[1] https://research.facebook.com/publications/realtime-data-processing-at-facebook/
+[2] https://code.facebook.com/posts/357056558062811/logdevice-a-distributed-data-store-for-logs/
 
 ## LinkedIn
 Two different use cases at Linkedin are using RocksDB as a storage engine:
@@ -83,3 +85,6 @@ quasardb uses a heavily tuned RocksDB as its persistence layer.
 
 ## LzLabs
 LzLabs is using RocksDB as a storage engine in their multi-database distributed framework to store application configuration and user data.
+
+## ProfaneDB
+[ProfaneDB](https://profanedb.gitlab.io/) is a database for Protocol Buffers, and uses RocksDB for storage. It is accessible via gRPC, and the schema is defined using directly `.proto` files.

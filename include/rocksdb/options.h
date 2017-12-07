@@ -205,8 +205,7 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   CompressionType compression;
 
   // Compression algorithm that will be used for the bottommost level that
-  // contain files. If level-compaction is used, this option will only affect
-  // levels after base level.
+  // contain files.
   //
   // Default: kDisableCompressionOption (Disabled)
   CompressionType bottommost_compression = kDisableCompressionOption;
@@ -888,12 +887,24 @@ struct DBOptions {
   // Immutable.
   bool allow_ingest_behind = false;
 
+  // Needed to support differential snapshots.
+  // If set to true then DB will only process deletes with sequence number
+  // less than what was set by SetPreserveDeletesSequenceNumber(uint64_t ts).
+  // Clients are responsible to periodically call this method to advance
+  // the cutoff time. If this method is never called and preserve_deletes
+  // is set to true NO deletes will ever be processed.
+  // At the moment this only keeps normal deletes, SingleDeletes will
+  // not be preserved.
+  // DEFAULT: false
+  // Immutable (TODO: make it dynamically changeable)
+  bool preserve_deletes = false;
+
   // If enabled it uses two queues for writes, one for the ones with
   // disable_memtable and one for the ones that also write to memtable. This
   // allows the memtable writes not to lag behind other writes. It can be used
   // to optimize MySQL 2PC in which only the commits, which are serial, write to
   // memtable.
-  bool concurrent_prepare = false;
+  bool two_write_queues = false;
 
   // If true WAL is not flushed automatically after each write. Instead it
   // relies on manual invocation of FlushWAL to write the WAL buffer to its
@@ -961,14 +972,24 @@ struct ReadOptions {
   // Default: nullptr
   const Snapshot* snapshot;
 
+  // `iterate_lower_bound` defines the smallest key at which the backward
+  // iterator can return an entry. Once the bound is passed, Valid() will be
+  // false. `iterate_lower_bound` is inclusive ie the bound value is a valid
+  // entry.
+  //
+  // If prefix_extractor is not null, the Seek target and `iterate_lower_bound`
+  // need to have the same prefix. This is because ordering is not guaranteed
+  // outside of prefix domain.
+  //
+  // Default: nullptr
+  const Slice* iterate_lower_bound;
+
   // "iterate_upper_bound" defines the extent upto which the forward iterator
   // can returns entries. Once the bound is reached, Valid() will be false.
   // "iterate_upper_bound" is exclusive ie the bound value is
   // not a valid entry.  If iterator_extractor is not null, the Seek target
   // and iterator_upper_bound need to have the same prefix.
   // This is because ordering is not guaranteed outside of prefix domain.
-  // There is no lower bound on the iterator. If needed, that can be easily
-  // implemented.
   //
   // Default: nullptr
   const Slice* iterate_upper_bound;
@@ -1053,6 +1074,21 @@ struct ReadOptions {
   // Default: false
   bool ignore_range_deletions;
 
+  // A callback to determine whether relevant keys for this scan exist in a
+  // given table based on the table's properties. The callback is passed the
+  // properties of each table during iteration. If the callback returns false,
+  // the table will not be scanned. This option only affects Iterators and has
+  // no impact on point lookups.
+  // Default: empty (every table will be scanned)
+  std::function<bool(const TableProperties&)> table_filter;
+
+  // Needed to support differential snapshots. Has 2 effects:
+  // 1) Iterator will skip all internal keys with seqnum < iter_start_seqnum
+  // 2) if this param > 0 iterator will return INTERNAL keys instead of
+  //    user keys; e.g. return tombstones as well.
+  // Default: 0 (don't filter by seqnum, return user keys)
+  SequenceNumber iter_start_seqnum;
+
   ReadOptions();
   ReadOptions(bool cksum, bool cache);
 };
@@ -1079,6 +1115,7 @@ struct WriteOptions {
 
   // If true, writes will not first go to the write ahead log,
   // and the write may got lost after a crash.
+  // Default: false
   bool disableWAL;
 
   // If true and if user is trying to write to column families that don't exist
@@ -1089,6 +1126,7 @@ struct WriteOptions {
 
   // If true and we need to wait or sleep for the write request, fails
   // immediately with Status::Incomplete().
+  // Default: false
   bool no_slowdown;
 
   // If true, this write request is of lower priority if compaction is

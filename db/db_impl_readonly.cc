@@ -57,6 +57,7 @@ Iterator* DBImplReadOnly::NewIterator(const ReadOptions& read_options,
   auto cfd = cfh->cfd();
   SuperVersion* super_version = cfd->GetSuperVersion()->Ref();
   SequenceNumber latest_snapshot = versions_->LastSequence();
+  ReadCallback* read_callback = nullptr;  // No read callback provided.
   auto db_iter = NewArenaWrappedDbIterator(
       env_, read_options, *cfd->ioptions(),
       (read_options.snapshot != nullptr
@@ -64,7 +65,7 @@ Iterator* DBImplReadOnly::NewIterator(const ReadOptions& read_options,
                  ->number_
            : latest_snapshot),
       super_version->mutable_cf_options.max_sequential_skip_in_iterations,
-      super_version->version_number);
+      super_version->version_number, read_callback);
   auto internal_iter =
       NewInternalIterator(read_options, cfd, super_version, db_iter->GetArena(),
                           db_iter->GetRangeDelAggregator());
@@ -76,6 +77,7 @@ Status DBImplReadOnly::NewIterators(
     const ReadOptions& read_options,
     const std::vector<ColumnFamilyHandle*>& column_families,
     std::vector<Iterator*>* iterators) {
+  ReadCallback* read_callback = nullptr;  // No read callback provided.
   if (iterators == nullptr) {
     return Status::InvalidArgument("iterators not allowed to be nullptr");
   }
@@ -93,7 +95,7 @@ Status DBImplReadOnly::NewIterators(
                    ->number_
              : latest_snapshot),
         sv->mutable_cf_options.max_sequential_skip_in_iterations,
-        sv->version_number);
+        sv->version_number, read_callback);
     auto* internal_iter =
         NewInternalIterator(read_options, cfd, sv, db_iter->GetArena(),
                             db_iter->GetRangeDelAggregator());
@@ -140,6 +142,7 @@ Status DB::OpenForReadOnly(
   *dbptr = nullptr;
   handles->clear();
 
+  SuperVersionContext sv_context(/* create_superversion */ true);
   DBImplReadOnly* impl = new DBImplReadOnly(db_options, dbname);
   impl->mutex_.Lock();
   Status s = impl->Recover(column_families, true /* read only */,
@@ -158,10 +161,12 @@ Status DB::OpenForReadOnly(
   }
   if (s.ok()) {
     for (auto cfd : *impl->versions_->GetColumnFamilySet()) {
-      delete cfd->InstallSuperVersion(new SuperVersion(), &impl->mutex_);
+      sv_context.NewSuperVersion();
+      cfd->InstallSuperVersion(&sv_context, &impl->mutex_);
     }
   }
   impl->mutex_.Unlock();
+  sv_context.Clean();
   if (s.ok()) {
     *dbptr = impl;
     for (auto* h : *handles) {

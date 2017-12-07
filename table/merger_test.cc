@@ -15,12 +15,18 @@ namespace rocksdb {
 class MergerTest : public testing::Test {
  public:
   MergerTest()
-      : rnd_(3), merging_iterator_(nullptr), single_iterator_(nullptr) {}
+      : icomp_(BytewiseComparator()),
+        rnd_(3),
+        merging_iterator_(nullptr),
+        single_iterator_(nullptr) {}
   ~MergerTest() = default;
   std::vector<std::string> GenerateStrings(size_t len, int string_len) {
     std::vector<std::string> ret;
+
     for (size_t i = 0; i < len; ++i) {
-      ret.push_back(test::RandomHumanReadableString(&rnd_, string_len));
+      InternalKey ik(test::RandomHumanReadableString(&rnd_, string_len), 0,
+                     ValueType::kTypeValue);
+      ret.push_back(ik.Encode().ToString(false));
     }
     return ret;
   }
@@ -37,7 +43,11 @@ class MergerTest : public testing::Test {
     }
   }
 
-  void SeekToRandom() { Seek(test::RandomHumanReadableString(&rnd_, 5)); }
+  void SeekToRandom() {
+    InternalKey ik(test::RandomHumanReadableString(&rnd_, 5), 0,
+                   ValueType::kTypeValue);
+    Seek(ik.Encode().ToString(false));
+  }
 
   void Seek(std::string target) {
     merging_iterator_->Seek(target);
@@ -96,11 +106,12 @@ class MergerTest : public testing::Test {
     }
 
     merging_iterator_.reset(
-        NewMergingIterator(BytewiseComparator(), &small_iterators[0],
+        NewMergingIterator(&icomp_, &small_iterators[0],
                            static_cast<int>(small_iterators.size())));
     single_iterator_.reset(new test::VectorIterator(all_keys_));
   }
 
+  InternalKeyComparator icomp_;
   Random rnd_;
   std::unique_ptr<InternalIterator> merging_iterator_;
   std::unique_ptr<InternalIterator> single_iterator_;

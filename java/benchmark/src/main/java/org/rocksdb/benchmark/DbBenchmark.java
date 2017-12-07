@@ -543,6 +543,7 @@ public class DbBenchmark {
         (Integer)flags_.get(Flag.max_background_compactions));
     options.setMaxBackgroundFlushes(
         (Integer)flags_.get(Flag.max_background_flushes));
+    options.setMaxBackgroundJobs((Integer) flags_.get(Flag.max_background_jobs));
     options.setMaxOpenFiles(
         (Integer)flags_.get(Flag.open_files));
     options.setUseFsync(
@@ -1113,6 +1114,14 @@ public class DbBenchmark {
         "The maximum number of concurrent background flushes\n" +
         "\tthat can occur in parallel.") {
       @Override public Object parseValue(String value) {
+        return Integer.parseInt(value);
+      }
+    },
+    max_background_jobs(defaultOptions_.maxBackgroundJobs(),
+        "The maximum number of concurrent background jobs\n"
+            + "\tthat can occur in parallel.") {
+      @Override
+      public Object parseValue(String value) {
         return Integer.parseInt(value);
       }
     },

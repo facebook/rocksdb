@@ -22,13 +22,6 @@ bool CassandraValueMergeOperator::FullMergeV2(
     MergeOperationOutput* merge_out) const {
   // Clear the *new_value for writing.
   merge_out->new_value.clear();
-
-  if (merge_in.existing_value == nullptr && merge_in.operand_list.size() == 1) {
-    // Only one operand
-    merge_out->existing_operand = merge_in.operand_list.back();
-    return true;
-  }
-
   std::vector<RowValue> row_values;
   if (merge_in.existing_value) {
     row_values.push_back(

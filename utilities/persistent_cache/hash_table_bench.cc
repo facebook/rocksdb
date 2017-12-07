@@ -10,7 +10,6 @@
 #include <cstdio>
 int main() { fprintf(stderr, "Please install gflags to run tools\n"); }
 #else
-#include <gflags/gflags.h>
 
 #include <atomic>
 #include <functional>
@@ -19,6 +18,7 @@ int main() { fprintf(stderr, "Please install gflags to run tools\n"); }
 
 #include "port/port_posix.h"
 #include "rocksdb/env.h"
+#include "util/gflags_compat.h"
 #include "util/mutexlock.h"
 #include "utilities/persistent_cache/hash_table.h"
 
@@ -272,9 +272,9 @@ class GranularLockImpl : public HashTableImpl<size_t, string> {
 // main
 //
 int main(int argc, char** argv) {
-  GFLAGS::SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
-                          " [OPTIONS]...");
-  GFLAGS::ParseCommandLineFlags(&argc, &argv, false);
+  GFLAGS_NAMESPACE::SetUsageMessage(std::string("\nUSAGE:\n") +
+                                    std::string(argv[0]) + " [OPTIONS]...");
+  GFLAGS_NAMESPACE::ParseCommandLineFlags(&argc, &argv, false);
 
   //
   // Micro benchmark unordered_map

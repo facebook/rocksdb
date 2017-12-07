@@ -28,9 +28,9 @@ enum Direction {
 
 void VerifyRangeDels(const std::vector<RangeTombstone>& range_dels,
                      const std::vector<ExpectedPoint>& expected_points) {
+  auto icmp = InternalKeyComparator(BytewiseComparator());
   // Test same result regardless of which order the range deletions are added.
   for (Direction dir : {kForward, kReverse}) {
-    auto icmp = InternalKeyComparator(BytewiseComparator());
     RangeDelAggregator range_del_agg(icmp, {} /* snapshots */, true);
     std::vector<std::string> keys, values;
     for (const auto& range_del : range_dels) {
@@ -60,6 +60,27 @@ void VerifyRangeDels(const std::vector<RangeTombstone>& range_dels,
             parsed_key,
             RangeDelAggregator::RangePositioningMode::kForwardTraversal));
       }
+    }
+  }
+
+  RangeDelAggregator range_del_agg(icmp, {} /* snapshots */,
+                                   false /* collapse_deletions */);
+  std::vector<std::string> keys, values;
+  for (const auto& range_del : range_dels) {
+    auto key_and_value = range_del.Serialize();
+    keys.push_back(key_and_value.first.Encode().ToString());
+    values.push_back(key_and_value.second.ToString());
+  }
+  std::unique_ptr<test::VectorIterator> range_del_iter(
+      new test::VectorIterator(keys, values));
+  range_del_agg.AddTombstones(std::move(range_del_iter));
+  for (size_t i = 1; i < expected_points.size(); ++i) {
+    bool overlapped = range_del_agg.IsRangeOverlapped(
+        expected_points[i - 1].begin, expected_points[i].begin);
+    if (expected_points[i - 1].seq > 0 || expected_points[i].seq > 0) {
+      ASSERT_TRUE(overlapped);
+    } else {
+      ASSERT_FALSE(overlapped);
     }
   }
 }
@@ -112,9 +133,14 @@ TEST_F(RangeDelAggregatorTest, SameEndKey) {
 }
 
 TEST_F(RangeDelAggregatorTest, GapsBetweenRanges) {
-  VerifyRangeDels(
-      {{"a", "b", 5}, {"c", "d", 10}, {"e", "f", 15}},
-      {{" ", 0}, {"a", 5}, {"b", 0}, {"c", 10}, {"d", 0}, {"e", 15}, {"f", 0}});
+  VerifyRangeDels({{"a", "b", 5}, {"c", "d", 10}, {"e", "f", 15}}, {{" ", 0},
+                                                                    {"a", 5},
+                                                                    {"b", 0},
+                                                                    {"c", 10},
+                                                                    {"d", 0},
+                                                                    {"da", 0},
+                                                                    {"e", 15},
+                                                                    {"f", 0}});
 }
 
 // Note the Cover* tests also test cases where tombstones are inserted under a

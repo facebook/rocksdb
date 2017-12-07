@@ -10,6 +10,7 @@
 #include "table/merging_iterator.h"
 #include <string>
 #include <vector>
+#include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/comparator.h"
@@ -35,8 +36,9 @@ const size_t kNumIterReserve = 4;
 
 class MergingIterator : public InternalIterator {
  public:
-  MergingIterator(const Comparator* comparator, InternalIterator** children,
-                  int n, bool is_arena_mode, bool prefix_seek_mode)
+  MergingIterator(const InternalKeyComparator* comparator,
+                  InternalIterator** children, int n, bool is_arena_mode,
+                  bool prefix_seek_mode)
       : is_arena_mode_(is_arena_mode),
         comparator_(comparator),
         current_(nullptr),
@@ -154,21 +156,7 @@ class MergingIterator : public InternalIterator {
     // true for all of the non-current children since current_ is
     // the smallest child and key() == current_->key().
     if (direction_ != kForward) {
-      // Otherwise, advance the non-current children.  We advance current_
-      // just after the if-block.
-      ClearHeaps();
-      for (auto& child : children_) {
-        if (&child != current_) {
-          child.Seek(key());
-          if (child.Valid() && comparator_->Equal(key(), child.key())) {
-            child.Next();
-          }
-        }
-        if (child.Valid()) {
-          minHeap_.push(&child);
-        }
-      }
-      direction_ = kForward;
+      SwitchToForward();
       // The loop advanced all non-current children to be > key() so current_
       // should still be strictly the smallest key.
       assert(current_ == CurrentForward());
@@ -307,7 +295,7 @@ class MergingIterator : public InternalIterator {
   void InitMaxHeap();
 
   bool is_arena_mode_;
-  const Comparator* comparator_;
+  const InternalKeyComparator* comparator_;
   autovector<IteratorWrapper, kNumIterReserve> children_;
 
   // Cached pointer to child iterator with the current key, or nullptr if no
@@ -328,6 +316,8 @@ class MergingIterator : public InternalIterator {
   std::unique_ptr<MergerMaxIterHeap> maxHeap_;
   PinnedIteratorsManager* pinned_iters_mgr_;
 
+  void SwitchToForward();
+
   IteratorWrapper* CurrentForward() const {
     assert(direction_ == kForward);
     return !minHeap_.empty() ? minHeap_.top() : nullptr;
@@ -339,6 +329,24 @@ class MergingIterator : public InternalIterator {
     return !maxHeap_->empty() ? maxHeap_->top() : nullptr;
   }
 };
+
+void MergingIterator::SwitchToForward() {
+  // Otherwise, advance the non-current children.  We advance current_
+  // just after the if-block.
+  ClearHeaps();
+  for (auto& child : children_) {
+    if (&child != current_) {
+      child.Seek(key());
+      if (child.Valid() && comparator_->Equal(key(), child.key())) {
+        child.Next();
+      }
+    }
+    if (child.Valid()) {
+      minHeap_.push(&child);
+    }
+  }
+  direction_ = kForward;
+}
 
 void MergingIterator::ClearHeaps() {
   minHeap_.clear();
@@ -353,7 +361,7 @@ void MergingIterator::InitMaxHeap() {
   }
 }
 
-InternalIterator* NewMergingIterator(const Comparator* cmp,
+InternalIterator* NewMergingIterator(const InternalKeyComparator* cmp,
                                      InternalIterator** list, int n,
                                      Arena* arena, bool prefix_seek_mode) {
   assert(n >= 0);
@@ -371,18 +379,28 @@ InternalIterator* NewMergingIterator(const Comparator* cmp,
   }
 }
 
-MergeIteratorBuilder::MergeIteratorBuilder(const Comparator* comparator,
-                                           Arena* a, bool prefix_seek_mode)
+MergeIteratorBuilder::MergeIteratorBuilder(
+    const InternalKeyComparator* comparator, Arena* a, bool prefix_seek_mode)
     : first_iter(nullptr), use_merging_iter(false), arena(a) {
   auto mem = arena->AllocateAligned(sizeof(MergingIterator));
   merge_iter =
       new (mem) MergingIterator(comparator, nullptr, 0, true, prefix_seek_mode);
 }
 
+MergeIteratorBuilder::~MergeIteratorBuilder() {
+  if (first_iter != nullptr) {
+    first_iter->~InternalIterator();
+  }
+  if (merge_iter != nullptr) {
+    merge_iter->~MergingIterator();
+  }
+}
+
 void MergeIteratorBuilder::AddIterator(InternalIterator* iter) {
   if (!use_merging_iter && first_iter != nullptr) {
     merge_iter->AddIterator(first_iter);
     use_merging_iter = true;
+    first_iter = nullptr;
   }
   if (use_merging_iter) {
     merge_iter->AddIterator(iter);
@@ -392,13 +410,15 @@ void MergeIteratorBuilder::AddIterator(InternalIterator* iter) {
 }
 
 InternalIterator* MergeIteratorBuilder::Finish() {
+  InternalIterator* ret = nullptr;
   if (!use_merging_iter) {
-    return first_iter;
+    ret = first_iter;
+    first_iter = nullptr;
   } else {
-    auto ret = merge_iter;
+    ret = merge_iter;
     merge_iter = nullptr;
-    return ret;
   }
+  return ret;
 }
 
 }  // namespace rocksdb

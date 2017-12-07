@@ -195,7 +195,7 @@ class LogTest : public ::testing::TestWithParam<int> {
     }
   }
 
-  void IncrementByte(int offset, int delta) {
+  void IncrementByte(int offset, char delta) {
     dest_contents()[offset] += delta;
   }
 
@@ -487,7 +487,7 @@ TEST_P(LogTest, ChecksumMismatch) {
 
 TEST_P(LogTest, UnexpectedMiddleType) {
   Write("foo");
-  SetByte(6, GetParam() ? kRecyclableMiddleType : kMiddleType);
+  SetByte(6, static_cast<char>(GetParam() ? kRecyclableMiddleType : kMiddleType));
   FixChecksum(0, 3, !!GetParam());
   ASSERT_EQ("EOF", Read());
   ASSERT_EQ(3U, DroppedBytes());
@@ -496,7 +496,7 @@ TEST_P(LogTest, UnexpectedMiddleType) {
 
 TEST_P(LogTest, UnexpectedLastType) {
   Write("foo");
-  SetByte(6, GetParam() ? kRecyclableLastType : kLastType);
+  SetByte(6, static_cast<char>(GetParam() ? kRecyclableLastType : kLastType));
   FixChecksum(0, 3, !!GetParam());
   ASSERT_EQ("EOF", Read());
   ASSERT_EQ(3U, DroppedBytes());
@@ -506,7 +506,7 @@ TEST_P(LogTest, UnexpectedLastType) {
 TEST_P(LogTest, UnexpectedFullType) {
   Write("foo");
   Write("bar");
-  SetByte(6, GetParam() ? kRecyclableFirstType : kFirstType);
+  SetByte(6, static_cast<char>(GetParam() ? kRecyclableFirstType : kFirstType));
   FixChecksum(0, 3, !!GetParam());
   ASSERT_EQ("bar", Read());
   ASSERT_EQ("EOF", Read());
@@ -517,7 +517,7 @@ TEST_P(LogTest, UnexpectedFullType) {
 TEST_P(LogTest, UnexpectedFirstType) {
   Write("foo");
   Write(BigString("bar", 100000));
-  SetByte(6, GetParam() ? kRecyclableFirstType : kFirstType);
+  SetByte(6, static_cast<char>(GetParam() ? kRecyclableFirstType : kFirstType));
   FixChecksum(0, 3, !!GetParam());
   ASSERT_EQ(BigString("bar", 100000), Read());
   ASSERT_EQ("EOF", Read());

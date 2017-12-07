@@ -17,7 +17,6 @@ int main() {
 // Block forward_iterator_bench under MAC and Windows
 int main() { return 0; }
 #else
-#include <gflags/gflags.h>
 #include <semaphore.h>
 #include <atomic>
 #include <bitset>
@@ -30,11 +29,12 @@ int main() { return 0; }
 #include <random>
 #include <thread>
 
+#include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
-#include "port/port.h"
+#include "util/gflags_compat.h"
 #include "util/testharness.h"
 
 const int MAX_SHARDS = 100000;
@@ -319,7 +319,7 @@ struct StatsThread {
 };
 
 int main(int argc, char** argv) {
-  GFLAGS::ParseCommandLineFlags(&argc, &argv, true);
+  GFLAGS_NAMESPACE::ParseCommandLineFlags(&argc, &argv, true);
 
   std::mt19937 rng{std::random_device()()};
   rocksdb::Status status;

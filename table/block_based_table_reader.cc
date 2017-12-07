@@ -259,12 +259,16 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
 
       assert(s.ok() || block.value == nullptr);
       if (s.ok() && block.value != nullptr) {
-        assert(block.cache_handle != nullptr);
-        if (pin) {
-          partition_map_[handle.offset()] = block;
-          RegisterCleanup(&ReleaseCachedEntry, block_cache, block.cache_handle);
+        if (block.cache_handle != nullptr) {
+          if (pin) {
+            partition_map_[handle.offset()] = block;
+            RegisterCleanup(&ReleaseCachedEntry, block_cache,
+                            block.cache_handle);
+          } else {
+            block_cache->Release(block.cache_handle);
+          }
         } else {
-          block_cache->Release(block.cache_handle);
+          delete block.value;
         }
       }
     }
@@ -813,15 +817,19 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
       CachableEntry<IndexReader> index_entry;
       unique_ptr<InternalIterator> iter(
           new_table->NewIndexIterator(ReadOptions(), nullptr, &index_entry));
-      index_entry.value->CacheDependencies(pin);
-      if (pin) {
-        rep->index_entry = std::move(index_entry);
-      } else {
-        index_entry.Release(table_options.block_cache.get());
-      }
       s = iter->status();
-
       if (s.ok()) {
+        // This is the first call to NewIndexIterator() since we're in Open().
+        // On success it should give us ownership of the `CachableEntry` by
+        // populating `index_entry`.
+        assert(index_entry.value != nullptr);
+        index_entry.value->CacheDependencies(pin);
+        if (pin) {
+          rep->index_entry = std::move(index_entry);
+        } else {
+          index_entry.Release(table_options.block_cache.get());
+        }
+
         // Hack: Call GetFilter() to implicitly add filter to the block_cache
         auto filter_entry = new_table->GetFilter();
         if (filter_entry.value != nullptr) {
@@ -2415,11 +2423,19 @@ void BlockBasedTable::DumpKeyValue(const Slice& key, const Slice& value,
   std::string res_key(""), res_value("");
   char cspace = ' ';
   for (size_t i = 0; i < str_key.size(); i++) {
-    res_key.append(&str_key[i], 1);
+    if (str_key[i] == '\0') {
+      res_key.append("\\0", 2);
+    } else {
+      res_key.append(&str_key[i], 1);
+    }
     res_key.append(1, cspace);
   }
   for (size_t i = 0; i < str_value.size(); i++) {
-    res_value.append(&str_value[i], 1);
+    if (str_value[i] == '\0') {
+      res_value.append("\\0", 2);
+    } else {
+      res_value.append(&str_value[i], 1);
+    }
     res_value.append(1, cspace);
   }
 

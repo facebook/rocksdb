@@ -9,6 +9,16 @@
 #include "util/stop_watch.h"
 
 namespace rocksdb {
+#if defined(NPERF_CONTEXT) || !defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
+extern PerfContext perf_context;
+#else
+#if defined(OS_SOLARIS)
+extern __thread PerfContext perf_context_;
+#define perf_context (*get_perf_context());
+#else
+extern __thread PerfContext perf_context;
+#endif
+#endif
 
 #if defined(NPERF_CONTEXT)
 
@@ -27,14 +37,14 @@ namespace rocksdb {
 #define PERF_TIMER_START(metric) perf_step_timer_##metric.Start();
 
 // Declare and set start time of the timer
-#define PERF_TIMER_GUARD(metric)                                       \
-  PerfStepTimer perf_step_timer_##metric(&(get_perf_context()->metric)); \
+#define PERF_TIMER_GUARD(metric)                                  \
+  PerfStepTimer perf_step_timer_##metric(&(perf_context.metric)); \
   perf_step_timer_##metric.Start();
 
-#define PERF_CONDITIONAL_TIMER_FOR_MUTEX_GUARD(metric, condition)            \
-  PerfStepTimer perf_step_timer_##metric(&(get_perf_context()->metric), true); \
-  if ((condition)) {                                                         \
-    perf_step_timer_##metric.Start();                                        \
+#define PERF_CONDITIONAL_TIMER_FOR_MUTEX_GUARD(metric, condition)       \
+  PerfStepTimer perf_step_timer_##metric(&(perf_context.metric), true); \
+  if ((condition)) {                                                    \
+    perf_step_timer_##metric.Start();                                   \
   }
 
 // Update metric with time elapsed since last START. start time is reset
@@ -44,7 +54,7 @@ namespace rocksdb {
 // Increase metric value
 #define PERF_COUNTER_ADD(metric, value)        \
   if (perf_level >= PerfLevel::kEnableCount) { \
-    get_perf_context()->metric += value;       \
+    perf_context.metric += value;              \
   }
 
 #endif

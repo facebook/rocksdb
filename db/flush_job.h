@@ -43,6 +43,7 @@
 namespace rocksdb {
 
 class MemTable;
+class SnapshotChecker;
 class TableCache;
 class Version;
 class VersionEdit;
@@ -56,14 +57,14 @@ class FlushJob {
   FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
            const ImmutableDBOptions& db_options,
            const MutableCFOptions& mutable_cf_options,
-           const EnvOptions& env_options, VersionSet* versions,
+           const EnvOptions env_options, VersionSet* versions,
            InstrumentedMutex* db_mutex, std::atomic<bool>* shutting_down,
            std::vector<SequenceNumber> existing_snapshots,
            SequenceNumber earliest_write_conflict_snapshot,
-           JobContext* job_context, LogBuffer* log_buffer,
-           Directory* db_directory, Directory* output_file_directory,
-           CompressionType output_compression, Statistics* stats,
-           EventLogger* event_logger, bool measure_io_stats);
+           SnapshotChecker* snapshot_checker, JobContext* job_context,
+           LogBuffer* log_buffer, Directory* db_directory,
+           Directory* output_file_directory, CompressionType output_compression,
+           Statistics* stats, EventLogger* event_logger, bool measure_io_stats);
 
   ~FlushJob();
 
@@ -83,12 +84,13 @@ class FlushJob {
   ColumnFamilyData* cfd_;
   const ImmutableDBOptions& db_options_;
   const MutableCFOptions& mutable_cf_options_;
-  const EnvOptions& env_options_;
+  const EnvOptions env_options_;
   VersionSet* versions_;
   InstrumentedMutex* db_mutex_;
   std::atomic<bool>* shutting_down_;
   std::vector<SequenceNumber> existing_snapshots_;
   SequenceNumber earliest_write_conflict_snapshot_;
+  SnapshotChecker* snapshot_checker_;
   JobContext* job_context_;
   LogBuffer* log_buffer_;
   Directory* db_directory_;

@@ -8,7 +8,9 @@
 #include "db/db_test_util.h"
 #include "db/forward_iterator.h"
 #include "port/stack_trace.h"
+#include "rocksdb/merge_operator.h"
 #include "utilities/merge_operators.h"
+#include "utilities/merge_operators/string_append/stringappend2.h"
 
 namespace rocksdb {
 
@@ -17,6 +19,80 @@ class DBMergeOperatorTest : public DBTestBase {
  public:
   DBMergeOperatorTest() : DBTestBase("/db_merge_operator_test") {}
 };
+
+TEST_F(DBMergeOperatorTest, LimitMergeOperands) {
+  class LimitedStringAppendMergeOp : public StringAppendTESTOperator {
+   public:
+    LimitedStringAppendMergeOp(int limit, char delim)
+        : StringAppendTESTOperator(delim), limit_(limit) {}
+
+    const char* Name() const override {
+      return "DBMergeOperatorTest::LimitedStringAppendMergeOp";
+    }
+
+    bool ShouldMerge(const std::vector<Slice>& operands) const override {
+      if (operands.size() > 0 && limit_ > 0 && operands.size() >= limit_) {
+        return true;
+      }
+      return false;
+    }
+
+   private:
+    size_t limit_ = 0;
+  };
+
+  Options options;
+  options.create_if_missing = true;
+  // Use only the latest two merge operands.
+  options.merge_operator =
+      std::make_shared<LimitedStringAppendMergeOp>(2, ',');
+  options.env = env_;
+  Reopen(options);
+  // All K1 values are in memtable.
+  ASSERT_OK(Merge("k1", "a"));
+  ASSERT_OK(Merge("k1", "b"));
+  ASSERT_OK(Merge("k1", "c"));
+  ASSERT_OK(Merge("k1", "d"));
+  std::string value;
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k1", &value).ok());
+  // Make sure that only the latest two merge operands are used. If this was
+  // not the case the value would be "a,b,c,d".
+  ASSERT_EQ(value, "c,d");
+
+  // All K2 values are flushed to L0 into a single file.
+  ASSERT_OK(Merge("k2", "a"));
+  ASSERT_OK(Merge("k2", "b"));
+  ASSERT_OK(Merge("k2", "c"));
+  ASSERT_OK(Merge("k2", "d"));
+  ASSERT_OK(Flush());
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k2", &value).ok());
+  ASSERT_EQ(value, "c,d");
+
+  // All K3 values are flushed and are in different files.
+  ASSERT_OK(Merge("k3", "ab"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Merge("k3", "bc"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Merge("k3", "cd"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Merge("k3", "de"));
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k3", &value).ok());
+  ASSERT_EQ(value, "cd,de");
+
+  // All K4 values are in different levels
+  ASSERT_OK(Merge("k4", "ab"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(4);
+  ASSERT_OK(Merge("k4", "bc"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(3);
+  ASSERT_OK(Merge("k4", "cd"));
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+  ASSERT_OK(Merge("k4", "de"));
+  ASSERT_TRUE(db_->Get(ReadOptions(), "k4", &value).ok());
+  ASSERT_EQ(value, "cd,de");
+}
 
 TEST_F(DBMergeOperatorTest, MergeErrorOnRead) {
   Options options;
@@ -57,16 +133,33 @@ TEST_F(DBMergeOperatorTest, MergeErrorOnIteration) {
   ASSERT_OK(Merge("k1", "v1"));
   ASSERT_OK(Merge("k1", "corrupted"));
   ASSERT_OK(Put("k2", "v2"));
-  VerifyDBFromMap({{"k1", ""}, {"k2", "v2"}}, nullptr, false,
-                  {{"k1", Status::Corruption()}});
+  auto* iter = db_->NewIterator(ReadOptions());
+  iter->Seek("k1");
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_TRUE(iter->status().IsCorruption());
+  delete iter;
+  iter = db_->NewIterator(ReadOptions());
+  iter->Seek("k2");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  iter->Prev();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_TRUE(iter->status().IsCorruption());
+  delete iter;
   VerifyDBInternal({{"k1", "corrupted"}, {"k1", "v1"}, {"k2", "v2"}});
 
   DestroyAndReopen(options);
   ASSERT_OK(Merge("k1", "v1"));
   ASSERT_OK(Put("k2", "v2"));
   ASSERT_OK(Merge("k2", "corrupted"));
-  VerifyDBFromMap({{"k1", "v1"}, {"k2", ""}}, nullptr, false,
-                  {{"k2", Status::Corruption()}});
+  iter = db_->NewIterator(ReadOptions());
+  iter->Seek("k1");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_TRUE(iter->status().IsCorruption());
+  delete iter;
   VerifyDBInternal({{"k1", "v1"}, {"k2", "corrupted"}, {"k2", "v2"}});
 }
 

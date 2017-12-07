@@ -4,8 +4,8 @@
 #pragma once
 
 #include <stdint.h>
-#include <string>
 #include <map>
+#include <string>
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
 
@@ -49,19 +49,12 @@ struct TablePropertiesNames {
   static const std::string kPropertyCollectors;
   static const std::string kCompression;
   static const std::string kCreationTime;
+  static const std::string kOldestKeyTime;
 };
 
 extern const std::string kPropertiesBlock;
 extern const std::string kCompressionDictBlock;
 extern const std::string kRangeDelBlock;
-
-enum EntryType {
-  kEntryPut,
-  kEntryDelete,
-  kEntrySingleDelete,
-  kEntryMerge,
-  kEntryOther,
-};
 
 // `TablePropertiesCollector` provides the mechanism for users to collect
 // their own properties that they are interested in. This class is essentially
@@ -162,6 +155,8 @@ struct TableProperties {
   // The time when the SST file was created.
   // Since SST files are immutable, this is equivalent to last modified time.
   uint64_t creation_time = 0;
+  // Timestamp of the earliest key. 0 means unknown.
+  uint64_t oldest_key_time = 0;
 
   // Name of the column family with which this SST file is associated.
   // If column family is unknown, `column_family_name` will be an empty string.

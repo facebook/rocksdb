@@ -55,6 +55,7 @@ void TransactionBaseImpl::Reinitialize(DB* db,
                                        const WriteOptions& write_options) {
   Clear();
   ClearSnapshot();
+  id_ = 0;
   db_ = db;
   name_.clear();
   log_number_ = 0;
@@ -96,7 +97,7 @@ void TransactionBaseImpl::SetSnapshotIfNeeded() {
 
 Status TransactionBaseImpl::TryLock(ColumnFamilyHandle* column_family,
                                     const SliceParts& key, bool read_only,
-                                    bool exclusive, bool untracked) {
+                                    bool exclusive, bool skip_validate) {
   size_t key_size = 0;
   for (int i = 0; i < key.num_parts; ++i) {
     key_size += key.parts[i].size();
@@ -109,7 +110,7 @@ Status TransactionBaseImpl::TryLock(ColumnFamilyHandle* column_family,
     str.append(key.parts[i].data(), key.parts[i].size());
   }
 
-  return TryLock(column_family, str, read_only, exclusive, untracked);
+  return TryLock(column_family, str, read_only, exclusive, skip_validate);
 }
 
 void TransactionBaseImpl::SetSavePoint() {
@@ -397,7 +398,7 @@ Status TransactionBaseImpl::SingleDelete(ColumnFamilyHandle* column_family,
 Status TransactionBaseImpl::PutUntracked(ColumnFamilyHandle* column_family,
                                          const Slice& key, const Slice& value) {
   Status s = TryLock(column_family, key, false /* read_only */,
-                     true /* exclusive */, true /* untracked */);
+                     true /* exclusive */, true /* skip_validate */);
 
   if (s.ok()) {
     s = GetBatchForWrite()->Put(column_family, key, value);
@@ -413,7 +414,7 @@ Status TransactionBaseImpl::PutUntracked(ColumnFamilyHandle* column_family,
                                          const SliceParts& key,
                                          const SliceParts& value) {
   Status s = TryLock(column_family, key, false /* read_only */,
-                     true /* exclusive */, true /* untracked */);
+                     true /* exclusive */, true /* skip_validate */);
 
   if (s.ok()) {
     s = GetBatchForWrite()->Put(column_family, key, value);
@@ -429,7 +430,7 @@ Status TransactionBaseImpl::MergeUntracked(ColumnFamilyHandle* column_family,
                                            const Slice& key,
                                            const Slice& value) {
   Status s = TryLock(column_family, key, false /* read_only */,
-                     true /* exclusive */, true /* untracked */);
+                     true /* exclusive */, true /* skip_validate */);
 
   if (s.ok()) {
     s = GetBatchForWrite()->Merge(column_family, key, value);
@@ -444,7 +445,7 @@ Status TransactionBaseImpl::MergeUntracked(ColumnFamilyHandle* column_family,
 Status TransactionBaseImpl::DeleteUntracked(ColumnFamilyHandle* column_family,
                                             const Slice& key) {
   Status s = TryLock(column_family, key, false /* read_only */,
-                     true /* exclusive */, true /* untracked */);
+                     true /* exclusive */, true /* skip_validate */);
 
   if (s.ok()) {
     s = GetBatchForWrite()->Delete(column_family, key);
@@ -459,10 +460,25 @@ Status TransactionBaseImpl::DeleteUntracked(ColumnFamilyHandle* column_family,
 Status TransactionBaseImpl::DeleteUntracked(ColumnFamilyHandle* column_family,
                                             const SliceParts& key) {
   Status s = TryLock(column_family, key, false /* read_only */,
-                     true /* exclusive */, true /* untracked */);
+                     true /* exclusive */, true /* skip_validate */);
 
   if (s.ok()) {
     s = GetBatchForWrite()->Delete(column_family, key);
+    if (s.ok()) {
+      num_deletes_++;
+    }
+  }
+
+  return s;
+}
+
+Status TransactionBaseImpl::SingleDeleteUntracked(
+    ColumnFamilyHandle* column_family, const Slice& key) {
+  Status s = TryLock(column_family, key, false /* read_only */,
+                     true /* exclusive */, true /* skip_validate */);
+
+  if (s.ok()) {
+    s = GetBatchForWrite()->SingleDelete(column_family, key);
     if (s.ok()) {
       num_deletes_++;
     }
@@ -515,6 +531,8 @@ void TransactionBaseImpl::TrackKey(uint32_t cfh_id, const std::string& key,
 }
 
 // Add a key to the given TransactionKeyMap
+// seq for pessimistic transactions is the sequence number from which we know
+// there has not been a concurrent update to the key.
 void TransactionBaseImpl::TrackKey(TransactionKeyMap* key_map, uint32_t cfh_id,
                                    const std::string& key, SequenceNumber seq,
                                    bool read_only, bool exclusive) {
@@ -527,6 +545,10 @@ void TransactionBaseImpl::TrackKey(TransactionKeyMap* key_map, uint32_t cfh_id,
     // Now tracking this key with an earlier sequence number
     iter->second.seq = seq;
   }
+  // else we do not update the seq. The smaller the tracked seq, the stronger it
+  // the guarantee since it implies from the seq onward there has not been a
+  // concurrent update to the key. So we update the seq if it implies stronger
+  // guarantees, i.e., if it is smaller than the existing trakced seq.
 
   if (read_only) {
     iter->second.num_reads++;

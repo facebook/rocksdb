@@ -9,7 +9,6 @@
 #include <string>
 #include <vector>
 
-#include "options/options_helper.h"
 #include "options/options_sanity_check.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"

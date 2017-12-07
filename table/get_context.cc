@@ -6,6 +6,7 @@
 #include "table/get_context.h"
 #include "db/merge_helper.h"
 #include "db/pinned_iterators_manager.h"
+#include "db/read_callback.h"
 #include "monitoring/file_read_sample.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
@@ -40,7 +41,8 @@ GetContext::GetContext(const Comparator* ucmp,
                        bool* value_found, MergeContext* merge_context,
                        RangeDelAggregator* _range_del_agg, Env* env,
                        SequenceNumber* seq,
-                       PinnedIteratorsManager* _pinned_iters_mgr)
+                       PinnedIteratorsManager* _pinned_iters_mgr,
+                       ReadCallback* callback, bool* is_blob_index)
     : ucmp_(ucmp),
       merge_operator_(merge_operator),
       logger_(logger),
@@ -54,7 +56,9 @@ GetContext::GetContext(const Comparator* ucmp,
       env_(env),
       seq_(seq),
       replay_log_(nullptr),
-      pinned_iters_mgr_(_pinned_iters_mgr) {
+      pinned_iters_mgr_(_pinned_iters_mgr),
+      callback_(callback),
+      is_blob_index_(is_blob_index) {
   if (seq_) {
     *seq_ = kMaxSequenceNumber;
   }
@@ -88,6 +92,11 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
   assert((state_ != kMerge && parsed_key.type != kTypeMerge) ||
          merge_context_ != nullptr);
   if (ucmp_->Equal(parsed_key.user_key, user_key_)) {
+    // If the value is not in the snapshot, skip it
+    if (!CheckCallback(parsed_key.sequence)) {
+      return true;  // to continue to the next seq
+    }
+
     appendToReplayLog(replay_log_, parsed_key.type, value);
 
     if (seq_ != nullptr) {
@@ -99,13 +108,19 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
 
     auto type = parsed_key.type;
     // Key matches. Process it
-    if ((type == kTypeValue || type == kTypeMerge) &&
+    if ((type == kTypeValue || type == kTypeMerge || type == kTypeBlobIndex) &&
         range_del_agg_ != nullptr && range_del_agg_->ShouldDelete(parsed_key)) {
       type = kTypeRangeDeletion;
     }
     switch (type) {
       case kTypeValue:
+      case kTypeBlobIndex:
         assert(state_ == kNotFound || state_ == kMerge);
+        if (type == kTypeBlobIndex && is_blob_index_ == nullptr) {
+          // Blob value not supported. Stop.
+          state_ = kBlobIndex;
+          return false;
+        }
         if (kNotFound == state_) {
           state_ = kFound;
           if (LIKELY(pinnable_val_ != nullptr)) {
@@ -130,6 +145,9 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
               state_ = kCorrupt;
             }
           }
+        }
+        if (is_blob_index_ != nullptr) {
+          *is_blob_index_ = (type == kTypeBlobIndex);
         }
         return false;
 
@@ -166,6 +184,21 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
           merge_context_->PushOperand(value, true /*value_pinned*/);
         } else {
           merge_context_->PushOperand(value, false);
+        }
+        if (merge_operator_ != nullptr &&
+            merge_operator_->ShouldMerge(merge_context_->GetOperands())) {
+          state_ = kFound;
+          if (LIKELY(pinnable_val_ != nullptr)) {
+            Status merge_status = MergeHelper::TimedFullMerge(
+                merge_operator_, user_key_, nullptr,
+                merge_context_->GetOperands(), pinnable_val_->GetSelf(),
+                logger_, statistics_, env_);
+            pinnable_val_->PinSelf();
+            if (!merge_status.ok()) {
+              state_ = kCorrupt;
+            }
+          }
+          return false;
         }
         return true;
 

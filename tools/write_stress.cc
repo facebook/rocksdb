@@ -56,8 +56,6 @@ int main() {
 }
 #else
 
-#include <gflags/gflags.h>
-
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
 #include <atomic>
@@ -72,10 +70,11 @@ int main() {
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "util/filename.h"
+#include "util/gflags_compat.h"
 
-using GFLAGS::ParseCommandLineFlags;
-using GFLAGS::RegisterFlagValidator;
-using GFLAGS::SetUsageMessage;
+using GFLAGS_NAMESPACE::ParseCommandLineFlags;
+using GFLAGS_NAMESPACE::RegisterFlagValidator;
+using GFLAGS_NAMESPACE::SetUsageMessage;
 
 DEFINE_int32(key_size, 10, "Key size");
 DEFINE_int32(value_size, 100, "Value size");
@@ -163,7 +162,7 @@ class WriteStress {
       std::uniform_int_distribution<int> char_dist('a', 'z');
       std::string ret;
       for (int i = 0; i < len; ++i) {
-        ret += char_dist(r);
+        ret += static_cast<char>(char_dist(r));
       }
       return ret;
     };
@@ -210,13 +209,13 @@ class WriteStress {
                                            FLAGS_prefix_mutate_period_sec *
                                            1000 * 1000LL));
       if (dist(rng) < FLAGS_first_char_mutate_probability) {
-        key_prefix_[0].store(char_dist(rng), std::memory_order_relaxed);
+        key_prefix_[0].store(static_cast<char>(char_dist(rng)), std::memory_order_relaxed);
       }
       if (dist(rng) < FLAGS_second_char_mutate_probability) {
-        key_prefix_[1].store(char_dist(rng), std::memory_order_relaxed);
+        key_prefix_[1].store(static_cast<char>(char_dist(rng)), std::memory_order_relaxed);
       }
       if (dist(rng) < FLAGS_third_char_mutate_probability) {
-        key_prefix_[2].store(char_dist(rng), std::memory_order_relaxed);
+        key_prefix_[2].store(static_cast<char>(char_dist(rng)), std::memory_order_relaxed);
       }
     }
   }

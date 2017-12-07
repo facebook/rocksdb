@@ -169,7 +169,8 @@ public class Options extends RocksObject
   public Options setComparator(
       final AbstractComparator<? extends AbstractSlice<?>> comparator) {
     assert(isOwningHandle());
-    setComparatorHandle(nativeHandle_, comparator.getNativeHandle());
+    setComparatorHandle(nativeHandle_, comparator.nativeHandle_,
+            comparator instanceof DirectComparator);
     comparator_ = comparator;
     return this;
   }
@@ -440,6 +441,19 @@ public class Options extends RocksObject
       final int maxBackgroundFlushes) {
     assert(isOwningHandle());
     setMaxBackgroundFlushes(nativeHandle_, maxBackgroundFlushes);
+    return this;
+  }
+
+  @Override
+  public int maxBackgroundJobs() {
+    assert(isOwningHandle());
+    return maxBackgroundJobs(nativeHandle_);
+  }
+
+  @Override
+  public Options setMaxBackgroundJobs(final int maxBackgroundJobs) {
+    assert(isOwningHandle());
+    setMaxBackgroundJobs(nativeHandle_, maxBackgroundJobs);
     return this;
   }
 
@@ -1591,6 +1605,8 @@ public class Options extends RocksObject
   private native void setMaxBackgroundFlushes(
       long handle, int maxBackgroundFlushes);
   private native int maxBackgroundFlushes(long handle);
+  private native void setMaxBackgroundJobs(long handle, int maxMaxBackgroundJobs);
+  private native int maxBackgroundJobs(long handle);
   private native void setMaxLogFileSize(long handle, long maxLogFileSize)
       throws IllegalArgumentException;
   private native long maxLogFileSize(long handle);
@@ -1718,7 +1734,7 @@ public class Options extends RocksObject
       long memtableMemoryBudget);
   private native void setComparatorHandle(long handle, int builtinComparator);
   private native void setComparatorHandle(long optHandle,
-      long comparatorHandle);
+      long comparatorHandle, boolean isDirect);
   private native void setMergeOperatorName(
       long handle, String name);
   private native void setMergeOperator(

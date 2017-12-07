@@ -81,7 +81,7 @@ Status SstFileReader::GetTableReader(const std::string& file_path) {
   Footer footer;
 
   unique_ptr<RandomAccessFile> file;
-  uint64_t file_size;
+  uint64_t file_size = 0;
   Status s = options_.env->NewRandomAccessFile(file_path, &file, soptions_);
   if (s.ok()) {
     s = options_.env->GetFileSize(file_path, &file_size);
@@ -296,7 +296,7 @@ Status SstFileReader::ReadSequential(bool print_kv, uint64_t read_num,
   uint64_t i = 0;
   if (has_from) {
     InternalKey ikey;
-    ikey.SetMaxPossibleForUserKey(from_key);
+    ikey.SetMinPossibleForUserKey(from_key);
     iter->Seek(ikey.Encode());
   } else {
     iter->SeekToFirst();
@@ -411,7 +411,7 @@ void print_help() {
 
 int SSTDumpTool::Run(int argc, char** argv) {
   const char* dir_or_file = nullptr;
-  uint64_t read_num = -1;
+  uint64_t read_num = std::numeric_limits<uint64_t>::max();
   std::string command;
 
   char junk;
@@ -428,7 +428,7 @@ int SSTDumpTool::Run(int argc, char** argv) {
   std::string from_key;
   std::string to_key;
   std::string block_size_str;
-  size_t block_size;
+  size_t block_size = 0;
   std::vector<std::pair<CompressionType, const char*>> compression_types;
   uint64_t total_num_files = 0;
   uint64_t total_num_data_blocks = 0;

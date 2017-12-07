@@ -274,11 +274,12 @@ class VersionBuilder::Rep {
         auto exising = levels_[level].added_files.find(number);
         if (exising != levels_[level].added_files.end()) {
           UnrefFile(exising->second);
-          levels_[level].added_files.erase(number);
+          levels_[level].added_files.erase(exising);
         }
       } else {
-        if (invalid_levels_[level].count(number) > 0) {
-          invalid_levels_[level].erase(number);
+        auto exising = invalid_levels_[level].find(number);
+        if (exising != invalid_levels_[level].end()) {
+          invalid_levels_[level].erase(exising);
         } else {
           // Deleting an non-existing file on invalid level.
           has_invalid_levels_ = true;
