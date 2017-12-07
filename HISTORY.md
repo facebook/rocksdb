@@ -1,6 +1,8 @@
 # Rocksdb Change Log
 ## Unreleased
 ### Public API Change
+* When running `make` with environment variable `USE_SSE` set and `PORTABLE` unset, will use all machine features available locally. Previously this combination only compiled SSE-related features.
+
 ### New Features
 * Provide lifetime hints when writing files on Linux. This reduces hardware write-amp on storage devices supporting multiple streams.
 * Add a DB stat, `NUMBER_ITER_SKIP`, which returns how many internal keys were skipped during iterations (e.g., due to being tombstones or duplicate versions of a key).
