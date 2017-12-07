@@ -352,6 +352,8 @@ DEFINE_uint64(rate_limiter_bytes_per_sec, 0, "Set options.rate_limiter value.");
 DEFINE_bool(rate_limit_bg_reads, false,
             "Use options.rate_limiter on compaction reads");
 
+DEFINE_bool(use_txn, false, "Use TransactionDB");
+
 // Temporarily disable this to allows it to detect new bugs
 DEFINE_int32(compact_files_one_in, 0,
              "If non-zero, then CompactFiles() will be called one for every N "
@@ -1667,6 +1669,7 @@ class StressTest {
   }
 
   Transaction* NewTxn(WriteOptions& write_opts) {
+    assert(FLAGS_use_txn);
     static std::atomic<uint64_t> txn_id = {0};
     Status s;
     TransactionOptions txn_options;
@@ -1678,6 +1681,7 @@ class StressTest {
   }
 
   Status CommitTxn(Transaction* txn) {
+    assert(FLAGS_use_txn);
     Status s;
     s = txn->Prepare();
     assert(s.ok());
@@ -1854,23 +1858,26 @@ class StressTest {
         ropt.snapshot = snapshot;
         std::string value_at;
         auto status_at = db_->Get(ropt, column_family, key, &value_at);
-        SnapshotState snap = {snapshot, rand_column_family, keystr, status_at,
-                              value_at};
+        SnapshotState snap_state = {snapshot, rand_column_family, keystr,
+                                    status_at, value_at};
+        assert(snap_state.snapshot);
         thread->snapshot_queue.emplace(
             std::min(FLAGS_ops_per_thread - 1, i + FLAGS_snapshot_hold_ops),
-            snap);
+            snap_state);
       }
-      if (!thread->snapshot_queue.empty()) {
-        while (i == thread->snapshot_queue.front().first) {
-          auto snap_state = thread->snapshot_queue.front().second;
-          ReadOptions ropt;
-          ropt.snapshot = snap_state.snapshot;
-          PinnableSlice exp_v(&snap_state.value);
-          ASSERT_SAME(ropt, db_, column_families_[snap_state.cf_at],
-                      snap_state.status, exp_v, snap_state.key);
-          db_->ReleaseSnapshot(snap_state.snapshot);
-          thread->snapshot_queue.pop();
-        }
+      while (!thread->snapshot_queue.empty() &&
+             i == thread->snapshot_queue.front().first) {
+        auto snap_state = thread->snapshot_queue.front().second;
+        ReadOptions ropt;
+        assert(thread->snapshot_queue.front().second.snapshot);
+        assert(snap_state.snapshot);
+        ropt.snapshot = snap_state.snapshot;
+        PinnableSlice exp_v(&snap_state.value);
+        exp_v.PinSelf();
+        ASSERT_SAME(ropt, db_, column_families_[snap_state.cf_at],
+                    snap_state.status, exp_v, snap_state.key);
+        db_->ReleaseSnapshot(snap_state.snapshot);
+        thread->snapshot_queue.pop();
       }
 
       int prob_op = thread->rand.Uniform(100);
@@ -1952,18 +1959,24 @@ class StressTest {
           Status s;
           if (FLAGS_use_merge) {
             // TODO(myabandeh): use 2PC for txns
-            // s = db_->Merge(write_opts, column_family, key, v);
-            auto* txn = NewTxn(write_opts);
-            s = txn->Merge(column_family, key, v);
-            assert(s.ok());
-            s = CommitTxn(txn);
+            if (!FLAGS_use_txn) {
+              s = db_->Merge(write_opts, column_family, key, v);
+            } else {
+              auto* txn = NewTxn(write_opts);
+              s = txn->Merge(column_family, key, v);
+              assert(s.ok());
+              s = CommitTxn(txn);
+            }
           } else {
             // TODO(myabandeh): use 2PC for txns
-            // s = db_->Put(write_opts, column_family, key, v);
-            auto* txn = NewTxn(write_opts);
-            s = txn->Put(column_family, key, v);
-            assert(s.ok());
-            s = CommitTxn(txn);
+            if (!FLAGS_use_txn) {
+              s = db_->Put(write_opts, column_family, key, v);
+            } else {
+              auto* txn = NewTxn(write_opts);
+              s = txn->Put(column_family, key, v);
+              assert(s.ok());
+              s = CommitTxn(txn);
+            }
           }
           if (!s.ok()) {
             fprintf(stderr, "put or merge error: %s\n", s.ToString().c_str());
@@ -1998,11 +2011,15 @@ class StressTest {
           if (shared->AllowsOverwrite(rand_column_family, rand_key)) {
             shared->Delete(rand_column_family, rand_key);
             // TODO(myabandeh): use 2PC for txns
-            // Status s = db_->Delete(write_opts, column_family, key);
-            auto* txn = NewTxn(write_opts);
-            Status s = txn->Delete(column_family, key);
-            assert(s.ok());
-            s = CommitTxn(txn);
+            Status s;
+            if (!FLAGS_use_txn) {
+              s = db_->Delete(write_opts, column_family, key);
+            } else {
+              auto* txn = NewTxn(write_opts);
+              s = txn->Delete(column_family, key);
+              assert(s.ok());
+              s = CommitTxn(txn);
+            }
             thread->stats.AddDeletes(1);
             if (!s.ok()) {
               fprintf(stderr, "delete error: %s\n", s.ToString().c_str());
@@ -2011,11 +2028,15 @@ class StressTest {
           } else {
             shared->SingleDelete(rand_column_family, rand_key);
             // TODO(myabandeh): use 2PC for txns
-            // Status s = db_->SingleDelete(write_opts, column_family, key);
-            auto* txn = NewTxn(write_opts);
-            Status s = txn->SingleDelete(column_family, key);
-            assert(s.ok());
-            s = CommitTxn(txn);
+            Status s;
+            if (!FLAGS_use_txn) {
+              s = db_->SingleDelete(write_opts, column_family, key);
+            } else {
+              auto* txn = NewTxn(write_opts);
+              s = txn->SingleDelete(column_family, key);
+              assert(s.ok());
+              s = CommitTxn(txn);
+            }
             thread->stats.AddSingleDeletes(1);
             if (!s.ok()) {
               fprintf(stderr, "single delete error: %s\n",
@@ -2224,6 +2245,8 @@ class StressTest {
   void PrintEnv() const {
     fprintf(stdout, "RocksDB version           : %d.%d\n", kMajorVersion,
             kMinorVersion);
+    fprintf(stdout, "TransactionDB             : %s\n",
+            FLAGS_use_txn ? "true" : "false");
     fprintf(stdout, "Column families           : %d\n", FLAGS_column_families);
     if (!FLAGS_test_batches_snapshots) {
       fprintf(stdout, "Clear CFs one in          : %d\n",
@@ -2469,13 +2492,16 @@ class StressTest {
       options_.listeners.emplace_back(
           new DbStressListener(FLAGS_db, options_.db_paths));
       options_.create_missing_column_families = true;
-      TransactionDBOptions txn_db_options;
-      s = TransactionDB::Open(options_, txn_db_options, FLAGS_db,
-                              cf_descriptors, &column_families_, &txn_db_);
-      db_ = txn_db_;
       // TODO(myabandeh): open txn db
-      // s = DB::Open(DBOptions(options_), FLAGS_db, cf_descriptors,
-      //             &column_families_, &db_);
+      if (!FLAGS_use_txn) {
+        s = DB::Open(DBOptions(options_), FLAGS_db, cf_descriptors,
+                     &column_families_, &db_);
+      } else {
+        TransactionDBOptions txn_db_options;
+        s = TransactionDB::Open(options_, txn_db_options, FLAGS_db,
+                                cf_descriptors, &column_families_, &txn_db_);
+        db_ = txn_db_;
+      }
       assert(!s.ok() || column_families_.size() ==
                             static_cast<size_t>(FLAGS_column_families));
     } else {
@@ -2499,9 +2525,8 @@ class StressTest {
       delete cf;
     }
     column_families_.clear();
-    // delete db_;
+    delete db_;
     db_ = nullptr;
-    delete txn_db_;
     txn_db_ = nullptr;
 
     num_times_reopened_++;
