@@ -1325,7 +1325,15 @@ Status CompactionJob::OpenCompactionOutputFile(
       sub_compact->compaction->MaxInputFileCreationTime();
   if (output_file_creation_time == 0) {
     int64_t _current_time = 0;
-    db_options_.env->GetCurrentTime(&_current_time);  // ignore error
+    auto status = db_options_.env->GetCurrentTime(&_current_time);
+    // Safe to proceed even if GetCurrentTime fails. So, log and proceed.
+    if (!status.ok()) {
+      ROCKS_LOG_WARN(
+          db_options_.info_log,
+          "Failed to get current time to populate creation_time property. "
+          "Status: %s",
+          status.ToString().c_str());
+    }
     output_file_creation_time = static_cast<uint64_t>(_current_time);
   }
 
