@@ -1689,6 +1689,7 @@ void ReduceDBLevelsCommand::DoCommand() {
   if (exec_state_.IsFailed()) {
     return;
   }
+  assert(db_ != nullptr);
   // Compact the whole DB to put all files to the highest level.
   fprintf(stdout, "Compacting the db...\n");
   db_->CompactRange(CompactRangeOptions(), GetCfHandle(), nullptr, nullptr);
