@@ -1835,27 +1835,33 @@ void VersionStorageInfo::GetOverlappingInputs(
 void VersionStorageInfo::GetCleanInputsWithinInterval(
     int level, const InternalKey* begin, const InternalKey* end,
     std::vector<FileMetaData*>* inputs, int hint_index, int* file_index) const {
-  if (level >= num_non_empty_levels_) {
-    // this level is empty, no inputs within range
-    return;
-  }
-
   inputs->clear();
-  Slice user_begin, user_end;
-  if (begin != nullptr) {
-    user_begin = begin->user_key();
-  }
-  if (end != nullptr) {
-    user_end = end->user_key();
-  }
   if (file_index) {
     *file_index = -1;
   }
-  if (begin != nullptr && end != nullptr && level > 0) {
-    GetOverlappingInputsRangeBinarySearch(level, user_begin, user_end, inputs,
-                                          hint_index, file_index,
-                                          true /* within_interval */);
+  if (level >= num_non_empty_levels_ || level == 0 ||
+      level_files_brief_[level].num_files == 0) {
+    // this level is empty, no inputs within range
+    // also don't support clean input interval within L0
+    return;
   }
+
+  Slice user_begin, user_end;
+  const auto& level_files = level_files_brief_[level];
+  if (begin == nullptr) {
+    user_begin = ExtractUserKey(level_files.files[0].smallest_key);
+  } else {
+    user_begin = begin->user_key();
+  }
+  if (end == nullptr) {
+    user_end = ExtractUserKey(
+        level_files.files[level_files.num_files - 1].largest_key);
+  } else {
+    user_end = end->user_key();
+  }
+  GetOverlappingInputsRangeBinarySearch(level, user_begin, user_end, inputs,
+                                        hint_index, file_index,
+                                        true /* within_interval */);
 }
 
 // Store in "*inputs" all files in "level" that overlap [begin,end]
@@ -1918,8 +1924,8 @@ void VersionStorageInfo::GetOverlappingInputsRangeBinarySearch(
   } else {
     ExtendFileRangeOverlappingInterval(level, user_begin, user_end, mid,
                                        &start_index, &end_index);
+    assert(end_index >= start_index);
   }
-  assert(end_index >= start_index);
   // insert overlapping files into vector
   for (int i = start_index; i <= end_index; i++) {
     inputs->push_back(files_[level][i]);
