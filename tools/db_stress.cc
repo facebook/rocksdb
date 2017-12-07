@@ -981,13 +981,24 @@ class SharedState {
 
 const uint32_t SharedState::SENTINEL = 0xffffffff;
 
+struct SnapshotState {
+  const Snapshot* snapshot;
+  // The cf from which we did a Get at this stapshot
+  int cf_at;
+  // The key with which we did a Get at this stapshot
+  std::string key;
+  // The status of the Get
+  Status status;
+  // The value of the Get
+  std::string value;
+};
 // Per-thread state for concurrent executions of the same benchmark.
 struct ThreadState {
   uint32_t tid; // 0..n-1
   Random rand;  // Has different seeds for different threads
   SharedState* shared;
   Stats stats;
-  std::queue<std::pair<uint64_t, const Snapshot*> > snapshot_queue;
+  std::queue<std::pair<uint64_t, SnapshotState> > snapshot_queue;
 
   ThreadState(uint32_t index, SharedState* _shared)
       : tid(index), rand(1000 + index + _shared->GetSeed()), shared(_shared) {}
@@ -1319,6 +1330,17 @@ class StressTest {
   }
 
  private:
+  void ASSERT_SAME(ReadOptions roptions, DB* db, ColumnFamilyHandle* cf,
+                   Status exp_s, PinnableSlice& exp_v, Slice key) {
+    Status s;
+    PinnableSlice v;
+    s = db->Get(roptions, cf, key, &v);
+    assert(exp_s == s);
+    assert(s.ok() || s.IsNotFound());
+    if (s.ok()) {
+      assert(exp_v == v);
+    }
+  }
 
   static void ThreadBody(void* v) {
     ThreadState* thread = reinterpret_cast<ThreadState*>(v);
@@ -1694,7 +1716,8 @@ class StressTest {
             // TODO(myabandeh): use of these snapshots for reading tests. we can
             // do two reads, one when the snapshot is taken and one when it is
             // removed and check if they are equal.
-            db_->ReleaseSnapshot(thread->snapshot_queue.front().second);
+            db_->ReleaseSnapshot(
+                thread->snapshot_queue.front().second.snapshot);
             thread->snapshot_queue.pop();
           }
           thread->shared->IncVotedReopen();
@@ -1808,19 +1831,6 @@ class StressTest {
         }
       }
 #endif                // !ROCKSDB_LITE
-      if (FLAGS_acquire_snapshot_one_in > 0 &&
-          thread->rand.Uniform(FLAGS_acquire_snapshot_one_in) == 0) {
-        thread->snapshot_queue.emplace(
-            std::min(FLAGS_ops_per_thread - 1, i + FLAGS_snapshot_hold_ops),
-            db_->GetSnapshot());
-      }
-      if (!thread->snapshot_queue.empty()) {
-        while (i == thread->snapshot_queue.front().first) {
-          db_->ReleaseSnapshot(thread->snapshot_queue.front().second);
-          thread->snapshot_queue.pop();
-        }
-      }
-
       const double completed_ratio =
           static_cast<double>(i) / FLAGS_ops_per_thread;
       const int64_t base_key = static_cast<int64_t>(
@@ -1834,7 +1844,34 @@ class StressTest {
         l.reset(new MutexLock(
             shared->GetMutexForKey(rand_column_family, rand_key)));
       }
+
       auto column_family = column_families_[rand_column_family];
+
+      if (FLAGS_acquire_snapshot_one_in > 0 &&
+          thread->rand.Uniform(FLAGS_acquire_snapshot_one_in) == 0) {
+        auto snapshot = db_->GetSnapshot();
+        ReadOptions ropt;
+        ropt.snapshot = snapshot;
+        std::string value_at;
+        auto status_at = db_->Get(ropt, column_family, key, &value_at);
+        SnapshotState snap = {snapshot, rand_column_family, keystr, status_at,
+                              value_at};
+        thread->snapshot_queue.emplace(
+            std::min(FLAGS_ops_per_thread - 1, i + FLAGS_snapshot_hold_ops),
+            snap);
+      }
+      if (!thread->snapshot_queue.empty()) {
+        while (i == thread->snapshot_queue.front().first) {
+          auto snap_state = thread->snapshot_queue.front().second;
+          ReadOptions ropt;
+          ropt.snapshot = snap_state.snapshot;
+          PinnableSlice exp_v(&snap_state.value);
+          ASSERT_SAME(ropt, db_, column_families_[snap_state.cf_at],
+                      snap_state.status, exp_v, snap_state.key);
+          db_->ReleaseSnapshot(snap_state.snapshot);
+          thread->snapshot_queue.pop();
+        }
+      }
 
       int prob_op = thread->rand.Uniform(100);
       if (prob_op >= 0 && prob_op < (int)FLAGS_readpercent) {
