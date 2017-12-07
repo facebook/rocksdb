@@ -968,6 +968,7 @@ class MemTableInserter : public WriteBatch::Handler {
         post_info_created_(false),
         has_valid_writes_(has_valid_writes),
         rebuilding_trx_(nullptr),
+        rebuilding_trx_seq_(0),
         seq_per_batch_(seq_per_batch),
         // Write after commit currently uses one seq per key (instead of per
         // batch). So seq_per_batch being false indicates write_after_commit
