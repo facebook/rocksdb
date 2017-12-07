@@ -38,6 +38,18 @@ CuckooTableReader::CuckooTableReader(
     const Comparator* comparator,
     uint64_t (*get_slice_hash)(const Slice&, uint32_t, uint64_t))
     : file_(std::move(file)),
+      is_last_level_(false),
+      identity_as_first_hash_(false),
+      use_module_hash_(false),
+      num_hash_func_(0),
+      unused_key_(""),
+      key_length_(0),
+      user_key_length_(0),
+      value_length_(0),
+      bucket_length_(0),
+      cuckoo_block_size_(0),
+      cuckoo_block_bytes_minus_one_(0),
+      table_size_(0),
       ucomp_(comparator),
       get_slice_hash_(get_slice_hash) {
   if (!ioptions.allow_mmap_reads) {
