@@ -138,13 +138,9 @@ Cache::Handle* GetEntryFromCache(Cache* block_cache, const Slice& key,
       get_context->RecordCounters(BLOCK_CACHE_HIT, 1);
       // total bytes read from cache
       get_context->RecordCounters(BLOCK_CACHE_BYTES_READ,
-                                   block_cache->GetUsage(cache_handle));
+                                  block_cache->GetUsage(cache_handle));
       // block-type specific cache hit
-      if (block_cache_hit_ticker == BLOCK_CACHE_DATA_HIT) {
-        get_context->RecordCounters(BLOCK_CACHE_DATA_HIT, 1);
-      } else {
-        RecordTick(statistics, block_cache_hit_ticker);
-      }
+      get_context->RecordCounters(block_cache_hit_ticker, 1);
     } else {
       // overall cache hit
       RecordTick(statistics, BLOCK_CACHE_HIT);
@@ -154,18 +150,15 @@ Cache::Handle* GetEntryFromCache(Cache* block_cache, const Slice& key,
       RecordTick(statistics, block_cache_hit_ticker);
     }
   } else {
-    // overall cache miss
     if (get_context != nullptr) {
+      // overall cache miss
       get_context->RecordCounters(BLOCK_CACHE_MISS, 1);
+      // block-type specific cache miss
+      get_context->RecordCounters(block_cache_miss_ticker, 1);
     } else {
       RecordTick(statistics, BLOCK_CACHE_MISS);
-    }
-    // block-type specific cache miss
-    if (block_cache_miss_ticker == BLOCK_CACHE_DATA_MISS &&
-        get_context != nullptr) {
-      get_context->RecordCounters(BLOCK_CACHE_DATA_MISS, 1);
-    } else
       RecordTick(statistics, block_cache_miss_ticker);
+    }
   }
 
   return cache_handle;
@@ -277,9 +270,11 @@ class PartitionIndexReader : public IndexReader, public Cleanable {
         compression_dict = rep->compression_dict_block->data;
       }
       const bool is_index = true;
-      s = table_->MaybeLoadDataBlockToCache(prefetch_buffer.get(), rep, ro,
-                                            handle, compression_dict, &block,
-                                            is_index, nullptr);
+      // TODO: Support counter batch update for partitioned index and
+      // filter blocks
+      s = table_->MaybeLoadDataBlockToCache(
+          prefetch_buffer.get(), rep, ro, handle, compression_dict, &block,
+          is_index, nullptr /* get_context */);
 
       assert(s.ok() || block.value == nullptr);
       if (s.ok() && block.value != nullptr) {
@@ -804,11 +799,10 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
   } else {
     if (found_range_del_block && !rep->range_del_handle.IsNull()) {
       ReadOptions read_options;
-      s = MaybeLoadDataBlockToCache(prefetch_buffer.get(), rep, read_options,
-                                    rep->range_del_handle,
-                                    Slice() /* compression_dict */,
-                                    &rep->range_del_entry, false/* is_index */,
-                                    nullptr /* get_context */);
+      s = MaybeLoadDataBlockToCache(
+          prefetch_buffer.get(), rep, read_options, rep->range_del_handle,
+          Slice() /* compression_dict */, &rep->range_del_entry,
+          false /* is_index */, nullptr /* get_context */);
       if (!s.ok()) {
         ROCKS_LOG_WARN(
             rep->ioptions.info_log,
@@ -1053,21 +1047,27 @@ Status BlockBasedTable::GetDataBlockFromCache(
         if (get_context != nullptr) {
           get_context->RecordCounters(BLOCK_CACHE_ADD, 1);
           get_context->RecordCounters(BLOCK_CACHE_BYTES_WRITE,
-                                       block->value->usable_size());
+                                      block->value->usable_size());
         } else {
           RecordTick(statistics, BLOCK_CACHE_ADD);
           RecordTick(statistics, BLOCK_CACHE_BYTES_WRITE,
                      block->value->usable_size());
         }
         if (is_index) {
-          RecordTick(statistics, BLOCK_CACHE_INDEX_ADD);
-          RecordTick(statistics, BLOCK_CACHE_INDEX_BYTES_INSERT,
-                     block->value->usable_size());
+          if (get_context != nullptr) {
+            get_context->RecordCounters(BLOCK_CACHE_INDEX_ADD, 1);
+            get_context->RecordCounters(BLOCK_CACHE_INDEX_BYTES_INSERT,
+                                        block->value->usable_size());
+          } else {
+            RecordTick(statistics, BLOCK_CACHE_INDEX_ADD);
+            RecordTick(statistics, BLOCK_CACHE_INDEX_BYTES_INSERT,
+                       block->value->usable_size());
+          }
         } else {
           if (get_context != nullptr) {
             get_context->RecordCounters(BLOCK_CACHE_DATA_ADD, 1);
             get_context->RecordCounters(BLOCK_CACHE_DATA_BYTES_INSERT,
-                                         block->value->usable_size());
+                                        block->value->usable_size());
           } else {
             RecordTick(statistics, BLOCK_CACHE_DATA_ADD);
             RecordTick(statistics, BLOCK_CACHE_DATA_BYTES_INSERT,
@@ -1149,21 +1149,27 @@ Status BlockBasedTable::PutDataBlockToCache(
       if (get_context != nullptr) {
         get_context->RecordCounters(BLOCK_CACHE_ADD, 1);
         get_context->RecordCounters(BLOCK_CACHE_BYTES_WRITE,
-                                     block->value->usable_size());
+                                    block->value->usable_size());
       } else {
         RecordTick(statistics, BLOCK_CACHE_ADD);
         RecordTick(statistics, BLOCK_CACHE_BYTES_WRITE,
                    block->value->usable_size());
       }
       if (is_index) {
-        RecordTick(statistics, BLOCK_CACHE_INDEX_ADD);
-        RecordTick(statistics, BLOCK_CACHE_INDEX_BYTES_INSERT,
-                   block->value->usable_size());
+        if (get_context != nullptr) {
+          get_context->RecordCounters(BLOCK_CACHE_INDEX_ADD, 1);
+          get_context->RecordCounters(BLOCK_CACHE_INDEX_BYTES_INSERT,
+                                      block->value->usable_size());
+        } else {
+          RecordTick(statistics, BLOCK_CACHE_INDEX_ADD);
+          RecordTick(statistics, BLOCK_CACHE_INDEX_BYTES_INSERT,
+                     block->value->usable_size());
+        }
       } else {
         if (get_context != nullptr) {
           get_context->RecordCounters(BLOCK_CACHE_DATA_ADD, 1);
           get_context->RecordCounters(BLOCK_CACHE_DATA_BYTES_INSERT,
-                                       block->value->usable_size());
+                                      block->value->usable_size());
         } else {
           RecordTick(statistics, BLOCK_CACHE_DATA_ADD);
           RecordTick(statistics, BLOCK_CACHE_DATA_BYTES_INSERT,
@@ -1311,15 +1317,15 @@ BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
         if (get_context != nullptr) {
           get_context->RecordCounters(BLOCK_CACHE_ADD, 1);
           get_context->RecordCounters(BLOCK_CACHE_BYTES_WRITE, filter->size());
-          RecordTick(statistics, BLOCK_CACHE_FILTER_ADD);
-          RecordTick(statistics, BLOCK_CACHE_FILTER_BYTES_INSERT,
-                     filter->size());
+          get_context->RecordCounters(BLOCK_CACHE_FILTER_ADD, 1);
+          get_context->RecordCounters(BLOCK_CACHE_FILTER_BYTES_INSERT,
+                                      filter->size());
         } else {
           RecordTick(statistics, BLOCK_CACHE_ADD);
+          RecordTick(statistics, BLOCK_CACHE_BYTES_WRITE, filter->size());
           RecordTick(statistics, BLOCK_CACHE_FILTER_ADD);
           RecordTick(statistics, BLOCK_CACHE_FILTER_BYTES_INSERT,
                      filter->size());
-          RecordTick(statistics, BLOCK_CACHE_BYTES_WRITE, filter->size());
         }
       } else {
         RecordTick(statistics, BLOCK_CACHE_ADD_FAILURES);
@@ -1820,9 +1826,8 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
     RecordTick(rep_->ioptions.statistics, BLOOM_FILTER_USEFUL);
   } else {
     BlockIter iiter_on_stack;
-    auto iiter =
-        NewIndexIterator(read_options, &iiter_on_stack,
-                         /* index_entry */ nullptr, get_context);
+    auto iiter = NewIndexIterator(read_options, &iiter_on_stack,
+                                  /* index_entry */ nullptr, get_context);
     std::unique_ptr<InternalIterator> iiter_unique_ptr;
     if (iiter != &iiter_on_stack) {
       iiter_unique_ptr.reset(iiter);
