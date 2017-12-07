@@ -432,12 +432,6 @@ TEST_P(DBTestUniversalCompaction, DynamicUniversalCompactionSizeAmplification) {
   ASSERT_OK(dbfull()->SetOptions(handles_[1],
                                  {{"compaction_options_universal",
                                    "{max_size_amplification_percent=110;}"}}));
-  ASSERT_OK(dbfull()->SetOptions(handles_[1],
-                                {{"compaction_options_universal",
-                                  "{size_ratio=1;}"}}));
-  ASSERT_OK(dbfull()->SetOptions(handles_[1],
-                                {{"compaction_options_universal",
-                                  "{min_merge_width=2;}"}}));
   ASSERT_EQ(dbfull()
                 ->GetOptions(handles_[1])
                 .compaction_options_universal.max_size_amplification_percent,
