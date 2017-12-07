@@ -7,12 +7,12 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <cstdint>
 #include <memory>
 #include <string>
 
-#include "rocksdb/options.h"
+#include "rocksdb/env.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
 #include "utilities/blob_db/blob_log_format.h"
 
@@ -39,19 +39,14 @@ class Reader {
 
   // Create a reader that will return log records from "*file".
   // "*file" must remain live while this Reader is in use.
-  //
-  // If "reporter" is non-nullptr, it is notified whenever some data is
-  // dropped due to a detected corruption.  "*reporter" must remain
-  // live while this Reader is in use.
-  //
-  // If "checksum" is true, verify checksums if available.
-  //
-  // The Reader will start reading at the first record located at physical
-  // position >= initial_offset within the file.
-  Reader(std::shared_ptr<Logger> info_log,
-         std::unique_ptr<SequentialFileReader>&& file);
+  Reader(std::unique_ptr<SequentialFileReader>&& file_reader, Env* env,
+         Statistics* statistics);
 
-  ~Reader();
+  ~Reader() = default;
+
+  // No copying allowed
+  Reader(const Reader&) = delete;
+  Reader& operator=(const Reader&) = delete;
 
   Status ReadHeader(BlobLogHeader* header);
 
@@ -64,30 +59,22 @@ class Reader {
   Status ReadRecord(BlobLogRecord* record, ReadLevel level = kReadHeader,
                     uint64_t* blob_offset = nullptr);
 
-  SequentialFileReader* file() { return file_.get(); }
+  Status ReadSlice(uint64_t size, Slice* slice, std::string* buf);
 
   void ResetNextByte() { next_byte_ = 0; }
 
   uint64_t GetNextByte() const { return next_byte_; }
 
-  const SequentialFileReader* file_reader() const { return file_.get(); }
-
  private:
-  char* GetReadBuffer() { return &(backing_store_[0]); }
-
- private:
-  std::shared_ptr<Logger> info_log_;
   const std::unique_ptr<SequentialFileReader> file_;
+  Env* env_;
+  Statistics* statistics_;
 
   std::string backing_store_;
   Slice buffer_;
 
   // which byte to read next. For asserting proper usage
   uint64_t next_byte_;
-
-  // No copying allowed
-  Reader(const Reader&) = delete;
-  Reader& operator=(const Reader&) = delete;
 };
 
 }  // namespace blob_db

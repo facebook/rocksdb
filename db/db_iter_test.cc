@@ -356,7 +356,7 @@ TEST_F(DBIteratorTest, DBIteratorPrevNext) {
     db_iter->SeekToLast();
 
     ASSERT_TRUE(db_iter->Valid());
-    ASSERT_EQ(static_cast<int>(get_perf_context()->internal_key_skipped_count), 7);
+    ASSERT_EQ(static_cast<int>(get_perf_context()->internal_key_skipped_count), 1);
     ASSERT_EQ(db_iter->key().ToString(), "b");
 
     SetPerfLevel(kDisable);
@@ -475,7 +475,7 @@ TEST_F(DBIteratorTest, DBIteratorPrevNext) {
     db_iter->SeekToLast();
 
     ASSERT_TRUE(db_iter->Valid());
-    ASSERT_EQ(static_cast<int>(get_perf_context()->internal_delete_skipped_count), 1);
+    ASSERT_EQ(static_cast<int>(get_perf_context()->internal_delete_skipped_count), 0);
     ASSERT_EQ(db_iter->key().ToString(), "b");
 
     SetPerfLevel(kDisable);
@@ -2364,6 +2364,80 @@ TEST_F(DBIteratorTest, DBIterator14) {
   ASSERT_EQ(db_iter->value().ToString(), "4");
 }
 
+TEST_F(DBIteratorTest, DBIteratorTestDifferentialSnapshots) {
+  { // test that KVs earlier that iter_start_seqnum are filtered out
+    ReadOptions ro;
+    ro.iter_start_seqnum=5;
+    Options options;
+    options.statistics = rocksdb::CreateDBStatistics();
+
+    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+    for (size_t i = 0; i < 10; ++i) {
+      internal_iter->AddPut(std::to_string(i), std::to_string(i) + "a");
+      internal_iter->AddPut(std::to_string(i), std::to_string(i) + "b");
+      internal_iter->AddPut(std::to_string(i), std::to_string(i) + "c");
+    }
+    internal_iter->Finish();
+
+    std::unique_ptr<Iterator> db_iter(
+      NewDBIterator(env_, ro, ImmutableCFOptions(options), BytewiseComparator(),
+                    internal_iter, 13,
+                    options.max_sequential_skip_in_iterations, nullptr));
+    // Expecting InternalKeys in [5,8] range with correct type
+    int seqnums[4] = {5,8,11,13};
+    std::string user_keys[4] = {"1","2","3","4"};
+    std::string values[4] = {"1c", "2c", "3c", "4b"};
+    int i = 0;
+    for (db_iter->SeekToFirst(); db_iter->Valid(); db_iter->Next()) {
+      FullKey fkey;
+      ParseFullKey(db_iter->key(), &fkey);
+      ASSERT_EQ(user_keys[i], fkey.user_key.ToString());
+      ASSERT_EQ(EntryType::kEntryPut, fkey.type);
+      ASSERT_EQ(seqnums[i], fkey.sequence);
+      ASSERT_EQ(values[i], db_iter->value().ToString());
+      i++;
+    }
+    ASSERT_EQ(i, 4);
+  }
+
+  { // Test that deletes are returned correctly as internal KVs
+    ReadOptions ro;
+    ro.iter_start_seqnum=5;
+    Options options;
+    options.statistics = rocksdb::CreateDBStatistics();
+
+    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+    for (size_t i = 0; i < 10; ++i) {
+      internal_iter->AddPut(std::to_string(i), std::to_string(i) + "a");
+      internal_iter->AddPut(std::to_string(i), std::to_string(i) + "b");
+      internal_iter->AddDeletion(std::to_string(i));
+    }
+    internal_iter->Finish();
+
+    std::unique_ptr<Iterator> db_iter(
+      NewDBIterator(env_, ro, ImmutableCFOptions(options), BytewiseComparator(),
+                    internal_iter, 13,
+                    options.max_sequential_skip_in_iterations, nullptr));
+    // Expecting InternalKeys in [5,8] range with correct type
+    int seqnums[4] = {5,8,11,13};
+    EntryType key_types[4] = {EntryType::kEntryDelete,EntryType::kEntryDelete,
+      EntryType::kEntryDelete,EntryType::kEntryPut};
+    std::string user_keys[4] = {"1","2","3","4"};
+    std::string values[4] = {"", "", "", "4b"};
+    int i = 0;
+    for (db_iter->SeekToFirst(); db_iter->Valid(); db_iter->Next()) {
+      FullKey fkey;
+      ParseFullKey(db_iter->key(), &fkey);
+      ASSERT_EQ(user_keys[i], fkey.user_key.ToString());
+      ASSERT_EQ(key_types[i], fkey.type);
+      ASSERT_EQ(seqnums[i], fkey.sequence);
+      ASSERT_EQ(values[i], db_iter->value().ToString());
+      i++;
+    }
+    ASSERT_EQ(i, 4);
+  }
+}
+
 class DBIterWithMergeIterTest : public testing::Test {
  public:
   DBIterWithMergeIterTest()
@@ -2915,6 +2989,33 @@ TEST_F(DBIteratorTest, PrevLowerBound) {
     db_iter->Prev();
   }
   ASSERT_FALSE(db_iter->Valid());
+}
+
+TEST_F(DBIteratorTest, SeekLessLowerBound) {
+  const int kNumKeys = 3;
+  const int kLowerBound = 2;
+  TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+  for (int j = 1; j <= kNumKeys; ++j) {
+    internal_iter->AddPut(std::to_string(j), "val");
+  }
+  internal_iter->Finish();
+
+  ReadOptions ro;
+  auto lower_bound_str = std::to_string(kLowerBound);
+  Slice lower_bound(lower_bound_str);
+  ro.iterate_lower_bound = &lower_bound;
+  Options options;
+  std::unique_ptr<Iterator> db_iter(NewDBIterator(
+      env_, ro, ImmutableCFOptions(options), BytewiseComparator(),
+      internal_iter, 10 /* sequence */,
+      options.max_sequential_skip_in_iterations, nullptr /* read_callback */));
+
+  auto before_lower_bound_str = std::to_string(kLowerBound - 1);
+  Slice before_lower_bound(lower_bound_str);
+
+  db_iter->Seek(before_lower_bound);
+  ASSERT_TRUE(db_iter->Valid());
+  ASSERT_EQ(lower_bound_str, db_iter->key().ToString());
 }
 
 }  // namespace rocksdb

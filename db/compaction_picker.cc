@@ -89,7 +89,7 @@ CompressionType GetCompressionType(const ImmutableCFOptions& ioptions,
   // If bottommost_compression is set and we are compacting to the
   // bottommost level then we should use it.
   if (ioptions.bottommost_compression != kDisableCompressionOption &&
-      level > base_level && level >= (vstorage->num_non_empty_levels() - 1)) {
+      level >= (vstorage->num_non_empty_levels() - 1)) {
     return ioptions.bottommost_compression;
   }
   // If the user has specified a different compression level for each level,

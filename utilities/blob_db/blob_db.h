@@ -63,24 +63,20 @@ struct BlobDBOptions {
   // after it exceeds that size
   uint64_t blob_file_size = 256 * 1024 * 1024;
 
-  // how many files to use for simple blobs at one time
-  uint32_t num_concurrent_simple_blobs = 1;
-
   // Instead of setting TTL explicitly by calling PutWithTTL or PutUntil,
   // applications can set a TTLExtractor which can extract TTL from key-value
   // pairs.
   std::shared_ptr<TTLExtractor> ttl_extractor = nullptr;
 
-  // eviction callback.
-  // this function will be called for every blob that is getting
-  // evicted.
-  std::function<void(const ColumnFamilyHandle*, const Slice&, const Slice&)>
-      gc_evict_cb_fn;
-
   // what compression to use for Blob's
   CompressionType compression = kNoCompression;
 
-  // Disable all background job.
+  // If enabled, blob DB periodically cleanup stale data by rewriting remaining
+  // live data in blob files to new files. If garbage collection is not enabled,
+  // blob files will be cleanup based on TTL.
+  bool enable_garbage_collection = false;
+
+  // Disable all background job. Used for test only.
   bool disable_background_tasks = false;
 
   void Dump(Logger* log) const;

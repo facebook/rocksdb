@@ -272,10 +272,10 @@ bool Compaction::KeyNotExistsBeyondOutputLevel(
   assert(input_version_ != nullptr);
   assert(level_ptrs != nullptr);
   assert(level_ptrs->size() == static_cast<size_t>(number_levels_));
-  if (cfd_->ioptions()->compaction_style == kCompactionStyleLevel) {
-    if (output_level_ == 0) {
-      return false;
-    }
+  if (bottommost_level_) {
+    return true;
+  } else if (output_level_ != 0 &&
+             cfd_->ioptions()->compaction_style == kCompactionStyleLevel) {
     // Maybe use binary search to find right entry instead of linear search?
     const Comparator* user_cmp = cfd_->user_comparator();
     for (int lvl = output_level_ + 1; lvl < number_levels_; lvl++) {
@@ -295,9 +295,8 @@ bool Compaction::KeyNotExistsBeyondOutputLevel(
       }
     }
     return true;
-  } else {
-    return bottommost_level_;
   }
+  return false;
 }
 
 // Mark (or clear) each file that is being compacted

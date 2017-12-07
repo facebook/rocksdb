@@ -445,6 +445,9 @@ class SpecialEnv : public EnvWrapper {
       r->reset(new CountingFile(std::move(*r), &random_read_counter_,
                                 &random_read_bytes_counter_));
     }
+    if (s.ok() && soptions.compaction_readahead_size > 0) {
+      compaction_readahead_size_ = soptions.compaction_readahead_size;
+    }
     return s;
   }
 
@@ -570,6 +573,8 @@ class SpecialEnv : public EnvWrapper {
   bool no_slowdown_;
 
   std::atomic<bool> is_wal_sync_thread_safe_{true};
+
+  std::atomic<size_t> compaction_readahead_size_;
 };
 
 class MockTimeEnv : public EnvWrapper {
@@ -828,6 +833,8 @@ class DBTestBase : public testing::Test {
   Status SingleDelete(const std::string& k);
 
   Status SingleDelete(int cf, const std::string& k);
+
+  bool SetPreserveDeletesSequenceNumber(SequenceNumber sn);
 
   std::string Get(const std::string& k, const Snapshot* snapshot = nullptr);
 

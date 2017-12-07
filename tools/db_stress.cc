@@ -39,7 +39,6 @@ int main() {
 #include <exception>
 #include <thread>
 
-#include <gflags/gflags.h>
 #include "db/db_impl.h"
 #include "db/version_set.h"
 #include "hdfs/env_hdfs.h"
@@ -56,6 +55,7 @@ int main() {
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
+#include "util/gflags_compat.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
@@ -68,9 +68,9 @@ int main() {
 
 #include "utilities/merge_operators.h"
 
-using GFLAGS::ParseCommandLineFlags;
-using GFLAGS::RegisterFlagValidator;
-using GFLAGS::SetUsageMessage;
+using GFLAGS_NAMESPACE::ParseCommandLineFlags;
+using GFLAGS_NAMESPACE::RegisterFlagValidator;
+using GFLAGS_NAMESPACE::SetUsageMessage;
 
 static const long KB = 1024;
 static const int kRandomValueMaxFactor = 3;
@@ -985,6 +985,7 @@ struct ThreadState {
   Random rand;  // Has different seeds for different threads
   SharedState* shared;
   Stats stats;
+  std::queue<std::pair<uint64_t, const Snapshot*> > snapshot_queue;
 
   ThreadState(uint32_t index, SharedState* _shared)
       : tid(index), rand(1000 + index + _shared->GetSeed()), shared(_shared) {}
@@ -1657,7 +1658,6 @@ class StressTest {
     const int delRangeBound = delBound + (int)FLAGS_delrangepercent;
 
     thread->stats.Start();
-    std::queue<std::pair<uint64_t, const Snapshot*> > snapshot_queue;
     for (uint64_t i = 0; i < FLAGS_ops_per_thread; i++) {
       if (thread->shared->HasVerificationFailedYet()) {
         break;
@@ -1666,6 +1666,10 @@ class StressTest {
         {
           thread->stats.FinishedSingleOp();
           MutexLock l(thread->shared->GetMutex());
+          while (!thread->snapshot_queue.empty()) {
+            db_->ReleaseSnapshot(thread->snapshot_queue.front().second);
+            thread->snapshot_queue.pop();
+          }
           thread->shared->IncVotedReopen();
           if (thread->shared->AllVotedReopen()) {
             thread->shared->GetStressTest()->Reopen();
@@ -1779,13 +1783,15 @@ class StressTest {
 #endif                // !ROCKSDB_LITE
       if (FLAGS_acquire_snapshot_one_in > 0 &&
           thread->rand.Uniform(FLAGS_acquire_snapshot_one_in) == 0) {
-        snapshot_queue.emplace(
+        thread->snapshot_queue.emplace(
             std::min(FLAGS_ops_per_thread - 1, i + FLAGS_snapshot_hold_ops),
             db_->GetSnapshot());
       }
-      if (!snapshot_queue.empty() && i == snapshot_queue.front().first) {
-        db_->ReleaseSnapshot(snapshot_queue.front().second);
-        snapshot_queue.pop();
+      if (!thread->snapshot_queue.empty()) {
+        while (i == thread->snapshot_queue.front().first) {
+          db_->ReleaseSnapshot(thread->snapshot_queue.front().second);
+          thread->snapshot_queue.pop();
+        }
       }
 
       const double completed_ratio =

@@ -101,8 +101,6 @@ struct ImmutableCFOptions {
 
   bool new_table_reader_for_compaction_inputs;
 
-  size_t compaction_readahead_size;
-
   int num_levels;
 
   bool optimize_filters_for_hits;
@@ -110,6 +108,8 @@ struct ImmutableCFOptions {
   bool force_consistency_checks;
 
   bool allow_ingest_behind;
+
+  bool preserve_deletes;
 
   // A vector of EventListeners which call-back functions will be called
   // when specific RocksDB event happens.

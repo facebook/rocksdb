@@ -149,8 +149,8 @@ class BackupEngineImpl : public BackupEngine {
     BackupMeta(const std::string& meta_filename,
         std::unordered_map<std::string, std::shared_ptr<FileInfo>>* file_infos,
         Env* env)
-      : timestamp_(0), size_(0), meta_filename_(meta_filename),
-        file_infos_(file_infos), env_(env) {}
+      : timestamp_(0), sequence_number_(0), size_(0),
+        meta_filename_(meta_filename), file_infos_(file_infos), env_(env) {}
 
     BackupMeta(const BackupMeta&) = delete;
     BackupMeta& operator=(const BackupMeta&) = delete;
@@ -327,7 +327,16 @@ class BackupEngineImpl : public BackupEngine {
     std::promise<CopyOrCreateResult> result;
     std::function<void()> progress_callback;
 
-    CopyOrCreateWorkItem() {}
+    CopyOrCreateWorkItem()
+      : src_path(""),
+        dst_path(""),
+        contents(""),
+        src_env(nullptr),
+        dst_env(nullptr),
+        sync(false),
+        rate_limiter(nullptr),
+        size_limit(0) {}
+
     CopyOrCreateWorkItem(const CopyOrCreateWorkItem&) = delete;
     CopyOrCreateWorkItem& operator=(const CopyOrCreateWorkItem&) = delete;
 
@@ -373,7 +382,13 @@ class BackupEngineImpl : public BackupEngine {
     std::string dst_path_tmp;
     std::string dst_path;
     std::string dst_relative;
-    BackupAfterCopyOrCreateWorkItem() {}
+    BackupAfterCopyOrCreateWorkItem()
+      : shared(false),
+        needed_to_copy(false),
+        backup_env(nullptr),
+        dst_path_tmp(""),
+        dst_path(""),
+        dst_relative("") {}
 
     BackupAfterCopyOrCreateWorkItem(BackupAfterCopyOrCreateWorkItem&& o)
         ROCKSDB_NOEXCEPT {
@@ -409,7 +424,8 @@ class BackupEngineImpl : public BackupEngine {
   struct RestoreAfterCopyOrCreateWorkItem {
     std::future<CopyOrCreateResult> result;
     uint32_t checksum_value;
-    RestoreAfterCopyOrCreateWorkItem() {}
+    RestoreAfterCopyOrCreateWorkItem()
+      : checksum_value(0) {}
     RestoreAfterCopyOrCreateWorkItem(std::future<CopyOrCreateResult>&& _result,
                                      uint32_t _checksum_value)
         : result(std::move(_result)), checksum_value(_checksum_value) {}
@@ -495,6 +511,8 @@ BackupEngineImpl::BackupEngineImpl(Env* db_env,
                                    const BackupableDBOptions& options,
                                    bool read_only)
     : initialized_(false),
+      latest_backup_id_(0),
+      latest_valid_backup_id_(0),
       stop_backup_(false),
       options_(options),
       db_env_(db_env),

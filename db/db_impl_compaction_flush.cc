@@ -542,11 +542,12 @@ Status DBImpl::CompactFilesImpl(
   assert(is_snapshot_supported_ || snapshots_.empty());
   CompactionJob compaction_job(
       job_context->job_id, c.get(), immutable_db_options_,
-      env_options_for_compaction_, versions_.get(), &shutting_down_, log_buffer,
-      directories_.GetDbDir(), directories_.GetDataDir(c->output_path_id()),
-      stats_, &mutex_, &bg_error_, snapshot_seqs,
-      earliest_write_conflict_snapshot, snapshot_checker, table_cache_,
-      &event_logger_, c->mutable_cf_options()->paranoid_file_checks,
+      env_options_for_compaction_, versions_.get(), &shutting_down_,
+      preserve_deletes_seqnum_.load(), log_buffer, directories_.GetDbDir(),
+      directories_.GetDataDir(c->output_path_id()), stats_, &mutex_, &bg_error_,
+      snapshot_seqs, earliest_write_conflict_snapshot, snapshot_checker,
+      table_cache_, &event_logger_,
+      c->mutable_cf_options()->paranoid_file_checks,
       c->mutable_cf_options()->report_bg_io_stats, dbname_,
       nullptr);  // Here we pass a nullptr for CompactionJobStats because
                  // CompactFiles does not trigger OnCompactionCompleted(),
@@ -947,7 +948,8 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     WriteContext context;
     InstrumentedMutexLock guard_lock(&mutex_);
 
-    if (cfd->imm()->NumNotFlushed() == 0 && cfd->mem()->IsEmpty()) {
+    if (cfd->imm()->NumNotFlushed() == 0 && cfd->mem()->IsEmpty() &&
+        cached_recoverable_state_empty_.load()) {
       // Nothing to flush
       return Status::OK();
     }
@@ -957,8 +959,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       write_thread_.EnterUnbatched(&w, &mutex_);
     }
 
-    // SwitchMemtable() will release and reacquire mutex
-    // during execution
+    // SwitchMemtable() will release and reacquire mutex during execution
     s = SwitchMemtable(cfd, &context);
 
     if (!writes_stopped) {
@@ -1694,7 +1695,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     CompactionJob compaction_job(
         job_context->job_id, c.get(), immutable_db_options_,
         env_options_for_compaction_, versions_.get(), &shutting_down_,
-        log_buffer, directories_.GetDbDir(),
+        preserve_deletes_seqnum_.load(), log_buffer, directories_.GetDbDir(),
         directories_.GetDataDir(c->output_path_id()), stats_, &mutex_,
         &bg_error_, snapshot_seqs, earliest_write_conflict_snapshot,
         snapshot_checker, table_cache_, &event_logger_,

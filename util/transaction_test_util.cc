@@ -11,6 +11,8 @@
 #include "util/transaction_test_util.h"
 
 #include <inttypes.h>
+#include <algorithm>
+#include <numeric>
 #include <string>
 #include <thread>
 
@@ -45,8 +47,16 @@ RandomTransactionInserter::~RandomTransactionInserter() {
 bool RandomTransactionInserter::TransactionDBInsert(
     TransactionDB* db, const TransactionOptions& txn_options) {
   txn_ = db->BeginTransaction(write_options_, txn_options, txn_);
-
-  return DoInsert(nullptr, txn_, false);
+  bool take_snapshot = rand_->OneIn(2);
+  if (take_snapshot) {
+    txn_->SetSnapshot();
+    read_options_.snapshot = txn_->GetSnapshot();
+  }
+  auto res = DoInsert(nullptr, txn_, false);
+  if (take_snapshot) {
+    read_options_.snapshot = nullptr;
+  }
+  return res;
 }
 
 bool RandomTransactionInserter::OptimisticTransactionDBInsert(
@@ -62,52 +72,71 @@ bool RandomTransactionInserter::DBInsert(DB* db) {
   return DoInsert(db, nullptr, false);
 }
 
+Status RandomTransactionInserter::DBGet(
+    DB* db, Transaction* txn, ReadOptions& read_options, uint16_t set_i,
+    uint64_t ikey, bool get_for_update, uint64_t* int_value,
+    std::string* full_key, bool* unexpected_error) {
+  Status s;
+  // four digits and zero end char
+  char prefix_buf[5];
+  // Pad prefix appropriately so we can iterate over each set
+  snprintf(prefix_buf, sizeof(prefix_buf), "%.4u", set_i + 1);
+  // key format:  [SET#][random#]
+  std::string skey = ToString(ikey);
+  Slice base_key(skey);
+  *full_key = std::string(prefix_buf) + base_key.ToString();
+  Slice key(*full_key);
+
+  std::string value;
+  if (txn != nullptr) {
+    if (get_for_update) {
+      s = txn->GetForUpdate(read_options, key, &value);
+    } else {
+      s = txn->Get(read_options, key, &value);
+    }
+  } else {
+    s = db->Get(read_options, key, &value);
+  }
+
+  if (s.ok()) {
+    // Found key, parse its value
+    *int_value = std::stoull(value);
+    if (*int_value == 0 || *int_value == ULONG_MAX) {
+      *unexpected_error = true;
+      fprintf(stderr, "Get returned unexpected value: %s\n", value.c_str());
+      s = Status::Corruption();
+    }
+  } else if (s.IsNotFound()) {
+    // Have not yet written to this key, so assume its value is 0
+    *int_value = 0;
+    s = Status::OK();
+  }
+  return s;
+}
+
 bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
                                          bool is_optimistic) {
   Status s;
   WriteBatch batch;
-  std::string value;
 
   // pick a random number to use to increment a key in each set
   uint64_t incr = (rand_->Next() % 100) + 1;
-
   bool unexpected_error = false;
 
+  std::vector<uint16_t> set_vec(num_sets_);
+  std::iota(set_vec.begin(), set_vec.end(), 0);
+  std::random_shuffle(set_vec.begin(), set_vec.end(),
+                      [&](uint64_t r) { return rand_->Uniform(r); });
   // For each set, pick a key at random and increment it
-  for (uint8_t i = 0; i < num_sets_; i++) {
+  for (uint16_t set_i : set_vec) {
     uint64_t int_value = 0;
-    char prefix_buf[5];
-    // prefix_buf needs to be large enough to hold a uint16 in string form
-
-    // key format:  [SET#][random#]
-    std::string rand_key = ToString(rand_->Next() % num_keys_);
-    Slice base_key(rand_key);
-
-    // Pad prefix appropriately so we can iterate over each set
-    snprintf(prefix_buf, sizeof(prefix_buf), "%.4u", i + 1);
-    std::string full_key = std::string(prefix_buf) + base_key.ToString();
+    std::string full_key;
+    uint64_t rand_key = rand_->Next() % num_keys_;
+    const bool get_for_update = txn ? rand_->OneIn(2) : false;
+    s = DBGet(db, txn, read_options_, set_i, rand_key, get_for_update,
+              &int_value, &full_key, &unexpected_error);
     Slice key(full_key);
-
-    if (txn != nullptr) {
-      s = txn->GetForUpdate(read_options_, key, &value);
-    } else {
-      s = db->Get(read_options_, key, &value);
-    }
-
-    if (s.ok()) {
-      // Found key, parse its value
-      int_value = std::stoull(value);
-
-      if (int_value == 0 || int_value == ULONG_MAX) {
-        unexpected_error = true;
-        fprintf(stderr, "Get returned unexpected value: %s\n", value.c_str());
-        s = Status::Corruption();
-      }
-    } else if (s.IsNotFound()) {
-      // Have not yet written to this key, so assume its value is 0
-      int_value = 0;
-      s = Status::OK();
-    } else {
+    if (!s.ok()) {
       // Optimistic transactions should never return non-ok status here.
       // Non-optimistic transactions may return write-coflict/timeout errors.
       if (is_optimistic || !(s.IsBusy() || s.IsTimedOut() || s.IsTryAgain())) {
@@ -123,7 +152,11 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
       std::string sum = ToString(int_value + incr);
       if (txn != nullptr) {
         s = txn->Put(key, sum);
-        if (!s.ok()) {
+        if (!get_for_update && (s.IsBusy() || s.IsTimedOut())) {
+          // If the initial get was not for update, then the key is not locked
+          // before put and put could fail due to concurrent writes.
+          break;
+        } else if (!s.ok()) {
           // Since we did a GetForUpdate, Put should not fail.
           fprintf(stderr, "Put returned an unexpected error: %s\n",
                   s.ToString().c_str());
@@ -143,9 +176,22 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
       snprintf(name, 64, "txn%zu-%d", hasher(std::this_thread::get_id()),
                txn_id_++);
       assert(strlen(name) < 64 - 1);
-      txn->SetName(name);
-      s = txn->Prepare();
-      s = txn->Commit();
+      if (!is_optimistic && !rand_->OneIn(10)) {
+        // also try commit without prpare
+        txn->SetName(name);
+        s = txn->Prepare();
+        assert(s.ok());
+      }
+      // TODO(myabandeh): enable this when WritePreparedTxnDB::RollbackPrepared
+      // is updated to handle in-the-middle rollbacks.
+      if (!rand_->OneIn(0)) {
+        s = txn->Commit();
+      } else {
+        // Also try 5% rollback
+        s = txn->Rollback();
+        assert(s.ok());
+      }
+      assert(is_optimistic || s.ok());
 
       if (!s.ok()) {
         if (is_optimistic) {
@@ -168,7 +214,6 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
                   s.ToString().c_str());
         }
       }
-
     } else {
       s = db->Write(write_options_, &batch);
       if (!s.ok()) {
@@ -179,7 +224,7 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
     }
   } else {
     if (txn != nullptr) {
-      txn->Rollback();
+      assert(txn->Rollback().ok());
     }
   }
 
@@ -195,48 +240,80 @@ bool RandomTransactionInserter::DoInsert(DB* db, Transaction* txn,
   return !unexpected_error;
 }
 
-Status RandomTransactionInserter::Verify(DB* db, uint16_t num_sets) {
+// Verify that the sum of the keys in each set are equal
+Status RandomTransactionInserter::Verify(DB* db, uint16_t num_sets,
+                                         uint64_t num_keys_per_set,
+                                         bool take_snapshot, Random64* rand) {
   uint64_t prev_total = 0;
+  uint32_t prev_i = 0;
+  bool prev_assigned = false;
 
+  ReadOptions roptions;
+  if (take_snapshot) {
+    roptions.snapshot = db->GetSnapshot();
+  }
+
+  std::vector<uint16_t> set_vec(num_sets);
+  std::iota(set_vec.begin(), set_vec.end(), 0);
+  if (rand) {
+    std::random_shuffle(set_vec.begin(), set_vec.end(),
+                        [&](uint64_t r) { return rand->Uniform(r); });
+  }
   // For each set of keys with the same prefix, sum all the values
-  for (uint32_t i = 0; i < num_sets; i++) {
-    char prefix_buf[6];
-    snprintf(prefix_buf, sizeof(prefix_buf), "%.4u", i + 1);
+  for (uint16_t set_i : set_vec) {
+    // four digits and zero end char
+    char prefix_buf[5];
+    snprintf(prefix_buf, sizeof(prefix_buf), "%.4u", set_i + 1);
     uint64_t total = 0;
 
-    Iterator* iter = db->NewIterator(ReadOptions());
-
-    for (iter->Seek(Slice(prefix_buf, 4)); iter->Valid(); iter->Next()) {
-      Slice key = iter->key();
-
-      // stop when we reach a different prefix
-      if (key.ToString().compare(0, 4, prefix_buf) != 0) {
-        break;
+    // Use either point lookup or iterator. Point lookups are slower so we use
+    // it less often.
+    if (num_keys_per_set != 0 && rand && rand->OneIn(10)) {  // use point lookup
+      ReadOptions read_options;
+      for (uint64_t k = 0; k < num_keys_per_set; k++) {
+        std::string dont_care;
+        uint64_t int_value = 0;
+        bool unexpected_error = false;
+        const bool FOR_UPDATE = false;
+        Status s = DBGet(db, nullptr, roptions, set_i, k, FOR_UPDATE,
+                         &int_value, &dont_care, &unexpected_error);
+        assert(s.ok());
+        assert(!unexpected_error);
+        total += int_value;
       }
-
-      Slice value = iter->value();
-      uint64_t int_value = std::stoull(value.ToString());
-      if (int_value == 0 || int_value == ULONG_MAX) {
-        fprintf(stderr, "Iter returned unexpected value: %s\n",
-                value.ToString().c_str());
-        return Status::Corruption();
+    } else {  // user iterators
+      Iterator* iter = db->NewIterator(roptions);
+      for (iter->Seek(Slice(prefix_buf, 4)); iter->Valid(); iter->Next()) {
+        Slice key = iter->key();
+        // stop when we reach a different prefix
+        if (key.ToString().compare(0, 4, prefix_buf) != 0) {
+          break;
+        }
+        Slice value = iter->value();
+        uint64_t int_value = std::stoull(value.ToString());
+        if (int_value == 0 || int_value == ULONG_MAX) {
+          fprintf(stderr, "Iter returned unexpected value: %s\n",
+                  value.ToString().c_str());
+          return Status::Corruption();
+        }
+        total += int_value;
       }
-
-      total += int_value;
+      delete iter;
     }
-    delete iter;
 
-    if (i > 0) {
-      if (total != prev_total) {
-        fprintf(stderr,
-                "RandomTransactionVerify found inconsistent totals. "
-                "Set[%" PRIu32 "]: %" PRIu64 ", Set[%" PRIu32 "]: %" PRIu64
-                " \n",
-                i - 1, prev_total, i, total);
-        return Status::Corruption();
-      }
+    if (prev_assigned && total != prev_total) {
+      fprintf(stdout,
+              "RandomTransactionVerify found inconsistent totals. "
+              "Set[%" PRIu32 "]: %" PRIu64 ", Set[%" PRIu32 "]: %" PRIu64 " \n",
+              prev_i, prev_total, set_i, total);
+      return Status::Corruption();
     }
     prev_total = total;
+    prev_i = set_i;
+    prev_assigned = true;
+  }
+  if (take_snapshot) {
+    db->ReleaseSnapshot(roptions.snapshot);
   }
 
   return Status::OK();

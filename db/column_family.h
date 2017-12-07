@@ -77,7 +77,7 @@ class ColumnFamilyHandleImpl : public ColumnFamilyHandle {
 class ColumnFamilyHandleInternal : public ColumnFamilyHandleImpl {
  public:
   ColumnFamilyHandleInternal()
-      : ColumnFamilyHandleImpl(nullptr, nullptr, nullptr) {}
+      : ColumnFamilyHandleImpl(nullptr, nullptr, nullptr), internal_cfd_(nullptr) {}
 
   void SetCFD(ColumnFamilyData* _cfd) { internal_cfd_ = _cfd; }
   virtual ColumnFamilyData* cfd() const override { return internal_cfd_; }
@@ -338,6 +338,8 @@ class ColumnFamilyData {
   void set_initialized() { initialized_.store(true); }
 
   bool initialized() const { return initialized_.load(); }
+
+  Env::WriteLifeTimeHint CalculateSSTWriteHint(int level);
 
  private:
   friend class ColumnFamilySet;
