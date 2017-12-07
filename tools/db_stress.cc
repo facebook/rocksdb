@@ -352,7 +352,9 @@ DEFINE_uint64(rate_limiter_bytes_per_sec, 0, "Set options.rate_limiter value.");
 DEFINE_bool(rate_limit_bg_reads, false,
             "Use options.rate_limiter on compaction reads");
 
-DEFINE_bool(use_txn, false, "Use TransactionDB");
+DEFINE_bool(use_txn, false,
+            "Use TransactionDB. Currently the default write policy is "
+            "TxnDBWritePolicy::WRITE_PREPARED");
 
 // Temporarily disable this to allows it to detect new bugs
 DEFINE_int32(compact_files_one_in, 0,
@@ -2485,6 +2487,8 @@ class StressTest {
                      &column_families_, &db_);
       } else {
         TransactionDBOptions txn_db_options;
+        // For the moment it is sufficient to test WRITE_PREPARED policy
+        txn_db_options.write_policy = TxnDBWritePolicy::WRITE_PREPARED;
         s = TransactionDB::Open(options_, txn_db_options, FLAGS_db,
                                 cf_descriptors, &column_families_, &txn_db_);
         db_ = txn_db_;
