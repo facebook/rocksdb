@@ -1563,8 +1563,8 @@ TEST_F(DBCompactionTest, DeleteFileRangeFileEndpointsOverlapBug) {
 
   // Verify `DeleteFilesInRange` can't drop only file 0 which would cause
   // "1 -> vals[0]" to reappear.
-  Slice begin = Key(0);
-  Slice end = Key(1);
+  std::string begin_str = Key(0), end_str = Key(1);
+  Slice begin = begin_str, end = end_str;
   ASSERT_OK(DeleteFilesInRange(db_, db_->DefaultColumnFamily(), &begin, &end));
   ASSERT_EQ(vals[1], Get(Key(1)));
 
