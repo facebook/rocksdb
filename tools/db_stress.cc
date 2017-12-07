@@ -38,6 +38,8 @@ int main() {
 #include <chrono>
 #include <exception>
 #include <thread>
+#include "rocksdb/utilities/transaction.h"
+#include "rocksdb/utilities/transaction_db.h"
 
 #include "db/db_impl.h"
 #include "db/version_set.h"
@@ -1109,6 +1111,7 @@ class StressTest {
                                  : NewBloomFilterPolicy(FLAGS_bloom_bits, false)
                            : nullptr),
         db_(nullptr),
+        txn_db_(nullptr),
         new_column_family_name_(1),
         num_times_reopened_(0) {
     if (FLAGS_destroy_db_initially) {
@@ -1641,6 +1644,27 @@ class StressTest {
     return db_->SetOptions(cfh, opts);
   }
 
+  Transaction* NewTxn(WriteOptions& write_opts) {
+    static std::atomic<uint64_t> txn_id = {0};
+    Status s;
+    TransactionOptions txn_options;
+    auto* txn = txn_db_->BeginTransaction(write_opts, txn_options);
+    auto istr = std::to_string(txn_id.fetch_add(1));
+    s = txn->SetName("xid" + istr);
+    assert(s.ok());
+    return txn;
+  }
+
+  Status CommitTxn(Transaction* txn) {
+    Status s;
+    s = txn->Prepare();
+    assert(s.ok());
+    s = txn->Commit();
+    assert(s.ok());
+    delete txn;
+    return s;
+  }
+
   void OperateDb(ThreadState* thread) {
     ReadOptions read_opts(FLAGS_verify_checksum, true);
     WriteOptions write_opts;
@@ -1891,10 +1915,18 @@ class StressTest {
           Status s;
           if (FLAGS_use_merge) {
             // TODO(myabandeh): use 2PC for txns
-            s = db_->Merge(write_opts, column_family, key, v);
+            // s = db_->Merge(write_opts, column_family, key, v);
+            auto* txn = NewTxn(write_opts);
+            s = txn->Merge(column_family, key, v);
+            assert(s.ok());
+            s = CommitTxn(txn);
           } else {
             // TODO(myabandeh): use 2PC for txns
-            s = db_->Put(write_opts, column_family, key, v);
+            // s = db_->Put(write_opts, column_family, key, v);
+            auto* txn = NewTxn(write_opts);
+            s = txn->Put(column_family, key, v);
+            assert(s.ok());
+            s = CommitTxn(txn);
           }
           if (!s.ok()) {
             fprintf(stderr, "put or merge error: %s\n", s.ToString().c_str());
@@ -1929,7 +1961,11 @@ class StressTest {
           if (shared->AllowsOverwrite(rand_column_family, rand_key)) {
             shared->Delete(rand_column_family, rand_key);
             // TODO(myabandeh): use 2PC for txns
-            Status s = db_->Delete(write_opts, column_family, key);
+            // Status s = db_->Delete(write_opts, column_family, key);
+            auto* txn = NewTxn(write_opts);
+            Status s = txn->Delete(column_family, key);
+            assert(s.ok());
+            s = CommitTxn(txn);
             thread->stats.AddDeletes(1);
             if (!s.ok()) {
               fprintf(stderr, "delete error: %s\n", s.ToString().c_str());
@@ -1938,7 +1974,11 @@ class StressTest {
           } else {
             shared->SingleDelete(rand_column_family, rand_key);
             // TODO(myabandeh): use 2PC for txns
-            Status s = db_->SingleDelete(write_opts, column_family, key);
+            // Status s = db_->SingleDelete(write_opts, column_family, key);
+            auto* txn = NewTxn(write_opts);
+            Status s = txn->SingleDelete(column_family, key);
+            assert(s.ok());
+            s = CommitTxn(txn);
             thread->stats.AddSingleDeletes(1);
             if (!s.ok()) {
               fprintf(stderr, "single delete error: %s\n",
@@ -1981,7 +2021,6 @@ class StressTest {
           int covered = shared->DeleteRange(
               rand_column_family, rand_key,
               rand_key + FLAGS_range_deletion_width);
-          // TODO(myabandeh): use 2PC for txns
           Status s = db_->DeleteRange(write_opts, column_family, key, end_key);
           if (!s.ok()) {
             fprintf(stderr, "delete range error: %s\n",
@@ -2220,6 +2259,7 @@ class StressTest {
 
   void Open() {
     assert(db_ == nullptr);
+    assert(txn_db_ == nullptr);
     BlockBasedTableOptions block_based_options;
     block_based_options.block_cache = cache_;
     block_based_options.block_cache_compressed = compressed_cache_;
@@ -2392,9 +2432,13 @@ class StressTest {
       options_.listeners.emplace_back(
           new DbStressListener(FLAGS_db, options_.db_paths));
       options_.create_missing_column_families = true;
+      TransactionDBOptions txn_db_options;
+      s = TransactionDB::Open(options_, txn_db_options, FLAGS_db,
+                              cf_descriptors, &column_families_, &txn_db_);
+      db_ = txn_db_;
       // TODO(myabandeh): open txn db
-      s = DB::Open(DBOptions(options_), FLAGS_db, cf_descriptors,
-                   &column_families_, &db_);
+      // s = DB::Open(DBOptions(options_), FLAGS_db, cf_descriptors,
+      //             &column_families_, &db_);
       assert(!s.ok() || column_families_.size() ==
                             static_cast<size_t>(FLAGS_column_families));
     } else {
@@ -2418,8 +2462,10 @@ class StressTest {
       delete cf;
     }
     column_families_.clear();
-    delete db_;
+    // delete db_;
     db_ = nullptr;
+    delete txn_db_;
+    txn_db_ = nullptr;
 
     num_times_reopened_++;
     auto now = FLAGS_env->NowMicros();
@@ -2440,6 +2486,7 @@ class StressTest {
   std::shared_ptr<Cache> compressed_cache_;
   std::shared_ptr<const FilterPolicy> filter_policy_;
   DB* db_;
+  TransactionDB* txn_db_;
   Options options_;
   std::vector<ColumnFamilyHandle*> column_families_;
   std::vector<std::string> column_family_names_;
