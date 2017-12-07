@@ -39,11 +39,13 @@ extern __thread PerfContext perf_context;
 // Declare and set start time of the timer
 #define PERF_TIMER_GUARD(metric)                                  \
   PerfStepTimer perf_step_timer_##metric(&(perf_context.metric)); \
-  perf_step_timer_##metric.Start();
+  if (perf_level >= PerfLevel::kEnableTime) {                     \
+    perf_step_timer_##metric.Start();                             \
+  }
 
 #define PERF_CONDITIONAL_TIMER_FOR_MUTEX_GUARD(metric, condition)       \
   PerfStepTimer perf_step_timer_##metric(&(perf_context.metric), true); \
-  if ((condition)) {                                                    \
+  if (perf_level >= PerfLevel::kEnableTime && (condition)) {            \
     perf_step_timer_##metric.Start();                                   \
   }
 
