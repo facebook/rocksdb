@@ -269,6 +269,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   virtual const std::vector<SequenceNumber> GetSnapshotListFromDB(
       SequenceNumber max);
 
+  virtual void ReleaseSnapshot(const Snapshot* snapshot) override;
+
   // Update the list of snapshots corresponding to the soon-to-be-updated
   // max_eviceted_seq_. Thread-safety: this function can be called concurrently.
   // The concurrent invocations of this function is equivalent to a serial
@@ -287,9 +289,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
 
   // Add a new entry to old_commit_map_ if prep_seq <= snapshot_seq <
   // commit_seq. Return false if checking the next snapshot(s) is not needed.
-  // This is the case if the entry already added to old_commit_map_ or none of
-  // the next snapshots could satisfy the condition. next_is_larger: the next
-  // snapshot will be a larger value
+  // This is the case if none of the next snapshots could satisfy the condition.
+  // next_is_larger: the next snapshot will be a larger value
   bool MaybeUpdateOldCommitMap(const uint64_t& prep_seq,
                                const uint64_t& commit_seq,
                                const uint64_t& snapshot_seq,

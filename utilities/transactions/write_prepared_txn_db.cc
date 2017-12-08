@@ -432,6 +432,31 @@ const std::vector<SequenceNumber> WritePreparedTxnDB::GetSnapshotListFromDB(
   return db_impl_->snapshots().GetAll(nullptr, max);
 }
 
+void WritePreparedTxnDB::ReleaseSnapshot(const Snapshot* snapshot) {
+  auto snap_seq = snapshot->GetSequenceNumber();
+  // relax is enough since max increases monotonically, i.e., if snap_seq <
+  // old_max => snap_seq < new_max as well.
+  if (snap_seq < max_evicted_seq_.load(std::memory_order_relaxed)) {
+    // Then this is a rare case that transaction did not finish before max
+    // advances. It is expected for a few read-only backup snapshots. For such
+    // snapshots we might have kept around a couple of entries in the
+    // old_commit_map_. Check and do garbage collection if that is the case.
+    bool need_gc = false;
+    {
+      ReadLock rl(&old_commit_map_mutex_);
+      auto prep_set_entry = old_commit_map_.find(snap_seq);
+      need_gc = prep_set_entry != old_commit_map_.end();
+    }
+    if (need_gc) {
+      WriteLock wl(&old_commit_map_mutex_);
+      old_commit_map_.erase(snap_seq);
+      old_commit_map_empty_.store(old_commit_map_.empty(),
+                                  std::memory_order_release);
+    }
+  }
+  return db_impl_->ReleaseSnapshot(snapshot);
+}
+
 void WritePreparedTxnDB::UpdateSnapshots(
     const std::vector<SequenceNumber>& snapshots,
     const SequenceNumber& version) {
@@ -554,8 +579,9 @@ bool WritePreparedTxnDB::MaybeUpdateOldCommitMap(
     WriteLock wl(&old_commit_map_mutex_);
     old_commit_map_empty_.store(false, std::memory_order_release);
     old_commit_map_[snapshot_seq].emplace(prep_seq);
-    // Storing once is enough. No need to check it for other snapshots.
-    return false;
+    // We need to store it once for each overlapping snapshot. Returning true to
+    // continue the search if there is more overlapping snapshot.
+    return true;
   }
   // continue the search if the next snapshot could be larger than prep_seq
   return next_is_larger;
