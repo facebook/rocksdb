@@ -333,10 +333,13 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // it to be too large either as it would cause stalls by doing too much
   // maintenance work under the lock.
   size_t INC_STEP_FOR_MAX_EVICTED = 1;
-  // A map of the evicted entries from commit_cache_ that has to be kept around
-  // to service the old snapshots. This is expected to be empty normally.
+  // A map from old snapshots (expected to be used by a few read-only txns) to
+  // prpared sequence number of the evicted entries from commit_cache_ that
+  // overlaps with such snapshot. These are the prepared sequence numbers that
+  // the snapshot, to which they are mapped, cannot assume to be committed just
+  // because it is no longer in the commit_cache_.
   // Thread-safety is provided with old_commit_map_mutex_.
-  std::map<uint64_t, uint64_t> old_commit_map_;
+  std::map<SequenceNumber, std::set<SequenceNumber>> old_commit_map_;
   // A set of long-running prepared transactions that are not finished by the
   // time max_evicted_seq_ advances their sequence number. This is expected to
   // be empty normally. Thread-safety is provided with prepared_mutex_.
