@@ -32,10 +32,11 @@ Writer::Writer(unique_ptr<WritableFileWriter>&& dest, Env* env,
       use_fsync_(use_fs),
       last_elem_type_(kEtNone) {}
 
-void Writer::Sync() {
+Status Writer::Sync() {
   StopWatch sync_sw(env_, statistics_, BLOB_DB_BLOB_FILE_SYNC_MICROS);
-  dest_->Sync(use_fsync_);
+  Status s = dest_->Sync(use_fsync_);
   RecordTick(statistics_, BLOB_DB_BLOB_FILE_SYNCED);
+  return s;
 }
 
 Status Writer::WriteHeader(BlobLogHeader& header) {
