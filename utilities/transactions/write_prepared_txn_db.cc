@@ -323,6 +323,9 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq,
   bool to_be_evicted = GetCommitEntry(indexed_seq, &evicted_64b, &evicted);
   if (to_be_evicted) {
     auto prev_max = max_evicted_seq_.load(std::memory_order_acquire);
+    ROCKSDB_LOG_DETAILS(info_log_,
+                        "Evicting %" PRIu64 ",%" PRIu64 " with max %" PRIu64,
+                        evicted.prep_seq, evicted.commit_seq, prev_max);
     if (prev_max < evicted.commit_seq) {
       // Inc max in larger steps to avoid frequent updates
       auto max_evicted_seq = evicted.commit_seq + INC_STEP_FOR_MAX_EVICTED;
@@ -434,6 +437,12 @@ const std::vector<SequenceNumber> WritePreparedTxnDB::GetSnapshotListFromDB(
 
 void WritePreparedTxnDB::ReleaseSnapshot(const Snapshot* snapshot) {
   auto snap_seq = snapshot->GetSequenceNumber();
+  ReleaseSnapshotInternal(snap_seq);
+  db_impl_->ReleaseSnapshot(snapshot);
+}
+
+void WritePreparedTxnDB::ReleaseSnapshotInternal(
+    const SequenceNumber snap_seq) {
   // relax is enough since max increases monotonically, i.e., if snap_seq <
   // old_max => snap_seq < new_max as well.
   if (snap_seq < max_evicted_seq_.load(std::memory_order_relaxed)) {
@@ -454,7 +463,6 @@ void WritePreparedTxnDB::ReleaseSnapshot(const Snapshot* snapshot) {
                                   std::memory_order_release);
     }
   }
-  return db_impl_->ReleaseSnapshot(snapshot);
 }
 
 void WritePreparedTxnDB::UpdateSnapshots(

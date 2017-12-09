@@ -90,6 +90,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       const std::vector<ColumnFamilyHandle*>& column_families,
       std::vector<Iterator*>* iterators) override;
 
+  virtual void ReleaseSnapshot(const Snapshot* snapshot) override;
+
   // Check whether the transaction that wrote the value with seqeunce number seq
   // is visible to the snapshot with sequence number snapshot_seq
   bool IsInSnapshot(uint64_t seq, uint64_t snapshot_seq) const;
@@ -198,6 +200,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   friend class WritePreparedTransactionTest_AdvanceMaxEvictedSeqBasicTest_Test;
   friend class WritePreparedTransactionTest_BasicRecoveryTest_Test;
   friend class WritePreparedTransactionTest_IsInSnapshotEmptyMapTest_Test;
+  friend class WritePreparedTransactionTest_OldCommitMapGC_Test;
   friend class WritePreparedTransactionTest_RollbackTest_Test;
 
   void Init(const TransactionDBOptions& /* unused */);
@@ -269,7 +272,9 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   virtual const std::vector<SequenceNumber> GetSnapshotListFromDB(
       SequenceNumber max);
 
-  virtual void ReleaseSnapshot(const Snapshot* snapshot) override;
+  // Will be called by the public ReleaseSnapshot method. Does the maintenance
+  // internal to WritePreparedTxnDB
+  void ReleaseSnapshotInternal(const SequenceNumber snap_seq);
 
   // Update the list of snapshots corresponding to the soon-to-be-updated
   // max_eviceted_seq_. Thread-safety: this function can be called concurrently.
