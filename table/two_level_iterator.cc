@@ -115,8 +115,10 @@ void TwoLevelIterator::Seek(const Slice& target) {
   if (state_->check_prefix_may_match &&
       !state_->PrefixMayMatch(target)) {
     SetSecondLevelIterator(nullptr);
+    filtered_out_ = true;
     return;
   }
+  filtered_out_ = false;
   first_level_iter_.Seek(target);
 
   InitDataBlock();
@@ -129,8 +131,10 @@ void TwoLevelIterator::Seek(const Slice& target) {
 void TwoLevelIterator::SeekForPrev(const Slice& target) {
   if (state_->check_prefix_may_match && !state_->PrefixMayMatch(target)) {
     SetSecondLevelIterator(nullptr);
+    filtered_out_ = true;
     return;
   }
+  filtered_out_ = false;
   first_level_iter_.Seek(target);
   InitDataBlock();
   if (second_level_iter_.iter() != nullptr) {
@@ -149,6 +153,7 @@ void TwoLevelIterator::SeekForPrev(const Slice& target) {
 }
 
 void TwoLevelIterator::SeekToFirst() {
+  filtered_out_ = false;
   first_level_iter_.SeekToFirst();
   InitDataBlock();
   if (second_level_iter_.iter() != nullptr) {
@@ -158,6 +163,7 @@ void TwoLevelIterator::SeekToFirst() {
 }
 
 void TwoLevelIterator::SeekToLast() {
+  filtered_out_ = false;
   first_level_iter_.SeekToLast();
   InitDataBlock();
   if (second_level_iter_.iter() != nullptr) {
@@ -184,6 +190,7 @@ void TwoLevelIterator::SkipEmptyDataBlocksForward() {
           !second_level_iter_.status().IsIncomplete())) {
     // Move to next block
     if (!first_level_iter_.Valid() ||
+        (filtered_out_ = second_level_iter_.filtered_out()) ||
         state_->KeyReachedUpperBound(first_level_iter_.key())) {
       SetSecondLevelIterator(nullptr);
       return;

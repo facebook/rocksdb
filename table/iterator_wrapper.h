@@ -82,6 +82,8 @@ class IteratorWrapper {
     return iter_->IsValuePinned();
   }
 
+  bool filtered_out() const { return iter_->filtered_out(); }
+
  private:
   void Update() {
     valid_ = iter_->Valid();
