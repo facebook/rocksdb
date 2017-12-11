@@ -342,6 +342,8 @@ class ColumnFamilyData {
 
   bool initialized() const { return initialized_.load(); }
 
+  Env::WriteLifeTimeHint CalculateSSTWriteHint(int level);
+
  private:
   friend class ColumnFamilySet;
   ColumnFamilyData(uint32_t id, const std::string& name,

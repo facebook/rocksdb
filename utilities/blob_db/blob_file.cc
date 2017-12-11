@@ -30,13 +30,14 @@ BlobFile::BlobFile()
     : parent_(nullptr),
       file_number_(0),
       has_ttl_(false),
+      compression_(kNoCompression),
       blob_count_(0),
       gc_epoch_(-1),
       file_size_(0),
       deleted_count_(0),
       deleted_size_(0),
       closed_(false),
-      can_be_deleted_(false),
+      obsolete_(false),
       gc_once_after_open_(false),
       expiration_range_({0, 0}),
       sequence_range_({kMaxSequenceNumber, 0}),
@@ -49,13 +50,14 @@ BlobFile::BlobFile(const BlobDBImpl* p, const std::string& bdir, uint64_t fn)
       path_to_dir_(bdir),
       file_number_(fn),
       has_ttl_(false),
+      compression_(kNoCompression),
       blob_count_(0),
       gc_epoch_(-1),
       file_size_(0),
       deleted_count_(0),
       deleted_size_(0),
       closed_(false),
-      can_be_deleted_(false),
+      obsolete_(false),
       gc_once_after_open_(false),
       expiration_range_({0, 0}),
       sequence_range_({kMaxSequenceNumber, 0}),
@@ -64,7 +66,7 @@ BlobFile::BlobFile(const BlobDBImpl* p, const std::string& bdir, uint64_t fn)
       header_valid_(false) {}
 
 BlobFile::~BlobFile() {
-  if (can_be_deleted_) {
+  if (obsolete_) {
     std::string pn(PathName());
     Status s = Env::Default()->DeleteFile(PathName());
     if (!s.ok()) {
@@ -98,8 +100,8 @@ std::shared_ptr<Reader> BlobFile::OpenSequentialReader(
   std::unique_ptr<SequentialFileReader> sfile_reader;
   sfile_reader.reset(new SequentialFileReader(std::move(sfile)));
 
-  std::shared_ptr<Reader> log_reader =
-      std::make_shared<Reader>(db_options.info_log, std::move(sfile_reader));
+  std::shared_ptr<Reader> log_reader = std::make_shared<Reader>(
+      std::move(sfile_reader), db_options.env, db_options.statistics.get());
 
   return log_reader;
 }
@@ -110,15 +112,19 @@ std::string BlobFile::DumpState() const {
            "path: %s fn: %" PRIu64 " blob_count: %" PRIu64 " gc_epoch: %" PRIu64
            " file_size: %" PRIu64 " deleted_count: %" PRIu64
            " deleted_size: %" PRIu64
-           " closed: %d can_be_deleted: %d expiration_range: (%" PRIu64
-           ", %" PRIu64 ") sequence_range: (%" PRIu64 " %" PRIu64
-           "), writer: %d reader: %d",
+           " closed: %d obsolete: %d expiration_range: (%" PRIu64 ", %" PRIu64
+           ") sequence_range: (%" PRIu64 " %" PRIu64 "), writer: %d reader: %d",
            path_to_dir_.c_str(), file_number_, blob_count_.load(),
            gc_epoch_.load(), file_size_.load(), deleted_count_, deleted_size_,
-           closed_.load(), can_be_deleted_.load(), expiration_range_.first,
+           closed_.load(), obsolete_.load(), expiration_range_.first,
            expiration_range_.second, sequence_range_.first,
            sequence_range_.second, (!!log_writer_), (!!ra_file_reader_));
   return str;
+}
+
+void BlobFile::MarkObsolete(SequenceNumber sequence) {
+  obsolete_sequence_ = sequence;
+  obsolete_.store(true);
 }
 
 bool BlobFile::NeedsFsync(bool hard, uint64_t bytes_per_sync) const {
@@ -128,9 +134,6 @@ bool BlobFile::NeedsFsync(bool hard, uint64_t bytes_per_sync) const {
 }
 
 Status BlobFile::WriteFooterAndCloseLocked() {
-  ROCKS_LOG_INFO(parent_->db_options_.info_log,
-                 "File is being closed after footer %s", PathName().c_str());
-
   BlobLogFooter footer;
   footer.blob_count = blob_count_;
   if (HasTTL()) {
@@ -144,10 +147,6 @@ Status BlobFile::WriteFooterAndCloseLocked() {
   if (s.ok()) {
     closed_ = true;
     file_size_ += BlobLogFooter::kSize;
-  } else {
-    ROCKS_LOG_ERROR(parent_->db_options_.info_log,
-                    "Failure to read Header for blob-file %s",
-                    PathName().c_str());
   }
   // delete the sequential writer
   log_writer_.reset();

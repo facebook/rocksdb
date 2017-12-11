@@ -786,6 +786,8 @@ EnvOptions WinEnvIO::OptimizeForLogWrite(const EnvOptions& env_options,
   // breaks TransactionLogIteratorStallAtLastRecord unit test. Fix the unit
   // test and make this false
   optimized.fallocate_with_keep_size = true;
+  optimized.writable_file_max_buffer_size =
+      db_options.writable_file_max_buffer_size;
   return optimized;
 }
 

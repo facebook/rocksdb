@@ -486,7 +486,7 @@ Options DBTestBase::GetOptions(
     }
     case kConcurrentWALWrites: {
       // This options optimize 2PC commit path
-      options.concurrent_prepare = true;
+      options.two_write_queues = true;
       options.manual_wal_flush = true;
       break;
     }
@@ -673,6 +673,10 @@ Status DBTestBase::SingleDelete(const std::string& k) {
 
 Status DBTestBase::SingleDelete(int cf, const std::string& k) {
   return db_->SingleDelete(WriteOptions(), handles_[cf], k);
+}
+
+bool DBTestBase::SetPreserveDeletesSequenceNumber(SequenceNumber sn) {
+  return db_->SetPreserveDeletesSequenceNumber(sn);
 }
 
 std::string DBTestBase::Get(const std::string& k, const Snapshot* snapshot) {

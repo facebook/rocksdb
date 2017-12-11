@@ -214,7 +214,7 @@ struct ExternalFileIngestionInfo {
 };
 
 // A call-back function to RocksDB which will be called when the compaction
-// iterator is compacting values. It is mean to be returned from
+// iterator is compacting values. It is meant to be returned from
 // EventListner::GetCompactionEventListner() at the beginning of compaction
 // job.
 class CompactionEventListener {

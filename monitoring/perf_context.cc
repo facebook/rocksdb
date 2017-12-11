@@ -79,6 +79,8 @@ void PerfContext::Reset() {
   bloom_memtable_miss_count = 0;
   bloom_sst_hit_count = 0;
   bloom_sst_miss_count = 0;
+  key_lock_wait_time = 0;
+  key_lock_wait_count = 0;
 
   env_new_sequential_file_nanos = 0;
   env_new_random_access_file_nanos = 0;
@@ -158,6 +160,8 @@ std::string PerfContext::ToString(bool exclude_zero_counters) const {
   PERF_CONTEXT_OUTPUT(bloom_memtable_miss_count);
   PERF_CONTEXT_OUTPUT(bloom_sst_hit_count);
   PERF_CONTEXT_OUTPUT(bloom_sst_miss_count);
+  PERF_CONTEXT_OUTPUT(key_lock_wait_time);
+  PERF_CONTEXT_OUTPUT(key_lock_wait_count);
   PERF_CONTEXT_OUTPUT(env_new_sequential_file_nanos);
   PERF_CONTEXT_OUTPUT(env_new_random_access_file_nanos);
   PERF_CONTEXT_OUTPUT(env_new_writable_file_nanos);

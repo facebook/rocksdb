@@ -208,6 +208,58 @@ TEST_F(DBOptionsTest, SetWalBytesPerSync) {
   ASSERT_GT(low_bytes_per_sync, counter);
 }
 
+TEST_F(DBOptionsTest, WritableFileMaxBufferSize) {
+  Options options;
+  options.create_if_missing = true;
+  options.writable_file_max_buffer_size = 1024 * 1024;
+  options.level0_file_num_compaction_trigger = 3;
+  options.max_manifest_file_size = 1;
+  options.env = env_;
+  int buffer_size = 1024 * 1024;
+  Reopen(options);
+  ASSERT_EQ(buffer_size,
+            dbfull()->GetDBOptions().writable_file_max_buffer_size);
+
+  std::atomic<int> match_cnt(0);
+  std::atomic<int> unmatch_cnt(0);
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "WritableFileWriter::WritableFileWriter:0", [&](void* arg) {
+        int value = static_cast<int>(reinterpret_cast<uintptr_t>(arg));
+        if (value == buffer_size) {
+          match_cnt++;
+        } else {
+          unmatch_cnt++;
+        }
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  int i = 0;
+  for (; i < 3; i++) {
+    ASSERT_OK(Put("foo", ToString(i)));
+    ASSERT_OK(Put("bar", ToString(i)));
+    Flush();
+  }
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(unmatch_cnt, 0);
+  ASSERT_GE(match_cnt, 11);
+
+  buffer_size = 512 * 1024;
+  match_cnt = 0;
+  unmatch_cnt = 0;
+  ASSERT_OK(
+      dbfull()->SetDBOptions({{"writable_file_max_buffer_size", "524288"}}));
+  ASSERT_EQ(buffer_size,
+            dbfull()->GetDBOptions().writable_file_max_buffer_size);
+  i = 0;
+  for (; i < 3; i++) {
+    ASSERT_OK(Put("foo", ToString(i)));
+    ASSERT_OK(Put("bar", ToString(i)));
+    Flush();
+  }
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(unmatch_cnt, 0);
+  ASSERT_GE(match_cnt, 11);
+}
+
 TEST_F(DBOptionsTest, SetOptionsAndReopen) {
   Random rnd(1044);
   auto rand_opts = GetRandomizedMutableCFOptionsMap(&rnd);
@@ -640,6 +692,32 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   ASSERT_LE(NumTableFilesAtLevel(0), 5);
 }
 
+TEST_F(DBOptionsTest, CompactionReadaheadSizeChange) {
+  SpecialEnv env(env_);
+  Options options;
+  options.env = &env;
+
+  options.compaction_readahead_size = 0;
+  options.new_table_reader_for_compaction_inputs = true;
+  options.level0_file_num_compaction_trigger = 2;
+  const std::string kValue(1024, 'v');
+  Reopen(options);
+
+  ASSERT_EQ(0, dbfull()->GetDBOptions().compaction_readahead_size);
+  ASSERT_OK(dbfull()->SetDBOptions({{"compaction_readahead_size", "256"}}));
+  ASSERT_EQ(256, dbfull()->GetDBOptions().compaction_readahead_size);
+  for (int i = 0; i < 1024; i++) {
+    Put(Key(i), kValue);
+  }
+  Flush();
+  for (int i = 0; i < 1024 * 2; i++) {
+    Put(Key(i), kValue);
+  }
+  Flush();
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(256, env_->compaction_readahead_size_);
+  Close();
+}
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb

@@ -218,6 +218,84 @@ TEST_P(DBCompactionTestWithParam, CompactionDeletionTrigger) {
   }
 }
 
+TEST_P(DBCompactionTestWithParam, CompactionsPreserveDeletes) {
+  //  For each options type we test following
+  //  - Enable preserve_deletes
+  //  - write bunch of keys and deletes
+  //  - Set start_seqnum to the beginning; compact; check that keys are present
+  //  - rewind start_seqnum way forward; compact; check that keys are gone
+
+  for (int tid = 0; tid < 3; ++tid) {
+    Options options = DeletionTriggerOptions(CurrentOptions());
+    options.max_subcompactions = max_subcompactions_;
+    options.preserve_deletes=true;
+    options.num_levels = 2;
+
+    if (tid == 1) {
+      options.skip_stats_update_on_db_open = true;
+    } else if (tid == 2) {
+      // third pass with universal compaction
+      options.compaction_style = kCompactionStyleUniversal;
+    }
+
+    DestroyAndReopen(options);
+    Random rnd(301);
+    // highlight the default; all deletes should be preserved
+    SetPreserveDeletesSequenceNumber(0);
+
+    const int kTestSize = kCDTKeysPerBuffer;
+    std::vector<std::string> values;
+    for (int k = 0; k < kTestSize; ++k) {
+      values.push_back(RandomString(&rnd, kCDTValueSize));
+      ASSERT_OK(Put(Key(k), values[k]));
+    }
+
+    for (int k = 0; k < kTestSize; ++k) {
+      ASSERT_OK(Delete(Key(k)));
+    }
+    // to ensure we tackle all tombstones
+    CompactRangeOptions cro;
+    cro.change_level = true;
+    cro.target_level = 2;
+    cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+
+    dbfull()->TEST_WaitForFlushMemTable();
+    dbfull()->CompactRange(cro, nullptr, nullptr);
+
+    // check that normal user iterator doesn't see anything
+    Iterator* db_iter = dbfull()->NewIterator(ReadOptions());
+    int i = 0;
+    for (db_iter->SeekToFirst(); db_iter->Valid(); db_iter->Next()) {
+      i++;
+    }
+    ASSERT_EQ(i, 0);
+    delete db_iter;
+
+    // check that iterator that sees internal keys sees tombstones
+    ReadOptions ro;
+    ro.iter_start_seqnum=1;
+    db_iter = dbfull()->NewIterator(ro);
+    i = 0;
+    for (db_iter->SeekToFirst(); db_iter->Valid(); db_iter->Next()) {
+      i++;
+    }
+    ASSERT_EQ(i, 4);
+    delete db_iter;
+
+    // now all deletes should be gone
+    SetPreserveDeletesSequenceNumber(100000000);
+    dbfull()->CompactRange(cro, nullptr, nullptr);
+
+    db_iter = dbfull()->NewIterator(ro);
+    i = 0;
+    for (db_iter->SeekToFirst(); db_iter->Valid(); db_iter->Next()) {
+      i++;
+    }
+    ASSERT_EQ(i, 0);
+    delete db_iter;
+  }
+}
+
 TEST_F(DBCompactionTest, SkipStatsUpdateTest) {
   // This test verify UpdateAccumulatedStats is not on
   // if options.skip_stats_update_on_db_open = true
@@ -1437,6 +1515,60 @@ TEST_F(DBCompactionTest, DeleteFileRange) {
   ASSERT_GT(deleted_count2, deleted_count);
   size_t new_num_files = CountFiles();
   ASSERT_GT(old_num_files, new_num_files);
+}
+
+TEST_F(DBCompactionTest, DeleteFileRangeFileEndpointsOverlapBug) {
+  // regression test for #2833: groups of files whose user-keys overlap at the
+  // endpoints could be split by `DeleteFilesInRange`. This caused old data to
+  // reappear, either because a new version of the key was removed, or a range
+  // deletion was partially dropped. It could also cause non-overlapping
+  // invariant to be violated if the files dropped by DeleteFilesInRange were
+  // a subset of files that a range deletion spans.
+  const int kNumL0Files = 2;
+  const int kValSize = 8 << 10;  // 8KB
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = kNumL0Files;
+  options.target_file_size_base = 1 << 10;  // 1KB
+  DestroyAndReopen(options);
+
+  // The snapshot prevents key 1 from having its old version dropped. The low
+  // `target_file_size_base` ensures two keys will be in each output file.
+  const Snapshot* snapshot = nullptr;
+  Random rnd(301);
+  // The value indicates which flush the key belonged to, which is enough
+  // for us to determine the keys' relative ages. After L0 flushes finish,
+  // files look like:
+  //
+  // File 0: 0 -> vals[0], 1 -> vals[0]
+  // File 1:               1 -> vals[1], 2 -> vals[1]
+  //
+  // Then L0->L1 compaction happens, which outputs keys as follows:
+  //
+  // File 0: 0 -> vals[0], 1 -> vals[1]
+  // File 1:               1 -> vals[0], 2 -> vals[1]
+  //
+  // DeleteFilesInRange shouldn't be allowed to drop just file 0, as that
+  // would cause `1 -> vals[0]` (an older key) to reappear.
+  std::string vals[kNumL0Files];
+  for (int i = 0; i < kNumL0Files; ++i) {
+    vals[i] = RandomString(&rnd, kValSize);
+    Put(Key(i), vals[i]);
+    Put(Key(i + 1), vals[i]);
+    Flush();
+    if (i == 0) {
+      snapshot = db_->GetSnapshot();
+    }
+  }
+  dbfull()->TEST_WaitForCompact();
+
+  // Verify `DeleteFilesInRange` can't drop only file 0 which would cause
+  // "1 -> vals[0]" to reappear.
+  std::string begin_str = Key(0), end_str = Key(1);
+  Slice begin = begin_str, end = end_str;
+  ASSERT_OK(DeleteFilesInRange(db_, db_->DefaultColumnFamily(), &begin, &end));
+  ASSERT_EQ(vals[1], Get(Key(1)));
+
+  db_->ReleaseSnapshot(snapshot);
 }
 
 TEST_P(DBCompactionTestWithParam, TrivialMoveToLastLevelWithFiles) {

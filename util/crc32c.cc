@@ -469,7 +469,9 @@ std::string IsFastCrc32Supported() {
   if (has_fast_crc) {
     fast_zero_msg.append("Supported on " + arch);
   }
-  fast_zero_msg.append("Not supported on " + arch);
+  else {
+    fast_zero_msg.append("Not supported on " + arch);
+  }
   return fast_zero_msg;
 }
 

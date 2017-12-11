@@ -180,46 +180,46 @@ InternalIterator* TableCache::NewIterator(
   bool create_new_table_reader = false;
   TableReader* table_reader = nullptr;
   Cache::Handle* handle = nullptr;
-  if (s.ok()) {
-    if (table_reader_ptr != nullptr) {
-      *table_reader_ptr = nullptr;
-    }
-    size_t readahead = 0;
-    if (for_compaction) {
+  if (table_reader_ptr != nullptr) {
+    *table_reader_ptr = nullptr;
+  }
+  size_t readahead = 0;
+  if (for_compaction) {
 #ifndef NDEBUG
-      bool use_direct_reads_for_compaction = env_options.use_direct_reads;
-      TEST_SYNC_POINT_CALLBACK("TableCache::NewIterator:for_compaction",
-                               &use_direct_reads_for_compaction);
+    bool use_direct_reads_for_compaction = env_options.use_direct_reads;
+    TEST_SYNC_POINT_CALLBACK("TableCache::NewIterator:for_compaction",
+                             &use_direct_reads_for_compaction);
 #endif  // !NDEBUG
-      if (ioptions_.new_table_reader_for_compaction_inputs) {
-        readahead = ioptions_.compaction_readahead_size;
-        create_new_table_reader = true;
-      }
-    } else {
-      readahead = options.readahead_size;
-      create_new_table_reader = readahead > 0;
+    if (ioptions_.new_table_reader_for_compaction_inputs) {
+      // get compaction_readahead_size from env_options allows us to set the
+      // value dynamically
+      readahead = env_options.compaction_readahead_size;
+      create_new_table_reader = true;
     }
+  } else {
+    readahead = options.readahead_size;
+    create_new_table_reader = readahead > 0;
+  }
 
-    if (create_new_table_reader) {
-      unique_ptr<TableReader> table_reader_unique_ptr;
-      s = GetTableReader(
-          env_options, icomparator, fd, true /* sequential_mode */, readahead,
-          !for_compaction /* record stats */, nullptr, &table_reader_unique_ptr,
-          false /* skip_filters */, level,
-          true /* prefetch_index_and_filter_in_cache */, for_compaction);
+  if (create_new_table_reader) {
+    unique_ptr<TableReader> table_reader_unique_ptr;
+    s = GetTableReader(
+        env_options, icomparator, fd, true /* sequential_mode */, readahead,
+        !for_compaction /* record stats */, nullptr, &table_reader_unique_ptr,
+        false /* skip_filters */, level,
+        true /* prefetch_index_and_filter_in_cache */, for_compaction);
+    if (s.ok()) {
+      table_reader = table_reader_unique_ptr.release();
+    }
+  } else {
+    table_reader = fd.table_reader;
+    if (table_reader == nullptr) {
+      s = FindTable(env_options, icomparator, fd, &handle,
+                    options.read_tier == kBlockCacheTier /* no_io */,
+                    !for_compaction /* record read_stats */, file_read_hist,
+                    skip_filters, level);
       if (s.ok()) {
-        table_reader = table_reader_unique_ptr.release();
-      }
-    } else {
-      table_reader = fd.table_reader;
-      if (table_reader == nullptr) {
-        s = FindTable(env_options, icomparator, fd, &handle,
-                      options.read_tier == kBlockCacheTier /* no_io */,
-                      !for_compaction /* record read_stats */, file_read_hist,
-                      skip_filters, level);
-        if (s.ok()) {
-          table_reader = GetTableReaderFromHandle(handle);
-        }
+        table_reader = GetTableReaderFromHandle(handle);
       }
     }
   }

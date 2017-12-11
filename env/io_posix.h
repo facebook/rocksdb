@@ -132,6 +132,7 @@ class PosixWritableFile : public WritableFile {
   virtual Status Fsync() override;
   virtual bool IsSyncThreadSafe() const override;
   virtual bool use_direct_io() const override { return use_direct_io_; }
+  virtual void SetWriteLifeTimeHint(Env::WriteLifeTimeHint hint) override;
   virtual uint64_t GetFileSize() override;
   virtual Status InvalidateCache(size_t offset, size_t length) override;
   virtual size_t GetRequiredBufferAlignment() const override {

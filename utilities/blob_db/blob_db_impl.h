@@ -24,6 +24,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/options.h"
+#include "rocksdb/statistics.h"
 #include "rocksdb/wal_filter.h"
 #include "util/mpsc.h"
 #include "util/mutexlock.h"
@@ -135,16 +136,12 @@ struct blobf_compare_ttl {
 
 struct GCStats {
   uint64_t blob_count = 0;
-  uint64_t num_deletes = 0;
-  uint64_t deleted_size = 0;
-  uint64_t retry_delete = 0;
-  uint64_t delete_succeeded = 0;
-  uint64_t overwritten_while_delete = 0;
-  uint64_t num_relocate = 0;
-  uint64_t retry_relocate = 0;
-  uint64_t relocate_succeeded = 0;
-  uint64_t overwritten_while_relocate = 0;
-  std::shared_ptr<BlobFile> newfile = nullptr;
+  uint64_t num_keys_overwritten = 0;
+  uint64_t num_keys_expired = 0;
+  uint64_t num_keys_relocated = 0;
+  uint64_t bytes_overwritten = 0;
+  uint64_t bytes_expired = 0;
+  uint64_t bytes_relocated = 0;
 };
 
 /**
@@ -178,10 +175,6 @@ class BlobDBImpl : public BlobDB {
   // how many periods of stats do we keep.
   static constexpr uint32_t kWriteAmplificationStatsPeriods = 24;
 
-  // what is the length of any period
-  static constexpr uint32_t kWriteAmplificationStatsPeriodMillisecs =
-      3600 * 1000;
-
   // we will garbage collect blob files in
   // which entire files have expired. However if the
   // ttl_range of files is very large say a day, we
@@ -204,6 +197,10 @@ class BlobDBImpl : public BlobDB {
 
   // how often to schedule check seq files period
   static constexpr uint32_t kCheckSeqFilesPeriodMillisecs = 10 * 1000;
+
+  // when should oldest file be evicted:
+  // on reaching 90% of blob_dir_size
+  static constexpr double kEvictOldestFileAtSize = 0.9;
 
   using BlobDB::Put;
   Status Put(const WriteOptions& options, const Slice& key,
@@ -275,8 +272,6 @@ class BlobDBImpl : public BlobDB {
 
   void TEST_RunGC();
 
-  void TEST_ObsoleteFile(std::shared_ptr<BlobFile>& bfile);
-
   void TEST_DeleteObsoleteFiles();
 #endif  //  !NDEBUG
 
@@ -289,6 +284,10 @@ class BlobDBImpl : public BlobDB {
   // Create a snapshot if there isn't one in read options.
   // Return true if a snapshot is created.
   bool SetSnapshotIfNeeded(ReadOptions* read_options);
+
+  Status GetImpl(const ReadOptions& read_options,
+                 ColumnFamilyHandle* column_family, const Slice& key,
+                 PinnableSlice* value);
 
   Status GetBlobValue(const Slice& key, const Slice& index_entry,
                       PinnableSlice* value);
@@ -305,7 +304,7 @@ class BlobDBImpl : public BlobDB {
   // tt - current time
   // last_id - the id of the non-TTL file to evict
   bool ShouldGCFile(std::shared_ptr<BlobFile> bfile, uint64_t now,
-                    bool is_oldest_simple_blob_file, std::string* reason);
+                    bool is_oldest_non_ttl_file, std::string* reason);
 
   // collect all the blob log files from the blob directory
   Status GetAllLogFiles(std::set<std::pair<uint64_t, std::string>>* file_nums);
@@ -362,21 +361,12 @@ class BlobDBImpl : public BlobDB {
   // efficiency
   std::pair<bool, int64_t> ReclaimOpenFiles(bool aborted);
 
-  // periodically print write amplification statistics
-  std::pair<bool, int64_t> WaStats(bool aborted);
-
   // background task to do book-keeping of deleted keys
   std::pair<bool, int64_t> EvictDeletions(bool aborted);
 
   std::pair<bool, int64_t> EvictCompacted(bool aborted);
 
-  bool CallbackEvictsImpl(std::shared_ptr<BlobFile> bfile);
-
   std::pair<bool, int64_t> RemoveTimerQ(TimerQueue* tq, bool aborted);
-
-  std::pair<bool, int64_t> CallbackEvicts(TimerQueue* tq,
-                                          std::shared_ptr<BlobFile> bfile,
-                                          bool aborted);
 
   // Adds the background tasks to the timer queue
   void StartBackgroundTasks();
@@ -413,6 +403,7 @@ class BlobDBImpl : public BlobDB {
 
   // checks if there is no snapshot which is referencing the
   // blobs
+  bool VisibleToActiveSnapshot(const std::shared_ptr<BlobFile>& file);
   bool FileDeleteOk_SnapshotCheckLocked(const std::shared_ptr<BlobFile>& bfile);
 
   bool MarkBlobDeleted(const Slice& key, const Slice& lsmValue);
@@ -420,7 +411,9 @@ class BlobDBImpl : public BlobDB {
   bool FindFileAndEvictABlob(uint64_t file_number, uint64_t key_size,
                              uint64_t blob_offset, uint64_t blob_size);
 
-  void CopyBlobFiles(std::vector<std::shared_ptr<BlobFile>>* bfiles_copy);
+  void CopyBlobFiles(
+      std::vector<std::shared_ptr<BlobFile>>* bfiles_copy,
+      std::function<bool(const std::shared_ptr<BlobFile>&)> predicate = {});
 
   void FilterSubsetOfFiles(
       const std::vector<std::shared_ptr<BlobFile>>& blob_files,
@@ -428,6 +421,12 @@ class BlobDBImpl : public BlobDB {
       size_t files_to_collect);
 
   uint64_t EpochNow() { return env_->NowMicros() / 1000000; }
+
+  Status CheckSize(size_t blob_size);
+
+  std::shared_ptr<BlobFile> GetOldestBlobFile();
+
+  bool EvictOldestBlobFile();
 
   // the base DB
   DBImpl* db_impl_;
@@ -438,6 +437,9 @@ class BlobDBImpl : public BlobDB {
   BlobDBOptions bdb_options_;
   DBOptions db_options_;
   EnvOptions env_options_;
+
+  // Raw pointer of statistic. db_options_ has a shared_ptr to hold ownership.
+  Statistics* statistics_;
 
   // name of the database directory
   std::string dbname_;
@@ -467,12 +469,12 @@ class BlobDBImpl : public BlobDB {
   // epoch or version of the open files.
   std::atomic<uint64_t> epoch_of_;
 
-  // All opened non-TTL blob files.
-  std::vector<std::shared_ptr<BlobFile>> open_simple_files_;
+  // opened non-TTL blob file.
+  std::shared_ptr<BlobFile> open_non_ttl_file_;
 
   // all the blob files which are currently being appended to based
   // on variety of incoming TTL's
-  std::multiset<std::shared_ptr<BlobFile>, blobf_compare_ttl> open_blob_files_;
+  std::multiset<std::shared_ptr<BlobFile>, blobf_compare_ttl> open_ttl_files_;
 
   // packet of information to put in lockess delete(s) queue
   struct delete_packet_t {
@@ -505,9 +507,6 @@ class BlobDBImpl : public BlobDB {
   // timer based queue to execute tasks
   TimerQueue tqueue_;
 
-  // timer queues to call eviction callbacks.
-  std::vector<std::shared_ptr<TimerQueue>> cb_threads_;
-
   // only accessed in GC thread, hence not atomic. The epoch of the
   // GC task. Each execution is one epoch. Helps us in allocating
   // files to one execution
@@ -517,24 +516,14 @@ class BlobDBImpl : public BlobDB {
   // counter is used to monitor and close excess RA files.
   std::atomic<uint32_t> open_file_count_;
 
-  // should hold mutex to modify
-  // STATISTICS for WA of Blob Files due to GC
-  // collect by default 24 hourly periods
-  std::list<uint64_t> all_periods_write_;
-  std::list<uint64_t> all_periods_ampl_;
-
-  std::atomic<uint64_t> last_period_write_;
-  std::atomic<uint64_t> last_period_ampl_;
-
-  uint64_t total_periods_write_;
-  uint64_t total_periods_ampl_;
-
   // total size of all blob files at a given time
   std::atomic<uint64_t> total_blob_space_;
   std::list<std::shared_ptr<BlobFile>> obsolete_files_;
   bool open_p1_done_;
 
   uint32_t debug_level_;
+
+  std::atomic<bool> oldest_file_evicted_;
 };
 
 }  // namespace blob_db

@@ -330,11 +330,11 @@ TEST_F(DBSSTTest, RateLimitedDelete) {
   int64_t rate_bytes_per_sec = 1024 * 10;  // 10 Kbs / Sec
   Status s;
   options.sst_file_manager.reset(
-      NewSstFileManager(env_, nullptr, "", 0, false, &s));
+      NewSstFileManager(env_, nullptr, "", 0, false, &s, 0));
   ASSERT_OK(s);
   options.sst_file_manager->SetDeleteRateBytesPerSecond(rate_bytes_per_sec);
   auto sfm = static_cast<SstFileManagerImpl*>(options.sst_file_manager.get());
-  sfm->delete_scheduler()->TEST_SetMaxTrashDBRatio(1.1);
+  sfm->delete_scheduler()->SetMaxTrashDBRatio(1.1);
 
   ASSERT_OK(TryReopen(options));
   // Create 4 files in L0
@@ -396,10 +396,11 @@ TEST_F(DBSSTTest, DeleteSchedulerMultipleDBPaths) {
   int64_t rate_bytes_per_sec = 1024 * 1024;  // 1 Mb / Sec
   Status s;
   options.sst_file_manager.reset(
-      NewSstFileManager(env_, nullptr, "", rate_bytes_per_sec, false, &s));
+      NewSstFileManager(env_, nullptr, "", rate_bytes_per_sec, false, &s,
+                        /* max_trash_db_ratio= */ 1.1));
+
   ASSERT_OK(s);
   auto sfm = static_cast<SstFileManagerImpl*>(options.sst_file_manager.get());
-  sfm->delete_scheduler()->TEST_SetMaxTrashDBRatio(1.1);
 
   DestroyAndReopen(options);
 
@@ -459,7 +460,7 @@ TEST_F(DBSSTTest, DestroyDBWithRateLimitedDelete) {
   options.disable_auto_compactions = true;
   options.env = env_;
   options.sst_file_manager.reset(
-      NewSstFileManager(env_, nullptr, "", 0, false, &s));
+      NewSstFileManager(env_, nullptr, "", 0, false, &s, 0));
   ASSERT_OK(s);
   DestroyAndReopen(options);
 
@@ -477,7 +478,7 @@ TEST_F(DBSSTTest, DestroyDBWithRateLimitedDelete) {
   auto sfm = static_cast<SstFileManagerImpl*>(options.sst_file_manager.get());
 
   sfm->SetDeleteRateBytesPerSecond(1024 * 1024);
-  sfm->delete_scheduler()->TEST_SetMaxTrashDBRatio(1.1);
+  sfm->delete_scheduler()->SetMaxTrashDBRatio(1.1);
   ASSERT_OK(DestroyDB(dbname_, options));
   sfm->WaitForEmptyTrash();
   // We have deleted the 4 sst files in the delete_scheduler

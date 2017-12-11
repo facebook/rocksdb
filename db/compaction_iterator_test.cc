@@ -156,6 +156,8 @@ class FakeCompaction : public CompactionIterator::CompactionProxy {
   }
   virtual bool allow_ingest_behind() const { return false; }
 
+  virtual bool preserve_deletes() const {return false; }
+
   bool key_not_exists_beyond_output_level = false;
 };
 
