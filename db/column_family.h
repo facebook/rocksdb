@@ -358,7 +358,7 @@ class ColumnFamilyData {
 
   std::atomic<int> refs_;      // outstanding references to ColumnFamilyData
   std::atomic<bool> initialized_;
-  bool dropped_;               // true if client dropped it
+  std::atomic<bool> dropped_;  // true if client dropped it
 
   const InternalKeyComparator internal_comparator_;
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
