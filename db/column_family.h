@@ -194,7 +194,7 @@ class ColumnFamilyData {
   // *) delete all memory associated with that column family
   // *) delete all the files associated with that column family
   void SetDropped();
-  bool IsDropped() const { return dropped_; }
+  bool IsDropped() const { return dropped_.load(std::memory_order_relaxed); }
 
   // thread-safe
   int NumberLevels() const { return ioptions_.num_levels; }
