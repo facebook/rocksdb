@@ -1,5 +1,7 @@
 # Rocksdb Change Log
 ## Unreleased
+
+## 5.10.0 (12/11/2017)
 ### Public API Change
 * When running `make` with environment variable `USE_SSE` set and `PORTABLE` unset, will use all machine features available locally. Previously this combination only compiled SSE-related features.
 
