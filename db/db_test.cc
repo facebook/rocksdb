@@ -4375,7 +4375,6 @@ TEST_F(DBTest, DynamicFIFOCompactionOptions) {
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.allow_compaction,
             true);
 }
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBTest, DynamicUniversalCompactionOptions) {
   Options options;
@@ -4444,6 +4443,7 @@ TEST_F(DBTest, DynamicUniversalCompactionOptions) {
       dbfull()->GetOptions().compaction_options_universal.allow_trivial_move,
       false);
 }
+#endif  // ROCKSDB_LITE
 
 TEST_F(DBTest, FileCreationRandomFailure) {
   Options options;
