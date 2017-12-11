@@ -37,12 +37,18 @@ class BlobFile {
   // after that
   uint64_t file_number_;
 
-  // If true, the keys in this file all has TTL. Otherwise all keys don't
-  // have TTL.
-  bool has_ttl_;
+  // Info log.
+  Logger* info_log_;
+
+  // Column family id.
+  uint32_t column_family_id_;
 
   // Compression type of blobs in the file
   CompressionType compression_;
+
+  // If true, the keys in this file all has TTL. Otherwise all keys don't
+  // have TTL.
+  bool has_ttl_;
 
   // number of blobs in the file
   std::atomic<uint64_t> blob_count_;
@@ -98,19 +104,25 @@ class BlobFile {
 
   bool header_valid_;
 
+  bool footer_valid_;
+
   SequenceNumber garbage_collection_finish_sequence_;
 
  public:
   BlobFile();
 
-  BlobFile(const BlobDBImpl* parent, const std::string& bdir, uint64_t fnum);
+  BlobFile(const BlobDBImpl* parent, const std::string& bdir, uint64_t fnum,
+           Logger* info_log);
 
   ~BlobFile();
 
   uint32_t column_family_id() const;
 
-  // Returns log file's pathname relative to the main db dir
-  // Eg. For a live-log-file = blob_dir/000003.blob
+  void SetColumnFamilyId(uint32_t cf_id) {
+    column_family_id_ = cf_id;
+  }
+
+  // Returns log file's absolute pathname.
   std::string PathName() const;
 
   // Primary identifier for blob file.
@@ -124,6 +136,13 @@ class BlobFile {
   }
 
   std::string DumpState() const;
+
+  // if the file is not taking any more appends.
+  bool Immutable() const { return closed_.load(); }
+
+  // Mark the file as immutable.
+  // REQUIRES: write lock held, or access from single thread (on DB open).
+  void MarkImmutable() { closed_ = true; }
 
   // if the file has gone through GC and blobs have been relocated
   bool Obsolete() const {
@@ -140,13 +159,10 @@ class BlobFile {
     return obsolete_sequence_;
   }
 
-  // if the file is not taking any more appends.
-  bool Immutable() const { return closed_.load(); }
-
   // we will assume this is atomic
   bool NeedsFsync(bool hard, uint64_t bytes_per_sync) const;
 
-  void Fsync();
+  Status Fsync();
 
   uint64_t GetFileSize() const {
     return file_size_.load(std::memory_order_acquire);
@@ -183,6 +199,11 @@ class BlobFile {
   }
 
   std::shared_ptr<Writer> GetWriter() const { return log_writer_; }
+
+  // Read blob file header and footer. Return corruption if file header is
+  // malform or incomplete. If footer is malform or incomplete, set
+  // footer_valid_ to false and return Status::OK.
+  Status ReadMetadata(Env* env, const EnvOptions& env_options);
 
  private:
   std::shared_ptr<Reader> OpenSequentialReader(
