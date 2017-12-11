@@ -8,7 +8,6 @@
 #include <algorithm>
 #include <cinttypes>
 #include <iomanip>
-#include <limits>
 #include <memory>
 
 #include "db/db_impl.h"

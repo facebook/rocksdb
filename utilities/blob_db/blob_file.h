@@ -118,8 +118,8 @@ class BlobFile {
 
   uint32_t column_family_id() const;
 
-  void SetColumnFamilyId(uint32_t column_family_id) {
-    column_family_id_ = column_family_id;
+  void SetColumnFamilyId(uint32_t cf_id) {
+    column_family_id_ = cf_id;
   }
 
   // Returns log file's absolute pathname.
