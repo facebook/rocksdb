@@ -30,6 +30,7 @@
 #include "table/block.h"
 #include "table/block_based_filter_block.h"
 #include "table/block_based_table_factory.h"
+#include "table/block_fetcher.h"
 #include "table/block_prefix_index.h"
 #include "table/filter_block.h"
 #include "table/format.h"
@@ -78,9 +79,10 @@ Status ReadBlockFromFile(
     const PersistentCacheOptions& cache_options, SequenceNumber global_seqno,
     size_t read_amp_bytes_per_bit) {
   BlockContents contents;
-  Status s = ReadBlockContents(file, prefetch_buffer, footer, options, handle,
-                               &contents, ioptions, do_uncompress,
-                               compression_dict, cache_options);
+  BlockFetcher block_fetcher(file, prefetch_buffer, footer, options, handle,
+                             &contents, ioptions, do_uncompress,
+                             compression_dict, cache_options);
+  Status s = block_fetcher.ReadBlockContents();
   if (s.ok()) {
     result->reset(new Block(std::move(contents), global_seqno,
                             read_amp_bytes_per_bit, ioptions.statistics));
@@ -410,18 +412,20 @@ class HashIndexReader : public IndexReader {
 
     // Read contents for the blocks
     BlockContents prefixes_contents;
-    s = ReadBlockContents(file, prefetch_buffer, footer, ReadOptions(),
-                          prefixes_handle, &prefixes_contents, ioptions,
-                          true /* decompress */, Slice() /*compression dict*/,
-                          cache_options);
+    BlockFetcher prefixes_block_fetcher(
+        file, prefetch_buffer, footer, ReadOptions(), prefixes_handle,
+        &prefixes_contents, ioptions, true /* decompress */,
+        Slice() /*compression dict*/, cache_options);
+    s = prefixes_block_fetcher.ReadBlockContents();
     if (!s.ok()) {
       return s;
     }
     BlockContents prefixes_meta_contents;
-    s = ReadBlockContents(file, prefetch_buffer, footer, ReadOptions(),
-                          prefixes_meta_handle, &prefixes_meta_contents,
-                          ioptions, true /* decompress */,
-                          Slice() /*compression dict*/, cache_options);
+    BlockFetcher prefixes_meta_block_fetcher(
+        file, prefetch_buffer, footer, ReadOptions(), prefixes_meta_handle,
+        &prefixes_meta_contents, ioptions, true /* decompress */,
+        Slice() /*compression dict*/, cache_options);
+    prefixes_meta_block_fetcher.ReadBlockContents();
     if (!s.ok()) {
       // TODO: log error
       return Status::OK();
@@ -1138,11 +1142,14 @@ FilterBlockReader* BlockBasedTable::ReadFilter(
     return nullptr;
   }
   BlockContents block;
-  if (!ReadBlockContents(rep->file.get(), prefetch_buffer, rep->footer,
-                         ReadOptions(), filter_handle, &block, rep->ioptions,
-                         false /* decompress */, Slice() /*compression dict*/,
-                         rep->persistent_cache_options)
-           .ok()) {
+
+  BlockFetcher block_fetcher(
+      rep->file.get(), prefetch_buffer, rep->footer, ReadOptions(),
+      filter_handle, &block, rep->ioptions, false /* decompress */,
+      Slice() /*compression dict*/, rep->persistent_cache_options);
+  Status s = block_fetcher.ReadBlockContents();
+
+  if (!s.ok()) {
     // Error reading the block
     return nullptr;
   }
@@ -1906,11 +1913,12 @@ Status BlockBasedTable::VerifyChecksumInBlocks(InternalIterator* index_iter) {
       break;
     }
     BlockContents contents;
-    s = ReadBlockContents(rep_->file.get(), nullptr /* prefetch buffer */,
-                          rep_->footer, ReadOptions(), handle, &contents,
-                          rep_->ioptions, false /* decompress */,
-                          Slice() /*compression dict*/,
-                          rep_->persistent_cache_options);
+    BlockFetcher block_fetcher(rep_->file.get(), nullptr /* prefetch buffer */,
+                               rep_->footer, ReadOptions(), handle, &contents,
+                               rep_->ioptions, false /* decompress */,
+                               Slice() /*compression dict*/,
+                               rep_->persistent_cache_options);
+    s = block_fetcher.ReadBlockContents();
     if (!s.ok()) {
       break;
     }
@@ -2195,12 +2203,12 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
       BlockHandle handle;
       if (FindMetaBlock(meta_iter.get(), filter_block_key, &handle).ok()) {
         BlockContents block;
-        if (ReadBlockContents(rep_->file.get(), nullptr /* prefetch_buffer */,
-                              rep_->footer, ReadOptions(), handle, &block,
-                              rep_->ioptions, false /*decompress*/,
-                              Slice() /*compression dict*/,
-                              rep_->persistent_cache_options)
-                .ok()) {
+        BlockFetcher block_fetcher(
+            rep_->file.get(), nullptr /* prefetch_buffer */, rep_->footer,
+            ReadOptions(), handle, &block, rep_->ioptions, false /*decompress*/,
+            Slice() /*compression dict*/, rep_->persistent_cache_options);
+        s = block_fetcher.ReadBlockContents();
+        if (!s.ok()) {
           rep_->filter.reset(new BlockBasedFilterBlockReader(
               rep_->ioptions.prefix_extractor, table_options,
               table_options.whole_key_filtering, std::move(block),

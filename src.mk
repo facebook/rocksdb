@@ -96,6 +96,7 @@ LIB_SOURCES =                                                   \
   table/block_based_table_factory.cc                            \
   table/block_based_table_reader.cc                             \
   table/block_builder.cc                                        \
+  table/block_fetcher.cc                                        \
   table/block_prefix_index.cc                                   \
   table/bloom_block.cc                                          \
   table/cuckoo_table_builder.cc                                 \
