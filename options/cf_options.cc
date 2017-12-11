@@ -27,7 +27,6 @@ ImmutableCFOptions::ImmutableCFOptions(const ImmutableDBOptions& db_options,
                                        const ColumnFamilyOptions& cf_options)
     : compaction_style(cf_options.compaction_style),
       compaction_pri(cf_options.compaction_pri),
-      compaction_options_universal(cf_options.compaction_options_universal),
       prefix_extractor(cf_options.prefix_extractor.get()),
       user_comparator(cf_options.comparator),
       internal_comparator(InternalKeyComparator(cf_options.comparator)),

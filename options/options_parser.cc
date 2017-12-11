@@ -598,6 +598,23 @@ bool AreEqualOptions(
       }
       return false;
     }
+    case OptionType::kCompactionOptionsUniversal: {
+      CompactionOptionsUniversal lhs =
+          *reinterpret_cast<const CompactionOptionsUniversal*>(offset1);
+      CompactionOptionsUniversal rhs =
+          *reinterpret_cast<const CompactionOptionsUniversal*>(offset2);
+      if (lhs.size_ratio == rhs.size_ratio &&
+          lhs.min_merge_width == rhs.min_merge_width &&
+          lhs.max_merge_width == rhs.max_merge_width &&
+          lhs.max_size_amplification_percent ==
+              rhs.max_size_amplification_percent &&
+          lhs.compression_size_percent == rhs.compression_size_percent &&
+          lhs.stop_style == rhs.stop_style &&
+          lhs.allow_trivial_move == rhs.allow_trivial_move) {
+        return true;
+      }
+      return false;
+    }
     default:
       if (type_info.verification == OptionVerificationType::kByName ||
           type_info.verification ==

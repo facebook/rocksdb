@@ -4377,6 +4377,74 @@ TEST_F(DBTest, DynamicFIFOCompactionOptions) {
 }
 #endif  // ROCKSDB_LITE
 
+TEST_F(DBTest, DynamicUniversalCompactionOptions) {
+  Options options;
+  options.create_if_missing = true;
+  DestroyAndReopen(options);
+
+  // Initial defaults
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.size_ratio, 1);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.min_merge_width,
+            2);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.max_merge_width,
+            UINT_MAX);
+  ASSERT_EQ(dbfull()
+                ->GetOptions()
+                .compaction_options_universal.max_size_amplification_percent,
+            200);
+  ASSERT_EQ(dbfull()
+                ->GetOptions()
+                .compaction_options_universal.compression_size_percent,
+            -1);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.stop_style,
+            kCompactionStopStyleTotalSize);
+  ASSERT_EQ(
+      dbfull()->GetOptions().compaction_options_universal.allow_trivial_move,
+      false);
+
+  ASSERT_OK(dbfull()->SetOptions(
+      {{"compaction_options_universal", "{size_ratio=7;}"}}));
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.size_ratio, 7);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.min_merge_width,
+            2);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.max_merge_width,
+            UINT_MAX);
+  ASSERT_EQ(dbfull()
+                ->GetOptions()
+                .compaction_options_universal.max_size_amplification_percent,
+            200);
+  ASSERT_EQ(dbfull()
+                ->GetOptions()
+                .compaction_options_universal.compression_size_percent,
+            -1);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.stop_style,
+            kCompactionStopStyleTotalSize);
+  ASSERT_EQ(
+      dbfull()->GetOptions().compaction_options_universal.allow_trivial_move,
+      false);
+
+  ASSERT_OK(dbfull()->SetOptions(
+      {{"compaction_options_universal", "{min_merge_width=11;}"}}));
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.size_ratio, 7);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.min_merge_width,
+            11);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.max_merge_width,
+            UINT_MAX);
+  ASSERT_EQ(dbfull()
+                ->GetOptions()
+                .compaction_options_universal.max_size_amplification_percent,
+            200);
+  ASSERT_EQ(dbfull()
+                ->GetOptions()
+                .compaction_options_universal.compression_size_percent,
+            -1);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.stop_style,
+            kCompactionStopStyleTotalSize);
+  ASSERT_EQ(
+      dbfull()->GetOptions().compaction_options_universal.allow_trivial_move,
+      false);
+}
+
 TEST_F(DBTest, FileCreationRandomFailure) {
   Options options;
   options.env = env_;
