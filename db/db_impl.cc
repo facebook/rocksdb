@@ -106,7 +106,8 @@ CompressionType GetCompressionFlush(
   // optimization is used for leveled compaction. Otherwise the CPU and
   // latency overhead is not offset by saving much space.
   if (ioptions.compaction_style == kCompactionStyleUniversal) {
-    if (ioptions.compaction_options_universal.compression_size_percent < 0) {
+    if (mutable_cf_options.compaction_options_universal
+            .compression_size_percent < 0) {
       return mutable_cf_options.compression;
     } else {
       return kNoCompression;

@@ -80,11 +80,13 @@ class UniversalCompactionPicker : public CompactionPicker {
   bool IsInputFilesNonOverlapping(Compaction* c);
 
   static std::vector<SortedRun> CalculateSortedRuns(
-      const VersionStorageInfo& vstorage, const ImmutableCFOptions& ioptions);
+      const VersionStorageInfo& vstorage, const ImmutableCFOptions& ioptions,
+      const MutableCFOptions& mutable_cf_options);
 
   // Pick a path ID to place a newly generated file, with its estimated file
   // size.
   static uint32_t GetPathId(const ImmutableCFOptions& ioptions,
+                            const MutableCFOptions& mutable_cf_options,
                             uint64_t file_size);
 };
 }  // namespace rocksdb
