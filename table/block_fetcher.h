@@ -45,7 +45,7 @@ class BlockFetcher {
   RandomAccessFileReader* file_;
   FilePrefetchBuffer* prefetch_buffer_;
   const Footer& footer_;
-  const ReadOptions& read_options_;
+  const ReadOptions read_options_;
   const BlockHandle& handle_;
   BlockContents* contents_;
   const ImmutableCFOptions& ioptions_;
