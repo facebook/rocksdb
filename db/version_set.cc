@@ -980,9 +980,6 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       storage_info_.num_non_empty_levels_, &storage_info_.file_indexer_,
       user_comparator(), internal_comparator());
   FdWithKeyRange* f = fp.GetNextFile();
-  uint32_t tickers_before[Tickers::TICKER_ENUM_MAX] = {0};
-  std::copy(std::begin(get_context.tickers_value),
-            std::end(get_context.tickers_value), std::begin(tickers_before));
 
   while (f != nullptr) {
     if (get_context.sample()) {
@@ -1000,12 +997,12 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       return;
     }
 
+    // report the counters before returning
     if (get_context.State() != GetContext::kNotFound &&
         get_context.State() != GetContext::kMerge) {
       for (uint32_t t = 0; t < Tickers::TICKER_ENUM_MAX; t++) {
-        if (get_context.tickers_value[t] > tickers_before[t]) {
-          RecordTick(db_statistics_, t,
-                     get_context.tickers_value[t] - tickers_before[t]);
+        if (get_context.tickers_value[t] > 0) {
+          RecordTick(db_statistics_, t, get_context.tickers_value[t]);
         }
       }
     }
@@ -1042,9 +1039,8 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
   }
 
   for (uint32_t t = 0; t < Tickers::TICKER_ENUM_MAX; t++) {
-    if (get_context.tickers_value[t] > tickers_before[t]) {
-      RecordTick(db_statistics_, t,
-                 get_context.tickers_value[t] - tickers_before[t]);
+    if (get_context.tickers_value[t] > 0) {
+      RecordTick(db_statistics_, t, get_context.tickers_value[t]);
     }
   }
   if (GetContext::kMerge == get_context.State()) {
