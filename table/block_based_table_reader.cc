@@ -410,12 +410,13 @@ class HashIndexReader : public IndexReader {
       return Status::OK();
     }
 
+    Slice dummy_comp_dict;
     // Read contents for the blocks
     BlockContents prefixes_contents;
     BlockFetcher prefixes_block_fetcher(
         file, prefetch_buffer, footer, ReadOptions(), prefixes_handle,
         &prefixes_contents, ioptions, true /* decompress */,
-        Slice() /*compression dict*/, cache_options);
+        dummy_comp_dict /*compression dict*/, cache_options);
     s = prefixes_block_fetcher.ReadBlockContents();
     if (!s.ok()) {
       return s;
@@ -424,7 +425,7 @@ class HashIndexReader : public IndexReader {
     BlockFetcher prefixes_meta_block_fetcher(
         file, prefetch_buffer, footer, ReadOptions(), prefixes_meta_handle,
         &prefixes_meta_contents, ioptions, true /* decompress */,
-        Slice() /*compression dict*/, cache_options);
+        dummy_comp_dict /*compression dict*/, cache_options);
     prefixes_meta_block_fetcher.ReadBlockContents();
     if (!s.ok()) {
       // TODO: log error
@@ -1143,10 +1144,12 @@ FilterBlockReader* BlockBasedTable::ReadFilter(
   }
   BlockContents block;
 
-  BlockFetcher block_fetcher(
-      rep->file.get(), prefetch_buffer, rep->footer, ReadOptions(),
-      filter_handle, &block, rep->ioptions, false /* decompress */,
-      Slice() /*compression dict*/, rep->persistent_cache_options);
+  Slice dummy_comp_dict;
+
+  BlockFetcher block_fetcher(rep->file.get(), prefetch_buffer, rep->footer,
+                             ReadOptions(), filter_handle, &block,
+                             rep->ioptions, false /* decompress */,
+                             dummy_comp_dict, rep->persistent_cache_options);
   Status s = block_fetcher.ReadBlockContents();
 
   if (!s.ok()) {
@@ -1913,10 +1916,11 @@ Status BlockBasedTable::VerifyChecksumInBlocks(InternalIterator* index_iter) {
       break;
     }
     BlockContents contents;
+    Slice dummy_comp_dict;
     BlockFetcher block_fetcher(rep_->file.get(), nullptr /* prefetch buffer */,
                                rep_->footer, ReadOptions(), handle, &contents,
                                rep_->ioptions, false /* decompress */,
-                               Slice() /*compression dict*/,
+                               dummy_comp_dict /*compression dict*/,
                                rep_->persistent_cache_options);
     s = block_fetcher.ReadBlockContents();
     if (!s.ok()) {
@@ -2203,10 +2207,12 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
       BlockHandle handle;
       if (FindMetaBlock(meta_iter.get(), filter_block_key, &handle).ok()) {
         BlockContents block;
+        Slice dummy_comp_dict;
         BlockFetcher block_fetcher(
             rep_->file.get(), nullptr /* prefetch_buffer */, rep_->footer,
             ReadOptions(), handle, &block, rep_->ioptions, false /*decompress*/,
-            Slice() /*compression dict*/, rep_->persistent_cache_options);
+            dummy_comp_dict /*compression dict*/,
+            rep_->persistent_cache_options);
         s = block_fetcher.ReadBlockContents();
         if (!s.ok()) {
           rep_->filter.reset(new BlockBasedFilterBlockReader(
