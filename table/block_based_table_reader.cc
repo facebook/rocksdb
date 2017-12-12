@@ -1144,7 +1144,7 @@ FilterBlockReader* BlockBasedTable::ReadFilter(
   }
   BlockContents block;
 
-  Slice dummy_comp_dict = Slice();
+  Slice dummy_comp_dict;
 
   BlockFetcher block_fetcher(rep->file.get(), prefetch_buffer, rep->footer,
                              ReadOptions(), filter_handle, &block,
