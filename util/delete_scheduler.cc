@@ -151,6 +151,7 @@ Status DeleteScheduler::MarkAsTrash(const std::string& file_path,
   Status s;
   if (DeleteScheduler::IsTrashFile(file_path)) {
     // This is already a trash file
+    *trash_file = file_path;
     return s;
   }
 
