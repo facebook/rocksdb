@@ -12,6 +12,7 @@
 #include "utilities/transactions/write_prepared_txn_db.h"
 
 #include <inttypes.h>
+#include <algorithm>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -260,8 +261,12 @@ bool WritePreparedTxnDB::IsInSnapshot(uint64_t prep_seq,
     // reading transactions.
     ReadLock rl(&old_commit_map_mutex_);
     auto prep_set_entry = old_commit_map_.find(snapshot_seq);
-    if (prep_set_entry == old_commit_map_.end() ||
-        prep_set_entry->second.find(prep_seq) == prep_set_entry->second.end()) {
+    bool found = prep_set_entry != old_commit_map_.end();
+    if (found) {
+      auto& vec = prep_set_entry->second;
+      found = std::binary_search(vec.begin(), vec.end(), prep_seq);
+    }
+    if (!found) {
       ROCKSDB_LOG_DETAILS(
           info_log_, "IsInSnapshot %" PRIu64 " in %" PRIu64 " returns %" PRId32,
           prep_seq, snapshot_seq, 1);
@@ -586,7 +591,9 @@ bool WritePreparedTxnDB::MaybeUpdateOldCommitMap(
   if (prep_seq <= snapshot_seq) {  // overlapping range
     WriteLock wl(&old_commit_map_mutex_);
     old_commit_map_empty_.store(false, std::memory_order_release);
-    old_commit_map_[snapshot_seq].emplace(prep_seq);
+    auto& vec = old_commit_map_[snapshot_seq];
+    vec.emplace_back(prep_seq);
+    std::sort(vec.begin(), vec.end());
     // We need to store it once for each overlapping snapshot. Returning true to
     // continue the search if there is more overlapping snapshot.
     return true;

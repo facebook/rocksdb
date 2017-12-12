@@ -343,9 +343,10 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // prpared sequence number of the evicted entries from commit_cache_ that
   // overlaps with such snapshot. These are the prepared sequence numbers that
   // the snapshot, to which they are mapped, cannot assume to be committed just
-  // because it is no longer in the commit_cache_.
+  // because it is no longer in the commit_cache_. The vector must be sorted
+  // after each update.
   // Thread-safety is provided with old_commit_map_mutex_.
-  std::map<SequenceNumber, std::set<SequenceNumber>> old_commit_map_;
+  std::map<SequenceNumber, std::vector<SequenceNumber>> old_commit_map_;
   // A set of long-running prepared transactions that are not finished by the
   // time max_evicted_seq_ advances their sequence number. This is expected to
   // be empty normally. Thread-safety is provided with prepared_mutex_.
