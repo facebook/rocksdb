@@ -244,6 +244,7 @@ Status FlushJob::WriteLevel0Table() {
       ThreadStatus::STAGE_FLUSH_WRITE_L0);
   db_mutex_->AssertHeld();
   const uint64_t start_micros = db_options_.env->NowMicros();
+  StopWatch sw(db_options_.env, stats_, FLUSH_TIME);
   Status s;
   {
     auto write_hint = cfd_->CalculateSSTWriteHint(0);

@@ -2806,8 +2806,10 @@ class HistogramTypeJni {
         return 0x1D;
       case rocksdb::Histograms::READ_NUM_MERGE_OPERANDS:
         return 0x1E;
-      case rocksdb::Histograms::HISTOGRAM_ENUM_MAX:
+      case rocksdb::Histograms::FLUSH_TIME:
         return 0x1F;
+      case rocksdb::Histograms::HISTOGRAM_ENUM_MAX:
+        return 0x20;
 
       default:
         // undefined/default
@@ -2882,6 +2884,8 @@ class HistogramTypeJni {
       case 0x1E:
         return rocksdb::Histograms::READ_NUM_MERGE_OPERANDS;
       case 0x1F:
+        return rocksdb::Histograms::FLUSH_TIME;
+      case 0x20:
         return rocksdb::Histograms::HISTOGRAM_ENUM_MAX;
 
       default:
