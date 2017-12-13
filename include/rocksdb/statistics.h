@@ -510,6 +510,8 @@ enum Histograms : uint32_t {
   BLOB_DB_COMPRESSION_MICROS,
   // BlobDB decompression time.
   BLOB_DB_DECOMPRESSION_MICROS,
+  // Time spent flushing memtable to disk
+  FLUSH_TIME,
 
   HISTOGRAM_ENUM_MAX,  // TODO(ldemailly): enforce HistogramsNameMap match
 };
@@ -560,6 +562,7 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {BLOB_DB_GC_MICROS, "rocksdb.blobdb.gc.micros"},
     {BLOB_DB_COMPRESSION_MICROS, "rocksdb.blobdb.compression.micros"},
     {BLOB_DB_DECOMPRESSION_MICROS, "rocksdb.blobdb.decompression.micros"},
+    {FLUSH_TIME, "rocksdb.db.flush.micros"},
 };
 
 struct HistogramData {
