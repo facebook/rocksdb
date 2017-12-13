@@ -557,20 +557,22 @@ TEST_P(WritePreparedTransactionTest, SnapshotConcurrentAccessTest) {
   // We have a sync point in the method under test after checking each snapshot.
   // If you increase the max number of snapshots in this test, more sync points
   // in the methods must also be added.
-  const std::vector<SequenceNumber> snapshots = {10l, 20l, 30l, 40l, 50l,
-                                                 60l, 70l, 80l, 90l, 100l};
+  const std::vector<SequenceNumber> snapshots = {10l, 20l, 30l, 40l, 50l, 60l};
+  // TODO(myabandeh): increase the snapshots list for pre-release tests
+  // const std::vector<SequenceNumber> snapshots = {10l, 20l, 30l, 40l, 50l,
+  //                                               60l, 70l, 80l, 90l, 100l};
   const size_t snapshot_cache_bits = 2;
   // Safety check to express the intended size in the test. Can be adjusted if
   // the snapshots lists changed.
-  assert((1ul << snapshot_cache_bits) * 2 + 2 == snapshots.size());
+  assert((1ul << snapshot_cache_bits) + 2 == snapshots.size());
   SequenceNumber version = 1000l;
   // Choose the cache size so that the new snapshot list could replace all the
   // existing items in the cache and also have some overflow.
   DBImpl* mock_db = new DBImpl(options, dbname);
   std::unique_ptr<WritePreparedTxnDBMock> wp_db(
       new WritePreparedTxnDBMock(mock_db, txn_db_options, snapshot_cache_bits));
-  // Add up to 2 items that do not fit into the cache
-  for (size_t old_size = 1; old_size <= wp_db->SNAPSHOT_CACHE_SIZE + 2;
+  // Add up to 1 items that do not fit into the cache
+  for (size_t old_size = 1; old_size <= wp_db->SNAPSHOT_CACHE_SIZE + 1;
        old_size++) {
     const std::vector<SequenceNumber> old_snapshots(
         snapshots.begin(), snapshots.begin() + old_size);
