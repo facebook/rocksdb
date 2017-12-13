@@ -106,7 +106,8 @@ CompressionType GetCompressionFlush(
   // optimization is used for leveled compaction. Otherwise the CPU and
   // latency overhead is not offset by saving much space.
   if (ioptions.compaction_style == kCompactionStyleUniversal) {
-    if (ioptions.compaction_options_universal.compression_size_percent < 0) {
+    if (mutable_cf_options.compaction_options_universal
+            .compression_size_percent < 0) {
       return mutable_cf_options.compression;
     } else {
       return kNoCompression;
@@ -136,7 +137,8 @@ void DumpSupportInfo(Logger* logger) {
 int64_t kDefaultLowPriThrottledRate = 2 * 1024 * 1024;
 } // namespace
 
-DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
+DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
+               const bool seq_per_batch)
     : env_(options.env),
       dbname_(dbname),
       initial_db_options_(SanitizeOptions(dbname, options)),
@@ -185,18 +187,32 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
           env_options_, immutable_db_options_)),
       num_running_ingest_file_(0),
 #ifndef ROCKSDB_LITE
-      wal_manager_(immutable_db_options_, env_options_),
+      wal_manager_(immutable_db_options_, env_options_, seq_per_batch),
 #endif  // ROCKSDB_LITE
       event_logger_(immutable_db_options_.info_log.get()),
       bg_work_paused_(0),
       bg_compaction_paused_(0),
       refitting_level_(false),
       opened_successfully_(false),
-      concurrent_prepare_(options.concurrent_prepare),
+      two_write_queues_(options.two_write_queues),
       manual_wal_flush_(options.manual_wal_flush),
-      seq_per_batch_(options.seq_per_batch),
-      // TODO(myabandeh): revise this when we change options.seq_per_batch
-      use_custom_gc_(options.seq_per_batch) {
+      seq_per_batch_(seq_per_batch),
+      // last_sequencee_ is always maintained by the main queue that also writes
+      // to the memtable. When two_write_queues_ is disabled last seq in
+      // memtable is the same as last seq published to the readers. When it is
+      // enabled but seq_per_batch_ is disabled, last seq in memtable still
+      // indicates last published seq since wal-only writes that go to the 2nd
+      // queue do not consume a sequence number. Otherwise writes performed by
+      // the 2nd queue could change what is visible to the readers. In this
+      // cases, last_seq_same_as_publish_seq_==false, the 2nd queue maintains a
+      // separate variable to indicate the last published sequence.
+      last_seq_same_as_publish_seq_(
+          !(seq_per_batch && options.two_write_queues)),
+      // Since seq_per_batch_ is currently set only by WritePreparedTxn which
+      // requires a custom gc for compaction, we use that to set use_custom_gc_
+      // as well.
+      use_custom_gc_(seq_per_batch),
+      preserve_deletes_(options.preserve_deletes) {
   env_->GetAbsolutePath(dbname, &db_absolute_path_);
 
   // Reserve ten files or so for other uses and give the rest to TableCache.
@@ -218,6 +234,11 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
   immutable_db_options_.Dump(immutable_db_options_.info_log.get());
   mutable_db_options_.Dump(immutable_db_options_.info_log.get());
   DumpSupportInfo(immutable_db_options_.info_log.get());
+
+  // always open the DB with 0 here, which means if preserve_deletes_==true
+  // we won't drop any deletion markers until SetPreserveDeletesSequenceNumber()
+  // is called by client and this seqnum is advanced.
+  preserve_deletes_seqnum_.store(0);
 }
 
 // Will lock the mutex_,  will wait for completion if wait is true
@@ -568,13 +589,15 @@ Status DBImpl::SetDBOptions(
         new_options.bytes_per_sync = 1024 * 1024;
       }
       mutable_db_options_ = new_options;
-      env_options_for_compaction_ = EnvOptions(BuildDBOptions(
-                                                immutable_db_options_,
-                                                mutable_db_options_));
+      env_options_for_compaction_ = EnvOptions(
+          BuildDBOptions(immutable_db_options_, mutable_db_options_));
       env_options_for_compaction_ = env_->OptimizeForCompactionTableWrite(
-                                            env_options_for_compaction_,
-                                            immutable_db_options_);
+          env_options_for_compaction_, immutable_db_options_);
       versions_->ChangeEnvOptions(mutable_db_options_);
+      env_options_for_compaction_ = env_->OptimizeForCompactionTableRead(
+          env_options_for_compaction_, immutable_db_options_);
+      env_options_for_compaction_.compaction_readahead_size =
+          mutable_db_options_.compaction_readahead_size;
       write_thread_.EnterUnbatched(&w, &mutex_);
       if (total_log_size_ > GetMaxTotalWalSize() || wal_changed) {
         Status purge_wal_status = SwitchWAL(&write_context);
@@ -744,8 +767,17 @@ SequenceNumber DBImpl::GetLatestSequenceNumber() const {
   return versions_->LastSequence();
 }
 
-SequenceNumber DBImpl::IncAndFetchSequenceNumber() {
-  return versions_->FetchAddLastToBeWrittenSequence(1ull) + 1ull;
+void DBImpl::SetLastPublishedSequence(SequenceNumber seq) {
+  versions_->SetLastPublishedSequence(seq);
+}
+
+bool DBImpl::SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) {
+  if (seqnum > preserve_deletes_seqnum_.load()) {
+    preserve_deletes_seqnum_.store(seqnum);
+    return true;
+  } else {
+    return false;
+  }
 }
 
 InternalIterator* DBImpl::NewInternalIterator(
@@ -962,9 +994,9 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
     // super versipon because a flush happening in between may compact
     // away data for the snapshot, but the snapshot is earlier than the
     // data overwriting it, so users may see wrong results.
-    snapshot = concurrent_prepare_ && seq_per_batch_
-                   ? versions_->LastToBeWrittenSequence()
-                   : versions_->LastSequence();
+    snapshot = last_seq_same_as_publish_seq_
+                   ? versions_->LastSequence()
+                   : versions_->LastPublishedSequence();
   }
   TEST_SYNC_POINT("DBImpl::GetImpl:3");
   TEST_SYNC_POINT("DBImpl::GetImpl:4");
@@ -1055,9 +1087,9 @@ std::vector<Status> DBImpl::MultiGet(
     snapshot = reinterpret_cast<const SnapshotImpl*>(
         read_options.snapshot)->number_;
   } else {
-    snapshot = concurrent_prepare_ && seq_per_batch_
-                   ? versions_->LastToBeWrittenSequence()
-                   : versions_->LastSequence();
+    snapshot = last_seq_same_as_publish_seq_
+                   ? versions_->LastSequence()
+                   : versions_->LastPublishedSequence();
   }
   for (auto mgd_iter : multiget_cf_data) {
     mgd_iter.second->super_version =
@@ -1421,6 +1453,15 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
     return NewErrorIterator(Status::NotSupported(
         "ReadTier::kPersistedData is not yet supported in iterators."));
   }
+  // if iterator wants internal keys, we can only proceed if
+  // we can guarantee the deletes haven't been processed yet
+  if (immutable_db_options_.preserve_deletes &&
+      read_options.iter_start_seqnum > 0 &&
+      read_options.iter_start_seqnum < preserve_deletes_seqnum_.load()) {
+        return NewErrorIterator(Status::InvalidArgument(
+          "Iterator requested internal keys which are too old and are not"
+          " guaranteed to be preserved, try larger iter_start_seqnum opt."));
+      }
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
   ReadCallback* read_callback = nullptr;  // No read callback provided.
@@ -1454,8 +1495,9 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
         read_callback);
 #endif
   } else {
-    // Note: no need to consider the special case of concurrent_prepare_ &&
-    // seq_per_batch_ since NewIterator is overridden in WritePreparedTxnDB
+    // Note: no need to consider the special case of
+    // last_seq_same_as_publish_seq_==false since NewIterator is overridden in
+    // WritePreparedTxnDB
     auto snapshot = read_options.snapshot != nullptr
                         ? read_options.snapshot->GetSequenceNumber()
                         : versions_->LastSequence();
@@ -1571,8 +1613,9 @@ Status DBImpl::NewIterators(
     }
 #endif
   } else {
-    // Note: no need to consider the special case of concurrent_prepare_ &&
-    // seq_per_batch_ since NewIterators is overridden in WritePreparedTxnDB
+    // Note: no need to consider the special case of
+    // last_seq_same_as_publish_seq_==false since NewIterators is overridden in
+    // WritePreparedTxnDB
     auto snapshot = read_options.snapshot != nullptr
                         ? read_options.snapshot->GetSequenceNumber()
                         : versions_->LastSequence();
@@ -1606,9 +1649,9 @@ const Snapshot* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary) {
     delete s;
     return nullptr;
   }
-  auto snapshot_seq = concurrent_prepare_ && seq_per_batch_
-                          ? versions_->LastToBeWrittenSequence()
-                          : versions_->LastSequence();
+  auto snapshot_seq = last_seq_same_as_publish_seq_
+                          ? versions_->LastSequence()
+                          : versions_->LastPublishedSequence();
   return snapshots_.New(s, snapshot_seq, unix_time, is_write_conflict_boundary);
 }
 
@@ -1619,9 +1662,9 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
     snapshots_.Delete(casted_s);
     uint64_t oldest_snapshot;
     if (snapshots_.empty()) {
-      oldest_snapshot = concurrent_prepare_ && seq_per_batch_
-                              ? versions_->LastToBeWrittenSequence()
-                              : versions_->LastSequence();
+      oldest_snapshot = last_seq_same_as_publish_seq_
+                            ? versions_->LastSequence()
+                            : versions_->LastPublishedSequence();
     } else {
       oldest_snapshot = snapshots_.oldest()->number_;
     }
@@ -1639,12 +1682,10 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
   delete casted_s;
 }
 
-bool DBImpl::HasActiveSnapshotLaterThanSN(SequenceNumber sn) {
+bool DBImpl::HasActiveSnapshotInRange(SequenceNumber lower_bound,
+                                      SequenceNumber upper_bound) {
   InstrumentedMutexLock l(&mutex_);
-  if (snapshots_.empty()) {
-    return false;
-  }
-  return (snapshots_.newest()->GetSequenceNumber() >= sn);
+  return snapshots_.HasSnapshotInRange(lower_bound, upper_bound);
 }
 
 #ifndef ROCKSDB_LITE
@@ -2123,25 +2164,19 @@ Status DBImpl::DeleteFilesInRange(ColumnFamilyHandle* column_family,
         end_key = &end_storage;
       }
 
-      vstorage->GetOverlappingInputs(i, begin_key, end_key, &level_files, -1,
-                                     nullptr, false);
+      vstorage->GetCleanInputsWithinInterval(i, begin_key, end_key,
+                                             &level_files, -1 /* hint_index */,
+                                             nullptr /* file_index */);
       FileMetaData* level_file;
       for (uint32_t j = 0; j < level_files.size(); j++) {
         level_file = level_files[j];
-        if (((begin == nullptr) ||
-             (cfd->internal_comparator().user_comparator()->Compare(
-                  level_file->smallest.user_key(), *begin) >= 0)) &&
-            ((end == nullptr) ||
-             (cfd->internal_comparator().user_comparator()->Compare(
-                  level_file->largest.user_key(), *end) <= 0))) {
-          if (level_file->being_compacted) {
-            continue;
-          }
-          edit.SetColumnFamily(cfd->GetID());
-          edit.DeleteFile(i, level_file->fd.GetNumber());
-          deleted_files.push_back(level_file);
-          level_file->being_compacted = true;
+        if (level_file->being_compacted) {
+          continue;
         }
+        edit.SetColumnFamily(cfd->GetID());
+        edit.DeleteFile(i, level_file->fd.GetNumber());
+        deleted_files.push_back(level_file);
+        level_file->being_compacted = true;
       }
     }
     if (edit.GetDeletedFiles().empty()) {
@@ -2731,7 +2766,7 @@ Status DBImpl::IngestExternalFile(
     WriteThread::Writer w;
     write_thread_.EnterUnbatched(&w, &mutex_);
     WriteThread::Writer nonmem_w;
-    if (concurrent_prepare_) {
+    if (two_write_queues_) {
       nonmem_write_thread_.EnterUnbatched(&nonmem_w, &mutex_);
     }
 
@@ -2774,7 +2809,7 @@ Status DBImpl::IngestExternalFile(
     }
 
     // Resume writes to the DB
-    if (concurrent_prepare_) {
+    if (two_write_queues_) {
       nonmem_write_thread_.ExitUnbatched(&nonmem_w);
     }
     write_thread_.ExitUnbatched(&w);

@@ -9,7 +9,6 @@
 #include <cstdio>
 int main() { fprintf(stderr, "Please install gflags to run tools\n"); }
 #else
-#include <gflags/gflags.h>
 #include <atomic>
 #include <functional>
 #include <memory>
@@ -25,6 +24,7 @@ int main() { fprintf(stderr, "Please install gflags to run tools\n"); }
 #include "monitoring/histogram.h"
 #include "port/port.h"
 #include "table/block_builder.h"
+#include "util/gflags_compat.h"
 #include "util/mutexlock.h"
 #include "util/stop_watch.h"
 
@@ -307,9 +307,9 @@ class CacheTierBenchmark {
 // main
 //
 int main(int argc, char** argv) {
-  GFLAGS::SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
-                          " [OPTIONS]...");
-  GFLAGS::ParseCommandLineFlags(&argc, &argv, false);
+  GFLAGS_NAMESPACE::SetUsageMessage(std::string("\nUSAGE:\n") +
+                                    std::string(argv[0]) + " [OPTIONS]...");
+  GFLAGS_NAMESPACE::ParseCommandLineFlags(&argc, &argv, false);
 
   std::ostringstream msg;
   msg << "Config" << std::endl

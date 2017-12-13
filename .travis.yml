@@ -52,6 +52,9 @@ install:
       brew install ccache;
       PATH=$PATH:/usr/local/opt/ccache/libexec;
     fi
+  - if [[ "${JOB_NAME}" == cmake* ]] && [ "${TRAVIS_OS_NAME}" == linux ]; then
+      mkdir cmake-dist && curl -sfSL https://cmake.org/files/v3.8/cmake-3.8.1-Linux-x86_64.tar.gz | tar --strip-components=1 -C cmake-dist -xz && export PATH=$PWD/cmake-dist/bin:$PATH;
+    fi
 
 before_script:
   # Increase the maximum number of open file descriptors, since some tests use
@@ -68,8 +71,8 @@ script:
   - if [ "${JOB_NAME}" == 'java_test' ]; then OPT=-DTRAVIS V=1 make clean jclean && make rocksdbjava jtest; fi
   - if [ "${JOB_NAME}" == 'lite_build' ]; then OPT="-DTRAVIS -DROCKSDB_LITE" V=1 make -j4 static_lib tools; fi
   - if [ "${JOB_NAME}" == 'examples' ]; then OPT=-DTRAVIS V=1 make -j4 static_lib; cd examples; make -j4; fi
-  - if [ "${JOB_NAME}" == 'cmake' ]; then mkdir build && cd build && cmake .. && make -j4 rocksdb; fi
-  - if [ "${JOB_NAME}" == 'cmake-mingw' ]; then mkdir build && cd build && cmake .. -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ -DCMAKE_SYSTEM_NAME=Windows && make -j4 rocksdb; fi
+  - if [ "${JOB_NAME}" == 'cmake' ]; then mkdir build && cd build && cmake -DJNI=1 .. && make -j4 rocksdb rocksdbjni; fi
+  - if [ "${JOB_NAME}" == 'cmake-mingw' ]; then mkdir build && cd build && cmake -DJNI=1 .. -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ -DCMAKE_SYSTEM_NAME=Windows && make -j4 rocksdb rocksdbjni; fi
 notifications:
     email:
       - leveldb@fb.com

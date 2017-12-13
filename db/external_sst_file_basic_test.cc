@@ -558,8 +558,10 @@ TEST_F(ExternalSSTFileBasicTest, FadviseTrigger) {
 }
 
 TEST_F(ExternalSSTFileBasicTest, IngestionWithRangeDeletions) {
+  int kNumLevels = 7;
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
+  options.num_levels = kNumLevels;
   Reopen(options);
 
   std::map<std::string, std::string> true_data;
@@ -567,43 +569,65 @@ TEST_F(ExternalSSTFileBasicTest, IngestionWithRangeDeletions) {
   // prevent range deletions from being dropped due to becoming obsolete.
   const Snapshot* snapshot = db_->GetSnapshot();
 
-  // range del [0, 50) in L0 file, [50, 100) in memtable
-  for (int i = 0; i < 2; i++) {
-    if (i == 1) {
+  // range del [0, 50) in L6 file, [50, 100) in L0 file, [100, 150) in memtable
+  for (int i = 0; i < 3; i++) {
+    if (i != 0) {
       db_->Flush(FlushOptions());
+      if (i == 1) {
+        MoveFilesToLevel(kNumLevels - 1);
+      }
     }
     ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
                                Key(50 * i), Key(50 * (i + 1))));
   }
   ASSERT_EQ(1, NumTableFilesAtLevel(0));
+  ASSERT_EQ(0, NumTableFilesAtLevel(kNumLevels - 2));
+  ASSERT_EQ(1, NumTableFilesAtLevel(kNumLevels - 1));
 
-  // overlaps with L0 file but not memtable, so flush is skipped
+  // overlaps with L0 file but not memtable, so flush is skipped and file is
+  // ingested into L0
   SequenceNumber last_seqno = dbfull()->GetLatestSequenceNumber();
+  ASSERT_OK(GenerateAndAddExternalFile(
+      options, {60, 90}, {ValueType::kTypeValue, ValueType::kTypeValue},
+      file_id++, &true_data));
+  ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), ++last_seqno);
+  ASSERT_EQ(2, NumTableFilesAtLevel(0));
+  ASSERT_EQ(0, NumTableFilesAtLevel(kNumLevels - 2));
+  ASSERT_EQ(1, NumTableFilesAtLevel(options.num_levels - 1));
+
+  // overlaps with L6 file but not memtable or L0 file, so flush is skipped and
+  // file is ingested into L5
   ASSERT_OK(GenerateAndAddExternalFile(
       options, {10, 40}, {ValueType::kTypeValue, ValueType::kTypeValue},
       file_id++, &true_data));
   ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), ++last_seqno);
   ASSERT_EQ(2, NumTableFilesAtLevel(0));
+  ASSERT_EQ(1, NumTableFilesAtLevel(kNumLevels - 2));
+  ASSERT_EQ(1, NumTableFilesAtLevel(options.num_levels - 1));
 
-  // overlaps with memtable, so flush is triggered (thus file count increases by
-  // two at this step).
+  // ingested file overlaps with memtable, so flush is triggered before the file
+  // is ingested such that the ingested data is considered newest. So L0 file
+  // count increases by two.
   ASSERT_OK(GenerateAndAddExternalFile(
-      options, {50, 90}, {ValueType::kTypeValue, ValueType::kTypeValue},
+      options, {100, 140}, {ValueType::kTypeValue, ValueType::kTypeValue},
       file_id++, &true_data));
   ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), ++last_seqno);
   ASSERT_EQ(4, NumTableFilesAtLevel(0));
+  ASSERT_EQ(1, NumTableFilesAtLevel(kNumLevels - 2));
+  ASSERT_EQ(1, NumTableFilesAtLevel(options.num_levels - 1));
 
-  // snapshot unneeded now that both range deletions are persisted
+  // snapshot unneeded now that all range deletions are persisted
   db_->ReleaseSnapshot(snapshot);
 
   // overlaps with nothing, so places at bottom level and skips incrementing
   // seqnum.
   ASSERT_OK(GenerateAndAddExternalFile(
-      options, {101, 125}, {ValueType::kTypeValue, ValueType::kTypeValue},
+      options, {151, 175}, {ValueType::kTypeValue, ValueType::kTypeValue},
       file_id++, &true_data));
   ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), last_seqno);
   ASSERT_EQ(4, NumTableFilesAtLevel(0));
-  ASSERT_EQ(1, NumTableFilesAtLevel(options.num_levels - 1));
+  ASSERT_EQ(1, NumTableFilesAtLevel(kNumLevels - 2));
+  ASSERT_EQ(2, NumTableFilesAtLevel(options.num_levels - 1));
 }
 
 #endif  // ROCKSDB_LITE

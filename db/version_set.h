@@ -525,10 +525,6 @@ class Version {
                             MergeIteratorBuilder* merger_iter_builder,
                             int level, RangeDelAggregator* range_del_agg);
 
-  void AddRangeDelIteratorsForLevel(
-      const ReadOptions& read_options, const EnvOptions& soptions, int level,
-      std::vector<InternalIterator*>* range_del_iters);
-
   // Lookup the value for key.  If found, store it in *val and
   // return OK.  Else return a non-OK status.
   // Uses *operands to store merge_operator operations to apply later.
@@ -765,28 +761,38 @@ class VersionSet {
   }
 
   // Note: memory_order_acquire must be sufficient.
-  uint64_t LastToBeWrittenSequence() const {
-    return last_to_be_written_sequence_.load(std::memory_order_seq_cst);
+  uint64_t LastAllocatedSequence() const {
+    return last_allocated_sequence_.load(std::memory_order_seq_cst);
+  }
+
+  // Note: memory_order_acquire must be sufficient.
+  uint64_t LastPublishedSequence() const {
+    return last_published_sequence_.load(std::memory_order_seq_cst);
   }
 
   // Set the last sequence number to s.
   void SetLastSequence(uint64_t s) {
     assert(s >= last_sequence_);
     // Last visible seqeunce must always be less than last written seq
-    assert(!db_options_->concurrent_prepare ||
-           s <= last_to_be_written_sequence_);
+    assert(!db_options_->two_write_queues || s <= last_allocated_sequence_);
     last_sequence_.store(s, std::memory_order_release);
   }
 
   // Note: memory_order_release must be sufficient
-  void SetLastToBeWrittenSequence(uint64_t s) {
-    assert(s >= last_to_be_written_sequence_);
-    last_to_be_written_sequence_.store(s, std::memory_order_seq_cst);
+  void SetLastPublishedSequence(uint64_t s) {
+    assert(s >= last_published_sequence_);
+    last_published_sequence_.store(s, std::memory_order_seq_cst);
   }
 
   // Note: memory_order_release must be sufficient
-  uint64_t FetchAddLastToBeWrittenSequence(uint64_t s) {
-    return last_to_be_written_sequence_.fetch_add(s, std::memory_order_seq_cst);
+  void SetLastAllocatedSequence(uint64_t s) {
+    assert(s >= last_allocated_sequence_);
+    last_allocated_sequence_.store(s, std::memory_order_seq_cst);
+  }
+
+  // Note: memory_order_release must be sufficient
+  uint64_t FetchAddLastAllocatedSequence(uint64_t s) {
+    return last_allocated_sequence_.fetch_add(s, std::memory_order_seq_cst);
   }
 
   // Mark the specified file number as used.
@@ -813,8 +819,9 @@ class VersionSet {
 
   // Create an iterator that reads over the compaction inputs for "*c".
   // The caller should delete the iterator when no longer needed.
-  InternalIterator* MakeInputIterator(const Compaction* c,
-                                      RangeDelAggregator* range_del_agg);
+  InternalIterator* MakeInputIterator(
+      const Compaction* c, RangeDelAggregator* range_del_agg,
+      const EnvOptions& env_options_compactions);
 
   // Add all files listed in any live version to *live.
   void AddLiveFiles(std::vector<FileDescriptor>* live_list);
@@ -892,10 +899,21 @@ class VersionSet {
   uint64_t manifest_file_number_;
   uint64_t options_file_number_;
   uint64_t pending_manifest_file_number_;
-  // The last seq visible to reads
+  // The last seq visible to reads. It normally indicates the last sequence in
+  // the memtable but when using two write queues it could also indicate the
+  // last sequence in the WAL visible to reads.
   std::atomic<uint64_t> last_sequence_;
-  // The last seq with which a writer has written/will write.
-  std::atomic<uint64_t> last_to_be_written_sequence_;
+  // The last seq that is already allocated. It is applicable only when we have
+  // two write queues. In that case seq might or might not have appreated in
+  // memtable but it is expected to appear in the WAL.
+  // We have last_sequence <= last_allocated_sequence_
+  std::atomic<uint64_t> last_allocated_sequence_;
+  // The last allocated sequence that is also published to the readers. This is
+  // applicable only when last_seq_same_as_publish_seq_ is not set. Otherwise
+  // last_sequence_ also indicates the last published seq.
+  // We have last_sequence <= last_published_seqeunce_ <=
+  // last_allocated_sequence_
+  std::atomic<uint64_t> last_published_sequence_;
   uint64_t prev_log_number_;  // 0 or backing store for memtable being compacted
 
   // Opened lazily
@@ -915,10 +933,6 @@ class VersionSet {
 
   // env options for all reads and writes except compactions
   EnvOptions env_options_;
-
-  // env options used for compactions. This is a copy of
-  // env_options_ but with readaheads set to readahead_compactions_.
-  const EnvOptions env_options_compactions_;
 
   // No copying allowed
   VersionSet(const VersionSet&);

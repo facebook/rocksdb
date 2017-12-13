@@ -78,8 +78,8 @@ FilterBlockBuilder* CreateFilterBlockBuilder(
       // as partition size.
       assert(table_opt.block_size_deviation <= 100);
       auto partition_size = static_cast<uint32_t>(
-          table_opt.metadata_block_size *
-          (100 - table_opt.block_size_deviation));
+          ((table_opt.metadata_block_size *
+          (100 - table_opt.block_size_deviation)) + 99) / 100);
       partition_size = std::max(partition_size, static_cast<uint32_t>(1));
       return new PartitionedFilterBlockBuilder(
           opt.prefix_extractor, table_opt.whole_key_filtering,
@@ -296,11 +296,12 @@ struct BlockBasedTableBuilder::Rep {
         file(f),
         data_block(table_options.block_restart_interval,
                    table_options.use_delta_encoding),
-        range_del_block(port::kMaxInt32),
+        range_del_block(1),  // TODO(andrewkr): restart_interval unnecessary
         internal_prefix_transform(_ioptions.prefix_extractor),
         compression_type(_compression_type),
         compression_opts(_compression_opts),
         compression_dict(_compression_dict),
+        compressed_cache_key_prefix_size(0),
         flush_block_policy(
             table_options.flush_block_policy_factory->NewFlushBlockPolicy(
                 table_options, data_block)),

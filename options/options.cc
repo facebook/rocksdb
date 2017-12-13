@@ -503,8 +503,7 @@ ColumnFamilyOptions* ColumnFamilyOptions::OptimizeUniversalStyleCompaction(
 }
 
 DBOptions* DBOptions::IncreaseParallelism(int total_threads) {
-  max_background_compactions = total_threads - 1;
-  max_background_flushes = 1;
+  max_background_jobs = total_threads;
   env->SetBackgroundThreads(total_threads, Env::LOW);
   env->SetBackgroundThreads(1, Env::HIGH);
   return this;
@@ -527,7 +526,8 @@ ReadOptions::ReadOptions()
       prefix_same_as_start(false),
       pin_data(false),
       background_purge_on_iterator_cleanup(false),
-      ignore_range_deletions(false) {}
+      ignore_range_deletions(false),
+      iter_start_seqnum(0) {}
 
 ReadOptions::ReadOptions(bool cksum, bool cache)
     : snapshot(nullptr),
@@ -544,6 +544,7 @@ ReadOptions::ReadOptions(bool cksum, bool cache)
       prefix_same_as_start(false),
       pin_data(false),
       background_purge_on_iterator_cleanup(false),
-      ignore_range_deletions(false) {}
+      ignore_range_deletions(false),
+      iter_start_seqnum(0) {}
 
 }  // namespace rocksdb

@@ -374,6 +374,79 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionSizeAmplification) {
   ASSERT_EQ(NumSortedRuns(1), 1);
 }
 
+TEST_P(DBTestUniversalCompaction, DynamicUniversalCompactionSizeAmplification) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.num_levels = 1;
+  options.write_buffer_size = 100 << 10;     // 100KB
+  options.target_file_size_base = 32 << 10;  // 32KB
+  options.level0_file_num_compaction_trigger = 3;
+  // Initial setup of compaction_options_universal will prevent universal
+  // compaction from happening
+  options.compaction_options_universal.size_ratio = 100;
+  options.compaction_options_universal.min_merge_width = 100;
+  DestroyAndReopen(options);
+
+  int total_picked_compactions = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "UniversalCompactionPicker::PickCompaction:Return", [&](void* arg) {
+        if (arg) {
+          total_picked_compactions++;
+        }
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  MutableCFOptions mutable_cf_options;
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  Random rnd(301);
+  int key_idx = 0;
+
+  //   Generate two files in Level 0. Both files are approx the same size.
+  for (int num = 0; num < options.level0_file_num_compaction_trigger - 1;
+       num++) {
+    // Write 110KB (11 values, each 10K)
+    for (int i = 0; i < 11; i++) {
+      ASSERT_OK(Put(1, Key(key_idx), RandomString(&rnd, 10000)));
+      key_idx++;
+    }
+    dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
+    ASSERT_EQ(NumSortedRuns(1), num + 1);
+  }
+  ASSERT_EQ(NumSortedRuns(1), 2);
+
+  // Flush whatever is remaining in memtable. This is typically
+  // small, which should not trigger size ratio based compaction
+  // but could instead trigger size amplification if it's set
+  // to 110.
+  ASSERT_OK(Flush(1));
+  dbfull()->TEST_WaitForCompact();
+  // Verify compaction did not happen
+  ASSERT_EQ(NumSortedRuns(1), 3);
+
+  // Trigger compaction if size amplification exceeds 110% without reopening DB
+  ASSERT_EQ(dbfull()
+                ->GetOptions(handles_[1])
+                .compaction_options_universal.max_size_amplification_percent,
+            200);
+  ASSERT_OK(dbfull()->SetOptions(handles_[1],
+                                 {{"compaction_options_universal",
+                                   "{max_size_amplification_percent=110;}"}}));
+  ASSERT_EQ(dbfull()
+                ->GetOptions(handles_[1])
+                .compaction_options_universal.max_size_amplification_percent,
+            110);
+  ASSERT_OK(dbfull()->TEST_GetLatestMutableCFOptions(handles_[1],
+                                                     &mutable_cf_options));
+  ASSERT_EQ(110, mutable_cf_options.compaction_options_universal
+                     .max_size_amplification_percent);
+
+  dbfull()->TEST_WaitForCompact();
+  // Verify that size amplification did happen
+  ASSERT_EQ(NumSortedRuns(1), 1);
+  ASSERT_EQ(total_picked_compactions, 1);
+}
+
 TEST_P(DBTestUniversalCompaction, CompactFilesOnUniversalCompaction) {
   const int kTestKeySize = 16;
   const int kTestValueSize = 984;

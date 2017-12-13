@@ -36,6 +36,7 @@ class CompactionFilter {
   enum ValueType {
     kValue,
     kMergeOperand,
+    kBlobIndex,  // used internally by BlobDB.
   };
 
   enum class Decision {
@@ -171,6 +172,8 @@ class CompactionFilter {
         bool rv = FilterMergeOperand(level, key, existing_value);
         return rv ? Decision::kRemove : Decision::kKeep;
       }
+      case ValueType::kBlobIndex:
+        return Decision::kKeep;
     }
     assert(false);
     return Decision::kKeep;

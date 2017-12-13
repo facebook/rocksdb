@@ -2462,6 +2462,10 @@ class ModelDB : public DB {
 
   virtual SequenceNumber GetLatestSequenceNumber() const override { return 0; }
 
+  virtual bool SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) override {
+    return true;
+  }
+
   virtual ColumnFamilyHandle* DefaultColumnFamily() const override {
     return nullptr;
   }
@@ -3350,11 +3354,23 @@ TEST_F(DBTest, DynamicMemtableOptions) {
       {"write_buffer_size", "131072"},
   }));
 
-  // The existing memtable is still 64KB in size, after it becomes immutable,
-  // the next memtable will be 128KB in size. Write 256KB total, we should
-  // have a 64KB L0 file, a 128KB L0 file, and a memtable with 64KB data
-  gen_l0_kb(256);
-  ASSERT_EQ(NumTableFilesAtLevel(0), 2);  // (A)
+  // The existing memtable inflated 64KB->128KB when we invoked SetOptions().
+  // Write 192KB, we should have a 128KB L0 file and a memtable with 64KB data.
+  gen_l0_kb(192);
+  ASSERT_EQ(NumTableFilesAtLevel(0), 1);  // (A)
+  ASSERT_LT(SizeAtLevel(0), k128KB + 2 * k5KB);
+  ASSERT_GT(SizeAtLevel(0), k128KB - 4 * k5KB);
+
+  // Decrease buffer size below current usage
+  ASSERT_OK(dbfull()->SetOptions({
+      {"write_buffer_size", "65536"},
+  }));
+  // The existing memtable became eligible for flush when we reduced its
+  // capacity to 64KB. Two keys need to be added to trigger flush: first causes
+  // memtable to be marked full, second schedules the flush. Then we should have
+  // a 128KB L0 file, a 64KB L0 file, and a memtable with just one key.
+  gen_l0_kb(2);
+  ASSERT_EQ(NumTableFilesAtLevel(0), 2);
   ASSERT_LT(SizeAtLevel(0), k128KB + k64KB + 2 * k5KB);
   ASSERT_GT(SizeAtLevel(0), k128KB + k64KB - 4 * k5KB);
 
@@ -4358,6 +4374,74 @@ TEST_F(DBTest, DynamicFIFOCompactionOptions) {
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.ttl, 49);
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.allow_compaction,
             true);
+}
+
+TEST_F(DBTest, DynamicUniversalCompactionOptions) {
+  Options options;
+  options.create_if_missing = true;
+  DestroyAndReopen(options);
+
+  // Initial defaults
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.size_ratio, 1);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.min_merge_width,
+            2);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.max_merge_width,
+            UINT_MAX);
+  ASSERT_EQ(dbfull()
+                ->GetOptions()
+                .compaction_options_universal.max_size_amplification_percent,
+            200);
+  ASSERT_EQ(dbfull()
+                ->GetOptions()
+                .compaction_options_universal.compression_size_percent,
+            -1);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.stop_style,
+            kCompactionStopStyleTotalSize);
+  ASSERT_EQ(
+      dbfull()->GetOptions().compaction_options_universal.allow_trivial_move,
+      false);
+
+  ASSERT_OK(dbfull()->SetOptions(
+      {{"compaction_options_universal", "{size_ratio=7;}"}}));
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.size_ratio, 7);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.min_merge_width,
+            2);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.max_merge_width,
+            UINT_MAX);
+  ASSERT_EQ(dbfull()
+                ->GetOptions()
+                .compaction_options_universal.max_size_amplification_percent,
+            200);
+  ASSERT_EQ(dbfull()
+                ->GetOptions()
+                .compaction_options_universal.compression_size_percent,
+            -1);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.stop_style,
+            kCompactionStopStyleTotalSize);
+  ASSERT_EQ(
+      dbfull()->GetOptions().compaction_options_universal.allow_trivial_move,
+      false);
+
+  ASSERT_OK(dbfull()->SetOptions(
+      {{"compaction_options_universal", "{min_merge_width=11;}"}}));
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.size_ratio, 7);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.min_merge_width,
+            11);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.max_merge_width,
+            UINT_MAX);
+  ASSERT_EQ(dbfull()
+                ->GetOptions()
+                .compaction_options_universal.max_size_amplification_percent,
+            200);
+  ASSERT_EQ(dbfull()
+                ->GetOptions()
+                .compaction_options_universal.compression_size_percent,
+            -1);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.stop_style,
+            kCompactionStopStyleTotalSize);
+  ASSERT_EQ(
+      dbfull()->GetOptions().compaction_options_universal.allow_trivial_move,
+      false);
 }
 #endif  // ROCKSDB_LITE
 

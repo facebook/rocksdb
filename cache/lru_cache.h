@@ -202,6 +202,9 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard : public CacheShard {
   //  not threadsafe
   size_t TEST_GetLRUSize();
 
+  //  Retrives high pri pool ratio
+  double GetHighPriPoolRatio();
+
   // Overloading to aligned it to cache line size
   void* operator new(size_t);
 
@@ -293,6 +296,8 @@ class LRUCache : public ShardedCache {
 
   //  Retrieves number of elements in LRU, for unit test purpose only
   size_t TEST_GetLRUSize();
+  //  Retrives high pri pool ratio
+  double GetHighPriPoolRatio();
 
  private:
   LRUCacheShard* shards_;

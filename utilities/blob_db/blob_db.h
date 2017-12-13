@@ -71,7 +71,12 @@ struct BlobDBOptions {
   // what compression to use for Blob's
   CompressionType compression = kNoCompression;
 
-  // Disable all background job.
+  // If enabled, blob DB periodically cleanup stale data by rewriting remaining
+  // live data in blob files to new files. If garbage collection is not enabled,
+  // blob files will be cleanup based on TTL.
+  bool enable_garbage_collection = false;
+
+  // Disable all background job. Used for test only.
   bool disable_background_tasks = false;
 
   void Dump(Logger* log) const;
@@ -185,23 +190,7 @@ class BlobDB : public StackableDB {
     return NewIterator(options);
   }
 
-  // Starting point for opening a Blob DB.
-  // changed_options - critical. Blob DB loads and inserts listeners
-  // into options which are necessary for recovery and atomicity
-  // Use this pattern if you need control on step 2, i.e. your
-  // BaseDB is not just a simple rocksdb but a stacked DB
-  // 1. ::OpenAndLoad
-  // 2. Open Base DB with the changed_options
-  // 3. ::LinkToBaseDB
-  static Status OpenAndLoad(const Options& options,
-                            const BlobDBOptions& bdb_options,
-                            const std::string& dbname, BlobDB** blob_db,
-                            Options* changed_options);
-
-  // This is another way to open BLOB DB which do not have other
-  // Stackable DB's in play
-  // Steps.
-  // 1. ::Open
+  // Opening blob db.
   static Status Open(const Options& options, const BlobDBOptions& bdb_options,
                      const std::string& dbname, BlobDB** blob_db);
 
@@ -210,16 +199,14 @@ class BlobDB : public StackableDB {
                      const std::string& dbname,
                      const std::vector<ColumnFamilyDescriptor>& column_families,
                      std::vector<ColumnFamilyHandle*>* handles,
-                     BlobDB** blob_db, bool no_base_db = false);
+                     BlobDB** blob_db);
 
   virtual BlobDBOptions GetBlobDBOptions() const = 0;
 
   virtual ~BlobDB() {}
 
-  virtual Status LinkToBaseDB(DB* db_base) = 0;
-
  protected:
-  explicit BlobDB(DB* db);
+  explicit BlobDB();
 };
 
 // Destroy the content of the database.
