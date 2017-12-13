@@ -1334,8 +1334,8 @@ class StressTest {
   }
 
  private:
-  void ASSERT_SAME(DB* db, ColumnFamilyHandle* cf,
-                   ThreadState::SnapshotState& snap_state) {
+  Status AssertSame(DB* db, ColumnFamilyHandle* cf,
+                    ThreadState::SnapshotState& snap_state) {
     ReadOptions ropt;
     ropt.snapshot = snap_state.snapshot;
     PinnableSlice exp_v(&snap_state.value);
@@ -1343,11 +1343,22 @@ class StressTest {
     Status s;
     PinnableSlice v;
     s = db->Get(ropt, cf, snap_state.key, &v);
-    assert(snap_state.status == s);
-    assert(s.ok() || s.IsNotFound());
-    if (s.ok()) {
-      assert(exp_v == v);
+    if (!s.ok() && !s.IsNotFound()) {
+      return s;
     }
+    if (snap_state.status != s) {
+      return Status::Corruption("The snapshot gave inconsistent results: (" +
+                                snap_state.status.ToString() + ") vs. (" +
+                                s.ToString() + ")");
+    }
+    if (s.ok()) {
+      if (exp_v != v) {
+        return Status::Corruption("The snapshot gave inconsistent values: (" +
+                                  exp_v.ToString() + ") vs. (" + v.ToString() +
+                                  ")");
+      }
+    }
+    return Status::OK();
   }
 
   static void ThreadBody(void* v) {
@@ -1674,25 +1685,26 @@ class StressTest {
     return db_->SetOptions(cfh, opts);
   }
 
-  Transaction* NewTxn(WriteOptions& write_opts) {
-    assert(FLAGS_use_txn);
+  Status NewTxn(WriteOptions& write_opts, Transaction** txn) {
+    if (!FLAGS_use_txn) {
+      return Status::InvalidArgument("NewTxn when FLAGS_use_txn is not set");
+    }
     static std::atomic<uint64_t> txn_id = {0};
-    Status s;
     TransactionOptions txn_options;
-    auto* txn = txn_db_->BeginTransaction(write_opts, txn_options);
+    *txn = txn_db_->BeginTransaction(write_opts, txn_options);
     auto istr = std::to_string(txn_id.fetch_add(1));
-    s = txn->SetName("xid" + istr);
-    assert(s.ok());
-    return txn;
+    Status s = (*txn)->SetName("xid" + istr);
+    return s;
   }
 
   Status CommitTxn(Transaction* txn) {
-    assert(FLAGS_use_txn);
-    Status s;
-    s = txn->Prepare();
-    assert(s.ok());
-    s = txn->Commit();
-    assert(s.ok());
+    if (!FLAGS_use_txn) {
+      return Status::InvalidArgument("CommitTxn when FLAGS_use_txn is not set");
+    }
+    Status s = txn->Prepare();
+    if (s.ok()) {
+      s = txn->Commit();
+    }
     delete txn;
     return s;
   }
@@ -1860,6 +1872,9 @@ class StressTest {
         ReadOptions ropt;
         ropt.snapshot = snapshot;
         std::string value_at;
+        // When taking a snapshot, we also read a key from that snapshot. We
+        // will later read the same key before releasing the snapshot and verify
+        // that the results are the same.
         auto status_at = db_->Get(ropt, column_family, key, &value_at);
         ThreadState::SnapshotState snap_state = {snapshot, rand_column_family,
                                                  keystr, status_at, value_at};
@@ -1871,7 +1886,11 @@ class StressTest {
              i == thread->snapshot_queue.front().first) {
         auto snap_state = thread->snapshot_queue.front().second;
         assert(snap_state.snapshot);
-        ASSERT_SAME(db_, column_families_[snap_state.cf_at], snap_state);
+        Status s =
+            AssertSame(db_, column_families_[snap_state.cf_at], snap_state);
+        if (!s.ok()) {
+          VerificationAbort(shared, "Snapshot gave inconsistent state", s);
+        }
         db_->ReleaseSnapshot(snap_state.snapshot);
         thread->snapshot_queue.pop();
       }
@@ -1955,19 +1974,27 @@ class StressTest {
             if (!FLAGS_use_txn) {
               s = db_->Merge(write_opts, column_family, key, v);
             } else {
-              auto* txn = NewTxn(write_opts);
-              s = txn->Merge(column_family, key, v);
-              assert(s.ok());
-              s = CommitTxn(txn);
+              Transaction* txn;
+              s = NewTxn(write_opts, &txn);
+              if (s.ok()) {
+                s = txn->Merge(column_family, key, v);
+                if (s.ok()) {
+                  s = CommitTxn(txn);
+                }
+              }
             }
           } else {
             if (!FLAGS_use_txn) {
               s = db_->Put(write_opts, column_family, key, v);
             } else {
-              auto* txn = NewTxn(write_opts);
-              s = txn->Put(column_family, key, v);
-              assert(s.ok());
-              s = CommitTxn(txn);
+              Transaction* txn;
+              s = NewTxn(write_opts, &txn);
+              if (s.ok()) {
+                s = txn->Put(column_family, key, v);
+                if (s.ok()) {
+                  s = CommitTxn(txn);
+                }
+              }
             }
           }
           if (!s.ok()) {
@@ -2006,10 +2033,14 @@ class StressTest {
             if (!FLAGS_use_txn) {
               s = db_->Delete(write_opts, column_family, key);
             } else {
-              auto* txn = NewTxn(write_opts);
-              s = txn->Delete(column_family, key);
-              assert(s.ok());
-              s = CommitTxn(txn);
+              Transaction* txn;
+              s = NewTxn(write_opts, &txn);
+              if (s.ok()) {
+                s = txn->Delete(column_family, key);
+                if (s.ok()) {
+                  s = CommitTxn(txn);
+                }
+              }
             }
             thread->stats.AddDeletes(1);
             if (!s.ok()) {
@@ -2022,10 +2053,14 @@ class StressTest {
             if (!FLAGS_use_txn) {
               s = db_->SingleDelete(write_opts, column_family, key);
             } else {
-              auto* txn = NewTxn(write_opts);
-              s = txn->SingleDelete(column_family, key);
-              assert(s.ok());
-              s = CommitTxn(txn);
+              Transaction* txn;
+              s = NewTxn(write_opts, &txn);
+              if (s.ok()) {
+                s = txn->SingleDelete(column_family, key);
+                if (s.ok()) {
+                  s = CommitTxn(txn);
+                }
+              }
             }
             thread->stats.AddSingleDeletes(1);
             if (!s.ok()) {
@@ -2162,6 +2197,12 @@ class StressTest {
         }
       }
     }
+  }
+
+  void VerificationAbort(SharedState* shared, std::string msg, Status s) const {
+    printf("Verification failed: %s. Status is %s\n", msg.c_str(),
+           s.ToString().c_str());
+    shared->SetVerificationFailure();
   }
 
   void VerificationAbort(SharedState* shared, std::string msg, int cf,
