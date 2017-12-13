@@ -45,6 +45,7 @@ struct ThreadStatus {
     HIGH_PRIORITY = 0,  // RocksDB BG thread in high-pri thread pool
     LOW_PRIORITY,  // RocksDB BG thread in low-pri thread pool
     USER,  // User thread (Non-RocksDB BG thread)
+    BOTTOM_PRIORITY,  // RocksDB BG thread in bottom-pri thread pool
     NUM_THREAD_TYPES
   };
 
