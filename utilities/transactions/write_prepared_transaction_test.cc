@@ -571,8 +571,10 @@ TEST_P(WritePreparedTransactionTest, SnapshotConcurrentAccessTest) {
   DBImpl* mock_db = new DBImpl(options, dbname);
   std::unique_ptr<WritePreparedTxnDBMock> wp_db(
       new WritePreparedTxnDBMock(mock_db, txn_db_options, snapshot_cache_bits));
-  // Add up to 1 items that do not fit into the cache
-  for (size_t old_size = 1; old_size <= wp_db->SNAPSHOT_CACHE_SIZE + 1;
+  // TODO(myabandeh): increase this number for pre-release tests
+  const size_t extra = 1;
+  // Add up to extra items that do not fit into the cache
+  for (size_t old_size = 1; old_size <= wp_db->SNAPSHOT_CACHE_SIZE + extra;
        old_size++) {
     const std::vector<SequenceNumber> old_snapshots(
         snapshots.begin(), snapshots.begin() + old_size);
