@@ -521,9 +521,6 @@ Status DBImpl::WriteImplWALOnly(const WriteOptions& write_options,
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
   WriteThread::Writer w(write_options, my_batch, callback, log_ref,
                         true /* disable_memtable */, pre_release_callback);
-  if (write_options.disableWAL) {
-    return status;
-  }
   RecordTick(stats_, WRITE_WITH_WAL);
   StopWatch write_sw(env_, immutable_db_options_.statistics.get(), DB_WRITE);
 
@@ -580,7 +577,13 @@ Status DBImpl::WriteImplWALOnly(const WriteOptions& write_options,
   // LastAllocatedSequence is increased inside WriteToWAL under
   // wal_write_mutex_ to ensure ordered events in WAL
   size_t seq_inc = seq_per_batch_ ? write_group.size : 0 /*total_count*/;
-  status = ConcurrentWriteToWAL(write_group, log_used, &last_sequence, seq_inc);
+  if (!write_options.disableWAL) {
+    status =
+        ConcurrentWriteToWAL(write_group, log_used, &last_sequence, seq_inc);
+  } else {
+    // Otherwise we inc seq number to do solely the seq allocation
+    last_sequence = versions_->FetchAddLastAllocatedSequence(seq_inc);
+  }
   auto curr_seq = last_sequence + 1;
   for (auto* writer : write_group) {
     if (writer->CallbackFailed()) {
@@ -593,6 +596,7 @@ Status DBImpl::WriteImplWALOnly(const WriteOptions& write_options,
     // else seq advances only by memtable writes
   }
   if (status.ok() && write_options.sync) {
+    assert(!write_options.disableWAL);
     // Requesting sync with two_write_queues_ is expected to be very rare. We
     // hance provide a simple implementation that is not necessarily efficient.
     if (manual_wal_flush_) {
