@@ -980,10 +980,12 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       storage_info_.num_non_empty_levels_, &storage_info_.file_indexer_,
       user_comparator(), internal_comparator());
   FdWithKeyRange* f = fp.GetNextFile();
+
   while (f != nullptr) {
     if (get_context.sample()) {
       sample_file_read_inc(f->file_metadata);
     }
+
     *status = table_cache_->Get(
         read_options, *internal_comparator(), f->fd, ikey, &get_context,
         cfd_->internal_stats()->GetFileReadHist(fp.GetHitFileLevel()),
@@ -995,9 +997,20 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       return;
     }
 
+    // report the counters before returning
+    if (get_context.State() != GetContext::kNotFound &&
+        get_context.State() != GetContext::kMerge) {
+      for (uint32_t t = 0; t < Tickers::TICKER_ENUM_MAX; t++) {
+        if (get_context.tickers_value[t] > 0) {
+          RecordTick(db_statistics_, t, get_context.tickers_value[t]);
+        }
+      }
+    }
     switch (get_context.State()) {
       case GetContext::kNotFound:
         // Keep searching in other files
+        break;
+      case GetContext::kMerge:
         break;
       case GetContext::kFound:
         if (fp.GetHitFileLevel() == 0) {
@@ -1015,8 +1028,6 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       case GetContext::kCorrupt:
         *status = Status::Corruption("corrupted key for ", user_key);
         return;
-      case GetContext::kMerge:
-        break;
       case GetContext::kBlobIndex:
         ROCKS_LOG_ERROR(info_log_, "Encounter unexpected blob index.");
         *status = Status::NotSupported(
@@ -1027,6 +1038,11 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     f = fp.GetNextFile();
   }
 
+  for (uint32_t t = 0; t < Tickers::TICKER_ENUM_MAX; t++) {
+    if (get_context.tickers_value[t] > 0) {
+      RecordTick(db_statistics_, t, get_context.tickers_value[t]);
+    }
+  }
   if (GetContext::kMerge == get_context.State()) {
     if (!merge_operator_) {
       *status =  Status::InvalidArgument(
