@@ -1126,7 +1126,9 @@ class StressTest {
                                  : NewBloomFilterPolicy(FLAGS_bloom_bits, false)
                            : nullptr),
         db_(nullptr),
+#ifndef ROCKSDB_LITE
         txn_db_(nullptr),
+#endif
         new_column_family_name_(1),
         num_times_reopened_(0) {
     if (FLAGS_destroy_db_initially) {
@@ -1685,6 +1687,7 @@ class StressTest {
     return db_->SetOptions(cfh, opts);
   }
 
+#ifndef ROCKSDB_LITE
   Status NewTxn(WriteOptions& write_opts, Transaction** txn) {
     if (!FLAGS_use_txn) {
       return Status::InvalidArgument("NewTxn when FLAGS_use_txn is not set");
@@ -1708,6 +1711,7 @@ class StressTest {
     delete txn;
     return s;
   }
+#endif
 
   void OperateDb(ThreadState* thread) {
     ReadOptions read_opts(FLAGS_verify_checksum, true);
@@ -1974,6 +1978,7 @@ class StressTest {
             if (!FLAGS_use_txn) {
               s = db_->Merge(write_opts, column_family, key, v);
             } else {
+#ifndef ROCKSDB_LITE
               Transaction* txn;
               s = NewTxn(write_opts, &txn);
               if (s.ok()) {
@@ -1982,11 +1987,13 @@ class StressTest {
                   s = CommitTxn(txn);
                 }
               }
+#endif
             }
           } else {
             if (!FLAGS_use_txn) {
               s = db_->Put(write_opts, column_family, key, v);
             } else {
+#ifndef ROCKSDB_LITE
               Transaction* txn;
               s = NewTxn(write_opts, &txn);
               if (s.ok()) {
@@ -1995,6 +2002,7 @@ class StressTest {
                   s = CommitTxn(txn);
                 }
               }
+#endif
             }
           }
           if (!s.ok()) {
@@ -2033,6 +2041,7 @@ class StressTest {
             if (!FLAGS_use_txn) {
               s = db_->Delete(write_opts, column_family, key);
             } else {
+#ifndef ROCKSDB_LITE
               Transaction* txn;
               s = NewTxn(write_opts, &txn);
               if (s.ok()) {
@@ -2041,6 +2050,7 @@ class StressTest {
                   s = CommitTxn(txn);
                 }
               }
+#endif
             }
             thread->stats.AddDeletes(1);
             if (!s.ok()) {
@@ -2053,6 +2063,7 @@ class StressTest {
             if (!FLAGS_use_txn) {
               s = db_->SingleDelete(write_opts, column_family, key);
             } else {
+#ifndef ROCKSDB_LITE
               Transaction* txn;
               s = NewTxn(write_opts, &txn);
               if (s.ok()) {
@@ -2061,6 +2072,7 @@ class StressTest {
                   s = CommitTxn(txn);
                 }
               }
+#endif
             }
             thread->stats.AddSingleDeletes(1);
             if (!s.ok()) {
@@ -2350,7 +2362,9 @@ class StressTest {
 
   void Open() {
     assert(db_ == nullptr);
+#ifndef ROCKSDB_LITE
     assert(txn_db_ == nullptr);
+#endif
     BlockBasedTableOptions block_based_options;
     block_based_options.block_cache = cache_;
     block_based_options.block_cache_compressed = compressed_cache_;
@@ -2527,12 +2541,14 @@ class StressTest {
         s = DB::Open(DBOptions(options_), FLAGS_db, cf_descriptors,
                      &column_families_, &db_);
       } else {
+#ifndef ROCKSDB_LITE
         TransactionDBOptions txn_db_options;
         // For the moment it is sufficient to test WRITE_PREPARED policy
         txn_db_options.write_policy = TxnDBWritePolicy::WRITE_PREPARED;
         s = TransactionDB::Open(options_, txn_db_options, FLAGS_db,
                                 cf_descriptors, &column_families_, &txn_db_);
         db_ = txn_db_;
+#endif
       }
       assert(!s.ok() || column_families_.size() ==
                             static_cast<size_t>(FLAGS_column_families));
@@ -2559,7 +2575,9 @@ class StressTest {
     column_families_.clear();
     delete db_;
     db_ = nullptr;
+#ifndef ROCKSDB_LITE
     txn_db_ = nullptr;
+#endif
 
     num_times_reopened_++;
     auto now = FLAGS_env->NowMicros();
@@ -2580,7 +2598,9 @@ class StressTest {
   std::shared_ptr<Cache> compressed_cache_;
   std::shared_ptr<const FilterPolicy> filter_policy_;
   DB* db_;
+#ifndef ROCKSDB_LITE
   TransactionDB* txn_db_;
+#endif
   Options options_;
   std::vector<ColumnFamilyHandle*> column_families_;
   std::vector<std::string> column_family_names_;
