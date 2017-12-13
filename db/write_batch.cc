@@ -24,6 +24,7 @@
 //    kTypeEndPrepareXID
 //    kTypeCommitXID varstring
 //    kTypeRollbackXID varstring
+//    kTypeBeginPersistedPrepareXID varstring
 //    kTypeNoop
 // varstring :=
 //    len: varint32
@@ -353,6 +354,9 @@ Status ReadRecordFromWriteBatch(Slice* input, char* tag,
       break;
     case kTypeNoop:
     case kTypeBeginPrepareXID:
+      // This indicates that the prepared batch is also persisted in the db.
+      // This is used in WritePreparedTxn
+    case kTypeBeginPersistedPrepareXID:
       break;
     case kTypeEndPrepareXID:
       if (!GetLengthPrefixedSlice(input, xid)) {
@@ -450,13 +454,32 @@ Status WriteBatch::Iterate(Handler* handler) const {
         break;
       case kTypeLogData:
         handler->LogData(blob);
-        empty_batch = true;
+        // A batch might have nothing but LogData. It is still a batch.
+        empty_batch = false;
         break;
       case kTypeBeginPrepareXID:
         assert(content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_BEGIN_PREPARE));
         handler->MarkBeginPrepare();
         empty_batch = false;
+        if (!handler->WriteAfterCommit()) {
+          s = Status::NotSupported(
+              "WriteCommitted txn tag when write_after_commit_ is disabled (in "
+              "WritePrepared mode). If it is not due to corruption, the WAL "
+              "must be emptied before changing the WritePolicy.");
+        }
+        break;
+      case kTypeBeginPersistedPrepareXID:
+        assert(content_flags_.load(std::memory_order_relaxed) &
+               (ContentFlags::DEFERRED | ContentFlags::HAS_BEGIN_PREPARE));
+        handler->MarkBeginPrepare();
+        empty_batch = false;
+        if (handler->WriteAfterCommit()) {
+          s = Status::NotSupported(
+              "WritePrepared txn tag when write_after_commit_ is enabled (in "
+              "default WriteCommitted mode). If it is not due to corruption, "
+              "the WAL must be emptied before changing the WritePolicy.");
+        }
         break;
       case kTypeEndPrepareXID:
         assert(content_flags_.load(std::memory_order_relaxed) &
@@ -575,7 +598,8 @@ Status WriteBatchInternal::InsertNoop(WriteBatch* b) {
   return Status::OK();
 }
 
-Status WriteBatchInternal::MarkEndPrepare(WriteBatch* b, const Slice& xid) {
+Status WriteBatchInternal::MarkEndPrepare(WriteBatch* b, const Slice& xid,
+                                          bool write_after_commit) {
   // a manually constructed batch can only contain one prepare section
   assert(b->rep_[12] == static_cast<char>(kTypeNoop));
 
@@ -587,7 +611,9 @@ Status WriteBatchInternal::MarkEndPrepare(WriteBatch* b, const Slice& xid) {
   }
 
   // rewrite noop as begin marker
-  b->rep_[12] = static_cast<char>(kTypeBeginPrepareXID);
+  b->rep_[12] =
+      static_cast<char>(write_after_commit ? kTypeBeginPrepareXID
+                                           : kTypeBeginPersistedPrepareXID);
   b->rep_.push_back(static_cast<char>(kTypeEndPrepareXID));
   PutLengthPrefixedSlice(&b->rep_, xid);
   b->content_flags_.store(b->content_flags_.load(std::memory_order_relaxed) |
@@ -920,6 +946,9 @@ class MemTableInserter : public WriteBatch::Handler {
     return *reinterpret_cast<MemPostInfoMap*>(&mem_post_info_map_);
   }
 
+ protected:
+  virtual bool WriteAfterCommit() const override { return write_after_commit_; }
+
  public:
   // cf_mems should not be shared with concurrent inserters
   MemTableInserter(SequenceNumber _sequence, ColumnFamilyMemTables* cf_mems,
@@ -939,6 +968,7 @@ class MemTableInserter : public WriteBatch::Handler {
         post_info_created_(false),
         has_valid_writes_(has_valid_writes),
         rebuilding_trx_(nullptr),
+        rebuilding_trx_seq_(0),
         seq_per_batch_(seq_per_batch),
         // Write after commit currently uses one seq per key (instead of per
         // batch). So seq_per_batch being false indicates write_after_commit
@@ -952,11 +982,24 @@ class MemTableInserter : public WriteBatch::Handler {
       reinterpret_cast<MemPostInfoMap*>
         (&mem_post_info_map_)->~MemPostInfoMap();
     }
+    delete rebuilding_trx_;
   }
 
   MemTableInserter(const MemTableInserter&) = delete;
   MemTableInserter& operator=(const MemTableInserter&) = delete;
 
+  virtual bool WriterAfterCommit() const { return write_after_commit_; }
+
+  // The batch seq is regularly restarted; In normal mode it is set when
+  // MemTableInserter is constructed in the write thread and in recovery mode it
+  // is set when a batch, which is tagged with seq, is read from the WAL.
+  // Within a sequenced batch, which could be a merge of multiple batches, we
+  // have two policies to advance the seq: i) seq_per_key (default) and ii)
+  // seq_per_batch. To implement the latter we need to mark the boundry between
+  // the individual batches. The approach is this: 1) Use the terminating
+  // markers to indicate the boundry (kTypeEndPrepareXID, kTypeCommitXID,
+  // kTypeRollbackXID) 2) Terminate a batch with kTypeNoop in the absense of a
+  // natural boundy marker.
   void MaybeAdvanceSeq(bool batch_boundry = false) {
     if (batch_boundry == seq_per_batch_) {
       sequence_++;
@@ -1399,6 +1442,9 @@ class MemTableInserter : public WriteBatch::Handler {
       // in non recovery we simply ignore this tag
     }
 
+    const bool batch_boundry = true;
+    MaybeAdvanceSeq(batch_boundry);
+
     return Status::OK();
   }
 
@@ -1427,13 +1473,16 @@ Status WriteBatchInternal::InsertInto(
                             db, concurrent_memtable_writes,
                             nullptr /*has_valid_writes*/, seq_per_batch);
   for (auto w : write_group) {
+    if (w->CallbackFailed()) {
+      continue;
+    }
+    w->sequence = inserter.sequence();
     if (!w->ShouldWriteToMemtable()) {
-      w->sequence = inserter.sequence();
+      // In seq_per_batch_ mode this advances the seq by one.
       inserter.MaybeAdvanceSeq(true);
       continue;
     }
     SetSequence(w->batch, inserter.sequence());
-    w->sequence = inserter.sequence();
     inserter.set_log_number_ref(w->log_ref);
     w->status = w->batch->Iterate(&inserter);
     if (!w->status.ok()) {

@@ -194,7 +194,7 @@ class ColumnFamilyData {
   // *) delete all memory associated with that column family
   // *) delete all the files associated with that column family
   void SetDropped();
-  bool IsDropped() const { return dropped_; }
+  bool IsDropped() const { return dropped_.load(std::memory_order_relaxed); }
 
   // thread-safe
   int NumberLevels() const { return ioptions_.num_levels; }
@@ -339,6 +339,8 @@ class ColumnFamilyData {
 
   bool initialized() const { return initialized_.load(); }
 
+  Env::WriteLifeTimeHint CalculateSSTWriteHint(int level);
+
  private:
   friend class ColumnFamilySet;
   ColumnFamilyData(uint32_t id, const std::string& name,
@@ -356,7 +358,7 @@ class ColumnFamilyData {
 
   std::atomic<int> refs_;      // outstanding references to ColumnFamilyData
   std::atomic<bool> initialized_;
-  bool dropped_;               // true if client dropped it
+  std::atomic<bool> dropped_;  // true if client dropped it
 
   const InternalKeyComparator internal_comparator_;
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>>

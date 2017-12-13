@@ -123,6 +123,8 @@ class PlainTableIndexBuilder {
         num_keys_per_prefix_(0),
         prev_key_prefix_hash_(0),
         index_sparseness_(index_sparseness),
+        index_size_(0),
+        sub_index_size_(0),
         prefix_extractor_(ioptions.prefix_extractor),
         hash_table_ratio_(hash_table_ratio),
         huge_page_tlb_size_(huge_page_tlb_size) {}

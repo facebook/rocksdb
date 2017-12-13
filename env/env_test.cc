@@ -171,6 +171,11 @@ TEST_P(EnvPosixTestWithParam, UnSchedule) {
   WaitThreadPoolsEmpty();
 }
 
+// This tests assumes that the last scheduled
+// task will run last. In fact, in the allotted
+// sleeping time nothing may actually run or they may
+// run in any order. The purpose of the test is unclear.
+#ifndef OS_WIN
 TEST_P(EnvPosixTestWithParam, RunMany) {
   std::atomic<int> last_id(0);
 
@@ -203,6 +208,7 @@ TEST_P(EnvPosixTestWithParam, RunMany) {
   ASSERT_EQ(4, cur);
   WaitThreadPoolsEmpty();
 }
+#endif
 
 struct State {
   port::Mutex mu;

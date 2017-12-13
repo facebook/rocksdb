@@ -20,6 +20,7 @@
 #include "rocksdb/iterator.h"
 #include "util/arena.h"
 #include "util/cast_util.h"
+#include "util/string_util.h"
 #include "utilities/write_batch_with_index/write_batch_with_index_internal.h"
 
 namespace rocksdb {
@@ -552,13 +553,15 @@ void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id) {
           break;
         case kTypeLogData:
         case kTypeBeginPrepareXID:
+        case kTypeBeginPersistedPrepareXID:
         case kTypeEndPrepareXID:
         case kTypeCommitXID:
         case kTypeRollbackXID:
         case kTypeNoop:
           break;
         default:
-          return Status::Corruption("unknown WriteBatch tag");
+          return Status::Corruption("unknown WriteBatch tag in ReBuildIndex",
+                                    ToString(static_cast<unsigned int>(tag)));
       }
     }
 
@@ -604,7 +607,8 @@ void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id) {
       size_t last_entry_offset = input.data() - write_batch.Data().data();
       s = ReadRecordFromWriteBatch(&input, &tag, &column_family_id, &key,
                                    &value, &blob, &xid);
-      if (rep->obsolete_offsets.front() == last_entry_offset) {
+      if (!rep->obsolete_offsets.empty() && 
+        rep->obsolete_offsets.front() == last_entry_offset) {
         rep->obsolete_offsets.erase(rep->obsolete_offsets.begin());
         continue;
       }
@@ -621,6 +625,7 @@ void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id) {
           break;
         case kTypeLogData:
         case kTypeBeginPrepareXID:
+        case kTypeBeginPersistedPrepareXID:
         case kTypeEndPrepareXID:
         case kTypeCommitXID:
         case kTypeRollbackXID:

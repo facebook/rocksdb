@@ -28,7 +28,7 @@ class WindowsThread {
 
   struct Data;
 
-  std::unique_ptr<Data>  data_;
+  std::shared_ptr<Data>  data_;
   unsigned int           th_id_;
 
   void Init(std::function<void()>&&);

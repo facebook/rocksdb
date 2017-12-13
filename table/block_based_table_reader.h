@@ -407,6 +407,8 @@ struct BlockBasedTable::Rep {
         filter_policy(skip_filters ? nullptr : _table_opt.filter_policy.get()),
         internal_comparator(_internal_comparator),
         filter_type(FilterType::kNoFilter),
+        index_type(BlockBasedTableOptions::IndexType::kBinarySearch),
+        hash_index_allow_collision(false),
         whole_key_filtering(_table_opt.whole_key_filtering),
         prefix_filtering(true),
         range_del_handle(BlockHandle::NullBlockHandle()),

@@ -36,11 +36,11 @@ class TransactionBaseImpl : public Transaction {
 
   // Called before executing Put, Merge, Delete, and GetForUpdate.  If TryLock
   // returns non-OK, the Put/Merge/Delete/GetForUpdate will be failed.
-  // untracked will be true if called from PutUntracked, DeleteUntracked, or
+  // skip_validate will be true if called from PutUntracked, DeleteUntracked, or
   // MergeUntracked.
   virtual Status TryLock(ColumnFamilyHandle* column_family, const Slice& key,
                          bool read_only, bool exclusive,
-                         bool untracked = false) = 0;
+                         bool skip_validate = false) = 0;
 
   void SetSavePoint() override;
 
@@ -313,8 +313,7 @@ class TransactionBaseImpl : public Transaction {
 
   // Map from column_family_id to map of keys that are involved in this
   // transaction.
-  // Pessimistic Transactions will do conflict checking before adding a key
-  // by calling TrackKey().
+  // For Pessimistic Transactions this is the list of locked keys.
   // Optimistic Transactions will wait till commit time to do conflict checking.
   TransactionKeyMap tracked_keys_;
 
@@ -333,7 +332,7 @@ class TransactionBaseImpl : public Transaction {
   std::shared_ptr<TransactionNotifier> snapshot_notifier_ = nullptr;
 
   Status TryLock(ColumnFamilyHandle* column_family, const SliceParts& key,
-                 bool read_only, bool exclusive, bool untracked = false);
+                 bool read_only, bool exclusive, bool skip_validate = false);
 
   WriteBatchBase* GetBatchForWrite();
 

@@ -39,7 +39,6 @@ int main() {
 #include <exception>
 #include <thread>
 
-#include <gflags/gflags.h>
 #include "db/db_impl.h"
 #include "db/version_set.h"
 #include "hdfs/env_hdfs.h"
@@ -56,6 +55,7 @@ int main() {
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
+#include "util/gflags_compat.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
@@ -68,9 +68,9 @@ int main() {
 
 #include "utilities/merge_operators.h"
 
-using GFLAGS::ParseCommandLineFlags;
-using GFLAGS::RegisterFlagValidator;
-using GFLAGS::SetUsageMessage;
+using GFLAGS_NAMESPACE::ParseCommandLineFlags;
+using GFLAGS_NAMESPACE::RegisterFlagValidator;
+using GFLAGS_NAMESPACE::SetUsageMessage;
 
 static const long KB = 1024;
 static const int kRandomValueMaxFactor = 3;

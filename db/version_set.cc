@@ -102,6 +102,7 @@ class FilePicker {
 #endif
         level_files_brief_(file_levels),
         is_hit_file_last_in_level_(false),
+        curr_file_level_(nullptr),
         user_key_(user_key),
         ikey_(ikey),
         file_indexer_(file_indexer),
@@ -871,22 +872,6 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
         should_sample_file_read());
     merge_iter_builder->AddIterator(
         NewTwoLevelIterator(state, first_level_iter, arena, false));
-  }
-}
-
-void Version::AddRangeDelIteratorsForLevel(
-    const ReadOptions& read_options, const EnvOptions& soptions, int level,
-    std::vector<InternalIterator*>* range_del_iters) {
-  range_del_iters->clear();
-  for (size_t i = 0; i < storage_info_.LevelFilesBrief(level).num_files; i++) {
-    const auto& file = storage_info_.LevelFilesBrief(level).files[i];
-    auto* range_del_iter = cfd_->table_cache()->NewRangeTombstoneIterator(
-        read_options, soptions, cfd_->internal_comparator(), file.fd,
-        cfd_->internal_stats()->GetFileReadHist(level),
-        false /* skip_filters */, level);
-    if (range_del_iter != nullptr) {
-      range_del_iters->push_back(range_del_iter);
-    }
   }
 }
 
@@ -1851,27 +1836,33 @@ void VersionStorageInfo::GetOverlappingInputs(
 void VersionStorageInfo::GetCleanInputsWithinInterval(
     int level, const InternalKey* begin, const InternalKey* end,
     std::vector<FileMetaData*>* inputs, int hint_index, int* file_index) const {
-  if (level >= num_non_empty_levels_) {
-    // this level is empty, no inputs within range
-    return;
-  }
-
   inputs->clear();
-  Slice user_begin, user_end;
-  if (begin != nullptr) {
-    user_begin = begin->user_key();
-  }
-  if (end != nullptr) {
-    user_end = end->user_key();
-  }
   if (file_index) {
     *file_index = -1;
   }
-  if (begin != nullptr && end != nullptr && level > 0) {
-    GetOverlappingInputsRangeBinarySearch(level, user_begin, user_end, inputs,
-                                          hint_index, file_index,
-                                          true /* within_interval */);
+  if (level >= num_non_empty_levels_ || level == 0 ||
+      level_files_brief_[level].num_files == 0) {
+    // this level is empty, no inputs within range
+    // also don't support clean input interval within L0
+    return;
   }
+
+  Slice user_begin, user_end;
+  const auto& level_files = level_files_brief_[level];
+  if (begin == nullptr) {
+    user_begin = ExtractUserKey(level_files.files[0].smallest_key);
+  } else {
+    user_begin = begin->user_key();
+  }
+  if (end == nullptr) {
+    user_end = ExtractUserKey(
+        level_files.files[level_files.num_files - 1].largest_key);
+  } else {
+    user_end = end->user_key();
+  }
+  GetOverlappingInputsRangeBinarySearch(level, user_begin, user_end, inputs,
+                                        hint_index, file_index,
+                                        true /* within_interval */);
 }
 
 // Store in "*inputs" all files in "level" that overlap [begin,end]
@@ -1934,8 +1925,8 @@ void VersionStorageInfo::GetOverlappingInputsRangeBinarySearch(
   } else {
     ExtendFileRangeOverlappingInterval(level, user_begin, user_end, mid,
                                        &start_index, &end_index);
+    assert(end_index >= start_index);
   }
-  assert(end_index >= start_index);
   // insert overlapping files into vector
   for (int i = start_index; i <= end_index; i++) {
     inputs->push_back(files_[level][i]);
@@ -2412,15 +2403,15 @@ VersionSet::VersionSet(const std::string& dbname,
       db_options_(db_options),
       next_file_number_(2),
       manifest_file_number_(0),  // Filled by Recover()
+      options_file_number_(0),
       pending_manifest_file_number_(0),
       last_sequence_(0),
-      last_to_be_written_sequence_(0),
+      last_allocated_sequence_(0),
+      last_published_sequence_(0),
       prev_log_number_(0),
       current_version_number_(0),
       manifest_file_size_(0),
-      env_options_(storage_options),
-      env_options_compactions_(
-          env_->OptimizeForCompactionTableRead(env_options_, *db_options_)) {}
+      env_options_(storage_options) {}
 
 void CloseTables(void* ptr, size_t) {
   TableReader* table_reader = reinterpret_cast<TableReader*>(ptr);
@@ -2754,10 +2745,9 @@ void VersionSet::LogAndApplyCFHelper(VersionEdit* edit) {
   // updated the last_sequence_ yet. It is also possible that the log has is
   // expecting some new data that is not written yet. Since LastSequence is an
   // upper bound on the sequence, it is ok to record
-  // last_to_be_written_sequence_ as the last sequence.
-  edit->SetLastSequence(db_options_->concurrent_prepare
-                            ? last_to_be_written_sequence_
-                            : last_sequence_);
+  // last_allocated_sequence_ as the last sequence.
+  edit->SetLastSequence(db_options_->two_write_queues ? last_allocated_sequence_
+                                                      : last_sequence_);
   if (edit->is_column_family_drop_) {
     // if we drop column family, we have to make sure to save max column family,
     // so that we don't reuse existing ID
@@ -2784,10 +2774,9 @@ void VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd,
   // updated the last_sequence_ yet. It is also possible that the log has is
   // expecting some new data that is not written yet. Since LastSequence is an
   // upper bound on the sequence, it is ok to record
-  // last_to_be_written_sequence_ as the last sequence.
-  edit->SetLastSequence(db_options_->concurrent_prepare
-                            ? last_to_be_written_sequence_
-                            : last_sequence_);
+  // last_allocated_sequence_ as the last sequence.
+  edit->SetLastSequence(db_options_->two_write_queues ? last_allocated_sequence_
+                                                      : last_sequence_);
 
   builder->Apply(edit);
 }
@@ -3077,7 +3066,8 @@ Status VersionSet::Recover(
 
     manifest_file_size_ = current_manifest_file_size;
     next_file_number_.store(next_file + 1);
-    last_to_be_written_sequence_ = last_sequence;
+    last_allocated_sequence_ = last_sequence;
+    last_published_sequence_ = last_sequence;
     last_sequence_ = last_sequence;
     prev_log_number_ = previous_log_number;
 
@@ -3448,7 +3438,8 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
     }
 
     next_file_number_.store(next_file + 1);
-    last_to_be_written_sequence_ = last_sequence;
+    last_allocated_sequence_ = last_sequence;
+    last_published_sequence_ = last_sequence;
     last_sequence_ = last_sequence;
     prev_log_number_ = previous_log_number;
 
@@ -3690,7 +3681,8 @@ void VersionSet::AddLiveFiles(std::vector<FileDescriptor>* live_list) {
 }
 
 InternalIterator* VersionSet::MakeInputIterator(
-    const Compaction* c, RangeDelAggregator* range_del_agg) {
+    const Compaction* c, RangeDelAggregator* range_del_agg,
+    const EnvOptions& env_options_compactions) {
   auto cfd = c->column_family_data();
   ReadOptions read_options;
   read_options.verify_checksums = true;
@@ -3715,8 +3707,8 @@ InternalIterator* VersionSet::MakeInputIterator(
         const LevelFilesBrief* flevel = c->input_levels(which);
         for (size_t i = 0; i < flevel->num_files; i++) {
           list[num++] = cfd->table_cache()->NewIterator(
-              read_options, env_options_compactions_,
-              cfd->internal_comparator(), flevel->files[i].fd, range_del_agg,
+              read_options, env_options_compactions, cfd->internal_comparator(),
+              flevel->files[i].fd, range_del_agg,
               nullptr /* table_reader_ptr */,
               nullptr /* no per level latency histogram */,
               true /* for_compaction */, nullptr /* arena */,
@@ -3726,7 +3718,7 @@ InternalIterator* VersionSet::MakeInputIterator(
         // Create concatenating iterator for the files from this level
         list[num++] = NewTwoLevelIterator(
             new LevelFileIteratorState(
-                cfd->table_cache(), read_options, env_options_compactions_,
+                cfd->table_cache(), read_options, env_options_compactions,
                 cfd->internal_comparator(),
                 nullptr /* no per level latency histogram */,
                 true /* for_compaction */, false /* prefix enabled */,

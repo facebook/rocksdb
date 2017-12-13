@@ -83,12 +83,13 @@ class DeleteSchedulerTest : public testing::Test {
   }
 
   void NewDeleteScheduler() {
-    sst_file_mgr_.reset(
-        new SstFileManagerImpl(env_, nullptr, rate_bytes_per_sec_));
-    delete_scheduler_ = sst_file_mgr_->delete_scheduler();
     // Tests in this file are for DeleteScheduler component and dont create any
-    // DBs, so we need to use set this value to 100% (instead of default 25%)
-    delete_scheduler_->TEST_SetMaxTrashDBRatio(1.1);
+    // DBs, so we need to set max_trash_db_ratio to 100% (instead of default
+    // 25%)
+    sst_file_mgr_.reset(
+        new SstFileManagerImpl(env_, nullptr, rate_bytes_per_sec_,
+                               /* max_trash_db_ratio= */ 1.1));
+    delete_scheduler_ = sst_file_mgr_->delete_scheduler();
   }
 
   Env* env_;
@@ -517,7 +518,7 @@ TEST_F(DeleteSchedulerTest, ImmediateDeleteOn25PercDBSize) {
   rate_bytes_per_sec_ = 1;  // 1 byte per sec (very slow trash delete)
 
   NewDeleteScheduler();
-  delete_scheduler_->TEST_SetMaxTrashDBRatio(0.25);
+  delete_scheduler_->SetMaxTrashDBRatio(0.25);
 
   std::vector<std::string> generated_files;
   for (int i = 0; i < num_files; i++) {

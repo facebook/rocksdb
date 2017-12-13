@@ -237,6 +237,11 @@ ifdef COMPILE_WITH_UBSAN
 	PLATFORM_CXXFLAGS += -fsanitize=undefined -DROCKSDB_UBSAN_RUN
 endif
 
+ifdef ROCKSDB_VALGRIND_RUN
+	PLATFORM_CCFLAGS += -DROCKSDB_VALGRIND_RUN
+	PLATFORM_CXXFLAGS += -DROCKSDB_VALGRIND_RUN
+endif
+
 ifndef DISABLE_JEMALLOC
 	ifdef JEMALLOC
 		PLATFORM_CXXFLAGS += -DROCKSDB_JEMALLOC -DJEMALLOC_NO_DEMANGLE
@@ -494,7 +499,6 @@ TESTS = \
 	repair_test \
 	env_timed_test \
 	write_prepared_transaction_test \
-	slice_test \
 
 PARALLEL_TEST = \
 	backupable_db_test \
@@ -871,7 +875,7 @@ ubsan_crash_test:
 	$(MAKE) clean
 
 valgrind_test:
-	DISABLE_JEMALLOC=1 $(MAKE) valgrind_check
+	ROCKSDB_VALGRIND_RUN=1 DISABLE_JEMALLOC=1 $(MAKE) valgrind_check
 
 valgrind_check: $(TESTS)
 	$(MAKE) DRIVER="$(VALGRIND_VER) $(VALGRIND_OPTS)" gen_parallel_tests
@@ -1476,9 +1480,6 @@ range_del_aggregator_test: db/range_del_aggregator_test.o db/db_test_util.o $(LI
 	$(AM_LINK)
 
 blob_db_test: utilities/blob_db/blob_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_LINK)
-
-slice_test: util/slice_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 #-------------------------------------------------

@@ -191,7 +191,9 @@ InternalIterator* TableCache::NewIterator(
                              &use_direct_reads_for_compaction);
 #endif  // !NDEBUG
     if (ioptions_.new_table_reader_for_compaction_inputs) {
-      readahead = ioptions_.compaction_readahead_size;
+      // get compaction_readahead_size from env_options allows us to set the
+      // value dynamically
+      readahead = env_options.compaction_readahead_size;
       create_new_table_reader = true;
     }
   } else {

@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "db/db_iter.h"
+#include "db/pre_release_callback.h"
 #include "db/read_callback.h"
 #include "db/snapshot_checker.h"
 #include "rocksdb/db.h"
@@ -71,6 +72,13 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value) override;
+
+  using DB::MultiGet;
+  virtual std::vector<Status> MultiGet(
+      const ReadOptions& options,
+      const std::vector<ColumnFamilyHandle*>& column_family,
+      const std::vector<Slice>& keys,
+      std::vector<std::string>* values) override;
 
   using DB::NewIterator;
   virtual Iterator* NewIterator(const ReadOptions& options,
@@ -358,6 +366,42 @@ class WritePreparedTxnReadCallback : public ReadCallback {
  private:
   WritePreparedTxnDB* db_;
   SequenceNumber snapshot_;
+};
+
+class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
+ public:
+  // includes_data indicates that the commit also writes non-empty
+  // CommitTimeWriteBatch to memtable, which needs to be committed separately.
+  WritePreparedCommitEntryPreReleaseCallback(WritePreparedTxnDB* db,
+                                             DBImpl* db_impl,
+                                             SequenceNumber prep_seq,
+                                             bool includes_data = false)
+      : db_(db),
+        db_impl_(db_impl),
+        prep_seq_(prep_seq),
+        includes_data_(includes_data) {}
+
+  virtual Status Callback(SequenceNumber commit_seq) {
+    db_->AddCommitted(prep_seq_, commit_seq);
+    if (includes_data_) {
+      // Commit the data that is accompnaied with the commit marker
+      // TODO(myabandeh): skip AddPrepared
+      db_->AddPrepared(commit_seq);
+      db_->AddCommitted(commit_seq, commit_seq);
+    }
+    // Publish the sequence number. We can do that here assuming the callback is
+    // invoked only from one write queue, which would guarantee that the publish
+    // sequence numbers will be in order, i.e., once a seq is published all the
+    // seq prior to that are also publishable.
+    db_impl_->SetLastPublishedSequence(commit_seq);
+    return Status::OK();
+  }
+
+ private:
+  WritePreparedTxnDB* db_;
+  DBImpl* db_impl_;
+  SequenceNumber prep_seq_;
+  bool includes_data_;
 };
 
 }  //  namespace rocksdb
