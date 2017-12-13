@@ -209,6 +209,8 @@ Status FlushJob::Run(FileMetaData* file_meta) {
   auto stream = event_logger_->LogToBuffer(log_buffer_);
   stream << "job" << job_context_->job_id << "event"
          << "flush_finished";
+  stream << "output_compression"
+         << CompressionTypeToString(output_compression_);
   stream << "lsm_state";
   stream.StartArray();
   auto vstorage = cfd_->current()->storage_info();
