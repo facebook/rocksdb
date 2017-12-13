@@ -376,6 +376,30 @@ TEST_F(DBSSTTest, RateLimitedDelete) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(DBSSTTest, OpenDBWithExistingTrash) {
+  Options options = CurrentOptions();
+
+  options.sst_file_manager.reset(
+      NewSstFileManager(env_, nullptr, "", 1024 * 1024 /* 1 MB/sec */));
+  auto sfm = static_cast<SstFileManagerImpl*>(options.sst_file_manager.get());
+
+  Destroy(last_options_);
+
+  // Add some trash files to the db directory so the DB can clean them up
+  env_->CreateDirIfMissing(dbname_);
+  ASSERT_OK(WriteStringToFile(env_, "abc", dbname_ + "/" + "001.sst.trash"));
+  ASSERT_OK(WriteStringToFile(env_, "abc", dbname_ + "/" + "002.sst.trash"));
+  ASSERT_OK(WriteStringToFile(env_, "abc", dbname_ + "/" + "003.sst.trash"));
+
+  // Reopen the DB and verify that it deletes existing trash files
+  ASSERT_OK(TryReopen(options));
+  sfm->WaitForEmptyTrash();
+  ASSERT_NOK(env_->FileExists(dbname_ + "/" + "001.sst.trash"));
+  ASSERT_NOK(env_->FileExists(dbname_ + "/" + "002.sst.trash"));
+  ASSERT_NOK(env_->FileExists(dbname_ + "/" + "003.sst.trash"));
+}
+
+
 // Create a DB with 2 db_paths, and generate multiple files in the 2
 // db_paths using CompactRangeOptions, make sure that files that were
 // deleted from first db_path were deleted using DeleteScheduler and
