@@ -593,7 +593,7 @@ bool WritePreparedTxnDB::MaybeUpdateOldCommitMap(
     old_commit_map_empty_.store(false, std::memory_order_release);
     auto& vec = old_commit_map_[snapshot_seq];
     vec.emplace_back(prep_seq);
-    std::sort(vec.begin(), vec.end());
+    vec.insert(std::upper_bound(vec.begin(), vec.end(), prep_seq), prep_seq);
     // We need to store it once for each overlapping snapshot. Returning true to
     // continue the search if there is more overlapping snapshot.
     return true;
