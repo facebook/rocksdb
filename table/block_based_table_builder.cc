@@ -531,9 +531,9 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
     if (ShouldReportDetailedTime(r->ioptions.env, r->ioptions.statistics)) {
       MeasureTime(r->ioptions.statistics, COMPRESSION_TIMES_NANOS,
                   timer.ElapsedNanos());
-      MeasureTime(r->ioptions.statistics, BYTES_COMPRESSED,
-                  raw_block_contents.size());
     }
+    MeasureTime(r->ioptions.statistics, BYTES_COMPRESSED,
+                raw_block_contents.size());
     RecordTick(r->ioptions.statistics, NUMBER_BLOCK_COMPRESSED);
   }
 

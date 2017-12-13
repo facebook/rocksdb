@@ -369,8 +369,8 @@ Status UncompressBlockContentsForCompressionType(
   if(ShouldReportDetailedTime(ioptions.env, ioptions.statistics)){
     MeasureTime(ioptions.statistics, DECOMPRESSION_TIMES_NANOS,
       timer.ElapsedNanos());
-    MeasureTime(ioptions.statistics, BYTES_DECOMPRESSED, contents->data.size());
   }
+  MeasureTime(ioptions.statistics, BYTES_DECOMPRESSED, contents->data.size());
   RecordTick(ioptions.statistics, NUMBER_BLOCK_DECOMPRESSED);
 
   return Status::OK();
