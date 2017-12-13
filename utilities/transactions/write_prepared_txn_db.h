@@ -90,6 +90,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       const std::vector<ColumnFamilyHandle*>& column_families,
       std::vector<Iterator*>* iterators) override;
 
+  virtual void ReleaseSnapshot(const Snapshot* snapshot) override;
+
   // Check whether the transaction that wrote the value with seqeunce number seq
   // is visible to the snapshot with sequence number snapshot_seq
   bool IsInSnapshot(uint64_t seq, uint64_t snapshot_seq) const;
@@ -198,6 +200,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   friend class WritePreparedTransactionTest_AdvanceMaxEvictedSeqBasicTest_Test;
   friend class WritePreparedTransactionTest_BasicRecoveryTest_Test;
   friend class WritePreparedTransactionTest_IsInSnapshotEmptyMapTest_Test;
+  friend class WritePreparedTransactionTest_OldCommitMapGC_Test;
   friend class WritePreparedTransactionTest_RollbackTest_Test;
 
   void Init(const TransactionDBOptions& /* unused */);
@@ -269,6 +272,10 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   virtual const std::vector<SequenceNumber> GetSnapshotListFromDB(
       SequenceNumber max);
 
+  // Will be called by the public ReleaseSnapshot method. Does the maintenance
+  // internal to WritePreparedTxnDB
+  void ReleaseSnapshotInternal(const SequenceNumber snap_seq);
+
   // Update the list of snapshots corresponding to the soon-to-be-updated
   // max_eviceted_seq_. Thread-safety: this function can be called concurrently.
   // The concurrent invocations of this function is equivalent to a serial
@@ -287,9 +294,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
 
   // Add a new entry to old_commit_map_ if prep_seq <= snapshot_seq <
   // commit_seq. Return false if checking the next snapshot(s) is not needed.
-  // This is the case if the entry already added to old_commit_map_ or none of
-  // the next snapshots could satisfy the condition. next_is_larger: the next
-  // snapshot will be a larger value
+  // This is the case if none of the next snapshots could satisfy the condition.
+  // next_is_larger: the next snapshot will be a larger value
   bool MaybeUpdateOldCommitMap(const uint64_t& prep_seq,
                                const uint64_t& commit_seq,
                                const uint64_t& snapshot_seq,
@@ -333,10 +339,14 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // it to be too large either as it would cause stalls by doing too much
   // maintenance work under the lock.
   size_t INC_STEP_FOR_MAX_EVICTED = 1;
-  // A map of the evicted entries from commit_cache_ that has to be kept around
-  // to service the old snapshots. This is expected to be empty normally.
+  // A map from old snapshots (expected to be used by a few read-only txns) to
+  // prpared sequence number of the evicted entries from commit_cache_ that
+  // overlaps with such snapshot. These are the prepared sequence numbers that
+  // the snapshot, to which they are mapped, cannot assume to be committed just
+  // because it is no longer in the commit_cache_. The vector must be sorted
+  // after each update.
   // Thread-safety is provided with old_commit_map_mutex_.
-  std::map<uint64_t, uint64_t> old_commit_map_;
+  std::map<SequenceNumber, std::vector<SequenceNumber>> old_commit_map_;
   // A set of long-running prepared transactions that are not finished by the
   // time max_evicted_seq_ advances their sequence number. This is expected to
   // be empty normally. Thread-safety is provided with prepared_mutex_.
