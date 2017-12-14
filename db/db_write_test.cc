@@ -39,52 +39,6 @@ TEST_P(DBWriteTest, SyncAndDisableWAL) {
   ASSERT_TRUE(dbfull()->Write(write_options, &batch).IsInvalidArgument());
 }
 
-// Sequence number should be return through input write batch.
-TEST_P(DBWriteTest, ReturnSeuqneceNumber) {
-  Random rnd(4422);
-  Open();
-  for (int i = 0; i < 100; i++) {
-    WriteBatch batch;
-    batch.Put("key" + ToString(i), test::RandomHumanReadableString(&rnd, 10));
-    ASSERT_OK(dbfull()->Write(WriteOptions(), &batch));
-    ASSERT_EQ(dbfull()->GetLatestSequenceNumber(),
-              WriteBatchInternal::Sequence(&batch));
-  }
-}
-
-TEST_P(DBWriteTest, ReturnSeuqneceNumberMultiThreaded) {
-  constexpr size_t kThreads = 16;
-  constexpr size_t kNumKeys = 1000;
-  Open();
-  ASSERT_EQ(0, dbfull()->GetLatestSequenceNumber());
-  // Check each sequence is used once and only once.
-  std::vector<std::atomic_flag> flags(kNumKeys * kThreads + 1);
-  for (size_t i = 0; i < flags.size(); i++) {
-    flags[i].clear();
-  }
-  auto writer = [&](size_t id) {
-    Random rnd(4422 + static_cast<uint32_t>(id));
-    for (size_t k = 0; k < kNumKeys; k++) {
-      WriteBatch batch;
-      batch.Put("key" + ToString(id) + "-" + ToString(k),
-                test::RandomHumanReadableString(&rnd, 10));
-      ASSERT_OK(dbfull()->Write(WriteOptions(), &batch));
-      SequenceNumber sequence = WriteBatchInternal::Sequence(&batch);
-      ASSERT_GT(sequence, 0);
-      ASSERT_LE(sequence, kNumKeys * kThreads);
-      // The sequence isn't consumed by someone else.
-      ASSERT_FALSE(flags[sequence].test_and_set());
-    }
-  };
-  std::vector<port::Thread> threads;
-  for (size_t i = 0; i < kThreads; i++) {
-    threads.emplace_back(writer, i);
-  }
-  for (size_t i = 0; i < kThreads; i++) {
-    threads[i].join();
-  }
-}
-
 TEST_P(DBWriteTest, IOErrorOnWALWritePropagateToWriteThreadFollower) {
   constexpr int kNumThreads = 5;
   std::unique_ptr<FaultInjectionTestEnv> mock_env(

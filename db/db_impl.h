@@ -229,10 +229,6 @@ class DBImpl : public DB {
 
   virtual bool SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) override;
 
-  // Whether there is an active snapshot in range [lower_bound, upper_bound).
-  bool HasActiveSnapshotInRange(SequenceNumber lower_bound,
-                                SequenceNumber upper_bound);
-
 #ifndef ROCKSDB_LITE
   using DB::ResetStats;
   virtual Status ResetStats() override;

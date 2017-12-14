@@ -142,8 +142,6 @@ Status BlobDumpTool::DumpBlobLogFooter(uint64_t file_size,
   fprintf(stdout, "  Blob count       : %" PRIu64 "\n", footer.blob_count);
   fprintf(stdout, "  Expiration Range : %s\n",
           GetString(footer.expiration_range).c_str());
-  fprintf(stdout, "  Sequence Range   : %s\n",
-          GetString(footer.sequence_range).c_str());
   return s;
 }
 

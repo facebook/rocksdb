@@ -84,8 +84,6 @@ class BlobFile {
 
   ExpirationRange expiration_range_;
 
-  SequenceRange sequence_range_;
-
   // Sequential/Append writer for blobs
   std::shared_ptr<Writer> log_writer_;
 
@@ -175,17 +173,6 @@ class BlobFile {
   void ExtendExpirationRange(uint64_t expiration) {
     expiration_range_.first = std::min(expiration_range_.first, expiration);
     expiration_range_.second = std::max(expiration_range_.second, expiration);
-  }
-
-  SequenceRange GetSequenceRange() const { return sequence_range_; }
-
-  void SetSequenceRange(SequenceRange sequence_range) {
-    sequence_range_ = sequence_range;
-  }
-
-  void ExtendSequenceRange(SequenceNumber sequence) {
-    sequence_range_.first = std::min(sequence_range_.first, sequence);
-    sequence_range_.second = std::max(sequence_range_.second, sequence);
   }
 
   bool HasTTL() const { return has_ttl_; }
