@@ -127,7 +127,7 @@ std::map<std::string, uint64_t>
 
 #else
 
-const std::string& ThreadStatus::GetThreadTypeName(
+std::string ThreadStatus::GetThreadTypeName(
     ThreadStatus::ThreadType thread_type) {
   static std::string dummy_str = "";
   return dummy_str;
