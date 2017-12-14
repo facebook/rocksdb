@@ -15,27 +15,27 @@ TEST(RowValueMergeTest, Merge) {
   std::vector<RowValue> row_values;
   row_values.push_back(
     CreateTestRowValue({
-      std::make_tuple(kTombstone, 0, 5),
-      std::make_tuple(kColumn, 1, 8),
-      std::make_tuple(kExpiringColumn, 2, 5),
+      CreateTestColumnSpec(kTombstone, 0, 5),
+      CreateTestColumnSpec(kColumn, 1, 8),
+      CreateTestColumnSpec(kExpiringColumn, 2, 5),
     })
   );
 
   row_values.push_back(
     CreateTestRowValue({
-      std::make_tuple(kColumn, 0, 2),
-      std::make_tuple(kExpiringColumn, 1, 5),
-      std::make_tuple(kTombstone, 2, 7),
-      std::make_tuple(kExpiringColumn, 7, 17),
+      CreateTestColumnSpec(kColumn, 0, 2),
+      CreateTestColumnSpec(kExpiringColumn, 1, 5),
+      CreateTestColumnSpec(kTombstone, 2, 7),
+      CreateTestColumnSpec(kExpiringColumn, 7, 17),
     })
   );
 
   row_values.push_back(
     CreateTestRowValue({
-      std::make_tuple(kExpiringColumn, 0, 6),
-      std::make_tuple(kTombstone, 1, 5),
-      std::make_tuple(kColumn, 2, 4),
-      std::make_tuple(kTombstone, 11, 11),
+      CreateTestColumnSpec(kExpiringColumn, 0, 6),
+      CreateTestColumnSpec(kTombstone, 1, 5),
+      CreateTestColumnSpec(kColumn, 2, 4),
+      CreateTestColumnSpec(kTombstone, 11, 11),
     })
   );
 
@@ -60,24 +60,24 @@ TEST(RowValueMergeTest, MergeWithRowTombstone) {
   // This row's timestamp is smaller than tombstone.
   row_values.push_back(
     CreateTestRowValue({
-      std::make_tuple(kColumn, 0, 5),
-      std::make_tuple(kColumn, 1, 6),
+      CreateTestColumnSpec(kColumn, 0, 5),
+      CreateTestColumnSpec(kColumn, 1, 6),
     })
   );
 
   // Some of the column's row is smaller, some is larger.
   row_values.push_back(
     CreateTestRowValue({
-      std::make_tuple(kColumn, 2, 10),
-      std::make_tuple(kColumn, 3, 12),
+      CreateTestColumnSpec(kColumn, 2, 10),
+      CreateTestColumnSpec(kColumn, 3, 12),
     })
   );
 
   // All of the column's rows are larger than tombstone.
   row_values.push_back(
     CreateTestRowValue({
-      std::make_tuple(kColumn, 4, 13),
-      std::make_tuple(kColumn, 5, 14),
+      CreateTestColumnSpec(kColumn, 4, 13),
+      CreateTestColumnSpec(kColumn, 5, 14),
     })
   );
 
