@@ -217,6 +217,10 @@ struct BlockBasedTableOptions {
   // This option only affects newly written tables. When reading exising tables,
   // the information about version is read from the footer.
   uint32_t format_version = 2;
+
+  // Store index blocks on disk in uncompressed format. This will avoid the
+  // overhead if index blocks are evicted
+  bool index_uncompressed = false;
 };
 
 // Table Properties that are specific to block-based table properties.
