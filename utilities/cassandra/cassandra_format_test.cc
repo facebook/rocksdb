@@ -317,10 +317,10 @@ TEST(RowValueTest, PurgeTtlShouldRemvoeAllColumnsExpired) {
   int64_t now = time(nullptr);
 
   auto row_value = CreateTestRowValue({
-    std::make_tuple(kColumn, 0, ToMicroSeconds(now)),
-    std::make_tuple(kExpiringColumn, 1, ToMicroSeconds(now - kTtl - 10)), //expired
-    std::make_tuple(kExpiringColumn, 2, ToMicroSeconds(now)), // not expired
-    std::make_tuple(kTombstone, 3, ToMicroSeconds(now))
+    CreateTestColumnSpec(kColumn, 0, ToMicroSeconds(now)),
+    CreateTestColumnSpec(kExpiringColumn, 1, ToMicroSeconds(now - kTtl - 10)), //expired
+    CreateTestColumnSpec(kExpiringColumn, 2, ToMicroSeconds(now)), // not expired
+    CreateTestColumnSpec(kTombstone, 3, ToMicroSeconds(now))
   });
 
   bool changed = false;
@@ -339,10 +339,10 @@ TEST(RowValueTest, ExpireTtlShouldConvertExpiredColumnsToTombstones) {
   int64_t now = time(nullptr);
 
   auto row_value = CreateTestRowValue({
-    std::make_tuple(kColumn, 0, ToMicroSeconds(now)),
-    std::make_tuple(kExpiringColumn, 1, ToMicroSeconds(now - kTtl - 10)), //expired
-    std::make_tuple(kExpiringColumn, 2, ToMicroSeconds(now)), // not expired
-    std::make_tuple(kTombstone, 3, ToMicroSeconds(now))
+    CreateTestColumnSpec(kColumn, 0, ToMicroSeconds(now)),
+    CreateTestColumnSpec(kExpiringColumn, 1, ToMicroSeconds(now - kTtl - 10)), //expired
+    CreateTestColumnSpec(kExpiringColumn, 2, ToMicroSeconds(now)), // not expired
+    CreateTestColumnSpec(kTombstone, 3, ToMicroSeconds(now))
   });
 
   bool changed = false;
