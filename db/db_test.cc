@@ -3488,12 +3488,16 @@ TEST_F(DBTest, GetThreadStatus) {
     const int kTestCount = 3;
     const unsigned int kHighPriCounts[kTestCount] = {3, 2, 5};
     const unsigned int kLowPriCounts[kTestCount] = {10, 15, 3};
+    const unsigned int kBottomPriCounts[kTestCount] = {2, 1, 4};
     for (int test = 0; test < kTestCount; ++test) {
       // Change the number of threads in high / low priority pool.
       env_->SetBackgroundThreads(kHighPriCounts[test], Env::HIGH);
       env_->SetBackgroundThreads(kLowPriCounts[test], Env::LOW);
+      env_->SetBackgroundThreads(kBottomPriCounts[test], Env::BOTTOM);
       // Wait to ensure the all threads has been registered
       unsigned int thread_type_counts[ThreadStatus::NUM_THREAD_TYPES];
+      // TODO(ajkr): it'd be better if SetBackgroundThreads returned only after
+      // all threads have been registered.
       // Try up to 60 seconds.
       for (int num_try = 0; num_try < 60000; num_try++) {
         env_->SleepForMicroseconds(1000);
@@ -3508,20 +3512,21 @@ TEST_F(DBTest, GetThreadStatus) {
         if (thread_type_counts[ThreadStatus::HIGH_PRIORITY] ==
                 kHighPriCounts[test] &&
             thread_type_counts[ThreadStatus::LOW_PRIORITY] ==
-                kLowPriCounts[test]) {
+                kLowPriCounts[test] &&
+            thread_type_counts[ThreadStatus::BOTTOM_PRIORITY] ==
+                kBottomPriCounts[test]) {
           break;
         }
       }
-      // Verify the total number of threades
-      ASSERT_EQ(thread_type_counts[ThreadStatus::HIGH_PRIORITY] +
-                    thread_type_counts[ThreadStatus::LOW_PRIORITY],
-                kHighPriCounts[test] + kLowPriCounts[test]);
       // Verify the number of high-priority threads
       ASSERT_EQ(thread_type_counts[ThreadStatus::HIGH_PRIORITY],
                 kHighPriCounts[test]);
       // Verify the number of low-priority threads
       ASSERT_EQ(thread_type_counts[ThreadStatus::LOW_PRIORITY],
                 kLowPriCounts[test]);
+      // Verify the number of bottom-priority threads
+      ASSERT_EQ(thread_type_counts[ThreadStatus::BOTTOM_PRIORITY],
+                kBottomPriCounts[test]);
     }
     if (i == 0) {
       // repeat the test with multiple column families
