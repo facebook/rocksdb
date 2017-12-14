@@ -145,21 +145,21 @@ TEST_F(CassandraFunctionalTest, SimpleMergeTest) {
   int64_t now = time(nullptr);
 
   store.Append("k1", CreateTestRowValue({
-    std::make_tuple(kTombstone, 0, ToMicroSeconds(now + 5)),
-    std::make_tuple(kColumn, 1, ToMicroSeconds(now + 8)),
-    std::make_tuple(kExpiringColumn, 2, ToMicroSeconds(now + 5)),
+    CreateTestColumnSpec(kTombstone, 0, ToMicroSeconds(now + 5)),
+    CreateTestColumnSpec(kColumn, 1, ToMicroSeconds(now + 8)),
+    CreateTestColumnSpec(kExpiringColumn, 2, ToMicroSeconds(now + 5)),
   }));
   store.Append("k1",CreateTestRowValue({
-    std::make_tuple(kColumn, 0, ToMicroSeconds(now + 2)),
-    std::make_tuple(kExpiringColumn, 1, ToMicroSeconds(now + 5)),
-    std::make_tuple(kTombstone, 2, ToMicroSeconds(now + 7)),
-    std::make_tuple(kExpiringColumn, 7, ToMicroSeconds(now + 17)),
+    CreateTestColumnSpec(kColumn, 0, ToMicroSeconds(now + 2)),
+    CreateTestColumnSpec(kExpiringColumn, 1, ToMicroSeconds(now + 5)),
+    CreateTestColumnSpec(kTombstone, 2, ToMicroSeconds(now + 7)),
+    CreateTestColumnSpec(kExpiringColumn, 7, ToMicroSeconds(now + 17)),
   }));
   store.Append("k1", CreateTestRowValue({
-    std::make_tuple(kExpiringColumn, 0, ToMicroSeconds(now + 6)),
-    std::make_tuple(kTombstone, 1, ToMicroSeconds(now + 5)),
-    std::make_tuple(kColumn, 2, ToMicroSeconds(now + 4)),
-    std::make_tuple(kTombstone, 11, ToMicroSeconds(now + 11)),
+    CreateTestColumnSpec(kExpiringColumn, 0, ToMicroSeconds(now + 6)),
+    CreateTestColumnSpec(kTombstone, 1, ToMicroSeconds(now + 5)),
+    CreateTestColumnSpec(kColumn, 2, ToMicroSeconds(now + 4)),
+    CreateTestColumnSpec(kTombstone, 11, ToMicroSeconds(now + 11)),
   }));
 
   auto ret = store.Get("k1");
@@ -180,16 +180,16 @@ TEST_F(CassandraFunctionalTest,
   int64_t now= time(nullptr);
 
   store.Append("k1", CreateTestRowValue({
-    std::make_tuple(kExpiringColumn, 0, ToMicroSeconds(now - kTtl - 20)), //expired
-    std::make_tuple(kExpiringColumn, 1, ToMicroSeconds(now - kTtl + 10)), // not expired
-    std::make_tuple(kTombstone, 3, ToMicroSeconds(now))
+    CreateTestColumnSpec(kExpiringColumn, 0, ToMicroSeconds(now - kTtl - 20)), //expired
+    CreateTestColumnSpec(kExpiringColumn, 1, ToMicroSeconds(now - kTtl + 10)), // not expired
+    CreateTestColumnSpec(kTombstone, 3, ToMicroSeconds(now))
   }));
 
   store.Flush();
 
   store.Append("k1",CreateTestRowValue({
-    std::make_tuple(kExpiringColumn, 0, ToMicroSeconds(now - kTtl - 10)), //expired
-    std::make_tuple(kColumn, 2, ToMicroSeconds(now))
+    CreateTestColumnSpec(kExpiringColumn, 0, ToMicroSeconds(now - kTtl - 10)), //expired
+    CreateTestColumnSpec(kColumn, 2, ToMicroSeconds(now))
   }));
 
   store.Flush();
@@ -213,16 +213,16 @@ TEST_F(CassandraFunctionalTest,
   int64_t now = time(nullptr);
 
   store.Append("k1", CreateTestRowValue({
-    std::make_tuple(kExpiringColumn, 0, ToMicroSeconds(now - kTtl - 20)), //expired
-    std::make_tuple(kExpiringColumn, 1, ToMicroSeconds(now)), // not expired
-    std::make_tuple(kTombstone, 3, ToMicroSeconds(now))
+    CreateTestColumnSpec(kExpiringColumn, 0, ToMicroSeconds(now - kTtl - 20)), //expired
+    CreateTestColumnSpec(kExpiringColumn, 1, ToMicroSeconds(now)), // not expired
+    CreateTestColumnSpec(kTombstone, 3, ToMicroSeconds(now))
   }));
 
   store.Flush();
 
   store.Append("k1",CreateTestRowValue({
-    std::make_tuple(kExpiringColumn, 0, ToMicroSeconds(now - kTtl - 10)), //expired
-    std::make_tuple(kColumn, 2, ToMicroSeconds(now))
+    CreateTestColumnSpec(kExpiringColumn, 0, ToMicroSeconds(now - kTtl - 10)), //expired
+    CreateTestColumnSpec(kColumn, 2, ToMicroSeconds(now))
   }));
 
   store.Flush();
@@ -244,14 +244,14 @@ TEST_F(CassandraFunctionalTest,
   int64_t now = time(nullptr);
 
   store.Append("k1", CreateTestRowValue({
-    std::make_tuple(kExpiringColumn, 0, ToMicroSeconds(now - kTtl - 20)),
-    std::make_tuple(kExpiringColumn, 1, ToMicroSeconds(now - kTtl - 20)),
+    CreateTestColumnSpec(kExpiringColumn, 0, ToMicroSeconds(now - kTtl - 20)),
+    CreateTestColumnSpec(kExpiringColumn, 1, ToMicroSeconds(now - kTtl - 20)),
   }));
 
   store.Flush();
 
   store.Append("k1",CreateTestRowValue({
-    std::make_tuple(kExpiringColumn, 0, ToMicroSeconds(now - kTtl - 10)),
+    CreateTestColumnSpec(kExpiringColumn, 0, ToMicroSeconds(now - kTtl - 10)),
   }));
 
   store.Flush();
@@ -266,18 +266,18 @@ TEST_F(CassandraFunctionalTest,
   int64_t now = time(nullptr);
 
   store.Append("k1", CreateTestRowValue({
-    std::make_tuple(kTombstone, 0, ToMicroSeconds(now - gc_grace_period_in_seconds_ - 1)),
-    std::make_tuple(kColumn, 1, ToMicroSeconds(now))
+    CreateTestColumnSpec(kTombstone, 0, ToMicroSeconds(now - gc_grace_period_in_seconds_ - 1)),
+    CreateTestColumnSpec(kColumn, 1, ToMicroSeconds(now))
   }));
 
   store.Append("k2", CreateTestRowValue({
-    std::make_tuple(kColumn, 0, ToMicroSeconds(now))
+    CreateTestColumnSpec(kColumn, 0, ToMicroSeconds(now))
   }));
 
   store.Flush();
 
   store.Append("k1",CreateTestRowValue({
-    std::make_tuple(kColumn, 1, ToMicroSeconds(now)),
+    CreateTestColumnSpec(kColumn, 1, ToMicroSeconds(now)),
   }));
 
   store.Flush();
@@ -296,7 +296,7 @@ TEST_F(CassandraFunctionalTest, CompactionShouldRemoveTombstoneFromPut) {
   int64_t now = time(nullptr);
 
   store.Put("k1", CreateTestRowValue({
-    std::make_tuple(kTombstone, 0, ToMicroSeconds(now - gc_grace_period_in_seconds_ - 1)),
+    CreateTestColumnSpec(kTombstone, 0, ToMicroSeconds(now - gc_grace_period_in_seconds_ - 1)),
   }));
 
   store.Flush();
