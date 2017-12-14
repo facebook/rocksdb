@@ -625,7 +625,8 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
       "[%s] compacted to: %s, MB/sec: %.1f rd, %.1f wr, level %d, "
       "files in(%d, %d) out(%d) "
       "MB in(%.1f, %.1f) out(%.1f), read-write-amplify(%.1f) "
-      "write-amplify(%.1f) %s, records in: %d, records dropped: %d\n",
+      "write-amplify(%.1f) %s, records in: %d, records dropped: %d "
+      "output_compression: %s\n",
       cfd->GetName().c_str(), vstorage->LevelSummary(&tmp), bytes_read_per_sec,
       bytes_written_per_sec, compact_->compaction->output_level(),
       stats.num_input_files_in_non_output_levels,
@@ -634,20 +635,23 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
       stats.bytes_read_output_level / 1048576.0,
       stats.bytes_written / 1048576.0, read_write_amp, write_amp,
       status.ToString().c_str(), stats.num_input_records,
-      stats.num_dropped_records);
+      stats.num_dropped_records,
+      CompressionTypeToString(compact_->compaction->output_compression())
+          .c_str());
 
   UpdateCompactionJobStats(stats);
 
   auto stream = event_logger_->LogToBuffer(log_buffer_);
-  stream << "job" << job_id_
-         << "event" << "compaction_finished"
+  stream << "job" << job_id_ << "event"
+         << "compaction_finished"
          << "compaction_time_micros" << compaction_stats_.micros
          << "output_level" << compact_->compaction->output_level()
          << "num_output_files" << compact_->NumOutputFiles()
-         << "total_output_size" << compact_->total_bytes
-         << "num_input_records" << compact_->num_input_records
-         << "num_output_records" << compact_->num_output_records
-         << "num_subcompactions" << compact_->sub_compact_states.size();
+         << "total_output_size" << compact_->total_bytes << "num_input_records"
+         << compact_->num_input_records << "num_output_records"
+         << compact_->num_output_records << "num_subcompactions"
+         << compact_->sub_compact_states.size() << "output_compression"
+         << CompressionTypeToString(compact_->compaction->output_compression());
 
   if (compaction_job_stats_ != nullptr) {
     stream << "num_single_delete_mismatches"
