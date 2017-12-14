@@ -1028,7 +1028,6 @@ uint32_t crc32c_3way(uint32_t crc, const char* buf, size_t len) {
 #endif //HAVE_SSE42 && HAVE_PCLMUL
 
 static inline Function Choose_Extend() {
-  return ExtendImpl<Fast_CRC32>;
 #ifndef HAVE_POWER8
   if (isSSE42()) {
     if (isPCLMULQDQ()) {
