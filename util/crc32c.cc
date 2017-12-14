@@ -395,6 +395,7 @@ uint32_t ExtendImpl(uint32_t crc, const char* buf, size_t size) {
 
 // Detect if SS42 or not.
 #ifndef HAVE_POWER8
+
 static bool isSSE42() {
 #ifndef HAVE_SSE42
   return false;
@@ -517,7 +518,8 @@ std::string IsFastCrc32Supported() {
  * This version is from the folly library, created by Dave Watson <davejwatson@fb.com>
  *
 */
-#ifdef HAVE_SSE42
+#if defined HAVE_SSE42 && defined HAVE_PCLMUL
+
 #define CRCtriplet(crc, buf, offset)                  \
   crc##0 = _mm_crc32_u64(crc##0, *(buf##0 + offset)); \
   crc##1 = _mm_crc32_u64(crc##1, *(buf##1 + offset)); \
@@ -649,7 +651,7 @@ uint32_t crc32c_3way(uint32_t crc, const char* buf, size_t len) {
   const unsigned char* next = (const unsigned char*)buf;
   uint64_t count;
   uint64_t crc0, crc1, crc2;
-  crc0 = crc;
+  crc0 = crc ^ 0xffffffffu;
 
 
   if (len >= 8) {
@@ -1019,17 +1021,18 @@ uint32_t crc32c_3way(uint32_t crc, const char* buf, size_t len) {
   }
   {
     align_to_8(len, crc0, next);
-    return (uint32_t)crc0;
+    return (uint32_t)crc0 ^ 0xffffffffu;
   }
 }
 
-#endif //HAVE_SSE42
+#endif //HAVE_SSE42 && HAVE_PCLMUL
 
 static inline Function Choose_Extend() {
+  return ExtendImpl<Fast_CRC32>;
 #ifndef HAVE_POWER8
   if (isSSE42()) {
     if (isPCLMULQDQ()) {
-#if defined HAVE_SSE42  && defined HAVE_PCLMUL && !defined NO_THREEWAY_CRC32C 
+#if defined HAVE_SSE42  && defined HAVE_PCLMUL && !defined NO_THREEWAY_CRC32C
       return crc32c_3way;
 #else
     return ExtendImpl<Fast_CRC32>; // Fast_CRC32 will check HAVE_SSE42 itself

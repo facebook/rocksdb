@@ -6,7 +6,6 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
-
 #include "util/crc32c.h"
 #include "util/testharness.h"
 
@@ -60,10 +59,11 @@ ExpectedResult expectedResults[] = {
     // // Much larger inputs
     { 0, BUFFER_SIZE, 2096790750 },
     { 1, BUFFER_SIZE / 2, 3854797577 },
+
 };
 
 TEST(CRC, StandardResults) {
-#ifdef NO_THREEWAY_CRC32C
+
   // Original Fast_CRC32 tests.
   // From rfc3720 section B.4.
   char buf[32];
@@ -100,25 +100,23 @@ TEST(CRC, StandardResults) {
   };
   ASSERT_EQ(0xd9963a56, Value(reinterpret_cast<char*>(data), sizeof(data)));
 
-#else
-
   // 3-Way Crc32c tests ported from folly.
   // Test 1: single computation
   for (auto expected : expectedResults) {
-    uint32_t result = Extend(~0U, buffer + expected.offset, expected.length);
-    EXPECT_EQ(expected.crc32c, result);
+    uint32_t result = Value(buffer + expected.offset, expected.length);
+    EXPECT_EQ(~expected.crc32c, result);
   }
 
   // Test 2: stitching two computations
   for (auto expected : expectedResults) {
     size_t partialLength = expected.length / 2;
-    uint32_t partialChecksum = Extend(~0U, buffer + expected.offset, partialLength);
+    uint32_t partialChecksum = Value(buffer + expected.offset, partialLength);
     uint32_t result = Extend(partialChecksum,
         buffer + expected.offset + partialLength,
         expected.length - partialLength);
-    EXPECT_EQ(expected.crc32c, result);
+    EXPECT_EQ(~expected.crc32c, result);
   }
-#endif
+
 }
 
 TEST(CRC, Values) {
