@@ -43,7 +43,6 @@ BlobFile::BlobFile()
       obsolete_(false),
       gc_once_after_open_(false),
       expiration_range_({0, 0}),
-      sequence_range_({kMaxSequenceNumber, 0}),
       last_access_(-1),
       last_fsync_(0),
       header_valid_(false),
@@ -67,7 +66,6 @@ BlobFile::BlobFile(const BlobDBImpl* p, const std::string& bdir, uint64_t fn,
       obsolete_(false),
       gc_once_after_open_(false),
       expiration_range_({0, 0}),
-      sequence_range_({kMaxSequenceNumber, 0}),
       last_access_(-1),
       last_fsync_(0),
       header_valid_(false),
@@ -116,12 +114,11 @@ std::string BlobFile::DumpState() const {
            " file_size: %" PRIu64 " deleted_count: %" PRIu64
            " deleted_size: %" PRIu64
            " closed: %d obsolete: %d expiration_range: (%" PRIu64 ", %" PRIu64
-           ") sequence_range: (%" PRIu64 " %" PRIu64 "), writer: %d reader: %d",
+           "), writer: %d reader: %d",
            path_to_dir_.c_str(), file_number_, blob_count_.load(),
            gc_epoch_.load(), file_size_.load(), deleted_count_, deleted_size_,
            closed_.load(), obsolete_.load(), expiration_range_.first,
-           expiration_range_.second, sequence_range_.first,
-           sequence_range_.second, (!!log_writer_), (!!ra_file_reader_));
+           expiration_range_.second, (!!log_writer_), (!!ra_file_reader_));
   return str;
 }
 
@@ -143,8 +140,6 @@ Status BlobFile::WriteFooterAndCloseLocked() {
   if (HasTTL()) {
     footer.expiration_range = expiration_range_;
   }
-
-  footer.sequence_range = sequence_range_;
 
   // this will close the file and reset the Writable File Pointer.
   Status s = log_writer_->AppendFooter(footer);
@@ -185,7 +180,6 @@ Status BlobFile::SetFromFooterLocked(const BlobLogFooter& footer) {
   last_fsync_.store(file_size_);
   blob_count_ = footer.blob_count;
   expiration_range_ = footer.expiration_range;
-  sequence_range_ = footer.sequence_range;
   closed_ = true;
   return Status::OK();
 }
