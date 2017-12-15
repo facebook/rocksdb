@@ -1361,7 +1361,9 @@ TEST_P(WritePreparedTransactionTest, DisableGCDuringRecoveryTest) {
     VerifyKeys({{"foo", v}});
     seq++;  // one for the key/value
     KeyVersion kv = {"foo", v, seq, kTypeValue};
+    if (options.two_write_queues) {
       seq++;  // one for the commit
+    }
     versions.emplace_back(kv);
   }
   std::reverse(std::begin(versions), std::end(versions));
@@ -1407,7 +1409,9 @@ TEST_P(WritePreparedTransactionTest, CompactionShouldKeepUncommittedKeys) {
   auto add_key = [&](std::function<Status()> func) {
     ASSERT_OK(func());
     expected_seq++;
+    if (options.two_write_queues) {
       expected_seq++;  // 1 for commit
+    }
     ASSERT_EQ(expected_seq, db_impl->TEST_GetLastVisibleSequence());
     snapshots.push_back(db->GetSnapshot());
   };
@@ -1516,12 +1520,16 @@ TEST_P(WritePreparedTransactionTest, CompactionShouldKeepSnapshotVisibleKeys) {
   ASSERT_OK(db->Put(WriteOptions(), "key1", "value1_2"));
   expected_seq++;  // 1 for write
   SequenceNumber seq1 = expected_seq;
+  if (options.two_write_queues) {
     expected_seq++;  // 1 for commit
+  }
   ASSERT_EQ(expected_seq, db_impl->TEST_GetLastVisibleSequence());
   ASSERT_OK(db->Put(WriteOptions(), "key2", "value2_2"));
   expected_seq++;  // 1 for write
   SequenceNumber seq2 = expected_seq;
+  if (options.two_write_queues) {
     expected_seq++;  // 1 for commit
+  }
   ASSERT_EQ(expected_seq, db_impl->TEST_GetLastVisibleSequence());
   ASSERT_OK(db->Flush(FlushOptions()));
   db->ReleaseSnapshot(snapshot1);
@@ -1646,7 +1654,9 @@ TEST_P(WritePreparedTransactionTest,
   ASSERT_OK(db->Put(WriteOptions(), "key2", "value2"));
   DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
   expected_seq++;  // one for data
-  expected_seq++;  // one for commit
+  if (options.two_write_queues) {
+    expected_seq++;  // one for commit
+  }
   ASSERT_EQ(expected_seq, db_impl->TEST_GetLastVisibleSequence());
   ASSERT_OK(db->Flush(FlushOptions()));
   // Dummy keys to avoid compaction trivially move files and get around actual
