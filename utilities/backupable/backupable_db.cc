@@ -1725,19 +1725,22 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
     len += snprintf(buf.get() + len, buf_size - len, "%s%s\n",
                     kMetaDataPrefix.ToString().c_str(),
                     hex_encoded_metadata.c_str());
+    if (len >= buf_size) {
+      return Status::Corruption("Buffer too small to fit backup metadata");
+    }
   }
   len += snprintf(buf.get() + len, buf_size - len, "%" ROCKSDB_PRIszt "\n",
                   files_.size());
+  if (len >= buf_size) {
+    return Status::Corruption("Buffer too small to fit backup metadata");
+  }
   for (const auto& file : files_) {
     // use crc32 for now, switch to something else if needed
     len += snprintf(buf.get() + len, buf_size - len, "%s crc32 %u\n",
                     file->filename.c_str(), file->checksum_value);
-  }
-
-  if (len >= max_backup_meta_file_size_) {
-    // len is index of null-terminator, so exactly max_backup_meta_file_size_
-    // means the buffer was too small
-    return Status::Corruption("Buffer too small to fit backup metadata");
+    if (len >= buf_size) {
+      return Status::Corruption("Buffer too small to fit backup metadata");
+    }
   }
 
   s = backup_meta_file->Append(Slice(buf.get(), len));
