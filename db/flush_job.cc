@@ -244,7 +244,6 @@ Status FlushJob::WriteLevel0Table() {
       ThreadStatus::STAGE_FLUSH_WRITE_L0);
   db_mutex_->AssertHeld();
   const uint64_t start_micros = db_options_.env->NowMicros();
-  StopWatch sw(db_options_.env, stats_, FLUSH_TIME);
   Status s;
   {
     auto write_hint = cfd_->CalculateSSTWriteHint(0);
@@ -363,6 +362,7 @@ Status FlushJob::WriteLevel0Table() {
   InternalStats::CompactionStats stats(1);
   stats.micros = db_options_.env->NowMicros() - start_micros;
   stats.bytes_written = meta_.fd.GetFileSize();
+  MeasureTime(stats_, FLUSH_TIME, stats.micros);
   cfd_->internal_stats()->AddCompactionStats(0 /* level */, stats);
   cfd_->internal_stats()->AddCFStats(InternalStats::BYTES_FLUSHED,
                                      meta_.fd.GetFileSize());
