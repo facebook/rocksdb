@@ -1722,23 +1722,25 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
   if (!app_metadata_.empty()) {
     std::string hex_encoded_metadata =
         Slice(app_metadata_).ToString(/* hex */ true);
-    if (hex_encoded_metadata.size() + kMetaDataPrefix.size() + 1 >
-        buf_size - len) {
+    len += snprintf(buf.get() + len, buf_size - len, "%s%s\n",
+                    kMetaDataPrefix.ToString().c_str(),
+                    hex_encoded_metadata.c_str());
+    if (len >= buf_size) {
       return Status::Corruption("Buffer too small to fit backup metadata");
     }
-    memcpy(buf.get() + len, kMetaDataPrefix.data(), kMetaDataPrefix.size());
-    len += kMetaDataPrefix.size();
-    memcpy(buf.get() + len, hex_encoded_metadata.data(),
-           hex_encoded_metadata.size());
-    len += hex_encoded_metadata.size();
-    buf[len++] = '\n';
   }
   len += snprintf(buf.get() + len, buf_size - len, "%" ROCKSDB_PRIszt "\n",
                   files_.size());
+  if (len >= buf_size) {
+    return Status::Corruption("Buffer too small to fit backup metadata");
+  }
   for (const auto& file : files_) {
     // use crc32 for now, switch to something else if needed
     len += snprintf(buf.get() + len, buf_size - len, "%s crc32 %u\n",
                     file->filename.c_str(), file->checksum_value);
+    if (len >= buf_size) {
+      return Status::Corruption("Buffer too small to fit backup metadata");
+    }
   }
 
   s = backup_meta_file->Append(Slice(buf.get(), len));
