@@ -995,6 +995,8 @@ struct ThreadState {
     const Snapshot* snapshot;
     // The cf from which we did a Get at this stapshot
     int cf_at;
+    // The name of the cf at the the time that we did a read
+    std::string cf_at_name;
     // The key with which we did a Get at this stapshot
     std::string key;
     // The status of the Get
@@ -1338,20 +1340,25 @@ class StressTest {
  private:
   Status AssertSame(DB* db, ColumnFamilyHandle* cf,
                     ThreadState::SnapshotState& snap_state) {
+    Status s;
+    if (cf->GetName() != snap_state.cf_at_name) {
+      return s;
+    }
     ReadOptions ropt;
     ropt.snapshot = snap_state.snapshot;
     PinnableSlice exp_v(&snap_state.value);
     exp_v.PinSelf();
-    Status s;
     PinnableSlice v;
     s = db->Get(ropt, cf, snap_state.key, &v);
     if (!s.ok() && !s.IsNotFound()) {
       return s;
     }
     if (snap_state.status != s) {
-      return Status::Corruption("The snapshot gave inconsistent results: (" +
-                                snap_state.status.ToString() + ") vs. (" +
-                                s.ToString() + ")");
+      return Status::Corruption(
+          "The snapshot gave inconsistent results for key " +
+          ToString(Hash(snap_state.key.c_str(), snap_state.key.size(), 0)) +
+          " in cf " + cf->GetName() + ": (" + snap_state.status.ToString() +
+          ") vs. (" + s.ToString() + ")");
     }
     if (s.ok()) {
       if (exp_v != v) {
@@ -1880,8 +1887,9 @@ class StressTest {
         // will later read the same key before releasing the snapshot and verify
         // that the results are the same.
         auto status_at = db_->Get(ropt, column_family, key, &value_at);
-        ThreadState::SnapshotState snap_state = {snapshot, rand_column_family,
-                                                 keystr, status_at, value_at};
+        ThreadState::SnapshotState snap_state = {
+            snapshot, rand_column_family, column_family->GetName(),
+            keystr,   status_at,          value_at};
         thread->snapshot_queue.emplace(
             std::min(FLAGS_ops_per_thread - 1, i + FLAGS_snapshot_hold_ops),
             snap_state);
