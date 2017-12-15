@@ -20,6 +20,7 @@
 #include "rocksdb/iterator.h"
 #include "util/arena.h"
 #include "util/cast_util.h"
+#include "util/string_util.h"
 #include "utilities/write_batch_with_index/write_batch_with_index_internal.h"
 
 namespace rocksdb {
@@ -552,13 +553,15 @@ void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id) {
           break;
         case kTypeLogData:
         case kTypeBeginPrepareXID:
+        case kTypeBeginPersistedPrepareXID:
         case kTypeEndPrepareXID:
         case kTypeCommitXID:
         case kTypeRollbackXID:
         case kTypeNoop:
           break;
         default:
-          return Status::Corruption("unknown WriteBatch tag");
+          return Status::Corruption("unknown WriteBatch tag in ReBuildIndex",
+                                    ToString(static_cast<unsigned int>(tag)));
       }
     }
 
@@ -622,6 +625,7 @@ void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id) {
           break;
         case kTypeLogData:
         case kTypeBeginPrepareXID:
+        case kTypeBeginPersistedPrepareXID:
         case kTypeEndPrepareXID:
         case kTypeCommitXID:
         case kTypeRollbackXID:

@@ -44,6 +44,7 @@ INSTANTIATE_TEST_CASE_P(
     DBAsBaseDB, TransactionTest,
     ::testing::Values(std::make_tuple(false, false, WRITE_COMMITTED),
                       std::make_tuple(false, true, WRITE_COMMITTED),
+                      std::make_tuple(false, false, WRITE_PREPARED),
                       std::make_tuple(false, true, WRITE_PREPARED)));
 INSTANTIATE_TEST_CASE_P(
     StackableDBAsBaseDB, TransactionTest,
@@ -141,12 +142,11 @@ TEST_P(TransactionTest, ValidateSnapshotTest) {
     ASSERT_OK(s);
     delete txn1;
 
-    SequenceNumber dont_care;
     auto pes_txn2 = dynamic_cast<PessimisticTransaction*>(txn2);
     // Test the simple case where the key is not tracked yet
     auto trakced_seq = kMaxSequenceNumber;
     s = pes_txn2->ValidateSnapshot(db->DefaultColumnFamily(), "foo",
-                                   trakced_seq, &dont_care);
+                                   &trakced_seq);
     ASSERT_TRUE(s.IsBusy());
     delete txn2;
   }
@@ -833,7 +833,7 @@ TEST_P(TransactionTest, SimpleTwoPhaseTransactionTest) {
     s = txn->Commit();
     ASSERT_EQ(s, Status::InvalidArgument());
 
-    // no longer is prpared results
+    // no longer is prepared results
     db->GetAllPreparedTransactions(&prepared_trans);
     ASSERT_EQ(prepared_trans.size(), 0);
     ASSERT_EQ(db->GetTransactionByName("xid"), nullptr);
@@ -1190,7 +1190,7 @@ TEST_P(TransactionTest, PersistentTwoPhaseTransactionTest) {
   s = txn->Commit();
   ASSERT_EQ(s, Status::InvalidArgument());
 
-  // no longer is prpared results
+  // no longer is prepared results
   prepared_trans.clear();
   db->GetAllPreparedTransactions(&prepared_trans);
   ASSERT_EQ(prepared_trans.size(), 0);
@@ -4773,34 +4773,55 @@ Status TransactionStressTestInserter(TransactionDB* db,
 }
 }  // namespace
 
+// Worker threads add a number to a key from each set of keys. The checker
+// threads verify that the sum of all keys in each set are equal.
 TEST_P(MySQLStyleTransactionTest, TransactionStressTest) {
-  const size_t num_threads = 4;
+  // Small write buffer to trigger more compactions
+  options.write_buffer_size = 1024;
+  ReOpenNoDelete();
+  const size_t num_workers = 4;   // worker threads count
+  const size_t num_checkers = 2;  // checker threads count
   const size_t num_transactions_per_thread = 10000;
-  const size_t num_sets = 3;
+  const uint16_t num_sets = 3;
   const size_t num_keys_per_set = 100;
   // Setting the key-space to be 100 keys should cause enough write-conflicts
   // to make this test interesting.
 
   std::vector<port::Thread> threads;
+  std::atomic<uint32_t> finished = {0};
+  bool TAKE_SNAPSHOT = true;
 
   std::function<void()> call_inserter = [&] {
     ASSERT_OK(TransactionStressTestInserter(db, num_transactions_per_thread,
                                             num_sets, num_keys_per_set));
+    finished++;
+  };
+  std::function<void()> call_checker = [&] {
+    size_t seed = std::hash<std::thread::id>()(std::this_thread::get_id());
+    Random64 rand(seed);
+    // Verify that data is consistent
+    while (finished < num_workers) {
+      Status s = RandomTransactionInserter::Verify(
+          db, num_sets, num_keys_per_set, TAKE_SNAPSHOT, &rand);
+      ASSERT_OK(s);
+    }
   };
 
-  // Create N threads that use RandomTransactionInserter to write
-  // many transactions.
-  for (uint32_t i = 0; i < num_threads; i++) {
+  for (uint32_t i = 0; i < num_workers; i++) {
     threads.emplace_back(call_inserter);
   }
+  for (uint32_t i = 0; i < num_checkers; i++) {
+    threads.emplace_back(call_checker);
+  }
 
-  // Wait for all threads to run
+  // Wait for all threads to finish
   for (auto& t : threads) {
     t.join();
   }
 
   // Verify that data is consistent
-  Status s = RandomTransactionInserter::Verify(db, num_sets);
+  Status s = RandomTransactionInserter::Verify(db, num_sets, num_keys_per_set,
+                                               !TAKE_SNAPSHOT);
   ASSERT_OK(s);
 }
 
@@ -4838,6 +4859,8 @@ TEST_P(TransactionTest, MemoryLimitTest) {
 // necessarily the one acceptable way. If the algorithm is legitimately changed,
 // this unit test should be updated as well.
 TEST_P(TransactionTest, SeqAdvanceTest) {
+  // TODO(myabandeh): must be test with false before new releases
+  const bool short_test = true;
   WriteOptions wopts;
   FlushOptions fopt;
 
@@ -4847,7 +4870,7 @@ TEST_P(TransactionTest, SeqAdvanceTest) {
   // Do the test with NUM_BRANCHES branches in it. Each run of a test takes some
   // of the branches. This is the same as counting a binary number where i-th
   // bit represents whether we take branch i in the represented by the number.
-  const size_t NUM_BRANCHES = 8;
+  const size_t NUM_BRANCHES = short_test ? 6 : 10;
   // Helper function that shows if the branch is to be taken in the run
   // represented by the number n.
   auto branch_do = [&](size_t n, size_t* branch) {
@@ -4862,15 +4885,15 @@ TEST_P(TransactionTest, SeqAdvanceTest) {
     auto seq = db_impl->GetLatestSequenceNumber();
     exp_seq = seq;
     txn_t0(0);
-    seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
+    seq = db_impl->TEST_GetLastVisibleSequence();
     ASSERT_EQ(exp_seq, seq);
 
     if (branch_do(n, &branch)) {
       db_impl->Flush(fopt);
-      seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
+      seq = db_impl->TEST_GetLastVisibleSequence();
       ASSERT_EQ(exp_seq, seq);
     }
-    if (branch_do(n, &branch)) {
+    if (!short_test && branch_do(n, &branch)) {
       db_impl->FlushWAL(true);
       ReOpenNoDelete();
       db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
@@ -4880,19 +4903,19 @@ TEST_P(TransactionTest, SeqAdvanceTest) {
 
     // Doing it twice might detect some bugs
     txn_t0(1);
-    seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
+    seq = db_impl->TEST_GetLastVisibleSequence();
     ASSERT_EQ(exp_seq, seq);
 
     txn_t1(0);
-    seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
+    seq = db_impl->TEST_GetLastVisibleSequence();
     ASSERT_EQ(exp_seq, seq);
 
     if (branch_do(n, &branch)) {
       db_impl->Flush(fopt);
-      seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
+      seq = db_impl->TEST_GetLastVisibleSequence();
       ASSERT_EQ(exp_seq, seq);
     }
-    if (branch_do(n, &branch)) {
+    if (!short_test && branch_do(n, &branch)) {
       db_impl->FlushWAL(true);
       ReOpenNoDelete();
       db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
@@ -4901,15 +4924,15 @@ TEST_P(TransactionTest, SeqAdvanceTest) {
     }
 
     txn_t3(0);
-    seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
+    seq = db_impl->TEST_GetLastVisibleSequence();
     ASSERT_EQ(exp_seq, seq);
 
     if (branch_do(n, &branch)) {
       db_impl->Flush(fopt);
-      seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
+      seq = db_impl->TEST_GetLastVisibleSequence();
       ASSERT_EQ(exp_seq, seq);
     }
-    if (branch_do(n, &branch)) {
+    if (!short_test && branch_do(n, &branch)) {
       db_impl->FlushWAL(true);
       ReOpenNoDelete();
       db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
@@ -4917,20 +4940,34 @@ TEST_P(TransactionTest, SeqAdvanceTest) {
       ASSERT_EQ(exp_seq, seq);
     }
 
-    txn_t0(0);
-    seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
-    ASSERT_EQ(exp_seq, seq);
+    txn_t4(0);
+    seq = db_impl->TEST_GetLastVisibleSequence();
 
-    txn_t2(0);
-    seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
     ASSERT_EQ(exp_seq, seq);
 
     if (branch_do(n, &branch)) {
       db_impl->Flush(fopt);
-      seq = db_impl->TEST_GetLatestVisibleSequenceNumber();
+      seq = db_impl->TEST_GetLastVisibleSequence();
       ASSERT_EQ(exp_seq, seq);
     }
+    if (!short_test && branch_do(n, &branch)) {
+      db_impl->FlushWAL(true);
+      ReOpenNoDelete();
+      db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+      seq = db_impl->GetLatestSequenceNumber();
+      ASSERT_EQ(exp_seq, seq);
+    }
+
+    txn_t2(0);
+    seq = db_impl->TEST_GetLastVisibleSequence();
+    ASSERT_EQ(exp_seq, seq);
+
     if (branch_do(n, &branch)) {
+      db_impl->Flush(fopt);
+      seq = db_impl->TEST_GetLastVisibleSequence();
+      ASSERT_EQ(exp_seq, seq);
+    }
+    if (!short_test && branch_do(n, &branch)) {
       db_impl->FlushWAL(true);
       ReOpenNoDelete();
       db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());

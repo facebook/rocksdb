@@ -9,6 +9,7 @@
 #include "db/range_del_aggregator.h"
 #include "db/read_callback.h"
 #include "rocksdb/env.h"
+#include "rocksdb/statistics.h"
 #include "rocksdb/types.h"
 #include "table/block.h"
 
@@ -26,6 +27,7 @@ class GetContext {
     kMerge,  // saver contains the current merge result (the operands)
     kBlobIndex,
   };
+  uint64_t tickers_value[Tickers::TICKER_ENUM_MAX] = {0};
 
   GetContext(const Comparator* ucmp, const MergeOperator* merge_operator,
              Logger* logger, Statistics* statistics, GetState init_state,
@@ -71,6 +73,8 @@ class GetContext {
     }
     return true;
   }
+
+  void RecordCounters(Tickers ticker, size_t val);
 
  private:
   const Comparator* ucmp_;
