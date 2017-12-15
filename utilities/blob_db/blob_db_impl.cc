@@ -571,18 +571,14 @@ class BlobDBImpl::BlobInserter : public WriteBatch::Handler {
   const WriteOptions& options_;
   BlobDBImpl* blob_db_impl_;
   uint32_t default_cf_id_;
-  SequenceNumber sequence_;
   WriteBatch batch_;
 
  public:
   BlobInserter(const WriteOptions& options, BlobDBImpl* blob_db_impl,
-               uint32_t default_cf_id, SequenceNumber seq)
+               uint32_t default_cf_id)
       : options_(options),
         blob_db_impl_(blob_db_impl),
-        default_cf_id_(default_cf_id),
-        sequence_(seq) {}
-
-  SequenceNumber sequence() { return sequence_; }
+        default_cf_id_(default_cf_id) {}
 
   WriteBatch* batch() { return &batch_; }
 
@@ -597,8 +593,7 @@ class BlobDBImpl::BlobInserter : public WriteBatch::Handler {
     uint64_t expiration =
         blob_db_impl_->ExtractExpiration(key, value, &value_slice, &new_value);
     Status s = blob_db_impl_->PutBlobValue(options_, key, value_slice,
-                                           expiration, sequence_, &batch_);
-    sequence_++;
+                                           expiration, &batch_);
     return s;
   }
 
@@ -609,7 +604,6 @@ class BlobDBImpl::BlobInserter : public WriteBatch::Handler {
           "Blob DB doesn't support non-default column family.");
     }
     Status s = WriteBatchInternal::Delete(&batch_, column_family_id, key);
-    sequence_++;
     return s;
   }
 
@@ -621,7 +615,6 @@ class BlobDBImpl::BlobInserter : public WriteBatch::Handler {
     }
     Status s = WriteBatchInternal::DeleteRange(&batch_, column_family_id,
                                                begin_key, end_key);
-    sequence_++;
     return s;
   }
 
@@ -643,12 +636,8 @@ Status BlobDBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
   RecordTick(statistics_, BLOB_DB_NUM_WRITE);
   uint32_t default_cf_id =
       reinterpret_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily())->GetID();
-  // TODO(yiwu): In case there are multiple writers the latest sequence would
-  // not be the actually sequence we are writting. Need to get the sequence
-  // from write batch after DB write instead.
-  SequenceNumber current_seq = GetLatestSequenceNumber() + 1;
   Status s;
-  BlobInserter blob_inserter(options, this, default_cf_id, current_seq);
+  BlobInserter blob_inserter(options, this, default_cf_id);
   {
     // Release write_mutex_ before DB write to avoid race condition with
     // flush begin listener, which also require write_mutex_ to sync
@@ -693,6 +682,8 @@ Status BlobDBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
 
   if (bdb_options_.enable_garbage_collection) {
     // add deleted key to list of keys that have been deleted for book-keeping
+    SequenceNumber current_seq =
+        WriteBatchInternal::Sequence(blob_inserter.batch());
     DeleteBookkeeper delete_bookkeeper(this, current_seq);
     s = updates->Iterate(&delete_bookkeeper);
   }
@@ -761,11 +752,7 @@ Status BlobDBImpl::PutUntil(const WriteOptions& options, const Slice& key,
     // flush begin listener, which also require write_mutex_ to sync
     // blob files.
     MutexLock l(&write_mutex_);
-    // TODO(yiwu): In case there are multiple writers the latest sequence would
-    // not be the actually sequence we are writting. Need to get the sequence
-    // from write batch after DB write instead.
-    SequenceNumber sequence = GetLatestSequenceNumber() + 1;
-    s = PutBlobValue(options, key, value, expiration, sequence, &batch);
+    s = PutBlobValue(options, key, value, expiration, &batch);
   }
   if (s.ok()) {
     s = db_->Write(options, &batch);
@@ -776,7 +763,7 @@ Status BlobDBImpl::PutUntil(const WriteOptions& options, const Slice& key,
 
 Status BlobDBImpl::PutBlobValue(const WriteOptions& options, const Slice& key,
                                 const Slice& value, uint64_t expiration,
-                                SequenceNumber sequence, WriteBatch* batch) {
+                                WriteBatch* batch) {
   Status s;
   std::string index_entry;
   uint32_t column_family_id =
@@ -817,7 +804,6 @@ Status BlobDBImpl::PutBlobValue(const WriteOptions& options, const Slice& key,
     }
 
     if (s.ok()) {
-      bfile->ExtendSequenceRange(sequence);
       if (expiration != kNoExpiration) {
         bfile->ExtendExpirationRange(expiration);
       }
@@ -898,7 +884,7 @@ bool BlobDBImpl::EvictOldestBlobFile() {
                    total_blob_space_.load(), bdb_options_.blob_dir_size,
                    oldest_file->BlobFileNumber(), expiration_range.first,
                    expiration_range.second);
-    oldest_file->MarkObsolete(oldest_file->GetSequenceRange().second);
+    oldest_file->MarkObsolete(GetLatestSequenceNumber());
     obsolete_files_.push_back(oldest_file);
     oldest_file_evicted_.store(true);
     RecordTick(statistics_, BLOB_DB_FIFO_NUM_FILES_EVICTED);
@@ -1271,9 +1257,26 @@ Status BlobDBImpl::CloseBlobFileIfNeeded(std::shared_ptr<BlobFile>& bfile) {
 bool BlobDBImpl::VisibleToActiveSnapshot(
     const std::shared_ptr<BlobFile>& bfile) {
   assert(bfile->Obsolete());
-  SequenceNumber first_sequence = bfile->GetSequenceRange().first;
+
+  // We check whether the oldest snapshot is no less than the last sequence
+  // by the time the blob file become obsolete. If so, the blob file is not
+  // visible to all existing snapshots.
+  //
+  // If we keep track of the earliest sequence of the keys in the blob file,
+  // we could instead check if there's a snapshot falls in range
+  // [earliest_sequence, obsolete_sequence). But doing so will make the
+  // implementation more complicated.
   SequenceNumber obsolete_sequence = bfile->GetObsoleteSequence();
-  return db_impl_->HasActiveSnapshotInRange(first_sequence, obsolete_sequence);
+  SequenceNumber oldest_snapshot = 0;
+  {
+    // Need to lock DBImpl mutex before access snapshot list.
+    InstrumentedMutexLock l(db_impl_->mutex());
+    auto snapshots = db_impl_->snapshots();
+    if (!snapshots.empty()) {
+      oldest_snapshot = snapshots.oldest()->GetSequenceNumber();
+    }
+  }
+  return oldest_snapshot < obsolete_sequence;
 }
 
 bool BlobDBImpl::FindFileAndEvictABlob(uint64_t file_number, uint64_t key_size,
@@ -1757,8 +1760,6 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
                                                    &rewrite_batch, &callback);
     }
     if (rewrite_status.ok()) {
-      newfile->ExtendSequenceRange(
-          WriteBatchInternal::Sequence(&rewrite_batch));
       gc_stats->num_keys_relocated++;
       gc_stats->bytes_relocated += record.record_size();
     } else if (rewrite_status.IsBusy()) {
@@ -1775,10 +1776,7 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
   }  // end of ReadRecord loop
 
   if (s.ok()) {
-    SequenceNumber obsolete_sequence =
-        newfile == nullptr ? bfptr->GetSequenceRange().second + 1
-                           : newfile->GetSequenceRange().second;
-    bfptr->MarkObsolete(obsolete_sequence);
+    bfptr->MarkObsolete(GetLatestSequenceNumber());
     if (!first_gc) {
       WriteLock wl(&mutex_);
       obsolete_files_.push_back(bfptr);
