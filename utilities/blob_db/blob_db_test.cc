@@ -901,20 +901,18 @@ TEST_F(BlobDBTest, SnapshotAndGarbageCollection) {
       ASSERT_EQ(1, gc_stats.blob_count);
       if (delete_key) {
         ASSERT_EQ(0, gc_stats.num_keys_relocated);
-        ASSERT_EQ(bfile->GetSequenceRange().second + 1,
-                  bfile->GetObsoleteSequence());
       } else {
         ASSERT_EQ(1, gc_stats.num_keys_relocated);
-        ASSERT_EQ(blob_db_->GetLatestSequenceNumber(),
-                  bfile->GetObsoleteSequence());
       }
+      ASSERT_EQ(blob_db_->GetLatestSequenceNumber(),
+                bfile->GetObsoleteSequence());
       if (i == 3) {
         snapshot = blob_db_->GetSnapshot();
       }
       size_t num_files = delete_key ? 3 : 4;
       ASSERT_EQ(num_files, blob_db_impl()->TEST_GetBlobFiles().size());
       blob_db_impl()->TEST_DeleteObsoleteFiles();
-      if (i == 0 || i == 3 || (i == 2 && delete_key)) {
+      if (i == 3) {
         // The snapshot shouldn't see data in bfile
         ASSERT_EQ(num_files - 1, blob_db_impl()->TEST_GetBlobFiles().size());
         blob_db_->ReleaseSnapshot(snapshot);
@@ -1111,10 +1109,6 @@ TEST_F(BlobDBTest, InlineSmallValues) {
   Open(bdb_options, options);
   std::map<std::string, std::string> data;
   std::map<std::string, KeyVersion> versions;
-  SequenceNumber first_non_ttl_seq = kMaxSequenceNumber;
-  SequenceNumber first_ttl_seq = kMaxSequenceNumber;
-  SequenceNumber last_non_ttl_seq = 0;
-  SequenceNumber last_ttl_seq = 0;
   for (size_t i = 0; i < 1000; i++) {
     bool is_small_value = rnd.Next() % 2;
     bool has_ttl = rnd.Next() % 2;
@@ -1134,15 +1128,6 @@ TEST_F(BlobDBTest, InlineSmallValues) {
     versions[key] =
         KeyVersion(key, value, sequence,
                    (is_small_value && !has_ttl) ? kTypeValue : kTypeBlobIndex);
-    if (!is_small_value) {
-      if (!has_ttl) {
-        first_non_ttl_seq = std::min(first_non_ttl_seq, sequence);
-        last_non_ttl_seq = std::max(last_non_ttl_seq, sequence);
-      } else {
-        first_ttl_seq = std::min(first_ttl_seq, sequence);
-        last_ttl_seq = std::max(last_ttl_seq, sequence);
-      }
-    }
   }
   VerifyDB(data);
   VerifyBaseDB(versions);
@@ -1159,11 +1144,7 @@ TEST_F(BlobDBTest, InlineSmallValues) {
     ttl_file = blob_files[1];
   }
   ASSERT_FALSE(non_ttl_file->HasTTL());
-  ASSERT_EQ(first_non_ttl_seq, non_ttl_file->GetSequenceRange().first);
-  ASSERT_EQ(last_non_ttl_seq, non_ttl_file->GetSequenceRange().second);
   ASSERT_TRUE(ttl_file->HasTTL());
-  ASSERT_EQ(first_ttl_seq, ttl_file->GetSequenceRange().first);
-  ASSERT_EQ(last_ttl_seq, ttl_file->GetSequenceRange().second);
 }
 
 TEST_F(BlobDBTest, CompactionFilterNotSupported) {
