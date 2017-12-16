@@ -93,18 +93,29 @@ Status WritePreparedTxn::CommitWithoutPrepareInternal() {
 
 Status WritePreparedTxn::CommitBatchInternal(WriteBatch* batch) {
   // TODO(myabandeh): handle the duplicate keys in the batch
+  bool do_one_write = !db_impl_->immutable_db_options().two_write_queues;
   // In the absence of Prepare markers, use Noop as a batch separator
   WriteBatchInternal::InsertNoop(batch);
   const bool DISABLE_MEMTABLE = true;
   const uint64_t no_log_ref = 0;
   uint64_t seq_used = kMaxSequenceNumber;
-  auto s = db_impl_->WriteImpl(write_options_, batch, nullptr, nullptr,
-                               no_log_ref, !DISABLE_MEMTABLE, &seq_used);
-  assert(seq_used != kMaxSequenceNumber);
-  uint64_t& prepare_seq = seq_used;
-  // Commit the batch by writing an empty batch to the queue that will release
-  // the commit sequence number to readers.
+  const bool INCLUDES_DATA = true;
   WritePreparedCommitEntryPreReleaseCallback update_commit_map(
+      wpt_db_, db_impl_, kMaxSequenceNumber, INCLUDES_DATA);
+  auto s = db_impl_->WriteImpl(write_options_, batch, nullptr, nullptr,
+                               no_log_ref, !DISABLE_MEMTABLE, &seq_used,
+                               do_one_write ? &update_commit_map : nullptr);
+  assert(seq_used != kMaxSequenceNumber);
+  if (!s.ok()) {
+    return s;
+  }
+  if (do_one_write) {
+    return s;
+  }  // else do the 2nd write for commit
+  uint64_t& prepare_seq = seq_used;
+  // Commit the batch by writing an empty batch to the 2nd queue that will
+  // release the commit sequence number to readers.
+  WritePreparedCommitEntryPreReleaseCallback update_commit_map_with_prepare(
       wpt_db_, db_impl_, prepare_seq);
   WriteBatch empty_batch;
   empty_batch.PutLogData(Slice());
@@ -112,7 +123,7 @@ Status WritePreparedTxn::CommitBatchInternal(WriteBatch* batch) {
   WriteBatchInternal::InsertNoop(&empty_batch);
   s = db_impl_->WriteImpl(write_options_, &empty_batch, nullptr, nullptr,
                           no_log_ref, DISABLE_MEMTABLE, &seq_used,
-                          &update_commit_map);
+                          &update_commit_map_with_prepare);
   assert(seq_used != kMaxSequenceNumber);
   return s;
 }
@@ -221,19 +232,31 @@ Status WritePreparedTxn::RollbackInternal() {
   }
   // The Rollback marker will be used as a batch separator
   WriteBatchInternal::MarkRollback(&rollback_batch, name_);
+  bool do_one_write = !db_impl_->immutable_db_options().two_write_queues;
   const bool DISABLE_MEMTABLE = true;
   const uint64_t no_log_ref = 0;
   uint64_t seq_used = kMaxSequenceNumber;
+  const bool INCLUDES_DATA = true;
+  WritePreparedCommitEntryPreReleaseCallback update_commit_map(
+      wpt_db_, db_impl_, kMaxSequenceNumber, INCLUDES_DATA);
   s = db_impl_->WriteImpl(write_options_, &rollback_batch, nullptr, nullptr,
-                          no_log_ref, !DISABLE_MEMTABLE, &seq_used);
+                          no_log_ref, !DISABLE_MEMTABLE, &seq_used,
+                          do_one_write ? &update_commit_map : nullptr);
   assert(seq_used != kMaxSequenceNumber);
   if (!s.ok()) {
     return s;
   }
+  if (do_one_write) {
+    // TODO(myabandeh): what if max has already advanced rollback_seq?
+    // Mark the txn as rolled back
+    uint64_t& rollback_seq = seq_used;
+    wpt_db_->RollbackPrepared(GetId(), rollback_seq);
+    return s;
+  }  // else do the 2nd write for commit
   uint64_t& prepare_seq = seq_used;
   // Commit the batch by writing an empty batch to the queue that will release
   // the commit sequence number to readers.
-  WritePreparedCommitEntryPreReleaseCallback update_commit_map(
+  WritePreparedCommitEntryPreReleaseCallback update_commit_map_with_prepare(
       wpt_db_, db_impl_, prepare_seq);
   WriteBatch empty_batch;
   empty_batch.PutLogData(Slice());
@@ -241,7 +264,7 @@ Status WritePreparedTxn::RollbackInternal() {
   WriteBatchInternal::InsertNoop(&empty_batch);
   s = db_impl_->WriteImpl(write_options_, &empty_batch, nullptr, nullptr,
                           no_log_ref, DISABLE_MEMTABLE, &seq_used,
-                          &update_commit_map);
+                          &update_commit_map_with_prepare);
   assert(seq_used != kMaxSequenceNumber);
   // Mark the txn as rolled back
   uint64_t& rollback_seq = seq_used;
