@@ -114,6 +114,18 @@ void ReleaseCachedEntry(void* arg, void* h) {
   cache->Release(handle);
 }
 
+// Combination of ReleaseCachedEntry and DeleteHeldResource
+// Useful for cleaning up dummy entries in block cache to
+// track memory usage.
+template <class ResourceType>
+void ReleaseCachedEntryAndDeleteHeldResource(void* cache_arg, void* h,
+                                             void* resource_arg) {
+  Cache* cache = reinterpret_cast<Cache*>(cache_arg);
+  Cache::Handle* handle = reinterpret_cast<Cache::Handle*>(h);
+  cache->Release(handle);
+  delete reinterpret_cast<ResourceType*>(resource_arg);
+}
+
 Slice GetCacheKeyFromOffset(const char* cache_key_prefix,
                             size_t cache_key_prefix_size, uint64_t offset,
                             char* cache_key) {
@@ -1499,7 +1511,26 @@ InternalIterator* BlockBasedTable::NewDataBlockIterator(
     assert(block.value != nullptr);
     iter = block.value->NewIterator(&rep->internal_comparator, input_iter, true,
                                     rep->ioptions.statistics);
-    if (block.cache_handle != nullptr) {
+    if (!ro.fill_cache) {
+      // insert a dummy record to block cache to track the memory usage
+      Cache::Handle* cache_handle;
+      // Extra long prefix to differentiate from SST cache key and dummy cache
+      // key added in `write_buffer_manager`
+      const size_t kExtraCacheKeyPrefix = kMaxVarint64Length * 5 + 1;
+      char cache_key[kExtraCacheKeyPrefix + kMaxVarint64Length];
+      // TODO: make GetNextCacheKey thread safe
+      memset(cache_key, 0, kExtraCacheKeyPrefix + kMaxVarint64Length);
+      char* end =
+          EncodeVarint64(cache_key + kExtraCacheKeyPrefix, handle.offset());
+      Slice unique_key = Slice(cache_key, static_cast<size_t>(end - cache_key));
+      // TODO: confirm the size is correct here?
+      block_cache->Insert(unique_key, nullptr, block.value->size(),
+                          nullptr, &cache_handle);
+      // TODO: confirm the following if statement should be else if?
+      iter->RegisterCleanup(&ReleaseCachedEntryAndDeleteHeldResource<Block>,
+                            block_cache, cache_handle, block.value);
+    }
+    else if (block.cache_handle != nullptr) {
       iter->RegisterCleanup(&ReleaseCachedEntry, block_cache,
                             block.cache_handle);
     } else {
