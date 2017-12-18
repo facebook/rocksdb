@@ -567,7 +567,7 @@ ROCKS_TESTS = [
     [
         "db_merge_operator_test",
         "db/db_merge_operator_test.cc",
-        "serial",
+        "parallel",
     ],
     [
         "db_options_test",
@@ -1017,7 +1017,7 @@ ROCKS_TESTS = [
     [
         "write_prepared_transaction_test",
         "utilities/transactions/write_prepared_transaction_test.cc",
-        "serial",
+        "parallel",
     ],
 ]
 

@@ -504,6 +504,7 @@ PARALLEL_TEST = \
 	backupable_db_test \
 	db_compaction_filter_test \
 	db_compaction_test \
+	db_merge_operator_test \
 	db_sst_test \
 	db_test \
 	db_universal_compaction_test \
@@ -515,7 +516,7 @@ PARALLEL_TEST = \
 	persistent_cache_test \
 	table_test \
 	transaction_test \
-	write_prepared_transaction_test
+	write_prepared_transaction_test \
 
 SUBSET := $(TESTS)
 ifdef ROCKSDBTESTS_START
