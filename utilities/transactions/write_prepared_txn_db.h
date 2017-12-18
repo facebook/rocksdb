@@ -382,35 +382,44 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
  public:
   // includes_data indicates that the commit also writes non-empty
   // CommitTimeWriteBatch to memtable, which needs to be committed separately.
-  WritePreparedCommitEntryPreReleaseCallback(WritePreparedTxnDB* db,
-                                             DBImpl* db_impl,
-                                             SequenceNumber prep_seq,
-                                             bool includes_data = false)
+  WritePreparedCommitEntryPreReleaseCallback(
+      WritePreparedTxnDB* db, DBImpl* db_impl,
+      SequenceNumber prep_seq = kMaxSequenceNumber, bool includes_data = false)
       : db_(db),
         db_impl_(db_impl),
         prep_seq_(prep_seq),
         includes_data_(includes_data) {}
 
   virtual Status Callback(SequenceNumber commit_seq) {
-    db_->AddCommitted(prep_seq_, commit_seq);
+    assert(includes_data_ || prep_seq_ != kMaxSequenceNumber);
+    if (prep_seq_ != kMaxSequenceNumber) {
+      db_->AddCommitted(prep_seq_, commit_seq);
+    }  // else there was no prepare phase
     if (includes_data_) {
-      // Commit the data that is accompnaied with the commit marker
+      // Commit the data that is accompnaied with the commit request
       // TODO(myabandeh): skip AddPrepared
       db_->AddPrepared(commit_seq);
       db_->AddCommitted(commit_seq, commit_seq);
     }
-    // Publish the sequence number. We can do that here assuming the callback is
-    // invoked only from one write queue, which would guarantee that the publish
-    // sequence numbers will be in order, i.e., once a seq is published all the
-    // seq prior to that are also publishable.
-    db_impl_->SetLastPublishedSequence(commit_seq);
+    if (db_impl_->immutable_db_options().two_write_queues) {
+      // Publish the sequence number. We can do that here assuming the callback
+      // is invoked only from one write queue, which would guarantee that the
+      // publish sequence numbers will be in order, i.e., once a seq is
+      // published all the seq prior to that are also publishable.
+      db_impl_->SetLastPublishedSequence(commit_seq);
+    }
+    // else SequenceNumber that is updated as part of the write already does the
+    // publishing
     return Status::OK();
   }
 
  private:
   WritePreparedTxnDB* db_;
   DBImpl* db_impl_;
+  // kMaxSequenceNumber if there was no prepare phase
   SequenceNumber prep_seq_;
+  // Either because it is commit without prepare or it has a
+  // CommitTimeWriteBatch
   bool includes_data_;
 };
 
