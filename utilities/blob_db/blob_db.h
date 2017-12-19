@@ -56,8 +56,10 @@ struct BlobDBOptions {
   // will be inlined in base DB together with the key.
   uint64_t min_blob_size = 0;
 
-  // at what bytes will the blob files be synced to blob log.
-  uint64_t bytes_per_sync = 0;
+  // Allows OS to incrementally sync blob files to disk for every
+  // bytes_per_sync bytes written. Users shouldn't rely on it for
+  // persistency guarantee.
+  uint64_t bytes_per_sync = 512 * 1024;
 
   // the target size of each blob file. File will become immutable
   // after it exceeds that size
@@ -202,6 +204,8 @@ class BlobDB : public StackableDB {
                      BlobDB** blob_db);
 
   virtual BlobDBOptions GetBlobDBOptions() const = 0;
+
+  virtual Status SyncBlobFiles() = 0;
 
   virtual ~BlobDB() {}
 
