@@ -1737,6 +1737,12 @@ TEST_P(WritePreparedTransactionTest, Iterate) {
   delete transaction;
 }
 
+TEST_P(WritePreparedTransactionTest, IteratorRefreshNotSupported) {
+  Iterator* iter = db->NewIterator(ReadOptions());
+  ASSERT_TRUE(iter->Refresh().IsNotSupported());
+  delete iter;
+}
+
 // Test that updating the commit map will not affect the existing snapshots
 TEST_P(WritePreparedTransactionTest, AtomicCommit) {
   for (bool skip_prepare : {true, false}) {

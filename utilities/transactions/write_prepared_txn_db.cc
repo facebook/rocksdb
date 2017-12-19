@@ -110,6 +110,8 @@ static void CleanupWritePreparedTxnDBIterator(void* arg1, void* arg2) {
 
 Iterator* WritePreparedTxnDB::NewIterator(const ReadOptions& options,
                                           ColumnFamilyHandle* column_family) {
+  constexpr bool ALLOW_BLOB = true;
+  constexpr bool ALLOW_REFRESH = true;
   std::shared_ptr<ManagedSnapshot> own_snapshot = nullptr;
   SequenceNumber snapshot_seq = kMaxSequenceNumber;
   if (options.snapshot != nullptr) {
@@ -125,7 +127,8 @@ Iterator* WritePreparedTxnDB::NewIterator(const ReadOptions& options,
   auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
   auto* state = new IteratorState(this, snapshot_seq, own_snapshot);
   auto* db_iter =
-      db_impl_->NewIteratorImpl(options, cfd, snapshot_seq, &state->callback);
+      db_impl_->NewIteratorImpl(options, cfd, snapshot_seq, &state->callback,
+                                !ALLOW_BLOB, !ALLOW_REFRESH);
   db_iter->RegisterCleanup(CleanupWritePreparedTxnDBIterator, state, nullptr);
   return db_iter;
 }
@@ -134,6 +137,8 @@ Status WritePreparedTxnDB::NewIterators(
     const ReadOptions& options,
     const std::vector<ColumnFamilyHandle*>& column_families,
     std::vector<Iterator*>* iterators) {
+  constexpr bool ALLOW_BLOB = true;
+  constexpr bool ALLOW_REFRESH = true;
   std::shared_ptr<ManagedSnapshot> own_snapshot = nullptr;
   SequenceNumber snapshot_seq = kMaxSequenceNumber;
   if (options.snapshot != nullptr) {
@@ -151,7 +156,8 @@ Status WritePreparedTxnDB::NewIterators(
     auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
     auto* state = new IteratorState(this, snapshot_seq, own_snapshot);
     auto* db_iter =
-        db_impl_->NewIteratorImpl(options, cfd, snapshot_seq, &state->callback);
+        db_impl_->NewIteratorImpl(options, cfd, snapshot_seq, &state->callback,
+                                  !ALLOW_BLOB, !ALLOW_REFRESH);
     db_iter->RegisterCleanup(CleanupWritePreparedTxnDBIterator, state, nullptr);
     iterators->push_back(db_iter);
   }
