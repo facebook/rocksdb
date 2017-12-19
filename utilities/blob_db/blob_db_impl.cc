@@ -202,6 +202,7 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
   }
 
   ROCKS_LOG_INFO(db_options_.info_log, "BlobDB pointer %p", this);
+  bdb_options_.Dump(db_options_.info_log.get());
   return s;
 }
 
