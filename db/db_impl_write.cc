@@ -697,6 +697,7 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
   }
 
   if (UNLIKELY(status.ok() && !bg_error_.ok())) {
+    *need_log_sync = false;
     return bg_error_;
   }
 
