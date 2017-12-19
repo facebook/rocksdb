@@ -59,7 +59,7 @@ struct BlobDBOptions {
   // Allows OS to incrementally sync blob files to disk for every
   // bytes_per_sync bytes written. Users shouldn't rely on it for
   // persistency guarantee.
-  uint64_t bytes_per_sync = 512;
+  uint64_t bytes_per_sync = 512 * 1024;
 
   // the target size of each blob file. File will become immutable
   // after it exceeds that size
