@@ -126,8 +126,9 @@ Iterator* WritePreparedTxnDB::NewIterator(const ReadOptions& options,
   assert(snapshot_seq != kMaxSequenceNumber);
   auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
   auto* state = new IteratorState(this, snapshot_seq, own_snapshot);
-  auto* db_iter = db_impl_->NewIteratorImpl(
-      options, cfd, snapshot_seq, &state->callback, !ALLOW_BLOB, !ALLOW_REFRESH);
+  auto* db_iter =
+      db_impl_->NewIteratorImpl(options, cfd, snapshot_seq, &state->callback,
+                                !ALLOW_BLOB, !ALLOW_REFRESH);
   db_iter->RegisterCleanup(CleanupWritePreparedTxnDBIterator, state, nullptr);
   return db_iter;
 }
