@@ -287,8 +287,12 @@ bool WritePreparedTxnDB::IsInSnapshot(uint64_t prep_seq,
 
 void WritePreparedTxnDB::AddPrepared(uint64_t seq) {
   ROCKSDB_LOG_DETAILS(info_log_, "Txn %" PRIu64 " Prepareing", seq);
-  // TODO(myabandeh): Add a runtime check to ensure the following assert.
   assert(seq > max_evicted_seq_);
+  if (seq <= max_evicted_seq_) {
+    throw std::runtime_error(
+        "Added prepare_seq is larger than max_evicted_seq_: " + ToString(seq) +
+        " <= " + max_evicted_seq_.load());
+  }
   WriteLock wl(&prepared_mutex_);
   prepared_txns_.push(seq);
 }
