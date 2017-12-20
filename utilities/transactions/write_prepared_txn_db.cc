@@ -184,7 +184,6 @@ bool WritePreparedTxnDB::IsInSnapshot(uint64_t prep_seq,
                                       uint64_t snapshot_seq) const {
   // Here we try to infer the return value without looking into prepare list.
   // This would help avoiding synchronization over a shared map.
-  // TODO(myabandeh): read your own writes
   // TODO(myabandeh): optimize this. This sequence of checks must be correct but
   // not necessary efficient
   if (prep_seq == 0) {
