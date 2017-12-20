@@ -305,6 +305,9 @@ LDFLAGS += $(LUA_LIB)
 
 endif
 
+ifeq ($(NO_THREEWAY_CRC32C), 1)
+	CXXFLAGS += -DNO_THREEWAY_CRC32C
+endif
 
 CFLAGS += $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CCFLAGS) $(OPT)
 CXXFLAGS += $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CXXFLAGS) $(OPT) -Woverloaded-virtual -Wnon-virtual-dtor -Wno-missing-field-initializers
