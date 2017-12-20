@@ -333,7 +333,10 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // commit_cache_ must be initialized to zero to tell apart an empty index from
   // a filled one. Thread-safety is provided with commit_cache_mutex_.
   unique_ptr<std::atomic<CommitEntry64b>[]> commit_cache_;
-  // The largest evicted *commit* sequence number from the commit_cache_
+  // The largest evicted *commit* sequence number from the commit_cache_. If a
+  // seq is smaller than max_evicted_seq_ is might or might not be present in
+  // commit_cache_. So commit_cache_ must first be checked before consulting with
+  // max_evicted_seq_.
   std::atomic<uint64_t> max_evicted_seq_ = {};
   // Advance max_evicted_seq_ by this value each time it needs an update. The
   // larger the value, the less frequent advances we would have. We do not want

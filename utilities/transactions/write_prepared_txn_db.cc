@@ -230,6 +230,7 @@ bool WritePreparedTxnDB::IsInSnapshot(uint64_t prep_seq,
 
   // At this point we dont know if it was committed or it is still prepared
   auto max_evicted_seq = max_evicted_seq_.load(std::memory_order_acquire);
+  // max_evicted_seq_ when we did GetCommitEntry <= max_evicted_seq now
   if (max_evicted_seq < prep_seq) {
     // Not evicted from cache and also not present, so must be still prepared
     ROCKSDB_LOG_DETAILS(
