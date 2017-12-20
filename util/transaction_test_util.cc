@@ -77,8 +77,9 @@ Status RandomTransactionInserter::DBGet(
     uint64_t ikey, bool get_for_update, uint64_t* int_value,
     std::string* full_key, bool* unexpected_error) {
   Status s;
-  // four digits and zero end char
-  char prefix_buf[5];
+  // Five digits (since the largest uint16_t is 65535) plus the NUL
+  // end char.
+  char prefix_buf[6];
   // Pad prefix appropriately so we can iterate over each set
   assert(set_i + 1 <= 9999);
   snprintf(prefix_buf, sizeof(prefix_buf), "%.4u", set_i + 1);
@@ -262,8 +263,9 @@ Status RandomTransactionInserter::Verify(DB* db, uint16_t num_sets,
   }
   // For each set of keys with the same prefix, sum all the values
   for (uint16_t set_i : set_vec) {
-    // four digits and zero end char
-    char prefix_buf[5];
+    // Five digits (since the largest uint16_t is 65535) plus the NUL
+    // end char.
+    char prefix_buf[6];
     assert(set_i + 1 <= 9999);
     snprintf(prefix_buf, sizeof(prefix_buf), "%.4u", set_i + 1);
     uint64_t total = 0;
