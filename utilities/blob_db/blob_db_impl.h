@@ -158,9 +158,6 @@ class BlobDBImpl : public BlobDB {
   // if 50% of the space of a blob file has been deleted/expired,
   static constexpr uint32_t kPartialExpirationPercentage = 75;
 
-  // how often should we schedule a job to fsync open files
-  static constexpr uint32_t kFSyncFilesPeriodMillisecs = 10 * 1000;
-
   // how often to schedule reclaim open files.
   static constexpr uint32_t kReclaimOpenFilesPeriodMillisecs = 1 * 1000;
 
@@ -228,7 +225,7 @@ class BlobDBImpl : public BlobDB {
 
   Status Open(std::vector<ColumnFamilyHandle*>* handles);
 
-  Status SyncBlobFiles();
+  Status SyncBlobFiles() override;
 
 #ifndef NDEBUG
   Status TEST_GetBlobValue(const Slice& key, const Slice& index_entry,
@@ -312,9 +309,6 @@ class BlobDBImpl : public BlobDB {
 
   // Major task to garbage collect expired and deleted blobs
   std::pair<bool, int64_t> RunGC(bool aborted);
-
-  // asynchronous task to fsync/fdatasync the open blob files
-  std::pair<bool, int64_t> FsyncFiles(bool aborted);
 
   // periodically check if open blob files and their TTL's has expired
   // if expired, close the sequential writer and make the file immutable
@@ -419,8 +413,6 @@ class BlobDBImpl : public BlobDB {
 
   // pointer to directory
   std::unique_ptr<Directory> dir_ent_;
-
-  std::atomic<bool> dir_change_;
 
   // Read Write Mutex, which protects all the data structures
   // HEAVILY TRAFFICKED
