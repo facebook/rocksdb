@@ -20,6 +20,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/transaction_db.h"
+#include "util/string_util.h"
 #include "utilities/transactions/pessimistic_transaction.h"
 #include "utilities/transactions/pessimistic_transaction_db.h"
 #include "utilities/transactions/transaction_lock_mgr.h"
@@ -121,7 +122,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
         : INDEX_BITS(index_bits),
           PREP_BITS(static_cast<size_t>(64 - PAD_BITS - INDEX_BITS)),
           COMMIT_BITS(static_cast<size_t>(64 - PREP_BITS)),
-          COMMIT_FILTER(static_cast<uint64_t>((1ull << COMMIT_BITS) - 1)) {}
+          COMMIT_FILTER(static_cast<uint64_t>((1ull << COMMIT_BITS) - 1)),
+          DELTA_UPPERBOUND(static_cast<uint64_t>((1ull << COMMIT_BITS))) {}
     // Number of higher bits of a sequence number that is not used. They are
     // used to encode the value type, ...
     const size_t PAD_BITS = static_cast<size_t>(8);
@@ -134,6 +136,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
     const size_t COMMIT_BITS;
     // Filter to encode/decode commit seq
     const uint64_t COMMIT_FILTER;
+    // The value of commit_seq - prepare_seq + 1 must be less than this bound
+    const uint64_t DELTA_UPPERBOUND;
   };
 
   // Prepare Seq (64 bits) = PAD ... PAD PREP PREP ... PREP INDEX INDEX ...
@@ -158,7 +162,13 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       uint64_t delta = cs - ps + 1;  // make initialized delta always >= 1
       // zero is reserved for uninitialized entries
       assert(0 < delta);
-      assert(delta < static_cast<uint64_t>((1ull << format.COMMIT_BITS)));
+      assert(delta < format.DELTA_UPPERBOUND);
+      if (delta >= format.DELTA_UPPERBOUND) {
+        throw std::runtime_error(
+            "commit_seq >> prepare_seq. The allowed distance is " +
+            ToString(format.DELTA_UPPERBOUND) + " commit_seq is " +
+            ToString(cs) + " prepare_seq is " + ToString(ps));
+      }
       rep_ = (ps << format.PAD_BITS) & ~format.COMMIT_FILTER;
       rep_ = rep_ | delta;
     }
