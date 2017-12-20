@@ -327,8 +327,8 @@ void WritePreparedTxnDB::RollbackPrepared(uint64_t prep_seq,
   }
 }
 
-void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq,
-                                      uint64_t commit_seq, uint8_t loop_cnt) {
+void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq, uint64_t commit_seq,
+                                      bool prepare_skipped, uint8_t loop_cnt) {
   ROCKSDB_LOG_DETAILS(info_log_, "Txn %" PRIu64 " Committing with %" PRIu64,
                       prepare_seq, commit_seq);
   TEST_SYNC_POINT("WritePreparedTxnDB::AddCommitted:start");
@@ -359,10 +359,10 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq,
     if (loop_cnt > 100) {
       throw std::runtime_error("Infinite loop in AddCommitted!");
     }
-    AddCommitted(prepare_seq, commit_seq, ++loop_cnt);
+    AddCommitted(prepare_seq, commit_seq, prepare_skipped, ++loop_cnt);
     return;
   }
-  {
+  if (!prepare_skipped) {
     WriteLock wl(&prepared_mutex_);
     prepared_txns_.erase(prepare_seq);
     bool was_empty = delayed_prepared_.empty();

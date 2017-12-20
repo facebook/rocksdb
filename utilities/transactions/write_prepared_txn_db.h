@@ -103,9 +103,10 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // be used to idenitfy the snapshots that overlap with the rolled back txn.
   void RollbackPrepared(uint64_t prep_seq, uint64_t rollback_seq);
   // Add the transaction with prepare sequence prepare_seq and commit sequence
-  // commit_seq to the commit map. loop_cnt is to detect infinite loops.
+  // commit_seq to the commit map. prepare_skipped is set if the prpeare phase
+  // is skipped for this commit. loop_cnt is to detect infinite loops.
   void AddCommitted(uint64_t prepare_seq, uint64_t commit_seq,
-                    uint8_t loop_cnt = 0);
+                    bool prepare_skipped = false, uint8_t loop_cnt = 0);
 
   struct CommitEntry {
     uint64_t prep_seq;
@@ -411,9 +412,8 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
     }  // else there was no prepare phase
     if (includes_data_) {
       // Commit the data that is accompnaied with the commit request
-      // TODO(myabandeh): skip AddPrepared
-      db_->AddPrepared(commit_seq);
-      db_->AddCommitted(commit_seq, commit_seq);
+      const bool PREPARE_SKIPPED = true;
+      db_->AddCommitted(commit_seq, commit_seq, PREPARE_SKIPPED);
     }
     if (db_impl_->immutable_db_options().two_write_queues) {
       // Publish the sequence number. We can do that here assuming the callback

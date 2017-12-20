@@ -78,6 +78,9 @@ Status WritePreparedTxn::PrepareInternal() {
   assert(seq_used != kMaxSequenceNumber);
   auto prepare_seq = seq_used;
   SetId(prepare_seq);
+  // TODO(myabandeh): AddPrepared better to be called in the pre-release
+  // callback otherwise there is a non-zero chance of max dvancing prepare_seq
+  // and readers assume the data as committed.
   wpt_db_->AddPrepared(prepare_seq);
   return s;
 }
@@ -106,13 +109,19 @@ Status WritePreparedTxn::CommitBatchInternal(WriteBatch* batch) {
                                no_log_ref, !DISABLE_MEMTABLE, &seq_used,
                                do_one_write ? &update_commit_map : nullptr);
   assert(seq_used != kMaxSequenceNumber);
+  uint64_t& prepare_seq = seq_used;
+  SetId(prepare_seq);
   if (!s.ok()) {
     return s;
   }
   if (do_one_write) {
     return s;
   }  // else do the 2nd write for commit
-  uint64_t& prepare_seq = seq_used;
+  // Note: we skip AddPrepared here. This could be further optimized by skip
+  // erasing prepare_seq from prepared_txn_ in the following callback.
+  // TODO(myabandeh): What if max advances the prepare_seq_ in the meanwhile and
+  // readers assume the prepared data as committed? Almost zero probability.
+  
   // Commit the batch by writing an empty batch to the 2nd queue that will
   // release the commit sequence number to readers.
   WritePreparedCommitEntryPreReleaseCallback update_commit_map_with_prepare(
