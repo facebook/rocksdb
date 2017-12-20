@@ -111,7 +111,6 @@ BlobDBImpl::BlobDBImpl(const std::string& dbname,
       cf_options_(cf_options),
       env_options_(db_options),
       statistics_(db_options_.statistics.get()),
-      dir_change_(false),
       next_file_number_(1),
       epoch_of_(0),
       shutdown_(false),
@@ -124,6 +123,7 @@ BlobDBImpl::BlobDBImpl(const std::string& dbname,
   blob_dir_ = (bdb_options_.path_relative)
                   ? dbname + "/" + bdb_options_.blob_dir
                   : bdb_options_.blob_dir;
+  env_options_.bytes_per_sync = blob_db_options.bytes_per_sync;
 }
 
 BlobDBImpl::~BlobDBImpl() {
@@ -225,8 +225,6 @@ void BlobDBImpl::StartBackgroundTasks() {
       std::bind(&BlobDBImpl::DeleteObsoleteFiles, this, std::placeholders::_1));
   tqueue_.add(kSanityCheckPeriodMillisecs,
               std::bind(&BlobDBImpl::SanityCheck, this, std::placeholders::_1));
-  tqueue_.add(kFSyncFilesPeriodMillisecs,
-              std::bind(&BlobDBImpl::FsyncFiles, this, std::placeholders::_1));
   tqueue_.add(
       kCheckSeqFilesPeriodMillisecs,
       std::bind(&BlobDBImpl::CheckSeqFiles, this, std::placeholders::_1));
@@ -472,7 +470,6 @@ std::shared_ptr<BlobFile> BlobDBImpl::SelectBlobFile() {
     return nullptr;
   }
 
-  dir_change_.store(true);
   blob_files_.insert(std::make_pair(bfile->BlobFileNumber(), bfile));
   open_non_ttl_file_ = bfile;
   return bfile;
@@ -547,7 +544,6 @@ std::shared_ptr<BlobFile> BlobDBImpl::SelectBlobFileTTL(uint64_t expiration) {
     return nullptr;
   }
 
-  dir_change_.store(true);
   blob_files_.insert(std::make_pair(bfile->BlobFileNumber(), bfile));
   open_ttl_files_.insert(bfile);
   epoch_of_++;
@@ -1434,14 +1430,6 @@ std::pair<bool, int64_t> BlobDBImpl::CheckSeqFiles(bool aborted) {
   return std::make_pair(true, -1);
 }
 
-std::pair<bool, int64_t> BlobDBImpl::FsyncFiles(bool aborted) {
-  if (aborted || shutdown_) {
-    return std::make_pair(false, -1);
-  }
-  SyncBlobFiles();
-  return std::make_pair(true, -1);
-}
-
 Status BlobDBImpl::SyncBlobFiles() {
   MutexLock l(&write_mutex_);
 
@@ -1449,35 +1437,30 @@ Status BlobDBImpl::SyncBlobFiles() {
   {
     ReadLock rl(&mutex_);
     for (auto fitr : open_ttl_files_) {
-      if (fitr->NeedsFsync(true, bdb_options_.bytes_per_sync))
-        process_files.push_back(fitr);
+      process_files.push_back(fitr);
     }
-
-    if (open_non_ttl_file_ != nullptr &&
-        open_non_ttl_file_->NeedsFsync(true, bdb_options_.bytes_per_sync)) {
+    if (open_non_ttl_file_ != nullptr) {
       process_files.push_back(open_non_ttl_file_);
     }
   }
 
   Status s;
-
   for (auto& blob_file : process_files) {
-    if (blob_file->NeedsFsync(true, bdb_options_.bytes_per_sync)) {
-      s = blob_file->Fsync();
-      if (!s.ok()) {
-        ROCKS_LOG_ERROR(db_options_.info_log,
-                        "Failed to sync blob file %" PRIu64 ", status: %s",
-                        blob_file->BlobFileNumber(), s.ToString().c_str());
-        return s;
-      }
+    s = blob_file->Fsync();
+    if (!s.ok()) {
+      ROCKS_LOG_ERROR(db_options_.info_log,
+                      "Failed to sync blob file %" PRIu64 ", status: %s",
+                      blob_file->BlobFileNumber(), s.ToString().c_str());
+      return s;
     }
   }
 
-  bool expected = true;
-  if (dir_change_.compare_exchange_weak(expected, false)) {
-    s = dir_ent_->Fsync();
+  s = dir_ent_->Fsync();
+  if (!s.ok()) {
+    ROCKS_LOG_ERROR(db_options_.info_log,
+                    "Failed to sync blob directory, status: %s",
+                    s.ToString().c_str());
   }
-
   return s;
 }
 
@@ -1732,7 +1715,6 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
 
       WriteLock wl(&mutex_);
 
-      dir_change_.store(true);
       blob_files_.insert(std::make_pair(newfile->BlobFileNumber(), newfile));
     }
 
