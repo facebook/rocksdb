@@ -102,8 +102,9 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // be used to idenitfy the snapshots that overlap with the rolled back txn.
   void RollbackPrepared(uint64_t prep_seq, uint64_t rollback_seq);
   // Add the transaction with prepare sequence prepare_seq and commit sequence
-  // commit_seq to the commit map
-  void AddCommitted(uint64_t prepare_seq, uint64_t commit_seq);
+  // commit_seq to the commit map. loop_cnt is to detect infinite loops.
+  void AddCommitted(uint64_t prepare_seq, uint64_t commit_seq,
+                    uint8_t loop_cnt = 0);
 
   struct CommitEntry {
     uint64_t prep_seq;

@@ -22,6 +22,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "util/mutexlock.h"
+#include "util/string_util.h"
 #include "util/sync_point.h"
 #include "utilities/transactions/pessimistic_transaction.h"
 #include "utilities/transactions/transaction_db_mutex_impl.h"
@@ -291,7 +292,7 @@ void WritePreparedTxnDB::AddPrepared(uint64_t seq) {
   if (seq <= max_evicted_seq_) {
     throw std::runtime_error(
         "Added prepare_seq is larger than max_evicted_seq_: " + ToString(seq) +
-        " <= " + max_evicted_seq_.load());
+        " <= " + ToString(max_evicted_seq_.load()));
   }
   WriteLock wl(&prepared_mutex_);
   prepared_txns_.push(seq);
@@ -326,7 +327,7 @@ void WritePreparedTxnDB::RollbackPrepared(uint64_t prep_seq,
 }
 
 void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq,
-                                      uint64_t commit_seq) {
+                                      uint64_t commit_seq, uint8_t loop_cnt) {
   ROCKSDB_LOG_DETAILS(info_log_, "Txn %" PRIu64 " Committing with %" PRIu64,
                       prepare_seq, commit_seq);
   TEST_SYNC_POINT("WritePreparedTxnDB::AddCommitted:start");
@@ -354,8 +355,10 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq,
   if (!succ) {
     // A very rare event, in which the commit entry is updated before we do.
     // Here we apply a very simple solution of retrying.
-    // TODO(myabandeh): do precautions to detect bugs that cause infinite loops
-    AddCommitted(prepare_seq, commit_seq);
+    if (loop_cnt > 100) {
+      throw std::runtime_error("Infinite loop in AddCommitted!");
+    }
+    AddCommitted(prepare_seq, commit_seq, ++loop_cnt);
     return;
   }
   {
