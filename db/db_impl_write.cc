@@ -697,7 +697,7 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
   }
 
   if (UNLIKELY(status.ok() && !bg_error_.ok())) {
-    return bg_error_;
+    status = bg_error_;
   }
 
   if (UNLIKELY(status.ok() && !flush_scheduler_.Empty())) {
