@@ -168,7 +168,7 @@ void WritePreparedTxnDB::Init(const TransactionDBOptions& /* unused */) {
   // Adcance max_evicted_seq_ no more than 100 times before the cache wraps
   // around.
   INC_STEP_FOR_MAX_EVICTED =
-      std::max(SNAPSHOT_CACHE_SIZE / 100, static_cast<size_t>(1));
+      std::max(COMMIT_CACHE_SIZE / 100, static_cast<size_t>(1));
   snapshot_cache_ = unique_ptr<std::atomic<SequenceNumber>[]>(
       new std::atomic<SequenceNumber>[SNAPSHOT_CACHE_SIZE] {});
   commit_cache_ = unique_ptr<std::atomic<CommitEntry64b>[]>(
