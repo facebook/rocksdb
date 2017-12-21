@@ -43,6 +43,10 @@ class DBWithTTLImpl : public DBWithTTL {
                             const std::string& column_family_name,
                             ColumnFamilyHandle** handle) override;
 
+  Status PutWithExpiration(const WriteOptions& options,
+                     ColumnFamilyHandle* column_family, const Slice& key,
+                     const Slice& val, int32_t exptime);
+
   using StackableDB::Put;
   virtual Status Put(const WriteOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
@@ -66,11 +70,17 @@ class DBWithTTLImpl : public DBWithTTL {
                            std::string* value,
                            bool* value_found = nullptr) override;
 
+  Status MergeWithExpiration(const WriteOptions& options,
+                       ColumnFamilyHandle* column_family, const Slice& key,
+                       const Slice& value, int32_t exptime);
+
   using StackableDB::Merge;
   virtual Status Merge(const WriteOptions& options,
                        ColumnFamilyHandle* column_family, const Slice& key,
                        const Slice& value) override;
 
+  Status WriteWithExpiration(const WriteOptions& opts, WriteBatch* updates,
+			     int32_t expiration_time);
   virtual Status Write(const WriteOptions& opts, WriteBatch* updates) override;
 
   using StackableDB::NewIterator;
@@ -81,7 +91,8 @@ class DBWithTTLImpl : public DBWithTTL {
 
   static bool IsStale(const Slice& value, int32_t ttl, Env* env);
 
-  static Status AppendTS(const Slice& val, std::string* val_with_ts, Env* env);
+  static Status AppendExpiration(const Slice& val, std::string* val_with_ts,
+				 Env* env, int32_t exptime);
 
   static Status SanityCheckTimestamp(const Slice& str);
 
