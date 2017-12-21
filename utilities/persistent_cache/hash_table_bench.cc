@@ -15,11 +15,14 @@ int main() { fprintf(stderr, "Please install gflags to run tools\n"); }
 #include <functional>
 #include <string>
 #include <unordered_map>
+#include <unistd.h>
+#include <sys/time.h>
 
 #include "port/port_posix.h"
 #include "rocksdb/env.h"
 #include "util/gflags_compat.h"
 #include "util/mutexlock.h"
+#include "util/random.h"
 #include "utilities/persistent_cache/hash_table.h"
 
 using std::string;

@@ -301,6 +301,7 @@ struct BlockBasedTableBuilder::Rep {
         compression_type(_compression_type),
         compression_opts(_compression_opts),
         compression_dict(_compression_dict),
+        compressed_cache_key_prefix_size(0),
         flush_block_policy(
             table_options.flush_block_policy_factory->NewFlushBlockPolicy(
                 table_options, data_block)),
@@ -526,11 +527,11 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
     RecordTick(r->ioptions.statistics, NUMBER_BLOCK_NOT_COMPRESSED);
     type = kNoCompression;
     block_contents = raw_block_contents;
-  } else if (type != kNoCompression &&
-             ShouldReportDetailedTime(r->ioptions.env,
-                                      r->ioptions.statistics)) {
-    MeasureTime(r->ioptions.statistics, COMPRESSION_TIMES_NANOS,
-                timer.ElapsedNanos());
+  } else if (type != kNoCompression) {
+    if (ShouldReportDetailedTime(r->ioptions.env, r->ioptions.statistics)) {
+      MeasureTime(r->ioptions.statistics, COMPRESSION_TIMES_NANOS,
+                  timer.ElapsedNanos());
+    }
     MeasureTime(r->ioptions.statistics, BYTES_COMPRESSED,
                 raw_block_contents.size());
     RecordTick(r->ioptions.statistics, NUMBER_BLOCK_COMPRESSED);

@@ -90,6 +90,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       const std::vector<ColumnFamilyHandle*>& column_families,
       std::vector<Iterator*>* iterators) override;
 
+  virtual void ReleaseSnapshot(const Snapshot* snapshot) override;
+
   // Check whether the transaction that wrote the value with seqeunce number seq
   // is visible to the snapshot with sequence number snapshot_seq
   bool IsInSnapshot(uint64_t seq, uint64_t snapshot_seq) const;
@@ -198,6 +200,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   friend class WritePreparedTransactionTest_AdvanceMaxEvictedSeqBasicTest_Test;
   friend class WritePreparedTransactionTest_BasicRecoveryTest_Test;
   friend class WritePreparedTransactionTest_IsInSnapshotEmptyMapTest_Test;
+  friend class WritePreparedTransactionTest_OldCommitMapGC_Test;
   friend class WritePreparedTransactionTest_RollbackTest_Test;
 
   void Init(const TransactionDBOptions& /* unused */);
@@ -269,6 +272,10 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   virtual const std::vector<SequenceNumber> GetSnapshotListFromDB(
       SequenceNumber max);
 
+  // Will be called by the public ReleaseSnapshot method. Does the maintenance
+  // internal to WritePreparedTxnDB
+  void ReleaseSnapshotInternal(const SequenceNumber snap_seq);
+
   // Update the list of snapshots corresponding to the soon-to-be-updated
   // max_eviceted_seq_. Thread-safety: this function can be called concurrently.
   // The concurrent invocations of this function is equivalent to a serial
@@ -287,9 +294,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
 
   // Add a new entry to old_commit_map_ if prep_seq <= snapshot_seq <
   // commit_seq. Return false if checking the next snapshot(s) is not needed.
-  // This is the case if the entry already added to old_commit_map_ or none of
-  // the next snapshots could satisfy the condition. next_is_larger: the next
-  // snapshot will be a larger value
+  // This is the case if none of the next snapshots could satisfy the condition.
+  // next_is_larger: the next snapshot will be a larger value
   bool MaybeUpdateOldCommitMap(const uint64_t& prep_seq,
                                const uint64_t& commit_seq,
                                const uint64_t& snapshot_seq,
@@ -333,10 +339,14 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // it to be too large either as it would cause stalls by doing too much
   // maintenance work under the lock.
   size_t INC_STEP_FOR_MAX_EVICTED = 1;
-  // A map of the evicted entries from commit_cache_ that has to be kept around
-  // to service the old snapshots. This is expected to be empty normally.
+  // A map from old snapshots (expected to be used by a few read-only txns) to
+  // prpared sequence number of the evicted entries from commit_cache_ that
+  // overlaps with such snapshot. These are the prepared sequence numbers that
+  // the snapshot, to which they are mapped, cannot assume to be committed just
+  // because it is no longer in the commit_cache_. The vector must be sorted
+  // after each update.
   // Thread-safety is provided with old_commit_map_mutex_.
-  std::map<uint64_t, uint64_t> old_commit_map_;
+  std::map<SequenceNumber, std::vector<SequenceNumber>> old_commit_map_;
   // A set of long-running prepared transactions that are not finished by the
   // time max_evicted_seq_ advances their sequence number. This is expected to
   // be empty normally. Thread-safety is provided with prepared_mutex_.
@@ -372,35 +382,44 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
  public:
   // includes_data indicates that the commit also writes non-empty
   // CommitTimeWriteBatch to memtable, which needs to be committed separately.
-  WritePreparedCommitEntryPreReleaseCallback(WritePreparedTxnDB* db,
-                                             DBImpl* db_impl,
-                                             SequenceNumber prep_seq,
-                                             bool includes_data = false)
+  WritePreparedCommitEntryPreReleaseCallback(
+      WritePreparedTxnDB* db, DBImpl* db_impl,
+      SequenceNumber prep_seq = kMaxSequenceNumber, bool includes_data = false)
       : db_(db),
         db_impl_(db_impl),
         prep_seq_(prep_seq),
         includes_data_(includes_data) {}
 
   virtual Status Callback(SequenceNumber commit_seq) {
-    db_->AddCommitted(prep_seq_, commit_seq);
+    assert(includes_data_ || prep_seq_ != kMaxSequenceNumber);
+    if (prep_seq_ != kMaxSequenceNumber) {
+      db_->AddCommitted(prep_seq_, commit_seq);
+    }  // else there was no prepare phase
     if (includes_data_) {
-      // Commit the data that is accompnaied with the commit marker
+      // Commit the data that is accompnaied with the commit request
       // TODO(myabandeh): skip AddPrepared
       db_->AddPrepared(commit_seq);
       db_->AddCommitted(commit_seq, commit_seq);
     }
-    // Publish the sequence number. We can do that here assuming the callback is
-    // invoked only from one write queue, which would guarantee that the publish
-    // sequence numbers will be in order, i.e., once a seq is published all the
-    // seq prior to that are also publishable.
-    db_impl_->SetLastPublishedSequence(commit_seq);
+    if (db_impl_->immutable_db_options().two_write_queues) {
+      // Publish the sequence number. We can do that here assuming the callback
+      // is invoked only from one write queue, which would guarantee that the
+      // publish sequence numbers will be in order, i.e., once a seq is
+      // published all the seq prior to that are also publishable.
+      db_impl_->SetLastPublishedSequence(commit_seq);
+    }
+    // else SequenceNumber that is updated as part of the write already does the
+    // publishing
     return Status::OK();
   }
 
  private:
   WritePreparedTxnDB* db_;
   DBImpl* db_impl_;
+  // kMaxSequenceNumber if there was no prepare phase
   SequenceNumber prep_seq_;
+  // Either because it is commit without prepare or it has a
+  // CommitTimeWriteBatch
   bool includes_data_;
 };
 

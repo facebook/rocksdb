@@ -254,11 +254,25 @@ void* ThreadPoolImpl::Impl::BGThreadWrapper(void* arg) {
   size_t thread_id = meta->thread_id_;
   ThreadPoolImpl::Impl* tp = meta->thread_pool_;
 #ifdef ROCKSDB_USING_THREAD_STATUS
-  // for thread-status
-  ThreadStatusUtil::RegisterThread(
-      tp->GetHostEnv(), (tp->GetThreadPriority() == Env::Priority::HIGH
-                             ? ThreadStatus::HIGH_PRIORITY
-                             : ThreadStatus::LOW_PRIORITY));
+  // initialize it because compiler isn't good enough to see we don't use it
+  // uninitialized
+  ThreadStatus::ThreadType thread_type = ThreadStatus::NUM_THREAD_TYPES;
+  switch (tp->GetThreadPriority()) {
+    case Env::Priority::HIGH:
+      thread_type = ThreadStatus::HIGH_PRIORITY;
+      break;
+    case Env::Priority::LOW:
+      thread_type = ThreadStatus::LOW_PRIORITY;
+      break;
+    case Env::Priority::BOTTOM:
+      thread_type = ThreadStatus::BOTTOM_PRIORITY;
+      break;
+    case Env::Priority::TOTAL:
+      assert(false);
+      return nullptr;
+  }
+  assert(thread_type != ThreadStatus::NUM_THREAD_TYPES);
+  ThreadStatusUtil::RegisterThread(tp->GetHostEnv(), thread_type);
 #endif
   delete meta;
   tp->BGThread(thread_id);

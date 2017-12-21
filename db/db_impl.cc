@@ -106,7 +106,8 @@ CompressionType GetCompressionFlush(
   // optimization is used for leveled compaction. Otherwise the CPU and
   // latency overhead is not offset by saving much space.
   if (ioptions.compaction_style == kCompactionStyleUniversal) {
-    if (ioptions.compaction_options_universal.compression_size_percent < 0) {
+    if (mutable_cf_options.compaction_options_universal
+            .compression_size_percent < 0) {
       return mutable_cf_options.compression;
     } else {
       return kNoCompression;
@@ -1509,7 +1510,8 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(const ReadOptions& read_options,
                                             ColumnFamilyData* cfd,
                                             SequenceNumber snapshot,
                                             ReadCallback* read_callback,
-                                            bool allow_blob) {
+                                            bool allow_blob,
+                                            bool allow_refresh) {
   SuperVersion* sv = cfd->GetReferencedSuperVersion(&mutex_);
 
   // Try to generate a DB iterator tree in continuous memory area to be
@@ -1558,7 +1560,8 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(const ReadOptions& read_options,
       env_, read_options, *cfd->ioptions(), snapshot,
       sv->mutable_cf_options.max_sequential_skip_in_iterations,
       sv->version_number, read_callback,
-      ((read_options.snapshot != nullptr) ? nullptr : this), cfd, allow_blob);
+      ((read_options.snapshot != nullptr) ? nullptr : this), cfd, allow_blob,
+      allow_refresh);
 
   InternalIterator* internal_iter =
       NewInternalIterator(read_options, cfd, sv, db_iter->GetArena(),
@@ -1679,12 +1682,6 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
     }
   }
   delete casted_s;
-}
-
-bool DBImpl::HasActiveSnapshotInRange(SequenceNumber lower_bound,
-                                      SequenceNumber upper_bound) {
-  InstrumentedMutexLock l(&mutex_);
-  return snapshots_.HasSnapshotInRange(lower_bound, upper_bound);
 }
 
 #ifndef ROCKSDB_LITE
@@ -2163,25 +2160,19 @@ Status DBImpl::DeleteFilesInRange(ColumnFamilyHandle* column_family,
         end_key = &end_storage;
       }
 
-      vstorage->GetOverlappingInputs(i, begin_key, end_key, &level_files, -1,
-                                     nullptr, false);
+      vstorage->GetCleanInputsWithinInterval(i, begin_key, end_key,
+                                             &level_files, -1 /* hint_index */,
+                                             nullptr /* file_index */);
       FileMetaData* level_file;
       for (uint32_t j = 0; j < level_files.size(); j++) {
         level_file = level_files[j];
-        if (((begin == nullptr) ||
-             (cfd->internal_comparator().user_comparator()->Compare(
-                  level_file->smallest.user_key(), *begin) >= 0)) &&
-            ((end == nullptr) ||
-             (cfd->internal_comparator().user_comparator()->Compare(
-                  level_file->largest.user_key(), *end) <= 0))) {
-          if (level_file->being_compacted) {
-            continue;
-          }
-          edit.SetColumnFamily(cfd->GetID());
-          edit.DeleteFile(i, level_file->fd.GetNumber());
-          deleted_files.push_back(level_file);
-          level_file->being_compacted = true;
+        if (level_file->being_compacted) {
+          continue;
         }
+        edit.SetColumnFamily(cfd->GetID());
+        edit.DeleteFile(i, level_file->fd.GetNumber());
+        deleted_files.push_back(level_file);
+        level_file->being_compacted = true;
       }
     }
     if (edit.GetDeletedFiles().empty()) {

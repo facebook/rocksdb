@@ -148,7 +148,8 @@ class DBImpl : public DB {
                                       ColumnFamilyData* cfd,
                                       SequenceNumber snapshot,
                                       ReadCallback* read_callback,
-                                      bool allow_blob = false);
+                                      bool allow_blob = false,
+                                      bool allow_refresh = true);
 
   virtual const Snapshot* GetSnapshot() override;
   virtual void ReleaseSnapshot(const Snapshot* snapshot) override;
@@ -228,10 +229,6 @@ class DBImpl : public DB {
   SequenceNumber TEST_GetLastVisibleSequence() const;
 
   virtual bool SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) override;
-
-  // Whether there is an active snapshot in range [lower_bound, upper_bound).
-  bool HasActiveSnapshotInRange(SequenceNumber lower_bound,
-                                SequenceNumber upper_bound);
 
 #ifndef ROCKSDB_LITE
   using DB::ResetStats;

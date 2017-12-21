@@ -102,6 +102,7 @@ class FilePicker {
 #endif
         level_files_brief_(file_levels),
         is_hit_file_last_in_level_(false),
+        curr_file_level_(nullptr),
         user_key_(user_key),
         ikey_(ikey),
         file_indexer_(file_indexer),
@@ -979,10 +980,12 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       storage_info_.num_non_empty_levels_, &storage_info_.file_indexer_,
       user_comparator(), internal_comparator());
   FdWithKeyRange* f = fp.GetNextFile();
+
   while (f != nullptr) {
     if (get_context.sample()) {
       sample_file_read_inc(f->file_metadata);
     }
+
     *status = table_cache_->Get(
         read_options, *internal_comparator(), f->fd, ikey, &get_context,
         cfd_->internal_stats()->GetFileReadHist(fp.GetHitFileLevel()),
@@ -994,9 +997,20 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       return;
     }
 
+    // report the counters before returning
+    if (get_context.State() != GetContext::kNotFound &&
+        get_context.State() != GetContext::kMerge) {
+      for (uint32_t t = 0; t < Tickers::TICKER_ENUM_MAX; t++) {
+        if (get_context.tickers_value[t] > 0) {
+          RecordTick(db_statistics_, t, get_context.tickers_value[t]);
+        }
+      }
+    }
     switch (get_context.State()) {
       case GetContext::kNotFound:
         // Keep searching in other files
+        break;
+      case GetContext::kMerge:
         break;
       case GetContext::kFound:
         if (fp.GetHitFileLevel() == 0) {
@@ -1014,8 +1028,6 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       case GetContext::kCorrupt:
         *status = Status::Corruption("corrupted key for ", user_key);
         return;
-      case GetContext::kMerge:
-        break;
       case GetContext::kBlobIndex:
         ROCKS_LOG_ERROR(info_log_, "Encounter unexpected blob index.");
         *status = Status::NotSupported(
@@ -1026,6 +1038,11 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     f = fp.GetNextFile();
   }
 
+  for (uint32_t t = 0; t < Tickers::TICKER_ENUM_MAX; t++) {
+    if (get_context.tickers_value[t] > 0) {
+      RecordTick(db_statistics_, t, get_context.tickers_value[t]);
+    }
+  }
   if (GetContext::kMerge == get_context.State()) {
     if (!merge_operator_) {
       *status =  Status::InvalidArgument(
@@ -1835,27 +1852,33 @@ void VersionStorageInfo::GetOverlappingInputs(
 void VersionStorageInfo::GetCleanInputsWithinInterval(
     int level, const InternalKey* begin, const InternalKey* end,
     std::vector<FileMetaData*>* inputs, int hint_index, int* file_index) const {
-  if (level >= num_non_empty_levels_) {
-    // this level is empty, no inputs within range
-    return;
-  }
-
   inputs->clear();
-  Slice user_begin, user_end;
-  if (begin != nullptr) {
-    user_begin = begin->user_key();
-  }
-  if (end != nullptr) {
-    user_end = end->user_key();
-  }
   if (file_index) {
     *file_index = -1;
   }
-  if (begin != nullptr && end != nullptr && level > 0) {
-    GetOverlappingInputsRangeBinarySearch(level, user_begin, user_end, inputs,
-                                          hint_index, file_index,
-                                          true /* within_interval */);
+  if (level >= num_non_empty_levels_ || level == 0 ||
+      level_files_brief_[level].num_files == 0) {
+    // this level is empty, no inputs within range
+    // also don't support clean input interval within L0
+    return;
   }
+
+  Slice user_begin, user_end;
+  const auto& level_files = level_files_brief_[level];
+  if (begin == nullptr) {
+    user_begin = ExtractUserKey(level_files.files[0].smallest_key);
+  } else {
+    user_begin = begin->user_key();
+  }
+  if (end == nullptr) {
+    user_end = ExtractUserKey(
+        level_files.files[level_files.num_files - 1].largest_key);
+  } else {
+    user_end = end->user_key();
+  }
+  GetOverlappingInputsRangeBinarySearch(level, user_begin, user_end, inputs,
+                                        hint_index, file_index,
+                                        true /* within_interval */);
 }
 
 // Store in "*inputs" all files in "level" that overlap [begin,end]
@@ -1918,8 +1941,8 @@ void VersionStorageInfo::GetOverlappingInputsRangeBinarySearch(
   } else {
     ExtendFileRangeOverlappingInterval(level, user_begin, user_end, mid,
                                        &start_index, &end_index);
+    assert(end_index >= start_index);
   }
-  assert(end_index >= start_index);
   // insert overlapping files into vector
   for (int i = start_index; i <= end_index; i++) {
     inputs->push_back(files_[level][i]);
@@ -2396,6 +2419,7 @@ VersionSet::VersionSet(const std::string& dbname,
       db_options_(db_options),
       next_file_number_(2),
       manifest_file_number_(0),  // Filled by Recover()
+      options_file_number_(0),
       pending_manifest_file_number_(0),
       last_sequence_(0),
       last_allocated_sequence_(0),

@@ -71,7 +71,7 @@ class Writer {
 
   bool ShouldSync() const { return block_offset_ > next_sync_offset_; }
 
-  void Sync();
+  Status Sync();
 
   void ResetSyncPointer() { next_sync_offset_ += bytes_per_sync_; }
 

@@ -294,7 +294,8 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
                 if (seq_per_batch && two_queues) {
                   class PublishSeqCallback : public PreReleaseCallback {
                    public:
-                    PublishSeqCallback(DBImpl* db_impl) : db_impl_(db_impl) {}
+                    PublishSeqCallback(DBImpl* db_impl_in)
+                        : db_impl_(db_impl_in) {}
                     virtual Status Callback(SequenceNumber last_seq) {
                       db_impl_->SetLastPublishedSequence(last_seq);
                       return Status::OK();

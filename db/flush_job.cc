@@ -209,6 +209,8 @@ Status FlushJob::Run(FileMetaData* file_meta) {
   auto stream = event_logger_->LogToBuffer(log_buffer_);
   stream << "job" << job_context_->job_id << "event"
          << "flush_finished";
+  stream << "output_compression"
+         << CompressionTypeToString(output_compression_);
   stream << "lsm_state";
   stream.StartArray();
   auto vstorage = cfd_->current()->storage_info();
@@ -299,7 +301,15 @@ Status FlushJob::WriteLevel0Table() {
       TEST_SYNC_POINT_CALLBACK("FlushJob::WriteLevel0Table:output_compression",
                                &output_compression_);
       int64_t _current_time = 0;
-      db_options_.env->GetCurrentTime(&_current_time);  // ignore error
+      auto status = db_options_.env->GetCurrentTime(&_current_time);
+      // Safe to proceed even if GetCurrentTime fails. So, log and proceed.
+      if (!status.ok()) {
+        ROCKS_LOG_WARN(
+            db_options_.info_log,
+            "Failed to get current time to populate creation_time property. "
+            "Status: %s",
+            status.ToString().c_str());
+      }
       const uint64_t current_time = static_cast<uint64_t>(_current_time);
 
       uint64_t oldest_key_time =
@@ -354,6 +364,7 @@ Status FlushJob::WriteLevel0Table() {
   InternalStats::CompactionStats stats(1);
   stats.micros = db_options_.env->NowMicros() - start_micros;
   stats.bytes_written = meta_.fd.GetFileSize();
+  MeasureTime(stats_, FLUSH_TIME, stats.micros);
   cfd_->internal_stats()->AddCompactionStats(0 /* level */, stats);
   cfd_->internal_stats()->AddCFStats(InternalStats::BYTES_FLUSHED,
                                      meta_.fd.GetFileSize());

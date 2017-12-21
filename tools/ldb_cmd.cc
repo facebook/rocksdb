@@ -315,7 +315,7 @@ void LDBCommand::OpenDB() {
   if (!create_if_missing_ && try_load_options_) {
     Status s = LoadLatestOptions(db_path_, Env::Default(), &options_,
                                  &column_families_, ignore_unknown_options_);
-    if (!s.ok()) {
+    if (!s.ok() && !s.IsNotFound()) {
       // Option file exists but load option file error.
       std::string msg = s.ToString();
       exec_state_ = LDBCommandExecuteResult::Failed(msg);
@@ -1689,6 +1689,7 @@ void ReduceDBLevelsCommand::DoCommand() {
   if (exec_state_.IsFailed()) {
     return;
   }
+  assert(db_ != nullptr);
   // Compact the whole DB to put all files to the highest level.
   fprintf(stdout, "Compacting the db...\n");
   db_->CompactRange(CompactRangeOptions(), GetCfHandle(), nullptr, nullptr);

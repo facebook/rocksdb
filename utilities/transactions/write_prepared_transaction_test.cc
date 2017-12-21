@@ -436,6 +436,83 @@ TEST_P(WritePreparedTransactionTest, MaybeUpdateOldCommitMap) {
   MaybeUpdateOldCommitMapTestWithNext(p, c, s, ns, false);
 }
 
+// Test that the entries in old_commit_map_ get garbage collected properly
+TEST_P(WritePreparedTransactionTest, OldCommitMapGC) {
+  const size_t snapshot_cache_bits = 0;
+  const size_t commit_cache_bits = 0;
+  DBImpl* mock_db = new DBImpl(options, dbname);
+  std::unique_ptr<WritePreparedTxnDBMock> wp_db(new WritePreparedTxnDBMock(
+      mock_db, txn_db_options, snapshot_cache_bits, commit_cache_bits));
+
+  SequenceNumber seq = 0;
+  // Take the first snapshot that overlaps with two txn
+  auto prep_seq = ++seq;
+  wp_db->AddPrepared(prep_seq);
+  auto prep_seq2 = ++seq;
+  wp_db->AddPrepared(prep_seq2);
+  auto snap_seq1 = seq;
+  wp_db->TakeSnapshot(snap_seq1);
+  auto commit_seq = ++seq;
+  wp_db->AddCommitted(prep_seq, commit_seq);
+  auto commit_seq2 = ++seq;
+  wp_db->AddCommitted(prep_seq2, commit_seq2);
+  // Take the 2nd and 3rd snapshot that overlap with the same txn
+  prep_seq = ++seq;
+  wp_db->AddPrepared(prep_seq);
+  auto snap_seq2 = seq;
+  wp_db->TakeSnapshot(snap_seq2);
+  seq++;
+  auto snap_seq3 = seq;
+  wp_db->TakeSnapshot(snap_seq3);
+  seq++;
+  commit_seq = ++seq;
+  wp_db->AddCommitted(prep_seq, commit_seq);
+  // Make sure max_evicted_seq_ will be larger than 2nd snapshot by evicting the
+  // only item in the commit_cache_ via another commit.
+  prep_seq = ++seq;
+  wp_db->AddPrepared(prep_seq);
+  commit_seq = ++seq;
+  wp_db->AddCommitted(prep_seq, commit_seq);
+
+  // Verify that the evicted commit entries for all snapshots are in the
+  // old_commit_map_
+  {
+    ASSERT_FALSE(wp_db->old_commit_map_empty_.load());
+    ReadLock rl(&wp_db->old_commit_map_mutex_);
+    ASSERT_EQ(3, wp_db->old_commit_map_.size());
+    ASSERT_EQ(2, wp_db->old_commit_map_[snap_seq1].size());
+    ASSERT_EQ(1, wp_db->old_commit_map_[snap_seq2].size());
+    ASSERT_EQ(1, wp_db->old_commit_map_[snap_seq3].size());
+  }
+
+  // Verify that the 2nd snapshot is cleaned up after the release
+  wp_db->ReleaseSnapshotInternal(snap_seq2);
+  {
+    ASSERT_FALSE(wp_db->old_commit_map_empty_.load());
+    ReadLock rl(&wp_db->old_commit_map_mutex_);
+    ASSERT_EQ(2, wp_db->old_commit_map_.size());
+    ASSERT_EQ(2, wp_db->old_commit_map_[snap_seq1].size());
+    ASSERT_EQ(1, wp_db->old_commit_map_[snap_seq3].size());
+  }
+
+  // Verify that the 1st snapshot is cleaned up after the release
+  wp_db->ReleaseSnapshotInternal(snap_seq1);
+  {
+    ASSERT_FALSE(wp_db->old_commit_map_empty_.load());
+    ReadLock rl(&wp_db->old_commit_map_mutex_);
+    ASSERT_EQ(1, wp_db->old_commit_map_.size());
+    ASSERT_EQ(1, wp_db->old_commit_map_[snap_seq3].size());
+  }
+
+  // Verify that the 3rd snapshot is cleaned up after the release
+  wp_db->ReleaseSnapshotInternal(snap_seq3);
+  {
+    ASSERT_TRUE(wp_db->old_commit_map_empty_.load());
+    ReadLock rl(&wp_db->old_commit_map_mutex_);
+    ASSERT_EQ(0, wp_db->old_commit_map_.size());
+  }
+}
+
 TEST_P(WritePreparedTransactionTest, CheckAgainstSnapshotsTest) {
   std::vector<SequenceNumber> snapshots = {100l, 200l, 300l, 400l, 500l,
                                            600l, 700l, 800l, 900l};
@@ -480,20 +557,24 @@ TEST_P(WritePreparedTransactionTest, SnapshotConcurrentAccessTest) {
   // We have a sync point in the method under test after checking each snapshot.
   // If you increase the max number of snapshots in this test, more sync points
   // in the methods must also be added.
-  const std::vector<SequenceNumber> snapshots = {10l, 20l, 30l, 40l, 50l,
-                                                 60l, 70l, 80l, 90l, 100l};
+  const std::vector<SequenceNumber> snapshots = {10l, 20l, 30l, 40l, 50l, 60l};
+  // TODO(myabandeh): increase the snapshots list for pre-release tests
+  // const std::vector<SequenceNumber> snapshots = {10l, 20l, 30l, 40l, 50l,
+  //                                               60l, 70l, 80l, 90l, 100l};
   const size_t snapshot_cache_bits = 2;
   // Safety check to express the intended size in the test. Can be adjusted if
   // the snapshots lists changed.
-  assert((1ul << snapshot_cache_bits) * 2 + 2 == snapshots.size());
+  assert((1ul << snapshot_cache_bits) + 2 == snapshots.size());
   SequenceNumber version = 1000l;
   // Choose the cache size so that the new snapshot list could replace all the
   // existing items in the cache and also have some overflow.
   DBImpl* mock_db = new DBImpl(options, dbname);
   std::unique_ptr<WritePreparedTxnDBMock> wp_db(
       new WritePreparedTxnDBMock(mock_db, txn_db_options, snapshot_cache_bits));
-  // Add up to 2 items that do not fit into the cache
-  for (size_t old_size = 1; old_size <= wp_db->SNAPSHOT_CACHE_SIZE + 2;
+  // TODO(myabandeh): increase this number for pre-release tests
+  const size_t extra = 1;
+  // Add up to extra items that do not fit into the cache
+  for (size_t old_size = 1; old_size <= wp_db->SNAPSHOT_CACHE_SIZE + extra;
        old_size++) {
     const std::vector<SequenceNumber> old_snapshots(
         snapshots.begin(), snapshots.begin() + old_size);
@@ -1280,7 +1361,9 @@ TEST_P(WritePreparedTransactionTest, DisableGCDuringRecoveryTest) {
     VerifyKeys({{"foo", v}});
     seq++;  // one for the key/value
     KeyVersion kv = {"foo", v, seq, kTypeValue};
+    if (options.two_write_queues) {
       seq++;  // one for the commit
+    }
     versions.emplace_back(kv);
   }
   std::reverse(std::begin(versions), std::end(versions));
@@ -1326,7 +1409,9 @@ TEST_P(WritePreparedTransactionTest, CompactionShouldKeepUncommittedKeys) {
   auto add_key = [&](std::function<Status()> func) {
     ASSERT_OK(func());
     expected_seq++;
+    if (options.two_write_queues) {
       expected_seq++;  // 1 for commit
+    }
     ASSERT_EQ(expected_seq, db_impl->TEST_GetLastVisibleSequence());
     snapshots.push_back(db->GetSnapshot());
   };
@@ -1435,12 +1520,16 @@ TEST_P(WritePreparedTransactionTest, CompactionShouldKeepSnapshotVisibleKeys) {
   ASSERT_OK(db->Put(WriteOptions(), "key1", "value1_2"));
   expected_seq++;  // 1 for write
   SequenceNumber seq1 = expected_seq;
+  if (options.two_write_queues) {
     expected_seq++;  // 1 for commit
+  }
   ASSERT_EQ(expected_seq, db_impl->TEST_GetLastVisibleSequence());
   ASSERT_OK(db->Put(WriteOptions(), "key2", "value2_2"));
   expected_seq++;  // 1 for write
   SequenceNumber seq2 = expected_seq;
+  if (options.two_write_queues) {
     expected_seq++;  // 1 for commit
+  }
   ASSERT_EQ(expected_seq, db_impl->TEST_GetLastVisibleSequence());
   ASSERT_OK(db->Flush(FlushOptions()));
   db->ReleaseSnapshot(snapshot1);
@@ -1565,7 +1654,9 @@ TEST_P(WritePreparedTransactionTest,
   ASSERT_OK(db->Put(WriteOptions(), "key2", "value2"));
   DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
   expected_seq++;  // one for data
-  expected_seq++;  // one for commit
+  if (options.two_write_queues) {
+    expected_seq++;  // one for commit
+  }
   ASSERT_EQ(expected_seq, db_impl->TEST_GetLastVisibleSequence());
   ASSERT_OK(db->Flush(FlushOptions()));
   // Dummy keys to avoid compaction trivially move files and get around actual
@@ -1644,6 +1735,12 @@ TEST_P(WritePreparedTransactionTest, Iterate) {
   VerifyKeys({{"foo", "v2"}});
   verify_iter("v2");
   delete transaction;
+}
+
+TEST_P(WritePreparedTransactionTest, IteratorRefreshNotSupported) {
+  Iterator* iter = db->NewIterator(ReadOptions());
+  ASSERT_TRUE(iter->Refresh().IsNotSupported());
+  delete iter;
 }
 
 // Test that updating the commit map will not affect the existing snapshots

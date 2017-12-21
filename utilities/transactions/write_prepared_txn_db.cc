@@ -12,6 +12,7 @@
 #include "utilities/transactions/write_prepared_txn_db.h"
 
 #include <inttypes.h>
+#include <algorithm>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -109,6 +110,8 @@ static void CleanupWritePreparedTxnDBIterator(void* arg1, void* arg2) {
 
 Iterator* WritePreparedTxnDB::NewIterator(const ReadOptions& options,
                                           ColumnFamilyHandle* column_family) {
+  constexpr bool ALLOW_BLOB = true;
+  constexpr bool ALLOW_REFRESH = true;
   std::shared_ptr<ManagedSnapshot> own_snapshot = nullptr;
   SequenceNumber snapshot_seq = kMaxSequenceNumber;
   if (options.snapshot != nullptr) {
@@ -124,7 +127,8 @@ Iterator* WritePreparedTxnDB::NewIterator(const ReadOptions& options,
   auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
   auto* state = new IteratorState(this, snapshot_seq, own_snapshot);
   auto* db_iter =
-      db_impl_->NewIteratorImpl(options, cfd, snapshot_seq, &state->callback);
+      db_impl_->NewIteratorImpl(options, cfd, snapshot_seq, &state->callback,
+                                !ALLOW_BLOB, !ALLOW_REFRESH);
   db_iter->RegisterCleanup(CleanupWritePreparedTxnDBIterator, state, nullptr);
   return db_iter;
 }
@@ -133,6 +137,8 @@ Status WritePreparedTxnDB::NewIterators(
     const ReadOptions& options,
     const std::vector<ColumnFamilyHandle*>& column_families,
     std::vector<Iterator*>* iterators) {
+  constexpr bool ALLOW_BLOB = true;
+  constexpr bool ALLOW_REFRESH = true;
   std::shared_ptr<ManagedSnapshot> own_snapshot = nullptr;
   SequenceNumber snapshot_seq = kMaxSequenceNumber;
   if (options.snapshot != nullptr) {
@@ -150,7 +156,8 @@ Status WritePreparedTxnDB::NewIterators(
     auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
     auto* state = new IteratorState(this, snapshot_seq, own_snapshot);
     auto* db_iter =
-        db_impl_->NewIteratorImpl(options, cfd, snapshot_seq, &state->callback);
+        db_impl_->NewIteratorImpl(options, cfd, snapshot_seq, &state->callback,
+                                  !ALLOW_BLOB, !ALLOW_REFRESH);
     db_iter->RegisterCleanup(CleanupWritePreparedTxnDBIterator, state, nullptr);
     iterators->push_back(db_iter);
   }
@@ -168,6 +175,10 @@ void WritePreparedTxnDB::Init(const TransactionDBOptions& /* unused */) {
       new std::atomic<CommitEntry64b>[COMMIT_CACHE_SIZE] {});
 }
 
+#define ROCKSDB_LOG_DETAILS(LGR, FMT, ...) \
+  ;  // due to overhead by default skip such lines
+// ROCKS_LOG_DEBUG(LGR, FMT, ##__VA_ARGS__)
+
 // Returns true if commit_seq <= snapshot_seq
 bool WritePreparedTxnDB::IsInSnapshot(uint64_t prep_seq,
                                       uint64_t snapshot_seq) const {
@@ -179,10 +190,16 @@ bool WritePreparedTxnDB::IsInSnapshot(uint64_t prep_seq,
   if (prep_seq == 0) {
     // Compaction will output keys to bottom-level with sequence number 0 if
     // it is visible to the earliest snapshot.
+    ROCKSDB_LOG_DETAILS(
+        info_log_, "IsInSnapshot %" PRIu64 " in %" PRIu64 " returns %" PRId32,
+        prep_seq, snapshot_seq, 1);
     return true;
   }
   if (snapshot_seq < prep_seq) {
     // snapshot_seq < prep_seq <= commit_seq => snapshot_seq < commit_seq
+    ROCKSDB_LOG_DETAILS(
+        info_log_, "IsInSnapshot %" PRIu64 " in %" PRIu64 " returns %" PRId32,
+        prep_seq, snapshot_seq, 0);
     return false;
   }
   if (!delayed_prepared_empty_.load(std::memory_order_acquire)) {
@@ -190,6 +207,9 @@ bool WritePreparedTxnDB::IsInSnapshot(uint64_t prep_seq,
     ReadLock rl(&prepared_mutex_);
     if (delayed_prepared_.find(prep_seq) != delayed_prepared_.end()) {
       // Then it is not committed yet
+      ROCKSDB_LOG_DETAILS(
+          info_log_, "IsInSnapshot %" PRIu64 " in %" PRIu64 " returns %" PRId32,
+          prep_seq, snapshot_seq, 0);
       return false;
     }
   }
@@ -199,6 +219,9 @@ bool WritePreparedTxnDB::IsInSnapshot(uint64_t prep_seq,
   bool exist = GetCommitEntry(indexed_seq, &dont_care, &cached);
   if (exist && prep_seq == cached.prep_seq) {
     // It is committed and also not evicted from commit cache
+    ROCKSDB_LOG_DETAILS(
+        info_log_, "IsInSnapshot %" PRIu64 " in %" PRIu64 " returns %" PRId32,
+        prep_seq, snapshot_seq, cached.commit_seq <= snapshot_seq);
     return cached.commit_seq <= snapshot_seq;
   }
   // else it could be committed but not inserted in the map which could happen
@@ -209,42 +232,62 @@ bool WritePreparedTxnDB::IsInSnapshot(uint64_t prep_seq,
   auto max_evicted_seq = max_evicted_seq_.load(std::memory_order_acquire);
   if (max_evicted_seq < prep_seq) {
     // Not evicted from cache and also not present, so must be still prepared
+    ROCKSDB_LOG_DETAILS(
+        info_log_, "IsInSnapshot %" PRIu64 " in %" PRIu64 " returns %" PRId32,
+        prep_seq, snapshot_seq, 0);
     return false;
   }
   // When advancing max_evicted_seq_, we move older entires from prepared to
   // delayed_prepared_. Also we move evicted entries from commit cache to
   // old_commit_map_ if it overlaps with any snapshot. Since prep_seq <=
   // max_evicted_seq_, we have three cases: i) in delayed_prepared_, ii) in
-  // old_commit_map_, iii) committed with no conflict with any snapshot (i)
-  // delayed_prepared_ is checked above
+  // old_commit_map_, iii) committed with no conflict with any snapshot. Case
+  // (i) delayed_prepared_ is checked above
   if (max_evicted_seq < snapshot_seq) {  // then (ii) cannot be the case
     // only (iii) is the case: committed
     // commit_seq <= max_evicted_seq_ < snapshot_seq => commit_seq <
     // snapshot_seq
+    ROCKSDB_LOG_DETAILS(
+        info_log_, "IsInSnapshot %" PRIu64 " in %" PRIu64 " returns %" PRId32,
+        prep_seq, snapshot_seq, 1);
     return true;
   }
   // else (ii) might be the case: check the commit data saved for this snapshot.
   // If there was no overlapping commit entry, then it is committed with a
   // commit_seq lower than any live snapshot, including snapshot_seq.
   if (old_commit_map_empty_.load(std::memory_order_acquire)) {
+    ROCKSDB_LOG_DETAILS(
+        info_log_, "IsInSnapshot %" PRIu64 " in %" PRIu64 " returns %" PRId32,
+        prep_seq, snapshot_seq, 1);
     return true;
   }
   {
-    // We should not normally reach here
-    // TODO(myabandeh): check only if snapshot_seq is in the list of snaphots
+    // We should not normally reach here unless sapshot_seq is old. This is a
+    // rare case and it is ok to pay the cost of mutex ReadLock for such old,
+    // reading transactions.
     ReadLock rl(&old_commit_map_mutex_);
-    auto old_commit_entry = old_commit_map_.find(prep_seq);
-    if (old_commit_entry == old_commit_map_.end() ||
-        old_commit_entry->second <= snapshot_seq) {
+    auto prep_set_entry = old_commit_map_.find(snapshot_seq);
+    bool found = prep_set_entry != old_commit_map_.end();
+    if (found) {
+      auto& vec = prep_set_entry->second;
+      found = std::binary_search(vec.begin(), vec.end(), prep_seq);
+    }
+    if (!found) {
+      ROCKSDB_LOG_DETAILS(
+          info_log_, "IsInSnapshot %" PRIu64 " in %" PRIu64 " returns %" PRId32,
+          prep_seq, snapshot_seq, 1);
       return true;
     }
   }
   // (ii) it the case: it is committed but after the snapshot_seq
+  ROCKSDB_LOG_DETAILS(
+      info_log_, "IsInSnapshot %" PRIu64 " in %" PRIu64 " returns %" PRId32,
+      prep_seq, snapshot_seq, 0);
   return false;
 }
 
 void WritePreparedTxnDB::AddPrepared(uint64_t seq) {
-  ROCKS_LOG_DEBUG(info_log_, "Txn %" PRIu64 " Prepareing", seq);
+  ROCKSDB_LOG_DETAILS(info_log_, "Txn %" PRIu64 " Prepareing", seq);
   // TODO(myabandeh): Add a runtime check to ensure the following assert.
   assert(seq > max_evicted_seq_);
   WriteLock wl(&prepared_mutex_);
@@ -253,7 +296,7 @@ void WritePreparedTxnDB::AddPrepared(uint64_t seq) {
 
 void WritePreparedTxnDB::RollbackPrepared(uint64_t prep_seq,
                                           uint64_t rollback_seq) {
-  ROCKS_LOG_DEBUG(
+  ROCKSDB_LOG_DETAILS(
       info_log_, "Txn %" PRIu64 " rolling back with rollback seq of " PRIu64 "",
       prep_seq, rollback_seq);
   std::vector<SequenceNumber> snapshots =
@@ -281,8 +324,8 @@ void WritePreparedTxnDB::RollbackPrepared(uint64_t prep_seq,
 
 void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq,
                                       uint64_t commit_seq) {
-  ROCKS_LOG_DEBUG(info_log_, "Txn %" PRIu64 " Committing with %" PRIu64,
-                  prepare_seq, commit_seq);
+  ROCKSDB_LOG_DETAILS(info_log_, "Txn %" PRIu64 " Committing with %" PRIu64,
+                      prepare_seq, commit_seq);
   TEST_SYNC_POINT("WritePreparedTxnDB::AddCommitted:start");
   TEST_SYNC_POINT("WritePreparedTxnDB::AddCommitted:start:pause");
   auto indexed_seq = prepare_seq % COMMIT_CACHE_SIZE;
@@ -291,6 +334,9 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq,
   bool to_be_evicted = GetCommitEntry(indexed_seq, &evicted_64b, &evicted);
   if (to_be_evicted) {
     auto prev_max = max_evicted_seq_.load(std::memory_order_acquire);
+    ROCKSDB_LOG_DETAILS(info_log_,
+                        "Evicting %" PRIu64 ",%" PRIu64 " with max %" PRIu64,
+                        evicted.prep_seq, evicted.commit_seq, prev_max);
     if (prev_max < evicted.commit_seq) {
       // Inc max in larger steps to avoid frequent updates
       auto max_evicted_seq = evicted.commit_seq + INC_STEP_FOR_MAX_EVICTED;
@@ -398,6 +444,36 @@ const std::vector<SequenceNumber> WritePreparedTxnDB::GetSnapshotListFromDB(
     SequenceNumber max) {
   InstrumentedMutex(db_impl_->mutex());
   return db_impl_->snapshots().GetAll(nullptr, max);
+}
+
+void WritePreparedTxnDB::ReleaseSnapshot(const Snapshot* snapshot) {
+  auto snap_seq = snapshot->GetSequenceNumber();
+  ReleaseSnapshotInternal(snap_seq);
+  db_impl_->ReleaseSnapshot(snapshot);
+}
+
+void WritePreparedTxnDB::ReleaseSnapshotInternal(
+    const SequenceNumber snap_seq) {
+  // relax is enough since max increases monotonically, i.e., if snap_seq <
+  // old_max => snap_seq < new_max as well.
+  if (snap_seq < max_evicted_seq_.load(std::memory_order_relaxed)) {
+    // Then this is a rare case that transaction did not finish before max
+    // advances. It is expected for a few read-only backup snapshots. For such
+    // snapshots we might have kept around a couple of entries in the
+    // old_commit_map_. Check and do garbage collection if that is the case.
+    bool need_gc = false;
+    {
+      ReadLock rl(&old_commit_map_mutex_);
+      auto prep_set_entry = old_commit_map_.find(snap_seq);
+      need_gc = prep_set_entry != old_commit_map_.end();
+    }
+    if (need_gc) {
+      WriteLock wl(&old_commit_map_mutex_);
+      old_commit_map_.erase(snap_seq);
+      old_commit_map_empty_.store(old_commit_map_.empty(),
+                                  std::memory_order_release);
+    }
+  }
 }
 
 void WritePreparedTxnDB::UpdateSnapshots(
@@ -510,8 +586,8 @@ void WritePreparedTxnDB::CheckAgainstSnapshots(const CommitEntry& evicted) {
 bool WritePreparedTxnDB::MaybeUpdateOldCommitMap(
     const uint64_t& prep_seq, const uint64_t& commit_seq,
     const uint64_t& snapshot_seq, const bool next_is_larger = true) {
-  // If we do not store an entry in old_commit_map we assume it is committed in
-  // all snapshots. if commit_seq <= snapshot_seq, it is considered already in
+  // If we do not store an entry in old_commit_map_ we assume it is committed in
+  // all snapshots. If commit_seq <= snapshot_seq, it is considered already in
   // the snapshot so we need not to keep the entry around for this snapshot.
   if (commit_seq <= snapshot_seq) {
     // continue the search if the next snapshot could be smaller than commit_seq
@@ -521,9 +597,11 @@ bool WritePreparedTxnDB::MaybeUpdateOldCommitMap(
   if (prep_seq <= snapshot_seq) {  // overlapping range
     WriteLock wl(&old_commit_map_mutex_);
     old_commit_map_empty_.store(false, std::memory_order_release);
-    old_commit_map_[prep_seq] = commit_seq;
-    // Storing once is enough. No need to check it for other snapshots.
-    return false;
+    auto& vec = old_commit_map_[snapshot_seq];
+    vec.insert(std::upper_bound(vec.begin(), vec.end(), prep_seq), prep_seq);
+    // We need to store it once for each overlapping snapshot. Returning true to
+    // continue the search if there is more overlapping snapshot.
+    return true;
   }
   // continue the search if the next snapshot could be larger than prep_seq
   return next_is_larger;

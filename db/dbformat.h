@@ -87,7 +87,7 @@ struct ParsedInternalKey {
 
   ParsedInternalKey()
       : sequence(kMaxSequenceNumber)  // Make code analyzer happy
-  {}  // Intentionally left uninitialized (for speed)
+        {} // Intentionally left uninitialized (for speed)
   ParsedInternalKey(const Slice& u, const SequenceNumber& seq, ValueType t)
       : user_key(u), sequence(seq), type(t) { }
   std::string DebugString(bool hex = false) const;

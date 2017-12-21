@@ -484,10 +484,10 @@ if test -z "$PORTABLE"; then
   elif [ "$TARGET_OS" != AIX ] && [ "$TARGET_OS" != SunOS ]; then
     COMMON_FLAGS="$COMMON_FLAGS -march=native "
   elif test "$USE_SSE"; then
-    COMMON_FLAGS="$COMMON_FLAGS -msse4.2"
+    COMMON_FLAGS="$COMMON_FLAGS -msse4.2 -mpclmul"
   fi
 elif test "$USE_SSE"; then
-  COMMON_FLAGS="$COMMON_FLAGS -msse4.2"
+  COMMON_FLAGS="$COMMON_FLAGS -msse4.2 -mpclmul"
 fi
 
 $CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null <<EOF
@@ -501,6 +501,24 @@ if [ "$?" = 0 ]; then
   COMMON_FLAGS="$COMMON_FLAGS -DHAVE_SSE42"
 elif test "$USE_SSE"; then
   echo "warning: USE_SSE specified but compiler could not use SSE intrinsics, disabling"
+  exit 1
+fi
+
+$CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null <<EOF
+  #include <cstdint>
+  #include <wmmintrin.h>
+  int main() {
+    const auto a = _mm_set_epi64x(0, 0);
+    const auto b = _mm_set_epi64x(0, 0);
+    const auto c = _mm_clmulepi64_si128(a, b, 0x00);
+    auto d = _mm_cvtsi128_si64(c);
+  }
+EOF
+if [ "$?" = 0 ]; then
+  COMMON_FLAGS="$COMMON_FLAGS -DHAVE_PCLMUL"
+elif test "$USE_SSE"; then
+  echo "warning: USE_SSE specified but compiler could not use PCLMUL intrinsics, disabling"
+  exit 1
 fi
 
 # iOS doesn't support thread-local storage, but this check would erroneously

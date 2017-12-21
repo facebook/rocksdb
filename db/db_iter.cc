@@ -640,6 +640,7 @@ void DBIter::MergeValuesNewToOld() {
           merge_operator_, ikey.user_key, &val, merge_context_.GetOperands(),
           &saved_value_, logger_, statistics_, env_, &pinned_value_, true);
       if (!s.ok()) {
+        valid_ = false;
         status_ = s;
       }
       // iter_ is positioned after put
@@ -677,6 +678,7 @@ void DBIter::MergeValuesNewToOld() {
                                   &saved_value_, logger_, statistics_, env_,
                                   &pinned_value_, true);
   if (!s.ok()) {
+    valid_ = false;
     status_ = s;
   }
 }
@@ -946,8 +948,10 @@ bool DBIter::FindValueForCurrentKey() {
       assert(false);
       break;
   }
-  valid_ = true;
-  if (!s.ok()) {
+  if (s.ok()) {
+    valid_ = true;
+  } else {
+    valid_ = false;
     status_ = s;
   }
   return true;
@@ -1023,8 +1027,10 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
       iter_->Seek(last_key);
       RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);
     }
-    valid_ = true;
-    if (!s.ok()) {
+    if (s.ok()) {
+      valid_ = true;
+    } else {
+      valid_ = false;
       status_ = s;
     }
     return true;
@@ -1035,8 +1041,10 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
                                   &val, merge_context_.GetOperands(),
                                   &saved_value_, logger_, statistics_, env_,
                                   &pinned_value_, true);
-  valid_ = true;
-  if (!s.ok()) {
+  if (s.ok()) {
+    valid_ = true;
+  } else {
+    valid_ = false;
     status_ = s;
   }
   return true;
@@ -1370,17 +1378,19 @@ void ArenaWrappedDBIter::Init(Env* env, const ReadOptions& read_options,
                               const SequenceNumber& sequence,
                               uint64_t max_sequential_skip_in_iteration,
                               uint64_t version_number,
-                              ReadCallback* read_callback, bool allow_blob) {
+                              ReadCallback* read_callback, bool allow_blob,
+                              bool allow_refresh) {
   auto mem = arena_.AllocateAligned(sizeof(DBIter));
   db_iter_ = new (mem)
       DBIter(env, read_options, cf_options, cf_options.user_comparator, nullptr,
              sequence, true, max_sequential_skip_in_iteration, read_callback,
              allow_blob);
   sv_number_ = version_number;
+  allow_refresh_ = allow_refresh;
 }
 
 Status ArenaWrappedDBIter::Refresh() {
-  if (cfd_ == nullptr || db_impl_ == nullptr) {
+  if (cfd_ == nullptr || db_impl_ == nullptr || !allow_refresh_) {
     return Status::NotSupported("Creating renew iterator is not allowed.");
   }
   assert(db_iter_ != nullptr);
@@ -1398,7 +1408,7 @@ Status ArenaWrappedDBIter::Refresh() {
     SuperVersion* sv = cfd_->GetReferencedSuperVersion(db_impl_->mutex());
     Init(env, read_options_, *(cfd_->ioptions()), latest_seq,
          sv->mutable_cf_options.max_sequential_skip_in_iterations,
-         cur_sv_number, read_callback_, allow_blob_);
+         cur_sv_number, read_callback_, allow_blob_, allow_refresh_);
 
     InternalIterator* internal_iter = db_impl_->NewInternalIterator(
         read_options_, cfd_, sv, &arena_, db_iter_->GetRangeDelAggregator());
@@ -1415,12 +1425,12 @@ ArenaWrappedDBIter* NewArenaWrappedDbIterator(
     const ImmutableCFOptions& cf_options, const SequenceNumber& sequence,
     uint64_t max_sequential_skip_in_iterations, uint64_t version_number,
     ReadCallback* read_callback, DBImpl* db_impl, ColumnFamilyData* cfd,
-    bool allow_blob) {
+    bool allow_blob, bool allow_refresh) {
   ArenaWrappedDBIter* iter = new ArenaWrappedDBIter();
   iter->Init(env, read_options, cf_options, sequence,
              max_sequential_skip_in_iterations, version_number, read_callback,
-             allow_blob);
-  if (db_impl != nullptr && cfd != nullptr) {
+             allow_blob, allow_refresh);
+  if (db_impl != nullptr && cfd != nullptr && allow_refresh) {
     iter->StoreRefreshInfo(read_options, db_impl, cfd, read_callback,
                            allow_blob);
   }
