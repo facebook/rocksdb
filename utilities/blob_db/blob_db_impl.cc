@@ -1105,6 +1105,20 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
     return Status::Corruption("Unable to decode checksum.");
   }
 
+  uint32_t crc = crc32c::Value(blob_record.data() + sizeof(uint32_t),
+                               blob_record.size() - sizeof(uint32_t));
+  crc = crc32c::Mask(crc);  // Adjust for storage
+  if (crc != crc_exp) {
+    if (debug_level_ >= 2) {
+      ROCKS_LOG_ERROR(db_options_.info_log,
+                      "Blob crc mismatch file: %s blob_offset: %" PRIu64
+                      " blob_size: %" PRIu64 " key: %s status: '%s'",
+                      bfile->PathName().c_str(), blob_index.offset(),
+                      blob_index.size(), key.data(), s.ToString().c_str());
+    }
+    return Status::Corruption("Corruption. Blob CRC mismatch");
+  }
+
   if (bfile->compression() == kNoCompression) {
     value->PinSelf(blob_value);
   } else {
