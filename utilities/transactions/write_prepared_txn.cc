@@ -7,6 +7,7 @@
 
 #include "utilities/transactions/write_prepared_txn.h"
 
+#include <inttypes.h>
 #include <map>
 
 #include "db/column_family.h"
@@ -95,6 +96,7 @@ Status WritePreparedTxn::CommitWithoutPrepareInternal() {
 }
 
 Status WritePreparedTxn::CommitBatchInternal(WriteBatch* batch) {
+  ROCKS_LOG_DETAILS(db_impl_->immutable_db_options().info_log, "CommitBatchInternal");
   // TODO(myabandeh): handle the duplicate keys in the batch
   bool do_one_write = !db_impl_->immutable_db_options().two_write_queues;
   // In the absence of Prepare markers, use Noop as a batch separator
@@ -117,11 +119,14 @@ Status WritePreparedTxn::CommitBatchInternal(WriteBatch* batch) {
   if (do_one_write) {
     return s;
   }  // else do the 2nd write for commit
+  ROCKS_LOG_DETAILS(db_impl_->immutable_db_options().info_log,
+                      "CommitBatchInternal 2nd write prepare_seq: %" PRIu64,
+                      prepare_seq);
   // Note: we skip AddPrepared here. This could be further optimized by skip
   // erasing prepare_seq from prepared_txn_ in the following callback.
   // TODO(myabandeh): What if max advances the prepare_seq_ in the meanwhile and
   // readers assume the prepared data as committed? Almost zero probability.
-  
+
   // Commit the batch by writing an empty batch to the 2nd queue that will
   // release the commit sequence number to readers.
   WritePreparedCommitEntryPreReleaseCallback update_commit_map_with_prepare(
@@ -138,6 +143,8 @@ Status WritePreparedTxn::CommitBatchInternal(WriteBatch* batch) {
 }
 
 Status WritePreparedTxn::CommitInternal() {
+  ROCKS_LOG_DETAILS(db_impl_->immutable_db_options().info_log, "CommitInternal prepare_seq: %" PRIu64,
+                      GetID());
   // We take the commit-time batch and append the Commit marker.
   // The Memtable will ignore the Commit marker in non-recovery mode
   WriteBatch* working_batch = GetCommitTimeWriteBatch();
@@ -152,8 +159,6 @@ Status WritePreparedTxn::CommitInternal() {
     WriteBatchInternal::SetAsLastestPersistentState(working_batch);
   }
 
-  // TODO(myabandeh): Reject a commit request if AddCommitted cannot encode
-  // commit_seq. This happens if prep_seq <<< commit_seq.
   auto prepare_seq = GetId();
   const bool includes_data = !empty && !for_recovery;
   WritePreparedCommitEntryPreReleaseCallback update_commit_map(
@@ -172,6 +177,8 @@ Status WritePreparedTxn::CommitInternal() {
 }
 
 Status WritePreparedTxn::RollbackInternal() {
+  ROCKS_LOG_WARN(db_impl_->immutable_db_options().info_log,
+                      "RollbackInternal prepare_seq: %" PRIu64, GetId());
   WriteBatch rollback_batch;
   assert(GetId() != kMaxSequenceNumber);
   assert(GetId() > 0);
@@ -256,13 +263,15 @@ Status WritePreparedTxn::RollbackInternal() {
     return s;
   }
   if (do_one_write) {
-    // TODO(myabandeh): what if max has already advanced rollback_seq?
     // Mark the txn as rolled back
     uint64_t& rollback_seq = seq_used;
     wpt_db_->RollbackPrepared(GetId(), rollback_seq);
     return s;
   }  // else do the 2nd write for commit
   uint64_t& prepare_seq = seq_used;
+  ROCKS_LOG_DETAILS(db_impl_->immutable_db_options().info_log,
+                      "RollbackInternal 2nd write prepare_seq: %" PRIu64,
+                      prepare_seq);
   // Commit the batch by writing an empty batch to the queue that will release
   // the commit sequence number to readers.
   WritePreparedCommitEntryPreReleaseCallback update_commit_map_with_prepare(

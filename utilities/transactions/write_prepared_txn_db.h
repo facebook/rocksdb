@@ -28,6 +28,10 @@
 
 namespace rocksdb {
 
+#define ROCKS_LOG_DETAILS(LGR, FMT, ...) \
+  ;  // due to overhead by default skip such lines
+// ROCKS_LOG_DEBUG(LGR, FMT, ##__VA_ARGS__)
+
 // A PessimisticTransactionDB that writes data to DB after prepare phase of 2PC.
 // In this way some data in the DB might not be committed. The DB provides
 // mechanisms to tell such data apart from committed data.
@@ -346,8 +350,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   unique_ptr<std::atomic<CommitEntry64b>[]> commit_cache_;
   // The largest evicted *commit* sequence number from the commit_cache_. If a
   // seq is smaller than max_evicted_seq_ is might or might not be present in
-  // commit_cache_. So commit_cache_ must first be checked before consulting with
-  // max_evicted_seq_.
+  // commit_cache_. So commit_cache_ must first be checked before consulting
+  // with max_evicted_seq_.
   std::atomic<uint64_t> max_evicted_seq_ = {};
   // Advance max_evicted_seq_ by this value each time it needs an update. The
   // larger the value, the less frequent advances we would have. We do not want

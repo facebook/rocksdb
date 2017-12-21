@@ -5040,7 +5040,6 @@ TEST_P(TransactionTest, DuplicateKeyTest) {
   }
 }
 
-
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
