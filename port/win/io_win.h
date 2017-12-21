@@ -368,6 +368,8 @@ class WinWritableFile : private WinFileData,
 
   virtual Status Fsync() override;
 
+  virtual bool IsSyncThreadSafe() const override;
+
   // Indicates if the class makes use of direct I/O
   // Use PositionedAppend
   virtual bool use_direct_io() const override;
