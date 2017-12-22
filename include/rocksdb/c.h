@@ -125,7 +125,6 @@ typedef struct rocksdb_transaction_t rocksdb_transaction_t;
 typedef struct rocksdb_checkpoint_t rocksdb_checkpoint_t;
 typedef struct rocksdb_wal_iterator_t rocksdb_wal_iterator_t;
 typedef struct rocksdb_wal_readoptions_t rocksdb_wal_readoptions_t;
-typedef struct rocksdb_batch_result_t rocksdb_batch_result_t;
 
 /* DB operations */
 
