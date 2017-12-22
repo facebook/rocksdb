@@ -880,7 +880,7 @@ inline
 Status WinWritableImpl::SyncImpl() {
   Status s;
   // Calls flush buffers
-  if (fsync(file_data_->GetFileHandle()) < 0) {
+  if (!file_data_->use_direct_io() && fsync(file_data_->GetFileHandle()) < 0) {
     auto lastError = GetLastError();
     s = IOErrorFromWindowsError(
         "fsync failed at Sync() for: " + file_data_->GetName(), lastError);
@@ -961,7 +961,11 @@ Status WinWritableFile::Sync() {
   return SyncImpl();
 }
 
-Status WinWritableFile::Fsync() { return SyncImpl(); }
+Status WinWritableFile::Fsync() {
+  return SyncImpl();
+}
+
+bool WinWritableFile::IsSyncThreadSafe() const { return true; }
 
 uint64_t WinWritableFile::GetFileSize() {
   return GetFileNextWriteOffset();
