@@ -100,6 +100,11 @@ Status WritePreparedTxn::CommitBatchInternal(WriteBatch* batch) {
                     "CommitBatchInternal");
   // TODO(myabandeh): handle the duplicate keys in the batch
   bool do_one_write = !db_impl_->immutable_db_options().two_write_queues;
+  bool sync = write_options_.sync;
+  if (!do_one_write) {
+    // No need to sync on the first write
+    write_options_.sync = false;
+  }
   // In the absence of Prepare markers, use Noop as a batch separator
   WriteBatchInternal::InsertNoop(batch);
   const bool DISABLE_MEMTABLE = true;
@@ -120,6 +125,8 @@ Status WritePreparedTxn::CommitBatchInternal(WriteBatch* batch) {
   if (do_one_write) {
     return s;
   }  // else do the 2nd write for commit
+  // Set the original value of sync
+  write_options_.sync = sync;
   ROCKS_LOG_DETAILS(db_impl_->immutable_db_options().info_log,
                     "CommitBatchInternal 2nd write prepare_seq: %" PRIu64,
                     prepare_seq);
