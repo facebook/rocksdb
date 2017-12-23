@@ -277,9 +277,9 @@ bool WritePreparedTxnDB::IsInSnapshot(uint64_t prep_seq,
     }
   }
   // (ii) it the case: it is committed but after the snapshot_seq
-  ROCKS_LOG_DETAILS(
-      info_log_, "IsInSnapshot %" PRIu64 " in %" PRIu64 " returns %" PRId32,
-      prep_seq, snapshot_seq, 0);
+  ROCKS_LOG_DETAILS(info_log_,
+                    "IsInSnapshot %" PRIu64 " in %" PRIu64 " returns %" PRId32,
+                    prep_seq, snapshot_seq, 0);
   return false;
 }
 
@@ -326,7 +326,7 @@ void WritePreparedTxnDB::RollbackPrepared(uint64_t prep_seq,
 void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq, uint64_t commit_seq,
                                       bool prepare_skipped, uint8_t loop_cnt) {
   ROCKS_LOG_DETAILS(info_log_, "Txn %" PRIu64 " Committing with %" PRIu64,
-                      prepare_seq, commit_seq);
+                    prepare_seq, commit_seq);
   TEST_SYNC_POINT("WritePreparedTxnDB::AddCommitted:start");
   TEST_SYNC_POINT("WritePreparedTxnDB::AddCommitted:start:pause");
   auto indexed_seq = prepare_seq % COMMIT_CACHE_SIZE;
@@ -336,8 +336,8 @@ void WritePreparedTxnDB::AddCommitted(uint64_t prepare_seq, uint64_t commit_seq,
   if (to_be_evicted) {
     auto prev_max = max_evicted_seq_.load(std::memory_order_acquire);
     ROCKS_LOG_DETAILS(info_log_,
-                        "Evicting %" PRIu64 ",%" PRIu64 " with max %" PRIu64,
-                        evicted.prep_seq, evicted.commit_seq, prev_max);
+                      "Evicting %" PRIu64 ",%" PRIu64 " with max %" PRIu64,
+                      evicted.prep_seq, evicted.commit_seq, prev_max);
     if (prev_max < evicted.commit_seq) {
       // Inc max in larger steps to avoid frequent updates
       auto max_evicted_seq = evicted.commit_seq + INC_STEP_FOR_MAX_EVICTED;
@@ -445,8 +445,7 @@ void WritePreparedTxnDB::AdvanceMaxEvictedSeq(SequenceNumber& prev_max,
 
 const std::vector<SequenceNumber> WritePreparedTxnDB::GetSnapshotListFromDB(
     SequenceNumber max) {
-  ROCKS_LOG_DETAILS(info_log_, "GetSnapshotListFromDB with max %" PRIu64,
-                      max);
+  ROCKS_LOG_DETAILS(info_log_, "GetSnapshotListFromDB with max %" PRIu64, max);
   InstrumentedMutex(db_impl_->mutex());
   return db_impl_->snapshots().GetAll(nullptr, max);
 }
@@ -485,7 +484,7 @@ void WritePreparedTxnDB::UpdateSnapshots(
     const std::vector<SequenceNumber>& snapshots,
     const SequenceNumber& version) {
   ROCKS_LOG_DETAILS(info_log_, "UpdateSnapshots with version %" PRIu64,
-                      version);
+                    version);
   TEST_SYNC_POINT("WritePreparedTxnDB::UpdateSnapshots:p:start");
   TEST_SYNC_POINT("WritePreparedTxnDB::UpdateSnapshots:s:start");
 #ifndef NDEBUG
