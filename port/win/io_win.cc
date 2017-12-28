@@ -961,9 +961,7 @@ Status WinWritableFile::Sync() {
   return SyncImpl();
 }
 
-Status WinWritableFile::Fsync() {
-  return SyncImpl();
-}
+Status WinWritableFile::Fsync() { return SyncImpl(); }
 
 bool WinWritableFile::IsSyncThreadSafe() const { return true; }
 
