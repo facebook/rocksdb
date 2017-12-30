@@ -93,8 +93,15 @@ Status TableCache::GetTableReader(
     bool for_compaction) {
   std::string fname =
       TableFileName(ioptions_.db_paths, fd.GetNumber(), fd.GetPathId());
+
+  // Do not perform async IO on compaction
+  EnvOptions ra_options(env_options);
+  if(readahead > 0) {
+    ra_options.use_async_reads = false;
+  }
+
   unique_ptr<RandomAccessFile> file;
-  Status s = ioptions_.env->NewRandomAccessFile(fname, &file, env_options);
+  Status s = ioptions_.env->NewRandomAccessFile(fname, &file, ra_options);
 
   RecordTick(ioptions_.statistics, NO_FILE_OPENS);
   if (s.ok()) {
@@ -111,7 +118,7 @@ Status TableCache::GetTableReader(
             record_read_stats ? ioptions_.statistics : nullptr, SST_READ_MICROS,
             file_read_hist, ioptions_.rate_limiter, for_compaction));
     s = ioptions_.table_factory->NewTableReader(
-        TableReaderOptions(ioptions_, env_options, internal_comparator,
+        TableReaderOptions(ioptions_, ra_options, internal_comparator,
                            skip_filters, level),
         std::move(file_reader), fd.GetFileSize(), table_reader,
         prefetch_index_and_filter_in_cache);
@@ -315,7 +322,6 @@ Status TableCache::Get(const ReadOptions& options,
 #ifndef ROCKSDB_LITE
   IterKey row_cache_key;
   std::string row_cache_entry_buffer;
-
   // Check row cache if enabled. Since row cache does not currently store
   // sequence numbers, we cannot use it if we need to fetch the sequence.
   if (ioptions_.row_cache && !get_context->NeedToReadSequence()) {

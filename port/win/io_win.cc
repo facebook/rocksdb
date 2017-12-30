@@ -8,11 +8,16 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "port/win/io_win.h"
+#include "port/win/iocompletion.h"
 
 #include "monitoring/iostats_context_imp.h"
 #include "util/aligned_buffer.h"
 #include "util/coding.h"
 #include "util/sync_point.h"
+
+#ifdef ROCKSDB_COROUTINES
+#include <experimental/resumable>
+#endif // ROCKSDB_COROUTINES
 
 namespace rocksdb {
 namespace port {
@@ -650,18 +655,30 @@ SSIZE_T WinRandomAccessImpl::PositionedReadInternal(char* src,
 inline
 WinRandomAccessImpl::WinRandomAccessImpl(WinFileData* file_base,
   size_t alignment,
-  const EnvOptions& options) :
+  const EnvOptions& options,
+  std::unique_ptr<IOCompletion>&& iocompl) :
     file_base_(file_base),
-    alignment_(alignment) {
+    alignment_(alignment),
+    iocompl_(std::move(iocompl)) {
 
   assert(!options.use_mmap_reads);
+}
+
+inline
+WinRandomAccessImpl::~WinRandomAccessImpl() {
+  iocompl_.reset();
 }
 
 inline
 Status WinRandomAccessImpl::ReadImpl(uint64_t offset, size_t n, Slice* result,
   char* scratch) const {
 
-  Status s;
+  assert(iocompl_ == nullptr);
+
+  if (n > std::numeric_limits<DWORD>::max()) {
+    return Status::InvalidArgument(
+      "WinRandomAccessImpl::ReadImpl: n exceeds maximum");
+  }
 
   // Check buffer alignment
   if (file_base_->use_direct_io()) {
@@ -669,6 +686,8 @@ Status WinRandomAccessImpl::ReadImpl(uint64_t offset, size_t n, Slice* result,
       return Status::InvalidArgument("WinRandomAccessImpl::ReadImpl: scratch is not properly aligned");
     }
   }
+
+  Status s;
 
   if (n == 0) {
     *result = Slice(scratch, 0);
@@ -694,14 +713,164 @@ Status WinRandomAccessImpl::ReadImpl(uint64_t offset, size_t n, Slice* result,
   return s;
 }
 
+#ifdef ROCKSDB_COROUTINES
+
+struct WinIOOverlapped : public OVERLAPPED {
+
+  HANDLE              file_handle_;
+  IOCompletion*       iocompl_;
+  char*               buffer_;
+  uint64_t            n_;
+  Slice*              result_;
+  Status              s_;
+  std::experimental::coroutine_handle<> cb_;
+
+  WinIOOverlapped(HANDLE file_handle, IOCompletion* iocompl,
+    uint64_t offset, char* buffer, uint64_t n,
+    Slice* result) :
+    iocompl_(iocompl),
+    file_handle_(file_handle),
+    buffer_(buffer),
+    n_(n),
+    result_(result),
+    cb_(nullptr) {
+
+    // Zero out the base
+    ZeroMemory(this, sizeof(OVERLAPPED));
+
+    ULARGE_INTEGER offsetUnion;
+    offsetUnion.QuadPart = offset;
+    Offset = offsetUnion.LowPart;
+    OffsetHigh = offsetUnion.HighPart;
+  }
+
+  WinIOOverlapped(const WinIOOverlapped&) = default;
+  WinIOOverlapped& operator=(const WinIOOverlapped&) = default;
+
+  ~WinIOOverlapped() {
+  }
+
+  void SetResult(uint64_t len) {
+    *result_ = Slice(buffer_, len);
+  }
+
+  const Status& GetStatus() const {
+    return s_;
+  }
+
+  void SetStatus(Status&& s) {
+    s_ = std::move(s);
+  }
+
+  // Awaitable API
+  bool await_ready() const {
+    return false;
+  }
+
+  void await_suspend(std::experimental::coroutine_handle<> this_coro) {
+    cb_ = this_coro;
+
+    unsigned long bytesRead = 0;
+
+    // Let the TP know we are about to start
+    // Must do it on every IO
+    iocompl_->Start();
+
+    BOOL ret = ReadFile(file_handle_, buffer_,
+      static_cast<DWORD>(n_), &bytesRead,
+      this);
+
+    // Operation completed sync
+    if (ret == TRUE) {
+      iocompl_->Cancel();
+      SetResult(bytesRead);
+      cb_.resume();
+    } else {
+      DWORD lastError = GetLastError();
+      if (lastError != ERROR_IO_PENDING) {
+        iocompl_->Cancel();
+        SetResult(0);
+        // We handle EOF as a success with zero bytes read
+        if (lastError != ERROR_HANDLE_EOF) {
+          SetStatus(IOErrorFromWindowsError("WinRandomAccessImpl::RequestReadImpl: "
+            "Failed to initiate async Read()",
+            lastError));
+        }
+        cb_.resume();
+      }
+    }
+  }
+
+  void await_resume() {}
+};
+
+Status WinRandomAccessImpl::RequestReadImpl(uint64_t offset, size_t n, 
+  Slice* result, char* scratch) const {
+
+  Status s;
+  assert(iocompl_ != nullptr);
+
+  if (n > std::numeric_limits<DWORD>::max()) {
+    s = Status::InvalidArgument(
+      "WinRandomAccessImpl::RequestReadImpl: n exceeds maximum");
+    co_return s;
+  }
+
+  // Check buffer alignment
+  if (file_base_->use_direct_io()) {
+    if (!IsAligned(alignment_, scratch)) {
+      s = Status::InvalidArgument(
+        "WinRandomAccessImpl::RequestReadImpl: scratch is not properly aligned");
+      co_return s;
+    }
+  }
+
+  WinIOOverlapped overlapped(file_base_->GetFileHandle(), iocompl_.get(),
+    offset, scratch, n, result);
+
+  co_await overlapped;
+  // We end up here either on the same thread if read completes sync
+  // OR this is where the callback from the TP comes
+  // on IO completion from the end of OnAsyncReadCompletion() below
+  co_return overlapped.s_;
+}
+
+void WinRandomAccessImpl::OnAsyncReadCompletion(
+  PTP_CALLBACK_INSTANCE /* Instance */,
+  PVOID /* Context */, PVOID Overlapped, ULONG IoResult,
+  ULONG_PTR NumberOfBytesTransferred, PTP_IO /* ptp_io */) {
+
+  // Overlapped structure now exists in the space
+  // controlled by the compiler as if declared on the stack
+  // (may or may not be on the stack as compiler decides)
+  // so we no longer need to allocate/deallocate it
+  WinIOOverlapped* overlapped = reinterpret_cast<WinIOOverlapped*>(Overlapped);
+
+  if (IoResult == ERROR_HANDLE_EOF) {
+    overlapped->SetResult(0);
+  } else if (IoResult == NO_ERROR) {
+    overlapped->SetResult(NumberOfBytesTransferred);
+  } else {
+    overlapped->SetResult(0);
+    overlapped->SetStatus(port::IOErrorFromWindowsError("Async read failed: ",
+      IoResult));
+  }
+
+  // becomes a tail call
+  assert(overlapped->cb_);
+  overlapped->cb_.resume();
+}
+#endif // ROCKSDB_COROUTINES
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 /// WinRandomAccessFile
 
 WinRandomAccessFile::WinRandomAccessFile(const std::string& fname, HANDLE hFile,
                                          size_t alignment,
-                                         const EnvOptions& options)
+                                         const EnvOptions& options,
+                                         std::unique_ptr<IOCompletion>&& iocompl)
     : WinFileData(fname, hFile, options.use_direct_reads),
-      WinRandomAccessImpl(this, alignment, options) {}
+      WinRandomAccessImpl(this, alignment, options, std::move(iocompl)) {}
 
 WinRandomAccessFile::~WinRandomAccessFile() {
 }
@@ -710,6 +879,15 @@ Status WinRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
   char* scratch) const {
   return ReadImpl(offset, n, result, scratch);
 }
+
+#ifdef ROCKSDB_COROUTINES
+// This is a coroutine in a form of a virtual function
+Status WinRandomAccessFile::RequestRead(uint64_t offset, size_t n, Slice* result,
+  char* scratch) const {
+  Status s = co_await RequestReadImpl(offset, n, result, scratch);
+  co_return s;
+}
+#endif // ROCKSDB_COROUTINES
 
 Status WinRandomAccessFile::InvalidateCache(size_t offset, size_t length) {
   return Status::OK();
@@ -986,7 +1164,7 @@ WinRandomRWFile::WinRandomRWFile(const std::string& fname, HANDLE hFile,
                                  size_t alignment, const EnvOptions& options)
     : WinFileData(fname, hFile,
                   options.use_direct_reads && options.use_direct_writes),
-      WinRandomAccessImpl(this, alignment, options),
+      WinRandomAccessImpl(this, alignment, options, std::unique_ptr<IOCompletion>()),
       WinWritableImpl(this, alignment) {}
 
 bool WinRandomRWFile::use_direct_io() const { return WinFileData::use_direct_io(); }

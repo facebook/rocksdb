@@ -24,6 +24,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "rocksdb/async/asyncthreadpool.h"
 #include "rocksdb/status.h"
 #include "rocksdb/thread_status.h"
 
@@ -76,6 +77,12 @@ struct EnvOptions {
   // If true, then use O_DIRECT for writing data
   bool use_direct_writes = false;
 
+  // If true, random reads will be performed
+  // in async manner. ReadOptions must also have
+  // async_reads = true set and a callback for
+  // the DB::Get()/DB::MultiGet
+  bool use_async_reads = false;
+
   // If false, fallocate() calls are bypassed
   bool allow_fallocate = true;
 
@@ -107,6 +114,10 @@ struct EnvOptions {
 
   // If not nullptr, write rate limiting is enabled for flush and compaction
   RateLimiter* rate_limiter = nullptr;
+
+  // If use_async_reads = true then this thread-pool
+  // will be used to issue async reads
+  async::AsyncThreadPool* async_threadpool = nullptr;
 };
 
 class Env {
@@ -446,6 +457,15 @@ class Env {
   // Returns the ID of the current thread.
   virtual uint64_t GetThreadID() const;
 
+  // This is a platform specific factory method that can instantiate
+  // platform dependent implementation of thread-pool that
+  // will run async callbacks.
+  // Context is also platform dependent
+  virtual std::unique_ptr<async::AsyncThreadPool> CreateAsyncThreadPool(
+    void* /* context */) {
+    return nullptr;
+  }
+
  protected:
   // The pointer to an internal structure that will update the
   // status of each thread.
@@ -513,7 +533,6 @@ class SequentialFile {
 // A file abstraction for randomly reading the contents of a file.
 class RandomAccessFile {
  public:
-
   RandomAccessFile() { }
   virtual ~RandomAccessFile();
 
@@ -529,6 +548,12 @@ class RandomAccessFile {
   // If Direct I/O enabled, offset, n, and scratch should be aligned properly.
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
                       char* scratch) const = 0;
+
+  // For coroutines only
+  virtual Status RequestRead(uint64_t offset, size_t n, Slice* result,
+    char* scratch) const {
+    return Status::NotSupported();
+  }
 
   // Readahead the file starting from offset by n bytes for caching.
   virtual Status Prefetch(uint64_t offset, size_t n) {

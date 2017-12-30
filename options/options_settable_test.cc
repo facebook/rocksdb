@@ -181,6 +181,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
       {offsetof(struct DBOptions, env), sizeof(Env*)},
       {offsetof(struct DBOptions, rate_limiter),
        sizeof(std::shared_ptr<RateLimiter>)},
+     { offsetof(struct DBOptions, async_threadpool),
+       sizeof(std::shared_ptr<async::AsyncThreadPool>) },
       {offsetof(struct DBOptions, sst_file_manager),
        sizeof(std::shared_ptr<SstFileManager>)},
       {offsetof(struct DBOptions, info_log), sizeof(std::shared_ptr<Logger>)},
@@ -265,6 +267,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "allow_mmap_reads=false;"
                              "use_direct_reads=false;"
                              "use_direct_io_for_flush_and_compaction=false;"
+                             "use_async_reads=false;"
                              "max_log_file_size=4607;"
                              "random_access_max_buffer_size=1048576;"
                              "advise_random_on_open=true;"

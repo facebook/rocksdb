@@ -105,6 +105,14 @@ class RandomAccessFileReader {
 
   Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const;
 
+// Separate entry point only for demonstration purposes so we donot break
+// the rest of the build as with coroutines
+// we do not really need to change code simply insert co_await/co_return macros
+// below is a copy of Read with those
+#ifdef ROCKSDB_COROUTINES
+  Status RequestRead(uint64_t offset, size_t n, Slice* result, char* scratch) const;
+#endif // ROCKSDB_COROUTINES
+
   Status Prefetch(uint64_t offset, size_t n) const {
     return file_->Prefetch(offset, n);
   }

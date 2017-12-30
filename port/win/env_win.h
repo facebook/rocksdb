@@ -286,6 +286,9 @@ public:
 
   uint64_t GetThreadID() const override;
 
+  std::unique_ptr<async::AsyncThreadPool> CreateAsyncThreadPool(void* 
+    context) override;
+
   void SleepForMicroseconds(int micros) override;
 
   // Allow increasing the number of worker threads.
