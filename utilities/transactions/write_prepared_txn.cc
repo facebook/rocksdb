@@ -7,6 +7,10 @@
 
 #include "utilities/transactions/write_prepared_txn.h"
 
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
 #include <inttypes.h>
 #include <map>
 
