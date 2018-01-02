@@ -206,7 +206,7 @@ class CloudEnv : public Env {
   // Get the size of the object in cloud storage
   virtual Status GetObjectSize(const std::string& bucket_name_prefix,
                               const std::string& bucket_object_path,
-                              size_t* filesize) = 0;
+                              uint64_t* filesize) = 0;
 
   // Copy the specified cloud object from one location in the cloud
   // storage to another location in cloud storage

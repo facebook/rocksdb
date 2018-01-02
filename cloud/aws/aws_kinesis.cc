@@ -64,7 +64,7 @@ Status KinesisSystem::TailStream() {
 
   while (env_->IsRunning() && status_.ok()) {
     // Count the number of records that were read in one iteration
-    int num_read = 0;
+    size_t num_read = 0;
 
     // Issue a read from Kinesis stream
     GetRecordsRequest request;

@@ -184,7 +184,8 @@ Status CloudEnvImpl::extractParents(const std::string& bucket_name_prefix,
                                     DbidParents* parents) {
 
   const std::string delimiter(DBID_SEPARATOR);
-  std::srand(std::time(0)); // use current time as seed for random generator
+  // use current time as seed for random generator
+  std::srand(static_cast<unsigned int>(std::time(0)));
   const std::string random = std::to_string(std::rand());
   const std::string scratch(SCRATCH_LOCAL_DIR);
   Status st;

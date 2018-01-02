@@ -1,6 +1,11 @@
 // Copyright (c) 2017 Rockset.
 #ifndef ROCKSDB_LITE
 
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
+#include <inttypes.h>
 #include "rocksdb/db.h"
 #include "cloud/aws/aws_env.h"
 #include "cloud/db_cloud_impl.h"
@@ -568,16 +573,16 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
     if (!st.ok() || cloud_manifest_size != local_manifest_size) {
       Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
           "[db_cloud_impl] NeedsReinitialization: "
-          "Cloud manifest at dest bucket %s path %s size %ld "
-          "does not match local manifest file size %d. %s",
+          "Cloud manifest at dest bucket %s path %s size %" PRIu64
+          " does not match local manifest file size %d. %s",
           dest_bucket.c_str(), dest_object_path.c_str(), cloud_manifest_size,
           local_manifest_size, st.ToString().c_str());
       return Status::OK();
     }
     Log(InfoLogLevel::INFO_LEVEL, options.info_log,
         "[db_cloud_impl] NeedsReinitialization: "
-        "Validated that Cloud manifest at dest bucket %s path %s size %ld "
-        "matches local manifest file size %d. %s",
+        "Validated that Cloud manifest at dest bucket %s path %s size %" PRIu64
+        " matches local manifest file size %d. %s",
         dest_bucket.c_str(), dest_object_path.c_str(), cloud_manifest_size,
         local_manifest_size, st.ToString().c_str());
   }

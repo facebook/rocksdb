@@ -179,13 +179,13 @@ class S3ReadableFile : virtual public SequentialFile,
   virtual ~S3ReadableFile();
 
   // sequential access, read data at current offset in file
-  virtual Status Read(size_t n, Slice* result, char* scratch);
+  virtual Status Read(size_t n, Slice* result, char* scratch) override;
 
   // random access, read data from specified offset in file
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
-                      char* scratch) const;
+                      char* scratch) const override;
 
-  virtual Status Skip(uint64_t n);
+  virtual Status Skip(uint64_t n) override;
 
   uint64_t GetSize() const { return file_size_; }
   uint64_t GetLastModTime() const { return last_mod_time_; }

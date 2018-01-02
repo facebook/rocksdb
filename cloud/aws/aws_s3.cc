@@ -6,6 +6,11 @@
 //
 #ifdef USE_AWS
 
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
+#include <inttypes.h>
 #include <assert.h>
 #include <fstream>
 #include <iostream>
@@ -76,7 +81,7 @@ Status S3ReadableFile::Read(uint64_t offset, size_t n, Slice* result,
 
   if (offset >= file_size_) {
     Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
-        "[s3] S3ReadableFile reading %s at offset %ld filesize %ld."
+        "[s3] S3ReadableFile reading %s at offset %" PRIu64 " filesize %ld."
         " Nothing to do",
         fname_.c_str(), offset, file_size_);
     return Status::OK();
@@ -86,7 +91,7 @@ Status S3ReadableFile::Read(uint64_t offset, size_t n, Slice* result,
   if (offset + n > file_size_) {
     n = file_size_ - offset;
     Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
-        "[s3] S3ReadableFile reading %s at offset %ld trimmed size %ld",
+        "[s3] S3ReadableFile reading %s at offset %" PRIu64 " trimmed size %ld",
         fname_.c_str(), offset, n);
   }
 
@@ -95,11 +100,12 @@ Status S3ReadableFile::Read(uint64_t offset, size_t n, Slice* result,
   // drop it later.
   size_t rangeLen = (n != 0 ? n : 1);
   char buffer[512];
-  int ret = snprintf(buffer, sizeof(buffer), "bytes=%ld-%ld", offset,
-                     offset + rangeLen - 1);
+  int ret = snprintf(buffer, sizeof(buffer), "bytes=%" PRIu64 "-%" PRIu64,
+                     offset, offset + rangeLen - 1);
   if (ret < 0) {
     Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
-        "[s3] S3ReadableFile vsnprintf error %s offset %ld rangelen %ld\n",
+        "[s3] S3ReadableFile vsnprintf error %s offset %" PRIu64
+        " rangelen %" ROCKSDB_PRIszt "\n",
         fname_.c_str(), offset, rangeLen);
     return Status::IOError("S3ReadableFile vsnprintf ", fname_.c_str());
   }
@@ -396,7 +402,7 @@ Status S3WritableFile::CopyToS3(const AwsEnv* env, const std::string& fname,
                                 const Aws::String& s3_object,
                                 uint64_t size_hint) {
   Status st;
-  size_t fsize = 0;
+  uint64_t fsize = 0;
   // debugging paranoia. Files uploaded to S3 can never be zero size.
   st = env->GetPosixEnv()->GetFileSize(fname, &fsize);
   if (!st.ok()) {

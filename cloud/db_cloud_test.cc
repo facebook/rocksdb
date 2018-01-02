@@ -465,7 +465,7 @@ TEST_F(CloudTest, KeepLocalFiles) {
 
   std::vector<std::string> files;
   ASSERT_OK(Env::Default()->GetChildren(dbname_, &files));
-  int sst_files =
+  long sst_files =
       std::count_if(files.begin(), files.end(), [](const std::string& file) {
         return file.find("sst") != std::string::npos;
       });

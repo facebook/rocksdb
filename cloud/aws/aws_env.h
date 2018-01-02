@@ -237,10 +237,12 @@ class AwsEnv : public CloudEnvImpl {
 
   bool IsRunning() const { return running_; }
 
-  const std::string& GetSrcBucketPrefix() { return src_bucket_prefix_; }
-  const std::string& GetSrcObjectPrefix() { return src_object_prefix_; }
-  const std::string& GetDestBucketPrefix() { return dest_bucket_prefix_; }
-  const std::string& GetDestObjectPrefix() { return dest_object_prefix_; }
+  const std::string& GetSrcBucketPrefix() override { return src_bucket_prefix_; }
+  const std::string& GetSrcObjectPrefix() override { return src_object_prefix_; }
+  const std::string& GetDestBucketPrefix() override { return dest_bucket_prefix_; }
+  const std::string& GetDestObjectPrefix() override {
+    return dest_object_prefix_;
+  }
 
   const CloudEnvOptions& GetCloudEnvOptions() override {
       return cloud_env_options;
@@ -282,18 +284,18 @@ class AwsEnv : public CloudEnvImpl {
                     const std::string& dbid) override;
   Status ListObjects(const std::string& bucket_name_prefix,
                      const std::string& bucket_object_prefix,
-                     BucketObjectMetadata* meta);
+                     BucketObjectMetadata* meta) override;
   Status DeleteObject(const std::string& bucket_name_prefix,
-                      const std::string& bucket_object_path);
+                      const std::string& bucket_object_path) override;
   Status ExistsObject(const std::string& bucket_name_prefix,
-                      const std::string& bucket_object_path);
+                      const std::string& bucket_object_path) override;
   Status GetObjectSize(const std::string& bucket_name_prefix,
                        const std::string& bucket_object_path,
-                       size_t* filesize);
+                       uint64_t* filesize) override;
   Status CopyObject(const std::string& bucket_name_prefix_src,
                     const std::string& bucket_object_path_src,
                     const std::string& bucket_name_prefix_dest,
-                    const std::string& bucket_object_path_dest);
+                    const std::string& bucket_object_path_dest) override;
 
   void SetEncryptionParameters(
       Aws::S3::Model::PutObjectRequest& put_request) const;

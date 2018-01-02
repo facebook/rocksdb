@@ -203,30 +203,30 @@ class CloudEnvWrapper : public CloudEnvImpl {
 
   uint64_t GetThreadID() const override { return base_env_->GetThreadID(); }
 
-  const CloudEnvOptions& GetCloudEnvOptions() { return options_; }
+  const CloudEnvOptions& GetCloudEnvOptions() override { return options_; }
 
   Status ListObjects(const std::string& bucket_name_prefix,
                      const std::string& bucket_object_prefix,
-                     BucketObjectMetadata* meta) {
+                     BucketObjectMetadata* meta) override {
     return notsup_;
   }
   Status DeleteObject(const std::string& bucket_name_prefix,
-                      const std::string& bucket_object_path) {
+                      const std::string& bucket_object_path) override {
     return notsup_;
   }
   Status ExistsObject(const std::string& bucket_name_prefix,
-                      const std::string& bucket_object_path) {
+                      const std::string& bucket_object_path) override {
     return notsup_;
   }
   Status GetObjectSize(const std::string& bucket_name_prefix,
                        const std::string& bucket_object_path,
-                       size_t* size) {
+                       uint64_t* size) override {
     return notsup_;
   }
   Status CopyObject(const std::string& bucket_name_prefix_src,
                     const std::string& bucket_object_path_src,
                     const std::string& bucket_name_prefix_dest,
-                    const std::string& bucket_object_path_dest) {
+                    const std::string& bucket_object_path_dest) override {
     return notsup_;
   }
 

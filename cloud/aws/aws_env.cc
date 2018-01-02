@@ -1488,7 +1488,7 @@ Status AwsEnv::ExistsObject(const std::string& bucket_name_prefix,
 // Return size of cloud object
 Status AwsEnv::GetObjectSize(const std::string& bucket_name_prefix,
                              const std::string& bucket_object_path,
-                             size_t* filesize) {
+                             uint64_t* filesize) {
   return GetFileInfoInS3(bucket_name_prefix, bucket_object_path, filesize,
                          nullptr);
 }
