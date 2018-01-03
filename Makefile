@@ -344,6 +344,8 @@ ifeq ($(HAVE_POWER8),1)
 LIB_CC_OBJECTS = $(LIB_SOURCES:.cc=.o)
 LIBOBJECTS += $(LIB_SOURCES_C:.c=.o)
 LIBOBJECTS += $(LIB_SOURCES_ASM:.S=.o)
+else
+LIB_CC_OBJECTS = $(LIB_SOURCES:.cc=.o)
 endif
 
 LIBOBJECTS += $(TOOL_LIB_SOURCES:.cc=.o)
@@ -1653,8 +1655,9 @@ libzstd.a:
 	cp zstd-$(ZSTD_VER)/lib/libzstd.a .
 
 # A version of each $(LIBOBJECTS) compiled with -fPIC and a fixed set of static compression libraries
-java_static_libobjects = $(patsubst %,jls/%,$(LIBOBJECTS))
+java_static_libobjects = $(patsubst %,jls/%,$(LIB_CC_OBJECTS))
 CLEAN_FILES += jls
+java_static_all_libobjects = $(java_static_libobjects)
 
 ifneq ($(ROCKSDB_JAVA_NO_COMPRESSION), 1)
 JAVA_COMPRESSIONS = libz.a libbz2.a libsnappy.a liblz4.a libzstd.a
@@ -1663,15 +1666,30 @@ endif
 JAVA_STATIC_FLAGS = -DZLIB -DBZIP2 -DSNAPPY -DLZ4 -DZSTD
 JAVA_STATIC_INCLUDES = -I./zlib-$(ZLIB_VER) -I./bzip2-$(BZIP2_VER) -I./snappy-$(SNAPPY_VER) -I./lz4-$(LZ4_VER)/lib -I./zstd-$(ZSTD_VER)/lib
 
+ifeq ($(HAVE_POWER8),1)
+JAVA_STATIC_C_LIBOBJECTS = $(patsubst %.c.o,jls/%.c.o,$(LIB_SOURCES_C:.c=.o))
+JAVA_STATIC_ASM_LIBOBJECTS = $(patsubst %.S.o,jls/%.S.o,$(LIB_SOURCES_ASM:.S=.o))
+
+java_static_ppc_libobjects = $(JAVA_STATIC_C_LIBOBJECTS) $(JAVA_STATIC_ASM_LIBOBJECTS)
+
+jls/util/crc32c_ppc.o: util/crc32c_ppc.c
+	$(AM_V_CC)$(CC) $(CFLAGS) $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES) -c $< -o $@
+
+jls/util/crc32c_ppc_asm.o: util/crc32c_ppc_asm.S
+	$(AM_V_CC)$(CC) $(CFLAGS) $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES) -c $< -o $@
+
+java_static_all_libobjects += $(java_static_ppc_libobjects)
+endif
+
 $(java_static_libobjects): jls/%.o: %.cc $(JAVA_COMPRESSIONS)
 	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES) -fPIC -c $< -o $@ $(COVERAGEFLAGS)
 
-rocksdbjavastatic: $(java_static_libobjects)
+rocksdbjavastatic: $(java_static_all_libobjects)
 	cd java;$(MAKE) javalib;
 	rm -f ./java/target/$(ROCKSDBJNILIB)
 	$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC \
 	  -o ./java/target/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) \
-	  $(java_static_libobjects) $(COVERAGEFLAGS) \
+	  $(java_static_all_libobjects) $(COVERAGEFLAGS) \
 	  $(JAVA_COMPRESSIONS) $(JAVA_STATIC_LDFLAGS)
 	cd java/target;strip $(STRIPFLAGS) $(ROCKSDBJNILIB)
 	cd java;jar -cf target/$(ROCKSDB_JAR) HISTORY*.md
