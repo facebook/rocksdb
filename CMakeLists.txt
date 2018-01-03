@@ -14,7 +14,7 @@
 #        cd build
 # 3. Run cmake to generate project files for Windows, add more options to enable required third-party libraries.
 #    See thirdparty.inc for more information.
-#        sample command: cmake -G "Visual Studio 14 Win64" -DGFLAGS=1 -DSNAPPY=1 -DJEMALLOC=1 -DJNI=1 ..
+#        sample command: cmake -G "Visual Studio 15 Win64" -DWITH_GFLAGS=1 -DWITH_SNAPPY=1 -DWITH_JEMALLOC=1 -DWITH_JNI=1 ..
 # 4. Then build the project in debug mode (you may want to add /m[:<N>] flag to run msbuild in <N> parallel threads
 #                                          or simply /m ot use all avail cores)
 #        msbuild rocksdb.sln
@@ -42,7 +42,14 @@ endif()
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake/modules/")
 
 option(WITH_JEMALLOC "build with JeMalloc" OFF)
+option(WITH_SNAPPY "build with SNAPPY" OFF)
+option(WITH_LZ4 "build with lz4" OFF)
+option(WITH_ZLIB "build with zlib" OFF)
 if(MSVC)
+  # Defaults currently different for GFLAGS.
+  #  We will address find_package work a little later
+  option(WITH_GFLAGS "build with GFlags" OFF)
+  option(WITH_XPRESS "build with windows built in compression" OFF)
   include(${CMAKE_CURRENT_SOURCE_DIR}/thirdparty.inc)
 else()
   if(CMAKE_SYSTEM_NAME MATCHES "FreeBSD")
@@ -56,8 +63,18 @@ else()
       include_directories(${JEMALLOC_INCLUDE_DIR})
     endif()
   endif()
+  
+  # No config file for this
+  option(WITH_GFLAGS "build with GFlags" ON)
+  if(WITH_GFLAGS)
+    find_package(gflags)
+    if(gflags_FOUND)
+      add_definitions(-DGFLAGS=1)
+      include_directories(${gflags_INCLUDE_DIR})
+      list(APPEND THIRDPARTY_LIBS ${gflags_LIBRARIES})
+    endif()
+  endif()
 
-  option(WITH_SNAPPY "build with SNAPPY" OFF)
   if(WITH_SNAPPY)
     find_package(snappy REQUIRED)
     add_definitions(-DSNAPPY)
@@ -65,7 +82,6 @@ else()
     list(APPEND THIRDPARTY_LIBS ${SNAPPY_LIBRARIES})
   endif()
 
-  option(WITH_ZLIB "build with zlib" OFF)
   if(WITH_ZLIB)
     find_package(zlib REQUIRED)
     add_definitions(-DZLIB)
@@ -81,7 +97,6 @@ else()
     list(APPEND THIRDPARTY_LIBS ${BZIP2_LIBRARIES})
   endif()
 
-  option(WITH_LZ4 "build with lz4" OFF)
   if(WITH_LZ4)
     find_package(lz4 REQUIRED)
     add_definitions(-DLZ4)
@@ -252,13 +267,6 @@ if(WITH_UBSAN)
   if(WITH_JEMALLOC)
     message(FATAL "UBSAN does not work well with JeMalloc")
   endif()
-endif()
-
-find_package(gflags)
-if(gflags_FOUND)
-  add_definitions(-DGFLAGS=1)
-  include_directories(${gflags_INCLUDE_DIR})
-  list(APPEND THIRDPARTY_LIBS ${gflags_LIBRARIES})
 endif()
 
 find_package(NUMA)
