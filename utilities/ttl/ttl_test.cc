@@ -283,6 +283,12 @@ class TtlTest : public testing::Test {
     delete dbiter;
   }
 
+  // Set ttl on open db
+  void SetTtl(int32_t ttl, ColumnFamilyHandle* cf = nullptr) {
+    ASSERT_TRUE(db_ttl_);
+    cf == nullptr ? db_ttl_->SetTtl(ttl) : db_ttl_->SetTtl(cf, ttl);
+  }
+
   class TestFilter : public CompactionFilter {
    public:
     TestFilter(const int64_t kSampleSize, const std::string& kNewValue)
@@ -624,6 +630,17 @@ TEST_F(TtlTest, ColumnFamiliesTest) {
   }
   delete db_ttl_;
   db_ttl_ = nullptr;
+}
+
+// Puts a set of values and checks its absence using Get after ttl
+TEST_F(TtlTest, ChangeTtlOnOpenDb) {
+  MakeKVMap(kSampleSize_);
+
+  OpenTtl(1);                                  // T=0:Open the db with ttl = 2
+  SetTtl(3);
+  PutValues(0, kSampleSize_);		       // T=0:Insert Set1. Delete at t=2
+  SleepCompactCheck(2, 0, kSampleSize_, true); // T=2:Set1 should be there
+  CloseTtl();
 }
 
 } //  namespace rocksdb
