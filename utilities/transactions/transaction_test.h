@@ -72,6 +72,11 @@ class TransactionTest : public ::testing::TestWithParam<
 
   ~TransactionTest() {
     delete db;
+    // This is to skip the assert statement in FaultInjectionTestEnv. There
+    // seems to be a bug in btrfs that the makes readdir return recently
+    // unlink-ed files. By using the default fs we simply ignore errors resulted
+    // from attempting to delete such files in DestroyDB.
+    options.env = Env::Default();
     DestroyDB(dbname, options);
     delete env;
   }
