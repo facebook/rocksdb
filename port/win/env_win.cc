@@ -251,7 +251,8 @@ Status WinEnvIO::NewRandomAccessFile(const std::string& fname,
   } else {
 
     std::unique_ptr<IOCompletion> iocompl;
-      auto tp = reinterpret_cast<WinAsyncThreadPool*>(
+#ifdef ROCKSDB_COROUTINES
+    auto tp = reinterpret_cast<WinAsyncThreadPool*>(
         options.async_threadpool);
       iocompl = tp->MakeIOCompletion(hFile, &WinRandomAccessImpl::OnAsyncReadCompletion);
       if (!iocompl) {
@@ -264,7 +265,7 @@ Status WinEnvIO::NewRandomAccessFile(const std::string& fname,
       // a callback dispatch
       SetFileCompletionNotificationModes(hFile,
         FILE_SKIP_SET_EVENT_ON_HANDLE | FILE_SKIP_COMPLETION_PORT_ON_SUCCESS);
-
+#endif // ROCKSDB_COROUTINES
     result->reset(new WinRandomAccessFile(fname, hFile, page_size_, options,
       std::move(iocompl)));
     fileGuard.release();
