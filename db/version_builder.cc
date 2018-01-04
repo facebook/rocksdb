@@ -368,6 +368,7 @@ class VersionBuilder::Rep {
   }
 
   void LoadTableHandlers(InternalStats* internal_stats, int max_threads,
+                         int max_open_files,
                          bool prefetch_index_and_filter_in_cache) {
     assert(table_cache_ != nullptr);
     // <file metadata, level>
@@ -379,15 +380,24 @@ class VersionBuilder::Rep {
         files_meta.emplace_back(file_meta, level);
       }
     }
+    // store the total number of file-opens we are allowed.
+    std::atomic<int> max_opens(max_open_files == TableCache::kInfiniteCapacity ?
+                               std::numeric_limits<int>::max() :
+                               max_open_files);
 
     std::atomic<size_t> next_file_meta_idx(0);
     std::function<void()> load_handlers_func = [&]() {
       while (true) {
+        // no more files to process
         size_t file_idx = next_file_meta_idx.fetch_add(1);
         if (file_idx >= files_meta.size()) {
           break;
         }
-
+        // no more file-opens are allowed
+        int remaining_opens = max_opens.fetch_sub(1);
+        if (remaining_opens <= 0) {
+            break;
+        }
         auto* file_meta = files_meta[file_idx].first;
         int level = files_meta[file_idx].second;
         table_cache_->FindTable(env_options_,
@@ -457,8 +467,9 @@ void VersionBuilder::SaveTo(VersionStorageInfo* vstorage) {
 
 void VersionBuilder::LoadTableHandlers(
     InternalStats* internal_stats, int max_threads,
+    int max_file_opens,
     bool prefetch_index_and_filter_in_cache) {
-  rep_->LoadTableHandlers(internal_stats, max_threads,
+  rep_->LoadTableHandlers(internal_stats, max_threads, max_file_opens,
                           prefetch_index_and_filter_in_cache);
 }
 

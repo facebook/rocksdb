@@ -376,11 +376,12 @@ TEST_F(DBPropertiesTest, ReadLatencyHistogramByLevel) {
   ASSERT_NE(std::string::npos, prop.find("** Level 1 read latency histogram"));
   ASSERT_EQ(std::string::npos, prop.find("** Level 2 read latency histogram"));
 
-  // Reopen and issue iterating. See thee latency tracked
+  // Reopen and issue iterating. See thee latency tracked.
+  // Data is preloaded to L0/L1 at cf open time.
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
   ASSERT_TRUE(dbfull()->GetProperty("rocksdb.cf-file-histogram", &prop));
-  ASSERT_EQ(std::string::npos, prop.find("** Level 0 read latency histogram"));
-  ASSERT_EQ(std::string::npos, prop.find("** Level 1 read latency histogram"));
+  ASSERT_NE(std::string::npos, prop.find("** Level 0 read latency histogram"));
+  ASSERT_NE(std::string::npos, prop.find("** Level 1 read latency histogram"));
   ASSERT_EQ(std::string::npos, prop.find("** Level 2 read latency histogram"));
   {
     unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
