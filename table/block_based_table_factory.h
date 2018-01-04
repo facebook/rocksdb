@@ -152,6 +152,9 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kBoolean, OptionVerificationType::kNormal, false, 0}},
         {"read_amp_bytes_per_bit",
          {offsetof(struct BlockBasedTableOptions, read_amp_bytes_per_bit),
-          OptionType::kSizeT, OptionVerificationType::kNormal, false, 0}}};
+          OptionType::kSizeT, OptionVerificationType::kNormal, false, 0}},
+        {"index_uncompressed",
+         {offsetof(struct BlockBasedTableOptions, index_uncompressed),
+          OptionType::kBoolean, OptionVerificationType::kNormal, false, 0}}};
 #endif  // !ROCKSDB_LITE
 }  // namespace rocksdb
