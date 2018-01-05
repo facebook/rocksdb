@@ -64,6 +64,8 @@ BlockBasedTable::~BlockBasedTable() {
   delete rep_;
 }
 
+std::atomic<uint64_t> BlockBasedTable::next_cache_key_id_(0);
+
 namespace {
 // Read the block identified by "handle" from "file".
 // The only relevant option is options.verify_checksums for now.
@@ -112,18 +114,6 @@ void ReleaseCachedEntry(void* arg, void* h) {
   Cache* cache = reinterpret_cast<Cache*>(arg);
   Cache::Handle* handle = reinterpret_cast<Cache::Handle*>(h);
   cache->Release(handle);
-}
-
-// Combination of ReleaseCachedEntry and DeleteHeldResource
-// Useful for cleaning up dummy entries in block cache to
-// track memory usage.
-template <class ResourceType>
-void ReleaseCachedEntryAndDeleteHeldResource(void* cache_arg, void* h,
-                                             void* resource_arg) {
-  Cache* cache = reinterpret_cast<Cache*>(cache_arg);
-  Cache::Handle* handle = reinterpret_cast<Cache::Handle*>(h);
-  cache->Release(handle);
-  delete reinterpret_cast<ResourceType*>(resource_arg);
 }
 
 Slice GetCacheKeyFromOffset(const char* cache_key_prefix,
@@ -1511,24 +1501,28 @@ InternalIterator* BlockBasedTable::NewDataBlockIterator(
     assert(block.value != nullptr);
     iter = block.value->NewIterator(&rep->internal_comparator, input_iter, true,
                                     rep->ioptions.statistics);
-    if (!ro.fill_cache) {
+    if (!ro.fill_cache && rep->cache_key_prefix_size != 0) {
       // insert a dummy record to block cache to track the memory usage
       Cache::Handle* cache_handle;
-      // Extra long prefix to differentiate from SST cache key and dummy cache
-      // key added in `write_buffer_manager`
-      const size_t kExtraCacheKeyPrefix = kMaxVarint64Length * 5 + 1;
+      // There are two other types of cache keys: 1) SST cache key added in
+      // `MaybeLoadDataBlockToCache` 2) dummy cache key added in
+      // `write_buffer_manager`. Use longer prefix (41 bytes) to differentiate
+      // from SST cache key(31 bytes), and use non-zero prefix to differentiate
+      // from `write_buffer_manager`
+      const size_t kExtraCacheKeyPrefix = kMaxVarint64Length * 4 + 1;
       char cache_key[kExtraCacheKeyPrefix + kMaxVarint64Length];
-      // TODO: make GetNextCacheKey thread safe
+      // Prefix: use rep->cache_key_prefix padded by 0s
       memset(cache_key, 0, kExtraCacheKeyPrefix + kMaxVarint64Length);
+      assert(rep->cache_key_prefix_size != 0);
+      assert(rep->cache_key_prefix_size <= kExtraCacheKeyPrefix);
+      memcpy(cache_key, rep->cache_key_prefix, rep->cache_key_prefix_size);
       char* end =
-          EncodeVarint64(cache_key + kExtraCacheKeyPrefix, handle.offset());
+          EncodeVarint64(cache_key + kExtraCacheKeyPrefix, next_cache_key_id_++);
+      assert(end - cache_key <= int (kExtraCacheKeyPrefix + kMaxVarint64Length));
       Slice unique_key = Slice(cache_key, static_cast<size_t>(end - cache_key));
-      // TODO: confirm the size is correct here?
       block_cache->Insert(unique_key, nullptr, block.value->size(),
                           nullptr, &cache_handle);
-      // TODO: confirm the following if statement should be else if?
-      iter->RegisterCleanup(&ReleaseCachedEntryAndDeleteHeldResource<Block>,
-                            block_cache, cache_handle, block.value);
+      iter->RegisterCleanup(&ReleaseCachedEntry, block_cache, cache_handle);
     }
     else if (block.cache_handle != nullptr) {
       iter->RegisterCleanup(&ReleaseCachedEntry, block_cache,
