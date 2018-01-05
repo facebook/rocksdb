@@ -1664,7 +1664,7 @@ JAVA_COMPRESSIONS = libz.a libbz2.a libsnappy.a liblz4.a libzstd.a
 endif
 
 JAVA_STATIC_FLAGS = -DZLIB -DBZIP2 -DSNAPPY -DLZ4 -DZSTD
-JAVA_STATIC_INCLUDES = -I./zlib-$(ZLIB_VER) -I./bzip2-$(BZIP2_VER) -I./snappy-$(SNAPPY_VER) -I./lz4-$(LZ4_VER)/lib -I./zstd-$(ZSTD_VER)/lib
+JAVA_STATIC_INCLUDES = -I./zlib-$(ZLIB_VER) -I./bzip2-$(BZIP2_VER) -I./snappy-$(SNAPPY_VER) -I./lz4-$(LZ4_VER)/lib -I./zstd-$(ZSTD_VER)/lib -I./zstd-$(ZSTD_VER)/lib/dictBuilder
 
 ifeq ($(HAVE_POWER8),1)
 JAVA_STATIC_C_LIBOBJECTS = $(patsubst %.c.o,jls/%.c.o,$(LIB_SOURCES_C:.c=.o))
