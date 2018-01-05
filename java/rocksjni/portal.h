@@ -1193,6 +1193,69 @@ class AbstractComparatorJni : public RocksDBNativeClass<
   }
 };
 
+// The portal class for org.rocksdb.CompactionFilter
+class AbstractJavaCompactionFilterJni : public RocksDBNativeClass<
+    const CompactionFilter *, AbstractJavaCompactionFilterJni> {
+public:
+
+  /**
+   * Get the Java Class org.rocksdb.AbstractJavaCompactionFilter
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
+  static jclass getJClass(JNIEnv *env) {
+    return RocksDBNativeClass::getJClass(
+        env, "org/rocksdb/AbstractJavaCompactionFilter");
+  }
+
+  /**
+   * Get the Java Method: AbstractJavaCompactionFilterJni#name
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getNameMethodId(JNIEnv *env) {
+    jclass jclazz = getJClass(env);
+    if (jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid =
+        env->GetMethodID(jclazz, "Name", "()Ljava/lang/String;");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: AbstractJavaCompactionFilterJni#FilterV2Internal
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getFilterV2InternalMethodId(JNIEnv *env) {
+    jclass jclazz = getJClass(env);
+    if (jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid =
+        env->GetMethodID(jclazz, "FilterV2Internal", "(IJBJ)Lorg/rocksdb/CompactionOutput;");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+};
+
 // The portal class for org.rocksdb.AbstractSlice
 class AbstractSliceJni : public NativeRocksMutableObject<
     const rocksdb::Slice*, AbstractSliceJni> {
@@ -2113,6 +2176,83 @@ class BatchResultJni : public JavaClass {
     batch_result.writeBatchPtr.release();
     return jbatch_result;
   }
+};
+
+// The portal class for org.rocksdb.compaction.CompactionOutput
+class CompactionOutputJni : public rocksdb::JavaClass {
+public:
+
+  /**
+   * Get the Java Class org.rocksdb.compaction.CompactionOutput
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
+  static jclass getJClass(JNIEnv *env) {
+    return JavaClass::getJClass(
+        env, "org/rocksdb/CompactionOutput");
+  }
+
+  /**
+   * Get the ID of the Java field: CompactionOutput#decisionValue
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The field ID or nullptr if the class could not be retrieved
+   */
+  static jfieldID getDecisionValueFieldId(JNIEnv *env) {
+    jclass jclazz = getJClass(env);
+    if (jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    jfieldID fieldId = env->GetFieldID(jclazz, "decisionValue", "B");
+    assert(fieldId != nullptr);
+    return fieldId;
+  }
+
+  /**
+   * Get the ID of the Java field: CompactionOutput#newValue
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The field ID or nullptr if the class could not be retrieved
+   */
+  static jfieldID getNewValueFieldId(JNIEnv *env) {
+    jclass jclazz = getJClass(env);
+    if (jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    jfieldID fieldId = env->GetFieldID(jclazz, "newValue", "Ljava/lang/String;");
+    assert(fieldId != nullptr);
+    return fieldId;
+  }
+
+  /**
+   * Get the ID of the Java field: CompactionOutput#skipUntil
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The field ID or nullptr if the class could not be retrieved
+   */
+  static jfieldID getSkipUntilFieldId(JNIEnv *env) {
+    jclass jclazz = getJClass(env);
+    if (jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    jfieldID fieldId = env->GetFieldID(jclazz, "skipUntil", "Ljava/lang/String;");
+    assert(fieldId != nullptr);
+    return fieldId;
+  }
+
 };
 
 // The portal class for org.rocksdb.CompactionStopStyle

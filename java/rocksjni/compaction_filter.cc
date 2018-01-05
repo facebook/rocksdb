@@ -9,7 +9,9 @@
 #include <jni.h>
 
 #include "include/org_rocksdb_AbstractCompactionFilter.h"
+#include "include/org_rocksdb_AbstractJavaCompactionFilter.h"
 #include "rocksdb/compaction_filter.h"
+#include "rocksjni/compaction_filter_jnicallback.h"
 
 // <editor-fold desc="org.rocksdb.AbstractCompactionFilter">
 
@@ -24,4 +26,26 @@ void Java_org_rocksdb_AbstractCompactionFilter_disposeInternal(
   assert(cf != nullptr);
   delete cf;
 }
+
+/*
+ * Class:     org_rocksdb_AbstractJavaCompactionFilter
+ * Method:    newCompactionFilter
+ * Signature: ()J
+ */
+jlong Java_org_rocksdb_AbstractJavaCompactionFilter_newCompactionFilter(JNIEnv* env, jclass jcls) {
+  auto* compaction_filter = new rocksdb::CompactionFilterJniCallback();
+  return reinterpret_cast<jlong>(compaction_filter);
+}
+
+/*
+ * Class:     org_rocksdb_AbstractJavaCompactionFilter
+ * Method:    initializeFilter
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_AbstractJavaCompactionFilter_initializeFilter(
+    JNIEnv* env, jobject jobj, jlong handle) {
+  auto* compaction_filter = reinterpret_cast<rocksdb::CompactionFilterJniCallback*>(handle);
+  return compaction_filter->Initialize(env, jobj);
+}
+
 // </editor-fold>

@@ -9,6 +9,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/compaction_filter.cc
         rocksjni/compaction_filter_factory.cc
         rocksjni/compaction_filter_factory_jnicallback.cc
+        rocksjni/compaction_filter_jnicallback.cc
         rocksjni/compaction_options_fifo.cc
         rocksjni/compaction_options_universal.cc
         rocksjni/comparator.cc
@@ -52,6 +53,7 @@ set(NATIVE_JAVA_CLASSES
         org.rocksdb.AbstractCompactionFilter
         org.rocksdb.AbstractCompactionFilterFactory
         org.rocksdb.AbstractImmutableNativeReference
+        org.rocksdb.AbstractJavaCompactionFilter.java
         org.rocksdb.AbstractNativeReference
         org.rocksdb.AbstractRocksIterator
         org.rocksdb.AbstractSlice
@@ -147,6 +149,7 @@ add_jar(
   src/main/java/org/rocksdb/AbstractCompactionFilterFactory.java
   src/main/java/org/rocksdb/AbstractComparator.java
   src/main/java/org/rocksdb/AbstractImmutableNativeReference.java
+  src/main/java/org/rocksdb/AbstractJavaCompactionFilter.java
   src/main/java/org/rocksdb/AbstractNativeReference.java
   src/main/java/org/rocksdb/AbstractRocksIterator.java
   src/main/java/org/rocksdb/AbstractSlice.java
