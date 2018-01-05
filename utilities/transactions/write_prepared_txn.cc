@@ -80,13 +80,15 @@ Status WritePreparedTxn::PrepareInternal() {
       db_impl_->WriteImpl(write_options, GetWriteBatch()->GetWriteBatch(),
                           /*callback*/ nullptr, &log_number_, /*log ref*/ 0,
                           !DISABLE_MEMTABLE, &seq_used);
-  assert(seq_used != kMaxSequenceNumber);
+  assert(!s.ok() || seq_used != kMaxSequenceNumber);
   auto prepare_seq = seq_used;
   SetId(prepare_seq);
   // TODO(myabandeh): AddPrepared better to be called in the pre-release
   // callback otherwise there is a non-zero chance of max dvancing prepare_seq
   // and readers assume the data as committed.
-  wpt_db_->AddPrepared(prepare_seq);
+  if (s.ok()) {
+    wpt_db_->AddPrepared(prepare_seq);
+  }
   return s;
 }
 
@@ -120,7 +122,7 @@ Status WritePreparedTxn::CommitBatchInternal(WriteBatch* batch) {
   auto s = db_impl_->WriteImpl(write_options_, batch, nullptr, nullptr,
                                no_log_ref, !DISABLE_MEMTABLE, &seq_used,
                                do_one_write ? &update_commit_map : nullptr);
-  assert(seq_used != kMaxSequenceNumber);
+  assert(!s.ok() || seq_used != kMaxSequenceNumber);
   uint64_t& prepare_seq = seq_used;
   SetId(prepare_seq);
   if (!s.ok()) {
@@ -150,7 +152,7 @@ Status WritePreparedTxn::CommitBatchInternal(WriteBatch* batch) {
   s = db_impl_->WriteImpl(write_options_, &empty_batch, nullptr, nullptr,
                           no_log_ref, DISABLE_MEMTABLE, &seq_used,
                           &update_commit_map_with_prepare);
-  assert(seq_used != kMaxSequenceNumber);
+  assert(!s.ok() || seq_used != kMaxSequenceNumber);
   return s;
 }
 
@@ -184,7 +186,7 @@ Status WritePreparedTxn::CommitInternal() {
   auto s = db_impl_->WriteImpl(write_options_, working_batch, nullptr, nullptr,
                                zero_log_number, disable_memtable, &seq_used,
                                &update_commit_map);
-  assert(seq_used != kMaxSequenceNumber);
+  assert(!s.ok() || seq_used != kMaxSequenceNumber);
   return s;
 }
 
@@ -270,7 +272,7 @@ Status WritePreparedTxn::RollbackInternal() {
   s = db_impl_->WriteImpl(write_options_, &rollback_batch, nullptr, nullptr,
                           no_log_ref, !DISABLE_MEMTABLE, &seq_used,
                           do_one_write ? &update_commit_map : nullptr);
-  assert(seq_used != kMaxSequenceNumber);
+  assert(!s.ok() || seq_used != kMaxSequenceNumber);
   if (!s.ok()) {
     return s;
   }
@@ -295,10 +297,12 @@ Status WritePreparedTxn::RollbackInternal() {
   s = db_impl_->WriteImpl(write_options_, &empty_batch, nullptr, nullptr,
                           no_log_ref, DISABLE_MEMTABLE, &seq_used,
                           &update_commit_map_with_prepare);
-  assert(seq_used != kMaxSequenceNumber);
+  assert(!s.ok() || seq_used != kMaxSequenceNumber);
   // Mark the txn as rolled back
   uint64_t& rollback_seq = seq_used;
-  wpt_db_->RollbackPrepared(GetId(), rollback_seq);
+  if (s.ok()) {
+    wpt_db_->RollbackPrepared(GetId(), rollback_seq);
+  }
 
   return s;
 }
