@@ -947,7 +947,7 @@ class DBImpl : public DB {
   // from the same write_thread_ without any locks.
   uint64_t logfile_number_;
   std::deque<uint64_t>
-      log_recycle_files;  // a list of log files that we can recycle
+      log_recycle_files_;  // a list of log files that we can recycle
   bool log_dir_synced_;
   // Without two_write_queues, read and writes to log_empty_ are protected by
   // mutex_. Since it is currently updated/read only in write_thread_, it can be

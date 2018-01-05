@@ -238,11 +238,11 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
     while (alive_log_files_.begin()->number < min_log_number) {
       auto& earliest = *alive_log_files_.begin();
       if (immutable_db_options_.recycle_log_file_num >
-          log_recycle_files.size()) {
+          log_recycle_files_.size()) {
         ROCKS_LOG_INFO(immutable_db_options_.info_log,
                        "adding log %" PRIu64 " to recycle list\n",
                        earliest.number);
-        log_recycle_files.push_back(earliest.number);
+        log_recycle_files_.push_back(earliest.number);
       } else {
         job_context->log_delete_files.push_back(earliest.number);
       }
@@ -283,8 +283,8 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   // We're just cleaning up for DB::Write().
   assert(job_context->logs_to_free.empty());
   job_context->logs_to_free = logs_to_free_;
-  job_context->log_recycle_files.assign(log_recycle_files.begin(),
-                                        log_recycle_files.end());
+  job_context->log_recycle_files.assign(log_recycle_files_.begin(),
+                                        log_recycle_files_.end());
   logs_to_free_.clear();
 }
 
