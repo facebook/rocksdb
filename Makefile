@@ -1559,8 +1559,8 @@ SNAPPY_DOWNLOAD_BASE ?= https://github.com/google/snappy/releases/download
 LZ4_VER ?= 1.8.0
 LZ4_SHA256 ?= 2ca482ea7a9bb103603108b5a7510b7592b90158c151ff50a28f1ca8389fccf6
 LZ4_DOWNLOAD_BASE ?= https://github.com/lz4/lz4/archive
-ZSTD_VER ?= 1.2.0
-ZSTD_SHA256 ?= 4a7e4593a3638276ca7f2a09dc4f38e674d8317bbea51626393ca73fc047cbfb
+ZSTD_VER ?= 1.3.3
+ZSTD_SHA256 ?= a77c47153ee7de02626c5b2a097005786b71688be61e9fb81806a011f90b297b
 ZSTD_DOWNLOAD_BASE ?= https://github.com/facebook/zstd/archive
 
 ifeq ($(PLATFORM), OS_MACOSX)
