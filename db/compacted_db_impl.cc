@@ -17,7 +17,8 @@ extern bool SaveValue(void* arg, const ParsedInternalKey& parsed_key,
 
 CompactedDBImpl::CompactedDBImpl(
   const DBOptions& options, const std::string& dbname)
-  : DBImpl(options, dbname) {
+  : DBImpl(options, dbname), cfd_(nullptr), version_(nullptr),
+    user_comparator_(nullptr) {
 }
 
 CompactedDBImpl::~CompactedDBImpl() {

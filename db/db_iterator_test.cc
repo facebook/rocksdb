@@ -2010,6 +2010,153 @@ TEST_F(DBIteratorTest, CreationFailure) {
   delete iter;
 }
 
+TEST_F(DBIteratorTest, TableFilter) {
+  ASSERT_OK(Put("a", "1"));
+  dbfull()->Flush(FlushOptions());
+  ASSERT_OK(Put("b", "2"));
+  ASSERT_OK(Put("c", "3"));
+  dbfull()->Flush(FlushOptions());
+  ASSERT_OK(Put("d", "4"));
+  ASSERT_OK(Put("e", "5"));
+  ASSERT_OK(Put("f", "6"));
+  dbfull()->Flush(FlushOptions());
+
+  // Ensure the table_filter callback is called once for each table.
+  {
+    std::set<uint64_t> unseen{1, 2, 3};
+    ReadOptions opts;
+    opts.table_filter = [&](const TableProperties& props) {
+      auto it = unseen.find(props.num_entries);
+      if (it == unseen.end()) {
+        ADD_FAILURE() << "saw table properties with an unexpected "
+                      << props.num_entries << " entries";
+      } else {
+        unseen.erase(it);
+      }
+      return true;
+    };
+    auto iter = db_->NewIterator(opts);
+    iter->SeekToFirst();
+    ASSERT_EQ(IterStatus(iter), "a->1");
+    iter->Next();
+    ASSERT_EQ(IterStatus(iter), "b->2");
+    iter->Next();
+    ASSERT_EQ(IterStatus(iter), "c->3");
+    iter->Next();
+    ASSERT_EQ(IterStatus(iter), "d->4");
+    iter->Next();
+    ASSERT_EQ(IterStatus(iter), "e->5");
+    iter->Next();
+    ASSERT_EQ(IterStatus(iter), "f->6");
+    iter->Next();
+    ASSERT_FALSE(iter->Valid());
+    ASSERT_TRUE(unseen.empty());
+    delete iter;
+  }
+
+  // Ensure returning false in the table_filter hides the keys from that table
+  // during iteration.
+  {
+    ReadOptions opts;
+    opts.table_filter = [](const TableProperties& props) {
+      return props.num_entries != 2;
+    };
+    auto iter = db_->NewIterator(opts);
+    iter->SeekToFirst();
+    ASSERT_EQ(IterStatus(iter), "a->1");
+    iter->Next();
+    ASSERT_EQ(IterStatus(iter), "d->4");
+    iter->Next();
+    ASSERT_EQ(IterStatus(iter), "e->5");
+    iter->Next();
+    ASSERT_EQ(IterStatus(iter), "f->6");
+    iter->Next();
+    ASSERT_FALSE(iter->Valid());
+    delete iter;
+  }
+}
+
+TEST_F(DBIteratorTest, SkipStatistics) {
+  Options options = CurrentOptions();
+  options.statistics = rocksdb::CreateDBStatistics();
+  DestroyAndReopen(options);
+
+  int skip_count = 0;
+
+  // write a bunch of kvs to the database.
+  ASSERT_OK(Put("a", "1"));
+  ASSERT_OK(Put("b", "1"));
+  ASSERT_OK(Put("c", "1"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("d", "1"));
+  ASSERT_OK(Put("e", "1"));
+  ASSERT_OK(Put("f", "1"));
+  ASSERT_OK(Put("a", "2"));
+  ASSERT_OK(Put("b", "2"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Delete("d"));
+  ASSERT_OK(Delete("e"));
+  ASSERT_OK(Delete("f"));
+
+  Iterator* iter = db_->NewIterator(ReadOptions());
+  int count = 0;
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    ASSERT_OK(iter->status());
+    count++;
+  }
+  ASSERT_EQ(count, 3);
+  delete iter;
+  skip_count += 8; // 3 deletes + 3 original keys + 2 lower in sequence
+  ASSERT_EQ(skip_count, TestGetTickerCount(options, NUMBER_ITER_SKIP));
+
+  iter = db_->NewIterator(ReadOptions());
+  count = 0;
+  for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
+    ASSERT_OK(iter->status());
+    count++;
+  }
+  ASSERT_EQ(count, 3);
+  delete iter;
+  skip_count += 8; // Same as above, but in reverse order
+  ASSERT_EQ(skip_count, TestGetTickerCount(options, NUMBER_ITER_SKIP));
+
+  ASSERT_OK(Put("aa", "1"));
+  ASSERT_OK(Put("ab", "1"));
+  ASSERT_OK(Put("ac", "1"));
+  ASSERT_OK(Put("ad", "1"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Delete("ab"));
+  ASSERT_OK(Delete("ac"));
+  ASSERT_OK(Delete("ad"));
+
+  ReadOptions ro;
+  Slice prefix("b");
+  ro.iterate_upper_bound = &prefix;
+
+  iter = db_->NewIterator(ro);
+  count = 0;
+  for(iter->Seek("aa"); iter->Valid(); iter->Next()) {
+    ASSERT_OK(iter->status());
+    count++;
+  }
+  ASSERT_EQ(count, 1);
+  delete iter;
+  skip_count += 6; // 3 deletes + 3 original keys
+  ASSERT_EQ(skip_count, TestGetTickerCount(options, NUMBER_ITER_SKIP));
+
+  iter = db_->NewIterator(ro);
+  count = 0;
+  for(iter->SeekToLast(); iter->Valid(); iter->Prev()) {
+    ASSERT_OK(iter->status());
+    count++;
+  }
+  ASSERT_EQ(count, 2);
+  delete iter;
+  // 3 deletes + 3 original keys + lower sequence of "a"
+  skip_count += 7;
+  ASSERT_EQ(skip_count, TestGetTickerCount(options, NUMBER_ITER_SKIP));
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

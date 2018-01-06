@@ -437,7 +437,7 @@ TEST_F(CompactionPickerTest, CompactionUniversalIngestBehindReservedLevel) {
 TEST_F(CompactionPickerTest, CannotTrivialMoveUniversal) {
   const uint64_t kFileSize = 100000;
 
-  ioptions_.compaction_options_universal.allow_trivial_move = true;
+  mutable_cf_options_.compaction_options_universal.allow_trivial_move = true;
   NewVersionStorage(1, kCompactionStyleUniversal);
   UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
   // must return false when there's no files.
@@ -468,7 +468,7 @@ TEST_F(CompactionPickerTest, CannotTrivialMoveUniversal) {
 TEST_F(CompactionPickerTest, AllowsTrivialMoveUniversal) {
   const uint64_t kFileSize = 100000;
 
-  ioptions_.compaction_options_universal.allow_trivial_move = true;
+  mutable_cf_options_.compaction_options_universal.allow_trivial_move = true;
   UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
 
   NewVersionStorage(3, kCompactionStyleUniversal);
@@ -496,7 +496,7 @@ TEST_F(CompactionPickerTest, NeedsCompactionFIFO) {
   const uint64_t kMaxSize = kFileSize * kFileCount / 2;
 
   fifo_options_.max_table_files_size = kMaxSize;
-  ioptions_.compaction_options_fifo = fifo_options_;
+  mutable_cf_options_.compaction_options_fifo = fifo_options_;
   FIFOCompactionPicker fifo_compaction_picker(ioptions_, &icmp_);
   UpdateVersionStorageInfo();
   // must return false when there's no files.

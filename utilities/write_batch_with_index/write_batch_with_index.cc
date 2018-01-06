@@ -20,6 +20,7 @@
 #include "rocksdb/iterator.h"
 #include "util/arena.h"
 #include "util/cast_util.h"
+#include "util/string_util.h"
 #include "utilities/write_batch_with_index/write_batch_with_index_internal.h"
 
 namespace rocksdb {
@@ -480,7 +481,8 @@ void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id) {
                           wb_data.size() - last_entry_offset);
   // Extract key
   Slice key;
-  bool success __attribute__((__unused__)) =
+  bool success __attribute__((__unused__));
+  success =
       ReadKeyFromWriteBatchEntry(&entry_ptr, &key, column_family_id != 0);
   assert(success);
 
@@ -551,13 +553,15 @@ void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id) {
           break;
         case kTypeLogData:
         case kTypeBeginPrepareXID:
+        case kTypeBeginPersistedPrepareXID:
         case kTypeEndPrepareXID:
         case kTypeCommitXID:
         case kTypeRollbackXID:
         case kTypeNoop:
           break;
         default:
-          return Status::Corruption("unknown WriteBatch tag");
+          return Status::Corruption("unknown WriteBatch tag in ReBuildIndex",
+                                    ToString(static_cast<unsigned int>(tag)));
       }
     }
 
@@ -582,6 +586,7 @@ void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id) {
     if (rep->obsolete_offsets.size() == 0) {
       return false;
     }
+    std::sort(rep->obsolete_offsets.begin(), rep->obsolete_offsets.end());
     WriteBatch& write_batch = rep->write_batch;
     assert(write_batch.Count() != 0);
     size_t offset = WriteBatchInternal::GetFirstOffset(&write_batch);
@@ -602,7 +607,8 @@ void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id) {
       size_t last_entry_offset = input.data() - write_batch.Data().data();
       s = ReadRecordFromWriteBatch(&input, &tag, &column_family_id, &key,
                                    &value, &blob, &xid);
-      if (rep->obsolete_offsets.front() == last_entry_offset) {
+      if (!rep->obsolete_offsets.empty() && 
+        rep->obsolete_offsets.front() == last_entry_offset) {
         rep->obsolete_offsets.erase(rep->obsolete_offsets.begin());
         continue;
       }
@@ -619,6 +625,7 @@ void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id) {
           break;
         case kTypeLogData:
         case kTypeBeginPrepareXID:
+        case kTypeBeginPersistedPrepareXID:
         case kTypeEndPrepareXID:
         case kTypeCommitXID:
         case kTypeRollbackXID:
@@ -952,6 +959,7 @@ Status WriteBatchWithIndex::RollbackToSavePoint() {
 
   if (s.ok()) {
     s = rep->ReBuildIndex();
+    rep->obsolete_offsets.clear();
   }
 
   return s;

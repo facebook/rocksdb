@@ -14,14 +14,21 @@
 namespace rocksdb {
 
 #ifdef ROCKSDB_USING_THREAD_STATUS
-const std::string& ThreadStatus::GetThreadTypeName(
+std::string ThreadStatus::GetThreadTypeName(
     ThreadStatus::ThreadType thread_type) {
-  static std::string thread_type_names[NUM_THREAD_TYPES + 1] = {
-      "High Pri", "Low Pri", "User", "Unknown"};
-  if (thread_type < 0 || thread_type >= NUM_THREAD_TYPES) {
-    return thread_type_names[NUM_THREAD_TYPES];  // "Unknown"
+  switch (thread_type) {
+    case ThreadStatus::ThreadType::HIGH_PRIORITY:
+      return "High Pri";
+    case ThreadStatus::ThreadType::LOW_PRIORITY:
+      return "Low Pri";
+    case ThreadStatus::ThreadType::USER:
+      return "User";
+    case ThreadStatus::ThreadType::BOTTOM_PRIORITY:
+      return "Bottom Pri";
+    case ThreadStatus::ThreadType::NUM_THREAD_TYPES:
+      assert(false);
   }
-  return thread_type_names[thread_type];
+  return "Unknown";
 }
 
 const std::string& ThreadStatus::GetOperationName(
@@ -120,7 +127,7 @@ std::map<std::string, uint64_t>
 
 #else
 
-const std::string& ThreadStatus::GetThreadTypeName(
+std::string ThreadStatus::GetThreadTypeName(
     ThreadStatus::ThreadType thread_type) {
   static std::string dummy_str = "";
   return dummy_str;

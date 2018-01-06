@@ -431,6 +431,10 @@ class SimpleSortedIndex : public Index {
     return direction;
   }
   // REQUIRES: UsefulIndex(filter) == true
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4702) // Unreachable code
+#endif
   virtual bool ShouldContinueLooking(
       const Filter& filter, const Slice& secondary_key,
       Index::Direction direction) const override {
@@ -483,7 +487,9 @@ class SimpleSortedIndex : public Index {
     // this is here just so compiler doesn't complain
     return false;
   }
-
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
  private:
   std::string field_;
   std::string name_;
@@ -1060,6 +1066,10 @@ class DocumentDBImpl : public DocumentDB {
   }
 
  private:
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4702) // unreachable code
+#endif
   Cursor* ConstructFilterCursor(ReadOptions read_options, Cursor* cursor,
                                 const JSONDocument& query) {
     std::unique_ptr<const Filter> filter(Filter::ParseFilter(query));
@@ -1113,6 +1123,9 @@ class DocumentDBImpl : public DocumentDB {
     assert(false);
     return nullptr;
   }
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
 
   // currently, we lock and serialize all writes to rocksdb. reads are not
   // locked and always get consistent view of the database. we should optimize

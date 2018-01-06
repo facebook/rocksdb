@@ -264,7 +264,8 @@ void CompactionJob::AggregateStatistics() {
 CompactionJob::CompactionJob(
     int job_id, Compaction* compaction, const ImmutableDBOptions& db_options,
     const EnvOptions env_options, VersionSet* versions,
-    const std::atomic<bool>* shutting_down, LogBuffer* log_buffer,
+    const std::atomic<bool>* shutting_down,
+    const SequenceNumber preserve_deletes_seqnum, LogBuffer* log_buffer,
     Directory* db_directory, Directory* output_directory, Statistics* stats,
     InstrumentedMutex* db_mutex, Status* db_bg_error,
     std::vector<SequenceNumber> existing_snapshots,
@@ -280,8 +281,11 @@ CompactionJob::CompactionJob(
       db_options_(db_options),
       env_options_(env_options),
       env_(db_options.env),
+      env_optiosn_for_read_(
+          env_->OptimizeForCompactionTableRead(env_options, db_options_)),
       versions_(versions),
       shutting_down_(shutting_down),
+      preserve_deletes_seqnum_(preserve_deletes_seqnum),
       log_buffer_(log_buffer),
       db_directory_(db_directory),
       output_directory_(output_directory),
@@ -293,8 +297,10 @@ CompactionJob::CompactionJob(
       snapshot_checker_(snapshot_checker),
       table_cache_(std::move(table_cache)),
       event_logger_(event_logger),
+      bottommost_level_(false),
       paranoid_file_checks_(paranoid_file_checks),
-      measure_io_stats_(measure_io_stats) {
+      measure_io_stats_(measure_io_stats),
+      write_hint_(Env::WLTH_NOT_SET) {
   assert(log_buffer_ != nullptr);
   const auto* cfd = compact_->compaction->column_family_data();
   ThreadStatusUtil::SetColumnFamily(cfd, cfd->ioptions()->env,
@@ -365,6 +371,8 @@ void CompactionJob::Prepare() {
   assert(c->column_family_data()->current()->storage_info()
       ->NumLevelFiles(compact_->compaction->level()) > 0);
 
+  write_hint_ = c->column_family_data()->CalculateSSTWriteHint(
+    c->output_level());
   // Is this compaction producing files at the bottommost level?
   bottommost_level_ = c->bottommost_level();
 
@@ -617,7 +625,8 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
       "[%s] compacted to: %s, MB/sec: %.1f rd, %.1f wr, level %d, "
       "files in(%d, %d) out(%d) "
       "MB in(%.1f, %.1f) out(%.1f), read-write-amplify(%.1f) "
-      "write-amplify(%.1f) %s, records in: %d, records dropped: %d\n",
+      "write-amplify(%.1f) %s, records in: %d, records dropped: %d "
+      "output_compression: %s\n",
       cfd->GetName().c_str(), vstorage->LevelSummary(&tmp), bytes_read_per_sec,
       bytes_written_per_sec, compact_->compaction->output_level(),
       stats.num_input_files_in_non_output_levels,
@@ -626,20 +635,23 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
       stats.bytes_read_output_level / 1048576.0,
       stats.bytes_written / 1048576.0, read_write_amp, write_amp,
       status.ToString().c_str(), stats.num_input_records,
-      stats.num_dropped_records);
+      stats.num_dropped_records,
+      CompressionTypeToString(compact_->compaction->output_compression())
+          .c_str());
 
   UpdateCompactionJobStats(stats);
 
   auto stream = event_logger_->LogToBuffer(log_buffer_);
-  stream << "job" << job_id_
-         << "event" << "compaction_finished"
+  stream << "job" << job_id_ << "event"
+         << "compaction_finished"
          << "compaction_time_micros" << compaction_stats_.micros
          << "output_level" << compact_->compaction->output_level()
          << "num_output_files" << compact_->NumOutputFiles()
-         << "total_output_size" << compact_->total_bytes
-         << "num_input_records" << compact_->num_input_records
-         << "num_output_records" << compact_->num_output_records
-         << "num_subcompactions" << compact_->sub_compact_states.size();
+         << "total_output_size" << compact_->total_bytes << "num_input_records"
+         << compact_->num_input_records << "num_output_records"
+         << compact_->num_output_records << "num_subcompactions"
+         << compact_->sub_compact_states.size() << "output_compression"
+         << CompressionTypeToString(compact_->compaction->output_compression());
 
   if (compaction_job_stats_ != nullptr) {
     stream << "num_single_delete_mismatches"
@@ -674,7 +686,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   std::unique_ptr<RangeDelAggregator> range_del_agg(
       new RangeDelAggregator(cfd->internal_comparator(), existing_snapshots_));
   std::unique_ptr<InternalIterator> input(versions_->MakeInputIterator(
-      sub_compact->compaction, range_del_agg.get()));
+      sub_compact->compaction, range_del_agg.get(), env_optiosn_for_read_));
 
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_PROCESS_KV);
@@ -699,15 +711,18 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       sub_compact->compaction->mutable_cf_options();
 
   // To build compression dictionary, we sample the first output file, assuming
-  // it'll reach the maximum length, and then use the dictionary for compressing
-  // subsequent output files. The dictionary may be less than max_dict_bytes if
-  // the first output file's length is less than the maximum.
+  // it'll reach the maximum length. We optionally pass these samples through
+  // zstd's dictionary trainer, or just use them directly. Then, the dictionary
+  // is used for compressing subsequent output files in the same subcompaction.
+  const bool kUseZstdTrainer =
+      cfd->ioptions()->compression_opts.zstd_max_train_bytes > 0;
+  const size_t kSampleBytes =
+      kUseZstdTrainer ? cfd->ioptions()->compression_opts.zstd_max_train_bytes
+                      : cfd->ioptions()->compression_opts.max_dict_bytes;
   const int kSampleLenShift = 6;  // 2^6 = 64-byte samples
   std::set<size_t> sample_begin_offsets;
-  if (bottommost_level_ &&
-      cfd->ioptions()->compression_opts.max_dict_bytes > 0) {
-    const size_t kMaxSamples =
-        cfd->ioptions()->compression_opts.max_dict_bytes >> kSampleLenShift;
+  if (bottommost_level_ && kSampleBytes > 0) {
+    const size_t kMaxSamples = kSampleBytes >> kSampleLenShift;
     const size_t kOutFileLen = mutable_cf_options->MaxFileSizeForLevel(
         compact_->compaction->output_level());
     if (kOutFileLen != port::kMaxSizet) {
@@ -764,7 +779,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       &existing_snapshots_, earliest_write_conflict_snapshot_,
       snapshot_checker_, env_, false, range_del_agg.get(),
       sub_compact->compaction, compaction_filter, comp_event_listener,
-      shutting_down_));
+      shutting_down_, preserve_deletes_seqnum_));
   auto c_iter = sub_compact->c_iter.get();
   c_iter->SeekToFirst();
   if (c_iter->Valid() &&
@@ -777,11 +792,11 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   }
   const auto& c_iter_stats = c_iter->iter_stats();
   auto sample_begin_offset_iter = sample_begin_offsets.cbegin();
-  // data_begin_offset and compression_dict are only valid while generating
+  // data_begin_offset and dict_sample_data are only valid while generating
   // dictionary from the first output file.
   size_t data_begin_offset = 0;
-  std::string compression_dict;
-  compression_dict.reserve(cfd->ioptions()->compression_opts.max_dict_bytes);
+  std::string dict_sample_data;
+  dict_sample_data.reserve(kSampleBytes);
 
   while (status.ok() && !cfd->IsDropped() && c_iter->Valid()) {
     // Invariant: c_iter.status() is guaranteed to be OK if c_iter->Valid()
@@ -853,7 +868,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
             data_elmt_copy_len =
                 data_end_offset - (data_begin_offset + data_elmt_copy_offset);
           }
-          compression_dict.append(&data_elmt.data()[data_elmt_copy_offset],
+          dict_sample_data.append(&data_elmt.data()[data_elmt_copy_offset],
                                   data_elmt_copy_len);
           if (sample_end_offset > data_end_offset) {
             // Didn't finish sample. Try to finish it with the next data_elmt.
@@ -908,9 +923,15 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       RecordDroppedKeys(range_del_out_stats,
                         &sub_compact->compaction_job_stats);
       if (sub_compact->outputs.size() == 1) {
-        // Use dictionary from first output file for compression of subsequent
-        // files.
-        sub_compact->compression_dict = std::move(compression_dict);
+        // Use samples from first output file to create dictionary for
+        // compression of subsequent files.
+        if (kUseZstdTrainer) {
+          sub_compact->compression_dict = ZSTD_TrainDictionary(
+              dict_sample_data, kSampleLenShift,
+              cfd->ioptions()->compression_opts.max_dict_bytes);
+        } else {
+          sub_compact->compression_dict = std::move(dict_sample_data);
+        }
       }
     }
   }
@@ -1041,6 +1062,7 @@ Status CompactionJob::FinishCompactionOutputFile(
   auto meta = &sub_compact->current_output()->meta;
   if (s.ok()) {
     Slice lower_bound_guard, upper_bound_guard;
+    std::string smallest_user_key;
     const Slice *lower_bound, *upper_bound;
     if (sub_compact->outputs.size() == 1) {
       // For the first output table, include range tombstones before the min key
@@ -1050,7 +1072,8 @@ Status CompactionJob::FinishCompactionOutputFile(
       // For subsequent output tables, only include range tombstones from min
       // key onwards since the previous file was extended to contain range
       // tombstones falling before min key.
-      lower_bound_guard = meta->smallest.user_key();
+      smallest_user_key = meta->smallest.user_key().ToString(false /*hex*/);
+      lower_bound_guard = Slice(smallest_user_key);
       lower_bound = &lower_bound_guard;
     } else {
       lower_bound = nullptr;
@@ -1291,6 +1314,7 @@ Status CompactionJob::OpenCompactionOutputFile(
 
   sub_compact->outputs.push_back(out);
   writable_file->SetIOPriority(Env::IO_LOW);
+  writable_file->SetWriteLifeTimeHint(write_hint_);
   writable_file->SetPreallocationBlockSize(static_cast<size_t>(
       sub_compact->compaction->OutputFilePreallocationSize()));
   sub_compact->outfile.reset(new WritableFileWriter(
@@ -1306,7 +1330,15 @@ Status CompactionJob::OpenCompactionOutputFile(
       sub_compact->compaction->MaxInputFileCreationTime();
   if (output_file_creation_time == 0) {
     int64_t _current_time = 0;
-    db_options_.env->GetCurrentTime(&_current_time);  // ignore error
+    auto status = db_options_.env->GetCurrentTime(&_current_time);
+    // Safe to proceed even if GetCurrentTime fails. So, log and proceed.
+    if (!status.ok()) {
+      ROCKS_LOG_WARN(
+          db_options_.info_log,
+          "Failed to get current time to populate creation_time property. "
+          "Status: %s",
+          status.ToString().c_str());
+    }
     output_file_creation_time = static_cast<uint64_t>(_current_time);
   }
 

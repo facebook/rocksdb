@@ -86,10 +86,14 @@ Status DBImpl::FlushMemTableToOutputFile(
   std::vector<SequenceNumber> snapshot_seqs =
       snapshots_.GetAll(&earliest_write_conflict_snapshot);
 
+  auto snapshot_checker = snapshot_checker_.get();
+  if (use_custom_gc_ && snapshot_checker == nullptr) {
+    snapshot_checker = DisableGCSnapshotChecker::Instance();
+  }
   FlushJob flush_job(
       dbname_, cfd, immutable_db_options_, mutable_cf_options,
       env_options_for_compaction_, versions_.get(), &mutex_, &shutting_down_,
-      snapshot_seqs, earliest_write_conflict_snapshot, snapshot_checker_.get(),
+      snapshot_seqs, earliest_write_conflict_snapshot, snapshot_checker,
       job_context, log_buffer, directories_.GetDbDir(),
       directories_.GetDataDir(0U),
       GetCompressionFlush(*cfd->ioptions(), mutable_cf_options), stats_,
@@ -531,14 +535,19 @@ Status DBImpl::CompactFilesImpl(
   auto pending_outputs_inserted_elem =
       CaptureCurrentFileNumberInPendingOutputs();
 
+  auto snapshot_checker = snapshot_checker_.get();
+  if (use_custom_gc_ && snapshot_checker == nullptr) {
+    snapshot_checker = DisableGCSnapshotChecker::Instance();
+  }
   assert(is_snapshot_supported_ || snapshots_.empty());
   CompactionJob compaction_job(
       job_context->job_id, c.get(), immutable_db_options_,
-      env_options_for_compaction_, versions_.get(), &shutting_down_, log_buffer,
-      directories_.GetDbDir(), directories_.GetDataDir(c->output_path_id()),
-      stats_, &mutex_, &bg_error_, snapshot_seqs,
-      earliest_write_conflict_snapshot, snapshot_checker_.get(), table_cache_,
-      &event_logger_, c->mutable_cf_options()->paranoid_file_checks,
+      env_options_for_compaction_, versions_.get(), &shutting_down_,
+      preserve_deletes_seqnum_.load(), log_buffer, directories_.GetDbDir(),
+      directories_.GetDataDir(c->output_path_id()), stats_, &mutex_, &bg_error_,
+      snapshot_seqs, earliest_write_conflict_snapshot, snapshot_checker,
+      table_cache_, &event_logger_,
+      c->mutable_cf_options()->paranoid_file_checks,
       c->mutable_cf_options()->report_bg_io_stats, dbname_,
       nullptr);  // Here we pass a nullptr for CompactionJobStats because
                  // CompactFiles does not trigger OnCompactionCompleted(),
@@ -886,15 +895,15 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
   while (!manual.done) {
     assert(HasPendingManualCompaction());
     manual_conflict = false;
-    Compaction* compaction;
+    Compaction* compaction = nullptr;
     if (ShouldntRunManualCompaction(&manual) || (manual.in_progress == true) ||
         scheduled ||
-        ((manual.manual_end = &manual.tmp_storage1) &&
-         ((compaction = manual.cfd->CompactRange(
-               *manual.cfd->GetLatestMutableCFOptions(), manual.input_level,
-               manual.output_level, manual.output_path_id, manual.begin,
-               manual.end, &manual.manual_end, &manual_conflict)) == nullptr) &&
-         manual_conflict)) {
+        (((manual.manual_end = &manual.tmp_storage1) != nullptr) &&
+             ((compaction = manual.cfd->CompactRange(
+                  *manual.cfd->GetLatestMutableCFOptions(), manual.input_level,
+                  manual.output_level, manual.output_path_id, manual.begin,
+                  manual.end, &manual.manual_end, &manual_conflict)) == nullptr &&
+         manual_conflict))) {
       // exclusive manual compactions should not see a conflict during
       // CompactRange
       assert(!exclusive || !manual_conflict);
@@ -939,7 +948,8 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     WriteContext context;
     InstrumentedMutexLock guard_lock(&mutex_);
 
-    if (cfd->imm()->NumNotFlushed() == 0 && cfd->mem()->IsEmpty()) {
+    if (cfd->imm()->NumNotFlushed() == 0 && cfd->mem()->IsEmpty() &&
+        cached_recoverable_state_empty_.load()) {
       // Nothing to flush
       return Status::OK();
     }
@@ -949,8 +959,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       write_thread_.EnterUnbatched(&w, &mutex_);
     }
 
-    // SwitchMemtable() will release and reacquire mutex
-    // during execution
+    // SwitchMemtable() will release and reacquire mutex during execution
     s = SwitchMemtable(cfd, &context);
 
     if (!writes_stopped) {
@@ -1670,22 +1679,26 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     env_->Schedule(&DBImpl::BGWorkBottomCompaction, ca, Env::Priority::BOTTOM,
                    this, &DBImpl::UnscheduleCallback);
   } else {
-    int output_level  __attribute__((unused)) = c->output_level();
+    int output_level  __attribute__((unused));
+    output_level = c->output_level();
     TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCompaction:NonTrivial",
                              &output_level);
-
     SequenceNumber earliest_write_conflict_snapshot;
     std::vector<SequenceNumber> snapshot_seqs =
         snapshots_.GetAll(&earliest_write_conflict_snapshot);
 
+    auto snapshot_checker = snapshot_checker_.get();
+    if (use_custom_gc_ && snapshot_checker == nullptr) {
+      snapshot_checker = DisableGCSnapshotChecker::Instance();
+    }
     assert(is_snapshot_supported_ || snapshots_.empty());
     CompactionJob compaction_job(
         job_context->job_id, c.get(), immutable_db_options_,
         env_options_for_compaction_, versions_.get(), &shutting_down_,
-        log_buffer, directories_.GetDbDir(),
+        preserve_deletes_seqnum_.load(), log_buffer, directories_.GetDbDir(),
         directories_.GetDataDir(c->output_path_id()), stats_, &mutex_,
         &bg_error_, snapshot_seqs, earliest_write_conflict_snapshot,
-        snapshot_checker_.get(), table_cache_, &event_logger_,
+        snapshot_checker, table_cache_, &event_logger_,
         c->mutable_cf_options()->paranoid_file_checks,
         c->mutable_cf_options()->report_bg_io_stats, dbname_,
         &compaction_job_stats);

@@ -77,6 +77,9 @@ enum class CompactionReason {
   kManualCompaction,
   // DB::SuggestCompactRange() marked files for compaction
   kFilesMarkedForCompaction,
+  // [Level] Automatic compaction within bottommost level to cleanup duplicate
+  // versions of same user key, usually due to a released snapshot.
+  kBottommostFiles,
 };
 
 enum class BackgroundErrorReason {
@@ -211,7 +214,7 @@ struct ExternalFileIngestionInfo {
 };
 
 // A call-back function to RocksDB which will be called when the compaction
-// iterator is compacting values. It is mean to be returned from
+// iterator is compacting values. It is meant to be returned from
 // EventListner::GetCompactionEventListner() at the beginning of compaction
 // job.
 class CompactionEventListener {

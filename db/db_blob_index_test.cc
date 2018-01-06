@@ -123,7 +123,9 @@ class DBBlobIndexTest : public DBTestBase {
         ASSERT_OK(Flush());
         ASSERT_OK(
             dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+#ifndef ROCKSDB_LITE
         ASSERT_EQ("0,1", FilesPerLevel());
+#endif  // !ROCKSDB_LITE
         break;
     }
   }

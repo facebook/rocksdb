@@ -20,7 +20,7 @@ struct SstFileMetaData;
 
 // The metadata that describes a column family.
 struct ColumnFamilyMetaData {
-  ColumnFamilyMetaData() : size(0), name("") {}
+  ColumnFamilyMetaData() : size(0), file_count(0), name("") {}
   ColumnFamilyMetaData(const std::string& _name, uint64_t _size,
                        const std::vector<LevelMetaData>&& _levels) :
       size(_size), name(_name), levels(_levels) {}
@@ -54,7 +54,16 @@ struct LevelMetaData {
 
 // The metadata that describes a SST file.
 struct SstFileMetaData {
-  SstFileMetaData() {}
+  SstFileMetaData()
+      : size(0),
+        name(""),
+        db_path(""),
+        smallest_seqno(0),
+        largest_seqno(0),
+        smallestkey(""),
+        largestkey(""),
+        num_reads_sampled(0),
+        being_compacted(false) {}
   SstFileMetaData(const std::string& _file_name, const std::string& _path,
                   uint64_t _size, SequenceNumber _smallest_seqno,
                   SequenceNumber _largest_seqno,

@@ -59,21 +59,6 @@ InternalKeyPropertiesCollector::GetReadableProperties() const {
 
 namespace {
 
-EntryType GetEntryType(ValueType value_type) {
-  switch (value_type) {
-    case kTypeValue:
-      return kEntryPut;
-    case kTypeDeletion:
-      return kEntryDelete;
-    case kTypeSingleDeletion:
-      return kEntrySingleDelete;
-    case kTypeMerge:
-      return kEntryMerge;
-    default:
-      return kEntryOther;
-  }
-}
-
 uint64_t GetUint64Property(const UserCollectedProperties& props,
                            const std::string property_name,
                            bool* property_present) {

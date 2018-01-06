@@ -237,6 +237,11 @@ ifdef COMPILE_WITH_UBSAN
 	PLATFORM_CXXFLAGS += -fsanitize=undefined -DROCKSDB_UBSAN_RUN
 endif
 
+ifdef ROCKSDB_VALGRIND_RUN
+	PLATFORM_CCFLAGS += -DROCKSDB_VALGRIND_RUN
+	PLATFORM_CXXFLAGS += -DROCKSDB_VALGRIND_RUN
+endif
+
 ifndef DISABLE_JEMALLOC
 	ifdef JEMALLOC
 		PLATFORM_CXXFLAGS += -DROCKSDB_JEMALLOC -DJEMALLOC_NO_DEMANGLE
@@ -300,6 +305,9 @@ LDFLAGS += $(LUA_LIB)
 
 endif
 
+ifeq ($(NO_THREEWAY_CRC32C), 1)
+	CXXFLAGS += -DNO_THREEWAY_CRC32C
+endif
 
 CFLAGS += $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CCFLAGS) $(OPT)
 CXXFLAGS += $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CXXFLAGS) $(OPT) -Woverloaded-virtual -Wnon-virtual-dtor -Wno-missing-field-initializers
@@ -336,6 +344,8 @@ ifeq ($(HAVE_POWER8),1)
 LIB_CC_OBJECTS = $(LIB_SOURCES:.cc=.o)
 LIBOBJECTS += $(LIB_SOURCES_C:.c=.o)
 LIBOBJECTS += $(LIB_SOURCES_ASM:.S=.o)
+else
+LIB_CC_OBJECTS = $(LIB_SOURCES:.cc=.o)
 endif
 
 LIBOBJECTS += $(TOOL_LIB_SOURCES:.cc=.o)
@@ -494,12 +504,12 @@ TESTS = \
 	repair_test \
 	env_timed_test \
 	write_prepared_transaction_test \
-	slice_test \
 
 PARALLEL_TEST = \
 	backupable_db_test \
 	db_compaction_filter_test \
 	db_compaction_test \
+	db_merge_operator_test \
 	db_sst_test \
 	db_test \
 	db_universal_compaction_test \
@@ -511,7 +521,7 @@ PARALLEL_TEST = \
 	persistent_cache_test \
 	table_test \
 	transaction_test \
-	write_prepared_transaction_test
+	write_prepared_transaction_test \
 
 SUBSET := $(TESTS)
 ifdef ROCKSDBTESTS_START
@@ -871,7 +881,7 @@ ubsan_crash_test:
 	$(MAKE) clean
 
 valgrind_test:
-	DISABLE_JEMALLOC=1 $(MAKE) valgrind_check
+	ROCKSDB_VALGRIND_RUN=1 DISABLE_JEMALLOC=1 $(MAKE) valgrind_check
 
 valgrind_check: $(TESTS)
 	$(MAKE) DRIVER="$(VALGRIND_VER) $(VALGRIND_OPTS)" gen_parallel_tests
@@ -1478,9 +1488,6 @@ range_del_aggregator_test: db/range_del_aggregator_test.o db/db_test_util.o $(LI
 blob_db_test: utilities/blob_db/blob_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-slice_test: util/slice_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_LINK)
-
 #-------------------------------------------------
 # make install related stuff
 INSTALL_PATH ?= /usr/local
@@ -1546,14 +1553,14 @@ ZLIB_DOWNLOAD_BASE ?= http://zlib.net
 BZIP2_VER ?= 1.0.6
 BZIP2_SHA256 ?= a2848f34fcd5d6cf47def00461fcb528a0484d8edef8208d6d2e2909dc61d9cd
 BZIP2_DOWNLOAD_BASE ?= http://www.bzip.org
-SNAPPY_VER ?= 1.1.4
-SNAPPY_SHA256 ?= 134bfe122fd25599bb807bb8130e7ba6d9bdb851e0b16efcb83ac4f5d0b70057
+SNAPPY_VER ?= 1.1.7
+SNAPPY_SHA256 ?= 3dfa02e873ff51a11ee02b9ca391807f0c8ea0529a4924afa645fbf97163f9d4
 SNAPPY_DOWNLOAD_BASE ?= https://github.com/google/snappy/releases/download
-LZ4_VER ?= 1.7.5
-LZ4_SHA256 ?= 0190cacd63022ccb86f44fa5041dc6c3804407ad61550ca21c382827319e7e7e
+LZ4_VER ?= 1.8.0
+LZ4_SHA256 ?= 2ca482ea7a9bb103603108b5a7510b7592b90158c151ff50a28f1ca8389fccf6
 LZ4_DOWNLOAD_BASE ?= https://github.com/lz4/lz4/archive
-ZSTD_VER ?= 1.2.0
-ZSTD_SHA256 ?= 4a7e4593a3638276ca7f2a09dc4f38e674d8317bbea51626393ca73fc047cbfb
+ZSTD_VER ?= 1.3.3
+ZSTD_SHA256 ?= a77c47153ee7de02626c5b2a097005786b71688be61e9fb81806a011f90b297b
 ZSTD_DOWNLOAD_BASE ?= https://github.com/facebook/zstd/archive
 
 ifeq ($(PLATFORM), OS_MACOSX)
@@ -1644,29 +1651,45 @@ libzstd.a:
 		exit 1; \
 	fi
 	tar xvzf zstd-$(ZSTD_VER).tar.gz
-	cd zstd-$(ZSTD_VER)/lib && make CFLAGS='-fPIC -O2 ${EXTRA_CFLAGS}' all
+	cd zstd-$(ZSTD_VER)/lib && DESTDIR=. PREFIX= make CFLAGS='-fPIC -O2 ${EXTRA_CFLAGS}' install
 	cp zstd-$(ZSTD_VER)/lib/libzstd.a .
 
 # A version of each $(LIBOBJECTS) compiled with -fPIC and a fixed set of static compression libraries
-java_static_libobjects = $(patsubst %,jls/%,$(LIBOBJECTS))
+java_static_libobjects = $(patsubst %,jls/%,$(LIB_CC_OBJECTS))
 CLEAN_FILES += jls
+java_static_all_libobjects = $(java_static_libobjects)
 
 ifneq ($(ROCKSDB_JAVA_NO_COMPRESSION), 1)
 JAVA_COMPRESSIONS = libz.a libbz2.a libsnappy.a liblz4.a libzstd.a
 endif
 
 JAVA_STATIC_FLAGS = -DZLIB -DBZIP2 -DSNAPPY -DLZ4 -DZSTD
-JAVA_STATIC_INCLUDES = -I./zlib-$(ZLIB_VER) -I./bzip2-$(BZIP2_VER) -I./snappy-$(SNAPPY_VER) -I./lz4-$(LZ4_VER)/lib -I./zstd-$(ZSTD_VER)/lib
+JAVA_STATIC_INCLUDES = -I./zlib-$(ZLIB_VER) -I./bzip2-$(BZIP2_VER) -I./snappy-$(SNAPPY_VER) -I./lz4-$(LZ4_VER)/lib -I./zstd-$(ZSTD_VER)/lib/include
+
+ifeq ($(HAVE_POWER8),1)
+JAVA_STATIC_C_LIBOBJECTS = $(patsubst %.c.o,jls/%.c.o,$(LIB_SOURCES_C:.c=.o))
+JAVA_STATIC_ASM_LIBOBJECTS = $(patsubst %.S.o,jls/%.S.o,$(LIB_SOURCES_ASM:.S=.o))
+
+java_static_ppc_libobjects = $(JAVA_STATIC_C_LIBOBJECTS) $(JAVA_STATIC_ASM_LIBOBJECTS)
+
+jls/util/crc32c_ppc.o: util/crc32c_ppc.c
+	$(AM_V_CC)$(CC) $(CFLAGS) $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES) -c $< -o $@
+
+jls/util/crc32c_ppc_asm.o: util/crc32c_ppc_asm.S
+	$(AM_V_CC)$(CC) $(CFLAGS) $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES) -c $< -o $@
+
+java_static_all_libobjects += $(java_static_ppc_libobjects)
+endif
 
 $(java_static_libobjects): jls/%.o: %.cc $(JAVA_COMPRESSIONS)
 	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES) -fPIC -c $< -o $@ $(COVERAGEFLAGS)
 
-rocksdbjavastatic: $(java_static_libobjects)
+rocksdbjavastatic: $(java_static_all_libobjects)
 	cd java;$(MAKE) javalib;
 	rm -f ./java/target/$(ROCKSDBJNILIB)
 	$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC \
 	  -o ./java/target/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) \
-	  $(java_static_libobjects) $(COVERAGEFLAGS) \
+	  $(java_static_all_libobjects) $(COVERAGEFLAGS) \
 	  $(JAVA_COMPRESSIONS) $(JAVA_STATIC_LDFLAGS)
 	cd java/target;strip $(STRIPFLAGS) $(ROCKSDBJNILIB)
 	cd java;jar -cf target/$(ROCKSDB_JAR) HISTORY*.md

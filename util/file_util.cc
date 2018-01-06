@@ -24,39 +24,39 @@ Status CopyFile(Env* env, const std::string& source,
 
   {
     unique_ptr<SequentialFile> srcfile;
-  s = env->NewSequentialFile(source, &srcfile, soptions);
-  unique_ptr<WritableFile> destfile;
-  if (s.ok()) {
-    s = env->NewWritableFile(destination, &destfile, soptions);
-  } else {
-    return s;
-  }
-
-  if (size == 0) {
-    // default argument means copy everything
-    if (s.ok()) {
-      s = env->GetFileSize(source, &size);
-    } else {
+    s = env->NewSequentialFile(source, &srcfile, soptions);
+    if (!s.ok()) {
       return s;
     }
-  }
-  src_reader.reset(new SequentialFileReader(std::move(srcfile)));
-  dest_writer.reset(new WritableFileWriter(std::move(destfile), soptions));
+    unique_ptr<WritableFile> destfile;
+    s = env->NewWritableFile(destination, &destfile, soptions);
+    if (!s.ok()) {
+      return s;
+    }
+
+    if (size == 0) {
+      // default argument means copy everything
+      s = env->GetFileSize(source, &size);
+      if (!s.ok()) {
+        return s;
+      }
+    }
+    src_reader.reset(new SequentialFileReader(std::move(srcfile)));
+    dest_writer.reset(new WritableFileWriter(std::move(destfile), soptions));
   }
 
   char buffer[4096];
   Slice slice;
   while (size > 0) {
     size_t bytes_to_read = std::min(sizeof(buffer), static_cast<size_t>(size));
-    if (s.ok()) {
-      s = src_reader->Read(bytes_to_read, &slice, buffer);
+    s = src_reader->Read(bytes_to_read, &slice, buffer);
+    if (!s.ok()) {
+      return s;
     }
-    if (s.ok()) {
-      if (slice.size() == 0) {
-        return Status::Corruption("file too small");
-      }
-      s = dest_writer->Append(slice);
+    if (slice.size() == 0) {
+      return Status::Corruption("file too small");
     }
+    s = dest_writer->Append(slice);
     if (!s.ok()) {
       return s;
     }

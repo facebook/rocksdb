@@ -92,6 +92,15 @@ class RangeDelAggregator {
   bool ShouldDeleteImpl(const Slice& internal_key,
                         RangePositioningMode mode = kFullScan);
 
+  // Checks whether range deletions cover any keys between `start` and `end`,
+  // inclusive.
+  //
+  // @param start User key representing beginning of range to check for overlap.
+  // @param end User key representing end of range to check for overlap. This
+  //     argument is inclusive, so the existence of a range deletion covering
+  //     `end` causes this to return true.
+  bool IsRangeOverlapped(const Slice& start, const Slice& end);
+
   bool ShouldAddTombstones(bool bottommost_level = false);
 
   // Adds tombstones to the tombstone aggregation structure maintained by this

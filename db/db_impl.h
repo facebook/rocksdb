@@ -28,6 +28,7 @@
 #include "db/flush_scheduler.h"
 #include "db/internal_stats.h"
 #include "db/log_writer.h"
+#include "db/pre_release_callback.h"
 #include "db/read_callback.h"
 #include "db/snapshot_checker.h"
 #include "db/snapshot_impl.h"
@@ -68,7 +69,8 @@ struct MemTableInfo;
 
 class DBImpl : public DB {
  public:
-  DBImpl(const DBOptions& options, const std::string& dbname);
+  DBImpl(const DBOptions& options, const std::string& dbname,
+         const bool seq_per_batch = false);
   virtual ~DBImpl();
 
   // Implementations of the DB interface
@@ -96,6 +98,14 @@ class DBImpl : public DB {
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value) override;
+
+  // Function that Get and KeyMayExist call with no_io true or false
+  // Note: 'value_found' from KeyMayExist propagates here
+  Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
+                 const Slice& key, PinnableSlice* value,
+                 bool* value_found = nullptr, ReadCallback* callback = nullptr,
+                 bool* is_blob_index = nullptr);
+
   using DB::MultiGet;
   virtual std::vector<Status> MultiGet(
       const ReadOptions& options,
@@ -138,7 +148,8 @@ class DBImpl : public DB {
                                       ColumnFamilyData* cfd,
                                       SequenceNumber snapshot,
                                       ReadCallback* read_callback,
-                                      bool allow_blob = false);
+                                      bool allow_blob = false,
+                                      bool allow_refresh = true);
 
   virtual const Snapshot* GetSnapshot() override;
   virtual void ReleaseSnapshot(const Snapshot* snapshot) override;
@@ -211,8 +222,13 @@ class DBImpl : public DB {
   virtual Status SyncWAL() override;
 
   virtual SequenceNumber GetLatestSequenceNumber() const override;
+  virtual void SetLastPublishedSequence(SequenceNumber seq);
+  // Returns LastSequence in last_seq_same_as_publish_seq_
+  // mode and LastAllocatedSequence otherwise. This is useful when visiblility
+  // depends also on data written to the WAL but not to the memtable.
+  SequenceNumber TEST_GetLastVisibleSequence() const;
 
-  bool HasActiveSnapshotLaterThanSN(SequenceNumber sn);
+  virtual bool SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) override;
 
 #ifndef ROCKSDB_LITE
   using DB::ResetStats;
@@ -295,7 +311,8 @@ class DBImpl : public DB {
   // TODO(andrewkr): this API need to be aware of range deletion operations
   Status GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
                                  bool cache_only, SequenceNumber* seq,
-                                 bool* found_record_for_key);
+                                 bool* found_record_for_key,
+                                 bool* is_blob_index = nullptr);
 
   using DB::IngestExternalFile;
   virtual Status IngestExternalFile(
@@ -588,6 +605,12 @@ class DBImpl : public DB {
 
   Status NewDB();
 
+  // This is to be used only by internal rocksdb classes.
+  static Status Open(const DBOptions& db_options, const std::string& name,
+                     const std::vector<ColumnFamilyDescriptor>& column_families,
+                     std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
+                     const bool seq_per_batch);
+
  protected:
   Env* const env_;
   const std::string dbname_;
@@ -637,10 +660,17 @@ class DBImpl : public DB {
 
   void EraseThreadStatusDbInfo() const;
 
+  // If disable_memtable is set the application logic must guarantee that the
+  // batch will still be skipped from memtable during the recovery. In
+  // WriteCommitted it is guarnateed since disable_memtable is used for prepare
+  // batch which will be written to memtable later during the commit, and in
+  // WritePrepared it is guaranteed since it will be used only for WAL markers
+  // which will never be written to memtable.
   Status WriteImpl(const WriteOptions& options, WriteBatch* updates,
                    WriteCallback* callback = nullptr,
                    uint64_t* log_used = nullptr, uint64_t log_ref = 0,
-                   bool disable_memtable = false, uint64_t* seq_used = nullptr);
+                   bool disable_memtable = false, uint64_t* seq_used = nullptr,
+                   PreReleaseCallback* pre_release_callback = nullptr);
 
   Status PipelinedWriteImpl(const WriteOptions& options, WriteBatch* updates,
                             WriteCallback* callback = nullptr,
@@ -651,10 +681,14 @@ class DBImpl : public DB {
   Status WriteImplWALOnly(const WriteOptions& options, WriteBatch* updates,
                           WriteCallback* callback = nullptr,
                           uint64_t* log_used = nullptr, uint64_t log_ref = 0,
-                          uint64_t* seq_used = nullptr);
+                          uint64_t* seq_used = nullptr,
+                          PreReleaseCallback* pre_release_callback = nullptr);
 
   uint64_t FindMinLogContainingOutstandingPrep();
   uint64_t FindMinPrepLogReferencedByMemTable();
+  // write cached_recoverable_state_ to memtable if it is not empty
+  // The writer must be the leader in write_thread_ and holding mutex_
+  Status WriteRecoverableState();
 
  private:
   friend class DB;
@@ -671,6 +705,7 @@ class DBImpl : public DB {
   friend class CompactedDBImpl;
 #ifndef NDEBUG
   friend class DBTest2_ReadCallbackTest_Test;
+  friend class WriteCallbackTest_WriteWithCallbackTest_Test;
   friend class XFTransactionWriteHandler;
   friend class DBBlobIndexTest;
 #endif
@@ -786,7 +821,8 @@ class DBImpl : public DB {
                          WriteContext* write_context);
 
   WriteBatch* MergeBatch(const WriteThread::WriteGroup& write_group,
-                         WriteBatch* tmp_batch, size_t* write_with_wal);
+                         WriteBatch* tmp_batch, size_t* write_with_wal,
+                         WriteBatch** to_be_cached_state);
 
   Status WriteToWAL(const WriteBatch& merged_batch, log::Writer* log_writer,
                     uint64_t* log_used, uint64_t* log_size);
@@ -883,12 +919,12 @@ class DBImpl : public DB {
   FileLock* db_lock_;
 
   // In addition to mutex_, log_write_mutex_ protected writes to logs_ and
-  // logfile_number_. With concurrent_prepare it also protects alive_log_files_,
+  // logfile_number_. With two_write_queues it also protects alive_log_files_,
   // and log_empty_. Refer to the definition of each variable below for more
   // details.
   InstrumentedMutex log_write_mutex_;
   // State below is protected by mutex_
-  // With concurrent_prepare enabled, some of the variables that accessed during
+  // With two_write_queues enabled, some of the variables that accessed during
   // WriteToWAL need different synchronization: log_empty_, alive_log_files_,
   // logs_, logfile_number_. Refer to the definition of each variable below for
   // more description.
@@ -913,10 +949,10 @@ class DBImpl : public DB {
   std::deque<uint64_t>
       log_recycle_files;  // a list of log files that we can recycle
   bool log_dir_synced_;
-  // Without concurrent_prepare, read and writes to log_empty_ are protected by
+  // Without two_write_queues, read and writes to log_empty_ are protected by
   // mutex_. Since it is currently updated/read only in write_thread_, it can be
   // accessed from the same write_thread_ without any locks. With
-  // concurrent_prepare writes, where it can be updated in different threads,
+  // two_write_queues writes, where it can be updated in different threads,
   // read and writes are protected by log_write_mutex_ instead. This is to avoid
   // expesnive mutex_ lock during WAL write, which update log_empty_.
   bool log_empty_;
@@ -953,10 +989,10 @@ class DBImpl : public DB {
     // true for some prefix of logs_
     bool getting_synced = false;
   };
-  // Without concurrent_prepare, read and writes to alive_log_files_ are
+  // Without two_write_queues, read and writes to alive_log_files_ are
   // protected by mutex_. However since back() is never popped, and push_back()
   // is done only from write_thread_, the same thread can access the item
-  // reffered by back() without mutex_. With concurrent_prepare_, writes
+  // reffered by back() without mutex_. With two_write_queues_, writes
   // are protected by locking both mutex_ and log_write_mutex_, and reads must
   // be under either mutex_ or log_write_mutex_.
   std::deque<LogFileNumberSize> alive_log_files_;
@@ -976,6 +1012,15 @@ class DBImpl : public DB {
   std::deque<LogWriterNumber> logs_;
   // Signaled when getting_synced becomes false for some of the logs_.
   InstrumentedCondVar log_sync_cv_;
+  // This is the app-level state that is written to the WAL but will be used
+  // only during recovery. Using this feature enables not writing the state to
+  // memtable on normal writes and hence improving the throughput. Each new
+  // write of the state will replace the previous state entirely even if the
+  // keys in the two consecuitive states do not overlap.
+  // It is protected by log_write_mutex_ when two_write_queues_ is enabled.
+  // Otherwise only the heaad of write_thread_ can access it.
+  WriteBatch cached_recoverable_state_;
+  std::atomic<bool> cached_recoverable_state_empty_ = {true};
   std::atomic<uint64_t> total_log_size_;
   // only used for dynamically adjusting max_total_wal_size. it is a sum of
   // [write_buffer_size * max_write_buffer_number] over all column families
@@ -1272,13 +1317,6 @@ class DBImpl : public DB {
 
 #endif  // ROCKSDB_LITE
 
-  // Function that Get and KeyMayExist call with no_io true or false
-  // Note: 'value_found' from KeyMayExist propagates here
-  Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
-                 const Slice& key, PinnableSlice* value,
-                 bool* value_found = nullptr, ReadCallback* callback = nullptr,
-                 bool* is_blob_index = nullptr);
-
   bool GetIntPropertyInternal(ColumnFamilyData* cfd,
                               const DBPropertyInfo& property_info,
                               bool is_locked, uint64_t* value);
@@ -1292,12 +1330,35 @@ class DBImpl : public DB {
   bool MCOverlap(ManualCompactionState* m, ManualCompactionState* m1);
 
   size_t GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
+  Env::WriteLifeTimeHint CalculateWALWriteHint() {
+    return Env::WLTH_SHORT;
+  }
 
   // When set, we use a seprate queue for writes that dont write to memtable. In
   // 2PC these are the writes at Prepare phase.
-  const bool concurrent_prepare_;
+  const bool two_write_queues_;
   const bool manual_wal_flush_;
+  // Increase the sequence number after writing each batch, whether memtable is
+  // disabled for that or not. Otherwise the sequence number is increased after
+  // writing each key into memtable. This implies that when disable_memtable is
+  // set, the seq is not increased at all.
+  //
+  // Default: false
   const bool seq_per_batch_;
+  // LastSequence also indicates last published sequence visibile to the
+  // readers. Otherwise LastPublishedSequence should be used.
+  const bool last_seq_same_as_publish_seq_;
+  // It indicates that a customized gc algorithm must be used for
+  // flush/compaction and if it is not provided vis SnapshotChecker, we should
+  // disable gc to be safe.
+  const bool use_custom_gc_;
+
+  // Clients must periodically call SetPreserveDeletesSequenceNumber()
+  // to advance this seqnum. Default value is 0 which means ALL deletes are
+  // preserved. Note that this has no effect if DBOptions.preserve_deletes
+  // is set to false.
+  std::atomic<SequenceNumber> preserve_deletes_seqnum_;
+  const bool preserve_deletes_;
 };
 
 extern Options SanitizeOptions(const std::string& db,

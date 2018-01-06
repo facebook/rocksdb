@@ -87,6 +87,13 @@ void GetContext::SaveValue(const Slice& value, SequenceNumber seq) {
   }
 }
 
+void GetContext::RecordCounters(Tickers ticker, size_t val) {
+  if (ticker == Tickers::TICKER_ENUM_MAX) {
+    return;
+  }
+  tickers_value[ticker] += static_cast<uint64_t>(val);
+}
+
 bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
                            const Slice& value, Cleanable* value_pinner) {
   assert((state_ != kMerge && parsed_key.type != kTypeMerge) ||

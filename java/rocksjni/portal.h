@@ -290,8 +290,14 @@ class StatusJni : public RocksDBNativeClass<rocksdb::Status*, StatusJni> {
         return 0x2;
       case rocksdb::Status::SubCode::kLockLimit:
         return 0x3;
-      case rocksdb::Status::SubCode::kMaxSubCode:
-        return 0x7E;
+      case rocksdb::Status::SubCode::kNoSpace:
+        return 0x4;
+      case rocksdb::Status::SubCode::kDeadlock:
+        return 0x5;
+      case rocksdb::Status::SubCode::kStaleFile:
+        return 0x6;
+      case rocksdb::Status::SubCode::kMemoryLimit:
+        return 0x7;
       default:
         return 0x7F;  // undefined
     }
@@ -630,7 +636,7 @@ class ColumnFamilyOptionsJni
       return nullptr;
     }
 
-    jobject jcfd = env->NewObject(jclazz, mid, reinterpret_cast<long>(cfo));
+    jobject jcfd = env->NewObject(jclazz, mid, reinterpret_cast<jlong>(cfo));
     if (env->ExceptionCheck()) {
       return nullptr;
     }
@@ -2517,8 +2523,10 @@ class TickerTypeJni {
         return 0x5B;
       case rocksdb::Tickers::NUMBER_RATE_LIMITER_DRAINS:
         return 0x5C;
-      case rocksdb::Tickers::TICKER_ENUM_MAX:
+      case rocksdb::Tickers::NUMBER_ITER_SKIP:
         return 0x5D;
+      case rocksdb::Tickers::TICKER_ENUM_MAX:
+        return 0x5E;
 
       default:
         // undefined/default
@@ -2717,6 +2725,8 @@ class TickerTypeJni {
       case 0x5C:
         return rocksdb::Tickers::NUMBER_RATE_LIMITER_DRAINS;
       case 0x5D:
+        return rocksdb::Tickers::NUMBER_ITER_SKIP;
+      case 0x5E:
         return rocksdb::Tickers::TICKER_ENUM_MAX;
 
       default:
@@ -2796,8 +2806,10 @@ class HistogramTypeJni {
         return 0x1D;
       case rocksdb::Histograms::READ_NUM_MERGE_OPERANDS:
         return 0x1E;
-      case rocksdb::Histograms::HISTOGRAM_ENUM_MAX:
+      case rocksdb::Histograms::FLUSH_TIME:
         return 0x1F;
+      case rocksdb::Histograms::HISTOGRAM_ENUM_MAX:
+        return 0x20;
 
       default:
         // undefined/default
@@ -2872,6 +2884,8 @@ class HistogramTypeJni {
       case 0x1E:
         return rocksdb::Histograms::READ_NUM_MERGE_OPERANDS;
       case 0x1F:
+        return rocksdb::Histograms::FLUSH_TIME;
+      case 0x20:
         return rocksdb::Histograms::HISTOGRAM_ENUM_MAX;
 
       default:

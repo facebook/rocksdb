@@ -13,10 +13,13 @@
 #include "rocksdb/options.h"
 #include "util/file_reader_writer.h"
 #include "utilities/blob_db/blob_log_format.h"
+#include "utilities/blob_db/blob_log_reader.h"
 #include "utilities/blob_db/blob_log_writer.h"
 
 namespace rocksdb {
 namespace blob_db {
+
+class BlobDBImpl;
 
 class BlobFile {
   friend class BlobDBImpl;
@@ -33,6 +36,19 @@ class BlobFile {
   // the above 2 are created during file creation and never changed
   // after that
   uint64_t file_number_;
+
+  // Info log.
+  Logger* info_log_;
+
+  // Column family id.
+  uint32_t column_family_id_;
+
+  // Compression type of blobs in the file
+  CompressionType compression_;
+
+  // If true, the keys in this file all has TTL. Otherwise all keys don't
+  // have TTL.
+  bool has_ttl_;
 
   // number of blobs in the file
   std::atomic<uint64_t> blob_count_;
@@ -56,20 +72,17 @@ class BlobFile {
   std::atomic<bool> closed_;
 
   // has a pass of garbage collection successfully finished on this file
-  // can_be_deleted_ still needs to do iterator/snapshot checks
-  std::atomic<bool> can_be_deleted_;
+  // obsolete_ still needs to do iterator/snapshot checks
+  std::atomic<bool> obsolete_;
+
+  // The last sequence number by the time the file marked as obsolete.
+  // Data in this file is visible to a snapshot taken before the sequence.
+  SequenceNumber obsolete_sequence_;
 
   // should this file been gc'd once to reconcile lost deletes/compactions
   std::atomic<bool> gc_once_after_open_;
 
-  // et - lt of the blobs
-  ttlrange_t ttl_range_;
-
-  // et - lt of the timestamp of the KV pairs.
-  tsrange_t time_range_;
-
-  // ESN - LSN of the blobs
-  snrange_t sn_range_;
+  ExpirationRange expiration_range_;
 
   // Sequential/Append writer for blobs
   std::shared_ptr<Writer> log_writer_;
@@ -89,17 +102,25 @@ class BlobFile {
 
   bool header_valid_;
 
+  bool footer_valid_;
+
+  SequenceNumber garbage_collection_finish_sequence_;
+
  public:
   BlobFile();
 
-  BlobFile(const BlobDBImpl* parent, const std::string& bdir, uint64_t fnum);
+  BlobFile(const BlobDBImpl* parent, const std::string& bdir, uint64_t fnum,
+           Logger* info_log);
 
   ~BlobFile();
 
-  ColumnFamilyHandle* GetColumnFamily(DB* db);
+  uint32_t column_family_id() const;
 
-  // Returns log file's pathname relative to the main db dir
-  // Eg. For a live-log-file = blob_dir/000003.blob
+  void SetColumnFamilyId(uint32_t cf_id) {
+    column_family_id_ = cf_id;
+  }
+
+  // Returns log file's absolute pathname.
   std::string PathName() const;
 
   // Primary identifier for blob file.
@@ -114,42 +135,62 @@ class BlobFile {
 
   std::string DumpState() const;
 
-  // if the file has gone through GC and blobs have been relocated
-  bool Obsolete() const { return can_be_deleted_.load(); }
-
   // if the file is not taking any more appends.
   bool Immutable() const { return closed_.load(); }
 
+  // Mark the file as immutable.
+  // REQUIRES: write lock held, or access from single thread (on DB open).
+  void MarkImmutable() { closed_ = true; }
+
+  // if the file has gone through GC and blobs have been relocated
+  bool Obsolete() const {
+    assert(Immutable() || !obsolete_.load());
+    return obsolete_.load();
+  }
+
+  // Mark file as obsolete by garbage collection. The file is not visible to
+  // snapshots with sequence greater or equal to the given sequence.
+  void MarkObsolete(SequenceNumber sequence);
+
+  SequenceNumber GetObsoleteSequence() const {
+    assert(Obsolete());
+    return obsolete_sequence_;
+  }
+
   // we will assume this is atomic
   bool NeedsFsync(bool hard, uint64_t bytes_per_sync) const;
+
+  Status Fsync();
 
   uint64_t GetFileSize() const {
     return file_size_.load(std::memory_order_acquire);
   }
 
   // All Get functions which are not atomic, will need ReadLock on the mutex
-  tsrange_t GetTimeRange() const {
-    assert(HasTimestamp());
-    return time_range_;
+
+  ExpirationRange GetExpirationRange() const { return expiration_range_; }
+
+  void ExtendExpirationRange(uint64_t expiration) {
+    expiration_range_.first = std::min(expiration_range_.first, expiration);
+    expiration_range_.second = std::max(expiration_range_.second, expiration);
   }
 
-  ttlrange_t GetTTLRange() const { return ttl_range_; }
+  bool HasTTL() const { return has_ttl_; }
 
-  snrange_t GetSNRange() const { return sn_range_; }
+  void SetHasTTL(bool has_ttl) { has_ttl_ = has_ttl; }
 
-  bool HasTTL() const {
-    assert(header_valid_);
-    return header_.HasTTL();
-  }
+  CompressionType compression() const { return compression_; }
 
-  bool HasTimestamp() const {
-    assert(header_valid_);
-    return header_.HasTimestamp();
+  void SetCompression(CompressionType c) {
+    compression_ = c;
   }
 
   std::shared_ptr<Writer> GetWriter() const { return log_writer_; }
 
-  void Fsync();
+  // Read blob file header and footer. Return corruption if file header is
+  // malform or incomplete. If footer is malform or incomplete, set
+  // footer_valid_ to false and return Status::OK.
+  Status ReadMetadata(Env* env, const EnvOptions& env_options);
 
  private:
   std::shared_ptr<Reader> OpenSequentialReader(
@@ -169,18 +210,14 @@ class BlobFile {
   // previously closed file
   Status SetFromFooterLocked(const BlobLogFooter& footer);
 
-  void set_time_range(const tsrange_t& tr) { time_range_ = tr; }
-
-  void set_ttl_range(const ttlrange_t& ttl) { ttl_range_ = ttl; }
-
-  void SetSNRange(const snrange_t& snr) { sn_range_ = snr; }
+  void set_expiration_range(const ExpirationRange& expiration_range) {
+    expiration_range_ = expiration_range;
+  }
 
   // The following functions are atomic, and don't need locks
   void SetFileSize(uint64_t fs) { file_size_ = fs; }
 
   void SetBlobCount(uint64_t bc) { blob_count_ = bc; }
-
-  void SetCanBeDeleted() { can_be_deleted_ = true; }
 };
 }  // namespace blob_db
 }  // namespace rocksdb

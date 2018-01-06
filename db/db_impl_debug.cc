@@ -209,5 +209,13 @@ int DBImpl::TEST_BGFlushesAllowed() const {
   return GetBGJobLimits().max_flushes;
 }
 
+SequenceNumber DBImpl::TEST_GetLastVisibleSequence() const {
+  if (last_seq_same_as_publish_seq_) {
+    return versions_->LastSequence();
+  } else {
+    return versions_->LastAllocatedSequence();
+  }
+}
+
 }  // namespace rocksdb
 #endif  // NDEBUG

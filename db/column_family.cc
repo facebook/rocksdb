@@ -123,6 +123,22 @@ Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options) {
           " is not linked with the binary.");
     }
   }
+  if (cf_options.compression_opts.zstd_max_train_bytes > 0) {
+    if (!CompressionTypeSupported(CompressionType::kZSTD)) {
+      // Dictionary trainer is available since v0.6.1, but ZSTD was marked
+      // stable only since v0.8.0. For now we enable the feature in stable
+      // versions only.
+      return Status::InvalidArgument(
+          "zstd dictionary trainer cannot be used because " +
+          CompressionTypeToString(CompressionType::kZSTD) +
+          " is not linked with the binary.");
+    }
+    if (cf_options.compression_opts.max_dict_bytes == 0) {
+      return Status::InvalidArgument(
+          "The dictionary size limit (`CompressionOptions::max_dict_bytes`) "
+          "should be nonzero if we're using zstd's dictionary generator.");
+    }
+  }
   return Status::OK();
 }
 
@@ -463,7 +479,8 @@ ColumnFamilyData::~ColumnFamilyData() {
   if (dummy_versions_ != nullptr) {
     // List must be empty
     assert(dummy_versions_->TEST_Next() == dummy_versions_);
-    bool deleted __attribute__((unused)) = dummy_versions_->Unref();
+    bool deleted __attribute__((unused));
+    deleted = dummy_versions_->Unref();
     assert(deleted);
   }
 
@@ -948,6 +965,10 @@ void ColumnFamilyData::InstallSuperVersion(
       RecalculateWriteStallConditions(mutable_cf_options);
 
   if (old_superversion != nullptr) {
+    if (old_superversion->mutable_cf_options.write_buffer_size !=
+        mutable_cf_options.write_buffer_size) {
+      mem_->UpdateWriteBufferSize(mutable_cf_options.write_buffer_size);
+    }
     if (old_superversion->write_stall_condition !=
         new_superversion->write_stall_condition) {
       sv_context->PushWriteStallNotification(
@@ -993,6 +1014,24 @@ Status ColumnFamilyData::SetOptions(
   return s;
 }
 #endif  // ROCKSDB_LITE
+
+// REQUIRES: DB mutex held
+Env::WriteLifeTimeHint ColumnFamilyData::CalculateSSTWriteHint(int level) {
+  if (initial_cf_options_.compaction_style != kCompactionStyleLevel) {
+    return Env::WLTH_NOT_SET;
+  }
+  if (level == 0) {
+    return Env::WLTH_MEDIUM;
+  }
+  int base_level = current_->storage_info()->base_level();
+
+  // L1: medium, L2: long, ...
+  if (level - base_level >= 2) {
+    return Env::WLTH_EXTREME;
+  }
+  return static_cast<Env::WriteLifeTimeHint>(level - base_level +
+                            static_cast<int>(Env::WLTH_MEDIUM));
+}
 
 ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
                                  const ImmutableDBOptions* db_options,

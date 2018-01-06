@@ -28,7 +28,15 @@ class Comparator;
 // ExternalSstFileInfo include information about sst files created
 // using SstFileWriter.
 struct ExternalSstFileInfo {
-  ExternalSstFileInfo() {}
+  ExternalSstFileInfo()
+      : file_path(""),
+        smallest_key(""),
+        largest_key(""),
+        sequence_number(0),
+        file_size(0),
+        num_entries(0),
+        version(0) {}
+
   ExternalSstFileInfo(const std::string& _file_path,
                       const std::string& _smallest_key,
                       const std::string& _largest_key,

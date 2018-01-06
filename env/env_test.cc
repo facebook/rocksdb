@@ -73,7 +73,7 @@ struct Deleter {
 std::unique_ptr<char, Deleter> NewAligned(const size_t size, const char ch) {
   char* ptr = nullptr;
 #ifdef OS_WIN
-  if (!(ptr = reinterpret_cast<char*>(_aligned_malloc(size, kPageSize)))) {
+  if (nullptr == (ptr = reinterpret_cast<char*>(_aligned_malloc(size, kPageSize)))) {
     return std::unique_ptr<char, Deleter>(nullptr, Deleter(_aligned_free));
   }
   std::unique_ptr<char, Deleter> uptr(ptr, Deleter(_aligned_free));
@@ -171,6 +171,11 @@ TEST_P(EnvPosixTestWithParam, UnSchedule) {
   WaitThreadPoolsEmpty();
 }
 
+// This tests assumes that the last scheduled
+// task will run last. In fact, in the allotted
+// sleeping time nothing may actually run or they may
+// run in any order. The purpose of the test is unclear.
+#ifndef OS_WIN
 TEST_P(EnvPosixTestWithParam, RunMany) {
   std::atomic<int> last_id(0);
 
@@ -203,6 +208,7 @@ TEST_P(EnvPosixTestWithParam, RunMany) {
   ASSERT_EQ(4, cur);
   WaitThreadPoolsEmpty();
 }
+#endif
 
 struct State {
   port::Mutex mu;
@@ -701,7 +707,6 @@ TEST_F(EnvPosixTest, PositionedAppend) {
   IoctlFriendlyTmpdir ift;
   ASSERT_OK(env_->NewWritableFile(ift.name() + "/f", &writable_file, options));
   const size_t kBlockSize = 4096;
-  const size_t kPageSize = 4096;
   const size_t kDataSize = kPageSize;
   // Write a page worth of 'a'
   auto data_ptr = NewAligned(kDataSize, 'a');
@@ -1138,7 +1143,7 @@ TEST_P(EnvPosixTestWithParam, Preallocation) {
     unique_ptr<WritableFile> srcfile;
     EnvOptions soptions;
     soptions.use_direct_reads = soptions.use_direct_writes = direct_io_;
-#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && !defined(OS_AIX)
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && !defined(OS_AIX) && !defined(OS_OPENBSD)
     if (soptions.use_direct_writes) {
       rocksdb::SyncPoint::GetInstance()->SetCallBack(
           "NewWritableFile:O_DIRECT", [&](void* arg) {
@@ -1200,7 +1205,7 @@ TEST_P(EnvPosixTestWithParam, ConsistentChildrenAttributes) {
       oss << test::TmpDir(env_) << "/testfile_" << i;
       const std::string path = oss.str();
       unique_ptr<WritableFile> file;
-#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && !defined(OS_AIX)
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && !defined(OS_AIX) && !defined(OS_OPENBSD)
       if (soptions.use_direct_writes) {
         rocksdb::SyncPoint::GetInstance()->SetCallBack(
             "NewWritableFile:O_DIRECT", [&](void* arg) {

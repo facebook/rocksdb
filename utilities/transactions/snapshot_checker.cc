@@ -9,15 +9,16 @@
 #include <assert.h>
 #endif  // ROCKSDB_LITE
 
-#include "utilities/transactions/pessimistic_transaction_db.h"
+#include "utilities/transactions/write_prepared_txn_db.h"
 
 namespace rocksdb {
 
 #ifdef ROCKSDB_LITE
-SnapshotChecker::SnapshotChecker(WritePreparedTxnDB* txn_db) {}
+WritePreparedSnapshotChecker::WritePreparedSnapshotChecker(
+    WritePreparedTxnDB* txn_db) {}
 
-bool SnapshotChecker::IsInSnapshot(SequenceNumber sequence,
-                                   SequenceNumber snapshot_sequence) const {
+bool WritePreparedSnapshotChecker::IsInSnapshot(
+    SequenceNumber sequence, SequenceNumber snapshot_sequence) const {
   // Should never be called in LITE mode.
   assert(false);
   return true;
@@ -25,13 +26,16 @@ bool SnapshotChecker::IsInSnapshot(SequenceNumber sequence,
 
 #else
 
-SnapshotChecker::SnapshotChecker(WritePreparedTxnDB* txn_db)
+WritePreparedSnapshotChecker::WritePreparedSnapshotChecker(
+    WritePreparedTxnDB* txn_db)
     : txn_db_(txn_db){};
 
-bool SnapshotChecker::IsInSnapshot(SequenceNumber sequence,
-                                   SequenceNumber snapshot_sequence) const {
+bool WritePreparedSnapshotChecker::IsInSnapshot(
+    SequenceNumber sequence, SequenceNumber snapshot_sequence) const {
   return txn_db_->IsInSnapshot(sequence, snapshot_sequence);
 }
+
 #endif  // ROCKSDB_LITE
+DisableGCSnapshotChecker DisableGCSnapshotChecker::instance_;
 
 }  // namespace rocksdb
