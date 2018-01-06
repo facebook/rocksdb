@@ -21,6 +21,7 @@
 
 #include "rocksdb/db.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksdb/rate_limiter.h"
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/backupable_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
@@ -2930,6 +2931,45 @@ class StatsLevelJni {
       default:
         // undefined/default
         return rocksdb::StatsLevel::kExceptDetailedTimers;
+    }
+  }
+};
+
+// The portal class for org.rocksdb.RateLimiterMode
+class RateLimiterModeJni {
+ public:
+  // Returns the equivalent org.rocksdb.RateLimiterMode for the provided
+  // C++ rocksdb::RateLimiter::Mode enum
+  static jbyte toJavaRateLimiterMode(
+      const rocksdb::RateLimiter::Mode& rate_limiter_mode) {
+    switch(rate_limiter_mode) {
+      case rocksdb::RateLimiter::Mode::kReadsOnly:
+        return 0x0;
+      case rocksdb::RateLimiter::Mode::kWritesOnly:
+        return 0x1;
+      case rocksdb::RateLimiter::Mode::kAllIo:
+        return 0x2;
+
+      default:
+        // undefined/default
+        return 0x1;
+    }
+  }
+
+  // Returns the equivalent C++ rocksdb::RateLimiter::Mode enum for the
+  // provided Java org.rocksdb.RateLimiterMode
+  static rocksdb::RateLimiter::Mode toCppRateLimiterMode(jbyte jrate_limiter_mode) {
+    switch(jrate_limiter_mode) {
+      case 0x0:
+        return rocksdb::RateLimiter::Mode::kReadsOnly;
+      case 0x1:
+        return rocksdb::RateLimiter::Mode::kWritesOnly;
+      case 0x2:
+        return rocksdb::RateLimiter::Mode::kAllIo;
+
+      default:
+        // undefined/default
+        return rocksdb::RateLimiter::Mode::kWritesOnly;
     }
   }
 };
