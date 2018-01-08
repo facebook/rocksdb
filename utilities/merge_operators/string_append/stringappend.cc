@@ -54,4 +54,8 @@ std::shared_ptr<MergeOperator> MergeOperators::CreateStringAppendOperator() {
   return std::make_shared<StringAppendOperator>(',');
 }
 
+std::shared_ptr<MergeOperator> MergeOperators::CreateStringAppendOperator(char delim_char) {
+  return std::make_shared<StringAppendOperator>(delim_char);
+}
+
 } // namespace rocksdb
