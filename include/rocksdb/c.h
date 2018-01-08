@@ -710,6 +710,9 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_optimize_level_style_compaction(
 extern ROCKSDB_LIBRARY_API void
 rocksdb_options_optimize_universal_style_compaction(
     rocksdb_options_t* opt, uint64_t memtable_memory_budget);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_options_set_allow_ingest_behind(rocksdb_options_t*,
+                                                   unsigned char);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_compaction_filter(
     rocksdb_options_t*, rocksdb_compactionfilter_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_compaction_filter_factory(
