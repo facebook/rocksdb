@@ -1,6 +1,6 @@
 NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
 	org.rocksdb.AbstractCompactionFilterFactory\
-    org.rocksdb.AbstractJavaCompactionFilter\
+	org.rocksdb.AbstractJavaCompactionFilter\
 	org.rocksdb.AbstractSlice\
 	org.rocksdb.BackupEngine\
 	org.rocksdb.BackupableDBOptions\
