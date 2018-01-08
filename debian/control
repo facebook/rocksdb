@@ -1,0 +1,38 @@
+Source: rocksdb
+Maintainer: G. B. Versiani <guibv@yahoo.com>
+Priority: optional
+Standards-Version: 3.9.5
+Build-Depends: debhelper (>> 9),
+ devscripts,
+ hardening-includes
+Section: libs
+Homepage: http://rocksdb.org
+
+Package: librocksdb4.4-dev
+Architecture: any
+Depends: ${devlibs:Depends}, ${misc:Depends}, librocksdb4.4 (= ${binary:Version})
+Section: libdevel
+Provides: librocksdb-dev
+Conflicts: librocksdb-dev
+Description: RocksDB development files
+ RocksDB is an embeddable persistent key-value store for fast storage. It
+ builds on LevelDB to be scalable to run on servers with many CPU cores, to
+ efficiently use fast storage, to support IO-bound, in-memory and write-once
+ workloads, and to be flexible to allow for innovation.
+ .
+ This package contains include files shared by RocksDB-based libraries.
+
+Package: librocksdb4.4
+Architecture: any
+Depends: ${misc:Depends}, ${shlibs:Depends}
+Section: libs
+Provides: librocksdb
+Conflicts: librocksdb
+Description: RocksDB shared library
+ RocksDB is an embeddable persistent key-value store for fast storage. It
+ builds on LevelDB to be scalable to run on servers with many CPU cores, to
+ efficiently use fast storage, to support IO-bound, in-memory and write-once
+ workloads, and to be flexible to allow for innovation.
+ .
+ This package contains the RocksDB shared library.
+
