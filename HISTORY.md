@@ -1,6 +1,21 @@
 # Rocksdb Change Log
 ## Unreleased
 
+## 5.11.0 (01/08/2018)
+### Public API Change
+* Add `autoTune` and `getBytesPerSecond()` to RocksJava RateLimiter
+
+### New Features
+* Add a new histogram stat called rocksdb.db.flush.micros for memtable flush.
+* Add "--use_txn" option to use transactional API in db_stress.
+* Disable onboard cache for compaction output in Windows platform.
+
+### Bug Fixes
+* Fix a stack-use-after-scope bug in ForwardIterator.
+* Fix builds on platforms including Linux, Windows, and PowerPC.
+* Fix buffer overrun in backup engine for DBs with huge number of files.
+* Fix a mislabel bug for bottom-pri compaction threads.
+
 ## 5.10.0 (12/11/2017)
 ### Public API Change
 * When running `make` with environment variable `USE_SSE` set and `PORTABLE` unset, will use all machine features available locally. Previously this combination only compiled SSE-related features.
@@ -9,6 +24,8 @@
 * Provide lifetime hints when writing files on Linux. This reduces hardware write-amp on storage devices supporting multiple streams.
 * Add a DB stat, `NUMBER_ITER_SKIP`, which returns how many internal keys were skipped during iterations (e.g., due to being tombstones or duplicate versions of a key).
 * Add PerfContext counters, `key_lock_wait_count` and `key_lock_wait_time`, which measure the number of times transactions wait on key locks and total amount of time waiting.
+* Support dynamically changing `ColumnFamilyOptions::compaction_options_universal`.
+* Batch update stats at the end of each `Get`, rather than for each block cache access.
 
 ### Bug Fixes
 * Fix IOError on WAL write doesn't propagate to write group follower
