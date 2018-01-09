@@ -4977,6 +4977,69 @@ TEST_P(TransactionTest, SeqAdvanceTest) {
   }
 }
 
+// Test that the transactional db can handle duplicate keys in the write batch
+TEST_P(TransactionTest, DuplicateKeyTest) {
+  for (bool do_prepare : {true, false}) {
+    TransactionOptions txn_options;
+    WriteOptions write_options;
+    Transaction* txn0 = db->BeginTransaction(write_options, txn_options);
+    auto s = txn0->SetName("xid");
+    ASSERT_OK(s);
+    s = txn0->Put(Slice("foo0"), Slice("bar0a"));
+    ASSERT_OK(s);
+    s = txn0->Put(Slice("foo0"), Slice("bar0b"));
+    ASSERT_OK(s);
+    s = txn0->Put(Slice("foo1"), Slice("bar1"));
+    ASSERT_OK(s);
+    s = txn0->Merge(Slice("foo2"), Slice("bar2a"));
+    ASSERT_OK(s);
+    // TODO(myabandeh): enable this after duplicatae merge keys are supported
+    // s = txn0->Merge(Slice("foo2"), Slice("bar2a"));
+    // ASSERT_OK(s);
+    s = txn0->Put(Slice("foo2"), Slice("bar2b"));
+    ASSERT_OK(s);
+    s = txn0->Put(Slice("foo3"), Slice("bar3"));
+    ASSERT_OK(s);
+    // TODO(myabandeh): enable this after duplicatae merge keys are supported
+    // s = txn0->Merge(Slice("foo3"), Slice("bar3"));
+    // ASSERT_OK(s);
+    s = txn0->Put(Slice("foo4"), Slice("bar4"));
+    ASSERT_OK(s);
+    s = txn0->Delete(Slice("foo4"));
+    ASSERT_OK(s);
+    s = txn0->SingleDelete(Slice("foo4"));
+    ASSERT_OK(s);
+    if (do_prepare) {
+      s = txn0->Prepare();
+      ASSERT_OK(s);
+    }
+    s = txn0->Commit();
+    ASSERT_OK(s);
+    if (!do_prepare) {
+      auto pdb = reinterpret_cast<PessimisticTransactionDB*>(db);
+      pdb->UnregisterTransaction(txn0);
+    }
+    delete txn0;
+    ReadOptions ropt;
+    PinnableSlice pinnable_val;
+
+    s = db->Get(ropt, db->DefaultColumnFamily(), "foo0", &pinnable_val);
+    ASSERT_OK(s);
+    ASSERT_TRUE(pinnable_val == ("bar0b"));
+    s = db->Get(ropt, db->DefaultColumnFamily(), "foo1", &pinnable_val);
+    ASSERT_OK(s);
+    ASSERT_TRUE(pinnable_val == ("bar1"));
+    s = db->Get(ropt, db->DefaultColumnFamily(), "foo2", &pinnable_val);
+    ASSERT_OK(s);
+    ASSERT_TRUE(pinnable_val == ("bar2b"));
+    s = db->Get(ropt, db->DefaultColumnFamily(), "foo3", &pinnable_val);
+    ASSERT_OK(s);
+    ASSERT_TRUE(pinnable_val == ("bar3"));
+    s = db->Get(ropt, db->DefaultColumnFamily(), "foo4", &pinnable_val);
+    ASSERT_TRUE(s.IsNotFound());
+  }
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
