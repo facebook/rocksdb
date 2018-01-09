@@ -11,6 +11,7 @@
 
 #include "utilities/transactions/pessimistic_transaction_db.h"
 
+#include <inttypes.h>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -186,6 +187,8 @@ Status TransactionDB::Open(
   Status s;
   DB* db;
 
+  ROCKS_LOG_WARN(db_options.info_log, "Transaction write_policy is " PRId32,
+                 static_cast<int>(txn_db_options.write_policy));
   std::vector<ColumnFamilyDescriptor> column_families_copy = column_families;
   std::vector<size_t> compaction_enabled_cf_indices;
   DBOptions db_options_2pc = db_options;
