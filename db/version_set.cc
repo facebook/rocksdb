@@ -3002,9 +3002,7 @@ Status VersionSet::ProcessManifestWrites(
     mu->Unlock();
 
     TEST_SYNC_POINT("VersionSet::LogAndApply:WriteManifest");
-    if (!first_writer.edit_list.front()->IsColumnFamilyManipulation() &&
-        column_family_set_->get_table_cache()->GetCapacity() ==
-            TableCache::kInfiniteCapacity) {
+    if (!first_writer.edit_list.front()->IsColumnFamilyManipulation()) {
       for (int i = 0; i < static_cast<int>(versions.size()); ++i) {
         assert(!builder_guards.empty() &&
                builder_guards.size() == versions.size());
@@ -3013,7 +3011,10 @@ Status VersionSet::ProcessManifestWrites(
         ColumnFamilyData* cfd = versions[i]->cfd_;
         builder_guards[i]->version_builder()->LoadTableHandlers(
             cfd->internal_stats(), cfd->ioptions()->optimize_filters_for_hits,
-            true /* prefetch_index_and_filter_in_cache */,
+            this->GetColumnFamilySet()->get_table_cache()->GetCapacity() ==
+                TableCache::
+                    kInfiniteCapacity /* prefetch_index_and_filter_in_cache */,
+            false /* is_initial_load */,
             mutable_cf_options_ptrs[i]->prefix_extractor.get());
       }
     }
@@ -3671,15 +3672,13 @@ Status VersionSet::Recover(
       assert(builders_iter != builders.end());
       auto* builder = builders_iter->second->version_builder();
 
-      if (GetColumnFamilySet()->get_table_cache()->GetCapacity() ==
-          TableCache::kInfiniteCapacity) {
-        // unlimited table cache. Pre-load table handle now.
-        // Need to do it out of the mutex.
-        builder->LoadTableHandlers(
-            cfd->internal_stats(), db_options_->max_file_opening_threads,
-            false /* prefetch_index_and_filter_in_cache */,
-            cfd->GetLatestMutableCFOptions()->prefix_extractor.get());
-      }
+      // unlimited table cache. Pre-load table handle now.
+      // Need to do it out of the mutex.
+      builder->LoadTableHandlers(
+          cfd->internal_stats(), db_options_->max_file_opening_threads,
+          false /* prefetch_index_and_filter_in_cache */,
+          true /* is_initial_load */,
+          cfd->GetLatestMutableCFOptions()->prefix_extractor.get());
 
       Version* v = new Version(cfd, this, env_options_,
                                *cfd->GetLatestMutableCFOptions(),

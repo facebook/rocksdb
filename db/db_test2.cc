@@ -342,6 +342,7 @@ TEST_P(DBTestSharedWriteBufferAcrossCFs, SharedWriteBufferAcrossCFs) {
     ASSERT_GE(cache->GetUsage(), 1024 * 1024);
     Close();
     options.write_buffer_manager.reset();
+    last_options_.write_buffer_manager.reset();
     ASSERT_LT(cache->GetUsage(), 1024 * 1024);
   }
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
@@ -1476,10 +1477,25 @@ TEST_P(PinL0IndexAndFilterBlocksTest, DisablePrefetchingNonL0IndexAndFilter) {
   uint64_t im = TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS);
   uint64_t ih = TestGetTickerCount(options, BLOCK_CACHE_INDEX_HIT);
 
+  if (!infinite_max_files_) {
+    // Now we have two files. We narrow the max open files to allow 3 entries
+    // so that preloading SST files won't happen.
+    options.max_open_files = 13;
+    // RocksDB sanitize max open files to at least 20. Modify it back.
+    rocksdb::SyncPoint::GetInstance()->SetCallBack(
+        "SanitizeOptions::AfterChangeMaxOpenFiles", [&](void* arg) {
+          int* max_open_files = static_cast<int*>(arg);
+          *max_open_files = 13;
+        });
+  }
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
   // Reopen database. If max_open_files is set as -1, table readers will be
   // preloaded. This will trigger a BlockBasedTable::Open() and prefetch
   // L0 index and filter. Level 1's prefetching is disabled in DB::Open()
   TryReopenWithColumnFamilies({"default", "pikachu"}, options);
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 
   if (infinite_max_files_) {
     // After reopen, cache miss are increased by one because we read (and only
@@ -1650,9 +1666,11 @@ class MockPersistentCache : public PersistentCache {
 // Make sure that in CPU time perf context counters, Env::NowCPUNanos()
 // is used, rather than Env::CPUNanos();
 TEST_F(DBTest2, TestPerfContextCpuTime) {
+  // force resizing table cache so table handle is not preloaded so that
+  // we can measure find_table_nanos during Get().
+  dbfull()->TEST_table_cache()->SetCapacity(0);
   ASSERT_OK(Put("foo", "bar"));
   ASSERT_OK(Flush());
-
   env_->now_cpu_count_.store(0);
 
   // CPU timing is not enabled with kEnableTimeExceptForMutex

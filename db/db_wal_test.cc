@@ -283,7 +283,31 @@ TEST_F(DBWALTest, RecoverWithTableHandle) {
     ASSERT_OK(Put(1, "bar", "v4"));
     ASSERT_OK(Flush(1));
     ASSERT_OK(Put(1, "big", std::string(100, 'a')));
-    ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
+
+    options = CurrentOptions();
+    const int kSmallMaxOpenFiles = 13;
+    if (option_config_ == kDBLogDir) {
+      // Use this option to check not preloading files
+      // Set the max open files to be small enough so no preload will
+      // happen.
+      options.max_open_files = kSmallMaxOpenFiles;
+      // RocksDB sanitize max open files to at least 20. Modify it back.
+      rocksdb::SyncPoint::GetInstance()->SetCallBack(
+          "SanitizeOptions::AfterChangeMaxOpenFiles", [&](void* arg) {
+            int* max_open_files = static_cast<int*>(arg);
+            *max_open_files = kSmallMaxOpenFiles;
+          });
+
+    } else if (option_config_ == kWalDirAndMmapReads) {
+      // Use this option to check always loading all files.
+      options.max_open_files = 100;
+    } else {
+      options.max_open_files = -1;
+    }
+    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+    ReopenWithColumnFamilies({"default", "pikachu"}, options);
+    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+    rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
 
     std::vector<std::vector<FileMetaData>> files;
     dbfull()->TEST_GetFilesMetaData(handles_[1], &files);
@@ -294,10 +318,10 @@ TEST_F(DBWALTest, RecoverWithTableHandle) {
     ASSERT_EQ(total_files, 3);
     for (const auto& level : files) {
       for (const auto& file : level) {
-        if (kInfiniteMaxOpenFiles == option_config_) {
-          ASSERT_TRUE(file.table_reader_handle != nullptr);
-        } else {
+        if (options.max_open_files == kSmallMaxOpenFiles) {
           ASSERT_TRUE(file.table_reader_handle == nullptr);
+        } else {
+          ASSERT_TRUE(file.table_reader_handle != nullptr);
         }
       }
     }
