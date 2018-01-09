@@ -3661,9 +3661,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         }
       }
       if (!use_blob_db_) {
-#ifndef ROCKSDB_LITE
         s = db_with_cfh->db->Write(write_options_, &batch);
-#endif  //  ROCKSDB_LITE
       }
       thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db,
                                 entries_per_batch_, kWrite);
