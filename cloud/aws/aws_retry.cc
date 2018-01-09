@@ -32,25 +32,30 @@ bool AwsRetryStrategy::ShouldRetry(const AWSError<CoreErrors>& error,
   // Internal errors are unknown errors and we try harder to fix them
   if (ce == CoreErrors::INTERNAL_FAILURE ||
       err.find("try again") != std::string::npos) {
-
     if (attemptedRetries <= internal_failure_num_retries_) {
       Log(InfoLogLevel::INFO_LEVEL, info_log_,
-          "[aws] Encountered retriable failure: %s. Exception %s."
-          " retry attempt %d is lesser than max retries %d. Retrying...",
-          err.c_str(), emsg.c_str(), attemptedRetries, internal_failure_num_retries_);
+          "[aws] Encountered retriable failure: %s (code %d, http %d). "
+          "Exception %s. retry attempt %d is lesser than max retries %d. "
+          "Retrying...",
+          err.c_str(), static_cast<int>(ce),
+          static_cast<int>(error.GetResponseCode()), emsg.c_str(),
+          attemptedRetries, internal_failure_num_retries_);
       return true;
     }
     Log(InfoLogLevel::INFO_LEVEL, info_log_,
-        "[aws] Encountered retriable failure: %s. Exception %s."
-        " retry attempt %d exceeds max retries %d. Aborting...",
-        err.c_str(), emsg.c_str(), attemptedRetries, internal_failure_num_retries_);
+        "[aws] Encountered retriable failure: %s (code %d, http %d). Exception "
+        "%s. retry attempt %d exceeds max retries %d. Aborting...",
+        err.c_str(), static_cast<int>(ce),
+        static_cast<int>(error.GetResponseCode()), emsg.c_str(),
+        attemptedRetries, internal_failure_num_retries_);
     return false;
   }
   Log(InfoLogLevel::WARN_LEVEL, info_log_,
-      "[aws] Encountered S3 failure %s. Exception %s."
-      " retry attempt %d max retries %d. "
-      "Using default retry policy...",
-      err.c_str(), emsg.c_str(), attemptedRetries, internal_failure_num_retries_);
+      "[aws] Encountered S3 failure %s (code %d, http %d). Exception %s."
+      " retry attempt %d max retries %d. Using default retry policy...",
+      err.c_str(), static_cast<int>(ce),
+      static_cast<int>(error.GetResponseCode()), emsg.c_str(), attemptedRetries,
+      internal_failure_num_retries_);
   return default_strategy_->ShouldRetry(error, attemptedRetries);
 }
 
