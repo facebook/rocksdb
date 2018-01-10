@@ -570,19 +570,19 @@ TEST_F(DBBasicTest, CompactBetweenSnapshots) {
 
 TEST_F(DBBasicTest, DBOpen_Options) {
   Options options = CurrentOptions();
-  std::string dbname = test::TmpDir(env_) + "/db_options_test";
-  ASSERT_OK(DestroyDB(dbname, options));
+  Close();
+  Destroy(options);
 
   // Does not exist, and create_if_missing == false: error
   DB* db = nullptr;
   options.create_if_missing = false;
-  Status s = DB::Open(options, dbname, &db);
+  Status s = DB::Open(options, dbname_, &db);
   ASSERT_TRUE(strstr(s.ToString().c_str(), "does not exist") != nullptr);
   ASSERT_TRUE(db == nullptr);
 
   // Does not exist, and create_if_missing == true: OK
   options.create_if_missing = true;
-  s = DB::Open(options, dbname, &db);
+  s = DB::Open(options, dbname_, &db);
   ASSERT_OK(s);
   ASSERT_TRUE(db != nullptr);
 
@@ -592,14 +592,14 @@ TEST_F(DBBasicTest, DBOpen_Options) {
   // Does exist, and error_if_exists == true: error
   options.create_if_missing = false;
   options.error_if_exists = true;
-  s = DB::Open(options, dbname, &db);
+  s = DB::Open(options, dbname_, &db);
   ASSERT_TRUE(strstr(s.ToString().c_str(), "exists") != nullptr);
   ASSERT_TRUE(db == nullptr);
 
   // Does exist, and error_if_exists == false: OK
   options.create_if_missing = true;
   options.error_if_exists = false;
-  s = DB::Open(options, dbname, &db);
+  s = DB::Open(options, dbname_, &db);
   ASSERT_OK(s);
   ASSERT_TRUE(db != nullptr);
 
