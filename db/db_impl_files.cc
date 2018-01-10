@@ -285,6 +285,9 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   job_context->logs_to_free = logs_to_free_;
   job_context->log_recycle_files.assign(log_recycle_files_.begin(),
                                         log_recycle_files_.end());
+  if (job_context->HaveSomethingToDelete()) {
+    ++pending_purge_obsolete_files_;
+  }
   logs_to_free_.clear();
 }
 
@@ -342,15 +345,12 @@ void DBImpl::DeleteObsoleteFileImpl(int job_id, const std::string& fname,
 // files in sst_delete_files and log_delete_files.
 // It is not necessary to hold the mutex when invoking this method.
 void DBImpl::PurgeObsoleteFiles(const JobContext& state, bool schedule_only) {
+  TEST_SYNC_POINT("DBImpl::PurgeObsoleteFiles:Begin");
   // we'd better have sth to delete
   assert(state.HaveSomethingToDelete());
 
-  // this checks if FindObsoleteFiles() was run before. If not, don't do
-  // PurgeObsoleteFiles(). If FindObsoleteFiles() was run, we need to also
-  // run PurgeObsoleteFiles(), even if disable_delete_obsolete_files_ is true
-  if (state.manifest_file_number == 0) {
-    return;
-  }
+  // FindObsoleteFiles() should've populated this so nonzero
+  assert(state.manifest_file_number != 0);
 
   // Now, convert live list to an unordered map, WITHOUT mutex held;
   // set is slow.
@@ -533,6 +533,13 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state, bool schedule_only) {
   wal_manager_.PurgeObsoleteWALFiles();
 #endif  // ROCKSDB_LITE
   LogFlush(immutable_db_options_.info_log);
+  InstrumentedMutexLock l(&mutex_);
+  --pending_purge_obsolete_files_;
+  assert(pending_purge_obsolete_files_ >= 0);
+  if (pending_purge_obsolete_files_ == 0) {
+    bg_cv_.SignalAll();
+  }
+  TEST_SYNC_POINT("DBImpl::PurgeObsoleteFiles:End");
 }
 
 void DBImpl::DeleteObsoleteFiles() {

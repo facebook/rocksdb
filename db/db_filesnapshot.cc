@@ -141,6 +141,18 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
 }
 
 Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {
+  {
+    // If caller disabled deletions, this function should return files that are
+    // guaranteed not to be deleted until deletions are re-enabled. We need to
+    // wait for pending purges to finish since WalManager doesn't know which
+    // files are going to be purged. Additional purges won't be scheduled as
+    // long as deletions are disabled (so the below loop must terminate).
+    InstrumentedMutexLock l(&mutex_);
+    while (disable_delete_obsolete_files_ > 0 &&
+           pending_purge_obsolete_files_ > 0) {
+      bg_cv_.Wait();
+    }
+  }
   return wal_manager_.GetSortedWalFiles(files);
 }
 

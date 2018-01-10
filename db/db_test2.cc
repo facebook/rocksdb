@@ -2430,6 +2430,60 @@ TEST_F(DBTest2, ReadCallbackTest) {
   }
 }
 
+#ifndef ROCKSDB_LITE
+
+TEST_F(DBTest2, LiveFilesOmitObsoleteFiles) {
+  // Regression test for race condition where an obsolete file is returned to
+  // user as a "live file" but then deleted, all while file deletions are
+  // disabled.
+  //
+  // It happened like this:
+  //
+  // 1. [flush thread] Log file "x.log" found by FindObsoleteFiles
+  // 2. [user thread] DisableFileDeletions, GetSortedWalFiles are called and the
+  //    latter returned "x.log"
+  // 3. [flush thread] PurgeObsoleteFiles deleted "x.log"
+  // 4. [user thread] Reading "x.log" failed
+  //
+  // Unfortunately the only regression test I can come up with involves sleep.
+  // We cannot set SyncPoints to repro since, once the fix is applied, the
+  // SyncPoints would cause a deadlock as the repro's sequence of events is now
+  // prohibited.
+  //
+  // Instead, if we sleep for a second between Find and Purge, and ensure the
+  // read attempt happens after purge, then the sequence of events will almost
+  // certainly happen on the old code.
+  rocksdb::SyncPoint::GetInstance()->LoadDependency({
+      {"DBImpl::BackgroundCallFlush:FilesFound",
+       "DBTest2::LiveFilesOmitObsoleteFiles:FlushTriggered"},
+      {"DBImpl::PurgeObsoleteFiles:End",
+       "DBTest2::LiveFilesOmitObsoleteFiles:LiveFilesCaptured"},
+  });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::PurgeObsoleteFiles:Begin",
+      [&](void* arg) { env_->SleepForMicroseconds(1000000); });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  Put("key", "val");
+  FlushOptions flush_opts;
+  flush_opts.wait = false;
+  db_->Flush(flush_opts);
+  TEST_SYNC_POINT("DBTest2::LiveFilesOmitObsoleteFiles:FlushTriggered");
+
+  db_->DisableFileDeletions();
+  VectorLogPtr log_files;
+  db_->GetSortedWalFiles(log_files);
+  TEST_SYNC_POINT("DBTest2::LiveFilesOmitObsoleteFiles:LiveFilesCaptured");
+  for (const auto& log_file : log_files) {
+    ASSERT_OK(env_->FileExists(LogFileName(dbname_, log_file->LogNumber())));
+  }
+
+  db_->EnableFileDeletions();
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+#endif  // ROCKSDB_LITE
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
