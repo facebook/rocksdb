@@ -772,8 +772,10 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
     // true.
     std::unique_ptr<BlockContents> compression_dict_cont{new BlockContents()};
     PersistentCacheOptions cache_options;
+    ReadOptions read_options;
+    read_options.verify_checksums = false;
     BlockFetcher compression_block_fetcher(
-      rep->file.get(), prefetch_buffer.get(), rep->footer, ReadOptions(),
+      rep->file.get(), prefetch_buffer.get(), rep->footer, read_options,
       compression_dict_handle, compression_dict_cont.get(), rep->ioptions, false /* decompress */,
       Slice() /*compression dict*/, cache_options);
     s = compression_block_fetcher.ReadBlockContents();
