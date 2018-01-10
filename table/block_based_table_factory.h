@@ -153,8 +153,8 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"read_amp_bytes_per_bit",
          {offsetof(struct BlockBasedTableOptions, read_amp_bytes_per_bit),
           OptionType::kSizeT, OptionVerificationType::kNormal, false, 0}},
-        {"index_uncompressed",
-         {offsetof(struct BlockBasedTableOptions, index_uncompressed),
+        {"enable_index_compression",
+         {offsetof(struct BlockBasedTableOptions, enable_index_compression),
           OptionType::kBoolean, OptionVerificationType::kNormal, false, 0}}};
 #endif  // !ROCKSDB_LITE
 }  // namespace rocksdb

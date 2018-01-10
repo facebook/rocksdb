@@ -1101,7 +1101,7 @@ TEST_F(BlockBasedTableTest, BasicBlockBasedTableProperties) {
   c.ResetTableReader();
 }
 
-uint64_t BlockBasedTableTest::IndexUncompressedHelper(bool uncompressed) {
+uint64_t BlockBasedTableTest::IndexUncompressedHelper(bool compressed) {
   TableConstructor c(BytewiseComparator(), true /* convert_to_internal_key_ */);
   constexpr size_t kNumKeys = 10000;
 
@@ -1117,7 +1117,7 @@ uint64_t BlockBasedTableTest::IndexUncompressedHelper(bool uncompressed) {
   options.statistics->stats_level_ = StatsLevel::kAll;
   BlockBasedTableOptions table_options;
   table_options.block_restart_interval = 1;
-  table_options.index_uncompressed = uncompressed;
+  table_options.enable_index_compression = compressed;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   ImmutableCFOptions ioptions(options);
@@ -1128,8 +1128,8 @@ uint64_t BlockBasedTableTest::IndexUncompressedHelper(bool uncompressed) {
   return options.statistics->getTickerCount(NUMBER_BLOCK_COMPRESSED);
 }
 TEST_F(BlockBasedTableTest, IndexUncompressed) {
-  uint64_t tbl1_compressed_cnt = IndexUncompressedHelper(false);
-  uint64_t tbl2_compressed_cnt = IndexUncompressedHelper(true);
+  uint64_t tbl1_compressed_cnt = IndexUncompressedHelper(true);
+  uint64_t tbl2_compressed_cnt = IndexUncompressedHelper(false);
   // tbl1_compressed_cnt should include 1 index block
   EXPECT_EQ(tbl2_compressed_cnt + 1, tbl1_compressed_cnt);
 }

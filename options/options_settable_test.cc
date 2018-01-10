@@ -151,7 +151,7 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       "format_version=1;"
       "hash_index_allow_collision=false;"
       "verify_compression=true;read_amp_bytes_per_bit=0;"
-      "index_uncompressed=true",
+      "enable_index_compression=false",
       new_bbto));
 
   ASSERT_EQ(unset_bytes_base,
