@@ -2191,6 +2191,8 @@ class ModelDB : public DB {
     batch.Put(cf, k, v);
     return Write(o, &batch);
   }
+  using DB::Close;
+  virtual Status Close() { return Status::OK(); }
   using DB::Delete;
   virtual Status Delete(const WriteOptions& o, ColumnFamilyHandle* cf,
                         const Slice& key) override {

@@ -611,6 +611,8 @@ class DBImpl : public DB {
                      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
                      const bool seq_per_batch);
 
+  virtual Status Close() override;
+
  protected:
   Env* const env_;
   const std::string dbname_;
@@ -911,6 +913,9 @@ class DBImpl : public DB {
   const Snapshot* GetSnapshotImpl(bool is_write_conflict_boundary);
 
   uint64_t GetMaxTotalWalSize() const;
+
+  // Actual implementation of Close()
+  virtual Status CloseImpl();
 
   // table_cache_ provides its own synchronization
   std::shared_ptr<Cache> table_cache_;
@@ -1359,6 +1364,9 @@ class DBImpl : public DB {
   // is set to false.
   std::atomic<SequenceNumber> preserve_deletes_seqnum_;
   const bool preserve_deletes_;
+
+  // Flag to check whether Close() has been called on this DB
+  bool closed_;
 };
 
 extern Options SanitizeOptions(const std::string& db,

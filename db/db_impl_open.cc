@@ -48,7 +48,11 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
     if (!s.ok()) {
       // No place suitable for logging
       result.info_log = nullptr;
+    } else {
+      result.info_log->SetOwner(InfoLogOwner::ROCKSDB);
     }
+  } else {
+    result.info_log->SetOwner(InfoLogOwner::CLIENT);
   }
 
   if (!result.write_buffer_manager) {

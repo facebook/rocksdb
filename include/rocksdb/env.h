@@ -813,14 +813,22 @@ enum InfoLogLevel : unsigned char {
   NUM_INFO_LOG_LEVELS,
 };
 
+enum InfoLogOwner : unsigned char {
+  CLIENT = 0,
+  ROCKSDB,
+};
+
 // An interface for writing log messages.
 class Logger {
  public:
   size_t kDoNotSupportGetLogFileSize = (std::numeric_limits<size_t>::max)();
 
   explicit Logger(const InfoLogLevel log_level = InfoLogLevel::INFO_LEVEL)
-      : log_level_(log_level) {}
+      : closed_(false), log_level_(log_level), owner_(InfoLogOwner::CLIENT) {}
   virtual ~Logger();
+
+  // Close the log file. Must be called before destructor
+  virtual Status Close();
 
   // Write a header to the log file with the specified format
   // It is recommended that you log all header information at the start of the
@@ -847,12 +855,17 @@ class Logger {
   virtual void SetInfoLogLevel(const InfoLogLevel log_level) {
     log_level_ = log_level;
   }
+  virtual void SetOwner(const InfoLogOwner owner) { owner_ = owner; }
+  virtual InfoLogOwner GetOwner() const { return owner_; }
 
  private:
   // No copying allowed
   Logger(const Logger&);
   void operator=(const Logger&);
+  virtual Status CloseImpl();
+  bool closed_;
   InfoLogLevel log_level_;
+  InfoLogOwner owner_;
 };
 
 
