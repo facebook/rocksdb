@@ -1003,7 +1003,10 @@ class TableTest : public testing::Test {
 };
 
 class GeneralTableTest : public TableTest {};
-class BlockBasedTableTest : public TableTest {};
+class BlockBasedTableTest : public TableTest {
+ protected:
+  uint64_t IndexUncompressedHelper(bool indexCompress);
+};
 class PlainTableTest : public TableTest {};
 class TablePropertyTest : public testing::Test {};
 
@@ -1064,13 +1067,17 @@ TEST_F(BlockBasedTableTest, BasicBlockBasedTableProperties) {
   stl_wrappers::KVMap kvmap;
   Options options;
   options.compression = kNoCompression;
+  options.statistics = CreateDBStatistics();
+  options.statistics->stats_level_ = StatsLevel::kAll;
   BlockBasedTableOptions table_options;
   table_options.block_restart_interval = 1;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
-  const ImmutableCFOptions ioptions(options);
+  ImmutableCFOptions ioptions(options);
+  ioptions.statistics = options.statistics.get();
   c.Finish(options, ioptions, table_options,
            GetPlainInternalComparator(options.comparator), &keys, &kvmap);
+  ASSERT_EQ(options.statistics->getTickerCount(NUMBER_BLOCK_NOT_COMPRESSED), 0);
 
   auto& props = *c.GetTableReader()->GetTableProperties();
   ASSERT_EQ(kvmap.size(), props.num_entries);
@@ -1092,6 +1099,39 @@ TEST_F(BlockBasedTableTest, BasicBlockBasedTableProperties) {
   ASSERT_EQ(content.size() + kBlockTrailerSize + diff_internal_user_bytes,
             props.data_size);
   c.ResetTableReader();
+}
+
+uint64_t BlockBasedTableTest::IndexUncompressedHelper(bool compressed) {
+  TableConstructor c(BytewiseComparator(), true /* convert_to_internal_key_ */);
+  constexpr size_t kNumKeys = 10000;
+
+  for (size_t k = 0; k < kNumKeys; ++k) {
+    c.Add("key" + ToString(k), "val" + ToString(k));
+  }
+
+  std::vector<std::string> keys;
+  stl_wrappers::KVMap kvmap;
+  Options options;
+  options.compression = kSnappyCompression;
+  options.statistics = CreateDBStatistics();
+  options.statistics->stats_level_ = StatsLevel::kAll;
+  BlockBasedTableOptions table_options;
+  table_options.block_restart_interval = 1;
+  table_options.enable_index_compression = compressed;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  ImmutableCFOptions ioptions(options);
+  ioptions.statistics = options.statistics.get();
+  c.Finish(options, ioptions, table_options,
+           GetPlainInternalComparator(options.comparator), &keys, &kvmap);
+  c.ResetTableReader();
+  return options.statistics->getTickerCount(NUMBER_BLOCK_COMPRESSED);
+}
+TEST_F(BlockBasedTableTest, IndexUncompressed) {
+  uint64_t tbl1_compressed_cnt = IndexUncompressedHelper(true);
+  uint64_t tbl2_compressed_cnt = IndexUncompressedHelper(false);
+  // tbl1_compressed_cnt should include 1 index block
+  EXPECT_EQ(tbl2_compressed_cnt + 1, tbl1_compressed_cnt);
 }
 
 TEST_F(BlockBasedTableTest, BlockBasedTableProperties2) {
