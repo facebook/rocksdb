@@ -99,6 +99,7 @@ set(NATIVE_JAVA_CLASSES
         org.rocksdb.RocksDB
         org.rocksdb.RocksDBExceptionTest
         org.rocksdb.RocksEnv
+        org.rocksdb.RocksHdfsEnv
         org.rocksdb.RocksIterator
         org.rocksdb.RocksIteratorInterface
         org.rocksdb.RocksMemEnv

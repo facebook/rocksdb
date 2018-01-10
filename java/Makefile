@@ -39,6 +39,7 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
 	org.rocksdb.RocksCallbackObject\
 	org.rocksdb.RocksDB\
 	org.rocksdb.RocksEnv\
+	org.rocksdb.RocksHdfsEnv\
 	org.rocksdb.RocksIterator\
 	org.rocksdb.RocksMemEnv\
 	org.rocksdb.SkipListMemTableConfig\
@@ -114,6 +115,7 @@ JAVA_TESTS = org.rocksdb.BackupableDBOptionsTest\
 	org.rocksdb.RocksDBTest\
 	org.rocksdb.RocksDBExceptionTest\
 	org.rocksdb.RocksEnvTest\
+	org.rocksdb.RocksHdfsEnvTest\
 	org.rocksdb.RocksIteratorTest\
 	org.rocksdb.RocksMemEnvTest\
 	org.rocksdb.util.SizeUnitTest\
