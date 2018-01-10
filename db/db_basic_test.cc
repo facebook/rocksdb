@@ -570,7 +570,7 @@ TEST_F(DBBasicTest, CompactBetweenSnapshots) {
 
 TEST_F(DBBasicTest, DBOpen_Options) {
   Options options = CurrentOptions();
-  std::string dbname = test::TmpDir(env_) + "/db_options_test";
+  std::string dbname = test::TmpDir(env_) + "/db_basic_test";
   ASSERT_OK(DestroyDB(dbname, options));
 
   // Does not exist, and create_if_missing == false: error
