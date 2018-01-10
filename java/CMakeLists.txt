@@ -208,6 +208,7 @@ add_jar(
   src/main/java/org/rocksdb/OptionsUtil.java
   src/main/java/org/rocksdb/PlainTableConfig.java
   src/main/java/org/rocksdb/RateLimiter.java
+  src/main/java/org/rocksdb/RateLimiterMode.java
   src/main/java/org/rocksdb/ReadOptions.java
   src/main/java/org/rocksdb/ReadTier.java
   src/main/java/org/rocksdb/RemoveEmptyValueCompactionFilter.java
