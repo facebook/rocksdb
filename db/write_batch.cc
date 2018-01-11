@@ -144,6 +144,12 @@ WriteBatch::WriteBatch(const std::string& rep)
       max_bytes_(0),
       rep_(rep) {}
 
+WriteBatch::WriteBatch(std::string&& rep)
+    : save_points_(nullptr),
+      content_flags_(ContentFlags::DEFERRED),
+      max_bytes_(0),
+      rep_(std::move(rep)) {}
+
 WriteBatch::WriteBatch(const WriteBatch& src)
     : save_points_(src.save_points_),
       wal_term_point_(src.wal_term_point_),
