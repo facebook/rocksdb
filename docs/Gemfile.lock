@@ -110,7 +110,7 @@ GEM
     minitest (5.9.1)
     multipart-post (2.0.0)
     net-dns (0.8.0)
-    nokogiri (1.6.8.1)
+    nokogiri (1.8.1)
       mini_portile2 (~> 2.1.0)
     octokit (4.4.1)
       sawyer (~> 0.7.0, >= 0.5.3)
