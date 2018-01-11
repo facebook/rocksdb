@@ -167,7 +167,7 @@ class DB {
   // called before calling the desctructor so that the caller can get back a
   // status in case there are any errors. Regardless of the return status, the
   // DB must be freed
-  virtual Status Close() = 0;
+  virtual Status Close() { return Status::OK(); }
 
   // ListColumnFamilies will open the DB specified by argument name
   // and return the list of all column families in that DB

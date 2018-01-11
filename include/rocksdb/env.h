@@ -813,18 +813,13 @@ enum InfoLogLevel : unsigned char {
   NUM_INFO_LOG_LEVELS,
 };
 
-enum InfoLogOwner : unsigned char {
-  CLIENT = 0,
-  ROCKSDB,
-};
-
 // An interface for writing log messages.
 class Logger {
  public:
   size_t kDoNotSupportGetLogFileSize = (std::numeric_limits<size_t>::max)();
 
   explicit Logger(const InfoLogLevel log_level = InfoLogLevel::INFO_LEVEL)
-      : closed_(false), log_level_(log_level), owner_(InfoLogOwner::CLIENT) {}
+      : closed_(false), log_level_(log_level) {}
   virtual ~Logger();
 
   // Close the log file. Must be called before destructor
@@ -855,8 +850,6 @@ class Logger {
   virtual void SetInfoLogLevel(const InfoLogLevel log_level) {
     log_level_ = log_level;
   }
-  virtual void SetOwner(const InfoLogOwner owner) { owner_ = owner; }
-  virtual InfoLogOwner GetOwner() const { return owner_; }
 
  private:
   // No copying allowed
@@ -865,7 +858,6 @@ class Logger {
   virtual Status CloseImpl();
   bool closed_;
   InfoLogLevel log_level_;
-  InfoLogOwner owner_;
 };
 
 

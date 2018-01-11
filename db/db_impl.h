@@ -617,6 +617,8 @@ class DBImpl : public DB {
   Env* const env_;
   const std::string dbname_;
   unique_ptr<VersionSet> versions_;
+  // Flag to check whether we allocated and own the info log file
+  bool own_info_log_;
   const DBOptions initial_db_options_;
   const ImmutableDBOptions immutable_db_options_;
   MutableDBOptions mutable_db_options_;

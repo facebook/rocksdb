@@ -856,7 +856,7 @@ class TestEnv : public EnvWrapper {
         using Logger::Logv;
         virtual void Logv(const char *format, va_list ap) override { };
       private:
-        virtual Status CloseImpl() {
+        virtual Status CloseImpl() override {
           return Status::NotSupported();
         }
     };

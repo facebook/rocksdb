@@ -141,6 +141,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
                const bool seq_per_batch)
     : env_(options.env),
       dbname_(dbname),
+      own_info_log_(options.info_log == nullptr),
       initial_db_options_(SanitizeOptions(dbname, options)),
       immutable_db_options_(initial_db_options_),
       mutable_db_options_(initial_db_options_),
@@ -381,8 +382,7 @@ Status DBImpl::CloseImpl() {
   LogFlush(immutable_db_options_.info_log);
 
   Status s = Status::OK();
-  if (immutable_db_options_.info_log &&
-      immutable_db_options_.info_log->GetOwner() == InfoLogOwner::ROCKSDB) {
+  if (immutable_db_options_.info_log && own_info_log_) {
     s = immutable_db_options_.info_log->Close();
   }
   return s;
