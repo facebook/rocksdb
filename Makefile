@@ -1574,7 +1574,7 @@ else
 endif
 endif
 ifeq ($(PLATFORM), OS_FREEBSD)
-	JAVA_INCLUDE += -I$(JAVA_HOME)/include/freebsd
+	JAVA_INCLUDE = -I$(JAVA_HOME)/include -I$(JAVA_HOME)/include/freebsd
 	ROCKSDBJNILIB = librocksdbjni-freebsd$(ARCH).so
 	ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-freebsd$(ARCH).jar
 endif
@@ -1600,7 +1600,7 @@ libz.a:
 		exit 1; \
 	fi
 	tar xvzf zlib-$(ZLIB_VER).tar.gz
-	cd zlib-$(ZLIB_VER) && CFLAGS='-fPIC ${EXTRA_CFLAGS}' LDFLAGS='${EXTRA_LDFLAGS}' ./configure --static && make
+	cd zlib-$(ZLIB_VER) && CFLAGS='-fPIC ${EXTRA_CFLAGS}' LDFLAGS='${EXTRA_LDFLAGS}' ./configure --static && $(MAKE)
 	cp zlib-$(ZLIB_VER)/libz.a .
 
 libbz2.a:
@@ -1612,7 +1612,7 @@ libbz2.a:
 		exit 1; \
 	fi
 	tar xvzf bzip2-$(BZIP2_VER).tar.gz
-	cd bzip2-$(BZIP2_VER) && make CFLAGS='-fPIC -O2 -g -D_FILE_OFFSET_BITS=64 ${EXTRA_CFLAGS}' AR='ar ${EXTRA_ARFLAGS}'
+	cd bzip2-$(BZIP2_VER) && $(MAKE) CFLAGS='-fPIC -O2 -g -D_FILE_OFFSET_BITS=64 ${EXTRA_CFLAGS}' AR='ar ${EXTRA_ARFLAGS}'
 	cp bzip2-$(BZIP2_VER)/libbz2.a .
 
 libsnappy.a:
@@ -1625,7 +1625,7 @@ libsnappy.a:
 	fi
 	tar xvzf snappy-$(SNAPPY_VER).tar.gz
 	cd snappy-$(SNAPPY_VER) && CFLAGS='${EXTRA_CFLAGS}' CXXFLAGS='${EXTRA_CXXFLAGS}' LDFLAGS='${EXTRA_LDFLAGS}' ./configure --with-pic --enable-static --disable-shared
-	cd snappy-$(SNAPPY_VER) && make ${SNAPPY_MAKE_TARGET}
+	cd snappy-$(SNAPPY_VER) && $(MAKE) ${SNAPPY_MAKE_TARGET}
 	cp snappy-$(SNAPPY_VER)/.libs/libsnappy.a .
 
 liblz4.a:
@@ -1638,7 +1638,7 @@ liblz4.a:
 		exit 1; \
 	fi
 	tar xvzf lz4-$(LZ4_VER).tar.gz
-	cd lz4-$(LZ4_VER)/lib && make CFLAGS='-fPIC -O2 ${EXTRA_CFLAGS}' all
+	cd lz4-$(LZ4_VER)/lib && $(MAKE) CFLAGS='-fPIC -O2 ${EXTRA_CFLAGS}' all
 	cp lz4-$(LZ4_VER)/lib/liblz4.a .
 
 libzstd.a:
@@ -1651,7 +1651,7 @@ libzstd.a:
 		exit 1; \
 	fi
 	tar xvzf zstd-$(ZSTD_VER).tar.gz
-	cd zstd-$(ZSTD_VER)/lib && DESTDIR=. PREFIX= make CFLAGS='-fPIC -O2 ${EXTRA_CFLAGS}' install
+	cd zstd-$(ZSTD_VER)/lib && DESTDIR=. PREFIX= $(MAKE) CFLAGS='-fPIC -O2 ${EXTRA_CFLAGS}' install
 	cp zstd-$(ZSTD_VER)/lib/libzstd.a .
 
 # A version of each $(LIBOBJECTS) compiled with -fPIC and a fixed set of static compression libraries
