@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include "db/memtable_list.h"
 #include <algorithm>
@@ -134,7 +134,7 @@ TEST_F(MemTableListTest, GetTest) {
 
   WriteBufferManager wb(options.db_write_buffer_size);
   MemTable* mem = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
-                               kMaxSequenceNumber);
+                               kMaxSequenceNumber, 0 /* column_family_id */);
   mem->Ref();
 
   // Write some keys to this memtable.
@@ -173,7 +173,7 @@ TEST_F(MemTableListTest, GetTest) {
   // Create another memtable and write some keys to it
   WriteBufferManager wb2(options.db_write_buffer_size);
   MemTable* mem2 = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb2,
-                                kMaxSequenceNumber);
+                                kMaxSequenceNumber, 0 /* column_family_id */);
   mem2->Ref();
 
   mem2->Add(++seq, kTypeDeletion, "key1", "");
@@ -241,7 +241,7 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
 
   WriteBufferManager wb(options.db_write_buffer_size);
   MemTable* mem = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
-                               kMaxSequenceNumber);
+                               kMaxSequenceNumber, 0 /* column_family_id */);
   mem->Ref();
 
   // Write some keys to this memtable.
@@ -319,7 +319,7 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
   // Create another memtable and write some keys to it
   WriteBufferManager wb2(options.db_write_buffer_size);
   MemTable* mem2 = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb2,
-                                kMaxSequenceNumber);
+                                kMaxSequenceNumber, 0 /* column_family_id */);
   mem2->Ref();
 
   mem2->Add(++seq, kTypeDeletion, "key1", "");
@@ -344,7 +344,7 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
   // Add a third memtable to push the first memtable out of the history
   WriteBufferManager wb3(options.db_write_buffer_size);
   MemTable* mem3 = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb3,
-                                kMaxSequenceNumber);
+                                kMaxSequenceNumber, 0 /* column_family_id */);
   mem3->Ref();
   list.Add(mem3, &to_delete);
   ASSERT_EQ(1, list.NumNotFlushed());
@@ -418,7 +418,7 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   MutableCFOptions mutable_cf_options(options);
   for (int i = 0; i < num_tables; i++) {
     MemTable* mem = new MemTable(cmp, ioptions, mutable_cf_options, &wb,
-                                 kMaxSequenceNumber);
+                                 kMaxSequenceNumber, 0 /* column_family_id */);
     mem->Ref();
 
     std::string value;

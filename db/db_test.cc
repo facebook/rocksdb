@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -23,14 +23,17 @@
 #include <alloca.h>
 #endif
 
+#include "cache/lru_cache.h"
 #include "db/db_impl.h"
 #include "db/db_test_util.h"
 #include "db/dbformat.h"
-#include "db/filename.h"
 #include "db/job_context.h"
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
+#include "env/mock_env.h"
 #include "memtable/hash_linklist_rep.h"
+#include "monitoring/thread_status_util.h"
+#include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
@@ -56,17 +59,13 @@
 #include "table/scoped_arena_iterator.h"
 #include "util/compression.h"
 #include "util/file_reader_writer.h"
-#include "util/hash.h"
-#include "util/logging.h"
-#include "util/mock_env.h"
+#include "util/filename.h"
 #include "util/mutexlock.h"
 #include "util/rate_limiter.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
-#include "util/thread_status_util.h"
-#include "util/xfunc.h"
 #include "utilities/merge_operators.h"
 
 namespace rocksdb {
@@ -223,6 +222,10 @@ TEST_F(DBTest, SkipDelay) {
 
   for (bool sync : {true, false}) {
     for (bool disableWAL : {true, false}) {
+      if (sync && disableWAL) {
+        // sync and disableWAL is incompatible.
+        continue;
+      }
       // Use a small number to ensure a large delay that is still effective
       // when we do Put
       // TODO(myabandeh): this is time dependent and could potentially make
@@ -260,138 +263,6 @@ TEST_F(DBTest, SkipDelay) {
 }
 
 #ifndef ROCKSDB_LITE
-TEST_F(DBTest, ReadOnlyDB) {
-  ASSERT_OK(Put("foo", "v1"));
-  ASSERT_OK(Put("bar", "v2"));
-  ASSERT_OK(Put("foo", "v3"));
-  Close();
-
-  auto options = CurrentOptions();
-  assert(options.env = env_);
-  ASSERT_OK(ReadOnlyReopen(options));
-  ASSERT_EQ("v3", Get("foo"));
-  ASSERT_EQ("v2", Get("bar"));
-  Iterator* iter = db_->NewIterator(ReadOptions());
-  int count = 0;
-  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-    ASSERT_OK(iter->status());
-    ++count;
-  }
-  ASSERT_EQ(count, 2);
-  delete iter;
-  Close();
-
-  // Reopen and flush memtable.
-  Reopen(options);
-  Flush();
-  Close();
-  // Now check keys in read only mode.
-  ASSERT_OK(ReadOnlyReopen(options));
-  ASSERT_EQ("v3", Get("foo"));
-  ASSERT_EQ("v2", Get("bar"));
-  ASSERT_TRUE(db_->SyncWAL().IsNotSupported());
-}
-
-TEST_F(DBTest, CompactedDB) {
-  const uint64_t kFileSize = 1 << 20;
-  Options options = CurrentOptions();
-  options.disable_auto_compactions = true;
-  options.write_buffer_size = kFileSize;
-  options.target_file_size_base = kFileSize;
-  options.max_bytes_for_level_base = 1 << 30;
-  options.compression = kNoCompression;
-  Reopen(options);
-  // 1 L0 file, use CompactedDB if max_open_files = -1
-  ASSERT_OK(Put("aaa", DummyString(kFileSize / 2, '1')));
-  Flush();
-  Close();
-  ASSERT_OK(ReadOnlyReopen(options));
-  Status s = Put("new", "value");
-  ASSERT_EQ(s.ToString(),
-            "Not implemented: Not supported operation in read only mode.");
-  ASSERT_EQ(DummyString(kFileSize / 2, '1'), Get("aaa"));
-  Close();
-  options.max_open_files = -1;
-  ASSERT_OK(ReadOnlyReopen(options));
-  s = Put("new", "value");
-  ASSERT_EQ(s.ToString(),
-            "Not implemented: Not supported in compacted db mode.");
-  ASSERT_EQ(DummyString(kFileSize / 2, '1'), Get("aaa"));
-  Close();
-  Reopen(options);
-  // Add more L0 files
-  ASSERT_OK(Put("bbb", DummyString(kFileSize / 2, '2')));
-  Flush();
-  ASSERT_OK(Put("aaa", DummyString(kFileSize / 2, 'a')));
-  Flush();
-  ASSERT_OK(Put("bbb", DummyString(kFileSize / 2, 'b')));
-  ASSERT_OK(Put("eee", DummyString(kFileSize / 2, 'e')));
-  Flush();
-  Close();
-
-  ASSERT_OK(ReadOnlyReopen(options));
-  // Fallback to read-only DB
-  s = Put("new", "value");
-  ASSERT_EQ(s.ToString(),
-            "Not implemented: Not supported operation in read only mode.");
-  Close();
-
-  // Full compaction
-  Reopen(options);
-  // Add more keys
-  ASSERT_OK(Put("fff", DummyString(kFileSize / 2, 'f')));
-  ASSERT_OK(Put("hhh", DummyString(kFileSize / 2, 'h')));
-  ASSERT_OK(Put("iii", DummyString(kFileSize / 2, 'i')));
-  ASSERT_OK(Put("jjj", DummyString(kFileSize / 2, 'j')));
-  db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
-  ASSERT_EQ(3, NumTableFilesAtLevel(1));
-  Close();
-
-  // CompactedDB
-  ASSERT_OK(ReadOnlyReopen(options));
-  s = Put("new", "value");
-  ASSERT_EQ(s.ToString(),
-            "Not implemented: Not supported in compacted db mode.");
-  ASSERT_EQ("NOT_FOUND", Get("abc"));
-  ASSERT_EQ(DummyString(kFileSize / 2, 'a'), Get("aaa"));
-  ASSERT_EQ(DummyString(kFileSize / 2, 'b'), Get("bbb"));
-  ASSERT_EQ("NOT_FOUND", Get("ccc"));
-  ASSERT_EQ(DummyString(kFileSize / 2, 'e'), Get("eee"));
-  ASSERT_EQ(DummyString(kFileSize / 2, 'f'), Get("fff"));
-  ASSERT_EQ("NOT_FOUND", Get("ggg"));
-  ASSERT_EQ(DummyString(kFileSize / 2, 'h'), Get("hhh"));
-  ASSERT_EQ(DummyString(kFileSize / 2, 'i'), Get("iii"));
-  ASSERT_EQ(DummyString(kFileSize / 2, 'j'), Get("jjj"));
-  ASSERT_EQ("NOT_FOUND", Get("kkk"));
-
-  // MultiGet
-  std::vector<std::string> values;
-  std::vector<Status> status_list = dbfull()->MultiGet(
-      ReadOptions(),
-      std::vector<Slice>({Slice("aaa"), Slice("ccc"), Slice("eee"),
-                          Slice("ggg"), Slice("iii"), Slice("kkk")}),
-      &values);
-  ASSERT_EQ(status_list.size(), static_cast<uint64_t>(6));
-  ASSERT_EQ(values.size(), static_cast<uint64_t>(6));
-  ASSERT_OK(status_list[0]);
-  ASSERT_EQ(DummyString(kFileSize / 2, 'a'), values[0]);
-  ASSERT_TRUE(status_list[1].IsNotFound());
-  ASSERT_OK(status_list[2]);
-  ASSERT_EQ(DummyString(kFileSize / 2, 'e'), values[2]);
-  ASSERT_TRUE(status_list[3].IsNotFound());
-  ASSERT_OK(status_list[4]);
-  ASSERT_EQ(DummyString(kFileSize / 2, 'i'), values[4]);
-  ASSERT_TRUE(status_list[5].IsNotFound());
-
-  Reopen(options);
-  // Add a key
-  ASSERT_OK(Put("fff", DummyString(kFileSize / 2, 'f')));
-  Close();
-  ASSERT_OK(ReadOnlyReopen(options));
-  s = Put("new", "value");
-  ASSERT_EQ(s.ToString(),
-            "Not implemented: Not supported operation in read only mode.");
-}
 
 TEST_F(DBTest, LevelLimitReopen) {
   Options options = CurrentOptions();
@@ -416,17 +287,6 @@ TEST_F(DBTest, LevelLimitReopen) {
 }
 #endif  // ROCKSDB_LITE
 
-TEST_F(DBTest, PutDeleteGet) {
-  do {
-    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
-    ASSERT_OK(Put(1, "foo", "v1"));
-    ASSERT_EQ("v1", Get(1, "foo"));
-    ASSERT_OK(Put(1, "foo", "v2"));
-    ASSERT_EQ("v2", Get(1, "foo"));
-    ASSERT_OK(Delete(1, "foo"));
-    ASSERT_EQ("NOT_FOUND", Get(1, "foo"));
-  } while (ChangeOptions());
-}
 
 TEST_F(DBTest, PutSingleDeleteGet) {
   do {
@@ -620,28 +480,6 @@ TEST_F(DBTest, SingleDeletePutFlush) {
                          kSkipUniversalCompaction | kSkipMergePut));
 }
 
-TEST_F(DBTest, EmptyFlush) {
-  // It is possible to produce empty flushes when using single deletes. Tests
-  // whether empty flushes cause issues.
-  do {
-    Random rnd(301);
-
-    Options options = CurrentOptions();
-    options.disable_auto_compactions = true;
-    CreateAndReopenWithCF({"pikachu"}, options);
-
-    Put(1, "a", Slice());
-    SingleDelete(1, "a");
-    ASSERT_OK(Flush(1));
-
-    ASSERT_EQ("[ ]", AllEntriesFor("a", 1));
-    // Skip HashCuckooRep as it does not support single delete. FIFO and
-    // universal compaction do not apply to the test case. Skip MergePut
-    // because merges cannot be combined with single deletions.
-  } while (ChangeOptions(kSkipHashCuckoo | kSkipFIFOCompaction |
-                         kSkipUniversalCompaction | kSkipMergePut));
-}
-
 // Disable because not all platform can run it.
 // It requires more than 9GB memory to run it, With single allocation
 // of more than 3GB.
@@ -716,43 +554,6 @@ TEST_F(DBTest, GetFromImmutableLayer) {
   } while (ChangeOptions());
 }
 
-TEST_F(DBTest, GetFromVersions) {
-  do {
-    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
-    ASSERT_OK(Put(1, "foo", "v1"));
-    ASSERT_OK(Flush(1));
-    ASSERT_EQ("v1", Get(1, "foo"));
-    ASSERT_EQ("NOT_FOUND", Get(0, "foo"));
-  } while (ChangeOptions());
-}
-
-#ifndef ROCKSDB_LITE
-TEST_F(DBTest, GetSnapshot) {
-  anon::OptionsOverride options_override;
-  options_override.skip_policy = kSkipNoSnapshot;
-  do {
-    CreateAndReopenWithCF({"pikachu"}, CurrentOptions(options_override));
-    // Try with both a short key and a long key
-    for (int i = 0; i < 2; i++) {
-      std::string key = (i == 0) ? std::string("foo") : std::string(200, 'x');
-      ASSERT_OK(Put(1, key, "v1"));
-      const Snapshot* s1 = db_->GetSnapshot();
-      if (option_config_ == kHashCuckoo) {
-        // Unsupported case.
-        ASSERT_TRUE(s1 == nullptr);
-        break;
-      }
-      ASSERT_OK(Put(1, key, "v2"));
-      ASSERT_EQ("v2", Get(1, key));
-      ASSERT_EQ("v1", Get(1, key, s1));
-      ASSERT_OK(Flush(1));
-      ASSERT_EQ("v2", Get(1, key));
-      ASSERT_EQ("v1", Get(1, key, s1));
-      db_->ReleaseSnapshot(s1);
-    }
-  } while (ChangeOptions());
-}
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBTest, GetLevel0Ordering) {
   do {
@@ -813,7 +614,6 @@ TEST_F(DBTest, GetPicksCorrectFile) {
 TEST_F(DBTest, GetEncountersEmptyLevel) {
   do {
     Options options = CurrentOptions();
-    options.disableDataSync = true;
     CreateAndReopenWithCF({"pikachu"}, options);
     // Arrange for the following to happen:
     //   * sstable A in level 0
@@ -854,17 +654,6 @@ TEST_F(DBTest, GetEncountersEmptyLevel) {
 }
 #endif  // ROCKSDB_LITE
 
-TEST_F(DBTest, CheckLock) {
-  do {
-    DB* localdb;
-    Options options = CurrentOptions();
-    ASSERT_OK(TryReopen(options));
-
-    // second open should fail
-    ASSERT_TRUE(!(DB::Open(options, dbname_, &localdb)).ok());
-  } while (ChangeCompactOptions());
-}
-
 TEST_F(DBTest, FlushMultipleMemtable) {
   do {
     Options options = CurrentOptions();
@@ -883,97 +672,6 @@ TEST_F(DBTest, FlushMultipleMemtable) {
     ASSERT_OK(Flush(1));
   } while (ChangeCompactOptions());
 }
-
-TEST_F(DBTest, FlushEmptyColumnFamily) {
-  // Block flush thread and disable compaction thread
-  env_->SetBackgroundThreads(1, Env::HIGH);
-  env_->SetBackgroundThreads(1, Env::LOW);
-  test::SleepingBackgroundTask sleeping_task_low;
-  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
-                 Env::Priority::LOW);
-  test::SleepingBackgroundTask sleeping_task_high;
-  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
-                 &sleeping_task_high, Env::Priority::HIGH);
-
-  Options options = CurrentOptions();
-  // disable compaction
-  options.disable_auto_compactions = true;
-  WriteOptions writeOpt = WriteOptions();
-  writeOpt.disableWAL = true;
-  options.max_write_buffer_number = 2;
-  options.min_write_buffer_number_to_merge = 1;
-  options.max_write_buffer_number_to_maintain = 1;
-  CreateAndReopenWithCF({"pikachu"}, options);
-
-  // Compaction can still go through even if no thread can flush the
-  // mem table.
-  ASSERT_OK(Flush(0));
-  ASSERT_OK(Flush(1));
-
-  // Insert can go through
-  ASSERT_OK(dbfull()->Put(writeOpt, handles_[0], "foo", "v1"));
-  ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "bar", "v1"));
-
-  ASSERT_EQ("v1", Get(0, "foo"));
-  ASSERT_EQ("v1", Get(1, "bar"));
-
-  sleeping_task_high.WakeUp();
-  sleeping_task_high.WaitUntilDone();
-
-  // Flush can still go through.
-  ASSERT_OK(Flush(0));
-  ASSERT_OK(Flush(1));
-
-  sleeping_task_low.WakeUp();
-  sleeping_task_low.WaitUntilDone();
-}
-
-TEST_F(DBTest, FLUSH) {
-  do {
-    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
-    WriteOptions writeOpt = WriteOptions();
-    writeOpt.disableWAL = true;
-    SetPerfLevel(kEnableTime);
-    ;
-    ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "foo", "v1"));
-    // this will now also flush the last 2 writes
-    ASSERT_OK(Flush(1));
-    ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "bar", "v1"));
-
-    perf_context.Reset();
-    Get(1, "foo");
-    ASSERT_TRUE((int)perf_context.get_from_output_files_time > 0);
-
-    ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
-    ASSERT_EQ("v1", Get(1, "foo"));
-    ASSERT_EQ("v1", Get(1, "bar"));
-
-    writeOpt.disableWAL = true;
-    ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "bar", "v2"));
-    ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "foo", "v2"));
-    ASSERT_OK(Flush(1));
-
-    ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
-    ASSERT_EQ("v2", Get(1, "bar"));
-    perf_context.Reset();
-    ASSERT_EQ("v2", Get(1, "foo"));
-    ASSERT_TRUE((int)perf_context.get_from_output_files_time > 0);
-
-    writeOpt.disableWAL = false;
-    ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "bar", "v3"));
-    ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "foo", "v3"));
-    ASSERT_OK(Flush(1));
-
-    ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
-    // 'foo' should be there because its put
-    // has WAL enabled.
-    ASSERT_EQ("v3", Get(1, "foo"));
-    ASSERT_EQ("v3", Get(1, "bar"));
-
-    SetPerfLevel(kDisable);
-  } while (ChangeCompactOptions());
-}
-
 #ifndef ROCKSDB_LITE
 TEST_F(DBTest, FlushSchedule) {
   Options options = CurrentOptions();
@@ -985,7 +683,7 @@ TEST_F(DBTest, FlushSchedule) {
   options.max_write_buffer_number = 2;
   options.write_buffer_size = 120 * 1024;
   CreateAndReopenWithCF({"pikachu"}, options);
-  std::vector<std::thread> threads;
+  std::vector<port::Thread> threads;
 
   std::atomic<int> thread_num(0);
   // each column family will have 5 thread, each thread generating 2 memtables.
@@ -1016,52 +714,6 @@ TEST_F(DBTest, FlushSchedule) {
   ASSERT_GT(pikachu_tables, static_cast<uint64_t>(0));
 }
 #endif  // ROCKSDB_LITE
-
-TEST_F(DBTest, ManifestRollOver) {
-  do {
-    Options options;
-    options.max_manifest_file_size = 10;  // 10 bytes
-    options = CurrentOptions(options);
-    CreateAndReopenWithCF({"pikachu"}, options);
-    {
-      ASSERT_OK(Put(1, "manifest_key1", std::string(1000, '1')));
-      ASSERT_OK(Put(1, "manifest_key2", std::string(1000, '2')));
-      ASSERT_OK(Put(1, "manifest_key3", std::string(1000, '3')));
-      uint64_t manifest_before_flush = dbfull()->TEST_Current_Manifest_FileNo();
-      ASSERT_OK(Flush(1));  // This should trigger LogAndApply.
-      uint64_t manifest_after_flush = dbfull()->TEST_Current_Manifest_FileNo();
-      ASSERT_GT(manifest_after_flush, manifest_before_flush);
-      ReopenWithColumnFamilies({"default", "pikachu"}, options);
-      ASSERT_GT(dbfull()->TEST_Current_Manifest_FileNo(), manifest_after_flush);
-      // check if a new manifest file got inserted or not.
-      ASSERT_EQ(std::string(1000, '1'), Get(1, "manifest_key1"));
-      ASSERT_EQ(std::string(1000, '2'), Get(1, "manifest_key2"));
-      ASSERT_EQ(std::string(1000, '3'), Get(1, "manifest_key3"));
-    }
-  } while (ChangeCompactOptions());
-}
-
-TEST_F(DBTest, IdentityAcrossRestarts) {
-  do {
-    std::string id1;
-    ASSERT_OK(db_->GetDbIdentity(id1));
-
-    Options options = CurrentOptions();
-    Reopen(options);
-    std::string id2;
-    ASSERT_OK(db_->GetDbIdentity(id2));
-    // id1 should match id2 because identity was not regenerated
-    ASSERT_EQ(id1.compare(id2), 0);
-
-    std::string idfilename = IdentityFileName(dbname_);
-    ASSERT_OK(env_->DeleteFile(idfilename));
-    Reopen(options);
-    std::string id3;
-    ASSERT_OK(db_->GetDbIdentity(id3));
-    // id1 should NOT match id3 because identity was regenerated
-    ASSERT_NE(id1.compare(id3), 0);
-  } while (ChangeCompactOptions());
-}
 
 namespace {
 class KeepFilter : public CompactionFilter {
@@ -1394,17 +1046,19 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   std::string start = Key(50);
   std::string end = Key(60);
   Range r(start, end);
-  db_->GetApproximateSizes(&r, 1, &size, true);
+  uint8_t include_both = DB::SizeApproximationFlags::INCLUDE_FILES |
+                         DB::SizeApproximationFlags::INCLUDE_MEMTABLES;
+  db_->GetApproximateSizes(&r, 1, &size, include_both);
   ASSERT_GT(size, 6000);
   ASSERT_LT(size, 204800);
   // Zero if not including mem table
-  db_->GetApproximateSizes(&r, 1, &size, false);
+  db_->GetApproximateSizes(&r, 1, &size);
   ASSERT_EQ(size, 0);
 
   start = Key(500);
   end = Key(600);
   r = Range(start, end);
-  db_->GetApproximateSizes(&r, 1, &size, true);
+  db_->GetApproximateSizes(&r, 1, &size, include_both);
   ASSERT_EQ(size, 0);
 
   for (int i = 0; i < N; i++) {
@@ -1414,13 +1068,13 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   start = Key(500);
   end = Key(600);
   r = Range(start, end);
-  db_->GetApproximateSizes(&r, 1, &size, true);
+  db_->GetApproximateSizes(&r, 1, &size, include_both);
   ASSERT_EQ(size, 0);
 
   start = Key(100);
   end = Key(1020);
   r = Range(start, end);
-  db_->GetApproximateSizes(&r, 1, &size, true);
+  db_->GetApproximateSizes(&r, 1, &size, include_both);
   ASSERT_GT(size, 6000);
 
   options.max_write_buffer_number = 8;
@@ -1443,28 +1097,28 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   start = Key(100);
   end = Key(300);
   r = Range(start, end);
-  db_->GetApproximateSizes(&r, 1, &size, true);
+  db_->GetApproximateSizes(&r, 1, &size, include_both);
   ASSERT_EQ(size, 0);
 
   start = Key(1050);
   end = Key(1080);
   r = Range(start, end);
-  db_->GetApproximateSizes(&r, 1, &size, true);
+  db_->GetApproximateSizes(&r, 1, &size, include_both);
   ASSERT_GT(size, 6000);
 
   start = Key(2100);
   end = Key(2300);
   r = Range(start, end);
-  db_->GetApproximateSizes(&r, 1, &size, true);
+  db_->GetApproximateSizes(&r, 1, &size, include_both);
   ASSERT_EQ(size, 0);
 
   start = Key(1050);
   end = Key(1080);
   r = Range(start, end);
   uint64_t size_with_mt, size_without_mt;
-  db_->GetApproximateSizes(&r, 1, &size_with_mt, true);
+  db_->GetApproximateSizes(&r, 1, &size_with_mt, include_both);
   ASSERT_GT(size_with_mt, 6000);
-  db_->GetApproximateSizes(&r, 1, &size_without_mt, false);
+  db_->GetApproximateSizes(&r, 1, &size_without_mt);
   ASSERT_EQ(size_without_mt, 0);
 
   Flush();
@@ -1476,10 +1130,63 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   start = Key(1050);
   end = Key(1080);
   r = Range(start, end);
-  db_->GetApproximateSizes(&r, 1, &size_with_mt, true);
-  db_->GetApproximateSizes(&r, 1, &size_without_mt, false);
+  db_->GetApproximateSizes(&r, 1, &size_with_mt, include_both);
+  db_->GetApproximateSizes(&r, 1, &size_without_mt);
   ASSERT_GT(size_with_mt, size_without_mt);
   ASSERT_GT(size_without_mt, 6000);
+}
+
+TEST_F(DBTest, GetApproximateMemTableStats) {
+  Options options = CurrentOptions();
+  options.write_buffer_size = 100000000;
+  options.compression = kNoCompression;
+  options.create_if_missing = true;
+  DestroyAndReopen(options);
+
+  const int N = 128;
+  Random rnd(301);
+  for (int i = 0; i < N; i++) {
+    ASSERT_OK(Put(Key(i), RandomString(&rnd, 1024)));
+  }
+
+  uint64_t count;
+  uint64_t size;
+
+  std::string start = Key(50);
+  std::string end = Key(60);
+  Range r(start, end);
+  db_->GetApproximateMemTableStats(r, &count, &size);
+  ASSERT_GT(count, 0);
+  ASSERT_LE(count, N);
+  ASSERT_GT(size, 6000);
+  ASSERT_LT(size, 204800);
+
+  start = Key(500);
+  end = Key(600);
+  r = Range(start, end);
+  db_->GetApproximateMemTableStats(r, &count, &size);
+  ASSERT_EQ(count, 0);
+  ASSERT_EQ(size, 0);
+
+  Flush();
+
+  start = Key(50);
+  end = Key(60);
+  r = Range(start, end);
+  db_->GetApproximateMemTableStats(r, &count, &size);
+  ASSERT_EQ(count, 0);
+  ASSERT_EQ(size, 0);
+
+  for (int i = 0; i < N; i++) {
+    ASSERT_OK(Put(Key(1000 + i), RandomString(&rnd, 1024)));
+  }
+
+  start = Key(100);
+  end = Key(1020);
+  r = Range(start, end);
+  db_->GetApproximateMemTableStats(r, &count, &size);
+  ASSERT_GT(count, 20);
+  ASSERT_GT(size, 6000);
 }
 
 TEST_F(DBTest, ApproximateSizes) {
@@ -1683,61 +1390,6 @@ TEST_F(DBTest, HiddenValuesAreRemoved) {
 }
 #endif  // ROCKSDB_LITE
 
-TEST_F(DBTest, CompactBetweenSnapshots) {
-  anon::OptionsOverride options_override;
-  options_override.skip_policy = kSkipNoSnapshot;
-  do {
-    Options options = CurrentOptions(options_override);
-    options.disable_auto_compactions = true;
-    CreateAndReopenWithCF({"pikachu"}, options);
-    Random rnd(301);
-    FillLevels("a", "z", 1);
-
-    Put(1, "foo", "first");
-    const Snapshot* snapshot1 = db_->GetSnapshot();
-    Put(1, "foo", "second");
-    Put(1, "foo", "third");
-    Put(1, "foo", "fourth");
-    const Snapshot* snapshot2 = db_->GetSnapshot();
-    Put(1, "foo", "fifth");
-    Put(1, "foo", "sixth");
-
-    // All entries (including duplicates) exist
-    // before any compaction or flush is triggered.
-    ASSERT_EQ(AllEntriesFor("foo", 1),
-              "[ sixth, fifth, fourth, third, second, first ]");
-    ASSERT_EQ("sixth", Get(1, "foo"));
-    ASSERT_EQ("fourth", Get(1, "foo", snapshot2));
-    ASSERT_EQ("first", Get(1, "foo", snapshot1));
-
-    // After a flush, "second", "third" and "fifth" should
-    // be removed
-    ASSERT_OK(Flush(1));
-    ASSERT_EQ(AllEntriesFor("foo", 1), "[ sixth, fourth, first ]");
-
-    // after we release the snapshot1, only two values left
-    db_->ReleaseSnapshot(snapshot1);
-    FillLevels("a", "z", 1);
-    dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
-                           nullptr);
-
-    // We have only one valid snapshot snapshot2. Since snapshot1 is
-    // not valid anymore, "first" should be removed by a compaction.
-    ASSERT_EQ("sixth", Get(1, "foo"));
-    ASSERT_EQ("fourth", Get(1, "foo", snapshot2));
-    ASSERT_EQ(AllEntriesFor("foo", 1), "[ sixth, fourth ]");
-
-    // after we release the snapshot2, only one value should be left
-    db_->ReleaseSnapshot(snapshot2);
-    FillLevels("a", "z", 1);
-    dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
-                           nullptr);
-    ASSERT_EQ("sixth", Get(1, "foo"));
-    ASSERT_EQ(AllEntriesFor("foo", 1), "[ sixth ]");
-    // skip HashCuckooRep as it does not support snapshot
-  } while (ChangeOptions(kSkipHashCuckoo | kSkipFIFOCompaction));
-}
-
 TEST_F(DBTest, UnremovableSingleDelete) {
   // If we compact:
   //
@@ -1790,7 +1442,6 @@ TEST_F(DBTest, UnremovableSingleDelete) {
 #ifndef ROCKSDB_LITE
 TEST_F(DBTest, DeletionMarkers1) {
   Options options = CurrentOptions();
-  options.max_background_flushes = 0;
   CreateAndReopenWithCF({"pikachu"}, options);
   Put(1, "foo", "v1");
   ASSERT_OK(Flush(1));
@@ -2222,121 +1873,6 @@ TEST_F(DBTest, SnapshotFiles) {
 }
 #endif
 
-TEST_F(DBTest, CompactOnFlush) {
-  anon::OptionsOverride options_override;
-  options_override.skip_policy = kSkipNoSnapshot;
-  do {
-    Options options = CurrentOptions(options_override);
-    options.disable_auto_compactions = true;
-    CreateAndReopenWithCF({"pikachu"}, options);
-
-    Put(1, "foo", "v1");
-    ASSERT_OK(Flush(1));
-    ASSERT_EQ(AllEntriesFor("foo", 1), "[ v1 ]");
-
-    // Write two new keys
-    Put(1, "a", "begin");
-    Put(1, "z", "end");
-    Flush(1);
-
-    // Case1: Delete followed by a put
-    Delete(1, "foo");
-    Put(1, "foo", "v2");
-    ASSERT_EQ(AllEntriesFor("foo", 1), "[ v2, DEL, v1 ]");
-
-    // After the current memtable is flushed, the DEL should
-    // have been removed
-    ASSERT_OK(Flush(1));
-    ASSERT_EQ(AllEntriesFor("foo", 1), "[ v2, v1 ]");
-
-    dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
-                           nullptr);
-    ASSERT_EQ(AllEntriesFor("foo", 1), "[ v2 ]");
-
-    // Case 2: Delete followed by another delete
-    Delete(1, "foo");
-    Delete(1, "foo");
-    ASSERT_EQ(AllEntriesFor("foo", 1), "[ DEL, DEL, v2 ]");
-    ASSERT_OK(Flush(1));
-    ASSERT_EQ(AllEntriesFor("foo", 1), "[ DEL, v2 ]");
-    dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
-                           nullptr);
-    ASSERT_EQ(AllEntriesFor("foo", 1), "[ ]");
-
-    // Case 3: Put followed by a delete
-    Put(1, "foo", "v3");
-    Delete(1, "foo");
-    ASSERT_EQ(AllEntriesFor("foo", 1), "[ DEL, v3 ]");
-    ASSERT_OK(Flush(1));
-    ASSERT_EQ(AllEntriesFor("foo", 1), "[ DEL ]");
-    dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
-                           nullptr);
-    ASSERT_EQ(AllEntriesFor("foo", 1), "[ ]");
-
-    // Case 4: Put followed by another Put
-    Put(1, "foo", "v4");
-    Put(1, "foo", "v5");
-    ASSERT_EQ(AllEntriesFor("foo", 1), "[ v5, v4 ]");
-    ASSERT_OK(Flush(1));
-    ASSERT_EQ(AllEntriesFor("foo", 1), "[ v5 ]");
-    dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
-                           nullptr);
-    ASSERT_EQ(AllEntriesFor("foo", 1), "[ v5 ]");
-
-    // clear database
-    Delete(1, "foo");
-    dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
-                           nullptr);
-    ASSERT_EQ(AllEntriesFor("foo", 1), "[ ]");
-
-    // Case 5: Put followed by snapshot followed by another Put
-    // Both puts should remain.
-    Put(1, "foo", "v6");
-    const Snapshot* snapshot = db_->GetSnapshot();
-    Put(1, "foo", "v7");
-    ASSERT_OK(Flush(1));
-    ASSERT_EQ(AllEntriesFor("foo", 1), "[ v7, v6 ]");
-    db_->ReleaseSnapshot(snapshot);
-
-    // clear database
-    Delete(1, "foo");
-    dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
-                           nullptr);
-    ASSERT_EQ(AllEntriesFor("foo", 1), "[ ]");
-
-    // Case 5: snapshot followed by a put followed by another Put
-    // Only the last put should remain.
-    const Snapshot* snapshot1 = db_->GetSnapshot();
-    Put(1, "foo", "v8");
-    Put(1, "foo", "v9");
-    ASSERT_OK(Flush(1));
-    ASSERT_EQ(AllEntriesFor("foo", 1), "[ v9 ]");
-    db_->ReleaseSnapshot(snapshot1);
-  } while (ChangeCompactOptions());
-}
-
-TEST_F(DBTest, FlushOneColumnFamily) {
-  Options options = CurrentOptions();
-  CreateAndReopenWithCF({"pikachu", "ilya", "muromec", "dobrynia", "nikitich",
-                         "alyosha", "popovich"},
-                        options);
-
-  ASSERT_OK(Put(0, "Default", "Default"));
-  ASSERT_OK(Put(1, "pikachu", "pikachu"));
-  ASSERT_OK(Put(2, "ilya", "ilya"));
-  ASSERT_OK(Put(3, "muromec", "muromec"));
-  ASSERT_OK(Put(4, "dobrynia", "dobrynia"));
-  ASSERT_OK(Put(5, "nikitich", "nikitich"));
-  ASSERT_OK(Put(6, "alyosha", "alyosha"));
-  ASSERT_OK(Put(7, "popovich", "popovich"));
-
-  for (int i = 0; i < 8; ++i) {
-    Flush(i);
-    auto tables = ListTableFiles(env_, dbname_);
-    ASSERT_EQ(tables.size(), i + 1U);
-  }
-}
-
 TEST_F(DBTest, PurgeInfoLogs) {
   Options options = CurrentOptions();
   options.keep_log_file_num = 5;
@@ -2624,7 +2160,7 @@ TEST_F(DBTest, GroupCommitTest) {
     ASSERT_TRUE(!itr->Valid());
     delete itr;
 
-    HistogramData hist_data = {0, 0, 0, 0, 0};
+    HistogramData hist_data;
     options.statistics->histogramData(DB_WRITE, &hist_data);
     ASSERT_GT(hist_data.average, 0.0);
   } while (ChangeOptions(kSkipNoSeekToLast));
@@ -2678,7 +2214,7 @@ class ModelDB : public DB {
   }
   using DB::Get;
   virtual Status Get(const ReadOptions& options, ColumnFamilyHandle* cf,
-                     const Slice& key, std::string* value) override {
+                     const Slice& key, PinnableSlice* value) override {
     return Status::NotSupported(key);
   }
 
@@ -2699,6 +2235,10 @@ class ModelDB : public DB {
       ColumnFamilyHandle* column_family,
       const std::vector<std::string>& external_files,
       const IngestExternalFileOptions& options) override {
+    return Status::NotSupported("Not implemented.");
+  }
+
+  virtual Status VerifyChecksum() override {
     return Status::NotSupported("Not implemented.");
   }
 
@@ -2787,9 +2327,9 @@ class ModelDB : public DB {
     return false;
   }
   using DB::GetMapProperty;
-  virtual bool GetMapProperty(ColumnFamilyHandle* column_family,
-                              const Slice& property,
-                              std::map<std::string, double>* value) override {
+  virtual bool GetMapProperty(
+      ColumnFamilyHandle* column_family, const Slice& property,
+      std::map<std::string, std::string>* value) override {
     return false;
   }
   using DB::GetAggregatedIntProperty;
@@ -2800,10 +2340,19 @@ class ModelDB : public DB {
   using DB::GetApproximateSizes;
   virtual void GetApproximateSizes(ColumnFamilyHandle* column_family,
                                    const Range* range, int n, uint64_t* sizes,
-                                   bool include_memtable) override {
+                                   uint8_t include_flags
+                                   = INCLUDE_FILES) override {
     for (int i = 0; i < n; i++) {
       sizes[i] = 0;
     }
+  }
+  using DB::GetApproximateMemTableStats;
+  virtual void GetApproximateMemTableStats(ColumnFamilyHandle* column_family,
+                                           const Range& range,
+                                           uint64_t* const count,
+                                           uint64_t* const size) override {
+    *count = 0;
+    *size = 0;
   }
   using DB::CompactRange;
   virtual Status CompactRange(const CompactRangeOptions& options,
@@ -2912,6 +2461,10 @@ class ModelDB : public DB {
   }
 
   virtual SequenceNumber GetLatestSequenceNumber() const override { return 0; }
+
+  virtual bool SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) override {
+    return true;
+  }
 
   virtual ColumnFamilyHandle* DefaultColumnFamily() const override {
     return nullptr;
@@ -3121,68 +2674,6 @@ TEST_P(DBTestRandomized, Randomized) {
   if (db_snap != nullptr) db_->ReleaseSnapshot(db_snap);
 }
 
-TEST_F(DBTest, MultiGetSimple) {
-  do {
-    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
-    ASSERT_OK(Put(1, "k1", "v1"));
-    ASSERT_OK(Put(1, "k2", "v2"));
-    ASSERT_OK(Put(1, "k3", "v3"));
-    ASSERT_OK(Put(1, "k4", "v4"));
-    ASSERT_OK(Delete(1, "k4"));
-    ASSERT_OK(Put(1, "k5", "v5"));
-    ASSERT_OK(Delete(1, "no_key"));
-
-    std::vector<Slice> keys({"k1", "k2", "k3", "k4", "k5", "no_key"});
-
-    std::vector<std::string> values(20, "Temporary data to be overwritten");
-    std::vector<ColumnFamilyHandle*> cfs(keys.size(), handles_[1]);
-
-    std::vector<Status> s = db_->MultiGet(ReadOptions(), cfs, keys, &values);
-    ASSERT_EQ(values.size(), keys.size());
-    ASSERT_EQ(values[0], "v1");
-    ASSERT_EQ(values[1], "v2");
-    ASSERT_EQ(values[2], "v3");
-    ASSERT_EQ(values[4], "v5");
-
-    ASSERT_OK(s[0]);
-    ASSERT_OK(s[1]);
-    ASSERT_OK(s[2]);
-    ASSERT_TRUE(s[3].IsNotFound());
-    ASSERT_OK(s[4]);
-    ASSERT_TRUE(s[5].IsNotFound());
-  } while (ChangeCompactOptions());
-}
-
-TEST_F(DBTest, MultiGetEmpty) {
-  do {
-    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
-    // Empty Key Set
-    std::vector<Slice> keys;
-    std::vector<std::string> values;
-    std::vector<ColumnFamilyHandle*> cfs;
-    std::vector<Status> s = db_->MultiGet(ReadOptions(), cfs, keys, &values);
-    ASSERT_EQ(s.size(), 0U);
-
-    // Empty Database, Empty Key Set
-    Options options = CurrentOptions();
-    options.create_if_missing = true;
-    DestroyAndReopen(options);
-    CreateAndReopenWithCF({"pikachu"}, options);
-    s = db_->MultiGet(ReadOptions(), cfs, keys, &values);
-    ASSERT_EQ(s.size(), 0U);
-
-    // Empty Database, Search for Keys
-    keys.resize(2);
-    keys[0] = "a";
-    keys[1] = "b";
-    cfs.push_back(handles_[0]);
-    cfs.push_back(handles_[1]);
-    s = db_->MultiGet(ReadOptions(), cfs, keys, &values);
-    ASSERT_EQ(static_cast<int>(s.size()), 2);
-    ASSERT_TRUE(s[0].IsNotFound() && s[1].IsNotFound());
-  } while (ChangeCompactOptions());
-}
-
 TEST_F(DBTest, BlockBasedTablePrefixIndexTest) {
   // create a DB with block prefix index
   BlockBasedTableOptions table_options;
@@ -3284,22 +2775,345 @@ TEST_P(DBTestWithParam, FIFOCompactionTest) {
     }
   }
 }
-#endif  // ROCKSDB_LITE
 
-// verify that we correctly deprecated timeout_hint_us
-TEST_F(DBTest, SimpleWriteTimeoutTest) {
-  WriteOptions write_opt;
-  write_opt.timeout_hint_us = 0;
-  ASSERT_OK(Put(Key(1), Key(1) + std::string(100, 'v'), write_opt));
-  write_opt.timeout_hint_us = 10;
-  ASSERT_NOK(Put(Key(1), Key(1) + std::string(100, 'v'), write_opt));
+TEST_F(DBTest, FIFOCompactionTestWithCompaction) {
+  Options options;
+  options.compaction_style = kCompactionStyleFIFO;
+  options.write_buffer_size = 20 << 10;  // 20K
+  options.arena_block_size = 4096;
+  options.compaction_options_fifo.max_table_files_size = 1500 << 10;  // 1MB
+  options.compaction_options_fifo.allow_compaction = true;
+  options.level0_file_num_compaction_trigger = 6;
+  options.compression = kNoCompression;
+  options.create_if_missing = true;
+  options = CurrentOptions(options);
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  for (int i = 0; i < 60; i++) {
+    // Generate and flush a file about 20KB.
+    for (int j = 0; j < 20; j++) {
+      ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
+    }
+    Flush();
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  }
+  // It should be compacted to 10 files.
+  ASSERT_EQ(NumTableFilesAtLevel(0), 10);
+
+  for (int i = 0; i < 60; i++) {
+    // Generate and flush a file about 20KB.
+    for (int j = 0; j < 20; j++) {
+      ASSERT_OK(Put(ToString(i * 20 + j + 2000), RandomString(&rnd, 980)));
+    }
+    Flush();
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  }
+
+  // It should be compacted to no more than 20 files.
+  ASSERT_GT(NumTableFilesAtLevel(0), 10);
+  ASSERT_LT(NumTableFilesAtLevel(0), 18);
+  // Size limit is still guaranteed.
+  ASSERT_LE(SizeAtLevel(0),
+            options.compaction_options_fifo.max_table_files_size);
 }
+
+TEST_F(DBTest, FIFOCompactionStyleWithCompactionAndDelete) {
+  Options options;
+  options.compaction_style = kCompactionStyleFIFO;
+  options.write_buffer_size = 20 << 10;  // 20K
+  options.arena_block_size = 4096;
+  options.compaction_options_fifo.max_table_files_size = 1500 << 10;  // 1MB
+  options.compaction_options_fifo.allow_compaction = true;
+  options.level0_file_num_compaction_trigger = 3;
+  options.compression = kNoCompression;
+  options.create_if_missing = true;
+  options = CurrentOptions(options);
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  for (int i = 0; i < 3; i++) {
+    // Each file contains a different key which will be dropped later.
+    ASSERT_OK(Put("a" + ToString(i), RandomString(&rnd, 500)));
+    ASSERT_OK(Put("key" + ToString(i), ""));
+    ASSERT_OK(Put("z" + ToString(i), RandomString(&rnd, 500)));
+    Flush();
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  }
+  ASSERT_EQ(NumTableFilesAtLevel(0), 1);
+  for (int i = 0; i < 3; i++) {
+    ASSERT_EQ("", Get("key" + ToString(i)));
+  }
+  for (int i = 0; i < 3; i++) {
+    // Each file contains a different key which will be dropped later.
+    ASSERT_OK(Put("a" + ToString(i), RandomString(&rnd, 500)));
+    ASSERT_OK(Delete("key" + ToString(i)));
+    ASSERT_OK(Put("z" + ToString(i), RandomString(&rnd, 500)));
+    Flush();
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  }
+  ASSERT_EQ(NumTableFilesAtLevel(0), 2);
+  for (int i = 0; i < 3; i++) {
+    ASSERT_EQ("NOT_FOUND", Get("key" + ToString(i)));
+  }
+}
+
+// Check that FIFO-with-TTL is not supported with max_open_files != -1.
+TEST_F(DBTest, FIFOCompactionWithTTLAndMaxOpenFilesTest) {
+  Options options;
+  options.compaction_style = kCompactionStyleFIFO;
+  options.create_if_missing = true;
+  options.compaction_options_fifo.ttl = 600;  // seconds
+
+  // Check that it is not supported with max_open_files != -1.
+  options.max_open_files = 100;
+  options = CurrentOptions(options);
+  ASSERT_TRUE(TryReopen(options).IsNotSupported());
+
+  options.max_open_files = -1;
+  ASSERT_OK(TryReopen(options));
+}
+
+// Check that FIFO-with-TTL is supported only with BlockBasedTableFactory.
+TEST_F(DBTest, FIFOCompactionWithTTLAndVariousTableFormatsTest) {
+  Options options;
+  options.compaction_style = kCompactionStyleFIFO;
+  options.create_if_missing = true;
+  options.compaction_options_fifo.ttl = 600;  // seconds
+
+  options = CurrentOptions(options);
+  options.table_factory.reset(NewBlockBasedTableFactory());
+  ASSERT_OK(TryReopen(options));
+
+  Destroy(options);
+  options.table_factory.reset(NewPlainTableFactory());
+  ASSERT_TRUE(TryReopen(options).IsNotSupported());
+
+  Destroy(options);
+  options.table_factory.reset(NewCuckooTableFactory());
+  ASSERT_TRUE(TryReopen(options).IsNotSupported());
+
+  Destroy(options);
+  options.table_factory.reset(NewAdaptiveTableFactory());
+  ASSERT_TRUE(TryReopen(options).IsNotSupported());
+}
+
+TEST_F(DBTest, FIFOCompactionWithTTLTest) {
+  Options options;
+  options.compaction_style = kCompactionStyleFIFO;
+  options.write_buffer_size = 10 << 10;  // 10KB
+  options.arena_block_size = 4096;
+  options.compression = kNoCompression;
+  options.create_if_missing = true;
+  env_->time_elapse_only_sleep_ = false;
+  options.env = env_;
+
+  // Test to make sure that all files with expired ttl are deleted on next
+  // manual compaction.
+  {
+    env_->addon_time_.store(0);
+    options.compaction_options_fifo.max_table_files_size = 150 << 10;  // 150KB
+    options.compaction_options_fifo.allow_compaction = false;
+    options.compaction_options_fifo.ttl = 1 * 60 * 60 ;  // 1 hour
+    options = CurrentOptions(options);
+    DestroyAndReopen(options);
+
+    Random rnd(301);
+    for (int i = 0; i < 10; i++) {
+      // Generate and flush a file about 10KB.
+      for (int j = 0; j < 10; j++) {
+        ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
+      }
+      Flush();
+      ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    }
+    ASSERT_EQ(NumTableFilesAtLevel(0), 10);
+
+    // Sleep for 2 hours -- which is much greater than TTL.
+    // Note: Couldn't use SleepForMicroseconds because it takes an int instead
+    // of uint64_t. Hence used addon_time_ directly.
+    // env_->SleepForMicroseconds(2 * 60 * 60 * 1000 * 1000);
+    env_->addon_time_.fetch_add(2 * 60 * 60);
+
+    // Since no flushes and compactions have run, the db should still be in
+    // the same state even after considerable time has passed.
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    ASSERT_EQ(NumTableFilesAtLevel(0), 10);
+
+    dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+    ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+  }
+
+  // Test to make sure that all files with expired ttl are deleted on next
+  // automatic compaction.
+  {
+    options.compaction_options_fifo.max_table_files_size = 150 << 10;  // 150KB
+    options.compaction_options_fifo.allow_compaction = false;
+    options.compaction_options_fifo.ttl = 1 * 60 * 60;  // 1 hour
+    options = CurrentOptions(options);
+    DestroyAndReopen(options);
+
+    Random rnd(301);
+    for (int i = 0; i < 10; i++) {
+      // Generate and flush a file about 10KB.
+      for (int j = 0; j < 10; j++) {
+        ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
+      }
+      Flush();
+      ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    }
+    ASSERT_EQ(NumTableFilesAtLevel(0), 10);
+
+    // Sleep for 2 hours -- which is much greater than TTL.
+    env_->addon_time_.fetch_add(2 * 60 * 60);
+    // Just to make sure that we are in the same state even after sleeping.
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    ASSERT_EQ(NumTableFilesAtLevel(0), 10);
+
+    // Create 1 more file to trigger TTL compaction. The old files are dropped.
+    for (int i = 0; i < 1; i++) {
+      for (int j = 0; j < 10; j++) {
+        ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
+      }
+      Flush();
+    }
+
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    // Only the new 10 files remain.
+    ASSERT_EQ(NumTableFilesAtLevel(0), 1);
+    ASSERT_LE(SizeAtLevel(0),
+              options.compaction_options_fifo.max_table_files_size);
+  }
+
+  // Test that shows the fall back to size-based FIFO compaction if TTL-based
+  // deletion doesn't move the total size to be less than max_table_files_size.
+  {
+    options.write_buffer_size = 10 << 10;                              // 10KB
+    options.compaction_options_fifo.max_table_files_size = 150 << 10;  // 150KB
+    options.compaction_options_fifo.allow_compaction = false;
+    options.compaction_options_fifo.ttl =  1 * 60 * 60;  // 1 hour
+    options = CurrentOptions(options);
+    DestroyAndReopen(options);
+
+    Random rnd(301);
+    for (int i = 0; i < 3; i++) {
+      // Generate and flush a file about 10KB.
+      for (int j = 0; j < 10; j++) {
+        ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
+      }
+      Flush();
+      ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    }
+    ASSERT_EQ(NumTableFilesAtLevel(0), 3);
+
+    // Sleep for 2 hours -- which is much greater than TTL.
+    env_->addon_time_.fetch_add(2 * 60 * 60);
+    // Just to make sure that we are in the same state even after sleeping.
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    ASSERT_EQ(NumTableFilesAtLevel(0), 3);
+
+    for (int i = 0; i < 5; i++) {
+      for (int j = 0; j < 140; j++) {
+        ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
+      }
+      Flush();
+      ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    }
+    // Size limit is still guaranteed.
+    ASSERT_LE(SizeAtLevel(0),
+              options.compaction_options_fifo.max_table_files_size);
+  }
+
+  // Test with TTL + Intra-L0 compactions.
+  {
+    options.compaction_options_fifo.max_table_files_size = 150 << 10;  // 150KB
+    options.compaction_options_fifo.allow_compaction = true;
+    options.compaction_options_fifo.ttl = 1 * 60 * 60;  // 1 hour
+    options.level0_file_num_compaction_trigger = 6;
+    options = CurrentOptions(options);
+    DestroyAndReopen(options);
+
+    Random rnd(301);
+    for (int i = 0; i < 10; i++) {
+      // Generate and flush a file about 10KB.
+      for (int j = 0; j < 10; j++) {
+        ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
+      }
+      Flush();
+      ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    }
+    // With Intra-L0 compaction, out of 10 files, 6 files will be compacted to 1
+    // (due to level0_file_num_compaction_trigger = 6).
+    // So total files = 1 + remaining 4 = 5.
+    ASSERT_EQ(NumTableFilesAtLevel(0), 5);
+
+    // Sleep for 2 hours -- which is much greater than TTL.
+    env_->addon_time_.fetch_add(2 * 60 * 60);
+    // Just to make sure that we are in the same state even after sleeping.
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    ASSERT_EQ(NumTableFilesAtLevel(0), 5);
+
+    // Create 10 more files. The old 5 files are dropped as their ttl expired.
+    for (int i = 0; i < 10; i++) {
+      for (int j = 0; j < 10; j++) {
+        ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
+      }
+      Flush();
+      ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    }
+    ASSERT_EQ(NumTableFilesAtLevel(0), 5);
+    ASSERT_LE(SizeAtLevel(0),
+              options.compaction_options_fifo.max_table_files_size);
+  }
+
+  // Test with large TTL + Intra-L0 compactions.
+  // Files dropped based on size, as ttl doesn't kick in.
+  {
+    options.write_buffer_size = 20 << 10;                               // 20K
+    options.compaction_options_fifo.max_table_files_size = 1500 << 10;  // 1.5MB
+    options.compaction_options_fifo.allow_compaction = true;
+    options.compaction_options_fifo.ttl = 1 * 60 * 60;  // 1 hour
+    options.level0_file_num_compaction_trigger = 6;
+    options = CurrentOptions(options);
+    DestroyAndReopen(options);
+
+    Random rnd(301);
+    for (int i = 0; i < 60; i++) {
+      // Generate and flush a file about 20KB.
+      for (int j = 0; j < 20; j++) {
+        ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
+      }
+      Flush();
+      ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    }
+    // It should be compacted to 10 files.
+    ASSERT_EQ(NumTableFilesAtLevel(0), 10);
+
+    for (int i = 0; i < 60; i++) {
+      // Generate and flush a file about 20KB.
+      for (int j = 0; j < 20; j++) {
+        ASSERT_OK(Put(ToString(i * 20 + j + 2000), RandomString(&rnd, 980)));
+      }
+      Flush();
+      ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    }
+
+    // It should be compacted to no more than 20 files.
+    ASSERT_GT(NumTableFilesAtLevel(0), 10);
+    ASSERT_LT(NumTableFilesAtLevel(0), 18);
+    // Size limit is still guaranteed.
+    ASSERT_LE(SizeAtLevel(0),
+              options.compaction_options_fifo.max_table_files_size);
+  }
+}
+#endif  // ROCKSDB_LITE
 
 #ifndef ROCKSDB_LITE
 /*
  * This test is not reliable enough as it heavily depends on disk behavior.
+ * Disable as it is flaky.
  */
-TEST_F(DBTest, RateLimitingTest) {
+TEST_F(DBTest, DISABLED_RateLimitingTest) {
   Options options = CurrentOptions();
   options.write_buffer_size = 1 << 20;  // 1MB
   options.level0_file_num_compaction_trigger = 2;
@@ -3309,6 +3123,7 @@ TEST_F(DBTest, RateLimitingTest) {
   options.compression = kNoCompression;
   options.create_if_missing = true;
   options.env = env_;
+  options.statistics = rocksdb::CreateDBStatistics();
   options.IncreaseParallelism(4);
   DestroyAndReopen(options);
 
@@ -3325,6 +3140,9 @@ TEST_F(DBTest, RateLimitingTest) {
   }
   uint64_t elapsed = env_->NowMicros() - start;
   double raw_rate = env_->bytes_written_ * 1000000.0 / elapsed;
+  uint64_t rate_limiter_drains =
+      TestGetTickerCount(options, NUMBER_RATE_LIMITER_DRAINS);
+  ASSERT_EQ(0, rate_limiter_drains);
   Close();
 
   // # rate limiting with 0.7 x threshold
@@ -3339,9 +3157,16 @@ TEST_F(DBTest, RateLimitingTest) {
     ASSERT_OK(
         Put(RandomString(&rnd, 32), RandomString(&rnd, (1 << 10) + 1), wo));
   }
+  rate_limiter_drains =
+      TestGetTickerCount(options, NUMBER_RATE_LIMITER_DRAINS) -
+      rate_limiter_drains;
   elapsed = env_->NowMicros() - start;
   Close();
   ASSERT_EQ(options.rate_limiter->GetTotalBytesThrough(), env_->bytes_written_);
+  // Most intervals should've been drained (interval time is 100ms, elapsed is
+  // micros)
+  ASSERT_GT(rate_limiter_drains, 0);
+  ASSERT_LE(rate_limiter_drains, elapsed / 100000 + 1);
   double ratio = env_->bytes_written_ * 1000000 / elapsed / raw_rate;
   fprintf(stderr, "write rate ratio = %.2lf, expected 0.7\n", ratio);
   ASSERT_TRUE(ratio < 0.8);
@@ -3359,8 +3184,15 @@ TEST_F(DBTest, RateLimitingTest) {
         Put(RandomString(&rnd, 32), RandomString(&rnd, (1 << 10) + 1), wo));
   }
   elapsed = env_->NowMicros() - start;
+  rate_limiter_drains =
+      TestGetTickerCount(options, NUMBER_RATE_LIMITER_DRAINS) -
+      rate_limiter_drains;
   Close();
   ASSERT_EQ(options.rate_limiter->GetTotalBytesThrough(), env_->bytes_written_);
+  // Most intervals should've been drained (interval time is 100ms, elapsed is
+  // micros)
+  ASSERT_GT(rate_limiter_drains, elapsed / 100000 / 2);
+  ASSERT_LE(rate_limiter_drains, elapsed / 100000 + 1);
   ratio = env_->bytes_written_ * 1000000 / elapsed / raw_rate;
   fprintf(stderr, "write rate ratio = %.2lf, expected 0.5\n", ratio);
   ASSERT_LT(ratio, 0.6);
@@ -3388,30 +3220,6 @@ TEST_F(DBTest, TableOptionsSanitizeTest) {
   options.prefix_extractor.reset(NewFixedPrefixTransform(1));
   ASSERT_OK(TryReopen(options));
 }
-
-// On Windows you can have either memory mapped file or a file
-// with unbuffered access. So this asserts and does not make
-// sense to run
-#ifndef OS_WIN
-TEST_F(DBTest, MmapAndBufferOptions) {
-  Options options = CurrentOptions();
-
-  options.allow_os_buffer = false;
-  options.allow_mmap_reads = true;
-  ASSERT_NOK(TryReopen(options));
-
-  // All other combinations are acceptable
-  options.allow_os_buffer = true;
-  ASSERT_OK(TryReopen(options));
-
-  options.allow_os_buffer = false;
-  options.allow_mmap_reads = false;
-  ASSERT_OK(TryReopen(options));
-
-  options.allow_os_buffer = true;
-  ASSERT_OK(TryReopen(options));
-}
-#endif
 
 TEST_F(DBTest, ConcurrentMemtableNotSupported) {
   Options options = CurrentOptions();
@@ -3477,7 +3285,7 @@ TEST_F(DBTest, SanitizeNumThreads) {
 }
 
 TEST_F(DBTest, WriteSingleThreadEntry) {
-  std::vector<std::thread> threads;
+  std::vector<port::Thread> threads;
   dbfull()->TEST_LockMutex();
   auto w = dbfull()->TEST_BeginWrite();
   threads.emplace_back([&] { Put("a", "b"); });
@@ -3494,37 +3302,11 @@ TEST_F(DBTest, WriteSingleThreadEntry) {
   }
 }
 
-TEST_F(DBTest, DisableDataSyncTest) {
-  env_->sync_counter_.store(0);
-  // iter 0 -- no sync
-  // iter 1 -- sync
-  for (int iter = 0; iter < 2; ++iter) {
-    Options options = CurrentOptions();
-    options.disableDataSync = iter == 0;
-    options.create_if_missing = true;
-    options.num_levels = 10;
-    options.env = env_;
-    Reopen(options);
-    CreateAndReopenWithCF({"pikachu"}, options);
-
-    MakeTables(10, "a", "z");
-    Compact("a", "z");
-
-    if (iter == 0) {
-      ASSERT_EQ(env_->sync_counter_.load(), 0);
-    } else {
-      ASSERT_GT(env_->sync_counter_.load(), 0);
-    }
-    Destroy(options);
-  }
-}
-
 #ifndef ROCKSDB_LITE
 TEST_F(DBTest, DynamicMemtableOptions) {
   const uint64_t k64KB = 1 << 16;
   const uint64_t k128KB = 1 << 17;
   const uint64_t k5KB = 5 * 1024;
-  const int kNumPutsBeforeWaitForFlush = 64;
   Options options;
   options.env = env_;
   options.create_if_missing = true;
@@ -3539,7 +3321,8 @@ TEST_F(DBTest, DynamicMemtableOptions) {
   options.level0_stop_writes_trigger = 1024;
   DestroyAndReopen(options);
 
-  auto gen_l0_kb = [this, kNumPutsBeforeWaitForFlush](int size) {
+  auto gen_l0_kb = [this](int size) {
+    const int kNumPutsBeforeWaitForFlush = 64;
     Random rnd(301);
     for (int i = 0; i < size; i++) {
       ASSERT_OK(Put(Key(i), RandomString(&rnd, 1024)));
@@ -3571,11 +3354,23 @@ TEST_F(DBTest, DynamicMemtableOptions) {
       {"write_buffer_size", "131072"},
   }));
 
-  // The existing memtable is still 64KB in size, after it becomes immutable,
-  // the next memtable will be 128KB in size. Write 256KB total, we should
-  // have a 64KB L0 file, a 128KB L0 file, and a memtable with 64KB data
-  gen_l0_kb(256);
-  ASSERT_EQ(NumTableFilesAtLevel(0), 2);  // (A)
+  // The existing memtable inflated 64KB->128KB when we invoked SetOptions().
+  // Write 192KB, we should have a 128KB L0 file and a memtable with 64KB data.
+  gen_l0_kb(192);
+  ASSERT_EQ(NumTableFilesAtLevel(0), 1);  // (A)
+  ASSERT_LT(SizeAtLevel(0), k128KB + 2 * k5KB);
+  ASSERT_GT(SizeAtLevel(0), k128KB - 4 * k5KB);
+
+  // Decrease buffer size below current usage
+  ASSERT_OK(dbfull()->SetOptions({
+      {"write_buffer_size", "65536"},
+  }));
+  // The existing memtable became eligible for flush when we reduced its
+  // capacity to 64KB. Two keys need to be added to trigger flush: first causes
+  // memtable to be marked full, second schedules the flush. Then we should have
+  // a 128KB L0 file, a 64KB L0 file, and a memtable with just one key.
+  gen_l0_kb(2);
+  ASSERT_EQ(NumTableFilesAtLevel(0), 2);
   ASSERT_LT(SizeAtLevel(0), k128KB + k64KB + 2 * k5KB);
   ASSERT_GT(SizeAtLevel(0), k128KB + k64KB - 4 * k5KB);
 
@@ -3589,9 +3384,9 @@ TEST_F(DBTest, DynamicMemtableOptions) {
                  Env::Priority::LOW);
   // Start from scratch and disable compaction/flush. Flush can only happen
   // during compaction but trigger is pretty high
-  options.max_background_flushes = 0;
   options.disable_auto_compactions = true;
   DestroyAndReopen(options);
+  env_->SetBackgroundThreads(0, Env::HIGH);
 
   // Put until writes are stopped, bounded by 256 puts. We should see stop at
   // ~128KB
@@ -3693,12 +3488,16 @@ TEST_F(DBTest, GetThreadStatus) {
     const int kTestCount = 3;
     const unsigned int kHighPriCounts[kTestCount] = {3, 2, 5};
     const unsigned int kLowPriCounts[kTestCount] = {10, 15, 3};
+    const unsigned int kBottomPriCounts[kTestCount] = {2, 1, 4};
     for (int test = 0; test < kTestCount; ++test) {
       // Change the number of threads in high / low priority pool.
       env_->SetBackgroundThreads(kHighPriCounts[test], Env::HIGH);
       env_->SetBackgroundThreads(kLowPriCounts[test], Env::LOW);
+      env_->SetBackgroundThreads(kBottomPriCounts[test], Env::BOTTOM);
       // Wait to ensure the all threads has been registered
       unsigned int thread_type_counts[ThreadStatus::NUM_THREAD_TYPES];
+      // TODO(ajkr): it'd be better if SetBackgroundThreads returned only after
+      // all threads have been registered.
       // Try up to 60 seconds.
       for (int num_try = 0; num_try < 60000; num_try++) {
         env_->SleepForMicroseconds(1000);
@@ -3713,20 +3512,21 @@ TEST_F(DBTest, GetThreadStatus) {
         if (thread_type_counts[ThreadStatus::HIGH_PRIORITY] ==
                 kHighPriCounts[test] &&
             thread_type_counts[ThreadStatus::LOW_PRIORITY] ==
-                kLowPriCounts[test]) {
+                kLowPriCounts[test] &&
+            thread_type_counts[ThreadStatus::BOTTOM_PRIORITY] ==
+                kBottomPriCounts[test]) {
           break;
         }
       }
-      // Verify the total number of threades
-      ASSERT_EQ(thread_type_counts[ThreadStatus::HIGH_PRIORITY] +
-                    thread_type_counts[ThreadStatus::LOW_PRIORITY],
-                kHighPriCounts[test] + kLowPriCounts[test]);
       // Verify the number of high-priority threads
       ASSERT_EQ(thread_type_counts[ThreadStatus::HIGH_PRIORITY],
                 kHighPriCounts[test]);
       // Verify the number of low-priority threads
       ASSERT_EQ(thread_type_counts[ThreadStatus::LOW_PRIORITY],
                 kLowPriCounts[test]);
+      // Verify the number of bottom-priority threads
+      ASSERT_EQ(thread_type_counts[ThreadStatus::BOTTOM_PRIORITY],
+                kBottomPriCounts[test]);
     }
     if (i == 0) {
       // repeat the test with multiple column families
@@ -3868,7 +3668,6 @@ TEST_P(DBTestWithParam, ThreadStatusSingleCompaction) {
 
 TEST_P(DBTestWithParam, PreShutdownManualCompaction) {
   Options options = CurrentOptions();
-  options.max_background_flushes = 0;
   options.max_subcompactions = max_subcompactions_;
   CreateAndReopenWithCF({"pikachu"}, options);
 
@@ -3907,7 +3706,6 @@ TEST_P(DBTestWithParam, PreShutdownManualCompaction) {
 
     if (iter == 0) {
       options = CurrentOptions();
-      options.max_background_flushes = 0;
       options.num_levels = 3;
       options.create_if_missing = true;
       DestroyAndReopen(options);
@@ -3918,7 +3716,6 @@ TEST_P(DBTestWithParam, PreShutdownManualCompaction) {
 
 TEST_F(DBTest, PreShutdownFlush) {
   Options options = CurrentOptions();
-  options.max_background_flushes = 0;
   CreateAndReopenWithCF({"pikachu"}, options);
   ASSERT_OK(Put(1, "key", "value"));
   CancelAllBackgroundWork(db_);
@@ -4210,19 +4007,14 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel2) {
   Random rnd(301);
   Options options;
   options.create_if_missing = true;
-  options.db_write_buffer_size = 6000;
-  options.write_buffer_size = 6000;
+  options.db_write_buffer_size = 6000000;
+  options.write_buffer_size = 600000;
   options.max_write_buffer_number = 2;
   options.level0_file_num_compaction_trigger = 2;
   options.level0_slowdown_writes_trigger = 2;
   options.level0_stop_writes_trigger = 2;
   options.soft_pending_compaction_bytes_limit = 1024 * 1024;
-
-  // Use file size to distinguish levels
-  // L1: 10, L2: 20, L3 40, L4 80
-  // L0 is less than 30
-  options.target_file_size_base = 10;
-  options.target_file_size_multiplier = 2;
+  options.target_file_size_base = 20;
 
   options.level_compaction_dynamic_level_bytes = true;
   options.max_bytes_for_level_base = 200;
@@ -4259,10 +4051,11 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel2) {
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   for (int i = 0; i < 100; i++) {
-    ASSERT_OK(Put(Key(keys[i]), RandomString(&rnd, 200)));
-
-    if (i % 25 == 0) {
-      dbfull()->TEST_WaitForFlushMemTable();
+    std::string value = RandomString(&rnd, 200);
+    ASSERT_OK(Put(Key(keys[i]), value));
+    if (i % 25 == 24) {
+      Flush();
+      dbfull()->TEST_WaitForCompact();
     }
   }
 
@@ -4303,7 +4096,8 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel2) {
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   for (int i = 101; i < 500; i++) {
-    ASSERT_OK(Put(Key(keys[i]), RandomString(&rnd, 200)));
+    std::string value = RandomString(&rnd, 200);
+    ASSERT_OK(Put(Key(keys[i]), value));
     if (i % 100 == 99) {
       Flush();
       dbfull()->TEST_WaitForCompact();
@@ -4520,6 +4314,140 @@ TEST_F(DBTest, DynamicCompactionOptions) {
   dbfull()->TEST_WaitForCompact();
   ASSERT_LT(NumTableFilesAtLevel(0), 4);
 }
+
+// Test dynamic FIFO copmaction options.
+// This test covers just option parsing and makes sure that the options are
+// correctly assigned. Also look at DBOptionsTest.SetFIFOCompactionOptions
+// test which makes sure that the FIFO compaction funcionality is working
+// as expected on dynamically changing the options.
+// Even more FIFOCompactionTests are at DBTest.FIFOCompaction* .
+TEST_F(DBTest, DynamicFIFOCompactionOptions) {
+  Options options;
+  options.create_if_missing = true;
+  DestroyAndReopen(options);
+
+  // Initial defaults
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.max_table_files_size,
+            1024 * 1024 * 1024);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.ttl, 0);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.allow_compaction,
+            false);
+
+  ASSERT_OK(dbfull()->SetOptions(
+      {{"compaction_options_fifo", "{max_table_files_size=23;}"}}));
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.max_table_files_size,
+            23);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.ttl, 0);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.allow_compaction,
+            false);
+
+  ASSERT_OK(dbfull()->SetOptions({{"compaction_options_fifo", "{ttl=97}"}}));
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.max_table_files_size,
+            23);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.ttl, 97);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.allow_compaction,
+            false);
+
+  ASSERT_OK(dbfull()->SetOptions({{"compaction_options_fifo", "{ttl=203;}"}}));
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.max_table_files_size,
+            23);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.ttl, 203);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.allow_compaction,
+            false);
+
+  ASSERT_OK(dbfull()->SetOptions(
+      {{"compaction_options_fifo", "{allow_compaction=true;}"}}));
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.max_table_files_size,
+            23);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.ttl, 203);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.allow_compaction,
+            true);
+
+  ASSERT_OK(dbfull()->SetOptions(
+      {{"compaction_options_fifo", "{max_table_files_size=31;ttl=19;}"}}));
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.max_table_files_size,
+            31);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.ttl, 19);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.allow_compaction,
+            true);
+
+  ASSERT_OK(dbfull()->SetOptions(
+      {{"compaction_options_fifo",
+        "{max_table_files_size=51;ttl=49;allow_compaction=true;}"}}));
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.max_table_files_size,
+            51);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.ttl, 49);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.allow_compaction,
+            true);
+}
+
+TEST_F(DBTest, DynamicUniversalCompactionOptions) {
+  Options options;
+  options.create_if_missing = true;
+  DestroyAndReopen(options);
+
+  // Initial defaults
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.size_ratio, 1);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.min_merge_width,
+            2);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.max_merge_width,
+            UINT_MAX);
+  ASSERT_EQ(dbfull()
+                ->GetOptions()
+                .compaction_options_universal.max_size_amplification_percent,
+            200);
+  ASSERT_EQ(dbfull()
+                ->GetOptions()
+                .compaction_options_universal.compression_size_percent,
+            -1);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.stop_style,
+            kCompactionStopStyleTotalSize);
+  ASSERT_EQ(
+      dbfull()->GetOptions().compaction_options_universal.allow_trivial_move,
+      false);
+
+  ASSERT_OK(dbfull()->SetOptions(
+      {{"compaction_options_universal", "{size_ratio=7;}"}}));
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.size_ratio, 7);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.min_merge_width,
+            2);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.max_merge_width,
+            UINT_MAX);
+  ASSERT_EQ(dbfull()
+                ->GetOptions()
+                .compaction_options_universal.max_size_amplification_percent,
+            200);
+  ASSERT_EQ(dbfull()
+                ->GetOptions()
+                .compaction_options_universal.compression_size_percent,
+            -1);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.stop_style,
+            kCompactionStopStyleTotalSize);
+  ASSERT_EQ(
+      dbfull()->GetOptions().compaction_options_universal.allow_trivial_move,
+      false);
+
+  ASSERT_OK(dbfull()->SetOptions(
+      {{"compaction_options_universal", "{min_merge_width=11;}"}}));
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.size_ratio, 7);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.min_merge_width,
+            11);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.max_merge_width,
+            UINT_MAX);
+  ASSERT_EQ(dbfull()
+                ->GetOptions()
+                .compaction_options_universal.max_size_amplification_percent,
+            200);
+  ASSERT_EQ(dbfull()
+                ->GetOptions()
+                .compaction_options_universal.compression_size_percent,
+            -1);
+  ASSERT_EQ(dbfull()->GetOptions().compaction_options_universal.stop_style,
+            kCompactionStopStyleTotalSize);
+  ASSERT_EQ(
+      dbfull()->GetOptions().compaction_options_universal.allow_trivial_move,
+      false);
+}
 #endif  // ROCKSDB_LITE
 
 TEST_F(DBTest, FileCreationRandomFailure) {
@@ -4646,13 +4574,7 @@ TEST_F(DBTest, DynamicMiscOptions) {
   // sanity check
   ASSERT_OK(dbfull()->TEST_GetLatestMutableCFOptions(handles_[1],
                                                      &mutable_cf_options));
-  ASSERT_EQ(true, mutable_cf_options.report_bg_io_stats);
-  // Test min_partial_merge_operands
-  ASSERT_OK(
-      dbfull()->SetOptions(handles_[1], {{"min_partial_merge_operands", "4"}}));
-  ASSERT_OK(dbfull()->TEST_GetLatestMutableCFOptions(handles_[1],
-                                                     &mutable_cf_options));
-  ASSERT_EQ(4, mutable_cf_options.min_partial_merge_operands);
+  ASSERT_TRUE(mutable_cf_options.report_bg_io_stats);
   // Test compression
   // sanity check
   ASSERT_OK(dbfull()->SetOptions({{"compression", "kNoCompression"}}));
@@ -4669,7 +4591,7 @@ TEST_F(DBTest, DynamicMiscOptions) {
       dbfull()->SetOptions(handles_[1], {{"paranoid_file_checks", "true"}}));
   ASSERT_OK(dbfull()->TEST_GetLatestMutableCFOptions(handles_[1],
                                                      &mutable_cf_options));
-  ASSERT_EQ(true, mutable_cf_options.report_bg_io_stats);
+  ASSERT_TRUE(mutable_cf_options.report_bg_io_stats);
 }
 #endif  // ROCKSDB_LITE
 
@@ -4739,7 +4661,7 @@ TEST_F(DBTest, EncodeDecompressedBlockSizeTest) {
       options.compression = comp;
       DestroyAndReopen(options);
 
-      int kNumKeysWritten = 100000;
+      int kNumKeysWritten = 1000;
 
       Random rnd(301);
       for (int i = 0; i < kNumKeysWritten; ++i) {
@@ -4756,104 +4678,6 @@ TEST_F(DBTest, EncodeDecompressedBlockSizeTest) {
       }
     }
   }
-}
-
-TEST_F(DBTest, CompressionStatsTest) {
-  CompressionType type;
-
-  if (Snappy_Supported()) {
-    type = kSnappyCompression;
-    fprintf(stderr, "using snappy\n");
-  } else if (Zlib_Supported()) {
-    type = kZlibCompression;
-    fprintf(stderr, "using zlib\n");
-  } else if (BZip2_Supported()) {
-    type = kBZip2Compression;
-    fprintf(stderr, "using bzip2\n");
-  } else if (LZ4_Supported()) {
-    type = kLZ4Compression;
-    fprintf(stderr, "using lz4\n");
-  } else if (XPRESS_Supported()) {
-    type = kXpressCompression;
-    fprintf(stderr, "using xpress\n");
-  } else if (ZSTD_Supported()) {
-    type = kZSTD;
-    fprintf(stderr, "using ZSTD\n");
-  } else {
-    fprintf(stderr, "skipping test, compression disabled\n");
-    return;
-  }
-
-  Options options = CurrentOptions();
-  options.compression = type;
-  options.statistics = rocksdb::CreateDBStatistics();
-  options.statistics->stats_level_ = StatsLevel::kExceptTimeForMutex;
-  DestroyAndReopen(options);
-
-  int kNumKeysWritten = 100000;
-
-  // Check that compressions occur and are counted when compression is turned on
-  Random rnd(301);
-  for (int i = 0; i < kNumKeysWritten; ++i) {
-    // compressible string
-    ASSERT_OK(Put(Key(i), RandomString(&rnd, 128) + std::string(128, 'a')));
-  }
-  ASSERT_OK(Flush());
-  ASSERT_GT(options.statistics->getTickerCount(NUMBER_BLOCK_COMPRESSED), 0);
-
-  for (int i = 0; i < kNumKeysWritten; ++i) {
-    auto r = Get(Key(i));
-  }
-  ASSERT_GT(options.statistics->getTickerCount(NUMBER_BLOCK_DECOMPRESSED), 0);
-
-  options.compression = kNoCompression;
-  DestroyAndReopen(options);
-  uint64_t currentCompressions =
-            options.statistics->getTickerCount(NUMBER_BLOCK_COMPRESSED);
-  uint64_t currentDecompressions =
-            options.statistics->getTickerCount(NUMBER_BLOCK_DECOMPRESSED);
-
-  // Check that compressions do not occur when turned off
-  for (int i = 0; i < kNumKeysWritten; ++i) {
-    // compressible string
-    ASSERT_OK(Put(Key(i), RandomString(&rnd, 128) + std::string(128, 'a')));
-  }
-  ASSERT_OK(Flush());
-  ASSERT_EQ(options.statistics->getTickerCount(NUMBER_BLOCK_COMPRESSED)
-            - currentCompressions, 0);
-
-  for (int i = 0; i < kNumKeysWritten; ++i) {
-    auto r = Get(Key(i));
-  }
-  ASSERT_EQ(options.statistics->getTickerCount(NUMBER_BLOCK_DECOMPRESSED)
-            - currentDecompressions, 0);
-}
-
-TEST_F(DBTest, MutexWaitStatsDisabledByDefault) {
-  Options options = CurrentOptions();
-  options.create_if_missing = true;
-  options.statistics = rocksdb::CreateDBStatistics();
-  CreateAndReopenWithCF({"pikachu"}, options);
-  const uint64_t kMutexWaitDelay = 100;
-  ThreadStatusUtil::TEST_SetStateDelay(ThreadStatus::STATE_MUTEX_WAIT,
-                                       kMutexWaitDelay);
-  ASSERT_OK(Put("hello", "rocksdb"));
-  ASSERT_EQ(TestGetTickerCount(options, DB_MUTEX_WAIT_MICROS), 0);
-  ThreadStatusUtil::TEST_SetStateDelay(ThreadStatus::STATE_MUTEX_WAIT, 0);
-}
-
-TEST_F(DBTest, MutexWaitStats) {
-  Options options = CurrentOptions();
-  options.create_if_missing = true;
-  options.statistics = rocksdb::CreateDBStatistics();
-  options.statistics->stats_level_ = StatsLevel::kAll;
-  CreateAndReopenWithCF({"pikachu"}, options);
-  const uint64_t kMutexWaitDelay = 100;
-  ThreadStatusUtil::TEST_SetStateDelay(ThreadStatus::STATE_MUTEX_WAIT,
-                                       kMutexWaitDelay);
-  ASSERT_OK(Put("hello", "rocksdb"));
-  ASSERT_GE(TestGetTickerCount(options, DB_MUTEX_WAIT_MICROS), kMutexWaitDelay);
-  ThreadStatusUtil::TEST_SetStateDelay(ThreadStatus::STATE_MUTEX_WAIT, 0);
 }
 
 TEST_F(DBTest, CloseSpeedup) {
@@ -5355,7 +5179,7 @@ TEST_F(DBTest, FlushesInParallelWithCompactRange) {
     }
     rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
-    std::vector<std::thread> threads;
+    std::vector<port::Thread> threads;
     threads.emplace_back([&]() { Compact("a", "z"); });
 
     TEST_SYNC_POINT("DBTest::FlushesInParallelWithCompactRange:1");
@@ -5494,6 +5318,19 @@ TEST_F(DBTest, HardLimit) {
 }
 
 #ifndef ROCKSDB_LITE
+class WriteStallListener : public EventListener {
+ public:
+  WriteStallListener() : condition_(WriteStallCondition::kNormal) {}
+  void OnStallConditionsChanged(const WriteStallInfo& info) override {
+    condition_ = info.condition.cur;
+  }
+  bool CheckCondition(WriteStallCondition expected) {
+    return expected == condition_;
+  }
+ private:
+  WriteStallCondition condition_;
+};
+
 TEST_F(DBTest, SoftLimit) {
   Options options = CurrentOptions();
   options.env = env_;
@@ -5509,6 +5346,8 @@ TEST_F(DBTest, SoftLimit) {
   options.max_bytes_for_level_multiplier = 10;
   options.max_background_compactions = 1;
   options.compression = kNoCompression;
+  WriteStallListener* listener = new WriteStallListener();
+  options.listeners.emplace_back(listener);
 
   Reopen(options);
 
@@ -5548,6 +5387,7 @@ TEST_F(DBTest, SoftLimit) {
     Flush();
   }
   ASSERT_TRUE(dbfull()->TEST_write_controler().NeedsDelay());
+  ASSERT_TRUE(listener->CheckCondition(WriteStallCondition::kDelayed));
 
   sleeping_task_low.WakeUp();
   sleeping_task_low.WaitUntilDone();
@@ -5558,6 +5398,7 @@ TEST_F(DBTest, SoftLimit) {
   // The L1 file size is around 30KB.
   ASSERT_EQ(NumTableFilesAtLevel(1), 1);
   ASSERT_TRUE(!dbfull()->TEST_write_controler().NeedsDelay());
+  ASSERT_TRUE(listener->CheckCondition(WriteStallCondition::kNormal));
 
   // Only allow one compactin going through.
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
@@ -5592,6 +5433,7 @@ TEST_F(DBTest, SoftLimit) {
   // doesn't trigger soft_pending_compaction_bytes_limit
   ASSERT_EQ(NumTableFilesAtLevel(1), 1);
   ASSERT_TRUE(!dbfull()->TEST_write_controler().NeedsDelay());
+  ASSERT_TRUE(listener->CheckCondition(WriteStallCondition::kNormal));
 
   // Create 3 L0 files, making score of L0 to be 3, higher than L0.
   for (int i = 0; i < 3; i++) {
@@ -5612,11 +5454,13 @@ TEST_F(DBTest, SoftLimit) {
   // triggerring soft_pending_compaction_bytes_limit
   ASSERT_EQ(NumTableFilesAtLevel(1), 1);
   ASSERT_TRUE(dbfull()->TEST_write_controler().NeedsDelay());
+  ASSERT_TRUE(listener->CheckCondition(WriteStallCondition::kDelayed));
 
   sleeping_task_low.WakeUp();
   sleeping_task_low.WaitUntilSleeping();
 
   ASSERT_TRUE(!dbfull()->TEST_write_controler().NeedsDelay());
+  ASSERT_TRUE(listener->CheckCondition(WriteStallCondition::kNormal));
 
   // shrink level base so L2 will hit soft limit easier.
   ASSERT_OK(dbfull()->SetOptions({
@@ -5626,6 +5470,7 @@ TEST_F(DBTest, SoftLimit) {
   Put("", "");
   Flush();
   ASSERT_TRUE(dbfull()->TEST_write_controler().NeedsDelay());
+  ASSERT_TRUE(listener->CheckCondition(WriteStallCondition::kDelayed));
 
   sleeping_task_low.WaitUntilSleeping();
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
@@ -5709,6 +5554,36 @@ TEST_F(DBTest, RowCache) {
   ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 1);
   ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 1);
 }
+
+TEST_F(DBTest, PinnableSliceAndRowCache) {
+  Options options = CurrentOptions();
+  options.statistics = rocksdb::CreateDBStatistics();
+  options.row_cache = NewLRUCache(8192);
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Flush());
+
+  ASSERT_EQ(Get("foo"), "bar");
+  ASSERT_EQ(
+      reinterpret_cast<LRUCache*>(options.row_cache.get())->TEST_GetLRUSize(),
+      1);
+
+  {
+    PinnableSlice pin_slice;
+    ASSERT_EQ(Get("foo", &pin_slice), Status::OK());
+    ASSERT_EQ(pin_slice.ToString(), "bar");
+    // Entry is already in cache, lookup will remove the element from lru
+    ASSERT_EQ(
+        reinterpret_cast<LRUCache*>(options.row_cache.get())->TEST_GetLRUSize(),
+        0);
+  }
+  // After PinnableSlice destruction element is added back in LRU
+  ASSERT_EQ(
+      reinterpret_cast<LRUCache*>(options.row_cache.get())->TEST_GetLRUSize(),
+      1);
+}
+
 #endif  // ROCKSDB_LITE
 
 TEST_F(DBTest, DeletingOldWalAfterDrop) {
@@ -5761,7 +5636,7 @@ TEST_F(DBTest, PauseBackgroundWorkTest) {
   options.write_buffer_size = 100000;  // Small write buffer
   Reopen(options);
 
-  std::vector<std::thread> threads;
+  std::vector<port::Thread> threads;
   std::atomic<bool> done(false);
   db_->PauseBackgroundWork();
   threads.emplace_back([&]() {
@@ -5773,15 +5648,14 @@ TEST_F(DBTest, PauseBackgroundWorkTest) {
   });
   env_->SleepForMicroseconds(200000);
   // make sure the thread is not done
-  ASSERT_EQ(false, done.load());
+  ASSERT_FALSE(done.load());
   db_->ContinueBackgroundWork();
   for (auto& t : threads) {
     t.join();
   }
   // now it's done
-  ASSERT_EQ(true, done.load());
+  ASSERT_TRUE(done.load());
 }
-
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

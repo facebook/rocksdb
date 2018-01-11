@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -16,11 +16,12 @@
 #include "db/compaction_iterator.h"
 #include "db/dbformat.h"
 #include "db/event_helpers.h"
-#include "db/filename.h"
 #include "db/internal_stats.h"
 #include "db/merge_helper.h"
 #include "db/table_cache.h"
 #include "db/version_edit.h"
+#include "monitoring/iostats_context_imp.h"
+#include "monitoring/thread_status_util.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
@@ -29,9 +30,9 @@
 #include "table/block_based_table_builder.h"
 #include "table/internal_iterator.h"
 #include "util/file_reader_writer.h"
-#include "util/iostats_context_imp.h"
+#include "util/filename.h"
 #include "util/stop_watch.h"
-#include "util/thread_status_util.h"
+#include "util/sync_point.h"
 
 namespace rocksdb {
 
@@ -44,17 +45,17 @@ TableBuilder* NewTableBuilder(
         int_tbl_prop_collector_factories,
     uint32_t column_family_id, const std::string& column_family_name,
     WritableFileWriter* file, const CompressionType compression_type,
-    const CompressionOptions& compression_opts,
-    int level,
-    const std::string* compression_dict, const bool skip_filters) {
+    const CompressionOptions& compression_opts, int level,
+    const std::string* compression_dict, const bool skip_filters,
+    const uint64_t creation_time, const uint64_t oldest_key_time) {
   assert((column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          column_family_name.empty());
   return ioptions.table_factory->NewTableBuilder(
-      TableBuilderOptions(ioptions, internal_comparator,
-                          int_tbl_prop_collector_factories, compression_type,
-                          compression_opts, compression_dict, skip_filters,
-                          column_family_name, level),
+      TableBuilderOptions(
+          ioptions, internal_comparator, int_tbl_prop_collector_factories,
+          compression_type, compression_opts, compression_dict, skip_filters,
+          column_family_name, level, creation_time, oldest_key_time),
       column_family_id, file);
 }
 
@@ -69,11 +70,12 @@ Status BuildTable(
     uint32_t column_family_id, const std::string& column_family_name,
     std::vector<SequenceNumber> snapshots,
     SequenceNumber earliest_write_conflict_snapshot,
-    const CompressionType compression,
+    SnapshotChecker* snapshot_checker, const CompressionType compression,
     const CompressionOptions& compression_opts, bool paranoid_file_checks,
     InternalStats* internal_stats, TableFileCreationReason reason,
     EventLogger* event_logger, int job_id, const Env::IOPriority io_priority,
-    TableProperties* table_properties, int level) {
+    TableProperties* table_properties, int level, const uint64_t creation_time,
+    const uint64_t oldest_key_time, Env::WriteLifeTimeHint write_hint) {
   assert((column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          column_family_name.empty());
@@ -103,6 +105,10 @@ Status BuildTable(
     unique_ptr<WritableFileWriter> file_writer;
     {
       unique_ptr<WritableFile> file;
+#ifndef NDEBUG
+      bool use_direct_writes = env_options.use_direct_writes;
+      TEST_SYNC_POINT_CALLBACK("BuildTable:create_file", &use_direct_writes);
+#endif  // !NDEBUG
       s = NewWritableFile(env, fname, &file, env_options);
       if (!s.ok()) {
         EventHelpers::LogAndNotifyTableFileCreationFinished(
@@ -111,24 +117,25 @@ Status BuildTable(
         return s;
       }
       file->SetIOPriority(io_priority);
+      file->SetWriteLifeTimeHint(write_hint);
 
-      file_writer.reset(new WritableFileWriter(std::move(file), env_options));
-
+      file_writer.reset(new WritableFileWriter(std::move(file), env_options,
+                                               ioptions.statistics));
       builder = NewTableBuilder(
           ioptions, internal_comparator, int_tbl_prop_collector_factories,
           column_family_id, column_family_name, file_writer.get(), compression,
-          compression_opts, level);
+          compression_opts, level, nullptr /* compression_dict */,
+          false /* skip_filters */, creation_time, oldest_key_time);
     }
 
     MergeHelper merge(env, internal_comparator.user_comparator(),
                       ioptions.merge_operator, nullptr, ioptions.info_log,
-                      mutable_cf_options.min_partial_merge_operands,
                       true /* internal key corruption is not ok */,
                       snapshots.empty() ? 0 : snapshots.back());
 
     CompactionIterator c_iter(
         iter, internal_comparator.user_comparator(), &merge, kMaxSequenceNumber,
-        &snapshots, earliest_write_conflict_snapshot, env,
+        &snapshots, earliest_write_conflict_snapshot, snapshot_checker, env,
         true /* internal key corruption is not ok */, range_del_agg.get());
     c_iter.SeekToFirst();
     for (; c_iter.Valid(); c_iter.Next()) {
@@ -170,9 +177,9 @@ Status BuildTable(
     delete builder;
 
     // Finish and check for file errors
-    if (s.ok() && !empty && !ioptions.disable_data_sync) {
+    if (s.ok() && !empty) {
       StopWatch sw(env, ioptions.statistics, TABLE_SYNC_MICROS);
-      file_writer->Sync(ioptions.use_fsync);
+      s = file_writer->Sync(ioptions.use_fsync);
     }
     if (s.ok() && !empty) {
       s = file_writer->Close();
@@ -180,6 +187,11 @@ Status BuildTable(
 
     if (s.ok() && !empty) {
       // Verify that the table is usable
+      // We set for_compaction to false and don't OptimizeForCompactionTableRead
+      // here because this is a special case after we finish the table building
+      // No matter whether use_direct_io_for_flush_and_compaction is true,
+      // we will regrad this verification as user reads since the goal is
+      // to cache it here for further user reads
       std::unique_ptr<InternalIterator> it(table_cache->NewIterator(
           ReadOptions(), env_options, internal_comparator, meta->fd,
           nullptr /* range_del_agg */, nullptr,

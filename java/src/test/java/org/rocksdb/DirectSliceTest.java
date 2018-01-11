@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 package org.rocksdb;
 
 import org.junit.ClassRule;
@@ -54,7 +54,7 @@ public class DirectSliceTest {
     }
   }
 
-  @Test(expected = AssertionError.class)
+  @Test(expected = IllegalArgumentException.class)
   public void directSliceInitWithoutDirectAllocation() {
     final byte[] data = "Some text".getBytes();
     final ByteBuffer buffer = ByteBuffer.wrap(data);
@@ -63,12 +63,31 @@ public class DirectSliceTest {
     }
   }
 
-  @Test(expected = AssertionError.class)
+  @Test(expected = IllegalArgumentException.class)
   public void directSlicePrefixInitWithoutDirectAllocation() {
     final byte[] data = "Some text".getBytes();
     final ByteBuffer buffer = ByteBuffer.wrap(data);
     try(final DirectSlice directSlice = new DirectSlice(buffer, 4)) {
       //no-op
+    }
+  }
+
+  @Test
+  public void directSliceClear() {
+    try(final DirectSlice directSlice = new DirectSlice("abc")) {
+      assertThat(directSlice.toString()).isEqualTo("abc");
+      directSlice.clear();
+      assertThat(directSlice.toString()).isEmpty();
+      directSlice.clear();  // make sure we don't double-free
+    }
+  }
+
+  @Test
+  public void directSliceRemovePrefix() {
+    try(final DirectSlice directSlice = new DirectSlice("abc")) {
+      assertThat(directSlice.toString()).isEqualTo("abc");
+      directSlice.removePrefix(1);
+      assertThat(directSlice.toString()).isEqualTo("bc");
     }
   }
 }

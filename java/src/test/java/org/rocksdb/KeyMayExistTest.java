@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 package org.rocksdb;
 
 import org.junit.ClassRule;
@@ -43,21 +43,21 @@ public class KeyMayExistTest {
             isEqualTo(2);
         db.put("key".getBytes(), "value".getBytes());
         // Test without column family
-        StringBuffer retValue = new StringBuffer();
+        StringBuilder retValue = new StringBuilder();
         boolean exists = db.keyMayExist("key".getBytes(), retValue);
         assertThat(exists).isTrue();
         assertThat(retValue.toString()).isEqualTo("value");
 
         // Test without column family but with readOptions
         try (final ReadOptions readOptions = new ReadOptions()) {
-          retValue = new StringBuffer();
+          retValue = new StringBuilder();
           exists = db.keyMayExist(readOptions, "key".getBytes(), retValue);
           assertThat(exists).isTrue();
           assertThat(retValue.toString()).isEqualTo("value");
         }
 
         // Test with column family
-        retValue = new StringBuffer();
+        retValue = new StringBuilder();
         exists = db.keyMayExist(columnFamilyHandleList.get(0), "key".getBytes(),
             retValue);
         assertThat(exists).isTrue();
@@ -65,7 +65,7 @@ public class KeyMayExistTest {
 
         // Test with column family and readOptions
         try (final ReadOptions readOptions = new ReadOptions()) {
-          retValue = new StringBuffer();
+          retValue = new StringBuilder();
           exists = db.keyMayExist(readOptions,
               columnFamilyHandleList.get(0), "key".getBytes(),
               retValue);

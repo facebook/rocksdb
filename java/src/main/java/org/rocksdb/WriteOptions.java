@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 package org.rocksdb;
 
@@ -92,10 +92,68 @@ public class WriteOptions extends RocksObject {
     return disableWAL(nativeHandle_);
   }
 
+  /**
+   * If true and if user is trying to write to column families that don't exist
+   * (they were dropped), ignore the write (don't return an error). If there
+   * are multiple writes in a WriteBatch, other writes will succeed.
+   *
+   * Default: false
+   *
+   * @param ignoreMissingColumnFamilies true to ignore writes to column families
+   *     which don't exist
+   * @return the instance of the current WriteOptions.
+   */
+  public WriteOptions setIgnoreMissingColumnFamilies(
+      final boolean ignoreMissingColumnFamilies) {
+    setIgnoreMissingColumnFamilies(nativeHandle_, ignoreMissingColumnFamilies);
+    return this;
+  }
+
+  /**
+   * If true and if user is trying to write to column families that don't exist
+   * (they were dropped), ignore the write (don't return an error). If there
+   * are multiple writes in a WriteBatch, other writes will succeed.
+   *
+   * Default: false
+   *
+   * @return true if writes to column families which don't exist are ignored
+   */
+  public boolean ignoreMissingColumnFamilies() {
+    return ignoreMissingColumnFamilies(nativeHandle_);
+  }
+
+  /**
+   * If true and we need to wait or sleep for the write request, fails
+   * immediately with {@link Status.Code#Incomplete}.
+   *
+   * @param noSlowdown true to fail write requests if we need to wait or sleep
+   * @return the instance of the current WriteOptions.
+   */
+  public WriteOptions setNoSlowdown(final boolean noSlowdown) {
+    setNoSlowdown(nativeHandle_, noSlowdown);
+    return this;
+  }
+
+  /**
+   * If true and we need to wait or sleep for the write request, fails
+   * immediately with {@link Status.Code#Incomplete}.
+   *
+   * @return true when write requests are failed if we need to wait or sleep
+   */
+  public boolean noSlowdown() {
+    return noSlowdown(nativeHandle_);
+  }
+
   private native static long newWriteOptions();
   private native void setSync(long handle, boolean flag);
   private native boolean sync(long handle);
   private native void setDisableWAL(long handle, boolean flag);
   private native boolean disableWAL(long handle);
+  private native void setIgnoreMissingColumnFamilies(final long handle,
+      final boolean ignoreMissingColumnFamilies);
+  private native boolean ignoreMissingColumnFamilies(final long handle);
+  private native void setNoSlowdown(final long handle,
+      final boolean noSlowdown);
+  private native boolean noSlowdown(final long handle);
   @Override protected final native void disposeInternal(final long handle);
 }

@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -23,6 +23,36 @@ class DBTestCompactionFilter : public DBTestBase {
  public:
   DBTestCompactionFilter() : DBTestBase("/db_compaction_filter_test") {}
 };
+
+// Param variant of DBTestBase::ChangeCompactOptions
+class DBTestCompactionFilterWithCompactParam
+    : public DBTestCompactionFilter,
+      public ::testing::WithParamInterface<DBTestBase::OptionConfig> {
+ public:
+  DBTestCompactionFilterWithCompactParam() : DBTestCompactionFilter() {
+    option_config_ = GetParam();
+    Destroy(last_options_);
+    auto options = CurrentOptions();
+    if (option_config_ == kDefault || option_config_ == kUniversalCompaction ||
+        option_config_ == kUniversalCompactionMultiLevel) {
+      options.create_if_missing = true;
+    }
+    if (option_config_ == kLevelSubcompactions ||
+        option_config_ == kUniversalSubcompactions) {
+      assert(options.max_subcompactions > 1);
+    }
+    TryReopen(options);
+  }
+};
+
+INSTANTIATE_TEST_CASE_P(
+    DBTestCompactionFilterWithCompactOption,
+    DBTestCompactionFilterWithCompactParam,
+    ::testing::Values(DBTestBase::OptionConfig::kDefault,
+                      DBTestBase::OptionConfig::kUniversalCompaction,
+                      DBTestBase::OptionConfig::kUniversalCompactionMultiLevel,
+                      DBTestBase::OptionConfig::kLevelSubcompactions,
+                      DBTestBase::OptionConfig::kUniversalSubcompactions));
 
 class KeepFilter : public CompactionFilter {
  public:
@@ -308,7 +338,6 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
     ASSERT_OK(iter->status());
     while (iter->Valid()) {
       ParsedInternalKey ikey(Slice(), 0, kTypeValue);
-      ikey.sequence = -1;
       ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), true);
       total++;
       if (ikey.sequence != 0) {
@@ -440,65 +469,63 @@ TEST_F(DBTestCompactionFilter, CompactionFilterDeletesAll) {
 }
 #endif  // ROCKSDB_LITE
 
-TEST_F(DBTestCompactionFilter, CompactionFilterWithValueChange) {
-  do {
-    Options options = CurrentOptions();
-    options.num_levels = 3;
-    options.compaction_filter_factory =
-      std::make_shared<ChangeFilterFactory>();
-    CreateAndReopenWithCF({"pikachu"}, options);
+TEST_P(DBTestCompactionFilterWithCompactParam,
+       CompactionFilterWithValueChange) {
+  Options options = CurrentOptions();
+  options.num_levels = 3;
+  options.compaction_filter_factory = std::make_shared<ChangeFilterFactory>();
+  CreateAndReopenWithCF({"pikachu"}, options);
 
-    // Write 100K+1 keys, these are written to a few files
-    // in L0. We do this so that the current snapshot points
-    // to the 100001 key.The compaction filter is  not invoked
-    // on keys that are visible via a snapshot because we
-    // anyways cannot delete it.
-    const std::string value(10, 'x');
-    for (int i = 0; i < 100001; i++) {
-      char key[100];
-      snprintf(key, sizeof(key), "B%010d", i);
-      Put(1, key, value);
-    }
+  // Write 100K+1 keys, these are written to a few files
+  // in L0. We do this so that the current snapshot points
+  // to the 100001 key.The compaction filter is  not invoked
+  // on keys that are visible via a snapshot because we
+  // anyways cannot delete it.
+  const std::string value(10, 'x');
+  for (int i = 0; i < 100001; i++) {
+    char key[100];
+    snprintf(key, sizeof(key), "B%010d", i);
+    Put(1, key, value);
+  }
 
-    // push all files to  lower levels
-    ASSERT_OK(Flush(1));
-    if (option_config_ != kUniversalCompactionMultiLevel &&
-        option_config_ != kUniversalSubcompactions) {
-      dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
-      dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[1]);
-    } else {
-      dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
-                             nullptr);
-    }
+  // push all files to  lower levels
+  ASSERT_OK(Flush(1));
+  if (option_config_ != kUniversalCompactionMultiLevel &&
+      option_config_ != kUniversalSubcompactions) {
+    dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
+    dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[1]);
+  } else {
+    dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
+                           nullptr);
+  }
 
-    // re-write all data again
-    for (int i = 0; i < 100001; i++) {
-      char key[100];
-      snprintf(key, sizeof(key), "B%010d", i);
-      Put(1, key, value);
-    }
+  // re-write all data again
+  for (int i = 0; i < 100001; i++) {
+    char key[100];
+    snprintf(key, sizeof(key), "B%010d", i);
+    Put(1, key, value);
+  }
 
-    // push all files to  lower levels. This should
-    // invoke the compaction filter for all 100000 keys.
-    ASSERT_OK(Flush(1));
-    if (option_config_ != kUniversalCompactionMultiLevel &&
-        option_config_ != kUniversalSubcompactions) {
-      dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
-      dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[1]);
-    } else {
-      dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
-                             nullptr);
-    }
+  // push all files to  lower levels. This should
+  // invoke the compaction filter for all 100000 keys.
+  ASSERT_OK(Flush(1));
+  if (option_config_ != kUniversalCompactionMultiLevel &&
+      option_config_ != kUniversalSubcompactions) {
+    dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
+    dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[1]);
+  } else {
+    dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
+                           nullptr);
+  }
 
-    // verify that all keys now have the new value that
-    // was set by the compaction process.
-    for (int i = 0; i < 100001; i++) {
-      char key[100];
-      snprintf(key, sizeof(key), "B%010d", i);
-      std::string newvalue = Get(1, key);
-      ASSERT_EQ(newvalue.compare(NEW_VALUE), 0);
-    }
-  } while (ChangeCompactOptions());
+  // verify that all keys now have the new value that
+  // was set by the compaction process.
+  for (int i = 0; i < 100001; i++) {
+    char key[100];
+    snprintf(key, sizeof(key), "B%010d", i);
+    std::string newvalue = Get(1, key);
+    ASSERT_EQ(newvalue.compare(NEW_VALUE), 0);
+  }
 }
 
 TEST_F(DBTestCompactionFilter, CompactionFilterWithMergeOperator) {
@@ -617,7 +644,6 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextManual) {
     ASSERT_OK(iter->status());
     while (iter->Valid()) {
       ParsedInternalKey ikey(Slice(), 0, kTypeValue);
-      ikey.sequence = -1;
       ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), true);
       total++;
       if (ikey.sequence != 0) {
@@ -626,7 +652,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextManual) {
       iter->Next();
     }
     ASSERT_EQ(total, 700);
-    ASSERT_EQ(count, 2);
+    ASSERT_EQ(count, 1);
   }
 }
 #endif  // ROCKSDB_LITE
@@ -778,7 +804,7 @@ TEST_F(DBTestCompactionFilter, SkipUntil) {
 
   cfilter_skips = 0;
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  // Numberof skips in tables: 2, 3, 3, 3.
+  // Number of skips in tables: 2, 3, 3, 3.
   ASSERT_EQ(11, cfilter_skips);
 
   for (int table = 0; table < 4; ++table) {
@@ -797,6 +823,43 @@ TEST_F(DBTestCompactionFilter, SkipUntil) {
       }
     }
   }
+}
+
+TEST_F(DBTestCompactionFilter, SkipUntilWithBloomFilter) {
+  BlockBasedTableOptions table_options;
+  table_options.whole_key_filtering = false;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(100, false));
+
+  Options options = CurrentOptions();
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.prefix_extractor.reset(NewCappedPrefixTransform(9));
+  options.compaction_filter_factory = std::make_shared<SkipEvenFilterFactory>();
+  options.disable_auto_compactions = true;
+  options.create_if_missing = true;
+  DestroyAndReopen(options);
+
+  Put("0000000010", "v10");
+  Put("0000000020", "v20"); // skipped
+  Put("0000000050", "v50");
+  Flush();
+
+  cfilter_skips = 0;
+  EXPECT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  EXPECT_EQ(1, cfilter_skips);
+
+  Status s;
+  std::string val;
+
+  s = db_->Get(ReadOptions(), "0000000010", &val);
+  ASSERT_OK(s);
+  EXPECT_EQ("v10", val);
+
+  s = db_->Get(ReadOptions(), "0000000020", &val);
+  EXPECT_TRUE(s.IsNotFound());
+
+  s = db_->Get(ReadOptions(), "0000000050", &val);
+  ASSERT_OK(s);
+  EXPECT_EQ("v50", val);
 }
 
 }  // namespace rocksdb

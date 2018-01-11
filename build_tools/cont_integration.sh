@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Copyright (c) 2016, Facebook. All rights reserved.
 #
@@ -8,7 +8,7 @@
 # for a certain interval.
 #
 
-SRC_GIT_REPO=/data/git/rocksdb
+SRC_GIT_REPO=/data/git/rocksdb-public
 error=0
 
 function log {
@@ -67,7 +67,7 @@ function update_repo_status {
 #
 
 # Path to the determinator from the root of the RocksDB repo.
-CONTRUN_DETERMINATOR=./arcanist_util/config/RocksDBCommonHelper.php
+CONTRUN_DETERMINATOR=./build_tools/RocksDBCommonHelper.php
 
 # Value of the previous commit.
 PREV_COMMIT=

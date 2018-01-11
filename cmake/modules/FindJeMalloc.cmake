@@ -1,22 +1,21 @@
 # - Find JeMalloc library
 # Find the native JeMalloc includes and library
-# This module defines
-#  JEMALLOC_INCLUDE_DIRS, where to find jemalloc.h, Set when
-#                        JEMALLOC_INCLUDE_DIR is found.
-#  JEMALLOC_LIBRARIES, libraries to link against to use JeMalloc.
-#  JEMALLOC_FOUND, If false, do not try to use JeMalloc.
 #
+# JEMALLOC_INCLUDE_DIR - where to find jemalloc.h, etc.
+# JEMALLOC_LIBRARIES - List of libraries when using jemalloc.
+# JEMALLOC_FOUND - True if jemalloc found.
+
 find_path(JEMALLOC_INCLUDE_DIR
-  jemalloc/jemalloc.h)
+  NAMES jemalloc/jemalloc.h
+  HINTS ${JEMALLOC_ROOT_DIR}/include)
 
 find_library(JEMALLOC_LIBRARIES
-  jemalloc)
+  NAMES jemalloc
+  HINTS ${JEMALLOC_ROOT_DIR}/lib)
 
 include(FindPackageHandleStandardArgs)
-find_package_handle_standard_args(JeMalloc DEFAULT_MSG
-    JEMALLOC_LIBRARIES JEMALLOC_INCLUDE_DIR)
+find_package_handle_standard_args(jemalloc DEFAULT_MSG JEMALLOC_LIBRARIES JEMALLOC_INCLUDE_DIR)
 
-MARK_AS_ADVANCED(
-  JEMALLOC_INCLUDE_DIR
+mark_as_advanced(
   JEMALLOC_LIBRARIES
-)
+  JEMALLOC_INCLUDE_DIR)

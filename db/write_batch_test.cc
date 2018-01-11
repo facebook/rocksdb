@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -18,7 +18,6 @@
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/scoped_arena_iterator.h"
-#include "util/logging.h"
 #include "util/string_util.h"
 #include "util/testharness.h"
 
@@ -32,7 +31,7 @@ static std::string PrintContents(WriteBatch* b) {
   ImmutableCFOptions ioptions(options);
   WriteBufferManager wb(options.db_write_buffer_size);
   MemTable* mem = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
-                               kMaxSequenceNumber);
+                               kMaxSequenceNumber, 0 /* column_family_id */);
   mem->Ref();
   std::string state;
   ColumnFamilyMemTablesDefault cf_mems_default(mem);
@@ -60,7 +59,7 @@ static std::string PrintContents(WriteBatch* b) {
     }
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       ParsedInternalKey ikey;
-      memset((void*)&ikey, 0, sizeof(ikey));
+      ikey.clear();
       EXPECT_TRUE(ParseInternalKey(iter->key(), &ikey));
       switch (ikey.type) {
         case kTypeValue:
@@ -299,6 +298,10 @@ namespace {
       seen += "MarkEndPrepare(" + xid.ToString() + ")";
       return Status::OK();
     }
+    virtual Status MarkNoop(bool empty_batch) override {
+      seen += "MarkNoop(" + std::string(empty_batch ? "true" : "false") + ")";
+      return Status::OK();
+    }
     virtual Status MarkCommit(const Slice& xid) override {
       seen += "MarkCommit(" + xid.ToString() + ")";
       return Status::OK();
@@ -415,7 +418,7 @@ TEST_F(WriteBatchTest, PrepareCommit) {
 TEST_F(WriteBatchTest, DISABLED_ManyUpdates) {
   // Insert key and value of 3GB and push total batch size to 12GB.
   static const size_t kKeyValueSize = 4u;
-  static const uint32_t kNumUpdates = 3 << 30;
+  static const uint32_t kNumUpdates = uint32_t(3 << 30);
   std::string raw(kKeyValueSize, 'A');
   WriteBatch batch(kNumUpdates * (4 + kKeyValueSize * 2) + 1024u);
   char c = 'A';
@@ -451,20 +454,20 @@ TEST_F(WriteBatchTest, DISABLED_ManyUpdates) {
     }
     virtual Status DeleteCF(uint32_t column_family_id,
                             const Slice& key) override {
-      EXPECT_TRUE(false);
+      ADD_FAILURE();
       return Status::OK();
     }
     virtual Status SingleDeleteCF(uint32_t column_family_id,
                                   const Slice& key) override {
-      EXPECT_TRUE(false);
+      ADD_FAILURE();
       return Status::OK();
     }
     virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
                            const Slice& value) override {
-      EXPECT_TRUE(false);
+      ADD_FAILURE();
       return Status::OK();
     }
-    virtual void LogData(const Slice& blob) override { EXPECT_TRUE(false); }
+    virtual void LogData(const Slice& blob) override { ADD_FAILURE(); }
     virtual bool Continue() override { return num_seen < kNumUpdates; }
   } handler;
 
@@ -478,7 +481,7 @@ TEST_F(WriteBatchTest, DISABLED_LargeKeyValue) {
   // Insert key and value of 3GB and push total batch size to 12GB.
   static const size_t kKeyValueSize = 3221225472u;
   std::string raw(kKeyValueSize, 'A');
-  WriteBatch batch(12884901888u + 1024u);
+  WriteBatch batch(size_t(12884901888ull + 1024u));
   for (char i = 0; i < 2; i++) {
     raw[0] = 'A' + i;
     raw[raw.length() - 1] = 'A' - i;
@@ -502,20 +505,20 @@ TEST_F(WriteBatchTest, DISABLED_LargeKeyValue) {
     }
     virtual Status DeleteCF(uint32_t column_family_id,
                             const Slice& key) override {
-      EXPECT_TRUE(false);
+      ADD_FAILURE();
       return Status::OK();
     }
     virtual Status SingleDeleteCF(uint32_t column_family_id,
                                   const Slice& key) override {
-      EXPECT_TRUE(false);
+      ADD_FAILURE();
       return Status::OK();
     }
     virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
                            const Slice& value) override {
-      EXPECT_TRUE(false);
+      ADD_FAILURE();
       return Status::OK();
     }
-    virtual void LogData(const Slice& blob) override { EXPECT_TRUE(false); }
+    virtual void LogData(const Slice& blob) override { ADD_FAILURE(); }
     virtual bool Continue() override { return num_seen < 2; }
   } handler;
 
@@ -859,6 +862,31 @@ TEST_F(WriteBatchTest, SavePointTest) {
   s = batch2.RollbackToSavePoint();
   ASSERT_TRUE(s.IsNotFound());
   ASSERT_EQ("", PrintContents(&batch2));
+
+  WriteBatch batch3;
+
+  s = batch3.PopSavePoint();
+  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_EQ("", PrintContents(&batch3));
+
+  batch3.SetSavePoint();
+  batch3.Delete("A");
+
+  s = batch3.PopSavePoint();
+  ASSERT_OK(s);
+  ASSERT_EQ("Delete(A)@0", PrintContents(&batch3));
+}
+
+TEST_F(WriteBatchTest, MemoryLimitTest) {
+  Status s;
+  // The header size is 12 bytes. The two Puts take 8 bytes which gives total
+  // of 12 + 8 * 2 = 28 bytes.
+  WriteBatch batch(0, 28);
+
+  ASSERT_OK(batch.Put("a", "...."));
+  ASSERT_OK(batch.Put("b", "...."));
+  s = batch.Put("c", "....");
+  ASSERT_TRUE(s.IsMemoryLimit());
 }
 
 }  // namespace rocksdb

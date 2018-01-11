@@ -14,6 +14,7 @@
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/utilities/date_tiered_db.h"
 #include "util/logging.h"
+#include "util/string_util.h"
 #include "util/testharness.h"
 
 namespace rocksdb {
@@ -36,7 +37,7 @@ class SpecialTimeEnv : public EnvWrapper {
   }
 
  private:
-  int64_t current_time_;
+  int64_t current_time_ = 0;
 };
 
 class DateTieredTest : public testing::Test {

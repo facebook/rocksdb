@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 #ifndef ROCKSDB_LITE
 
@@ -10,7 +10,7 @@
 #include <memory>
 #include <string>
 #include "db/dbformat.h"
-#include "util/cf_options.h"
+#include "options/cf_options.h"
 #include "util/file_reader_writer.h"
 
 namespace rocksdb {
@@ -22,17 +22,22 @@ class SstFileReader {
 
   Status ReadSequential(bool print_kv, uint64_t read_num, bool has_from,
                         const std::string& from_key, bool has_to,
-                        const std::string& to_key);
+                        const std::string& to_key,
+                        bool use_from_as_prefix = false);
 
   Status ReadTableProperties(
       std::shared_ptr<const TableProperties>* table_properties);
   uint64_t GetReadNumber() { return read_num_; }
   TableProperties* GetInitTableProperties() { return table_properties_.get(); }
 
+  Status VerifyChecksum();
   Status DumpTable(const std::string& out_filename);
   Status getStatus() { return init_result_; }
 
-  int ShowAllCompressionSizes(size_t block_size);
+  int ShowAllCompressionSizes(
+      size_t block_size,
+      const std::vector<std::pair<CompressionType, const char*>>&
+          compression_types);
 
  private:
   // Get the TableReader implementation for the sst file

@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
 
@@ -11,11 +11,11 @@
 #include <vector>
 
 #include "db/dbformat.h"
+#include "monitoring/histogram.h"
+#include "options/cf_options.h"
 #include "rocksdb/options.h"
 #include "util/arena.h"
-#include "util/cf_options.h"
 #include "util/hash.h"
-#include "util/histogram.h"
 #include "util/murmurhash.h"
 
 namespace rocksdb {
@@ -123,6 +123,8 @@ class PlainTableIndexBuilder {
         num_keys_per_prefix_(0),
         prev_key_prefix_hash_(0),
         index_sparseness_(index_sparseness),
+        index_size_(0),
+        sub_index_size_(0),
         prefix_extractor_(ioptions.prefix_extractor),
         hash_table_ratio_(hash_table_ratio),
         huge_page_tlb_size_(huge_page_tlb_size) {}

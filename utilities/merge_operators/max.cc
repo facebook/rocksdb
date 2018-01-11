@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include <memory>
 
@@ -25,6 +25,8 @@ class MaxOperator : public MergeOperator {
     if (merge_in.existing_value) {
       max = Slice(merge_in.existing_value->data(),
                   merge_in.existing_value->size());
+    } else if (max.data() == nullptr) {
+      max = Slice();
     }
 
     for (const auto& op : merge_in.operand_list) {

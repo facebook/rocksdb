@@ -13,8 +13,6 @@ find_library(SNAPPY_LIBRARIES
   NAMES snappy
   HINTS ${SNAPPY_ROOT_DIR}/lib)
 
-# handle the QUIETLY and REQUIRED arguments and set UUID_FOUND to TRUE if
-# all listed variables are TRUE
 include(FindPackageHandleStandardArgs)
 find_package_handle_standard_args(snappy DEFAULT_MSG SNAPPY_LIBRARIES SNAPPY_INCLUDE_DIR)
 

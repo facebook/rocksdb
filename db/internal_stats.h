@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -42,18 +42,20 @@ struct DBPropertyInfo {
   //      holding db mutex, which is only supported for int properties.
   bool (InternalStats::*handle_int)(uint64_t* value, DBImpl* db,
                                     Version* version);
-  bool (InternalStats::*handle_map)(
-      std::map<std::string, double>* compaction_stats);
+
+  // @param props Map of general properties to populate
+  bool (InternalStats::*handle_map)(std::map<std::string, std::string>* props);
 };
 
 extern const DBPropertyInfo* GetPropertyInfo(const Slice& property);
 
 #ifndef ROCKSDB_LITE
+#undef SCORE
 enum class LevelStatType {
   INVALID = 0,
   NUM_FILES,
   COMPACTED_FILES,
-  SIZE_MB,
+  SIZE_BYTES,
   SCORE,
   READ_GB,
   RN_GB,
@@ -84,14 +86,14 @@ class InternalStats {
   static const std::map<LevelStatType, LevelStat> compaction_level_stats;
 
   enum InternalCFStatsType {
-    LEVEL0_SLOWDOWN_TOTAL,
-    LEVEL0_SLOWDOWN_WITH_COMPACTION,
-    MEMTABLE_COMPACTION,
-    MEMTABLE_SLOWDOWN,
-    LEVEL0_NUM_FILES_TOTAL,
-    LEVEL0_NUM_FILES_WITH_COMPACTION,
-    SOFT_PENDING_COMPACTION_BYTES_LIMIT,
-    HARD_PENDING_COMPACTION_BYTES_LIMIT,
+    L0_FILE_COUNT_LIMIT_SLOWDOWNS,
+    LOCKED_L0_FILE_COUNT_LIMIT_SLOWDOWNS,
+    MEMTABLE_LIMIT_STOPS,
+    MEMTABLE_LIMIT_SLOWDOWNS,
+    L0_FILE_COUNT_LIMIT_STOPS,
+    LOCKED_L0_FILE_COUNT_LIMIT_STOPS,
+    PENDING_COMPACTION_BYTES_LIMIT_SLOWDOWNS,
+    PENDING_COMPACTION_BYTES_LIMIT_STOPS,
     WRITE_STALLS_ENUM_MAX,
     BYTES_FLUSHED,
     BYTES_INGESTED_ADD_FILE,
@@ -189,6 +191,20 @@ class InternalStats {
           num_dropped_records(c.num_dropped_records),
           count(c.count) {}
 
+    void Clear() {
+      this->micros = 0;
+      this->bytes_read_non_output_levels = 0;
+      this->bytes_read_output_level = 0;
+      this->bytes_written = 0;
+      this->bytes_moved = 0;
+      this->num_input_files_in_non_output_levels = 0;
+      this->num_input_files_in_output_level = 0;
+      this->num_output_files = 0;
+      this->num_input_records = 0;
+      this->num_dropped_records = 0;
+      this->count = 0;
+    }
+
     void Add(const CompactionStats& c) {
       this->micros += c.micros;
       this->bytes_read_non_output_levels += c.bytes_read_non_output_levels;
@@ -222,6 +238,26 @@ class InternalStats {
     }
   };
 
+  void Clear() {
+    for (int i = 0; i < INTERNAL_DB_STATS_ENUM_MAX; i++) {
+      db_stats_[i].store(0);
+    }
+    for (int i = 0; i < INTERNAL_CF_STATS_ENUM_MAX; i++) {
+      cf_stats_count_[i] = 0;
+      cf_stats_value_[i] = 0;
+    }
+    for (auto& comp_stat : comp_stats_) {
+      comp_stat.Clear();
+    }
+    for (auto& h : file_read_latency_) {
+      h.Clear();
+    }
+    cf_stats_snapshot_.Clear();
+    db_stats_snapshot_.Clear();
+    bg_error_count_ = 0;
+    started_at_ = env_->NowMicros();
+  }
+
   void AddCompactionStats(int level, const CompactionStats& stats) {
     comp_stats_[level].Add(stats);
   }
@@ -235,10 +271,15 @@ class InternalStats {
     ++cf_stats_count_[type];
   }
 
-  void AddDBStats(InternalDBStatsType type, uint64_t value) {
+  void AddDBStats(InternalDBStatsType type, uint64_t value,
+                  bool concurrent = false) {
     auto& v = db_stats_[type];
-    v.store(v.load(std::memory_order_relaxed) + value,
-            std::memory_order_relaxed);
+    if (concurrent) {
+      v.fetch_add(value, std::memory_order_relaxed);
+    } else {
+      v.store(v.load(std::memory_order_relaxed) + value,
+              std::memory_order_relaxed);
+    }
   }
 
   uint64_t GetDBStats(InternalDBStatsType type) {
@@ -258,7 +299,7 @@ class InternalStats {
 
   bool GetMapProperty(const DBPropertyInfo& property_info,
                       const Slice& property,
-                      std::map<std::string, double>* value);
+                      std::map<std::string, std::string>* value);
 
   bool GetIntProperty(const DBPropertyInfo& property_info, uint64_t* value,
                       DBImpl* db);
@@ -272,11 +313,14 @@ class InternalStats {
 
  private:
   void DumpDBStats(std::string* value);
-  void DumpCFMapStats(std::map<std::string, double>* cf_stats);
-  int DumpCFMapStats(
+  void DumpCFMapStats(std::map<std::string, std::string>* cf_stats);
+  void DumpCFMapStats(
       std::map<int, std::map<LevelStatType, double>>* level_stats,
       CompactionStats* compaction_stats_sum);
+  void DumpCFMapStatsIOStalls(std::map<std::string, std::string>* cf_stats);
   void DumpCFStats(std::string* value);
+  void DumpCFStatsNoFileHistogram(std::string* value);
+  void DumpCFFileHistogram(std::string* value);
 
   // Per-DB stats
   std::atomic<uint64_t> db_stats_[INTERNAL_DB_STATS_ENUM_MAX];
@@ -317,6 +361,20 @@ class InternalStats {
           ingest_files_addfile(0),
           ingest_l0_files_addfile(0),
           ingest_keys_addfile(0) {}
+
+    void Clear() {
+      comp_stats.Clear();
+      ingest_bytes_flush = 0;
+      stall_count = 0;
+      compact_bytes_write = 0;
+      compact_bytes_read = 0;
+      compact_micros = 0;
+      seconds_up = 0;
+      ingest_bytes_addfile = 0;
+      ingest_files_addfile = 0;
+      ingest_l0_files_addfile = 0;
+      ingest_keys_addfile = 0;
+    }
   } cf_stats_snapshot_;
 
   struct DBStatsSnapshot {
@@ -348,6 +406,18 @@ class InternalStats {
           num_keys_written(0),
           write_stall_micros(0),
           seconds_up(0) {}
+
+    void Clear() {
+      ingest_bytes = 0;
+      wal_bytes = 0;
+      wal_synced = 0;
+      write_with_wal = 0;
+      write_other = 0;
+      write_self = 0;
+      num_keys_written = 0;
+      write_stall_micros = 0;
+      seconds_up = 0;
+    }
   } db_stats_snapshot_;
 
   // Handler functions for getting property values. They use "value" as a value-
@@ -356,8 +426,10 @@ class InternalStats {
   bool HandleCompressionRatioAtLevelPrefix(std::string* value, Slice suffix);
   bool HandleLevelStats(std::string* value, Slice suffix);
   bool HandleStats(std::string* value, Slice suffix);
-  bool HandleCFMapStats(std::map<std::string, double>* compaction_stats);
+  bool HandleCFMapStats(std::map<std::string, std::string>* compaction_stats);
   bool HandleCFStats(std::string* value, Slice suffix);
+  bool HandleCFStatsNoFileHistogram(std::string* value, Slice suffix);
+  bool HandleCFFileHistogram(std::string* value, Slice suffix);
   bool HandleDBStats(std::string* value, Slice suffix);
   bool HandleSsTables(std::string* value, Slice suffix);
   bool HandleAggregatedTableProperties(std::string* value, Slice suffix);
@@ -401,6 +473,12 @@ class InternalStats {
                                      Version* version);
   bool HandleEstimateLiveDataSize(uint64_t* value, DBImpl* db,
                                   Version* version);
+  bool HandleMinLogNumberToKeep(uint64_t* value, DBImpl* db, Version* version);
+  bool HandleActualDelayedWriteRate(uint64_t* value, DBImpl* db,
+                                    Version* version);
+  bool HandleIsWriteStopped(uint64_t* value, DBImpl* db, Version* version);
+  bool HandleEstimateOldestKeyTime(uint64_t* value, DBImpl* db,
+                                   Version* version);
 
   // Total number of background errors encountered. Every time a flush task
   // or compaction task fails, this counter is incremented. The failure can
@@ -412,7 +490,7 @@ class InternalStats {
   const int number_levels_;
   Env* env_;
   ColumnFamilyData* cfd_;
-  const uint64_t started_at_;
+  uint64_t started_at_;
 };
 
 #else
@@ -420,14 +498,14 @@ class InternalStats {
 class InternalStats {
  public:
   enum InternalCFStatsType {
-    LEVEL0_SLOWDOWN_TOTAL,
-    LEVEL0_SLOWDOWN_WITH_COMPACTION,
-    MEMTABLE_COMPACTION,
-    MEMTABLE_SLOWDOWN,
-    LEVEL0_NUM_FILES_TOTAL,
-    LEVEL0_NUM_FILES_WITH_COMPACTION,
-    SOFT_PENDING_COMPACTION_BYTES_LIMIT,
-    HARD_PENDING_COMPACTION_BYTES_LIMIT,
+    L0_FILE_COUNT_LIMIT_SLOWDOWNS,
+    LOCKED_L0_FILE_COUNT_LIMIT_SLOWDOWNS,
+    MEMTABLE_LIMIT_STOPS,
+    MEMTABLE_LIMIT_SLOWDOWNS,
+    L0_FILE_COUNT_LIMIT_STOPS,
+    LOCKED_L0_FILE_COUNT_LIMIT_STOPS,
+    PENDING_COMPACTION_BYTES_LIMIT_SLOWDOWNS,
+    PENDING_COMPACTION_BYTES_LIMIT_STOPS,
     WRITE_STALLS_ENUM_MAX,
     BYTES_FLUSHED,
     BYTES_INGESTED_ADD_FILE,
@@ -479,7 +557,8 @@ class InternalStats {
 
   void AddCFStats(InternalCFStatsType type, uint64_t value) {}
 
-  void AddDBStats(InternalDBStatsType type, uint64_t value) {}
+  void AddDBStats(InternalDBStatsType type, uint64_t value,
+                  bool concurrent = false) {}
 
   HistogramImpl* GetFileReadHist(int level) { return nullptr; }
 
@@ -494,7 +573,7 @@ class InternalStats {
 
   bool GetMapProperty(const DBPropertyInfo& property_info,
                       const Slice& property,
-                      std::map<std::string, double>* value) {
+                      std::map<std::string, std::string>* value) {
     return false;
   }
 

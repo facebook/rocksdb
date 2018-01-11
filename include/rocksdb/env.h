@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
@@ -44,6 +44,8 @@ class WritableFile;
 class RandomRWFile;
 class Directory;
 struct DBOptions;
+struct ImmutableDBOptions;
+struct MutableDBOptions;
 class RateLimiter;
 class ThreadStatusUpdater;
 struct ThreadStatus;
@@ -51,18 +53,16 @@ struct ThreadStatus;
 using std::unique_ptr;
 using std::shared_ptr;
 
+const size_t kDefaultPageSize = 4 * 1024;
 
 // Options while opening a file to read/write
 struct EnvOptions {
 
-  // construct with default Options
+  // Construct with default Options
   EnvOptions();
 
-  // construct from Options
+  // Construct from Options
   explicit EnvOptions(const DBOptions& options);
-
-  // If true, then allow caching of data in environment buffers
-  bool use_os_buffer = true;
 
    // If true, then use mmap to read data
   bool use_mmap_reads = false;
@@ -96,10 +96,10 @@ struct EnvOptions {
   // WAL writes
   bool fallocate_with_keep_size = true;
 
-  // See DBOPtions doc
+  // See DBOptions doc
   size_t compaction_readahead_size;
 
-  // See DBOPtions doc
+  // See DBOptions doc
   size_t random_access_max_buffer_size;
 
   // See DBOptions doc
@@ -152,6 +152,16 @@ class Env {
                                      unique_ptr<RandomAccessFile>* result,
                                      const EnvOptions& options)
                                      = 0;
+  // These values match Linux definition
+  // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/include/uapi/linux/fcntl.h#n56
+  enum WriteLifeTimeHint {
+    WLTH_NOT_SET = 0, // No hint information set
+    WLTH_NONE,        // No hints about write life time
+    WLTH_SHORT,       // Data written has a short life time
+    WLTH_MEDIUM,      // Data written has a medium life time
+    WLTH_LONG,        // Data written has a long life time
+    WLTH_EXTREME,     // Data written has an extremely long life time
+  };
 
   // Create an object that writes to a new file with the specified
   // name.  Deletes any existing file with the same name and creates a
@@ -164,13 +174,26 @@ class Env {
                                  unique_ptr<WritableFile>* result,
                                  const EnvOptions& options) = 0;
 
+  // Create an object that writes to a new file with the specified
+  // name.  Deletes any existing file with the same name and creates a
+  // new file.  On success, stores a pointer to the new file in
+  // *result and returns OK.  On failure stores nullptr in *result and
+  // returns non-OK.
+  //
+  // The returned file will only be accessed by one thread at a time.
+  virtual Status ReopenWritableFile(const std::string& fname,
+                                    unique_ptr<WritableFile>* result,
+                                    const EnvOptions& options) {
+    return Status::NotSupported();
+  }
+
   // Reuse an existing file by renaming it and opening it as writable.
   virtual Status ReuseWritableFile(const std::string& fname,
                                    const std::string& old_fname,
                                    unique_ptr<WritableFile>* result,
                                    const EnvOptions& options);
 
-  // Open `fname` for random read and write, if file dont exist the file
+  // Open `fname` for random read and write, if file doesn't exist the file
   // will be created.  On success, stores a pointer to the new file in
   // *result and returns OK.  On failure returns non-OK.
   //
@@ -249,6 +272,11 @@ class Env {
     return Status::NotSupported("LinkFile is not supported for this Env");
   }
 
+  virtual Status AreFilesSame(const std::string& first,
+                              const std::string& second, bool* res) {
+    return Status::NotSupported("AreFilesSame is not supported for this Env");
+  }
+
   // Lock the specified file.  Used to prevent concurrent access to
   // the same db by multiple processes.  On failure, stores nullptr in
   // *lock and returns non-OK.
@@ -271,7 +299,7 @@ class Env {
   virtual Status UnlockFile(FileLock* lock) = 0;
 
   // Priority for scheduling job in thread pool
-  enum Priority { LOW, HIGH, TOTAL };
+  enum Priority { BOTTOM, LOW, HIGH, TOTAL };
 
   // Priority for requesting bytes in rate limiter scheduler
   enum IOPriority {
@@ -305,7 +333,7 @@ class Env {
   // Wait for all threads started by StartThread to terminate.
   virtual void WaitForJoin() {}
 
-  // Get thread pool queue length for specific thrad pool.
+  // Get thread pool queue length for specific thread pool.
   virtual unsigned int GetThreadPoolQueueLen(Priority pri = LOW) const {
     return 0;
   }
@@ -320,15 +348,16 @@ class Env {
   virtual Status NewLogger(const std::string& fname,
                            shared_ptr<Logger>* result) = 0;
 
-  // Returns the number of micro-seconds since some fixed point in time. Only
-  // useful for computing deltas of time.
-  // However, it is often used as system time such as in GenericRateLimiter
+  // Returns the number of micro-seconds since some fixed point in time.
+  // It is often used as system time such as in GenericRateLimiter
   // and other places so a port needs to return system time in order to work.
   virtual uint64_t NowMicros() = 0;
 
   // Returns the number of nano-seconds since some fixed point in time. Only
   // useful for computing deltas of time in one run.
-  // Default implementation simply relies on NowMicros
+  // Default implementation simply relies on NowMicros.
+  // In platform-specific implementations, NowNanos() should return time points
+  // that are MONOTONIC.
   virtual uint64_t NowNanos() {
     return NowMicros() * 1000;
   }
@@ -340,6 +369,7 @@ class Env {
   virtual Status GetHostName(char* name, uint64_t len) = 0;
 
   // Get the number of seconds since the Epoch, 1970-01-01 00:00:00 (UTC).
+  // Only overwrites *unix_time on success.
   virtual Status GetCurrentTime(int64_t* unix_time) = 0;
 
   // Get full directory name for this db.
@@ -350,6 +380,7 @@ class Env {
   // for this environment. 'LOW' is the default pool.
   // default number: 1
   virtual void SetBackgroundThreads(int number, Priority pri = LOW) = 0;
+  virtual int GetBackgroundThreads(Priority pri = LOW) = 0;
 
   // Enlarge number of background worker threads of a specific thread pool
   // for this environment if it is smaller than specified. 'LOW' is the default
@@ -366,6 +397,16 @@ class Env {
   virtual std::string GenerateUniqueId();
 
   // OptimizeForLogWrite will create a new EnvOptions object that is a copy of
+  // the EnvOptions in the parameters, but is optimized for reading log files.
+  virtual EnvOptions OptimizeForLogRead(const EnvOptions& env_options) const;
+
+  // OptimizeForManifestRead will create a new EnvOptions object that is a copy
+  // of the EnvOptions in the parameters, but is optimized for reading manifest
+  // files.
+  virtual EnvOptions OptimizeForManifestRead(
+      const EnvOptions& env_options) const;
+
+  // OptimizeForLogWrite will create a new EnvOptions object that is a copy of
   // the EnvOptions in the parameters, but is optimized for writing log files.
   // Default implementation returns the copy of the same object.
   virtual EnvOptions OptimizeForLogWrite(const EnvOptions& env_options,
@@ -373,8 +414,22 @@ class Env {
   // OptimizeForManifestWrite will create a new EnvOptions object that is a copy
   // of the EnvOptions in the parameters, but is optimized for writing manifest
   // files. Default implementation returns the copy of the same object.
-  virtual EnvOptions OptimizeForManifestWrite(const EnvOptions& env_options)
-      const;
+  virtual EnvOptions OptimizeForManifestWrite(
+      const EnvOptions& env_options) const;
+
+  // OptimizeForCompactionTableWrite will create a new EnvOptions object that is
+  // a copy of the EnvOptions in the parameters, but is optimized for writing
+  // table files.
+  virtual EnvOptions OptimizeForCompactionTableWrite(
+      const EnvOptions& env_options,
+      const ImmutableDBOptions& immutable_ops) const;
+
+  // OptimizeForCompactionTableWrite will create a new EnvOptions object that
+  // is a copy of the EnvOptions in the parameters, but is optimized for reading
+  // table files.
+  virtual EnvOptions OptimizeForCompactionTableRead(
+      const EnvOptions& env_options,
+      const ImmutableDBOptions& db_options) const;
 
   // Returns the status of all threads that belong to the current Env.
   virtual Status GetThreadList(std::vector<ThreadStatus>* thread_list) {
@@ -432,17 +487,33 @@ class SequentialFile {
   // REQUIRES: External synchronization
   virtual Status Skip(uint64_t n) = 0;
 
+  // Indicates the upper layers if the current SequentialFile implementation
+  // uses direct IO.
+  virtual bool use_direct_io() const { return false; }
+
+  // Use the returned alignment value to allocate
+  // aligned buffer for Direct I/O
+  virtual size_t GetRequiredBufferAlignment() const { return kDefaultPageSize; }
+
   // Remove any kind of caching of data from the offset to offset+length
   // of this file. If the length is 0, then it refers to the end of file.
   // If the system is not caching the file contents, then this is a noop.
   virtual Status InvalidateCache(size_t offset, size_t length) {
     return Status::NotSupported("InvalidateCache not supported.");
   }
+
+  // Positioned Read for direct I/O
+  // If Direct I/O enabled, offset, n, and scratch should be properly aligned
+  virtual Status PositionedRead(uint64_t offset, size_t n, Slice* result,
+                                char* scratch) {
+    return Status::NotSupported();
+  }
 };
 
 // A file abstraction for randomly reading the contents of a file.
 class RandomAccessFile {
  public:
+
   RandomAccessFile() { }
   virtual ~RandomAccessFile();
 
@@ -455,18 +526,14 @@ class RandomAccessFile {
   // status.
   //
   // Safe for concurrent use by multiple threads.
+  // If Direct I/O enabled, offset, n, and scratch should be aligned properly.
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
                       char* scratch) const = 0;
 
-  // Used by the file_reader_writer to decide if the ReadAhead wrapper
-  // should simply forward the call and do not enact buffering or locking.
-  virtual bool ShouldForwardRawRequest() const {
-    return false;
+  // Readahead the file starting from offset by n bytes for caching.
+  virtual Status Prefetch(uint64_t offset, size_t n) {
+    return Status::OK();
   }
-
-  // For cases when read-ahead is implemented in the platform dependent
-  // layer
-  virtual void EnableReadAhead() {}
 
   // Tries to get an unique ID for this file that will be the same each time
   // the file is opened (and will stay the same while the file is open).
@@ -476,7 +543,7 @@ class RandomAccessFile {
   // may not have been modified.
   //
   // This function guarantees, for IDs from a given environment, two unique ids
-  // cannot be made equal to eachother by adding arbitrary bytes to one of
+  // cannot be made equal to each other by adding arbitrary bytes to one of
   // them. That is, no unique ID is the prefix of another.
   //
   // This function guarantees that the returned ID will not be interpretable as
@@ -491,6 +558,14 @@ class RandomAccessFile {
   enum AccessPattern { NORMAL, RANDOM, SEQUENTIAL, WILLNEED, DONTNEED };
 
   virtual void Hint(AccessPattern pattern) {}
+
+  // Indicates the upper layers if the current RandomAccessFile implementation
+  // uses direct IO.
+  virtual bool use_direct_io() const { return false; }
+
+  // Use the returned alignment value to allocate
+  // aligned buffer for Direct I/O
+  virtual size_t GetRequiredBufferAlignment() const { return kDefaultPageSize; }
 
   // Remove any kind of caching of data from the offset to offset+length
   // of this file. If the length is 0, then it refers to the end of file.
@@ -508,24 +583,10 @@ class WritableFile {
   WritableFile()
     : last_preallocated_block_(0),
       preallocation_block_size_(0),
-      io_priority_(Env::IO_TOTAL) {
+      io_priority_(Env::IO_TOTAL),
+      write_hint_(Env::WLTH_NOT_SET) {
   }
   virtual ~WritableFile();
-
-  // Indicates if the class makes use of unbuffered I/O
-  // If false you must pass aligned buffer to Write()
-  virtual bool UseOSBuffer() const {
-    return true;
-  }
-
-  const size_t c_DefaultPageSize = 4 * 1024;
-
-  // Use the returned alignment value to allocate
-  // aligned buffer for Write() when UseOSBuffer()
-  // returns false
-  virtual size_t GetRequiredBufferAlignment() const {
-    return c_DefaultPageSize;
-  }
 
   // Append data to the end of the file
   // Note: A WriteabelFile object must support either Append or
@@ -538,7 +599,7 @@ class WritableFile {
   // the sector. The implementation thus needs to also rewrite the last
   // partial sector.
   // Note: PositionAppend does not guarantee moving the file offset after the
-  // write. A WriteabelFile object must support either Append or
+  // write. A WritableFile object must support either Append or
   // PositionedAppend, so the users cannot mix the two.
   //
   // PositionedAppend() can only happen on the page/sector boundaries. For that
@@ -585,8 +646,11 @@ class WritableFile {
 
   // Indicates the upper layers if the current WritableFile implementation
   // uses direct IO.
-  virtual bool UseDirectIO() const { return false; }
+  virtual bool use_direct_io() const { return false; }
 
+  // Use the returned alignment value to allocate
+  // aligned buffer for Direct I/O
+  virtual size_t GetRequiredBufferAlignment() const { return kDefaultPageSize; }
   /*
    * Change the priority in rate limiter if rate limiting is enabled.
    * If rate limiting is not enabled, this call has no effect.
@@ -597,6 +661,11 @@ class WritableFile {
 
   virtual Env::IOPriority GetIOPriority() { return io_priority_; }
 
+  virtual void SetWriteLifeTimeHint(Env::WriteLifeTimeHint hint) {
+    write_hint_ = hint;
+  }
+
+  virtual Env::WriteLifeTimeHint GetWriteLifeTimeHint() { return write_hint_; }
   /*
    * Get the size of valid data in the file.
    */
@@ -651,7 +720,7 @@ class WritableFile {
       return;
     }
     // If this write would cross one or more preallocation blocks,
-    // determine what the last preallocation block necesessary to
+    // determine what the last preallocation block necessary to
     // cover this write would be and Allocate to that point.
     const auto block_size = preallocation_block_size_;
     size_t new_last_preallocated_block =
@@ -665,14 +734,12 @@ class WritableFile {
     }
   }
 
- protected:
-  /*
-   * Pre-allocate space for a file.
-   */
+  // Pre-allocates space for a file.
   virtual Status Allocate(uint64_t offset, uint64_t len) {
     return Status::OK();
   }
 
+ protected:
   size_t preallocation_block_size() { return preallocation_block_size_; }
 
  private:
@@ -687,6 +754,7 @@ class WritableFile {
   friend class WritableFileMirror;
 
   Env::IOPriority io_priority_;
+  Env::WriteLifeTimeHint write_hint_;
 };
 
 // A file abstraction for random reading and writing.
@@ -695,34 +763,16 @@ class RandomRWFile {
   RandomRWFile() {}
   virtual ~RandomRWFile() {}
 
-  // Indicates if the class makes use of unbuffered I/O
+  // Indicates if the class makes use of direct I/O
   // If false you must pass aligned buffer to Write()
-  virtual bool UseOSBuffer() const {
-    return true;
-  }
-
-  const size_t c_DefaultPageSize = 4 * 1024;
+  virtual bool use_direct_io() const { return false; }
 
   // Use the returned alignment value to allocate
-  // aligned buffer for Write() when UseOSBuffer()
-  // returns false
-  virtual size_t GetRequiredBufferAlignment() const {
-    return c_DefaultPageSize;
-  }
-
-  // Used by the file_reader_writer to decide if the ReadAhead wrapper
-  // should simply forward the call and do not enact read_ahead buffering or locking.
-  // The implementation below takes care of reading ahead
-  virtual bool ShouldForwardRawRequest() const {
-    return false;
-  }
-
-  // For cases when read-ahead is implemented in the platform dependent
-  // layer. This is when ShouldForwardRawRequest() returns true.
-  virtual void EnableReadAhead() {}
+  // aligned buffer for Direct I/O
+  virtual size_t GetRequiredBufferAlignment() const { return kDefaultPageSize; }
 
   // Write bytes in `data` at  offset `offset`, Returns Status::OK() on success.
-  // Pass aligned buffer when UseOSBuffer() returns false.
+  // Pass aligned buffer when use_direct_io() returns true.
   virtual Status Write(uint64_t offset, const Slice& data) = 0;
 
   // Read up to `n` bytes starting from offset `offset` and store them in
@@ -766,7 +816,7 @@ enum InfoLogLevel : unsigned char {
 // An interface for writing log messages.
 class Logger {
  public:
-  size_t kDoNotSupportGetLogFileSize = std::numeric_limits<size_t>::max();
+  size_t kDoNotSupportGetLogFileSize = (std::numeric_limits<size_t>::max)();
 
   explicit Logger(const InfoLogLevel log_level = InfoLogLevel::INFO_LEVEL)
       : log_level_(log_level) {}
@@ -874,7 +924,7 @@ class EnvWrapper : public Env {
  public:
   // Initialize an EnvWrapper that delegates all calls to *t
   explicit EnvWrapper(Env* t) : target_(t) { }
-  virtual ~EnvWrapper();
+  ~EnvWrapper() override;
 
   // Return the target to which this Env forwards all calls
   Env* target() const { return target_; }
@@ -893,6 +943,11 @@ class EnvWrapper : public Env {
                          const EnvOptions& options) override {
     return target_->NewWritableFile(f, r, options);
   }
+  Status ReopenWritableFile(const std::string& fname,
+                            unique_ptr<WritableFile>* result,
+                            const EnvOptions& options) override {
+    return target_->ReopenWritableFile(fname, result, options);
+  }
   Status ReuseWritableFile(const std::string& fname,
                            const std::string& old_fname,
                            unique_ptr<WritableFile>* r,
@@ -904,8 +959,8 @@ class EnvWrapper : public Env {
                          const EnvOptions& options) override {
     return target_->NewRandomRWFile(fname, result, options);
   }
-  virtual Status NewDirectory(const std::string& name,
-                              unique_ptr<Directory>* result) override {
+  Status NewDirectory(const std::string& name,
+                      unique_ptr<Directory>* result) override {
     return target_->NewDirectory(name, result);
   }
   Status FileExists(const std::string& f) override {
@@ -948,6 +1003,11 @@ class EnvWrapper : public Env {
     return target_->LinkFile(s, t);
   }
 
+  Status AreFilesSame(const std::string& first, const std::string& second,
+                      bool* res) override {
+    return target_->AreFilesSame(first, second, res);
+  }
+
   Status LockFile(const std::string& f, FileLock** l) override {
     return target_->LockFile(f, l);
   }
@@ -967,18 +1027,19 @@ class EnvWrapper : public Env {
     return target_->StartThread(f, a);
   }
   void WaitForJoin() override { return target_->WaitForJoin(); }
-  virtual unsigned int GetThreadPoolQueueLen(
-      Priority pri = LOW) const override {
+  unsigned int GetThreadPoolQueueLen(Priority pri = LOW) const override {
     return target_->GetThreadPoolQueueLen(pri);
   }
-  virtual Status GetTestDirectory(std::string* path) override {
+  Status GetTestDirectory(std::string* path) override {
     return target_->GetTestDirectory(path);
   }
-  virtual Status NewLogger(const std::string& fname,
-                           shared_ptr<Logger>* result) override {
+  Status NewLogger(const std::string& fname,
+                   shared_ptr<Logger>* result) override {
     return target_->NewLogger(fname, result);
   }
   uint64_t NowMicros() override { return target_->NowMicros(); }
+  uint64_t NowNanos() override { return target_->NowNanos(); }
+
   void SleepForMicroseconds(int micros) override {
     target_->SleepForMicroseconds(micros);
   }
@@ -994,6 +1055,9 @@ class EnvWrapper : public Env {
   }
   void SetBackgroundThreads(int num, Priority pri) override {
     return target_->SetBackgroundThreads(num, pri);
+  }
+  int GetBackgroundThreads(Priority pri) override {
+    return target_->GetBackgroundThreads(pri);
   }
 
   void IncBackgroundThreadsIfNeeded(int num, Priority pri) override {
@@ -1018,6 +1082,36 @@ class EnvWrapper : public Env {
 
   uint64_t GetThreadID() const override {
     return target_->GetThreadID();
+  }
+
+  std::string GenerateUniqueId() override {
+    return target_->GenerateUniqueId();
+  }
+
+  EnvOptions OptimizeForLogRead(const EnvOptions& env_options) const override {
+    return target_->OptimizeForLogRead(env_options);
+  }
+  EnvOptions OptimizeForManifestRead(
+      const EnvOptions& env_options) const override {
+    return target_->OptimizeForManifestRead(env_options);
+  }
+  EnvOptions OptimizeForLogWrite(const EnvOptions& env_options,
+                                 const DBOptions& db_options) const override {
+    return target_->OptimizeForLogWrite(env_options, db_options);
+  }
+  EnvOptions OptimizeForManifestWrite(
+      const EnvOptions& env_options) const override {
+    return target_->OptimizeForManifestWrite(env_options);
+  }
+  EnvOptions OptimizeForCompactionTableWrite(
+      const EnvOptions& env_options,
+      const ImmutableDBOptions& immutable_ops) const override {
+    return target_->OptimizeForCompactionTableWrite(env_options, immutable_ops);
+  }
+  EnvOptions OptimizeForCompactionTableRead(
+      const EnvOptions& env_options,
+      const ImmutableDBOptions& db_options) const override {
+    return target_->OptimizeForCompactionTableRead(env_options, db_options);
   }
 
  private:
@@ -1059,10 +1153,10 @@ class WritableFileWrapper : public WritableFile {
     return target_->InvalidateCache(offset, length);
   }
 
-  virtual void SetPreallocationBlockSize(size_t size) override {
+  void SetPreallocationBlockSize(size_t size) override {
     target_->SetPreallocationBlockSize(size);
   }
-  virtual void PrepareWrite(size_t offset, size_t len) override {
+  void PrepareWrite(size_t offset, size_t len) override {
     target_->PrepareWrite(offset, len);
   }
 
@@ -1087,6 +1181,11 @@ Env* NewMemEnv(Env* base_env);
 // Returns a new environment that is used for HDFS environment.
 // This is a factory method for HdfsEnv declared in hdfs/env_hdfs.h
 Status NewHdfsEnv(Env** hdfs_env, const std::string& fsname);
+
+// Returns a new environment that measures function call times for filesystem
+// operations, reporting results to variables in PerfContext.
+// This is a factory method for TimedEnv defined in utilities/env_timed.cc.
+Env* NewTimedEnv(Env* base_env);
 
 }  // namespace rocksdb
 

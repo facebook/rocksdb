@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 package org.rocksdb;
 
@@ -17,8 +17,8 @@ import java.util.Properties;
  * automatically and native resources will be released as part of the process.
  */
 public class ColumnFamilyOptions extends RocksObject
-    implements ColumnFamilyOptionsInterface,
-    MutableColumnFamilyOptionsInterface {
+    implements ColumnFamilyOptionsInterface<ColumnFamilyOptions>,
+    MutableColumnFamilyOptionsInterface<ColumnFamilyOptions> {
   static {
     RocksDB.loadLibrary();
   }
@@ -75,6 +75,12 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
+  public ColumnFamilyOptions optimizeForSmallDb() {
+    optimizeForSmallDb(nativeHandle_);
+    return this;
+  }
+
+  @Override
   public ColumnFamilyOptions optimizeForPointLookup(
       final long blockCacheSizeMb) {
     optimizeForPointLookup(nativeHandle_,
@@ -124,7 +130,8 @@ public class ColumnFamilyOptions extends RocksObject
   public ColumnFamilyOptions setComparator(
       final AbstractComparator<? extends AbstractSlice<?>> comparator) {
     assert (isOwningHandle());
-    setComparatorHandle(nativeHandle_, comparator.getNativeHandle());
+    setComparatorHandle(nativeHandle_, comparator.nativeHandle_,
+            comparator instanceof DirectComparator);
     comparator_ = comparator;
     return this;
   }
@@ -143,15 +150,47 @@ public class ColumnFamilyOptions extends RocksObject
   @Override
   public ColumnFamilyOptions setMergeOperator(
       final MergeOperator mergeOperator) {
-    setMergeOperator(nativeHandle_, mergeOperator.newMergeOperatorHandle());
+    setMergeOperator(nativeHandle_, mergeOperator.nativeHandle_);
     return this;
   }
 
+  /**
+   * A single CompactionFilter instance to call into during compaction.
+   * Allows an application to modify/delete a key-value during background
+   * compaction.
+   *
+   * If the client requires a new compaction filter to be used for different
+   * compaction runs, it can specify call
+   * {@link #setCompactionFilterFactory(AbstractCompactionFilterFactory)}
+   * instead.
+   *
+   * The client should specify only set one of the two.
+   * {@link #setCompactionFilter(AbstractCompactionFilter)} takes precedence
+   * over {@link #setCompactionFilterFactory(AbstractCompactionFilterFactory)}
+   * if the client specifies both.
+   */
+  //TODO(AR) need to set a note on the concurrency of the compaction filter used from this method
   public ColumnFamilyOptions setCompactionFilter(
         final AbstractCompactionFilter<? extends AbstractSlice<?>>
             compactionFilter) {
     setCompactionFilterHandle(nativeHandle_, compactionFilter.nativeHandle_);
     compactionFilter_ = compactionFilter;
+    return this;
+  }
+
+  /**
+   * This is a factory that provides {@link AbstractCompactionFilter} objects
+   * which allow an application to modify/delete a key-value during background
+   * compaction.
+   *
+   * A new filter will be created on each compaction run.  If multithreaded
+   * compaction is being used, each created CompactionFilter will only be used
+   * from a single thread and so does not need to be thread-safe.
+   */
+  public ColumnFamilyOptions setCompactionFilterFactory(final AbstractCompactionFilterFactory<? extends AbstractCompactionFilter<?>> compactionFilterFactory) {
+    assert (isOwningHandle());
+    setCompactionFilterFactoryHandle(nativeHandle_, compactionFilterFactory.nativeHandle_);
+    compactionFilterFactory_ = compactionFilterFactory;
     return this;
   }
 
@@ -217,7 +256,7 @@ public class ColumnFamilyOptions extends RocksObject
 
   @Override
   public CompressionType compressionType() {
-    return CompressionType.values()[compressionType(nativeHandle_)];
+    return CompressionType.getCompressionType(compressionType(nativeHandle_));
   }
 
   @Override
@@ -242,6 +281,33 @@ public class ColumnFamilyOptions extends RocksObject
           byteCompressionType));
     }
     return compressionLevels;
+  }
+
+  @Override
+  public ColumnFamilyOptions setBottommostCompressionType(
+      final CompressionType bottommostCompressionType) {
+    setBottommostCompressionType(nativeHandle_,
+        bottommostCompressionType.getValue());
+    return this;
+  }
+
+  @Override
+  public CompressionType bottommostCompressionType() {
+    return CompressionType.getCompressionType(
+        bottommostCompressionType(nativeHandle_));
+  }
+
+  @Override
+  public ColumnFamilyOptions setCompressionOptions(
+      final CompressionOptions compressionOptions) {
+    setCompressionOptions(nativeHandle_, compressionOptions.nativeHandle_);
+    this.compressionOptions_ = compressionOptions;
+    return this;
+  }
+
+  @Override
+  public CompressionOptions compressionOptions() {
+    return this.compressionOptions_;
   }
 
   @Override
@@ -289,17 +355,6 @@ public class ColumnFamilyOptions extends RocksObject
   @Override
   public int levelZeroStopWritesTrigger() {
     return levelZeroStopWritesTrigger(nativeHandle_);
-  }
-
-  @Override
-  public ColumnFamilyOptions setMaxMemCompactionLevel(
-      final int maxMemCompactionLevel) {
-    return this;
-  }
-
-  @Override
-  public int maxMemCompactionLevel() {
-    return 0;
   }
 
   @Override
@@ -374,43 +429,6 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setSoftRateLimit(
-      final double softRateLimit) {
-    setSoftRateLimit(nativeHandle_, softRateLimit);
-    return this;
-  }
-
-  @Override
-  public double softRateLimit() {
-    return softRateLimit(nativeHandle_);
-  }
-
-  @Override
-  public ColumnFamilyOptions setHardRateLimit(
-      final double hardRateLimit) {
-    setHardRateLimit(nativeHandle_, hardRateLimit);
-    return this;
-  }
-
-  @Override
-  public double hardRateLimit() {
-    return hardRateLimit(nativeHandle_);
-  }
-
-  @Override
-  public ColumnFamilyOptions setRateLimitDelayMaxMilliseconds(
-      final int rateLimitDelayMaxMilliseconds) {
-    setRateLimitDelayMaxMilliseconds(
-        nativeHandle_, rateLimitDelayMaxMilliseconds);
-    return this;
-  }
-
-  @Override
-  public int rateLimitDelayMaxMilliseconds() {
-    return rateLimitDelayMaxMilliseconds(nativeHandle_);
-  }
-
-  @Override
   public ColumnFamilyOptions setArenaBlockSize(
       final long arenaBlockSize) {
     setArenaBlockSize(nativeHandle_, arenaBlockSize);
@@ -432,19 +450,6 @@ public class ColumnFamilyOptions extends RocksObject
   @Override
   public boolean disableAutoCompactions() {
     return disableAutoCompactions(nativeHandle_);
-  }
-
-  @Override
-  public ColumnFamilyOptions setPurgeRedundantKvsWhileFlush(
-      final boolean purgeRedundantKvsWhileFlush) {
-    setPurgeRedundantKvsWhileFlush(
-        nativeHandle_, purgeRedundantKvsWhileFlush);
-    return this;
-  }
-
-  @Override
-  public boolean purgeRedundantKvsWhileFlush() {
-    return purgeRedundantKvsWhileFlush(nativeHandle_);
   }
 
   @Override
@@ -474,19 +479,6 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setVerifyChecksumsInCompaction(
-      final boolean verifyChecksumsInCompaction) {
-    setVerifyChecksumsInCompaction(
-        nativeHandle_, verifyChecksumsInCompaction);
-    return this;
-  }
-
-  @Override
-  public boolean verifyChecksumsInCompaction() {
-    return verifyChecksumsInCompaction(nativeHandle_);
-  }
-
-  @Override
   public ColumnFamilyOptions setMaxSequentialSkipInIterations(
       final long maxSequentialSkipInIterations) {
     setMaxSequentialSkipInIterations(nativeHandle_,
@@ -500,10 +492,16 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
+  public MemTableConfig memTableConfig() {
+    return this.memTableConfig_;
+  }
+
+  @Override
   public ColumnFamilyOptions setMemTableConfig(
-      final MemTableConfig config) {
-    memTableConfig_ = config;
-    setMemTableFactory(nativeHandle_, config.newMemTableFactoryHandle());
+      final MemTableConfig memTableConfig) {
+    setMemTableFactory(
+        nativeHandle_, memTableConfig.newMemTableFactoryHandle());
+    this.memTableConfig_ = memTableConfig;
     return this;
   }
 
@@ -514,10 +512,15 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
+  public TableFormatConfig tableFormatConfig() {
+    return this.tableFormatConfig_;
+  }
+
+  @Override
   public ColumnFamilyOptions setTableFormatConfig(
-      final TableFormatConfig config) {
-    tableFormatConfig_ = config;
-    setTableFactory(nativeHandle_, config.newTableFactoryHandle());
+      final TableFormatConfig tableFormatConfig) {
+    setTableFactory(nativeHandle_, tableFormatConfig.newTableFactoryHandle());
+    this.tableFormatConfig_ = tableFormatConfig;
     return this;
   }
 
@@ -584,18 +587,6 @@ public class ColumnFamilyOptions extends RocksObject
   @Override
   public long maxSuccessiveMerges() {
     return maxSuccessiveMerges(nativeHandle_);
-  }
-
-  @Override
-  public ColumnFamilyOptions setMinPartialMergeOperands(
-      final int minPartialMergeOperands) {
-    setMinPartialMergeOperands(nativeHandle_, minPartialMergeOperands);
-    return this;
-  }
-
-  @Override
-  public int minPartialMergeOperands() {
-    return minPartialMergeOperands(nativeHandle_);
   }
 
   @Override
@@ -702,13 +693,89 @@ public class ColumnFamilyOptions extends RocksObject
     return paranoidFileChecks(nativeHandle_);
   }
 
+  @Override
+  public ColumnFamilyOptions setMaxWriteBufferNumberToMaintain(
+      final int maxWriteBufferNumberToMaintain) {
+    setMaxWriteBufferNumberToMaintain(
+        nativeHandle_, maxWriteBufferNumberToMaintain);
+    return this;
+  }
+
+  @Override
+  public int maxWriteBufferNumberToMaintain() {
+    return maxWriteBufferNumberToMaintain(nativeHandle_);
+  }
+
+  @Override
+  public ColumnFamilyOptions setCompactionPriority(
+      final CompactionPriority compactionPriority) {
+    setCompactionPriority(nativeHandle_, compactionPriority.getValue());
+    return this;
+  }
+
+  @Override
+  public CompactionPriority compactionPriority() {
+    return CompactionPriority.getCompactionPriority(
+        compactionPriority(nativeHandle_));
+  }
+
+  @Override
+  public ColumnFamilyOptions setReportBgIoStats(final boolean reportBgIoStats) {
+    setReportBgIoStats(nativeHandle_, reportBgIoStats);
+    return this;
+  }
+
+  @Override
+  public boolean reportBgIoStats() {
+    return reportBgIoStats(nativeHandle_);
+  }
+
+  @Override
+  public ColumnFamilyOptions setCompactionOptionsUniversal(
+      final CompactionOptionsUniversal compactionOptionsUniversal) {
+    setCompactionOptionsUniversal(nativeHandle_,
+        compactionOptionsUniversal.nativeHandle_);
+    this.compactionOptionsUniversal_ = compactionOptionsUniversal;
+    return this;
+  }
+
+  @Override
+  public CompactionOptionsUniversal compactionOptionsUniversal() {
+    return this.compactionOptionsUniversal_;
+  }
+
+  @Override
+  public ColumnFamilyOptions setCompactionOptionsFIFO(final CompactionOptionsFIFO compactionOptionsFIFO) {
+    setCompactionOptionsFIFO(nativeHandle_,
+        compactionOptionsFIFO.nativeHandle_);
+    this.compactionOptionsFIFO_ = compactionOptionsFIFO;
+    return this;
+  }
+
+  @Override
+  public CompactionOptionsFIFO compactionOptionsFIFO() {
+    return this.compactionOptionsFIFO_;
+  }
+
+  @Override
+  public ColumnFamilyOptions setForceConsistencyChecks(final boolean forceConsistencyChecks) {
+    setForceConsistencyChecks(nativeHandle_, forceConsistencyChecks);
+    return this;
+  }
+
+  @Override
+  public boolean forceConsistencyChecks() {
+    return forceConsistencyChecks(nativeHandle_);
+  }
+
   /**
-   * <p>Private constructor to be used by
+   * <p>Constructor to be used by
    * {@link #getColumnFamilyOptionsFromProps(java.util.Properties)}</p>
+   * and also called via JNI.
    *
    * @param handle native handle to ColumnFamilyOptions instance.
    */
-  private ColumnFamilyOptions(final long handle) {
+  public ColumnFamilyOptions(final long handle) {
     super(handle);
   }
 
@@ -718,6 +785,7 @@ public class ColumnFamilyOptions extends RocksObject
   private static native long newColumnFamilyOptions();
   @Override protected final native void disposeInternal(final long handle);
 
+  private native void optimizeForSmallDb(final long handle);
   private native void optimizeForPointLookup(long handle,
       long blockCacheSizeMb);
   private native void optimizeLevelStyleCompaction(long handle,
@@ -726,11 +794,13 @@ public class ColumnFamilyOptions extends RocksObject
       long memtableMemoryBudget);
   private native void setComparatorHandle(long handle, int builtinComparator);
   private native void setComparatorHandle(long optHandle,
-      long comparatorHandle);
+      long comparatorHandle, boolean isDirect);
   private native void setMergeOperatorName(long handle, String name);
   private native void setMergeOperator(long handle, long mergeOperatorHandle);
   private native void setCompactionFilterHandle(long handle,
       long compactionFilterHandle);
+  private native void setCompactionFilterFactoryHandle(long handle,
+      long compactionFilterFactoryHandle);
   private native void setWriteBufferSize(long handle, long writeBufferSize)
       throws IllegalArgumentException;
   private native long writeBufferSize(long handle);
@@ -745,6 +815,11 @@ public class ColumnFamilyOptions extends RocksObject
   private native void setCompressionPerLevel(long handle,
       byte[] compressionLevels);
   private native byte[] compressionPerLevel(long handle);
+  private native void setBottommostCompressionType(long handle,
+      byte bottommostCompressionType);
+  private native byte bottommostCompressionType(long handle);
+  private native void setCompressionOptions(long handle,
+      long compressionOptionsHandle);
   private native void useFixedLengthPrefixExtractor(
       long handle, int prefixLength);
   private native void useCappedPrefixExtractor(
@@ -778,15 +853,6 @@ public class ColumnFamilyOptions extends RocksObject
   private native double maxBytesForLevelMultiplier(long handle);
   private native void setMaxCompactionBytes(long handle, long maxCompactionBytes);
   private native long maxCompactionBytes(long handle);
-  private native void setSoftRateLimit(
-      long handle, double softRateLimit);
-  private native double softRateLimit(long handle);
-  private native void setHardRateLimit(
-      long handle, double hardRateLimit);
-  private native double hardRateLimit(long handle);
-  private native void setRateLimitDelayMaxMilliseconds(
-      long handle, int rateLimitDelayMaxMilliseconds);
-  private native int rateLimitDelayMaxMilliseconds(long handle);
   private native void setArenaBlockSize(
       long handle, long arenaBlockSize)
       throws IllegalArgumentException;
@@ -799,12 +865,6 @@ public class ColumnFamilyOptions extends RocksObject
    private native void setMaxTableFilesSizeFIFO(
       long handle, long max_table_files_size);
   private native long maxTableFilesSizeFIFO(long handle);
-  private native void setPurgeRedundantKvsWhileFlush(
-      long handle, boolean purgeRedundantKvsWhileFlush);
-  private native boolean purgeRedundantKvsWhileFlush(long handle);
-  private native void setVerifyChecksumsInCompaction(
-      long handle, boolean verifyChecksumsInCompaction);
-  private native boolean verifyChecksumsInCompaction(long handle);
   private native void setMaxSequentialSkipInIterations(
       long handle, long maxSequentialSkipInIterations);
   private native long maxSequentialSkipInIterations(long handle);
@@ -829,9 +889,6 @@ public class ColumnFamilyOptions extends RocksObject
       long handle, long maxSuccessiveMerges)
       throws IllegalArgumentException;
   private native long maxSuccessiveMerges(long handle);
-  private native void setMinPartialMergeOperands(
-      long handle, int minPartialMergeOperands);
-  private native int minPartialMergeOperands(long handle);
   private native void setOptimizeFiltersForHits(long handle,
       boolean optimizeFiltersForHits);
   private native boolean optimizeFiltersForHits(long handle);
@@ -859,9 +916,32 @@ public class ColumnFamilyOptions extends RocksObject
   private native void setParanoidFileChecks(long handle,
       boolean paranoidFileChecks);
   private native boolean paranoidFileChecks(long handle);
+  private native void setMaxWriteBufferNumberToMaintain(final long handle,
+      final int maxWriteBufferNumberToMaintain);
+  private native int maxWriteBufferNumberToMaintain(final long handle);
+  private native void setCompactionPriority(final long handle,
+      final byte compactionPriority);
+  private native byte compactionPriority(final long handle);
+  private native void setReportBgIoStats(final long handle,
+    final boolean reportBgIoStats);
+  private native boolean reportBgIoStats(final long handle);
+  private native void setCompactionOptionsUniversal(final long handle,
+    final long compactionOptionsUniversalHandle);
+  private native void setCompactionOptionsFIFO(final long handle,
+    final long compactionOptionsFIFOHandle);
+  private native void setForceConsistencyChecks(final long handle,
+    final boolean forceConsistencyChecks);
+  private native boolean forceConsistencyChecks(final long handle);
 
-  MemTableConfig memTableConfig_;
-  TableFormatConfig tableFormatConfig_;
-  AbstractComparator<? extends AbstractSlice<?>> comparator_;
-  AbstractCompactionFilter<? extends AbstractSlice<?>> compactionFilter_;
+  // instance variables
+  private MemTableConfig memTableConfig_;
+  private TableFormatConfig tableFormatConfig_;
+  private AbstractComparator<? extends AbstractSlice<?>> comparator_;
+  private AbstractCompactionFilter<? extends AbstractSlice<?>> compactionFilter_;
+  AbstractCompactionFilterFactory<? extends AbstractCompactionFilter<?>>
+      compactionFilterFactory_;
+  private CompactionOptionsUniversal compactionOptionsUniversal_;
+  private CompactionOptionsFIFO compactionOptionsFIFO_;
+  private CompressionOptions compressionOptions_;
+
 }

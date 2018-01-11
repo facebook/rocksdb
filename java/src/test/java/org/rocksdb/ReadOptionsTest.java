@@ -1,10 +1,11 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 package org.rocksdb;
 
+import java.util.Arrays;
 import java.util.Random;
 
 import org.junit.ClassRule;
@@ -102,6 +103,61 @@ public class ReadOptionsTest {
   }
 
   @Test
+  public void backgroundPurgeOnIteratorCleanup() {
+    try (final ReadOptions opt = new ReadOptions()) {
+      opt.setBackgroundPurgeOnIteratorCleanup(true);
+      assertThat(opt.backgroundPurgeOnIteratorCleanup()).isTrue();
+    }
+  }
+
+  @Test
+  public void readaheadSize() {
+    try (final ReadOptions opt = new ReadOptions()) {
+      final Random rand = new Random();
+      final long longValue = rand.nextLong();
+      opt.setReadaheadSize(longValue);
+      assertThat(opt.readaheadSize()).isEqualTo(longValue);
+    }
+  }
+
+  @Test
+  public void ignoreRangeDeletions() {
+    try (final ReadOptions opt = new ReadOptions()) {
+      opt.setIgnoreRangeDeletions(true);
+      assertThat(opt.ignoreRangeDeletions()).isTrue();
+    }
+  }
+
+  @Test
+  public void iterateUpperBound() {
+    try (final ReadOptions opt = new ReadOptions()) {
+      Slice upperBound = buildRandomSlice();
+      opt.setIterateUpperBound(upperBound);
+      assertThat(Arrays.equals(upperBound.data(), opt.iterateUpperBound().data())).isTrue();
+    }
+  }
+
+  @Test
+  public void iterateUpperBoundNull() {
+    try (final ReadOptions opt = new ReadOptions()) {
+      assertThat(opt.iterateUpperBound()).isNull();
+    }
+  }
+
+  @Test
+  public void copyConstructor() {
+    try (final ReadOptions opt = new ReadOptions()) {
+      opt.setVerifyChecksums(false);
+      opt.setFillCache(false);
+      opt.setIterateUpperBound(buildRandomSlice());
+      ReadOptions other = new ReadOptions(opt);
+      assertThat(opt.verifyChecksums()).isEqualTo(other.verifyChecksums());
+      assertThat(opt.fillCache()).isEqualTo(other.fillCache());
+      assertThat(Arrays.equals(opt.iterateUpperBound().data(), other.iterateUpperBound().data())).isTrue();
+    }
+  }
+
+  @Test
   public void failSetVerifyChecksumUninitialized() {
     try (final ReadOptions readOptions =
              setupUninitializedReadOptions(exception)) {
@@ -165,6 +221,22 @@ public class ReadOptionsTest {
     }
   }
 
+  @Test
+  public void failSetIterateUpperBoundUninitialized() {
+    try (final ReadOptions readOptions =
+             setupUninitializedReadOptions(exception)) {
+      readOptions.setIterateUpperBound(null);
+    }
+  }
+
+  @Test
+  public void failIterateUpperBoundUninitialized() {
+    try (final ReadOptions readOptions =
+             setupUninitializedReadOptions(exception)) {
+      readOptions.iterateUpperBound();
+    }
+  }
+
   private ReadOptions setupUninitializedReadOptions(
       ExpectedException exception) {
     final ReadOptions readOptions = new ReadOptions();
@@ -172,4 +244,12 @@ public class ReadOptionsTest {
     exception.expect(AssertionError.class);
     return readOptions;
   }
+
+  private Slice buildRandomSlice() {
+    final Random rand = new Random();
+    byte[] sliceBytes = new byte[rand.nextInt(100) + 1];
+    rand.nextBytes(sliceBytes);
+    return new Slice(sliceBytes);
+  }
+
 }

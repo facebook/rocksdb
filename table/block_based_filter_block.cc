@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2012 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -11,9 +11,9 @@
 #include <algorithm>
 
 #include "db/dbformat.h"
+#include "monitoring/perf_context_imp.h"
 #include "rocksdb/filter_policy.h"
 #include "util/coding.h"
-#include "util/perf_context_imp.h"
 #include "util/string_util.h"
 
 namespace rocksdb {
@@ -113,7 +113,10 @@ inline void BlockBasedFilterBlockBuilder::AddPrefix(const Slice& key) {
   }
 }
 
-Slice BlockBasedFilterBlockBuilder::Finish() {
+Slice BlockBasedFilterBlockBuilder::Finish(const BlockHandle& tmp,
+                                           Status* status) {
+  // In this impl we ignore BlockHandle
+  *status = Status::OK();
   if (!start_.empty()) {
     GenerateFilter();
   }
@@ -181,8 +184,9 @@ BlockBasedFilterBlockReader::BlockBasedFilterBlockReader(
   num_ = (n - 5 - last_word) / 4;
 }
 
-bool BlockBasedFilterBlockReader::KeyMayMatch(const Slice& key,
-                                              uint64_t block_offset) {
+bool BlockBasedFilterBlockReader::KeyMayMatch(
+    const Slice& key, uint64_t block_offset, const bool no_io,
+    const Slice* const const_ikey_ptr) {
   assert(block_offset != kNotValid);
   if (!whole_key_filtering_) {
     return true;
@@ -190,8 +194,9 @@ bool BlockBasedFilterBlockReader::KeyMayMatch(const Slice& key,
   return MayMatch(key, block_offset);
 }
 
-bool BlockBasedFilterBlockReader::PrefixMayMatch(const Slice& prefix,
-                                                 uint64_t block_offset) {
+bool BlockBasedFilterBlockReader::PrefixMayMatch(
+    const Slice& prefix, uint64_t block_offset, const bool no_io,
+    const Slice* const const_ikey_ptr) {
   assert(block_offset != kNotValid);
   if (!prefix_extractor_) {
     return true;

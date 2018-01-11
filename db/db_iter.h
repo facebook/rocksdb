@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -10,13 +10,14 @@
 #pragma once
 #include <stdint.h>
 #include <string>
+#include "db/db_impl.h"
 #include "db/dbformat.h"
 #include "db/range_del_aggregator.h"
+#include "options/cf_options.h"
 #include "rocksdb/db.h"
 #include "rocksdb/iterator.h"
 #include "util/arena.h"
 #include "util/autovector.h"
-#include "util/cf_options.h"
 
 namespace rocksdb {
 
@@ -27,13 +28,14 @@ class InternalIterator;
 // Return a new iterator that converts internal keys (yielded by
 // "*internal_iter") that were live at the specified "sequence" number
 // into appropriate user keys.
-extern Iterator* NewDBIterator(
-    Env* env, const ImmutableCFOptions& options,
-    const Comparator* user_key_comparator, InternalIterator* internal_iter,
-    const SequenceNumber& sequence, uint64_t max_sequential_skip_in_iterations,
-    uint64_t version_number, const Slice* iterate_upper_bound = nullptr,
-    bool prefix_same_as_start = false, bool pin_data = false,
-    bool total_order_seek = false);
+extern Iterator* NewDBIterator(Env* env, const ReadOptions& read_options,
+                               const ImmutableCFOptions& cf_options,
+                               const Comparator* user_key_comparator,
+                               InternalIterator* internal_iter,
+                               const SequenceNumber& sequence,
+                               uint64_t max_sequential_skip_in_iterations,
+                               ReadCallback* read_callback,
+                               bool allow_blob = false);
 
 // A wrapper iterator which wraps DB Iterator and the arena, with which the DB
 // iterator is supposed be allocated. This class is used as an entry point of
@@ -49,10 +51,6 @@ class ArenaWrappedDBIter : public Iterator {
   virtual Arena* GetArena() { return &arena_; }
   virtual RangeDelAggregator* GetRangeDelAggregator();
 
-  // Set the DB Iterator to be wrapped
-
-  virtual void SetDBIter(DBIter* iter);
-
   // Set the internal iterator wrapped inside the DB Iterator. Usually it is
   // a merging iterator.
   virtual void SetIterUnderDBIter(InternalIterator* iter);
@@ -66,22 +64,47 @@ class ArenaWrappedDBIter : public Iterator {
   virtual Slice key() const override;
   virtual Slice value() const override;
   virtual Status status() const override;
+  virtual Status Refresh() override;
+  bool IsBlob() const;
 
-  void RegisterCleanup(CleanupFunction function, void* arg1, void* arg2);
   virtual Status GetProperty(std::string prop_name, std::string* prop) override;
+
+  void Init(Env* env, const ReadOptions& read_options,
+            const ImmutableCFOptions& cf_options,
+            const SequenceNumber& sequence,
+            uint64_t max_sequential_skip_in_iterations, uint64_t version_number,
+            ReadCallback* read_callback, bool allow_blob, bool allow_refresh);
+
+  void StoreRefreshInfo(const ReadOptions& read_options, DBImpl* db_impl,
+                        ColumnFamilyData* cfd, ReadCallback* read_callback,
+                        bool allow_blob) {
+    read_options_ = read_options;
+    db_impl_ = db_impl;
+    cfd_ = cfd;
+    read_callback_ = read_callback;
+    allow_blob_ = allow_blob;
+  }
 
  private:
   DBIter* db_iter_;
   Arena arena_;
+  uint64_t sv_number_;
+  ColumnFamilyData* cfd_ = nullptr;
+  DBImpl* db_impl_ = nullptr;
+  ReadOptions read_options_;
+  ReadCallback* read_callback_;
+  bool allow_blob_ = false;
+  bool allow_refresh_ = true;
 };
 
 // Generate the arena wrapped iterator class.
+// `db_impl` and `cfd` are used for reneweal. If left null, renewal will not
+// be supported.
 extern ArenaWrappedDBIter* NewArenaWrappedDbIterator(
-    Env* env, const ImmutableCFOptions& options,
-    const Comparator* user_key_comparator, const SequenceNumber& sequence,
+    Env* env, const ReadOptions& read_options,
+    const ImmutableCFOptions& cf_options, const SequenceNumber& sequence,
     uint64_t max_sequential_skip_in_iterations, uint64_t version_number,
-    const Slice* iterate_upper_bound = nullptr,
-    bool prefix_same_as_start = false, bool pin_data = false,
-    bool total_order_seek = false);
-
+    ReadCallback* read_callback, DBImpl* db_impl = nullptr,
+    ColumnFamilyData* cfd = nullptr, bool allow_blob = false,
+    bool allow_refresh = true);
 }  // namespace rocksdb

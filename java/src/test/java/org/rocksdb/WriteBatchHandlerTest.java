@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 package org.rocksdb;
 
@@ -119,12 +119,7 @@ public class WriteBatchHandlerTest {
    * Enumeration of Write Batch
    * event actions
    */
-  private enum Action {
-    PUT,
-    MERGE,
-    DELETE,
-    LOG
-  }
+  private enum Action { PUT, MERGE, DELETE, DELETE_RANGE, LOG }
 
   /**
    * A simple WriteBatch Handler which adds a record
@@ -158,6 +153,11 @@ public class WriteBatchHandlerTest {
     public void delete(final byte[] key) {
       events.add(new Tuple<>(Action.DELETE,
           new Tuple<byte[], byte[]>(key, null)));
+    }
+
+    @Override
+    public void deleteRange(final byte[] beginKey, final byte[] endKey) {
+      events.add(new Tuple<>(Action.DELETE_RANGE, new Tuple<byte[], byte[]>(beginKey, endKey)));
     }
 
     @Override

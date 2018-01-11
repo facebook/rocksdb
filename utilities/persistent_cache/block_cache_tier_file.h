@@ -1,7 +1,7 @@
 //  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
 #ifndef ROCKSDB_LITE
@@ -21,6 +21,7 @@
 
 #include "port/port.h"
 #include "util/crc32c.h"
+#include "util/file_reader_writer.h"
 #include "util/mutexlock.h"
 
 // The io code path of persistent cache uses pipelined architecture
@@ -157,7 +158,7 @@ class RandomAccessCacheFile : public BlockCacheFile {
   bool Read(const LBA& lba, Slice* key, Slice* block, char* scratch) override;
 
  private:
-  std::unique_ptr<RandomAccessFile> file_;
+  std::unique_ptr<RandomAccessFileReader> freader_;
 
  protected:
   bool OpenImpl(const bool enable_direct_reads);
@@ -284,7 +285,7 @@ class ThreadedWriter : public Writer {
 
   const size_t io_size_ = 0;
   BoundedQueue<IO> q_;
-  std::vector<std::thread> threads_;
+  std::vector<port::Thread> threads_;
 };
 
 }  // namespace rocksdb

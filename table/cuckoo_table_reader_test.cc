@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc. All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef ROCKSDB_LITE
 
@@ -18,24 +18,24 @@ int main() {
 #endif
 
 #include <inttypes.h>
-#include <gflags/gflags.h>
 #include <vector>
 #include <string>
 #include <map>
 
-#include "table/meta_blocks.h"
 #include "table/cuckoo_table_builder.h"
-#include "table/cuckoo_table_reader.h"
 #include "table/cuckoo_table_factory.h"
+#include "table/cuckoo_table_reader.h"
 #include "table/get_context.h"
+#include "table/meta_blocks.h"
 #include "util/arena.h"
+#include "util/gflags_compat.h"
 #include "util/random.h"
 #include "util/string_util.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 
-using GFLAGS::ParseCommandLineFlags;
-using GFLAGS::SetUsageMessage;
+using GFLAGS_NAMESPACE::ParseCommandLineFlags;
+using GFLAGS_NAMESPACE::SetUsageMessage;
 
 DEFINE_string(file_dir, "", "Directory where the files will be created"
     " for benchmark. Added for using tmpfs.");
@@ -116,19 +116,19 @@ class CuckooReaderTest : public testing::Test {
     std::unique_ptr<RandomAccessFile> read_file;
     ASSERT_OK(env->NewRandomAccessFile(fname, &read_file, env_options));
     unique_ptr<RandomAccessFileReader> file_reader(
-        new RandomAccessFileReader(std::move(read_file)));
+        new RandomAccessFileReader(std::move(read_file), fname));
     const ImmutableCFOptions ioptions(options);
     CuckooTableReader reader(ioptions, std::move(file_reader), file_size, ucomp,
                              GetSliceHash);
     ASSERT_OK(reader.status());
     // Assume no merge/deletion
     for (uint32_t i = 0; i < num_items; ++i) {
-      std::string value;
+      PinnableSlice value;
       GetContext get_context(ucomp, nullptr, nullptr, nullptr,
                              GetContext::kNotFound, Slice(user_keys[i]), &value,
                              nullptr, nullptr, nullptr, nullptr);
       ASSERT_OK(reader.Get(ReadOptions(), Slice(keys[i]), &get_context));
-      ASSERT_EQ(values[i], value);
+      ASSERT_STREQ(values[i].c_str(), value.data());
     }
   }
   void UpdateKeys(bool with_zero_seqno) {
@@ -144,7 +144,7 @@ class CuckooReaderTest : public testing::Test {
     std::unique_ptr<RandomAccessFile> read_file;
     ASSERT_OK(env->NewRandomAccessFile(fname, &read_file, env_options));
     unique_ptr<RandomAccessFileReader> file_reader(
-        new RandomAccessFileReader(std::move(read_file)));
+        new RandomAccessFileReader(std::move(read_file), fname));
     const ImmutableCFOptions ioptions(options);
     CuckooTableReader reader(ioptions, std::move(file_reader), file_size, ucomp,
                              GetSliceHash);
@@ -322,7 +322,7 @@ TEST_F(CuckooReaderTest, WhenKeyNotFound) {
   std::unique_ptr<RandomAccessFile> read_file;
   ASSERT_OK(env->NewRandomAccessFile(fname, &read_file, env_options));
   unique_ptr<RandomAccessFileReader> file_reader(
-      new RandomAccessFileReader(std::move(read_file)));
+      new RandomAccessFileReader(std::move(read_file), fname));
   const ImmutableCFOptions ioptions(options);
   CuckooTableReader reader(ioptions, std::move(file_reader), file_size, ucmp,
                            GetSliceHash);
@@ -333,7 +333,7 @@ TEST_F(CuckooReaderTest, WhenKeyNotFound) {
   AddHashLookups(not_found_user_key, 0, kNumHashFunc);
   ParsedInternalKey ikey(not_found_user_key, 1000, kTypeValue);
   AppendInternalKey(&not_found_key, ikey);
-  std::string value;
+  PinnableSlice value;
   GetContext get_context(ucmp, nullptr, nullptr, nullptr, GetContext::kNotFound,
                          Slice(not_found_key), &value, nullptr, nullptr,
                          nullptr, nullptr);
@@ -346,6 +346,7 @@ TEST_F(CuckooReaderTest, WhenKeyNotFound) {
   ParsedInternalKey ikey2(not_found_user_key2, 1000, kTypeValue);
   std::string not_found_key2;
   AppendInternalKey(&not_found_key2, ikey2);
+  value.Reset();
   GetContext get_context2(ucmp, nullptr, nullptr, nullptr,
                           GetContext::kNotFound, Slice(not_found_key2), &value,
                           nullptr, nullptr, nullptr, nullptr);
@@ -360,6 +361,7 @@ TEST_F(CuckooReaderTest, WhenKeyNotFound) {
   // Add hash values that map to empty buckets.
   AddHashLookups(ExtractUserKey(unused_key).ToString(),
       kNumHashFunc, kNumHashFunc);
+  value.Reset();
   GetContext get_context3(ucmp, nullptr, nullptr, nullptr,
                           GetContext::kNotFound, Slice(unused_key), &value,
                           nullptr, nullptr, nullptr, nullptr);
@@ -374,7 +376,7 @@ void GetKeys(uint64_t num, std::vector<std::string>* keys) {
   keys->clear();
   IterKey k;
   k.SetInternalKey("", 0, kTypeValue);
-  std::string internal_key_suffix = k.GetKey().ToString();
+  std::string internal_key_suffix = k.GetInternalKey().ToString();
   ASSERT_EQ(static_cast<size_t>(8), internal_key_suffix.size());
   for (uint64_t key_idx = 0; key_idx < num; ++key_idx) {
     uint64_t value = 2 * key_idx;
@@ -426,19 +428,20 @@ void WriteFile(const std::vector<std::string>& keys,
   std::unique_ptr<RandomAccessFile> read_file;
   ASSERT_OK(env->NewRandomAccessFile(fname, &read_file, env_options));
   unique_ptr<RandomAccessFileReader> file_reader(
-      new RandomAccessFileReader(std::move(read_file)));
+      new RandomAccessFileReader(std::move(read_file), fname));
 
   const ImmutableCFOptions ioptions(options);
   CuckooTableReader reader(ioptions, std::move(file_reader), file_size,
                            test::Uint64Comparator(), nullptr);
   ASSERT_OK(reader.status());
   ReadOptions r_options;
-  std::string value;
+  PinnableSlice value;
   // Assume only the fast path is triggered
   GetContext get_context(nullptr, nullptr, nullptr, nullptr,
                          GetContext::kNotFound, Slice(), &value, nullptr,
                          nullptr, nullptr, nullptr);
   for (uint64_t i = 0; i < num; ++i) {
+    value.Reset();
     value.clear();
     ASSERT_OK(reader.Get(r_options, Slice(keys[i]), &get_context));
     ASSERT_TRUE(Slice(keys[i]) == Slice(&keys[i][0], 4));
@@ -457,7 +460,7 @@ void ReadKeys(uint64_t num, uint32_t batch_size) {
   std::unique_ptr<RandomAccessFile> read_file;
   ASSERT_OK(env->NewRandomAccessFile(fname, &read_file, env_options));
   unique_ptr<RandomAccessFileReader> file_reader(
-      new RandomAccessFileReader(std::move(read_file)));
+      new RandomAccessFileReader(std::move(read_file), fname));
 
   const ImmutableCFOptions ioptions(options);
   CuckooTableReader reader(ioptions, std::move(file_reader), file_size,
@@ -480,7 +483,7 @@ void ReadKeys(uint64_t num, uint32_t batch_size) {
   }
   std::random_shuffle(keys.begin(), keys.end());
 
-  std::string value;
+  PinnableSlice value;
   // Assume only the fast path is triggered
   GetContext get_context(nullptr, nullptr, nullptr, nullptr,
                          GetContext::kNotFound, Slice(), &value, nullptr,
@@ -514,7 +517,7 @@ TEST_F(CuckooReaderTest, TestReadPerformance) {
     return;
   }
   double hash_ratio = 0.95;
-  // These numbers are chosen to have a hash utilizaiton % close to
+  // These numbers are chosen to have a hash utilization % close to
   // 0.9, 0.75, 0.6 and 0.5 respectively.
   // They all create 128 M buckets.
   std::vector<uint64_t> nums = {120*1024*1024, 100*1024*1024, 80*1024*1024,
@@ -541,9 +544,15 @@ TEST_F(CuckooReaderTest, TestReadPerformance) {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  ::testing::InitGoogleTest(&argc, argv);
-  ParseCommandLineFlags(&argc, &argv, true);
-  return RUN_ALL_TESTS();
+  if (rocksdb::port::kLittleEndian) {
+    ::testing::InitGoogleTest(&argc, argv);
+    ParseCommandLineFlags(&argc, &argv, true);
+    return RUN_ALL_TESTS();
+  }
+  else {
+    fprintf(stderr, "SKIPPED as Cuckoo table doesn't support Big Endian\n");
+    return 0;
+  }
 }
 
 #endif  // GFLAGS.

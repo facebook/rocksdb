@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // This file defines the structures for exposing run-time status of any
 // rocksdb-related thread.  Such run-time status can be obtained via
@@ -22,8 +22,7 @@
 
 #if !defined(ROCKSDB_LITE) && \
     !defined(NROCKSDB_THREAD_STATUS) && \
-    !defined(OS_MACOSX) && \
-    !defined(IOS_CROSS_COMPILE)
+    defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
 #define ROCKSDB_USING_THREAD_STATUS
 #endif
 
@@ -46,6 +45,7 @@ struct ThreadStatus {
     HIGH_PRIORITY = 0,  // RocksDB BG thread in high-pri thread pool
     LOW_PRIORITY,  // RocksDB BG thread in low-pri thread pool
     USER,  // User thread (Non-RocksDB BG thread)
+    BOTTOM_PRIORITY,  // RocksDB BG thread in bottom-pri thread pool
     NUM_THREAD_TYPES
   };
 
@@ -146,7 +146,7 @@ struct ThreadStatus {
   // The operation (high-level action) that the current thread is involved.
   const OperationType operation_type;
 
-  // The elapsed time in micros of the current thread operation.
+  // The elapsed time of the current thread operation in microseconds.
   const uint64_t op_elapsed_micros;
 
   // An integer showing the current stage where the thread is involved
@@ -164,7 +164,7 @@ struct ThreadStatus {
   // The followings are a set of utility functions for interpreting
   // the information of ThreadStatus
 
-  static const std::string& GetThreadTypeName(ThreadType thread_type);
+  static std::string GetThreadTypeName(ThreadType thread_type);
 
   // Obtain the name of an operation given its type.
   static const std::string& GetOperationName(OperationType op_type);

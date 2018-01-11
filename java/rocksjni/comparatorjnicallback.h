@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // This file implements the callback "bridge" between Java and C++ for
 // rocksdb::Comparator and rocksdb::DirectComparator.
@@ -10,7 +10,9 @@
 #define JAVA_ROCKSJNI_COMPARATORJNICALLBACK_H_
 
 #include <jni.h>
+#include <memory>
 #include <string>
+#include "rocksjni/jnicallback.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/slice.h"
 #include "port/port.h"
@@ -44,12 +46,11 @@ struct ComparatorJniCallbackOptions {
  * introduce independent locking in regions of each of those methods
  * via the mutexs mtx_compare and mtx_findShortestSeparator respectively
  */
-class BaseComparatorJniCallback : public Comparator {
+class BaseComparatorJniCallback : public JniCallback, public Comparator {
  public:
     BaseComparatorJniCallback(
       JNIEnv* env, jobject jComparator,
       const ComparatorJniCallbackOptions* copt);
-    virtual ~BaseComparatorJniCallback();
     virtual const char* Name() const;
     virtual int Compare(const Slice& a, const Slice& b) const;
     virtual void FindShortestSeparator(
@@ -58,18 +59,15 @@ class BaseComparatorJniCallback : public Comparator {
 
  private:
     // used for synchronisation in compare method
-    port::Mutex* mtx_compare;
+    std::unique_ptr<port::Mutex> mtx_compare;
     // used for synchronisation in findShortestSeparator method
-    port::Mutex* mtx_findShortestSeparator;
-    JavaVM* m_jvm;
-    jobject m_jComparator;
-    std::string m_name;
+    std::unique_ptr<port::Mutex> mtx_findShortestSeparator;
+    std::unique_ptr<const char[]> m_name;
     jmethodID m_jCompareMethodId;
     jmethodID m_jFindShortestSeparatorMethodId;
     jmethodID m_jFindShortSuccessorMethodId;
 
  protected:
-    JNIEnv* getJniEnv() const;
     jobject m_jSliceA;
     jobject m_jSliceB;
     jobject m_jSliceLimit;

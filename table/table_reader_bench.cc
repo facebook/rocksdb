@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef GFLAGS
 #include <cstdio>
@@ -11,25 +11,24 @@ int main() {
 }
 #else
 
-#include <gflags/gflags.h>
-
+#include "db/db_impl.h"
+#include "db/dbformat.h"
+#include "monitoring/histogram.h"
 #include "rocksdb/db.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
-#include "db/db_impl.h"
-#include "db/dbformat.h"
 #include "table/block_based_table_factory.h"
+#include "table/get_context.h"
 #include "table/internal_iterator.h"
 #include "table/plain_table_factory.h"
 #include "table/table_builder.h"
-#include "table/get_context.h"
 #include "util/file_reader_writer.h"
-#include "util/histogram.h"
+#include "util/gflags_compat.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 
-using GFLAGS::ParseCommandLineFlags;
-using GFLAGS::SetUsageMessage;
+using GFLAGS_NAMESPACE::ParseCommandLineFlags;
+using GFLAGS_NAMESPACE::SetUsageMessage;
 
 namespace rocksdb {
 
@@ -137,7 +136,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
     uint64_t file_size;
     env->GetFileSize(file_name, &file_size);
     unique_ptr<RandomAccessFileReader> file_reader(
-        new RandomAccessFileReader(std::move(raf)));
+        new RandomAccessFileReader(std::move(raf), file_name));
     s = opts.table_factory->NewTableReader(
         TableReaderOptions(ioptions, env_options, ikc), std::move(file_reader),
         file_size, &table_reader);
@@ -166,7 +165,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
           std::string key = MakeKey(r1, r2, through_db);
           uint64_t start_time = Now(env, measured_by_nanosecond);
           if (!through_db) {
-            std::string value;
+            PinnableSlice value;
             MergeContext merge_context;
             RangeDelAggregator range_del_agg(ikc, {} /* snapshots */);
             GetContext get_context(ioptions.user_comparator,

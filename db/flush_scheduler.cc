@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include "db/flush_scheduler.h"
 
@@ -13,11 +13,9 @@ namespace rocksdb {
 
 void FlushScheduler::ScheduleFlush(ColumnFamilyData* cfd) {
 #ifndef NDEBUG
-  {
-    std::lock_guard<std::mutex> lock(checking_mutex_);
-    assert(checking_set_.count(cfd) == 0);
-    checking_set_.insert(cfd);
-  }
+  std::lock_guard<std::mutex> lock(checking_mutex_);
+  assert(checking_set_.count(cfd) == 0);
+  checking_set_.insert(cfd);
 #endif  // NDEBUG
   cfd->Ref();
 // Suppress false positive clang analyzer warnings.
@@ -34,8 +32,11 @@ void FlushScheduler::ScheduleFlush(ColumnFamilyData* cfd) {
 }
 
 ColumnFamilyData* FlushScheduler::TakeNextColumnFamily() {
+#ifndef NDEBUG
+  std::lock_guard<std::mutex> lock(checking_mutex_);
+#endif  // NDEBUG
   while (true) {
-    if (Empty()) {
+    if (head_.load(std::memory_order_relaxed) == nullptr) {
       return nullptr;
     }
 
@@ -46,11 +47,9 @@ ColumnFamilyData* FlushScheduler::TakeNextColumnFamily() {
     delete node;
 
 #ifndef NDEBUG
-    {
-      auto iter = checking_set_.find(cfd);
-      assert(iter != checking_set_.end());
-      checking_set_.erase(iter);
-    }
+    auto iter = checking_set_.find(cfd);
+    assert(iter != checking_set_.end());
+    checking_set_.erase(iter);
 #endif  // NDEBUG
 
     if (!cfd->IsDropped()) {
@@ -66,8 +65,13 @@ ColumnFamilyData* FlushScheduler::TakeNextColumnFamily() {
 }
 
 bool FlushScheduler::Empty() {
+#ifndef NDEBUG
+  std::lock_guard<std::mutex> lock(checking_mutex_);
+#endif  // NDEBUG
   auto rv = head_.load(std::memory_order_relaxed) == nullptr;
+#ifndef NDEBUG
   assert(rv == checking_set_.empty());
+#endif  // NDEBUG
   return rv;
 }
 
@@ -78,7 +82,7 @@ void FlushScheduler::Clear() {
       delete cfd;
     }
   }
-  assert(Empty());
+  assert(head_.load(std::memory_order_relaxed) == nullptr);
 }
 
 }  // namespace rocksdb

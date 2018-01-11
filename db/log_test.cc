@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -195,7 +195,7 @@ class LogTest : public ::testing::TestWithParam<int> {
     }
   }
 
-  void IncrementByte(int offset, int delta) {
+  void IncrementByte(int offset, char delta) {
     dest_contents()[offset] += delta;
   }
 
@@ -487,7 +487,7 @@ TEST_P(LogTest, ChecksumMismatch) {
 
 TEST_P(LogTest, UnexpectedMiddleType) {
   Write("foo");
-  SetByte(6, GetParam() ? kRecyclableMiddleType : kMiddleType);
+  SetByte(6, static_cast<char>(GetParam() ? kRecyclableMiddleType : kMiddleType));
   FixChecksum(0, 3, !!GetParam());
   ASSERT_EQ("EOF", Read());
   ASSERT_EQ(3U, DroppedBytes());
@@ -496,7 +496,7 @@ TEST_P(LogTest, UnexpectedMiddleType) {
 
 TEST_P(LogTest, UnexpectedLastType) {
   Write("foo");
-  SetByte(6, GetParam() ? kRecyclableLastType : kLastType);
+  SetByte(6, static_cast<char>(GetParam() ? kRecyclableLastType : kLastType));
   FixChecksum(0, 3, !!GetParam());
   ASSERT_EQ("EOF", Read());
   ASSERT_EQ(3U, DroppedBytes());
@@ -506,7 +506,7 @@ TEST_P(LogTest, UnexpectedLastType) {
 TEST_P(LogTest, UnexpectedFullType) {
   Write("foo");
   Write("bar");
-  SetByte(6, GetParam() ? kRecyclableFirstType : kFirstType);
+  SetByte(6, static_cast<char>(GetParam() ? kRecyclableFirstType : kFirstType));
   FixChecksum(0, 3, !!GetParam());
   ASSERT_EQ("bar", Read());
   ASSERT_EQ("EOF", Read());
@@ -517,7 +517,7 @@ TEST_P(LogTest, UnexpectedFullType) {
 TEST_P(LogTest, UnexpectedFirstType) {
   Write("foo");
   Write(BigString("bar", 100000));
-  SetByte(6, GetParam() ? kRecyclableFirstType : kFirstType);
+  SetByte(6, static_cast<char>(GetParam() ? kRecyclableFirstType : kFirstType));
   FixChecksum(0, 3, !!GetParam());
   ASSERT_EQ(BigString("bar", 100000), Read());
   ASSERT_EQ("EOF", Read());

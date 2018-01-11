@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 package org.rocksdb;
 
 import org.junit.Test;
@@ -21,13 +21,11 @@ public class MutableColumnFamilyOptionsTest {
             .setWriteBufferSize(10)
             .setInplaceUpdateNumLocks(5)
             .setDisableAutoCompactions(true)
-            .setVerifyChecksumsInCompaction(false)
             .setParanoidFileChecks(true);
 
     assertThat(builder.writeBufferSize()).isEqualTo(10);
     assertThat(builder.inplaceUpdateNumLocks()).isEqualTo(5);
     assertThat(builder.disableAutoCompactions()).isEqualTo(true);
-    assertThat(builder.verifyChecksumsInCompaction()).isEqualTo(false);
     assertThat(builder.paranoidFileChecks()).isEqualTo(true);
   }
 
@@ -66,21 +64,18 @@ public class MutableColumnFamilyOptionsTest {
         .setWriteBufferSize(10)
         .setInplaceUpdateNumLocks(5)
         .setDisableAutoCompactions(true)
-        .setVerifyChecksumsInCompaction(false)
         .setParanoidFileChecks(true)
         .build()
         .toString();
 
     assertThat(str).isEqualTo("write_buffer_size=10;inplace_update_num_locks=5;"
-        + "disable_auto_compactions=true;verify_checksums_in_compaction=false;"
-        + "paranoid_file_checks=true");
+        + "disable_auto_compactions=true;paranoid_file_checks=true");
   }
 
   @Test
   public void mutableColumnFamilyOptions_parse() {
     final String str = "write_buffer_size=10;inplace_update_num_locks=5;"
-        + "disable_auto_compactions=true;verify_checksums_in_compaction=false;"
-        + "paranoid_file_checks=true";
+        + "disable_auto_compactions=true;paranoid_file_checks=true";
 
     final MutableColumnFamilyOptionsBuilder builder =
         MutableColumnFamilyOptions.parse(str);
@@ -88,7 +83,6 @@ public class MutableColumnFamilyOptionsTest {
     assertThat(builder.writeBufferSize()).isEqualTo(10);
     assertThat(builder.inplaceUpdateNumLocks()).isEqualTo(5);
     assertThat(builder.disableAutoCompactions()).isEqualTo(true);
-    assertThat(builder.verifyChecksumsInCompaction()).isEqualTo(false);
     assertThat(builder.paranoidFileChecks()).isEqualTo(true);
   }
 }

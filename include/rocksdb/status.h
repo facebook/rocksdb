@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
@@ -70,11 +70,14 @@ class Status {
     kLockLimit = 3,
     kNoSpace = 4,
     kDeadlock = 5,
+    kStaleFile = 6,
+    kMemoryLimit = 7,
     kMaxSubCode
   };
 
   SubCode subcode() const { return subcode_; }
 
+  // Returns a C style string indicating the message of the Status
   const char* getState() const { return state_; }
 
   // Return a success status.
@@ -164,6 +167,11 @@ class Status {
     return Status(kIOError, kNoSpace, msg, msg2);
   }
 
+  static Status MemoryLimit() { return Status(kAborted, kMemoryLimit); }
+  static Status MemoryLimit(const Slice& msg, const Slice& msg2 = Slice()) {
+    return Status(kAborted, kMemoryLimit, msg, msg2);
+  }
+
   // Returns true iff the status indicates success.
   bool ok() const { return code() == kOk; }
 
@@ -220,6 +228,13 @@ class Status {
   // if needed
   bool IsNoSpace() const {
     return (code() == kIOError) && (subcode() == kNoSpace);
+  }
+
+  // Returns true iff the status indicates a memory limit error.  There may be
+  // cases where we limit the memory used in certain operations (eg. the size
+  // of a write batch) in order to avoid out of memory exceptions.
+  bool IsMemoryLimit() const {
+    return (code() == kAborted) && (subcode() == kMemoryLimit);
   }
 
   // Return a string representation of this status suitable for printing.

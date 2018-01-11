@@ -1,7 +1,7 @@
 // Copyright (c) 2015, Red Hat, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
@@ -12,13 +12,13 @@
 
 namespace rocksdb {
 
-// An implementaiton of Env that mirrors all work over two backend
+// An implementation of Env that mirrors all work over two backend
 // Env's.  This is useful for debugging purposes.
 class SequentialFileMirror : public SequentialFile {
  public:
   unique_ptr<SequentialFile> a_, b_;
   std::string fname;
-  SequentialFileMirror(std::string f) : fname(f) {}
+  explicit SequentialFileMirror(std::string f) : fname(f) {}
 
   Status Read(size_t n, Slice* result, char* scratch) {
     Slice aslice;
@@ -62,7 +62,7 @@ class RandomAccessFileMirror : public RandomAccessFile {
  public:
   unique_ptr<RandomAccessFile> a_, b_;
   std::string fname;
-  RandomAccessFileMirror(std::string f) : fname(f) {}
+  explicit RandomAccessFileMirror(std::string f) : fname(f) {}
 
   Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const {
     Status as = a_->Read(offset, n, result, scratch);
@@ -86,11 +86,6 @@ class RandomAccessFileMirror : public RandomAccessFile {
     return as;
   }
 
-  bool ShouldForwardRawRequest() const {
-    // NOTE: not verified
-    return a_->ShouldForwardRawRequest();
-  }
-
   size_t GetUniqueId(char* id, size_t max_size) const {
     // NOTE: not verified
     return a_->GetUniqueId(id, max_size);
@@ -101,7 +96,7 @@ class WritableFileMirror : public WritableFile {
  public:
   unique_ptr<WritableFile> a_, b_;
   std::string fname;
-  WritableFileMirror(std::string f) : fname(f) {}
+  explicit WritableFileMirror(std::string f) : fname(f) {}
 
   Status Append(const Slice& data) override {
     Status as = a_->Append(data);

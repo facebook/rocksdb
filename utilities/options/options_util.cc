@@ -1,22 +1,23 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef ROCKSDB_LITE
 
 #include "rocksdb/utilities/options_util.h"
 
-#include "db/filename.h"
+#include "options/options_parser.h"
 #include "rocksdb/options.h"
-#include "util/options_parser.h"
+#include "util/filename.h"
 
 namespace rocksdb {
 Status LoadOptionsFromFile(const std::string& file_name, Env* env,
                            DBOptions* db_options,
-                           std::vector<ColumnFamilyDescriptor>* cf_descs) {
+                           std::vector<ColumnFamilyDescriptor>* cf_descs,
+                           bool ignore_unknown_options) {
   RocksDBOptionsParser parser;
-  Status s = parser.Parse(file_name, env);
+  Status s = parser.Parse(file_name, env, ignore_unknown_options);
   if (!s.ok()) {
     return s;
   }
@@ -61,20 +62,22 @@ Status GetLatestOptionsFileName(const std::string& dbpath,
 
 Status LoadLatestOptions(const std::string& dbpath, Env* env,
                          DBOptions* db_options,
-                         std::vector<ColumnFamilyDescriptor>* cf_descs) {
+                         std::vector<ColumnFamilyDescriptor>* cf_descs,
+                         bool ignore_unknown_options) {
   std::string options_file_name;
   Status s = GetLatestOptionsFileName(dbpath, env, &options_file_name);
   if (!s.ok()) {
     return s;
   }
 
-  return LoadOptionsFromFile(dbpath + "/" + options_file_name, env,
-                             db_options, cf_descs);
+  return LoadOptionsFromFile(dbpath + "/" + options_file_name, env, db_options,
+                             cf_descs, ignore_unknown_options);
 }
 
 Status CheckOptionsCompatibility(
     const std::string& dbpath, Env* env, const DBOptions& db_options,
-    const std::vector<ColumnFamilyDescriptor>& cf_descs) {
+    const std::vector<ColumnFamilyDescriptor>& cf_descs,
+    bool ignore_unknown_options) {
   std::string options_file_name;
   Status s = GetLatestOptionsFileName(dbpath, env, &options_file_name);
   if (!s.ok()) {
@@ -92,7 +95,7 @@ Status CheckOptionsCompatibility(
 
   return RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
       db_options, cf_names, cf_opts, dbpath + "/" + options_file_name, env,
-      kDefaultLevel);
+      kDefaultLevel, ignore_unknown_options);
 }
 
 }  // namespace rocksdb

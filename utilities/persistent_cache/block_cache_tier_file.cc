@@ -1,7 +1,7 @@
 //  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 #ifndef ROCKSDB_LITE
 
 #include "utilities/persistent_cache/block_cache_tier_file.h"
@@ -13,7 +13,9 @@
 #include <memory>
 #include <vector>
 
+#include "port/port.h"
 #include "util/crc32c.h"
+#include "util/logging.h"
 
 namespace rocksdb {
 
@@ -60,7 +62,8 @@ Status BlockCacheFile::Delete(uint64_t* size) {
 // <-- 4 --><-- 4  --><-- 4   --><-- 4     --><-- key size  --><-- v-size -->
 //
 struct CacheRecordHeader {
-  CacheRecordHeader() {}
+  CacheRecordHeader()
+    : magic_(0), crc_(0), key_size_(0), val_size_(0) {}
   CacheRecordHeader(const uint32_t magic, const uint32_t key_size,
                     const uint32_t val_size)
       : magic_(magic), crc_(0), key_size_(key_size), val_size_(val_size) {}
@@ -200,14 +203,17 @@ bool RandomAccessCacheFile::Open(const bool enable_direct_reads) {
 bool RandomAccessCacheFile::OpenImpl(const bool enable_direct_reads) {
   rwlock_.AssertHeld();
 
-  Debug(log_, "Opening cache file %s", Path().c_str());
+  ROCKS_LOG_DEBUG(log_, "Opening cache file %s", Path().c_str());
 
-  Status status = NewRandomAccessCacheFile(env_, Path(), &file_);
+  std::unique_ptr<RandomAccessFile> file;
+  Status status =
+      NewRandomAccessCacheFile(env_, Path(), &file, enable_direct_reads);
   if (!status.ok()) {
     Error(log_, "Error opening random access file %s. %s", Path().c_str(),
           status.ToString().c_str());
     return false;
   }
+  freader_.reset(new RandomAccessFileReader(std::move(file), Path(), env_));
 
   return true;
 }
@@ -218,12 +224,12 @@ bool RandomAccessCacheFile::Read(const LBA& lba, Slice* key, Slice* val,
 
   assert(lba.cache_id_ == cache_id_);
 
-  if (!file_) {
+  if (!freader_) {
     return false;
   }
 
   Slice result;
-  Status s = file_->Read(lba.off_, lba.size_, &result, scratch);
+  Status s = freader_->Read(lba.off_, lba.size_, &result, scratch);
   if (!s.ok()) {
     Error(log_, "Error reading from file %s. %s", Path().c_str(),
           s.ToString().c_str());
@@ -278,19 +284,19 @@ bool WriteableCacheFile::Create(const bool enable_direct_writes,
 
   enable_direct_reads_ = enable_direct_reads;
 
-  Debug(log_, "Creating new cache %s (max size is %d B)", Path().c_str(),
-        max_size_);
+  ROCKS_LOG_DEBUG(log_, "Creating new cache %s (max size is %d B)",
+                  Path().c_str(), max_size_);
 
   Status s = env_->FileExists(Path());
   if (s.ok()) {
-    Warn(log_, "File %s already exists. %s", Path().c_str(),
-         s.ToString().c_str());
+    ROCKS_LOG_WARN(log_, "File %s already exists. %s", Path().c_str(),
+                   s.ToString().c_str());
   }
 
   s = NewWritableCacheFile(env_, Path(), &file_);
   if (!s.ok()) {
-    Warn(log_, "Unable to create file %s. %s", Path().c_str(),
-         s.ToString().c_str());
+    ROCKS_LOG_WARN(log_, "Unable to create file %s. %s", Path().c_str(),
+                   s.ToString().c_str());
     return false;
   }
 
@@ -313,7 +319,7 @@ bool WriteableCacheFile::Append(const Slice& key, const Slice& val, LBA* lba) {
 
   if (!ExpandBuffer(rec_size)) {
     // unable to expand the buffer
-    Debug(log_, "Error expanding buffers. size=%d", rec_size);
+    ROCKS_LOG_DEBUG(log_, "Error expanding buffers. size=%d", rec_size);
     return false;
   }
 
@@ -356,7 +362,7 @@ bool WriteableCacheFile::ExpandBuffer(const size_t size) {
   while (free < size) {
     CacheWriteBuffer* const buf = alloc_->Allocate();
     if (!buf) {
-      Debug(log_, "Unable to allocate buffers");
+      ROCKS_LOG_DEBUG(log_, "Unable to allocate buffers");
       return false;
     }
 
@@ -519,7 +525,7 @@ ThreadedWriter::ThreadedWriter(PersistentCacheTier* const cache,
                                const size_t qdepth, const size_t io_size)
     : Writer(cache), io_size_(io_size) {
   for (size_t i = 0; i < qdepth; ++i) {
-    std::thread th(&ThreadedWriter::ThreadMain, this);
+    port::Thread th(&ThreadedWriter::ThreadMain, this);
     threads_.push_back(std::move(th));
   }
 }

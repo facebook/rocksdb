@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef ROCKSDB_LITE
 
@@ -14,7 +14,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
-#include "utilities/transactions/optimistic_transaction_impl.h"
+#include "utilities/transactions/optimistic_transaction.h"
 
 namespace rocksdb {
 
@@ -25,7 +25,7 @@ Transaction* OptimisticTransactionDBImpl::BeginTransaction(
     ReinitializeTransaction(old_txn, write_options, txn_options);
     return old_txn;
   } else {
-    return new OptimisticTransactionImpl(this, write_options, txn_options);
+    return new OptimisticTransaction(this, write_options, txn_options);
   }
 }
 
@@ -81,8 +81,8 @@ Status OptimisticTransactionDB::Open(
 void OptimisticTransactionDBImpl::ReinitializeTransaction(
     Transaction* txn, const WriteOptions& write_options,
     const OptimisticTransactionOptions& txn_options) {
-  assert(dynamic_cast<OptimisticTransactionImpl*>(txn) != nullptr);
-  auto txn_impl = reinterpret_cast<OptimisticTransactionImpl*>(txn);
+  assert(dynamic_cast<OptimisticTransaction*>(txn) != nullptr);
+  auto txn_impl = reinterpret_cast<OptimisticTransaction*>(txn);
 
   txn_impl->Reinitialize(this, write_options, txn_options);
 }

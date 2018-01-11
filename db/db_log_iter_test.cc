@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -116,6 +116,7 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorRace) {
       dbfull()->Flush(FlushOptions());
       Put("key4", DummyString(1024));
       ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 4U);
+      dbfull()->FlushWAL(false);
 
       {
         auto iter = OpenTransactionLogIter(0);
@@ -132,6 +133,7 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorRace) {
 
       // "key5" would be written in a new memtable and log
       Put("key5", DummyString(1024));
+      dbfull()->FlushWAL(false);
       {
         // this iter would miss "key4" if not fixed
         auto iter = OpenTransactionLogIter(0);
@@ -181,6 +183,7 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorCorruptedLog) {
       Put("key"+ToString(i), DummyString(10));
     }
     dbfull()->Flush(FlushOptions());
+    dbfull()->FlushWAL(false);
     // Corrupt this log to create a gap
     rocksdb::VectorLogPtr wal_files;
     ASSERT_OK(dbfull()->GetSortedWalFiles(wal_files));
@@ -194,6 +197,7 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorCorruptedLog) {
 
     // Insert a new entry to a new log file
     Put("key1025", DummyString(10));
+    dbfull()->FlushWAL(false);
     // Try to read from the beginning. Should stop before the gap and read less
     // than 1025 entries
     auto iter = OpenTransactionLogIter(0);

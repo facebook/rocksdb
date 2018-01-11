@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
@@ -24,6 +24,8 @@
 #include <stddef.h>
 #include <string.h>
 #include <string>
+
+#include "rocksdb/cleanable.h"
 
 namespace rocksdb {
 
@@ -116,6 +118,85 @@ class Slice {
   // Intentionally copyable
 };
 
+/**
+ * A Slice that can be pinned with some cleanup tasks, which will be run upon
+ * ::Reset() or object destruction, whichever is invoked first. This can be used
+ * to avoid memcpy by having the PinnsableSlice object referring to the data
+ * that is locked in the memory and release them after the data is consumed.
+ */
+class PinnableSlice : public Slice, public Cleanable {
+ public:
+  PinnableSlice() { buf_ = &self_space_; }
+  explicit PinnableSlice(std::string* buf) { buf_ = buf; }
+
+  // No copy constructor and copy assignment allowed.
+  PinnableSlice(PinnableSlice&) = delete;
+  PinnableSlice& operator=(PinnableSlice&) = delete;
+
+  inline void PinSlice(const Slice& s, CleanupFunction f, void* arg1,
+                       void* arg2) {
+    assert(!pinned_);
+    pinned_ = true;
+    data_ = s.data();
+    size_ = s.size();
+    RegisterCleanup(f, arg1, arg2);
+    assert(pinned_);
+  }
+
+  inline void PinSlice(const Slice& s, Cleanable* cleanable) {
+    assert(!pinned_);
+    pinned_ = true;
+    data_ = s.data();
+    size_ = s.size();
+    cleanable->DelegateCleanupsTo(this);
+    assert(pinned_);
+  }
+
+  inline void PinSelf(const Slice& slice) {
+    assert(!pinned_);
+    buf_->assign(slice.data(), slice.size());
+    data_ = buf_->data();
+    size_ = buf_->size();
+    assert(!pinned_);
+  }
+
+  inline void PinSelf() {
+    assert(!pinned_);
+    data_ = buf_->data();
+    size_ = buf_->size();
+    assert(!pinned_);
+  }
+
+  void remove_suffix(size_t n) {
+    assert(n <= size());
+    if (pinned_) {
+      size_ -= n;
+    } else {
+      buf_->erase(size() - n, n);
+      PinSelf();
+    }
+  }
+
+  void remove_prefix(size_t n) {
+    assert(0);  // Not implemented
+  }
+
+  void Reset() {
+    Cleanable::Reset();
+    pinned_ = false;
+  }
+
+  inline std::string* GetSelf() { return buf_; }
+
+  inline bool IsPinned() { return pinned_; }
+
+ private:
+  friend class PinnableSlice4Test;
+  std::string self_space_;
+  std::string* buf_;
+  bool pinned_ = false;
+};
+
 // A set of Slices that are virtually concatenated together.  'parts' points
 // to an array of Slices.  The number of elements in the array is 'num_parts'.
 struct SliceParts {
@@ -137,6 +218,7 @@ inline bool operator!=(const Slice& x, const Slice& y) {
 }
 
 inline int Slice::compare(const Slice& b) const {
+  assert(data_ != nullptr && b.data_ != nullptr);
   const size_t min_len = (size_ < b.size_) ? size_ : b.size_;
   int r = memcmp(data_, b.data_, min_len);
   if (r == 0) {

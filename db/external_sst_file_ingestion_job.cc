@@ -1,11 +1,15 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+
+#ifndef ROCKSDB_LITE
 
 #include "db/external_sst_file_ingestion_job.h"
 
+#ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
+#endif
 
 #include <inttypes.h>
 #include <algorithm>
@@ -13,7 +17,7 @@
 #include <vector>
 
 #include "db/version_edit.h"
-#include "table/merger.h"
+#include "table/merging_iterator.h"
 #include "table/scoped_arena_iterator.h"
 #include "table/sst_file_writer_collectors.h"
 #include "table/table_builder.h"
@@ -96,10 +100,12 @@ Status ExternalSstFileIngestionJob::Prepare(
       status = env_->LinkFile(path_outside_db, path_inside_db);
       if (status.IsNotSupported()) {
         // Original file is on a different FS, use copy instead of hard linking
-        status = CopyFile(env_, path_outside_db, path_inside_db, 0);
+        status = CopyFile(env_, path_outside_db, path_inside_db, 0,
+                          db_options_.use_fsync);
       }
     } else {
-      status = CopyFile(env_, path_outside_db, path_inside_db, 0);
+      status = CopyFile(env_, path_outside_db, path_inside_db, 0,
+                        db_options_.use_fsync);
     }
     TEST_SYNC_POINT("DBImpl::AddFile:FileCopied");
     if (!status.ok()) {
@@ -116,9 +122,9 @@ Status ExternalSstFileIngestionJob::Prepare(
       }
       Status s = env_->DeleteFile(f.internal_file_path);
       if (!s.ok()) {
-        Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
-            "AddFile() clean up for file %s failed : %s",
-            f.internal_file_path.c_str(), s.ToString().c_str());
+        ROCKS_LOG_WARN(db_options_.info_log,
+                       "AddFile() clean up for file %s failed : %s",
+                       f.internal_file_path.c_str(), s.ToString().c_str());
       }
     }
   }
@@ -138,6 +144,8 @@ Status ExternalSstFileIngestionJob::NeedsFlush(bool* flush_needed) {
   return status;
 }
 
+// REQUIRES: we have become the only writer by entering both write_thread_ and
+// nonmem_write_thread_
 Status ExternalSstFileIngestionJob::Run() {
   Status status;
 #ifndef NDEBUG
@@ -150,34 +158,40 @@ Status ExternalSstFileIngestionJob::Run() {
 
   bool consumed_seqno = false;
   bool force_global_seqno = false;
-  const SequenceNumber last_seqno = versions_->LastSequence();
+
   if (ingestion_options_.snapshot_consistency && !db_snapshots_->empty()) {
     // We need to assign a global sequence number to all the files even
     // if the dont overlap with any ranges since we have snapshots
     force_global_seqno = true;
   }
-
+  // It is safe to use this instead of LastAllocatedSequence since we are
+  // the only active writer, and hence they are equal
+  const SequenceNumber last_seqno = versions_->LastSequence();
   SuperVersion* super_version = cfd_->GetSuperVersion();
   edit_.SetColumnFamily(cfd_->GetID());
   // The levels that the files will be ingested into
+
   for (IngestedFileInfo& f : files_to_ingest_) {
-    bool overlap_with_db = false;
-    status = AssignLevelForIngestedFile(super_version, &f, &overlap_with_db);
-    if (!status.ok()) {
-      return status;
-    }
-
-    if (overlap_with_db || force_global_seqno) {
-      status = AssignGlobalSeqnoForIngestedFile(&f, last_seqno + 1);
-      consumed_seqno = true;
+    SequenceNumber assigned_seqno = 0;
+    if (ingestion_options_.ingest_behind) {
+      status = CheckLevelForIngestedBehindFile(&f);
     } else {
-      status = AssignGlobalSeqnoForIngestedFile(&f, 0);
+      status = AssignLevelAndSeqnoForIngestedFile(
+         super_version, force_global_seqno, cfd_->ioptions()->compaction_style,
+         &f, &assigned_seqno);
     }
-
     if (!status.ok()) {
       return status;
     }
-
+    status = AssignGlobalSeqnoForIngestedFile(&f, assigned_seqno);
+    TEST_SYNC_POINT_CALLBACK("ExternalSstFileIngestionJob::Run",
+                             &assigned_seqno);
+    if (assigned_seqno == last_seqno + 1) {
+      consumed_seqno = true;
+    }
+    if (!status.ok()) {
+      return status;
+    }
     edit_.AddFile(f.picked_level, f.fd.GetNumber(), f.fd.GetPathId(),
                   f.fd.GetFileSize(), f.smallest_internal_key(),
                   f.largest_internal_key(), f.assigned_seqno, f.assigned_seqno,
@@ -185,6 +199,8 @@ Status ExternalSstFileIngestionJob::Run() {
   }
 
   if (consumed_seqno) {
+    versions_->SetLastAllocatedSequence(last_seqno + 1);
+    versions_->SetLastPublishedSequence(last_seqno + 1);
     versions_->SetLastSequence(last_seqno + 1);
   }
 
@@ -208,7 +224,8 @@ void ExternalSstFileIngestionJob::UpdateStats() {
     if (f.picked_level == 0) {
       total_l0_files += 1;
     }
-    Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+    ROCKS_LOG_INFO(
+        db_options_.info_log,
         "[AddFile] External SST file %s was ingested in L%d with path %s "
         "(global_seqno=%" PRIu64 ")\n",
         f.external_file_path.c_str(), f.picked_level,
@@ -229,9 +246,9 @@ void ExternalSstFileIngestionJob::Cleanup(const Status& status) {
     for (IngestedFileInfo& f : files_to_ingest_) {
       Status s = env_->DeleteFile(f.internal_file_path);
       if (!s.ok()) {
-        Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
-            "AddFile() clean up for file %s failed : %s",
-            f.internal_file_path.c_str(), s.ToString().c_str());
+        ROCKS_LOG_WARN(db_options_.info_log,
+                       "AddFile() clean up for file %s failed : %s",
+                       f.internal_file_path.c_str(), s.ToString().c_str());
       }
     }
   } else if (status.ok() && ingestion_options_.move_files) {
@@ -239,7 +256,8 @@ void ExternalSstFileIngestionJob::Cleanup(const Status& status) {
     for (IngestedFileInfo& f : files_to_ingest_) {
       Status s = env_->DeleteFile(f.external_file_path);
       if (!s.ok()) {
-        Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
+        ROCKS_LOG_WARN(
+            db_options_.info_log,
             "%s was added to DB successfully but failed to remove original "
             "file link : %s",
             f.external_file_path.c_str(), s.ToString().c_str());
@@ -267,7 +285,8 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   if (!status.ok()) {
     return status;
   }
-  sst_file_reader.reset(new RandomAccessFileReader(std::move(sst_file)));
+  sst_file_reader.reset(new RandomAccessFileReader(std::move(sst_file),
+                                                   external_file));
 
   status = cfd_->ioptions()->table_factory->NewTableReader(
       TableReaderOptions(*cfd_->ioptions(), env_options_,
@@ -304,8 +323,17 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
     if (file_to_ingest->global_seqno_offset == 0) {
       return Status::Corruption("Was not able to find file global seqno field");
     }
+  } else if (file_to_ingest->version == 1) {
+    // SST file V1 should not have global seqno field
+    assert(seqno_iter == uprops.end());
+    file_to_ingest->original_seqno = 0;
+    if (ingestion_options_.allow_blocking_flush ||
+            ingestion_options_.allow_global_seqno) {
+      return Status::InvalidArgument(
+            "External SST file V1 does not support global seqno");
+    }
   } else {
-    return Status::InvalidArgument("external file version is not supported");
+    return Status::InvalidArgument("External file version is not supported");
   }
   // Get number of entries in table
   file_to_ingest->num_entries = props->num_entries;
@@ -349,6 +377,7 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
 
 Status ExternalSstFileIngestionJob::IngestedFilesOverlapWithMemtables(
     SuperVersion* sv, bool* overlap) {
+  *overlap = false;
   // Create an InternalIterator over all memtables
   Arena arena;
   ReadOptions ro;
@@ -358,30 +387,63 @@ Status ExternalSstFileIngestionJob::IngestedFilesOverlapWithMemtables(
   sv->imm->AddIterators(ro, &merge_iter_builder);
   ScopedArenaIterator memtable_iter(merge_iter_builder.Finish());
 
+  std::vector<InternalIterator*> memtable_range_del_iters;
+  auto* active_range_del_iter = sv->mem->NewRangeTombstoneIterator(ro);
+  if (active_range_del_iter != nullptr) {
+    memtable_range_del_iters.push_back(active_range_del_iter);
+  }
+  sv->imm->AddRangeTombstoneIterators(ro, &memtable_range_del_iters);
+  RangeDelAggregator range_del_agg(cfd_->internal_comparator(),
+                                   {} /* snapshots */,
+                                   false /* collapse_deletions */);
   Status status;
-  *overlap = false;
-  for (IngestedFileInfo& f : files_to_ingest_) {
-    status =
-        IngestedFileOverlapWithIteratorRange(&f, memtable_iter.get(), overlap);
-    if (!status.ok() || *overlap == true) {
-      break;
+  {
+    std::unique_ptr<InternalIterator> memtable_range_del_iter(
+        NewMergingIterator(&cfd_->internal_comparator(),
+                           memtable_range_del_iters.empty()
+                               ? nullptr
+                               : &memtable_range_del_iters[0],
+                           static_cast<int>(memtable_range_del_iters.size())));
+    status = range_del_agg.AddTombstones(std::move(memtable_range_del_iter));
+  }
+  if (status.ok()) {
+    for (IngestedFileInfo& f : files_to_ingest_) {
+      status = IngestedFileOverlapWithIteratorRange(&f, memtable_iter.get(),
+                                                    overlap);
+      if (!status.ok() || *overlap == true) {
+        break;
+      }
+      if (range_del_agg.IsRangeOverlapped(f.smallest_user_key,
+                                          f.largest_user_key)) {
+        *overlap = true;
+        break;
+      }
     }
   }
-
   return status;
 }
 
-Status ExternalSstFileIngestionJob::AssignLevelForIngestedFile(
-    SuperVersion* sv, IngestedFileInfo* file_to_ingest, bool* overlap_with_db) {
-  *overlap_with_db = false;
+Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
+    SuperVersion* sv, bool force_global_seqno, CompactionStyle compaction_style,
+    IngestedFileInfo* file_to_ingest, SequenceNumber* assigned_seqno) {
+  Status status;
+  *assigned_seqno = 0;
+  const SequenceNumber last_seqno = versions_->LastSequence();
+  if (force_global_seqno) {
+    *assigned_seqno = last_seqno + 1;
+    if (compaction_style == kCompactionStyleUniversal) {
+      file_to_ingest->picked_level = 0;
+      return status;
+    }
+  }
 
+  bool overlap_with_db = false;
   Arena arena;
   ReadOptions ro;
   ro.total_order_seek = true;
-
-  Status status;
   int target_level = 0;
   auto* vstorage = cfd_->current()->storage_info();
+
   for (int lvl = 0; lvl < cfd_->NumberLevels(); lvl++) {
     if (lvl > 0 && lvl < vstorage->base_level()) {
       continue;
@@ -389,42 +451,79 @@ Status ExternalSstFileIngestionJob::AssignLevelForIngestedFile(
 
     if (vstorage->NumLevelFiles(lvl) > 0) {
       bool overlap_with_level = false;
-      MergeIteratorBuilder merge_iter_builder(&cfd_->internal_comparator(),
-                                              &arena);
-      RangeDelAggregator range_del_agg(cfd_->internal_comparator(),
-                                       {} /* snapshots */);
-      sv->current->AddIteratorsForLevel(ro, env_options_, &merge_iter_builder,
-                                        lvl, &range_del_agg);
-      if (!range_del_agg.IsEmpty()) {
-        return Status::NotSupported(
-            "file ingestion with range tombstones is currently unsupported");
-      }
-      ScopedArenaIterator level_iter(merge_iter_builder.Finish());
-
-      status = IngestedFileOverlapWithIteratorRange(
-          file_to_ingest, level_iter.get(), &overlap_with_level);
+      status = IngestedFileOverlapWithLevel(sv, file_to_ingest, lvl,
+        &overlap_with_level);
       if (!status.ok()) {
         return status;
       }
-
       if (overlap_with_level) {
         // We must use L0 or any level higher than `lvl` to be able to overwrite
         // the keys that we overlap with in this level, We also need to assign
         // this file a seqno to overwrite the existing keys in level `lvl`
-        *overlap_with_db = true;
+        overlap_with_db = true;
         break;
       }
+
+      if (compaction_style == kCompactionStyleUniversal && lvl != 0) {
+        const std::vector<FileMetaData*>& level_files =
+            vstorage->LevelFiles(lvl);
+        const SequenceNumber level_largest_seqno =
+            (*max_element(level_files.begin(), level_files.end(),
+                          [](FileMetaData* f1, FileMetaData* f2) {
+                            return f1->largest_seqno < f2->largest_seqno;
+                          }))
+                ->largest_seqno;
+        if (level_largest_seqno != 0) {
+          *assigned_seqno = level_largest_seqno;
+        } else {
+          continue;
+        }
+      }
+    } else if (compaction_style == kCompactionStyleUniversal) {
+      continue;
     }
 
     // We dont overlap with any keys in this level, but we still need to check
     // if our file can fit in it
-
     if (IngestedFileFitInLevel(file_to_ingest, lvl)) {
       target_level = lvl;
     }
   }
+ TEST_SYNC_POINT_CALLBACK(
+      "ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile",
+      &overlap_with_db);
   file_to_ingest->picked_level = target_level;
+  if (overlap_with_db && *assigned_seqno == 0) {
+    *assigned_seqno = last_seqno + 1;
+  }
   return status;
+}
+
+Status ExternalSstFileIngestionJob::CheckLevelForIngestedBehindFile(
+    IngestedFileInfo* file_to_ingest) {
+  auto* vstorage = cfd_->current()->storage_info();
+  // first check if new files fit in the bottommost level
+  int bottom_lvl = cfd_->NumberLevels() - 1;
+  if(!IngestedFileFitInLevel(file_to_ingest, bottom_lvl)) {
+    return Status::InvalidArgument(
+      "Can't ingest_behind file as it doesn't fit "
+      "at the bottommost level!");
+  }
+
+  // second check if despite allow_ingest_behind=true we still have 0 seqnums
+  // at some upper level
+  for (int lvl = 0; lvl < cfd_->NumberLevels() - 1; lvl++) {
+    for (auto file : vstorage->LevelFiles(lvl)) {
+      if (file->smallest_seqno == 0) {
+        return Status::InvalidArgument(
+          "Can't ingest_behind file as despite allow_ingest_behind=true "
+          "there are files with 0 seqno in database at upper levels!");
+      }
+    }
+  }
+
+  file_to_ingest->picked_level = bottom_lvl;
+  return Status::OK();
 }
 
 Status ExternalSstFileIngestionJob::AssignGlobalSeqnoForIngestedFile(
@@ -513,4 +612,38 @@ bool ExternalSstFileIngestionJob::IngestedFileFitInLevel(
   return true;
 }
 
+Status ExternalSstFileIngestionJob::IngestedFileOverlapWithLevel(
+    SuperVersion* sv, IngestedFileInfo* file_to_ingest, int lvl,
+    bool* overlap_with_level) {
+  Arena arena;
+  ReadOptions ro;
+  ro.total_order_seek = true;
+  MergeIteratorBuilder merge_iter_builder(&cfd_->internal_comparator(),
+                                          &arena);
+  // Files are opened lazily when the iterator needs them, thus range deletions
+  // are also added lazily to the aggregator. We need to check for range
+  // deletion overlap only in the case where there's no point-key overlap. Then,
+  // we've already opened the file with range containing the ingested file's
+  // begin key, and iterated through all files until the one containing the
+  // ingested file's end key. So any files maybe containing range deletions
+  // overlapping the ingested file must have been opened and had their range
+  // deletions added to the aggregator.
+  RangeDelAggregator range_del_agg(cfd_->internal_comparator(),
+                                   {} /* snapshots */,
+                                   false /* collapse_deletions */);
+  sv->current->AddIteratorsForLevel(ro, env_options_, &merge_iter_builder, lvl,
+                                    &range_del_agg);
+  ScopedArenaIterator level_iter(merge_iter_builder.Finish());
+  Status status = IngestedFileOverlapWithIteratorRange(
+      file_to_ingest, level_iter.get(), overlap_with_level);
+  if (status.ok() && *overlap_with_level == false &&
+      range_del_agg.IsRangeOverlapped(file_to_ingest->smallest_user_key,
+                                      file_to_ingest->largest_user_key)) {
+    *overlap_with_level = true;
+  }
+  return status;
+}
+
 }  // namespace rocksdb
+
+#endif  // !ROCKSDB_LITE

@@ -1,7 +1,7 @@
 // Copyright (c) 2016, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 package org.rocksdb;
 
@@ -30,6 +30,24 @@ public abstract class RocksMutableObject extends AbstractNativeReference {
     this.owningHandle_ = true;
   }
 
+  /**
+   * Closes the existing handle, and changes the handle to the new handle
+   *
+   * @param newNativeHandle The C++ pointer to the new native object
+   * @param owningNativeHandle true if we own the new native object
+   */
+  public synchronized void resetNativeHandle(final long newNativeHandle,
+      final boolean owningNativeHandle) {
+    close();
+    setNativeHandle(newNativeHandle, owningNativeHandle);
+  }
+
+  /**
+   * Sets the handle (C++ pointer) of the underlying C++ native object
+   *
+   * @param nativeHandle The C++ pointer to the native object
+   * @param owningNativeHandle true if we own the native object
+   */
   public synchronized void setNativeHandle(final long nativeHandle,
       final boolean owningNativeHandle) {
     this.nativeHandle_ = nativeHandle;

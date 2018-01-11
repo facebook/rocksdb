@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -14,6 +14,7 @@
 #include <cpuid.h>
 #endif
 #include <errno.h>
+#include <sched.h>
 #include <signal.h>
 #include <stdio.h>
 #include <string.h>
@@ -136,14 +137,24 @@ void RWMutex::ReadUnlock() { PthreadCall("read unlock", pthread_rwlock_unlock(&m
 void RWMutex::WriteUnlock() { PthreadCall("write unlock", pthread_rwlock_unlock(&mu_)); }
 
 int PhysicalCoreID() {
-#if defined(__i386__) || defined(__x86_64__)
-  // if you ever find that this function is hot on Linux, you can go from
-  // ~200 nanos to ~20 nanos by adding the machinery to use __vdso_getcpu
+#if defined(ROCKSDB_SCHED_GETCPU_PRESENT) && defined(__x86_64__) && \
+    (__GNUC__ > 2 || (__GNUC__ == 2 && __GNUC_MINOR__ >= 22))
+  // sched_getcpu uses VDSO getcpu() syscall since 2.22. I believe Linux offers VDSO
+  // support only on x86_64. This is the fastest/preferred method if available.
+  int cpuno = sched_getcpu();
+  if (cpuno < 0) {
+    return -1;
+  }
+  return cpuno;
+#elif defined(__x86_64__) || defined(__i386__)
+  // clang/gcc both provide cpuid.h, which defines __get_cpuid(), for x86_64 and i386.
   unsigned eax, ebx = 0, ecx, edx;
-  __get_cpuid(1, &eax, &ebx, &ecx, &edx);
+  if (!__get_cpuid(1, &eax, &ebx, &ecx, &edx)) {
+    return -1;
+  }
   return ebx >> 24;
 #else
-  // getcpu or sched_getcpu could work here
+  // give up, the caller can generate a random number or something.
   return -1;
 #endif
 }
@@ -172,6 +183,25 @@ int GetMaxOpenFiles() {
 #endif
   return -1;
 }
+
+void *cacheline_aligned_alloc(size_t size) {
+#if __GNUC__ < 5 && defined(__SANITIZE_ADDRESS__)
+  return malloc(size);
+#elif defined(_ISOC11_SOURCE)
+  return aligned_alloc(CACHE_LINE_SIZE, size);
+#elif ( _POSIX_C_SOURCE >= 200112L || _XOPEN_SOURCE >= 600 || defined(__APPLE__))
+  void *m;
+  errno = posix_memalign(&m, CACHE_LINE_SIZE, size);
+  return errno ? NULL : m;
+#else
+  return malloc(size);
+#endif
+}
+
+void cacheline_aligned_free(void *memblock) {
+  free(memblock);
+}
+
 
 }  // namespace port
 }  // namespace rocksdb

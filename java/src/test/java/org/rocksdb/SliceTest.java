@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 package org.rocksdb;
 
 import org.junit.ClassRule;
@@ -29,6 +29,25 @@ public class SliceTest {
 
     try (final Slice thirdSlice = new Slice("otherSlice".getBytes(), 5)) {
       assertThat(thirdSlice.data()).isEqualTo("Slice".getBytes());
+    }
+  }
+
+  @Test
+  public void sliceClear() {
+    try (final Slice slice = new Slice("abc")) {
+      assertThat(slice.toString()).isEqualTo("abc");
+      slice.clear();
+      assertThat(slice.toString()).isEmpty();
+      slice.clear();  // make sure we don't double-free
+    }
+  }
+
+  @Test
+  public void sliceRemovePrefix() {
+    try (final Slice slice = new Slice("abc")) {
+      assertThat(slice.toString()).isEqualTo("abc");
+      slice.removePrefix(1);
+      assertThat(slice.toString()).isEqualTo("bc");
     }
   }
 

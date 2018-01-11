@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef ROCKSDB_LITE
 
@@ -12,17 +12,17 @@
 #include "rocksdb/write_batch.h"
 #include "rocksdb/write_buffer_manager.h"
 
-#include "db/wal_manager.h"
-#include "db/log_writer.h"
 #include "db/column_family.h"
+#include "db/db_impl.h"
+#include "db/log_writer.h"
 #include "db/version_set.h"
+#include "db/wal_manager.h"
+#include "env/mock_env.h"
+#include "table/mock_table.h"
 #include "util/file_reader_writer.h"
-#include "util/mock_env.h"
 #include "util/string_util.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
-#include "table/mock_table.h"
-#include "db/db_impl.h"
 
 namespace rocksdb {
 
@@ -67,6 +67,8 @@ class WalManagerTest : public testing::Test {
     batch.Put(key, value);
     WriteBatchInternal::SetSequence(&batch, seq);
     current_log_writer_->AddRecord(WriteBatchInternal::Contents(&batch));
+    versions_->SetLastAllocatedSequence(seq);
+    versions_->SetLastPublishedSequence(seq);
     versions_->SetLastSequence(seq);
   }
 

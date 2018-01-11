@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include <thread>
 #include <atomic>
@@ -51,8 +51,10 @@ struct Params {
 };
 
 class IDChecker : public ThreadLocalPtr {
- public:
-  static uint32_t PeekId() { return Instance()->PeekId(); }
+public:
+  static uint32_t PeekId() {
+    return TEST_PeekId();
+  }
 };
 
 }  // anonymous namespace
@@ -561,13 +563,13 @@ TEST_F(ThreadLocalTest, DISABLED_MainThreadDiesFirst) {
 #ifndef ROCKSDB_LITE
   try {
 #endif  // ROCKSDB_LITE
-    std::thread th(&AccessThreadLocal, nullptr);
+    rocksdb::port::Thread th(&AccessThreadLocal, nullptr);
     th.detach();
     TEST_SYNC_POINT("MainThreadDiesFirst:End");
 #ifndef ROCKSDB_LITE
   } catch (const std::system_error& ex) {
     std::cerr << "Start thread: " << ex.code() << std::endl;
-    ASSERT_TRUE(false);
+    FAIL();
   }
 #endif  // ROCKSDB_LITE
 }

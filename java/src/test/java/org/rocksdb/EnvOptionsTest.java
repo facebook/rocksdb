@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 package org.rocksdb;
 
@@ -17,15 +17,6 @@ public class EnvOptionsTest {
   public static final RocksMemoryResource rocksMemoryResource = new RocksMemoryResource();
 
   public static final Random rand = PlatformRandomHelper.getPlatformSpecificRandomFactory();
-
-  @Test
-  public void useOsBuffer() {
-    try (final EnvOptions envOptions = new EnvOptions()) {
-      final boolean boolValue = rand.nextBoolean();
-      envOptions.setUseOsBuffer(boolValue);
-      assertThat(envOptions.useOsBuffer()).isEqualTo(boolValue);
-    }
-  }
 
   @Test
   public void useMmapReads() {
@@ -127,16 +118,16 @@ public class EnvOptionsTest {
   }
 
   @Test
-  public void rateLimiterConfig() {
-    try (final EnvOptions envOptions = new EnvOptions()) {
-      final RateLimiterConfig rateLimiterConfig1 =
-          new GenericRateLimiterConfig(1000, 100 * 1000, 1);
-      envOptions.setRateLimiterConfig(rateLimiterConfig1);
-      assertThat(envOptions.rateLimiterConfig()).isEqualTo(rateLimiterConfig1);
+  public void rateLimiter() {
+    try (final EnvOptions envOptions = new EnvOptions();
+      final RateLimiter rateLimiter1 = new RateLimiter(1000, 100 * 1000, 1)) {
+      envOptions.setRateLimiter(rateLimiter1);
+      assertThat(envOptions.rateLimiter()).isEqualTo(rateLimiter1);
 
-      final RateLimiterConfig rateLimiterConfig2 = new GenericRateLimiterConfig(1000);
-      envOptions.setRateLimiterConfig(rateLimiterConfig2);
-      assertThat(envOptions.rateLimiterConfig()).isEqualTo(rateLimiterConfig2);
+      try(final RateLimiter rateLimiter2 = new RateLimiter(1000)) {
+        envOptions.setRateLimiter(rateLimiter2);
+        assertThat(envOptions.rateLimiter()).isEqualTo(rateLimiter2);
+      }
     }
   }
 }

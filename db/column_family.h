@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -19,11 +19,11 @@
 #include "db/table_properties_collector.h"
 #include "db/write_batch_internal.h"
 #include "db/write_controller.h"
+#include "options/cf_options.h"
 #include "rocksdb/compaction_job_stats.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
-#include "util/cf_options.h"
 #include "util/thread_local.h"
 
 namespace rocksdb {
@@ -41,6 +41,7 @@ class DBImpl;
 class LogBuffer;
 class InstrumentedMutex;
 class InstrumentedMutexLock;
+struct SuperVersionContext;
 
 extern const double kIncSlowdownRatio;
 
@@ -76,7 +77,7 @@ class ColumnFamilyHandleImpl : public ColumnFamilyHandle {
 class ColumnFamilyHandleInternal : public ColumnFamilyHandleImpl {
  public:
   ColumnFamilyHandleInternal()
-      : ColumnFamilyHandleImpl(nullptr, nullptr, nullptr) {}
+      : ColumnFamilyHandleImpl(nullptr, nullptr, nullptr), internal_cfd_(nullptr) {}
 
   void SetCFD(ColumnFamilyData* _cfd) { internal_cfd_ = _cfd; }
   virtual ColumnFamilyData* cfd() const override { return internal_cfd_; }
@@ -95,6 +96,7 @@ struct SuperVersion {
   MutableCFOptions mutable_cf_options;
   // Version number of the current SuperVersion
   uint64_t version_number;
+  WriteStallCondition write_stall_condition;
 
   InstrumentedMutex* db_mutex;
 
@@ -192,7 +194,7 @@ class ColumnFamilyData {
   // *) delete all memory associated with that column family
   // *) delete all the files associated with that column family
   void SetDropped();
-  bool IsDropped() const { return dropped_; }
+  bool IsDropped() const { return dropped_.load(std::memory_order_relaxed); }
 
   // thread-safe
   int NumberLevels() const { return ioptions_.num_levels; }
@@ -239,6 +241,9 @@ class ColumnFamilyData {
   uint64_t GetTotalSstFilesSize() const;  // REQUIRE: DB mutex held
   void SetMemtable(MemTable* new_mem) { mem_ = new_mem; }
 
+  // calculate the oldest log needed for the durability of this column family
+  uint64_t OldestLogToKeep();
+
   // See Memtable constructor for explanation of earliest_seq param.
   MemTable* ConstructNewMemtable(const MutableCFOptions& mutable_cf_options,
                                  SequenceNumber earliest_seq);
@@ -261,7 +266,7 @@ class ColumnFamilyData {
                                   int level) const;
 
   // A flag to tell a manual compaction is to compact all levels together
-  // instad of for specific level.
+  // instead of a specific level.
   static const int kCompactAllLevels;
   // A flag to tell a manual compaction's output is base level.
   static const int kCompactToBaseLevel;
@@ -308,11 +313,11 @@ class ColumnFamilyData {
   // As argument takes a pointer to allocated SuperVersion to enable
   // the clients to allocate SuperVersion outside of mutex.
   // IMPORTANT: Only call this from DBImpl::InstallSuperVersion()
-  SuperVersion* InstallSuperVersion(SuperVersion* new_superversion,
-                                    InstrumentedMutex* db_mutex,
-                                    const MutableCFOptions& mutable_cf_options);
-  SuperVersion* InstallSuperVersion(SuperVersion* new_superversion,
-                                    InstrumentedMutex* db_mutex);
+  void InstallSuperVersion(SuperVersionContext* sv_context,
+                           InstrumentedMutex* db_mutex,
+                           const MutableCFOptions& mutable_cf_options);
+  void InstallSuperVersion(SuperVersionContext* sv_context,
+                           InstrumentedMutex* db_mutex);
 
   void ResetThreadLocalSuperVersions();
 
@@ -327,8 +332,14 @@ class ColumnFamilyData {
   // recalculation of compaction score. These values are used in
   // DBImpl::MakeRoomForWrite function to decide, if it need to make
   // a write stall
-  void RecalculateWriteStallConditions(
+  WriteStallCondition RecalculateWriteStallConditions(
       const MutableCFOptions& mutable_cf_options);
+
+  void set_initialized() { initialized_.store(true); }
+
+  bool initialized() const { return initialized_.load(); }
+
+  Env::WriteLifeTimeHint CalculateSSTWriteHint(int level);
 
  private:
   friend class ColumnFamilySet;
@@ -346,7 +357,8 @@ class ColumnFamilyData {
   Version* current_;         // == dummy_versions->prev_
 
   std::atomic<int> refs_;      // outstanding references to ColumnFamilyData
-  bool dropped_;               // true if client dropped it
+  std::atomic<bool> initialized_;
+  std::atomic<bool> dropped_;  // true if client dropped it
 
   const InternalKeyComparator internal_comparator_;
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
@@ -404,6 +416,9 @@ class ColumnFamilyData {
   bool pending_compaction_;
 
   uint64_t prev_compaction_needed_bytes_;
+
+  // if the database was opened with 2pc enabled
+  bool allow_2pc_;
 };
 
 // ColumnFamilySet has interesting thread-safety requirements

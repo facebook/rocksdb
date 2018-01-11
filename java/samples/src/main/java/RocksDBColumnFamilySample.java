@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 import org.rocksdb.*;
 
@@ -13,13 +13,14 @@ public class RocksDBColumnFamilySample {
     RocksDB.loadLibrary();
   }
 
-  public static void main(String[] args) throws RocksDBException {
+  public static void main(final String[] args) throws RocksDBException {
     if (args.length < 1) {
       System.out.println(
           "usage: RocksDBColumnFamilySample db_path");
-      return;
+      System.exit(-1);
     }
-    String db_path = args[0];
+
+    final String db_path = args[0];
 
     System.out.println("RocksDBColumnFamilySample");
     try(final Options options = new Options().setCreateIfMissing(true);
@@ -54,8 +55,6 @@ public class RocksDBColumnFamilySample {
         // put and get from non-default column family
         db.put(columnFamilyHandles.get(0), new WriteOptions(),
             "key".getBytes(), "value".getBytes());
-        String value = new String(db.get(columnFamilyHandles.get(0),
-            "key".getBytes()));
 
         // atomic write
         try (final WriteBatch wb = new WriteBatch()) {

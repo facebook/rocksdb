@@ -1,7 +1,7 @@
 // Copyright (c) 2015, Red Hat, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
@@ -15,10 +15,9 @@
 // semantics and behavior are correct (in that they match that of an
 // existing, stable Env, like the default POSIX one).
 
-#ifndef ROCKSDB_LITE
+#pragma once
 
-#ifndef STORAGE_ROCKSDB_INCLUDE_UTILITIES_ENVMIRROR_H_
-#define STORAGE_ROCKSDB_INCLUDE_UTLIITIES_ENVMIRROR_H_
+#ifndef ROCKSDB_LITE
 
 #include <iostream>
 #include <algorithm>
@@ -74,6 +73,11 @@ class EnvMirror : public EnvWrapper {
     assert(as == bs);
     return as;
   }
+#if defined(_MSC_VER)
+#pragma warning(push)
+// logical operation on address of string constant
+#pragma warning(disable : 4130)
+#endif
   Status GetChildren(const std::string& dir,
                      std::vector<std::string>* r) override {
     std::vector<std::string> ar, br;
@@ -88,6 +92,9 @@ class EnvMirror : public EnvWrapper {
     *r = ar;
     return as;
   }
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
   Status DeleteFile(const std::string& f) override {
     Status as = a_->DeleteFile(f);
     Status bs = b_->DeleteFile(f);
@@ -173,7 +180,5 @@ class EnvMirror : public EnvWrapper {
 };
 
 }  // namespace rocksdb
-
-#endif  // STORAGE_ROCKSDB_INCLUDE_UTILITIES_ENVMIRROR_H_
 
 #endif  // ROCKSDB_LITE

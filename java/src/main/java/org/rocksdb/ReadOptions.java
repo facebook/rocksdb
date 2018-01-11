@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 package org.rocksdb;
 
@@ -14,6 +14,19 @@ package org.rocksdb;
 public class ReadOptions extends RocksObject {
   public ReadOptions() {
     super(newReadOptions());
+  }
+
+  /**
+   * Copy constructor.
+   *
+   * NOTE: This does a shallow copy, which means snapshot, iterate_upper_bound
+   * and other pointers will be cloned!
+   *
+   * @param other The ReadOptions to copy.
+   */
+  public ReadOptions(ReadOptions other) {
+    super(copyReadOptions(other.nativeHandle_));
+    iterateUpperBoundSlice_ = other.iterateUpperBoundSlice_;
   }
 
   /**
@@ -269,7 +282,156 @@ public class ReadOptions extends RocksObject {
     return this;
   }
 
+  /**
+   * If true, when PurgeObsoleteFile is called in CleanupIteratorState, we
+   * schedule a background job in the flush job queue and delete obsolete files
+   * in background.
+   *
+   * Default: false
+   *
+   * @return true when PurgeObsoleteFile is called in CleanupIteratorState
+   */
+  public boolean backgroundPurgeOnIteratorCleanup() {
+    assert(isOwningHandle());
+    return backgroundPurgeOnIteratorCleanup(nativeHandle_);
+  }
+
+  /**
+   * If true, when PurgeObsoleteFile is called in CleanupIteratorState, we
+   * schedule a background job in the flush job queue and delete obsolete files
+   * in background.
+   *
+   * Default: false
+   *
+   * @param backgroundPurgeOnIteratorCleanup true when PurgeObsoleteFile is
+   *     called in CleanupIteratorState
+   * @return the reference to the current ReadOptions.
+   */
+  public ReadOptions setBackgroundPurgeOnIteratorCleanup(
+      final boolean backgroundPurgeOnIteratorCleanup) {
+    assert(isOwningHandle());
+    setBackgroundPurgeOnIteratorCleanup(nativeHandle_,
+        backgroundPurgeOnIteratorCleanup);
+    return this;
+  }
+
+  /**
+   * If non-zero, NewIterator will create a new table reader which
+   * performs reads of the given size. Using a large size (&gt; 2MB) can
+   * improve the performance of forward iteration on spinning disks.
+   *
+   * Default: 0
+   *
+   * @return The readahead size is bytes
+   */
+  public long readaheadSize() {
+    assert(isOwningHandle());
+    return readaheadSize(nativeHandle_);
+  }
+
+  /**
+   * If non-zero, NewIterator will create a new table reader which
+   * performs reads of the given size. Using a large size (&gt; 2MB) can
+   * improve the performance of forward iteration on spinning disks.
+   *
+   * Default: 0
+   *
+   * @param readaheadSize The readahead size is bytes
+   * @return the reference to the current ReadOptions.
+   */
+  public ReadOptions setReadaheadSize(final long readaheadSize) {
+    assert(isOwningHandle());
+    setReadaheadSize(nativeHandle_, readaheadSize);
+    return this;
+  }
+
+  /**
+   * If true, keys deleted using the DeleteRange() API will be visible to
+   * readers until they are naturally deleted during compaction. This improves
+   * read performance in DBs with many range deletions.
+   *
+   * Default: false
+   *
+   * @return true if keys deleted using the DeleteRange() API will be visible
+   */
+  public boolean ignoreRangeDeletions() {
+    assert(isOwningHandle());
+    return ignoreRangeDeletions(nativeHandle_);
+  }
+
+  /**
+   * If true, keys deleted using the DeleteRange() API will be visible to
+   * readers until they are naturally deleted during compaction. This improves
+   * read performance in DBs with many range deletions.
+   *
+   * Default: false
+   *
+   * @param ignoreRangeDeletions true if keys deleted using the DeleteRange()
+   *     API should be visible
+   * @return the reference to the current ReadOptions.
+   */
+  public ReadOptions setIgnoreRangeDeletions(final boolean ignoreRangeDeletions) {
+    assert(isOwningHandle());
+    setIgnoreRangeDeletions(nativeHandle_, ignoreRangeDeletions);
+    return this;
+  }
+
+  /**
+   * Defines the extent upto which the forward iterator can returns entries.
+   * Once the bound is reached, Valid() will be false. iterate_upper_bound
+   * is exclusive ie the bound value is not a valid entry. If
+   * iterator_extractor is not null, the Seek target and iterator_upper_bound
+   * need to have the same prefix. This is because ordering is not guaranteed
+   * outside of prefix domain. There is no lower bound on the iterator.
+   *
+   * Default: nullptr
+   *
+   * @param iterateUpperBound Slice representing the upper bound
+   * @return the reference to the current ReadOptions.
+   */
+  public ReadOptions setIterateUpperBound(final Slice iterateUpperBound) {
+    assert(isOwningHandle());
+    if (iterateUpperBound != null) {
+      // Hold onto a reference so it doesn't get garbaged collected out from under us.
+      iterateUpperBoundSlice_ = iterateUpperBound;
+      setIterateUpperBound(nativeHandle_, iterateUpperBoundSlice_.getNativeHandle());
+    }
+    return this;
+  }
+
+  /**
+   * Defines the extent upto which the forward iterator can returns entries.
+   * Once the bound is reached, Valid() will be false. iterate_upper_bound
+   * is exclusive ie the bound value is not a valid entry. If
+   * iterator_extractor is not null, the Seek target and iterator_upper_bound
+   * need to have the same prefix. This is because ordering is not guaranteed
+   * outside of prefix domain. There is no lower bound on the iterator.
+   *
+   * Default: nullptr
+   *
+   * @return Slice representing current iterate_upper_bound setting, or null if
+   *         one does not exist.
+   */
+  public Slice iterateUpperBound() {
+    assert(isOwningHandle());
+    long upperBoundSliceHandle = iterateUpperBound(nativeHandle_);
+    if (upperBoundSliceHandle != 0) {
+      // Disown the new slice - it's owned by the C++ side of the JNI boundary
+      // from the perspective of this method.
+      return new Slice(upperBoundSliceHandle, false);
+    }
+    return null;
+  }
+
+  // Hold a reference to any iterate upper bound that was set on this object
+  // until we're destroyed or it's overwritten.  That way the caller can freely
+  // leave scope without us losing the Java Slice object, which during close()
+  // would also reap its associated rocksdb::Slice native object since it's
+  // possibly (likely) to be an owning handle.
+  protected Slice iterateUpperBoundSlice_;
+
   private native static long newReadOptions();
+  private native static long copyReadOptions(long handle);
   private native boolean verifyChecksums(long handle);
   private native void setVerifyChecksums(long handle, boolean verifyChecksums);
   private native boolean fillCache(long handle);
@@ -288,6 +450,18 @@ public class ReadOptions extends RocksObject {
   private native void setPrefixSameAsStart(long handle, boolean prefixSameAsStart);
   private native boolean pinData(long handle);
   private native void setPinData(long handle, boolean pinData);
+  private native boolean backgroundPurgeOnIteratorCleanup(final long handle);
+  private native void setBackgroundPurgeOnIteratorCleanup(final long handle,
+      final boolean backgroundPurgeOnIteratorCleanup);
+  private native long readaheadSize(final long handle);
+  private native void setReadaheadSize(final long handle,
+      final long readaheadSize);
+  private native boolean ignoreRangeDeletions(final long handle);
+  private native void setIgnoreRangeDeletions(final long handle,
+      final boolean ignoreRangeDeletions);
+  private native void setIterateUpperBound(final long handle,
+      final long upperBoundSliceHandle);
+  private native long iterateUpperBound(final long handle);
 
   @Override protected final native void disposeInternal(final long handle);
 

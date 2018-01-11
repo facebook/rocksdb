@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // This file implements the "bridge" between Java and C++ and enables
 // calling C++ rocksdb::BackupEngine methods from the Java side.
@@ -82,11 +82,15 @@ jintArray Java_org_rocksdb_BackupEngine_getCorruptedBackups(
   backup_engine->GetCorruptedBackups(&backup_ids);
   // store backupids in int array
   std::vector<jint> int_backup_ids(backup_ids.begin(), backup_ids.end());
+  
   // Store ints in java array
-  jintArray ret_backup_ids;
   // Its ok to loose precision here (64->32)
   jsize ret_backup_ids_size = static_cast<jsize>(backup_ids.size());
-  ret_backup_ids = env->NewIntArray(ret_backup_ids_size);
+  jintArray ret_backup_ids = env->NewIntArray(ret_backup_ids_size);
+  if(ret_backup_ids == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return nullptr;
+  }
   env->SetIntArrayRegion(ret_backup_ids, 0, ret_backup_ids_size,
       int_backup_ids.data());
   return ret_backup_ids;
@@ -155,14 +159,24 @@ void Java_org_rocksdb_BackupEngine_restoreDbFromBackup(
     JNIEnv* env, jobject jbe, jlong jbe_handle, jint jbackup_id,
     jstring jdb_dir, jstring jwal_dir, jlong jrestore_options_handle) {
   auto* backup_engine = reinterpret_cast<rocksdb::BackupEngine*>(jbe_handle);
-  const char* db_dir = env->GetStringUTFChars(jdb_dir, 0);
-  const char* wal_dir = env->GetStringUTFChars(jwal_dir, 0);
+  const char* db_dir = env->GetStringUTFChars(jdb_dir, nullptr);
+  if(db_dir == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return;
+  }
+  const char* wal_dir = env->GetStringUTFChars(jwal_dir, nullptr);
+  if(wal_dir == nullptr) {
+    // exception thrown: OutOfMemoryError
+    env->ReleaseStringUTFChars(jdb_dir, db_dir);
+    return;
+  }
   auto* restore_options =
       reinterpret_cast<rocksdb::RestoreOptions*>(jrestore_options_handle);
   auto status =
       backup_engine->RestoreDBFromBackup(
           static_cast<rocksdb::BackupID>(jbackup_id), db_dir, wal_dir,
           *restore_options);
+
   env->ReleaseStringUTFChars(jwal_dir, wal_dir);
   env->ReleaseStringUTFChars(jdb_dir, db_dir);
 
@@ -182,13 +196,23 @@ void Java_org_rocksdb_BackupEngine_restoreDbFromLatestBackup(
     JNIEnv* env, jobject jbe, jlong jbe_handle, jstring jdb_dir,
     jstring jwal_dir, jlong jrestore_options_handle) {
   auto* backup_engine = reinterpret_cast<rocksdb::BackupEngine*>(jbe_handle);
-  const char* db_dir = env->GetStringUTFChars(jdb_dir, 0);
-  const char* wal_dir = env->GetStringUTFChars(jwal_dir, 0);
+  const char* db_dir = env->GetStringUTFChars(jdb_dir, nullptr);
+  if(db_dir == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return;
+  }
+  const char* wal_dir = env->GetStringUTFChars(jwal_dir, nullptr);
+  if(wal_dir == nullptr) {
+    // exception thrown: OutOfMemoryError
+    env->ReleaseStringUTFChars(jdb_dir, db_dir);
+    return;
+  }
   auto* restore_options =
       reinterpret_cast<rocksdb::RestoreOptions*>(jrestore_options_handle);
   auto status =
       backup_engine->RestoreDBFromLatestBackup(db_dir, wal_dir,
           *restore_options);
+
   env->ReleaseStringUTFChars(jwal_dir, wal_dir);
   env->ReleaseStringUTFChars(jdb_dir, db_dir);
 
@@ -206,5 +230,7 @@ void Java_org_rocksdb_BackupEngine_restoreDbFromLatestBackup(
  */
 void Java_org_rocksdb_BackupEngine_disposeInternal(
     JNIEnv* env, jobject jbe, jlong jbe_handle) {
-  delete reinterpret_cast<rocksdb::BackupEngine*>(jbe_handle);
+  auto* be = reinterpret_cast<rocksdb::BackupEngine*>(jbe_handle);
+  assert(be != nullptr);
+  delete be;
 }

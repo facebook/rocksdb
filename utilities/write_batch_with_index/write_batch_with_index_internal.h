@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
 #ifndef ROCKSDB_LITE
@@ -10,13 +10,13 @@
 #include <string>
 #include <vector>
 
+#include "options/db_options.h"
 #include "port/port.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
-#include "util/db_options.h"
 
 namespace rocksdb {
 
@@ -54,8 +54,8 @@ struct WriteBatchIndexEntry {
 
 class ReadableWriteBatch : public WriteBatch {
  public:
-  explicit ReadableWriteBatch(size_t reserved_bytes = 0)
-      : WriteBatch(reserved_bytes) {}
+  explicit ReadableWriteBatch(size_t reserved_bytes = 0, size_t max_bytes = 0)
+      : WriteBatch(reserved_bytes, max_bytes) {}
   // Retrieve some information from a write entry in the write batch, given
   // the start offset of the write entry.
   Status GetEntryFromDataOffset(size_t data_offset, WriteType* type, Slice* Key,

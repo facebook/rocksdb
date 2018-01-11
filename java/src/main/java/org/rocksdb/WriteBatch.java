@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 package org.rocksdb;
 
@@ -59,8 +59,20 @@ public class WriteBatch extends AbstractWriteBatch {
    * @param nativeHandle address of native instance.
    */
   WriteBatch(final long nativeHandle) {
+    this(nativeHandle, false);
+  }
+
+  /**
+   * <p>Private WriteBatch constructor which is used to construct
+   * WriteBatch instances. </p>
+   *
+   * @param nativeHandle address of native instance.
+   * @param owningNativeHandle whether to own this reference from the C++ side or not
+   */
+  WriteBatch(final long nativeHandle, final boolean owningNativeHandle) {
     super(nativeHandle);
-    disOwnNativeHandle();
+    if(!owningNativeHandle)
+      disOwnNativeHandle();
   }
 
   @Override protected final native void disposeInternal(final long handle);
@@ -79,6 +91,12 @@ public class WriteBatch extends AbstractWriteBatch {
       final int keyLen);
   @Override final native void remove(final long handle, final byte[] key,
       final int keyLen, final long cfHandle);
+  @Override
+  final native void deleteRange(final long handle, final byte[] beginKey, final int beginKeyLen,
+      final byte[] endKey, final int endKeyLen);
+  @Override
+  final native void deleteRange(final long handle, final byte[] beginKey, final int beginKeyLen,
+      final byte[] endKey, final int endKeyLen, final long cfHandle);
   @Override final native void putLogData(final long handle,
       final byte[] blob, final int blobLen);
   @Override final native void clear0(final long handle);
@@ -94,16 +112,20 @@ public class WriteBatch extends AbstractWriteBatch {
    * Handler callback for iterating over the contents of a batch.
    */
   public static abstract class Handler
-      extends AbstractImmutableNativeReference {
-    private final long nativeHandle_;
+      extends RocksCallbackObject {
     public Handler() {
-      super(true);
-      this.nativeHandle_ = createNewHandler0();
+      super(null);
+    }
+
+    @Override
+    protected long initializeNative(final long... nativeParameterHandles) {
+      return createNewHandler0();
     }
 
     public abstract void put(byte[] key, byte[] value);
     public abstract void merge(byte[] key, byte[] value);
     public abstract void delete(byte[] key);
+    public abstract void deleteRange(byte[] beginKey, byte[] endKey);
     public abstract void logData(byte[] blob);
 
     /**
@@ -120,15 +142,6 @@ public class WriteBatch extends AbstractWriteBatch {
       return true;
     }
 
-    /**
-     * Deletes underlying C++ handler pointer.
-     */
-    @Override
-    protected void disposeInternal() {
-      disposeInternal(nativeHandle_);
-    }
-
     private native long createNewHandler0();
-    private native void disposeInternal(final long handle);
   }
 }

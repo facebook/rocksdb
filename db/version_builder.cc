@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <atomic>
 #include <functional>
+#include <map>
 #include <set>
 #include <thread>
 #include <unordered_map>
@@ -28,6 +29,7 @@
 #include "db/internal_stats.h"
 #include "db/table_cache.h"
 #include "db/version_set.h"
+#include "port/port.h"
 #include "table/table_reader.h"
 
 namespace rocksdb {
@@ -64,6 +66,8 @@ class VersionBuilder::Rep {
     enum SortMethod { kLevel0 = 0, kLevelNon0 = 1, } sort_method;
     const InternalKeyComparator* internal_comparator;
 
+    FileComparator() : internal_comparator(nullptr) {}
+
     bool operator()(FileMetaData* f1, FileMetaData* f2) const {
       switch (sort_method) {
         case kLevel0:
@@ -86,7 +90,16 @@ class VersionBuilder::Rep {
   Logger* info_log_;
   TableCache* table_cache_;
   VersionStorageInfo* base_vstorage_;
+  int num_levels_;
   LevelState* levels_;
+  // Store states of levels larger than num_levels_. We do this instead of
+  // storing them in levels_ to avoid regression in case there are no files
+  // on invalid levels. The version is not consistent if in the end the files
+  // on invalid levels don't cancel out.
+  std::map<int, std::unordered_set<uint64_t>> invalid_levels_;
+  // Whether there are invalid new files or invalid deletion on levels larger
+  // than num_levels_.
+  bool has_invalid_levels_;
   FileComparator level_zero_cmp_;
   FileComparator level_nonzero_cmp_;
 
@@ -96,8 +109,10 @@ class VersionBuilder::Rep {
       : env_options_(env_options),
         info_log_(info_log),
         table_cache_(table_cache),
-        base_vstorage_(base_vstorage) {
-    levels_ = new LevelState[base_vstorage_->num_levels()];
+        base_vstorage_(base_vstorage),
+        num_levels_(base_vstorage->num_levels()),
+        has_invalid_levels_(false) {
+    levels_ = new LevelState[num_levels_];
     level_zero_cmp_.sort_method = FileComparator::kLevel0;
     level_nonzero_cmp_.sort_method = FileComparator::kLevelNon0;
     level_nonzero_cmp_.internal_comparator =
@@ -105,7 +120,7 @@ class VersionBuilder::Rep {
   }
 
   ~Rep() {
-    for (int level = 0; level < base_vstorage_->num_levels(); level++) {
+    for (int level = 0; level < num_levels_; level++) {
       const auto& added = levels_[level].added_files;
       for (auto& pair : added) {
         UnrefFile(pair.second);
@@ -136,7 +151,7 @@ class VersionBuilder::Rep {
     }
 #endif
     // make sure the files are sorted correctly
-    for (int level = 0; level < vstorage->num_levels(); level++) {
+    for (int level = 0; level < num_levels_; level++) {
       auto& level_files = vstorage->LevelFiles(level);
       for (size_t i = 1; i < level_files.size(); i++) {
         auto f1 = level_files[i - 1];
@@ -195,7 +210,7 @@ class VersionBuilder::Rep {
 #endif
     // a file to be deleted better exist in the previous version
     bool found = false;
-    for (int l = 0; !found && l < base_vstorage_->num_levels(); l++) {
+    for (int l = 0; !found && l < num_levels_; l++) {
       const std::vector<FileMetaData*>& base_files =
           base_vstorage_->LevelFiles(l);
       for (size_t i = 0; i < base_files.size(); i++) {
@@ -209,7 +224,7 @@ class VersionBuilder::Rep {
     // if the file did not exist in the previous version, then it
     // is possibly moved from lower level to higher level in current
     // version
-    for (int l = level + 1; !found && l < base_vstorage_->num_levels(); l++) {
+    for (int l = level + 1; !found && l < num_levels_; l++) {
       auto& level_added = levels_[l].added_files;
       auto got = level_added.find(number);
       if (got != level_added.end()) {
@@ -232,6 +247,19 @@ class VersionBuilder::Rep {
     }
   }
 
+  bool CheckConsistencyForNumLevels() {
+    // Make sure there are no files on or beyond num_levels().
+    if (has_invalid_levels_) {
+      return false;
+    }
+    for (auto& level : invalid_levels_) {
+      if (level.second.size() > 0) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   // Apply all of the edits in *edit to the current state.
   void Apply(VersionEdit* edit) {
     CheckConsistency(base_vstorage_);
@@ -241,26 +269,46 @@ class VersionBuilder::Rep {
     for (const auto& del_file : del) {
       const auto level = del_file.first;
       const auto number = del_file.second;
-      levels_[level].deleted_files.insert(number);
-      CheckConsistencyForDeletes(edit, number, level);
+      if (level < num_levels_) {
+        levels_[level].deleted_files.insert(number);
+        CheckConsistencyForDeletes(edit, number, level);
 
-      auto exising = levels_[level].added_files.find(number);
-      if (exising != levels_[level].added_files.end()) {
-        UnrefFile(exising->second);
-        levels_[level].added_files.erase(number);
+        auto exising = levels_[level].added_files.find(number);
+        if (exising != levels_[level].added_files.end()) {
+          UnrefFile(exising->second);
+          levels_[level].added_files.erase(exising);
+        }
+      } else {
+        auto exising = invalid_levels_[level].find(number);
+        if (exising != invalid_levels_[level].end()) {
+          invalid_levels_[level].erase(exising);
+        } else {
+          // Deleting an non-existing file on invalid level.
+          has_invalid_levels_ = true;
+        }
       }
     }
 
     // Add new files
     for (const auto& new_file : edit->GetNewFiles()) {
       const int level = new_file.first;
-      FileMetaData* f = new FileMetaData(new_file.second);
-      f->refs = 1;
+      if (level < num_levels_) {
+        FileMetaData* f = new FileMetaData(new_file.second);
+        f->refs = 1;
 
-      assert(levels_[level].added_files.find(f->fd.GetNumber()) ==
-             levels_[level].added_files.end());
-      levels_[level].deleted_files.erase(f->fd.GetNumber());
-      levels_[level].added_files[f->fd.GetNumber()] = f;
+        assert(levels_[level].added_files.find(f->fd.GetNumber()) ==
+               levels_[level].added_files.end());
+        levels_[level].deleted_files.erase(f->fd.GetNumber());
+        levels_[level].added_files[f->fd.GetNumber()] = f;
+      } else {
+        uint64_t number = new_file.second.fd.GetNumber();
+        if (invalid_levels_[level].count(number) == 0) {
+          invalid_levels_[level].insert(number);
+        } else {
+          // Creating an already existing file on invalid level.
+          has_invalid_levels_ = true;
+        }
+      }
     }
   }
 
@@ -269,7 +317,7 @@ class VersionBuilder::Rep {
     CheckConsistency(base_vstorage_);
     CheckConsistency(vstorage);
 
-    for (int level = 0; level < base_vstorage_->num_levels(); level++) {
+    for (int level = 0; level < num_levels_; level++) {
       const auto& cmp = (level == 0) ? level_zero_cmp_ : level_nonzero_cmp_;
       // Merge the set of added files with the set of pre-existing files.
       // Drop any deleted files.  Store the result in *v.
@@ -324,7 +372,7 @@ class VersionBuilder::Rep {
     assert(table_cache_ != nullptr);
     // <file metadata, level>
     std::vector<std::pair<FileMetaData*, int>> files_meta;
-    for (int level = 0; level < base_vstorage_->num_levels(); level++) {
+    for (int level = 0; level < num_levels_; level++) {
       for (auto& file_meta_pair : levels_[level].added_files) {
         auto* file_meta = file_meta_pair.second;
         assert(!file_meta->table_reader_handle);
@@ -359,7 +407,7 @@ class VersionBuilder::Rep {
     if (max_threads <= 1) {
       load_handlers_func();
     } else {
-      std::vector<std::thread> threads;
+      std::vector<port::Thread> threads;
       for (int i = 0; i < max_threads; i++) {
         threads.emplace_back(load_handlers_func);
       }
@@ -385,24 +433,35 @@ VersionBuilder::VersionBuilder(const EnvOptions& env_options,
                                VersionStorageInfo* base_vstorage,
                                Logger* info_log)
     : rep_(new Rep(env_options, info_log, table_cache, base_vstorage)) {}
+
 VersionBuilder::~VersionBuilder() { delete rep_; }
+
 void VersionBuilder::CheckConsistency(VersionStorageInfo* vstorage) {
   rep_->CheckConsistency(vstorage);
 }
+
 void VersionBuilder::CheckConsistencyForDeletes(VersionEdit* edit,
                                                 uint64_t number, int level) {
   rep_->CheckConsistencyForDeletes(edit, number, level);
 }
+
+bool VersionBuilder::CheckConsistencyForNumLevels() {
+  return rep_->CheckConsistencyForNumLevels();
+}
+
 void VersionBuilder::Apply(VersionEdit* edit) { rep_->Apply(edit); }
+
 void VersionBuilder::SaveTo(VersionStorageInfo* vstorage) {
   rep_->SaveTo(vstorage);
 }
+
 void VersionBuilder::LoadTableHandlers(
     InternalStats* internal_stats, int max_threads,
     bool prefetch_index_and_filter_in_cache) {
   rep_->LoadTableHandlers(internal_stats, max_threads,
                           prefetch_index_and_filter_in_cache);
 }
+
 void VersionBuilder::MaybeAddFile(VersionStorageInfo* vstorage, int level,
                                   FileMetaData* f) {
   rep_->MaybeAddFile(vstorage, level, f);

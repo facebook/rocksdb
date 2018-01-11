@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include "db/event_helpers.h"
 
@@ -36,6 +36,24 @@ void EventHelpers::NotifyTableFileCreationStarted(
   }
 }
 #endif  // !ROCKSDB_LITE
+
+void EventHelpers::NotifyOnBackgroundError(
+    const std::vector<std::shared_ptr<EventListener>>& listeners,
+    BackgroundErrorReason reason, Status* bg_error,
+    InstrumentedMutex* db_mutex) {
+#ifndef ROCKSDB_LITE
+  if (listeners.size() == 0U) {
+    return;
+  }
+  db_mutex->AssertHeld();
+  // release lock while notifying events
+  db_mutex->Unlock();
+  for (auto& listener : listeners) {
+    listener->OnBackgroundError(reason, bg_error);
+  }
+  db_mutex->Lock();
+#endif  // ROCKSDB_LITE
+}
 
 void EventHelpers::LogAndNotifyTableFileCreationFinished(
     EventLogger* event_logger,
@@ -128,7 +146,7 @@ void EventHelpers::LogAndNotifyTableFileDeletion(
   info.job_id = job_id;
   info.file_path = file_path;
   info.status = status;
-  for (auto listener : listeners) {
+  for (auto& listener : listeners) {
     listener->OnTableFileDeleted(info);
   }
 #endif  // !ROCKSDB_LITE

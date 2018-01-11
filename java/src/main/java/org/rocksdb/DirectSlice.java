@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 package org.rocksdb;
 
@@ -19,6 +19,13 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
   public final static DirectSlice NONE = new DirectSlice();
 
   /**
+   * Indicates whether we have to free the memory pointed to by the Slice
+   */
+  private final boolean internalBuffer;
+  private volatile boolean cleared = false;
+  private volatile long internalBufferOffset = 0;
+
+  /**
    * Called from JNI to construct a new Java DirectSlice
    * without an underlying C++ object set
    * at creation time.
@@ -32,6 +39,7 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
    */
   DirectSlice() {
     super();
+    this.internalBuffer = false;
   }
 
   /**
@@ -43,6 +51,7 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
    */
   public DirectSlice(final String str) {
     super(createNewSliceFromString(str));
+    this.internalBuffer = true;
   }
 
   /**
@@ -55,6 +64,7 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
    */
   public DirectSlice(final ByteBuffer data, final int length) {
     super(createNewDirectSlice0(ensureDirect(data), length));
+    this.internalBuffer = false;
   }
 
   /**
@@ -66,12 +76,13 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
    */
   public DirectSlice(final ByteBuffer data) {
     super(createNewDirectSlice1(ensureDirect(data)));
+    this.internalBuffer = false;
   }
 
   private static ByteBuffer ensureDirect(final ByteBuffer data) {
-    // TODO(AR) consider throwing a checked exception, as if it's not direct
-    // this can SIGSEGV
-    assert(data.isDirect());
+    if(!data.isDirect()) {
+      throw new IllegalArgumentException("The ByteBuffer must be direct");
+    }
     return data;
   }
 
@@ -83,26 +94,29 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
    *
    * @return the requested byte
    */
-  public byte get(int offset) {
+  public byte get(final int offset) {
     return get0(getNativeHandle(), offset);
   }
 
-  /**
-   * Clears the backing slice
-   */
+  @Override
   public void clear() {
-    clear0(getNativeHandle());
+    clear0(getNativeHandle(), !cleared && internalBuffer, internalBufferOffset);
+    cleared = true;
   }
 
-  /**
-   * Drops the specified {@code n}
-   * number of bytes from the start
-   * of the backing slice
-   *
-   * @param n The number of bytes to drop
-   */
+  @Override
   public void removePrefix(final int n) {
     removePrefix0(getNativeHandle(), n);
+    this.internalBufferOffset += n;
+  }
+
+  @Override
+  protected void disposeInternal() {
+    final long nativeHandle = getNativeHandle();
+    if(!cleared && internalBuffer) {
+      disposeInternalBuf(nativeHandle, internalBufferOffset);
+    }
+    disposeInternal(nativeHandle);
   }
 
   private native static long createNewDirectSlice0(final ByteBuffer data,
@@ -110,6 +124,9 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
   private native static long createNewDirectSlice1(final ByteBuffer data);
   @Override protected final native ByteBuffer data0(long handle);
   private native byte get0(long handle, int offset);
-  private native void clear0(long handle);
+  private native void clear0(long handle, boolean internalBuffer,
+      long internalBufferOffset);
   private native void removePrefix0(long handle, int length);
+  private native void disposeInternalBuf(final long handle,
+      long internalBufferOffset);
 }

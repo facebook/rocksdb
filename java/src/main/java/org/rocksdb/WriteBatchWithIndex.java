@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 package org.rocksdb;
 
@@ -60,8 +60,8 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
       final AbstractComparator<? extends AbstractSlice<?>>
           fallbackIndexComparator, final int reservedBytes,
       final boolean overwriteKey) {
-    super(newWriteBatchWithIndex(fallbackIndexComparator.getNativeHandle(),
-        reservedBytes, overwriteKey));
+    super(newWriteBatchWithIndex(fallbackIndexComparator.nativeHandle_,
+        fallbackIndexComparator instanceof DirectComparator, reservedBytes, overwriteKey));
   }
 
   /**
@@ -144,6 +144,9 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * @param options The database options to use
    * @param key The key to read the value for
    *
+   * @return a byte array storing the value associated with the input key if
+   *     any. null if it does not find the specified key.
+   *
    * @throws RocksDBException if the batch does not have enough data to resolve
    * Merge operations, MergeInProgress status may be returned.
    */
@@ -159,6 +162,9 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    *
    * @param options The database options to use
    * @param key The key to read the value for
+   *
+   * @return a byte array storing the value associated with the input key if
+   *     any. null if it does not find the specified key.
    *
    * @throws RocksDBException if the batch does not have enough data to resolve
    * Merge operations, MergeInProgress status may be returned.
@@ -181,9 +187,13 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * (the keys in this batch do not yet belong to any snapshot and will be
    * fetched regardless).
    *
+   * @param db The Rocks database
    * @param columnFamilyHandle The column family to retrieve the value from
    * @param options The read options to use
    * @param key The key to read the value for
+   *
+   * @return a byte array storing the value associated with the input key if
+   *     any. null if it does not find the specified key.
    *
    * @throws RocksDBException if the value for the key cannot be read
    */
@@ -207,8 +217,12 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * (the keys in this batch do not yet belong to any snapshot and will be
    * fetched regardless).
    *
+   * @param db The Rocks database
    * @param options The read options to use
    * @param key The key to read the value for
+   *
+   * @return a byte array storing the value associated with the input key if
+   *     any. null if it does not find the specified key.
    *
    * @throws RocksDBException if the value for the key cannot be read
    */
@@ -234,6 +248,12 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
       final int keyLen);
   @Override final native void remove(final long handle, final byte[] key,
       final int keyLen, final long cfHandle);
+  @Override
+  final native void deleteRange(final long handle, final byte[] beginKey, final int beginKeyLen,
+      final byte[] endKey, final int endKeyLen);
+  @Override
+  final native void deleteRange(final long handle, final byte[] beginKey, final int beginKeyLen,
+      final byte[] endKey, final int endKeyLen, final long cfHandle);
   @Override final native void putLogData(final long handle, final byte[] blob,
       final int blobLen);
   @Override final native void clear0(final long handle);
@@ -243,7 +263,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
   private native static long newWriteBatchWithIndex();
   private native static long newWriteBatchWithIndex(final boolean overwriteKey);
   private native static long newWriteBatchWithIndex(
-      final long fallbackIndexComparatorHandle, final int reservedBytes,
+      final long fallbackIndexComparatorHandle, final boolean isDirect, final int reservedBytes,
       final boolean overwriteKey);
   private native long iterator0(final long handle);
   private native long iterator1(final long handle, final long cfHandle);

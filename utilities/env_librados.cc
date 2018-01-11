@@ -219,16 +219,6 @@ public:
     return s;
   }
 
-  // Used by the file_reader_writer to decide if the ReadAhead wrapper
-  // should simply forward the call and do not enact buffering or locking.
-  bool ShouldForwardRawRequest() const {
-    return false;
-  }
-
-  // For cases when read-ahead is implemented in the platform dependent
-  // layer
-  void EnableReadAhead() {}
-
   /**
    * @brief [brief description]
    * @details Get unique id for each file and guarantee this id is different for each file
@@ -454,7 +444,7 @@ public:
    * @details [long description]
    * @return [description]
    */
-  bool UseDirectIO() const {
+  bool use_direct_io() const {
     return false;
   }
 

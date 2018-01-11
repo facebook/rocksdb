@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -38,6 +38,18 @@ CuckooTableReader::CuckooTableReader(
     const Comparator* comparator,
     uint64_t (*get_slice_hash)(const Slice&, uint32_t, uint64_t))
     : file_(std::move(file)),
+      is_last_level_(false),
+      identity_as_first_hash_(false),
+      use_module_hash_(false),
+      num_hash_func_(0),
+      unused_key_(""),
+      key_length_(0),
+      user_key_length_(0),
+      value_length_(0),
+      bucket_length_(0),
+      cuckoo_block_size_(0),
+      cuckoo_block_bytes_minus_one_(0),
+      table_size_(0),
       ucomp_(comparator),
       get_slice_hash_(get_slice_hash) {
   if (!ioptions.allow_mmap_reads) {
@@ -322,7 +334,7 @@ void CuckooTableIterator::PrepareKVAtCurrIdx() {
     curr_key_.SetInternalKey(Slice(offset, reader_->user_key_length_),
                              0, kTypeValue);
   } else {
-    curr_key_.SetKey(Slice(offset, reader_->key_length_));
+    curr_key_.SetInternalKey(Slice(offset, reader_->key_length_));
   }
   curr_value_ = Slice(offset + reader_->key_length_, reader_->value_length_);
 }
@@ -352,7 +364,7 @@ void CuckooTableIterator::Prev() {
 
 Slice CuckooTableIterator::key() const {
   assert(Valid());
-  return curr_key_.GetKey();
+  return curr_key_.GetInternalKey();
 }
 
 Slice CuckooTableIterator::value() const {
@@ -368,10 +380,6 @@ InternalIterator* CuckooTableReader::NewIterator(
   if (!status().ok()) {
     return NewErrorInternalIterator(
         Status::Corruption("CuckooTableReader status is not okay."), arena);
-  }
-  if (read_options.total_order_seek) {
-    return NewErrorInternalIterator(
-        Status::InvalidArgument("total_order_seek is not supported."), arena);
   }
   CuckooTableIterator* iter;
   if (arena == nullptr) {

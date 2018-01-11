@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -108,6 +108,11 @@ struct BackupableDBOptions {
   // Default: 4194304
   uint64_t callback_trigger_interval_size;
 
+  // When Open() is called, it will open at most this many of the latest
+  // non-corrupted backups.
+  // Default: INT_MAX
+  int max_valid_backups_to_open;
+
   void Dump(Logger* logger) const;
 
   explicit BackupableDBOptions(
@@ -116,7 +121,8 @@ struct BackupableDBOptions {
       bool _sync = true, bool _destroy_old_data = false,
       bool _backup_log_files = true, uint64_t _backup_rate_limit = 0,
       uint64_t _restore_rate_limit = 0, int _max_background_operations = 1,
-      uint64_t _callback_trigger_interval_size = 4 * 1024 * 1024)
+      uint64_t _callback_trigger_interval_size = 4 * 1024 * 1024,
+      int _max_valid_backups_to_open = INT_MAX)
       : backup_dir(_backup_dir),
         backup_env(_backup_env),
         share_table_files(_share_table_files),
@@ -128,7 +134,8 @@ struct BackupableDBOptions {
         restore_rate_limit(_restore_rate_limit),
         share_files_with_checksum(false),
         max_background_operations(_max_background_operations),
-        callback_trigger_interval_size(_callback_trigger_interval_size) {
+        callback_trigger_interval_size(_callback_trigger_interval_size),
+        max_valid_backups_to_open(_max_valid_backups_to_open) {
     assert(share_table_files || !share_files_with_checksum);
   }
 };
@@ -227,6 +234,12 @@ class BackupEngineReadOnly {
 
   // checks that each file exists and that the size of the file matches our
   // expectations. it does not check file checksum.
+  //
+  // If this BackupEngine created the backup, it compares the files' current
+  // sizes against the number of bytes written to them during creation.
+  // Otherwise, it compares the files' current sizes against their sizes when
+  // the BackupEngine was opened.
+  //
   // Returns Status::OK() if all checks are good
   virtual Status VerifyBackup(BackupID backup_id) = 0;
 };
@@ -243,12 +256,14 @@ class BackupEngine {
                      BackupEngine** backup_engine_ptr);
 
   // same as CreateNewBackup, but stores extra application metadata
+  // Flush will always trigger if 2PC is enabled.
   virtual Status CreateNewBackupWithMetadata(
       DB* db, const std::string& app_metadata, bool flush_before_backup = false,
       std::function<void()> progress_callback = []() {}) = 0;
 
   // Captures the state of the database in the latest backup
   // NOT a thread safe call
+  // Flush will always trigger if 2PC is enabled.
   virtual Status CreateNewBackup(DB* db, bool flush_before_backup = false,
                                  std::function<void()> progress_callback =
                                      []() {}) {

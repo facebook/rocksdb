@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 package org.rocksdb.test;
 
 import org.junit.internal.JUnitSystem;
@@ -31,12 +31,12 @@ public class RocksJunitRunner {
      *
      * @param system JUnitSystem
      */
-    public RocksJunitListener(JUnitSystem system) {
+    public RocksJunitListener(final JUnitSystem system) {
       super(system);
     }
 
     @Override
-    public void testStarted(Description description) {
+    public void testStarted(final Description description) {
        System.out.format("Run: %s testing now -> %s \n",
            description.getClassName(),
            description.getMethodName());
@@ -48,21 +48,23 @@ public class RocksJunitRunner {
    *
    * @param args Test classes as String names
    */
-  public static void main(String[] args){
-    JUnitCore runner = new JUnitCore();
+  public static void main(final String[] args){
+    final JUnitCore runner = new JUnitCore();
     final JUnitSystem system = new RealSystem();
     runner.addListener(new RocksJunitListener(system));
     try {
-      List<Class<?>> classes = new ArrayList<>();
-      for (String arg : args) {
+      final List<Class<?>> classes = new ArrayList<>();
+      for (final String arg : args) {
         classes.add(Class.forName(arg));
       }
-      final Result result = runner.run(classes.toArray(new Class[1]));
+      final Class[] clazzes = classes.toArray(new Class[classes.size()]);
+      final Result result = runner.run(clazzes);
       if(!result.wasSuccessful()) {
         System.exit(-1);
       }
-    } catch (ClassNotFoundException e) {
+    } catch (final ClassNotFoundException e) {
       e.printStackTrace();
+      System.exit(-2);
     }
   }
 }

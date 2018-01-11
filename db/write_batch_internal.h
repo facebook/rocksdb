@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -68,44 +68,48 @@ class WriteBatchInternal {
   static const size_t kHeader = 12;
 
   // WriteBatch methods with column_family_id instead of ColumnFamilyHandle*
-  static void Put(WriteBatch* batch, uint32_t column_family_id,
-                  const Slice& key, const Slice& value);
-
-  static void Put(WriteBatch* batch, uint32_t column_family_id,
-                  const SliceParts& key, const SliceParts& value);
-
-  static void Delete(WriteBatch* batch, uint32_t column_family_id,
-                     const SliceParts& key);
-
-  static void Delete(WriteBatch* batch, uint32_t column_family_id,
-                     const Slice& key);
-
-  static void SingleDelete(WriteBatch* batch, uint32_t column_family_id,
-                           const SliceParts& key);
-
-  static void SingleDelete(WriteBatch* batch, uint32_t column_family_id,
-                           const Slice& key);
-
-  static void DeleteRange(WriteBatch* b, uint32_t column_family_id,
-                          const Slice& begin_key, const Slice& end_key);
-
-  static void DeleteRange(WriteBatch* b, uint32_t column_family_id,
-                          const SliceParts& begin_key,
-                          const SliceParts& end_key);
-
-  static void Merge(WriteBatch* batch, uint32_t column_family_id,
+  static Status Put(WriteBatch* batch, uint32_t column_family_id,
                     const Slice& key, const Slice& value);
 
-  static void Merge(WriteBatch* batch, uint32_t column_family_id,
+  static Status Put(WriteBatch* batch, uint32_t column_family_id,
                     const SliceParts& key, const SliceParts& value);
 
-  static void MarkEndPrepare(WriteBatch* batch, const Slice& xid);
+  static Status Delete(WriteBatch* batch, uint32_t column_family_id,
+                       const SliceParts& key);
 
-  static void MarkRollback(WriteBatch* batch, const Slice& xid);
+  static Status Delete(WriteBatch* batch, uint32_t column_family_id,
+                       const Slice& key);
 
-  static void MarkCommit(WriteBatch* batch, const Slice& xid);
+  static Status SingleDelete(WriteBatch* batch, uint32_t column_family_id,
+                             const SliceParts& key);
 
-  static void InsertNoop(WriteBatch* batch);
+  static Status SingleDelete(WriteBatch* batch, uint32_t column_family_id,
+                             const Slice& key);
+
+  static Status DeleteRange(WriteBatch* b, uint32_t column_family_id,
+                            const Slice& begin_key, const Slice& end_key);
+
+  static Status DeleteRange(WriteBatch* b, uint32_t column_family_id,
+                            const SliceParts& begin_key,
+                            const SliceParts& end_key);
+
+  static Status Merge(WriteBatch* batch, uint32_t column_family_id,
+                      const Slice& key, const Slice& value);
+
+  static Status Merge(WriteBatch* batch, uint32_t column_family_id,
+                      const SliceParts& key, const SliceParts& value);
+
+  static Status PutBlobIndex(WriteBatch* batch, uint32_t column_family_id,
+                             const Slice& key, const Slice& value);
+
+  static Status MarkEndPrepare(WriteBatch* batch, const Slice& xid,
+                               const bool write_after_commit = true);
+
+  static Status MarkRollback(WriteBatch* batch, const Slice& xid);
+
+  static Status MarkCommit(WriteBatch* batch, const Slice& xid);
+
+  static Status InsertNoop(WriteBatch* batch);
 
   // Return the number of entries in the batch.
   static int Count(const WriteBatch* batch);
@@ -132,7 +136,7 @@ class WriteBatchInternal {
     return batch->rep_.size();
   }
 
-  static void SetContents(WriteBatch* batch, const Slice& contents);
+  static Status SetContents(WriteBatch* batch, const Slice& contents);
 
   // Inserts batches[i] into memtable, for i in 0..num_batches-1 inclusive.
   //
@@ -151,38 +155,85 @@ class WriteBatchInternal {
   //
   // Under concurrent use, the caller is responsible for making sure that
   // the memtables object itself is thread-local.
-  static Status InsertInto(const autovector<WriteThread::Writer*>& batches,
+  static Status InsertInto(WriteThread::WriteGroup& write_group,
                            SequenceNumber sequence,
                            ColumnFamilyMemTables* memtables,
                            FlushScheduler* flush_scheduler,
                            bool ignore_missing_column_families = false,
                            uint64_t log_number = 0, DB* db = nullptr,
-                           bool concurrent_memtable_writes = false);
+                           bool concurrent_memtable_writes = false,
+                           bool seq_per_batch = false);
 
   // Convenience form of InsertInto when you have only one batch
-  // last_seq_used returns the last sequnce number used in a MemTable insert
+  // next_seq returns the seq after last sequnce number used in MemTable insert
   static Status InsertInto(const WriteBatch* batch,
                            ColumnFamilyMemTables* memtables,
                            FlushScheduler* flush_scheduler,
                            bool ignore_missing_column_families = false,
                            uint64_t log_number = 0, DB* db = nullptr,
                            bool concurrent_memtable_writes = false,
-                           SequenceNumber* last_seq_used = nullptr,
-                           bool* has_valid_writes = nullptr);
+                           SequenceNumber* next_seq = nullptr,
+                           bool* has_valid_writes = nullptr,
+                           bool seq_per_batch = false);
 
-  static Status InsertInto(WriteThread::Writer* writer,
+  static Status InsertInto(WriteThread::Writer* writer, SequenceNumber sequence,
                            ColumnFamilyMemTables* memtables,
                            FlushScheduler* flush_scheduler,
                            bool ignore_missing_column_families = false,
                            uint64_t log_number = 0, DB* db = nullptr,
-                           bool concurrent_memtable_writes = false);
+                           bool concurrent_memtable_writes = false,
+                           bool seq_per_batch = false);
 
-  static void Append(WriteBatch* dst, const WriteBatch* src,
-                     const bool WAL_only = false);
+  static Status Append(WriteBatch* dst, const WriteBatch* src,
+                       const bool WAL_only = false);
 
   // Returns the byte size of appending a WriteBatch with ByteSize
   // leftByteSize and a WriteBatch with ByteSize rightByteSize
   static size_t AppendedByteSize(size_t leftByteSize, size_t rightByteSize);
+
+  // This write batch includes the latest state that should be persisted. Such
+  // state meant to be used only during recovery.
+  static void SetAsLastestPersistentState(WriteBatch* b);
+  static bool IsLatestPersistentState(const WriteBatch* b);
+};
+
+// LocalSavePoint is similar to a scope guard
+class LocalSavePoint {
+ public:
+  explicit LocalSavePoint(WriteBatch* batch)
+      : batch_(batch),
+        savepoint_(batch->GetDataSize(), batch->Count(),
+                   batch->content_flags_.load(std::memory_order_relaxed))
+#ifndef NDEBUG
+        ,
+        committed_(false)
+#endif
+  {
+  }
+
+#ifndef NDEBUG
+  ~LocalSavePoint() { assert(committed_); }
+#endif
+  Status commit() {
+#ifndef NDEBUG
+    committed_ = true;
+#endif
+    if (batch_->max_bytes_ && batch_->rep_.size() > batch_->max_bytes_) {
+      batch_->rep_.resize(savepoint_.size);
+      WriteBatchInternal::SetCount(batch_, savepoint_.count);
+      batch_->content_flags_.store(savepoint_.content_flags,
+                                   std::memory_order_relaxed);
+      return Status::MemoryLimit();
+    }
+    return Status::OK();
+  }
+
+ private:
+  WriteBatch* batch_;
+  SavePoint savepoint_;
+#ifndef NDEBUG
+  bool committed_;
+#endif
 };
 
 }  // namespace rocksdb

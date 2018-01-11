@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 #include <assert.h>
 #include <memory>
@@ -76,14 +76,12 @@ class CountMergeOperator : public AssociativeMergeOperator {
 
 namespace {
 std::shared_ptr<DB> OpenDb(const std::string& dbname, const bool ttl = false,
-                           const size_t max_successive_merges = 0,
-                           const uint32_t min_partial_merge_operands = 2) {
+                           const size_t max_successive_merges = 0) {
   DB* db;
   Options options;
   options.create_if_missing = true;
   options.merge_operator = std::make_shared<CountMergeOperator>();
   options.max_successive_merges = max_successive_merges;
-  options.min_partial_merge_operands = min_partial_merge_operands;
   Status s;
   DestroyDB(dbname, Options());
 // DBWithTTL is not supported in ROCKSDB_LITE
@@ -143,7 +141,9 @@ class Counters {
   // mapped to a levedb Put
   bool set(const std::string& key, uint64_t value) {
     // just treat the internal rep of int64 as the string
-    Slice slice((char *)&value, sizeof(value));
+    char buf[sizeof(value)];
+    EncodeFixed64(buf, value);
+    Slice slice(buf, sizeof(value));
     auto s = db_->Put(put_option_, key, slice);
 
     if (s.ok()) {
@@ -377,7 +377,9 @@ void testSingleBatchSuccessiveMerge(DB* db, size_t max_num_merges,
 
   Slice key("BatchSuccessiveMerge");
   uint64_t merge_value = 1;
-  Slice merge_value_slice((char *)&merge_value, sizeof(merge_value));
+  char buf[sizeof(merge_value)];
+  EncodeFixed64(buf, merge_value);
+  Slice merge_value_slice(buf, sizeof(merge_value));
 
   // Create the batch
   WriteBatch batch;
@@ -448,20 +450,20 @@ void runTest(int argc, const std::string& dbname, const bool use_ttl = false) {
   {
     std::cout << "Test Partial-Merge\n";
     size_t max_merge = 100;
-    for (uint32_t min_merge = 5; min_merge < 25; min_merge += 5) {
-      for (uint32_t count = min_merge - 1; count <= min_merge + 1; count++) {
-        auto db = OpenDb(dbname, use_ttl, max_merge, min_merge);
-        MergeBasedCounters counters(db, 0);
-        testPartialMerge(&counters, db.get(), max_merge, min_merge, count);
-        DestroyDB(dbname, Options());
-      }
-      {
-        auto db = OpenDb(dbname, use_ttl, max_merge, min_merge);
-        MergeBasedCounters counters(db, 0);
-        testPartialMerge(&counters, db.get(), max_merge, min_merge,
-                         min_merge * 10);
-        DestroyDB(dbname, Options());
-      }
+    // Min merge is hard-coded to 2.
+    uint32_t min_merge = 2;
+    for (uint32_t count = min_merge - 1; count <= min_merge + 1; count++) {
+      auto db = OpenDb(dbname, use_ttl, max_merge);
+      MergeBasedCounters counters(db, 0);
+      testPartialMerge(&counters, db.get(), max_merge, min_merge, count);
+      DestroyDB(dbname, Options());
+    }
+    {
+      auto db = OpenDb(dbname, use_ttl, max_merge);
+      MergeBasedCounters counters(db, 0);
+      testPartialMerge(&counters, db.get(), max_merge, min_merge,
+                       min_merge * 10);
+      DestroyDB(dbname, Options());
     }
   }
 

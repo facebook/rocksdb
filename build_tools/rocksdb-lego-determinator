@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # This script is executed by Sandcastle
 # to determine next steps to run
 
@@ -81,6 +81,7 @@ PARALLELISM="$PARALLEL_J $PARALLEL_j"
 
 DEBUG="OPT=-g"
 SHM="TEST_TMPDIR=/dev/shm/rocksdb"
+NON_SHM="TMPD=/tmp/rocksdb_test_tmp"
 GCC_481="ROCKSDB_FBCODE_BUILD_WITH_481=1"
 ASAN="COMPILE_WITH_ASAN=1"
 CLANG="USE_CLANG=1"
@@ -89,7 +90,7 @@ TSAN="COMPILE_WITH_TSAN=1"
 UBSAN="COMPILE_WITH_UBSAN=1"
 DISABLE_JEMALLOC="DISABLE_JEMALLOC=1"
 HTTP_PROXY="https_proxy=http://fwdproxy.29.prn1:8080 http_proxy=http://fwdproxy.29.prn1:8080 ftp_proxy=http://fwdproxy.29.prn1:8080"
-SETUP_JAVA_ENV="export $HTTP_PROXY; export JAVA_HOME=/usr/local/jdk-7u10-64/; export PATH=\$PATH:\$JAVA_HOME/bin"
+SETUP_JAVA_ENV="export $HTTP_PROXY; export JAVA_HOME=/usr/local/jdk-8u60-64/; export PATH=\$JAVA_HOME/bin:\$PATH"
 PARSER="'parser':'python build_tools/error_filter.py $1'"
 
 CONTRUN_NAME="ROCKSDB_CONTRUN_NAME"
@@ -130,35 +131,6 @@ DISABLE_COMMANDS="[
 ]"
 
 #
-# RocksDB unit test in parallel
-# Currently we always have noise in our parallel runs. This job is to help
-# manage the noise
-#
-PARALLEL_UNIT_TEST_COMMANDS="[
-    {
-        'name':'Rocksdb Parallel Unit Test',
-        'oncall':'$ONCALL',
-        'steps': [
-            $CLEANUP_ENV,
-            {
-                'name':'Build and test RocksDB debug version',
-                'shell':'$DEBUG make -j$(nproc) all && $SHM make check > /dev/null 2>&1 || $CONTRUN_NAME=punit_check $TASK_CREATION_TOOL || cat t/log-*',
-                'user':'root',
-                $PARSER
-            },
-            $CLEANUP_ENV,
-            {
-                'name':'Build and test RocksDB debug version under gcc-4.8.1',
-                'shell':'$GCC_481 $DEBUG make -j$(nproc) all && $SHM make check > /dev/null 2>&1 || $CONTRUN_NAME=punit_check_gcc481 $TASK_CREATION_TOOL || cat t/log-*',
-                'user':'root',
-                $PARSER
-            },
-        ],
-        $REPORT
-    }
-]"
-
-#
 # RocksDB unit test
 #
 UNIT_TEST_COMMANDS="[
@@ -191,7 +163,7 @@ UNIT_TEST_NON_SHM_COMMANDS="[
             {
                 'name':'Build and test RocksDB debug version',
                 'timeout': 86400,
-                'shell':'$DEBUG make $PARALLELISM check || $CONTRUN_NAME=non_shm_check $TASK_CREATION_TOOL',
+                'shell':'$NON_SHM $DEBUG make $PARALLELISM check || $CONTRUN_NAME=non_shm_check $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
             },
@@ -371,27 +343,7 @@ LITE_BUILD_COMMANDS="[
             $CLEANUP_ENV,
             {
                 'name':'Build RocksDB debug version',
-                'shell':'$LITE make J=1 static_lib || $CONTRUN_NAME=lite_static_lib $TASK_CREATION_TOOL',
-                'user':'root',
-                $PARSER
-            },
-        ],
-        $REPORT
-    }
-]"
-
-#
-# RocksDB lite tests
-#
-LITE_UNIT_TEST_COMMANDS="[
-    {
-        'name':'Rocksdb Lite Unit Test',
-        'oncall':'$ONCALL',
-        'steps': [
-            $CLEANUP_ENV,
-            {
-                'name':'Build RocksDB debug version',
-                'shell':'$SHM $LITE make J=1 check || $CONTRUN_NAME=lite_check $TASK_CREATION_TOOL',
+                'shell':'$LITE make J=1 all check || $CONTRUN_NAME=lite $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
             },
@@ -592,7 +544,7 @@ TSAN_CRASH_TEST_COMMANDS="[
             {
                 'name':'Compile and run',
                 'timeout': 86400,
-                'shell':'set -o pipefail && $SHM $DEBUG $TSAN CRASH_TEST_KILL_ODD=1887 make J=1 crash_test || $CONTRUN_NAME=tsan_crash_test $TASK_CREATION_TOOL',
+                'shell':'set -o pipefail && $SHM $DEBUG $TSAN CRASH_TEST_KILL_ODD=1887 CRASH_TEST_EXT_ARGS=--log2_keys_per_lock=22  make J=1 crash_test || $CONTRUN_NAME=tsan_crash_test $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
             },
@@ -611,39 +563,7 @@ run_format_compatible()
   rm -rf /dev/shm/rocksdb
   mkdir /dev/shm/rocksdb
 
-  echo '
-  if [ -e "build_tools/build_detect_platform" ]
-  then
-    sed "s/tcmalloc/nothingnothingnothing/g" build_tools/build_detect_platform > $TEST_TMPDIR/temp_build_file
-    rm -rf build_tools/build_detect_platform
-    cp $TEST_TMPDIR/temp_build_file build_tools/build_detect_platform
-    chmod +x build_tools/build_detect_platform
-  fi
-
-  if [ -e "build_detect_platform" ]
-  then
-    sed "s/tcmalloc/nothingnothingnothing/g" build_detect_platform > $TEST_TMPDIR/temp_build_file
-    rm -rf build_detect_platform
-    cp $TEST_TMPDIR/temp_build_file build_detect_platform
-    chmod +x build_detect_platform
-  fi
-
-  make ldb -j32
-
-  if [ -e "build_detect_platform" ]
-  then
-    git checkout -- build_detect_platform
-  fi
-
-  if [ -e "build_tools/build_detect_platform" ]
-  then
-    git checkout -- build_tools/build_detect_platform
-  fi
-  ' > temp_build_ldb.sh
-
-  sed "s/make ldb -j32/source temp_build_ldb.sh/g" tools/check_format_compatible.sh > tools/temp_check_format_compatible.sh
-  chmod +x tools/temp_check_format_compatible.sh
-  tools/temp_check_format_compatible.sh
+  tools/check_format_compatible.sh
 }
 
 FORMAT_COMPATIBLE_COMMANDS="[
@@ -775,9 +695,6 @@ JAVA_BUILD_TEST_COMMANDS="[
 
 
 case $1 in
-  punit)
-    echo $PARALLEL_UNIT_TEST_COMMANDS
-    ;;
   unit)
     echo $UNIT_TEST_COMMANDS
     ;;
@@ -810,9 +727,6 @@ case $1 in
     ;;
   lite)
     echo $LITE_BUILD_COMMANDS
-    ;;
-  lite_test)
-    echo $LITE_UNIT_TEST_COMMANDS
     ;;
   stress_crash)
     echo $STRESS_CRASH_TEST_COMMANDS

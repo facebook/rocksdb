@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -21,8 +21,8 @@
 
 #include "rocksdb/env.h"
 
+#include "monitoring/iostats_context_imp.h"
 #include "port/sys_time.h"
-#include "util/iostats_context_imp.h"
 
 namespace rocksdb {
 
@@ -31,12 +31,12 @@ namespace port {
 WinLogger::WinLogger(uint64_t (*gettid)(), Env* env, HANDLE file,
                      const InfoLogLevel log_level)
     : Logger(log_level),
+      file_(file),
       gettid_(gettid),
       log_size_(0),
       last_flush_micros_(0),
       env_(env),
-      flush_pending_(false),
-      file_(file) {}
+      flush_pending_(false) {}
 
 void WinLogger::DebugWriter(const char* str, int len) {
   DWORD bytesWritten = 0;

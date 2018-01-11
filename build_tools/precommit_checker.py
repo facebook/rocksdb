@@ -1,4 +1,4 @@
-#!/usr/local/fbcode/gcc-4.8.1-glibc-2.17-fb/bin/python2.7
+#!/usr/local/fbcode/gcc-4.9-glibc-2.20-fb/bin/python2.7
 
 from __future__ import absolute_import
 from __future__ import division

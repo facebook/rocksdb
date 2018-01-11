@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // This file implements the "bridge" between Java and C++ and enables
 // calling c++ rocksdb::WriteBatch methods from Java side.
@@ -21,7 +21,6 @@
 #include "rocksjni/writebatchhandlerjnicallback.h"
 #include "table/scoped_arena_iterator.h"
 #include "util/logging.h"
-#include "util/testharness.h"
 
 /*
  * Class:     org_rocksdb_WriteBatch
@@ -30,8 +29,7 @@
  */
 jlong Java_org_rocksdb_WriteBatch_newWriteBatch(
     JNIEnv* env, jclass jcls, jint jreserved_bytes) {
-  rocksdb::WriteBatch* wb = new rocksdb::WriteBatch(
-      static_cast<size_t>(jreserved_bytes));
+  auto* wb = new rocksdb::WriteBatch(static_cast<size_t>(jreserved_bytes));
   return reinterpret_cast<jlong>(wb);
 }
 
@@ -204,6 +202,47 @@ void Java_org_rocksdb_WriteBatch_remove__J_3BIJ(
 
 /*
  * Class:     org_rocksdb_WriteBatch
+ * Method:    deleteRange
+ * Signature: (J[BI[BI)V
+ */
+JNIEXPORT void JNICALL Java_org_rocksdb_WriteBatch_deleteRange__J_3BI_3BI(
+    JNIEnv*, jobject, jlong, jbyteArray, jint, jbyteArray, jint);
+
+void Java_org_rocksdb_WriteBatch_deleteRange__J_3BI_3BI(
+    JNIEnv* env, jobject jobj, jlong jwb_handle, jbyteArray jbegin_key,
+    jint jbegin_key_len, jbyteArray jend_key, jint jend_key_len) {
+  auto* wb = reinterpret_cast<rocksdb::WriteBatch*>(jwb_handle);
+  assert(wb != nullptr);
+  auto deleteRange = [&wb](rocksdb::Slice beginKey, rocksdb::Slice endKey) {
+    wb->DeleteRange(beginKey, endKey);
+  };
+  rocksdb::JniUtil::kv_op(deleteRange, env, jobj, jbegin_key, jbegin_key_len,
+                          jend_key, jend_key_len);
+}
+
+/*
+ * Class:     org_rocksdb_WriteBatch
+ * Method:    deleteRange
+ * Signature: (J[BI[BIJ)V
+ */
+void Java_org_rocksdb_WriteBatch_deleteRange__J_3BI_3BIJ(
+    JNIEnv* env, jobject jobj, jlong jwb_handle, jbyteArray jbegin_key,
+    jint jbegin_key_len, jbyteArray jend_key, jint jend_key_len,
+    jlong jcf_handle) {
+  auto* wb = reinterpret_cast<rocksdb::WriteBatch*>(jwb_handle);
+  assert(wb != nullptr);
+  auto* cf_handle = reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
+  assert(cf_handle != nullptr);
+  auto deleteRange = [&wb, &cf_handle](rocksdb::Slice beginKey,
+                                       rocksdb::Slice endKey) {
+    wb->DeleteRange(cf_handle, beginKey, endKey);
+  };
+  rocksdb::JniUtil::kv_op(deleteRange, env, jobj, jbegin_key, jbegin_key_len,
+                          jend_key, jend_key_len);
+}
+
+/*
+ * Class:     org_rocksdb_WriteBatch
  * Method:    putLogData
  * Signature: (J[BI)V
  */
@@ -244,7 +283,9 @@ void Java_org_rocksdb_WriteBatch_iterate(
  */
 void Java_org_rocksdb_WriteBatch_disposeInternal(
     JNIEnv* env, jobject jobj, jlong handle) {
-  delete reinterpret_cast<rocksdb::WriteBatch*>(handle);
+  auto* wb = reinterpret_cast<rocksdb::WriteBatch*>(handle);
+  assert(wb != nullptr);
+  delete wb;
 }
 
 /*
@@ -254,17 +295,6 @@ void Java_org_rocksdb_WriteBatch_disposeInternal(
  */
 jlong Java_org_rocksdb_WriteBatch_00024Handler_createNewHandler0(
     JNIEnv* env, jobject jobj) {
-  const rocksdb::WriteBatchHandlerJniCallback* h =
-    new rocksdb::WriteBatchHandlerJniCallback(env, jobj);
-  return reinterpret_cast<jlong>(h);
-}
-
-/*
- * Class:     org_rocksdb_WriteBatch_Handler
- * Method:    disposeInternal
- * Signature: (J)V
- */
-void Java_org_rocksdb_WriteBatch_00024Handler_disposeInternal(
-    JNIEnv* env, jobject jobj, jlong handle) {
-  delete reinterpret_cast<rocksdb::WriteBatchHandlerJniCallback*>(handle);
+  auto* wbjnic = new rocksdb::WriteBatchHandlerJniCallback(env, jobj);
+  return reinterpret_cast<jlong>(wbjnic);
 }

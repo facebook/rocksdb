@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -12,6 +12,7 @@
 #include <cctype>
 #include <sstream>
 
+#include "db/memtable_list.h"
 #include "port/port.h"
 #include "util/file_reader_writer.h"
 
@@ -93,9 +94,13 @@ class Uint64ComparatorImpl : public Comparator {
     assert(a.size() == sizeof(uint64_t) && b.size() == sizeof(uint64_t));
     const uint64_t* left = reinterpret_cast<const uint64_t*>(a.data());
     const uint64_t* right = reinterpret_cast<const uint64_t*>(b.data());
-    if (*left == *right) {
+    uint64_t leftValue;
+    uint64_t rightValue;
+    GetUnaligned(left, &leftValue);
+    GetUnaligned(right, &rightValue);
+    if (leftValue == rightValue) {
       return 0;
-    } else if (*left < *right) {
+    } else if (leftValue < rightValue) {
       return -1;
     } else {
       return 1;
@@ -132,7 +137,8 @@ WritableFileWriter* GetWritableFileWriter(WritableFile* wf) {
 
 RandomAccessFileReader* GetRandomAccessFileReader(RandomAccessFile* raf) {
   unique_ptr<RandomAccessFile> file(raf);
-  return new RandomAccessFileReader(std::move(file));
+  return new RandomAccessFileReader(std::move(file),
+                                    "[test RandomAccessFileReader]");
 }
 
 SequentialFileReader* GetSequentialFileReader(SequentialFile* se) {
@@ -240,10 +246,10 @@ void RandomInitDBOptions(DBOptions* db_opt, Random* rnd) {
   db_opt->advise_random_on_open = rnd->Uniform(2);
   db_opt->allow_mmap_reads = rnd->Uniform(2);
   db_opt->allow_mmap_writes = rnd->Uniform(2);
-  db_opt->allow_os_buffer = rnd->Uniform(2);
+  db_opt->use_direct_reads = rnd->Uniform(2);
+  db_opt->use_direct_io_for_flush_and_compaction = rnd->Uniform(2);
   db_opt->create_if_missing = rnd->Uniform(2);
   db_opt->create_missing_column_families = rnd->Uniform(2);
-  db_opt->disableDataSync = rnd->Uniform(2);
   db_opt->enable_thread_tracking = rnd->Uniform(2);
   db_opt->error_if_exists = rnd->Uniform(2);
   db_opt->is_fd_close_on_exec = rnd->Uniform(2);
@@ -303,8 +309,8 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, Random* rnd) {
   cf_opt->optimize_filters_for_hits = rnd->Uniform(2);
   cf_opt->paranoid_file_checks = rnd->Uniform(2);
   cf_opt->purge_redundant_kvs_while_flush = rnd->Uniform(2);
-  cf_opt->verify_checksums_in_compaction = rnd->Uniform(2);
   cf_opt->force_consistency_checks = rnd->Uniform(2);
+  cf_opt->compaction_options_fifo.allow_compaction = rnd->Uniform(2);
 
   // double options
   cf_opt->hard_rate_limit = static_cast<double>(rnd->Uniform(10000)) / 13;
@@ -339,7 +345,6 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, Random* rnd) {
 
   // uint32_t options
   cf_opt->bloom_locality = rnd->Uniform(10000);
-  cf_opt->min_partial_merge_operands = rnd->Uniform(10000);
   cf_opt->max_bytes_for_level_base = rnd->Uniform(10000);
 
   // uint64_t options
@@ -348,6 +353,9 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, Random* rnd) {
   cf_opt->target_file_size_base = uint_max + rnd->Uniform(10000);
   cf_opt->max_compaction_bytes =
       cf_opt->target_file_size_base * rnd->Uniform(100);
+  cf_opt->compaction_options_fifo.max_table_files_size =
+      uint_max + rnd->Uniform(10000);
+  cf_opt->compaction_options_fifo.ttl = uint_max + rnd->Uniform(10000);
 
   // unsigned int options
   cf_opt->rate_limit_delay_max_milliseconds = rnd->Uniform(10000);

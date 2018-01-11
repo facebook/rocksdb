@@ -1,21 +1,21 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "rocksdb/db_bench_tool.h"
+#include "options/options_parser.h"
 #include "rocksdb/utilities/options_util.h"
-#include "util/options_parser.h"
 #include "util/random.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 
 #ifdef GFLAGS
-#include <gflags/gflags.h>
+#include "util/gflags_compat.h"
 
 namespace rocksdb {
 namespace {
@@ -104,7 +104,6 @@ TEST_F(DBBenchTest, OptionsFile) {
   Options opt;
   opt.create_if_missing = true;
   opt.max_open_files = 256;
-  opt.base_background_compactions = 5;
   opt.max_background_compactions = 10;
   opt.arena_block_size = 8388608;
   ASSERT_OK(PersistRocksDBOptions(DBOptions(opt), {"default"},
@@ -128,7 +127,6 @@ TEST_F(DBBenchTest, OptionsFileUniversal) {
   opt.num_levels = 1;
   opt.create_if_missing = true;
   opt.max_open_files = 256;
-  opt.base_background_compactions = 5;
   opt.max_background_compactions = 10;
   opt.arena_block_size = 8388608;
   ASSERT_OK(PersistRocksDBOptions(DBOptions(opt), {"default"},
@@ -152,7 +150,6 @@ TEST_F(DBBenchTest, OptionsFileMultiLevelUniversal) {
   opt.num_levels = 12;
   opt.create_if_missing = true;
   opt.max_open_files = 256;
-  opt.base_background_compactions = 5;
   opt.max_background_compactions = 10;
   opt.arena_block_size = 8388608;
   ASSERT_OK(PersistRocksDBOptions(DBOptions(opt), {"default"},
@@ -183,7 +180,6 @@ const std::string options_file_content = R"OPTIONS_FILE(
   table_cache_numshardbits=4
   max_open_files=-1
   max_file_opening_threads=10
-  base_background_compactions=3
   max_background_compactions=5
   use_fsync=false
   use_adaptive_mutex=false
@@ -200,21 +196,20 @@ const std::string options_file_content = R"OPTIONS_FILE(
   is_fd_close_on_exec=true
   bytes_per_sync=1048576
   enable_thread_tracking=true
-  disable_data_sync=false
   recycle_log_file_num=0
-  disableDataSync=false
   create_missing_column_families=false
   log_file_time_to_roll=0
   max_background_flushes=1
   create_if_missing=true
   error_if_exists=false
-  allow_os_buffer=true
   delayed_write_rate=1048576
   manifest_preallocation_size=4194304
+  allow_mmap_reads=false
   allow_mmap_writes=false
+  use_direct_reads=false
+  use_direct_io_for_flush_and_compaction=false
   stats_dump_period_sec=600
   allow_fallocate=true
-  allow_mmap_reads=false
   max_log_file_size=83886080
   random_access_max_buffer_size=1048576
   advise_random_on_open=true

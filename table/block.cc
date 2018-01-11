@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -15,6 +15,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "monitoring/perf_context_imp.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/comparator.h"
@@ -22,7 +23,6 @@
 #include "table/format.h"
 #include "util/coding.h"
 #include "util/logging.h"
-#include "util/perf_context_imp.h"
 
 namespace rocksdb {
 
@@ -87,7 +87,7 @@ void BlockIter::Prev() {
     const Slice current_key(key_ptr, current_prev_entry.key_size);
 
     current_ = current_prev_entry.offset;
-    key_.SetKey(current_key, false /* copy */);
+    key_.SetInternalKey(current_key, false /* copy */);
     value_ = current_prev_entry.value;
 
     return;
@@ -155,7 +155,7 @@ void BlockIter::Seek(const Slice& target) {
   // Linear search (within restart block) for first key >= target
 
   while (true) {
-    if (!ParseNextKey() || Compare(key_.GetKey(), target) >= 0) {
+    if (!ParseNextKey() || Compare(key_.GetInternalKey(), target) >= 0) {
       return;
     }
   }
@@ -176,12 +176,12 @@ void BlockIter::SeekForPrev(const Slice& target) {
   SeekToRestartPoint(index);
   // Linear search (within restart block) for first key >= target
 
-  while (ParseNextKey() && Compare(key_.GetKey(), target) < 0) {
+  while (ParseNextKey() && Compare(key_.GetInternalKey(), target) < 0) {
   }
   if (!Valid()) {
     SeekToLast();
   } else {
-    while (Valid() && Compare(key_.GetKey(), target) > 0) {
+    while (Valid() && Compare(key_.GetInternalKey(), target) > 0) {
       Prev();
     }
   }
@@ -234,7 +234,7 @@ bool BlockIter::ParseNextKey() {
     if (shared == 0) {
       // If this key dont share any bytes with prev key then we dont need
       // to decode it and can use it's address in the block directly.
-      key_.SetKey(Slice(p, non_shared), false /* copy */);
+      key_.SetInternalKey(Slice(p, non_shared), false /* copy */);
       key_pinned_ = true;
     } else {
       // This key share `shared` bytes with prev key, we need to decode it
@@ -244,10 +244,14 @@ bool BlockIter::ParseNextKey() {
 
     if (global_seqno_ != kDisableGlobalSequenceNumber) {
       // If we are reading a file with a global sequence number we should
-      // expect that all encoded sequence numbers are zeros and all value
-      // types are kTypeValue
-      assert(GetInternalKeySeqno(key_.GetKey()) == 0);
-      assert(ExtractValueType(key_.GetKey()) == ValueType::kTypeValue);
+      // expect that all encoded sequence numbers are zeros and any value
+      // type is kTypeValue, kTypeMerge or kTypeDeletion
+      assert(GetInternalKeySeqno(key_.GetInternalKey()) == 0);
+
+      ValueType value_type = ExtractValueType(key_.GetInternalKey());
+      assert(value_type == ValueType::kTypeValue ||
+             value_type == ValueType::kTypeMerge ||
+             value_type == ValueType::kTypeDeletion);
 
       if (key_pinned_) {
         // TODO(tec): Investigate updating the seqno in the loaded block
@@ -259,7 +263,7 @@ bool BlockIter::ParseNextKey() {
         key_pinned_ = false;
       }
 
-      key_.UpdateInternalKey(global_seqno_, ValueType::kTypeValue);
+      key_.UpdateInternalKey(global_seqno_, value_type);
     }
 
     value_ = Slice(p + non_shared, value_length);
@@ -398,6 +402,7 @@ Block::Block(BlockContents&& contents, SequenceNumber _global_seqno,
     : contents_(std::move(contents)),
       data_(contents_.data.data()),
       size_(contents_.data.size()),
+      restart_offset_(0),
       global_seqno_(_global_seqno) {
   if (size_ < sizeof(uint32_t)) {
     size_ = 0;  // Error marker

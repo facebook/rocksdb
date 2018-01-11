@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 #include "utilities/col_buf_decoder.h"
 #include <cstring>
@@ -136,7 +136,7 @@ size_t FixedLengthColBufDecoder::Decode(const char* src, char** dest) {
       col_compression_type_ == kColRleDeltaVarint) {
     // does not support 64 bit
 
-    uint64_t mask = (write_val & 1) ? (~0UL) : 0;
+    uint64_t mask = (write_val & 1) ? (~uint64_t(0)) : 0;
     int64_t delta = (write_val >> 1) ^ mask;
     write_val = last_val_ + delta;
 

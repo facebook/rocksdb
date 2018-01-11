@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 #include <stdio.h>
 #include <algorithm>
@@ -12,8 +12,8 @@
 #include <vector>
 
 #include "db/dbformat.h"
-#include "db/memtable.h"
 #include "db/write_batch_internal.h"
+#include "db/memtable.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
@@ -226,38 +226,70 @@ class BlockReadAmpBitmapSlowAndAccurate {
  public:
   void Mark(size_t start_offset, size_t end_offset) {
     assert(end_offset >= start_offset);
-
     marked_ranges_.emplace(end_offset, start_offset);
   }
 
+  void ResetCheckSequence() { iter_valid_ = false; }
+
   // Return true if any byte in this range was Marked
-  bool IsAnyInRangeMarked(size_t start_offset, size_t end_offset) {
-    auto it = marked_ranges_.lower_bound(
-        std::make_pair(start_offset, static_cast<size_t>(0)));
-    if (it == marked_ranges_.end()) {
+  // This does linear search from the previous position. When calling
+  // multiple times, `offset` needs to be incremental to get correct results.
+  // Call ResetCheckSequence() to reset it.
+  bool IsPinMarked(size_t offset) {
+    if (iter_valid_) {
+      // Has existing iterator, try linear search from
+      // the iterator.
+      for (int i = 0; i < 64; i++) {
+        if (offset < iter_->second) {
+          return false;
+        }
+        if (offset <= iter_->first) {
+          return true;
+        }
+
+        iter_++;
+        if (iter_ == marked_ranges_.end()) {
+          iter_valid_ = false;
+          return false;
+        }
+      }
+    }
+    // Initial call or have linear searched too many times.
+    // Do binary search.
+    iter_ = marked_ranges_.lower_bound(
+        std::make_pair(offset, static_cast<size_t>(0)));
+    if (iter_ == marked_ranges_.end()) {
+      iter_valid_ = false;
       return false;
     }
-    return start_offset <= it->first && end_offset >= it->second;
+    iter_valid_ = true;
+    return offset <= iter_->first && offset >= iter_->second;
   }
 
  private:
   std::set<std::pair<size_t, size_t>> marked_ranges_;
+  std::set<std::pair<size_t, size_t>>::iterator iter_;
+  bool iter_valid_ = false;
 };
 
 TEST_F(BlockTest, BlockReadAmpBitmap) {
+  uint32_t pin_offset = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+    "BlockReadAmpBitmap:rnd", [&pin_offset](void* arg) {
+      pin_offset = *(static_cast<uint32_t*>(arg));
+    });
+  SyncPoint::GetInstance()->EnableProcessing();
   std::vector<size_t> block_sizes = {
-      1,                 // 1 byte
-      32,                // 32 bytes
-      61,                // 61 bytes
-      64,                // 64 bytes
-      512,               // 0.5 KB
-      1024,              // 1 KB
-      1024 * 4,          // 4 KB
-      1024 * 10,         // 10 KB
-      1024 * 50,         // 50 KB
-      1024 * 1024,       // 1 MB
-      1024 * 1024 * 4,   // 4 MB
-      1024 * 1024 * 50,  // 10 MB
+      1,                // 1 byte
+      32,               // 32 bytes
+      61,               // 61 bytes
+      64,               // 64 bytes
+      512,              // 0.5 KB
+      1024,             // 1 KB
+      1024 * 4,         // 4 KB
+      1024 * 10,        // 10 KB
+      1024 * 50,        // 50 KB
+      1024 * 1024 * 4,  // 5 MB
       777,
       124653,
   };
@@ -273,14 +305,8 @@ TEST_F(BlockTest, BlockReadAmpBitmap) {
     if (block_size % kBytesPerBit != 0) {
       needed_bits++;
     }
-    size_t bitmap_size = needed_bits / 32;
-    if (needed_bits % 32 != 0) {
-      bitmap_size++;
-    }
-    size_t bits_in_bitmap = bitmap_size * 32;
 
-    ASSERT_EQ(stats->getTickerCount(READ_AMP_TOTAL_READ_BYTES),
-              needed_bits * kBytesPerBit);
+    ASSERT_EQ(stats->getTickerCount(READ_AMP_TOTAL_READ_BYTES), block_size);
 
     // Generate some random entries
     std::vector<size_t> random_entry_offsets;
@@ -306,6 +332,7 @@ TEST_F(BlockTest, BlockReadAmpBitmap) {
     }
 
     for (size_t i = 0; i < random_entries.size(); i++) {
+      read_amp_slow_and_accurate.ResetCheckSequence();
       auto &current_entry = random_entries[rnd.Next() % random_entries.size()];
 
       read_amp_bitmap.Mark(static_cast<uint32_t>(current_entry.first),
@@ -314,20 +341,18 @@ TEST_F(BlockTest, BlockReadAmpBitmap) {
                                       current_entry.second);
 
       size_t total_bits = 0;
-      for (size_t bit_idx = 0; bit_idx < bits_in_bitmap; bit_idx++) {
-        size_t start_rng = bit_idx * kBytesPerBit;
-        size_t end_rng = (start_rng + kBytesPerBit) - 1;
-
-        total_bits +=
-            read_amp_slow_and_accurate.IsAnyInRangeMarked(start_rng, end_rng);
+      for (size_t bit_idx = 0; bit_idx < needed_bits; bit_idx++) {
+        total_bits += read_amp_slow_and_accurate.IsPinMarked(
+          bit_idx * kBytesPerBit + pin_offset);
       }
       size_t expected_estimate_useful = total_bits * kBytesPerBit;
       size_t got_estimate_useful =
-          stats->getTickerCount(READ_AMP_ESTIMATE_USEFUL_BYTES);
-
+        stats->getTickerCount(READ_AMP_ESTIMATE_USEFUL_BYTES);
       ASSERT_EQ(expected_estimate_useful, got_estimate_useful);
     }
   }
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 TEST_F(BlockTest, BlockWithReadAmpBitmap) {

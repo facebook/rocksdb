@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 package org.rocksdb;
 
@@ -15,12 +15,15 @@ package org.rocksdb;
  */
 public enum CompressionType {
 
-  NO_COMPRESSION((byte) 0, null),
-  SNAPPY_COMPRESSION((byte) 1, "snappy"),
-  ZLIB_COMPRESSION((byte) 2, "z"),
-  BZLIB2_COMPRESSION((byte) 3, "bzip2"),
-  LZ4_COMPRESSION((byte) 4, "lz4"),
-  LZ4HC_COMPRESSION((byte) 5, "lz4hc");
+  NO_COMPRESSION((byte) 0x0, null),
+  SNAPPY_COMPRESSION((byte) 0x1, "snappy"),
+  ZLIB_COMPRESSION((byte) 0x2, "z"),
+  BZLIB2_COMPRESSION((byte) 0x3, "bzip2"),
+  LZ4_COMPRESSION((byte) 0x4, "lz4"),
+  LZ4HC_COMPRESSION((byte) 0x5, "lz4hc"),
+  XPRESS_COMPRESSION((byte) 0x6, "xpress"),
+  ZSTD_COMPRESSION((byte)0x7, "zstd"),
+  DISABLE_COMPRESSION_OPTION((byte)0x7F, null);
 
   /**
    * <p>Get the CompressionType enumeration value by
@@ -49,20 +52,22 @@ public enum CompressionType {
    * <p>Get the CompressionType enumeration value by
    * passing the byte identifier to this method.</p>
    *
-   * <p>If library cannot be found the enumeration
-   * value {@code NO_COMPRESSION} will be returned.</p>
-   *
    * @param byteIdentifier of CompressionType.
    *
    * @return CompressionType instance.
+   *
+   * @throws IllegalArgumentException If CompressionType cannot be found for the
+   *   provided byteIdentifier
    */
   public static CompressionType getCompressionType(byte byteIdentifier) {
-    for (CompressionType compressionType : CompressionType.values()) {
+    for (final CompressionType compressionType : CompressionType.values()) {
       if (compressionType.getValue() == byteIdentifier) {
         return compressionType;
       }
     }
-    return CompressionType.NO_COMPRESSION;
+
+    throw new IllegalArgumentException(
+        "Illegal value provided for CompressionType.");
   }
 
   /**
@@ -84,9 +89,9 @@ public enum CompressionType {
     return libraryName_;
   }
 
-  private CompressionType(byte value, final String libraryName) {
-        value_ = value;
-        libraryName_ = libraryName;
+  CompressionType(final byte value, final String libraryName) {
+    value_ = value;
+    libraryName_ = libraryName;
   }
 
   private final byte value_;

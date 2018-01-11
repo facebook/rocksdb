@@ -1,7 +1,9 @@
 //  Copyright (c) 2016-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+
+#ifndef ROCKSDB_LITE
 
 #include <algorithm>
 #include <string>
@@ -17,6 +19,7 @@
 
 namespace rocksdb {
 
+#ifndef ROCKSDB_LITE
 class RepairTest : public DBTestBase {
  public:
   RepairTest() : DBTestBase("/repair_test") {}
@@ -105,6 +108,23 @@ TEST_F(RepairTest, IncompleteManifest) {
   ASSERT_EQ(Get("key2"), "val2");
 }
 
+TEST_F(RepairTest, PostRepairSstFileNumbering) {
+  // Verify after a DB is repaired, new files will be assigned higher numbers
+  // than old files.
+  Put("key", "val");
+  Flush();
+  Put("key2", "val2");
+  Flush();
+  uint64_t pre_repair_file_num = dbfull()->TEST_Current_Next_FileNo();
+  Close();
+
+  ASSERT_OK(RepairDB(dbname_, CurrentOptions()));
+
+  Reopen(CurrentOptions());
+  uint64_t post_repair_file_num = dbfull()->TEST_Current_Next_FileNo();
+  ASSERT_GE(post_repair_file_num, pre_repair_file_num);
+}
+
 TEST_F(RepairTest, LostSst) {
   // Delete one of the SST files but preserve the manifest that refers to it,
   // then verify the DB is still usable for the intact SST.
@@ -169,6 +189,40 @@ TEST_F(RepairTest, UnflushedSst) {
   GetAllSSTFiles(&total_ssts_size);
   ASSERT_GT(total_ssts_size, 0);
   ASSERT_EQ(Get("key"), "val");
+}
+
+TEST_F(RepairTest, SeparateWalDir) {
+  do {
+    Options options = CurrentOptions();
+    DestroyAndReopen(options);
+    Put("key", "val");
+    Put("foo", "bar");
+    VectorLogPtr wal_files;
+    ASSERT_OK(dbfull()->GetSortedWalFiles(wal_files));
+    ASSERT_EQ(wal_files.size(), 1);
+    uint64_t total_ssts_size;
+    GetAllSSTFiles(&total_ssts_size);
+    ASSERT_EQ(total_ssts_size, 0);
+    std::string manifest_path =
+      DescriptorFileName(dbname_, dbfull()->TEST_Current_Manifest_FileNo());
+
+    Close();
+    ASSERT_OK(env_->FileExists(manifest_path));
+    ASSERT_OK(env_->DeleteFile(manifest_path));
+    ASSERT_OK(RepairDB(dbname_, options));
+
+    // make sure that all WALs are converted to SSTables.
+    options.wal_dir = "";
+
+    Reopen(options);
+    ASSERT_OK(dbfull()->GetSortedWalFiles(wal_files));
+    ASSERT_EQ(wal_files.size(), 0);
+    GetAllSSTFiles(&total_ssts_size);
+    ASSERT_GT(total_ssts_size, 0);
+    ASSERT_EQ(Get("key"), "val");
+    ASSERT_EQ(Get("foo"), "bar");
+
+ } while(ChangeWalOptions());
 }
 
 TEST_F(RepairTest, RepairMultipleColumnFamilies) {
@@ -253,7 +307,10 @@ TEST_F(RepairTest, RepairColumnFamilyOptions) {
   db_->GetPropertiesOfAllTables(handles_[1], &fname_to_props);
   ASSERT_EQ(fname_to_props.size(), 2U);
   for (const auto& fname_and_props : fname_to_props) {
-    ASSERT_EQ(InternalKeyComparator(rev_opts.comparator).Name(),
+    std::string comparator_name (
+      InternalKeyComparator(rev_opts.comparator).Name());
+    comparator_name = comparator_name.substr(comparator_name.find(':') + 1);
+    ASSERT_EQ(comparator_name,
               fname_and_props.second->comparator_name);
   }
 
@@ -268,9 +325,40 @@ TEST_F(RepairTest, RepairColumnFamilyOptions) {
     }
   }
 }
+
+TEST_F(RepairTest, DbNameContainsTrailingSlash) {
+  {
+    bool tmp;
+    if (env_->AreFilesSame("", "", &tmp).IsNotSupported()) {
+      fprintf(stderr,
+              "skipping RepairTest.DbNameContainsTrailingSlash due to "
+              "unsupported Env::AreFilesSame\n");
+      return;
+    }
+  }
+
+  Put("key", "val");
+  Flush();
+  Close();
+
+  ASSERT_OK(RepairDB(dbname_ + "/", CurrentOptions()));
+  Reopen(CurrentOptions());
+  ASSERT_EQ(Get("key"), "val");
+}
+#endif  // ROCKSDB_LITE
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
+
+#else
+#include <stdio.h>
+
+int main(int argc, char** argv) {
+  fprintf(stderr, "SKIPPED as RepairDB is not supported in ROCKSDB_LITE\n");
+  return 0;
+}
+
+#endif  // ROCKSDB_LITE

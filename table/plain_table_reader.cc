@@ -29,16 +29,15 @@
 #include "table/plain_table_key_coding.h"
 #include "table/get_context.h"
 
+#include "monitoring/histogram.h"
+#include "monitoring/perf_context_imp.h"
 #include "util/arena.h"
 #include "util/coding.h"
 #include "util/dynamic_bloom.h"
 #include "util/hash.h"
-#include "util/histogram.h"
 #include "util/murmurhash.h"
-#include "util/perf_context_imp.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
-
 
 namespace rocksdb {
 
@@ -193,15 +192,12 @@ void PlainTableReader::SetupForCompaction() {
 InternalIterator* PlainTableReader::NewIterator(const ReadOptions& options,
                                                 Arena* arena,
                                                 bool skip_filters) {
-  if (options.total_order_seek && !IsTotalOrderMode()) {
-    return NewErrorInternalIterator(
-        Status::InvalidArgument("total_order_seek not supported"), arena);
-  }
+  bool use_prefix_seek = !IsTotalOrderMode() && !options.total_order_seek;
   if (arena == nullptr) {
-    return new PlainTableIterator(this, prefix_extractor_ != nullptr);
+    return new PlainTableIterator(this, use_prefix_seek);
   } else {
     auto mem = arena->AllocateAligned(sizeof(PlainTableIterator));
-    return new (mem) PlainTableIterator(this, prefix_extractor_ != nullptr);
+    return new (mem) PlainTableIterator(this, use_prefix_seek);
   }
 }
 
@@ -295,9 +291,10 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
   table_properties_.reset(props);
 
   BlockContents index_block_contents;
-  Status s = ReadMetaBlock(
-      file_info_.file.get(), file_size_, kPlainTableMagicNumber, ioptions_,
-      PlainTableIndexBuilder::kPlainTableIndexBlock, &index_block_contents);
+  Status s = ReadMetaBlock(file_info_.file.get(), nullptr /* prefetch_buffer */,
+                           file_size_, kPlainTableMagicNumber, ioptions_,
+                           PlainTableIndexBuilder::kPlainTableIndexBlock,
+                           &index_block_contents);
 
   bool index_in_file = s.ok();
 
@@ -305,9 +302,9 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
   bool bloom_in_file = false;
   // We only need to read the bloom block if index block is in file.
   if (index_in_file) {
-    s = ReadMetaBlock(file_info_.file.get(), file_size_, kPlainTableMagicNumber,
-                      ioptions_, BloomBlockBuilder::kBloomBlock,
-                      &bloom_block_contents);
+    s = ReadMetaBlock(file_info_.file.get(), nullptr /* prefetch_buffer */,
+                      file_size_, kPlainTableMagicNumber, ioptions_,
+                      BloomBlockBuilder::kBloomBlock, &bloom_block_contents);
     bloom_in_file = s.ok() && bloom_block_contents.data.size() > 0;
   }
 
@@ -641,9 +638,22 @@ void PlainTableIterator::SeekToLast() {
 }
 
 void PlainTableIterator::Seek(const Slice& target) {
+  if (use_prefix_seek_ != !table_->IsTotalOrderMode()) {
+    // This check is done here instead of NewIterator() to permit creating an
+    // iterator with total_order_seek = true even if we won't be able to Seek()
+    // it. This is needed for compaction: it creates iterator with
+    // total_order_seek = true but usually never does Seek() on it,
+    // only SeekToFirst().
+    status_ =
+        Status::InvalidArgument(
+          "total_order_seek not implemented for PlainTable.");
+    offset_ = next_offset_ = table_->file_info_.data_end_offset;
+    return;
+  }
+
   // If the user doesn't set prefix seek option and we are not able to do a
   // total Seek(). assert failure.
-  if (!use_prefix_seek_) {
+  if (table_->IsTotalOrderMode()) {
     if (table_->full_scan_mode_) {
       status_ =
           Status::InvalidArgument("Seek() is not allowed in full scan mode.");

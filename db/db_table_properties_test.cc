@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -13,6 +13,7 @@
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/db.h"
+#include "rocksdb/utilities/table_properties_collectors.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 
@@ -147,6 +148,7 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfTablesInRange) {
   options.max_bytes_for_level_multiplier = 4;
   options.hard_pending_compaction_bytes_limit = 16 * 1024;
   options.num_levels = 8;
+  options.env = env_;
 
   DestroyAndReopen(options);
 
@@ -247,6 +249,37 @@ TEST_F(DBTablePropertiesTest, GetColumnFamilyNameProperty) {
     ASSERT_EQ(cf, static_cast<uint32_t>(
                       fname_to_props.begin()->second->column_family_id));
   }
+}
+
+TEST_F(DBTablePropertiesTest, DeletionTriggeredCompactionMarking) {
+  const int kNumKeys = 1000;
+  const int kWindowSize = 100;
+  const int kNumDelsTrigger = 90;
+
+  Options opts = CurrentOptions();
+  opts.table_properties_collector_factories.emplace_back(
+      NewCompactOnDeletionCollectorFactory(kWindowSize, kNumDelsTrigger));
+  Reopen(opts);
+
+  // add an L1 file to prevent tombstones from dropping due to obsolescence
+  // during flush
+  Put(Key(0), "val");
+  Flush();
+  MoveFilesToLevel(1);
+
+  for (int i = 0; i < kNumKeys; ++i) {
+    if (i >= kNumKeys - kWindowSize &&
+        i < kNumKeys - kWindowSize + kNumDelsTrigger) {
+      Delete(Key(i));
+    } else {
+      Put(Key(i), "val");
+    }
+  }
+  Flush();
+
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  ASSERT_GT(NumTableFilesAtLevel(1), 0);
 }
 
 }  // namespace rocksdb

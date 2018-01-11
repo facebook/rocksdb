@@ -1,9 +1,7 @@
-// Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file. See the AUTHORS file for names of contributors.
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
 #include <algorithm>
@@ -16,10 +14,13 @@
 #include "db/merge_helper.h"
 #include "db/pinned_iterators_manager.h"
 #include "db/range_del_aggregator.h"
+#include "db/snapshot_checker.h"
+#include "options/cf_options.h"
 #include "rocksdb/compaction_filter.h"
-#include "util/log_buffer.h"
 
 namespace rocksdb {
+
+class CompactionEventListener;
 
 class CompactionIterator {
  public:
@@ -45,6 +46,12 @@ class CompactionIterator {
     virtual Slice GetLargestUserKey() const {
       return compaction_->GetLargestUserKey();
     }
+    virtual bool allow_ingest_behind() const {
+      return compaction_->immutable_cf_options()->allow_ingest_behind;
+    }
+    virtual bool preserve_deletes() const {
+      return compaction_->immutable_cf_options()->preserve_deletes;
+    }
 
    protected:
     CompactionProxy() = default;
@@ -56,23 +63,29 @@ class CompactionIterator {
   CompactionIterator(InternalIterator* input, const Comparator* cmp,
                      MergeHelper* merge_helper, SequenceNumber last_sequence,
                      std::vector<SequenceNumber>* snapshots,
-                     SequenceNumber earliest_write_conflict_snapshot, Env* env,
+                     SequenceNumber earliest_write_conflict_snapshot,
+                     const SnapshotChecker* snapshot_checker, Env* env,
                      bool expect_valid_internal_key,
                      RangeDelAggregator* range_del_agg,
                      const Compaction* compaction = nullptr,
                      const CompactionFilter* compaction_filter = nullptr,
-                     LogBuffer* log_buffer = nullptr);
+                     CompactionEventListener* compaction_listener = nullptr,
+                     const std::atomic<bool>* shutting_down = nullptr,
+                     const SequenceNumber preserve_deletes_seqnum = 0);
 
   // Constructor with custom CompactionProxy, used for tests.
   CompactionIterator(InternalIterator* input, const Comparator* cmp,
                      MergeHelper* merge_helper, SequenceNumber last_sequence,
                      std::vector<SequenceNumber>* snapshots,
-                     SequenceNumber earliest_write_conflict_snapshot, Env* env,
+                     SequenceNumber earliest_write_conflict_snapshot,
+                     const SnapshotChecker* snapshot_checker, Env* env,
                      bool expect_valid_internal_key,
                      RangeDelAggregator* range_del_agg,
                      std::unique_ptr<CompactionProxy> compaction,
                      const CompactionFilter* compaction_filter = nullptr,
-                     LogBuffer* log_buffer = nullptr);
+                     CompactionEventListener* compaction_listener = nullptr,
+                     const std::atomic<bool>* shutting_down = nullptr,
+                     const SequenceNumber preserve_deletes_seqnum = 0);
 
   ~CompactionIterator();
 
@@ -106,6 +119,9 @@ class CompactionIterator {
   // compression.
   void PrepareOutput();
 
+  // Invoke compaction filter if needed.
+  void InvokeFilterIfNeeded(bool* need_skip, Slice* skip_until);
+
   // Given a sequence number, return the sequence number of the
   // earliest snapshot that this sequence number is visible in.
   // The snapshots themselves are arranged in ascending order of
@@ -115,17 +131,27 @@ class CompactionIterator {
   inline SequenceNumber findEarliestVisibleSnapshot(
       SequenceNumber in, SequenceNumber* prev_snapshot);
 
+  // Checks whether the currently seen ikey_ is needed for
+  // incremental (differential) snapshot and hence can't be dropped
+  // or seqnum be zero-ed out even if all other conditions for it are met.
+  inline bool ikeyNotNeededForIncrementalSnapshot();
+
   InternalIterator* input_;
   const Comparator* cmp_;
   MergeHelper* merge_helper_;
   const std::vector<SequenceNumber>* snapshots_;
   const SequenceNumber earliest_write_conflict_snapshot_;
+  const SnapshotChecker* const snapshot_checker_;
   Env* env_;
   bool expect_valid_internal_key_;
   RangeDelAggregator* range_del_agg_;
   std::unique_ptr<CompactionProxy> compaction_;
   const CompactionFilter* compaction_filter_;
-  LogBuffer* log_buffer_;
+#ifndef ROCKSDB_LITE
+  CompactionEventListener* compaction_listener_;
+#endif  // !ROCKSDB_LITE
+  const std::atomic<bool>* shutting_down_;
+  const SequenceNumber preserve_deletes_seqnum_;
   bool bottommost_level_;
   bool valid_ = false;
   bool visible_at_tip_;
@@ -180,5 +206,14 @@ class CompactionIterator {
   // is in or beyond the last file checked during the previous call
   std::vector<size_t> level_ptrs_;
   CompactionIterationStats iter_stats_;
+
+  // Used to avoid purging uncommitted values. The application can specify
+  // uncommitted values by providing a SnapshotChecker object.
+  bool current_key_committed_;
+
+  bool IsShuttingDown() {
+    // This is a best-effort facility, so memory_order_relaxed is sufficient.
+    return shutting_down_ && shutting_down_->load(std::memory_order_relaxed);
+  }
 };
 }  // namespace rocksdb

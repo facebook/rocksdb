@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 
 #ifndef ROCKSDB_LITE
@@ -9,15 +9,15 @@
 
 #include <algorithm>
 #include <atomic>
+#include "db/memtable.h"
+#include "memtable/skiplist.h"
+#include "monitoring/histogram.h"
+#include "port/port.h"
 #include "rocksdb/memtablerep.h"
-#include "util/arena.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
-#include "port/port.h"
-#include "util/histogram.h"
+#include "util/arena.h"
 #include "util/murmurhash.h"
-#include "db/memtable.h"
-#include "db/skiplist.h"
 
 namespace rocksdb {
 namespace {
@@ -56,7 +56,7 @@ struct SkipListBucketHeader {
   MemtableSkipList skip_list;
 
   explicit SkipListBucketHeader(const MemTableRep::KeyComparator& cmp,
-                                MemTableAllocator* allocator, uint32_t count)
+                                Allocator* allocator, uint32_t count)
       : Counting_header(this,  // Pointing to itself to indicate header type.
                         count),
         skip_list(cmp, allocator) {}
@@ -162,7 +162,7 @@ struct Node {
 class HashLinkListRep : public MemTableRep {
  public:
   HashLinkListRep(const MemTableRep::KeyComparator& compare,
-                  MemTableAllocator* allocator, const SliceTransform* transform,
+                  Allocator* allocator, const SliceTransform* transform,
                   size_t bucket_size, uint32_t threshold_use_skiplist,
                   size_t huge_page_tlb_size, Logger* logger,
                   int bucket_entries_logging_threshold,
@@ -433,7 +433,7 @@ class HashLinkListRep : public MemTableRep {
         } else {
           IterKey encoded_key;
           encoded_key.EncodeLengthPrefixedKey(k);
-          skip_list_iter_->Seek(encoded_key.GetKey().data());
+          skip_list_iter_->Seek(encoded_key.GetUserKey().data());
         }
       } else {
         // The bucket is organized as a linked list
@@ -494,14 +494,11 @@ class HashLinkListRep : public MemTableRep {
   };
 };
 
-HashLinkListRep::HashLinkListRep(const MemTableRep::KeyComparator& compare,
-                                 MemTableAllocator* allocator,
-                                 const SliceTransform* transform,
-                                 size_t bucket_size,
-                                 uint32_t threshold_use_skiplist,
-                                 size_t huge_page_tlb_size, Logger* logger,
-                                 int bucket_entries_logging_threshold,
-                                 bool if_log_bucket_dist_when_flash)
+HashLinkListRep::HashLinkListRep(
+    const MemTableRep::KeyComparator& compare, Allocator* allocator,
+    const SliceTransform* transform, size_t bucket_size,
+    uint32_t threshold_use_skiplist, size_t huge_page_tlb_size, Logger* logger,
+    int bucket_entries_logging_threshold, bool if_log_bucket_dist_when_flash)
     : MemTableRep(allocator),
       bucket_size_(bucket_size),
       // Threshold to use skip list doesn't make sense if less than 3, so we
@@ -829,7 +826,7 @@ Node* HashLinkListRep::FindGreaterOrEqualInBucket(Node* head,
 } // anon namespace
 
 MemTableRep* HashLinkListRepFactory::CreateMemTableRep(
-    const MemTableRep::KeyComparator& compare, MemTableAllocator* allocator,
+    const MemTableRep::KeyComparator& compare, Allocator* allocator,
     const SliceTransform* transform, Logger* logger) {
   return new HashLinkListRep(compare, allocator, transform, bucket_count_,
                              threshold_use_skiplist_, huge_page_tlb_size_,

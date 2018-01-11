@@ -1,7 +1,7 @@
 // Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree. An additional grant
-// of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 
 package org.rocksdb;
 
@@ -56,6 +56,20 @@ public abstract class AbstractSlice<T> extends RocksMutableObject {
    * @return Java typed access to the data.
    */
   protected abstract T data0(long handle);
+
+  /**
+   * Drops the specified {@code n}
+   * number of bytes from the start
+   * of the backing slice
+   *
+   * @param n The number of bytes to drop
+   */
+  public abstract void removePrefix(final int n);
+
+  /**
+   * Clears the backing slice
+   */
+  public abstract void clear();
 
   /**
    * Return the length (in bytes) of the data.

@@ -1,7 +1,7 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -10,9 +10,9 @@
 #include "table/block_based_table_builder.h"
 
 #include <assert.h>
-#include <inttypes.h>
 #include <stdio.h>
 
+#include <list>
 #include <map>
 #include <memory>
 #include <string>
@@ -30,13 +30,13 @@
 #include "rocksdb/table.h"
 
 #include "table/block.h"
+#include "table/block_based_filter_block.h"
+#include "table/block_based_table_factory.h"
 #include "table/block_based_table_reader.h"
 #include "table/block_builder.h"
 #include "table/filter_block.h"
-#include "table/block_based_filter_block.h"
-#include "table/block_based_table_factory.h"
-#include "table/full_filter_block.h"
 #include "table/format.h"
+#include "table/full_filter_block.h"
 #include "table/meta_blocks.h"
 #include "table/table_builder.h"
 
@@ -47,6 +47,9 @@
 #include "util/stop_watch.h"
 #include "util/xxhash.h"
 
+#include "table/index_builder.h"
+#include "table/partitioned_filter_block.h"
+
 namespace rocksdb {
 
 extern const std::string kHashIndexPrefixesBlock;
@@ -54,247 +57,13 @@ extern const std::string kHashIndexPrefixesMetadataBlock;
 
 typedef BlockBasedTableOptions::IndexType IndexType;
 
-// The interface for building index.
-// Instruction for adding a new concrete IndexBuilder:
-//  1. Create a subclass instantiated from IndexBuilder.
-//  2. Add a new entry associated with that subclass in TableOptions::IndexType.
-//  3. Add a create function for the new subclass in CreateIndexBuilder.
-// Note: we can devise more advanced design to simplify the process for adding
-// new subclass, which will, on the other hand, increase the code complexity and
-// catch unwanted attention from readers. Given that we won't add/change
-// indexes frequently, it makes sense to just embrace a more straightforward
-// design that just works.
-class IndexBuilder {
- public:
-  // Index builder will construct a set of blocks which contain:
-  //  1. One primary index block.
-  //  2. (Optional) a set of metablocks that contains the metadata of the
-  //     primary index.
-  struct IndexBlocks {
-    Slice index_block_contents;
-    std::unordered_map<std::string, Slice> meta_blocks;
-  };
-  explicit IndexBuilder(const InternalKeyComparator* comparator)
-      : comparator_(comparator) {}
-
-  virtual ~IndexBuilder() {}
-
-  // Add a new index entry to index block.
-  // To allow further optimization, we provide `last_key_in_current_block` and
-  // `first_key_in_next_block`, based on which the specific implementation can
-  // determine the best index key to be used for the index block.
-  // @last_key_in_current_block: this parameter maybe overridden with the value
-  //                             "substitute key".
-  // @first_key_in_next_block: it will be nullptr if the entry being added is
-  //                           the last one in the table
-  //
-  // REQUIRES: Finish() has not yet been called.
-  virtual void AddIndexEntry(std::string* last_key_in_current_block,
-                             const Slice* first_key_in_next_block,
-                             const BlockHandle& block_handle) = 0;
-
-  // This method will be called whenever a key is added. The subclasses may
-  // override OnKeyAdded() if they need to collect additional information.
-  virtual void OnKeyAdded(const Slice& key) {}
-
-  // Inform the index builder that all entries has been written. Block builder
-  // may therefore perform any operation required for block finalization.
-  //
-  // REQUIRES: Finish() has not yet been called.
-  virtual Status Finish(IndexBlocks* index_blocks) = 0;
-
-  // Get the estimated size for index block.
-  virtual size_t EstimatedSize() const = 0;
-
- protected:
-  const InternalKeyComparator* comparator_;
-};
-
-// This index builder builds space-efficient index block.
-//
-// Optimizations:
-//  1. Made block's `block_restart_interval` to be 1, which will avoid linear
-//     search when doing index lookup (can be disabled by setting
-//     index_block_restart_interval).
-//  2. Shorten the key length for index block. Other than honestly using the
-//     last key in the data block as the index key, we instead find a shortest
-//     substitute key that serves the same function.
-class ShortenedIndexBuilder : public IndexBuilder {
- public:
-  explicit ShortenedIndexBuilder(const InternalKeyComparator* comparator,
-                                 int index_block_restart_interval)
-      : IndexBuilder(comparator),
-        index_block_builder_(index_block_restart_interval) {}
-
-  virtual void AddIndexEntry(std::string* last_key_in_current_block,
-                             const Slice* first_key_in_next_block,
-                             const BlockHandle& block_handle) override {
-    if (first_key_in_next_block != nullptr) {
-      comparator_->FindShortestSeparator(last_key_in_current_block,
-                                         *first_key_in_next_block);
-    } else {
-      comparator_->FindShortSuccessor(last_key_in_current_block);
-    }
-
-    std::string handle_encoding;
-    block_handle.EncodeTo(&handle_encoding);
-    index_block_builder_.Add(*last_key_in_current_block, handle_encoding);
-  }
-
-  virtual Status Finish(IndexBlocks* index_blocks) override {
-    index_blocks->index_block_contents = index_block_builder_.Finish();
-    return Status::OK();
-  }
-
-  virtual size_t EstimatedSize() const override {
-    return index_block_builder_.CurrentSizeEstimate();
-  }
-
- private:
-  BlockBuilder index_block_builder_;
-};
-
-// HashIndexBuilder contains a binary-searchable primary index and the
-// metadata for secondary hash index construction.
-// The metadata for hash index consists two parts:
-//  - a metablock that compactly contains a sequence of prefixes. All prefixes
-//    are stored consectively without any metadata (like, prefix sizes) being
-//    stored, which is kept in the other metablock.
-//  - a metablock contains the metadata of the prefixes, including prefix size,
-//    restart index and number of block it spans. The format looks like:
-//
-// +-----------------+---------------------------+---------------------+ <=prefix 1
-// | length: 4 bytes | restart interval: 4 bytes | num-blocks: 4 bytes |
-// +-----------------+---------------------------+---------------------+ <=prefix 2
-// | length: 4 bytes | restart interval: 4 bytes | num-blocks: 4 bytes |
-// +-----------------+---------------------------+---------------------+
-// |                                                                   |
-// | ....                                                              |
-// |                                                                   |
-// +-----------------+---------------------------+---------------------+ <=prefix n
-// | length: 4 bytes | restart interval: 4 bytes | num-blocks: 4 bytes |
-// +-----------------+---------------------------+---------------------+
-//
-// The reason of separating these two metablocks is to enable the efficiently
-// reuse the first metablock during hash index construction without unnecessary
-// data copy or small heap allocations for prefixes.
-class HashIndexBuilder : public IndexBuilder {
- public:
-  explicit HashIndexBuilder(const InternalKeyComparator* comparator,
-                            const SliceTransform* hash_key_extractor,
-                            int index_block_restart_interval)
-      : IndexBuilder(comparator),
-        primary_index_builder_(comparator, index_block_restart_interval),
-        hash_key_extractor_(hash_key_extractor) {}
-
-  virtual void AddIndexEntry(std::string* last_key_in_current_block,
-                             const Slice* first_key_in_next_block,
-                             const BlockHandle& block_handle) override {
-    ++current_restart_index_;
-    primary_index_builder_.AddIndexEntry(last_key_in_current_block,
-                                        first_key_in_next_block, block_handle);
-  }
-
-  virtual void OnKeyAdded(const Slice& key) override {
-    auto key_prefix = hash_key_extractor_->Transform(key);
-    bool is_first_entry = pending_block_num_ == 0;
-
-    // Keys may share the prefix
-    if (is_first_entry || pending_entry_prefix_ != key_prefix) {
-      if (!is_first_entry) {
-        FlushPendingPrefix();
-      }
-
-      // need a hard copy otherwise the underlying data changes all the time.
-      // TODO(kailiu) ToString() is expensive. We may speed up can avoid data
-      // copy.
-      pending_entry_prefix_ = key_prefix.ToString();
-      pending_block_num_ = 1;
-      pending_entry_index_ = static_cast<uint32_t>(current_restart_index_);
-    } else {
-      // entry number increments when keys share the prefix reside in
-      // different data blocks.
-      auto last_restart_index = pending_entry_index_ + pending_block_num_ - 1;
-      assert(last_restart_index <= current_restart_index_);
-      if (last_restart_index != current_restart_index_) {
-        ++pending_block_num_;
-      }
-    }
-  }
-
-  virtual Status Finish(IndexBlocks* index_blocks) override {
-    FlushPendingPrefix();
-    primary_index_builder_.Finish(index_blocks);
-    index_blocks->meta_blocks.insert(
-        {kHashIndexPrefixesBlock.c_str(), prefix_block_});
-    index_blocks->meta_blocks.insert(
-        {kHashIndexPrefixesMetadataBlock.c_str(), prefix_meta_block_});
-    return Status::OK();
-  }
-
-  virtual size_t EstimatedSize() const override {
-    return primary_index_builder_.EstimatedSize() + prefix_block_.size() +
-           prefix_meta_block_.size();
-  }
-
- private:
-  void FlushPendingPrefix() {
-    prefix_block_.append(pending_entry_prefix_.data(),
-                         pending_entry_prefix_.size());
-    PutVarint32Varint32Varint32(
-        &prefix_meta_block_,
-        static_cast<uint32_t>(pending_entry_prefix_.size()),
-        pending_entry_index_, pending_block_num_);
-  }
-
-  ShortenedIndexBuilder primary_index_builder_;
-  const SliceTransform* hash_key_extractor_;
-
-  // stores a sequence of prefixes
-  std::string prefix_block_;
-  // stores the metadata of prefixes
-  std::string prefix_meta_block_;
-
-  // The following 3 variables keeps unflushed prefix and its metadata.
-  // The details of block_num and entry_index can be found in
-  // "block_hash_index.{h,cc}"
-  uint32_t pending_block_num_ = 0;
-  uint32_t pending_entry_index_ = 0;
-  std::string pending_entry_prefix_;
-
-  uint64_t current_restart_index_ = 0;
-};
-
 // Without anonymous namespace here, we fail the warning -Wmissing-prototypes
 namespace {
 
-// Create a index builder based on its type.
-IndexBuilder* CreateIndexBuilder(IndexType type,
-                                 const InternalKeyComparator* comparator,
-                                 const SliceTransform* prefix_extractor,
-                                 int index_block_restart_interval) {
-  switch (type) {
-    case BlockBasedTableOptions::kBinarySearch: {
-      return new ShortenedIndexBuilder(comparator,
-                                       index_block_restart_interval);
-    }
-    case BlockBasedTableOptions::kHashSearch: {
-      return new HashIndexBuilder(comparator, prefix_extractor,
-                                  index_block_restart_interval);
-    }
-    default: {
-      assert(!"Do not recognize the index type ");
-      return nullptr;
-    }
-  }
-  // impossible.
-  assert(false);
-  return nullptr;
-}
-
-// Create a index builder based on its type.
-FilterBlockBuilder* CreateFilterBlockBuilder(const ImmutableCFOptions& opt,
-    const BlockBasedTableOptions& table_opt) {
+// Create a filter block builder based on its type.
+FilterBlockBuilder* CreateFilterBlockBuilder(
+    const ImmutableCFOptions& opt, const BlockBasedTableOptions& table_opt,
+    PartitionedIndexBuilder* const p_index_builder) {
   if (table_opt.filter_policy == nullptr) return nullptr;
 
   FilterBitsBuilder* filter_bits_builder =
@@ -302,9 +71,25 @@ FilterBlockBuilder* CreateFilterBlockBuilder(const ImmutableCFOptions& opt,
   if (filter_bits_builder == nullptr) {
     return new BlockBasedFilterBlockBuilder(opt.prefix_extractor, table_opt);
   } else {
-    return new FullFilterBlockBuilder(opt.prefix_extractor,
-                                      table_opt.whole_key_filtering,
-                                      filter_bits_builder);
+    if (table_opt.partition_filters) {
+      assert(p_index_builder != nullptr);
+      // Since after partition cut request from filter builder it takes time
+      // until index builder actully cuts the partition, we take the lower bound
+      // as partition size.
+      assert(table_opt.block_size_deviation <= 100);
+      auto partition_size = static_cast<uint32_t>(
+          ((table_opt.metadata_block_size *
+          (100 - table_opt.block_size_deviation)) + 99) / 100);
+      partition_size = std::max(partition_size, static_cast<uint32_t>(1));
+      return new PartitionedFilterBlockBuilder(
+          opt.prefix_extractor, table_opt.whole_key_filtering,
+          filter_bits_builder, table_opt.index_block_restart_interval,
+          p_index_builder, partition_size);
+    } else {
+      return new FullFilterBlockBuilder(opt.prefix_extractor,
+                                        table_opt.whole_key_filtering,
+                                        filter_bits_builder);
+    }
   }
 }
 
@@ -469,6 +254,7 @@ struct BlockBasedTableBuilder::Rep {
 
   InternalKeySliceTransform internal_prefix_transform;
   std::unique_ptr<IndexBuilder> index_builder;
+  PartitionedIndexBuilder* p_index_builder_ = nullptr;
 
   std::string last_key;
   const CompressionType compression_type;
@@ -478,7 +264,7 @@ struct BlockBasedTableBuilder::Rep {
   TableProperties props;
 
   bool closed = false;  // Either Finish() or Abandon() has been called.
-  std::unique_ptr<FilterBlockBuilder> filter_block;
+  std::unique_ptr<FilterBlockBuilder> filter_builder;
   char compressed_cache_key_prefix[BlockBasedTable::kMaxCacheKeyPrefixSize];
   size_t compressed_cache_key_prefix_size;
 
@@ -488,6 +274,8 @@ struct BlockBasedTableBuilder::Rep {
   std::unique_ptr<FlushBlockPolicy> flush_block_policy;
   uint32_t column_family_id;
   const std::string& column_family_name;
+  uint64_t creation_time = 0;
+  uint64_t oldest_key_time = 0;
 
   std::vector<std::unique_ptr<IntTblPropCollector>> table_properties_collectors;
 
@@ -500,7 +288,8 @@ struct BlockBasedTableBuilder::Rep {
       const CompressionType _compression_type,
       const CompressionOptions& _compression_opts,
       const std::string* _compression_dict, const bool skip_filters,
-      const std::string& _column_family_name)
+      const std::string& _column_family_name, const uint64_t _creation_time,
+      const uint64_t _oldest_key_time)
       : ioptions(_ioptions),
         table_options(table_opt),
         internal_comparator(icomparator),
@@ -509,20 +298,34 @@ struct BlockBasedTableBuilder::Rep {
                    table_options.use_delta_encoding),
         range_del_block(1),  // TODO(andrewkr): restart_interval unnecessary
         internal_prefix_transform(_ioptions.prefix_extractor),
-        index_builder(
-            CreateIndexBuilder(table_options.index_type, &internal_comparator,
-                               &this->internal_prefix_transform,
-                               table_options.index_block_restart_interval)),
         compression_type(_compression_type),
         compression_opts(_compression_opts),
         compression_dict(_compression_dict),
-        filter_block(skip_filters ? nullptr : CreateFilterBlockBuilder(
-                                                  _ioptions, table_options)),
+        compressed_cache_key_prefix_size(0),
         flush_block_policy(
             table_options.flush_block_policy_factory->NewFlushBlockPolicy(
                 table_options, data_block)),
         column_family_id(_column_family_id),
-        column_family_name(_column_family_name) {
+        column_family_name(_column_family_name),
+        creation_time(_creation_time),
+        oldest_key_time(_oldest_key_time) {
+    if (table_options.index_type ==
+        BlockBasedTableOptions::kTwoLevelIndexSearch) {
+      p_index_builder_ = PartitionedIndexBuilder::CreateIndexBuilder(
+          &internal_comparator, table_options);
+      index_builder.reset(p_index_builder_);
+    } else {
+      index_builder.reset(IndexBuilder::CreateIndexBuilder(
+          table_options.index_type, &internal_comparator,
+          &this->internal_prefix_transform, table_options));
+    }
+    if (skip_filters) {
+      filter_builder = nullptr;
+    } else {
+      filter_builder.reset(
+          CreateFilterBlockBuilder(_ioptions, table_options, p_index_builder_));
+    }
+
     for (auto& collector_factories : *int_tbl_prop_collector_factories) {
       table_properties_collectors.emplace_back(
           collector_factories->CreateIntTblPropCollector(column_family_id));
@@ -544,11 +347,13 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
     const CompressionType compression_type,
     const CompressionOptions& compression_opts,
     const std::string* compression_dict, const bool skip_filters,
-    const std::string& column_family_name) {
+    const std::string& column_family_name, const uint64_t creation_time,
+    const uint64_t oldest_key_time) {
   BlockBasedTableOptions sanitized_table_options(table_options);
   if (sanitized_table_options.format_version == 0 &&
       sanitized_table_options.checksum != kCRC32c) {
-    Log(InfoLogLevel::WARN_LEVEL, ioptions.info_log,
+    ROCKS_LOG_WARN(
+        ioptions.info_log,
         "Silently converting format_version to 1 because checksum is "
         "non-default");
     // silently convert format_version to 1 to keep consistent with current
@@ -559,10 +364,11 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
   rep_ = new Rep(ioptions, sanitized_table_options, internal_comparator,
                  int_tbl_prop_collector_factories, column_family_id, file,
                  compression_type, compression_opts, compression_dict,
-                 skip_filters, column_family_name);
+                 skip_filters, column_family_name, creation_time,
+                 oldest_key_time);
 
-  if (rep_->filter_block != nullptr) {
-    rep_->filter_block->StartBlock(0);
+  if (rep_->filter_builder != nullptr) {
+    rep_->filter_builder->StartBlock(0);
   }
   if (table_options.block_cache_compressed.get() != nullptr) {
     BlockBasedTable::GenerateCachePrefix(
@@ -605,8 +411,10 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
       }
     }
 
-    if (r->filter_block != nullptr) {
-      r->filter_block->Add(ExtractUserKey(key));
+    // Note: PartitionedFilterBlockBuilder requires key being added to filter
+    // builder after being added to index builder.
+    if (r->filter_builder != nullptr) {
+      r->filter_builder->Add(ExtractUserKey(key));
     }
 
     r->last_key.assign(key.data(), key.size());
@@ -640,11 +448,8 @@ void BlockBasedTableBuilder::Flush() {
   if (!ok()) return;
   if (r->data_block.empty()) return;
   WriteBlock(&r->data_block, &r->pending_handle, true /* is_data_block */);
-  if (ok() && !r->table_options.skip_table_builder_flush) {
-    r->status = r->file->Flush();
-  }
-  if (r->filter_block != nullptr) {
-    r->filter_block->StartBlock(r->offset);
+  if (r->filter_builder != nullptr) {
+    r->filter_builder->StartBlock(r->offset);
   }
   r->props.data_size = r->offset;
   ++r->props.num_data_blocks;
@@ -700,8 +505,8 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
         if (!compressed_ok) {
           // The result of the compression was invalid. abort.
           abort_compression = true;
-          Log(InfoLogLevel::ERROR_LEVEL, r->ioptions.info_log,
-              "Decompressed block did not match raw block");
+          ROCKS_LOG_ERROR(r->ioptions.info_log,
+                          "Decompressed block did not match raw block");
           r->status =
               Status::Corruption("Decompressed block did not match raw block");
         }
@@ -722,11 +527,11 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
     RecordTick(r->ioptions.statistics, NUMBER_BLOCK_NOT_COMPRESSED);
     type = kNoCompression;
     block_contents = raw_block_contents;
-  } else if (type != kNoCompression &&
-             ShouldReportDetailedTime(r->ioptions.env,
-                                      r->ioptions.statistics)) {
-    MeasureTime(r->ioptions.statistics, COMPRESSION_TIMES_NANOS,
-                timer.ElapsedNanos());
+  } else if (type != kNoCompression) {
+    if (ShouldReportDetailedTime(r->ioptions.env, r->ioptions.statistics)) {
+      MeasureTime(r->ioptions.statistics, COMPRESSION_TIMES_NANOS,
+                  timer.ElapsedNanos());
+    }
     MeasureTime(r->ioptions.statistics, BYTES_COMPRESSED,
                 raw_block_contents.size());
     RecordTick(r->ioptions.statistics, NUMBER_BLOCK_COMPRESSED);
@@ -743,6 +548,7 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
   StopWatch sw(r->ioptions.env, r->ioptions.statistics, WRITE_RAW_BLOCK_MICROS);
   handle->set_offset(r->offset);
   handle->set_size(block_contents.size());
+  assert(r->status.ok());
   r->status = r->file->Append(block_contents);
   if (r->status.ok()) {
     char trailer[kBlockTrailerSize];
@@ -750,9 +556,8 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
     char* trailer_without_type = trailer + 1;
     switch (r->table_options.checksum) {
       case kNoChecksum:
-        // we don't support no checksum yet
-        assert(false);
-        // intentional fallthrough
+        EncodeFixed32(trailer_without_type, 0);
+        break;
       case kCRC32c: {
         auto crc = crc32c::Value(block_contents.data(), block_contents.size());
         crc = crc32c::Extend(crc, trailer, 1);  // Extend to cover block type
@@ -769,6 +574,7 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
       }
     }
 
+    assert(r->status.ok());
     r->status = r->file->Append(Slice(trailer, kBlockTrailerSize));
     if (r->status.ok()) {
       r->status = InsertBlockInCache(block_contents, type, handle);
@@ -834,15 +640,6 @@ Status BlockBasedTableBuilder::Finish() {
   assert(!r->closed);
   r->closed = true;
 
-  BlockHandle filter_block_handle, metaindex_block_handle, index_block_handle,
-      compression_dict_block_handle, range_del_block_handle;
-  // Write filter block
-  if (ok() && r->filter_block != nullptr) {
-    auto filter_contents = r->filter_block->Finish();
-    r->props.filter_size = filter_contents.size();
-    WriteRawBlock(filter_contents, kNoCompression, &filter_block_handle);
-  }
-
   // To make sure properties block is able to keep the accurate size of index
   // block, we will finish writing all index entries here and flush them
   // to storage after metaindex block is written.
@@ -851,10 +648,28 @@ Status BlockBasedTableBuilder::Finish() {
         &r->last_key, nullptr /* no next data block */, r->pending_handle);
   }
 
+  BlockHandle filter_block_handle, metaindex_block_handle, index_block_handle,
+      compression_dict_block_handle, range_del_block_handle;
+  // Write filter block
+  if (ok() && r->filter_builder != nullptr) {
+    Status s = Status::Incomplete();
+    while (s.IsIncomplete()) {
+      Slice filter_content = r->filter_builder->Finish(filter_block_handle, &s);
+      assert(s.ok() || s.IsIncomplete());
+      r->props.filter_size += filter_content.size();
+      WriteRawBlock(filter_content, kNoCompression, &filter_block_handle);
+    }
+  }
+
   IndexBuilder::IndexBlocks index_blocks;
-  auto s = r->index_builder->Finish(&index_blocks);
-  if (!s.ok()) {
-    return s;
+  auto index_builder_status = r->index_builder->Finish(&index_blocks);
+  if (index_builder_status.IsIncomplete()) {
+    // We we have more than one index partition then meta_blocks are not
+    // supported for the index. Currently meta_blocks are used only by
+    // HashIndexBuilder which is not multi-partition.
+    assert(index_blocks.meta_blocks.empty());
+  } else if (!index_builder_status.ok()) {
+    return index_builder_status;
   }
 
   // Write meta blocks and metaindex block with the following order.
@@ -872,14 +687,16 @@ Status BlockBasedTableBuilder::Finish() {
   }
 
   if (ok()) {
-    if (r->filter_block != nullptr) {
+    if (r->filter_builder != nullptr) {
       // Add mapping from "<filter_block_prefix>.Name" to location
       // of filter data.
       std::string key;
-      if (r->filter_block->IsBlockBased()) {
+      if (r->filter_builder->IsBlockBased()) {
         key = BlockBasedTable::kFilterBlockPrefix;
       } else {
-        key = BlockBasedTable::kFullFilterBlockPrefix;
+        key = r->table_options.partition_filters
+                  ? BlockBasedTable::kPartitionedFilterBlockPrefix
+                  : BlockBasedTable::kFullFilterBlockPrefix;
       }
       key.append(r->table_options.filter_policy->Name());
       meta_index_builder.Add(key, filter_block_handle);
@@ -918,6 +735,15 @@ Status BlockBasedTableBuilder::Finish() {
       }
       property_collectors_names += "]";
       r->props.property_collectors_names = property_collectors_names;
+      if (r->table_options.index_type ==
+          BlockBasedTableOptions::kTwoLevelIndexSearch) {
+        assert(r->p_index_builder_ != nullptr);
+        r->props.index_partitions = r->p_index_builder_->NumPartitions();
+        r->props.top_level_index_size =
+            r->p_index_builder_->EstimateTopLevelIndexSize(r->offset);
+      }
+      r->props.creation_time = r->creation_time;
+      r->props.oldest_key_time = r->oldest_key_time;
 
       // Add basic properties
       property_block_builder.AddTableProperty(r->props);
@@ -956,8 +782,29 @@ Status BlockBasedTableBuilder::Finish() {
     // flush the meta index block
     WriteRawBlock(meta_index_builder.Finish(), kNoCompression,
                   &metaindex_block_handle);
-    WriteBlock(index_blocks.index_block_contents, &index_block_handle,
-               false /* is_data_block */);
+
+    if (r->table_options.enable_index_compression) {
+      WriteBlock(index_blocks.index_block_contents, &index_block_handle, false);
+    } else {
+      WriteRawBlock(index_blocks.index_block_contents, kNoCompression,
+                    &index_block_handle);
+    }
+    // If there are more index partitions, finish them and write them out
+    Status& s = index_builder_status;
+    while (s.IsIncomplete()) {
+      s = r->index_builder->Finish(&index_blocks, index_block_handle);
+      if (!s.ok() && !s.IsIncomplete()) {
+        return s;
+      }
+      if (r->table_options.enable_index_compression) {
+        WriteBlock(index_blocks.index_block_contents, &index_block_handle,
+                   false);
+      } else {
+        WriteRawBlock(index_blocks.index_block_contents, kNoCompression,
+                      &index_block_handle);
+      }
+      // The last index_block_handle will be for the partition index block
+    }
   }
 
   // Write footer
@@ -981,6 +828,7 @@ Status BlockBasedTableBuilder::Finish() {
     footer.set_checksum(r->table_options.checksum);
     std::string footer_encoding;
     footer.EncodeTo(&footer_encoding);
+    assert(r->status.ok());
     r->status = r->file->Append(footer_encoding);
     if (r->status.ok()) {
       r->offset += footer_encoding.size();
@@ -1026,4 +874,6 @@ TableProperties BlockBasedTableBuilder::GetTableProperties() const {
 
 const std::string BlockBasedTable::kFilterBlockPrefix = "filter.";
 const std::string BlockBasedTable::kFullFilterBlockPrefix = "fullfilter.";
+const std::string BlockBasedTable::kPartitionedFilterBlockPrefix =
+    "partitionedfilter.";
 }  // namespace rocksdb
