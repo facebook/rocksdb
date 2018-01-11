@@ -127,9 +127,12 @@ WriteCommittedTxn::WriteCommittedTxn(TransactionDB* txn_db,
                                      const TransactionOptions& txn_options)
     : PessimisticTransaction(txn_db, write_options, txn_options){};
 
-Status PessimisticTransaction::CommitBatch(WriteBatch* batch) {
+Status PessimisticTransaction::CommitBatch(WriteBatch* batch, bool skip_cc) {
   TransactionKeyMap keys_to_unlock;
-  Status s = LockBatch(batch, &keys_to_unlock);
+  Status s;
+  if (!skip_cc) {
+    s = LockBatch(batch, &keys_to_unlock);
+  }
 
   if (!s.ok()) {
     return s;
@@ -160,7 +163,9 @@ Status PessimisticTransaction::CommitBatch(WriteBatch* batch) {
     s = Status::InvalidArgument("Transaction is not in state for commit.");
   }
 
-  txn_db_impl_->UnLock(this, &keys_to_unlock);
+  if (!skip_cc) {
+    txn_db_impl_->UnLock(this, &keys_to_unlock);
+  }
 
   return s;
 }

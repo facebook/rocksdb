@@ -27,7 +27,7 @@
 
 using namespace rocksdb;
 
-std::string kDBPath = "/tmp/rocksdb-example";
+std::string kDBPath = "/dev/shm//rocksdb-example";
 rocksdb::TransactionDB* db;
 rocksdb::DB* nontxdb;
 
@@ -59,14 +59,15 @@ static rocksdb::BlockBasedTableOptions table_options;
 rocksdb::ColumnFamilyOptions default_cf_opts;
 
 int main(int argc, char**argv) {
-  if (argc < 5) {
-    printf("Usage: num_trans commit_interval use_txdb\n");
+  if (argc < 6) {
+    printf("Usage: num_trans commit_interval use_txdb skip_cc\n");
     exit(1);
   }
   char *mode = argv[1];
   int num_trans = atoi(argv[2]);
   int commit_interval = atoi(argv[3]);
   int use_txdb = atoi(argv[4]);
+  int skip_cc = atoi(argv[5]);
   const char *path = kDBPath.c_str();
   //char *path = argv[4];
   srand(time(NULL));
@@ -103,13 +104,11 @@ int main(int argc, char**argv) {
     TransactionOptions txn_opts;
     WriteOptions write_opts;
     Transaction *txn= db->BeginTransaction(write_opts, txn_opts);
-    txn->SetSnapshot();
-    rocksdb::WriteBatchBase* wb = txn->GetWriteBatch();
+    //txn->SetSnapshot();
+    //rocksdb::WriteBatchBase* wb = txn->GetWriteBatch();
     for (int i= 1; i <= num_trans; i++) {
       uchar key[128] = {0};
       uchar value[128] = {0};
-      uint id1_1 = 0;
-      uint id1_2 = i/5+1;
       uint id2_1 = 0;
       uint id2_2 = i/5+1;
       uint id_type_1 = 0;
@@ -129,15 +128,19 @@ int main(int argc, char**argv) {
       Slice key_slice = Slice((char*)key, 8);
       Slice value_slice = Slice((char*)value, 24);
 
+if (skip_cc) {
+      s= txn->PutUntracked(key_slice, value_slice, skip_cc);
+} else {
       s= txn->Put(key_slice, value_slice);
+}
       assert(s.ok());
       if (i % commit_interval == 0) {
         //printf("Inserted %i records..\n", i);
         s = txn->Commit();
         assert(s.ok());
-        txn= db->BeginTransaction(write_opts, txn_opts);
-        txn->SetSnapshot();
-        wb = txn->GetWriteBatch();
+        txn= db->BeginTransaction(write_opts, txn_opts, txn);
+        //txn->SetSnapshot();
+        //wb = txn->GetWriteBatch();
       }
       if (i % 1000000 == 0) {
         t2 = gettimeofday_sec();
@@ -152,8 +155,6 @@ int main(int argc, char**argv) {
     for (int i= 1; i <= num_trans; i++) {
       uchar key[128] = {0};
       uchar value[128] = {0};
-      uint id1_1 = 0;
-      uint id1_2 = i/5+1;
       uint id2_1 = 0;
       uint id2_2 = i/5+1;
       uint id_type_1 = 0;
@@ -176,7 +177,7 @@ int main(int argc, char**argv) {
       batch.Put(key_slice, value_slice);
       if (i % commit_interval == 0) {
         if (use_txdb) {
-          s = db->Write(WriteOptions(), &batch);
+          s = db->Write(WriteOptions(), &batch, skip_cc);
         } else {
           s = nontxdb->Write(WriteOptions(), &batch);
         }
@@ -198,17 +199,11 @@ int main(int argc, char**argv) {
     Transaction *txn= db->BeginTransaction(write_opts, txn_opts);
     txn->SetSnapshot();
     read_opts.snapshot = txn->GetSnapshot();
-    rocksdb::WriteBatchBase* wb = txn->GetWriteBatch();
+    //rocksdb::WriteBatchBase* wb = txn->GetWriteBatch();
     std::string retrieved_record;
     for (int i= 1; i <= num_trans; i++) {
       uchar key[128] = {0};
       uchar value[128] = {0};
-      uint id1_1 = 0;
-      uint id1_2 = i/5+1;
-      uint id2_1 = 0;
-      uint id2_2 = i/5+1;
-      uint id_type_1 = 0;
-      uint id_type_2 = 123456789;
       int data1 = rand();
       int data2 = rand();
       store_big_uint4(key, 260);
@@ -233,7 +228,7 @@ int main(int argc, char**argv) {
         txn= db->BeginTransaction(write_opts, txn_opts);
         txn->SetSnapshot();
         read_opts.snapshot = txn->GetSnapshot();
-        wb = txn->GetWriteBatch();
+        //wb = txn->GetWriteBatch();
       }
     }
   }

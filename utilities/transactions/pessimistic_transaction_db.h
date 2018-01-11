@@ -64,7 +64,11 @@ class PessimisticTransactionDB : public TransactionDB {
                        const Slice& value) override;
 
   using StackableDB::Write;
-  virtual Status Write(const WriteOptions& opts, WriteBatch* updates) override;
+  virtual Status Write(const WriteOptions& opts, WriteBatch* updates) override {
+    return Write(opts, updates, false);
+  }
+  virtual Status Write(const WriteOptions& opts, WriteBatch* updates,
+                       bool skip_cc) override;
 
   using StackableDB::CreateColumnFamily;
   virtual Status CreateColumnFamily(const ColumnFamilyOptions& options,

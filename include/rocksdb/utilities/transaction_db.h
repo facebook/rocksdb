@@ -158,6 +158,11 @@ struct DeadlockPath {
 
 class TransactionDB : public StackableDB {
  public:
+  using StackableDB::Write;
+  virtual Status Write(const WriteOptions& opts, WriteBatch* updates,
+                       bool skip_cc) {
+    return StackableDB::Write(opts, updates);
+  }
   // Open a TransactionDB similar to DB::Open().
   // Internally call PrepareWrap() and WrapDB()
   static Status Open(const Options& options,

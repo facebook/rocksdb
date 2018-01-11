@@ -1,6 +1,7 @@
 # These are the sources from which librocksdb.a is built:
 LIB_SOURCES =                                                   \
   cache/clock_cache.cc                                          \
+  simple_example.cc                                          \
   cache/lru_cache.cc                                            \
   cache/sharded_cache.cc                                        \
   db/builder.cc                                                 \
