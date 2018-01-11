@@ -759,23 +759,27 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
 
   // Read the compression dictionary meta block
   bool found_compression_dict;
-  s = SeekToCompressionDictBlock(meta_iter.get(), &found_compression_dict);
+  BlockHandle compression_dict_handle;
+  s = SeekToCompressionDictBlock(meta_iter.get(), &found_compression_dict, 
+    &compression_dict_handle);
   if (!s.ok()) {
     ROCKS_LOG_WARN(
         rep->ioptions.info_log,
         "Error when seeking to compression dictionary block from file: %s",
         s.ToString().c_str());
-  } else if (found_compression_dict) {
+  } else if (found_compression_dict && !compression_dict_handle.IsNull()) {
     // TODO(andrewkr): Add to block cache if cache_index_and_filter_blocks is
     // true.
-    unique_ptr<BlockContents> compression_dict_block{new BlockContents()};
-    // TODO(andrewkr): ReadMetaBlock repeats SeekToCompressionDictBlock().
-    // maybe decode a handle from meta_iter
-    // and do ReadBlockContents(handle) instead
-    s = rocksdb::ReadMetaBlock(rep->file.get(), prefetch_buffer.get(),
-                               file_size, kBlockBasedTableMagicNumber,
-                               rep->ioptions, rocksdb::kCompressionDictBlock,
-                               compression_dict_block.get());
+    std::unique_ptr<BlockContents> compression_dict_cont{new BlockContents()};
+    PersistentCacheOptions cache_options;
+    ReadOptions read_options;
+    read_options.verify_checksums = false;
+    BlockFetcher compression_block_fetcher(
+      rep->file.get(), prefetch_buffer.get(), rep->footer, read_options,
+      compression_dict_handle, compression_dict_cont.get(), rep->ioptions, false /* decompress */,
+      Slice() /*compression dict*/, cache_options);
+    s = compression_block_fetcher.ReadBlockContents();
+
     if (!s.ok()) {
       ROCKS_LOG_WARN(
           rep->ioptions.info_log,
@@ -783,7 +787,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
           "block %s",
           s.ToString().c_str());
     } else {
-      rep->compression_dict_block = std::move(compression_dict_block);
+      rep->compression_dict_block = std::move(compression_dict_cont);
     }
   }
 
