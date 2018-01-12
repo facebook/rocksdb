@@ -74,28 +74,30 @@ ThreadStatusUpdater* CreateThreadStatusUpdater() {
   return new ThreadStatusUpdater();
 }
 
-// list of pathnames that are locked
-static std::set<std::string> lockedFiles;
-static port::Mutex mutex_lockedFiles;
-
 static int LockOrUnlock(const std::string& fname, int fd, bool lock) {
-  mutex_lockedFiles.Lock();
+  // list of pathnames that are locked.
+  // Using constrution-on-first-use idiom and intentionally "leak" them
+  // to avoid desturction order fiasco.
+  static std::set<std::string>* lockedFiles = new std::set<std::string>();
+  static port::Mutex* mutex_lockedFiles = new port::Mutex();
+
+  mutex_lockedFiles->Lock();
   if (lock) {
     // If it already exists in the lockedFiles set, then it is already locked,
     // and fail this lock attempt. Otherwise, insert it into lockedFiles.
     // This check is needed because fcntl() does not detect lock conflict
     // if the fcntl is issued by the same thread that earlier acquired
     // this lock.
-    if (lockedFiles.insert(fname).second == false) {
-      mutex_lockedFiles.Unlock();
+    if (lockedFiles->insert(fname).second == false) {
+      mutex_lockedFiles->Unlock();
       errno = ENOLCK;
       return -1;
     }
   } else {
     // If we are unlocking, then verify that we had locked it earlier,
     // it should already exist in lockedFiles. Remove it from lockedFiles.
-    if (lockedFiles.erase(fname) != 1) {
-      mutex_lockedFiles.Unlock();
+    if (lockedFiles->erase(fname) != 1) {
+      mutex_lockedFiles->Unlock();
       errno = ENOLCK;
       return -1;
     }
@@ -110,9 +112,9 @@ static int LockOrUnlock(const std::string& fname, int fd, bool lock) {
   int value = fcntl(fd, F_SETLK, &f);
   if (value == -1 && lock) {
     // if there is an error in locking, then remove the pathname from lockedfiles
-    lockedFiles.erase(fname);
+    lockedFiles->erase(fname);
   }
-  mutex_lockedFiles.Unlock();
+  mutex_lockedFiles->Unlock();
   return value;
 }
 
@@ -990,8 +992,10 @@ Env* Env::Default() {
   // the destructor of static PosixEnv will go first, then the
   // the singletons of ThreadLocalPtr.
   ThreadLocalPtr::InitSingletons();
-  static PosixEnv default_env;
-  return &default_env;
+  // Using constrution-on-first-use idiom and intentionally leaking
+  // to avoid desturction order fiasco.
+  static PosixEnv* default_env = new PosixEnv();
+  return default_env;
 }
 
 }  // namespace rocksdb

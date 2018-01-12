@@ -1,5 +1,7 @@
 # Rocksdb Change Log
 ## Unreleased
+### Bug Fixes
+* Fix static variable destruction order issue causing crash on shutdown.
 
 ## 5.10.0 (12/11/2017)
 ### Public API Change
