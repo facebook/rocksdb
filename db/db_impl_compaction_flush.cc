@@ -441,7 +441,8 @@ Status DBImpl::CompactFiles(
   }  // release the mutex
 
   // delete unnecessary files if any, this is done outside the mutex
-  if (job_context.HaveSomethingToDelete() || !log_buffer.IsEmpty()) {
+  if (job_context.HaveSomethingToClean() ||
+      job_context.HaveSomethingToDelete() || !log_buffer.IsEmpty()) {
     // Have to flush the info logs before bg_compaction_scheduled_--
     // because if bg_flush_scheduled_ becomes 0 and the lock is
     // released, the deconstructor of DB can kick in and destroy all the
@@ -1303,7 +1304,8 @@ void DBImpl::BackgroundCallFlush() {
     // created. Thus, we force full scan in FindObsoleteFiles()
     FindObsoleteFiles(&job_context, !s.ok() && !s.IsShutdownInProgress());
     // delete unnecessary files if any, this is done outside the mutex
-    if (job_context.HaveSomethingToDelete() || !log_buffer.IsEmpty()) {
+    if (job_context.HaveSomethingToClean() ||
+        job_context.HaveSomethingToDelete() || !log_buffer.IsEmpty()) {
       mutex_.Unlock();
       // Have to flush the info logs before bg_flush_scheduled_--
       // because if bg_flush_scheduled_ becomes 0 and the lock is
@@ -1384,7 +1386,8 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
     FindObsoleteFiles(&job_context, !s.ok() && !s.IsShutdownInProgress());
 
     // delete unnecessary files if any, this is done outside the mutex
-    if (job_context.HaveSomethingToDelete() || !log_buffer.IsEmpty()) {
+    if (job_context.HaveSomethingToClean() ||
+        job_context.HaveSomethingToDelete() || !log_buffer.IsEmpty()) {
       mutex_.Unlock();
       // Have to flush the info logs before bg_compaction_scheduled_--
       // because if bg_flush_scheduled_ becomes 0 and the lock is
