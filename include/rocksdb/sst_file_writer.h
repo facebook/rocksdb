@@ -72,16 +72,18 @@ class SstFileWriter {
   SstFileWriter(const EnvOptions& env_options, const Options& options,
                 ColumnFamilyHandle* column_family = nullptr,
                 bool invalidate_page_cache = true,
-                Env::IOPriority io_priority = Env::IOPriority::IO_TOTAL)
+                Env::IOPriority io_priority = Env::IOPriority::IO_TOTAL,
+                bool skip_filters = false)
       : SstFileWriter(env_options, options, options.comparator, column_family,
-                      invalidate_page_cache, io_priority) {}
+                      invalidate_page_cache, io_priority, skip_filters) {}
 
   // Deprecated API
   SstFileWriter(const EnvOptions& env_options, const Options& options,
                 const Comparator* user_comparator,
                 ColumnFamilyHandle* column_family = nullptr,
                 bool invalidate_page_cache = true,
-                Env::IOPriority io_priority = Env::IOPriority::IO_TOTAL);
+                Env::IOPriority io_priority = Env::IOPriority::IO_TOTAL,
+                bool skip_filters = false);
 
   ~SstFileWriter();
 
