@@ -1750,7 +1750,7 @@ JAVA_C_LIBOBJECTS = $(patsubst %.c.o,jl/%.c.o,$(JAVA_C_OBJECTS))
 JAVA_ASM_LIBOBJECTS = $(patsubst %.S.o,jl/%.S.o,$(JAVA_ASM_OBJECTS))
 endif
 
-java_libobjects = $(patsubst %,jl/%,$(LIBOBJECTS))
+java_libobjects = $(patsubst %,jl/%,$(LIB_CC_OBJECTS))
 CLEAN_FILES += jl
 java_all_libobjects = $(java_libobjects)
 
