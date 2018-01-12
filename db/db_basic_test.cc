@@ -870,7 +870,7 @@ class TestEnv : public EnvWrapper {
 
 TEST_F(DBBasicTest, DBClose) {
   Options options = GetDefaultOptions();
-  std::string dbname = test::TmpDir(env_) + "/db_options_test";
+  std::string dbname = test::TmpDir(env_) + "/db_close_test";
   ASSERT_OK(DestroyDB(dbname, options));
 
   DB* db = nullptr;
