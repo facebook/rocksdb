@@ -5057,22 +5057,25 @@ TEST_F(DBTest, PromoteL0Failure) {
 #endif  // ROCKSDB_LITE
 
 // Github issue #596
-TEST_F(DBTest, HugeNumberOfLevels) {
+TEST_F(DBTest, CompactRangeWithEmptyBottomLevel) {
+  const int kNumLevels = 2;
+  const int kNumL0Files = 2;
   Options options = CurrentOptions();
-  options.write_buffer_size = 2 * 1024 * 1024;         // 2MB
-  options.max_bytes_for_level_base = 2 * 1024 * 1024;  // 2MB
-  options.num_levels = 12;
-  options.max_background_compactions = 10;
-  options.max_bytes_for_level_multiplier = 2;
-  options.level_compaction_dynamic_level_bytes = true;
+  options.disable_auto_compactions = true;
+  options.num_levels = kNumLevels;
   DestroyAndReopen(options);
 
   Random rnd(301);
-  for (int i = 0; i < 300000; ++i) {
-    ASSERT_OK(Put(Key(i), RandomString(&rnd, 1024)));
+  for (int i = 0; i < kNumL0Files; ++i) {
+    ASSERT_OK(Put(Key(0), RandomString(&rnd, 1024)));
+    Flush();
   }
+  ASSERT_EQ(NumTableFilesAtLevel(0), kNumL0Files);
+  ASSERT_EQ(NumTableFilesAtLevel(1), 0);
 
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+  ASSERT_EQ(NumTableFilesAtLevel(1), kNumL0Files);
 }
 
 TEST_F(DBTest, AutomaticConflictsWithManualCompaction) {
