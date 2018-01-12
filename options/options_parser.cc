@@ -199,7 +199,7 @@ Status RocksDBOptionsParser::ParseStatement(std::string* name,
 namespace {
 bool ReadOneLine(std::istringstream* iss, SequentialFile* seq_file,
                  std::string* output, bool* has_data, Status* result) {
-  const int kBufferSize = 4096;
+  const int kBufferSize = 8192;
   char buffer[kBufferSize + 1];
   Slice input_slice;
 
