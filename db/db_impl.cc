@@ -141,6 +141,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
                const bool seq_per_batch)
     : env_(options.env),
       dbname_(dbname),
+      own_info_log_(options.info_log == nullptr),
       initial_db_options_(SanitizeOptions(dbname, options)),
       immutable_db_options_(initial_db_options_),
       mutable_db_options_(initial_db_options_),
@@ -212,7 +213,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       // requires a custom gc for compaction, we use that to set use_custom_gc_
       // as well.
       use_custom_gc_(seq_per_batch),
-      preserve_deletes_(options.preserve_deletes) {
+      preserve_deletes_(options.preserve_deletes),
+      closed_(false) {
   env_->GetAbsolutePath(dbname, &db_absolute_path_);
 
   // Reserve ten files or so for other uses and give the rest to TableCache.
@@ -275,7 +277,7 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
   }
 }
 
-DBImpl::~DBImpl() {
+Status DBImpl::CloseImpl() {
   // CancelAllBackgroundWork called with false means we just set the shutdown
   // marker. After this we do a variant of the waiting and unschedule work
   // (to consider: moving all the waiting into CancelAllBackgroundWork(true))
@@ -378,7 +380,15 @@ DBImpl::~DBImpl() {
 
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "Shutdown complete");
   LogFlush(immutable_db_options_.info_log);
+
+  Status s = Status::OK();
+  if (immutable_db_options_.info_log && own_info_log_) {
+    s = immutable_db_options_.info_log->Close();
+  }
+  return s;
 }
+
+DBImpl::~DBImpl() { Close(); }
 
 void DBImpl::MaybeIgnoreError(Status* s) const {
   if (s->ok() || immutable_db_options_.paranoid_checks) {
@@ -2320,7 +2330,15 @@ Status DB::DestroyColumnFamilyHandle(ColumnFamilyHandle* column_family) {
   return Status::OK();
 }
 
-DB::~DB() { }
+DB::~DB() {}
+
+Status DBImpl::Close() {
+  if (!closed_) {
+    closed_ = true;
+    return CloseImpl();
+  }
+  return Status::OK();
+}
 
 Status DB::ListColumnFamilies(const DBOptions& db_options,
                               const std::string& name,
