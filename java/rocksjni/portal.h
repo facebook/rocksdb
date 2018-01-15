@@ -3125,7 +3125,7 @@ class JniUtil {
      * @return A pointer to the copied string, or a
      *     nullptr if has_exception == JNI_TRUE
      */
-    static std::unique_ptr<char[]> copyString(JNIEnv* env, jstring js,
+    static std::unique_ptr<char[] > copyString(JNIEnv* env, jstring js,
         jboolean* has_exception) {
       const char *utf = env->GetStringUTFChars(js, nullptr);
       if(utf == nullptr) {
