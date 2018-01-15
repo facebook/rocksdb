@@ -19,6 +19,10 @@ public class WriteOptions extends RocksObject {
     super(newWriteOptions());
 
   }
+  protected WriteOptions(long handle) {
+    super(handle);
+
+  }
 
   /**
    * If true, the write will be flushed from the operating system

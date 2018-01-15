@@ -54,7 +54,14 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
 	org.rocksdb.WriteBatch.Handler\
 	org.rocksdb.WriteOptions\
 	org.rocksdb.WriteBatchWithIndex\
-	org.rocksdb.WBWIRocksIterator
+	org.rocksdb.WBWIRocksIterator\
+	org.rocksdb.AbstractTransactionNotifier\
+    org.rocksdb.OptimisticTransactionDB\
+    org.rocksdb.OptimisticTransactionOptions\
+    org.rocksdb.Transaction\
+    org.rocksdb.TransactionDB\
+    org.rocksdb.TransactionDBOptions\
+    org.rocksdb.TransactionOptions\
 
 NATIVE_JAVA_TEST_CLASSES = org.rocksdb.RocksDBExceptionTest\
     org.rocksdb.WriteBatchTest\
