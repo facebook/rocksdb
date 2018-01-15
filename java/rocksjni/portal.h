@@ -30,6 +30,7 @@
 #include "rocksjni/loggerjnicallback.h"
 #include "rocksjni/transaction_notifier_jnicallback.h"
 #include "rocksjni/writebatchhandlerjnicallback.h"
+#include "rocksdb/utilities/transaction_db.h"
 
 // Remove macro on windows
 #ifdef DELETE
