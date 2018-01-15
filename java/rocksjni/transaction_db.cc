@@ -306,7 +306,7 @@ jobject Java_org_rocksdb_TransactionDB_getLockStatusData(
   const rocksdb::HashMapJni::FnMapKV<const int32_t, const rocksdb::KeyLockInfo> fn_map_kv =
       [env, txn_db, &lock_status_data](const std::pair<const int32_t, const rocksdb::KeyLockInfo>& pair) {
           auto* column_family =
-              txn_db->GetBaseDB()->GetColumnFamilyHandleUnlocked(pair.first);
+                  ((rocksdb::DBImpl*)txn_db->GetBaseDB())->GetColumnFamilyHandleUnlocked(pair.first);
           const jlong jcolumn_family_handle =
               reinterpret_cast<jlong>(column_family);
           const jobject jlong_column_family_handle =
