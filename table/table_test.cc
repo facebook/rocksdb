@@ -1101,6 +1101,7 @@ TEST_F(BlockBasedTableTest, BasicBlockBasedTableProperties) {
   c.ResetTableReader();
 }
 
+#ifdef SNAPPY
 uint64_t BlockBasedTableTest::IndexUncompressedHelper(bool compressed) {
   TableConstructor c(BytewiseComparator(), true /* convert_to_internal_key_ */);
   constexpr size_t kNumKeys = 10000;
@@ -1133,6 +1134,7 @@ TEST_F(BlockBasedTableTest, IndexUncompressed) {
   // tbl1_compressed_cnt should include 1 index block
   EXPECT_EQ(tbl2_compressed_cnt + 1, tbl1_compressed_cnt);
 }
+#endif  // SNAPPY
 
 TEST_F(BlockBasedTableTest, BlockBasedTableProperties2) {
   TableConstructor c(&reverse_key_comparator);
