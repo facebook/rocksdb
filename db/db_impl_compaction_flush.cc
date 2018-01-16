@@ -1506,7 +1506,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                : m->manual_end->DebugString().c_str()));
     }
   } else if (!is_prepicked && !compaction_queue_.empty()) {
-    if (HaveManualCompaction(compaction_queue_.front())) {
+    if (HasExclusiveManualCompaction()) {
       // Can't compact right now, but try again later
       TEST_SYNC_POINT("DBImpl::BackgroundCompaction()::Conflict");
 
