@@ -57,6 +57,7 @@
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/write_batch.h"
+#include "util/bit_corruption_injection_test_env.h"
 #include "util/cast_util.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
@@ -789,6 +790,8 @@ DEFINE_int32(table_cache_numshardbits, 4, "");
 DEFINE_string(env_uri, "", "URI for registry Env lookup. Mutually exclusive"
               " with --hdfs.");
 #endif  // ROCKSDB_LITE
+
+DEFINE_int64(uber, -1, "UBER to use with BitCorruptionInjectionTestEnv");
 DEFINE_string(hdfs, "", "Name of hdfs environment. Mutually exclusive with"
               " --env_uri.");
 static rocksdb::Env* FLAGS_env = rocksdb::Env::Default();
@@ -5349,6 +5352,10 @@ int db_bench_tool(int argc, char** argv) {
     }
   }
 #endif  // ROCKSDB_LITE
+  if (!(FLAGS_uber < 0)) {
+    FLAGS_env = new BitCorruptionInjectionTestEnv(
+      rocksdb::Env::Default(), FLAGS_uber);
+  }
   if (!FLAGS_hdfs.empty()) {
     FLAGS_env  = new rocksdb::HdfsEnv(FLAGS_hdfs);
   }
