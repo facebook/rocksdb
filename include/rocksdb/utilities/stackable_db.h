@@ -35,6 +35,8 @@ class StackableDB : public DB {
     db_ = nullptr;
   }
 
+  virtual Status Close() override { return db_->Close(); }
+
   virtual DB* GetBaseDB() {
     return db_;
   }
