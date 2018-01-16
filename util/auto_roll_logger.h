@@ -103,6 +103,14 @@ class AutoRollLogger : public Logger {
   std::string ValistToString(const char* format, va_list args) const;
   // Write the logs marked as headers to the new log file
   void WriteHeaderInfo();
+  // Implementation of Close()
+  virtual Status CloseImpl() override {
+    if (logger_) {
+      return logger_->Close();
+    } else {
+      return Status::OK();
+    }
+  }
 
   std::string log_fname_; // Current active info log's file name.
   std::string dbname_;

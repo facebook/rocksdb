@@ -847,6 +847,55 @@ TEST_F(DBBasicTest, MmapAndBufferOptions) {
 }
 #endif
 
+class TestEnv : public EnvWrapper {
+  public:
+    explicit TestEnv(Env* base) : EnvWrapper(base) { };
+
+    class TestLogger : public Logger {
+      public:
+        using Logger::Logv;
+        virtual void Logv(const char *format, va_list ap) override { };
+      private:
+        virtual Status CloseImpl() override {
+          return Status::NotSupported();
+        }
+    };
+
+    virtual Status NewLogger(const std::string& fname,
+                             shared_ptr<Logger>* result) {
+      result->reset(new TestLogger());
+      return Status::OK();
+    }
+};
+
+TEST_F(DBBasicTest, DBClose) {
+  Options options = GetDefaultOptions();
+  std::string dbname = test::TmpDir(env_) + "/db_close_test";
+  ASSERT_OK(DestroyDB(dbname, options));
+
+  DB* db = nullptr;
+  options.create_if_missing = true;
+  options.env = new TestEnv(Env::Default());
+  Status s = DB::Open(options, dbname, &db);
+  ASSERT_OK(s);
+  ASSERT_TRUE(db != nullptr);
+
+  s = db->Close();
+  ASSERT_EQ(s, Status::NotSupported());
+
+  delete db;
+
+  // Provide our own logger and ensure DB::Close() does not close it
+  options.info_log.reset(new TestEnv::TestLogger());
+  options.create_if_missing = false;
+  s = DB::Open(options, dbname, &db);
+  ASSERT_OK(s);
+  ASSERT_TRUE(db != nullptr);
+
+  s = db->Close();
+  ASSERT_EQ(s, Status::OK());
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
