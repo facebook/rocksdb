@@ -2430,6 +2430,24 @@ TEST_F(DBTest2, ReadCallbackTest) {
   }
 }
 
+namespace {
+std::unique_ptr<DB> static_db_ptr;
+}
+
+// Test to make sure static allocated DB can be destruct successfully
+// without suffer from static variable destruction order issue.
+TEST_F(DBTest2, StaticDBPointerTest) {
+  DB* db;
+  Options options;
+  options.create_if_missing = true;
+  std::string db_name =
+      test::TmpDir(Env::Default()) + "/static_db_pointer_test";
+  ASSERT_OK(DB::Open(options, db_name, &db));
+  static_db_ptr.reset(db);
+  // Exit the test and let static_db_ptr destruct. It should close DB
+  // without crash.
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
