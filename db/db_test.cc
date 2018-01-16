@@ -503,7 +503,9 @@ TEST_F(DBTest, DISABLED_VeryLargeValue) {
   ASSERT_OK(Put(key2, raw));
   dbfull()->TEST_WaitForFlushMemTable();
 
+#ifndef ROCKSDB_LITE
   ASSERT_EQ(1, NumTableFilesAtLevel(0));
+#endif  // !ROCKSDB_LITE
 
   std::string value;
   Status s = db_->Get(ReadOptions(), key1, &value);
@@ -2192,7 +2194,7 @@ class ModelDB : public DB {
     return Write(o, &batch);
   }
   using DB::Close;
-  virtual Status Close() { return Status::OK(); }
+  virtual Status Close() override { return Status::OK(); }
   using DB::Delete;
   virtual Status Delete(const WriteOptions& o, ColumnFamilyHandle* cf,
                         const Slice& key) override {
@@ -5056,7 +5058,6 @@ TEST_F(DBTest, PromoteL0Failure) {
   status = experimental::PromoteL0(db_, db_->DefaultColumnFamily());
   ASSERT_TRUE(status.IsInvalidArgument());
 }
-#endif  // ROCKSDB_LITE
 
 // Github issue #596
 TEST_F(DBTest, CompactRangeWithEmptyBottomLevel) {
@@ -5079,6 +5080,7 @@ TEST_F(DBTest, CompactRangeWithEmptyBottomLevel) {
   ASSERT_EQ(NumTableFilesAtLevel(0), 0);
   ASSERT_EQ(NumTableFilesAtLevel(1), kNumL0Files);
 }
+#endif  // ROCKSDB_LITE
 
 TEST_F(DBTest, AutomaticConflictsWithManualCompaction) {
   Options options = CurrentOptions();
@@ -5101,7 +5103,7 @@ TEST_F(DBTest, AutomaticConflictsWithManualCompaction) {
       [&](void* arg) { callback_count.fetch_add(1); });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   CompactRangeOptions croptions;
-  croptions.exclusive_manual_compaction = false;
+  croptions.exclusive_manual_compaction = true;
   ASSERT_OK(db_->CompactRange(croptions, nullptr, nullptr));
   ASSERT_GE(callback_count.load(), 1);
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();

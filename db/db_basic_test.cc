@@ -894,6 +894,8 @@ TEST_F(DBBasicTest, DBClose) {
 
   s = db->Close();
   ASSERT_EQ(s, Status::OK());
+  delete db;
+  delete options.env;
 }
 
 }  // namespace rocksdb

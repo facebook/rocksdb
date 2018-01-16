@@ -867,7 +867,6 @@ size_t DBTestBase::CountLiveFiles() {
   db_->GetLiveFilesMetaData(&metadata);
   return metadata.size();
 }
-#endif  // ROCKSDB_LITE
 
 int DBTestBase::NumTableFilesAtLevel(int level, int cf) {
   std::string property;
@@ -928,6 +927,7 @@ std::string DBTestBase::FilesPerLevel(int cf) {
   result.resize(last_non_zero_offset);
   return result;
 }
+#endif  // !ROCKSDB_LITE
 
 size_t DBTestBase::CountFiles() {
   std::vector<std::string> files;
@@ -997,6 +997,7 @@ void DBTestBase::MoveFilesToLevel(int level, int cf) {
   }
 }
 
+#ifndef ROCKSDB_LITE
 void DBTestBase::DumpFileCounts(const char* label) {
   fprintf(stderr, "---\n%s:\n", label);
   fprintf(stderr, "maxoverlap: %" PRIu64 "\n",
@@ -1008,6 +1009,7 @@ void DBTestBase::DumpFileCounts(const char* label) {
     }
   }
 }
+#endif  // !ROCKSDB_LITE
 
 std::string DBTestBase::DumpSSTableList() {
   std::string property;
