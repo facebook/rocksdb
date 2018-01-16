@@ -123,6 +123,7 @@ LIB_SOURCES =                                                   \
   tools/dump/db_dump_tool.cc                                    \
   util/arena.cc                                                 \
   util/auto_roll_logger.cc                                      \
+  util/bit_corruption_injection_test_env.cc                     \
   util/bloom.cc                                                 \
   util/build_version.cc                                         \
   util/coding.cc                                                \
