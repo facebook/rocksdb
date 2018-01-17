@@ -116,6 +116,13 @@ void ReleaseCachedEntry(void* arg, void* h) {
   cache->Release(handle);
 }
 
+// Release the cached entry and decrement its ref count.
+void ForceReleaseCachedEntry(void* arg, void* h) {
+  Cache* cache = reinterpret_cast<Cache*>(arg);
+  Cache::Handle* handle = reinterpret_cast<Cache::Handle*>(h);
+  cache->Release(handle, true);
+}
+
 Slice GetCacheKeyFromOffset(const char* cache_key_prefix,
                             size_t cache_key_prefix_size, uint64_t offset,
                             char* cache_key) {
@@ -1518,11 +1525,12 @@ InternalIterator* BlockBasedTable::NewDataBlockIterator(
       memcpy(cache_key, rep->cache_key_prefix, rep->cache_key_prefix_size);
       char* end = EncodeVarint64(cache_key + kExtraCacheKeyPrefix,
                                  next_cache_key_id_++);
-      assert(end - cache_key <= int(kExtraCacheKeyPrefix + kMaxVarint64Length));
+      assert(end - cache_key <=
+             static_cast<int>(kExtraCacheKeyPrefix + kMaxVarint64Length));
       Slice unique_key = Slice(cache_key, static_cast<size_t>(end - cache_key));
       block_cache->Insert(unique_key, nullptr, block.value->size(), nullptr,
                           &cache_handle);
-      iter->RegisterCleanup(&ReleaseCachedEntry, block_cache, cache_handle);
+      iter->RegisterCleanup(&ForceReleaseCachedEntry, block_cache, cache_handle);
     } else if (block.cache_handle != nullptr) {
       iter->RegisterCleanup(&ReleaseCachedEntry, block_cache,
                             block.cache_handle);
