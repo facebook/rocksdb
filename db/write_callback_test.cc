@@ -291,7 +291,7 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
                 woptions.disableWAL = !enable_WAL;
                 woptions.sync = enable_WAL;
                 Status s;
-                if (seq_per_batch && two_queues) {
+                if (seq_per_batch) {
                   class PublishSeqCallback : public PreReleaseCallback {
                    public:
                     PublishSeqCallback(DBImpl* db_impl_in)
@@ -302,9 +302,13 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
                     }
                     DBImpl* db_impl_;
                   } publish_seq_callback(db_impl);
-                  s = db_impl->WriteImpl(woptions, &write_op.write_batch_,
-                                         &write_op.callback_, nullptr, 0, false,
-                                         nullptr, &publish_seq_callback);
+                  // seq_per_batch requires a natural batch separator or Noop
+                  WriteBatchInternal::InsertNoop(&write_op.write_batch_);
+                  const size_t ONE_BATCH = 1;
+                  s = db_impl->WriteImpl(
+                      woptions, &write_op.write_batch_, &write_op.callback_,
+                      nullptr, 0, false, nullptr, ONE_BATCH,
+                      two_queues ? &publish_seq_callback : nullptr);
                 } else {
                   s = db_impl->WriteWithCallback(
                       woptions, &write_op.write_batch_, &write_op.callback_);

@@ -128,6 +128,8 @@ class WriteThread {
     SequenceNumber sequence;  // the sequence number to use for the first key
     Status status;            // status of memtable inserter
     Status callback_status;   // status returned by callback->Callback()
+    size_t batch_cnt;  // if non-zero, number of sub-batches in the write batch
+
     std::aligned_storage<sizeof(std::mutex)>::type state_mutex_bytes;
     std::aligned_storage<sizeof(std::condition_variable)>::type state_cv_bytes;
     Writer* link_older;  // read/write only before linking, or as leader
@@ -147,12 +149,14 @@ class WriteThread {
           state(STATE_INIT),
           write_group(nullptr),
           sequence(kMaxSequenceNumber),
+          batch_cnt(0),
           link_older(nullptr),
           link_newer(nullptr) {}
 
     Writer(const WriteOptions& write_options, WriteBatch* _batch,
            WriteCallback* _callback, uint64_t _log_ref, bool _disable_memtable,
-           PreReleaseCallback* _pre_release_callback = nullptr)
+           PreReleaseCallback* _pre_release_callback = nullptr,
+           size_t _batch_cnt = 0)
         : batch(_batch),
           sync(write_options.sync),
           no_slowdown(write_options.no_slowdown),
@@ -166,6 +170,7 @@ class WriteThread {
           state(STATE_INIT),
           write_group(nullptr),
           sequence(kMaxSequenceNumber),
+          batch_cnt(_batch_cnt),
           link_older(nullptr),
           link_newer(nullptr) {}
 
