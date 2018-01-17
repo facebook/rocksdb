@@ -1060,6 +1060,7 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
   if (HasExclusiveManualCompaction()) {
     // only manual compactions are allowed to run. don't schedule automatic
     // compactions
+    TEST_SYNC_POINT("DBImpl::MaybeScheduleFlushOrCompaction:Conflict");
     return;
   }
 
