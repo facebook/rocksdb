@@ -302,9 +302,11 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
                     }
                     DBImpl* db_impl_;
                   } publish_seq_callback(db_impl);
+                  const size_t ONE_BATCH = 1;
                   s = db_impl->WriteImpl(woptions, &write_op.write_batch_,
                                          &write_op.callback_, nullptr, 0, false,
-                                         nullptr, &publish_seq_callback);
+                                         nullptr, ONE_BATCH,
+                                         &publish_seq_callback);
                 } else {
                   s = db_impl->WriteWithCallback(
                       woptions, &write_op.write_batch_, &write_op.callback_);

@@ -34,8 +34,8 @@ public:
 
   // Insert key into the list.
   // REQUIRES: nothing that compares equal to key is currently in the list.
-  virtual void Insert(KeyHandle handle) override {
-    skip_list_.Insert(static_cast<char*>(handle));
+  virtual bool Insert(KeyHandle handle) override {
+    return skip_list_.Insert(static_cast<char*>(handle));
   }
 
   virtual void InsertWithHint(KeyHandle handle, void** hint) override {

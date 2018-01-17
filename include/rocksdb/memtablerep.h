@@ -81,7 +81,7 @@ class MemTableRep {
   // single buffer and pass that in as the parameter to Insert).
   // REQUIRES: nothing that compares equal to key is currently in the
   // collection, and no concurrent modifications to the table in progress
-  virtual void Insert(KeyHandle handle) = 0;
+  virtual bool Insert(KeyHandle handle) = 0;
 
   // Same as Insert(), but in additional pass a hint to insert location for
   // the key. If hint points to nullptr, a new hint will be populated.

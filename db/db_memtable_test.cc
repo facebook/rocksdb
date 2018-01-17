@@ -28,7 +28,7 @@ class MockMemTableRep : public MemTableRep {
     return rep_->Allocate(len, buf);
   }
 
-  virtual void Insert(KeyHandle handle) override {
+  virtual bool Insert(KeyHandle handle) override {
     return rep_->Insert(handle);
   }
 
@@ -128,6 +128,58 @@ class TestPrefixExtractor : public SliceTransform {
     return reinterpret_cast<const char*>(memchr(key.data(), '_', key.size()));
   }
 };
+
+// Test that ::Add properly returns false when inserting duplicate keys
+TEST_F(DBMemTableTest, DuplicateSeq) {
+  SequenceNumber seq = 123;
+  std::string value;
+  Status s;
+  MergeContext merge_context;
+  Options options;
+  InternalKeyComparator ikey_cmp(options.comparator);
+  RangeDelAggregator range_del_agg(ikey_cmp, {} /* snapshots */);
+
+  // Create a MemTable
+  InternalKeyComparator cmp(BytewiseComparator());
+  auto factory = std::make_shared<SkipListFactory>();
+  options.memtable_factory = factory;
+  ImmutableCFOptions ioptions(options);
+  WriteBufferManager wb(options.db_write_buffer_size);
+  MemTable* mem = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
+                               kMaxSequenceNumber, 0 /* column_family_id */);
+
+  // Write some keys and make sure it returns false on duplicates
+  bool res;
+  res = mem->Add(seq, kTypeValue, "key", "value2");
+  ASSERT_TRUE(res);
+  res = mem->Add(seq, kTypeValue, "key", "value2");
+  ASSERT_FALSE(res);
+  // Changing the type should still cause the duplicatae key
+  res = mem->Add(seq, kTypeMerge, "key", "value2");
+  ASSERT_FALSE(res);
+  // Changing the seq number will make the key fresh
+  res = mem->Add(seq + 1, kTypeMerge, "key", "value2");
+  ASSERT_TRUE(res);
+  // Test with different types for duplicate keys
+  res = mem->Add(seq, kTypeDeletion, "key", "");
+  ASSERT_FALSE(res);
+  res = mem->Add(seq, kTypeSingleDeletion, "key", "");
+  ASSERT_FALSE(res);
+
+  // Test the duplicate keys under stress
+  for (int i = 0; i < 10000; i++) {
+    bool insert_dup = i % 10 == 1;
+    if (!insert_dup) {
+      seq++;
+    }
+    res = mem->Add(seq, kTypeValue, "foo", "value" + ToString(seq));
+    if (insert_dup) {
+      ASSERT_FALSE(res);
+    } else {
+      ASSERT_TRUE(res);
+    }
+  }
+}
 
 TEST_F(DBMemTableTest, InsertWithHint) {
   Options options;

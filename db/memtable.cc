@@ -225,7 +225,7 @@ int MemTable::KeyComparator::operator()(const char* prefix_len_key1,
   // Internal keys are encoded as length-prefixed strings.
   Slice k1 = GetLengthPrefixedSlice(prefix_len_key1);
   Slice k2 = GetLengthPrefixedSlice(prefix_len_key2);
-  return comparator.Compare(k1, k2);
+  return comparator.CompareKeySeq(k1, k2);
 }
 
 int MemTable::KeyComparator::operator()(const char* prefix_len_key,
@@ -233,7 +233,7 @@ int MemTable::KeyComparator::operator()(const char* prefix_len_key,
     const {
   // Internal keys are encoded as length-prefixed strings.
   Slice a = GetLengthPrefixedSlice(prefix_len_key);
-  return comparator.Compare(a, key);
+  return comparator.CompareKeySeq(a, key);
 }
 
 void MemTableRep::InsertConcurrently(KeyHandle handle) {
@@ -444,7 +444,7 @@ MemTable::MemTableStats MemTable::ApproximateStats(const Slice& start_ikey,
   return {entry_count * (data_size / n), entry_count};
 }
 
-void MemTable::Add(SequenceNumber s, ValueType type,
+bool MemTable::Add(SequenceNumber s, ValueType type,
                    const Slice& key, /* user key */
                    const Slice& value, bool allow_concurrent,
                    MemTablePostProcessInfo* post_process_info) {
@@ -481,7 +481,10 @@ void MemTable::Add(SequenceNumber s, ValueType type,
       Slice prefix = insert_with_hint_prefix_extractor_->Transform(key_slice);
       table->InsertWithHint(handle, &insert_hints_[prefix]);
     } else {
-      table->Insert(handle);
+      bool res = table->Insert(handle);
+      if (!res) {
+        return res;
+      }
     }
 
     // this is a bit ugly, but is the way to avoid locked instructions
@@ -544,6 +547,7 @@ void MemTable::Add(SequenceNumber s, ValueType type,
     is_range_del_table_empty_ = false;
   }
   UpdateOldestKeyTime();
+  return true;
 }
 
 // Callback from MemTable::Get()
@@ -801,6 +805,7 @@ void MemTable::Update(SequenceNumber seq,
       ValueType type;
       SequenceNumber unused;
       UnPackSequenceAndType(tag, &unused, &type);
+      assert(unused != seq);
       if (type == kTypeValue) {
         Slice prev_value = GetLengthPrefixedSlice(key_ptr + key_length);
         uint32_t prev_size = static_cast<uint32_t>(prev_value.size());
@@ -823,7 +828,12 @@ void MemTable::Update(SequenceNumber seq,
   }
 
   // key doesn't exist
-  Add(seq, kTypeValue, key, value);
+#ifndef NDEBUG
+  bool add_res =
+#endif
+      Add(seq, kTypeValue, key, value);
+  // We already checked unused != seq above. In that case, Add should not fail.
+  assert(add_res);
 }
 
 bool MemTable::UpdateCallback(SequenceNumber seq,
