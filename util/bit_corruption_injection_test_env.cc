@@ -7,9 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-// This test uses a custom Env to keep track of the state of a filesystem as of
-// the last "sync". It then checks for data loss errors by purposely dropping
-// file data (or entire files) not protected by a "sync".
+// This custom env injects bit flips into file reads.
 
 #include "util/bit_corruption_injection_test_env.h"
 #include <functional>
@@ -103,6 +101,17 @@ class CorruptedRandomAccessFile : public RandomAccessFile {
   unique_ptr<RandomAccessFile> target_;
 };
 
+std::vector<std::string> initExcludedFiles() {
+  std::vector<std::string> excludedFiles;
+  excludedFiles.push_back("CURRENT");
+  excludedFiles.push_back("MANIFEST");
+  excludedFiles.push_back("IDENTITY");
+  return excludedFiles;
+}
+
+std::vector<std::string>
+  BitCorruptionInjectionTestEnv::excludedFiles_ = initExcludedFiles();
+
 Status BitCorruptionInjectionTestEnv::NewSequentialFile(
   const std::string& f, unique_ptr<SequentialFile>* r,
   const EnvOptions& options) {
@@ -110,6 +119,13 @@ Status BitCorruptionInjectionTestEnv::NewSequentialFile(
   s = EnvWrapper::NewSequentialFile(f, r, options);
   if (!s.ok()) {
     return s;
+  }
+  for (std::vector<std::string>::iterator it = excludedFiles_.begin();
+    it < excludedFiles_.end(); it++) {
+      if (f.compare(*it) == 0) {
+        // Then it's a special metadata file and should be ignored
+        return s;
+      }
   }
   CorruptedSequentialFile* retMe = new CorruptedSequentialFile(UBER_,
     std::move(*r));
@@ -124,6 +140,13 @@ Status BitCorruptionInjectionTestEnv::NewRandomAccessFile(
   s = EnvWrapper::NewRandomAccessFile(f, r, options);
   if (!s.ok()) {
     return s;
+  }
+  for (std::vector<std::string>::iterator it = excludedFiles_.begin();
+    it < excludedFiles_.end(); it++) {
+      if (f.compare(*it) == 0) {
+        // Then it's a special metadata file and should be ignored
+        return s;
+      }
   }
   CorruptedRandomAccessFile* retMe = new CorruptedRandomAccessFile(UBER_,
     std::move(*r));
