@@ -863,13 +863,13 @@ class DBTestBase : public testing::Test {
   size_t TotalLiveFiles(int cf = 0);
 
   size_t CountLiveFiles();
-#endif  // ROCKSDB_LITE
 
   int NumTableFilesAtLevel(int level, int cf = 0);
 
   double CompressionRatioAtLevel(int level, int cf = 0);
 
   int TotalTableFiles(int cf = 0, int levels = -1);
+#endif  // ROCKSDB_LITE
 
   // Return spread of files per level
   std::string FilesPerLevel(int cf = 0);
@@ -897,7 +897,9 @@ class DBTestBase : public testing::Test {
 
   void MoveFilesToLevel(int level, int cf = 0);
 
+#ifndef ROCKSDB_LITE
   void DumpFileCounts(const char* label);
+#endif  // ROCKSDB_LITE
 
   std::string DumpSSTableList();
 
