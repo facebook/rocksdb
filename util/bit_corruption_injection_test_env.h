@@ -7,9 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-// This test uses a custom Env to keep track of the state of a filesystem as of
-// the last "sync". It then checks for data loss errors by purposely dropping
-// file data (or entire files) not protected by a "sync".
+// This custom env injects bit flips into file reads.
 
 #ifndef UTIL_BIT_CORRUPTION_INJECTION_TEST_ENV_H_
 #define UTIL_BIT_CORRUPTION_INJECTION_TEST_ENV_H_
@@ -17,6 +15,7 @@
 #include <map>
 #include <set>
 #include <string>
+#include <vector>
 
 #include "db/version_set.h"
 #include "env/mock_env.h"
@@ -46,6 +45,7 @@ class BitCorruptionInjectionTestEnv : public EnvWrapper {
 
  private:
    uint64_t UBER_;
+   static std::vector<std::string> excludedFiles_;
 };
 
 }  // namespace rocksdb
