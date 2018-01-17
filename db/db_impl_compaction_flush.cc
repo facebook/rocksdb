@@ -1308,6 +1308,7 @@ void DBImpl::BackgroundCallFlush() {
     if (job_context.HaveSomethingToClean() ||
         job_context.HaveSomethingToDelete() || !log_buffer.IsEmpty()) {
       mutex_.Unlock();
+      TEST_SYNC_POINT("DBImpl::BackgroundCallFlush:FilesFound");
       // Have to flush the info logs before bg_flush_scheduled_--
       // because if bg_flush_scheduled_ becomes 0 and the lock is
       // released, the deconstructor of DB can kick in and destroy all the
