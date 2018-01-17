@@ -57,6 +57,7 @@ Status DBImpl::EnableFileDeletions(bool force) {
       ROCKS_LOG_INFO(immutable_db_options_.info_log, "File Deletions Enabled");
       should_purge_files = true;
       FindObsoleteFiles(&job_context, true);
+      bg_cv_.SignalAll();
     } else {
       ROCKS_LOG_WARN(
           immutable_db_options_.info_log,
