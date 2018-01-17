@@ -5103,7 +5103,7 @@ TEST_F(DBTest, AutomaticConflictsWithManualCompaction) {
       [&](void* arg) { callback_count.fetch_add(1); });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   CompactRangeOptions croptions;
-  croptions.exclusive_manual_compaction = true;
+  croptions.exclusive_manual_compaction = false;
   ASSERT_OK(db_->CompactRange(croptions, nullptr, nullptr));
   ASSERT_GE(callback_count.load(), 1);
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
