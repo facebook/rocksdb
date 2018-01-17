@@ -1883,6 +1883,12 @@ class InMemoryHandler : public WriteBatch::Handler {
     return Status::OK();
   }
 
+  virtual Status MarkNoop(bool)
+                          override {
+    row_ << "NOOP ";
+    return Status::OK();
+  }
+
   virtual Status DeleteCF(uint32_t cf, const Slice& key) override {
     row_ << "DELETE(" << cf << ") : ";
     row_ << LDBCommand::StringToHex(key.ToString()) << " ";

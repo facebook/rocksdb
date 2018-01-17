@@ -697,7 +697,7 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
   }
 
   if (UNLIKELY(status.ok() && !bg_error_.ok())) {
-    return bg_error_;
+    status = bg_error_;
   }
 
   if (UNLIKELY(status.ok() && !flush_scheduler_.Empty())) {
@@ -1215,9 +1215,9 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   }
   uint64_t recycle_log_number = 0;
   if (creating_new_log && immutable_db_options_.recycle_log_file_num &&
-      !log_recycle_files.empty()) {
-    recycle_log_number = log_recycle_files.front();
-    log_recycle_files.pop_front();
+      !log_recycle_files_.empty()) {
+    recycle_log_number = log_recycle_files_.front();
+    log_recycle_files_.pop_front();
   }
   uint64_t new_log_number =
       creating_new_log ? versions_->NewFileNumber() : logfile_number_;

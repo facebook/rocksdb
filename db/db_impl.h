@@ -611,10 +611,14 @@ class DBImpl : public DB {
                      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
                      const bool seq_per_batch);
 
+  virtual Status Close() override;
+
  protected:
   Env* const env_;
   const std::string dbname_;
   unique_ptr<VersionSet> versions_;
+  // Flag to check whether we allocated and own the info log file
+  bool own_info_log_;
   const DBOptions initial_db_options_;
   const ImmutableDBOptions immutable_db_options_;
   MutableDBOptions mutable_db_options_;
@@ -912,6 +916,9 @@ class DBImpl : public DB {
 
   uint64_t GetMaxTotalWalSize() const;
 
+  // Actual implementation of Close()
+  virtual Status CloseImpl();
+
   // table_cache_ provides its own synchronization
   std::shared_ptr<Cache> table_cache_;
 
@@ -947,7 +954,7 @@ class DBImpl : public DB {
   // from the same write_thread_ without any locks.
   uint64_t logfile_number_;
   std::deque<uint64_t>
-      log_recycle_files;  // a list of log files that we can recycle
+      log_recycle_files_;  // a list of log files that we can recycle
   bool log_dir_synced_;
   // Without two_write_queues, read and writes to log_empty_ are protected by
   // mutex_. Since it is currently updated/read only in write_thread_, it can be
@@ -1359,6 +1366,9 @@ class DBImpl : public DB {
   // is set to false.
   std::atomic<SequenceNumber> preserve_deletes_seqnum_;
   const bool preserve_deletes_;
+
+  // Flag to check whether Close() has been called on this DB
+  bool closed_;
 };
 
 extern Options SanitizeOptions(const std::string& db,

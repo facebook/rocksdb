@@ -111,7 +111,6 @@ BlobDBImpl::BlobDBImpl(const std::string& dbname,
       cf_options_(cf_options),
       env_options_(db_options),
       statistics_(db_options_.statistics.get()),
-      dir_change_(false),
       next_file_number_(1),
       epoch_of_(0),
       shutdown_(false),
@@ -124,6 +123,7 @@ BlobDBImpl::BlobDBImpl(const std::string& dbname,
   blob_dir_ = (bdb_options_.path_relative)
                   ? dbname + "/" + bdb_options_.blob_dir
                   : bdb_options_.blob_dir;
+  env_options_.bytes_per_sync = blob_db_options.bytes_per_sync;
 }
 
 BlobDBImpl::~BlobDBImpl() {
@@ -202,6 +202,7 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
   }
 
   ROCKS_LOG_INFO(db_options_.info_log, "BlobDB pointer %p", this);
+  bdb_options_.Dump(db_options_.info_log.get());
   return s;
 }
 
@@ -225,8 +226,6 @@ void BlobDBImpl::StartBackgroundTasks() {
       std::bind(&BlobDBImpl::DeleteObsoleteFiles, this, std::placeholders::_1));
   tqueue_.add(kSanityCheckPeriodMillisecs,
               std::bind(&BlobDBImpl::SanityCheck, this, std::placeholders::_1));
-  tqueue_.add(kFSyncFilesPeriodMillisecs,
-              std::bind(&BlobDBImpl::FsyncFiles, this, std::placeholders::_1));
   tqueue_.add(
       kCheckSeqFilesPeriodMillisecs,
       std::bind(&BlobDBImpl::CheckSeqFiles, this, std::placeholders::_1));
@@ -472,7 +471,6 @@ std::shared_ptr<BlobFile> BlobDBImpl::SelectBlobFile() {
     return nullptr;
   }
 
-  dir_change_.store(true);
   blob_files_.insert(std::make_pair(bfile->BlobFileNumber(), bfile));
   open_non_ttl_file_ = bfile;
   return bfile;
@@ -547,7 +545,6 @@ std::shared_ptr<BlobFile> BlobDBImpl::SelectBlobFileTTL(uint64_t expiration) {
     return nullptr;
   }
 
-  dir_change_.store(true);
   blob_files_.insert(std::make_pair(bfile->BlobFileNumber(), bfile));
   open_ttl_files_.insert(bfile);
   epoch_of_++;
@@ -1058,58 +1055,58 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
   std::shared_ptr<RandomAccessFileReader> reader =
       GetOrOpenRandomAccessReader(bfile, env_, env_options_);
 
-  std::string* valueptr = value->GetSelf();
-  std::string value_c;
-  if (bdb_options_.compression != kNoCompression) {
-    valueptr = &value_c;
-  }
+  assert(blob_index.offset() > key.size() + sizeof(uint32_t));
+  uint64_t record_offset = blob_index.offset() - key.size() - sizeof(uint32_t);
+  uint64_t record_size = sizeof(uint32_t) + key.size() + blob_index.size();
 
   // Allocate the buffer. This is safe in C++11
-  // Note that std::string::reserved() does not work, since previous value
-  // of the buffer can be larger than blob_index.size().
-  valueptr->resize(blob_index.size());
-  char* buffer = &(*valueptr)[0];
+  std::string buffer_str(record_size, static_cast<char>(0));
+  char* buffer = &buffer_str[0];
 
-  Slice blob_value;
+  // A partial blob record contain checksum, key and value.
+  Slice blob_record;
   {
     StopWatch read_sw(env_, statistics_, BLOB_DB_BLOB_FILE_READ_MICROS);
-    s = reader->Read(blob_index.offset(), blob_index.size(), &blob_value,
-                     buffer);
-    RecordTick(statistics_, BLOB_DB_BLOB_FILE_BYTES_READ, blob_value.size());
+    s = reader->Read(record_offset, record_size, &blob_record, buffer);
+    RecordTick(statistics_, BLOB_DB_BLOB_FILE_BYTES_READ, blob_record.size());
   }
-  if (!s.ok() || blob_value.size() != blob_index.size()) {
-    if (debug_level_ >= 2) {
-      ROCKS_LOG_ERROR(db_options_.info_log,
-                      "Failed to read blob from file: %s blob_offset: %" PRIu64
-                      " blob_size: %" PRIu64 " read: %d key: %s status: '%s'",
-                      bfile->PathName().c_str(), blob_index.offset(),
-                      blob_index.size(), static_cast<int>(blob_value.size()),
-                      key.data(), s.ToString().c_str());
-    }
-    return Status::NotFound("Blob Not Found as couldnt retrieve Blob");
+  if (!s.ok()) {
+    ROCKS_LOG_DEBUG(db_options_.info_log,
+                    "Failed to read blob from blob file %" PRIu64
+                    ", blob_offset: %" PRIu64 ", blob_size: %" PRIu64
+                    ", key_size: " PRIu64 ", read " PRIu64
+                    "bytes, status: '%s'",
+                    bfile->BlobFileNumber(), blob_index.offset(),
+                    blob_index.size(), key.size(), s.ToString().c_str());
+    return s;
   }
+  if (blob_record.size() != record_size) {
+    ROCKS_LOG_DEBUG(db_options_.info_log,
+                    "Failed to read blob from blob file %" PRIu64
+                    ", blob_offset: %" PRIu64 ", blob_size: %" PRIu64
+                    ", key_size: " PRIu64 ", read " PRIu64
+                    "bytes, status: '%s'",
+                    bfile->BlobFileNumber(), blob_index.offset(),
+                    blob_index.size(), key.size(), s.ToString().c_str());
 
-  // TODO(yiwu): Add an option to skip crc checking.
-  Slice crc_slice;
+    return Status::Corruption("Failed to retrieve blob from blob index.");
+  }
+  Slice crc_slice(blob_record.data(), sizeof(uint32_t));
+  Slice blob_value(blob_record.data() + sizeof(uint32_t) + key.size(),
+                   blob_index.size());
   uint32_t crc_exp;
-  std::string crc_str;
-  crc_str.resize(sizeof(uint32_t));
-  char* crc_buffer = &(crc_str[0]);
-  s = reader->Read(blob_index.offset() - (key.size() + sizeof(uint32_t)),
-                   sizeof(uint32_t), &crc_slice, crc_buffer);
-  if (!s.ok() || !GetFixed32(&crc_slice, &crc_exp)) {
-    if (debug_level_ >= 2) {
-      ROCKS_LOG_ERROR(db_options_.info_log,
-                      "Failed to fetch blob crc file: %s blob_offset: %" PRIu64
-                      " blob_size: %" PRIu64 " key: %s status: '%s'",
-                      bfile->PathName().c_str(), blob_index.offset(),
-                      blob_index.size(), key.data(), s.ToString().c_str());
-    }
-    return Status::NotFound("Blob Not Found as couldnt retrieve CRC");
+  if (!GetFixed32(&crc_slice, &crc_exp)) {
+    ROCKS_LOG_DEBUG(db_options_.info_log,
+                    "Unable to decode CRC from blob file %" PRIu64
+                    ", blob_offset: %" PRIu64 ", blob_size: %" PRIu64
+                    ", key size: %" PRIu64 ", status: '%s'",
+                    bfile->BlobFileNumber(), blob_index.offset(),
+                    blob_index.size(), key.size(), s.ToString().c_str());
+    return Status::Corruption("Unable to decode checksum.");
   }
 
-  uint32_t crc = crc32c::Value(key.data(), key.size());
-  crc = crc32c::Extend(crc, blob_value.data(), blob_value.size());
+  uint32_t crc = crc32c::Value(blob_record.data() + sizeof(uint32_t),
+                               blob_record.size() - sizeof(uint32_t));
   crc = crc32c::Mask(crc);  // Adjust for storage
   if (crc != crc_exp) {
     if (debug_level_ >= 2) {
@@ -1122,7 +1119,9 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
     return Status::Corruption("Corruption. Blob CRC mismatch");
   }
 
-  if (bfile->compression() != kNoCompression) {
+  if (bfile->compression() == kNoCompression) {
+    value->PinSelf(blob_value);
+  } else {
     BlockContents contents;
     auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily());
     {
@@ -1133,10 +1132,8 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
           kBlockBasedTableVersionFormat, Slice(), bfile->compression(),
           *(cfh->cfd()->ioptions()));
     }
-    *(value->GetSelf()) = contents.data.ToString();
+    value->PinSelf(contents.data);
   }
-
-  value->PinSelf();
 
   return s;
 }
@@ -1434,14 +1431,6 @@ std::pair<bool, int64_t> BlobDBImpl::CheckSeqFiles(bool aborted) {
   return std::make_pair(true, -1);
 }
 
-std::pair<bool, int64_t> BlobDBImpl::FsyncFiles(bool aborted) {
-  if (aborted || shutdown_) {
-    return std::make_pair(false, -1);
-  }
-  SyncBlobFiles();
-  return std::make_pair(true, -1);
-}
-
 Status BlobDBImpl::SyncBlobFiles() {
   MutexLock l(&write_mutex_);
 
@@ -1449,35 +1438,30 @@ Status BlobDBImpl::SyncBlobFiles() {
   {
     ReadLock rl(&mutex_);
     for (auto fitr : open_ttl_files_) {
-      if (fitr->NeedsFsync(true, bdb_options_.bytes_per_sync))
-        process_files.push_back(fitr);
+      process_files.push_back(fitr);
     }
-
-    if (open_non_ttl_file_ != nullptr &&
-        open_non_ttl_file_->NeedsFsync(true, bdb_options_.bytes_per_sync)) {
+    if (open_non_ttl_file_ != nullptr) {
       process_files.push_back(open_non_ttl_file_);
     }
   }
 
   Status s;
-
   for (auto& blob_file : process_files) {
-    if (blob_file->NeedsFsync(true, bdb_options_.bytes_per_sync)) {
-      s = blob_file->Fsync();
-      if (!s.ok()) {
-        ROCKS_LOG_ERROR(db_options_.info_log,
-                        "Failed to sync blob file %" PRIu64 ", status: %s",
-                        blob_file->BlobFileNumber(), s.ToString().c_str());
-        return s;
-      }
+    s = blob_file->Fsync();
+    if (!s.ok()) {
+      ROCKS_LOG_ERROR(db_options_.info_log,
+                      "Failed to sync blob file %" PRIu64 ", status: %s",
+                      blob_file->BlobFileNumber(), s.ToString().c_str());
+      return s;
     }
   }
 
-  bool expected = true;
-  if (dir_change_.compare_exchange_weak(expected, false)) {
-    s = dir_ent_->Fsync();
+  s = dir_ent_->Fsync();
+  if (!s.ok()) {
+    ROCKS_LOG_ERROR(db_options_.info_log,
+                    "Failed to sync blob directory, status: %s",
+                    s.ToString().c_str());
   }
-
   return s;
 }
 
@@ -1732,7 +1716,6 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
 
       WriteLock wl(&mutex_);
 
-      dir_change_.store(true);
       blob_files_.insert(std::make_pair(newfile->BlobFileNumber(), newfile));
     }
 

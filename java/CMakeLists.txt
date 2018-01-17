@@ -7,6 +7,8 @@ set(JNI_NATIVE_SOURCES
         rocksjni/clock_cache.cc
         rocksjni/columnfamilyhandle.cc
         rocksjni/compaction_filter.cc
+        rocksjni/compaction_filter_factory.cc
+        rocksjni/compaction_filter_factory_jnicallback.cc
         rocksjni/compaction_options_fifo.cc
         rocksjni/compaction_options_universal.cc
         rocksjni/comparator.cc
@@ -17,6 +19,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/filter.cc
         rocksjni/ingest_external_file_options.cc
         rocksjni/iterator.cc
+        rocksjni/jnicallback.cc
         rocksjni/loggerjnicallback.cc
         rocksjni/lru_cache.cc
         rocksjni/memtablejni.cc
@@ -25,6 +28,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/options_util.cc
         rocksjni/ratelimiterjni.cc
         rocksjni/remove_emptyvalue_compactionfilterjni.cc
+        rocksjni/rocks_callback_object.cc
         rocksjni/cassandra_compactionfilterjni.cc
         rocksjni/cassandra_value_operator.cc
         rocksjni/restorejni.cc
@@ -204,6 +208,7 @@ add_jar(
   src/main/java/org/rocksdb/OptionsUtil.java
   src/main/java/org/rocksdb/PlainTableConfig.java
   src/main/java/org/rocksdb/RateLimiter.java
+  src/main/java/org/rocksdb/RateLimiterMode.java
   src/main/java/org/rocksdb/ReadOptions.java
   src/main/java/org/rocksdb/ReadTier.java
   src/main/java/org/rocksdb/RemoveEmptyValueCompactionFilter.java

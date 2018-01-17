@@ -315,6 +315,7 @@ class WriteBatch : public WriteBatchBase {
 
   // Constructor with a serialized string object
   explicit WriteBatch(const std::string& rep);
+  explicit WriteBatch(std::string&& rep);
 
   WriteBatch(const WriteBatch& src);
   WriteBatch(WriteBatch&& src) noexcept;
