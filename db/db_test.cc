@@ -5083,33 +5083,59 @@ TEST_F(DBTest, CompactRangeWithEmptyBottomLevel) {
 #endif  // ROCKSDB_LITE
 
 TEST_F(DBTest, AutomaticConflictsWithManualCompaction) {
+  const int kNumL0Files = 50;
   Options options = CurrentOptions();
-  options.write_buffer_size = 2 * 1024 * 1024;         // 2MB
-  options.max_bytes_for_level_base = 2 * 1024 * 1024;  // 2MB
-  options.num_levels = 12;
+  options.level0_file_num_compaction_trigger = 4;
+  // never slowdown / stop
+  options.level0_slowdown_writes_trigger = 999999;
+  options.level0_stop_writes_trigger = 999999;
   options.max_background_compactions = 10;
-  options.max_bytes_for_level_multiplier = 2;
-  options.level_compaction_dynamic_level_bytes = true;
   DestroyAndReopen(options);
 
-  Random rnd(301);
-  for (int i = 0; i < 300000; ++i) {
-    ASSERT_OK(Put(Key(i), RandomString(&rnd, 1024)));
-  }
-
+  // schedule automatic compactions after the manual one starts, but before it
+  // finishes to ensure conflict.
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::BackgroundCompaction:Start",
+        "DBTest::AutomaticConflictsWithManualCompaction:PrePuts"},
+       {"DBTest::AutomaticConflictsWithManualCompaction:PostPuts",
+        "DBImpl::BackgroundCompaction:NonTrivial:AfterRun"}});
   std::atomic<int> callback_count(0);
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BackgroundCompaction()::Conflict",
+      "DBImpl::MaybeScheduleFlushOrCompaction:Conflict",
       [&](void* arg) { callback_count.fetch_add(1); });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
-  CompactRangeOptions croptions;
-  croptions.exclusive_manual_compaction = true;
-  ASSERT_OK(db_->CompactRange(croptions, nullptr, nullptr));
+
+  Random rnd(301);
+  for (int i = 0; i < 2; ++i) {
+    // put two keys to ensure no trivial move
+    for (int j = 0; j < 2; ++j) {
+      ASSERT_OK(Put(Key(j), RandomString(&rnd, 1024)));
+    }
+    ASSERT_OK(Flush());
+  }
+  std::thread manual_compaction_thread([this]() {
+      CompactRangeOptions croptions;
+      croptions.exclusive_manual_compaction = true;
+      ASSERT_OK(db_->CompactRange(croptions, nullptr, nullptr));
+    });
+
+  TEST_SYNC_POINT("DBTest::AutomaticConflictsWithManualCompaction:PrePuts");
+  for (int i = 0; i < kNumL0Files; ++i) {
+    // put two keys to ensure no trivial move
+    for (int j = 0; j < 2; ++j) {
+      ASSERT_OK(Put(Key(j), RandomString(&rnd, 1024)));
+    }
+    ASSERT_OK(Flush());
+  }
+  TEST_SYNC_POINT("DBTest::AutomaticConflictsWithManualCompaction:PostPuts");
+
   ASSERT_GE(callback_count.load(), 1);
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-  for (int i = 0; i < 300000; ++i) {
+  for (int i = 0; i < 2; ++i) {
     ASSERT_NE("NOT_FOUND", Get(Key(i)));
   }
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  manual_compaction_thread.join();
+  dbfull()->TEST_WaitForCompact();
 }
 
 // Github issue #595
