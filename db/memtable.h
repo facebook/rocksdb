@@ -100,7 +100,8 @@ class MemTable {
                     const ImmutableCFOptions& ioptions,
                     const MutableCFOptions& mutable_cf_options,
                     WriteBufferManager* write_buffer_manager,
-                    SequenceNumber earliest_seq, uint32_t column_family_id);
+                    SequenceNumber earliest_seq, uint32_t column_family_id,
+                    uint64_t id);
 
   // Do not delete this MemTable unless Unref() indicates it not in use.
   ~MemTable();
@@ -368,6 +369,8 @@ class MemTable {
     return oldest_key_time_.load(std::memory_order_relaxed);
   }
 
+  uint64_t GetID() const { return id_; }
+
  private:
   enum FlushStateEnum { FLUSH_NOT_REQUESTED, FLUSH_REQUESTED, FLUSH_SCHEDULED };
 
@@ -436,6 +439,9 @@ class MemTable {
 
   // Timestamp of oldest key
   std::atomic<uint64_t> oldest_key_time_;
+
+  // Memtable id to track flush.
+  uint64_t id_;
 
   // Returns a heuristic flush decision
   bool ShouldFlushNow() const;

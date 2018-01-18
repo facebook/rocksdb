@@ -385,7 +385,8 @@ ColumnFamilyData::ColumnFamilyData(
       pending_flush_(false),
       pending_compaction_(false),
       prev_compaction_needed_bytes_(0),
-      allow_2pc_(db_options.allow_2pc) {
+      allow_2pc_(db_options.allow_2pc),
+      last_memtable_id_(0) {
   Ref();
 
   // Convert user defined table properties collector factories to internal ones.
@@ -815,8 +816,9 @@ uint64_t ColumnFamilyData::GetTotalSstFilesSize() const {
 
 MemTable* ColumnFamilyData::ConstructNewMemtable(
     const MutableCFOptions& mutable_cf_options, SequenceNumber earliest_seq) {
+  uint64_t memtable_id = ++last_memtable_id_;
   return new MemTable(internal_comparator_, ioptions_, mutable_cf_options,
-                      write_buffer_manager_, earliest_seq, id_);
+                      write_buffer_manager_, earliest_seq, id_, memtable_id);
 }
 
 void ColumnFamilyData::CreateNewMemtable(

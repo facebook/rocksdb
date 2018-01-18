@@ -419,6 +419,9 @@ class ColumnFamilyData {
 
   // if the database was opened with 2pc enabled
   bool allow_2pc_;
+
+  // Memtable id to track flush.
+  uint64_t last_memtable_id_;
 };
 
 // ColumnFamilySet has interesting thread-safety requirements
