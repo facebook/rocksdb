@@ -813,8 +813,12 @@ class DBImpl : public DB {
   Status FlushMemTable(ColumnFamilyData* cfd, const FlushOptions& options,
                        bool writes_stopped = false);
 
-  // Wait for memtable flushed
-  Status WaitForFlushMemTable(ColumnFamilyData* cfd);
+  // Wait for memtable flushed.
+  // If flush_memtable_id is non-null, wait until the memtable with the ID
+  // gets flush. Otherwise, wait until the column family don't have any
+  // memtable pending flush.
+  Status WaitForFlushMemTable(ColumnFamilyData* cfd,
+                              const uint64_t* flush_memtable_id = nullptr);
 
   // REQUIRES: mutex locked
   Status SwitchWAL(WriteContext* write_context);
