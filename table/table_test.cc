@@ -422,14 +422,12 @@ class MemTableConstructor: public Constructor {
       : Constructor(cmp),
         internal_comparator_(cmp),
         write_buffer_manager_(wb),
-        table_factory_(new SkipListFactory),
-        last_memtable_id_(0) {
+        table_factory_(new SkipListFactory) {
     options_.memtable_factory = table_factory_;
     ImmutableCFOptions ioptions(options_);
     memtable_ =
         new MemTable(internal_comparator_, ioptions, MutableCFOptions(options_),
-                     wb, kMaxSequenceNumber, 0 /* column_family_id */,
-                     ++last_memtable_id_ /*memtable_id*/);
+                     wb, kMaxSequenceNumber, 0 /* column_family_id */);
     memtable_->Ref();
   }
   ~MemTableConstructor() {
@@ -443,8 +441,7 @@ class MemTableConstructor: public Constructor {
     ImmutableCFOptions mem_ioptions(ioptions);
     memtable_ = new MemTable(internal_comparator_, mem_ioptions,
                              MutableCFOptions(options_), write_buffer_manager_,
-                             kMaxSequenceNumber, 0 /* column_family_id */,
-                             ++last_memtable_id_ /*memtable_id*/);
+                             kMaxSequenceNumber, 0 /* column_family_id */);
     memtable_->Ref();
     int seq = 1;
     for (const auto kv : kv_map) {
@@ -469,7 +466,6 @@ class MemTableConstructor: public Constructor {
   WriteBufferManager* write_buffer_manager_;
   MemTable* memtable_;
   std::shared_ptr<SkipListFactory> table_factory_;
-  uint64_t last_memtable_id_;
 };
 
 class InternalIteratorFromIterator : public InternalIterator {
@@ -2638,9 +2634,9 @@ TEST_F(MemTableTest, Simple) {
   options.memtable_factory = table_factory;
   ImmutableCFOptions ioptions(options);
   WriteBufferManager wb(options.db_write_buffer_size);
-  MemTable* memtable = new MemTable(
-      cmp, ioptions, MutableCFOptions(options), &wb, kMaxSequenceNumber,
-      0 /* column_family_id */, 1 /*memtable_id*/);
+  MemTable* memtable =
+      new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
+                   kMaxSequenceNumber, 0 /* column_family_id */);
   memtable->Ref();
   WriteBatch batch;
   WriteBatchInternal::SetSequence(&batch, 100);

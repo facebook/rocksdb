@@ -2,12 +2,11 @@
 ## Unreleased
 ### Bug Fixes
 * Fix `DisableFileDeletions()` followed by `GetSortedWalFiles()` to not return obsolete WAL files that `PurgeObsoleteFiles()` is going to delete.
+* Fix DB::Flush() keep waiting after flush finish under certain condition.
 
 ## 5.10.0 (12/11/2017)
 ### Public API Change
 * When running `make` with environment variable `USE_SSE` set and `PORTABLE` unset, will use all machine features available locally. Previously this combination only compiled SSE-related features.
-### Bug Fixes
-* Fix DB::Flush() keep waiting after flush finish under certain condition.
 
 ### New Features
 * Provide lifetime hints when writing files on Linux. This reduces hardware write-amp on storage devices supporting multiple streams.

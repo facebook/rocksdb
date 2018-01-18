@@ -61,8 +61,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
                    const ImmutableCFOptions& ioptions,
                    const MutableCFOptions& mutable_cf_options,
                    WriteBufferManager* write_buffer_manager,
-                   SequenceNumber latest_seq, uint32_t column_family_id,
-                   uint64_t id)
+                   SequenceNumber latest_seq, uint32_t column_family_id)
     : comparator_(cmp),
       moptions_(ioptions, mutable_cf_options),
       refs_(0),
@@ -101,8 +100,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       env_(ioptions.env),
       insert_with_hint_prefix_extractor_(
           ioptions.memtable_insert_with_hint_prefix_extractor),
-      oldest_key_time_(std::numeric_limits<uint64_t>::max()),
-      id_(id) {
+      oldest_key_time_(std::numeric_limits<uint64_t>::max()) {
   UpdateFlushState();
   // something went wrong if we need to flush before inserting anything
   assert(!ShouldScheduleFlush());

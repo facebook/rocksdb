@@ -816,9 +816,8 @@ uint64_t ColumnFamilyData::GetTotalSstFilesSize() const {
 
 MemTable* ColumnFamilyData::ConstructNewMemtable(
     const MutableCFOptions& mutable_cf_options, SequenceNumber earliest_seq) {
-  uint64_t memtable_id = ++last_memtable_id_;
   return new MemTable(internal_comparator_, ioptions_, mutable_cf_options,
-                      write_buffer_manager_, earliest_seq, id_, memtable_id);
+                      write_buffer_manager_, earliest_seq, id_);
 }
 
 void ColumnFamilyData::CreateNewMemtable(
