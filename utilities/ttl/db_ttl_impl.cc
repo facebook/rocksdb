@@ -309,5 +309,16 @@ Iterator* DBWithTTLImpl::NewIterator(const ReadOptions& opts,
   return new TtlIterator(db_->NewIterator(opts, column_family));
 }
 
+void DBWithTTLImpl::SetTtl(ColumnFamilyHandle *h, int32_t ttl) {
+  std::shared_ptr<TtlCompactionFilterFactory> filter;
+  Options opts;
+  opts = GetOptions(h);
+  filter = std::static_pointer_cast<TtlCompactionFilterFactory>(
+                                       opts.compaction_filter_factory);
+  if (!filter)
+    return;
+  filter->SetTtl(ttl);
+}
+
 }  // namespace rocksdb
 #endif  // ROCKSDB_LITE
