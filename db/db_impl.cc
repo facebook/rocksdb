@@ -178,6 +178,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       num_running_flushes_(0),
       bg_purge_scheduled_(0),
       disable_delete_obsolete_files_(0),
+      pending_purge_obsolete_files_(0),
       delete_obsolete_files_last_run_(env_->NowMicros()),
       last_stats_dump_time_microsec_(0),
       next_job_id_(1),
@@ -293,7 +294,8 @@ Status DBImpl::CloseImpl() {
 
   // Wait for background work to finish
   while (bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
-         bg_flush_scheduled_ || bg_purge_scheduled_) {
+         bg_flush_scheduled_ || bg_purge_scheduled_ ||
+         pending_purge_obsolete_files_) {
     TEST_SYNC_POINT("DBImpl::~DBImpl:WaitJob");
     bg_cv_.Wait();
   }

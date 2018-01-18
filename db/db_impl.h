@@ -468,6 +468,8 @@ class DBImpl : public DB {
   // belong to live files are posibly removed. Also, removes all the
   // files in sst_delete_files and log_delete_files.
   // It is not necessary to hold the mutex when invoking this method.
+  // If FindObsoleteFiles() was run, we need to also run
+  // PurgeObsoleteFiles(), even if disable_delete_obsolete_files_ is true
   void PurgeObsoleteFiles(const JobContext& background_contet,
                           bool schedule_only = false);
 
@@ -947,6 +949,8 @@ class DBImpl : public DB {
   // (i.e. whenever a flush is done, even if it didn't make any progress)
   // * whenever there is an error in background purge, flush or compaction
   // * whenever num_running_ingest_file_ goes to 0.
+  // * whenever pending_purge_obsolete_files_ goes to 0.
+  // * whenever disable_delete_obsolete_files_ goes to 0.
   InstrumentedCondVar bg_cv_;
   // Writes are protected by locking both mutex_ and log_write_mutex_, and reads
   // must be under either mutex_ or log_write_mutex_. Since after ::Open,
@@ -1212,6 +1216,10 @@ class DBImpl : public DB {
   // EnableFileDeletions() and DisableFileDeletions()
   // without any synchronization
   int disable_delete_obsolete_files_;
+
+  // Number of times FindObsoleteFiles has found deletable files and the
+  // corresponding call to PurgeObsoleteFiles has not yet finished.
+  int pending_purge_obsolete_files_;
 
   // last time when DeleteObsoleteFiles with full scan was executed. Originaly
   // initialized with startup time.

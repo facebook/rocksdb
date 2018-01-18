@@ -518,8 +518,13 @@ static void assert_candidate_files_empty(DBImpl* dbfull, const bool empty) {
   JobContext job_context(0);
   dbfull->FindObsoleteFiles(&job_context, false);
   ASSERT_EQ(empty, job_context.full_scan_candidate_files.empty());
-  job_context.Clean();
   dbfull->TEST_UnlockMutex();
+  if (job_context.HaveSomethingToDelete()) {
+    // fulfill the contract of FindObsoleteFiles by calling PurgeObsoleteFiles
+    // afterwards; otherwise the test may hang on shutdown
+    dbfull->PurgeObsoleteFiles(job_context);
+  }
+  job_context.Clean();
 }
 
 TEST_F(DBOptionsTest, DeleteObsoleteFilesPeriodChange) {
