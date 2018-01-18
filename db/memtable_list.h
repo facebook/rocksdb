@@ -244,6 +244,16 @@ class MemTableList {
 
   uint64_t GetMinLogContainingPrepSection();
 
+  MemTable* GetEarliestMemTable() const {
+    assert(!current_->memlist_.empty());
+    return current_->memlist_.back();
+  }
+
+  MemTable* GetLatestMemTable() const {
+    assert(!current_->memlist_.empty());
+    return current_->memlist_.front();
+  }
+
  private:
   // DB mutex held
   void InstallNewVersion();

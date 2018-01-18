@@ -5114,10 +5114,10 @@ TEST_F(DBTest, AutomaticConflictsWithManualCompaction) {
     ASSERT_OK(Flush());
   }
   std::thread manual_compaction_thread([this]() {
-      CompactRangeOptions croptions;
-      croptions.exclusive_manual_compaction = true;
-      ASSERT_OK(db_->CompactRange(croptions, nullptr, nullptr));
-    });
+    CompactRangeOptions croptions;
+    croptions.exclusive_manual_compaction = true;
+    ASSERT_OK(db_->CompactRange(croptions, nullptr, nullptr));
+  });
 
   TEST_SYNC_POINT("DBTest::AutomaticConflictsWithManualCompaction:PrePuts");
   for (int i = 0; i < kNumL0Files; ++i) {

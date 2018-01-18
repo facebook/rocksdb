@@ -134,6 +134,7 @@ Status DBImpl::FlushMemTableToOutputFile(
   }
 
   if (s.ok()) {
+    TEST_SYNC_POINT("DBImpl::FlushMemTableToOutputFile:BeforeInstallSV");
     InstallSuperVersionAndScheduleWork(cfd, &job_context->superversion_context,
                                        mutable_cf_options);
     if (made_progress) {
@@ -810,7 +811,13 @@ int DBImpl::Level0StopWriteTrigger(ColumnFamilyHandle* column_family) {
 Status DBImpl::Flush(const FlushOptions& flush_options,
                      ColumnFamilyHandle* column_family) {
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
-  return FlushMemTable(cfh->cfd(), flush_options);
+  ROCKS_LOG_INFO(immutable_db_options_.info_log, "[%s] Manual flush start.",
+                 cfh->GetName().c_str());
+  Status s = FlushMemTable(cfh->cfd(), flush_options);
+  ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                 "[%s] Manual flush finished, status: %s\n",
+                 cfh->GetName().c_str(), s.ToString().c_str());
+  return s;
 }
 
 Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
@@ -945,6 +952,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
                              const FlushOptions& flush_options,
                              bool writes_stopped) {
   Status s;
+  SequenceNumber flush_seq = kMaxSequenceNumber;
   {
     WriteContext context;
     InstrumentedMutexLock guard_lock(&mutex_);
@@ -962,6 +970,8 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
 
     // SwitchMemtable() will release and reacquire mutex during execution
     s = SwitchMemtable(cfd, &context);
+    assert(cfd->imm()->NumNotFlushed() > 0);
+    flush_seq = cfd->imm()->GetLatestMemTable()->GetFirstSequenceNumber();
 
     if (!writes_stopped) {
       write_thread_.ExitUnbatched(&w);
@@ -976,16 +986,21 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
 
   if (s.ok() && flush_options.wait) {
     // Wait until the compaction completes
-    s = WaitForFlushMemTable(cfd);
+    s = WaitForFlushMemTable(cfd, &flush_seq);
   }
   return s;
 }
 
-Status DBImpl::WaitForFlushMemTable(ColumnFamilyData* cfd) {
+Status DBImpl::WaitForFlushMemTable(ColumnFamilyData* cfd,
+                                    SequenceNumber* flush_seq) {
+  assert(flush_seq == nullptr || *flush_seq < kMaxSequenceNumber);
   Status s;
   // Wait until the compaction completes
   InstrumentedMutexLock l(&mutex_);
-  while (cfd->imm()->NumNotFlushed() > 0 && bg_error_.ok()) {
+  while (cfd->imm()->NumNotFlushed() > 0 && bg_error_.ok() &&
+         (flush_seq == nullptr ||
+          cfd->imm()->GetEarliestMemTable()->GetFirstSequenceNumber() <=
+              *flush_seq)) {
     if (shutting_down_.load(std::memory_order_acquire)) {
       return Status::ShutdownInProgress();
     }
