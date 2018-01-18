@@ -129,20 +129,19 @@ endif()
 
 string(REGEX REPLACE "[^0-9a-f]+" "" GIT_SHA "${GIT_SHA}")
 
-if(NOT WIN32)
-  execute_process(COMMAND
-      "./build_tools/version.sh" "full"
-      WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
-      OUTPUT_VARIABLE ROCKSDB_VERSION
-  )
-  string(STRIP "${ROCKSDB_VERSION}" ROCKSDB_VERSION)
-  execute_process(COMMAND
-      "./build_tools/version.sh" "major"
-      WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
-      OUTPUT_VARIABLE ROCKSDB_VERSION_MAJOR
-  )
-  string(STRIP "${ROCKSDB_VERSION_MAJOR}" ROCKSDB_VERSION_MAJOR)
-endif()
+set(SH_CMD "sh")
+execute_process(COMMAND
+  ${SH_CMD} -c "build_tools/version.sh full"
+  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+  OUTPUT_VARIABLE ROCKSDB_VERSION
+)
+string(STRIP "${ROCKSDB_VERSION}" ROCKSDB_VERSION)
+execute_process(COMMAND
+  ${SH_CMD} -c "build_tools/version.sh major"
+  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+  OUTPUT_VARIABLE ROCKSDB_VERSION_MAJOR
+)
+string(STRIP "${ROCKSDB_VERSION_MAJOR}" ROCKSDB_VERSION_MAJOR)
 
 option(WITH_MD_LIBRARY "build with MD" ON)
 if(WIN32 AND MSVC)
