@@ -288,6 +288,27 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
   auto cfd = cfh->cfd();
   bool exclusive = options.exclusive_manual_compaction;
 
+  if (!options.allow_write_stall) {
+    InstrumentedMutexLock l(&mutex_);
+    WriteStallCondition write_stall_condition = WriteStallCondition::kNormal;
+    do {
+      if (write_stall_condition != WriteStallCondition::kNormal) {
+        TEST_SYNC_POINT("DBImpl::CompactRange:StallWait");
+        bg_cv_.Wait();
+      }
+      const auto& mutable_cf_options = *cfd->GetLatestMutableCFOptions();
+      const auto* vstorage = cfd->current()->storage_info();
+      // check whether one extra immutable memtable or an extra L0 file would
+      // cause write stalling mode to be entered. It could still enter stall
+      // mode due to pending compaction bytes, but that's less common
+      write_stall_condition =
+          ColumnFamilyData::GetWriteStallConditionAndCause(
+              cfd->imm()->NumNotFlushed() + 1,
+              vstorage->l0_delay_trigger_count() + 1,
+              vstorage->estimated_compaction_needed_bytes(), mutable_cf_options)
+              .first;
+    } while (write_stall_condition != WriteStallCondition::kNormal);
+  }
   Status s = FlushMemTable(cfd, FlushOptions());
   if (!s.ok()) {
     LogFlush(immutable_db_options_.info_log);

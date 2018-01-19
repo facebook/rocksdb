@@ -535,6 +535,7 @@ Status DBImpl::SetOptions(ColumnFamilyHandle* column_family,
 
       persist_options_status = WriteOptionsFile(
           false /*need_mutex_lock*/, true /*need_enter_write_thread*/);
+      bg_cv_.SignalAll();
     }
   }
   sv_context.Clean();

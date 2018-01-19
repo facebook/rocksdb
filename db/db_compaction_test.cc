@@ -2989,6 +2989,88 @@ TEST_F(DBCompactionTest, CompactBottomLevelFilesWithDeletions) {
   }
 }
 
+TEST_F(DBCompactionTest, CompactRangeDelayedByL0FileCount) {
+  // Verify that, when `CompactRangeOptions::allow_write_stall == false`, manual
+  // compaction only triggers flush after it's sure stall won't be triggered for
+  // L0 file count going too high.
+  const int kNumL0FilesTrigger = 4;
+  const int kNumL0FilesLimit = 8;
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = kNumL0FilesTrigger;
+  options.level0_slowdown_writes_trigger = kNumL0FilesLimit;
+  Reopen(options);
+
+  // ensure the auto compaction doesn't finish until manual compaction has had
+  // a chance to be delayed.
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::CompactRange:StallWait",
+        "CompactionJob::Run():End"}});
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  Random rnd(301);
+  for (int i = 0; i < kNumL0FilesLimit - 1; ++i) {
+    if (i == kNumL0FilesTrigger) {
+      TEST_SYNC_POINT("DBCompactionTest::CompactRangeDelayedByL0FileCount:"
+                      "CompactionTriggered");
+    }
+    for (int j = 0; j < 2; ++j) {
+      ASSERT_OK(Put(Key(j), RandomString(&rnd, 1024)));
+    }
+    Flush();
+  }
+  auto manual_compaction_thread = port::Thread([this]() {
+        CompactRangeOptions cro;
+        cro.allow_write_stall = false;
+        db_->CompactRange(cro, nullptr, nullptr);
+      });
+
+  manual_compaction_thread.join();
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  ASSERT_GT(NumTableFilesAtLevel(1), 0);
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBCompactionTest, CompactRangeDelayedByImmMemTableCount) {
+  // Verify that, when `CompactRangeOptions::allow_write_stall == false`, manual
+  // compaction only triggers flush after it's sure stall won't be triggered for
+  // immutable memtable count going too high.
+  const int kNumImmMemTableLimit = 8;
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  // the delay limit is one less than the stop limit. This test focuses on
+  // avoiding delay limit, but this option sets stop limit, so add one.
+  options.max_write_buffer_number = kNumImmMemTableLimit + 1;
+  Reopen(options);
+
+  // ensure the flush doesn't finish until manual compaction has had a chance
+  // to be delayed.
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::CompactRange:StallWait",
+        "FlushJob::WriteLevel0Table"}});
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  Random rnd(301);
+  for (int i = 0; i < kNumImmMemTableLimit - 1; ++i) {
+    ASSERT_OK(Put(Key(0), RandomString(&rnd, 1024)));
+    FlushOptions flush_opts;
+    flush_opts.wait = false;
+    dbfull()->Flush(flush_opts);
+  }
+
+  auto manual_compaction_thread = port::Thread([this]() {
+        CompactRangeOptions cro;
+        cro.allow_write_stall = false;
+        db_->CompactRange(cro, nullptr, nullptr);
+      });
+
+  manual_compaction_thread.join();
+  dbfull()->TEST_WaitForFlushMemTable();
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  ASSERT_GT(NumTableFilesAtLevel(1), 0);
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
 INSTANTIATE_TEST_CASE_P(DBCompactionTestWithParam, DBCompactionTestWithParam,
                         ::testing::Values(std::make_tuple(1, true),
                                           std::make_tuple(1, false),
