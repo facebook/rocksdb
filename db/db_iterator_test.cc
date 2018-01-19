@@ -2181,6 +2181,7 @@ TEST_F(DBIteratorTest, ReadCallback) {
   TestReadCallback callback1(seq1);
   ASSERT_OK(Put("foo", "v4"));
   ASSERT_OK(Put("foo", "v5"));
+  ASSERT_OK(Put("bar", "v7"));
 
   SequenceNumber seq2 = db_->GetLatestSequenceNumber();
   auto* cfd =
@@ -2193,6 +2194,12 @@ TEST_F(DBIteratorTest, ReadCallback) {
   iter->Seek("foo");
   ASSERT_TRUE(iter->Valid());
   ASSERT_OK(iter->status());
+  ASSERT_EQ("foo", iter->key());
+  ASSERT_EQ("v3", iter->value());
+  iter->Seek("bar");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  ASSERT_EQ("foo", iter->key());
   ASSERT_EQ("v3", iter->value());
 
   // Next
@@ -2200,7 +2207,7 @@ TEST_F(DBIteratorTest, ReadCallback) {
   ASSERT_TRUE(iter->Valid());
   ASSERT_OK(iter->status());
   ASSERT_EQ("va", iter->value());
-  iter->Next();
+  iter->Next(); // skipping "bar"
   ASSERT_TRUE(iter->Valid());
   ASSERT_OK(iter->status());
   ASSERT_EQ("foo", iter->key());
@@ -2216,6 +2223,11 @@ TEST_F(DBIteratorTest, ReadCallback) {
   ASSERT_OK(iter->status());
   ASSERT_EQ("foo", iter->key());
   ASSERT_EQ("v3", iter->value());
+  iter->Prev(); // skipping "bar"
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  ASSERT_EQ("a", iter->key());
+  ASSERT_EQ("va", iter->value());
 
   // SeekForPrev
   iter->SeekForPrev("y");
@@ -2223,6 +2235,11 @@ TEST_F(DBIteratorTest, ReadCallback) {
   ASSERT_OK(iter->status());
   ASSERT_EQ("foo", iter->key());
   ASSERT_EQ("v3", iter->value());
+  iter->SeekForPrev("bar");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  ASSERT_EQ("a", iter->key());
+  ASSERT_EQ("va", iter->value());
 
   delete iter;
 
@@ -2234,7 +2251,7 @@ TEST_F(DBIteratorTest, ReadCallback) {
   }
   SequenceNumber seq3 = db_->GetLatestSequenceNumber();
   TestReadCallback callback2(seq3);
-  ASSERT_OK(Put("bar", "vb"));
+  ASSERT_OK(Put("bar", "v8"));
   SequenceNumber seq4 = db_->GetLatestSequenceNumber();
 
   iter = dbfull()->NewIteratorImpl(ReadOptions(), cfd, seq4, &callback2);
