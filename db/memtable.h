@@ -368,6 +368,11 @@ class MemTable {
     return oldest_key_time_.load(std::memory_order_relaxed);
   }
 
+  // REQUIRES: db_mutex held.
+  void SetID(uint64_t id) { id_ = id; }
+
+  uint64_t GetID() const { return id_; }
+
  private:
   enum FlushStateEnum { FLUSH_NOT_REQUESTED, FLUSH_REQUESTED, FLUSH_SCHEDULED };
 
@@ -436,6 +441,9 @@ class MemTable {
 
   // Timestamp of oldest key
   std::atomic<uint64_t> oldest_key_time_;
+
+  // Memtable id to track flush.
+  uint64_t id_ = 0;
 
   // Returns a heuristic flush decision
   bool ShouldFlushNow() const;

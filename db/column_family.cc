@@ -385,7 +385,8 @@ ColumnFamilyData::ColumnFamilyData(
       pending_flush_(false),
       pending_compaction_(false),
       prev_compaction_needed_bytes_(0),
-      allow_2pc_(db_options.allow_2pc) {
+      allow_2pc_(db_options.allow_2pc),
+      last_memtable_id_(0) {
   Ref();
 
   // Convert user defined table properties collector factories to internal ones.

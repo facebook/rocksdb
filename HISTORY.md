@@ -15,6 +15,7 @@
 * Fix builds on platforms including Linux, Windows, and PowerPC.
 * Fix buffer overrun in backup engine for DBs with huge number of files.
 * Fix a mislabel bug for bottom-pri compaction threads.
+* Fix DB::Flush() keep waiting after flush finish under certain condition.
 
 ## 5.10.0 (12/11/2017)
 ### Public API Change
