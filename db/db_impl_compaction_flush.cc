@@ -134,6 +134,7 @@ Status DBImpl::FlushMemTableToOutputFile(
   }
 
   if (s.ok()) {
+    TEST_SYNC_POINT("DBImpl::FlushMemTableToOutputFile:BeforeInstallSV");
     InstallSuperVersionAndScheduleWork(cfd, &job_context->superversion_context,
                                        mutable_cf_options);
     if (made_progress) {
