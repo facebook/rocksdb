@@ -5355,12 +5355,15 @@ class WriteStallListener : public EventListener {
  public:
   WriteStallListener() : condition_(WriteStallCondition::kNormal) {}
   void OnStallConditionsChanged(const WriteStallInfo& info) override {
+    MutexLock l(&mutex_);
     condition_ = info.condition.cur;
   }
   bool CheckCondition(WriteStallCondition expected) {
+    MutexLock l(&mutex_);
     return expected == condition_;
   }
  private:
+  port::Mutex mutex_;
   WriteStallCondition condition_;
 };
 
