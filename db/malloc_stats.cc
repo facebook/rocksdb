@@ -16,8 +16,13 @@
 namespace rocksdb {
 
 #ifdef ROCKSDB_JEMALLOC
+#ifdef __FreeBSD__
+#include <malloc_np.h>
+#define je_malloc_stats_print malloc_stats_print
+#else
 #include "jemalloc/jemalloc.h"
-
+#endif
+  
 typedef struct {
   char* cur;
   char* end;
