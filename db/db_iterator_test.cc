@@ -9,6 +9,7 @@
 
 #include <functional>
 
+#include "db/db_iter.h"
 #include "db/db_test_util.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -2155,6 +2156,104 @@ TEST_F(DBIteratorTest, SkipStatistics) {
   // 3 deletes + 3 original keys + lower sequence of "a"
   skip_count += 7;
   ASSERT_EQ(skip_count, TestGetTickerCount(options, NUMBER_ITER_SKIP));
+}
+
+TEST_F(DBIteratorTest, ReadCallback) {
+  class TestReadCallback : public ReadCallback {
+   public:
+    explicit TestReadCallback(SequenceNumber last_visible_seq)
+        : last_visible_seq_(last_visible_seq) {}
+
+    bool IsCommitted(SequenceNumber seq) override {
+      return seq <= last_visible_seq_;
+    }
+
+   private:
+    SequenceNumber last_visible_seq_;
+  };
+
+  ASSERT_OK(Put("foo", "v1"));
+  ASSERT_OK(Put("foo", "v2"));
+  ASSERT_OK(Put("foo", "v3"));
+  ASSERT_OK(Put("a", "va"));
+  ASSERT_OK(Put("z", "vz"));
+  SequenceNumber seq1 = db_->GetLatestSequenceNumber();
+  TestReadCallback callback1(seq1);
+  ASSERT_OK(Put("foo", "v4"));
+  ASSERT_OK(Put("foo", "v5"));
+
+  SequenceNumber seq2 = db_->GetLatestSequenceNumber();
+  auto* cfd =
+      reinterpret_cast<ColumnFamilyHandleImpl*>(db_->DefaultColumnFamily())
+          ->cfd();
+  Iterator* iter =
+      dbfull()->NewIteratorImpl(ReadOptions(), cfd, seq2, &callback1);
+
+  // Seek
+  iter->Seek("foo");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  ASSERT_EQ("v3", iter->value());
+
+  // Next
+  iter->Seek("a");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  ASSERT_EQ("va", iter->value());
+  iter->Next();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  ASSERT_EQ("foo", iter->key());
+  ASSERT_EQ("v3", iter->value());
+
+  // Prev
+  iter->Seek("z");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  ASSERT_EQ("vz", iter->value());
+  iter->Prev();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  ASSERT_EQ("foo", iter->key());
+  ASSERT_EQ("v3", iter->value());
+
+  // SeekForPrev
+  iter->SeekForPrev("y");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  ASSERT_EQ("foo", iter->key());
+  ASSERT_EQ("v3", iter->value());
+
+  delete iter;
+
+  // Prev beyond max_sequential_skip_in_iterations
+  uint64_t num_versions =
+      CurrentOptions().max_sequential_skip_in_iterations + 10;
+  for (uint64_t i = 0; i < num_versions; i++) {
+    ASSERT_OK(Put("bar", ToString(i)));
+  }
+  SequenceNumber seq3 = db_->GetLatestSequenceNumber();
+  TestReadCallback callback2(seq3);
+  ASSERT_OK(Put("bar", "vb"));
+  SequenceNumber seq4 = db_->GetLatestSequenceNumber();
+
+  iter = dbfull()->NewIteratorImpl(ReadOptions(), cfd, seq4, &callback2);
+  iter->Seek("z");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  ASSERT_EQ("vz", iter->value());
+  iter->Prev();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  ASSERT_EQ("foo", iter->key());
+  ASSERT_EQ("v5", iter->value());
+  iter->Prev();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  ASSERT_EQ("bar", iter->key());
+  ASSERT_EQ(ToString(num_versions - 1), iter->value());
+
+  delete iter;
 }
 
 }  // namespace rocksdb
