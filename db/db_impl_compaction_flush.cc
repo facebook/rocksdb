@@ -294,7 +294,13 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
     do {
       if (write_stall_condition != WriteStallCondition::kNormal) {
         TEST_SYNC_POINT("DBImpl::CompactRange:StallWait");
+        ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                       "[%s] CompactRange waiting on stall conditions to clear",
+                       cfd->GetName().c_str());
         bg_cv_.Wait();
+      }
+      if (cfd->IsDropped() || shutting_down_.load(std::memory_order_acquire)) {
+        return Status::ShutdownInProgress();
       }
       const auto& mutable_cf_options = *cfd->GetLatestMutableCFOptions();
       const auto* vstorage = cfd->current()->storage_info();

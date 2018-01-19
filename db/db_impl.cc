@@ -1420,6 +1420,7 @@ Status DBImpl::DropColumnFamilyImpl(ColumnFamilyHandle* column_family) {
       }
       is_snapshot_supported_ = new_is_snapshot_supported;
     }
+    bg_cv_.SignalAll();
   }
 
   if (s.ok()) {

@@ -3003,26 +3003,21 @@ TEST_F(DBCompactionTest, CompactRangeDelayedByL0FileCount) {
   // ensure the auto compaction doesn't finish until manual compaction has had
   // a chance to be delayed.
   rocksdb::SyncPoint::GetInstance()->LoadDependency(
-      {{"DBImpl::CompactRange:StallWait",
-        "CompactionJob::Run():End"}});
+      {{"DBImpl::CompactRange:StallWait", "CompactionJob::Run():End"}});
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   Random rnd(301);
   for (int i = 0; i < kNumL0FilesLimit - 1; ++i) {
-    if (i == kNumL0FilesTrigger) {
-      TEST_SYNC_POINT("DBCompactionTest::CompactRangeDelayedByL0FileCount:"
-                      "CompactionTriggered");
-    }
     for (int j = 0; j < 2; ++j) {
       ASSERT_OK(Put(Key(j), RandomString(&rnd, 1024)));
     }
     Flush();
   }
   auto manual_compaction_thread = port::Thread([this]() {
-        CompactRangeOptions cro;
-        cro.allow_write_stall = false;
-        db_->CompactRange(cro, nullptr, nullptr);
-      });
+    CompactRangeOptions cro;
+    cro.allow_write_stall = false;
+    db_->CompactRange(cro, nullptr, nullptr);
+  });
 
   manual_compaction_thread.join();
   dbfull()->TEST_WaitForCompact();
@@ -3046,8 +3041,7 @@ TEST_F(DBCompactionTest, CompactRangeDelayedByImmMemTableCount) {
   // ensure the flush doesn't finish until manual compaction has had a chance
   // to be delayed.
   rocksdb::SyncPoint::GetInstance()->LoadDependency(
-      {{"DBImpl::CompactRange:StallWait",
-        "FlushJob::WriteLevel0Table"}});
+      {{"DBImpl::CompactRange:StallWait", "FlushJob::WriteLevel0Table"}});
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   Random rnd(301);
@@ -3059,16 +3053,69 @@ TEST_F(DBCompactionTest, CompactRangeDelayedByImmMemTableCount) {
   }
 
   auto manual_compaction_thread = port::Thread([this]() {
-        CompactRangeOptions cro;
-        cro.allow_write_stall = false;
-        db_->CompactRange(cro, nullptr, nullptr);
-      });
+    CompactRangeOptions cro;
+    cro.allow_write_stall = false;
+    db_->CompactRange(cro, nullptr, nullptr);
+  });
 
   manual_compaction_thread.join();
   dbfull()->TEST_WaitForFlushMemTable();
   ASSERT_EQ(0, NumTableFilesAtLevel(0));
   ASSERT_GT(NumTableFilesAtLevel(1), 0);
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBCompactionTest, CompactRangeShutdownWhileDelayed) {
+  // Verify that, when `CompactRangeOptions::allow_write_stall == false`, delay
+  // does not hang if CF is dropped or DB is closed
+  const int kNumL0FilesTrigger = 4;
+  const int kNumL0FilesLimit = 8;
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = kNumL0FilesTrigger;
+  options.level0_slowdown_writes_trigger = kNumL0FilesLimit;
+  // i == 0: DB::DropColumnFamily() on CompactRange's target CF unblocks it
+  // i == 1: DB::CancelAllBackgroundWork() unblocks CompactRange. This is to
+  //         simulate what happens during Close as we can't call Close (it
+  //         blocks on the auto-compaction, making a cycle).
+  for (int i = 0; i < 2; ++i) {
+    CreateAndReopenWithCF({"one"}, options);
+    // The calls to close CF/DB wait until the manual compaction stalls.
+    // The auto-compaction waits until the manual compaction finishes to ensure
+    // the signal comes from closing CF/DB, not from compaction making progress.
+    rocksdb::SyncPoint::GetInstance()->LoadDependency(
+        {{"DBImpl::CompactRange:StallWait",
+          "DBCompactionTest::CompactRangeShutdownWhileDelayed:PreShutdown"},
+         {"DBCompactionTest::CompactRangeShutdownWhileDelayed:PostManual",
+          "CompactionJob::Run():End"}});
+    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+    Random rnd(301);
+    for (int j = 0; j < kNumL0FilesLimit - 1; ++j) {
+      for (int k = 0; k < 2; ++k) {
+        ASSERT_OK(Put(1, Key(k), RandomString(&rnd, 1024)));
+      }
+      Flush(1);
+    }
+    auto manual_compaction_thread = port::Thread([this]() {
+      CompactRangeOptions cro;
+      cro.allow_write_stall = false;
+      ASSERT_TRUE(db_->CompactRange(cro, handles_[1], nullptr, nullptr)
+                      .IsShutdownInProgress());
+    });
+
+    TEST_SYNC_POINT(
+        "DBCompactionTest::CompactRangeShutdownWhileDelayed:PreShutdown");
+    if (i == 0) {
+      ASSERT_OK(db_->DropColumnFamily(handles_[1]));
+    } else {
+      dbfull()->CancelAllBackgroundWork(false /* wait */);
+    }
+    manual_compaction_thread.join();
+    TEST_SYNC_POINT(
+        "DBCompactionTest::CompactRangeShutdownWhileDelayed:PostManual");
+    dbfull()->TEST_WaitForCompact();
+    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  }
 }
 
 INSTANTIATE_TEST_CASE_P(DBCompactionTestWithParam, DBCompactionTestWithParam,
