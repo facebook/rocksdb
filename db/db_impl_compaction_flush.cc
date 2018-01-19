@@ -304,6 +304,17 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
       }
       const auto& mutable_cf_options = *cfd->GetLatestMutableCFOptions();
       const auto* vstorage = cfd->current()->storage_info();
+
+      // Skip stalling check if we're below auto-flush and auto-compaction
+      // triggers. If it stalled in these conditions, that'd mean the stall
+      // triggers are so low that stalling is needed for any background work. In
+      // that case we shouldn't wait since background work won't be scheduled.
+      if (cfd->imm()->NumNotFlushed() <
+              cfd->ioptions()->min_write_buffer_number_to_merge &&
+          vstorage->l0_delay_trigger_count() <
+              mutable_cf_options.level0_file_num_compaction_trigger) {
+        break;
+      }
       // check whether one extra immutable memtable or an extra L0 file would
       // cause write stalling mode to be entered. It could still enter stall
       // mode due to pending compaction bytes, but that's less common
@@ -314,6 +325,7 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
               vstorage->estimated_compaction_needed_bytes(), mutable_cf_options)
               .first;
     } while (write_stall_condition != WriteStallCondition::kNormal);
+    TEST_SYNC_POINT("DBImpl::CompactRange:StallWaitDone");
   }
   Status s = FlushMemTable(cfd, FlushOptions());
   if (!s.ok()) {
