@@ -1061,14 +1061,18 @@ TEST_F(BlobDBTest, OutOfSpace) {
 }
 
 TEST_F(BlobDBTest, EvictOldestFileWhenCloseToSpaceLimit) {
-  // Use mock env to stop wall clock.
-  Options options;
   BlobDBOptions bdb_options;
   bdb_options.blob_dir_size = 270;
   bdb_options.blob_file_size = 100;
-  bdb_options.disable_background_tasks = true;
   bdb_options.is_fifo = true;
+  bdb_options.disable_background_tasks = true;
   Open(bdb_options);
+
+  std::atomic<int> evict_count{0};
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlobDBImpl::EvictOldestBlobFile:Evicted",
+      [&](void *) { evict_count++; });
+  SyncPoint::GetInstance()->EnableProcessing();
 
   // Each stored blob has an overhead of 32 bytes currently.
   // So a 100 byte blob should take up 132 bytes.
@@ -1093,6 +1097,28 @@ TEST_F(BlobDBTest, EvictOldestFileWhenCloseToSpaceLimit) {
   bdb_impl->TEST_DeleteObsoleteFiles();
   obsolete_files = bdb_impl->TEST_GetObsoleteFiles();
   ASSERT_TRUE(obsolete_files.empty());
+  ASSERT_EQ(1, evict_count);
+}
+
+TEST_F(BlobDBTest, NoOldestFileToEvict) {
+  Options options;
+  BlobDBOptions bdb_options;
+  bdb_options.blob_dir_size = 1000;
+  bdb_options.blob_file_size = 5000;
+  bdb_options.is_fifo = true;
+  bdb_options.disable_background_tasks = true;
+  Open(bdb_options);
+
+  std::atomic<int> evict_count{0};
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlobDBImpl::EvictOldestBlobFile:Evicted",
+      [&](void *) { evict_count++; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::string value(2000, 'v');
+  ASSERT_OK(Put("foo", std::string(2000, 'v')));
+  ASSERT_OK(Put("bar", std::string(2000, 'v')));
+  ASSERT_EQ(0, evict_count);
 }
 
 TEST_F(BlobDBTest, InlineSmallValues) {
