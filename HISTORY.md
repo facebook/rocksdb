@@ -1,5 +1,7 @@
 # Rocksdb Change Log
-## Unreleased
+## 5.10.1 (01/18/2018)
+### Bug Fixes
+* Fix DB::Flush() keep waiting after flush finish under certain condition.
 
 ## 5.10.0 (12/11/2017)
 ### Public API Change
