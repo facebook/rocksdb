@@ -859,6 +859,9 @@ std::shared_ptr<BlobFile> BlobDBImpl::GetOldestBlobFile() {
   CopyBlobFiles(&blob_files, [](const std::shared_ptr<BlobFile>& f) {
     return !f->Obsolete() && f->Immutable();
   });
+  if (blob_files.empty()) {
+    return nullptr;
+  }
   blobf_compare_ttl compare;
   return *std::min_element(blob_files.begin(), blob_files.end(), compare);
 }
@@ -889,6 +892,7 @@ bool BlobDBImpl::EvictOldestBlobFile() {
                oldest_file->BlobCount());
     RecordTick(statistics_, BLOB_DB_FIFO_BYTES_EVICTED,
                oldest_file->GetFileSize());
+    TEST_SYNC_POINT("BlobDBImpl::EvictOldestBlobFile:Evicted");
     return true;
   }
 
