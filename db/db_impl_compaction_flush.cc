@@ -288,8 +288,10 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
   auto cfd = cfh->cfd();
   bool exclusive = options.exclusive_manual_compaction;
 
+  bool flush_needed = true;
   if (!options.allow_write_stall) {
     InstrumentedMutexLock l(&mutex_);
+    uint64_t orig_active_memtable_id = cfd->mem()->GetID();
     WriteStallCondition write_stall_condition = WriteStallCondition::kNormal;
     do {
       if (write_stall_condition != WriteStallCondition::kNormal) {
@@ -315,6 +317,16 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
               mutable_cf_options.level0_file_num_compaction_trigger) {
         break;
       }
+
+      uint64_t earliest_memtable_id = std::min(
+          cfd->mem()->GetID(), cfd->imm()->GetEarliestMemTableID());
+      if (earliest_memtable_id > orig_active_memtable_id) {
+        // We waited so long that the memtable we were originally waiting on was
+        // flushed.
+        flush_needed = false;
+        break;
+      }
+
       // check whether one extra immutable memtable or an extra L0 file would
       // cause write stalling mode to be entered. It could still enter stall
       // mode due to pending compaction bytes, but that's less common
@@ -327,10 +339,13 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
     } while (write_stall_condition != WriteStallCondition::kNormal);
     TEST_SYNC_POINT("DBImpl::CompactRange:StallWaitDone");
   }
-  Status s = FlushMemTable(cfd, FlushOptions());
-  if (!s.ok()) {
-    LogFlush(immutable_db_options_.info_log);
-    return s;
+  Status s;
+  if (flush_needed) {
+    s = FlushMemTable(cfd, FlushOptions());
+    if (!s.ok()) {
+      LogFlush(immutable_db_options_.info_log);
+      return s;
+    }
   }
 
   int max_level_with_files = 0;
