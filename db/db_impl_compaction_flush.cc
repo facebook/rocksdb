@@ -304,6 +304,16 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
       if (cfd->IsDropped() || shutting_down_.load(std::memory_order_acquire)) {
         return Status::ShutdownInProgress();
       }
+
+      uint64_t earliest_memtable_id =
+          std::min(cfd->mem()->GetID(), cfd->imm()->GetEarliestMemTableID());
+      if (earliest_memtable_id > orig_active_memtable_id) {
+        // We waited so long that the memtable we were originally waiting on was
+        // flushed.
+        flush_needed = false;
+        break;
+      }
+
       const auto& mutable_cf_options = *cfd->GetLatestMutableCFOptions();
       const auto* vstorage = cfd->current()->storage_info();
 
@@ -318,15 +328,6 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
         break;
       }
 
-      uint64_t earliest_memtable_id = std::min(
-          cfd->mem()->GetID(), cfd->imm()->GetEarliestMemTableID());
-      if (earliest_memtable_id > orig_active_memtable_id) {
-        // We waited so long that the memtable we were originally waiting on was
-        // flushed.
-        flush_needed = false;
-        break;
-      }
-
       // check whether one extra immutable memtable or an extra L0 file would
       // cause write stalling mode to be entered. It could still enter stall
       // mode due to pending compaction bytes, but that's less common
@@ -337,8 +338,8 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
               vstorage->estimated_compaction_needed_bytes(), mutable_cf_options)
               .first;
     } while (write_stall_condition != WriteStallCondition::kNormal);
-    TEST_SYNC_POINT("DBImpl::CompactRange:StallWaitDone");
   }
+  TEST_SYNC_POINT("DBImpl::CompactRange:StallWaitDone");
   Status s;
   if (flush_needed) {
     s = FlushMemTable(cfd, FlushOptions());

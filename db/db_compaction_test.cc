@@ -3150,6 +3150,57 @@ TEST_F(DBCompactionTest, CompactRangeShutdownWhileDelayed) {
   }
 }
 
+TEST_F(DBCompactionTest, CompactRangeSkipFlushAfterDelay) {
+  // Verify that, when `CompactRangeOptions::allow_write_stall == false`,
+  // CompactRange skips its flush if the delay is long enough that the memtables
+  // existing at the beginning of the call have already been flushed.
+  const int kNumL0FilesTrigger = 4;
+  const int kNumL0FilesLimit = 8;
+  Options options = CurrentOptions();
+  options.level0_slowdown_writes_trigger = kNumL0FilesLimit;
+  options.level0_file_num_compaction_trigger = kNumL0FilesTrigger;
+  Reopen(options);
+
+  Random rnd(301);
+  // The manual flush includes the memtable that was active when CompactRange
+  // began. So it unblocks CompactRange and precludes its flush. Throughout the
+  // test, stall conditions are upheld via high L0 file count.
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::CompactRange:StallWait",
+        "DBCompactionTest::CompactRangeSkipFlushAfterDelay:PreFlush"},
+       {"DBCompactionTest::CompactRangeSkipFlushAfterDelay:PostFlush",
+        "DBImpl::CompactRange:StallWaitDone"},
+       {"DBImpl::CompactRange:StallWaitDone", "CompactionJob::Run():End"}});
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  for (int i = 0; i < kNumL0FilesLimit - 1; ++i) {
+    for (int j = 0; j < 2; ++j) {
+      ASSERT_OK(Put(Key(j), RandomString(&rnd, 1024)));
+    }
+    Flush();
+  }
+  auto manual_compaction_thread = port::Thread([this]() {
+    CompactRangeOptions cro;
+    cro.allow_write_stall = false;
+    db_->CompactRange(cro, nullptr, nullptr);
+  });
+
+  TEST_SYNC_POINT("DBCompactionTest::CompactRangeSkipFlushAfterDelay:PreFlush");
+  Put(ToString(0), RandomString(&rnd, 1024));
+  Flush();
+  Put(ToString(0), RandomString(&rnd, 1024));
+  TEST_SYNC_POINT("DBCompactionTest::CompactRangeSkipFlushAfterDelay:PostFlush");
+  manual_compaction_thread.join();
+
+  // If CompactRange's flush was skipped, the final Put above will still be
+  // in the active memtable.
+  std::string num_keys_in_memtable;
+  db_->GetProperty(DB::Properties::kNumEntriesActiveMemTable, &num_keys_in_memtable);
+  ASSERT_EQ(ToString(1), num_keys_in_memtable);
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
 INSTANTIATE_TEST_CASE_P(DBCompactionTestWithParam, DBCompactionTestWithParam,
                         ::testing::Values(std::make_tuple(1, true),
                                           std::make_tuple(1, false),
