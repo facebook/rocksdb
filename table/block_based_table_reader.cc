@@ -1442,7 +1442,7 @@ InternalIterator* BlockBasedTable::NewIndexIterator(
   return iter;
 }
 
-InternalIterator* BlockBasedTable::NewDataBlockIterator(
+BlockIter* BlockBasedTable::NewDataBlockIterator(
     Rep* rep, const ReadOptions& ro, const Slice& index_value,
     BlockIter* input_iter, bool is_index, GetContext* get_context) {
   BlockHandle handle;
@@ -1458,7 +1458,7 @@ InternalIterator* BlockBasedTable::NewDataBlockIterator(
 // into an iterator over the contents of the corresponding block.
 // If input_iter is null, new a iterator
 // If input_iter is not null, update this iter and return it
-InternalIterator* BlockBasedTable::NewDataBlockIterator(
+BlockIter* BlockBasedTable::NewDataBlockIterator(
     Rep* rep, const ReadOptions& ro, const BlockHandle& handle,
     BlockIter* input_iter, bool is_index, GetContext* get_context, Status s) {
   PERF_TIMER_GUARD(new_table_block_iter_nanos);
@@ -1476,16 +1476,18 @@ InternalIterator* BlockBasedTable::NewDataBlockIterator(
                                   get_context);
   }
 
+  BlockIter* iter;
+  if (input_iter != nullptr) {
+    iter = input_iter;
+  } else {
+    iter = new BlockIter;
+  }
   // Didn't get any data from block caches.
   if (s.ok() && block.value == nullptr) {
     if (no_io) {
       // Could not read from block_cache and can't do IO
-      if (input_iter != nullptr) {
-        input_iter->SetStatus(Status::Incomplete("no blocking io"));
-        return input_iter;
-      } else {
-        return NewErrorInternalIterator(Status::Incomplete("no blocking io"));
-      }
+      iter->SetStatus(Status::Incomplete("no blocking io"));
+      return iter;
     }
     std::unique_ptr<Block> block_value;
     s = ReadBlockFromFile(rep->file.get(), nullptr /* prefetch_buffer */,
@@ -1498,10 +1500,9 @@ InternalIterator* BlockBasedTable::NewDataBlockIterator(
     }
   }
 
-  InternalIterator* iter;
   if (s.ok()) {
     assert(block.value != nullptr);
-    iter = block.value->NewIterator(&rep->internal_comparator, input_iter, true,
+    iter = block.value->NewIterator(&rep->internal_comparator, iter, true,
                                     rep->ioptions.statistics);
     if (block.cache_handle != nullptr) {
       iter->RegisterCleanup(&ReleaseCachedEntry, block_cache,
@@ -1511,12 +1512,7 @@ InternalIterator* BlockBasedTable::NewDataBlockIterator(
     }
   } else {
     assert(block.value == nullptr);
-    if (input_iter != nullptr) {
-      input_iter->SetStatus(s);
-      iter = input_iter;
-    } else {
-      iter = NewErrorInternalIterator(s);
-    }
+    iter->SetStatus(s);
   }
   return iter;
 }

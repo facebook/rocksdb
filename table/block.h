@@ -168,10 +168,10 @@ class Block {
   // If total_order_seek is true, hash_index_ and prefix_index_ are ignored.
   // This option only applies for index block. For data block, hash_index_
   // and prefix_index_ are null, so this option does not matter.
-  InternalIterator* NewIterator(const Comparator* comparator,
-                                BlockIter* iter = nullptr,
-                                bool total_order_seek = true,
-                                Statistics* stats = nullptr);
+  BlockIter* NewIterator(const Comparator* comparator,
+                         BlockIter* iter = nullptr,
+                         bool total_order_seek = true,
+                         Statistics* stats = nullptr);
   void SetBlockPrefixIndex(BlockPrefixIndex* prefix_index);
 
   // Report an approximation of how much memory has been used.
@@ -191,8 +191,8 @@ class Block {
   const SequenceNumber global_seqno_;
 
   // No copying allowed
-  Block(const Block&);
-  void operator=(const Block&);
+  Block(const Block&) = delete;
+  void operator=(const Block&) = delete;
 };
 
 class BlockIter : public InternalIterator {
