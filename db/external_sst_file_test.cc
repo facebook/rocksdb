@@ -1940,6 +1940,55 @@ TEST_F(ExternalSSTFileTest, IngestBehind) {
   size_t kcnt = 0;
   VerifyDBFromMap(true_data, &kcnt, false);
 }
+
+TEST_F(ExternalSSTFileTest, SkipBloomFilter) {
+  Options options = CurrentOptions();
+
+  BlockBasedTableOptions table_options;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10));
+  table_options.cache_index_and_filter_blocks = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+
+  // Create external SST file and include bloom filters
+  options.statistics = rocksdb::CreateDBStatistics();
+  DestroyAndReopen(options);
+  {
+    std::string file_path = sst_files_dir_ + "sst_with_bloom.sst";
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+    ASSERT_OK(sst_file_writer.Open(file_path));
+    ASSERT_OK(sst_file_writer.Put("Key1", "Value1"));
+    ASSERT_OK(sst_file_writer.Finish());
+
+    ASSERT_OK(
+        db_->IngestExternalFile({file_path}, IngestExternalFileOptions()));
+
+    ASSERT_EQ(Get("Key1"), "Value1");
+    ASSERT_GE(
+        options.statistics->getTickerCount(Tickers::BLOCK_CACHE_FILTER_ADD), 1);
+  }
+
+  // Create external SST file but skip bloom filters
+  options.statistics = rocksdb::CreateDBStatistics();
+  DestroyAndReopen(options);
+  {
+    std::string file_path = sst_files_dir_ + "sst_with_no_bloom.sst";
+    SstFileWriter sst_file_writer(EnvOptions(), options, nullptr, true,
+                                  Env::IOPriority::IO_TOTAL,
+                                  true /* skip_filters */);
+    ASSERT_OK(sst_file_writer.Open(file_path));
+    ASSERT_OK(sst_file_writer.Put("Key1", "Value1"));
+    ASSERT_OK(sst_file_writer.Finish());
+
+    ASSERT_OK(
+        db_->IngestExternalFile({file_path}, IngestExternalFileOptions()));
+
+    ASSERT_EQ(Get("Key1"), "Value1");
+    ASSERT_EQ(
+        options.statistics->getTickerCount(Tickers::BLOCK_CACHE_FILTER_ADD), 0);
+  }
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
