@@ -1598,7 +1598,8 @@ BlockBasedTable::BlockEntryIteratorState::BlockEntryIteratorState(
       is_index_(is_index),
       block_map_(block_map) {}
 
-const size_t BlockBasedTable::BlockEntryIteratorState::kMaxReadaheadSize = 256 * 1024;
+const size_t BlockBasedTable::BlockEntryIteratorState::kMaxReadaheadSize =
+    256 * 1024;
 
 InternalIterator*
 BlockBasedTable::BlockEntryIteratorState::NewSecondaryIterator(
@@ -1636,7 +1637,9 @@ BlockBasedTable::BlockEntryIteratorState::NewSecondaryIterator(
                readahead_limit_) {
       num_file_reads_++;
       // Do not readahead more than kMaxReadaheadSize.
-      readahead_size_ = std::min(BlockBasedTable::BlockEntryIteratorState::kMaxReadaheadSize, readahead_size_);
+      readahead_size_ =
+          std::min(BlockBasedTable::BlockEntryIteratorState::kMaxReadaheadSize,
+                   readahead_size_);
       table_->rep_->file->Prefetch(handle.offset(), readahead_size_);
       readahead_limit_ = handle.offset() + readahead_size_;
       // Keep exponentially increasing readahead size until kMaxReadaheadSize.
