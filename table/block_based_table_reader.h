@@ -380,7 +380,7 @@ class BlockBasedTable::BlockEntryIteratorState : public TwoLevelIteratorState {
   static const size_t kInitReadaheadSize = 8 * 1024;
   // Found that 256 KB readahead size provides the best performance, based on
   // experiments.
-  static const size_t kMaxReadaheadSize = 256 * 1024;
+  static const size_t kMaxReadaheadSize;
   size_t readahead_size_ = kInitReadaheadSize;
   size_t readahead_limit_ = 0;
   int num_file_reads_ = 0;
