@@ -208,6 +208,18 @@ std::unordered_map<std::string, ChecksumType>
                                                {"kCRC32c", kCRC32c},
                                                {"kxxHash", kxxHash}};
 
+std::unordered_map<std::string, CompressionType>
+    OptionsHelper::compression_type_string_map = {
+        {"kNoCompression", kNoCompression},
+        {"kSnappyCompression", kSnappyCompression},
+        {"kZlibCompression", kZlibCompression},
+        {"kBZip2Compression", kBZip2Compression},
+        {"kLZ4Compression", kLZ4Compression},
+        {"kLZ4HCCompression", kLZ4HCCompression},
+        {"kXpressCompression", kXpressCompression},
+        {"kZSTD", kZSTD},
+        {"kZSTDNotFinalCompression", kZSTDNotFinalCompression},
+        {"kDisableCompressionOption", kDisableCompressionOption}};
 #ifndef ROCKSDB_LITE
 
 template <typename T>
@@ -1475,19 +1487,6 @@ std::unordered_map<std::string, OptionTypeInfo>
         {"seq_per_batch",
          {0, OptionType::kBoolean, OptionVerificationType::kDeprecated, false,
           0}}};
-
-std::unordered_map<std::string, CompressionType>
-    OptionsHelper::compression_type_string_map = {
-        {"kNoCompression", kNoCompression},
-        {"kSnappyCompression", kSnappyCompression},
-        {"kZlibCompression", kZlibCompression},
-        {"kBZip2Compression", kBZip2Compression},
-        {"kLZ4Compression", kLZ4Compression},
-        {"kLZ4HCCompression", kLZ4HCCompression},
-        {"kXpressCompression", kXpressCompression},
-        {"kZSTD", kZSTD},
-        {"kZSTDNotFinalCompression", kZSTDNotFinalCompression},
-        {"kDisableCompressionOption", kDisableCompressionOption}};
 
 std::unordered_map<std::string, BlockBasedTableOptions::IndexType>
     OptionsHelper::block_base_table_index_type_string_map = {
