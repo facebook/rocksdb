@@ -979,7 +979,7 @@ class DB {
   // the file can fit in, and ingest the file into this level (2). A file that
   // have a key range that overlap with the memtable key range will require us
   // to Flush the memtable first before ingesting the file.
-  // In the second mode we will always ingest in the bottom mode level (see
+  // In the second mode we will always ingest in the bottom most level (see
   // docs to IngestExternalFileOptions::ingest_behind).
   //
   // (1) External SST files can be created using SstFileWriter
