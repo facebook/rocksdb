@@ -1582,8 +1582,6 @@ int offset_of(T1 CompactionOptionsUniversal::*member) {
 std::unordered_map<std::string, OptionTypeInfo>
     OptionsHelper::cf_options_type_info = {
         /* not yet supported
-        CompactionOptionsFIFO compaction_options_fifo;
-        CompactionOptionsUniversal compaction_options_universal;
         CompressionOptions compression_opts;
         TablePropertiesCollectorFactories table_properties_collector_factories;
         typedef std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>
