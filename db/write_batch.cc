@@ -15,10 +15,12 @@
 //    kTypeValue varstring varstring
 //    kTypeDeletion varstring
 //    kTypeSingleDeletion varstring
+//    kTypeRangeDeletion varstring varstring
 //    kTypeMerge varstring varstring
 //    kTypeColumnFamilyValue varint32 varstring varstring
-//    kTypeColumnFamilyDeletion varint32 varstring varstring
-//    kTypeColumnFamilySingleDeletion varint32 varstring varstring
+//    kTypeColumnFamilyDeletion varint32 varstring
+//    kTypeColumnFamilySingleDeletion varint32 varstring
+//    kTypeColumnFamilyRangeDeletion varint32 varstring varstring
 //    kTypeColumnFamilyMerge varint32 varstring varstring
 //    kTypeBeginPrepareXID varstring
 //    kTypeEndPrepareXID
