@@ -2187,15 +2187,19 @@ TEST_F(DBIteratorTest, ReadCallback) {
   auto* cfd =
       reinterpret_cast<ColumnFamilyHandleImpl*>(db_->DefaultColumnFamily())
           ->cfd();
+  // The iterator are suppose to see data before seq1.
   Iterator* iter =
       dbfull()->NewIteratorImpl(ReadOptions(), cfd, seq2, &callback1);
 
   // Seek
+  // The latest value of "foo" before seq1 is "v3"
   iter->Seek("foo");
   ASSERT_TRUE(iter->Valid());
   ASSERT_OK(iter->status());
   ASSERT_EQ("foo", iter->key());
   ASSERT_EQ("v3", iter->value());
+  // "bar" is not visible to the iterator. It will move on to the next key
+  // "foo".
   iter->Seek("bar");
   ASSERT_TRUE(iter->Valid());
   ASSERT_OK(iter->status());
@@ -2203,38 +2207,46 @@ TEST_F(DBIteratorTest, ReadCallback) {
   ASSERT_EQ("v3", iter->value());
 
   // Next
+  // Seek to "a"
   iter->Seek("a");
   ASSERT_TRUE(iter->Valid());
   ASSERT_OK(iter->status());
   ASSERT_EQ("va", iter->value());
-  iter->Next(); // skipping "bar"
+  // "bar" is not visible to the iterator. It will move on to the next key
+  // "foo".
+  iter->Next();
   ASSERT_TRUE(iter->Valid());
   ASSERT_OK(iter->status());
   ASSERT_EQ("foo", iter->key());
   ASSERT_EQ("v3", iter->value());
 
   // Prev
+  // Seek to "z"
   iter->Seek("z");
   ASSERT_TRUE(iter->Valid());
   ASSERT_OK(iter->status());
   ASSERT_EQ("vz", iter->value());
+  // The previous key is "foo", which is visible to the iterator.
   iter->Prev();
   ASSERT_TRUE(iter->Valid());
   ASSERT_OK(iter->status());
   ASSERT_EQ("foo", iter->key());
   ASSERT_EQ("v3", iter->value());
-  iter->Prev(); // skipping "bar"
+  // "bar" is not visible to the iterator. It will move on to the next key "a".
+  iter->Prev();  // skipping "bar"
   ASSERT_TRUE(iter->Valid());
   ASSERT_OK(iter->status());
   ASSERT_EQ("a", iter->key());
   ASSERT_EQ("va", iter->value());
 
   // SeekForPrev
+  // The previous key is "foo", which is visible to the iterator.
   iter->SeekForPrev("y");
   ASSERT_TRUE(iter->Valid());
   ASSERT_OK(iter->status());
   ASSERT_EQ("foo", iter->key());
   ASSERT_EQ("v3", iter->value());
+  // "bar" is not visible to the iterator. It will move on to the next key "a".
   iter->SeekForPrev("bar");
   ASSERT_TRUE(iter->Valid());
   ASSERT_OK(iter->status());
@@ -2254,16 +2266,24 @@ TEST_F(DBIteratorTest, ReadCallback) {
   ASSERT_OK(Put("bar", "v8"));
   SequenceNumber seq4 = db_->GetLatestSequenceNumber();
 
+  // The iterator is suppose to see data before seq3.
   iter = dbfull()->NewIteratorImpl(ReadOptions(), cfd, seq4, &callback2);
+  // Seek to "z", which is visible.
   iter->Seek("z");
   ASSERT_TRUE(iter->Valid());
   ASSERT_OK(iter->status());
   ASSERT_EQ("vz", iter->value());
+  // Previous key is "foo" and the last value "v5" is visible.
   iter->Prev();
   ASSERT_TRUE(iter->Valid());
   ASSERT_OK(iter->status());
   ASSERT_EQ("foo", iter->key());
   ASSERT_EQ("v5", iter->value());
+  // Since the number of values of "bar" is more than
+  // max_sequential_skip_in_iterations, Prev() will ultimately fallback to
+  // seek in forward direction. Here we test the fallback seek is correct.
+  // The last visible value should be (num_versions - 1), as "v8" is not
+  // visible.
   iter->Prev();
   ASSERT_TRUE(iter->Valid());
   ASSERT_OK(iter->status());
