@@ -22,7 +22,7 @@ namespace rocksdb {
 #else
 #include "jemalloc/jemalloc.h"
 #endif
-  
+
 typedef struct {
   char* cur;
   char* end;
