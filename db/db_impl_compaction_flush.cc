@@ -287,6 +287,9 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
   auto cfd = cfh->cfd();
   bool exclusive = options.exclusive_manual_compaction;
 
+  ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                 "[%s] Flush scheduled by CompactRange",
+                 cfd->GetName().c_str());
   Status s = FlushMemTable(cfd, FlushOptions());
   if (!s.ok()) {
     LogFlush(immutable_db_options_.info_log);
@@ -583,6 +586,9 @@ Status DBImpl::CompactFilesImpl(
 
   Status status = compaction_job.Install(*c->mutable_cf_options());
   if (status.ok()) {
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "[%s] Flush scheduled by compact files",
+                   c->column_family_data()->GetName().c_str());
     InstallSuperVersionAndScheduleWork(
         c->column_family_data(), &job_context->superversion_context,
        *c->mutable_cf_options());
@@ -773,6 +779,9 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
 
     status = versions_->LogAndApply(cfd, mutable_cf_options, &edit, &mutex_,
                                     directories_.GetDbDir());
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "[%s] Flush scheduled by ReFitLevel.",
+                   cfd->GetName().c_str());
     InstallSuperVersionAndScheduleWork(cfd, &sv_context, mutable_cf_options);
 
     ROCKS_LOG_DEBUG(immutable_db_options_.info_log, "[%s] LogAndApply: %s\n",
@@ -1601,6 +1610,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     status = versions_->LogAndApply(c->column_family_data(),
                                     *c->mutable_cf_options(), c->edit(),
                                     &mutex_, directories_.GetDbDir());
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "[%s] Flush scheduled by background compaction.",
+                   c->column_family_data()->GetName().c_str());
     InstallSuperVersionAndScheduleWork(
         c->column_family_data(), &job_context->superversion_context,
         *c->mutable_cf_options());
@@ -1648,6 +1660,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                                     *c->mutable_cf_options(), c->edit(),
                                     &mutex_, directories_.GetDbDir());
     // Use latest MutableCFOptions
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "[%s] Flush scheduled by background compaction.",
+                   c->column_family_data()->GetName().c_str());
     InstallSuperVersionAndScheduleWork(
         c->column_family_data(), &job_context->superversion_context,
         *c->mutable_cf_options());
@@ -1727,6 +1742,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 
     status = compaction_job.Install(*c->mutable_cf_options());
     if (status.ok()) {
+      ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                     "[%s] Flush scheduled by background compaction.",
+                     c->column_family_data()->GetName().c_str());
       InstallSuperVersionAndScheduleWork(
           c->column_family_data(), &job_context->superversion_context,
           *c->mutable_cf_options());

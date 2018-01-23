@@ -258,6 +258,9 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
       if (!cfd->IsDropped() && cfd->initialized() && !cfd->mem()->IsEmpty()) {
         cfd->Ref();
         mutex_.Unlock();
+        ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                       "[%s] Flush scheduled due to shutdown",
+                       cfd->GetName().c_str());
         FlushMemTable(cfd, FlushOptions());
         mutex_.Lock();
         cfd->Unref();
@@ -545,6 +548,9 @@ Status DBImpl::SetOptions(ColumnFamilyHandle* column_family,
       // Trigger possible flush/compactions. This has to be before we persist
       // options to file, otherwise there will be a deadlock with writer
       // thread.
+      ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                     "[%s] Flush scheduled by SetOptions",
+                     cfd->GetName().c_str());
       InstallSuperVersionAndScheduleWork(cfd, &sv_context, new_options);
 
       persist_options_status = WriteOptionsFile(
@@ -2135,6 +2141,9 @@ Status DBImpl::DeleteFile(std::string name) {
     status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
                                     &edit, &mutex_, directories_.GetDbDir());
     if (status.ok()) {
+      ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                     "[%s] Flush scheduled by DeleteFile",
+                     cfd->GetName().c_str());
       InstallSuperVersionAndScheduleWork(
           cfd, &job_context.superversion_context,
           *cfd->GetLatestMutableCFOptions());
@@ -2219,6 +2228,9 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
     status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
                                     &edit, &mutex_, directories_.GetDbDir());
     if (status.ok()) {
+      ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                     "[%s] Flush scheduled by DeleteFilesInRange",
+                     cfd->GetName().c_str());
       InstallSuperVersionAndScheduleWork(
           cfd, &job_context.superversion_context,
           *cfd->GetLatestMutableCFOptions());
@@ -2826,6 +2838,9 @@ Status DBImpl::IngestExternalFile(
                                &need_flush);
       if (status.ok() && need_flush) {
         mutex_.Unlock();
+        ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                       "[%s] Flush scheduled by external file ingestion",
+                       cfd->GetName().c_str());
         status = FlushMemTable(cfd, FlushOptions(), true /* writes_stopped */);
         mutex_.Lock();
       }

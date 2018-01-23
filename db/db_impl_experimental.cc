@@ -138,6 +138,9 @@ Status DBImpl::PromoteL0(ColumnFamilyHandle* column_family, int target_level) {
     status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
                                     &edit, &mutex_, directories_.GetDbDir());
     if (status.ok()) {
+      ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                     "[%s] Flush scheduled by PromoteL0",
+                     cfd->GetName().c_str());
       InstallSuperVersionAndScheduleWork(
           cfd, &job_context.superversion_context,
           *cfd->GetLatestMutableCFOptions());

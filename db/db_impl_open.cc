@@ -1081,6 +1081,9 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     if (s.ok()) {
       SuperVersionContext sv_context(/* create_superversion */ true);
       for (auto cfd : *impl->versions_->GetColumnFamilySet()) {
+        ROCKS_LOG_INFO(impl->immutable_db_options_.info_log,
+                       "[%s] Flush scheduled by opening database %s",
+                       cfd->GetName().c_str(), dbname.c_str());
         impl->InstallSuperVersionAndScheduleWork(
             cfd, &sv_context, *cfd->GetLatestMutableCFOptions());
       }
