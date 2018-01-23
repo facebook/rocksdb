@@ -24,6 +24,7 @@
 //    kTypeEndPrepareXID
 //    kTypeCommitXID varstring
 //    kTypeRollbackXID varstring
+//    kTypeBeginPersistedPrepareXID varstring
 //    kTypeNoop
 // varstring :=
 //    len: varint32
@@ -67,6 +68,7 @@ enum ContentFlags : uint32_t {
   HAS_COMMIT = 1 << 7,
   HAS_ROLLBACK = 1 << 8,
   HAS_DELETE_RANGE = 1 << 9,
+  HAS_BLOB_INDEX = 1 << 10,
 };
 
 struct BatchContentClassifier : public WriteBatch::Handler {
@@ -94,6 +96,11 @@ struct BatchContentClassifier : public WriteBatch::Handler {
 
   Status MergeCF(uint32_t, const Slice&, const Slice&) override {
     content_flags |= ContentFlags::HAS_MERGE;
+    return Status::OK();
+  }
+
+  Status PutBlobIndexCF(uint32_t, const Slice&, const Slice&) override {
+    content_flags |= ContentFlags::HAS_BLOB_INDEX;
     return Status::OK();
   }
 
@@ -136,6 +143,12 @@ WriteBatch::WriteBatch(const std::string& rep)
       content_flags_(ContentFlags::DEFERRED),
       max_bytes_(0),
       rep_(rep) {}
+
+WriteBatch::WriteBatch(std::string&& rep)
+    : save_points_(nullptr),
+      content_flags_(ContentFlags::DEFERRED),
+      max_bytes_(0),
+      rep_(std::move(rep)) {}
 
 WriteBatch::WriteBatch(const WriteBatch& src)
     : save_points_(src.save_points_),
@@ -328,6 +341,17 @@ Status ReadRecordFromWriteBatch(Slice* input, char* tag,
         return Status::Corruption("bad WriteBatch Merge");
       }
       break;
+    case kTypeColumnFamilyBlobIndex:
+      if (!GetVarint32(input, column_family)) {
+        return Status::Corruption("bad WriteBatch BlobIndex");
+      }
+    // intentional fallthrough
+    case kTypeBlobIndex:
+      if (!GetLengthPrefixedSlice(input, key) ||
+          !GetLengthPrefixedSlice(input, value)) {
+        return Status::Corruption("bad WriteBatch BlobIndex");
+      }
+      break;
     case kTypeLogData:
       assert(blob != nullptr);
       if (!GetLengthPrefixedSlice(input, blob)) {
@@ -336,6 +360,9 @@ Status ReadRecordFromWriteBatch(Slice* input, char* tag,
       break;
     case kTypeNoop:
     case kTypeBeginPrepareXID:
+      // This indicates that the prepared batch is also persisted in the db.
+      // This is used in WritePreparedTxn
+    case kTypeBeginPersistedPrepareXID:
       break;
     case kTypeEndPrepareXID:
       if (!GetLengthPrefixedSlice(input, xid)) {
@@ -424,15 +451,41 @@ Status WriteBatch::Iterate(Handler* handler) const {
         empty_batch = false;
         found++;
         break;
+      case kTypeColumnFamilyBlobIndex:
+      case kTypeBlobIndex:
+        assert(content_flags_.load(std::memory_order_relaxed) &
+               (ContentFlags::DEFERRED | ContentFlags::HAS_BLOB_INDEX));
+        s = handler->PutBlobIndexCF(column_family, key, value);
+        found++;
+        break;
       case kTypeLogData:
         handler->LogData(blob);
-        empty_batch = true;
+        // A batch might have nothing but LogData. It is still a batch.
+        empty_batch = false;
         break;
       case kTypeBeginPrepareXID:
         assert(content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_BEGIN_PREPARE));
         handler->MarkBeginPrepare();
         empty_batch = false;
+        if (!handler->WriteAfterCommit()) {
+          s = Status::NotSupported(
+              "WriteCommitted txn tag when write_after_commit_ is disabled (in "
+              "WritePrepared mode). If it is not due to corruption, the WAL "
+              "must be emptied before changing the WritePolicy.");
+        }
+        break;
+      case kTypeBeginPersistedPrepareXID:
+        assert(content_flags_.load(std::memory_order_relaxed) &
+               (ContentFlags::DEFERRED | ContentFlags::HAS_BEGIN_PREPARE));
+        handler->MarkBeginPrepare();
+        empty_batch = false;
+        if (handler->WriteAfterCommit()) {
+          s = Status::NotSupported(
+              "WritePrepared txn tag when write_after_commit_ is enabled (in "
+              "default WriteCommitted mode). If it is not due to corruption, "
+              "the WAL must be emptied before changing the WritePolicy.");
+        }
         break;
       case kTypeEndPrepareXID:
         assert(content_flags_.load(std::memory_order_relaxed) &
@@ -468,6 +521,14 @@ Status WriteBatch::Iterate(Handler* handler) const {
   } else {
     return Status::OK();
   }
+}
+
+bool WriteBatchInternal::IsLatestPersistentState(const WriteBatch* b) {
+  return b->is_latest_persistent_state_;
+}
+
+void WriteBatchInternal::SetAsLastestPersistentState(WriteBatch* b) {
+  b->is_latest_persistent_state_ = true;
 }
 
 int WriteBatchInternal::Count(const WriteBatch* b) {
@@ -543,7 +604,8 @@ Status WriteBatchInternal::InsertNoop(WriteBatch* b) {
   return Status::OK();
 }
 
-Status WriteBatchInternal::MarkEndPrepare(WriteBatch* b, const Slice& xid) {
+Status WriteBatchInternal::MarkEndPrepare(WriteBatch* b, const Slice& xid,
+                                          bool write_after_commit) {
   // a manually constructed batch can only contain one prepare section
   assert(b->rep_[12] == static_cast<char>(kTypeNoop));
 
@@ -555,7 +617,9 @@ Status WriteBatchInternal::MarkEndPrepare(WriteBatch* b, const Slice& xid) {
   }
 
   // rewrite noop as begin marker
-  b->rep_[12] = static_cast<char>(kTypeBeginPrepareXID);
+  b->rep_[12] =
+      static_cast<char>(write_after_commit ? kTypeBeginPrepareXID
+                                           : kTypeBeginPersistedPrepareXID);
   b->rep_.push_back(static_cast<char>(kTypeEndPrepareXID));
   PutLengthPrefixedSlice(&b->rep_, xid);
   b->content_flags_.store(b->content_flags_.load(std::memory_order_relaxed) |
@@ -776,6 +840,25 @@ Status WriteBatch::Merge(ColumnFamilyHandle* column_family,
                                    value);
 }
 
+Status WriteBatchInternal::PutBlobIndex(WriteBatch* b,
+                                        uint32_t column_family_id,
+                                        const Slice& key, const Slice& value) {
+  LocalSavePoint save(b);
+  WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
+  if (column_family_id == 0) {
+    b->rep_.push_back(static_cast<char>(kTypeBlobIndex));
+  } else {
+    b->rep_.push_back(static_cast<char>(kTypeColumnFamilyBlobIndex));
+    PutVarint32(&b->rep_, column_family_id);
+  }
+  PutLengthPrefixedSlice(&b->rep_, key);
+  PutLengthPrefixedSlice(&b->rep_, value);
+  b->content_flags_.store(b->content_flags_.load(std::memory_order_relaxed) |
+                              ContentFlags::HAS_BLOB_INDEX,
+                          std::memory_order_relaxed);
+  return save.commit();
+}
+
 Status WriteBatch::PutLogData(const Slice& blob) {
   LocalSavePoint save(this);
   rep_.push_back(static_cast<char>(kTypeLogData));
@@ -869,6 +952,9 @@ class MemTableInserter : public WriteBatch::Handler {
     return *reinterpret_cast<MemPostInfoMap*>(&mem_post_info_map_);
   }
 
+ protected:
+  virtual bool WriteAfterCommit() const override { return write_after_commit_; }
+
  public:
   // cf_mems should not be shared with concurrent inserters
   MemTableInserter(SequenceNumber _sequence, ColumnFamilyMemTables* cf_mems,
@@ -888,6 +974,7 @@ class MemTableInserter : public WriteBatch::Handler {
         post_info_created_(false),
         has_valid_writes_(has_valid_writes),
         rebuilding_trx_(nullptr),
+        rebuilding_trx_seq_(0),
         seq_per_batch_(seq_per_batch),
         // Write after commit currently uses one seq per key (instead of per
         // batch). So seq_per_batch being false indicates write_after_commit
@@ -901,11 +988,24 @@ class MemTableInserter : public WriteBatch::Handler {
       reinterpret_cast<MemPostInfoMap*>
         (&mem_post_info_map_)->~MemPostInfoMap();
     }
+    delete rebuilding_trx_;
   }
 
   MemTableInserter(const MemTableInserter&) = delete;
   MemTableInserter& operator=(const MemTableInserter&) = delete;
 
+  virtual bool WriterAfterCommit() const { return write_after_commit_; }
+
+  // The batch seq is regularly restarted; In normal mode it is set when
+  // MemTableInserter is constructed in the write thread and in recovery mode it
+  // is set when a batch, which is tagged with seq, is read from the WAL.
+  // Within a sequenced batch, which could be a merge of multiple batches, we
+  // have two policies to advance the seq: i) seq_per_key (default) and ii)
+  // seq_per_batch. To implement the latter we need to mark the boundry between
+  // the individual batches. The approach is this: 1) Use the terminating
+  // markers to indicate the boundry (kTypeEndPrepareXID, kTypeCommitXID,
+  // kTypeRollbackXID) 2) Terminate a batch with kTypeNoop in the absense of a
+  // natural boundy marker.
   void MaybeAdvanceSeq(bool batch_boundry = false) {
     if (batch_boundry == seq_per_batch_) {
       sequence_++;
@@ -967,8 +1067,8 @@ class MemTableInserter : public WriteBatch::Handler {
     return true;
   }
 
-  virtual Status PutCF(uint32_t column_family_id, const Slice& key,
-                       const Slice& value) override {
+  Status PutCFImpl(uint32_t column_family_id, const Slice& key,
+                   const Slice& value, ValueType value_type) {
     if (rebuilding_trx_ != nullptr) {
       WriteBatchInternal::Put(rebuilding_trx_, column_family_id, key, value);
       if (write_after_commit_) {
@@ -984,14 +1084,13 @@ class MemTableInserter : public WriteBatch::Handler {
     }
 
     MemTable* mem = cf_mems_->GetMemTable();
-    auto* moptions = mem->GetMemTableOptions();
+    auto* moptions = mem->GetImmutableMemTableOptions();
     if (!moptions->inplace_update_support) {
-      mem->Add(sequence_, kTypeValue, key, value, concurrent_memtable_writes_,
+      mem->Add(sequence_, value_type, key, value, concurrent_memtable_writes_,
                get_post_process_info(mem));
     } else if (moptions->inplace_callback == nullptr) {
       assert(!concurrent_memtable_writes_);
       mem->Update(sequence_, key, value);
-      RecordTick(moptions->statistics, NUMBER_KEYS_UPDATED);
     } else {
       assert(!concurrent_memtable_writes_);
       if (mem->UpdateCallback(sequence_, key, value)) {
@@ -1024,11 +1123,11 @@ class MemTableInserter : public WriteBatch::Handler {
                                                  value, &merged_value);
         if (status == UpdateStatus::UPDATED_INPLACE) {
           // prev_value is updated in-place with final value.
-          mem->Add(sequence_, kTypeValue, key, Slice(prev_buffer, prev_size));
+          mem->Add(sequence_, value_type, key, Slice(prev_buffer, prev_size));
           RecordTick(moptions->statistics, NUMBER_KEYS_WRITTEN);
         } else if (status == UpdateStatus::UPDATED) {
           // merged_value contains the final value.
-          mem->Add(sequence_, kTypeValue, key, Slice(merged_value));
+          mem->Add(sequence_, value_type, key, Slice(merged_value));
           RecordTick(moptions->statistics, NUMBER_KEYS_WRITTEN);
         }
       }
@@ -1039,6 +1138,11 @@ class MemTableInserter : public WriteBatch::Handler {
     MaybeAdvanceSeq();
     CheckMemtableFull();
     return Status::OK();
+  }
+
+  virtual Status PutCF(uint32_t column_family_id, const Slice& key,
+                       const Slice& value) override {
+    return PutCFImpl(column_family_id, key, value, kTypeValue);
   }
 
   Status DeleteImpl(uint32_t column_family_id, const Slice& key,
@@ -1141,7 +1245,7 @@ class MemTableInserter : public WriteBatch::Handler {
     }
 
     MemTable* mem = cf_mems_->GetMemTable();
-    auto* moptions = mem->GetMemTableOptions();
+    auto* moptions = mem->GetImmutableMemTableOptions();
     bool perform_merge = false;
 
     // If we pass DB through and options.max_successive_merges is hit
@@ -1207,6 +1311,12 @@ class MemTableInserter : public WriteBatch::Handler {
     MaybeAdvanceSeq();
     CheckMemtableFull();
     return Status::OK();
+  }
+
+  virtual Status PutBlobIndexCF(uint32_t column_family_id, const Slice& key,
+                                const Slice& value) override {
+    // Same as PutCF except for value type.
+    return PutCFImpl(column_family_id, key, value, kTypeBlobIndex);
   }
 
   void CheckMemtableFull() {
@@ -1338,6 +1448,9 @@ class MemTableInserter : public WriteBatch::Handler {
       // in non recovery we simply ignore this tag
     }
 
+    const bool batch_boundry = true;
+    MaybeAdvanceSeq(batch_boundry);
+
     return Status::OK();
   }
 
@@ -1366,13 +1479,16 @@ Status WriteBatchInternal::InsertInto(
                             db, concurrent_memtable_writes,
                             nullptr /*has_valid_writes*/, seq_per_batch);
   for (auto w : write_group) {
+    if (w->CallbackFailed()) {
+      continue;
+    }
+    w->sequence = inserter.sequence();
     if (!w->ShouldWriteToMemtable()) {
+      // In seq_per_batch_ mode this advances the seq by one.
       inserter.MaybeAdvanceSeq(true);
-      w->sequence = inserter.sequence();
       continue;
     }
     SetSequence(w->batch, inserter.sequence());
-    w->sequence = inserter.sequence();
     inserter.set_log_number_ref(w->log_ref);
     w->status = w->batch->Iterate(&inserter);
     if (!w->status.ok()) {
@@ -1382,17 +1498,16 @@ Status WriteBatchInternal::InsertInto(
   return Status::OK();
 }
 
-Status WriteBatchInternal::InsertInto(WriteThread::Writer* writer,
-                                      SequenceNumber sequence,
-                                      ColumnFamilyMemTables* memtables,
-                                      FlushScheduler* flush_scheduler,
-                                      bool ignore_missing_column_families,
-                                      uint64_t log_number, DB* db,
-                                      bool concurrent_memtable_writes) {
+Status WriteBatchInternal::InsertInto(
+    WriteThread::Writer* writer, SequenceNumber sequence,
+    ColumnFamilyMemTables* memtables, FlushScheduler* flush_scheduler,
+    bool ignore_missing_column_families, uint64_t log_number, DB* db,
+    bool concurrent_memtable_writes, bool seq_per_batch) {
   assert(writer->ShouldWriteToMemtable());
   MemTableInserter inserter(sequence, memtables, flush_scheduler,
                             ignore_missing_column_families, log_number, db,
-                            concurrent_memtable_writes);
+                            concurrent_memtable_writes,
+                            nullptr /*has_valid_writes*/, seq_per_batch);
   SetSequence(writer->batch, sequence);
   inserter.set_log_number_ref(writer->log_ref);
   Status s = writer->batch->Iterate(&inserter);

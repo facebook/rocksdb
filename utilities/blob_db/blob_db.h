@@ -52,31 +52,33 @@ struct BlobDBOptions {
   // and so on
   uint64_t ttl_range_secs = 3600;
 
-  // at what bytes will the blob files be synced to blob log.
-  uint64_t bytes_per_sync = 0;
+  // The smallest value to store in blob log. Value larger than this threshold
+  // will be inlined in base DB together with the key.
+  uint64_t min_blob_size = 0;
+
+  // Allows OS to incrementally sync blob files to disk for every
+  // bytes_per_sync bytes written. Users shouldn't rely on it for
+  // persistency guarantee.
+  uint64_t bytes_per_sync = 512 * 1024;
 
   // the target size of each blob file. File will become immutable
   // after it exceeds that size
   uint64_t blob_file_size = 256 * 1024 * 1024;
-
-  // how many files to use for simple blobs at one time
-  uint32_t num_concurrent_simple_blobs = 1;
 
   // Instead of setting TTL explicitly by calling PutWithTTL or PutUntil,
   // applications can set a TTLExtractor which can extract TTL from key-value
   // pairs.
   std::shared_ptr<TTLExtractor> ttl_extractor = nullptr;
 
-  // eviction callback.
-  // this function will be called for every blob that is getting
-  // evicted.
-  std::function<void(const ColumnFamilyHandle*, const Slice&, const Slice&)>
-      gc_evict_cb_fn;
-
   // what compression to use for Blob's
   CompressionType compression = kNoCompression;
 
-  // Disable all background job.
+  // If enabled, blob DB periodically cleanup stale data by rewriting remaining
+  // live data in blob files to new files. If garbage collection is not enabled,
+  // blob files will be cleanup based on TTL.
+  bool enable_garbage_collection = false;
+
+  // Disable all background job. Used for test only.
   bool disable_background_tasks = false;
 
   void Dump(Logger* log) const;
@@ -190,23 +192,7 @@ class BlobDB : public StackableDB {
     return NewIterator(options);
   }
 
-  // Starting point for opening a Blob DB.
-  // changed_options - critical. Blob DB loads and inserts listeners
-  // into options which are necessary for recovery and atomicity
-  // Use this pattern if you need control on step 2, i.e. your
-  // BaseDB is not just a simple rocksdb but a stacked DB
-  // 1. ::OpenAndLoad
-  // 2. Open Base DB with the changed_options
-  // 3. ::LinkToBaseDB
-  static Status OpenAndLoad(const Options& options,
-                            const BlobDBOptions& bdb_options,
-                            const std::string& dbname, BlobDB** blob_db,
-                            Options* changed_options);
-
-  // This is another way to open BLOB DB which do not have other
-  // Stackable DB's in play
-  // Steps.
-  // 1. ::Open
+  // Opening blob db.
   static Status Open(const Options& options, const BlobDBOptions& bdb_options,
                      const std::string& dbname, BlobDB** blob_db);
 
@@ -215,16 +201,16 @@ class BlobDB : public StackableDB {
                      const std::string& dbname,
                      const std::vector<ColumnFamilyDescriptor>& column_families,
                      std::vector<ColumnFamilyHandle*>* handles,
-                     BlobDB** blob_db, bool no_base_db = false);
+                     BlobDB** blob_db);
 
   virtual BlobDBOptions GetBlobDBOptions() const = 0;
 
+  virtual Status SyncBlobFiles() = 0;
+
   virtual ~BlobDB() {}
 
-  virtual Status LinkToBaseDB(DB* db_base) = 0;
-
  protected:
-  explicit BlobDB(DB* db);
+  explicit BlobDB();
 };
 
 // Destroy the content of the database.

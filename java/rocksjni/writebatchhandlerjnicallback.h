@@ -10,6 +10,7 @@
 #define JAVA_ROCKSJNI_WRITEBATCHHANDLERJNICALLBACK_H_
 
 #include <jni.h>
+#include "rocksjni/jnicallback.h"
 #include "rocksdb/write_batch.h"
 
 namespace rocksdb {
@@ -20,11 +21,10 @@ namespace rocksdb {
  * which calls the appropriate Java method.
  * This enables Write Batch Handlers to be implemented in Java.
  */
-class WriteBatchHandlerJniCallback : public WriteBatch::Handler {
+class WriteBatchHandlerJniCallback : public JniCallback, public WriteBatch::Handler {
  public:
     WriteBatchHandlerJniCallback(
       JNIEnv* env, jobject jWriteBackHandler);
-    ~WriteBatchHandlerJniCallback();
     void Put(const Slice& key, const Slice& value);
     void Merge(const Slice& key, const Slice& value);
     void Delete(const Slice& key);
@@ -34,7 +34,6 @@ class WriteBatchHandlerJniCallback : public WriteBatch::Handler {
 
  private:
     JNIEnv* m_env;
-    jobject m_jWriteBatchHandler;
     jbyteArray sliceToJArray(const Slice& s);
     jmethodID m_jPutMethodId;
     jmethodID m_jMergeMethodId;

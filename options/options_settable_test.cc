@@ -13,15 +13,15 @@
 
 #include <cstring>
 
-#include "options/options_parser.h"
+#include "options/options_helper.h"
 #include "rocksdb/convenience.h"
 #include "util/testharness.h"
 
 #ifndef GFLAGS
 bool FLAGS_enable_print = false;
 #else
-#include <gflags/gflags.h>
-using GFLAGS::ParseCommandLineFlags;
+#include "util/gflags_compat.h"
+using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 DEFINE_bool(enable_print, false, "Print options generated to console.");
 #endif  // GFLAGS
 
@@ -150,7 +150,8 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       "filter_policy=bloomfilter:4:true;whole_key_filtering=1;"
       "format_version=1;"
       "hash_index_allow_collision=false;"
-      "verify_compression=true;read_amp_bytes_per_bit=0",
+      "verify_compression=true;read_amp_bytes_per_bit=0;"
+      "enable_index_compression=false",
       new_bbto));
 
   ASSERT_EQ(unset_bytes_base,
@@ -282,7 +283,9 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "avoid_flush_during_recovery=false;"
                              "avoid_flush_during_shutdown=false;"
                              "allow_ingest_behind=false;"
+                             "preserve_deletes=false;"
                              "concurrent_prepare=false;"
+                             "two_write_queues=false;"
                              "manual_wal_flush=false;"
                              "seq_per_batch=false;",
                              new_options));
@@ -295,6 +298,12 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
 
   delete[] options_ptr;
   delete[] new_options_ptr;
+}
+
+template <typename T1, typename T2>
+inline int offset_of(T1 T2::*member) {
+  static T2 obj;
+  return int(size_t(&(obj.*member)) - size_t(&obj));
 }
 
 // If the test fails, likely a new option is added to ColumnFamilyOptions
@@ -371,7 +380,6 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   options->hard_rate_limit = 0;
   options->soft_rate_limit = 0;
   options->purge_redundant_kvs_while_flush = false;
-  options->compaction_options_fifo = CompactionOptionsFIFO();
   options->max_mem_compaction_level = 0;
 
   char* new_options_ptr = new char[sizeof(ColumnFamilyOptions)];
@@ -427,7 +435,9 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "compaction_pri=kMinOverlappingRatio;"
       "hard_pending_compaction_bytes_limit=0;"
       "disable_auto_compactions=false;"
-      "report_bg_io_stats=true;",
+      "report_bg_io_stats=true;"
+      "compaction_options_fifo={max_table_files_size=3;ttl=100;allow_"
+      "compaction=false;};",
       new_options));
 
   ASSERT_EQ(unset_bytes_base,

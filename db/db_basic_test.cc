@@ -41,7 +41,7 @@ TEST_F(DBBasicTest, ReadOnlyDB) {
   Close();
 
   auto options = CurrentOptions();
-  assert(options.env = env_);
+  assert(options.env == env_);
   ASSERT_OK(ReadOnlyReopen(options));
   ASSERT_EQ("v3", Get("foo"));
   ASSERT_EQ("v2", Get("bar"));
@@ -570,19 +570,19 @@ TEST_F(DBBasicTest, CompactBetweenSnapshots) {
 
 TEST_F(DBBasicTest, DBOpen_Options) {
   Options options = CurrentOptions();
-  std::string dbname = test::TmpDir(env_) + "/db_options_test";
-  ASSERT_OK(DestroyDB(dbname, options));
+  Close();
+  Destroy(options);
 
   // Does not exist, and create_if_missing == false: error
   DB* db = nullptr;
   options.create_if_missing = false;
-  Status s = DB::Open(options, dbname, &db);
+  Status s = DB::Open(options, dbname_, &db);
   ASSERT_TRUE(strstr(s.ToString().c_str(), "does not exist") != nullptr);
   ASSERT_TRUE(db == nullptr);
 
   // Does not exist, and create_if_missing == true: OK
   options.create_if_missing = true;
-  s = DB::Open(options, dbname, &db);
+  s = DB::Open(options, dbname_, &db);
   ASSERT_OK(s);
   ASSERT_TRUE(db != nullptr);
 
@@ -592,14 +592,14 @@ TEST_F(DBBasicTest, DBOpen_Options) {
   // Does exist, and error_if_exists == true: error
   options.create_if_missing = false;
   options.error_if_exists = true;
-  s = DB::Open(options, dbname, &db);
+  s = DB::Open(options, dbname_, &db);
   ASSERT_TRUE(strstr(s.ToString().c_str(), "exists") != nullptr);
   ASSERT_TRUE(db == nullptr);
 
   // Does exist, and error_if_exists == false: OK
   options.create_if_missing = true;
   options.error_if_exists = false;
-  s = DB::Open(options, dbname, &db);
+  s = DB::Open(options, dbname_, &db);
   ASSERT_OK(s);
   ASSERT_TRUE(db != nullptr);
 
@@ -846,6 +846,57 @@ TEST_F(DBBasicTest, MmapAndBufferOptions) {
   ASSERT_OK(TryReopen(options));
 }
 #endif
+
+class TestEnv : public EnvWrapper {
+  public:
+    explicit TestEnv(Env* base) : EnvWrapper(base) { };
+
+    class TestLogger : public Logger {
+      public:
+        using Logger::Logv;
+        virtual void Logv(const char *format, va_list ap) override { };
+      private:
+        virtual Status CloseImpl() override {
+          return Status::NotSupported();
+        }
+    };
+
+    virtual Status NewLogger(const std::string& fname,
+                             shared_ptr<Logger>* result) {
+      result->reset(new TestLogger());
+      return Status::OK();
+    }
+};
+
+TEST_F(DBBasicTest, DBClose) {
+  Options options = GetDefaultOptions();
+  std::string dbname = test::TmpDir(env_) + "/db_close_test";
+  ASSERT_OK(DestroyDB(dbname, options));
+
+  DB* db = nullptr;
+  options.create_if_missing = true;
+  options.env = new TestEnv(Env::Default());
+  Status s = DB::Open(options, dbname, &db);
+  ASSERT_OK(s);
+  ASSERT_TRUE(db != nullptr);
+
+  s = db->Close();
+  ASSERT_EQ(s, Status::NotSupported());
+
+  delete db;
+
+  // Provide our own logger and ensure DB::Close() does not close it
+  options.info_log.reset(new TestEnv::TestLogger());
+  options.create_if_missing = false;
+  s = DB::Open(options, dbname, &db);
+  ASSERT_OK(s);
+  ASSERT_TRUE(db != nullptr);
+
+  s = db->Close();
+  ASSERT_EQ(s, Status::OK());
+  delete db;
+  delete options.env;
+}
 
 }  // namespace rocksdb
 

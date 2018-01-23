@@ -33,7 +33,9 @@ extern Iterator* NewDBIterator(Env* env, const ReadOptions& read_options,
                                const Comparator* user_key_comparator,
                                InternalIterator* internal_iter,
                                const SequenceNumber& sequence,
-                               uint64_t max_sequential_skip_in_iterations);
+                               uint64_t max_sequential_skip_in_iterations,
+                               ReadCallback* read_callback,
+                               bool allow_blob = false);
 
 // A wrapper iterator which wraps DB Iterator and the arena, with which the DB
 // iterator is supposed be allocated. This class is used as an entry point of
@@ -63,20 +65,24 @@ class ArenaWrappedDBIter : public Iterator {
   virtual Slice value() const override;
   virtual Status status() const override;
   virtual Status Refresh() override;
+  bool IsBlob() const;
 
   virtual Status GetProperty(std::string prop_name, std::string* prop) override;
 
   void Init(Env* env, const ReadOptions& read_options,
             const ImmutableCFOptions& cf_options,
             const SequenceNumber& sequence,
-            uint64_t max_sequential_skip_in_iterations,
-            uint64_t version_number);
+            uint64_t max_sequential_skip_in_iterations, uint64_t version_number,
+            ReadCallback* read_callback, bool allow_blob, bool allow_refresh);
 
   void StoreRefreshInfo(const ReadOptions& read_options, DBImpl* db_impl,
-                        ColumnFamilyData* cfd) {
+                        ColumnFamilyData* cfd, ReadCallback* read_callback,
+                        bool allow_blob) {
     read_options_ = read_options;
     db_impl_ = db_impl;
     cfd_ = cfd;
+    read_callback_ = read_callback;
+    allow_blob_ = allow_blob;
   }
 
  private:
@@ -86,6 +92,9 @@ class ArenaWrappedDBIter : public Iterator {
   ColumnFamilyData* cfd_ = nullptr;
   DBImpl* db_impl_ = nullptr;
   ReadOptions read_options_;
+  ReadCallback* read_callback_;
+  bool allow_blob_ = false;
+  bool allow_refresh_ = true;
 };
 
 // Generate the arena wrapped iterator class.
@@ -95,6 +104,7 @@ extern ArenaWrappedDBIter* NewArenaWrappedDbIterator(
     Env* env, const ReadOptions& read_options,
     const ImmutableCFOptions& cf_options, const SequenceNumber& sequence,
     uint64_t max_sequential_skip_in_iterations, uint64_t version_number,
-    DBImpl* db_impl = nullptr, ColumnFamilyData* cfd = nullptr);
-
+    ReadCallback* read_callback, DBImpl* db_impl = nullptr,
+    ColumnFamilyData* cfd = nullptr, bool allow_blob = false,
+    bool allow_refresh = true);
 }  // namespace rocksdb

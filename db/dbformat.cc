@@ -27,13 +27,39 @@ namespace rocksdb {
 // and the value type is embedded as the low 8 bits in the sequence
 // number in internal keys, we need to use the highest-numbered
 // ValueType, not the lowest).
-const ValueType kValueTypeForSeek = kTypeSingleDeletion;
+const ValueType kValueTypeForSeek = kTypeBlobIndex;
 const ValueType kValueTypeForSeekForPrev = kTypeDeletion;
 
 uint64_t PackSequenceAndType(uint64_t seq, ValueType t) {
   assert(seq <= kMaxSequenceNumber);
   assert(IsExtendedValueType(t));
   return (seq << 8) | t;
+}
+
+EntryType GetEntryType(ValueType value_type) {
+  switch (value_type) {
+    case kTypeValue:
+      return kEntryPut;
+    case kTypeDeletion:
+      return kEntryDelete;
+    case kTypeSingleDeletion:
+      return kEntrySingleDelete;
+    case kTypeMerge:
+      return kEntryMerge;
+    default:
+      return kEntryOther;
+  }
+}
+
+bool ParseFullKey(const Slice& internal_key, FullKey* fkey) {
+  ParsedInternalKey ikey;
+  if (!ParseInternalKey(internal_key, &ikey)) {
+    return false;
+  }
+  fkey->user_key = ikey.user_key;
+  fkey->sequence = ikey.sequence;
+  fkey->type = GetEntryType(ikey.type);
+  return true;
 }
 
 void UnPackSequenceAndType(uint64_t packed, uint64_t* seq, ValueType* t) {

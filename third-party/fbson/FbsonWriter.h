@@ -32,6 +32,13 @@
 #include "FbsonDocument.h"
 #include "FbsonStream.h"
 
+// conversion' conversion from 'type1' to 'type2', possible loss of data
+// Can not restore at the header end as the warnings are emitted at the point of
+// template instantiation
+#if defined(_MSC_VER)
+#pragma warning(disable : 4244)
+#endif
+
 namespace fbson {
 
 template <class OS_TYPE>

@@ -11,7 +11,8 @@ package org.rocksdb;
 public enum ReadTier {
   READ_ALL_TIER((byte)0),
   BLOCK_CACHE_TIER((byte)1),
-  PERSISTED_TIER((byte)2);
+  PERSISTED_TIER((byte)2),
+  MEMTABLE_TIER((byte)3);
 
   private final byte value;
 

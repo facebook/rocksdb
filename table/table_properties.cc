@@ -139,6 +139,9 @@ std::string TableProperties::ToString(
 
   AppendProperty(result, "creation time", creation_time, prop_delim, kv_delim);
 
+  AppendProperty(result, "time stamp of earliest key", oldest_key_time,
+                 prop_delim, kv_delim);
+
   return result;
 }
 
@@ -191,6 +194,8 @@ const std::string TablePropertiesNames::kPropertyCollectors =
     "rocksdb.property.collectors";
 const std::string TablePropertiesNames::kCompression = "rocksdb.compression";
 const std::string TablePropertiesNames::kCreationTime = "rocksdb.creation.time";
+const std::string TablePropertiesNames::kOldestKeyTime =
+    "rocksdb.oldest.key.time";
 
 extern const std::string kPropertiesBlock = "rocksdb.properties";
 // Old property block name for backward compatibility
@@ -210,8 +215,9 @@ Status SeekToPropertiesBlock(InternalIterator* meta_iter, bool* is_found) {
 
 // Seek to the compression dictionary block.
 // Return true if it successfully seeks to that block.
-Status SeekToCompressionDictBlock(InternalIterator* meta_iter, bool* is_found) {
-  return SeekToMetaBlock(meta_iter, kCompressionDictBlock, is_found);
+Status SeekToCompressionDictBlock(InternalIterator* meta_iter, bool* is_found,
+                                  BlockHandle* block_handle) {
+  return SeekToMetaBlock(meta_iter, kCompressionDictBlock, is_found, block_handle);
 }
 
 Status SeekToRangeDelBlock(InternalIterator* meta_iter, bool* is_found,
