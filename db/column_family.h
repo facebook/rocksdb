@@ -194,7 +194,7 @@ class ColumnFamilyData {
   // *) delete all memory associated with that column family
   // *) delete all the files associated with that column family
   void SetDropped();
-  bool IsDropped() const { return dropped_; }
+  bool IsDropped() const { return dropped_.load(std::memory_order_relaxed); }
 
   // thread-safe
   int NumberLevels() const { return ioptions_.num_levels; }
@@ -239,7 +239,11 @@ class ColumnFamilyData {
   void SetCurrent(Version* _current);
   uint64_t GetNumLiveVersions() const;  // REQUIRE: DB mutex held
   uint64_t GetTotalSstFilesSize() const;  // REQUIRE: DB mutex held
-  void SetMemtable(MemTable* new_mem) { mem_ = new_mem; }
+  void SetMemtable(MemTable* new_mem) {
+    uint64_t memtable_id = last_memtable_id_.fetch_add(1) + 1;
+    new_mem->SetID(memtable_id);
+    mem_ = new_mem;
+  }
 
   // calculate the oldest log needed for the durability of this column family
   uint64_t OldestLogToKeep();
@@ -358,7 +362,7 @@ class ColumnFamilyData {
 
   std::atomic<int> refs_;      // outstanding references to ColumnFamilyData
   std::atomic<bool> initialized_;
-  bool dropped_;               // true if client dropped it
+  std::atomic<bool> dropped_;  // true if client dropped it
 
   const InternalKeyComparator internal_comparator_;
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
@@ -419,6 +423,9 @@ class ColumnFamilyData {
 
   // if the database was opened with 2pc enabled
   bool allow_2pc_;
+
+  // Memtable id to track flush.
+  std::atomic<uint64_t> last_memtable_id_;
 };
 
 // ColumnFamilySet has interesting thread-safety requirements

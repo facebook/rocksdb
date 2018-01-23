@@ -21,6 +21,7 @@
 
 #include "rocksdb/db.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksdb/rate_limiter.h"
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/backupable_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
@@ -636,7 +637,7 @@ class ColumnFamilyOptionsJni
       return nullptr;
     }
 
-    jobject jcfd = env->NewObject(jclazz, mid, reinterpret_cast<long>(cfo));
+    jobject jcfd = env->NewObject(jclazz, mid, reinterpret_cast<jlong>(cfo));
     if (env->ExceptionCheck()) {
       return nullptr;
     }
@@ -2523,8 +2524,10 @@ class TickerTypeJni {
         return 0x5B;
       case rocksdb::Tickers::NUMBER_RATE_LIMITER_DRAINS:
         return 0x5C;
-      case rocksdb::Tickers::TICKER_ENUM_MAX:
+      case rocksdb::Tickers::NUMBER_ITER_SKIP:
         return 0x5D;
+      case rocksdb::Tickers::TICKER_ENUM_MAX:
+        return 0x5E;
 
       default:
         // undefined/default
@@ -2723,6 +2726,8 @@ class TickerTypeJni {
       case 0x5C:
         return rocksdb::Tickers::NUMBER_RATE_LIMITER_DRAINS;
       case 0x5D:
+        return rocksdb::Tickers::NUMBER_ITER_SKIP;
+      case 0x5E:
         return rocksdb::Tickers::TICKER_ENUM_MAX;
 
       default:
@@ -2802,8 +2807,10 @@ class HistogramTypeJni {
         return 0x1D;
       case rocksdb::Histograms::READ_NUM_MERGE_OPERANDS:
         return 0x1E;
-      case rocksdb::Histograms::HISTOGRAM_ENUM_MAX:
+      case rocksdb::Histograms::FLUSH_TIME:
         return 0x1F;
+      case rocksdb::Histograms::HISTOGRAM_ENUM_MAX:
+        return 0x20;
 
       default:
         // undefined/default
@@ -2878,6 +2885,8 @@ class HistogramTypeJni {
       case 0x1E:
         return rocksdb::Histograms::READ_NUM_MERGE_OPERANDS;
       case 0x1F:
+        return rocksdb::Histograms::FLUSH_TIME;
+      case 0x20:
         return rocksdb::Histograms::HISTOGRAM_ENUM_MAX;
 
       default:
@@ -2922,6 +2931,45 @@ class StatsLevelJni {
       default:
         // undefined/default
         return rocksdb::StatsLevel::kExceptDetailedTimers;
+    }
+  }
+};
+
+// The portal class for org.rocksdb.RateLimiterMode
+class RateLimiterModeJni {
+ public:
+  // Returns the equivalent org.rocksdb.RateLimiterMode for the provided
+  // C++ rocksdb::RateLimiter::Mode enum
+  static jbyte toJavaRateLimiterMode(
+      const rocksdb::RateLimiter::Mode& rate_limiter_mode) {
+    switch(rate_limiter_mode) {
+      case rocksdb::RateLimiter::Mode::kReadsOnly:
+        return 0x0;
+      case rocksdb::RateLimiter::Mode::kWritesOnly:
+        return 0x1;
+      case rocksdb::RateLimiter::Mode::kAllIo:
+        return 0x2;
+
+      default:
+        // undefined/default
+        return 0x1;
+    }
+  }
+
+  // Returns the equivalent C++ rocksdb::RateLimiter::Mode enum for the
+  // provided Java org.rocksdb.RateLimiterMode
+  static rocksdb::RateLimiter::Mode toCppRateLimiterMode(jbyte jrate_limiter_mode) {
+    switch(jrate_limiter_mode) {
+      case 0x0:
+        return rocksdb::RateLimiter::Mode::kReadsOnly;
+      case 0x1:
+        return rocksdb::RateLimiter::Mode::kWritesOnly;
+      case 0x2:
+        return rocksdb::RateLimiter::Mode::kAllIo;
+
+      default:
+        // undefined/default
+        return rocksdb::RateLimiter::Mode::kWritesOnly;
     }
   }
 };

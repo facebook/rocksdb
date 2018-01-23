@@ -68,6 +68,7 @@ class WalManagerTest : public testing::Test {
     WriteBatchInternal::SetSequence(&batch, seq);
     current_log_writer_->AddRecord(WriteBatchInternal::Contents(&batch));
     versions_->SetLastAllocatedSequence(seq);
+    versions_->SetLastPublishedSequence(seq);
     versions_->SetLastSequence(seq);
   }
 

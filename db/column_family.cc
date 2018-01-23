@@ -385,7 +385,8 @@ ColumnFamilyData::ColumnFamilyData(
       pending_flush_(false),
       pending_compaction_(false),
       prev_compaction_needed_bytes_(0),
-      allow_2pc_(db_options.allow_2pc) {
+      allow_2pc_(db_options.allow_2pc),
+      last_memtable_id_(0) {
   Ref();
 
   // Convert user defined table properties collector factories to internal ones.
@@ -1059,10 +1060,12 @@ ColumnFamilySet::~ColumnFamilySet() {
   while (column_family_data_.size() > 0) {
     // cfd destructor will delete itself from column_family_data_
     auto cfd = column_family_data_.begin()->second;
-    cfd->Unref();
+    bool last_ref __attribute__((__unused__)) = cfd->Unref();
+    assert(last_ref);
     delete cfd;
   }
-  dummy_cfd_->Unref();
+  bool dummy_last_ref __attribute__((__unused__)) = dummy_cfd_->Unref();
+  assert(dummy_last_ref);
   delete dummy_cfd_;
 }
 

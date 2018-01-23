@@ -24,7 +24,6 @@ constexpr uint32_t kVersion1 = 1;
 constexpr uint64_t kNoExpiration = std::numeric_limits<uint64_t>::max();
 
 using ExpirationRange = std::pair<uint64_t, uint64_t>;
-using SequenceRange = std::pair<uint64_t, uint64_t>;
 
 // Format of blob log file header (30 bytes):
 //
@@ -53,24 +52,23 @@ struct BlobLogHeader {
   Status DecodeFrom(Slice slice);
 };
 
-// Format of blob log file footer (48 bytes):
+// Format of blob log file footer (32 bytes):
 //
-//    +--------------+------------+-------------------+-------------------+------------+
-//    | magic number | blob count | expiration range  |  sequence range   | footer CRC |
-//    +--------------+------------+-------------------+-------------------+------------+
-//    |   Fixed32    |  Fixed64   | Fixed64 + Fixed64 | Fixed64 + Fixed64 |   Fixed32  |
-//    +--------------+------------+-------------------+-------------------+------------+
+//    +--------------+------------+-------------------+------------+
+//    | magic number | blob count | expiration range  | footer CRC |
+//    +--------------+------------+-------------------+------------+
+//    |   Fixed32    |  Fixed64   | Fixed64 + Fixed64 |   Fixed32  |
+//    +--------------+------------+-------------------+------------+
 //
 // The footer will be presented only when the blob file is properly closed.
 //
 // Unlike the same field in file header, expiration range in the footer is the
 // range of smallest and largest expiration of the data in this file.
 struct BlobLogFooter {
-  static constexpr size_t kSize = 48;
+  static constexpr size_t kSize = 32;
 
   uint64_t blob_count = 0;
   ExpirationRange expiration_range = std::make_pair(0, 0);
-  SequenceRange sequence_range = std::make_pair(0, 0);
   uint32_t crc = 0;
 
   void EncodeTo(std::string* dst);
@@ -110,6 +108,8 @@ struct BlobLogRecord {
   Slice value;
   std::string key_buf;
   std::string value_buf;
+
+  uint64_t record_size() const { return kHeaderSize + key_size + value_size; }
 
   void EncodeHeaderTo(std::string* dst);
 

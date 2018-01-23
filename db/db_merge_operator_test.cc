@@ -133,16 +133,33 @@ TEST_F(DBMergeOperatorTest, MergeErrorOnIteration) {
   ASSERT_OK(Merge("k1", "v1"));
   ASSERT_OK(Merge("k1", "corrupted"));
   ASSERT_OK(Put("k2", "v2"));
-  VerifyDBFromMap({{"k1", ""}, {"k2", "v2"}}, nullptr, false,
-                  {{"k1", Status::Corruption()}});
+  auto* iter = db_->NewIterator(ReadOptions());
+  iter->Seek("k1");
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_TRUE(iter->status().IsCorruption());
+  delete iter;
+  iter = db_->NewIterator(ReadOptions());
+  iter->Seek("k2");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  iter->Prev();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_TRUE(iter->status().IsCorruption());
+  delete iter;
   VerifyDBInternal({{"k1", "corrupted"}, {"k1", "v1"}, {"k2", "v2"}});
 
   DestroyAndReopen(options);
   ASSERT_OK(Merge("k1", "v1"));
   ASSERT_OK(Put("k2", "v2"));
   ASSERT_OK(Merge("k2", "corrupted"));
-  VerifyDBFromMap({{"k1", "v1"}, {"k2", ""}}, nullptr, false,
-                  {{"k2", Status::Corruption()}});
+  iter = db_->NewIterator(ReadOptions());
+  iter->Seek("k1");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+  ASSERT_TRUE(iter->status().IsCorruption());
+  delete iter;
   VerifyDBInternal({{"k1", "v1"}, {"k2", "corrupted"}, {"k2", "v2"}});
 }
 

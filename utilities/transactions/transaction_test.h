@@ -72,6 +72,11 @@ class TransactionTest : public ::testing::TestWithParam<
 
   ~TransactionTest() {
     delete db;
+    // This is to skip the assert statement in FaultInjectionTestEnv. There
+    // seems to be a bug in btrfs that the makes readdir return recently
+    // unlink-ed files. By using the default fs we simply ignore errors resulted
+    // from attempting to delete such files in DestroyDB.
+    options.env = Env::Default();
     DestroyDB(dbname, options);
     delete env;
   }
@@ -233,6 +238,41 @@ class TransactionTest : public ::testing::TestWithParam<
       exp_seq++;
       // Consume one seq per commit marker
       exp_seq++;
+    }
+    delete txn;
+  };
+  std::function<void(size_t)> txn_t4 = [&](size_t index) {
+    // A full 2pc txn that also involves a commit marker.
+    TransactionOptions txn_options;
+    WriteOptions write_options;
+    Transaction* txn = db->BeginTransaction(write_options, txn_options);
+    auto istr = std::to_string(index);
+    auto s = txn->SetName("xid" + istr);
+    ASSERT_OK(s);
+    s = txn->Put(Slice("foo" + istr), Slice("bar"));
+    s = txn->Put(Slice("foo2" + istr), Slice("bar2"));
+    s = txn->Put(Slice("foo3" + istr), Slice("bar3"));
+    s = txn->Put(Slice("foo4" + istr), Slice("bar4"));
+    s = txn->Put(Slice("foo5" + istr), Slice("bar5"));
+    ASSERT_OK(s);
+    expected_commits++;
+    s = txn->Prepare();
+    ASSERT_OK(s);
+    commit_writes++;
+    s = txn->Rollback();
+    ASSERT_OK(s);
+    if (txn_db_options.write_policy == TxnDBWritePolicy::WRITE_COMMITTED) {
+      // No seq is consumed for deleting the txn buffer
+      exp_seq += 0;
+    } else {
+      // Consume one seq per batch
+      exp_seq++;
+      // Consume one seq per rollback batch
+      exp_seq++;
+      if (options.two_write_queues) {
+        // Consume one seq for rollback commit
+        exp_seq++;
+      }
     }
     delete txn;
   };

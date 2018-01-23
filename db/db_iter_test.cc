@@ -356,7 +356,7 @@ TEST_F(DBIteratorTest, DBIteratorPrevNext) {
     db_iter->SeekToLast();
 
     ASSERT_TRUE(db_iter->Valid());
-    ASSERT_EQ(static_cast<int>(get_perf_context()->internal_key_skipped_count), 7);
+    ASSERT_EQ(static_cast<int>(get_perf_context()->internal_key_skipped_count), 1);
     ASSERT_EQ(db_iter->key().ToString(), "b");
 
     SetPerfLevel(kDisable);
@@ -475,7 +475,7 @@ TEST_F(DBIteratorTest, DBIteratorPrevNext) {
     db_iter->SeekToLast();
 
     ASSERT_TRUE(db_iter->Valid());
-    ASSERT_EQ(static_cast<int>(get_perf_context()->internal_delete_skipped_count), 1);
+    ASSERT_EQ(static_cast<int>(get_perf_context()->internal_delete_skipped_count), 0);
     ASSERT_EQ(db_iter->key().ToString(), "b");
 
     SetPerfLevel(kDisable);
@@ -2989,6 +2989,33 @@ TEST_F(DBIteratorTest, PrevLowerBound) {
     db_iter->Prev();
   }
   ASSERT_FALSE(db_iter->Valid());
+}
+
+TEST_F(DBIteratorTest, SeekLessLowerBound) {
+  const int kNumKeys = 3;
+  const int kLowerBound = 2;
+  TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+  for (int j = 1; j <= kNumKeys; ++j) {
+    internal_iter->AddPut(std::to_string(j), "val");
+  }
+  internal_iter->Finish();
+
+  ReadOptions ro;
+  auto lower_bound_str = std::to_string(kLowerBound);
+  Slice lower_bound(lower_bound_str);
+  ro.iterate_lower_bound = &lower_bound;
+  Options options;
+  std::unique_ptr<Iterator> db_iter(NewDBIterator(
+      env_, ro, ImmutableCFOptions(options), BytewiseComparator(),
+      internal_iter, 10 /* sequence */,
+      options.max_sequential_skip_in_iterations, nullptr /* read_callback */));
+
+  auto before_lower_bound_str = std::to_string(kLowerBound - 1);
+  Slice before_lower_bound(lower_bound_str);
+
+  db_iter->Seek(before_lower_bound);
+  ASSERT_TRUE(db_iter->Valid());
+  ASSERT_EQ(lower_bound_str, db_iter->key().ToString());
 }
 
 }  // namespace rocksdb

@@ -76,8 +76,7 @@ class StatisticsImpl : public Statistics {
         padding[(CACHE_LINE_SIZE -
                  (INTERNAL_TICKER_ENUM_MAX * sizeof(std::atomic_uint_fast64_t) +
                   INTERNAL_HISTOGRAM_ENUM_MAX * sizeof(HistogramImpl)) %
-                     CACHE_LINE_SIZE) %
-                CACHE_LINE_SIZE] ROCKSDB_FIELD_UNUSED;
+                     CACHE_LINE_SIZE)] ROCKSDB_FIELD_UNUSED;
   };
 
   static_assert(sizeof(StatisticsData) % 64 == 0, "Expected 64-byte aligned");

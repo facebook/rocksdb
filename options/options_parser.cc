@@ -199,7 +199,7 @@ Status RocksDBOptionsParser::ParseStatement(std::string* name,
 namespace {
 bool ReadOneLine(std::istringstream* iss, SequentialFile* seq_file,
                  std::string* output, bool* has_data, Status* result) {
-  const int kBufferSize = 4096;
+  const int kBufferSize = 8192;
   char buffer[kBufferSize + 1];
   Slice input_slice;
 
@@ -594,6 +594,23 @@ bool AreEqualOptions(
           *reinterpret_cast<const CompactionOptionsFIFO*>(offset2);
       if (lhs.max_table_files_size == rhs.max_table_files_size &&
           lhs.ttl == rhs.ttl && lhs.allow_compaction == rhs.allow_compaction) {
+        return true;
+      }
+      return false;
+    }
+    case OptionType::kCompactionOptionsUniversal: {
+      CompactionOptionsUniversal lhs =
+          *reinterpret_cast<const CompactionOptionsUniversal*>(offset1);
+      CompactionOptionsUniversal rhs =
+          *reinterpret_cast<const CompactionOptionsUniversal*>(offset2);
+      if (lhs.size_ratio == rhs.size_ratio &&
+          lhs.min_merge_width == rhs.min_merge_width &&
+          lhs.max_merge_width == rhs.max_merge_width &&
+          lhs.max_size_amplification_percent ==
+              rhs.max_size_amplification_percent &&
+          lhs.compression_size_percent == rhs.compression_size_percent &&
+          lhs.stop_style == rhs.stop_style &&
+          lhs.allow_trivial_move == rhs.allow_trivial_move) {
         return true;
       }
       return false;

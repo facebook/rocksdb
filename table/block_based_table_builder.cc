@@ -78,8 +78,8 @@ FilterBlockBuilder* CreateFilterBlockBuilder(
       // as partition size.
       assert(table_opt.block_size_deviation <= 100);
       auto partition_size = static_cast<uint32_t>(
-          table_opt.metadata_block_size *
-          (100 - table_opt.block_size_deviation));
+          ((table_opt.metadata_block_size *
+          (100 - table_opt.block_size_deviation)) + 99) / 100);
       partition_size = std::max(partition_size, static_cast<uint32_t>(1));
       return new PartitionedFilterBlockBuilder(
           opt.prefix_extractor, table_opt.whole_key_filtering,
@@ -296,11 +296,12 @@ struct BlockBasedTableBuilder::Rep {
         file(f),
         data_block(table_options.block_restart_interval,
                    table_options.use_delta_encoding),
-        range_del_block(port::kMaxInt32),
+        range_del_block(1),  // TODO(andrewkr): restart_interval unnecessary
         internal_prefix_transform(_ioptions.prefix_extractor),
         compression_type(_compression_type),
         compression_opts(_compression_opts),
         compression_dict(_compression_dict),
+        compressed_cache_key_prefix_size(0),
         flush_block_policy(
             table_options.flush_block_policy_factory->NewFlushBlockPolicy(
                 table_options, data_block)),
@@ -526,11 +527,11 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
     RecordTick(r->ioptions.statistics, NUMBER_BLOCK_NOT_COMPRESSED);
     type = kNoCompression;
     block_contents = raw_block_contents;
-  } else if (type != kNoCompression &&
-             ShouldReportDetailedTime(r->ioptions.env,
-                                      r->ioptions.statistics)) {
-    MeasureTime(r->ioptions.statistics, COMPRESSION_TIMES_NANOS,
-                timer.ElapsedNanos());
+  } else if (type != kNoCompression) {
+    if (ShouldReportDetailedTime(r->ioptions.env, r->ioptions.statistics)) {
+      MeasureTime(r->ioptions.statistics, COMPRESSION_TIMES_NANOS,
+                  timer.ElapsedNanos());
+    }
     MeasureTime(r->ioptions.statistics, BYTES_COMPRESSED,
                 raw_block_contents.size());
     RecordTick(r->ioptions.statistics, NUMBER_BLOCK_COMPRESSED);
@@ -782,9 +783,12 @@ Status BlockBasedTableBuilder::Finish() {
     WriteRawBlock(meta_index_builder.Finish(), kNoCompression,
                   &metaindex_block_handle);
 
-    const bool is_data_block = true;
-    WriteBlock(index_blocks.index_block_contents, &index_block_handle,
-               !is_data_block);
+    if (r->table_options.enable_index_compression) {
+      WriteBlock(index_blocks.index_block_contents, &index_block_handle, false);
+    } else {
+      WriteRawBlock(index_blocks.index_block_contents, kNoCompression,
+                    &index_block_handle);
+    }
     // If there are more index partitions, finish them and write them out
     Status& s = index_builder_status;
     while (s.IsIncomplete()) {
@@ -792,8 +796,13 @@ Status BlockBasedTableBuilder::Finish() {
       if (!s.ok() && !s.IsIncomplete()) {
         return s;
       }
-      WriteBlock(index_blocks.index_block_contents, &index_block_handle,
-                 !is_data_block);
+      if (r->table_options.enable_index_compression) {
+        WriteBlock(index_blocks.index_block_contents, &index_block_handle,
+                   false);
+      } else {
+        WriteRawBlock(index_blocks.index_block_contents, kNoCompression,
+                      &index_block_handle);
+      }
       // The last index_block_handle will be for the partition index block
     }
   }

@@ -76,6 +76,7 @@ class DBIter final: public Iterator {
       prev_count_ = 0;
       prev_found_count_ = 0;
       bytes_read_ = 0;
+      skip_count_ = 0;
     }
 
     void BumpGlobalStatistics(Statistics* global_statistics) {
@@ -84,6 +85,7 @@ class DBIter final: public Iterator {
       RecordTick(global_statistics, NUMBER_DB_PREV, prev_count_);
       RecordTick(global_statistics, NUMBER_DB_PREV_FOUND, prev_found_count_);
       RecordTick(global_statistics, ITER_BYTES_READ, bytes_read_);
+      RecordTick(global_statistics, NUMBER_ITER_SKIP, skip_count_);
       PERF_COUNTER_ADD(iter_read_bytes, bytes_read_);
       ResetCounters();
     }
@@ -98,6 +100,8 @@ class DBIter final: public Iterator {
     uint64_t prev_found_count_;
     // Map to Tickers::ITER_BYTES_READ
     uint64_t bytes_read_;
+    // Map to Tickers::NUMBER_ITER_SKIP
+    uint64_t skip_count_;
   };
 
   DBIter(Env* _env, const ReadOptions& read_options,
@@ -147,6 +151,7 @@ class DBIter final: public Iterator {
     // Compiler warning issue filed:
     // https://github.com/facebook/rocksdb/issues/3013
     RecordTick(statistics_, NO_ITERATORS, uint64_t(-1));
+    ResetInternalKeysSkippedCounter();
     local_stats_.BumpGlobalStatistics(statistics_);
     if (!arena_mode_) {
       delete iter_;
@@ -267,6 +272,10 @@ class DBIter final: public Iterator {
   }
 
   inline void ResetInternalKeysSkippedCounter() {
+    local_stats_.skip_count_ += num_internal_keys_skipped_;
+    if (valid_) {
+      local_stats_.skip_count_--;
+    }
     num_internal_keys_skipped_ = 0;
   }
 
@@ -631,6 +640,7 @@ void DBIter::MergeValuesNewToOld() {
           merge_operator_, ikey.user_key, &val, merge_context_.GetOperands(),
           &saved_value_, logger_, statistics_, env_, &pinned_value_, true);
       if (!s.ok()) {
+        valid_ = false;
         status_ = s;
       }
       // iter_ is positioned after put
@@ -668,6 +678,7 @@ void DBIter::MergeValuesNewToOld() {
                                   &saved_value_, logger_, statistics_, env_,
                                   &pinned_value_, true);
   if (!s.ok()) {
+    valid_ = false;
     status_ = s;
   }
 }
@@ -937,8 +948,10 @@ bool DBIter::FindValueForCurrentKey() {
       assert(false);
       break;
   }
-  valid_ = true;
-  if (!s.ok()) {
+  if (s.ok()) {
+    valid_ = true;
+  } else {
+    valid_ = false;
     status_ = s;
   }
   return true;
@@ -1014,8 +1027,10 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
       iter_->Seek(last_key);
       RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);
     }
-    valid_ = true;
-    if (!s.ok()) {
+    if (s.ok()) {
+      valid_ = true;
+    } else {
+      valid_ = false;
       status_ = s;
     }
     return true;
@@ -1026,8 +1041,10 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
                                   &val, merge_context_.GetOperands(),
                                   &saved_value_, logger_, statistics_, env_,
                                   &pinned_value_, true);
-  valid_ = true;
-  if (!s.ok()) {
+  if (s.ok()) {
+    valid_ = true;
+  } else {
+    valid_ = false;
     status_ = s;
   }
   return true;
@@ -1125,6 +1142,13 @@ void DBIter::Seek(const Slice& target) {
   saved_key_.Clear();
   saved_key_.SetInternalKey(target, sequence_);
 
+  if (iterate_lower_bound_ != nullptr &&
+      user_comparator_->Compare(saved_key_.GetUserKey(),
+                                *iterate_lower_bound_) < 0) {
+    saved_key_.Clear();
+    saved_key_.SetInternalKey(*iterate_lower_bound_, sequence_);
+  }
+
   {
     PERF_TIMER_GUARD(seek_internal_seek_time);
     iter_->Seek(saved_key_.GetInternalKey());
@@ -1143,6 +1167,7 @@ void DBIter::Seek(const Slice& target) {
     }
     if (statistics_ != nullptr) {
       if (valid_) {
+        // Decrement since we don't want to count this key as skipped
         RecordTick(statistics_, NUMBER_DB_SEEK_FOUND);
         RecordTick(statistics_, ITER_BYTES_READ, key().size() + value().size());
         PERF_COUNTER_ADD(iter_read_bytes, key().size() + value().size());
@@ -1166,6 +1191,13 @@ void DBIter::SeekForPrev(const Slice& target) {
   // now saved_key is used to store internal key.
   saved_key_.SetInternalKey(target, 0 /* sequence_number */,
                             kValueTypeForSeekForPrev);
+
+  if (iterate_upper_bound_ != nullptr &&
+      user_comparator_->Compare(saved_key_.GetUserKey(),
+                                *iterate_upper_bound_) >= 0) {
+    saved_key_.Clear();
+    saved_key_.SetInternalKey(*iterate_upper_bound_, kMaxSequenceNumber);
+  }
 
   {
     PERF_TIMER_GUARD(seek_internal_seek_time);
@@ -1269,7 +1301,8 @@ void DBIter::SeekToLast() {
     if (!Valid()) {
       return;
     } else if (user_comparator_->Equal(*iterate_upper_bound_, key())) {
-      Prev();
+      ReleaseTempPinnedData();
+      PrevInternal();
     }
   } else {
     PrevInternal();
@@ -1345,23 +1378,25 @@ void ArenaWrappedDBIter::Init(Env* env, const ReadOptions& read_options,
                               const SequenceNumber& sequence,
                               uint64_t max_sequential_skip_in_iteration,
                               uint64_t version_number,
-                              ReadCallback* read_callback, bool allow_blob) {
+                              ReadCallback* read_callback, bool allow_blob,
+                              bool allow_refresh) {
   auto mem = arena_.AllocateAligned(sizeof(DBIter));
   db_iter_ = new (mem)
       DBIter(env, read_options, cf_options, cf_options.user_comparator, nullptr,
              sequence, true, max_sequential_skip_in_iteration, read_callback,
              allow_blob);
   sv_number_ = version_number;
+  allow_refresh_ = allow_refresh;
 }
 
 Status ArenaWrappedDBIter::Refresh() {
-  if (cfd_ == nullptr || db_impl_ == nullptr) {
+  if (cfd_ == nullptr || db_impl_ == nullptr || !allow_refresh_) {
     return Status::NotSupported("Creating renew iterator is not allowed.");
   }
   assert(db_iter_ != nullptr);
-  // TODO(yiwu): For allocate_seq_only_for_data_==false, this is not the correct
-  // behavior. Will be corrected automatically when we take a snapshot here for
-  // the case of WritePreparedTxnDB.
+  // TODO(yiwu): For last_seq_same_as_publish_seq_==false, this is not the
+  // correct behavior. Will be corrected automatically when we take a snapshot
+  // here for the case of WritePreparedTxnDB.
   SequenceNumber latest_seq = db_impl_->GetLatestSequenceNumber();
   uint64_t cur_sv_number = cfd_->GetSuperVersionNumber();
   if (sv_number_ != cur_sv_number) {
@@ -1373,7 +1408,7 @@ Status ArenaWrappedDBIter::Refresh() {
     SuperVersion* sv = cfd_->GetReferencedSuperVersion(db_impl_->mutex());
     Init(env, read_options_, *(cfd_->ioptions()), latest_seq,
          sv->mutable_cf_options.max_sequential_skip_in_iterations,
-         cur_sv_number, read_callback_, allow_blob_);
+         cur_sv_number, read_callback_, allow_blob_, allow_refresh_);
 
     InternalIterator* internal_iter = db_impl_->NewInternalIterator(
         read_options_, cfd_, sv, &arena_, db_iter_->GetRangeDelAggregator());
@@ -1390,12 +1425,12 @@ ArenaWrappedDBIter* NewArenaWrappedDbIterator(
     const ImmutableCFOptions& cf_options, const SequenceNumber& sequence,
     uint64_t max_sequential_skip_in_iterations, uint64_t version_number,
     ReadCallback* read_callback, DBImpl* db_impl, ColumnFamilyData* cfd,
-    bool allow_blob) {
+    bool allow_blob, bool allow_refresh) {
   ArenaWrappedDBIter* iter = new ArenaWrappedDBIter();
   iter->Init(env, read_options, cf_options, sequence,
              max_sequential_skip_in_iterations, version_number, read_callback,
-             allow_blob);
-  if (db_impl != nullptr && cfd != nullptr) {
+             allow_blob, allow_refresh);
+  if (db_impl != nullptr && cfd != nullptr && allow_refresh) {
     iter->StoreRefreshInfo(read_options, db_impl, cfd, read_callback,
                            allow_blob);
   }

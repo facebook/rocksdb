@@ -14,17 +14,23 @@
 #include <vector>
 
 #include "db/db_iter.h"
+#include "db/pre_release_callback.h"
 #include "db/read_callback.h"
 #include "db/snapshot_checker.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/transaction_db.h"
+#include "util/string_util.h"
 #include "utilities/transactions/pessimistic_transaction.h"
 #include "utilities/transactions/pessimistic_transaction_db.h"
 #include "utilities/transactions/transaction_lock_mgr.h"
 #include "utilities/transactions/write_prepared_txn.h"
 
 namespace rocksdb {
+
+#define ROCKS_LOG_DETAILS(LGR, FMT, ...) \
+  ;  // due to overhead by default skip such lines
+// ROCKS_LOG_DEBUG(LGR, FMT, ##__VA_ARGS__)
 
 // A PessimisticTransactionDB that writes data to DB after prepare phase of 2PC.
 // In this way some data in the DB might not be committed. The DB provides
@@ -72,6 +78,13 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value) override;
 
+  using DB::MultiGet;
+  virtual std::vector<Status> MultiGet(
+      const ReadOptions& options,
+      const std::vector<ColumnFamilyHandle*>& column_family,
+      const std::vector<Slice>& keys,
+      std::vector<std::string>* values) override;
+
   using DB::NewIterator;
   virtual Iterator* NewIterator(const ReadOptions& options,
                                 ColumnFamilyHandle* column_family) override;
@@ -81,6 +94,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families,
       std::vector<Iterator*>* iterators) override;
+
+  virtual void ReleaseSnapshot(const Snapshot* snapshot) override;
 
   // Check whether the transaction that wrote the value with seqeunce number seq
   // is visible to the snapshot with sequence number snapshot_seq
@@ -92,8 +107,10 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // be used to idenitfy the snapshots that overlap with the rolled back txn.
   void RollbackPrepared(uint64_t prep_seq, uint64_t rollback_seq);
   // Add the transaction with prepare sequence prepare_seq and commit sequence
-  // commit_seq to the commit map
-  void AddCommitted(uint64_t prepare_seq, uint64_t commit_seq);
+  // commit_seq to the commit map. prepare_skipped is set if the prpeare phase
+  // is skipped for this commit. loop_cnt is to detect infinite loops.
+  void AddCommitted(uint64_t prepare_seq, uint64_t commit_seq,
+                    bool prepare_skipped = false, uint8_t loop_cnt = 0);
 
   struct CommitEntry {
     uint64_t prep_seq;
@@ -110,7 +127,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
         : INDEX_BITS(index_bits),
           PREP_BITS(static_cast<size_t>(64 - PAD_BITS - INDEX_BITS)),
           COMMIT_BITS(static_cast<size_t>(64 - PREP_BITS)),
-          COMMIT_FILTER(static_cast<uint64_t>((1ull << COMMIT_BITS) - 1)) {}
+          COMMIT_FILTER(static_cast<uint64_t>((1ull << COMMIT_BITS) - 1)),
+          DELTA_UPPERBOUND(static_cast<uint64_t>((1ull << COMMIT_BITS))) {}
     // Number of higher bits of a sequence number that is not used. They are
     // used to encode the value type, ...
     const size_t PAD_BITS = static_cast<size_t>(8);
@@ -123,6 +141,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
     const size_t COMMIT_BITS;
     // Filter to encode/decode commit seq
     const uint64_t COMMIT_FILTER;
+    // The value of commit_seq - prepare_seq + 1 must be less than this bound
+    const uint64_t DELTA_UPPERBOUND;
   };
 
   // Prepare Seq (64 bits) = PAD ... PAD PREP PREP ... PREP INDEX INDEX ...
@@ -147,7 +167,13 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       uint64_t delta = cs - ps + 1;  // make initialized delta always >= 1
       // zero is reserved for uninitialized entries
       assert(0 < delta);
-      assert(delta < static_cast<uint64_t>((1ull << format.COMMIT_BITS)));
+      assert(delta < format.DELTA_UPPERBOUND);
+      if (delta >= format.DELTA_UPPERBOUND) {
+        throw std::runtime_error(
+            "commit_seq >> prepare_seq. The allowed distance is " +
+            ToString(format.DELTA_UPPERBOUND) + " commit_seq is " +
+            ToString(cs) + " prepare_seq is " + ToString(ps));
+      }
       rep_ = (ps << format.PAD_BITS) & ~format.COMMIT_FILTER;
       rep_ = rep_ | delta;
     }
@@ -190,6 +216,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   friend class WritePreparedTransactionTest_AdvanceMaxEvictedSeqBasicTest_Test;
   friend class WritePreparedTransactionTest_BasicRecoveryTest_Test;
   friend class WritePreparedTransactionTest_IsInSnapshotEmptyMapTest_Test;
+  friend class WritePreparedTransactionTest_OldCommitMapGC_Test;
   friend class WritePreparedTransactionTest_RollbackTest_Test;
 
   void Init(const TransactionDBOptions& /* unused */);
@@ -261,6 +288,10 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   virtual const std::vector<SequenceNumber> GetSnapshotListFromDB(
       SequenceNumber max);
 
+  // Will be called by the public ReleaseSnapshot method. Does the maintenance
+  // internal to WritePreparedTxnDB
+  void ReleaseSnapshotInternal(const SequenceNumber snap_seq);
+
   // Update the list of snapshots corresponding to the soon-to-be-updated
   // max_eviceted_seq_. Thread-safety: this function can be called concurrently.
   // The concurrent invocations of this function is equivalent to a serial
@@ -279,9 +310,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
 
   // Add a new entry to old_commit_map_ if prep_seq <= snapshot_seq <
   // commit_seq. Return false if checking the next snapshot(s) is not needed.
-  // This is the case if the entry already added to old_commit_map_ or none of
-  // the next snapshots could satisfy the condition. next_is_larger: the next
-  // snapshot will be a larger value
+  // This is the case if none of the next snapshots could satisfy the condition.
+  // next_is_larger: the next snapshot will be a larger value
   bool MaybeUpdateOldCommitMap(const uint64_t& prep_seq,
                                const uint64_t& commit_seq,
                                const uint64_t& snapshot_seq,
@@ -318,17 +348,24 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // commit_cache_ must be initialized to zero to tell apart an empty index from
   // a filled one. Thread-safety is provided with commit_cache_mutex_.
   unique_ptr<std::atomic<CommitEntry64b>[]> commit_cache_;
-  // The largest evicted *commit* sequence number from the commit_cache_
+  // The largest evicted *commit* sequence number from the commit_cache_. If a
+  // seq is smaller than max_evicted_seq_ is might or might not be present in
+  // commit_cache_. So commit_cache_ must first be checked before consulting
+  // with max_evicted_seq_.
   std::atomic<uint64_t> max_evicted_seq_ = {};
   // Advance max_evicted_seq_ by this value each time it needs an update. The
   // larger the value, the less frequent advances we would have. We do not want
   // it to be too large either as it would cause stalls by doing too much
   // maintenance work under the lock.
   size_t INC_STEP_FOR_MAX_EVICTED = 1;
-  // A map of the evicted entries from commit_cache_ that has to be kept around
-  // to service the old snapshots. This is expected to be empty normally.
+  // A map from old snapshots (expected to be used by a few read-only txns) to
+  // prpared sequence number of the evicted entries from commit_cache_ that
+  // overlaps with such snapshot. These are the prepared sequence numbers that
+  // the snapshot, to which they are mapped, cannot assume to be committed just
+  // because it is no longer in the commit_cache_. The vector must be sorted
+  // after each update.
   // Thread-safety is provided with old_commit_map_mutex_.
-  std::map<uint64_t, uint64_t> old_commit_map_;
+  std::map<SequenceNumber, std::vector<SequenceNumber>> old_commit_map_;
   // A set of long-running prepared transactions that are not finished by the
   // time max_evicted_seq_ advances their sequence number. This is expected to
   // be empty normally. Thread-safety is provided with prepared_mutex_.
@@ -358,6 +395,50 @@ class WritePreparedTxnReadCallback : public ReadCallback {
  private:
   WritePreparedTxnDB* db_;
   SequenceNumber snapshot_;
+};
+
+class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
+ public:
+  // includes_data indicates that the commit also writes non-empty
+  // CommitTimeWriteBatch to memtable, which needs to be committed separately.
+  WritePreparedCommitEntryPreReleaseCallback(
+      WritePreparedTxnDB* db, DBImpl* db_impl,
+      SequenceNumber prep_seq = kMaxSequenceNumber, bool includes_data = false)
+      : db_(db),
+        db_impl_(db_impl),
+        prep_seq_(prep_seq),
+        includes_data_(includes_data) {}
+
+  virtual Status Callback(SequenceNumber commit_seq) {
+    assert(includes_data_ || prep_seq_ != kMaxSequenceNumber);
+    if (prep_seq_ != kMaxSequenceNumber) {
+      db_->AddCommitted(prep_seq_, commit_seq);
+    }  // else there was no prepare phase
+    if (includes_data_) {
+      // Commit the data that is accompnaied with the commit request
+      const bool PREPARE_SKIPPED = true;
+      db_->AddCommitted(commit_seq, commit_seq, PREPARE_SKIPPED);
+    }
+    if (db_impl_->immutable_db_options().two_write_queues) {
+      // Publish the sequence number. We can do that here assuming the callback
+      // is invoked only from one write queue, which would guarantee that the
+      // publish sequence numbers will be in order, i.e., once a seq is
+      // published all the seq prior to that are also publishable.
+      db_impl_->SetLastPublishedSequence(commit_seq);
+    }
+    // else SequenceNumber that is updated as part of the write already does the
+    // publishing
+    return Status::OK();
+  }
+
+ private:
+  WritePreparedTxnDB* db_;
+  DBImpl* db_impl_;
+  // kMaxSequenceNumber if there was no prepare phase
+  SequenceNumber prep_seq_;
+  // Either because it is commit without prepare or it has a
+  // CommitTimeWriteBatch
+  bool includes_data_;
 };
 
 }  //  namespace rocksdb

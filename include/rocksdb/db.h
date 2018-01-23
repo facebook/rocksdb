@@ -163,6 +163,12 @@ class DB {
                      const std::vector<ColumnFamilyDescriptor>& column_families,
                      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr);
 
+  // Close the DB by releasing resources, closing files etc. This should be
+  // called before calling the desctructor so that the caller can get back a
+  // status in case there are any errors. Regardless of the return status, the
+  // DB must be freed
+  virtual Status Close() { return Status::OK(); }
+
   // ListColumnFamilies will open the DB specified by argument name
   // and return the list of all column families in that DB
   // through column_families argument. The ordering of
@@ -924,6 +930,7 @@ class DB {
   // Retrieve the sorted list of all wal files with earliest file first
   virtual Status GetSortedWalFiles(VectorLogPtr& files) = 0;
 
+  // Note: this API is not yet consistent with WritePrepared transactions.
   // Sets iter to an iterator that is positioned at a write-batch containing
   // seq_number. If the sequence number is non existent, it returns an iterator
   // at the first available seq_no after the requested seq_no
@@ -972,7 +979,7 @@ class DB {
   // the file can fit in, and ingest the file into this level (2). A file that
   // have a key range that overlap with the memtable key range will require us
   // to Flush the memtable first before ingesting the file.
-  // In the second mode we will always ingest in the bottom mode level (see
+  // In the second mode we will always ingest in the bottom most level (see
   // docs to IngestExternalFileOptions::ingest_behind).
   //
   // (1) External SST files can be created using SstFileWriter

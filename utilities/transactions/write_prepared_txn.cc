@@ -7,6 +7,11 @@
 
 #include "utilities/transactions/write_prepared_txn.h"
 
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
+#include <inttypes.h>
 #include <map>
 
 #include "db/column_family.h"
@@ -55,16 +60,16 @@ Iterator* WritePreparedTxn::GetIterator(const ReadOptions& options,
   Iterator* db_iter = wpt_db_->NewIterator(options, column_family);
   assert(db_iter);
 
-  return write_batch_.NewIteratorWithBase(db_iter);
+  return write_batch_.NewIteratorWithBase(column_family, db_iter);
 }
 
 Status WritePreparedTxn::PrepareInternal() {
   WriteOptions write_options = write_options_;
   write_options.disableWAL = false;
-  const bool write_after_commit = true;
+  const bool WRITE_AFTER_COMMIT = true;
   WriteBatchInternal::MarkEndPrepare(GetWriteBatch()->GetWriteBatch(), name_,
-                                     !write_after_commit);
-  const bool disable_memtable = true;
+                                     !WRITE_AFTER_COMMIT);
+  const bool DISABLE_MEMTABLE = true;
   uint64_t seq_used = kMaxSequenceNumber;
   bool collapsed = GetWriteBatch()->Collapse();
   if (collapsed) {
@@ -74,11 +79,16 @@ Status WritePreparedTxn::PrepareInternal() {
   Status s =
       db_impl_->WriteImpl(write_options, GetWriteBatch()->GetWriteBatch(),
                           /*callback*/ nullptr, &log_number_, /*log ref*/ 0,
-                          !disable_memtable, &seq_used);
-  assert(seq_used != kMaxSequenceNumber);
+                          !DISABLE_MEMTABLE, &seq_used);
+  assert(!s.ok() || seq_used != kMaxSequenceNumber);
   auto prepare_seq = seq_used;
   SetId(prepare_seq);
-  wpt_db_->AddPrepared(prepare_seq);
+  // TODO(myabandeh): AddPrepared better to be called in the pre-release
+  // callback otherwise there is a non-zero chance of max dvancing prepare_seq
+  // and readers assume the data as committed.
+  if (s.ok()) {
+    wpt_db_->AddPrepared(prepare_seq);
+  }
   return s;
 }
 
@@ -91,33 +101,64 @@ Status WritePreparedTxn::CommitWithoutPrepareInternal() {
   return CommitBatchInternal(GetWriteBatch()->GetWriteBatch());
 }
 
-SequenceNumber WritePreparedTxn::GetACommitSeqNumber(SequenceNumber prep_seq) {
-  if (db_impl_->immutable_db_options().two_write_queues) {
-    return db_impl_->IncAndFetchSequenceNumber();
-  } else {
-    return prep_seq;
-  }
-}
-
 Status WritePreparedTxn::CommitBatchInternal(WriteBatch* batch) {
+  ROCKS_LOG_DETAILS(db_impl_->immutable_db_options().info_log,
+                    "CommitBatchInternal");
   // TODO(myabandeh): handle the duplicate keys in the batch
+  bool do_one_write = !db_impl_->immutable_db_options().two_write_queues;
+  bool sync = write_options_.sync;
+  if (!do_one_write) {
+    // No need to sync on the first write
+    write_options_.sync = false;
+  }
   // In the absence of Prepare markers, use Noop as a batch separator
   WriteBatchInternal::InsertNoop(batch);
-  const bool disable_memtable = true;
+  const bool DISABLE_MEMTABLE = true;
   const uint64_t no_log_ref = 0;
   uint64_t seq_used = kMaxSequenceNumber;
+  const bool INCLUDES_DATA = true;
+  WritePreparedCommitEntryPreReleaseCallback update_commit_map(
+      wpt_db_, db_impl_, kMaxSequenceNumber, INCLUDES_DATA);
   auto s = db_impl_->WriteImpl(write_options_, batch, nullptr, nullptr,
-                               no_log_ref, !disable_memtable, &seq_used);
-  assert(seq_used != kMaxSequenceNumber);
+                               no_log_ref, !DISABLE_MEMTABLE, &seq_used,
+                               do_one_write ? &update_commit_map : nullptr);
+  assert(!s.ok() || seq_used != kMaxSequenceNumber);
   uint64_t& prepare_seq = seq_used;
-  uint64_t commit_seq = GetACommitSeqNumber(prepare_seq);
-  // TODO(myabandeh): skip AddPrepared
-  wpt_db_->AddPrepared(prepare_seq);
-  wpt_db_->AddCommitted(prepare_seq, commit_seq);
+  SetId(prepare_seq);
+  if (!s.ok()) {
+    return s;
+  }
+  if (do_one_write) {
+    return s;
+  }  // else do the 2nd write for commit
+  // Set the original value of sync
+  write_options_.sync = sync;
+  ROCKS_LOG_DETAILS(db_impl_->immutable_db_options().info_log,
+                    "CommitBatchInternal 2nd write prepare_seq: %" PRIu64,
+                    prepare_seq);
+  // Note: we skip AddPrepared here. This could be further optimized by skip
+  // erasing prepare_seq from prepared_txn_ in the following callback.
+  // TODO(myabandeh): What if max advances the prepare_seq_ in the meanwhile and
+  // readers assume the prepared data as committed? Almost zero probability.
+
+  // Commit the batch by writing an empty batch to the 2nd queue that will
+  // release the commit sequence number to readers.
+  WritePreparedCommitEntryPreReleaseCallback update_commit_map_with_prepare(
+      wpt_db_, db_impl_, prepare_seq);
+  WriteBatch empty_batch;
+  empty_batch.PutLogData(Slice());
+  // In the absence of Prepare markers, use Noop as a batch separator
+  WriteBatchInternal::InsertNoop(&empty_batch);
+  s = db_impl_->WriteImpl(write_options_, &empty_batch, nullptr, nullptr,
+                          no_log_ref, DISABLE_MEMTABLE, &seq_used,
+                          &update_commit_map_with_prepare);
+  assert(!s.ok() || seq_used != kMaxSequenceNumber);
   return s;
 }
 
 Status WritePreparedTxn::CommitInternal() {
+  ROCKS_LOG_DETAILS(db_impl_->immutable_db_options().info_log,
+                    "CommitInternal prepare_seq: %" PRIu64, GetID());
   // We take the commit-time batch and append the Commit marker.
   // The Memtable will ignore the Commit marker in non-recovery mode
   WriteBatch* working_batch = GetCommitTimeWriteBatch();
@@ -132,37 +173,29 @@ Status WritePreparedTxn::CommitInternal() {
     WriteBatchInternal::SetAsLastestPersistentState(working_batch);
   }
 
-  const bool disable_memtable = true;
+  auto prepare_seq = GetId();
+  const bool includes_data = !empty && !for_recovery;
+  WritePreparedCommitEntryPreReleaseCallback update_commit_map(
+      wpt_db_, db_impl_, prepare_seq, includes_data);
+  const bool disable_memtable = !includes_data;
   uint64_t seq_used = kMaxSequenceNumber;
   // Since the prepared batch is directly written to memtable, there is already
   // a connection between the memtable and its WAL, so there is no need to
   // redundantly reference the log that contains the prepared data.
   const uint64_t zero_log_number = 0ull;
-  auto s = db_impl_->WriteImpl(
-      write_options_, working_batch, nullptr, nullptr, zero_log_number,
-      empty || for_recovery ? disable_memtable : !disable_memtable, &seq_used);
-  assert(seq_used != kMaxSequenceNumber);
-  uint64_t& commit_seq = seq_used;
-  // TODO(myabandeh): Reject a commit request if AddCommitted cannot encode
-  // commit_seq. This happens if prep_seq <<< commit_seq.
-  auto prepare_seq = GetId();
-  wpt_db_->AddCommitted(prepare_seq, commit_seq);
-  if (!empty && !for_recovery) {
-    // Commit the data that is accompnaied with the commit marker
-    // TODO(myabandeh): skip AddPrepared
-    wpt_db_->AddPrepared(commit_seq);
-    uint64_t commit_seq_2 = GetACommitSeqNumber(commit_seq);
-    wpt_db_->AddCommitted(commit_seq, commit_seq_2);
-  }
+  auto s = db_impl_->WriteImpl(write_options_, working_batch, nullptr, nullptr,
+                               zero_log_number, disable_memtable, &seq_used,
+                               &update_commit_map);
+  assert(!s.ok() || seq_used != kMaxSequenceNumber);
   return s;
 }
 
 Status WritePreparedTxn::RollbackInternal() {
+  ROCKS_LOG_WARN(db_impl_->immutable_db_options().info_log,
+                 "RollbackInternal prepare_seq: %" PRIu64, GetId());
   WriteBatch rollback_batch;
   assert(GetId() != kMaxSequenceNumber);
   assert(GetId() > 0);
-  // In the absence of Prepare markers, use Noop as a batch separator
-  WriteBatchInternal::InsertNoop(&rollback_batch);
   // In WritePrepared, the txn is is the same as prepare seq
   auto last_visible_txn = GetId() - 1;
   struct RollbackWriteBatchBuilder : public WriteBatch::Handler {
@@ -227,20 +260,49 @@ Status WritePreparedTxn::RollbackInternal() {
   if (!s.ok()) {
     return s;
   }
+  // The Rollback marker will be used as a batch separator
   WriteBatchInternal::MarkRollback(&rollback_batch, name_);
-  const bool disable_memtable = true;
+  bool do_one_write = !db_impl_->immutable_db_options().two_write_queues;
+  const bool DISABLE_MEMTABLE = true;
   const uint64_t no_log_ref = 0;
   uint64_t seq_used = kMaxSequenceNumber;
+  const bool INCLUDES_DATA = true;
+  WritePreparedCommitEntryPreReleaseCallback update_commit_map(
+      wpt_db_, db_impl_, kMaxSequenceNumber, INCLUDES_DATA);
   s = db_impl_->WriteImpl(write_options_, &rollback_batch, nullptr, nullptr,
-                          no_log_ref, !disable_memtable, &seq_used);
-  assert(seq_used != kMaxSequenceNumber);
+                          no_log_ref, !DISABLE_MEMTABLE, &seq_used,
+                          do_one_write ? &update_commit_map : nullptr);
+  assert(!s.ok() || seq_used != kMaxSequenceNumber);
+  if (!s.ok()) {
+    return s;
+  }
+  if (do_one_write) {
+    // Mark the txn as rolled back
+    uint64_t& rollback_seq = seq_used;
+    wpt_db_->RollbackPrepared(GetId(), rollback_seq);
+    return s;
+  }  // else do the 2nd write for commit
   uint64_t& prepare_seq = seq_used;
-  uint64_t commit_seq = GetACommitSeqNumber(prepare_seq);
-  // TODO(myabandeh): skip AddPrepared
-  wpt_db_->AddPrepared(prepare_seq);
-  wpt_db_->AddCommitted(prepare_seq, commit_seq);
+  ROCKS_LOG_DETAILS(db_impl_->immutable_db_options().info_log,
+                    "RollbackInternal 2nd write prepare_seq: %" PRIu64,
+                    prepare_seq);
+  // Commit the batch by writing an empty batch to the queue that will release
+  // the commit sequence number to readers.
+  WritePreparedCommitEntryPreReleaseCallback update_commit_map_with_prepare(
+      wpt_db_, db_impl_, prepare_seq);
+  WriteBatch empty_batch;
+  empty_batch.PutLogData(Slice());
+  // In the absence of Prepare markers, use Noop as a batch separator
+  WriteBatchInternal::InsertNoop(&empty_batch);
+  s = db_impl_->WriteImpl(write_options_, &empty_batch, nullptr, nullptr,
+                          no_log_ref, DISABLE_MEMTABLE, &seq_used,
+                          &update_commit_map_with_prepare);
+  assert(!s.ok() || seq_used != kMaxSequenceNumber);
   // Mark the txn as rolled back
-  wpt_db_->RollbackPrepared(GetId(), commit_seq);
+  uint64_t& rollback_seq = seq_used;
+  if (s.ok()) {
+    wpt_db_->RollbackPrepared(GetId(), rollback_seq);
+  }
 
   return s;
 }

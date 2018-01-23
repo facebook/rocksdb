@@ -231,7 +231,8 @@ PartitionedFilterBlockReader::GetFilterPartition(
       }
     }
     return table_->GetFilter(/*prefetch_buffer*/ nullptr, fltr_blk_handle,
-                             is_a_filter_partition, no_io);
+                             is_a_filter_partition, no_io,
+                             /* get_context */ nullptr);
   } else {
     auto filter = table_->ReadFilter(prefetch_buffer, fltr_blk_handle,
                                      is_a_filter_partition);
@@ -295,7 +296,8 @@ void PartitionedFilterBlockReader::CacheDependencies(bool pin) {
     const bool no_io = true;
     const bool is_a_filter_partition = true;
     auto filter = table_->GetFilter(prefetch_buffer.get(), handle,
-                                    is_a_filter_partition, !no_io);
+                                    is_a_filter_partition, !no_io,
+                                    /* get_context */ nullptr);
     if (LIKELY(filter.IsSet())) {
       if (pin) {
         filter_map_[handle.offset()] = std::move(filter);

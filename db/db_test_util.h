@@ -445,6 +445,9 @@ class SpecialEnv : public EnvWrapper {
       r->reset(new CountingFile(std::move(*r), &random_read_counter_,
                                 &random_read_bytes_counter_));
     }
+    if (s.ok() && soptions.compaction_readahead_size > 0) {
+      compaction_readahead_size_ = soptions.compaction_readahead_size;
+    }
     return s;
   }
 
@@ -570,6 +573,8 @@ class SpecialEnv : public EnvWrapper {
   bool no_slowdown_;
 
   std::atomic<bool> is_wal_sync_thread_safe_{true};
+
+  std::atomic<size_t> compaction_readahead_size_;
 };
 
 class MockTimeEnv : public EnvWrapper {
@@ -858,13 +863,13 @@ class DBTestBase : public testing::Test {
   size_t TotalLiveFiles(int cf = 0);
 
   size_t CountLiveFiles();
-#endif  // ROCKSDB_LITE
 
   int NumTableFilesAtLevel(int level, int cf = 0);
 
   double CompressionRatioAtLevel(int level, int cf = 0);
 
   int TotalTableFiles(int cf = 0, int levels = -1);
+#endif  // ROCKSDB_LITE
 
   // Return spread of files per level
   std::string FilesPerLevel(int cf = 0);
@@ -892,7 +897,9 @@ class DBTestBase : public testing::Test {
 
   void MoveFilesToLevel(int level, int cf = 0);
 
+#ifndef ROCKSDB_LITE
   void DumpFileCounts(const char* label);
+#endif  // ROCKSDB_LITE
 
   std::string DumpSSTableList();
 

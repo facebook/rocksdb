@@ -145,8 +145,9 @@ inline std::string CompressionTypeToString(CompressionType compression_type) {
     case kXpressCompression:
       return "Xpress";
     case kZSTD:
-    case kZSTDNotFinalCompression:
       return "ZSTD";
+    case kZSTDNotFinalCompression:
+      return "ZSTDNotFinal";
     default:
       assert(false);
       return "";

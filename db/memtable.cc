@@ -236,6 +236,14 @@ int MemTable::KeyComparator::operator()(const char* prefix_len_key,
   return comparator.Compare(a, key);
 }
 
+void MemTableRep::InsertConcurrently(KeyHandle handle) {
+#ifndef ROCKSDB_LITE
+    throw std::runtime_error("concurrent insert not supported");
+#else
+    abort();
+#endif
+  }
+
 Slice MemTableRep::UserKey(const char* key) const {
   Slice slice = GetLengthPrefixedSlice(key);
   return Slice(slice.data(), slice.size() - 8);
