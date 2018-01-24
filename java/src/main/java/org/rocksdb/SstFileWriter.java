@@ -30,7 +30,8 @@ public class SstFileWriter extends RocksObject {
   public SstFileWriter(final EnvOptions envOptions, final Options options,
       final AbstractComparator<? extends AbstractSlice<?>> comparator) {
     super(newSstFileWriter(
-        envOptions.nativeHandle_, options.nativeHandle_, comparator.getNativeHandle()));
+        envOptions.nativeHandle_, options.nativeHandle_, comparator.nativeHandle_,
+        comparator instanceof DirectComparator));
   }
 
   /**
@@ -224,7 +225,7 @@ public void put(final byte[] key, final byte[] value)
 
   private native static long newSstFileWriter(
       final long envOptionsHandle, final long optionsHandle,
-      final long userComparatorHandle);
+      final long userComparatorHandle, final boolean isDirect);
 
   private native static long newSstFileWriter(final long envOptionsHandle,
       final long optionsHandle);

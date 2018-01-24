@@ -53,6 +53,7 @@ struct ExternalSstFileInfo;
 class WriteBatch;
 class Env;
 class EventListener;
+enum EntryType;
 
 using std::unique_ptr;
 
@@ -161,6 +162,12 @@ class DB {
   static Status Open(const DBOptions& db_options, const std::string& name,
                      const std::vector<ColumnFamilyDescriptor>& column_families,
                      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr);
+
+  // Close the DB by releasing resources, closing files etc. This should be
+  // called before calling the desctructor so that the caller can get back a
+  // status in case there are any errors. Regardless of the return status, the
+  // DB must be freed
+  virtual Status Close() { return Status::OK(); }
 
   // ListColumnFamilies will open the DB specified by argument name
   // and return the list of all column families in that DB
@@ -582,6 +589,12 @@ class DB {
 
     //  "rocksdb.is-write-stopped" - Return 1 if write has been stopped.
     static const std::string kIsWriteStopped;
+
+    //  "rocksdb.estimate-oldest-key-time" - returns an estimation of
+    //      oldest key timestamp in the DB. Currently only available for
+    //      FIFO compaction with
+    //      compaction_options_fifo.allow_compaction = false.
+    static const std::string kEstimateOldestKeyTime;
   };
 #endif /* ROCKSDB_LITE */
 
@@ -632,6 +645,7 @@ class DB {
   //  "rocksdb.num-running-flushes"
   //  "rocksdb.actual-delayed-write-rate"
   //  "rocksdb.is-write-stopped"
+  //  "rocksdb.estimate-oldest-key-time"
   virtual bool GetIntProperty(ColumnFamilyHandle* column_family,
                               const Slice& property, uint64_t* value) = 0;
   virtual bool GetIntProperty(const Slice& property, uint64_t* value) {
@@ -867,6 +881,14 @@ class DB {
   // The sequence number of the most recent transaction.
   virtual SequenceNumber GetLatestSequenceNumber() const = 0;
 
+  // Instructs DB to preserve deletes with sequence numbers >= passed seqnum.
+  // Has no effect if DBOptions.preserve_deletes is set to false.
+  // This function assumes that user calls this function with monotonically
+  // increasing seqnums (otherwise we can't guarantee that a particular delete
+  // hasn't been already processed); returns true if the value was successfully
+  // updated, false if user attempted to call if with seqnum <= current value.
+  virtual bool SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) = 0;
+
 #ifndef ROCKSDB_LITE
 
   // Prevent file deletions. Compactions will continue to occur,
@@ -908,6 +930,7 @@ class DB {
   // Retrieve the sorted list of all wal files with earliest file first
   virtual Status GetSortedWalFiles(VectorLogPtr& files) = 0;
 
+  // Note: this API is not yet consistent with WritePrepared transactions.
   // Sets iter to an iterator that is positioned at a write-batch containing
   // seq_number. If the sequence number is non existent, it returns an iterator
   // at the first available seq_no after the requested seq_no
@@ -956,7 +979,7 @@ class DB {
   // the file can fit in, and ingest the file into this level (2). A file that
   // have a key range that overlap with the memtable key range will require us
   // to Flush the memtable first before ingesting the file.
-  // In the second mode we will always ingest in the bottom mode level (see
+  // In the second mode we will always ingest in the bottom most level (see
   // docs to IngestExternalFileOptions::ingest_behind).
   //
   // (1) External SST files can be created using SstFileWriter

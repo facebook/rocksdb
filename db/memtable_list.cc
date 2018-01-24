@@ -10,6 +10,7 @@
 #endif
 
 #include <inttypes.h>
+#include <limits>
 #include <string>
 #include "db/memtable.h"
 #include "db/version_set.h"
@@ -109,14 +110,13 @@ bool MemTableListVersion::Get(const LookupKey& key, std::string* value,
                      seq, read_opts, callback, is_blob_index);
 }
 
-bool MemTableListVersion::GetFromHistory(const LookupKey& key,
-                                         std::string* value, Status* s,
-                                         MergeContext* merge_context,
-                                         RangeDelAggregator* range_del_agg,
-                                         SequenceNumber* seq,
-                                         const ReadOptions& read_opts) {
+bool MemTableListVersion::GetFromHistory(
+    const LookupKey& key, std::string* value, Status* s,
+    MergeContext* merge_context, RangeDelAggregator* range_del_agg,
+    SequenceNumber* seq, const ReadOptions& read_opts, bool* is_blob_index) {
   return GetFromList(&memlist_history_, key, value, s, merge_context,
-                     range_del_agg, seq, read_opts);
+                     range_del_agg, seq, read_opts, nullptr /*read_callback*/,
+                     is_blob_index);
 }
 
 bool MemTableListVersion::GetFromList(
@@ -448,6 +448,13 @@ size_t MemTableList::ApproximateUnflushedMemTablesMemoryUsage() {
 }
 
 size_t MemTableList::ApproximateMemoryUsage() { return current_memory_usage_; }
+
+uint64_t MemTableList::ApproximateOldestKeyTime() const {
+  if (!current_->memlist_.empty()) {
+    return current_->memlist_.back()->ApproximateOldestKeyTime();
+  }
+  return std::numeric_limits<uint64_t>::max();
+}
 
 void MemTableList::InstallNewVersion() {
   if (current_->refs_ == 1) {

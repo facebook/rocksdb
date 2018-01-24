@@ -123,6 +123,22 @@ Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options) {
           " is not linked with the binary.");
     }
   }
+  if (cf_options.compression_opts.zstd_max_train_bytes > 0) {
+    if (!CompressionTypeSupported(CompressionType::kZSTD)) {
+      // Dictionary trainer is available since v0.6.1, but ZSTD was marked
+      // stable only since v0.8.0. For now we enable the feature in stable
+      // versions only.
+      return Status::InvalidArgument(
+          "zstd dictionary trainer cannot be used because " +
+          CompressionTypeToString(CompressionType::kZSTD) +
+          " is not linked with the binary.");
+    }
+    if (cf_options.compression_opts.max_dict_bytes == 0) {
+      return Status::InvalidArgument(
+          "The dictionary size limit (`CompressionOptions::max_dict_bytes`) "
+          "should be nonzero if we're using zstd's dictionary generator.");
+    }
+  }
   return Status::OK();
 }
 
@@ -369,7 +385,8 @@ ColumnFamilyData::ColumnFamilyData(
       pending_flush_(false),
       pending_compaction_(false),
       prev_compaction_needed_bytes_(0),
-      allow_2pc_(db_options.allow_2pc) {
+      allow_2pc_(db_options.allow_2pc),
+      last_memtable_id_(0) {
   Ref();
 
   // Convert user defined table properties collector factories to internal ones.
@@ -463,7 +480,8 @@ ColumnFamilyData::~ColumnFamilyData() {
   if (dummy_versions_ != nullptr) {
     // List must be empty
     assert(dummy_versions_->TEST_Next() == dummy_versions_);
-    bool deleted __attribute__((unused)) = dummy_versions_->Unref();
+    bool deleted __attribute__((unused));
+    deleted = dummy_versions_->Unref();
     assert(deleted);
   }
 
@@ -613,8 +631,9 @@ int GetL0ThresholdSpeedupCompaction(int level0_file_num_compaction_trigger,
 }
 }  // namespace
 
-void ColumnFamilyData::RecalculateWriteStallConditions(
+WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
       const MutableCFOptions& mutable_cf_options) {
+  auto write_stall_condition = WriteStallCondition::kNormal;
   if (current_ != nullptr) {
     auto* vstorage = current_->storage_info();
     auto write_controller = column_family_set_->write_controller_;
@@ -627,6 +646,7 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
     if (imm()->NumNotFlushed() >= mutable_cf_options.max_write_buffer_number) {
       write_controller_token_ = write_controller->GetStopToken();
       internal_stats_->AddCFStats(InternalStats::MEMTABLE_LIMIT_STOPS, 1);
+      write_stall_condition = WriteStallCondition::kStopped;
       ROCKS_LOG_WARN(
           ioptions_.info_log,
           "[%s] Stopping writes because we have %d immutable memtables "
@@ -638,6 +658,7 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
                    mutable_cf_options.level0_stop_writes_trigger) {
       write_controller_token_ = write_controller->GetStopToken();
       internal_stats_->AddCFStats(InternalStats::L0_FILE_COUNT_LIMIT_STOPS, 1);
+      write_stall_condition = WriteStallCondition::kStopped;
       if (compaction_picker_->IsLevel0CompactionInProgress()) {
         internal_stats_->AddCFStats(
             InternalStats::LOCKED_L0_FILE_COUNT_LIMIT_STOPS, 1);
@@ -652,6 +673,7 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
       write_controller_token_ = write_controller->GetStopToken();
       internal_stats_->AddCFStats(
           InternalStats::PENDING_COMPACTION_BYTES_LIMIT_STOPS, 1);
+      write_stall_condition = WriteStallCondition::kStopped;
       ROCKS_LOG_WARN(
           ioptions_.info_log,
           "[%s] Stopping writes because of estimated pending compaction "
@@ -665,6 +687,7 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
                      prev_compaction_needed_bytes_, was_stopped,
                      mutable_cf_options.disable_auto_compactions);
       internal_stats_->AddCFStats(InternalStats::MEMTABLE_LIMIT_SLOWDOWNS, 1);
+      write_stall_condition = WriteStallCondition::kDelayed;
       ROCKS_LOG_WARN(
           ioptions_.info_log,
           "[%s] Stalling writes because we have %d immutable memtables "
@@ -686,6 +709,7 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
                      mutable_cf_options.disable_auto_compactions);
       internal_stats_->AddCFStats(InternalStats::L0_FILE_COUNT_LIMIT_SLOWDOWNS,
                                   1);
+      write_stall_condition = WriteStallCondition::kDelayed;
       if (compaction_picker_->IsLevel0CompactionInProgress()) {
         internal_stats_->AddCFStats(
             InternalStats::LOCKED_L0_FILE_COUNT_LIMIT_SLOWDOWNS, 1);
@@ -716,6 +740,7 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
                      mutable_cf_options.disable_auto_compactions);
       internal_stats_->AddCFStats(
           InternalStats::PENDING_COMPACTION_BYTES_LIMIT_SLOWDOWNS, 1);
+      write_stall_condition = WriteStallCondition::kDelayed;
       ROCKS_LOG_WARN(
           ioptions_.info_log,
           "[%s] Stalling writes because of estimated pending compaction "
@@ -770,6 +795,7 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
     }
     prev_compaction_needed_bytes_ = compaction_needed_bytes;
   }
+  return write_stall_condition;
 }
 
 const EnvOptions* ColumnFamilyData::soptions() const {
@@ -846,6 +872,10 @@ SuperVersion* ColumnFamilyData::GetReferencedSuperVersion(
   sv = GetThreadLocalSuperVersion(db_mutex);
   sv->Ref();
   if (!ReturnThreadLocalSuperVersion(sv)) {
+    // This Unref() corresponds to the Ref() in GetThreadLocalSuperVersion()
+    // when the thread-local pointer was populated. So, the Ref() earlier in
+    // this function still prevents the returned SuperVersion* from being
+    // deleted out from under the caller.
     sv->Unref();
   }
   return sv;
@@ -915,15 +945,16 @@ bool ColumnFamilyData::ReturnThreadLocalSuperVersion(SuperVersion* sv) {
   return false;
 }
 
-SuperVersion* ColumnFamilyData::InstallSuperVersion(
-    SuperVersion* new_superversion, InstrumentedMutex* db_mutex) {
+void ColumnFamilyData::InstallSuperVersion(
+    SuperVersionContext* sv_context, InstrumentedMutex* db_mutex) {
   db_mutex->AssertHeld();
-  return InstallSuperVersion(new_superversion, db_mutex, mutable_cf_options_);
+  return InstallSuperVersion(sv_context, db_mutex, mutable_cf_options_);
 }
 
-SuperVersion* ColumnFamilyData::InstallSuperVersion(
-    SuperVersion* new_superversion, InstrumentedMutex* db_mutex,
+void ColumnFamilyData::InstallSuperVersion(
+    SuperVersionContext* sv_context, InstrumentedMutex* db_mutex,
     const MutableCFOptions& mutable_cf_options) {
+  SuperVersion* new_superversion = sv_context->new_superversion.release();
   new_superversion->db_mutex = db_mutex;
   new_superversion->mutable_cf_options = mutable_cf_options;
   new_superversion->Init(mem_, imm_.current(), current_);
@@ -931,16 +962,28 @@ SuperVersion* ColumnFamilyData::InstallSuperVersion(
   super_version_ = new_superversion;
   ++super_version_number_;
   super_version_->version_number = super_version_number_;
+  super_version_->write_stall_condition =
+      RecalculateWriteStallConditions(mutable_cf_options);
+
+  if (old_superversion != nullptr) {
+    if (old_superversion->mutable_cf_options.write_buffer_size !=
+        mutable_cf_options.write_buffer_size) {
+      mem_->UpdateWriteBufferSize(mutable_cf_options.write_buffer_size);
+    }
+    if (old_superversion->write_stall_condition !=
+        new_superversion->write_stall_condition) {
+      sv_context->PushWriteStallNotification(
+          old_superversion->write_stall_condition,
+          new_superversion->write_stall_condition, GetName(), ioptions());
+    }
+    if (old_superversion->Unref()) {
+      old_superversion->Cleanup();
+      sv_context->superversions_to_free.push_back(old_superversion);
+    }
+  }
+
   // Reset SuperVersions cached in thread local storage
   ResetThreadLocalSuperVersions();
-
-  RecalculateWriteStallConditions(mutable_cf_options);
-
-  if (old_superversion != nullptr && old_superversion->Unref()) {
-    old_superversion->Cleanup();
-    return old_superversion;  // will let caller delete outside of mutex
-  }
-  return nullptr;
 }
 
 void ColumnFamilyData::ResetThreadLocalSuperVersions() {
@@ -973,6 +1016,24 @@ Status ColumnFamilyData::SetOptions(
 }
 #endif  // ROCKSDB_LITE
 
+// REQUIRES: DB mutex held
+Env::WriteLifeTimeHint ColumnFamilyData::CalculateSSTWriteHint(int level) {
+  if (initial_cf_options_.compaction_style != kCompactionStyleLevel) {
+    return Env::WLTH_NOT_SET;
+  }
+  if (level == 0) {
+    return Env::WLTH_MEDIUM;
+  }
+  int base_level = current_->storage_info()->base_level();
+
+  // L1: medium, L2: long, ...
+  if (level - base_level >= 2) {
+    return Env::WLTH_EXTREME;
+  }
+  return static_cast<Env::WriteLifeTimeHint>(level - base_level +
+                            static_cast<int>(Env::WLTH_MEDIUM));
+}
+
 ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
                                  const ImmutableDBOptions* db_options,
                                  const EnvOptions& env_options,
@@ -999,10 +1060,12 @@ ColumnFamilySet::~ColumnFamilySet() {
   while (column_family_data_.size() > 0) {
     // cfd destructor will delete itself from column_family_data_
     auto cfd = column_family_data_.begin()->second;
-    cfd->Unref();
+    bool last_ref __attribute__((__unused__)) = cfd->Unref();
+    assert(last_ref);
     delete cfd;
   }
-  dummy_cfd_->Unref();
+  bool dummy_last_ref __attribute__((__unused__)) = dummy_cfd_->Unref();
+  assert(dummy_last_ref);
   delete dummy_cfd_;
 }
 

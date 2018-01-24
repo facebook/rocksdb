@@ -35,7 +35,10 @@
 
 #if defined(ZSTD)
 #include <zstd.h>
-#endif
+#if ZSTD_VERSION_NUMBER >= 800  // v0.8.0+
+#include <zdict.h>
+#endif  // ZSTD_VERSION_NUMBER >= 800
+#endif  // ZSTD
 
 #if defined(XPRESS)
 #include "port/xpress.h"
@@ -46,8 +49,9 @@ namespace rocksdb {
 inline bool Snappy_Supported() {
 #ifdef SNAPPY
   return true;
-#endif
+#else
   return false;
+#endif
 }
 
 inline bool Zlib_Supported() {
@@ -60,37 +64,42 @@ inline bool Zlib_Supported() {
 inline bool BZip2_Supported() {
 #ifdef BZIP2
   return true;
-#endif
+#else
   return false;
+#endif
 }
 
 inline bool LZ4_Supported() {
 #ifdef LZ4
   return true;
-#endif
+#else
   return false;
+#endif
 }
 
 inline bool XPRESS_Supported() {
 #ifdef XPRESS
   return true;
-#endif
+#else
   return false;
+#endif
 }
 
 inline bool ZSTD_Supported() {
 #ifdef ZSTD
   // ZSTD format is finalized since version 0.8.0.
   return (ZSTD_versionNumber() >= 800);
-#endif
+#else
   return false;
+#endif
 }
 
 inline bool ZSTDNotFinal_Supported() {
 #ifdef ZSTD
   return true;
-#endif
+#else
   return false;
+#endif
 }
 
 inline bool CompressionTypeSupported(CompressionType compression_type) {
@@ -136,8 +145,9 @@ inline std::string CompressionTypeToString(CompressionType compression_type) {
     case kXpressCompression:
       return "Xpress";
     case kZSTD:
-    case kZSTDNotFinalCompression:
       return "ZSTD";
+    case kZSTDNotFinalCompression:
+      return "ZSTDNotFinal";
     default:
       assert(false);
       return "";
@@ -159,9 +169,9 @@ inline bool Snappy_Compress(const CompressionOptions& opts, const char* input,
   snappy::RawCompress(input, length, &(*output)[0], &outlen);
   output->resize(outlen);
   return true;
-#endif
-
+#else
   return false;
+#endif
 }
 
 inline bool Snappy_GetUncompressedLength(const char* input, size_t length,
@@ -708,16 +718,18 @@ inline bool LZ4HC_Compress(const CompressionOptions& opts,
 inline bool XPRESS_Compress(const char* input, size_t length, std::string* output) {
 #ifdef XPRESS
   return port::xpress::Compress(input, length, output);
-#endif
+#else
   return false;
+#endif
 }
 
 inline char* XPRESS_Uncompress(const char* input_data, size_t input_length,
   int* decompress_size) {
 #ifdef XPRESS
   return port::xpress::Decompress(input_data, input_length, decompress_size);
-#endif
+#else
   return nullptr;
+#endif
 }
 
 
@@ -786,6 +798,44 @@ inline char* ZSTD_Uncompress(const char* input_data, size_t input_length,
   return output;
 #endif
   return nullptr;
+}
+
+inline std::string ZSTD_TrainDictionary(const std::string& samples,
+                                        const std::vector<size_t>& sample_lens,
+                                        size_t max_dict_bytes) {
+  // Dictionary trainer is available since v0.6.1, but ZSTD was marked stable
+  // only since v0.8.0. For now we enable the feature in stable versions only.
+#if ZSTD_VERSION_NUMBER >= 800  // v0.8.0+
+  std::string dict_data(max_dict_bytes, '\0');
+  size_t dict_len = ZDICT_trainFromBuffer(
+      &dict_data[0], max_dict_bytes, &samples[0], &sample_lens[0],
+      static_cast<unsigned>(sample_lens.size()));
+  if (ZDICT_isError(dict_len)) {
+    return "";
+  }
+  assert(dict_len <= max_dict_bytes);
+  dict_data.resize(dict_len);
+  return dict_data;
+#else   // up to v0.7.x
+  assert(false);
+  return "";
+#endif  // ZSTD_VERSION_NUMBER >= 800
+}
+
+inline std::string ZSTD_TrainDictionary(const std::string& samples,
+                                        size_t sample_len_shift,
+                                        size_t max_dict_bytes) {
+  // Dictionary trainer is available since v0.6.1, but ZSTD was marked stable
+  // only since v0.8.0. For now we enable the feature in stable versions only.
+#if ZSTD_VERSION_NUMBER >= 800  // v0.8.0+
+  // skips potential partial sample at the end of "samples"
+  size_t num_samples = samples.size() >> sample_len_shift;
+  std::vector<size_t> sample_lens(num_samples, 1 << sample_len_shift);
+  return ZSTD_TrainDictionary(samples, sample_lens, max_dict_bytes);
+#else   // up to v0.7.x
+  assert(false);
+  return "";
+#endif  // ZSTD_VERSION_NUMBER >= 800
 }
 
 }  // namespace rocksdb

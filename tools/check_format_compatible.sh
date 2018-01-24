@@ -42,7 +42,7 @@ EOF
 done
 
 declare -a backward_compatible_checkout_objs=("2.2.fb.branch" "2.3.fb.branch" "2.4.fb.branch" "2.5.fb.branch" "2.6.fb.branch" "2.7.fb.branch" "2.8.1.fb" "3.0.fb.branch" "3.1.fb" "3.2.fb" "3.3.fb" "3.4.fb" "3.5.fb" "3.6.fb" "3.7.fb" "3.8.fb" "3.9.fb")
-declare -a forward_compatible_checkout_objs=("3.10.fb" "3.11.fb" "3.12.fb" "3.13.fb" "4.0.fb" "4.1.fb" "4.2.fb" "4.3.fb" "4.4.fb" "4.5.fb" "4.6.fb" "4.7.fb" "4.8.fb" "4.9.fb" "4.10.fb" "4.11.fb" "4.12.fb" "4.13.fb" "5.0.fb" "5.1.fb" "5.2.fb" "5.3.fb" "5.4.fb" "5.5.fb" "5.6.fb")
+declare -a forward_compatible_checkout_objs=("3.10.fb" "3.11.fb" "3.12.fb" "3.13.fb" "4.0.fb" "4.1.fb" "4.2.fb" "4.3.fb" "4.4.fb" "4.5.fb" "4.6.fb" "4.7.fb" "4.8.fb" "4.9.fb" "4.10.fb" "4.11.fb" "4.12.fb" "4.13.fb" "5.0.fb" "5.1.fb" "5.2.fb" "5.3.fb" "5.4.fb" "5.5.fb" "5.6.fb" "5.7.fb" "5.8.fb" "5.9.fb" "5.10.fb")
 declare -a checkout_objs=(${backward_compatible_checkout_objs[@]} ${forward_compatible_checkout_objs[@]})
 
 generate_db()

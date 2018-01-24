@@ -10,7 +10,6 @@
 #include "table/block_based_table_builder.h"
 
 #include <assert.h>
-#include <inttypes.h>
 #include <stdio.h>
 
 #include <list>
@@ -79,8 +78,8 @@ FilterBlockBuilder* CreateFilterBlockBuilder(
       // as partition size.
       assert(table_opt.block_size_deviation <= 100);
       auto partition_size = static_cast<uint32_t>(
-          table_opt.metadata_block_size *
-          (100 - table_opt.block_size_deviation));
+          ((table_opt.metadata_block_size *
+          (100 - table_opt.block_size_deviation)) + 99) / 100);
       partition_size = std::max(partition_size, static_cast<uint32_t>(1));
       return new PartitionedFilterBlockBuilder(
           opt.prefix_extractor, table_opt.whole_key_filtering,
@@ -276,6 +275,7 @@ struct BlockBasedTableBuilder::Rep {
   uint32_t column_family_id;
   const std::string& column_family_name;
   uint64_t creation_time = 0;
+  uint64_t oldest_key_time = 0;
 
   std::vector<std::unique_ptr<IntTblPropCollector>> table_properties_collectors;
 
@@ -288,24 +288,27 @@ struct BlockBasedTableBuilder::Rep {
       const CompressionType _compression_type,
       const CompressionOptions& _compression_opts,
       const std::string* _compression_dict, const bool skip_filters,
-      const std::string& _column_family_name, const uint64_t _creation_time)
+      const std::string& _column_family_name, const uint64_t _creation_time,
+      const uint64_t _oldest_key_time)
       : ioptions(_ioptions),
         table_options(table_opt),
         internal_comparator(icomparator),
         file(f),
         data_block(table_options.block_restart_interval,
                    table_options.use_delta_encoding),
-        range_del_block(port::kMaxInt32),
+        range_del_block(1),  // TODO(andrewkr): restart_interval unnecessary
         internal_prefix_transform(_ioptions.prefix_extractor),
         compression_type(_compression_type),
         compression_opts(_compression_opts),
         compression_dict(_compression_dict),
+        compressed_cache_key_prefix_size(0),
         flush_block_policy(
             table_options.flush_block_policy_factory->NewFlushBlockPolicy(
                 table_options, data_block)),
         column_family_id(_column_family_id),
         column_family_name(_column_family_name),
-        creation_time(_creation_time) {
+        creation_time(_creation_time),
+        oldest_key_time(_oldest_key_time) {
     if (table_options.index_type ==
         BlockBasedTableOptions::kTwoLevelIndexSearch) {
       p_index_builder_ = PartitionedIndexBuilder::CreateIndexBuilder(
@@ -344,7 +347,8 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
     const CompressionType compression_type,
     const CompressionOptions& compression_opts,
     const std::string* compression_dict, const bool skip_filters,
-    const std::string& column_family_name, const uint64_t creation_time) {
+    const std::string& column_family_name, const uint64_t creation_time,
+    const uint64_t oldest_key_time) {
   BlockBasedTableOptions sanitized_table_options(table_options);
   if (sanitized_table_options.format_version == 0 &&
       sanitized_table_options.checksum != kCRC32c) {
@@ -360,7 +364,8 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
   rep_ = new Rep(ioptions, sanitized_table_options, internal_comparator,
                  int_tbl_prop_collector_factories, column_family_id, file,
                  compression_type, compression_opts, compression_dict,
-                 skip_filters, column_family_name, creation_time);
+                 skip_filters, column_family_name, creation_time,
+                 oldest_key_time);
 
   if (rep_->filter_builder != nullptr) {
     rep_->filter_builder->StartBlock(0);
@@ -522,11 +527,11 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
     RecordTick(r->ioptions.statistics, NUMBER_BLOCK_NOT_COMPRESSED);
     type = kNoCompression;
     block_contents = raw_block_contents;
-  } else if (type != kNoCompression &&
-             ShouldReportDetailedTime(r->ioptions.env,
-                                      r->ioptions.statistics)) {
-    MeasureTime(r->ioptions.statistics, COMPRESSION_TIMES_NANOS,
-                timer.ElapsedNanos());
+  } else if (type != kNoCompression) {
+    if (ShouldReportDetailedTime(r->ioptions.env, r->ioptions.statistics)) {
+      MeasureTime(r->ioptions.statistics, COMPRESSION_TIMES_NANOS,
+                  timer.ElapsedNanos());
+    }
     MeasureTime(r->ioptions.statistics, BYTES_COMPRESSED,
                 raw_block_contents.size());
     RecordTick(r->ioptions.statistics, NUMBER_BLOCK_COMPRESSED);
@@ -738,6 +743,7 @@ Status BlockBasedTableBuilder::Finish() {
             r->p_index_builder_->EstimateTopLevelIndexSize(r->offset);
       }
       r->props.creation_time = r->creation_time;
+      r->props.oldest_key_time = r->oldest_key_time;
 
       // Add basic properties
       property_block_builder.AddTableProperty(r->props);
@@ -777,9 +783,12 @@ Status BlockBasedTableBuilder::Finish() {
     WriteRawBlock(meta_index_builder.Finish(), kNoCompression,
                   &metaindex_block_handle);
 
-    const bool is_data_block = true;
-    WriteBlock(index_blocks.index_block_contents, &index_block_handle,
-               !is_data_block);
+    if (r->table_options.enable_index_compression) {
+      WriteBlock(index_blocks.index_block_contents, &index_block_handle, false);
+    } else {
+      WriteRawBlock(index_blocks.index_block_contents, kNoCompression,
+                    &index_block_handle);
+    }
     // If there are more index partitions, finish them and write them out
     Status& s = index_builder_status;
     while (s.IsIncomplete()) {
@@ -787,8 +796,13 @@ Status BlockBasedTableBuilder::Finish() {
       if (!s.ok() && !s.IsIncomplete()) {
         return s;
       }
-      WriteBlock(index_blocks.index_block_contents, &index_block_handle,
-                 !is_data_block);
+      if (r->table_options.enable_index_compression) {
+        WriteBlock(index_blocks.index_block_contents, &index_block_handle,
+                   false);
+      } else {
+        WriteRawBlock(index_blocks.index_block_contents, kNoCompression,
+                      &index_block_handle);
+      }
       // The last index_block_handle will be for the partition index block
     }
   }

@@ -747,7 +747,7 @@ namespace {
 void MakeUpper(std::string* const s) {
   int len = static_cast<int>(s->length());
   for (int i = 0; i < len; ++i) {
-    (*s)[i] = toupper((*s)[i]);  // C-version defined in <ctype.h>
+    (*s)[i] = static_cast<char>(toupper((*s)[i]));  // C-version defined in <ctype.h>
   }
 }
 

@@ -15,7 +15,7 @@
 #include "util/testutil.h"
 
 #ifdef GFLAGS
-#include <gflags/gflags.h>
+#include "util/gflags_compat.h"
 
 namespace rocksdb {
 namespace {

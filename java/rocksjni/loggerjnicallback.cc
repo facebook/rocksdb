@@ -16,23 +16,8 @@
 namespace rocksdb {
 
 LoggerJniCallback::LoggerJniCallback(
-    JNIEnv* env, jobject jlogger) {
-  // Note: Logger methods may be accessed by multiple threads,
-  // so we ref the jvm not the env
-  const jint rs = env->GetJavaVM(&m_jvm);
-  if(rs != JNI_OK) {
-    // exception thrown
-    return;
-  }
+    JNIEnv* env, jobject jlogger) : JniCallback(env, jlogger) {
 
-  // Note: we want to access the Java Logger instance
-  // across multiple method calls, so we create a global ref
-  assert(jlogger != nullptr);
-  m_jLogger = env->NewGlobalRef(jlogger);
-  if(m_jLogger == nullptr) {
-    // exception thrown: OutOfMemoryError
-    return;
-  }
   m_jLogMethodId = LoggerJni::getLogMethodId(env);
   if(m_jLogMethodId == nullptr) {
     // exception thrown: NoSuchMethodException or OutOfMemoryError
@@ -153,7 +138,7 @@ void LoggerJniCallback::Logv(const InfoLogLevel log_level,
 
     // pass msg to java callback handler
     jboolean attached_thread = JNI_FALSE;
-    JNIEnv* env = JniUtil::getJniEnv(m_jvm, &attached_thread);
+    JNIEnv* env = getJniEnv(&attached_thread);
     assert(env != nullptr);
 
     jstring jmsg = env->NewStringUTF(msg.get());
@@ -162,28 +147,28 @@ void LoggerJniCallback::Logv(const InfoLogLevel log_level,
       if(env->ExceptionCheck()) {
         env->ExceptionDescribe(); // print out exception to stderr
       }
-      JniUtil::releaseJniEnv(m_jvm, attached_thread);
+      releaseJniEnv(attached_thread);
       return;
     }
     if(env->ExceptionCheck()) {
       // exception thrown: OutOfMemoryError
       env->ExceptionDescribe(); // print out exception to stderr
       env->DeleteLocalRef(jmsg);
-      JniUtil::releaseJniEnv(m_jvm, attached_thread);
+      releaseJniEnv(attached_thread);
       return;
     }
 
-    env->CallVoidMethod(m_jLogger, m_jLogMethodId, jlog_level, jmsg);
+    env->CallVoidMethod(m_jcallback_obj, m_jLogMethodId, jlog_level, jmsg);
     if(env->ExceptionCheck()) {
       // exception thrown
       env->ExceptionDescribe(); // print out exception to stderr
       env->DeleteLocalRef(jmsg);
-      JniUtil::releaseJniEnv(m_jvm, attached_thread);
+      releaseJniEnv(attached_thread);
       return;
     }
 
     env->DeleteLocalRef(jmsg);
-    JniUtil::releaseJniEnv(m_jvm, attached_thread);
+    releaseJniEnv(attached_thread);
   }
 }
 
@@ -202,15 +187,10 @@ std::unique_ptr<char[]> LoggerJniCallback::format_str(const char* format, va_lis
 
   return buf;
 }
-
 LoggerJniCallback::~LoggerJniCallback() {
   jboolean attached_thread = JNI_FALSE;
-  JNIEnv* env = JniUtil::getJniEnv(m_jvm, &attached_thread);
+  JNIEnv* env = getJniEnv(&attached_thread);
   assert(env != nullptr);
-
-  if(m_jLogger != nullptr) {
-    env->DeleteGlobalRef(m_jLogger);
-  }
 
   if(m_jdebug_level != nullptr) {
     env->DeleteGlobalRef(m_jdebug_level);
@@ -236,7 +216,7 @@ LoggerJniCallback::~LoggerJniCallback() {
     env->DeleteGlobalRef(m_jheader_level);
   }
 
-  JniUtil::releaseJniEnv(m_jvm, attached_thread);
+  releaseJniEnv(attached_thread);
 }
 
 }  // namespace rocksdb

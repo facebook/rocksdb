@@ -20,7 +20,6 @@
 #include <unistd.h>
 #endif
 #include <fcntl.h>
-#include <gflags/gflags.h>
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -61,6 +60,7 @@
 #include "util/cast_util.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
+#include "util/gflags_compat.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
 #include "util/stderr_logger.h"
@@ -76,9 +76,9 @@
 #include <io.h>  // open/close
 #endif
 
-using GFLAGS::ParseCommandLineFlags;
-using GFLAGS::RegisterFlagValidator;
-using GFLAGS::SetUsageMessage;
+using GFLAGS_NAMESPACE::ParseCommandLineFlags;
+using GFLAGS_NAMESPACE::RegisterFlagValidator;
+using GFLAGS_NAMESPACE::SetUsageMessage;
 
 DEFINE_string(
     benchmarks,
@@ -442,6 +442,10 @@ DEFINE_int32(read_amp_bytes_per_bit,
              rocksdb::BlockBasedTableOptions().read_amp_bytes_per_bit,
              "Number of bytes per bit to be used in block read-amp bitmap");
 
+DEFINE_bool(enable_index_compression,
+            rocksdb::BlockBasedTableOptions().enable_index_compression,
+            "Compress the index block");
+
 DEFINE_int64(compressed_cache_size, -1,
              "Number of bytes to use as a cache of compressed data.");
 
@@ -618,13 +622,10 @@ DEFINE_bool(expand_range_tombstones, false,
             "Expand range tombstone into sequential regular tombstones.");
 
 #ifndef ROCKSDB_LITE
+// Transactions Options
 DEFINE_bool(optimistic_transaction_db, false,
             "Open a OptimisticTransactionDB instance. "
             "Required for randomtransaction benchmark.");
-
-DEFINE_bool(use_blob_db, false,
-            "Open a BlobDB instance. "
-            "Required for largevalue benchmark.");
 
 DEFINE_bool(transaction_db, false,
             "Open a TransactionDB instance. "
@@ -661,11 +662,42 @@ DEFINE_string(
     "\t--dump_malloc_stats\n"
     "\t--num_multi_db\n");
 
+// FIFO Compaction Options
 DEFINE_uint64(fifo_compaction_max_table_files_size_mb, 0,
               "The limit of total table file sizes to trigger FIFO compaction");
+
 DEFINE_bool(fifo_compaction_allow_compaction, true,
             "Allow compaction in FIFO compaction.");
+
 DEFINE_uint64(fifo_compaction_ttl, 0, "TTL for the SST Files in seconds.");
+
+// Blob DB Options
+DEFINE_bool(use_blob_db, false,
+            "Open a BlobDB instance. "
+            "Required for large value benchmark.");
+
+DEFINE_bool(blob_db_enable_gc, false, "Enable BlobDB garbage collection.");
+
+DEFINE_bool(blob_db_is_fifo, false, "Enable FIFO eviction strategy in BlobDB.");
+
+DEFINE_uint64(blob_db_dir_size, 0,
+              "Max size limit of the directory where blob files are stored.");
+
+DEFINE_uint64(blob_db_max_ttl_range, 86400,
+              "TTL range to generate BlobDB data (in seconds).");
+
+DEFINE_uint64(blob_db_ttl_range_secs, 3600,
+              "TTL bucket size to use when creating blob files.");
+
+DEFINE_uint64(blob_db_min_blob_size, 0,
+              "Smallest blob to store in a file. Blobs smaller than this "
+              "will be inlined with the key in the LSM tree.");
+
+DEFINE_uint64(blob_db_bytes_per_sync, 0, "Bytes to sync blob file at.");
+
+DEFINE_uint64(blob_db_file_size, 256 * 1024 * 1024,
+              "Target size of each blob file.");
+
 #endif  // ROCKSDB_LITE
 
 DEFINE_bool(report_bg_io_stats, false,
@@ -720,6 +752,10 @@ DEFINE_int32(compression_level, -1,
 DEFINE_int32(compression_max_dict_bytes, 0,
              "Maximum size of dictionary used to prime the compression "
              "library.");
+
+DEFINE_int32(compression_zstd_max_train_bytes, 0,
+             "Maximum size of training data passed to zstd's dictionary "
+             "trainer.");
 
 static bool ValidateCompressionLevel(const char* flagname, int32_t value) {
   if (value < -1 || value > 9) {
@@ -825,6 +861,10 @@ DEFINE_int32(rate_limit_delay_max_milliseconds, 1000,
              " be stalled.");
 
 DEFINE_uint64(rate_limiter_bytes_per_sec, 0, "Set options.rate_limiter value.");
+
+DEFINE_bool(rate_limiter_auto_tuned, false,
+            "Enable dynamic adjustment of rate limit according to demand for "
+            "background I/O");
 
 DEFINE_bool(rate_limit_bg_reads, false,
             "Use options.rate_limiter on compaction reads");
@@ -2716,8 +2756,10 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 
   void Crc32c(ThreadState* thread) {
     // Checksum about 500MB of data total
-    const int size = 4096;
-    const char* label = "(4K per op)";
+    const int size = FLAGS_block_size; // use --block_size option for db_bench
+    std::string labels = "(" + ToString(FLAGS_block_size) + " per op)";
+    const char* label = labels.c_str();
+
     std::string data(size, 'x');
     int64_t bytes = 0;
     uint32_t crc = 0;
@@ -3072,6 +3114,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       block_based_options.filter_policy = filter_policy_;
       block_based_options.format_version = 2;
       block_based_options.read_amp_bytes_per_bit = FLAGS_read_amp_bytes_per_bit;
+      block_based_options.enable_index_compression =
+          FLAGS_enable_index_compression;
       if (FLAGS_read_cache_path != "") {
 #ifndef ROCKSDB_LITE
         Status rc_status;
@@ -3130,8 +3174,6 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     options.level0_slowdown_writes_trigger =
       FLAGS_level0_slowdown_writes_trigger;
     options.compression = FLAGS_compression_type_e;
-    options.compression_opts.level = FLAGS_compression_level;
-    options.compression_opts.max_dict_bytes = FLAGS_compression_max_dict_bytes;
     options.WAL_ttl_seconds = FLAGS_wal_ttl_seconds;
     options.WAL_size_limit_MB = FLAGS_wal_size_limit_MB;
     options.max_total_wal_size = FLAGS_max_total_wal_size;
@@ -3231,6 +3273,10 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     options.create_if_missing = !FLAGS_use_existing_db;
     options.dump_malloc_stats = FLAGS_dump_malloc_stats;
 
+    options.compression_opts.level = FLAGS_compression_level;
+    options.compression_opts.max_dict_bytes = FLAGS_compression_max_dict_bytes;
+    options.compression_opts.zstd_max_train_bytes =
+        FLAGS_compression_zstd_max_train_bytes;
     if (FLAGS_row_cache_size) {
       if (FLAGS_cache_numshardbits >= 1) {
         options.row_cache =
@@ -3257,7 +3303,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
           FLAGS_rate_limiter_bytes_per_sec, 100 * 1000 /* refill_period_us */,
           10 /* fairness */,
           FLAGS_rate_limit_bg_reads ? RateLimiter::Mode::kReadsOnly
-                                    : RateLimiter::Mode::kWritesOnly));
+                                    : RateLimiter::Mode::kWritesOnly,
+          FLAGS_rate_limiter_auto_tuned));
     }
 
     if (FLAGS_num_multi_db <= 1) {
@@ -3360,7 +3407,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         db->db = db->opt_txn_db->GetBaseDB();
       }
     } else if (FLAGS_transaction_db) {
-      TransactionDB* ptr;
+      TransactionDB* ptr = nullptr;
       TransactionDBOptions txn_db_options;
       s = CreateLoggerFromOptions(db_name, options, &options.info_log);
       if (s.ok()) {
@@ -3371,7 +3418,14 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       }
     } else if (FLAGS_use_blob_db) {
       blob_db::BlobDBOptions blob_db_options;
-      blob_db::BlobDB* ptr;
+      blob_db_options.enable_garbage_collection = FLAGS_blob_db_enable_gc;
+      blob_db_options.is_fifo = FLAGS_blob_db_is_fifo;
+      blob_db_options.blob_dir_size = FLAGS_blob_db_dir_size;
+      blob_db_options.ttl_range_secs = FLAGS_blob_db_ttl_range_secs;
+      blob_db_options.min_blob_size = FLAGS_blob_db_min_blob_size;
+      blob_db_options.bytes_per_sync = FLAGS_blob_db_bytes_per_sync;
+      blob_db_options.blob_file_size = FLAGS_blob_db_file_size;
+      blob_db::BlobDB* ptr = nullptr;
       s = blob_db::BlobDB::Open(options, blob_db_options, db_name, &ptr);
       if (s.ok()) {
         db->db = ptr;
@@ -3555,7 +3609,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         if (use_blob_db_) {
 #ifndef ROCKSDB_LITE
           Slice val = gen.Generate(value_size_);
-          int ttl = rand() % 86400;
+          int ttl = rand() % FLAGS_blob_db_max_ttl_range;
           blob_db::BlobDB* blobdb =
               static_cast<blob_db::BlobDB*>(db_with_cfh->db);
           s = blobdb->PutWithTTL(write_options_, key, val, ttl);
@@ -3613,9 +3667,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
         }
       }
       if (!use_blob_db_) {
-#ifndef ROCKSDB_LITE
         s = db_with_cfh->db->Write(write_options_, &batch);
-#endif  //  ROCKSDB_LITE
       }
       thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db,
                                 entries_per_batch_, kWrite);
@@ -4939,6 +4991,7 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     if (FLAGS_perf_level > rocksdb::PerfLevel::kDisable) {
       thread->stats.AddMessage(get_perf_context()->ToString());
     }
+    thread->stats.AddBytes(static_cast<int64_t>(inserter.GetBytesInserted()));
   }
 
   // Verifies consistency of data after RandomTransaction() has been run.
@@ -5177,7 +5230,9 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 
   void Compact(ThreadState* thread) {
     DB* db = SelectDB(thread);
-    db->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+    CompactRangeOptions cro;
+    cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+    db->CompactRange(cro, nullptr, nullptr);
   }
 
   void CompactAll() {

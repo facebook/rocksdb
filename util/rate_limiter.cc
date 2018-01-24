@@ -45,13 +45,15 @@ struct GenericRateLimiter::Req {
 
 GenericRateLimiter::GenericRateLimiter(int64_t rate_bytes_per_sec,
                                        int64_t refill_period_us,
-                                       int32_t fairness, RateLimiter::Mode mode)
+                                       int32_t fairness, RateLimiter::Mode mode,
+                                       Env* env, bool auto_tuned)
     : RateLimiter(mode),
       refill_period_us_(refill_period_us),
-      rate_bytes_per_sec_(rate_bytes_per_sec),
+      rate_bytes_per_sec_(auto_tuned ? rate_bytes_per_sec / 2
+                                     : rate_bytes_per_sec),
       refill_bytes_per_period_(
-          CalculateRefillBytesPerPeriod(rate_bytes_per_sec)),
-      env_(Env::Default()),
+          CalculateRefillBytesPerPeriod(rate_bytes_per_sec_)),
+      env_(env),
       stop_(false),
       exit_cv_(&request_mutex_),
       requests_to_wait_(0),
@@ -59,7 +61,12 @@ GenericRateLimiter::GenericRateLimiter(int64_t rate_bytes_per_sec,
       next_refill_us_(NowMicrosMonotonic(env_)),
       fairness_(fairness > 100 ? 100 : fairness),
       rnd_((uint32_t)time(nullptr)),
-      leader_(nullptr) {
+      leader_(nullptr),
+      auto_tuned_(auto_tuned),
+      num_drains_(0),
+      prev_num_drains_(0),
+      max_bytes_per_sec_(rate_bytes_per_sec),
+      tuned_time_(NowMicrosMonotonic(env_)) {
   total_requests_[0] = 0;
   total_requests_[1] = 0;
   total_bytes_through_[0] = 0;
@@ -98,6 +105,16 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
   TEST_SYNC_POINT_CALLBACK("GenericRateLimiter::Request:1",
                            &rate_bytes_per_sec_);
   MutexLock g(&request_mutex_);
+
+  if (auto_tuned_) {
+    static const int kRefillsPerTune = 100;
+    std::chrono::microseconds now(NowMicrosMonotonic(env_));
+    if (now - tuned_time_ >=
+        kRefillsPerTune * std::chrono::microseconds(refill_period_us_)) {
+      Tune();
+    }
+  }
+
   if (stop_) {
     return;
   }
@@ -138,6 +155,7 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
       } else {
         int64_t wait_until = env_->NowMicros() + delta;
         RecordTick(stats, NUMBER_RATE_LIMITER_DRAINS);
+        ++num_drains_;
         timedout = r.cv.TimedWait(wait_until);
       }
     } else {
@@ -256,15 +274,66 @@ int64_t GenericRateLimiter::CalculateRefillBytesPerPeriod(
   }
 }
 
+Status GenericRateLimiter::Tune() {
+  const int kLowWatermarkPct = 50;
+  const int kHighWatermarkPct = 90;
+  const int kAdjustFactorPct = 5;
+  // computed rate limit will be in
+  // `[max_bytes_per_sec_ / kAllowedRangeFactor, max_bytes_per_sec_]`.
+  const int kAllowedRangeFactor = 20;
+
+  std::chrono::microseconds prev_tuned_time = tuned_time_;
+  tuned_time_ = std::chrono::microseconds(NowMicrosMonotonic(env_));
+
+  int64_t elapsed_intervals = (tuned_time_ - prev_tuned_time +
+                               std::chrono::microseconds(refill_period_us_) -
+                               std::chrono::microseconds(1)) /
+                              std::chrono::microseconds(refill_period_us_);
+  // We tune every kRefillsPerTune intervals, so the overflow and division-by-
+  // zero conditions should never happen.
+  assert(num_drains_ - prev_num_drains_ <= port::kMaxInt64 / 100);
+  assert(elapsed_intervals > 0);
+  int64_t drained_pct =
+      (num_drains_ - prev_num_drains_) * 100 / elapsed_intervals;
+
+  int64_t prev_bytes_per_sec = GetBytesPerSecond();
+  int64_t new_bytes_per_sec;
+  if (drained_pct == 0) {
+    new_bytes_per_sec = max_bytes_per_sec_ / kAllowedRangeFactor;
+  } else if (drained_pct < kLowWatermarkPct) {
+    // sanitize to prevent overflow
+    int64_t sanitized_prev_bytes_per_sec =
+        std::min(prev_bytes_per_sec, port::kMaxInt64 / 100);
+    new_bytes_per_sec =
+        std::max(max_bytes_per_sec_ / kAllowedRangeFactor,
+                 sanitized_prev_bytes_per_sec * 100 / (100 + kAdjustFactorPct));
+  } else if (drained_pct > kHighWatermarkPct) {
+    // sanitize to prevent overflow
+    int64_t sanitized_prev_bytes_per_sec = std::min(
+        prev_bytes_per_sec, port::kMaxInt64 / (100 + kAdjustFactorPct));
+    new_bytes_per_sec =
+        std::min(max_bytes_per_sec_,
+                 sanitized_prev_bytes_per_sec * (100 + kAdjustFactorPct) / 100);
+  } else {
+    new_bytes_per_sec = prev_bytes_per_sec;
+  }
+  if (new_bytes_per_sec != prev_bytes_per_sec) {
+    SetBytesPerSecond(new_bytes_per_sec);
+  }
+  num_drains_ = prev_num_drains_;
+  return Status::OK();
+}
+
 RateLimiter* NewGenericRateLimiter(
     int64_t rate_bytes_per_sec, int64_t refill_period_us /* = 100 * 1000 */,
     int32_t fairness /* = 10 */,
-    RateLimiter::Mode mode /* = RateLimiter::Mode::kWritesOnly */) {
+    RateLimiter::Mode mode /* = RateLimiter::Mode::kWritesOnly */,
+    bool auto_tuned /* = false */) {
   assert(rate_bytes_per_sec > 0);
   assert(refill_period_us > 0);
   assert(fairness > 0);
   return new GenericRateLimiter(rate_bytes_per_sec, refill_period_us, fairness,
-                                mode);
+                                mode, Env::Default(), auto_tuned);
 }
 
 }  // namespace rocksdb

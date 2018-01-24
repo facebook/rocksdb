@@ -279,7 +279,8 @@ Status WinMmapFile::MapNewRegion() {
 
     if (hMap_ != NULL) {
       // Unmap the previous one
-      BOOL ret = ::CloseHandle(hMap_);
+      BOOL ret;
+      ret = ::CloseHandle(hMap_);
       assert(ret);
       hMap_ = NULL;
     }
@@ -675,7 +676,6 @@ Status WinRandomAccessImpl::ReadImpl(uint64_t offset, size_t n, Slice* result,
   }
 
   size_t left = n;
-  char* dest = scratch;
 
   SSIZE_T r = PositionedReadInternal(scratch, left, offset);
   if (r > 0) {
@@ -880,7 +880,7 @@ inline
 Status WinWritableImpl::SyncImpl() {
   Status s;
   // Calls flush buffers
-  if (fsync(file_data_->GetFileHandle()) < 0) {
+  if (!file_data_->use_direct_io() && fsync(file_data_->GetFileHandle()) < 0) {
     auto lastError = GetLastError();
     s = IOErrorFromWindowsError(
         "fsync failed at Sync() for: " + file_data_->GetName(), lastError);
@@ -963,6 +963,8 @@ Status WinWritableFile::Sync() {
 
 Status WinWritableFile::Fsync() { return SyncImpl(); }
 
+bool WinWritableFile::IsSyncThreadSafe() const { return true; }
+
 uint64_t WinWritableFile::GetFileSize() {
   return GetFileNextWriteOffset();
 }
@@ -1021,7 +1023,8 @@ Status WinDirectory::Fsync() { return Status::OK(); }
 /// WinFileLock
 
 WinFileLock::~WinFileLock() {
-  BOOL ret = ::CloseHandle(hFile_);
+  BOOL ret;
+  ret = ::CloseHandle(hFile_);
   assert(ret);
 }
 

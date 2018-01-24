@@ -100,7 +100,9 @@ void LRUHandleTable::Resize() {
 }
 
 LRUCacheShard::LRUCacheShard()
-    : high_pri_pool_usage_(0), usage_(0), lru_usage_(0) {
+    : capacity_(0), high_pri_pool_usage_(0), strict_capacity_limit_(false),
+      high_pri_pool_ratio_(0), high_pri_pool_capacity_(0), usage_(0),
+      lru_usage_(0) {
   // Make empty circular linked list
   lru_.next = &lru_;
   lru_.prev = &lru_;
@@ -165,6 +167,11 @@ size_t LRUCacheShard::TEST_GetLRUSize() {
     lru_handle = lru_handle->next;
   }
   return lru_size;
+}
+
+double LRUCacheShard::GetHighPriPoolRatio() {
+  MutexLock l(&mutex_);
+  return high_pri_pool_ratio_;
 }
 
 void LRUCacheShard::LRU_Remove(LRUHandle* e) {
@@ -353,6 +360,7 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
   e->deleter = deleter;
   e->charge = charge;
   e->key_length = key.size();
+  e->flags = 0;
   e->hash = hash;
   e->refs = (handle == nullptr
                  ? 1
@@ -508,6 +516,20 @@ size_t LRUCache::TEST_GetLRUSize() {
     lru_size_of_all_shards += shards_[i].TEST_GetLRUSize();
   }
   return lru_size_of_all_shards;
+}
+
+double LRUCache::GetHighPriPoolRatio() {
+  double result = 0.0;
+  if (num_shards_ > 0) {
+    result = shards_[0].GetHighPriPoolRatio();
+  }
+  return result;
+}
+
+std::shared_ptr<Cache> NewLRUCache(const LRUCacheOptions& cache_opts) {
+  return NewLRUCache(cache_opts.capacity, cache_opts.num_shard_bits,
+                     cache_opts.strict_capacity_limit,
+                     cache_opts.high_pri_pool_ratio);
 }
 
 std::shared_ptr<Cache> NewLRUCache(size_t capacity, int num_shard_bits,

@@ -17,6 +17,7 @@ import argparse
 #       simple_default_params < blackbox|whitebox_simple_default_params < args
 
 default_params = {
+    "acquire_snapshot_one_in": 10000,
     "block_size": 16384,
     "cache_size": 1048576,
     "use_clock_cache": "false",
@@ -37,6 +38,7 @@ default_params = {
     "progress_reports": 0,
     "readpercent": 45,
     "reopen": 20,
+    "snapshot_hold_ops": 100000,
     "sync": 0,
     "target_file_size_base": 2097152,
     "target_file_size_multiplier": 2,

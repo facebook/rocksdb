@@ -155,7 +155,8 @@ class SimCacheImpl : public SimCache {
       : cache_(cache),
         key_only_cache_(NewLRUCache(sim_capacity, num_shard_bits)),
         miss_times_(0),
-        hit_times_(0) {}
+        hit_times_(0),
+        stats_(nullptr) {}
 
   virtual ~SimCacheImpl() {}
   virtual void SetCapacity(size_t capacity) override {

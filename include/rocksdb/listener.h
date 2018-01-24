@@ -77,6 +77,9 @@ enum class CompactionReason {
   kManualCompaction,
   // DB::SuggestCompactRange() marked files for compaction
   kFilesMarkedForCompaction,
+  // [Level] Automatic compaction within bottommost level to cleanup duplicate
+  // versions of same user key, usually due to a released snapshot.
+  kBottommostFiles,
 };
 
 enum class BackgroundErrorReason {
@@ -84,6 +87,22 @@ enum class BackgroundErrorReason {
   kCompaction,
   kWriteCallback,
   kMemTable,
+};
+
+enum class WriteStallCondition {
+  kNormal,
+  kDelayed,
+  kStopped,
+};
+
+struct WriteStallInfo {
+  // the name of the column family
+  std::string cf_name;
+  // state of the write controller
+  struct {
+    WriteStallCondition cur;
+    WriteStallCondition prev;
+  } condition;
 };
 
 #ifndef ROCKSDB_LITE
@@ -195,7 +214,7 @@ struct ExternalFileIngestionInfo {
 };
 
 // A call-back function to RocksDB which will be called when the compaction
-// iterator is compacting values. It is mean to be returned from
+// iterator is compacting values. It is meant to be returned from
 // EventListner::GetCompactionEventListner() at the beginning of compaction
 // job.
 class CompactionEventListener {
@@ -371,6 +390,14 @@ class EventListener {
   // computations or blocking calls in this function.
   virtual void OnBackgroundError(BackgroundErrorReason /* reason */,
                                  Status* /* bg_error */) {}
+
+  // A call-back function for RocksDB which will be called whenever a change
+  // of superversion triggers a change of the stall conditions.
+  //
+  // Note that the this function must be implemented in a way such that
+  // it should not run for an extended period of time before the function
+  // returns.  Otherwise, RocksDB may be blocked.
+  virtual void OnStallConditionsChanged(const WriteStallInfo& /*info*/) {}
 
   // Factory method to return CompactionEventListener. If multiple listeners
   // provides CompactionEventListner, only the first one will be used.

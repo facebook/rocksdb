@@ -31,11 +31,12 @@ namespace rocksdb {
 class WalManager {
  public:
   WalManager(const ImmutableDBOptions& db_options,
-             const EnvOptions& env_options)
+             const EnvOptions& env_options, const bool seq_per_batch = false)
       : db_options_(db_options),
         env_options_(env_options),
         env_(db_options.env),
-        purge_wal_files_last_run_(0) {}
+        purge_wal_files_last_run_(0),
+        seq_per_batch_(seq_per_batch) {}
 
   Status GetSortedWalFiles(VectorLogPtr& files);
 
@@ -47,6 +48,8 @@ class WalManager {
   void PurgeObsoleteWALFiles();
 
   void ArchiveWALFile(const std::string& fname, uint64_t number);
+
+  Status DeleteFile(const std::string& fname, uint64_t number);
 
   Status TEST_ReadFirstRecord(const WalFileType type, const uint64_t number,
                               SequenceNumber* sequence) {
@@ -85,6 +88,8 @@ class WalManager {
 
   // last time when PurgeObsoleteWALFiles ran.
   uint64_t purge_wal_files_last_run_;
+
+  bool seq_per_batch_;
 
   // obsolete files will be deleted every this seconds if ttl deletion is
   // enabled and archive size_limit is disabled.

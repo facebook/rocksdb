@@ -25,6 +25,8 @@ class StackableDB : public DB {
     delete db_;
   }
 
+  virtual Status Close() override { return db_->Close(); }
+
   virtual DB* GetBaseDB() {
     return db_;
   }
@@ -302,6 +304,10 @@ class StackableDB : public DB {
 
   virtual SequenceNumber GetLatestSequenceNumber() const override {
     return db_->GetLatestSequenceNumber();
+  }
+
+  virtual bool SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) override {
+    return db_->SetPreserveDeletesSequenceNumber(seqnum);
   }
 
   virtual Status GetSortedWalFiles(VectorLogPtr& files) override {

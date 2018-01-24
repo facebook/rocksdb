@@ -215,15 +215,14 @@ class BlockBasedTable : public TableReader {
  private:
   friend class MockedBlockBasedTable;
   // input_iter: if it is not null, update this one and return it as Iterator
-  static InternalIterator* NewDataBlockIterator(Rep* rep, const ReadOptions& ro,
-                                                const Slice& index_value,
-                                                BlockIter* input_iter = nullptr,
-                                                bool is_index = false);
-  static InternalIterator* NewDataBlockIterator(Rep* rep, const ReadOptions& ro,
-                                                const BlockHandle& block_hanlde,
-                                                BlockIter* input_iter = nullptr,
-                                                bool is_index = false,
-                                                Status s = Status());
+  static InternalIterator* NewDataBlockIterator(
+      Rep* rep, const ReadOptions& ro, const Slice& index_value,
+      BlockIter* input_iter = nullptr, bool is_index = false,
+      GetContext* get_context = nullptr);
+  static InternalIterator* NewDataBlockIterator(
+      Rep* rep, const ReadOptions& ro, const BlockHandle& block_hanlde,
+      BlockIter* input_iter = nullptr, bool is_index = false,
+      GetContext* get_context = nullptr, Status s = Status());
   // If block cache enabled (compressed or uncompressed), looks for the block
   // identified by handle in (1) uncompressed cache, (2) compressed cache, and
   // then (3) file. If found, inserts into the cache(s) that were searched
@@ -238,16 +237,19 @@ class BlockBasedTable : public TableReader {
                                           const BlockHandle& handle,
                                           Slice compression_dict,
                                           CachableEntry<Block>* block_entry,
-                                          bool is_index = false);
+                                          bool is_index = false,
+                                          GetContext* get_context = nullptr);
 
   // For the following two functions:
   // if `no_io == true`, we will not try to read filter/index from sst file
   // were they not present in cache yet.
   CachableEntry<FilterBlockReader> GetFilter(
-      FilePrefetchBuffer* prefetch_buffer = nullptr, bool no_io = false) const;
+      FilePrefetchBuffer* prefetch_buffer = nullptr, bool no_io = false,
+      GetContext* get_context = nullptr) const;
   virtual CachableEntry<FilterBlockReader> GetFilter(
       FilePrefetchBuffer* prefetch_buffer, const BlockHandle& filter_blk_handle,
-      const bool is_a_filter_partition, bool no_io) const;
+      const bool is_a_filter_partition, bool no_io,
+      GetContext* get_context) const;
 
   // Get the iterator from the index reader.
   // If input_iter is not set, return new Iterator
@@ -261,7 +263,8 @@ class BlockBasedTable : public TableReader {
   //     kBlockCacheTier
   InternalIterator* NewIndexIterator(
       const ReadOptions& read_options, BlockIter* input_iter = nullptr,
-      CachableEntry<IndexReader>* index_entry = nullptr);
+      CachableEntry<IndexReader>* index_entry = nullptr,
+      GetContext* get_context = nullptr);
 
   // Read block cache from block caches (if set): block_cache and
   // block_cache_compressed.
@@ -275,7 +278,7 @@ class BlockBasedTable : public TableReader {
       const ImmutableCFOptions& ioptions, const ReadOptions& read_options,
       BlockBasedTable::CachableEntry<Block>* block, uint32_t format_version,
       const Slice& compression_dict, size_t read_amp_bytes_per_bit,
-      bool is_index = false);
+      bool is_index = false, GetContext* get_context = nullptr);
 
   // Put a raw block (maybe compressed) to the corresponding block caches.
   // This method will perform decompression against raw_block if needed and then
@@ -293,7 +296,8 @@ class BlockBasedTable : public TableReader {
       const ReadOptions& read_options, const ImmutableCFOptions& ioptions,
       CachableEntry<Block>* block, Block* raw_block, uint32_t format_version,
       const Slice& compression_dict, size_t read_amp_bytes_per_bit,
-      bool is_index = false, Cache::Priority pri = Cache::Priority::LOW);
+      bool is_index = false, Cache::Priority pri = Cache::Priority::LOW,
+      GetContext* get_context = nullptr);
 
   // Calls (*handle_result)(arg, ...) repeatedly, starting with the entry found
   // after a call to Seek(key), until handle_result returns false.
@@ -407,6 +411,8 @@ struct BlockBasedTable::Rep {
         filter_policy(skip_filters ? nullptr : _table_opt.filter_policy.get()),
         internal_comparator(_internal_comparator),
         filter_type(FilterType::kNoFilter),
+        index_type(BlockBasedTableOptions::IndexType::kBinarySearch),
+        hash_index_allow_collision(false),
         whole_key_filtering(_table_opt.whole_key_filtering),
         prefix_filtering(true),
         range_del_handle(BlockHandle::NullBlockHandle()),

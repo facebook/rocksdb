@@ -380,7 +380,8 @@ Iterator* DateTieredDBImpl::NewIterator(const ReadOptions& opts) {
 
   auto db_iter = NewArenaWrappedDbIterator(
       db_impl->GetEnv(), opts, ioptions_, kMaxSequenceNumber,
-      cf_options_.max_sequential_skip_in_iterations, 0);
+      cf_options_.max_sequential_skip_in_iterations, 0,
+      nullptr /*read_callback*/);
 
   auto arena = db_iter->GetArena();
   MergeIteratorBuilder builder(&icomp_, arena);

@@ -36,6 +36,7 @@ class CompactionFilter {
   enum ValueType {
     kValue,
     kMergeOperand,
+    kBlobIndex,  // used internally by BlobDB.
   };
 
   enum class Decision {
@@ -93,10 +94,6 @@ class CompactionFilter {
   // be used by a single thread that is doing the compaction run, and this
   // call does not need to be thread-safe.  However, multiple filters may be
   // in existence and operating concurrently.
-  //
-  // The last paragraph is not true if you set max_subcompactions to more than
-  // 1. In that case, subcompaction from multiple threads may call a single
-  // CompactionFilter concurrently.
   virtual bool Filter(int level, const Slice& key, const Slice& existing_value,
                       std::string* new_value, bool* value_changed) const {
     return false;
@@ -171,6 +168,8 @@ class CompactionFilter {
         bool rv = FilterMergeOperand(level, key, existing_value);
         return rv ? Decision::kRemove : Decision::kKeep;
       }
+      case ValueType::kBlobIndex:
+        return Decision::kKeep;
     }
     assert(false);
     return Decision::kKeep;

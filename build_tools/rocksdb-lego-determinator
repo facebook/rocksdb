@@ -343,27 +343,7 @@ LITE_BUILD_COMMANDS="[
             $CLEANUP_ENV,
             {
                 'name':'Build RocksDB debug version',
-                'shell':'$LITE make J=1 static_lib || $CONTRUN_NAME=lite_static_lib $TASK_CREATION_TOOL',
-                'user':'root',
-                $PARSER
-            },
-        ],
-        $REPORT
-    }
-]"
-
-#
-# RocksDB lite tests
-#
-LITE_UNIT_TEST_COMMANDS="[
-    {
-        'name':'Rocksdb Lite Unit Test',
-        'oncall':'$ONCALL',
-        'steps': [
-            $CLEANUP_ENV,
-            {
-                'name':'Build RocksDB debug version',
-                'shell':'$SHM $LITE make J=1 check || $CONTRUN_NAME=lite_check $TASK_CREATION_TOOL',
+                'shell':'$LITE make J=1 all check || $CONTRUN_NAME=lite $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
             },
@@ -747,9 +727,6 @@ case $1 in
     ;;
   lite)
     echo $LITE_BUILD_COMMANDS
-    ;;
-  lite_test)
-    echo $LITE_UNIT_TEST_COMMANDS
     ;;
   stress_crash)
     echo $STRESS_CRASH_TEST_COMMANDS

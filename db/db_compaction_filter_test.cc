@@ -24,6 +24,36 @@ class DBTestCompactionFilter : public DBTestBase {
   DBTestCompactionFilter() : DBTestBase("/db_compaction_filter_test") {}
 };
 
+// Param variant of DBTestBase::ChangeCompactOptions
+class DBTestCompactionFilterWithCompactParam
+    : public DBTestCompactionFilter,
+      public ::testing::WithParamInterface<DBTestBase::OptionConfig> {
+ public:
+  DBTestCompactionFilterWithCompactParam() : DBTestCompactionFilter() {
+    option_config_ = GetParam();
+    Destroy(last_options_);
+    auto options = CurrentOptions();
+    if (option_config_ == kDefault || option_config_ == kUniversalCompaction ||
+        option_config_ == kUniversalCompactionMultiLevel) {
+      options.create_if_missing = true;
+    }
+    if (option_config_ == kLevelSubcompactions ||
+        option_config_ == kUniversalSubcompactions) {
+      assert(options.max_subcompactions > 1);
+    }
+    TryReopen(options);
+  }
+};
+
+INSTANTIATE_TEST_CASE_P(
+    DBTestCompactionFilterWithCompactOption,
+    DBTestCompactionFilterWithCompactParam,
+    ::testing::Values(DBTestBase::OptionConfig::kDefault,
+                      DBTestBase::OptionConfig::kUniversalCompaction,
+                      DBTestBase::OptionConfig::kUniversalCompactionMultiLevel,
+                      DBTestBase::OptionConfig::kLevelSubcompactions,
+                      DBTestBase::OptionConfig::kUniversalSubcompactions));
+
 class KeepFilter : public CompactionFilter {
  public:
   virtual bool Filter(int level, const Slice& key, const Slice& value,
@@ -308,7 +338,6 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
     ASSERT_OK(iter->status());
     while (iter->Valid()) {
       ParsedInternalKey ikey(Slice(), 0, kTypeValue);
-      ikey.sequence = -1;
       ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), true);
       total++;
       if (ikey.sequence != 0) {
@@ -440,65 +469,63 @@ TEST_F(DBTestCompactionFilter, CompactionFilterDeletesAll) {
 }
 #endif  // ROCKSDB_LITE
 
-TEST_F(DBTestCompactionFilter, CompactionFilterWithValueChange) {
-  do {
-    Options options = CurrentOptions();
-    options.num_levels = 3;
-    options.compaction_filter_factory =
-      std::make_shared<ChangeFilterFactory>();
-    CreateAndReopenWithCF({"pikachu"}, options);
+TEST_P(DBTestCompactionFilterWithCompactParam,
+       CompactionFilterWithValueChange) {
+  Options options = CurrentOptions();
+  options.num_levels = 3;
+  options.compaction_filter_factory = std::make_shared<ChangeFilterFactory>();
+  CreateAndReopenWithCF({"pikachu"}, options);
 
-    // Write 100K+1 keys, these are written to a few files
-    // in L0. We do this so that the current snapshot points
-    // to the 100001 key.The compaction filter is  not invoked
-    // on keys that are visible via a snapshot because we
-    // anyways cannot delete it.
-    const std::string value(10, 'x');
-    for (int i = 0; i < 100001; i++) {
-      char key[100];
-      snprintf(key, sizeof(key), "B%010d", i);
-      Put(1, key, value);
-    }
+  // Write 100K+1 keys, these are written to a few files
+  // in L0. We do this so that the current snapshot points
+  // to the 100001 key.The compaction filter is  not invoked
+  // on keys that are visible via a snapshot because we
+  // anyways cannot delete it.
+  const std::string value(10, 'x');
+  for (int i = 0; i < 100001; i++) {
+    char key[100];
+    snprintf(key, sizeof(key), "B%010d", i);
+    Put(1, key, value);
+  }
 
-    // push all files to  lower levels
-    ASSERT_OK(Flush(1));
-    if (option_config_ != kUniversalCompactionMultiLevel &&
-        option_config_ != kUniversalSubcompactions) {
-      dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
-      dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[1]);
-    } else {
-      dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
-                             nullptr);
-    }
+  // push all files to  lower levels
+  ASSERT_OK(Flush(1));
+  if (option_config_ != kUniversalCompactionMultiLevel &&
+      option_config_ != kUniversalSubcompactions) {
+    dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
+    dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[1]);
+  } else {
+    dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
+                           nullptr);
+  }
 
-    // re-write all data again
-    for (int i = 0; i < 100001; i++) {
-      char key[100];
-      snprintf(key, sizeof(key), "B%010d", i);
-      Put(1, key, value);
-    }
+  // re-write all data again
+  for (int i = 0; i < 100001; i++) {
+    char key[100];
+    snprintf(key, sizeof(key), "B%010d", i);
+    Put(1, key, value);
+  }
 
-    // push all files to  lower levels. This should
-    // invoke the compaction filter for all 100000 keys.
-    ASSERT_OK(Flush(1));
-    if (option_config_ != kUniversalCompactionMultiLevel &&
-        option_config_ != kUniversalSubcompactions) {
-      dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
-      dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[1]);
-    } else {
-      dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
-                             nullptr);
-    }
+  // push all files to  lower levels. This should
+  // invoke the compaction filter for all 100000 keys.
+  ASSERT_OK(Flush(1));
+  if (option_config_ != kUniversalCompactionMultiLevel &&
+      option_config_ != kUniversalSubcompactions) {
+    dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
+    dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[1]);
+  } else {
+    dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
+                           nullptr);
+  }
 
-    // verify that all keys now have the new value that
-    // was set by the compaction process.
-    for (int i = 0; i < 100001; i++) {
-      char key[100];
-      snprintf(key, sizeof(key), "B%010d", i);
-      std::string newvalue = Get(1, key);
-      ASSERT_EQ(newvalue.compare(NEW_VALUE), 0);
-    }
-  } while (ChangeCompactOptions());
+  // verify that all keys now have the new value that
+  // was set by the compaction process.
+  for (int i = 0; i < 100001; i++) {
+    char key[100];
+    snprintf(key, sizeof(key), "B%010d", i);
+    std::string newvalue = Get(1, key);
+    ASSERT_EQ(newvalue.compare(NEW_VALUE), 0);
+  }
 }
 
 TEST_F(DBTestCompactionFilter, CompactionFilterWithMergeOperator) {
@@ -617,7 +644,6 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextManual) {
     ASSERT_OK(iter->status());
     while (iter->Valid()) {
       ParsedInternalKey ikey(Slice(), 0, kTypeValue);
-      ikey.sequence = -1;
       ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), true);
       total++;
       if (ikey.sequence != 0) {

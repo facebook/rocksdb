@@ -6,310 +6,141 @@
 #ifndef ROCKSDB_LITE
 
 #include "utilities/blob_db/blob_log_format.h"
+
 #include "util/coding.h"
 #include "util/crc32c.h"
 
 namespace rocksdb {
 namespace blob_db {
 
-const uint32_t kMagicNumber = 2395959;
-const uint32_t kVersion1 = 1;
-const size_t kBlockSize = 32768;
-
-BlobLogHeader::BlobLogHeader()
-    : magic_number_(kMagicNumber), compression_(kNoCompression) {}
-
-BlobLogHeader& BlobLogHeader::operator=(BlobLogHeader&& in) noexcept {
-  if (this != &in) {
-    magic_number_ = in.magic_number_;
-    version_ = in.version_;
-    ttl_guess_ = std::move(in.ttl_guess_);
-    ts_guess_ = std::move(in.ts_guess_);
-    compression_ = in.compression_;
-  }
-  return *this;
+void BlobLogHeader::EncodeTo(std::string* dst) {
+  assert(dst != nullptr);
+  dst->clear();
+  dst->reserve(BlobLogHeader::kSize);
+  PutFixed32(dst, kMagicNumber);
+  PutFixed32(dst, version);
+  PutFixed32(dst, column_family_id);
+  unsigned char flags = (has_ttl ? 1 : 0);
+  dst->push_back(flags);
+  dst->push_back(compression);
+  PutFixed64(dst, expiration_range.first);
+  PutFixed64(dst, expiration_range.second);
 }
 
-BlobLogFooter::BlobLogFooter() : magic_number_(kMagicNumber), blob_count_(0) {}
-
-Status BlobLogFooter::DecodeFrom(const Slice& input) {
-  Slice slice(input);
-  uint32_t val;
-  if (!GetFixed32(&slice, &val)) {
-    return Status::Corruption("Invalid Blob Footer: flags");
+Status BlobLogHeader::DecodeFrom(Slice src) {
+  static const std::string kErrorMessage =
+      "Error while decoding blob log header";
+  if (src.size() != BlobLogHeader::kSize) {
+    return Status::Corruption(kErrorMessage,
+                              "Unexpected blob file header size");
   }
-
-  bool has_ttl = false;
-  bool has_ts = false;
-  val >>= 8;
-  RecordSubType st = static_cast<RecordSubType>(val);
-  switch (st) {
-    case kRegularType:
-      break;
-    case kTTLType:
-      has_ttl = true;
-      break;
-    case kTimestampType:
-      has_ts = true;
-      break;
-    default:
-      return Status::Corruption("Invalid Blob Footer: flags_val");
+  uint32_t magic_number;
+  unsigned char flags;
+  if (!GetFixed32(&src, &magic_number) || !GetFixed32(&src, &version) ||
+      !GetFixed32(&src, &column_family_id)) {
+    return Status::Corruption(
+        kErrorMessage,
+        "Error decoding magic number, version and column family id");
   }
-
-  if (!GetFixed64(&slice, &blob_count_)) {
-    return Status::Corruption("Invalid Blob Footer: blob_count");
+  if (magic_number != kMagicNumber) {
+    return Status::Corruption(kErrorMessage, "Magic number mismatch");
   }
-
-  ttlrange_t temp_ttl;
-  if (!GetFixed64(&slice, &temp_ttl.first) ||
-      !GetFixed64(&slice, &temp_ttl.second)) {
-    return Status::Corruption("Invalid Blob Footer: ttl_range");
+  if (version != kVersion1) {
+    return Status::Corruption(kErrorMessage, "Unknown header version");
   }
-  if (has_ttl) {
-    ttl_range_.reset(new ttlrange_t(temp_ttl));
+  flags = src.data()[0];
+  compression = static_cast<CompressionType>(src.data()[1]);
+  has_ttl = (flags & 1) == 1;
+  src.remove_prefix(2);
+  if (!GetFixed64(&src, &expiration_range.first) ||
+      !GetFixed64(&src, &expiration_range.second)) {
+    return Status::Corruption(kErrorMessage, "Error decoding expiration range");
   }
-
-  if (!GetFixed64(&slice, &sn_range_.first) ||
-      !GetFixed64(&slice, &sn_range_.second)) {
-    return Status::Corruption("Invalid Blob Footer: sn_range");
-  }
-
-  tsrange_t temp_ts;
-  if (!GetFixed64(&slice, &temp_ts.first) ||
-      !GetFixed64(&slice, &temp_ts.second)) {
-    return Status::Corruption("Invalid Blob Footer: ts_range");
-  }
-  if (has_ts) {
-    ts_range_.reset(new tsrange_t(temp_ts));
-  }
-
-  if (!GetFixed32(&slice, &magic_number_) || magic_number_ != kMagicNumber) {
-    return Status::Corruption("Invalid Blob Footer: magic");
-  }
-
   return Status::OK();
 }
 
-void BlobLogFooter::EncodeTo(std::string* dst) const {
-  dst->reserve(kFooterSize);
-
-  RecordType rt = kFullType;
-  RecordSubType st = kRegularType;
-  if (HasTTL()) {
-    st = kTTLType;
-  } else if (HasTimestamp()) {
-    st = kTimestampType;
-  }
-  uint32_t val = static_cast<uint32_t>(rt) | (static_cast<uint32_t>(st) << 8);
-  PutFixed32(dst, val);
-
-  PutFixed64(dst, blob_count_);
-  bool has_ttl = HasTTL();
-  bool has_ts = HasTimestamp();
-
-  if (has_ttl) {
-    PutFixed64(dst, ttl_range_.get()->first);
-    PutFixed64(dst, ttl_range_.get()->second);
-  } else {
-    PutFixed64(dst, 0);
-    PutFixed64(dst, 0);
-  }
-  PutFixed64(dst, sn_range_.first);
-  PutFixed64(dst, sn_range_.second);
-
-  if (has_ts) {
-    PutFixed64(dst, ts_range_.get()->first);
-    PutFixed64(dst, ts_range_.get()->second);
-  } else {
-    PutFixed64(dst, 0);
-    PutFixed64(dst, 0);
-  }
-
-  PutFixed32(dst, magic_number_);
+void BlobLogFooter::EncodeTo(std::string* dst) {
+  assert(dst != nullptr);
+  dst->clear();
+  dst->reserve(BlobLogFooter::kSize);
+  PutFixed32(dst, kMagicNumber);
+  PutFixed64(dst, blob_count);
+  PutFixed64(dst, expiration_range.first);
+  PutFixed64(dst, expiration_range.second);
+  crc = crc32c::Value(dst->c_str(), dst->size());
+  crc = crc32c::Mask(crc);
+  PutFixed32(dst, crc);
 }
 
-void BlobLogHeader::EncodeTo(std::string* dst) const {
-  dst->reserve(kHeaderSize);
-
-  PutFixed32(dst, magic_number_);
-
-  PutFixed32(dst, version_);
-
-  RecordSubType st = kRegularType;
-  bool has_ttl = HasTTL();
-  bool has_ts = HasTimestamp();
-
-  if (has_ttl) {
-    st = kTTLType;
-  } else if (has_ts) {
-    st = kTimestampType;
+Status BlobLogFooter::DecodeFrom(Slice src) {
+  static const std::string kErrorMessage =
+      "Error while decoding blob log footer";
+  if (src.size() != BlobLogFooter::kSize) {
+    return Status::Corruption(kErrorMessage,
+                              "Unexpected blob file footer size");
   }
-  uint32_t val =
-      static_cast<uint32_t>(st) | (static_cast<uint32_t>(compression_) << 8);
-  PutFixed32(dst, val);
-
-  if (has_ttl) {
-    PutFixed64(dst, ttl_guess_.get()->first);
-    PutFixed64(dst, ttl_guess_.get()->second);
-  } else {
-    PutFixed64(dst, 0);
-    PutFixed64(dst, 0);
+  uint32_t src_crc = 0;
+  src_crc = crc32c::Value(src.data(), BlobLogFooter::kSize - sizeof(uint32_t));
+  src_crc = crc32c::Mask(src_crc);
+  uint32_t magic_number;
+  if (!GetFixed32(&src, &magic_number) || !GetFixed64(&src, &blob_count) ||
+      !GetFixed64(&src, &expiration_range.first) ||
+      !GetFixed64(&src, &expiration_range.second) || !GetFixed32(&src, &crc)) {
+    return Status::Corruption(kErrorMessage, "Error decoding content");
   }
-
-  if (has_ts) {
-    PutFixed64(dst, ts_guess_.get()->first);
-    PutFixed64(dst, ts_guess_.get()->second);
-  } else {
-    PutFixed64(dst, 0);
-    PutFixed64(dst, 0);
+  if (magic_number != kMagicNumber) {
+    return Status::Corruption(kErrorMessage, "Magic number mismatch");
   }
-}
-
-Status BlobLogHeader::DecodeFrom(const Slice& input) {
-  Slice slice(input);
-  if (!GetFixed32(&slice, &magic_number_) || magic_number_ != kMagicNumber) {
-    return Status::Corruption("Invalid Blob Log Header: magic");
+  if (src_crc != crc) {
+    return Status::Corruption(kErrorMessage, "CRC mismatch");
   }
-
-  // as of today, we only support 1 version
-  if (!GetFixed32(&slice, &version_) || version_ != kVersion1) {
-    return Status::Corruption("Invalid Blob Log Header: version");
-  }
-
-  uint32_t val;
-  if (!GetFixed32(&slice, &val)) {
-    return Status::Corruption("Invalid Blob Log Header: subtype");
-  }
-
-  bool has_ttl = false;
-  bool has_ts = false;
-  RecordSubType st = static_cast<RecordSubType>(val & 0xff);
-  compression_ = static_cast<CompressionType>((val >> 8) & 0xff);
-  switch (st) {
-    case kRegularType:
-      break;
-    case kTTLType:
-      has_ttl = true;
-      break;
-    case kTimestampType:
-      has_ts = true;
-      break;
-    default:
-      return Status::Corruption("Invalid Blob Log Header: subtype_2");
-  }
-
-  ttlrange_t temp_ttl;
-  if (!GetFixed64(&slice, &temp_ttl.first) ||
-      !GetFixed64(&slice, &temp_ttl.second)) {
-    return Status::Corruption("Invalid Blob Log Header: ttl");
-  }
-  if (has_ttl) {
-    set_ttl_guess(temp_ttl);
-  }
-
-  tsrange_t temp_ts;
-  if (!GetFixed64(&slice, &temp_ts.first) ||
-      !GetFixed64(&slice, &temp_ts.second)) {
-    return Status::Corruption("Invalid Blob Log Header: timestamp");
-  }
-  if (has_ts) set_ts_guess(temp_ts);
-
   return Status::OK();
 }
 
-BlobLogRecord::BlobLogRecord()
-    : checksum_(0),
-      header_cksum_(0),
-      key_size_(0),
-      blob_size_(0),
-      time_val_(0),
-      ttl_val_(0),
-      sn_(0),
-      type_(0),
-      subtype_(0) {}
-
-BlobLogRecord::~BlobLogRecord() {}
-
-void BlobLogRecord::ResizeKeyBuffer(size_t kbs) {
-  if (kbs > key_buffer_.size()) {
-    key_buffer_.resize(kbs);
-  }
+void BlobLogRecord::EncodeHeaderTo(std::string* dst) {
+  assert(dst != nullptr);
+  dst->clear();
+  dst->reserve(BlobLogRecord::kHeaderSize + key.size() + value.size());
+  PutFixed64(dst, key.size());
+  PutFixed64(dst, value.size());
+  PutFixed64(dst, expiration);
+  header_crc = crc32c::Value(dst->c_str(), dst->size());
+  header_crc = crc32c::Mask(header_crc);
+  PutFixed32(dst, header_crc);
+  blob_crc = crc32c::Value(key.data(), key.size());
+  blob_crc = crc32c::Extend(blob_crc, value.data(), value.size());
+  blob_crc = crc32c::Mask(blob_crc);
+  PutFixed32(dst, blob_crc);
 }
 
-void BlobLogRecord::ResizeBlobBuffer(size_t bbs) {
-  if (bbs > blob_buffer_.size()) {
-    blob_buffer_.resize(bbs);
+Status BlobLogRecord::DecodeHeaderFrom(Slice src) {
+  static const std::string kErrorMessage = "Error while decoding blob record";
+  if (src.size() != BlobLogRecord::kHeaderSize) {
+    return Status::Corruption(kErrorMessage,
+                              "Unexpected blob record header size");
   }
-}
-
-void BlobLogRecord::Clear() {
-  checksum_ = 0;
-  header_cksum_ = 0;
-  key_size_ = 0;
-  blob_size_ = 0;
-  time_val_ = 0;
-  ttl_val_ = 0;
-  sn_ = 0;
-  type_ = subtype_ = 0;
-  key_.clear();
-  blob_.clear();
-}
-
-Status BlobLogRecord::DecodeHeaderFrom(const Slice& hdrslice) {
-  Slice input = hdrslice;
-  if (input.size() < kHeaderSize) {
-    return Status::Corruption("Invalid Blob Record Header: size");
+  uint32_t src_crc = 0;
+  src_crc = crc32c::Value(src.data(), BlobLogRecord::kHeaderSize - 8);
+  src_crc = crc32c::Mask(src_crc);
+  if (!GetFixed64(&src, &key_size) || !GetFixed64(&src, &value_size) ||
+      !GetFixed64(&src, &expiration) || !GetFixed32(&src, &header_crc) ||
+      !GetFixed32(&src, &blob_crc)) {
+    return Status::Corruption(kErrorMessage, "Error decoding content");
   }
-
-  if (!GetFixed32(&input, &key_size_)) {
-    return Status::Corruption("Invalid Blob Record Header: key_size");
+  if (src_crc != header_crc) {
+    return Status::Corruption(kErrorMessage, "Header CRC mismatch");
   }
-  if (!GetFixed64(&input, &blob_size_)) {
-    return Status::Corruption("Invalid Blob Record Header: blob_size");
-  }
-  if (!GetFixed64(&input, &ttl_val_)) {
-    return Status::Corruption("Invalid Blob Record Header: ttl_val");
-  }
-  if (!GetFixed64(&input, &time_val_)) {
-    return Status::Corruption("Invalid Blob Record Header: time_val");
-  }
-
-  type_ = *(input.data());
-  input.remove_prefix(1);
-  subtype_ = *(input.data());
-  input.remove_prefix(1);
-
-  if (!GetFixed32(&input, &header_cksum_)) {
-    return Status::Corruption("Invalid Blob Record Header: header_cksum");
-  }
-  if (!GetFixed32(&input, &checksum_)) {
-    return Status::Corruption("Invalid Blob Record Header: checksum");
-  }
-
   return Status::OK();
 }
 
-Status BlobLogRecord::DecodeFooterFrom(const Slice& footerslice) {
-  Slice input = footerslice;
-  if (input.size() < kFooterSize) {
-    return Status::Corruption("Invalid Blob Record Footer: size");
+Status BlobLogRecord::CheckBlobCRC() const {
+  uint32_t expected_crc = 0;
+  expected_crc = crc32c::Value(key.data(), key.size());
+  expected_crc = crc32c::Extend(expected_crc, value.data(), value.size());
+  expected_crc = crc32c::Mask(expected_crc);
+  if (expected_crc != blob_crc) {
+    return Status::Corruption("Blob CRC mismatch");
   }
-
-  uint32_t f_crc = crc32c::Extend(0, input.data(), 8);
-  f_crc = crc32c::Mask(f_crc);
-
-  if (!GetFixed64(&input, &sn_)) {
-    return Status::Corruption("Invalid Blob Record Footer: sn");
-  }
-
-  if (!GetFixed32(&input, &footer_cksum_)) {
-    return Status::Corruption("Invalid Blob Record Footer: cksum");
-  }
-
-  if (f_crc != footer_cksum_) {
-    return Status::Corruption("Record Checksum mismatch: footer_cksum");
-  }
-
   return Status::OK();
 }
 
