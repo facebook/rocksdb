@@ -9,6 +9,7 @@
 
 #include <functional>
 
+#include "db/db_iter.h"
 #include "db/db_test_util.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
