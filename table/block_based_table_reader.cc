@@ -1528,10 +1528,19 @@ InternalIterator* BlockBasedTable::NewDataBlockIterator(
       assert(end - cache_key <=
              static_cast<int>(kExtraCacheKeyPrefix + kMaxVarint64Length));
       Slice unique_key = Slice(cache_key, static_cast<size_t>(end - cache_key));
-      block_cache->Insert(unique_key, nullptr, block.value->size(), nullptr,
-                          &cache_handle);
-      iter->RegisterCleanup(&ForceReleaseCachedEntry, block_cache, cache_handle);
-    } else if (block.cache_handle != nullptr) {
+      s = block_cache->Insert(unique_key, nullptr, block.value->usable_size(),
+                          nullptr, &cache_handle);
+      if (s.ok()) {
+        if (cache_handle != nullptr) {
+          iter->RegisterCleanup(&ForceReleaseCachedEntry, block_cache, cache_handle);
+        }
+      }
+      else {
+        delete block.value;
+        block.value = nullptr;
+      }
+    }
+    if (block.cache_handle != nullptr) {
       iter->RegisterCleanup(&ReleaseCachedEntry, block_cache,
                             block.cache_handle);
     } else {
