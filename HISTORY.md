@@ -1,5 +1,7 @@
 # Rocksdb Change Log
 ## Unreleased
+### Public API Change
+* Iterator::SeekForPrev is now a pure virtual method. This is to prevent user who implement the Iterator interface fail to implement SeekForPrev by mistake.
 ### Bug Fixes
 * Fix `DisableFileDeletions()` followed by `GetSortedWalFiles()` to not return obsolete WAL files that `PurgeObsoleteFiles()` is going to delete.
 * Fix DB::Flush() keep waiting after flush finish under certain condition.
