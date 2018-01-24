@@ -287,6 +287,7 @@ Status DBImpl::CloseImpl() {
       env_->UnSchedule(this, Env::Priority::BOTTOM);
   int compactions_unscheduled = env_->UnSchedule(this, Env::Priority::LOW);
   int flushes_unscheduled = env_->UnSchedule(this, Env::Priority::HIGH);
+  Status ret;
   mutex_.Lock();
   bg_bottom_compaction_scheduled_ -= bottom_compactions_unscheduled;
   bg_compaction_scheduled_ -= compactions_unscheduled;
@@ -349,7 +350,18 @@ Status DBImpl::CloseImpl() {
     delete l;
   }
   for (auto& log : logs_) {
-    log.ClearWriter();
+    uint64_t log_number = log.writer->get_log_number();
+    Status s = log.ClearWriter();
+    if (!s.ok()) {
+      ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                     "Unable to Sync WAL file %s with error -- %s",
+                     LogFileName(immutable_db_options_.wal_dir, log_number).c_str(),
+                     s.ToString().c_str());
+      // Retain the first error
+      if (ret.ok()) {
+        ret = s;
+      }
+    }
   }
   logs_.clear();
 
@@ -383,11 +395,13 @@ Status DBImpl::CloseImpl() {
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "Shutdown complete");
   LogFlush(immutable_db_options_.info_log);
 
-  Status s = Status::OK();
   if (immutable_db_options_.info_log && own_info_log_) {
-    s = immutable_db_options_.info_log->Close();
+    Status s = immutable_db_options_.info_log->Close();
+    if (ret.ok()) {
+      ret = s;
+    }
   }
-  return s;
+  return ret;
 }
 
 DBImpl::~DBImpl() { Close(); }
