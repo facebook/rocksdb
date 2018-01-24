@@ -34,6 +34,9 @@
 
 cmake_minimum_required(VERSION 2.8.12)
 project(rocksdb)
+enable_language(CXX)
+enable_language(C)
+enable_language(ASM)
 
 if(POLICY CMP0042)
   cmake_policy(SET CMP0042 NEW)
@@ -177,6 +180,18 @@ else()
   endif()
 endif()
 
+include(CheckCCompilerFlag)
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "ppc64le")
+  CHECK_C_COMPILER_FLAG("-maltivec" HAS_ALTIVEC)
+  if(HAS_ALTIVEC)
+    message(STATUS " HAS_ALTIVEC yes")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -maltivec")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -maltivec")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mcpu=power8")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcpu=power8")
+  endif(HAS_ALTIVEC)
+endif(CMAKE_SYSTEM_PROCESSOR MATCHES "ppc64le")
+
 option(PORTABLE "build a portable binary" OFF)
 option(FORCE_SSE42 "force building with SSE4.2, even when PORTABLE=ON" OFF)
 if(PORTABLE)
@@ -189,7 +204,9 @@ else()
   if(MSVC)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:AVX2")
   else()
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native")
+    if(NOT HAVE_POWER8)
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native")
+    endif()
   endif()
 endif()
 
@@ -624,6 +641,12 @@ set_source_files_properties(
       PROPERTIES COMPILE_FLAGS "-msse4.2 -mpclmul")
   endif()
 endif()
+
+if(HAVE_POWER8)
+  list(APPEND SOURCES
+    util/crc32c_ppc.c
+    util/crc32c_ppc_asm.S)
+endif(HAVE_POWER8)
 
 if(WIN32)
   list(APPEND SOURCES
