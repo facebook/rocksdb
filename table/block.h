@@ -198,8 +198,8 @@ class Block {
 class BlockIter : public InternalIterator {
  public:
   // Object created using this constructor will behave like an iterator
-  // against an empty block. Valid()=false after the creation and status()
-  // is OK.
+  // against an empty block. The state after the creation: Valid()=false
+  // and status() is OK.
   BlockIter()
       : comparator_(nullptr),
         data_(nullptr),
