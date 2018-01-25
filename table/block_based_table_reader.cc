@@ -1508,42 +1508,43 @@ InternalIterator* BlockBasedTable::NewDataBlockIterator(
     assert(block.value != nullptr);
     iter = block.value->NewIterator(&rep->internal_comparator, input_iter, true,
                                     rep->ioptions.statistics);
-    if (!ro.fill_cache && rep->cache_key_prefix_size != 0) {
-      // insert a dummy record to block cache to track the memory usage
-      Cache::Handle* cache_handle;
-      // There are two other types of cache keys: 1) SST cache key added in
-      // `MaybeLoadDataBlockToCache` 2) dummy cache key added in
-      // `write_buffer_manager`. Use longer prefix (41 bytes) to differentiate
-      // from SST cache key(31 bytes), and use non-zero prefix to differentiate
-      // from `write_buffer_manager`
-      const size_t kExtraCacheKeyPrefix = kMaxVarint64Length * 4 + 1;
-      char cache_key[kExtraCacheKeyPrefix + kMaxVarint64Length];
-      // Prefix: use rep->cache_key_prefix padded by 0s
-      memset(cache_key, 0, kExtraCacheKeyPrefix + kMaxVarint64Length);
-      assert(rep->cache_key_prefix_size != 0);
-      assert(rep->cache_key_prefix_size <= kExtraCacheKeyPrefix);
-      memcpy(cache_key, rep->cache_key_prefix, rep->cache_key_prefix_size);
-      char* end = EncodeVarint64(cache_key + kExtraCacheKeyPrefix,
-                                 next_cache_key_id_++);
-      assert(end - cache_key <=
-             static_cast<int>(kExtraCacheKeyPrefix + kMaxVarint64Length));
-      Slice unique_key = Slice(cache_key, static_cast<size_t>(end - cache_key));
-      s = block_cache->Insert(unique_key, nullptr, block.value->usable_size(),
-                          nullptr, &cache_handle);
-      if (s.ok()) {
-        if (cache_handle != nullptr) {
-          iter->RegisterCleanup(&ForceReleaseCachedEntry, block_cache, cache_handle);
-        }
-      }
-      else {
-        delete block.value;
-        block.value = nullptr;
-      }
-    }
     if (block.cache_handle != nullptr) {
       iter->RegisterCleanup(&ReleaseCachedEntry, block_cache,
                             block.cache_handle);
     } else {
+      if (!ro.fill_cache && rep->cache_key_prefix_size != 0) {
+        // insert a dummy record to block cache to track the memory usage
+        Cache::Handle* cache_handle;
+        // There are two other types of cache keys: 1) SST cache key added in
+        // `MaybeLoadDataBlockToCache` 2) dummy cache key added in
+        // `write_buffer_manager`. Use longer prefix (41 bytes) to differentiate
+        // from SST cache key(31 bytes), and use non-zero prefix to
+        // differentiate from `write_buffer_manager`
+        const size_t kExtraCacheKeyPrefix = kMaxVarint64Length * 4 + 1;
+        char cache_key[kExtraCacheKeyPrefix + kMaxVarint64Length];
+        // Prefix: use rep->cache_key_prefix padded by 0s
+        memset(cache_key, 0, kExtraCacheKeyPrefix + kMaxVarint64Length);
+        assert(rep->cache_key_prefix_size != 0);
+        assert(rep->cache_key_prefix_size <= kExtraCacheKeyPrefix);
+        memcpy(cache_key, rep->cache_key_prefix, rep->cache_key_prefix_size);
+        char* end = EncodeVarint64(cache_key + kExtraCacheKeyPrefix,
+                                   next_cache_key_id_++);
+        assert(end - cache_key <=
+               static_cast<int>(kExtraCacheKeyPrefix + kMaxVarint64Length));
+        Slice unique_key =
+            Slice(cache_key, static_cast<size_t>(end - cache_key));
+        s = block_cache->Insert(unique_key, nullptr, block.value->usable_size(),
+                                nullptr, &cache_handle);
+        if (s.ok()) {
+          if (cache_handle != nullptr) {
+            iter->RegisterCleanup(&ForceReleaseCachedEntry, block_cache,
+                                  cache_handle);
+          }
+        } else {
+          delete block.value;
+          block.value = nullptr;
+        }
+      }
       iter->RegisterCleanup(&DeleteHeldResource<Block>, block.value, nullptr);
     }
   } else {
