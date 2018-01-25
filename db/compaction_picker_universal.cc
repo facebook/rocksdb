@@ -603,9 +603,9 @@ Compaction* UniversalCompactionPicker::PickCompactionToReduceSortedRuns(
 
   CompactionReason compaction_reason;
   if (max_number_of_files_to_compact == UINT_MAX) {
-    compaction_reason = CompactionReason::kUniversalSortedRunNum;
-  } else {
     compaction_reason = CompactionReason::kUniversalSizeRatio;
+  } else {
+    compaction_reason = CompactionReason::kUniversalSortedRunNum;
   }
   return new Compaction(
       vstorage, ioptions_, mutable_cf_options, std::move(inputs), output_level,
