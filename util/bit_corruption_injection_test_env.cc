@@ -101,16 +101,26 @@ class CorruptedRandomAccessFile : public RandomAccessFile {
   unique_ptr<RandomAccessFile> target_;
 };
 
-std::vector<std::string> initExcludedFiles() {
+std::vector<std::string> initExcludedFilePrefixes() {
   std::vector<std::string> excludedFiles;
   excludedFiles.push_back("CURRENT");
   excludedFiles.push_back("MANIFEST");
   excludedFiles.push_back("IDENTITY");
+  excludedFiles.push_back("OPTIONS");
   return excludedFiles;
 }
 
 std::vector<std::string>
-  BitCorruptionInjectionTestEnv::excludedFiles_ = initExcludedFiles();
+  BitCorruptionInjectionTestEnv::excludedFiles_ = initExcludedFilePrefixes();
+
+bool fileMatch(std::string fullPath, std::string matchMe) {
+  size_t curPos = -1;
+  size_t oldPos = curPos;
+  while ((curPos = fullPath.find("/", oldPos + 1)) != std::string::npos) {
+    oldPos = curPos;
+  }
+  return (fullPath.compare(oldPos+1, matchMe.size(), matchMe) == 0);
+}
 
 Status BitCorruptionInjectionTestEnv::NewSequentialFile(
   const std::string& f, unique_ptr<SequentialFile>* r,
@@ -122,7 +132,9 @@ Status BitCorruptionInjectionTestEnv::NewSequentialFile(
   }
   for (std::vector<std::string>::iterator it = excludedFiles_.begin();
     it < excludedFiles_.end(); it++) {
-      if (f.compare(*it) == 0) {
+      // f is of the form /tmp/dir/a/b/c/FILENAME, so we actually only want
+      // to match on FILENAME.
+      if (fileMatch(f, *it)) {
         // Then it's a special metadata file and should be ignored
         return s;
       }
