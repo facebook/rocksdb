@@ -215,14 +215,17 @@ class BlockBasedTable : public TableReader {
  private:
   friend class MockedBlockBasedTable;
   // input_iter: if it is not null, update this one and return it as Iterator
-  static BlockIter* NewDataBlockIterator(
-      Rep* rep, const ReadOptions& ro, const Slice& index_value,
-      BlockIter* input_iter = nullptr, bool is_index = false,
-      GetContext* get_context = nullptr);
-  static BlockIter* NewDataBlockIterator(
-      Rep* rep, const ReadOptions& ro, const BlockHandle& block_hanlde,
-      BlockIter* input_iter = nullptr, bool is_index = false,
-      GetContext* get_context = nullptr, Status s = Status());
+  static BlockIter* NewDataBlockIterator(Rep* rep, const ReadOptions& ro,
+                                         const Slice& index_value,
+                                         BlockIter* input_iter = nullptr,
+                                         bool is_index = false,
+                                         GetContext* get_context = nullptr);
+  static BlockIter* NewDataBlockIterator(Rep* rep, const ReadOptions& ro,
+                                         const BlockHandle& block_hanlde,
+                                         BlockIter* input_iter = nullptr,
+                                         bool is_index = false,
+                                         GetContext* get_context = nullptr,
+                                         Status s = Status());
   // If block cache enabled (compressed or uncompressed), looks for the block
   // identified by handle in (1) uncompressed cache, (2) compressed cache, and
   // then (3) file. If found, inserts into the cache(s) that were searched
