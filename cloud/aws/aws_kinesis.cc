@@ -62,7 +62,14 @@ Status KinesisSystem::TailStream() {
       "[kinesis] TailStream topic %s %s", topic_.c_str(),
       status_.ToString().c_str());
 
-  while (env_->IsRunning() && status_.ok()) {
+  Status lastErrorStatus;
+  int retryAttempt = 0;
+  while (env_->IsRunning()) {
+    if (retryAttempt > 10) {
+      status_ = lastErrorStatus;
+      break;
+    }
+
     // Count the number of records that were read in one iteration
     size_t num_read = 0;
 
@@ -85,10 +92,14 @@ Status KinesisSystem::TailStream() {
         Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
             "[kinesis] error reading %s %s", topic_.c_str(),
             error.GetMessage().c_str());
-        status_ = Status::IOError(topic_.c_str(), error.GetMessage().c_str());
+        lastErrorStatus =
+            Status::IOError(topic_.c_str(), error.GetMessage().c_str());
+        ++retryAttempt;
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
       }
       continue;
     }
+    retryAttempt = 0;
     GetRecordsResult& res = outcome.GetResult();
     const Aws::Vector<Record>& records = res.GetRecords();
 

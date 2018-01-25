@@ -120,7 +120,7 @@ inline bool IsWalFile(const std::string& pathname) {
   return false;
 }
 
-bool IsManifestFile(const std::string& pathname) {
+inline bool IsManifestFile(const std::string& pathname) {
   // extract last component of the path
   std::string fname;
   size_t offset = pathname.find_last_of(pathsep);
@@ -150,9 +150,9 @@ bool __attribute__((unused)) IsIdentityFile(const std::string& pathname) {
   return false;
 }
 
-// A log file has ".log" suffix or starts with 'MANIFEST"
+// A log file has ".log" suffix
 inline bool IsLogFile(const std::string& pathname) {
-  return IsWalFile(pathname) || IsManifestFile(pathname);
+  return IsWalFile(pathname);
 }
 
 // Get my bucket name

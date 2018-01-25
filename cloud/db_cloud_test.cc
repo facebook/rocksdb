@@ -651,6 +651,20 @@ TEST_F(CloudTest, Encryption) {
   CloseDB();
 }
 
+TEST_F(CloudTest, KeepLocalLog) {
+  cloud_env_options_.keep_local_log_files = false;
+
+  // Create two files
+  OpenDB();
+
+  ASSERT_OK(db_->Put(WriteOptions(), "Hello", "World"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_OK(db_->Put(WriteOptions(), "Hello2", "World2"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+
+  CloseDB();
+}
+
 #ifdef AWS_DO_NOT_RUN
 //
 // Verify that we can cache data from S3 in persistent cache.

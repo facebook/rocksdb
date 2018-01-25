@@ -465,18 +465,19 @@ Status AwsEnv::NewSequentialFile(const std::string& fname,
 
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
     // read from Kinesis
-    assert(tailer_->status().ok());
+    st = tailer_->status();
+    if (st.ok()) {
+      // map  pathname to cache dir
+      std::string pathname =
+          KinesisSystem::GetCachePath(tailer_->GetCacheDir(), Slice(fname));
+      Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
+          "[Kinesis] NewSequentialFile logfile %s %s", pathname.c_str(), "ok");
 
-    // map  pathname to cache dir
-    std::string pathname =
-        KinesisSystem::GetCachePath(tailer_->GetCacheDir(), Slice(fname));
-    Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-        "[Kinesis] NewSequentialFile logfile %s %s", pathname.c_str(), "ok");
-
-    auto lambda = [this, pathname, &result, options]() -> Status {
-      return base_env_->NewSequentialFile(pathname, result, options);
-    };
-    return KinesisSystem::Retry(this, lambda);
+      auto lambda = [this, pathname, &result, options]() -> Status {
+        return base_env_->NewSequentialFile(pathname, result, options);
+      };
+      return KinesisSystem::Retry(this, lambda);
+    }
   }
 
   // This is neither a sst file or a log file. Read from default env.
@@ -587,18 +588,20 @@ Status AwsEnv::NewRandomAccessFile(const std::string& fname,
 
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
     // read from Kinesis
-    assert(tailer_->status().ok());
+    st = tailer_->status();
+    if (st.ok()) {
+      // map  pathname to cache dir
+      std::string pathname =
+          KinesisSystem::GetCachePath(tailer_->GetCacheDir(), Slice(fname));
+      Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
+          "[kinesis] NewRandomAccessFile logfile %s %s", pathname.c_str(),
+          "ok");
 
-    // map  pathname to cache dir
-    std::string pathname =
-        KinesisSystem::GetCachePath(tailer_->GetCacheDir(), Slice(fname));
-    Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-        "[kinesis] NewRandomAccessFile logfile %s %s", pathname.c_str(), "ok");
-
-    auto lambda = [this, pathname, &result, options]() -> Status {
-      return base_env_->NewRandomAccessFile(pathname, result, options);
-    };
-    return KinesisSystem::Retry(this, lambda);
+      auto lambda = [this, pathname, &result, options]() -> Status {
+        return base_env_->NewRandomAccessFile(pathname, result, options);
+      };
+      return KinesisSystem::Retry(this, lambda);
+    }
   }
 
   // This is neither a sst file or a log file. Read from default env.
@@ -745,18 +748,19 @@ Status AwsEnv::FileExists(const std::string& fname) {
 
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
     // read from Kinesis
-    assert(tailer_->status().ok());
+    st = tailer_->status();
+    if (st.ok()) {
+      // map  pathname to cache dir
+      std::string pathname =
+          KinesisSystem::GetCachePath(tailer_->GetCacheDir(), Slice(fname));
+      Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
+          "[kinesis] FileExists logfile %s %s", pathname.c_str(), "ok");
 
-    // map  pathname to cache dir
-    std::string pathname =
-        KinesisSystem::GetCachePath(tailer_->GetCacheDir(), Slice(fname));
-    Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-        "[kinesis] FileExists logfile %s %s", pathname.c_str(), "ok");
-
-    auto lambda = [this, pathname]() -> Status {
-      return base_env_->FileExists(pathname);
-    };
-    st = KinesisSystem::Retry(this, lambda);
+      auto lambda = [this, pathname]() -> Status {
+        return base_env_->FileExists(pathname);
+      };
+      st = KinesisSystem::Retry(this, lambda);
+    }
   } else {
     st = base_env_->FileExists(fname);
   }
@@ -988,16 +992,18 @@ Status AwsEnv::DeleteFile(const std::string& fname) {
     st = base_env_->DeleteFile(fname);
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
     // read from Kinesis
-    assert(tailer_->status().ok());
-
-    // Log a Delete record to kinesis stream
-    KinesisWritableFile* f = new KinesisWritableFile(this, fname, EnvOptions());
-    if (f == nullptr || !f->status().ok()) {
-      st = Status::IOError("[Kinesis] DeleteFile", fname.c_str());
-      delete f;
-    } else {
-      st = f->LogDelete();
-      delete f;
+    st = tailer_->status();
+    if (st.ok()) {
+      // Log a Delete record to kinesis stream
+      KinesisWritableFile* f =
+          new KinesisWritableFile(this, fname, EnvOptions());
+      if (f == nullptr || !f->status().ok()) {
+        st = Status::IOError("[Kinesis] DeleteFile", fname.c_str());
+        delete f;
+      } else {
+        st = f->LogDelete();
+        delete f;
+      }
     }
   } else {
     st = base_env_->DeleteFile(fname);
@@ -1121,18 +1127,19 @@ Status AwsEnv::GetFileSize(const std::string& fname, uint64_t* size) {
       }
     }
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
-    assert(tailer_->status().ok());
+    st = tailer_->status();
+    if (st.ok()) {
+      // map  pathname to cache dir
+      std::string pathname =
+          KinesisSystem::GetCachePath(tailer_->GetCacheDir(), Slice(fname));
+      Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
+          "[kinesis] GetFileSize logfile %s %s", pathname.c_str(), "ok");
 
-    // map  pathname to cache dir
-    std::string pathname =
-        KinesisSystem::GetCachePath(tailer_->GetCacheDir(), Slice(fname));
-    Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-        "[kinesis] GetFileSize logfile %s %s", pathname.c_str(), "ok");
-
-    auto lambda = [this, pathname, size]() -> Status {
-      return base_env_->GetFileSize(pathname, size);
-    };
-    st = KinesisSystem::Retry(this, lambda);
+      auto lambda = [this, pathname, size]() -> Status {
+        return base_env_->GetFileSize(pathname, size);
+      };
+      st = KinesisSystem::Retry(this, lambda);
+    }
   } else {
     st = base_env_->GetFileSize(fname, size);
   }
@@ -1209,19 +1216,20 @@ Status AwsEnv::GetFileModificationTime(const std::string& fname,
       }
     }
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
-    assert(tailer_->status().ok());
-    // map  pathname to cache dir
-    std::string pathname =
-        KinesisSystem::GetCachePath(tailer_->GetCacheDir(), Slice(fname));
-    Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-        "[kinesis] GetFileModificationTime logfile %s %s", pathname.c_str(),
-        "ok");
+    st = tailer_->status();
+    if (st.ok()) {
+      // map  pathname to cache dir
+      std::string pathname =
+          KinesisSystem::GetCachePath(tailer_->GetCacheDir(), Slice(fname));
+      Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
+          "[kinesis] GetFileModificationTime logfile %s %s", pathname.c_str(),
+          "ok");
 
-    auto lambda = [this, pathname, time]() -> Status {
-      return base_env_->GetFileModificationTime(pathname, time);
-    };
-    st = KinesisSystem::Retry(this, lambda);
-
+      auto lambda = [this, pathname, time]() -> Status {
+        return base_env_->GetFileModificationTime(pathname, time);
+      };
+      st = KinesisSystem::Retry(this, lambda);
+    }
   } else {
     st = base_env_->GetFileModificationTime(fname, time);
   }
