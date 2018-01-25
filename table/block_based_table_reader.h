@@ -215,11 +215,11 @@ class BlockBasedTable : public TableReader {
  private:
   friend class MockedBlockBasedTable;
   // input_iter: if it is not null, update this one and return it as Iterator
-  static InternalIterator* NewDataBlockIterator(
+  static BlockIter* NewDataBlockIterator(
       Rep* rep, const ReadOptions& ro, const Slice& index_value,
       BlockIter* input_iter = nullptr, bool is_index = false,
       GetContext* get_context = nullptr);
-  static InternalIterator* NewDataBlockIterator(
+  static BlockIter* NewDataBlockIterator(
       Rep* rep, const ReadOptions& ro, const BlockHandle& block_hanlde,
       BlockIter* input_iter = nullptr, bool is_index = false,
       GetContext* get_context = nullptr, Status s = Status());
