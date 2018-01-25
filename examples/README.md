@@ -1,2 +1,3 @@
-1. Compile RocksDB first by executing `make static_lib` in parent dir
-2. Compile all examples: `cd examples/; make all`
+1. Compile and install RocksDB first by executing `make` followed by
+`sudo make install` in in `..`
+1. Compile all examples from this directory: `make all`

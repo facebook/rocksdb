@@ -8,7 +8,7 @@
 #include <stdlib.h>
 #include <assert.h>
 
-#include "rocksdb/c.h"
+#include <rocksdb/c.h>
 
 #include <unistd.h>  // sysconf() - get CPU count
 
