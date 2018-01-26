@@ -402,21 +402,14 @@ Status WriteBatch::Iterate(Handler* handler) const {
   bool empty_batch = true;
   int found = 0;
   Status s;
-  char tag = 0;
-  uint32_t column_family = 0;  // default
-  while ((s.ok() || s.IsTryAgain()) && !input.empty() && handler->Continue()) {
-    if (!s.IsTryAgain()) {
-      tag = 0;
-      column_family = 0;  // default
+  while (s.ok() && !input.empty() && handler->Continue()) {
+    char tag = 0;
+    uint32_t column_family = 0;  // default
 
-      s = ReadRecordFromWriteBatch(&input, &tag, &column_family, &key, &value,
-                                   &blob, &xid);
-      if (!s.ok()) {
-        return s;
-      }
-    } else {
-      assert(s.IsTryAgain());
-      s = Status::OK();
+    s = ReadRecordFromWriteBatch(&input, &tag, &column_family, &key, &value,
+                                 &blob, &xid);
+    if (!s.ok()) {
+      return s;
     }
 
     switch (tag) {
@@ -425,59 +418,47 @@ Status WriteBatch::Iterate(Handler* handler) const {
         assert(content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_PUT));
         s = handler->PutCF(column_family, key, value);
-        if (s.ok()) {
-          empty_batch = false;
-          found++;
-        }
+        empty_batch = false;
+        found++;
         break;
       case kTypeColumnFamilyDeletion:
       case kTypeDeletion:
         assert(content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_DELETE));
         s = handler->DeleteCF(column_family, key);
-        if (s.ok()) {
-          empty_batch = false;
-          found++;
-        }
+        empty_batch = false;
+        found++;
         break;
       case kTypeColumnFamilySingleDeletion:
       case kTypeSingleDeletion:
         assert(content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_SINGLE_DELETE));
         s = handler->SingleDeleteCF(column_family, key);
-        if (s.ok()) {
-          empty_batch = false;
-          found++;
-        }
+        empty_batch = false;
+        found++;
         break;
       case kTypeColumnFamilyRangeDeletion:
       case kTypeRangeDeletion:
         assert(content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_DELETE_RANGE));
         s = handler->DeleteRangeCF(column_family, key, value);
-        if (s.ok()) {
-          empty_batch = false;
-          found++;
-        }
+        empty_batch = false;
+        found++;
         break;
       case kTypeColumnFamilyMerge:
       case kTypeMerge:
         assert(content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_MERGE));
         s = handler->MergeCF(column_family, key, value);
-        if (s.ok()) {
-          empty_batch = false;
-          found++;
-        }
+        empty_batch = false;
+        found++;
         break;
       case kTypeColumnFamilyBlobIndex:
       case kTypeBlobIndex:
         assert(content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_BLOB_INDEX));
         s = handler->PutBlobIndexCF(column_family, key, value);
-        if (s.ok()) {
-          found++;
-        }
+        found++;
         break;
       case kTypeLogData:
         handler->LogData(blob);
@@ -491,8 +472,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
         empty_batch = false;
         if (!handler->WriteAfterCommit()) {
           s = Status::NotSupported(
-              "WriteCommitted txn tag when write_after_commit_ is disabled "
-              "(in "
+              "WriteCommitted txn tag when write_after_commit_ is disabled (in "
               "WritePrepared mode). If it is not due to corruption, the WAL "
               "must be emptied before changing the WritePolicy.");
         }
@@ -1104,24 +1084,12 @@ class MemTableInserter : public WriteBatch::Handler {
       MaybeAdvanceSeq();
       return seek_status;
     }
-    Status ret_status;
 
     MemTable* mem = cf_mems_->GetMemTable();
     auto* moptions = mem->GetImmutableMemTableOptions();
-    // inplace_update_support is inconsistent with snapshots, and therefore with
-    // any kind of transactions including the ones that use seq_per_batch
-    assert(!seq_per_batch_ || !moptions->inplace_update_support);
     if (!moptions->inplace_update_support) {
-      bool mem_res = true;
-      mem_res =
-          mem->Add(sequence_, value_type, key, value,
-                   concurrent_memtable_writes_, get_post_process_info(mem));
-      if (!mem_res) {
-        assert(seq_per_batch_);
-        ret_status = Status::TryAgain("key+seq exists");
-        const bool BATCH_BOUNDRY = true;
-        MaybeAdvanceSeq(BATCH_BOUNDRY);
-      }
+      mem->Add(sequence_, value_type, key, value, concurrent_memtable_writes_,
+               get_post_process_info(mem));
     } else if (moptions->inplace_callback == nullptr) {
       assert(!concurrent_memtable_writes_);
       mem->Update(sequence_, key, value);
@@ -1157,20 +1125,11 @@ class MemTableInserter : public WriteBatch::Handler {
                                                  value, &merged_value);
         if (status == UpdateStatus::UPDATED_INPLACE) {
           // prev_value is updated in-place with final value.
-#ifndef NDEBUG
-          bool mem_res =
-#endif
-              mem->Add(sequence_, value_type, key,
-                       Slice(prev_buffer, prev_size));
-          assert(mem_res);
+          mem->Add(sequence_, value_type, key, Slice(prev_buffer, prev_size));
           RecordTick(moptions->statistics, NUMBER_KEYS_WRITTEN);
         } else if (status == UpdateStatus::UPDATED) {
           // merged_value contains the final value.
-#ifndef NDEBUG
-          bool mem_res =
-#endif
-              mem->Add(sequence_, value_type, key, Slice(merged_value));
-          assert(mem_res);
+          mem->Add(sequence_, value_type, key, Slice(merged_value));
           RecordTick(moptions->statistics, NUMBER_KEYS_WRITTEN);
         }
       }
@@ -1180,7 +1139,7 @@ class MemTableInserter : public WriteBatch::Handler {
     // in memtable add/update.
     MaybeAdvanceSeq();
     CheckMemtableFull();
-    return ret_status;
+    return Status::OK();
   }
 
   virtual Status PutCF(uint32_t column_family_id, const Slice& key,
@@ -1190,20 +1149,12 @@ class MemTableInserter : public WriteBatch::Handler {
 
   Status DeleteImpl(uint32_t column_family_id, const Slice& key,
                     const Slice& value, ValueType delete_type) {
-    Status ret_status;
     MemTable* mem = cf_mems_->GetMemTable();
-    bool mem_res = true;
-    mem_res = mem->Add(sequence_, delete_type, key, value,
-                       concurrent_memtable_writes_, get_post_process_info(mem));
-    if (!mem_res) {
-      assert(seq_per_batch_);
-      ret_status = Status::TryAgain("key+seq exists");
-      const bool BATCH_BOUNDRY = true;
-      MaybeAdvanceSeq(BATCH_BOUNDRY);
-    }
+    mem->Add(sequence_, delete_type, key, value, concurrent_memtable_writes_,
+             get_post_process_info(mem));
     MaybeAdvanceSeq();
     CheckMemtableFull();
-    return ret_status;
+    return Status::OK();
   }
 
   virtual Status DeleteCF(uint32_t column_family_id,
@@ -1295,7 +1246,6 @@ class MemTableInserter : public WriteBatch::Handler {
       return seek_status;
     }
 
-    Status ret_status;
     MemTable* mem = cf_mems_->GetMemTable();
     auto* moptions = mem->GetImmutableMemTableOptions();
     bool perform_merge = false;
@@ -1351,32 +1301,18 @@ class MemTableInserter : public WriteBatch::Handler {
         perform_merge = false;
       } else {
         // 3) Add value to memtable
-        bool mem_res = true;
-        mem_res = mem->Add(sequence_, kTypeValue, key, new_value);
-        if (!mem_res) {
-          assert(seq_per_batch_);
-          ret_status = Status::TryAgain("key+seq exists");
-          const bool BATCH_BOUNDRY = true;
-          MaybeAdvanceSeq(BATCH_BOUNDRY);
-        }
+        mem->Add(sequence_, kTypeValue, key, new_value);
       }
     }
 
     if (!perform_merge) {
       // Add merge operator to memtable
-      bool mem_res = true;
-      mem_res = mem->Add(sequence_, kTypeMerge, key, value);
-      if (!mem_res) {
-        assert(seq_per_batch_);
-        ret_status = Status::TryAgain("key+seq exists");
-        const bool BATCH_BOUNDRY = true;
-        MaybeAdvanceSeq(BATCH_BOUNDRY);
-      }
+      mem->Add(sequence_, kTypeMerge, key, value);
     }
 
     MaybeAdvanceSeq();
     CheckMemtableFull();
-    return ret_status;
+    return Status::OK();
   }
 
   virtual Status PutBlobIndexCF(uint32_t column_family_id, const Slice& key,
@@ -1560,8 +1496,6 @@ Status WriteBatchInternal::InsertInto(
     if (!w->status.ok()) {
       return w->status;
     }
-    assert(!seq_per_batch || w->batch_cnt == 0 ||
-           inserter.sequence() - w->sequence == w->batch_cnt);
   }
   return Status::OK();
 }
@@ -1570,7 +1504,7 @@ Status WriteBatchInternal::InsertInto(
     WriteThread::Writer* writer, SequenceNumber sequence,
     ColumnFamilyMemTables* memtables, FlushScheduler* flush_scheduler,
     bool ignore_missing_column_families, uint64_t log_number, DB* db,
-    bool concurrent_memtable_writes, bool seq_per_batch, size_t batch_cnt) {
+    bool concurrent_memtable_writes, bool seq_per_batch) {
   assert(writer->ShouldWriteToMemtable());
   MemTableInserter inserter(sequence, memtables, flush_scheduler,
                             ignore_missing_column_families, log_number, db,
@@ -1579,8 +1513,6 @@ Status WriteBatchInternal::InsertInto(
   SetSequence(writer->batch, sequence);
   inserter.set_log_number_ref(writer->log_ref);
   Status s = writer->batch->Iterate(&inserter);
-  assert(!seq_per_batch || batch_cnt == 0 ||
-         inserter.sequence() - sequence == batch_cnt);
   if (concurrent_memtable_writes) {
     inserter.PostProcess();
   }

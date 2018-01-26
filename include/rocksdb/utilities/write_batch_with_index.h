@@ -228,8 +228,13 @@ class WriteBatchWithIndex : public WriteBatchBase {
 
  private:
   friend class WritePreparedTxn;
-  // Returns true if there has been duplicate keys in the batch.
-  bool HasDuplicateKeys();
+  // TODO(myabandeh): this is hackish, non-efficient solution to enable the e2e
+  // unit tests. Replace it with a proper solution. Collapse the WriteBatch to
+  // remove the duplicate keys. The index will not be updated after this.
+  // Returns false if collapse was not necessary
+  bool Collapse();
+  void DisableDuplicateMergeKeys() { allow_dup_merge_ = false; }
+  bool allow_dup_merge_ = true;
 
   Status GetFromBatchAndDB(DB* db, const ReadOptions& read_options,
                            ColumnFamilyHandle* column_family, const Slice& key,

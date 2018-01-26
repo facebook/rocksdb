@@ -4978,176 +4978,66 @@ TEST_P(TransactionTest, SeqAdvanceTest) {
 }
 
 // Test that the transactional db can handle duplicate keys in the write batch
-TEST_P(TransactionTest, DuplicateKeys) {
-  ColumnFamilyOptions cf_options;
-  std::string cf_name = "two";
-  ColumnFamilyHandle* cf_handle = nullptr;
-  {
-    db->CreateColumnFamily(cf_options, cf_name, &cf_handle);
+TEST_P(TransactionTest, DuplicateKeyTest) {
+  for (bool do_prepare : {true, false}) {
+    TransactionOptions txn_options;
     WriteOptions write_options;
-    WriteBatch batch;
-    batch.Put(Slice("key"), Slice("value"));
-    batch.Put(Slice("key2"), Slice("value2"));
-    // duplicate the keys
-    batch.Put(Slice("key"), Slice("value3"));
-    // duplicate the 2nd key. It should not be counted duplicate since a
-    // sub-patch is cut after the last duplicate.
-    batch.Put(Slice("key2"), Slice("value4"));
-    // duplicate the keys but in a different cf. It should not be counted as
-    // duplicate keys
-    batch.Put(cf_handle, Slice("key"), Slice("value5"));
-
-    ASSERT_OK(db->Write(write_options, &batch));
-
+    Transaction* txn0 = db->BeginTransaction(write_options, txn_options);
+    auto s = txn0->SetName("xid");
+    ASSERT_OK(s);
+    s = txn0->Put(Slice("foo0"), Slice("bar0a"));
+    ASSERT_OK(s);
+    s = txn0->Put(Slice("foo0"), Slice("bar0b"));
+    ASSERT_OK(s);
+    s = txn0->Put(Slice("foo1"), Slice("bar1"));
+    ASSERT_OK(s);
+    s = txn0->Merge(Slice("foo2"), Slice("bar2a"));
+    ASSERT_OK(s);
+    // TODO(myabandeh): enable this after duplicatae merge keys are supported
+    // s = txn0->Merge(Slice("foo2"), Slice("bar2a"));
+    // ASSERT_OK(s);
+    s = txn0->Put(Slice("foo2"), Slice("bar2b"));
+    ASSERT_OK(s);
+    s = txn0->Put(Slice("foo3"), Slice("bar3"));
+    ASSERT_OK(s);
+    // TODO(myabandeh): enable this after duplicatae merge keys are supported
+    // s = txn0->Merge(Slice("foo3"), Slice("bar3"));
+    // ASSERT_OK(s);
+    s = txn0->Put(Slice("foo4"), Slice("bar4"));
+    ASSERT_OK(s);
+    s = txn0->Delete(Slice("foo4"));
+    ASSERT_OK(s);
+    s = txn0->SingleDelete(Slice("foo4"));
+    ASSERT_OK(s);
+    if (do_prepare) {
+      s = txn0->Prepare();
+      ASSERT_OK(s);
+    }
+    s = txn0->Commit();
+    ASSERT_OK(s);
+    if (!do_prepare) {
+      auto pdb = reinterpret_cast<PessimisticTransactionDB*>(db);
+      pdb->UnregisterTransaction(txn0);
+    }
+    delete txn0;
     ReadOptions ropt;
     PinnableSlice pinnable_val;
-    auto s = db->Get(ropt, db->DefaultColumnFamily(), "key", &pinnable_val);
-    ASSERT_OK(s);
-    ASSERT_TRUE(pinnable_val == ("value3"));
-    s = db->Get(ropt, db->DefaultColumnFamily(), "key2", &pinnable_val);
-    ASSERT_OK(s);
-    ASSERT_TRUE(pinnable_val == ("value4"));
-    s = db->Get(ropt, cf_handle, "key", &pinnable_val);
-    ASSERT_OK(s);
-    ASSERT_TRUE(pinnable_val == ("value5"));
 
-    delete cf_handle;
+    s = db->Get(ropt, db->DefaultColumnFamily(), "foo0", &pinnable_val);
+    ASSERT_OK(s);
+    ASSERT_TRUE(pinnable_val == ("bar0b"));
+    s = db->Get(ropt, db->DefaultColumnFamily(), "foo1", &pinnable_val);
+    ASSERT_OK(s);
+    ASSERT_TRUE(pinnable_val == ("bar1"));
+    s = db->Get(ropt, db->DefaultColumnFamily(), "foo2", &pinnable_val);
+    ASSERT_OK(s);
+    ASSERT_TRUE(pinnable_val == ("bar2b"));
+    s = db->Get(ropt, db->DefaultColumnFamily(), "foo3", &pinnable_val);
+    ASSERT_OK(s);
+    ASSERT_TRUE(pinnable_val == ("bar3"));
+    s = db->Get(ropt, db->DefaultColumnFamily(), "foo4", &pinnable_val);
+    ASSERT_TRUE(s.IsNotFound());
   }
-
-  for (bool do_prepare : {true, false}) {
-    for (bool do_rollback : {true, false}) {
-      for (bool with_commit_batch : {true, false}) {
-        if (with_commit_batch && !do_prepare) {
-          continue;
-        }
-        if (with_commit_batch && do_rollback) {
-          continue;
-        }
-        ReOpen();
-        db->CreateColumnFamily(cf_options, cf_name, &cf_handle);
-        TransactionOptions txn_options;
-        txn_options.use_only_the_last_commit_time_batch_for_recovery = false;
-        WriteOptions write_options;
-        Transaction* txn0 = db->BeginTransaction(write_options, txn_options);
-        auto s = txn0->SetName("xid");
-        ASSERT_OK(s);
-        s = txn0->Put(Slice("foo0"), Slice("bar0a"));
-        ASSERT_OK(s);
-        s = txn0->Put(Slice("foo0"), Slice("bar0b"));
-        ASSERT_OK(s);
-        s = txn0->Put(Slice("foo1"), Slice("bar1"));
-        ASSERT_OK(s);
-        s = txn0->Merge(Slice("foo2"), Slice("bar2a"));
-        ASSERT_OK(s);
-        // Repeat a key after the start of a sub-patch. This should not cause a
-        // duplicate in the most recent sub-patch and hence not creating a new
-        // sub-patch.
-        s = txn0->Put(Slice("foo0"), Slice("bar0c"));
-        ASSERT_OK(s);
-        // TODO(myabandeh): enable this after duplicatae merge keys are
-        // supported s = txn0->Merge(Slice("foo2"), Slice("bar2a"));
-        // ASSERT_OK(s);
-        s = txn0->Put(Slice("foo2"), Slice("bar2b"));
-        ASSERT_OK(s);
-        // duplicate the keys but in a different cf. It should not be counted as
-        // duplicate.
-        s = txn0->Put(cf_handle, Slice("foo0"), Slice("bar0-cf1"));
-        ASSERT_OK(s);
-        s = txn0->Put(Slice("foo3"), Slice("bar3"));
-        ASSERT_OK(s);
-        // TODO(myabandeh): enable this after duplicatae merge keys are
-        // supported s = txn0->Merge(Slice("foo3"), Slice("bar3"));
-        // ASSERT_OK(s);
-        s = txn0->Put(Slice("foo4"), Slice("bar4"));
-        ASSERT_OK(s);
-        s = txn0->Delete(Slice("foo4"));
-        ASSERT_OK(s);
-        s = txn0->SingleDelete(Slice("foo4"));
-        ASSERT_OK(s);
-        if (do_prepare) {
-          s = txn0->Prepare();
-          ASSERT_OK(s);
-        }
-        if (do_rollback) {
-          // Test rolling back the batch with duplicates
-          s = txn0->Rollback();
-          ASSERT_OK(s);
-        } else {
-          if (with_commit_batch) {
-            assert(do_prepare);
-            auto cb = txn0->GetCommitTimeWriteBatch();
-            // duplicate a key in the original batch
-            // TODO(myabandeh): the bahavior of GetCommitTimeWriteBatch
-            // conflicting with the prepared batch is currently undefined and
-            // gives different results in different implementations.
-
-            // s = cb->Put(Slice("foo0"), Slice("bar0d"));
-            // ASSERT_OK(s);
-            // add a new duplicate key
-            s = cb->Put(Slice("foo6"), Slice("bar6a"));
-            ASSERT_OK(s);
-            s = cb->Put(Slice("foo6"), Slice("bar6b"));
-            ASSERT_OK(s);
-            // add a duplicate key that is removed in the same batch
-            s = cb->Put(Slice("foo7"), Slice("bar7a"));
-            ASSERT_OK(s);
-            s = cb->Delete(Slice("foo7"));
-            ASSERT_OK(s);
-          }
-          s = txn0->Commit();
-          ASSERT_OK(s);
-        }
-        if (!do_prepare && !do_rollback) {
-          auto pdb = reinterpret_cast<PessimisticTransactionDB*>(db);
-          pdb->UnregisterTransaction(txn0);
-        }
-        delete txn0;
-        ReadOptions ropt;
-        PinnableSlice pinnable_val;
-
-        if (do_rollback) {
-          s = db->Get(ropt, db->DefaultColumnFamily(), "foo0", &pinnable_val);
-          ASSERT_TRUE(s.IsNotFound());
-          s = db->Get(ropt, cf_handle, "foo0", &pinnable_val);
-          ASSERT_TRUE(s.IsNotFound());
-          s = db->Get(ropt, db->DefaultColumnFamily(), "foo1", &pinnable_val);
-          ASSERT_TRUE(s.IsNotFound());
-          s = db->Get(ropt, db->DefaultColumnFamily(), "foo2", &pinnable_val);
-          ASSERT_TRUE(s.IsNotFound());
-          s = db->Get(ropt, db->DefaultColumnFamily(), "foo3", &pinnable_val);
-          ASSERT_TRUE(s.IsNotFound());
-          s = db->Get(ropt, db->DefaultColumnFamily(), "foo4", &pinnable_val);
-          ASSERT_TRUE(s.IsNotFound());
-        } else {
-          s = db->Get(ropt, db->DefaultColumnFamily(), "foo0", &pinnable_val);
-          ASSERT_OK(s);
-          ASSERT_TRUE(pinnable_val == ("bar0c"));
-          s = db->Get(ropt, cf_handle, "foo0", &pinnable_val);
-          ASSERT_OK(s);
-          ASSERT_TRUE(pinnable_val == ("bar0-cf1"));
-          s = db->Get(ropt, db->DefaultColumnFamily(), "foo1", &pinnable_val);
-          ASSERT_OK(s);
-          ASSERT_TRUE(pinnable_val == ("bar1"));
-          s = db->Get(ropt, db->DefaultColumnFamily(), "foo2", &pinnable_val);
-          ASSERT_OK(s);
-          ASSERT_TRUE(pinnable_val == ("bar2b"));
-          s = db->Get(ropt, db->DefaultColumnFamily(), "foo3", &pinnable_val);
-          ASSERT_OK(s);
-          ASSERT_TRUE(pinnable_val == ("bar3"));
-          s = db->Get(ropt, db->DefaultColumnFamily(), "foo4", &pinnable_val);
-          ASSERT_TRUE(s.IsNotFound());
-          if (with_commit_batch) {
-            s = db->Get(ropt, db->DefaultColumnFamily(), "foo6", &pinnable_val);
-            ASSERT_OK(s);
-            ASSERT_TRUE(pinnable_val == ("bar6b"));
-            s = db->Get(ropt, db->DefaultColumnFamily(), "foo7", &pinnable_val);
-            ASSERT_TRUE(s.IsNotFound());
-          }
-        }
-        delete cf_handle;
-      }  // with_commit_batch
-    }    // do_rollback
-  }      // do_prepare
 }
 
 }  // namespace rocksdb
