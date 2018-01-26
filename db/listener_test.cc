@@ -528,7 +528,7 @@ TEST_F(EventListenerTest, CompactionReasonUniversal) {
 
   ASSERT_GT(listener->compaction_reasons_.size(), 0);
   for (auto compaction_reason : listener->compaction_reasons_) {
-    ASSERT_EQ(compaction_reason, CompactionReason::kUniversalSortedRunNum);
+    ASSERT_EQ(compaction_reason, CompactionReason::kUniversalSizeRatio);
   }
 
   options.level0_file_num_compaction_trigger = 8;
