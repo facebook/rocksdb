@@ -34,7 +34,6 @@
 #include "db/snapshot_impl.h"
 #include "db/version_edit.h"
 #include "db/wal_manager.h"
-#include "db/write_controller.h"
 #include "db/write_thread.h"
 #include "memtable_list.h"
 #include "monitoring/instrumented_mutex.h"
@@ -46,6 +45,7 @@
 #include "rocksdb/status.h"
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/write_buffer_manager.h"
+#include "rocksdb/write_controller.h"
 #include "table/scoped_arena_iterator.h"
 #include "util/autovector.h"
 #include "util/event_logger.h"
@@ -349,6 +349,8 @@ class DBImpl : public DB {
       Arena* arena, RangeDelAggregator* range_del_agg,
       ColumnFamilyHandle* column_family = nullptr);
 
+  WriteController* GetWriteController() override { return &write_controller_; }
+
 #ifndef NDEBUG
   // Extra methods (for testing) that are not in the public DB interface
   // Implemented in db_impl_debug.cc
@@ -427,8 +429,6 @@ class DBImpl : public DB {
                                         MutableCFOptions* mutable_cf_options);
 
   Cache* TEST_table_cache() { return table_cache_.get(); }
-
-  WriteController& TEST_write_controler() { return write_controller_; }
 
   uint64_t TEST_FindMinLogContainingOutstandingPrep();
   uint64_t TEST_FindMinPrepLogReferencedByMemTable();

@@ -39,11 +39,11 @@
 #include "db/table_cache.h"
 #include "db/version_builder.h"
 #include "db/version_edit.h"
-#include "db/write_controller.h"
 #include "monitoring/instrumented_mutex.h"
 #include "options/db_options.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
+#include "rocksdb/write_controller.h"
 
 namespace rocksdb {
 

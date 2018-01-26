@@ -1307,7 +1307,7 @@ TEST_F(DBCompactionTest, DISABLED_ManualPartialFill) {
   DestroyAndReopen(options);
   // make sure all background compaction jobs can be scheduled
   auto stop_token =
-      dbfull()->TEST_write_controler().GetCompactionPressureToken();
+      dbfull()->GetWriteController()->GetCompactionPressureToken();
   int32_t value_size = 10 * 1024;  // 10 KB
 
   // Add 2 non-overlapping files
@@ -2875,7 +2875,7 @@ TEST_F(DBCompactionTest, CompactFilesPendingL0Bug) {
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   auto schedule_multi_compaction_token =
-      dbfull()->TEST_write_controler().GetCompactionPressureToken();
+      dbfull()->GetWriteController()->GetCompactionPressureToken();
 
   // Files 0-3 will be included in an L0->L1 compaction.
   //

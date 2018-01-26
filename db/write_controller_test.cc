@@ -5,7 +5,7 @@
 //
 #include <ratio>
 
-#include "db/write_controller.h"
+#include "rocksdb/write_controller.h"
 
 #include "rocksdb/env.h"
 #include "util/testharness.h"

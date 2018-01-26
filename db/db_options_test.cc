@@ -321,8 +321,8 @@ TEST_F(DBOptionsTest, EnableAutoCompactionAndTriggerStall) {
       }
       Reopen(options);
       dbfull()->TEST_WaitForCompact();
-      ASSERT_FALSE(dbfull()->TEST_write_controler().IsStopped());
-      ASSERT_FALSE(dbfull()->TEST_write_controler().NeedsDelay());
+      ASSERT_FALSE(dbfull()->GetWriteController()->IsStopped());
+      ASSERT_FALSE(dbfull()->GetWriteController()->NeedsDelay());
 
       SyncPoint::GetInstance()->LoadDependency(
           {{"DBOptionsTest::EnableAutoCompactionAndTriggerStall:1",
@@ -350,26 +350,26 @@ TEST_F(DBOptionsTest, EnableAutoCompactionAndTriggerStall) {
 
       switch (option_type) {
         case 0:
-          ASSERT_TRUE(dbfull()->TEST_write_controler().IsStopped());
+          ASSERT_TRUE(dbfull()->GetWriteController()->IsStopped());
           break;
         case 1:
-          ASSERT_FALSE(dbfull()->TEST_write_controler().IsStopped());
-          ASSERT_TRUE(dbfull()->TEST_write_controler().NeedsDelay());
+          ASSERT_FALSE(dbfull()->GetWriteController()->IsStopped());
+          ASSERT_TRUE(dbfull()->GetWriteController()->NeedsDelay());
           break;
         case 2:
-          ASSERT_TRUE(dbfull()->TEST_write_controler().IsStopped());
+          ASSERT_TRUE(dbfull()->GetWriteController()->IsStopped());
           break;
         case 3:
-          ASSERT_FALSE(dbfull()->TEST_write_controler().IsStopped());
-          ASSERT_TRUE(dbfull()->TEST_write_controler().NeedsDelay());
+          ASSERT_FALSE(dbfull()->GetWriteController()->IsStopped());
+          ASSERT_TRUE(dbfull()->GetWriteController()->NeedsDelay());
           break;
       }
       TEST_SYNC_POINT("DBOptionsTest::EnableAutoCompactionAndTriggerStall:3");
 
       // Background compaction executed.
       dbfull()->TEST_WaitForCompact();
-      ASSERT_FALSE(dbfull()->TEST_write_controler().IsStopped());
-      ASSERT_FALSE(dbfull()->TEST_write_controler().NeedsDelay());
+      ASSERT_FALSE(dbfull()->GetWriteController()->IsStopped());
+      ASSERT_FALSE(dbfull()->GetWriteController()->NeedsDelay());
     }
   }
 }
@@ -402,7 +402,7 @@ TEST_F(DBOptionsTest, SetBackgroundCompactionThreads) {
   ASSERT_EQ(1, dbfull()->TEST_BGCompactionsAllowed());
   ASSERT_OK(dbfull()->SetDBOptions({{"max_background_compactions", "3"}}));
   ASSERT_EQ(1, dbfull()->TEST_BGCompactionsAllowed());
-  auto stop_token = dbfull()->TEST_write_controler().GetStopToken();
+  auto stop_token = dbfull()->GetWriteController()->GetStopToken();
   ASSERT_EQ(3, dbfull()->TEST_BGCompactionsAllowed());
 }
 
@@ -425,7 +425,7 @@ TEST_F(DBOptionsTest, SetBackgroundJobs) {
               dbfull()->TEST_BGFlushesAllowed());
     ASSERT_EQ(1, dbfull()->TEST_BGCompactionsAllowed());
 
-    auto stop_token = dbfull()->TEST_write_controler().GetStopToken();
+    auto stop_token = dbfull()->GetWriteController()->GetStopToken();
 
     ASSERT_EQ(options.max_background_jobs / 4,
               dbfull()->TEST_BGFlushesAllowed());
@@ -463,10 +463,11 @@ TEST_F(DBOptionsTest, SetDelayedWriteRateOption) {
   options.delayed_write_rate = 2 * 1024U * 1024U;
   options.env = env_;
   Reopen(options);
-  ASSERT_EQ(2 * 1024U * 1024U, dbfull()->TEST_write_controler().max_delayed_write_rate());
+  ASSERT_EQ(2 * 1024U * 1024U,
+            dbfull()->GetWriteController()->max_delayed_write_rate());
 
   ASSERT_OK(dbfull()->SetDBOptions({{"delayed_write_rate", "20000"}}));
-  ASSERT_EQ(20000, dbfull()->TEST_write_controler().max_delayed_write_rate());
+  ASSERT_EQ(20000, dbfull()->GetWriteController()->max_delayed_write_rate());
 }
 
 TEST_F(DBOptionsTest, MaxTotalWalSizeChange) {

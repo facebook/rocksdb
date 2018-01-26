@@ -26,6 +26,7 @@
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/types.h"
 #include "rocksdb/version.h"
+#include "rocksdb/write_controller.h"
 
 #ifdef _WIN32
 // Windows API macro interference
@@ -1112,6 +1113,12 @@ class DB {
 
   // Returns default column family handle
   virtual ColumnFamilyHandle* DefaultColumnFamily() const = 0;
+
+  // Returns WriteController the DB is using to throttle user writes when
+  // necessary to payoff compaction debt. Users should be aware that it is not
+  // designed to be thread-safe. It can have non-thread-safe functions called at
+  // any time by the DB in the background.
+  virtual WriteController* GetWriteController() { return nullptr; }
 
 #ifndef ROCKSDB_LITE
   virtual Status GetPropertiesOfAllTables(ColumnFamilyHandle* column_family,
