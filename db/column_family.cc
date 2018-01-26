@@ -1060,8 +1060,8 @@ ColumnFamilySet::~ColumnFamilySet() {
   while (column_family_data_.size() > 0) {
     // cfd destructor will delete itself from column_family_data_
     auto cfd = column_family_data_.begin()->second;
-	bool last_ref __attribute__((__unused__));
-	last_ref = cfd->Unref();
+    bool last_ref __attribute__((__unused__));
+    last_ref = cfd->Unref();
     assert(last_ref);
     delete cfd;
   }
