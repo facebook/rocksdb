@@ -208,6 +208,18 @@ std::unordered_map<std::string, ChecksumType>
                                                {"kCRC32c", kCRC32c},
                                                {"kxxHash", kxxHash}};
 
+std::unordered_map<std::string, CompressionType>
+    OptionsHelper::compression_type_string_map = {
+        {"kNoCompression", kNoCompression},
+        {"kSnappyCompression", kSnappyCompression},
+        {"kZlibCompression", kZlibCompression},
+        {"kBZip2Compression", kBZip2Compression},
+        {"kLZ4Compression", kLZ4Compression},
+        {"kLZ4HCCompression", kLZ4HCCompression},
+        {"kXpressCompression", kXpressCompression},
+        {"kZSTD", kZSTD},
+        {"kZSTDNotFinalCompression", kZSTDNotFinalCompression},
+        {"kDisableCompressionOption", kDisableCompressionOption}};
 #ifndef ROCKSDB_LITE
 
 template <typename T>
@@ -1476,19 +1488,6 @@ std::unordered_map<std::string, OptionTypeInfo>
          {0, OptionType::kBoolean, OptionVerificationType::kDeprecated, false,
           0}}};
 
-std::unordered_map<std::string, CompressionType>
-    OptionsHelper::compression_type_string_map = {
-        {"kNoCompression", kNoCompression},
-        {"kSnappyCompression", kSnappyCompression},
-        {"kZlibCompression", kZlibCompression},
-        {"kBZip2Compression", kBZip2Compression},
-        {"kLZ4Compression", kLZ4Compression},
-        {"kLZ4HCCompression", kLZ4HCCompression},
-        {"kXpressCompression", kXpressCompression},
-        {"kZSTD", kZSTD},
-        {"kZSTDNotFinalCompression", kZSTDNotFinalCompression},
-        {"kDisableCompressionOption", kDisableCompressionOption}};
-
 std::unordered_map<std::string, BlockBasedTableOptions::IndexType>
     OptionsHelper::block_base_table_index_type_string_map = {
         {"kBinarySearch", BlockBasedTableOptions::IndexType::kBinarySearch},
@@ -1582,8 +1581,6 @@ int offset_of(T1 CompactionOptionsUniversal::*member) {
 std::unordered_map<std::string, OptionTypeInfo>
     OptionsHelper::cf_options_type_info = {
         /* not yet supported
-        CompactionOptionsFIFO compaction_options_fifo;
-        CompactionOptionsUniversal compaction_options_universal;
         CompressionOptions compression_opts;
         TablePropertiesCollectorFactories table_properties_collector_factories;
         typedef std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>

@@ -25,7 +25,7 @@ enum EntryType {
   kEntryOther,
 };
 
-// <user key, seqeence number and entry type> tuple.
+// <user key, sequence number, and entry type> tuple.
 struct FullKey {
   Slice user_key;
   SequenceNumber sequence;

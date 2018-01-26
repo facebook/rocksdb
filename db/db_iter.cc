@@ -972,6 +972,17 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   // assume there is at least one parseable key for this user key
   ParsedInternalKey ikey;
   FindParseableKey(&ikey, kForward);
+  assert(iter_->Valid());
+  assert(user_comparator_->Equal(ikey.user_key, saved_key_.GetUserKey()));
+
+  // In case read_callback presents, the value we seek to may not be visible.
+  // Seek for the next value that's visible.
+  while (!IsVisible(ikey.sequence)) {
+    iter_->Next();
+    FindParseableKey(&ikey, kForward);
+    assert(iter_->Valid());
+    assert(user_comparator_->Equal(ikey.user_key, saved_key_.GetUserKey()));
+  }
 
   if (ikey.type == kTypeDeletion || ikey.type == kTypeSingleDeletion ||
       range_del_agg_.ShouldDelete(
