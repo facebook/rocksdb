@@ -23,6 +23,8 @@ inline size_t Roundup(size_t x, size_t y) {
   return ((x + y - 1) / y) * y;
 }
 
+inline size_t Rounddown(size_t x, size_t y) { return (x / y) * y; }
+
 // This class is to manage an aligned user
 // allocated buffer for direct I/O purposes
 // though can be used for any purpose.
