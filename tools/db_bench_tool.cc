@@ -845,6 +845,13 @@ DEFINE_bool(enable_pipelined_write, true,
 DEFINE_bool(allow_concurrent_memtable_write, true,
             "Allow multi-writers to update mem tables in parallel.");
 
+DEFINE_bool(inplace_update_support, rocksdb::Options().inplace_update_support,
+            "Support in-place memtable update for smaller or same-size values");
+
+DEFINE_uint64(inplace_update_num_locks,
+              rocksdb::Options().inplace_update_num_locks,
+              "Number of RW locks to protect in-place memtable updates");
+
 DEFINE_bool(enable_write_thread_adaptive_yield, true,
             "Use a yielding spin loop for brief writer thread waits.");
 
@@ -3198,6 +3205,8 @@ void VerifyDBFromDB(std::string& truth_db_name) {
     options.delayed_write_rate = FLAGS_delayed_write_rate;
     options.allow_concurrent_memtable_write =
         FLAGS_allow_concurrent_memtable_write;
+    options.inplace_update_support = FLAGS_inplace_update_support;
+    options.inplace_update_num_locks = FLAGS_inplace_update_num_locks;
     options.enable_write_thread_adaptive_yield =
         FLAGS_enable_write_thread_adaptive_yield;
     options.enable_pipelined_write = FLAGS_enable_pipelined_write;
