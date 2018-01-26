@@ -9,6 +9,7 @@
 * Add a new histogram stat called rocksdb.db.flush.micros for memtable flush.
 * Add "--use_txn" option to use transactional API in db_stress.
 * Disable onboard cache for compaction output in Windows platform.
+* Improve the performance of iterators doing long range scans by using readahead.
 
 ### Bug Fixes
 * Fix a stack-use-after-scope bug in ForwardIterator.

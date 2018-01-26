@@ -1594,6 +1594,9 @@ BlockBasedTable::BlockEntryIteratorState::BlockEntryIteratorState(
       is_index_(is_index),
       block_map_(block_map) {}
 
+const size_t BlockBasedTable::BlockEntryIteratorState::kMaxReadaheadSize =
+    256 * 1024;
+
 InternalIterator*
 BlockBasedTable::BlockEntryIteratorState::NewSecondaryIterator(
     const Slice& index_value) {
@@ -1618,6 +1621,28 @@ BlockBasedTable::BlockEntryIteratorState::NewSecondaryIterator(
           &rep->internal_comparator, nullptr, true, rep->ioptions.statistics);
     }
   }
+
+  // Automatically prefetch additional data when a range scan (iterator) does
+  // more than 2 sequential IOs. This is enabled only when
+  // ReadOptions.readahead_size is 0.
+  if (read_options_.readahead_size == 0) {
+    if (num_file_reads_ < 2) {
+      num_file_reads_++;
+    } else if (handle.offset() + static_cast<size_t>(handle.size()) +
+                   kBlockTrailerSize >
+               readahead_limit_) {
+      num_file_reads_++;
+      // Do not readahead more than kMaxReadaheadSize.
+      readahead_size_ =
+          std::min(BlockBasedTable::BlockEntryIteratorState::kMaxReadaheadSize,
+                   readahead_size_);
+      table_->rep_->file->Prefetch(handle.offset(), readahead_size_);
+      readahead_limit_ = handle.offset() + readahead_size_;
+      // Keep exponentially increasing readahead size until kMaxReadaheadSize.
+      readahead_size_ *= 2;
+    }
+  }
+
   return NewDataBlockIterator(rep, read_options_, handle,
                               /* input_iter */ nullptr, is_index_,
                               /* get_context */ nullptr, s);
