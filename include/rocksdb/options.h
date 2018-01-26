@@ -406,13 +406,14 @@ struct DBOptions {
   // If non-null, then we should collect metrics about database operations
   std::shared_ptr<Statistics> statistics = nullptr;
 
-  // If true, then every store to stable storage will issue a fsync.
-  // If false, then every store to stable storage will issue a fdatasync.
-  // This parameter should be set to true while storing data to
-  // filesystem like ext3 that can lose files after a reboot.
-  // Default: false
-  // Note: on many platforms fdatasync is defined as fsync, so this parameter
-  // would make no difference. Refer to fdatasync definition in this code base.
+  // By default, writes to stable storage use fdatasync (on platforms
+  // where this function is available). If this option is true,
+  // fsync is used instead. 
+  //
+  // fsync and fdatasync are equally safe for our purposes and fdatasync is
+  // faster, so it is rarely necessary to set this option. It is provided
+  // as a workaround for kernel/filesystem bugs, such as one that affected
+  // fdatasync with ext4 in kernel versions prior to 3.7.
   bool use_fsync = false;
 
   // A list of paths where SST files can be put into, with its target size.
