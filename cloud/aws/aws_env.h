@@ -309,8 +309,9 @@ class AwsEnv : public CloudEnvImpl {
   Status PutObject(const std::string& local_path,
                    const std::string& bucket_name_prefix,
                    const std::string& bucket_object_path) override;
+  Status DeleteCloudFileFromDest(const std::string& fname) override;
 
-  void RemoveFileFromDeletionQueue(uint64_t fileNumber);
+  void RemoveFileFromDeletionQueue(const std::string& filename);
 
   void TEST_SetFileDeletionDelay(std::chrono::seconds delay) {
     std::lock_guard<std::mutex> lk(file_deletion_lock_);
@@ -354,9 +355,9 @@ class AwsEnv : public CloudEnvImpl {
   std::mutex file_deletion_lock_;
   std::condition_variable file_deletion_cv_;
   using FilesToDeleteList =
-      std::list<std::pair<std::chrono::steady_clock::time_point, uint64_t>>;
+      std::list<std::pair<std::chrono::steady_clock::time_point, std::string>>;
   FilesToDeleteList files_to_delete_list_;
-  std::unordered_map<uint64_t, FilesToDeleteList::iterator>
+  std::unordered_map<std::string, FilesToDeleteList::iterator>
       files_to_delete_map_;
 
   Aws::S3::Model::BucketLocationConstraint bucket_location_;
@@ -609,6 +610,9 @@ class AwsEnv : public CloudEnvImpl {
   Status PutObject(const std::string& local_path,
                    const std::string& bucket_name_prefix,
                    const std::string& bucket_object_path) override {
+    return s3_notsup;
+  }
+  Status DeleteCloudFileFromDest(const std::string& fname) override {
     return s3_notsup;
   }
 

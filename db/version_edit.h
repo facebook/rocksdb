@@ -269,6 +269,13 @@ class VersionEdit {
     return new_files_;
   }
 
+  bool GetNextFileNumber(uint64_t* result) const {
+      if (has_next_file_number_) {
+          *result = next_file_number_;
+      }
+      return has_next_file_number_;
+  }
+
   std::string DebugString(bool hex_key = false) const;
   std::string DebugJSON(int edit_num, bool hex_key = false) const;
 

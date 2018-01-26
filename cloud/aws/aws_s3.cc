@@ -154,7 +154,8 @@ size_t S3ReadableFile::GetUniqueId(char* id, size_t max_size) const {
   uint64_t file_number;
   FileType file_type;
   WalFileType log_type;
-  ParseFileName(basename(fname_), &file_number, &file_type, &log_type);
+  ParseFileName(RemoveEpoch(basename(fname_)), &file_number, &file_type,
+                &log_type);
   if (max_size < kMaxVarint64Length && file_number > 0) {
     char* rid = id;
     rid = EncodeVarint64(rid, file_number);
@@ -218,20 +219,36 @@ S3WritableFile::S3WritableFile(AwsEnv* env, const std::string& local_fname,
       fname_(local_fname),
       bucket_prefix_(bucket_prefix),
       cloud_fname_(cloud_fname) {
-  assert(IsSstFile(fname_) || IsManifestFile(fname_));
-
+  auto fname_no_epoch = RemoveEpoch(fname_);
   // Is this a manifest file?
-  is_manifest_ = IsManifestFile(fname_);
+  is_manifest_ = IsManifestFile(fname_no_epoch);
+  assert(IsSstFile(fname_no_epoch) || is_manifest_);
 
   Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
       "[s3] S3WritableFile bucket %s opened local file %s "
       "cloud file %s manifest %d",
       bucket_prefix.c_str(), fname_.c_str(), cloud_fname.c_str(), is_manifest_);
 
-  // Create a temporary file using the posixEnv. This file will be deleted
-  // when the file is closed.
-  Status s =
-      env_->GetPosixEnv()->NewWritableFile(fname_, &local_file_, options);
+  auto* file_to_open = &fname_;
+  auto local_env = env_->GetBaseEnv();
+  Status s;
+  if (is_manifest_) {
+    s = local_env->FileExists(fname_);
+    if (!s.ok() && !s.IsNotFound()) {
+      status_ = s;
+      return;
+    }
+    if (s.ok()) {
+      // Manifest exists. Instead of overwriting the MANIFEST (which could be
+      // bad if we crash mid-write), write to the temporary file and do an
+      // atomic rename on Sync() (Sync means we have a valid data in the
+      // MANIFEST, so we can crash after it)
+      tmp_file_ = fname_ + ".tmp";
+      file_to_open = &tmp_file_;
+    }
+  }
+
+  s = local_env->NewWritableFile(*file_to_open, &local_file_, options);
   if (!s.ok()) {
     Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
         "[s3] NewWritableFile src %s %s", fname_.c_str(), s.ToString().c_str());
@@ -272,10 +289,10 @@ Status S3WritableFile::Close() {
   uint64_t fileNumber;
   FileType type;
   WalFileType walType;
-  bool ok __attribute__((unused)) =
-      ParseFileName(basename(fname_), &fileNumber, &type, &walType);
+  bool ok __attribute__((unused)) = ParseFileName(RemoveEpoch(basename(fname_)),
+                                                  &fileNumber, &type, &walType);
   assert(ok && type == kTableFile);
-  env_->RemoveFileFromDeletionQueue(fileNumber);
+  env_->RemoveFileFromDeletionQueue(basename(fname_));
   status_ = env_->PutObject(fname_, bucket_prefix_, cloud_fname_);
   if (!status_.ok()) {
     Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
@@ -308,6 +325,16 @@ Status S3WritableFile::Sync() {
 
   // sync local file
   Status stat = local_file_->Sync();
+
+  if (stat.ok() && !tmp_file_.empty()) {
+    assert(is_manifest_);
+    // We are writing to the temporary file. On a first sync we need to rename
+    // the file to the real filename.
+    stat = env_->GetBaseEnv()->RenameFile(tmp_file_, fname_);
+    // Note: this is not thread safe, but we know that manifest writes happen
+    // from the same thread, so we are fine.
+    tmp_file_.clear();
+  }
 
   // We copy MANIFEST to S3 on every Sync()
   if (is_manifest_ && stat.ok()) {

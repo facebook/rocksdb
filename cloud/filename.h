@@ -42,7 +42,7 @@ inline std::string dirname(std::string const& pathname) {
   if (pos == std::string::npos) {
     return "";
   }
-  return pathname.substr(0, pos) + "/";
+  return pathname.substr(0, pos);
 }
 
 // If the last char of the string is the specified character, then return a
@@ -66,6 +66,28 @@ inline std::string ltrim_if(std::string s, char c) {
 inline bool ends_with(std::string const& value, std::string const& ending) {
   if (ending.size() > value.size()) return false;
   return std::equal(ending.rbegin(), ending.rend(), value.rbegin());
+}
+
+inline std::string CloudManifestFile(const std::string& dbname) {
+  return dbname + "/CLOUDMANIFEST";
+}
+
+inline std::string ManifestFileWithEpoch(const std::string& dbname,
+                                         const std::string& epoch) {
+  return epoch.empty() ? (dbname + "/MANIFEST")
+                       : (dbname + "/MANIFEST-" + epoch);
+}
+
+inline std::string RemoveEpoch(const std::string& path) {
+  auto lastDash = path.rfind('-');
+  if (lastDash == std::string::npos) {
+    return path;
+  }
+  auto lastPathPos = path.rfind('/');
+  if (lastPathPos == std::string::npos || lastDash > lastPathPos) {
+    return path.substr(0, lastDash);
+  }
+  return path;
 }
 
 // pathaname seperator
@@ -135,4 +157,4 @@ inline bool IsIdentityFile(const std::string& pathname) {
 inline bool IsLogFile(const std::string& pathname) {
   return IsWalFile(pathname);
 }
-}
+}  // namespace

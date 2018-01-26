@@ -15,6 +15,10 @@ namespace rocksdb {
 //
 // Database with Cloud support.
 //
+// Important: The caller is responsible for ensuring that only one database at
+// a time is running with the same cloud destination bucket and path. Running
+// two databases concurrently with the same destination path will lead to
+// corruption if it lasts for more than couple of minutes.
 class DBCloud : public StackableDB {
  public:
   // This API is to open a DB when key-values are to be made durable by
@@ -31,6 +35,8 @@ class DBCloud : public StackableDB {
   // If you want sst files from S3 to be cached in local SSD/disk, then
   // persistent_cache_path should be the pathname of the local
   // cache storage.
+  // TODO(igor/dhruba) The first argument here should be DBOptions, just like in
+  // DB class.
   static Status Open(const Options& options, const std::string& dbname,
                      const std::vector<ColumnFamilyDescriptor>& column_families,
                      const std::string& persistent_cache_path,

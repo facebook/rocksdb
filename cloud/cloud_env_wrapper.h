@@ -239,6 +239,9 @@ class CloudEnvWrapper : public CloudEnvImpl {
                    const std::string& bucket_object_path) {
     return notsup_;
   }
+  Status DeleteCloudFileFromDest(const std::string& path) override {
+    return notsup_;
+  }
 
  private:
   Status notsup_;

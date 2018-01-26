@@ -3,7 +3,9 @@
 
 #include "cloud/manifest_reader.h"
 #include "cloud/aws/aws_env.h"
+#include "cloud/cloud_manifest.h"
 #include "cloud/db_cloud_impl.h"
+#include "cloud/filename.h"
 #include "db/version_set.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
@@ -22,15 +24,33 @@ ManifestReader::~ManifestReader() {}
 //
 // Extract all the live files needed by this MANIFEST file
 //
-Status ManifestReader::GetLiveFiles(const std::string manifest_path,
+Status ManifestReader::GetLiveFiles(const std::string bucket_path,
                                     std::set<uint64_t>* list) {
-  // Open the specified manifest file.
-  unique_ptr<SequentialFileReader> file_reader;
   Status s;
+  unique_ptr<CloudManifest> cloud_manifest;
   {
     unique_ptr<SequentialFile> file;
-    s = cenv_->NewSequentialFileCloud(bucket_prefix_, manifest_path, &file,
-                                      EnvOptions());
+    s = cenv_->NewSequentialFileCloud(
+        bucket_prefix_, CloudManifestFile(bucket_path), &file, EnvOptions());
+    if (!s.ok()) {
+      return s;
+    }
+    s = CloudManifest::LoadFromLog(
+        unique_ptr<SequentialFileReader>(
+            new SequentialFileReader(std::move(file))),
+        &cloud_manifest);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+  unique_ptr<SequentialFileReader> file_reader;
+  {
+    unique_ptr<SequentialFile> file;
+    s = cenv_->NewSequentialFileCloud(
+        bucket_prefix_,
+        ManifestFileWithEpoch(bucket_path,
+                              cloud_manifest->GetCurrentEpoch().ToString()),
+        &file, EnvOptions());
     if (!s.ok()) {
       return s;
     }
@@ -40,8 +60,8 @@ Status ManifestReader::GetLiveFiles(const std::string manifest_path,
   // create a callback that gets invoked whil looping through the log records
   VersionSet::LogReporter reporter;
   reporter.status = &s;
-  log::Reader reader(NULL, std::move(file_reader), &reporter, true /*checksum*/,
-                     0 /*initial_offset*/, 0);
+  log::Reader reader(nullptr, std::move(file_reader), &reporter,
+                     true /*checksum*/, 0 /*initial_offset*/, 0);
 
   Slice record;
   std::string scratch;
@@ -70,8 +90,42 @@ Status ManifestReader::GetLiveFiles(const std::string manifest_path,
   }
   file_reader.reset();
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-      "[mn] manifest path %s has %d entries %s", manifest_path.c_str(), count,
+      "[mn] manifest for db %s has %d entries %s", bucket_path.c_str(), count,
       s.ToString().c_str());
+  return s;
+}
+
+Status ManifestReader::GetMaxFileNumberFromManifest(Env* env,
+                                                    const std::string& fname,
+                                                    uint64_t* maxFileNumber) {
+  unique_ptr<SequentialFile> file;
+  auto s = env->NewSequentialFile(fname, &file, EnvOptions());
+  if (!s.ok()) {
+    return s;
+  }
+
+  VersionSet::LogReporter reporter;
+  reporter.status = &s;
+  log::Reader reader(NULL, unique_ptr<SequentialFileReader>(
+                               new SequentialFileReader(std::move(file))),
+                     &reporter, true /*checksum*/, 0 /*initial_offset*/, 0);
+
+  Slice record;
+  std::string scratch;
+
+  *maxFileNumber = 0;
+  while (reader.ReadRecord(&record, &scratch) && s.ok()) {
+    VersionEdit edit;
+    s = edit.DecodeFrom(record);
+    if (!s.ok()) {
+      break;
+    }
+    uint64_t f;
+    if (edit.GetNextFileNumber(&f)) {
+      assert(*maxFileNumber <= f);
+      *maxFileNumber = f;
+    }
+  }
   return s;
 }
 }

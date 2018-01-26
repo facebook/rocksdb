@@ -213,6 +213,7 @@ LIB_SOURCES =                                                   \
   cloud/cloud_env_options.cc                                    \
   cloud/manifest_reader.cc                                      \
   cloud/purge.cc                                                \
+  cloud/cloud_manifest.cc                                       \
 
 TOOL_LIB_SOURCES = \
   tools/ldb_cmd.cc                                               \
@@ -240,6 +241,7 @@ TEST_LIB_SOURCES = \
 
 MAIN_SOURCES =                                                    \
   cloud/db_cloud_test.cc                                                \
+  cloud/cloud_manifest_test.cc                                           \
   cache/cache_bench.cc                                                   \
   cache/cache_test.cc                                                    \
   db/column_family_test.cc                                              \

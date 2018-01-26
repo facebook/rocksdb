@@ -134,6 +134,7 @@ class S3WritableFile : public WritableFile {
  private:
   AwsEnv* env_;
   std::string fname_;
+  std::string tmp_file_;
   Status status_;
   unique_ptr<WritableFile> local_file_;
   std::string bucket_prefix_;

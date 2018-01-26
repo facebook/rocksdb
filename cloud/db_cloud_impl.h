@@ -22,7 +22,6 @@ class DBCloudImpl : public DBCloud {
 
  public:
   virtual ~DBCloudImpl();
-
   Status Savepoint();
 
  protected:
@@ -46,6 +45,15 @@ class DBCloudImpl : public DBCloud {
   static Status CreateNewIdentityFile(CloudEnv* cenv, const Options& options,
                                       const std::string& dbid,
                                       const std::string& local_name);
+
+  static Status FetchCloudManifest(const Options& options,
+                                   const std::string& local_dbname);
+
+  static Status MaybeMigrateManifestFile(Env* env,
+                                         const std::string& local_dbname);
+
+  static Status RollNewEpoch(CloudEnvImpl* cenv,
+                             const std::string& local_dbname);
 };
 }
 #endif  // ROCKSDB_LITE

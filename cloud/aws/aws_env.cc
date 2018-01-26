@@ -316,8 +316,7 @@ AwsEnv::AwsEnv(Env* underlying_env, const std::string& src_bucket_prefix,
         auto deleting_file = std::move(files_to_delete_list_.front());
         files_to_delete_list_.pop_front();
         files_to_delete_map_.erase(deleting_file.second);
-        auto fname =
-            MakeTableFileName(GetDestObjectPrefix(), deleting_file.second);
+        auto fname = GetDestObjectPrefix() + "/" + deleting_file.second;
         // we are ready to delete the file!
         auto st = DeletePathInS3(GetDestBucketPrefix(), fname);
         if (!st.ok() && !st.IsNotFound()) {
@@ -377,10 +376,10 @@ Status AwsEnv::CheckOption(const EnvOptions& options) {
 //
 // find out whether this is an sst file or a log file.
 //
-void AwsEnv::GetFileType(const std::string& fname, bool* sstFile, bool* logFile,
-                         bool* manifest, bool* identity) {
+void AwsEnv::GetFileType(const std::string& fname_with_epoch, bool* sstFile,
+                         bool* logFile, bool* manifest, bool* identity) {
+  auto fname = RemoveEpoch(fname_with_epoch);
   *logFile = false;
-
   *sstFile = IsSstFile(fname);
   if (!*sstFile) {
     *logFile = IsLogFile(fname);
@@ -410,9 +409,11 @@ Status AwsEnv::NewSequentialFileCloud(const std::string& bucket_prefix,
 }
 
 // open a file for sequential reading
-Status AwsEnv::NewSequentialFile(const std::string& fname,
+Status AwsEnv::NewSequentialFile(const std::string& logical_fname,
                                  unique_ptr<SequentialFile>* result,
                                  const EnvOptions& options) {
+  auto fname = RemapFilename(logical_fname);
+
   assert(status().ok());
   *result = nullptr;
 
@@ -485,9 +486,11 @@ Status AwsEnv::NewSequentialFile(const std::string& fname,
 }
 
 // open a file for random reading
-Status AwsEnv::NewRandomAccessFile(const std::string& fname,
+Status AwsEnv::NewRandomAccessFile(const std::string& logical_fname,
                                    unique_ptr<RandomAccessFile>* result,
                                    const EnvOptions& options) {
+  auto fname = RemapFilename(logical_fname);
+
   assert(status().ok());
   *result = nullptr;
 
@@ -596,9 +599,10 @@ Status AwsEnv::NewRandomAccessFile(const std::string& fname,
 }
 
 // create a new file for writing
-Status AwsEnv::NewWritableFile(const std::string& fname,
+Status AwsEnv::NewWritableFile(const std::string& logical_fname,
                                unique_ptr<WritableFile>* result,
                                const EnvOptions& options) {
+  auto fname = RemapFilename(logical_fname);
   assert(status().ok());
 
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_, "[aws] NewWritableFile src '%s'",
@@ -614,15 +618,8 @@ Status AwsEnv::NewWritableFile(const std::string& fname,
   Status s;
 
   if (has_dest_bucket_ && (sstfile || identity || manifest)) {
-    std::string cloud_file;
-    if (manifest) {
-      cloud_file = destname(dirname(fname)) + "/MANIFEST";
-    } else {
-      cloud_file = destname(fname);
-    }
-
     unique_ptr<S3WritableFile> f(
-        new S3WritableFile(this, fname, GetDestBucketPrefix(), cloud_file,
+        new S3WritableFile(this, fname, GetDestBucketPrefix(), destname(fname),
                            options, cloud_env_options));
     s = f->status();
     if (!s.ok()) {
@@ -632,12 +629,10 @@ Status AwsEnv::NewWritableFile(const std::string& fname,
       return s;
     }
     result->reset(dynamic_cast<WritableFile*>(f.release()));
-
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
     unique_ptr<KinesisWritableFile> f(
         new KinesisWritableFile(this, fname, options));
     if (!f->status().ok()) {
-      *result = nullptr;
       s = Status::IOError("[aws] NewWritableFile", fname.c_str());
       Log(InfoLogLevel::ERROR_LEVEL, info_log_,
           "[kinesis] NewWritableFile src %s %s", fname.c_str(),
@@ -708,7 +703,8 @@ Status AwsEnv::NewDirectory(const std::string& name,
 //
 // Check if the specified filename exists.
 //
-Status AwsEnv::FileExists(const std::string& fname) {
+Status AwsEnv::FileExists(const std::string& logical_fname) {
+  auto fname = RemapFilename(logical_fname);
   assert(status().ok());
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_, "[aws] FileExists path '%s' ",
       fname.c_str());
@@ -946,25 +942,47 @@ Status AwsEnv::GetChildren(const std::string& path,
   for (auto const& value : local_files) {
     result->push_back(value);
   }
+
+  // Remove all results that are not supposed to be visible.
+  result->erase(
+      std::remove_if(result->begin(), result->end(),
+                     [&](const std::string& f) {
+                       auto noepoch = RemoveEpoch(f);
+                       if (!IsSstFile(noepoch) && !IsManifestFile(noepoch)) {
+                         return false;
+                       }
+                       return RemapFilename(noepoch) != f;
+                     }),
+      result->end());
+  // Remove the epoch, remap into RocksDB's domain
+  for (size_t i = 0; i < result->size(); ++i) {
+    auto noepoch = RemoveEpoch(result->at(i));
+    if (IsSstFile(noepoch) || IsManifestFile(noepoch)) {
+      // remap sst and manifest files
+      result->at(i) = noepoch;
+    }
+  }
   // remove duplicates
   std::sort(result->begin(), result->end());
   result->erase(std::unique(result->begin(), result->end()), result->end());
+
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
       "[s3] GetChildren %s successfully returned %d files", path.c_str(),
       result->size());
   return Status::OK();
 }
 
-void AwsEnv::RemoveFileFromDeletionQueue(uint64_t fileNumber) {
+void AwsEnv::RemoveFileFromDeletionQueue(const std::string& filename) {
   std::lock_guard<std::mutex> lk(file_deletion_lock_);
-  auto pos = files_to_delete_map_.find(fileNumber);
+  auto pos = files_to_delete_map_.find(filename);
   if (pos != files_to_delete_map_.end()) {
     files_to_delete_list_.erase(pos->second);
     files_to_delete_map_.erase(pos);
   }
 }
 
-Status AwsEnv::DeleteFile(const std::string& fname) {
+Status AwsEnv::DeleteFile(const std::string& logical_fname) {
+  auto fname = RemapFilename(logical_fname);
   assert(status().ok());
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_, "[s3] DeleteFile src %s",
       fname.c_str());
@@ -977,29 +995,39 @@ Status AwsEnv::DeleteFile(const std::string& fname) {
   bool identity;
   GetFileType(fname, &sstfile, &logfile, &manifest, &identity);
 
+  if (manifest) {
+    // We don't delete manifest files. The reason for this is that even though
+    // RocksDB creates manifest with different names (like MANIFEST-00001,
+    // MANIFEST-00008) we actually map all of them to the same filename
+    // MANIFEST-[epoch].
+    // When RocksDB wants to roll the MANIFEST (let's say from 1 to 8) it does
+    // the following:
+    // 1. Create a new MANIFEST-8
+    // 2. Write everything into MANIFEST-8
+    // 3. Sync MANIFEST-8
+    // 4. Store "MANIFEST-8" in CURRENT file
+    // 5. Delete MANIFEST-1
+    //
+    // What RocksDB cloud does behind the scenes (the numbers match the list
+    // above):
+    // 1. Create manifest file MANIFEST-[epoch].tmp
+    // 2. Forward RocksDB writes to the file created in the first step
+    // 3. Atomic rename from MANIFEST-[epoch].tmp to MANIFEST-[epoch]. The old
+    // file with the same file name is overwritten.
+    // 4. Nothing. Whatever the contents of CURRENT file, we don't care, we
+    // always remap MANIFEST files to the correct with the latest epoch.
+    // 5. Also nothing. There is no file to delete, because we have overwritten
+    // it in the third step.
+    return st;
+  }
+
   // Delete from destination bucket and local dir
   if (has_dest_bucket_ && (sstfile || manifest || identity)) {
-    if (sstfile) {
-      uint64_t fileNumber;
-      FileType type;
-      WalFileType walType;
-      bool ok __attribute__((unused)) =
-          ParseFileName(basename(fname), &fileNumber, &type, &walType);
-      assert(ok && type == kTableFile);
-      // add the remote file deletion to the queue
-      std::unique_lock<std::mutex> lk(file_deletion_lock_);
-      if (files_to_delete_map_.find(fileNumber) == files_to_delete_map_.end()) {
-        files_to_delete_list_.emplace_back(
-            std::chrono::steady_clock::now() + file_deletion_delay_,
-            fileNumber);
-        auto itr = files_to_delete_list_.end();
-        --itr;
-        files_to_delete_map_.emplace(fileNumber, std::move(itr));
-        file_deletion_cv_.notify_one();
-      }
-    }
-    // delete from local
-    st = base_env_->DeleteFile(fname);
+    // add the remote file deletion to the queue
+    st = DeleteCloudFileFromDest(basename(fname));
+    // delete from local, too. Ignore the result, though. The file might not be
+    // there locally.
+    base_env_->DeleteFile(fname);
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
     // read from Kinesis
     st = tailer_->status();
@@ -1019,7 +1047,24 @@ Status AwsEnv::DeleteFile(const std::string& fname) {
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_, "[s3] DeleteFile file %s %s",
       fname.c_str(), st.ToString().c_str());
   return st;
-};
+}
+
+Status AwsEnv::DeleteCloudFileFromDest(const std::string& fname) {
+  assert(!GetDestBucketPrefix().empty());
+  auto base = basename(fname);
+  // add the remote file deletion to the queue
+  std::unique_lock<std::mutex> lk(file_deletion_lock_);
+  if (files_to_delete_map_.find(base) == files_to_delete_map_.end()) {
+    files_to_delete_list_.emplace_back(
+        std::chrono::steady_clock::now() + file_deletion_delay_,
+        basename(fname));
+    auto itr = files_to_delete_list_.end();
+    --itr;
+    files_to_delete_map_.emplace(base, std::move(itr));
+    file_deletion_cv_.notify_one();
+  }
+  return Status::OK();
+}
 
 //
 // Delete the specified path from S3
@@ -1105,7 +1150,8 @@ Status AwsEnv::DeleteDir(const std::string& dirname) {
   return st;
 };
 
-Status AwsEnv::GetFileSize(const std::string& fname, uint64_t* size) {
+Status AwsEnv::GetFileSize(const std::string& logical_fname, uint64_t* size) {
+  auto fname = RemapFilename(logical_fname);
   assert(status().ok());
   *size = 0L;
   Status st;
@@ -1155,8 +1201,9 @@ Status AwsEnv::GetFileSize(const std::string& fname, uint64_t* size) {
   return st;
 }
 
-Status AwsEnv::GetFileModificationTime(const std::string& fname,
+Status AwsEnv::GetFileModificationTime(const std::string& logical_fname,
                                        uint64_t* time) {
+  auto fname = RemapFilename(logical_fname);
   assert(status().ok());
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
       "[aws] GetFileModificationTime src '%s'", fname.c_str());
@@ -1207,7 +1254,10 @@ Status AwsEnv::GetFileModificationTime(const std::string& fname,
 
 // The rename is not atomic. S3 does not support renaming natively.
 // Copy file to a new object in S3 and then delete original object.
-Status AwsEnv::RenameFile(const std::string& src, const std::string& target) {
+Status AwsEnv::RenameFile(const std::string& logical_src,
+                          const std::string& logical_target) {
+  auto src = RemapFilename(logical_src);
+  auto target = RemapFilename(logical_target);
   assert(status().ok());
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
       "[aws] RenameFile src '%s' target '%s'", src.c_str(), target.c_str());

@@ -166,7 +166,7 @@ Status CloudEnvImpl::FindObsoleteDbid(
   if (st.ok()) {
     for (auto iter = dbid_list.begin(); iter != dbid_list.end(); ++iter) {
       std::unique_ptr<SequentialFile> result;
-      std::string path = iter->second + "/MANIFEST";
+      std::string path = CloudManifestFile(iter->second);
       st = ExistsObject(GetDestBucketPrefix(), path);
       // this dbid can be cleaned up
       if (st.IsNotFound()) {

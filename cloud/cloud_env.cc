@@ -6,10 +6,13 @@
 #include "cloud/cloud_env_wrapper.h"
 #include "cloud/db_cloud_impl.h"
 #include "cloud/filename.h"
+#include "port/likely.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
+#include "util/file_reader_writer.h"
+#include "util/filename.h"
 
 namespace rocksdb {
 
@@ -33,6 +36,100 @@ void CloudEnvImpl::StopPurger() {
   if (purge_thread_.joinable()) {
     purge_thread_.join();
   }
+}
+
+Status CloudEnvImpl::LoadLocalCloudManifest(const std::string& dbname) {
+  assert(!cloud_manifest_);
+  unique_ptr<SequentialFile> file;
+  auto s = GetBaseEnv()->NewSequentialFile(CloudManifestFile(dbname), &file,
+                                           EnvOptions());
+  if (!s.ok()) {
+    return s;
+  }
+  return CloudManifest::LoadFromLog(
+      unique_ptr<SequentialFileReader>(
+          new SequentialFileReader(std::move(file))),
+      &cloud_manifest_);
+}
+
+std::string CloudEnvImpl::RemapFilename(const std::string& logical_path) const {
+  if (UNLIKELY(test_disable_cloud_manifest_)) {
+    return logical_path;
+  }
+  auto file_name = basename(logical_path);
+  uint64_t fileNumber;
+  FileType type;
+  WalFileType walType;
+  if (file_name == "MANIFEST") {
+    type = kDescriptorFile;
+  } else {
+    bool ok = ParseFileName(file_name, &fileNumber, &type, &walType);
+    if (!ok) {
+      return logical_path;
+    }
+  }
+  Slice epoch;
+  switch (type) {
+    case kTableFile:
+      // We should not be accessing sst files before CLOUDMANIFEST is loaded
+      assert(cloud_manifest_);
+      epoch = cloud_manifest_->GetEpoch(fileNumber);
+      break;
+    case kDescriptorFile:
+      // We should not be accessing MANIFEST files before CLOUDMANIFEST is
+      // loaded
+      assert(cloud_manifest_);
+      // Even though logical file might say MANIFEST-000001, we cut the number
+      // suffix and store MANIFEST-[epoch] in the cloud and locally.
+      file_name = "MANIFEST";
+      epoch = cloud_manifest_->GetCurrentEpoch();
+      break;
+    default:
+      return logical_path;
+  };
+  auto dir = dirname(logical_path);
+  return dir + (dir.empty() ? "" : "/") + file_name +
+         (epoch.empty() ? "" : ("-" + epoch.ToString()));
+}
+
+Status CloudEnvImpl::DeleteInvisibleFiles(const std::string& dbname) {
+  Status s;
+  if (!GetDestBucketPrefix().empty()) {
+    BucketObjectMetadata metadata;
+    s = ListObjects(GetDestBucketPrefix(), GetDestObjectPrefix(), &metadata);
+    if (!s.ok()) {
+      return s;
+    }
+
+    for (auto& fname : metadata.pathnames) {
+      auto noepoch = RemoveEpoch(fname);
+      if (IsSstFile(noepoch) || IsManifestFile(noepoch)) {
+        if (RemapFilename(noepoch) != fname) {
+          // Ignore returned status on purpose.
+          DeleteCloudFileFromDest(fname);
+        }
+      }
+    }
+  }
+  std::vector<std::string> children;
+  s = GetBaseEnv()->GetChildren(dbname, &children);
+  if (!s.ok()) {
+    return s;
+  }
+  for (auto& fname : children) {
+    auto noepoch = RemoveEpoch(fname);
+    if (IsSstFile(noepoch) || IsManifestFile(noepoch)) {
+      if (RemapFilename(RemoveEpoch(fname)) != fname) {
+        // Ignore returned status on purpose.
+        GetBaseEnv()->DeleteFile(dbname + "/" + fname);
+      }
+    }
+  }
+  return s;
+}
+
+void CloudEnvImpl::TEST_InitEmptyCloudManifest() {
+  CloudManifest::CreateForEmptyDatabase("", &cloud_manifest_);
 }
 
 Status CloudEnv::NewAwsEnv(Env* base_env, const std::string& src_cloud_storage,

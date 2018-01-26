@@ -111,6 +111,11 @@ class CloudEnvOptions {
   // Default: true
   bool run_purger;
 
+  // If true, we will skip the dbid verification on startup. This is currently
+  // only used in tests and is not recommended setting.
+  // Default: false
+  bool skip_dbid_verification;
+
   CloudEnvOptions(
       CloudType _cloud_type = CloudType::kAws,
       bool _keep_local_sst_files = false, bool _keep_local_log_files = true,
@@ -119,7 +124,7 @@ class CloudEnvOptions {
       std::shared_ptr<CloudRequestCallback> _cloud_request_callback = nullptr,
       bool _server_side_encryption = false, std::string _encryption_key_id = "",
       bool _create_bucket_if_missing = true, uint64_t _request_timeout_ms = 0,
-      bool _run_purger = false)
+      bool _run_purger = false, bool _skip_dbid_verification = false)
       : cloud_type(_cloud_type),
         keep_local_sst_files(_keep_local_sst_files),
         keep_local_log_files(_keep_local_log_files),
@@ -130,7 +135,8 @@ class CloudEnvOptions {
         encryption_key_id(std::move(_encryption_key_id)),
         create_bucket_if_missing(_create_bucket_if_missing),
         request_timeout_ms(_request_timeout_ms),
-        run_purger(_run_purger) {}
+        run_purger(_run_purger),
+        skip_dbid_verification(_skip_dbid_verification) {}
 
   // print out all options to the log
   void Dump(Logger* log) const;
@@ -220,6 +226,9 @@ class CloudEnv : public Env {
   virtual Status PutObject(const std::string& local_path,
                            const std::string& bucket_name_prefix,
                            const std::string& bucket_object_path) = 0;
+
+  // Deletes file from a destination bucket.
+  virtual Status DeleteCloudFileFromDest(const std::string& fname) = 0;
 
   // Create a new AWS env.
   // src_bucket_name: bucket name suffix where db data is read from

@@ -23,9 +23,11 @@ class ManifestReader {
 
   virtual ~ManifestReader();
 
-  // Retrieve all live files referred to by this MANIFEST
-  Status GetLiveFiles(const std::string manifest_path,
-                      std::set<uint64_t>* list);
+  // Retrieve all live files referred to by this bucket path
+  Status GetLiveFiles(const std::string bucket_path, std::set<uint64_t>* list);
+
+  static Status GetMaxFileNumberFromManifest(Env* env, const std::string& fname,
+                                             uint64_t* maxFileNumber);
 
  private:
   std::shared_ptr<Logger> info_log_;

@@ -11,6 +11,9 @@
 #include "db/forward_iterator.h"
 #include "util/stderr_logger.h"
 #include "rocksdb/env_encryption.h"
+#ifdef USE_AWS
+#include "cloud/cloud_env_impl.h"
+#endif
 
 namespace rocksdb {
 
@@ -566,6 +569,7 @@ Env* DBTestBase::CreateNewAwsEnv() {
                            "",  // dest object prefix
                            region, // dest region
                            coptions, info_log_, &cenv);
+    ((CloudEnvImpl*)cenv)->TEST_DisableCloudManifest();
     ROCKS_LOG_DEBUG(info_log_, "Created new aws env with empty path");
     assert(st.ok() && cenv);
     // If we are keeping wal in cloud storage, then tail it as well.
