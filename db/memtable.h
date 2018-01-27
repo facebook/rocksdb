@@ -425,7 +425,8 @@ class MemTable {
 
   struct AlignedRWMutex {
     port::RWMutex rw_mutex;
-    char padding[CACHE_LINE_SIZE - sizeof(port::RWMutex) % CACHE_LINE_SIZE];
+    char padding[(CACHE_LINE_SIZE - sizeof(port::RWMutex) % CACHE_LINE_SIZE) %
+                 CACHE_LINE_SIZE];
   };
   static_assert(sizeof(AlignedRWMutex) % 64 == 0, "Expected 64-byte aligned");
   // rw locks for inplace updates
