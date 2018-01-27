@@ -3,7 +3,7 @@
 
 #include <set>
 #include "cloud/purge.h"
-#include "cloud/manifest.h"
+#include "cloud/manifest_reader.h"
 #include "cloud/aws/aws_env.h"
 #include "cloud/db_cloud_impl.h"
 #include "cloud/filename.h"
@@ -89,8 +89,8 @@ Status CloudEnvImpl::FindObsoleteFiles(const std::string& bucket_name_prefix,
     return st;
   }
 
-  std::unique_ptr<CloudManifest> extractor(new CloudManifest(info_log_,
-                                             this, bucket_name_prefix));
+  std::unique_ptr<ManifestReader> extractor(
+      new ManifestReader(info_log_, this, bucket_name_prefix));
 
   // Step2: from all MANIFEST files in Step 1, compile a list of all live files
   for (auto iter = dbid_list.begin(); iter != dbid_list.end(); ++iter) {

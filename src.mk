@@ -211,7 +211,7 @@ LIB_SOURCES =                                                   \
   cloud/db_cloud_impl.cc                                        \
   cloud/cloud_env.cc                                            \
   cloud/cloud_env_options.cc                                    \
-  cloud/manifest.cc                                             \
+  cloud/manifest_reader.cc                                      \
   cloud/purge.cc                                                \
 
 TOOL_LIB_SOURCES = \

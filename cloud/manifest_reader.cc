@@ -4,7 +4,7 @@
 #include "rocksdb/db.h"
 #include "cloud/aws/aws_env.h"
 #include "cloud/db_cloud_impl.h"
-#include "cloud/manifest.h"
+#include "cloud/manifest_reader.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
@@ -13,7 +13,7 @@
 
 namespace rocksdb {
 
-CloudManifest::CloudManifest(std::shared_ptr<Logger> info_log,
+ManifestReader::ManifestReader(std::shared_ptr<Logger> info_log,
                              CloudEnv* cenv,
                              const std::string& bucket_prefix) :
     info_log_(info_log),
@@ -21,13 +21,13 @@ CloudManifest::CloudManifest(std::shared_ptr<Logger> info_log,
     bucket_prefix_(bucket_prefix) {
 }
 
-CloudManifest::~CloudManifest() {
+ManifestReader::~ManifestReader() {
 }
 
 //
 // Extract all the live files needed by this MANIFEST file
 //
-Status CloudManifest::GetLiveFiles(const std::string manifest_path,
+Status ManifestReader::GetLiveFiles(const std::string manifest_path,
                                    std::set<uint64_t>* list) {
   // Open the specified manifest file.
   unique_ptr<SequentialFileReader> file_reader;

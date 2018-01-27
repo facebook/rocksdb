@@ -16,14 +16,12 @@ namespace rocksdb {
 //
 // Operates on MANIFEST files stored in the cloud bucket
 //
-class CloudManifest {
+class ManifestReader {
  public:
-  CloudManifest(std::shared_ptr<Logger> info_log,
-                CloudEnv* cenv,
-                const std::string& bucket_prefix
-                );
+  ManifestReader(std::shared_ptr<Logger> info_log, CloudEnv* cenv,
+                 const std::string& bucket_prefix);
 
-  virtual ~CloudManifest();
+  virtual ~ManifestReader();
 
   // Retrieve all live files referred to by this MANIFEST
   Status GetLiveFiles(const std::string manifest_path,
@@ -34,5 +32,6 @@ class CloudManifest {
   CloudEnv* cenv_;
   std::string bucket_prefix_;
 };
-}
+}  // namespace rocksdb
+
 #endif  // ROCKSDB_LITE

@@ -7,7 +7,7 @@
 #include "rocksdb/cloud/db_cloud.h"
 #include "cloud/aws/aws_env.h"
 #include "cloud/db_cloud_impl.h"
-#include "cloud/manifest.h"
+#include "cloud/manifest_reader.h"
 #include "cloud/filename.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
@@ -190,10 +190,8 @@ class CloudTest : public testing::Test {
   }
 
   Status GetCloudLiveFilesSrc(std::set<uint64_t>* list) {
-    std::unique_ptr<CloudManifest> manifest(new CloudManifest(
-                                     options_.info_log,
-                                     aenv_,
-                                     src_bucket_prefix_));
+    std::unique_ptr<ManifestReader> manifest(
+        new ManifestReader(options_.info_log, aenv_, src_bucket_prefix_));
     return manifest->GetLiveFiles(src_object_prefix_ + "/MANIFEST", list);
   }
 
