@@ -10,25 +10,21 @@
 
 namespace rocksdb {
 namespace {
-bool ShouldReportToStats(Env* env, Statistics* stats) {
-  return env != nullptr && stats != nullptr &&
-          stats->stats_level_ > kExceptTimeForMutex;
+Statistics* stats_for_report(Env* env, Statistics* stats) {
+  if (env != nullptr && stats != nullptr &&
+      stats->stats_level_ > kExceptTimeForMutex) {
+    return stats;
+  } else {
+    return nullptr;
+  }
 }
 }  // namespace
 
 void InstrumentedMutex::Lock() {
-  PERF_CONDITIONAL_TIMER_FOR_MUTEX_GUARD(db_mutex_lock_nanos,
-                                         stats_code_ == DB_MUTEX_WAIT_MICROS);
-  uint64_t wait_time_micros = 0;
-  if (ShouldReportToStats(env_, stats_)) {
-    {
-      StopWatch sw(env_, nullptr, 0, &wait_time_micros);
-      LockInternal();
-    }
-    RecordTick(stats_, stats_code_, wait_time_micros);
-  } else {
-    LockInternal();
-  }
+  PERF_CONDITIONAL_TIMER_FOR_MUTEX_GUARD(
+      db_mutex_lock_nanos, stats_code_ == DB_MUTEX_WAIT_MICROS,
+      stats_for_report(env_, stats_), stats_code_);
+  LockInternal();
 }
 
 void InstrumentedMutex::LockInternal() {
@@ -39,18 +35,10 @@ void InstrumentedMutex::LockInternal() {
 }
 
 void InstrumentedCondVar::Wait() {
-  PERF_CONDITIONAL_TIMER_FOR_MUTEX_GUARD(db_condition_wait_nanos,
-                                         stats_code_ == DB_MUTEX_WAIT_MICROS);
-  uint64_t wait_time_micros = 0;
-  if (ShouldReportToStats(env_, stats_)) {
-    {
-      StopWatch sw(env_, nullptr, 0, &wait_time_micros);
-      WaitInternal();
-    }
-    RecordTick(stats_, stats_code_, wait_time_micros);
-  } else {
-    WaitInternal();
-  }
+  PERF_CONDITIONAL_TIMER_FOR_MUTEX_GUARD(
+      db_condition_wait_nanos, stats_code_ == DB_MUTEX_WAIT_MICROS,
+      stats_for_report(env_, stats_), stats_code_);
+  WaitInternal();
 }
 
 void InstrumentedCondVar::WaitInternal() {
@@ -61,20 +49,10 @@ void InstrumentedCondVar::WaitInternal() {
 }
 
 bool InstrumentedCondVar::TimedWait(uint64_t abs_time_us) {
-  PERF_CONDITIONAL_TIMER_FOR_MUTEX_GUARD(db_condition_wait_nanos,
-                                         stats_code_ == DB_MUTEX_WAIT_MICROS);
-  uint64_t wait_time_micros = 0;
-  bool result = false;
-  if (ShouldReportToStats(env_, stats_)) {
-    {
-      StopWatch sw(env_, nullptr, 0, &wait_time_micros);
-      result = TimedWaitInternal(abs_time_us);
-    }
-    RecordTick(stats_, stats_code_, wait_time_micros);
-  } else {
-    result = TimedWaitInternal(abs_time_us);
-  }
-  return result;
+  PERF_CONDITIONAL_TIMER_FOR_MUTEX_GUARD(
+      db_condition_wait_nanos, stats_code_ == DB_MUTEX_WAIT_MICROS,
+      stats_for_report(env_, stats_), stats_code_);
+  return TimedWaitInternal(abs_time_us);
 }
 
 bool InstrumentedCondVar::TimedWaitInternal(uint64_t abs_time_us) {
