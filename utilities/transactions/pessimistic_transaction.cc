@@ -222,7 +222,7 @@ Status WriteCommittedTxn::PrepareInternal() {
   Status s =
       db_impl_->WriteImpl(write_options, GetWriteBatch()->GetWriteBatch(),
                           /*callback*/ nullptr, &log_number_, /*log ref*/ 0,
-                          /* disable_memtable*/ true);
+                          /* disable_memtable*/ true, /*seq used*/ &prepare_seq_);
   return s;
 }
 
