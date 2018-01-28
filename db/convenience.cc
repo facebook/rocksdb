@@ -20,8 +20,14 @@ void CancelAllBackgroundWork(DB* db, bool wait) {
 
 Status DeleteFilesInRange(DB* db, ColumnFamilyHandle* column_family,
                           const Slice* begin, const Slice* end) {
+  RangePtr range(begin, end);
+  return DeleteFilesInRange(db, column_family, &range, 1);
+}
+
+Status DeleteFilesInRange(DB* db, ColumnFamilyHandle* column_family,
+                          const RangePtr* ranges, int n) {
   return (static_cast_with_check<DBImpl, DB>(db->GetRootDB()))
-      ->DeleteFilesInRange(column_family, begin, end);
+      ->DeleteFilesInRange(column_family, ranges, n);
 }
 
 Status VerifySstFileChecksum(const Options& options,
