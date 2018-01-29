@@ -214,6 +214,7 @@ class BlockBasedTable : public TableReader {
 
  private:
   friend class MockedBlockBasedTable;
+  static std::atomic<uint64_t> next_cache_key_id_;
   // input_iter: if it is not null, update this one and return it as Iterator
   static BlockIter* NewDataBlockIterator(
       Rep* rep, const ReadOptions& ro, const Slice& index_value,
