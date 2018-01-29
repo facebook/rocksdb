@@ -22,6 +22,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/types.h"
 #include "rocksjni/portal.h"
+#include "rocksjni/init.h"
 
 #ifdef min
 #undef min
@@ -2204,22 +2205,26 @@ void Java_org_rocksdb_RocksDB_ingestExternalFile(
  */
 void Java_org_rocksdb_RocksDB_destroyDB(
     JNIEnv* env, jclass jcls, jstring jdb_path, jlong joptions_handle) {
+
   const char* db_path = env->GetStringUTFChars(jdb_path, nullptr);
-  if(db_path == nullptr) {
-    // exception thrown: OutOfMemoryError
-    return;
-  }
+  if(db_path != nullptr) {
+    // not exception thrown: OutOfMemoryError
 
-  auto* options = reinterpret_cast<rocksdb::Options*>(joptions_handle);
-  if (options == nullptr) {
-    rocksdb::RocksDBExceptionJni::ThrowNew(env,
-        rocksdb::Status::InvalidArgument("Invalid Options."));
-  }
 
-  rocksdb::Status s = rocksdb::DestroyDB(db_path, *options);
-  env->ReleaseStringUTFChars(jdb_path, db_path);
+    auto *options = reinterpret_cast<rocksdb::Options *>(joptions_handle);
+    if (options == nullptr) {
 
-  if (!s.ok()) {
-    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+      rocksdb::RocksDBExceptionJni::ThrowNew(env,
+                                             rocksdb::Status::InvalidArgument("Invalid Options."));
+
+    }
+
+    rocksdb::Status s = rocksdb::DestroyDB(db_path, *options);
+    env->ReleaseStringUTFChars(jdb_path, db_path);
+
+    if (!s.ok()) {
+      rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+    }
   }
+  rocksdb::detachCurrentThread();
 }

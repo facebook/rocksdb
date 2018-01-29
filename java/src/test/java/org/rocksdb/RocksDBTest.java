@@ -9,6 +9,7 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
+
 import java.util.*;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -208,6 +209,186 @@ public class RocksDBTest {
       assertThat(db.get("key2".getBytes())).isEqualTo(
           "xxxx".getBytes());
     }
+  }
+ private class M extends AbstractAssociativeMergeOperator{
+
+
+   public M() throws RocksDBException {
+     super();
+   }
+
+   @Override
+   public byte[] merge(byte[] key, byte[] oldvalue, byte[] newvalue) {
+     if (oldvalue==null) return newvalue;
+     StringBuffer sb=new StringBuffer(new String(oldvalue));
+     sb.append(',');
+     //if (1==1)throw new IndexOutOfBoundsException();
+     sb.append(new String(newvalue));
+     System.out.println("----execute merge---");
+     return sb.toString().getBytes();
+   }
+ }
+
+  private class M1 extends AbstractNotAssociativeMergeOperator{
+
+
+    public M1() throws RocksDBException {
+      super(true,false,false);
+    }
+
+    private byte[]  collect(byte[][] operands){
+
+      StringBuffer sb=new StringBuffer();
+      for(int i=0;i<operands.length;i++) {
+        if (i>0) sb.append(',');
+        sb.append(new String(operands[i]));
+      }
+      return sb.toString().getBytes();
+    }
+
+
+
+    @Override
+    public byte[] fullMerge(byte[] key, byte[] oldvalue, byte[][] operands) {
+      if (oldvalue==null) return collect(operands);
+
+      return (new String(oldvalue)+','+new String(collect(operands))).getBytes();
+    }
+
+    @Override
+    public byte[] partialMultiMerge(byte[] key, byte[] oldvalue, byte[][] operands) {
+      if (oldvalue==null) return collect(operands);
+
+      return (new String(oldvalue)+','+new String(collect(operands))).getBytes();
+
+    }
+
+    @Override
+    public byte[] partialMerge(byte[] key, byte[] left, byte[] right) {
+
+      StringBuffer sb=new StringBuffer(new String(left));
+      sb.append(',');
+      sb.append(new String(right));
+      System.out.println("----execute merge---");
+      return sb.toString().getBytes();
+    }
+
+    @Override
+    public boolean shouldMerge(byte[][] operands) {
+      return false;
+    }
+  }
+
+  @Test
+  public void merge2() throws RocksDBException, NoSuchMethodException, InterruptedException {
+    Thread t=new Thread(new Runnable() {
+      @Override
+      public void run() {
+
+
+        try {
+          try (final M1 stringAppendOperator = new M1();
+               final Options opt = new Options()
+                       .setCreateIfMissing(true)
+                       .setMergeOperator(stringAppendOperator);
+               final WriteOptions wOpt = new WriteOptions();
+               final RocksDB db = RocksDB.open(opt,
+                       dbFolder.getRoot().getAbsolutePath())
+          ) {
+
+
+            db.put("key1".getBytes(), "value".getBytes());
+            assertThat(db.get("key1".getBytes())).isEqualTo(
+                    "value".getBytes());
+            // merge key1 with another value portion
+            db.merge("key1".getBytes(), "value2".getBytes());
+            assertThat(db.get("key1".getBytes())).isEqualTo(
+                    "value,value2".getBytes());
+            // merge key1 with another value portion
+            db.merge(wOpt, "key1".getBytes(), "value3".getBytes());
+            assertThat(db.get("key1".getBytes())).isEqualTo(
+                    "value,value2,value3".getBytes());
+            db.merge(wOpt, "key1".getBytes(), "value4".getBytes());
+            assertThat(db.get("key1".getBytes())).isEqualTo(
+                    "value,value2,value3,value4".getBytes());
+            // merge on non existent key shall insert the value
+            db.merge(wOpt, "key2".getBytes(), "xxxx".getBytes());
+            assertThat(db.get("key2".getBytes())).isEqualTo(
+                    "xxxx".getBytes());
+
+          }
+        }catch (Exception e){
+          throw new RuntimeException(e);
+        }finally {
+          org.rocksdb.util.Environment.detachCurrentThreadIfPossible();
+        }
+
+      }
+    });
+
+
+
+    t.setDaemon(false);
+    t.start();
+    org.rocksdb.util.Environment.detachCurrentThreadIfPossible();
+    t.join();
+
+  }
+
+  @Test
+  public void merge1() throws RocksDBException, NoSuchMethodException, InterruptedException {
+     Thread t=new Thread(new Runnable() {
+       @Override
+       public void run() {
+
+
+    try {
+          try (final M stringAppendOperator = new M();
+               final Options opt = new Options()
+                       .setCreateIfMissing(true)
+                       .setMergeOperator(stringAppendOperator);
+               final WriteOptions wOpt = new WriteOptions();
+               final RocksDB db = RocksDB.open(opt,
+                       dbFolder.getRoot().getAbsolutePath())
+          ) {
+
+
+            db.put("key1".getBytes(), "value".getBytes());
+            assertThat(db.get("key1".getBytes())).isEqualTo(
+                    "value".getBytes());
+            // merge key1 with another value portion
+            db.merge("key1".getBytes(), "value2".getBytes());
+            assertThat(db.get("key1".getBytes())).isEqualTo(
+                    "value,value2".getBytes());
+            // merge key1 with another value portion
+            db.merge(wOpt, "key1".getBytes(), "value3".getBytes());
+            assertThat(db.get("key1".getBytes())).isEqualTo(
+                    "value,value2,value3".getBytes());
+            db.merge(wOpt, "key1".getBytes(), "value4".getBytes());
+            assertThat(db.get("key1".getBytes())).isEqualTo(
+                    "value,value2,value3,value4".getBytes());
+            // merge on non existent key shall insert the value
+            db.merge(wOpt, "key2".getBytes(), "xxxx".getBytes());
+            assertThat(db.get("key2".getBytes())).isEqualTo(
+                    "xxxx".getBytes());
+
+          }
+        }catch (Exception e){
+       throw new RuntimeException(e);
+    }finally {
+          org.rocksdb.util.Environment.detachCurrentThreadIfPossible();
+        }
+
+       }
+     });
+
+
+
+    t.setDaemon(false);
+    t.start();
+    org.rocksdb.util.Environment.detachCurrentThreadIfPossible();
+    t.join();
+
   }
 
   @Test

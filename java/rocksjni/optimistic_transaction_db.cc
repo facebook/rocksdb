@@ -15,6 +15,7 @@
 #include "rocksdb/utilities/transaction.h"
 
 #include "rocksjni/portal.h"
+#include "rocksjni/init.h"
 
 /*
  * Class:     org_rocksdb_OptimisticTransactionDB
@@ -264,4 +265,5 @@ jlong Java_org_rocksdb_OptimisticTransactionDB_getBaseDB(
 void Java_org_rocksdb_OptimisticTransactionDB_disposeInternal(JNIEnv* env,
     jobject jobj, jlong jhandle) {
   delete reinterpret_cast<rocksdb::OptimisticTransactionDB*>(jhandle);
+    rocksdb::detachCurrentThread();
 }

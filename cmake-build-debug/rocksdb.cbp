@@ -12379,6 +12379,12 @@
 		<Unit filename="/data/git/rocksdb/env/mock_env_test.cc">
 			<Option target="mock_env_test"/>
 		</Unit>
+		<Unit filename="/data/git/rocksdb/java/rocksjni/init.cc">
+			<Option target="testutillib"/>
+		</Unit>
+		<Unit filename="/data/git/rocksdb/java/rocksjni/init.h">
+			<Option target="testutillib"/>
+		</Unit>
 		<Unit filename="/data/git/rocksdb/memtable/alloc_tracker.cc">
 			<Option target="rocksdb"/>
 			<Option target="rocksdb-shared"/>

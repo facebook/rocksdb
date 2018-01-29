@@ -32,6 +32,7 @@
 #include "rocksjni/writebatchhandlerjnicallback.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "db/db_impl.h"
+#include "rocksjni/init.h"
 
 
 // Remove macro on windows
@@ -41,7 +42,9 @@
 
 namespace rocksdb {
 
-// Detect if jlong overflows size_t
+
+
+    // Detect if jlong overflows size_t
 inline Status check_if_jlong_fits_size_t(const jlong& jvalue) {
   Status s = Status::OK();
   if (static_cast<uint64_t>(jvalue) > std::numeric_limits<size_t>::max()) {
@@ -3001,10 +3004,10 @@ class JniUtil {
      *     occurs and the JNIEnv cannot be retrieved
      */
     static JNIEnv* getJniEnv(JavaVM* jvm, jboolean* attached) {
-      assert(jvm != nullptr);
+     assert(jvm != nullptr);
 
       JNIEnv *env;
-      const jint env_rs = jvm->GetEnv(reinterpret_cast<void**>(&env),
+     /*  const jint env_rs = jvm->GetEnv(reinterpret_cast<void**>(&env),
           JNI_VERSION_1_2);
 
       if(env_rs == JNI_OK) {
@@ -3029,7 +3032,10 @@ class JniUtil {
       } else {
         std::cerr << "JniUtil::getJinEnv - Fatal: Unknown error: env_rs=" << env_rs << std::endl;
         return nullptr;
-      }
+      }*/
+      env=rocksdb::getEnv();
+      *attached = JNI_FALSE;
+        return env;
     }
 
     /**

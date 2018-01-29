@@ -62,6 +62,9 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
     org.rocksdb.TransactionDB\
     org.rocksdb.TransactionDBOptions\
     org.rocksdb.TransactionOptions\
+    org.rocksdb.AbstractAssociativeMergeOperator\
+    org.rocksdb.AbstractNotAssociativeMergeOperator\
+    org.rocksdb.util.Environment\
 
 NATIVE_JAVA_TEST_CLASSES = org.rocksdb.RocksDBExceptionTest\
     org.rocksdb.WriteBatchTest\

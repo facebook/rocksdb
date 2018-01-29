@@ -6025,6 +6025,33 @@ env/mock_env_test.cc.s:
 	$(MAKE) -f CMakeFiles/mock_env_test.dir/build.make CMakeFiles/mock_env_test.dir/env/mock_env_test.cc.s
 .PHONY : env/mock_env_test.cc.s
 
+java/rocksjni/init.o: java/rocksjni/init.cc.o
+
+.PHONY : java/rocksjni/init.o
+
+# target to build an object file
+java/rocksjni/init.cc.o:
+	$(MAKE) -f CMakeFiles/testutillib.dir/build.make CMakeFiles/testutillib.dir/java/rocksjni/init.cc.o
+.PHONY : java/rocksjni/init.cc.o
+
+java/rocksjni/init.i: java/rocksjni/init.cc.i
+
+.PHONY : java/rocksjni/init.i
+
+# target to preprocess a source file
+java/rocksjni/init.cc.i:
+	$(MAKE) -f CMakeFiles/testutillib.dir/build.make CMakeFiles/testutillib.dir/java/rocksjni/init.cc.i
+.PHONY : java/rocksjni/init.cc.i
+
+java/rocksjni/init.s: java/rocksjni/init.cc.s
+
+.PHONY : java/rocksjni/init.s
+
+# target to generate assembly for a file
+java/rocksjni/init.cc.s:
+	$(MAKE) -f CMakeFiles/testutillib.dir/build.make CMakeFiles/testutillib.dir/java/rocksjni/init.cc.s
+.PHONY : java/rocksjni/init.cc.s
+
 memtable/alloc_tracker.o: memtable/alloc_tracker.cc.o
 
 .PHONY : memtable/alloc_tracker.o
@@ -13180,6 +13207,9 @@ help:
 	@echo "... env/mock_env_test.o"
 	@echo "... env/mock_env_test.i"
 	@echo "... env/mock_env_test.s"
+	@echo "... java/rocksjni/init.o"
+	@echo "... java/rocksjni/init.i"
+	@echo "... java/rocksjni/init.s"
 	@echo "... memtable/alloc_tracker.o"
 	@echo "... memtable/alloc_tracker.i"
 	@echo "... memtable/alloc_tracker.s"

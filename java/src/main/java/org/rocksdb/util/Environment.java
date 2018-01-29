@@ -3,7 +3,7 @@ package org.rocksdb.util;
 public class Environment {
   private static String OS = System.getProperty("os.name").toLowerCase();
   private static String ARCH = System.getProperty("os.arch").toLowerCase();
-
+  public static native void detachCurrentThreadIfPossible();
   public static boolean isPowerPC() {
     return ARCH.contains("ppc");
   }
