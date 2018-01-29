@@ -146,4 +146,5 @@ void Java_org_rocksdb_IngestExternalFileOptions_disposeInternal(
   auto* options =
       reinterpret_cast<rocksdb::IngestExternalFileOptions*>(jhandle);
   delete options;
+// @lint-ignore TXT4 T25377293 Grandfathered in
 }

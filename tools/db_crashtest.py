@@ -317,7 +317,7 @@ def whitebox_crash_main(args):
         cmd = gen_cmd(dict(cmd_params.items() + additional_opts.items()
                            + {'db': dbname}.items()))
 
-        print "Running:" + ' '.join(cmd) + "\n"
+        print "Running:" + ' '.join(cmd) + "\n"  # noqa: E999 T25377293 Grandfathered in
 
         popen = subprocess.Popen(cmd, stdout=subprocess.PIPE,
                                  stderr=subprocess.STDOUT)

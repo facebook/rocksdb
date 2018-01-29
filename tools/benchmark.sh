@@ -449,6 +449,7 @@ echo "===== Benchmark ====="
 
 # Run!!!
 IFS=',' read -a jobs <<< $1
+# shellcheck disable=SC2068
 for job in ${jobs[@]}; do
 
   if [ $job != debug ]; then
