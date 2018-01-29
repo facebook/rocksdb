@@ -1,3 +1,4 @@
+# shellcheck disable=SC2148
 GCC_BASE=/mnt/gvfs/third-party2/gcc/8219ec1bcedf8ad9da05e121e193364de2cc4f61/5.x/centos6-native/c447969
 CLANG_BASE=/mnt/gvfs/third-party2/llvm-fb/64d8d58e3d84f8bde7a029763d4f5baf39d0d5b9/stable/centos6-native/6aaf4de
 LIBGCC_BASE=/mnt/gvfs/third-party2/libgcc/ba9be983c81de7299b59fe71950c664a84dcb5f8/5.x/gcc-5-glibc-2.23/339d858

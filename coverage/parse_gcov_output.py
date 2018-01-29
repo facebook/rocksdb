@@ -72,7 +72,7 @@ def display_file_coverage(per_file_coverage, total_coverage):
     header_template = \
         "%" + str(max_file_name_length) + "s\t%s\t%s"
     separator = "-" * (max_file_name_length + 10 + 20)
-    print header_template % ("Filename", "Coverage", "Lines")
+    print header_template % ("Filename", "Coverage", "Lines")  # noqa: E999 T25377293 Grandfathered in
     print separator
 
     # -- Print body

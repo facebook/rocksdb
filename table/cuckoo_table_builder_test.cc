@@ -49,6 +49,7 @@ class CuckooBuilderTest : public testing::Test {
     uint64_t read_file_size;
     ASSERT_OK(env_->GetFileSize(fname, &read_file_size));
 
+   // @lint-ignore TXT2 T25377293 Grandfathered in
 	  Options options;
 	  options.allow_mmap_reads = true;
 	  ImmutableCFOptions ioptions(options);
