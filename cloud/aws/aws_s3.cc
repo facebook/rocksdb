@@ -10,8 +10,8 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
-#include <inttypes.h>
 #include <assert.h>
+#include <inttypes.h>
 #include <fstream>
 #include <iostream>
 
@@ -26,31 +26,12 @@ namespace rocksdb {
 /******************** Readablefile ******************/
 
 S3ReadableFile::S3ReadableFile(AwsEnv* env, const std::string& bucket_prefix,
-                               const std::string& fname, bool is_file)
-    : env_(env),
-      fname_(fname),
-      file_number_(0),
-      offset_(0),
-      file_size_(0),
-      last_mod_time_(0),
-      is_file_(is_file) {
+                               const std::string& fname, uint64_t file_size)
+    : env_(env), fname_(fname), offset_(0), file_size_(file_size) {
   Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
       "[s3] S3ReadableFile opening file %s", fname_.c_str());
-  assert(!is_file_ || IsSstFile(fname) || IsManifestFile(fname) ||
-         IsIdentityFile(fname));
   s3_bucket_ = GetBucket(bucket_prefix);
   s3_object_ = Aws::String(fname_.c_str(), fname_.size());
-
-  ParseFileName(basename(fname), &file_number_, &file_type_, &log_type_);
-
-  // fetch file size from S3
-  status_ = GetFileInfo();
-}
-
-S3ReadableFile::~S3ReadableFile() {
-  Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
-      "[s3] S3ReadableFile closed file %s", fname_.c_str());
-  offset_ = 0;
 }
 
 // sequential access, read data at current offset in file
@@ -74,14 +55,12 @@ Status S3ReadableFile::Read(uint64_t offset, size_t n, Slice* result,
       "[s3] S3ReadableFile reading %s at offset %ld size %ld", fname_.c_str(),
       offset, n);
 
-  if (!status_.ok()) {
-    return status_;
-  }
   *result = Slice();
 
   if (offset >= file_size_) {
     Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
-        "[s3] S3ReadableFile reading %s at offset %" PRIu64 " filesize %ld."
+        "[s3] S3ReadableFile reading %s at offset %" PRIu64
+        " filesize %ld."
         " Nothing to do",
         fname_.c_str(), offset, file_size_);
     return Status::OK();
@@ -160,10 +139,6 @@ Status S3ReadableFile::Read(uint64_t offset, size_t n, Slice* result,
 Status S3ReadableFile::Skip(uint64_t n) {
   Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
       "[s3] S3ReadableFile file %s skip %ld", fname_.c_str(), n);
-  if (!status_.ok()) {
-    return status_;
-  }
-
   // Update offset_ so that it does not go beyond filesize
   offset_ += n;
   if (offset_ > file_size_) {
@@ -176,56 +151,17 @@ size_t S3ReadableFile::GetUniqueId(char* id, size_t max_size) const {
   // If this is an SST file name, then it can part of the persistent cache.
   // We need to generate a unique id for the cache.
   // If it is not a sst file, then nobody should be using this id.
-  if (max_size >= sizeof(file_number_)) {
+  uint64_t file_number;
+  FileType file_type;
+  WalFileType log_type;
+  ParseFileName(basename(fname_), &file_number, &file_type, &log_type);
+  if (max_size < kMaxVarint64Length && file_number > 0) {
     char* rid = id;
-    rid = EncodeVarint64(rid, file_number_);
+    rid = EncodeVarint64(rid, file_number);
     return static_cast<size_t>(rid - id);
   }
   return 0;
 }
-
-//
-// Retrieves the metadata of file by making a HeadObject call to S3
-//
-Status S3ReadableFile::GetFileInfo() {
-  Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_, "[s3] S3GetFileInfo %s",
-      fname_.c_str());
-
-  // set up S3 request to read the head
-  Aws::S3::Model::HeadObjectRequest request;
-  request.SetBucket(s3_bucket_);
-  request.SetKey(s3_object_);
-
-  Aws::S3::Model::HeadObjectOutcome outcome =
-      env_->s3client_->HeadObject(request);
-  bool isSuccess = outcome.IsSuccess();
-  if (!isSuccess) {
-    const Aws::Client::AWSError<Aws::S3::S3Errors>& error = outcome.GetError();
-    std::string errmsg(error.GetMessage().c_str(), error.GetMessage().size());
-    Aws::S3::S3Errors s3err = error.GetErrorType();
-
-    if (s3err == Aws::S3::S3Errors::NO_SUCH_BUCKET ||
-        s3err == Aws::S3::S3Errors::NO_SUCH_KEY ||
-        s3err == Aws::S3::S3Errors::RESOURCE_NOT_FOUND ||
-        errmsg.find("Response code: 404") != std::string::npos) {
-      Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
-          "[s3] S3GetFileInfo error not-existent %s %s", fname_.c_str(),
-          errmsg.c_str());
-      return Status::NotFound(fname_, errmsg.c_str());
-    }
-    Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
-        "[s3] S3GetFileInfo error %s %s", fname_.c_str(), errmsg.c_str());
-    return Status::IOError(fname_, errmsg.c_str());
-  }
-  const Aws::S3::Model::HeadObjectResult& res = outcome.GetResult();
-
-  // extract data payload
-  file_size_ = res.GetContentLength();
-  last_mod_time_ = res.GetLastModified().Millis();
-  Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
-      "[s3] S3GetFileInfo %s size %ld ok", fname_.c_str(), file_size_);
-  return Status::OK();
-};
 
 /******************** Writablefile ******************/
 

@@ -402,15 +402,13 @@ Status AwsEnv::NewSequentialFileCloud(const std::string& bucket_prefix,
                                       unique_ptr<SequentialFile>* result,
                                       const EnvOptions& options) {
   assert(status().ok());
-  *result = nullptr;
-
-  S3ReadableFile* f = new S3ReadableFile(this, bucket_prefix, fname);
-  Status st = f->status();
+  unique_ptr<S3ReadableFile> file;
+  Status st = NewS3ReadableFile(bucket_prefix, fname, &file);
   if (!st.ok()) {
-    delete f;
-  } else {
-    result->reset(dynamic_cast<SequentialFile*>(f));
+    return st;
   }
+
+  result->reset(dynamic_cast<SequentialFile*>(file.release()));
   return st;
 }
 
@@ -442,20 +440,15 @@ Status AwsEnv::NewSequentialFile(const std::string& fname,
     st = base_env_->NewSequentialFile(fname, result, options);
 
     if (!st.ok()) {
-      S3ReadableFile* f = nullptr;
+      unique_ptr<S3ReadableFile> file;
       if (!st.ok() && has_dest_bucket_) {  // read from destination S3
-        f = new S3ReadableFile(this, GetDestBucketPrefix(), destname(fname));
-        st = f->status();
+        st = NewS3ReadableFile(GetDestBucketPrefix(), destname(fname), &file);
       }
       if (!st.ok() && has_src_bucket_) {  // read from src bucket
-        delete f;
-        f = new S3ReadableFile(this, GetSrcBucketPrefix(), srcname(fname));
-        st = f->status();
+        st = NewS3ReadableFile(GetSrcBucketPrefix(), srcname(fname), &file);
       }
       if (st.ok()) {
-        result->reset(dynamic_cast<SequentialFile*>(f));
-      } else {
-        delete f;
+        result->reset(dynamic_cast<SequentialFile*>(file.release()));
       }
     }
     Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
@@ -544,18 +537,17 @@ Status AwsEnv::NewRandomAccessFile(const std::string& fname,
         }
         stax = Status::NotFound();
         if (has_dest_bucket_) {
-          stax = GetFileInfoInS3(GetDestBucketPrefix(), destname(fname),
-                                 &remote_size, nullptr);
+          stax = HeadObject(GetDestBucketPrefix(), destname(fname), nullptr,
+                            &remote_size, nullptr);
         }
         if (stax.IsNotFound() && has_src_bucket_) {
-          stax = GetFileInfoInS3(GetSrcBucketPrefix(), srcname(fname),
-                                 &remote_size, nullptr);
+          stax = HeadObject(GetSrcBucketPrefix(), srcname(fname), nullptr,
+                            &remote_size, nullptr);
         }
         if (!stax.ok() || remote_size != local_size) {
-          std::string msg = "[aws] GetFileInfoInS3 src " + fname +
-                            " local size " + std::to_string(local_size) +
-                            " cloud size " + std::to_string(remote_size) + " " +
-                            stax.ToString();
+          std::string msg = "[aws] HeadObject src " + fname + " local size " +
+                            std::to_string(local_size) + " cloud size " +
+                            std::to_string(remote_size) + " " + stax.ToString();
           Log(InfoLogLevel::ERROR_LEVEL, info_log_, "%s", msg.c_str());
           return Status::IOError(msg);
         }
@@ -564,21 +556,15 @@ Status AwsEnv::NewRandomAccessFile(const std::string& fname,
       // Only execute this code path if keep_local_sst_files == false. If it's
       // true, we will never use S3ReadableFile to read; we copy the file
       // locally and read using base_env.
-      S3ReadableFile* f = nullptr;
+      unique_ptr<S3ReadableFile> file;
       if (!st.ok() && has_dest_bucket_) {
-        // read from dest S3
-        f = new S3ReadableFile(this, GetDestBucketPrefix(), destname(fname));
-        st = f->status();
+        st = NewS3ReadableFile(GetDestBucketPrefix(), destname(fname), &file);
       }
       if (!st.ok() && has_src_bucket_) {
-        delete f;
-        f = new S3ReadableFile(this, GetSrcBucketPrefix(), srcname(fname));
-        st = f->status();
+        st = NewS3ReadableFile(GetSrcBucketPrefix(), srcname(fname), &file);
       }
-      if (!st.ok()) {
-        delete f;
-      } else {
-        result->reset(dynamic_cast<RandomAccessFile*>(f));
+      if (st.ok()) {
+        result->reset(dynamic_cast<RandomAccessFile*>(file.release()));
       }
     }
     Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
@@ -740,12 +726,11 @@ Status AwsEnv::FileExists(const std::string& fname) {
     // We read first from local storage and then from cloud storage.
     st = base_env_->FileExists(fname);
     if (st.IsNotFound() && has_dest_bucket_) {
-      st = PathExistsInS3(destname(fname), GetDestBucketPrefix(), true);
+      st = ExistsObject(GetDestBucketPrefix(), destname(fname));
     }
     if (!st.ok() && has_src_bucket_) {
-      st = PathExistsInS3(srcname(fname), GetSrcBucketPrefix(), true);
+      st = ExistsObject(GetSrcBucketPrefix(), srcname(fname));
     }
-
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
     // read from Kinesis
     st = tailer_->status();
@@ -767,29 +752,6 @@ Status AwsEnv::FileExists(const std::string& fname) {
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_, "[aws] FileExists path '%s' %s",
       fname.c_str(), st.ToString().c_str());
   return st;
-}
-
-//
-// Check if the specified pathname exists as a file or directory
-// in AWS-S3
-//
-Status AwsEnv::PathExistsInS3(const std::string& fname,
-                              const std::string& bucket, bool isfile) {
-  assert(status().ok());
-
-  // We could have used Aws::S3::Model::ListObjectsRequest to find
-  // the file size, but a ListObjectsRequest is not guaranteed to
-  // return the most recently created objects. Only a Get is
-  // guaranteed to be consistent with Puts. So, we try to read
-  // 0 bytes from the object.
-  unique_ptr<SequentialFile> fd;
-  Slice result;
-  S3ReadableFile* f = new S3ReadableFile(this, bucket, fname, isfile);
-  fd.reset(f);
-  Status ret = f->Read(0, &result, nullptr);
-  Log(InfoLogLevel::DEBUG_LEVEL, info_log_, "[s3] PathExistsInS3 path '%s' %s",
-      fname.c_str(), ret.ToString().c_str());
-  return ret;
 }
 
 //
@@ -862,6 +824,54 @@ Status AwsEnv::GetChildrenFromS3(const std::string& path,
       marker = objs.back().GetKey();
     }
   }
+  return Status::OK();
+}
+
+Status AwsEnv::HeadObject(const std::string& bucket_prefix,
+                          const std::string& path,
+                          Aws::Map<Aws::String, Aws::String>* metadata,
+                          uint64_t* size, uint64_t* modtime) {
+  Aws::S3::Model::HeadObjectRequest request;
+  request.SetBucket(GetBucket(bucket_prefix));
+  request.SetKey(Aws::String(path.data(), path.size()));
+
+  auto outcome = s3client_->HeadObject(request);
+  bool isSuccess = outcome.IsSuccess();
+  if (!isSuccess) {
+    const auto& error = outcome.GetError();
+    Aws::S3::S3Errors s3err = error.GetErrorType();
+    auto errMessage = error.GetMessage();
+    if (s3err == Aws::S3::S3Errors::NO_SUCH_BUCKET ||
+        s3err == Aws::S3::S3Errors::NO_SUCH_KEY ||
+        s3err == Aws::S3::S3Errors::RESOURCE_NOT_FOUND) {
+      return Status::NotFound(path, errMessage.c_str());
+    }
+    return Status::IOError(path, errMessage.c_str());
+  }
+  auto& res = outcome.GetResult();
+  if (metadata != nullptr) {
+    *metadata = res.GetMetadata();
+  }
+  if (size != nullptr) {
+    *size = res.GetContentLength();
+  }
+  if (modtime != nullptr) {
+    *modtime = res.GetLastModified().Millis();
+  }
+  return Status::OK();
+}
+
+Status AwsEnv::NewS3ReadableFile(const std::string& bucket_prefix,
+                                 const std::string& fname,
+                                 unique_ptr<S3ReadableFile>* result) {
+  // First, check if the file exists and also find its size. We use size in
+  // S3ReadableFile to make sure we always read the valid ranges of the file
+  uint64_t size;
+  Status st = HeadObject(bucket_prefix, fname, nullptr, &size, nullptr);
+  if (!st.ok()) {
+    return st;
+  }
+  result->reset(new S3ReadableFile(this, bucket_prefix, fname, size));
   return Status::OK();
 }
 
@@ -1118,12 +1128,12 @@ Status AwsEnv::GetFileSize(const std::string& fname, uint64_t* size) {
       st = Status::NotFound();
       // Get file length from S3
       if (has_dest_bucket_) {
-        st = GetFileInfoInS3(GetDestBucketPrefix(), destname(fname), size,
-                             nullptr);
+        st = HeadObject(GetDestBucketPrefix(), destname(fname), nullptr, size,
+                        nullptr);
       }
       if (st.IsNotFound() && has_src_bucket_) {
-        st = GetFileInfoInS3(GetSrcBucketPrefix(), srcname(fname), size,
-                             nullptr);
+        st = HeadObject(GetSrcBucketPrefix(), srcname(fname), nullptr, size,
+                        nullptr);
       }
     }
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
@@ -1148,47 +1158,6 @@ Status AwsEnv::GetFileSize(const std::string& fname, uint64_t* size) {
   return st;
 }
 
-//
-// Check if the specified pathname exists as a file or directory
-// in AWS-S3
-//
-Status AwsEnv::GetFileInfoInS3(const std::string& bucket_prefix,
-                               const std::string& fname, uint64_t* size,
-                               uint64_t* modtime) {
-  if (size) {
-    *size = 0L;
-  }
-  if (modtime) {
-    *modtime = 0L;
-  }
-
-  Log(InfoLogLevel::DEBUG_LEVEL, info_log_, "[s3] GetFileInfoInS3 src '%s'",
-      fname.c_str());
-
-  // We could have used Aws::S3::Model::ListObjectsRequest to find
-  // the file size, but a ListObjectsRequest is not guaranteed to
-  // return the most recently created objects. Only a Get is
-  // guaranteed to be consistent with Puts. So, we try to read
-  // 0 bytes from the object.
-  unique_ptr<SequentialFile> fd;
-  Slice result;
-  S3ReadableFile* f = new S3ReadableFile(this, bucket_prefix, fname);
-  fd.reset(f);
-  Status ret = f->Read(0, &result, nullptr);
-  if (!ret.ok()) {
-    Log(InfoLogLevel::ERROR_LEVEL, info_log_, "[s3] GetFileInfoInS3 dir %s %s",
-        fname.c_str(), ret.ToString().c_str());
-    return ret;
-  }
-  if (size) {
-    *size = f->GetSize();
-  }
-  if (modtime) {
-    *modtime = f->GetLastModTime();
-  }
-  return ret;
-}
-
 Status AwsEnv::GetFileModificationTime(const std::string& fname,
                                        uint64_t* time) {
   assert(status().ok());
@@ -1207,12 +1176,12 @@ Status AwsEnv::GetFileModificationTime(const std::string& fname,
     } else {
       st = Status::NotFound();
       if (has_dest_bucket_) {
-        st = GetFileInfoInS3(GetDestBucketPrefix(), destname(fname), nullptr,
-                             time);
+        st = HeadObject(GetDestBucketPrefix(), destname(fname), nullptr,
+                        nullptr, time);
       }
       if (st.IsNotFound() && has_src_bucket_) {
-        st = GetFileInfoInS3(GetSrcBucketPrefix(), srcname(fname), nullptr,
-                             time);
+        st = HeadObject(GetSrcBucketPrefix(), srcname(fname), nullptr, nullptr,
+                        time);
       }
     }
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
@@ -1374,46 +1343,29 @@ Status AwsEnv::SaveDbid(const std::string& dbid, const std::string& dirname) {
 Status AwsEnv::GetPathForDbid(const std::string& bucket_prefix,
                               const std::string& dbid, std::string* dirname) {
   std::string dbidkey = dbid_registry_ + dbid;
-  Aws::String bucket = GetBucket(bucket_prefix);
-  Aws::String key = Aws::String(dbidkey.c_str(), dbidkey.size());
 
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-      "[s3] Bucket %s GetPathForDbid dbid %s", bucket.c_str(), dbid.c_str());
+      "[s3] Bucket %s GetPathForDbid dbid %s", bucket_prefix.c_str(),
+      dbid.c_str());
 
-  // set up S3 request to read the head
-  Aws::S3::Model::HeadObjectRequest request;
-  request.SetBucket(bucket);
-  request.SetKey(key);
-
-  Aws::S3::Model::HeadObjectOutcome outcome = s3client_->HeadObject(request);
-  bool isSuccess = outcome.IsSuccess();
-  if (!isSuccess) {
-    const Aws::Client::AWSError<Aws::S3::S3Errors>& error = outcome.GetError();
-    std::string errmsg(error.GetMessage().c_str(), error.GetMessage().size());
-    Aws::S3::S3Errors s3err = error.GetErrorType();
-
-    if (s3err == Aws::S3::S3Errors::NO_SUCH_BUCKET ||
-        s3err == Aws::S3::S3Errors::NO_SUCH_KEY ||
-        s3err == Aws::S3::S3Errors::RESOURCE_NOT_FOUND ||
-        s3err == Aws::S3::S3Errors::UNKNOWN) {
+  Aws::Map<Aws::String, Aws::String> metadata;
+  Status st = HeadObject(bucket_prefix, dbidkey, &metadata);
+  if (!st.ok()) {
+    if (st.IsNotFound()) {
       Log(InfoLogLevel::ERROR_LEVEL, info_log_,
           "[s3] %s GetPathForDbid error non-existent dbid %s %s",
-          bucket.c_str(), dbid.c_str(), errmsg.c_str());
-      return Status::NotFound(dbid, errmsg.c_str());
+          bucket_prefix.c_str(), dbid.c_str(), st.ToString().c_str());
+    } else {
+      Log(InfoLogLevel::ERROR_LEVEL, info_log_,
+          "[s3] %s GetPathForDbid error dbid %s %s", bucket_prefix.c_str(),
+          dbid.c_str(), st.ToString().c_str());
     }
-    Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-        "[s3] %s GetPathForDbid error dbid %s %s", bucket.c_str(), dbid.c_str(),
-        errmsg.c_str());
-    return Status::IOError(dbid, errmsg.c_str());
+    return st;
   }
-  const Aws::S3::Model::HeadObjectResult& res = outcome.GetResult();
-  const Aws::Map<Aws::String, Aws::String> metadata = res.GetMetadata();
 
   // Find "dirname" metadata that stores the pathname of the db
-  std::string dirname_tag = "dirname";
-  Aws::String dir = Aws::String(dirname_tag.c_str(), dirname_tag.size());
-  auto it = metadata.find(dir);
-  Status st;
+  const char* kDirnameTag = "dirname";
+  auto it = metadata.find(Aws::String(kDirnameTag));
   if (it != metadata.end()) {
     Aws::String as = it->second;
     dirname->assign(as.c_str(), as.size());
@@ -1421,9 +1373,9 @@ Status AwsEnv::GetPathForDbid(const std::string& bucket_prefix,
     st = Status::NotFound("GetPathForDbid");
   }
   Log(InfoLogLevel::INFO_LEVEL, info_log_, "[s3] %s GetPathForDbid dbid %s %s",
-      bucket.c_str(), dbid.c_str(), st.ToString().c_str());
+      bucket_prefix.c_str(), dbid.c_str(), st.ToString().c_str());
   return st;
-};
+}
 
 //
 // Retrieves the list of all registered dbids and their paths
@@ -1491,15 +1443,15 @@ Status AwsEnv::DeleteObject(const std::string& bucket_name_prefix,
 // Delete the specified object from the specified cloud bucket
 Status AwsEnv::ExistsObject(const std::string& bucket_name_prefix,
                             const std::string& bucket_object_path) {
-  return PathExistsInS3(bucket_object_path, bucket_name_prefix, true);
+  return HeadObject(bucket_name_prefix, bucket_object_path);
 }
 
 // Return size of cloud object
 Status AwsEnv::GetObjectSize(const std::string& bucket_name_prefix,
                              const std::string& bucket_object_path,
                              uint64_t* filesize) {
-  return GetFileInfoInS3(bucket_name_prefix, bucket_object_path, filesize,
-                         nullptr);
+  return HeadObject(bucket_name_prefix, bucket_object_path, nullptr, filesize,
+                    nullptr);
 }
 
 // Copy the specified cloud object from one location in the cloud

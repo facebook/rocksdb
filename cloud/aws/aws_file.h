@@ -175,8 +175,7 @@ class S3ReadableFile : virtual public SequentialFile,
                        virtual public RandomAccessFile {
  public:
   S3ReadableFile(AwsEnv* env, const std::string& bucket_prefix,
-                 const std::string& fname, bool is_file = true);
-  virtual ~S3ReadableFile();
+                 const std::string& fname, uint64_t size);
 
   // sequential access, read data at current offset in file
   virtual Status Read(size_t n, Slice* result, char* scratch) override;
@@ -187,25 +186,15 @@ class S3ReadableFile : virtual public SequentialFile,
 
   virtual Status Skip(uint64_t n) override;
 
-  uint64_t GetSize() const { return file_size_; }
-  uint64_t GetLastModTime() const { return last_mod_time_; }
-  virtual Status status() { return status_; }
   virtual size_t GetUniqueId(char* id, size_t max_size) const override;
 
  private:
   AwsEnv* env_;
   std::string fname_;
-  uint64_t file_number_;
-  FileType file_type_;
-  WalFileType log_type_;
-  Status status_;
   Aws::String s3_bucket_;
   Aws::String s3_object_;
   uint64_t offset_;
-  mutable uint64_t file_size_;
-  mutable uint64_t last_mod_time_;
-  bool is_file_;  // is this a file or dir?
-  Status GetFileInfo();
+  uint64_t file_size_;
 };
 
 // Appends to a file in S3.

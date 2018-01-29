@@ -25,6 +25,7 @@
 namespace rocksdb {
 
 class KinesisSystem;
+class S3ReadableFile;
 
 class AwsS3ClientWrapper {
  public:
@@ -362,18 +363,9 @@ class AwsEnv : public CloudEnvImpl {
 
   Status status();
 
-  // Check if the specified pathname exists
-  Status PathExistsInS3(const std::string& fname,
-                        const std::string& bucket_prefix, bool isfile);
-
   // Delete the specified path from S3
   Status DeletePathInS3(const std::string& bucket_prefix,
                         const std::string& fname);
-
-  // Get size and modtime of file in S3
-  Status GetFileInfoInS3(const std::string& bucket_prefix,
-                         const std::string& fname, uint64_t* size,
-                         uint64_t* modtime);
 
   // Validate options
   Status CheckOption(const EnvOptions& options);
@@ -390,6 +382,15 @@ class AwsEnv : public CloudEnvImpl {
   Status GetChildrenFromS3(const std::string& path,
                            const std::string& bucket_prefix,
                            std::vector<std::string>* result);
+
+  // If metadata, size or modtime is non-nullptr, returns requested data
+  Status HeadObject(const std::string& bucket_prefix, const std::string& path,
+                    Aws::Map<Aws::String, Aws::String>* metadata = nullptr,
+                    uint64_t* size = nullptr, uint64_t* modtime = nullptr);
+
+  Status NewS3ReadableFile(const std::string& bucket_prefix,
+                           const std::string& fname,
+                           unique_ptr<S3ReadableFile>* result);
 
   // Save IDENTITY file to S3. Update dbid registry.
   Status SaveIdentitytoS3(const std::string& localfile,
