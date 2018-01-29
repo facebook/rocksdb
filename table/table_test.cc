@@ -963,6 +963,31 @@ class HarnessTest : public testing::Test {
   // Returns nullptr if not running against a DB
   DB* db() const { return constructor_->db(); }
 
+  void RandomizedHarnessTest(size_t part, size_t total) {
+    std::vector<TestArgs> args = GenerateArgList();
+    assert(part);
+    assert(part <= total);
+    size_t start_i = (part - 1) * args.size() / total;
+    size_t end_i = part * args.size() / total;
+    for (unsigned int i = start_i; i < end_i; i++) {
+      Init(args[i]);
+      Random rnd(test::RandomSeed() + 5);
+      for (int num_entries = 0; num_entries < 2000;
+           num_entries += (num_entries < 50 ? 1 : 200)) {
+        if ((num_entries % 10) == 0) {
+          fprintf(stderr, "case %d of %d: num_entries = %d\n", (i + 1),
+                  static_cast<int>(args.size()), num_entries);
+        }
+        for (int e = 0; e < num_entries; e++) {
+          std::string v;
+          Add(test::RandomKey(&rnd, rnd.Skewed(4)),
+              test::RandomString(&rnd, rnd.Skewed(5), &v).ToString());
+        }
+        Test(&rnd);
+      }
+    }
+  }
+
  private:
   Options options_ = Options();
   ImmutableCFOptions ioptions_;
@@ -2578,25 +2603,18 @@ TEST_F(GeneralTableTest, ApproximateOffsetOfCompressed) {
   }
 }
 
-TEST_F(HarnessTest, Randomized) {
-  std::vector<TestArgs> args = GenerateArgList();
-  for (unsigned int i = 0; i < args.size(); i++) {
-    Init(args[i]);
-    Random rnd(test::RandomSeed() + 5);
-    for (int num_entries = 0; num_entries < 2000;
-         num_entries += (num_entries < 50 ? 1 : 200)) {
-      if ((num_entries % 10) == 0) {
-        fprintf(stderr, "case %d of %d: num_entries = %d\n", (i + 1),
-                static_cast<int>(args.size()), num_entries);
-      }
-      for (int e = 0; e < num_entries; e++) {
-        std::string v;
-        Add(test::RandomKey(&rnd, rnd.Skewed(4)),
-            test::RandomString(&rnd, rnd.Skewed(5), &v).ToString());
-      }
-      Test(&rnd);
-    }
-  }
+TEST_F(HarnessTest, Randomized0) {
+  // part 1 out of 2
+  const size_t part = 1;
+  const size_t total = 2;
+  RandomizedHarnessTest(part, total);
+}
+
+TEST_F(HarnessTest, Randomized1) {
+  // part 2 out of 2
+  const size_t part = 2;
+  const size_t total = 2;
+  RandomizedHarnessTest(part, total);
 }
 
 #ifndef ROCKSDB_LITE
