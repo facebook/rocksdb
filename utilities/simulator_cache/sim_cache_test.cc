@@ -193,6 +193,7 @@ TEST_F(SimCacheTest, SimCacheLogging) {
   ASSERT_EQ(add_num, num_block_entries);
 
   // Log things again but stop logging automatically after reaching 512 bytes
+ // @lint-ignore TXT2 T25377293 Grandfathered in
 	int max_size = 512;
   ASSERT_OK(sim_cache->StartActivityLogging(log_file, env_, max_size));
   for (int it = 0; it < 10; it++) {

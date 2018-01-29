@@ -229,7 +229,7 @@ class LDBTestCase(unittest.TestCase):
         self.assertRunFAIL("get --ttl a3")
         self.assertRunOK("checkconsistency", "OK")
 
-    def testInvalidCmdLines(self):
+    def testInvalidCmdLines(self):  # noqa: F811 T25377293 Grandfathered in
         print "Running testInvalidCmdLines..."
         # db not specified
         self.assertRunFAILFull("put 0x6133 0x6233 --hex --create_if_missing")
@@ -516,7 +516,7 @@ class LDBTestCase(unittest.TestCase):
 
     def testColumnFamilies(self):
         print "Running testColumnFamilies..."
-        dbPath = os.path.join(self.TMP_DIR, self.DB_NAME)
+        dbPath = os.path.join(self.TMP_DIR, self.DB_NAME)  # noqa: F841 T25377293 Grandfathered in
         self.assertRunOK("put cf1_1 1 --create_if_missing", "OK")
         self.assertRunOK("put cf1_2 2 --create_if_missing", "OK")
         self.assertRunOK("put cf1_3 3 --try_load_options", "OK")
