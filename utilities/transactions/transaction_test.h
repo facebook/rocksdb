@@ -36,8 +36,7 @@
 
 namespace rocksdb {
 
-class TransactionTest : public ::testing::TestWithParam<
-                            std::tuple<bool, bool, TxnDBWritePolicy>> {
+class TransactionTestBase : public ::testing::Test {
  public:
   TransactionDB* db;
   FaultInjectionTestEnv* env;
@@ -45,8 +44,11 @@ class TransactionTest : public ::testing::TestWithParam<
   Options options;
 
   TransactionDBOptions txn_db_options;
+  bool use_stackable_db_;
 
-  TransactionTest() {
+  TransactionTestBase(bool use_stackable_db, bool two_write_queue,
+                      TxnDBWritePolicy write_policy)
+      : use_stackable_db_(use_stackable_db) {
     options.create_if_missing = true;
     options.max_write_buffer_number = 2;
     options.write_buffer_size = 4 * 1024;
@@ -54,15 +56,15 @@ class TransactionTest : public ::testing::TestWithParam<
     options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
     env = new FaultInjectionTestEnv(Env::Default());
     options.env = env;
-    options.two_write_queues = std::get<1>(GetParam());
+    options.two_write_queues = two_write_queue;
     dbname = test::TmpDir() + "/transaction_testdb";
 
     DestroyDB(dbname, options);
     txn_db_options.transaction_lock_timeout = 0;
     txn_db_options.default_lock_timeout = 0;
-    txn_db_options.write_policy = std::get<2>(GetParam());
+    txn_db_options.write_policy = write_policy;
     Status s;
-    if (std::get<0>(GetParam()) == false) {
+    if (use_stackable_db == false) {
       s = TransactionDB::Open(options, txn_db_options, dbname, &db);
     } else {
       s = OpenWithStackableDB();
@@ -70,7 +72,7 @@ class TransactionTest : public ::testing::TestWithParam<
     assert(s.ok());
   }
 
-  ~TransactionTest() {
+  ~TransactionTestBase() {
     delete db;
     // This is to skip the assert statement in FaultInjectionTestEnv. There
     // seems to be a bug in btrfs that the makes readdir return recently
@@ -88,7 +90,7 @@ class TransactionTest : public ::testing::TestWithParam<
     env->DropUnsyncedFileData();
     env->ResetState();
     Status s;
-    if (std::get<0>(GetParam()) == false) {
+    if (use_stackable_db_ == false) {
       s = TransactionDB::Open(options, txn_db_options, dbname, &db);
     } else {
       s = OpenWithStackableDB();
@@ -100,7 +102,7 @@ class TransactionTest : public ::testing::TestWithParam<
     delete db;
     DestroyDB(dbname, options);
     Status s;
-    if (std::get<0>(GetParam()) == false) {
+    if (use_stackable_db_ == false) {
       s = TransactionDB::Open(options, txn_db_options, dbname, &db);
     } else {
       s = OpenWithStackableDB();
@@ -395,6 +397,15 @@ class TransactionTest : public ::testing::TestWithParam<
       ASSERT_EQ(kv.second, value);
     }
   }
+};
+
+class TransactionTest : public TransactionTestBase,
+                        public ::testing::WithParamInterface<
+                            std::tuple<bool, bool, TxnDBWritePolicy>> {
+ public:
+  TransactionTest()
+      : TransactionTestBase(std::get<0>(GetParam()), std::get<1>(GetParam()),
+                            std::get<2>(GetParam())){};
 };
 
 class MySQLStyleTransactionTest : public TransactionTest {};

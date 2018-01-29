@@ -181,7 +181,12 @@ class WritePreparedTxnDBMock : public WritePreparedTxnDB {
   std::vector<SequenceNumber> snapshots_;
 };
 
-class WritePreparedTransactionTest : public TransactionTest {
+class WritePreparedTransactionTestBase : public TransactionTestBase {
+ public:
+  WritePreparedTransactionTestBase(bool use_stackable_db, bool two_write_queue,
+                                   TxnDBWritePolicy write_policy)
+      : TransactionTestBase(use_stackable_db, two_write_queue, write_policy){};
+
  protected:
   // If expect_update is set, check if it actually updated old_commit_map_. If
   // it did not and yet suggested not to check the next snapshot, do the
@@ -342,10 +347,86 @@ class WritePreparedTransactionTest : public TransactionTest {
   }
 };
 
+class WritePreparedTransactionTest
+    : public WritePreparedTransactionTestBase,
+      public ::testing::WithParamInterface<
+          std::tuple<bool, bool, TxnDBWritePolicy>> {
+ public:
+  WritePreparedTransactionTest()
+      : WritePreparedTransactionTestBase(std::get<0>(GetParam()),
+                                         std::get<1>(GetParam()),
+                                         std::get<2>(GetParam())){};
+};
+
+class SnapshotConcurrentAccessTest
+    : public WritePreparedTransactionTestBase,
+      public ::testing::WithParamInterface<
+          std::tuple<bool, bool, TxnDBWritePolicy, size_t, size_t>> {
+ public:
+  SnapshotConcurrentAccessTest()
+      : WritePreparedTransactionTestBase(std::get<0>(GetParam()),
+                                         std::get<1>(GetParam()),
+                                         std::get<2>(GetParam())),
+        split_id_(std::get<3>(GetParam())),
+        split_cnt_(std::get<4>(GetParam())){};
+
+ protected:
+  // A test is split into split_cnt_ tests, each identified with split_id_ where
+  // 0 <= split_id_ < split_cnt_
+  size_t split_id_;
+  size_t split_cnt_;
+};
+
 INSTANTIATE_TEST_CASE_P(
     WritePreparedTransactionTest, WritePreparedTransactionTest,
     ::testing::Values(std::make_tuple(false, false, WRITE_PREPARED),
                       std::make_tuple(false, true, WRITE_PREPARED)));
+
+INSTANTIATE_TEST_CASE_P(
+    TwoWriteQueues, SnapshotConcurrentAccessTest,
+    ::testing::Values(std::make_tuple(false, true, WRITE_PREPARED, 0, 20),
+                      std::make_tuple(false, true, WRITE_PREPARED, 1, 20),
+                      std::make_tuple(false, true, WRITE_PREPARED, 2, 20),
+                      std::make_tuple(false, true, WRITE_PREPARED, 3, 20),
+                      std::make_tuple(false, true, WRITE_PREPARED, 4, 20),
+                      std::make_tuple(false, true, WRITE_PREPARED, 5, 20),
+                      std::make_tuple(false, true, WRITE_PREPARED, 6, 20),
+                      std::make_tuple(false, true, WRITE_PREPARED, 7, 20),
+                      std::make_tuple(false, true, WRITE_PREPARED, 8, 20),
+                      std::make_tuple(false, true, WRITE_PREPARED, 9, 20),
+                      std::make_tuple(false, true, WRITE_PREPARED, 10, 20),
+                      std::make_tuple(false, true, WRITE_PREPARED, 11, 20),
+                      std::make_tuple(false, true, WRITE_PREPARED, 12, 20),
+                      std::make_tuple(false, true, WRITE_PREPARED, 13, 20),
+                      std::make_tuple(false, true, WRITE_PREPARED, 14, 20),
+                      std::make_tuple(false, true, WRITE_PREPARED, 15, 20),
+                      std::make_tuple(false, true, WRITE_PREPARED, 16, 20),
+                      std::make_tuple(false, true, WRITE_PREPARED, 17, 20),
+                      std::make_tuple(false, true, WRITE_PREPARED, 18, 20),
+                      std::make_tuple(false, true, WRITE_PREPARED, 19, 20)));
+
+INSTANTIATE_TEST_CASE_P(
+    OneWriteQueue, SnapshotConcurrentAccessTest,
+    ::testing::Values(std::make_tuple(false, false, WRITE_PREPARED, 0, 20),
+                      std::make_tuple(false, false, WRITE_PREPARED, 1, 20),
+                      std::make_tuple(false, false, WRITE_PREPARED, 2, 20),
+                      std::make_tuple(false, false, WRITE_PREPARED, 3, 20),
+                      std::make_tuple(false, false, WRITE_PREPARED, 4, 20),
+                      std::make_tuple(false, false, WRITE_PREPARED, 5, 20),
+                      std::make_tuple(false, false, WRITE_PREPARED, 6, 20),
+                      std::make_tuple(false, false, WRITE_PREPARED, 7, 20),
+                      std::make_tuple(false, false, WRITE_PREPARED, 8, 20),
+                      std::make_tuple(false, false, WRITE_PREPARED, 9, 20),
+                      std::make_tuple(false, false, WRITE_PREPARED, 10, 20),
+                      std::make_tuple(false, false, WRITE_PREPARED, 11, 20),
+                      std::make_tuple(false, false, WRITE_PREPARED, 12, 20),
+                      std::make_tuple(false, false, WRITE_PREPARED, 13, 20),
+                      std::make_tuple(false, false, WRITE_PREPARED, 14, 20),
+                      std::make_tuple(false, false, WRITE_PREPARED, 15, 20),
+                      std::make_tuple(false, false, WRITE_PREPARED, 16, 20),
+                      std::make_tuple(false, false, WRITE_PREPARED, 17, 20),
+                      std::make_tuple(false, false, WRITE_PREPARED, 18, 20),
+                      std::make_tuple(false, false, WRITE_PREPARED, 19, 20)));
 
 TEST_P(WritePreparedTransactionTest, CommitMapTest) {
   WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
@@ -553,26 +634,24 @@ bool IsInCombination(size_t i, size_t comb) { return comb & (size_t(1) << i); }
 #ifndef TRAVIS
 // Test that CheckAgainstSnapshots will not miss a live snapshot if it is run in
 // parallel with UpdateSnapshots.
-TEST_P(WritePreparedTransactionTest, SnapshotConcurrentAccessTest) {
+TEST_P(SnapshotConcurrentAccessTest, SnapshotConcurrentAccessTest) {
   // We have a sync point in the method under test after checking each snapshot.
   // If you increase the max number of snapshots in this test, more sync points
   // in the methods must also be added.
-  const std::vector<SequenceNumber> snapshots = {10l, 20l, 30l, 40l, 50l, 60l};
-  // TODO(myabandeh): increase the snapshots list for pre-release tests
-  // const std::vector<SequenceNumber> snapshots = {10l, 20l, 30l, 40l, 50l,
-  //                                               60l, 70l, 80l, 90l, 100l};
+  const std::vector<SequenceNumber> snapshots = {10l, 20l, 30l, 40l, 50l,
+                                                 60l, 70l, 80l, 90l, 100l};
   const size_t snapshot_cache_bits = 2;
   // Safety check to express the intended size in the test. Can be adjusted if
   // the snapshots lists changed.
-  assert((1ul << snapshot_cache_bits) + 2 == snapshots.size());
+  assert((1ul << snapshot_cache_bits) * 2 + 2 == snapshots.size());
   SequenceNumber version = 1000l;
   // Choose the cache size so that the new snapshot list could replace all the
   // existing items in the cache and also have some overflow.
   DBImpl* mock_db = new DBImpl(options, dbname);
   std::unique_ptr<WritePreparedTxnDBMock> wp_db(
       new WritePreparedTxnDBMock(mock_db, txn_db_options, snapshot_cache_bits));
-  // TODO(myabandeh): increase this number for pre-release tests
-  const size_t extra = 1;
+  const size_t extra = 2;
+  size_t loop_id = 0;
   // Add up to extra items that do not fit into the cache
   for (size_t old_size = 1; old_size <= wp_db->SNAPSHOT_CACHE_SIZE + extra;
        old_size++) {
@@ -582,7 +661,8 @@ TEST_P(WritePreparedTransactionTest, SnapshotConcurrentAccessTest) {
     // Each member of old snapshot might or might not appear in the new list. We
     // create a common_snapshots for each combination.
     size_t new_comb_cnt = size_t(1) << old_size;
-    for (size_t new_comb = 0; new_comb < new_comb_cnt; new_comb++) {
+    for (size_t new_comb = 0; new_comb < new_comb_cnt; new_comb++, loop_id++) {
+      if (loop_id % split_cnt_ != split_id_) continue;
       printf(".");  // To signal progress
       fflush(stdout);
       std::vector<SequenceNumber> common_snapshots;
@@ -630,7 +710,7 @@ TEST_P(WritePreparedTransactionTest, SnapshotConcurrentAccessTest) {
   }
   printf("\n");
 }
-#endif
+#endif  // TRAVIS
 
 // This test clarifies the contract of AdvanceMaxEvictedSeq method
 TEST_P(WritePreparedTransactionTest, AdvanceMaxEvictedSeqBasicTest) {
