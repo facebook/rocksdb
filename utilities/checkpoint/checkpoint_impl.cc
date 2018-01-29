@@ -70,6 +70,10 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
 
   std::string full_private_path =
       checkpoint_dir.substr(0, final_nonslash_idx + 1) + ".tmp";
+  ROCKS_LOG_INFO(
+      db_options.info_log,
+      "Snapshot process -- using temporary directory %s",
+      full_private_path.c_str());
   // create snapshot directory
   s = db_->GetEnv()->CreateDir(full_private_path);
   uint64_t sequence_number = 0;
