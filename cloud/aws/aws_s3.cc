@@ -217,10 +217,7 @@ S3WritableFile::S3WritableFile(AwsEnv* env, const std::string& local_fname,
     : env_(env),
       fname_(local_fname),
       bucket_prefix_(bucket_prefix),
-      cloud_fname_(cloud_fname),
-      manifest_durable_periodicity_millis_(
-          cloud_env_options.manifest_durable_periodicity_millis),
-      manifest_last_sync_time_(0) {
+      cloud_fname_(cloud_fname) {
   assert(IsSstFile(fname_) || IsManifestFile(fname_));
 
   // Is this a manifest file?
@@ -265,11 +262,9 @@ Status S3WritableFile::Close() {
   }
   local_file_.reset();
 
-  // If this is a manifest file, then upload to S3
-  // to make it durable. Do not delete local instance of MANIFEST.
   if (is_manifest_) {
-    status_ = CopyManifestToS3(true);
-    return status_;
+    // MANIFEST is made durable in each Sync() call, no need to re-upload it
+    return Status::OK();
   }
 
   // upload sst file to S3, but first remove from deletion queue if it's in
@@ -314,31 +309,11 @@ Status S3WritableFile::Sync() {
   // sync local file
   Status stat = local_file_->Sync();
 
-  // If we are synching a manifest file, then we can copy it to
-  // S3 to make it durable
+  // We copy MANIFEST to S3 on every Sync()
   if (is_manifest_ && stat.ok()) {
-    stat = CopyManifestToS3();
-  }
-  return stat;
-}
-
-//
-// Copy this file to a object named MANIFEST in S3
-//
-Status S3WritableFile::CopyManifestToS3(bool force) {
-  Status stat;
-
-  uint64_t now = env_->NowMicros();
-  if (is_manifest_ &&
-      (force ||
-       (manifest_last_sync_time_ + 1000 * manifest_durable_periodicity_millis_ <
-        now))) {
-    // Upload manifest file only if it has not been uploaded in the last
-    // manifest_durable_periodicity_millis_  milliseconds.
     stat = env_->PutObject(fname_, bucket_prefix_, cloud_fname_);
 
     if (stat.ok()) {
-      manifest_last_sync_time_ = now;
       Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
           "[s3] S3WritableFile made manifest %s durable to "
           "bucket %s bucketpath %s.",

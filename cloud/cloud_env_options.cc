@@ -16,9 +16,6 @@ void CloudEnvOptions::Dump(Logger* log) const {
          keep_local_sst_files);
   Header(log, "               COptions.keep_local_log_files: %d",
          keep_local_log_files);
-  Header(log,
-         "COptions.manifest_durable_periodicity_millis: %" PRIu64 " millis",
-         manifest_durable_periodicity_millis);
   Header(log, "             COptions.server_side_encryption: %d",
          server_side_encryption);
   Header(log, "                  COptions.encryption_key_id: %s",

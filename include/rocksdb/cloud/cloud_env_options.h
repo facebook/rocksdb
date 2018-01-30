@@ -68,11 +68,8 @@ class CloudEnvOptions {
   // Default:  true
   bool keep_local_log_files;
 
-  // The periodicity when the manifest should be made durable by backing it
-  // to cloud store.
-  // This feature is enabled only if keep_local_log_files = true.
-  // Default:  1 minute
-  uint64_t manifest_durable_periodicity_millis;
+  // This feature is obsolete. We upload MANIFEST to the cloud on every write.
+  // uint64_t manifest_durable_periodicity_millis;
 
   // The time period when the purger checks and deleted obselete files.
   // This is the time when the purger wakes up, scans the cloud bucket
@@ -112,7 +109,6 @@ class CloudEnvOptions {
   CloudEnvOptions(
       CloudType _cloud_type = CloudType::kAws,
       bool _keep_local_sst_files = false, bool _keep_local_log_files = true,
-      uint64_t _manifest_durable_periodicity_millis = 60 * 1000,
       uint64_t _purger_periodicity_millis = 10 * 60 * 1000,
       bool _validate_filesize = true,
       std::shared_ptr<CloudRequestCallback> _cloud_request_callback = nullptr,
@@ -122,19 +118,13 @@ class CloudEnvOptions {
       : cloud_type(_cloud_type),
         keep_local_sst_files(_keep_local_sst_files),
         keep_local_log_files(_keep_local_log_files),
-        manifest_durable_periodicity_millis(
-            _manifest_durable_periodicity_millis),
         purger_periodicity_millis(_purger_periodicity_millis),
         validate_filesize(_validate_filesize),
         cloud_request_callback(_cloud_request_callback),
         server_side_encryption(_server_side_encryption),
         encryption_key_id(std::move(_encryption_key_id)),
         create_bucket_if_missing(_create_bucket_if_missing),
-        request_timeout_ms(_request_timeout_ms) {
-
-    assert(manifest_durable_periodicity_millis == 0 ||
-           keep_local_log_files == true);
-  }
+        request_timeout_ms(_request_timeout_ms) {}
 
   // print out all options to the log
   void Dump(Logger* log) const;

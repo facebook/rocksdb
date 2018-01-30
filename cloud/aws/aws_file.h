@@ -207,8 +207,6 @@ class S3WritableFile : public WritableFile {
   std::string bucket_prefix_;
   std::string cloud_fname_;
   bool is_manifest_;
-  const uint64_t manifest_durable_periodicity_millis_;
-  uint64_t manifest_last_sync_time_;  // last time when manifest made duarbale
 
  public:
   // create S3 bucket
@@ -246,8 +244,6 @@ class S3WritableFile : public WritableFile {
   virtual Status status() { return status_; }
 
   virtual Status Close();
-
-  virtual Status CopyManifestToS3(bool force = false);
 };
 
 // Creates a new file, appends data to a file or delete an existing file via
