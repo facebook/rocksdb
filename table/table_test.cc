@@ -969,7 +969,7 @@ class HarnessTest : public testing::Test {
     assert(part <= total);
     size_t start_i = (part - 1) * args.size() / total;
     size_t end_i = part * args.size() / total;
-    for (unsigned int i = start_i; i < end_i; i++) {
+    for (unsigned int i = static_cast<unsigned int>(start_i); i < end_i; i++) {
       Init(args[i]);
       Random rnd(test::RandomSeed() + 5);
       for (int num_entries = 0; num_entries < 2000;
