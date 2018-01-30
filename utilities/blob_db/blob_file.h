@@ -181,9 +181,7 @@ class BlobFile {
 
   CompressionType compression() const { return compression_; }
 
-  void SetCompression(CompressionType c) {
-    compression_ = c;
-  }
+  void SetCompression(CompressionType c) { compression_ = c; }
 
   std::shared_ptr<Writer> GetWriter() const { return log_writer_; }
 

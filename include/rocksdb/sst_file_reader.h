@@ -5,22 +5,60 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
-#include "rocksdb/sst_dump_tool.h"
-
+#include <inttypes.h>
 #include <memory>
 #include <string>
-#include "db/dbformat.h"
-#include "options/cf_options.h"
-#include "util/file_reader_writer.h"
+#include <vector>
+
+#include "rocksdb/env.h"
+#include "rocksdb/options.h"
+#include "rocksdb/table_properties.h"
+#include "rocksdb/types.h"
 
 namespace rocksdb {
 
+struct ImmutableCFOptions;
+class RandomAccessFileReader;
+class InternalKeyComparator;
+class TableReader;
+struct TableBuilderOptions;
+
+struct DefaultKvHandler {
+  DefaultKvHandler(bool output_hex) : output_hex_(output_hex) {}
+
+  void operator()(const Slice& key, const Slice& value, SequenceNumber sequence,
+                  unsigned char type) {
+    fprintf(stdout, "%s => %s, seq:%" PRIu64 ", type:%d\n",
+            key.ToString(output_hex_).c_str(),
+            value.ToString(output_hex_).c_str(), sequence, type);
+  }
+
+  bool output_hex_;
+};
+
+struct DefaultInfoHandler {
+  void operator()(const std::string& info) {
+    fprintf(stdout, "%s", info.c_str());
+  }
+};
+
+struct DefaultErrHandler {
+  void operator()(const std::string& info) {
+    fprintf(stderr, "%s", info.c_str());
+  }
+};
+
 class SstFileReader {
  public:
-  explicit SstFileReader(const std::string& file_name, bool verify_checksum,
-                         bool output_hex);
+  explicit SstFileReader(
+      const std::string& file_name, bool verify_checksum,
+      std::function<void(const Slice&, const Slice&, SequenceNumber,
+                         unsigned char)>
+          kv_handler = nullptr,
+      std::function<void(const std::string&)> info_handler = nullptr,
+      std::function<void(const std::string&)> err_handler = nullptr);
 
-  Status ReadSequential(bool print_kv, uint64_t read_num, bool has_from,
+  Status ReadSequential(uint64_t read_num, bool has_from,
                         const std::string& from_key, bool has_to,
                         const std::string& to_key,
                         bool use_from_as_prefix = false);
@@ -57,25 +95,30 @@ class SstFileReader {
                         const EnvOptions& soptions,
                         const InternalKeyComparator& internal_comparator,
                         uint64_t file_size,
-                        unique_ptr<TableReader>* table_reader);
+                        std::unique_ptr<TableReader>* table_reader);
 
   std::string file_name_;
   uint64_t read_num_;
   bool verify_checksum_;
-  bool output_hex_;
   EnvOptions soptions_;
+  std::function<void(const Slice&, const Slice&, SequenceNumber, unsigned char)>
+      kv_handler_;
+  std::function<void(const std::string&)> info_handler_;
+  std::function<void(const std::string&)> err_handler_;
 
   // options_ and internal_comparator_ will also be used in
   // ReadSequential internally (specifically, seek-related operations)
   Options options_;
 
   Status init_result_;
-  unique_ptr<TableReader> table_reader_;
-  unique_ptr<RandomAccessFileReader> file_;
+  std::unique_ptr<TableReader> table_reader_;
+  std::unique_ptr<RandomAccessFileReader> file_;
 
-  const ImmutableCFOptions ioptions_;
-  InternalKeyComparator internal_comparator_;
-  unique_ptr<TableProperties> table_properties_;
+  std::unique_ptr<ImmutableCFOptions> ioptions_;
+  // const ImmutableCFOptions ioptions_;
+  std::unique_ptr<InternalKeyComparator> internal_comparator_;
+  // InternalKeyComparator internal_comparator_;
+  std::unique_ptr<TableProperties> table_properties_;
 };
 
 }  // namespace rocksdb
