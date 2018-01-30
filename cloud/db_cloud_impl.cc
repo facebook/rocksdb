@@ -5,12 +5,12 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
-#include <inttypes.h>
 #include "rocksdb/db.h"
+#include <inttypes.h>
 #include "cloud/aws/aws_env.h"
+#include "cloud/cloud_env_wrapper.h"
 #include "cloud/db_cloud_impl.h"
 #include "cloud/filename.h"
-#include "cloud/cloud_env_wrapper.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/persistent_cache.h"
@@ -87,8 +87,8 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
         if (st.ok()) {
           tableopt->persistent_cache = pcache;
           Log(InfoLogLevel::INFO_LEVEL, options.info_log,
-              "Created persistent cache %s with size %ld GB", persistent_cache_path.c_str(),
-              persistent_cache_size_gb);
+              "Created persistent cache %s with size %ld GB",
+              persistent_cache_path.c_str(), persistent_cache_size_gb);
         } else {
           Log(InfoLogLevel::INFO_LEVEL, options.info_log,
               "Unable to create persistent cache %s. %s",
@@ -98,7 +98,8 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
       }
     }
   }
-  // We do not want a very large MANIFEST file because the MANIFEST file is uploaded to
+  // We do not want a very large MANIFEST file because the MANIFEST file is
+  // uploaded to
   // S3 for every update, so always enable rolling of Manifest file
   options.max_manifest_file_size = DBCloudImpl::max_manifest_file_size;
 
@@ -116,7 +117,6 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
   // can use a pure localenv to serve this database
   CloudEnvImpl* cenv = static_cast<CloudEnvImpl*>(options.env);
   if (st.ok() && cenv->GetDestBucketPrefix().empty()) {
-
     assert(cenv->GetCloudEnvOptions().keep_local_sst_files);
 
     // Close the database that we opened using the cloud env
@@ -129,7 +129,8 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
     db = nullptr;
 
     Log(InfoLogLevel::INFO_LEVEL, options.info_log,
-       "Reopening cloud db on local dir %s using local env.", local_dbname.c_str());
+        "Reopening cloud db on local dir %s using local env.",
+        local_dbname.c_str());
 
     // Reopen database using the local env. We have to wrap it within a
     // CloudEnvWrapper because a DBCloud instance methods always assume
@@ -138,7 +139,7 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
     options.env = new CloudEnvWrapper(cenv->GetBaseEnv());
     if (read_only) {
       st = DB::OpenForReadOnly(options, local_dbname, column_families, handles,
-                             &db);
+                               &db);
     } else {
       st = DB::Open(options, local_dbname, column_families, handles, &db);
     }
@@ -169,8 +170,7 @@ Status DBCloudImpl::Savepoint() {
   Status st = GetDbIdentity(dbid);
   if (!st.ok()) {
     Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
-        "Savepoint could not get dbid %s",
-        st.ToString().c_str());
+        "Savepoint could not get dbid %s", st.ToString().c_str());
     return st;
   }
   CloudEnvImpl* cenv = static_cast<CloudEnvImpl*>(GetEnv());
@@ -185,8 +185,7 @@ Status DBCloudImpl::Savepoint() {
   }
 
   Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
-      "Savepoint on cloud dbid  %s",
-      dbid.c_str());
+      "Savepoint on cloud dbid  %s", dbid.c_str());
 
   // find all sst files in the db
   std::vector<LiveFileMetaData> live_files;
@@ -212,20 +211,20 @@ Status DBCloudImpl::Savepoint() {
         break;
       }
       auto& onefile = to_copy[idx];
-      Status s = cenv->CopyObject(cenv->GetSrcBucketPrefix(),
-                                  cenv->GetSrcObjectPrefix() + onefile,
-                                  cenv->GetDestBucketPrefix(),
-                                  cenv->GetDestObjectPrefix() + onefile);
+      Status s = cenv->CopyObject(
+          cenv->GetSrcBucketPrefix(), cenv->GetSrcObjectPrefix() + onefile,
+          cenv->GetDestBucketPrefix(), cenv->GetDestObjectPrefix() + onefile);
       if (!s.ok()) {
         Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
-          "Savepoint on cloud dbid  %s error in copying srcbucket %s srcpath %s "
-          "dest bucket %d dest path %s. %s",
-          dbid.c_str(),
-          cenv->GetSrcBucketPrefix().c_str(), cenv->GetSrcObjectPrefix().c_str(),
-          cenv->GetDestBucketPrefix().c_str(), cenv->GetDestObjectPrefix().c_str(),
-          s.ToString().c_str());
+            "Savepoint on cloud dbid  %s error in copying srcbucket %s srcpath "
+            "%s "
+            "dest bucket %d dest path %s. %s",
+            dbid.c_str(), cenv->GetSrcBucketPrefix().c_str(),
+            cenv->GetSrcObjectPrefix().c_str(),
+            cenv->GetDestBucketPrefix().c_str(),
+            cenv->GetDestObjectPrefix().c_str(), s.ToString().c_str());
         if (st.ok()) {
-          st = s;       // save at least one error
+          st = s;  // save at least one error
         }
         break;
       }
@@ -558,8 +557,8 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
     Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
         "[db_cloud_impl] NeedsReinitialization: "
         "Bad local MANIFEST file '%s' in local dir %s (size %ld). %s",
-        mname.c_str(), local_dir.c_str(),
-        local_manifest_size, st.ToString().c_str());
+        mname.c_str(), local_dir.c_str(), local_manifest_size,
+        st.ToString().c_str());
     return Status::OK();
   }
   //
@@ -629,7 +628,8 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
   }
 
   // If there is no destination bucket, then we need to suck in all sst files
-  // from source bucket at db startup time. We do this by setting max_open_files = -1
+  // from source bucket at db startup time. We do this by setting max_open_files
+  // = -1
   if (cenv->GetDestBucketPrefix().empty()) {
     if (options.max_open_files != -1) {
       Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
@@ -637,17 +637,20 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
           " No destination bucket specified. Set options.max_open_files = -1 "
           " to copy in all sst files from src bucket %s into local dir %s",
           cenv->GetSrcObjectPrefix().c_str(), local_name.c_str());
-      return Status::InvalidArgument("No destination bucket. "
-                                     "Set options.max_open_files = -1");
+      return Status::InvalidArgument(
+          "No destination bucket. "
+          "Set options.max_open_files = -1");
     }
     if (!cenv->GetCloudEnvOptions().keep_local_sst_files) {
       Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
           "[db_cloud_impl] SanitizeDirectory error.  "
-          " No destination bucket specified. Set options.keep_local_sst_files = true "
+          " No destination bucket specified. Set options.keep_local_sst_files "
+          "= true "
           " to copy in all sst files from src bucket %s into local dir %s",
           cenv->GetSrcObjectPrefix().c_str(), local_name.c_str());
-      return Status::InvalidArgument("No destination bucket. "
-                                     "Set options.keep_local_sst_files = true");
+      return Status::InvalidArgument(
+          "No destination bucket. "
+          "Set options.keep_local_sst_files = true");
     }
   }
 
@@ -768,7 +771,8 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
           "bucket %s. %s",
           cenv->GetSrcBucketPrefix().c_str(), st.ToString().c_str());
     } else {
-      Log(InfoLogLevel::INFO_LEVEL, options.info_log, "[db_cloud_impl] Download IDENTITY file from "
+      Log(InfoLogLevel::INFO_LEVEL, options.info_log,
+          "[db_cloud_impl] Download IDENTITY file from "
           "src bucket %s. %s",
           cenv->GetSrcBucketPrefix().c_str(), st.ToString().c_str());
     }
@@ -967,7 +971,8 @@ Status DBCloudImpl::CopyFile(CloudEnv* src_env, Env* dest_env,
     Status stax = dest_env->GetFileSize(destname, &file_size);
     if (stax.ok()) {
       if (file_size == 0) {
-        std::string msg =  "CopyFile: "
+        std::string msg =
+            "CopyFile: "
             "Downloaded zerosize file from cloud storage " +
             srcname + s.ToString().c_str();
         return Status::IOError(msg);
