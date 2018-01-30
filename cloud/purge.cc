@@ -192,8 +192,7 @@ Status CloudEnvImpl::extractParents(const std::string& bucket_name_prefix,
     // download IDENTITY
     std::string cloudfile = iter->second  + "/IDENTITY";
     std::string localfile = scratch + "/.rockset_IDENTITY." + random;
-    st = DBCloudImpl::CopyFile(this, base_env_, bucket_name_prefix, cloudfile,
-                               localfile);
+    st = GetObject(bucket_name_prefix, cloudfile, localfile);
     if (!st.ok() && !st.IsNotFound()) {
       Log(InfoLogLevel::ERROR_LEVEL, info_log_,
           "[pg] Unable to download IDENTITY file from "

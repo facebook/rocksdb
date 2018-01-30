@@ -514,12 +514,10 @@ Status AwsEnv::NewRandomAccessFile(const std::string& fname,
       if (!st.ok()) {
         // copy the file to the local storage if keep_local_sst_files is true
         if (has_dest_bucket_) {
-          st = S3WritableFile::CopyFromS3(
-              this, GetBucket(GetDestBucketPrefix()), destname(fname), fname);
+          st = GetObject(GetDestBucketPrefix(), destname(fname), fname);
         }
         if (!st.ok() && has_src_bucket_) {
-          st = S3WritableFile::CopyFromS3(this, GetBucket(GetSrcBucketPrefix()),
-                                          srcname(fname), fname);
+          st = GetObject(GetSrcBucketPrefix(), srcname(fname), fname);
         }
         if (st.ok()) {
           // we successfully copied the file, try opening it locally now
@@ -1273,7 +1271,6 @@ Status AwsEnv::RenameFile(const std::string& src, const std::string& target) {
 Status AwsEnv::SaveIdentitytoS3(const std::string& localfile,
                                 const std::string& idfile) {
   assert(basename(idfile) == "IDENTITY");
-  Aws::String bucket = GetBucket(GetDestBucketPrefix());
 
   // Read id into string
   std::string dbid;
@@ -1282,8 +1279,7 @@ Status AwsEnv::SaveIdentitytoS3(const std::string& localfile,
 
   // Upload ID file to  S3
   if (st.ok()) {
-    Aws::String target(idfile.c_str(), idfile.size());
-    st = S3WritableFile::CopyToS3(this, localfile, bucket, target, dbid.size());
+    st = PutObject(localfile, GetDestBucketPrefix(), idfile);
   }
 
   // Save mapping from ID to cloud pathname
@@ -1478,7 +1474,7 @@ Status AwsEnv::CopyObject(const std::string& bucket_name_prefix_src,
   request.SetBucket(dest_bucket);
   request.SetKey(dest_object);
 
-  // execure request
+  // execute request
   Aws::S3::Model::CopyObjectOutcome outcome = s3client_->CopyObject(request);
   bool isSuccess = outcome.IsSuccess();
   if (!isSuccess) {
@@ -1492,6 +1488,101 @@ Status AwsEnv::CopyObject(const std::string& bucket_name_prefix_src,
   Log(InfoLogLevel::ERROR_LEVEL, info_log_,
       "[aws] S3WritableFile src path %s copied to %s %s", src_url.c_str(),
       dest_object.c_str(), st.ToString().c_str());
+  return st;
+}
+
+Status AwsEnv::GetObject(const std::string& bucket_name_prefix,
+                         const std::string& bucket_object_path,
+                         const std::string& local_destination) {
+  Env* localenv = GetBaseEnv();
+  std::string tmp_destination = local_destination + ".tmp";
+  auto s3_bucket = GetBucket(bucket_name_prefix);
+
+  Aws::S3::Model::GetObjectRequest getObjectRequest;
+  getObjectRequest.SetBucket(s3_bucket);
+  getObjectRequest.SetKey(
+      Aws::String(bucket_object_path.data(), bucket_object_path.size()));
+  getObjectRequest.SetResponseStreamFactory([tmp_destination]() {
+    return Aws::New<Aws::FStream>(Aws::Utils::ARRAY_ALLOCATION_TAG,
+                                  tmp_destination, std::ios_base::out);
+  });
+  auto get_outcome = s3client_->GetObject(getObjectRequest);
+
+  bool isSuccess = get_outcome.IsSuccess();
+  if (!isSuccess) {
+    const auto& error = get_outcome.GetError();
+    std::string errmsg(error.GetMessage().c_str(), error.GetMessage().size());
+    Log(InfoLogLevel::ERROR_LEVEL, info_log_,
+        "[s3] GetObject bucket %s bucketpath %s error %s.", s3_bucket.c_str(),
+        bucket_object_path.c_str(), errmsg.c_str());
+    return Status::IOError(errmsg);
+  }
+
+  // Paranoia. Files can never be zero size.
+  uint64_t file_size;
+  auto s = localenv->GetFileSize(tmp_destination, &file_size);
+  if (file_size == 0) {
+    s = Status::IOError(tmp_destination + "Zero size.");
+    Log(InfoLogLevel::ERROR_LEVEL, info_log_,
+        "[s3] GetObject ucket %s bucketpath %s size %ld. %s", s3_bucket.c_str(),
+        bucket_object_path.c_str(), file_size, s.ToString().c_str());
+  }
+
+  if (s.ok()) {
+    s = localenv->RenameFile(tmp_destination, local_destination);
+  }
+  Log(InfoLogLevel::INFO_LEVEL, info_log_,
+      "[s3] GetObject bucket %s bucketpath %s size %ld. %s", s3_bucket.c_str(),
+      bucket_object_path.c_str(), file_size, s.ToString().c_str());
+  return s;
+}
+
+Status AwsEnv::PutObject(const std::string& local_file,
+                         const std::string& bucket_name_prefix,
+                         const std::string& bucket_object_path) {
+  uint64_t fsize = 0;
+  // debugging paranoia. Files uploaded to S3 can never be zero size.
+  auto st = GetBaseEnv()->GetFileSize(local_file, &fsize);
+  if (!st.ok()) {
+    Log(InfoLogLevel::ERROR_LEVEL, info_log_,
+        "[s3] PutObject localpath %s error getting size %s", local_file.c_str(),
+        st.ToString().c_str());
+    return st;
+  }
+  if (fsize == 0) {
+    Log(InfoLogLevel::ERROR_LEVEL, info_log_,
+        "[s3] PutObject localpath %s error zero size", local_file.c_str());
+    return Status::IOError(local_file + " Zero size.");
+  }
+
+  auto input_data = Aws::MakeShared<Aws::FStream>(
+      bucket_object_path.c_str(), local_file.c_str(),
+      std::ios_base::in | std::ios_base::out);
+
+  // Copy entire file into S3.
+  // Writes to an S3 object are atomic.
+  Aws::S3::Model::PutObjectRequest put_request;
+  put_request.SetBucket(GetBucket(bucket_name_prefix));
+  put_request.SetKey(
+      Aws::String(bucket_object_path.data(), bucket_object_path.size()));
+  put_request.SetBody(input_data);
+  SetEncryptionParameters(put_request);
+
+  Aws::S3::Model::PutObjectOutcome put_outcome =
+      s3client_->PutObject(put_request, fsize);
+  bool isSuccess = put_outcome.IsSuccess();
+  if (!isSuccess) {
+    const Aws::Client::AWSError<Aws::S3::S3Errors>& error =
+        put_outcome.GetError();
+    std::string errmsg(error.GetMessage().c_str(), error.GetMessage().size());
+    st = Status::IOError(local_file, errmsg);
+  }
+
+  Log(InfoLogLevel::INFO_LEVEL, info_log_,
+      "[s3] PutObject %s/%s, size %zu, status %s",
+      put_request.GetBucket().c_str(), bucket_object_path.c_str(), fsize,
+      st.ToString().c_str());
+
   return st;
 }
 

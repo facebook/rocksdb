@@ -229,6 +229,16 @@ class CloudEnvWrapper : public CloudEnvImpl {
                     const std::string& bucket_object_path_dest) override {
     return notsup_;
   }
+  Status GetObject(const std::string& bucket_name_prefix,
+                   const std::string& bucket_object_path,
+                   const std::string& local_path) {
+    return notsup_;
+  }
+  Status PutObject(const std::string& local_path,
+                   const std::string& bucket_name_prefix,
+                   const std::string& bucket_object_path) {
+    return notsup_;
+  }
 
  private:
   Status notsup_;

@@ -215,6 +215,16 @@ class CloudEnv : public Env {
                             const std::string& bucket_name_prefix_dest,
                             const std::string& bucket_object_path_dest) = 0;
 
+  // Downloads object from the cloud into a local directory
+  virtual Status GetObject(const std::string& bucket_name_prefix,
+                           const std::string& bucket_object_path,
+                           const std::string& local_path) = 0;
+
+  // Uploads object to the cloud
+  virtual Status PutObject(const std::string& local_path,
+                           const std::string& bucket_name_prefix,
+                           const std::string& bucket_object_path) = 0;
+
   // Create a new AWS env.
   // src_bucket_name: bucket name suffix where db data is read from
   // src_object_prefix: all db objects in source bucket are prepended with this

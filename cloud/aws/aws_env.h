@@ -18,9 +18,9 @@
 #include <aws/s3/S3Client.h>
 #include <aws/s3/model/BucketLocationConstraint.h>
 
+#include <chrono>
 #include <list>
 #include <unordered_map>
-#include <chrono>
 
 namespace rocksdb {
 
@@ -238,15 +238,21 @@ class AwsEnv : public CloudEnvImpl {
 
   bool IsRunning() const { return running_; }
 
-  const std::string& GetSrcBucketPrefix() override { return src_bucket_prefix_; }
-  const std::string& GetSrcObjectPrefix() override { return src_object_prefix_; }
-  const std::string& GetDestBucketPrefix() override { return dest_bucket_prefix_; }
+  const std::string& GetSrcBucketPrefix() override {
+    return src_bucket_prefix_;
+  }
+  const std::string& GetSrcObjectPrefix() override {
+    return src_object_prefix_;
+  }
+  const std::string& GetDestBucketPrefix() override {
+    return dest_bucket_prefix_;
+  }
   const std::string& GetDestObjectPrefix() override {
     return dest_object_prefix_;
   }
 
   const CloudEnvOptions& GetCloudEnvOptions() override {
-      return cloud_env_options;
+    return cloud_env_options;
   }
 
   std::shared_ptr<Logger> info_log_;  // informational messages
@@ -297,9 +303,12 @@ class AwsEnv : public CloudEnvImpl {
                     const std::string& bucket_object_path_src,
                     const std::string& bucket_name_prefix_dest,
                     const std::string& bucket_object_path_dest) override;
-
-  void SetEncryptionParameters(
-      Aws::S3::Model::PutObjectRequest& put_request) const;
+  Status GetObject(const std::string& bucket_name_prefix,
+                   const std::string& bucket_object_path,
+                   const std::string& local_path) override;
+  Status PutObject(const std::string& local_path,
+                   const std::string& bucket_name_prefix,
+                   const std::string& bucket_object_path) override;
 
   void RemoveFileFromDeletionQueue(uint64_t fileNumber);
 
@@ -362,6 +371,9 @@ class AwsEnv : public CloudEnvImpl {
   bool has_two_unique_buckets_;
 
   Status status();
+
+  void SetEncryptionParameters(
+      Aws::S3::Model::PutObjectRequest& put_request) const;
 
   // Delete the specified path from S3
   Status DeletePathInS3(const std::string& bucket_prefix,
@@ -569,11 +581,9 @@ class AwsEnv : public CloudEnvImpl {
                             const std::string& dbid) override {
     return s3_notsup;
   }
-  virtual Status Savepoint() override {
-    return s3_notsup;
-  }
+  virtual Status Savepoint() override { return s3_notsup; }
   const CloudEnvOptions& GetCloudEnvOptions() override {
-      return CloudEnvOptions();
+    return CloudEnvOptions();
   }
   Status ListObjects(const std::string& bucket_name_prefix,
                      const std::string& bucket_object_prefix,
@@ -592,6 +602,16 @@ class AwsEnv : public CloudEnvImpl {
                     const std::string& bucket_object_path_src,
                     const std::string& bucket_name_prefix_dest,
                     const std::string& bucket_object_path_dest) {
+    return s3_notsup;
+  }
+  Status GetObject(const std::string& bucket_name_prefix,
+                   const std::string& bucket_object_path,
+                   const std::string& local_path) override {
+    return s3_notsup;
+  }
+  Status PutObject(const std::string& local_path,
+                   const std::string& bucket_name_prefix,
+                   const std::string& bucket_object_path) override {
     return s3_notsup;
   }
 

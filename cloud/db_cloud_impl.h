@@ -26,12 +26,6 @@ class DBCloudImpl : public DBCloud {
   // Get the contents of the specified file into a string
   static Status ReadFileIntoString(Env* env, const std::string& pathname,
                                    std::string* id);
-  // copies a file from the cloud
-  static Status CopyFile(CloudEnv* src_env, Env* dest_env,
-                         const std::string& bucket_prefix,
-                         const std::string& srcname,
-                         const std::string& destname, bool do_sync = true);
-
   Status Savepoint();
 
  protected:

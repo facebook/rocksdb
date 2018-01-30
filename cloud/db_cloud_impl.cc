@@ -709,8 +709,7 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
     // download MANIFEST
     std::string cloudfile = cenv->GetDestObjectPrefix() + "/MANIFEST";
     std::string localfile = local_name + "/MANIFEST.dest";
-    st = DBCloudImpl::CopyFile(cenv, env, cenv->GetDestBucketPrefix(),
-                               cloudfile, localfile);
+    st = cenv->GetObject(cenv->GetDestBucketPrefix(), cloudfile, localfile);
     if (!st.ok()) {
       Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
           "[db_cloud_impl] Unable to download MANIFEST file from "
@@ -726,8 +725,7 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
     // download IDENTITY
     cloudfile = cenv->GetDestObjectPrefix() + "/IDENTITY";
     localfile = local_name + "/IDENTITY.dest";
-    st = DBCloudImpl::CopyFile(cenv, env, cenv->GetDestBucketPrefix(),
-                               cloudfile, localfile);
+    st = cenv->GetObject(cenv->GetDestBucketPrefix(), cloudfile, localfile);
     if (!st.ok()) {
       Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
           "[db_cloud_impl] Unable to download IDENTITY file from "
@@ -746,8 +744,7 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
     // download MANIFEST
     std::string cloudfile = cenv->GetSrcObjectPrefix() + "/MANIFEST";
     std::string localfile = local_name + "/MANIFEST.src";
-    st = DBCloudImpl::CopyFile(cenv, env, cenv->GetSrcBucketPrefix(), cloudfile,
-                               localfile);
+    st = cenv->GetObject(cenv->GetSrcBucketPrefix(), cloudfile, localfile);
     if (!st.ok()) {
       Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
           "[db_cloud_impl] Unable to download MANIFEST file from "
@@ -763,8 +760,7 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
     // download IDENTITY
     cloudfile = cenv->GetSrcObjectPrefix() + "/IDENTITY";
     localfile = local_name + "/IDENTITY.src";
-    st = DBCloudImpl::CopyFile(cenv, env, cenv->GetSrcBucketPrefix(), cloudfile,
-                               localfile);
+    st = cenv->GetObject(cenv->GetSrcBucketPrefix(), cloudfile, localfile);
     if (!st.ok()) {
       Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
           "[db_cloud_impl] Unable to download IDENTITY file from "
@@ -930,56 +926,6 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
     }
   }
   return Status::OK();
-}
-
-//
-// Copy file from cloud to local
-//
-Status DBCloudImpl::CopyFile(CloudEnv* src_env, Env* dest_env,
-                             const std::string& bucket_prefix,
-                             const std::string& srcname,
-                             const std::string& destname, bool do_sync) {
-  const EnvOptions soptions;
-  unique_ptr<SequentialFile> srcfile;
-  Status s = src_env->NewSequentialFileCloud(bucket_prefix, srcname, &srcfile,
-                                             soptions);
-  if (!s.ok()) {
-    return s;
-  }
-
-  unique_ptr<WritableFile> destfile;
-  s = dest_env->NewWritableFile(destname, &destfile, soptions);
-
-  // copy 64K at a time
-  char buffer[64 * 1024];
-  while (s.ok()) {
-    Slice slice;
-    s = srcfile->Read(sizeof(buffer), &slice, buffer);
-    if (s.ok()) {
-      if (slice.size() == 0) {
-        break;  // we are done.
-      }
-      s = destfile->Append(slice);
-    }
-  }
-  if (s.ok() && do_sync) {
-    s = destfile->Sync();
-  }
-  // Paranoia, we should never have to download a zero size file
-  if (s.ok()) {
-    uint64_t file_size;
-    Status stax = dest_env->GetFileSize(destname, &file_size);
-    if (stax.ok()) {
-      if (file_size == 0) {
-        std::string msg =
-            "CopyFile: "
-            "Downloaded zerosize file from cloud storage " +
-            srcname + s.ToString().c_str();
-        return Status::IOError(msg);
-      }
-    }
-  }
-  return s;
 }
 
 }  // namespace rocksdb
