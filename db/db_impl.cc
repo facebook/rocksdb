@@ -2152,7 +2152,7 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
     Version* input_version = cfd->current();
 
     auto* vstorage = input_version->storage_info();
-    for (auto r = 0; r < n; r++) {
+    for (size_t r = 0; r < n; r++) {
       auto begin = ranges[r].start, end = ranges[r].limit;
       for (int i = 1; i < cfd->NumberLevels(); i++) {
         if (vstorage->LevelFiles(i).empty() ||
