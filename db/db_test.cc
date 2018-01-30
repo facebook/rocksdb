@@ -1927,7 +1927,7 @@ namespace {
 
 static const int kColumnFamilies = 10;
 static const int kNumThreads = 10;
-static const int kTestSeconds = 10;
+static const int kTestSeconds = 1;
 static const int kNumKeys = 1000;
 
 struct MTState {
@@ -2052,6 +2052,9 @@ TEST_P(MultiThreadedDBTest, MultiThreaded) {
   anon::OptionsOverride options_override;
   options_override.skip_policy = kSkipNoSnapshot;
   Options options = CurrentOptions(options_override);
+  options.max_bytes_for_level_base = 4 << 20;
+  options.target_file_size_base = 1 << 20;
+  options.write_buffer_size = 1 << 20;
   std::vector<std::string> cfs;
   for (int i = 1; i < kColumnFamilies; ++i) {
     cfs.push_back(ToString(i));
