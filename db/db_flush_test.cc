@@ -137,7 +137,7 @@ TEST_F(DBFlushTest, ManualFlushWithMinWriteBufferNumberToMerge) {
       {{"DBImpl::BGWorkFlush",
         "DBFlushTest::ManualFlushWithMinWriteBufferNumberToMerge:1"},
        {"DBFlushTest::ManualFlushWithMinWriteBufferNumberToMerge:2",
-        "DBImpl::FlushMemTableToOutputFile:BeforeInstallSV"}});
+        "FlushJob::WriteLevel0Table"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
   ASSERT_OK(Put("key1", "value1"));
