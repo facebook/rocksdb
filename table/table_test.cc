@@ -996,7 +996,7 @@ class HarnessTest : public testing::Test {
     std::vector<TestArgs> args = GenerateArgList();
     assert(part);
     assert(part <= total);
-    for (unsigned int i = 0; i < args.size(); i++) {
+    for (size_t i = 0; i < args.size(); i++) {
       if ((i % total) + 1 != part) {
         continue;
       }
