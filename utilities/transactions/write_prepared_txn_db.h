@@ -209,8 +209,8 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   friend class WritePreparedTransactionTest_IsInSnapshotTest_Test;
   friend class WritePreparedTransactionTest_CheckAgainstSnapshotsTest_Test;
   friend class WritePreparedTransactionTest_CommitMapTest_Test;
-  friend class WritePreparedTransactionTest_SnapshotConcurrentAccessTest_Test;
-  friend class WritePreparedTransactionTest;
+  friend class SnapshotConcurrentAccessTest_SnapshotConcurrentAccessTest_Test;
+  friend class WritePreparedTransactionTestBase;
   friend class PreparedHeap_BasicsTest_Test;
   friend class WritePreparedTxnDBMock;
   friend class WritePreparedTransactionTest_AdvanceMaxEvictedSeqBasicTest_Test;
