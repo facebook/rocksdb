@@ -1820,11 +1820,17 @@ TEST_F(DBTest2, ReadAmpBitmap) {
 
 #ifndef OS_SOLARIS // GetUniqueIdFromFile is not implemented
 TEST_F(DBTest2, ReadAmpBitmapLiveInCacheAfterDBClose) {
-  if (dbname_.find("dev/shm") != std::string::npos) {
-    // /dev/shm dont support getting a unique file id, this mean that
-    // running this test on /dev/shm will fail because lru_cache will load
-    // the blocks again regardless of them being already in the cache
-    return;
+  {
+    const int kIdBufLen = 100;
+    char id_buf[kIdBufLen];
+    std::unique_ptr<RandomAccessFile> file;
+    env_->NewRandomAccessFile(dbname_, &file, EnvOptions());
+    if (file->GetUniqueId(id_buf, kIdBufLen) == 0) {
+      // fs holding db directory doesn't support getting a unique file id,
+      // this means that running this test will fail because lru_cache will load
+      // the blocks again regardless of them being already in the cache
+      return;
+    }
   }
   uint32_t bytes_per_bit[2] = {1, 16};
   for (size_t k = 0; k < 2; k++) {
