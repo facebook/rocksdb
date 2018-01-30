@@ -27,7 +27,7 @@ make_config.mk
 CMakeCache.txt
 CMakeFiles/
 build/
-
+cmake-build-debug/
 ldb
 manifest_dump
 sst_dump

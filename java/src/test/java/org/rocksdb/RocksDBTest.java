@@ -224,7 +224,7 @@ public class RocksDBTest {
      sb.append(',');
      //if (1==1)throw new IndexOutOfBoundsException();
      sb.append(new String(newvalue));
-     System.out.println("----execute merge---");
+     System.out.println("----execute merge---"+new String(newvalue));
      return sb.toString().getBytes();
    }
  }
@@ -233,7 +233,7 @@ public class RocksDBTest {
 
 
     public M1() throws RocksDBException {
-      super(true,false,false);
+      super(true,true,false);
     }
 
     private byte[]  collect(byte[][] operands){
@@ -250,32 +250,36 @@ public class RocksDBTest {
 
     @Override
     public byte[] fullMerge(byte[] key, byte[] oldvalue, byte[][] operands) throws RocksDBException {
+      System.out.println("execute fullMerge"+oldvalue);
       if (oldvalue==null) return collect(operands);
 
       return (new String(oldvalue)+','+new String(collect(operands))).getBytes();
     }
 
     @Override
-    public byte[] partialMultiMerge(byte[] key, byte[] oldvalue, byte[][] operands) {
-      if (oldvalue==null) return collect(operands);
+    public byte[] partialMultiMerge(byte[] key,  byte[][] operands) {
+      System.out.println("execute partialMultiMerge");
 
-      return (new String(oldvalue)+','+new String(collect(operands))).getBytes();
+
+      return (new String(collect(operands))).getBytes();
 
     }
 
     @Override
     public byte[] partialMerge(byte[] key, byte[] left, byte[] right) {
-
+      System.out.println("execute partialMerge");
       StringBuffer sb=new StringBuffer(new String(left));
       sb.append(',');
       sb.append(new String(right));
-      System.out.println("----execute merge---");
+
       return sb.toString().getBytes();
     }
 
     @Override
     public boolean shouldMerge(byte[][] operands) {
-      return false;
+      System.out.println("execute shouldMerge");
+
+      return true;
     }
   }
 
@@ -298,19 +302,17 @@ public class RocksDBTest {
 
 
             db.put("key1".getBytes(), "value".getBytes());
-            assertThat(db.get("key1".getBytes())).isEqualTo(
-                    "value".getBytes());
+            assertThat(db.get("key1".getBytes())).isEqualTo("value".getBytes());
             // merge key1 with another value portion
             db.merge("key1".getBytes(), "value2".getBytes());
-            assertThat(db.get("key1".getBytes())).isEqualTo(
-                    "value,value2".getBytes());
+            System.out.println(new String(db.get("key1".getBytes())));
+       //     assertThat(db.get("key1".getBytes())).isEqualTo("value,value2".getBytes());
             // merge key1 with another value portion
             db.merge(wOpt, "key1".getBytes(), "value3".getBytes());
-            assertThat(db.get("key1".getBytes())).isEqualTo(
-                    "value,value2,value3".getBytes());
+          //  assertThat(db.get("key1".getBytes())).isEqualTo("value,value2,value3".getBytes());
             db.merge(wOpt, "key1".getBytes(), "value4".getBytes());
-            assertThat(db.get("key1".getBytes())).isEqualTo(
-                    "value,value2,value3,value4".getBytes());
+            System.out.println(new String(db.get("key1".getBytes())));
+            //assertThat(db.get("key1".getBytes())).isEqualTo("value,value2,value3,value4".getBytes());
             // merge on non existent key shall insert the value
             db.merge(wOpt, "key2".getBytes(), "xxxx".getBytes());
             assertThat(db.get("key2".getBytes())).isEqualTo(
@@ -320,7 +322,7 @@ public class RocksDBTest {
         }catch (Exception e){
           throw new RuntimeException(e);
         }finally {
-          org.rocksdb.util.Environment.detachCurrentThreadIfPossible();
+
         }
 
       }
@@ -330,7 +332,7 @@ public class RocksDBTest {
 
     t.setDaemon(false);
     t.start();
-    org.rocksdb.util.Environment.detachCurrentThreadIfPossible();
+
     t.join();
 
   }
@@ -353,18 +355,24 @@ public class RocksDBTest {
           ) {
 
 
-            db.put("key1".getBytes(), "value".getBytes());
+            db.merge("key1".getBytes(), "value".getBytes());
             assertThat(db.get("key1".getBytes())).isEqualTo(
                     "value".getBytes());
             // merge key1 with another value portion
+            System.out.println("->merge value2");
             db.merge("key1".getBytes(), "value2".getBytes());
+            System.out.println("->get");
             assertThat(db.get("key1".getBytes())).isEqualTo(
                     "value,value2".getBytes());
+            System.out.println("->merge value3");
             // merge key1 with another value portion
             db.merge(wOpt, "key1".getBytes(), "value3".getBytes());
+            System.out.println("->get");
             assertThat(db.get("key1".getBytes())).isEqualTo(
                     "value,value2,value3".getBytes());
+            System.out.println("->merge value4");
             db.merge(wOpt, "key1".getBytes(), "value4".getBytes());
+            System.out.println("->get");
             assertThat(db.get("key1".getBytes())).isEqualTo(
                     "value,value2,value3,value4".getBytes());
             // merge on non existent key shall insert the value
@@ -376,7 +384,7 @@ public class RocksDBTest {
         }catch (Exception e){
        throw new RuntimeException(e);
     }finally {
-          org.rocksdb.util.Environment.detachCurrentThreadIfPossible();
+
         }
 
        }
@@ -386,7 +394,7 @@ public class RocksDBTest {
 
     t.setDaemon(false);
     t.start();
-    org.rocksdb.util.Environment.detachCurrentThreadIfPossible();
+
     t.join();
 
   }

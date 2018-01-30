@@ -338,7 +338,7 @@ namespace rocksdb {
             JNIAbstractNotAssociativeMergeOperator::merge = env->GetMethodID(cls, "partialMerge", "([B[B[B)[B");
 
             JNIAbstractNotAssociativeMergeOperator::multi_merge = env->GetMethodID(cls, "partialMultiMerge",
-                                                                                   "([B[B[[B)[B");
+                                                                                   "([B[[B)[B");
 
             JNIAbstractNotAssociativeMergeOperator::should_merge = env->GetMethodID(cls, "shouldMerge", "([[B)Z");
 
