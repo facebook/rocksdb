@@ -101,8 +101,8 @@ struct Range {
 };
 
 struct RangePtr {
-  const Slice* start;          // Included in the range
-  const Slice* limit;          // Not included in the range
+  const Slice* start;
+  const Slice* limit;
 
   RangePtr() : start(nullptr), limit(nullptr) { }
   RangePtr(const Slice* s, const Slice* l) : start(s), limit(l) { }
