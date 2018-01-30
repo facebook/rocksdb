@@ -16,6 +16,7 @@
 * Add "--use_txn" option to use transactional API in db_stress.
 * Disable onboard cache for compaction output in Windows platform.
 * Improve the performance of iterators doing long range scans by using readahead.
+- Add new function `DeleteFilesInRanges()` to delete files in multiple ranges at once for better performance.
 
 ### Bug Fixes
 * Fix a stack-use-after-scope bug in ForwardIterator.
