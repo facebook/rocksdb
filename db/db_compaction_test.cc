@@ -1517,7 +1517,7 @@ TEST_F(DBCompactionTest, DeleteFileRange) {
   ASSERT_GT(old_num_files, new_num_files);
 }
 
-TEST_F(DBCompactionTest, DeleteFileMultiRange) {
+TEST_F(DBCompactionTest, DeleteFilesInRanges) {
   Options options = CurrentOptions();
   options.write_buffer_size = 10 * 1024 * 1024;
   options.max_bytes_for_level_multiplier = 2;
@@ -1531,7 +1531,7 @@ TEST_F(DBCompactionTest, DeleteFileMultiRange) {
   Random rnd(301);
   std::map<int32_t, std::string> values;
 
-  // file [0 => 100], [100 => 200], ... [900, 1000]
+  // file [0 => 100), [100 => 200), ... [900, 1000)
   for (auto i = 0; i < 10; i++) {
     for (auto j = 0; j < 100; j++) {
       auto k = i * 100 + j;
@@ -1547,7 +1547,7 @@ TEST_F(DBCompactionTest, DeleteFileMultiRange) {
   ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
   ASSERT_EQ("0,0,10", FilesPerLevel(0));
 
-  // file [0 => 100], [200 => 300], ... [800, 900]
+  // file [0 => 100), [200 => 300), ... [800, 900)
   for (auto i = 0; i < 10; i+=2) {
     for (auto j = 0; j < 100; j++) {
       auto k = i * 100 + j;
@@ -1559,11 +1559,11 @@ TEST_F(DBCompactionTest, DeleteFileMultiRange) {
   ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr));
   ASSERT_EQ("0,5,10", FilesPerLevel(0));
 
-  // Delete files in range [0, 300]
+  // Delete files in range [0, 299] (inclusive)
   {
     auto begin_str1 = Key(0), end_str1 = Key(100);
     auto begin_str2 = Key(100), end_str2 = Key(200);
-    auto begin_str3 = Key(200), end_str3 = Key(300);
+    auto begin_str3 = Key(200), end_str3 = Key(299);
     Slice begin1(begin_str1), end1(end_str1);
     Slice begin2(begin_str2), end2(end_str2);
     Slice begin3(begin_str3), end3(end_str3);
@@ -1571,7 +1571,8 @@ TEST_F(DBCompactionTest, DeleteFileMultiRange) {
     ranges.push_back(RangePtr(&begin1, &end1));
     ranges.push_back(RangePtr(&begin2, &end2));
     ranges.push_back(RangePtr(&begin3, &end3));
-    ASSERT_OK(DeleteFilesInRange(db_, db_->DefaultColumnFamily(), ranges.data(), ranges.size()));
+    ASSERT_OK(DeleteFilesInRanges(db_, db_->DefaultColumnFamily(),
+                                  ranges.data(), ranges.size()));
     ASSERT_EQ("0,3,7", FilesPerLevel(0));
 
     // Keys [0, 300) should not exist.
@@ -1586,11 +1587,11 @@ TEST_F(DBCompactionTest, DeleteFileMultiRange) {
     }
   }
 
-  // Delete files in range [600, 800], [700, 900], [800, 1000]
+  // Delete files in range [600, 999) (exclusive)
   {
     auto begin_str1 = Key(600), end_str1 = Key(800);
     auto begin_str2 = Key(700), end_str2 = Key(900);
-    auto begin_str3 = Key(800), end_str3 = Key(1000);
+    auto begin_str3 = Key(800), end_str3 = Key(999);
     Slice begin1(begin_str1), end1(end_str1);
     Slice begin2(begin_str2), end2(end_str2);
     Slice begin3(begin_str3), end3(end_str3);
@@ -1598,11 +1599,12 @@ TEST_F(DBCompactionTest, DeleteFileMultiRange) {
     ranges.push_back(RangePtr(&begin1, &end1));
     ranges.push_back(RangePtr(&begin2, &end2));
     ranges.push_back(RangePtr(&begin3, &end3));
-    ASSERT_OK(DeleteFilesInRange(db_, db_->DefaultColumnFamily(), ranges.data(), ranges.size()));
-    ASSERT_EQ("0,1,3", FilesPerLevel(0));
+    ASSERT_OK(DeleteFilesInRanges(db_, db_->DefaultColumnFamily(),
+                                  ranges.data(), ranges.size(), false));
+    ASSERT_EQ("0,1,4", FilesPerLevel(0));
 
-    // Keys [600, 1000) should not exist.
-    for (auto i = 600; i < 1000; i++) {
+    // Keys [600, 900) should not exist.
+    for (auto i = 600; i < 900; i++) {
       ReadOptions ropts;
       std::string result;
       auto s = db_->Get(ropts, Key(i), &result);
@@ -1611,12 +1613,15 @@ TEST_F(DBCompactionTest, DeleteFileMultiRange) {
     for (auto i = 300; i < 600; i++) {
       ASSERT_EQ(Get(Key(i)), values[i]);
     }
+    for (auto i = 900; i < 1000; i++) {
+      ASSERT_EQ(Get(Key(i)), values[i]);
+    }
   }
 
   // Delete all files.
   {
     RangePtr range;
-    ASSERT_OK(DeleteFilesInRange(db_, db_->DefaultColumnFamily(), &range, 1));
+    ASSERT_OK(DeleteFilesInRanges(db_, db_->DefaultColumnFamily(), &range, 1));
     ASSERT_EQ("", FilesPerLevel(0));
 
     for (auto i = 0; i < 1000; i++) {

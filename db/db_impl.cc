@@ -2138,8 +2138,9 @@ Status DBImpl::DeleteFile(std::string name) {
   return status;
 }
 
-Status DBImpl::DeleteFilesInRange(ColumnFamilyHandle* column_family,
-                                  const RangePtr* ranges, int n) {
+Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
+                                   const RangePtr* ranges, size_t n,
+                                   bool include_end) {
   Status status;
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   ColumnFamilyData* cfd = cfh->cfd();
@@ -2151,7 +2152,7 @@ Status DBImpl::DeleteFilesInRange(ColumnFamilyHandle* column_family,
     Version* input_version = cfd->current();
 
     auto* vstorage = input_version->storage_info();
-    for (int r = 0; r < n; r++) {
+    for (auto r = 0; r < n; r++) {
       auto begin = ranges[r].start, end = ranges[r].limit;
       for (int i = 1; i < cfd->NumberLevels(); i++) {
         if (vstorage->LevelFiles(i).empty() ||
@@ -2183,6 +2184,10 @@ Status DBImpl::DeleteFilesInRange(ColumnFamilyHandle* column_family,
             continue;
           }
           if (deleted_files.find(level_file) != deleted_files.end()) {
+            continue;
+          }
+          if (!include_end && end != nullptr &&
+              cfd->user_comparator()->Compare(level_file->largest.user_key(), *end) == 0) {
             continue;
           }
           edit.SetColumnFamily(cfd->GetID());
