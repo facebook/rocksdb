@@ -19,6 +19,6 @@ public abstract class AbstractAssociativeMergeOperator extends MergeOperator
     @Override protected final native void disposeInternal(final long handle);
 
 
-    abstract public byte[] merge(byte[] key,byte[] oldvalue,byte[] newvalue);
+    abstract public byte[] merge(byte[] key,byte[] oldvalue,byte[] newvalue)throws RocksDBException;
 
 }

@@ -249,7 +249,7 @@ public class RocksDBTest {
 
 
     @Override
-    public byte[] fullMerge(byte[] key, byte[] oldvalue, byte[][] operands) {
+    public byte[] fullMerge(byte[] key, byte[] oldvalue, byte[][] operands) throws RocksDBException {
       if (oldvalue==null) return collect(operands);
 
       return (new String(oldvalue)+','+new String(collect(operands))).getBytes();

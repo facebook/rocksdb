@@ -18,11 +18,11 @@ public abstract class AbstractNotAssociativeMergeOperator extends MergeOperator 
     @Override
     protected final native void disposeInternal(final long handle);
 
-    abstract public byte[] fullMerge(byte[] key, byte[] oldvalue,byte[][] operands);
-    abstract public byte[] partialMultiMerge(byte[] key, byte[] oldvalue,byte[][] operands);
+    abstract public byte[] fullMerge(byte[] key, byte[] oldvalue,byte[][] operands) throws RocksDBException;
+    abstract public byte[] partialMultiMerge(byte[] key, byte[] oldvalue,byte[][] operands)throws RocksDBException;
 
-    abstract public byte[] partialMerge(byte[] key, byte[] left,byte[] right);
+    abstract public byte[] partialMerge(byte[] key, byte[] left,byte[] right)throws RocksDBException;
 
 
-    abstract public boolean shouldMerge(byte[][] operands);
+    abstract public boolean shouldMerge(byte[][] operands)throws RocksDBException;
 }
