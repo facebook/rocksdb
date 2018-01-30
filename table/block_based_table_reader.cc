@@ -1499,11 +1499,15 @@ BlockIter* BlockBasedTable::NewDataBlockIterator(
       return iter;
     }
     std::unique_ptr<Block> block_value;
-    s = ReadBlockFromFile(rep->file.get(), nullptr /* prefetch_buffer */,
-                          rep->footer, ro, handle, &block_value, rep->ioptions,
-                          true /* compress */, compression_dict,
-                          rep->persistent_cache_options, rep->global_seqno,
-                          rep->table_options.read_amp_bytes_per_bit);
+    {
+      StopWatch sw(rep->ioptions.env, rep->ioptions.statistics,
+                   READ_BLOCK_GET_MICROS);
+      s = ReadBlockFromFile(
+          rep->file.get(), nullptr /* prefetch_buffer */, rep->footer, ro,
+          handle, &block_value, rep->ioptions, true /* compress */,
+          compression_dict, rep->persistent_cache_options, rep->global_seqno,
+          rep->table_options.read_amp_bytes_per_bit);
+    }
     if (s.ok()) {
       block.value = block_value.release();
     }
