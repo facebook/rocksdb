@@ -89,14 +89,14 @@ class MemTableRep {
   //
   // Currently only skip-list based memtable implement the interface. Other
   // implementations will fallback to Insert() by default.
-  virtual void InsertWithHint(KeyHandle handle, void** hint) {
+  virtual bool InsertWithHint(KeyHandle handle, void** hint) {
     // Ignore the hint by default.
-    Insert(handle);
+    return Insert(handle);
   }
 
   // Like Insert(handle), but may be called concurrent with other calls
   // to InsertConcurrently for other handles
-  virtual void InsertConcurrently(KeyHandle handle);
+  virtual bool InsertConcurrently(KeyHandle handle);
 
   // Returns true iff an entry that compares equal to key is in the collection.
   virtual bool Contains(const char* key) const = 0;

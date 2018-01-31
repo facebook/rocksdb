@@ -32,12 +32,13 @@ class MockMemTableRep : public MemTableRep {
     return rep_->Insert(handle);
   }
 
-  virtual void InsertWithHint(KeyHandle handle, void** hint) override {
+  virtual bool InsertWithHint(KeyHandle handle, void** hint) override {
     num_insert_with_hint_++;
-    ASSERT_NE(nullptr, hint);
+    EXPECT_NE(nullptr, hint);
     last_hint_in_ = *hint;
-    rep_->InsertWithHint(handle, hint);
+    bool res = rep_->InsertWithHint(handle, hint);
     last_hint_out_ = *hint;
+    return res;
   }
 
   virtual bool Contains(const char* key) const override {
@@ -165,7 +166,7 @@ TEST_F(DBMemTableTest, DuplicateSeq) {
   ASSERT_FALSE(res);
   res = mem->Add(seq, kTypeSingleDeletion, "key", "");
   ASSERT_FALSE(res);
-
+ 
   // Test the duplicate keys under stress
   for (int i = 0; i < 10000; i++) {
     bool insert_dup = i % 10 == 1;
@@ -179,6 +180,32 @@ TEST_F(DBMemTableTest, DuplicateSeq) {
       ASSERT_TRUE(res);
     }
   }
+  delete mem;
+ 
+  // Test with InsertWithHint
+  options.memtable_insert_with_hint_prefix_extractor.reset(
+      new TestPrefixExtractor()); // which uses _ to extract the prefix
+  ioptions = ImmutableCFOptions(options);
+  mem = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
+                     kMaxSequenceNumber, 0 /* column_family_id */);
+  // Insert a duplicate key with _ in it
+  res = mem->Add(seq, kTypeValue, "key_1", "value");
+  ASSERT_TRUE(res);
+  res = mem->Add(seq, kTypeValue, "key_1", "value");
+  ASSERT_FALSE(res);
+  delete mem;
+
+  // Test when InsertConcurrently will be invoked
+  options.allow_concurrent_memtable_write = true;
+  ioptions = ImmutableCFOptions(options);
+  mem = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
+                     kMaxSequenceNumber, 0 /* column_family_id */);
+  MemTablePostProcessInfo post_process_info;
+  res = mem->Add(seq, kTypeValue, "key", "value", true, &post_process_info);
+  ASSERT_TRUE(res);
+  res = mem->Add(seq, kTypeValue, "key", "value", true, &post_process_info);
+  ASSERT_FALSE(res);
+  delete mem;
 }
 
 TEST_F(DBMemTableTest, InsertWithHint) {

@@ -94,10 +94,10 @@ class InlineSkipList {
   //
   // REQUIRES: nothing that compares equal to key is currently in the list.
   // REQUIRES: no concurrent calls to any of inserts.
-  void InsertWithHint(const char* key, void** hint);
+  bool InsertWithHint(const char* key, void** hint);
 
   // Like Insert, but external synchronization is not required.
-  void InsertConcurrently(const char* key);
+  bool InsertConcurrently(const char* key);
 
   // Inserts a node into the skip list.  key must have been allocated by
   // AllocateKey and then filled in by the caller.  If UseCAS is true,
@@ -632,24 +632,24 @@ bool InlineSkipList<Comparator>::Insert(const char* key) {
 }
 
 template <class Comparator>
-void InlineSkipList<Comparator>::InsertConcurrently(const char* key) {
+bool InlineSkipList<Comparator>::InsertConcurrently(const char* key) {
   Node* prev[kMaxPossibleHeight];
   Node* next[kMaxPossibleHeight];
   Splice splice;
   splice.prev_ = prev;
   splice.next_ = next;
-  Insert<true>(key, &splice, false);
+  return Insert<true>(key, &splice, false);
 }
 
 template <class Comparator>
-void InlineSkipList<Comparator>::InsertWithHint(const char* key, void** hint) {
+bool InlineSkipList<Comparator>::InsertWithHint(const char* key, void** hint) {
   assert(hint != nullptr);
   Splice* splice = reinterpret_cast<Splice*>(*hint);
   if (splice == nullptr) {
     splice = AllocateSplice();
     *hint = reinterpret_cast<void*>(splice);
   }
-  Insert<false>(key, splice, true);
+  return Insert<false>(key, splice, true);
 }
 
 template <class Comparator>

@@ -162,7 +162,7 @@ class InternalKeyComparator
 
   virtual const char* Name() const override;
   virtual int Compare(const Slice& a, const Slice& b) const override;
-  // Same as Compare except that it excludes teh value type from comparison
+  // Same as Compare except that it excludes the value type from comparison
   virtual int CompareKeySeq(const Slice& a, const Slice& b) const;
   virtual void FindShortestSeparator(std::string* start,
                                      const Slice& limit) const override;

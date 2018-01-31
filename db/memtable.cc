@@ -479,7 +479,10 @@ bool MemTable::Add(SequenceNumber s, ValueType type,
     if (insert_with_hint_prefix_extractor_ != nullptr &&
         insert_with_hint_prefix_extractor_->InDomain(key_slice)) {
       Slice prefix = insert_with_hint_prefix_extractor_->Transform(key_slice);
-      table->InsertWithHint(handle, &insert_hints_[prefix]);
+      bool res = table->InsertWithHint(handle, &insert_hints_[prefix]);
+      if (!res) {
+        return res;
+      }
     } else {
       bool res = table->Insert(handle);
       if (!res) {
@@ -517,7 +520,10 @@ bool MemTable::Add(SequenceNumber s, ValueType type,
     assert(post_process_info == nullptr);
     UpdateFlushState();
   } else {
-    table->InsertConcurrently(handle);
+    bool res = table->InsertConcurrently(handle);
+    if (!res) {
+      return res;
+    }
 
     assert(post_process_info != nullptr);
     post_process_info->num_entries++;
@@ -803,9 +809,9 @@ void MemTable::Update(SequenceNumber seq,
       // Correct user key
       const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
       ValueType type;
-      SequenceNumber unused;
-      UnPackSequenceAndType(tag, &unused, &type);
-      assert(unused != seq);
+      SequenceNumber existing_seq;
+      UnPackSequenceAndType(tag, &existing_seq, &type);
+      assert(existing_seq != seq);
       if (type == kTypeValue) {
         Slice prev_value = GetLengthPrefixedSlice(key_ptr + key_length);
         uint32_t prev_size = static_cast<uint32_t>(prev_value.size());
@@ -828,10 +834,7 @@ void MemTable::Update(SequenceNumber seq,
   }
 
   // key doesn't exist
-#ifndef NDEBUG
-  bool add_res =
-#endif
-      Add(seq, kTypeValue, key, value);
+  bool add_res __attribute__((__unused__)) = Add(seq, kTypeValue, key, value);
   // We already checked unused != seq above. In that case, Add should not fail.
   assert(add_res);
 }
