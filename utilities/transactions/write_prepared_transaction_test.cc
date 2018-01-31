@@ -360,7 +360,7 @@ class WritePreparedTransactionTest
 
 class SnapshotConcurrentAccessTest
     : public WritePreparedTransactionTestBase,
-      public ::testing::WithParamInterface<
+      virtual public ::testing::WithParamInterface<
           std::tuple<bool, bool, TxnDBWritePolicy, size_t, size_t>> {
  public:
   SnapshotConcurrentAccessTest()
