@@ -74,8 +74,7 @@ WinEnvIO::WinEnvIO(Env* hosted_env)
 
   {
     LARGE_INTEGER qpf;
-    // No init as the compiler complains about unused var
-    BOOL ret;
+    BOOL ret __attribute__((__unused__));
     ret = QueryPerformanceFrequency(&qpf);
     assert(ret == TRUE);
     perf_counter_frequency_ = qpf.QuadPart;
