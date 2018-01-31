@@ -232,9 +232,9 @@ endif
 # USAN doesn't work well with jemalloc. If we're compiling with USAN, we should use regular malloc.
 ifdef COMPILE_WITH_UBSAN
 	DISABLE_JEMALLOC=1
-	EXEC_LDFLAGS += -fsanitize=undefined
-	PLATFORM_CCFLAGS += -fsanitize=undefined -DROCKSDB_UBSAN_RUN
-	PLATFORM_CXXFLAGS += -fsanitize=undefined -DROCKSDB_UBSAN_RUN
+	EXEC_LDFLAGS += -fsanitize=undefined -fno-sanitize-recover
+	PLATFORM_CCFLAGS += -fsanitize=undefined -fno-sanitize-recover -DROCKSDB_UBSAN_RUN
+	PLATFORM_CXXFLAGS += -fsanitize=undefined -fno-sanitize-recover -DROCKSDB_UBSAN_RUN
 endif
 
 ifdef ROCKSDB_VALGRIND_RUN
