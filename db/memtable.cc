@@ -242,7 +242,6 @@ bool MemTableRep::InsertConcurrently(KeyHandle handle) {
 #else
   abort();
 #endif
-  return true;
 }
 
 Slice MemTableRep::UserKey(const char* key) const {
