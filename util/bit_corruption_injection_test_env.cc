@@ -165,4 +165,8 @@ Status BitCorruptionInjectionTestEnv::NewRandomAccessFile(
   r->reset(retMe);
   return s;
 }
+
+Env* NewBitInjectionEnv(Env* base_env, uint64_t uber) {
+  return new BitCorruptionInjectionTestEnv(base_env, uber);
+}
 }  // namespace rocksdb
