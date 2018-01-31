@@ -21,7 +21,7 @@ void ThreadStatusUpdater::TEST_VerifyColumnFamilyInfoMap(
   }
   for (auto* handle : handles) {
     auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(handle)->cfd();
-    auto iter __attribute__((unused)) = cf_info_map_.find(cfd);
+    auto iter __attribute__((__unused__)) = cf_info_map_.find(cfd);
     if (check_exist) {
       assert(iter != cf_info_map_.end());
       assert(iter->second.cf_name == cfd->GetName());

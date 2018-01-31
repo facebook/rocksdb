@@ -90,7 +90,7 @@ static bool ValidateUint32Range(const char* flagname, uint64_t value) {
 }
 
 DEFINE_uint64(seed, 2341234, "Seed for PRNG");
-static const bool FLAGS_seed_dummy __attribute__((unused)) =
+static const bool FLAGS_seed_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_seed, &ValidateUint32Range);
 
 DEFINE_int64(max_key, 1 * KB* KB,
@@ -270,7 +270,7 @@ DEFINE_bool(allow_concurrent_memtable_write, false,
 DEFINE_bool(enable_write_thread_adaptive_yield, true,
             "Use a yielding spin loop for brief writer thread waits.");
 
-static const bool FLAGS_subcompactions_dummy __attribute__((unused)) =
+static const bool FLAGS_subcompactions_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_subcompactions, &ValidateUint32Range);
 
 static bool ValidateInt32Positive(const char* flagname, int32_t value) {
@@ -282,7 +282,7 @@ static bool ValidateInt32Positive(const char* flagname, int32_t value) {
   return true;
 }
 DEFINE_int32(reopen, 10, "Number of times database reopens");
-static const bool FLAGS_reopen_dummy __attribute__((unused)) =
+static const bool FLAGS_reopen_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_reopen, &ValidateInt32Positive);
 
 DEFINE_int32(bloom_bits, 10, "Bloom filter bits per key. "
@@ -320,7 +320,7 @@ DEFINE_bool(use_fsync, false, "If true, issue fsync instead of fdatasync");
 DEFINE_int32(kill_random_test, 0,
              "If non-zero, kill at various points in source code with "
              "probability 1/this");
-static const bool FLAGS_kill_random_test_dummy __attribute__((unused)) =
+static const bool FLAGS_kill_random_test_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_kill_random_test, &ValidateInt32Positive);
 extern int rocksdb_kill_odds;
 
@@ -380,29 +380,29 @@ static bool ValidateInt32Percent(const char* flagname, int32_t value) {
 
 DEFINE_int32(readpercent, 10,
              "Ratio of reads to total workload (expressed as a percentage)");
-static const bool FLAGS_readpercent_dummy __attribute__((unused)) =
+static const bool FLAGS_readpercent_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_readpercent, &ValidateInt32Percent);
 
 DEFINE_int32(prefixpercent, 20,
              "Ratio of prefix iterators to total workload (expressed as a"
              " percentage)");
-static const bool FLAGS_prefixpercent_dummy __attribute__((unused)) =
+static const bool FLAGS_prefixpercent_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_prefixpercent, &ValidateInt32Percent);
 
 DEFINE_int32(writepercent, 45,
              "Ratio of writes to total workload (expressed as a percentage)");
-static const bool FLAGS_writepercent_dummy __attribute__((unused)) =
+static const bool FLAGS_writepercent_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_writepercent, &ValidateInt32Percent);
 
 DEFINE_int32(delpercent, 15,
              "Ratio of deletes to total workload (expressed as a percentage)");
-static const bool FLAGS_delpercent_dummy __attribute__((unused)) =
+static const bool FLAGS_delpercent_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_delpercent, &ValidateInt32Percent);
 
 DEFINE_int32(delrangepercent, 0,
              "Ratio of range deletions to total workload (expressed as a "
              "percentage). Cannot be used with test_batches_snapshots");
-static const bool FLAGS_delrangepercent_dummy __attribute__((unused)) =
+static const bool FLAGS_delrangepercent_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_delrangepercent, &ValidateInt32Percent);
 
 DEFINE_int32(nooverwritepercent, 60,
@@ -413,11 +413,11 @@ static const bool FLAGS_nooverwritepercent_dummy __attribute__((__unused__)) =
 
 DEFINE_int32(iterpercent, 10, "Ratio of iterations to total workload"
              " (expressed as a percentage)");
-static const bool FLAGS_iterpercent_dummy __attribute__((unused)) =
+static const bool FLAGS_iterpercent_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_iterpercent, &ValidateInt32Percent);
 
 DEFINE_uint64(num_iterations, 10, "Number of iterations per MultiIterate run");
-static const bool FLAGS_num_iterations_dummy __attribute__((unused)) =
+static const bool FLAGS_num_iterations_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_num_iterations, &ValidateUint32Range);
 
 namespace {
@@ -494,11 +494,11 @@ DEFINE_string(hdfs, "", "Name of hdfs environment");
 static rocksdb::Env* FLAGS_env = rocksdb::Env::Default();
 
 DEFINE_uint64(ops_per_thread, 1200000, "Number of operations per thread.");
-static const bool FLAGS_ops_per_thread_dummy __attribute__((unused)) =
+static const bool FLAGS_ops_per_thread_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_ops_per_thread, &ValidateUint32Range);
 
 DEFINE_uint64(log2_keys_per_lock, 2, "Log2 of number of keys per lock");
-static const bool FLAGS_log2_keys_per_lock_dummy __attribute__((unused)) =
+static const bool FLAGS_log2_keys_per_lock_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_log2_keys_per_lock, &ValidateUint32Range);
 
 DEFINE_bool(in_place_update, false, "On true, does inplace update in memtable");
@@ -537,7 +537,7 @@ static bool ValidatePrefixSize(const char* flagname, int32_t value) {
   return true;
 }
 DEFINE_int32(prefix_size, 7, "Control the prefix size for HashSkipListRep");
-static const bool FLAGS_prefix_size_dummy __attribute__((unused)) =
+static const bool FLAGS_prefix_size_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_prefix_size, &ValidatePrefixSize);
 
 DEFINE_bool(use_merge, false, "On true, replaces all writes with a Merge "
@@ -1789,7 +1789,7 @@ class StressTest {
                 cf, new_name.c_str());
           }
           thread->shared->LockColumnFamily(cf);
-          Status s __attribute__((unused));
+          Status s __attribute__((__unused__));
           s = db_->DropColumnFamily(column_families_[cf]);
           delete column_families_[cf];
           if (!s.ok()) {

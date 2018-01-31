@@ -469,7 +469,7 @@ ColumnFamilyData::~ColumnFamilyData() {
     local_sv_.reset();
     super_version_->db_mutex->Lock();
 
-    bool is_last_reference __attribute__((unused));
+    bool is_last_reference __attribute__((__unused__));
     is_last_reference = super_version_->Unref();
     assert(is_last_reference);
     super_version_->Cleanup();
@@ -480,7 +480,7 @@ ColumnFamilyData::~ColumnFamilyData() {
   if (dummy_versions_ != nullptr) {
     // List must be empty
     assert(dummy_versions_->TEST_Next() == dummy_versions_);
-    bool deleted __attribute__((unused));
+    bool deleted __attribute__((__unused__));
     deleted = dummy_versions_->Unref();
     assert(deleted);
   }
