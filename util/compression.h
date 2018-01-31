@@ -57,8 +57,9 @@ inline bool Snappy_Supported() {
 inline bool Zlib_Supported() {
 #ifdef ZLIB
   return true;
-#endif
+#else
   return false;
+#endif
 }
 
 inline bool BZip2_Supported() {
@@ -283,8 +284,9 @@ inline bool Zlib_Compress(const CompressionOptions& opts,
 
   deflateEnd(&_stream);
   return compressed;
-#endif
+#else
   return false;
+#endif
 }
 
 // compress_format_version == 1 -- decompressed size is not included in the
@@ -382,9 +384,9 @@ inline char* Zlib_Uncompress(const char* input_data, size_t input_length,
   *decompress_size = static_cast<int>(output_len - _stream.avail_out);
   inflateEnd(&_stream);
   return output;
-#endif
-
+#else
   return nullptr;
+#endif
 }
 
 // compress_format_version == 1 -- decompressed size is not included in the
@@ -441,8 +443,9 @@ inline bool BZip2_Compress(const CompressionOptions& opts,
 
   BZ2_bzCompressEnd(&_stream);
   return compressed;
-#endif
+#else
   return false;
+#endif
 }
 
 // compress_format_version == 1 -- decompressed size is not included in the
@@ -520,8 +523,9 @@ inline char* BZip2_Uncompress(const char* input_data, size_t input_length,
   *decompress_size = static_cast<int>(output_len - _stream.avail_out);
   BZ2_bzDecompressEnd(&_stream);
   return output;
-#endif
+#else
   return nullptr;
+#endif
 }
 
 // compress_format_version == 1 -- decompressed size is included in the
@@ -583,8 +587,9 @@ inline bool LZ4_Compress(const CompressionOptions& opts,
   }
   output->resize(static_cast<size_t>(output_header_len + outlen));
   return true;
-#endif  // LZ4
+#else  // LZ4
   return false;
+#endif
 }
 
 // compress_format_version == 1 -- decompressed size is included in the
@@ -639,8 +644,9 @@ inline char* LZ4_Uncompress(const char* input_data, size_t input_length,
   }
   assert(*decompress_size == static_cast<int>(output_len));
   return output;
-#endif  // LZ4
+#else  // LZ4
   return nullptr;
+#endif
 }
 
 // compress_format_version == 1 -- decompressed size is included in the
@@ -711,8 +717,9 @@ inline bool LZ4HC_Compress(const CompressionOptions& opts,
   }
   output->resize(static_cast<size_t>(output_header_len + outlen));
   return true;
-#endif  // LZ4
+#else  // LZ4
   return false;
+#endif
 }
 
 inline bool XPRESS_Compress(const char* input, size_t length, std::string* output) {
@@ -765,8 +772,9 @@ inline bool ZSTD_Compress(const CompressionOptions& opts, const char* input,
   }
   output->resize(output_header_len + outlen);
   return true;
-#endif
+#else // ZSTD
   return false;
+#endif
 }
 
 // @param compression_dict Data for presetting the compression library's
@@ -796,8 +804,9 @@ inline char* ZSTD_Uncompress(const char* input_data, size_t input_length,
   assert(actual_output_length == output_len);
   *decompress_size = static_cast<int>(actual_output_length);
   return output;
-#endif
+#else // ZSTD
   return nullptr;
+#endif
 }
 
 inline std::string ZSTD_TrainDictionary(const std::string& samples,
