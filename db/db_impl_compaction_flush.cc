@@ -12,6 +12,7 @@
 #define __STDC_FORMAT_MACROS
 #endif
 #include <inttypes.h>
+#include <sys/statvfs.h>
 
 #include "db/builder.h"
 #include "db/event_helpers.h"
@@ -1619,27 +1620,49 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       c.reset(cfd->PickCompaction(*mutable_cf_options, log_buffer));
       TEST_SYNC_POINT("DBImpl::BackgroundCompaction():AfterPickCompaction");
       if (c != nullptr) {
-        // update statistics
-        MeasureTime(stats_, NUM_FILES_IN_SINGLE_COMPACTION,
-                    c->inputs(0)->size());
-        // There are three things that can change compaction score:
-        // 1) When flush or compaction finish. This case is covered by
-        // InstallSuperVersionAndScheduleWork
-        // 2) When MutableCFOptions changes. This case is also covered by
-        // InstallSuperVersionAndScheduleWork, because this is when the new
-        // options take effect.
-        // 3) When we Pick a new compaction, we "remove" those files being
-        // compacted from the calculation, which then influences compaction
-        // score. Here we check if we need the new compaction even without the
-        // files that are currently being compacted. If we need another
-        // compaction, we might be able to execute it in parallel, so we add it
-        // to the queue and schedule a new thread.
-        if (cfd->NeedsCompaction()) {
-          // Yes, we need more compactions!
+        uint64_t size_added_by_compaction = 0;
+        // First check if we even have the space to do the compaction
+        for (size_t i = 0; i < c->num_input_levels(); i++) {
+          for (size_t j = 0; j < c->num_input_files(i); j++) {
+            FileMetaData *filemeta = c->input(i, j);
+            size_added_by_compaction += filemeta->compensated_file_size;
+          }
+        }
+        // Now figure out how much free space is in the file filesystem
+        struct statvfs statbuf;
+        statvfs(dbname_.c_str(), &statbuf);
+        uint64_t freespace = statbuf.f_bsize * statbuf.f_bfree;
+        if (freespace <= size_added_by_compaction) {
+          // Then don't do the compaction
+          c->ReleaseCompactionFiles(status);
+          // TODO: Is there any other cleanup we need to do?
           AddToCompactionQueue(cfd);
           ++unscheduled_compactions_;
-          MaybeScheduleFlushOrCompaction();
-        }
+
+          c.reset();
+        } else {
+          // update statistics
+          MeasureTime(stats_, NUM_FILES_IN_SINGLE_COMPACTION,
+            c->inputs(0)->size());
+            // There are three things that can change compaction score:
+            // 1) When flush or compaction finish. This case is covered by
+            // InstallSuperVersionAndScheduleWork
+            // 2) When MutableCFOptions changes. This case is also covered by
+            // InstallSuperVersionAndScheduleWork, because this is when the new
+            // options take effect.
+            // 3) When we Pick a new compaction, we "remove" those files being
+            // compacted from the calculation, which then influences compaction
+            // score. Here we check if we need the new compaction even without the
+            // files that are currently being compacted. If we need another
+            // compaction, we might be able to execute it in parallel, so we add it
+            // to the queue and schedule a new thread.
+            if (cfd->NeedsCompaction()) {
+              // Yes, we need more compactions!
+              AddToCompactionQueue(cfd);
+              ++unscheduled_compactions_;
+              MaybeScheduleFlushOrCompaction();
+            }
+          }
       }
     }
   }

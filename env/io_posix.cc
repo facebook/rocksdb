@@ -21,6 +21,7 @@
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <sys/types.h>
 #ifdef OS_LINUX
 #include <sys/statfs.h>
@@ -742,6 +743,10 @@ Status PosixWritableFile::Append(const Slice& data) {
       if (errno == EINTR) {
         continue;
       }
+      struct statvfs statbuf;
+      fstatvfs(fd_, &statbuf);
+      uint64_t freespace = statbuf.f_bsize * statbuf.f_bfree;
+      (void) freespace;
       return IOError("While appending to file", filename_, errno);
     }
     left -= done;
