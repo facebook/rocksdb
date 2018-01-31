@@ -166,7 +166,7 @@ TEST_F(DBMemTableTest, DuplicateSeq) {
   ASSERT_FALSE(res);
   res = mem->Add(seq, kTypeSingleDeletion, "key", "");
   ASSERT_FALSE(res);
- 
+
   // Test the duplicate keys under stress
   for (int i = 0; i < 10000; i++) {
     bool insert_dup = i % 10 == 1;
@@ -181,10 +181,10 @@ TEST_F(DBMemTableTest, DuplicateSeq) {
     }
   }
   delete mem;
- 
+
   // Test with InsertWithHint
   options.memtable_insert_with_hint_prefix_extractor.reset(
-      new TestPrefixExtractor()); // which uses _ to extract the prefix
+      new TestPrefixExtractor());  // which uses _ to extract the prefix
   ioptions = ImmutableCFOptions(options);
   mem = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
                      kMaxSequenceNumber, 0 /* column_family_id */);
