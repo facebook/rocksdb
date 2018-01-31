@@ -189,6 +189,7 @@ cpp_library(
         "util/auto_roll_logger.cc",
         "util/bloom.cc",
         "util/build_version.cc",
+        "util/bit_corruption_injection_env.cc",
         "util/coding.cc",
         "util/compaction_job_stats_impl.cc",
         "util/comparator.cc",
