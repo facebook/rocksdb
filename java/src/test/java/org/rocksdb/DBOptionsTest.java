@@ -23,6 +23,18 @@ public class DBOptionsTest {
       getPlatformSpecificRandomFactory();
 
   @Test
+  public void copyConstructor() {
+    DBOptions origOpts = new DBOptions();
+    origOpts.setCreateIfMissing(rand.nextBoolean());
+    origOpts.setAllow2pc(rand.nextBoolean());
+    origOpts.setBaseBackgroundCompactions(rand.nextInt(10));
+    DBOptions copyOpts = new DBOptions(origOpts);
+    assertThat(origOpts.createIfMissing() == copyOpts.createIfMissing());
+    assertThat(origOpts.allow2pc() == copyOpts.allow2pc());
+    assertThat(origOpts.baseBackgroundCompactions() == copyOpts.baseBackgroundCompactions());
+  }
+
+  @Test
   public void getDBOptionsFromProps() {
     // setup sample properties
     final Properties properties = new Properties();
