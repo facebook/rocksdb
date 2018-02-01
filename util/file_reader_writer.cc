@@ -541,6 +541,11 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
   }
 
   virtual Status Prefetch(uint64_t offset, size_t n) override {
+    if (n < readahead_size_) {
+      // Don't allow smaller prefetches than the configured `readahead_size_`.
+      // `Read()` assumes a smaller prefetch buffer indicates EOF was reached.
+      return Status::OK();
+    }
     size_t prefetch_offset = TruncateToPageBoundary(alignment_, offset);
     if (prefetch_offset == buffer_offset_) {
       return Status::OK();
