@@ -415,7 +415,7 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {BLOB_DB_WRITE_BLOB, "rocksdb.blobdb.write.blob"},
     {BLOB_DB_WRITE_BLOB_TTL, "rocksdb.blobdb.write.blob.ttl"},
     {BLOB_DB_BLOB_FILE_BYTES_WRITTEN, "rocksdb.blobdb.blob.file.bytes.written"},
-    {BLOB_DB_BLOB_FILE_BYTES_READ, "rocksdb.blobdb.blob.file,bytes.read"},
+    {BLOB_DB_BLOB_FILE_BYTES_READ, "rocksdb.blobdb.blob.file.bytes.read"},
     {BLOB_DB_BLOB_FILE_SYNCED, "rocksdb.blobdb.blob.file.synced"},
     {BLOB_DB_BLOB_INDEX_EXPIRED, "rocksdb.blobdb.blob.index.expired"},
     {BLOB_DB_GC_NUM_FILES, "rocksdb.blobdb.gc.num.files"},
