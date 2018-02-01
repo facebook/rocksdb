@@ -1452,9 +1452,6 @@ write_prepared_transaction_test: utilities/transactions/write_prepared_transacti
 sst_dump: tools/sst_dump.o $(LIBOBJECTS)
 	$(AM_LINK)
 
-simple_example: simple_example.o $(LIBOBJECTS)
-	$(AM_LINK)
-
 blob_dump: tools/blob_dump.o $(LIBOBJECTS)
 	$(AM_LINK)
 
