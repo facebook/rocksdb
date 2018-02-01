@@ -211,7 +211,8 @@ void BlobDBImpl::StartBackgroundTasks() {
   tqueue_.add(
       kReclaimOpenFilesPeriodMillisecs,
       std::bind(&BlobDBImpl::ReclaimOpenFiles, this, std::placeholders::_1));
-  tqueue_.add(kGCCheckPeriodMillisecs,
+  tqueue_.add(static_cast<int64_t>(
+                  bdb_options_.garbage_collection_interval_secs * 1000),
               std::bind(&BlobDBImpl::RunGC, this, std::placeholders::_1));
   if (bdb_options_.enable_garbage_collection) {
     tqueue_.add(
@@ -1773,8 +1774,9 @@ Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
   ROCKS_LOG_INFO(
       db_options_.info_log,
       "%s blob file %" PRIu64 ". Total blob records: %" PRIu64
-      ", Expired: %" PRIu64 " keys/%" PRIu64 " bytes, Overwritten: %" PRIu64
-      " keys/%" PRIu64 " bytes.",
+      ", expired: %" PRIu64 " keys/%" PRIu64
+      " bytes, updated or deleted by user: %" PRIu64 " keys/%" PRIu64
+      " bytes, rewrite to new file: %" PRIu64 " keys/%" PRIu64 " bytes.",
       s.ok() ? "Successfully garbage collected" : "Failed to garbage collect",
       bfptr->BlobFileNumber(), gc_stats->blob_count, gc_stats->num_keys_expired,
       gc_stats->bytes_expired, gc_stats->num_keys_overwritten,
@@ -1828,14 +1830,9 @@ bool BlobDBImpl::ShouldGCFile(std::shared_ptr<BlobFile> bfile, uint64_t now,
       return true;
     }
 
-    if (bdb_options_.ttl_range_secs < kPartialExpirationGCRangeSecs) {
-      *reason = "has ttl but partial expiration not turned on";
-      return false;
-    }
-
     ReadLock lockbfile_r(&bfile->mutex_);
-    bool ret = ((bfile->deleted_size_ * 100.0 / bfile->file_size_.load()) >
-                kPartialExpirationPercentage);
+    bool ret = ((bfile->deleted_size_ / bfile->file_size_.load()) >
+                bdb_options_.garbage_collection_deletion_size_threshold);
     if (ret) {
       *reason = "deleted blobs beyond threshold";
     } else {
@@ -1854,8 +1851,8 @@ bool BlobDBImpl::ShouldGCFile(std::shared_ptr<BlobFile> bfile, uint64_t now,
   ReadLock lockbfile_r(&bfile->mutex_);
 
   if (bdb_options_.enable_garbage_collection) {
-    if ((bfile->deleted_size_ * 100.0 / bfile->file_size_.load()) >
-        kPartialExpirationPercentage) {
+    if ((bfile->deleted_size_ / bfile->file_size_.load()) >
+        bdb_options_.garbage_collection_deletion_size_threshold) {
       *reason = "deleted simple blobs beyond threshold";
       return true;
     }

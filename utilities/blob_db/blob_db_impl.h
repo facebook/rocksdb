@@ -144,20 +144,6 @@ class BlobDBImpl : public BlobDB {
   // how many random access open files can we tolerate
   static constexpr uint32_t kOpenFilesTrigger = 100;
 
-  // how many periods of stats do we keep.
-  static constexpr uint32_t kWriteAmplificationStatsPeriods = 24;
-
-  // we will garbage collect blob files in
-  // which entire files have expired. However if the
-  // ttl_range of files is very large say a day, we
-  // would have to wait for the entire day, before we
-  // recover most of the space.
-  static constexpr uint32_t kPartialExpirationGCRangeSecs = 4 * 3600;
-
-  // this should be based on allowed Write Amplification
-  // if 50% of the space of a blob file has been deleted/expired,
-  static constexpr uint32_t kPartialExpirationPercentage = 75;
-
   // how often to schedule reclaim open files.
   static constexpr uint32_t kReclaimOpenFilesPeriodMillisecs = 1 * 1000;
 
