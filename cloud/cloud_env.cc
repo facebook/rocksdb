@@ -23,8 +23,11 @@ CloudEnvImpl::CloudEnvImpl(CloudType type, Env* base_env)
 CloudEnvImpl::~CloudEnvImpl() { StopPurger(); }
 
 void CloudEnvImpl::StopPurger() {
-  // tell the purger to stop
-  purger_is_running_ = false;
+  {
+    std::lock_guard<std::mutex> lk(purger_lock_);
+    purger_is_running_ = false;
+    purger_cv_.notify_one();
+  }
 
   // wait for the purger to stop
   if (purge_thread_.joinable()) {
@@ -59,7 +62,7 @@ Status CloudEnv::NewAwsEnv(Env* base_env, const std::string& src_cloud_storage,
     cloud->info_log_ = logger;
 
     // start the purge thread only if there is a destination bucket
-    if (!dest_cloud_storage.empty()) {
+    if (!dest_cloud_storage.empty() && options.run_purger) {
       cloud->purge_thread_ = std::thread([cloud] { cloud->Purger(); });
     }
   }

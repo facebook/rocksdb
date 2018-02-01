@@ -1,12 +1,13 @@
 // Copyright (c) 2017 Rockset.
 #ifndef ROCKSDB_LITE
 
-#include <set>
 #include "cloud/purge.h"
-#include "cloud/manifest_reader.h"
+#include <chrono>
+#include <set>
 #include "cloud/aws/aws_env.h"
 #include "cloud/db_cloud_impl.h"
 #include "cloud/filename.h"
+#include "cloud/manifest_reader.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
@@ -22,46 +23,46 @@ typedef std::map<std::string, std::vector<std::string>> DbidParents;
 //
 void CloudEnvImpl::Purger() {
   Status st;
-  uint64_t last_run = 0;
   // Run purge once every period.
-  uint64_t period = GetCloudEnvOptions().purger_periodicity_millis;
+  auto period =
+      std::chrono::milliseconds(GetCloudEnvOptions().purger_periodicity_millis);
 
   std::vector<std::string> to_be_deleted_paths;
   std::vector<std::string> to_be_deleted_dbids;
 
-  while (purger_is_running_) {
-    uint64_t now = base_env_->NowMicros();
-    if (last_run + period < now) {
-      // delete the objects that were detected to be obsolete in the last
-      // run. This ensures that obsolete files are not immediately deleted
-      // because we need to give the clone-to-local-dir code ample time to
-      // copy them to local dir at clone-creation time.
-
-      // delete obsolete dbids
-      for (const auto& p : to_be_deleted_dbids) {
-        // TODO more unit tests before we delete data
-        // st = DeleteDbid(GetDestBucketPrefix(), p);
-        Log(InfoLogLevel::WARN_LEVEL, info_log_,
-            "[pg] dbid %s non-existent dbpath %s deleted. %s",
-            GetDestBucketPrefix().c_str(), p.c_str(),  st.ToString().c_str());
-      }
-
-      // delete obsolete paths
-      for (const auto& p : to_be_deleted_paths) {
-        // TODO more unit tests before we delete data
-        // st = DeleteObject(GetDestBucketPrefix(), p);
-        Log(InfoLogLevel::WARN_LEVEL, info_log_,
-            "[pg] bucket prefix %s obsolete dbpath %s deleted. %s",
-            GetDestBucketPrefix().c_str(), p.c_str(),  st.ToString().c_str());
-      }
-
-      last_run = now;
-      to_be_deleted_paths.clear();
-      to_be_deleted_dbids.clear();
-      FindObsoleteFiles(GetDestBucketPrefix(), &to_be_deleted_paths);
-      FindObsoleteDbid(GetDestBucketPrefix(), &to_be_deleted_dbids);
+  while (true) {
+    std::unique_lock<std::mutex> lk(purger_lock_);
+    purger_cv_.wait_for(lk, period, [&]() { return purger_is_running_; });
+    if (!purger_is_running_) {
+      break;
     }
-    std::this_thread::sleep_for(std::chrono::seconds(10));
+    // delete the objects that were detected to be obsolete in the last
+    // run. This ensures that obsolete files are not immediately deleted
+    // because we need to give the clone-to-local-dir code ample time to
+    // copy them to local dir at clone-creation time.
+
+    // delete obsolete dbids
+    for (const auto& p : to_be_deleted_dbids) {
+      // TODO more unit tests before we delete data
+      // st = DeleteDbid(GetDestBucketPrefix(), p);
+      Log(InfoLogLevel::WARN_LEVEL, info_log_,
+          "[pg] dbid %s non-existent dbpath %s deleted. %s",
+          GetDestBucketPrefix().c_str(), p.c_str(), st.ToString().c_str());
+    }
+
+    // delete obsolete paths
+    for (const auto& p : to_be_deleted_paths) {
+      // TODO more unit tests before we delete data
+      // st = DeleteObject(GetDestBucketPrefix(), p);
+      Log(InfoLogLevel::WARN_LEVEL, info_log_,
+          "[pg] bucket prefix %s obsolete dbpath %s deleted. %s",
+          GetDestBucketPrefix().c_str(), p.c_str(), st.ToString().c_str());
+    }
+
+    to_be_deleted_paths.clear();
+    to_be_deleted_dbids.clear();
+    FindObsoleteFiles(GetDestBucketPrefix(), &to_be_deleted_paths);
+    FindObsoleteDbid(GetDestBucketPrefix(), &to_be_deleted_dbids);
   }
 }
 
@@ -74,8 +75,8 @@ Status CloudEnvImpl::FindObsoleteFiles(const std::string& bucket_name_prefix,
   Status st = GetDbidList(bucket_name_prefix, &dbid_list);
   if (!st.ok()) {
     Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-        "[pg] GetDbidList on bucket prefix %s. %s",
-        bucket_name_prefix.c_str(), st.ToString().c_str());
+        "[pg] GetDbidList on bucket prefix %s. %s", bucket_name_prefix.c_str(),
+        st.ToString().c_str());
     return st;
   }
 
@@ -100,17 +101,17 @@ Status CloudEnvImpl::FindObsoleteFiles(const std::string& bucket_name_prefix,
     st = extractor->GetLiveFiles(mpath, &file_nums);
     if (!st.ok()) {
       Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-          "[pg] dbid %s extracted files from path %s %s",
-          iter->first.c_str(), iter->second.c_str(), st.ToString().c_str());
+          "[pg] dbid %s extracted files from path %s %s", iter->first.c_str(),
+          iter->second.c_str(), st.ToString().c_str());
     } else {
-      // This file can reside either in this leaf db's path or reside in any of the
-      // parent db's paths. Compute all possible paths and insert them into live_files
+      // This file can reside either in this leaf db's path or reside in any of
+      // the parent db's paths. Compute all possible paths and insert them into
+      // live_files
       for (auto it = file_nums.begin(); it != file_nums.end(); ++it) {
-
         // list of all parent dbids
         const std::vector<std::string>& parent_dbids = parents[iter->first];
 
-        for (const auto& db: parent_dbids) {
+        for (const auto& db : parent_dbids) {
           // parent db's paths
           const std::string& parent_path = dbid_list[db];
           live_files.insert(parent_path + "/" + std::to_string(*it) + ".sst");
@@ -137,7 +138,7 @@ Status CloudEnvImpl::FindObsoleteFiles(const std::string& bucket_name_prefix,
   }
 
   // If a file does not belong to live_files, then it can be deleted
-  for (const auto& candidate: all_files.pathnames) {
+  for (const auto& candidate : all_files.pathnames) {
     if (live_files.find(candidate) == live_files.end() &&
         ends_with(candidate, ".sst")) {
       Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
@@ -149,8 +150,9 @@ Status CloudEnvImpl::FindObsoleteFiles(const std::string& bucket_name_prefix,
   return Status::OK();
 }
 
-Status CloudEnvImpl::FindObsoleteDbid(const std::string& bucket_name_prefix,
-                                      std::vector<std::string>* to_delete_list) {
+Status CloudEnvImpl::FindObsoleteDbid(
+    const std::string& bucket_name_prefix,
+    std::vector<std::string>* to_delete_list) {
   // fetch list of all registered dbids
   DbidList dbid_list;
   Status st = GetDbidList(bucket_name_prefix, &dbid_list);
@@ -181,7 +183,6 @@ Status CloudEnvImpl::FindObsoleteDbid(const std::string& bucket_name_prefix,
 Status CloudEnvImpl::extractParents(const std::string& bucket_name_prefix,
                                     const DbidList& dbid_list,
                                     DbidParents* parents) {
-
   const std::string delimiter(DBID_SEPARATOR);
   // use current time as seed for random generator
   std::srand(static_cast<unsigned int>(std::time(0)));
@@ -190,7 +191,7 @@ Status CloudEnvImpl::extractParents(const std::string& bucket_name_prefix,
   Status st;
   for (auto iter = dbid_list.begin(); iter != dbid_list.end(); ++iter) {
     // download IDENTITY
-    std::string cloudfile = iter->second  + "/IDENTITY";
+    std::string cloudfile = iter->second + "/IDENTITY";
     std::string localfile = scratch + "/.rockset_IDENTITY." + random;
     st = GetObject(bucket_name_prefix, cloudfile, localfile);
     if (!st.ok() && !st.IsNotFound()) {
@@ -211,15 +212,13 @@ Status CloudEnvImpl::extractParents(const std::string& bucket_name_prefix,
     std::string all_dbid;
     st = ReadFileToString(base_env_, localfile, &all_dbid);
     if (!st.ok()) {
-      Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-          "[pg] Unable to read %s %s",
+      Log(InfoLogLevel::ERROR_LEVEL, info_log_, "[pg] Unable to read %s %s",
           localfile.c_str(), st.ToString().c_str());
       return st;
     }
     st = base_env_->DeleteFile(localfile);
     if (!st.ok()) {
-      Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-          "[pg] Unable to delete %s %s",
+      Log(InfoLogLevel::ERROR_LEVEL, info_log_, "[pg] Unable to delete %s %s",
           localfile.c_str(), st.ToString().c_str());
       return st;
     }
@@ -229,22 +228,23 @@ Status CloudEnvImpl::extractParents(const std::string& bucket_name_prefix,
 
     // We want to return parents[1x45-555] = [678a-6577, 7789-9aef]
     std::vector<std::string> parent_dbids;
-    size_t  start = 0, end = 0;
+    size_t start = 0, end = 0;
     while (end != std::string::npos) {
+      end = all_dbid.find(delimiter, start);
 
-        end = all_dbid.find(delimiter, start);
+      // If at end, use length=maxLength.  Else use length=end-start.
+      parent_dbids.push_back(all_dbid.substr(
+          start, (end == std::string::npos) ? std::string::npos : end - start));
 
-        // If at end, use length=maxLength.  Else use length=end-start.
-        parent_dbids.push_back(all_dbid.substr(start,
-                       (end == std::string::npos) ? std::string::npos : end - start));
-
-        // If at end, use start=maxSize.  Else use start=end+delimiter.
-        start = ((end > (std::string::npos - delimiter.size()))
-                  ?  std::string::npos  :  end + delimiter.size());
+      // If at end, use start=maxSize.  Else use start=end+delimiter.
+      start = ((end > (std::string::npos - delimiter.size()))
+                   ? std::string::npos
+                   : end + delimiter.size());
     }
     if (parent_dbids.size() > 0) {
-      std::string leaf_dbid = parent_dbids[parent_dbids.size()-1];
-      // Verify that the leaf dbid matches the one that we retrived from CloudEnv
+      std::string leaf_dbid = parent_dbids[parent_dbids.size() - 1];
+      // Verify that the leaf dbid matches the one that we retrived from
+      // CloudEnv
       if (leaf_dbid != iter->first) {
         Log(InfoLogLevel::ERROR_LEVEL, info_log_,
             "[pg] The IDENTITY file for dbid '%s' contains leaf dbid as '%s'",
@@ -256,7 +256,6 @@ Status CloudEnvImpl::extractParents(const std::string& bucket_name_prefix,
   }
   return st;
 }
-
 
 }  // namespace rocksdb
 #endif  // ROCKSDB_LITE

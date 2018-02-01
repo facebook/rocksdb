@@ -2,6 +2,8 @@
 
 #pragma once
 #include <atomic>
+#include <condition_variable>
+#include <mutex>
 #include <thread>
 #include "rocksdb/cloud/cloud_env_options.h"
 #include "rocksdb/env.h"
@@ -28,7 +30,7 @@ class CloudEnvImpl : public CloudEnv {
   Env* GetBaseEnv() { return base_env_; }
 
   // The separator used to separate dbids while creating the dbid of a clone
-  static constexpr const char* DBID_SEPARATOR =  "rockset";
+  static constexpr const char* DBID_SEPARATOR = "rockset";
 
   // A map from a dbid to the list of all its parent dbids.
   typedef std::map<std::string, std::vector<std::string>> DbidParents;
@@ -38,8 +40,7 @@ class CloudEnvImpl : public CloudEnv {
   Status FindObsoleteDbid(const std::string& bucket_name_prefix,
                           std::vector<std::string>* dbids);
   Status extractParents(const std::string& bucket_name_prefix,
-                        const DbidList& dbid_list,
-                        DbidParents* parents);
+                        const DbidList& dbid_list, DbidParents* parents);
 
  protected:
   // The type of cloud service aws google azure, etc
@@ -54,11 +55,14 @@ class CloudEnvImpl : public CloudEnv {
   // The underlying env
   Env* base_env_;
 
-  // The purger keep on running till this is set to false.
-  std::atomic<bool> purger_is_running_;
-
   std::shared_ptr<Logger> info_log_;  // informational messages
 
+  // Protects purger_cv_
+  std::mutex purger_lock_;
+  std::condition_variable purger_cv_;
+  // The purger keep on running till this is set to false. (and is notified on
+  // purger_cv_);
+  bool purger_is_running_;
   std::thread purge_thread_;
 
   // A background thread that deletes orphaned objects in cloud storage
@@ -66,8 +70,7 @@ class CloudEnvImpl : public CloudEnv {
   void StopPurger();
 
  private:
-
-    // scratch space in local dir
+  // scratch space in local dir
   static constexpr const char* SCRATCH_LOCAL_DIR = "/tmp";
 };
 

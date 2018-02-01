@@ -22,6 +22,8 @@ void CloudEnvOptions::Dump(Logger* log) const {
          encryption_key_id.c_str());
   Header(log, "           COptions.create_bucket_if_missing: %s",
          create_bucket_if_missing ? "true" : "false");
+  Header(log, "                         COptions.run_purger: %s",
+         run_purger ? "true" : "false");
 }
 
 }  // namespace rocksdb

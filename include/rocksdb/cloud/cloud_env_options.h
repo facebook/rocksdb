@@ -106,6 +106,11 @@ class CloudEnvOptions {
   // means the default timeout assigned by the underlying cloud storage.
   uint64_t request_timeout_ms;
 
+  // Use this to turn off the purger. You can do this if you don't use the clone
+  // feature of RocksDB cloud
+  // Default: true
+  bool run_purger;
+
   CloudEnvOptions(
       CloudType _cloud_type = CloudType::kAws,
       bool _keep_local_sst_files = false, bool _keep_local_log_files = true,
@@ -113,8 +118,7 @@ class CloudEnvOptions {
       bool _validate_filesize = true,
       std::shared_ptr<CloudRequestCallback> _cloud_request_callback = nullptr,
       bool _server_side_encryption = false, std::string _encryption_key_id = "",
-      bool _create_bucket_if_missing = true,
-      uint64_t _request_timeout_ms = 0)
+      bool _create_bucket_if_missing = true, uint64_t _request_timeout_ms = 0, bool _run_purger = false)
       : cloud_type(_cloud_type),
         keep_local_sst_files(_keep_local_sst_files),
         keep_local_log_files(_keep_local_log_files),
@@ -124,7 +128,8 @@ class CloudEnvOptions {
         server_side_encryption(_server_side_encryption),
         encryption_key_id(std::move(_encryption_key_id)),
         create_bucket_if_missing(_create_bucket_if_missing),
-        request_timeout_ms(_request_timeout_ms) {}
+        request_timeout_ms(_request_timeout_ms),
+        run_purger(_run_purger) {}
 
   // print out all options to the log
   void Dump(Logger* log) const;
@@ -195,8 +200,8 @@ class CloudEnv : public Env {
 
   // Get the size of the object in cloud storage
   virtual Status GetObjectSize(const std::string& bucket_name_prefix,
-                              const std::string& bucket_object_path,
-                              uint64_t* filesize) = 0;
+                               const std::string& bucket_object_path,
+                               uint64_t* filesize) = 0;
 
   // Copy the specified cloud object from one location in the cloud
   // storage to another location in cloud storage
