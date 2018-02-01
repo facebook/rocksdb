@@ -18,7 +18,7 @@
 #include "rocksdb/utilities/transaction_db.h"
 
 #include "rocksjni/portal.h"
-#include "rocksjni/init.h"
+
 
 /*
  * Class:     org_rocksdb_TransactionDB
@@ -430,5 +430,5 @@ void Java_org_rocksdb_TransactionDB_setDeadlockInfoBufferSize(
 void Java_org_rocksdb_TransactionDB_disposeInternal(JNIEnv* env, jobject jobj,
     jlong jhandle) {
   delete reinterpret_cast<rocksdb::TransactionDB*>(jhandle);
-    rocksdb::detachCurrentThread();
+
 }

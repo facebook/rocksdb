@@ -218,8 +218,11 @@ public class RocksDBTest {
    }
 
    @Override
-   public byte[] merge(byte[] key, byte[] oldvalue, byte[] newvalue) {
-     if (oldvalue==null) return newvalue;
+   public byte[] merge(byte[] key, byte[] oldvalue, byte[] newvalue,ReturnType rt) {
+     if (oldvalue==null) {
+       rt.isArgumentReference=true;
+       return newvalue;
+     }
      StringBuffer sb=new StringBuffer(new String(oldvalue));
      sb.append(',');
      //if (1==1)throw new IndexOutOfBoundsException();
@@ -233,7 +236,7 @@ public class RocksDBTest {
 
 
     public M1() throws RocksDBException {
-      super(true,true,false);
+      super(true,false,false);
     }
 
     private byte[]  collect(byte[][] operands){
@@ -249,7 +252,7 @@ public class RocksDBTest {
 
 
     @Override
-    public byte[] fullMerge(byte[] key, byte[] oldvalue, byte[][] operands) throws RocksDBException {
+    public byte[] fullMerge(byte[] key, byte[] oldvalue, byte[][] operands,ReturnType rt) throws RocksDBException {
       System.out.println("execute fullMerge"+oldvalue);
       if (oldvalue==null) return collect(operands);
 
@@ -257,7 +260,7 @@ public class RocksDBTest {
     }
 
     @Override
-    public byte[] partialMultiMerge(byte[] key,  byte[][] operands) {
+    public byte[] partialMultiMerge(byte[] key,  byte[][] operands,ReturnType rt) {
       System.out.println("execute partialMultiMerge");
 
 
@@ -266,7 +269,7 @@ public class RocksDBTest {
     }
 
     @Override
-    public byte[] partialMerge(byte[] key, byte[] left, byte[] right) {
+    public byte[] partialMerge(byte[] key, byte[] left, byte[] right,ReturnType rt) {
       System.out.println("execute partialMerge");
       StringBuffer sb=new StringBuffer(new String(left));
       sb.append(',');
@@ -283,7 +286,7 @@ public class RocksDBTest {
     }
   }
 
-  @Test
+  //@Test
   public void merge2() throws RocksDBException, NoSuchMethodException, InterruptedException {
     Thread t=new Thread(new Runnable() {
       @Override
@@ -306,13 +309,13 @@ public class RocksDBTest {
             // merge key1 with another value portion
             db.merge("key1".getBytes(), "value2".getBytes());
             System.out.println(new String(db.get("key1".getBytes())));
-       //     assertThat(db.get("key1".getBytes())).isEqualTo("value,value2".getBytes());
+            assertThat(db.get("key1".getBytes())).isEqualTo("value,value2".getBytes());
             // merge key1 with another value portion
             db.merge(wOpt, "key1".getBytes(), "value3".getBytes());
-          //  assertThat(db.get("key1".getBytes())).isEqualTo("value,value2,value3".getBytes());
+            assertThat(db.get("key1".getBytes())).isEqualTo("value,value2,value3".getBytes());
             db.merge(wOpt, "key1".getBytes(), "value4".getBytes());
             System.out.println(new String(db.get("key1".getBytes())));
-            //assertThat(db.get("key1".getBytes())).isEqualTo("value,value2,value3,value4".getBytes());
+            assertThat(db.get("key1".getBytes())).isEqualTo("value,value2,value3,value4".getBytes());
             // merge on non existent key shall insert the value
             db.merge(wOpt, "key2".getBytes(), "xxxx".getBytes());
             assertThat(db.get("key2".getBytes())).isEqualTo(

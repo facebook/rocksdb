@@ -66,6 +66,7 @@
 #define EXT4_SUPER_MAGIC 0xEF53
 #endif
 
+#include <iostream>
 namespace rocksdb {
 
 namespace {
@@ -127,6 +128,7 @@ class PosixEnv : public Env {
   PosixEnv();
 
   virtual ~PosixEnv() {
+
     for (const auto tid : threads_to_join_) {
       pthread_join(tid, nullptr);
     }
@@ -923,6 +925,7 @@ struct StartThreadState {
 };
 
 static void* StartThreadWrapper(void* arg) {
+
   StartThreadState* state = reinterpret_cast<StartThreadState*>(arg);
   state->user_function(state->arg);
   delete state;
@@ -942,6 +945,7 @@ void PosixEnv::StartThread(void (*function)(void* arg), void* arg) {
 }
 
 void PosixEnv::WaitForJoin() {
+
   for (const auto tid : threads_to_join_) {
     pthread_join(tid, nullptr);
   }

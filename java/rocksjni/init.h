@@ -44,10 +44,11 @@ namespace rocksdb {
      extern JavaVM *JVM;
      extern jint jvmVersion;
      extern JNIEnv *getEnv();
+
      extern void  setLoader(void (*) (JNIEnv *));
      extern void  setUnloader(void (*) (JNIEnv *));
      extern void detachCurrentThread();
-
+     extern  void  destroyJNIContext();
 
 
 

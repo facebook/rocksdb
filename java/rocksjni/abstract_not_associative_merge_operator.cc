@@ -22,10 +22,16 @@
 
 
 namespace rocksdb {
-
+    /*
+     * benchmark: executing 100.000 get(associated every call to 1 fullMerge java call)  it is executed in <<500ms. )
+     *
+     */
     namespace JNIAbstractNotAssociativeMergeOperator {
 
         static jclass bytearrayClass;
+        static jfieldID rtField;
+        static jclass rtClass;
+        static jmethodID rtConstructor;
         static jmethodID merge;
         static jmethodID full_merge;
         static jmethodID multi_merge;
@@ -78,21 +84,24 @@ namespace rocksdb {
                 jb2 = env->NewByteArray(s2);
                 env->SetByteArrayRegion(jb2, 0, s2, buf2);
 
+                jobject rtobject = env->NewObject( rtClass, rtConstructor);
 
-                jbyteArray jresult = (jbyteArray) env->CallObjectMethod(obj, merge, jb0, jb1, jb2);
+                jbyteArray jresult = (jbyteArray) env->CallObjectMethod(obj, merge, jb0, jb1, jb2,rtobject);
                 jthrowable ex = env->ExceptionOccurred();
 
                 env->ReleaseByteArrayElements(jb0, buf0, JNI_COMMIT);
                 env->ReleaseByteArrayElements(jb1, buf1, JNI_COMMIT);
                 env->ReleaseByteArrayElements(jb2, buf2, JNI_COMMIT);
-
+                env->DeleteLocalRef(rtobject);
 
 
                 if (ex) {
 
                     if (jresult!= nullptr) {
                         char *result = (char *) env->GetByteArrayElements(jresult, 0);
-                        env->ReleaseByteArrayElements(jresult, (jbyte*)result, JNI_ABORT);
+
+                        jboolean rtr=env->GetBooleanField(rtobject, rtField);
+                        env->ReleaseByteArrayElements(jresult, (jbyte*)result, rtr?JNI_COMMIT:JNI_ABORT);
                     }
                     env->Throw(ex);
 
@@ -102,7 +111,8 @@ namespace rocksdb {
                     char *result = (char *) env->GetByteArrayElements(jresult, 0);
                     new_value->clear();
                     new_value->assign(result, len);
-                    env->ReleaseByteArrayElements(jresult, (jbyte*)result,  JNI_ABORT);
+                    jboolean rtr=env->GetBooleanField(rtobject, rtField);
+                    env->ReleaseByteArrayElements(jresult, (jbyte*)result, rtr?JNI_COMMIT:JNI_ABORT);
 
 
                     return true;
@@ -134,9 +144,10 @@ namespace rocksdb {
                 jb = env->NewByteArray(s0);
                 jbyte* buf=(jbyte *) key.data();
                 env->SetByteArrayRegion(jb, 0, s0,buf );
+                jobject rtobject = env->NewObject( rtClass, rtConstructor);
 
 
-                jbyteArray jresult = (jbyteArray) env->CallObjectMethod(obj, multi_merge, jb, oa);
+                jbyteArray jresult = (jbyteArray) env->CallObjectMethod(obj, multi_merge, jb, oa,rtobject);
                 jthrowable ex = env->ExceptionOccurred();
 
 
@@ -148,13 +159,14 @@ namespace rocksdb {
 
                 }
                 env->DeleteLocalRef(oa);
-
+                env->DeleteLocalRef(rtobject);
 
                 if (ex) {
 
                     if (jresult!= nullptr) {
                         char *result = (char *) env->GetByteArrayElements(jresult, 0);
-                        env->ReleaseByteArrayElements(jresult, (jbyte*)result, JNI_ABORT);
+                        jboolean rtr=env->GetBooleanField(rtobject, rtField);
+                        env->ReleaseByteArrayElements(jresult, (jbyte*)result, rtr?JNI_COMMIT:JNI_ABORT);
                     }
                     env->Throw(ex);
 
@@ -164,7 +176,8 @@ namespace rocksdb {
                     char *result = (char *) env->GetByteArrayElements(jresult, 0);
                     new_value->clear();
                     new_value->assign(result, len);
-                    env->ReleaseByteArrayElements(jresult, (jbyte*)result,  JNI_ABORT);
+                    jboolean rtr=env->GetBooleanField(rtobject, rtField);
+                    env->ReleaseByteArrayElements(jresult, (jbyte*)result, rtr?JNI_COMMIT:JNI_ABORT);
 
 
                     return true;
@@ -220,6 +233,8 @@ namespace rocksdb {
 
             virtual bool FullMergeV2(const MergeOperationInput &merge_in,
                                      MergeOperationOutput *merge_out) const override {
+              //  std::cout<<"enter in fullmerge2\n";
+              //  std::cout.flush();
                 JNIEnv *env = rocksdb::getEnv();
                 if (env == NULL) return false;
                 jbyteArray jb0, jb1, jb;
@@ -258,9 +273,13 @@ namespace rocksdb {
                     env->SetByteArrayRegion(jb, 0, slice.size(), (jbyte *) slice.data());
                     env->SetObjectArrayElement(oa, i, jb);
                 }
+                jobject rtobject = env->NewObject( rtClass, rtConstructor);
 
-
-                jbyteArray jresult = (jbyteArray) env->CallObjectMethod(obj, full_merge, jb0, jb1, oa);
+                //std::cout<<"calling\n";
+                //std::cout.flush();
+                jbyteArray jresult = (jbyteArray) env->CallObjectMethod(obj, full_merge, jb0, jb1, oa,rtobject);
+              //  std::cout<<"exiting\n";
+               // std::cout.flush();
                 jthrowable ex = env->ExceptionOccurred();
 
 
@@ -269,17 +288,18 @@ namespace rocksdb {
                 for (size_t i = 0; i < size; i++) {
                     jb = (jbyteArray) env->GetObjectArrayElement(oa, i);
                     jbyte *r =  env->GetByteArrayElements(jb, 0);
-                    env->ReleaseByteArrayElements(jb, r, JNI_COMMIT);
+                    env->ReleaseByteArrayElements(jb, r,  JNI_COMMIT);
 
                 }
                 env->DeleteLocalRef(oa);
-
+                env->DeleteLocalRef(rtobject);
 
                 if (ex) {
 
                     if (jresult!= nullptr) {
                         char *result = (char *) env->GetByteArrayElements(jresult, 0);
-                        env->ReleaseByteArrayElements(jresult, (jbyte*)result, JNI_ABORT);
+                        jboolean rtr=env->GetBooleanField(rtobject, rtField);
+                        env->ReleaseByteArrayElements(jresult, (jbyte*)result, rtr?JNI_COMMIT:JNI_ABORT);
                     }
                     env->Throw(ex);
 
@@ -287,10 +307,45 @@ namespace rocksdb {
                 } else {
                     int len = env->GetArrayLength(jresult) / sizeof(char);
                     char *result = (char *) env->GetByteArrayElements(jresult, 0);
-                    merge_out->new_value.clear();
-                    merge_out->new_value.assign(result, len);
-                    env->ReleaseByteArrayElements(jresult, (jbyte*)result,  JNI_ABORT);
+                    jboolean rtr = env->GetBooleanField(rtobject, rtField);
+                    if (rtr) {
+                        if (result==(char*)buf0) merge_out->existing_operand=key;
+                        else if(result==(char*)buf1) merge_out->existing_operand=(*existing_value);
+                        else {
+                            bool found=false;
+                            for (size_t i = 0; i < size; i++) {
 
+                                slice = operands.at(i);
+                                if (result==slice.data()) {
+                                    merge_out->existing_operand = slice;
+                                    found=true;
+                                    break;
+                                }
+                            }
+                            if (!found){
+                                    env->ReleaseByteArrayElements(jresult, (jbyte *) result, JNI_ABORT);
+                                    jclass cls = env->FindClass("java/lang/Error");
+                                    env->ThrowNew(cls, "unable match a existing reference:reference is released");
+
+
+                                return false;
+
+
+                            }
+                        }
+
+                        env->ReleaseByteArrayElements(jresult, (jbyte *) result, JNI_COMMIT);
+
+                    }
+                    else{
+                        merge_out->new_value.clear();
+                    merge_out->new_value.assign(result, len);
+
+                    env->ReleaseByteArrayElements(jresult, (jbyte *) result,  JNI_ABORT);
+                   }
+                   // std::cout<<"outing in fullmerge2\n";
+
+                   // rocksdb::detachCurrentThread();
                     return true;
                 }
 
@@ -302,15 +357,16 @@ namespace rocksdb {
             }
 
             void destroy(JNIEnv *env) {
+               // std::cout<<"delete global ref 1\n";
 
-                env->DeleteWeakGlobalRef(obj);
+                env->DeleteGlobalRef(obj);
 
 
             }
 
             void init(JNIEnv *e, jobject hook) {
-
-                obj = e->NewWeakGlobalRef(hook);
+                //std::cout<<"init global ref \n";
+                obj = e->NewGlobalRef(hook);
 
 
             }
@@ -325,24 +381,28 @@ namespace rocksdb {
 
         };
         static void staticDestroy(JNIEnv *env){
+          //  std::cout<<"static destroy\n";
+            env->DeleteGlobalRef(reinterpret_cast<jobject>(JNIAbstractNotAssociativeMergeOperator::rtClass));
+
             env->DeleteGlobalRef(reinterpret_cast<jobject>(JNIAbstractNotAssociativeMergeOperator::bytearrayClass));
+
         }
         static void staticInit(JNIEnv *env) {
-
+            //std::cout<<"static init\n";
             jclass cls = env->FindClass("org/rocksdb/AbstractNotAssociativeMergeOperator");
             if (cls== nullptr) {
                 cls = env->FindClass("java/lang/Error");
                 env->ThrowNew(cls, "unable to find AbstractNotAssociativeMergeOperator");
             }
 
-            JNIAbstractNotAssociativeMergeOperator::merge = env->GetMethodID(cls, "partialMerge", "([B[B[B)[B");
+            JNIAbstractNotAssociativeMergeOperator::merge = env->GetMethodID(cls, "partialMerge", "([B[B[BLorg/rocksdb/ReturnType;)[B");
 
             JNIAbstractNotAssociativeMergeOperator::multi_merge = env->GetMethodID(cls, "partialMultiMerge",
-                                                                                   "([B[[B)[B");
+                                                                                   "([B[[BLorg/rocksdb/ReturnType;)[B");
 
             JNIAbstractNotAssociativeMergeOperator::should_merge = env->GetMethodID(cls, "shouldMerge", "([[B)Z");
 
-            JNIAbstractNotAssociativeMergeOperator::full_merge = env->GetMethodID(cls, "fullMerge", "([B[B[[B)[B");
+            JNIAbstractNotAssociativeMergeOperator::full_merge = env->GetMethodID(cls, "fullMerge", "([B[B[[BLorg/rocksdb/ReturnType;)[B");
 
 
             if (JNIAbstractNotAssociativeMergeOperator::merge == 0) {
@@ -362,12 +422,31 @@ namespace rocksdb {
                 cls = env->FindClass("java/lang/Error");
                 env->ThrowNew(cls, "unable to find method fullMerge");
             }
-            jclass a = env->FindClass("[B");
+            jclass a = env->FindClass("Lorg/rocksdb/ReturnType;");
+            if (a==0){
+                cls = env->FindClass("java/lang/Error");
+                env->ThrowNew(cls, "unable to find object org.rocksdb.ReturnType");
+
+            } else  JNIAbstractNotAssociativeMergeOperator::rtClass= reinterpret_cast<jclass>(env->NewGlobalRef(a));
+            rtConstructor = env->GetMethodID( a, "<init>", "()V");
+            if (rtConstructor==0){
+                cls = env->FindClass("java/lang/Error");
+                env->ThrowNew(cls, "unable to find field ReturnType.<init>");
+
+            }
+            JNIAbstractNotAssociativeMergeOperator::rtField = env->GetFieldID( a, "isArgumentReference", "Z");
+            if (JNIAbstractNotAssociativeMergeOperator::rtField==0){
+                cls = env->FindClass("java/lang/Error");
+                env->ThrowNew(cls, "unable to find field ReturnType.isArgumentReference");
+
+            }
+            a = env->FindClass("[B");
             if (a==0){
                 cls = env->FindClass("java/lang/Error");
                 env->ThrowNew(cls, "unable to find object []");
 
             } else  JNIAbstractNotAssociativeMergeOperator::bytearrayClass= reinterpret_cast<jclass>(env->NewGlobalRef(a));
+
         }
 
     }

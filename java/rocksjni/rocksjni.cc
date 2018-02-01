@@ -1495,6 +1495,15 @@ void Java_org_rocksdb_RocksDB_disposeInternal(
   auto* db = reinterpret_cast<rocksdb::DB*>(jhandle);
   assert(db != nullptr);
   delete db;
+
+}
+
+
+//context lives until vm lives because many db instances can be present
+void Java_org_rocksdb_RocksDB_destroyJNIContext(
+        JNIEnv* env, jclass clazz) {
+
+    rocksdb::destroyJNIContext();
 }
 
 jlong rocksdb_iterator_helper(
@@ -2226,5 +2235,5 @@ void Java_org_rocksdb_RocksDB_destroyDB(
       rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
     }
   }
-  rocksdb::detachCurrentThread();
+
 }

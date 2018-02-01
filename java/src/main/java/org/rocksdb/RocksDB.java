@@ -32,8 +32,19 @@ public class RocksDB extends RocksObject {
       = new AtomicReference<>(LibraryState.NOT_LOADED);
 
   static {
+    Runtime.getRuntime().addShutdownHook(new Thread(new Runnable(){
+
+
+      @Override
+      public void run() {
+        if (libraryLoaded.get()== LibraryState.LOADED) {
+          destroyJNIContext();
+        }
+      }
+    }));
     RocksDB.loadLibrary();
   }
+
 
   /**
    * Loads the necessary library files.
@@ -69,6 +80,7 @@ public class RocksDB extends RocksObject {
       }
 
       libraryLoaded.set(LibraryState.LOADED);
+
       return;
     }
 
@@ -79,7 +91,10 @@ public class RocksDB extends RocksObject {
         //ignore
       }
     }
+
   }
+
+  static public native void destroyJNIContext();
 
   /**
    * Tries to load the necessary library files from the given list of
@@ -127,6 +142,7 @@ public class RocksDB extends RocksObject {
       }
 
       libraryLoaded.set(LibraryState.LOADED);
+
       return;
     }
 
@@ -137,6 +153,7 @@ public class RocksDB extends RocksObject {
         //ignore
       }
     }
+
   }
 
   /**
