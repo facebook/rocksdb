@@ -20,6 +20,7 @@
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #ifdef OS_LINUX
 #include <sys/statfs.h>
 #include <sys/syscall.h>
@@ -776,6 +777,18 @@ class PosixEnv : public Env {
 
     *output_path = ret;
     return Status::OK();
+  }
+
+  virtual Status CheckCompactionSize(const char *path_in_filesystem,
+      uint64_t size_added_by_compact) override {
+    // Figure out how much free space is in the filesystem
+    struct statvfs statbuf;
+    statvfs(path_in_filesystem, &statbuf);
+    uint64_t freespace = statbuf.f_bsize * statbuf.f_bfree;
+    if (freespace <= size_added_by_compact)
+      return Status::CompactionTooLarge();
+    else
+      return Status::OK();
   }
 
   // Allow increasing the number of worker threads.

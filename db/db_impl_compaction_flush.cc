@@ -1625,21 +1625,20 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         for (size_t i = 0; i < c->num_input_levels(); i++) {
           for (size_t j = 0; j < c->num_input_files(i); j++) {
             FileMetaData *filemeta = c->input(i, j);
-            size_added_by_compaction += filemeta->compensated_file_size;
+            size_added_by_compaction += filemeta->fd.GetFileSize();
           }
         }
-        // Now figure out how much free space is in the file filesystem
-        struct statvfs statbuf;
-        statvfs(dbname_.c_str(), &statbuf);
-        uint64_t freespace = statbuf.f_bsize * statbuf.f_bfree;
-        if (freespace <= size_added_by_compaction) {
+        Status s = env_->CheckCompactionSize(dbname_.c_str(), size_added_by_compaction);
+        if (!s.ok()) {
           // Then don't do the compaction
           c->ReleaseCompactionFiles(status);
-          // TODO: Is there any other cleanup we need to do?
+          // TODO(amytai09): Is there any other cleanup we need to do?
           AddToCompactionQueue(cfd);
           ++unscheduled_compactions_;
 
           c.reset();
+          // Sleep for 1 ms?
+          env_->SleepForMicroseconds(1000000);
         } else {
           // update statistics
           MeasureTime(stats_, NUM_FILES_IN_SINGLE_COMPACTION,
