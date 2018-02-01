@@ -40,6 +40,10 @@ class MetaIndexBuilder {
   // Write all the added key/value pairs to the block and return the contents
   // of the block.
   Slice Finish();
+  // After the first call to Finish() has been made (finished_ == true)
+  // this call will return the Slice that was returned in the first call
+  // to Finish()
+  Slice IdempotentFinish();
 
  private:
   // store the sorted key/handle of the metablocks.
@@ -61,6 +65,10 @@ class PropertyBlockBuilder {
 
   // Write all the added entries to the block and return the block contents
   Slice Finish();
+
+  // After a first call to Finish(), returns the Slice returned in the
+  // first call to Finish()
+  Slice IdempotentFinish();
 
  private:
   std::unique_ptr<BlockBuilder> properties_block_;

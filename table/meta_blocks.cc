@@ -38,6 +38,10 @@ Slice MetaIndexBuilder::Finish() {
   return meta_index_block_->Finish();
 }
 
+Slice MetaIndexBuilder::IdempotentFinish() {
+  return meta_index_block_->IdempotentFinish();
+}
+
 PropertyBlockBuilder::PropertyBlockBuilder()
     : properties_block_(new BlockBuilder(1 /* restart interval */)) {}
 
@@ -113,6 +117,10 @@ Slice PropertyBlockBuilder::Finish() {
   }
 
   return properties_block_->Finish();
+}
+
+Slice PropertyBlockBuilder::IdempotentFinish() {
+  return properties_block_->IdempotentFinish();
 }
 
 void LogPropertiesCollectionError(

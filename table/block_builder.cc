@@ -87,6 +87,11 @@ Slice BlockBuilder::Finish() {
   return Slice(buffer_);
 }
 
+Slice BlockBuilder::IdempotentFinish() {
+  assert(finished_);
+  return Slice(buffer_);
+}
+
 void BlockBuilder::Add(const Slice& key, const Slice& value) {
   assert(!finished_);
   assert(counter_ <= block_restart_interval_);

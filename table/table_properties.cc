@@ -198,10 +198,13 @@ const std::string TablePropertiesNames::kOldestKeyTime =
     "rocksdb.oldest.key.time";
 
 extern const std::string kPropertiesBlock = "rocksdb.properties";
+extern const std::string kPropertiesBlock2 = "rocksdb.properties2";
 // Old property block name for backward compatibility
 extern const std::string kPropertiesBlockOldName = "rocksdb.stats";
 extern const std::string kCompressionDictBlock = "rocksdb.compression_dict";
+extern const std::string kCompressionDictBlock2 = "rocksdb.compression_dict2";
 extern const std::string kRangeDelBlock = "rocksdb.range_del";
+extern const std::string kRangeDelBlock2 = "rocksdb.range_del2";
 
 // Seek to the properties block.
 // Return true if it successfully seeks to the properties block.

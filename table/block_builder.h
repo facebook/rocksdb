@@ -35,6 +35,11 @@ class BlockBuilder {
   // lifetime of this builder or until Reset() is called.
   Slice Finish();
 
+  // After Finish() has been called at least once (finished_ == true),
+  // this function will return whatever Slice was returned in the first
+  // call to Finish()
+  Slice IdempotentFinish();
+
   // Returns an estimate of the current (uncompressed) size of the block
   // we are building.
   inline size_t CurrentSizeEstimate() const { return estimate_; }

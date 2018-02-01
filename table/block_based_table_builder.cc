@@ -649,8 +649,9 @@ Status BlockBasedTableBuilder::Finish() {
   }
 
   BlockHandle filter_block_handle, metaindex_block_handle, index_block_handle,
-      compression_dict_block_handle, range_del_block_handle;
+      compression_dict_block_handle, range_del_block_handle, metaindex_block_handle2;
   // Write filter block
+  std::vector<Slice> filter_blocks;
   if (ok() && r->filter_builder != nullptr) {
     Status s = Status::Incomplete();
     while (s.IsIncomplete()) {
@@ -658,6 +659,19 @@ Status BlockBasedTableBuilder::Finish() {
       assert(s.ok() || s.IsIncomplete());
       r->props.filter_size += filter_content.size();
       WriteRawBlock(filter_content, kNoCompression, &filter_block_handle);
+      filter_blocks.push_back(filter_content);
+    }
+  }
+  // END write filter block
+
+  // Locally replicate filter block(s) again.
+  BlockHandle filter_block_handle2;
+  if (r->table_options.double_metadata) {
+    for (std::vector<Slice>::iterator it = filter_blocks.begin();
+        it != filter_blocks.end(); it++) {
+      // TODO(amytai09): We don't support partitioned filters... so we should probably
+      // assert that filter_blocks.size() == 1 or something
+      WriteRawBlock(*it, kNoCompression, &filter_block_handle2);
     }
   }
 
@@ -691,15 +705,25 @@ Status BlockBasedTableBuilder::Finish() {
       // Add mapping from "<filter_block_prefix>.Name" to location
       // of filter data.
       std::string key;
+      std::string key2;
       if (r->filter_builder->IsBlockBased()) {
         key = BlockBasedTable::kFilterBlockPrefix;
+        key2 = BlockBasedTable::kFilterBlockPrefix2;
       } else {
         key = r->table_options.partition_filters
                   ? BlockBasedTable::kPartitionedFilterBlockPrefix
                   : BlockBasedTable::kFullFilterBlockPrefix;
+        key2 = r->table_options.partition_filters
+                  ? BlockBasedTable::kPartitionedFilterBlockPrefix2
+                  : BlockBasedTable::kFullFilterBlockPrefix2;
       }
       key.append(r->table_options.filter_policy->Name());
+      key2.append(r->table_options.filter_policy->Name());
+
       meta_index_builder.Add(key, filter_block_handle);
+      if (r->table_options.double_metadata) {
+        meta_index_builder.Add(key2, filter_block_handle2);
+      }
     }
 
     // Write properties and compression dictionary blocks.
@@ -761,12 +785,33 @@ Status BlockBasedTableBuilder::Finish() {
       );
       meta_index_builder.Add(kPropertiesBlock, properties_block_handle);
 
+      // Locally replicate the properties block
+      if (r->table_options.double_metadata) {
+        BlockHandle properties_block_handle2;
+        WriteRawBlock(
+            property_block_builder.IdempotentFinish(),
+            kNoCompression,
+            &properties_block_handle2
+            );
+        meta_index_builder.Add(kPropertiesBlock2, properties_block_handle2);
+      }
+
       // Write compression dictionary block
       if (r->compression_dict && r->compression_dict->size()) {
         WriteRawBlock(*r->compression_dict, kNoCompression,
                       &compression_dict_block_handle);
         meta_index_builder.Add(kCompressionDictBlock,
                                compression_dict_block_handle);
+        // Locally replicate compression directionary
+        // Note: It's ok to reuse *r->compression_dict, because it's
+        // just a string, unlike the other *BlockBuilders
+        if (r->table_options.double_metadata) {
+          BlockHandle compression_dict_block_handle2;
+          WriteRawBlock(*r->compression_dict, kNoCompression,
+              &compression_dict_block_handle);
+          meta_index_builder.Add(kCompressionDictBlock2,
+              compression_dict_block_handle2);
+        }
       }
     }  // end of properties/compression dictionary block writing
 
@@ -774,20 +819,39 @@ Status BlockBasedTableBuilder::Finish() {
       WriteRawBlock(r->range_del_block.Finish(), kNoCompression,
                     &range_del_block_handle);
       meta_index_builder.Add(kRangeDelBlock, range_del_block_handle);
+
+      // Locally replicate
+      if (r->table_options.double_metadata) {
+        BlockHandle range_del_block_handle2;
+        WriteRawBlock(r->range_del_block.IdempotentFinish(), kNoCompression,
+            &range_del_block_handle2);
+        meta_index_builder.Add(kRangeDelBlock2, range_del_block_handle2);
+      }
     }  // range deletion tombstone meta block
   }    // meta blocks
 
+  BlockHandle index_block_handle2;
   // Write index block
   if (ok()) {
     // flush the meta index block
     WriteRawBlock(meta_index_builder.Finish(), kNoCompression,
                   &metaindex_block_handle);
+    // Local replication to guard against bit corruption
+    if (r->table_options.double_metadata) {
+      WriteRawBlock(meta_index_builder.IdempotentFinish(), kNoCompression,
+          &metaindex_block_handle2);
+    }
 
+    std::vector<Slice> index_blocks_to_replicate;
     if (r->table_options.enable_index_compression) {
+      if (r->table_options.double_metadata) {
+        assert(false);
+      }
       WriteBlock(index_blocks.index_block_contents, &index_block_handle, false);
     } else {
       WriteRawBlock(index_blocks.index_block_contents, kNoCompression,
                     &index_block_handle);
+      index_blocks_to_replicate.push_back(index_blocks.index_block_contents);
     }
     // If there are more index partitions, finish them and write them out
     Status& s = index_builder_status;
@@ -797,6 +861,9 @@ Status BlockBasedTableBuilder::Finish() {
         return s;
       }
       if (r->table_options.enable_index_compression) {
+        if (r->table_options.double_metadata) {
+          assert(false);
+        }
         WriteBlock(index_blocks.index_block_contents, &index_block_handle,
                    false);
       } else {
@@ -805,6 +872,19 @@ Status BlockBasedTableBuilder::Finish() {
       }
       // The last index_block_handle will be for the partition index block
     }
+    // END INDEX BLOCK
+
+    // Locally replicate all the index blocks again
+    if (r->table_options.double_metadata) {
+      for (std::vector<Slice>::iterator it = index_blocks_to_replicate.begin();
+          it != index_blocks_to_replicate.end(); it++) {
+        // TODO(amytai09): We don't support partitioned indices (see filter blocks too)
+        // so should assert index_blocks_to_replicate.size() == 1 or something..
+        WriteRawBlock(*it, kNoCompression,
+            &index_block_handle2);
+      }
+    }
+    // The last index_block_handle will be for the partition index block2
   }
 
   // Write footer
@@ -824,14 +904,26 @@ Status BlockBasedTableBuilder::Finish() {
                          : kBlockBasedTableMagicNumber,
                   r->table_options.format_version);
     footer.set_metaindex_handle(metaindex_block_handle);
+    if (r->table_options.double_metadata) {
+      footer.set_metaindex_handle2(metaindex_block_handle2);
+      footer.set_index_handle2(index_block_handle2);
+    }
     footer.set_index_handle(index_block_handle);
     footer.set_checksum(r->table_options.checksum);
     std::string footer_encoding;
-    footer.EncodeTo(&footer_encoding);
+    footer.EncodeTo(&footer_encoding, r->table_options.double_metadata);
     assert(r->status.ok());
+
     r->status = r->file->Append(footer_encoding);
     if (r->status.ok()) {
       r->offset += footer_encoding.size();
+    }
+    // Local replication to guard against bit corruption
+    if (r->table_options.double_metadata) {
+      r->status = r->file->Append(footer_encoding);
+      if (r->status.ok()) {
+        r->offset += footer_encoding.size();
+      }
     }
   }
 
@@ -873,7 +965,11 @@ TableProperties BlockBasedTableBuilder::GetTableProperties() const {
 }
 
 const std::string BlockBasedTable::kFilterBlockPrefix = "filter.";
+const std::string BlockBasedTable::kFilterBlockPrefix2 = "filter2.";
 const std::string BlockBasedTable::kFullFilterBlockPrefix = "fullfilter.";
+const std::string BlockBasedTable::kFullFilterBlockPrefix2 = "fullfilter2.";
 const std::string BlockBasedTable::kPartitionedFilterBlockPrefix =
     "partitionedfilter.";
+const std::string BlockBasedTable::kPartitionedFilterBlockPrefix2 =
+    "partitionedfilter2.";
 }  // namespace rocksdb

@@ -86,6 +86,9 @@ inline uint32_t GetCompressFormatForVersion(CompressionType compression_type,
 inline bool BlockBasedTableSupportedVersion(uint32_t version) {
   return version <= 2;
 }
+// Just a 32-bit crc. Because there's no way to bootstrap, we hardcode that
+// the checksum-type of Footers should be crc32.
+static const size_t kFooterTrailerSize = 4;
 
 // Footer encapsulates the fixed information stored at the tail
 // end of every table file.
@@ -113,21 +116,26 @@ class Footer {
   const BlockHandle& metaindex_handle() const { return metaindex_handle_; }
   void set_metaindex_handle(const BlockHandle& h) { metaindex_handle_ = h; }
 
+  const BlockHandle& metaindex_handle2() const { return metaindex_handle2_; }
+  void set_metaindex_handle2(const BlockHandle& h) { metaindex_handle2_ = h; }
+
   // The block handle for the index block of the table
   const BlockHandle& index_handle() const { return index_handle_; }
-
   void set_index_handle(const BlockHandle& h) { index_handle_ = h; }
+
+  const BlockHandle& index_handle2() const { return index_handle2_; }
+  void set_index_handle2(const BlockHandle& h) { index_handle2_ = h; }
 
   uint64_t table_magic_number() const { return table_magic_number_; }
 
-  void EncodeTo(std::string* dst) const;
+  void EncodeTo(std::string* dst, bool double_metadata=false) const;
 
   // Set the current footer based on the input slice.
   //
   // REQUIRES: table_magic_number_ is not set (i.e.,
   // HasInitializedTableMagicNumber() is true). The function will initialize the
   // magic number
-  Status DecodeFrom(Slice* input);
+  Status DecodeFrom(Slice* input, bool double_metadata=false);
 
   // Encoded length of a Footer.  Note that the serialization of a Footer will
   // always occupy at least kMinEncodedLength bytes.  If fields are changed
@@ -141,6 +149,8 @@ class Footer {
     // bytes. It consists of the checksum type, two block handles, padding,
     // a version number (bigger than 1), and a magic number
     kNewVersionsEncodedLength = 1 + 2 * BlockHandle::kMaxEncodedLength + 4 + 8,
+    kDoubleMetadataEncodedLength = 1 + 4 * BlockHandle::kMaxEncodedLength + 4 +
+      8 + kFooterTrailerSize,
     kMinEncodedLength = kVersion0EncodedLength,
     kMaxEncodedLength = kNewVersionsEncodedLength,
   };
@@ -167,6 +177,8 @@ class Footer {
   ChecksumType checksum_;
   BlockHandle metaindex_handle_;
   BlockHandle index_handle_;
+  BlockHandle metaindex_handle2_;
+  BlockHandle index_handle2_;
   uint64_t table_magic_number_ = 0;
 };
 

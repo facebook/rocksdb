@@ -108,7 +108,8 @@ inline uint64_t UpconvertLegacyFooterFormat(uint64_t magic_number) {
 //    <padding> to make the total size 2 * BlockHandle::kMaxEncodedLength + 1
 //    footer version (4 bytes)
 //    table_magic_number (8 bytes)
-void Footer::EncodeTo(std::string* dst) const {
+//    footer checksum (4 bytes)
+void Footer::EncodeTo(std::string* dst, bool double_metadata) const {
   assert(HasInitializedTableMagicNumber());
   if (IsLegacyFooterFormat(table_magic_number())) {
     // has to be default checksum with legacy footer
@@ -124,12 +125,27 @@ void Footer::EncodeTo(std::string* dst) const {
     const size_t original_size = dst->size();
     dst->push_back(static_cast<char>(checksum_));
     metaindex_handle_.EncodeTo(dst);
+    if (double_metadata) {
+      metaindex_handle2_.EncodeTo(dst);
+      index_handle2_.EncodeTo(dst);
+    }
     index_handle_.EncodeTo(dst);
-    dst->resize(original_size + kNewVersionsEncodedLength - 12);  // Padding
+    if (double_metadata) {
+      dst->resize(original_size + kDoubleMetadataEncodedLength - 12 - kFooterTrailerSize);  // Padding
+    } else {
+      dst->resize(original_size + kNewVersionsEncodedLength - 12);  // Padding
+    }
     PutFixed32(dst, version());
     PutFixed32(dst, static_cast<uint32_t>(table_magic_number() & 0xffffffffu));
     PutFixed32(dst, static_cast<uint32_t>(table_magic_number() >> 32));
-    assert(dst->size() == original_size + kNewVersionsEncodedLength);
+
+    if (double_metadata) {
+      auto crc = crc32c::Value(dst->data(), kNewVersionsEncodedLength - kFooterTrailerSize);
+      PutFixed32(dst, crc32c::Mask(crc));
+      assert(dst->size() == original_size + kDoubleMetadataEncodedLength);
+    } else {
+      assert(dst->size() == original_size + kNewVersionsEncodedLength);
+    }
   }
 }
 
@@ -141,17 +157,38 @@ Footer::Footer(uint64_t _table_magic_number, uint32_t _version)
   assert(!IsLegacyFooterFormat(_table_magic_number) || version_ == 0);
 }
 
-Status Footer::DecodeFrom(Slice* input) {
+Status Footer::DecodeFrom(Slice* input, bool double_metadata) {
   assert(!HasInitializedTableMagicNumber());
   assert(input != nullptr);
   assert(input->size() >= kMinEncodedLength);
 
-  const char *magic_ptr =
+  // First, verify the checksum of the footer. If corrupt, the calling
+  // function will need to read the second footer.
+  if (double_metadata) {
+    const char *checksum_ptr = input->data() + input->size() - kFooterTrailerSize;
+    const char *data = input->data();
+    uint32_t value = DecodeFixed32(checksum_ptr);
+    uint32_t actual = 0;
+
+    value = crc32c::Unmask(value);
+    actual = crc32c::Value(data, input->size() - kFooterTrailerSize);
+    if (actual != value)
+      return Status::Corruption("Footer checksum mismatch: expected: " +
+          rocksdb::ToString(value) + " got: " + rocksdb::ToString(actual));
+  }
+
+  const char *magic_ptr;
+  if (double_metadata) {
+    magic_ptr =
+      input->data() + input->size() - kFooterTrailerSize - kMagicNumberLengthByte;
+  } else {
+    magic_ptr =
       input->data() + input->size() - kMagicNumberLengthByte;
+  }
   const uint32_t magic_lo = DecodeFixed32(magic_ptr);
   const uint32_t magic_hi = DecodeFixed32(magic_ptr + 4);
   uint64_t magic = ((static_cast<uint64_t>(magic_hi) << 32) |
-                    (static_cast<uint64_t>(magic_lo)));
+      (static_cast<uint64_t>(magic_lo)));
 
   // We check for legacy formats here and silently upconvert them
   bool legacy = IsLegacyFooterFormat(magic);
@@ -184,12 +221,23 @@ Status Footer::DecodeFrom(Slice* input) {
   }
 
   Status result = metaindex_handle_.DecodeFrom(input);
+  if (result.ok() && double_metadata) {
+    result = metaindex_handle2_.DecodeFrom(input);
+  }
   if (result.ok()) {
     result = index_handle_.DecodeFrom(input);
   }
+  if (result.ok() && double_metadata) {
+    result = index_handle2_.DecodeFrom(input);
+  }
   if (result.ok()) {
     // We skip over any leftover data (just padding for now) in "input"
-    const char* end = magic_ptr + kMagicNumberLengthByte;
+    const char* end;
+    if (double_metadata) {
+      end = magic_ptr + kMagicNumberLengthByte + kFooterTrailerSize;
+    } else {
+      end = magic_ptr + kMagicNumberLengthByte;
+    }
     *input = Slice(end, input->data() + input->size() - end);
   }
   return result;
@@ -208,7 +256,9 @@ std::string Footer::ToString() const {
   } else {
     result.append("checksum: " + rocksdb::ToString(checksum_) + "\n  ");
     result.append("metaindex handle: " + metaindex_handle_.ToString() + "\n  ");
+    //result.append("metaindex handle2: " + metaindex_handle2_.ToString() + "\n  ");
     result.append("index handle: " + index_handle_.ToString() + "\n  ");
+    //result.append("index handle2: " + index_handle2_.ToString() + "\n  ");
     result.append("footer version: " + rocksdb::ToString(version_) + "\n  ");
     result.append("table_magic_number: " +
                   rocksdb::ToString(table_magic_number_) + "\n  ");

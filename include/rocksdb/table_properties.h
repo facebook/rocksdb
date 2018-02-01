@@ -53,8 +53,11 @@ struct TablePropertiesNames {
 };
 
 extern const std::string kPropertiesBlock;
+extern const std::string kPropertiesBlock2;
 extern const std::string kCompressionDictBlock;
+extern const std::string kCompressionDictBlock2;
 extern const std::string kRangeDelBlock;
+extern const std::string kRangeDelBlock2;
 
 // `TablePropertiesCollector` provides the mechanism for users to collect
 // their own properties that they are interested in. This class is essentially
