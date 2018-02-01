@@ -48,7 +48,7 @@ inline std::string dirname(std::string const& pathname) {
 
 // If the last char of the string is the specified character, then return a
 // string that has the last character removed.
-inline std::string& rtrim_if(std::string& s, char c) {
+inline std::string rtrim_if(std::string s, char c) {
   if (s.length() > 0 && s[s.length() - 1] == c) {
     s.erase(s.begin() + s.size() - 1);
   }
@@ -56,9 +56,9 @@ inline std::string& rtrim_if(std::string& s, char c) {
 }
 // If the first char of the string is the specified character, then return a
 // string that has the first character removed.
-inline std::string& ltrim_if(std::string& s, char c) {
+inline std::string ltrim_if(std::string s, char c) {
   if (s.length() > 0 && s[0] == c) {
-    s.erase(0,1);
+    s.erase(0, 1);
   }
   return s;
 }

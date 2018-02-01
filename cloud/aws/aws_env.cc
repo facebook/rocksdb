@@ -763,8 +763,9 @@ Status AwsEnv::GetChildrenFromS3(const std::string& path,
   // The bucket name
   Aws::String bucket = GetBucket(bucket_prefix);
 
+  // S3 paths don't start with '/'
+  auto prefix = ltrim_if(path, '/');
   // the starting object marker
-  Aws::String prefix = Aws::String(path.c_str(), path.size());
   Aws::String marker;
   bool loop = true;
 
@@ -773,7 +774,7 @@ Status AwsEnv::GetChildrenFromS3(const std::string& path,
     Aws::S3::Model::ListObjectsRequest request;
     request.SetBucket(bucket);
     request.SetMaxKeys(50);
-    request.SetPrefix(prefix);
+    request.SetPrefix(Aws::String(prefix.c_str(), prefix.size()));
     request.SetMarker(marker);
 
     Aws::S3::Model::ListObjectsOutcome outcome =
@@ -800,12 +801,12 @@ Status AwsEnv::GetChildrenFromS3(const std::string& path,
       const Aws::String& key = o.GetKey();
       // Our path should be a prefix of the fetched value
       std::string keystr(key.c_str(), key.size());
-      assert(keystr.find(path) == 0);
-      if (keystr.find(path) != 0) {
-        loop = false;
-        break;
+      assert(keystr.find(prefix) == 0);
+      if (keystr.find(prefix) != 0) {
+        return Status::IOError("Unexpected result from AWS S3: " + keystr);
       }
-      result->push_back(keystr);
+      auto fname = ltrim_if(keystr.substr(prefix.size()), '/');
+      result->push_back(fname);
     }
 
     // If there are no more entries, then we are done.
@@ -909,13 +910,12 @@ Status AwsEnv::GetChildren(const std::string& path,
   assert(status().ok());
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_, "[s3] GetChildren path '%s' ",
       path.c_str());
-  assert(!IsSstFile(path));
   result->clear();
 
   // Fetch the list of children from both buckets in S3
   Status st;
   if (has_src_bucket_) {
-    st = GetChildrenFromS3(srcname(path), GetSrcBucketPrefix(), result);
+    st = GetChildrenFromS3(src_object_prefix_, GetSrcBucketPrefix(), result);
     if (!st.ok()) {
       Log(InfoLogLevel::ERROR_LEVEL, info_log_,
           "[s3] GetChildren src bucket %s %s error from S3 %s",
@@ -924,7 +924,7 @@ Status AwsEnv::GetChildren(const std::string& path,
     }
   }
   if (has_dest_bucket_ && two_unique_buckets()) {
-    st = GetChildrenFromS3(srcname(path), GetDestBucketPrefix(), result);
+    st = GetChildrenFromS3(dest_object_prefix_, GetDestBucketPrefix(), result);
     if (!st.ok()) {
       Log(InfoLogLevel::ERROR_LEVEL, info_log_,
           "[s3] GetChildren dest bucket %s %s error from S3 %s",

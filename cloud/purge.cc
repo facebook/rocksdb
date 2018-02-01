@@ -12,6 +12,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
+#include "util/filename.h"
 
 namespace rocksdb {
 
@@ -114,14 +115,14 @@ Status CloudEnvImpl::FindObsoleteFiles(const std::string& bucket_name_prefix,
         for (const auto& db : parent_dbids) {
           // parent db's paths
           const std::string& parent_path = dbid_list[db];
-          live_files.insert(parent_path + "/" + std::to_string(*it) + ".sst");
+          live_files.insert(MakeTableFileName(parent_path, *it));
         }
       }
     }
   }
 
   // Get all files from all dbpaths in this bucket
-  BucketObjectMetadata all_files;
+  std::vector<std::string> all_files;
 
   // Scan all the db directories in this bucket. Retrieve the list
   // of files in all these db directories.
@@ -129,16 +130,20 @@ Status CloudEnvImpl::FindObsoleteFiles(const std::string& bucket_name_prefix,
     std::unique_ptr<SequentialFile> result;
     std::string mpath = iter->second;
 
-    st = ListObjects(bucket_name_prefix, mpath, &all_files);
+    BucketObjectMetadata objects;
+    st = ListObjects(bucket_name_prefix, mpath, &objects);
     if (!st.ok()) {
       Log(InfoLogLevel::ERROR_LEVEL, info_log_,
           "[pg] Unable to list objects in bucketprefix %s path_prefix %s. %s",
           bucket_name_prefix.c_str(), mpath.c_str(), st.ToString().c_str());
     }
+    for (auto& o : objects.pathnames) {
+      all_files.push_back(mpath + "/" + o);
+    }
   }
 
   // If a file does not belong to live_files, then it can be deleted
-  for (const auto& candidate : all_files.pathnames) {
+  for (const auto& candidate : all_files) {
     if (live_files.find(candidate) == live_files.end() &&
         ends_with(candidate, ".sst")) {
       Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
