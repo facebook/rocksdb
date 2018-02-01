@@ -388,9 +388,10 @@ class SstFileWriterCollector : public TablePropertiesCollector {
   const char* Name() const override { return name_.c_str(); }
 
   Status Finish(UserCollectedProperties* properties) override {
+    std::string count = std::to_string(count_);
     *properties = UserCollectedProperties{
         {prefix_ + "_SstFileWriterCollector", "YES"},
-        {prefix_ + "_Count", std::to_string(count_)},
+        {prefix_ + "_Count", count},
     };
     return Status::OK();
   }
