@@ -52,7 +52,7 @@ class PessimisticTransaction : public TransactionBaseImpl {
   // It is basically Commit without going through Prepare phase. The write batch
   // is also directly provided instead of expecting txn to gradually batch the
   // transactions writes to an internal write batch.
-  Status CommitBatch(WriteBatch* batch, bool skip_cc = false);
+  Status CommitBatch(WriteBatch* batch);
 
   Status Rollback() override;
 

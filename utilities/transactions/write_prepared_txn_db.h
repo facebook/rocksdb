@@ -73,6 +73,10 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
                                 const TransactionOptions& txn_options,
                                 Transaction* old_txn) override;
 
+  using PessimisticTransactionDB::Write;
+  Status Write(const WriteOptions& opts, WriteBatch* updates,
+               bool skip_cc) override;
+
   using DB::Get;
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,

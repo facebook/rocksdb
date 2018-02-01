@@ -142,10 +142,9 @@ class TransactionBaseImpl : public Transaction {
   }
 
   Status PutUntracked(ColumnFamilyHandle* column_family, const Slice& key,
-                      const Slice& value, bool skip_cc) override;
-  Status PutUntracked(const Slice& key, const Slice& value,
-                      bool skip_cc) override {
-    return PutUntracked(nullptr, key, value, skip_cc);
+                      const Slice& value) override;
+  Status PutUntracked(const Slice& key, const Slice& value) override {
+    return PutUntracked(nullptr, key, value);
   }
 
   Status PutUntracked(ColumnFamilyHandle* column_family, const SliceParts& key,

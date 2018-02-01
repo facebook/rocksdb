@@ -435,15 +435,12 @@ Status PessimisticTransactionDB::Merge(const WriteOptions& options,
 
 Status PessimisticTransactionDB::Write(const WriteOptions& opts,
                                        WriteBatch* updates, bool skip_cc) {
+  if (skip_cc) {
+    return db_impl_->Write(opts, updates);
+  }
   // Need to lock all keys in this batch to prevent write conflicts with
   // concurrent transactions.
-  static Transaction* stxn = BeginInternalTransaction(opts);
-
-  TransactionOptions txn_options;
-  Transaction* txn =
-      BeginTransaction(opts, txn_options, skip_cc ? stxn : nullptr);
-  txn->SetLockTimeout(txn_db_options_.default_lock_timeout);
-
+  Transaction* txn = BeginInternalTransaction(opts);
   txn->DisableIndexing();
   // TODO(myabandeh): indexing being disabled we need another machanism to
   // detect duplicattes in the input patch
@@ -455,12 +452,9 @@ Status PessimisticTransactionDB::Write(const WriteOptions& opts,
   // operations will not cause a deadlock.
   // In order to avoid a deadlock with a concurrent Transaction, Transactions
   // should use a lock timeout.
-  Status s;
-  s = txn_impl->CommitBatch(updates, skip_cc);
+  Status s = txn_impl->CommitBatch(updates);
 
-  if (!skip_cc) {
-    delete txn;
-  }
+  delete txn;
 
   return s;
 }

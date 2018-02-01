@@ -325,10 +325,8 @@ class Transaction {
   // function will still acquire locks necessary to make sure this write doesn't
   // cause conflicts in other transactions and may return Status::Busy().
   virtual Status PutUntracked(ColumnFamilyHandle* column_family,
-                              const Slice& key, const Slice& value,
-                              bool skip_cc = false) = 0;
-  virtual Status PutUntracked(const Slice& key, const Slice& value,
-                              bool skip_cc = false) = 0;
+                              const Slice& key, const Slice& value) = 0;
+  virtual Status PutUntracked(const Slice& key, const Slice& value) = 0;
   virtual Status PutUntracked(ColumnFamilyHandle* column_family,
                               const SliceParts& key,
                               const SliceParts& value) = 0;

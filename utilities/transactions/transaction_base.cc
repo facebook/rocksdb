@@ -396,13 +396,9 @@ Status TransactionBaseImpl::SingleDelete(ColumnFamilyHandle* column_family,
 }
 
 Status TransactionBaseImpl::PutUntracked(ColumnFamilyHandle* column_family,
-                                         const Slice& key, const Slice& value,
-                                         bool skip_cc) {
-  Status s;
-  if (!skip_cc) {
-    s = TryLock(column_family, key, false /* read_only */, true /* exclusive */,
-                true /* skip_validate */);
-  }
+                                         const Slice& key, const Slice& value) {
+  Status s = TryLock(column_family, key, false /* read_only */,
+                     true /* exclusive */, true /* skip_validate */);
 
   if (s.ok()) {
     s = GetBatchForWrite()->Put(column_family, key, value);

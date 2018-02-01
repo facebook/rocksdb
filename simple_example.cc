@@ -129,7 +129,8 @@ int main(int argc, char**argv) {
       Slice value_slice = Slice((char*)value, 24);
 
 if (skip_cc) {
-      s= txn->PutUntracked(key_slice, value_slice, skip_cc);
+// TODO: PutUntracked could be optimized for skip_cc skipping locks
+      s= txn->PutUntracked(key_slice, value_slice);
 } else {
       s= txn->Put(key_slice, value_slice);
 }
