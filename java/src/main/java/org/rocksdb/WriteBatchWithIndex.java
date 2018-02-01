@@ -27,9 +27,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
   public WriteBatchWithIndex() {
     super(newWriteBatchWithIndex());
   }
-  protected WriteBatchWithIndex(final long handle) {
-    super(handle);
-  }
+
 
   /**
    * Creates a WriteBatchWithIndex where no bytes

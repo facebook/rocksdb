@@ -55,13 +55,6 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
 	org.rocksdb.WriteOptions\
 	org.rocksdb.WriteBatchWithIndex\
 	org.rocksdb.WBWIRocksIterator\
-	org.rocksdb.AbstractTransactionNotifier\
-    org.rocksdb.OptimisticTransactionDB\
-    org.rocksdb.OptimisticTransactionOptions\
-    org.rocksdb.Transaction\
-    org.rocksdb.TransactionDB\
-    org.rocksdb.TransactionDBOptions\
-    org.rocksdb.TransactionOptions\
     org.rocksdb.AbstractAssociativeMergeOperator\
     org.rocksdb.AbstractNotAssociativeMergeOperator\
     org.rocksdb.util.Environment\
