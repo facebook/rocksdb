@@ -18,10 +18,10 @@
 #include <vector>
 
 #include "db/db_impl.h"
-#include "util/cast_util.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/transaction_db.h"
+#include "util/cast_util.h"
 #include "util/mutexlock.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
@@ -50,8 +50,8 @@ Status WritePreparedTxnDB::Initialize(
   return s;
 }
 
-Status WritePreparedTxnDB::Write(const WriteOptions& opts,
-                                       WriteBatch* updates, bool skip_cc) {
+Status WritePreparedTxnDB::Write(const WriteOptions& opts, WriteBatch* updates,
+                                 bool skip_cc) {
   // TODO(myabandeh): optimize for skip_cc
 
   // Need to lock all keys in this batch to prevent write conflicts with
@@ -72,7 +72,6 @@ Status WritePreparedTxnDB::Write(const WriteOptions& opts,
 
   return s;
 }
-
 
 Transaction* WritePreparedTxnDB::BeginTransaction(
     const WriteOptions& write_options, const TransactionOptions& txn_options,
