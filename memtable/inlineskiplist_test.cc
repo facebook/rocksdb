@@ -54,11 +54,12 @@ class InlineSkipTest : public testing::Test {
     keys_.insert(key);
   }
 
-  void InsertWithHint(TestInlineSkipList* list, Key key, void** hint) {
+  bool InsertWithHint(TestInlineSkipList* list, Key key, void** hint) {
     char* buf = list->AllocateKey(sizeof(Key));
     memcpy(buf, &key, sizeof(Key));
-    list->InsertWithHint(buf, hint);
+    bool res = list->InsertWithHint(buf, hint);
     keys_.insert(key);
+    return res;
   }
 
   void Validate(TestInlineSkipList* list) {

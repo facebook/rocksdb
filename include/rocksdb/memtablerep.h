@@ -81,7 +81,10 @@ class MemTableRep {
   // single buffer and pass that in as the parameter to Insert).
   // REQUIRES: nothing that compares equal to key is currently in the
   // collection, and no concurrent modifications to the table in progress
-  virtual void Insert(KeyHandle handle) = 0;
+  //
+  // Returns false if MemTableRepFactory::CanHandleDuplicatedKey() is true and
+  // the <key, seq> already exists.
+  virtual bool Insert(KeyHandle handle) = 0;
 
   // Same as Insert(), but in additional pass a hint to insert location for
   // the key. If hint points to nullptr, a new hint will be populated.
@@ -89,14 +92,20 @@ class MemTableRep {
   //
   // Currently only skip-list based memtable implement the interface. Other
   // implementations will fallback to Insert() by default.
-  virtual void InsertWithHint(KeyHandle handle, void** hint) {
+  //
+  // Returns false if MemTableRepFactory::CanHandleDuplicatedKey() is true and
+  // the <key, seq> already exists.
+  virtual bool InsertWithHint(KeyHandle handle, void** hint) {
     // Ignore the hint by default.
-    Insert(handle);
+    return Insert(handle);
   }
 
   // Like Insert(handle), but may be called concurrent with other calls
-  // to InsertConcurrently for other handles
-  virtual void InsertConcurrently(KeyHandle handle);
+  // to InsertConcurrently for other handles.
+  //
+  // Returns false if MemTableRepFactory::CanHandleDuplicatedKey() is true and
+  // the <key, seq> already exists.
+  virtual bool InsertConcurrently(KeyHandle handle);
 
   // Returns true iff an entry that compares equal to key is in the collection.
   virtual bool Contains(const char* key) const = 0;
@@ -226,6 +235,12 @@ class MemTableRepFactory {
   // Return true if the current MemTableRep supports concurrent inserts
   // Default: false
   virtual bool IsInsertConcurrentlySupported() const { return false; }
+
+  // Return true if the current MemTableRep supports detecting duplicate
+  // <key,seq> at insertion time. If true, then MemTableRep::Insert* returns
+  // false when if the <key,seq> already exists.
+  // Default: false
+  virtual bool CanHandleDuplicatedKey() const { return false; }
 };
 
 // This uses a skip list to store keys. It is the default.
@@ -246,6 +261,8 @@ class SkipListFactory : public MemTableRepFactory {
   virtual const char* Name() const override { return "SkipListFactory"; }
 
   bool IsInsertConcurrentlySupported() const override { return true; }
+
+  bool CanHandleDuplicatedKey() const override { return true; }
 
  private:
   const size_t lookahead_;
