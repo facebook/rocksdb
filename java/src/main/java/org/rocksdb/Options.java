@@ -51,6 +51,27 @@ public class Options extends RocksObject
     env_ = Env.getDefault();
   }
 
+  /**
+   * Copy constructor for ColumnFamilyOptions.
+   *
+   * NOTE: This does a shallow copy, which means comparator, merge_operator
+   * and other pointers will be cloned!
+   *
+   * @param other The Options to copy.
+   */
+  public Options(Options other) {
+    super(copyOptions(other.nativeHandle_));
+    this.env_ = other.env_;
+    this.memTableConfig_ = other.memTableConfig_;
+    this.tableFormatConfig_ = other.tableFormatConfig_;
+    this.rateLimiter_ = other.rateLimiter_;
+    this.comparator_ = other.comparator_;
+    this.compactionOptionsUniversal_ = other.compactionOptionsUniversal_;
+    this.compactionOptionsFIFO_ = other.compactionOptionsFIFO_;
+    this.compressionOptions_ = other.compressionOptions_;
+    this.rowCache_ = other.rowCache_;
+  }
+
   @Override
   public Options setIncreaseParallelism(final int totalThreads) {
     assert(isOwningHandle());
@@ -1548,6 +1569,7 @@ public class Options extends RocksObject
   private native static long newOptions();
   private native static long newOptions(long dbOptHandle,
       long cfOptHandle);
+  private native static long copyOptions(long handle);
   @Override protected final native void disposeInternal(final long handle);
   private native void setEnv(long optHandle, long envHandle);
   private native void prepareForBulkLoad(long handle);
@@ -1868,6 +1890,7 @@ public class Options extends RocksObject
   private native boolean forceConsistencyChecks(final long handle);
 
   // instance variables
+  // NOTE: If you add new member variables, please update the copy constructor above!
   private Env env_;
   private MemTableConfig memTableConfig_;
   private TableFormatConfig tableFormatConfig_;

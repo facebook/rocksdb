@@ -33,6 +33,22 @@ public class DBOptions
   }
 
   /**
+   * Copy constructor for DBOptions.
+   *
+   * NOTE: This does a shallow copy, which means env, rate_limiter, sst_file_manager,
+   * info_log and other pointers will be cloned!
+   *
+   * @param other The DBOptions to copy.
+   */
+  public DBOptions(DBOptions other) {
+    super(copyDBOptions(other.nativeHandle_));
+    this.env_ = other.env_;
+    this.numShardBits_ = other.numShardBits_;
+    this.rateLimiter_ = other.rateLimiter_;
+    this.rowCache_ = other.rowCache_;
+  }
+
+  /**
    * <p>Method to get a options instance by using pre-configured
    * property values. If one or many values are undefined in
    * the context of RocksDB the method will return a null
@@ -954,6 +970,7 @@ public class DBOptions
       String optString);
 
   private native static long newDBOptions();
+  private native static long copyDBOptions(long handle);
   @Override protected final native void disposeInternal(final long handle);
 
   private native void optimizeForSmallDb(final long handle);
@@ -1127,6 +1144,7 @@ public class DBOptions
   private native boolean avoidFlushDuringShutdown(final long handle);
 
   // instance variables
+  // NOTE: If you add new member variables, please update the copy constructor above!
   private Env env_;
   private int numShardBits_;
   private RateLimiter rateLimiter_;
