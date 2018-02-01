@@ -1156,18 +1156,13 @@ class MemTableInserter : public WriteBatch::Handler {
                                                  value, &merged_value);
         if (status == UpdateStatus::UPDATED_INPLACE) {
           // prev_value is updated in-place with final value.
-#ifndef NDEBUG
-          bool mem_res =
-#endif
-              mem->Add(sequence_, value_type, key,
-                       Slice(prev_buffer, prev_size));
+          bool mem_res __attribute__((__unused__)) = mem->Add(
+              sequence_, value_type, key, Slice(prev_buffer, prev_size));
           assert(mem_res);
           RecordTick(moptions->statistics, NUMBER_KEYS_WRITTEN);
         } else if (status == UpdateStatus::UPDATED) {
           // merged_value contains the final value.
-#ifndef NDEBUG
-          bool mem_res =
-#endif
+          bool mem_res __attribute__((__unused__)) =
               mem->Add(sequence_, value_type, key, Slice(merged_value));
           assert(mem_res);
           RecordTick(moptions->statistics, NUMBER_KEYS_WRITTEN);
