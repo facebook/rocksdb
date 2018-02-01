@@ -1556,6 +1556,8 @@ Status WriteBatchInternal::InsertInto(
     }
     assert(!seq_per_batch || w->batch_cnt == 0 ||
            inserter.sequence() - w->sequence == w->batch_cnt);
+    assert(!seq_per_batch || w->batch_cnt != 0 ||
+           inserter.sequence() - w->sequence == 1);
   }
   return Status::OK();
 }
@@ -1575,6 +1577,8 @@ Status WriteBatchInternal::InsertInto(
   Status s = writer->batch->Iterate(&inserter);
   assert(!seq_per_batch || batch_cnt == 0 ||
          inserter.sequence() - sequence == batch_cnt);
+  assert(!seq_per_batch || batch_cnt != 0 ||
+         inserter.sequence() - sequence == 1);
   if (concurrent_memtable_writes) {
     inserter.PostProcess();
   }
