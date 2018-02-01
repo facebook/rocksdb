@@ -2893,12 +2893,8 @@ TEST_P(TransactionTest, UntrackedWrites) {
   // Untracked writes should succeed even though key was written after snapshot
   s = txn->PutUntracked("untracked", "1");
   ASSERT_OK(s);
-  if (txn_db_options.write_policy != WRITE_PREPARED) {
-    // WRITE_PREPARED does not currently support dup merge keys.
-    // TODO(myabandeh): remove this if-then when the support is added
-    s = txn->MergeUntracked("untracked", "2");
-    ASSERT_OK(s);
-  }
+  s = txn->MergeUntracked("untracked", "2");
+  ASSERT_OK(s);
   s = txn->DeleteUntracked("untracked");
   ASSERT_OK(s);
 
@@ -4269,11 +4265,6 @@ TEST_P(TransactionTest, SingleDeleteTest) {
 }
 
 TEST_P(TransactionTest, MergeTest) {
-  if (txn_db_options.write_policy == WRITE_PREPARED) {
-    // WRITE_PREPARED does not currently support dup merge keys.
-    // TODO(myabandeh): remove this if-then when the support is added
-    return;
-  }
   WriteOptions write_options;
   ReadOptions read_options;
   string value;
@@ -5063,10 +5054,7 @@ TEST_P(TransactionTest, DuplicateKeys) {
         // sub-patch.
         s = txn0->Put(Slice("foo0"), Slice("bar0c"));
         ASSERT_OK(s);
-        // TODO(myabandeh): enable this after duplicatae merge keys are
-        // supported s = txn0->Merge(Slice("foo2"), Slice("bar2a"));
-        // ASSERT_OK(s);
-        s = txn0->Put(Slice("foo2"), Slice("bar2b"));
+        s = txn0->Merge(Slice("foo2"), Slice("bar2b"));
         ASSERT_OK(s);
         // duplicate the keys but in a different cf. It should not be counted as
         // duplicate.
@@ -5074,9 +5062,8 @@ TEST_P(TransactionTest, DuplicateKeys) {
         ASSERT_OK(s);
         s = txn0->Put(Slice("foo3"), Slice("bar3"));
         ASSERT_OK(s);
-        // TODO(myabandeh): enable this after duplicatae merge keys are
-        // supported s = txn0->Merge(Slice("foo3"), Slice("bar3"));
-        // ASSERT_OK(s);
+        s = txn0->Merge(Slice("foo3"), Slice("bar3"));
+        ASSERT_OK(s);
         s = txn0->Put(Slice("foo4"), Slice("bar4"));
         ASSERT_OK(s);
         s = txn0->Delete(Slice("foo4"));
@@ -5149,10 +5136,10 @@ TEST_P(TransactionTest, DuplicateKeys) {
           ASSERT_TRUE(pinnable_val == ("bar1"));
           s = db->Get(ropt, db->DefaultColumnFamily(), "foo2", &pinnable_val);
           ASSERT_OK(s);
-          ASSERT_TRUE(pinnable_val == ("bar2b"));
+          ASSERT_TRUE(pinnable_val == ("bar2a,bar2b"));
           s = db->Get(ropt, db->DefaultColumnFamily(), "foo3", &pinnable_val);
           ASSERT_OK(s);
-          ASSERT_TRUE(pinnable_val == ("bar3"));
+          ASSERT_TRUE(pinnable_val == ("bar3,bar3"));
           s = db->Get(ropt, db->DefaultColumnFamily(), "foo4", &pinnable_val);
           ASSERT_TRUE(s.IsNotFound());
           if (with_commit_batch) {
