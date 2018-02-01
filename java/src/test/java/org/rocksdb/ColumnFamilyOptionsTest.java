@@ -31,9 +31,9 @@ public class ColumnFamilyOptionsTest {
     origOpts.setTargetFileSizeMultiplier(rand.nextInt(100));
     origOpts.setLevel0StopWritesTrigger(rand.nextInt(50));
     ColumnFamilyOptions copyOpts = new ColumnFamilyOptions(origOpts);
-    assertThat(origOpts.numLevels() == copyOpts.numLevels());
-    assertThat(origOpts.targetFileSizeMultiplier() == copyOpts.targetFileSizeMultiplier());
-    assertThat(origOpts.level0StopWritesTrigger() == copyOpts.level0StopWritesTrigger());
+    assertThat(origOpts.numLevels()).isEqualTo(copyOpts.numLevels());
+    assertThat(origOpts.targetFileSizeMultiplier()).isEqualTo(copyOpts.targetFileSizeMultiplier());
+    assertThat(origOpts.level0StopWritesTrigger()).isEqualTo(copyOpts.level0StopWritesTrigger());
   }
 
   @Test
