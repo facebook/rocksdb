@@ -222,6 +222,9 @@ struct BlockBasedTableOptions {
   // false  will avoid the overhead of decompression if index blocks are evicted
   // and read back
   bool enable_index_compression = true;
+
+  // True if we want to write and read SST tables with double metadata format.
+  bool double_metadata = false;
 };
 
 // Table Properties that are specific to block-based table properties.

@@ -226,6 +226,9 @@ std::string BlockBasedTableFactory::GetPrintableTableOptions() const {
   snprintf(buffer, kBufferSize, "  enable_index_compression: %d\n",
            table_options_.enable_index_compression);
   ret.append(buffer);
+  //snprintf(buffer, kBufferSize, "  double_metadata: %d\n",
+  //         table_options_.double_metadata);
+  //ret.append(buffer);
   return ret;
 }
 

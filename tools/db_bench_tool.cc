@@ -447,6 +447,10 @@ DEFINE_bool(enable_index_compression,
             rocksdb::BlockBasedTableOptions().enable_index_compression,
             "Compress the index block");
 
+DEFINE_bool(double_metadata,
+            rocksdb::BlockBasedTableOptions().double_metadata,
+            "Write metadatat blocks twice");
+
 DEFINE_int64(compressed_cache_size, -1,
              "Number of bytes to use as a cache of compressed data.");
 
