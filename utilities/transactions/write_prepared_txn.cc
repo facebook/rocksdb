@@ -71,10 +71,12 @@ struct CFKeyComparator {
     return lhs.second.compare(rhs.second) < 0;
   }
 };
-struct BatchCounter : public WriteBatch::Handler {
+// Count the number of sub-batches inside a batch. A sub-batch does not have
+// duplicate keys.
+struct SubBatchCounter : public WriteBatch::Handler {
   std::set<std::pair<uint32_t, Slice>, CFKeyComparator> keys_;
   size_t batches_;
-  BatchCounter() : batches_(1) {}
+  SubBatchCounter() : batches_(1) {}
   size_t BatchCnt() { return batches_; }
   void AddKey(uint32_t cf, const Slice& key) {
     auto size = keys_.size();
@@ -121,7 +123,7 @@ Status WritePreparedTxn::PrepareInternal() {
   // For each duplicate key we account for a new sub-batch
   prepare_batch_cnt_ = 1;
   if (GetWriteBatch()->HasDuplicateKeys()) {
-    BatchCounter counter;
+    SubBatchCounter counter;
     auto s = GetWriteBatch()->GetWriteBatch()->Iterate(&counter);
     assert(s.ok());
     prepare_batch_cnt_ = counter.BatchCnt();
@@ -161,7 +163,8 @@ Status WritePreparedTxn::CommitBatchInternal(WriteBatch* batch,
     return Status::OK();
   }
   if (batch_cnt == 0) {  // not provided, then compute it
-    BatchCounter counter;
+    // TODO(myabandeh): add an option to allow user skipping this cost
+    SubBatchCounter counter;
     auto s = batch->Iterate(&counter);
     assert(s.ok());
     batch_cnt = counter.BatchCnt();
@@ -242,7 +245,7 @@ Status WritePreparedTxn::CommitInternal() {
   assert(prepare_batch_cnt_);
   size_t commit_batch_cnt = 0;
   if (includes_data) {
-    BatchCounter counter;
+    SubBatchCounter counter;
     auto s = working_batch->Iterate(&counter);
     assert(s.ok());
     commit_batch_cnt = counter.BatchCnt();
@@ -419,7 +422,7 @@ Status WritePreparedTxn::RebuildFromWriteBatch(WriteBatch* src_batch) {
   auto ret = PessimisticTransaction::RebuildFromWriteBatch(src_batch);
   prepare_batch_cnt_ = 1;
   if (GetWriteBatch()->HasDuplicateKeys()) {
-    BatchCounter counter;
+    SubBatchCounter counter;
     auto s = GetWriteBatch()->GetWriteBatch()->Iterate(&counter);
     assert(s.ok());
     prepare_batch_cnt_ = counter.BatchCnt();

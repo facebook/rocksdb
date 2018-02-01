@@ -66,6 +66,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
                          bool disable_memtable, uint64_t* seq_used,
                          size_t batch_cnt,
                          PreReleaseCallback* pre_release_callback) {
+  assert(!seq_per_batch_ || batch_cnt != 0);
   if (my_batch == nullptr) {
     return Status::Corruption("Batch is nullptr!");
   }
@@ -104,7 +105,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
   WriteThread::Writer w(write_options, my_batch, callback, log_ref,
-                        disable_memtable, pre_release_callback, batch_cnt);
+                        disable_memtable, batch_cnt, pre_release_callback);
 
   if (!write_options.disableWAL) {
     RecordTick(stats_, WRITE_WITH_WAL);
@@ -523,8 +524,8 @@ Status DBImpl::WriteImplWALOnly(const WriteOptions& write_options,
   Status status;
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
   WriteThread::Writer w(write_options, my_batch, callback, log_ref,
-                        true /* disable_memtable */, pre_release_callback,
-                        batch_cnt);
+                        true /* disable_memtable */, batch_cnt,
+                        pre_release_callback);
   RecordTick(stats_, WRITE_WITH_WAL);
   StopWatch write_sw(env_, immutable_db_options_.statistics.get(), DB_WRITE);
 
@@ -580,7 +581,7 @@ Status DBImpl::WriteImplWALOnly(const WriteOptions& write_options,
   PERF_TIMER_GUARD(write_wal_time);
   // LastAllocatedSequence is increased inside WriteToWAL under
   // wal_write_mutex_ to ensure ordered events in WAL
-  size_t seq_inc = 0 /*total_count*/;
+  size_t seq_inc = 0 /* total_count */;
   if (seq_per_batch_) {
     size_t total_batch_cnt = 0;
     for (auto* writer : write_group) {
