@@ -688,259 +688,386 @@ uint32_t crc32c_3way(uint32_t crc, const char* buf, size_t len) {
           do {
             // jumps here for a full block of len 128
             CRCtriplet(crc, next, -128);
+            // FALLTHRU
             case 127:
               // jumps here or below for the first block smaller
               CRCtriplet(crc, next, -127);
+              // FALLTHRU
             case 126:
               CRCtriplet(crc, next, -126); // than 128
+              // FALLTHRU
             case 125:
               CRCtriplet(crc, next, -125);
+              // FALLTHRU
             case 124:
               CRCtriplet(crc, next, -124);
+              // FALLTHRU
             case 123:
               CRCtriplet(crc, next, -123);
+              // FALLTHRU
             case 122:
               CRCtriplet(crc, next, -122);
+              // FALLTHRU
             case 121:
               CRCtriplet(crc, next, -121);
+              // FALLTHRU
             case 120:
               CRCtriplet(crc, next, -120);
+              // FALLTHRU
             case 119:
               CRCtriplet(crc, next, -119);
+              // FALLTHRU
             case 118:
               CRCtriplet(crc, next, -118);
+              // FALLTHRU
             case 117:
               CRCtriplet(crc, next, -117);
+              // FALLTHRU
             case 116:
               CRCtriplet(crc, next, -116);
+              // FALLTHRU
             case 115:
               CRCtriplet(crc, next, -115);
+              // FALLTHRU
             case 114:
               CRCtriplet(crc, next, -114);
+              // FALLTHRU
             case 113:
               CRCtriplet(crc, next, -113);
+              // FALLTHRU
             case 112:
               CRCtriplet(crc, next, -112);
+              // FALLTHRU
             case 111:
               CRCtriplet(crc, next, -111);
+              // FALLTHRU
             case 110:
               CRCtriplet(crc, next, -110);
+              // FALLTHRU
             case 109:
               CRCtriplet(crc, next, -109);
+              // FALLTHRU
             case 108:
               CRCtriplet(crc, next, -108);
+              // FALLTHRU
             case 107:
               CRCtriplet(crc, next, -107);
+              // FALLTHRU
             case 106:
               CRCtriplet(crc, next, -106);
+              // FALLTHRU
             case 105:
               CRCtriplet(crc, next, -105);
+              // FALLTHRU
             case 104:
               CRCtriplet(crc, next, -104);
+              // FALLTHRU
             case 103:
               CRCtriplet(crc, next, -103);
+              // FALLTHRU
             case 102:
               CRCtriplet(crc, next, -102);
+              // FALLTHRU
             case 101:
               CRCtriplet(crc, next, -101);
+              // FALLTHRU
             case 100:
               CRCtriplet(crc, next, -100);
+              // FALLTHRU
             case 99:
               CRCtriplet(crc, next, -99);
+              // FALLTHRU
             case 98:
               CRCtriplet(crc, next, -98);
+              // FALLTHRU
             case 97:
               CRCtriplet(crc, next, -97);
+              // FALLTHRU
             case 96:
               CRCtriplet(crc, next, -96);
+              // FALLTHRU
             case 95:
               CRCtriplet(crc, next, -95);
+              // FALLTHRU
             case 94:
               CRCtriplet(crc, next, -94);
+              // FALLTHRU
             case 93:
               CRCtriplet(crc, next, -93);
+              // FALLTHRU
             case 92:
               CRCtriplet(crc, next, -92);
+              // FALLTHRU
             case 91:
               CRCtriplet(crc, next, -91);
+              // FALLTHRU
             case 90:
               CRCtriplet(crc, next, -90);
+              // FALLTHRU
             case 89:
               CRCtriplet(crc, next, -89);
+              // FALLTHRU
             case 88:
               CRCtriplet(crc, next, -88);
+              // FALLTHRU
             case 87:
               CRCtriplet(crc, next, -87);
+              // FALLTHRU
             case 86:
               CRCtriplet(crc, next, -86);
+              // FALLTHRU
             case 85:
               CRCtriplet(crc, next, -85);
+              // FALLTHRU
             case 84:
               CRCtriplet(crc, next, -84);
+              // FALLTHRU
             case 83:
               CRCtriplet(crc, next, -83);
+              // FALLTHRU
             case 82:
               CRCtriplet(crc, next, -82);
+              // FALLTHRU
             case 81:
               CRCtriplet(crc, next, -81);
+              // FALLTHRU
             case 80:
               CRCtriplet(crc, next, -80);
+              // FALLTHRU
             case 79:
               CRCtriplet(crc, next, -79);
+              // FALLTHRU
             case 78:
               CRCtriplet(crc, next, -78);
+              // FALLTHRU
             case 77:
               CRCtriplet(crc, next, -77);
+              // FALLTHRU
             case 76:
               CRCtriplet(crc, next, -76);
+              // FALLTHRU
             case 75:
               CRCtriplet(crc, next, -75);
+              // FALLTHRU
             case 74:
               CRCtriplet(crc, next, -74);
+              // FALLTHRU
             case 73:
               CRCtriplet(crc, next, -73);
+              // FALLTHRU
             case 72:
               CRCtriplet(crc, next, -72);
+              // FALLTHRU
             case 71:
               CRCtriplet(crc, next, -71);
+              // FALLTHRU
             case 70:
               CRCtriplet(crc, next, -70);
+              // FALLTHRU
             case 69:
               CRCtriplet(crc, next, -69);
+              // FALLTHRU
             case 68:
               CRCtriplet(crc, next, -68);
+              // FALLTHRU
             case 67:
               CRCtriplet(crc, next, -67);
+              // FALLTHRU
             case 66:
               CRCtriplet(crc, next, -66);
+              // FALLTHRU
             case 65:
               CRCtriplet(crc, next, -65);
+              // FALLTHRU
             case 64:
               CRCtriplet(crc, next, -64);
+              // FALLTHRU
             case 63:
               CRCtriplet(crc, next, -63);
+              // FALLTHRU
             case 62:
               CRCtriplet(crc, next, -62);
+              // FALLTHRU
             case 61:
               CRCtriplet(crc, next, -61);
+              // FALLTHRU
             case 60:
               CRCtriplet(crc, next, -60);
+              // FALLTHRU
             case 59:
               CRCtriplet(crc, next, -59);
+              // FALLTHRU
             case 58:
               CRCtriplet(crc, next, -58);
+              // FALLTHRU
             case 57:
               CRCtriplet(crc, next, -57);
+              // FALLTHRU
             case 56:
               CRCtriplet(crc, next, -56);
+              // FALLTHRU
             case 55:
               CRCtriplet(crc, next, -55);
+              // FALLTHRU
             case 54:
               CRCtriplet(crc, next, -54);
+              // FALLTHRU
             case 53:
               CRCtriplet(crc, next, -53);
+              // FALLTHRU
             case 52:
               CRCtriplet(crc, next, -52);
+              // FALLTHRU
             case 51:
               CRCtriplet(crc, next, -51);
+              // FALLTHRU
             case 50:
               CRCtriplet(crc, next, -50);
+              // FALLTHRU
             case 49:
               CRCtriplet(crc, next, -49);
+              // FALLTHRU
             case 48:
               CRCtriplet(crc, next, -48);
+              // FALLTHRU
             case 47:
               CRCtriplet(crc, next, -47);
+              // FALLTHRU
             case 46:
               CRCtriplet(crc, next, -46);
+              // FALLTHRU
             case 45:
               CRCtriplet(crc, next, -45);
+              // FALLTHRU
             case 44:
               CRCtriplet(crc, next, -44);
+              // FALLTHRU
             case 43:
               CRCtriplet(crc, next, -43);
+              // FALLTHRU
             case 42:
               CRCtriplet(crc, next, -42);
+              // FALLTHRU
             case 41:
               CRCtriplet(crc, next, -41);
+              // FALLTHRU
             case 40:
               CRCtriplet(crc, next, -40);
+              // FALLTHRU
             case 39:
               CRCtriplet(crc, next, -39);
+              // FALLTHRU
             case 38:
               CRCtriplet(crc, next, -38);
+              // FALLTHRU
             case 37:
               CRCtriplet(crc, next, -37);
+              // FALLTHRU
             case 36:
               CRCtriplet(crc, next, -36);
+              // FALLTHRU
             case 35:
               CRCtriplet(crc, next, -35);
+              // FALLTHRU
             case 34:
               CRCtriplet(crc, next, -34);
+              // FALLTHRU
             case 33:
               CRCtriplet(crc, next, -33);
+              // FALLTHRU
             case 32:
               CRCtriplet(crc, next, -32);
+              // FALLTHRU
             case 31:
               CRCtriplet(crc, next, -31);
+              // FALLTHRU
             case 30:
               CRCtriplet(crc, next, -30);
+              // FALLTHRU
             case 29:
               CRCtriplet(crc, next, -29);
+              // FALLTHRU
             case 28:
               CRCtriplet(crc, next, -28);
+              // FALLTHRU
             case 27:
               CRCtriplet(crc, next, -27);
+              // FALLTHRU
             case 26:
               CRCtriplet(crc, next, -26);
+              // FALLTHRU
             case 25:
               CRCtriplet(crc, next, -25);
+              // FALLTHRU
             case 24:
               CRCtriplet(crc, next, -24);
+              // FALLTHRU
             case 23:
               CRCtriplet(crc, next, -23);
+              // FALLTHRU
             case 22:
               CRCtriplet(crc, next, -22);
+              // FALLTHRU
             case 21:
               CRCtriplet(crc, next, -21);
+              // FALLTHRU
             case 20:
               CRCtriplet(crc, next, -20);
+              // FALLTHRU
             case 19:
               CRCtriplet(crc, next, -19);
+              // FALLTHRU
             case 18:
               CRCtriplet(crc, next, -18);
+              // FALLTHRU
             case 17:
               CRCtriplet(crc, next, -17);
+              // FALLTHRU
             case 16:
               CRCtriplet(crc, next, -16);
+              // FALLTHRU
             case 15:
               CRCtriplet(crc, next, -15);
+              // FALLTHRU
             case 14:
               CRCtriplet(crc, next, -14);
+              // FALLTHRU
             case 13:
               CRCtriplet(crc, next, -13);
+              // FALLTHRU
             case 12:
               CRCtriplet(crc, next, -12);
+              // FALLTHRU
             case 11:
               CRCtriplet(crc, next, -11);
+              // FALLTHRU
             case 10:
               CRCtriplet(crc, next, -10);
+              // FALLTHRU
             case 9:
               CRCtriplet(crc, next, -9);
+              // FALLTHRU
             case 8:
               CRCtriplet(crc, next, -8);
+              // FALLTHRU
             case 7:
               CRCtriplet(crc, next, -7);
+              // FALLTHRU
             case 6:
               CRCtriplet(crc, next, -6);
+              // FALLTHRU
             case 5:
               CRCtriplet(crc, next, -5);
+              // FALLTHRU
             case 4:
               CRCtriplet(crc, next, -4);
+              // FALLTHRU
             case 3:
               CRCtriplet(crc, next, -3);
+              // FALLTHRU
             case 2:
               CRCtriplet(crc, next, -2);
+              // FALLTHRU
             case 1:
               CRCduplet(crc, next, -1); // the final triplet is actually only 2
               //{ CombineCRC(); }
@@ -953,6 +1080,7 @@ uint32_t crc32c_3way(uint32_t crc, const char* buf, size_t len) {
                 next1 = next0 + 128; // from here on all blocks are 128 long
                 next2 = next1 + 128;
               }
+              // FALLTHRU
             case 0:;
           } while (n > 0);
       }
@@ -964,58 +1092,85 @@ uint32_t crc32c_3way(uint32_t crc, const char* buf, size_t len) {
     switch (count2) {
       case 27:
         CRCsinglet(crc0, next, -27 * 8);
+        // FALLTHRU
       case 26:
         CRCsinglet(crc0, next, -26 * 8);
+        // FALLTHRU
       case 25:
         CRCsinglet(crc0, next, -25 * 8);
+        // FALLTHRU
       case 24:
         CRCsinglet(crc0, next, -24 * 8);
+        // FALLTHRU
       case 23:
         CRCsinglet(crc0, next, -23 * 8);
+        // FALLTHRU
       case 22:
         CRCsinglet(crc0, next, -22 * 8);
+        // FALLTHRU
       case 21:
         CRCsinglet(crc0, next, -21 * 8);
+        // FALLTHRU
       case 20:
         CRCsinglet(crc0, next, -20 * 8);
+        // FALLTHRU
       case 19:
         CRCsinglet(crc0, next, -19 * 8);
+        // FALLTHRU
       case 18:
         CRCsinglet(crc0, next, -18 * 8);
+        // FALLTHRU
       case 17:
         CRCsinglet(crc0, next, -17 * 8);
+        // FALLTHRU
       case 16:
         CRCsinglet(crc0, next, -16 * 8);
+        // FALLTHRU
       case 15:
         CRCsinglet(crc0, next, -15 * 8);
+        // FALLTHRU
       case 14:
         CRCsinglet(crc0, next, -14 * 8);
+        // FALLTHRU
       case 13:
         CRCsinglet(crc0, next, -13 * 8);
+        // FALLTHRU
       case 12:
         CRCsinglet(crc0, next, -12 * 8);
+        // FALLTHRU
       case 11:
         CRCsinglet(crc0, next, -11 * 8);
+        // FALLTHRU
       case 10:
         CRCsinglet(crc0, next, -10 * 8);
+        // FALLTHRU
       case 9:
         CRCsinglet(crc0, next, -9 * 8);
+        // FALLTHRU
       case 8:
         CRCsinglet(crc0, next, -8 * 8);
+        // FALLTHRU
       case 7:
         CRCsinglet(crc0, next, -7 * 8);
+        // FALLTHRU
       case 6:
         CRCsinglet(crc0, next, -6 * 8);
+        // FALLTHRU
       case 5:
         CRCsinglet(crc0, next, -5 * 8);
+        // FALLTHRU
       case 4:
         CRCsinglet(crc0, next, -4 * 8);
+        // FALLTHRU
       case 3:
         CRCsinglet(crc0, next, -3 * 8);
+        // FALLTHRU
       case 2:
         CRCsinglet(crc0, next, -2 * 8);
+        // FALLTHRU
       case 1:
         CRCsinglet(crc0, next, -1 * 8);
+        // FALLTHRU
       case 0:;
     }
   }
