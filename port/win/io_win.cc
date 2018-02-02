@@ -192,8 +192,8 @@ WinMmapReadableFile::WinMmapReadableFile(const std::string& fileName,
       length_(length) {}
 
 WinMmapReadableFile::~WinMmapReadableFile() {
-  BOOL ret = ::UnmapViewOfFile(mapped_region_);
-  (void)ret;
+  BOOL ret __attribute__((__unused__));
+  ret = ::UnmapViewOfFile(mapped_region_);
   assert(ret);
 
   ret = ::CloseHandle(hMap_);
@@ -279,7 +279,7 @@ Status WinMmapFile::MapNewRegion() {
 
     if (hMap_ != NULL) {
       // Unmap the previous one
-      BOOL ret;
+      BOOL ret __attribute__((__unused__));
       ret = ::CloseHandle(hMap_);
       assert(ret);
       hMap_ = NULL;
@@ -1023,7 +1023,7 @@ Status WinDirectory::Fsync() { return Status::OK(); }
 /// WinFileLock
 
 WinFileLock::~WinFileLock() {
-  BOOL ret;
+  BOOL ret __attribute__((__unused__));
   ret = ::CloseHandle(hFile_);
   assert(ret);
 }
