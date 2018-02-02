@@ -169,6 +169,8 @@ public interface ColumnFamilyOptionsInterface
    * If multithreaded compaction is being used, the supplied CompactionFilter
    * instance may be used from different threads concurrently and so should be thread-safe.
    *
+   * @param compactionFilter {@link AbstractCompactionFilter} instance.
+   * @return the instance of the current object.
    */
   T setCompactionFilter(
           final AbstractCompactionFilter<? extends AbstractSlice<?>> compactionFilter);
@@ -188,6 +190,9 @@ public interface ColumnFamilyOptionsInterface
    * A new filter will be created on each compaction run.  If multithreaded
    * compaction is being used, each created CompactionFilter will only be used
    * from a single thread and so does not need to be thread-safe.
+   *
+   * @param compactionFilterFactory {@link AbstractCompactionFilterFactory} instance.
+   * @return the instance of the current object.
    */
   T setCompactionFilterFactory(
           final AbstractCompactionFilterFactory<? extends AbstractCompactionFilter<?>>
