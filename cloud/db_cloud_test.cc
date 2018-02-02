@@ -30,6 +30,9 @@ class CloudTest : public testing::Test {
     clone_dir_ = test::TmpDir() + "/ctest";
     src_bucket_prefix_ = "dbcloud." + AwsEnv::GetTestBucketSuffix();
     src_object_prefix_ = dbname_;
+    // Set dest = src by default
+    dest_bucket_prefix_ = src_bucket_prefix_;
+    dest_object_prefix_ = src_object_prefix_;
     options_.create_if_missing = true;
     db_ = nullptr;
     aenv_ = nullptr;
@@ -80,7 +83,7 @@ class CloudTest : public testing::Test {
   void CreateAwsEnv() {
     ASSERT_OK(CloudEnv::NewAwsEnv(
         base_env_, src_bucket_prefix_, src_object_prefix_, region_,
-        src_bucket_prefix_, src_object_prefix_, region_, cloud_env_options_,
+        dest_bucket_prefix_, dest_object_prefix_, region_, cloud_env_options_,
         options_.info_log, &aenv_));
   }
 
@@ -160,15 +163,6 @@ class CloudTest : public testing::Test {
     // always holds a reference to it.
     ASSERT_TRUE(handles.size() > 0);
     delete handles[0];
-
-    // verify that a clone created with an empty destination directory
-    // creates a db object using the local env. We wrap the local env
-    // with a CloudEnvWrapper, so its type has to be kNone.
-    if (dest_bucket.empty()) {
-      CloudEnvImpl* c =
-          static_cast<CloudEnvImpl*>(clone_db->GetBaseDB()->GetEnv());
-      ASSERT_TRUE(c->GetCloudType() == CloudType::kNone);
-    }
   }
 
   void CloseDB() {
@@ -245,7 +239,7 @@ TEST_F(CloudTest, GetChildrenTest) {
 
   CloseDB();
   DestroyDB(dbname_, Options());
-  CreateAwsEnv();
+  OpenDB();
 
   std::vector<std::string> children;
   ASSERT_OK(aenv_->GetChildren(dbname_, &children));
@@ -283,8 +277,8 @@ TEST_F(CloudTest, Newdb) {
     // Create and Open a new instance
     std::unique_ptr<CloudEnv> cloud_env;
     std::unique_ptr<DBCloud> cloud_db;
-    CloneDB("newdb1", src_bucket_prefix_, src_object_prefix_,
-            dest_bucket_prefix_, dest_object_prefix_, &cloud_db, &cloud_env);
+    CloneDB("newdb1", src_bucket_prefix_, src_object_prefix_, "", "", &cloud_db,
+            &cloud_env);
 
     // Retrieve the id of the first reopen
     ASSERT_OK(cloud_db->GetDbIdentity(newdb1_dbid));
@@ -321,8 +315,8 @@ TEST_F(CloudTest, Newdb) {
     // buckets as newdb1. This should be identical in contents with newdb1.
     std::unique_ptr<CloudEnv> cloud_env;
     std::unique_ptr<DBCloud> cloud_db;
-    CloneDB("newdb2", src_bucket_prefix_, src_object_prefix_,
-            dest_bucket_prefix_, dest_object_prefix_, &cloud_db, &cloud_env);
+    CloneDB("newdb2", src_bucket_prefix_, src_object_prefix_, "", "", &cloud_db,
+            &cloud_env);
 
     // Retrieve the id of the second clone db
     ASSERT_OK(cloud_db->GetDbIdentity(newdb2_dbid));
@@ -440,7 +434,7 @@ TEST_F(CloudTest, TrueClone) {
     // Assert that there are no redundant dbid
     ASSERT_OK(env->FindObsoleteDbid(src_bucket_prefix_, &to_be_deleted));
     // TODO(igor): Re-enable once purger code is fixed
-    //ASSERT_EQ(to_be_deleted.size(), 0);
+    // ASSERT_EQ(to_be_deleted.size(), 0);
   }
 }
 
@@ -499,7 +493,7 @@ TEST_F(CloudTest, CopyToFromS3) {
 
   // Create aws env
   cloud_env_options_.keep_local_sst_files = true;
-  OpenDB();
+  CreateAwsEnv();
   ASSERT_NE(aenv_, nullptr);
   char buffer[1 * 1024 * 1024];
 
@@ -531,7 +525,6 @@ TEST_F(CloudTest, CopyToFromS3) {
       offset += sizeof(buffer);
     }
   }
-  CloseDB();
 }
 
 TEST_F(CloudTest, DelayFileDeletion) {

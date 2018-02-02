@@ -118,7 +118,8 @@ class CloudEnvOptions {
       bool _validate_filesize = true,
       std::shared_ptr<CloudRequestCallback> _cloud_request_callback = nullptr,
       bool _server_side_encryption = false, std::string _encryption_key_id = "",
-      bool _create_bucket_if_missing = true, uint64_t _request_timeout_ms = 0, bool _run_purger = false)
+      bool _create_bucket_if_missing = true, uint64_t _request_timeout_ms = 0,
+      bool _run_purger = false)
       : cloud_type(_cloud_type),
         keep_local_sst_files(_keep_local_sst_files),
         keep_local_log_files(_keep_local_log_files),

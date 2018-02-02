@@ -23,9 +23,6 @@ class DBCloudImpl : public DBCloud {
  public:
   virtual ~DBCloudImpl();
 
-  // Get the contents of the specified file into a string
-  static Status ReadFileIntoString(Env* env, const std::string& pathname,
-                                   std::string* id);
   Status Savepoint();
 
  protected:

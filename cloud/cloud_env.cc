@@ -52,10 +52,10 @@ Status CloudEnv::NewAwsEnv(Env* base_env, const std::string& src_cloud_storage,
     return Status::OK();
   }
 
-  Status st = AwsEnv::NewAwsEnv(
-      base_env, src_cloud_storage, src_cloud_object_prefix, src_cloud_region,
-      dest_cloud_storage, dest_cloud_object_prefix, dest_cloud_region,
-      options, logger, cenv);
+  Status st = AwsEnv::NewAwsEnv(base_env, src_cloud_storage,
+                                src_cloud_object_prefix, src_cloud_region,
+                                dest_cloud_storage, dest_cloud_object_prefix,
+                                dest_cloud_region, options, logger, cenv);
   if (st.ok()) {
     // store a copy of the logger
     CloudEnvImpl* cloud = static_cast<CloudEnvImpl*>(*cenv);

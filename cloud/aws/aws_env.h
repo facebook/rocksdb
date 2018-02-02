@@ -368,7 +368,7 @@ class AwsEnv : public CloudEnvImpl {
   bool has_dest_bucket_;
 
   // Is the src bucket different from the destination bucket?
-  bool has_two_unique_buckets_;
+  bool dest_equal_src_;
 
   Status status();
 
@@ -413,9 +413,6 @@ class AwsEnv : public CloudEnvImpl {
 
   // Converts a local pathname to an object name in the dest bucket
   std::string destname(const std::string& localname);
-
-  // Is the src bucket different from dest bucket?
-  bool two_unique_buckets() const { return has_two_unique_buckets_; }
 };
 
 }  // namespace rocksdb

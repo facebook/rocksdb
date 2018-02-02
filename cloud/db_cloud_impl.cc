@@ -62,7 +62,7 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
 
   // Created logger if it is not already pre-created by user.
   if (!options.info_log) {
-    st = CreateLoggerFromOptions(local_dbname, options, &options.info_log);
+    CreateLoggerFromOptions(local_dbname, options, &options.info_log);
   }
 
   st = DBCloudImpl::SanitizeDirectory(options, local_dbname, read_only);
@@ -99,8 +99,7 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
     }
   }
   // We do not want a very large MANIFEST file because the MANIFEST file is
-  // uploaded to
-  // S3 for every update, so always enable rolling of Manifest file
+  // uploaded to S3 for every update, so always enable rolling of Manifest file
   options.max_manifest_file_size = DBCloudImpl::max_manifest_file_size;
 
   DB* db = nullptr;
@@ -112,39 +111,7 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
     st = DB::Open(options, local_dbname, column_families, handles, &db);
   }
 
-  // If there is no destination bucket, then we have already sucked in all
-  // files locally while opening the database in the previous line. Now, we
-  // can use a pure localenv to serve this database
   CloudEnvImpl* cenv = static_cast<CloudEnvImpl*>(options.env);
-  if (st.ok() && cenv->GetDestBucketPrefix().empty()) {
-    assert(cenv->GetCloudEnvOptions().keep_local_sst_files);
-
-    // Close the database that we opened using the cloud env
-    // First, delete the handle for the default column family because the DBImpl
-    // always holds a reference to it.
-    assert(handles->size() == 1);
-    delete (*handles)[0];
-    delete db;
-    handles->clear();
-    db = nullptr;
-
-    Log(InfoLogLevel::INFO_LEVEL, options.info_log,
-        "Reopening cloud db on local dir %s using local env.",
-        local_dbname.c_str());
-
-    // Reopen database using the local env. We have to wrap it within a
-    // CloudEnvWrapper because a DBCloud instance methods always assume
-    // that it is associated with a CloudEnv
-    // TODO this CloudEnvWrapper leaks and needs to be fixed
-    options.env = new CloudEnvWrapper(cenv->GetBaseEnv());
-    if (read_only) {
-      st = DB::OpenForReadOnly(options, local_dbname, column_families, handles,
-                               &db);
-    } else {
-      st = DB::Open(options, local_dbname, column_families, handles, &db);
-    }
-  }
-
   // now that the database is opened, all file sizes have been verified and we
   // no longer need to verify file sizes for each file that we open. Note that
   // this might have a data race with background compaction, but it's not a big
@@ -217,8 +184,7 @@ Status DBCloudImpl::Savepoint() {
       if (!s.ok()) {
         Log(InfoLogLevel::INFO_LEVEL, default_options.info_log,
             "Savepoint on cloud dbid  %s error in copying srcbucket %s srcpath "
-            "%s "
-            "dest bucket %d dest path %s. %s",
+            "%s dest bucket %d dest path %s. %s",
             dbid.c_str(), cenv->GetSrcBucketPrefix().c_str(),
             cenv->GetSrcObjectPrefix().c_str(),
             cenv->GetDestBucketPrefix().c_str(),
@@ -243,41 +209,6 @@ Status DBCloudImpl::Savepoint() {
     }
   }
   return st;
-}
-
-//
-// Read the contents of the file (upto 64 K) into a memory buffer
-//
-Status DBCloudImpl::ReadFileIntoString(Env* env, const std::string& filename,
-                                       std::string* id) {
-  const EnvOptions soptions;
-  unique_ptr<SequentialFile> file;
-  Status s;
-  {
-    s = env->NewSequentialFile(filename, &file, soptions);
-    if (!s.ok()) {
-      return s;
-    }
-  }
-  char buffer[64 * 1024];
-
-  uint64_t file_size;
-  s = env->GetFileSize(filename, &file_size);
-  if (!s.ok()) {
-    return s;
-  }
-  if (file_size > sizeof(buffer)) {
-    return Status::IOError(
-        "DBCloudImpl::ReadFileIntoString"
-        " Insufficient buffer size");
-  }
-  Slice slice;
-  s = file->Read(static_cast<size_t>(file_size), &slice, buffer);
-  if (!s.ok()) {
-    return s;
-  }
-  id->assign(slice.ToString());
-  return s;
 }
 
 Status DBCloudImpl::CreateNewIdentityFile(CloudEnv* cenv,
@@ -353,17 +284,16 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
   // get local env
   Env* env = cenv->GetBaseEnv();
 
-  // Does the local directory exist
-  unique_ptr<Directory> dir;
-  Status st = env->NewDirectory(local_dir, &dir);
-
-  // If directory does not exist, then re-initialize
+  // Check if local directory exists
+  auto st = env->FileExists(local_dir);
   if (!st.ok()) {
     Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
         "[db_cloud_impl] NeedsReinitialization: "
-        "local dir %s does not exist",
-        local_dir.c_str());
-    return Status::OK();
+        "failed to access local dir %s: %s",
+        local_dir.c_str(), st.ToString().c_str());
+    // If the directory is not found, we should create it. In case of an other
+    // IO error, we need to fail
+    return st.IsNotFound() ? Status::OK() : st;
   }
 
   // Check that the DB ID file exists in localdir
@@ -378,7 +308,7 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
   }
   // Read DBID file from local dir
   std::string local_dbid;
-  st = ReadFileIntoString(env, idfilename, &local_dbid);
+  st = ReadFileToString(env, idfilename, &local_dbid);
   if (!st.ok()) {
     Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
         "[db_cloud_impl] NeedsReinitialization: "
@@ -539,7 +469,7 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
 
   // Check to see that we have a non-zero CURRENT file
   std::string manifest_name;
-  st = ReadFileIntoString(env, local_dir + "/CURRENT", &manifest_name);
+  st = ReadFileToString(env, local_dir + "/CURRENT", &manifest_name);
   if (!st.ok()) {
     Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
         "[db_cloud_impl] NeedsReinitialization: "
@@ -645,8 +575,8 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
       Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
           "[db_cloud_impl] SanitizeDirectory error.  "
           " No destination bucket specified. Set options.keep_local_sst_files "
-          "= true "
-          " to copy in all sst files from src bucket %s into local dir %s",
+          "= true  to copy in all sst files from src bucket %s into local dir "
+          "%s",
           cenv->GetSrcObjectPrefix().c_str(), local_name.c_str());
       return Status::InvalidArgument(
           "No destination bucket. "

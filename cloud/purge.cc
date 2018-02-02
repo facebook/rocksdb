@@ -97,9 +97,8 @@ Status CloudEnvImpl::FindObsoleteFiles(const std::string& bucket_name_prefix,
   // Step2: from all MANIFEST files in Step 1, compile a list of all live files
   for (auto iter = dbid_list.begin(); iter != dbid_list.end(); ++iter) {
     std::unique_ptr<SequentialFile> result;
-    std::string mpath = iter->second + "/MANIFEST";
     std::set<uint64_t> file_nums;
-    st = extractor->GetLiveFiles(mpath, &file_nums);
+    st = extractor->GetLiveFiles(iter->second, &file_nums);
     if (!st.ok()) {
       Log(InfoLogLevel::ERROR_LEVEL, info_log_,
           "[pg] dbid %s extracted files from path %s %s", iter->first.c_str(),
@@ -176,6 +175,8 @@ Status CloudEnvImpl::FindObsoleteDbid(
         Log(InfoLogLevel::WARN_LEVEL, info_log_,
             "[pg] dbid %s non-existent dbpath %s scheduled for deletion",
             iter->first.c_str(), iter->second.c_str());
+        // We don't want to fail the final call
+        st = Status::OK();
       }
     }
   }

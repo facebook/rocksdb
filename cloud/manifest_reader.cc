@@ -1,34 +1,29 @@
 // Copyright (c) 2017 Rockset.
 #ifndef ROCKSDB_LITE
 
-#include "rocksdb/db.h"
+#include "cloud/manifest_reader.h"
 #include "cloud/aws/aws_env.h"
 #include "cloud/db_cloud_impl.h"
-#include "cloud/manifest_reader.h"
+#include "db/version_set.h"
+#include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 #include "util/file_reader_writer.h"
-#include "db/version_set.h"
 
 namespace rocksdb {
 
-ManifestReader::ManifestReader(std::shared_ptr<Logger> info_log,
-                             CloudEnv* cenv,
-                             const std::string& bucket_prefix) :
-    info_log_(info_log),
-    cenv_(cenv),
-    bucket_prefix_(bucket_prefix) {
-}
+ManifestReader::ManifestReader(std::shared_ptr<Logger> info_log, CloudEnv* cenv,
+                               const std::string& bucket_prefix)
+    : info_log_(info_log), cenv_(cenv), bucket_prefix_(bucket_prefix) {}
 
-ManifestReader::~ManifestReader() {
-}
+ManifestReader::~ManifestReader() {}
 
 //
 // Extract all the live files needed by this MANIFEST file
 //
 Status ManifestReader::GetLiveFiles(const std::string manifest_path,
-                                   std::set<uint64_t>* list) {
+                                    std::set<uint64_t>* list) {
   // Open the specified manifest file.
   unique_ptr<SequentialFileReader> file_reader;
   Status s;
@@ -45,8 +40,8 @@ Status ManifestReader::GetLiveFiles(const std::string manifest_path,
   // create a callback that gets invoked whil looping through the log records
   VersionSet::LogReporter reporter;
   reporter.status = &s;
-  log::Reader reader(NULL, std::move(file_reader), &reporter,
-                     true /*checksum*/, 0 /*initial_offset*/, 0);
+  log::Reader reader(NULL, std::move(file_reader), &reporter, true /*checksum*/,
+                     0 /*initial_offset*/, 0);
 
   Slice record;
   std::string scratch;
@@ -62,23 +57,22 @@ Status ManifestReader::GetLiveFiles(const std::string manifest_path,
 
     // add the files that are added by this transaction
     std::vector<std::pair<int, FileMetaData>> new_files = edit.GetNewFiles();
-    for (auto& one: new_files) {
+    for (auto& one : new_files) {
       uint64_t num = one.second.fd.GetNumber();
       list->insert(num);
     }
     // delete the files that are removed by this transaction
     std::set<std::pair<int, uint64_t>> deleted_files = edit.GetDeletedFiles();
-    for (auto& one: deleted_files) {
+    for (auto& one : deleted_files) {
       uint64_t num = one.second;
       list->erase(num);
     }
   }
   file_reader.reset();
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-      "[mn] manifest path %s has %d entries %s",
-      manifest_path.c_str(), count, s.ToString().c_str());
+      "[mn] manifest path %s has %d entries %s", manifest_path.c_str(), count,
+      s.ToString().c_str());
   return s;
 }
-
 }
 #endif /* ROCKSDB_LITE */
