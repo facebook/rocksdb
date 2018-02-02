@@ -11,6 +11,7 @@
 ### Bug Fixes
 * Fix `DisableFileDeletions()` followed by `GetSortedWalFiles()` to not return obsolete WAL files that `PurgeObsoleteFiles()` is going to delete.
 * Fix DB::Flush() keep waiting after flush finish under certain condition.
+* Fix Handle error return from WriteBuffer() during WAL file close and DB close
 
 ## 5.10.0 (12/11/2017)
 ### Public API Change
