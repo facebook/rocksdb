@@ -82,6 +82,9 @@ class SyncPoint {
                                 const std::vector<SyncPointPair>& markers);
 
   // Set up a call back function in sync point.
+  // The argument to the callback is passed through from
+  // TEST_SYNC_POINT_CALLBACK(); nullptr if TEST_SYNC_POINT or
+  // TEST_IDX_SYNC_POINT was used.
   void SetCallBack(const std::string point,
                    std::function<void(void*)> callback);
 

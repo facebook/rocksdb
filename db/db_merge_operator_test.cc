@@ -449,6 +449,63 @@ TEST_P(MergeOperatorPinningTest, TailingIterator) {
   writer_thread.join();
   reader_thread.join();
 }
+
+TEST_F(DBMergeOperatorTest, TailingIteratorMemtableUnrefedBySomeoneElse) {
+  Options options = CurrentOptions();
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  DestroyAndReopen(options);
+
+  // Overview of the test:
+  //  * There are two merge operands for the same key: one in an sst file,
+  //    another in a memtable.
+  //  * Seek a tailing iterator to this key.
+  //  * As part of the seek, the iterator will:
+  //      (a) first visit the operand in the memtable and tell ForwardIterator
+  //          to pin this operand, then
+  //      (b) move on to the operand in the sst file, then pass both operands
+  //          to merge operator.
+  //  * The memtable may get flushed and unreferenced by another thread between
+  //    (a) and (b). The test simulates it by flushing the memtable inside a
+  //    SyncPoint callback located between (a) and (b).
+  //  * In this case it's ForwardIterator's responsibility to keep the memtable
+  //    pinned until (b) is complete. There used to be a bug causing
+  //    ForwardIterator to not pin it in some circumstances. This test
+  //    reproduces it.
+
+  db_->Merge(WriteOptions(), "key", "sst");
+  db_->Flush(FlushOptions()); // Switch to SuperVersion A
+  db_->Merge(WriteOptions(), "key", "memtable");
+
+  // Pin SuperVersion A
+  std::unique_ptr<Iterator> someone_else(db_->NewIterator(ReadOptions()));
+
+  bool pushed_first_operand = false;
+  bool stepped_to_next_operand = false;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBIter::MergeValuesNewToOld:PushedFirstOperand", [&](void*) {
+        EXPECT_FALSE(pushed_first_operand);
+        pushed_first_operand = true;
+        db_->Flush(FlushOptions()); // Switch to SuperVersion B
+      });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBIter::MergeValuesNewToOld:SteppedToNextOperand", [&](void*) {
+        EXPECT_FALSE(stepped_to_next_operand);
+        stepped_to_next_operand = true;
+        someone_else.reset(); // Unpin SuperVersion A
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  ReadOptions ro;
+  ro.tailing = true;
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
+  iter->Seek("key");
+
+  ASSERT_TRUE(iter->status().ok());
+  ASSERT_TRUE(iter->Valid());
+  EXPECT_EQ(std::string("sst,memtable"), iter->value().ToString());
+  EXPECT_TRUE(pushed_first_operand);
+  EXPECT_TRUE(stepped_to_next_operand);
+}
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb
