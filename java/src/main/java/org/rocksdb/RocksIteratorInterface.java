@@ -89,4 +89,6 @@ public interface RocksIteratorInterface {
    *                          native library.
    */
   void status() throws RocksDBException;
+
+  void refresh() throws RocksDBException;
 }

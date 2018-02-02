@@ -59,6 +59,7 @@ public class RocksIterator extends AbstractRocksIterator<RocksDB> {
   @Override final native void seek0(long handle, byte[] target, int targetLen);
   @Override final native void seekForPrev0(long handle, byte[] target, int targetLen);
   @Override final native void status0(long handle) throws RocksDBException;
+  @Override final native void refresh0(long handle) throws RocksDBException;
 
   private native byte[] key0(long handle);
   private native byte[] value0(long handle);
