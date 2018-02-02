@@ -66,6 +66,8 @@ public class Options extends RocksObject
     this.tableFormatConfig_ = other.tableFormatConfig_;
     this.rateLimiter_ = other.rateLimiter_;
     this.comparator_ = other.comparator_;
+    this.compactionFilter_ = other.compactionFilter_;
+    this.compactionFilterFactory_ = other.compactionFilterFactory_;
     this.compactionOptionsUniversal_ = other.compactionOptionsUniversal_;
     this.compactionOptionsFIFO_ = other.compactionOptionsFIFO_;
     this.compressionOptions_ = other.compressionOptions_;
