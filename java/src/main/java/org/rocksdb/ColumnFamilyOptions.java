@@ -27,10 +27,30 @@ public class ColumnFamilyOptions extends RocksObject
    * Construct ColumnFamilyOptions.
    *
    * This constructor will create (by allocating a block of memory)
-   * an {@code rocksdb::DBOptions} in the c++ side.
+   * an {@code rocksdb::ColumnFamilyOptions} in the c++ side.
    */
   public ColumnFamilyOptions() {
     super(newColumnFamilyOptions());
+  }
+
+  /**
+   * Copy constructor for ColumnFamilyOptions.
+   *
+   * NOTE: This does a shallow copy, which means comparator, merge_operator, compaction_filter,
+   * compaction_filter_factory and other pointers will be cloned!
+   *
+   * @param other The ColumnFamilyOptions to copy.
+   */
+  public ColumnFamilyOptions(ColumnFamilyOptions other) {
+    super(copyColumnFamilyOptions(other.nativeHandle_));
+    this.memTableConfig_ = other.memTableConfig_;
+    this.tableFormatConfig_ = other.tableFormatConfig_;
+    this.comparator_ = other.comparator_;
+    this.compactionFilter_ = other.compactionFilter_;
+    this.compactionFilterFactory_ = other.compactionFilterFactory_;
+    this.compactionOptionsUniversal_ = other.compactionOptionsUniversal_;
+    this.compactionOptionsFIFO_ = other.compactionOptionsFIFO_;
+    this.compressionOptions_ = other.compressionOptions_;
   }
 
   /**
@@ -783,6 +803,7 @@ public class ColumnFamilyOptions extends RocksObject
       String optString);
 
   private static native long newColumnFamilyOptions();
+  private static native long copyColumnFamilyOptions(long handle);
   @Override protected final native void disposeInternal(final long handle);
 
   private native void optimizeForSmallDb(final long handle);
@@ -934,6 +955,7 @@ public class ColumnFamilyOptions extends RocksObject
   private native boolean forceConsistencyChecks(final long handle);
 
   // instance variables
+  // NOTE: If you add new member variables, please update the copy constructor above!
   private MemTableConfig memTableConfig_;
   private TableFormatConfig tableFormatConfig_;
   private AbstractComparator<? extends AbstractSlice<?>> comparator_;
