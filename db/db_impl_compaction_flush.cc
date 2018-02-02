@@ -12,7 +12,6 @@
 #define __STDC_FORMAT_MACROS
 #endif
 #include <inttypes.h>
-#include <sys/statvfs.h>
 
 #include "db/builder.h"
 #include "db/event_helpers.h"
@@ -1629,7 +1628,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
           }
         }
         Status s = env_->CheckCompactionSize(dbname_.c_str(), size_added_by_compaction);
-        if (!s.ok()) {
+        if (!s.ok() && !s.IsNotSupported()) {
           // Then don't do the compaction
           c->ReleaseCompactionFiles(status);
           // TODO(amytai09): Is there any other cleanup we need to do?
@@ -1638,7 +1637,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 
           c.reset();
           // Sleep for 1 ms?
-          env_->SleepForMicroseconds(1000000);
+          env_->SleepForMicroseconds(1000);
         } else {
           // update statistics
           MeasureTime(stats_, NUM_FILES_IN_SINGLE_COMPACTION,
