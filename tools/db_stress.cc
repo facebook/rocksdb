@@ -28,7 +28,10 @@ int main() {
 }
 #else
 
+#ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
+#endif  // __STDC_FORMAT_MACROS
+
 #include <fcntl.h>
 #include <inttypes.h>
 #include <stdio.h>
