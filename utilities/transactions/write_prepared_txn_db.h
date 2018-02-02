@@ -422,27 +422,19 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
                                          ? commit_seq
                                          : commit_seq + data_batch_cnt_ - 1;
     if (prep_seq_ != kMaxSequenceNumber) {
-      if (LIKELY(prep_batch_cnt_ == 1)) {
-        db_->AddCommitted(prep_seq_, last_commit_seq);
-      } else {  // loops are slower
-        for (size_t i = 0; i < prep_batch_cnt_; i++) {
-          db_->AddCommitted(prep_seq_ + i, last_commit_seq);
-        }
+      for (size_t i = 0; i < prep_batch_cnt_; i++) {
+        db_->AddCommitted(prep_seq_ + i, last_commit_seq);
       }
     }  // else there was no prepare phase
     if (includes_data_) {
       assert(data_batch_cnt_);
       // Commit the data that is accompnaied with the commit request
       const bool PREPARE_SKIPPED = true;
-      if (LIKELY(data_batch_cnt_ == 1)) {
-        db_->AddCommitted(commit_seq, commit_seq, PREPARE_SKIPPED);
-      } else {  // loops are slower
-        for (size_t i = 0; i < data_batch_cnt_; i++) {
-          // For commit seq of each batch use the commit seq of the last batch.
-          // This would make debugging easier by having all the batches having
-          // the same sequence number.
-          db_->AddCommitted(commit_seq + i, last_commit_seq, PREPARE_SKIPPED);
-        }
+      for (size_t i = 0; i < data_batch_cnt_; i++) {
+        // For commit seq of each batch use the commit seq of the last batch.
+        // This would make debugging easier by having all the batches having
+        // the same sequence number.
+        db_->AddCommitted(commit_seq + i, last_commit_seq, PREPARE_SKIPPED);
       }
     }
     if (db_impl_->immutable_db_options().two_write_queues) {

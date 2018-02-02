@@ -68,18 +68,21 @@ struct CFKeyComparator {
     if (lhs.first != rhs.first) {
       return lhs.first < rhs.first;
     }
+// TODO: use user comparator
     return lhs.second.compare(rhs.second) < 0;
   }
 };
 // Count the number of sub-batches inside a batch. A sub-batch does not have
 // duplicate keys.
 struct SubBatchCounter : public WriteBatch::Handler {
+// TODO: use hash
   std::set<std::pair<uint32_t, Slice>, CFKeyComparator> keys_;
   size_t batches_;
   SubBatchCounter() : batches_(1) {}
-  size_t BatchCnt() { return batches_; }
+  size_t BatchCount() { return batches_; }
   void AddKey(uint32_t cf, const Slice& key) {
     auto size = keys_.size();
+// TODO: check reutrn status
     keys_.insert({cf, key});
     if (size == keys_.size()) {
       batches_++;
@@ -126,7 +129,7 @@ Status WritePreparedTxn::PrepareInternal() {
     SubBatchCounter counter;
     auto s = GetWriteBatch()->GetWriteBatch()->Iterate(&counter);
     assert(s.ok());
-    prepare_batch_cnt_ = counter.BatchCnt();
+    prepare_batch_cnt_ = counter.BatchCount();
   }
   Status s =
       db_impl_->WriteImpl(write_options, GetWriteBatch()->GetWriteBatch(),
@@ -167,7 +170,7 @@ Status WritePreparedTxn::CommitBatchInternal(WriteBatch* batch,
     SubBatchCounter counter;
     auto s = batch->Iterate(&counter);
     assert(s.ok());
-    batch_cnt = counter.BatchCnt();
+    batch_cnt = counter.BatchCount();
   }
   assert(batch_cnt);
 
@@ -248,7 +251,7 @@ Status WritePreparedTxn::CommitInternal() {
     SubBatchCounter counter;
     auto s = working_batch->Iterate(&counter);
     assert(s.ok());
-    commit_batch_cnt = counter.BatchCnt();
+    commit_batch_cnt = counter.BatchCount();
   }
   WritePreparedCommitEntryPreReleaseCallback update_commit_map(
       wpt_db_, db_impl_, prepare_seq, prepare_batch_cnt_, commit_batch_cnt);
@@ -425,7 +428,7 @@ Status WritePreparedTxn::RebuildFromWriteBatch(WriteBatch* src_batch) {
     SubBatchCounter counter;
     auto s = GetWriteBatch()->GetWriteBatch()->Iterate(&counter);
     assert(s.ok());
-    prepare_batch_cnt_ = counter.BatchCnt();
+    prepare_batch_cnt_ = counter.BatchCount();
   }
   return ret;
 }
