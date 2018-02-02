@@ -2763,14 +2763,23 @@ void VerifyDBFromDB(std::string& truth_db_name) {
 
   void Crc32c(ThreadState* thread) {
     // Checksum about 500MB of data total
-    const int size = FLAGS_block_size; // use --block_size option for db_bench
     std::string labels = "(" + ToString(FLAGS_block_size) + " per op)";
     const char* label = labels.c_str();
 
-    std::string data(size, 'x');
+    Random64 rand(FLAGS_seed ? FLAGS_seed : 1000);
+    std::string data(FLAGS_block_size, 'x');
     int64_t bytes = 0;
     uint32_t crc = 0;
-    while (bytes < 500 * 1048576) {
+    while (bytes < int64_t{50000} * 1048576) {
+      size_t size = FLAGS_block_size; // use --block_size option for db_bench
+      uint64_t rand_alignment = size_t{rand.Next() % 8};
+      uint64_t rand_alignment2 = size_t{rand.Next() % 8};
+      if (size < rand_alignment + rand_alignment2) {
+        rand_alignment = 0;
+        rand_alignment2 = 0;
+      }
+      size -= rand_alignment + rand_alignment2;
+
       crc = crc32c::Value(data.data(), size);
       thread->stats.FinishedOps(nullptr, nullptr, 1, kCrc);
       bytes += size;
