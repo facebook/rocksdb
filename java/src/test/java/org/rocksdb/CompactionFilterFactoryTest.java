@@ -8,6 +8,7 @@ package org.rocksdb;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
+import org.rocksdb.test.TestCompactionFilterFactory;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -26,8 +27,8 @@ public class CompactionFilterFactoryTest {
     try(final DBOptions options = new DBOptions()
             .setCreateIfMissing(true)
             .setCreateMissingColumnFamilies(true);
-        final RemoveEmptyValueCompactionFilterFactory compactionFilterFactory
-            = new RemoveEmptyValueCompactionFilterFactory();
+        final TestCompactionFilterFactory compactionFilterFactory
+            = new TestCompactionFilterFactory();
         final ColumnFamilyOptions new_cf_opts
             = new ColumnFamilyOptions()
             .setCompactionFilterFactory(compactionFilterFactory)) {
@@ -61,18 +62,6 @@ public class CompactionFilterFactoryTest {
           }
         }
       }
-    }
-  }
-
-  private static class RemoveEmptyValueCompactionFilterFactory extends AbstractCompactionFilterFactory<RemoveEmptyValueCompactionFilter> {
-    @Override
-    public RemoveEmptyValueCompactionFilter createCompactionFilter(final AbstractCompactionFilter.Context context) {
-      return new RemoveEmptyValueCompactionFilter();
-    }
-
-    @Override
-    public String name() {
-      return "RemoveEmptyValueCompactionFilterFactory";
     }
   }
 }

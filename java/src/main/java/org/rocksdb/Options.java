@@ -214,6 +214,35 @@ public class Options extends RocksObject
   }
 
   @Override
+  public Options setCompactionFilter(
+          final AbstractCompactionFilter<? extends AbstractSlice<?>>
+                  compactionFilter) {
+    setCompactionFilterHandle(nativeHandle_, compactionFilter.nativeHandle_);
+    compactionFilter_ = compactionFilter;
+    return this;
+  }
+
+  @Override
+  public AbstractCompactionFilter<? extends AbstractSlice<?>> compactionFilter() {
+    assert (isOwningHandle());
+    return compactionFilter_;
+  }
+
+  @Override
+  public Options setCompactionFilterFactory(final AbstractCompactionFilterFactory<? extends AbstractCompactionFilter<?>> compactionFilterFactory) {
+    assert (isOwningHandle());
+    setCompactionFilterFactoryHandle(nativeHandle_, compactionFilterFactory.nativeHandle_);
+    compactionFilterFactory_ = compactionFilterFactory;
+    return this;
+  }
+
+  @Override
+  public AbstractCompactionFilterFactory<? extends AbstractCompactionFilter<?>> compactionFilterFactory() {
+    assert (isOwningHandle());
+    return compactionFilterFactory_;
+  }
+
+  @Override
   public Options setWriteBufferSize(final long writeBufferSize) {
     assert(isOwningHandle());
     setWriteBufferSize(nativeHandle_, writeBufferSize);
@@ -1761,6 +1790,10 @@ public class Options extends RocksObject
       long handle, String name);
   private native void setMergeOperator(
       long handle, long mergeOperatorHandle);
+  private native void setCompactionFilterHandle(
+          long handle, long compactionFilterHandle);
+  private native void setCompactionFilterFactoryHandle(
+          long handle, long compactionFilterFactoryHandle);
   private native void setWriteBufferSize(long handle, long writeBufferSize)
       throws IllegalArgumentException;
   private native long writeBufferSize(long handle);
@@ -1896,6 +1929,9 @@ public class Options extends RocksObject
   private TableFormatConfig tableFormatConfig_;
   private RateLimiter rateLimiter_;
   private AbstractComparator<? extends AbstractSlice<?>> comparator_;
+  private AbstractCompactionFilter<? extends AbstractSlice<?>> compactionFilter_;
+  private AbstractCompactionFilterFactory<? extends AbstractCompactionFilter<?>>
+          compactionFilterFactory_;
   private CompactionOptionsUniversal compactionOptionsUniversal_;
   private CompactionOptionsFIFO compactionOptionsFIFO_;
   private CompressionOptions compressionOptions_;
