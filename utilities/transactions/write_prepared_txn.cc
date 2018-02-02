@@ -87,11 +87,11 @@ struct SubBatchCounter : public WriteBatch::Handler {
       keys_.insert({cf, key});
     }
   }
-  Status MarkNoop(bool empty_batch) override { return Status::OK(); }
+  Status MarkNoop(bool) override { return Status::OK(); }
   Status MarkEndPrepare(const Slice&) override { return Status::OK(); }
   Status MarkCommit(const Slice&) override { return Status::OK(); }
 
-  Status PutCF(uint32_t cf, const Slice& key, const Slice& val) override {
+  Status PutCF(uint32_t cf, const Slice& key, const Slice&) override {
     AddKey(cf, key);
     return Status::OK();
   }
@@ -103,7 +103,7 @@ struct SubBatchCounter : public WriteBatch::Handler {
     AddKey(cf, key);
     return Status::OK();
   }
-  Status MergeCF(uint32_t cf, const Slice& key, const Slice& val) override {
+  Status MergeCF(uint32_t cf, const Slice& key, const Slice&) override {
     AddKey(cf, key);
     return Status::OK();
   }

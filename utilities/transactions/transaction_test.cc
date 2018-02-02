@@ -5083,7 +5083,7 @@ TEST_P(TransactionTest, DuplicateKeys) {
             assert(do_prepare);
             auto cb = txn0->GetCommitTimeWriteBatch();
             // duplicate a key in the original batch
-            // TODO(myabandeh): the bahavior of GetCommitTimeWriteBatch
+            // TODO(myabandeh): the behavior of GetCommitTimeWriteBatch
             // conflicting with the prepared batch is currently undefined and
             // gives different results in different implementations.
 

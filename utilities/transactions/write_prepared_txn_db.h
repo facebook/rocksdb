@@ -416,7 +416,7 @@ class WritePreparedCommitEntryPreReleaseCallback : public PreReleaseCallback {
     assert(prep_batch_cnt_ > 0 || data_batch_cnt_ > 0);
   }
 
-  virtual Status Callback(SequenceNumber commit_seq) {
+  virtual Status Callback(SequenceNumber commit_seq) override {
     assert(includes_data_ || prep_seq_ != kMaxSequenceNumber);
     const uint64_t last_commit_seq = LIKELY(data_batch_cnt_ <= 1)
                                          ? commit_seq
