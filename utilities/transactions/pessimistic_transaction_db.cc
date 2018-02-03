@@ -158,6 +158,30 @@ TransactionDBOptions PessimisticTransactionDB::ValidateTxnDBOptions(
   return validated;
 }
 
+void PessimisticTransactionDB::UpdateCFComparatorMap(
+    const std::vector<ColumnFamilyHandle*>& handles) {
+  auto cf_map = new std::map<uint32_t, const Comparator*>();
+  for (auto h : handles) {
+    auto id = h->GetID();
+    const Comparator* comparator = h->GetComparator();
+    (*cf_map)[id] = comparator;
+  }
+  cf_map_.store(cf_map);
+  cf_map_gc_.reset(cf_map);
+}
+
+void PessimisticTransactionDB::UpdateCFComparatorMap(
+    const ColumnFamilyHandle* h) {
+  auto old_cf_map_ptr = cf_map_.load();
+  assert(old_cf_map_ptr);
+  auto cf_map = new std::map<uint32_t, const Comparator*>(*old_cf_map_ptr);
+  auto id = h->GetID();
+  const Comparator* comparator = h->GetComparator();
+  (*cf_map)[id] = comparator;
+  cf_map_.store(cf_map);
+  cf_map_gc_.reset(cf_map);
+}
+
 Status TransactionDB::Open(const Options& options,
                            const TransactionDBOptions& txn_db_options,
                            const std::string& dbname, TransactionDB** dbptr) {
@@ -245,6 +269,7 @@ Status TransactionDB::WrapDB(
       txn_db = new WriteCommittedTxnDB(
           db, PessimisticTransactionDB::ValidateTxnDBOptions(txn_db_options));
   }
+  txn_db->UpdateCFComparatorMap(handles);
   *dbptr = txn_db;
   Status s = txn_db->Initialize(compaction_enabled_cf_indices, handles);
   return s;
@@ -270,6 +295,7 @@ Status TransactionDB::WrapStackableDB(
       txn_db = new WriteCommittedTxnDB(
           db, PessimisticTransactionDB::ValidateTxnDBOptions(txn_db_options));
   }
+  txn_db->UpdateCFComparatorMap(handles);
   *dbptr = txn_db;
   Status s = txn_db->Initialize(compaction_enabled_cf_indices, handles);
   return s;
@@ -290,6 +316,7 @@ Status PessimisticTransactionDB::CreateColumnFamily(
   Status s = db_->CreateColumnFamily(options, column_family_name, handle);
   if (s.ok()) {
     lock_mgr_.AddColumnFamily((*handle)->GetID());
+    UpdateCFComparatorMap(*handle);
   }
 
   return s;

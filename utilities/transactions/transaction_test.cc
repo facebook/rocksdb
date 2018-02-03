@@ -5024,6 +5024,70 @@ TEST_P(TransactionTest, DuplicateKeys) {
     delete cf_handle;
   }
 
+  // Test with non-bytewise comparator
+  {
+    // A comparator that uses only the first three bytes
+    class ThreeBytewiseComparator : public Comparator {
+     public:
+      ThreeBytewiseComparator() {}
+      virtual const char* Name() const override {
+        return "test.ThreeBytewiseComparator";
+      }
+      virtual int Compare(const Slice& a, const Slice& b) const override {
+        Slice na = Slice(a.data(), a.size() < 3 ? a.size() : 3);
+        Slice nb = Slice(b.data(), b.size() < 3 ? b.size() : 3);
+        return na.compare(nb);
+      }
+      virtual bool Equal(const Slice& a, const Slice& b) const override {
+        Slice na = Slice(a.data(), a.size() < 3 ? a.size() : 3);
+        Slice nb = Slice(b.data(), b.size() < 3 ? b.size() : 3);
+        return na == nb;
+      }
+      // This methods below dont seem relevant to this test. Implement them if
+      // proven othersize.
+      void FindShortestSeparator(std::string* start,
+                                 const Slice& limit) const override {
+        const Comparator* bytewise_comp = BytewiseComparator();
+        bytewise_comp->FindShortestSeparator(start, limit);
+      }
+      void FindShortSuccessor(std::string* key) const override {
+        const Comparator* bytewise_comp = BytewiseComparator();
+        bytewise_comp->FindShortSuccessor(key);
+      }
+    };
+    ReOpen();
+    std::unique_ptr<const Comparator> comp_gc(new ThreeBytewiseComparator());
+    cf_options.comparator = comp_gc.get();
+    ASSERT_OK(db->CreateColumnFamily(cf_options, cf_name, &cf_handle));
+    WriteOptions write_options;
+    WriteBatch batch;
+    batch.Put(cf_handle, Slice("key"), Slice("value"));
+    // The first three bytes are the same, do it must be counted as duplicate
+    batch.Put(cf_handle, Slice("key2"), Slice("value2"));
+    ASSERT_OK(db->Write(write_options, &batch));
+
+    // The value must be the most recent value for all the keys equal to "key",
+    // including "key2"
+    ReadOptions ropt;
+    PinnableSlice pinnable_val;
+    ASSERT_OK(db->Get(ropt, cf_handle, "key", &pinnable_val));
+    ASSERT_TRUE(pinnable_val == ("value2"));
+
+    // Test duplicate keys with rollback
+    TransactionOptions txn_options;
+    Transaction* txn0 = db->BeginTransaction(write_options, txn_options);
+    ASSERT_OK(txn0->SetName("xid"));
+    ASSERT_OK(txn0->Put(cf_handle, Slice("key3"), Slice("value3")));
+    ASSERT_OK(txn0->Merge(cf_handle, Slice("key4"), Slice("value4")));
+    ASSERT_OK(txn0->Rollback());
+    ASSERT_OK(db->Get(ropt, cf_handle, "key5", &pinnable_val));
+    ASSERT_TRUE(pinnable_val == ("value2"));
+    delete txn0;
+
+    delete cf_handle;
+    cf_options.comparator = BytewiseComparator();
+  }
+
   for (bool do_prepare : {true, false}) {
     for (bool do_rollback : {true, false}) {
       for (bool with_commit_batch : {true, false}) {

@@ -62,32 +62,49 @@ Iterator* WritePreparedTxn::GetIterator(const ReadOptions& options,
   return write_batch_.NewIteratorWithBase(column_family, db_iter);
 }
 
+// TODO(myabandeh): deprected
 struct CFKeyComparator {
   bool operator()(const std::pair<uint32_t, Slice>& lhs,
                   const std::pair<uint32_t, Slice>& rhs) const {
     if (lhs.first != rhs.first) {
       return lhs.first < rhs.first;
     }
-// TODO: use user comparator
     return lhs.second.compare(rhs.second) < 0;
   }
+};
+struct SetComparator {
+  SetComparator() : user_comparator_(BytewiseComparator()) {}
+  SetComparator(const Comparator* user_comparator)
+      : user_comparator_(user_comparator ? user_comparator
+                                         : BytewiseComparator()) {}
+  bool operator()(const Slice& lhs, const Slice& rhs) const {
+    return user_comparator_->Compare(lhs, rhs) < 0;
+  }
+
+ private:
+  const Comparator* user_comparator_;
 };
 // Count the number of sub-batches inside a batch. A sub-batch does not have
 // duplicate keys.
 struct SubBatchCounter : public WriteBatch::Handler {
-// TODO: use hash
-  std::set<std::pair<uint32_t, Slice>, CFKeyComparator> keys_;
+  SubBatchCounter(std::map<uint32_t, const Comparator*>& comparators)
+      : comparators_(comparators), batches_(1) {}
+  std::map<uint32_t, const Comparator*>& comparators_;
+  typedef std::set<Slice, SetComparator> CFKeys;
+  std::map<uint32_t, CFKeys> keys_;
   size_t batches_;
-  SubBatchCounter() : batches_(1) {}
   size_t BatchCount() { return batches_; }
   void AddKey(uint32_t cf, const Slice& key) {
-    auto size = keys_.size();
-// TODO: check reutrn status
-    keys_.insert({cf, key});
-    if (size == keys_.size()) {
+    CFKeys& cf_keys = keys_[cf];
+    if (cf_keys.size() == 0) {  // just inserted
+      auto cmp = comparators_[cf];
+      keys_[cf] = CFKeys(SetComparator(cmp));
+    }
+    auto it = cf_keys.insert(key);
+    if (it.second == false) {  // second is false if a element already existed.
       batches_++;
       keys_.clear();
-      keys_.insert({cf, key});
+      keys_[cf].insert(key);
     }
   }
   Status MarkNoop(bool) override { return Status::OK(); }
@@ -126,7 +143,7 @@ Status WritePreparedTxn::PrepareInternal() {
   // For each duplicate key we account for a new sub-batch
   prepare_batch_cnt_ = 1;
   if (GetWriteBatch()->HasDuplicateKeys()) {
-    SubBatchCounter counter;
+    SubBatchCounter counter(*wpt_db_->GetCFComparatorMap());
     auto s = GetWriteBatch()->GetWriteBatch()->Iterate(&counter);
     assert(s.ok());
     prepare_batch_cnt_ = counter.BatchCount();
@@ -167,7 +184,7 @@ Status WritePreparedTxn::CommitBatchInternal(WriteBatch* batch,
   }
   if (batch_cnt == 0) {  // not provided, then compute it
     // TODO(myabandeh): add an option to allow user skipping this cost
-    SubBatchCounter counter;
+    SubBatchCounter counter(*wpt_db_->GetCFComparatorMap());
     auto s = batch->Iterate(&counter);
     assert(s.ok());
     batch_cnt = counter.BatchCount();
@@ -248,7 +265,7 @@ Status WritePreparedTxn::CommitInternal() {
   assert(prepare_batch_cnt_);
   size_t commit_batch_cnt = 0;
   if (includes_data) {
-    SubBatchCounter counter;
+    SubBatchCounter counter(*wpt_db_->GetCFComparatorMap());
     auto s = working_batch->Iterate(&counter);
     assert(s.ok());
     commit_batch_cnt = counter.BatchCount();
@@ -282,18 +299,31 @@ Status WritePreparedTxn::RollbackInternal() {
     ReadOptions roptions;
     WritePreparedTxnReadCallback callback;
     WriteBatch* rollback_batch_;
-    std::set<std::pair<uint32_t, Slice>, CFKeyComparator> keys_;
-    RollbackWriteBatchBuilder(DBImpl* db, WritePreparedTxnDB* wpt_db,
-                              SequenceNumber snap_seq, WriteBatch* dst_batch)
-        : db_(db), callback(wpt_db, snap_seq), rollback_batch_(dst_batch) {}
+    std::map<uint32_t, const Comparator*>& comparators_;
+    typedef std::set<Slice, SetComparator> CFKeys;
+    std::map<uint32_t, CFKeys> keys_;
+    RollbackWriteBatchBuilder(
+        DBImpl* db, WritePreparedTxnDB* wpt_db, SequenceNumber snap_seq,
+        WriteBatch* dst_batch,
+        std::map<uint32_t, const Comparator*>& comparators)
+        : db_(db),
+          callback(wpt_db, snap_seq),
+          rollback_batch_(dst_batch),
+          comparators_(comparators) {}
 
     Status Rollback(uint32_t cf, const Slice& key) {
       Status s;
-      auto size = keys_.size();
-      keys_.insert({cf, key});
-      if (size == keys_.size()) {  // duplicate key
+      CFKeys& cf_keys = keys_[cf];
+      if (cf_keys.size() == 0) {  // just inserted
+        auto cmp = comparators_[cf];
+        keys_[cf] = CFKeys(SetComparator(cmp));
+      }
+      auto it = cf_keys.insert(key);
+      if (it.second ==
+          false) {  // second is false if a element already existed.
         return s;
       }
+
       PinnableSlice pinnable_val;
       bool not_used;
       auto cf_handle = db_->GetColumnFamilyHandle(cf);
@@ -340,7 +370,8 @@ Status WritePreparedTxn::RollbackInternal() {
 
    protected:
     virtual bool WriteAfterCommit() const override { return false; }
-  } rollback_handler(db_impl_, wpt_db_, last_visible_txn, &rollback_batch);
+  } rollback_handler(db_impl_, wpt_db_, last_visible_txn, &rollback_batch,
+                     *wpt_db_->GetCFComparatorMap());
   auto s = GetWriteBatch()->GetWriteBatch()->Iterate(&rollback_handler);
   assert(s.ok());
   if (!s.ok()) {
@@ -425,7 +456,7 @@ Status WritePreparedTxn::RebuildFromWriteBatch(WriteBatch* src_batch) {
   auto ret = PessimisticTransaction::RebuildFromWriteBatch(src_batch);
   prepare_batch_cnt_ = 1;
   if (GetWriteBatch()->HasDuplicateKeys()) {
-    SubBatchCounter counter;
+    SubBatchCounter counter(*wpt_db_->GetCFComparatorMap());
     auto s = GetWriteBatch()->GetWriteBatch()->Iterate(&counter);
     assert(s.ok());
     prepare_batch_cnt_ = counter.BatchCount();
