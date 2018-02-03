@@ -53,7 +53,8 @@ Status CloudEnvImpl::LoadLocalCloudManifest(const std::string& dbname) {
 }
 
 std::string CloudEnvImpl::RemapFilename(const std::string& logical_path) const {
-  if (UNLIKELY(test_disable_cloud_manifest_)) {
+  if (UNLIKELY(GetCloudType() == CloudType::kNone) ||
+      UNLIKELY(test_disable_cloud_manifest_)) {
     return logical_path;
   }
   auto file_name = basename(logical_path);

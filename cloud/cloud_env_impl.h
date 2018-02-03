@@ -25,7 +25,7 @@ class CloudEnvImpl : public CloudEnv {
   virtual ~CloudEnvImpl();
 
   // Returns the cloud_type
-  const CloudType& GetCloudType() { return cloud_type_; }
+  CloudType GetCloudType() const { return cloud_type_; }
 
   // Returns the underlying env
   Env* GetBaseEnv() { return base_env_; }

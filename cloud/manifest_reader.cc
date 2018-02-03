@@ -98,8 +98,15 @@ Status ManifestReader::GetLiveFiles(const std::string bucket_path,
 Status ManifestReader::GetMaxFileNumberFromManifest(Env* env,
                                                     const std::string& fname,
                                                     uint64_t* maxFileNumber) {
+  // We check if the file exists to return IsNotFound() error status if it does
+  // (NewSequentialFile) doesn't have the same behavior on file not existing --
+  // it returns IOError instead.
+  auto s = env->FileExists(fname);
+  if (!s.ok()) {
+    return s;
+  }
   unique_ptr<SequentialFile> file;
-  auto s = env->NewSequentialFile(fname, &file, EnvOptions());
+  s = env->NewSequentialFile(fname, &file, EnvOptions());
   if (!s.ok()) {
     return s;
   }

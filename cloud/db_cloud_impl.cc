@@ -101,15 +101,19 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
     CreateLoggerFromOptions(local_dbname, options, &options.info_log);
   }
 
+
+  CloudEnvImpl* cenv = static_cast<CloudEnvImpl*>(options.env);
+  Env* local_env = cenv->GetBaseEnv();
+  if (!read_only) {
+    local_env->CreateDirIfMissing(local_dbname);
+  }
+
   st = DBCloudImpl::SanitizeDirectory(options, local_dbname, read_only);
   if (!st.ok()) {
     return st;
   }
 
-  CloudEnvImpl* cenv = static_cast<CloudEnvImpl*>(options.env);
-  Env* local_env = cenv->GetBaseEnv();
-
-  if (!read_only) {
+  if (!read_only && cenv->GetCloudType() != CloudType::kNone) {
     st = DBCloudImpl::MaybeMigrateManifestFile(local_env, local_dbname);
     if (st.ok()) {
       // Init cloud manifest
@@ -636,13 +640,6 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
         "[db_cloud_impl] SanitizeDirectory cleaned-up: '%s'", pathname.c_str());
   }
 
-  // If directory does not exist, create it
-  if (st.IsNotFound()) {
-    if (readonly) {
-      return st;
-    }
-    st = env->CreateDirIfMissing(local_name);
-  }
   if (!st.ok()) {
     Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
         "[db_cloud_impl] SanitizeDirectory error opening dir %s %s",

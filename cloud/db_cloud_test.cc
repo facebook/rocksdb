@@ -96,7 +96,9 @@ class CloudTest : public testing::Test {
         options_.info_log, &aenv));
     // To catch any possible file deletion bugs, we set file deletion delay to
     // smallest possible
-    ((AwsEnv*)aenv)->TEST_SetFileDeletionDelay(std::chrono::seconds(0));
+    if (!src_bucket_prefix_.empty() || !dest_bucket_prefix_.empty()) {
+      ((AwsEnv*)aenv)->TEST_SetFileDeletionDelay(std::chrono::seconds(0));
+    }
     aenv_.reset(aenv);
   }
 
@@ -895,6 +897,26 @@ TEST_F(CloudTest, MigrateFromPureRocksDB) {
     ASSERT_OK(db_->Get(ReadOptions(), key, &value));
     ASSERT_EQ(value, key);
   }
+  CloseDB();
+}
+
+// Tests that we can open cloud DB without destination and source bucket set.
+// This is useful for tests.
+TEST_F(CloudTest, NoDestOrSrc) {
+  DestroyDir(dbname_);
+  // cloud_env_options_.keep_local_sst_files = true;
+  dest_bucket_prefix_ = dest_object_prefix_ = src_bucket_prefix_ =
+      src_object_prefix_ = "";
+  OpenDB();
+  ASSERT_OK(db_->Put(WriteOptions(), "key", "value"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  std::string value;
+  ASSERT_OK(db_->Get(ReadOptions(), "key", &value));
+  ASSERT_EQ(value, "value");
+  CloseDB();
+  OpenDB();
+  ASSERT_OK(db_->Get(ReadOptions(), "key", &value));
+  ASSERT_EQ(value, "value");
   CloseDB();
 }
 
