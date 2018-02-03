@@ -611,10 +611,12 @@ void DBIter::MergeValuesNewToOld() {
   // Start the merge process by pushing the first operand
   merge_context_.PushOperand(iter_->value(),
                              iter_->IsValuePinned() /* operand_pinned */);
+  TEST_SYNC_POINT("DBIter::MergeValuesNewToOld:PushedFirstOperand");
 
   ParsedInternalKey ikey;
   Status s;
   for (iter_->Next(); iter_->Valid(); iter_->Next()) {
+    TEST_SYNC_POINT("DBIter::MergeValuesNewToOld:SteppedToNextOperand");
     if (!ParseKey(&ikey)) {
       // skip corrupted key
       continue;
