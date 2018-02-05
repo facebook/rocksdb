@@ -62,19 +62,10 @@ Iterator* WritePreparedTxn::GetIterator(const ReadOptions& options,
   return write_batch_.NewIteratorWithBase(column_family, db_iter);
 }
 
-// TODO(myabandeh): deprected
-struct CFKeyComparator {
-  bool operator()(const std::pair<uint32_t, Slice>& lhs,
-                  const std::pair<uint32_t, Slice>& rhs) const {
-    if (lhs.first != rhs.first) {
-      return lhs.first < rhs.first;
-    }
-    return lhs.second.compare(rhs.second) < 0;
-  }
-};
+// A wrapper around Comparator to make it usable in std::set
 struct SetComparator {
-  SetComparator() : user_comparator_(BytewiseComparator()) {}
-  SetComparator(const Comparator* user_comparator)
+  explicit SetComparator() : user_comparator_(BytewiseComparator()) {}
+  explicit SetComparator(const Comparator* user_comparator)
       : user_comparator_(user_comparator ? user_comparator
                                          : BytewiseComparator()) {}
   bool operator()(const Slice& lhs, const Slice& rhs) const {

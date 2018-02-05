@@ -132,6 +132,8 @@ class PessimisticTransactionDB : public TransactionDB {
       Transaction* txn, const WriteOptions& write_options,
       const TransactionOptions& txn_options = TransactionOptions());
 
+  virtual Status VerifyCFOptions(const ColumnFamilyOptions& cf_options);
+
  private:
   friend class WritePreparedTxnDB;
   friend class WritePreparedTxnDBMock;

@@ -82,12 +82,30 @@ PessimisticTransactionDB::~PessimisticTransactionDB() {
   }
 }
 
+Status PessimisticTransactionDB::VerifyCFOptions(
+    const ColumnFamilyOptions& cf_options) {
+  return Status::OK();
+}
+
 Status PessimisticTransactionDB::Initialize(
     const std::vector<size_t>& compaction_enabled_cf_indices,
     const std::vector<ColumnFamilyHandle*>& handles) {
   for (auto cf_ptr : handles) {
     AddColumnFamily(cf_ptr);
   }
+  // Verify cf options
+  for (auto handle : handles) {
+    ColumnFamilyDescriptor cfd;
+    Status s = handle->GetDescriptor(&cfd);
+    if (!s.ok()) {
+      return s;
+    }
+    s = VerifyCFOptions(cfd.options);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
   // Re-enable compaction for the column families that initially had
   // compaction enabled.
   std::vector<ColumnFamilyHandle*> compaction_enabled_cf_handles;
@@ -312,8 +330,12 @@ Status PessimisticTransactionDB::CreateColumnFamily(
     const ColumnFamilyOptions& options, const std::string& column_family_name,
     ColumnFamilyHandle** handle) {
   InstrumentedMutexLock l(&column_family_mutex_);
+  Status s = VerifyCFOptions(options);
+  if (!s.ok()) {
+    return s;
+  }
 
-  Status s = db_->CreateColumnFamily(options, column_family_name, handle);
+  s = db_->CreateColumnFamily(options, column_family_name, handle);
   if (s.ok()) {
     lock_mgr_.AddColumnFamily((*handle)->GetID());
     UpdateCFComparatorMap(*handle);

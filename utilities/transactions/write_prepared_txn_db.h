@@ -205,6 +205,10 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
   // Struct to hold ownership of snapshot and read callback for cleanup.
   struct IteratorState;
 
+ protected:
+  virtual Status VerifyCFOptions(
+      const ColumnFamilyOptions& cf_options) override;
+
  private:
   friend class WritePreparedTransactionTest_IsInSnapshotTest_Test;
   friend class WritePreparedTransactionTest_CheckAgainstSnapshotsTest_Test;

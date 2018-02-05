@@ -49,6 +49,20 @@ Status WritePreparedTxnDB::Initialize(
   return s;
 }
 
+Status WritePreparedTxnDB::VerifyCFOptions(
+    const ColumnFamilyOptions& cf_options) {
+  Status s = PessimisticTransactionDB::VerifyCFOptions(cf_options);
+  if (!s.ok()) {
+    return s;
+  }
+  if (!cf_options.memtable_factory->CanHandleDuplicatedKey()) {
+    return Status::InvalidArgument(
+        "memtable_factory->CanHandleDuplicatedKey() cannot be false with "
+        "WritePrpeared transactions");
+  }
+  return Status::OK();
+}
+
 Transaction* WritePreparedTxnDB::BeginTransaction(
     const WriteOptions& write_options, const TransactionOptions& txn_options,
     Transaction* old_txn) {
