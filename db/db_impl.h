@@ -993,9 +993,11 @@ class DBImpl : public DB {
       writer = nullptr;
       return w;
     }
-    void ClearWriter() {
+    Status ClearWriter() {
+      Status s = writer->WriteBuffer();
       delete writer;
       writer = nullptr;
+      return s;
     }
 
     uint64_t number;

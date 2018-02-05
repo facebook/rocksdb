@@ -1292,6 +1292,29 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
                  ". Immutable memtables: %d.\n",
                  cfd->GetName().c_str(), new_log_number, num_imm_unflushed);
   mutex_.Lock();
+  if (s.ok() && creating_new_log) {
+    log_write_mutex_.Lock();
+    logfile_number_ = new_log_number;
+    assert(new_log != nullptr);
+    log_empty_ = true;
+    log_dir_synced_ = false;
+    if (!logs_.empty()) {
+      // Alway flush the buffer of the last log before switching to a new one
+      log::Writer* cur_log_writer = logs_.back().writer;
+      s = cur_log_writer->WriteBuffer();
+      if (!s.ok()) {
+        ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                       "[%s] Failed to switch from #%" PRIu64 " to #%" PRIu64
+                       "  WAL file -- %s\n",
+                       cfd->GetName().c_str(), cur_log_writer->get_log_number(),
+                       new_log_number);
+      }
+    }
+    logs_.emplace_back(logfile_number_, new_log);
+    alive_log_files_.push_back(LogFileNumberSize(logfile_number_));
+    log_write_mutex_.Unlock();
+  }
+
   if (!s.ok()) {
     // how do we fail if we're not creating new log?
     assert(creating_new_log);
@@ -1302,21 +1325,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
     }
     return s;
   }
-  if (creating_new_log) {
-    log_write_mutex_.Lock();
-    logfile_number_ = new_log_number;
-    assert(new_log != nullptr);
-    log_empty_ = true;
-    log_dir_synced_ = false;
-    if (!logs_.empty()) {
-      // Alway flush the buffer of the last log before switching to a new one
-      log::Writer* cur_log_writer = logs_.back().writer;
-      cur_log_writer->WriteBuffer();
-    }
-    logs_.emplace_back(logfile_number_, new_log);
-    alive_log_files_.push_back(LogFileNumberSize(logfile_number_));
-    log_write_mutex_.Unlock();
-  }
+
   for (auto loop_cfd : *versions_->GetColumnFamilySet()) {
     // all this is just optimization to delete logs that
     // are no longer needed -- if CF is empty, that means it

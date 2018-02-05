@@ -185,6 +185,26 @@ TEST_P(DBFlushDirectIOTest, DirectIO) {
   delete options.env;
 }
 
+TEST_F(DBFlushTest, FlushError) {
+  Options options;
+  std::unique_ptr<FaultInjectionTestEnv> fault_injection_env(
+      new FaultInjectionTestEnv(env_));
+  options.write_buffer_size = 100;
+  options.max_write_buffer_number = 4;
+  options.min_write_buffer_number_to_merge = 3;
+  options.disable_auto_compactions = true;
+  options.env = fault_injection_env.get();
+  Reopen(options);
+
+  ASSERT_OK(Put("key1", "value1"));
+  ASSERT_OK(Put("key2", "value2"));
+  fault_injection_env->SetFilesystemActive(false);
+  Status s = dbfull()->TEST_SwitchMemtable();
+  fault_injection_env->SetFilesystemActive(true);
+  Destroy(options);
+  ASSERT_NE(s, Status::OK());
+}
+
 INSTANTIATE_TEST_CASE_P(DBFlushDirectIOTest, DBFlushDirectIOTest,
                         testing::Bool());
 
