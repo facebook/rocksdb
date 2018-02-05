@@ -79,8 +79,10 @@ std::string generateNewEpochId(Env* env) {
   size_t split = uniqueId.size() / 2;
   auto low = uniqueId.substr(0, split);
   auto hi = uniqueId.substr(split);
-  uint64_t hash = XXH32(low.data(), low.size(), 0) +
-                  (static_cast<uint64_t>(XXH32(hi.data(), hi.size(), 0)) << 32);
+  uint64_t hash =
+      XXH32(low.data(), static_cast<int>(low.size()), 0) +
+      (static_cast<uint64_t>(XXH32(hi.data(), static_cast<int>(hi.size()), 0))
+       << 32);
   char buf[17];
   snprintf(buf, sizeof buf, "%0" PRIx64, hash);
   return buf;

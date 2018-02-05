@@ -231,12 +231,12 @@ class CloudEnvWrapper : public CloudEnvImpl {
   }
   Status GetObject(const std::string& bucket_name_prefix,
                    const std::string& bucket_object_path,
-                   const std::string& local_path) {
+                   const std::string& local_path) override {
     return notsup_;
   }
   Status PutObject(const std::string& local_path,
                    const std::string& bucket_name_prefix,
-                   const std::string& bucket_object_path) {
+                   const std::string& bucket_object_path) override {
     return notsup_;
   }
   Status DeleteCloudFileFromDest(const std::string& path) override {
