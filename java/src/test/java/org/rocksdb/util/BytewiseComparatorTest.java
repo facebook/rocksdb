@@ -249,7 +249,7 @@ public class BytewiseComparatorTest {
       for (int i = 0; i < num_iter_ops; i++) {
         // Random walk and make sure iter and result_iter returns the
         // same key and value
-        final int type = rnd.nextInt(7);
+        final int type = rnd.nextInt(8);
         iter.status();
         switch (type) {
           case 0:
@@ -296,8 +296,15 @@ public class BytewiseComparatorTest {
               continue;
             }
             break;
+          case 6:
+            // Refresh
+            iter.refresh();
+            result_iter.refresh();
+            iter.seekToFirst();
+            result_iter.seekToFirst();
+            break;
           default: {
-            assert (type == 6);
+            assert (type == 7);
             final int key_idx = rnd.nextInt(source_strings.size());
             final String key = source_strings.get(key_idx);
             final byte[] result = db.get(new ReadOptions(), bytes(key));
@@ -404,9 +411,6 @@ public class BytewiseComparatorTest {
     private final java.util.Comparator<? super K> comparator;
     private int offset = -1;
 
-    private int lastPrefixMatchIdx = -1;
-    private int lastPrefixMatch = 0;
-
     public KVIter(final TreeMap<K, V> map) {
       this.entries = new ArrayList<>();
       final Iterator<Map.Entry<K, V>> iterator = map.entrySet().iterator();
@@ -490,6 +494,11 @@ public class BytewiseComparatorTest {
         throw new RocksDBException("Index out of bounds. Size is: " +
             entries.size() + ", offset is: " + offset);
       }
+    }
+
+    @Override
+    public void refresh() throws RocksDBException {
+      offset = -1;
     }
 
     public K key() {
