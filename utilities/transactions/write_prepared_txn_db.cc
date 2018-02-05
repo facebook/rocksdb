@@ -11,7 +11,6 @@
 
 #include "utilities/transactions/write_prepared_txn_db.h"
 
-#include <inttypes.h>
 #include <algorithm>
 #include <string>
 #include <unordered_set>

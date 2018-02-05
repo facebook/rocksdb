@@ -62,6 +62,7 @@ Iterator* WritePreparedTxn::GetIterator(const ReadOptions& options,
   return write_batch_.NewIteratorWithBase(column_family, db_iter);
 }
 
+namespace {
 // A wrapper around Comparator to make it usable in std::set
 struct SetComparator {
   explicit SetComparator() : user_comparator_(BytewiseComparator()) {}
@@ -78,10 +79,10 @@ struct SetComparator {
 // Count the number of sub-batches inside a batch. A sub-batch does not have
 // duplicate keys.
 struct SubBatchCounter : public WriteBatch::Handler {
-  SubBatchCounter(std::map<uint32_t, const Comparator*>& comparators)
+  explicit SubBatchCounter(std::map<uint32_t, const Comparator*>& comparators)
       : comparators_(comparators), batches_(1) {}
   std::map<uint32_t, const Comparator*>& comparators_;
-  typedef std::set<Slice, SetComparator> CFKeys;
+  using CFKeys = std::set<Slice, SetComparator>;
   std::map<uint32_t, CFKeys> keys_;
   size_t batches_;
   size_t BatchCount() { return batches_; }
@@ -122,6 +123,7 @@ struct SubBatchCounter : public WriteBatch::Handler {
   Status MarkRollback(const Slice&) override { return Status::OK(); }
   bool WriteAfterCommit() const override { return false; }
 };
+}  // namespace
 
 Status WritePreparedTxn::PrepareInternal() {
   WriteOptions write_options = write_options_;
@@ -291,7 +293,7 @@ Status WritePreparedTxn::RollbackInternal() {
     WritePreparedTxnReadCallback callback;
     WriteBatch* rollback_batch_;
     std::map<uint32_t, const Comparator*>& comparators_;
-    typedef std::set<Slice, SetComparator> CFKeys;
+    using CFKeys = std::set<Slice, SetComparator>;
     std::map<uint32_t, CFKeys> keys_;
     RollbackWriteBatchBuilder(
         DBImpl* db, WritePreparedTxnDB* wpt_db, SequenceNumber snap_seq,

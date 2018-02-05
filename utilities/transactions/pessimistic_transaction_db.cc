@@ -82,8 +82,7 @@ PessimisticTransactionDB::~PessimisticTransactionDB() {
   }
 }
 
-Status PessimisticTransactionDB::VerifyCFOptions(
-    const ColumnFamilyOptions& cf_options) {
+Status PessimisticTransactionDB::VerifyCFOptions(const ColumnFamilyOptions&) {
   return Status::OK();
 }
 
