@@ -351,7 +351,7 @@ Status DBImpl::CloseImpl() {
   }
   for (auto& log : logs_) {
     uint64_t log_number = log.writer->get_log_number();
-    Status s = log.ClearWriter(immutable_db_options_.use_fsync);
+    Status s = log.ClearWriter();
     if (!s.ok()) {
       ROCKS_LOG_WARN(immutable_db_options_.info_log,
                      "Unable to Sync WAL file %s with error -- %s",

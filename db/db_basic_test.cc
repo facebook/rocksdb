@@ -904,10 +904,15 @@ TEST_F(DBBasicTest, DBCloseFlushError) {
       new FaultInjectionTestEnv(Env::Default()));
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
+  options.manual_wal_flush = true;
+  options.write_buffer_size=100;
   options.env = fault_injection_env.get();
 
   Reopen(options);
   ASSERT_OK(Put("key1", "value1"));
+  ASSERT_OK(Put("key2", "value2"));
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
+  ASSERT_OK(Put("key3", "value3"));
   fault_injection_env->SetFilesystemActive(false);
   Status s = dbfull()->Close();
   fault_injection_env->SetFilesystemActive(true);

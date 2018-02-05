@@ -993,8 +993,8 @@ class DBImpl : public DB {
       writer = nullptr;
       return w;
     }
-    Status ClearWriter(bool use_fsync) {
-      Status s = writer->file()->Sync(use_fsync);
+    Status ClearWriter() {
+      Status s = writer->WriteBuffer();
       delete writer;
       writer = nullptr;
       return s;

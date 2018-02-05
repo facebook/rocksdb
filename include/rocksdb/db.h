@@ -173,8 +173,9 @@ class DB {
 
   // Close the DB by releasing resources, closing files etc. This should be
   // called before calling the desctructor so that the caller can get back a
-  // status in case there are any errors. Regardless of the return status, the
-  // DB must be freed
+  // status in case there are any errors. This will not fsync the WAL files.
+  // If syncing is required, the caller must first call SyncWAL.
+  // Regardless of the return status, the DB must be freed
   virtual Status Close() { return Status::OK(); }
 
   // ListColumnFamilies will open the DB specified by argument name
