@@ -456,9 +456,10 @@ Status PessimisticTransactionDB::Write(const WriteOptions& opts,
   return s;
 }
 
-Status WriteCommittedTxnDB::Write(const WriteOptions& opts, WriteBatch* updates,
-                                  bool skip_concurrency_control) {
-  if (skip_concurrency_control) {
+Status WriteCommittedTxnDB::Write(
+    const WriteOptions& opts,
+    const TransactionDBWriteOptimizations& optimizations, WriteBatch* updates) {
+  if (optimizations.skip_concurrency_control) {
     return db_impl_->Write(opts, updates);
   } else {
     return Write(opts, updates);

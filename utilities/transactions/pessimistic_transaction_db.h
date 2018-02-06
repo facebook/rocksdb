@@ -164,8 +164,9 @@ class WriteCommittedTxnDB : public PessimisticTransactionDB {
   // Optimized version of ::Write that makes use of skip_concurrency_control
   // hint
   using TransactionDB::Write;
-  virtual Status Write(const WriteOptions& opts, WriteBatch* updates,
-                       bool skip_concurrency_control) override;
+  virtual Status Write(const WriteOptions& opts,
+                       const TransactionDBWriteOptimizations& optimizations,
+                       WriteBatch* updates) override;
 };
 
 }  //  namespace rocksdb
