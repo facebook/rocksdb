@@ -537,6 +537,9 @@ void CompactionIterator::NextFromInput() {
       //
       // Note:  Dropping this Delete will not affect TransactionDB
       // write-conflict checking since it is earlier than any snapshot.
+      //
+      // Can we do the same in case the deletion is later than earliest
+      // snapshot?
       ++iter_stats_.num_record_drop_obsolete;
       if (!bottommost_level_) {
         ++iter_stats_.num_optimized_del_drop_obsolete;
@@ -621,9 +624,12 @@ void CompactionIterator::PrepareOutput() {
   // and the earliest snapshot is larger than this seqno
   // and the userkey differs from the last userkey in compaction
   // then we can squash the seqno to zero.
-
+  //
   // This is safe for TransactionDB write-conflict checking since transactions
   // only care about sequence number larger than any active snapshots.
+  //
+  // Can we do the same for levels above bottom level as long as
+  // KeyNotExistsBeyondOutputLevel() return true?
   if ((compaction_ != nullptr &&
       !compaction_->allow_ingest_behind()) &&
       ikeyNotNeededForIncrementalSnapshot() &&
