@@ -140,7 +140,7 @@ KinesisController::KinesisController(
     kinesis_client_(std::move(kinesis_client)) {
 
   // Initialize stream name.
-  topic_ = GetStreamName(env_->GetSrcBucketPrefix());
+  topic_ = GetAwsStreamName(env_->GetSrcBucketPrefix());
 
   Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
       "[%s] KinesisController opening stream %s using cachedir '%s'",
