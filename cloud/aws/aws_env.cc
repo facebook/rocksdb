@@ -1808,19 +1808,4 @@ Status CloudLogController::Retry(Env* env, RetryType func) {
 
 }  // namespace rocksdb
 
-#else  // USE_AWS
-
-// dummy placeholders used when AWS is not available
-namespace rocksdb {
-Status AwsEnv::NewSequentialFile(const std::string& fname,
-                                 unique_ptr<SequentialFile>* result,
-                                 const EnvOptions& options) {
-  return Status::NotSupported("Not compiled with aws support");
-}
-
-Status NewAwsEnv(Env** s3_env, const std::string& fsname) {
-  return Status::NotSupported("Not compiled with aws support");
-}
-}
-
 #endif

@@ -20,9 +20,8 @@ CloudEnv::~CloudEnv() {}
 
 CloudEnvWrapper::~CloudEnvWrapper() {}
 
-CloudEnvImpl::CloudEnvImpl(
-    CloudType cloud_type, Env* base_env)
-  : cloud_type_(cloud_type), base_env_(base_env), purger_is_running_(true) {}
+CloudEnvImpl::CloudEnvImpl(CloudType cloud_type, Env* base_env)
+    : cloud_type_(cloud_type), base_env_(base_env), purger_is_running_(true) {}
 
 CloudEnvImpl::~CloudEnvImpl() { StopPurger(); }
 
@@ -142,6 +141,9 @@ Status CloudEnv::NewAwsEnv(Env* base_env, const std::string& src_cloud_storage,
                            const std::string& dest_cloud_region,
                            const CloudEnvOptions& options,
                            std::shared_ptr<Logger> logger, CloudEnv** cenv) {
+#ifndef USE_AWS
+  return Status::NotSupported("RocksDB Cloud not compiled with AWS support");
+#else
   // Dump out cloud env options
   options.Dump(logger.get());
 
@@ -166,6 +168,7 @@ Status CloudEnv::NewAwsEnv(Env* base_env, const std::string& src_cloud_storage,
     }
   }
   return st;
+#endif
 }
 
 }  // namespace rocksdb
