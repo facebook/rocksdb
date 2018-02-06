@@ -5255,6 +5255,7 @@ TEST_P(TransactionTest, DuplicateKeys) {
     txn0->SetSavePoint();
     txn0->RollbackToSavePoint();
     ASSERT_OK(txn0->Commit());
+    delete txn0;
   }
 }
 
