@@ -130,6 +130,16 @@ struct TransactionOptions {
   size_t max_write_batch_size = 0;
 };
 
+// The per-write optimizations that do not involve transactions. TransactionDB
+// implemenation might or might not make use of the specified optimizations.
+struct TransactionDBWriteOptimizations {
+  // If it is true it means that the applicatinn guratnees that the
+  // key-set in the write batch do not conflict with any concurrent transaction
+  // and hence the concurrency control mechanism could be skipped for this
+  // write.
+  bool skip_concurrency_control = false;
+};
+
 struct KeyLockInfo {
   std::string key;
   std::vector<TransactionID> ids;
@@ -158,6 +168,16 @@ struct DeadlockPath {
 
 class TransactionDB : public StackableDB {
  public:
+  // Optimized version of ::Write that receives more optimization request such
+  // as skip_concurrency_control.
+  using StackableDB::Write;
+  virtual Status Write(const WriteOptions& opts,
+                       const TransactionDBWriteOptimizations&,
+                       WriteBatch* updates) {
+    // The default implementation ignores TransactionDBWriteOptimizations and
+    // falls back to the un-optimized version of ::Write
+    return Write(opts, updates);
+  }
   // Open a TransactionDB similar to DB::Open().
   // Internally call PrepareWrap() and WrapDB()
   static Status Open(const Options& options,
