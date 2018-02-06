@@ -41,9 +41,9 @@ class NoMergingMergeOp : public MergeOperator {
 // Always returns Decition::kRemove.
 class StallingFilter : public CompactionFilter {
  public:
-  Decision FilterV2(int level, const Slice& key, ValueType t,
-                    const Slice& existing_value, std::string* new_value,
-                    std::string* skip_until) const override {
+  Decision FilterV2(int /*level*/, const Slice& key, ValueType /*type*/,
+                    const Slice& /*existing_value*/, std::string* /*new_value*/,
+                    std::string* /*skip_until*/) const override {
     int k = std::atoi(key.ToString().c_str());
     last_seen.store(k);
     while (k >= stall_at.load()) {
@@ -177,7 +177,7 @@ class FakeCompaction : public CompactionIterator::CompactionProxy {
   bool is_bottommost_level = false;
 };
 
-// A simplied snapshot checker which assume each snapshot has a global
+// A simplifed snapshot checker which assumes each snapshot has a global
 // last visible sequence.
 class TestSnapshotChecker : public SnapshotChecker {
  public:
@@ -198,7 +198,7 @@ class TestSnapshotChecker : public SnapshotChecker {
 
  private:
   SequenceNumber last_committed_sequence_;
-  // A map of valid snapshot to last visible seqience to the snapshot.
+  // A map of valid snapshot to last visible sequence to the snapshot.
   std::unordered_map<SequenceNumber, SequenceNumber> snapshots_;
 };
 
@@ -283,6 +283,7 @@ class CompactionIteratorTest : public testing::TestWithParam<bool> {
   const Comparator* cmp_;
   const InternalKeyComparator icmp_;
   std::vector<SequenceNumber> snapshots_;
+  // A map of valid snapshot to last visible sequence to the snapshot.
   std::unordered_map<SequenceNumber, SequenceNumber> snapshot_map_;
   std::unique_ptr<MergeHelper> merge_helper_;
   std::unique_ptr<LoggingForwardVectorIterator> iter_;
@@ -697,13 +698,13 @@ class CompactionIteratorWithSnapshotCheckerTest
 // while committed version of these keys should get compacted as usual.
 
 TEST_F(CompactionIteratorWithSnapshotCheckerTest,
-       PreserveUncommittedKyes_Value) {
+       PreserveUncommittedKeys_Value) {
   RunTest(
       {test::KeyStr("foo", 3, kTypeValue), test::KeyStr("foo", 2, kTypeValue),
        test::KeyStr("foo", 1, kTypeValue)},
       {"v3", "v2", "v1"},
       {test::KeyStr("foo", 3, kTypeValue), test::KeyStr("foo", 2, kTypeValue)},
-      {"v3", "v2"}, 2);
+      {"v3", "v2"}, 2 /*last_committed_seq*/);
 }
 
 TEST_F(CompactionIteratorWithSnapshotCheckerTest,
@@ -713,7 +714,7 @@ TEST_F(CompactionIteratorWithSnapshotCheckerTest,
           {"", "v1"},
           {test::KeyStr("foo", 2, kTypeDeletion),
            test::KeyStr("foo", 1, kTypeValue)},
-          {"", "v1"}, 1);
+          {"", "v1"}, 1 /*last_committed_seq*/);
 }
 
 TEST_F(CompactionIteratorWithSnapshotCheckerTest,
@@ -724,7 +725,7 @@ TEST_F(CompactionIteratorWithSnapshotCheckerTest,
        test::KeyStr("foo", 1, kTypeValue)},
       {"v3", "v2", "v1"},
       {test::KeyStr("foo", 3, kTypeMerge), test::KeyStr("foo", 2, kTypeValue)},
-      {"v3", "v1,v2"}, 2, merge_op.get());
+      {"v3", "v1,v2"}, 2 /*last_committed_seq*/, merge_op.get());
 }
 
 TEST_F(CompactionIteratorWithSnapshotCheckerTest,
@@ -734,7 +735,7 @@ TEST_F(CompactionIteratorWithSnapshotCheckerTest,
           {"", "v1"},
           {test::KeyStr("foo", 2, kTypeSingleDeletion),
            test::KeyStr("foo", 1, kTypeValue)},
-          {"", "v1"}, 1);
+          {"", "v1"}, 1 /*last_committed_seq*/);
 }
 
 TEST_F(CompactionIteratorWithSnapshotCheckerTest,
@@ -745,7 +746,7 @@ TEST_F(CompactionIteratorWithSnapshotCheckerTest,
           {"v3", "v2", "v1"},
           {test::KeyStr("foo", 3, kTypeBlobIndex),
            test::KeyStr("foo", 2, kTypeBlobIndex)},
-          {"v3", "v2"}, 2);
+          {"v3", "v2"}, 2 /*last_committed_seq*/);
 }
 
 // Test compaction iterator dedup keys visible to the same snapshot.
@@ -758,7 +759,7 @@ TEST_F(CompactionIteratorWithSnapshotCheckerTest, DedupSameSnapshot_Value) {
       {"v4", "v3", "v2", "v1"},
       {test::KeyStr("foo", 4, kTypeValue), test::KeyStr("foo", 3, kTypeValue),
        test::KeyStr("foo", 1, kTypeValue)},
-      {"v4", "v3", "v1"}, 3);
+      {"v4", "v3", "v1"}, 3 /*last_committed_seq*/);
 }
 
 TEST_F(CompactionIteratorWithSnapshotCheckerTest, DedupSameSnapshot_Deletion) {
@@ -771,7 +772,7 @@ TEST_F(CompactionIteratorWithSnapshotCheckerTest, DedupSameSnapshot_Deletion) {
       {test::KeyStr("foo", 4, kTypeValue),
        test::KeyStr("foo", 3, kTypeDeletion),
        test::KeyStr("foo", 1, kTypeValue)},
-      {"v4", "", "v1"}, 3);
+      {"v4", "", "v1"}, 3 /*last_committed_seq*/);
 }
 
 TEST_F(CompactionIteratorWithSnapshotCheckerTest,
@@ -784,7 +785,7 @@ TEST_F(CompactionIteratorWithSnapshotCheckerTest,
       {"v4", "v3", "v2", "v1"},
       {test::KeyStr("foo", 4, kTypeValue), test::KeyStr("foo", 3, kTypeMerge),
        test::KeyStr("foo", 1, kTypeValue)},
-      {"v4", "v2,v3", "v1"}, 3, merge_op.get());
+      {"v4", "v2,v3", "v1"}, 3 /*last_committed_seq*/, merge_op.get());
 }
 
 TEST_F(CompactionIteratorWithSnapshotCheckerTest,
@@ -796,7 +797,7 @@ TEST_F(CompactionIteratorWithSnapshotCheckerTest,
        test::KeyStr("foo", 2, kTypeValue), test::KeyStr("foo", 1, kTypeValue)},
       {"v4", "", "v2", "v1"},
       {test::KeyStr("foo", 4, kTypeValue), test::KeyStr("foo", 1, kTypeValue)},
-      {"v4", "v1"}, 3);
+      {"v4", "v1"}, 3 /*last_committed_seq*/);
 }
 
 TEST_F(CompactionIteratorWithSnapshotCheckerTest, DedupSameSnapshot_BlobIndex) {
@@ -809,11 +810,11 @@ TEST_F(CompactionIteratorWithSnapshotCheckerTest, DedupSameSnapshot_BlobIndex) {
           {test::KeyStr("foo", 4, kTypeBlobIndex),
            test::KeyStr("foo", 3, kTypeBlobIndex),
            test::KeyStr("foo", 1, kTypeBlobIndex)},
-          {"v4", "v3", "v1"}, 3);
+          {"v4", "v3", "v1"}, 3 /*last_committed_seq*/);
 }
 
 // At bottom level, sequence numbers can be zero out, and deletions can be
-// removed, but only when they are visible to earliest sequence.
+// removed, but only when they are visible to earliest snapshot.
 
 TEST_F(CompactionIteratorWithSnapshotCheckerTest,
        NotZeroOutSequenceIfNotVisibleToEarliestSnapshot) {
@@ -870,8 +871,8 @@ TEST_F(CompactionIteratorWithSnapshotCheckerTest,
 }
 
 // Single delete should be kept in case it is not visible to the
-// earliest write conflict snapshot. In this case, corresponding value
-// can be trim to save space.
+// earliest write conflict snapshot. If a single delete is kept for this reason,
+// corresponding value can be trimmed to save space.
 TEST_F(CompactionIteratorWithSnapshotCheckerTest,
        KeepSingleDeletionForWriteConflictChecking) {
   AddSnapshot(2, 0);

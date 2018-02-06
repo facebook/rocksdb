@@ -538,8 +538,10 @@ void CompactionIterator::NextFromInput() {
       // Note:  Dropping this Delete will not affect TransactionDB
       // write-conflict checking since it is earlier than any snapshot.
       //
-      // Can we do the same in case the deletion is later than earliest
-      // snapshot?
+      // It seems that we can also drop deletion later than earliest snapshot
+      // given that:
+      // (1) The deletion is earlier than earliest_write_conflict_snapshot, and
+      // (2) No value exist earlier than the deletion.
       ++iter_stats_.num_record_drop_obsolete;
       if (!bottommost_level_) {
         ++iter_stats_.num_optimized_del_drop_obsolete;
