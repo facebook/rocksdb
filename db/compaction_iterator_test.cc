@@ -158,19 +158,19 @@ class FakeCompaction : public CompactionIterator::CompactionProxy {
  public:
   FakeCompaction() = default;
 
-  virtual int level(size_t compaction_input_level) const { return 0; }
+  virtual int level(size_t compaction_input_level) const override { return 0; }
   virtual bool KeyNotExistsBeyondOutputLevel(
-      const Slice& user_key, std::vector<size_t>* level_ptrs) const {
+      const Slice& user_key, std::vector<size_t>* level_ptrs) const override {
     return is_bottommost_level || key_not_exists_beyond_output_level;
   }
-  virtual bool bottommost_level() const { return is_bottommost_level; }
-  virtual int number_levels() const { return 1; }
-  virtual Slice GetLargestUserKey() const {
+  virtual bool bottommost_level() const override { return is_bottommost_level; }
+  virtual int number_levels() const override { return 1; }
+  virtual Slice GetLargestUserKey() const override {
     return "\xff\xff\xff\xff\xff\xff\xff\xff\xff";
   }
-  virtual bool allow_ingest_behind() const { return false; }
+  virtual bool allow_ingest_behind() const override { return false; }
 
-  virtual bool preserve_deletes() const {return false; }
+  virtual bool preserve_deletes() const override { return false; }
 
   bool key_not_exists_beyond_output_level = false;
 
@@ -183,7 +183,7 @@ class TestSnapshotChecker : public SnapshotChecker {
  public:
   explicit TestSnapshotChecker(
       SequenceNumber last_committed_sequence,
-      const std::unordered_map<SequenceNumber, SequenceNumber> snapshots = {})
+      const std::unordered_map<SequenceNumber, SequenceNumber>& snapshots = {})
       : last_committed_sequence_(last_committed_sequence),
         snapshots_(snapshots) {}
 
