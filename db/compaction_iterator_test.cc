@@ -708,7 +708,7 @@ TEST_F(CompactionIteratorWithSnapshotCheckerTest,
 }
 
 TEST_F(CompactionIteratorWithSnapshotCheckerTest,
-       PreserveUncommittedKyes_Deletion) {
+       PreserveUncommittedKeys_Deletion) {
   RunTest({test::KeyStr("foo", 2, kTypeDeletion),
            test::KeyStr("foo", 1, kTypeValue)},
           {"", "v1"},
@@ -718,7 +718,7 @@ TEST_F(CompactionIteratorWithSnapshotCheckerTest,
 }
 
 TEST_F(CompactionIteratorWithSnapshotCheckerTest,
-       PreserveUncommittedKyes_Merge) {
+       PreserveUncommittedKeys_Merge) {
   auto merge_op = MergeOperators::CreateStringAppendOperator();
   RunTest(
       {test::KeyStr("foo", 3, kTypeMerge), test::KeyStr("foo", 2, kTypeMerge),
@@ -729,7 +729,7 @@ TEST_F(CompactionIteratorWithSnapshotCheckerTest,
 }
 
 TEST_F(CompactionIteratorWithSnapshotCheckerTest,
-       PreserveUncommittedKyes_SingleDelete) {
+       PreserveUncommittedKeys_SingleDelete) {
   RunTest({test::KeyStr("foo", 2, kTypeSingleDeletion),
            test::KeyStr("foo", 1, kTypeValue)},
           {"", "v1"},
@@ -739,7 +739,7 @@ TEST_F(CompactionIteratorWithSnapshotCheckerTest,
 }
 
 TEST_F(CompactionIteratorWithSnapshotCheckerTest,
-       PreserveUncommittedKyes_BlobIndex) {
+       PreserveUncommittedKeys_BlobIndex) {
   RunTest({test::KeyStr("foo", 3, kTypeBlobIndex),
            test::KeyStr("foo", 2, kTypeBlobIndex),
            test::KeyStr("foo", 1, kTypeBlobIndex)},
