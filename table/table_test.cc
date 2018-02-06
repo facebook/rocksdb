@@ -2603,18 +2603,22 @@ TEST_F(GeneralTableTest, ApproximateOffsetOfCompressed) {
   }
 }
 
-TEST_F(HarnessTest, Randomized0) {
-  // part 1 out of 4
+// RandomizedHarnessTest is very slow for certain combination of arguments
+// Split into 8 pieces to reduce the time individual tests take.
+TEST_F(HarnessTest, Randomized1n2) {
+  // part 1,2 out of 8
   const size_t part = 1;
-  const size_t total = 4;
+  const size_t total = 8;
   RandomizedHarnessTest(part, total);
+  RandomizedHarnessTest(part+1, total);
 }
 
-TEST_F(HarnessTest, Randomized1) {
-  // part 2 out of 4
-  const size_t part = 2;
-  const size_t total = 4;
+TEST_F(HarnessTest, Randomized3n4) {
+  // part 3,4 out of 8
+  const size_t part = 3;
+  const size_t total = 8;
   RandomizedHarnessTest(part, total);
+  RandomizedHarnessTest(part+1, total);
 }
 
 TEST_F(HarnessTest, Randomized5) {
