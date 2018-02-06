@@ -991,7 +991,7 @@ rocksdb::Env* CreateAwsEnv(const std::string& dbpath,
   // so that our unit tests can run to completion.
   if (!coptions.keep_local_log_files) {
     rocksdb::AwsEnv* aws = static_cast<rocksdb::AwsEnv *>(s);
-    aws->CreateTailer();
+    aws->StartTailingStream();
   }
   result->reset(s);
   return s;

@@ -41,61 +41,22 @@
 #include <aws/s3/model/PutObjectResult.h>
 #include <aws/s3/model/ServerSideEncryption.h>
 
-#include <aws/kinesis/KinesisClient.h>
-#include <aws/kinesis/KinesisErrors.h>
-#include <aws/kinesis/model/CreateStreamRequest.h>
-#include <aws/kinesis/model/DescribeStreamRequest.h>
-#include <aws/kinesis/model/DescribeStreamResult.h>
-#include <aws/kinesis/model/GetRecordsRequest.h>
-#include <aws/kinesis/model/GetRecordsResult.h>
-#include <aws/kinesis/model/GetShardIteratorRequest.h>
-#include <aws/kinesis/model/GetShardIteratorResult.h>
-#include <aws/kinesis/model/PutRecordRequest.h>
-#include <aws/kinesis/model/PutRecordResult.h>
-#include <aws/kinesis/model/PutRecordsRequest.h>
-#include <aws/kinesis/model/PutRecordsRequestEntry.h>
-#include <aws/kinesis/model/Record.h>
-#include <aws/kinesis/model/ShardIteratorType.h>
-#include <aws/kinesis/model/StreamDescription.h>
-
-using Aws::Kinesis::Model::PutRecordRequest;
-using Aws::Kinesis::Model::PutRecordsRequest;
-using Aws::Kinesis::Model::PutRecordsRequestEntry;
-using Aws::Kinesis::Model::PutRecordOutcome;
-using Aws::Kinesis::Model::PutRecordsOutcome;
-using Aws::Kinesis::Model::PutRecordResult;
-using Aws::Kinesis::Model::PutRecordsResult;
-using Aws::Kinesis::Model::PutRecordsResultEntry;
-using Aws::Kinesis::Model::CreateStreamOutcome;
-using Aws::Kinesis::Model::CreateStreamRequest;
-using Aws::Kinesis::Model::Shard;
-using Aws::Kinesis::Model::DescribeStreamRequest;
-using Aws::Kinesis::Model::DescribeStreamOutcome;
-using Aws::Kinesis::Model::DescribeStreamResult;
-using Aws::Kinesis::Model::StreamDescription;
-using Aws::Kinesis::Model::GetShardIteratorRequest;
-using Aws::Kinesis::Model::GetShardIteratorResult;
-using Aws::Kinesis::Model::ShardIteratorType;
-using Aws::Kinesis::Model::GetShardIteratorOutcome;
-using Aws::Kinesis::Model::GetRecordsRequest;
-using Aws::Kinesis::Model::GetRecordsOutcome;
-using Aws::Kinesis::Model::GetRecordsResult;
-using Aws::Kinesis::Model::Record;
-using Aws::Kinesis::KinesisClient;
-using Aws::Kinesis::KinesisErrors;
-
 // A few local defintions
 namespace {
 
-// Get my bucket name
-inline Aws::String GetBucket(const std::string& bucket_prefix) {
-  std::string dd = "rockset." + bucket_prefix;
-  return Aws::String(dd.c_str(), dd.size());
+inline std::string GetBucket(const std::string& bucket_prefix) {
+  return "rockset." + bucket_prefix;
 }
 
-// Get my stream name
-inline Aws::String GetStreamName(const std::string& bucket_prefix) {
-  std::string dd = "rockset." + bucket_prefix;
+inline std::string GetStreamName(const std::string& bucket_prefix) {
+  return "rockset." + bucket_prefix;
+}
+inline Aws::String GetAwsBucket(const std::string& bucket_prefix) {
+  const std::string dd = GetBucket(bucket_prefix);
+  return Aws::String(dd.c_str(), dd.size());
+}
+inline Aws::String GetAwsStreamName(const std::string& bucket_prefix) {
+  const std::string dd = GetStreamName(bucket_prefix);
   return Aws::String(dd.c_str(), dd.size());
 }
 
@@ -177,121 +138,6 @@ class S3WritableFile : public WritableFile {
   virtual Status status() { return status_; }
 
   virtual Status Close();
-};
-
-// Creates a new file, appends data to a file or delete an existing file via
-// logging into a Kinesis stream
-//
-class KinesisWritableFile : public WritableFile {
- public:
-  KinesisWritableFile(AwsEnv* env, const std::string& fname,
-                      const EnvOptions& options);
-
-  virtual ~KinesisWritableFile();
-
-  // Appends data to a file. The file is crested if it does not already exists.
-  virtual Status Append(const Slice& data);
-
-  virtual Status Flush() {
-    assert(status_.ok());
-    return status_;
-  }
-
-  virtual Status Sync() {
-    assert(status_.ok());
-    return status_;
-  }
-
-  virtual Status status() { return status_; }
-
-  // Closes a file by writing an eof marker to Kinesis stream
-  virtual Status Close();
-
-  // Delete a file by logging a delete operation to the Kinesis stream
-  virtual Status LogDelete();
-
- private:
-  AwsEnv* env_;
-  std::string fname_;
-  Status status_;
-  unique_ptr<WritableFile> temp_file_;  // handle to the temporary file
-  Aws::String topic_;
-  uint64_t current_offset_;
-};
-
-//
-// Intricacies of reading a Kinesis stream
-//
-class KinesisSystem {
- public:
-  static const uint32_t Append = 0x1;  // add a new record to a logfile
-  static const uint32_t Delete = 0x2;  // delete a log file
-  static const uint32_t Closed = 0x4;  // closing a file
-
-  KinesisSystem(AwsEnv* env, std::shared_ptr<Logger> info_log);
-  virtual ~KinesisSystem();
-
-  // Continuously tail the Kinesis stream and apply to local file system
-  Status TailStream();
-
-  // The directory where files are cached
-  std::string const GetCacheDir() { return cache_dir_; }
-
-  Status const status() { return status_; }
-
-  // convert a original pathname to a pathname in the cache
-  static std::string GetCachePath(const std::string& cache_dir,
-                                  const Slice& original_pathname);
-
-  static void SerializeLogRecordAppend(const Slice& filename, const Slice& data,
-                                       uint64_t offset, std::string* out);
-  static void SerializeLogRecordClosed(const Slice& filename,
-                                       uint64_t file_size, std::string* out);
-  static void SerializeLogRecordDelete(const std::string& filename,
-                                       std::string* out);
-
-  // create stream to store all log files
-  static Status CreateStream(
-      AwsEnv* env, std::shared_ptr<Logger> info_log,
-      std::shared_ptr<Aws::Kinesis::KinesisClient> client,
-      const std::string& bucket_prefix);
-  // wait for stream to be ready
-  static Status WaitForStreamReady(
-      AwsEnv* env, std::shared_ptr<Logger> info_log,
-      std::shared_ptr<Aws::Kinesis::KinesisClient> client,
-      const std::string& bucket_prefix);
-
-  // delay in Kinesis stream: writes to read visibility
-  static const uint64_t retry_period_micros = 30 * 1000000L;  // 30 seconds
-
-  // Retry this till success or timeout has expired
-  typedef std::function<Status()> RetryType;
-  static Status Retry(Env* env, RetryType func);
-
- private:
-  AwsEnv* env_;
-  std::shared_ptr<Logger> info_log_;
-  Aws::String topic_;
-  Status status_;
-  std::string cache_dir_;
-
-  // list of shards and their positions
-  Aws::Vector<Shard> shards_;
-  Aws::Vector<Aws::String> shards_iterator_;
-  std::vector<Aws::String> shards_position_;
-
-  // A cache of pathnames to their open file _escriptors
-  std::map<std::string, std::unique_ptr<RandomRWFile>> cache_fds_;
-
-  Status InitializeShards();
-  Status Apply(const Slice& data);
-
-  // Set shard iterator for every shard to position specified by
-  // shards_position_
-  void SeekShards();
-  static bool ExtractLogRecord(const Slice& input, uint32_t* operation,
-                               Slice* filename, uint64_t* offset_in_file,
-                               uint64_t* file_size, Slice* data);
 };
 
 }  // namepace rocksdb

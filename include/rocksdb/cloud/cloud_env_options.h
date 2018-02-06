@@ -21,7 +21,7 @@ enum CloudType : unsigned char {
 };
 
 // Credentials needed to access cloud service
-class CloudAccessCredentials {
+class AwsCloudAccessCredentials {
  public:
   std::string access_key_id;
   std::string secret_key;
@@ -49,7 +49,7 @@ class CloudEnvOptions {
   CloudType cloud_type;
 
   // Access credentials
-  CloudAccessCredentials credentials;
+  AwsCloudAccessCredentials credentials;
 
   //
   // If true,  then sst files are stored locally and uploaded to the cloud in
@@ -64,7 +64,7 @@ class CloudEnvOptions {
   // If true,  then .log and MANIFEST files are stored in a local file system.
   //           they are not uploaded to any cloud logging system.
   // If false, then .log and MANIFEST files are not stored locally, and are
-  //           stored in a cloud-logging system like Kafka or Kinesis.
+  //           stored in a cloud-logging system like Kinesis.
   // Default:  true
   bool keep_local_log_files;
 

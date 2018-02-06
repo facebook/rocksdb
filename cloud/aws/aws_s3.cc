@@ -30,7 +30,7 @@ S3ReadableFile::S3ReadableFile(AwsEnv* env, const std::string& bucket_prefix,
     : env_(env), fname_(fname), offset_(0), file_size_(file_size) {
   Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
       "[s3] S3ReadableFile opening file %s", fname_.c_str());
-  s3_bucket_ = GetBucket(bucket_prefix);
+  s3_bucket_ = GetAwsBucket(bucket_prefix);
   s3_object_ = Aws::String(fname_.c_str(), fname_.size());
 }
 
@@ -170,7 +170,7 @@ Status S3WritableFile::BucketExistsInS3(
     std::shared_ptr<AwsS3ClientWrapper> client,
     const std::string& bucket_prefix,
     const Aws::S3::Model::BucketLocationConstraint& location) {
-  Aws::String bucket = GetBucket(bucket_prefix);
+  Aws::String bucket = GetAwsBucket(bucket_prefix);
   Aws::S3::Model::HeadBucketRequest request;
   request.SetBucket(bucket);
   Aws::S3::Model::HeadBucketOutcome outcome = client->HeadBucket(request);
@@ -192,7 +192,7 @@ Status S3WritableFile::CreateBucketInS3(
   }
 
   // create bucket
-  Aws::String bucket = GetBucket(bucket_prefix);
+  Aws::String bucket = GetAwsBucket(bucket_prefix);
   Aws::S3::Model::CreateBucketRequest request;
   request.SetBucket(bucket);
   request.SetCreateBucketConfiguration(conf);

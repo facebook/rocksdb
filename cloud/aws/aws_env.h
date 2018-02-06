@@ -24,7 +24,7 @@
 
 namespace rocksdb {
 
-class KinesisSystem;
+class CloudLogController;
 class S3ReadableFile;
 
 class AwsS3ClientWrapper {
@@ -260,9 +260,6 @@ class AwsEnv : public CloudEnvImpl {
   // The S3 client
   std::shared_ptr<AwsS3ClientWrapper> s3client_;
 
-  // The Kinesis client
-  std::shared_ptr<Aws::Kinesis::KinesisClient> kinesis_client_;
-
   // Configurations for this cloud environent
   const CloudEnvOptions cloud_env_options;
 
@@ -277,9 +274,7 @@ class AwsEnv : public CloudEnvImpl {
   // use a single bucket.
   static std::string GetTestBucketSuffix();
 
-  // Starts the wal tailer
-  //
-  Status CreateTailer();
+  Status StartTailingStream();
 
   // Saves and retrieves the dbid->dirname mapping in S3
   Status SaveDbid(const std::string& dbid, const std::string& dirname) override;
@@ -345,10 +340,10 @@ class AwsEnv : public CloudEnvImpl {
   Status create_bucket_status_;
 
   // Background thread to tail stream
-  std::thread tid_;
+  std::unique_ptr<std::thread> tid_;
   std::atomic<bool> running_;
 
-  std::unique_ptr<KinesisSystem> tailer_;
+  std::unique_ptr<CloudLogController> cloud_log_controller_;
 
   std::chrono::seconds file_deletion_delay_ = std::chrono::hours(1);
   std::thread file_deletion_thread_;
@@ -429,7 +424,8 @@ class AwsEnv : public CloudEnvImpl {
   explicit AwsEnv(Env* underlying_env, const std::string& bucket_prefix,
                   const CloudEnvOptions& cloud_options,
                   std::shared_ptr<Logger> info_log = nullptr)
-      : CloudEnvImpl(CloudType::kAws, underlying_env) {
+      : CloudEnvImpl(cloud_options.cloud_type, cloud_options.log_type,
+          underlying_env) {
     fprintf(stderr, "You have not build rocksdb with AWS support\n");
     fprintf(stderr, "Please see cloud/README.md for details\n");
     abort();

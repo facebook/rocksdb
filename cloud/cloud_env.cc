@@ -20,8 +20,9 @@ CloudEnv::~CloudEnv() {}
 
 CloudEnvWrapper::~CloudEnvWrapper() {}
 
-CloudEnvImpl::CloudEnvImpl(CloudType type, Env* base_env)
-    : cloud_type_(type), base_env_(base_env), purger_is_running_(true) {}
+CloudEnvImpl::CloudEnvImpl(
+    CloudType cloud_type, Env* base_env)
+  : cloud_type_(cloud_type), base_env_(base_env), purger_is_running_(true) {}
 
 CloudEnvImpl::~CloudEnvImpl() { StopPurger(); }
 
