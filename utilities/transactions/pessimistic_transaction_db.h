@@ -113,14 +113,26 @@ class PessimisticTransactionDB : public TransactionDB {
   std::vector<DeadlockPath> GetDeadlockInfoBuffer() override;
   void SetDeadlockInfoBufferSize(uint32_t target_size) override;
 
+  void UpdateCFComparatorMap(const std::vector<ColumnFamilyHandle*>& handles);
+  void UpdateCFComparatorMap(const ColumnFamilyHandle* handle);
+  std::map<uint32_t, const Comparator*>* GetCFComparatorMap() {
+    return cf_map_.load();
+  }
+
  protected:
   DBImpl* db_impl_;
   std::shared_ptr<Logger> info_log_;
   const TransactionDBOptions txn_db_options_;
+  // A cache of the cf comparators
+  std::atomic<std::map<uint32_t, const Comparator*>*> cf_map_;
+  // GC of the object above
+  std::unique_ptr<std::map<uint32_t, const Comparator*>> cf_map_gc_;
 
   void ReinitializeTransaction(
       Transaction* txn, const WriteOptions& write_options,
       const TransactionOptions& txn_options = TransactionOptions());
+
+  virtual Status VerifyCFOptions(const ColumnFamilyOptions& cf_options);
 
  private:
   friend class WritePreparedTxnDB;

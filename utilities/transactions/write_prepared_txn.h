@@ -68,7 +68,7 @@ class WritePreparedTxn : public PessimisticTransaction {
 
   Status CommitWithoutPrepareInternal() override;
 
-  Status CommitBatchInternal(WriteBatch* batch) override;
+  Status CommitBatchInternal(WriteBatch* batch, size_t batch_cnt) override;
 
   // Since the data is already written to memtables at the Prepare phase, the
   // commit entails writing only a commit marker in the WAL. The sequence number
@@ -84,11 +84,15 @@ class WritePreparedTxn : public PessimisticTransaction {
                                   const Slice& key,
                                   SequenceNumber* tracked_at_seq) override;
 
+  virtual Status RebuildFromWriteBatch(WriteBatch* src_batch) override;
+
   // No copying allowed
   WritePreparedTxn(const WritePreparedTxn&);
   void operator=(const WritePreparedTxn&);
 
   WritePreparedTxnDB* wpt_db_;
+  // Number of sub-batches in prepare
+  size_t prepare_batch_cnt_ = 0;
 };
 
 }  // namespace rocksdb

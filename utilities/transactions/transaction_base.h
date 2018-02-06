@@ -232,7 +232,7 @@ class TransactionBaseImpl : public Transaction {
 
   // iterates over the given batch and makes the appropriate inserts.
   // used for rebuilding prepared transactions after recovery.
-  Status RebuildFromWriteBatch(WriteBatch* src_batch) override;
+  virtual Status RebuildFromWriteBatch(WriteBatch* src_batch) override;
 
   WriteBatch* GetCommitTimeWriteBatch() override;
 

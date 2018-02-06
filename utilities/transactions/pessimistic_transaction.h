@@ -121,7 +121,10 @@ class PessimisticTransaction : public TransactionBaseImpl {
 
   virtual Status CommitWithoutPrepareInternal() = 0;
 
-  virtual Status CommitBatchInternal(WriteBatch* batch) = 0;
+  // batch_cnt if non-zero is the number of sub-batches. A sub-batch is a batch
+  // with no duplicate keys. If zero, then the number of sub-batches is unknown.
+  virtual Status CommitBatchInternal(WriteBatch* batch,
+                                     size_t batch_cnt = 0) = 0;
 
   virtual Status CommitInternal() = 0;
 
@@ -204,7 +207,7 @@ class WriteCommittedTxn : public PessimisticTransaction {
 
   Status CommitWithoutPrepareInternal() override;
 
-  Status CommitBatchInternal(WriteBatch* batch) override;
+  Status CommitBatchInternal(WriteBatch* batch, size_t batch_cnt) override;
 
   Status CommitInternal() override;
 

@@ -307,7 +307,7 @@ Status WriteCommittedTxn::CommitWithoutPrepareInternal() {
   return s;
 }
 
-Status WriteCommittedTxn::CommitBatchInternal(WriteBatch* batch) {
+Status WriteCommittedTxn::CommitBatchInternal(WriteBatch* batch, size_t) {
   Status s = db_->Write(write_options_, batch);
   return s;
 }
