@@ -73,9 +73,12 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
                                 const TransactionOptions& txn_options,
                                 Transaction* old_txn) override;
 
-  using PessimisticTransactionDB::Write;
-  Status Write(const WriteOptions& opts, WriteBatch* updates,
-               bool skip_cc) override;
+  // TODO(myabandeh): Implement this
+  // Optimized version of ::Write that makes use of skip_concurrency_control
+  // hint
+  // using PessimisticTransactionDB::Write;
+  // Status Write(const WriteOptions& opts, WriteBatch* updates,
+  //             bool skip_concurrency_control) override;
 
   using DB::Get;
   virtual Status Get(const ReadOptions& options,

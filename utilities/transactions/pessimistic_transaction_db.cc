@@ -434,10 +434,7 @@ Status PessimisticTransactionDB::Merge(const WriteOptions& options,
 }
 
 Status PessimisticTransactionDB::Write(const WriteOptions& opts,
-                                       WriteBatch* updates, bool skip_cc) {
-  if (skip_cc) {
-    return db_impl_->Write(opts, updates);
-  }
+                                       WriteBatch* updates) {
   // Need to lock all keys in this batch to prevent write conflicts with
   // concurrent transactions.
   Transaction* txn = BeginInternalTransaction(opts);
@@ -457,6 +454,15 @@ Status PessimisticTransactionDB::Write(const WriteOptions& opts,
   delete txn;
 
   return s;
+}
+
+Status WriteCommittedTxnDB::Write(const WriteOptions& opts, WriteBatch* updates,
+                                  bool skip_concurrency_control) {
+  if (skip_concurrency_control) {
+    return db_impl_->Write(opts, updates);
+  } else {
+    return Write(opts, updates);
+  }
 }
 
 void PessimisticTransactionDB::InsertExpirableTransaction(

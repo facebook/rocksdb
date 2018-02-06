@@ -63,12 +63,8 @@ class PessimisticTransactionDB : public TransactionDB {
                        ColumnFamilyHandle* column_family, const Slice& key,
                        const Slice& value) override;
 
-  using StackableDB::Write;
-  virtual Status Write(const WriteOptions& opts, WriteBatch* updates) override {
-    return Write(opts, updates, false);
-  }
-  virtual Status Write(const WriteOptions& opts, WriteBatch* updates,
-                       bool skip_cc) override;
+  using TransactionDB::Write;
+  virtual Status Write(const WriteOptions& opts, WriteBatch* updates) override;
 
   using StackableDB::CreateColumnFamily;
   virtual Status CreateColumnFamily(const ColumnFamilyOptions& options,
@@ -164,6 +160,12 @@ class WriteCommittedTxnDB : public PessimisticTransactionDB {
   Transaction* BeginTransaction(const WriteOptions& write_options,
                                 const TransactionOptions& txn_options,
                                 Transaction* old_txn) override;
+
+  // Optimized version of ::Write that makes use of skip_concurrency_control
+  // hint
+  using TransactionDB::Write;
+  virtual Status Write(const WriteOptions& opts, WriteBatch* updates,
+                       bool skip_concurrency_control) override;
 };
 
 }  //  namespace rocksdb

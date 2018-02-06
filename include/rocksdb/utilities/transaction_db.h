@@ -158,10 +158,17 @@ struct DeadlockPath {
 
 class TransactionDB : public StackableDB {
  public:
+  // Optimized version of ::Write that makes use of skip_concurrency_control
+  // hint; if it is true it means that the applicatinn guratnees that the
+  // key-set in the write batch do not conflict with any concurrent transaction
+  // and hence the concurrency control mechanism could be skipped for this
+  // write.
   using StackableDB::Write;
   virtual Status Write(const WriteOptions& opts, WriteBatch* updates,
-                       bool skip_cc) {
-    return StackableDB::Write(opts, updates);
+                       bool skip_concurrency_control) {
+    // The default implementation ignores skip_concurrency_control hint and
+    // falls back to the un-optimized version of ::Write
+    return Write(opts, updates);
   }
   // Open a TransactionDB similar to DB::Open().
   // Internally call PrepareWrap() and WrapDB()
