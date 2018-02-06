@@ -2604,16 +2604,44 @@ TEST_F(GeneralTableTest, ApproximateOffsetOfCompressed) {
 }
 
 TEST_F(HarnessTest, Randomized0) {
-  // part 1 out of 2
+  // part 1 out of 4
   const size_t part = 1;
-  const size_t total = 2;
+  const size_t total = 4;
   RandomizedHarnessTest(part, total);
 }
 
 TEST_F(HarnessTest, Randomized1) {
-  // part 2 out of 2
+  // part 2 out of 4
   const size_t part = 2;
-  const size_t total = 2;
+  const size_t total = 4;
+  RandomizedHarnessTest(part, total);
+}
+
+TEST_F(HarnessTest, Randomized5) {
+  // part 5 out of 8
+  const size_t part = 5;
+  const size_t total = 8;
+  RandomizedHarnessTest(part, total);
+}
+
+TEST_F(HarnessTest, Randomized6) {
+  // part 6 out of 8
+  const size_t part = 6;
+  const size_t total = 8;
+  RandomizedHarnessTest(part, total);
+}
+
+TEST_F(HarnessTest, Randomized7) {
+  // part 7 out of 8
+  const size_t part = 7;
+  const size_t total = 8;
+  RandomizedHarnessTest(part, total);
+}
+
+TEST_F(HarnessTest, Randomized8) {
+  // part 8 out of 8
+  const size_t part = 8;
+  const size_t total = 8;
   RandomizedHarnessTest(part, total);
 }
 
