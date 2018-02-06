@@ -369,6 +369,10 @@ Status DBImpl::Recover(
     default_cf_internal_stats_ = default_cf_handle_->cfd()->internal_stats();
     single_column_family_mode_ =
         versions_->GetColumnFamilySet()->NumberOfColumnFamilies() == 1;
+    uint64_t min_log_num = kMaxSequenceNumber;
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      min_log_num = std::min(min_log_num, cfd->GetLogNumber());
+    }
 
     // Recover from all newer log files than the ones named in the
     // descriptor (new log files may have been added by the previous
@@ -393,11 +397,22 @@ Status DBImpl::Recover(
               "While creating a new Db, wal_dir contains "
               "existing log file: ",
               filenames[i]);
+        } else if (number < min_log_num) {
+          // min_log_num is the smallest WAL log number among all column
+          // families, any WAL with log number strictly less than min_log_num
+          // should have already been processed and purged according to the
+          // manifest
+          ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                         "Skipping obsolete WAL log #%" PRIu64
+                         " min_log_num "
+                         "is #%" PRIu64 "",
+                         number, min_log_num);
         } else {
           logs.push_back(number);
         }
       }
     }
+    TEST_SYNC_POINT_CALLBACK("DBImpl::Recover:CollectLogs", &logs);
 
     if (logs.size() > 0) {
       if (error_if_log_file_exist) {

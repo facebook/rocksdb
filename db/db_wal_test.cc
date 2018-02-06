@@ -877,6 +877,32 @@ TEST_F(DBWALTest, kAbsoluteConsistency) {
   }
 }
 
+TEST_F(DBWALTest, WALReappearTest) {
+  Options options = CurrentOptions();
+  // drop_file_delete_ means files are not actually deleted from disk
+  env_->drop_file_delete_ = true;
+  options.env = env_;
+  size_t total_files_processed = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::Recover:CollectLogs", [&](void* arg) {
+        std::vector<uint64_t>* logs =
+            reinterpret_cast<std::vector<uint64_t>*>(arg);
+        if (logs->size() > 0) {
+          total_files_processed += logs->size();
+        }
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  CreateAndReopenWithCF({"saigon"}, options);
+  ASSERT_OK(Put(1, "dim", "sum"));
+  ASSERT_OK(Put("green", "tea"));
+  ASSERT_OK(Flush(0));
+  ASSERT_OK(Flush(1));
+  ASSERT_OK(TryReopenWithColumnFamilies({"default", "saigon"}, options));
+  // Verify the WAL was skipped during recovery
+  // 2 means 2 logs are created but never reopened for reading
+  ASSERT_EQ(total_files_processed, 2);
+}
+
 // Test scope:
 // We don't expect the data store to be opened if there is any inconsistency
 // between WAL and SST files

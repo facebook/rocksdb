@@ -41,6 +41,7 @@ SpecialEnv::SpecialEnv(Env* base)
   new_writable_count_ = 0;
   non_writable_count_ = 0;
   table_write_callback_ = nullptr;
+  drop_file_delete_ = false;
 }
 #ifndef ROCKSDB_LITE
 ROT13BlockCipher rot13Cipher_(16);
