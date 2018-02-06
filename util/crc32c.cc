@@ -608,21 +608,54 @@ inline void align_to_8(
     uint64_t& crc0, // crc so far, updated on return
     const unsigned char*& next) { // next data pointer, updated on return
   uint32_t crc32bit = static_cast<uint32_t>(crc0);
-  if (len & 0x04) {
-    crc32bit = _mm_crc32_u32(crc32bit, *(uint32_t*)next);
-    next += sizeof(uint32_t);
-  }
-  if (len & 0x02) {
-    crc32bit = _mm_crc32_u16(crc32bit, *(uint16_t*)next);
-    next += sizeof(uint16_t);
-  }
   if (len & 0x01) {
     crc32bit = _mm_crc32_u8(crc32bit, *(next));
     next++;
   }
+  if (len & 0x02) {
+    assert (!((uintptr_t)next & 0x01));
+    crc32bit = _mm_crc32_u16(crc32bit, *(uint16_t*)next);
+    next += sizeof(uint16_t);
+  }
+  if (len & 0x04) {
+    assert (!((uintptr_t)next & 0x02) && !((uintptr_t)next & 0x01));
+    crc32bit = _mm_crc32_u32(crc32bit, *(uint32_t*)next);
+    next += sizeof(uint32_t);
+  }
   crc0 = crc32bit;
 }
 
+inline void small_than_8(
+    size_t len,
+    uint64_t& crc0, // crc so far, updated on return
+    const unsigned char*& next) { // next data pointer, updated on return
+  uint32_t crc32bit = static_cast<uint32_t>(crc0);
+  while (len > 0) {
+    uint64_t align_bytes = (8 - (uintptr_t)next) & 7;
+    if (align_bytes & 0x01 || len == 1) {
+      crc32bit = _mm_crc32_u8(crc32bit, *(next));
+      next++;
+      len--;
+    } else if (align_bytes & 0x02) {
+      assert (len >= 2);
+      assert (!(align_bytes & 0x01));
+      crc32bit = _mm_crc32_u16(crc32bit, *(uint16_t*)next);
+      next += sizeof(uint16_t);
+      len -= sizeof(uint16_t);
+    } else if (align_bytes & 0x04 && len >= 4) {
+      assert (!(align_bytes & 0x02) && !(align_bytes & 0x01));
+      crc32bit = _mm_crc32_u32(crc32bit, *(uint32_t*)next);
+      next += sizeof(uint32_t);
+      len -= sizeof(uint32_t);
+    } else {
+      crc32bit = _mm_crc32_u8(crc32bit, *(next));
+      next++;
+      len--;
+    }
+  }
+  crc0 = crc32bit;
+}
+  
 //
 // CombineCRC performs pclmulqdq multiplication of 2 partial CRC's and a well
 // chosen constant and xor's these with the remaining CRC.
@@ -1086,6 +1119,12 @@ uint32_t crc32c_3way(uint32_t crc, const char* buf, size_t len) {
       }
       next = (const unsigned char*)next2;
     }
+    {
+      // Work on the bytes (< 8) before the first 8-byte alignment addr starts
+      uint64_t align_bytes = (8 - (uintptr_t)next) & 7;
+      len -= align_bytes;
+      align_to_8(align_bytes, crc0, next);
+    }
     uint64_t count2 = len >> 3; // 216 of less bytes is 27 or less singlets
     len = len & 7;
     next += (count2 * 8);
@@ -1175,7 +1214,7 @@ uint32_t crc32c_3way(uint32_t crc, const char* buf, size_t len) {
     }
   }
   {
-    align_to_8(len, crc0, next);
+    small_than_8(len, crc0, next);
     return (uint32_t)crc0 ^ 0xffffffffu;
   }
 }
