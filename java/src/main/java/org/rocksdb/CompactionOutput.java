@@ -11,8 +11,8 @@ package org.rocksdb;
 public class CompactionOutput {
 
   public final CompactionDecision decision;
-  public final String newValue;
-  public final String skipUntil;
+  public final byte[] newValue;
+  public final byte[] skipUntil;
 
   // We cache this to avoid an extra Java lookup from native side
   private final byte decisionValue;
@@ -34,7 +34,7 @@ public class CompactionOutput {
    * @param decision      The decision
    * @param param         Will be treated as either the new value or skip until parameter depending on {@code decision}
    */
-  public CompactionOutput(CompactionDecision decision, String param) {
+  public CompactionOutput(CompactionDecision decision, byte[] param) {
     assert(decision.equals(CompactionDecision.kChangeValue) || decision.equals(CompactionDecision.kRemoveAndSkipUntil));
     this.decision = decision;
     this.decisionValue = decision.getValue();

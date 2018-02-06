@@ -2229,7 +2229,7 @@ public:
       return nullptr;
     }
 
-    jfieldID fieldId = env->GetFieldID(jclazz, "newValue", "Ljava/lang/String;");
+    jfieldID fieldId = env->GetFieldID(jclazz, "newValue", "[B");
     assert(fieldId != nullptr);
     return fieldId;
   }
@@ -2248,7 +2248,7 @@ public:
       return nullptr;
     }
 
-    jfieldID fieldId = env->GetFieldID(jclazz, "skipUntil", "Ljava/lang/String;");
+    jfieldID fieldId = env->GetFieldID(jclazz, "skipUntil", "[B");
     assert(fieldId != nullptr);
     return fieldId;
   }

@@ -7,6 +7,7 @@
 // rocksdb::CompactionFilter.
 
 #include <iostream>
+#include <jni.h>
 
 #include "rocksjni/compaction_filter_jnicallback.h"
 #include "rocksjni/portal.h"
@@ -175,17 +176,17 @@ CompactionFilter::Decision CompactionFilterJniCallback::FilterV2(
 
     // Extract new_value from the result object if we have one
     if(decision == CompactionFilter::Decision::kChangeValue) {
-      jstring jNewValue = (jstring) env->GetObjectField(jCompactionOutput, jCompactionOutputNewValueFieldId_);
+      jbyteArray jNewValue = (jbyteArray) env->GetObjectField(jCompactionOutput, jCompactionOutputNewValueFieldId_);
       if (env->ExceptionCheck()) {
         throw CompactionFilterJniCallbackException("Exception accessing CompactionOutput#newValue");
       }
       if (jNewValue != nullptr) {
         jboolean has_exception = JNI_FALSE;
-        std::string incoming_new_value = JniUtil::copyStdString(env, jNewValue,
-                                                                &has_exception);  // also releases jsName
+        std::string incoming_new_value = rocksdb::JniUtil::byteString<std::string>(  // also releases jNewValue
+            env, jNewValue, [](const char* str, const size_t len) { return std::string(str, len); }, &has_exception);
         if (has_exception == JNI_TRUE) {
           throw CompactionFilterJniCallbackException(
-              "Java exception encountered when copying new_value string from Java -> native");
+              "Java exception encountered when copying new_value byte array from Java -> native");
         }
         new_value->assign(incoming_new_value);
       }
@@ -193,17 +194,17 @@ CompactionFilter::Decision CompactionFilterJniCallback::FilterV2(
 
       // Extract skip_until from the result object
     else if(decision == CompactionFilter::Decision::kRemoveAndSkipUntil) {
-      jstring jSkipUntil = (jstring) env->GetObjectField(jCompactionOutput, jCompactionOutputSkipUntilFieldId_);
+      jbyteArray jSkipUntil = (jbyteArray) env->GetObjectField(jCompactionOutput, jCompactionOutputSkipUntilFieldId_);
       if (env->ExceptionCheck()) {
         throw CompactionFilterJniCallbackException("Exception accessing CompactionOutput#skipUntil");
       }
       if (jSkipUntil != nullptr) {
         jboolean has_exception = JNI_FALSE;
-        std::string incoming_skip_until = JniUtil::copyStdString(env, jSkipUntil,
-                                                                 &has_exception);  // also releases jsName
+        std::string incoming_skip_until = rocksdb::JniUtil::byteString<std::string>(  // also releases jSkipUntil
+            env, jSkipUntil, [](const char* str, const size_t len) { return std::string(str, len); }, &has_exception);
         if (has_exception == JNI_TRUE) {
           throw CompactionFilterJniCallbackException(
-              "Java exception encountered when copying skip_until string from Java -> native");
+              "Java exception encountered when copying skip_until byte array from Java -> native");
         }
         skip_until->assign(incoming_skip_until);
       }

@@ -33,8 +33,9 @@ public class JavaCompactionFilterTest {
    */
   private static class DummyCompactionFilter extends AbstractJavaCompactionFilter {
 
-    public static final String changedValue = "foobaz";
-    public static final String skipUntil = "key3";
+    public static final byte[] changedValue = new String("foobaz").getBytes();
+    public static final String skipUntilStr = "key3";
+    public static final byte[] skipUntil = skipUntilStr.getBytes();
 
     private CompactionDecision decision = CompactionDecision.kKeep;
 
@@ -121,7 +122,7 @@ public class JavaCompactionFilterTest {
 
     // Assert that the values have all been changed
     for(String key : this.keys) {
-      assertThat(db.get(key.getBytes())).isEqualTo(DummyCompactionFilter.changedValue.getBytes());
+      assertThat(db.get(key.getBytes())).isEqualTo(DummyCompactionFilter.changedValue);
     }
 
     // Put original values
@@ -133,7 +134,7 @@ public class JavaCompactionFilterTest {
 
     // Assert that we removed all keys until the skip marker
     for(String key : this.keys) {
-      if(key.compareTo(DummyCompactionFilter.skipUntil) < 0) {
+      if(key.compareTo(DummyCompactionFilter.skipUntilStr) < 0) {
         assertThat(db.get(key.getBytes())).isNull();
       } else {
         assertThat(db.get(key.getBytes())).isEqualTo(this.originalValueBytes);
