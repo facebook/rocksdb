@@ -20,12 +20,11 @@ class CloudEnvImpl : public CloudEnv {
 
  public:
   // Constructor
-  CloudEnvImpl(CloudType type, Env* base_env);
+  CloudEnvImpl(CloudType cloudtype, Env* base_env);
 
   virtual ~CloudEnvImpl();
 
-  // Returns the cloud_type
-  CloudType GetCloudType() const { return cloud_type_; }
+  const CloudType& GetCloudType() const { return cloud_type_; }
 
   // Returns the underlying env
   Env* GetBaseEnv() { return base_env_; }
@@ -64,8 +63,8 @@ class CloudEnvImpl : public CloudEnv {
   void TEST_DisableCloudManifest() { test_disable_cloud_manifest_ = true; }
 
  protected:
-  // The type of cloud service aws google azure, etc
-  CloudType cloud_type_;
+  // The type of cloud service e.g. AWS, Azure, Google,  etc.
+  const CloudType cloud_type_;
 
   // The dbid of the source database that is cloned
   std::string src_dbid_;

@@ -1,9 +1,10 @@
 //  Copyright (c) 2016-present, Rockset, Inc.  All rights reserved.
 //
 #include "cloud/aws/aws_env.h"
-#include <unistd.h>
 #include <fstream>
 #include <iostream>
+#include <memory>
+#include <unistd.h>
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
 #include "util/stderr_logger.h"
@@ -12,6 +13,8 @@
 #ifdef USE_AWS
 
 #include "cloud/aws/aws_file.h"
+#include "cloud/aws/aws_kinesis.h"
+#include "cloud/aws/aws_log.h"
 #include "cloud/aws/aws_retry.h"
 #include "cloud/db_cloud_impl.h"
 
@@ -125,7 +128,8 @@ AwsEnv::AwsEnv(Env* underlying_env, const std::string& src_bucket_prefix,
                const std::string& dest_bucket_region,
                const CloudEnvOptions& _cloud_env_options,
                std::shared_ptr<Logger> info_log)
-    : CloudEnvImpl(CloudType::kAws, underlying_env),
+    : CloudEnvImpl(_cloud_env_options.cloud_type,
+                   underlying_env),
       info_log_(info_log),
       cloud_env_options(_cloud_env_options),
       src_bucket_prefix_(src_bucket_prefix),
@@ -259,27 +263,41 @@ AwsEnv::AwsEnv(Env* underlying_env, const std::string& src_bucket_prefix,
 
   // create Kinesis client for storing/reading logs
   if (create_bucket_status_.ok() && !cloud_env_options.keep_local_log_files) {
-    kinesis_client_ =
-        creds ? std::make_shared<Aws::Kinesis::KinesisClient>(*creds, config)
-              : std::make_shared<Aws::Kinesis::KinesisClient>(config);
-    if (kinesis_client_ == nullptr) {
+    std::unique_ptr<Aws::Kinesis::KinesisClient> kinesis_client;
+    kinesis_client.reset(
+        creds ?
+          new Aws::Kinesis::KinesisClient(*creds, config) :
+          new Aws::Kinesis::KinesisClient(config)
+    );
+
+    if (!kinesis_client) {
       create_bucket_status_ =
           Status::IOError("Error in creating Kinesis client");
     }
 
+    if (create_bucket_status_.ok()) {
+      cloud_log_controller_.reset(
+          new KinesisController(this, info_log_, std::move(kinesis_client)));
+
+      if (!cloud_log_controller_) {
+        create_bucket_status_ =
+            Status::IOError("Error in creating Kinesis controller");
+      }
+    }
+
     // Create Kinesis stream and wait for it to be ready
     if (create_bucket_status_.ok()) {
-      create_bucket_status_ = KinesisSystem::CreateStream(
-          this, info_log_, kinesis_client_, GetSrcBucketPrefix());
+      create_bucket_status_ = cloud_log_controller_->CreateStream(
+          GetSrcBucketPrefix());
       if (!create_bucket_status_.ok()) {
         Log(InfoLogLevel::ERROR_LEVEL, info_log,
             "[aws] NewAwsEnv Unable to  create stream %s",
             create_bucket_status_.ToString().c_str());
       }
     }
-    // create tailer object
+
     if (create_bucket_status_.ok()) {
-      create_bucket_status_ = CreateTailer();
+      create_bucket_status_ = StartTailingStream();
     }
   }
   if (!create_bucket_status_.ok()) {
@@ -338,25 +356,21 @@ AwsEnv::~AwsEnv() {
   file_deletion_thread_.join();
 
   StopPurger();
-  if (tid_.joinable()) {
-    tid_.join();
+  if (tid_ && tid_->joinable()) {
+    tid_->join();
   }
 }
 
-Status AwsEnv::CreateTailer() {
-  if (tailer_) {
+Status AwsEnv::StartTailingStream() {
+  if (tid_) {
     return Status::Busy("Tailer already started");
   }
-  // create tailer object
-  KinesisSystem* f = new KinesisSystem(this, info_log_);
-  tailer_.reset(f);
 
   // create tailer thread
-  if (f->status().ok()) {
-    auto lambda = [this]() { tailer_->TailStream(); };
-    tid_ = std::thread(lambda);
-  }
-  return f->status();
+  auto lambda = [this]() { cloud_log_controller_->TailStream(); };
+  tid_.reset(new std::thread(lambda));
+
+  return Status::OK();
 }
 
 Status AwsEnv::status() { return create_bucket_status_; }
@@ -466,18 +480,18 @@ Status AwsEnv::NewSequentialFile(const std::string& logical_fname,
 
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
     // read from Kinesis
-    st = tailer_->status();
+    st = cloud_log_controller_->status();
     if (st.ok()) {
       // map  pathname to cache dir
-      std::string pathname =
-          KinesisSystem::GetCachePath(tailer_->GetCacheDir(), Slice(fname));
+      std::string pathname = CloudLogController::GetCachePath(
+          cloud_log_controller_->GetCacheDir(), Slice(fname));
       Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
           "[Kinesis] NewSequentialFile logfile %s %s", pathname.c_str(), "ok");
 
       auto lambda = [this, pathname, &result, options]() -> Status {
         return base_env_->NewSequentialFile(pathname, result, options);
       };
-      return KinesisSystem::Retry(this, lambda);
+      return CloudLogController::Retry(this, lambda);
     }
   }
 
@@ -578,11 +592,11 @@ Status AwsEnv::NewRandomAccessFile(const std::string& logical_fname,
 
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
     // read from Kinesis
-    st = tailer_->status();
+    st = cloud_log_controller_->status();
     if (st.ok()) {
       // map  pathname to cache dir
-      std::string pathname =
-          KinesisSystem::GetCachePath(tailer_->GetCacheDir(), Slice(fname));
+      std::string pathname = CloudLogController::GetCachePath(
+          cloud_log_controller_->GetCacheDir(), Slice(fname));
       Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
           "[kinesis] NewRandomAccessFile logfile %s %s", pathname.c_str(),
           "ok");
@@ -590,7 +604,7 @@ Status AwsEnv::NewRandomAccessFile(const std::string& logical_fname,
       auto lambda = [this, pathname, &result, options]() -> Status {
         return base_env_->NewRandomAccessFile(pathname, result, options);
       };
-      return KinesisSystem::Retry(this, lambda);
+      return CloudLogController::Retry(this, lambda);
     }
   }
 
@@ -630,9 +644,9 @@ Status AwsEnv::NewWritableFile(const std::string& logical_fname,
     }
     result->reset(dynamic_cast<WritableFile*>(f.release()));
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
-    unique_ptr<KinesisWritableFile> f(
-        new KinesisWritableFile(this, fname, options));
-    if (!f->status().ok()) {
+    std::unique_ptr<CloudLogWritableFile> f(
+        cloud_log_controller_->CreateWritableFile(fname, options));
+    if (!f || !f->status().ok()) {
       s = Status::IOError("[aws] NewWritableFile", fname.c_str());
       Log(InfoLogLevel::ERROR_LEVEL, info_log_,
           "[kinesis] NewWritableFile src %s %s", fname.c_str(),
@@ -728,18 +742,18 @@ Status AwsEnv::FileExists(const std::string& logical_fname) {
     }
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
     // read from Kinesis
-    st = tailer_->status();
+    st = cloud_log_controller_->status();
     if (st.ok()) {
       // map  pathname to cache dir
-      std::string pathname =
-          KinesisSystem::GetCachePath(tailer_->GetCacheDir(), Slice(fname));
+      std::string pathname = CloudLogController::GetCachePath(
+          cloud_log_controller_->GetCacheDir(), Slice(fname));
       Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
           "[kinesis] FileExists logfile %s %s", pathname.c_str(), "ok");
 
       auto lambda = [this, pathname]() -> Status {
         return base_env_->FileExists(pathname);
       };
-      st = KinesisSystem::Retry(this, lambda);
+      st = CloudLogController::Retry(this, lambda);
     }
   } else {
     st = base_env_->FileExists(fname);
@@ -758,7 +772,7 @@ Status AwsEnv::GetChildrenFromS3(const std::string& path,
                                  std::vector<std::string>* result) {
   assert(status().ok());
   // The bucket name
-  Aws::String bucket = GetBucket(bucket_prefix);
+  Aws::String bucket = GetAwsBucket(bucket_prefix);
 
   // S3 paths don't start with '/'
   auto prefix = ltrim_if(path, '/');
@@ -828,7 +842,7 @@ Status AwsEnv::HeadObject(const std::string& bucket_prefix,
                           Aws::Map<Aws::String, Aws::String>* metadata,
                           uint64_t* size, uint64_t* modtime) {
   Aws::S3::Model::HeadObjectRequest request;
-  request.SetBucket(GetBucket(bucket_prefix));
+  request.SetBucket(GetAwsBucket(bucket_prefix));
   request.SetKey(Aws::String(path.data(), path.size()));
 
   auto outcome = s3client_->HeadObject(request);
@@ -876,7 +890,7 @@ Status AwsEnv::NewS3ReadableFile(const std::string& bucket_prefix,
 //
 Status AwsEnv::EmptyBucket(const std::string& bucket_prefix) {
   std::vector<std::string> results;
-  Aws::String bucket = GetBucket(bucket_prefix);
+  Aws::String bucket = GetAwsBucket(bucket_prefix);
 
   // Get all the objects in the  bucket
   Status st = GetChildrenFromS3("", bucket_prefix, &results);
@@ -1030,12 +1044,12 @@ Status AwsEnv::DeleteFile(const std::string& logical_fname) {
     base_env_->DeleteFile(fname);
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
     // read from Kinesis
-    st = tailer_->status();
+    st = cloud_log_controller_->status();
     if (st.ok()) {
       // Log a Delete record to kinesis stream
-      unique_ptr<KinesisWritableFile> f(
-          new KinesisWritableFile(this, fname, EnvOptions()));
-      if (!f->status().ok()) {
+      std::unique_ptr<CloudLogWritableFile> f(
+        cloud_log_controller_->CreateWritableFile(fname, EnvOptions()));
+      if (!f || !f->status().ok()) {
         st = Status::IOError("[Kinesis] DeleteFile", fname.c_str());
       } else {
         st = f->LogDelete();
@@ -1073,7 +1087,7 @@ Status AwsEnv::DeletePathInS3(const std::string& bucket_prefix,
                               const std::string& fname) {
   assert(status().ok());
   Status st;
-  Aws::String bucket = GetBucket(bucket_prefix);
+  Aws::String bucket = GetAwsBucket(bucket_prefix);
 
   // The filename is the same as the object name in the bucket
   Aws::String object = Aws::String(fname.c_str(), fname.size());
@@ -1180,18 +1194,18 @@ Status AwsEnv::GetFileSize(const std::string& logical_fname, uint64_t* size) {
       }
     }
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
-    st = tailer_->status();
+    st = cloud_log_controller_->status();
     if (st.ok()) {
       // map  pathname to cache dir
-      std::string pathname =
-          KinesisSystem::GetCachePath(tailer_->GetCacheDir(), Slice(fname));
+      std::string pathname = CloudLogController::GetCachePath(
+          cloud_log_controller_->GetCacheDir(), Slice(fname));
       Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
           "[kinesis] GetFileSize logfile %s %s", pathname.c_str(), "ok");
 
       auto lambda = [this, pathname, size]() -> Status {
         return base_env_->GetFileSize(pathname, size);
       };
-      st = KinesisSystem::Retry(this, lambda);
+      st = CloudLogController::Retry(this, lambda);
     }
   } else {
     st = base_env_->GetFileSize(fname, size);
@@ -1229,11 +1243,11 @@ Status AwsEnv::GetFileModificationTime(const std::string& logical_fname,
       }
     }
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
-    st = tailer_->status();
+    st = cloud_log_controller_->status();
     if (st.ok()) {
       // map  pathname to cache dir
-      std::string pathname =
-          KinesisSystem::GetCachePath(tailer_->GetCacheDir(), Slice(fname));
+      std::string pathname = CloudLogController::GetCachePath(
+          cloud_log_controller_->GetCacheDir(), Slice(fname));
       Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
           "[kinesis] GetFileModificationTime logfile %s %s", pathname.c_str(),
           "ok");
@@ -1241,7 +1255,7 @@ Status AwsEnv::GetFileModificationTime(const std::string& logical_fname,
       auto lambda = [this, pathname, time]() -> Status {
         return base_env_->GetFileModificationTime(pathname, time);
       };
-      st = KinesisSystem::Retry(this, lambda);
+      st = CloudLogController::Retry(this, lambda);
     }
   } else {
     st = base_env_->GetFileModificationTime(fname, time);
@@ -1348,7 +1362,7 @@ Status AwsEnv::SaveDbid(const std::string& dbid, const std::string& dirname) {
       dbid.c_str(), dirname.c_str());
 
   std::string dbidkey = dbid_registry_ + dbid;
-  Aws::String bucket = GetBucket(GetDestBucketPrefix());
+  Aws::String bucket = GetAwsBucket(GetDestBucketPrefix());
   Aws::String key = Aws::String(dbidkey.c_str(), dbidkey.size());
 
   std::string dirname_tag = "dirname";
@@ -1426,7 +1440,7 @@ Status AwsEnv::GetPathForDbid(const std::string& bucket_prefix,
 // Retrieves the list of all registered dbids and their paths
 //
 Status AwsEnv::GetDbidList(const std::string& bucket_prefix, DbidList* dblist) {
-  Aws::String bucket = GetBucket(bucket_prefix);
+  Aws::String bucket = GetAwsBucket(bucket_prefix);
 
   // fetch the list all all dbids
   std::vector<std::string> dbid_list;
@@ -1458,7 +1472,7 @@ Status AwsEnv::GetDbidList(const std::string& bucket_prefix, DbidList* dblist) {
 //
 Status AwsEnv::DeleteDbid(const std::string& bucket_prefix,
                           const std::string& dbid) {
-  Aws::String bucket = GetBucket(bucket_prefix);
+  Aws::String bucket = GetAwsBucket(bucket_prefix);
 
   // fetch the list all all dbids
   std::string dbidkey = dbid_registry_ + dbid;
@@ -1505,8 +1519,8 @@ Status AwsEnv::CopyObject(const std::string& bucket_name_prefix_src,
                           const std::string& bucket_name_prefix_dest,
                           const std::string& bucket_object_path_dest) {
   Status st;
-  Aws::String src_bucket = GetBucket(bucket_name_prefix_src);
-  Aws::String dest_bucket = GetBucket(bucket_name_prefix_dest);
+  Aws::String src_bucket = GetAwsBucket(bucket_name_prefix_src);
+  Aws::String dest_bucket = GetAwsBucket(bucket_name_prefix_dest);
 
   // The filename is the same as the object name in the bucket
   Aws::String src_object = Aws::String(bucket_object_path_src.c_str(),
@@ -1544,7 +1558,7 @@ Status AwsEnv::GetObject(const std::string& bucket_name_prefix,
                          const std::string& local_destination) {
   Env* localenv = GetBaseEnv();
   std::string tmp_destination = local_destination + ".tmp";
-  auto s3_bucket = GetBucket(bucket_name_prefix);
+  auto s3_bucket = GetAwsBucket(bucket_name_prefix);
 
   Aws::S3::Model::GetObjectRequest getObjectRequest;
   getObjectRequest.SetBucket(s3_bucket);
@@ -1618,7 +1632,7 @@ Status AwsEnv::PutObject(const std::string& local_file,
   // Copy entire file into S3.
   // Writes to an S3 object are atomic.
   Aws::S3::Model::PutObjectRequest put_request;
-  put_request.SetBucket(GetBucket(bucket_name_prefix));
+  put_request.SetBucket(GetAwsBucket(bucket_name_prefix));
   put_request.SetKey(
       Aws::String(bucket_object_path.data(), bucket_object_path.size()));
   put_request.SetBody(input_data);
@@ -1769,7 +1783,7 @@ std::string AwsEnv::GetTestBucketSuffix() {
 //
 // Keep retrying the command until it is successful or the timeout has expired
 //
-Status KinesisSystem::Retry(Env* env, RetryType func) {
+Status CloudLogController::Retry(Env* env, RetryType func) {
   using namespace std::chrono;
   Status stat;
   uint64_t start = env->NowMicros();
@@ -1784,7 +1798,7 @@ Status KinesisSystem::Retry(Env* env, RetryType func) {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     // If timeout has expired, return error
     uint64_t now = env->NowMicros();
-    if (start + KinesisSystem::retry_period_micros < now) {
+    if (start + CloudLogController::retry_period_micros < now) {
       stat = Status::TimedOut();
       break;
     }

@@ -125,7 +125,7 @@ void CreateAwsEnv(const std::string& dbpath,
   // so that our unit tests can run to completion.
   if (!coptions.keep_local_log_files) {
     AwsEnv* aws = static_cast<AwsEnv*>(s);
-    aws->CreateTailer();
+    aws->StartTailingStream();
   }
   result->reset(new NormalizingEnvWrapper(s));
 }

@@ -576,7 +576,7 @@ Env* DBTestBase::CreateNewAwsEnv() {
     // so that our unit tests can run to completion.
     if (!coptions.keep_local_log_files) {
       AwsEnv* aws = static_cast<AwsEnv*>(cenv);
-      aws->CreateTailer();
+      aws->StartTailingStream();
     }
   }
   return cenv;
