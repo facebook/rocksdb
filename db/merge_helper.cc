@@ -11,6 +11,7 @@
 #include "db/dbformat.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
+#include "port/likely.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/merge_operator.h"
@@ -22,7 +23,8 @@ MergeHelper::MergeHelper(Env* env, const Comparator* user_comparator,
                          const MergeOperator* user_merge_operator,
                          const CompactionFilter* compaction_filter,
                          Logger* logger, bool assert_valid_internal_key,
-                         SequenceNumber latest_snapshot, int level,
+                         SequenceNumber latest_snapshot,
+                         const SnapshotChecker* snapshot_checker, int level,
                          Statistics* stats,
                          const std::atomic<bool>* shutting_down)
     : env_(env),
@@ -34,6 +36,7 @@ MergeHelper::MergeHelper(Env* env, const Comparator* user_comparator,
       assert_valid_internal_key_(assert_valid_internal_key),
       allow_single_operand_(false),
       latest_snapshot_(latest_snapshot),
+      snapshot_checker_(snapshot_checker),
       level_(level),
       keys_(),
       filter_timer_(env_),
@@ -158,7 +161,10 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       // hit a different user key, stop right here
       hit_the_next_user_key = true;
       break;
-    } else if (stop_before && ikey.sequence <= stop_before) {
+    } else if (stop_before > 0 && ikey.sequence <= stop_before &&
+               LIKELY(snapshot_checker_ == nullptr ||
+                      snapshot_checker_->IsInSnapshot(ikey.sequence,
+                                                      stop_before))) {
       // hit an entry that's visible by the previous snapshot, can't touch that
       break;
     }

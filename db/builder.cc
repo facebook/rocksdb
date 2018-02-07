@@ -131,7 +131,8 @@ Status BuildTable(
     MergeHelper merge(env, internal_comparator.user_comparator(),
                       ioptions.merge_operator, nullptr, ioptions.info_log,
                       true /* internal key corruption is not ok */,
-                      snapshots.empty() ? 0 : snapshots.back());
+                      snapshots.empty() ? 0 : snapshots.back(),
+                      snapshot_checker);
 
     CompactionIterator c_iter(
         iter, internal_comparator.user_comparator(), &merge, kMaxSequenceNumber,
