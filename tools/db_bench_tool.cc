@@ -412,6 +412,8 @@ DEFINE_bool(cache_index_and_filter_blocks, false,
 DEFINE_bool(partition_index_and_filters, false,
             "Partition index and filter blocks.");
 
+DEFINE_bool(partition_index, false, "Partition index blocks");
+
 DEFINE_int64(metadata_block_size,
              rocksdb::BlockBasedTableOptions().metadata_block_size,
              "Max partition size when partitioning index/filters");
@@ -3096,16 +3098,18 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       } else {
         block_based_options.index_type = BlockBasedTableOptions::kBinarySearch;
       }
-      if (FLAGS_partition_index_and_filters) {
+      if (FLAGS_partition_index_and_filters || FLAGS_partition_index) {
         if (FLAGS_use_hash_search) {
           fprintf(stderr,
                   "use_hash_search is incompatible with "
-                  "partition_index_and_filters and is ignored");
+                  "partition index and is ignored");
         }
         block_based_options.index_type =
             BlockBasedTableOptions::kTwoLevelIndexSearch;
-        block_based_options.partition_filters = true;
         block_based_options.metadata_block_size = FLAGS_metadata_block_size;
+        if (FLAGS_partition_index_and_filters) {
+          block_based_options.partition_filters = true;
+        }
       }
       if (cache_ == nullptr) {
         block_based_options.no_block_cache = true;
