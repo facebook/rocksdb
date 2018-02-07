@@ -759,7 +759,10 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
                      "block %s",
                      s.ToString().c_str());
     } else {
+      assert(table_properties != nullptr);
       rep->table_properties.reset(table_properties);
+      rep->blocks_maybe_compressed = rep->table_properties->compression_name !=
+                                     CompressionTypeToString(kNoCompression);
     }
   } else {
     ROCKS_LOG_ERROR(rep->ioptions.info_log,
@@ -769,7 +772,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
   // Read the compression dictionary meta block
   bool found_compression_dict;
   BlockHandle compression_dict_handle;
-  s = SeekToCompressionDictBlock(meta_iter.get(), &found_compression_dict, 
+  s = SeekToCompressionDictBlock(meta_iter.get(), &found_compression_dict,
     &compression_dict_handle);
   if (!s.ok()) {
     ROCKS_LOG_WARN(
@@ -1502,11 +1505,11 @@ BlockIter* BlockBasedTable::NewDataBlockIterator(
     {
       StopWatch sw(rep->ioptions.env, rep->ioptions.statistics,
                    READ_BLOCK_GET_MICROS);
-      s = ReadBlockFromFile(
-          rep->file.get(), nullptr /* prefetch_buffer */, rep->footer, ro,
-          handle, &block_value, rep->ioptions, true /* compress */,
-          compression_dict, rep->persistent_cache_options, rep->global_seqno,
-          rep->table_options.read_amp_bytes_per_bit);
+      s = ReadBlockFromFile(rep->file.get(), nullptr /* prefetch_buffer */,
+                            rep->footer, ro, handle, &block_value, rep->ioptions,
+                            rep->blocks_maybe_compressed, compression_dict,
+                            rep->persistent_cache_options, rep->global_seqno,
+                            rep->table_options.read_amp_bytes_per_bit);
     }
     if (s.ok()) {
       block.value = block_value.release();
@@ -1605,7 +1608,8 @@ Status BlockBasedTable::MaybeLoadDataBlockToCache(
         StopWatch sw(rep->ioptions.env, statistics, READ_BLOCK_GET_MICROS);
         s = ReadBlockFromFile(
             rep->file.get(), prefetch_buffer, rep->footer, ro, handle,
-            &raw_block, rep->ioptions, block_cache_compressed == nullptr,
+            &raw_block, rep->ioptions,
+            block_cache_compressed == nullptr && rep->blocks_maybe_compressed,
             compression_dict, rep->persistent_cache_options, rep->global_seqno,
             rep->table_options.read_amp_bytes_per_bit);
       }
