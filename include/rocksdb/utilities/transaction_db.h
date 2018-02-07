@@ -138,6 +138,10 @@ struct TransactionDBWriteOptimizations {
   // and hence the concurrency control mechanism could be skipped for this
   // write.
   bool skip_concurrency_control = false;
+  // If true, the application guarantees that there is no duplicate <column
+  // family, key> in the write batch and any employed mechanism to hanlde
+  // duplicate keys could be skipped.
+  bool skip_duplicate_key_check = false;
 };
 
 struct KeyLockInfo {

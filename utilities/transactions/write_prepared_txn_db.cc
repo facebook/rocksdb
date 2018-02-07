@@ -79,9 +79,14 @@ Status WritePreparedTxnDB::Write(
   if (optimizations.skip_concurrency_control) {
     // Skip locking the rows
     const size_t UNKNOWN_BATCH_CNT = 0;
+    const size_t ONE_BATCH_CNT = 1;
+    const size_t batch_cnt = optimizations.skip_duplicate_key_check
+                                 ? ONE_BATCH_CNT
+                                 : UNKNOWN_BATCH_CNT;
     WritePreparedTxn* NO_TXN = nullptr;
-    return WriteInternal(opts, updates, UNKNOWN_BATCH_CNT, NO_TXN);
+    return WriteInternal(opts, updates, batch_cnt, NO_TXN);
   } else {
+    // TODO(myabandeh): Make use of skip_duplicate_key_check hint
     // Fall back to unoptimized version
     return PessimisticTransactionDB::Write(opts, updates);
   }
