@@ -5,7 +5,6 @@
 
 #include "db/merge_helper.h"
 
-#include <stdio.h>
 #include <string>
 
 #include "db/dbformat.h"

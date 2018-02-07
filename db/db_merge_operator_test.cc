@@ -551,7 +551,7 @@ TEST_F(DBMergeOperatorTest, SnapshotCheckerAndReadCallback) {
                       SequenceNumber snapshot_seq) const override {
       switch (snapshot_seq) {
         case 0:
-          return seq <= 0;
+          return seq == 0;
         case 1:
           return seq <= 1;
         case 2:
@@ -584,7 +584,7 @@ TEST_F(DBMergeOperatorTest, SnapshotCheckerAndReadCallback) {
   ASSERT_EQ(2, snapshot1->GetSequenceNumber());
   // v2 is not visible to snapshot1, which has seq = 2
   ASSERT_EQ("v1", GetWithReadCallback(snapshot_checker, "foo", snapshot1));
-  
+
   // Verify flush doesn't alter the result.
   ASSERT_OK(Flush());
   ASSERT_EQ("v1", GetWithReadCallback(snapshot_checker, "foo", snapshot1));
@@ -602,7 +602,7 @@ TEST_F(DBMergeOperatorTest, SnapshotCheckerAndReadCallback) {
   // v4 is not visible to snapshot2, which has seq = 4.
   ASSERT_EQ("v1,v2,v3",
             GetWithReadCallback(snapshot_checker, "foo", snapshot2));
-  
+
   // Verify flush doesn't alter the result.
   ASSERT_OK(Flush());
   ASSERT_EQ("v1", GetWithReadCallback(snapshot_checker, "foo", snapshot1));
