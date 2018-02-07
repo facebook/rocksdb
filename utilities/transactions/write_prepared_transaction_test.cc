@@ -349,7 +349,7 @@ class WritePreparedTransactionTestBase : public TransactionTestBase {
 
 class WritePreparedTransactionTest
     : public WritePreparedTransactionTestBase,
-      public ::testing::WithParamInterface<
+      virtual public ::testing::WithParamInterface<
           std::tuple<bool, bool, TxnDBWritePolicy>> {
  public:
   WritePreparedTransactionTest()
