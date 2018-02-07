@@ -224,6 +224,7 @@ class BlockBasedTable : public TableReader {
       Rep* rep, const ReadOptions& ro, const BlockHandle& block_hanlde,
       BlockIter* input_iter = nullptr, bool is_index = false,
       GetContext* get_context = nullptr, Status s = Status());
+
   // If block cache enabled (compressed or uncompressed), looks for the block
   // identified by handle in (1) uncompressed cache, (2) compressed cache, and
   // then (3) file. If found, inserts into the cache(s) that were searched
@@ -495,6 +496,11 @@ struct BlockBasedTable::Rep {
   // A value of kDisableGlobalSequenceNumber means that this feature is disabled
   // and every key have it's own seqno.
   SequenceNumber global_seqno;
+
+  // If false, blocks in this file are definitely all uncompressed. Knowing this
+  // before reading individual blocks enables certain optimizations.
+  bool blocks_maybe_compressed = true;
+
   bool closed = false;
 };
 
