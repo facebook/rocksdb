@@ -527,6 +527,10 @@ PARALLEL_TEST = \
 	transaction_test \
 	write_prepared_transaction_test \
 
+# options_settable_test doesn't pass with UBSAN as we use hack in the test
+ifdef COMPILE_WITH_UBSAN
+        TESTS := $(shell echo $(TESTS) | sed 's/\boptions_settable_test\b//g')
+endif
 SUBSET := $(TESTS)
 ifdef ROCKSDBTESTS_START
         SUBSET := $(shell echo $(SUBSET) | sed 's/^.*$(ROCKSDBTESTS_START)/$(ROCKSDBTESTS_START)/')
