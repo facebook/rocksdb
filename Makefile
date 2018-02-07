@@ -232,9 +232,13 @@ endif
 # USAN doesn't work well with jemalloc. If we're compiling with USAN, we should use regular malloc.
 ifdef COMPILE_WITH_UBSAN
 	DISABLE_JEMALLOC=1
-	EXEC_LDFLAGS += -fsanitize=undefined -fno-sanitize-recover
-	PLATFORM_CCFLAGS += -fsanitize=undefined -fno-sanitize-recover -DROCKSDB_UBSAN_RUN
-	PLATFORM_CXXFLAGS += -fsanitize=undefined -fno-sanitize-recover -DROCKSDB_UBSAN_RUN
+	# Suppress alignment warning because murmurhash relies on casting unaligned
+	# memory to integer. Fixing it may cause performance regression. 3-way crc32
+	# relies on it too, although it can be rewritten to eliminate with minimal
+	# performance regression.
+	EXEC_LDFLAGS += -fsanitize=undefined -fno-sanitize-recover -fno-sanitize=alignment
+	PLATFORM_CCFLAGS += -fsanitize=undefined -fno-sanitize-recover -fno-sanitize=alignment -DROCKSDB_UBSAN_RUN
+	PLATFORM_CXXFLAGS += -fsanitize=undefined -fno-sanitize-recover -fno-sanitize=alignment -DROCKSDB_UBSAN_RUN
 endif
 
 ifdef ROCKSDB_VALGRIND_RUN
