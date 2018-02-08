@@ -1062,9 +1062,6 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
     }
   }
   if (cfd_picked != nullptr) {
-    ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                   "[%s] Flush scheduled by write buffer manager.",
-                   cfd_picked->GetName().c_str());
     status = SwitchMemtable(cfd_picked, write_context);
     if (status.ok()) {
       cfd_picked->imm()->FlushRequested();

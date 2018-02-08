@@ -93,9 +93,6 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
       }
       cfd->Ref();
       mutex_.Unlock();
-      ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                     "[%s] Flush scheduled by GetLiveFiles",
-                     cfd->GetName().c_str());
       status = FlushMemTable(cfd, FlushOptions());
       TEST_SYNC_POINT("DBImpl::GetLiveFiles:1");
       TEST_SYNC_POINT("DBImpl::GetLiveFiles:2");
