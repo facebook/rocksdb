@@ -819,7 +819,7 @@ class DBImpl : public DB {
 
   // Force current memtable contents to be flushed.
   Status FlushMemTable(ColumnFamilyData* cfd, const FlushOptions& options,
-                       bool writes_stopped = false);
+                       FlushReason flush_reason, bool writes_stopped = false);
 
   // Wait for memtable flushed.
   // If flush_memtable_id is non-null, wait until the memtable with the ID
@@ -881,7 +881,7 @@ class DBImpl : public DB {
   ColumnFamilyData* GetColumnFamilyDataByName(const std::string& cf_name);
 
   void MaybeScheduleFlushOrCompaction();
-  void SchedulePendingFlush(ColumnFamilyData* cfd);
+  void SchedulePendingFlush(ColumnFamilyData* cfd, FlushReason flush_reason);
   void SchedulePendingCompaction(ColumnFamilyData* cfd);
   void SchedulePendingPurge(std::string fname, FileType type, uint64_t number,
                             uint32_t path_id, int job_id);
@@ -920,7 +920,7 @@ class DBImpl : public DB {
   // helper functions for adding and removing from flush & compaction queues
   void AddToCompactionQueue(ColumnFamilyData* cfd);
   ColumnFamilyData* PopFirstFromCompactionQueue();
-  void AddToFlushQueue(ColumnFamilyData* cfd);
+  void AddToFlushQueue(ColumnFamilyData* cfd, FlushReason flush_reason);
   ColumnFamilyData* PopFirstFromFlushQueue();
 
   // helper function to call after some of the logs_ were synced

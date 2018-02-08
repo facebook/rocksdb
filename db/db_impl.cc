@@ -258,7 +258,7 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
       if (!cfd->IsDropped() && cfd->initialized() && !cfd->mem()->IsEmpty()) {
         cfd->Ref();
         mutex_.Unlock();
-        FlushMemTable(cfd, FlushOptions());
+        FlushMemTable(cfd, FlushOptions(), FlushReason::kShutDown);
         mutex_.Lock();
         cfd->Unref();
       }
@@ -2826,7 +2826,9 @@ Status DBImpl::IngestExternalFile(
                                &need_flush);
       if (status.ok() && need_flush) {
         mutex_.Unlock();
-        status = FlushMemTable(cfd, FlushOptions(), true /* writes_stopped */);
+        status = FlushMemTable(cfd, FlushOptions(),
+                               FlushReason::kExternalFileIngestion,
+                               true /* writes_stopped */);
         mutex_.Lock();
       }
     }

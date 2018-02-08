@@ -54,6 +54,17 @@
 
 namespace rocksdb {
 
+const char* flush_reason_map[] = {"unknown",
+                                  "GetLiveFiles",
+                                  "Shut down",
+                                  "ExternalSstFileIngestion",
+                                  "Manual Compaction",
+                                  "Write Buffer Manager",
+                                  "Write Buffer Full",
+                                  "Test",
+                                  "SuperVersion change"};
+
+
 FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
                    const ImmutableDBOptions& db_options,
                    const MutableCFOptions& mutable_cf_options,
@@ -278,12 +289,13 @@ Status FlushJob::WriteLevel0Table() {
       total_memory_usage += m->ApproximateMemoryUsage();
     }
 
-    event_logger_->Log() << "job" << job_context_->job_id << "event"
-                         << "flush_started"
-                         << "num_memtables" << mems_.size() << "num_entries"
-                         << total_num_entries << "num_deletes"
-                         << total_num_deletes << "memory_usage"
-                         << total_memory_usage;
+    event_logger_->Log()
+        << "job" << job_context_->job_id << "event"
+        << "flush_started"
+        << "num_memtables" << mems_.size() << "num_entries" << total_num_entries
+        << "num_deletes" << total_num_deletes << "memory_usage"
+        << total_memory_usage << "flush_reason"
+        << flush_reason_map[static_cast<int>(cfd_->GetFlushReason())];
 
     {
       ScopedArenaIterator iter(
