@@ -1,10 +1,10 @@
 //  Copyright (c) 2016-present, Rockset, Inc.  All rights reserved.
 //
 #include "cloud/aws/aws_env.h"
+#include <unistd.h>
 #include <fstream>
 #include <iostream>
 #include <memory>
-#include <unistd.h>
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
 #include "util/stderr_logger.h"
@@ -128,8 +128,7 @@ AwsEnv::AwsEnv(Env* underlying_env, const std::string& src_bucket_prefix,
                const std::string& dest_bucket_region,
                const CloudEnvOptions& _cloud_env_options,
                std::shared_ptr<Logger> info_log)
-    : CloudEnvImpl(_cloud_env_options.cloud_type,
-                   underlying_env),
+    : CloudEnvImpl(_cloud_env_options.cloud_type, underlying_env),
       info_log_(info_log),
       cloud_env_options(_cloud_env_options),
       src_bucket_prefix_(src_bucket_prefix),
@@ -264,11 +263,8 @@ AwsEnv::AwsEnv(Env* underlying_env, const std::string& src_bucket_prefix,
   // create Kinesis client for storing/reading logs
   if (create_bucket_status_.ok() && !cloud_env_options.keep_local_log_files) {
     std::unique_ptr<Aws::Kinesis::KinesisClient> kinesis_client;
-    kinesis_client.reset(
-        creds ?
-          new Aws::Kinesis::KinesisClient(*creds, config) :
-          new Aws::Kinesis::KinesisClient(config)
-    );
+    kinesis_client.reset(creds ? new Aws::Kinesis::KinesisClient(*creds, config)
+                               : new Aws::Kinesis::KinesisClient(config));
 
     if (!kinesis_client) {
       create_bucket_status_ =
@@ -287,8 +283,8 @@ AwsEnv::AwsEnv(Env* underlying_env, const std::string& src_bucket_prefix,
 
     // Create Kinesis stream and wait for it to be ready
     if (create_bucket_status_.ok()) {
-      create_bucket_status_ = cloud_log_controller_->CreateStream(
-          GetSrcBucketPrefix());
+      create_bucket_status_ =
+          cloud_log_controller_->CreateStream(GetSrcBucketPrefix());
       if (!create_bucket_status_.ok()) {
         Log(InfoLogLevel::ERROR_LEVEL, info_log,
             "[aws] NewAwsEnv Unable to  create stream %s",
@@ -387,25 +383,6 @@ Status AwsEnv::CheckOption(const EnvOptions& options) {
   return Status::OK();
 }
 
-//
-// find out whether this is an sst file or a log file.
-//
-void AwsEnv::GetFileType(const std::string& fname_with_epoch, bool* sstFile,
-                         bool* logFile, bool* manifest, bool* identity) {
-  auto fname = RemoveEpoch(fname_with_epoch);
-  *logFile = false;
-  *sstFile = IsSstFile(fname);
-  if (!*sstFile) {
-    *logFile = IsLogFile(fname);
-    if (manifest) {
-      *manifest = IsManifestFile(fname);
-    }
-    if (identity) {
-      *identity = IsIdentityFile(fname);
-    }
-  }
-}
-
 // Ability to read a file directly from cloud storage
 Status AwsEnv::NewSequentialFileCloud(const std::string& bucket_prefix,
                                       const std::string& fname,
@@ -426,17 +403,15 @@ Status AwsEnv::NewSequentialFileCloud(const std::string& bucket_prefix,
 Status AwsEnv::NewSequentialFile(const std::string& logical_fname,
                                  unique_ptr<SequentialFile>* result,
                                  const EnvOptions& options) {
-  auto fname = RemapFilename(logical_fname);
-
   assert(status().ok());
-  *result = nullptr;
+  result->reset();
 
-  // Get file type
-  bool logfile;
-  bool sstfile;
-  bool manifest;
-  bool identity;
-  GetFileType(fname, &sstfile, &logfile, &manifest, &identity);
+  auto fname = RemapFilename(logical_fname);
+  auto file_type = GetFileType(fname);
+  bool sstfile = (file_type == RocksDBFileType::kSstFile),
+       manifest = (file_type == RocksDBFileType::kManifestFile),
+       identity = (file_type == RocksDBFileType::kIdentityFile),
+       logfile = (file_type == RocksDBFileType::kLogFile);
 
   auto st = CheckOption(options);
   if (!st.ok()) {
@@ -503,17 +478,15 @@ Status AwsEnv::NewSequentialFile(const std::string& logical_fname,
 Status AwsEnv::NewRandomAccessFile(const std::string& logical_fname,
                                    unique_ptr<RandomAccessFile>* result,
                                    const EnvOptions& options) {
-  auto fname = RemapFilename(logical_fname);
-
   assert(status().ok());
-  *result = nullptr;
+  result->reset();
 
-  // Get file type
-  bool logfile;
-  bool sstfile;
-  bool manifest;
-  bool identity;
-  GetFileType(fname, &sstfile, &logfile, &manifest, &identity);
+  auto fname = RemapFilename(logical_fname);
+  auto file_type = GetFileType(fname);
+  bool sstfile = (file_type == RocksDBFileType::kSstFile),
+       manifest = (file_type == RocksDBFileType::kManifestFile),
+       identity = (file_type == RocksDBFileType::kIdentityFile),
+       logfile = (file_type == RocksDBFileType::kLogFile);
 
   // Validate options
   auto st = CheckOption(options);
@@ -616,19 +589,16 @@ Status AwsEnv::NewRandomAccessFile(const std::string& logical_fname,
 Status AwsEnv::NewWritableFile(const std::string& logical_fname,
                                unique_ptr<WritableFile>* result,
                                const EnvOptions& options) {
-  auto fname = RemapFilename(logical_fname);
   assert(status().ok());
-
-  Log(InfoLogLevel::DEBUG_LEVEL, info_log_, "[aws] NewWritableFile src '%s'",
-      fname.c_str());
-
-  // Get file type
-  bool logfile;
-  bool sstfile;
-  bool manifest;
-  bool identity;
-  GetFileType(fname, &sstfile, &logfile, &manifest, &identity);
   result->reset();
+
+  auto fname = RemapFilename(logical_fname);
+  auto file_type = GetFileType(fname);
+  bool sstfile = (file_type == RocksDBFileType::kSstFile),
+       manifest = (file_type == RocksDBFileType::kManifestFile),
+       identity = (file_type == RocksDBFileType::kIdentityFile),
+       logfile = (file_type == RocksDBFileType::kLogFile);
+
   Status s;
 
   if (has_dest_bucket_ && (sstfile || identity || manifest)) {
@@ -718,18 +688,15 @@ Status AwsEnv::NewDirectory(const std::string& name,
 // Check if the specified filename exists.
 //
 Status AwsEnv::FileExists(const std::string& logical_fname) {
-  auto fname = RemapFilename(logical_fname);
   assert(status().ok());
-  Log(InfoLogLevel::DEBUG_LEVEL, info_log_, "[aws] FileExists path '%s' ",
-      fname.c_str());
   Status st;
 
-  // Get file type
-  bool logfile;
-  bool sstfile;
-  bool manifest;
-  bool identity;
-  GetFileType(fname, &sstfile, &logfile, &manifest, &identity);
+  auto fname = RemapFilename(logical_fname);
+  auto file_type = GetFileType(fname);
+  bool sstfile = (file_type == RocksDBFileType::kSstFile),
+       manifest = (file_type == RocksDBFileType::kManifestFile),
+       identity = (file_type == RocksDBFileType::kIdentityFile),
+       logfile = (file_type == RocksDBFileType::kLogFile);
 
   if (sstfile || manifest || identity) {
     // We read first from local storage and then from cloud storage.
@@ -996,18 +963,14 @@ void AwsEnv::RemoveFileFromDeletionQueue(const std::string& filename) {
 }
 
 Status AwsEnv::DeleteFile(const std::string& logical_fname) {
-  auto fname = RemapFilename(logical_fname);
   assert(status().ok());
-  Log(InfoLogLevel::DEBUG_LEVEL, info_log_, "[s3] DeleteFile src %s",
-      fname.c_str());
-  Status st;
 
-  // Get file type
-  bool logfile;
-  bool sstfile;
-  bool manifest;
-  bool identity;
-  GetFileType(fname, &sstfile, &logfile, &manifest, &identity);
+  auto fname = RemapFilename(logical_fname);
+  auto file_type = GetFileType(fname);
+  bool sstfile = (file_type == RocksDBFileType::kSstFile),
+       manifest = (file_type == RocksDBFileType::kManifestFile),
+       identity = (file_type == RocksDBFileType::kIdentityFile),
+       logfile = (file_type == RocksDBFileType::kLogFile);
 
   if (manifest) {
     // We don't delete manifest files. The reason for this is that even though
@@ -1032,9 +995,10 @@ Status AwsEnv::DeleteFile(const std::string& logical_fname) {
     // always remap MANIFEST files to the correct with the latest epoch.
     // 5. Also nothing. There is no file to delete, because we have overwritten
     // it in the third step.
-    return st;
+    return Status::OK();
   }
 
+  Status st;
   // Delete from destination bucket and local dir
   if (has_dest_bucket_ && (sstfile || manifest || identity)) {
     // add the remote file deletion to the queue
@@ -1048,7 +1012,7 @@ Status AwsEnv::DeleteFile(const std::string& logical_fname) {
     if (st.ok()) {
       // Log a Delete record to kinesis stream
       std::unique_ptr<CloudLogWritableFile> f(
-        cloud_log_controller_->CreateWritableFile(fname, EnvOptions()));
+          cloud_log_controller_->CreateWritableFile(fname, EnvOptions()));
       if (!f || !f->status().ok()) {
         st = Status::IOError("[Kinesis] DeleteFile", fname.c_str());
       } else {
@@ -1165,19 +1129,15 @@ Status AwsEnv::DeleteDir(const std::string& dirname) {
 };
 
 Status AwsEnv::GetFileSize(const std::string& logical_fname, uint64_t* size) {
-  auto fname = RemapFilename(logical_fname);
   assert(status().ok());
   *size = 0L;
+
+  auto fname = RemapFilename(logical_fname);
+  auto file_type = GetFileType(fname);
+  bool sstfile = (file_type == RocksDBFileType::kSstFile),
+       logfile = (file_type == RocksDBFileType::kLogFile);
+
   Status st;
-
-  Log(InfoLogLevel::DEBUG_LEVEL, info_log_, "[aws] GetFileSize src '%s'",
-      fname.c_str());
-
-  // Get file type
-  bool logfile;
-  bool sstfile;
-  GetFileType(fname, &sstfile, &logfile);
-
   if (sstfile) {
     if (base_env_->FileExists(fname).ok()) {
       st = base_env_->GetFileSize(fname, size);
@@ -1217,17 +1177,15 @@ Status AwsEnv::GetFileSize(const std::string& logical_fname, uint64_t* size) {
 
 Status AwsEnv::GetFileModificationTime(const std::string& logical_fname,
                                        uint64_t* time) {
-  auto fname = RemapFilename(logical_fname);
   assert(status().ok());
-  Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-      "[aws] GetFileModificationTime src '%s'", fname.c_str());
+  *time = 0;
+
+  auto fname = RemapFilename(logical_fname);
+  auto file_type = GetFileType(fname);
+  bool sstfile = (file_type == RocksDBFileType::kSstFile),
+       logfile = (file_type == RocksDBFileType::kLogFile);
+
   Status st;
-
-  // Get file type
-  bool logfile;
-  bool sstfile;
-  GetFileType(fname, &sstfile, &logfile);
-
   if (sstfile) {
     if (base_env_->FileExists(fname).ok()) {
       st = base_env_->GetFileModificationTime(fname, time);
@@ -1270,18 +1228,16 @@ Status AwsEnv::GetFileModificationTime(const std::string& logical_fname,
 // Copy file to a new object in S3 and then delete original object.
 Status AwsEnv::RenameFile(const std::string& logical_src,
                           const std::string& logical_target) {
+  assert(status().ok());
+
   auto src = RemapFilename(logical_src);
   auto target = RemapFilename(logical_target);
-  assert(status().ok());
-  Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-      "[aws] RenameFile src '%s' target '%s'", src.c_str(), target.c_str());
-
   // Get file type of target
-  bool logfile;
-  bool sstfile;
-  bool manifestfile;
-  bool idfile;
-  GetFileType(target, &sstfile, &logfile, &manifestfile, &idfile);
+  auto file_type = GetFileType(target);
+  bool sstfile = (file_type == RocksDBFileType::kSstFile),
+       manifest = (file_type == RocksDBFileType::kManifestFile),
+       identity = (file_type == RocksDBFileType::kIdentityFile),
+       logfile = (file_type == RocksDBFileType::kLogFile);
 
   // Rename should never be called on sst files.
   if (sstfile) {
@@ -1290,7 +1246,6 @@ Status AwsEnv::RenameFile(const std::string& logical_src,
         target.c_str());
     assert(0);
     return Status::NotSupported(Slice(src), Slice(target));
-
   } else if (logfile) {
     // Rename should never be called on log files as well
     Log(InfoLogLevel::ERROR_LEVEL, info_log_,
@@ -1298,8 +1253,7 @@ Status AwsEnv::RenameFile(const std::string& logical_src,
         target.c_str());
     assert(0);
     return Status::NotSupported(Slice(src), Slice(target));
-
-  } else if (manifestfile) {
+  } else if (manifest) {
     // Rename should never be called on manifest files as well
     Log(InfoLogLevel::ERROR_LEVEL, info_log_,
         "[aws] RenameFile source manifest %s %s is not supported", src.c_str(),
@@ -1307,11 +1261,11 @@ Status AwsEnv::RenameFile(const std::string& logical_src,
     assert(0);
     return Status::NotSupported(Slice(src), Slice(target));
 
-  } else if (!idfile || !has_dest_bucket_) {
+  } else if (!identity || !has_dest_bucket_) {
     return base_env_->RenameFile(src, target);
   }
   // Only ID file should come here
-  assert(idfile);
+  assert(identity);
   assert(has_dest_bucket_);
   assert(basename(target) == "IDENTITY");
 

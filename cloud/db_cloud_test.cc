@@ -37,6 +37,7 @@ class CloudTest : public testing::Test {
     options_.create_if_missing = true;
     persistent_cache_path_ = "";
     persistent_cache_size_gb_ = 0;
+    db_ = nullptr;
 
     DestroyDir(dbname_);
     CreateLoggerFromOptions(dbname_, options_, &options_.info_log);

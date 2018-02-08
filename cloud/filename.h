@@ -157,4 +157,35 @@ inline bool IsIdentityFile(const std::string& pathname) {
 inline bool IsLogFile(const std::string& pathname) {
   return IsWalFile(pathname);
 }
+
+enum class RocksDBFileType {
+  kSstFile,
+  kLogFile,
+  kManifestFile,
+  kIdentityFile,
+  kUnknown
+};
+
+// Determine type of a file based on filename. Rules:
+// 1. filename ends with a .sst is a sst file.
+// 2. filename ends with .log or starts with MANIFEST is a logfile
+// 3. filename starts with MANIFEST is a manifest file
+// 3. filename starts with IDENTITY is a ID file
+inline RocksDBFileType GetFileType(const std::string& fname_with_epoch) {
+  auto fname = RemoveEpoch(fname_with_epoch);
+  if (IsSstFile(fname)) {
+    return RocksDBFileType::kSstFile;
+  }
+  if (IsLogFile(fname)) {
+    return RocksDBFileType::kLogFile;
+  }
+  if (IsManifestFile(fname)) {
+    return RocksDBFileType::kManifestFile;
+  }
+  if (IsIdentityFile(fname)) {
+    return RocksDBFileType::kIdentityFile;
+  }
+  return RocksDBFileType::kUnknown;
+}
+
 }  // namespace
