@@ -4,65 +4,40 @@ language: cpp
 os:
 - linux
 compiler:
-  - clang
   - gcc
-osx_image: xcode8.3
-jdk:
-  - oraclejdk7
 cache:
   directories:
   - "$BUILD_DIR/aws"
 addons:
    apt:
-      packages: ['zlib1g-dev', 'libbz2-dev', 'libsnappy-dev', 'curl', 'libgflags-dev', 'mingw-w64']
+      packages:
+      - zlib1g-dev
+      - libbz2-dev
+      - libsnappy-dev
+      - curl
+      - libgflags-dev
+      - mingw-w64
+      - libcurl4-openssl-dev
+      - libssl-dev
+      - uuid-dev
+      - libpulse-dev
 env:
-  - TEST_GROUP=platform_dependent # 16-18 minutes
-  - TEST_GROUP=1 # 33-35 minutes
-  - TEST_GROUP=2 # 30-32 minutes
-  # Run java tests
-  - JOB_NAME=java_test # 4-11 minutes
-  # Build ROCKSDB_LITE
-  - JOB_NAME=lite_build # 3-4 minutes
-  # Build examples
-  - JOB_NAME=examples # 5-7 minutes
-  - JOB_NAME=cmake # 3-5 minutes
-  - JOB_NAME=cmake-mingw # 3 minutes
-
-matrix:
-  exclude:
-  - os: osx
-    env: TEST_GROUP=1
-  - os: osx
-    env: TEST_GROUP=2
-  - os : osx
-    env: JOB_NAME=cmake-mingw
-  - os : linux
-    compiler: clang
-  - os : osx
-    compiler: gcc
-
-# https://docs.travis-ci.com/user/caching/#ccache-cache
-install:
-  - if [ "${TRAVIS_OS_NAME}" == osx ]; then
-      brew install ccache;
-      PATH=$PATH:/usr/local/opt/ccache/libexec;
-    fi
+  - TEST_GROUP=db_test
+  - TEST_GROUP=db_test2
+  - TEST_GROUP=cloud_tests
 
 before_script:
   # Increase the maximum number of open file descriptors, since some tests use
   # more FDs than the default limit.
   - ulimit -n 8192
+  - wget https://github.com/aws/aws-sdk-cpp/archive/1.3.50.tar.gz -O /tmp/aws-sdk.tar.gz && tar -xvf /tmp/aws-sdk.tar.gz > /dev/null
+  - pushd aws-sdk-cpp-1.3.50 && cmake -DBUILD_ONLY="s3;kinesis" . && make -j4 all && sudo make install && popd
 
 script:
-  - ${CXX} --version
-  - if [ "${TEST_GROUP}" == 'platform_dependent' ]; then ccache -C && OPT=-DTRAVIS V=1 ROCKSDBTESTS_END=db_block_cache_test make -j4 all_but_some_tests check_some; fi
-  - if [ "${TEST_GROUP}" == '1' ]; then OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=db_block_cache_test ROCKSDBTESTS_END=comparator_db_test make -j4 check_some; fi
-  - if [ "${TEST_GROUP}" == '2' ]; then OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=comparator_db_test make -j4 check_some; fi
-  - if [ "${JOB_NAME}" == 'java_test' ]; then OPT=-DTRAVIS V=1 make clean jclean && make rocksdbjava jtest; fi
-  - if [ "${JOB_NAME}" == 'lite_build' ]; then OPT="-DTRAVIS -DROCKSDB_LITE" V=1 make -j4 static_lib tools; fi
-  - if [ "${JOB_NAME}" == 'examples' ]; then OPT=-DTRAVIS V=1 make -j4 static_lib; cd examples; make -j4; fi
-  - if [ "${JOB_NAME}" == 'cmake' ]; then mkdir build && cd build && cmake .. && make -j4 rocksdb; fi
-  - if [ "${JOB_NAME}" == 'cmake-mingw' ]; then mkdir build && cd build && cmake .. -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ -DCMAKE_SYSTEM_NAME=Windows && make -j4 rocksdb; fi
+  - if [ "${TEST_GROUP}" == 'db_test' ]; then OPT=-DTRAVIS V=1 USE_AWS=1 make -j4 db_test && LD_LIBRARY_PATH=/usr/local/lib ./db_test; fi
+  - if [ "${TEST_GROUP}" == 'db_test2' ]; then OPT=-DTRAVIS V=1 USE_AWS=1 make -j4 db_test2 && LD_LIBRARY_PATH=/usr/local/lib ./db_test2; fi
+  - if [ "${TEST_GROUP}" == 'cloud_tests' ]; then OPT=-DTRAVIS V=1 USE_AWS=1 make -j4 db_cloud_test cloud_manifest_test && LD_LIBRARY_PATH=/usr/local/lib ./db_cloud_test && LD_LIBRARY_PATH=/usr/local/lib ./cloud_manifest_test; fi
+
 notifications:
   slack:
     rooms:
