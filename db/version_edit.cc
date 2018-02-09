@@ -30,6 +30,7 @@ enum Tag {
   kNewFile = 7,
   // 8 was used for large value refs
   kPrevLogNumber = 9,
+  kDeletedLogNumber = 10,
 
   // these are new formats divergent from open source leveldb
   kNewFile2 = 100,
@@ -63,12 +64,14 @@ void VersionEdit::Clear() {
   last_sequence_ = 0;
   next_file_number_ = 0;
   max_column_family_ = 0;
+  deleted_log_number_ = 0;
   has_comparator_ = false;
   has_log_number_ = false;
   has_prev_log_number_ = false;
   has_next_file_number_ = false;
   has_last_sequence_ = false;
   has_max_column_family_ = false;
+  has_deleted_log_number_ = false;
   deleted_files_.clear();
   new_files_.clear();
   column_family_ = 0;
@@ -96,6 +99,9 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
   }
   if (has_max_column_family_) {
     PutVarint32Varint32(dst, kMaxColumnFamily, max_column_family_);
+  }
+  if (has_deleted_log_number_) {
+    PutVarint32Varint64(dst, kDeletedLogNumber, deleted_log_number_);
   }
 
   for (const auto& deleted : deleted_files_) {
@@ -331,6 +337,14 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         }
         break;
 
+      case kDeletedLogNumber:
+        if (GetVarint64(&input, &deleted_log_number_)) {
+          has_deleted_log_number_ = true;
+        } else {
+          msg = "deleted log number";
+        }
+        break;
+
       case kCompactPointer:
         if (GetLevel(&input, &level, &msg) &&
             GetInternalKey(&input, &key)) {
@@ -513,6 +527,10 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     r.append("\n  MaxColumnFamily: ");
     AppendNumberTo(&r, max_column_family_);
   }
+  if (has_deleted_log_number_) {
+    r.append("\n  DeletedLogNumber: ");
+    AppendNumberTo(&r, deleted_log_number_);
+  }
   r.append("\n}\n");
   return r;
 }
@@ -581,6 +599,9 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
   }
   if (has_max_column_family_) {
     jw << "MaxColumnFamily" << max_column_family_;
+  }
+  if (has_deleted_log_number_) {
+    jw << "DeletedLogNumber" << deleted_log_number_;
   }
 
   jw.EndObject();
